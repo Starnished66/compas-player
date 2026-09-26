@@ -1,0 +1,55 @@
+diff -ruN a/profiles/audio/avrcp.c b/profiles/audio/avrcp.c
+--- a/profiles/audio/avrcp.c	2026-09-26 17:50:54.338346792 -0600
++++ b/profiles/audio/avrcp.c	2026-09-26 17:50:54.360607331 -0600
+@@ -284,6 +284,9 @@
+ 	uint16_t supported_events;
+ 	uint8_t transaction;
+ 	struct pending_pdu *pending_pdu;
++	/* HiBy: the remote answered our EVENT_VOLUME_CHANGED registration
++	 * although it has no AVRCP target record (so no controller session). */
++	bool remote_volume;
+ };
+ 
+ struct passthrough_handler {
+@@ -3982,8 +3985,27 @@
+ 	if (!pdu)
+ 		return FALSE;
+ 
+-	if (!controller)
+-		return FALSE;
++	/* HiBy: some sinks (e.g. Samsung sound bars) advertise only an AVRCP
++	 * controller record yet answer the volume registration that
++	 * avrcp_get_capabilities() sends when there is no controller session.
++	 * Their answer was dropped here, so the transport never got a volume
++	 * and absolute volume never worked with them (phones and TVs, which
++	 * do not require the record, control them fine). Take the volume and
++	 * keep the registration alive. */
++	if (!controller) {
++		if ((code != AVC_CTYPE_INTERIM && code != AVC_CTYPE_CHANGED) ||
++				pdu->params[0] != AVRCP_EVENT_VOLUME_CHANGED)
++			return FALSE;
++		session->remote_volume = true;
++		media_transport_set_a2dp_volume(session->dev,
++						pdu->params[1] & 0x7F);
++		if (code == AVC_CTYPE_CHANGED) {
++			avrcp_register_notification(session,
++						AVRCP_EVENT_VOLUME_CHANGED);
++			return FALSE;
++		}
++		return TRUE;
++	}
+ 
+ 	if ((code != AVC_CTYPE_INTERIM && code != AVC_CTYPE_CHANGED)) {
+ 		if (pdu->params[0] == AVRCP_STATUS_ADDRESSED_PLAYER_CHANGED &&
+@@ -4773,7 +4795,10 @@
+ 								&volume);
+ 	}
+ 
+-	if (btd_opts.avrcp.volume_without_target) {
++	if (!session->controller && session->remote_volume) {
++		/* HiBy: a target-less sink that answered the volume
++		 * registration takes SetAbsoluteVolume as well. */
++	} else if (btd_opts.avrcp.volume_without_target) {
+ 		/* If there is no target profile (we didn't create a controller
+ 		 * for it), allow the call to pass through if the remote
+ 		 * controller registered for a volume changed event.

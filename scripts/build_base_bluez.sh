@@ -91,6 +91,8 @@ for patched in a2dp.c avdtp.c; do
 done
 grep -q 'handle_transport_connect(session, chan, imtu, omtu);' "$SOURCE/profiles/audio/avdtp.c" ||
     die 'BlueZ AVDTP media MTU patch not applied'
+grep -q 'session->remote_volume = true;' "$SOURCE/profiles/audio/avrcp.c" ||
+    die 'BlueZ AVRCP target-less volume patch not applied'
 
 # bluetoothctl requires readline headers, but the vendor rootfs contains only
 # its ABI-compatible runtime library. Prefer host headers when available;
