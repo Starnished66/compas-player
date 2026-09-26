@@ -14,11 +14,9 @@ typedef struct {
 
 /* Thread-safe bridge snapshot. These are transport/path formats, not the
  * original host media resolution: the host may resample before USB output.
- * output_sample_rate is the bridge's own live measurement of the real
- * incoming rate (different hosts have been observed to genuinely negotiate
- * different rates with this gadget), not a fixed constant -- it starts at
- * input_sample_rate before the bridge's first measurement window completes
- * and can change again later if it does. */
+ * input_* is the stream as the driver reports it (the host's rate; samples
+ * always arrive in 32-bit containers). output_* is what the bridge plays:
+ * the same rate, 24-bit when the output accepts it, otherwise 16-bit. */
 void usb_dac_bridge_get_stream_info(usb_dac_stream_info_t * out);
 
 /* Bridges the /dev/uac_sa character device (the raw PCM feed from the host PC

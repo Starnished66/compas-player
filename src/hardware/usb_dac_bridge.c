@@ -17,6 +17,7 @@
 
 #ifndef HOST_BUILD
   #include <poll.h>
+  #include <sys/ioctl.h>
   #include "audio_output.h"
 #endif
 
@@ -126,96 +127,35 @@ static void bridge_log(const char * fmt, ...) {
 #define BRIDGE_LOG(...) bridge_log(__VA_ARGS__)
 
 #define UAC_SA_DEVICE_PATH "/dev/uac_sa"
-/* Channels: of the two interleaved 16-bit slots per frame, only the second
- * one (index 1) ever carries real audio -- the first is full-scale noise on
- * every capture, not silence. Verified by comparing zero-crossing rate/
- * amplitude of each slot in a raw capture, and that a byte-level shift
- * doesn't fix it (rules out a framing offset -- it's a per-slot behavior,
- * not misalignment). Worked around by overwriting the noise slot with the
- * real one before playback rather than declaring 1 channel, since
- * duplicating into fake stereo is simpler than reconfiguring tinyalsa/the
- * hardware path for mono. This is unrelated to sample rate and applies
- * regardless of which rate is actually negotiated. */
+/* Host stream format, as reported by the driver itself: ioctl(fd,
+ * UAC_SA_IOC_GET_INFO, int[3] {format, rate, bits}) -- the same call the stock
+ * HiBy player makes after opening the device. Verified on an R1 (2026-09-26)
+ * against a Linux host playing 16-, 24- and 32-bit streams at 44.1, 48 and
+ * 96 kHz: rate is the host's exact rate, bits is always 32 and format 1, and
+ * the data is interleaved stereo S32_LE with the audio MSB-aligned whatever
+ * the host's own sample size (a 16-bit sample 0x0365 arrives as 0x03650000).
+ * Reading that as 16-bit stereo -- this bridge's former assumption -- is what
+ * produced a "noise" first channel, L/R alternating on one channel, and a
+ * byte-rate "measurement" of twice the real rate. */
+#define UAC_SA_IOC_GET_INFO 1
 #define BRIDGE_CHANNELS 2
-#define BRIDGE_BIT_DEPTH 16
-#define USB_ADVERTISED_SAMPLE_RATE 48000
-#define USB_ADVERTISED_BIT_DEPTH 16
+#define USB_DEFAULT_SAMPLE_RATE 48000
+#define USB_DEFAULT_BITS 32
 #define BRIDGE_PERIOD_FRAMES 1024
 
 #define OPEN_RETRY_TIMEOUT_MS 5000
 #define POLL_INTERVAL_MS 200
-
-/* Bounded mute fallback timeout: if the reader never confirms a sample rate,
- * start playback at the default/last confirmed rate anyway to avoid indefinite
- * silence. 5 seconds is a conservative starting point matching this file's
- * other bounded timeouts (e.g. RECOVERY_TIMEOUT_NS), not a hardware-validated number. */
-#ifndef MUTE_FALLBACK_TIMEOUT_NS
-#define MUTE_FALLBACK_TIMEOUT_NS (5ULL * 1000000000ULL)
-#endif
-#ifdef TEST_MUTE_FALLBACK_TIMEOUT_OVERRIDE
-static uint64_t g_test_mute_fallback_timeout_ns = 0;
-#define EFFECTIVE_MUTE_FALLBACK_TIMEOUT_NS (g_test_mute_fallback_timeout_ns > 0 ? g_test_mute_fallback_timeout_ns : MUTE_FALLBACK_TIMEOUT_NS)
-#else
-#define EFFECTIVE_MUTE_FALLBACK_TIMEOUT_NS MUTE_FALLBACK_TIMEOUT_NS
-#endif
-
-/* Real incoming frame rate is NOT trustworthy from the declared USB
- * descriptor alone, and is NOT a fixed constant either -- a real macOS
- * host was observed to genuinely stream at 48000 (the declared rate),
- * producing correct-speed audio only once the local output was reconfigured
- * to match, whereas an earlier empirical measurement against a different
- * host (Windows/Linux) converged on ~96000 and sounded correct there. This
- * gadget's clock source descriptor covers a wide range (32kHz-384kHz per
- * the vendor kernel's own iClockSource string), so different hosts
- * genuinely appear to negotiate different rates -- there is no single safe
- * hardcoded constant. The bridge instead measures the real incoming
- * byte rate continuously (RATE_MEASURE_WINDOW_MS per sample) and only
- * commits a reconfiguration once the same standard rate is measured
- * RATE_CONFIRM_COUNT times in a row, snapping to the nearest of the
- * standard UAC rates below rather than trusting raw jitter -- avoids
- * reconfiguring ALSA on every minor timing wobble or a single glitched
- * window, while still adapting correctly to whatever a given host actually
- * sends instead of assuming any one value is universally correct. */
-static const unsigned int STANDARD_RATES[] = {
-    32000, 44100, 48000, 64000, 88200, 96000, 176400, 192000, 352800, 384000
-};
-#define RATE_MEASURE_WINDOW_MS 250
-#define RATE_CONFIRM_COUNT 3
-
-/* Below this, a measurement is treated as a corrupted/implausible outlier
- * rather than real audio, and the window is discarded without touching
- * pending_rate/pending_rate_count -- confirmed on real hardware (2026-09-10):
- * a window whose elapsed wall-clock time was inflated by a stall (a brief
- * gap, or this file's own synchronous per-line log fsync()) can read bytes/
- * elapsed far below the true rate, since a stall can only ever bias this
- * measurement DOWNWARD (undercounting real bytes against inflated elapsed
- * time), never upward. Without this check, snap_to_standard_rate() below
- * still picks the NEAREST standard rate for any input, including obvious
- * garbage (e.g. measured ~2-8kHz snapping to 32000 Hz, then getting
- * confirmed and adopted -- observed on real hardware, played unchanged
- * 48kHz PCM at 32kHz, an audible two-thirds-speed pitch drop). Set well
- * under the lowest real STANDARD_RATES entry (32000, >25% below it) so
- * ordinary jitter on genuine 32kHz audio won't cross it -- a real stream
- * would need an unusually severe stall of its own to read this low, while a
- * stall-corrupted reading this far below any
- * real device rate is. */
-#define RATE_MEASURE_MIN_PLAUSIBLE_HZ 24000.0
-
-static unsigned int snap_to_standard_rate(double measured_rate) {
-    unsigned int best = STANDARD_RATES[0];
-    double best_diff = -1.0;
-    for (size_t i = 0; i < sizeof(STANDARD_RATES) / sizeof(STANDARD_RATES[0]); i++) {
-        double diff = measured_rate - (double) STANDARD_RATES[i];
-        if (diff < 0) diff = -diff;
-        if (best_diff < 0 || diff < best_diff) {
-            best_diff = diff;
-            best = STANDARD_RATES[i];
-        } else if (diff > best_diff) {
-            break;
-        }
-    }
-    return best;
-}
+/* The driver returns 0 from read() when nothing is queued yet, not only at a
+ * session boundary; the stock player simply sleeps 1 ms and reads again. The
+ * device stays open through those gaps. Only a longer silence gets a reopen
+ * (a real host stop/start can need one), and RECOVERY_TIMEOUT_NS of silence
+ * ends the reader; the GUI restarts the bridge while DAC mode stays on. */
+#define EMPTY_READ_SLEEP_US 1000
+#define STREAM_IDLE_NS (250ULL * 1000000ULL)
+#define REOPEN_AFTER_SILENCE_NS (1000ULL * 1000000ULL)
+#define RECOVERY_TIMEOUT_NS (5ULL * 1000000000ULL)
+/* Host format changes (a new rate) are picked up by re-reading the ioctl. */
+#define FORMAT_REQUERY_NS (100ULL * 1000000ULL)
 
 static uint64_t monotonic_ns(void) {
     struct timespec ts;
@@ -223,34 +163,18 @@ static uint64_t monotonic_ns(void) {
     return (uint64_t) ts.tv_sec * 1000000000ULL + (uint64_t) ts.tv_nsec;
 }
 
-/* Escalating backoff ladder for repeat hits (EOF or revents hangup/error) within
- * an active recovery episode, keyed off eof_reopen_attempts (number of open()s
- * attempted so far during the current episode):
- *  - 1st repeat hit (attempts == 1): 0 ms (immediate retry; confirmed normal fast path)
- *  - 2nd repeat hit (attempts == 2): 2 ms
- *  - 3rd repeat hit (attempts == 3): 5 ms
- *  - 4th repeat hit (attempts == 4): 10 ms
- *  - 5th to 10th    (attempts 5..10): 10 ms (hold tier for unusual recovery)
- *  - > 10           (attempts > 10): POLL_INTERVAL_MS (200 ms fallback for prolonged failure)
- */
-static unsigned int repeat_hit_backoff_ms(int attempts_so_far) {
-    if (attempts_so_far <= 1) {
-        return 0;
-    } else if (attempts_so_far == 2) {
-        return 2;
-    } else if (attempts_so_far == 3) {
-        return 5;
-    } else if (attempts_so_far <= 10) {
-        return 10;
-    } else {
-        return POLL_INTERVAL_MS;
-    }
-}
-
 static pthread_mutex_t bridge_mutex = PTHREAD_MUTEX_INITIALIZER;
 static bool bridge_running = false;
 static bool bridge_streaming = false;
-static unsigned int active_output_rate = USB_ADVERTISED_SAMPLE_RATE;
+static unsigned int active_output_rate = USB_DEFAULT_SAMPLE_RATE;
+static unsigned int active_output_bits = 16;
+/* Host stream format from the driver's ioctl, published by the reader under
+ * bridge_mutex and followed by the writer. g_host_format_gen changes with
+ * every published change; see publish_host_format(). */
+static unsigned int g_host_rate = USB_DEFAULT_SAMPLE_RATE;
+static unsigned int g_host_bits = USB_DEFAULT_BITS;
+static bool g_host_format_known = false;
+static unsigned int g_host_format_gen = 0;
 static atomic_bool stop_requested = false;
 
 #ifndef HOST_BUILD
@@ -298,8 +222,6 @@ static pthread_t g_writer_thread;
 /* Owned by lifecycle_mutex; cleared only after a successful join. */
 static bool g_reader_thread_created = false;
 static bool g_writer_thread_created = false;
-static unsigned int g_confirmed_rate = USB_ADVERTISED_SAMPLE_RATE;
-static bool g_rate_confirmed_once = false;
 
 static bool ring_buffer_init(ring_buffer_t * rb, size_t capacity) {
     rb->data = malloc(capacity);
@@ -486,635 +408,352 @@ static void set_streaming(bool streaming) {
     pthread_mutex_unlock(&bridge_mutex);
 }
 
-static void set_active_rate(unsigned int rate) {
+static void set_active_output(unsigned int rate, unsigned int bits) {
     pthread_mutex_lock(&bridge_mutex);
     active_output_rate = rate;
+    active_output_bits = bits;
     pthread_mutex_unlock(&bridge_mutex);
 }
 
 /* 1. READER THREAD:
- * Opens /dev/uac_sa, runs poll()+read() loop, handles EPERM/EOF/errors,
- * continuously measures incoming USB byte rate (independent of output backpressure),
- * resets measurement window across poll() timeouts or EPERM waits, and pushes
- * raw incoming bytes into the circular ring buffer. Never calls audio_output.h.
- */
-static void * bridge_reader_thread_func(void * arg) {
-    (void) arg;
+ * Opens /dev/uac_sa, reads the host's stream format from the driver, and
+ * pushes raw incoming bytes into the ring buffer. Never calls audio_output.h. */
 
-    int uac_fd = -1;
-    for (int waited_ms = 0; waited_ms < OPEN_RETRY_TIMEOUT_MS; waited_ms += POLL_INTERVAL_MS) {
-        if (stop_requested) {
-            /* Finish all ring access before publishing completion. */
-            ring_buffer_signal_finished(&g_rb);
-            pthread_mutex_lock(&bridge_mutex);
-            g_reader_running = false;
-            pthread_mutex_unlock(&bridge_mutex);
-            update_bridge_running_state();
-            return NULL;
-        }
-        uac_fd = open(UAC_SA_DEVICE_PATH, O_RDWR);
-        if (uac_fd >= 0) break;
-        usleep(POLL_INTERVAL_MS * 1000);
+/* Reader thread only, so no new-format bytes are queued before this returns.
+ * On a change everything queued is in the old format: the ring is emptied
+ * and the generation bumped under one bridge_mutex hold. A chunk the writer
+ * took before the discard is then either played with the old generation
+ * (still correct) or seen with the new one and dropped; after the discard
+ * only new-format bytes can arrive. Lock order: bridge_mutex, then the ring
+ * mutex (nothing takes them the other way round). Returns true when the
+ * format changed. *frame_size_changed (optional) is set when the sample
+ * container changed too: only then is the reader's partial-frame carry from
+ * another layout; a rate-only change keeps the same framing, so the carry
+ * still belongs to the continuing stream and must be kept. */
+static bool publish_host_format(unsigned int rate, unsigned int bits, bool * frame_size_changed) {
+    pthread_mutex_lock(&bridge_mutex);
+    /* Compared against what is in effect (the defaults until the driver
+     * answers), so a first answer that matches them is not a change and
+     * cannot disturb framing already under way. */
+    bool first = !g_host_format_known;
+    g_host_format_known = true;
+    bool changed = g_host_rate != rate || g_host_bits != bits;
+    if (frame_size_changed) *frame_size_changed = g_host_bits != bits;
+    if (changed) {
+        ring_buffer_discard(&g_rb, SIZE_MAX);
+        g_host_rate = rate;
+        g_host_bits = bits;
+        g_host_format_gen++;
     }
-    if (uac_fd < 0) {
-        BRIDGE_LOG("usb_dac_bridge: %s never appeared, giving up\n", UAC_SA_DEVICE_PATH);
-        ring_buffer_signal_finished(&g_rb);
-        pthread_mutex_lock(&bridge_mutex);
-        g_reader_running = false;
-        pthread_mutex_unlock(&bridge_mutex);
-        update_bridge_running_state();
-        return NULL;
+    pthread_mutex_unlock(&bridge_mutex);
+    if (changed || first) BRIDGE_LOG("usb_dac_bridge: host stream %u Hz, %u-bit container\n", rate, bits);
+    return changed;
+}
+
+/* Reads the driver's view of the host stream. Rates outside the gadget's
+ * advertised 32-384 kHz range and unknown sample sizes are rejected, keeping
+ * whatever was last published. 24 is accepted as a 32-bit container, the
+ * only layout this driver has been seen to deliver. Returns true when the
+ * frame size changed (see publish_host_format()). */
+static bool query_host_format(int fd) {
+    int info[3] = { 0, 0, 0 };
+    if (ioctl(fd, UAC_SA_IOC_GET_INFO, info) != 0) {
+        static int last_errno = 0;
+        if (errno != last_errno) BRIDGE_LOG("usb_dac_bridge: format ioctl failed: %s\n", strerror(errno));
+        last_errno = errno;
+        return false;
     }
-
-    size_t frame_bytes = (size_t) BRIDGE_CHANNELS * sizeof(int16_t);
-    size_t buf_bytes = (size_t) BRIDGE_PERIOD_FRAMES * frame_bytes;
-    uint8_t * buf = malloc(buf_bytes);
-    if (!buf) {
-        BRIDGE_LOG("usb_dac_bridge: failed to allocate read buffer\n");
-        close(uac_fd);
-        ring_buffer_signal_finished(&g_rb);
-        pthread_mutex_lock(&bridge_mutex);
-        g_reader_running = false;
-        pthread_mutex_unlock(&bridge_mutex);
-        update_bridge_running_state();
-        return NULL;
+    unsigned int rate = info[1] > 0 ? (unsigned int) info[1] : 0;
+    unsigned int bits = info[2] == 16 ? 16 : (info[2] == 24 || info[2] == 32) ? 32 : 0;
+    if (rate < 32000 || rate > 384000 || bits == 0) {
+        static int last_bad[3] = { -1, -1, -1 };
+        if (memcmp(last_bad, info, sizeof(info)) != 0)
+            BRIDGE_LOG("usb_dac_bridge: ignoring format ioctl result %d/%d/%d\n", info[0], info[1], info[2]);
+        memcpy(last_bad, info, sizeof(info));
+        return false;
     }
+    bool frame_size_changed = false;
+    publish_host_format(rate, bits, &frame_size_changed);
+    return frame_size_changed;
+}
 
-    uint64_t total_bytes_read = 0;
-    int poll_timeouts_in_a_row = 0;
-    int exit_reason_n = 0;
-    int exit_reason_errno = 0;
+static int open_uac_device(void) {
+    int fd = open(UAC_SA_DEVICE_PATH, O_RDWR);
+    if (fd >= 0) query_host_format(fd);
+    return fd;
+}
 
-    /* Live incoming-rate measurement -- decoupled from playback backpressure.
-     * Window timing does not start until the first successful read after a gap.
-     * Gaps (poll timeouts, EPERM retries, or errors) mark the window unstarted
-     * and reset pending rate confirmation state so idle time is never included. */
-    uint64_t rate_window_start_ns = 0;
-    uint64_t rate_window_bytes = 0;
-    bool rate_window_active = false;
-    unsigned int pending_rate = 0;
-    int pending_rate_count = 0;
-
-    int eperm_retries = 0;
-    #define EPERM_RETRY_LIMIT 1500 /* ~5min at POLL_INTERVAL_MS between retries */
-
-    /* Recovery tracking across EOF / gadget session boundaries.
-     * Genuine disconnect is bounded by RECOVERY_TIMEOUT_NS (~5s) since last
-     * successful read. FAST_RECOVERY_MAX_GAP_NS defines the latency threshold
-     * (e.g. 500ms, 2x POLL_INTERVAL_MS) below which an in-progress rate-measurement
-     * window is preserved across reopen -- load-bearing, not just an
-     * optimization: real BRIDGE_LOG capture showed this device's /dev/uac_sa
-     * reopens every ~9-15ms as normal steady-state operation, far more often
-     * than the 250ms window needs to complete uninterrupted, so discarding it
-     * on every reopen (tried once, reverted -- see the `if (in_recovery)`
-     * block's own comment further down) starves rate confirmation entirely. */
-    #define RECOVERY_TIMEOUT_NS (5ULL * 1000000000ULL)
-    #define FAST_RECOVERY_MAX_GAP_NS (500ULL * 1000000ULL)
-    /* Above this, a completed recovery is logged even if it only took one
-     * open() attempt -- see the "recovered from EOF" log call's own comment
-     * for why the routine (~9-15ms) case isn't logged at all. */
-    #define EOF_RECOVERY_LOG_MIN_MS 20.0
-
-    uint64_t last_successful_read_ns = monotonic_ns();
-    int eof_reopen_attempts = 0;
-    uint64_t eof_recovery_start_ns = 0;
-    uint64_t eof_first_open_success_ns = 0;
-    uint64_t bytes_before_eof = 0;
-    unsigned int cumulative_backoff_ms = 0;
-    bool in_recovery = false;
-
-    while (!stop_requested) {
-        struct pollfd pfd = { .fd = uac_fd, .events = POLLIN };
-        int pr = poll(&pfd, 1, POLL_INTERVAL_MS);
-        if (pr < 0) {
-            if (errno == EINTR) {
-                continue; /* Interrupted by signal; immediately retry without timeout side effects */
-            }
-            /* Other poll error: handle similarly to timeout / gap. Must still enter
-             * recovery bookkeeping here (matching the EOF/revents branches) --
-             * otherwise a persistent non-EINTR poll() error (e.g. a bad fd) never
-             * starts the RECOVERY_TIMEOUT_NS clock and busy-spins forever, since
-             * poll() returns immediately on error rather than blocking. */
-            set_streaming(false);
-            rate_window_active = false;
-            rate_window_bytes = 0;
-            pending_rate = 0;
-            pending_rate_count = 0;
-            if (!in_recovery) {
-                in_recovery = true;
-                eof_recovery_start_ns = monotonic_ns();
-                eof_reopen_attempts = 0;
-                cumulative_backoff_ms = 0;
-                bytes_before_eof = total_bytes_read;
-            }
-            if (monotonic_ns() - last_successful_read_ns >= RECOVERY_TIMEOUT_NS) {
-                BRIDGE_LOG("usb_dac_bridge: poll error '%s' during recovery, deadline exceeded -- exiting\n",
-                           strerror(errno));
-                exit_reason_n = -1;
-                exit_reason_errno = errno;
-                break;
-            }
-            usleep(POLL_INTERVAL_MS * 1000); /* pace retries; poll() itself doesn't block on error */
-            continue;
-        } else if (pr == 0) {
-            set_streaming(false);
-            /* Mark measurement window unstarted across poll timeout gap and clear
-             * pending confirmation count to avoid spanning across gaps. */
-            rate_window_active = false;
-            rate_window_bytes = 0;
-            pending_rate = 0;
-            pending_rate_count = 0;
-
-            poll_timeouts_in_a_row++;
-            if (poll_timeouts_in_a_row == 25) /* ~5s of nothing but still open -- worth knowing */
-                BRIDGE_LOG("usb_dac_bridge: no data from %s in ~5s (still waiting)\n", UAC_SA_DEVICE_PATH);
-
-            if (in_recovery && (monotonic_ns() - last_successful_read_ns >= RECOVERY_TIMEOUT_NS)) {
-                BRIDGE_LOG("usb_dac_bridge: recovery deadline (~5s) exceeded during poll timeouts -- exiting\n");
-                exit_reason_n = 0;
-                exit_reason_errno = 0;
-                break;
-            }
-            continue; /* timeout (check stop_requested again) */
-        }
-        poll_timeouts_in_a_row = 0;
-
-        /* Raw revents bitmask dump removed (2026-09-10): confirmed via a real
-         * device log capture to never fire in practice -- this device's
-         * routine ~9-15ms reconnect cycle consistently reports plain POLLIN
-         * from poll() and gets its EOF from read() returning 0, never from
-         * this POLLHUP/POLLERR/POLLNVAL branch. If it ever does start firing
-         * (a different host, a different failure mode), the branch below
-         * still logs "repeat revents=..." on any 2nd+ attempt within an
-         * episode, and the deadline-exceeded paths remain unconditional --
-         * this line was purely a redundant raw-bitmask breakdown on top of
-         * those, and unconditionally printing it every poll() where
-         * revents != POLLIN was a real risk of reintroducing the same
-         * audio-thread logging-stall class of bug fixed elsewhere in this
-         * function, for no retained diagnostic value in the case that
-         * actually occurs on real hardware. */
-
-        /* If poll signaled hangup/error without readable data, treat as recoverable EOF/boundary */
-        if ((pfd.revents & (POLLHUP | POLLERR | POLLNVAL)) && !(pfd.revents & POLLIN)) {
-            set_streaming(false);
-            if (!in_recovery) {
-                in_recovery = true;
-                eof_recovery_start_ns = monotonic_ns();
-                eof_first_open_success_ns = 0;
-                eof_reopen_attempts = 0;
-                cumulative_backoff_ms = 0;
-                bytes_before_eof = total_bytes_read;
-                /* Not logged here -- see "recovered from EOF"'s own comment.
-                 * That single summary (fired once this episode's next
-                 * successful read lands, in the shared `if (in_recovery)`
-                 * block further down) already covers whichever path
-                 * (revents-triggered here, or clean EOF below) entered
-                 * recovery, so this entry point needs no log of its own. */
-            } else {
-                /* Repeat hit within active recovery episode: escalating backoff to prevent tight spin without flat latency tax */
-                unsigned int backoff_ms = repeat_hit_backoff_ms(eof_reopen_attempts);
-                cumulative_backoff_ms += backoff_ms;
-                if (eof_reopen_attempts <= 5 || eof_reopen_attempts % 10 == 0) {
-                    BRIDGE_LOG("usb_dac_bridge: repeat revents=0x%x within active recovery (attempt count so far: %d), pacing %u ms (cumulative %u ms)\n",
-                               pfd.revents, eof_reopen_attempts, backoff_ms, cumulative_backoff_ms);
-                }
-                if (backoff_ms > 0) {
-                    usleep(backoff_ms * 1000);
-                }
-            }
-            if (monotonic_ns() - last_successful_read_ns >= RECOVERY_TIMEOUT_NS) {
-                BRIDGE_LOG("usb_dac_bridge: poll revents=0x%x recovery deadline exceeded -- exiting\n", pfd.revents);
-                exit_reason_n = 0;
-                exit_reason_errno = EIO;
-                break;
-            }
-            close(uac_fd);
-            uac_fd = -1;
-            /* Actually retry the open at a paced interval until it succeeds, stop is
-             * requested, or the recovery deadline is hit -- a single failed attempt
-             * must not fall through to polling a closed (-1) fd, which poll() simply
-             * ignores forever (always "times out") without ever reopening it. */
-            uint64_t loop_start_ns = monotonic_ns();
-            while (uac_fd < 0 && !stop_requested) {
-                eof_reopen_attempts++;
-                uac_fd = open(UAC_SA_DEVICE_PATH, O_RDWR);
-                int open_err = (uac_fd < 0) ? errno : 0;
-                double elapsed_loop_ms = (double)(monotonic_ns() - loop_start_ns) / 1e6;
-                if (uac_fd >= 0) {
-                    if (eof_first_open_success_ns == 0) eof_first_open_success_ns = monotonic_ns();
-                    /* attempt 1 is the routine (~9-15ms) fast path -- not
-                     * logged here either, folded into "recovered from EOF"'s
-                     * own attempt count once this episode actually ends. */
-                    if ((eof_reopen_attempts > 1 && eof_reopen_attempts <= 5) || eof_reopen_attempts % 10 == 0) {
-                        BRIDGE_LOG("usb_dac_bridge: open() succeeded (attempt %d, elapsed %.2f ms since retry loop started)\n",
-                                   eof_reopen_attempts, elapsed_loop_ms);
-                    }
-                    break;
-                }
-                if (eof_reopen_attempts <= 5 || eof_reopen_attempts % 10 == 0) {
-                    BRIDGE_LOG("usb_dac_bridge: open() failed (attempt %d, elapsed %.2f ms since retry loop started): errno=%d (%s)\n",
-                               eof_reopen_attempts, elapsed_loop_ms, open_err, strerror(open_err));
-                }
-                if (monotonic_ns() - last_successful_read_ns >= RECOVERY_TIMEOUT_NS) break;
-                usleep(POLL_INTERVAL_MS * 1000);
-            }
-            if (uac_fd < 0 && !stop_requested) {
-                BRIDGE_LOG("usb_dac_bridge: poll revents=0x%x recovery deadline exceeded after %d reopen attempts -- exiting\n",
-                           pfd.revents, eof_reopen_attempts);
-                exit_reason_n = 0;
-                exit_reason_errno = EIO;
-                break;
-            }
-            continue;
-        }
-
-        ssize_t n = read(uac_fd, buf, buf_bytes);
-        int read_errno = errno; /* captured immediately */
-        if (n <= 0) {
-            set_streaming(false);
-
-            /* Recoverable clean EOF (n == 0): gadget session boundary */
-            if (n == 0) {
-                uint64_t now_ns = monotonic_ns();
-                if (!in_recovery) {
-                    in_recovery = true;
-                    eof_recovery_start_ns = now_ns;
-                    eof_first_open_success_ns = 0;
-                    eof_reopen_attempts = 0;
-                    cumulative_backoff_ms = 0;
-                    bytes_before_eof = total_bytes_read;
-                    /* Not logged here -- see "recovered from EOF"'s own
-                     * comment; that single summary covers this entry point
-                     * too once the episode ends. */
-                } else {
-                    /* Repeat hit within active recovery episode: escalating backoff to prevent tight spin without flat latency tax */
-                    unsigned int backoff_ms = repeat_hit_backoff_ms(eof_reopen_attempts);
-                    cumulative_backoff_ms += backoff_ms;
-                    if (eof_reopen_attempts <= 5 || eof_reopen_attempts % 10 == 0) {
-                        BRIDGE_LOG("usb_dac_bridge: repeat EOF within active recovery (attempt count so far: %d), pacing %u ms (cumulative %u ms)\n",
-                                   eof_reopen_attempts, backoff_ms, cumulative_backoff_ms);
-                    }
-                    if (backoff_ms > 0) {
-                        usleep(backoff_ms * 1000);
-                    }
-                }
-
-                if (now_ns - last_successful_read_ns >= RECOVERY_TIMEOUT_NS) {
-                    BRIDGE_LOG("usb_dac_bridge: EOF recovery deadline (~5s) exceeded -- exiting\n");
-                    exit_reason_n = 0;
-                    exit_reason_errno = 0;
-                    break;
-                }
-
-                close(uac_fd);
-                uac_fd = -1;
-                /* Actually retry the open at a paced interval until it succeeds, stop is
-                 * requested, or the recovery deadline is hit -- a single failed attempt
-                 * must not fall through to polling a closed (-1) fd, which poll() simply
-                 * ignores forever (always "times out") without ever reopening it. */
-                uint64_t loop_start_ns = monotonic_ns();
-                while (uac_fd < 0 && !stop_requested) {
-                    eof_reopen_attempts++;
-                    uac_fd = open(UAC_SA_DEVICE_PATH, O_RDWR);
-                    int open_err = (uac_fd < 0) ? errno : 0;
-                    double elapsed_loop_ms = (double)(monotonic_ns() - loop_start_ns) / 1e6;
-                    if (uac_fd >= 0) {
-                        if (eof_first_open_success_ns == 0) eof_first_open_success_ns = monotonic_ns();
-                        /* attempt 1 is the routine fast path -- see the
-                         * mirrored revents-triggered block's own comment. */
-                        if ((eof_reopen_attempts > 1 && eof_reopen_attempts <= 5) || eof_reopen_attempts % 10 == 0) {
-                            BRIDGE_LOG("usb_dac_bridge: open() succeeded (attempt %d, elapsed %.2f ms since retry loop started)\n",
-                                       eof_reopen_attempts, elapsed_loop_ms);
-                        }
-                        break;
-                    }
-                    if (eof_reopen_attempts <= 5 || eof_reopen_attempts % 10 == 0) {
-                        BRIDGE_LOG("usb_dac_bridge: open() failed (attempt %d, elapsed %.2f ms since retry loop started): errno=%d (%s)\n",
-                                   eof_reopen_attempts, elapsed_loop_ms, open_err, strerror(open_err));
-                    }
-                    rate_window_active = false;
-                    rate_window_bytes = 0;
-                    pending_rate = 0;
-                    pending_rate_count = 0;
-                    if (monotonic_ns() - last_successful_read_ns >= RECOVERY_TIMEOUT_NS) break;
-                    usleep(POLL_INTERVAL_MS * 1000);
-                }
-                if (uac_fd < 0 && !stop_requested) {
-                    BRIDGE_LOG("usb_dac_bridge: EOF recovery deadline (~5s) exceeded after %d reopen attempts -- exiting\n",
-                               eof_reopen_attempts);
-                    exit_reason_n = 0;
-                    exit_reason_errno = 0;
-                    break;
-                }
-                /* If open succeeded, loop back immediately to poll() without resetting rate state yet */
-                continue;
-            }
-
-            /* EPERM error handling */
-            if (n < 0 && read_errno == EPERM) {
-                if (in_recovery && (monotonic_ns() - last_successful_read_ns >= RECOVERY_TIMEOUT_NS)) {
-                    BRIDGE_LOG("usb_dac_bridge: EPERM recovery deadline (~5s) exceeded after reopen -- exiting\n");
-                    exit_reason_n = (int) n;
-                    exit_reason_errno = read_errno;
-                    break;
-                }
-                if (eperm_retries < EPERM_RETRY_LIMIT) {
-                    rate_window_active = false;
-                    rate_window_bytes = 0;
-                    pending_rate = 0;
-                    pending_rate_count = 0;
-                    eperm_retries++;
-                    if (eperm_retries == 1)
-                        BRIDGE_LOG("usb_dac_bridge: read() EPERM, waiting for host to arm streaming interface...\n");
-                    else if (eperm_retries % 25 == 0) /* ~5s periodic update */
-                        BRIDGE_LOG("usb_dac_bridge: still waiting on host stream (EPERM retries=%d)\n", eperm_retries);
-                    usleep(POLL_INTERVAL_MS * 1000);
-                    continue;
-                }
-            }
-
-            /* Non-recoverable error */
-            rate_window_active = false;
-            rate_window_bytes = 0;
-            pending_rate = 0;
-            pending_rate_count = 0;
-            exit_reason_n = (int) n;
-            exit_reason_errno = read_errno;
-            break; /* device non-EPERM error -- gadget likely torn down underneath us */
-        }
-        if (eperm_retries > 0) {
-            BRIDGE_LOG("usb_dac_bridge: read() succeeded after %d EPERM retries\n", eperm_retries);
-            eperm_retries = 0;
-            rate_window_active = false;
-            rate_window_bytes = 0;
-            pending_rate = 0;
-            pending_rate_count = 0;
-        }
-
-        uint64_t now_ns = monotonic_ns();
-        last_successful_read_ns = now_ns;
-
-        if (in_recovery) {
-            uint64_t recovery_duration_ns = now_ns - eof_recovery_start_ns;
-            double recovery_ms = (double) recovery_duration_ns / 1e6;
-            double first_open_ms = (eof_first_open_success_ns > 0 && eof_first_open_success_ns >= eof_recovery_start_ns)
-                                   ? (double)(eof_first_open_success_ns - eof_recovery_start_ns) / 1e6
-                                   : -1.0;
-            /* Time spent between the fd first becoming open and real data finally
-             * arriving -- isolates "open() itself was slow/failing" (this stays
-             * near 0) from "the freshly-opened fd re-EOF'd and needed the repeat-
-             * hit pacing before real data showed up" (this absorbs that time). */
-            double open_to_read_ms = (first_open_ms >= 0.0) ? (recovery_ms - first_open_ms) : -1.0;
-            /* Only log a recovery that took more than one open() attempt or
-             * meaningfully longer than typical -- confirmed on real hardware
-             * (2026-09-10): this device's /dev/uac_sa reopens every ~9-15ms
-             * as NORMAL steady-state operation (99.5% of measured cycles),
-             * so logging every single one of these routine reconnects
-             * (previously unconditional here, plus "entering recovery"/
-             * "open() succeeded" at each of those call sites) ran BRIDGE_LOG's
-             * synchronous fsync() roughly 250-300 times/second on this same
-             * reader thread, and grew the log fast enough to hit its 2MB
-             * rotation size (its own separate fclose+remove+rename+fopen
-             * stall) roughly every 30s -- both squarely on the thread that
-             * must keep up with incoming audio. Confirmed as the cause of
-             * reported periodic crackling. A genuinely slow/anomalous
-             * recovery is still fully logged; the routine fast path no
-             * longer costs anything here. */
-            if (eof_reopen_attempts > 1 || recovery_ms > EOF_RECOVERY_LOG_MIN_MS) {
-                BRIDGE_LOG("usb_dac_bridge: recovered from EOF: %llu bytes read before EOF, %d reopen attempts, latency %.2f ms (time-to-first-open %.2f ms, open-to-first-read %.2f ms, cumulative_backoff %u ms, ring_occupancy=%zu bytes)\n",
-                           (unsigned long long) bytes_before_eof,
-                           eof_reopen_attempts,
-                           recovery_ms,
-                           first_open_ms,
-                           open_to_read_ms,
-                           cumulative_backoff_ms,
-                           ring_buffer_get_occupancy(&g_rb));
-            }
-
-            /* REVERTED (real-hardware regression, see below): a prior version
-             * of this comment argued the in-progress measurement window
-             * should always be discarded across this gap, fast or slow,
-             * reasoning that a stale rate_window_start_ns spanning the gap
-             * corrupts that window's measured rate downward. That reasoning
-             * was correct in isolation but wrong for this device's actual
-             * behavior: real BRIDGE_LOG capture showed /dev/uac_sa reopens
-             * every ~9-15ms as NORMAL steady-state operation (99.5% of
-             * measured recovery cycles), far more often than
-             * RATE_MEASURE_WINDOW_MS (250ms) needs to complete uninterrupted.
-             * Always discarding the window on every recovery made it nearly
-             * impossible for any window to ever reach 250ms elapsed at all,
-             * starving g_rate_confirmed_once and forcing every session into
-             * the full MUTE_FALLBACK_TIMEOUT_NS (5s) bounded-mute fallback --
-             * confirmed via real device log analysis (Codex, 2026-09-10)
-             * against a live capture: only ~0.05% of successful-recovery-to-
-             * next-EOF spans reached 250ms. Reverted to the original
-             * behavior: only discard the window on a SLOW recovery
-             * (matching the multi-window CONFIRMATION streak's own gating
-             * below), preserving it across the device's normal fast
-             * micro-reconnects so a window can accumulate across them. The
-             * corruption this was meant to fix is real but rare and
-             * self-correcting (the next clean window re-measures and
-             * re-confirms); see snap_to_standard_rate()'s own comment for
-             * the actual fix applied for that -- rejecting implausible
-             * measurements outright, rather than never letting a window
-             * survive a gap. */
-            if (recovery_duration_ns > FAST_RECOVERY_MAX_GAP_NS) {
-                rate_window_active = false;
-                rate_window_bytes = 0;
-                pending_rate = 0;
-                pending_rate_count = 0;
-            }
-            in_recovery = false;
-        }
-
-        total_bytes_read += (uint64_t) n;
-        set_streaming(true);
-
-        /* Push raw PCM into ring buffer. Drops oldest if full; never blocks reader. */
-        ring_buffer_write_drop_oldest(&g_rb, buf, (size_t) n);
-
-        /* Live rate measurement: start timing on first successful read of the window */
-        if (!rate_window_active) {
-            rate_window_start_ns = now_ns;
-            rate_window_bytes = 0;
-            rate_window_active = true;
-        }
-
-        rate_window_bytes += (uint64_t) n;
-        uint64_t elapsed_ns = now_ns - rate_window_start_ns;
-        if (elapsed_ns >= (uint64_t) RATE_MEASURE_WINDOW_MS * 1000000ULL) {
-            double elapsed_s = (double) elapsed_ns / 1e9;
-            double measured_frames_per_sec = ((double) rate_window_bytes / (double) frame_bytes) / elapsed_s;
-            if (measured_frames_per_sec < RATE_MEASURE_MIN_PLAUSIBLE_HZ) {
-                /* Implausible outlier (see RATE_MEASURE_MIN_PLAUSIBLE_HZ's own
-                 * comment) -- discard this window without touching
-                 * pending_rate/pending_rate_count, so an otherwise-valid
-                 * confirmation streak isn't broken by one corrupted sample. */
-                BRIDGE_LOG("usb_dac_bridge: rate window: measured ~%.0f Hz -- implausible, discarding window (confirmed count %d, current confirmed %u Hz)\n",
-                           measured_frames_per_sec, pending_rate_count, g_confirmed_rate);
-            } else {
-                unsigned int snapped = snap_to_standard_rate(measured_frames_per_sec);
-                if (snapped == pending_rate) {
-                    pending_rate_count++;
-                } else {
-                    pending_rate = snapped;
-                    pending_rate_count = 1;
-                }
-
-                pthread_mutex_lock(&bridge_mutex);
-                unsigned int current_confirmed = g_confirmed_rate;
-                if (pending_rate_count >= RATE_CONFIRM_COUNT) {
-                    g_rate_confirmed_once = true;
-                    if (pending_rate != current_confirmed) {
-                        g_confirmed_rate = pending_rate;
-                    }
-                }
-                pthread_mutex_unlock(&bridge_mutex);
-
-                BRIDGE_LOG("usb_dac_bridge: rate window: measured ~%.0f Hz -> snapped %u Hz (confirmed count %d, current confirmed %u Hz)\n",
-                           measured_frames_per_sec, snapped, pending_rate_count, current_confirmed);
-
-                if (pending_rate_count >= RATE_CONFIRM_COUNT && pending_rate != current_confirmed) {
-                    BRIDGE_LOG("usb_dac_bridge: incoming rate changed %u -> %u Hz (measured ~%.0f), signalling writer\n",
-                            current_confirmed, pending_rate, measured_frames_per_sec);
-                }
-            }
-            rate_window_start_ns = now_ns;
-            rate_window_bytes = 0;
-        }
+/* A reopen right after close() has been seen to fail with EBUSY on an R1
+ * (the driver releasing the previous handle); keep trying for up to ~1 s
+ * before giving up. */
+static int reopen_uac_device(void) {
+    int fd = -1;
+    for (int attempt = 0; attempt < 50 && !stop_requested; attempt++) {
+        fd = open_uac_device();
+        if (fd >= 0 || (errno != EBUSY && errno != ENOENT)) break;
+        usleep(20000);
     }
+    return fd;
+}
 
-    if (!stop_requested) {
-        BRIDGE_LOG("usb_dac_bridge: read() returned %d (errno=%d %s) after %llu bytes total -- exiting\n",
-                exit_reason_n, exit_reason_errno, strerror(exit_reason_errno), (unsigned long long) total_bytes_read);
-    } else {
-        BRIDGE_LOG("usb_dac_bridge: reader stopped, %llu bytes read total\n", (unsigned long long) total_bytes_read);
-    }
-
+static void reader_finish(int fd, uint8_t * buf) {
     free(buf);
-    if (uac_fd >= 0) close(uac_fd);
-
-    /* Signal producer finished before publishing completion to stop(). */
+    if (fd >= 0) close(fd);
+    /* Finish all ring access before publishing completion to stop(). */
     ring_buffer_signal_finished(&g_rb);
     pthread_mutex_lock(&bridge_mutex);
     g_reader_running = false;
     pthread_mutex_unlock(&bridge_mutex);
     update_bridge_running_state();
+}
 
+static void * bridge_reader_thread_func(void * arg) {
+    (void) arg;
+
+    int uac_fd = -1;
+    for (int waited_ms = 0; waited_ms < OPEN_RETRY_TIMEOUT_MS && !stop_requested; waited_ms += POLL_INTERVAL_MS) {
+        uac_fd = open_uac_device();
+        if (uac_fd >= 0) break;
+        usleep(POLL_INTERVAL_MS * 1000);
+    }
+    if (uac_fd < 0) {
+        if (!stop_requested) BRIDGE_LOG("usb_dac_bridge: %s never appeared, giving up\n", UAC_SA_DEVICE_PATH);
+        reader_finish(-1, NULL);
+        return NULL;
+    }
+
+    /* One period of the largest container, plus room for a partial frame
+     * carried over: the ring only ever receives whole frames, which the
+     * writer's conversion and trims rely on. */
+    const size_t max_frame_bytes = (size_t) BRIDGE_CHANNELS * sizeof(int32_t);
+    size_t buf_bytes = (size_t) BRIDGE_PERIOD_FRAMES * max_frame_bytes;
+    uint8_t * buf = malloc(buf_bytes + max_frame_bytes);
+    size_t carry = 0;
+    if (!buf) {
+        BRIDGE_LOG("usb_dac_bridge: failed to allocate read buffer\n");
+        reader_finish(uac_fd, NULL);
+        return NULL;
+    }
+
+    uint64_t total_bytes_read = 0;
+    uint64_t now_ns = monotonic_ns();
+    uint64_t last_data_ns = now_ns;
+    uint64_t last_query_ns = now_ns;
+    uint64_t last_reopen_ns = now_ns;
+    int eperm_retries = 0;
+    #define EPERM_RETRY_LIMIT 1500 /* ~5min at POLL_INTERVAL_MS between retries */
+    int exit_errno = 0;
+    const char * exit_reason = NULL;
+
+    while (!stop_requested) {
+        now_ns = monotonic_ns();
+        if (now_ns - last_query_ns >= FORMAT_REQUERY_NS) {
+            if (query_host_format(uac_fd)) carry = 0;
+            last_query_ns = now_ns;
+        }
+
+        struct pollfd pfd = { .fd = uac_fd, .events = POLLIN };
+        int pr = poll(&pfd, 1, POLL_INTERVAL_MS);
+        if (pr < 0 && errno == EINTR) continue;
+
+        ssize_t n = 0;
+        int read_errno = 0;
+        if (pr > 0 && (pfd.revents & POLLIN)) {
+            n = read(uac_fd, buf + carry, buf_bytes);
+            read_errno = errno;
+        }
+
+        if (n > 0) {
+            if (eperm_retries > 0) {
+                BRIDGE_LOG("usb_dac_bridge: read() succeeded after %d EPERM retries\n", eperm_retries);
+                eperm_retries = 0;
+            }
+            last_data_ns = monotonic_ns();
+            total_bytes_read += (uint64_t) n;
+            set_streaming(true);
+            pthread_mutex_lock(&bridge_mutex);
+            size_t frame_bytes = (size_t) BRIDGE_CHANNELS * (g_host_bits / 8);
+            pthread_mutex_unlock(&bridge_mutex);
+            size_t total = carry + (size_t) n;
+            size_t whole = total - total % frame_bytes;
+            /* Drops oldest if full; never blocks the reader. */
+            ring_buffer_write_drop_oldest(&g_rb, buf, whole);
+            carry = total - whole;
+            memmove(buf, buf + whole, carry);
+            continue;
+        }
+
+        if (n < 0 && read_errno == EPERM) {
+            /* The host has not armed the streaming interface yet. */
+            set_streaming(false);
+            if (++eperm_retries == 1)
+                BRIDGE_LOG("usb_dac_bridge: read() EPERM, waiting for host to arm streaming interface...\n");
+            else if (eperm_retries % 25 == 0) /* ~5s periodic update */
+                BRIDGE_LOG("usb_dac_bridge: still waiting on host stream (EPERM retries=%d)\n", eperm_retries);
+            /* Waiting for a host that has not started yet may take minutes;
+             * a stream that already ran and then stopped gets the usual
+             * silence deadline, after which the GUI restarts the bridge. */
+            bool stream_ran = total_bytes_read > 0;
+            if (eperm_retries >= EPERM_RETRY_LIMIT ||
+                (stream_ran && monotonic_ns() - last_data_ns >= RECOVERY_TIMEOUT_NS)) {
+                exit_reason = stream_ran ? "host stream stopped (EPERM) for ~5s" : "EPERM retry limit reached";
+                exit_errno = EPERM;
+                break;
+            }
+            usleep(POLL_INTERVAL_MS * 1000);
+            continue;
+        }
+        if (n < 0 && read_errno != EINTR && read_errno != EAGAIN) {
+            exit_reason = "read() failed";
+            exit_errno = read_errno;
+            break; /* gadget likely torn down underneath us */
+        }
+        if (pr < 0 || (pr > 0 && (pfd.revents & (POLLERR | POLLNVAL)))) {
+            exit_reason = "poll() reported an error";
+            exit_errno = pr < 0 ? errno : EIO;
+            break;
+        }
+
+        /* Nothing queued (read() returned 0, EAGAIN, or poll() timed out). */
+        now_ns = monotonic_ns();
+        uint64_t silent_ns = now_ns - last_data_ns;
+        if (silent_ns >= STREAM_IDLE_NS) set_streaming(false);
+        if (silent_ns >= RECOVERY_TIMEOUT_NS) {
+            exit_reason = "no data for ~5s";
+            break;
+        }
+        if (silent_ns >= REOPEN_AFTER_SILENCE_NS && now_ns - last_reopen_ns >= REOPEN_AFTER_SILENCE_NS) {
+            close(uac_fd);
+            uac_fd = reopen_uac_device();
+            last_reopen_ns = monotonic_ns();
+            /* After a full second of empty reads the driver queue is empty,
+             * and USB audio packets carry whole frames, so a carried partial
+             * frame has no remainder left to arrive: it is dropped and the
+             * next byte read starts a frame. This driver has only been
+             * seen returning whole frames, so a carry here would itself be
+             * news worth logging. */
+            if (carry != 0) BRIDGE_LOG("usb_dac_bridge: dropping %zu carried bytes at reopen\n", carry);
+            carry = 0;
+            if (uac_fd < 0) {
+                exit_reason = "reopen failed";
+                exit_errno = errno;
+                break;
+            }
+            continue;
+        }
+        if (pr > 0) usleep(EMPTY_READ_SLEEP_US); /* poll() said readable but nothing came */
+    }
+
+    if (!stop_requested) {
+        BRIDGE_LOG("usb_dac_bridge: reader exiting (%s, errno=%d %s) after %llu bytes total\n",
+                   exit_reason ? exit_reason : "unknown", exit_errno, strerror(exit_errno),
+                   (unsigned long long) total_bytes_read);
+    } else {
+        BRIDGE_LOG("usb_dac_bridge: reader stopped, %llu bytes read total\n", (unsigned long long) total_bytes_read);
+    }
+    reader_finish(uac_fd, buf);
     return NULL;
 }
 
-#define CATCHUP_TARGET_RESERVE_MS 150.0  /* starting point per Codex's review -- expect to tune down after real-device testing, as low as possible without reintroducing the earlier crackling/underrun bug */
-#define CATCHUP_FADE_MS 10.0             /* short fade-in applied right after a trim, to avoid an audible click at the discontinuity */
-#define CATCHUP_PERIODIC_INTERVAL_MS 1000.0      /* how often steady-state playback
-    re-checks ring backlog. Gated on occupancy inside writer_catchup_trim() itself, so
-    this is a no-op check whenever backlog is already at/under target -- this constant
-    only bounds how much overshoot can accumulate between checks. */
-#define CATCHUP_PERIODIC_TARGET_RESERVE_MS 400.0 /* deliberately NOT the same as
-    CATCHUP_TARGET_RESERVE_MS (150ms): that value is only meant to be briefly exposed at
-    a startup/rate-change transition, and is explicitly too small for the reader's rare
-    worst-case ~277ms backoff-ladder escalation (repeat_hit_backoff_ms() above) -- see
-    that tradeoff explained in writer_catchup_trim()'s own comment below. Pinning
-    steady-state playback permanently at 150ms would remove the cushion that normally
-    absorbs that worst case and risks reintroducing the crackling/underrun regression
-    referenced elsewhere in this file. 400ms keeps clear margin above the ~277ms worst
-    case (at 48kHz; at 352.8/384kHz, 400ms exceeds the ring's own ~350ms capacity at
-    those rates, so the periodic trim is a no-op there -- harmless, since the ring can't
-    hold enough backlog at those rates to need it, but worth knowing). */
+/* Backlog targets. With the device no longer reopened on every empty read,
+ * the reader delivers steadily, so a small cushion is enough. Hosts keep
+ * their own clock (measured on an R1, 2026-09-26: Linux and macOS ran
+ * ~0.08-0.09% fast), so the periodic check trims the surplus: about 9 ms,
+ * faded in, every ~12 s at these targets. */
+#define CATCHUP_TARGET_RESERVE_MS 40.0   /* at startup and on a rate change */
+#define CATCHUP_PERIODIC_INTERVAL_MS 500.0
+#define CATCHUP_PERIODIC_TARGET_RESERVE_MS 60.0
+#define CATCHUP_FADE_MS 10.0             /* fade-in after a trim, so the skip does not click */
 
-/* Called by the writer thread whenever the ring buffer might be holding more
- * backlog than necessary (writer startup, every time it adopts a newly
- * confirmed rate from the reader, and periodically during steady-state
- * playback -- see call sites below). Discards any occupancy above the
- * caller-supplied target_reserve_ms directly (skipping stale, already-queued
- * audio -- it's valid data, just queued longer than necessary, not corrupted),
- * then applies a short linear fade-in to the audio immediately following the
- * discard point before it's played, so the skip doesn't produce an audible
- * click. The two transition call sites pass CATCHUP_TARGET_RESERVE_MS (150ms):
- * enough to survive the backoff ladder's typical recovery latency, per
- * usb_dac_bridge_lifecycle_regression.c's own evidence and the real-device
- * captures, but NOT enough for its rare worst-case ~277ms+ escalation, which is
- * an accepted, explicit tradeoff per the "as low as possible" instruction for
- * those two sites specifically, not an oversight. The periodic call site
- * passes the larger CATCHUP_PERIODIC_TARGET_RESERVE_MS instead, precisely
- * because steady-state playback can't accept that same tradeoff indefinitely.
- * This does NOT touch the reader thread or its pacing in any way -- it only
- * ever discards data the reader has ALREADY produced and buffered, never
- * slows how fast the reader consumes from /dev/uac_sa. */
-static bool writer_catchup_trim(unsigned int rate, size_t frame_bytes,
-                                double target_reserve_ms, bool verbose) {
+/* Discards ring backlog above target_reserve_ms (valid audio, just queued
+ * longer than needed) and returns how many frames of fade-in the caller must
+ * apply to what it plays next, or 0 when nothing was discarded. Frame size
+ * follows the host container; discards stay frame-aligned. */
+static uint64_t writer_catchup_trim(unsigned int rate, size_t frame_bytes, unsigned int format_gen,
+                                    double target_reserve_ms, bool verbose) {
     size_t target_reserve_bytes = (size_t) ((double) rate * target_reserve_ms / 1000.0) * frame_bytes;
-    size_t occupancy_before = ring_buffer_get_occupancy(&g_rb);
-    if (occupancy_before <= target_reserve_bytes) return false;
-
-    size_t excess = occupancy_before - target_reserve_bytes;
-    size_t fade_bytes = (size_t) ((double) rate * CATCHUP_FADE_MS / 1000.0) * frame_bytes;
-    fade_bytes -= fade_bytes % frame_bytes;
-    if (fade_bytes == 0) fade_bytes = frame_bytes;
-
-    size_t discard_bytes = (excess > fade_bytes) ? (excess - fade_bytes) : 0;
-    size_t discarded = ring_buffer_discard(&g_rb, discard_bytes);
-
-    uint8_t * fade_buf = malloc(fade_bytes);
-    if (fade_buf) {
-        size_t fade_read = ring_buffer_read(&g_rb, fade_buf, fade_bytes);
-        if (fade_read > 0) {
-            size_t fade_frames = fade_read / frame_bytes;
-            int16_t * samples = (int16_t *) fade_buf;
-            /* Apply the SAME "overwrite noise slot with real channel" fixup the
-             * normal per-chunk write path applies (see the main loop below) --
-             * this fade segment bypasses that normal path, so it must be
-             * applied here too, or this segment would play with the wrong/noisy
-             * first channel. */
-            for (size_t i = 0; i < fade_frames; i++) {
-                samples[i * BRIDGE_CHANNELS] = samples[i * BRIDGE_CHANNELS + 1];
-            }
-            for (size_t i = 0; i < fade_frames; i++) {
-                double gain = (fade_frames > 1) ? ((double) i / (double) (fade_frames - 1)) : 1.0;
-                for (unsigned int c = 0; c < BRIDGE_CHANNELS; c++) {
-                    samples[i * BRIDGE_CHANNELS + c] = (int16_t) ((double) samples[i * BRIDGE_CHANNELS + c] * gain);
-                }
-            }
-            uint64_t written_frames = 0;
-            bool write_ok = audio_output_write(samples, fade_frames, BRIDGE_CHANNELS, &written_frames);
-            if (!write_ok || written_frames != (uint64_t) fade_frames) {
-                BRIDGE_LOG("usb_dac_bridge: catch-up fade write failure/partial: ok=%d written=%" PRIu64 "/%zu frames\n",
-                           write_ok ? 1 : 0, written_frames, fade_frames);
-            }
-        }
-        free(fade_buf);
+    /* Measured and cut under bridge_mutex (then the ring mutex, the same
+     * order as publish_host_format()), and only while the ring still holds
+     * the format the caller sized frame_bytes for: a trim computed for one
+     * layout must never cut into another's frames. */
+    pthread_mutex_lock(&bridge_mutex);
+    if (g_host_format_gen != format_gen) {
+        pthread_mutex_unlock(&bridge_mutex);
+        return 0;
     }
+    size_t occupancy_before = ring_buffer_get_occupancy(&g_rb);
+    size_t discarded = 0;
+    if (occupancy_before > target_reserve_bytes) {
+        size_t excess = occupancy_before - target_reserve_bytes;
+        excess -= excess % frame_bytes;
+        discarded = ring_buffer_discard(&g_rb, excess);
+    }
+    pthread_mutex_unlock(&bridge_mutex);
+    if (discarded == 0) return 0;
 
-    size_t occupancy_after = ring_buffer_get_occupancy(&g_rb);
     if (verbose) {
-        BRIDGE_LOG("usb_dac_bridge: catch-up trim: discarded %zu bytes + %zu-byte fade (occupancy %zu -> %zu bytes, target ~%zu bytes, rate %u Hz)\n",
-                   discarded, fade_bytes, occupancy_before, occupancy_after, target_reserve_bytes, rate);
+        BRIDGE_LOG("usb_dac_bridge: catch-up trim: discarded %zu bytes (occupancy %zu -> %zu bytes, target ~%zu bytes, rate %u Hz)\n",
+                   discarded, occupancy_before, ring_buffer_get_occupancy(&g_rb), target_reserve_bytes, rate);
     } else {
         static uint64_t silent_discarded_bytes_total = 0;
         static uint64_t last_silent_log_ns = 0;
-        uint64_t silent_bytes_to_log = 0;
-
         silent_discarded_bytes_total += (uint64_t) discarded;
         uint64_t now_ns = monotonic_ns();
         if (now_ns - last_silent_log_ns >= 10000000000ULL) { /* rate-limit to once per ~10s */
-            silent_bytes_to_log = silent_discarded_bytes_total;
+            BRIDGE_LOG("usb_dac_bridge: catch-up trim: discarded %llu bytes since last log (occupancy now %zu bytes, target ~%zu bytes, rate %u Hz)\n",
+                       (unsigned long long) silent_discarded_bytes_total, ring_buffer_get_occupancy(&g_rb),
+                       target_reserve_bytes, rate);
             silent_discarded_bytes_total = 0;
             last_silent_log_ns = now_ns;
         }
+    }
+    uint64_t fade_frames = (uint64_t) ((double) rate * CATCHUP_FADE_MS / 1000.0);
+    return fade_frames > 0 ? fade_frames : 1;
+}
 
-        if (silent_bytes_to_log != 0) {
-            BRIDGE_LOG("usb_dac_bridge: catch-up trim: discarded %llu bytes cumulative since last log (occupancy %zu -> %zu bytes, target ~%zu bytes, rate %u Hz)\n",
-                       (unsigned long long) silent_bytes_to_log, occupancy_before, occupancy_after, target_reserve_bytes, rate);
+/* Converts interleaved host frames to the output format. 32-bit containers
+ * carry the audio MSB-aligned; S24 output is right-justified in 32 bits. The
+ * first *fade_remaining frames (of fade_total) ramp up linearly. */
+static void convert_frames(const uint8_t * in, size_t frames, unsigned int bits, bool s24,
+                           int16_t * out16, int32_t * out24,
+                           uint64_t * fade_remaining, uint64_t fade_total) {
+    for (size_t i = 0; i < frames; i++) {
+        double gain = 1.0;
+        if (*fade_remaining > 0 && fade_total > 0) {
+            gain = (double) (fade_total - *fade_remaining) / (double) fade_total;
+            (*fade_remaining)--;
+        }
+        for (unsigned int c = 0; c < BRIDGE_CHANNELS; c++) {
+            size_t idx = i * BRIDGE_CHANNELS + c;
+            int32_t s32;
+            if (bits == 16) {
+                int16_t s16;
+                memcpy(&s16, in + idx * sizeof(int16_t), sizeof(s16));
+                s32 = (int32_t) ((uint32_t) (uint16_t) s16 << 16);
+            } else {
+                memcpy(&s32, in + idx * sizeof(int32_t), sizeof(s32));
+            }
+            if (gain < 1.0) s32 = (int32_t) ((double) s32 * gain);
+            if (s24) out24[idx] = s32 >> 8;
+            else out16[idx] = (int16_t) (s32 >> 16);
         }
     }
-    return true;
+}
+
+static void writer_finish(uint8_t * in, int16_t * out16, int32_t * out24, bool close_output) {
+    free(in);
+    free(out16);
+    free(out24);
+    if (close_output) audio_output_close();
+    pthread_mutex_lock(&bridge_mutex);
+    g_writer_running = false;
+    pthread_mutex_unlock(&bridge_mutex);
+    update_bridge_running_state();
 }
 
 /* 2. WRITER THREAD:
- * Only thread calling audio_output.h. Waits for audio from ring buffer,
- * monitors confirmed rate updates from the reader thread, applies channel
- * fixup (overwriting noise slot), and calls audio_output_ensure() / audio_output_write().
- */
+ * Only thread calling audio_output.h. Takes host frames from the ring buffer,
+ * follows the host format the reader publishes, converts, and plays them. */
 static void * bridge_writer_thread_func(void * arg) {
     (void) arg;
 
@@ -1128,179 +767,127 @@ static void * bridge_writer_thread_func(void * arg) {
         usleep(20000);
     }
 
-    /* Do NOT re-initialize g_confirmed_rate here: usb_dac_bridge_start()
-     * already set it (and active_output_rate) to USB_ADVERTISED_SAMPLE_RATE
-     * under bridge_mutex before either thread was created, and pthread_create()
-     * carries a POSIX-guaranteed happens-before for that write. Re-setting it
-     * again here would race against the reader thread, which is created
-     * first and could -- on a sufficiently delayed scheduler -- already have
-     * confirmed a real rate change before this line ran, silently clobbering
-     * it back to the default. */
-    unsigned int current_rate = USB_ADVERTISED_SAMPLE_RATE;
-    bool started_output = false;
-    uint64_t first_read_ns = 0;
-    uint64_t last_periodic_trim_ns = 0;
-
-    size_t frame_bytes = (size_t) BRIDGE_CHANNELS * sizeof(int16_t);
-    size_t chunk_bytes = (size_t) BRIDGE_PERIOD_FRAMES * frame_bytes;
-    uint8_t * buf = malloc(chunk_bytes);
-    if (!buf) {
-        BRIDGE_LOG("usb_dac_bridge: failed to allocate write buffer\n");
-        audio_output_close();
+    /* Room for one period of the largest container plus a partial frame
+     * carried over between reads. */
+    const size_t max_frame_bytes = (size_t) BRIDGE_CHANNELS * sizeof(int32_t);
+    const size_t in_cap = (size_t) BRIDGE_PERIOD_FRAMES * max_frame_bytes + max_frame_bytes;
+    uint8_t * in = malloc(in_cap);
+    int16_t * out16 = malloc((size_t) BRIDGE_PERIOD_FRAMES * BRIDGE_CHANNELS * sizeof(int16_t));
+    int32_t * out24 = malloc((size_t) BRIDGE_PERIOD_FRAMES * BRIDGE_CHANNELS * sizeof(int32_t));
+    if (!in || !out16 || !out24) {
+        BRIDGE_LOG("usb_dac_bridge: failed to allocate write buffers\n");
         stop_requested = true;
         ring_buffer_signal_finished(&g_rb);
-        pthread_mutex_lock(&bridge_mutex);
-        g_writer_running = false;
-        pthread_mutex_unlock(&bridge_mutex);
-        update_bridge_running_state();
+        writer_finish(in, out16, out24, true);
         return NULL;
     }
 
+    unsigned int rate = 0, bits = 0, format_gen = 0;
+    bool started_output = false;
+    size_t have = 0;
+    uint64_t fade_remaining = 0, fade_total = 0;
+    uint64_t last_periodic_trim_ns = 0;
+
     while (!stop_requested) {
-        size_t n = ring_buffer_read(&g_rb, buf, chunk_bytes);
-        if (n == 0) {
-            /* Woke up due to stop_requested or empty buffer after reader finished */
-            if (stop_requested) break;
-
-            pthread_mutex_lock(&g_rb.mutex);
-            bool finished = g_rb.producer_finished && (g_rb.count == 0);
-            pthread_mutex_unlock(&g_rb.mutex);
-            if (finished) {
-                /* Producer finished and no remaining buffered data */
-                break;
-            }
-            continue;
-        }
-
-        if (!started_output) {
-            uint64_t now_ns = monotonic_ns();
-            if (first_read_ns == 0) first_read_ns = now_ns;
-
-            pthread_mutex_lock(&bridge_mutex);
-            bool confirmed_once = g_rate_confirmed_once;
-            unsigned int reader_confirmed = g_confirmed_rate;
-            pthread_mutex_unlock(&bridge_mutex);
-
-            bool fallback_expired = (now_ns - first_read_ns) >= EFFECTIVE_MUTE_FALLBACK_TIMEOUT_NS;
-            if (!confirmed_once && !fallback_expired) {
-                /* Still muted: drain without playing, so the ring buffer doesn't
-                 * back up while we wait for a real confirmation. */
+        /* Whole frames already held are played before waiting for more, so
+         * they neither stall while the host pauses nor get lost at the end. */
+        size_t held_frame_bytes = (size_t) BRIDGE_CHANNELS * (bits / 8);
+        if (!started_output || have < held_frame_bytes) {
+            size_t n = ring_buffer_read(&g_rb, in + have, in_cap - have);
+            if (n == 0) {
+                /* Woke up due to stop_requested or empty buffer after reader finished */
+                if (stop_requested) break;
+                pthread_mutex_lock(&g_rb.mutex);
+                bool finished = g_rb.producer_finished && (g_rb.count == 0);
+                pthread_mutex_unlock(&g_rb.mutex);
+                if (finished) break;
                 continue;
             }
-            if (!confirmed_once) {
-                BRIDGE_LOG("usb_dac_bridge: no rate confirmed after %llu ms, starting playback at %u Hz anyway (bounded fallback)\n",
-                           (unsigned long long) ((now_ns - first_read_ns) / 1000000ULL), reader_confirmed);
-                /* Deliberately do NOT set g_rate_confirmed_once here -- if the reader
-                 * later completes a real confirmation, it must still go through the
-                 * normal rate-adopt path below, exactly as if this fallback never
-                 * happened. */
-            }
-
-            /* stop_requested may have flipped while we were muted -- check before
-             * doing any real work (opening the device, trimming). */
-            if (stop_requested) break;
-
-            current_rate = reader_confirmed;
-            set_active_rate(current_rate);
-            if (!audio_output_ensure(BRIDGE_CHANNELS, current_rate, true, false)) {
-                BRIDGE_LOG("usb_dac_bridge: initial audio_output_ensure failed (rate=%u)\n", current_rate);
-                stop_requested = true;
-                ring_buffer_signal_finished(&g_rb);
-                pthread_mutex_lock(&bridge_mutex);
-                g_writer_running = false;
-                pthread_mutex_unlock(&bridge_mutex);
-                update_bridge_running_state();
-                free(buf);
-                return NULL;
-            }
-            writer_catchup_trim(current_rate, frame_bytes, CATCHUP_TARGET_RESERVE_MS, true);
-            last_periodic_trim_ns = monotonic_ns();
-            started_output = true;
-            /* Discard this transition chunk (it was read before we knew we were
-             * about to start real output) rather than play it -- matching this
-             * file's own existing precedent for exactly this kind of transition
-             * (the catch-up-trim ordering fix's use of `continue` to skip a stale
-             * pre-read chunk after a trim actually runs). */
-            continue;
+            have += n;
         }
 
-        /* Check for sample rate changes confirmed by the reader thread */
+        /* Sampled after the read: bytes read under a newer generation than
+         * the output was opened for are dropped below, never played. */
         pthread_mutex_lock(&bridge_mutex);
-        unsigned int reader_confirmed = g_confirmed_rate;
+        unsigned int host_rate = g_host_rate;
+        unsigned int host_bits = g_host_bits;
+        unsigned int host_gen = g_host_format_gen;
         pthread_mutex_unlock(&bridge_mutex);
 
-        if (reader_confirmed != current_rate) {
-            current_rate = reader_confirmed;
-            set_active_rate(current_rate);
-            BRIDGE_LOG("usb_dac_bridge: writer adopting confirmed rate %u Hz\n", current_rate);
-            /* Reopen the output device at the NEW rate before trimming -- the
-             * catch-up fade must play on a correctly-configured device, not
-             * the stale one about to be closed/reconfigured. */
-            if (!audio_output_ensure(BRIDGE_CHANNELS, current_rate, true, false)) {
-                BRIDGE_LOG("usb_dac_bridge: audio_output_ensure failed (rate=%u)\n", current_rate);
+        if (!started_output || host_gen != format_gen) {
+            if (started_output) {
+                BRIDGE_LOG("usb_dac_bridge: host format %u Hz/%u -> %u Hz/%u, reopening output\n",
+                           rate, bits, host_rate, host_bits);
             }
-            /* Only skip `n` (this iteration's already-pre-read chunk) when a
-             * trim actually ran: it's then oldest backlog that would have
-             * fallen inside the discard window anyway, and playing it after
-             * the fade would reintroduce exactly the discontinuity the fade
-             * exists to avoid. If the buffer was already at/under target,
-             * writer_catchup_trim() is a no-op (no fade played) -- `n` is
-             * then just an ordinary chunk and must be played normally below,
-             * or it would be silently, needlessly dropped. */
+            rate = host_rate;
+            bits = host_bits;
+            format_gen = host_gen;
+            if (!audio_output_ensure(BRIDGE_CHANNELS, rate, true, true)) {
+                BRIDGE_LOG("usb_dac_bridge: audio_output_ensure failed (rate=%u)\n", rate);
+                if (!started_output) {
+                    stop_requested = true;
+                    ring_buffer_signal_finished(&g_rb);
+                    writer_finish(in, out16, out24, false);
+                    return NULL;
+                }
+            }
+            started_output = true;
+            size_t frame_bytes = (size_t) BRIDGE_CHANNELS * (bits / 8);
+            /* Backlog built up before output was ready (or in the old
+             * format) is stale: skip to the newest audio. The reader only
+             * queues whole frames, so dropping `have` keeps alignment. */
+            have = 0;
+            fade_total = fade_remaining = writer_catchup_trim(rate, frame_bytes, format_gen, CATCHUP_TARGET_RESERVE_MS, true);
+            if (fade_total == 0) fade_total = fade_remaining = (uint64_t) ((double) rate * CATCHUP_FADE_MS / 1000.0);
             last_periodic_trim_ns = monotonic_ns();
-            if (writer_catchup_trim(current_rate, frame_bytes, CATCHUP_TARGET_RESERVE_MS, true)) {
-                continue;
-            }
+            continue;
         }
 
-        /* Ensure output device is open and check for dynamic Bluetooth routing changes.
-         * Cheap recheck that only reopens when sample rate or target actually changed. */
-        if (!audio_output_ensure(BRIDGE_CHANNELS, current_rate, true, false)) {
-            BRIDGE_LOG("usb_dac_bridge: audio_output_ensure failed (rate=%u)\n", current_rate);
+        /* Cheap recheck; reopens only when the output target (e.g. Bluetooth
+         * routing) changed. */
+        if (!audio_output_ensure(BRIDGE_CHANNELS, rate, true, true)) {
+            BRIDGE_LOG("usb_dac_bridge: audio_output_ensure failed (rate=%u)\n", rate);
         }
+        bool s24 = audio_output_is_s24_active();
+        set_active_output(rate, s24 ? 24 : 16);
 
-        /* Only process whole frames */
-        size_t frame_count = n / frame_bytes;
+        size_t frame_bytes = (size_t) BRIDGE_CHANNELS * (bits / 8);
+        size_t frames = have / frame_bytes;
         bool write_ok = true;
-        if (frame_count > 0) {
-            /* Overwrite the always-noise first channel slot with the real second one */
-            int16_t * frame_samples = (int16_t *) buf;
-            for (size_t i = 0; i < frame_count; i++) {
-                frame_samples[i * 2] = frame_samples[i * 2 + 1];
-            }
-
+        if (frames > 0) {
+            if (frames > BRIDGE_PERIOD_FRAMES) frames = BRIDGE_PERIOD_FRAMES;
+            convert_frames(in, frames, bits, s24, out16, out24, &fade_remaining, fade_total);
             uint64_t written_frames = 0;
-            write_ok = audio_output_write(frame_samples, frame_count, BRIDGE_CHANNELS, &written_frames);
-            if (!write_ok || written_frames != (uint64_t) frame_count) {
+            write_ok = s24 ? audio_output_write_s24(out24, frames, BRIDGE_CHANNELS, &written_frames)
+                           : audio_output_write(out16, frames, BRIDGE_CHANNELS, &written_frames);
+            if (!write_ok || written_frames != (uint64_t) frames) {
                 BRIDGE_LOG("usb_dac_bridge: audio_output_write failure/partial: ok=%d written=%" PRIu64 "/%zu frames\n",
-                           write_ok ? 1 : 0, written_frames, frame_count);
+                           write_ok ? 1 : 0, written_frames, frames);
             }
+            size_t used = frames * frame_bytes;
+            memmove(in, in + used, have - used);
+            have -= used;
         }
 
-        /* !stop_requested: the trim's own fade write is a second blocking
-         * audio_output_write() call in this same iteration, each bounded at
-         * up to 2s on a stalled BT/USB pipe (write_pipe_bounded()). Skipping
-         * it once a stop is already pending keeps worst-case shutdown latency
-         * from stacking two of those against usb_dac_bridge_stop()'s own
-         * fixed 3s join timeout. */
+        /* !stop_requested: keeps worst-case shutdown latency within
+         * usb_dac_bridge_stop()'s join timeout. */
         if (write_ok && !stop_requested) {
             uint64_t now_ns = monotonic_ns();
             if (now_ns - last_periodic_trim_ns >= (uint64_t) (CATCHUP_PERIODIC_INTERVAL_MS * 1000000.0)) {
-                writer_catchup_trim(current_rate, frame_bytes, CATCHUP_PERIODIC_TARGET_RESERVE_MS, false);
+                uint64_t fade = writer_catchup_trim(rate, frame_bytes, format_gen, CATCHUP_PERIODIC_TARGET_RESERVE_MS, false);
+                if (fade > 0) {
+                    /* What is still in `in` precedes the cut; drop it so the
+                     * fade starts right after the discontinuity. */
+                    have = 0;
+                    fade_total = fade_remaining = fade;
+                }
                 last_periodic_trim_ns = now_ns;
             }
         }
     }
 
     BRIDGE_LOG("usb_dac_bridge: writer thread exiting\n");
-    free(buf);
-    audio_output_close();
-
-    pthread_mutex_lock(&bridge_mutex);
-    g_writer_running = false;
-    pthread_mutex_unlock(&bridge_mutex);
-    update_bridge_running_state();
-
+    writer_finish(in, out16, out24, true);
     return NULL;
 }
 
@@ -1355,9 +942,11 @@ void usb_dac_bridge_start(void) {
     stop_requested = false;
     bridge_running = true;
     bridge_streaming = false;
-    g_confirmed_rate = USB_ADVERTISED_SAMPLE_RATE;
-    g_rate_confirmed_once = false;
-    active_output_rate = USB_ADVERTISED_SAMPLE_RATE;
+    g_host_rate = USB_DEFAULT_SAMPLE_RATE;
+    g_host_bits = USB_DEFAULT_BITS;
+    g_host_format_known = false;
+    active_output_rate = USB_DEFAULT_SAMPLE_RATE;
+    active_output_bits = 16;
 
     /* Clear external USB DAC output request: operating as a USB audio device
      * gadget is mutually exclusive with driving an external USB host DAC. */
@@ -1471,8 +1060,8 @@ void usb_dac_bridge_get_stream_info(usb_dac_stream_info_t * out) {
     out->bridge_running = bridge_running;
     out->streaming = bridge_streaming;
     out->output_sample_rate = active_output_rate;
+    out->output_bit_depth = active_output_bits;
+    out->input_sample_rate = g_host_rate;
+    out->input_bit_depth = g_host_bits;
     pthread_mutex_unlock(&bridge_mutex);
-    out->input_sample_rate = USB_ADVERTISED_SAMPLE_RATE;
-    out->input_bit_depth = USB_ADVERTISED_BIT_DEPTH;
-    out->output_bit_depth = BRIDGE_BIT_DEPTH;
 }
