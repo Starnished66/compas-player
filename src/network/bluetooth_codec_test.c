@@ -167,6 +167,8 @@ bool subprocess_run(char * const argv[], char * out, size_t size) {
             return true;
         }
         assert(strcmp(argv[1], "soft-volume") == 0);
+        /* Current-state query: unknown here, so the setting is written. */
+        if (argv[3] == NULL) return false;
         assert(strcmp(argv[3], "on") == 0 || strcmp(argv[3], "off") == 0);
         soft_volume_calls++;
         snprintf(soft_volume_path, sizeof(soft_volume_path), "%s", argv[2]);
@@ -658,6 +660,22 @@ static void test_auto_codec_ranking(void) {
     assert(bt_auto_rejected(dev_b) == 1u << 2);
 }
 
+static void test_codec_display_name(void) {
+    char name[32];
+    bluealsa_codec_display_name("SBC:24150223", name, sizeof(name));   /* 44.1k dual 16/8/loudness */
+    assert(strcmp(name, "SBC-XQ") == 0);
+    bluealsa_codec_display_name("SBC:21150235", name, sizeof(name));   /* joint stereo */
+    assert(strcmp(name, "SBC") == 0);
+    bluealsa_codec_display_name("SBC:14150235", name, sizeof(name));   /* 48k dual */
+    assert(strcmp(name, "SBC") == 0);
+    bluealsa_codec_display_name("SBC", name, sizeof(name));
+    assert(strcmp(name, "SBC") == 0);
+    bluealsa_codec_display_name("AAC:80010401f400", name, sizeof(name));
+    assert(strcmp(name, "AAC") == 0);
+    bluealsa_codec_display_name("LDAC", name, sizeof(name));
+    assert(strcmp(name, "LDAC") == 0);
+}
+
 static void test_rate_refusal_memory(void) {
     /* A refused rate survives routine re-application (e.g. on reconnect);
      * only a rate the user chooses clears it. */
@@ -676,6 +694,7 @@ int main(void) {
     alarm(10);
     test_auto_codec_ranking();
     test_rate_refusal_memory();
+    test_codec_display_name();
 
     int monitor_volume = -1;
     assert(parse_monitor_volume("0x7f7f", &monitor_volume) && monitor_volume == 127);

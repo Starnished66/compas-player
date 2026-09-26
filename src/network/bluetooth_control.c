@@ -300,6 +300,19 @@ static bool bluealsa_is_audio_pcm_path(const char * path) {
 static pthread_mutex_t bt_soft_volume_serial = PTHREAD_MUTEX_INITIALIZER;
 static unsigned int bt_soft_volume_clears;
 
+/* bluealsactl soft-volume PATH prints "SoftVolume: true|false". */
+static bool bluealsa_read_soft_volume(const char * path, bool * out) {
+    char reply[128];
+    char * argv[] = { (char *) bluealsa_backend().ctl, (char *) "soft-volume", (char *) path, NULL };
+    if (!subprocess_run(argv, reply, sizeof(reply))) return false;
+    const char * v = strstr(reply, "SoftVolume:");
+    if (!v) return false;
+    v += strlen("SoftVolume:");
+    while (*v == ' ') v++;
+    *out = strncmp(v, "true", 4) == 0;
+    return strncmp(v, "true", 4) == 0 || strncmp(v, "false", 5) == 0;
+}
+
 static void bluealsa_apply_soft_volume_cancellable(const char * path, const atomic_bool * cancel) {
     bluealsa_backend_t backend = bluealsa_backend();
     if (!bluealsa_is_audio_pcm_path(path)) return;
@@ -309,11 +322,20 @@ static void bluealsa_apply_soft_volume_cancellable(const char * path, const atom
     unsigned int clears = bt_soft_volume_clears;
     pthread_mutex_unlock(&bt_soft_volume_mutex);
     if (!done) {
-        char * argv[] = { (char *) backend.ctl, (char *) "soft-volume",
-                          (char *) path,
-                          (char *) (atomic_load(&modern_soft_volume_requested) ? "on" : "off"), NULL };
-        int exit_code = -1;
-        bool ok = subprocess_run_checked(argv, NULL, 0, 5000, &exit_code) && exit_code == 0;
+        bool want = atomic_load(&modern_soft_volume_requested);
+        /* Write only a change: BlueALSA resets the volume level on every
+         * SoftVolume write (to the transport's value, 127 on a fresh one),
+         * which volume sync then copied into the player as a jump to 100%. */
+        bool current;
+        bool ok;
+        if (bluealsa_read_soft_volume(path, &current) && current == want) {
+            ok = true;
+        } else {
+            char * argv[] = { (char *) backend.ctl, (char *) "soft-volume",
+                              (char *) path, (char *) (want ? "on" : "off"), NULL };
+            int exit_code = -1;
+            ok = subprocess_run_checked(argv, NULL, 0, 5000, &exit_code) && exit_code == 0;
+        }
         pthread_mutex_lock(&bt_soft_volume_mutex);
         if (ok && bt_soft_volume_clears == clears)
             snprintf(bt_soft_volume_applied_path, sizeof(bt_soft_volume_applied_path), "%s", path);
@@ -340,6 +362,26 @@ static void bluealsa_clear_soft_volume_path(const char * path) {
 /* Extracts the "Selected codec: X" line from `bluealsactl info` output.
  * Shared by the codec readback below and bt_control_get_connected_device_
  * codec() so the two cannot drift apart on the format. */
+/* Display name for a "NAME[:hexblob]" codec field. BlueALSA reports SBC-XQ
+ * as plain SBC, so it is labelled from the configuration itself: 44.1 kHz,
+ * dual channel, 16 blocks, 8 subbands, loudness allocation -- exactly the
+ * configuration sbc_a2dp_get_bitpool() gives the XQ bit-pool (which the
+ * accessory's maximum may still cap). */
+static void bluealsa_codec_display_name(const char * selected, char * out, size_t out_size) {
+    const char * colon = strchr(selected, ':');
+    size_t name_len = colon ? (size_t) (colon - selected) : strlen(selected);
+    if (name_len >= out_size) name_len = out_size - 1;
+    memcpy(out, selected, name_len);
+    out[name_len] = '\0';
+    if (!colon || strcasecmp(out, "SBC") != 0) return;
+    unsigned int b0 = 0, b1 = 0;
+    if (sscanf(colon + 1, "%2x%2x", &b0, &b1) != 2) return;
+    bool rate_44k1 = (b0 & 0xF0) == 0x20;
+    bool dual = (b0 & 0x0F) == 0x04;
+    bool blocks16_sb8_loud = b1 == (0x10 | 0x04 | 0x01);
+    if (rate_44k1 && dual && blocks16_sb8_loud) snprintf(out, out_size, "SBC-XQ");
+}
+
 static bool bluealsa_parse_selected_codec(const char * info_out, char * out, size_t out_size) {
     const char * line = strstr(info_out, "Selected codec:");
     if (!line) return false;
@@ -2033,16 +2075,20 @@ bool bt_control_get_connected_device_stream(char * out, size_t out_size, unsigne
     char path[256];
     if (!find_source_pcm_path(path, sizeof(path))) return false;
 
+    /* -v appends each codec's configuration blob ("SBC:24150223"), needed
+     * to tell SBC-XQ from plain SBC; other fields are unchanged. */
     char info_out[2048];
-    char * argv[] = { (char *) bluealsa_ctl_name(), (char *) "info", path, NULL };
+    char * argv[] = { (char *) bluealsa_ctl_name(), (char *) "info", (char *) "-v", path, NULL };
     if (!subprocess_run_low_priority(argv, info_out, sizeof(info_out))) return false;
 
     /* "Selected codec: AAC" -- confirmed live via `bluealsactl info
      * <pcm-path>` (also reports "Available codecs: SBC AAC", but that's
      * every codec the accessory advertised support for, not what's
      * actually in use right now). */
+    char selected[96];
+    if (!bluealsa_parse_selected_codec(info_out, selected, sizeof(selected))) return false;
     char codec[32];
-    if (!bluealsa_parse_selected_codec(info_out, codec, sizeof(codec))) return false;
+    bluealsa_codec_display_name(selected, codec, sizeof(codec));
 
     if (out_sample_rate) {
         /* Same two spellings the sink-side parse accepts. */
@@ -2542,6 +2588,7 @@ static void * bt_source_vol_sync_thread_func(void * arg) {
 
     char buf[512];
     size_t buf_len = 0;
+    char reset_path[256] = "";
 
     while (bt_source_vol_sync_active) {
         /* Push app-driven state BEFORE reading monitor events. In
@@ -2580,10 +2627,22 @@ static void * bt_source_vol_sync_thread_func(void * arg) {
                 char path[256];
                 int raw;
                 char volume_text[64];
-                if (sscanf(line_start, "PropertyChanged %255s Volume %63s", path, volume_text) == 2 &&
+                char soft_text[16];
+                if (sscanf(line_start, "PropertyChanged %255s SoftVolume %15s", path, soft_text) == 2 &&
+                    strstr(path, "/a2dpsrc/sink") != NULL) {
+                    /* BlueALSA resets the level on every SoftVolume write and
+                     * reports it right after (max, or the transport's value,
+                     * 127 on a fresh one). That is not a user change: skip it
+                     * and push the player's own volume again instead. */
+                    snprintf(reset_path, sizeof(reset_path), "%s", path);
+                    last_synced_app_percent = -1.0f;
+                    bt_source_vol_last_synced_raw = -1;
+                } else if (sscanf(line_start, "PropertyChanged %255s Volume %63s", path, volume_text) == 2 &&
                     strstr(path, "/a2dpsrc/sink") != NULL &&
                     parse_monitor_volume(volume_text, &raw)) {
-                    if (raw != bt_source_vol_last_synced_raw) {
+                    if (reset_path[0] && strcmp(reset_path, path) == 0) {
+                        reset_path[0] = '\0';
+                    } else if (raw != bt_source_vol_last_synced_raw) {
                         bt_source_vol_last_synced_raw = raw;
                         last_synced_app_percent = (float) raw / (float) BT_SOURCE_VOLUME_MAX;
                         audio_set_volume(last_synced_app_percent);

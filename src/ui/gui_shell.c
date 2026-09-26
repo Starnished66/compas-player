@@ -482,7 +482,7 @@ static bt_codec_type_t bt_codec_identify(const char * codec) {
 
     if (n == 0) return BT_CODEC_TYPE_NONE;
 
-    if (strcmp(norm, "sbc") == 0) return BT_CODEC_TYPE_SBC;
+    if (strcmp(norm, "sbc") == 0 || strcmp(norm, "sbcxq") == 0) return BT_CODEC_TYPE_SBC;
     if (strcmp(norm, "aac") == 0) return BT_CODEC_TYPE_AAC;
     if (strcmp(norm, "aptx") == 0) return BT_CODEC_TYPE_APTX;
     if (strcmp(norm, "aptxhd") == 0) return BT_CODEC_TYPE_APTX_HD;
