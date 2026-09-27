@@ -106,8 +106,8 @@ static void compute_band_coeffs(int index, unsigned int sample_rate) {
     const peq_band_t * band = &bands[index];
     double freq = band->freq_hz;
     /* Clamp so w0 stays comfortably inside (0, pi) regardless of what the
-     * current track's sample rate is (e.g. DSD's decimated 352.8kHz output,
-     * where a 16kHz band is nowhere near Nyquist, vs a hypothetical very
+     * current track's sample rate is (e.g. a 352.8kHz PCM file, where a
+     * 16kHz band is nowhere near Nyquist, vs a hypothetical very
      * low sample rate where it could be). */
     double nyquist = (double) sample_rate / 2.0;
     if (freq > nyquist * 0.99) freq = nyquist * 0.99;

@@ -962,6 +962,20 @@ favorite-writer-selftest:
 	    -lpthread -o $(BUILD_TARGET_DIR)/favorite_writer_test
 	./$(BUILD_TARGET_DIR)/favorite_writer_test
 
+# DSD decoder: synthetic DSF/DFF tones for level, noise, bit order, seek
+# continuity, rates, malformed headers and 64-bit offsets. The same test
+# also runs as a MIPS build under qemu-mipsel when available (32-bit long).
+.PHONY: dsd-decoder-selftest
+dsd-decoder-selftest:
+	@mkdir -p $(BUILD_TARGET_DIR)
+	$(CC) -O2 -g -Wall -Wextra -Isrc/audio src/audio/dsd_decoder.c src/audio/dsd_filter.c \
+	    src/audio/dsd_decoder_test.c -lm -lpthread -o $(BUILD_TARGET_DIR)/dsd_decoder_test
+	./$(BUILD_TARGET_DIR)/dsd_decoder_test
+	@if command -v qemu-mipsel >/dev/null 2>&1; then \
+	    $(CROSS_CC) -O2 -static -Wall -Isrc/audio src/audio/dsd_decoder.c src/audio/dsd_filter.c \
+	        src/audio/dsd_decoder_test.c -lm -lpthread -o $(BUILD_TARGET_DIR)/dsd_decoder_test_mips && \
+	    qemu-mipsel ./$(BUILD_TARGET_DIR)/dsd_decoder_test_mips; fi
+
 subprocess-timeout-selftest:
 	@mkdir -p $(BUILD_TARGET_DIR)
 	$(CC) -O0 -g -Wall -Wextra -Isrc/core src/core/subprocess.c src/core/subprocess_timeout_test.c -o $(BUILD_TARGET_DIR)/subprocess_timeout_test

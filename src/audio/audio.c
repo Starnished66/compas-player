@@ -507,8 +507,14 @@ static decoder_read_result_t decoder_read_s16(decoder_t * dec, uint64_t frames, 
         }
         case DECODER_AIFF:
             return aiff_read_pcm_frames_s16(dec->as.aiff, frames, buf);
-        case DECODER_DSD:
-            return dsd_read_pcm_frames_s16(dec->as.dsd, frames, buf);
+        case DECODER_DSD: {
+            decoder_read_result_t r = dsd_read_pcm_frames_s16(dec->as.dsd, frames, buf);
+            /* The decoder takes a truncated file's real length at open; this
+             * keeps the loop in step if the file shrinks during playback, so
+             * that end is not treated as a premature EOF. */
+            dec->total_frames = dsd_get_total_pcm_frame_count(dec->as.dsd);
+            return r;
+        }
         case DECODER_AAC:
             return aac_read_pcm_frames_s16(dec->as.aac, frames, buf);
         case DECODER_ALAC:
@@ -573,8 +579,16 @@ static decoder_read_result_t decoder_read_s32(decoder_t * dec, uint64_t frames, 
             /* AIFF decodes internally to right-justified sign-extended int32 for
              * 24-bit sources: DO NOT shift; already in S24_LE layout. */
             return aiff_read_pcm_frames_s32(dec->as.aiff, frames, buf);
+        case DECODER_DSD:
+            /* The DSD decimator's float output is quantized straight to
+             * right-justified 24-bit: already in S24_LE layout. */
+        {
+            decoder_read_result_t r = dsd_read_pcm_frames_s32(dec->as.dsd, frames, buf);
+            dec->total_frames = dsd_get_total_pcm_frame_count(dec->as.dsd); /* see decoder_read_s16() */
+            return r;
+        }
         default:
-            /* Only the five lossless formats above have a wide read path.
+            /* Only the formats above have a wide read path.
              * Any other decoder reaching here is a caller bug. */
             res.status = DECODER_READ_FATAL_ERROR;
             return res;
@@ -1300,12 +1314,15 @@ static int32_t * buf_out_s32 = NULL;
 static bool can_use_wide_path(const decoder_t * dec) {
     if (!dec) return false;
     if (dec->net_stream != NULL) return false;
-    if (dec->source_bit_depth <= 16) return false;
+    /* DSD reports a 1-bit source but decimates to far more than 16 bits of
+     * in-band resolution, so it always qualifies. */
+    if (dec->type != DECODER_DSD && dec->source_bit_depth <= 16) return false;
     if (dec->type != DECODER_FLAC &&
         dec->type != DECODER_WAV &&
         dec->type != DECODER_ALAC &&
         dec->type != DECODER_APE &&
-        dec->type != DECODER_AIFF) return false;
+        dec->type != DECODER_AIFF &&
+        dec->type != DECODER_DSD) return false;
     if (!audio_output_supports_wide_path()) return false;
     if (!buf_cur_s32) return false;
     return true;
