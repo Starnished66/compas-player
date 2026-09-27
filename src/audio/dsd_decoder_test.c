@@ -60,10 +60,10 @@ static uint8_t * modulate(unsigned int rate, double seconds, size_t * out_bytes)
     return modulate_tone(rate, seconds, TONE_HZ, TONE_AMP, out_bytes);
 }
 
-/* Independent reference: the documented Kaiser design (448 taps per DSD64
- * multiple, beta 8.6, cutoff at the base rate) convolved bit by bit in
- * double precision, one output per multiple/2 bits, history starting as
- * DSD silence. The decoder's byte tables must reproduce it. */
+/* Independent reference: the documented three-stage design evaluated
+ * in double precision, bit by bit for stage A, with stage A's history
+ * starting as DSD silence and the later stages at zero. The decoder's byte
+ * tables and float stages must reproduce it. */
 static double bessel_i0(double x) {
     double sum = 1.0, term = 1.0;
     for (int k = 1; term > 1e-12 * sum; k++) {
@@ -73,33 +73,89 @@ static double bessel_i0(double x) {
     return sum;
 }
 
+static double ref_kaiser(int n, int taps, double beta) {
+    double r = 2.0 * n / (taps - 1) - 1.0;
+    return bessel_i0(beta * sqrt(1.0 - r * r)) / bessel_i0(beta);
+}
+
+static double ref_stage_a_gain(double nu, int r) {
+    double x = M_PI * nu / 2.0;
+    return x == 0 ? 1.0 : pow(sin(x) / (r * sin(x / r)), 5);
+}
+
 static double * reference_decode(const uint8_t * bits_msb, size_t bytes, unsigned int multiple, unsigned int base,
                                  uint64_t * out_frames) {
-    int n_taps = 448 * (int) (multiple / 64), m = n_taps - 1;
-    double * taps = malloc(sizeof(double) * n_taps), sum = 0, c = 2.0 * base / ((double) multiple * base);
-    for (int n = 0; n < n_taps; n++) {
-        double x = n - m / 2.0, r = 2.0 * n / m - 1.0;
-        taps[n] = (x == 0 ? c : sin(M_PI * c * x) / (M_PI * x)) * bessel_i0(8.6 * sqrt(1 - r * r)) / bessel_i0(8.6);
-        sum += taps[n];
+    (void) base;
+    int r = (int) multiple / 8, a_len = 5 * (r - 1) + 1;
+    double * a_taps = calloc((size_t) a_len, sizeof(double));
+    a_taps[0] = 1;
+    for (int order = 0, filled = 1; order < 5; order++, filled += r - 1) {
+        double * next = calloc((size_t) a_len, sizeof(double));
+        for (int i = 0; i < filled; i++)
+            for (int k = 0; k < r; k++) next[i + k] += a_taps[i] / r;
+        free(a_taps);
+        a_taps = next;
     }
-    for (int n = 0; n < n_taps; n++) taps[n] /= sum;
-    size_t bits_total = bytes * 8, step = multiple / 2;
-    uint64_t frames = bits_total / step;
-    double * out = malloc(sizeof(double) * frames);
-    for (uint64_t f = 0; f < frames; f++) {
-        /* The newest bit in the window is the last bit of output f. */
-        long newest = (long) ((f + 1) * step) - 1;
+
+    double b_taps[23], c_taps[39], sum = 0;
+    for (int n = 0; n < 23; n++) {
+        int x = n - 11;
+        b_taps[n] = (x == 0 ? 0.5 : sin(M_PI * 0.5 * x) / (M_PI * x)) * ref_kaiser(n, 23, 12.0);
+        sum += b_taps[n];
+    }
+    for (int n = 0; n < 23; n++) b_taps[n] /= sum;
+    sum = 0;
+    for (int n = 0; n < 39; n++) {
+        int x = n - 19;
+        double acc = 0, step = 0.25 / 1024;
+        for (int i = 0; i <= 1024; i++) {
+            double w = (i == 0 || i == 1024) ? 1 : (i & 1) ? 4 : 2;
+            acc += w * cos(2 * M_PI * i * step * x) / ref_stage_a_gain(i * step, r);
+        }
+        c_taps[n] = 2 * acc * step / 3 * ref_kaiser(n, 39, 11.7);
+        sum += c_taps[n];
+    }
+    for (int n = 0; n < 39; n++) c_taps[n] /= sum;
+
+    size_t bits_total = bytes * 8;
+    uint64_t a_count = bits_total / (size_t) r, frames = a_count / 4;
+    double * a_out = malloc(sizeof(double) * (size_t) a_count);
+    for (uint64_t j = 0; j < a_count; j++) {
+        long newest = (long) ((j + 1) * (uint64_t) r) - 1;
         double acc = 0;
-        for (int k = 0; k < n_taps; k++) {
-            long bit = newest - (n_taps - 1) + k;
+        for (int k = 0; k < a_len; k++) {
+            long bit = newest - (a_len - 1) + k;
             int value;
             if (bit < 0) value = (0x69 >> (7 - (int) ((bit % 8 + 8) % 8))) & 1; /* silence prefill */
             else value = (bits_msb[bit / 8] >> (7 - bit % 8)) & 1;
-            acc += taps[k] * (value ? 1.0 : -1.0);
+            acc += a_taps[k] * (value ? 1.0 : -1.0);
+        }
+        a_out[j] = acc;
+    }
+    uint64_t b_count = a_count / 2;
+    double * b_out = malloc(sizeof(double) * (size_t) b_count);
+    for (uint64_t j = 0; j < b_count; j++) {
+        long newest = (long) (2 * j + 1);
+        double acc = 0;
+        for (int k = 0; k < 23; k++) {
+            long at = newest - 22 + k;
+            acc += b_taps[k] * (at < 0 ? 0 : a_out[at]);
+        }
+        b_out[j] = acc;
+    }
+    double * out = malloc(sizeof(double) * (size_t) frames);
+    for (uint64_t f = 0; f < frames; f++) {
+        long newest = (long) (2 * f + 1);
+        double acc = 0;
+        for (int k = 0; k < 39; k++) {
+            long at = newest - 38 + k;
+            acc += c_taps[k] * (at < 0 ? 0 : b_out[at]);
         }
         out[f] = acc;
     }
-    free(taps);
+    free(a_taps);
+    free(a_out);
+    free(b_out);
     *out_frames = frames;
     return out;
 }
@@ -349,10 +405,54 @@ int main(void) {
         free(data);
     }
 
+    /* DoP: markers alternate 0x05/0xFA, the two bytes under each marker
+     * are the raw bits earliest first (LSB-first DSF reversed), seek and
+     * the switch back to PCM keep the position. */
+    {
+        const char * dop_files[] = { "lsb.dsf", "msb.dsf", "tone.dff" };
+        for (int file = 0; file < 3; file++) {
+            dsd_decoder_t * dop = dsd_open_file(dop_files[file]);
+            assert(dop && !dsd_is_dop(dop) && dsd_get_dop_sample_rate(dop) == 176400);
+            uint64_t at = 99;
+            assert(dsd_set_dop(dop, true, 0, &at) && at == 0 && dsd_is_dop(dop));
+            assert(dsd_get_pcm_sample_rate(dop) == 176400 && dsd_get_total_pcm_frame_count(dop) == bytes / 2);
+            int32_t words[2 * 64];
+            decoder_read_result_t r = dsd_read_pcm_frames_s32(dop, 64, words);
+            assert(r.frames == 64);
+            for (int i = 0; i < 64; i++) {
+                for (int ch = 0; ch < 2; ch++) {
+                    uint32_t w = (uint32_t) words[i * 2 + ch] & 0xffffff;
+                    assert((w >> 16) == (i % 2 ? 0xFA : 0x05));
+                    assert(((w >> 8) & 0xff) == tone[ch * bytes + 2 * i] && (w & 0xff) == tone[ch * bytes + 2 * i + 1]);
+                    /* Sign-extended 24-bit sample. */
+                    assert((words[i * 2 + ch] < 0) == ((w & 0x800000) != 0));
+                }
+            }
+            int16_t narrow[2];
+            assert(dsd_read_pcm_frames_s16(dop, 1, narrow).status == DECODER_READ_FATAL_ERROR);
+            assert(dsd_seek_to_pcm_frame(dop, 5000));
+            r = dsd_read_pcm_frames_s32(dop, 1, words);
+            assert(r.frames == 1 && (((uint32_t) words[0] >> 8) & 0xff) == tone[2 * 5000]);
+            /* 5001 DoP frames = 10002 bytes; PCM frames are 4 bytes. */
+            assert(dsd_set_dop(dop, false, 5001, &at) && at == 10002 / 4 && !dsd_is_dop(dop));
+            assert(dsd_get_pcm_sample_rate(dop) == 88200 && dsd_get_total_pcm_frame_count(dop) == frames);
+            int16_t pcm_chunk[2 * 16];
+            r = dsd_read_pcm_frames_s16(dop, 16, pcm_chunk);
+            assert(r.frames == 16 && memcmp(pcm_chunk, lsb + at * 2, 16 * 4) == 0);
+            /* Reading to the end in DoP mode gives every frame, then EOF. */
+            assert(dsd_set_dop(dop, true, 0, NULL));
+            uint64_t total = 0;
+            int32_t block[2 * 4096];
+            while ((r = dsd_read_pcm_frames_s32(dop, 4096, block)).frames) total += r.frames;
+            assert(r.status == DECODER_READ_EOF && total == bytes / 2);
+            dsd_close(dop);
+        }
+    }
+
     /* Decoders at one rate share a single filter table. */
     const dsd_filter_design_t * a = dsd_filter_design_acquire(64, 44100);
     const dsd_filter_design_t * b = dsd_filter_design_acquire(64, 44100);
-    assert(a && a == b && dsd_filter_groups(a) == 56 && dsd_filter_bytes_per_output(a) == 4);
+    assert(a && a == b && dsd_filter_groups(a) == 5 && dsd_filter_bytes_per_output(a) == 4);
     dsd_filter_design_release(a);
     dsd_filter_design_release(b);
     assert(!dsd_filter_design_acquire(512, 44100) && !dsd_filter_design_acquire(64, 32000));

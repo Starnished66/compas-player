@@ -1334,6 +1334,63 @@ static bool can_use_wide_crossfade(const decoder_t * cur, const decoder_t * next
 }
 #endif
 
+/* A DSD decoder passing its bits through as DoP. Its frames must reach the
+ * DAC untouched: no ReplayGain, EQ, volume, fade or crossfade. */
+static bool decoder_is_dop(const decoder_t * dec) {
+    return dec->type == DECODER_DSD && dsd_is_dop(dec->as.dsd);
+}
+
+#ifndef HOST_BUILD
+/* Highest DoP rate the local DAC takes (DSD128 at 352.8 kHz, or 384 kHz in
+ * the 48 kHz family). DSD256 would need 705.6 kHz and is converted. */
+#define DOP_MAX_SAMPLE_RATE 384000
+
+static void refresh_dsd_format(decoder_t * dec) {
+    dec->sample_rate = dsd_get_pcm_sample_rate(dec->as.dsd);
+    dec->total_frames = dsd_get_total_pcm_frame_count(dec->as.dsd);
+}
+
+/* Switches a freshly opened DSD decoder (still at frame 0) to native DoP
+ * when the local DAC can play it. */
+static void maybe_enable_dop(decoder_t * dec) {
+    if (dec->type != DECODER_DSD || dec->net_stream || dsd_is_dop(dec->as.dsd) || !buf_cur_s32) return;
+    unsigned int rate = dsd_get_dop_sample_rate(dec->as.dsd);
+    if (dec->channels != 2 || rate > DOP_MAX_SAMPLE_RATE || audio_output_dop_rate_refused(rate)) return;
+    if (!audio_output_is_local_requested() || !audio_output_dop_supported()) return;
+    if (!dsd_set_dop(dec->as.dsd, true, 0, NULL)) (void) dsd_set_dop(dec->as.dsd, false, 0, NULL);
+    refresh_dsd_format(dec);
+}
+
+static void publish_current_format_locked(const decoder_t * dec, const char * path,
+                                          float replaygain_linear, bool replaygain_applied);
+
+/* Continues a DoP decoder as PCM from *frame_io (DoP frames in, PCM frames
+ * out), for when the DAC refuses DoP or the route leaves the local DAC.
+ * With publish_path, the current track's position, rate and format are
+ * republished in the same locked step that converts a pending seek, so no
+ * seek can be computed against the old timeline in between. */
+static bool dop_fall_back_to_pcm(decoder_t * dec, uint64_t * frame_io, const char * publish_path,
+                                 float replaygain_linear, bool replaygain_applied) {
+    uint64_t pcm_frame = 0;
+    unsigned int dop_rate = dec->sample_rate;
+    bool ok = dsd_set_dop(dec->as.dsd, false, *frame_io, &pcm_frame);
+    refresh_dsd_format(dec);
+    *frame_io = pcm_frame;
+    pthread_mutex_lock(&audio_mutex);
+    if (seek_pending && !seek_pending_is_percent && dop_rate)
+        seek_pending_frame = seek_pending_frame * dec->sample_rate / dop_rate;
+    if (publish_path && ok) {
+        frames_played = pcm_frame;
+        current_total_frames = dec->total_frames;
+        current_sample_rate = dec->sample_rate;
+        publish_current_format_locked(dec, publish_path, replaygain_linear, replaygain_applied);
+    }
+    pthread_mutex_unlock(&audio_mutex);
+    DBG_LOG("audio: native DSD not available, converting to PCM from frame %" PRIu64 "\n", pcm_frame);
+    return ok;
+}
+#endif
+
 /* audio_mutex must be held. Publishing a copied scalar snapshot here keeps
  * the UI completely independent from the playback thread's stack-local
  * decoder_t and its short-lived gapless/crossfade prefetched decoder. */
@@ -1371,6 +1428,7 @@ static void publish_current_format_locked(const decoder_t * dec, const char * pa
         ? (double) dec->total_frames / (double) dec->sample_rate : 0.0;
     current_format_info.is_stream = dec->net_stream != NULL;
     current_format_info.is_dsd = dec->type == DECODER_DSD;
+    current_format_info.dsd_native = decoder_is_dop(dec);
     current_format_info.replaygain_applied = replaygain_applied;
     current_format_info.replaygain_applied_db = replaygain_applied && replaygain_linear > 0.0f
         ? 20.0 * log10((double) replaygain_linear) : 0.0;
@@ -1453,11 +1511,27 @@ static bool reopen_decoder_at(decoder_t * dec, const char * path,
     uint32_t saved_mp3_padding = saved_mp3_points ? dec->as.mp3->paddingInPCMFrames : 0;
     dec->mp3_seek_points = NULL;
     dec->mp3_seek_point_count = 0;
+    /* last_confirmed_frame counts DoP frames for a DoP decoder. */
+    bool was_dop = decoder_is_dop(dec);
     decoder_close(dec);
     if (!decoder_open(dec, path)) {
         free(saved_mp3_points);
         return false;
     }
+#ifndef HOST_BUILD
+    if (was_dop && dec->type == DECODER_DSD) {
+        /* The new decoder restarts its markers at 0x05; start a new stream
+         * so the DAC never sees the alternation break. */
+        audio_output_close();
+        if (!dsd_set_dop(dec->as.dsd, true, 0, NULL)) {
+            decoder_close(dec);
+            return false;
+        }
+        refresh_dsd_format(dec);
+    }
+#else
+    (void) was_dop;
+#endif
     if (saved_mp3_points) {
         if (dec->type != DECODER_MP3 ||
             dec->as.mp3->sampleRate != saved_mp3_rate ||
@@ -1603,6 +1677,7 @@ static void close_device(void) {
 static write_result_t ensure_device_with_retry(unsigned int channels,
                                                unsigned int sample_rate,
                                                bool want_s24,
+                                               bool dop,
                                                const char * path,
                                                bool allow_during_stop_restart) {
     for (int attempt = 0; attempt <= OUTPUT_WRITE_RETRIES; attempt++) {
@@ -1612,10 +1687,12 @@ static write_result_t ensure_device_with_retry(unsigned int channels,
         pthread_mutex_unlock(&audio_mutex);
         if (abort) return WRITE_RESULT_ABORTED;
 
-        bool ok = want_s24
-            ? ensure_device_format(channels, sample_rate, true)
+        bool ok = dop ? audio_output_ensure_dop(channels, sample_rate)
+            : want_s24 ? ensure_device_format(channels, sample_rate, true)
             : ensure_device(channels, sample_rate);
         if (ok) return WRITE_RESULT_OK;
+        /* A refused DoP rate will not change on retry. */
+        if (dop) break;
 
         if (attempt == OUTPUT_WRITE_RETRIES) break;
         DBG_LOG("audio: output ensure failed attempt %d/%d (%s)\n",
@@ -1634,7 +1711,7 @@ static write_result_t write_device_with_retry_ex(const int16_t * buf, uint64_t f
     uint64_t delivered = 0;
     if (out_delivered_frames) *out_delivered_frames = 0;
 
-    write_result_t ensured = ensure_device_with_retry(channels, sample_rate, false,
+    write_result_t ensured = ensure_device_with_retry(channels, sample_rate, false, false,
                                                       path, allow_during_stop_restart);
     if (ensured != WRITE_RESULT_OK) return ensured;
 
@@ -1712,11 +1789,12 @@ static write_result_t write_device_with_retry_s32_ex(const int32_t * buf, uint64
                                                     const char * path,
                                                     int16_t * fallback_buf,
                                                     uint64_t * out_delivered_frames,
-                                                    bool allow_during_stop_restart) {
+                                                    bool allow_during_stop_restart,
+                                                    bool dop) {
     uint64_t delivered = 0;
     if (out_delivered_frames) *out_delivered_frames = 0;
 
-    write_result_t ensured = ensure_device_with_retry(channels, sample_rate, true,
+    write_result_t ensured = ensure_device_with_retry(channels, sample_rate, true, dop,
                                                       path, allow_during_stop_restart);
     if (ensured != WRITE_RESULT_OK) return ensured;
 
@@ -1740,7 +1818,8 @@ static write_result_t write_device_with_retry_s32_ex(const int32_t * buf, uint64
                 if (out_delivered_frames) *out_delivered_frames = delivered;
                 return WRITE_RESULT_ABORTED;
             }
-            if (!ensure_device_format(channels, sample_rate, true)) {
+            if (dop ? !audio_output_ensure_dop(channels, sample_rate)
+                    : !ensure_device_format(channels, sample_rate, true)) {
                 DBG_LOG("audio: output reopen (s32) failed on retry %d (%s)\n",
                         attempt, safe_path_tail(path));
                 continue;
@@ -1753,7 +1832,10 @@ static write_result_t write_device_with_retry_s32_ex(const int32_t * buf, uint64
         uint64_t remaining_frames = frames - delivered;
         uint64_t written_this_call = 0;
         bool ok;
-        if (audio_output_is_s24_active()) {
+        if (dop && !audio_output_is_dop_active()) {
+            /* Never narrowed or written as PCM: the caller converts instead. */
+            break;
+        } else if (audio_output_is_s24_active()) {
             ok = audio_output_write_s24(cur_buf, remaining_frames, channels, &written_this_call);
         } else {
             /* ensure_device_format() above only REQUESTED S24_LE -- this is the
@@ -1794,7 +1876,18 @@ static inline write_result_t write_device_with_retry_s32(const int32_t * buf, ui
                                                          const char * path,
                                                          int16_t * fallback_buf,
                                                          uint64_t * out_delivered_frames) {
-    return write_device_with_retry_s32_ex(buf, frames, channels, sample_rate, path, fallback_buf, out_delivered_frames, false);
+    return write_device_with_retry_s32_ex(buf, frames, channels, sample_rate, path, fallback_buf, out_delivered_frames,
+                                          false, false);
+}
+
+/* DoP frames straight to the DAC; see decoder_is_dop(). */
+static inline write_result_t write_device_with_retry_dop(const int32_t * buf, uint64_t frames,
+                                                         unsigned int channels,
+                                                         unsigned int sample_rate,
+                                                         const char * path,
+                                                         uint64_t * out_delivered_frames) {
+    return write_device_with_retry_s32_ex(buf, frames, channels, sample_rate, path, NULL, out_delivered_frames,
+                                          false, true);
 }
 
 static inline write_result_t write_device_transition_ramp_s32(const int32_t * buf, uint64_t frames,
@@ -1804,7 +1897,30 @@ static inline write_result_t write_device_transition_ramp_s32(const int32_t * bu
                                                               int16_t * fallback_buf,
                                                               uint64_t * out_delivered_frames) {
     return write_device_with_retry_s32_ex(buf, frames, channels, sample_rate, path,
-                                          fallback_buf, out_delivered_frames, true);
+                                          fallback_buf, out_delivered_frames, true, false);
+}
+
+/* The gapless handoff's single open attempt, with the same DoP fallback. */
+static bool ensure_device_for_decoder(decoder_t * dec, uint64_t * frame_io) {
+    if (decoder_is_dop(dec)) {
+        if (audio_output_ensure_dop(dec->channels, dec->sample_rate)) return true;
+        if (!dop_fall_back_to_pcm(dec, frame_io, NULL, 1.0f, false)) return false;
+    }
+    return ensure_device_format(dec->channels, dec->sample_rate, can_use_wide_path(dec));
+}
+
+/* Opens the output for dec. A DoP decoder the DAC refuses continues as
+ * PCM from *frame_io (converted to PCM frames) and opens again. */
+static write_result_t ensure_output_for_decoder(decoder_t * dec, uint64_t * frame_io, const char * path,
+                                                bool allow_during_stop_restart) {
+    if (decoder_is_dop(dec)) {
+        write_result_t result = ensure_device_with_retry(dec->channels, dec->sample_rate, true, true,
+                                                         path, allow_during_stop_restart);
+        if (result != WRITE_RESULT_FAILED) return result;
+        if (!dop_fall_back_to_pcm(dec, frame_io, NULL, 1.0f, false)) return WRITE_RESULT_FAILED;
+    }
+    return ensure_device_with_retry(dec->channels, dec->sample_rate, can_use_wide_path(dec), false,
+                                    path, allow_during_stop_restart);
 }
 
 /* Decode/process/write one transition fade without narrowing an eligible S24
@@ -1815,6 +1931,8 @@ static uint64_t write_transition_fade(decoder_t * dec, uint64_t fade_frames,
                                       int16_t * buf_s16, int32_t * buf_s32,
                                       float replaygain_linear, float volume,
                                       const char * path) {
+    /* A DoP stream cannot be faded; it simply stops. */
+    if (decoder_is_dop(dec)) return 0;
     if (can_use_wide_path(dec) && audio_output_is_s24_active()) {
         decoder_read_result_t r = decoder_read_s32(dec, fade_frames, buf_s32);
         if (r.frames == 0) return 0;
@@ -1978,6 +2096,9 @@ static void * audio_thread_func(void * arg) {
         cur_open = true;
         cur_frames_played_local = 0;
         bool initial_mp3_seek_deferred = false;
+#ifndef HOST_BUILD
+        maybe_enable_dop(&cur_dec);
+#endif
 
         /* Proactively request an index for every eligible MP3 right at open,
          * not just when resuming at a non-zero position -- a cache hit (see
@@ -2038,12 +2159,11 @@ static void * audio_thread_func(void * arg) {
         /* Reset S24 probe cache before ensuring format so each new track
          * can negotiate S24_LE output. */
         audio_output_reset_s24_probe();
-        bool initial_wide = can_use_wide_path(&cur_dec);
-        write_result_t initial_output = ensure_device_with_retry(cur_dec.channels,
-                                                                 cur_dec.sample_rate,
-                                                                 initial_wide,
-                                                                 cur_path_local,
-                                                                 false);
+        /* A new DoP decoder starts its markers at 0x05; a DoP stream left
+         * open by the previous track may expect 0xFA next. */
+        if (decoder_is_dop(&cur_dec) && audio_output_is_dop_active()) close_device();
+        write_result_t initial_output = ensure_output_for_decoder(&cur_dec, &cur_frames_played_local,
+                                                                  cur_path_local, false);
 #else
         bool initial_output_ok = ensure_device(cur_dec.channels, cur_dec.sample_rate);
 #endif
@@ -2293,7 +2413,31 @@ static void * audio_thread_func(void * arg) {
                  * avoiding unnecessary close+reopen cycles. */
                 bool blend_can_be_wide = is_blending && can_use_wide_crossfade(&cur_dec, &nxt_dec);
                 bool use_wide = blend_can_be_wide || (!is_blending && can_use_wide_path(&cur_dec));
-                ensure_device_format(cur_dec.channels, cur_dec.sample_rate, use_wide);
+                if (decoder_is_dop(&cur_dec) && !audio_output_ensure_dop(cur_dec.channels, cur_dec.sample_rate)) {
+                    /* The route left the local DAC, or it refused DoP: carry on
+                     * converted, from the last frame actually delivered. */
+                    close_decoder_if_open(&nxt_dec, &nxt_open);
+                    nxt_format_matches = false;
+                    unsigned int dop_rate = cur_dec.sample_rate;
+                    if (!dop_fall_back_to_pcm(&cur_dec, &cur_frames_played_local, cur_path_local,
+                                              cur_replaygain_linear, cur_replaygain_applied)) {
+                        pthread_mutex_lock(&audio_mutex);
+                        last_playback_error = AUDIO_ERROR_DECODER_FAILED;
+                        last_playback_error_generation = cur_generation;
+                        have_current = false;
+                        clear_current_format_locked();
+                        paused = false;
+                        pthread_mutex_unlock(&audio_mutex);
+                        should_restart = false;
+                        was_stopped = false;
+                        ended_with_no_next = false;
+                        goto inner_loop_done;
+                    }
+                    if (do_seek && dop_rate) seek_frame = seek_frame * cur_dec.sample_rate / dop_rate;
+                    use_wide = can_use_wide_path(&cur_dec);
+                    need_fade_in = true;
+                }
+                if (!decoder_is_dop(&cur_dec)) ensure_device_format(cur_dec.channels, cur_dec.sample_rate, use_wide);
                 /* use_wide is only the REQUEST; audio_output_is_s24_active() (checked
                  * right after ensure_device_format() actually ran) is the ground truth
                  * -- see its own doc comment for why these can disagree (route race,
@@ -2305,6 +2449,7 @@ static void * audio_thread_func(void * arg) {
                 pthread_mutex_lock(&audio_mutex);
                 if (current_format_info.valid) {
                     current_format_info.output_bit_depth = (use_wide && audio_output_is_s24_active()) ? 24 : 16;
+                    current_format_info.dsd_native = decoder_is_dop(&cur_dec) && audio_output_is_dop_active();
                 }
                 pthread_mutex_unlock(&audio_mutex);
             }
@@ -2451,7 +2596,7 @@ static void * audio_thread_func(void * arg) {
             uint64_t frames_remaining = (cur_dec.total_frames > cur_frames_played_local)
                 ? cur_dec.total_frames - cur_frames_played_local : 0;
             uint64_t crossfade_frames = (uint64_t) (CROSSFADE_SECONDS * (double) cur_dec.sample_rate);
-            bool in_blend_window = xfade_on && staged_next_path != NULL &&
+            bool in_blend_window = xfade_on && staged_next_path != NULL && !decoder_is_dop(&cur_dec) &&
                                    frames_remaining > 0 && frames_remaining <= crossfade_frames;
 
             if (in_blend_window && !nxt_open) {
@@ -3011,7 +3156,11 @@ static void * audio_thread_func(void * arg) {
              * audio_output_write_s24(), which would otherwise correctly
              * refuse the write (audio_output_is_s24_active() false) and
              * exhaust this chunk's retry budget into a hard playback failure. */
-            if (can_use_wide_path(&cur_dec) && audio_output_is_s24_active()) {
+            bool dop_chunk = decoder_is_dop(&cur_dec);
+            /* DoP frames never take the s16 path; the next chunk's output
+             * check falls back to PCM if the DoP stream is gone. */
+            if (dop_chunk && !audio_output_is_dop_active()) continue;
+            if (dop_chunk || (can_use_wide_path(&cur_dec) && audio_output_is_s24_active())) {
                 decoder_read_result_t r_cur = decoder_read_s32(&cur_dec, chunk_frames, buf_cur_s32);
                 uint64_t n_cur = r_cur.frames;
 
@@ -3129,8 +3278,11 @@ static void * audio_thread_func(void * arg) {
                              * initial-open call site's identical comment on why
                              * this must run before ensure_device_format(). */
                             audio_output_reset_s24_probe();
-                            bool next_wide = can_use_wide_path(&nxt_dec);
-                            bool device_ok = ensure_device_format(nxt_dec.channels, nxt_dec.sample_rate, next_wide);
+                            if (nxt_frames_consumed == 0) maybe_enable_dop(&nxt_dec);
+                            /* DoP to DoP at one rate keeps the stream open. */
+                            if (decoder_is_dop(&cur_dec) && decoder_is_dop(&nxt_dec))
+                                dsd_continue_dop_markers(nxt_dec.as.dsd, cur_dec.as.dsd);
+                            bool device_ok = ensure_device_for_decoder(&nxt_dec, &nxt_frames_consumed);
                             decoder_close(&cur_dec);
                             cur_dec = nxt_dec;
                             cur_open = true;
@@ -3169,9 +3321,13 @@ static void * audio_thread_func(void * arg) {
                     }
                 }
 
+                if (dop_chunk) {
+                    need_fade_in = false; /* DSD bits: nothing may scale them */
+                } else {
                 apply_gain_s32(buf_cur_s32, (size_t) n_cur * cur_dec.channels, cur_replaygain_linear);
                 peq_process_s32(buf_cur_s32, (size_t) n_cur, (int) cur_dec.channels, cur_dec.sample_rate);
                 apply_gain_s32(buf_cur_s32, (size_t) n_cur * cur_dec.channels, vol);
+                }
 
                 if (need_fade_in && n_cur > 0) {
                     uint64_t rf = calculate_ramp_frames(cur_dec.sample_rate);
@@ -3196,14 +3352,25 @@ static void * audio_thread_func(void * arg) {
                  * if the device turns out not to actually be S24_LE by
                  * write time (see write_device_with_retry_s32_ex()'s own
                  * comment). */
-                write_result_t wr = write_device_with_retry_s32(buf_cur_s32, n_cur, cur_dec.channels,
-                                                                 cur_dec.sample_rate, cur_path_local,
-                                                                 buf_cur, &delivered);
+                write_result_t wr = dop_chunk
+                    ? write_device_with_retry_dop(buf_cur_s32, n_cur, cur_dec.channels, cur_dec.sample_rate,
+                                                  cur_path_local, &delivered)
+                    : write_device_with_retry_s32(buf_cur_s32, n_cur, cur_dec.channels,
+                                                  cur_dec.sample_rate, cur_path_local,
+                                                  buf_cur, &delivered);
                 cur_frames_played_local += delivered;
                 pthread_mutex_lock(&audio_mutex);
                 frames_played = cur_frames_played_local;
                 pthread_mutex_unlock(&audio_mutex);
 
+                if (wr == WRITE_RESULT_FAILED && dop_chunk &&
+                    dop_fall_back_to_pcm(&cur_dec, &cur_frames_played_local, cur_path_local,
+                                         cur_replaygain_linear, cur_replaygain_applied)) {
+                    /* The DoP stream failed: continue converted from the last
+                     * delivered frame instead of stopping the track. */
+                    need_fade_in = true;
+                    continue;
+                }
                 if (wr == WRITE_RESULT_ABORTED) {
                     continue;
                 } else if (wr == WRITE_RESULT_FAILED) {
@@ -3342,8 +3509,8 @@ static void * audio_thread_func(void * arg) {
                          * initial-open call site's identical comment on why
                          * this must run before ensure_device_format(). */
                         audio_output_reset_s24_probe();
-                        bool next_wide = can_use_wide_path(&nxt_dec);
-                        bool device_ok = ensure_device_format(nxt_dec.channels, nxt_dec.sample_rate, next_wide);
+                        if (nxt_frames_consumed == 0) maybe_enable_dop(&nxt_dec);
+                        bool device_ok = ensure_device_for_decoder(&nxt_dec, &nxt_frames_consumed);
 #else
                         bool device_ok = ensure_device(nxt_dec.channels, nxt_dec.sample_rate);
 #endif

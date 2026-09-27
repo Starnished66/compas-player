@@ -9,15 +9,20 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-#define DSD_TAPS_PER_64 448 /* 56 groups: a multiple of 4 for the unrolled sum */
-#define DSD_KAISER_BETA 8.6
+#define DSD_A_ORDER 5
+#define DSD_B_BETA 12.0
+#define DSD_C_BETA 11.7
+#define DSD_C_INTEGRATION_STEPS 1024
 
 struct dsd_filter_design {
     unsigned int multiple;
     unsigned int base_rate;
     int references;
-    int groups;           /* taps / 8 */
-    int bytes_per_output; /* multiple / 16: the decimation in bytes */
+    int groups;           /* stage A window in bytes */
+    int bytes_per_a;      /* bytes per stage A output: the decimation R / 8 */
+    int bytes_per_output; /* 4 stage A outputs per PCM sample */
+    float b_taps[DSD_FILTER_B_TAPS];
+    float c_taps[DSD_FILTER_C_TAPS];
     float table[];        /* groups x 256 partial sums; MSB of a byte is its earliest bit */
 };
 
@@ -35,27 +40,78 @@ static double bessel_i0(double x) {
     return sum;
 }
 
-/* Kaiser windowed-sinc lowpass, symmetric, unity DC gain. */
-static void design_lowpass(double * taps, int num_taps, double cutoff_hz, double rate_hz) {
-    int m = num_taps - 1;
-    double c = 2.0 * cutoff_hz / rate_hz;
-    double norm = bessel_i0(DSD_KAISER_BETA);
-    double sum = 0.0;
-    for (int n = 0; n < num_taps; n++) {
-        double x = n - m / 2.0;
-        double sinc = x == 0.0 ? c : sin(M_PI * c * x) / (M_PI * x);
-        double r = 2.0 * n / m - 1.0;
-        taps[n] = sinc * bessel_i0(DSD_KAISER_BETA * sqrt(1.0 - r * r)) / norm;
+static double kaiser(int n, int num_taps, double beta) {
+    double r = 2.0 * n / (num_taps - 1) - 1.0;
+    return bessel_i0(beta * sqrt(1.0 - r * r)) / bessel_i0(beta);
+}
+
+/* Stage A's response at stage C's normalized frequency nu (cycles per
+ * stage C input sample). Stage A runs at twice stage C's rate, R bits per
+ * output. */
+static double stage_a_gain(double nu, int r_bits) {
+    double x = M_PI * nu / 2.0;
+    if (x == 0.0) return 1.0;
+    return pow(sin(x) / (r_bits * sin(x / r_bits)), DSD_A_ORDER);
+}
+
+/* Fifth-order moving average of R bits, unity DC gain, zero-padded at the
+ * oldest end to whole bytes. */
+static void design_stage_a(double * taps, int padded, int r_bits) {
+    int length = DSD_A_ORDER * (r_bits - 1) + 1; /* at most DSD_FILTER_A_MAX_GROUPS * 8 */
+    double work[DSD_FILTER_A_MAX_GROUPS * 8] = { 1.0 };
+    double next[DSD_FILTER_A_MAX_GROUPS * 8];
+    int filled = 1;
+    for (int order = 0; order < DSD_A_ORDER; order++) {
+        memset(next, 0, sizeof(double) * (size_t) length);
+        for (int i = 0; i < filled; i++)
+            for (int k = 0; k < r_bits; k++) next[i + k] += work[i] / r_bits;
+        filled += r_bits - 1;
+        memcpy(work, next, sizeof(double) * (size_t) length);
+    }
+    memset(taps, 0, sizeof(double) * (size_t) padded);
+    memcpy(taps + (padded - length), work, sizeof(double) * (size_t) length);
+}
+
+/* Half-band Kaiser lowpass: cutoff at a quarter of its input rate. */
+static void design_stage_b(float * out) {
+    double taps[DSD_FILTER_B_TAPS], sum = 0.0;
+    int m = (DSD_FILTER_B_TAPS - 1) / 2;
+    for (int n = 0; n < DSD_FILTER_B_TAPS; n++) {
+        int x = n - m;
+        double sinc = x == 0 ? 0.5 : sin(M_PI * 0.5 * x) / (M_PI * x);
+        taps[n] = sinc * kaiser(n, DSD_FILTER_B_TAPS, DSD_B_BETA);
         sum += taps[n];
     }
-    for (int n = 0; n < num_taps; n++) taps[n] /= sum;
+    for (int n = 0; n < DSD_FILTER_B_TAPS; n++) out[n] = (float) (taps[n] / sum);
+}
+
+/* Lowpass at a quarter of its input rate whose passband is 1 / stage A's
+ * gain: the ideal response integrated numerically, then Kaiser windowed. */
+static void design_stage_c(float * out, int r_bits) {
+    double taps[DSD_FILTER_C_TAPS], sum = 0.0;
+    int m = (DSD_FILTER_C_TAPS - 1) / 2;
+    const double cutoff = 0.25;
+    const double step = cutoff / DSD_C_INTEGRATION_STEPS;
+    for (int n = 0; n < DSD_FILTER_C_TAPS; n++) {
+        int x = n - m;
+        double acc = 0.0;
+        for (int i = 0; i <= DSD_C_INTEGRATION_STEPS; i++) {
+            double nu = i * step;
+            double weight = (i == 0 || i == DSD_C_INTEGRATION_STEPS) ? 1.0 : (i & 1) ? 4.0 : 2.0; /* Simpson */
+            acc += weight * cos(2.0 * M_PI * nu * x) / stage_a_gain(nu, r_bits);
+        }
+        taps[n] = 2.0 * acc * step / 3.0 * kaiser(n, DSD_FILTER_C_TAPS, DSD_C_BETA);
+        sum += taps[n];
+    }
+    for (int n = 0; n < DSD_FILTER_C_TAPS; n++) out[n] = (float) (taps[n] / sum);
 }
 
 static dsd_filter_design_t * build_design(unsigned int multiple, unsigned int base_rate) {
-    int taps_count = DSD_TAPS_PER_64 * (int) (multiple / 64);
-    int groups = taps_count / 8;
+    int r_bits = (int) (multiple / 8);
+    int length = DSD_A_ORDER * (r_bits - 1) + 1;
+    int groups = (length + 7) / 8;
     dsd_filter_design_t * design = malloc(sizeof(*design) + sizeof(float) * 256u * (size_t) groups);
-    double * taps = malloc(sizeof(double) * (size_t) taps_count);
+    double * taps = malloc(sizeof(double) * (size_t) groups * 8);
     if (!design || !taps) {
         free(design);
         free(taps);
@@ -65,8 +121,9 @@ static dsd_filter_design_t * build_design(unsigned int multiple, unsigned int ba
     design->base_rate = base_rate;
     design->references = 0;
     design->groups = groups;
-    design->bytes_per_output = (int) (multiple / 16);
-    design_lowpass(taps, taps_count, (double) base_rate, (double) multiple * base_rate);
+    design->bytes_per_a = r_bits / 8;
+    design->bytes_per_output = 4 * design->bytes_per_a;
+    design_stage_a(taps, groups * 8, r_bits);
     for (int g = 0; g < groups; g++) {
         for (int value = 0; value < 256; value++) {
             double acc = 0.0;
@@ -76,6 +133,8 @@ static dsd_filter_design_t * build_design(unsigned int multiple, unsigned int ba
         }
     }
     free(taps);
+    design_stage_b(design->b_taps);
+    design_stage_c(design->c_taps, r_bits);
     return design;
 }
 
@@ -120,34 +179,83 @@ int dsd_filter_bytes_per_output(const dsd_filter_design_t * design) {
     return design->bytes_per_output;
 }
 
-void dsd_channel_reset(dsd_channel_state_t * ch) {
-    memset(ch->bytes, DSD_SILENCE_BYTE, sizeof(ch->bytes));
-    ch->byte_pos = 0;
-    ch->byte_phase = 0;
+int dsd_filter_warmup_outputs(const dsd_filter_design_t * design) {
+    /* Stage A fills in groups bytes, B in its taps' worth of A outputs (4
+     * per sample), C in its taps' worth of B outputs (2 per sample). */
+    return (design->groups + design->bytes_per_output - 1) / design->bytes_per_output +
+           (DSD_FILTER_B_TAPS + 3) / 4 + (DSD_FILTER_C_TAPS + 1) / 2 + 1;
 }
 
-bool dsd_channel_feed_byte(dsd_channel_state_t * ch, const dsd_filter_design_t * design, uint8_t byte,
-                           float * out_sample) {
-    int groups = design->groups;
-    ch->bytes[ch->byte_pos] = byte;
-    ch->bytes[ch->byte_pos + groups] = byte;
-    if (++ch->byte_pos == groups) ch->byte_pos = 0;
-    if (++ch->byte_phase < design->bytes_per_output) return false;
-    ch->byte_phase = 0;
+void dsd_channel_reset(dsd_channel_state_t * ch) {
+    memset(ch->bytes, DSD_SILENCE_BYTE, sizeof(ch->bytes));
+    memset(ch->a_out, 0, sizeof(ch->a_out));
+    memset(ch->b_out, 0, sizeof(ch->b_out));
+    ch->byte_pos = 0;
+    ch->a_pos = 0;
+    ch->b_pos = 0;
+}
 
-    /* The window runs oldest to newest, pairing byte g with taps 8g..8g+7.
-     * groups is a multiple of 4 (56 per DSD64 multiple); four independent
-     * sums keep the float adds from serializing on each other's latency. */
-    const uint8_t * window = &ch->bytes[ch->byte_pos];
-    const uint8_t * window_end = window + groups;
-    const float * row0 = design->table, * row1 = row0 + 256, * row2 = row0 + 512, * row3 = row0 + 768;
-    float acc0 = 0.0f, acc1 = 0.0f, acc2 = 0.0f, acc3 = 0.0f;
-    for (; window < window_end; window += 4, row0 += 1024, row1 += 1024, row2 += 1024, row3 += 1024) {
-        acc0 += row0[window[0]];
-        acc1 += row1[window[1]];
-        acc2 += row2[window[2]];
-        acc3 += row3[window[3]];
+/* Stage A output from the newest `groups` bytes, oldest first. */
+static float stage_a(const dsd_channel_state_t * ch, const dsd_filter_design_t * design) {
+    int groups = design->groups;
+    const uint8_t * window = &ch->bytes[ch->byte_pos + DSD_FILTER_A_RING - groups];
+    const float * row = design->table;
+    float acc0 = 0.0f, acc1 = 0.0f;
+    int g = 0;
+    for (; g + 1 < groups; g += 2, row += 512) {
+        acc0 += row[window[g]];
+        acc1 += row[256 + window[g + 1]];
     }
-    *out_sample = (acc0 + acc1) + (acc2 + acc3);
-    return true;
+    if (g < groups) acc0 += row[window[g]];
+    return acc0 + acc1;
+}
+
+static void push_a(dsd_channel_state_t * ch, float value) {
+    ch->a_out[ch->a_pos] = value;
+    ch->a_out[ch->a_pos + DSD_FILTER_B_RING] = value;
+    ch->a_pos = (ch->a_pos + 1) & (DSD_FILTER_B_RING - 1);
+}
+
+/* Half-band: only the centre and odd offsets from it are non-zero. */
+static float stage_b(const dsd_channel_state_t * ch, const dsd_filter_design_t * design) {
+    const float * w = &ch->a_out[ch->a_pos + DSD_FILTER_B_RING - DSD_FILTER_B_TAPS];
+    const float * h = design->b_taps;
+    const int mid = (DSD_FILTER_B_TAPS - 1) / 2;
+    float acc = h[mid] * w[mid];
+    for (int k = 1; k <= mid; k += 2) acc += h[mid - k] * (w[mid - k] + w[mid + k]);
+    return acc;
+}
+
+static float stage_c(const dsd_channel_state_t * ch, const dsd_filter_design_t * design) {
+    const float * w = &ch->b_out[ch->b_pos + DSD_FILTER_C_RING - DSD_FILTER_C_TAPS];
+    const float * h = design->c_taps;
+    const int mid = (DSD_FILTER_C_TAPS - 1) / 2;
+    float acc0 = h[mid] * w[mid], acc1 = 0.0f;
+    int n = 0;
+    for (; n + 1 < mid; n += 2) {
+        acc0 += h[n] * (w[n] + w[DSD_FILTER_C_TAPS - 1 - n]);
+        acc1 += h[n + 1] * (w[n + 1] + w[DSD_FILTER_C_TAPS - 2 - n]);
+    }
+    if (n < mid) acc0 += h[n] * (w[n] + w[DSD_FILTER_C_TAPS - 1 - n]);
+    return acc0 + acc1;
+}
+
+float dsd_channel_frame(dsd_channel_state_t * ch, const dsd_filter_design_t * design, const uint8_t * bytes) {
+    int per_a = design->bytes_per_a;
+    for (int half = 0; half < 2; half++) {
+        for (int quarter = 0; quarter < 2; quarter++) {
+            for (int i = 0; i < per_a; i++) {
+                uint8_t byte = *bytes++;
+                ch->bytes[ch->byte_pos] = byte;
+                ch->bytes[ch->byte_pos + DSD_FILTER_A_RING] = byte;
+                ch->byte_pos = (ch->byte_pos + 1) & (DSD_FILTER_A_RING - 1);
+            }
+            push_a(ch, stage_a(ch, design));
+        }
+        float b = stage_b(ch, design);
+        ch->b_out[ch->b_pos] = b;
+        ch->b_out[ch->b_pos + DSD_FILTER_C_RING] = b;
+        ch->b_pos = (ch->b_pos + 1) & (DSD_FILTER_C_RING - 1);
+    }
+    return stage_c(ch, design);
 }

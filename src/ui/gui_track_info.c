@@ -282,7 +282,10 @@ static void rebuild_info_text(const audio_current_format_info_t * runtime, bool 
     }
     add_info_line("Source", value);
 
-    if (runtime_valid && runtime->output_sample_rate) {
+    if (runtime_valid && runtime->dsd_native) {
+        snprintf(value, sizeof(value), "Native DSD (DoP) / %.4g MHz", (double) source_rate / 1000000.0);
+        add_info_line("Output", value);
+    } else if (runtime_valid && runtime->output_sample_rate) {
         format_rate(runtime->output_sample_rate, rate, sizeof(rate));
         snprintf(value, sizeof(value), "%u-bit PCM / %s",
                  runtime->output_bit_depth ? runtime->output_bit_depth : 16, rate);

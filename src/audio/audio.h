@@ -38,6 +38,7 @@ typedef struct {
     double duration_seconds;
     bool is_stream;
     bool is_dsd;
+    bool dsd_native; /* DSD sent to the DAC as DoP rather than converted to PCM */
     bool replaygain_applied;
     double replaygain_applied_db;
     uint64_t generation;

@@ -27,6 +27,26 @@
  * (e.g. for real-time sources like AirPlay). */
 bool audio_output_ensure(unsigned int channels, unsigned int sample_rate, bool low_latency, bool want_s24);
 
+/* Opens the local DAC for native DSD: DoP frames (see dsd_decoder.h) in
+ * S24_LE at sample_rate, with the codec's DOP_EN switch on before the first
+ * write. False when the local output is not the requested route, the DAC
+ * refuses the rate (the R1 takes up to 384 kHz, so DSD64 and DSD128), or the
+ * switch cannot be set; the caller then converts to PCM instead. Any later
+ * PCM ensure() or close() turns the switch off again. Write the frames with
+ * audio_output_write_s24(). */
+bool audio_output_ensure_dop(unsigned int channels, unsigned int sample_rate);
+
+/* True while the open device is a DoP stream (ground truth, like
+ * audio_output_is_s24_active()). */
+bool audio_output_is_dop_active(void);
+
+/* True when the local sound card has a DOP_EN control. */
+bool audio_output_dop_supported(void);
+
+/* True when the DAC already refused a DoP stream at this rate this session.
+ * Call from the output owner thread. */
+bool audio_output_dop_rate_refused(unsigned int sample_rate);
+
 /* Writes frames to whatever audio_output_ensure() last successfully opened.
  * Blocks until delivery completes (tinyalsa pcm_writei() for local hardware;
  * pipe back-pressure from aplay's ALSA write for BT/USB).

@@ -10,6 +10,11 @@
 #include <sys/types.h>
 
 #define DSD_MAX_CHANNELS 8
+#define DSD_MAX_BYTES_PER_FRAME 16 /* DSD256 */
+/* DoP: 16 DSD bits per channel per frame under an alternating marker. */
+#define DOP_BYTES_PER_FRAME 2
+#define DOP_MARKER_A 0x05
+#define DOP_MARKER_B 0xFA
 #define DFF_BUFFER_SIZE 4096
 /* DSF blocks are 4096 bytes per channel by specification; accept any sane
  * size rather than rejecting an unusual writer, but bound the allocation. */
@@ -27,9 +32,13 @@ struct dsd_decoder {
     unsigned int channels;
     unsigned int dsd_sample_rate;
     unsigned int pcm_sample_rate;
-    unsigned int bytes_per_frame; /* DSD bytes per channel per PCM frame */
-    uint64_t total_pcm_frames;
+    unsigned int bytes_per_frame;     /* DSD bytes per channel per output frame, in the current mode */
+    unsigned int pcm_bytes_per_frame; /* the same when converting to PCM */
+    uint64_t total_bytes;             /* playable DSD bytes per channel */
+    uint64_t total_pcm_frames;        /* output frames in the current mode */
     uint64_t current_pcm_frame;
+    bool dop;
+    uint8_t dop_marker;
     bool lsb_first; /* DSF "bits per sample" 1; DFF and DSF value 8 are MSB first */
 
     off_t data_start_offset;
@@ -75,8 +84,11 @@ static bool finish_setup(dsd_decoder_t * dec, uint64_t total_dsd_samples_per_cha
     if (!dec->filter_design) return false;
 
     dec->pcm_sample_rate = 2 * base;
-    dec->bytes_per_frame = (unsigned int) dsd_filter_bytes_per_output(dec->filter_design);
-    dec->total_pcm_frames = total_dsd_samples_per_channel / (8u * dec->bytes_per_frame);
+    dec->pcm_bytes_per_frame = (unsigned int) dsd_filter_bytes_per_output(dec->filter_design);
+    dec->bytes_per_frame = dec->pcm_bytes_per_frame;
+    dec->total_bytes = total_dsd_samples_per_channel / 8u;
+    dec->total_pcm_frames = dec->total_bytes / dec->bytes_per_frame;
+    dec->dop_marker = DOP_MARKER_A;
     reset_channels(dec);
     return true;
 }
@@ -298,7 +310,15 @@ unsigned int dsd_get_source_sample_rate(const dsd_decoder_t * dec) {
 }
 
 unsigned int dsd_get_pcm_sample_rate(const dsd_decoder_t * dec) {
-    return dec->pcm_sample_rate;
+    return dec->dop ? dsd_get_dop_sample_rate(dec) : dec->pcm_sample_rate;
+}
+
+unsigned int dsd_get_dop_sample_rate(const dsd_decoder_t * dec) {
+    return dec->dsd_sample_rate / (8u * DOP_BYTES_PER_FRAME);
+}
+
+bool dsd_is_dop(const dsd_decoder_t * dec) {
+    return dec->dop;
 }
 
 uint64_t dsd_get_total_pcm_frame_count(const dsd_decoder_t * dec) {
@@ -346,6 +366,80 @@ static bool next_byte_row(dsd_decoder_t * dec, uint8_t row[DSD_MAX_CHANNELS]) {
     return true;
 }
 
+/* One PCM frame's bytes per channel, oldest first (MSB first). Whole
+ * frames inside the buffered DSF block or DFF buffer are copied directly;
+ * a frame that straddles a buffer edge goes byte row by byte row. */
+static bool read_frame_bytes(dsd_decoder_t * dec, uint8_t out[DSD_MAX_CHANNELS][DSD_MAX_BYTES_PER_FRAME]) {
+    unsigned int channels = dec->channels, count = dec->bytes_per_frame;
+    if (dec->container == DSD_CONTAINER_DSF) {
+        if (dec->dsf_block_pos >= dec->dsf_block_size) {
+            dsf_load_block(dec);
+            dec->dsf_block_pos = 0;
+        }
+        if (dec->dsf_block_pos + count <= dec->dsf_block_rows) {
+            for (unsigned int ch = 0; ch < channels; ch++) {
+                const uint8_t * src = dec->dsf_block_buffer + (size_t) ch * dec->dsf_block_size + dec->dsf_block_pos;
+                if (dec->lsb_first)
+                    for (unsigned int i = 0; i < count; i++) out[ch][i] = bit_reverse[src[i]];
+                else
+                    memcpy(out[ch], src, count);
+            }
+            dec->dsf_block_pos += count;
+            return true;
+        }
+    } else if (dec->dff_buffer_len - dec->dff_buffer_pos >= (size_t) count * channels) {
+        const uint8_t * src = dec->dff_buffer + dec->dff_buffer_pos;
+        for (unsigned int i = 0; i < count; i++, src += channels)
+            for (unsigned int ch = 0; ch < channels; ch++) out[ch][i] = src[ch];
+        dec->dff_buffer_pos += (size_t) count * channels;
+        return true;
+    }
+    for (unsigned int i = 0; i < count; i++) {
+        uint8_t row[DSD_MAX_CHANNELS];
+        if (!next_byte_row(dec, row)) return false;
+        for (unsigned int ch = 0; ch < channels; ch++) out[ch][i] = row[ch];
+    }
+    return true;
+}
+
+/* The data ended before its declared length (a truncated file): the track
+ * ends here in either mode. Only a read error is fatal. */
+static void end_at_current_frame(dsd_decoder_t * dec) {
+    if (ferror(dec->f)) return;
+    dec->total_pcm_frames = dec->current_pcm_frame;
+    dec->total_bytes = dec->current_pcm_frame * dec->bytes_per_frame;
+}
+
+static decoder_read_result_t finish_read(const dsd_decoder_t * dec, decoder_read_result_t res) {
+    if (res.frames == 0)
+        res.status = dec->current_pcm_frame >= dec->total_pcm_frames ? DECODER_READ_EOF : DECODER_READ_FATAL_ERROR;
+    return res;
+}
+
+/* DoP frames: per channel, the marker above two DSD bytes (earliest first),
+ * as a sign-extended 24-bit sample right-justified in int32 for S24_LE. */
+static decoder_read_result_t decode_dop(dsd_decoder_t * dec, uint64_t frames_to_read, int32_t * out) {
+    decoder_read_result_t res = { .frames = 0, .status = DECODER_READ_OK };
+    unsigned int channels = dec->channels;
+    while (res.frames < frames_to_read && dec->current_pcm_frame < dec->total_pcm_frames) {
+        uint8_t frame_bytes[DSD_MAX_CHANNELS][DSD_MAX_BYTES_PER_FRAME];
+        if (!read_frame_bytes(dec, frame_bytes)) {
+            end_at_current_frame(dec);
+            break;
+        }
+        uint32_t marker = dec->dop_marker;
+        dec->dop_marker = marker == DOP_MARKER_A ? DOP_MARKER_B : DOP_MARKER_A;
+        size_t base = (size_t) res.frames * channels;
+        for (unsigned int ch = 0; ch < channels; ch++) {
+            uint32_t word = (marker << 16) | ((uint32_t) frame_bytes[ch][0] << 8) | frame_bytes[ch][1];
+            out[base + ch] = (int32_t) (word << 8) >> 8;
+        }
+        res.frames++;
+        dec->current_pcm_frame++;
+    }
+    return finish_read(dec, res);
+}
+
 /* Decodes up to frames_to_read frames into s16 or s32 (24-bit, right
  * justified, like the other wide decoders), or discards them when both
  * are NULL. */
@@ -354,24 +448,15 @@ static decoder_read_result_t decode_frames(dsd_decoder_t * dec, uint64_t frames_
     decoder_read_result_t res = { .frames = 0, .status = DECODER_READ_OK };
     unsigned int channels = dec->channels;
     while (res.frames < frames_to_read && dec->current_pcm_frame < dec->total_pcm_frames) {
-        float samples[DSD_MAX_CHANNELS] = {0};
-        bool ok = true;
-        for (unsigned int r = 0; r < dec->bytes_per_frame && ok; r++) {
-            uint8_t row[DSD_MAX_CHANNELS];
-            ok = next_byte_row(dec, row);
-            for (unsigned int ch = 0; ok && ch < channels; ch++)
-                (void) dsd_channel_feed_byte(&dec->channel_states[ch], dec->filter_design, row[ch], &samples[ch]);
-        }
-        if (!ok) {
-            /* Data ended before the declared length (a truncated file):
-             * finish the track here. Only a read error is fatal. */
-            if (!ferror(dec->f)) dec->total_pcm_frames = dec->current_pcm_frame;
+        uint8_t frame_bytes[DSD_MAX_CHANNELS][DSD_MAX_BYTES_PER_FRAME];
+        if (!read_frame_bytes(dec, frame_bytes)) {
+            end_at_current_frame(dec);
             break;
         }
 
         size_t base = (size_t) res.frames * channels;
         for (unsigned int ch = 0; ch < channels; ch++) {
-            float v = samples[ch];
+            float v = dsd_channel_frame(&dec->channel_states[ch], dec->filter_design, frame_bytes[ch]);
             if (v > 1.0f) v = 1.0f;
             if (v < -1.0f) v = -1.0f;
             if (out_s16) out_s16[base + ch] = (int16_t) lrintf(v * 32767.0f);
@@ -380,18 +465,19 @@ static decoder_read_result_t decode_frames(dsd_decoder_t * dec, uint64_t frames_
         res.frames++;
         dec->current_pcm_frame++;
     }
-    if (res.frames == 0)
-        res.status = dec->current_pcm_frame >= dec->total_pcm_frames ? DECODER_READ_EOF : DECODER_READ_FATAL_ERROR;
-    return res;
+    return finish_read(dec, res);
 }
 
 decoder_read_result_t dsd_read_pcm_frames_s16(dsd_decoder_t * dec, uint64_t frames_to_read, int16_t * buffer_out) {
-    if (!dec || !dec->f || !buffer_out) return (decoder_read_result_t) { .frames = 0, .status = DECODER_READ_FATAL_ERROR };
+    /* DoP words carry DSD bits; narrowing them to 16 bits would destroy them. */
+    if (!dec || !dec->f || !buffer_out || dec->dop)
+        return (decoder_read_result_t) { .frames = 0, .status = DECODER_READ_FATAL_ERROR };
     return decode_frames(dec, frames_to_read, buffer_out, NULL);
 }
 
 decoder_read_result_t dsd_read_pcm_frames_s32(dsd_decoder_t * dec, uint64_t frames_to_read, int32_t * buffer_out) {
     if (!dec || !dec->f || !buffer_out) return (decoder_read_result_t) { .frames = 0, .status = DECODER_READ_FATAL_ERROR };
+    if (dec->dop) return decode_dop(dec, frames_to_read, buffer_out);
     return decode_frames(dec, frames_to_read, NULL, buffer_out);
 }
 
@@ -419,12 +505,17 @@ static bool position_at_frame(dsd_decoder_t * dec, uint64_t frame_index) {
 bool dsd_seek_to_pcm_frame(dsd_decoder_t * dec, uint64_t frame_index) {
     if (!dec || !dec->f) return false;
     if (frame_index > dec->total_pcm_frames) frame_index = dec->total_pcm_frames;
+    if (dec->dop) {
+        /* No filter to refill: DoP frames are the raw bits. */
+        if (!position_at_frame(dec, frame_index)) return false;
+        dec->current_pcm_frame = frame_index;
+        return true;
+    }
 
     /* Start early enough to refill the filter history, then decode and drop
      * the lead-in, so output after a seek matches continuous playback
      * instead of ramping up from silence. */
-    uint64_t warmup = (uint64_t) (dsd_filter_groups(dec->filter_design) + dec->bytes_per_frame - 1) /
-                      dec->bytes_per_frame + 1;
+    uint64_t warmup = (uint64_t) dsd_filter_warmup_outputs(dec->filter_design);
     uint64_t start = frame_index > warmup ? frame_index - warmup : 0;
     if (!position_at_frame(dec, start)) return false;
     reset_channels(dec);
@@ -433,6 +524,22 @@ bool dsd_seek_to_pcm_frame(dsd_decoder_t * dec, uint64_t frame_index) {
     /* Short only when the data ended first (later reads report EOF) or on a
      * read error, which fails the seek. */
     return dec->current_pcm_frame == frame_index || !ferror(dec->f);
+}
+
+bool dsd_set_dop(dsd_decoder_t * dec, bool dop, uint64_t frame_index, uint64_t * out_frame_index) {
+    if (!dec || !dec->f) return false;
+    uint64_t byte_index = frame_index * dec->bytes_per_frame;
+    dec->dop = dop;
+    dec->bytes_per_frame = dop ? DOP_BYTES_PER_FRAME : dec->pcm_bytes_per_frame;
+    dec->total_pcm_frames = dec->total_bytes / dec->bytes_per_frame;
+    uint64_t target = byte_index / dec->bytes_per_frame;
+    if (target > dec->total_pcm_frames) target = dec->total_pcm_frames;
+    if (out_frame_index) *out_frame_index = target;
+    return dsd_seek_to_pcm_frame(dec, target);
+}
+
+void dsd_continue_dop_markers(dsd_decoder_t * next, const dsd_decoder_t * prev) {
+    if (next && prev) next->dop_marker = prev->dop_marker;
 }
 
 void dsd_close(dsd_decoder_t * dec) {

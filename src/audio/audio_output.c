@@ -94,6 +94,10 @@ static bool active_low_latency = false;
  * audio_output_is_s24_active() to verify if S24_LE was actually achieved. */
 static enum pcm_format active_format = PCM_FORMAT_S16_LE;
 
+/* True while the open local device carries DoP (native DSD) with the codec's
+ * DOP_EN switch on. Written under state_mutex like active_format. */
+static bool active_dop = false;
+
 /* Record of an observed hw_params rejection of PCM_FORMAT_S24_LE at a
  * specific (channels, sample_rate) -- set only inside open_device()'s
  * S16_LE fallback below. Exists so a real, reproducible rejection (S24_LE
@@ -156,6 +160,39 @@ static bool spawn_aplay(const char * device, unsigned int channels, unsigned int
     return true;
 }
 
+static struct mixer * get_alsa_mixer(void);
+
+/* The codec's DoP switch. It must be set while no stream is running: on for
+ * a DoP stream before its first write, off again before any PCM stream is
+ * prepared, or the DAC reads PCM as DSD (noise). The control reads back 0
+ * whatever was written, so the last value written is tracked here instead;
+ * -1 forces the first write, which also clears a switch left on by a
+ * crashed process. Called only by the output owner thread. */
+static int dop_switch_written = -1;
+
+/* A DoP rate the DAC refused (hw_params or the switch), so later tracks at
+ * that rate are converted without another failed open. Owner thread only. */
+static unsigned int dop_refused_rate = 0;
+
+static bool set_dop_switch(bool on) {
+    if (dop_switch_written == (on ? 1 : 0)) return true;
+    struct mixer * mixer = get_alsa_mixer();
+    if (!mixer) return false; /* unknown, not absent: the switch may still be on */
+    struct mixer_ctl * ctl = mixer_get_ctl_by_name(mixer, "DOP_EN");
+    if (!ctl) {
+        /* A card without the switch is never in DoP mode. */
+        if (on) return false;
+        dop_switch_written = 0;
+        return true;
+    }
+    if (mixer_ctl_set_value(ctl, 0, on ? 1 : 0) != 0) {
+        DBG_LOG("audio_output: failed to set DOP_EN=%d\n", on ? 1 : 0);
+        return false;
+    }
+    dop_switch_written = on ? 1 : 0;
+    return true;
+}
+
 static void close_bt_device(void) {
     if (bt_aplay_pid < 0) return;
     subprocess_terminate(bt_aplay_pid);
@@ -173,7 +210,7 @@ static void close_usb_device(void) {
 }
 
 static bool open_device(unsigned int channels, unsigned int sample_rate, bool low_latency, bool want_s24,
-                        output_target_t target, const char * usb_device) {
+                        bool dop, output_target_t target, const char * usb_device) {
     if (target == OUTPUT_TARGET_USB) {
         enum pcm_format format = want_s24 ? PCM_FORMAT_S24_LE : PCM_FORMAT_S16_LE;
         if (!spawn_aplay(usb_device, channels, sample_rate, format, &usb_aplay_pid, &usb_aplay_fd)) return false;
@@ -194,11 +231,14 @@ static bool open_device(unsigned int channels, unsigned int sample_rate, bool lo
         active_format = PCM_FORMAT_S16_LE;
         pthread_mutex_unlock(&state_mutex);
     } else {
+        /* A PCM stream must never start with the DAC still in DoP mode; a
+         * failed clear is retried by the caller's next open. */
+        if (!dop && !set_dop_switch(false)) return false;
         struct pcm_config config;
         memset(&config, 0, sizeof(config));
         config.channels = channels;
         config.rate = sample_rate;
-        config.format = want_s24 ? PCM_FORMAT_S24_LE : PCM_FORMAT_S16_LE;
+        config.format = (want_s24 || dop) ? PCM_FORMAT_S24_LE : PCM_FORMAT_S16_LE;
         pthread_mutex_lock(&state_mutex);
         active_format = config.format;
         pthread_mutex_unlock(&state_mutex);
@@ -249,7 +289,10 @@ static bool open_device(unsigned int channels, unsigned int sample_rate, bool lo
                     alsa_pcm ? pcm_get_error(alsa_pcm) : "unknown");
             if (alsa_pcm) pcm_close(alsa_pcm);
             alsa_pcm = NULL;
-            if (!want_s24) return false;
+            /* DoP has no narrower fallback: 16 bits cannot hold a marker
+             * and 16 DSD bits. The caller falls back to PCM conversion. */
+            if (dop) dop_refused_rate = sample_rate;
+            if (!want_s24 || dop) return false;
             /* Fall back to S16_LE if S24_LE hw_params negotiation fails, and record
              * the unsupported format so subsequent chunks do not re-probe. */
             DBG_LOG("audio_output: S24_LE open failed, falling back to S16_LE\n");
@@ -271,8 +314,20 @@ static bool open_device(unsigned int channels, unsigned int sample_rate, bool lo
                 return false;
             }
         }
+        /* The stream is open but not yet prepared (that happens on the first
+         * write), so the codec picks up the switch before any DoP word. */
+        if (dop && !set_dop_switch(true)) {
+            dop_refused_rate = sample_rate;
+            pcm_close(alsa_pcm);
+            alsa_pcm = NULL;
+            pthread_mutex_lock(&state_mutex);
+            active_format = PCM_FORMAT_S16_LE;
+            pthread_mutex_unlock(&state_mutex);
+            return false;
+        }
         pthread_mutex_lock(&state_mutex);
         active_target = OUTPUT_TARGET_LOCAL;
+        active_dop = dop;
         pthread_mutex_unlock(&state_mutex);
     }
     pthread_mutex_lock(&state_mutex);
@@ -291,9 +346,12 @@ static void close_device_state(void) {
     if (target == OUTPUT_TARGET_BT) close_bt_device();
     if (target == OUTPUT_TARGET_USB) close_usb_device();
     if (pcm) pcm_close(pcm);
+    /* Back to PCM as soon as the DoP stream is gone. */
+    if (dop_switch_written == 1) (void) set_dop_switch(false);
     pthread_mutex_lock(&state_mutex);
     active_target = OUTPUT_TARGET_LOCAL; /* only open_device() above was ever setting this to BT/USB, never this side */
     active_format = PCM_FORMAT_S16_LE;
+    active_dop = false;
     device_channels = 0;
     device_sample_rate = 0;
     pthread_mutex_unlock(&state_mutex);
@@ -307,7 +365,12 @@ void audio_output_close(void) {
     pthread_mutex_unlock(&owner_mutex);
 }
 
-bool audio_output_ensure(unsigned int channels, unsigned int sample_rate, bool low_latency, bool want_s24) {
+static bool ensure_output(unsigned int channels, unsigned int sample_rate, bool low_latency, bool want_s24,
+                          bool dop) {
+    /* DoP goes only to the local DAC; another route is not an ownership
+     * change, so it is refused before claiming the output. */
+    if (dop && !audio_output_is_local_requested()) return false;
+
     pthread_mutex_lock(&owner_mutex);
     if (owner_valid) {
         bool same_owner = pthread_equal(owner_thread, pthread_self());
@@ -334,8 +397,12 @@ bool audio_output_ensure(unsigned int channels, unsigned int sample_rate, bool l
     bool s24_known = s24_unsupported_known &&
         s24_unsupported_channels == channels && s24_unsupported_rate == sample_rate;
     pthread_mutex_unlock(&state_mutex);
-    if (target == OUTPUT_TARGET_LOCAL && want_s24 && s24_known) {
+    if (target == OUTPUT_TARGET_LOCAL && want_s24 && s24_known && !dop) {
         want_s24 = false;
+    }
+    if (dop) {
+        want_s24 = true;
+        low_latency = false;
     }
 
     /* Check if aplay died unexpectedly (e.g. transport disconnect) to force
@@ -367,15 +434,46 @@ bool audio_output_ensure(unsigned int channels, unsigned int sample_rate, bool l
                                        ? PCM_FORMAT_S24_LE : PCM_FORMAT_S16_LE;
     if (device_open && (target == OUTPUT_TARGET_LOCAL || target == OUTPUT_TARGET_USB) && active_format != requested_format) device_open = false;
     if (device_open && target == OUTPUT_TARGET_LOCAL && active_low_latency != low_latency) device_open = false;
+    if (device_open && active_dop != dop) device_open = false;
     if (device_open && device_channels == channels && device_sample_rate == sample_rate) return true;
     close_device_state();
-    bool opened = open_device(channels, sample_rate, low_latency, want_s24, target, usb_device);
+    bool opened = open_device(channels, sample_rate, low_latency, want_s24, dop, target, usb_device);
     if (!opened) {
         pthread_mutex_lock(&owner_mutex);
         owner_valid = false;
         pthread_mutex_unlock(&owner_mutex);
     }
     return opened;
+}
+
+bool audio_output_ensure(unsigned int channels, unsigned int sample_rate, bool low_latency, bool want_s24) {
+    return ensure_output(channels, sample_rate, low_latency, want_s24, false);
+}
+
+bool audio_output_ensure_dop(unsigned int channels, unsigned int sample_rate) {
+    return ensure_output(channels, sample_rate, false, true, true);
+}
+
+bool audio_output_is_dop_active(void) {
+    pthread_mutex_lock(&state_mutex);
+    bool active = active_dop && active_target == OUTPUT_TARGET_LOCAL && alsa_pcm != NULL &&
+                  active_format == PCM_FORMAT_S24_LE;
+    pthread_mutex_unlock(&state_mutex);
+    return active;
+}
+
+bool audio_output_dop_rate_refused(unsigned int sample_rate) {
+    return sample_rate == dop_refused_rate;
+}
+
+bool audio_output_dop_supported(void) {
+    static int supported = -1; /* the card's controls never change */
+    if (supported < 0) {
+        struct mixer * mixer = get_alsa_mixer();
+        if (!mixer) return false; /* unknown until the mixer opens */
+        supported = mixer_get_ctl_by_name(mixer, "DOP_EN") ? 1 : 0;
+    }
+    return supported == 1;
 }
 
 static bool write_pipe_bounded(int fd, const char * p, size_t remaining, size_t frame_bytes, size_t * out_written_bytes) {
@@ -649,10 +747,15 @@ void audio_output_set_usb_requested(bool requested, const char * alsa_device) {
  * stream is currently open, so it deliberately isn't tied to
  * open_device()/audio_output_close()'s own lifecycle. */
 static struct mixer * alsa_mixer = NULL;
+static pthread_mutex_t alsa_mixer_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+/* The volume worker and the output owner both use the mixer. */
 static struct mixer * get_alsa_mixer(void) {
+    pthread_mutex_lock(&alsa_mixer_mutex);
     if (!alsa_mixer) alsa_mixer = mixer_open(ALSA_CARD);
-    return alsa_mixer;
+    struct mixer * mixer = alsa_mixer;
+    pthread_mutex_unlock(&alsa_mixer_mutex);
+    return mixer;
 }
 
 static void audio_output_set_hw_volume_raw(int raw_left, int raw_right) {
