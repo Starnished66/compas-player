@@ -15,6 +15,9 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <stdlib.h>
+#include <sys/klog.h>
+#include <sys/resource.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -28,17 +31,29 @@ enum {
 };
 
 #define SD_FSCK_LOG_PATH "/usr/data/sd_fsck.log"
-#define SD_REPAIR_ATTEMPT_SLOTS 4
+#define SD_REPAIR_ATTEMPT_SLOTS 8
+/* Left for the player and the kernel while the checker runs. */
+#define SD_FSCK_MEMORY_RESERVE (4u * 1024u * 1024u)
+/* ntfsfix works on a few MFT records; there is no cluster-sized table. */
+#define SD_FSCK_NTFS_ESTIMATE (4u * 1024u * 1024u)
+#define SD_FSCK_OUTPUT_TAIL 4096
+#define SD_KLOG_MAX_BYTES (1024 * 1024)
 
 extern void boot_checkpoint(const char * step);
 
 static atomic_int repair_phase;
 static atomic_int repair_note;
 static atomic_int repair_fsck_code = -1;
+static atomic_bool repair_tool_ok;
 static sd_fsck_plan_t repair_plan;
+static sd_fs_kind_t repair_kind;
+static bool repair_dirty_trigger;
+static uint64_t repair_memory_limit;
 static char repair_mount_point[SD_FSCK_MOUNT_BYTES];
+/* Ring of recent attempts. Only the kick path touches it, on the UI thread. */
 static char repair_attempted[SD_REPAIR_ATTEMPT_SLOTS][SD_FSCK_ATTEMPT_BYTES];
-static int repair_attempted_count;
+static int repair_attempted_next;
+static char last_insertion_stamp[32];
 
 static void post_note(sd_repair_note_t note) {
     atomic_store_explicit(&repair_note, (int) note, memory_order_release);
@@ -61,17 +76,18 @@ static void read_card_cid(char * out, size_t out_size) {
 }
 
 static bool attempt_remembered(const char * key) {
-    for (int i = 0; i < repair_attempted_count; i++) {
-        if (strcmp(repair_attempted[i], key) == 0) return true;
+    for (int i = 0; i < SD_REPAIR_ATTEMPT_SLOTS; i++) {
+        if (repair_attempted[i][0] && strcmp(repair_attempted[i], key) == 0) return true;
     }
     return false;
 }
 
+/* Overwrites the oldest entry when full, so the newest card is never
+ * forgotten and retried on every poll. */
 static void remember_attempt(const char * key) {
     if (!key || !key[0] || attempt_remembered(key)) return;
-    if (repair_attempted_count >= SD_REPAIR_ATTEMPT_SLOTS) return;
-    snprintf(repair_attempted[repair_attempted_count], SD_FSCK_ATTEMPT_BYTES, "%s", key);
-    repair_attempted_count++;
+    snprintf(repair_attempted[repair_attempted_next], SD_FSCK_ATTEMPT_BYTES, "%s", key);
+    repair_attempted_next = (repair_attempted_next + 1) % SD_REPAIR_ATTEMPT_SLOTS;
 }
 
 static bool read_mounts(char * buffer, size_t size) {
@@ -106,8 +122,33 @@ static void close_inherited_fds(void) {
     closedir(dir);
 }
 
-/* Waits until the checker exits. Killing it would leave the card mid-write. */
-static int run_fsck(char * const argv[]) {
+static long log_size(void) {
+    struct stat st;
+    if (stat(SD_FSCK_LOG_PATH, &st) != 0) return 0;
+    return (long) st.st_size;
+}
+
+/* The end of what the checker wrote after start_offset, NUL-terminated. */
+static void read_log_tail(long start_offset, char * out, size_t out_size) {
+    out[0] = '\0';
+    FILE * file = fopen(SD_FSCK_LOG_PATH, "r");
+    if (!file) return;
+    long end = 0;
+    if (fseek(file, 0, SEEK_END) == 0) end = ftell(file);
+    long from = end - (long) (out_size - 1);
+    if (from < start_offset) from = start_offset;
+    if (from >= 0 && from < end && fseek(file, from, SEEK_SET) == 0) {
+        size_t got = fread(out, 1, out_size - 1, file);
+        out[got] = '\0';
+    }
+    fclose(file);
+}
+
+/* Waits until the checker exits. Killing it would leave the card mid-write.
+ * The address-space limit makes an oversized allocation fail inside the
+ * checker instead of waking the kernel OOM killer, which could pick the
+ * player. */
+static int run_fsck(char * const argv[], uint64_t memory_limit) {
     pid_t pid = fork();
     if (pid < 0) return -1;
     if (pid == 0) {
@@ -123,6 +164,12 @@ static int run_fsck(char * const argv[]) {
             close(devnull);
         }
         close_inherited_fds();
+        if (memory_limit > 0) {
+            struct rlimit limit;
+            limit.rlim_cur = (rlim_t) memory_limit;
+            limit.rlim_max = (rlim_t) memory_limit;
+            setrlimit(RLIMIT_AS, &limit);
+        }
         execv(argv[0], argv);
         _exit(127);
     }
@@ -139,7 +186,13 @@ static int run_fsck(char * const argv[]) {
 
 static void * repair_thread(void * arg) {
     (void) arg;
-    int code = run_fsck(repair_plan.argv);
+    long start_offset = log_size();
+    int code = run_fsck(repair_plan.argv, repair_memory_limit);
+    char * tail = malloc(SD_FSCK_OUTPUT_TAIL);
+    if (tail) read_log_tail(start_offset, tail, SD_FSCK_OUTPUT_TAIL);
+    bool ok = sd_fsck_tool_succeeded(repair_kind, code, tail, repair_plan.device);
+    free(tail);
+    atomic_store_explicit(&repair_tool_ok, ok, memory_order_relaxed);
     atomic_store_explicit(&repair_fsck_code, code, memory_order_relaxed);
     atomic_store_explicit(&repair_phase, PHASE_REMOUNT, memory_order_release);
     return NULL;
@@ -180,13 +233,12 @@ bool sd_repair_current_readonly(bool * readonly) {
 
 void sd_repair_complete(bool mounted, bool readonly) {
     int code = atomic_load_explicit(&repair_fsck_code, memory_order_relaxed);
+    bool tool_ok = atomic_load_explicit(&repair_tool_ok, memory_order_relaxed);
     char line[160];
-    snprintf(line, sizeof(line), "fsck exit %d, mounted=%d, readonly=%d", code, mounted, readonly);
+    snprintf(line, sizeof(line), "fsck exit %d, finished=%d, mounted=%d, readonly=%d", code, tool_ok, mounted,
+             readonly);
     log_repair_line(line);
-    if (!mounted) post_note(SD_REPAIR_NOTE_FAILED);
-    else if (!readonly) post_note(SD_REPAIR_NOTE_REPAIRED);
-    else if (code == 127 || code < 0) post_note(SD_REPAIR_NOTE_FAILED);
-    else post_note(SD_REPAIR_NOTE_STILL_READONLY);
+    post_note(sd_fsck_outcome(tool_ok, repair_dirty_trigger, mounted, readonly));
     boot_checkpoint(mounted && !readonly ? "sd repair remounted read-write" : "sd repair left card unusable");
     atomic_store_explicit(&repair_phase, PHASE_IDLE, memory_order_release);
 }
@@ -195,7 +247,53 @@ sd_repair_note_t sd_repair_take_note(void) {
     return (sd_repair_note_t) atomic_exchange_explicit(&repair_note, SD_REPAIR_NOTE_NONE, memory_order_acq_rel);
 }
 
-sd_repair_kick_result_t sd_readonly_repair_kick(void (* release_handles)(void)) {
+/* False when the log could not be read; *dirty is then false. */
+static bool read_kernel_log_dirty(const char * device, bool * dirty, char * stamp, size_t stamp_size) {
+    *dirty = false;
+    const char * base = strrchr(device, '/');
+    base = base ? base + 1 : device;
+    int size = klogctl(10, NULL, 0); /* SYSLOG_ACTION_SIZE_BUFFER */
+    if (size <= 0) return false;
+    if (size > SD_KLOG_MAX_BYTES) size = SD_KLOG_MAX_BYTES;
+    char * log = malloc((size_t) size + 1);
+    if (!log) return false;
+    int got = klogctl(3, log, size); /* SYSLOG_ACTION_READ_ALL */
+    if (got >= 0) {
+        log[got] = '\0';
+        *dirty = sd_fsck_klog_dirty(log, base, stamp, stamp_size);
+    }
+    free(log);
+    return got >= 0;
+}
+
+static uint64_t read_mem_available(void) {
+    FILE * file = fopen("/proc/meminfo", "r");
+    if (!file) return 0;
+    char line[128];
+    unsigned long long kib = 0;
+    while (fgets(line, sizeof(line), file)) {
+        if (sscanf(line, "MemAvailable: %llu kB", &kib) == 1) break;
+        kib = 0;
+    }
+    fclose(file);
+    return (uint64_t) kib * 1024u;
+}
+
+/* Bytes the checker needs, or 0 when the boot sector cannot be read. */
+static uint64_t checker_memory_estimate(const sd_mount_info_t * info) {
+    if (info->kind == SD_FS_KIND_NTFS) return SD_FSCK_NTFS_ESTIMATE;
+    unsigned char sector[512];
+    int fd = open(info->device, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return 0;
+    ssize_t got = pread(fd, sector, sizeof(sector), 0);
+    close(fd);
+    sd_fs_geometry_t geometry;
+    if (got != (ssize_t) sizeof(sector) || !sd_fsck_parse_boot_sector(sector, sizeof(sector), &geometry)) return 0;
+    if (geometry.kind != info->kind) return 0;
+    return sd_fsck_memory_estimate(&geometry);
+}
+
+static sd_repair_kick_result_t repair_kick(void (* release_handles)(void), bool check_dirty) {
     sd_repair_kick_result_t result = { false, false };
     if (sd_repair_in_progress()) return result;
 
@@ -205,20 +303,71 @@ sd_repair_kick_result_t sd_readonly_repair_kick(void (* release_handles)(void)) 
     sd_mount_info_t info;
     bool parsed = loaded && sd_fsck_parse_mounts(mounts, &info);
     free(mounts);
-    if (!parsed || !info.found || !info.readonly) return result;
+    if (!parsed || !info.found) return result;
     if (!sd_fsck_device_allowed(info.device)) return result;
 
     char cid[64];
     read_card_cid(cid, sizeof(cid));
+
+    if (!info.readonly && (!check_dirty || info.kind != SD_FS_KIND_VFAT)) return result;
+
+    bool dirty = false;
     char key[SD_FSCK_ATTEMPT_BYTES];
-    sd_repair_attempt_key(info.device, cid, key, sizeof(key));
+    if (info.kind == SD_FS_KIND_VFAT) {
+        /* The log is read on every poll (it is small); mount ids are reused
+         * by the kernel, so nothing short of the log itself says whether
+         * this is a new insertion. One key per insertion covers both
+         * triggers: a read-only FAT card is usually dirty too, its warning
+         * stays in the log after the repair remounts it, and a checked
+         * dirty card can turn read-only later. The repair remount prints no
+         * new insertion line, so either way the card is checked once. A
+         * failed read reports clean and is retried on the next poll. */
+        char stamp[32] = "";
+        read_kernel_log_dirty(info.device, &dirty, stamp, sizeof(stamp));
+        if (info.readonly) dirty = false;
+        /* Without an insertion line in the log (rotated out, or the read
+         * failed) this is still the last insertion; with no history at all
+         * it is "pending" until the first real line. */
+        if (stamp[0] && strcmp(stamp, "none") != 0) {
+            if (strcmp(last_insertion_stamp, "pending") == 0 && attempt_remembered("fat@pending")) {
+                snprintf(key, sizeof(key), "fat@%.24s", stamp);
+                remember_attempt(key);
+            }
+            snprintf(last_insertion_stamp, sizeof(last_insertion_stamp), "%s", stamp);
+        } else {
+            if (!last_insertion_stamp[0]) snprintf(last_insertion_stamp, sizeof(last_insertion_stamp), "pending");
+            snprintf(stamp, sizeof(stamp), "%s", last_insertion_stamp);
+        }
+        snprintf(key, sizeof(key), "fat@%.24s", stamp);
+        if (!info.readonly && !dirty) return result;
+    } else {
+        sd_repair_attempt_key(info.device, cid, key, sizeof(key));
+    }
     if (attempt_remembered(key)) return result;
 
+    sd_repair_note_t cannot_check = dirty ? SD_REPAIR_NOTE_NEEDS_COMPUTER : SD_REPAIR_NOTE_READONLY_NEEDS_COMPUTER;
     const char * tool = sd_fsck_select_tool(info.kind, tool_exists, NULL);
     if (!tool || !sd_fsck_plan(info.kind, tool, info.device, &repair_plan)) {
         remember_attempt(key);
-        post_note(SD_REPAIR_NOTE_FAILED);
+        post_note(dirty ? cannot_check : SD_REPAIR_NOTE_FAILED);
         boot_checkpoint("sd repair skipped, no checker for this filesystem");
+        return result;
+    }
+
+    /* Checked before the unmount: a checker that runs out of memory would
+     * leave the card detached for nothing. */
+    uint64_t needed = checker_memory_estimate(&info);
+    uint64_t available = read_mem_available();
+    uint64_t budget = available > SD_FSCK_MEMORY_RESERVE ? available - SD_FSCK_MEMORY_RESERVE : 0;
+    if (needed == 0 || needed > budget) {
+        remember_attempt(key);
+        post_note(cannot_check);
+        char line[320];
+        snprintf(line, sizeof(line), "not checking %s (%s, %s): needs %llu KiB, %llu KiB available", info.device,
+                 info.fstype, dirty ? "not safely removed" : "read-only", (unsigned long long) (needed / 1024),
+                 (unsigned long long) (available / 1024));
+        log_repair_line(line);
+        boot_checkpoint("sd repair skipped, not enough memory");
         return result;
     }
     snprintf(repair_mount_point, sizeof(repair_mount_point), "%s", info.mount_point);
@@ -242,7 +391,11 @@ sd_repair_kick_result_t sd_readonly_repair_kick(void (* release_handles)(void)) 
     }
 
     remember_attempt(key);
+    repair_kind = info.kind;
+    repair_dirty_trigger = dirty;
+    repair_memory_limit = budget;
     atomic_store_explicit(&repair_fsck_code, -1, memory_order_relaxed);
+    atomic_store_explicit(&repair_tool_ok, false, memory_order_relaxed);
     atomic_store_explicit(&repair_phase, PHASE_FSCK, memory_order_release);
     pthread_t thread;
     if (pthread_create(&thread, NULL, repair_thread, NULL) != 0) {
@@ -255,11 +408,20 @@ sd_repair_kick_result_t sd_readonly_repair_kick(void (* release_handles)(void)) 
     pthread_detach(thread);
     post_note(SD_REPAIR_NOTE_STARTED);
     boot_checkpoint("sd repair started");
-    char line[320];
-    snprintf(line, sizeof(line), "checking %s (%s) with %s", repair_plan.device, info.fstype, repair_plan.tool);
+    char line[400];
+    snprintf(line, sizeof(line), "checking %s (%s, %s) with %s, limit %llu KiB", repair_plan.device, info.fstype,
+             dirty ? "not safely removed" : "read-only", repair_plan.tool, (unsigned long long) (budget / 1024));
     log_repair_line(line);
     result.started = true;
     return result;
+}
+
+sd_repair_kick_result_t sd_readonly_repair_kick(void (* release_handles)(void)) {
+    return repair_kick(release_handles, false);
+}
+
+sd_repair_kick_result_t sd_card_repair_kick(void (* release_handles)(void)) {
+    return repair_kick(release_handles, true);
 }
 
 #else
@@ -277,6 +439,9 @@ sd_repair_kick_result_t sd_readonly_repair_kick(void (* release_handles)(void)) 
     (void) release_handles;
     sd_repair_kick_result_t result = { false, false };
     return result;
+}
+sd_repair_kick_result_t sd_card_repair_kick(void (* release_handles)(void)) {
+    return sd_readonly_repair_kick(release_handles);
 }
 
 #endif

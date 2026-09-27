@@ -1,8 +1,26 @@
 #include "idle_shutdown.h"
 
 #ifndef HOST_BUILD
+#include <stdbool.h>
+#include <stdio.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/reboot.h>
+
+/* Any non-zero exit makes compas_bootloader reboot the device. */
+#define IDLE_SHUTDOWN_REBOOT_EXIT_CODE 75
+
+static bool parent_is_bootloader(void) {
+    char path[32];
+    char target[256];
+    snprintf(path, sizeof(path), "/proc/%d/exe", (int) getppid());
+    ssize_t length = readlink(path, target, sizeof(target) - 1);
+    if (length <= 0) return false;
+    target[length] = '\0';
+    const char * base = strrchr(target, '/');
+    base = base ? base + 1 : target;
+    return strncmp(base, "compas_bootloader", strlen("compas_bootloader")) == 0;
+}
 #endif
 
 void idle_shutdown_now(void) {
@@ -41,6 +59,11 @@ void idle_shutdown_reboot_now(void) {
      * handing off through an external command whose exit status the
      * supervisor can misread. */
     sync();
+    /* Under the bootloader, exit instead: once this process is gone the
+     * bootloader can unmount the SD card before rebooting, which clears
+     * the FAT dirty mark. Rebooting from here leaves the card looking
+     * unsafely removed on the next boot. */
+    if (parent_is_bootloader()) _exit(IDLE_SHUTDOWN_REBOOT_EXIT_CODE);
     reboot(RB_AUTOBOOT);
     for (;;) pause();
 #endif

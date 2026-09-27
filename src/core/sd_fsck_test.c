@@ -1,5 +1,6 @@
 #include "sd_fsck.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -68,6 +69,98 @@ int main(void) {
            "corrected filesystems are usable");
     expect(!sd_fsck_exit_usable(4) && !sd_fsck_exit_usable(8) && !sd_fsck_exit_usable(-1) && !sd_fsck_exit_usable(127),
            "uncorrected and operational failures are not usable");
+
+    /* fsck.fat exits 1 after a repair and after die(); only a finished run
+     * prints the summary line. */
+    const char * finished = "fsck.fat 4.2 (2021-01-31)\nDirty bit is set.\n"
+                            "/dev/mmcblk0p1: 120 files, 3000/3900000 clusters\n";
+    const char * died = "fsck.fat 4.2 (2021-01-31)\nAllocation of 31207440 bytes failed\n";
+    expect(sd_fsck_tool_succeeded(SD_FS_KIND_VFAT, 1, finished, "/dev/mmcblk0p1"), "vfat repaired run finished");
+    expect(sd_fsck_tool_succeeded(SD_FS_KIND_VFAT, 0, finished, "/dev/mmcblk0p1"), "vfat clean run finished");
+    expect(!sd_fsck_tool_succeeded(SD_FS_KIND_VFAT, 1, died, "/dev/mmcblk0p1"), "vfat die is not a repair");
+    expect(!sd_fsck_tool_succeeded(SD_FS_KIND_VFAT, 1, NULL, "/dev/mmcblk0p1"), "vfat without output");
+    expect(!sd_fsck_tool_succeeded(SD_FS_KIND_VFAT, 1, finished, "/dev/mmcblk0"), "summary for another node");
+    expect(!sd_fsck_tool_succeeded(SD_FS_KIND_VFAT, 2, finished, "/dev/mmcblk0p1"), "vfat usage error");
+    expect(!sd_fsck_tool_succeeded(SD_FS_KIND_VFAT, -1, finished, "/dev/mmcblk0p1"), "vfat killed");
+    expect(sd_fsck_tool_succeeded(SD_FS_KIND_EXFAT, 1, NULL, "/dev/mmcblk0") &&
+               !sd_fsck_tool_succeeded(SD_FS_KIND_EXFAT, 4, NULL, "/dev/mmcblk0") &&
+               !sd_fsck_tool_succeeded(SD_FS_KIND_EXFAT, 8, NULL, "/dev/mmcblk0"),
+           "exfat uses the fsck status bits");
+    expect(sd_fsck_tool_succeeded(SD_FS_KIND_NTFS, 0, NULL, "/dev/mmcblk0p1") &&
+               !sd_fsck_tool_succeeded(SD_FS_KIND_NTFS, 1, NULL, "/dev/mmcblk0p1"),
+           "ntfsfix fails with 1");
+
+    expect(sd_fsck_outcome(true, false, false, false) == SD_REPAIR_NOTE_FAILED, "unmounted card failed");
+    expect(sd_fsck_outcome(true, false, true, false) == SD_REPAIR_NOTE_REPAIRED, "read-only card repaired");
+    expect(sd_fsck_outcome(true, true, true, false) == SD_REPAIR_NOTE_CHECKED, "dirty card checked");
+    expect(sd_fsck_outcome(false, true, true, false) == SD_REPAIR_NOTE_NEEDS_COMPUTER, "unfinished check");
+    expect(sd_fsck_outcome(false, false, true, false) == SD_REPAIR_NOTE_NEEDS_COMPUTER, "unfinished read-only check");
+    expect(sd_fsck_outcome(true, false, true, true) == SD_REPAIR_NOTE_STILL_READONLY, "still read-only");
+    expect(sd_fsck_outcome(false, false, true, true) == SD_REPAIR_NOTE_FAILED, "checker failed, still read-only");
+
+    /* Boot sector of the 119 GB FAT32 card on the R1 test device. */
+    unsigned char sector[512];
+    memset(sector, 0, sizeof(sector));
+    memcpy(sector + 3, "MSDOS5.0", 8);
+    sector[11] = 0x00; sector[12] = 0x02;              /* 512 bytes per sector */
+    sector[13] = 0x40;                                 /* 64 sectors per cluster */
+    sector[14] = 0x20; sector[15] = 0x00;              /* 32 reserved sectors */
+    sector[16] = 2;
+    sector[32] = 0xcf; sector[33] = 0x9f; sector[34] = 0xe2; sector[35] = 0x0e; /* total sectors */
+    sector[36] = 0x40; sector[37] = 0x77;              /* FAT size in sectors */
+    memcpy(sector + 82, "FAT32   ", 8);
+    sector[510] = 0x55; sector[511] = 0xAA;
+    sd_fs_geometry_t geometry;
+    expect(sd_fsck_parse_boot_sector(sector, sizeof(sector), &geometry), "fat32 boot sector");
+    expect(geometry.kind == SD_FS_KIND_VFAT && geometry.fat_bits == 32, "fat32 kind");
+    expect(geometry.clusters == (0x0ee29fcfULL - 32 - 2ULL * 0x7740) / 64, "fat32 cluster count");
+    uint64_t estimate = sd_fsck_memory_estimate(&geometry);
+    expect(estimate > 48ULL * 1024 * 1024 && estimate < 64ULL * 1024 * 1024, "large card needs tens of MiB");
+
+    /* A 1 GB FAT16 card fits comfortably. */
+    memset(sector + 11, 0, 30);
+    sector[11] = 0x00; sector[12] = 0x02;
+    sector[13] = 0x40;
+    sector[14] = 0x04;
+    sector[16] = 2;
+    sector[17] = 0x00; sector[18] = 0x02;              /* 512 root entries */
+    sector[22] = 0x80; sector[23] = 0x00;              /* 128 sectors per FAT */
+    sector[32] = 0x00; sector[33] = 0x00; sector[34] = 0x1e; sector[35] = 0x00;
+    sector[36] = 0; sector[37] = 0;
+    expect(sd_fsck_parse_boot_sector(sector, sizeof(sector), &geometry) && geometry.fat_bits == 16,
+           "fat16 boot sector");
+    expect(sd_fsck_memory_estimate(&geometry) < 3ULL * 1024 * 1024, "small card estimate");
+
+    unsigned char exfat[512];
+    memset(exfat, 0, sizeof(exfat));
+    memcpy(exfat + 3, "EXFAT   ", 8);
+    exfat[92] = 0x00; exfat[93] = 0x00; exfat[94] = 0x10; exfat[95] = 0x00; /* 1M clusters */
+    exfat[510] = 0x55; exfat[511] = 0xAA;
+    expect(sd_fsck_parse_boot_sector(exfat, sizeof(exfat), &geometry) && geometry.kind == SD_FS_KIND_EXFAT &&
+               geometry.clusters == 0x100000,
+           "exfat boot sector");
+    exfat[510] = 0;
+    expect(!sd_fsck_parse_boot_sector(exfat, sizeof(exfat), &geometry), "missing boot signature");
+
+    char stamp[32];
+    const char * boot_log =
+        "<6>[    1.901000] mmc0: new high speed SDIO card at address 0001\n"
+        "<6>[    1.957907] mmc1: new high speed SDXC card at address aaaa\n"
+        "<4>[    4.173249] FAT-fs (mmcblk0p1): Volume was not properly unmounted. Some data may be corrupt. Please run fsck.\n";
+    expect(sd_fsck_klog_dirty(boot_log, "mmcblk0p1", stamp, sizeof(stamp)), "dirty after insertion");
+    expect(strcmp(stamp, "1.957907") == 0, "insertion stamp");
+    expect(!sd_fsck_klog_dirty(boot_log, "mmcblk0", stamp, sizeof(stamp)), "other node is not dirty");
+    const char * swapped =
+        "<6>[    1.957907] mmc1: new high speed SDXC card at address aaaa\n"
+        "<4>[    4.173249] FAT-fs (mmcblk0p1): Volume was not properly unmounted. Some data may be corrupt.\n"
+        "<6>[  300.000001] mmc1: new high speed SDHC card at address 1234\n"
+        "<6>[  300.100000] mmc0: new high speed SDIO card at address 0001\n";
+    expect(!sd_fsck_klog_dirty(swapped, "mmcblk0p1", stamp, sizeof(stamp)), "warning for the previous card");
+    expect(strcmp(stamp, "300.000001") == 0, "SDIO insertion does not replace the card stamp");
+    expect(sd_fsck_klog_dirty("FAT-fs (mmcblk0p1): Volume was not properly unmounted.\n", "mmcblk0p1", stamp,
+                              sizeof(stamp)) &&
+               strcmp(stamp, "none") == 0,
+           "insertion line rotated out of the log");
 
     char key[SD_FSCK_ATTEMPT_BYTES];
     sd_repair_attempt_key("/dev/mmcblk0p1", "abcd", key, sizeof(key));

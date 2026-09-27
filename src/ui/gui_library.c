@@ -7027,10 +7027,13 @@ static void clear_removed_sd_library(void) {
 static void show_sd_repair_note(void) {
     const char * message = NULL;
     switch (sd_repair_take_note()) {
-    case SD_REPAIR_NOTE_STARTED: message = "Repairing the SD card"; break;
+    case SD_REPAIR_NOTE_STARTED: message = "Checking the SD card. This may take a while"; break;
     case SD_REPAIR_NOTE_REPAIRED: message = "SD card repaired"; break;
+    case SD_REPAIR_NOTE_CHECKED: message = "SD card checked"; break;
     case SD_REPAIR_NOTE_STILL_READONLY: message = "SD card is still read-only"; break;
     case SD_REPAIR_NOTE_FAILED: message = "Could not repair the SD card"; break;
+    case SD_REPAIR_NOTE_NEEDS_COMPUTER: message = "SD card may have errors. Check it on a computer"; break;
+    case SD_REPAIR_NOTE_READONLY_NEEDS_COMPUTER: message = "SD card is read-only. Check it on a computer"; break;
     case SD_REPAIR_NOTE_NONE: break;
     }
     if (message) show_error_toast(message);
@@ -7070,7 +7073,7 @@ void poll_sd_card_hotplug(void) {
     bool mount_observed = false;
     bool mounted = sd_card_root_is_mounted_observed(&mount_observed);
     if (mounted && !sd_repair_in_progress()) {
-        sd_repair_kick_result_t repair = sd_readonly_repair_kick(release_sd_handles_for_repair);
+        sd_repair_kick_result_t repair = sd_card_repair_kick(release_sd_handles_for_repair);
         if (repair.started || !sd_card_root_is_mounted()) {
             mounted = false;
             mount_observed = false;

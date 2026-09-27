@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/mount.h>
 #include <sys/reboot.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -20,18 +21,29 @@ extern char ** environ;
 
 #define COLOR_BG fb_rgb(0x12, 0x12, 0x12)
 
+/* The kernel marks a FAT volume dirty while it is mounted writable and
+ * clears the mark only on unmount or a read-only remount. The player has
+ * exited here, so its files are closed; without this every power cycle
+ * leaves the card looking unsafely removed and the player checks it. */
+static void release_sd_card(void) {
+    sync();
+    if (umount2(SD_MOUNT_POINT, 0) == 0) return;
+    if (errno == EINVAL || errno == ENOENT) return; /* not mounted */
+    mount(NULL, SD_MOUNT_POINT, NULL, MS_REMOUNT | MS_RDONLY, NULL);
+}
+
 /* Supervises player execution. A clean exit status (0) triggers device poweroff,
  * while abnormal termination (signals or non-zero exit) triggers a reboot. */
 static void reboot_device(void) {
     sleep(1);
-    sync();
+    release_sd_card();
     reboot(RB_AUTOBOOT);
     /* reboot() is expected to terminate the process; exit if it returns. */
     _exit(1);
 }
 
 static void poweroff_device(void) {
-    sync();
+    release_sd_card();
     reboot(RB_POWER_OFF);
     /* If poweroff syscall fails, pause indefinitely rather than rebooting. */
     perror("compas_bootloader: poweroff syscall failed");
