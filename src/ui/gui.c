@@ -27,6 +27,7 @@
 #include "dlna_control.h"
 #include "remote_control.h"
 #include "battery.h"
+#include "firmware_ota.h"
 #include "wifi_status.h"
 #include "audio.h"
 #include "audio_output.h"
@@ -286,7 +287,7 @@ static bool shutdown_background_work_active(void) {
            gui_network_has_background_work() || gui_lyrics_has_background_work() ||
            gui_player_has_background_work() || gui_shell_has_background_work() ||
            plugin_manager_has_background_work() || playlist_files_has_active_write() ||
-           gui_player_queue_write_busy() || screenshot_is_busy();
+           gui_player_queue_write_busy() || screenshot_is_busy() || firmware_ota_busy();
 }
 
 /* Grace window after resuming from suspend. hw_buttons sets its short-tap flag
@@ -1031,6 +1032,7 @@ static void update_timer_cb(lv_timer_t * timer) {
      * pending, so gating them on screen state would leave that operation
      * stuck until the user wakes the screen back up. */
     poll_subsonic_download();
+    poll_firmware_ota();
     poll_subsonic_library_download();
     poll_dlna_control();
     poll_subsonic_connect();

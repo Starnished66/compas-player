@@ -119,4 +119,15 @@ bool http_get_to_file_cancelable(const char * url, bool verify_tls, const char *
                                   uint32_t connect_timeout_ms, uint32_t read_timeout_ms,
                                   http_cancel_token_t * cancel);
 
+/* Like http_get_to_file_cancelable(), but follows up to max_redirects
+ * absolute http(s) redirects (Location values up to 2047 bytes, as signed
+ * storage URLs need), refuses an https -> http downgrade while verify_tls
+ * is set, and writes only the final response body, bounded by
+ * max_body_size (0 for the default 2 GiB cap). *out_status, when non-NULL,
+ * receives the final HTTP status. The file is removed on any failure. */
+bool http_get_to_file_redirects(const char * url, bool verify_tls, const char * dest_path, size_t max_body_size,
+                                http_progress_cb_t progress_cb, void * progress_user_data,
+                                uint32_t connect_timeout_ms, uint32_t read_timeout_ms,
+                                http_cancel_token_t * cancel, int max_redirects, int * out_status);
+
 #endif /* HTTP_CLIENT_H */

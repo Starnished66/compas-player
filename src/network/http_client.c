@@ -8,6 +8,7 @@
 #include <strings.h>
 #include <time.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
 typedef struct {
     /* Exactly one of these is set, matching which http_get_* the caller used. */
@@ -28,6 +29,12 @@ typedef struct {
      * extension at all). */
     char * out_content_type;
     size_t out_content_type_size;
+
+    /* Optional -- set only by redirect-following downloads. A 3xx response
+     * with a Location header fills this and its body is skipped, so a
+     * redirect page never lands in the destination file. */
+    char * out_location;
+    size_t out_location_size;
 } body_sink_t;
 
 static bool sink_write(body_sink_t * sink, const uint8_t * data, size_t len, uint64_t total_written, uint64_t total_expected) {
@@ -238,7 +245,10 @@ static bool read_response(http_conn_t * conn, int * out_status, body_sink_t * si
 
     bool is_chunked = false;
     uint64_t content_length = 0;
-    char header_line[1024];
+    if (sink->out_location && sink->out_location_size) sink->out_location[0] = '\0';
+    /* Signed storage redirects (for example GitHub release assets) carry
+     * Location values near a kilobyte; leave room well beyond that. */
+    char header_line[4096];
     while (http_conn_reader_line(&reader, header_line, sizeof(header_line)) && header_line[0] != '\0') {
         char * colon = strchr(header_line, ':');
         if (!colon) continue;
@@ -256,10 +266,19 @@ static bool read_response(http_conn_t * conn, int * out_status, body_sink_t * si
             char * semi = strchr(value, ';');
             if (semi) *semi = '\0';
             snprintf(sink->out_content_type, sink->out_content_type_size, "%s", value);
+        } else if (strcasecmp(header_line, "Location") == 0 && sink->out_location && sink->out_location_size) {
+            /* A Location that does not fit is left empty: following a
+             * truncated URL would fetch the wrong resource. */
+            if (strlen(value) < sink->out_location_size) snprintf(sink->out_location, sink->out_location_size, "%s", value);
         }
     }
     DBG_LOG("http_client: status=%d content_length=%llu chunked=%d\n", status,
             (unsigned long long) content_length, is_chunked);
+
+    if (sink->out_location && sink->out_location[0] && status >= 300 && status < 400) {
+        *out_status = status; /* the caller follows it; the connection closes */
+        return true;
+    }
 
     if (sink->out_buffer && !is_chunked && content_length > sink->max_buffer_size) {
         DBG_LOG("http_client: refusing oversized buffered response (%llu > %zu)\n",
@@ -391,6 +410,53 @@ bool http_get_to_file_cancelable(const char * url, bool verify_tls, const char *
     bool ok = do_get_ex(url, verify_tls, &status, &sink, connect_timeout_ms, read_timeout_ms, cancel);
     fclose(f);
 
+    if (!ok || status < 200 || status >= 300) {
+        remove(dest_path);
+        return false;
+    }
+    return true;
+}
+
+bool http_get_to_file_redirects(const char * url, bool verify_tls, const char * dest_path, size_t max_body_size,
+                                http_progress_cb_t progress_cb, void * progress_user_data,
+                                uint32_t connect_timeout_ms, uint32_t read_timeout_ms,
+                                http_cancel_token_t * cancel, int max_redirects, int * out_status) {
+    if (out_status) *out_status = 0;
+    FILE * f = fopen(dest_path, "wb");
+    if (!f) return false;
+
+    char current[2048], location[2048];
+    if (snprintf(current, sizeof(current), "%s", url) >= (int) sizeof(current)) {
+        fclose(f);
+        remove(dest_path);
+        return false;
+    }
+    int status = 0;
+    bool ok = false;
+    for (int hop = 0; hop <= max_redirects; hop++) {
+        body_sink_t sink = { .out_buffer = NULL, .out_buffer_size = NULL, .out_file = f, .buffer_capacity = 0,
+                             .max_buffer_size = max_body_size > 0 ? max_body_size : HTTP_FILE_DOWNLOAD_DEFAULT_MAX_BYTES,
+                             .progress_cb = progress_cb, .progress_user_data = progress_user_data,
+                             .out_content_type = NULL, .out_content_type_size = 0,
+                             .out_location = location, .out_location_size = sizeof(location) };
+        status = 0;
+        ok = do_get_ex(current, verify_tls, &status, &sink, connect_timeout_ms, read_timeout_ms, cancel);
+        if (!ok || status < 300 || status >= 400) break;
+        ok = false;
+        /* Only absolute http(s) targets, and never an https -> http
+         * downgrade while certificates are being verified. */
+        bool to_https = strncasecmp(location, "https://", 8) == 0;
+        bool to_http = strncasecmp(location, "http://", 7) == 0;
+        if (!location[0] || (!to_https && !to_http) ||
+            (verify_tls && to_http && strncasecmp(current, "https://", 8) == 0)) {
+            DBG_LOG("http_client: refusing redirect to '%s'\n", location);
+            break;
+        }
+        memcpy(current, location, strlen(location) + 1);
+        if (fflush(f) != 0 || ftruncate(fileno(f), 0) != 0 || fseek(f, 0, SEEK_SET) != 0) break;
+    }
+    if (fclose(f) != 0) ok = false;
+    if (out_status) *out_status = status;
     if (!ok || status < 200 || status >= 300) {
         remove(dest_path);
         return false;

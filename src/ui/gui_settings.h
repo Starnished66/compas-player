@@ -26,3 +26,5 @@ void gui_settings_sync_crossfade_toggle(void);
 void gui_settings_sync_gapless_toggle(void);
 void gui_settings_sync_sleep_timer_toggle(void);
 void gui_settings_sync_adb_toggle(void);
+/* Drives the online firmware update UI (firmware_ota.h); call every tick. */
+void poll_firmware_ota(void);

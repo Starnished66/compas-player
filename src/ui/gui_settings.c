@@ -27,6 +27,7 @@
 #include "usb_mode_control.h"
 #include "timezone_data.h"
 #include "firmware_update.h"
+#include "firmware_ota.h"
 #include "plugin_manager.h"
 #include "gui_plugin_manage.h"
 #include "fallback_font.h"
@@ -399,9 +400,7 @@ static void build_firmware_update_popup(void) {
         firmware_update_popup_backdrop_cb, &firmware_update_popup.backdrop);
 }
 
-void firmware_update_row_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-
+static void firmware_update_from_sd(void) {
     char path[512];
     if (!firmware_update_scan(path, sizeof(path))) {
         show_error_toast("No .upt firmware file found on SD card");
@@ -414,6 +413,183 @@ void firmware_update_row_cb(lv_event_t * e) {
                            filename);
 
     gui_popup_show(&firmware_update_popup);
+}
+
+/* ---- Online update from the latest weekly release (firmware_ota.h). The
+ * worker runs the check and download; poll_firmware_ota() drives the UI
+ * from the main loop. ---- */
+static lv_obj_t * firmware_source_menu;
+static lv_obj_t * firmware_source_backdrop;
+static gui_popup_t ota_offer_popup;
+static lv_obj_t * ota_offer_title;
+static gui_popup_t ota_install_popup;
+static lv_obj_t * ota_install_title;
+static gui_busy_handle_t ota_busy;
+static bool ota_ui_active;
+
+static void hide_firmware_source_menu(void) {
+    if (firmware_source_menu) lv_obj_add_flag(firmware_source_menu, LV_OBJ_FLAG_HIDDEN);
+    if (firmware_source_backdrop) lv_obj_add_flag(firmware_source_backdrop, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void firmware_source_backdrop_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    hide_firmware_source_menu();
+}
+
+static void show_ota_install_popup(const char * date) {
+    lv_label_set_text_fmt(ota_install_title,
+                          "Weekly Beta %s is downloaded and verified.\n\nInstall now? The device reboots into "
+                          "recovery to flash it. Do not turn it off until it restarts.",
+                          date);
+    gui_popup_show(&ota_install_popup);
+}
+
+static void firmware_source_sd_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    hide_firmware_source_menu();
+    /* An online check/download/install worker is running (reachable even
+     * from here: the busy screen allows swiping back to the player and
+     * back into Settings). Refuse outright rather than falling through to
+     * the unchecked manual path -- that worker may be about to replace the
+     * very image this would install. */
+    if (ota_ui_active || firmware_ota_busy()) {
+        show_error_toast("An update is already in progress");
+        return;
+    }
+    /* A verified online download goes through the same re-check, battery
+     * gate and parking as installing it right after the download. */
+    firmware_ota_release_t pending;
+    firmware_ota_pending_t state = firmware_ota_pending(&pending);
+    if (state == FIRMWARE_OTA_PENDING_VALID) show_ota_install_popup(pending.date);
+    else if (state == FIRMWARE_OTA_PENDING_REJECTED)
+        show_error_toast("The downloaded update changed on the SD card and was set aside. Download it again.");
+    else if (state == FIRMWARE_OTA_PENDING_UNREADABLE)
+        show_error_toast("Cannot read the update record on the SD card. Check the card and try again.");
+    else firmware_update_from_sd();
+}
+
+static void firmware_source_online_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    hide_firmware_source_menu();
+    if (!gui_shell_wifi_effective_enabled()) {
+        show_error_toast("Turn on Wi-Fi and connect first");
+        return;
+    }
+    if (ota_ui_active || !firmware_ota_start_check()) {
+        show_error_toast("An update is already in progress");
+        return;
+    }
+    ota_ui_active = true;
+    ota_busy = gui_busy_show("Checking for updates", "");
+}
+
+static void ota_offer_cancel_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    gui_popup_hide(&ota_offer_popup);
+    firmware_ota_reset();
+}
+
+static void ota_offer_download_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    gui_popup_hide(&ota_offer_popup);
+    if (!firmware_ota_start_download()) {
+        show_error_toast("Could not start the download");
+        firmware_ota_reset();
+        return;
+    }
+    ota_ui_active = true;
+    ota_busy = gui_busy_show("Downloading update", "This may take a while");
+    gui_busy_set_progress(ota_busy, 0);
+}
+
+static void ota_install_later_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    gui_popup_hide(&ota_install_popup);
+    show_info_toast("Update saved. Install it any time from Firmware Update > Install from SD card.");
+    firmware_ota_reset();
+}
+
+static void ota_install_now_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    gui_popup_hide(&ota_install_popup);
+    char error[160];
+    if (ota_ui_active || !firmware_ota_start_install(error, sizeof(error))) {
+        show_error_toast(ota_ui_active ? "An update is already in progress" : error);
+        return;
+    }
+    ota_ui_active = true;
+    ota_busy = gui_busy_show("Preparing update", "Checking the file on the SD card");
+}
+
+static void build_firmware_ota_popups(void) {
+    static const menu_popup_row_t rows[] = {
+        { "Check for online update", firmware_source_online_cb, false },
+        { "Install from SD card", firmware_source_sd_cb, false },
+        { "Cancel", firmware_source_backdrop_cb, false },
+    };
+    firmware_source_menu = build_menu_popup(rows, (int) (sizeof(rows) / sizeof(rows[0])),
+                                            firmware_source_backdrop_cb, &firmware_source_backdrop);
+    ota_offer_popup.popup = build_confirm_popup(
+        "", LV_LABEL_LONG_WRAP, &ota_offer_title, NULL, "Download", accent_lv_color(), ota_offer_download_cb, NULL,
+        "Cancel", accent_lv_color(), ota_offer_cancel_cb, NULL, ota_offer_cancel_cb, &ota_offer_popup.backdrop);
+    ota_install_popup.popup = build_confirm_popup(
+        "", LV_LABEL_LONG_WRAP, &ota_install_title, NULL, "Install & Reboot", lv_color_make(255, 120, 120),
+        ota_install_now_cb, NULL, "Later", accent_lv_color(), ota_install_later_cb, NULL, ota_install_later_cb,
+        &ota_install_popup.backdrop);
+}
+
+void firmware_update_row_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    lv_obj_remove_flag(firmware_source_backdrop, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(firmware_source_menu, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(firmware_source_backdrop);
+    lv_obj_move_foreground(firmware_source_menu);
+}
+
+void poll_firmware_ota(void) {
+    if (!ota_ui_active) return;
+    firmware_ota_status_t status;
+    firmware_ota_get_status(&status);
+    switch (status.state) {
+        case FIRMWARE_OTA_CHECKING:
+        case FIRMWARE_OTA_INSTALLING: /* success reboots from the worker */
+            return;
+        case FIRMWARE_OTA_DOWNLOADING:
+            gui_busy_set_progress(ota_busy, status.percent);
+            return;
+        case FIRMWARE_OTA_CHECKED:
+            gui_busy_hide(ota_busy);
+            ota_ui_active = false;
+            if (status.newer)
+                lv_label_set_text_fmt(ota_offer_title,
+                                      "Weekly Beta %s is available.\nInstalled: %s\n\nDownload it now? This may "
+                                      "take a while.",
+                                      status.release.date, status.installed);
+            else
+                lv_label_set_text_fmt(ota_offer_title,
+                                      "You have the latest weekly (%s).\n\nDownload and reinstall it anyway? "
+                                      "This may take a while.",
+                                      status.release.date);
+            gui_popup_show(&ota_offer_popup);
+            return;
+        case FIRMWARE_OTA_READY:
+            gui_busy_hide(ota_busy);
+            ota_ui_active = false;
+            firmware_ota_reset(); /* the record on the card carries it from here */
+            show_ota_install_popup(status.release.date);
+            return;
+        case FIRMWARE_OTA_FAILED:
+            gui_busy_hide(ota_busy);
+            ota_ui_active = false;
+            show_error_toast(status.error);
+            firmware_ota_reset();
+            return;
+        case FIRMWARE_OTA_IDLE:
+            gui_busy_hide(ota_busy);
+            ota_ui_active = false;
+            return;
+    }
 }
 
 static lv_obj_t * adb_switch = NULL;
@@ -3217,6 +3393,7 @@ void gui_settings_init(void) {
     eq_screen = build_eq_screen();
     eq_profiles_screen = build_eq_profiles_screen();
     build_firmware_update_popup();
+    build_firmware_ota_popups();
     build_eq_reset_popup();
     build_eq_profile_delete_popup();
     build_eq_save_choice_popup();
@@ -3234,6 +3411,11 @@ void gui_settings_init(void) {
  * screens, so each needs its own explicit deletion. */
 void gui_settings_teardown(void) {
     gui_popup_teardown(&firmware_update_popup);
+    gui_popup_teardown(&ota_offer_popup);
+    gui_popup_teardown(&ota_install_popup);
+    ota_offer_title = ota_install_title = NULL;
+    if (firmware_source_menu) { lv_obj_delete(firmware_source_menu); firmware_source_menu = NULL; }
+    if (firmware_source_backdrop) { lv_obj_delete(firmware_source_backdrop); firmware_source_backdrop = NULL; }
     gui_popup_teardown(&eq_reset_popup);
     gui_popup_teardown(&eq_profile_delete_popup);
     gui_popup_teardown(&eq_save_choice_popup);
