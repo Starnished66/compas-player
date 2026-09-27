@@ -1895,6 +1895,7 @@ one will visibly stall the whole UI until it returns, same tradeoff
 | Example | What it demonstrates |
 |---|---|
 | `Audiobooks.lua` | SD browsing, nested lists, chapter playback, progress |
+| `Podcasts.lua` | RSS and OPML subscriptions, episode downloads, resume and progress |
 | `NetRadio.lua` | Stream Media tile and live MP3 streams |
 | `Themes.lua` | Display row, icon overrides, background/text colors |
 | `SoundProfiles.lua` | PEQ profile selection and persistence |
@@ -1921,6 +1922,12 @@ reference implementation for `register_list_item()`; the `README.md`'s
 Plugins section has the install steps (copy to
 `.plugins/Audiobooks.lua`, create an `Audiobooks/<book>/` folder
 structure).
+
+`plugins_examples/Podcasts.lua` is a download-first podcast library for
+`<SD card>/Podcasts`. Add feeds by search or URL, import OPML files placed in
+that folder, and export the subscription list as `subscriptions.opml`. It
+caches the 40 newest RSS episodes per show, downloads enclosures for local
+playback and resume, and can stream MP3 episodes without resume.
 
 `plugins_examples/NetRadio.lua` is the reference implementation for both
 `register_stream_media_tile()` and live stream URLs. It reloads
