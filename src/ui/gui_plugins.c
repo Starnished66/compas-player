@@ -100,11 +100,31 @@ void configure_scrolling_row_label(lv_obj_t * label, int32_t width) {
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_LEFT, 0);
 }
 
+/* Whether a pooled plugin screen is still reachable with Back. */
+static bool plugin_screen_on_nav_stack(lv_obj_t * scr) {
+    int depth = gui_navigation_get_depth();
+    for (int i = 0; i < depth; i++) {
+        if (gui_navigation_get_screen_at(i) == scr) return true;
+    }
+    return false;
+}
+
 int gui_plugin_show_list(const char * title, const char * const * labels, const char * const * icon_paths,
                           const char * const * text_sizes, int32_t height, int32_t width,
                           int selected_index, int count) {
+    /* Same liveness rule as the settings pool: plain round-robin reused a
+     * slot still on the navigation stack after a few open/Back visits to a
+     * submenu, replacing an ancestor's rows and callback. Only when every
+     * slot is stacked (nesting deeper than the pool) is one overwritten. */
     int slot = plugin_list_pool_next;
-    plugin_list_pool_next = (plugin_list_pool_next + 1) % PLUGIN_LIST_SCREEN_POOL_SIZE;
+    for (int i = 0; i < PLUGIN_LIST_SCREEN_POOL_SIZE; i++) {
+        int candidate = (plugin_list_pool_next + i) % PLUGIN_LIST_SCREEN_POOL_SIZE;
+        if (!plugin_screen_on_nav_stack(plugin_list_screens[candidate])) {
+            slot = candidate;
+            break;
+        }
+    }
+    plugin_list_pool_next = (slot + 1) % PLUGIN_LIST_SCREEN_POOL_SIZE;
 
     lv_label_set_text(plugin_list_title_labels[slot], title);
     lv_obj_t * list = plugin_list_lists[slot];
@@ -719,14 +739,6 @@ static void populate_plugin_settings_list_screen(int slot) {
     }
 }
 
-static bool plugin_settings_screen_on_nav_stack(lv_obj_t * scr) {
-    int depth = gui_navigation_get_depth();
-    for (int i = 0; i < depth; i++) {
-        if (gui_navigation_get_screen_at(i) == scr) return true;
-    }
-    return false;
-}
-
 int gui_plugin_show_settings_list(const char * title, const int * row_types, const char * const * labels,
                                    const bool * toggle_initial, const int * slider_min, const int * slider_max,
                                    const int * slider_value, const char * const * icon_paths, const int32_t * heights,
@@ -750,7 +762,7 @@ int gui_plugin_show_settings_list(const char * title, const int * row_types, con
     int slot = plugin_settings_list_pool_next;
     for (int i = 0; i < PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE; i++) {
         int candidate = (plugin_settings_list_pool_next + i) % PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE;
-        if (!plugin_settings_screen_on_nav_stack(plugin_settings_list_screens[candidate])) {
+        if (!plugin_screen_on_nav_stack(plugin_settings_list_screens[candidate])) {
             slot = candidate;
             break;
         }

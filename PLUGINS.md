@@ -1894,7 +1894,7 @@ one will visibly stall the whole UI until it returns, same tradeoff
 
 | Example | What it demonstrates |
 |---|---|
-| `Audiobooks.lua` | SD browsing, nested lists, chapter playback, progress |
+| `Audiobooks.lua` | Nested book discovery, delayed-seek resume, bookmarks, embedded chapters, and sleep timers |
 | `Podcasts.lua` | RSS and OPML subscriptions, episode downloads, resume and progress |
 | `NetRadio.lua` | Stream Media tile and live MP3 streams |
 | `Themes.lua` | Display row, icon overrides, background/text colors |
@@ -1912,16 +1912,14 @@ one will visibly stall the whole UI until it returns, same tradeoff
 The summaries below explain when each example is useful and call out its
 important implementation details.
 
-`plugins_examples/Audiobooks.lua` uses most of the API: `sd_root()`/
-`list_dir()` to browse `Audiobooks/<book>/` folders on the SD card,
-`show_list()` twice (book folder, then chapter list, chaining from the
-first's `on_select` into the second), `play_list()` to start playback from
-whichever chapter was tapped, and `show_toast()` for the "no chapters
-found" / "no audiobooks found" empty states. Read it top to bottom as the
-reference implementation for `register_list_item()`; the `README.md`'s
-Plugins section has the install steps (copy to
-`.plugins/Audiobooks.lua`, create an `Audiobooks/<book>/` folder
-structure).
+`plugins_examples/Audiobooks.lua` discovers loose audio files and books in
+`Audiobooks/Title/`, `Title/CD1/`, `Author/Title/`, or
+`Author/Title/CD1/` layouts. It keeps books out of the music database,
+stores per-book resume and bookmarks, retries seeks after tracks open,
+parses ID3, M4B, QuickTime, and CUE chapters, and provides skip and sleep
+controls. Playback speed, Now Playing buttons, hardware Next/Previous, and
+the progress bar remain per file. Copy it to `.plugins/Audiobooks.lua` and
+put audiobook folders under `<SD card>/Audiobooks/`.
 
 `plugins_examples/Podcasts.lua` is a download-first podcast library for
 `<SD card>/Podcasts`. Add feeds by search or URL, import OPML files placed in
