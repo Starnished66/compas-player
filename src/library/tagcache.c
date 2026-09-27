@@ -1263,6 +1263,7 @@ typedef struct {
     int32_t disc_number;
     int32_t track_number;
     int32_t flag;
+    uint64_t ticket; /* newest enqueue this entry carries; see numeric_waiter_t */
 } numeric_update_t;
 
 static numeric_update_t numeric_queue[NUMERIC_QUEUE_CAP];
@@ -1280,17 +1281,55 @@ static pthread_cond_t numeric_drain_cond = PTHREAD_COND_INITIALIZER;
 static pthread_t numeric_thread;
 static bool numeric_thread_running = false;
 static bool numeric_shutdown = false;
+/* Durable waiters. Every enqueue takes the next ticket, and a queued entry
+ * carries the ticket of the newest value coalesced into it. A waiter records
+ * (gen, slot, ticket) when its update is queued; the first batch holding
+ * that slot with an entry ticket >= the waiter's settles it: written, or
+ * failed/discarded. An in-flight entry for the slot from before the enqueue
+ * has a lower ticket and cannot settle it. Dropping queued entries (session
+ * stop) fails the waiters they carry. numeric_flush_now asks the worker to
+ * skip the commit delay. All guarded by numeric_mutex. */
+#define NUMERIC_WAITERS_MAX 8
+typedef enum { NUMERIC_WAIT_FREE, NUMERIC_WAIT_PENDING, NUMERIC_WAIT_WRITTEN, NUMERIC_WAIT_FAILED } numeric_wait_state_t;
+typedef struct {
+    numeric_wait_state_t state;
+    int32_t gen;
+    int32_t slot;
+    uint64_t ticket;
+} numeric_waiter_t;
+static numeric_waiter_t numeric_waiters[NUMERIC_WAITERS_MAX];
+static uint64_t numeric_next_ticket = 1;
+static bool numeric_flush_now = false;
 
-/* Performs disk pwrite + fdatasync for a snapshot of numeric updates. */
-static bool flush_numeric_batch(const numeric_update_t * batch, int n) {
-    if (n <= 0 || db_dir[0] == '\0') return true;
+/* Caller holds numeric_mutex. Settles the pending waiters that one of the
+ * given entries carries. */
+static void numeric_settle_waiters_locked(const numeric_update_t * entries, int count, bool written) {
+    for (int w = 0; w < NUMERIC_WAITERS_MAX; w++) {
+        numeric_waiter_t * waiter = &numeric_waiters[w];
+        if (waiter->state != NUMERIC_WAIT_PENDING) continue;
+        for (int i = 0; i < count; i++) {
+            if (entries[i].gen == waiter->gen && entries[i].slot == waiter->slot &&
+                entries[i].ticket >= waiter->ticket) {
+                waiter->state = written ? NUMERIC_WAIT_WRITTEN : NUMERIC_WAIT_FAILED;
+                break;
+            }
+        }
+    }
+}
+
+/* Performs disk pwrite + fdatasync for a snapshot of numeric updates.
+ * *discarded is set when the batch was dropped rather than written. */
+static bool flush_numeric_batch(const numeric_update_t * batch, int n, bool * discarded) {
+    *discarded = false;
+    if (n <= 0) return true;
+    if (db_dir[0] == '\0') { *discarded = true; return true; }
     /* A queued update belongs to the directory pinned when it was queued.
      * A different directory discards the batch. A failed stat keeps it:
      * the pinned fd may still be the right card, and success would hide
      * the loss. */
     int identity = db_logical_directory_status();
     if (identity < 0) return false;
-    if (identity == 0) return true;
+    if (identity == 0) { *discarded = true; return true; }
     bool ok = true;
     for (int i = 0; i < n; i++) {
         int32_t gen = batch[i].gen;
@@ -1375,6 +1414,20 @@ static void numeric_retain_failed_locked(void) {
     }
 }
 
+/* Caller holds numeric_mutex after flushing the in-flight batch. Shared
+ * bookkeeping for every flush site. */
+static void numeric_finish_batch_locked(bool ok, bool discarded) {
+    /* A failed batch is retried later, but its waiters report the failure. */
+    numeric_settle_waiters_locked(numeric_inflight, numeric_inflight_count, ok && !discarded);
+    numeric_write_failed |= !ok;
+    if (!ok) numeric_retain_failed_locked();
+    else if (numeric_queue_count == 0) numeric_write_failed = false;
+    numeric_inflight_active = false;
+    numeric_inflight_count = 0;
+    atomic_fetch_add_explicit(&numeric_epoch, 1, memory_order_release);
+    pthread_cond_broadcast(&numeric_drain_cond);
+}
+
 static bool tagcache_flush_numeric(void) {
     for (;;) {
         pthread_mutex_lock(&numeric_mutex);
@@ -1384,15 +1437,10 @@ static bool tagcache_flush_numeric(void) {
         numeric_update_t batch[NUMERIC_QUEUE_CAP];
         memcpy(batch, numeric_inflight, sizeof(batch));
         pthread_mutex_unlock(&numeric_mutex);
-        bool ok = flush_numeric_batch(batch, n);
+        bool discarded;
+        bool ok = flush_numeric_batch(batch, n, &discarded);
         pthread_mutex_lock(&numeric_mutex);
-        numeric_write_failed |= !ok;
-        if (!ok) numeric_retain_failed_locked();
-        else if (numeric_queue_count == 0) numeric_write_failed = false;
-        numeric_inflight_active = false;
-        numeric_inflight_count = 0;
-        atomic_fetch_add_explicit(&numeric_epoch, 1, memory_order_release);
-        pthread_cond_broadcast(&numeric_drain_cond);
+        numeric_finish_batch_locked(ok, discarded);
         pthread_mutex_unlock(&numeric_mutex);
         if (!ok) return false;
     }
@@ -1406,25 +1454,24 @@ static void * numeric_worker_func(void * arg) {
             pthread_cond_wait(&numeric_cond, &numeric_mutex);
             continue;
         }
-        struct timespec ts;
-        clock_gettime(CLOCK_REALTIME, &ts);
-        ts.tv_sec += NUMERIC_COMMIT_DELAY_SEC;
-        int rc = pthread_cond_timedwait(&numeric_cond, &numeric_mutex, &ts);
-        if (rc == ETIMEDOUT || numeric_shutdown || numeric_queue_count >= NUMERIC_QUEUE_CAP) {
+        int rc = 0;
+        if (!numeric_flush_now) {
+            struct timespec ts;
+            clock_gettime(CLOCK_REALTIME, &ts);
+            ts.tv_sec += NUMERIC_COMMIT_DELAY_SEC;
+            rc = pthread_cond_timedwait(&numeric_cond, &numeric_mutex, &ts);
+        }
+        if (rc == ETIMEDOUT || numeric_shutdown || numeric_flush_now || numeric_queue_count >= NUMERIC_QUEUE_CAP) {
+            numeric_flush_now = false;
             if (!numeric_take_batch_locked()) continue;
             int n = numeric_inflight_count;
             numeric_update_t batch[NUMERIC_QUEUE_CAP];
             memcpy(batch, numeric_inflight, sizeof(batch));
             pthread_mutex_unlock(&numeric_mutex);
-            bool ok = flush_numeric_batch(batch, n);
+            bool discarded;
+            bool ok = flush_numeric_batch(batch, n, &discarded);
             pthread_mutex_lock(&numeric_mutex);
-            numeric_write_failed |= !ok;
-            if (!ok) numeric_retain_failed_locked();
-            else if (numeric_queue_count == 0) numeric_write_failed = false;
-            numeric_inflight_active = false;
-            numeric_inflight_count = 0;
-            atomic_fetch_add_explicit(&numeric_epoch, 1, memory_order_release);
-            pthread_cond_broadcast(&numeric_drain_cond);
+            numeric_finish_batch_locked(ok, discarded);
         }
     }
     if (numeric_take_batch_locked()) {
@@ -1432,14 +1479,10 @@ static void * numeric_worker_func(void * arg) {
         numeric_update_t batch[NUMERIC_QUEUE_CAP];
         memcpy(batch, numeric_inflight, sizeof(batch));
         pthread_mutex_unlock(&numeric_mutex);
-        bool ok = flush_numeric_batch(batch, n);
+        bool discarded;
+        bool ok = flush_numeric_batch(batch, n, &discarded);
         pthread_mutex_lock(&numeric_mutex);
-        numeric_write_failed |= !ok;
-        if (!ok) numeric_retain_failed_locked();
-        else if (numeric_queue_count == 0) numeric_write_failed = false;
-        numeric_inflight_active = false;
-        numeric_inflight_count = 0;
-        atomic_fetch_add_explicit(&numeric_epoch, 1, memory_order_release);
+        numeric_finish_batch_locked(ok, discarded);
     }
     pthread_mutex_unlock(&numeric_mutex);
     return NULL;
@@ -1482,18 +1525,38 @@ static void numeric_worker_stop(void) {
     pthread_mutex_unlock(&numeric_mutex);
     tagcache_flush_numeric();
     pthread_mutex_lock(&numeric_mutex);
+    /* Anything still queued (a failed flush) is dropped with the session. */
+    numeric_settle_waiters_locked(numeric_queue, numeric_queue_count, false);
     numeric_queue_count = 0;
+    pthread_cond_broadcast(&numeric_drain_cond);
     pthread_mutex_unlock(&numeric_mutex);
 }
 
-static void queue_numeric_update(int32_t slot, const struct index_entry *idx) {
+/* waiter: when non-NULL, registers a durable waiter for this update and
+ * skips the degraded-mode synchronous flush (the waiter flushes later,
+ * outside the caller's database lock); *waiter gets its handle, 0 when
+ * nothing was queued or no waiter slot was free. */
+static void queue_numeric_update(int32_t slot, const struct index_entry *idx, int *waiter) {
+    if (waiter) *waiter = 0;
     if (!disk_ready || disk_gen < 0) return;
     pthread_mutex_lock(&numeric_mutex);
+    int handle = 0;
+    if (waiter) {
+        for (int w = 0; w < NUMERIC_WAITERS_MAX && !handle; w++)
+            if (numeric_waiters[w].state == NUMERIC_WAIT_FREE) handle = w + 1;
+        if (!handle) { pthread_mutex_unlock(&numeric_mutex); return; }
+    }
+    uint64_t ticket = numeric_next_ticket++;
     for (int i = numeric_queue_count - 1; i >= 0; i--) {
         if (numeric_queue[i].gen == disk_gen && numeric_queue[i].slot == slot) {
             numeric_queue[i].playcount = idx->tag_seek[tag_playcount];
             numeric_queue[i].last_played = idx->tag_seek[tag_lastplayed];
             numeric_queue[i].rating = idx->tag_seek[tag_rating];
+            numeric_queue[i].ticket = ticket;
+            if (handle) {
+                numeric_waiters[handle - 1] = (numeric_waiter_t) { NUMERIC_WAIT_PENDING, disk_gen, slot, ticket };
+                *waiter = handle;
+            }
             if (numeric_thread_running) pthread_cond_signal(&numeric_cond);
             pthread_mutex_unlock(&numeric_mutex);
             return;
@@ -1513,11 +1576,45 @@ static void queue_numeric_update(int32_t slot, const struct index_entry *idx) {
         .first_seen = idx->tag_seek[tag_commitid], .playcount = idx->tag_seek[tag_playcount],
         .last_played = idx->tag_seek[tag_lastplayed], .rating = idx->tag_seek[tag_rating],
         .disc_number = idx->tag_seek[tag_discnumber], .track_number = idx->tag_seek[tag_tracknumber],
-        .flag = idx->flag};
-    bool sync = !numeric_thread_running;
-    if (!sync) pthread_cond_signal(&numeric_cond);
+        .flag = idx->flag, .ticket = ticket};
+    if (handle) {
+        numeric_waiters[handle - 1] = (numeric_waiter_t) { NUMERIC_WAIT_PENDING, disk_gen, slot, ticket };
+        *waiter = handle;
+    }
+    bool sync = !numeric_thread_running && !handle;
+    if (numeric_thread_running) pthread_cond_signal(&numeric_cond);
     pthread_mutex_unlock(&numeric_mutex);
     if (sync) tagcache_flush_numeric();
+}
+
+bool tagcache_numeric_wait_durable(int waiter, int timeout_ms) {
+    if (waiter <= 0 || waiter > NUMERIC_WAITERS_MAX) return false;
+    numeric_waiter_t * slot = &numeric_waiters[waiter - 1];
+    struct timespec deadline;
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_sec += timeout_ms / 1000;
+    deadline.tv_nsec += (long) (timeout_ms % 1000) * 1000000L;
+    if (deadline.tv_nsec >= 1000000000L) { deadline.tv_sec++; deadline.tv_nsec -= 1000000000L; }
+    pthread_mutex_lock(&numeric_mutex);
+    while (slot->state == NUMERIC_WAIT_PENDING) {
+        if (!numeric_thread_running) {
+            /* Degraded sync mode: the enqueue skipped its flush; do it here,
+             * outside the caller's database lock. A flush drains or fails
+             * the whole queue, so the waiter is settled afterwards. */
+            pthread_mutex_unlock(&numeric_mutex);
+            tagcache_flush_numeric();
+            pthread_mutex_lock(&numeric_mutex);
+            if (slot->state == NUMERIC_WAIT_PENDING && !numeric_thread_running) break;
+            continue;
+        }
+        numeric_flush_now = true;
+        pthread_cond_signal(&numeric_cond);
+        if (pthread_cond_timedwait(&numeric_drain_cond, &numeric_mutex, &deadline) == ETIMEDOUT) break;
+    }
+    bool written = slot->state == NUMERIC_WAIT_WRITTEN;
+    slot->state = NUMERIC_WAIT_FREE;
+    pthread_mutex_unlock(&numeric_mutex);
+    return written;
 }
 
 static void numeric_overlay(int32_t slot, struct index_entry *idx) {
@@ -2587,7 +2684,10 @@ static void update_stats(struct index_entry *idx, int mode, int32_t rating, int3
     if (mode == 2) { idx->tag_seek[tag_playcount] = count; idx->tag_seek[tag_lastplayed] = last; }
 }
 
-static void set_song_stats(const char *path, int mode, int32_t rating, int32_t count, int32_t last) {
+/* waiter: see queue_numeric_update(); NULL for the ordinary asynchronous
+ * setters. */
+static void set_song_stats(const char *path, int mode, int32_t rating, int32_t count, int32_t last, int *waiter) {
+    if (waiter) *waiter = 0;
     if (!db_open || !path) return;
     if (mode == 2 && !start_staging()) return;
     if (mode != 2) {
@@ -2595,7 +2695,7 @@ static void set_song_stats(const char *path, int mode, int32_t rating, int32_t c
         struct index_entry idx;
         if (slot >= 0 && reader_index(slot, &idx) && !(idx.flag & FLAG_DELETED)) {
             update_stats(&idx, mode, rating, count, last);
-            queue_numeric_update(slot, &idx);
+            queue_numeric_update(slot, &idx, waiter);
             if (scan_initializing) {
                 int32_t change[4] = {slot, idx.tag_seek[tag_rating], idx.tag_seek[tag_playcount], idx.tag_seek[tag_lastplayed]};
                 if (!write_fully(scan_numeric_fd, change, sizeof(change))) update_failed = true;
@@ -2616,10 +2716,18 @@ static void set_song_stats(const char *path, int mode, int32_t rating, int32_t c
     }
     reader_reset_cache();
 }
-void tagcache_set_rating(const char *path, int32_t rating) { set_song_stats(path, 0, rating, 0, 0); }
-void tagcache_add_play(const char *path, int32_t now) { set_song_stats(path, 1, 0, 0, now); }
+void tagcache_set_rating(const char *path, int32_t rating) { set_song_stats(path, 0, rating, 0, 0, NULL); }
+int tagcache_set_rating_durable_begin(const char *path, int32_t rating) {
+    /* A different card at the logical path would discard the write. */
+    if (!db_open || !path || !disk_ready || disk_gen < 0 || !db_identity_current() ||
+        reader_find_path(path) < 0) return 0;
+    int waiter = 0;
+    set_song_stats(path, 0, rating, 0, 0, &waiter);
+    return waiter;
+}
+void tagcache_add_play(const char *path, int32_t now) { set_song_stats(path, 1, 0, 0, now, NULL); }
 void tagcache_overlay_stats(const char *path, int32_t rating, int32_t count, int32_t last) {
-    set_song_stats(path, 2, rating, count, last);
+    set_song_stats(path, 2, rating, count, last, NULL);
 }
 int32_t tagcache_title_rank_of_path(const char *path) { return reader_rank_of(find_path(path), false); }
 int32_t tagcache_recency_rank_of_path(const char *path) { return reader_rank_of(find_path(path), true); }

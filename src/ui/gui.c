@@ -626,6 +626,17 @@ static void update_timer_cb(lv_timer_t * timer) {
         gui_player_remote_queue_remove(remote_queue_remove_offset, remote_queue_revision);
     if (remote_control_consume_queue_clear(&remote_queue_revision))
         gui_player_remote_queue_clear(remote_queue_revision);
+    int remote_queue_from, remote_queue_to;
+    if (remote_control_consume_queue_move(&remote_queue_from, &remote_queue_to, &remote_queue_revision))
+        gui_player_remote_queue_move(remote_queue_from, remote_queue_to, remote_queue_revision);
+    int remote_queue_play_offset;
+    if (remote_control_consume_queue_play(&remote_queue_play_offset, &remote_queue_revision))
+        gui_player_remote_queue_play(remote_queue_play_offset, remote_queue_revision);
+    if (remote_control_consume_favorite_changed()) gui_player_refresh_favorite();
+    char remote_folder_track[REMOTE_CONTROL_PATH_MAX];
+    if (remote_control_consume_folder_play(remote_folder_track, sizeof(remote_folder_track)) &&
+        !gui_player_play_folder_track(remote_folder_track))
+        show_error_toast("Cannot play folder");
     int64_t remote_play_id;
     char remote_play_playlist[128], remote_play_artist[128], remote_play_album_artist[128], remote_play_album[128];
     char remote_play_catalog_revision[METADATA_DB_CATALOG_REVISION_SIZE] = {0};
@@ -1010,7 +1021,8 @@ static void update_timer_cb(lv_timer_t * timer) {
         remote_control_notify_status(audio_is_playing(), audio_is_paused(), gui_player_get_now_playing_title(),
                                       gui_player_get_now_playing_folder(), gui_player_get_now_playing_album(), now_playing_path,
                                       (int) audio_get_position_seconds(), (int) audio_get_duration_seconds(),
-                                      audio_get_volume(), current_settings.play_mode);
+                                      audio_get_volume(), current_settings.play_mode,
+                                      now_playing_path && favorite_is_set);
     }
 
     /* Polling for in-flight async operations (wifi/bt connect, library scan,

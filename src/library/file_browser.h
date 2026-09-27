@@ -84,6 +84,9 @@ bool file_browser_at_root(void);
  * No-op if already at root. */
 void file_browser_go_up(void);
 
+/* True when name has an extension the decoders accept (the Files filter). */
+bool file_browser_is_playable_name(const char * name);
+
 /* Parses a M3U/M3U8 playlist file: one entry path per non-blank,
  * non-comment line, resolved relative to the playlist's own directory
  * (standard M3U convention) unless already absolute. Entries that aren't

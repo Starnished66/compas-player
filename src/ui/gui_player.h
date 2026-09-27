@@ -69,6 +69,14 @@ bool gui_player_queue_snapshot(int ** order, int * count, int * current, uint64_
 void gui_player_sync_remote_queue(void);
 bool gui_player_remote_queue_remove(int offset, uint64_t revision);
 bool gui_player_remote_queue_clear(uint64_t revision);
+/* Remote Control Up Next edits by offset (current track excluded); each
+ * returns false and changes nothing when the revision is stale. */
+bool gui_player_remote_queue_move(int from_offset, int to_offset, uint64_t revision);
+bool gui_player_remote_queue_play(int offset, uint64_t revision);
+/* Plays a file with its folder as the queue, like a Files tap. */
+bool gui_player_play_folder_track(const char * track_path);
+/* Reloads the now-playing heart after Remote Control changed a favorite. */
+void gui_player_refresh_favorite(void);
 bool gui_player_queue_edit(uint64_t revision, int from, int to);
 bool gui_player_queue_select(uint64_t revision, int index);
 void gui_player_queue_clear_all(void);

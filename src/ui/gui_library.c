@@ -5164,6 +5164,10 @@ void play_remote_control_song(const char * song_path, const char * playlist_name
             metadata_db_load_recently_added_songs(RECENTLY_ADDED_LIMIT, &paths, &count);
             loaded = true;
             snprintf(scoped_title, sizeof(scoped_title), "Recently Added");
+        } else if (strcmp(playlist_name, "@recently_played") == 0) {
+            metadata_db_load_recently_played_songs(METADATA_DB_RECENTLY_PLAYED_MAX, &paths, &count);
+            loaded = true;
+            snprintf(scoped_title, sizeof(scoped_title), "Recently Played");
         } else {
             char m3u_path[512];
             snprintf(m3u_path, sizeof(m3u_path), "%s/%s.m3u", PLAYLISTS_DIR, playlist_name);

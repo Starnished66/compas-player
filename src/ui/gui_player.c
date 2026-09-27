@@ -44,6 +44,7 @@ static bool is_sd_card_path(const char *path);
 #include "gui_library.h"
 #include "gui_queue.h"
 #include "playlist_files.h"
+#include "favorite_writer.h"
 #include "path_cache.h"
 #include "playback_order.h"
 #include "queue_resume.h"
@@ -1349,200 +1350,22 @@ void gui_player_cancel_cover_reload(void) {
 
 
 
-/* ---- Asynchronous favorite persistence worker -------------------------
- * Favorite persistence calls metadata_db_song_favorite_set(), which may
- * acquire global metadata locks, trigger tagcache updates, or synchronously
- * rewrite and fsync() remote state files (remote_state_set_rating()).
- * Executing this directly on the LVGL UI thread stalls rendering and causes
- * tap latency or freezes.
- *
- * This long-lived worker thread queues and persists favorite requests off the
- * UI thread. Rapid taps on the same track are coalesced using a 150 ms debounce
- * window so intermediate states are collapsed into the final requested state.
- * Distinct tracks maintain independent entries with owned path copies so track
- * changes do not overwrite or corrupt pending persistence operations. ---- */
-#define FAVORITE_QUEUE_INITIAL_CAPACITY 8
-#define FAVORITE_DEBOUNCE_MS 150
-#define FAVORITE_WORKER_STACK_SIZE (128 * 1024)
-
-typedef struct {
-    char * path;
-    bool is_favorite;
-    struct timespec deadline;
-} favorite_req_t;
-
-static pthread_t favorite_worker_thread;
-static pthread_mutex_t favorite_worker_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t favorite_worker_cond;
-static pthread_once_t favorite_worker_once = PTHREAD_ONCE_INIT;
-static bool favorite_worker_ready = false;
-
-static favorite_req_t * favorite_queue = NULL;
-static int favorite_queue_count = 0;
-static int favorite_queue_capacity = 0;
-
-static void * favorite_worker_main(void * unused) {
-    (void) unused;
-    for (;;) {
-        pthread_mutex_lock(&favorite_worker_mutex);
-        while (favorite_queue_count == 0) {
-            pthread_cond_wait(&favorite_worker_cond, &favorite_worker_mutex);
-        }
-
-        int ready_idx = -1;
-        while (ready_idx < 0) {
-            struct timespec now;
-            clock_gettime(CLOCK_MONOTONIC, &now);
-
-            struct timespec earliest = favorite_queue[0].deadline;
-            int earliest_idx = 0;
-            for (int i = 1; i < favorite_queue_count; i++) {
-                if (favorite_queue[i].deadline.tv_sec < earliest.tv_sec ||
-                    (favorite_queue[i].deadline.tv_sec == earliest.tv_sec &&
-                     favorite_queue[i].deadline.tv_nsec < earliest.tv_nsec)) {
-                    earliest = favorite_queue[i].deadline;
-                    earliest_idx = i;
-                }
-            }
-
-            if (now.tv_sec > earliest.tv_sec ||
-                (now.tv_sec == earliest.tv_sec && now.tv_nsec >= earliest.tv_nsec)) {
-                ready_idx = earliest_idx;
-                break;
-            }
-
-            int ret = pthread_cond_timedwait(&favorite_worker_cond, &favorite_worker_mutex, &earliest);
-            (void) ret;
-            if (favorite_queue_count == 0) break;
-        }
-
-        if (ready_idx < 0) {
-            pthread_mutex_unlock(&favorite_worker_mutex);
-            continue;
-        }
-
-        /* Dequeue the ready request and take ownership */
-        char * req_path = favorite_queue[ready_idx].path;
-        bool req_fav = favorite_queue[ready_idx].is_favorite;
-
-        for (int i = ready_idx; i < favorite_queue_count - 1; i++) {
-            favorite_queue[i] = favorite_queue[i + 1];
-        }
-        favorite_queue_count--;
-
-        /* Unlock worker mutex before calling metadata DB / file I/O */
-        pthread_mutex_unlock(&favorite_worker_mutex);
-
-        if (req_path) {
-            metadata_db_song_favorite_set(req_path, req_fav);
-            free(req_path);
-        }
+/* The now-playing heart: player icon, Quick Drawer, and the cached state
+ * Remote Control reports in /status. */
+static void show_favorite_state(bool is_favorite) {
+    favorite_is_set = is_favorite;
+    if (favorite_icon) {
+        lv_image_set_src(favorite_icon, asset_path(favorite_is_set ? "playing_plane/collect_in.png" : "playing_plane/collect_out.png"));
     }
-    return NULL;
+    gui_shell_update_quick_drawer_favorite(favorite_is_set);
 }
 
-static void favorite_start_worker(void) {
-    pthread_condattr_t cattr;
-    if (pthread_condattr_init(&cattr) != 0) {
-        fprintf(stderr, "gui_player: failed to initialize favorite worker condition variable\n");
-        return;
-    }
-    if (pthread_condattr_setclock(&cattr, CLOCK_MONOTONIC) != 0 ||
-        pthread_cond_init(&favorite_worker_cond, &cattr) != 0) {
-        fprintf(stderr, "gui_player: failed to initialize favorite worker condition variable\n");
-        pthread_condattr_destroy(&cattr);
-        return;
-    }
-    pthread_condattr_destroy(&cattr);
-
-    favorite_queue = calloc(FAVORITE_QUEUE_INITIAL_CAPACITY, sizeof(*favorite_queue));
-    if (!favorite_queue) {
-        fprintf(stderr, "gui_player: failed to allocate favorite persistence queue\n");
-        pthread_cond_destroy(&favorite_worker_cond);
-        return;
-    }
-    favorite_queue_capacity = FAVORITE_QUEUE_INITIAL_CAPACITY;
-
-    pthread_attr_t attr;
-    bool attr_initialized = pthread_attr_init(&attr) == 0;
-    if (attr_initialized) pthread_attr_setstacksize(&attr, FAVORITE_WORKER_STACK_SIZE);
-    int create_rc = pthread_create(&favorite_worker_thread, attr_initialized ? &attr : NULL,
-                                   favorite_worker_main, NULL);
-    if (attr_initialized) pthread_attr_destroy(&attr);
-    if (create_rc == 0) {
-        pthread_detach(favorite_worker_thread);
-        favorite_worker_ready = true;
-    } else {
-        fprintf(stderr, "gui_player: failed to spawn favorite persistence worker thread\n");
-        free(favorite_queue);
-        favorite_queue = NULL;
-        favorite_queue_capacity = 0;
-        pthread_cond_destroy(&favorite_worker_cond);
-    }
-}
-
-static void favorite_queue_submit(const char * path, bool is_favorite) {
-    if (!path) return;
-    pthread_once(&favorite_worker_once, favorite_start_worker);
-    if (!favorite_worker_ready) {
-        fprintf(stderr, "gui_player: favorite worker not ready; dropping async persistence\n");
-        return;
-    }
-
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    struct timespec deadline = now;
-    deadline.tv_nsec += (long) FAVORITE_DEBOUNCE_MS * 1000000L;
-    if (deadline.tv_nsec >= 1000000000L) {
-        deadline.tv_sec += deadline.tv_nsec / 1000000000L;
-        deadline.tv_nsec %= 1000000000L;
-    }
-
-    pthread_mutex_lock(&favorite_worker_mutex);
-
-    /* 1. Coalesce by exact path match if already queued */
-    for (int i = 0; i < favorite_queue_count; i++) {
-        if (strcmp(favorite_queue[i].path, path) == 0) {
-            favorite_queue[i].is_favorite = is_favorite;
-            favorite_queue[i].deadline = deadline;
-            pthread_cond_signal(&favorite_worker_cond);
-            pthread_mutex_unlock(&favorite_worker_mutex);
-            return;
-        }
-    }
-
-    /* 2. New track entry: allocate owned path copy */
-    char * path_copy = strdup(path);
-    if (!path_copy) {
-        fprintf(stderr, "gui_player: strdup failed for favorite path '%s'\n", path);
-        pthread_mutex_unlock(&favorite_worker_mutex);
-        return;
-    }
-
-    /* Grow only for distinct tracks. Same-track tap storms are coalesced
-     * above, while this path keeps the LVGL thread from waiting for slow
-     * metadata or SD-card I/O and never evicts an acknowledged change. */
-    if (favorite_queue_count >= favorite_queue_capacity) {
-        int new_capacity = favorite_queue_capacity * 2;
-        favorite_req_t * grown = realloc(favorite_queue,
-                                          sizeof(*favorite_queue) * (size_t) new_capacity);
-        if (!grown) {
-            fprintf(stderr, "gui_player: failed to grow favorite persistence queue\n");
-            free(path_copy);
-            pthread_mutex_unlock(&favorite_worker_mutex);
-            return;
-        }
-        favorite_queue = grown;
-        favorite_queue_capacity = new_capacity;
-    }
-
-    favorite_queue[favorite_queue_count].path = path_copy;
-    favorite_queue[favorite_queue_count].is_favorite = is_favorite;
-    favorite_queue[favorite_queue_count].deadline = deadline;
-    favorite_queue_count++;
-
-    pthread_cond_signal(&favorite_worker_cond);
-    pthread_mutex_unlock(&favorite_worker_mutex);
+/* Remote Control changed some favorite: reload the now-playing heart from
+ * the writer, which also sees this player's own unsaved taps. */
+void gui_player_refresh_favorite(void) {
+    if (playlist_index < 0 || playlist_index >= playlist_count) return;
+    const char * current = playlist_path_at(playlist_index);
+    if (current && current[0]) show_favorite_state(favorite_writer_is_set(current));
 }
 
 void favorite_icon_event_cb(lv_event_t * e) {
@@ -1552,13 +1375,9 @@ void favorite_icon_event_cb(lv_event_t * e) {
     const char * path = playlist_path_at(playlist_index);
     if (!path) return;
 
-    favorite_is_set = !favorite_is_set;
-    if (favorite_icon) {
-        lv_image_set_src(favorite_icon, asset_path(favorite_is_set ? "playing_plane/collect_in.png" : "playing_plane/collect_out.png"));
-    }
-    gui_shell_update_quick_drawer_favorite(favorite_is_set);
+    show_favorite_state(!favorite_is_set);
 
-    favorite_queue_submit(path, favorite_is_set);
+    favorite_writer_submit(path, favorite_is_set);
 }
 
 void arm_next_track_for_audio(int index);
@@ -1857,10 +1676,7 @@ void apply_track_metadata_to_ui(int index, track_metadata_t * out_meta) {
     free(out_meta->lyrics);
     out_meta->lyrics = NULL;
 
-    favorite_is_set = metadata_db_song_favorite_is_set(path);
-    const char * favorite_icon_asset = favorite_is_set ? "playing_plane/collect_in.png" : "playing_plane/collect_out.png";
-    lv_image_set_src(favorite_icon, asset_path(favorite_icon_asset));
-    gui_shell_update_quick_drawer_favorite(favorite_is_set);
+    show_favorite_state(favorite_writer_is_set(path));
 
     /* Once per real "this track started playing" event -- apply_track_
      * metadata_to_ui() is called exactly here for both an explicit pick
@@ -3987,16 +3803,19 @@ void on_file_browser_selected(char ** new_playlist, int count, int selected_inde
     on_file_selected(new_playlist, count, selected_index);
 }
 
-void on_file_browser_index_selected(file_browser_index_t *index, unsigned playable_count,
-                                    unsigned selected_playable) {
-    if (!index || !playable_count || selected_playable >= playable_count) {
+/* Installs a directory index as the queue and plays one playable ordinal.
+ * Takes ownership of index. source_dir must stay valid through the call.
+ * False when nothing changed (bad arguments or no memory). */
+static bool play_file_browser_index(file_browser_index_t *index, unsigned playable_count,
+                                    unsigned selected_playable, const char *source_dir, int source_row) {
+    if (!index || !playable_count || selected_playable >= playable_count || playable_count > (unsigned) INT_MAX) {
         if (index) file_browser_index_close(index);
-        return;
+        return false;
     }
     char ** slots = calloc(playable_count, sizeof(*slots));
     int * order = malloc((size_t) playable_count * sizeof(*order));
     if (!slots || !order) {
-        free(slots); free(order); file_browser_index_close(index); return;
+        free(slots); free(order); file_browser_index_close(index); return false;
     }
     int pinned_queue_dirfd = open_queue_dir_from_file_index(index);
     free_playlist();
@@ -4006,8 +3825,25 @@ void on_file_browser_index_selected(file_browser_index_t *index, unsigned playab
     for (unsigned i = 0; i < playable_count; i++) order[i] = (int) i;
     queue_sd_dirfd = pinned_queue_dirfd;
     queued_pending_count = 0; queue_next_insert_index = -1;
-    set_player_source_file_browser(file_browser_get_last_selected_dir(), file_browser_get_last_selected_row());
+    set_player_source_file_browser(source_dir, source_row);
     play_track_at((int) selected_playable);
+    return true;
+}
+
+void on_file_browser_index_selected(file_browser_index_t *index, unsigned playable_count,
+                                    unsigned selected_playable) {
+    (void) play_file_browser_index(index, playable_count, selected_playable,
+                                   file_browser_get_last_selected_dir(), file_browser_get_last_selected_row());
+}
+
+/* Remote Control folder play: same queue a Files tap builds, the track's
+ * directory index in browser order. */
+bool gui_player_play_folder_track(const char * track_path) {
+    file_browser_index_t * index = NULL;
+    unsigned playable = 0, selected = 0;
+    if (!file_browser_open_lazy_directory(track_path, &index, &playable, &selected)) return false;
+    /* The index owns its directory string for as long as the queue holds it. */
+    return play_file_browser_index(index, playable, selected, file_browser_index_directory(index), -1);
 }
 
 void toggle_play_pause(void) {
@@ -4275,7 +4111,7 @@ void clock_24h_switch_event_cb(lv_event_t * e) {
 void gui_player_init(uint32_t screen_width, uint32_t screen_height) {
     /* Pay thread and stack setup during initialization, not inside the first
      * favorite tap where it would visibly block the LVGL event callback. */
-    pthread_once(&favorite_worker_once, favorite_start_worker);
+    favorite_writer_start();
     build_volume_popup();
     build_delete_song_popup();
     build_more_menu_popup();
@@ -5353,14 +5189,32 @@ void gui_player_sync_remote_queue(void) {
     published_revision = revision;
 }
 
-bool gui_player_remote_queue_remove(int offset, uint64_t revision) {
-    if (revision != queue_revision || offset < 0) return false;
+/* Maps a Remote Control Up Next offset (current track excluded) to its
+ * displayed queue index, or -1 when the revision or offset is stale. */
+static int remote_queue_displayed_index(int offset, uint64_t revision) {
+    if (revision != queue_revision || offset < 0) return -1;
     int * order = NULL, count = 0, current = -1;
     uint64_t actual = 0;
-    if (!gui_player_queue_snapshot(&order, &count, &current, &actual)) return false;
+    if (!gui_player_queue_snapshot(&order, &count, &current, &actual)) return -1;
     free(order);
-    if (actual != revision || current < 0 || current + 1 + offset >= count) return false;
-    return gui_player_queue_edit(revision, current + 1 + offset, -1);
+    if (actual != revision || current < 0 || offset >= count - current - 1) return -1;
+    return current + 1 + offset;
+}
+
+bool gui_player_remote_queue_remove(int offset, uint64_t revision) {
+    int from = remote_queue_displayed_index(offset, revision);
+    return from >= 0 && gui_player_queue_edit(revision, from, -1);
+}
+
+bool gui_player_remote_queue_move(int from_offset, int to_offset, uint64_t revision) {
+    int from = remote_queue_displayed_index(from_offset, revision);
+    int to = remote_queue_displayed_index(to_offset, revision);
+    return from >= 0 && to >= 0 && (from == to || gui_player_queue_edit(revision, from, to));
+}
+
+bool gui_player_remote_queue_play(int offset, uint64_t revision) {
+    int index = remote_queue_displayed_index(offset, revision);
+    return index >= 0 && gui_player_queue_select(revision, index);
 }
 
 bool gui_player_remote_queue_clear(uint64_t revision) {

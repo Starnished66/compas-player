@@ -33,12 +33,16 @@ void remote_control_get_pin(char * out_pin, size_t out_pin_size);
  * RFCOMM connection). The caller retains ownership of fd and must close it. */
 void remote_control_handle_stream(int fd);
 
+/* Longest file path the remote folder and favorite requests hand to the UI. */
+#define REMOTE_CONTROL_PATH_MAX 1024
+
 /* Push a fresh now-playing snapshot for /api/status. Thread-safe snapshot copy.
  * path is the currently-playing file on disk. play_mode is gui.c's play_mode_t
- * cast to int (0=Sequential, 1=Repeat All, 2=Repeat One, 3=Shuffle). */
+ * cast to int (0=Sequential, 1=Repeat All, 2=Repeat One, 3=Shuffle).
+ * favorite is the player's cached heart state for that track. */
 void remote_control_notify_status(bool playing, bool paused, const char * title, const char * artist,
                                    const char * album, const char * path, int position_seconds,
-                                   int duration_seconds, float volume, int play_mode);
+                                   int duration_seconds, float volume, int play_mode, bool favorite);
 
 /* Poll from update_timer_cb only. Edge-triggered (cleared once consumed). */
 bool remote_control_consume_play_pause(void);
@@ -63,6 +67,16 @@ bool remote_control_consume_queue_index(int64_t * out_index, char * out_catalog_
                                          size_t revision_size);
 bool remote_control_consume_queue_remove(int * out_offset, uint64_t * out_revision);
 bool remote_control_consume_queue_clear(uint64_t * out_revision);
+/* POST /api/queue/move and /api/queue/play: Up Next offsets checked against
+ * the published revision; the UI rechecks the revision before applying. */
+bool remote_control_consume_queue_move(int * out_from, int * out_to, uint64_t * out_revision);
+bool remote_control_consume_queue_play(int * out_offset, uint64_t * out_revision);
+/* POST /api/folders/play: absolute path of a playable file to play with its
+ * folder as the queue. */
+bool remote_control_consume_folder_play(char * out_path, size_t path_size);
+/* A favorites request changed some song's flag; the UI reloads its
+ * now-playing heart. */
+bool remote_control_consume_favorite_changed(void);
 
 /* Snapshot the live playback queue for GET /api/queue. */
 void remote_control_sync_queue(const char * const * paths, int count, uint64_t revision);
@@ -74,8 +88,9 @@ bool remote_control_consume_play_index(int64_t * out_index, char * out_playlist,
                                          size_t album_artist_size, char * out_album, size_t album_size,
                                          char * out_catalog_revision, size_t revision_size);
 
-/* Playlist mutation (create playlist / add song) runs synchronously on the HTTP
- * thread.
+/* Playlist, favorite, and folder reads and mutations run synchronously on
+ * the HTTP thread; queue and playback changes are consumed by the UI thread.
+ * docs/REMOTE_CONTROL_API.md is the endpoint reference.
  *
  * Additional endpoints:
  * - GET /api/library/artists and /api/library/album_artists

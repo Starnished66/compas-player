@@ -425,7 +425,7 @@ bool playlist_files_remove(const char * m3u_path, const char * song_path) {
     return ok;
 }
 
-static bool valid_playlist_name(const char * name) {
+bool playlist_files_name_is_valid(const char * name) {
     if (!name || !name[0] || name[0] == '.' || strlen(name) > 200) return false;
     for (const unsigned char * p = (const unsigned char *) name; *p; p++)
         if (*p < 32 || strchr("/\\:*?\"<>|", *p)) return false;
@@ -449,7 +449,7 @@ static bool array_path_provider(void * context, int index, const char ** path) {
 bool playlist_files_write_new_stream(const char * dir, const char * name,
                                      int count, playlist_files_path_provider provider,
                                      void * context, char * out, size_t size) {
-    if (!valid_playlist_name(name) || count < 0 || !provider) return false;
+    if (!playlist_files_name_is_valid(name) || count < 0 || !provider) return false;
     char path[PATH_MAX], temp[PATH_MAX];
     if (snprintf(path, sizeof(path), "%s/%s%s", dir, name, library_is_m3u_file(name) ? "" : ".m3u") >= (int) sizeof(path) ||
         (out && strlen(path) >= size) ||
@@ -491,7 +491,7 @@ bool playlist_files_write_new(const char * dir, const char * name,
 bool playlist_files_write_new_stream_at(int dirfd, const char * name, int count,
                                         playlist_files_path_provider provider, void * context,
                                         char * out_leaf, size_t size) {
-    if (dirfd < 0 || !valid_playlist_name(name) || count < 0 || !provider || strchr(name, '/')) return false;
+    if (dirfd < 0 || !playlist_files_name_is_valid(name) || count < 0 || !provider || strchr(name, '/')) return false;
     char leaf[NAME_MAX];
     if (snprintf(leaf, sizeof(leaf), "%s%s", name, library_is_m3u_file(name) ? "" : ".m3u") >= (int) sizeof(leaf) ||
         (out_leaf && strlen(leaf) >= size)) return false;
@@ -532,8 +532,84 @@ bool playlist_files_write_new_stream_at(int dirfd, const char * name, int count,
     return ok;
 }
 
+playlist_import_status_t playlist_files_import_stream(const char * dir, const char * name, size_t length,
+                                                      playlist_files_byte_reader reader, void * context,
+                                                      char * out, size_t size, char *** out_paths,
+                                                      int * out_count) {
+    if (out_paths) *out_paths = NULL;
+    if (out_count) *out_count = 0;
+    if (!playlist_files_name_is_valid(name) || library_is_m3u_file(name)) return PLAYLIST_IMPORT_INVALID_NAME;
+    if (!reader) return PLAYLIST_IMPORT_IO_ERROR;
+    char path[PATH_MAX], temp[PATH_MAX];
+    if (snprintf(path, sizeof(path), "%s/%s.m3u", dir, name) >= (int) sizeof(path) ||
+        (out && strlen(path) >= size)) return PLAYLIST_IMPORT_INVALID_NAME;
+    if (snprintf(temp, sizeof(temp), "%s/.playlist-XXXXXX", dir) >= (int) sizeof(temp)) return PLAYLIST_IMPORT_IO_ERROR;
+    if (access(path, F_OK) == 0) return PLAYLIST_IMPORT_EXISTS;
+
+    /* Receive into a private temp file without holding the mutex: the upload
+     * speed is the client's, and other playlist edits must not wait on it. */
+    mkdir(dir, 0755);
+    int fd = mkstemp(temp);
+    if (fd < 0) return PLAYLIST_IMPORT_IO_ERROR;
+    playlist_import_status_t status = PLAYLIST_IMPORT_OK;
+    char buffer[4096];
+    size_t remaining = length;
+    while (status == PLAYLIST_IMPORT_OK && remaining > 0) {
+        size_t want = remaining < sizeof(buffer) ? remaining : sizeof(buffer);
+        ssize_t got = reader(context, buffer, want);
+        if (got <= 0 || (size_t) got > want) { status = PLAYLIST_IMPORT_READ_ERROR; break; }
+        if (memchr(buffer, '\0', (size_t) got)) { status = PLAYLIST_IMPORT_INVALID_CONTENT; break; }
+        size_t done = 0;
+        while (done < (size_t) got) {
+            ssize_t n = write(fd, buffer + done, (size_t) got - done);
+            if (n < 0 && errno == EINTR) continue;
+            if (n <= 0) { status = PLAYLIST_IMPORT_IO_ERROR; break; }
+            done += (size_t) n;
+        }
+        remaining -= (size_t) got;
+    }
+    if (status == PLAYLIST_IMPORT_OK && fsync(fd) != 0) status = PLAYLIST_IMPORT_IO_ERROR;
+    if (close(fd) != 0 && status == PLAYLIST_IMPORT_OK) status = PLAYLIST_IMPORT_IO_ERROR;
+
+    /* Parse with the same reader every playlist screen uses, so an accepted
+     * upload is one the player can open. */
+    char ** paths = NULL;
+    int count = 0;
+    if (status == PLAYLIST_IMPORT_OK) {
+        playlist_read_status_t parsed = playlist_files_read_ex(temp, &paths, &count);
+        if (parsed == PLAYLIST_READ_INVALID) status = PLAYLIST_IMPORT_INVALID_CONTENT;
+        else if (parsed != PLAYLIST_READ_OK && parsed != PLAYLIST_READ_EMPTY) status = PLAYLIST_IMPORT_IO_ERROR;
+    }
+    if (status == PLAYLIST_IMPORT_OK) {
+        pthread_mutex_lock(&playlist_files_mutex);
+        int reserved = open(path, O_CREAT | O_EXCL | O_WRONLY, 0644);
+        if (reserved < 0) status = errno == EEXIST ? PLAYLIST_IMPORT_EXISTS : PLAYLIST_IMPORT_IO_ERROR;
+        else {
+            close(reserved);
+            if (rename(temp, path) != 0) { unlink(path); status = PLAYLIST_IMPORT_IO_ERROR; }
+            else fsync_dir(dir);
+        }
+        pthread_mutex_unlock(&playlist_files_mutex);
+    }
+    if (status != PLAYLIST_IMPORT_OK) {
+        unlink(temp);
+        for (int i = 0; i < count; i++) free(paths[i]);
+        free(paths);
+        return status;
+    }
+    if (out) snprintf(out, size, "%s", path);
+    if (out_paths && out_count) {
+        *out_paths = paths;
+        *out_count = count;
+    } else {
+        for (int i = 0; i < count; i++) free(paths[i]);
+        free(paths);
+    }
+    return PLAYLIST_IMPORT_OK;
+}
+
 bool playlist_files_rename(const char * path, const char * name, char * out, size_t size) {
-    if (!valid_playlist_name(name)) return false;
+    if (!playlist_files_name_is_valid(name)) return false;
     char dir[PATH_MAX], dest[PATH_MAX];
     dir_of(path, dir, sizeof(dir));
     const char * ext = strrchr(path, '.');
@@ -556,9 +632,9 @@ bool playlist_files_rename(const char * path, const char * name, char * out, siz
 
 /* Keep EXTINF and preceding comments with their entry. Editing never
  * filters unavailable files, and offsets identify duplicate occurrences. */
-bool playlist_files_edit_entry(const char * path, int from, int to) {
+/* Caller holds playlist_files_mutex. */
+static bool edit_entry_locked(const char * path, int from, int to) {
     if (from < 0) return false;
-    pthread_mutex_lock(&playlist_files_mutex);
     FILE * f = fopen(path, "r");
     char ** blocks = NULL, * pending = NULL, * line = NULL;
     size_t cap = 0, used = 0;
@@ -615,8 +691,33 @@ bool playlist_files_edit_entry(const char * path, int from, int to) {
     }
     for (int i = 0; i < count; i++) free(blocks[i]);
     free(blocks); free(pending);
+    return ok;
+}
+
+bool playlist_files_edit_entry(const char * path, int from, int to) {
+    pthread_mutex_lock(&playlist_files_mutex);
+    bool ok = edit_entry_locked(path, from, to);
     pthread_mutex_unlock(&playlist_files_mutex);
     return ok;
+}
+
+playlist_edit_status_t playlist_files_edit_entry_checked(const char * path, int from, int to,
+                                                         playlist_files_entries_check check, void * context) {
+    if (!check) return PLAYLIST_EDIT_FAILED;
+    pthread_mutex_lock(&playlist_files_mutex);
+    char ** paths = NULL;
+    int count = 0;
+    playlist_read_status_t read = playlist_files_read_ex(path, &paths, &count);
+    playlist_edit_status_t status = PLAYLIST_EDIT_FAILED;
+    if (read == PLAYLIST_READ_OK || read == PLAYLIST_READ_EMPTY) {
+        bool accepted = check(context, paths, count);
+        for (int i = 0; i < count; i++) free(paths[i]);
+        free(paths);
+        if (!accepted) status = PLAYLIST_EDIT_REFUSED;
+        else if (edit_entry_locked(path, from, to)) status = PLAYLIST_EDIT_OK;
+    }
+    pthread_mutex_unlock(&playlist_files_mutex);
+    return status;
 }
 
 bool playlist_files_delete(const char * m3u_path) {

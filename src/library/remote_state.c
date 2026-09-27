@@ -98,13 +98,13 @@ static void ensure_loaded(void) {
     if (!loaded) load_file();
 }
 
-static void save_file(void) {
+static bool save_file(void) {
     mkdir(REMOTE_STATE_DIR, 0755);
     char path[640], tmp[640];
     snprintf(path, sizeof(path), "%s/%s", REMOTE_STATE_DIR, REMOTE_STATE_FILE);
-    if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int) sizeof(tmp)) return;
+    if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int) sizeof(tmp)) return false;
     FILE * f = fopen(tmp, "w");
-    if (!f) return;
+    if (!f) return false;
     bool ok = true;
     for (int i = 0; i < entry_n; i++) {
         if (fprintf(f, "%d %d %d %s\n", entries[i].rating, entries[i].playcount, entries[i].last_played,
@@ -118,13 +118,14 @@ static void save_file(void) {
     if (fclose(f) != 0) ok = false;
     if (!ok) {
         unlink(tmp);
-        return;
+        return false;
     }
     if (rename(tmp, path) != 0) {
         unlink(tmp);
-        return;
+        return false;
     }
-    (void) library_fsync_dir(REMOTE_STATE_DIR);
+    /* The rename is durable only once the directory is. */
+    return library_fsync_dir(REMOTE_STATE_DIR);
 }
 
 static rs_entry_t * ensure_entry(const char * path) {
@@ -168,15 +169,17 @@ bool remote_state_get(const char * path, int32_t * rating, int32_t * playcount, 
     return ok;
 }
 
-void remote_state_set_rating(const char * path, int32_t rating) {
+bool remote_state_set_rating(const char * path, int32_t rating) {
     pthread_mutex_lock(&mu);
     ensure_loaded();
     rs_entry_t * e = ensure_entry(path);
+    bool saved = false;
     if (e) {
         e->rating = rating;
-        save_file();
+        saved = save_file();
     }
     pthread_mutex_unlock(&mu);
+    return saved;
 }
 
 void remote_state_add_play(const char * path, int32_t now) {

@@ -8,6 +8,10 @@
 #include "artwork_coordinator.h"
 #include "catalog_source_cache.h"
 #include "playlist_files.h"
+#include "file_browser.h"
+#include "library_endian.h"
+#include "favorite_writer.h"
+#include "gui_library.h" /* sd_card_root_is_mounted() */
 #include "settings.h"
 #include "audio.h"
 #ifndef HOST_BUILD
@@ -57,6 +61,7 @@ static int status_position_seconds = 0;
 static int status_duration_seconds = 0;
 static float status_volume = 0;
 static int status_play_mode = 0;
+static bool status_favorite = false;
 /* Source format is copied into this API snapshot before status_mutex is
  * acquired. Never call into audio.c while holding status_mutex: audio and UI
  * paths may acquire their own locks in the opposite order. */
@@ -105,6 +110,16 @@ static int request_queue_remove_offset = 0;
 static uint64_t request_queue_remove_revision = 0;
 static bool request_queue_clear = false;
 static uint64_t request_queue_clear_revision = 0;
+static bool request_has_queue_move = false;
+static int request_queue_move_from = 0;
+static int request_queue_move_to = 0;
+static uint64_t request_queue_move_revision = 0;
+static bool request_has_queue_play = false;
+static int request_queue_play_offset = 0;
+static uint64_t request_queue_play_revision = 0;
+static bool request_has_folder_play = false;
+static char request_folder_play_path[REMOTE_CONTROL_PATH_MAX] = "";
+static bool request_favorite_changed = false;
 /* Scope filters echoed back by /api/playback/play to build the queue within
  * an album, artist, album-artist, or playlist view. Empty string means entire library. */
 static char request_play_playlist_name[128] = "";
@@ -287,7 +302,7 @@ static remote_control_pin_result_t remote_control_pin_check(const char * candida
 
 void remote_control_notify_status(bool playing, bool paused, const char * title, const char * artist,
                                    const char * album, const char * path, int position_seconds,
-                                   int duration_seconds, float volume, int play_mode) {
+                                   int duration_seconds, float volume, int play_mode, bool favorite) {
     /* Take the audio snapshot before status_mutex. Match its copied path
      * against this now-playing snapshot so a track transition cannot publish
      * the previous decoder's format beside the new track's metadata. */
@@ -307,6 +322,7 @@ void remote_control_notify_status(bool playing, bool paused, const char * title,
     status_duration_seconds = duration_seconds;
     status_volume = volume;
     status_play_mode = play_mode;
+    status_favorite = favorite;
     snprintf(status_codec, sizeof(status_codec), "%s",
              format_matches_track ? remote_codec_name(format.codec) : "");
     status_source_bit_depth = format_matches_track ? format.source_bit_depth : 0;
@@ -418,6 +434,50 @@ bool remote_control_consume_queue_clear(uint64_t * out_revision) {
     bool result = request_queue_clear;
     request_queue_clear = false;
     if (result) *out_revision = request_queue_clear_revision;
+    pthread_mutex_unlock(&status_mutex);
+    return result;
+}
+
+bool remote_control_consume_queue_move(int * out_from, int * out_to, uint64_t * out_revision) {
+    pthread_mutex_lock(&status_mutex);
+    bool result = request_has_queue_move;
+    if (result) {
+        request_has_queue_move = false;
+        *out_from = request_queue_move_from;
+        *out_to = request_queue_move_to;
+        *out_revision = request_queue_move_revision;
+    }
+    pthread_mutex_unlock(&status_mutex);
+    return result;
+}
+
+bool remote_control_consume_queue_play(int * out_offset, uint64_t * out_revision) {
+    pthread_mutex_lock(&status_mutex);
+    bool result = request_has_queue_play;
+    if (result) {
+        request_has_queue_play = false;
+        *out_offset = request_queue_play_offset;
+        *out_revision = request_queue_play_revision;
+    }
+    pthread_mutex_unlock(&status_mutex);
+    return result;
+}
+
+bool remote_control_consume_folder_play(char * out_path, size_t path_size) {
+    pthread_mutex_lock(&status_mutex);
+    bool result = request_has_folder_play;
+    if (result) {
+        request_has_folder_play = false;
+        snprintf(out_path, path_size, "%s", request_folder_play_path);
+    }
+    pthread_mutex_unlock(&status_mutex);
+    return result;
+}
+
+bool remote_control_consume_favorite_changed(void) {
+    pthread_mutex_lock(&status_mutex);
+    bool result = request_favorite_changed;
+    request_favorite_changed = false;
     pthread_mutex_unlock(&status_mutex);
     return result;
 }
@@ -732,11 +792,11 @@ static void build_status_json(char * out, size_t out_size) {
              "{\"playing\":%s,\"paused\":%s,\"title\":\"%s\",\"artist\":\"%s\",\"album\":\"%s\","
              "\"position_seconds\":%d,\"duration_seconds\":%d,\"volume\":%.2f,\"play_mode\":%d,"
              "\"codec\":\"%s\",\"source_bit_depth\":%u,\"source_sample_rate\":%u,"
-             "\"bluetooth_audio_output\":%s}",
+             "\"bluetooth_audio_output\":%s,\"favorite\":%s}",
              status_playing ? "true" : "false", status_paused ? "true" : "false", title_esc, artist_esc, album_esc,
              status_position_seconds, status_duration_seconds, (double) status_volume, status_play_mode,
              status_codec, status_source_bit_depth, status_source_sample_rate,
-             bluetooth_audio_output ? "true" : "false");
+             bluetooth_audio_output ? "true" : "false", status_favorite ? "true" : "false");
     pthread_mutex_unlock(&status_mutex);
 }
 
@@ -769,7 +829,8 @@ static void build_playlists_json(char * out, size_t out_size) {
     json_builder_init(&json, out, out_size);
     json_builder_appendf(&json,
                             "{\"playlists\":[{\"name\":\"Favorites\",\"key\":\"@favorites\",\"internal\":true,\"writable\":false},"
-                            "{\"name\":\"Most Played\",\"key\":\"@most_played\",\"internal\":true,\"writable\":false}");
+                            "{\"name\":\"Most Played\",\"key\":\"@most_played\",\"internal\":true,\"writable\":false},"
+                            "{\"name\":\"Recently Played\",\"key\":\"@recently_played\",\"internal\":true,\"writable\":false}");
     size_t playlists_dir_len = strlen(PLAYLISTS_DIR);
     for (int i = 0; i < count && !json.truncated; i++) {
         /* The API routes resolve user playlists as
@@ -993,17 +1054,23 @@ static const char * sniff_image_content_type(const uint8_t * data, uint32_t size
                                      3u * TAGCACHE_ARTIST_SPLIT_MAX + 256u)
 #define CATALOG_COVER_ROW_WORST_CASE 256u
 #define CATALOG_JSON_ENVELOPE_MAX 512u
-/* Worst status JSON is 1,873 bytes: three 511-byte escaped strings, a
- * 43-byte formatted float, bounded integer/codec fields, and fixed syntax.
+/* Worst status JSON is 1,891 bytes: three 511-byte escaped strings, a
+ * 43-byte formatted float, bounded integer/codec/boolean fields, and fixed syntax.
  * The extra byte count for NUL still fits comfortably in this 2 KiB buffer. */
 #define STATUS_JSON_CAPACITY 2048u
 #define CATALOG_ART_MAX_BYTES (8u * 1024u * 1024u)
 #define CATALOG_ART_STREAM_CHUNK (16u * 1024u)
 
-static void catalog_send_error(int cfd, const char * status, const char * code) {
+/* JSON error body shared by the catalog and later feature families:
+ * {"error":"<family>_error","code":"<reason>"}. */
+static void send_api_error(int cfd, const char * status, const char * error, const char * code) {
     char body[160];
-    snprintf(body, sizeof(body), "{\"error\":\"catalog_error\",\"code\":\"%s\"}", code);
+    snprintf(body, sizeof(body), "{\"error\":\"%s\",\"code\":\"%s\"}", error, code);
     send_response(cfd, status, "application/json", body);
+}
+
+static void catalog_send_error(int cfd, const char * status, const char * code) {
+    send_api_error(cfd, status, "catalog_error", code);
 }
 
 static bool catalog_query_number(const char * path, const char * key, uint64_t default_value,
@@ -1603,13 +1670,49 @@ static void handle_icon_request(int cfd, const char * path) {
     free(data);
 }
 
+/* Appends one prebuilt row while keeping `reserve` bytes for the closing
+ * syntax, so a full page ends early instead of producing invalid JSON. */
+static bool json_append_row(json_builder_t * json, const char * row, size_t reserve) {
+    size_t len = strlen(row);
+    if (json->length + len + reserve >= json->capacity) return false;
+    memcpy(json->data + json->length, row, len + 1);
+    json->length += len;
+    return true;
+}
+
+/* Built-in playlists are derived from the library, never files, so every
+ * mutation refuses them. The display-name aliases are the ones the original
+ * routes already resolve to built-ins. */
+static bool playlist_key_is_builtin(const char * key) {
+    return key[0] == '@' || strcmp(key, "Favorites") == 0 || strcmp(key, "Most Played") == 0;
+}
+
+/* Opaque playlist revision: FNV-1a over the resolved entry sequence, the
+ * same sequence positions index. Comment-only edits keep it; any entry
+ * change, including a same-size reorder, changes it. */
+static void playlist_revision_of(char * const * paths, int count, char out[20]) {
+    uint64_t hash = UINT64_C(14695981039346656037);
+    for (int i = 0; i < count; i++) {
+        hash = catalog_hash_text(hash, paths[i]);
+        hash ^= '\n';
+        hash *= UINT64_C(1099511628211);
+    }
+    snprintf(out, 20, "p-%016llx", (unsigned long long) hash);
+}
+
+static void free_path_list(char ** paths, int count) {
+    for (int i = 0; i < count; i++) free(paths[i]);
+    free(paths);
+}
+
 /* GET /api/playlists/songs?name=NAME -- one playlist's songs, in file
  * order, in the same {"index":N,"title":...,"artist":...} shape
  * /api/library uses so the phone UI can render both with the same row
  * code. Entries whose path no longer matches anything in the synced
- * library are silently skipped -- same behavior as gui.c's own
- * rebuild_playlist_m3u_group() (find_song_index_by_path() returning -1 just
- * drops that entry), not an error condition worth surfacing. */
+ * library are skipped, as on the player's own playlist screen; each row's
+ * "position" is its entry offset in the file (skipped entries still count),
+ * which the playlist edit routes take. User playlists also carry the
+ * revision those routes check. */
 static void handle_playlist_songs_request(int cfd, const char * path) {
     char raw_name[128] = {0}, name[128] = {0};
     if (!query_param_str(path, "name", raw_name, sizeof(raw_name))) {
@@ -1625,16 +1728,21 @@ static void handle_playlist_songs_request(int cfd, const char * path) {
     char ** paths = NULL;
     int count = 0;
     bool loaded = false;
+    bool user_playlist = false;
     if (strcmp(name, "@favorites") == 0 || strcmp(name, "Favorites") == 0) {
         metadata_db_load_favorite_songs(&paths, &count);
         loaded = true; /* an empty built-in playlist is valid */
     } else if (strcmp(name, "@most_played") == 0 || strcmp(name, "Most Played") == 0) {
         metadata_db_load_top_played_songs(20, &paths, &count);
         loaded = true;
+    } else if (strcmp(name, "@recently_played") == 0) {
+        metadata_db_load_recently_played_songs(METADATA_DB_RECENTLY_PLAYED_MAX, &paths, &count);
+        loaded = true;
     } else {
         char m3u_path[512];
         snprintf(m3u_path, sizeof(m3u_path), "%s/%s.m3u", PLAYLISTS_DIR, name);
         loaded = playlist_files_read(m3u_path, &paths, &count);
+        user_playlist = true;
     }
     if (!loaded) {
         send_response(cfd, "404 Not Found", "text/plain", "Playlist not found");
@@ -1643,38 +1751,51 @@ static void handle_playlist_songs_request(int cfd, const char * path) {
 
     char * json_buf = malloc(65536);
     if (!json_buf) {
-        for (int i = 0; i < count; i++) free(paths[i]);
-        free(paths);
+        free_path_list(paths, count);
         send_response(cfd, "500 Internal Server Error", "text/plain", "Out of memory");
         return;
     }
 
+    /* Optional offset (an entry position) continues a list that did not fit
+     * in one response; next_offset < total says there is more. */
+    uint64_t start = 0;
+    if (!catalog_query_number(path, "offset", 0, INT_MAX, &start)) {
+        free(json_buf);
+        free_path_list(paths, count);
+        send_response(cfd, "400 Bad Request", "text/plain", "Bad Request");
+        return;
+    }
+    char revision[20] = "";
+    if (user_playlist) playlist_revision_of(paths, count, revision);
     /* Resolve playlist file paths against metadata_db and serialize to JSON
      * using json_builder_t with bounds checking. */
     json_builder_t json;
     json_builder_init(&json, json_buf, 65536);
-    json_builder_appendf(&json, "{\"songs\":[");
+    if (user_playlist)
+        json_builder_appendf(&json, "{\"writable\":true,\"revision\":\"%s\",\"songs\":[", revision);
+    else
+        json_builder_appendf(&json, "{\"writable\":false,\"revision\":null,\"songs\":[");
     int emitted = 0;
-    for (int i = 0; i < count && !json.truncated; i++) {
+    int next = start < (uint64_t) count ? (int) start : count;
+    for (; next < count; next++) {
         song_row_t row;
-        if (!metadata_db_get_song_by_path(paths[i], &row)) continue;
+        if (!metadata_db_get_song_by_path(paths[next], &row)) continue;
 
-        char display_title[128], title_esc[300] = {0}, artist_esc[300] = {0};
+        char row_json[768], display_title[128], title_esc[300] = {0}, artist_esc[300] = {0};
         metadata_db_song_display_title(&row, display_title, sizeof(display_title));
         json_escape_append(title_esc, sizeof(title_esc), display_title);
         json_escape_append(artist_esc, sizeof(artist_esc), row.tags.artist);
-        if (!json_builder_appendf(&json, "%s{\"index\":%lld,\"title\":\"%s\",\"artist\":\"%s\"}",
-                                  emitted > 0 ? "," : "", (long long) row.id, title_esc, artist_esc)) break;
+        snprintf(row_json, sizeof(row_json), "%s{\"index\":%lld,\"title\":\"%s\",\"artist\":\"%s\",\"position\":%d}",
+                 emitted > 0 ? "," : "", (long long) row.id, title_esc, artist_esc, next);
+        if (!json_append_row(&json, row_json, 64)) break;
         emitted++;
     }
-    json.truncated = false;
-    json_builder_appendf(&json, "]}");
+    json_builder_appendf(&json, "],\"total\":%d,\"next_offset\":%d}", count, next);
 
     send_response(cfd, "200 OK", "application/json", json_buf);
 
     free(json_buf);
-    for (int i = 0; i < count; i++) free(paths[i]);
-    free(paths);
+    free_path_list(paths, count);
 }
 
 /* Reads and discards the request up to the blank line ending the headers
@@ -1685,6 +1806,791 @@ static void handle_playlist_songs_request(int cfd, const char * path) {
  * response parsing does the same). */
 #define REQUEST_LINE_MAX 4096
 #define REQUEST_HEADERS_MAX 4096
+
+/* ---- Remote Control v1 extensions: folders, recently played, favorites,
+ * queue move/play, and playlist management. Each family reports errors as
+ * {"error":"<family>_error","code":"<reason>"}; docs/REMOTE_CONTROL_API.md
+ * lists every code. ---- */
+
+/* Decodes one query value strictly (valid %XX escapes, no NUL).
+ * Returns 0 when absent, 1 when decoded, -1 when too long or malformed. */
+static int query_decoded(const char * path, const char * key, char * out, size_t out_size) {
+    out[0] = '\0';
+    if (!query_param_present(path, key)) return 0;
+    char raw[REQUEST_LINE_MAX];
+    if (!query_param_str(path, key, raw, sizeof(raw))) return -1;
+    return url_decode_checked(raw, out, out_size) ? 1 : -1;
+}
+
+/* Required nonnegative integer no larger than max_value. */
+static bool query_required_number(const char * path, const char * key, uint64_t max_value, uint64_t * out) {
+    return query_param_present(path, key) && catalog_query_number(path, key, 0, max_value, out);
+}
+
+/* Offset/limit shared by the paged extension routes: offset defaults to 0,
+ * limit to 50 and at most 100. */
+#define EXT_PAGE_DEFAULT 50
+#define EXT_PAGE_MAX 100
+
+static bool query_paging(const char * path, int * out_offset, int * out_limit) {
+    uint64_t offset = 0, limit = EXT_PAGE_DEFAULT;
+    if (!catalog_query_number(path, "offset", 0, INT_MAX, &offset) ||
+        !catalog_query_number(path, "limit", EXT_PAGE_DEFAULT, EXT_PAGE_MAX, &limit) || limit == 0) return false;
+    *out_offset = (int) offset;
+    *out_limit = (int) limit;
+    return true;
+}
+
+/* ---- Folders ---- */
+
+/* The player has a single music storage root, the SD card. */
+#define FOLDER_ROOT_ID "sd"
+
+/* A folder path is relative to the root: "" (or "/") is the root itself,
+ * otherwise '/'-separated components that are not empty, ".", "..", or
+ * hidden (leading '.', which the Files view never lists either), with no
+ * backslash or control bytes. Writes the absolute path. */
+static bool folder_resolve(const char * path, const char * key, char * out_rel, size_t rel_size,
+                           char * out_abs, size_t abs_size, bool * out_valid) {
+    *out_valid = false;
+    char root_id[16];
+    int root_state = query_decoded(path, "root", root_id, sizeof(root_id));
+    if (root_state < 0 || (root_state == 1 && strcmp(root_id, FOLDER_ROOT_ID) != 0)) return false;
+    char rel[REMOTE_CONTROL_PATH_MAX];
+    if (query_decoded(path, key, rel, sizeof(rel)) < 0) return false;
+    const char * start = rel[0] == '/' ? rel + 1 : rel;
+    size_t len = strlen(start);
+    if (len && start[len - 1] == '/') return false;
+    const char * component = start;
+    for (const char * p = start;; p++) {
+        if (*p == '/' || *p == '\0') {
+            size_t n = (size_t) (p - component);
+            if (len && (n == 0 || component[0] == '.')) return false;
+            if (*p == '\0') break;
+            component = p + 1;
+        } else if ((unsigned char) *p < 0x20 || *p == '\\') {
+            return false;
+        }
+    }
+    if (snprintf(out_rel, rel_size, "%s", start) >= (int) rel_size) return false;
+    int n = len ? snprintf(out_abs, abs_size, "%s/%s", MUSIC_ROOT_DIR, start)
+                : snprintf(out_abs, abs_size, "%s", MUSIC_ROOT_DIR);
+    if (n < 0 || (size_t) n >= abs_size) return false;
+    *out_valid = true;
+    return true;
+}
+
+/* The mount point exists even with no card, so ask the player's own
+ * mounted-card check rather than looking for the directory. */
+static bool folder_root_available(void) {
+    return sd_card_root_is_mounted();
+}
+
+/* An existing path must still resolve inside the root once symlinks are
+ * followed (the SD card's FAT has none; this guards other mounts). */
+static bool folder_within_root(const char * abs_path) {
+    char root[PATH_MAX], real[PATH_MAX];
+    if (!realpath(MUSIC_ROOT_DIR, root) || !realpath(abs_path, real)) return false;
+    size_t n = strlen(root);
+    return strncmp(real, root, n) == 0 && (real[n] == '\0' || real[n] == '/');
+}
+
+static void handle_folder_roots_request(int cfd) {
+    char json[160];
+    snprintf(json, sizeof(json),
+             "{\"roots\":[{\"id\":\"" FOLDER_ROOT_ID "\",\"name\":\"SD card\",\"available\":%s}]}",
+             folder_root_available() ? "true" : "false");
+    send_response(cfd, "200 OK", "application/json", json);
+}
+
+/* Directories sort first in a file_browser index, so the folder count is
+ * the first non-directory ordinal. */
+static unsigned folder_count_of(const file_browser_index_t * index, unsigned count) {
+    unsigned lo = 0, hi = count;
+    char name[256];
+    while (lo < hi) {
+        unsigned mid = lo + (hi - lo) / 2;
+        bool is_dir = false;
+        if (file_browser_index_entry_name(index, mid, name, sizeof(name), &is_dir) && is_dir) lo = mid + 1;
+        else hi = mid;
+    }
+    return lo;
+}
+
+#define FOLDER_JSON_CAPACITY (128u * 1024u)
+
+/* GET /api/folders?root=sd&path=REL&offset=N&limit=N -- one page of a
+ * folder in the Files view's order (folders, then files by name; hidden
+ * entries and symlinks omitted). Tracks carry their library song id, or -1
+ * when the file is not in the library. */
+static void handle_folder_list_request(int cfd, const char * path) {
+    char rel[REMOTE_CONTROL_PATH_MAX], abs_path[REMOTE_CONTROL_PATH_MAX + sizeof(MUSIC_ROOT_DIR)];
+    bool valid;
+    int offset, limit;
+    if (!folder_resolve(path, "path", rel, sizeof(rel), abs_path, sizeof(abs_path), &valid) || !valid) {
+        send_api_error(cfd, "400 Bad Request", "folder_error", "invalid_path");
+        return;
+    }
+    if (!query_paging(path, &offset, &limit)) {
+        send_api_error(cfd, "400 Bad Request", "folder_error", "invalid_paging");
+        return;
+    }
+    if (!folder_root_available()) {
+        send_api_error(cfd, "503 Service Unavailable", "folder_error", "storage_unavailable");
+        return;
+    }
+    struct stat st;
+    if (stat(abs_path, &st) != 0 || !S_ISDIR(st.st_mode) || !folder_within_root(abs_path)) {
+        send_api_error(cfd, "404 Not Found", "folder_error", "folder_not_found");
+        return;
+    }
+    file_browser_index_t * index = NULL;
+    unsigned count = 0;
+    if (!file_browser_index_open(abs_path, &index, &count)) {
+        send_api_error(cfd, "503 Service Unavailable", "folder_error",
+                       errno == EFBIG ? "folder_too_large" : "folder_unavailable");
+        return;
+    }
+    unsigned folders = folder_count_of(index, count);
+    unsigned first = (unsigned) offset < count ? (unsigned) offset : count;
+    unsigned page = count - first < (unsigned) limit ? count - first : (unsigned) limit;
+
+    /* Resolve the page's track ids in one batched lookup. */
+    char (*names)[256] = page ? calloc(page, sizeof(*names)) : NULL;
+    bool * dirs = page ? calloc(page, sizeof(*dirs)) : NULL;
+    char ** track_paths = page ? calloc(page, sizeof(*track_paths)) : NULL;
+    song_row_t * rows = page ? calloc(page, sizeof(*rows)) : NULL;
+    char * json_buf = malloc(FOLDER_JSON_CAPACITY);
+    bool ok = json_buf && (!page || (names && dirs && track_paths && rows));
+    int track_count = 0;
+    int * track_at = page ? calloc(page, sizeof(*track_at)) : NULL;
+    if (page && !track_at) ok = false;
+    for (unsigned i = 0; ok && i < page; i++) {
+        track_at[i] = -1;
+        if (!file_browser_index_entry_name(index, first + i, names[i], sizeof(names[i]), &dirs[i])) { ok = false; break; }
+        if (dirs[i] || library_is_m3u_file(names[i])) continue;
+        char full[REMOTE_CONTROL_PATH_MAX + sizeof(MUSIC_ROOT_DIR) + 256];
+        snprintf(full, sizeof(full), "%s/%s", abs_path, names[i]);
+        track_paths[track_count] = strdup(full);
+        if (!track_paths[track_count]) { ok = false; break; }
+        track_at[i] = track_count++;
+    }
+    file_browser_index_close(index);
+    if (ok && track_count) metadata_db_get_songs_by_paths((const char * const *) track_paths, track_count, rows);
+
+    unsigned emitted = 0;
+    if (ok) {
+        json_builder_t json;
+        json_builder_init(&json, json_buf, FOLDER_JSON_CAPACITY);
+        char rel_esc[REMOTE_CONTROL_PATH_MAX * 6] = {0}, parent_esc[REMOTE_CONTROL_PATH_MAX * 6] = {0};
+        json_escape_append(rel_esc, sizeof(rel_esc), rel);
+        const char * slash = strrchr(rel, '/');
+        if (slash) {
+            char parent[REMOTE_CONTROL_PATH_MAX];
+            snprintf(parent, sizeof(parent), "%.*s", (int) (slash - rel), rel);
+            json_escape_append(parent_esc, sizeof(parent_esc), parent);
+        }
+        json_builder_appendf(&json,
+            "{\"root\":\"" FOLDER_ROOT_ID "\",\"path\":\"%s\",\"parent\":%s%s%s,\"total\":%u,"
+            "\"folder_count\":%u,\"offset\":%d,\"entries\":[",
+            rel_esc, rel[0] ? "\"" : "null", rel[0] ? parent_esc : "", rel[0] ? "\"" : "",
+            count, folders, offset);
+        for (unsigned i = 0; i < page && !json.truncated; i++) {
+            char row[4096], name_esc[256 * 6] = {0};
+            json_escape_append(name_esc, sizeof(name_esc), names[i]);
+            if (dirs[i] || track_at[i] < 0) {
+                snprintf(row, sizeof(row), "%s{\"type\":\"%s\",\"name\":\"%s\"}", emitted ? "," : "",
+                         dirs[i] ? "folder" : "playlist", name_esc);
+            } else {
+                const song_row_t * song = &rows[track_at[i]];
+                bool known = song->id >= 0;
+                char title[128] = {0}, title_esc[800] = {0}, artist_esc[800] = {0};
+                if (known) metadata_db_song_display_title(song, title, sizeof(title));
+                json_escape_append(title_esc, sizeof(title_esc), known ? title : names[i]);
+                json_escape_append(artist_esc, sizeof(artist_esc), known ? song->tags.artist : "");
+                snprintf(row, sizeof(row),
+                         "%s{\"type\":\"track\",\"name\":\"%s\",\"index\":%lld,\"title\":\"%s\",\"artist\":\"%s\"}",
+                         emitted ? "," : "", name_esc, known ? (long long) song->id : -1LL, title_esc, artist_esc);
+            }
+            if (!json_append_row(&json, row, 64)) break;
+            emitted++;
+        }
+        json.truncated = false;
+        json_builder_appendf(&json, "],\"next_offset\":%u}", first + emitted);
+        send_response(cfd, "200 OK", "application/json", json_buf);
+    } else {
+        send_api_error(cfd, "503 Service Unavailable", "folder_error", "temporary_unavailable");
+    }
+    for (int i = 0; i < track_count; i++) free(track_paths[i]);
+    free(track_paths);
+    free(track_at);
+    free(names);
+    free(dirs);
+    free(rows);
+    free(json_buf);
+}
+
+/* POST /api/folders/play?root=sd&path=REL_FILE -- plays a file with its
+ * folder as the queue, as tapping it in Files does. */
+static void handle_folder_play_request(int cfd, const char * path) {
+    char rel[REMOTE_CONTROL_PATH_MAX], abs_path[REMOTE_CONTROL_PATH_MAX + sizeof(MUSIC_ROOT_DIR)];
+    bool valid;
+    if (!folder_resolve(path, "path", rel, sizeof(rel), abs_path, sizeof(abs_path), &valid) || !valid || !rel[0] ||
+        strlen(abs_path) >= REMOTE_CONTROL_PATH_MAX) {
+        send_api_error(cfd, "400 Bad Request", "folder_error", "invalid_path");
+        return;
+    }
+    const char * base = strrchr(abs_path, '/');
+    struct stat st;
+    if (!folder_root_available()) {
+        send_api_error(cfd, "503 Service Unavailable", "folder_error", "storage_unavailable");
+        return;
+    }
+    if (lstat(abs_path, &st) != 0 || !S_ISREG(st.st_mode) || !folder_within_root(abs_path)) {
+        send_api_error(cfd, "404 Not Found", "folder_error", "track_not_found");
+        return;
+    }
+    if (!file_browser_is_playable_name(base ? base + 1 : abs_path)) {
+        send_api_error(cfd, "400 Bad Request", "folder_error", "not_playable");
+        return;
+    }
+    pthread_mutex_lock(&status_mutex);
+    request_has_folder_play = true;
+    memcpy(request_folder_play_path, abs_path, strlen(abs_path) + 1); /* length checked above */
+    pthread_mutex_unlock(&status_mutex);
+    send_response(cfd, "200 OK", "text/plain", "OK");
+}
+
+/* ---- Recently played ---- */
+
+static void handle_recent_request(int cfd, const char * path) {
+    int offset, limit;
+    if (!query_paging(path, &offset, &limit)) {
+        send_api_error(cfd, "400 Bad Request", "recent_error", "invalid_paging");
+        return;
+    }
+    song_row_t * rows = calloc((size_t) limit, sizeof(*rows));
+    int64_t * played = calloc((size_t) limit, sizeof(*played));
+    char * json_buf = malloc(65536);
+    int total = 0;
+    int n = rows && played && json_buf ? metadata_db_get_recently_played_page(offset, limit, rows, played, &total) : -1;
+    if (n < 0) {
+        free(rows); free(played); free(json_buf);
+        send_api_error(cfd, "503 Service Unavailable", "recent_error", "temporary_unavailable");
+        return;
+    }
+    json_builder_t json;
+    json_builder_init(&json, json_buf, 65536);
+    json_builder_appendf(&json, "{\"total\":%d,\"offset\":%d,\"songs\":[", total, offset);
+    int emitted = 0;
+    for (int i = 0; i < n; i++) {
+        char row[1024], title[128], title_esc[300] = {0}, artist_esc[300] = {0};
+        metadata_db_song_display_title(&rows[i], title, sizeof(title));
+        json_escape_append(title_esc, sizeof(title_esc), title);
+        json_escape_append(artist_esc, sizeof(artist_esc), rows[i].tags.artist);
+        snprintf(row, sizeof(row), "%s{\"index\":%lld,\"title\":\"%s\",\"artist\":\"%s\",\"last_played\":%lld}",
+                 emitted ? "," : "", (long long) rows[i].id, title_esc, artist_esc, (long long) played[i]);
+        if (!json_append_row(&json, row, 64)) break;
+        emitted++;
+    }
+    json_builder_appendf(&json, "],\"next_offset\":%d}", offset + emitted);
+    send_response(cfd, "200 OK", "application/json", json_buf);
+    free(rows); free(played); free(json_buf);
+}
+
+/* ---- Favorites ---- */
+
+#define FAVORITE_STATE_MAX_IDS 100
+
+/* GET /api/favorites/state?ids=1,2,3 */
+static void handle_favorite_state_request(int cfd, const char * path) {
+    char ids_text[FAVORITE_STATE_MAX_IDS * 12];
+    int64_t ids[FAVORITE_STATE_MAX_IDS];
+    int count = 0;
+    if (query_decoded(path, "ids", ids_text, sizeof(ids_text)) != 1 || !ids_text[0]) {
+        send_api_error(cfd, "400 Bad Request", "favorite_error", "invalid_ids");
+        return;
+    }
+    for (char * p = ids_text; *p;) {
+        char * end = NULL;
+        errno = 0;
+        long long v = (*p >= '0' && *p <= '9') ? strtoll(p, &end, 10) : -1;
+        if (v <= 0 || errno == ERANGE || v > INT32_MAX || (*end != ',' && *end != '\0') ||
+            count >= FAVORITE_STATE_MAX_IDS) {
+            send_api_error(cfd, "400 Bad Request", "favorite_error", "invalid_ids");
+            return;
+        }
+        ids[count++] = (int64_t) v;
+        p = *end ? end + 1 : end;
+        if (*end == ',' && !*p) {
+            send_api_error(cfd, "400 Bad Request", "favorite_error", "invalid_ids");
+            return;
+        }
+    }
+    song_row_t * rows = calloc((size_t) count, sizeof(*rows));
+    char * json_buf = malloc(8192);
+    if (!rows || !json_buf) {
+        free(rows); free(json_buf);
+        send_api_error(cfd, "503 Service Unavailable", "favorite_error", "temporary_unavailable");
+        return;
+    }
+    metadata_db_get_songs_by_ids(ids, count, rows);
+    json_builder_t json;
+    json_builder_init(&json, json_buf, 8192);
+    json_builder_appendf(&json, "{\"songs\":[");
+    for (int i = 0; i < count; i++) {
+        bool found = rows[i].id >= 0;
+        bool favorite = found && metadata_db_song_favorite_is_set(rows[i].path);
+        json_builder_appendf(&json, "%s{\"index\":%lld,\"found\":%s,\"favorite\":%s}", i ? "," : "",
+                             (long long) ids[i], found ? "true" : "false", favorite ? "true" : "false");
+    }
+    json_builder_appendf(&json, "]}");
+    send_response(cfd, "200 OK", "application/json", json_buf);
+    free(rows);
+    free(json_buf);
+}
+
+/* POST /api/favorites/add or /remove with index=ID (optional
+ * catalog_revision) or current=1 for the now-playing file. Favorites are the
+ * library's rating flag, which also backs the @favorites playlist, so that
+ * playlist follows without a separate write. */
+static void handle_favorite_edit_request(int cfd, const char * path, bool is_favorite) {
+    bool current = query_param_present(path, "current");
+    bool have_index = query_param_present(path, "index");
+    if (current == have_index) {
+        send_api_error(cfd, "400 Bad Request", "favorite_error", "invalid_target");
+        return;
+    }
+    song_row_t row;
+    char song_path[REMOTE_CONTROL_PATH_MAX] = {0};
+    int64_t index = -1;
+    if (current) {
+        uint64_t flag = 0;
+        if (!catalog_query_number(path, "current", 0, 1, &flag) || flag != 1) {
+            send_api_error(cfd, "400 Bad Request", "favorite_error", "invalid_target");
+            return;
+        }
+        pthread_mutex_lock(&status_mutex);
+        snprintf(song_path, sizeof(song_path), "%s", status_path);
+        pthread_mutex_unlock(&status_mutex);
+        if (!song_path[0]) {
+            send_api_error(cfd, "404 Not Found", "favorite_error", "nothing_playing");
+            return;
+        }
+        if (metadata_db_get_song_by_path(song_path, &row)) index = row.id;
+    } else {
+        uint64_t id = 0;
+        char revision[METADATA_DB_CATALOG_REVISION_SIZE] = {0};
+        if (!query_required_number(path, "index", INT32_MAX, &id) || id == 0 ||
+            !catalog_query_revision_named(path, "catalog_revision", false, revision)) {
+            send_api_error(cfd, "400 Bad Request", "favorite_error", "invalid_index");
+            return;
+        }
+        metadata_db_catalog_result_t lookup = METADATA_DB_CATALOG_OK;
+        bool found;
+        if (revision[0]) {
+            lookup = metadata_db_catalog_get_song_revision(revision, (int64_t) id, &row);
+            found = lookup == METADATA_DB_CATALOG_OK;
+        } else {
+            found = metadata_db_get_song_by_id((int64_t) id, &row);
+        }
+        if (lookup == METADATA_DB_CATALOG_STALE) {
+            send_api_error(cfd, "409 Conflict", "favorite_error", "revision_mismatch");
+            return;
+        }
+        if (lookup == METADATA_DB_CATALOG_UNAVAILABLE) {
+            send_api_error(cfd, "503 Service Unavailable", "favorite_error", "temporary_unavailable");
+            return;
+        }
+        if (!found) {
+            send_api_error(cfd, "404 Not Found", "favorite_error", "song_not_found");
+            return;
+        }
+        index = row.id;
+        snprintf(song_path, sizeof(song_path), "%s", row.path);
+    }
+    /* Ordered with the player's own heart taps, and confirmed on disk. */
+    if (!favorite_writer_write_now(song_path, is_favorite)) {
+        send_api_error(cfd, "503 Service Unavailable", "favorite_error", "write_failed");
+        return;
+    }
+    pthread_mutex_lock(&status_mutex);
+    request_favorite_changed = true; /* the UI reloads the now-playing heart */
+    if (strcmp(status_path, song_path) == 0) status_favorite = is_favorite;
+    pthread_mutex_unlock(&status_mutex);
+    char json[96];
+    snprintf(json, sizeof(json), "{\"index\":%lld,\"favorite\":%s}", (long long) index, is_favorite ? "true" : "false");
+    send_response(cfd, "200 OK", "application/json", json);
+}
+
+/* ---- Queue move / play ---- */
+
+/* POST /api/queue/move?from=N&to=N&revision=R and
+ * POST /api/queue/play?offset=N&revision=R. Offsets index the Up Next list
+ * of that revision. Accepted requests are applied on the UI thread, which
+ * rechecks the revision and ignores the request if the queue changed. */
+static void handle_queue_edit_request(int cfd, const char * path, bool move) {
+    uint64_t from = 0, to = 0, revision = 0;
+    bool valid = query_required_number(path, "revision", UINT64_MAX, &revision) &&
+                 (move ? query_required_number(path, "from", INT_MAX, &from) &&
+                         query_required_number(path, "to", INT_MAX, &to)
+                       : query_required_number(path, "offset", INT_MAX, &from));
+    if (!valid) {
+        send_api_error(cfd, "400 Bad Request", "queue_error", "invalid_request");
+        return;
+    }
+    const char * code = NULL;
+    pthread_mutex_lock(&status_mutex);
+    /* One edit per published revision: a second one would overwrite the
+     * first before the UI applies it. The client rereads /queue. */
+    bool pending = request_has_queue_move || request_has_queue_play || request_has_queue_remove || request_queue_clear;
+    if (revision != queue_snapshot_revision) code = "revision_mismatch";
+    else if (pending) code = "edit_pending";
+    else if (from >= (uint64_t) queue_song_id_count || (move && to >= (uint64_t) queue_song_id_count)) code = "invalid_offset";
+    else if (move) {
+        request_has_queue_move = true;
+        request_queue_move_from = (int) from;
+        request_queue_move_to = (int) to;
+        request_queue_move_revision = revision;
+    } else {
+        request_has_queue_play = true;
+        request_queue_play_offset = (int) from;
+        request_queue_play_revision = revision;
+    }
+    pthread_mutex_unlock(&status_mutex);
+    if (!code) send_response(cfd, "200 OK", "text/plain", "OK");
+    else if (strcmp(code, "invalid_offset") != 0) send_api_error(cfd, "409 Conflict", "queue_error", code);
+    else send_api_error(cfd, "400 Bad Request", "queue_error", code);
+}
+
+/* ---- Playlist management ---- */
+
+/* A new or renamed user playlist name: the playlist file rules, plus what
+ * the API needs to address it afterwards as PLAYLISTS_DIR/<name>.m3u
+ * (stem only, no "..", 127 bytes, not a built-in key or alias). */
+static const char * playlist_new_name_error(const char * name) {
+    if (!playlist_files_name_is_valid(name) || !playlist_name_is_safe(name) ||
+        strlen(name) > PLAYLIST_NAME_MAX_BYTES || library_is_m3u_file(name)) return "invalid_name";
+    if (playlist_key_is_builtin(name)) return "reserved_name";
+    return NULL;
+}
+
+/* revision is NULL when the file could not be reread after a successful
+ * change; the client then rereads the playlist. */
+static void playlist_send_ok(int cfd, const char * key, const char * revision) {
+    char key_esc[PLAYLIST_NAME_MAX_BYTES * 6 + 1] = {0}, json[PLAYLIST_NAME_MAX_BYTES * 12 + 96];
+    json_escape_append(key_esc, sizeof(key_esc), key);
+    snprintf(json, sizeof(json), "{\"key\":\"%s\",\"name\":\"%s.m3u\",\"revision\":%s%s%s}",
+             key_esc, key_esc, revision ? "\"" : "", revision ? revision : "null", revision ? "\"" : "");
+    send_response(cfd, "200 OK", "application/json", json);
+}
+
+/* Resolves the `name` key of an existing user playlist. Sends the error and
+ * returns false for a malformed, built-in, or missing playlist. */
+static bool playlist_existing_path(int cfd, const char * path, char * key, size_t key_size,
+                                   char * m3u_path, size_t m3u_size) {
+    int state = query_decoded(path, "name", key, key_size);
+    if (state != 1 || !key[0] || !playlist_name_is_safe(key) || strlen(key) > PLAYLIST_NAME_MAX_BYTES) {
+        send_api_error(cfd, "400 Bad Request", "playlist_error", "invalid_name");
+        return false;
+    }
+    if (playlist_key_is_builtin(key)) {
+        send_api_error(cfd, "403 Forbidden", "playlist_error", "read_only");
+        return false;
+    }
+    struct stat st;
+    if (snprintf(m3u_path, m3u_size, "%s/%s.m3u", PLAYLISTS_DIR, key) >= (int) m3u_size ||
+        stat(m3u_path, &st) != 0 || !S_ISREG(st.st_mode)) {
+        send_api_error(cfd, "404 Not Found", "playlist_error", "playlist_not_found");
+        return false;
+    }
+    return true;
+}
+
+static bool playlist_current_revision(const char * m3u_path, char revision[20], int * out_count) {
+    char ** paths = NULL;
+    int count = 0;
+    playlist_read_status_t status = playlist_files_read_ex(m3u_path, &paths, &count);
+    if (status != PLAYLIST_READ_OK && status != PLAYLIST_READ_EMPTY) return false;
+    playlist_revision_of(paths, count, revision);
+    free_path_list(paths, count);
+    if (out_count) *out_count = count;
+    return true;
+}
+
+/* POST /api/playlists/create?name=NAME -- a new empty user playlist. */
+static void handle_playlist_create_request(int cfd, const char * path) {
+    char name[PLAYLIST_NAME_MAX_BYTES + 2];
+    const char * error = query_decoded(path, "name", name, sizeof(name)) == 1 ? playlist_new_name_error(name)
+                                                                               : "invalid_name";
+    if (error) {
+        send_api_error(cfd, "400 Bad Request", "playlist_error", error);
+        return;
+    }
+    char m3u_path[512];
+    snprintf(m3u_path, sizeof(m3u_path), "%s/%s.m3u", PLAYLISTS_DIR, name);
+    errno = 0;
+    if (access(m3u_path, F_OK) == 0 ||
+        !playlist_files_write_new(PLAYLISTS_DIR, name, NULL, 0, m3u_path, sizeof(m3u_path))) {
+        bool exists = errno == EEXIST || access(m3u_path, F_OK) == 0;
+        send_api_error(cfd, exists ? "409 Conflict" : "500 Internal Server Error", "playlist_error",
+                       exists ? "name_exists" : "write_failed");
+        return;
+    }
+    metadata_db_playlist_insert_one(m3u_path);
+    char revision[20];
+    playlist_revision_of(NULL, 0, revision);
+    playlist_send_ok(cfd, name, revision);
+}
+
+/* POST /api/playlists/rename?name=KEY&new_name=NAME */
+static void handle_playlist_rename_request(int cfd, const char * path) {
+    char key[PLAYLIST_NAME_MAX_BYTES + 2], m3u_path[512], new_name[PLAYLIST_NAME_MAX_BYTES + 2];
+    if (!playlist_existing_path(cfd, path, key, sizeof(key), m3u_path, sizeof(m3u_path))) return;
+    const char * error = query_decoded(path, "new_name", new_name, sizeof(new_name)) == 1
+                             ? playlist_new_name_error(new_name) : "invalid_name";
+    if (error) {
+        send_api_error(cfd, "400 Bad Request", "playlist_error", error);
+        return;
+    }
+    char dest[512], revision[20];
+    snprintf(dest, sizeof(dest), "%s/%s.m3u", PLAYLISTS_DIR, new_name);
+    if (strcmp(dest, m3u_path) != 0 && access(dest, F_OK) == 0) {
+        send_api_error(cfd, "409 Conflict", "playlist_error", "name_exists");
+        return;
+    }
+    if (!playlist_files_rename(m3u_path, new_name, dest, sizeof(dest))) {
+        bool exists = access(dest, F_OK) == 0 && strcmp(dest, m3u_path) != 0;
+        send_api_error(cfd, exists ? "409 Conflict" : "500 Internal Server Error", "playlist_error",
+                       exists ? "name_exists" : "write_failed");
+        return;
+    }
+    metadata_db_playlist_delete_one(m3u_path);
+    metadata_db_playlist_insert_one(dest);
+    playlist_send_ok(cfd, new_name, playlist_current_revision(dest, revision, NULL) ? revision : NULL);
+}
+
+/* POST /api/playlists/delete?name=KEY */
+static void handle_playlist_delete_request(int cfd, const char * path) {
+    char key[PLAYLIST_NAME_MAX_BYTES + 2], m3u_path[512];
+    if (!playlist_existing_path(cfd, path, key, sizeof(key), m3u_path, sizeof(m3u_path))) return;
+    if (!playlist_files_delete(m3u_path)) {
+        send_api_error(cfd, "500 Internal Server Error", "playlist_error", "write_failed");
+        return;
+    }
+    metadata_db_playlist_delete_one(m3u_path);
+    char key_esc[PLAYLIST_NAME_MAX_BYTES * 6 + 1] = {0}, json[PLAYLIST_NAME_MAX_BYTES * 6 + 48];
+    json_escape_append(key_esc, sizeof(key_esc), key);
+    snprintf(json, sizeof(json), "{\"key\":\"%s\",\"deleted\":true}", key_esc);
+    send_response(cfd, "200 OK", "application/json", json);
+}
+
+typedef struct {
+    const char * expected_revision;
+    uint64_t from, to;
+    bool move;
+    const char * refusal;
+} playlist_entry_check_t;
+
+/* Runs under the playlist lock with the entries as they are right now. */
+static bool playlist_entry_check(void * context, char * const * paths, int count) {
+    playlist_entry_check_t * check = context;
+    char revision[20];
+    playlist_revision_of(paths, count, revision);
+    if (strcmp(revision, check->expected_revision) != 0) check->refusal = "revision_mismatch";
+    else if (check->from >= (uint64_t) count || (check->move && check->to >= (uint64_t) count))
+        check->refusal = "invalid_position";
+    return check->refusal == NULL;
+}
+
+/* POST /api/playlists/remove?name=KEY&position=N&revision=R and
+ * POST /api/playlists/move?name=KEY&from=N&to=N&revision=R. Positions are
+ * entry offsets from GET /playlists/songs of that revision; the revision
+ * is checked under the same lock as the edit. */
+static void handle_playlist_entry_request(int cfd, const char * path, bool move) {
+    char key[PLAYLIST_NAME_MAX_BYTES + 2], m3u_path[512], expected[24], revision[20];
+    if (!playlist_existing_path(cfd, path, key, sizeof(key), m3u_path, sizeof(m3u_path))) return;
+    playlist_entry_check_t check = { .expected_revision = expected, .move = move };
+    bool valid = query_decoded(path, "revision", expected, sizeof(expected)) == 1 &&
+                 (move ? query_required_number(path, "from", INT_MAX, &check.from) &&
+                         query_required_number(path, "to", INT_MAX, &check.to)
+                       : query_required_number(path, "position", INT_MAX, &check.from));
+    if (!valid) {
+        send_api_error(cfd, "400 Bad Request", "playlist_error", "invalid_request");
+        return;
+    }
+    if (move && check.from == check.to) {
+        /* Nothing to write; still report a stale revision or bad position. */
+        char ** paths = NULL;
+        int count = 0;
+        playlist_read_status_t read = playlist_files_read_ex(m3u_path, &paths, &count);
+        bool readable = read == PLAYLIST_READ_OK || read == PLAYLIST_READ_EMPTY;
+        bool accepted = readable && playlist_entry_check(&check, paths, count);
+        free_path_list(paths, count);
+        if (!readable) {
+            send_api_error(cfd, "500 Internal Server Error", "playlist_error", "read_failed");
+            return;
+        }
+        if (!accepted) {
+            send_api_error(cfd, strcmp(check.refusal, "revision_mismatch") == 0 ? "409 Conflict" : "400 Bad Request",
+                           "playlist_error", check.refusal);
+            return;
+        }
+        playlist_send_ok(cfd, key, expected);
+        return;
+    }
+    playlist_edit_status_t status = playlist_files_edit_entry_checked(
+        m3u_path, (int) check.from, move ? (int) check.to : -1, playlist_entry_check, &check);
+    if (status == PLAYLIST_EDIT_REFUSED) {
+        send_api_error(cfd, strcmp(check.refusal, "revision_mismatch") == 0 ? "409 Conflict" : "400 Bad Request",
+                       "playlist_error", check.refusal);
+        return;
+    }
+    if (status != PLAYLIST_EDIT_OK) {
+        send_api_error(cfd, "500 Internal Server Error", "playlist_error", "write_failed");
+        return;
+    }
+    playlist_send_ok(cfd, key, playlist_current_revision(m3u_path, revision, NULL) ? revision : NULL);
+}
+
+/* The one request body in the API: an uploaded .m3u/.m3u8 file. */
+#define PLAYLIST_IMPORT_MAX_BYTES (256u * 1024u)
+
+typedef struct {
+    int fd;
+    size_t consumed;
+} body_reader_t;
+
+static ssize_t body_read(void * context, void * buffer, size_t size) {
+    body_reader_t * body = context;
+    for (;;) {
+        struct pollfd pfd = { .fd = body->fd, .events = POLLIN, .revents = 0 };
+        int ready = poll(&pfd, 1, 2000);
+        if (ready < 0 && errno == EINTR) continue;
+        if (ready <= 0) return -1;
+        ssize_t n = read(body->fd, buffer, size);
+        if (n < 0 && errno == EINTR) continue;
+        if (n > 0) body->consumed += (size_t) n;
+        return n;
+    }
+}
+
+/* Upper bounds for reading the rest of a rejected upload after replying. */
+#define IMPORT_LINGER_MAX_BYTES (8u * 1024u * 1024u)
+#define IMPORT_LINGER_MAX_SECONDS 10
+
+/* Error reply for an upload whose body was not fully read. Closing a TCP
+ * socket with unread data can reset the connection and discard the reply,
+ * so send it, half-close, and read what is left of the body (at most
+ * `remaining` bytes, bounded in bytes and time) before the caller closes. */
+static void import_send_error(int cfd, const char * status, const char * code, size_t remaining) {
+    send_api_error(cfd, status, "playlist_error", code);
+    if (remaining == 0) return;
+    shutdown(cfd, SHUT_WR);
+    if (remaining > IMPORT_LINGER_MAX_BYTES) remaining = IMPORT_LINGER_MAX_BYTES;
+    time_t give_up = time(NULL) + IMPORT_LINGER_MAX_SECONDS;
+    body_reader_t body = { cfd, 0 };
+    char buffer[1024];
+    while (remaining > 0 && time(NULL) < give_up) {
+        ssize_t n = body_read(&body, buffer, remaining < sizeof(buffer) ? remaining : sizeof(buffer));
+        if (n <= 0) return;
+        remaining -= (size_t) n;
+    }
+}
+
+/* POST /api/playlists/import?name=NAME with the playlist file as the body
+ * (Content-Length required). The bytes are stored unchanged as
+ * PLAYLISTS_DIR/NAME.m3u; entries keep their own paths, so "matched" counts
+ * those that resolve to library songs on this player. */
+static void handle_playlist_import_request(int cfd, const char * path, long long content_length) {
+    if (content_length < 0) {
+        /* No length (or chunked): drain whatever follows, bounded. */
+        import_send_error(cfd, "411 Length Required", "length_required", IMPORT_LINGER_MAX_BYTES);
+        return;
+    }
+    size_t length = (unsigned long long) content_length > IMPORT_LINGER_MAX_BYTES ? IMPORT_LINGER_MAX_BYTES
+                                                                                   : (size_t) content_length;
+    if ((unsigned long long) content_length > PLAYLIST_IMPORT_MAX_BYTES) {
+        import_send_error(cfd, "413 Content Too Large", "playlist_too_large", length);
+        return;
+    }
+    char name[PLAYLIST_NAME_MAX_BYTES + 2];
+    const char * error = query_decoded(path, "name", name, sizeof(name)) == 1 ? playlist_new_name_error(name)
+                                                                               : "invalid_name";
+    if (error) {
+        import_send_error(cfd, "400 Bad Request", error, length);
+        return;
+    }
+    body_reader_t body = { cfd, 0 };
+    char m3u_path[512];
+    char ** paths = NULL;
+    int count = 0;
+    playlist_import_status_t status = playlist_files_import_stream(PLAYLISTS_DIR, name, length,
+        body_read, &body, m3u_path, sizeof(m3u_path), &paths, &count);
+    size_t unread = length - body.consumed;
+    switch (status) {
+        case PLAYLIST_IMPORT_OK: break;
+        case PLAYLIST_IMPORT_EXISTS:
+            import_send_error(cfd, "409 Conflict", "name_exists", unread);
+            return;
+        case PLAYLIST_IMPORT_INVALID_NAME:
+            import_send_error(cfd, "400 Bad Request", "invalid_name", unread);
+            return;
+        case PLAYLIST_IMPORT_INVALID_CONTENT:
+            import_send_error(cfd, "400 Bad Request", "invalid_playlist", unread);
+            return;
+        case PLAYLIST_IMPORT_READ_ERROR:
+            import_send_error(cfd, "400 Bad Request", "incomplete_body", unread);
+            return;
+        case PLAYLIST_IMPORT_IO_ERROR:
+        default:
+            import_send_error(cfd, "500 Internal Server Error", "write_failed", unread);
+            return;
+    }
+    metadata_db_playlist_insert_one(m3u_path);
+    char revision[20];
+    playlist_revision_of(paths, count, revision);
+    int matched = 0;
+    enum { MATCH_BATCH = 32 };
+    song_row_t * rows = malloc(sizeof(*rows) * MATCH_BATCH);
+    for (int i = 0; rows && i < count; i += MATCH_BATCH) {
+        int batch = count - i < MATCH_BATCH ? count - i : MATCH_BATCH;
+        metadata_db_get_songs_by_paths((const char * const *) paths + i, batch, rows);
+        for (int j = 0; j < batch; j++) if (rows[j].id >= 0) matched++;
+    }
+    free(rows);
+    free_path_list(paths, count);
+    char key_esc[PLAYLIST_NAME_MAX_BYTES * 6 + 1] = {0}, json[PLAYLIST_NAME_MAX_BYTES * 12 + 160];
+    json_escape_append(key_esc, sizeof(key_esc), name);
+    snprintf(json, sizeof(json),
+             "{\"key\":\"%s\",\"name\":\"%s.m3u\",\"revision\":\"%s\",\"entries\":%d,\"matched\":%d}",
+             key_esc, key_esc, revision, count, matched);
+    send_response(cfd, "200 OK", "application/json", json);
+}
+
+/* Routes added after the original API. Returns false for any other path. */
+static bool handle_extension_route(int cfd, const char * method, const char * path_only, const char * path,
+                                   long long content_length) {
+    bool get = strcmp(method, "GET") == 0, post = strcmp(method, "POST") == 0;
+    if (get && strcmp(path_only, "/api/folders/roots") == 0) handle_folder_roots_request(cfd);
+    else if (get && strcmp(path_only, "/api/folders") == 0) handle_folder_list_request(cfd, path);
+    else if (post && strcmp(path_only, "/api/folders/play") == 0) handle_folder_play_request(cfd, path);
+    else if (get && strcmp(path_only, "/api/recent") == 0) handle_recent_request(cfd, path);
+    else if (get && strcmp(path_only, "/api/favorites/state") == 0) handle_favorite_state_request(cfd, path);
+    else if (post && strcmp(path_only, "/api/favorites/add") == 0) handle_favorite_edit_request(cfd, path, true);
+    else if (post && strcmp(path_only, "/api/favorites/remove") == 0) handle_favorite_edit_request(cfd, path, false);
+    else if (post && strcmp(path_only, "/api/queue/move") == 0) handle_queue_edit_request(cfd, path, true);
+    else if (post && strcmp(path_only, "/api/queue/play") == 0) handle_queue_edit_request(cfd, path, false);
+    else if (post && strcmp(path_only, "/api/playlists/create") == 0) handle_playlist_create_request(cfd, path);
+    else if (post && strcmp(path_only, "/api/playlists/rename") == 0) handle_playlist_rename_request(cfd, path);
+    else if (post && strcmp(path_only, "/api/playlists/delete") == 0) handle_playlist_delete_request(cfd, path);
+    else if (post && strcmp(path_only, "/api/playlists/remove") == 0) handle_playlist_entry_request(cfd, path, false);
+    else if (post && strcmp(path_only, "/api/playlists/move") == 0) handle_playlist_entry_request(cfd, path, true);
+    else if (post && strcmp(path_only, "/api/playlists/import") == 0)
+        handle_playlist_import_request(cfd, path, content_length);
+    else return false;
+    return true;
+}
 
 static void handle_connection(int cfd) {
     if (!remote_control_ensure_pin()) {
@@ -1729,6 +2635,8 @@ static void handle_connection(int cfd) {
     char pin_header[REMOTE_CONTROL_PIN_MAX_LENGTH + 1] = {0};
     bool pin_header_seen = false;
     bool pin_header_invalid = false;
+    long long content_length = -1; /* only POST /playlists/import reads a body */
+    bool content_length_invalid = false;
     char header_line[512];
     size_t header_line_len = 0;
     while (header_bytes < REQUEST_HEADERS_MAX) {
@@ -1765,6 +2673,20 @@ static void handle_connection(int cfd) {
                     pin_header[value_len] = '\0';
                     pin_header_seen = true;
                 }
+            }
+            static const char length_name[] = "Content-Length:";
+            if (header_line_len >= sizeof(length_name) - 1 &&
+                strncasecmp(header_line, length_name, sizeof(length_name) - 1) == 0) {
+                const char * value = header_line + sizeof(length_name) - 1;
+                while (*value == ' ' || *value == '\t') value++;
+                char * end = NULL;
+                errno = 0;
+                long long parsed = (*value >= '0' && *value <= '9') ? strtoll(value, &end, 10) : -1;
+                while (end && (*end == ' ' || *end == '\t')) end++;
+                if (parsed < 0 || errno == ERANGE || !end || *end != '\0' || content_length >= 0)
+                    content_length_invalid = true;
+                else
+                    content_length = parsed;
             }
             header_line_len = 0;
         } else if (header_line_len + 1 < sizeof(header_line)) {
@@ -1804,7 +2726,9 @@ static void handle_connection(int cfd) {
                 "{\"version\":1,\"authRequired\":true,\"authHeader\":\"X-Compas-PIN\","
                 "\"transports\":[\"wifi\",\"bluetooth_classic_rfcomm\"],\"features\":["
                 "\"status\",\"playback_controls\",\"queue\",\"library_browse\","
-                "\"playlists\",\"album_art\",\"screenshots\",\"catalog_sync_v1\"]}";
+                "\"playlists\",\"album_art\",\"screenshots\",\"catalog_sync_v1\","
+                "\"folder_browse\",\"recently_played\",\"favorites_edit\",\"queue_edit\","
+                "\"playlist_edit\",\"playlist_import\"]}";
             send_response(cfd, "200 OK", "application/json", capabilities);
             return;
         }
@@ -1834,6 +2758,12 @@ static void handle_connection(int cfd) {
             return;
         }
     }
+
+    if (content_length_invalid) {
+        send_response(cfd, "400 Bad Request", "text/plain", "Bad Content-Length");
+        return;
+    }
+    if (handle_extension_route(cfd, method, path_only, path, content_length)) return;
 
     if (strcmp(method, "GET") == 0) {
         if (strcmp(path_only, "/api/status") == 0) {
@@ -2019,7 +2949,10 @@ static void handle_connection(int cfd) {
                 }
             }
 
-            if (!have_name || strlen(name) > PLAYLIST_NAME_MAX_BYTES ||
+            if (have_name && playlist_key_is_builtin(name)) {
+                /* Built-ins are library views; a file by that name would be unreachable. */
+                send_response(cfd, "403 Forbidden", "text/plain", "Playlist is read-only");
+            } else if (!have_name || strlen(name) > PLAYLIST_NAME_MAX_BYTES ||
                 !playlist_name_is_safe(name) || !have_song) {
                 send_response(cfd, "400 Bad Request", "text/plain", "Bad Request");
             } else if (strcmp(path_only, "/api/playlists") == 0) {

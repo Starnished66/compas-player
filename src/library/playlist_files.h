@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <sys/types.h>
 
 /* Lists .m3u/.m3u8 files in `root` itself (not a recursive walk). Sorted
  * alphabetically by full path. Caller owns *out_paths (free each entry,
@@ -22,10 +23,22 @@ bool playlist_files_refresh_poll(bool * out_ok);
 /* prune_missing: on a failed scan, drop cached playlists confirmed deleted.
  * Pass false when the card may not be mounted. */
 bool playlist_files_reconcile(const char * root, bool prune_missing);
+/* True when name is usable as a playlist file name: non-empty, at most 200
+ * bytes, no control or FAT-reserved characters, no leading '.', and no
+ * trailing space or '.'. Every create/rename/write_new call applies it. */
+bool playlist_files_name_is_valid(const char * name);
 bool playlist_files_rename(const char * path, const char * name, char * out, size_t size);
 /* Entry offsets count nonempty, non-comment lines, including unavailable files.
  * to < 0 removes exactly one occurrence; otherwise moves it before offset to. */
 bool playlist_files_edit_entry(const char * path, int from, int to);
+/* playlist_files_edit_entry() that first rereads the entries (as
+ * playlist_files_read_ex() resolves them) under the same lock and lets
+ * check accept or refuse them, so a revision check cannot race another
+ * edit. REFUSED means check returned false and nothing was written. */
+typedef bool (*playlist_files_entries_check)(void * context, char * const * paths, int count);
+typedef enum { PLAYLIST_EDIT_OK, PLAYLIST_EDIT_REFUSED, PLAYLIST_EDIT_FAILED } playlist_edit_status_t;
+playlist_edit_status_t playlist_files_edit_entry_checked(const char * path, int from, int to,
+                                                         playlist_files_entries_check check, void * context);
 bool playlist_files_write_new(const char * dir, const char * name,
                               const char * const * paths, int count, char * out, size_t size);
 typedef bool (*playlist_files_path_provider)(void * context, int index, const char ** path);
@@ -35,6 +48,23 @@ bool playlist_files_write_new_stream(const char * dir, const char * name,
 bool playlist_files_write_new_stream_at(int dirfd, const char * name, int count,
                                         playlist_files_path_provider provider, void * context,
                                         char * out_leaf, size_t size);
+
+/* Imports an uploaded playlist as dir/name.m3u, copying `length` bytes from
+ * reader unchanged (reader returns bytes read, <= 0 on failure). name is the
+ * stem only and must not already carry an .m3u/.m3u8 extension. The bytes
+ * are received into a temp file, rejected if they contain NUL or fail
+ * playlist_files_read_ex(), and published without replacing an existing
+ * file. On success the parsed entry paths are returned when out_paths and
+ * out_count are non-NULL (caller frees them like playlist_files_read()). */
+typedef ssize_t (*playlist_files_byte_reader)(void * context, void * buffer, size_t size);
+typedef enum {
+    PLAYLIST_IMPORT_OK, PLAYLIST_IMPORT_INVALID_NAME, PLAYLIST_IMPORT_EXISTS,
+    PLAYLIST_IMPORT_INVALID_CONTENT, PLAYLIST_IMPORT_READ_ERROR, PLAYLIST_IMPORT_IO_ERROR
+} playlist_import_status_t;
+playlist_import_status_t playlist_files_import_stream(const char * dir, const char * name, size_t length,
+                                                      playlist_files_byte_reader reader, void * context,
+                                                      char * out, size_t size, char *** out_paths,
+                                                      int * out_count);
 
 /* Appends song_path as a new line to the M3U file at m3u_path, creating the
  * file (but not its parent directory) if it doesn't already exist. Returns

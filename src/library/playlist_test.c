@@ -2,6 +2,7 @@
 #include "playback_order.h"
 #include "queue_resume.h"
 #include <assert.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -174,10 +175,85 @@ static void test_stream_at(void) {
     close(dirfd);
 }
 
+typedef struct { const char * data; size_t length, offset, fail_at; } upload_t;
+static ssize_t upload_read(void * context, void * buffer, size_t size) {
+    upload_t * u = context;
+    if (u->offset >= u->fail_at) return -1;
+    size_t n = u->length - u->offset < size ? u->length - u->offset : size;
+    if (u->offset + n > u->fail_at) n = u->fail_at - u->offset;
+    memcpy(buffer, u->data + u->offset, n);
+    u->offset += n;
+    return (ssize_t) n;
+}
+static bool no_temp_left(const char * dir) {
+    char cmd[256]; snprintf(cmd, sizeof(cmd), "ls -a %s | grep -q '^.playlist-'", dir);
+    return system(cmd) != 0;
+}
+static void test_import(void) {
+    assert(mkdir("Import", 0755) == 0);
+    const char * text = "\357\273\277#EXTM3U\r\n#EXTINF:1,one\r\n../Music/one.flac\r\n/abs/two.mp3\r\n";
+    upload_t u = { text, strlen(text), 0, (size_t) -1 };
+    char out[4096], ** paths = NULL; int count = 0;
+    assert(playlist_files_import_stream("Import", "Phone", u.length, upload_read, &u, out, sizeof(out),
+                                        &paths, &count) == PLAYLIST_IMPORT_OK);
+    assert(!strcmp(out, "Import/Phone.m3u") && count == 2);
+    assert(!strcmp(paths[0], "Music/one.flac") && !strcmp(paths[1], "/abs/two.mp3")); release(paths, count);
+    FILE * f = fopen(out, "rb"); assert(f);
+    char saved[256] = {0}; size_t n = fread(saved, 1, sizeof(saved), f); fclose(f);
+    assert(n == strlen(text) && !memcmp(saved, text, n)); /* copied byte for byte */
+    u.offset = 0;
+    assert(playlist_files_import_stream("Import", "Phone", u.length, upload_read, &u, NULL, 0, NULL, NULL) ==
+           PLAYLIST_IMPORT_EXISTS);
+    assert(playlist_files_import_stream("Import", "Phone.m3u8", 0, upload_read, &u, NULL, 0, NULL, NULL) ==
+           PLAYLIST_IMPORT_INVALID_NAME);
+    assert(playlist_files_import_stream("Import", "../x", 0, upload_read, &u, NULL, 0, NULL, NULL) ==
+           PLAYLIST_IMPORT_INVALID_NAME);
+    upload_t nul = { "a.flac\n\0b.flac\n", 16, 0, (size_t) -1 };
+    assert(playlist_files_import_stream("Import", "Nul", nul.length, upload_read, &nul, NULL, 0, NULL, NULL) ==
+           PLAYLIST_IMPORT_INVALID_CONTENT);
+    assert(access("Import/Nul.m3u", F_OK) != 0);
+    upload_t cut = { text, strlen(text), 0, 10 };
+    assert(playlist_files_import_stream("Import", "Cut", cut.length, upload_read, &cut, NULL, 0, NULL, NULL) ==
+           PLAYLIST_IMPORT_READ_ERROR);
+    assert(access("Import/Cut.m3u", F_OK) != 0);
+    char long_line[PATH_MAX + 16]; memset(long_line, 'x', sizeof(long_line) - 2);
+    long_line[sizeof(long_line) - 2] = '\n'; long_line[sizeof(long_line) - 1] = '\0';
+    upload_t big = { long_line, strlen(long_line), 0, (size_t) -1 };
+    assert(playlist_files_import_stream("Import", "Long", big.length, upload_read, &big, NULL, 0, NULL, NULL) ==
+           PLAYLIST_IMPORT_INVALID_CONTENT);
+    upload_t empty = { "", 0, 0, (size_t) -1 };
+    assert(playlist_files_import_stream("Import", "Empty", 0, upload_read, &empty, NULL, 0, &paths, &count) ==
+           PLAYLIST_IMPORT_OK && count == 0);
+    release(paths, count);
+    assert(no_temp_left("Import"));
+    assert(playlist_files_name_is_valid("Gym") && !playlist_files_name_is_valid(".hidden") &&
+           !playlist_files_name_is_valid("a:b") && !playlist_files_name_is_valid("trail."));
+}
+
+static bool refuse_check(void * context, char * const * paths, int count) {
+    (void) paths; *(int *) context = count; return false;
+}
+static bool accept_check(void * context, char * const * paths, int count) {
+    (void) context; return count == 2 && strstr(paths[0], "one.flac") != NULL;
+}
+static void test_checked_edit(void) {
+    fixture("Import/Checked.m3u", "#EXTM3U\none.flac\ntwo.flac\n");
+    int seen = -1;
+    assert(playlist_files_edit_entry_checked("Import/Checked.m3u", 0, 1, refuse_check, &seen) == PLAYLIST_EDIT_REFUSED);
+    assert(seen == 2);
+    char ** paths = NULL; int count = 0;
+    assert(playlist_files_read("Import/Checked.m3u", &paths, &count) && count == 2 && strstr(paths[0], "one.flac"));
+    release(paths, count);
+    assert(playlist_files_edit_entry_checked("Import/Checked.m3u", 0, 1, accept_check, NULL) == PLAYLIST_EDIT_OK);
+    assert(playlist_files_read("Import/Checked.m3u", &paths, &count) && count == 2 && strstr(paths[0], "two.flac"));
+    release(paths, count);
+    assert(playlist_files_edit_entry_checked("Import/Missing.m3u", 0, 1, accept_check, NULL) == PLAYLIST_EDIT_FAILED);
+}
+
 int main(void) {
     char dir[] = "/tmp/hiby-playlist-test-XXXXXX";
     assert(mkdtemp(dir) && chdir(dir) == 0);
-    test_files(); test_order(); test_resume(); test_resume_pinned_directory(); test_stream_at();
+    test_files(); test_order(); test_resume(); test_resume_pinned_directory(); test_stream_at(); test_import(); test_checked_edit();
     printf("Playlist, queue order and resume tests passed (%s)\n", dir);
     return 0;
 }

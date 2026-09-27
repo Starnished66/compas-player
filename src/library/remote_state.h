@@ -15,7 +15,9 @@
  * currently mounted SD card. */
 void remote_state_drop(void);
 bool remote_state_get(const char * path, int32_t * rating, int32_t * playcount, int32_t * last_played);
-void remote_state_set_rating(const char * path, int32_t rating);
+/* False when the row could not be created or the sidecar was not saved
+ * (an existing row keeps the new value in RAM either way). */
+bool remote_state_set_rating(const char * path, int32_t rating);
 void remote_state_add_play(const char * path, int32_t now);
 /* Copies stats for path and deletes the sidecar row. False if none. */
 bool remote_state_take(const char * path, int32_t * rating, int32_t * playcount, int32_t * last_played);

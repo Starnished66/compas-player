@@ -178,6 +178,20 @@ int tagcache_album_artist_song_ids(const char * album_artist, int offset, int32_
 int tagcache_album_song_ids(const char * album, const char * album_artist, int offset, int32_t * out_ids, int max);
 
 void tagcache_set_rating(const char * path, int32_t rating);
+/* tagcache_set_rating() for a committed row on the card the database was
+ * opened from, registering a durable waiter for the numeric update. Only
+ * queues: even without the numeric worker it never flushes here. Returns
+ * the waiter handle, or 0 when nothing was queued (absent row, changed
+ * card, full queue, or all waiter slots busy). Call under the same database
+ * lock as every other tagcache mutation, and always pass a nonzero handle
+ * to tagcache_numeric_wait_durable(), which releases it. */
+int tagcache_set_rating_durable_begin(const char * path, int32_t rating);
+/* Waits, without any database lock, until the batch carrying the waiter's
+ * update (or a newer value for the same row) reached the master file
+ * (true), or that batch failed, was discarded because the card changed, was
+ * dropped with the session, or timeout_ms passed (false). Asks the numeric
+ * worker to skip its commit delay, or flushes here in degraded mode. */
+bool tagcache_numeric_wait_durable(int waiter, int timeout_ms);
 void tagcache_add_play(const char * path, int32_t now);
 /* Staging-only overlay used when migrating sidecar stats onto a just-upserted
  * scan row. Persisted by the following end_update write. */

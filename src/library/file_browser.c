@@ -75,7 +75,6 @@ static lv_obj_t * list;
 static file_browser_select_cb_t select_cb;
 static file_browser_cue_select_cb_t cue_select_cb;
 static file_browser_index_select_cb_t index_select_cb;
-static bool is_playable_file(const char * name);
 static bool is_cue_file(const char * name);
 static bool index_entry_at(const file_browser_index_t *index, unsigned ordinal, dir_entry_t *out);
 static bool index_row_playable(const dir_entry_t *row);
@@ -113,7 +112,7 @@ static const char * const PLAYABLE_EXTENSIONS[] = {
     ".flac", ".mp3", ".wav", ".aiff", ".aif", ".dsf", ".dff", ".aac", ".m4a", ".m4b", ".ape", ".wma", ".opus", ".ogg",
 };
 
-static bool is_playable_file(const char * name) {
+bool file_browser_is_playable_name(const char * name) {
     const char * ext = strrchr(name, '.');
     if (!ext) return false;
     for (size_t i = 0; i < sizeof(PLAYABLE_EXTENSIONS) / sizeof(PLAYABLE_EXTENSIONS[0]); i++) {
@@ -143,7 +142,7 @@ static int index_make_entry(int directory_fd, const char *name, dir_entry_t *out
     bool dir = S_ISDIR(st.st_mode);
     bool playlist = !dir && library_is_m3u_file(name);
     bool cue = !dir && include_cue && is_cue_file(name);
-    if (!dir && !playlist && !cue && !is_playable_file(name)) return 0;
+    if (!dir && !playlist && !cue && !file_browser_is_playable_name(name)) return 0;
     memset(out, 0, sizeof(*out));
     utf8_truncate_safe(out->name, name, sizeof(out->name));
     out->is_dir = dir; out->is_playlist = playlist; out->is_cue = cue;
@@ -493,7 +492,7 @@ static int scan_directory(const char * dir_path, dir_entry_t ** out_entries) {
          * == NULL never sees them, same as any other file type this
          * browser doesn't recognize. */
         bool is_cue = !is_dir && cue_select_cb && is_cue_file(de->d_name);
-        if (!is_dir && !is_playlist && !is_cue && !is_playable_file(de->d_name)) continue;
+        if (!is_dir && !is_playlist && !is_cue && !file_browser_is_playable_name(de->d_name)) continue;
 
         if (count >= limit) {
             free(result);
@@ -709,7 +708,7 @@ bool file_browser_build_playlist_from_m3u(const char * m3u_path, char *** out_pl
     if (!playlist_files_read(m3u_path, &paths, &count)) return false;
     int kept = 0;
     for (int i = 0; i < count; i++) {
-        if (is_playable_file(paths[i])) paths[kept++] = paths[i];
+        if (file_browser_is_playable_name(paths[i])) paths[kept++] = paths[i];
         else free(paths[i]);
     }
     if (!kept) { free(paths); return false; }
@@ -954,7 +953,7 @@ static bool walk_all_songs_recursive(const char * dir_path, file_browser_song_vi
             }
             continue;
         }
-        if (!is_playable_file(de->d_name)) continue;
+        if (!file_browser_is_playable_name(de->d_name)) continue;
 
         if (add_files) {
             (*count)++;

@@ -341,6 +341,11 @@ int metadata_db_get_albums_for_group(metadata_db_group_kind_t kind, const char *
  * screens still list only rows present in the local library. */
 bool metadata_db_song_favorite_is_set(const char * path);
 void metadata_db_song_favorite_set(const char * path, bool is_favorite);
+/* Same write, but returns only after it is on disk: the tagcache numeric
+ * flush for library rows (waited for outside the database lock), the
+ * sidecar save otherwise. False when it did not persist. Slower; for
+ * callers that must confirm the write. */
+bool metadata_db_song_favorite_set_durable(const char * path, bool is_favorite);
 
 /* Enumerates every favorited path that's also still in the current media
  * cache, alphabetically. */
@@ -360,6 +365,21 @@ void metadata_db_song_play_count_increment(const char * path);
  * auto-generated playlist. Caller-owned array; *out_paths is NULL and
  * *out_count is 0 if there's no play history yet. */
 void metadata_db_load_top_played_songs(int limit, char *** out_paths, int * out_count);
+
+/* Recently Played: library songs with a last-played stamp, newest first
+ * (ties by ascending song ID). tagcache keeps only each song's latest play
+ * time, not a play log, so a song appears once however often it was played;
+ * plays of paths outside the library (remote_state sidecar) are not listed.
+ * Both calls see at most the newest METADATA_DB_RECENTLY_PLAYED_MAX songs.
+ * The loader follows metadata_db_load_top_played_songs()'s array convention.
+ * The page call writes up to max_rows rows from offset into out_rows and,
+ * when non-NULL, each row's Unix play time into out_last_played; *out_total
+ * receives the capped number of available songs. Returns rows written, or
+ * -1 when the database is unavailable or out of memory. */
+#define METADATA_DB_RECENTLY_PLAYED_MAX 500
+void metadata_db_load_recently_played_songs(int limit, char *** out_paths, int * out_count);
+int metadata_db_get_recently_played_page(int offset, int max_rows, song_row_t * out_rows,
+                                         int64_t * out_last_played, int * out_total);
 
 /* Enumerates up to `limit` paths, most-recently-added first (first_seen,
  * set only when a path is first inserted). A later retag bumps mtime but
