@@ -91,8 +91,15 @@ void firmware_update_check_boot_combo(void) {
     if (!find_input_device_by_name("md-gpio-keys", gpio_keys_path, sizeof(gpio_keys_path))) return;
     if (!find_input_device_by_name("jz adc keyboard", adc_keyboard_path, sizeof(adc_keyboard_path))) return;
 
+#if defined(BOARD_R3II_2025)
+    /* No volume key here (the knob only pulses); the stock combo is Play/Pause
+     * + Power, and Play/Pause lives on "jz adc keyboard". */
+    #define FIRMWARE_UPDATE_COMBO_KEY KEY_PLAYPAUSE
+#else
+    #define FIRMWARE_UPDATE_COMBO_KEY KEY_VOLUMEUP
+#endif
     if (!device_reports_key_down(gpio_keys_path, KEY_POWER)) return;
-    if (!device_reports_key_down(adc_keyboard_path, KEY_VOLUMEUP)) return;
+    if (!device_reports_key_down(adc_keyboard_path, FIRMWARE_UPDATE_COMBO_KEY)) return;
 
     char upt_path[512];
     if (!firmware_update_scan(upt_path, sizeof(upt_path))) return;

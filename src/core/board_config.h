@@ -119,9 +119,11 @@
  * the register at some other value):
  *   R1:        charge_voltage_limit=4350 -> AXP2101 enum 4 (4.35V)
  *   R3 Pro II: charge_voltage_limit=4400 -> AXP2101 enum 5 (4.40V)
+ *   R3II 2025: charge_voltage_limit=4400 -> AXP2101 enum 5 (4.40V), from
+ *              the stock V1.3 r3ii_2025.upt
  * AXP_REG_VOLTAGE's low 3 bits (src/hardware/charge_limiter.c): 1=4.0V
  * 2=4.1V 3=4.2V 4=4.35V 5=4.4V. */
-#if defined(BOARD_R3PROII)
+#if defined(BOARD_R3PROII) || defined(BOARD_R3II_2025)
   #define AXP_VOLTAGE_BASELINE 5u
 #else
   #define AXP_VOLTAGE_BASELINE 4u

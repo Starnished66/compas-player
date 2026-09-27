@@ -13,6 +13,11 @@ on:
         required: false
         default: r3proii.upt
         type: string
+      r3ii_2025_base_asset:
+        description: Release asset containing the approved R3II 2025 staging image
+        required: false
+        default: r3ii_2025.upt
+        type: string
 
 permissions:
   contents: read
@@ -386,6 +391,192 @@ jobs:
         with:
           name: hiby-r3proii-staging-${{ github.run_number }}-${{ github.sha }}
           path: r3-release/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
+
+  build-r3ii-2025:
+    # R3II 2025 is an early alpha that has not been validated on real
+    # hardware and still requires on-device testing. Publish the
+    # checked binaries as a workflow artifact; the separate, checksum-gated
+    # packaging job produces a staging artifact, never a public release.
+    name: Build player for R3II 2025 early alpha (compile check and artifact)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install repository-cached MIPS musl toolchain
+        run: |
+          set -euo pipefail
+          toolchain_dir="$(scripts/install_mips_toolchain.sh "$RUNNER_TEMP")"
+          echo "$toolchain_dir/bin" >> "$GITHUB_PATH"
+
+      - name: Install validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends file
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          make -j2 target BOARD=r3ii_2025 \
+            RELEASE_LABEL="Daily Build R3II 2025 (Early Alpha) $(date -u +%F)"
+          make bootloader BOARD=r3ii_2025
+
+      - name: Validate build output
+        run: |
+          set -euo pipefail
+          file compas_player_target_r3ii_2025 compas_bootloader_r3ii_2025
+          test -s compas_player_target_r3ii_2025
+          test -s compas_bootloader_r3ii_2025
+          # Do not use grep -q here: under pipefail its early exit can make
+          # readelf receive SIGPIPE and falsely fail an otherwise valid job.
+          mipsel-linux-musl-readelf -h compas_player_target_r3ii_2025 \
+            | grep 'Machine:.*MIPS' >/dev/null
+          mipsel-linux-musl-readelf -h compas_bootloader_r3ii_2025 \
+            | grep 'Machine:.*MIPS' >/dev/null
+
+      - name: Assemble R3II 2025 compile artifact
+        run: |
+          set -euo pipefail
+          mkdir -p r3ii-2025-build
+          cp compas_player_target_r3ii_2025 compas_bootloader_r3ii_2025 \
+            r3ii-2025-build/
+          {
+            echo "board=r3ii_2025"
+            echo "commit=${GITHUB_SHA}"
+            echo "built_utc=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo "workflow_run=${GITHUB_RUN_ID}"
+            sha256sum compas_player_target_r3ii_2025 \
+              compas_bootloader_r3ii_2025
+          } > r3ii-2025-build/BUILD-INFO.txt
+
+      - name: Upload R3II 2025 compile artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hiby-r3ii-2025-daily-${{ github.run_number }}-${{ github.sha }}
+          path: r3ii-2025-build/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
+
+  config-r3ii-2025:
+    name: Check R3II 2025 staging-image configuration
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      enabled: ${{ steps.config.outputs.enabled }}
+    env:
+      R3II_2025_STAGING_IMAGE_SHA256: ${{ secrets.R3II_2025_STAGING_IMAGE_SHA256 }}
+      R3II_2025_BASE_ASSET: ${{ inputs.r3ii_2025_base_asset || 'r3ii_2025.upt' }}
+    steps:
+      - name: Validate R3II 2025 staging-image configuration
+        id: config
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$R3II_2025_STAGING_IMAGE_SHA256" ]]; then
+            echo 'R3II_2025_STAGING_IMAGE_SHA256 is not configured; R3II 2025 firmware packaging will be skipped.'
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [[ "$R3II_2025_STAGING_IMAGE_SHA256" =~ ^[0-9a-fA-F]{64}$ ]] || {
+            echo 'R3II_2025_STAGING_IMAGE_SHA256 is present but invalid.' >&2
+            exit 1
+          }
+          [[ "$R3II_2025_BASE_ASSET" =~ ^[A-Za-z0-9._-]+\.upt$ ]] || {
+            echo "Invalid R3II 2025 base release asset name: $R3II_2025_BASE_ASSET" >&2
+            exit 1
+          }
+          echo 'enabled=true' >> "$GITHUB_OUTPUT"
+
+  package-r3ii-2025:
+    # This is deliberately a workflow artifact, not a GitHub release. The
+    # R3II 2025 base image must be approved and hardware-tested before it can
+    # become a public firmware release.
+    name: Package R3II 2025 early alpha firmware (staging artifact)
+    needs: [build-r3ii-2025, config-r3ii-2025]
+    if: ${{ needs['config-r3ii-2025'].outputs.enabled == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      R3II_2025_STAGING_IMAGE_SHA256: ${{ secrets.R3II_2025_STAGING_IMAGE_SHA256 }}
+      R3II_2025_BASE_ASSET: ${{ inputs.r3ii_2025_base_asset || 'r3ii_2025.upt' }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install repository-cached MIPS musl toolchain
+        run: |
+          set -euo pipefail
+          toolchain_dir="$(scripts/install_mips_toolchain.sh "$RUNNER_TEMP")"
+          echo "$toolchain_dir/bin" >> "$GITHUB_PATH"
+
+      - name: Install repack tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            file genisoimage p7zip-full squashfs-tools
+
+      - name: Download R3II 2025 compile artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: hiby-r3ii-2025-daily-${{ github.run_number }}-${{ github.sha }}
+          path: r3ii-2025-build
+
+      - name: Download and verify R3II 2025 staging image
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p base
+          gh release download staging-image-base \
+            --pattern "$R3II_2025_BASE_ASSET" --dir base
+          test -f "base/$R3II_2025_BASE_ASSET"
+          echo "$R3II_2025_STAGING_IMAGE_SHA256  base/$R3II_2025_BASE_ASSET" \
+            | sha256sum --check
+
+      - name: Repack R3II 2025 staging image
+        run: |
+          set -euo pipefail
+          mkdir -p r3ii-2025-release
+          BOARD=r3ii_2025 scripts/repack_upt.sh \
+            "base/$R3II_2025_BASE_ASSET" \
+            r3ii-2025-build/compas_player_target_r3ii_2025 \
+            r3ii-2025-build/compas_bootloader_r3ii_2025 \
+            r3ii-2025-release/r3ii_2025.upt
+          cp r3ii-2025-build/compas_player_target_r3ii_2025 \
+            r3ii-2025-release/compas_player_r3ii_2025
+          (
+            cd r3ii-2025-release
+            sha256sum r3ii_2025.upt compas_player_r3ii_2025 > SHA256SUMS
+            sha256sum --check SHA256SUMS
+          )
+          {
+            echo 'board=r3ii_2025'
+            echo "commit=${GITHUB_SHA}"
+            echo "base_asset=${R3II_2025_BASE_ASSET}"
+            echo "upt_sha256=$(sha256sum r3ii-2025-release/r3ii_2025.upt | awk '{print $1}')"
+            echo "player_sha256=$(sha256sum r3ii-2025-release/compas_player_r3ii_2025 | awk '{print $1}')"
+          } > r3ii-2025-release/BUILD-INFO.txt
+          test -s r3ii-2025-release/r3ii_2025.upt
+          test -s r3ii-2025-release/compas_player_r3ii_2025
+          test -s r3ii-2025-release/SHA256SUMS
+          test -s r3ii-2025-release/BUILD-INFO.txt
+          (cd r3ii-2025-release && sha256sum --check SHA256SUMS)
+
+      - name: Upload R3II 2025 staging package
+        uses: actions/upload-artifact@v4
+        with:
+          name: hiby-r3ii-2025-staging-${{ github.run_number }}-${{ github.sha }}
+          path: r3ii-2025-release/
           if-no-files-found: error
           retention-days: 30
           compression-level: 6

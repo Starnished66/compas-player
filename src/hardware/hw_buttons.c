@@ -58,6 +58,23 @@ static bool volume_down_initial_step_pending = false;
 static uint32_t volume_down_pressed_ms = 0;
 static bool volume_down_screenshot_chorded = false;
 
+/* The screenshot chord's second key. The R3II 2025 turns volume with a knob,
+ * which cannot be held, so it chords Power with Previous instead. */
+#if defined(BOARD_R3II_2025)
+  #define SCREENSHOT_CHORD_PREV 1
+#else
+  #define SCREENSHOT_CHORD_PREV 0
+#endif
+#define SCREENSHOT_CHORD_VOLUME_DOWN (!SCREENSHOT_CHORD_PREV)
+
+#if SCREENSHOT_CHORD_PREV
+/* Previous fires on release there, so it can still start the reverse-order
+ * chord (Previous, then Power) without skipping a track first. */
+static bool prev_held = false;
+static uint32_t prev_pressed_ms = 0;
+static bool prev_screenshot_chorded = false;
+#endif
+
 /* Power held-state + long-press-due tracking, same shape as the volume
  * repeat state above -- power_long_press_fired guards against firing the
  * long-press flag more than once per physical press, and (in
@@ -96,12 +113,26 @@ static void handle_key_event(unsigned short code, int value) {
         switch (code) {
             case KEY_POWER: {
                 uint32_t now = monotonic_ms();
+#if SCREENSHOT_CHORD_PREV
+                bool reverse_chord = screenshot_combo_enabled && prev_held && !prev_screenshot_chorded &&
+                    (uint32_t) (now - prev_pressed_ms) <= 250;
+#else
                 bool reverse_chord = screenshot_combo_enabled && volume_down_held &&
                     (uint32_t) (now - volume_down_pressed_ms) <= 250;
+#endif
                 power_held = true;
                 power_long_press_fired = false;
                 power_screenshot_chorded = reverse_chord;
                 power_long_press_due_ms = reverse_chord ? 0 : now + POWER_LONG_PRESS_MS;
+#if SCREENSHOT_CHORD_PREV
+                if (reverse_chord) {
+                    screenshot_requested = true;
+                    prev_screenshot_chorded = true;
+                    DBG_LOG("hw_buttons: screenshot chord Prev -> Power at t=%u\n", now);
+                } else {
+                    DBG_LOG("hw_buttons: KEY_POWER down at t=%u\n", now);
+                }
+#else
                 if (reverse_chord) {
                     screenshot_requested = true;
                     volume_down_screenshot_chorded = true;
@@ -114,6 +145,7 @@ static void handle_key_event(unsigned short code, int value) {
                 } else {
                     DBG_LOG("hw_buttons: KEY_POWER down at t=%u\n", now);
                 }
+#endif
                 break;
             }
             /* Accessory remotes do not all speak the same code for the same
@@ -131,8 +163,28 @@ static void handle_key_event(unsigned short code, int value) {
                 next_seek_due_ms = now + NEXT_SEEK_LONG_PRESS_MS;
                 break;
             }
+#if SCREENSHOT_CHORD_PREV
+            case KEY_REWIND:         prev_requested = true; break;
+            case KEY_PREVIOUSSONG: {
+                uint32_t now = monotonic_ms();
+                if (screenshot_combo_enabled && power_held && !power_long_press_fired) {
+                    if (!power_screenshot_chorded) {
+                        screenshot_requested = true;
+                        power_screenshot_chorded = true;
+                        DBG_LOG("hw_buttons: screenshot chord Power -> Prev at t=%u\n", now);
+                    }
+                    prev_screenshot_chorded = true;
+                } else {
+                    prev_screenshot_chorded = false;
+                }
+                prev_held = true;
+                prev_pressed_ms = now;
+                break;
+            }
+#else
             case KEY_REWIND:
             case KEY_PREVIOUSSONG:   prev_requested = true; break;
+#endif
             case KEY_VOLUMEUP:
                 volume_delta += VOLUME_STEP_PERCENT;
                 volume_up_held = true;
@@ -140,7 +192,7 @@ static void handle_key_event(unsigned short code, int value) {
                 break;
             case KEY_VOLUMEDOWN: {
                 uint32_t now = monotonic_ms();
-                if (screenshot_combo_enabled && power_held && !power_long_press_fired) {
+                if (SCREENSHOT_CHORD_VOLUME_DOWN && screenshot_combo_enabled && power_held && !power_long_press_fired) {
                     if (!power_screenshot_chorded) {
                         screenshot_requested = true;
                         power_screenshot_chorded = true;
@@ -181,6 +233,13 @@ static void handle_key_event(unsigned short code, int value) {
                 volume_down_initial_step_pending = false;
                 volume_down_screenshot_chorded = false;
                 break;
+#if SCREENSHOT_CHORD_PREV
+            case KEY_PREVIOUSSONG:
+                if (prev_held && !prev_screenshot_chorded) prev_requested = true;
+                prev_held = false;
+                prev_screenshot_chorded = false;
+                break;
+#endif
             case KEY_FASTFORWARD:
             case KEY_NEXTSONG:
                 /* Same suppression as KEY_POWER above: only a release that
@@ -305,17 +364,24 @@ static int scan_media_key_devices(struct pollfd * fds, int nfds, char paths[][64
 static void * hw_buttons_thread_func(void * arg) {
     (void) arg;
 
-    static const struct { const char * name; const char * label; } BUTTON_DEVICES[] = {
-        { "md-gpio-keys", "md-gpio-keys" },
-        { "jz adc keyboard", "jz adc keyboard" },
+    static const struct { const char * name; const char * label; bool knob; } BUTTON_DEVICES[] = {
+        { "md-gpio-keys", "md-gpio-keys", false },
+        { "jz adc keyboard", "jz adc keyboard", false },
         /* Wired headphone inline remote (earpods_adc). */
-        { "earpods_adc", "earpods_adc" },
+        { "earpods_adc", "earpods_adc", false },
+#if defined(BOARD_R3II_2025)
+        /* Volume knob: one KEY_LEFT (up) or KEY_RIGHT (down) press/release
+         * per detent. */
+        { "sa-ring-keys", "sa-ring-keys", true },
+#endif
     };
 
     /* O_NONBLOCK prevents empty read queues on one device from blocking poll
      * and starving inputs from the other button devices. */
     struct pollfd fds[HW_BUTTONS_MAX_FDS];
     char paths[HW_BUTTONS_MAX_FDS][64];
+    /* Arrow keys mean volume only on the knob, never on an accessory. */
+    bool knob[HW_BUTTONS_MAX_FDS] = { false };
     int nfds = 0;
     int found = 0;
     for (size_t i = 0; i < sizeof(BUTTON_DEVICES) / sizeof(BUTTON_DEVICES[0]); i++) {
@@ -329,6 +395,7 @@ static void * hw_buttons_thread_func(void * arg) {
         }
         fds[nfds].fd = fd;
         fds[nfds].events = POLLIN;
+        knob[nfds] = BUTTON_DEVICES[i].knob;
         snprintf(paths[nfds], sizeof(paths[nfds]), "%s", path);
         DBG_LOG("hw_buttons: fd_index=%d -> %s (%s)\n", nfds, path, BUTTON_DEVICES[i].label);
         nfds++;
@@ -383,8 +450,11 @@ static void * hw_buttons_thread_func(void * arg) {
                 nfds--;
                 if (i != nfds) {
                     fds[i] = fds[nfds];
+                    knob[i] = knob[nfds];
                     memcpy(paths[i], paths[nfds], sizeof(paths[i]));
                 }
+                /* A rescan may reuse the freed slot for an accessory. */
+                knob[nfds] = false;
                 i--;
                 continue;
             }
@@ -394,7 +464,13 @@ static void * hw_buttons_thread_func(void * arg) {
             while (read(fds[i].fd, &ev, sizeof(ev)) == (ssize_t) sizeof(ev)) {
                 DBG_LOG("hw_buttons: raw event fd_index=%d type=%u code=%u value=%d\n", i, ev.type, ev.code, ev.value);
                 if (ev.type == EV_KEY && ev.value != 2) { /* key down/up, ignore kernel autorepeat */
-                    handle_key_event(ev.code, ev.value);
+                    unsigned short code = ev.code;
+                    if (knob[i]) {
+                        if (code == KEY_LEFT) code = KEY_VOLUMEUP;
+                        else if (code == KEY_RIGHT) code = KEY_VOLUMEDOWN;
+                        else continue;
+                    }
+                    handle_key_event(code, ev.value);
                 }
             }
         }

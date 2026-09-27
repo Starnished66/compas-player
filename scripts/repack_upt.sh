@@ -5,7 +5,7 @@
 set -euo pipefail
 
 usage() {
-    echo "Usage: $0 [--board r1|r3proii] BASE_UPT PLAYER_BINARY BOOTLOADER_BINARY OUTPUT_UPT" >&2
+    echo "Usage: $0 [--board r1|r3proii|r3ii_2025] BASE_UPT PLAYER_BINARY BOOTLOADER_BINARY OUTPUT_UPT" >&2
     echo "       BOARD=r3proii $0 BASE_UPT PLAYER_BINARY BOOTLOADER_BINARY OUTPUT_UPT" >&2
     exit 2
 }
@@ -32,10 +32,15 @@ if [[ ${1:-} == --board ]]; then
     board=$2
     shift 2
 fi
-[[ $board == r1 || $board == r3proii ]] || {
-    echo "Unsupported board '$board' (expected r1 or r3proii)" >&2
-    exit 2
-}
+case $board in
+    r1) ;;
+    r3proii) board_name="R3 Pro II"; board_device=R3PROII ;;
+    r3ii_2025) board_name="R3II 2025"; board_device=R3II_2025 ;;
+    *)
+        echo "Unsupported board '$board' (expected r1, r3proii or r3ii_2025)" >&2
+        exit 2
+        ;;
+esac
 [[ $# -eq 4 ]] || usage
 
 base_upt=$(realpath "$1")
@@ -73,13 +78,14 @@ cat "${root_chunks[@]}" > "$work/rootfs.squashfs"
 cat "${kernel_chunks[@]}" > "$work/xImage"
 unsquashfs -no-xattrs -d "$work/root" "$work/rootfs.squashfs" >/dev/null
 
-# Board identity comes from the firmware's device config ("device":"R1" or
-# "R3PROII"), not the stock player binary, which base images no longer ship.
-if [[ $board == r3proii ]]; then
+# Board identity comes from the firmware's device config ("device":"R1",
+# "R3PROII" or "R3II_2025"), not the stock player binary, which base images no
+# longer ship.
+if [[ $board != r1 ]]; then
     board_config="$work/root/usr/resource/config.json"
     if [[ ! -s "$board_config" ]] ||
-        ! grep -Eq '"device"[[:space:]]*:[[:space:]]*"R3PROII"' "$board_config"; then
-        echo "Base OTA is not identified as an R3 Pro II; refusing a cross-board image" >&2
+        ! grep -Eq "\"device\"[[:space:]]*:[[:space:]]*\"$board_device\"" "$board_config"; then
+        echo "Base OTA is not identified as an $board_name; refusing a cross-board image" >&2
         exit 1
     fi
 fi
@@ -165,6 +171,10 @@ if [[ $board == r1 ]]; then
     require_boot_image assets/theme2/boot_animation/en/0.jpg JPEG 480 800
     require_boot_image assets/theme2/boot_animation/en/0.png PNG 480 800
     require_boot_image assets/r1/etc/logo1.jpeg JPEG 480 800
+elif [[ $board == r3ii_2025 ]]; then
+    require_boot_image assets/r3ii_2025/theme2/boot_animation/en/0.jpg JPEG 320 480
+    require_boot_image assets/r3ii_2025/theme2/boot_animation/en/0.png PNG 320 480
+    require_boot_image assets/r3ii_2025/etc/logo1.jpeg JPEG 320 480
 else
     require_boot_image assets/r3proii/theme2/boot_animation/en/0.jpg JPEG 480 720
     require_boot_image assets/r3proii/theme2/boot_animation/en/0.png PNG 480 720
@@ -192,6 +202,9 @@ copy_tracked_assets() {
 if [[ $board == r1 ]]; then
     copy_tracked_assets assets/theme2 "$work/root/usr/resource/litegui/theme2"
     copy_tracked_assets assets/r1/etc "$work/root/etc"
+elif [[ $board == r3ii_2025 ]]; then
+    copy_tracked_assets assets/r3ii_2025/theme2 "$work/root/usr/resource/litegui/theme2"
+    copy_tracked_assets assets/r3ii_2025/etc "$work/root/etc"
 else
     copy_tracked_assets assets/r3proii/theme2 "$work/root/usr/resource/litegui/theme2"
     copy_tracked_assets assets/r3proii/etc "$work/root/etc"
@@ -211,7 +224,7 @@ fi
 # image and leaves this unset; never discover or source ignored scratch output
 # implicitly. The overlay is copied before the release gates so local builds
 # can be checked against the same BlueALSA/BlueZ contract as CI.
-if [[ $board == r3proii && -n ${R3_RUNTIME_OVERLAY:-} ]]; then
+if [[ $board != r1 && -n ${R3_RUNTIME_OVERLAY:-} ]]; then
     [[ -d "$R3_RUNTIME_OVERLAY" ]] || {
         echo "R3_RUNTIME_OVERLAY is not a directory: $R3_RUNTIME_OVERLAY" >&2
         exit 1
@@ -246,7 +259,7 @@ speex_plugin="$work/root/usr/lib/alsa-lib/libasound_module_rate_speexrate.so"
     exit 1
 }
 
-if [[ $board == r3proii ]]; then
+if [[ $board != r1 ]]; then
     # R3 releases must use the updated BlueALSA 5/BlueZ runtime. Stock R3
     # images contain only the legacy bluealsa daemon, so fail before packaging
     # unless CI's upgraded base or an explicitly selected local overlay has
@@ -260,23 +273,23 @@ if [[ $board == r3proii ]]; then
     )
     for runtime_path in "${r3_runtime_paths[@]}"; do
         [[ -e "$work/root$runtime_path" ]] || {
-            echo "R3 Pro II runtime gate failed: missing $runtime_path (use an updated staging base or R3_RUNTIME_OVERLAY)" >&2
+            echo "$board_name runtime gate failed: missing $runtime_path (use an updated staging base or R3_RUNTIME_OVERLAY)" >&2
             exit 1
         }
     done
     for bt_script in bt_init bt_resume; do
         bt_script_path="$work/root/usr/bin/$bt_script"
         [[ -f "$bt_script_path" ]] || {
-            echo "R3 Pro II runtime gate failed: missing /usr/bin/$bt_script" >&2
+            echo "$board_name runtime gate failed: missing /usr/bin/$bt_script" >&2
             exit 1
         }
         grep -Eq '(^|[[:space:]/])bluealsad([[:space:]]|$)' "$bt_script_path" || {
-            echo "R3 Pro II runtime gate failed: /usr/bin/$bt_script does not invoke bluealsad" >&2
+            echo "$board_name runtime gate failed: /usr/bin/$bt_script does not invoke bluealsad" >&2
             exit 1
         }
         for bt_arg in --all-codecs --a2dp-force-audio-cd; do
             grep -Fq -- "$bt_arg" "$bt_script_path" || {
-                echo "R3 Pro II runtime gate failed: /usr/bin/$bt_script is missing $bt_arg" >&2
+                echo "$board_name runtime gate failed: /usr/bin/$bt_script is missing $bt_arg" >&2
                 exit 1
             }
         done
@@ -287,8 +300,16 @@ if [[ $board == r3proii ]]; then
     for bt_script in bt_suspend bluealsa_profile; do
         bt_script_path="$work/root/usr/bin/$bt_script"
         [[ -f "$bt_script_path" ]] || continue
+        # The R3II 2025's stock bt_suspend leaves the daemons running (its
+        # kill lines are commented out); only a live legacy call is wrong.
+        if [[ $board == r3ii_2025 ]] &&
+            ! grep -Fq -- 'bluealsad' "$bt_script_path" &&
+            ! grep -Eq '^[^#]*(^|[[:space:]/])bluealsa([[:space:]]|$)' "$bt_script_path"; then
+            sh -n "$bt_script_path"
+            continue
+        fi
         grep -Fq -- 'bluealsad' "$bt_script_path" || {
-            echo "R3 Pro II runtime gate failed: /usr/bin/$bt_script does not manage bluealsad" >&2
+            echo "$board_name runtime gate failed: /usr/bin/$bt_script does not manage bluealsad" >&2
             exit 1
         }
         sh -n "$bt_script_path"

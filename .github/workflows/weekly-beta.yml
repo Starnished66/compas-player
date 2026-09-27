@@ -18,6 +18,7 @@ env:
   # other internal build detail is committed to the public source tree.
   STAGING_IMAGE_SHA256: ${{ secrets.STAGING_IMAGE_SHA256 }}
   R3PROII_STAGING_IMAGE_SHA256: ${{ secrets.R3PROII_STAGING_IMAGE_SHA256 }}
+  R3II_2025_STAGING_IMAGE_SHA256: ${{ secrets.R3II_2025_STAGING_IMAGE_SHA256 }}
 
 jobs:
   weekly-beta:
@@ -58,8 +59,12 @@ jobs:
           make sd_ready_test
           make -j2 target BOARD=r3proii RELEASE_LABEL="$RELEASE_LABEL"
           make bootloader BOARD=r3proii
+          make -j2 target BOARD=r3ii_2025 \
+            RELEASE_LABEL="$RELEASE_LABEL (R3II 2025 Early Alpha)"
+          make bootloader BOARD=r3ii_2025
           file compas_player_target compas_bootloader \
-            compas_player_target_r3proii compas_bootloader_r3proii
+            compas_player_target_r3proii compas_bootloader_r3proii \
+            compas_player_target_r3ii_2025 compas_bootloader_r3ii_2025
           mipsel-linux-musl-readelf -h compas_player_target \
             | grep 'Machine:.*MIPS' >/dev/null
           mipsel-linux-musl-readelf -h compas_bootloader \
@@ -68,7 +73,12 @@ jobs:
             | grep 'Machine:.*MIPS' >/dev/null
           mipsel-linux-musl-readelf -h compas_bootloader_r3proii \
             | grep 'Machine:.*MIPS' >/dev/null
-          for player in compas_player_target compas_player_target_r3proii; do
+          mipsel-linux-musl-readelf -h compas_player_target_r3ii_2025 \
+            | grep 'Machine:.*MIPS' >/dev/null
+          mipsel-linux-musl-readelf -h compas_bootloader_r3ii_2025 \
+            | grep 'Machine:.*MIPS' >/dev/null
+          for player in compas_player_target compas_player_target_r3proii \
+              compas_player_target_r3ii_2025; do
             if strings "$player" | grep -Eq \
                 'TEST BUILD|TEST_BUILD_TAG|UI_PERF_TRACE|UI_GESTURE_TRACE|UI_HITBOX_DEBUG'; then
               echo "Diagnostic flags were found in $player." >&2
@@ -91,11 +101,17 @@ jobs:
             echo 'R3PROII_STAGING_IMAGE_SHA256 secret is missing or invalid.' >&2
             exit 1
           }
+          [[ "$R3II_2025_STAGING_IMAGE_SHA256" =~ ^[0-9a-fA-F]{64}$ ]] || {
+            echo 'R3II_2025_STAGING_IMAGE_SHA256 secret is missing or invalid.' >&2
+            exit 1
+          }
           mkdir -p base
           gh release download staging-image-base --pattern r1.upt --dir base
           gh release download staging-image-base --pattern r3proii.upt --dir base
+          gh release download staging-image-base --pattern r3ii_2025.upt --dir base
           echo "$STAGING_IMAGE_SHA256  base/r1.upt" | sha256sum --check
           echo "$R3PROII_STAGING_IMAGE_SHA256  base/r3proii.upt" | sha256sum --check
+          echo "$R3II_2025_STAGING_IMAGE_SHA256  base/r3ii_2025.upt" | sha256sum --check
 
       - name: Repack Staging Image
         run: |
@@ -108,14 +124,19 @@ jobs:
             compas_player_target_r3proii compas_bootloader_r3proii \
             release/r3proii.upt
           cp compas_player_target_r3proii release/compas_player_r3proii
+          BOARD=r3ii_2025 scripts/repack_upt.sh base/r3ii_2025.upt \
+            compas_player_target_r3ii_2025 compas_bootloader_r3ii_2025 \
+            release/r3ii_2025.upt
+          cp compas_player_target_r3ii_2025 release/compas_player_r3ii_2025
           (
             cd plugins_examples
             zip -q -r ../release/plugin_examples.zip .
           )
           (
             cd release
-            sha256sum r1.upt r3proii.upt compas_player \
-              compas_player_r3proii plugin_examples.zip > SHA256SUMS
+            sha256sum r1.upt r3proii.upt r3ii_2025.upt compas_player \
+              compas_player_r3proii compas_player_r3ii_2025 \
+              plugin_examples.zip > SHA256SUMS
             sha256sum --check SHA256SUMS
           )
 
@@ -161,6 +182,27 @@ jobs:
             cmp -- "$source_path" "$verify_dir/root$image_path"
           done
 
+      - name: Validate tracked R3II 2025 branding assets in firmware
+        run: |
+          set -euo pipefail
+          verify_dir=$(mktemp -d)
+          trap 'rm -rf "$verify_dir"' EXIT
+          7z x -y release/r3ii_2025.upt -o"$verify_dir/upt" >/dev/null
+          mapfile -t root_chunks < <(find "$verify_dir/upt/ota_v0" -maxdepth 1 \
+            -type f -name 'rootfs.squashfs.[0-9]*' -print | LC_ALL=C sort)
+          (( ${#root_chunks[@]} > 0 ))
+          cat "${root_chunks[@]}" > "$verify_dir/rootfs.squashfs"
+          unsquashfs -no-xattrs -d "$verify_dir/root" \
+            "$verify_dir/rootfs.squashfs" >/dev/null
+          for asset in \
+            'assets/r3ii_2025/etc/logo1.jpeg:/etc/logo1.jpeg' \
+            'assets/r3ii_2025/theme2/boot_animation/en/0.jpg:/usr/resource/litegui/theme2/boot_animation/en/0.jpg' \
+            'assets/r3ii_2025/theme2/boot_animation/en/0.png:/usr/resource/litegui/theme2/boot_animation/en/0.png'; do
+            source_path=${asset%%:*}
+            image_path=${asset#*:}
+            cmp -- "$source_path" "$verify_dir/root$image_path"
+          done
+
       - name: Prepare release notes
         run: |
           set -euo pipefail
@@ -175,15 +217,19 @@ jobs:
             echo
             echo "- **r1.upt** — complete R1 firmware update; use only on the HiBy R1."
             echo "- **r3proii.upt** — complete R3 Pro II firmware update; use only on the HiBy R3 Pro II."
+            echo "- **r3ii_2025.upt** — **early alpha**, complete R3II 2025 firmware update; use only on the HiBy R3II (2025)."
             echo "- **compas_player** — standalone Compás Player update for the R1."
             echo "- **compas_player_r3proii** — standalone Compás Player update for the R3 Pro II."
+            echo "- **compas_player_r3ii_2025** — **early alpha**, standalone Compás Player update for the R3II 2025."
             echo "- **plugin_examples.zip** — all example and test plugins from the repository."
             echo
             echo "R3 Pro II packaging uses the approved staging image and matching board binaries. This weekly prerelease has not been tested on an R3 Pro II device; validate it on hardware before broader deployment."
             echo
+            echo "> **R3II 2025 is an early alpha.** It has not been tested on an R3II (2025) yet and still requires on-device testing. Install it only if you are comfortable recovering the player with the stock HiBy firmware (hold Play/Pause and Power while turning it on, with the stock .upt on the SD card), and please report what works and what does not."
+            echo
             echo "### Update only Compás Player"
             echo
-            echo "Copy **compas_player** to **SD/.compas/compas_player** for the R1, or **compas_player_r3proii** to **SD/.compas/compas_player** for the R3 Pro II, replacing the existing file, then reboot the matching device."
+            echo "Copy **compas_player** to **SD/.compas/compas_player** for the R1, **compas_player_r3proii** to **SD/.compas/compas_player** for the R3 Pro II, or **compas_player_r3ii_2025** to **SD/.compas/compas_player** for the R3II 2025, replacing the existing file, then reboot the matching device."
             echo
             echo "Checksums are attached in **SHA256SUMS**."
           } > release/RELEASE_NOTES.md
@@ -197,7 +243,8 @@ jobs:
           set -euo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" release/r1.upt release/r3proii.upt \
-              release/compas_player release/compas_player_r3proii \
+              release/r3ii_2025.upt release/compas_player \
+              release/compas_player_r3proii release/compas_player_r3ii_2025 \
               release/plugin_examples.zip release/SHA256SUMS --clobber
             for legacy_asset in plugins_examples.zip Test-Plugins.zip; do
               if gh release view "$TAG" --json assets --jq '.assets[].name' \
@@ -209,7 +256,8 @@ jobs:
               --notes-file release/RELEASE_NOTES.md
           else
             gh release create "$TAG" release/r1.upt release/r3proii.upt \
-              release/compas_player release/compas_player_r3proii \
+              release/r3ii_2025.upt release/compas_player \
+              release/compas_player_r3proii release/compas_player_r3ii_2025 \
               release/plugin_examples.zip release/SHA256SUMS \
               --prerelease --target "$GITHUB_SHA" --title "$TITLE" \
               --notes-file release/RELEASE_NOTES.md
@@ -222,8 +270,10 @@ jobs:
           path: |
             release/r1.upt
             release/r3proii.upt
+            release/r3ii_2025.upt
             release/compas_player
             release/compas_player_r3proii
+            release/compas_player_r3ii_2025
             release/plugin_examples.zip
             release/SHA256SUMS
             release/RELEASE_NOTES.md

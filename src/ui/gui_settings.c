@@ -725,7 +725,7 @@ static lv_obj_t * build_dev_options_screen(void) {
                                     NULL, adb_switch_event_cb, NULL, &adb_switch };
     items[1] = (pill_list_item_t){ "Enable debug logging", PILL_ACCESSORY_TOGGLE,
                                     current_settings.db_logging_enabled, NULL, db_logging_switch_event_cb, NULL };
-    items[2] = (pill_list_item_t){ "Screenshots (Power + Vol Down)", PILL_ACCESSORY_TOGGLE,
+    items[2] = (pill_list_item_t){ "Screenshots (" HW_BUTTONS_SCREENSHOT_CHORD_NAME ")", PILL_ACCESSORY_TOGGLE,
                                     current_settings.screenshot_combo_enabled, NULL,
                                     screenshot_combo_switch_event_cb, NULL };
     /* Experimental: off by default, see settings.h. The DAC codec switch

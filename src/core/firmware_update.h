@@ -32,7 +32,8 @@ bool firmware_update_scan(char * out_path, size_t out_size);
  * Update" menu item. */
 void firmware_update_enter_recovery(void);
 
-/* Checks whether Power + Volume Up are BOTH currently held down (via
+/* Checks whether Power + Volume Up (Power + Play/Pause on the R3II 2025, the
+ * stock combo there) are BOTH currently held down (via
  * EVIOCGKEY, which reads the device's live key-state bitmap rather than
  * waiting for a fresh press event -- by the time this runs, several seconds
  * into boot, the user is expected to already be holding both, so a normal
