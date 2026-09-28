@@ -104,6 +104,7 @@
 #include "gui_plugins.h"
 #include "plugin_manager.h"
 #include "gui_plugin_manage.h"
+#include "gui_plugin_store.h"
 #include "gui_lock_screen.h"
 #include "db_log.h"
 
@@ -174,6 +175,8 @@ void gui_soft_reload(void) {
     gui_settings_teardown();
     reload_diag("gui_plugin_manage_teardown: before");
     gui_plugin_manage_teardown();
+    reload_diag("gui_plugin_store_teardown: before");
+    gui_plugin_store_teardown();
     reload_diag("gui_lock_screen_teardown: before");
     gui_lock_screen_teardown();
     reload_diag("gui_books_teardown: before");
@@ -220,6 +223,8 @@ void gui_soft_reload(void) {
     gui_settings_init();
     reload_diag("gui_plugin_manage_init: before");
     gui_plugin_manage_init();
+    reload_diag("gui_plugin_store_init: before");
+    gui_plugin_store_init();
     reload_diag("gui_lock_screen_init: before");
     gui_lock_screen_init();
     reload_diag("gui_books_init: before");

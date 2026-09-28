@@ -21,6 +21,10 @@ lv_obj_t * gui_plugin_manage_build_screen(void);
 void gui_plugin_manage_init(void);
 void gui_plugin_manage_teardown(void);
 
+/* Applies pending toggle changes once the screen has left the navigation
+ * stack without an unload event. Called from the main poll. */
+void gui_plugin_manage_poll(void);
+
 /* Reached from the "Plugin Manager" row on Settings -> System. */
 void gui_plugin_manage_row_cb(lv_event_t * e);
 

@@ -1,4 +1,5 @@
 #include "gui_plugin_manage.h"
+#include "gui_plugin_store.h"
 #include "screen_builders.h"
 #include "gui_theme.h"
 #include "gui_navigation.h"
@@ -42,11 +43,15 @@ static void plugin_manage_reload_row_cb(lv_event_t * e) {
     gui_reload_request();
 }
 
+static lv_obj_t * plugin_manage_screen;
+
 static void plugin_manage_screen_unloaded_cb(lv_event_t * e) {
     (void) e;
     /* Back button, swipe-back, and Home all converge here. Persist each
      * toggle immediately, but rebuild the UI only once after the user has
-     * finished changing the set. */
+     * finished changing the set. A screen opened on top (the Plugin Store
+     * and its busy screen) only covers this one: wait until it is left. */
+    if (plugin_manage_screen && gui_navigation_contains(plugin_manage_screen)) return;
     plugin_manage_apply_changes();
 }
 
@@ -92,10 +97,12 @@ static void plugin_manage_toggle_cb(lv_event_t * e) {
 lv_obj_t * gui_plugin_manage_build_screen(void) {
     manage_entry_count = plugin_manager_scan_available(manage_entries, PLUGIN_MANAGE_MAX_ROWS);
 
-    static pill_list_item_t items[1 + PLUGIN_MANAGE_MAX_ROWS];
-    items[0] = (pill_list_item_t){ "Refresh Plugins", PILL_ACCESSORY_NONE, false,
+    static pill_list_item_t items[2 + PLUGIN_MANAGE_MAX_ROWS];
+    items[0] = (pill_list_item_t){ "Plugin Store", PILL_ACCESSORY_CHEVRON, false,
+                                    gui_plugin_store_row_cb, NULL, NULL };
+    items[1] = (pill_list_item_t){ "Refresh Plugins", PILL_ACCESSORY_NONE, false,
                                     plugin_manage_reload_row_cb, NULL, NULL };
-    int count = 1;
+    int count = 2;
     for (int i = 0; i < manage_entry_count; i++) {
         const plugin_available_entry_t * en = &manage_entries[i];
         const char * status = "";
@@ -117,8 +124,6 @@ lv_obj_t * gui_plugin_manage_build_screen(void) {
     return scr;
 }
 
-static lv_obj_t * plugin_manage_screen;
-
 void gui_plugin_manage_init(void) {
     plugin_manage_screen = gui_plugin_manage_build_screen();
 }
@@ -128,6 +133,13 @@ void gui_plugin_manage_teardown(void) {
         lv_obj_delete(plugin_manage_screen);
         plugin_manage_screen = NULL;
     }
+}
+
+void gui_plugin_manage_poll(void) {
+    /* Home drops a covered Plugin Manager (under the store) from the stack
+     * without another unload event. */
+    if (manage_changes_dirty && plugin_manage_screen && !gui_navigation_contains(plugin_manage_screen))
+        plugin_manage_apply_changes();
 }
 
 void gui_plugin_manage_row_cb(lv_event_t * e) {

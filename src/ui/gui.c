@@ -29,6 +29,7 @@
 #include "remote_control.h"
 #include "battery.h"
 #include "firmware_ota.h"
+#include "plugin_store.h"
 #include "wifi_status.h"
 #include "audio.h"
 #include "audio_output.h"
@@ -57,6 +58,7 @@
 #include "headphone_status.h"
 #include "plugin_manager.h"
 #include "gui_plugin_manage.h"
+#include "gui_plugin_store.h"
 #include "led_control.h"
 #include "charge_limiter.h"
 #include "idle_shutdown.h"
@@ -288,7 +290,7 @@ static bool shutdown_background_work_active(void) {
            gui_network_has_background_work() || gui_lyrics_has_background_work() ||
            gui_player_has_background_work() || gui_shell_has_background_work() ||
            plugin_manager_has_background_work() || playlist_files_has_active_write() ||
-           gui_player_queue_write_busy() || screenshot_is_busy() || firmware_ota_busy();
+           gui_player_queue_write_busy() || screenshot_is_busy() || firmware_ota_busy() || plugin_store_busy();
 }
 
 /* Grace window after resuming from suspend. hw_buttons sets its short-tap flag
@@ -1034,6 +1036,8 @@ static void update_timer_cb(lv_timer_t * timer) {
      * stuck until the user wakes the screen back up. */
     poll_subsonic_download();
     poll_firmware_ota();
+    poll_plugin_store();
+    gui_plugin_manage_poll();
     poll_subsonic_library_download();
     poll_dlna_control();
     poll_subsonic_connect();
@@ -1633,6 +1637,7 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
     gui_network_init();
     gui_settings_init();
     gui_plugin_manage_init();
+    gui_plugin_store_init();
     gui_books_init();
     build_power_off_countdown_popup();
     gui_queue_init();
