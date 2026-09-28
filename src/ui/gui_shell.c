@@ -2795,14 +2795,18 @@ static void poll_quick_drawer_drag(lv_timer_t * timer) {
         /* Player-swipe: eligible unless claimed by the drawer drag, the drawer
          * is open, the player screen is already active, or the press started on
          * a drag-adjust widget/dead-zone. Excluded on lyrics, track info,
-         * lock screen, and while library navigation is blocked. Candidate only
-         * until sufficient displacement accumulates to determine gesture direction. */
+         * lock screen, both DAC mode overlays (leaving them is only by
+         * closing DAC mode), and while library navigation is blocked.
+         * Candidate only until sufficient displacement accumulates to
+         * determine gesture direction. */
         player_swipe_candidate = !quick_drawer_drag_tracking && !quick_drawer_open &&
                                   lv_screen_active() != gui_player_get_screen() &&
                                   lv_screen_active() != gui_lyrics_get_screen() &&
                                   lv_screen_active() != gui_track_info_get_screen() &&
                                   lv_screen_active() != gui_lock_screen_get_screen() &&
                                   lv_screen_active() != gui_text_view_get_screen() &&
+                                  lv_screen_active() != gui_network_get_usb_dac_overlay() &&
+                                  lv_screen_active() != gui_network_get_bt_dac_overlay() &&
                                   !gui_library_navigation_blocked() &&
                                   !player_swipe_press_excluded(p);
         player_swipe_touch_start_x = p.x;
