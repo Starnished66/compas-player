@@ -1,14 +1,16 @@
 # What's New
 
-**R3 Pro II: This image is pre-production.** Please report anything unusual, especially problems with startup, Bluetooth, playback, or your music library. Tell us what happened and what you were doing.
-
-**A new name:** Open Player is becoming **Compás Player**. You may still see the old name in a few places for now. We will finish the name change and update the documentation over time.
-
-- **A simpler look:** Now Playing shows title, artist, and album clearly. The pull-down controls have a new layout, lists feel quicker, the default background is black again, and holding Power shows Power Off and Reboot.
-- **Faster libraries:** Large folders open quickly, music database updates skip unchanged songs, and first scans are faster. Songs with multiple artists appear under each artist.
-- **Safer SD cards:** Swapping cards clears the old library and queue, then loads the new card's. Database problems and unreadable folders are handled more safely. Favorites and play history survive a database upgrade.
-- **Smoother playback:** You can turn Gapless off. USB headset buttons work, damaged FLAC files are less likely to cause a reboot, and USB DAC playback no longer builds up delay.
-- **Better Bluetooth:** Headphones stay connected when songs use a different sound rate. You can choose a rate for each headset and see the rate and codec in use. Opening Bluetooth during playback no longer starts a scan that can interrupt music.
-- **Other improvements:** USB debugging moved to Developer Options. The Wi-Fi switch is more reliable, and plugins can add pull-down controls, themes, and sound profiles.
-
-**Before updating:** Install the full firmware image for the Bluetooth system changes and improved sound conversion. Replacing only the player file will not install them. Update your plugin files to use the new plugin features.
+- **Native DSD:** DSD64/128 play natively on headphones, with a seamless fallback. Converter rebuilt: no more dropouts.
+- **Online firmware updates:** update over Wi-Fi from Settings > About > Firmware Update.
+- **Plugin Store:** install, update and remove plugins over Wi-Fi from Plugin Manager.
+- **Remote control:** control playback and browse your library from your phone, with PIN pairing and library sync.
+- **Faster library:** database builds about twice as fast, with progress shown. Refresh metadata or covers for one item or everything, all in Settings > Music Database.
+- **Covers everywhere:** Artists and song lists show art.
+- **Interface:** redesigned Accent Color screen with Match album art, Animation Speed setting, snappier controls, volume card, Playlists/Books refresh buttons, and the Files browser remembers your place.
+- **Screenshots:** Power + Volume Down, once enabled in Developer Options.
+- **Bluetooth:** song info on headphones and car stereos, better codec selection, aptX/aptX HD in DAC mode, phone volume works in DAC mode, SBC-XQ fallback.
+- **USB DAC:** clean, in-sync, true stereo, 24-bit where available.
+- **SD cards:** player data in a `.compas` folder, USB changes recognised on unplug, card checked after unsafe removal, proper close at power-off.
+- **Library fixes:** every disc labelled, multi-line tags tidied, empty tags handled.
+- **R3II (2025):** early alpha firmware image, not yet tested on a device.
+- **Other:** stock HiBy player removed, Buy Me a Coffee QR in About.
