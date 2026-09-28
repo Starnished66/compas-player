@@ -20,6 +20,7 @@
 #include "mbedtls/md5.h" /* plugin.md5() -- same primitive subsonic_client.c already uses for its own token auth */
 #include "zip_reader.h"
 #include "html_blocks.h"
+#include "image_thumb.h"
 #include "gui_text_view.h"
 
 #include "lua.h"
@@ -297,9 +298,11 @@ static int plugin_quick_toggle_count = 0;
 typedef struct {
     lua_State * L;
     int select_ref;
+    lua_Integer handle; /* show_list()'s return value for the list now in this slot */
 } plugin_list_callback_t;
 
 static plugin_list_callback_t plugin_list_callbacks[PLUGIN_LIST_SCREEN_POOL_SIZE];
+static lua_Integer plugin_list_next_handle = 1;
 
 /* Per-(pool slot, row) Lua callback ref storage for plugin.show_settings_list()
  * -- a settings-list screen carries per-row toggle/slider state that
@@ -1000,7 +1003,23 @@ static int l_plugin_show_list(lua_State * L) {
     int32_t height = 0;
     int32_t width = 0;
     int selected_index = -1;
+    int columns = 0;
     if (lua_gettop(L) >= 4 && lua_istable(L, 4)) {
+        lua_getfield(L, 4, "layout");
+        if (!lua_isnil(L, -1)) {
+            const char * layout = luaL_checkstring(L, -1);
+            if (strcmp(layout, "grid") == 0) columns = 3;
+            else if (strcmp(layout, "list") != 0)
+                return luaL_error(L, "plugin.show_list: layout must be \"list\" or \"grid\"");
+        }
+        lua_pop(L, 1);
+        lua_getfield(L, 4, "columns");
+        if (!lua_isnil(L, -1)) {
+            lua_Integer c = luaL_checkinteger(L, -1);
+            if (c < 2 || c > 4) return luaL_error(L, "plugin.show_list: columns must be 2..4");
+            if (columns > 0) columns = (int) c;
+        }
+        lua_pop(L, 1);
         lua_getfield(L, 4, "height");
         height = (int32_t) luaL_optinteger(L, -1, 0);
         lua_pop(L, 1);
@@ -1020,12 +1039,29 @@ static int l_plugin_show_list(lua_State * L) {
 
     lua_pushvalue(L, 3);
     int new_ref = luaL_ref(L, LUA_REGISTRYINDEX);
-    int slot = gui_plugin_show_list(title, labels, icon_paths, text_sizes, height, width, selected_index, n);
+    int slot = gui_plugin_show_list(title, labels, icon_paths, text_sizes, height, width, selected_index, n, columns);
     plugin_list_callback_t * cb = &plugin_list_callbacks[slot];
     if (cb->L && cb->select_ref != LUA_NOREF) luaL_unref(cb->L, LUA_REGISTRYINDEX, cb->select_ref);
     cb->L = L;
     cb->select_ref = new_ref;
-    return 0;
+    cb->handle = plugin_list_next_handle++;
+    lua_pushinteger(L, cb->handle);
+    return 1;
+}
+
+/* plugin.is_list_showing(handle): true while the list show_list() returned
+ * handle for is the screen in front (not closed, covered, or replaced). */
+static int l_plugin_is_list_showing(lua_State * L) {
+    lua_Integer handle = luaL_checkinteger(L, 1);
+    bool showing = false;
+    for (int i = 0; i < PLUGIN_LIST_SCREEN_POOL_SIZE; i++) {
+        if (plugin_list_callbacks[i].handle == handle) {
+            showing = handle > 0 && gui_plugin_list_is_top(i);
+            break;
+        }
+    }
+    lua_pushboolean(L, showing);
+    return 1;
 }
 
 /* plugin.show_settings_list(title, items) -- a nested settings submenu with
@@ -2477,6 +2513,9 @@ typedef struct {
     http_method_t method;
     http_header_t headers[HTTP_MAX_HEADERS];
     int header_count;
+    /* The one header value longer than a slot, owned (heap), or NULL. */
+    char long_header_name[HTTP_HEADER_NAME_MAX];
+    char * long_header_value;
     uint8_t * request_body;
     size_t request_body_size;
     char content_type[128];
@@ -2580,6 +2619,10 @@ static void * plugin_async_http_thread_func(void * arg) {
         hreq.method = req->method;
         memcpy(hreq.headers, req->headers, sizeof(hreq.headers));
         hreq.header_count = req->header_count;
+        if (req->long_header_value) {
+            memcpy(hreq.long_header_name, req->long_header_name, sizeof(hreq.long_header_name));
+            hreq.long_header_value = req->long_header_value;
+        }
         /* Backward-compat note: the OLD GET path (http_get_to_buffer_
          * limited()) never received request_body at all -- a plugin's
          * "body" field was parsed and allocated regardless of method, but
@@ -2619,6 +2662,8 @@ static void * plugin_async_http_thread_func(void * arg) {
     free(req->request_body);
     req->request_body = NULL;
     req->request_body_size = 0;
+    free(req->long_header_value);
+    req->long_header_value = NULL;
     atomic_store(&req->done, true);
     return NULL;
 }
@@ -2707,19 +2752,20 @@ static int l_plugin_http_request(lua_State * L) {
      * above being length-checked rather than ever overflowing). */
     http_header_t headers[HTTP_MAX_HEADERS];
     int header_count = 0;
+    /* One value may exceed a slot (a long bearer token); see
+     * HTTP_LONG_HEADER_VALUE_MAX in http_client.h. The Lua string stays
+     * reachable through options.headers for this whole call, so it is only
+     * copied to the heap after the last call below that can raise. */
+    char long_header_name[HTTP_HEADER_NAME_MAX] = "";
+    const char * long_value_src = NULL;
+    size_t long_value_len = 0;
     lua_getfield(L, 1, "headers");
     if (lua_istable(L, -1)) {
         lua_pushnil(L);
-        /* header_count check MUST come first: once it's false, lua_next()
-         * is never called again (short-circuit), so nothing extra is
-         * ever pushed that would need cleaning up afterward -- the
-         * opposite order would call lua_next() one time too many right
-         * as the bound is hit, pushing a key/value pair the loop body
-         * never runs to pop. Abandoning the traversal early (more table
-         * entries than HTTP_MAX_HEADERS) is fine per the Lua manual, as
-         * long as keys aren't added/removed mid-traversal, which they
-         * aren't here. */
-        while (header_count < HTTP_MAX_HEADERS && lua_next(L, -2) != 0) {
+        /* Every entry is visited: more than HTTP_MAX_HEADERS short headers
+         * (or a second long one) is an error, never a silently dropped
+         * header whose fate depends on table traversal order. */
+        while (lua_next(L, -2) != 0) {
             if (lua_type(L, -2) == LUA_TSTRING) {
                 /* Review finding: snprintf() alone silently truncated an
                  * oversized name/value, and validation afterward (the
@@ -2737,20 +2783,51 @@ static int l_plugin_http_request(lua_State * L) {
                 const char * name = lua_tolstring(L, -2, &name_len);
                 const char * value = lua_tolstring(L, -1, &value_len); /* non-string values (numbers) still convert fine via lua_tolstring */
                 if (name && value) {
-                    if (name_len >= sizeof(headers[header_count].name) || value_len >= sizeof(headers[header_count].value)) {
+                    bool long_value = value_len >= sizeof(headers[0].value);
+                    if (strlen(name) != name_len || strlen(value) != value_len) {
                         free(body_copy);
-                        return luaL_error(L, "plugin.http_request: header '%s' name/value exceeds %d/%d bytes",
-                                          name, (int) sizeof(headers[0].name) - 1, (int) sizeof(headers[0].value) - 1);
+                        return luaL_error(L, "plugin.http_request: header '%s' contains a NUL byte", name);
                     }
-                    memcpy(headers[header_count].name, name, name_len + 1);
-                    memcpy(headers[header_count].value, value, value_len + 1);
-                    header_count++;
+                    if (name_len >= sizeof(headers[0].name) ||
+                        (long_value && (long_value_src || value_len >= HTTP_LONG_HEADER_VALUE_MAX ||
+                                        lua_type(L, -1) != LUA_TSTRING))) {
+                        free(body_copy);
+                        return luaL_error(L, "plugin.http_request: header '%s' name/value exceeds %d/%d bytes "
+                                          "(one value may be up to %d)",
+                                          name, (int) sizeof(headers[0].name) - 1, (int) sizeof(headers[0].value) - 1,
+                                          HTTP_LONG_HEADER_VALUE_MAX - 1);
+                    }
+                    if (!long_value && header_count >= HTTP_MAX_HEADERS) {
+                        free(body_copy);
+                        return luaL_error(L, "plugin.http_request: at most %d headers", HTTP_MAX_HEADERS);
+                    }
+                    if (long_value) {
+                        long_value_src = value;
+                        long_value_len = value_len;
+                        memcpy(long_header_name, name, name_len + 1);
+                    } else {
+                        memcpy(headers[header_count].name, name, name_len + 1);
+                        memcpy(headers[header_count].value, value, value_len + 1);
+                        header_count++;
+                    }
                 }
             }
             lua_pop(L, 1); /* pop value, keep key for lua_next */
         }
     }
-    lua_pop(L, 1); /* pop the headers table (or nil) itself */
+    /* The long value itself is pushed and stays on the stack until the call
+     * returns: a later options metamethod could remove it from the headers
+     * table and collect it, so the table alone does not keep it alive. */
+    if (long_value_src) {
+        lua_pushstring(L, long_header_name);
+        lua_rawget(L, -2);
+        size_t len = 0;
+        long_value_src = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &len) : NULL;
+        if (!long_value_src || len != long_value_len) {
+            free(body_copy);
+            return luaL_error(L, "plugin.http_request: header '%s' changed while reading", long_header_name);
+        }
+    }
 
     lua_getfield(L, 1, "verify_tls");
     bool verify_tls = lua_isnil(L, -1) ? true : lua_toboolean(L, -1);
@@ -2807,6 +2884,22 @@ static int l_plugin_http_request(lua_State * L) {
         return luaL_error(L, "plugin.http_request: redirect_limit must not exceed %d", PLUGIN_HTTP_MAX_REDIRECTS);
     }
 
+    /* Registered before anything native is allocated or the slot is
+     * claimed: luaL_ref() can raise. */
+    lua_pushvalue(L, 2);
+    int callback_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+
+    char * long_header_value = NULL;
+    if (long_value_src) {
+        long_header_value = malloc(long_value_len + 1);
+        if (!long_header_value) {
+            luaL_unref(L, LUA_REGISTRYINDEX, callback_ref);
+            free(body_copy);
+            return push_plugin_error(L, "out of memory");
+        }
+        memcpy(long_header_value, long_value_src, long_value_len + 1);
+    }
+
     plugin_async_http_t * req = &plugin_async_http[slot];
     uint16_t generation = (uint16_t) (req->generation + 1);
     if (generation == 0) generation = 1;
@@ -2819,6 +2912,8 @@ static int l_plugin_http_request(lua_State * L) {
     req->method = method;
     memcpy(req->headers, headers, sizeof(req->headers));
     req->header_count = header_count;
+    memcpy(req->long_header_name, long_header_name, sizeof(req->long_header_name));
+    req->long_header_value = long_header_value;
     req->verify_tls = verify_tls;
     req->request_body = body_copy;
     req->request_body_size = body_size;
@@ -2829,13 +2924,14 @@ static int l_plugin_http_request(lua_State * L) {
     req->redirect_limit = (int) redirect_limit;
     snprintf(req->url, sizeof(req->url), "%s", url);
     snprintf(req->content_type, sizeof(req->content_type), "%s", content_type);
-    lua_pushvalue(L, 2);
-    req->callback_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    req->callback_ref = callback_ref;
 
     if (pthread_create(&req->thread, NULL, plugin_async_http_thread_func, req) != 0) {
         luaL_unref(L, LUA_REGISTRYINDEX, req->callback_ref);
         free(req->request_body);
         req->request_body = NULL;
+        free(req->long_header_value);
+        req->long_header_value = NULL;
         req->active = false;
         http_cancel_token_destroy(&req->cancel);
         return push_plugin_error(L, "could not start HTTP worker");
@@ -3725,7 +3821,8 @@ static const char * const plugin_capabilities[] = {
     "storage.namespaced", "storage.secrets", "playback.remote", "filesystem.playlists", "library.refresh",
     "ui.home_layout", "ui.theme_refresh", "ui.reload", "ui.home_tiles", "ui.launcher_layout",
     "ui.home_background", "audio.hw_volume_curve", "ui.lock_screen", "ui.quick_toggle",
-    "data.zip", "data.html", "ui.text_view"
+    "data.zip", "data.html", "ui.text_view", "data.zip_image", "ui.list_grid", "ui.list_showing",
+    "ui.text_view_images"
 };
 
 static int l_plugin_has_capability(lua_State * L) {
@@ -4007,6 +4104,153 @@ static int l_plugin_zip_list(lua_State * L) {
     return pcall_then_cleanup(L, &ctx, 1, zip_list_lua_cleanup, &ctx);
 }
 
+/* plugin.zip_image_async(zip_path, entry, dest_path, max_w, max_h, callback):
+ * reads an image member of a ZIP (an EPUB cover or illustration), scales it
+ * to fit max_w x max_h and writes an LVGL .bin image lv_image can draw from
+ * the file with no decode. The read and decode run on a worker; the callback
+ * gets (dest_path) or (nil, reason) from plugin_manager_poll(). One job at a
+ * time across all plugins: decoding can take a few MB. */
+#define PLUGIN_ZIP_IMAGE_MAX_BYTES (3u * 1024u * 1024u)
+#define PLUGIN_ZIP_IMAGE_MAX_SIDE 800
+#define PLUGIN_ZIP_IMAGE_STACK_SIZE (4 * 1024 * 1024) /* same as the album cover decode worker */
+
+typedef struct {
+    bool active;
+    atomic_bool done;
+    atomic_bool cancel;
+    pthread_t thread;
+    lua_State * L;  /* plugin main state: a coroutine that started the job may be collected */
+    int callback_ref;
+    char zip_path[PATH_MAX];
+    char entry[512];
+    char dest_path[PATH_MAX];
+    int max_w;
+    int max_h;
+    bool ok;
+    const char * error; /* static string */
+} plugin_zip_image_t;
+
+static plugin_zip_image_t plugin_zip_image;
+
+static bool plugin_zip_image_cancelled(void * user) {
+    return atomic_load(&((plugin_zip_image_t *) user)->cancel);
+}
+
+static void * plugin_zip_image_thread(void * arg) {
+    plugin_zip_image_t * job = arg;
+    unsigned char * data = NULL;
+    size_t len = 0;
+    zip_entry_info info;
+    zip_status st = zip_read_entry_limited(job->zip_path, job->entry, PLUGIN_ZIP_IMAGE_MAX_BYTES,
+                                           PLUGIN_ZIP_IMAGE_MAX_BYTES, &data, &len, &info);
+    if (st != ZIP_OK) {
+        job->error = zip_status_reason(st);
+    } else if (plugin_zip_image_cancelled(job)) {
+        job->error = "cancelled";
+    } else {
+        job->ok = image_thumb_write_bin(data, len, job->max_w, job->max_h, job->dest_path, ARTWORK_PRIO_THUMBNAIL,
+                                        plugin_zip_image_cancelled, job, &job->error);
+    }
+    free(data);
+    atomic_store(&job->done, true);
+    return NULL;
+}
+
+static bool path_has_bin_extension(const char * path) {
+    size_t n = strlen(path);
+    return n > 4 && strcmp(path + n - 4, ".bin") == 0;
+}
+
+static int l_plugin_zip_image_async(lua_State * L) {
+    const char * zip_path = check_plugin_external_path(L, 1, "plugin.zip_image_async");
+    const char * entry = luaL_checkstring(L, 2);
+    const char * dest_path = check_plugin_external_path(L, 3, "plugin.zip_image_async");
+    lua_Integer max_w = luaL_checkinteger(L, 4);
+    lua_Integer max_h = luaL_checkinteger(L, 5);
+    luaL_checktype(L, 6, LUA_TFUNCTION);
+    if (max_w < 16 || max_w > PLUGIN_ZIP_IMAGE_MAX_SIDE || max_h < 16 || max_h > PLUGIN_ZIP_IMAGE_MAX_SIDE)
+        return luaL_error(L, "plugin.zip_image_async: max_w/max_h must be 16..%d", PLUGIN_ZIP_IMAGE_MAX_SIDE);
+    if (strlen(zip_path) >= sizeof(plugin_zip_image.zip_path) || strlen(entry) >= sizeof(plugin_zip_image.entry) ||
+        strlen(dest_path) >= sizeof(plugin_zip_image.dest_path) - 8)
+        return luaL_error(L, "plugin.zip_image_async: path too long");
+    if (!path_has_bin_extension(dest_path))
+        return luaL_error(L, "plugin.zip_image_async: dest_path must end in .bin");
+    if (plugin_zip_image.active) return push_plugin_error(L, "busy");
+
+    plugin_zip_image_t * job = &plugin_zip_image;
+    memset(job, 0, sizeof(*job));
+    atomic_init(&job->done, false);
+    atomic_init(&job->cancel, false);
+    snprintf(job->zip_path, sizeof(job->zip_path), "%s", zip_path);
+    snprintf(job->entry, sizeof(job->entry), "%s", entry);
+    snprintf(job->dest_path, sizeof(job->dest_path), "%s", dest_path);
+    job->max_w = (int) max_w;
+    job->max_h = (int) max_h;
+    lua_pushvalue(L, 6);
+    job->callback_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    job->L = plugin_main_state(L);
+
+    pthread_attr_t attr;
+    bool attr_ok = pthread_attr_init(&attr) == 0;
+    if (attr_ok) pthread_attr_setstacksize(&attr, PLUGIN_ZIP_IMAGE_STACK_SIZE);
+    int rc = pthread_create(&job->thread, attr_ok ? &attr : NULL, plugin_zip_image_thread, job);
+    if (attr_ok) pthread_attr_destroy(&attr);
+    if (rc != 0) {
+        luaL_unref(L, LUA_REGISTRYINDEX, job->callback_ref);
+        job->callback_ref = LUA_NOREF;
+        job->L = NULL;
+        return push_plugin_error(L, "could not start image worker");
+    }
+    job->active = true;
+    lua_pushboolean(L, true);
+    return 1;
+}
+
+/* Delivers a finished job's callback (skipped when cancelled or the plugin
+ * was aborted) and frees the slot. */
+static void plugin_zip_image_poll(void) {
+    plugin_zip_image_t * job = &plugin_zip_image;
+    if (!job->active || !atomic_load(&job->done)) return;
+    pthread_join(job->thread, NULL);
+    job->active = false;
+    lua_State * L = job->L;
+    int ref = job->callback_ref;
+    job->L = NULL;
+    job->callback_ref = LUA_NOREF;
+    plugin_instance_t * inst = plugin_instance_for_state(L);
+    if (inst && inst->aborted) return; /* frozen state: never touched again */
+    if (!atomic_load(&job->cancel)) {
+        lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
+        if (job->ok) {
+            lua_pushstring(L, job->dest_path);
+            lua_pushnil(L);
+        } else {
+            lua_pushnil(L);
+            lua_pushstring(L, job->error ? job->error : "could not read image");
+        }
+        if (plugin_call(L, 2, 0, 0) != LUA_OK) {
+            const char * err = lua_tostring(L, -1);
+            fprintf(stderr, "[plugins] zip_image_async callback error: %s\n", err ? err : "unknown error");
+            lua_pop(L, 1);
+        }
+    }
+    luaL_unref(L, LUA_REGISTRYINDEX, ref);
+}
+
+/* For deinit: stops the worker at its next cancellation point and waits,
+ * without calling Lua. */
+static void plugin_zip_image_cancel(void) {
+    plugin_zip_image_t * job = &plugin_zip_image;
+    if (!job->active) return;
+    atomic_store(&job->cancel, true);
+    pthread_join(job->thread, NULL);
+    job->active = false;
+    plugin_instance_t * inst = plugin_instance_for_state(job->L);
+    if (job->L && !(inst && inst->aborted)) luaL_unref(job->L, LUA_REGISTRYINDEX, job->callback_ref);
+    job->L = NULL;
+    job->callback_ref = LUA_NOREF;
+}
+
 static void html_blocks_cleanup(void * mem) {
     html_blocks_free(mem);
 }
@@ -4173,6 +4417,7 @@ static int l_plugin_show_text_view(lua_State * L) {
 
     gui_text_view_opts opts;
     memset(&opts, 0, sizeof(opts));
+    const char * image_paths[GUI_TEXT_VIEW_MAX_IMAGES];
 
     bool has_turn = false;
     bool has_close = false;
@@ -4205,6 +4450,30 @@ static int l_plugin_show_text_view(lua_State * L) {
 
         lua_getfield(L, 3, "font_px");
         lua_pop(L, 1);
+
+        /* options.images: picture files for "<ESC>n<ESC>" markers (see
+         * gui_text_view.h). The table stays on the stack until the view has
+         * copied the paths, keeping these strings alive. */
+        lua_getfield(L, 3, "images");
+        if (!lua_isnil(L, -1)) {
+            if (!lua_istable(L, -1)) return luaL_error(L, "plugin.show_text_view: images must be a list of paths");
+            lua_Integer count = luaL_len(L, -1);
+            if (count < 0 || count > GUI_TEXT_VIEW_MAX_IMAGES)
+                return luaL_error(L, "plugin.show_text_view: at most %d images", GUI_TEXT_VIEW_MAX_IMAGES);
+            for (lua_Integer i = 1; i <= count; i++) {
+                lua_rawgeti(L, -1, i);
+                size_t len = 0;
+                const char * path = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &len) : NULL;
+                if (!path || len == 0 || len >= 512 || strlen(path) != len)
+                    return luaL_error(L, "plugin.show_text_view: images[%d] must be a path", (int) i);
+                image_paths[i - 1] = path;
+                lua_pop(L, 1);
+            }
+            opts.images = image_paths;
+            opts.image_count = (int) count;
+        } else {
+            lua_pop(L, 1);
+        }
 
         lua_getfield(L, 3, "on_turn");
         if (!lua_isnil(L, -1)) {
@@ -4303,6 +4572,7 @@ static const luaL_Reg plugin_funcs[] = {
     { "register_quick_toggle",     l_plugin_register_quick_toggle },
     { "set_quick_toggle",          l_plugin_set_quick_toggle },
     { "show_list",                 l_plugin_show_list },
+    { "is_list_showing",           l_plugin_is_list_showing },
     { "show_settings_list",        l_plugin_show_settings_list },
     { "list_dir",                  l_plugin_list_dir },
     { "sd_root",                   l_plugin_sd_root },
@@ -4377,6 +4647,7 @@ static const luaL_Reg plugin_funcs[] = {
     { "show_lock_screen",          l_plugin_show_lock_screen },
     { "zip_read",                  l_plugin_zip_read },
     { "zip_list",                  l_plugin_zip_list },
+    { "zip_image_async",           l_plugin_zip_image_async },
     { "html_to_blocks",            l_plugin_html_to_blocks },
     { "show_text_view",            l_plugin_show_text_view },
     { NULL, NULL }
@@ -5023,6 +5294,7 @@ void plugin_manager_deinit(void) {
     audio_stage_custom_hw_volume_curve(false, NULL);
     deinit_diag("plugin_manager_deinit: cancel_all_async_http before");
     plugin_manager_cancel_all_async_http();
+    plugin_zip_image_cancel();
     deinit_diag("plugin_manager_deinit: cancel_all_async_http after");
 
     for (int i = 0; i < PLUGIN_MAX_INTERVALS; i++) {
@@ -5076,6 +5348,7 @@ void plugin_manager_deinit(void) {
 }
 
 void plugin_manager_poll(void) {
+    plugin_zip_image_poll();
     for (int i = 0; i < PLUGIN_MAX_ASYNC_HTTP; i++) {
         plugin_async_http_t * req = &plugin_async_http[i];
         if (!req->active || !atomic_load(&req->done)) continue;
@@ -5145,7 +5418,7 @@ void plugin_manager_poll(void) {
 bool plugin_manager_has_background_work(void) {
     for (int i = 0; i < PLUGIN_MAX_ASYNC_HTTP; i++)
         if (plugin_async_http[i].active) return true;
-    return false;
+    return plugin_zip_image.active;
 }
 
 /* Shared by plugin_manager_books_list_item_clicked()/_settings_list_item_

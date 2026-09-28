@@ -15,6 +15,9 @@
 static lv_obj_t * s_screen;
 static lv_obj_t * s_body;
 static lv_obj_t * s_content_label;
+static lv_obj_t * s_image; /* picture pages, hidden on text pages */
+static char ** s_images;   /* owned copies of opts.images */
+static int s_image_count;
 static lv_obj_t * s_footer_label;
 static lv_obj_t * s_title_label;
 
@@ -88,6 +91,50 @@ static void update_footer(void) {
     lv_label_set_text(s_footer_label, buf);
 }
 
+#define TV_MARKER '\x1b'
+
+/* Length of the picture marker at off ("<ESC><1-3 digits><ESC>" naming an
+ * existing image), or 0 when there is none. */
+static uint32_t marker_at(uint32_t off, int * out_index) {
+    if (!s_text || s_image_count <= 0 || off >= s_text_len || s_text[off] != TV_MARKER) return 0;
+    uint32_t p = off + 1;
+    int index = 0, digits = 0;
+    while (p < s_text_len && digits < 3 && s_text[p] >= '0' && s_text[p] <= '9') {
+        index = index * 10 + (s_text[p] - '0');
+        p++;
+        digits++;
+    }
+    if (digits == 0 || p >= s_text_len || s_text[p] != TV_MARKER || index >= s_image_count) return 0;
+    if (out_index) *out_index = index;
+    return p + 1 - off;
+}
+
+static void images_free(void) {
+    for (int i = 0; i < s_image_count; i++) free(s_images[i]);
+    free(s_images);
+    s_images = NULL;
+    s_image_count = 0;
+}
+
+/* Shows images[index] scaled to fit the page body, centered. */
+static void show_image(int index) {
+    if (!s_image) return;
+    char src[600];
+    snprintf(src, sizeof(src), "S:%s", s_images[index]);
+    lv_image_header_t header;
+    if (lv_image_decoder_get_info(src, &header) != LV_RESULT_OK || header.w == 0 || header.h == 0) {
+        lv_obj_add_flag(s_image, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_image_set_src(s_image, src);
+    int64_t scale_w = (int64_t) s_content_width * 256 / header.w;
+    int64_t scale_h = (int64_t) s_body_height * 256 / header.h;
+    int64_t scale = scale_w < scale_h ? scale_w : scale_h;
+    lv_image_set_scale(s_image, (uint32_t) (scale < 1 ? 1 : scale));
+    lv_obj_center(s_image);
+    lv_obj_remove_flag(s_image, LV_OBJ_FLAG_HIDDEN);
+}
+
 static void show_page(int page) {
     if (!s_content_label || !s_text || !s_page_off) return;
     if (page < 1 || page > (int) s_measured) return;
@@ -96,6 +143,16 @@ static void show_page(int page) {
 
     uint32_t start_off = s_page_off[page - 1];
     uint32_t end_off = s_page_off[page];
+
+    int image_index;
+    if (marker_at(start_off, &image_index)) {
+        lv_obj_add_flag(s_content_label, LV_OBJ_FLAG_HIDDEN);
+        show_image(image_index);
+        update_footer();
+        return;
+    }
+    if (s_image) lv_obj_add_flag(s_image, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(s_content_label, LV_OBJ_FLAG_HIDDEN);
 
     if (end_off < s_text_len) {
         char saved = s_text[end_off];
@@ -208,6 +265,7 @@ static void view_close_internal(bool from_unload) {
         free(s_page_off);
         s_page_off = NULL;
     }
+    images_free();
 
     /* Unload vs back: the unload path was triggered because navigation already happened
      * (e.g. swipe-up-to-home), so calling nav_pop() would pop the wrong screen. Only
@@ -302,8 +360,32 @@ static uint32_t measure_one_line(char * text, uint32_t text_len, uint32_t off,
     return step;
 }
 
+static uint32_t measure_text_page(char * text, uint32_t text_len, uint32_t start,
+                                  int lines_per_page, int32_t content_width, const lv_font_t * font);
+
+/* A picture marker is a page of its own; a text page ends before the next
+ * marker. Everything else is measured by measure_text_page(). */
 static uint32_t measure_one_page(char * text, uint32_t text_len, uint32_t start,
                                  int lines_per_page, int32_t content_width, const lv_font_t * font) {
+    uint32_t marker = marker_at(start, NULL);
+    if (marker) return start + marker;
+    uint32_t window = text_len;
+    if (s_image_count > 0 && start + 1 < text_len) {
+        const char * esc = memchr(text + start + 1, TV_MARKER, text_len - start - 1);
+        while (esc) {
+            uint32_t at = (uint32_t) (esc - text);
+            if (marker_at(at, NULL)) {
+                window = at;
+                break;
+            }
+            esc = at + 1 < text_len ? memchr(esc + 1, TV_MARKER, text_len - at - 1) : NULL;
+        }
+    }
+    return measure_text_page(text, window, start, lines_per_page, content_width, font);
+}
+
+static uint32_t measure_text_page(char * text, uint32_t text_len, uint32_t start,
+                                  int lines_per_page, int32_t content_width, const lv_font_t * font) {
     if (start >= text_len) {
         return text_len;
     }
@@ -637,6 +719,12 @@ static lv_obj_t * build_text_view_screen(void) {
     lv_obj_remove_flag(s_content_label, LV_OBJ_FLAG_CLICKABLE);
     lv_label_set_text(s_content_label, "");
 
+    s_image = lv_image_create(s_body);
+    if (s_image) {
+        lv_obj_remove_flag(s_image, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(s_image, LV_OBJ_FLAG_HIDDEN);
+    }
+
     s_footer_label = lv_label_create(scr);
     if (!s_footer_label) {
         lv_obj_delete(scr);
@@ -694,12 +782,14 @@ void gui_text_view_teardown(void) {
     s_user = NULL;
     s_open = false;
     s_initial_turn_pending = false;
+    images_free();
 
     if (s_screen) {
         lv_obj_delete(s_screen);
         s_screen = NULL;
         s_body = NULL;
         s_content_label = NULL;
+        s_image = NULL;
         s_footer_label = NULL;
         s_title_label = NULL;
     }
@@ -773,10 +863,34 @@ bool gui_text_view_show(const char * title, const void * text, size_t text_len,
     utf8_sanitize(s_text);
     s_text_len = (uint32_t) strlen(s_text); /* sanitize stops at an embedded NUL */
 
+    images_free();
+    int image_count = opts && opts->images ? opts->image_count : 0;
+    if (image_count > GUI_TEXT_VIEW_MAX_IMAGES) image_count = GUI_TEXT_VIEW_MAX_IMAGES;
+    if (image_count > 0) {
+        s_images = calloc((size_t) image_count, sizeof(*s_images));
+        if (!s_images) {
+            free(s_text);
+            s_text = NULL;
+            return false;
+        }
+        for (int i = 0; i < image_count; i++) {
+            s_images[i] = strdup(opts->images[i] ? opts->images[i] : "");
+            if (!s_images[i]) {
+                s_image_count = i;
+                images_free();
+                free(s_text);
+                s_text = NULL;
+                return false;
+            }
+        }
+        s_image_count = image_count;
+    }
+
     s_page_off = malloc((GUI_TEXT_VIEW_MAX_PAGES + 1) * sizeof(uint32_t));
     if (!s_page_off) {
         free(s_text);
         s_text = NULL;
+        images_free();
         return false;
     }
 

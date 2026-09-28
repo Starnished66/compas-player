@@ -12,11 +12,19 @@
 #define GUI_TEXT_VIEW_MAX_BYTES (256u * 1024u)
 #define GUI_TEXT_VIEW_MAX_PAGES 8192
 
+/* Picture pages: the text may contain "<ESC><index><ESC>" (index 0-based,
+ * 1 to 3 digits) naming images[index], an LVGL-readable file path. Such a
+ * marker gets a page of its own showing the picture scaled to fit; text
+ * pages end before it. An ESC that is not a valid marker is plain text. */
+#define GUI_TEXT_VIEW_MAX_IMAGES 64
+
 typedef struct {
     bool has_page;     /* page is 1-based */
     int page;
     bool has_offset;   /* byte offset into the copied text */
     size_t offset;
+    const char * const * images; /* copied; may be NULL */
+    int image_count;             /* at most GUI_TEXT_VIEW_MAX_IMAGES */
 } gui_text_view_opts;
 
 typedef void (*gui_text_view_turn_fn)(int page, int pages, size_t byte_offset, void * user);

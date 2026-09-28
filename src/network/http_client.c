@@ -562,6 +562,21 @@ static bool http_header_name_is_sensitive(const char * name) {
            strcasecmp(name, "Cookie2") == 0 || strcasecmp(name, "Proxy-Authorization") == 0;
 }
 
+/* The long header carries credentials, not framing: names the request
+ * builder sets itself are refused, and so is a name already in headers[],
+ * so no field is ever sent twice. */
+static bool http_long_header_is_valid(const http_request_t * req) {
+    static const char * const reserved[] = { "Host", "User-Agent", "Content-Type", "Content-Length", "Connection" };
+    if (!http_header_name_is_valid(req->long_header_name) ||
+        strnlen(req->long_header_value, HTTP_LONG_HEADER_VALUE_MAX) >= HTTP_LONG_HEADER_VALUE_MAX ||
+        !http_header_value_is_valid(req->long_header_value))
+        return false;
+    for (size_t i = 0; i < sizeof(reserved) / sizeof(reserved[0]); i++) {
+        if (strcasecmp(req->long_header_name, reserved[i]) == 0) return false;
+    }
+    return http_headers_get(req->headers, req->header_count, req->long_header_name) == NULL;
+}
+
 /* Strips sensitive credential headers (Authorization, Cookie, etc.) on
  * cross-origin redirects. */
 static void http_strip_sensitive_headers(http_header_t * headers, int * header_count) {
@@ -660,6 +675,7 @@ static bool send_request_ex(http_conn_t * conn, const http_request_t * req, cons
             return false;
         }
     }
+    if (req->long_header_value && !http_long_header_is_valid(req)) return false;
 
     char header_block[8192];
     size_t pos = 0;
@@ -688,6 +704,7 @@ static bool send_request_ex(http_conn_t * conn, const http_request_t * req, cons
     for (int i = 0; i < req->header_count; i++) {
         APPEND_HDR("%s: %s\r\n", req->headers[i].name, req->headers[i].value);
     }
+    if (req->long_header_value) APPEND_HDR("%s: %s\r\n", req->long_header_name, req->long_header_value);
     APPEND_HDR("\r\n");
 #undef APPEND_HDR
 
@@ -891,6 +908,8 @@ static bool http_request_ex_internal(http_request_t * req, http_cancel_token_t *
             DBG_LOG("http_client: http_request_ex cross-origin redirect (%s:%s -> %s:%s) -- stripping credential headers\n",
                     host, port, new_host, new_port);
             http_strip_sensitive_headers(req->headers, &req->header_count);
+            if (req->long_header_value && http_header_name_is_sensitive(req->long_header_name))
+                req->long_header_value = NULL;
         }
 
         http_apply_redirect_method_semantics(req, resp->status);
@@ -938,6 +957,10 @@ bool http_request_ex(const http_request_t * req_in, http_cancel_token_t * cancel
             resp->error = HTTP_ERR_INVALID_REQUEST;
             return false;
         }
+    }
+    if (req_in->long_header_value && !http_long_header_is_valid(req_in)) {
+        resp->error = HTTP_ERR_INVALID_REQUEST;
+        return false;
     }
 
     /* Local, mutable copy -- http_request_ex_internal() strips headers /

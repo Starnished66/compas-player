@@ -9,6 +9,13 @@
 #define HTTP_MAX_HEADERS 32
 #define HTTP_HEADER_NAME_MAX 64
 #define HTTP_HEADER_VALUE_MAX 768
+/* A long bearer token (an OAuth JWT can reach about 2 KiB) does not fit a
+ * header slot. Raising HTTP_HEADER_VALUE_MAX instead would grow every
+ * request and response (32 slots each) to about 84 KB, and a worker holds
+ * two requests and a response on a thread stack that is 128 KiB by default
+ * on musl. One request can carry a single longer value instead; see
+ * http_request_t.long_header_value. */
+#define HTTP_LONG_HEADER_VALUE_MAX 4096
 
 #define HTTP_ERR_NONE ""
 #define HTTP_ERR_CANCELLED "cancelled"
@@ -66,6 +73,12 @@ typedef struct {
     uint32_t total_timeout_ms;
     size_t max_response_bytes;
     int redirect_limit;
+    /* One header whose value does not fit a slot (see
+     * HTTP_LONG_HEADER_VALUE_MAX): borrowed, NUL-terminated, shorter than
+     * that bound; NULL when unused. It follows the same validation and
+     * cross-origin redirect stripping as headers[]. */
+    char long_header_name[HTTP_HEADER_NAME_MAX];
+    const char * long_header_value;
 } http_request_t;
 
 typedef struct {

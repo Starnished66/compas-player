@@ -225,12 +225,12 @@ from the moment your script starts running (injected before
 |---|---|
 | Identity | `define`, `api_version`, `has_capability`, `get_app_info`, `media_capabilities` |
 | Hardware | `led_available`, `led_set`, `led_blink`, `led_breathe`, `led_get`, `led_status`, `led_release` |
-| UI | `register_list_item`, `register_stream_media_tile`, `register_home_tile`, `register_quick_toggle`, `set_quick_toggle`, `show_list`, `show_settings_list`, `show_text_input`, `show_text_view`, `show_toast`, `screenshot` |
+| UI | `register_list_item`, `register_stream_media_tile`, `register_home_tile`, `register_quick_toggle`, `set_quick_toggle`, `show_list`, `is_list_showing`, `show_settings_list`, `show_text_input`, `show_text_view`, `show_toast`, `screenshot` |
 | Theme | `set_icon`, `set_background_color`, `set_text_color`, `set_home_layout`, `refresh_theme`, `reload_ui` |
 | Playback | `play_file`, `play_list`, `play_remote`, `queue_remote_list`, transport controls, playback state |
 | Files & Playlists | `sd_root`, `list_dir`, `mkdir`, `playlist_list`, `playlist_read`, `playlist_create`, `playlist_add`, `playlist_remove`, `playlist_delete` |
 | Storage & Secrets | `storage.get`/`set`/`delete`/`list`, `secrets.set`/`exists`/`delete` |
-| Data & Crypto | `json_decode`, `json_encode`, `md5`, `zip_read`, `zip_list`, `html_to_blocks` |
+| Data & Crypto | `json_decode`, `json_encode`, `md5`, `zip_read`, `zip_list`, `zip_image_async`, `html_to_blocks` |
 | Library | `get_artist_albums`, `get_album_tracks`, `get_next_album_tracks`, `library_song_count`, `library_get_songs`, `library_search`, `library_get_song`, `library_get_artists`, `library_get_albums`, `refresh_library` |
 | Audio | `eq_load_profile`, `eq_save_profile`, `eq_set_*`, `eq_reset` |
 | Network | `http_request`, `download_file_async`, `cancel`, legacy `http_get`/`http_post` |
@@ -267,12 +267,12 @@ using an identity derived from their filename.
 - `plugin.api_version()` returns the current integer plugin API version (currently `14`).
 - `plugin.has_capability(name)` reports whether an optional interface exists.
   Supported capability tokens:
-  - UI: `ui.list`, `ui.settings`, `ui.row_width`, `ui.text_input`, `ui.toast`, `ui.theme`, `ui.home_layout`, `ui.launcher_layout`, `ui.home_background`, `ui.lock_screen`, `ui.text_view`
+  - UI: `ui.list`, `ui.settings`, `ui.row_width`, `ui.text_input`, `ui.toast`, `ui.theme`, `ui.home_layout`, `ui.launcher_layout`, `ui.home_background`, `ui.lock_screen`, `ui.text_view`, `ui.text_view_images`, `ui.list_grid`, `ui.list_showing`
   - Playback & Audio: `playback.control`, `playback.state`, `playback.events`, `playback.remote`, `audio.peq`, `audio.hw_volume_curve`
   - Filesystem & Playlists: `filesystem.sd`, `filesystem.mkdir`, `filesystem.playlists`
   - Storage & Secrets: `storage.namespaced`, `storage.secrets`
   - Network: `network.http.sync`, `network.http.async`, `network.http.download`
-  - Data & Crypto: `data.json`, `crypto.md5`, `data.zip`, `data.html`
+  - Data & Crypto: `data.json`, `crypto.md5`, `data.zip`, `data.zip_image`, `data.html`
   - Library: `library.artist_albums`, `library.paged`, `library.refresh`
 - LED availability varies by board, so use `plugin.led_available()` instead
   of `plugin.has_capability()` to check for the red and blue charge LEDs.
@@ -397,11 +397,16 @@ board-specific, so there is no static `led` capability token; use
 #### API version 14 changelog
 
 New in API 14: `plugin.zip_read()` / `plugin.zip_list()`,
-`plugin.html_to_blocks()`, and `plugin.show_text_view()` (see their own
-doc sections). Purely additive. A plugin that only needs one of them can
-feature-detect it with `plugin.has_capability("data.zip")`,
-`plugin.has_capability("data.html")`, or
-`plugin.has_capability("ui.text_view")` instead of bumping `api_min`.
+`plugin.zip_image_async()`, `plugin.html_to_blocks()`, and
+`plugin.show_text_view()` with picture pages (see their own doc sections);
+`plugin.show_list()` takes `layout = "grid"` for a grid of cards and returns
+a handle that `plugin.is_list_showing()` checks; and one
+`plugin.http_request()` header value per request may be up to 4095 bytes
+instead of 767 (for OAuth bearer tokens). Purely additive. A plugin that
+only needs one of them can feature-detect it with
+`plugin.has_capability()` and `"data.zip"`, `"data.zip_image"`,
+`"data.html"`, `"ui.text_view"`, `"ui.text_view_images"`, `"ui.list_grid"`,
+or `"ui.list_showing"` instead of bumping `api_min`.
 
 ### `plugin.register_quick_toggle(id, label, on_change, options)`
 
@@ -834,6 +839,20 @@ Opens a list screen.
   resizes every row in this call (not per-row) and optionally draws an
   accent outline around the selected 1-based row. Selecting another row
   moves that outline automatically.
+  - `layout` (API 14): `"list"` (the default) or `"grid"`. A grid shows
+    each entry as a card: its `icon` fills a portrait 2:3 picture area
+    (scaled to fit, not cropped, the shape of a book cover) with the label
+    below it in up to two lines. An entry without an icon, or whose icon
+    cannot be drawn, shows its label inside the picture area instead.
+    `height` and `width` are ignored in a grid.
+  - `columns` (API 14, grid only): 2 to 4 cards per row, default 3.
+
+Returns a handle (API 14; `nil` before). `plugin.is_list_showing(handle)`
+is `true` while that list is the screen in front, and `false` once it was
+closed with Back, covered by another screen, or its pool slot was reused.
+Use it before opening a screen from a callback that arrives later (an HTTP
+response, a finished `zip_image_async`), so a screen the user has already
+left does not open over whatever they moved on to.
 
 Each call opens a **new** screen (from a pool of 4 reusable ones -- see
 `PLUGIN_LIST_SCREEN_POOL_SIZE` in `gui.c`), so calling `show_list` again
@@ -1442,7 +1461,12 @@ silent-ignore behavior for non-body methods is preserved deliberately, not
 newly introduced.
 
 `max_response_bytes` defaults to 512 KiB and may be 1 byte through 2 MiB.
-Request bodies are capped at 1 MiB. Request headers are capped at 16 entries.
+Request bodies are capped at 1 MiB. Request headers are capped at 32
+entries with names up to 63 bytes and values up to 767 bytes; since API 14
+one more header per request may have a value up to 4095 bytes (a long bearer token, for
+example), except for Host, User-Agent, Content-Type, Content-Length and
+Connection. More headers, longer values, or a NUL byte in a name or value
+raise an error rather than being dropped or cut.
 At most four asynchronous requests may be active across all plugins. The
 returned handle includes a generation number, so a stale handle cannot
 affect a newer request that reused the pool slot.
@@ -1721,6 +1745,35 @@ Returns `bytes, info` with `info.method` 0 (stored) or 8 (deflate), `info.compre
 
 The same `nil, reason` failures as `zip_read` apply (`not_found` is not used). Names inside encrypted or ZIP64 entries are still listed; reading those entries fails with the reasons above. More than 2,000 entries, or a central directory bigger than 256 KiB, is `corrupt`.
 
+### `plugin.zip_image_async(path, entry, dest, max_w, max_h, callback)`
+
+Reads a JPEG, PNG or BMP from a ZIP entry (an EPUB cover or illustration),
+scales it to fit `max_w` x `max_h` keeping its aspect ratio (never cropped
+or enlarged), and writes it to `dest` as an LVGL binary image. The file can
+then be used as a `show_list` icon or a `show_text_view` picture and draws
+with no further decoding. Reading and decoding run on a worker thread.
+
+- `path` (string): the ZIP archive; the same path rule as `zip_read` applies.
+- `entry` (string): the exact entry name.
+- `dest` (string): where to write; must end in `.bin`. It is replaced
+  atomically, and nothing is left there on failure. The same path rule
+  applies, so plugin storage paths are refused.
+- `max_w`, `max_h` (integers): 16 to 800.
+- `callback` (function): `callback(dest)` on success or
+  `callback(nil, reason)` on failure, later, on the UI thread.
+
+Returns `true` when the job started, or `nil, "busy"` while another job
+(from any plugin) is running; try again later, for example from a
+`set_interval()` tick. Wrong arguments raise an error.
+
+The entry may be up to 3 MiB compressed and uncompressed. Failure reasons
+are the `zip_read` reasons plus `"unsupported image"`, `"could not decode
+image"`, `"could not write image"`, and `"busy"`. `"busy"` (and `"nomem"`)
+means the decoder or its memory was in use by the player's own artwork at
+that moment; the same call may work a little later, so do not record it as
+a broken image. The job is cancelled without calling back when the plugin
+is reloaded.
+
 ### `plugin.html_to_blocks(bytes [, options])`
 
 Turns one HTML or XHTML chapter into a flat list of blocks.
@@ -1747,6 +1800,7 @@ Opens one paged reading screen.
   - `page` (number): 1-based start page and wins over `options.offset`.
   - `offset` (number): byte offset, snapped to a UTF-8 boundary.
   - `font_px` (number): accepted and ignored, because the font stack does not build arbitrary sizes.
+  - `images` (array of strings, API 14): up to 64 picture files, usually written by `plugin.zip_image_async()`. The text shows picture `n` (0-based) where it contains `"\27" .. n .. "\27"` (ESC, 1 to 3 digits, ESC). Each picture gets a page of its own, scaled to fit, and text pages end before it. A marker with no matching entry, or any other ESC, is plain text. Without `images`, ESC is never treated as a marker.
   - `on_turn` (function): `options.on_turn(page, pages, byte_offset)` runs shortly after the screen opens (never inside the `show_text_view` call itself), after every page change, and once more when the page count becomes final if that count changed. While a `page` or `offset` start position is still being paginated it is not reported, so a saved position is not overwritten by a provisional page.
   - `on_close` (function): `options.on_close(page, byte_offset)` runs after the view closes and its back animation finishes, including when another navigation (such as swipe-up to Home) dismisses it. A screen opened on top, such as the lock screen, only covers the view. If it closes before a start `offset` was reached, `byte_offset` is that requested offset.
 

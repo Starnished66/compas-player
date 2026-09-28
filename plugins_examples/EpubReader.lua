@@ -1,7 +1,7 @@
 plugin.define({
     id = "example.epub_reader",
     name = "EPUB Reader",
-    version = "1.0",
+    version = "1.1",
     api_min = 14,
 })
 
@@ -304,12 +304,12 @@ local function parse_attributes(s)
     return attrs
 end
 
-local function has_nav_property(props)
+local function has_property(props, wanted)
     if not props then
         return false
     end
     for word in props:gmatch("%S+") do
-        if word == "nav" then
+        if word == wanted then
             return true
         end
     end
@@ -564,6 +564,7 @@ local function parse_opf(opf, book_path)
     local spine_ids = {}
     local spine_truncated = false
     local ncx_item, nav_item
+    local cover_meta_id, cover_property_item, cover_named_item
 
     local p = 1
     while true do
@@ -597,9 +598,25 @@ local function parse_opf(opf, book_path)
                 if it.media:lower() == "application/x-dtbncx+xml" and not ncx_item then
                     ncx_item = it
                 end
-                if has_nav_property(it.properties) and not nav_item then
+                if has_property(it.properties, "nav") and not nav_item then
                     nav_item = it
                 end
+                if it.media:lower():find("^image/") then
+                    if has_property(it.properties, "cover-image") then
+                        cover_property_item = cover_property_item or it
+                    elseif
+                        not cover_named_item
+                        and (id:lower():find("cover", 1, true) or it.href:lower():find("cover", 1, true))
+                    then
+                        cover_named_item = it
+                    end
+                end
+            end
+        elseif lname == "meta" then
+            -- EPUB 2 names its cover image with <meta name="cover" content="id">.
+            local attrs = parse_attributes(opf:sub(lt, gt))
+            if attrs["name"] == "cover" and attrs["content"] and attrs["content"] ~= "" then
+                cover_meta_id = cover_meta_id or attrs["content"]
             end
         elseif lname == "itemref" then
             local idref = parse_attributes(opf:sub(lt, gt))["idref"]
@@ -614,6 +631,14 @@ local function parse_opf(opf, book_path)
         end
     end
 
+    local cover_item = cover_property_item
+    if not cover_item and cover_meta_id then
+        local it = manifest[cover_meta_id]
+        if it and it.media:lower():find("^image/") then
+            cover_item = it
+        end
+    end
+
     return {
         title = dc_title or fallback_title or basename(book_path),
         author = creator,
@@ -621,6 +646,7 @@ local function parse_opf(opf, book_path)
         spine_ids = spine_ids,
         ncx_item = ncx_item,
         nav_item = nav_item,
+        cover_item = cover_item or cover_named_item,
     }
 end
 
@@ -671,32 +697,45 @@ local function parse_nav_titles(nav, resolve, titles)
     end
 end
 
-local function parse_book(book_path)
+-- Container and OPF only: title, author, manifest, spine and cover.
+-- quiet skips the error toasts (background cover preparation). Returns
+-- nil and the reason on failure.
+local function read_opf(book_path, quiet)
+    local function fail(message)
+        if not quiet then
+            plugin.show_toast(message)
+        end
+        return nil, message
+    end
     local container_data, err = plugin.zip_read(book_path, "META-INF/container.xml")
     if not container_data then
-        plugin.show_toast(err or "Failed to read container.xml")
-        return nil
+        return fail(err or "Failed to read container.xml")
     end
 
     local opf_path = find_opf_path(container_data)
     if not opf_path then
-        plugin.show_toast("No OPF in container.xml")
-        return nil
+        return fail("No OPF in container.xml")
     end
 
     local opf_bytes, opf_err = plugin.zip_read(book_path, opf_path)
     if not opf_bytes then
-        plugin.show_toast(opf_err or "Failed to read OPF")
-        return nil
+        return fail(opf_err or "Failed to read OPF")
     end
 
     local book = parse_opf(opf_bytes, book_path)
     local opf_dir = document_dir(opf_path)
     if opf_dir == nil then
-        plugin.show_toast("No OPF in container.xml")
-        return nil
+        return fail("No OPF in container.xml")
     end
     book.opf_dir = opf_dir
+    return book
+end
+
+local function parse_book(book_path)
+    local book = read_opf(book_path)
+    if not book then
+        return nil
+    end
 
     local titles = {}
     for _, idref in ipairs(book.spine_ids) do
@@ -787,7 +826,175 @@ local function chapter_label(book, index)
     return label
 end
 
-local function open_chapter(book_path, book, index, offset)
+-- Covers and chapter pictures are scaled once into LVGL images under
+-- .plugins/.epub_cache and reused. The firmware prepares one image at a
+-- time for all plugins, so jobs wait in a queue here; chapter pictures go
+-- first. A timer runs only while jobs wait.
+local CACHE_DIR = plugin.sd_root() .. "/.plugins/.epub_cache"
+local COVER_W, COVER_H = 180, 270
+local PAGE_W, PAGE_H = 448, 640
+local MAX_CHAPTER_IMAGES = 64
+
+local function file_exists(path)
+    local f = io.open(path, "rb")
+    if f then
+        f:close()
+        return true
+    end
+    return false
+end
+
+local cache_ready = false
+local function ensure_cache()
+    if not cache_ready then
+        cache_ready = plugin.mkdir(CACHE_DIR) and true or false
+    end
+    return cache_ready
+end
+
+local function cover_file(book_path)
+    return CACHE_DIR .. "/" .. plugin.md5(book_path) .. ".cover.bin"
+end
+
+local function picture_file(book_path, entry)
+    return CACHE_DIR .. "/" .. plugin.md5(book_path .. "\n" .. entry) .. ".bin"
+end
+
+local jobs, job_running, job_timer = {}, false, nil
+local jobs_held = false -- after a busy decoder, wait for the next tick
+local run_jobs
+
+-- Decode failures worth another try: the decoder or its memory was taken by
+-- the player's own artwork.
+local function is_temporary(err)
+    return err == "busy" or err == "nomem"
+end
+local MAX_ATTEMPTS = 5
+
+local function ensure_timer()
+    if #jobs > 0 and not job_timer then
+        job_timer = plugin.set_interval(1, function()
+            jobs_held = false
+            run_jobs(true)
+        end)
+    end
+end
+
+local function stop_timer_if_idle()
+    if job_timer and #jobs == 0 and not job_running then
+        plugin.clear_interval(job_timer)
+        job_timer = nil
+    end
+end
+
+-- job = { book, entry, dest, w, h, done(path_or_nil, err) } or { prep = fn }.
+-- Preparation steps parse a book, so they run only from the timer or an
+-- image callback, one at a time; queueing never parses on the caller's tap.
+local function queue_job(job, urgent)
+    table.insert(jobs, urgent and 1 or (#jobs + 1), job)
+    run_jobs(false)
+    ensure_timer()
+end
+
+local function retry_later(job)
+    job.attempts = (job.attempts or 1) + 1
+    table.insert(jobs, 1, job)
+    jobs_held = true
+    ensure_timer()
+end
+
+run_jobs = function(allow_prep)
+    while not job_running and not jobs_held and #jobs > 0 do
+        local job = jobs[1]
+        if job.prep then
+            if not allow_prep then
+                break
+            end
+            allow_prep = false
+            table.remove(jobs, 1)
+            job.prep()
+        elseif file_exists(job.dest) then
+            table.remove(jobs, 1)
+            job.done(job.dest)
+        else
+            local called, ok, err = pcall(
+                plugin.zip_image_async,
+                job.book,
+                job.entry,
+                job.dest,
+                job.w,
+                job.h,
+                function(path, reason)
+                    job_running = false
+                    if not path and is_temporary(reason) and (job.attempts or 1) < MAX_ATTEMPTS then
+                        retry_later(job)
+                    else
+                        job.done(path, reason)
+                    end
+                    run_jobs(true)
+                end
+            )
+            if called and ok then
+                table.remove(jobs, 1)
+                job_running = true
+            elseif called and err == "busy" then
+                break -- another plugin's image; the timer retries
+            else
+                table.remove(jobs, 1)
+                job.done(nil, called and err or "failed")
+            end
+        end
+    end
+    stop_timer_if_idle()
+end
+
+-- Background: read a book's title and cover once; the grid shows them the
+-- next time it opens.
+local covers_queued = {}
+
+local function queue_cover(book_path)
+    local key = plugin.md5(book_path)
+    if covers_queued[key] then
+        return
+    end
+    covers_queued[key] = true
+    queue_job({
+        prep = function()
+            local book, err = read_opf(book_path, true)
+            if not book then
+                if not is_temporary(err) and err ~= "io_error" then
+                    plugin.storage.set("nocover:" .. key, "1")
+                end
+                covers_queued[key] = nil
+                return
+            end
+            plugin.storage.set("title:" .. key, clip_text(book.title, MAX_LABEL_BYTES))
+            local entry = book.cover_item and resolved_href(book.cover_item, book.opf_dir)
+            if not entry then
+                plugin.storage.set("nocover:" .. key, "1")
+                covers_queued[key] = nil
+                return
+            end
+            queue_job({
+                book = book_path,
+                entry = entry,
+                dest = cover_file(book_path),
+                w = COVER_W,
+                h = COVER_H,
+                done = function(path, err)
+                    if not path and not is_temporary(err) then
+                        plugin.storage.set("nocover:" .. key, "1")
+                    end
+                    covers_queued[key] = nil -- a temporary failure tries again next time
+                end,
+            }, true)
+        end,
+    })
+end
+
+local chapter_generation = 0
+
+local function open_chapter(book_path, book, index, offset, list_handle)
     local href = chapter_href(book, index)
     if not href then
         plugin.show_toast("Missing manifest item")
@@ -806,37 +1013,114 @@ local function open_chapter(book_path, book, index, offset)
         return
     end
 
-    local pieces = {}
+    -- Pictures, in order of first use, up to what the text view accepts.
+    local chapter_dir = dir_of(href)
+    local entries, entry_index = {}, {}
     for i = 1, #blocks do
         local b = blocks[i]
-        if b.kind == "h" or b.kind == "p" then
-            pieces[#pieces + 1] = (b.text or "") .. "\n\n"
-        elseif b.kind == "img" then
-            pieces[#pieces + 1] = "[image]\n\n"
-        elseif b.kind == "hr" then
-            pieces[#pieces + 1] = "\n"
+        if b.kind == "img" and b.text and b.text ~= "" and #entries < MAX_CHAPTER_IMAGES then
+            local entry = resolve_href(chapter_dir, b.text)
+            if entry ~= "" and not entry_index[entry] then
+                entries[#entries + 1] = entry
+                entry_index[entry] = #entries
+            end
         end
     end
 
-    local opts = {
-        on_turn = function(_, _, byte_offset)
-            save_pos(book_path, index, byte_offset)
-        end,
-        on_close = function(_, byte_offset)
-            save_pos(book_path, index, byte_offset)
-        end,
-    }
-    if offset and offset >= 0 then
-        opts.offset = offset
+    chapter_generation = chapter_generation + 1
+    local generation = chapter_generation
+    local ready = {}
+    local deferred = false
+
+    local function show()
+        if generation ~= chapter_generation then
+            return -- another chapter or book was opened meanwhile
+        end
+        if deferred and not (list_handle and plugin.is_list_showing(list_handle)) then
+            return -- the user left the screen the chapter was opened from
+        end
+        local images, marker_of = {}, {}
+        for i, entry in ipairs(entries) do
+            if ready[i] then
+                images[#images + 1] = ready[i]
+                marker_of[entry] = #images - 1
+            end
+        end
+        local pieces = {}
+        for i = 1, #blocks do
+            local b = blocks[i]
+            if b.kind == "h" or b.kind == "p" then
+                pieces[#pieces + 1] = (b.text or "") .. "\n\n"
+            elseif b.kind == "img" then
+                local marker = b.text and marker_of[resolve_href(chapter_dir, b.text)]
+                pieces[#pieces + 1] = marker and ("\27" .. marker .. "\27") or "[image]\n\n"
+            elseif b.kind == "hr" then
+                pieces[#pieces + 1] = "\n"
+            end
+        end
+
+        local opts = {
+            images = images,
+            on_turn = function(_, _, byte_offset)
+                save_pos(book_path, index, byte_offset)
+            end,
+            on_close = function(_, byte_offset)
+                save_pos(book_path, index, byte_offset)
+            end,
+        }
+        if offset and offset >= 0 then
+            opts.offset = offset
+        end
+
+        local ok, tv_err = plugin.show_text_view(chapter_label(book, index), table.concat(pieces), opts)
+        if not ok then
+            plugin.show_toast(tv_err or "unavailable")
+            return
+        end
+        if plugin.storage.get("continue") ~= book_path then
+            plugin.storage.set("continue", book_path)
+        end
     end
 
-    local ok, tv_err = plugin.show_text_view(chapter_label(book, index), table.concat(pieces), opts)
-    if not ok then
-        plugin.show_toast(tv_err or "unavailable")
+    if #entries == 0 or not ensure_cache() then
+        show()
         return
     end
-    if plugin.storage.get("continue") ~= book_path then
-        plugin.storage.set("continue", book_path)
+    local waiting = 0
+    for i, entry in ipairs(entries) do
+        local dest = picture_file(book_path, entry)
+        if file_exists(dest) then
+            ready[i] = dest
+        else
+            waiting = waiting + 1
+        end
+    end
+    if waiting == 0 then
+        show()
+        return
+    end
+    plugin.show_toast("Preparing pictures. This may take a while.")
+    deferred = true
+    -- Queued in reverse at the front, so they run in reading order ahead of
+    -- any covers still being prepared.
+    for i = #entries, 1, -1 do
+        if not ready[i] then
+            local entry = entries[i]
+            queue_job({
+                book = book_path,
+                entry = entry,
+                dest = picture_file(book_path, entry),
+                w = PAGE_W,
+                h = PAGE_H,
+                done = function(path)
+                    ready[i] = path
+                    waiting = waiting - 1
+                    if waiting == 0 then
+                        show()
+                    end
+                end,
+            }, true)
+        end
     end
 end
 
@@ -862,13 +1146,21 @@ local function open_book(book_path)
     end
     list_title = clip_text(list_title, 80)
 
-    plugin.show_list(list_title, spine_labels, function(chapter_index)
+    chapter_generation = chapter_generation + 1 -- drops a chapter still preparing pictures
+    local list_handle
+    list_handle = plugin.show_list(list_title, spine_labels, function(chapter_index)
         local saved_chap, saved_off = load_pos(book_path)
-        open_chapter(book_path, book, chapter_index, saved_chap == chapter_index and saved_off or nil)
+        open_chapter(
+            book_path,
+            book,
+            chapter_index,
+            saved_chap == chapter_index and saved_off or nil,
+            list_handle
+        )
     end)
 end
 
-local function open_continue(book_path)
+local function open_continue(book_path, list_handle)
     local book = parse_book(book_path)
     if not book then
         return
@@ -884,9 +1176,19 @@ local function open_continue(book_path)
         saved_chap, saved_off = 1, 0
     end
 
-    open_chapter(book_path, book, saved_chap, saved_off)
+    open_chapter(book_path, book, saved_chap, saved_off, list_handle)
 end
 
+local function book_label(book_path)
+    local title = plugin.storage.get("title:" .. plugin.md5(book_path))
+    if title and title ~= "" then
+        return title
+    end
+    return clip_text((basename(book_path):gsub("%.[Ee][Pp][Uu][Bb]$", "")), MAX_LABEL_BYTES)
+end
+
+-- A grid of cover cards. Covers and titles not read yet are prepared in the
+-- background and appear the next time the grid opens.
 local function open_books_list()
     local paths = scan_epub_files()
     if #paths == 0 then
@@ -905,17 +1207,37 @@ local function open_books_list()
         end
     end
 
-    local rows = {}
+    local have_cache = ensure_cache()
+    local items = {}
+    local function add(book_path, label)
+        local cover = cover_file(book_path)
+        local item = { label = label }
+        if have_cache and file_exists(cover) then
+            item.icon = cover
+        end
+        items[#items + 1] = item
+    end
     if continue_path then
-        rows[#rows + 1] = "Continue reading: " .. basename(continue_path)
+        add(continue_path, "Continue: " .. book_label(continue_path))
     end
     for i = 1, #paths do
-        rows[#rows + 1] = basename(paths[i])
+        add(paths[i], book_label(paths[i]))
     end
 
-    plugin.show_list("EPUB Reader", rows, function(index)
+    if have_cache then
+        for i = 1, #paths do
+            local key = plugin.md5(paths[i])
+            if not file_exists(cover_file(paths[i])) and plugin.storage.get("nocover:" .. key) ~= "1" then
+                queue_cover(paths[i])
+            end
+        end
+    end
+
+    chapter_generation = chapter_generation + 1 -- drops a chapter still preparing pictures
+    local grid_handle
+    grid_handle = plugin.show_list("EPUB Reader", items, function(index)
         if continue_path and index == 1 then
-            open_continue(continue_path)
+            open_continue(continue_path, grid_handle)
         else
             local path_idx = continue_path and (index - 1) or index
             local book_path = paths[path_idx]
@@ -923,7 +1245,7 @@ local function open_books_list()
                 open_book(book_path)
             end
         end
-    end)
+    end, { layout = "grid" })
 end
 
 plugin.register_list_item("books", "EPUB Reader", open_books_list)

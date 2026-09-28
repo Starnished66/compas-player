@@ -70,7 +70,9 @@ void gui_reset_interactive_timeout_baseline(void);
  * the selected screen-pool slot so callbacks can be stored per slot. */
 int gui_plugin_show_list(const char * title, const char * const * labels, const char * const * icon_paths,
                           const char * const * text_sizes, int32_t height, int32_t width,
-                          int selected_index, int count);
+                          int selected_index, int count, int columns);
+/* True while pool slot's list screen is the top of the navigation stack. */
+bool gui_plugin_list_is_top(int slot);
 
 /* Repopulates and pushes a shared plugin-settings-list screen -- a SEPARATE
  * pool from gui_plugin_show_list()'s own (PLUGIN_SETTINGS_LIST_SCREEN_POOL_

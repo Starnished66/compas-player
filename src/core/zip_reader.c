@@ -348,6 +348,13 @@ zip_status zip_list_entries(const char * path, char *** names, size_t * count) {
 
 zip_status zip_read_entry(const char * path, const char * entry_name,
                           unsigned char ** out, size_t * out_len, zip_entry_info * info) {
+    return zip_read_entry_limited(path, entry_name, ZIP_MAX_COMPRESSED_BYTES, ZIP_MAX_UNCOMPRESSED_BYTES,
+                                  out, out_len, info);
+}
+
+zip_status zip_read_entry_limited(const char * path, const char * entry_name,
+                                  uint32_t max_compressed, uint32_t max_uncompressed,
+                                  unsigned char ** out, size_t * out_len, zip_entry_info * info) {
     if (out) *out = NULL;
     if (out_len) *out_len = 0;
     if (info) memset(info, 0, sizeof(*info));
@@ -461,11 +468,11 @@ zip_status zip_read_entry(const char * path, const char * entry_name,
         close_archive(&arch);
         return ZIP_ERR_UNSUPPORTED_METHOD;
     }
-    if (match_uncomp > ZIP_MAX_UNCOMPRESSED_BYTES) {
+    if (match_uncomp > max_uncompressed) {
         close_archive(&arch);
         return ZIP_ERR_TOO_LARGE;
     }
-    if (match_comp > ZIP_MAX_COMPRESSED_BYTES) {
+    if (match_comp > max_compressed) {
         close_archive(&arch);
         return ZIP_ERR_TOO_LARGE;
     }
@@ -691,7 +698,7 @@ zip_status zip_read_entry(const char * path, const char * entry_name,
 
     free(out_buf);
     if (status == TINFL_STATUS_HAS_MORE_OUTPUT) {
-        if (match_uncomp == ZIP_MAX_UNCOMPRESSED_BYTES) return ZIP_ERR_TOO_LARGE;
+        if (match_uncomp == max_uncompressed) return ZIP_ERR_TOO_LARGE;
         return ZIP_ERR_CORRUPT;
     }
     return ZIP_ERR_CORRUPT;

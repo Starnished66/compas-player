@@ -35,6 +35,12 @@ const char * zip_status_reason(zip_status status);
 zip_status zip_read_entry(const char * path, const char * entry_name,
                           unsigned char ** out, size_t * out_len, zip_entry_info * info);
 
+/* Same, with caller-chosen size limits (for large members such as images).
+ * zip_read_entry() uses ZIP_MAX_COMPRESSED_BYTES / ZIP_MAX_UNCOMPRESSED_BYTES. */
+zip_status zip_read_entry_limited(const char * path, const char * entry_name,
+                                  uint32_t max_compressed, uint32_t max_uncompressed,
+                                  unsigned char ** out, size_t * out_len, zip_entry_info * info);
+
 zip_status zip_list_entries(const char * path, char *** names, size_t * count);
 void zip_free_names(char ** names, size_t count);
 

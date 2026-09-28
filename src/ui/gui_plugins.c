@@ -100,9 +100,96 @@ void configure_scrolling_row_label(lv_obj_t * label, int32_t width) {
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_LEFT, 0);
 }
 
+#ifdef HOST_BUILD
+  #define MUSIC_ROOT_DIR "./music"
+#else
+  /* SD card mount point -- each file that needs it defines its own copy,
+   * the convention screen_builders.c/plugin_manager.c use. For relative
+   * grid cover paths, resolved like pill_row_apply_icon()'s. */
+  #define MUSIC_ROOT_DIR "/data/mnt/sd_0"
+#endif
+
+/* Cover image scaled to fit its card area, centered. src is "S:<path>". */
+static void plugin_grid_place_image(lv_obj_t * cover, const char * path, int32_t box_w, int32_t box_h) {
+    char resolved[600];
+    if (path[0] == '/') snprintf(resolved, sizeof(resolved), "S:%s", path);
+    else snprintf(resolved, sizeof(resolved), "S:%s/.plugins/%s", MUSIC_ROOT_DIR, path);
+    lv_image_header_t header;
+    if (lv_image_decoder_get_info(resolved, &header) != LV_RESULT_OK || header.w == 0 || header.h == 0) return;
+    lv_obj_t * img = lv_image_create(cover);
+    lv_image_set_src(img, resolved);
+    int64_t scale_w = (int64_t) box_w * 256 / header.w;
+    int64_t scale_h = (int64_t) box_h * 256 / header.h;
+    lv_image_set_scale(img, (uint32_t) (scale_w < scale_h ? scale_w : scale_h));
+    lv_obj_center(img);
+}
+
+/* show_list(..., { layout = "grid" }): the same items as cards in a
+ * wrapping grid, each a cover area (the row's icon, or the label when there
+ * is none) over a two-line title. Taps, selection and the screen pool are
+ * the list's own. */
+static void plugin_grid_build(int slot, lv_obj_t * list, const char * const * labels,
+                              const char * const * images, int columns, int count) {
+    int32_t screen_w = lv_display_get_horizontal_resolution(lv_display_get_default());
+    int32_t side = BOARD_SCALE_PX(16), gap = BOARD_SCALE_PX(14);
+    int32_t card_w = (screen_w - 2 * side - (columns - 1) * gap) / columns;
+    int32_t cover_h = card_w * 3 / 2; /* book proportions */
+    const lv_font_t * font = gui_theme_font(GUI_FONT_ROLE_SUBTEXT);
+
+    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_flex_align(list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_left(list, side, 0);
+    lv_obj_set_style_pad_right(list, side, 0);
+    lv_obj_set_style_pad_column(list, gap, 0);
+    lv_obj_set_style_pad_row(list, gap, 0);
+
+    for (int i = 0; i < count; i++) {
+        lv_obj_t * card = lv_obj_create(list);
+        lv_obj_remove_style_all(card);
+        lv_obj_set_size(card, card_w, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_style_pad_row(card, BOARD_SCALE_PX(6), 0);
+        lv_obj_set_style_opa(card, LV_OPA_70, LV_STATE_PRESSED);
+        lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
+
+        lv_obj_t * cover = lv_obj_create(card);
+        lv_obj_remove_style_all(cover);
+        lv_obj_set_size(cover, card_w, cover_h);
+        lv_obj_add_style(cover, &style_theme_card_bg, 0);
+        lv_obj_set_style_bg_opa(cover, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(cover, BOARD_SCALE_PX(10), 0);
+        lv_obj_set_style_clip_corner(cover, true, 0);
+        lv_obj_remove_flag(cover, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+        if (images && images[i]) plugin_grid_place_image(cover, images[i], card_w, cover_h);
+        if (lv_obj_get_child_count(cover) == 0) {
+            /* No cover: the title on the card itself. */
+            lv_obj_t * placeholder = lv_label_create(cover);
+            lv_label_set_text(placeholder, labels[i]);
+            lv_obj_add_style(placeholder, &style_theme_text_muted, 0);
+            lv_obj_set_style_text_font(placeholder, font, 0);
+            lv_obj_set_style_text_align(placeholder, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_set_width(placeholder, card_w - BOARD_SCALE_PX(16));
+            lv_label_set_long_mode(placeholder, LV_LABEL_LONG_WRAP);
+            lv_obj_center(placeholder);
+        }
+
+        lv_obj_t * title = lv_label_create(card);
+        lv_label_set_text(title, labels[i]);
+        lv_obj_add_style(title, &style_theme_text_primary, 0);
+        lv_obj_set_style_text_font(title, font, 0);
+        lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_size(title, card_w, lv_font_get_line_height(font) * 2);
+        lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
+
+        intptr_t packed = ((intptr_t) slot << 16) | (intptr_t) (i & 0xFFFF);
+        lv_obj_add_event_cb(card, plugin_list_row_click_cb, LV_EVENT_CLICKED, (void *) packed);
+    }
+}
+
 int gui_plugin_show_list(const char * title, const char * const * labels, const char * const * icon_paths,
                           const char * const * text_sizes, int32_t height, int32_t width,
-                          int selected_index, int count) {
+                          int selected_index, int count, int columns) {
     /* Same liveness rule as the settings pool: plain round-robin reused a
      * slot still on the navigation stack after a few open/Back visits to a
      * submenu, replacing an ancestor's rows and callback. Only when every
@@ -120,6 +207,19 @@ int gui_plugin_show_list(const char * title, const char * const * labels, const 
     lv_label_set_text(plugin_list_title_labels[slot], title);
     lv_obj_t * list = plugin_list_lists[slot];
     lv_obj_clean(list);
+
+    if (columns > 0 && count > 0) {
+        plugin_grid_build(slot, list, labels, icon_paths, columns, count);
+        plugin_list_apply_selection(slot, selected_index);
+        nav_push(plugin_list_screens[slot]);
+        return slot;
+    }
+    /* A pooled screen may have been a grid last time. */
+    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_left(list, 0, 0);
+    lv_obj_set_style_pad_right(list, 0, 0);
+    lv_obj_set_style_pad_gap(list, GUI_ROW_GAP, 0);
 
     if (count <= 0) {
         lv_obj_t * label = lv_label_create(list);
@@ -209,6 +309,11 @@ int gui_plugin_show_list(const char * title, const char * const * labels, const 
     plugin_list_apply_selection(slot, selected_index);
     nav_push(plugin_list_screens[slot]);
     return slot;
+}
+
+bool gui_plugin_list_is_top(int slot) {
+    return slot >= 0 && slot < PLUGIN_LIST_SCREEN_POOL_SIZE && plugin_list_screens[slot] &&
+           gui_navigation_is_top(plugin_list_screens[slot]);
 }
 
 void gui_plugin_play_paths(const char * const * paths, int count, int start_index) {
