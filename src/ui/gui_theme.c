@@ -33,13 +33,17 @@ const uint32_t accent_palette[ACCENT_PALETTE_COUNT] = {
     0xFFFFFF, /* white */
 };
 
-static lv_obj_t * accent_swatches[ACCENT_PALETTE_COUNT];
+/* Effective accent (see accent_lv_color()) and the last cover's color. */
+static uint32_t accent_rgb = 0x2196F3;
+static bool cover_accent_valid;
+static uint32_t cover_accent;
 
 extern player_settings_t current_settings;
 extern void settings_save(const player_settings_t * s);
 extern void player_transition_mark_dirty(void);
 extern void refresh_play_btn_icon(void);
 extern void gui_shell_refresh_quick_drawer_toggle_accent(void);
+extern void gui_settings_accent_changed(void);
 
 const lv_font_t * gui_theme_font(gui_font_role_t role) {
     switch (role) {
@@ -53,7 +57,16 @@ const lv_font_t * gui_theme_font(gui_font_role_t role) {
 }
 
 lv_color_t accent_lv_color(void) {
-    return lv_color_hex(current_settings.accent_color);
+    return lv_color_hex(accent_rgb);
+}
+
+uint32_t gui_theme_accent_rgb(void) {
+    return accent_rgb;
+}
+
+static uint32_t resolve_accent(void) {
+    if (current_settings.accent_dynamic && cover_accent_valid) return cover_accent;
+    return current_settings.accent_color & 0xFFFFFF;
 }
 
 void gui_theme_update_surface_contrast(void) {
@@ -69,41 +82,62 @@ void gui_theme_update_surface_contrast(void) {
     lv_obj_report_style_change(&style_theme_card_bg);
 }
 
-void gui_theme_apply_accent(uint32_t rgb) {
-    current_settings.accent_color = rgb;
-    lv_style_set_bg_color(&style_accent, lv_color_hex(rgb));
-    lv_style_set_text_color(&style_accent, lv_color_hex(rgb));
-    lv_style_set_bg_image_recolor(&style_accent, lv_color_hex(rgb));
-    lv_style_set_bg_image_recolor_opa(&style_accent, LV_OPA_COVER);
-    lv_style_set_image_recolor(&style_accent, lv_color_hex(rgb));
-    lv_style_set_image_recolor_opa(&style_accent, LV_OPA_80);
-    lv_obj_report_style_change(&style_accent);
+/* Recolors the shared styles and the decoded accent art. Skipped when the
+ * color did not change, so a new track from the same album costs nothing. */
+static void refresh_accent(void) {
+    uint32_t rgb = resolve_accent();
+    if (rgb != accent_rgb) {
+        accent_rgb = rgb;
+        lv_color_t c = lv_color_hex(rgb);
+        lv_style_set_bg_color(&style_accent, c);
+        lv_style_set_text_color(&style_accent, c);
+        lv_style_set_bg_image_recolor(&style_accent, c);
+        lv_style_set_bg_image_recolor_opa(&style_accent, LV_OPA_COVER);
+        lv_style_set_image_recolor(&style_accent, c);
+        lv_style_set_image_recolor_opa(&style_accent, LV_OPA_80);
+        lv_obj_report_style_change(&style_accent);
 
-    lv_style_set_bg_color(&style_accent_knob, lv_color_hex(rgb));
-    lv_obj_report_style_change(&style_accent_knob);
+        lv_style_set_bg_color(&style_accent_knob, c);
+        lv_obj_report_style_change(&style_accent_knob);
 
-    lv_style_set_border_color(&style_accent_outline, lv_color_hex(rgb));
-    lv_obj_report_style_change(&style_accent_outline);
+        lv_style_set_border_color(&style_accent_outline, c);
+        lv_obj_report_style_change(&style_accent_outline);
 
-    settings_save(&current_settings);
-    player_transition_mark_dirty();
-    /* Play/pause art is a white disc with a baked-in cyan glyph -- LVGL
-     * image_recolor would tint the disc too, so the glyph is rewritten in
-     * decoded pixels (see refresh_play_btn_icon()). */
-    refresh_play_btn_icon();
-    /* Same deal for the quick drawer's "on" toggle icons: a baked-in
-     * #009FF6 circle under a near-white glyph. */
-    gui_shell_refresh_quick_drawer_toggle_accent();
+        player_transition_mark_dirty();
+        /* Play/pause art is a white disc with a baked-in cyan glyph -- LVGL
+         * image_recolor would tint the disc too, so the glyph is rewritten in
+         * decoded pixels (see refresh_play_btn_icon()). */
+        refresh_play_btn_icon();
+        /* Same deal for the quick drawer's "on" toggle icons: a baked-in
+         * #009FF6 circle under a near-white glyph. */
+        gui_shell_refresh_quick_drawer_toggle_accent();
+    }
+    gui_settings_accent_changed();
 }
 
-void accent_swatch_event_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    uint32_t rgb = (uint32_t) (intptr_t) lv_event_get_user_data(e);
-    gui_theme_apply_accent(rgb);
+void gui_theme_apply_accent(uint32_t rgb) {
+    current_settings.accent_color = rgb & 0xFFFFFF;
+    current_settings.accent_dynamic = false;
+    settings_save(&current_settings);
+    refresh_accent();
+}
 
-    for (size_t i = 0; i < ACCENT_PALETTE_COUNT; i++) {
-        lv_obj_set_style_border_width(accent_swatches[i], accent_palette[i] == rgb ? 4 : 0, 0);
-    }
+void gui_theme_set_accent_dynamic(bool on) {
+    current_settings.accent_dynamic = on;
+    settings_save(&current_settings);
+    refresh_accent();
+}
+
+void gui_theme_set_cover_accent(bool valid, uint32_t rgb) {
+    if (valid == cover_accent_valid && (!valid || rgb == cover_accent)) return;
+    cover_accent_valid = valid;
+    cover_accent = valid ? (rgb & 0xFFFFFF) : 0;
+    if (current_settings.accent_dynamic) refresh_accent();
+}
+
+bool gui_theme_cover_accent(uint32_t * out_rgb) {
+    if (cover_accent_valid && out_rgb) *out_rgb = cover_accent;
+    return cover_accent_valid;
 }
 
 /* Shared by gui_theme_init() (real boot) and gui_theme_reload_styles()
@@ -123,6 +157,7 @@ static void init_style_objects(void) {
         lv_style_reset(&style_accent_outline);
     }
     already_initialized = true;
+    accent_rgb = resolve_accent();
 
     lv_style_init(&style_accent);
     lv_style_set_bg_color(&style_accent, accent_lv_color());
@@ -176,8 +211,3 @@ void gui_theme_reload_styles(void) {
 }
 
 
-void gui_theme_register_accent_swatch(int index, lv_obj_t * swatch) {
-    if (index >= 0 && index < ACCENT_PALETTE_COUNT) {
-        accent_swatches[index] = swatch;
-    }
-}

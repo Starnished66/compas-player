@@ -49,9 +49,10 @@ bool albumart_search_source_files(const albumart_info_t * info, const char * siz
  * load can detect a replaced cover. */
 bool albumart_store_rgb565(const albumart_info_t * info, int width, int height, const uint16_t * pixels);
 
-/* True when a sized cache file exists and still matches the current source
- * cover (or audio file) mtime. User-supplied sized files next to the track
- * are accepted as-is. */
+/* True when a sized cache file exists and its source cover (or audio file)
+ * is not newer than the one it was built from, so sibling tracks of one
+ * album share it. User-supplied sized files next to the track are accepted
+ * as-is. */
 bool albumart_sized_thumb_fresh(const albumart_info_t * info, int width, int height, char * found, size_t found_size);
 bool albumart_sized_thumb_fresh_with_source_mtime(const albumart_info_t * info, int width, int height,
                                                    uint32_t source_mtime, char * found, size_t found_size);

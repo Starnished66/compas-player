@@ -151,6 +151,24 @@ static lv_image_dsc_t current_cover_dsc;
 static uint8_t * current_cover_bytes = NULL;
 static int current_cover_for_index = -1;
 
+/* Which generated cache file current_cover_bytes was decoded from. A rebuild
+ * is an atomic rename, so the inode changes even when the size (fixed per
+ * BMP size) and the mtime second do not. */
+typedef struct {
+    bool valid;
+    dev_t dev;
+    ino_t ino;
+    time_t mtime;
+    off_t size;
+} cover_file_id_t;
+
+static cover_file_id_t current_cover_file;
+
+static bool cover_file_id_same(const cover_file_id_t * a, const cover_file_id_t * b) {
+    return a->valid && b->valid && a->dev == b->dev && a->ino == b->ino &&
+           a->mtime == b->mtime && a->size == b->size;
+}
+
 static uint8_t * current_reflection_bytes = NULL;
 static lv_image_dsc_t current_reflection_dsc;
 
@@ -368,6 +386,60 @@ static uint8_t bilerp_plane(const uint8_t * plane, int width, int height, uint32
  * REFLECTION_WIDTH x BOARD_SCREEN_HEIGHT RGB565 buffer, or NULL on allocation
  * failure. Caller owns the result. Accepts blur radius, passes, and darken
  * fraction parameters with defensive clamping. */
+/* "Match album art": the cover's most prominent vivid hue. Samples a grid,
+ * weights each colorful pixel by saturation x value into 15-degree hue
+ * buckets, takes the strongest three-bucket window, and lifts its average
+ * so it still reads as an accent on dark and light surfaces. False for a
+ * gray or near-black cover. Runs on the cover worker. */
+static bool cover_accent_from_rgb565(const uint16_t * px, uint32_t * out_rgb) {
+    enum { BUCKETS = 24, BUCKET_DEG = 15, STEP = 7 };
+    uint64_t weight[BUCKETS] = {0}, hue_off[BUCKETS] = {0}, sat[BUCKETS] = {0}, val[BUCKETS] = {0};
+    uint32_t samples = 0;
+    for (int y = STEP / 2; y < COVER_ART_HEIGHT; y += STEP) {
+        for (int x = STEP / 2; x < COVER_ART_WIDTH; x += STEP) {
+            uint16_t c = px[y * COVER_ART_WIDTH + x];
+            uint8_t r = (uint8_t) (((c >> 11) << 3) | (c >> 13));
+            uint8_t g = (uint8_t) ((((c >> 5) & 0x3F) << 2) | ((c >> 9) & 0x03));
+            uint8_t b = (uint8_t) (((c & 0x1F) << 3) | ((c >> 2) & 0x07));
+            lv_color_hsv_t hsv = lv_color_rgb_to_hsv(r, g, b);
+            samples++;
+            if (hsv.s < 25 || hsv.v < 25) continue;
+            uint32_t w = (uint32_t) hsv.s * hsv.v;
+            int k = (hsv.h % 360) / BUCKET_DEG;
+            weight[k] += w;
+            hue_off[k] += (uint64_t) w * (hsv.h % 360 - k * BUCKET_DEG);
+            sat[k] += (uint64_t) w * hsv.s;
+            val[k] += (uint64_t) w * hsv.v;
+        }
+    }
+    int best = 0;
+    uint64_t best_w = 0;
+    for (int k = 0; k < BUCKETS; k++) {
+        uint64_t w = weight[(k + BUCKETS - 1) % BUCKETS] + weight[k] + weight[(k + 1) % BUCKETS];
+        if (w > best_w) { best_w = w; best = k; }
+    }
+    /* At least a tenth of the cover moderately colorful (s x v of 4000). */
+    if (best_w == 0 || best_w < (uint64_t) samples * 400) return false;
+
+    uint64_t hue_acc = 0, sat_acc = 0, val_acc = 0;
+    for (int d = 0; d < 3; d++) {
+        int k = (best - 1 + d + BUCKETS) % BUCKETS;
+        hue_acc += weight[k] * (uint64_t) (d * BUCKET_DEG) + hue_off[k];
+        sat_acc += sat[k];
+        val_acc += val[k];
+    }
+    int h = (best - 1) * BUCKET_DEG + (int) (hue_acc / best_w);
+    h = ((h % 360) + 360) % 360;
+    int sv = (int) (sat_acc / best_w);
+    int vv = (int) (val_acc / best_w);
+    if (sv < 50) sv = 50;
+    if (sv > 90) sv = 90;
+    if (vv < 80) vv = 80;
+    lv_color_t rgb = lv_color_hsv_to_rgb((uint16_t) h, (uint8_t) sv, (uint8_t) vv);
+    *out_rgb = ((uint32_t) rgb.red << 16) | ((uint32_t) rgb.green << 8) | rgb.blue;
+    return true;
+}
+
 uint8_t * compute_reflection_bytes(const uint8_t * cover_bytes, int blur_radius, int blur_passes, int darken_num, int darken_den) {
     if (darken_den <= 0) darken_den = 1;
     if (blur_radius < 0) blur_radius = 0;
@@ -635,6 +707,8 @@ typedef struct {
      * re-read after a cover reload, whose tag-derived key may name a cache
      * file the reload did not delete. */
     bool force_source;
+    /* Filled at thread start from current_cover_file (see load_generated_player_cover()). */
+    cover_file_id_t shown_cover;
     uint8_t * picture_data; /* owned download buffer for streamed artwork */
     uint32_t picture_size;
 
@@ -694,6 +768,12 @@ static int cover_decode_result_blur_radius;
 static int cover_decode_result_blur_passes;
 static int cover_decode_result_darken_num;
 static int cover_decode_result_darken_den;
+static bool cover_decode_result_accent_valid;
+static uint32_t cover_decode_result_accent;
+/* The file the result came from, and whether it is the one already shown
+ * (then ok is true with no pixels and no reflection). */
+static cover_file_id_t cover_decode_result_file;
+static bool cover_decode_result_same;
 
 /* Helper called only from the UI thread when constructing a fresh decode request.
  * Resolves current layout frost parameters once and snapshots them into the request. */
@@ -800,9 +880,14 @@ static void player_cover_negative_cache_add(const char * path) {
 /* The generated player-size cache for these tags. require_fresh compares its
  * stored source mtime with this track's; a reload's fallback skips that, as
  * the file was just rebuilt, possibly from a sibling track with another mtime. */
+/* shown is the file already on screen: when it is this same file, nothing
+ * is decoded and *out_same is set instead of *out_pixels. The file is
+ * identified before it is read, so a rebuild racing the read can only cause
+ * an extra decode later, never a stale cover. */
 static bool load_generated_player_cover(const albumart_info_t * info, const char * track_path,
                                         unsigned int generation, bool require_fresh,
-                                        uint16_t ** out_pixels) {
+                                        const cover_file_id_t * shown, cover_file_id_t * out_id,
+                                        bool * out_same, uint16_t ** out_pixels) {
     char found[PATH_MAX];
     bool have = require_fresh
         ? albumart_generated_cache_fresh(info, ALBUMART_PLAYER_CACHE_SIZE, ALBUMART_PLAYER_CACHE_SIZE,
@@ -810,6 +895,17 @@ static bool load_generated_player_cover(const albumart_info_t * info, const char
         : albumart_generated_cache_find(info, ALBUMART_PLAYER_CACHE_SIZE, ALBUMART_PLAYER_CACHE_SIZE,
                                         found, sizeof(found));
     if (!have) return false;
+    struct stat st;
+    cover_file_id_t id = { .valid = false };
+    if (stat(found, &st) == 0) {
+        id = (cover_file_id_t) { true, st.st_dev, st.st_ino, st.st_mtime, st.st_size };
+    }
+    if (shown && cover_file_id_same(&id, shown)) {
+        *out_id = id;
+        *out_same = true;
+        DB_LOG("ART_PLAYER", "cache_same path=%s file=%s", track_path, found);
+        return true;
+    }
     uint8_t * data = NULL;
     uint32_t size = 0;
     if (albumart_load_file_ex(found, &data, &size, EXTERNAL_COVER_MAX_BYTES,
@@ -820,17 +916,20 @@ static bool load_generated_player_cover(const albumart_info_t * info, const char
         player_cover_decode_cancelled, (void *) (uintptr_t) generation, out_pixels);
     free(data);
     if (result != COVER_DECODE_OK) return false;
+    *out_id = id;
     DB_LOG("ART_PLAYER", "cache_hit path=%s file=%s", track_path, found);
     return true;
 }
 
 static bool load_cached_player_cover(const char * track_path, const char * artist, const char * album,
                                       const char * album_artist, unsigned int generation,
-                                      bool force_source, uint16_t ** out_pixels) {
+                                      bool force_source, const cover_file_id_t * shown,
+                                      cover_file_id_t * out_id, bool * out_same, uint16_t ** out_pixels) {
     if (player_cover_decode_cancelled((void *) (uintptr_t) generation)) return false;
     albumart_info_t info;
     albumart_info_from_path_tags(track_path, artist, album, album_artist, &info);
-    if (!force_source && load_generated_player_cover(&info, track_path, generation, true, out_pixels))
+    if (!force_source && load_generated_player_cover(&info, track_path, generation, true,
+                                                     shown, out_id, out_same, out_pixels))
         return true;
 
     if (player_cover_decode_cancelled((void *) (uintptr_t) generation)) return false;
@@ -854,7 +953,8 @@ static bool load_cached_player_cover(const char * track_path, const char * artis
     if (player_cover_decode_cancelled((void *) (uintptr_t) generation)) return false;
     /* A forced re-read prefers the track's own art, but a track without any
      * may still have album art the warmer rebuilt from a sibling track. */
-    if (force_source && load_generated_player_cover(&info, track_path, generation, false, out_pixels))
+    if (force_source && load_generated_player_cover(&info, track_path, generation, false,
+                                                    NULL, out_id, out_same, out_pixels))
         return true;
     /* Only remember a confirmed "no art anywhere" result -- a transient one
      * (coordinator busy, isolated-helper fork/timeout) must retry on the
@@ -892,6 +992,8 @@ static void * cover_decode_thread_func(void * arg) {
     cover_decode_request_t * req = (cover_decode_request_t *) arg;
     uint16_t * pixels = NULL;
     bool ok = false;
+    bool same = false;
+    cover_file_id_t file_id = { .valid = false };
 
     memset(&cover_decode_result_format, 0, sizeof(cover_decode_result_format));
     if (req->local_track_path[0]) {
@@ -924,17 +1026,22 @@ static void * cover_decode_thread_func(void * arg) {
         req->picture_data = NULL;
     } else if (req->local_track_path[0]) {
         ok = load_cached_player_cover(req->local_track_path, req->artist, req->album,
-                                       req->album_artist, req->generation, req->force_source, &pixels);
+                                       req->album_artist, req->generation, req->force_source,
+                                       &req->shown_cover, &file_id, &same, &pixels);
     }
 
     if (player_cover_decode_cancelled((void *) (uintptr_t) req->generation)) {
         free(pixels);
         pixels = NULL;
         ok = false;
+        same = false;
     }
 
+    uint32_t accent = 0;
+    bool accent_valid = ok && pixels && cover_accent_from_rgb565(pixels, &accent);
+
     uint8_t * reflection = NULL;
-    if (ok && !req->flat) {
+    if (ok && pixels && !req->flat) {
         reflection = compute_reflection_bytes((const uint8_t *) pixels,
                                               req->blur_radius,
                                               req->blur_passes,
@@ -954,6 +1061,10 @@ static void * cover_decode_thread_func(void * arg) {
     cover_decode_result_blur_passes = req->blur_passes;
     cover_decode_result_darken_num = req->darken_num;
     cover_decode_result_darken_den = req->darken_den;
+    cover_decode_result_accent_valid = accent_valid;
+    cover_decode_result_accent = accent;
+    cover_decode_result_file = file_id;
+    cover_decode_result_same = same;
     free(req);
     atomic_store_explicit(&cover_decode_running, false, memory_order_release);
     atomic_store_explicit(&cover_decode_done_flag, true, memory_order_release); /* written last -- poll_cover_decode() only checks this flag */
@@ -1002,6 +1113,9 @@ static void launch_cover_decode_req(cover_decode_request_t r) {
         return;
     }
     *req = r;
+    /* Snapshotted here, not when the request was made: a pending request
+     * may start after other covers were applied. */
+    req->shown_cover = current_cover_bytes ? current_cover_file : (cover_file_id_t) { .valid = false };
     atomic_store_explicit(&cover_decode_done_flag, false, memory_order_relaxed);
     cover_decode_active = true;
     /* Marked before the thread exists, so a reload worker can never see
@@ -1089,6 +1203,25 @@ void poll_cover_decode(void) {
     if (!result_generation_current || cover_decode_result_for_index != playlist_index) {
         free(cover_decode_result_pixels);
         free(cover_decode_result_reflection);
+    } else if (cover_decode_result_ok && cover_decode_result_same && current_cover_bytes &&
+               cover_file_id_same(&cover_decode_result_file, &current_cover_file)) {
+        /* Same cached file as the cover on screen (next track of the same
+         * album): the pixels, reflection, lock screen, drawer and accent
+         * already match. Only the owning queue slot moves on. */
+        free(cover_decode_result_pixels);
+        free(cover_decode_result_reflection);
+        current_cover_for_index = cover_decode_result_for_index;
+        gui_lyrics_on_cover_changed(playlist_index);
+    } else if (cover_decode_result_same) {
+        /* The shown cover changed after this worker started, so the result
+         * has no pixels to apply; decode this track's cover properly. */
+        if (last_local_cover_request_valid && !cover_decode_pending_valid) {
+            cover_decode_request_t retry = last_local_cover_request;
+            retry.generation = 0;
+            retry.picture_data = NULL;
+            cover_decode_pending = retry;
+            cover_decode_pending_valid = true;
+        }
     } else if (!cover_decode_result_ok) {
         free(cover_decode_result_reflection);
         /* Retarget every live image object before releasing the backing
@@ -1099,6 +1232,7 @@ void poll_cover_decode(void) {
         uint8_t * old_cover_bytes = current_cover_bytes;
         current_cover_bytes = NULL;
         current_cover_for_index = -1;
+        current_cover_file.valid = false;
         /* current_cover_dsc.data still points at the old pixels until it is
          * cleared below -- gui_player_get_current_cover_dsc() hands this same static
          * struct's address out to other callers (the lock screen), who keep
@@ -1134,11 +1268,13 @@ void poll_cover_decode(void) {
         }
         free(old_cover_bytes);
         gui_lock_screen_refresh_cover();
+        gui_theme_set_cover_accent(false, 0);
         player_transition_mark_dirty(); /* cover_img just changed to the placeholder -- see the cache's own doc comment */
     } else {
         free(current_cover_bytes);
         current_cover_bytes = (uint8_t *) cover_decode_result_pixels;
         current_cover_for_index = cover_decode_result_for_index;
+        current_cover_file = cover_decode_result_file; /* invalid unless it came from a generated cache file */
 
         /* lv_image_header_t.magic must be set to LV_IMAGE_HEADER_MAGIC;
          * otherwise LVGL's bin decoder treats a 0 magic value as a legacy
@@ -1227,6 +1363,7 @@ void poll_cover_decode(void) {
         /* Refresh lyrics screen backdrop now that current_cover_bytes has
          * been updated with new cover art. */
         gui_lyrics_on_cover_changed(playlist_index);
+        gui_theme_set_cover_accent(cover_decode_result_accent_valid, cover_decode_result_accent);
         player_transition_mark_dirty(); /* cover_img/player_overlay_panel's reflection just changed -- see the cache's own doc comment */
     }
 
@@ -4117,6 +4254,12 @@ void gui_player_init(uint32_t screen_width, uint32_t screen_height) {
     build_more_menu_popup();
     gui_track_info_init();
     player_screen = build_player_screen(screen_width, screen_height);
+    /* A UI reload keeps the decoded cover; show it again rather than the
+     * placeholder, since the next track of the same album skips decoding. */
+    if (current_cover_bytes && current_cover_dsc.data && cover_img) {
+        lv_image_set_src(cover_img, &current_cover_dsc);
+        fit_cover_img_to_card();
+    }
     /* Apply any player_layout_config already set (a plugin's top-level code
      * runs before this on boot/reload, per gui_plugin_set_player_layout()'s
      * own comment) to the freshly-built overlay right away, rather than

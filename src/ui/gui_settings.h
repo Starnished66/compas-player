@@ -9,6 +9,8 @@ lv_obj_t * gui_settings_get_power_screen(void);
 lv_obj_t * gui_settings_get_system_screen(void);
 lv_obj_t * gui_settings_get_about_screen(void);
 lv_obj_t * gui_settings_get_accent_screen(void);
+/* Refreshes the Accent Color screen after any accent change (gui_theme.c). */
+void gui_settings_accent_changed(void);
 lv_obj_t * gui_settings_get_custom_font_screen(void);
 lv_obj_t * gui_settings_get_eq_screen(void);
 

@@ -52,6 +52,7 @@ typedef struct {
     int play_pause_button_mode;
 
     uint32_t accent_color;     /* packed 0xRRGGBB, applied to sliders/switches app-wide */
+    bool accent_dynamic;       /* "Match album art": the playing cover's color replaces accent_color while shown */
     bool crossfade_enabled;    /* if true, fade into the next queued track near the current one's end */
 
     /* Default true -- gapless is this pipeline's normal behavior, not an

@@ -85,6 +85,7 @@ static void set_defaults(player_settings_t * out) {
     out->resume_mode = 0;
     out->play_pause_button_mode = 0;
     out->accent_color = 0x2196F3; /* matches the app's existing default blue */
+    out->accent_dynamic = false;
     out->crossfade_enabled = false;
     out->gapless_enabled = true; /* on by default -- see settings.h */
     out->replaygain_mode = 1; /* Per Track -- preserves the old replaygain_enabled=true default */
@@ -307,6 +308,8 @@ bool settings_load(player_settings_t * out) {
             out->play_pause_button_mode = atoi(value);
         } else if (strcmp(key, "accent_color") == 0) {
             out->accent_color = (uint32_t) strtoul(value, NULL, 16);
+        } else if (strcmp(key, "accent_dynamic") == 0) {
+            out->accent_dynamic = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "crossfade") == 0) {
             out->crossfade_enabled = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "gapless") == 0) {
@@ -543,6 +546,7 @@ static void settings_write_file(const player_settings_t * settings) {
     fprintf(f, "resume_mode=%d\n", settings->resume_mode);
     fprintf(f, "play_pause_button_mode=%d\n", settings->play_pause_button_mode);
     fprintf(f, "accent_color=%06X\n", (unsigned int) (settings->accent_color & 0xFFFFFF));
+    fprintf(f, "accent_dynamic=%d\n", settings->accent_dynamic ? 1 : 0);
     fprintf(f, "crossfade=%d\n", settings->crossfade_enabled ? 1 : 0);
     fprintf(f, "gapless=%d\n", settings->gapless_enabled ? 1 : 0);
     fprintf(f, "replaygain_mode=%d\n", settings->replaygain_mode);

@@ -487,6 +487,16 @@ uint64_t albumart_artist_thumbnail_key(const char * artist) {
     return hash;
 }
 
+/* A generated album cache is stale only when its source changed after the
+ * version it was built from. Every track of an album carries its own mtime
+ * but shares one cache, so demanding an exact match rebuilt the cache from
+ * embedded art on nearly every track change. A newer source still means a
+ * retag or a new cover file; an older file copied over the source is left to
+ * Reload cover. */
+static bool generated_source_newer(uint32_t stored, uint32_t source_mtime) {
+    return stored != 0 && source_mtime != 0 && source_mtime > stored;
+}
+
 bool albumart_sized_thumb_fresh_with_source_mtime(const albumart_info_t * info, int width, int height,
                                                    uint32_t source_mtime, char * found, size_t found_size) {
     if (!info || !found || width <= 0 || height <= 0) return false;
@@ -500,7 +510,7 @@ bool albumart_sized_thumb_fresh_with_source_mtime(const albumart_info_t * info, 
      * a valid replacement after this function opened the old inode, and an
      * unlink at this point would delete that fresh file. */
     if (!bmp_source_mtime(found, width, height, &stored)) return false;
-    if (stored != 0 && source_mtime != 0 && stored != source_mtime) return false;
+    if (generated_source_newer(stored, source_mtime)) return false;
     return true;
 }
 
@@ -547,8 +557,7 @@ bool albumart_generated_cache_fresh(const albumart_info_t * info, int width, int
 
     uint32_t stored = 0;
     if (!bmp_source_mtime(path, width, height, &stored)) return false;
-    uint32_t src = albumart_source_mtime(info);
-    if (stored != 0 && src != 0 && stored != src) return false;
+    if (generated_source_newer(stored, albumart_source_mtime(info))) return false;
     strmemccpy_local(found, path, found_size);
     return found[0] != '\0';
 }

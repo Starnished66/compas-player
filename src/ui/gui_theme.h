@@ -42,7 +42,6 @@ typedef enum {
 } gui_font_role_t;
 
 extern const uint32_t accent_palette[ACCENT_PALETTE_COUNT];
-void gui_theme_register_accent_swatch(int index, lv_obj_t * swatch);
 
 
 void gui_theme_init(void);
@@ -54,7 +53,15 @@ lv_style_t * gui_theme_accent_knob_style(void);
 lv_style_t * gui_theme_accent_outline_style(void);
 lv_style_t * gui_theme_muted_text_style(void);
 const lv_font_t * gui_theme_font(gui_font_role_t role);
+/* The accent in use: the saved pick, or the playing cover's color while
+ * "Match album art" is on and a cover is showing. */
 lv_color_t accent_lv_color(void);
+uint32_t gui_theme_accent_rgb(void);
+/* Saves rgb as the user's accent and turns "Match album art" off. */
 void gui_theme_apply_accent(uint32_t rgb);
+void gui_theme_set_accent_dynamic(bool on);
+/* The player reports each applied cover's color; valid is false while no
+ * cover art is showing. Never saved. */
+void gui_theme_set_cover_accent(bool valid, uint32_t rgb);
+bool gui_theme_cover_accent(uint32_t * out_rgb);
 void gui_theme_update_surface_contrast(void);
-void accent_swatch_event_cb(lv_event_t * e);

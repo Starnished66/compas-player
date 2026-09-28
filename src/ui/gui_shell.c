@@ -2557,7 +2557,10 @@ bool active_press_is_over_drag_adjust_widget(void) {
  * starting on non-clickable card containers near sliders from triggering
  * swipe transitions. Capacity accommodates native sliders and dynamic
  * plugin settings list sliders. */
-#define SWIPE_DEAD_ZONE_MAX 16
+/* 11 native slider cards, up to 8 plugin settings sliders
+ * (PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE x PLUGIN_SETTINGS_LIST_MAX_SLIDERS),
+ * and the accent color picker, with headroom. */
+#define SWIPE_DEAD_ZONE_MAX 32
 static lv_obj_t * swipe_dead_zones[SWIPE_DEAD_ZONE_MAX];
 static int swipe_dead_zone_count = 0;
 
@@ -4972,9 +4975,12 @@ void gui_shell_refresh_quick_drawer_toggle_accent(void) {
     if (quick_drawer_wifi_icon)
         lv_image_set_src(quick_drawer_wifi_icon,
                          quick_drawer_toggle_src(QD_TOGGLE_WIFI, gui_shell_wifi_effective_enabled()));
+    /* Cached state: a live bt_control_is_powered() query runs bluetoothctl
+     * and can block this UI-thread path, which "Match album art" reaches on
+     * track changes. */
     if (quick_drawer_bt_icon)
         lv_image_set_src(quick_drawer_bt_icon,
-                         quick_drawer_toggle_src(QD_TOGGLE_BT, bt_control_is_powered()));
+                         quick_drawer_toggle_src(QD_TOGGLE_BT, bt_is_powered_cached));
     if (quick_drawer_sleep_icon)
         lv_image_set_src(quick_drawer_sleep_icon,
                          quick_drawer_toggle_src(QD_TOGGLE_SLEEP, sleep_timer_active));

@@ -29,6 +29,17 @@
 #define SCROLL_ANIM_TIME_MIN 100
 #define SCROLL_ANIM_TIME_MAX 200
 
+/* Stock switches, sliders, rollers, and dropdowns still wear LVGL's default
+ * theme, which grows a pressed control and fades its state colors over
+ * 80 ms. On this software renderer that reads as a late response to the
+ * touch, so pressed and checked states apply on the same frame. */
+#define LV_THEME_DEFAULT_GROW 0
+#define LV_THEME_DEFAULT_TRANSITION_TIME 0
+
+/* The accent picker's hue bar is one seven-stop gradient (red, yellow,
+ * green, cyan, blue, magenta, red). LVGL's default allows two stops. */
+#define LV_GRADIENT_MAX_STOPS 8
+
 /* Memory management: Use standard C library functions */
 #define LV_USE_STDLIB_MALLOC  LV_STDLIB_CLIB
 #define LV_USE_STDLIB_STRING  LV_STDLIB_CLIB
