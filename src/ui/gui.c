@@ -16,6 +16,7 @@
 #include "gui_network.h"
 #include "gui_books.h"
 #include "gui_text_input.h"
+#include "gui_text_view.h"
 #include "gui_lyrics.h"
 #include "gui_track_info.h"
 #include "gui_subsonic.h"
@@ -1592,6 +1593,7 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
 
 /* files_search and artist_albums initialized in gui_library_init */
     gui_text_input_init();
+    gui_text_view_init();
     stream_media_screen = build_stream_media_screen();
 
 

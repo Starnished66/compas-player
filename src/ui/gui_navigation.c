@@ -12,6 +12,7 @@
 #include "gui_shell.h"
 #include "gui_books.h"
 #include "gui_lock_screen.h"
+#include "gui_text_view.h"
 #include "screen_builders.h"
 #include "metadata.h"
 #include "audio.h"
@@ -936,12 +937,20 @@ void nav_push_stack_only(lv_obj_t * scr) {
     if (nav_depth < NAV_STACK_MAX) nav_stack[nav_depth++] = scr;
 }
 
+/* A covered text view is already unloaded, so dropping its stack entry
+ * never delivers another LV_EVENT_SCREEN_UNLOADED. on_close stays queued
+ * until a slide already in progress has finished. */
+static void note_text_view_if_dropped(void) {
+    gui_text_view_note_nav_removed();
+}
+
 void nav_pop_ex(bool forward, bool vertical, bool reveal) {
     if (nav_depth > 1) nav_depth--;
     /* Keep the outgoing screen's bars untouched until its physical frame
      * has been captured. The transition completion/cut-fallback path
      * applies the destination state at the actual screen handoff. */
     screen_transition_slide_ex(nav_stack[nav_depth - 1], forward, vertical, reveal);
+    note_text_view_if_dropped();
 }
 
 void nav_pop(void) {
@@ -950,6 +959,7 @@ void nav_pop(void) {
 
 void nav_pop_stack_only(void) {
     if (nav_depth > 1) nav_depth--;
+    note_text_view_if_dropped();
 }
 
 /* Splices the stack slot at `index` out entirely (shifting everything
@@ -963,6 +973,7 @@ void nav_pop_stack_only(void) {
 void nav_remove_stack_slot(int index) {
     for (int i = index; i < nav_depth - 1; i++) nav_stack[i] = nav_stack[i + 1];
     if (nav_depth > 0) nav_depth--;
+    note_text_view_if_dropped();
 }
 
 /* Collapses the whole nav stack back to Home -- used after a library rescan,
@@ -993,11 +1004,13 @@ void nav_reset_to_home(void) {
     lv_screen_load(target);
     sync_player_topbar_visibility(target);
     sync_home_indicator_visibility(target);
+    note_text_view_if_dropped();
 }
 
 void nav_reset_to_home_stack_only(void) {
     nav_depth = 1;
     nav_stack[0] = nav_home_target();
+    note_text_view_if_dropped();
 }
 
 /* Shared back-button handler for every screen built via the reusable
@@ -1198,6 +1211,13 @@ lv_obj_t * gui_navigation_get_screen_at(int index) {
 
 bool gui_navigation_is_top(lv_obj_t * screen) {
     return (nav_depth > 0 && nav_stack[nav_depth - 1] == screen);
+}
+
+bool gui_navigation_contains(lv_obj_t * screen) {
+    for (int i = 0; i < nav_depth; i++) {
+        if (nav_stack[i] == screen) return true;
+    }
+    return false;
 }
 
 void gui_navigation_remove_screen_instances(lv_obj_t ** screens, int count) {

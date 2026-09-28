@@ -7,7 +7,7 @@
 /* Plugin API version definition.
  * Plugins can declare api_min to require specific API features.
  * Sandboxed Lua states restrict filesystem and OS execution access. */
-#define PLUGIN_API_VERSION 13
+#define PLUGIN_API_VERSION 14
 #define PLUGIN_LIST_SCREEN_POOL_SIZE 4
 
 /* Third-party Lua plugin support. Every *.lua file under

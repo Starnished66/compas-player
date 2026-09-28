@@ -94,6 +94,7 @@
 #include "gui_player.h"
 #include "gui_lyrics.h"
 #include "gui_text_input.h"
+#include "gui_text_view.h"
 #include "gui_subsonic.h"
 #include "gui_library.h"
 #include "gui_network.h"
@@ -162,6 +163,7 @@ void gui_soft_reload(void) {
     gui_lyrics_teardown();
     reload_diag("gui_text_input_teardown: before");
     gui_text_input_teardown();
+    gui_text_view_teardown();
     reload_diag("gui_subsonic_teardown: before");
     gui_subsonic_teardown();
     reload_diag("gui_library_teardown: before");
@@ -205,6 +207,7 @@ void gui_soft_reload(void) {
     gui_lyrics_init();
     reload_diag("gui_text_input_init: before");
     gui_text_input_init();
+    gui_text_view_init();
     reload_diag("gui_stream_media_rebuild: before");
     gui_stream_media_rebuild();
     reload_diag("gui_subsonic_init: before");

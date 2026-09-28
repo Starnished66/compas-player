@@ -13,6 +13,7 @@
 #include "gui_lyrics.h"
 #include "gui_track_info.h"
 #include "gui_text_input.h"
+#include "gui_text_view.h"
 #include "gui_navigation.h"
 #include "gui_lock_screen.h"
 #include "gesture_detector.h"
@@ -2798,6 +2799,7 @@ static void poll_quick_drawer_drag(lv_timer_t * timer) {
                                   lv_screen_active() != gui_lyrics_get_screen() &&
                                   lv_screen_active() != gui_track_info_get_screen() &&
                                   lv_screen_active() != gui_lock_screen_get_screen() &&
+                                  lv_screen_active() != gui_text_view_get_screen() &&
                                   !gui_library_navigation_blocked() &&
                                   !player_swipe_press_excluded(p);
         player_swipe_touch_start_x = p.x;
@@ -2821,6 +2823,7 @@ static void poll_quick_drawer_drag(lv_timer_t * timer) {
                                 gui_navigation_get_depth() > 1 &&
                                 lv_screen_active() != gui_lock_screen_get_screen() &&
                                 lv_screen_active() != gui_text_input_get_screen() &&
+                                lv_screen_active() != gui_text_view_get_screen() &&
                                 lv_screen_active() != gui_network_get_usb_dac_overlay() &&
                                 lv_screen_active() != gui_network_get_bt_dac_overlay() &&
                                 lv_screen_active() != gui_network_get_import_wifi_screen() &&

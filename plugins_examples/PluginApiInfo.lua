@@ -10,7 +10,7 @@ local CAPABILITIES = {
     "network.http.download", "filesystem.mkdir", "crypto.md5", "audio.peq", "data.json",
     "storage.namespaced", "storage.secrets", "playback.remote", "filesystem.playlists", "library.refresh",
     "ui.home_layout", "ui.theme_refresh", "ui.reload", "ui.home_tiles", "ui.launcher_layout",
-    "ui.home_background", "audio.hw_volume_curve"
+    "ui.home_background", "audio.hw_volume_curve", "data.zip", "data.html", "ui.text_view"
 }
 
 local CATEGORIES = {

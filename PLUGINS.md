@@ -223,12 +223,12 @@ from the moment your script starts running (injected before
 |---|---|
 | Identity | `define`, `api_version`, `has_capability`, `get_app_info`, `media_capabilities` |
 | Hardware | `led_available`, `led_set`, `led_blink`, `led_breathe`, `led_get`, `led_status`, `led_release` |
-| UI | `register_list_item`, `register_stream_media_tile`, `register_home_tile`, `register_quick_toggle`, `set_quick_toggle`, `show_list`, `show_settings_list`, `show_text_input`, `show_toast`, `screenshot` |
+| UI | `register_list_item`, `register_stream_media_tile`, `register_home_tile`, `register_quick_toggle`, `set_quick_toggle`, `show_list`, `show_settings_list`, `show_text_input`, `show_text_view`, `show_toast`, `screenshot` |
 | Theme | `set_icon`, `set_background_color`, `set_text_color`, `set_home_layout`, `refresh_theme`, `reload_ui` |
 | Playback | `play_file`, `play_list`, `play_remote`, `queue_remote_list`, transport controls, playback state |
 | Files & Playlists | `sd_root`, `list_dir`, `mkdir`, `playlist_list`, `playlist_read`, `playlist_create`, `playlist_add`, `playlist_remove`, `playlist_delete` |
 | Storage & Secrets | `storage.get`/`set`/`delete`/`list`, `secrets.set`/`exists`/`delete` |
-| Data & Crypto | `json_decode`, `json_encode`, `md5` |
+| Data & Crypto | `json_decode`, `json_encode`, `md5`, `zip_read`, `zip_list`, `html_to_blocks` |
 | Library | `get_artist_albums`, `get_album_tracks`, `get_next_album_tracks`, `library_song_count`, `library_get_songs`, `library_search`, `library_get_song`, `library_get_artists`, `library_get_albums`, `refresh_library` |
 | Audio | `eq_load_profile`, `eq_save_profile`, `eq_set_*`, `eq_reset` |
 | Network | `http_request`, `download_file_async`, `cancel`, legacy `http_get`/`http_post` |
@@ -262,15 +262,15 @@ plugin's own file path (stable across reloads) rather than by load order.
 Existing plugins without `define()` remain supported as legacy plugins
 using an identity derived from their filename.
 
-- `plugin.api_version()` returns the current integer plugin API version (currently `13`).
+- `plugin.api_version()` returns the current integer plugin API version (currently `14`).
 - `plugin.has_capability(name)` reports whether an optional interface exists.
   Supported capability tokens:
-  - UI: `ui.list`, `ui.settings`, `ui.row_width`, `ui.text_input`, `ui.toast`, `ui.theme`, `ui.home_layout`, `ui.launcher_layout`, `ui.home_background`, `ui.lock_screen`
+  - UI: `ui.list`, `ui.settings`, `ui.row_width`, `ui.text_input`, `ui.toast`, `ui.theme`, `ui.home_layout`, `ui.launcher_layout`, `ui.home_background`, `ui.lock_screen`, `ui.text_view`
   - Playback & Audio: `playback.control`, `playback.state`, `playback.events`, `playback.remote`, `audio.peq`, `audio.hw_volume_curve`
   - Filesystem & Playlists: `filesystem.sd`, `filesystem.mkdir`, `filesystem.playlists`
   - Storage & Secrets: `storage.namespaced`, `storage.secrets`
   - Network: `network.http.sync`, `network.http.async`, `network.http.download`
-  - Data & Crypto: `data.json`, `crypto.md5`
+  - Data & Crypto: `data.json`, `crypto.md5`, `data.zip`, `data.html`
   - Library: `library.artist_albums`, `library.paged`, `library.refresh`
 - LED availability varies by board, so use `plugin.led_available()` instead
   of `plugin.has_capability()` to check for the red and blue charge LEDs.
@@ -391,6 +391,15 @@ New in API 13: the plugin LED controls, `plugin.get_volume()`,
 `suspending`, and `system_resumed` events. LED hardware presence is
 board-specific, so there is no static `led` capability token; use
 `plugin.led_available()` for the actual sysfs nodes.
+
+#### API version 14 changelog
+
+New in API 14: `plugin.zip_read()` / `plugin.zip_list()`,
+`plugin.html_to_blocks()`, and `plugin.show_text_view()` (see their own
+doc sections). Purely additive. A plugin that only needs one of them can
+feature-detect it with `plugin.has_capability("data.zip")`,
+`plugin.has_capability("data.html")`, or
+`plugin.has_capability("ui.text_view")` instead of bumping `api_min`.
 
 ### `plugin.register_quick_toggle(id, label, on_change, options)`
 
@@ -1695,6 +1704,56 @@ with Back releases ownership. Chaining calls from within `on_submit` itself
 (for example username followed by password) works because the first request is
 released before its callback runs.
 
+### `plugin.zip_read(path, entry)` / `plugin.zip_list(path)`
+
+`plugin.zip_read(path, entry)` reads one ZIP entry without writing a temporary file.
+
+- `path` (string): any file the process can read; a path reserved for `plugin.storage` / `plugin.secrets` raises the same error as `plugin.list_dir`.
+- `entry` (string): the exact central-directory name (case-sensitive, no slash normalization, the first match wins).
+
+Returns `bytes, info` with `info.method` 0 (stored) or 8 (deflate), `info.compressed`, and `info.uncompressed`. Returns `nil, reason` otherwise. Reasons: `not_found`, `encrypted`, `zip64_unsupported`, `unsupported_method`, `corrupt`, `crc_mismatch`, `entry_too_large`, `io_error`, `nomem`. Both the compressed and uncompressed sizes are capped at 256 KiB; a larger declared size is `entry_too_large` and is never allocated. ZIP64, encryption, and any method other than store or raw deflate are rejected. The central directory itself is capped at 256 KiB and 2,000 entries.
+
+`plugin.zip_list(path)` returns a 1-based array of entry names in central-directory order, including directory names. An empty archive is an empty table.
+
+- `path` (string): path to the ZIP archive; the same path error as `zip_read` applies.
+
+The same `nil, reason` failures as `zip_read` apply (`not_found` is not used). Names inside encrypted or ZIP64 entries are still listed; reading those entries fails with the reasons above. More than 2,000 entries, or a central directory bigger than 256 KiB, is `corrupt`.
+
+### `plugin.html_to_blocks(bytes [, options])`
+
+Turns one HTML or XHTML chapter into a flat list of blocks.
+
+- `bytes` (string): input bytes. Input above 512 KiB returns `nil, "input_too_large"` and is not scanned.
+- `options` (table, optional): if passed, must be a table and is currently ignored.
+
+The result is an array of `{ kind, level, text }` plus a boolean `truncated` field on that same table.
+
+- `kind` is `"p"` (`p`, `div`, `li`, `blockquote`), `"h"` (`h1`–`h6`, `level` 1–6), `"img"` (`text` is the `src`, `alt` is the alt text, possibly `""`), or `"hr"`.
+- `script`, `style`, `head`, comments, and processing instructions are dropped. CDATA markers are dropped and the CDATA text is kept.
+- Named entities `amp lt gt quot apos nbsp mdash ndash hellip lsquo rsquo ldquo rdquo` (semicolon required) and numeric entities are decoded.
+- Whitespace collapses to a single space; `<br>` is a newline inside the block.
+- A leading UTF-8 BOM is skipped. Invalid UTF-8 bytes become `?`.
+- At most 2,000 blocks and 256 KiB of output text; past that, `truncated` is true and the rest is dropped. Other failures are `nil, "bad_args"` or `nil, "nomem"`.
+
+### `plugin.show_text_view(title, text [, options])`
+
+Opens one paged reading screen.
+
+- `title` (string): the screen's header text.
+- `text` (string): at most 256 KiB; a longer string is cut on a UTF-8 boundary.
+- `options` (table, optional):
+  - `page` (number): 1-based start page and wins over `options.offset`.
+  - `offset` (number): byte offset, snapped to a UTF-8 boundary.
+  - `font_px` (number): accepted and ignored, because the font stack does not build arbitrary sizes.
+  - `on_turn` (function): `options.on_turn(page, pages, byte_offset)` runs shortly after the screen opens (never inside the `show_text_view` call itself), after every page change, and once more when the page count becomes final if that count changed. While a `page` or `offset` start position is still being paginated it is not reported, so a saved position is not overwritten by a provisional page.
+  - `on_close` (function): `options.on_close(page, byte_offset)` runs after the view closes and its back animation finishes, including when another navigation (such as swipe-up to Home) dismisses it. A screen opened on top, such as the lock screen, only covers the view. If it closes before a start `offset` was reached, `byte_offset` is that requested offset.
+
+The body font is the current Font Size tier (CJK, Thai, and emoji fallbacks included). Returns `true`, or `false, "busy"` if a view is already open, or `false, "unavailable"` if the screen was not created or a screen transition is still animating.
+
+Tap the right third or swipe left for the next page; tap the left third or swipe right for the previous page. Swipe right on the first page, or the header Back button, closes it. The usual app-wide swipe-to-player and swipe-back are disabled on this screen so those drags can turn pages. A small footer shows `page / pages`, or `page / ...` until pagination finishes. Past 8192 pages the footer shows `page / 8192+` and bytes after the last real page are not shown. Pagination is incremental (a few milliseconds per turn of the UI timer) so a 256 KiB chapter does not stall the open call.
+
+`options.on_close` does not run on a plugin reload; the callbacks are released without being called. Both callbacks run on the UI thread under the normal plugin time budget. A reload or teardown closes the screen and drops the Lua refs.
+
 ### `plugin.get_now_playing()`
 
 Returns `title, artist, album, duration_seconds` for whatever's currently
@@ -1907,6 +1966,7 @@ one will visibly stall the whole UI until it returns, same tradeoff
 | `AsyncHttp.lua` | Bounded requests and cancellation |
 | `PluginApiInfo.lua` | Identity, version, and capability discovery |
 | `NestedLists.lua` | Nested callback ownership and text-input busy handling |
+| `EpubReader.lua` | Books row, ZIP/HTML primitives, paged reading, saved position |
 
 The summaries below explain when each example is useful and call out its
 important implementation details.
@@ -2010,6 +2070,8 @@ few optional interfaces in a list.
 `plugins_examples/NestedLists.lua` exercises the corrected per-screen callback
 ownership: open a child list, go Back, and the parent callback remains active.
 It also demonstrates the success/busy return contract of `show_text_input()`.
+
+`plugins_examples/EpubReader.lua` is a Books-screen reader for unencrypted EPUB files under `<SD card>/Books` (that folder and one level of subfolders, 200 files). It reads `META-INF/container.xml` and the OPF with `zip_read`, shows the spine in `show_list` using NCX or nav titles when those hrefs match, turns each chapter into paragraphs with `html_to_blocks`, and opens `show_text_view`. `on_turn` stores the spine index and byte offset in `plugin.storage`, and a `Continue reading` row reopens that place. It needs API 14 (`data.zip`, `data.html`, `ui.text_view`).
 
 <a id="testing"></a>
 

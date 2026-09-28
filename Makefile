@@ -571,7 +571,7 @@ TARGET_LDFLAGS = -static -no-pie -lpthread -lm
 # streaming), library/ (metadata/file browsing/playlists), hardware/ (device
 # control), ui/ (gui/screens/assets/fonts), core/ (settings, subprocess,
 # misc). main.c stays at src/ root as the entry point.
-APP_SRCS = src/main.c src/ui/gui.c src/ui/gui_subsonic.c src/ui/gui_settings.c src/ui/gui_network.c src/ui/gui_theme.c src/ui/gui_notifications.c src/ui/gui_library.c src/ui/gui_queue.c src/ui/gui_player.c src/ui/gui_track_info.c src/ui/gui_plugins.c src/ui/gui_shell.c src/ui/gui_navigation.c src/ui/gui_books.c src/ui/gui_text_input.c src/ui/gui_lyrics.c src/ui/gui_reload.c src/audio/audio.c src/library/file_browser.c src/hardware/hw_buttons.c src/hardware/input_device_utils.c src/library/metadata.c src/library/metadata_db.c src/core/settings.c src/core/screenshot.c src/core/app_version.c src/audio/aiff_decoder.c src/audio/dsd_filter.c src/audio/dsd_decoder.c src/audio/aac_decoder.c src/audio/mp4_demux.c src/audio/ape_demux.c src/audio/ape_decoder.c src/audio/peq.c src/ui/assets.c src/ui/screen_builders.c src/hardware/battery.c src/network/wifi_status.c src/network/ca_bundle.c src/network/http_conn.c src/network/http_client.c src/network/http_stream.c src/network/subsonic_client.c src/library/cover_decode.c src/library/lyrics.c src/audio/asf_demux.c src/audio/wma_decoder.c src/audio/ogg_demux.c src/audio/opus_decoder.c src/audio/vorbis_decoder.c src/library/cue_parser.c src/ui/fallback_font.c \
+APP_SRCS = src/main.c src/ui/gui.c src/ui/gui_subsonic.c src/ui/gui_settings.c src/ui/gui_network.c src/ui/gui_theme.c src/ui/gui_notifications.c src/ui/gui_library.c src/ui/gui_queue.c src/ui/gui_player.c src/ui/gui_track_info.c src/ui/gui_plugins.c src/ui/gui_shell.c src/ui/gui_navigation.c src/ui/gui_books.c src/ui/gui_text_input.c src/ui/gui_lyrics.c src/ui/gui_reload.c src/audio/audio.c src/library/file_browser.c src/hardware/hw_buttons.c src/hardware/input_device_utils.c src/library/metadata.c src/library/metadata_db.c src/core/settings.c src/core/screenshot.c src/core/app_version.c src/audio/aiff_decoder.c src/audio/dsd_filter.c src/audio/dsd_decoder.c src/audio/aac_decoder.c src/audio/mp4_demux.c src/audio/ape_demux.c src/audio/ape_decoder.c src/audio/peq.c src/ui/assets.c src/ui/screen_builders.c src/hardware/battery.c src/network/wifi_status.c src/network/ca_bundle.c src/network/http_conn.c src/network/http_client.c src/network/http_stream.c src/network/subsonic_client.c src/library/cover_decode.c src/library/lyrics.c src/audio/asf_demux.c src/audio/wma_decoder.c src/audio/ogg_demux.c src/audio/opus_decoder.c src/audio/vorbis_decoder.c src/library/cue_parser.c src/ui/fallback_font.c src/ui/gui_text_view.c \
 src/core/subprocess.c src/network/wifi_control.c src/network/bluetooth_control.c src/network/hiby_sys_server.c src/hardware/backlight.c src/network/import_web.c src/network/airplay_control.c src/network/airplay_bridge.c src/network/airplay_metadata.c src/hardware/headphone_status.c src/hardware/device_config.c src/hardware/led_control.c src/hardware/charge_limiter.c src/core/idle_shutdown.c src/hardware/power_suspend.c src/core/text_reader.c src/hardware/usb_mode_control.c src/hardware/usb_dac_bridge.c src/hardware/usb_audio_output.c src/core/firmware_update.c src/library/playlist_files.c src/library/favorite_writer.c src/network/firmware_ota.c src/core/timezone_data.c src/core/timezone_apply.c src/core/hostname_apply.c src/network/dlna_control.c src/network/remote_control.c src/network/catalog_source_cache.c src/network/remote_control_mdns.c src/plugins/plugin_manager.c
 APP_SRCS += src/ui/lyrics_layout.c src/ui/transition_compositor.c src/ui/frosted_glass.c src/ui/hw_volume_coalesce.c
 APP_SRCS += src/core/storage_migration.c src/core/sd_fsck.c src/core/sd_fsck_run.c
@@ -581,7 +581,7 @@ APP_SRCS += src/library/remote_track.c
 APP_SRCS += src/library/queue_resume.c
 APP_SRCS += src/audio/track_probe.c
 APP_SRCS += src/library/albumart.c src/library/tagcache.c src/library/path_cache.c src/library/remote_state.c src/library/subsonic_saved_servers.c src/library/artwork_coordinator.c
-APP_SRCS += src/core/utf8_util.c src/core/app_clock.c src/core/db_log.c
+APP_SRCS += src/core/utf8_util.c src/core/app_clock.c src/core/db_log.c src/core/zip_reader.c src/core/html_blocks.c
 APP_SRCS += src/ui/gesture_detector.c
 APP_SRCS += src/network/bluetooth_reconnect.c
 APP_CXX_SRCS = src/audio/alac_decoder.cpp
@@ -1071,6 +1071,24 @@ sd-fsck-selftest:
 	    src/core/sd_fsck_test.c src/core/sd_fsck.c \
 	    -o $(BUILD_TARGET_DIR)/sd_fsck_test
 	./$(BUILD_TARGET_DIR)/sd_fsck_test
+
+.PHONY: zip-reader-selftest
+zip-reader-selftest:
+	@mkdir -p $(BUILD_TARGET_DIR)
+	$(CC) -std=gnu11 -O0 -g -Wall -Wextra -Werror -DHOST_BUILD=1 -D_FILE_OFFSET_BITS=64 \
+	    -I. -Isrc/core -Itinfl -DMINIZ_NO_DEFLATE_APIS -DMINIZ_NO_ARCHIVE_APIS \
+	    src/core/zip_reader_test.c src/core/zip_reader.c tinfl/miniz_tinfl.c \
+	    -o $(BUILD_TARGET_DIR)/zip_reader_test
+	./$(BUILD_TARGET_DIR)/zip_reader_test
+
+.PHONY: html-blocks-selftest
+html-blocks-selftest:
+	@mkdir -p $(BUILD_TARGET_DIR)
+	$(CC) -std=gnu11 -O0 -g -Wall -Wextra -Werror -DHOST_BUILD=1 \
+	    -I. -Isrc/core \
+	    src/core/html_blocks_test.c src/core/html_blocks.c src/core/utf8_util.c \
+	    -o $(BUILD_TARGET_DIR)/html_blocks_test
+	./$(BUILD_TARGET_DIR)/html_blocks_test
 
 .PHONY: storage-migration-selftest
 storage-migration-selftest:
