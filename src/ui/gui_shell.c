@@ -291,7 +291,7 @@ static void quick_drawer_animate_expansion(bool expand) {
     lv_anim_init(&a);
     lv_anim_set_var(&a, quick_drawer_expansion_box);
     lv_anim_set_values(&a, quick_drawer_expansion_y, target);
-    lv_anim_set_duration(&a, QUICK_DRAWER_ANIM_MS);
+    lv_anim_set_duration(&a, gui_anim_ms(QUICK_DRAWER_ANIM_MS));
     lv_anim_set_exec_cb(&a, quick_drawer_expansion_anim_cb);
     lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
     lv_anim_set_completed_cb(&a, quick_drawer_expansion_anim_done_cb);
@@ -2283,7 +2283,7 @@ void open_quick_drawer(void) {
     lv_anim_init(&a);
     lv_anim_set_var(&a, quick_drawer);
     lv_anim_set_values(&a, quick_drawer_motion_y(), 0);
-    lv_anim_set_duration(&a, QUICK_DRAWER_ANIM_MS);
+    lv_anim_set_duration(&a, gui_anim_ms(QUICK_DRAWER_ANIM_MS));
     lv_anim_set_exec_cb(&a, quick_drawer_anim_y_cb);
     lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
     lv_anim_set_completed_cb(&a, quick_drawer_anim_done_cb);
@@ -2303,7 +2303,7 @@ void close_quick_drawer(void) {
     lv_anim_set_var(&a, quick_drawer);
     quick_drawer_begin_bitmap_motion();
     lv_anim_set_values(&a, quick_drawer_motion_y(), -h);
-    lv_anim_set_duration(&a, QUICK_DRAWER_ANIM_MS);
+    lv_anim_set_duration(&a, gui_anim_ms(QUICK_DRAWER_ANIM_MS));
     lv_anim_set_exec_cb(&a, quick_drawer_anim_y_cb);
     lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
     lv_anim_set_completed_cb(&a, quick_drawer_anim_done_cb);
@@ -3173,7 +3173,7 @@ static void poll_quick_drawer_drag(lv_timer_t * timer) {
         lv_anim_set_var(&a, home_swipe_ctx);
         lv_anim_set_user_data(&a, home_swipe_ctx);
         lv_anim_set_values(&a, current_v, commit ? -h : 0);
-        lv_anim_set_duration(&a, QUICK_DRAWER_ANIM_MS);
+        lv_anim_set_duration(&a, gui_anim_ms(QUICK_DRAWER_ANIM_MS));
         lv_anim_set_exec_cb(&a, slide_transition_anim_x_cb);
         lv_anim_set_completed_cb(&a, slide_transition_done_cb);
         lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
@@ -3215,7 +3215,7 @@ static void poll_quick_drawer_drag(lv_timer_t * timer) {
         lv_anim_set_var(&a, player_swipe_ctx);
         lv_anim_set_user_data(&a, player_swipe_ctx);
         lv_anim_set_values(&a, current_v, commit ? -w : 0);
-        lv_anim_set_duration(&a, QUICK_DRAWER_ANIM_MS); /* short settle, same duration class as the drawer's own release-snap */
+        lv_anim_set_duration(&a, gui_anim_ms(QUICK_DRAWER_ANIM_MS)); /* short settle, same duration class as the drawer's own release-snap */
         lv_anim_set_exec_cb(&a, slide_transition_anim_x_cb);
         lv_anim_set_completed_cb(&a, slide_transition_done_cb);
         lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
@@ -3252,7 +3252,7 @@ static void poll_quick_drawer_drag(lv_timer_t * timer) {
         lv_anim_set_var(&a, back_swipe_ctx);
         lv_anim_set_user_data(&a, back_swipe_ctx);
         lv_anim_set_values(&a, current_v, commit ? w : 0);
-        lv_anim_set_duration(&a, QUICK_DRAWER_ANIM_MS);
+        lv_anim_set_duration(&a, gui_anim_ms(QUICK_DRAWER_ANIM_MS));
         lv_anim_set_exec_cb(&a, slide_transition_anim_x_cb);
         lv_anim_set_completed_cb(&a, slide_transition_done_cb);
         lv_anim_set_path_cb(&a, lv_anim_path_ease_out);

@@ -60,6 +60,8 @@ static lv_obj_t * music_timers_screen;
 static lv_obj_t * music_database_screen;
 static lv_obj_t * music_library_screen;
 static lv_obj_t * settings_display_screen;
+static lv_obj_t * animation_speed_screen;
+static lv_obj_t * animation_speed_list;
 static lv_obj_t * settings_power_screen;
 static lv_obj_t * settings_system_screen;
 static lv_obj_t * about_screen;
@@ -2259,8 +2261,49 @@ static void plugin_display_list_item_click_cb(lv_event_t * e) {
     plugin_manager_display_list_item_clicked(index);
 }
 
+typedef struct {
+    int scale;
+    const char * label;
+} animation_speed_option_t;
+
+static const animation_speed_option_t animation_speed_options[] = {
+    { 0, "Off" }, { 25, "0.25x" }, { 50, "0.5x" }, { 75, "0.75x" }, { 100, "1x" },
+};
+#define ANIMATION_SPEED_OPTION_COUNT (sizeof(animation_speed_options) / sizeof(animation_speed_options[0]))
+
+static void animation_speed_option_row_cb(lv_event_t * e);
+
+static void populate_animation_speed_screen(void) {
+    if (!animation_speed_list) return;
+    lv_obj_clean(animation_speed_list);
+    for (size_t i = 0; i < ANIMATION_SPEED_OPTION_COUNT; i++) {
+        bool selected = current_settings.animation_scale == animation_speed_options[i].scale;
+        add_pill_option_row(animation_speed_list, animation_speed_options[i].label,
+                            selected, animation_speed_option_row_cb, (void *) (intptr_t) i);
+    }
+}
+
+static void animation_speed_option_row_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    int index = (int) (intptr_t) lv_event_get_user_data(e);
+    current_settings.animation_scale = animation_speed_options[index].scale;
+    settings_save(&current_settings);
+    populate_animation_speed_screen();
+}
+
+static lv_obj_t * build_animation_speed_screen(void) {
+    lv_obj_t * title_label; /* unused after build -- title never changes */
+    return build_subsonic_list_screen("Animation Speed", &title_label, &animation_speed_list);
+}
+
+static void animation_speed_settings_row_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    populate_animation_speed_screen();
+    nav_push(animation_speed_screen);
+}
+
 static lv_obj_t * build_settings_display_screen(void) {
-    static pill_list_item_t items[8 + PLUGIN_MAX_DISPLAY_LIST_ITEMS];
+    static pill_list_item_t items[9 + PLUGIN_MAX_DISPLAY_LIST_ITEMS];
     items[0] = (pill_list_item_t){ "Accent Color", PILL_ACCESSORY_CHEVRON, false, accent_color_row_cb, NULL, NULL };
     items[1] = (pill_list_item_t){ "Font", PILL_ACCESSORY_CHEVRON, false, custom_font_row_cb, NULL, NULL };
     items[2] = (pill_list_item_t){ "Font Size", PILL_ACCESSORY_CHEVRON, false, font_size_settings_row_cb, NULL, NULL };
@@ -2272,8 +2315,10 @@ static lv_obj_t * build_settings_display_screen(void) {
     items[7] = (pill_list_item_t){ "Hide Player/Lyrics Top Bar", PILL_ACCESSORY_TOGGLE,
                                     current_settings.hide_player_topbar, NULL,
                                     hide_player_topbar_switch_event_cb, NULL };
+    items[8] = (pill_list_item_t){ "Animation Speed", PILL_ACCESSORY_CHEVRON, false,
+                                    animation_speed_settings_row_cb, NULL, NULL };
 
-    int count = 8;
+    int count = 9;
     count = append_plugin_list_rows(items, count, PLUGIN_MAX_DISPLAY_LIST_ITEMS,
                                     plugin_manager_get_display_list_item_count,
                                     plugin_manager_get_display_list_item_label,
@@ -3693,6 +3738,7 @@ void gui_settings_init(void) {
     music_library_screen = plugin_manager_get_music_library_list_item_count() > 0
                                ? build_music_library_screen() : NULL;
     settings_music_screen = build_music_settings_screen();
+    animation_speed_screen = build_animation_speed_screen();
     settings_display_screen = build_settings_display_screen();
     settings_power_screen = build_settings_power_screen();
     settings_system_screen = build_settings_system_screen();
@@ -3758,6 +3804,8 @@ void gui_settings_teardown(void) {
     if (music_timers_screen) { lv_obj_delete(music_timers_screen); music_timers_screen = NULL; }
     if (music_database_screen) { lv_obj_delete(music_database_screen); music_database_screen = NULL; }
     if (music_library_screen) { lv_obj_delete(music_library_screen); music_library_screen = NULL; }
+    if (animation_speed_screen) { lv_obj_delete(animation_speed_screen); animation_speed_screen = NULL; }
+    animation_speed_list = NULL;
     if (settings_display_screen) { lv_obj_delete(settings_display_screen); settings_display_screen = NULL; }
     if (settings_power_screen) { lv_obj_delete(settings_power_screen); settings_power_screen = NULL; }
     if (settings_system_screen) { lv_obj_delete(settings_system_screen); settings_system_screen = NULL; }

@@ -33,6 +33,7 @@ bool screenshot_is_busy(void) {
 #include "../ui/gui_library.h"
 #include "../ui/gui_network.h"
 #include "../ui/gui_notifications.h"
+#include "../ui/gui_theme.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -377,7 +378,7 @@ static void screenshot_flash(void) {
     lv_anim_set_var(&anim, flash);
     lv_anim_set_exec_cb(&anim, screenshot_flash_opa_cb);
     lv_anim_set_values(&anim, LV_OPA_COVER, LV_OPA_TRANSP);
-    lv_anim_set_duration(&anim, SCREENSHOT_FLASH_FADE_MS);
+    lv_anim_set_duration(&anim, gui_anim_ms(SCREENSHOT_FLASH_FADE_MS));
     lv_anim_set_path_cb(&anim, lv_anim_path_ease_out);
     lv_anim_set_completed_cb(&anim, screenshot_flash_done_cb);
     lv_anim_start(&anim);

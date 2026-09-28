@@ -77,6 +77,10 @@ typedef struct {
      * that field's old on-disk key. */
     int replaygain_mode;
 
+    /* Settings -> Display -> Animation Speed. Duration multiplier in
+     * percent: 0 = Off, 25/50/75 = faster, 100 = today's timing. */
+    int animation_scale;
+
     /* Car Mode: unplugging power while something is loaded checkpoints position
      * and powers the device off; plugging power back in powers it back on and
      * resumes automatically. Off by default. */

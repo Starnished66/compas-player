@@ -57,6 +57,11 @@ const lv_font_t * gui_theme_font(gui_font_role_t role);
  * "Match album art" is on and a cover is showing. */
 lv_color_t accent_lv_color(void);
 uint32_t gui_theme_accent_rgb(void);
+/* Scales a UI animation duration by the user's Animation Speed setting.
+ * Never returns 0 for a nonzero base, so lv_anim always completes. */
+uint32_t gui_anim_ms(uint32_t base_ms);
+/* True when Animation Speed is Off. */
+bool gui_anims_off(void);
 /* Saves rgb as the user's accent and turns "Match album art" off. */
 void gui_theme_apply_accent(uint32_t rgb);
 void gui_theme_set_accent_dynamic(bool on);

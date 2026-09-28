@@ -2175,7 +2175,7 @@ static void player_lyrics_set_open(bool open, bool animate) {
     lv_anim_init(&anim);
     lv_anim_set_var(&anim, player_screen);
     lv_anim_set_values(&anim, open ? 0 : 1024, open ? 1024 : 0);
-    lv_anim_set_duration(&anim, 240);
+    lv_anim_set_duration(&anim, gui_anim_ms(240));
     lv_anim_set_path_cb(&anim, lv_anim_path_ease_in_out);
     lv_anim_set_exec_cb(&anim, player_lyrics_morph);
     lv_anim_set_completed_cb(&anim, player_lyrics_morph_done);

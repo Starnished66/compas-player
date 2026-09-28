@@ -89,6 +89,7 @@ static void set_defaults(player_settings_t * out) {
     out->crossfade_enabled = false;
     out->gapless_enabled = true; /* on by default -- see settings.h */
     out->replaygain_mode = 1; /* Per Track -- preserves the old replaygain_enabled=true default */
+    out->animation_scale = 100;
     out->car_mode_enabled = false;
     out->inline_remote_enabled = true;
     out->lyrics_enabled = true;
@@ -324,6 +325,8 @@ bool settings_load(player_settings_t * out) {
             out->replaygain_mode = (strcmp(value, "1") == 0) ? 1 : 0;
         } else if (strcmp(key, "replaygain_mode") == 0) {
             out->replaygain_mode = atoi(value);
+        } else if (strcmp(key, "animation_scale") == 0) {
+            out->animation_scale = atoi(value);
         } else if (strcmp(key, "car_mode_enabled") == 0) {
             out->car_mode_enabled = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "inline_remote_enabled") == 0) {
@@ -473,6 +476,8 @@ bool settings_load(player_settings_t * out) {
     if (out->font_size_tier < 0 || out->font_size_tier > 2) out->font_size_tier = 0;
     if (out->lyrics_font_size_tier != 1 && out->lyrics_font_size_tier != 2) out->lyrics_font_size_tier = 2; /* Medium/Large only, see settings.h */
     if (out->replaygain_mode < 0 || out->replaygain_mode > 2) out->replaygain_mode = 1; /* Off/Per Track/Per Album only, see settings.h */
+    if (out->animation_scale != 0 && out->animation_scale != 25 && out->animation_scale != 50 &&
+        out->animation_scale != 75 && out->animation_scale != 100) out->animation_scale = 100;
     if (out->startup_volume_fixed_percent < 0 || out->startup_volume_fixed_percent > 100) out->startup_volume_fixed_percent = 20;
     if (out->brightness_percent < 0 || out->brightness_percent > 100) out->brightness_percent = 80;
     if (out->resume_mode < 0 || out->resume_mode > 2) out->resume_mode = 0;
@@ -550,6 +555,7 @@ static void settings_write_file(const player_settings_t * settings) {
     fprintf(f, "crossfade=%d\n", settings->crossfade_enabled ? 1 : 0);
     fprintf(f, "gapless=%d\n", settings->gapless_enabled ? 1 : 0);
     fprintf(f, "replaygain_mode=%d\n", settings->replaygain_mode);
+    fprintf(f, "animation_scale=%d\n", settings->animation_scale);
     fprintf(f, "car_mode_enabled=%d\n", settings->car_mode_enabled ? 1 : 0);
     fprintf(f, "inline_remote_enabled=%d\n", settings->inline_remote_enabled ? 1 : 0);
     fprintf(f, "lyrics_enabled=%d\n", settings->lyrics_enabled ? 1 : 0);

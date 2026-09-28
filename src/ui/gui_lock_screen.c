@@ -62,7 +62,7 @@ static void animate_custom_lock_image(void) {
     lv_anim_init(&anim);
     lv_anim_set_var(&anim, lock_image_obj);
     lv_anim_set_values(&anim, 0, LV_OPA_COVER);
-    lv_anim_set_duration(&anim, 180);
+    lv_anim_set_duration(&anim, gui_anim_ms(180));
     lv_anim_set_exec_cb(&anim, lock_image_opa_anim_cb);
     lv_anim_start(&anim);
 }
@@ -189,7 +189,7 @@ static void lock_touch_timer_cb(lv_timer_t * timer) {
         lv_anim_set_var(&a, settle_ctx);
         lv_anim_set_user_data(&a, settle_ctx);
         lv_anim_set_values(&a, current_v, commit ? -screen_height : 0);
-        lv_anim_set_duration(&a, LOCK_SWIPE_SETTLE_MS);
+        lv_anim_set_duration(&a, gui_anim_ms(LOCK_SWIPE_SETTLE_MS));
         lv_anim_set_exec_cb(&a, slide_transition_anim_x_cb);
         lv_anim_set_completed_cb(&a, lock_settle_done_cb);
         lv_anim_set_path_cb(&a, lv_anim_path_ease_out);

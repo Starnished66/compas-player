@@ -1,6 +1,8 @@
 #ifndef LV_CONF_H
 #define LV_CONF_H
 
+#include <stdint.h>
+
 /* Set to 1 to enable configuration content */
 #define LV_CONF_SKIP 0
 
@@ -26,8 +28,9 @@
  * snappier. Paired with lv_indev_scroll.c's own ELASTIC_SLOWNESS_FACTOR
  * (hand-tuned directly in that vendored file -- LVGL exposes no config
  * override for it) for the "way overshot" half of the same bug report. */
-#define SCROLL_ANIM_TIME_MIN 100
-#define SCROLL_ANIM_TIME_MAX 200
+uint32_t gui_anim_ms(uint32_t base_ms); /* src/ui/gui_theme.c */
+#define SCROLL_ANIM_TIME_MIN gui_anim_ms(100) /* Settings > Display > Animation Speed */
+#define SCROLL_ANIM_TIME_MAX gui_anim_ms(200)
 
 /* Stock switches, sliders, rollers, and dropdowns still wear LVGL's default
  * theme, which grows a pressed control and fades its state colors over

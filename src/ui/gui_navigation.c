@@ -888,7 +888,8 @@ slide_transition_ctx_t * begin_slide_transition_ex(lv_obj_t * to_scr, bool forwa
 }
 
 static void screen_transition_slide_ex(lv_obj_t * to_scr, bool forward, bool vertical, bool reveal) {
-    slide_transition_ctx_t * ctx = begin_slide_transition_ex(to_scr, forward, vertical, reveal);
+    /* Animation Speed Off: cut straight to the screen, no snapshots. */
+    slide_transition_ctx_t * ctx = gui_anims_off() ? NULL : begin_slide_transition_ex(to_scr, forward, vertical, reveal);
     if (!ctx) {
         lv_screen_load(to_scr);
         sync_player_topbar_visibility(to_scr);
@@ -901,7 +902,7 @@ static void screen_transition_slide_ex(lv_obj_t * to_scr, bool forward, bool ver
     lv_anim_set_var(&a, ctx);
     lv_anim_set_user_data(&a, ctx);
     lv_anim_set_values(&a, 0, -ctx->to_offset);
-    lv_anim_set_duration(&a, NAV_ANIM_TIME_MS);
+    lv_anim_set_duration(&a, gui_anim_ms(NAV_ANIM_TIME_MS));
     lv_anim_set_exec_cb(&a, slide_transition_anim_x_cb);
     lv_anim_set_completed_cb(&a, slide_transition_done_cb);
     lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
