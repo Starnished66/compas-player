@@ -72,10 +72,12 @@ its **own** `lua_State` (`luaL_newstate()` + `luaL_openlibs()`), with the
 skipped. Every eligible filename is collected and sorted in **ascending
 order** (byte-wise, case-sensitive) -- not raw directory order, which is
 filesystem-dependent and can silently change after copying or reinstalling
-files -- before the first 16 (`PLUGIN_MAX_FILES`) of them are actually
-loaded; with more than 16 `.lua` files present, it's always the
-alphabetically-first 16, never whichever 16 the filesystem happened to
-return first. This matters for every plugin API backed by a single
+files -- before the first 32 enabled ones (`PLUGIN_MAX_FILES`) are actually
+loaded; with more than 32 enabled `.lua` files present, it's always the
+alphabetically-first 32, never whichever 32 the filesystem happened to
+return first. Plugin Manager marks the rest "not loaded: plugin limit
+reached"; turning another plugin off frees its slot after the refresh.
+This matters for every plugin API backed by a single
 global slot that any plugin can overwrite (`set_background_color()`,
 `set_text_color()`, `set_icon()`, `set_home_layout()`): if two installed
 plugins both set the same one, the alphabetically-last plugin's own call

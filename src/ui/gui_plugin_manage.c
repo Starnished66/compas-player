@@ -10,15 +10,18 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdio.h>
 
 /* A bound, not a promise -- plugin_manager_scan_available() truncates its
  * on-disk scan at this count. It guarantees every currently-LOADED plugin
- * (at most PLUGIN_MAX_FILES=16 of those) is always included even when
+ * (at most PLUGIN_MAX_FILES=32 of those) is always included even when
  * truncating, so only *disabled, never-loaded* files can ever be the ones
  * left off; still, no realistic .plugins folder approaches 64 files. */
 #define PLUGIN_MANAGE_MAX_ROWS 64
 
 static plugin_available_entry_t manage_entries[PLUGIN_MANAGE_MAX_ROWS];
+/* Row text: the plugin name, plus why an enabled plugin is not running. */
+static char manage_labels[PLUGIN_MANAGE_MAX_ROWS][sizeof(manage_entries[0].display_name) + 40];
 static int manage_entry_count = 0;
 static bool manage_changes_dirty = false;
 
@@ -94,8 +97,14 @@ lv_obj_t * gui_plugin_manage_build_screen(void) {
                                     plugin_manage_reload_row_cb, NULL, NULL };
     int count = 1;
     for (int i = 0; i < manage_entry_count; i++) {
+        const plugin_available_entry_t * en = &manage_entries[i];
+        const char * status = "";
+        if (!en->disabled && !en->loaded) {
+            status = en->over_limit ? " (not loaded: plugin limit reached)" : " (not loaded)";
+        }
+        snprintf(manage_labels[i], sizeof(manage_labels[i]), "%s%s", en->display_name, status);
         items[count++] = (pill_list_item_t){
-            manage_entries[i].display_name, PILL_ACCESSORY_TOGGLE,
+            manage_labels[i], PILL_ACCESSORY_TOGGLE,
             !manage_entries[i].disabled, NULL, plugin_manage_toggle_cb,
             (void *) (intptr_t) i
         };

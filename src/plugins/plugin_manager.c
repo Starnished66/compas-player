@@ -61,7 +61,11 @@
  * MUSIC_ROOT_DIR above -- matches gui.c's own PLAYLISTS_DIR exactly. */
 #define PLAYLISTS_DIR MUSIC_ROOT_DIR "/Playlists"
 
-#define PLUGIN_MAX_FILES 16
+/* Concurrently loaded plugins. Each keeps its own lua_State for the whole
+ * session and runs its top-level code at boot, so this bounds resident
+ * memory and startup time; enabled files past it are reported as over the
+ * limit in Plugin Manager instead of being skipped silently. */
+#define PLUGIN_MAX_FILES 32
 #define PLUGIN_MAX_LIST_ITEMS 500
 #define PLUGIN_MAX_ASYNC_HTTP 4
 #define PLUGIN_ASYNC_HTTP_DEFAULT_MAX (512U * 1024U)
@@ -118,6 +122,17 @@ typedef struct {
 
 static plugin_instance_t plugin_instances[PLUGIN_MAX_FILES];
 static int plugin_instance_count = 0;
+/* Enabled files the last init left unloaded because PLUGIN_MAX_FILES was
+ * reached, kept as filename hashes for plugin_manager_scan_available(). */
+#define PLUGIN_OVER_LIMIT_MAX 64
+static uint64_t plugin_over_limit[PLUGIN_OVER_LIMIT_MAX];
+static int plugin_over_limit_count = 0;
+
+static uint64_t plugin_filename_hash(const char * name) {
+    uint64_t h = UINT64_C(14695981039346656037);
+    for (const unsigned char * p = (const unsigned char *) name; *p; p++) h = (h ^ *p) * UINT64_C(1099511628211);
+    return h;
+}
 static int loading_plugin_slot = -1;
 static lua_State * plugin_led_override_owner = NULL;
 
@@ -4420,6 +4435,11 @@ void plugin_manager_init(void) {
             snprintf(full_path, sizeof(full_path), "%s/%s", dir_path, names[i]);
             load_plugin_file(full_path);
         }
+        plugin_over_limit_count = 0;
+        for (int i = load_count; i < enabled_count && plugin_over_limit_count < PLUGIN_OVER_LIMIT_MAX; i++) {
+            plugin_over_limit[plugin_over_limit_count++] = plugin_filename_hash(names[i]);
+            fprintf(stderr, "[plugins] not loading %s: limit of %d plugins reached\n", names[i], PLUGIN_MAX_FILES);
+        }
         free(names);
     }
     /* Exactly one hardware-volume-curve commit for the whole (re)load pass,
@@ -4440,6 +4460,14 @@ static void fill_available_entry(plugin_available_entry_t * e, const char * file
     snprintf(e->filename, sizeof(e->filename), "%s", filename);
     e->disabled = plugin_disabled_list_contains(filename);
     e->loaded = false;
+    e->over_limit = false;
+    uint64_t h = plugin_filename_hash(filename);
+    for (int j = 0; j < plugin_over_limit_count; j++) {
+        if (plugin_over_limit[j] == h) {
+            e->over_limit = true;
+            break;
+        }
+    }
     snprintf(e->display_name, sizeof(e->display_name), "%s", filename);
 
     for (int j = 0; j < plugin_instance_count; j++) {
@@ -4464,7 +4492,7 @@ int plugin_manager_scan_available(plugin_available_entry_t * out, int max) {
     } else {
         /* More .lua files on disk than `max` can return. Guarantee every
          * currently-LOADED plugin is still included -- there can only ever
-         * be PLUGIN_MAX_FILES (16) of those, always <= max -- rather than
+         * be PLUGIN_MAX_FILES of those, always <= max -- rather than
          * truncating in pure alphabetical order and silently hiding an
          * active plugin with no way to toggle it off from this list (real
          * finding: N alphabetically-early disabled files would otherwise
@@ -4623,6 +4651,7 @@ void plugin_manager_deinit(void) {
     deinit_diag("plugin_manager_deinit: all lua_close done, memset before");
     memset(plugin_instances, 0, sizeof(plugin_instances));
     plugin_instance_count = 0;
+    plugin_over_limit_count = 0;
 
     memset(plugin_list_items, 0, sizeof(plugin_list_items));
     for (int i = 0; i < PLUGIN_LIST_TARGET_COUNT; i++) {

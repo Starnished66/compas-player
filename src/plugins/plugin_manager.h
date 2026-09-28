@@ -212,6 +212,7 @@ typedef struct {
     char filename[256];
     bool disabled;
     bool loaded;
+    bool over_limit; /* enabled, but the last load hit PLUGIN_MAX_FILES first */
     char display_name[96];
 } plugin_available_entry_t;
 

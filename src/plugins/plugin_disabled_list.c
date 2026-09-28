@@ -15,7 +15,7 @@
 #define DISABLED_LIST_PATH PLUGINS_DIR "/.disabled"
 #define DISABLED_LIST_TMP_PATH DISABLED_LIST_PATH ".tmp"
 
-/* Independent of PLUGIN_MAX_FILES (16, the concurrently-*loaded* cap) --
+/* Independent of PLUGIN_MAX_FILES (32, the concurrently-*loaded* cap) --
  * more .lua files can exist on disk, disabled, than can ever be loaded at
  * once, so this needs its own generous ceiling. */
 #define PLUGIN_DISABLED_LIST_MAX 64
