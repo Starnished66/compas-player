@@ -233,6 +233,8 @@
 !/src/library/path_cache_migration_test.c
 !/src/core/storage_migration_test.c
 !/src/core/sd_fsck_test.c
+!/src/core/zip_reader_test.c
+!/src/core/html_blocks_test.c
 !/src/library/albumart_migration_test.c
 !/src/library/metadata_migration_retry_test.c
 !/src/network/remote_control_mdns_test.c

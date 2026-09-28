@@ -43,6 +43,8 @@ typedef struct {
 int gui_navigation_get_depth(void);
 lv_obj_t * gui_navigation_get_screen_at(int index);
 bool gui_navigation_is_top(lv_obj_t * screen);
+/* True if screen is anywhere on the nav stack (covered screens included). */
+bool gui_navigation_contains(lv_obj_t * screen);
 void gui_navigation_remove_screen_instances(lv_obj_t ** screens, int count);
 void gui_navigation_replace_home(lv_obj_t * old_screen, lv_obj_t * new_screen);
 void gui_navigation_replace_static_screen(int snapshot_index, lv_obj_t * old_screen, lv_obj_t * new_screen);

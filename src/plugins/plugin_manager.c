@@ -18,6 +18,9 @@
 #include "app_version.h"
 #include "fallback_font.h"
 #include "mbedtls/md5.h" /* plugin.md5() -- same primitive subsonic_client.c already uses for its own token auth */
+#include "zip_reader.h"
+#include "html_blocks.h"
+#include "gui_text_view.h"
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -3721,7 +3724,8 @@ static const char * const plugin_capabilities[] = {
     "network.http.download", "filesystem.mkdir", "crypto.md5", "audio.peq", "data.json",
     "storage.namespaced", "storage.secrets", "playback.remote", "filesystem.playlists", "library.refresh",
     "ui.home_layout", "ui.theme_refresh", "ui.reload", "ui.home_tiles", "ui.launcher_layout",
-    "ui.home_background", "audio.hw_volume_curve", "ui.lock_screen", "ui.quick_toggle"
+    "ui.home_background", "audio.hw_volume_curve", "ui.lock_screen", "ui.quick_toggle",
+    "data.zip", "data.html", "ui.text_view"
 };
 
 static int l_plugin_has_capability(lua_State * L) {
@@ -3894,6 +3898,393 @@ static int l_plugin_get_app_info(lua_State * L) {
     return 1;
 }
 
+static int plugin_call(lua_State * L, int nargs, int nresults, int errfunc);
+
+/* `fn` is already on the stack. Lua allocation inside the protected call can
+ * raise; `cleanup` still runs, then the error is re-raised. A failed stack
+ * check takes the same path so the native buffer is not kept. */
+static int pcall_then_cleanup(lua_State * L, void * ud, int nresults,
+                              void (*cleanup)(void *), void * mem) {
+    if (!lua_checkstack(L, 1)) {
+        if (cleanup) cleanup(mem);
+        return luaL_error(L, "stack overflow");
+    }
+    lua_pushlightuserdata(L, ud);
+    int rc = lua_pcall(L, 1, nresults, 0);
+    if (cleanup) cleanup(mem);
+    if (rc != LUA_OK) return lua_error(L);
+    return nresults;
+}
+
+static void free_bytes(void * mem) {
+    free(mem);
+}
+
+typedef struct {
+    const unsigned char * data;
+    size_t len;
+    zip_entry_info info;
+} zip_read_lua_ctx;
+
+static int zip_read_push_lua(lua_State * L) {
+    zip_read_lua_ctx * ctx = lua_touserdata(L, 1);
+    if (ctx->data) lua_pushlstring(L, (const char *) ctx->data, ctx->len);
+    else lua_pushlstring(L, "", 0);
+
+    lua_createtable(L, 0, 3);
+    lua_pushinteger(L, ctx->info.method);
+    lua_setfield(L, -2, "method");
+    lua_pushinteger(L, (lua_Integer) ctx->info.compressed);
+    lua_setfield(L, -2, "compressed");
+    lua_pushinteger(L, (lua_Integer) ctx->info.uncompressed);
+    lua_setfield(L, -2, "uncompressed");
+    return 2;
+}
+
+/* Path goes through check_plugin_external_path so reserved paths raise an error instead of returning nil */
+static int l_plugin_zip_read(lua_State * L) {
+    const char * path = check_plugin_external_path(L, 1, "plugin.zip_read");
+    const char * entry = luaL_checkstring(L, 2);
+
+    /* Reserve the closure slot before the native buffer exists. */
+    if (!lua_checkstack(L, 2)) return luaL_error(L, "stack overflow");
+    lua_pushcfunction(L, zip_read_push_lua);
+
+    unsigned char * data = NULL;
+    size_t data_len = 0;
+    zip_entry_info info;
+    zip_status st = zip_read_entry(path, entry, &data, &data_len, &info);
+    if (st != ZIP_OK) {
+        lua_pop(L, 1);
+        free(data);
+        lua_pushnil(L);
+        lua_pushstring(L, zip_status_reason(st));
+        return 2;
+    }
+
+    zip_read_lua_ctx ctx = { data, data_len, info };
+    return pcall_then_cleanup(L, &ctx, 2, free_bytes, data);
+}
+
+typedef struct {
+    char ** names;
+    size_t count;
+} zip_list_lua_ctx;
+
+static void zip_list_lua_cleanup(void * mem) {
+    zip_list_lua_ctx * ctx = mem;
+    zip_free_names(ctx->names, ctx->count);
+    ctx->names = NULL;
+    ctx->count = 0;
+}
+
+static int zip_list_push_lua(lua_State * L) {
+    zip_list_lua_ctx * ctx = lua_touserdata(L, 1);
+    lua_createtable(L, (int) ctx->count, 0);
+    for (size_t i = 0; i < ctx->count; i++) {
+        lua_pushstring(L, ctx->names[i]);
+        lua_rawseti(L, -2, (int) (i + 1));
+    }
+    return 1;
+}
+
+static int l_plugin_zip_list(lua_State * L) {
+    const char * path = check_plugin_external_path(L, 1, "plugin.zip_list");
+
+    if (!lua_checkstack(L, 2)) return luaL_error(L, "stack overflow");
+    lua_pushcfunction(L, zip_list_push_lua);
+
+    zip_list_lua_ctx ctx = { NULL, 0 };
+    zip_status st = zip_list_entries(path, &ctx.names, &ctx.count);
+    if (st != ZIP_OK) {
+        lua_pop(L, 1);
+        zip_list_lua_cleanup(&ctx);
+        lua_pushnil(L);
+        lua_pushstring(L, zip_status_reason(st));
+        return 2;
+    }
+
+    return pcall_then_cleanup(L, &ctx, 1, zip_list_lua_cleanup, &ctx);
+}
+
+static void html_blocks_cleanup(void * mem) {
+    html_blocks_free(mem);
+}
+
+static int html_blocks_push_lua(lua_State * L) {
+    html_blocks * result = lua_touserdata(L, 1);
+    lua_createtable(L, (int) result->count, 1);
+    for (size_t i = 0; i < result->count; i++) {
+        const html_block * b = &result->blocks[i];
+        lua_createtable(L, 0, b->alt ? 4 : 3);
+
+        lua_pushstring(L, b->kind);
+        lua_setfield(L, -2, "kind");
+
+        lua_pushinteger(L, b->level);
+        lua_setfield(L, -2, "level");
+
+        lua_pushstring(L, b->text ? b->text : "");
+        lua_setfield(L, -2, "text");
+
+        if (b->alt != NULL) {
+            lua_pushstring(L, b->alt);
+            lua_setfield(L, -2, "alt");
+        }
+
+        lua_rawseti(L, -2, (int) (i + 1));
+    }
+
+    lua_pushboolean(L, result->truncated);
+    lua_setfield(L, -2, "truncated");
+    return 1;
+}
+
+static int l_plugin_html_to_blocks(lua_State * L) {
+    size_t len = 0;
+    const char * bytes = luaL_checklstring(L, 1, &len);
+
+    if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) {
+        if (!lua_istable(L, 2)) {
+            return luaL_error(L, "plugin.html_to_blocks: options must be a table");
+        }
+    }
+
+    if (!lua_checkstack(L, 2)) return luaL_error(L, "stack overflow");
+    lua_pushcfunction(L, html_blocks_push_lua);
+
+    html_blocks result;
+    memset(&result, 0, sizeof(result));
+    html_status st = html_to_blocks(bytes, len, &result);
+    if (st != HTML_OK) {
+        lua_pop(L, 1);
+        html_blocks_free(&result);
+        lua_pushnil(L);
+        lua_pushstring(L, html_status_reason(st));
+        return 2;
+    }
+
+    return pcall_then_cleanup(L, &result, 1, html_blocks_cleanup, &result);
+}
+
+/* One context per shown view. The view's on_close is delivered later (after
+ * the back transition), so a closing view and a new one can briefly coexist.
+ * L is the plugin's main state: a coroutine that opened the view may be
+ * collected before the callbacks run. */
+#define TEXT_VIEW_CTX_MAX 4
+typedef struct {
+    bool live;
+    lua_State * L;
+    int turn_ref;
+    int close_ref;
+} text_view_ctx_t;
+
+static text_view_ctx_t text_view_ctxs[TEXT_VIEW_CTX_MAX];
+
+/* A hard-aborted state is frozen: its registry is never touched again. */
+static void text_view_ctx_release(text_view_ctx_t * ctx) {
+    plugin_instance_t * inst = plugin_instance_for_state(ctx->L);
+    if (!inst || !inst->aborted) {
+        if (ctx->turn_ref != LUA_NOREF) luaL_unref(ctx->L, LUA_REGISTRYINDEX, ctx->turn_ref);
+        if (ctx->close_ref != LUA_NOREF) luaL_unref(ctx->L, LUA_REGISTRYINDEX, ctx->close_ref);
+    }
+    ctx->live = false;
+    ctx->L = NULL;
+    ctx->turn_ref = LUA_NOREF;
+    ctx->close_ref = LUA_NOREF;
+}
+
+/* plugin_call()'s aborted-state return does not pop the function or its
+ * arguments, and Lua pushes do not grow a frozen stack. Check before any
+ * Lua API access. The slot stays live: the view and its queued close still
+ * hold this pointer, and releasing it would let a new reader reuse the slot
+ * before that close runs. */
+static bool text_view_ctx_prepare(text_view_ctx_t * ctx) {
+    if (!ctx || !ctx->live) return false;
+    plugin_instance_t * inst = plugin_instance_for_state(ctx->L);
+    if (inst && inst->aborted) return false;
+    return true;
+}
+
+static void text_view_turn_trampoline(int page, int pages, size_t byte_offset, void * user) {
+    text_view_ctx_t * ctx = user;
+    if (!text_view_ctx_prepare(ctx) || ctx->turn_ref == LUA_NOREF) return;
+
+    lua_State * L = ctx->L;
+    lua_rawgeti(L, LUA_REGISTRYINDEX, ctx->turn_ref);
+    lua_pushinteger(L, page);
+    lua_pushinteger(L, pages);
+    lua_pushinteger(L, (lua_Integer) byte_offset);
+    if (plugin_call(L, 3, 0, 0) != LUA_OK) {
+        const char * err = lua_tostring(L, -1);
+        fprintf(stderr, "[plugins] show_text_view on_turn error: %s\n", err ? err : "unknown error");
+        lua_pop(L, 1);
+    }
+}
+
+/* Always installed for a view with a context, so the context is released
+ * even when the plugin passed no on_close. */
+static void text_view_close_trampoline(int page, size_t byte_offset, void * user) {
+    text_view_ctx_t * ctx = user;
+    if (!ctx || !ctx->live) return;
+
+    /* Retire the slot after this delivery even when the plugin was aborted.
+     * The callback is skipped; the slot is not reusable until then. */
+    if (text_view_ctx_prepare(ctx) && ctx->close_ref != LUA_NOREF) {
+        lua_State * L = ctx->L;
+        lua_rawgeti(L, LUA_REGISTRYINDEX, ctx->close_ref);
+        lua_pushinteger(L, page);
+        lua_pushinteger(L, (lua_Integer) byte_offset);
+        if (plugin_call(L, 2, 0, 0) != LUA_OK) {
+            const char * err = lua_tostring(L, -1);
+            fprintf(stderr, "[plugins] show_text_view on_close error: %s\n", err ? err : "unknown error");
+            lua_pop(L, 1);
+        }
+    }
+    text_view_ctx_release(ctx);
+}
+
+typedef struct {
+    bool has_turn;
+    bool has_close;
+    int turn_ref;
+    int close_ref;
+} text_view_refs_t;
+
+/* Stack: lightuserdata, on_turn or nil, on_close or nil. Refs the functions
+ * already validated above; a later __index on the options table is not read. */
+static int text_view_store_refs(lua_State * L) {
+    text_view_refs_t * refs = lua_touserdata(L, 1);
+    if (refs->has_turn) {
+        lua_pushvalue(L, 2);
+        refs->turn_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    }
+    if (refs->has_close) {
+        lua_pushvalue(L, 3);
+        refs->close_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    }
+    return 0;
+}
+
+static int l_plugin_show_text_view(lua_State * L) {
+    const char * title = luaL_checkstring(L, 1);
+    size_t text_len = 0;
+    const char * text = luaL_checklstring(L, 2, &text_len);
+
+    gui_text_view_opts opts;
+    memset(&opts, 0, sizeof(opts));
+
+    bool has_turn = false;
+    bool has_close = false;
+    int turn_abs = 0;
+    int close_abs = 0;
+
+    if (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) {
+        if (!lua_istable(L, 3)) {
+            return luaL_error(L, "plugin.show_text_view: options must be a table");
+        }
+
+        lua_getfield(L, 3, "page");
+        if (!lua_isnil(L, -1)) {
+            if (lua_isnumber(L, -1)) {
+                opts.has_page = true;
+                opts.page = (int) lua_tointeger(L, -1);
+            }
+        }
+        lua_pop(L, 1);
+
+        lua_getfield(L, 3, "offset");
+        if (!lua_isnil(L, -1)) {
+            if (lua_isnumber(L, -1)) {
+                opts.has_offset = true;
+                lua_Integer off = lua_tointeger(L, -1);
+                opts.offset = (off < 0) ? 0 : (size_t) off;
+            }
+        }
+        lua_pop(L, 1);
+
+        lua_getfield(L, 3, "font_px");
+        lua_pop(L, 1);
+
+        lua_getfield(L, 3, "on_turn");
+        if (!lua_isnil(L, -1)) {
+            if (!lua_isfunction(L, -1)) {
+                return luaL_error(L, "plugin.show_text_view: on_turn must be a function");
+            }
+            has_turn = true;
+            turn_abs = lua_gettop(L);
+        } else {
+            lua_pop(L, 1);
+        }
+
+        lua_getfield(L, 3, "on_close");
+        if (!lua_isnil(L, -1)) {
+            if (!lua_isfunction(L, -1)) {
+                return luaL_error(L, "plugin.show_text_view: on_close must be a function");
+            }
+            has_close = true;
+            close_abs = lua_gettop(L);
+        } else {
+            lua_pop(L, 1);
+        }
+    }
+
+    if (gui_text_view_is_open()) {
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "busy");
+        return 2;
+    }
+
+    text_view_ctx_t * ctx = NULL;
+    if (has_turn || has_close) {
+        for (int i = 0; i < TEXT_VIEW_CTX_MAX; i++) {
+            if (!text_view_ctxs[i].live) {
+                ctx = &text_view_ctxs[i];
+                break;
+            }
+        }
+        if (!ctx) {
+            lua_pushboolean(L, false);
+            lua_pushstring(L, "busy");
+            return 2;
+        }
+
+        /* Slot stays free until both refs exist. A Lua error while storing
+         * them must not consume a context. */
+        if (!lua_checkstack(L, 4)) return luaL_error(L, "stack overflow");
+        lua_State * main_L = plugin_main_state(L);
+        text_view_refs_t refs = { has_turn, has_close, LUA_NOREF, LUA_NOREF };
+        lua_pushcfunction(L, text_view_store_refs);
+        lua_pushlightuserdata(L, &refs);
+        if (has_turn) lua_pushvalue(L, turn_abs);
+        else lua_pushnil(L);
+        if (has_close) lua_pushvalue(L, close_abs);
+        else lua_pushnil(L);
+        if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
+            if (refs.turn_ref != LUA_NOREF) luaL_unref(L, LUA_REGISTRYINDEX, refs.turn_ref);
+            if (refs.close_ref != LUA_NOREF) luaL_unref(L, LUA_REGISTRYINDEX, refs.close_ref);
+            return lua_error(L);
+        }
+        ctx->L = main_L;
+        ctx->turn_ref = refs.turn_ref;
+        ctx->close_ref = refs.close_ref;
+        ctx->live = true;
+    }
+
+    bool ok = gui_text_view_show(title, text, text_len, &opts,
+                                 (ctx && has_turn) ? text_view_turn_trampoline : NULL,
+                                 ctx ? text_view_close_trampoline : NULL, ctx);
+    if (!ok) {
+        if (ctx) text_view_ctx_release(ctx);
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "unavailable");
+        return 2;
+    }
+
+    lua_pushboolean(L, true);
+    return 1;
+}
+
 static const luaL_Reg plugin_funcs[] = {
     { "define",                    l_plugin_define },
     { "api_version",               l_plugin_api_version },
@@ -3984,6 +4375,10 @@ static const luaL_Reg plugin_funcs[] = {
     { "set_interval",              l_plugin_set_interval },
     { "clear_interval",            l_plugin_clear_interval },
     { "show_lock_screen",          l_plugin_show_lock_screen },
+    { "zip_read",                  l_plugin_zip_read },
+    { "zip_list",                  l_plugin_zip_list },
+    { "html_to_blocks",            l_plugin_html_to_blocks },
+    { "show_text_view",            l_plugin_show_text_view },
     { NULL, NULL }
 };
 
@@ -4242,6 +4637,9 @@ static int plugin_call(lua_State * L, int nargs, int nresults, int errfunc) {
      * the outer call's abort target or deadline. */
     struct timespec saved_deadline = plugin_call_deadline_start;
     int saved_armed = plugin_call_abort_armed;
+    lua_Hook saved_hook = lua_gethook(L);
+    int saved_hook_mask = lua_gethookmask(L);
+    int saved_hook_count = lua_gethookcount(L);
     jmp_buf saved_jmp;
     memcpy(saved_jmp, plugin_call_abort_jmp, sizeof(jmp_buf));
 
@@ -4265,7 +4663,9 @@ static int plugin_call(lua_State * L, int nargs, int nresults, int errfunc) {
         result = LUA_ERRRUN;
     }
 
-    lua_sethook(L, NULL, 0, 0); /* stop checking between plugin calls -- no cost while idle */
+    /* Restores the enclosing call's hook when nested; otherwise clears it,
+     * so there is no cost between plugin calls. */
+    lua_sethook(L, saved_hook, saved_hook_mask, saved_hook_count);
     plugin_call_abort_armed = saved_armed;
     memcpy(plugin_call_abort_jmp, saved_jmp, sizeof(jmp_buf));
     plugin_call_deadline_start = saved_deadline;
@@ -4638,6 +5038,12 @@ void plugin_manager_deinit(void) {
 
     deinit_diag("plugin_manager_deinit: text_input_cancelled before");
     plugin_manager_text_input_cancelled();
+
+    /* Deinit drops Lua refs without calling Lua callbacks; UI teardown
+     * already ran and discarded any pending on_close. */
+    for (int i = 0; i < TEXT_VIEW_CTX_MAX; i++) {
+        if (text_view_ctxs[i].live) text_view_ctx_release(&text_view_ctxs[i]);
+    }
 
     for (int i = 0; i < plugin_instance_count; i++) {
         if (plugin_instances[i].L) {
