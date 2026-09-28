@@ -964,8 +964,9 @@ static lv_obj_t * build_accent_color_screen(void) {
     lv_obj_set_scroll_dir(body, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(body, LV_SCROLLBAR_MODE_OFF);
 
-    /* Preview: the accent as a large swatch, its hex value and source, and a
-     * switch and slider wearing the shared accent styles. */
+    /* Preview: the accent as a large swatch with its hex value and source.
+     * No sample switch here: a switch that cannot be turned off read as a
+     * broken setting. */
     lv_obj_t * preview = accent_card(body, card_w);
     lv_obj_set_flex_flow(preview, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(preview, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -983,10 +984,6 @@ static lv_obj_t * build_accent_color_screen(void) {
     accent_source_label = accent_text(info, "", GUI_FONT_ROLE_SUBTEXT, true);
     lv_obj_set_width(accent_source_label, lv_pct(100));
     lv_label_set_long_mode(accent_source_label, LV_LABEL_LONG_WRAP);
-    lv_obj_t * sample_switch = lv_switch_create(info);
-    lv_obj_add_style(sample_switch, gui_theme_accent_style(), LV_PART_INDICATOR | LV_STATE_CHECKED);
-    lv_obj_add_state(sample_switch, LV_STATE_CHECKED);
-    lv_obj_remove_flag(sample_switch, LV_OBJ_FLAG_CLICKABLE);
 
     /* Match album art */
     lv_obj_t * dyn = accent_card(body, card_w);
