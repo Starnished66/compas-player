@@ -72,8 +72,11 @@ uint32_t gui_anim_ms(uint32_t base_ms) {
     int percent = current_settings.animation_scale;
     if (percent < 0 || percent > 100) percent = 100;
     uint32_t ms = (uint32_t) (((uint64_t) base_ms * (uint32_t) percent) / 100U);
-    /* LVGL mishandles a 0 ms animation; 1 ms still runs the completed callback. */
-    return ms == 0 && base_ms > 0 ? 1 : ms;
+    /* LVGL's lv_anim_speed_clamped compresses times by dividing by 10 internally,
+     * so an animation < 5ms truncates to 0ms. LVGL fails to fire completed 
+     * callbacks on 0ms animations, leaving objects stranded out of bounds. 
+     * 10ms minimum survives the division and safely acts as a 1-frame instant snap. */
+    return ms < 10 && base_ms > 0 ? 10 : ms;
 }
 
 static uint32_t resolve_accent(void) {
