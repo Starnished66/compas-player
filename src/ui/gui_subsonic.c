@@ -17,6 +17,7 @@
 #include <unistd.h>
 #include "audio.h"
 #include "wifi_status.h"
+#include "albumart.h"
 
 void register_search(search_binding_id_t id, lv_obj_t * screen, lv_obj_t * list, const char * (*name_of)(int), const int * count_ptr, bool is_overlay_list, bool db_backed, metadata_db_az_kind_t db_kind, compact_list_fetch_page_cb_t restore_fetch_page);
 
@@ -223,6 +224,151 @@ static void sanitize_path_component(const char * in, char * out, size_t out_size
     out[pos] = '\0';
 }
 
+typedef enum {
+    SUBSONIC_COVER_FORMAT_UNKNOWN = 0,
+    SUBSONIC_COVER_FORMAT_JPEG,
+    SUBSONIC_COVER_FORMAT_PNG
+} subsonic_cover_format_t;
+
+static subsonic_cover_format_t subsonic_detect_image_format(const char * path) {
+    FILE * f = fopen(path, "rb");
+    if (!f) return SUBSONIC_COVER_FORMAT_UNKNOWN;
+    uint8_t buf[8];
+    size_t n = fread(buf, 1, sizeof(buf), f);
+    fclose(f);
+
+    /* JPEG starts with SOI marker 0xFF 0xD8, followed by marker prefix 0xFF */
+    if (n >= 3 && buf[0] == 0xFF && buf[1] == 0xD8 && buf[2] == 0xFF) {
+        return SUBSONIC_COVER_FORMAT_JPEG;
+    }
+
+    /* PNG starts with standard 8-byte signature */
+    static const uint8_t png_magic[8] = { 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n' };
+    if (n >= 8 && memcmp(buf, png_magic, 8) == 0) {
+        return SUBSONIC_COVER_FORMAT_PNG;
+    }
+
+    return SUBSONIC_COVER_FORMAT_UNKNOWN;
+}
+
+/* True when the library would already find art for a song in album_dir: the
+ * same sidecar search it uses (album name, cover.*, folder.*), asked about a
+ * probe path inside that folder. */
+static bool subsonic_album_folder_has_art(const char * album_dir, const subsonic_song_t * song) {
+    albumart_info_t info;
+    memset(&info, 0, sizeof(info));
+    int n = snprintf(info.path, sizeof(info.path), "%s/art_probe.mp3", album_dir);
+    if (n < 0 || (size_t) n >= sizeof(info.path)) return true; /* too long to probe: leave the folder alone */
+    if (song->album[0]) snprintf(info.album, sizeof(info.album), "%s", song->album);
+    if (song->artist[0]) snprintf(info.artist, sizeof(info.artist), "%s", song->artist);
+    char found[PATH_MAX];
+    return albumart_search_source_files(&info, "", found, sizeof(found));
+}
+
+typedef struct {
+    char ** dirs;
+    int count;
+    int capacity;
+} album_dir_tracker_t;
+
+static bool album_dir_tracker_contains(const album_dir_tracker_t * tracker, const char * dir) {
+    if (!tracker || !tracker->dirs) return false;
+    for (int i = 0; i < tracker->count; i++) {
+        if (tracker->dirs[i] && strcmp(tracker->dirs[i], dir) == 0) return true;
+    }
+    return false;
+}
+
+static void album_dir_tracker_add(album_dir_tracker_t * tracker, const char * dir) {
+    if (!tracker) return;
+    if (tracker->count >= tracker->capacity) {
+        int new_capacity = (tracker->capacity == 0) ? 8 : (tracker->capacity * 2);
+        char ** new_dirs = realloc(tracker->dirs, sizeof(char *) * (size_t) new_capacity);
+        if (!new_dirs) return;
+        tracker->dirs = new_dirs;
+        tracker->capacity = new_capacity;
+    }
+    char * copy = strdup(dir);
+    if (!copy) return;
+    tracker->dirs[tracker->count++] = copy;
+}
+
+static void album_dir_tracker_free(album_dir_tracker_t * tracker) {
+    if (!tracker) return;
+    for (int i = 0; i < tracker->count; i++) {
+        free(tracker->dirs[i]);
+    }
+    free(tracker->dirs);
+    tracker->dirs = NULL;
+    tracker->count = 0;
+    tracker->capacity = 0;
+}
+
+static void subsonic_fetch_album_artwork_if_needed(const subsonic_server_t * server,
+                                                   const char * album_dir,
+                                                   const subsonic_song_t * songs,
+                                                   int song_count,
+                                                   int current_song_index,
+                                                   const char * safe_artist,
+                                                   const char * safe_album,
+                                                   http_cancel_token_t * cancel) {
+    if (http_cancel_token_is_cancelled(cancel)) return;
+
+    if (subsonic_album_folder_has_art(album_dir, &songs[current_song_index])) return;
+
+    const char * cover_art_id = songs[current_song_index].cover_art;
+    if (cover_art_id[0] == '\0') {
+        for (int k = 0; k < song_count; k++) {
+            if (songs[k].cover_art[0] == '\0') continue;
+            char s_artist[160], s_album[160];
+            sanitize_path_component(songs[k].artist[0] ? songs[k].artist : "Unknown Artist", s_artist, sizeof(s_artist));
+            sanitize_path_component(songs[k].album[0] ? songs[k].album : "Unknown Album", s_album, sizeof(s_album));
+            if (strcmp(s_artist, safe_artist) == 0 && strcmp(s_album, safe_album) == 0) {
+                cover_art_id = songs[k].cover_art;
+                break;
+            }
+        }
+    }
+    if (cover_art_id[0] == '\0') return;
+
+    char cover_url[1536];
+    subsonic_build_cover_art_url(server, cover_art_id, cover_url, sizeof(cover_url));
+
+    char temp_path[1024], dest_cover[1024];
+    int n = snprintf(temp_path, sizeof(temp_path), "%s/cover.tmp", album_dir);
+    if (n < 0 || (size_t) n >= sizeof(temp_path)) return;
+    remove(temp_path);
+
+    /* Capped: a cover is a few MB at most, and a misbehaving server must
+     * not be able to fill the card. */
+    int status = 0;
+    bool ok = http_get_to_file_redirects(cover_url, server->verify_tls, temp_path, 20u << 20, NULL, NULL,
+                                         SUBSONIC_FILE_CONNECT_TIMEOUT_MS, SUBSONIC_FILE_READ_TIMEOUT_MS,
+                                         cancel, 3, &status) &&
+              status == 200;
+    if (!ok) {
+        remove(temp_path);
+        return;
+    }
+
+    subsonic_cover_format_t fmt = subsonic_detect_image_format(temp_path);
+    if (fmt == SUBSONIC_COVER_FORMAT_UNKNOWN) {
+        remove(temp_path);
+        return;
+    }
+
+    n = snprintf(dest_cover, sizeof(dest_cover), "%s/cover.%s", album_dir,
+                 fmt == SUBSONIC_COVER_FORMAT_JPEG ? "jpg" : "png");
+    if (n < 0 || (size_t) n >= sizeof(dest_cover) || access(dest_cover, F_OK) == 0) {
+        remove(temp_path);
+        return;
+    }
+
+    if (rename(temp_path, dest_cover) != 0) {
+        remove(temp_path);
+    }
+}
+
 static pthread_t subsonic_library_download_thread;
 static http_cancel_token_t subsonic_library_download_cancel;
 
@@ -268,6 +414,7 @@ static void * subsonic_library_download_thread_func(void * arg) {
     char playlist_m3u_path[512] = "";
     bool playlist_first = true;
     int success_count = 0;
+    album_dir_tracker_t album_tracker = {0};
 
     for (int i = 0; i < song_count; i++) {
         if (http_cancel_token_is_cancelled(&subsonic_library_download_cancel)) break;
@@ -297,6 +444,11 @@ static void * subsonic_library_download_thread_func(void * arg) {
 
         if (ok) {
             success_count++;
+            if (!album_dir_tracker_contains(&album_tracker, album_dir)) {
+                album_dir_tracker_add(&album_tracker, album_dir);
+                subsonic_fetch_album_artwork_if_needed(&req->server, album_dir, songs, song_count, i,
+                                                       safe_artist, safe_album, &subsonic_library_download_cancel);
+            }
             if (req->playlist_name[0] != '\0') {
                 if (playlist_first) {
                     if (playlist_files_create(PLAYLISTS_DIR, req->playlist_name, dest_path, playlist_m3u_path,
@@ -314,6 +466,7 @@ static void * subsonic_library_download_thread_func(void * arg) {
     }
 
     subsonic_library_download_success_count = success_count;
+    album_dir_tracker_free(&album_tracker);
     free(songs);
     free(req);
     atomic_store_explicit(&subsonic_library_download_done_flag, true, memory_order_release); /* written last -- poll_subsonic_library_download() only checks this flag */
