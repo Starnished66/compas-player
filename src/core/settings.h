@@ -333,6 +333,9 @@ typedef struct {
     bool startup_volume_fixed_enabled;
     int startup_volume_fixed_percent;
 
+    /* Dedicated volume applied whenever Car Mode is enabled. */
+    int car_mode_volume_percent;
+
     /* Duration the quick-drawer sleep icon arms next time it's tapped --
      * see gui.c's quick_drawer_sleep_event_cb()/poll_sleep_timer(). Always
      * one of SLEEP_TIMER_STEPS (settings_load() snaps any hand-edited or

@@ -139,6 +139,7 @@ static void set_defaults(player_settings_t * out) {
     out->swipe_up_home_enabled = true;
     out->startup_volume_fixed_enabled = true; /* matches stock's own default */
     out->startup_volume_fixed_percent = 20;
+    out->car_mode_volume_percent = 80;
     out->sleep_timer_minutes = 15;
     out->timezone[0] = '\0';
     out->hostname[0] = '\0'; /* empty -- stock's own /usr/resource/hostname stays in effect */
@@ -275,6 +276,10 @@ static void sync_subsonic_saved_sidecar(player_settings_t * out) {
 
 bool settings_load(player_settings_t * out) {
     set_defaults(out);
+
+    bool car_mode_volume_percent_seen = false;
+    int legacy_car_mode_volume_percent = 80;
+    bool legacy_car_mode_volume_percent_seen = false;
 
     FILE * f = fopen(SETTINGS_FILE_PATH, "r");
     if (!f) f = fopen(SETTINGS_LEGACY_FILE_PATH, "r");
@@ -445,6 +450,12 @@ bool settings_load(player_settings_t * out) {
             out->startup_volume_fixed_enabled = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "startup_volume_fixed_percent") == 0) {
             out->startup_volume_fixed_percent = atoi(value);
+        } else if (strcmp(key, "car_mode_startup_volume_percent") == 0) {
+            legacy_car_mode_volume_percent = atoi(value);
+            legacy_car_mode_volume_percent_seen = true;
+        } else if (strcmp(key, "car_mode_volume_percent") == 0) {
+            out->car_mode_volume_percent = atoi(value);
+            car_mode_volume_percent_seen = true;
         } else if (strcmp(key, "sleep_timer_minutes") == 0) {
             out->sleep_timer_minutes = atoi(value);
         } else if (strcmp(key, "timezone") == 0) {
@@ -482,6 +493,9 @@ bool settings_load(player_settings_t * out) {
     if (out->animation_scale != 0 && out->animation_scale != 25 && out->animation_scale != 50 &&
         out->animation_scale != 75 && out->animation_scale != 100) out->animation_scale = 100;
     if (out->startup_volume_fixed_percent < 0 || out->startup_volume_fixed_percent > 100) out->startup_volume_fixed_percent = 20;
+    if (!car_mode_volume_percent_seen && legacy_car_mode_volume_percent_seen)
+        out->car_mode_volume_percent = legacy_car_mode_volume_percent;
+    if (out->car_mode_volume_percent < 0 || out->car_mode_volume_percent > 100) out->car_mode_volume_percent = 80;
     if (out->brightness_percent < 0 || out->brightness_percent > 100) out->brightness_percent = 80;
     if (out->resume_mode < 0 || out->resume_mode > 2) out->resume_mode = 0;
     if (out->play_pause_button_mode < 0 || out->play_pause_button_mode > 2) out->play_pause_button_mode = 0;
@@ -608,6 +622,7 @@ static void settings_write_file(const player_settings_t * settings) {
     fprintf(f, "swipe_up_home_enabled=%d\n", settings->swipe_up_home_enabled ? 1 : 0);
     fprintf(f, "startup_volume_fixed_enabled=%d\n", settings->startup_volume_fixed_enabled ? 1 : 0);
     fprintf(f, "startup_volume_fixed_percent=%d\n", settings->startup_volume_fixed_percent);
+    fprintf(f, "car_mode_volume_percent=%d\n", settings->car_mode_volume_percent);
     fprintf(f, "sleep_timer_minutes=%d\n", settings->sleep_timer_minutes);
     fprintf(f, "timezone=%s\n", settings->timezone);
     fprintf(f, "hostname=%s\n", settings->hostname);

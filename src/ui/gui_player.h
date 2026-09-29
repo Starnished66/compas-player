@@ -169,6 +169,10 @@ void prepare_deferred_resume(int index, double start_seconds);
 
 int32_t gui_player_get_volume_percent(void);
 void gui_player_set_volume_percent(int32_t percent);
+/* Remember volume changes in the active mode without changing audio output. */
+void gui_player_remember_volume_percent(int32_t percent);
+/* Switch volume profiles and persist Car Mode's enabled state. */
+void gui_player_set_car_mode_enabled(bool enabled);
 bool gui_player_volume_is_being_adjusted(void);
 const char * gui_player_get_now_playing_title(void);
 const char * gui_player_get_now_playing_folder(void);

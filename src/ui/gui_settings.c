@@ -32,6 +32,7 @@
 #include "gui_plugin_manage.h"
 #include "fallback_font.h"
 #include "gui_navigation.h"
+#include "gui_player.h"
 #include "db_log.h"
 #include "usb_dac_bridge.h"
 #include <stdio.h>
@@ -120,6 +121,11 @@ static lv_obj_t * startup_volume_switch;
 static lv_obj_t * startup_volume_slider_card;
 static lv_obj_t * startup_volume_value_label;
 static lv_obj_t * startup_volume_slider;
+static lv_obj_t * car_mode_volume_value_label;
+static lv_obj_t * car_mode_volume_slider;
+static lv_obj_t * car_mode_hint_label;
+static lv_obj_t * car_mode_screen;
+static lv_obj_t * car_mode_enable_switch;
 static lv_obj_t * sleep_timer_switch;
 static lv_obj_t * sleep_timer_slider_card;
 static lv_obj_t * sleep_timer_remaining_btn;
@@ -1561,6 +1567,112 @@ static void startup_volume_row_cb(lv_event_t * e) {
     nav_push(startup_volume_screen);
 }
 
+static void car_mode_volume_slider_event_cb(lv_event_t * e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    int32_t percent = lv_slider_get_value(lv_event_get_target(e));
+
+    if (code == LV_EVENT_VALUE_CHANGED) {
+        current_settings.car_mode_volume_percent = (int) percent;
+        lv_label_set_text_fmt(car_mode_volume_value_label, "%d%%", (int) percent);
+        if (current_settings.car_mode_enabled) {
+            audio_set_volume((float) percent / 100.0f);
+            gui_player_set_volume_percent(percent);
+            refresh_volume_topbar(percent);
+        }
+    } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+        settings_save_async(&current_settings);
+    }
+}
+
+static void car_mode_enable_switch_event_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+    gui_player_set_car_mode_enabled(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
+}
+
+static lv_obj_t * build_car_mode_screen(void) {
+    lv_obj_t * scr = lv_obj_create(NULL);
+    lv_obj_add_style(scr, &style_theme_screen_bg, 0);
+    lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+
+    build_screen_header(scr, "Car Mode", generic_back_cb, NULL, NULL);
+
+    int32_t top = STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT;
+
+    lv_obj_t * body = lv_obj_create(scr);
+    lv_obj_remove_style_all(body);
+    lv_obj_set_size(body, BOARD_SCREEN_WIDTH, BOARD_SCREEN_HEIGHT - top);
+    lv_obj_set_pos(body, 0, top);
+    lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(body, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_top(body, BOARD_SCALE_PX(20), 0);
+    lv_obj_set_style_pad_bottom(body, BOARD_SCALE_PX(32), 0);
+    lv_obj_set_style_pad_row(body, BOARD_SCALE_PX(14), 0);
+    lv_obj_set_scroll_dir(body, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(body, LV_SCROLLBAR_MODE_OFF);
+
+    /* Car Mode enable row */
+    lv_obj_t * enable_row = lv_obj_create(body);
+    lv_obj_set_width(enable_row, lv_pct(90));
+    lv_obj_set_height(enable_row, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(enable_row, 0, 0);
+    lv_obj_set_style_border_width(enable_row, 0, 0);
+    lv_obj_remove_flag(enable_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(enable_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(enable_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_gap(enable_row, 12, 0);
+
+    lv_obj_t * enable_label = lv_label_create(enable_row);
+    lv_label_set_text(enable_label, "Car Mode");
+    lv_obj_add_style(enable_label, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(enable_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    lv_label_set_long_mode(enable_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_flex_grow(enable_label, 1);
+
+    car_mode_enable_switch = lv_switch_create(enable_row);
+    lv_obj_add_style(car_mode_enable_switch, gui_theme_accent_style(), LV_PART_INDICATOR | LV_STATE_CHECKED);
+    if (current_settings.car_mode_enabled) lv_obj_add_state(car_mode_enable_switch, LV_STATE_CHECKED);
+    lv_obj_add_event_cb(car_mode_enable_switch, car_mode_enable_switch_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    car_mode_hint_label = lv_label_create(body);
+    lv_label_set_text(car_mode_hint_label, "Car Mode is disabled.");
+    lv_obj_set_width(car_mode_hint_label, lv_pct(90));
+    lv_label_set_long_mode(car_mode_hint_label, LV_LABEL_LONG_WRAP);
+    lv_obj_add_style(car_mode_hint_label, &style_theme_text_muted, 0);
+    lv_obj_set_style_text_font(car_mode_hint_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+    if (current_settings.car_mode_enabled) lv_obj_add_flag(car_mode_hint_label, LV_OBJ_FLAG_HIDDEN);
+
+    /* Car Mode volume row */
+    lv_obj_t * car_mode_row = lv_obj_create(body);
+    lv_obj_set_width(car_mode_row, lv_pct(90));
+    lv_obj_set_height(car_mode_row, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(car_mode_row, 0, 0);
+    lv_obj_set_style_border_width(car_mode_row, 0, 0);
+    lv_obj_remove_flag(car_mode_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(car_mode_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(car_mode_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_gap(car_mode_row, 12, 0);
+
+    lv_obj_t * car_mode_label = lv_label_create(car_mode_row);
+    lv_label_set_text(car_mode_label, "Car Mode Volume");
+    lv_obj_add_style(car_mode_label, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(car_mode_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    lv_label_set_long_mode(car_mode_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_flex_grow(car_mode_label, 1);
+
+    build_setting_slider_card(body, car_mode_row, BOARD_SCALE_PX(170), BOARD_SCALE_PX(18),
+        0, 100, current_settings.car_mode_volume_percent,
+        car_mode_volume_slider_event_cb, &car_mode_volume_slider, &car_mode_volume_value_label);
+    lv_label_set_text_fmt(car_mode_volume_value_label, "%d%%", current_settings.car_mode_volume_percent);
+
+    finalize_screen_navigation(scr);
+    return scr;
+}
+
+static void car_mode_settings_row_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    nav_push(car_mode_screen);
+}
+
 /* Index into SLEEP_TIMER_STEPS closest to `minutes' -- same reasoning as
  * screen_timeout_seconds_to_step_index() above. */
 static int sleep_timer_minutes_to_step_index(int minutes) {
@@ -2104,8 +2216,8 @@ static lv_obj_t * build_music_audio_screen(void) {
 static lv_obj_t * build_music_controls_screen(void) {
     static pill_list_item_t items[4 + PLUGIN_MAX_MUSIC_CONTROLS_LIST_ITEMS];
     items[0] = (pill_list_item_t){ "Play/Pause Button", PILL_ACCESSORY_CHEVRON, false, play_pause_button_mode_settings_row_cb, NULL, NULL };
-    items[1] = (pill_list_item_t){ "Car Mode", PILL_ACCESSORY_TOGGLE,
-                                    current_settings.car_mode_enabled, NULL, car_mode_switch_event_cb, NULL };
+    items[1] = (pill_list_item_t){ "Car Mode", PILL_ACCESSORY_CHEVRON,
+                                    false, car_mode_settings_row_cb, NULL, NULL };
     items[2] = (pill_list_item_t){ "In-line Remote", PILL_ACCESSORY_TOGGLE,
                                     current_settings.inline_remote_enabled, NULL, inline_remote_switch_event_cb, NULL };
     items[3] = (pill_list_item_t){ "Lyrics", PILL_ACCESSORY_TOGGLE,
@@ -3751,6 +3863,7 @@ void gui_settings_init(void) {
     music_playback_screen = build_music_playback_screen();
     music_audio_screen = build_music_audio_screen();
     music_controls_screen = build_music_controls_screen();
+    car_mode_screen = build_car_mode_screen();
     music_timers_screen = build_music_timers_screen();
     music_database_screen = build_music_database_screen();
     music_library_screen = plugin_manager_get_music_library_list_item_count() > 0
@@ -3819,6 +3932,11 @@ void gui_settings_teardown(void) {
     if (music_playback_screen) { lv_obj_delete(music_playback_screen); music_playback_screen = NULL; }
     if (music_audio_screen) { lv_obj_delete(music_audio_screen); music_audio_screen = NULL; }
     if (music_controls_screen) { lv_obj_delete(music_controls_screen); music_controls_screen = NULL; }
+    if (car_mode_screen) { lv_obj_delete(car_mode_screen); car_mode_screen = NULL; }
+    car_mode_enable_switch = NULL;
+    car_mode_hint_label = NULL;
+    car_mode_volume_value_label = NULL;
+    car_mode_volume_slider = NULL;
     if (music_timers_screen) { lv_obj_delete(music_timers_screen); music_timers_screen = NULL; }
     if (music_database_screen) { lv_obj_delete(music_database_screen); music_database_screen = NULL; }
     if (music_library_screen) { lv_obj_delete(music_library_screen); music_library_screen = NULL; }
@@ -3887,5 +4005,22 @@ void gui_settings_sync_sleep_timer_toggle(void) {
     } else {
         lv_obj_add_flag(sleep_timer_slider_card, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(sleep_timer_remaining_btn, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void gui_settings_sync_car_mode(void) {
+    if (car_mode_enable_switch) {
+        if (current_settings.car_mode_enabled) lv_obj_add_state(car_mode_enable_switch, LV_STATE_CHECKED);
+        else lv_obj_clear_state(car_mode_enable_switch, LV_STATE_CHECKED);
+    }
+    if (car_mode_hint_label) {
+        if (current_settings.car_mode_enabled) lv_obj_add_flag(car_mode_hint_label, LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_remove_flag(car_mode_hint_label, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (car_mode_volume_slider) {
+        lv_slider_set_value(car_mode_volume_slider, current_settings.car_mode_volume_percent, LV_ANIM_OFF);
+    }
+    if (car_mode_volume_value_label) {
+        lv_label_set_text_fmt(car_mode_volume_value_label, "%d%%", current_settings.car_mode_volume_percent);
     }
 }

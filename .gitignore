@@ -31,6 +31,12 @@
 # directory that is still itself excluded, so each level needs its own `!`
 # before the next.
 /assets/theme2/*
+/assets/theme1/*
+!/assets/theme1/pull_down/
+/assets/theme1/pull_down/*
+!/assets/theme1/pull_down/car_mode.png
+!/assets/theme1/pull_down/car_mode_s.png
+!/assets/theme1/pull_down/CAR_MODE_SOURCES.txt
 
 # Wholly ours, minus the stock files that happen to share the directory.
 !/assets/theme2/power_action/
@@ -216,6 +222,7 @@
 # `compile_commands.json` target invokes -- this one ships with the repo.
 !/generate_compile_commands.py
 !/scripts/offline_library_scan.py
+!/scripts/generate_car_mode_toggle.py
 
 # Standalone development self-tests are local-only and are not shipped in
 # the public source/release tree. Match future files in any directory too.

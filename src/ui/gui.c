@@ -543,7 +543,7 @@ static void update_timer_cb(lv_timer_t * timer) {
     if (bt_control_source_volume_sync_consume_percent(&bt_synced_volume_percent) &&
         !gui_player_volume_is_being_adjusted()) {
         gui_player_set_volume_percent(bt_synced_volume_percent);
-        current_settings.volume = (float) bt_synced_volume_percent / 100.0f;
+        gui_player_remember_volume_percent(bt_synced_volume_percent);
         settings_save_async(&current_settings);
         show_volume_popup(bt_synced_volume_percent);
         refresh_volume_topbar(bt_synced_volume_percent);
@@ -556,7 +556,7 @@ static void update_timer_cb(lv_timer_t * timer) {
         if (new_percent > 100) new_percent = 100;
         gui_player_set_volume_percent(new_percent);
         audio_set_volume((float) new_percent / 100.0f);
-        current_settings.volume = (float) new_percent / 100.0f;
+        gui_player_remember_volume_percent(new_percent);
         settings_save_async(&current_settings);
         show_volume_popup(new_percent);
         refresh_volume_topbar(new_percent);
@@ -608,7 +608,7 @@ static void update_timer_cb(lv_timer_t * timer) {
         !gui_player_volume_is_being_adjusted()) {
         gui_player_set_volume_percent(remote_volume_percent);
         audio_set_volume((float) remote_volume_percent / 100.0f);
-        current_settings.volume = (float) remote_volume_percent / 100.0f;
+        gui_player_remember_volume_percent(remote_volume_percent);
         settings_save_async(&current_settings);
         show_volume_popup(remote_volume_percent);
         refresh_volume_topbar(remote_volume_percent);
@@ -1513,9 +1513,13 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
      * RELEASED case during the session), so turning startup_volume_fixed_enabled
      * back off later resumes from wherever the slider was really last left,
      * not from stale fixed-mode state. */
-    audio_set_volume(current_settings.startup_volume_fixed_enabled
-                          ? (float) current_settings.startup_volume_fixed_percent / 100.0f
-                          : current_settings.volume); /* picked up below when the volume slider reads audio_get_volume() */
+    if (current_settings.car_mode_enabled) {
+        audio_set_volume((float) current_settings.car_mode_volume_percent / 100.0f);
+    } else {
+        audio_set_volume(current_settings.startup_volume_fixed_enabled
+                              ? (float) current_settings.startup_volume_fixed_percent / 100.0f
+                              : current_settings.volume); /* picked up below when the volume slider reads audio_get_volume() */
+    }
     audio_set_crossfade_enabled(current_settings.crossfade_enabled);
 
     /* Apply saved brightness level at startup. */
@@ -1712,8 +1716,7 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
          * If no headphone is connected at boot, skip auto-resume and disable
          * Car Mode to prevent unexpected playback or boot issues. */
         if (get_headphone_state() == HEADPHONE_STATE_NONE) {
-            current_settings.car_mode_enabled = false;
-            settings_save_async(&current_settings);
+            gui_player_set_car_mode_enabled(false);
             show_info_toast("Car Mode disabled: no headphone detected at boot");
         } else
 #endif

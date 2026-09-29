@@ -238,7 +238,7 @@ static void volume_popup_track_event_cb(lv_event_t * e) {
     } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
         hw_volume_coalesce_drag_end(&volume_popup_hv, (int) percent);
         if (volume_slider) lv_slider_set_value(volume_slider, percent, LV_ANIM_OFF);
-        current_settings.volume = (float) percent / 100.0f;
+        gui_player_remember_volume_percent(percent);
         settings_save_async(&current_settings);
         lv_timer_reset(volume_popup_hide_timer);
         lv_timer_resume(volume_popup_hide_timer);
@@ -4159,8 +4159,7 @@ void gapless_switch_event_cb(lv_event_t * e) {
 
 void car_mode_switch_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
-    current_settings.car_mode_enabled = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
-    settings_save_async(&current_settings);
+    gui_player_set_car_mode_enabled(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
 }
 
 void inline_remote_switch_event_cb(lv_event_t * e) {
@@ -4292,7 +4291,7 @@ void gui_player_teardown(void) {
     int volume_teardown_pending = volume_popup_hv.pending;
     hw_volume_coalesce_teardown(&volume_popup_hv);
     if (volume_teardown_pending >= 0) {
-        current_settings.volume = (float) volume_teardown_pending / 100.0f;
+        gui_player_remember_volume_percent(volume_teardown_pending);
         settings_save(&current_settings); /* Final teardown checkpoint must reach storage. */
     }
     if (volume_popup) { lv_obj_delete(volume_popup); volume_popup = NULL; }
@@ -5750,6 +5749,33 @@ void gui_player_set_volume_percent(int32_t percent) {
     /* External/hardware writes are newer than any coalesced drag sample. */
     hw_volume_coalesce_cancel(&volume_popup_hv);
     if (volume_slider) lv_slider_set_value(volume_slider, percent, LV_ANIM_OFF);
+}
+
+void gui_player_remember_volume_percent(int32_t percent) {
+    if (percent < 0) percent = 0;
+    if (percent > 100) percent = 100;
+    if (current_settings.car_mode_enabled) {
+        current_settings.car_mode_volume_percent = percent;
+        gui_settings_sync_car_mode();
+    } else {
+        current_settings.volume = (float) percent / 100.0f;
+    }
+}
+
+void gui_player_set_car_mode_enabled(bool enabled) {
+    if (current_settings.car_mode_enabled != enabled) {
+        if (enabled) current_settings.volume = audio_get_volume();
+        current_settings.car_mode_enabled = enabled;
+        float volume = enabled ? (float) current_settings.car_mode_volume_percent / 100.0f
+                               : current_settings.volume;
+        int32_t percent = (int32_t) (volume * 100.0f + 0.5f);
+        gui_player_set_volume_percent(percent);
+        audio_set_volume(volume);
+        refresh_volume_topbar(percent);
+        settings_save_async(&current_settings);
+    }
+    gui_settings_sync_car_mode();
+    gui_shell_refresh_quick_drawer_expansion_toggles();
 }
 
 bool gui_player_volume_is_being_adjusted(void) {

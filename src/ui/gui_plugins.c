@@ -513,7 +513,7 @@ void gui_plugin_set_volume(int percent) {
 
     gui_player_set_volume_percent(percent);
     audio_set_volume((float) percent / 100.0f);
-    current_settings.volume = (float) percent / 100.0f;
+    gui_player_remember_volume_percent(percent);
     settings_save(&current_settings);
     show_volume_popup(percent);
     refresh_volume_topbar(percent);

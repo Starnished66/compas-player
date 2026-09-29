@@ -182,10 +182,10 @@ static lv_obj_t * quick_drawer_volume_label = NULL;
  * mid-drag at a time (single touch), but there is no reason to share the
  * popup's own timer/pending state, only this code. */
 static hw_volume_coalesce_t quick_drawer_volume_hv = { .pending = -1 };
-/* 4 native row-1 toggles + 4 native row-2 ones (qd_toggle_t, declared further
+/* 4 native row-1 toggles + 5 native expanded-row ones (qd_toggle_t, declared further
  * down) + PLUGIN_MAX_QUICK_TOGGLES row-3 plugin tiles. Not expressed as
  * QD_TOGGLE_COUNT + ... because that enum is declared below this point. */
-#define QUICK_DRAWER_TOGGLE_SLOTS (8 + PLUGIN_MAX_QUICK_TOGGLES)
+#define QUICK_DRAWER_TOGGLE_SLOTS (9 + PLUGIN_MAX_QUICK_TOGGLES)
 static lv_obj_t * quick_drawer_toggle_state[QUICK_DRAWER_TOGGLE_SLOTS];
 
 /* ---- Expanded area ----------------------------------------------------
@@ -222,6 +222,7 @@ static lv_obj_t * quick_drawer_airplay_icon = NULL;
 static lv_obj_t * quick_drawer_dlna_icon = NULL;
 static lv_obj_t * quick_drawer_gapless_icon = NULL;
 static lv_obj_t * quick_drawer_rc_icon = NULL;
+static lv_obj_t * quick_drawer_car_mode_icon = NULL;
 static lv_obj_t * quick_drawer_plugin_icon[PLUGIN_MAX_QUICK_TOGGLES];
 static int quick_drawer_plugin_toggle_count = 0;
 static int32_t quick_drawer_expansion_full = 0; /* height when fully open */
@@ -354,7 +355,7 @@ static void quick_drawer_volume_event_cb(lv_event_t * e) {
          * every tick, one of the other costs stacking on top of the
          * un-throttled audio call to make this feel sluggish. */
         gui_player_set_volume_percent(percent);
-        current_settings.volume = (float) percent / 100.0f;
+        gui_player_remember_volume_percent(percent);
         /* Async, not sync, matching this same file's own
          * quick_drawer_brightness_changed_cb() release branch -- a fast
          * release must not block the UI thread on a synchronous file
@@ -1135,6 +1136,7 @@ typedef enum {
     QD_TOGGLE_DLNA,
     QD_TOGGLE_GAPLESS,
     QD_TOGGLE_RC,
+    QD_TOGGLE_CAR_MODE,
     QD_TOGGLE_COUNT
 } qd_toggle_t;
 
@@ -1147,6 +1149,7 @@ static const char * const qd_toggle_on_asset[QD_TOGGLE_COUNT] = {
     "pull_down/dlna_s.png",
     "pull_down/gapless_play_s.png",
     "pull_down/hibylink_s.png",
+    "pull_down/car_mode_s.png",
 };
 static const char * const qd_toggle_off_asset[QD_TOGGLE_COUNT] = {
     "pull_down/wifi.png",
@@ -1157,6 +1160,7 @@ static const char * const qd_toggle_off_asset[QD_TOGGLE_COUNT] = {
     "pull_down/dlna.png",
     "pull_down/gapless_play.png",
     "pull_down/hibylink.png",
+    "pull_down/car_mode.png",
 };
 static asset_decoded_image_t qd_toggle_on_img[QD_TOGGLE_COUNT];
 
@@ -1250,6 +1254,11 @@ static void refresh_quick_drawer_expansion_toggles(void) {
         lv_image_set_src(quick_drawer_rc_icon, quick_drawer_toggle_src(QD_TOGGLE_RC, rc));
     quick_drawer_set_toggle_state(QD_TOGGLE_RC, rc);
 
+    bool car_mode = current_settings.car_mode_enabled;
+    if (quick_drawer_car_mode_icon)
+        lv_image_set_src(quick_drawer_car_mode_icon, quick_drawer_toggle_src(QD_TOGGLE_CAR_MODE, car_mode));
+    quick_drawer_set_toggle_state(QD_TOGGLE_CAR_MODE, car_mode);
+
     for (int i = 0; i < quick_drawer_plugin_toggle_count; i++) {
         bool on = plugin_manager_get_quick_toggle_value(i);
         if (quick_drawer_plugin_icon[i])
@@ -1287,6 +1296,11 @@ static void quick_drawer_rc_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     gui_network_toggle_remote_control();
     refresh_quick_drawer_expansion_toggles();
+}
+
+static void quick_drawer_car_mode_event_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    gui_player_set_car_mode_enabled(!current_settings.car_mode_enabled);
 }
 
 static void quick_drawer_plugin_toggle_event_cb(lv_event_t * e) {
@@ -4055,11 +4069,10 @@ static void build_quick_drawer(void) {
     quick_drawer_set_toggle_state(3, current_settings.crossfade_enabled);
 
     /* ---- Expanded rows 2 and 3, inside the clipping box ----------------
-     * Same 4-column grid and same caption geometry as row 1 above, just
+     * Same caption geometry and normally the same 4-column grid as row 1, just
      * offset by whole QUICK_DRAWER_TOGGLE_ROW_PITCH steps and expressed
-     * relative to the box's own top rather than the drawer's. Row 3 exists
-     * only when a plugin registered a quick toggle, so with none installed
-     * the drawer expands by one row instead of two. */
+     * relative to the box's own top rather than the drawer's. Row 3 starts
+     * with Car Mode and then holds any registered plugin quick toggles. */
     quick_drawer_expansion_box = lv_obj_create(quick_drawer);
     lv_obj_remove_style_all(quick_drawer_expansion_box);
     lv_obj_set_pos(quick_drawer_expansion_box, 0, QUICK_DRAWER_EXPANSION_TOP);
@@ -4121,38 +4134,57 @@ static void build_quick_drawer(void) {
         lv_image_set_src(icon, quick_drawer_toggle_src((qd_toggle_t) slot, false));
     }
 
-    for (int i = 0; i < quick_drawer_plugin_toggle_count; i++) {
-        int32_t x = BOARD_SCALE_PX(label_x[i]);
+    for (int i = 0; i < 1 + quick_drawer_plugin_toggle_count; i++) {
+        int32_t row3_column = i;
+        int32_t x;
+        if (1 + quick_drawer_plugin_toggle_count <= 4) {
+            x = BOARD_SCALE_PX(label_x[row3_column]);
+        } else {
+            /* Five tiles need the full panel width: five 84px icons at
+             * 90px spacing, with 18px side margins. */
+            x = BOARD_SCALE_PX(18 + 90 * row3_column);
+        }
         int32_t row_y = QUICK_DRAWER_TOGGLE_ROW_PITCH;
-        bool on = plugin_manager_get_quick_toggle_value(i);
+        bool is_car_mode = i == 0;
+        int plugin_index = i - 1;
+        bool on = is_car_mode ? current_settings.car_mode_enabled
+                              : plugin_manager_get_quick_toggle_value(plugin_index);
 
         lv_obj_t * icon = lv_image_create(quick_drawer_expansion_box);
-        lv_image_set_src(icon, quick_drawer_plugin_toggle_src(i, on));
+        lv_image_set_src(icon, is_car_mode
+                                  ? quick_drawer_toggle_src(QD_TOGGLE_CAR_MODE, on)
+                                  : quick_drawer_plugin_toggle_src(plugin_index, on));
         lv_obj_set_pos(icon, x, row_y);
         lv_obj_add_flag(icon, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(icon, quick_drawer_plugin_toggle_event_cb, LV_EVENT_CLICKED,
-                            (void *) (intptr_t) i);
-        quick_drawer_plugin_icon[i] = icon;
+        if (is_car_mode) {
+            quick_drawer_car_mode_icon = icon;
+            lv_obj_add_event_cb(icon, quick_drawer_car_mode_event_cb, LV_EVENT_CLICKED, NULL);
+        } else {
+            lv_obj_add_event_cb(icon, quick_drawer_plugin_toggle_event_cb, LV_EVENT_CLICKED,
+                                (void *) (intptr_t) plugin_index);
+            quick_drawer_plugin_icon[plugin_index] = icon;
+        }
 
         lv_obj_t * name = lv_label_create(quick_drawer_expansion_box);
-        lv_label_set_text(name, plugin_manager_get_quick_toggle_label(i));
+        lv_label_set_text(name, is_car_mode ? "Car Mode" : plugin_manager_get_quick_toggle_label(plugin_index));
         lv_obj_add_style(name, &style_theme_text_primary, 0);
         lv_obj_set_style_text_font(name, &lv_font_montserrat_12, 0);
         lv_obj_set_width(name, BOARD_SCALE_PX(84));
         lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_pos(name, x, row_y + QUICK_DRAWER_TOGGLE_ICON_PX + 2);
 
-        int slot = QD_TOGGLE_COUNT + i;
+        int slot = is_car_mode ? QD_TOGGLE_CAR_MODE : QD_TOGGLE_COUNT + plugin_index;
         quick_drawer_toggle_state[slot] = lv_label_create(quick_drawer_expansion_box);
         lv_obj_set_width(quick_drawer_toggle_state[slot], BOARD_SCALE_PX(84));
         lv_obj_set_style_text_align(quick_drawer_toggle_state[slot], LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_text_font(quick_drawer_toggle_state[slot], &lv_font_montserrat_12, 0);
         lv_obj_set_pos(quick_drawer_toggle_state[slot], x, row_y + QUICK_DRAWER_TOGGLE_ICON_PX + 24);
-        quick_drawer_set_toggle_state_text(slot, on, plugin_manager_get_quick_toggle_state_text(i, on));
+        if (is_car_mode) quick_drawer_set_toggle_state(slot, on);
+        else quick_drawer_set_toggle_state_text(slot, on,
+                                                plugin_manager_get_quick_toggle_state_text(plugin_index, on));
     }
 
-    quick_drawer_expansion_full =
-        QUICK_DRAWER_TOGGLE_ROW_PITCH * (quick_drawer_plugin_toggle_count > 0 ? 2 : 1);
+    quick_drawer_expansion_full = QUICK_DRAWER_TOGGLE_ROW_PITCH * 2;
 
     /* Row 1: screen brightness -- real control, via the standard Linux
      * backlight sysfs class (backlight.h), no dedicated slider-track asset
@@ -4545,7 +4577,9 @@ void gui_shell_teardown(void) {
     quick_drawer_card = NULL;
     quick_drawer_airplay_icon = NULL;
     quick_drawer_dlna_icon = NULL;
+    quick_drawer_gapless_icon = NULL;
     quick_drawer_rc_icon = NULL;
+    quick_drawer_car_mode_icon = NULL;
     for (int i = 0; i < PLUGIN_MAX_QUICK_TOGGLES; i++) quick_drawer_plugin_icon[i] = NULL;
     quick_drawer_plugin_toggle_count = 0;
     quick_drawer_shift_count = 0;
