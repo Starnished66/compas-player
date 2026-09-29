@@ -26,6 +26,7 @@ lv_obj_t * gui_library_get_recently_added_screen(void);
 lv_obj_t * gui_library_get_artists_screen(void);
 lv_obj_t * gui_library_get_albums_screen(void);
 lv_obj_t * gui_library_get_album_artist_screen(void);
+lv_obj_t * gui_library_get_genres_screen(void);
 lv_obj_t * gui_library_get_group_songs_screen(void);
 lv_obj_t * gui_library_get_playlists_screen(void);
 
