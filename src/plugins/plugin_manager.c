@@ -5607,6 +5607,10 @@ int plugin_manager_get_quick_toggle_count(void) {
     return plugin_quick_toggle_count;
 }
 
+int plugin_manager_find_quick_toggle_by_id(const char * id) {
+    return plugin_find_quick_toggle_by_id(id);
+}
+
 const char * plugin_manager_get_quick_toggle_label(int index) {
     if (index < 0 || index >= plugin_quick_toggle_count) return "";
     return plugin_quick_toggles[index].label;

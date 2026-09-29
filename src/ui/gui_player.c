@@ -8,6 +8,7 @@
 #include "led_control.h"
 #include "charge_limiter.h"
 #include "headphone_status.h"
+#include "battery.h"
 
 /* ---- Playback state and advance machinery ---- */
 static char ** playlist = NULL;
@@ -4940,6 +4941,15 @@ bool build_sd_card_resume_playlist(char *** out_playlist, int * out_count, int *
     return true;
 }
 
+int gui_player_boot_resume_mode(void) {
+    if (!current_settings.car_mode_enabled) return current_settings.resume_mode;
+    if (current_settings.car_mode_autoresume_enabled &&
+        battery_get_external_power_state() == BATTERY_EXTERNAL_POWER_CONNECTED &&
+        get_headphone_state() != HEADPHONE_STATE_NONE) return 1;
+    /* Keep the saved position ready for Play without starting the output. */
+    return 2;
+}
+
 bool gui_player_restore_sd_queue(bool is_boot) {
     atomic_store(&sd_card_absent_immediate, false);
 
@@ -4990,9 +5000,10 @@ bool gui_player_restore_sd_queue(bool is_boot) {
 
     if (!install_saved_resume_playlist(resume_playlist, resume_count)) return false;
 
-    if (current_settings.resume_mode == 1) {
+    int resume_mode = is_boot ? gui_player_boot_resume_mode() : current_settings.resume_mode;
+    if (resume_mode == 1) {
         play_track_at_from(resume_index, position);
-    } else if (current_settings.resume_mode == 2) {
+    } else if (resume_mode == 2) {
         prepare_deferred_resume(resume_index, position);
     } else {
         /* Resume disabled: load and display the queue/track, but don't

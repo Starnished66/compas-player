@@ -83,8 +83,10 @@ typedef struct {
 
     /* Car Mode: unplugging power while something is loaded checkpoints position
      * and powers the device off; plugging power back in powers it back on and
-     * resumes automatically. Off by default. */
+     * can resume automatically. Off by default. */
     bool car_mode_enabled;
+    /* Start playback on external-power boot while Car Mode is enabled. */
+    bool car_mode_autoresume_enabled;
 
     /* In-line remote: Enables the use of Volume +/- buttons on the headphones,
      * along with single tapping the play/pause button to play/pause,

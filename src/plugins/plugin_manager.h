@@ -433,6 +433,8 @@ void plugin_manager_notify_screenshot_failed(const char * reason);
 #define PLUGIN_MAX_QUICK_TOGGLES 4
 
 int plugin_manager_get_quick_toggle_count(void);
+/* Registered toggle index, or -1 when its plugin is absent or disabled. */
+int plugin_manager_find_quick_toggle_by_id(const char * id);
 const char * plugin_manager_get_quick_toggle_label(int index);
 const char * plugin_manager_get_quick_toggle_icon(int index);
 const char * plugin_manager_get_quick_toggle_icon_selected(int index);

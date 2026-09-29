@@ -91,6 +91,7 @@ static void set_defaults(player_settings_t * out) {
     out->replaygain_mode = 1; /* Per Track -- preserves the old replaygain_enabled=true default */
     out->animation_scale = 100;
     out->car_mode_enabled = false;
+    out->car_mode_autoresume_enabled = true;
     out->inline_remote_enabled = true;
     out->lyrics_enabled = true;
     out->subsonic_url[0] = '\0';
@@ -335,6 +336,8 @@ bool settings_load(player_settings_t * out) {
             out->animation_scale = atoi(value);
         } else if (strcmp(key, "car_mode_enabled") == 0) {
             out->car_mode_enabled = (strcmp(value, "1") == 0);
+        } else if (strcmp(key, "car_mode_autoresume_enabled") == 0) {
+            out->car_mode_autoresume_enabled = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "inline_remote_enabled") == 0) {
             out->inline_remote_enabled = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "lyrics_enabled") == 0) {
@@ -574,6 +577,7 @@ static void settings_write_file(const player_settings_t * settings) {
     fprintf(f, "replaygain_mode=%d\n", settings->replaygain_mode);
     fprintf(f, "animation_scale=%d\n", settings->animation_scale);
     fprintf(f, "car_mode_enabled=%d\n", settings->car_mode_enabled ? 1 : 0);
+    fprintf(f, "car_mode_autoresume_enabled=%d\n", settings->car_mode_autoresume_enabled ? 1 : 0);
     fprintf(f, "inline_remote_enabled=%d\n", settings->inline_remote_enabled ? 1 : 0);
     fprintf(f, "lyrics_enabled=%d\n", settings->lyrics_enabled ? 1 : 0);
     fprintf(f, "subsonic_url=%s\n", settings->subsonic_url);

@@ -160,6 +160,8 @@ extern double deferred_resume_position;
 bool build_saved_resume_playlist(char *** out_playlist, int * out_count, int * out_index);
 bool build_sd_card_resume_playlist(char *** out_playlist, int * out_count, int * out_index, double * out_position);
 bool gui_player_restore_sd_queue(bool is_boot);
+/* Effective boot resume mode: Car Mode overrides the normal resume setting. */
+int gui_player_boot_resume_mode(void);
 void gui_player_notify_sd_unmounted_immediate(void);
 void gui_player_notify_sd_mounted(void);
 void gui_player_handle_sd_unmount(void);

@@ -126,6 +126,9 @@ static lv_obj_t * car_mode_volume_slider;
 static lv_obj_t * car_mode_hint_label;
 static lv_obj_t * car_mode_screen;
 static lv_obj_t * car_mode_enable_switch;
+static lv_obj_t * car_mode_autoresume_switch;
+static lv_obj_t * car_mode_gain_row;
+static lv_obj_t * car_mode_gain_dropdown;
 static lv_obj_t * sleep_timer_switch;
 static lv_obj_t * sleep_timer_slider_card;
 static lv_obj_t * sleep_timer_remaining_btn;
@@ -1589,6 +1592,26 @@ static void car_mode_enable_switch_event_cb(lv_event_t * e) {
     gui_player_set_car_mode_enabled(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
 }
 
+static void car_mode_autoresume_switch_event_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+    current_settings.car_mode_autoresume_enabled =
+        lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
+    settings_save_async(&current_settings);
+}
+
+static void car_mode_gain_dropdown_event_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+    int index = plugin_manager_find_quick_toggle_by_id("gain");
+    if (index < 0) return;
+    plugin_manager_quick_toggle_set(index, lv_dropdown_get_selected(lv_event_get_target(e)) == 1);
+    gui_shell_refresh_quick_drawer_expansion_toggles();
+}
+
+static void car_mode_screen_loaded_cb(lv_event_t * e) {
+    (void) e;
+    gui_settings_sync_car_mode();
+}
+
 static lv_obj_t * build_car_mode_screen(void) {
     lv_obj_t * scr = lv_obj_create(NULL);
     lv_obj_add_style(scr, &style_theme_screen_bg, 0);
@@ -1664,12 +1687,71 @@ static lv_obj_t * build_car_mode_screen(void) {
         car_mode_volume_slider_event_cb, &car_mode_volume_slider, &car_mode_volume_value_label);
     lv_label_set_text_fmt(car_mode_volume_value_label, "%d%%", current_settings.car_mode_volume_percent);
 
+    /* Independent of the general playback resume setting. */
+    lv_obj_t * autoresume_row = lv_obj_create(body);
+    lv_obj_set_width(autoresume_row, lv_pct(90));
+    lv_obj_set_height(autoresume_row, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(autoresume_row, 0, 0);
+    lv_obj_set_style_border_width(autoresume_row, 0, 0);
+    lv_obj_remove_flag(autoresume_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(autoresume_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(autoresume_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_gap(autoresume_row, 12, 0);
+    lv_obj_t * autoresume_label = lv_label_create(autoresume_row);
+    lv_label_set_text(autoresume_label, "Auto-resume");
+    lv_obj_add_style(autoresume_label, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(autoresume_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    lv_label_set_long_mode(autoresume_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_flex_grow(autoresume_label, 1);
+    car_mode_autoresume_switch = lv_switch_create(autoresume_row);
+    lv_obj_add_style(car_mode_autoresume_switch, gui_theme_accent_style(), LV_PART_INDICATOR | LV_STATE_CHECKED);
+    if (current_settings.car_mode_autoresume_enabled) lv_obj_add_state(car_mode_autoresume_switch, LV_STATE_CHECKED);
+    lv_obj_add_event_cb(car_mode_autoresume_switch, car_mode_autoresume_switch_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    lv_obj_t * autoresume_hint = lv_label_create(body);
+    lv_label_set_text(autoresume_hint, "Resume playback when external power turns the player on.");
+    lv_obj_set_width(autoresume_hint, lv_pct(90));
+    lv_label_set_long_mode(autoresume_hint, LV_LABEL_LONG_WRAP);
+    lv_obj_add_style(autoresume_hint, &style_theme_text_muted, 0);
+    lv_obj_set_style_text_font(autoresume_hint, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+
+    /* Gain remains owned by the Gain plugin; this selector uses its registered
+     * quick toggle so the plugin keeps its existing persistence and behavior. */
+    car_mode_gain_row = lv_obj_create(body);
+    lv_obj_set_width(car_mode_gain_row, lv_pct(90));
+    lv_obj_set_height(car_mode_gain_row, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(car_mode_gain_row, 0, 0);
+    lv_obj_set_style_border_width(car_mode_gain_row, 0, 0);
+    lv_obj_remove_flag(car_mode_gain_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(car_mode_gain_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(car_mode_gain_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_gap(car_mode_gain_row, 12, 0);
+    lv_obj_t * gain_label = lv_label_create(car_mode_gain_row);
+    lv_label_set_text(gain_label, "Gain");
+    lv_obj_add_style(gain_label, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(gain_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    lv_obj_set_flex_grow(gain_label, 1);
+    car_mode_gain_dropdown = lv_dropdown_create(car_mode_gain_row);
+    lv_dropdown_set_options(car_mode_gain_dropdown, "Low\nHigh");
+    lv_obj_set_style_text_font(car_mode_gain_dropdown, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    lv_obj_set_style_text_font(lv_dropdown_get_list(car_mode_gain_dropdown), gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    lv_obj_set_width(car_mode_gain_dropdown, BOARD_SCALE_PX(170));
+    lv_obj_add_event_cb(car_mode_gain_dropdown, car_mode_gain_dropdown_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(scr, car_mode_screen_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
+    gui_settings_sync_car_mode();
+
     finalize_screen_navigation(scr);
     return scr;
 }
 
 static void car_mode_settings_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    gui_settings_open_car_mode();
+}
+
+void gui_settings_open_car_mode(void) {
+    if (!car_mode_screen) return;
+    gui_settings_sync_car_mode();
     nav_push(car_mode_screen);
 }
 
@@ -3934,6 +4016,9 @@ void gui_settings_teardown(void) {
     if (music_controls_screen) { lv_obj_delete(music_controls_screen); music_controls_screen = NULL; }
     if (car_mode_screen) { lv_obj_delete(car_mode_screen); car_mode_screen = NULL; }
     car_mode_enable_switch = NULL;
+    car_mode_autoresume_switch = NULL;
+    car_mode_gain_row = NULL;
+    car_mode_gain_dropdown = NULL;
     car_mode_hint_label = NULL;
     car_mode_volume_value_label = NULL;
     car_mode_volume_slider = NULL;
@@ -4022,5 +4107,19 @@ void gui_settings_sync_car_mode(void) {
     }
     if (car_mode_volume_value_label) {
         lv_label_set_text_fmt(car_mode_volume_value_label, "%d%%", current_settings.car_mode_volume_percent);
+    }
+    if (car_mode_autoresume_switch) {
+        if (current_settings.car_mode_autoresume_enabled) lv_obj_add_state(car_mode_autoresume_switch, LV_STATE_CHECKED);
+        else lv_obj_clear_state(car_mode_autoresume_switch, LV_STATE_CHECKED);
+    }
+    if (car_mode_gain_row && car_mode_gain_dropdown) {
+        int index = plugin_manager_find_quick_toggle_by_id("gain");
+        if (index < 0) {
+            lv_obj_add_flag(car_mode_gain_row, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_remove_flag(car_mode_gain_row, LV_OBJ_FLAG_HIDDEN);
+            lv_dropdown_set_selected(car_mode_gain_dropdown,
+                plugin_manager_get_quick_toggle_value(index) ? 1U : 0U);
+        }
     }
 }

@@ -1700,8 +1700,8 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
 
     /* Auto-resume playback on startup:
      * If an SD card is mounted and contains a saved queue checkpoint, restore it
-     * first. Otherwise fall back to Car Mode and the opt-in "Resume Last Track"
-     * setting from internal storage / metadata database.
+     * first. Otherwise fall back to the saved track in internal storage /
+     * metadata database. Both paths use the same Car Mode / general resume policy.
      * Tracks in SUBSONIC_STREAM_CACHE_DIR are skipped to prevent resuming into
      * transient cache files without network connectivity. */
     bool sd_restored = false;
@@ -1709,39 +1709,14 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
         sd_restored = gui_player_restore_sd_queue(true);
     }
 
-    if (!sd_restored && current_settings.car_mode_enabled && current_settings.last_track[0] != '\0' &&
+    int boot_resume_mode = gui_player_boot_resume_mode();
+    if (!sd_restored && boot_resume_mode != 0 && current_settings.last_track[0] != '\0' &&
         strncmp(current_settings.last_track, SUBSONIC_STREAM_CACHE_DIR, strlen(SUBSONIC_STREAM_CACHE_DIR)) != 0) {
-#ifndef HOST_BUILD
-        /* Car Mode expects a connected headphone/aux jack to resume into.
-         * If no headphone is connected at boot, skip auto-resume and disable
-         * Car Mode to prevent unexpected playback or boot issues. */
-        if (get_headphone_state() == HEADPHONE_STATE_NONE) {
-            gui_player_set_car_mode_enabled(false);
-            show_info_toast("Car Mode disabled: no headphone detected at boot");
-        } else
-#endif
-        {
-            char ** resume_playlist;
-            int resume_count, resume_index;
-            if (build_saved_resume_playlist(&resume_playlist, &resume_count, &resume_index)) {
-                if (install_saved_resume_playlist(resume_playlist, resume_count)) {
-                    /* play_track_at_from() itself nav_push()es gui_player_get_screen() on top
-                     * of the seeded root, so a back-swipe from the resumed player
-                     * correctly lands back on the home screen. */
-                    play_track_at_from(resume_index, current_settings.last_position);
-                }
-            }
-        }
-    } else if (!sd_restored && current_settings.resume_mode != 0 && current_settings.last_track[0] != '\0' &&
-               strncmp(current_settings.last_track, SUBSONIC_STREAM_CACHE_DIR, strlen(SUBSONIC_STREAM_CACHE_DIR)) != 0) {
-        /* General "Resume Last Track" (Settings -> Playback):
-         * Resumes the last played local track on launch without requiring
-         * headphone presence. */
         char ** resume_playlist;
         int resume_count, resume_index;
         if (build_saved_resume_playlist(&resume_playlist, &resume_count, &resume_index)) {
             if (install_saved_resume_playlist(resume_playlist, resume_count)) {
-                if (current_settings.resume_mode == 2) {
+                if (boot_resume_mode == 2) {
                     /* Do not open ALSA at all until the user presses Play.  On
                      * a headphone-less boot, start-then-pause could lose the
                      * race to an output-open failure and consume this queue. */

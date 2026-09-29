@@ -1299,8 +1299,21 @@ static void quick_drawer_rc_event_cb(lv_event_t * e) {
 }
 
 static void quick_drawer_car_mode_event_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    /* LV_EVENT_SHORT_CLICKED is not emitted after LVGL recognizes a long
+     * press, so opening settings cannot also toggle Car Mode on release. */
+    if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) return;
     gui_player_set_car_mode_enabled(!current_settings.car_mode_enabled);
+}
+
+static void quick_drawer_finish_bitmap_motion(void);
+
+static void quick_drawer_car_mode_long_press_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
+    /* Match Wi-Fi/Bluetooth: finish the drawer's bitmap transition before
+     * navigating, since the settings screen will cover the overlay. */
+    quick_drawer_open = false;
+    quick_drawer_finish_bitmap_motion();
+    gui_settings_open_car_mode();
 }
 
 static void quick_drawer_plugin_toggle_event_cb(lv_event_t * e) {
@@ -4158,7 +4171,8 @@ static void build_quick_drawer(void) {
         lv_obj_add_flag(icon, LV_OBJ_FLAG_CLICKABLE);
         if (is_car_mode) {
             quick_drawer_car_mode_icon = icon;
-            lv_obj_add_event_cb(icon, quick_drawer_car_mode_event_cb, LV_EVENT_CLICKED, NULL);
+            lv_obj_add_event_cb(icon, quick_drawer_car_mode_event_cb, LV_EVENT_SHORT_CLICKED, NULL);
+            lv_obj_add_event_cb(icon, quick_drawer_car_mode_long_press_cb, LV_EVENT_LONG_PRESSED, NULL);
         } else {
             lv_obj_add_event_cb(icon, quick_drawer_plugin_toggle_event_cb, LV_EVENT_CLICKED,
                                 (void *) (intptr_t) plugin_index);
