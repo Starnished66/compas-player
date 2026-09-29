@@ -1452,6 +1452,7 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
     boot_checkpoint("gui_init entered");
 #endif
     settings_load(&current_settings);
+    gui_display_apply_rotation(current_settings.screen_upside_down);
     bt_control_restore_codec_preference(current_settings.bt_codec);
     bt_control_set_speexrate_enabled(current_settings.bt_speexrate_enabled);
     bt_control_set_dac_all_codecs(current_settings.dev_bt_dac_all_codecs);

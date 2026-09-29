@@ -127,6 +127,7 @@ bool transition_compositor_begin(const lv_draw_buf_t * from, const lv_draw_buf_t
     }
 
     lv_display_t * disp = lv_display_get_default();
+    if (lv_display_get_rotation(disp) != LV_DISPLAY_ROTATION_0) return false;
     uint32_t fb_stride = lv_linux_fbdev_get_stride(disp);
     if (fb_stride == 0) {
 #ifdef UI_PERF_TRACE
@@ -403,6 +404,7 @@ bool transition_compositor_begin_vertical_overlay(const lv_draw_buf_t * overlay,
     if (!overlay_rgb565 && !overlay_argb8888) return false;
 
     lv_display_t * disp = lv_display_get_default();
+    if (lv_display_get_rotation(disp) != LV_DISPLAY_ROTATION_0) return false;
     int32_t w = lv_display_get_horizontal_resolution(disp);
     int32_t h = lv_display_get_vertical_resolution(disp);
     uint32_t fb_stride = lv_linux_fbdev_get_stride(disp);

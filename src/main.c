@@ -18,6 +18,7 @@
 #endif
 
 #include "gui.h"
+#include "settings.h"
 #include "db_log.h"
 #include "storage_migration.h"
 
@@ -469,6 +470,10 @@ int main(int argc, char ** argv) {
         fprintf(stderr, "Error: Failed to create SDL2 window\n");
         return 1;
     }
+    settings_load(&current_settings);
+    if (current_settings.screen_upside_down) {
+        lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_180);
+    }
 
     /* Register Mouse as Pointer device (maps mouse click -> touch) */
     lv_indev_t * mouse = lv_sdl_mouse_create();
@@ -502,6 +507,11 @@ int main(int argc, char ** argv) {
         return 1;
     }
     boot_checkpoint("lv_linux_fbdev_set_file done");
+
+    settings_load(&current_settings);
+    if (current_settings.screen_upside_down) {
+        lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_180);
+    }
 
     /* As early as this process can paint anything -- see gui_show_boot_
      * splash()'s own comment (gui.c) for why this exists and how gui_init()

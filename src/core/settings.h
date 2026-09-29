@@ -205,6 +205,10 @@ typedef struct {
      * view is active. Other screens retain their status information. */
     bool hide_player_topbar;
 
+    /* Settings -> Display -> Upside Down Screen. Rotates the screen 180
+     * degrees so the device can be used with the headphone jack on top. */
+    bool screen_upside_down;
+
     /* Charge-status LEDs (/sys/class/leds/{red,blue}, see led_control.h) --
      * false forces both off regardless of charge state, for e.g. leaving the
      * device charging overnight in a dark room. */

@@ -117,6 +117,7 @@ static void set_defaults(player_settings_t * out) {
     out->screen_dimming_enabled = true;
     out->screen_dim_delay_seconds = 10;
     out->hide_player_topbar = false;
+    out->screen_upside_down = false;
     out->led_indicator_enabled = true;
     out->db_logging_enabled = false; /* opt-in developer diagnostic, off by default */
     out->screenshot_combo_enabled = false;
@@ -408,6 +409,8 @@ bool settings_load(player_settings_t * out) {
             out->screen_dim_delay_seconds = atoi(value);
         } else if (strcmp(key, "hide_player_topbar") == 0) {
             out->hide_player_topbar = (strcmp(value, "1") == 0);
+        } else if (strcmp(key, "screen_upside_down") == 0) {
+            out->screen_upside_down = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "led_indicator_enabled") == 0) {
             out->led_indicator_enabled = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "db_logging_enabled") == 0) {
@@ -587,6 +590,7 @@ static void settings_write_file(const player_settings_t * settings) {
     fprintf(f, "screen_dimming_enabled=%d\n", settings->screen_dimming_enabled ? 1 : 0);
     fprintf(f, "screen_dim_delay_seconds=%d\n", settings->screen_dim_delay_seconds);
     fprintf(f, "hide_player_topbar=%d\n", settings->hide_player_topbar ? 1 : 0);
+    fprintf(f, "screen_upside_down=%d\n", settings->screen_upside_down ? 1 : 0);
     fprintf(f, "led_indicator_enabled=%d\n", settings->led_indicator_enabled ? 1 : 0);
     fprintf(f, "db_logging_enabled=%d\n", settings->db_logging_enabled ? 1 : 0);
     fprintf(f, "screenshot_combo_enabled=%d\n", settings->screenshot_combo_enabled ? 1 : 0);

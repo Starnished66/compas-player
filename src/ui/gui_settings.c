@@ -2299,8 +2299,26 @@ static void animation_speed_settings_row_cb(lv_event_t * e) {
     nav_push(animation_speed_screen);
 }
 
+static void upside_down_screen_switch_event_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+    current_settings.screen_upside_down = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
+    settings_save_async(&current_settings);
+    gui_display_apply_rotation(current_settings.screen_upside_down);
+}
+
+void gui_display_apply_rotation(bool upside_down) {
+    lv_display_t * disp = lv_display_get_default();
+    if (!disp) return;
+    lv_display_rotation_t target_rot = upside_down ? LV_DISPLAY_ROTATION_180 : LV_DISPLAY_ROTATION_0;
+    if (lv_display_get_rotation(disp) == target_rot) return;
+    lv_display_set_rotation(disp, target_rot);
+    gui_navigation_invalidate_theme_snapshots();
+    lv_obj_t * act = lv_screen_active();
+    if (act) lv_obj_invalidate(act);
+}
+
 static lv_obj_t * build_settings_display_screen(void) {
-    static pill_list_item_t items[9 + PLUGIN_MAX_DISPLAY_LIST_ITEMS];
+    static pill_list_item_t items[10 + PLUGIN_MAX_DISPLAY_LIST_ITEMS];
     items[0] = (pill_list_item_t){ "Accent Color", PILL_ACCESSORY_CHEVRON, false, accent_color_row_cb, NULL, NULL };
     items[1] = (pill_list_item_t){ "Font", PILL_ACCESSORY_CHEVRON, false, custom_font_row_cb, NULL, NULL };
     items[2] = (pill_list_item_t){ "Font Size", PILL_ACCESSORY_CHEVRON, false, font_size_settings_row_cb, NULL, NULL };
@@ -2314,8 +2332,11 @@ static lv_obj_t * build_settings_display_screen(void) {
                                     hide_player_topbar_switch_event_cb, NULL };
     items[8] = (pill_list_item_t){ "Animation Speed", PILL_ACCESSORY_CHEVRON, false,
                                     animation_speed_settings_row_cb, NULL, NULL };
+    items[9] = (pill_list_item_t){ "Upside Down Screen", PILL_ACCESSORY_TOGGLE,
+                                    current_settings.screen_upside_down, NULL,
+                                    upside_down_screen_switch_event_cb, NULL };
 
-    int count = 9;
+    int count = 10;
     count = append_plugin_list_rows(items, count, PLUGIN_MAX_DISPLAY_LIST_ITEMS,
                                     plugin_manager_get_display_list_item_count,
                                     plugin_manager_get_display_list_item_label,

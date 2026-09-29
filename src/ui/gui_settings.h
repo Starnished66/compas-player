@@ -30,3 +30,4 @@ void gui_settings_sync_sleep_timer_toggle(void);
 void gui_settings_sync_adb_toggle(void);
 /* Drives the online firmware update UI (firmware_ota.h); call every tick. */
 void poll_firmware_ota(void);
+void gui_display_apply_rotation(bool upside_down);

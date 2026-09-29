@@ -1,5 +1,5 @@
 diff --git a/src/drivers/display/fb/lv_linux_fbdev.c b/src/drivers/display/fb/lv_linux_fbdev.c
-index c78b881..b6474e2 100644
+index c78b881..b4b648b 100644
 --- a/src/drivers/display/fb/lv_linux_fbdev.c
 +++ b/src/drivers/display/fb/lv_linux_fbdev.c
 @@ -71,6 +71,25 @@ typedef struct {
@@ -28,7 +28,23 @@ index c78b881..b6474e2 100644
  } lv_linux_fb_t;
  
  /**********************
-@@ -234,14 +253,45 @@ lv_result_t lv_linux_fbdev_set_file(lv_display_t * disp, const char * file)
+@@ -79,6 +98,7 @@ typedef struct {
+ 
+ static void del_event_cb(lv_event_t * e);
+ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * color_p);
++static void res_changed_event_cb(lv_event_t * e);
+ static uint32_t tick_get_cb(void);
+ 
+ /**********************
+@@ -118,6 +138,7 @@ lv_display_t * lv_linux_fbdev_create(void)
+     lv_display_set_driver_data(disp, dsc);
+     lv_display_set_flush_cb(disp, flush_cb);
+     lv_display_add_event_cb(disp, del_event_cb, LV_EVENT_DELETE, NULL);
++    lv_display_add_event_cb(disp, res_changed_event_cb, LV_EVENT_RESOLUTION_CHANGED, NULL);
+ 
+     return disp;
+ }
+@@ -234,14 +255,53 @@ lv_result_t lv_linux_fbdev_set_file(lv_display_t * disp, const char * file)
  
      uint8_t * draw_buf = NULL;
      uint8_t * draw_buf_2 = NULL;
@@ -57,29 +73,37 @@ index c78b881..b6474e2 100644
 +        dsc->page0 = (uint8_t *)dsc->fbp;
 +        dsc->page1 = (uint8_t *)dsc->fbp + page_bytes;
 +        dsc->page_yoffset = dsc->vinfo.yres;
-+        draw_buf = dsc->page0;
-+        draw_buf_2 = dsc->page1;
-+        /* Do not store these in draw_buf_1/draw_buf_2 -- del_event_cb()
++        if(lv_display_get_rotation(disp) == LV_DISPLAY_ROTATION_180 && dsc->vinfo.bits_per_pixel == 16) {
++            dsc->draw_buf_1 = lv_malloc(draw_buf_size);
++            LV_ASSERT_MALLOC(dsc->draw_buf_1);
++            draw_buf = dsc->draw_buf_1;
++            draw_buf_2 = NULL;
++        }
++        else {
++            draw_buf = dsc->page0;
++            draw_buf_2 = dsc->page1;
++        }
++        /* Do not store these in draw_buf_1/draw_buf_2 when unrotated -- del_event_cb()
 +         * lv_free()s those, and these are mmap'd framebuffer pages. */
      }
 +#endif /* LV_LINUX_FBDEV_MMAP && !LV_LINUX_FBDEV_BSD */
-+
+ 
+-    dsc->draw_buf_1 = draw_buf;
+-    dsc->draw_buf_2 = draw_buf_2;
 +    if(!dsc->pan_double_buffer) {
 +        draw_buf = lv_malloc(draw_buf_size);
 +
 +        if(LV_LINUX_FBDEV_BUFFER_COUNT == 2) {
 +            draw_buf_2 = lv_malloc(draw_buf_size);
 +        }
- 
--    dsc->draw_buf_1 = draw_buf;
--    dsc->draw_buf_2 = draw_buf_2;
++
 +        dsc->draw_buf_1 = draw_buf;
 +        dsc->draw_buf_2 = draw_buf_2;
 +    }
  
      lv_display_set_resolution(disp, hor_res, ver_res);
      lv_display_set_buffers(disp, draw_buf, draw_buf_2, draw_buf_size, LV_LINUX_FBDEV_RENDER_MODE);
-@@ -262,6 +312,98 @@ void lv_linux_fbdev_set_force_refresh(lv_display_t * disp, bool enabled)
+@@ -262,6 +322,101 @@ void lv_linux_fbdev_set_force_refresh(lv_display_t * disp, bool enabled)
      dsc->force_refresh = enabled;
  }
  
@@ -88,6 +112,7 @@ index c78b881..b6474e2 100644
 +    if(!disp) return NULL;
 +    lv_linux_fb_t * dsc = lv_display_get_driver_data(disp);
 +    if(!dsc || !dsc->pan_double_buffer) return NULL;
++    if(lv_display_get_rotation(disp) != LV_DISPLAY_ROTATION_0) return NULL;
 +    return (dsc->vinfo.yoffset == dsc->page_yoffset) ? dsc->page1 : dsc->page0;
 +}
 +
@@ -96,6 +121,7 @@ index c78b881..b6474e2 100644
 +    if(!disp) return NULL;
 +    lv_linux_fb_t * dsc = lv_display_get_driver_data(disp);
 +    if(!dsc || !dsc->pan_double_buffer) return NULL;
++    if(lv_display_get_rotation(disp) != LV_DISPLAY_ROTATION_0) return NULL;
 +    /* Writable (unlike get_active_page() above) -- callers write into this
 +     * one directly, which is exactly what makes it safe to write into: it's
 +     * never the page currently being scanned out. */
@@ -115,6 +141,7 @@ index c78b881..b6474e2 100644
 +    if(!disp) return false;
 +    lv_linux_fb_t * dsc = lv_display_get_driver_data(disp);
 +    if(!dsc || !dsc->pan_double_buffer) return false;
++    if(lv_display_get_rotation(disp) != LV_DISPLAY_ROTATION_0) return false;
 +    if(dsc->external_composition_active) return false; /* reject nested ownership */
 +    dsc->external_composition_active = true;
 +    return true;
@@ -170,7 +197,7 @@ index c78b881..b6474e2 100644
 +     * to render somewhere safe to write. */
 +    if(dsc->pan_double_buffer) {
 +        bool page1_active = (dsc->vinfo.yoffset == dsc->page_yoffset);
-+        disp->buf_act = page1_active ? disp->buf_1 : disp->buf_2;
++        disp->buf_act = (page1_active || !disp->buf_2) ? disp->buf_1 : disp->buf_2;
 +    }
 +    return true;
 +}
@@ -178,24 +205,63 @@ index c78b881..b6474e2 100644
  /**********************
   *   STATIC FUNCTIONS
   **********************/
-@@ -297,8 +439,14 @@ static void del_event_cb(lv_event_t * e)
+@@ -297,14 +452,53 @@ static void del_event_cb(lv_event_t * e)
          dsc->fbfd = -1;
      }
      if(dsc->rotated_buf) lv_free(dsc->rotated_buf);
 -    if(dsc->draw_buf_1) lv_free(dsc->draw_buf_1);
 -    if(dsc->draw_buf_2) lv_free(dsc->draw_buf_2);
-+    /* pan_double_buffer aliases the mmap'd framebuffer pages as LVGL draw
-+     * buffers and never stores them in draw_buf_1/2 -- those fields stay
-+     * NULL. Still skip the free if a future change points them at mmap'd
-+     * memory: lv_free() of /dev/fb0 would be a real heap corruption. */
-+    if(!dsc->pan_double_buffer) {
-+        if(dsc->draw_buf_1) lv_free(dsc->draw_buf_1);
-+        if(dsc->draw_buf_2) lv_free(dsc->draw_buf_2);
++    /* pan_double_buffer never stores the mmap'd pages in draw_buf_1/2; when
++     * rotated, draw_buf_1 is the RAM render buffer and is freed here. */
++    if(dsc->draw_buf_1) {
++        lv_free(dsc->draw_buf_1);
++        dsc->draw_buf_1 = NULL;
++    }
++    if(!dsc->pan_double_buffer && dsc->draw_buf_2) {
++        lv_free(dsc->draw_buf_2);
++        dsc->draw_buf_2 = NULL;
 +    }
      if(dsc->devname) lv_free((void *)dsc->devname);
  
      lv_free(dsc);
-@@ -316,6 +464,50 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
+     lv_display_set_driver_data(disp, NULL);
+ }
+ 
++static void res_changed_event_cb(lv_event_t * e)
++{
++    lv_display_t * disp = lv_event_get_target(e);
++    lv_linux_fb_t * dsc = lv_display_get_driver_data(disp);
++    if(!dsc || !dsc->pan_double_buffer) return;
++
++    lv_display_rotation_t rot = lv_display_get_rotation(disp);
++    uint32_t draw_buf_size = dsc->vinfo.xres * dsc->vinfo.yres * (dsc->vinfo.bits_per_pixel >> 3);
++
++    /* The flush copies a 180-degree frame by reversing 16-bit pixels, so
++     * only that case leaves the zero-copy page rendering. */
++    if(rot == LV_DISPLAY_ROTATION_180 && dsc->vinfo.bits_per_pixel == 16) {
++        if(!dsc->draw_buf_1) {
++            dsc->draw_buf_1 = lv_malloc(draw_buf_size);
++            LV_ASSERT_MALLOC(dsc->draw_buf_1);
++        }
++        lv_ll_clear(&disp->sync_areas);
++        lv_display_set_buffers(disp, dsc->draw_buf_1, NULL, draw_buf_size, LV_DISPLAY_RENDER_MODE_DIRECT);
++    }
++    else {
++        lv_ll_clear(&disp->sync_areas);
++        lv_display_set_buffers(disp, dsc->page0, dsc->page1, draw_buf_size, LV_DISPLAY_RENDER_MODE_DIRECT);
++        bool page1_active = (dsc->vinfo.yoffset == dsc->page_yoffset);
++        disp->buf_act = page1_active ? disp->buf_1 : disp->buf_2;
++        if(dsc->draw_buf_1) {
++            lv_free(dsc->draw_buf_1);
++            dsc->draw_buf_1 = NULL;
++        }
++    }
++}
++
+ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * color_p)
+ {
+     lv_linux_fb_t * dsc = lv_display_get_driver_data(disp);
+@@ -316,6 +510,67 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
      }
  #endif
  
@@ -213,21 +279,25 @@ index c78b881..b6474e2 100644
 +            lv_display_flush_ready(disp);
 +            return;
 +        }
-+        /* Nothing to copy -- LVGL already rendered straight into whichever
-+         * physical half (page0/page1) it picked for this frame. Once that
-+         * frame is fully drawn (all its dirty areas flushed), pan to that
-+         * half so it becomes the one actually being scanned out. The half
-+         * NOT being displayed is always safe to render into regardless of
-+         * scanout timing, which is what actually kills the tearing -- the
-+         * pan itself only needs to line up with vblank, which fbdev drivers
-+         * are expected to handle internally for FBIOPAN_DISPLAY. */
++        /* When rotated 180 degrees, draw_buf_1 in RAM contains the unrotated rendered
++         * frame in DIRECT mode. Rotate it into whichever physical page is inactive and pan.
++         * When unrotated, LVGL rendered straight into whichever physical half (page0/page1)
++         * was active, so we just pan directly. */
 +        if(lv_display_flush_is_last(disp)) {
-+            uint32_t target_yoffset = (color_p == dsc->page1) ? dsc->page_yoffset : 0;
-+            if(dsc->vinfo.yoffset != target_yoffset) {
-+                /* Temporary copy, committed only on success -- see
-+                 * lv_linux_fbdev_present_external_page()'s own comment on
-+                 * why writing dsc->vinfo.yoffset before confirming the
-+                 * ioctl succeeded is a real desync risk, not just tidiness. */
++            lv_display_rotation_t rotation = lv_display_get_rotation(disp);
++            if(rotation == LV_DISPLAY_ROTATION_180 && dsc->draw_buf_1 && dsc->vinfo.bits_per_pixel == 16) {
++                uint32_t target_yoffset = (dsc->vinfo.yoffset == dsc->page_yoffset) ? 0 : dsc->page_yoffset;
++                uint8_t * target_page = (target_yoffset == 0) ? dsc->page0 : dsc->page1;
++                uint32_t draw_buf_size = dsc->vinfo.xres * dsc->vinfo.yres * (dsc->vinfo.bits_per_pixel >> 3);
++
++                const uint32_t * s = (const uint32_t *) dsc->draw_buf_1;
++                uint32_t * d = (uint32_t *) (target_page + draw_buf_size);
++                size_t total_words = draw_buf_size / sizeof(uint32_t);
++                for(size_t i = 0; i < total_words; i++) {
++                    uint32_t w = s[i];
++                    *(--d) = (w >> 16) | (w << 16);
++                }
++
 +                struct fb_var_screeninfo tmp = dsc->vinfo;
 +                tmp.yoffset = target_yoffset;
 +                if(ioctl(dsc->fbfd, FBIOPAN_DISPLAY, &tmp) == -1) {
@@ -235,6 +305,19 @@ index c78b881..b6474e2 100644
 +                }
 +                else {
 +                    dsc->vinfo.yoffset = target_yoffset;
++                }
++            }
++            else if(rotation == LV_DISPLAY_ROTATION_0) {
++                uint32_t target_yoffset = (color_p == dsc->page1) ? dsc->page_yoffset : 0;
++                if(dsc->vinfo.yoffset != target_yoffset) {
++                    struct fb_var_screeninfo tmp = dsc->vinfo;
++                    tmp.yoffset = target_yoffset;
++                    if(ioctl(dsc->fbfd, FBIOPAN_DISPLAY, &tmp) == -1) {
++                        perror("Error panning display");
++                    }
++                    else {
++                        dsc->vinfo.yoffset = target_yoffset;
++                    }
 +                }
 +            }
 +        }

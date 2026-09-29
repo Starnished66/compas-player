@@ -29,6 +29,7 @@ bool screenshot_is_busy(void) {
 
 #else
 
+#include "settings.h"
 #include "../hardware/backlight.h"
 #include "../ui/gui_library.h"
 #include "../ui/gui_network.h"
@@ -180,6 +181,15 @@ static bool capture_visible_framebuffer(uint16_t ** out_pixels, unsigned * out_w
         memcpy(capture_buffer + (size_t) y * var.xres, base + source_offset, row_bytes);
     }
     munmap(map, fix.smem_len);
+
+    if (current_settings.screen_upside_down) {
+        size_t total = (size_t) var.xres * var.yres;
+        for (size_t i = 0; i < total / 2; i++) {
+            uint16_t tmp = capture_buffer[i];
+            capture_buffer[i] = capture_buffer[total - 1 - i];
+            capture_buffer[total - 1 - i] = tmp;
+        }
+    }
 
     *out_pixels = capture_buffer;
     *out_width = var.xres;

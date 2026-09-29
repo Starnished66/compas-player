@@ -763,7 +763,7 @@ slide_transition_ctx_t * begin_slide_transition_ex(lv_obj_t * to_scr, bool forwa
      * or if fbdev pan-based double buffering is inactive). */
     lv_draw_buf_t * buf_from = NULL;
 #if LV_USE_LINUX_FBDEV
-    {
+    if (lv_display_get_rotation(disp) == LV_DISPLAY_ROTATION_0) {
         const void * phys_active = lv_linux_fbdev_get_active_page(disp);
         uint32_t fb_stride = lv_linux_fbdev_get_stride(disp);
         if (phys_active && fb_stride != 0) {
