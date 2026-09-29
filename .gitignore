@@ -338,3 +338,4 @@ final_diff.patch
 /scripts/__pycache__/
 src/library/metadata_artwork_test.c
 docs/INCREMENTAL_DATABASE.md
+*.md

@@ -273,7 +273,7 @@ static bool screen_off_playback_active = false;
  * current_settings.idle_shutdown_minutes with the screen off and nothing
  * going on -- same gating as radio-suspend above (not playing, not
  * charging, no DAC receive mode active) since none of those should ever be
- * interrupted by the device turning itself off. idle_shutdown_attempted
+ * interrupted by the device turning itself off. */
 /* Idle shutdown logic:
  *
  * Automatically power off if the device is inactive for a user-defined period
