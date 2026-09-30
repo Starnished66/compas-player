@@ -3183,7 +3183,8 @@ static lv_obj_t * create_eq_slider_card(lv_obj_t * parent, eq_field_t field, lv_
     lv_obj_add_style(slider, gui_theme_accent_knob_style(), LV_PART_KNOB);
     lv_obj_set_style_width(slider, SLIDER_KNOB_SIZE, LV_PART_KNOB);
     lv_obj_set_style_height(slider, SLIDER_KNOB_SIZE, LV_PART_KNOB);
-    lv_obj_set_ext_click_area(slider, 20);
+    lv_obj_remove_flag(slider, LV_OBJ_FLAG_ADV_HITTEST);
+    lv_obj_set_ext_click_area(slider, BOARD_SCALE_PX(30));
 
     *out_value_label = value_label;
     *out_slider = slider;
@@ -3800,13 +3801,16 @@ static lv_obj_t * eq_make_slider_card(lv_obj_t * parent, eq_field_t field, const
     lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_radius(slider, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_PART_INDICATOR);
     lv_obj_add_style(slider, gui_theme_accent_style(), LV_PART_INDICATOR);
+    lv_obj_add_style(slider, gui_theme_accent_outline_style(), LV_PART_KNOB);
     lv_obj_set_style_bg_color(slider, lv_color_white(), LV_PART_KNOB);
     lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_KNOB);
     lv_obj_set_style_border_width(slider, BOARD_SCALE_PX(2), LV_PART_KNOB);
-    lv_obj_set_style_border_color(slider, accent_lv_color(), LV_PART_KNOB);
     lv_obj_set_style_pad_all(slider, BOARD_SCALE_PX(9), LV_PART_KNOB);
     lv_obj_set_style_radius(slider, LV_RADIUS_CIRCLE, LV_PART_KNOB);
-    lv_obj_set_ext_click_area(slider, 14);
+    /* Keep the thin rail while accepting touches across a 66 px tall area.
+     * Disable knob-only hit testing so any point along the rail can drag. */
+    lv_obj_remove_flag(slider, LV_OBJ_FLAG_ADV_HITTEST);
+    lv_obj_set_ext_click_area(slider, BOARD_SCALE_PX(30));
     lv_obj_t * captions = lv_obj_create(card);
     lv_obj_set_width(captions, lv_pct(94));
     lv_obj_set_height(captions, LV_SIZE_CONTENT);
@@ -3824,6 +3828,9 @@ static lv_obj_t * eq_make_slider_card(lv_obj_t * parent, eq_field_t field, const
     lv_label_set_text(max_label, high);
     lv_obj_add_style(max_label, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(max_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+    /* Keep captions from intercepting the lower portion of the expanded
+     * slider click area (hit testing visits later children first). */
+    lv_obj_remove_flag(captions, LV_OBJ_FLAG_CLICKABLE);
     *value_out = value;
     *slider_out = slider;
     lv_obj_set_flex_grow(card, 1);
@@ -3832,11 +3839,7 @@ static lv_obj_t * eq_make_slider_card(lv_obj_t * parent, eq_field_t field, const
 
 static void eq_flat_btn_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    for (int i = 0; i < PEQ_NUM_BANDS; i++) {
-        const peq_band_t * b = peq_get_band(i);
-        if (b) peq_set_band(i, b->freq_hz, 0.0, b->q);
-    }
-    peq_set_preamp_db(0.0);
+    peq_reset_to_defaults();
     eq_current_profile_name[0] = '\0';
     refresh_all_eq_widgets();
     peq_save();
@@ -3904,9 +3907,7 @@ static lv_obj_t * build_eq_screen(void) {
     lv_obj_add_style(eq_bypass_switch, gui_theme_accent_style(), LV_PART_INDICATOR | LV_STATE_CHECKED);
     eq_bypass_state_label = lv_label_create(scr);
     lv_label_set_text(eq_bypass_state_label, peq_get_bypass() ? "OFF" : "ON");
-    lv_obj_set_style_text_color(eq_bypass_state_label, accent_lv_color(), 0);
-    lv_obj_set_width(eq_bypass_state_label, BOARD_SCALE_PX(34));
-    lv_obj_set_style_text_align(eq_bypass_state_label, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_add_style(eq_bypass_state_label, gui_theme_accent_style(), 0);
     lv_obj_set_style_text_font(eq_bypass_state_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     lv_obj_set_width(eq_bypass_state_label, BOARD_SCALE_PX(64));
     lv_label_set_long_mode(eq_bypass_state_label, LV_LABEL_LONG_CLIP);
@@ -3958,7 +3959,7 @@ static lv_obj_t * build_eq_screen(void) {
     lv_obj_add_event_cb(next, eq_band_step_cb, LV_EVENT_CLICKED, (void *)(intptr_t)1);
     lv_obj_t * options = lv_label_create(content);
     lv_label_set_text(options, "Band options  " LV_SYMBOL_RIGHT);
-    lv_obj_set_style_text_color(options, accent_lv_color(), 0);
+    lv_obj_add_style(options, gui_theme_accent_style(), 0);
     lv_obj_set_style_text_font(options, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
     lv_obj_add_flag(options, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(options, eq_band_options_open_cb, LV_EVENT_CLICKED, NULL);
@@ -4011,13 +4012,13 @@ static lv_obj_t * build_eq_screen(void) {
     lv_obj_remove_flag(profile_inner, LV_OBJ_FLAG_SCROLLABLE);
     eq_profile_button_label = lv_label_create(profile_inner);
     lv_obj_set_style_text_font(eq_profile_button_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-    lv_obj_set_style_text_color(eq_profile_button_label, accent_lv_color(), 0);
+    lv_obj_add_style(eq_profile_button_label, gui_theme_accent_style(), 0);
     lv_label_set_long_mode(eq_profile_button_label, LV_LABEL_LONG_DOT);
     lv_obj_set_width(eq_profile_button_label, lv_pct(82));
     lv_obj_set_style_text_align(eq_profile_button_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_t * profile_chevron = lv_label_create(profile_inner);
     lv_label_set_text(profile_chevron, LV_SYMBOL_DOWN);
-    lv_obj_set_style_text_color(profile_chevron, accent_lv_color(), 0);
+    lv_obj_add_style(profile_chevron, gui_theme_accent_style(), 0);
     lv_obj_t * save = lv_btn_create(eq_footer);
     lv_obj_set_flex_grow(save, 1);
     lv_obj_set_height(save, BOARD_SCALE_PX(66));
