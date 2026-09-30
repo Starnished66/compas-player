@@ -160,8 +160,16 @@ static lv_obj_t * eq_main_content;
 static lv_obj_t * eq_footer;
 static lv_obj_t * eq_bypass_state_label;
 static lv_obj_t * eq_title_label;
+static bool eq_graph_visible;
+static lv_obj_t * eq_graph_panel, *eq_graph_chart, *eq_graph_caption;
+static lv_chart_series_t * eq_graph_series;
+static lv_obj_t * eq_graph_min_label, *eq_graph_zero_label, *eq_graph_max_label;
+static lv_obj_t * eq_band_options_row, *eq_freq_card, *eq_gain_card, *eq_q_card;
+static void refresh_all_eq_widgets(void);
 
 void gui_settings_refresh_font_geometry(void) {
+    if (eq_profile_button_label)
+        lv_obj_set_height(eq_profile_button_label, lv_font_get_line_height(lv_obj_get_style_text_font(eq_profile_button_label, 0)));
     if (eq_screen) lv_obj_update_layout(eq_screen);
     if (eq_band_options_screen) lv_obj_update_layout(eq_band_options_screen);
     if (eq_title_label) lv_obj_set_style_text_font(eq_title_label, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
@@ -293,6 +301,10 @@ static void eq_field_label_click_cb(lv_event_t * e) {
     show_text_entry(title, buf, false, true, eq_numeric_entry_done_cb, (void *) (intptr_t) field);
 }
 
+static void eq_screen_loaded_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) == LV_EVENT_SCREEN_LOADED) refresh_all_eq_widgets();
+}
+
 static void eq_screen_btn_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     nav_push(eq_screen);
@@ -305,6 +317,7 @@ static void eq_bypass_switch_event_cb(lv_event_t * e) {
     peq_save();
     if (eq_bypass_state_label)
         lv_label_set_text(eq_bypass_state_label, peq_get_bypass() ? "OFF" : "ON");
+    refresh_all_eq_widgets();
 }
 
 static void refresh_eq_band_widgets(void) {
@@ -328,18 +341,35 @@ static void refresh_eq_band_widgets(void) {
     if (eq_gain_value_label) lv_label_set_text(eq_gain_value_label, formatted);
     eq_format_q(formatted, sizeof(formatted), band->q);
     if (eq_q_value_label) lv_label_set_text(eq_q_value_label, formatted);
-    if (eq_band_number_label) lv_label_set_text_fmt(eq_band_number_label, "Band %d / %d", current_eq_band + 1, PEQ_NUM_BANDS);
+    if (eq_band_number_label) {
+        if (eq_graph_visible) lv_label_set_text(eq_band_number_label, "EQ curve");
+        else lv_label_set_text_fmt(eq_band_number_label, "Band %d / %d", current_eq_band + 1, PEQ_NUM_BANDS);
+    }
 }
 
 static void eq_band_step_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     int delta = (int) (intptr_t) lv_event_get_user_data(e);
-    current_eq_band = (current_eq_band + delta + PEQ_NUM_BANDS) % PEQ_NUM_BANDS;
-    refresh_eq_band_widgets();
+    int stop = (eq_graph_visible ? PEQ_NUM_BANDS : current_eq_band) + (delta < 0 ? -1 : 1);
+    if (stop < 0) stop = PEQ_NUM_BANDS;
+    if (stop > PEQ_NUM_BANDS) stop = 0;
+    eq_graph_visible = (stop == PEQ_NUM_BANDS);
+    if (!eq_graph_visible) current_eq_band = stop;
+    lv_obj_t * band_widgets[] = {eq_band_options_row, eq_freq_card, eq_gain_card, eq_q_card};
+    for (size_t i = 0; i < sizeof(band_widgets) / sizeof(band_widgets[0]); ++i) {
+        if (!band_widgets[i]) continue;
+        if (eq_graph_visible) lv_obj_add_flag(band_widgets[i], LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_clear_flag(band_widgets[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    if (eq_graph_panel) {
+        if (eq_graph_visible) lv_obj_clear_flag(eq_graph_panel, LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(eq_graph_panel, LV_OBJ_FLAG_HIDDEN);
+    }
+    refresh_all_eq_widgets();
 }
 
 static void eq_band_options_open_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) == LV_EVENT_CLICKED && eq_band_options_screen) nav_push(eq_band_options_screen);
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED && !eq_graph_visible && eq_band_options_screen) nav_push(eq_band_options_screen);
 }
 
 static void eq_type_dropdown_event_cb(lv_event_t * e) {
@@ -873,6 +903,8 @@ static void accent_screen_sync(void) {
  * while "Match album art" is on. */
 void gui_settings_accent_changed(void) {
     accent_screen_sync();
+    if (eq_graph_series) lv_chart_set_series_color(eq_graph_chart, eq_graph_series, accent_lv_color());
+    if (eq_graph_chart) lv_obj_set_style_line_color(eq_graph_chart, accent_lv_color(), LV_PART_ITEMS);
 }
 
 static void accent_commit_pick(void) {
@@ -3160,7 +3192,7 @@ static lv_obj_t * create_eq_slider_card(lv_obj_t * parent, eq_field_t field, lv_
     lv_obj_set_style_radius(card, 12, 0);
     lv_obj_set_style_pad_all(card, 14, 0);
     lv_obj_set_style_pad_row(card, 10, 0);
-    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
 
@@ -3226,8 +3258,42 @@ static void refresh_all_eq_widgets(void) {
     if (eq_preamp_slider) lv_slider_set_value(eq_preamp_slider, (int32_t) (peq_get_preamp_db() * 10.0), LV_ANIM_OFF);
     if (eq_preamp_value_label) lv_label_set_text_fmt(eq_preamp_value_label, "Pre-Amp: %+.2f dB", peq_get_preamp_db());
     refresh_eq_band_widgets();
-    if (eq_profile_button_label)
-        lv_label_set_text(eq_profile_button_label, eq_current_profile_name[0] ? eq_current_profile_name : "Custom");
+    if (eq_profile_button_label) {
+        const char * name = eq_current_profile_name[0] ? eq_current_profile_name : "Custom";
+        char display_name[sizeof(eq_current_profile_name)];
+        /* Keep the original name for saving; the button needs the headphone
+         * name rather than AutoEQ's source prefix and catalog hash. */
+        if (strncmp(name, "AutoEQ - ", 9) == 0) {
+            snprintf(display_name, sizeof(display_name), "%s", name + 9);
+            char * suffix = strrchr(display_name, ' ');
+            if (suffix && suffix >= display_name + 2 && suffix[-1] == '-' && suffix[-2] == ' ' &&
+                strlen(suffix + 1) == 10 && strspn(suffix + 1, "0123456789abcdefABCDEF") == 10)
+                suffix[-2] = '\0';
+            name = display_name;
+        }
+        lv_label_set_text(eq_profile_button_label, name);
+    }
+    if (eq_graph_visible && eq_graph_chart && eq_graph_series) {
+        double f[128], db[128], peak = 0.0;
+        for (size_t i = 0; i < 128; ++i) f[i] = EQ_FREQ_MIN_HZ * pow(EQ_FREQ_MAX_HZ / EQ_FREQ_MIN_HZ, (double)i / 127.0);
+        peq_get_response_db(f, db, 128, 48000);
+        for (size_t i = 0; i < 128; ++i) if (fabs(db[i]) > peak) peak = fabs(db[i]);
+        int range = (int)(ceil(peak / 6.0) * 6.0);
+        if (range < 12) range = 12;
+        if (range > 144) range = 144;
+        if (eq_graph_min_label) lv_label_set_text_fmt(eq_graph_min_label, "-%d", range);
+        if (eq_graph_zero_label) lv_label_set_text(eq_graph_zero_label, "0");
+        if (eq_graph_max_label) lv_label_set_text_fmt(eq_graph_max_label, "+%d", range);
+        lv_chart_set_range(eq_graph_chart, LV_CHART_AXIS_PRIMARY_Y, -range * 100, range * 100);
+        for (size_t i = 0; i < 128; ++i) {
+            int value = (int)lround(db[i] * 100.0);
+            if (value < -range * 100) value = -range * 100;
+            if (value > range * 100) value = range * 100;
+            lv_chart_set_value_by_id(eq_graph_chart, eq_graph_series, (uint16_t)i, value);
+        }
+        lv_chart_refresh(eq_graph_chart);
+        if (eq_graph_caption) lv_label_set_text(eq_graph_caption, peq_get_bypass() ? "Combined response (dB) · EQ off" : "Combined response (dB)");
+    }
 }
 
 /* ---- Reset PEQ to defaults, with a confirmation popup -- same hand-built
@@ -3774,27 +3840,37 @@ static lv_obj_t * eq_make_slider_card(lv_obj_t * parent, eq_field_t field, const
     lv_obj_t * card = lv_obj_create(parent);
     lv_obj_set_width(card, lv_pct(96));
     lv_obj_set_height(card, LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(card, 0, 0);
-    lv_obj_set_style_border_width(card, 0, 0);
-    lv_obj_set_style_pad_all(card, 2, 0);
-    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_style(card, &style_theme_card_bg, 0);
+    lv_obj_set_style_border_width(card, BOARD_SCALE_PX(1), 0);
+    lv_obj_set_style_radius(card, BOARD_SCALE_PX(14), 0);
+    lv_obj_set_style_pad_hor(card, BOARD_SCALE_PX(14), 0);
+    lv_obj_set_style_pad_ver(card, BOARD_SCALE_PX(8), 0);
+    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(card, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(card, 0, 0);
-    lv_obj_t * heading = lv_label_create(card);
+    lv_obj_set_style_pad_row(card, BOARD_SCALE_PX(3), 0);
+    lv_obj_t * top_row = lv_obj_create(card);
+    lv_obj_set_width(top_row, lv_pct(100));
+    lv_obj_set_height(top_row, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(top_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(top_row, 0, 0);
+    lv_obj_set_style_pad_all(top_row, 0, 0);
+    lv_obj_remove_flag(top_row, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(top_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(top_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_t * heading = lv_label_create(top_row);
     lv_label_set_text(heading, title);
     lv_obj_add_style(heading, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(heading, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-    lv_obj_set_style_margin_bottom(heading, BOARD_SCALE_PX(8), 0);
-    lv_obj_t * value = lv_label_create(card);
+    lv_obj_t * value = lv_label_create(top_row);
     lv_obj_add_style(value, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(value, gui_theme_font(GUI_FONT_ROLE_TITLE), 0);
-    lv_obj_set_style_margin_bottom(value, BOARD_SCALE_PX(18), 0);
+    lv_obj_set_style_margin_bottom(top_row, BOARD_SCALE_PX(48), 0);
     lv_obj_add_flag(value, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_ext_click_area(value, 14);
     lv_obj_add_event_cb(value, eq_field_label_click_cb, LV_EVENT_CLICKED, (void *)(intptr_t)field);
     lv_obj_t * slider = lv_slider_create(card);
-    lv_obj_set_width(slider, lv_pct(94));
+    lv_obj_set_width(slider, lv_pct(96));
     lv_obj_set_height(slider, BOARD_SCALE_PX(6));
     lv_slider_set_range(slider, minimum, maximum);
     lv_obj_set_style_bg_color(slider, lv_color_make(75, 83, 91), LV_PART_MAIN);
@@ -3817,6 +3893,7 @@ static lv_obj_t * eq_make_slider_card(lv_obj_t * parent, eq_field_t field, const
     lv_obj_set_style_bg_opa(captions, 0, 0);
     lv_obj_set_style_border_width(captions, 0, 0);
     lv_obj_set_style_pad_all(captions, 0, 0);
+    lv_obj_set_style_margin_top(captions, BOARD_SCALE_PX(10), 0);
     lv_obj_remove_flag(captions, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(captions, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(captions, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -3930,14 +4007,17 @@ static lv_obj_t * build_eq_screen(void) {
     lv_obj_set_scroll_dir(content, LV_DIR_VER);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_gap(content, BOARD_SCALE_PX(5), 0);
+    lv_obj_set_style_pad_gap(content, BOARD_SCALE_PX(7), 0);
     lv_obj_t * bandnav = lv_obj_create(content);
-    lv_obj_set_size(bandnav, lv_pct(90), BOARD_SCALE_PX(50));
-    lv_obj_set_style_bg_opa(bandnav, 0, 0);
+    lv_obj_set_size(bandnav, lv_pct(96), BOARD_SCALE_PX(50));
+    lv_obj_set_style_bg_opa(bandnav, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_radius(bandnav, BOARD_SCALE_PX(14), 0);
     lv_obj_set_style_border_width(bandnav, 0, 0);
-    lv_obj_set_style_pad_all(bandnav, 4, 0);
+    lv_obj_set_style_pad_hor(bandnav, BOARD_SCALE_PX(14), 0);
+    lv_obj_set_style_pad_ver(bandnav, BOARD_SCALE_PX(4), 0);
     lv_obj_set_flex_flow(bandnav, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(bandnav, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(bandnav, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_t * prev = lv_label_create(bandnav);
     lv_label_set_text(prev, LV_SYMBOL_LEFT);
     lv_obj_add_style(prev, &style_theme_text_primary, 0);
@@ -3957,24 +4037,112 @@ static lv_obj_t * build_eq_screen(void) {
     lv_obj_add_flag(next, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_ext_click_area(next, 14);
     lv_obj_add_event_cb(next, eq_band_step_cb, LV_EVENT_CLICKED, (void *)(intptr_t)1);
-    lv_obj_t * options = lv_label_create(content);
+    eq_band_options_row = lv_label_create(content);
+    lv_obj_t * options = eq_band_options_row;
     lv_label_set_text(options, "Band options  " LV_SYMBOL_RIGHT);
     lv_obj_add_style(options, gui_theme_accent_style(), 0);
     lv_obj_set_style_text_font(options, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+    lv_obj_set_style_pad_ver(options, BOARD_SCALE_PX(2), 0);
     lv_obj_add_flag(options, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(options, eq_band_options_open_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_t * freq_card = eq_make_slider_card(content, EQ_FIELD_FREQ, "Frequency", &eq_freq_value_label, &eq_freq_slider, 0, EQ_FREQ_SLIDER_MAX, "20", "20K");
-    lv_obj_t * gain_card = eq_make_slider_card(content, EQ_FIELD_GAIN, "Gain", &eq_gain_value_label, &eq_gain_slider, -120, 120, "-12", "+12");
-    lv_obj_t * q_card = eq_make_slider_card(content, EQ_FIELD_Q, "Q", &eq_q_value_label, &eq_q_slider, 1, 100, "0.1", "10");
+    eq_freq_card = eq_make_slider_card(content, EQ_FIELD_FREQ, "Frequency", &eq_freq_value_label, &eq_freq_slider, 0, EQ_FREQ_SLIDER_MAX, "20", "20K");
+    eq_gain_card = eq_make_slider_card(content, EQ_FIELD_GAIN, "Gain", &eq_gain_value_label, &eq_gain_slider, -120, 120, "-12", "+12");
+    eq_q_card = eq_make_slider_card(content, EQ_FIELD_Q, "Q", &eq_q_value_label, &eq_q_slider, 1, 100, "0.1", "10");
+    eq_graph_panel = lv_obj_create(content);
+    lv_obj_set_width(eq_graph_panel, lv_pct(96));
+    lv_obj_set_flex_grow(eq_graph_panel, 1);
+    lv_obj_set_style_min_height(eq_graph_panel, BOARD_SCALE_PX(240), 0);
+    lv_obj_add_style(eq_graph_panel, &style_theme_card_bg, 0);
+    lv_obj_set_style_radius(eq_graph_panel, BOARD_SCALE_PX(16), 0);
+    lv_obj_set_style_pad_all(eq_graph_panel, BOARD_SCALE_PX(12), 0);
+    lv_obj_set_flex_flow(eq_graph_panel, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_gap(eq_graph_panel, BOARD_SCALE_PX(4), 0);
+    lv_obj_remove_flag(eq_graph_panel, LV_OBJ_FLAG_SCROLLABLE);
+    eq_graph_caption = lv_label_create(eq_graph_panel);
+    lv_label_set_text(eq_graph_caption, "Combined response (dB)");
+    lv_obj_set_width(eq_graph_caption, lv_pct(100));
+    lv_label_set_long_mode(eq_graph_caption, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_font(eq_graph_caption, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+    lv_obj_add_style(eq_graph_caption, &style_theme_text_primary, 0);
+    lv_obj_t * graph_reference = lv_label_create(eq_graph_panel);
+    lv_label_set_text(graph_reference, "48 kHz reference");
+    lv_obj_set_style_text_font(graph_reference, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+    lv_obj_add_style(graph_reference, &style_theme_text_muted, 0);
+    lv_obj_t * graph_plot_row = lv_obj_create(eq_graph_panel);
+    lv_obj_set_width(graph_plot_row, lv_pct(100));
+    lv_obj_set_flex_grow(graph_plot_row, 1);
+    lv_obj_set_style_bg_opa(graph_plot_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(graph_plot_row, 0, 0);
+    lv_obj_set_style_pad_all(graph_plot_row, 0, 0);
+    lv_obj_set_style_pad_column(graph_plot_row, BOARD_SCALE_PX(4), 0);
+    lv_obj_set_flex_flow(graph_plot_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(graph_plot_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(graph_plot_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t * graph_y_axis = lv_obj_create(graph_plot_row);
+    lv_obj_set_width(graph_y_axis, BOARD_SCALE_PX(60));
+    lv_obj_set_height(graph_y_axis, lv_pct(100));
+    lv_obj_set_style_bg_opa(graph_y_axis, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(graph_y_axis, 0, 0);
+    lv_obj_set_style_pad_all(graph_y_axis, 0, 0);
+    lv_obj_set_flex_flow(graph_y_axis, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(graph_y_axis, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER);
+    eq_graph_max_label = lv_label_create(graph_y_axis);
+    eq_graph_zero_label = lv_label_create(graph_y_axis);
+    eq_graph_min_label = lv_label_create(graph_y_axis);
+    lv_obj_set_style_text_font(eq_graph_max_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+    lv_obj_set_style_text_font(eq_graph_zero_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+    lv_obj_set_style_text_font(eq_graph_min_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+    lv_obj_add_style(eq_graph_max_label, &style_theme_text_muted, 0);
+    lv_obj_add_style(eq_graph_zero_label, &style_theme_text_muted, 0);
+    lv_obj_add_style(eq_graph_min_label, &style_theme_text_muted, 0);
+    eq_graph_chart = lv_chart_create(graph_plot_row);
+    lv_obj_set_height(eq_graph_chart, lv_pct(100));
+    lv_obj_set_style_pad_all(eq_graph_chart, 0, 0);
+    lv_obj_set_flex_grow(eq_graph_chart, 1);
+    lv_chart_set_type(eq_graph_chart, LV_CHART_TYPE_LINE);
+    lv_chart_set_point_count(eq_graph_chart, 128);
+    lv_chart_set_div_line_count(eq_graph_chart, 5, 0);
+    lv_chart_set_range(eq_graph_chart, LV_CHART_AXIS_PRIMARY_Y, -1200, 1200);
+    lv_chart_set_update_mode(eq_graph_chart, LV_CHART_UPDATE_MODE_SHIFT);
+    lv_obj_set_style_bg_opa(eq_graph_chart, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(eq_graph_chart, 0, 0);
+    lv_obj_set_style_line_color(eq_graph_chart, lv_color_make(128, 128, 128), LV_PART_MAIN);
+    lv_obj_set_style_line_opa(eq_graph_chart, LV_OPA_30, LV_PART_MAIN);
+    lv_obj_set_style_line_color(eq_graph_chart, accent_lv_color(), LV_PART_ITEMS);
+    lv_obj_set_style_line_width(eq_graph_chart, BOARD_SCALE_PX(3), LV_PART_ITEMS);
+    lv_obj_set_style_size(eq_graph_chart, 0, 0, LV_PART_INDICATOR);
+    eq_graph_series = lv_chart_add_series(eq_graph_chart, accent_lv_color(), LV_CHART_AXIS_PRIMARY_Y);
+    lv_obj_t * graph_x_axis = lv_obj_create(eq_graph_panel);
+    lv_obj_set_width(graph_x_axis, lv_pct(100));
+    lv_obj_set_height(graph_x_axis, lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT)));
+    lv_obj_set_style_bg_opa(graph_x_axis, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(graph_x_axis, 0, 0);
+    lv_obj_set_style_pad_all(graph_x_axis, 0, 0);
+    lv_obj_set_style_pad_left(graph_x_axis, BOARD_SCALE_PX(64), 0);
+    lv_obj_remove_flag(graph_x_axis, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_style(graph_x_axis, &style_theme_text_muted, 0);
+    lv_obj_set_style_text_font(graph_x_axis, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+    /* Positions follow log10(f / 20) / 3, matching the sampled curve. */
+    lv_obj_t * xlab = lv_label_create(graph_x_axis);
+    lv_label_set_text(xlab, "20");
+    lv_obj_align(xlab, LV_ALIGN_TOP_LEFT, 0, 0);
+    xlab = lv_label_create(graph_x_axis);
+    lv_label_set_text(xlab, "100");
+    lv_obj_align(xlab, LV_ALIGN_TOP_MID, lv_pct(-27), 0);
+    xlab = lv_label_create(graph_x_axis);
+    lv_label_set_text(xlab, "1k");
+    lv_obj_align(xlab, LV_ALIGN_TOP_MID, lv_pct(7), 0);
+    xlab = lv_label_create(graph_x_axis);
+    lv_label_set_text(xlab, "20k Hz");
+    lv_obj_align(xlab, LV_ALIGN_TOP_RIGHT, 0, 0);
+    lv_obj_add_flag(eq_graph_panel, LV_OBJ_FLAG_HIDDEN);
     eq_footer = lv_obj_create(scr);
     lv_obj_set_size(eq_footer, lv_pct(100), footer_h);
     lv_obj_align(eq_footer, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_set_style_bg_opa(eq_footer, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(eq_footer, 1, 0);
-    lv_obj_set_style_border_side(eq_footer, LV_BORDER_SIDE_TOP, 0);
-    lv_obj_set_style_border_color(eq_footer, lv_color_make(50, 58, 64), 0);
-    lv_obj_set_style_radius(eq_footer, 0, 0);
-    lv_obj_set_style_pad_all(eq_footer, BOARD_SCALE_PX(12), 0);
+    lv_obj_set_style_border_width(eq_footer, 0, 0);
+    lv_obj_set_style_pad_hor(eq_footer, BOARD_SCALE_PX(12), 0);
+    lv_obj_set_style_pad_ver(eq_footer, BOARD_SCALE_PX(12), 0);
     lv_obj_set_style_pad_column(eq_footer, BOARD_SCALE_PX(8), 0);
     lv_obj_set_flex_flow(eq_footer, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(eq_footer, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -3982,9 +4150,9 @@ static lv_obj_t * build_eq_screen(void) {
     lv_obj_t * flat = lv_btn_create(eq_footer);
     lv_obj_set_flex_grow(flat, 1);
     lv_obj_set_height(flat, BOARD_SCALE_PX(66));
-    lv_obj_set_style_bg_opa(flat, LV_OPA_TRANSP, 0);
+    lv_obj_add_style(flat, &style_theme_card_bg, 0);
+    lv_obj_set_style_bg_opa(flat, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(flat, BOARD_SCALE_PX(1), 0);
-    lv_obj_set_style_border_color(flat, lv_color_make(50, 58, 64), 0);
     lv_obj_set_style_radius(flat, BOARD_SCALE_PX(12), 0);
     lv_obj_set_style_shadow_width(flat, 0, 0);
     lv_obj_add_event_cb(flat, eq_flat_btn_cb, LV_EVENT_CLICKED, NULL);
@@ -3995,9 +4163,10 @@ static lv_obj_t * build_eq_screen(void) {
     lv_obj_t * profiles = lv_btn_create(eq_footer);
     lv_obj_set_flex_grow(profiles, 2);
     lv_obj_set_height(profiles, BOARD_SCALE_PX(66));
-    lv_obj_set_style_bg_opa(profiles, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(profiles, BOARD_SCALE_PX(1), 0);
-    lv_obj_set_style_border_color(profiles, lv_color_make(50, 58, 64), 0);
+    lv_obj_add_style(profiles, &style_theme_card_bg, 0);
+    lv_obj_add_style(profiles, gui_theme_accent_outline_style(), 0);
+    lv_obj_set_style_bg_opa(profiles, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(profiles, BOARD_SCALE_PX(2), 0);
     lv_obj_set_style_radius(profiles, BOARD_SCALE_PX(12), 0);
     lv_obj_set_style_shadow_width(profiles, 0, 0);
     lv_obj_add_event_cb(profiles, eq_load_profile_btn_cb, LV_EVENT_CLICKED, NULL);
@@ -4015,6 +4184,7 @@ static lv_obj_t * build_eq_screen(void) {
     lv_obj_add_style(eq_profile_button_label, gui_theme_accent_style(), 0);
     lv_label_set_long_mode(eq_profile_button_label, LV_LABEL_LONG_DOT);
     lv_obj_set_width(eq_profile_button_label, lv_pct(82));
+    lv_obj_set_height(eq_profile_button_label, lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_BODY)));
     lv_obj_set_style_text_align(eq_profile_button_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_t * profile_chevron = lv_label_create(profile_inner);
     lv_label_set_text(profile_chevron, LV_SYMBOL_DOWN);
@@ -4022,9 +4192,9 @@ static lv_obj_t * build_eq_screen(void) {
     lv_obj_t * save = lv_btn_create(eq_footer);
     lv_obj_set_flex_grow(save, 1);
     lv_obj_set_height(save, BOARD_SCALE_PX(66));
-    lv_obj_set_style_bg_opa(save, LV_OPA_TRANSP, 0);
+    lv_obj_add_style(save, &style_theme_card_bg, 0);
+    lv_obj_set_style_bg_opa(save, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(save, BOARD_SCALE_PX(1), 0);
-    lv_obj_set_style_border_color(save, lv_color_make(50, 58, 64), 0);
     lv_obj_set_style_radius(save, BOARD_SCALE_PX(12), 0);
     lv_obj_set_style_shadow_width(save, 0, 0);
     lv_obj_add_event_cb(save, eq_save_profile_pressed_cb, LV_EVENT_PRESSED, NULL);
@@ -4034,18 +4204,19 @@ static lv_obj_t * build_eq_screen(void) {
     lv_obj_set_style_text_font(sl, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     lv_obj_center(sl);
     refresh_all_eq_widgets();
+    lv_obj_add_event_cb(scr, eq_screen_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
     lv_obj_add_event_cb(eq_bypass_switch, eq_bypass_switch_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(eq_freq_slider, eq_freq_slider_event_cb, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(eq_gain_slider, eq_gain_slider_event_cb, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(eq_q_slider, eq_q_slider_event_cb, LV_EVENT_ALL, NULL);
     finalize_screen_navigation(scr);
     lv_obj_remove_flag(content, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    lv_obj_remove_flag(freq_card, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    lv_obj_remove_flag(gain_card, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    lv_obj_remove_flag(q_card, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    register_swipe_dead_zone(freq_card);
-    register_swipe_dead_zone(gain_card);
-    register_swipe_dead_zone(q_card);
+    lv_obj_remove_flag(eq_freq_card, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_remove_flag(eq_gain_card, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_remove_flag(eq_q_card, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    register_swipe_dead_zone(eq_freq_card);
+    register_swipe_dead_zone(eq_gain_card);
+    register_swipe_dead_zone(eq_q_card);
     return scr;
 }
 
@@ -4160,6 +4331,11 @@ void gui_settings_teardown(void) {
     eq_freq_slider = eq_gain_slider = eq_q_slider = NULL;
     eq_type_dropdown = eq_freq_value_label = eq_gain_value_label = eq_q_value_label = NULL;
     eq_band_number_label = eq_profile_button_label = eq_main_content = eq_footer = eq_bypass_state_label = NULL;
+    eq_graph_panel = eq_graph_chart = eq_graph_caption = NULL;
+    eq_graph_series = NULL;
+    eq_graph_min_label = eq_graph_zero_label = eq_graph_max_label = NULL;
+    eq_band_options_row = eq_freq_card = eq_gain_card = eq_q_card = NULL;
+    eq_graph_visible = false;
     eq_title_label = NULL;
     if (eq_profiles_screen) { lv_obj_delete(eq_profiles_screen); eq_profiles_screen = NULL; }
     eq_profiles_edit_btn = NULL;

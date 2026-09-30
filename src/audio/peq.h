@@ -50,6 +50,16 @@ void peq_set_band(int index, double freq_hz, double gain_db, double q);
 void peq_set_band_type(int index, peq_band_type_t type);
 void peq_set_band_enabled(int index, bool enabled);
 
+/* Read the configured EQ magnitude response in dB at each frequency. This
+ * uses the supplied nominal sample rate (zero selects 48000; the UI should
+ * pass 48000), includes
+ * preamp and enabled bands, ignores bypass, and excludes the signal-dependent
+ * limiter. Null pointers or a zero count leave the output untouched; invalid individual
+ * frequencies produce the preamp-only response. This query does not change
+ * audio processing coefficients, filter state, or dirty/sample-rate caches. */
+void peq_get_response_db(const double * frequencies_hz, double * response_db,
+                         size_t count, unsigned int sample_rate);
+
 /* In-place processing of an interleaved S16 buffer. No-op (fast path) if
  * bypassed or no bands are enabled and preamp is 0dB. */
 void peq_process(int16_t * buf, size_t frame_count, int channels, unsigned int sample_rate);

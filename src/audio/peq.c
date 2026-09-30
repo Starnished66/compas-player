@@ -102,8 +102,9 @@ static void set_defaults(void) {
     update_preamp_linear_cache();
 }
 
-static void compute_band_coeffs(int index, unsigned int sample_rate) {
-    const peq_band_t * band = &bands[index];
+static void compute_band_coeffs_for_band(const peq_band_t * band,
+                                         unsigned int sample_rate,
+                                         biquad_coeffs_t * output) {
     double freq = band->freq_hz;
     /* Clamp so w0 stays comfortably inside (0, pi) regardless of what the
      * current track's sample rate is (e.g. a 352.8kHz PCM file, where a
@@ -159,11 +160,75 @@ static void compute_band_coeffs(int index, unsigned int sample_rate) {
         a2 = 1.0 - alpha / A;
     }
 
-    coeffs[index].b0 = b0 / a0;
-    coeffs[index].b1 = b1 / a0;
-    coeffs[index].b2 = b2 / a0;
-    coeffs[index].a1 = a1 / a0;
-    coeffs[index].a2 = a2 / a0;
+    output->b0 = (float) (b0 / a0);
+    output->b1 = (float) (b1 / a0);
+    output->b2 = (float) (b2 / a0);
+    output->a1 = (float) (a1 / a0);
+    output->a2 = (float) (a2 / a0);
+}
+
+static void compute_band_coeffs(int index, unsigned int sample_rate) {
+    compute_band_coeffs_for_band(&bands[index], sample_rate, &coeffs[index]);
+}
+
+void peq_get_response_db(const double * frequencies_hz, double * response_db,
+                         size_t count, unsigned int sample_rate) {
+    if (!frequencies_hz || !response_db || count == 0) return;
+    if (sample_rate == 0) sample_rate = 48000;
+
+    biquad_coeffs_t local_coeffs[PEQ_NUM_BANDS];
+    bool active[PEQ_NUM_BANDS];
+    for (int band = 0; band < PEQ_NUM_BANDS; band++) {
+        active[band] = bands[band].enabled;
+        if (active[band]) {
+            /* Invalid persisted/user parameters should not poison the whole
+             * curve. Treat that band as neutral for this read-only query. */
+            const peq_band_t * p = &bands[band];
+            if (!isfinite(p->freq_hz) || !isfinite(p->gain_db) || !isfinite(p->q)) {
+                active[band] = false;
+                continue;
+            }
+            compute_band_coeffs_for_band(p, sample_rate, &local_coeffs[band]);
+            if (!isfinite(local_coeffs[band].b0) || !isfinite(local_coeffs[band].b1) ||
+                !isfinite(local_coeffs[band].b2) || !isfinite(local_coeffs[band].a1) ||
+                !isfinite(local_coeffs[band].a2)) active[band] = false;
+        }
+    }
+
+    double preamp = isfinite(preamp_db) ? preamp_db : 0.0;
+    if (preamp > 300.0) preamp = 300.0;
+    if (preamp < -300.0) preamp = -300.0;
+    const double nyquist = (double) sample_rate / 2.0;
+    for (size_t i = 0; i < count; i++) {
+        double f = frequencies_hz[i];
+        if (!isfinite(f) || f <= 0.0) {
+            response_db[i] = preamp;
+            continue;
+        }
+        if (nyquist > 0.0 && f > nyquist * 0.99) f = nyquist * 0.99;
+        double w = 2.0 * M_PI * f / (double) sample_rate;
+        double c1 = cos(w), s1 = -sin(w), c2 = cos(2.0 * w), s2 = -sin(2.0 * w);
+        double total = preamp;
+        for (int band = 0; band < PEQ_NUM_BANDS; band++) {
+            if (!active[band]) continue;
+            const biquad_coeffs_t * c = &local_coeffs[band];
+            double nr = c->b0 + c->b1 * c1 + c->b2 * c2;
+            double ni = c->b1 * s1 + c->b2 * s2;
+            double dr = 1.0 + c->a1 * c1 + c->a2 * c2;
+            double di = c->a1 * s1 + c->a2 * s2;
+            double numerator = nr * nr + ni * ni;
+            double denominator = dr * dr + di * di;
+            if (!isfinite(numerator) || !isfinite(denominator)) continue;
+            double ratio = numerator / fmax(denominator, 1e-30);
+            if (!isfinite(ratio) || ratio > 1e30) ratio = 1e30;
+            if (ratio < 1e-30) ratio = 1e-30;
+            total += 10.0 * log10(ratio);
+        }
+        if (!isfinite(total)) total = preamp;
+        if (total > 300.0) total = 300.0;
+        if (total < -300.0) total = -300.0;
+        response_db[i] = total;
+    }
 }
 
 static void recompute_all_coeffs(unsigned int sample_rate) {
