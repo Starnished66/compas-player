@@ -1,19 +1,22 @@
-plugin.define({ id = "example.audiobooks", name = "Audiobooks", version = "3.0", api_min = 1 })
+plugin.define({ id = "example.audiobooks", name = "Audiobooks", version = "3.2", api_min = 1 })
 
 -- Audiobooks live under <SD>/Audiobooks as Title/files, Title/CD1/files,
 -- Author/Title/files, Author/Title/CD1/files, or loose one-file books.
 -- Progress, bookmarks, notes, chapter jumps, finished state, and a sleep
--- timer are per book. Speed, Now Playing buttons, hardware Next/Previous,
--- and the progress bar remain per file. Files over 2 GiB have no chapters.
+-- timer are per book. Optional time skipping applies to both physical and
+-- Now Playing Next/Previous. Speed and progress remain per file.
+-- Files over 2 GiB have no chapters.
 
 local ROOT = plugin.sd_root() .. "/Audiobooks"
 local STATE_PATH = plugin.sd_root() .. "/.plugins/.audiobooks_state_v3"
 local OLD_STATE_PATH = plugin.sd_root() .. "/.plugins/.audiobooks_state_v2"
-local THEME = "/usr/resource/litegui/theme2/"
-local ICON_BOOK = THEME .. "submenu/books.png"
-local ICON_FILE = THEME .. "submenu/all_songs.png"
-local ICON_BOOKMARK = THEME .. "submenu/favorites.png"
-local ICON_LIST = THEME .. "submenu/playlists.png"
+local SETTINGS_PATH = plugin.sd_root() .. "/.plugins/.audiobooks_settings"
+local ICON_ROOT = plugin.sd_root() .. "/.plugin-assets/Audiobooks/"
+local ICON_BOOK, ICON_PLAY, ICON_CHAPTERS = ICON_ROOT .. "audiobooks.png", ICON_ROOT .. "play.png", ICON_ROOT .. "chapters.png"
+local ICON_BOOKMARK, ICON_BOOKMARKS = ICON_ROOT .. "bookmark.png", ICON_ROOT .. "bookmarks.png"
+local ICON_HISTORY, ICON_SETTINGS = ICON_ROOT .. "history.png", ICON_ROOT .. "settings.png"
+local ICON_SLEEP, ICON_FINISHED, ICON_REFRESH = ICON_ROOT .. "sleep.png", ICON_ROOT .. "finished.png", ICON_ROOT .. "refresh.png"
+local ICON_LIBRARY, ICON_NEW, ICON_IN_PROGRESS = ICON_ROOT .. "library.png", ICON_ROOT .. "new.png", ICON_ROOT .. "in_progress.png"
 local AUDIO = {
     mp3 = true,
     m4a = true,
@@ -39,6 +42,65 @@ local warned_state_full = false
 local open_guard, last_seen, sleep_pause = nil, nil, nil
 local bookmark_serial = 0 -- session identities, so a stale row never acts on another bookmark
 local open_book
+local atomic_write
+local skip_by_30 = false
+
+local function read_settings()
+    local f = io.open(SETTINGS_PATH, "r")
+    if not f then
+        return
+    end
+    local line = f:read("*l")
+    f:close()
+    skip_by_30 = line == "skip_by_30\t1"
+end
+
+local function save_settings()
+    return atomic_write(SETTINGS_PATH, function(f)
+        f:write("skip_by_30\t", skip_by_30 and "1" or "0", "\n")
+    end)
+end
+
+local function set_transport_skip(enabled)
+    if not (plugin.has_capability and plugin.has_capability("playback.transport_skip")) then
+        return false
+    end
+    if type(plugin.set_transport_skip) ~= "function" then
+        return false
+    end
+    local ok = pcall(plugin.set_transport_skip, ROOT, enabled and 30 or 0)
+    return ok
+end
+
+local function open_settings()
+    local available = plugin.has_capability and plugin.has_capability("playback.transport_skip")
+    local rows = {
+        {
+            type = "toggle", label = "Skip by 30 seconds", value = skip_by_30,
+            icon = ICON_SETTINGS, text_size = "medium",
+            on_change = function(value)
+                if not available then
+                    plugin.show_toast("30 second skip requires a newer player")
+                    return
+                end
+                local previous = skip_by_30
+                skip_by_30 = value == true
+                if not set_transport_skip(skip_by_30) then
+                    skip_by_30 = previous
+                    plugin.show_toast("Could not apply transport skip setting")
+                    return
+                end
+                if not save_settings() then
+                    skip_by_30 = previous
+                    set_transport_skip(skip_by_30)
+                    plugin.show_toast("Could not save transport skip setting")
+                    return
+                end
+            end,
+        },
+    }
+    plugin.show_settings_list("Audiobooks settings", rows)
+end
 
 local function cap(s, n)
     s = tostring(s or "")
@@ -74,7 +136,7 @@ local function split_tabs(s)
     return out
 end
 
-local function atomic_write(path, writer)
+atomic_write = function(path, writer)
     local f = io.open(path .. ".tmp", "w")
     if not f then
         return false
@@ -504,6 +566,35 @@ local function scan_library()
     end
 end
 
+-- Share the player's bounded image worker with EPUB; show our icon until ready.
+local COVER_CACHE = plugin.sd_root() .. "/.plugins/.audiobooks_covers"
+local cover_jobs, cover_pending, cover_failed = {}, {}, {}
+local cover_running = false
+local function cover_exists(path)
+    local f = io.open(path, "rb")
+    if not f then return false end
+    f:close()
+    return true
+end
+local function service_covers()
+    if cover_running or #cover_jobs == 0 then return end
+    local job = cover_jobs[1]
+    local ok, started, reason = pcall(plugin.image_thumbnail_async, job.source, job.dest, 96, 96,
+        function(path, err)
+            cover_running = false
+            cover_pending[job.source] = nil
+            if not path and err ~= "busy" and err ~= "nomem" then cover_failed[job.source] = true end
+        end)
+    if ok and started then
+        cover_running = true
+        table.remove(cover_jobs, 1)
+    elseif not ok or reason ~= "busy" then
+        table.remove(cover_jobs, 1)
+        cover_pending[job.source] = nil
+        if not ok or reason ~= "nomem" then cover_failed[job.source] = true end
+    end
+end
+
 local function cover_for(book)
     if book.loose then
         return ICON_BOOK
@@ -516,12 +607,25 @@ local function cover_for(book)
     for i = 1, math.min(#entries, 200) do
         local e = entries[i]
         if type(e) == "table" and type(e.name) == "string" then
-            names[e.name:lower()] = e.name
+            names[e.name:lower()] = e
         end
     end
     for _, name in ipairs({ "cover.jpg", "cover.png", "folder.jpg", "folder.png" }) do
         if names[name] then
-            return book.dir .. "/" .. names[name]
+            local entry = names[name]
+            local source = book.dir .. "/" .. entry.name
+            if type(plugin.image_thumbnail_async) ~= "function" or type(plugin.md5) ~= "function" then
+                return source
+            end
+            local dest = COVER_CACHE .. "/" .. plugin.md5(source .. "\n" .. tostring(entry.size or "") .. "\n" .. tostring(entry.modified or "")) .. ".bin"
+            if cover_exists(dest) then return dest end
+            if not cover_pending[source] and not cover_failed[source] and #cover_jobs < 64
+                and plugin.mkdir(COVER_CACHE) then
+                cover_pending[source] = true
+                cover_jobs[#cover_jobs + 1] = { source = source, dest = dest }
+                service_covers()
+            end
+            return ICON_BOOK
         end
     end
     return ICON_BOOK
@@ -565,7 +669,7 @@ local function scan_book(book, quiet)
         end
     end
     if cut and not quiet then
-        plugin.show_toast("Book has over 500 files; showing the first 500")
+        plugin.show_toast("Some files could not be listed")
     end
     return files
 end
@@ -1332,18 +1436,24 @@ local function book_progress(book)
     end
     if s.file and s.file ~= "" then
         local position, duration = s.position or 0, s.duration or 0
-        local suffix = duration > 0 and (" [" .. math.floor(position / duration * 100) .. "%]")
-            or (" [" .. time_label(position) .. "]")
+        local suffix = duration > 0 and (" [Current file: " .. math.floor(position / duration * 100) .. "%]")
+            or (" [file position: " .. time_label(position) .. "]")
         return suffix
     end
     return ""
+end
+
+local function list_row(label, icon)
+    local wrap = plugin.has_capability and plugin.has_capability("ui.list_wrap")
+    return { label = cap(label, wrap and 511 or 159), icon = icon, wrap = wrap == true }
 end
 
 local function split_group(title, group)
     if #group <= MAX_ROWS then
         local rows = {}
         for i, b in ipairs(group) do
-            rows[i] = { label = cap(b.title .. book_progress(b), 200), icon = cover_for(b) }
+            local label = b.title .. (b.author ~= "" and ("\n" .. b.author) or "") .. book_progress(b)
+            rows[i] = list_row(label, cover_for(b))
         end
         plugin.show_list(title, rows, function(i)
             local chosen = group[i]
@@ -1370,7 +1480,7 @@ local function split_group(title, group)
     for _, key in ipairs(keys) do
         local group = letters[key]
         if #group <= MAX_ROWS then
-            rows[#rows + 1] = key .. " (" .. #group .. ")"
+            rows[#rows + 1] = list_row(key .. " (" .. #group .. ")", ICON_LIBRARY)
             page_groups[#page_groups + 1] = { title = title .. " / " .. key, books = group }
         else
             local part = 0
@@ -1380,7 +1490,7 @@ local function split_group(title, group)
                 for j = first, math.min(first + MAX_ROWS - 1, #group) do
                     slice[#slice + 1] = group[j]
                 end
-                rows[#rows + 1] = key .. " " .. part .. " (" .. #slice .. ")"
+                rows[#rows + 1] = list_row(key .. " " .. part .. " (" .. #slice .. ")", ICON_LIBRARY)
                 page_groups[#page_groups + 1] =
                     { title = title .. " / " .. key .. " " .. part, books = slice }
             end
@@ -1414,46 +1524,55 @@ local function open_library()
         scan_library()
     end
     local rows = {}
-    local function add_row(label, icon, action)
-        rows[#rows + 1] = { type = "row", label = cap(label, 200), icon = icon, on_select = action }
+    local settings_wrap = plugin.has_capability and plugin.has_capability("ui.settings_list_wrap")
+    local function add_row(label, icon, action, wrap)
+        local limit = (wrap and settings_wrap) and 511 or 159
+        rows[#rows + 1] = {
+            type = "row", label = cap(label, limit), icon = icon, text_size = "medium",
+            wrap = wrap and settings_wrap == true or false, on_select = action,
+        }
     end
     local recent, recent_time
     for _, b in ipairs(books) do
-        local s = state[b.key]
-        if
-            s
-            and s.file
-            and s.file ~= ""
-            and not s.finished
-            and (not recent_time or s.last_played > recent_time)
-        then
-            recent, recent_time = b, s.last_played
+        local st = state[b.key]
+        if st and st.file and st.file ~= "" and not st.finished
+            and (not recent_time or (st.last_played or 0) > recent_time) then
+            recent, recent_time = b, st.last_played or 0
         end
     end
     if recent then
-        add_row("Continue: " .. recent.title, cover_for(recent), function()
-            resume_book(recent)
-        end)
+        local label = "Continue listening: " .. recent.title
+            .. (recent.author ~= "" and ("\n" .. recent.author) or "") .. book_progress(recent)
+        add_row(label, cover_for(recent), function() resume_book(recent) end, true)
     end
+    add_row("All audiobooks (" .. #books .. ")", ICON_LIBRARY, function()
+        split_group("All audiobooks", books)
+    end)
+    add_row("Settings", ICON_SETTINGS, open_settings)
     for _, spec in ipairs({
-        { "In progress", "progress" },
-        { "Not started", "new" },
-        { "Finished", "finished" },
+        { "In progress", "progress", ICON_IN_PROGRESS },
+        { "Not started", "new", ICON_NEW },
+        { "Finished", "finished", ICON_FINISHED },
     }) do
         local group = group_for(spec[2])
         if #group > 0 then
-            add_row(spec[1] .. " (" .. #group .. ")", ICON_BOOK, function()
+            add_row(spec[1] .. " (" .. #group .. ")", spec[3], function()
                 split_group(spec[1], group_for(spec[2]))
             end)
         end
     end
-    add_row("Rescan library", ICON_BOOK, function()
-        -- Opening another settings screen here would use up the two-slot
-        -- pool; the rescan shows next time this screen opens.
+    if #books == 0 then
+        plugin.show_toast("Add files to Audiobooks on your SD card, then refresh.")
+    end
+    add_row("Refresh library", ICON_REFRESH, function()
         books, file_cache, chapter_cache = nil, {}, {}
         file_cache_order, chapter_cache_order = {}, {}
         scan_library()
-        plugin.show_toast("Library rescanned: " .. #books .. " books. Go back and reopen to see it.")
+        if #books == 0 then
+            plugin.show_toast("Add files to Audiobooks on your SD card, then refresh.")
+        else
+            plugin.show_toast("Library refreshed. Reopen it to see changes.")
+        end
     end)
     plugin.show_settings_list("Audiobooks", rows)
 end
@@ -1520,9 +1639,9 @@ local function open_chapters(book)
         for i = first, last do
             local c = chapters[i]
             local playing = current and current.path == c.file.path and ((not embedded) or i == playing_index)
-            rows[#rows + 1] = cap(
+            rows[#rows + 1] = list_row(
                 (playing and "> " or "") .. c.name .. (embedded and ("  " .. time_label(c.start)) or ""),
-                200
+                ICON_CHAPTERS
             )
         end
         plugin.show_list(title, rows, function(i)
@@ -1542,12 +1661,12 @@ local function open_chapters(book)
     end
     local labels = {}
     for i, part in ipairs(parts) do
-        labels[i] = "Chapters " .. part[1] .. "-" .. part[2]
+        labels[i] = list_row("Chapters " .. part[1] .. "-" .. part[2], ICON_CHAPTERS)
     end
     plugin.show_list("Chapters", labels, function(i)
         local part = parts[i]
         if part then
-            show_range(part[1], part[2], labels[i])
+            show_range(part[1], part[2], labels[i].label)
         end
     end)
 end
@@ -1631,7 +1750,7 @@ local function open_bookmarks(book)
             bookmark_serial = bookmark_serial + 1
             b.id = bookmark_serial
         end
-        rows[#rows + 1] = cap(((b.note ~= "" and b.note) or b.file) .. " @ " .. time_label(b.position), 200)
+        rows[#rows + 1] = list_row(((b.note ~= "" and b.note) or b.file) .. " @ " .. time_label(b.position), ICON_BOOKMARK)
         ids[#ids + 1] = b.id
     end
     plugin.show_list("Bookmarks", rows, function(index)
@@ -1640,7 +1759,7 @@ local function open_bookmarks(book)
             plugin.show_toast("That bookmark is gone")
             return
         end
-        plugin.show_list("Bookmark", { "Play from here", "Delete" }, function(action)
+        plugin.show_list("Bookmark", { list_row("Play from here", ICON_PLAY), list_row("Delete", ICON_BOOKMARK) }, function(action)
             local at, current = bookmark_index(book, id)
             if not at then
                 plugin.show_toast("That bookmark is gone")
@@ -1660,33 +1779,6 @@ local function open_bookmarks(book)
     end)
 end
 
-local function seek_delta(book, amount)
-    local file = current_for_book(book)
-    if not file then
-        plugin.show_toast("This book is not playing")
-        return
-    end
-    local pos, dur = trusted_position(file.path), trusted_duration(file.path)
-    if not pos then
-        plugin.show_toast("The file is still opening; try again")
-        return
-    end
-    local waiting = not counters_trusted(file.path)
-    push_history(book, file, pos)
-    if not save_state() then
-        plugin.show_toast("Position history could not be saved")
-    end
-    local target = math.max(0, pos + amount)
-    if dur then
-        target = math.min(dur, target)
-    end
-    begin_seek(file.path, target, book.key, file.name)
-    -- While a resume seek is still pending, the tick issues the new target.
-    if not waiting then
-        plugin.seek(target)
-    end
-end
-
 local function undo_jump(book)
     local s = ensure_state(book.key)
     local h = table.remove(s.history)
@@ -1702,9 +1794,12 @@ local function undo_jump(book)
 end
 
 local function sleep_menu(book)
-    local choices =
-        { "15 minutes", "30 minutes", "45 minutes", "60 minutes", "90 minutes", "End of this chapter", "Off" }
-    plugin.show_list("Sleep timer", choices, function(i)
+    local choices = { "15 minutes", "30 minutes", "45 minutes", "60 minutes", "90 minutes", "End of this chapter", "Off" }
+    local choice_rows = {}
+    for i, label in ipairs(choices) do
+        choice_rows[i] = list_row(label, i == 6 and ICON_CHAPTERS or ICON_SLEEP)
+    end
+    plugin.show_list("Sleep timer", choice_rows, function(i)
         sleep_book, sleep_timer, sleep_chapter, sleep_pause = book.key, nil, nil, nil
         if i <= 5 then
             sleep_timer = { remaining = ({ 900, 1800, 2700, 3600, 5400 })[i] }
@@ -1755,108 +1850,49 @@ end
 open_book = function(book)
     local s = ensure_state(book.key)
     local rows = {}
-    local resume = s.file
-            and s.file ~= ""
-            and not s.finished
-            and ("Resume " .. (s.file:match("([^/]+)$") or s.file) .. " at " .. time_label(s.position))
-        or "Start listening"
-    rows[#rows + 1] = {
-        type = "row",
-        label = cap(resume, 200),
-        icon = ICON_FILE,
-        on_select = function()
-            local current = ensure_state(book.key)
-            if current.finished then
-                local files = get_files(book)
-                if files[1] then
-                    start_book(book, files[1].name, 0, false)
-                end
-            else
-                resume_book(book)
-            end
-        end,
-    }
-    rows[#rows + 1] = {
-        type = "row",
-        label = "Chapters",
-        icon = ICON_FILE,
-        on_select = function()
-            open_chapters(book)
-        end,
-    }
-    if current_for_book(book) then
+    local settings_wrap = plugin.has_capability and plugin.has_capability("ui.settings_list_wrap")
+    local function add_row(label, icon, action, wrap)
         rows[#rows + 1] = {
-            type = "row",
-            label = "Back 30 s",
-            icon = ICON_FILE,
-            on_select = function()
-                seek_delta(book, -30)
-            end,
-        }
-        rows[#rows + 1] = {
-            type = "row",
-            label = "Forward 30 s",
-            icon = ICON_FILE,
-            on_select = function()
-                seek_delta(book, 30)
-            end,
+            type = "row", label = cap(label, wrap and settings_wrap and 511 or 159),
+            icon = icon, text_size = "medium", wrap = wrap and settings_wrap == true or false, on_select = action,
         }
     end
-    rows[#rows + 1] = {
-        type = "row",
-        label = "Add bookmark",
-        icon = ICON_BOOKMARK,
-        on_select = function()
-            add_bookmark(book)
-        end,
-    }
-    rows[#rows + 1] = {
-        type = "row",
-        label = "Bookmarks",
-        icon = ICON_LIST,
-        on_select = function()
-            open_bookmarks(book)
-        end,
-    }
+    local heading = book.title .. (book.author ~= "" and ("\n" .. book.author) or "")
+    add_row(heading, cover_for(book), function() end, true)
+    local can_resume = s.file and s.file ~= "" and not s.finished
+    add_row(can_resume and "Resume listening" or "Start listening", ICON_PLAY, function()
+        local current = ensure_state(book.key)
+        if current.finished then
+            local files = get_files(book)
+            if files[1] then start_book(book, files[1].name, 0, false) end
+        else
+            resume_book(book)
+        end
+    end)
+    local loaded = current_for_book(book) ~= nil and (plugin.is_playing() or plugin.is_paused())
+    if loaded then
+        add_row("Play / Pause", ICON_PLAY, function()
+            if current_for_book(book) then plugin.toggle_pause() end
+        end)
+    end
+    add_row("Chapters", ICON_CHAPTERS, function() open_chapters(book) end)
+    add_row("Add bookmark", ICON_BOOKMARK, function() add_bookmark(book) end)
+    add_row("Bookmarks", ICON_BOOKMARKS, function() open_bookmarks(book) end)
     if #s.history > 0 then
-        rows[#rows + 1] = {
-            type = "row",
-            label = "Undo last jump",
-            icon = ICON_FILE,
-            on_select = function()
-                local now = ensure_state(book.key)
-                if #now.history > 0 then
-                    undo_jump(book)
-                end
-            end,
-        }
+        add_row("Return to previous position", ICON_HISTORY, function()
+            if #ensure_state(book.key).history > 0 then undo_jump(book) end
+        end)
     end
+    add_row("Sleep timer", ICON_SLEEP, function() sleep_menu(book) end)
     rows[#rows + 1] = {
-        type = "row",
-        label = "Sleep timer",
-        icon = ICON_FILE,
-        on_select = function()
-            sleep_menu(book)
-        end,
-    }
-    rows[#rows + 1] = {
-        type = "toggle",
-        label = "Finished",
-        value = s.finished == true,
-        icon = ICON_BOOK,
-        on_change = function(value)
+        type = "toggle", label = "Mark as finished", value = s.finished == true,
+        icon = ICON_FINISHED, text_size = "medium", on_change = function(value)
             local now = ensure_state(book.key)
-            now.finished = value == true
-            now.finished_manual = true
-            if not save_state() then
-                plugin.show_toast("Finished state could not be saved")
-            end
+            now.finished, now.finished_manual = value == true, true
+            if not save_state() then plugin.show_toast("Finished state could not be saved") end
         end,
     }
-    plugin.show_settings_list(
-        cap(book.title .. (book.author ~= "" and (" - " .. book.author) or ""), 200),
-        rows
-    )
+    plugin.show_settings_list("Book controls", rows)
 end
 
 local function service_seek()
@@ -2129,6 +2165,8 @@ local function service_sleep_pause()
 end
 
 ensure_root()
+read_settings()
+set_transport_skip(skip_by_30)
 if not read_state_file(STATE_PATH, false) then
     if read_state_file(OLD_STATE_PATH, true) then
         state_dirty = true
@@ -2149,6 +2187,7 @@ plugin.on("stopped", function()
 end)
 plugin.set_interval(1, function()
     ticks = ticks + 1
+    service_covers()
     service_seek()
     service_open_guard()
     service_sleep_pause()

@@ -2219,4 +2219,4 @@ plugin.register_stream_media_tile("Podcasts", function()
         return
     end
     open_home()
-end, "stream_media/download.png")
+end, "stream_media/podcasts_row.png")

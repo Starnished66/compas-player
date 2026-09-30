@@ -1024,6 +1024,30 @@ bluetooth-reconnect-selftest:
 	    -o $(BUILD_TARGET_DIR)/bluetooth_reconnect_backend_test
 	./$(BUILD_TARGET_DIR)/bluetooth_reconnect_backend_test
 
+.PHONY: subsonic-client-selftest
+subsonic-client-selftest:
+	@mkdir -p $(BUILD_HOST_DIR)
+	$(CC) -O0 -g -Wall -Wextra -ffunction-sections -fdata-sections -DLV_CONF_INCLUDE_SIMPLE=1 \
+	    -I. -Isrc/network -Isrc/core -Isrc/ui -Ilvgl -Imbedtls/include -IcJSON \
+	    src/network/subsonic_client_test.c src/network/subsonic_client.c src/core/utf8_util.c \
+	    cJSON/cJSON.c mbedtls/library/md5.c mbedtls/library/platform_util.c \
+	    -Wl,--gc-sections -lpthread -o $(BUILD_HOST_DIR)/subsonic_client_test
+	./$(BUILD_HOST_DIR)/subsonic_client_test
+
+.PHONY: subsonic-ui-selftest
+subsonic-ui-selftest:
+	@mkdir -p $(BUILD_HOST_DIR)
+	$(CC) -O0 -g -Wall -ffunction-sections -fdata-sections -DLV_CONF_INCLUDE_SIMPLE=1 \
+	    -I. -Isrc/network -Isrc/core -Isrc/ui -Isrc/library -Isrc/audio -Isrc/plugins -Isrc/hardware -Ilvgl \
+	    src/ui/subsonic_queue_identity_test.c src/core/utf8_util.c \
+	    -Wl,--gc-sections -lpthread -lm -o $(BUILD_HOST_DIR)/subsonic_queue_identity_test
+	./$(BUILD_HOST_DIR)/subsonic_queue_identity_test
+	$(CC) -O0 -g -Wall -ffunction-sections -fdata-sections -DLV_CONF_INCLUDE_SIMPLE=1 \
+	    -I. -Isrc/network -Isrc/core -Isrc/ui -Isrc/library -Isrc/audio -Isrc/plugins -Isrc/hardware -Ilvgl \
+	    -Imbedtls/include -IcJSON src/ui/subsonic_download_filename_test.c src/core/utf8_util.c \
+	    -Wl,--gc-sections -lpthread -lm -o $(BUILD_HOST_DIR)/subsonic_download_filename_test
+	./$(BUILD_HOST_DIR)/subsonic_download_filename_test
+
 bluetooth-monitor-selftest:
 	@mkdir -p $(BUILD_TARGET_DIR)
 	$(CC) -O0 -g -Wall -Wextra -ffunction-sections -fdata-sections -Isrc/network -Isrc/core -Isrc/audio \

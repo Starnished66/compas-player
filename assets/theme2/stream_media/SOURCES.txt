@@ -1,0 +1,31 @@
+Stream Media row icon generation
+
+Generated at 192x192 RGBA by scripts/generate_stream_media_icons.py.
+Normal and selected row filenames use the _row and _row_s suffixes.
+Selected files retain the normal artwork, following the custom radio/category icon convention.
+The UI provides the pressed/selected row highlight.
+
+subsonic_row.png and subsonic_row_s.png
+  Source: /home/josegarita/Desktop/Test2/squashfs-root/usr/resource/litegui/theme2/stream_media/subsonic.png
+  The source's transparent vinyl mark is alpha-cropped and scaled to the canvas.
+
+radio_row.png and radio_row_s.png
+  Source: /home/josegarita/Desktop/Test2/squashfs-root/usr/resource/litegui/theme2/category/net_radio.png
+  The transparent coral radio mark is alpha-cropped and scaled to the canvas.
+
+qobuz_row.png and qobuz_row_s.png
+  Source: /home/josegarita/Desktop/Test2/squashfs-root/usr/resource/litegui/theme2/stream_media/qobuz.png
+  The white/gray Q record detail is isolated from its dark tile using the
+  source bounds (71,37)-(140,106), then scaled onto transparency.
+
+tidal_row.png and tidal_row_s.png
+  Source: /home/josegarita/Desktop/Test2/squashfs-root/usr/resource/litegui/theme2/stream_media/tidal.png
+  The white five-diamond mark is isolated from its dark tile using the
+  source bounds (76,53)-(137,93), then scaled onto transparency.
+
+podcasts_row.png and podcasts_row_s.png
+  Original vector-style microphone and broadcast-wave geometry is
+  drawn by the generator in the existing purple/cyan palette.
+
+Qobuz and Tidal marks are normalized from the supplied stock image files;
+this file does not claim a third-party icon-library source.

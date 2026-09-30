@@ -405,7 +405,9 @@ a handle that `plugin.is_list_showing()` checks; and one
 instead of 767 (for OAuth bearer tokens). Purely additive. A plugin that
 only needs one of them can feature-detect it with
 `plugin.has_capability()` and `"data.zip"`, `"data.zip_image"`,
+`"data.image_thumbnail"`,
 `"data.html"`, `"ui.text_view"`, `"ui.text_view_images"`, `"ui.list_grid"`,
+`"ui.list_wrap"`,
 or `"ui.list_showing"` instead of bumping `api_min`.
 
 ### `plugin.register_quick_toggle(id, label, on_change, options)`
@@ -829,9 +831,14 @@ Opens a list screen.
 - `title` (string): the screen's header text.
 - `items` (array table): one row per entry, shown in order. Each entry is
   either a plain string (a row with just a label, as before) or a table
-  `{ label = "...", icon = "...", text_size = "..." }` for a row with its
-  own icon and/or text size -- see "Row images, resizing, and text size"
-  below.
+  `{ label = "...", icon = "...", text_size = "...", wrap = true }` for a
+  row with its own icon, text size, or wrapped label -- see "Row images,
+  resizing, and text size" below. `wrap = true` opts a list row into a
+  longer label (up to 511 bytes) that wraps onto multiple lines and grows the
+  row to fit; it does not use marquee scrolling. Rows without `wrap = true`
+  retain the 159-byte label limit. This field applies to list layout only;
+  grid cards keep their existing label behavior. Feature-detect the option
+  with `plugin.has_capability("ui.list_wrap")`.
 - `on_select` (function): called with the **1-based** index of whichever
   row was tapped (Lua array convention, not C's 0-based one) when the user
   taps a row. Not called if the user backs out without tapping anything.
@@ -905,6 +912,12 @@ itself a small settings panel (see `plugins_examples/PlaybackExtras.lua`).
   images, resizing, and text size" below) -- except `height` on a
   `"slider"` row, which is ignored (its card has its own fixed layout with
   no spare room to grow into).
+
+  Tap and toggle rows also accept `wrap = true`: the label wraps at word
+  boundaries and the row grows to fit, without a marquee. Wrapped labels
+  support up to 511 bytes; other settings labels retain the 95-byte limit.
+  Slider labels keep their existing layout. Feature-detect this option with
+  `plugin.has_capability("ui.settings_list_wrap")`.
 
 Capped at 24 rows per call, and 4 `"slider"`-type rows per call
 specifically (the underlying swipe-gesture-safety bookkeeping -- see below
@@ -1015,6 +1028,8 @@ Lists a directory's immediate children.
   `.`) child, each `{ name = "chapter1.mp3", dir = false }`. Order is
   whatever `readdir()` returns -- not sorted; sort it yourself
   (`table.sort`) if you need a specific order.
+- Entries also include `size` (bytes) and `modified` (Unix seconds) when
+  filesystem metadata is available. Older players omit these fields.
 - If `path` doesn't exist or can't be opened, returns an empty table (not
   an error).
 
@@ -1355,6 +1370,14 @@ button/remote-control-driven one.
 - **`plugin.next_track()` / `plugin.prev_track()`** -- shuffle-aware
   next/previous, same stepping logic Prev/Next and a Bluetooth/phone remote
   already use.
+- **`plugin.set_transport_skip(directory, seconds)`** -- changes manual
+  Next/Previous controls to time skipping for active files inside this
+  directory (including subdirectories). Physical, Now Playing, and remote
+  transport controls share this behavior. `seconds` is 0 to disable, or
+  1..300; backward skips clamp at zero and forward skips stop just before
+  the current file ends. Automatic track advancement is unchanged.
+  Check `playback.transport_skip` before use. The last caller's configuration
+  applies and plugin reload clears it; persist the preference in the plugin.
 - **`plugin.seek(seconds)`** -- seeks the current track to an absolute
   position.
 - **`plugin.set_volume(percent)`** -- `percent` (0-100, clamped): sets
@@ -1773,6 +1796,28 @@ means the decoder or its memory was in use by the player's own artwork at
 that moment; the same call may work a little later, so do not record it as
 a broken image. The job is cancelled without calling back when the plugin
 is reloaded.
+
+### `plugin.image_thumbnail_async(source, dest, max_w, max_h, callback)`
+
+Reads a JPEG, PNG or BMP image from a regular file, scales it to fit the
+requested dimensions without enlarging it, and writes an LVGL binary image to
+`dest`. The source read and image decoding use the same single background
+worker as `zip_image_async`.
+
+- `source` (string): image file path; the same external path rule as `zip_read`
+  applies. Files larger than 3 MiB are rejected. Feature-detect this API with
+  `plugin.has_capability("data.image_thumbnail")`.
+- `dest` (string): output path ending in `.bin`; the same path rule and atomic
+  replacement behavior as `zip_image_async` apply.
+- `max_w`, `max_h` (integers): 16 to 800.
+- `callback` (function): `callback(dest)` on success or
+  `callback(nil, reason)` on failure, later, on the UI thread.
+
+Returns `true` when the job starts, or `nil, "busy"` while a ZIP or file image
+thumbnail job is running. Failure reasons include `"could not open image"`,
+`"not a regular file"`, `"image too large"`, `"could not read image"`, and
+the image decode/write reasons documented for `zip_image_async`. The job is
+cancelled without calling back when the plugin is reloaded.
 
 ### `plugin.html_to_blocks(bytes [, options])`
 

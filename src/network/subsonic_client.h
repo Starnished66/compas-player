@@ -34,6 +34,7 @@ typedef struct {
     char title[128];
     char artist[128];
     char album[128];
+    char album_artist[128]; /* album grouping artist; falls back to track artist */
     char suffix[16];    /* File extension without leading dot (e.g. "mp3", "flac") */
     char cover_art[64]; /* getCoverArt.view id parameter, empty if omitted */
     int track;
@@ -79,6 +80,13 @@ bool subsonic_get_playlist_songs(const subsonic_server_t * server, const char * 
 
 /* Builds the stream.view URL including auth parameters for song_id. */
 void subsonic_build_stream_url(const subsonic_server_t * server, const char * song_id, char * out_url, size_t out_url_size);
+
+/* Builds a stream URL for a new playback queue. max_bitrate_kbps <= 0 keeps
+ * the server's original stream representation; positive values request MP3
+ * transcoding at that maximum bitrate. Downloads should use the original
+ * builder above, independent of the playback preference. */
+void subsonic_build_stream_url_quality(const subsonic_server_t * server, const char * song_id,
+                                       int max_bitrate_kbps, char * out_url, size_t out_url_size);
 
 /* Builds the getCoverArt.view URL including auth parameters for cover_art_id. */
 void subsonic_build_cover_art_url(const subsonic_server_t * server, const char * cover_art_id, char * out_url, size_t out_url_size);

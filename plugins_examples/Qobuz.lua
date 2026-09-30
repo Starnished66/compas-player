@@ -6,7 +6,7 @@ plugin speaks the same HTTPS catalogue the stock player uses. You supply
 the app id and app secret once; they are stored with the session token
 under plugin.storage and the password is not saved.
 
-The Stream Media row uses the player's own stream_media/qobuz.png, the same
+The Stream Media row uses the player's own stream_media/qobuz_row.png, the same
 theme-relative icon path Net Radio and Podcasts pass to
 plugin.register_stream_media_tile().
 
@@ -693,4 +693,4 @@ local function open_qobuz()
     show_home()
 end
 
-plugin.register_stream_media_tile("Qobuz", open_qobuz, "stream_media/qobuz.png")
+plugin.register_stream_media_tile("Qobuz", open_qobuz, "stream_media/qobuz_row.png")

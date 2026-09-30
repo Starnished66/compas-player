@@ -158,6 +158,11 @@ local ASSETS = {
     "category/all.png", "category/genre.png",
     "stream_media/subsonic.png", "stream_media/subsonic_s.png",
     "stream_media/radio.png", "stream_media/radio_s.png",
+    "stream_media/subsonic_row.png", "stream_media/subsonic_row_s.png",
+    "stream_media/radio_row.png", "stream_media/radio_row_s.png",
+    "stream_media/podcasts_row.png", "stream_media/podcasts_row_s.png",
+    "stream_media/qobuz_row.png", "stream_media/qobuz_row_s.png",
+    "stream_media/tidal_row.png", "stream_media/tidal_row_s.png",
     "stream_media/download.png",
     -- Settings category rows, built as settings/<name>.png plus
     -- settings/bg_<name>.png at runtime (gui_settings.c).

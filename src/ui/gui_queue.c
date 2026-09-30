@@ -8,6 +8,7 @@
 #include "screen_builders.h"
 #include "metadata.h"
 #include "assets.h"
+#include "fallback_font.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -98,7 +99,28 @@ void populate_queue_screen(void) {
         const char * path = gui_player_get_track_path_at(order[i]);
         char title[128], subtitle[256], numbered_title[160];
         song_row_t song;
-        if (metadata_db_get_song_by_path(path, &song)) {
+        char stream_title[128], stream_artist[128], stream_album[128];
+        if (gui_player_get_subsonic_track_identity(order[i], path,
+                                                   stream_title, sizeof(stream_title),
+                                                   stream_artist, sizeof(stream_artist),
+                                                   stream_album, sizeof(stream_album))) {
+            char folder[128];
+            char display_artist[121], display_album[121];
+            /* Keep the established URL-derived fallback for incomplete API
+             * records while using Subsonic's catalog identity when present. */
+            get_display_names(path, title, sizeof(title), folder, sizeof(folder));
+            if (stream_title[0]) snprintf(title, sizeof(title), "%s", stream_title);
+            if (stream_artist[0] || stream_album[0]) {
+                utf8_truncate_safe(display_artist,
+                                   stream_artist[0] ? stream_artist : "Unknown artist",
+                                   sizeof(display_artist));
+                utf8_truncate_safe(display_album,
+                                   stream_album[0] ? stream_album : "Unknown album",
+                                   sizeof(display_album));
+                snprintf(subtitle, sizeof(subtitle), "%s · %s",
+                         display_artist, display_album);
+            } else subtitle[0] = '\0';
+        } else if (metadata_db_get_song_by_path(path, &song)) {
             gui_library_format_song_identity(&song, title, sizeof(title),
                                               subtitle, sizeof(subtitle));
         } else {

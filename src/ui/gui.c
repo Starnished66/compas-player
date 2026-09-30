@@ -1393,7 +1393,7 @@ static void poll_dlna_control(void) {
 
 static lv_obj_t * build_stream_media_screen(void) {
     static icon_grid_item_t items[1 + PLUGIN_MAX_STREAM_TILES];
-    items[0] = (icon_grid_item_t){ "submenu/subsonic.png", NULL, "Subsonic", subsonic_tile_cb, NULL };
+    items[0] = (icon_grid_item_t){ "stream_media/subsonic_row.png", "stream_media/subsonic_row_s.png", "Subsonic", subsonic_tile_cb, NULL };
 
     int count = 1;
     int plugin_count = plugin_manager_get_stream_tile_count();

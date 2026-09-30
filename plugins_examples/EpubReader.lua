@@ -1,7 +1,7 @@
 plugin.define({
     id = "example.epub_reader",
     name = "EPUB Reader",
-    version = "1.1",
+    version = "1.2",
     api_min = 14,
 })
 
@@ -1248,4 +1248,6 @@ local function open_books_list()
     end, { layout = "grid" })
 end
 
-plugin.register_list_item("books", "EPUB Reader", open_books_list)
+plugin.register_list_item("books", "EPUB Reader", open_books_list, {
+    icon = plugin.sd_root() .. "/.plugin-assets/EpubReader/epub.png",
+})

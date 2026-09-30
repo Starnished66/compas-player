@@ -66,10 +66,11 @@ void gui_reset_interactive_timeout_baseline(void);
  * anywhere in this call keeps today's exact plain-label rendering. height
  * (0 = default 84px, or 96px for icon lists, scaled for the board) applies
  * to every row in this call, not per-row. Icon rows inherit native category
- * gradients and use 44px reference icons. Returns
+ * gradients and use 44px reference icons. wrap_labels opts individual rows
+ * into multiline text and grows them beyond the minimum height to fit. Returns
  * the selected screen-pool slot so callbacks can be stored per slot. */
 int gui_plugin_show_list(const char * title, const char * const * labels, const char * const * icon_paths,
-                          const char * const * text_sizes, int32_t height, int32_t width,
+                          const char * const * text_sizes, const bool * wrap_labels, int32_t height, int32_t width,
                           int selected_index, int count, int columns);
 /* True while pool slot's list screen is the top of the navigation stack. */
 bool gui_plugin_list_is_top(int slot);
@@ -91,7 +92,8 @@ bool gui_plugin_list_is_top(int slot);
 int gui_plugin_show_settings_list(const char * title, const int * row_types, const char * const * labels,
                                    const bool * toggle_initial, const int * slider_min, const int * slider_max,
                                    const int * slider_value, const char * const * icon_paths, const int32_t * heights,
-                                   const int32_t * widths, const char * const * text_sizes, int count);
+                                   const int32_t * widths, const char * const * text_sizes,
+                                   const bool * wrap_labels, int count);
 
 /* Starts playback of a brand-new playlist built from `paths[0..count)`,
  * starting at paths[start_index] -- same "starting something new clears

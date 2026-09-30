@@ -55,6 +55,12 @@ int gui_player_get_playlist_index(void);
 bool gui_player_has_active_track(void);
 const char * gui_player_get_current_track_path(void);
 const char * gui_player_get_track_path_at(int index);
+/* Resolve Subsonic stream identity by exact URL after validating the current
+ * playlist slot; this remains valid when queue edits move stream entries. */
+bool gui_player_get_subsonic_track_identity(int track_index, const char * path,
+                                            char * title, size_t title_size,
+                                            char * artist, size_t artist_size,
+                                            char * album, size_t album_size);
 int gui_player_get_queued_count(void);
 const char * gui_player_get_queued_path_at(int offset);
 void gui_player_queue_add(const char * path);
@@ -94,6 +100,8 @@ void gui_player_queue_flush(void);
 void gui_player_play_at(int index);
 void gui_player_play_at_from(int index, double start_seconds);
 void gui_player_step_manual(int direction);
+/* Time skipping applies only to manual transport within this directory. */
+void gui_player_set_transport_skip(const char * directory, int seconds);
 /* Applies `step_count` accumulated forward-seek steps from a held physical
  * Next button (hw_buttons_consume_next_seek_steps()) -- is_first resets the
  * seek target from the live playback position, same as a touch hold's first

@@ -164,6 +164,11 @@ static const char * json_str(cJSON * obj, const char * key, const char * fallbac
     return cJSON_IsString(item) ? item->valuestring : fallback;
 }
 
+static const char * json_nonempty_str(cJSON * obj, const char * key, const char * fallback) {
+    const char * value = json_str(obj, key, fallback);
+    return value[0] ? value : fallback;
+}
+
 static int json_int(cJSON * obj, const char * key, int fallback) {
     cJSON * item = cJSON_GetObjectItemCaseSensitive(obj, key);
     return cJSON_IsNumber(item) ? item->valueint : fallback;
@@ -276,6 +281,7 @@ bool subsonic_get_album_songs(const subsonic_server_t * server, const char * alb
     if (!resp) return false;
 
     cJSON * album_obj = cJSON_GetObjectItemCaseSensitive(resp, "album");
+    const char * album_artist = json_nonempty_str(album_obj, "albumArtist", json_str(album_obj, "artist", ""));
     cJSON * song_arr = cJSON_GetObjectItemCaseSensitive(album_obj, "song");
     if (!cJSON_IsArray(song_arr)) { cJSON_Delete(root); return false; }
 
@@ -290,6 +296,10 @@ bool subsonic_get_album_songs(const subsonic_server_t * server, const char * alb
         utf8_sanitize(songs[i].title);
         utf8_truncate_safe(songs[i].artist, json_str(song_item, "artist", ""), sizeof(songs[i].artist));
         utf8_sanitize(songs[i].artist);
+        utf8_truncate_safe(songs[i].album_artist,
+                           json_nonempty_str(song_item, "albumArtist", album_artist[0] ? album_artist : songs[i].artist),
+                           sizeof(songs[i].album_artist));
+        utf8_sanitize(songs[i].album_artist);
         utf8_truncate_safe(songs[i].album, json_str(song_item, "album", ""), sizeof(songs[i].album));
         utf8_sanitize(songs[i].album);
         snprintf(songs[i].suffix, sizeof(songs[i].suffix), "%s", json_str(song_item, "suffix", "mp3"));
@@ -400,6 +410,9 @@ bool subsonic_get_playlist_songs(const subsonic_server_t * server, const char * 
         utf8_sanitize(songs[i].title);
         utf8_truncate_safe(songs[i].artist, json_str(entry_item, "artist", ""), sizeof(songs[i].artist));
         utf8_sanitize(songs[i].artist);
+        utf8_truncate_safe(songs[i].album_artist,
+                           json_nonempty_str(entry_item, "albumArtist", songs[i].artist), sizeof(songs[i].album_artist));
+        utf8_sanitize(songs[i].album_artist);
         utf8_truncate_safe(songs[i].album, json_str(entry_item, "album", ""), sizeof(songs[i].album));
         utf8_sanitize(songs[i].album);
         snprintf(songs[i].suffix, sizeof(songs[i].suffix), "%s", json_str(entry_item, "suffix", "mp3"));
@@ -427,7 +440,21 @@ void subsonic_build_stream_url(const subsonic_server_t * server, const char * so
     char id_enc[256];
     url_encode(song_id, id_enc, sizeof(id_enc));
 
-    snprintf(out_url, out_url_size, "%s/rest/stream.view?%s&id=%s", server->base_url, auth, id_enc);
+    snprintf(out_url, out_url_size, "%s/rest/stream.view?%s&id=%s&format=raw", server->base_url, auth, id_enc);
+}
+
+void subsonic_build_stream_url_quality(const subsonic_server_t * server, const char * song_id,
+                                       int max_bitrate_kbps, char * out_url, size_t out_url_size) {
+    if (max_bitrate_kbps <= 0) {
+        subsonic_build_stream_url(server, song_id, out_url, out_url_size);
+        return;
+    }
+    char auth[512];
+    build_auth_query(server, auth, sizeof(auth));
+    char id_enc[256];
+    url_encode(song_id, id_enc, sizeof(id_enc));
+    snprintf(out_url, out_url_size, "%s/rest/stream.view?%s&id=%s&format=mp3&maxBitRate=%d",
+             server->base_url, auth, id_enc, max_bitrate_kbps);
 }
 
 void subsonic_build_cover_art_url(const subsonic_server_t * server, const char * cover_art_id, char * out_url, size_t out_url_size) {

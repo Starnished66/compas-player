@@ -1,5 +1,6 @@
 #include "plugin_manager.h"
 #include "gui.h"
+#include "gui_player.h"
 #include "gui_reload.h"
 #include "gui_lock_screen.h"
 #include "peq.h"
@@ -937,9 +938,9 @@ static int l_plugin_set_quick_toggle(lua_State * L) {
 }
 
 /* Each items[] entry is either a plain string (today's original behavior,
- * unchanged) or a table { label = "...", icon = "...", text_size = "..." }
- * for a row that wants its own icon/text size -- see this function's own
- * doc comment. An optional trailing `options` table (4th arg) carries
+ * unchanged) or a table { label = "...", icon = "...", text_size = "...",
+ * wrap = true } for a row that wants its own icon/text size or wrapped label
+ * -- see PLUGINS.md. An optional trailing `options` table (4th arg) carries
  * `height` and `width`, applying to every row in this call (call-level,
  * setting -- a plain browsing list mixing wildly different row heights
  * would look broken in a way an occasional taller settings-submenu row
@@ -952,8 +953,20 @@ static int l_plugin_show_list(lua_State * L) {
     lua_Unsigned raw_n = lua_rawlen(L, 2);
     int n = (raw_n > (lua_Unsigned) PLUGIN_MAX_LIST_ITEMS) ? PLUGIN_MAX_LIST_ITEMS : (int) raw_n;
 
+    size_t label_capacity = 160;
+    for (int i = 0; i < n; i++) {
+        lua_rawgeti(L, 2, i + 1);
+        if (lua_istable(L, -1)) {
+            lua_getfield(L, -1, "wrap");
+            if (lua_isboolean(L, -1) && lua_toboolean(L, -1)) label_capacity = 512;
+            lua_pop(L, 1);
+        }
+        lua_pop(L, 1);
+        if (label_capacity == 512) break;
+    }
     size_t alloc_n = (n > 0) ? (size_t) n : 1;
-    char (*label_bufs)[160] = lua_newuserdata(L, (size_t) alloc_n * sizeof(*label_bufs));
+    char * label_bufs = lua_newuserdata(L, alloc_n * label_capacity);
+    bool * wrap_labels = lua_newuserdata(L, (size_t) alloc_n * sizeof(*wrap_labels));
     const char ** labels = lua_newuserdata(L, (size_t) alloc_n * sizeof(*labels));
     char (*icon_bufs)[256] = lua_newuserdata(L, (size_t) alloc_n * sizeof(*icon_bufs));
     const char ** icon_paths = lua_newuserdata(L, (size_t) alloc_n * sizeof(*icon_paths));
@@ -961,16 +974,25 @@ static int l_plugin_show_list(lua_State * L) {
     const char ** text_sizes = lua_newuserdata(L, (size_t) alloc_n * sizeof(*text_sizes));
 
     for (int i = 0; i < n; i++) {
+        char * label_buf = label_bufs + (size_t)i * label_capacity;
         lua_rawgeti(L, 2, i + 1);
         icon_bufs[i][0] = '\0';
         icon_paths[i] = NULL;
         text_size_bufs[i][0] = '\0';
         text_sizes[i] = NULL;
+        wrap_labels[i] = false;
 
         if (lua_istable(L, -1)) {
+            lua_getfield(L, -1, "wrap");
+            if (!lua_isnil(L, -1)) {
+                luaL_checktype(L, -1, LUA_TBOOLEAN);
+                wrap_labels[i] = lua_toboolean(L, -1);
+            }
+            lua_pop(L, 1);
+
             lua_getfield(L, -1, "label");
             const char * s = lua_tostring(L, -1);
-            snprintf(label_bufs[i], sizeof(label_bufs[i]), "%s", s ? s : "");
+            snprintf(label_buf, wrap_labels[i] ? label_capacity : 160, "%s", s ? s : "");
             lua_pop(L, 1);
 
             lua_getfield(L, -1, "icon");
@@ -994,9 +1016,9 @@ static int l_plugin_show_list(lua_State * L) {
             lua_pop(L, 1);
         } else {
             const char * s = lua_tostring(L, -1);
-            snprintf(label_bufs[i], sizeof(label_bufs[i]), "%s", s ? s : "");
+            snprintf(label_buf, 160, "%s", s ? s : "");
         }
-        labels[i] = label_bufs[i];
+        labels[i] = label_buf;
         lua_pop(L, 1);
     }
 
@@ -1039,7 +1061,7 @@ static int l_plugin_show_list(lua_State * L) {
 
     lua_pushvalue(L, 3);
     int new_ref = luaL_ref(L, LUA_REGISTRYINDEX);
-    int slot = gui_plugin_show_list(title, labels, icon_paths, text_sizes, height, width, selected_index, n, columns);
+    int slot = gui_plugin_show_list(title, labels, icon_paths, text_sizes, wrap_labels, height, width, selected_index, n, columns);
     plugin_list_callback_t * cb = &plugin_list_callbacks[slot];
     if (cb->L && cb->select_ref != LUA_NOREF) luaL_unref(cb->L, LUA_REGISTRYINDEX, cb->select_ref);
     cb->L = L;
@@ -1087,7 +1109,8 @@ static int l_plugin_show_settings_list(lua_State * L) {
     lua_Unsigned raw_n = lua_rawlen(L, 2);
     int n = (raw_n > (lua_Unsigned) PLUGIN_SETTINGS_LIST_MAX_ROWS) ? PLUGIN_SETTINGS_LIST_MAX_ROWS : (int) raw_n;
 
-    static char label_bufs[PLUGIN_SETTINGS_LIST_MAX_ROWS][96];
+    static char label_bufs[PLUGIN_SETTINGS_LIST_MAX_ROWS][512];
+    static bool wrap_labels[PLUGIN_SETTINGS_LIST_MAX_ROWS];
     static const char * labels[PLUGIN_SETTINGS_LIST_MAX_ROWS];
     static int row_types[PLUGIN_SETTINGS_LIST_MAX_ROWS];
     static bool toggle_initial[PLUGIN_SETTINGS_LIST_MAX_ROWS];
@@ -1129,9 +1152,15 @@ static int l_plugin_show_settings_list(lua_State * L) {
             continue;
         }
 
+        lua_getfield(L, -1, "wrap");
+        if (!lua_isnil(L, -1)) luaL_checktype(L, -1, LUA_TBOOLEAN);
+        wrap_labels[count] = row_type != PLUGIN_SETTINGS_ROW_SLIDER && lua_toboolean(L, -1);
+        lua_pop(L, 1);
+
         lua_getfield(L, -1, "label");
         const char * label = lua_tostring(L, -1);
-        snprintf(label_bufs[count], sizeof(label_bufs[count]), "%s", label ? label : "");
+        snprintf(label_bufs[count], wrap_labels[count] ? sizeof(label_bufs[count]) : 96,
+                 "%s", label ? label : "");
         lua_pop(L, 1); /* label string */
 
         const char * cb_field = (row_type == PLUGIN_SETTINGS_ROW_TAP) ? "on_select" : "on_change";
@@ -1202,7 +1231,7 @@ static int l_plugin_show_settings_list(lua_State * L) {
     }
 
     int slot = gui_plugin_show_settings_list(title, row_types, labels, toggle_initial, slider_min, slider_max,
-                                              slider_value, icon_paths, heights, widths, text_sizes, count);
+                                              slider_value, icon_paths, heights, widths, text_sizes, wrap_labels, count);
     if (slot < 0 || slot >= PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE) return 0; /* defensive -- shouldn't happen */
 
     /* Release whatever the reused slot held from its previous population
@@ -1239,13 +1268,20 @@ static int l_plugin_list_dir(lua_State * L) {
         snprintf(full, sizeof(full), "%s/%s", path, ent->d_name);
         struct stat st;
         bool is_dir = false;
-        if (stat(full, &st) == 0) is_dir = S_ISDIR(st.st_mode);
+        bool have_stat = stat(full, &st) == 0;
+        if (have_stat) is_dir = S_ISDIR(st.st_mode);
 
         lua_newtable(L);
         lua_pushstring(L, ent->d_name);
         lua_setfield(L, -2, "name");
         lua_pushboolean(L, is_dir);
         lua_setfield(L, -2, "dir");
+        if (have_stat) {
+            lua_pushinteger(L, (lua_Integer) st.st_size);
+            lua_setfield(L, -2, "size");
+            lua_pushinteger(L, (lua_Integer) st.st_mtime);
+            lua_setfield(L, -2, "modified");
+        }
         lua_rawseti(L, -2, idx++);
     }
     closedir(d);
@@ -2363,6 +2399,15 @@ static int l_plugin_prev_track(lua_State * L) {
 static int l_plugin_seek(lua_State * L) {
     double seconds = luaL_checknumber(L, 1);
     gui_plugin_seek(seconds);
+    return 0;
+}
+
+static int l_plugin_set_transport_skip(lua_State * L) {
+    const char * directory = check_plugin_external_path(L, 1, "plugin.set_transport_skip");
+    lua_Integer seconds = luaL_checkinteger(L, 2);
+    if (seconds < 0 || seconds > 300) return luaL_error(L, "skip seconds must be 0..300");
+    if (strlen(directory) >= PATH_MAX) return luaL_error(L, "skip directory too long");
+    gui_player_set_transport_skip(directory, (int) seconds);
     return 0;
 }
 
@@ -3821,8 +3866,8 @@ static const char * const plugin_capabilities[] = {
     "storage.namespaced", "storage.secrets", "playback.remote", "filesystem.playlists", "library.refresh",
     "ui.home_layout", "ui.theme_refresh", "ui.reload", "ui.home_tiles", "ui.launcher_layout",
     "ui.home_background", "audio.hw_volume_curve", "ui.lock_screen", "ui.quick_toggle",
-    "data.zip", "data.html", "ui.text_view", "data.zip_image", "ui.list_grid", "ui.list_showing",
-    "ui.text_view_images"
+    "data.zip", "data.html", "ui.text_view", "data.zip_image", "data.image_thumbnail", "ui.list_grid", "ui.list_showing",
+    "ui.text_view_images", "ui.list_wrap", "ui.settings_list_wrap", "playback.transport_skip"
 };
 
 static int l_plugin_has_capability(lua_State * L) {
@@ -4126,6 +4171,7 @@ typedef struct {
     char dest_path[PATH_MAX];
     int max_w;
     int max_h;
+    bool source_is_file;
     bool ok;
     const char * error; /* static string */
 } plugin_zip_image_t;
@@ -4140,14 +4186,42 @@ static void * plugin_zip_image_thread(void * arg) {
     plugin_zip_image_t * job = arg;
     unsigned char * data = NULL;
     size_t len = 0;
-    zip_entry_info info;
-    zip_status st = zip_read_entry_limited(job->zip_path, job->entry, PLUGIN_ZIP_IMAGE_MAX_BYTES,
-                                           PLUGIN_ZIP_IMAGE_MAX_BYTES, &data, &len, &info);
-    if (st != ZIP_OK) {
-        job->error = zip_status_reason(st);
-    } else if (plugin_zip_image_cancelled(job)) {
-        job->error = "cancelled";
+    if (job->source_is_file) {
+        int fd = open(job->zip_path, O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+        struct stat st;
+        if (fd < 0) {
+            job->error = "could not open image";
+        } else if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+            job->error = "not a regular file";
+        } else if (st.st_size < 0 || (uint64_t) st.st_size > PLUGIN_ZIP_IMAGE_MAX_BYTES) {
+            job->error = "image too large";
+        } else {
+            len = (size_t) st.st_size;
+            data = malloc(len ? len : 1);
+            if (!data) {
+                job->error = "nomem";
+            } else {
+                size_t off = 0;
+                while (off < len && !plugin_zip_image_cancelled(job)) {
+                    ssize_t n = read(fd, data + off, len - off);
+                    if (n < 0 && errno == EINTR) continue;
+                    if (n <= 0) break;
+                    off += (size_t) n;
+                }
+                if (plugin_zip_image_cancelled(job)) job->error = "cancelled";
+                else if (off != len) job->error = "could not read image";
+            }
+        }
+        if (fd >= 0) close(fd);
     } else {
+        zip_entry_info info;
+        zip_status st = zip_read_entry_limited(job->zip_path, job->entry, PLUGIN_ZIP_IMAGE_MAX_BYTES,
+                                               PLUGIN_ZIP_IMAGE_MAX_BYTES, &data, &len, &info);
+        if (st != ZIP_OK) job->error = zip_status_reason(st);
+    }
+    if (!job->error && plugin_zip_image_cancelled(job)) {
+        job->error = "cancelled";
+    } else if (!job->error) {
         job->ok = image_thumb_write_bin(data, len, job->max_w, job->max_h, job->dest_path, ARTWORK_PRIO_THUMBNAIL,
                                         plugin_zip_image_cancelled, job, &job->error);
     }
@@ -4161,32 +4235,24 @@ static bool path_has_bin_extension(const char * path) {
     return n > 4 && strcmp(path + n - 4, ".bin") == 0;
 }
 
-static int l_plugin_zip_image_async(lua_State * L) {
-    const char * zip_path = check_plugin_external_path(L, 1, "plugin.zip_image_async");
-    const char * entry = luaL_checkstring(L, 2);
-    const char * dest_path = check_plugin_external_path(L, 3, "plugin.zip_image_async");
-    lua_Integer max_w = luaL_checkinteger(L, 4);
-    lua_Integer max_h = luaL_checkinteger(L, 5);
-    luaL_checktype(L, 6, LUA_TFUNCTION);
-    if (max_w < 16 || max_w > PLUGIN_ZIP_IMAGE_MAX_SIDE || max_h < 16 || max_h > PLUGIN_ZIP_IMAGE_MAX_SIDE)
-        return luaL_error(L, "plugin.zip_image_async: max_w/max_h must be 16..%d", PLUGIN_ZIP_IMAGE_MAX_SIDE);
-    if (strlen(zip_path) >= sizeof(plugin_zip_image.zip_path) || strlen(entry) >= sizeof(plugin_zip_image.entry) ||
-        strlen(dest_path) >= sizeof(plugin_zip_image.dest_path) - 8)
-        return luaL_error(L, "plugin.zip_image_async: path too long");
-    if (!path_has_bin_extension(dest_path))
-        return luaL_error(L, "plugin.zip_image_async: dest_path must end in .bin");
+/* Starts the shared ZIP/file thumbnail job after each Lua API has validated
+ * its own argument layout and emitted any API-specific argument errors. */
+static int plugin_image_thumbnail_start(lua_State * L, const char * source_path, const char * entry,
+                                       const char * dest_path, int max_w, int max_h,
+                                       int callback_index, bool source_is_file) {
     if (plugin_zip_image.active) return push_plugin_error(L, "busy");
 
     plugin_zip_image_t * job = &plugin_zip_image;
     memset(job, 0, sizeof(*job));
     atomic_init(&job->done, false);
     atomic_init(&job->cancel, false);
-    snprintf(job->zip_path, sizeof(job->zip_path), "%s", zip_path);
-    snprintf(job->entry, sizeof(job->entry), "%s", entry);
+    snprintf(job->zip_path, sizeof(job->zip_path), "%s", source_path);
+    if (entry) snprintf(job->entry, sizeof(job->entry), "%s", entry);
     snprintf(job->dest_path, sizeof(job->dest_path), "%s", dest_path);
-    job->max_w = (int) max_w;
-    job->max_h = (int) max_h;
-    lua_pushvalue(L, 6);
+    job->max_w = max_w;
+    job->max_h = max_h;
+    job->source_is_file = source_is_file;
+    lua_pushvalue(L, callback_index);
     job->callback_ref = luaL_ref(L, LUA_REGISTRYINDEX);
     job->L = plugin_main_state(L);
 
@@ -4204,6 +4270,37 @@ static int l_plugin_zip_image_async(lua_State * L) {
     job->active = true;
     lua_pushboolean(L, true);
     return 1;
+}
+
+static int l_plugin_zip_image_async(lua_State * L) {
+    const char * zip_path = check_plugin_external_path(L, 1, "plugin.zip_image_async");
+    const char * entry = luaL_checkstring(L, 2);
+    const char * dest_path = check_plugin_external_path(L, 3, "plugin.zip_image_async");
+    lua_Integer max_w = luaL_checkinteger(L, 4);
+    lua_Integer max_h = luaL_checkinteger(L, 5);
+    luaL_checktype(L, 6, LUA_TFUNCTION);
+    if (max_w < 16 || max_w > PLUGIN_ZIP_IMAGE_MAX_SIDE || max_h < 16 || max_h > PLUGIN_ZIP_IMAGE_MAX_SIDE)
+        return luaL_error(L, "plugin.zip_image_async: max_w/max_h must be 16..%d", PLUGIN_ZIP_IMAGE_MAX_SIDE);
+    if (strlen(zip_path) >= sizeof(plugin_zip_image.zip_path) || strlen(entry) >= sizeof(plugin_zip_image.entry) ||
+        strlen(dest_path) >= sizeof(plugin_zip_image.dest_path) - 8)
+        return luaL_error(L, "plugin.zip_image_async: path too long");
+    if (!path_has_bin_extension(dest_path))
+        return luaL_error(L, "plugin.zip_image_async: dest_path must end in .bin");
+    return plugin_image_thumbnail_start(L, zip_path, entry, dest_path, (int) max_w, (int) max_h, 6, false);
+}
+
+static int l_plugin_image_thumbnail_async(lua_State * L) {
+    const char * source_path = check_plugin_external_path(L, 1, "plugin.image_thumbnail_async");
+    const char * dest_path = check_plugin_external_path(L, 2, "plugin.image_thumbnail_async");
+    lua_Integer max_w = luaL_checkinteger(L, 3);
+    lua_Integer max_h = luaL_checkinteger(L, 4);
+    luaL_checktype(L, 5, LUA_TFUNCTION);
+    if (max_w < 16 || max_w > PLUGIN_ZIP_IMAGE_MAX_SIDE || max_h < 16 || max_h > PLUGIN_ZIP_IMAGE_MAX_SIDE)
+        return luaL_error(L, "plugin.image_thumbnail_async: max_w/max_h must be 16..%d", PLUGIN_ZIP_IMAGE_MAX_SIDE);
+    if (strlen(source_path) >= sizeof(plugin_zip_image.zip_path) || strlen(dest_path) >= sizeof(plugin_zip_image.dest_path) - 8)
+        return luaL_error(L, "plugin.image_thumbnail_async: path too long");
+    if (!path_has_bin_extension(dest_path)) return luaL_error(L, "plugin.image_thumbnail_async: dest_path must end in .bin");
+    return plugin_image_thumbnail_start(L, source_path, NULL, dest_path, (int) max_w, (int) max_h, 5, true);
 }
 
 /* Delivers a finished job's callback (skipped when cancelled or the plugin
@@ -4611,6 +4708,7 @@ static const luaL_Reg plugin_funcs[] = {
     { "next_track",                l_plugin_next_track },
     { "prev_track",                l_plugin_prev_track },
     { "seek",                      l_plugin_seek },
+    { "set_transport_skip",        l_plugin_set_transport_skip },
     { "set_volume",                l_plugin_set_volume },
     { "get_volume",                l_plugin_get_volume },
     { "get_battery",               l_plugin_get_battery },
@@ -4648,6 +4746,7 @@ static const luaL_Reg plugin_funcs[] = {
     { "zip_read",                  l_plugin_zip_read },
     { "zip_list",                  l_plugin_zip_list },
     { "zip_image_async",           l_plugin_zip_image_async },
+    { "image_thumbnail_async",     l_plugin_image_thumbnail_async },
     { "html_to_blocks",            l_plugin_html_to_blocks },
     { "show_text_view",            l_plugin_show_text_view },
     { NULL, NULL }
@@ -5275,6 +5374,7 @@ void plugin_manager_deinit(void) {
     gui_plugin_reset_home_layout();
     gui_plugin_reset_launcher_layout();
     gui_plugin_reset_player_layout();
+    gui_player_set_transport_skip(NULL, 0);
     plugin_led_override_owner = NULL;
     led_control_clear_override();
     led_control_apply(current_settings.led_indicator_enabled);

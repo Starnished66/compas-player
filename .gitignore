@@ -73,6 +73,17 @@
 !/assets/theme2/stream_media/subsonic.png
 !/assets/theme2/stream_media/subsonic_s.png
 !/assets/theme2/stream_media/download.png
+!/assets/theme2/stream_media/subsonic_row.png
+!/assets/theme2/stream_media/subsonic_row_s.png
+!/assets/theme2/stream_media/radio_row.png
+!/assets/theme2/stream_media/radio_row_s.png
+!/assets/theme2/stream_media/podcasts_row.png
+!/assets/theme2/stream_media/podcasts_row_s.png
+!/assets/theme2/stream_media/qobuz_row.png
+!/assets/theme2/stream_media/qobuz_row_s.png
+!/assets/theme2/stream_media/tidal_row.png
+!/assets/theme2/stream_media/tidal_row_s.png
+!/assets/theme2/stream_media/SOURCES.txt
 !/assets/theme2/playing_plane/
 /assets/theme2/playing_plane/*
 !/assets/theme2/playing_plane/airplay_logo_white.png
@@ -223,6 +234,7 @@
 !/generate_compile_commands.py
 !/scripts/offline_library_scan.py
 !/scripts/generate_car_mode_toggle.py
+!/scripts/generate_stream_media_icons.py
 
 # Standalone development self-tests are local-only and are not shipped in
 # the public source/release tree. Match future files in any directory too.
@@ -237,6 +249,9 @@
 # gitignore never affects files git already tracks; `git rm --cached` them
 # too if the intent is to stop tracking those as well.
 *_test.c
+!src/network/subsonic_client_test.c
+!/src/ui/subsonic_queue_identity_test.c
+!/src/ui/subsonic_download_filename_test.c
 !/src/library/path_cache_migration_test.c
 !/src/core/storage_migration_test.c
 !/src/core/sd_fsck_test.c

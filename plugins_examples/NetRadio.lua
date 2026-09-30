@@ -77,4 +77,4 @@ local function open_stations()
     end)
 end
 
-plugin.register_stream_media_tile("Net Radio", open_stations, "wireless/list_airplay.png")
+plugin.register_stream_media_tile("Net Radio", open_stations, "stream_media/radio_row.png")

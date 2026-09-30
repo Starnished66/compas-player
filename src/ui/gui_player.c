@@ -14,6 +14,9 @@
 static char ** playlist = NULL;
 static int playlist_count = 0;
 static int playlist_index = -1;
+static char transport_skip_directory[PATH_MAX];
+static int transport_skip_seconds;
+static bool transport_skip_manual(int direction);
 static char now_playing_genre[128];
 static int now_playing_track_number;
 static int * playlist_lazy_sort_order = NULL;
@@ -1647,6 +1650,26 @@ static const char * info_path_hint(const char * path) {
     return dot ? dot + 1 : NULL;
 }
 
+/* The stream catalog is initially parallel to the queue created by
+ * Subsonic. Queue edits can move playlist slots without moving that array,
+ * so retain the fast indexed lookup and fall back to the stable stream URL.
+ * Both callers and the live playlist must agree on the exact path before a
+ * metadata record is trusted. */
+static const subsonic_stream_song_meta_t * subsonic_meta_for_path(int index, const char * path) {
+    if (!path || !is_http_url(path) || index < 0 || index >= playlist_count ||
+        !subsonic_stream_meta || subsonic_stream_meta_count <= 0) return NULL;
+    const char * live_path = playlist_path_at(index);
+    if (!live_path || strcmp(path, live_path) != 0) return NULL;
+    if (index < subsonic_stream_meta_count &&
+        strcmp(path, subsonic_stream_meta[index].url) == 0)
+        return &subsonic_stream_meta[index];
+    for (int i = 0; i < subsonic_stream_meta_count; i++) {
+        if (strcmp(path, subsonic_stream_meta[i].url) == 0)
+            return &subsonic_stream_meta[i];
+    }
+    return NULL;
+}
+
 void apply_track_metadata_to_ui(int index, track_metadata_t * out_meta) {
     /* Resolved once -- this is playlist_index's first real touch on every
      * track-start (play_track_at_from()/on_track_auto_advanced() both call
@@ -1661,8 +1684,8 @@ void apply_track_metadata_to_ui(int index, track_metadata_t * out_meta) {
     char folder[128];
     get_display_names(path, title, sizeof(title), folder, sizeof(folder));
 
-    bool is_subsonic_stream = subsonic_stream_meta && index < subsonic_stream_meta_count &&
-                               strcmp(path, subsonic_stream_meta[index].url) == 0;
+    const subsonic_stream_song_meta_t * subsonic_meta = subsonic_meta_for_path(index, path);
+    bool is_subsonic_stream = subsonic_meta != NULL;
     remote_track_meta_t remote_meta;
     bool is_remote_track = remote_track_meta_copy_for_path(path, &remote_meta);
 
@@ -1692,16 +1715,16 @@ void apply_track_metadata_to_ui(int index, track_metadata_t * out_meta) {
         }
     } else if (is_subsonic_stream) {
         memset(out_meta, 0, sizeof(*out_meta));
-        if (subsonic_stream_meta[index].title[0]) {
-            snprintf(out_meta->title, sizeof(out_meta->title), "%s", subsonic_stream_meta[index].title);
+        if (subsonic_meta->title[0]) {
+            snprintf(out_meta->title, sizeof(out_meta->title), "%s", subsonic_meta->title);
             out_meta->has_title = true;
         }
-        if (subsonic_stream_meta[index].artist[0]) {
-            snprintf(out_meta->artist, sizeof(out_meta->artist), "%s", subsonic_stream_meta[index].artist);
+        if (subsonic_meta->artist[0]) {
+            snprintf(out_meta->artist, sizeof(out_meta->artist), "%s", subsonic_meta->artist);
             out_meta->has_artist = true;
         }
-        if (subsonic_stream_meta[index].album[0]) {
-            snprintf(out_meta->album, sizeof(out_meta->album), "%s", subsonic_stream_meta[index].album);
+        if (subsonic_meta->album[0]) {
+            snprintf(out_meta->album, sizeof(out_meta->album), "%s", subsonic_meta->album);
             out_meta->has_album = true;
         }
     } else {
@@ -1737,7 +1760,7 @@ void apply_track_metadata_to_ui(int index, track_metadata_t * out_meta) {
         info.declared_bitrate_kbps = remote_meta.bitrate_kbps;
         info.declared_duration_seconds = (double) remote_meta.duration_ms / 1000.0;
     } else if (is_subsonic_stream) {
-        const subsonic_stream_song_meta_t * sm = &subsonic_stream_meta[index];
+        const subsonic_stream_song_meta_t * sm = subsonic_meta;
         info.source = GUI_TRACK_SOURCE_SUBSONIC;
         format_hint = sm->suffix;
         info.declared_codec = info_codec_from_hint(sm->suffix);
@@ -1769,8 +1792,8 @@ void apply_track_metadata_to_ui(int index, track_metadata_t * out_meta) {
     const char * album_text = out_meta->has_album ? out_meta->album : "";
     snprintf(now_playing_genre, sizeof(now_playing_genre), "%s", out_meta->has_genre ? out_meta->genre : "");
     now_playing_track_number = out_meta->has_track_number && out_meta->track_number > 0 ? out_meta->track_number : 0;
-    if (is_subsonic_stream && subsonic_stream_meta[index].track > 0)
-        now_playing_track_number = subsonic_stream_meta[index].track;
+    if (is_subsonic_stream && subsonic_meta->track > 0)
+        now_playing_track_number = subsonic_meta->track;
 
     lv_label_set_text(song_title_label, title_text);
     if (album_label) lv_label_set_text(album_label, album_text);
@@ -1779,8 +1802,8 @@ void apply_track_metadata_to_ui(int index, track_metadata_t * out_meta) {
     refresh_format_badge();
     if (is_remote_track && remote_meta.artwork_url[0]) {
         launch_cover_decode_from_url(index, remote_meta.artwork_url, remote_meta.verify_tls);
-    } else if (is_subsonic_stream && subsonic_stream_meta[index].cover_url[0]) {
-        launch_cover_decode_from_url(index, subsonic_stream_meta[index].cover_url, subsonic_stream_meta[index].verify_tls);
+    } else if (is_subsonic_stream && subsonic_meta->cover_url[0]) {
+        launch_cover_decode_from_url(index, subsonic_meta->cover_url, subsonic_meta->verify_tls);
     } else if (is_remote_track) {
         /* No artwork_url and nothing local to fall back to -- unlike the
          * plain "no embedded picture" case below, launch_cover_decode_
@@ -4081,6 +4104,7 @@ void prev_btn_event_cb(lv_event_t * e) {
     reset_decoder_failure_tracking();
     if (playlist_index < 0) return;
 
+    if (transport_skip_manual(-1)) return;
     if (audio_get_position_seconds() > PREV_BUTTON_REWIND_THRESHOLD_SECONDS) {
         audio_seek(0.0);
         return;
@@ -5281,6 +5305,24 @@ const char * gui_player_get_track_path_at(int index) {
     return playlist_path_at(index);
 }
 
+bool gui_player_get_subsonic_track_identity(int track_index, const char * path,
+                                            char * title, size_t title_size,
+                                            char * artist, size_t artist_size,
+                                            char * album, size_t album_size) {
+    if (title && title_size) title[0] = '\0';
+    if (artist && artist_size) artist[0] = '\0';
+    if (album && album_size) album[0] = '\0';
+    /* Snapshot rows use physical playlist slots; metadata can have moved
+     * relative to those slots after a queue edit, so resolve by exact URL. */
+    const subsonic_stream_song_meta_t * meta = subsonic_meta_for_path(track_index, path);
+    if (!meta) return false;
+
+    if (title && title_size) utf8_truncate_safe(title, meta->title, title_size);
+    if (artist && artist_size) utf8_truncate_safe(artist, meta->artist, artist_size);
+    if (album && album_size) utf8_truncate_safe(album, meta->album, album_size);
+    return true;
+}
+
 int gui_player_get_queued_count(void) {
     return queued_pending_count;
 }
@@ -5720,11 +5762,36 @@ void gui_player_play_at_from(int index, double start_seconds) {
 }
 
 void gui_player_step_manual(int direction) {
+    if (transport_skip_manual(direction)) return;
     reset_decoder_failure_tracking();
     if (playlist_index < 0) return;
     int next_idx = compute_manual_step_index(playlist_index, direction);
     if (next_idx >= 0) play_track_at(next_idx);
     else plugin_manager_notify_queue_exhausted(direction);
+}
+
+void gui_player_set_transport_skip(const char * directory, int seconds) {
+    snprintf(transport_skip_directory, sizeof(transport_skip_directory), "%s", directory ? directory : "");
+    size_t n = strlen(transport_skip_directory);
+    while (n > 1 && transport_skip_directory[n - 1] == '/') transport_skip_directory[--n] = '\0';
+    transport_skip_seconds = seconds;
+}
+
+static bool transport_skip_manual(int direction) {
+    const char * path = gui_player_get_current_track_path();
+    size_t n = strlen(transport_skip_directory);
+    if (!transport_skip_seconds || !n || strncmp(path, transport_skip_directory, n) != 0 ||
+        path[n] != '/' || (!audio_is_playing() && !audio_is_paused())) return false;
+    /* Consume a press during decoder startup as well, so it cannot change files. */
+    double duration = audio_get_duration_seconds();
+    double position = audio_get_resume_position_seconds();
+    if (!isfinite(duration) || duration <= 0 || !isfinite(position) || deferred_resume_pending) return true;
+    double target = position + (direction < 0 ? -transport_skip_seconds : transport_skip_seconds);
+    if (target < 0) target = 0;
+    double max_target = duration > TRANSPORT_SEEK_EOF_GUARD_SECONDS ? duration - TRANSPORT_SEEK_EOF_GUARD_SECONDS : 0;
+    if (target > max_target) target = max_target;
+    audio_seek(target);
+    return true;
 }
 
 lv_obj_t * gui_player_get_screen(void) {

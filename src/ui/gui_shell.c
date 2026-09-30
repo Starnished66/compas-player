@@ -172,6 +172,8 @@ static lv_obj_t * quick_drawer_cover_img = NULL;
 static lv_obj_t * quick_drawer_cover_frame = NULL;
 static lv_obj_t * quick_drawer_play_btn = NULL;
 static lv_obj_t * quick_drawer_order_icon = NULL;
+static lv_obj_t * quick_drawer_volume_container = NULL;
+static lv_obj_t * quick_drawer_volume_icon = NULL;
 static lv_obj_t * quick_drawer_volume_track = NULL;
 static lv_obj_t * quick_drawer_volume_label = NULL;
 /* Shared with gui_player.c's own volume popup via hw_volume_coalesce.h --
@@ -336,6 +338,7 @@ static void quick_drawer_expansion_handle_cb(lv_event_t * e) {
 }
 
 static void quick_drawer_volume_event_cb(lv_event_t * e) {
+    if (!current_settings.quick_drawer_volume_visible) return;
     lv_event_code_t code = lv_event_get_code(e);
     int percent = (int) lv_slider_get_value(lv_event_get_target(e));
     if (code == LV_EVENT_PRESSED) {
@@ -2195,6 +2198,19 @@ void quick_drawer_mark_snapshot_dirty(void) {
         lv_async_call(quick_drawer_snapshot_async_cb, NULL);
 }
 
+void gui_shell_refresh_quick_drawer_volume_visibility(void) {
+    lv_obj_t * row[] = { quick_drawer_volume_container, quick_drawer_volume_icon, quick_drawer_volume_track,
+                         quick_drawer_volume_label };
+    for (size_t i = 0; i < sizeof(row) / sizeof(row[0]); i++) {
+        if (!row[i]) continue;
+        if (current_settings.quick_drawer_volume_visible)
+            lv_obj_remove_flag(row[i], LV_OBJ_FLAG_HIDDEN);
+        else
+            lv_obj_add_flag(row[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    quick_drawer_mark_snapshot_dirty();
+}
+
 static bool quick_drawer_begin_bitmap_motion(void) {
     if (quick_drawer_bitmap_motion) return true;
     /* Never lv_snapshot_take() on the drag/animation tick: a full-panel
@@ -2678,7 +2694,8 @@ static bool quick_drawer_brightness_hit_test(lv_point_t point) {
  * following the finger and the drawer itself (or a swipe-up) took over.
  * A direct, coordinate-based check has no such race. */
 static bool quick_drawer_volume_hit_test(lv_point_t point) {
-    if (!quick_drawer_open || !quick_drawer_volume_track) return false;
+    if (!quick_drawer_open || !current_settings.quick_drawer_volume_visible ||
+        !quick_drawer_volume_track) return false;
     lv_area_t area;
     lv_obj_get_coords(quick_drawer_volume_track, &area);
     lv_area_increase(&area, BOARD_SCALE_PX(44), BOARD_SCALE_PX(44)); /* matches its own ext_click_area */
@@ -3994,13 +4011,13 @@ static void build_quick_drawer(void) {
     lv_obj_set_style_bg_opa(brightness_container, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(brightness_container, BOARD_SCALE_PX(23), 0);
 
-    lv_obj_t * volume_container = lv_obj_create(quick_drawer);
-    lv_obj_remove_style_all(volume_container);
-    lv_obj_set_pos(volume_container, BOARD_SCALE_PX(34), BOARD_SCALE_PY(325));
-    lv_obj_set_size(volume_container, BOARD_SCALE_PX(413), BOARD_SCALE_PY(73));
-    lv_obj_set_style_bg_color(volume_container, lv_color_hex(0x151b17), 0);
-    lv_obj_set_style_bg_opa(volume_container, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(volume_container, BOARD_SCALE_PX(23), 0);
+    quick_drawer_volume_container = lv_obj_create(quick_drawer);
+    lv_obj_remove_style_all(quick_drawer_volume_container);
+    lv_obj_set_pos(quick_drawer_volume_container, BOARD_SCALE_PX(34), BOARD_SCALE_PY(325));
+    lv_obj_set_size(quick_drawer_volume_container, BOARD_SCALE_PX(413), BOARD_SCALE_PY(73));
+    lv_obj_set_style_bg_color(quick_drawer_volume_container, lv_color_hex(0x151b17), 0);
+    lv_obj_set_style_bg_opa(quick_drawer_volume_container, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(quick_drawer_volume_container, BOARD_SCALE_PX(23), 0);
 
     /* Decode the four "on" icons with the current accent before anything
      * asks for one below -- quick_drawer_toggle_src() falls back to the
@@ -4271,9 +4288,9 @@ static void build_quick_drawer(void) {
 
     /* Row 2: volume, in what used to be brightness's slot (see the "Row 1"
      * comment above for why these two swapped). */
-    lv_obj_t * volume_icon = lv_image_create(quick_drawer);
-    lv_image_set_src(volume_icon, asset_path("volume/vol.png"));
-    lv_obj_align(volume_icon, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(55), BOARD_SCALE_PY(346));
+    quick_drawer_volume_icon = lv_image_create(quick_drawer);
+    lv_image_set_src(quick_drawer_volume_icon, asset_path("volume/vol.png"));
+    lv_obj_align(quick_drawer_volume_icon, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(55), BOARD_SCALE_PY(346));
     quick_drawer_volume_track = lv_slider_create(quick_drawer);
     lv_obj_set_size(quick_drawer_volume_track, brightness_track_w, SLIDER_TRACK_HEIGHT);
     lv_obj_align(quick_drawer_volume_track, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(103), BOARD_SCALE_PY(354));
@@ -4301,6 +4318,7 @@ static void build_quick_drawer(void) {
     lv_obj_align(quick_drawer_volume_label, LV_ALIGN_TOP_RIGHT, -BOARD_SCALE_PX(52),
                  BOARD_SCALE_PY(354) + slider_pct_dy);
     lv_label_set_text_fmt(quick_drawer_volume_label, "%d", gui_player_get_volume_percent());
+    gui_shell_refresh_quick_drawer_volume_visibility();
 
     /* Everything below the expansion box slides down by whatever height it
      * currently has. Registered with the collapsed y each object was just
@@ -4313,8 +4331,8 @@ static void build_quick_drawer(void) {
     quick_drawer_register_shift_obj(quick_drawer_brightness_icon, BOARD_SCALE_PY(259));
     quick_drawer_register_shift_obj(quick_drawer_brightness_label, BOARD_SCALE_PY(267) + slider_pct_dy);
     quick_drawer_register_shift_obj(quick_drawer_brightness_track, BOARD_SCALE_PY(267));
-    quick_drawer_register_shift_obj(volume_container, BOARD_SCALE_PY(325));
-    quick_drawer_register_shift_obj(volume_icon, BOARD_SCALE_PY(346));
+    quick_drawer_register_shift_obj(quick_drawer_volume_container, BOARD_SCALE_PY(325));
+    quick_drawer_register_shift_obj(quick_drawer_volume_icon, BOARD_SCALE_PY(346));
     quick_drawer_register_shift_obj(quick_drawer_volume_label, BOARD_SCALE_PY(354) + slider_pct_dy);
     quick_drawer_register_shift_obj(quick_drawer_volume_track, BOARD_SCALE_PY(354));
 
@@ -4580,6 +4598,8 @@ void gui_shell_teardown(void) {
     quick_drawer_brightness_icon = NULL;
     quick_drawer_cover_img = NULL; /* child of quick_drawer -- already deleted by the delete above */
     quick_drawer_cover_frame = NULL;
+    quick_drawer_volume_container = NULL;
+    quick_drawer_volume_icon = NULL;
     quick_drawer_volume_track = NULL;
     quick_drawer_volume_label = NULL;
     for (int i = 0; i < QUICK_DRAWER_TOGGLE_SLOTS; i++) quick_drawer_toggle_state[i] = NULL;

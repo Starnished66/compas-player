@@ -45,6 +45,7 @@ void refresh_battery_topbar(void);
 void refresh_wifi_topbar(void);
 void refresh_volume_topbar(int32_t percent);
 void quick_drawer_mark_snapshot_dirty(void);
+void gui_shell_refresh_quick_drawer_volume_visibility(void);
 void register_swipe_dead_zone(lv_obj_t * obj);
 void unregister_swipe_dead_zone(lv_obj_t * obj);
 /* For gui_reload.c's in-process UI reload -- see its own comment. Must run

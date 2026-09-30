@@ -107,6 +107,7 @@ typedef struct {
     char subsonic_username[128];
     char subsonic_password[128];
     bool subsonic_verify_tls;    /* false = accept self-signed certs for this server (opt-in, see http_client.h) */
+    int subsonic_stream_quality; /* 0 Original, 1 Low (96), 2 Medium (192), 3 High (320 kbps). */
 
     /* Saved Subsonic server profiles (the "Saved Servers" list). Tagcache
      * cannot store these. The live list is the /usr/data sidecar
@@ -210,6 +211,7 @@ typedef struct {
     /* Settings -> Display -> Upside Down Screen. Rotates the screen 180
      * degrees so the device can be used with the headphone jack on top. */
     bool screen_upside_down;
+    bool quick_drawer_volume_visible;
 
     /* Charge-status LEDs (/sys/class/leds/{red,blue}, see led_control.h) --
      * false forces both off regardless of charge state, for e.g. leaving the

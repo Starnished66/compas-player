@@ -98,6 +98,7 @@ static void set_defaults(player_settings_t * out) {
     out->subsonic_username[0] = '\0';
     out->subsonic_password[0] = '\0';
     out->subsonic_verify_tls = true;
+    out->subsonic_stream_quality = 0;
     memset(out->subsonic_saved, 0, sizeof(out->subsonic_saved));
     out->subsonic_saved_count = 0;
     out->bt_volume_sync_enabled = true;
@@ -138,6 +139,7 @@ static void set_defaults(player_settings_t * out) {
     out->usb_mode = 0; /* USB_MODE_STORAGE -- see settings.h's own comment on why this is a plain int */
     out->play_mode = 0; /* PLAY_MODE_SEQUENTIAL */
     out->swipe_up_home_enabled = true;
+    out->quick_drawer_volume_visible = true;
     out->startup_volume_fixed_enabled = true; /* matches stock's own default */
     out->startup_volume_fixed_percent = 20;
     out->car_mode_volume_percent = 80;
@@ -350,6 +352,9 @@ bool settings_load(player_settings_t * out) {
             snprintf(out->subsonic_password, sizeof(out->subsonic_password), "%s", value);
         } else if (strcmp(key, "subsonic_verify_tls") == 0) {
             out->subsonic_verify_tls = (strcmp(value, "1") == 0);
+        } else if (strcmp(key, "subsonic_stream_quality") == 0) {
+            int quality = atoi(value);
+            out->subsonic_stream_quality = quality >= 0 && quality <= 3 ? quality : 0;
         } else if (strncmp(key, "subsonic_saved_", 15) == 0) {
             int idx = -1;
             char field[32];
@@ -449,6 +454,8 @@ bool settings_load(player_settings_t * out) {
             out->play_mode = atoi(value);
         } else if (strcmp(key, "swipe_up_home_enabled") == 0) {
             out->swipe_up_home_enabled = (strcmp(value, "1") == 0);
+        } else if (strcmp(key, "quick_drawer_volume_visible") == 0) {
+            out->quick_drawer_volume_visible = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "startup_volume_fixed_enabled") == 0) {
             out->startup_volume_fixed_enabled = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "startup_volume_fixed_percent") == 0) {
@@ -584,6 +591,7 @@ static void settings_write_file(const player_settings_t * settings) {
     fprintf(f, "subsonic_username=%s\n", settings->subsonic_username);
     fprintf(f, "subsonic_password=%s\n", settings->subsonic_password);
     fprintf(f, "subsonic_verify_tls=%d\n", settings->subsonic_verify_tls ? 1 : 0);
+    fprintf(f, "subsonic_stream_quality=%d\n", settings->subsonic_stream_quality);
     for (int i = 0; i < settings->subsonic_saved_count && i < SETTINGS_SUBSONIC_SAVED_MAX; i++) {
         fprintf(f, "subsonic_saved_%d_url=%s\n", i, settings->subsonic_saved[i].url);
         fprintf(f, "subsonic_saved_%d_username=%s\n", i, settings->subsonic_saved[i].username);
@@ -624,6 +632,7 @@ static void settings_write_file(const player_settings_t * settings) {
     fprintf(f, "usb_mode=%d\n", settings->usb_mode);
     fprintf(f, "play_mode=%d\n", settings->play_mode);
     fprintf(f, "swipe_up_home_enabled=%d\n", settings->swipe_up_home_enabled ? 1 : 0);
+    fprintf(f, "quick_drawer_volume_visible=%d\n", settings->quick_drawer_volume_visible ? 1 : 0);
     fprintf(f, "startup_volume_fixed_enabled=%d\n", settings->startup_volume_fixed_enabled ? 1 : 0);
     fprintf(f, "startup_volume_fixed_percent=%d\n", settings->startup_volume_fixed_percent);
     fprintf(f, "car_mode_volume_percent=%d\n", settings->car_mode_volume_percent);

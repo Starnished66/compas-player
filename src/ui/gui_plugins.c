@@ -187,8 +187,22 @@ static void plugin_grid_build(int slot, lv_obj_t * list, const char * const * la
     }
 }
 
+/* Wrapped rows keep their minimum height and expand for the measured text. */
+static void configure_plugin_row_label(lv_obj_t * row, lv_obj_t * label, int32_t width, bool wrap) {
+    if (!wrap) {
+        configure_scrolling_row_label(label, width);
+        return;
+    }
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(label, width);
+    lv_obj_set_height(label, LV_SIZE_CONTENT);
+    lv_obj_update_layout(label);
+    int32_t needed = lv_obj_get_height(label) + BOARD_SCALE_PX(48);
+    if (needed > lv_obj_get_height(row)) lv_obj_set_height(row, needed);
+}
+
 int gui_plugin_show_list(const char * title, const char * const * labels, const char * const * icon_paths,
-                          const char * const * text_sizes, int32_t height, int32_t width,
+                          const char * const * text_sizes, const bool * wrap_labels, int32_t height, int32_t width,
                           int selected_index, int count, int columns) {
     /* Same liveness rule as the settings pool: plain round-robin reused a
      * slot still on the navigation stack after a few open/Back visits to a
@@ -236,7 +250,11 @@ int gui_plugin_show_list(const char * title, const char * const * labels, const 
     for (int i = 0; i < count && icon_paths; i++) {
         if (icon_paths[i]) { any_icon = true; break; }
     }
-    bool use_container_rows = any_icon || height > 0 || width > 0;
+    bool any_wrap = false;
+    for (int i = 0; i < count && wrap_labels; i++) {
+        if (wrap_labels[i]) { any_wrap = true; break; }
+    }
+    bool use_container_rows = any_icon || any_wrap || height > 0 || width > 0;
 
     int32_t row_h = any_icon ? BOARD_SCALE_PX(96) : LIST_ROW_HEIGHT;
     if (height > 0) {
@@ -298,7 +316,8 @@ int gui_plugin_show_list(const char * title, const char * const * labels, const 
         /* The icon helper sets a compact default inset; match the native
          * category text column after installing the plugin's icon. */
         lv_obj_align(label, LV_ALIGN_LEFT_MID, label_left, 0);
-        configure_scrolling_row_label(label, row_w - label_left - LIST_ROW_LABEL_INSET);
+        int32_t label_width = row_w - label_left - LIST_ROW_LABEL_INSET;
+        configure_plugin_row_label(row, label, label_width, wrap_labels && wrap_labels[i]);
         if (icon) decorate_category_row(row, NULL, NULL);
 
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
@@ -589,7 +608,8 @@ void gui_plugin_show_text_input(const char * title, const char * initial_text, b
 
 typedef struct {
     int type; /* PLUGIN_SETTINGS_ROW_TAP/_TOGGLE/_SLIDER, plugin_manager.h */
-    char label[96];
+    char label[512];
+    bool wrap;
     bool toggle_value;
     int slider_min, slider_max, slider_value;
     char icon_path[256]; /* "" = none */
@@ -798,7 +818,7 @@ static void populate_plugin_settings_list_screen(int slot) {
             if (row_width > PILL_ROW_WIDTH_MAX) row_width = PILL_ROW_WIDTH_MAX;
             int32_t left = icon ? BOARD_SCALE_PX(96) : BOARD_SCALE_PX(24);
             lv_obj_align(label, LV_ALIGN_LEFT_MID, left, 0);
-            configure_scrolling_row_label(label, row_width - left - BOARD_SCALE_PX(112));
+            configure_plugin_row_label(row_obj, label, row_width - left - BOARD_SCALE_PX(112), st->wrap);
             if (icon) decorate_category_row(row_obj, NULL, NULL);
         } else if (st->type == PLUGIN_SETTINGS_ROW_SLIDER) {
             lv_obj_t * card = add_pill_slider_row(list, st->label, st->slider_min, st->slider_max, st->slider_value,
@@ -829,7 +849,7 @@ static void populate_plugin_settings_list_screen(int slot) {
             if (row_width > PILL_ROW_WIDTH_MAX) row_width = PILL_ROW_WIDTH_MAX;
             int32_t left = icon ? BOARD_SCALE_PX(96) : BOARD_SCALE_PX(24);
             lv_obj_align(label, LV_ALIGN_LEFT_MID, left, 0);
-            configure_scrolling_row_label(label, row_width - left - BOARD_SCALE_PX(60));
+            configure_plugin_row_label(row_obj, label, row_width - left - BOARD_SCALE_PX(60), st->wrap);
             if (icon) decorate_category_row(row_obj, NULL, NULL);
         }
     }
@@ -838,7 +858,8 @@ static void populate_plugin_settings_list_screen(int slot) {
 int gui_plugin_show_settings_list(const char * title, const int * row_types, const char * const * labels,
                                    const bool * toggle_initial, const int * slider_min, const int * slider_max,
                                    const int * slider_value, const char * const * icon_paths, const int32_t * heights,
-                                   const int32_t * widths, const char * const * text_sizes, int count) {
+                                   const int32_t * widths, const char * const * text_sizes,
+                                   const bool * wrap_labels, int count) {
     /* WHY BLIND ROUND-ROBIN IS WRONG:
      * A common pattern is: open plugin settings list (slot 0) -> tap an option
      * to open a child list (slot 1) -> back (to slot 0) -> tap a DIFFERENT
@@ -873,7 +894,8 @@ int gui_plugin_show_settings_list(const char * title, const int * row_types, con
     for (int i = 0; i < n; i++) {
         plugin_settings_list_row_state_t * st = &plugin_settings_list_row_state[slot][i];
         st->type = row_types[i];
-        snprintf(st->label, sizeof(st->label), "%s", labels[i] ? labels[i] : "");
+        st->wrap = wrap_labels && wrap_labels[i] && row_types[i] != PLUGIN_SETTINGS_ROW_SLIDER;
+        snprintf(st->label, st->wrap ? sizeof(st->label) : 96, "%s", labels[i] ? labels[i] : "");
         st->toggle_value = toggle_initial[i];
         st->slider_min = slider_min[i];
         st->slider_max = slider_max[i];
