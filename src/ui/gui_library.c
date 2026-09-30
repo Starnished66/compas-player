@@ -4030,11 +4030,15 @@ static bool group_song_has_cover(int index) {
 static void group_song_row_text_offset(lv_obj_t * row, bool with_thumbnail) {
     if (!row || lv_obj_get_child_count(row) < 2) return;
     int32_t target_x = with_thumbnail ? 100 : GUI_TEXT_INSET;
-    int32_t delta = target_x - lv_obj_get_x(lv_obj_get_child(row, 0));
+    /* New rows have explicit label geometry but no computed coordinates
+     * until LVGL lays them out. Reading those coordinates here can turn a
+     * full-width label into the 40px minimum permanently. Use the configured
+     * pixel values, also keeping repeated thumbnail refreshes idempotent. */
+    int32_t delta = target_x - lv_obj_get_style_x(lv_obj_get_child(row, 0), 0);
     if (delta == 0) return;
     for (int child_index = 0; child_index < 2; child_index++) {
         lv_obj_t * label = lv_obj_get_child(row, child_index);
-        int32_t width = lv_obj_get_width(label) - delta;
+        int32_t width = lv_obj_get_style_width(label, 0) - delta;
         if (width < 40) width = 40;
         lv_obj_set_x(label, target_x);
         lv_obj_set_width(label, width);
