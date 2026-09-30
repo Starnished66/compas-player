@@ -40,6 +40,8 @@
 
 # Wholly ours, minus the stock files that happen to share the directory.
 !/assets/theme2/power_action/
+# Player layout XML files (src/ui/player_layouts.c scans this directory).
+!/assets/theme2/player_layouts/
 !/assets/theme2/pull_down/
 /assets/theme2/pull_down/bg.png
 !/assets/theme2/topbar/
@@ -187,6 +189,7 @@
 # Build outputs
 /build_host/
 /build_ui_test/
+/build_layouts_test*/
 /build_bootloader_test/
 /build_test/
 /build_host_*/
@@ -366,3 +369,12 @@ final_diff.patch
 src/library/metadata_artwork_test.c
 docs/INCREMENTAL_DATABASE.md
 *.md
+
+# Player layouts: the docs and tests belong to the feature, so they are
+# exempt from the blanket *.md and *_test.c rules above.
+!/docs/PLAYER_LAYOUTS.md
+!/docs/player_layouts/
+!/docs/player_layouts/README.md
+!/third_party/lv_xml/README.md
+!/src/ui/player_layouts_test.c
+!/src/ui/player_layout_bind_test.c

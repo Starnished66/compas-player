@@ -95,6 +95,18 @@ const char * asset_path_plain(const char * relative_path) {
     return asset_path_intern(buf);
 }
 
+const char * asset_stock_root(void) {
+    return THEME_ROOT;
+}
+
+const char * asset_override_root(void) {
+#ifdef HOST_BUILD
+    return NULL;
+#else
+    return THEME_OVERRIDE_ROOT;
+#endif
+}
+
 const lv_image_dsc_t * asset_png_memory(const char * relative_path) {
     const char * resolved = asset_path(relative_path);
     const char * path = resolved;

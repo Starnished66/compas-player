@@ -33,6 +33,8 @@
 #include "fallback_font.h"
 #include "gui_navigation.h"
 #include "gui_player.h"
+#include "gui_reload.h"
+#include "player_layouts.h"
 #include "db_log.h"
 #include "usb_dac_bridge.h"
 #include <stdio.h>
@@ -69,6 +71,8 @@ static lv_obj_t * music_controls_screen;
 static lv_obj_t * settings_display_screen;
 static lv_obj_t * animation_speed_screen;
 static lv_obj_t * animation_speed_list;
+static lv_obj_t * player_layout_choice_screen;
+static lv_obj_t * player_layout_choice_list;
 static lv_obj_t * settings_power_screen;
 static lv_obj_t * settings_system_screen;
 static lv_obj_t * about_screen;
@@ -2653,16 +2657,58 @@ static lv_obj_t * build_settings_appearance_screen(void) {
     return scr;
 }
 
+/* Player layout choice: the built-in layout plus every registered one (XML
+ * files, exported C layouts, a plugin's session layout). Applying a choice
+ * rebuilds the UI, the same soft reload plugins use. */
+static void player_layout_choice_row_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    const player_layout_info_t * info = player_layouts_get((int) (intptr_t) lv_event_get_user_data(e));
+    if (!info) return;
+    if (strcmp(info->id, player_layouts_effective_id()) == 0) return;
+    /* Picking a layout here replaces a plugin's session layout too. */
+    player_layouts_session_clear_selection();
+    snprintf(current_settings.player_layout, sizeof(current_settings.player_layout), "%s",
+             strcmp(info->id, PLAYER_LAYOUT_ID_DEFAULT) == 0 ? "" : info->id);
+    settings_save(&current_settings);
+    show_info_toast("Applying layout, this may take a while");
+    gui_reload_request();
+}
+
+static void populate_player_layout_choice_screen(void) {
+    if (!player_layout_choice_list) return;
+    lv_obj_clean(player_layout_choice_list);
+    player_layouts_rescan();
+    const char * active = player_layouts_effective_id();
+    for (int i = 0; i < player_layouts_count(); i++) {
+        const player_layout_info_t * info = player_layouts_get(i);
+        add_pill_option_row(player_layout_choice_list, info->name, strcmp(info->id, active) == 0,
+                            player_layout_choice_row_cb, (void *) (intptr_t) i);
+    }
+}
+
+static void player_layout_choice_settings_row_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    populate_player_layout_choice_screen();
+    nav_push(player_layout_choice_screen);
+}
+
+static lv_obj_t * build_player_layout_choice_screen(void) {
+    lv_obj_t * title_label; /* unused after build -- title never changes */
+    return build_subsonic_list_screen("Layout", &title_label, &player_layout_choice_list);
+}
+
 static lv_obj_t * build_settings_player_layout_screen(void) {
-    static pill_list_item_t items[3 + PLUGIN_MAX_DISPLAY_LIST_ITEMS];
-    items[0] = (pill_list_item_t){ "Lyrics", PILL_ACCESSORY_TOGGLE,
+    static pill_list_item_t items[4 + PLUGIN_MAX_DISPLAY_LIST_ITEMS];
+    items[0] = (pill_list_item_t){ "Layout", PILL_ACCESSORY_CHEVRON, false,
+                                    player_layout_choice_settings_row_cb, NULL, NULL };
+    items[1] = (pill_list_item_t){ "Lyrics", PILL_ACCESSORY_TOGGLE,
                                     current_settings.lyrics_enabled, NULL, lyrics_switch_event_cb, NULL };
-    items[1] = (pill_list_item_t){ "Lyrics Text Size", PILL_ACCESSORY_CHEVRON, false,
+    items[2] = (pill_list_item_t){ "Lyrics Text Size", PILL_ACCESSORY_CHEVRON, false,
                                     lyrics_font_size_settings_row_cb, NULL, NULL };
-    items[2] = (pill_list_item_t){ "Hide Player/Lyrics Top Bar", PILL_ACCESSORY_TOGGLE,
+    items[3] = (pill_list_item_t){ "Hide Player/Lyrics Top Bar", PILL_ACCESSORY_TOGGLE,
                                     current_settings.hide_player_topbar, NULL,
                                     hide_player_topbar_switch_event_cb, NULL };
-    int count = append_grouped_plugin_rows(items, 3, PLUGIN_MAX_DISPLAY_LIST_ITEMS,
+    int count = append_grouped_plugin_rows(items, 4, PLUGIN_MAX_DISPLAY_LIST_ITEMS,
         "display", "player_layout", plugin_manager_get_display_list_item_count,
         plugin_manager_get_display_list_item_label, plugin_manager_get_display_list_item_options,
         plugin_display_list_item_click_cb);
@@ -4446,6 +4492,7 @@ void gui_settings_init(void) {
     music_controls_screen = NULL; /* built on first open of Playback & Controls > Buttons & Remote */
     car_mode_screen = build_car_mode_screen();
     animation_speed_screen = build_animation_speed_screen();
+    player_layout_choice_screen = build_player_layout_choice_screen();
     settings_display_screen = build_settings_display_screen();
     settings_power_screen = build_settings_power_screen();
     settings_system_screen = build_settings_system_screen();
@@ -4530,6 +4577,8 @@ void gui_settings_teardown(void) {
     car_mode_volume_slider = NULL;
     if (animation_speed_screen) { lv_obj_delete(animation_speed_screen); animation_speed_screen = NULL; }
     animation_speed_list = NULL;
+    if (player_layout_choice_screen) { lv_obj_delete(player_layout_choice_screen); player_layout_choice_screen = NULL; }
+    player_layout_choice_list = NULL;
     if (settings_display_screen) { lv_obj_delete(settings_display_screen); settings_display_screen = NULL; }
     if (settings_power_screen) { lv_obj_delete(settings_power_screen); settings_power_screen = NULL; }
     if (settings_system_screen) { lv_obj_delete(settings_system_screen); settings_system_screen = NULL; }

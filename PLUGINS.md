@@ -225,7 +225,7 @@ from the moment your script starts running (injected before
 | Identity | `define`, `api_version`, `has_capability`, `get_app_info`, `media_capabilities` |
 | Hardware | `led_available`, `led_set`, `led_blink`, `led_breathe`, `led_get`, `led_status`, `led_release` |
 | UI | `register_list_item`, `register_stream_media_tile`, `register_home_tile`, `register_quick_toggle`, `set_quick_toggle`, `show_list`, `is_list_showing`, `show_settings_list`, `show_text_input`, `show_text_view`, `show_toast`, `screenshot` |
-| Theme | `set_icon`, `set_background_color`, `set_text_color`, `set_home_layout`, `refresh_theme`, `reload_ui` |
+| Theme | `set_icon`, `set_background_color`, `set_text_color`, `set_home_layout`, `set_launcher_layout`, `set_player_layout`, `refresh_theme`, `reload_ui` |
 | Playback | `play_file`, `play_list`, `play_remote`, `queue_remote_list`, transport controls, playback state |
 | Files & Playlists | `sd_root`, `list_dir`, `mkdir`, `playlist_list`, `playlist_read`, `playlist_create`, `playlist_add`, `playlist_remove`, `playlist_delete` |
 | Storage & Secrets | `storage.get`/`set`/`delete`/`list`, `secrets.set`/`exists`/`delete` |
@@ -776,6 +776,48 @@ plugin.set_launcher_layout({
               align = "left", accessory = true, text_size = "mono", icon = true },
     stream_media = { mode = "list", height = 108, width = 480 },
     wireless = { mode = "list", height = 108, width = 480 },
+})
+```
+
+### `plugin.set_player_layout(options)`
+
+Changes how the Player (Now Playing) screen looks. Every field is optional:
+
+- `flat` (boolean): `true` skips the blurred cover-art background and fills
+  the screen with `bg_color`, or the theme background if that is not set.
+- `bg_color` (integer, `0xRRGGBB`): the flat background color.
+- `blur_radius` (integer, clamped to 0..64, default 32) and `blur_passes`
+  (integer, clamped to 0..16, default 5): strength of the blur.
+- `darken_num` and `darken_den` (integers, set together): the blurred image is
+  multiplied by `darken_num / darken_den`. `darken_num` is clamped to 0..64,
+  `darken_den` to 1..64. Default 1/2.
+- `xml` (string): an LVGL XML layout file for the whole Player screen,
+  relative to `<SD card>/.plugins/`. Absolute paths, `..` segments and paths
+  that resolve outside that folder (symlinks included) raise a Lua error, as
+  does a file that does not exist. The file must define the widget roles
+  described in `docs/PLAYER_LAYOUTS.md`; if it does not, or fails to parse,
+  the built-in layout is used instead.
+- `id` (string, with `xml`): 1 to 63 of letters, digits, `_`, `-`, `.`, not
+  `default`. Default `plugin.<file name without .xml>`.
+- `name` (string, with `xml`): the name shown in Settings > Display > Player
+  Layout > Layout. Default: the file name without `.xml`.
+
+The settings are held in memory only: they are never written to disk and a
+plugin reload or restart discards them, so call this from the plugin's
+top-level code to keep them. An `xml` layout is registered and selected for
+the current session only, and choosing a layout in Settings replaces it.
+Called from top-level code (at startup or during a UI reload) it belongs to
+the plugin and takes effect when the UI is built. Called from a callback, the
+UI is rebuilt to apply it and the layout then stays selected until the app
+restarts, even across plugin reloads. Check
+`plugin.has_capability("ui.player_layout_xml")` before using `xml`.
+
+```lua
+plugin.set_player_layout({ flat = true, bg_color = 0x101010 })
+
+plugin.set_player_layout({
+    xml  = "player_layouts/clean.xml",
+    name = "Clean",
 })
 ```
 

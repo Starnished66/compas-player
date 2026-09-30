@@ -197,6 +197,15 @@ uint32_t gui_anim_ms(uint32_t base_ms); /* src/ui/gui_theme.c */
  * 2 full re-renders" into "2 renders + N cheap bitmap blits". */
 #define LV_USE_SNAPSHOT 1
 
+/* Player layouts: named widgets (lv_obj_set_name / lv_obj_find_by_name) let
+ * the C binder wire up a layout by role, and LV_USE_XML enables the XML
+ * engine vendored under third_party/lv_xml (LVGL 9.5 dropped it; see
+ * docs/PLAYER_LAYOUTS.md). The vendored sources read this macro themselves,
+ * LVGL 9.5's own headers ignore it. The observer (subjects) is on by
+ * default in 9.5; the XML engine requires it. */
+#define LV_USE_OBJ_NAME 1
+#define LV_USE_XML 1
+
 /* Platform-specific driver settings */
 #ifdef HOST_BUILD
   /* Host Simulation Settings (Arch Linux PC) */

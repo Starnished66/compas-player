@@ -32,6 +32,13 @@ const char * asset_path(const char * relative_path);
  * strings have the same stable interned lifetime as asset_path(). */
 const char * asset_path_plain(const char * relative_path);
 
+/* Directory roots behind asset_path(), both with a trailing slash, for
+ * callers that enumerate a directory rather than open one asset. The stock
+ * root is read-only on device; the override root is writable and checked
+ * first by asset_path(), and NULL on host where no override exists. */
+const char * asset_stock_root(void);
+const char * asset_override_root(void);
+
 /* Loads a small PNG into an owned image descriptor. This avoids reopening
  * immutable slider artwork on every redraw. Falls back to NULL if the asset
  * cannot be read; release a successful result with asset_png_memory_free()

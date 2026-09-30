@@ -387,6 +387,12 @@ typedef struct {
      * TTF font from <SD>/Fonts (e.g. "Roboto-Regular.ttf"). Empty string means
      * built-in Montserrat default. */
     char custom_font[64];
+
+    /* Settings -> Display -> Player layout. Registry id of the layout the
+     * Player screen is built from (src/ui/player_layouts.h). Empty means the
+     * built-in layout. An id that is no longer registered (a deleted XML
+     * file) also falls back to the built-in one at build time. */
+    char player_layout[64];
 } player_settings_t;
 
 /* Loads settings from disk into *out. If the settings file doesn't exist or

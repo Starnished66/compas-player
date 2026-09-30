@@ -2,6 +2,7 @@
 #include "gui.h"
 #include "gui_player.h"
 #include "gui_reload.h"
+#include "player_layouts.h"
 #include "gui_lock_screen.h"
 #include "peq.h"
 #include "led_control.h"
@@ -28,6 +29,7 @@
 #include "lauxlib.h"
 #include "lualib.h"
 
+#include <ctype.h>
 #include <dirent.h>
 #include <fcntl.h>
 #include <string.h>
@@ -2208,8 +2210,67 @@ static int l_plugin_set_player_layout(lua_State * L) {
     }
     lua_pop(L, 2);
 
+    /* Optional XML layout for the Player screen, for this session only. */
+    bool layout_changed = false;
+    lua_getfield(L, 1, "xml");
+    if (!lua_isnil(L, -1)) {
+        const char * xml = luaL_checkstring(L, -1);
+        lua_getfield(L, 1, "id");
+        const char * id_arg = lua_isnil(L, -1) ? NULL : luaL_checkstring(L, -1);
+        lua_getfield(L, 1, "name");
+        const char * name_arg = lua_isnil(L, -1) ? NULL : luaL_checkstring(L, -1);
+
+        char plugin_dir[PATH_MAX], plugin_dir_real[PATH_MAX], full[PATH_MAX], full_real[PATH_MAX];
+        snprintf(plugin_dir, sizeof(plugin_dir), "%s/.plugins", MUSIC_ROOT_DIR);
+        /* Relative to the plugins folder (<SD card>/.plugins, where plugin
+         * .lua files live), and never outside it: no absolute paths, no ".." segment, and the
+         * resolved file (symlinks included) must stay under that folder. */
+        bool has_dotdot = false;
+        for (const char * p = xml; *p; p++) {
+            if (p[0] == '.' && p[1] == '.' && (p == xml || p[-1] == '/') && (p[2] == '/' || p[2] == '\0'))
+                has_dotdot = true;
+        }
+        if (!xml[0] || xml[0] == '/' || strchr(xml, '\\') || has_dotdot ||
+            snprintf(full, sizeof(full), "%s/%s", plugin_dir, xml) >= (int) sizeof(full))
+            return luaL_error(L, "plugin.set_player_layout: xml must be a relative path inside the plugins folder");
+        if (!realpath(plugin_dir, plugin_dir_real) || !realpath(full, full_real))
+            return luaL_error(L, "plugin.set_player_layout: xml file '%s' not found", xml);
+        size_t dir_len = strlen(plugin_dir_real);
+        if (strncmp(full_real, plugin_dir_real, dir_len) != 0 || full_real[dir_len] != '/')
+            return luaL_error(L, "plugin.set_player_layout: xml must stay inside the plugins folder");
+
+        /* Default id/name come from the file name: "a/Clean Look.xml" is id "plugin.Clean_Look". */
+        const char * base = strrchr(xml, '/');
+        base = base ? base + 1 : xml;
+        char stem[PLAYER_LAYOUT_ID_MAX];
+        snprintf(stem, sizeof(stem), "%s", base);
+        char * dot = strrchr(stem, '.');
+        if (dot) *dot = '\0';
+        char id_buf[PLAYER_LAYOUT_ID_MAX];
+        if (id_arg) {
+            snprintf(id_buf, sizeof(id_buf), "%s", id_arg);
+        } else {
+            char clean[PLAYER_LAYOUT_ID_MAX - 8];
+            size_t n = 0;
+            for (const char * p = stem; *p && n + 1 < sizeof(clean); p++)
+                clean[n++] = (isalnum((unsigned char) *p) || *p == '_' || *p == '-' || *p == '.') ? *p : '_';
+            clean[n] = '\0';
+            snprintf(id_buf, sizeof(id_buf), "plugin.%s", clean);
+        }
+        if (!player_layouts_id_is_valid(id_buf))
+            return luaL_error(L, "plugin.set_player_layout: id must be 1-63 letters, digits, '_', '-' or '.', and not 'default'");
+        layout_changed = player_layouts_session_select_xml(id_buf, name_arg ? name_arg : stem, full_real,
+                                                           loading_plugin_slot < 0);
+        lua_pop(L, 2);
+    }
+    lua_pop(L, 1);
+
     gui_plugin_set_player_layout(&config);
     gui_player_refresh_frosted_background();
+    /* The player screen only exists once the UI is up. Plugins run before it
+     * is built on boot and inside a reload, where the new layout is picked up
+     * anyway; a call from a callback needs the rebuild. */
+    if (layout_changed && gui_player_get_screen()) gui_reload_request();
     return 0;
 }
 
@@ -3899,7 +3960,8 @@ static const char * const plugin_capabilities[] = {
     "ui.home_layout", "ui.theme_refresh", "ui.reload", "ui.home_tiles", "ui.launcher_layout",
     "ui.home_background", "audio.hw_volume_curve", "ui.lock_screen", "ui.quick_toggle",
     "data.zip", "data.html", "ui.text_view", "data.zip_image", "data.image_thumbnail", "ui.list_grid", "ui.list_showing",
-    "ui.text_view_images", "ui.list_wrap", "ui.settings_list_wrap", "playback.transport_skip"
+    "ui.text_view_images", "ui.list_wrap", "ui.settings_list_wrap", "playback.transport_skip",
+    "ui.player_layout_xml"
 };
 
 static int l_plugin_has_capability(lua_State * L) {
@@ -5406,6 +5468,7 @@ void plugin_manager_deinit(void) {
     gui_plugin_reset_home_layout();
     gui_plugin_reset_launcher_layout();
     gui_plugin_reset_player_layout();
+    player_layouts_session_reset(); /* a plugin's XML layout must not outlive the plugin */
     gui_player_set_transport_skip(NULL, 0);
     plugin_led_override_owner = NULL;
     led_control_clear_override();

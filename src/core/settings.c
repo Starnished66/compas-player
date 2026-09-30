@@ -154,6 +154,7 @@ static void set_defaults(player_settings_t * out) {
     out->clock_manual_epoch = 0;
     out->clock_system_reference = 0;
     out->custom_font[0] = '\0';
+    out->player_layout[0] = '\0';
 }
 
 void settings_subsonic_server_upsert(player_settings_t * settings, const char * url, const char * username,
@@ -492,6 +493,12 @@ bool settings_load(player_settings_t * out) {
             } else {
                 out->custom_font[0] = '\0';
             }
+        } else if (strcmp(key, "player_layout") == 0) {
+            if (!strchr(value, '/') && !strchr(value, '\\') && !strstr(value, "..")) {
+                snprintf(out->player_layout, sizeof(out->player_layout), "%s", value);
+            } else {
+                out->player_layout[0] = '\0';
+            }
         }
     }
 
@@ -647,6 +654,7 @@ static void settings_write_file(const player_settings_t * settings) {
     fprintf(f, "clock_manual_epoch=%lld\n", (long long) settings->clock_manual_epoch);
     fprintf(f, "clock_system_reference=%lld\n", (long long) settings->clock_system_reference);
     fprintf(f, "custom_font=%s\n", settings->custom_font);
+    fprintf(f, "player_layout=%s\n", settings->player_layout);
 
     fflush(f);
     fsync(fileno(f));

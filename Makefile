@@ -583,9 +583,28 @@ APP_SRCS += src/audio/track_probe.c
 APP_SRCS += src/library/albumart.c src/library/tagcache.c src/library/path_cache.c src/library/remote_state.c src/library/subsonic_saved_servers.c src/library/artwork_coordinator.c
 APP_SRCS += src/core/utf8_util.c src/core/app_clock.c src/core/db_log.c src/core/zip_reader.c src/core/html_blocks.c
 APP_SRCS += src/ui/gesture_detector.c
+APP_SRCS += src/ui/player_layouts.c
 APP_SRCS += src/network/bluetooth_reconnect.c
 APP_CXX_SRCS = src/audio/alac_decoder.cpp
 LVGL_SRCS = $(sort $(shell find $(LVGL_DIR)/src -type f -name '*.c'))
+# LVGL 9.5 dropped the XML engine; v9.4.0's is vendored (see
+# third_party/lv_xml/README.md). The expat *_impl/*_ns files are #included by
+# xmltok.c, so they are not compiled on their own (lv_xml_test.c, which needs
+# LV_USE_TEST, is not part of the vendored copy).
+LV_XML_DIR = third_party/lv_xml
+LV_XML_SRCS = $(sort $(filter-out %/lv_xml_test.c %/xmltok_impl.c %/xmltok_ns.c, \
+                $(shell find $(LV_XML_DIR)/src -type f -name '*.c')))
+# The vendored sources include LVGL internals by 9.4 relative paths
+# ("../../misc/lv_types.h", "../../../lvgl.h", "../../lv_conf_internal.h").
+# Files the shims under third_party/lv_xml/src do not provide resolve through
+# this directory: two levels below lvgl/src, so those paths land on the real
+# 9.5 headers without editing upstream files.
+LV_XML_INC = -I$(LVGL_DIR)/src/others/translation
+LV_XML_CFLAGS = -Os $(LV_XML_INC)
+# The one application file that includes the vendored XML headers needs the
+# same include directory.
+$(BUILD_HOST_DIR)/ui/player_layouts.o: HOST_CFLAGS += $(LV_XML_INC)
+$(BUILD_TARGET_DIR)/ui/player_layouts.o: TARGET_CFLAGS += $(LV_XML_INC)
 TINYALSA_SRCS = $(sort $(shell find $(TINYALSA_DIR)/src -type f -name '*.c'))
 FAAD2_SRCS = $(sort $(shell find $(FAAD2_DIR)/libfaad -type f -name '*.c'))
 # Decoder-only ALAC sources (the repo also ships an encoder we don't need)
@@ -676,7 +695,7 @@ LIBEXECINFO_SRCS = $(LIBEXECINFO_DIR)/execinfo.c $(LIBEXECINFO_DIR)/stacktravers
 
 # Object files
 HOST_OBJS = $(APP_SRCS:src/%.c=$(BUILD_HOST_DIR)/%.o) $(APP_CXX_SRCS:src/%.cpp=$(BUILD_HOST_DIR)/%.o) \
-            $(LVGL_SRCS:$(LVGL_DIR)/%.c=$(BUILD_HOST_DIR)/lvgl/%.o) $(FAAD2_SRCS:$(FAAD2_DIR)/libfaad/%.c=$(BUILD_HOST_DIR)/faad2/%.o) \
+            $(LVGL_SRCS:$(LVGL_DIR)/%.c=$(BUILD_HOST_DIR)/lvgl/%.o) $(LV_XML_SRCS:$(LV_XML_DIR)/%.c=$(BUILD_HOST_DIR)/lv_xml/%.o) $(FAAD2_SRCS:$(FAAD2_DIR)/libfaad/%.c=$(BUILD_HOST_DIR)/faad2/%.o) \
             $(ALAC_C_SRCS:$(ALAC_DIR)/codec/%.c=$(BUILD_HOST_DIR)/alac/%.o) $(ALAC_CXX_SRCS:$(ALAC_DIR)/codec/%.cpp=$(BUILD_HOST_DIR)/alac/%.o) \
             $(MBEDTLS_SRCS:$(MBEDTLS_DIR)/library/%.c=$(BUILD_HOST_DIR)/mbedtls/%.o) $(CJSON_SRCS:$(CJSON_DIR)/%.c=$(BUILD_HOST_DIR)/cjson/%.o) \
             $(OPUS_SRCS:$(OPUS_DIR)/%.c=$(BUILD_HOST_DIR)/opus/%.o) \
@@ -686,7 +705,7 @@ HOST_OBJS = $(APP_SRCS:src/%.c=$(BUILD_HOST_DIR)/%.o) $(APP_CXX_SRCS:src/%.cpp=$
             $(TINFL_SRCS:$(TINFL_DIR)/%.c=$(BUILD_HOST_DIR)/tinfl/%.o)
 TARGET_OBJS = $(APP_SRCS:src/%.c=$(BUILD_TARGET_DIR)/%.o) $(APP_CXX_SRCS:src/%.cpp=$(BUILD_TARGET_DIR)/%.o) \
               $(TARGET_ONLY_APP_SRCS:src/%.c=$(BUILD_TARGET_DIR)/%.o) \
-              $(LVGL_SRCS:$(LVGL_DIR)/%.c=$(BUILD_TARGET_DIR)/lvgl/%.o) $(TINYALSA_SRCS:$(TINYALSA_DIR)/%.c=$(BUILD_TARGET_DIR)/tinyalsa/%.o) \
+              $(LVGL_SRCS:$(LVGL_DIR)/%.c=$(BUILD_TARGET_DIR)/lvgl/%.o) $(LV_XML_SRCS:$(LV_XML_DIR)/%.c=$(BUILD_TARGET_DIR)/lv_xml/%.o) $(TINYALSA_SRCS:$(TINYALSA_DIR)/%.c=$(BUILD_TARGET_DIR)/tinyalsa/%.o) \
               $(FAAD2_SRCS:$(FAAD2_DIR)/libfaad/%.c=$(BUILD_TARGET_DIR)/faad2/%.o) \
               $(ALAC_C_SRCS:$(ALAC_DIR)/codec/%.c=$(BUILD_TARGET_DIR)/alac/%.o) $(ALAC_CXX_SRCS:$(ALAC_DIR)/codec/%.cpp=$(BUILD_TARGET_DIR)/alac/%.o) \
               $(MBEDTLS_SRCS:$(MBEDTLS_DIR)/library/%.c=$(BUILD_TARGET_DIR)/mbedtls/%.o) $(CJSON_SRCS:$(CJSON_DIR)/%.c=$(BUILD_TARGET_DIR)/cjson/%.o) \
@@ -796,6 +815,10 @@ $(BUILD_HOST_DIR)/%.o: src/%.cpp $(LVGL_PATCH_STAMP)
 $(BUILD_HOST_DIR)/lvgl/%.o: $(LVGL_DIR)/%.c $(LVGL_PATCH_STAMP)
 	@mkdir -p $(dir $@)
 	$(CC) $(HOST_CFLAGS) -c $< -o $@
+
+$(BUILD_HOST_DIR)/lv_xml/%.o: $(LV_XML_DIR)/%.c $(LVGL_PATCH_STAMP)
+	@mkdir -p $(dir $@)
+	$(CC) $(HOST_CFLAGS) $(LV_XML_CFLAGS) -c $< -o $@
 
 $(BUILD_HOST_DIR)/faad2/%.o: $(FAAD2_DIR)/libfaad/%.c
 	@mkdir -p $(dir $@)
@@ -1081,6 +1104,42 @@ build_ui_test/%.o: %.c
 
 -include $(UI_STYLE_TEST_OBJS:.o=.d)
 
+# Headless Player layout registry + XML loader test. Logging is on so a layout
+# attribute the vendored XML engine does not understand shows up as a warning.
+# Own object directory: the LVGL objects here are built with different flags
+# than the ui-style-selftest ones.
+.PHONY: player-layouts-selftest
+# Per-board object directory (the layouts depend on the screen size).
+LT_DIR = build_layouts_test$(if $(filter-out r1,$(BOARD)),_$(BOARD))
+PLAYER_LAYOUTS_TEST_SRCS = $(LVGL_SRCS) $(LV_XML_SRCS) src/ui/player_layouts.c src/ui/player_layouts_test.c
+PLAYER_LAYOUTS_TEST_OBJS = $(PLAYER_LAYOUTS_TEST_SRCS:%.c=$(LT_DIR)/%.o)
+player-layouts-selftest: $(LT_DIR)/player_layouts_test
+	./$(LT_DIR)/player_layouts_test
+
+$(LT_DIR)/player_layouts_test: $(PLAYER_LAYOUTS_TEST_OBJS)
+	$(CC) $^ -Wl,--gc-sections -lpthread -lm -o $@
+
+$(LT_DIR)/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(BOARD_DEFINE) $(LV_XML_INC) -O0 -DLV_USE_LOG=1 -DLV_LOG_LEVEL=LV_LOG_LEVEL_WARN \
+	    -ffunction-sections -fdata-sections -c $< -o $@
+
+-include $(PLAYER_LAYOUTS_TEST_OBJS:.o=.d)
+
+# The same screen-building code the device runs, including gui_player.c, against
+# real LVGL and the XML engine. Event callbacks keep playback code referenced
+# that this test never fires, so those references stay unresolved at link time.
+.PHONY: player-layout-bind-selftest
+PLAYER_BIND_TEST_OBJS = $(filter-out $(LT_DIR)/src/ui/player_layouts_test.o,$(PLAYER_LAYOUTS_TEST_OBJS)) \
+                        $(LT_DIR)/src/ui/player_layout_bind_test.o
+player-layout-bind-selftest: $(LT_DIR)/player_layout_bind_test
+	./$(LT_DIR)/player_layout_bind_test
+
+$(LT_DIR)/player_layout_bind_test: $(PLAYER_BIND_TEST_OBJS)
+	$(CC) $^ -Wl,--gc-sections -Wl,--unresolved-symbols=ignore-all -lpthread -lm -o $@
+
+-include $(LT_DIR)/src/ui/player_layout_bind_test.d
+
 PLAYLIST_TEST_SANITIZERS ?=
 playlist-selftest:
 	@mkdir -p $(BUILD_TARGET_DIR)
@@ -1311,6 +1370,10 @@ $(BUILD_TARGET_DIR)/lvgl/%.o: $(LVGL_DIR)/%.c $(LVGL_PATCH_STAMP)
 	@mkdir -p $(dir $@)
 	$(CROSS_CC) $(TARGET_CFLAGS) -c $< -o $@
 
+$(BUILD_TARGET_DIR)/lv_xml/%.o: $(LV_XML_DIR)/%.c $(LVGL_PATCH_STAMP)
+	@mkdir -p $(dir $@)
+	$(CROSS_CC) $(TARGET_CFLAGS) $(LV_XML_CFLAGS) -c $< -o $@
+
 $(BUILD_TARGET_DIR)/tinyalsa/%.o: $(TINYALSA_DIR)/%.c
 	@mkdir -p $(dir $@)
 	$(CROSS_CC) $(TINYALSA_CFLAGS) -c $< -o $@
@@ -1368,7 +1431,7 @@ compile_commands.json:
 	@python3 generate_compile_commands.py
 
 clean:
-	rm -rf build_host build_host_* build_target build_target_* build_ui_test \
+	rm -rf build_host build_host_* build_target build_target_* build_ui_test build_layouts_test* \
 	    compas_player_host compas_player_host_* \
 	    compas_player_target compas_player_target_* \
 	    compile_commands.json compile_flags.txt
