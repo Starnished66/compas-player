@@ -101,6 +101,7 @@ typedef struct {
     int open_ref;
     char label[64];
     char icon_path[256];
+    char group[33];
     int32_t row_height;
     int32_t row_width;
     char text_size[8];
@@ -281,6 +282,7 @@ static int plugin_home_tile_count = 0;
 typedef struct {
     lua_State * L;
     int change_ref; /* LUA_REGISTRYINDEX ref to the on_change function */
+    int on_hold_ref; /* optional LUA_REGISTRYINDEX ref to settings-opening callback */
     char id[40];
     char label[64];
     char icon[96];
@@ -671,6 +673,22 @@ static bool is_valid_text_size(const char * text_size) {
  * -- plugin_manager_get_*_list_item_options() below is what translates that
  * back to NULL for its own callers. */
 static void append_list_item(plugin_list_item_t * array, int * count, lua_State * L, const char * label) {
+    char group_copy[33] = { 0 };
+    if (lua_gettop(L) >= 4 && lua_istable(L, 4)) {
+        lua_getfield(L, 4, "group");
+        if (!lua_isnil(L, -1)) {
+            size_t group_len = 0;
+            bool is_string = lua_type(L, -1) == LUA_TSTRING;
+            const char * group = lua_tolstring(L, -1, &group_len);
+            if (!is_string || !group || group_len > 32 || memchr(group, '\0', group_len)) {
+                lua_pop(L, 1);
+                luaL_error(L, "plugin.register_list_item: group must be a string of at most 32 bytes without NUL");
+            }
+            if (group_len) memcpy(group_copy, group, group_len);
+        }
+        lua_pop(L, 1);
+    }
+
     lua_pushvalue(L, 3);
     int ref = luaL_ref(L, LUA_REGISTRYINDEX);
 
@@ -683,6 +701,7 @@ static void append_list_item(plugin_list_item_t * array, int * count, lua_State 
     item->row_height = 0;
     item->row_width = 0;
     item->text_size[0] = '\0';
+    snprintf(item->group, sizeof(item->group), "%s", group_copy);
 
     if (lua_gettop(L) >= 4 && lua_istable(L, 4)) {
         lua_getfield(L, 4, "icon");
@@ -709,6 +728,7 @@ static void append_list_item(plugin_list_item_t * array, int * count, lua_State 
             snprintf(item->text_size, sizeof(item->text_size), "%s", text_size);
         }
         lua_pop(L, 1);
+
     }
 }
 
@@ -909,6 +929,18 @@ static int l_plugin_register_quick_toggle(lua_State * L) {
     lua_getfield(L, 4, "value");
     t->value = lua_toboolean(L, -1);
     lua_pop(L, 1);
+
+    t->on_hold_ref = LUA_NOREF;
+    lua_getfield(L, 4, "on_hold");
+    if (!lua_isnil(L, -1)) {
+        if (!lua_isfunction(L, -1)) {
+            lua_pop(L, 1);
+            return luaL_error(L, "plugin.register_quick_toggle: on_hold must be a function");
+        }
+        t->on_hold_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    } else {
+        lua_pop(L, 1);
+    }
 
     /* Ref taken last: every rejection above must leave the registry and the
      * Lua registry untouched, not leak a ref for a toggle that never landed. */
@@ -5566,6 +5598,17 @@ static const char * generic_list_item_label(int target, int index) {
     return plugin_list_items[target][index].label;
 }
 
+const char * plugin_manager_get_list_item_group(const char * list_id, int index) {
+    if (!list_id) return NULL;
+    for (int target = 0; target < PLUGIN_LIST_TARGET_COUNT; target++) {
+        if (strcmp(list_id, plugin_list_targets[target].list_id) != 0) continue;
+        if (index < 0 || index >= plugin_list_item_counts[target] || index >= plugin_list_targets[target].max_items) return NULL;
+        const char * group = plugin_list_items[target][index].group;
+        return group[0] ? group : NULL;
+    }
+    return NULL;
+}
+
 static void generic_list_item_clicked(int target, int index) {
     if (target < 0 || target >= PLUGIN_LIST_TARGET_COUNT) return;
     if (index < 0 || index >= plugin_list_item_counts[target] || index >= plugin_list_targets[target].max_items) return;
@@ -5736,6 +5779,12 @@ bool plugin_manager_get_quick_toggle_value(int index) {
     return plugin_quick_toggles[index].value;
 }
 
+bool plugin_manager_quick_toggle_has_on_hold(int index) {
+    if (index < 0 || index >= plugin_quick_toggle_count) return false;
+    const plugin_quick_toggle_t * t = &plugin_quick_toggles[index];
+    return t->L != NULL && t->on_hold_ref != LUA_NOREF;
+}
+
 void plugin_manager_quick_toggle_set(int index, bool new_value) {
     if (index < 0 || index >= plugin_quick_toggle_count) return;
     plugin_quick_toggle_t * t = &plugin_quick_toggles[index];
@@ -5751,6 +5800,19 @@ void plugin_manager_quick_toggle_set(int index, bool new_value) {
         fprintf(stderr, "[plugins] quick toggle '%s' on_change error: %s\n", t->label, err ? err : "unknown error");
         lua_pop(t->L, 1);
     }
+}
+
+bool plugin_manager_quick_toggle_open_settings(int index) {
+    if (index < 0 || index >= plugin_quick_toggle_count) return false;
+    plugin_quick_toggle_t * t = &plugin_quick_toggles[index];
+    if (!t->L || t->on_hold_ref == LUA_NOREF) return false;
+    lua_rawgeti(t->L, LUA_REGISTRYINDEX, t->on_hold_ref);
+    if (plugin_call(t->L, 0, 0, 0) != LUA_OK) {
+        const char * err = lua_tostring(t->L, -1);
+        fprintf(stderr, "[plugins] quick toggle '%s' on_hold error: %s\n", t->label, err ? err : "unknown error");
+        lua_pop(t->L, 1);
+    }
+    return true;
 }
 
 void plugin_manager_list_item_selected(int slot, int index) {

@@ -159,6 +159,11 @@ void sd_repair_attempt_key(const char * device, const char * cid, char * out, si
     else snprintf(out, out_size, "dev:%s", device ? device : "");
 }
 
+void sd_repair_fat_attempt_key(const char * stamp, bool readonly_trigger, char * out, size_t out_size) {
+    if (!out || out_size == 0) return;
+    snprintf(out, out_size, "fat@%.24s:%s", stamp ? stamp : "", readonly_trigger ? "ro" : "dirty");
+}
+
 static bool output_line_is_summary(const char * line, size_t length, const char * device) {
     size_t device_len = strlen(device);
     static const char files[] = " files, ";
@@ -200,6 +205,12 @@ sd_repair_note_t sd_fsck_outcome(bool tool_ok, bool dirty_trigger, bool mounted,
     if (readonly) return tool_ok ? SD_REPAIR_NOTE_STILL_READONLY : SD_REPAIR_NOTE_FAILED;
     if (!tool_ok) return SD_REPAIR_NOTE_NEEDS_COMPUTER;
     return dirty_trigger ? SD_REPAIR_NOTE_CHECKED : SD_REPAIR_NOTE_REPAIRED;
+}
+
+sd_repair_note_t sd_fsck_skipped_note(bool readonly, bool dirty_trigger) {
+    if (readonly) return SD_REPAIR_NOTE_READONLY_NEEDS_COMPUTER;
+    if (dirty_trigger) return SD_REPAIR_NOTE_NONE;
+    return SD_REPAIR_NOTE_NEEDS_COMPUTER;
 }
 
 static uint32_t read_le16(const unsigned char * p) { return (uint32_t) p[0] | ((uint32_t) p[1] << 8); }

@@ -153,6 +153,9 @@
 !/assets/theme2/settings/power.png
 !/assets/theme2/settings/system.png
 !/assets/theme2/settings/about.png
+!/assets/theme2/settings/sound.png
+!/assets/theme2/settings/playback.png
+!/assets/theme2/settings/library.png
 !/assets/theme2/settings/bg_music.png
 !/assets/theme2/settings/bg_display.png
 !/assets/theme2/settings/bg_power.png
@@ -273,6 +276,15 @@
 
 # Local GUI-refactor extraction workspace
 /scratch/
+
+# Reproducible sources and renderer for the added main Settings icons.
+!/scripts/assets/
+!/scripts/assets/settings_category_icons/
+!/scripts/assets/settings_category_icons/*.svg
+!/scripts/generate_settings_category_icons.py
+!/scripts/assets/submenu_icons/
+!/scripts/assets/submenu_icons/*.svg
+!/scripts/generate_submenu_genres_icon.py
 
 # Local-only known-issues tracker (not part of the public docs)
 /ISSUES.md

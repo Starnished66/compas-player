@@ -13,6 +13,11 @@ lv_obj_t * gui_settings_get_accent_screen(void);
 void gui_settings_accent_changed(void);
 lv_obj_t * gui_settings_get_custom_font_screen(void);
 lv_obj_t * gui_settings_get_eq_screen(void);
+/* Direct drawer/navigation entry points. */
+void gui_settings_open_eq(void);
+void gui_settings_open_sleep_timer(void);
+void gui_settings_open_playback(void);
+void gui_settings_open_library(void);
 
 void gui_settings_init(void);
 /* Deletes every screen this module owns (not build_home_screen()'s result --

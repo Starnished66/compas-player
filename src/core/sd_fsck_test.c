@@ -98,6 +98,16 @@ int main(void) {
     expect(sd_fsck_outcome(true, false, true, true) == SD_REPAIR_NOTE_STILL_READONLY, "still read-only");
     expect(sd_fsck_outcome(false, false, true, true) == SD_REPAIR_NOTE_FAILED, "checker failed, still read-only");
 
+    /* Missing checker and low memory share this pre-device-action policy. */
+    expect(sd_fsck_skipped_note(false, true) == SD_REPAIR_NOTE_NONE,
+           "writable dirty-only skip is diagnostic only");
+    expect(sd_fsck_skipped_note(true, false) == SD_REPAIR_NOTE_READONLY_NEEDS_COMPUTER,
+           "read-only skip still warns");
+    expect(sd_fsck_skipped_note(true, true) == SD_REPAIR_NOTE_READONLY_NEEDS_COMPUTER,
+           "read-only status takes priority if dirty is also reported");
+    expect(sd_fsck_skipped_note(false, false) == SD_REPAIR_NOTE_NEEDS_COMPUTER,
+           "non-dirty writable skip retains conservative warning");
+
     /* Boot sector of the 119 GB FAT32 card on the R1 test device. */
     unsigned char sector[512];
     memset(sector, 0, sizeof(sector));
@@ -167,6 +177,20 @@ int main(void) {
     expect(strcmp(key, "cid:abcd") == 0, "card id identifies an attempt");
     sd_repair_attempt_key("/dev/mmcblk0p1", "", key, sizeof(key));
     expect(strcmp(key, "dev:/dev/mmcblk0p1") == 0, "block node identifies an attempt without a card id");
+    sd_repair_fat_attempt_key("1.957907", false, key, sizeof(key));
+    expect(strcmp(key, "fat@1.957907:dirty") == 0, "writable dirty trigger has its own FAT attempt");
+    char dirty_key[SD_FSCK_ATTEMPT_BYTES];
+    snprintf(dirty_key, sizeof(dirty_key), "%s", key);
+    sd_repair_fat_attempt_key("1.957907", true, key, sizeof(key));
+    expect(strcmp(key, "fat@1.957907:ro") == 0 && strcmp(key, dirty_key) != 0,
+           "read-only trigger remains available after a dirty attempt");
+    sd_repair_fat_attempt_key("pending", false, key, sizeof(key));
+    expect(strcmp(key, "fat@pending:dirty") == 0, "pending FAT attempt preserves trigger identity");
+    char pending_dirty_key[SD_FSCK_ATTEMPT_BYTES];
+    snprintf(pending_dirty_key, sizeof(pending_dirty_key), "%s", key);
+    sd_repair_fat_attempt_key("pending", true, key, sizeof(key));
+    expect(strcmp(key, "fat@pending:ro") == 0 && strcmp(key, pending_dirty_key) != 0,
+           "pending read-only attempt transfers independently from dirty attempt");
 
     if (failures) {
         fprintf(stderr, "sd fsck: %d failure%s\n", failures, failures == 1 ? "" : "s");

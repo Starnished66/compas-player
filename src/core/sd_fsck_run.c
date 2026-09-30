@@ -238,6 +238,13 @@ void sd_repair_complete(bool mounted, bool readonly) {
     snprintf(line, sizeof(line), "fsck exit %d, finished=%d, mounted=%d, readonly=%d", code, tool_ok, mounted,
              readonly);
     log_repair_line(line);
+    if (tool_ok && mounted && !readonly && repair_kind == SD_FS_KIND_VFAT) {
+        /* A completed check also covers the stale dirty warning retained in
+         * dmesg after a read-only repair remounts the card writable. */
+        char key[SD_FSCK_ATTEMPT_BYTES];
+        sd_repair_fat_attempt_key(last_insertion_stamp, false, key, sizeof(key));
+        remember_attempt(key);
+    }
     post_note(sd_fsck_outcome(tool_ok, repair_dirty_trigger, mounted, readonly));
     boot_checkpoint(mounted && !readonly ? "sd repair remounted read-write" : "sd repair left card unusable");
     atomic_store_explicit(&repair_phase, PHASE_IDLE, memory_order_release);
@@ -315,41 +322,49 @@ static sd_repair_kick_result_t repair_kick(void (* release_handles)(void), bool 
     char key[SD_FSCK_ATTEMPT_BYTES];
     if (info.kind == SD_FS_KIND_VFAT) {
         /* The log is read on every poll (it is small); mount ids are reused
-         * by the kernel, so nothing short of the log itself says whether
-         * this is a new insertion. One key per insertion covers both
-         * triggers: a read-only FAT card is usually dirty too, its warning
-         * stays in the log after the repair remounts it, and a checked
-         * dirty card can turn read-only later. The repair remount prints no
-         * new insertion line, so either way the card is checked once. A
-         * failed read reports clean and is retried on the next poll. */
+         * by the kernel, so the insertion line identifies this attempt.
+         * Each insertion has separate writable-dirty and read-only attempt
+         * keys: a skipped dirty check must not suppress a later read-only
+         * check. The repair remount prints no new insertion line. A failed
+         * log read reports clean and is retried on the next poll. */
         char stamp[32] = "";
         read_kernel_log_dirty(info.device, &dirty, stamp, sizeof(stamp));
         if (info.readonly) dirty = false;
+        bool readonly_trigger = info.readonly;
         /* Without an insertion line in the log (rotated out, or the read
          * failed) this is still the last insertion; with no history at all
          * it is "pending" until the first real line. */
         if (stamp[0] && strcmp(stamp, "none") != 0) {
-            if (strcmp(last_insertion_stamp, "pending") == 0 && attempt_remembered("fat@pending")) {
-                snprintf(key, sizeof(key), "fat@%.24s", stamp);
-                remember_attempt(key);
+            if (strcmp(last_insertion_stamp, "pending") == 0) {
+                for (int trigger = 0; trigger < 2; ++trigger) {
+                    char pending_key[SD_FSCK_ATTEMPT_BYTES];
+                    sd_repair_fat_attempt_key("pending", trigger != 0, pending_key, sizeof(pending_key));
+                    if (attempt_remembered(pending_key)) {
+                        sd_repair_fat_attempt_key(stamp, trigger != 0, key, sizeof(key));
+                        remember_attempt(key);
+                    }
+                }
             }
             snprintf(last_insertion_stamp, sizeof(last_insertion_stamp), "%s", stamp);
         } else {
             if (!last_insertion_stamp[0]) snprintf(last_insertion_stamp, sizeof(last_insertion_stamp), "pending");
             snprintf(stamp, sizeof(stamp), "%s", last_insertion_stamp);
         }
-        snprintf(key, sizeof(key), "fat@%.24s", stamp);
+        sd_repair_fat_attempt_key(stamp, readonly_trigger, key, sizeof(key));
         if (!info.readonly && !dirty) return result;
     } else {
         sd_repair_attempt_key(info.device, cid, key, sizeof(key));
     }
     if (attempt_remembered(key)) return result;
 
-    sd_repair_note_t cannot_check = dirty ? SD_REPAIR_NOTE_NEEDS_COMPUTER : SD_REPAIR_NOTE_READONLY_NEEDS_COMPUTER;
+    sd_repair_note_t skipped_note = sd_fsck_skipped_note(info.readonly, dirty);
     const char * tool = sd_fsck_select_tool(info.kind, tool_exists, NULL);
     if (!tool || !sd_fsck_plan(info.kind, tool, info.device, &repair_plan)) {
         remember_attempt(key);
-        post_note(dirty ? cannot_check : SD_REPAIR_NOTE_FAILED);
+        if (skipped_note != SD_REPAIR_NOTE_NONE) post_note(skipped_note);
+        char line[320];
+        snprintf(line, sizeof(line), "not checking %s (%s): no checker for this filesystem", info.device, info.fstype);
+        log_repair_line(line);
         boot_checkpoint("sd repair skipped, no checker for this filesystem");
         return result;
     }
@@ -361,7 +376,7 @@ static sd_repair_kick_result_t repair_kick(void (* release_handles)(void), bool 
     uint64_t budget = available > SD_FSCK_MEMORY_RESERVE ? available - SD_FSCK_MEMORY_RESERVE : 0;
     if (needed == 0 || needed > budget) {
         remember_attempt(key);
-        post_note(cannot_check);
+        if (skipped_note != SD_REPAIR_NOTE_NONE) post_note(skipped_note);
         char line[320];
         snprintf(line, sizeof(line), "not checking %s (%s, %s): needs %llu KiB, %llu KiB available", info.device,
                  info.fstype, dirty ? "not safely removed" : "read-only", (unsigned long long) (needed / 1024),

@@ -240,10 +240,41 @@ static lv_draw_buf_t * build_flattened_transition_frame(lv_obj_t * target_screen
 #define STATIC_SNAPSHOT_SCREEN_COUNT 9
 static lv_obj_t * static_snapshot_screen[STATIC_SNAPSHOT_SCREEN_COUNT];
 static lv_draw_buf_t * static_snapshot_buf[STATIC_SNAPSHOT_SCREEN_COUNT];
+static uint64_t static_snapshot_scroll_state[STATIC_SNAPSHOT_SCREEN_COUNT];
+
+/* Static screen content can still contain scrollable containers. Include
+ * every descendant's scroll offsets in the cache key so a screen cached at
+ * its initial position is never reused after the user has scrolled it. */
+static uint64_t static_snapshot_scroll_state_recursive(lv_obj_t * obj, uint64_t hash) {
+    hash ^= (uint32_t) lv_obj_get_scroll_x(obj);
+    hash *= UINT64_C(1099511628211);
+    uint32_t scroll_y = (uint32_t) lv_obj_get_scroll_y(obj);
+    hash ^= scroll_y;
+    hash *= UINT64_C(1099511628211);
+    uint32_t child_count = lv_obj_get_child_count(obj);
+    hash ^= child_count;
+    hash *= UINT64_C(1099511628211);
+    for (uint32_t i = 0; i < child_count; i++) {
+        hash = static_snapshot_scroll_state_recursive(lv_obj_get_child(obj, (int32_t) i), hash);
+    }
+    return hash;
+}
+
+static uint64_t static_snapshot_scroll_state_for(lv_obj_t * scr) {
+    return scr ? static_snapshot_scroll_state_recursive(scr, UINT64_C(14695981039346656037)) : 0;
+}
 
 static lv_draw_buf_t * get_static_snapshot(lv_obj_t * scr) {
     for (int i = 0; i < STATIC_SNAPSHOT_SCREEN_COUNT; i++) {
-        if (static_snapshot_screen[i] == scr) return static_snapshot_buf[i];
+        if (static_snapshot_screen[i] != scr) continue;
+        if (static_snapshot_buf[i] &&
+            static_snapshot_scroll_state[i] != static_snapshot_scroll_state_for(scr)) {
+            /* Transitions always dup a cached base before using it, so this
+             * cache-owned buffer is not aliased by an in-flight transition. */
+            lv_draw_buf_destroy(static_snapshot_buf[i]);
+            static_snapshot_buf[i] = NULL;
+        }
+        return static_snapshot_buf[i];
     }
     return NULL;
 }
@@ -257,6 +288,7 @@ void register_static_snapshot(int index, lv_obj_t * scr) {
     if (static_snapshot_buf[index]) lv_draw_buf_destroy(static_snapshot_buf[index]);
     static_snapshot_screen[index] = scr;
     static_snapshot_buf[index] = snapshot_screen_base(scr);
+    static_snapshot_scroll_state[index] = static_snapshot_scroll_state_for(scr);
 }
 
 static void player_transition_discard_cache(void);
@@ -269,6 +301,7 @@ static void rebuild_font_snapshots_async_cb(void * unused) {
         screen_builders_refresh_font_geometry(static_snapshot_screen[i]);
         if (static_snapshot_buf[i]) lv_draw_buf_destroy(static_snapshot_buf[i]);
         static_snapshot_buf[i] = snapshot_screen_base(static_snapshot_screen[i]);
+        static_snapshot_scroll_state[i] = static_snapshot_scroll_state_for(static_snapshot_screen[i]);
     }
 }
 
@@ -289,8 +322,10 @@ void gui_navigation_invalidate_font_snapshots(void) {
 static void rebuild_theme_snapshots_async_cb(void * unused) {
     (void) unused;
     for (int i = 0; i < STATIC_SNAPSHOT_SCREEN_COUNT; i++) {
-        if (static_snapshot_screen[i] && !static_snapshot_buf[i])
+        if (static_snapshot_screen[i] && !static_snapshot_buf[i]) {
             static_snapshot_buf[i] = snapshot_screen_base(static_snapshot_screen[i]);
+            static_snapshot_scroll_state[i] = static_snapshot_scroll_state_for(static_snapshot_screen[i]);
+        }
     }
 }
 
@@ -1177,6 +1212,7 @@ void gui_navigation_teardown(void) {
         if (static_snapshot_buf[i]) lv_draw_buf_destroy(static_snapshot_buf[i]);
         static_snapshot_buf[i] = NULL;
         static_snapshot_screen[i] = NULL;
+        static_snapshot_scroll_state[i] = 0;
     }
     player_transition_discard_cache();
     /* Unlike the font/theme-invalidate call sites above, the screen this

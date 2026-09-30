@@ -174,6 +174,7 @@ static lv_obj_t * quick_drawer_play_btn = NULL;
 static lv_obj_t * quick_drawer_order_icon = NULL;
 static lv_obj_t * quick_drawer_volume_container = NULL;
 static lv_obj_t * quick_drawer_volume_icon = NULL;
+static lv_obj_t * quick_drawer_eq_button = NULL;
 static lv_obj_t * quick_drawer_volume_track = NULL;
 static lv_obj_t * quick_drawer_volume_label = NULL;
 /* Shared with gui_player.c's own volume popup via hw_volume_coalesce.h --
@@ -444,11 +445,9 @@ static lv_obj_t * battery_topbar_group;
 static lv_obj_t * battery_topbar_digit[3];
 static lv_obj_t * battery_topbar_percent;
 static lv_obj_t * battery_icon_frame;
-/* The group is initially built with three visible placeholder digits.
- * refresh_battery_topbar() only forces a flex reflow/re-anchor when the
- * real reading crosses a digit-count boundary, rather than adding layout
- * work to its ordinary 500 ms refresh path. */
-static int battery_topbar_visible_digit_count = 3;
+/* Width last used to anchor the percentage group.  LVGL's align_to stores
+ * coordinates; it does not follow later content/font/theme size changes. */
+static int32_t battery_topbar_anchored_width = -1;
 
 static lv_obj_t * wifi_icon;
 static lv_obj_t * bt_status_icon;
@@ -633,6 +632,7 @@ static void normalize_topbar_image(lv_obj_t * image, int left, int top,
 }
 
 static void build_status_bar(void) {
+    battery_topbar_anchored_width = -1;
     lv_obj_t * bar = lv_layer_top();
 
     /* Every plain lv_obj_create() gets LV_OBJ_FLAG_SCROLLABLE by default
@@ -873,6 +873,20 @@ static void refresh_play_pause_topbar(void) {
  * wifi/bt topbar icons against. */
 static void sync_topbar_status_icon_positions(void);
 
+static void refresh_battery_topbar_anchor(bool force) {
+    /* Hidden children and label/font changes can alter a flex container's
+     * LV_SIZE_CONTENT width without changing the number of visible digits.
+     * Resolve layout before measuring, then re-anchor only when the effective
+     * width changed (or the group itself just became visible/hidden). */
+    lv_obj_update_layout(battery_topbar_group);
+    int32_t width = lv_obj_get_width(battery_topbar_group);
+    if (force || width != battery_topbar_anchored_width) {
+        lv_obj_align_to(battery_topbar_group, battery_icon_frame, LV_ALIGN_OUT_LEFT_MID, -BOARD_SCALE_PX(5), 0);
+        battery_topbar_anchored_width = width;
+        sync_topbar_status_icon_positions();
+    }
+}
+
 void refresh_battery_topbar(void) {
     int percent = battery_get_display_percent();
 
@@ -890,10 +904,10 @@ void refresh_battery_topbar(void) {
     if (percent_should_show != percent_was_shown) {
         if (percent_should_show) lv_obj_remove_flag(battery_topbar_group, LV_OBJ_FLAG_HIDDEN);
         else lv_obj_add_flag(battery_topbar_group, LV_OBJ_FLAG_HIDDEN);
-        sync_topbar_status_icon_positions();
     }
 
     if (percent < 0) {
+        if (percent_should_show != percent_was_shown) refresh_battery_topbar_anchor(true);
         lv_image_set_src(battery_icon_frame, asset_path("topbar/lucide_battery.png"));
         lv_obj_set_style_image_recolor_opa(battery_icon_frame, LV_OPA_TRANSP, 0);
         return;
@@ -942,19 +956,10 @@ void refresh_battery_topbar(void) {
         }
     }
 
-    /* battery_topbar_group is right-anchored beside the battery frame, but
-     * LV_SIZE_CONTENT changing after leading digit sprites are hidden does
-     * not replay that earlier alignment automatically.  Without this
-     * edge-triggered re-anchor, a two-digit reading retained one invisible
-     * 14px slot's worth of gap (and a one-digit reading retained two).
-     * Force layout only at 9<->10 / 99<->100 and on the first non-3-digit
-     * reading, then move Wi-Fi/Bluetooth with their corrected anchor. */
-    if (len != battery_topbar_visible_digit_count) {
-        battery_topbar_visible_digit_count = len;
-        lv_obj_update_layout(battery_topbar_group);
-        lv_obj_align_to(battery_topbar_group, battery_icon_frame, LV_ALIGN_OUT_LEFT_MID, -BOARD_SCALE_PX(5), 0);
-        sync_topbar_status_icon_positions();
-    }
+    /* The content width can also change with same-length digit text or a
+     * font/theme update.  Measuring after layout catches those cases while
+     * keeping coordinate updates and dependent icon movement edge-triggered. */
+    refresh_battery_topbar_anchor(percent_should_show != percent_was_shown);
 }
 
 /* Called at startup and whenever the displayed volume changes. Skip
@@ -1319,12 +1324,50 @@ static void quick_drawer_car_mode_long_press_cb(lv_event_t * e) {
     gui_settings_open_car_mode();
 }
 
-static void quick_drawer_plugin_toggle_event_cb(lv_event_t * e) {
+static void quick_drawer_sleep_long_press_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
+    quick_drawer_open = false;
+    quick_drawer_finish_bitmap_motion();
+    gui_settings_open_sleep_timer();
+}
+
+static void quick_drawer_crossfade_long_press_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
+    quick_drawer_open = false;
+    quick_drawer_finish_bitmap_motion();
+    gui_settings_open_playback();
+}
+
+static void quick_drawer_eq_long_press_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
+    quick_drawer_open = false;
+    quick_drawer_finish_bitmap_motion();
+    gui_settings_open_eq();
+}
+
+static void quick_drawer_eq_button_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    quick_drawer_open = false;
+    quick_drawer_finish_bitmap_motion();
+    gui_settings_open_eq();
+}
+
+static void quick_drawer_plugin_toggle_event_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) return;
     int index = (int) (intptr_t) lv_event_get_user_data(e);
     if (index < 0 || index >= quick_drawer_plugin_toggle_count) return;
     plugin_manager_quick_toggle_set(index, !plugin_manager_get_quick_toggle_value(index));
     refresh_quick_drawer_expansion_toggles();
+}
+
+static void quick_drawer_plugin_toggle_long_press_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
+    int index = (int) (intptr_t) lv_event_get_user_data(e);
+    if (index < 0 || index >= quick_drawer_plugin_toggle_count ||
+        !plugin_manager_quick_toggle_has_on_hold(index)) return;
+    quick_drawer_open = false;
+    quick_drawer_finish_bitmap_motion();
+    plugin_manager_quick_toggle_open_settings(index);
 }
 
 static void render_wifi_icon(void) {
@@ -2046,7 +2089,7 @@ void refresh_quick_drawer_crossfade_icon(void) {
  * with quick drawer toggles via gui_settings_sync_crossfade_toggle(). */
 
 static void quick_drawer_crossfade_event_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) return;
     /* Shared with the Settings switch so the gapless implication is applied
      * identically from both -- see gui_player_set_crossfade_enabled(). */
     gui_player_set_crossfade_enabled(!current_settings.crossfade_enabled);
@@ -2114,7 +2157,7 @@ void quick_drawer_sleep_timer_set_active(bool active) {
 }
 
 static void quick_drawer_sleep_event_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) return;
     apply_sleep_timer_active(!sleep_timer_active);
     gui_settings_sync_sleep_timer_toggle();
 }
@@ -4049,7 +4092,8 @@ static void build_quick_drawer(void) {
     lv_image_set_src(quick_drawer_sleep_icon, asset_path("pull_down/sleep_switch.png"));
     lv_obj_align(quick_drawer_sleep_icon, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(251), QUICK_DRAWER_ROW1_TOP);
     lv_obj_add_flag(quick_drawer_sleep_icon, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(quick_drawer_sleep_icon, quick_drawer_sleep_event_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(quick_drawer_sleep_icon, quick_drawer_sleep_event_cb, LV_EVENT_SHORT_CLICKED, NULL);
+    lv_obj_add_event_cb(quick_drawer_sleep_icon, quick_drawer_sleep_long_press_cb, LV_EVENT_LONG_PRESSED, NULL);
 
     /* Countdown while armed -- see quick_drawer_sleep_event_cb()/
      * poll_sleep_timer()'s own comments. Hidden until armed, centered under
@@ -4065,7 +4109,8 @@ static void build_quick_drawer(void) {
     quick_drawer_crossfade_icon = lv_image_create(quick_drawer);
     lv_obj_align(quick_drawer_crossfade_icon, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(358), QUICK_DRAWER_ROW1_TOP);
     lv_obj_add_flag(quick_drawer_crossfade_icon, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(quick_drawer_crossfade_icon, quick_drawer_crossfade_event_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(quick_drawer_crossfade_icon, quick_drawer_crossfade_event_cb, LV_EVENT_SHORT_CLICKED, NULL);
+    lv_obj_add_event_cb(quick_drawer_crossfade_icon, quick_drawer_crossfade_long_press_cb, LV_EVENT_LONG_PRESSED, NULL);
     refresh_quick_drawer_crossfade_icon();
 
     /* Captions and volume rail complete the reference drawer's first panel.
@@ -4191,7 +4236,9 @@ static void build_quick_drawer(void) {
             lv_obj_add_event_cb(icon, quick_drawer_car_mode_event_cb, LV_EVENT_SHORT_CLICKED, NULL);
             lv_obj_add_event_cb(icon, quick_drawer_car_mode_long_press_cb, LV_EVENT_LONG_PRESSED, NULL);
         } else {
-            lv_obj_add_event_cb(icon, quick_drawer_plugin_toggle_event_cb, LV_EVENT_CLICKED,
+            lv_obj_add_event_cb(icon, quick_drawer_plugin_toggle_event_cb, LV_EVENT_SHORT_CLICKED,
+                                (void *) (intptr_t) plugin_index);
+            lv_obj_add_event_cb(icon, quick_drawer_plugin_toggle_long_press_cb, LV_EVENT_LONG_PRESSED,
                                 (void *) (intptr_t) plugin_index);
             quick_drawer_plugin_icon[plugin_index] = icon;
         }
@@ -4291,6 +4338,8 @@ static void build_quick_drawer(void) {
     quick_drawer_volume_icon = lv_image_create(quick_drawer);
     lv_image_set_src(quick_drawer_volume_icon, asset_path("volume/vol.png"));
     lv_obj_align(quick_drawer_volume_icon, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(55), BOARD_SCALE_PY(346));
+    lv_obj_add_flag(quick_drawer_volume_icon, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(quick_drawer_volume_icon, quick_drawer_eq_long_press_cb, LV_EVENT_LONG_PRESSED, NULL);
     quick_drawer_volume_track = lv_slider_create(quick_drawer);
     lv_obj_set_size(quick_drawer_volume_track, brightness_track_w, SLIDER_TRACK_HEIGHT);
     lv_obj_align(quick_drawer_volume_track, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(103), BOARD_SCALE_PY(354));
@@ -4474,6 +4523,30 @@ static void build_quick_drawer(void) {
     lv_obj_add_flag(next_btn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(next_btn, next_btn_event_cb, LV_EVENT_CLICKED, NULL);
 
+    /* Keep the EQ shortcut visible even when volume controls are hidden or
+     * the drawer's expansion box hides the mini-player card. Its 44x44px
+     * target sits in the card's upper-right inset. At 480x800 it occupies
+     * x=394..437, y=416..459; its top clears the volume rail's extended
+     * click area (ending at y=413), and its bottom clears the title band
+     * (starting at y=463). As expansion opens it shifts to y=712..755,
+     * below row-3 content and within the drawer panel. */
+    quick_drawer_eq_button = lv_button_create(quick_drawer);
+    lv_obj_remove_style_all(quick_drawer_eq_button);
+    lv_obj_set_pos(quick_drawer_eq_button, BOARD_SCALE_PX(394), BOARD_SCALE_PY(416));
+    lv_obj_set_size(quick_drawer_eq_button, BOARD_SCALE_PX(44), BOARD_SCALE_PY(44));
+    lv_obj_add_style(quick_drawer_eq_button, &style_theme_card_bg, 0);
+    lv_obj_set_style_radius(quick_drawer_eq_button, BOARD_SCALE_PX(5), 0);
+    lv_obj_add_style(quick_drawer_eq_button, gui_theme_accent_outline_style(), 0);
+    lv_obj_set_style_bg_opa(quick_drawer_eq_button, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(quick_drawer_eq_button, BOARD_SCALE_PX(1), 0);
+    lv_obj_add_event_cb(quick_drawer_eq_button, quick_drawer_eq_button_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t * eq_label = lv_label_create(quick_drawer_eq_button);
+    lv_obj_add_style(eq_label, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(eq_label, &lv_font_montserrat_16, 0);
+    lv_label_set_text(eq_label, "EQ");
+    lv_obj_center(eq_label);
+    quick_drawer_register_shift_obj(quick_drawer_eq_button, BOARD_SCALE_PY(416));
+
     gui_shell_refresh_quick_drawer_cover();
 
     /* Render the complex live control tree once while still under the boot
@@ -4600,6 +4673,7 @@ void gui_shell_teardown(void) {
     quick_drawer_cover_frame = NULL;
     quick_drawer_volume_container = NULL;
     quick_drawer_volume_icon = NULL;
+    quick_drawer_eq_button = NULL;
     quick_drawer_volume_track = NULL;
     quick_drawer_volume_label = NULL;
     for (int i = 0; i < QUICK_DRAWER_TOGGLE_SLOTS; i++) quick_drawer_toggle_state[i] = NULL;

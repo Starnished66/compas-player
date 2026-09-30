@@ -91,6 +91,10 @@ bool sd_fsck_tool_succeeded(sd_fs_kind_t kind, int exit_code, const char * outpu
  * because the card was not safely removed, false when it was read-only. */
 sd_repair_note_t sd_fsck_outcome(bool tool_ok, bool dirty_trigger, bool mounted, bool readonly);
 
+/* Notification for a check skipped before touching the device. A writable
+ * dirty flag alone is not evidence of corruption; read-only skips still warn. */
+sd_repair_note_t sd_fsck_skipped_note(bool readonly, bool dirty_trigger);
+
 /* Reads the cluster count from a FAT12/16/32 or exFAT boot sector. */
 bool sd_fsck_parse_boot_sector(const unsigned char * sector, size_t length, sd_fs_geometry_t * out);
 
@@ -108,5 +112,9 @@ bool sd_fsck_klog_dirty(const char * log, const char * device_base, char * stamp
 /* One automatic attempt per card. A readable CID identifies the card;
  * without one, the block node is the identity for this boot. */
 void sd_repair_attempt_key(const char * device, const char * cid, char * out, size_t out_size);
+
+/* One bounded FAT attempt per insertion and trigger, so a writable dirty
+ * skip does not suppress a later read-only check for the same card. */
+void sd_repair_fat_attempt_key(const char * stamp, bool readonly_trigger, char * out, size_t out_size);
 
 #endif

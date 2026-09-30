@@ -185,21 +185,20 @@ on one of these screens:
 | `list_id` | Location | Good fit | Shared limit |
 |---|---|---|---:|
 | `"books"` | Books | Readers, audiobooks, reference tools | 8 |
-| `"settings"` | Settings | General plugin configuration | 8 |
+| `"settings"` | Settings → System → Additional Tools | General plugin configuration | 8 |
 | `"display"` | Settings → Display | Themes and visual tools | 8 |
-| `"playback"` | Settings → Music Settings → Playback | Resume/ReplayGain/crossfade-adjacent tools | 8 |
-| `"music_audio"` | Settings → Music Settings → Audio | EQ, DSP, gain/volume-curve tools | 8 |
-| `"music_controls"` | Settings → Music Settings → Controls & Interface | Playback-button and interface behavior | 8 |
-| `"music_timers"` | Settings → Music Settings → Timers | Sleep/idle timer tools | 8 |
-| `"music_library"` | Settings → Music Settings → Library (shown when a plugin adds a row) | Scanning, tagging, scrobbling tools | 8 |
+| `"playback"` | Settings → Playback & Controls | Resume and playback tools | 8 |
+| `"music_audio"` | Settings → Sound (grouped when requested) | EQ, DSP, gain/volume-curve tools | 8 |
+| `"music_controls"` | Settings → Playback & Controls → Buttons & Remote | Playback-button and remote behavior | 8 |
+| `"music_timers"` | Settings → Power | Sleep/idle timer tools | 8 |
+| `"music_library"` | Settings → Library | Scanning, tagging, scrobbling tools | 8 |
 | `"power"` | Settings → Power | Battery and power tools | 8 |
 | `"system"` | Settings → System | Device and maintenance tools | 8 |
 
 Passing anything else raises a Lua error at load time rather than silently
 registering into nothing. If no plugin registers a row for a destination, no
-plugin row is appended. The Library sub-screen appears only while at least one
-plugin-registered Library row exists. The native **Update Music Database**
-action is at the root of Music Settings.
+plugin row is appended. The Library category always includes the native
+**Update Music Database** action and Maintenance tools.
 `build_pill_list_screen()` rows scroll, so every registered row remains
 reachable even when several plugins target the same screen.
 
@@ -433,6 +432,9 @@ simply expands by one row instead of two.
 - `options.value` -- initial state, default `false`.
 - `options.on_text` / `options.off_text` -- state caption under the label,
   default `"On"` / `"Off"`.
+- `options.on_hold` (function, optional) -- called with no arguments when
+  the tile is held. Use it to open the same settings screen as the list row.
+  Omitting it leaves the tile's hold gesture without an action.
 
 ```lua
 if plugin.has_capability("ui.quick_toggle") then
@@ -473,9 +475,16 @@ Adds a row to an existing native list screen.
 - `on_open` (function): called with zero arguments when the row is tapped.
   This is where you'd call `plugin.show_list()` or
   `plugin.show_settings_list()` to show your first screen.
-- `options` (table, optional): `{ icon = "...", height = n, width = n, text_size =
-  "..." }` -- see "Row images, resizing, and text size" below for all
-  three.
+- `options` (table, optional): `{ icon = "...", height = n, width = n,
+  text_size = "...", group = "..." }` -- see "Row images, resizing, and
+  text size" below. `group` is optional, up to 32 bytes; the built-in
+  settings screens recognize `"effects"`, `"profiles"`, `"appearance"`,
+  and `"player_layout"` when arranging plugin rows. In `music_audio`,
+  `"effects"` opens under Sound Effects and `"profiles"` under Equalizer →
+  Profiles → Download profiles. In `display`, `"appearance"` and
+  `"player_layout"` open under those submenus. Unset or unknown groups
+  remain directly accessible in their category. Registration IDs stay
+  compatible with older player versions, which ignore grouping metadata.
 
 Every plugin that calls this gets its own row (unlike the old
 `register_tile()` this replaced, where only the first caller was ever

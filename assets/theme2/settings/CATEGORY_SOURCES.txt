@@ -8,9 +8,20 @@ Icons extend the same Phosphor family used by the main menu.
 Source: https://github.com/phosphor-icons/core (MIT license).
 Pinned distribution: @phosphor-icons/core@2.1.1, assets/regular/*.svg
 music: music-notes-simple; display: sun; power: battery-medium;
-system: assets/fill/gear-fill.svg; about: info.
+system: assets/fill/gear-fill.svg; about: info;
+sound: speaker-high; playback: sliders-horizontal; library: books.
 Power charge bars replaced with one half-full block to match the reference.
 SVG source copies include the two-stop pastel color gradients.
+
+The added sound, playback, and library PNGs are rendered from the tracked
+gradient SVG copies in scripts/assets/settings_category_icons/ by
+scripts/generate_settings_category_icons.py (ffmpeg with librsvg, then Pillow
+Lanczos downsampling from 176x176 to 44x44). The
+generator writes identical 44x44 assets to the common, r3ii_2025, and r3proii
+theme2/settings trees.
+Their geometry is from @phosphor-icons/core@2.1.1 regular icons; only the
+fill is replaced with the Compas gradient. Tint pairs: sound #9be7d2/#45c4a1,
+playback #d7a9fa/#a36be4, library #ffda85/#f5b457.
 
 Background generation: built-in image generation tool, followed by size/PNG
 format export. No UI text or icons are baked into the backgrounds.

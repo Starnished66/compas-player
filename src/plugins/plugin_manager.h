@@ -248,6 +248,9 @@ void plugin_manager_deinit(void);
  * registries below. */
 int plugin_manager_get_books_list_item_count(void);
 const char * plugin_manager_get_books_list_item_label(int index);
+/* Optional grouping metadata from register_list_item options.group. Returns
+ * NULL for unknown list ids, invalid indices, or rows without a group. */
+const char * plugin_manager_get_list_item_group(const char * list_id, int index);
 
 /* Calls back into books-list-item `index`'s on_open Lua function -- gui.c's
  * shared row click handler is the caller, with `index` matching a row's
@@ -448,6 +451,10 @@ const char * plugin_manager_get_quick_toggle_state_text(int index, bool on);
  * being pushed to, so a change made inside the plugin's own settings screen
  * shows up the next time the drawer is pulled down. */
 bool plugin_manager_get_quick_toggle_value(int index);
+/* Whether this toggle registered an on_hold callback, and dispatch that
+ * callback. open_settings returns false when no callback is available. */
+bool plugin_manager_quick_toggle_has_on_hold(int index);
+bool plugin_manager_quick_toggle_open_settings(int index);
 
 /* Stores `new_value` and calls that toggle's on_change(new_value). Invoked by
  * the drawer when the user taps it. */

@@ -16,3 +16,7 @@ refresh_covers.png (purple) uses the regular images-square glyph from
 gradient, rendered at 176px and Lanczos-scaled to 44px.
 Saved backgrounds reuse the generated Settings and Wireless gradients.
 Rows retain decoded images for their lifetime. No runtime gradient generation.
+
+genres.png uses the regular tag glyph from @phosphor-icons/core 2.1.1
+(assets/regular/tag.svg), coral vertical gradient (#ffb4a2 to #ee7c83),
+rendered at 176px and Lanczos-scaled to 44px. See LICENSE for MIT terms.

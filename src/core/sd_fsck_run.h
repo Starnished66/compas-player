@@ -31,8 +31,9 @@ void sd_repair_complete(bool mounted, bool readonly);
  * first unmount is busy; it may be NULL. A failed unmount with no release
  * callback is not remembered, so a later call can close files and retry.
  * One remembered attempt per card, whether it repairs the filesystem or not.
- * A check that would not fit in free memory is not started; the card stays
- * mounted and the user is told to check it on a computer. */
+ * A skipped read-only check warns the user. A skipped writable check triggered
+ * only by the FAT dirty flag is diagnostic: it stays mounted and unchanged,
+ * and no corruption warning is posted. */
 sd_repair_kick_result_t sd_readonly_repair_kick(void (* release_handles)(void));
 
 /* Same as sd_readonly_repair_kick(), and also checks a writable FAT card

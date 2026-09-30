@@ -8122,7 +8122,12 @@ static void music_files_tile_cb(lv_event_t * e) {
 
 static void music_screen_playback_settings_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    nav_push(gui_settings_get_music_screen());
+    gui_settings_open_playback();
+}
+
+static void music_screen_library_settings_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    gui_settings_open_library();
 }
 
 static lv_obj_t * build_music_screen(void) {
@@ -8131,18 +8136,23 @@ static lv_obj_t * build_music_screen(void) {
         { "submenu/artists.png", NULL, "Artists", artists_tile_cb, NULL },
         { "submenu/albums.png", NULL, "Albums", albums_tile_cb, NULL },
         { "submenu/album_artist.png", NULL, "Album Artist", album_artist_tile_cb, NULL },
-        { "submenu/playlists.png", NULL, "Genres", genres_tile_cb, NULL },
+        { "submenu/genres.png", NULL, "Genres", genres_tile_cb, NULL },
         { "submenu/all_songs.png", NULL, "All Songs", all_songs_tile_cb, NULL },
         { "submenu/playlists.png", NULL, "Playlists", playlists_tile_cb, NULL },
     };
     lv_obj_t * scr = build_category_menu_screen("Music", generic_back_cb, items, 7,
                                                 &launcher_layout_config.music);
-    /* Same real stock-firmware gear icon as the Queue screen's own Options
-     * button (sub_back/set.png) -- build_top_right_icon_button() guarantees
-     * it lands at exactly the same visual level as this screen's own back
-     * arrow, on the opposite corner. Shortcuts straight to Music Settings
-     * rather than the full Settings > Music Settings drill-down. */
-    build_top_right_icon_button(scr, asset_path("sub_back/set.png"), music_screen_playback_settings_cb);
+    lv_obj_t * playback = build_top_right_icon_button(scr, asset_path("settings/playback.png"),
+                                                     music_screen_playback_settings_cb);
+    lv_obj_align(playback, LV_ALIGN_TOP_RIGHT, -TITLE_ROW_HEIGHT, STATUS_BAR_CLEARANCE);
+    build_top_right_icon_button(scr, asset_path("submenu/music_database.png"), music_screen_library_settings_cb);
+    /* Reserve the title against the leftmost of the two 64px touch targets. */
+    for (uint32_t i = 0; i < lv_obj_get_child_count(scr); ++i) {
+        lv_obj_t * child = lv_obj_get_child(scr, i);
+        if (lv_obj_check_type(child, &lv_label_class) &&
+            lv_obj_has_flag(child, LV_OBJ_FLAG_USER_4) && !lv_obj_get_user_data(child))
+            reserve_title_width_before(child, playback);
+    }
     finalize_screen_navigation(scr);
     return scr;
 }
