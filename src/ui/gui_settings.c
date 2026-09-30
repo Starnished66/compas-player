@@ -142,7 +142,6 @@ static lv_obj_t * idle_action_section;
 static lv_obj_t * idle_action_poweroff_row;
 static lv_obj_t * idle_action_suspend_row;
 static lv_obj_t * eq_bypass_switch;
-static lv_obj_t * eq_band_dropdown;
 static lv_obj_t * eq_band_enabled_switch;
 static lv_obj_t * eq_preamp_slider;
 static lv_obj_t * eq_preamp_value_label;
@@ -154,14 +153,18 @@ static lv_obj_t * eq_freq_value_label;
 static lv_obj_t * eq_gain_value_label;
 static lv_obj_t * eq_q_value_label;
 static int current_eq_band = 0;
+static lv_obj_t * eq_band_options_screen;
+static lv_obj_t * eq_band_number_label;
+static lv_obj_t * eq_profile_button_label;
+static lv_obj_t * eq_main_content;
+static lv_obj_t * eq_footer;
+static lv_obj_t * eq_bypass_state_label;
+static lv_obj_t * eq_title_label;
 
 void gui_settings_refresh_font_geometry(void) {
-    int32_t width = 170;
-    if (current_settings.font_size_tier == 1) width = 200;
-    else if (current_settings.font_size_tier == 2) width = 240;
-    if (eq_band_dropdown) lv_obj_set_width(eq_band_dropdown, width);
-    if (eq_type_dropdown) lv_obj_set_width(eq_type_dropdown, width);
     if (eq_screen) lv_obj_update_layout(eq_screen);
+    if (eq_band_options_screen) lv_obj_update_layout(eq_band_options_screen);
+    if (eq_title_label) lv_obj_set_style_text_font(eq_title_label, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
 }
 
 #define EQ_FREQ_MIN_HZ 20.0
@@ -180,6 +183,18 @@ static double slider_to_freq(int32_t slider_val) {
     return EQ_FREQ_MIN_HZ * pow(EQ_FREQ_MAX_HZ / EQ_FREQ_MIN_HZ, ratio);
 }
 
+static void eq_format_gain(char * out, size_t out_size, double value) {
+    double tenths = round(value * 10.0);
+    if (fabs(value * 10.0 - tenths) < 0.0001) snprintf(out, out_size, "%+.1f dB", value);
+    else snprintf(out, out_size, "%+.2f dB", value);
+}
+
+static void eq_format_q(char * out, size_t out_size, double value) {
+    double tenths = round(value * 10.0);
+    if (fabs(value * 10.0 - tenths) < 0.0001) snprintf(out, out_size, "%.1f", value);
+    else snprintf(out, out_size, "%.2f", value);
+}
+
 /* Which numeric field a tap-to-edit label represents -- passed through
  * show_text_entry()'s user_data so one shared done-callback can update the
  * right slider/label/peq setter instead of needing four near-identical
@@ -194,6 +209,7 @@ typedef enum {
 static void eq_numeric_entry_done_cb(const char * text, void * user_data) {
     eq_field_t field = (eq_field_t) (intptr_t) user_data;
     double val = atof(text);
+    char formatted[32];
     const peq_band_t * band;
 
     switch (field) {
@@ -201,8 +217,8 @@ static void eq_numeric_entry_done_cb(const char * text, void * user_data) {
             if (val < -12.0) val = -12.0;
             if (val > 12.0) val = 12.0;
             peq_set_preamp_db(val);
-            lv_slider_set_value(eq_preamp_slider, (int32_t) (val * 10.0), LV_ANIM_OFF);
-            lv_label_set_text_fmt(eq_preamp_value_label, "Pre-Amp: %+.2f dB", val);
+            if (eq_preamp_slider) lv_slider_set_value(eq_preamp_slider, (int32_t) (val * 10.0), LV_ANIM_OFF);
+            if (eq_preamp_value_label) lv_label_set_text_fmt(eq_preamp_value_label, "Pre-Amp: %+.2f dB", val);
             peq_save();
             break;
         case EQ_FIELD_FREQ:
@@ -211,8 +227,8 @@ static void eq_numeric_entry_done_cb(const char * text, void * user_data) {
             if (val < EQ_FREQ_MIN_HZ) val = EQ_FREQ_MIN_HZ;
             if (val > EQ_FREQ_MAX_HZ) val = EQ_FREQ_MAX_HZ;
             peq_set_band(current_eq_band, val, band->gain_db, band->q);
-            lv_slider_set_value(eq_freq_slider, freq_to_slider(val), LV_ANIM_OFF);
-            lv_label_set_text_fmt(eq_freq_value_label, "Frequency: %.0f Hz", val);
+            if (eq_freq_slider) lv_slider_set_value(eq_freq_slider, freq_to_slider(val), LV_ANIM_OFF);
+            if (eq_freq_value_label) lv_label_set_text_fmt(eq_freq_value_label, "%.0f Hz", val);
             peq_save();
             break;
         case EQ_FIELD_GAIN:
@@ -221,8 +237,9 @@ static void eq_numeric_entry_done_cb(const char * text, void * user_data) {
             if (val < -12.0) val = -12.0;
             if (val > 12.0) val = 12.0;
             peq_set_band(current_eq_band, band->freq_hz, val, band->q);
-            lv_slider_set_value(eq_gain_slider, (int32_t) (val * 10.0), LV_ANIM_OFF);
-            lv_label_set_text_fmt(eq_gain_value_label, "Gain: %+.2f dB", val);
+            if (eq_gain_slider) lv_slider_set_value(eq_gain_slider, (int32_t) (val * 10.0), LV_ANIM_OFF);
+            eq_format_gain(formatted, sizeof(formatted), val);
+            if (eq_gain_value_label) lv_label_set_text(eq_gain_value_label, formatted);
             peq_save();
             break;
         case EQ_FIELD_Q:
@@ -231,8 +248,9 @@ static void eq_numeric_entry_done_cb(const char * text, void * user_data) {
             if (val < 0.1) val = 0.1;
             if (val > 10.0) val = 10.0;
             peq_set_band(current_eq_band, band->freq_hz, band->gain_db, val);
-            lv_slider_set_value(eq_q_slider, (int32_t) (val * 10.0), LV_ANIM_OFF);
-            lv_label_set_text_fmt(eq_q_value_label, "Q: %.2f", val);
+            if (eq_q_slider) lv_slider_set_value(eq_q_slider, (int32_t) (val * 10.0), LV_ANIM_OFF);
+            eq_format_q(formatted, sizeof(formatted), val);
+            if (eq_q_value_label) lv_label_set_text(eq_q_value_label, formatted);
             peq_save();
             break;
     }
@@ -285,32 +303,43 @@ static void eq_bypass_switch_event_cb(lv_event_t * e) {
     /* Switch shows "EQ Enabled" -- checked means NOT bypassed. */
     peq_set_bypass(!lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
     peq_save();
+    if (eq_bypass_state_label)
+        lv_label_set_text(eq_bypass_state_label, peq_get_bypass() ? "OFF" : "ON");
 }
 
 static void refresh_eq_band_widgets(void) {
     const peq_band_t * band = peq_get_band(current_eq_band);
     if (!band) return;
+    char formatted[32];
 
-    lv_dropdown_set_selected(eq_band_dropdown, (uint32_t) current_eq_band);
+    if (eq_band_enabled_switch) {
+        if (band->enabled) lv_obj_add_state(eq_band_enabled_switch, LV_STATE_CHECKED);
+        else lv_obj_clear_state(eq_band_enabled_switch, LV_STATE_CHECKED);
+    }
 
-    if (band->enabled) lv_obj_add_state(eq_band_enabled_switch, LV_STATE_CHECKED);
-    else lv_obj_clear_state(eq_band_enabled_switch, LV_STATE_CHECKED);
+    if (eq_type_dropdown) lv_dropdown_set_selected(eq_type_dropdown, (uint32_t) band->type);
 
-    lv_dropdown_set_selected(eq_type_dropdown, (uint32_t) band->type);
+    if (eq_freq_slider) lv_slider_set_value(eq_freq_slider, freq_to_slider(band->freq_hz), LV_ANIM_OFF);
+    if (eq_gain_slider) lv_slider_set_value(eq_gain_slider, (int32_t) (band->gain_db * 10.0), LV_ANIM_OFF);
+    if (eq_q_slider) lv_slider_set_value(eq_q_slider, (int32_t) (band->q * 10.0), LV_ANIM_OFF);
 
-    lv_slider_set_value(eq_freq_slider, freq_to_slider(band->freq_hz), LV_ANIM_OFF);
-    lv_slider_set_value(eq_gain_slider, (int32_t) (band->gain_db * 10.0), LV_ANIM_OFF);
-    lv_slider_set_value(eq_q_slider, (int32_t) (band->q * 10.0), LV_ANIM_OFF);
-
-    lv_label_set_text_fmt(eq_freq_value_label, "Frequency: %.0f Hz", band->freq_hz);
-    lv_label_set_text_fmt(eq_gain_value_label, "Gain: %+.2f dB", band->gain_db);
-    lv_label_set_text_fmt(eq_q_value_label, "Q: %.2f", band->q);
+    if (eq_freq_value_label) lv_label_set_text_fmt(eq_freq_value_label, "%.0f Hz", band->freq_hz);
+    eq_format_gain(formatted, sizeof(formatted), band->gain_db);
+    if (eq_gain_value_label) lv_label_set_text(eq_gain_value_label, formatted);
+    eq_format_q(formatted, sizeof(formatted), band->q);
+    if (eq_q_value_label) lv_label_set_text(eq_q_value_label, formatted);
+    if (eq_band_number_label) lv_label_set_text_fmt(eq_band_number_label, "Band %d / %d", current_eq_band + 1, PEQ_NUM_BANDS);
 }
 
-static void eq_band_dropdown_event_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
-    current_eq_band = (int) lv_dropdown_get_selected(lv_event_get_target(e));
+static void eq_band_step_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    int delta = (int) (intptr_t) lv_event_get_user_data(e);
+    current_eq_band = (current_eq_band + delta + PEQ_NUM_BANDS) % PEQ_NUM_BANDS;
     refresh_eq_band_widgets();
+}
+
+static void eq_band_options_open_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED && eq_band_options_screen) nav_push(eq_band_options_screen);
 }
 
 static void eq_type_dropdown_event_cb(lv_event_t * e) {
@@ -347,7 +376,7 @@ static void eq_freq_slider_event_cb(lv_event_t * e) {
      * and when released. */
     if (code == LV_EVENT_VALUE_CHANGED) {
         peq_set_band(current_eq_band, freq, band->gain_db, band->q);
-        lv_label_set_text_fmt(eq_freq_value_label, "Frequency: %.0f Hz", freq);
+        lv_label_set_text_fmt(eq_freq_value_label, "%.0f Hz", freq);
     } else if (code == LV_EVENT_RELEASED) {
         peq_save();
     }
@@ -360,8 +389,10 @@ static void eq_gain_slider_event_cb(lv_event_t * e) {
     double gain = (double) lv_slider_get_value(lv_event_get_target(e)) / 10.0;
 
     if (code == LV_EVENT_VALUE_CHANGED) {
+        char formatted[32];
         peq_set_band(current_eq_band, band->freq_hz, gain, band->q);
-        lv_label_set_text_fmt(eq_gain_value_label, "Gain: %+.2f dB", gain);
+        eq_format_gain(formatted, sizeof(formatted), gain);
+        lv_label_set_text(eq_gain_value_label, formatted);
     } else if (code == LV_EVENT_RELEASED) {
         peq_save();
     }
@@ -374,8 +405,10 @@ static void eq_q_slider_event_cb(lv_event_t * e) {
     double q = (double) lv_slider_get_value(lv_event_get_target(e)) / 10.0;
 
     if (code == LV_EVENT_VALUE_CHANGED) {
+        char formatted[32];
         peq_set_band(current_eq_band, band->freq_hz, band->gain_db, q);
-        lv_label_set_text_fmt(eq_q_value_label, "Q: %.2f", q);
+        eq_format_q(formatted, sizeof(formatted), q);
+        lv_label_set_text(eq_q_value_label, formatted);
     } else if (code == LV_EVENT_RELEASED) {
         peq_save();
     }
@@ -3184,11 +3217,16 @@ static void eq_set_current_profile_from_path(const char * path) {
  * everything at once, unlike the individual per-field setters that only
  * ever touch one widget). */
 static void refresh_all_eq_widgets(void) {
-    if (peq_get_bypass()) lv_obj_clear_state(eq_bypass_switch, LV_STATE_CHECKED);
-    else lv_obj_add_state(eq_bypass_switch, LV_STATE_CHECKED);
-    lv_slider_set_value(eq_preamp_slider, (int32_t) (peq_get_preamp_db() * 10.0), LV_ANIM_OFF);
-    lv_label_set_text_fmt(eq_preamp_value_label, "Pre-Amp: %+.2f dB", peq_get_preamp_db());
+    if (eq_bypass_switch) {
+        if (peq_get_bypass()) lv_obj_clear_state(eq_bypass_switch, LV_STATE_CHECKED);
+        else lv_obj_add_state(eq_bypass_switch, LV_STATE_CHECKED);
+    }
+    if (eq_bypass_state_label) lv_label_set_text(eq_bypass_state_label, peq_get_bypass() ? "OFF" : "ON");
+    if (eq_preamp_slider) lv_slider_set_value(eq_preamp_slider, (int32_t) (peq_get_preamp_db() * 10.0), LV_ANIM_OFF);
+    if (eq_preamp_value_label) lv_label_set_text_fmt(eq_preamp_value_label, "Pre-Amp: %+.2f dB", peq_get_preamp_db());
     refresh_eq_band_widgets();
+    if (eq_profile_button_label)
+        lv_label_set_text(eq_profile_button_label, eq_current_profile_name[0] ? eq_current_profile_name : "Custom");
 }
 
 /* ---- Reset PEQ to defaults, with a confirmation popup -- same hand-built
@@ -3397,6 +3435,7 @@ static bool eq_save_named_profile(const char * name) {
         return false;
     }
     snprintf(eq_current_profile_name, sizeof(eq_current_profile_name), "%s", name);
+    refresh_all_eq_widgets();
     show_info_toast("Profile saved");
     return true;
 }
@@ -3434,6 +3473,7 @@ static void eq_profile_replace_row_cb(lv_event_t * e) {
         return;
     }
     eq_set_current_profile_from_path(path);
+    refresh_all_eq_widgets();
     show_info_toast("Profile saved");
     nav_pop();
 }
@@ -3469,6 +3509,7 @@ static void eq_profile_delete_confirm_cb(lv_event_t * e) {
     else snprintf(eq_current_profile_name, sizeof(eq_current_profile_name), "%s", stem);
     eq_profile_pending_path[0] = '\0';
     populate_eq_profiles_screen();
+    refresh_all_eq_widgets();
     show_info_toast("Profile deleted");
 }
 
@@ -3500,6 +3541,7 @@ static void eq_profile_rename_done_cb(const char * text, void * user_data) {
     else
         snprintf(eq_current_profile_name, sizeof(eq_current_profile_name), "%s", previous);
     populate_eq_profiles_screen();
+    refresh_all_eq_widgets();
     show_info_toast("Profile renamed");
 }
 
@@ -3725,217 +3767,284 @@ static void eq_save_profile_btn_cb(lv_event_t * e) {
     eq_open_save_choice_popup(false);
 }
 
-static lv_obj_t * build_eq_screen(void) {
+static lv_obj_t * eq_make_slider_card(lv_obj_t * parent, eq_field_t field, const char * title,
+                                       lv_obj_t ** value_out, lv_obj_t ** slider_out,
+                                       int32_t minimum, int32_t maximum, const char * low, const char * high) {
+    lv_obj_t * card = lv_obj_create(parent);
+    lv_obj_set_width(card, lv_pct(96));
+    lv_obj_set_height(card, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(card, 0, 0);
+    lv_obj_set_style_border_width(card, 0, 0);
+    lv_obj_set_style_pad_all(card, 2, 0);
+    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(card, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(card, 0, 0);
+    lv_obj_t * heading = lv_label_create(card);
+    lv_label_set_text(heading, title);
+    lv_obj_add_style(heading, &style_theme_text_muted, 0);
+    lv_obj_set_style_text_font(heading, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    lv_obj_set_style_margin_bottom(heading, BOARD_SCALE_PX(8), 0);
+    lv_obj_t * value = lv_label_create(card);
+    lv_obj_add_style(value, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(value, gui_theme_font(GUI_FONT_ROLE_TITLE), 0);
+    lv_obj_set_style_margin_bottom(value, BOARD_SCALE_PX(18), 0);
+    lv_obj_add_flag(value, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_ext_click_area(value, 14);
+    lv_obj_add_event_cb(value, eq_field_label_click_cb, LV_EVENT_CLICKED, (void *)(intptr_t)field);
+    lv_obj_t * slider = lv_slider_create(card);
+    lv_obj_set_width(slider, lv_pct(94));
+    lv_obj_set_height(slider, BOARD_SCALE_PX(6));
+    lv_slider_set_range(slider, minimum, maximum);
+    lv_obj_set_style_bg_color(slider, lv_color_make(75, 83, 91), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(slider, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_PART_INDICATOR);
+    lv_obj_add_style(slider, gui_theme_accent_style(), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(slider, lv_color_white(), LV_PART_KNOB);
+    lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_KNOB);
+    lv_obj_set_style_border_width(slider, BOARD_SCALE_PX(2), LV_PART_KNOB);
+    lv_obj_set_style_border_color(slider, accent_lv_color(), LV_PART_KNOB);
+    lv_obj_set_style_pad_all(slider, BOARD_SCALE_PX(9), LV_PART_KNOB);
+    lv_obj_set_style_radius(slider, LV_RADIUS_CIRCLE, LV_PART_KNOB);
+    lv_obj_set_ext_click_area(slider, 14);
+    lv_obj_t * captions = lv_obj_create(card);
+    lv_obj_set_width(captions, lv_pct(94));
+    lv_obj_set_height(captions, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(captions, 0, 0);
+    lv_obj_set_style_border_width(captions, 0, 0);
+    lv_obj_set_style_pad_all(captions, 0, 0);
+    lv_obj_remove_flag(captions, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(captions, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(captions, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_t * min_label = lv_label_create(captions);
+    lv_label_set_text(min_label, low);
+    lv_obj_add_style(min_label, &style_theme_text_muted, 0);
+    lv_obj_set_style_text_font(min_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+    lv_obj_t * max_label = lv_label_create(captions);
+    lv_label_set_text(max_label, high);
+    lv_obj_add_style(max_label, &style_theme_text_muted, 0);
+    lv_obj_set_style_text_font(max_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+    *value_out = value;
+    *slider_out = slider;
+    lv_obj_set_flex_grow(card, 1);
+    return card;
+}
+
+static void eq_flat_btn_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    for (int i = 0; i < PEQ_NUM_BANDS; i++) {
+        const peq_band_t * b = peq_get_band(i);
+        if (b) peq_set_band(i, b->freq_hz, 0.0, b->q);
+    }
+    peq_set_preamp_db(0.0);
+    eq_current_profile_name[0] = '\0';
+    refresh_all_eq_widgets();
+    peq_save();
+}
+
+static lv_obj_t * build_eq_band_options_screen(void) {
     lv_obj_t * scr = lv_obj_create(NULL);
     lv_obj_add_style(scr, &style_theme_screen_bg, 0);
-
-    /* Standard back button + title, matching every other sub-screen
-     * (build_subsonic_list_screen et al) instead of the old screen's own
-     * one-off green "< Back" button -- the other half of "styling should
-     * use the same as all the other screens". */
-    build_screen_header(scr, "PEQ", generic_back_cb, NULL, NULL);
-
-    /* "EQ Enabled" switch lives in the title row itself (top-right), same
-     * spot other screens put a title-row action (e.g. the Wi-Fi screen's
-     * "Rescan"). */
-    eq_bypass_switch = lv_switch_create(scr);
-    align_screen_header_action(eq_bypass_switch, 16);
-    lv_obj_add_style(eq_bypass_switch, gui_theme_accent_style(), LV_PART_INDICATOR | LV_STATE_CHECKED);
-
-    /* Reset to defaults -- positioned relative to the bypass switch.
-     * Requires confirmation popup since this resets all band settings and preamp. */
-    lv_obj_t * reset_btn = lv_label_create(scr);
-    lv_label_set_text(reset_btn, "Reset");
-    lv_obj_set_style_text_color(reset_btn, lv_color_make(255, 120, 120), 0);
-    lv_obj_set_style_text_font(reset_btn, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
-    lv_obj_align_to(reset_btn, eq_bypass_switch, LV_ALIGN_OUT_LEFT_MID, -14, 0);
-    lv_obj_add_flag(reset_btn, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_ext_click_area(reset_btn, 16);
-    lv_obj_add_event_cb(reset_btn, eq_reset_btn_cb, LV_EVENT_CLICKED, NULL);
-
-    /* Everything else lives in one scrollable flex-column container below
-     * the title row -- pad_gap gives every card the same, generous spacing
-     * (the "sliders more spaced out" ask) from one place instead of
-     * hand-tuned per-element y-offsets that made it easy for things to end
-     * up too close together or overlapping as fields got bigger. */
+    build_screen_header(scr, "Band options", generic_back_cb, NULL, NULL);
     lv_obj_t * content = lv_obj_create(scr);
-    lv_obj_set_size(content, lv_pct(100),
-                    lv_display_get_vertical_resolution(lv_display_get_default()) - STATUS_BAR_CLEARANCE -
-                        TITLE_ROW_HEIGHT);
-    lv_obj_align(content, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_set_style_bg_opa(content, 0, 0);
+    int32_t screen_h = lv_display_get_vertical_resolution(lv_display_get_default());
+    int32_t content_top = STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT;
+    lv_obj_set_size(content, lv_pct(100), screen_h - content_top);
+    lv_obj_align(content, LV_ALIGN_TOP_MID, 0, content_top);
+    lv_obj_add_style(content, &style_theme_screen_bg, 0);
     lv_obj_set_style_border_width(content, 0, 0);
-    /* Zero default container padding so card width calculations align cleanly. */
-    lv_obj_set_style_pad_all(content, 0, 0);
-    lv_obj_set_scroll_dir(content, LV_DIR_VER);
+    lv_obj_set_style_pad_all(content, BOARD_SCALE_PX(12), 0);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
-    /* START main-axis alignment anchors children to top of scrollable area. */
-    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_gap(content, 16, 0);
-    lv_obj_set_style_pad_top(content, 12, 0);
-    lv_obj_set_style_pad_bottom(content, 24, 0);
-
-    /* Pre-Amp: an overall gain applied before the per-band filters, so
-     * boosted bands can be pulled back down without touching every band's
-     * own gain -- same role as the reference DAP's "Pre AMP" control. */
-    lv_obj_t * eq_preamp_card = create_eq_slider_card(content, EQ_FIELD_PREAMP, &eq_preamp_value_label, &eq_preamp_slider, -120, 120);
-
-    /* Dropdown width scales with font size tier so options fit without truncation. */
-    int32_t eq_dropdown_width = 170;
-    if (current_settings.font_size_tier == 1) eq_dropdown_width = 200;
-    else if (current_settings.font_size_tier == 2) eq_dropdown_width = 240;
-
-    /* Band selection row with flex layout and content-based height. */
-    lv_obj_t * band_row = lv_obj_create(content);
-    lv_obj_set_width(band_row, lv_pct(96));
-    lv_obj_set_height(band_row, LV_SIZE_CONTENT);
-    lv_obj_add_style(band_row, &style_theme_card_bg, 0);
-    lv_obj_set_style_border_width(band_row, 0, 0);
-    lv_obj_set_style_radius(band_row, 12, 0);
-    lv_obj_set_style_pad_all(band_row, 14, 0);
-    lv_obj_remove_flag(band_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_flex_flow(band_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(band_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-
-    lv_obj_t * band_label = lv_label_create(band_row);
-    lv_label_set_text(band_label, "Band");
-    lv_obj_add_style(band_label, &style_theme_text_primary, 0);
-    lv_obj_set_style_text_font(band_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-
-    eq_band_dropdown = lv_dropdown_create(band_row);
-    lv_dropdown_set_options(eq_band_dropdown, "Band0\nBand1\nBand2\nBand3\nBand4\nBand5\nBand6\nBand7\nBand8\nBand9");
-    lv_obj_set_style_text_font(eq_band_dropdown, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-    /* The closed box and the opened list are two separate LVGL objects
-     * (lv_dropdown_create() builds dropdown->list eagerly, as a child of
-     * the screen, not of this dropdown) -- styling only the box above left
-     * the opened list's text at LVGL's own default (unscaled) font. */
-    lv_obj_set_style_text_font(lv_dropdown_get_list(eq_band_dropdown), gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-    lv_obj_set_width(eq_band_dropdown, eq_dropdown_width);
-
-    lv_obj_t * eq_freq_card = create_eq_slider_card(content, EQ_FIELD_FREQ, &eq_freq_value_label, &eq_freq_slider, 0, EQ_FREQ_SLIDER_MAX);
-    lv_obj_t * eq_gain_card = create_eq_slider_card(content, EQ_FIELD_GAIN, &eq_gain_value_label, &eq_gain_slider, -120, 120);
-    lv_obj_t * eq_q_card = create_eq_slider_card(content, EQ_FIELD_Q, &eq_q_value_label, &eq_q_slider, 1, 100);
-
-    lv_obj_t * type_row = lv_obj_create(content);
-    lv_obj_set_width(type_row, lv_pct(96));
-    lv_obj_set_height(type_row, LV_SIZE_CONTENT);
-    lv_obj_add_style(type_row, &style_theme_card_bg, 0);
-    lv_obj_set_style_border_width(type_row, 0, 0);
-    lv_obj_set_style_radius(type_row, 12, 0);
-    lv_obj_set_style_pad_all(type_row, 14, 0);
-    lv_obj_remove_flag(type_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_flex_flow(type_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(type_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-
-    lv_obj_t * type_label = lv_label_create(type_row);
-    lv_label_set_text(type_label, "Type");
-    lv_obj_add_style(type_label, &style_theme_text_primary, 0);
-    lv_obj_set_style_text_font(type_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-
-    eq_type_dropdown = lv_dropdown_create(type_row);
+    lv_obj_t * preamp = create_eq_slider_card(content, EQ_FIELD_PREAMP, &eq_preamp_value_label, &eq_preamp_slider, -120, 120);
+    lv_obj_t * title = lv_label_create(content);
+    lv_label_set_text(title, "Filter type");
+    lv_obj_add_style(title, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(title, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    eq_type_dropdown = lv_dropdown_create(content);
     lv_dropdown_set_options(eq_type_dropdown, "Peaking\nLow Shelf\nHigh Shelf");
-    /* Same gap as eq_band_dropdown just above -- box and opened list both
-     * need the tier-aware font explicitly, LVGL's own default isn't. */
+    lv_obj_set_width(eq_type_dropdown, lv_pct(95));
     lv_obj_set_style_text_font(eq_type_dropdown, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     lv_obj_set_style_text_font(lv_dropdown_get_list(eq_type_dropdown), gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-    lv_obj_set_width(eq_type_dropdown, eq_dropdown_width);
-
     lv_obj_t * enable_row = lv_obj_create(content);
-    lv_obj_set_width(enable_row, lv_pct(96));
+    lv_obj_set_width(enable_row, lv_pct(95));
     lv_obj_set_height(enable_row, LV_SIZE_CONTENT);
     lv_obj_add_style(enable_row, &style_theme_card_bg, 0);
-    lv_obj_set_style_border_width(enable_row, 0, 0);
-    lv_obj_set_style_radius(enable_row, 12, 0);
-    lv_obj_set_style_pad_all(enable_row, 14, 0);
-    lv_obj_remove_flag(enable_row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(enable_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(enable_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-
-    lv_obj_t * enabled_label = lv_label_create(enable_row);
-    lv_label_set_text(enabled_label, "Enable");
-    lv_obj_add_style(enabled_label, &style_theme_text_primary, 0);
-    lv_obj_set_style_text_font(enabled_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-
+    lv_obj_t * enable = lv_label_create(enable_row);
+    lv_label_set_text(enable, "Enable band");
+    lv_obj_add_style(enable, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(enable, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     eq_band_enabled_switch = lv_switch_create(enable_row);
     lv_obj_add_style(eq_band_enabled_switch, gui_theme_accent_style(), LV_PART_INDICATOR | LV_STATE_CHECKED);
-
-    /* Save/Load Profile row with wrapping button labels and content-based height. */
-    lv_obj_t * profile_row = lv_obj_create(content);
-    lv_obj_set_width(profile_row, lv_pct(96));
-    lv_obj_set_height(profile_row, LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(profile_row, 0, 0);
-    lv_obj_set_style_border_width(profile_row, 0, 0);
-    lv_obj_remove_flag(profile_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_flex_flow(profile_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(profile_row, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(profile_row, 12, 0);
-
-    lv_obj_t * save_btn = lv_obj_create(profile_row);
-    lv_obj_set_flex_grow(save_btn, 1);
-    lv_obj_set_height(save_btn, LV_SIZE_CONTENT);
-    lv_obj_add_style(save_btn, &style_theme_card_bg, 0);
-    lv_obj_set_style_border_width(save_btn, 0, 0);
-    lv_obj_set_style_radius(save_btn, 12, 0);
-    lv_obj_set_style_pad_all(save_btn, 14, 0);
-    lv_obj_remove_flag(save_btn, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(save_btn, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(save_btn, eq_save_profile_pressed_cb, LV_EVENT_PRESSED, NULL);
-    lv_obj_add_event_cb(save_btn, eq_save_profile_btn_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_t * save_label = lv_label_create(save_btn);
-    lv_label_set_text(save_label, "Save Profile");
-    lv_obj_set_style_text_font(save_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-    lv_obj_add_style(save_label, gui_theme_accent_style(), 0);
-    lv_label_set_long_mode(save_label, LV_LABEL_LONG_WRAP);
-    lv_obj_set_style_text_align(save_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(save_label, lv_pct(100));
-    lv_obj_center(save_label);
-
-    lv_obj_t * load_btn = lv_obj_create(profile_row);
-    lv_obj_set_flex_grow(load_btn, 1);
-    lv_obj_set_height(load_btn, LV_SIZE_CONTENT);
-    lv_obj_add_style(load_btn, &style_theme_card_bg, 0);
-    lv_obj_set_style_border_width(load_btn, 0, 0);
-    lv_obj_set_style_radius(load_btn, 12, 0);
-    lv_obj_set_style_pad_all(load_btn, 14, 0);
-    lv_obj_remove_flag(load_btn, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(load_btn, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(load_btn, eq_load_profile_btn_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_t * load_label = lv_label_create(load_btn);
-    lv_label_set_text(load_label, "Profiles");
-    lv_obj_set_style_text_font(load_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-    lv_obj_add_style(load_label, gui_theme_accent_style(), 0);
-    lv_label_set_long_mode(load_label, LV_LABEL_LONG_WRAP);
-    lv_obj_set_style_text_align(load_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(load_label, lv_pct(100));
-    lv_obj_center(load_label);
-
-    /* Establish correct initial visual state for every widget before
-     * binding event callbacks to avoid spurious value-changed events during
-     * screen construction. */
+    lv_obj_t * reset = lv_label_create(content);
+    lv_label_set_text(reset, "Reset to defaults");
+    lv_obj_add_style(reset, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(reset, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    lv_obj_set_style_text_color(reset, lv_color_make(255, 120, 120), 0);
+    lv_obj_add_flag(reset, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(reset, eq_reset_btn_cb, LV_EVENT_CLICKED, NULL);
     refresh_all_eq_widgets();
-
-    lv_obj_add_event_cb(eq_bypass_switch, eq_bypass_switch_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_obj_add_event_cb(eq_band_dropdown, eq_band_dropdown_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(eq_preamp_slider, eq_preamp_slider_event_cb, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(eq_band_enabled_switch, eq_band_enabled_switch_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(eq_type_dropdown, eq_type_dropdown_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    finalize_screen_navigation(scr);
+    lv_obj_remove_flag(preamp, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    register_swipe_dead_zone(preamp);
+    return scr;
+}
+
+static lv_obj_t * build_eq_screen(void) {
+    lv_obj_t * scr = lv_obj_create(NULL);
+    lv_obj_add_style(scr, &style_theme_screen_bg, 0);
+    lv_obj_t * title = build_screen_header(scr, "Parametric EQ", generic_back_cb, NULL, NULL);
+    eq_bypass_switch = lv_switch_create(scr);
+    align_screen_header_action(eq_bypass_switch, 16);
+    lv_obj_add_style(eq_bypass_switch, gui_theme_accent_style(), LV_PART_INDICATOR | LV_STATE_CHECKED);
+    eq_bypass_state_label = lv_label_create(scr);
+    lv_label_set_text(eq_bypass_state_label, peq_get_bypass() ? "OFF" : "ON");
+    lv_obj_set_style_text_color(eq_bypass_state_label, accent_lv_color(), 0);
+    lv_obj_set_width(eq_bypass_state_label, BOARD_SCALE_PX(34));
+    lv_obj_set_style_text_align(eq_bypass_state_label, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_style_text_font(eq_bypass_state_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    lv_obj_set_width(eq_bypass_state_label, BOARD_SCALE_PX(64));
+    lv_label_set_long_mode(eq_bypass_state_label, LV_LABEL_LONG_CLIP);
+    lv_obj_set_style_text_align(eq_bypass_state_label, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_align_to(eq_bypass_state_label, eq_bypass_switch, LV_ALIGN_OUT_LEFT_MID, -12, 0);
+    eq_title_label = title;
+    reserve_title_width_before(title, eq_bypass_state_label);
+    lv_obj_set_style_text_font(title, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
+    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_t * content = lv_obj_create(scr);
+    eq_main_content = content;
+    int32_t screen_h = lv_display_get_vertical_resolution(lv_display_get_default());
+    int32_t footer_h = BOARD_SCALE_PX(112);
+    int32_t content_top = STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT;
+    lv_obj_set_size(content, lv_pct(100), screen_h - content_top - footer_h);
+    lv_obj_align(content, LV_ALIGN_TOP_MID, 0, content_top);
+    lv_obj_set_style_bg_opa(content, 0, 0);
+    lv_obj_set_style_border_width(content, 0, 0);
+    lv_obj_set_style_pad_all(content, 0, 0);
+    lv_obj_set_scroll_dir(content, LV_DIR_VER);
+    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_gap(content, BOARD_SCALE_PX(5), 0);
+    lv_obj_t * bandnav = lv_obj_create(content);
+    lv_obj_set_size(bandnav, lv_pct(90), BOARD_SCALE_PX(50));
+    lv_obj_set_style_bg_opa(bandnav, 0, 0);
+    lv_obj_set_style_border_width(bandnav, 0, 0);
+    lv_obj_set_style_pad_all(bandnav, 4, 0);
+    lv_obj_set_flex_flow(bandnav, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(bandnav, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_t * prev = lv_label_create(bandnav);
+    lv_label_set_text(prev, LV_SYMBOL_LEFT);
+    lv_obj_add_style(prev, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(prev, gui_theme_font(GUI_FONT_ROLE_TITLE), 0);
+    lv_obj_add_flag(prev, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_ext_click_area(prev, 14);
+    lv_obj_add_event_cb(prev, eq_band_step_cb, LV_EVENT_CLICKED, (void *)(intptr_t)-1);
+    eq_band_number_label = lv_label_create(bandnav);
+    lv_obj_add_style(eq_band_number_label, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(eq_band_number_label, gui_theme_font(GUI_FONT_ROLE_TITLE), 0);
+    lv_obj_add_flag(eq_band_number_label, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(eq_band_number_label, eq_band_options_open_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t * next = lv_label_create(bandnav);
+    lv_label_set_text(next, LV_SYMBOL_RIGHT);
+    lv_obj_add_style(next, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(next, gui_theme_font(GUI_FONT_ROLE_TITLE), 0);
+    lv_obj_add_flag(next, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_ext_click_area(next, 14);
+    lv_obj_add_event_cb(next, eq_band_step_cb, LV_EVENT_CLICKED, (void *)(intptr_t)1);
+    lv_obj_t * options = lv_label_create(content);
+    lv_label_set_text(options, "Band options  " LV_SYMBOL_RIGHT);
+    lv_obj_set_style_text_color(options, accent_lv_color(), 0);
+    lv_obj_set_style_text_font(options, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+    lv_obj_add_flag(options, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(options, eq_band_options_open_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t * freq_card = eq_make_slider_card(content, EQ_FIELD_FREQ, "Frequency", &eq_freq_value_label, &eq_freq_slider, 0, EQ_FREQ_SLIDER_MAX, "20", "20K");
+    lv_obj_t * gain_card = eq_make_slider_card(content, EQ_FIELD_GAIN, "Gain", &eq_gain_value_label, &eq_gain_slider, -120, 120, "-12", "+12");
+    lv_obj_t * q_card = eq_make_slider_card(content, EQ_FIELD_Q, "Q", &eq_q_value_label, &eq_q_slider, 1, 100, "0.1", "10");
+    eq_footer = lv_obj_create(scr);
+    lv_obj_set_size(eq_footer, lv_pct(100), footer_h);
+    lv_obj_align(eq_footer, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_style_bg_opa(eq_footer, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(eq_footer, 1, 0);
+    lv_obj_set_style_border_side(eq_footer, LV_BORDER_SIDE_TOP, 0);
+    lv_obj_set_style_border_color(eq_footer, lv_color_make(50, 58, 64), 0);
+    lv_obj_set_style_radius(eq_footer, 0, 0);
+    lv_obj_set_style_pad_all(eq_footer, BOARD_SCALE_PX(12), 0);
+    lv_obj_set_style_pad_column(eq_footer, BOARD_SCALE_PX(8), 0);
+    lv_obj_set_flex_flow(eq_footer, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(eq_footer, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(eq_footer, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t * flat = lv_btn_create(eq_footer);
+    lv_obj_set_flex_grow(flat, 1);
+    lv_obj_set_height(flat, BOARD_SCALE_PX(66));
+    lv_obj_set_style_bg_opa(flat, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(flat, BOARD_SCALE_PX(1), 0);
+    lv_obj_set_style_border_color(flat, lv_color_make(50, 58, 64), 0);
+    lv_obj_set_style_radius(flat, BOARD_SCALE_PX(12), 0);
+    lv_obj_set_style_shadow_width(flat, 0, 0);
+    lv_obj_add_event_cb(flat, eq_flat_btn_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t * fl = lv_label_create(flat);
+    lv_label_set_text(fl, "Flat");
+    lv_obj_set_style_text_font(fl, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    lv_obj_center(fl);
+    lv_obj_t * profiles = lv_btn_create(eq_footer);
+    lv_obj_set_flex_grow(profiles, 2);
+    lv_obj_set_height(profiles, BOARD_SCALE_PX(66));
+    lv_obj_set_style_bg_opa(profiles, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(profiles, BOARD_SCALE_PX(1), 0);
+    lv_obj_set_style_border_color(profiles, lv_color_make(50, 58, 64), 0);
+    lv_obj_set_style_radius(profiles, BOARD_SCALE_PX(12), 0);
+    lv_obj_set_style_shadow_width(profiles, 0, 0);
+    lv_obj_add_event_cb(profiles, eq_load_profile_btn_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t * profile_inner = lv_obj_create(profiles);
+    lv_obj_set_size(profile_inner, lv_pct(100), lv_pct(100));
+    lv_obj_set_style_bg_opa(profile_inner, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(profile_inner, 0, 0);
+    lv_obj_set_style_pad_all(profile_inner, 0, 0);
+    lv_obj_set_flex_flow(profile_inner, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(profile_inner, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(profile_inner, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(profile_inner, LV_OBJ_FLAG_SCROLLABLE);
+    eq_profile_button_label = lv_label_create(profile_inner);
+    lv_obj_set_style_text_font(eq_profile_button_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    lv_obj_set_style_text_color(eq_profile_button_label, accent_lv_color(), 0);
+    lv_label_set_long_mode(eq_profile_button_label, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(eq_profile_button_label, lv_pct(82));
+    lv_obj_set_style_text_align(eq_profile_button_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_t * profile_chevron = lv_label_create(profile_inner);
+    lv_label_set_text(profile_chevron, LV_SYMBOL_DOWN);
+    lv_obj_set_style_text_color(profile_chevron, accent_lv_color(), 0);
+    lv_obj_t * save = lv_btn_create(eq_footer);
+    lv_obj_set_flex_grow(save, 1);
+    lv_obj_set_height(save, BOARD_SCALE_PX(66));
+    lv_obj_set_style_bg_opa(save, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(save, BOARD_SCALE_PX(1), 0);
+    lv_obj_set_style_border_color(save, lv_color_make(50, 58, 64), 0);
+    lv_obj_set_style_radius(save, BOARD_SCALE_PX(12), 0);
+    lv_obj_set_style_shadow_width(save, 0, 0);
+    lv_obj_add_event_cb(save, eq_save_profile_pressed_cb, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(save, eq_save_profile_btn_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t * sl = lv_label_create(save);
+    lv_label_set_text(sl, "Save");
+    lv_obj_set_style_text_font(sl, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    lv_obj_center(sl);
+    refresh_all_eq_widgets();
+    lv_obj_add_event_cb(eq_bypass_switch, eq_bypass_switch_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(eq_freq_slider, eq_freq_slider_event_cb, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(eq_gain_slider, eq_gain_slider_event_cb, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(eq_q_slider, eq_q_slider_event_cb, LV_EVENT_ALL, NULL);
-
     finalize_screen_navigation(scr);
-    /* Prevent dragging in the scrollable content area from bubbling up as an app-wide swipe. */
     lv_obj_remove_flag(content, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    /* Register slider cards as dead zones to prevent horizontal slider adjustments
-     * from triggering the swipe-to-player transition. */
-    lv_obj_remove_flag(eq_preamp_card, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    register_swipe_dead_zone(eq_preamp_card);
-    lv_obj_remove_flag(eq_freq_card, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    register_swipe_dead_zone(eq_freq_card);
-    lv_obj_remove_flag(eq_gain_card, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    register_swipe_dead_zone(eq_gain_card);
-    lv_obj_remove_flag(eq_q_card, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    register_swipe_dead_zone(eq_q_card);
+    lv_obj_remove_flag(freq_card, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_remove_flag(gain_card, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_remove_flag(q_card, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    register_swipe_dead_zone(freq_card);
+    register_swipe_dead_zone(gain_card);
+    register_swipe_dead_zone(q_card);
     return scr;
 }
 
@@ -3968,6 +4077,7 @@ void gui_settings_init(void) {
     settings_system_screen = build_settings_system_screen();
     settings_screen = build_settings_screen();
     eq_screen = build_eq_screen();
+    eq_band_options_screen = build_eq_band_options_screen();
     eq_profiles_screen = build_eq_profiles_screen();
     build_firmware_update_popup();
     build_firmware_ota_popups();
@@ -4043,6 +4153,13 @@ void gui_settings_teardown(void) {
     if (settings_system_screen) { lv_obj_delete(settings_system_screen); settings_system_screen = NULL; }
     if (settings_screen) { lv_obj_delete(settings_screen); settings_screen = NULL; }
     if (eq_screen) { lv_obj_delete(eq_screen); eq_screen = NULL; }
+    if (eq_band_options_screen) { lv_obj_delete(eq_band_options_screen); eq_band_options_screen = NULL; }
+    eq_bypass_switch = eq_band_enabled_switch = NULL;
+    eq_preamp_slider = eq_preamp_value_label = NULL;
+    eq_freq_slider = eq_gain_slider = eq_q_slider = NULL;
+    eq_type_dropdown = eq_freq_value_label = eq_gain_value_label = eq_q_value_label = NULL;
+    eq_band_number_label = eq_profile_button_label = eq_main_content = eq_footer = eq_bypass_state_label = NULL;
+    eq_title_label = NULL;
     if (eq_profiles_screen) { lv_obj_delete(eq_profiles_screen); eq_profiles_screen = NULL; }
     eq_profiles_edit_btn = NULL;
     eq_profiles_title_label = NULL;
