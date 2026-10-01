@@ -4,6 +4,7 @@ player_settings_t current_settings;
 #include "subprocess.h"
 #include "subsonic_saved_servers.h"
 #include "storage_paths.h"
+#include "utf8_util.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -35,6 +36,36 @@ const int SCREEN_TIMEOUT_STEPS[SCREEN_TIMEOUT_STEP_COUNT] = { 15, 30, 60, 120, 3
 const int SCREEN_DIM_DELAY_STEPS[SCREEN_DIM_DELAY_STEP_COUNT] = { 5, 10, 15, 30, 60, 120, 300 };
 const int IDLE_SHUTDOWN_STEPS[IDLE_SHUTDOWN_STEP_COUNT] = { 10, 15, 30, 60, 120 };
 const int SLEEP_TIMER_STEPS[SLEEP_TIMER_STEP_COUNT] = { 5, 10, 15, 20, 30, 45, 60, 90, 120, 180 };
+
+bool settings_validate_subsonic_download_subfolder(const char *value, char *out, size_t out_size) {
+    if (!value || !out || out_size == 0) return false;
+    size_t length = strlen(value);
+    if (length >= out_size) return false;
+    if (length == 0) { out[0] = '\0'; return true; }
+
+    char valid_utf8[SETTINGS_SUBSONIC_DOWNLOAD_SUBFOLDER_MAX];
+    utf8_truncate_safe_bounded(valid_utf8, sizeof(valid_utf8), value, length);
+    if (strcmp(valid_utf8, value) != 0) return false;
+
+    size_t component_length = 0;
+    bool component_start = true;
+    for (size_t i = 0; i < length; i++) {
+        unsigned char c = (unsigned char)value[i];
+        if (c == '/') {
+            if (component_length == 0) return false;
+            component_length = 0;
+            component_start = true;
+            continue;
+        }
+        if (c == '\\' || (c < 0x80 && strchr(":*?\"<>|", c)) || c < 0x20 || c == 0x7F ||
+            (component_start && c == '.')) return false;
+        component_start = false;
+        if (++component_length > 255) return false;
+    }
+    if (component_length == 0) return false;
+    memcpy(out, value, length + 1);
+    return true;
+}
 
 /* Snap hand-edited and legacy values onto the same presets used by the UI. */
 static int nearest_step(int value, const int * steps, int count) {
@@ -99,6 +130,8 @@ static void set_defaults(player_settings_t * out) {
     out->subsonic_password[0] = '\0';
     out->subsonic_verify_tls = true;
     out->subsonic_stream_quality = 0;
+    out->subsonic_download_subfolder[0] = '\0';
+    out->subsonic_download_layout = 0;
     memset(out->subsonic_saved, 0, sizeof(out->subsonic_saved));
     out->subsonic_saved_count = 0;
     out->bt_volume_sync_enabled = true;
@@ -357,6 +390,12 @@ bool settings_load(player_settings_t * out) {
         } else if (strcmp(key, "subsonic_stream_quality") == 0) {
             int quality = atoi(value);
             out->subsonic_stream_quality = quality >= 0 && quality <= 3 ? quality : 0;
+        } else if (strcmp(key, "subsonic_download_subfolder") == 0) {
+            (void) settings_validate_subsonic_download_subfolder(value, out->subsonic_download_subfolder,
+                sizeof(out->subsonic_download_subfolder));
+        } else if (strcmp(key, "subsonic_download_layout") == 0) {
+            int layout = atoi(value);
+            out->subsonic_download_layout = layout == 1 ? 1 : 0;
         } else if (strncmp(key, "subsonic_saved_", 15) == 0) {
             int idx = -1;
             char field[32];
@@ -563,6 +602,9 @@ static void fsync_settings_dir(void) {
 }
 
 static void settings_write_file(const player_settings_t * settings) {
+    char subsonic_download_subfolder[SETTINGS_SUBSONIC_DOWNLOAD_SUBFOLDER_MAX] = "";
+    (void) settings_validate_subsonic_download_subfolder(settings->subsonic_download_subfolder,
+        subsonic_download_subfolder, sizeof(subsonic_download_subfolder));
     DBG_LOG("settings_save: called (idle_suspend_enabled=%d)\n", settings->idle_suspend_enabled ? 1 : 0);
     (void) mkdir(INTERNAL_COMPAS_DIR, 0755);
     /* This file contains the RC PIN and Subsonic credentials. Create or
@@ -602,6 +644,8 @@ static void settings_write_file(const player_settings_t * settings) {
     fprintf(f, "subsonic_password=%s\n", settings->subsonic_password);
     fprintf(f, "subsonic_verify_tls=%d\n", settings->subsonic_verify_tls ? 1 : 0);
     fprintf(f, "subsonic_stream_quality=%d\n", settings->subsonic_stream_quality);
+    fprintf(f, "subsonic_download_subfolder=%s\n", subsonic_download_subfolder);
+    fprintf(f, "subsonic_download_layout=%d\n", settings->subsonic_download_layout == 1 ? 1 : 0);
     for (int i = 0; i < settings->subsonic_saved_count && i < SETTINGS_SUBSONIC_SAVED_MAX; i++) {
         fprintf(f, "subsonic_saved_%d_url=%s\n", i, settings->subsonic_saved[i].url);
         fprintf(f, "subsonic_saved_%d_username=%s\n", i, settings->subsonic_saved[i].username);

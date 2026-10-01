@@ -112,7 +112,7 @@ used:
 
 | Name | Type | What it does |
 | --- | --- | --- |
-| `artist`, `album` | `lv_label` | Artist (or folder name) and album. Scroll when too long. |
+| `artist`, `album` | `lv_label` | Artist (or folder name) and album. Scroll when too long. Tapping opens the matching local artist or album when the playing path is in the library. |
 | `pos_label`, `dur_label` | `lv_label` | Elapsed and total time. |
 | `song_count` | `lv_label` | Position in the queue, for example "3/12". |
 | `format_badge` | `lv_label` | Codec, bit depth and sample rate. |
@@ -141,6 +141,10 @@ one, the layout is rejected).
   so a timeline that moves a button doesn't move its touch area.
 - **Scrolling text.** `title`, `artist` and `album` scroll when the text is
   too long. Give them a fixed width (for example `width="100%"`).
+- **Artist and album taps.** Keep the `artist` and `album` labels outside the
+  cover image's hit area: tapping the cover toggles lyrics, while tapping a
+  metadata label opens its matching local library group. Streams and tracks
+  that are not indexed locally leave these labels inert.
 - **The blurred background.** If you leave out `overlay_panel` and
   `background_img`, the app adds hidden ones behind everything. To see the
   blurred cover, keep whatever sits on top of them transparent.

@@ -81,6 +81,10 @@ void gui_library_poll_playlists(void);
 void gui_library_poll_track_probes(void);
 void on_cue_file_selected(const char * cue_path);
 void show_artist_albums(const char * name, metadata_db_group_kind_t kind);
+/* Opens the local artist or album group containing `path`, if the path is
+ * present in the indexed library. Returns false for streams and unindexed
+ * tracks. Album identity is the exact (album, album_artist) pair. */
+bool gui_library_open_now_playing_group(const char * path, bool album);
 void refresh_library_screens_after_rescan(void);
 
 void poll_az_index_drag(lv_timer_t * timer);

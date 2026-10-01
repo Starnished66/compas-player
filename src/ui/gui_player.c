@@ -151,6 +151,7 @@ static unsigned player_lyrics_control_count;
  * styled or moved by the lyrics view. */
 static bool player_artist_standin;
 static bool player_album_standin;
+static void player_now_playing_group_click_cb(lv_event_t * e);
 
 /* Plays a layout timeline from its start and returns its length in ms. */
 static uint32_t player_timeline_play(lv_anim_timeline_t * timeline) {
@@ -3343,6 +3344,20 @@ static bool player_bind_widgets(lv_obj_t * scr) {
     player_album_standin = !r_album;
     if (!artist_label) artist_label = player_create_hidden_label(scr);
     if (!album_label) album_label = player_create_hidden_label(scr);
+    /* Bind on the actual artist/album role widgets, including XML layouts.
+     * player_bind_widgets() runs once for each newly built player tree; role
+     * rebinding after a UI reload therefore gets fresh callbacks without
+     * accumulating duplicate event handlers on reused labels. */
+    if (r_artist) {
+        lv_obj_add_flag(r_artist, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(r_artist, player_now_playing_group_click_cb,
+                            LV_EVENT_CLICKED, (void *) (intptr_t) 0);
+    }
+    if (r_album) {
+        lv_obj_add_flag(r_album, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(r_album, player_now_playing_group_click_cb,
+                            LV_EVENT_CLICKED, (void *) (intptr_t) 1);
+    }
     favorite_circle = r_fav_circle;
     favorite_icon = r_fav_icon;
     quality_pill = r_pill;
@@ -3699,6 +3714,21 @@ void refresh_format_badge(void) {
  * than an in-memory array index -- see refresh_now_playing_indicators()
  * below. */
 char now_playing_path[600] = "";
+
+static void player_now_playing_group_click_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (playlist_count <= 0 || playlist_index < 0 || playlist_index >= playlist_count ||
+        !now_playing_path[0]) return;
+    /* Metadata remains visible in the lyrics view, but its cover/metadata
+     * area belongs to lyrics navigation while that view is open or moving. */
+    if (player_lyrics_open || player_lyrics_animating ||
+        gui_navigation_transition_in_progress()) return;
+    /* Resolve against the current path at tap time. The library helper first
+     * confirms that path is a local indexed song, so remote display metadata
+     * cannot accidentally match a similarly named local group. */
+    bool album = (intptr_t) lv_event_get_user_data(e) != 0;
+    (void) gui_library_open_now_playing_group(now_playing_path, album);
+}
 
 /* Where the current playlist came from. Deliberately NOT derived
  * from `playlist` itself: that's just a flat array of paths with no

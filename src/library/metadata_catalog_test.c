@@ -452,6 +452,67 @@ static void test_recently_played(void) {
     metadata_db_close();
 }
 
+static void test_now_playing_group_identity(void) {
+    char root[] = "/tmp/compas-now-playing-group-XXXXXX";
+    must(mkdtemp(root) != NULL && chdir(root) == 0, "now-playing group fixture directory");
+    must(metadata_db_open() == METADATA_DB_LOAD_SUCCESS_FRESH, "open now-playing group fixture database");
+    touch("comp-one.flac");
+    touch("comp-two.flac");
+    touch("fallback.flac");
+    touch("normalized-fallback.flac");
+    metadata_db_begin_update();
+    put_song("comp-one.flac", "One", "Guest One", "Compilation", "Various Artists");
+    put_song("comp-two.flac", "Two", "Guest Two", "Compilation", "Various Artists");
+    put_song("fallback.flac", "Fallback", "Fallback Artist", "Fallback Album", "");
+    put_song("normalized-fallback.flac", "Normalized", "Fallback Artist", "Normalized Album", "Fallback Artist");
+    must(metadata_db_end_update(), "commit now-playing group fixture");
+
+    song_row_t song;
+    must(metadata_db_get_song_by_path("comp-one.flac", &song), "local compilation path resolves");
+    int64_t guest_artist_offset = metadata_db_get_group_offset(METADATA_DB_GROUP_ARTIST,
+                                                                "gUeSt oNe", NULL);
+    group_row_t artist;
+    must(guest_artist_offset >= 0 &&
+         metadata_db_get_groups_page(METADATA_DB_GROUP_ARTIST, (int) guest_artist_offset, 1, &artist) == 1 &&
+         tagcache_cmp_ascii(artist.name, "Guest One") == 0,
+         "artist group lookup accepts case variants while preserving the indexed name");
+    int64_t compilation_offset = metadata_db_get_group_offset(METADATA_DB_GROUP_ALBUM,
+                                                               "cOmPiLaTiOn", "vArIoUs aRtIsTs");
+    group_row_t album;
+    must(compilation_offset >= 0 &&
+         metadata_db_get_groups_page(METADATA_DB_GROUP_ALBUM, (int) compilation_offset, 1, &album) == 1 &&
+         tagcache_cmp_ascii(album.name, "Compilation") == 0 &&
+         tagcache_cmp_ascii(album.album_artist, "Various Artists") == 0 &&
+         album.song_count == 2,
+         "album lookup accepts case variants and resolves compilation by album-artist, not track artist");
+
+    must(metadata_db_get_song_by_path("fallback.flac", &song), "fallback album local path resolves");
+    const char * effective_album_artist = song.tags.album_artist[0]
+        ? song.tags.album_artist : song.tags.artist;
+    int64_t fallback_offset = metadata_db_get_group_offset(METADATA_DB_GROUP_ALBUM,
+                                                            song.tags.album, effective_album_artist);
+    const char * expected_group_album_artist = effective_album_artist;
+    if (fallback_offset < 0 && !song.tags.album_artist[0]) {
+        /* Older cache rows can retain the empty key; the UI helper supports
+         * this exact pair after trying the scanner's normalized identity. */
+        fallback_offset = metadata_db_get_group_offset(METADATA_DB_GROUP_ALBUM,
+                                                       song.tags.album, "");
+        expected_group_album_artist = "";
+    }
+    must(fallback_offset >= 0 &&
+         metadata_db_get_groups_page(METADATA_DB_GROUP_ALBUM, (int) fallback_offset, 1, &album) == 1 &&
+         strcmp(album.name, "Fallback Album") == 0 &&
+         strcmp(album.album_artist, expected_group_album_artist) == 0,
+         "missing album-artist resolves the normalized or legacy exact album pair");
+    must(metadata_db_get_song_by_path("normalized-fallback.flac", &song) &&
+         metadata_db_get_group_offset(METADATA_DB_GROUP_ALBUM, "nOrMaLiZeD aLbUm",
+             "fAlLbAcK aRtIsT") >= 0,
+         "case variants resolve the scanner-normalized artist fallback album identity");
+    must(!metadata_db_get_song_by_path("subsonic://stream/one", &song),
+         "stream path does not resolve as local group membership");
+    metadata_db_close();
+}
+
 static bool valid_uuid(const char *id) {
     if (strlen(id) != 36) return false;
     for (int i = 0; i < 36; i++) {
@@ -572,6 +633,7 @@ int main(void) {
     test_force_metadata_upsert();
     test_targeted_delete_statistics();
     test_recently_played();
+    test_now_playing_group_identity();
 
     char other_root[] = "/tmp/compas-catalog-fresh-XXXXXX";
     must(mkdtemp(other_root) != NULL && chdir(other_root) == 0, "second fixture directory");

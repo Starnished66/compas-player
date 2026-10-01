@@ -2,6 +2,7 @@
 #define SETTINGS_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 /* Discrete screen-timeout presets. The original useful coarse progression
@@ -25,6 +26,7 @@ extern const int IDLE_SHUTDOWN_STEPS[];
 extern const int SLEEP_TIMER_STEPS[];
 #define SLEEP_TIMER_STEP_COUNT 10
 #define SETTINGS_SUBSONIC_SAVED_MAX 16
+#define SETTINGS_SUBSONIC_DOWNLOAD_SUBFOLDER_MAX 256
 #define REMOTE_CONTROL_PIN_MAX_LENGTH 12
 
 #define BT_DEVICE_RATE_MAX 8
@@ -108,6 +110,8 @@ typedef struct {
     char subsonic_password[128];
     bool subsonic_verify_tls;    /* false = accept self-signed certs for this server (opt-in, see http_client.h) */
     int subsonic_stream_quality; /* 0 Original, 1 Low (96), 2 Medium (192), 3 High (320 kbps). */
+    char subsonic_download_subfolder[SETTINGS_SUBSONIC_DOWNLOAD_SUBFOLDER_MAX]; /* relative to SD root; empty means SD root */
+    int subsonic_download_layout; /* 0 Album Artist/Album, 1 Album Artist - Album. */
 
     /* Saved Subsonic server profiles (the "Saved Servers" list). Tagcache
      * cannot store these. The live list is the /usr/data sidecar
@@ -398,6 +402,10 @@ typedef struct {
      * file) also falls back to the built-in one at build time. */
     char player_layout[64];
 } player_settings_t;
+
+/* Validate a relative Subsonic download folder. Empty is a valid setting;
+ * rejected values never alter out. */
+bool settings_validate_subsonic_download_subfolder(const char *value, char *out, size_t out_size);
 
 /* Loads settings from disk into *out. If the settings file doesn't exist or
  * can't be parsed, *out is populated with sensible defaults (volume 1.0, no

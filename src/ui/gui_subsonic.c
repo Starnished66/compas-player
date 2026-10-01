@@ -1,12 +1,16 @@
 #include "gui.h"
 #include "gui_subsonic.h"
 #include "settings.h"
+#include "utf8_util.h"
 #include "screen_builders.h"
 #include "gui_text_input.h"
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
 
 #include "assets.h"
 #include "metadata.h"
@@ -64,6 +68,8 @@ typedef struct {
     subsonic_album_t * albums_to_expand;
     int album_to_expand_count;
     char playlist_name[128]; 
+    char download_subfolder[SETTINGS_SUBSONIC_DOWNLOAD_SUBFOLDER_MAX];
+    int download_layout;
 } subsonic_library_download_request_t;
 
 extern bool playlist_files_create(const char * dir, const char * name, const char * initial_file, const char * out_m3u_path, size_t out_m3u_path_size);
@@ -214,15 +220,91 @@ void poll_subsonic_download(void) {
 }
 
 static void sanitize_path_component(const char * in, char * out, size_t out_size) {
-    size_t pos = 0;
-    for (const char * p = in; *p && pos + 1 < out_size; p++) {
-        char c = *p;
-        if (c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|') {
-            c = '_';
-        }
-        out[pos++] = c;
+    if (!out || out_size == 0) return;
+    utf8_truncate_safe_bounded(out, out_size, in ? in : "", in ? strlen(in) : 0);
+    for (size_t i = 0; out[i]; i++) {
+        unsigned char c = (unsigned char)out[i];
+        if (c == '/' || c == '\\' || strchr(":*?\"<>|", c) || c < 0x20 || c == 0x7F ||
+            (i == 0 && c == '.')) out[i] = '_';
     }
-    out[pos] = '\0';
+}
+
+static uint64_t subsonic_album_folder_hash(const char * artist, const char * album) {
+    uint64_t hash = UINT64_C(14695981039346656037);
+    for (const unsigned char * p = (const unsigned char *)(artist ? artist : ""); *p; p++) {
+        hash ^= *p;
+        hash *= UINT64_C(1099511628211);
+    }
+    hash ^= 0xFFu;
+    hash *= UINT64_C(1099511628211);
+    for (const unsigned char * p = (const unsigned char *)(album ? album : ""); *p; p++) {
+        hash ^= *p;
+        hash *= UINT64_C(1099511628211);
+    }
+    return hash;
+}
+
+/* Create/open one component relative to an already-open directory. Refuse
+ * symlinks while walking the configured path and album layout. */
+static bool subsonic_enter_directory(int * dirfd, char * path, size_t path_size, const char * component) {
+    if (!dirfd || *dirfd < 0 || !component || !component[0] || component[0] == '.' ||
+        strchr(component, '/') || strlen(component) > 255) return false;
+    for (const unsigned char * p = (const unsigned char *)component; *p; p++)
+        if (*p < 0x20 || *p == 0x7F || *p == '\\') return false;
+    if (mkdirat(*dirfd, component, 0755) != 0 && errno != EEXIST) return false;
+    int child = openat(*dirfd, component, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+    if (child < 0) return false;
+    size_t used = strlen(path);
+    if (used >= path_size) { close(child); return false; }
+    int n = snprintf(path + used, path_size - used, "/%s", component);
+    if (n < 0 || (size_t)n >= path_size - used) { close(child); return false; }
+    close(*dirfd);
+    *dirfd = child;
+    return true;
+}
+
+static bool subsonic_ensure_library_album_dir(const char * subfolder, int layout,
+                                               const char * safe_artist, const char * safe_album,
+                                               char * out, size_t out_size) {
+    char checked_subfolder[SETTINGS_SUBSONIC_DOWNLOAD_SUBFOLDER_MAX];
+    if (!settings_validate_subsonic_download_subfolder(subfolder, checked_subfolder,
+                                                       sizeof(checked_subfolder))) return false;
+    int dirfd = open(MUSIC_ROOT_DIR, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (dirfd < 0) return false;
+    int n = snprintf(out, out_size, "%s", MUSIC_ROOT_DIR);
+    if (n < 0 || (size_t)n >= out_size) { close(dirfd); return false; }
+
+    for (char * component = checked_subfolder; component[0]; ) {
+        char * slash = strchr(component, '/');
+        if (slash) *slash = '\0';
+        if (!subsonic_enter_directory(&dirfd, out, out_size, component)) { close(dirfd); return false; }
+        if (!slash) break;
+        component = slash + 1;
+    }
+
+    if (layout == 1) {
+        char full_name[1024], combined[256];
+        n = snprintf(full_name, sizeof(full_name), "%s - %s", safe_artist, safe_album);
+        if (n < 0 || (size_t)n >= sizeof(full_name)) { close(dirfd); return false; }
+        size_t full_length = (size_t)n;
+        if (full_length <= 255) {
+            memcpy(combined, full_name, full_length + 1);
+        } else {
+            char hash_suffix[18], prefix[256];
+            snprintf(hash_suffix, sizeof(hash_suffix), "~%016llx",
+                     (unsigned long long)subsonic_album_folder_hash(safe_artist, safe_album));
+            size_t prefix_budget = 255 - strlen(hash_suffix);
+            utf8_truncate_safe(prefix, full_name, prefix_budget + 1);
+            int combined_length = snprintf(combined, sizeof(combined), "%s%s", prefix, hash_suffix);
+            if (combined_length < 0 || combined_length > 255) { close(dirfd); return false; }
+        }
+        if (!subsonic_enter_directory(&dirfd, out, out_size, combined)) { close(dirfd); return false; }
+    } else {
+        if (!subsonic_enter_directory(&dirfd, out, out_size, safe_artist) ||
+            !subsonic_enter_directory(&dirfd, out, out_size, safe_album)) { close(dirfd); return false; }
+    }
+    close(dirfd);
+    return true;
 }
 
 static uint64_t subsonic_song_id_hash(const char * id) {
@@ -455,6 +537,7 @@ static void * subsonic_library_download_thread_func(void * arg) {
     subsonic_song_t * songs = req->songs; /* Mode A: the caller's owned copy; Mode B: NULL, built below */
     int song_count = req->song_count;
 
+    bool expansion_failed = false;
     if (req->albums_to_expand) {
         int capacity = 0;
         int count = 0;
@@ -464,18 +547,38 @@ static void * subsonic_library_download_thread_func(void * arg) {
             int album_song_count = 0;
             if (subsonic_get_album_songs(&req->server, req->albums_to_expand[i].id, &album_songs,
                                           &album_song_count, &subsonic_library_download_cancel)) {
-                if (count + album_song_count > capacity) {
-                    capacity = (count + album_song_count) * 2;
-                    songs = realloc(songs, sizeof(subsonic_song_t) * (size_t) capacity);
+                if (album_song_count < 0 || count > INT_MAX - album_song_count ||
+                    (album_song_count > 0 && !album_songs)) {
+                    expansion_failed = true;
+                } else if (count + album_song_count > capacity) {
+                    int needed = count + album_song_count;
+                    int new_capacity = needed > INT_MAX / 2 ? needed : needed * 2;
+                    if ((size_t)new_capacity > SIZE_MAX / sizeof(*songs)) expansion_failed = true;
+                    else {
+                        subsonic_song_t * grown = realloc(songs, sizeof(*songs) * (size_t)new_capacity);
+                        if (!grown) expansion_failed = true;
+                        else { songs = grown; capacity = new_capacity; }
+                    }
                 }
-                memcpy(songs + count, album_songs, sizeof(subsonic_song_t) * (size_t) album_song_count);
-                count += album_song_count;
+                if (!expansion_failed && album_song_count > 0) {
+                    memcpy(songs + count, album_songs, sizeof(subsonic_song_t) * (size_t) album_song_count);
+                    count += album_song_count;
+                }
             }
             free(album_songs);
+            if (expansion_failed) break;
         }
-        song_count = count;
+        song_count = expansion_failed ? 0 : count;
         subsonic_library_download_total = song_count; /* was 0 until this expansion finished -- unblocks poll_subsonic_library_download()'s progress display */
         free(req->albums_to_expand);
+        req->albums_to_expand = NULL;
+        if (expansion_failed) {
+            free(songs);
+            free(req);
+            subsonic_library_download_success_count = 0;
+            atomic_store_explicit(&subsonic_library_download_done_flag, true, memory_order_release);
+            return NULL;
+        }
     }
 
     char playlist_m3u_path[512] = "";
@@ -493,14 +596,19 @@ static void * subsonic_library_download_thread_func(void * arg) {
         sanitize_path_component(song->album[0] ? song->album : "Unknown Album", safe_album, sizeof(safe_album));
         sanitize_path_component(song->title[0] ? song->title : "Unknown Title", safe_title, sizeof(safe_title));
 
-        char artist_dir[1024], album_dir[1024], dest_path[1024];
-        snprintf(artist_dir, sizeof(artist_dir), "%s/%.150s", MUSIC_ROOT_DIR, safe_artist);
-        mkdir(artist_dir, 0755); /* no-op (EEXIST) if it's already there, same as every other mkdir() in this file */
-        snprintf(album_dir, sizeof(album_dir), "%.500s/%.150s", artist_dir, safe_album);
-        mkdir(album_dir, 0755);
+        char album_dir[1024], dest_path[1024];
+        if (!subsonic_ensure_library_album_dir(req->download_subfolder, req->download_layout,
+                                               safe_artist, safe_album, album_dir, sizeof(album_dir))) {
+            atomic_store_explicit(&subsonic_library_download_progress, i + 1, memory_order_relaxed);
+            continue;
+        }
         char filename[350];
         subsonic_build_download_filename(song, safe_title, filename, sizeof(filename));
-        snprintf(dest_path, sizeof(dest_path), "%.650s/%.350s", album_dir, filename);
+        int dest_len = snprintf(dest_path, sizeof(dest_path), "%s/%s", album_dir, filename);
+        if (dest_len < 0 || (size_t)dest_len >= sizeof(dest_path)) {
+            atomic_store_explicit(&subsonic_library_download_progress, i + 1, memory_order_relaxed);
+            continue;
+        }
 
         char url[1536];
         subsonic_build_stream_url(&req->server, song->id, url, sizeof(url));
@@ -543,12 +651,26 @@ static void start_subsonic_library_download(subsonic_song_t * songs, int song_co
                                               subsonic_album_t * albums_to_expand, int album_to_expand_count,
                                               const char * playlist_name, const char * progress_label) {
     subsonic_library_download_request_t * req = malloc(sizeof(*req));
-    if (!req) return;
+    if (!req) {
+        free(songs);
+        free(albums_to_expand);
+        show_error_toast("Not enough memory to start download");
+        return;
+    }
     req->server = subsonic_server_from_settings();
     req->songs = songs;
     req->song_count = song_count;
     req->albums_to_expand = albums_to_expand;
     req->album_to_expand_count = album_to_expand_count;
+    if (!settings_validate_subsonic_download_subfolder(current_settings.subsonic_download_subfolder,
+            req->download_subfolder, sizeof(req->download_subfolder))) {
+        free(songs);
+        free(albums_to_expand);
+        free(req);
+        show_error_toast("Invalid download folder");
+        return;
+    }
+    req->download_layout = current_settings.subsonic_download_layout == 1 ? 1 : 0;
     snprintf(req->playlist_name, sizeof(req->playlist_name), "%s", playlist_name ? playlist_name : "");
 
     atomic_store_explicit(&subsonic_library_download_progress, 0, memory_order_relaxed);
@@ -564,6 +686,8 @@ static void start_subsonic_library_download(subsonic_song_t * songs, int song_co
     if (pthread_create(&subsonic_library_download_thread, NULL, subsonic_library_download_thread_func, req) != 0) {
         subsonic_library_download_active = false;
         http_cancel_token_destroy(&subsonic_library_download_cancel);
+        free(req->songs);
+        free(req->albums_to_expand);
         free(req);
         gui_busy_hide(subsonic_library_download_token);
         show_error_toast("Thread launch failed");
@@ -644,6 +768,11 @@ static lv_obj_t * subsonic_quality_screen;
 static lv_obj_t * subsonic_quality_list;
 static lv_obj_t * subsonic_quality_options[4];
 static lv_obj_t * subsonic_quality_row;
+static lv_obj_t * subsonic_download_settings_screen;
+static lv_obj_t * subsonic_download_settings_list;
+static lv_obj_t * subsonic_download_folder_row;
+static lv_obj_t * subsonic_download_layout_options[2];
+static lv_obj_t * subsonic_download_settings_row;
 
 static const char * subsonic_quality_name(int quality) {
     static const char * names[] = { "Original", "Low", "Medium", "High" };
@@ -684,6 +813,74 @@ static lv_obj_t * build_subsonic_quality_screen(void) {
                                                           current_settings.subsonic_stream_quality == i,
                                                           subsonic_quality_option_cb, (void *) (intptr_t) i);
     }
+    return screen;
+}
+
+static void subsonic_download_folder_update_row(void) {
+    if (!subsonic_download_folder_row) return;
+    char label[112];
+    if (current_settings.subsonic_download_subfolder[0]) {
+        char preview[49];
+        utf8_truncate_safe(preview, current_settings.subsonic_download_subfolder, sizeof(preview));
+        snprintf(label, sizeof(label), "Download folder: %s", preview);
+    } else {
+        snprintf(label, sizeof(label), "Download folder: SD root");
+    }
+    lv_label_set_text(lv_obj_get_child(subsonic_download_folder_row, 0), label);
+}
+
+static void subsonic_download_folder_done(const char * text, void * user_data) {
+    (void)user_data;
+    char checked[SETTINGS_SUBSONIC_DOWNLOAD_SUBFOLDER_MAX];
+    if (!settings_validate_subsonic_download_subfolder(text ? text : "", checked, sizeof(checked))) {
+        show_error_toast("Invalid download folder name");
+        return;
+    }
+    snprintf(current_settings.subsonic_download_subfolder,
+             sizeof(current_settings.subsonic_download_subfolder), "%s", checked);
+    settings_save_async(&current_settings);
+    subsonic_download_folder_update_row();
+}
+
+static void subsonic_download_folder_row_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    show_text_entry("Download subfolder", current_settings.subsonic_download_subfolder,
+                    false, false, subsonic_download_folder_done, NULL);
+}
+
+static void subsonic_download_layout_option_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    current_settings.subsonic_download_layout = (int)(intptr_t)lv_event_get_user_data(e) == 1 ? 1 : 0;
+    settings_save_async(&current_settings);
+    for (int i = 0; i < 2; i++)
+        if (subsonic_download_layout_options[i])
+            lv_obj_set_style_border_width(subsonic_download_layout_options[i],
+                i == current_settings.subsonic_download_layout ? 3 : 0, 0);
+}
+
+static void subsonic_download_settings_row_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED) nav_push(subsonic_download_settings_screen);
+}
+
+static lv_obj_t * build_subsonic_download_settings_screen(void) {
+    lv_obj_t * title;
+    lv_obj_t * screen = build_subsonic_list_screen("Download Settings", &title,
+                                                    &subsonic_download_settings_list);
+    (void)title;
+    subsonic_download_folder_row = add_pill_chevron_row(subsonic_download_settings_list,
+        "Subfolder: SD root", subsonic_download_folder_row_cb);
+    subsonic_download_folder_update_row();
+    lv_obj_t * folder_help = add_section_header(subsonic_download_settings_list,
+        "Subfolder is relative to SD root (example: Music/Offline); empty uses SD root");
+    lv_obj_set_width(folder_help, lv_pct(100));
+    lv_obj_set_style_pad_right(folder_help, BOARD_SCALE_PX(24), 0);
+    lv_label_set_long_mode(folder_help, LV_LABEL_LONG_WRAP);
+    add_section_header(subsonic_download_settings_list, "Folder layout for downloaded albums");
+    static const char * labels[] = { "Album Artist / Album", "Album Artist - Album" };
+    for (int i = 0; i < 2; i++)
+        subsonic_download_layout_options[i] = add_pill_option_row(subsonic_download_settings_list,
+            labels[i], current_settings.subsonic_download_layout == i,
+            subsonic_download_layout_option_cb, (void *)(intptr_t)i);
     return screen;
 }
 
@@ -1166,6 +1363,7 @@ static void subsonic_download_songs_now(void) {
     if (subsonic_songs_count == 0) return;
 
     subsonic_song_t * songs_copy = malloc(sizeof(subsonic_song_t) * (size_t) subsonic_songs_count);
+    if (!songs_copy) { show_error_toast("Not enough memory to start download"); return; }
     memcpy(songs_copy, subsonic_songs_cache, sizeof(subsonic_song_t) * (size_t) subsonic_songs_count);
 
     const char * playlist_name = subsonic_songs_context_is_playlist ? subsonic_songs_context_playlist_name : NULL;
@@ -1187,6 +1385,7 @@ static void subsonic_download_artist_now(void) {
     if (subsonic_albums_context_artist[0] == '\0' || subsonic_albums_count == 0) return;
 
     subsonic_album_t * albums_copy = malloc(sizeof(subsonic_album_t) * (size_t) subsonic_albums_count);
+    if (!albums_copy) { show_error_toast("Not enough memory to start download"); return; }
     memcpy(albums_copy, subsonic_albums_cache, sizeof(subsonic_album_t) * (size_t) subsonic_albums_count);
 
     char label[192];
@@ -1595,12 +1794,18 @@ void gui_subsonic_init(void) {
      * never changes. */
     subsonic_menu_screen = build_subsonic_list_screen("Subsonic", &subsonic_menu_title_label, &subsonic_menu_list);
     subsonic_quality_screen = build_subsonic_quality_screen();
+    subsonic_download_settings_screen = build_subsonic_download_settings_screen();
     {
         char quality_label[64];
         snprintf(quality_label, sizeof(quality_label), "Stream quality: %s",
                  subsonic_quality_name(current_settings.subsonic_stream_quality));
         subsonic_quality_row = add_pill_chevron_row(subsonic_menu_list, quality_label, subsonic_quality_row_cb);
         lv_obj_set_style_text_font(lv_obj_get_child(subsonic_quality_row, 0), gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+
+        subsonic_download_settings_row = add_pill_chevron_row(subsonic_menu_list,
+            "Download settings", subsonic_download_settings_row_cb);
+        lv_obj_set_style_text_font(lv_obj_get_child(subsonic_download_settings_row, 0),
+                                   gui_theme_font(GUI_FONT_ROLE_BODY), 0);
 
         lv_obj_t * artists_row = add_pill_row_base(subsonic_menu_list, "Artists");
         lv_obj_set_style_text_font(lv_obj_get_child(artists_row, 0), gui_theme_font(GUI_FONT_ROLE_BODY), 0);
@@ -1677,9 +1882,17 @@ void gui_subsonic_teardown(void) {
     if (subsonic_new_connection_screen) { lv_obj_delete(subsonic_new_connection_screen); subsonic_new_connection_screen = NULL; }
     if (subsonic_menu_screen) { lv_obj_delete(subsonic_menu_screen); subsonic_menu_screen = NULL; }
     if (subsonic_quality_screen) { lv_obj_delete(subsonic_quality_screen); subsonic_quality_screen = NULL; }
+    if (subsonic_download_settings_screen) {
+        lv_obj_delete(subsonic_download_settings_screen);
+        subsonic_download_settings_screen = NULL;
+    }
     memset(subsonic_quality_options, 0, sizeof(subsonic_quality_options));
     subsonic_quality_list = NULL;
     subsonic_quality_row = NULL;
+    subsonic_download_settings_list = NULL;
+    subsonic_download_folder_row = NULL;
+    memset(subsonic_download_layout_options, 0, sizeof(subsonic_download_layout_options));
+    subsonic_download_settings_row = NULL;
     if (subsonic_artists_screen) { lv_obj_delete(subsonic_artists_screen); subsonic_artists_screen = NULL; }
     if (subsonic_albums_screen) { lv_obj_delete(subsonic_albums_screen); subsonic_albums_screen = NULL; }
     if (subsonic_songs_screen) { lv_obj_delete(subsonic_songs_screen); subsonic_songs_screen = NULL; }

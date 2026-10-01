@@ -4421,6 +4421,78 @@ static bool show_album_group(const group_row_t * group) {
     return show_album_group_filtered(group, NULL);
 }
 
+/* Shared library screens may already be below Now Playing. Once the target
+ * has loaded successfully, return to its original slot instead of keeping
+ * a second copy and the intervening player entries in the Back history. */
+static void collapse_now_playing_library_return(lv_obj_t * target) {
+    if (!target || lv_screen_active() != target) return;
+    int depth = gui_navigation_get_depth();
+    for (int i = 0; i < depth - 1; i++) {
+        if (gui_navigation_get_screen_at(i) != target) continue;
+        while (gui_navigation_get_depth() > i + 1)
+            nav_remove_stack_slot(gui_navigation_get_depth() - 1);
+        return;
+    }
+}
+
+bool gui_library_open_now_playing_group(const char * path, bool album) {
+    if (!path || !path[0] || library_rescan_active || gui_library_navigation_blocked()) return false;
+
+    /* A local tagcache path is the membership guard. This keeps provider,
+     * radio, and Subsonic metadata from accidentally opening a local group
+     * that happens to share the same display name. The indexed path lookup
+     * and following group lookup stay bounded; no library-wide song list is
+     * materialized on the UI thread. */
+    song_row_t song;
+    if (!metadata_db_get_song_by_path(path, &song)) return false;
+
+    if (!album) {
+        if (!song.tags.artist[0]) return false;
+        char artist_name[TAGCACHE_TAG_MAX];
+        tagcache_artist_primary(song.tags.artist, artist_name, sizeof(artist_name));
+        if (!artist_name[0]) return false;
+        int64_t offset = metadata_db_get_group_offset(METADATA_DB_GROUP_ARTIST,
+                                                       artist_name, NULL);
+        group_row_t artist;
+        if (offset < 0 || offset > INT_MAX ||
+            metadata_db_get_groups_page(METADATA_DB_GROUP_ARTIST, (int) offset, 1, &artist) != 1)
+            return false;
+        if (tagcache_cmp_ascii(artist.name, artist_name) != 0) return false;
+        show_artist_albums(artist.name, METADATA_DB_GROUP_ARTIST);
+        collapse_now_playing_library_return(artist_albums_screen);
+        return true;
+    }
+
+    if (!song.tags.album[0]) return false;
+    /* The scanner normalizes missing ALBUMARTIST to ARTIST; keep that same
+     * effective identity for older cache rows as well. This remains distinct
+     * from song.tags.artist when an album artist is explicitly present. */
+    const char * album_artist = song.tags.album_artist[0]
+        ? song.tags.album_artist : song.tags.artist;
+    int64_t offset = metadata_db_get_group_offset(METADATA_DB_GROUP_ALBUM,
+                                                   song.tags.album, album_artist);
+    /* Rows written by the current scanner use ARTIST when ALBUMARTIST is
+     * absent. Older tagcache generations can still have an empty album-artist
+     * key, so allow that exact legacy pair if the normalized identity misses. */
+    const char * group_album_artist = album_artist;
+    if (offset < 0 && !song.tags.album_artist[0]) {
+        offset = metadata_db_get_group_offset(METADATA_DB_GROUP_ALBUM,
+                                              song.tags.album, "");
+        group_album_artist = "";
+    }
+    group_row_t group;
+    if (offset < 0 || offset > INT_MAX ||
+        metadata_db_get_groups_page(METADATA_DB_GROUP_ALBUM, (int) offset, 1, &group) != 1)
+        return false;
+    /* Guard against an offset resolving to a different same-titled album
+     * if the database changed between the path and group lookups. */
+    if (tagcache_cmp_ascii(group.name, song.tags.album) != 0 ||
+        tagcache_cmp_ascii(group.album_artist, group_album_artist) != 0) return false;
+    if (!show_album_group(&group)) return false;
+    collapse_now_playing_library_return(group_songs_screen);
+    return true;
+}
+
 static void album_row_click_cb(int index) {
     if (library_rescan_active) return;
     index = search_remap_index(SEARCH_BINDING_ALBUMS, index);

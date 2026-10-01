@@ -1,5 +1,7 @@
 # What's New
 
+- **Subsonic downloads:** choose a folder on the SD card and organize downloads as Album Artist/Album or Album Artist - Album.
+- **Now Playing:** tap the artist or album to open its local library page.
 - **Artist images:** Settings > Display > Appearance > Artist Images hides artist and album-artist artwork and gives their names more space.
 - **WAV titles:** Unicode titles with UTF-8 or UTF-16 markers display correctly; embedded ID3 titles can recover incorrectly encoded INFO titles.
 - **Compilation albums:** common album-artist tag spellings are now recognized.
