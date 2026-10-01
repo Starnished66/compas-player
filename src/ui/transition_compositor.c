@@ -41,6 +41,7 @@ typedef enum {
     COMPOSITOR_MODE_HORIZONTAL,
     COMPOSITOR_MODE_VERTICAL_OVERLAY,
     COMPOSITOR_MODE_VERTICAL_REVEAL,
+    COMPOSITOR_MODE_BOTTOM_SHEET,
 } compositor_mode_t;
 static compositor_mode_t compositor_mode = COMPOSITOR_MODE_NONE;
 static const lv_draw_buf_t * compositor_from;
@@ -62,6 +63,12 @@ static int32_t compositor_reveal_rows_top;
 static int32_t compositor_reveal_rows_height;
 static int32_t compositor_reveal_controls_top;
 static int32_t compositor_reveal_controls_height;
+static const lv_draw_buf_t * compositor_bottom_sheet;
+static uint8_t * compositor_bottom_base;
+static uint8_t * compositor_bottom_rgb565;
+static int32_t * compositor_bottom_span_start;
+static int32_t * compositor_bottom_span_end;
+static int32_t compositor_bottom_height;
 #endif
 
 /* Deliberately identical to LVGL's lv_color_24_16_mix() quantization. This
@@ -817,6 +824,205 @@ bool transition_compositor_vertical_overlay_frame(int32_t y) {
 #endif
 }
 
+bool transition_compositor_compose_bottom_sheet_rgb565(uint8_t * dst, uint32_t dst_stride,
+                                                        const uint8_t * base, uint32_t base_stride,
+                                                        const uint8_t * sheet_argb8888, uint32_t sheet_stride,
+                                                        const uint8_t * sheet_rgb565, uint32_t rgb565_stride,
+                                                        const int32_t * span_start, const int32_t * span_end,
+                                                        int32_t width, int32_t height,
+                                                        int32_t sheet_height, int32_t y) {
+    if (!dst || !base || !sheet_argb8888 || !sheet_rgb565 || !span_start || !span_end ||
+        width <= 0 || height <= 0 || sheet_height <= 0 || sheet_height > height) return false;
+    uint64_t row565 = (uint64_t) (uint32_t) width * 2U;
+    uint64_t rowargb = (uint64_t) (uint32_t) width * 4U;
+    if (dst_stride < row565 || base_stride < row565 || rgb565_stride < row565 ||
+        sheet_stride < rowargb ||
+        (uint64_t) dst_stride * (uint32_t) height > SIZE_MAX ||
+        (uint64_t) base_stride * (uint32_t) height > SIZE_MAX ||
+        (uint64_t) rgb565_stride * (uint32_t) sheet_height > SIZE_MAX ||
+        (uint64_t) sheet_stride * (uint32_t) sheet_height > SIZE_MAX) return false;
+
+    size_t row_bytes = (size_t) row565;
+    if (dst_stride == row_bytes && base_stride == row_bytes) {
+        memcpy(dst, base, row_bytes * (size_t) height);
+    } else {
+        for (int32_t row = 0; row < height; row++)
+            memcpy(dst + (size_t) row * dst_stride, base + (size_t) row * base_stride, row_bytes);
+    }
+    int64_t top = y < 0 ? 0 : y;
+    int64_t bottom = (int64_t) y + sheet_height;
+    if (bottom > height) bottom = height;
+    for (int32_t dy = (int32_t) top; dy < bottom; dy++) {
+        int32_t sy = (int32_t) ((int64_t) dy - y);
+        if (span_start[sy] < 0 || span_end[sy] < span_start[sy] || span_end[sy] > width) return false;
+        uint8_t * dst_row = dst + (size_t) dy * dst_stride;
+        const uint8_t * argb = sheet_argb8888 + (size_t) sy * sheet_stride;
+        const uint8_t * rgb565 = sheet_rgb565 + (size_t) sy * rgb565_stride;
+        int32_t opaque_start = span_start[sy];
+        int32_t opaque_end = span_end[sy];
+        if (opaque_end > opaque_start)
+            memcpy(dst_row + (size_t) opaque_start * 2U, rgb565 + (size_t) opaque_start * 2U,
+                   (size_t) (opaque_end - opaque_start) * 2U);
+        /* Byte addressing also supports odd padded strides on platforms
+         * that fault on unaligned uint16_t loads. */
+        for (int32_t x = 0; x < opaque_start; x++) {
+            uint16_t pixel;
+            memcpy(&pixel, dst_row + (size_t) x * 2U, sizeof(pixel));
+            pixel = compositor_argb8888_pixel_over_rgb565(argb + (size_t) x * 4U, pixel);
+            memcpy(dst_row + (size_t) x * 2U, &pixel, sizeof(pixel));
+        }
+        for (int32_t x = opaque_end; x < width; x++) {
+            uint16_t pixel;
+            memcpy(&pixel, dst_row + (size_t) x * 2U, sizeof(pixel));
+            pixel = compositor_argb8888_pixel_over_rgb565(argb + (size_t) x * 4U, pixel);
+            memcpy(dst_row + (size_t) x * 2U, &pixel, sizeof(pixel));
+        }
+    }
+    return true;
+}
+
+bool transition_compositor_begin_bottom_sheet(const lv_draw_buf_t * sheet) {
+#if COMPOSITOR_DISABLED || !LV_USE_LINUX_FBDEV
+    (void) sheet;
+    return false;
+#else
+    if (compositor_active || !sheet || sheet->header.cf != LV_COLOR_FORMAT_ARGB8888) return false;
+    lv_display_t * disp = lv_display_get_default();
+    if (!disp || lv_display_get_rotation(disp) != LV_DISPLAY_ROTATION_0) return false;
+    int32_t w = lv_display_get_horizontal_resolution(disp);
+    int32_t h = lv_display_get_vertical_resolution(disp);
+    uint32_t fb_stride = lv_linux_fbdev_get_stride(disp);
+    const uint8_t * active_page = (const uint8_t *) lv_linux_fbdev_get_active_page(disp);
+    uint64_t min_stride = w > 0 ? (uint64_t) (uint32_t) w * 4U : 0;
+    uint64_t source_need = (uint64_t) sheet->header.stride * sheet->header.h;
+    uint64_t base_size64 = fb_stride && h > 0 ? (uint64_t) fb_stride * (uint32_t) h : 0;
+    uint64_t rgb_size64 = w > 0 && sheet->header.h > 0 ? (uint64_t) (uint32_t) w * 2U * sheet->header.h : 0;
+    if (w <= 0 || h <= 0 || !active_page || !sheet->data || fb_stride < (uint64_t) (uint32_t) w * 2U ||
+        sheet->header.w != (uint32_t) w || sheet->header.h == 0 || sheet->header.h > (uint32_t) h ||
+        sheet->header.stride < min_stride || source_need > sheet->data_size ||
+        base_size64 > SIZE_MAX || rgb_size64 > SIZE_MAX || sheet->header.h > SIZE_MAX / sizeof(int32_t)) return false;
+
+    size_t base_size = (size_t) base_size64;
+    size_t rgb_size = (size_t) rgb_size64;
+    size_t span_size = (size_t) sheet->header.h * sizeof(int32_t);
+    uint8_t * base = malloc(base_size);
+    uint8_t * rgb565 = malloc(rgb_size);
+    int32_t * span_start = malloc(span_size);
+    int32_t * span_end = malloc(span_size);
+    if (!base || !rgb565 || !span_start || !span_end) {
+        free(base); free(rgb565); free(span_start); free(span_end);
+        return false;
+    }
+    memcpy(base, active_page, base_size);
+
+    const uint8_t * src = (const uint8_t *) sheet->data;
+    for (uint32_t row = 0; row < sheet->header.h; row++) {
+        const uint8_t * src_row = src + (size_t) row * sheet->header.stride;
+        uint16_t * out = (uint16_t *) (rgb565 + (size_t) row * (size_t) w * 2U);
+        int32_t best_start = 0, best_end = 0, run_start = -1;
+        for (int32_t x = 0; x < w; x++) {
+            const uint8_t * px = src_row + (size_t) x * 4U;
+            uint8_t opaque[4] = {px[0], px[1], px[2], 255};
+            out[x] = compositor_argb8888_pixel_over_rgb565(opaque, 0);
+            if (px[3] == 255) {
+                if (run_start < 0) run_start = x;
+                if (x + 1 - run_start > best_end - best_start) {
+                    best_start = run_start;
+                    best_end = x + 1;
+                }
+            } else run_start = -1;
+        }
+        span_start[row] = best_start;
+        span_end[row] = best_end;
+    }
+    if (!lv_linux_fbdev_begin_external_composition(disp)) {
+        free(base); free(rgb565); free(span_start); free(span_end);
+        return false;
+    }
+    compositor_bottom_base = base;
+    compositor_bottom_rgb565 = rgb565;
+    compositor_bottom_span_start = span_start;
+    compositor_bottom_span_end = span_end;
+    compositor_bottom_sheet = sheet;
+    compositor_bottom_height = (int32_t) sheet->header.h;
+    compositor_width = w;
+    compositor_height = h;
+    compositor_fb_stride = fb_stride;
+    compositor_mode = COMPOSITOR_MODE_BOTTOM_SHEET;
+    lv_display_enable_invalidation(disp, false);
+    compositor_active = true;
+#ifdef UI_PERF_TRACE
+    compositor_perf_frame_total_us = compositor_perf_frame_max_us = 0;
+    compositor_perf_compose_total_us = compositor_perf_compose_max_us = 0;
+    compositor_perf_present_total_us = compositor_perf_present_max_us = 0;
+    compositor_perf_frame_count = compositor_perf_present_failures = 0;
+    compositor_perf_last_frame_start_us = compositor_perf_gap_max_us = 0;
+    printf("PERF bottom_sheet compositor begin_active=1 w=%d h=%d sheet_h=%d stride=%u\n", w, h,
+           compositor_bottom_height, fb_stride);
+#endif
+    return true;
+#endif
+}
+
+bool transition_compositor_bottom_sheet_frame(int32_t y) {
+#if COMPOSITOR_DISABLED || !LV_USE_LINUX_FBDEV
+    (void) y;
+    return false;
+#else
+    if (!compositor_active || compositor_mode != COMPOSITOR_MODE_BOTTOM_SHEET) return false;
+#ifdef UI_PERF_TRACE
+    uint64_t perf_frame_start_us = compositor_perf_now_us();
+    uint64_t perf_gap_us = compositor_perf_frame_count ?
+        perf_frame_start_us - compositor_perf_last_frame_start_us : 0;
+    compositor_perf_last_frame_start_us = perf_frame_start_us;
+    if (perf_gap_us > compositor_perf_gap_max_us) compositor_perf_gap_max_us = perf_gap_us;
+#endif
+    lv_display_t * disp = lv_display_get_default();
+    uint8_t * dest = (uint8_t *) lv_linux_fbdev_get_inactive_page(disp);
+    if (!dest) { transition_compositor_end(); return false; }
+    size_t row_bytes = (size_t) compositor_width * 2U;
+    /* Share the pure cached compositor with host regression harnesses. */
+    if (!transition_compositor_compose_bottom_sheet_rgb565(
+            dest, compositor_fb_stride, compositor_bottom_base, compositor_fb_stride,
+            (const uint8_t *) compositor_bottom_sheet->data, compositor_bottom_sheet->header.stride,
+            compositor_bottom_rgb565, (uint32_t) row_bytes,
+            compositor_bottom_span_start, compositor_bottom_span_end,
+            compositor_width, compositor_height, compositor_bottom_height, y)) {
+        transition_compositor_end();
+        return false;
+    }
+#ifdef UI_PERF_TRACE
+    uint64_t perf_compose_end_us = compositor_perf_now_us();
+#endif
+    if (!lv_linux_fbdev_present_external_page(disp)) {
+#ifdef UI_PERF_TRACE
+        compositor_perf_present_failures++;
+        printf("PERF bottom_sheet present_failed y=%d\n", y);
+#endif
+        transition_compositor_end();
+        return false;
+    }
+#ifdef UI_PERF_TRACE
+    uint64_t perf_present_end_us = compositor_perf_now_us();
+    uint64_t compose_us = perf_compose_end_us - perf_frame_start_us;
+    uint64_t present_us = perf_present_end_us - perf_compose_end_us;
+    uint64_t frame_us = perf_present_end_us - perf_frame_start_us;
+    compositor_perf_compose_total_us += compose_us;
+    if (compose_us > compositor_perf_compose_max_us) compositor_perf_compose_max_us = compose_us;
+    compositor_perf_present_total_us += present_us;
+    if (present_us > compositor_perf_present_max_us) compositor_perf_present_max_us = present_us;
+    compositor_perf_frame_total_us += frame_us;
+    if (frame_us > compositor_perf_frame_max_us) compositor_perf_frame_max_us = frame_us;
+    printf("PERF bottom_sheet frame idx=%u gap_us=%llu compose_us=%llu present_us=%llu total_us=%llu y=%d\n",
+           compositor_perf_frame_count, (unsigned long long) perf_gap_us,
+           (unsigned long long) compose_us, (unsigned long long) present_us,
+           (unsigned long long) frame_us, y);
+    compositor_perf_frame_count++;
+#endif
+    return true;
+#endif
+}
+
 void transition_compositor_end(void) {
     if (!compositor_active) return;
     compositor_active = false;
@@ -832,6 +1038,12 @@ void transition_compositor_end(void) {
     free(compositor_vertical_reveal_base);
     compositor_vertical_reveal_base = NULL;
     compositor_vertical_reveal_base_stride = 0;
+    free(compositor_bottom_base); compositor_bottom_base = NULL;
+    free(compositor_bottom_rgb565); compositor_bottom_rgb565 = NULL;
+    free(compositor_bottom_span_start); compositor_bottom_span_start = NULL;
+    free(compositor_bottom_span_end); compositor_bottom_span_end = NULL;
+    compositor_bottom_sheet = NULL;
+    compositor_bottom_height = 0;
 #ifdef UI_PERF_TRACE
     printf("PERF compositor end frames=%u avg_us=%llu max_us=%llu max_gap_us=%llu present_failures=%u compose_avg_us=%llu compose_max_us=%llu present_avg_us=%llu present_max_us=%llu\n",
            compositor_perf_frame_count,

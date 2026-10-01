@@ -112,6 +112,21 @@ bool transition_compositor_begin_vertical_overlay(const lv_draw_buf_t * overlay,
                                                   bool reuse_saved_base);
 bool transition_compositor_vertical_overlay_frame(int32_t y);
 
+/* Direct bottom-sheet animation. `sheet` is a borrowed, straight-alpha
+ * ARGB8888 snapshot with screen width and height no greater than screen
+ * height. The stationary background is captured from the active page. */
+bool transition_compositor_begin_bottom_sheet(const lv_draw_buf_t * sheet);
+bool transition_compositor_bottom_sheet_frame(int32_t y);
+/* Pure cached bottom-sheet compositor. `sheet_rgb565` contains the opaque
+ * color conversion; spans identify each row's longest fully opaque run. */
+bool transition_compositor_compose_bottom_sheet_rgb565(uint8_t * dst, uint32_t dst_stride,
+                                                        const uint8_t * base, uint32_t base_stride,
+                                                        const uint8_t * sheet_argb8888, uint32_t sheet_stride,
+                                                        const uint8_t * sheet_rgb565, uint32_t rgb565_stride,
+                                                        const int32_t * span_start, const int32_t * span_end,
+                                                        int32_t width, int32_t height,
+                                                        int32_t sheet_height, int32_t y);
+
 /* Vertical reveal compositor for drawer expansion. base and expanded are
  * complete opaque RGB565 screen frames, independently owned and kept alive
  * until transition_compositor_end(). The output uses base everywhere,

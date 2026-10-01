@@ -2763,9 +2763,9 @@ static lv_obj_t * power_hub_card(lv_obj_t * parent, const char * title,
     if (source) {
         lv_obj_t * icon = lv_image_create(card);
         lv_image_set_src(icon, source);
-        lv_image_set_inner_align(icon, LV_IMAGE_ALIGN_CENTER);
-        lv_image_set_scale(icon, (BOARD_SCALE_PX(48) * LV_SCALE_NONE + 48) / 96);
+        /* Fit installed assets of any size into the same icon box. */
         lv_obj_set_size(icon, BOARD_SCALE_PX(48), BOARD_SCALE_PX(48));
+        lv_image_set_inner_align(icon, LV_IMAGE_ALIGN_CONTAIN);
         lv_obj_add_style(icon, gui_theme_accent_style(), 0);
         lv_obj_set_style_image_recolor_opa(icon, LV_OPA_COVER, 0);
         lv_obj_remove_flag(icon, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);

@@ -10,6 +10,7 @@
 #include "usb_mode_control.h"
 #include "gui_player.h"
 #include "frosted_glass.h"
+#include "transition_compositor.h"
 #include "src/draw/lv_draw_buf.h"
 #include "src/draw/snapshot/lv_snapshot.h"
 
@@ -8112,45 +8113,187 @@ static int power_action_pending = -1;
 #define POWER_OVERLAY_BLUR_PASSES 3
 #define POWER_OVERLAY_DARKEN_NUM 3
 #define POWER_OVERLAY_DARKEN_DEN 5
-#define POWER_HUB_ENTRANCE_MS 160
+#define POWER_HUB_ENTRANCE_MS 320
+
+static lv_obj_t * power_action_motion_img;
+static lv_draw_buf_t * power_action_motion_frame;
+static lv_timer_t * power_action_start_timer;
+static bool power_action_direct_motion;
+
+#ifdef UI_PERF_TRACE
+static uint64_t power_action_last_frame_us;
+#endif
+
+static void power_action_motion_exec(void * obj, int32_t y) {
+#ifdef UI_PERF_TRACE
+    uint64_t now_us = ui_perf_now_us();
+    printf("PERF power slide y=%d gap_us=%llu\n", (int) y,
+           (unsigned long long) (power_action_last_frame_us ? now_us - power_action_last_frame_us : 0));
+    power_action_last_frame_us = now_us;
+#endif
+    lv_obj_set_y(obj, y);
+    if (power_action_direct_motion) {
+        if (transition_compositor_bottom_sheet_frame(y)) return;
+        /* Failed presentation ends its compositor session. Continue through
+         * the prepared LVGL image at the same position. */
+        power_action_direct_motion = false;
+        lv_obj_set_style_opa(obj, LV_OPA_COVER, 0);
+        lv_obj_invalidate(obj);
+    }
+}
 
 static void power_action_slide_exec(void * obj, int32_t offset) {
     /* A translation preserves the sheet's bottom alignment and flex layout. */
     lv_obj_set_style_translate_y(obj, offset, 0);
 }
 
-static void power_action_hide(void) {
-    gui_popup_hide(&power_action_overlay);
-    if (power_action_overlay.popup) {
-        lv_anim_delete(power_action_overlay.popup, power_action_slide_exec);
-        lv_obj_set_style_translate_y(power_action_overlay.popup, 0, 0);
+/* Motion art is deliberately transient: drop LVGL's decoded-image cache
+ * before releasing the caller-owned snapshot buffer. */
+static void power_action_motion_cleanup(bool restore_panel, bool cancel_motion_anim) {
+    if (power_action_direct_motion) {
+        transition_compositor_end();
+        power_action_direct_motion = false;
     }
+    if (power_action_start_timer) {
+        lv_timer_delete(power_action_start_timer);
+        power_action_start_timer = NULL;
+    }
+    if (cancel_motion_anim && power_action_motion_img)
+        lv_anim_delete(power_action_motion_img, power_action_motion_exec);
+    if (power_action_overlay.popup)
+        lv_anim_delete(power_action_overlay.popup, power_action_slide_exec);
+    if (power_action_motion_img) {
+        lv_image_cache_drop(power_action_motion_frame);
+        lv_obj_delete(power_action_motion_img);
+        power_action_motion_img = NULL;
+    }
+    if (power_action_motion_frame) {
+        lv_draw_buf_destroy(power_action_motion_frame);
+        power_action_motion_frame = NULL;
+    }
+    if (power_action_overlay.popup) {
+        lv_obj_set_style_translate_y(power_action_overlay.popup, 0, 0);
+        if (restore_panel) lv_obj_remove_flag(power_action_overlay.popup, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static void power_action_motion_done(lv_anim_t * anim) {
+    (void) anim;
+    power_action_motion_cleanup(true, false);
+}
+
+/* Preparation runs with the main loop's frozen tick. Starting on a later
+ * loop prevents blur/snapshot time from consuming the entrance duration. */
+static void power_action_start_animation(lv_timer_t * timer) {
+    lv_timer_delete(timer);
+    power_action_start_timer = NULL;
+    lv_obj_t * panel = power_action_overlay.popup;
+    if (!panel || !gui_popup_is_visible(&power_action_overlay)) return;
+#ifdef UI_PERF_TRACE
+    power_action_last_frame_us = 0;
+#endif
+    lv_anim_t anim;
+    lv_anim_init(&anim);
+    if (power_action_direct_motion) lv_anim_set_early_apply(&anim, false);
+    if (power_action_motion_img) {
+        lv_anim_set_var(&anim, power_action_motion_img);
+        lv_anim_set_exec_cb(&anim, power_action_motion_exec);
+        lv_anim_set_values(&anim, lv_obj_get_y(power_action_motion_img), lv_obj_get_y(panel));
+        lv_anim_set_completed_cb(&anim, power_action_motion_done);
+    } else {
+        lv_anim_set_var(&anim, panel);
+        lv_anim_set_exec_cb(&anim, power_action_slide_exec);
+        lv_anim_set_values(&anim, lv_obj_get_height(panel), 0);
+    }
+    lv_anim_set_duration(&anim, gui_anim_ms(POWER_HUB_ENTRANCE_MS));
+    lv_anim_set_path_cb(&anim, lv_anim_path_ease_out);
+    if (!lv_anim_start(&anim)) power_action_motion_cleanup(true, true);
+}
+
+static void power_action_begin_slide(lv_timer_t * timer) {
+    lv_timer_delete(timer);
+    power_action_start_timer = NULL;
+    if (!power_action_overlay.popup || !gui_popup_is_visible(&power_action_overlay)) return;
+    bool use_direct_motion = true;
+#ifdef UI_PERF_TRACE
+    /* Diagnostic comparison uses the same binary and preparation path. */
+    use_direct_motion = getenv("COMPAS_POWER_SLIDE_LVGL") == NULL;
+#endif
+    if (use_direct_motion && power_action_motion_img &&
+        transition_compositor_begin_bottom_sheet(power_action_motion_frame)) {
+        power_action_direct_motion = true;
+        /* Keep the moving hit target without asking LVGL to draw the art. */
+        lv_obj_set_style_opa(power_action_motion_img, LV_OPA_TRANSP, 0);
+        if (!transition_compositor_bottom_sheet_frame(lv_obj_get_y(power_action_motion_img))) {
+            power_action_direct_motion = false;
+            lv_obj_set_style_opa(power_action_motion_img, LV_OPA_COVER, 0);
+        }
+    }
+
+    /* Pixel conversion and the first vsync can be expensive. Refresh the
+     * loop tick once more before measuring the animation's duration. */
+    power_action_start_timer = lv_timer_create(power_action_start_animation, 1, NULL);
+    if (!power_action_start_timer) power_action_motion_cleanup(true, true);
+}
+
+static void power_action_hide(void) {
+    power_action_motion_cleanup(true, true);
+    gui_popup_hide(&power_action_overlay);
     power_action_pending = -1;
 }
 
 static void power_action_show(void) {
     lv_obj_t * panel = power_action_overlay.popup;
-    if (!panel || gui_anims_off()) {
+    power_action_motion_cleanup(true, true);
+    if (!panel) {
+        gui_popup_show(&power_action_overlay);
+        return;
+    }
+    if (gui_anims_off()) {
         gui_popup_show(&power_action_overlay);
         return;
     }
     lv_anim_delete(panel, power_action_slide_exec);
-    /* Start outside the display before unhiding, then measure the updated
-     * flex height. No frame can paint the sheet at its final position first. */
-    lv_obj_set_style_translate_y(panel, BOARD_SCREEN_HEIGHT, 0);
     gui_popup_show(&power_action_overlay);
     lv_obj_update_layout(panel);
-    int32_t travel = lv_obj_get_height(panel);
-    lv_obj_set_style_translate_y(panel, travel, 0);
+    int32_t width = lv_obj_get_width(panel);
+    int32_t height = lv_obj_get_height(panel);
+    if (width <= 0 || height <= 0 || width > BOARD_SCREEN_WIDTH || height > BOARD_SCREEN_HEIGHT) return;
 
-    lv_anim_t anim;
-    lv_anim_init(&anim);
-    lv_anim_set_var(&anim, panel);
-    lv_anim_set_exec_cb(&anim, power_action_slide_exec);
-    lv_anim_set_values(&anim, travel, 0);
-    lv_anim_set_duration(&anim, gui_anim_ms(POWER_HUB_ENTRANCE_MS));
-    lv_anim_set_path_cb(&anim, lv_anim_path_ease_out);
-    lv_anim_start(&anim);
+    power_action_motion_frame = lv_snapshot_take(panel, LV_COLOR_FORMAT_ARGB8888);
+    if (power_action_motion_frame &&
+        (power_action_motion_frame->header.w != (uint32_t) width ||
+         power_action_motion_frame->header.h != (uint32_t) height)) {
+        lv_draw_buf_destroy(power_action_motion_frame);
+        power_action_motion_frame = NULL;
+    }
+    if (!power_action_motion_frame) goto live_slide;
+
+    power_action_motion_img = lv_image_create(power_action_overlay.backdrop);
+    if (!power_action_motion_img) {
+        lv_draw_buf_destroy(power_action_motion_frame);
+        power_action_motion_frame = NULL;
+        goto live_slide;
+    }
+    lv_image_set_src(power_action_motion_img, power_action_motion_frame);
+    lv_obj_set_size(power_action_motion_img, width, height);
+    lv_obj_set_pos(power_action_motion_img, lv_obj_get_x(panel), lv_obj_get_y(panel) + height);
+    lv_obj_remove_flag(power_action_motion_img, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_EVENT_BUBBLE);
+    /* Intercept taps over the moving sheet so action cards cannot click
+     * through to the hidden live panel. The uncovered backdrop still cancels. */
+    lv_obj_add_flag(power_action_motion_img, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(panel, LV_OBJ_FLAG_HIDDEN);
+
+    goto schedule_slide;
+
+live_slide:
+    /* Allocation failure retains the live slide without snapshot storage. */
+    lv_obj_set_style_translate_y(panel, height, 0);
+
+schedule_slide:
+    /* Do not mark this timer ready: it must wait for a fresh loop tick. */
+    power_action_start_timer = lv_timer_create(power_action_begin_slide, 1, NULL);
+    if (!power_action_start_timer) power_action_motion_cleanup(true, true);
 }
 
 static void power_action_backdrop_cb(lv_event_t * e) {
@@ -9361,6 +9504,7 @@ void gui_library_teardown(void) {
     if (playlist_context_menu_popup) { lv_obj_delete(playlist_context_menu_popup); playlist_context_menu_popup = NULL; }
     if (playlist_context_menu_backdrop) { lv_obj_delete(playlist_context_menu_backdrop); playlist_context_menu_backdrop = NULL; }
     library_teardown_diag("power_action_overlay before");
+    power_action_motion_cleanup(false, true);
     gui_popup_teardown(&power_action_overlay);
     power_action_status = NULL;
     power_action_pending = -1;
@@ -9441,6 +9585,7 @@ void gui_library_teardown(void) {
      * forever, invisible only until the next power-button long-press
      * actually shows it. */
     library_teardown_diag("power_action_overlay before");
+    power_action_motion_cleanup(false, true);
     gui_popup_teardown(&power_action_overlay);
     power_action_status = NULL;
     power_action_pending = -1;
