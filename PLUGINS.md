@@ -100,7 +100,7 @@ library:
   `os.clock`, `os.difftime`, `os.remove` and `os.rename`, so plugins can keep
   their own state files.
 - File access is otherwise unrestricted, with one exception: nothing can touch
-  `/usr/data/plugins/`, where `plugin.storage` and `plugin.secrets` keep their
+  `/usr/data/.compas/plugins/`, where `plugin.storage` and `plugin.secrets` keep their
   data. Every `plugin.*` function that takes a path refuses paths inside it
   with an error; so do Lua's `io` and `os` functions (`io.open`, `os.remove`
   and `os.rename` return `nil, error`, the others raise).
