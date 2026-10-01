@@ -3,6 +3,7 @@
 #include "subprocess.h"
 
 #include <dirent.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <linux/input.h>
 #include <stdio.h>
@@ -52,16 +53,19 @@ bool firmware_update_scan(char * out_path, size_t out_size) {
 
 void firmware_update_enter_recovery(void) {
     char * bootmode_argv[] = { "/usr/bin/bootmode.sh", "Recovery", NULL };
-    subprocess_run(bootmode_argv, NULL, 0);
+    int exit_code = -1;
+    if (!subprocess_run_checked(bootmode_argv, NULL, 0, 15000, &exit_code) || exit_code != 0) {
+        fprintf(stderr, "firmware_update: recovery boot flag failed (exit %d)\n", exit_code);
+        return;
+    }
 
 #ifndef HOST_BUILD
     sync();
-    /* Reboot directly while still inside the player process. Executing the
-     * reboot utility first can return a clean child exit to our supervising
-     * bootloader, whose deliberate clean-exit policy is to power off. */
+    /* A successful reboot does not return. On failure keep the player alive:
+     * replacing it with the reboot utility can trigger the supervisor's
+     * clean-exit poweroff, and waiting forever hides the failure from users. */
     reboot(RB_AUTOBOOT);
-    execl("/sbin/reboot", "reboot", (char *) NULL);
-    for (;;) pause();
+    fprintf(stderr, "firmware_update: reboot failed: %s\n", strerror(errno));
 #endif
 }
 

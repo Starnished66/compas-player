@@ -1,21 +1,46 @@
-# 🧩 Writing Plugins
+# Writing plugins
 
-Build third-party features for Open Source Player with plain Lua
-— no C toolchain, player rebuild, or firmware reflash required.
+Plugins add features to the player with plain Lua: new screens, settings,
+themes, streaming sources, automations. No compiler, rebuild or firmware
+flash is needed.
 
-This guide is derived from `src/plugins/plugin_manager.c` and the scripts in
-`plugins_examples/`. If the guide and source ever disagree, the source is
-authoritative.
+Ready-made plugins live in the
+[compas-plugins repository](https://github.com/Starnished66/compas-plugins).
+The in-app **Plugin Store** (Settings > System > Plugin Manager > Plugin
+Store) installs from it. Browse it for real examples, or contribute your own.
+More examples are in `plugins_examples/` in this repository.
 
-## 🧭 Start Here
+This guide describes the API in `src/plugins/plugin_manager.c`. If the two
+ever disagree, the code is right.
+
+**Contents**
+
+- [Quick start](#quick-start)
+- [How plugins run](#how-plugins-run)
+- [Where your plugin appears](#where-your-plugin-appears)
+- [Identity and compatibility](#identity-and-compatibility)
+- [Screens](#screens)
+- [Theming](#theming)
+- [Playback](#playback)
+- [Music library](#music-library)
+- [Files and playlists](#files-and-playlists)
+- [Sound](#sound)
+- [Device](#device)
+- [Network](#network)
+- [Data and storage](#data-and-storage)
+- [Events and timers](#events-and-timers)
+- [Examples](#examples)
+- [Testing and debugging](#testing-and-debugging)
+- [Extending the API (C developers)](#extending-the-api-c-developers)
+
+## Quick start
 
 1. Create a `.lua` file.
 2. Give the plugin an identity with `plugin.define()`.
-3. Register a row or Stream Media tile so users can open it.
-4. Copy it to `<SD card>/.plugins/`.
-5. Restart the player. Plugins are scanned only during startup.
-
-### Minimal plugin
+3. Add a way to open it, for example a row in Settings.
+4. Copy the file to `<SD card>/.plugins/`.
+5. Open **Settings > System > Plugin Manager** and tap **Refresh Plugins**,
+   or restart the player.
 
 ```lua
 plugin.define({
@@ -26,761 +51,463 @@ plugin.define({
 })
 
 plugin.register_list_item("settings", "Hello Player", function()
-    plugin.show_list("Hello Player", {
-        "The plugin is working!",
-        "Lua says hello 👋",
-    }, function(index)
+    plugin.show_list("Hello Player", { "The plugin is working!" }, function(index)
         plugin.show_toast("Selected row " .. index)
     end)
 end)
 ```
 
-Install it as:
+Save it as `<SD card>/.plugins/HelloPlayer.lua`. The row appears under
+Settings > System > Additional Tools.
 
-```text
-<SD card>/.plugins/HelloPlayer.lua
-```
+Tip: start from the example closest to what you want to build.
+`Audiobooks.lua`, `NetRadio.lua`, `Themes.lua` and `LastFmScrobbler.lua` cover
+the most common shapes.
 
-Ready-made plugins live in the
-[compas-plugins repository](https://github.com/Starnished66/compas-plugins).
-The in-app **Plugin Store** (Settings > System > Plugin Manager > Plugin
-Store) installs from it. Browse it for real examples, or contribute your own.
+## How plugins run
 
-> [!TIP]
-> Start with an example close to what you want to build. `Audiobooks.lua`,
-> `NetRadio.lua`, `Themes.lua`, and `LastFmScrobbler.lua` cover most common
-> plugin shapes.
+**Loading**
 
-## 📖 Guide Map
+- Every `*.lua` file directly inside `<SD card>/.plugins/` is a plugin
+  (`/data/mnt/sd_0/.plugins/` on the device, `./music/.plugins/` on the
+  simulator). Subfolders are not scanned, but plugins can keep their own files
+  there.
+- Plugins load at startup, and again on **Refresh Plugins** or
+  `plugin.reload_ui()`. Each one runs its file from top to bottom once; this is
+  where it registers rows, tiles and events.
+- Files load in alphabetical order (byte-wise, case-sensitive). Up to 32
+  enabled plugins load; Plugin Manager marks the rest "not loaded: plugin limit
+  reached".
+- Some settings are global and the last plugin to set them wins, for example
+  colors, icons and the Home layout. Because the order is alphabetical, the
+  winner is always the same.
+- Each plugin has its own Lua state, kept alive for as long as it is loaded,
+  so callbacks can run at any time later.
+- A plugin that fails to load is skipped and logged; the others are not
+  affected. A callback that raises an error is logged and the player keeps
+  running.
 
-- [Loading and isolation](#loading)
-- [Adding a plugin to the UI](#ui-entry-points)
-- [Identity and capability checks](#identity)
-- [Lists and settings screens](#plugin-ui)
-- [Files and playback](#files-playback)
-- [Networking](#networking)
-- [Playback events and timers](#events)
-- [Complete examples](#examples)
-- [Testing your plugin](#testing)
+**Sandbox**
 
-<a id="loading"></a>
+Plugins come from the SD card, so they don't get the full Lua standard
+library:
 
-## ⚙️ How Plugins Load
+- Removed: `load`, `loadstring`, `loadfile`, `dofile`, `require`, `package`,
+  `debug`, `os.execute`, `os.getenv`, `os.exit`, `os.tmpname` and `io.popen`.
+  A plugin must be a single file; it cannot load other Lua files or run shell
+  commands.
+- Kept: the rest of `io` (including `io.open`), and `os.time`, `os.date`,
+  `os.clock`, `os.difftime`, `os.remove` and `os.rename`, so plugins can keep
+  their own state files.
+- File access is otherwise unrestricted, with one exception: nothing can touch
+  `/usr/data/plugins/`, where `plugin.storage` and `plugin.secrets` keep their
+  data. Every `plugin.*` function that takes a path refuses paths inside it
+  with an error; so do Lua's `io` and `os` functions (`io.open`, `os.remove`
+  and `os.rename` return `nil, error`, the others raise).
 
-At startup (`plugin_manager_init()`, called early in `gui_init()`, well
-before anything could tap into one), every `*.lua` file directly under
-`<SD card>/.plugins/` (`/data/mnt/sd_0/.plugins/` on the real device,
-`./music/.plugins/` on the host simulator) is loaded, one at a time, into
-its **own** `lua_State` (`luaL_newstate()` + `luaL_openlibs()`), with the
-`plugin` table (below) injected before the file itself runs
-(`luaL_dofile()`). Subdirectories and anything not ending in `.lua` are
-skipped. Every eligible filename is collected and sorted in **ascending
-order** (byte-wise, case-sensitive) -- not raw directory order, which is
-filesystem-dependent and can silently change after copying or reinstalling
-files -- before the first 32 enabled ones (`PLUGIN_MAX_FILES`) are actually
-loaded; with more than 32 enabled `.lua` files present, it's always the
-alphabetically-first 32, never whichever 32 the filesystem happened to
-return first. Plugin Manager marks the rest "not loaded: plugin limit
-reached"; turning another plugin off frees its slot after the refresh.
-This matters for every plugin API backed by a single
-global slot that any plugin can overwrite (`set_background_color()`,
-`set_text_color()`, `set_icon()`, `set_home_layout()`): if two installed
-plugins both set the same one, the alphabetically-last plugin's own call
-wins, reproducibly.
+**Time limit**
 
-Each `lua_State` is kept open for the rest of the app's lifetime, never
-closed -- a plugin's callbacks (`on_open`, a `show_list` row's
-`on_select`) are Lua closures that need their owning state alive to be
-invoked later, from a tap that can happen minutes after load.
+Each run of plugin code (the top-level code, a callback, an event, a timer
+tick) may use at most 2 seconds of Lua time. Time spent inside `plugin.*`
+functions (copying icons, a slow HTTP request) doesn't count, but a runaway
+loop is stopped. File reads through Lua's own file handles do count.
 
-If a file fails to load or errors while running its top-level code
-(`luaL_dofile()` returning non-`LUA_OK`), that one file is skipped -- logged
-to stderr as `[plugins] failed to load <path>: <error>` -- without
-affecting any other `.lua` file in the folder.
+## Where your plugin appears
 
-### Sandboxing
+| Entry point | Function | Limit |
+| --- | --- | --- |
+| A row in a native list | `register_list_item` | 8 rows per list, all plugins together |
+| A tile in Stream Media | `register_stream_media_tile` | 5 tiles |
+| A tile on Home | `register_home_tile` | 6 tiles, shown only when a Home layout lists them |
+| An on/off tile in the quick drawer | `register_quick_toggle` | 4 tiles |
 
-A plugin is just a `.lua` file dropped into `.plugins/` -- this app treats
-that the same as any other SD-card-supplied content, not as fully trusted
-code, so `luaL_openlibs()`'s full standard library is trimmed right after
-each `lua_State` is created (`sandbox_plugin_lua_state()`):
+The lists that accept rows:
 
-- **Removed entirely**: `load`, `loadstring`, `loadfile`, `dofile`,
-  `require`, `package`, `debug`. Every one of the 7 bundled plugins is a
-  single self-contained file with no multi-file/`require()` pattern
-  (confirmed by actually checking, not assumed), so this doesn't take
-  away anything a currently-shipped plugin needs -- but see the API
-  version 2 changelog above: a *third-party* plugin that does split its
-  own code across files via `require()`/`dofile()` will break.
-- **Removed from `os`**: `execute`, `getenv`, `exit`, `tmpname`.
-  `os.time`/`os.date`/`os.clock`/`os.difftime`/`os.remove`/`os.rename`
-  are still available (see below for the last two).
-- **Removed from `io`**: only `io.popen` (a shell-exec primitive, not
-  file I/O). The rest of `io`, including `io.open`, stays -- all 7
-  bundled plugins genuinely use `io.open()` to persist their own small
-  state file under `plugin.sd_root() .. "/.plugins/..."`, and 3 of them
-  use `os.remove()`/`os.rename()` for an atomic write-then-rename, the
-  same pattern this app's own C code uses elsewhere. An earlier version
-  of this sandbox removed all of `io` and `os.remove`/`os.rename`
-  entirely; real-device testing against the actual installed plugins
-  showed that broke real, legitimate use and was reverted.
+| `list_id` | Where the row appears | Good for |
+| --- | --- | --- |
+| `"books"` | Books | Readers, audiobooks, reference tools |
+| `"settings"` | Settings > System > Additional Tools | General plugin settings |
+| `"display"` | Settings > Display | Themes and visual tools |
+| `"playback"` | Settings > Playback & Controls | Resume and playback tools |
+| `"music_audio"` | Settings > Sound | EQ, DSP, gain and volume tools |
+| `"music_controls"` | Settings > Playback & Controls > Buttons & Remote | Button and remote behavior |
+| `"music_timers"` | Settings > Power | Sleep and idle timers |
+| `"music_library"` | Settings > Library | Scanning, tagging, scrobbling |
+| `"power"` | Settings > Power | Battery and power tools |
+| `"system"` | Settings > System | Device and maintenance tools |
 
-**This means plain file I/O is not otherwise restricted** -- `io.open()`
-can open any path the OS-level user can, same risk class as this app's
-own file I/O, not a privilege escalation, with one deliberate exception:
-`io.open()`, `io.lines()`, `io.input()`, `io.output()`, `os.remove()`,
-and `os.rename()` all refuse any path that resolves into the internal
-`plugin.storage`/`plugin.secrets` tree (`/usr/data/plugins/`) -- see that
-section below for why this specific guard exists. `io.input()`/
-`io.output()` only trigger the check when actually given a filename
-(selecting/opening a path); calling either with no argument, or with an
-already-open file handle, passes through unchanged since neither is a
-path to check. Outside that one reserved tree, a plugin can still read,
-write, or delete anything the SD card or `list_dir()`/`sd_root()` already
-exposed to it; that has not changed.
+Rows from different plugins share a list, up to 8 per list, and the list
+scrolls. Any other `list_id` is an error.
 
-**The same guard also applies to every native `plugin.*` function that
-takes a caller-supplied filesystem path**, not just Lua's own `io`/`os`
-entry points above -- these reach the filesystem directly in C and would
-otherwise bypass the `io`/`os` wrappers entirely: `plugin.list_dir()`,
-`plugin.mkdir()`, `plugin.play_file()`/`plugin.play_list()`,
-`plugin.set_icon()`'s source path (its second argument -- the first,
-`relative_path`, isn't an arbitrary filesystem path to begin with, see
-that function's own doc below), `plugin.eq_load_profile()`/
-`plugin.eq_save_profile()`, and `plugin.download_file_async()`'s
-destination. All of these now raise a clean error naming the reserved
-path rather than silently touching it. `plugin.download_file_async()`
-checks twice -- once before its background worker even starts, and again
-inside that worker immediately before it touches the filesystem -- so the
-guard can't be skipped by a future code path that reaches the worker some
-other way.
+## Identity and compatibility
 
-Everything a plugin legitimately needs -- file browsing, HTTP, playback
-control, library queries, theme overrides -- has a purpose-built `plugin.*`
-function below; only `io`/`os.remove`/`os.rename` fall outside that (kept
-for existing plugins' own state-file needs, not because nothing else
-covers it).
+### `plugin.define(info)`
 
-Every plugin call (a UI callback, a timer tick, an event handler, and the
-file's own top-level code on load) also runs under a wall-clock time
-budget -- 2 seconds, checked periodically via a Lua instruction-count hook
-(`plugin_call()`, wrapping every `lua_pcall()` in `plugin_manager.c`). The
-budget is cumulative Lua-busy time, not "start of the call to now": every
-native `plugin.*` function, plus the guarded `io`/`os` entry points, adds
-only its own elapsed native time to the deadline. Legitimate native work
-(copying theme icons with `plugin.set_icon()` or a slow
-`plugin.http_get()`) therefore cannot abort the plugin the moment Lua
-resumes, while repeated cheap API calls cannot reset already-consumed Lua
-time. File-handle methods such as `file:read()` remain part of the budget.
-Without that credit, `Themes.lua` failed to load after a firmware flash --
-it copies ~140 icons into a wiped `/usr/data/theme_overrides/` at top
-level, before `plugin.register_list_item()`, and the 2-second wall clock
-killed the whole file. A genuine runaway loop still hits the cumulative
-budget, including one that repeatedly calls a cheap native API.
-
-<a id="ui-entry-points"></a>
-
-## 🧭 Adding Your Plugin to the UI
-
-Choose the entry point that best matches the plugin:
-
-`plugin.register_list_item(list_id, ...)` adds a row after the native rows
-on one of these screens:
-
-| `list_id` | Location | Good fit | Shared limit |
-|---|---|---|---:|
-| `"books"` | Books | Readers, audiobooks, reference tools | 8 |
-| `"settings"` | Settings → System → Additional Tools | General plugin configuration | 8 |
-| `"display"` | Settings → Display | Themes and visual tools | 8 |
-| `"playback"` | Settings → Playback & Controls | Resume and playback tools | 8 |
-| `"music_audio"` | Settings → Sound (grouped when requested) | EQ, DSP, gain/volume-curve tools | 8 |
-| `"music_controls"` | Settings → Playback & Controls → Buttons & Remote | Playback-button and remote behavior | 8 |
-| `"music_timers"` | Settings → Power | Sleep/idle timer tools | 8 |
-| `"music_library"` | Settings → Library | Scanning, tagging, scrobbling tools | 8 |
-| `"power"` | Settings → Power | Battery and power tools | 8 |
-| `"system"` | Settings → System | Device and maintenance tools | 8 |
-
-Passing anything else raises a Lua error at load time rather than silently
-registering into nothing. If no plugin registers a row for a destination, no
-plugin row is appended. The Library category always includes the native
-**Update Music Database**, **Refresh All Metadata**, and **Refresh All Covers** actions.
-`build_pill_list_screen()` rows scroll, so every registered row remains
-reachable even when several plugins target the same screen.
-
-`plugin.register_stream_media_tile()` gives a streaming plugin a visible
-icon-grid tile in **Stream Media**, after the built-in Subsonic tile. Up to
-`PLUGIN_MAX_STREAM_TILES` plugin tiles are supported (currently 5, for 6
-tiles total). Unlike the Books list above, `build_icon_grid_screen()`'s grid
-**cannot be scrolled** (real-device testing confirmed) -- Stream Media
-happens to have room for this cap because it only has 1 built-in tile.
-`plugin.register_home_tile()` gives Home the same capability, up to
-`PLUGIN_MAX_HOME_TILES` (currently 6) plugin tiles -- a registered tile only
-actually appears once a `set_home_layout()` call's `options.order` (or
-another plugin's `.theme`-file-driven one, see `plugins_examples/Themes.lua`)
-references its `id`.
-
-## 🧰 API Reference
-
-Every function below is a field on the global `plugin` table, available
-from the moment your script starts running (injected before
-`luaL_dofile()`). All of it is implemented in `src/plugins/plugin_manager.c`.
-
-| Area | Main APIs |
-|---|---|
-| Identity | `define`, `api_version`, `has_capability`, `get_app_info`, `media_capabilities` |
-| Hardware | `led_available`, `led_set`, `led_blink`, `led_breathe`, `led_get`, `led_status`, `led_release` |
-| UI | `register_list_item`, `register_stream_media_tile`, `register_home_tile`, `register_quick_toggle`, `set_quick_toggle`, `show_list`, `is_list_showing`, `show_settings_list`, `show_text_input`, `show_text_view`, `show_toast`, `screenshot` |
-| Theme | `set_icon`, `set_background_color`, `set_text_color`, `set_home_layout`, `set_launcher_layout`, `set_player_layout`, `refresh_theme`, `reload_ui` |
-| Playback | `play_file`, `play_list`, `play_remote`, `queue_remote_list`, transport controls, playback state |
-| Files & Playlists | `sd_root`, `list_dir`, `mkdir`, `playlist_list`, `playlist_read`, `playlist_create`, `playlist_add`, `playlist_remove`, `playlist_delete` |
-| Storage & Secrets | `storage.get`/`set`/`delete`/`list`, `secrets.set`/`exists`/`delete` |
-| Data & Crypto | `json_decode`, `json_encode`, `md5`, `zip_read`, `zip_list`, `zip_image_async`, `html_to_blocks` |
-| Library | `get_artist_albums`, `get_album_tracks`, `get_next_album_tracks`, `library_song_count`, `library_get_songs`, `library_search`, `library_get_song`, `library_get_artists`, `library_get_albums`, `refresh_library` |
-| Audio | `eq_load_profile`, `eq_save_profile`, `eq_set_*`, `eq_reset` |
-| Network | `http_request`, `download_file_async`, `cancel`, legacy `http_get`/`http_post` |
-| Automation | `on`, `set_interval`, `clear_interval` |
-
-<a id="identity"></a>
-
-### 🪪 Identity, API Version, and Capabilities
-
-New plugins should declare identity once, at the start of their top-level
-script:
+Declare who the plugin is, once, at the top of the file:
 
 ```lua
 plugin.define({
-    id = "org.example.my_plugin",
+    id = "org.example.my_plugin",  -- letters, digits, ".", "_", "-"; must be unique
     name = "My Plugin",
     version = "1.0.0",
-    api_min = 2,
+    api_min = 2,                   -- refuse to load on an older player
 })
 ```
 
-`id` is a stable identifier using letters, digits, `.`, `_`, and `-`; it must
-be unique among loaded plugins -- checked against every other already-loaded
-plugin's id regardless of whether that id came from an explicit `define()`
-or a legacy plugin's filename-derived fallback, so an explicit
-`id = "legacy.foo"` and a plain `foo.lua` loaded in either order can never
-silently collide and share one storage/secrets namespace. A legacy id that
-would collide is disambiguated with a short, deterministic hash of the
-plugin's own file path (stable across reloads) rather than by load order.
-`api_min` rejects the plugin at load time when the player API is too old.
-Existing plugins without `define()` remain supported as legacy plugins
-using an identity derived from their filename.
+- The `id` names the plugin's private storage, so keep it stable across
+  versions. Two plugins with the same id are an error.
+- `api_min` stops the plugin from loading on a player whose API is older.
+- Plugins without `define()` still work. They get an id from their file
+  name, made unique with a short hash of the path if needed.
 
-- `plugin.api_version()` returns the current integer plugin API version (currently `14`).
-- `plugin.has_capability(name)` reports whether an optional interface exists.
-  Supported capability tokens:
-  - UI: `ui.list`, `ui.settings`, `ui.row_width`, `ui.text_input`, `ui.toast`, `ui.screenshot`, `ui.theme`, `ui.theme_refresh`, `ui.reload`, `ui.home_layout`, `ui.home_tiles`, `ui.launcher_layout`, `ui.home_background`, `ui.lock_screen`, `ui.quick_toggle`, `ui.text_view`, `ui.text_view_images`, `ui.list_grid`, `ui.list_showing`, `ui.list_wrap`, `ui.settings_list_wrap`, `ui.player_layout_xml`
-  - Playback & Audio: `playback.control`, `playback.state`, `playback.events`, `playback.remote`, `playback.transport_skip`, `audio.peq`, `audio.hw_volume_curve`
-  - Filesystem & Playlists: `filesystem.sd`, `filesystem.mkdir`, `filesystem.playlists`
-  - Storage & Secrets: `storage.namespaced`, `storage.secrets`
-  - Network: `network.http.sync`, `network.http.async`, `network.http.download`
-  - Data & Crypto: `data.json`, `crypto.md5`, `data.zip`, `data.zip_image`, `data.image_thumbnail`, `data.html`
-  - Library: `library.artist_albums`, `library.paged`, `library.refresh`
-- LED availability varies by board, so use `plugin.led_available()` instead
-  of `plugin.has_capability()` to check for the red and blue charge LEDs.
-- `plugin.get_app_info()` returns `version`, `build`, `platform`, and
-  `plugin_api` fields.
+### Checking what the player supports
 
-#### API version 2 changelog
+- `plugin.api_version()` returns the API version, currently `14`.
+- `plugin.has_capability(name)` returns whether one feature exists. Prefer it
+  over `api_min` when you only need one feature. Tokens:
 
-New in API 2: `plugin.storage.*`, `plugin.secrets.*`, `plugin.json_decode()`/
-`plugin.json_encode()`, `plugin.media_capabilities()`,
-`plugin.download_file_async()`, `plugin.mkdir()`, and an extended
-`plugin.http_request()` (arbitrary request headers, `PUT`/`PATCH`/`DELETE`/
-`HEAD` methods, connect/read/total timeouts, bounded redirect-following,
-response headers via a new 4th callback argument, and a `plugin.cancel()`
-that now actually forces the connection closed rather than only
-suppressing the callback) -- all backward compatible, see that function's
-own doc section for the exact compatibility guarantees.
+  | Area | Tokens |
+  | --- | --- |
+  | UI | `ui.list`, `ui.settings`, `ui.row_width`, `ui.text_input`, `ui.toast`, `ui.screenshot`, `ui.theme`, `ui.theme_refresh`, `ui.reload`, `ui.home_layout`, `ui.home_tiles`, `ui.launcher_layout`, `ui.home_background`, `ui.lock_screen`, `ui.quick_toggle`, `ui.text_view`, `ui.text_view_images`, `ui.list_grid`, `ui.list_showing`, `ui.list_wrap`, `ui.settings_list_wrap`, `ui.player_layout_xml` |
+  | Playback and audio | `playback.control`, `playback.state`, `playback.events`, `playback.remote`, `playback.transport_skip`, `audio.peq`, `audio.hw_volume_curve` |
+  | Files | `filesystem.sd`, `filesystem.mkdir`, `filesystem.playlists` |
+  | Storage | `storage.namespaced`, `storage.secrets`, `storage.secrets_get` |
+  | Network | `network.http.sync`, `network.http.async`, `network.http.download` |
+  | Data | `data.json`, `crypto.md5`, `data.zip`, `data.zip_image`, `data.image_thumbnail`, `data.html` |
+  | Library | `library.artist_albums`, `library.paged`, `library.refresh` |
 
-**One breaking change bundled into this same window, not gated by
-`api_min`:** an earlier security-audit pass removed `require`, `dofile`,
-`loadfile`, `load`/`loadstring`, `package`, `debug`, `os.execute`,
-`os.getenv`, `os.exit`, `os.tmpname`, and `io.popen` from every plugin's
-Lua environment. Real-device testing confirmed none of the 7 bundled
-plugins used any of them, and plain file I/O (`io.open`) plus
-`os.remove`/`os.rename` were deliberately kept since several bundled
-plugins genuinely depend on those for their own state files. A
-third-party plugin that split its own code across multiple files via
-`require()`/`dofile()`, or shelled out via `os.execute()`/`io.popen()`,
-will fail after upgrading to a player build with this change -- there is
-currently no restricted module-loader replacement. If this affects your
-plugin, inline your code into a single file for now.
+- LEDs depend on the model: check `plugin.led_available()` instead.
+- `plugin.get_app_info()` returns `{ version, build, platform, plugin_api }`.
 
-#### API version 3 changelog
+### API versions
 
-New in API 3: `plugin.play_remote()`/`plugin.queue_remote_list()` (see
-their own doc section above) and the `"track_started"` event's two new
-trailing `provider`/`track_id` arguments -- both purely additive, no
-breaking changes bundled into this window. A plugin that only needs
-`play_remote()`/`queue_remote_list()` specifically, without requiring the
-whole API 3 batch, can feature-detect just this with
-`plugin.has_capability("playback.remote")` instead of bumping `api_min`.
+| Version | Added |
+| --- | --- |
+| 2 | `storage`, `secrets`, `json_decode`/`json_encode`, `media_capabilities`, `download_file_async`, `mkdir`, and the full `http_request` (headers, all methods, timeouts, redirects, response headers, real cancel). The sandbox also removed `require`, `dofile` and friends in this release. |
+| 3 | `play_remote`, `queue_remote_list`, and `provider`/`track_id` on `track_started` |
+| 4 | `set_home_layout` |
+| 5 | `reload_ui` |
+| 6 | `refresh_theme` |
+| 7 | `register_home_tile` and `order` in `set_home_layout` |
+| 8 | `set_launcher_layout` |
+| 10 | `background_image` in `set_home_layout` |
+| 11 | `set_hw_volume_curve` |
+| 12 | `register_quick_toggle`, `set_quick_toggle` |
+| 13 | LED control, `get_volume`, `get_battery`, and the `volume_changed`, `battery_changed`, `suspending` and `system_resumed` events |
+| 14 | `zip_read`, `zip_list`, `zip_image_async`, `html_to_blocks`, `show_text_view` with pictures, grid lists, `is_list_showing`, and one long (4095-byte) HTTP header per request |
 
-#### API version 4 changelog
+All of these are additions; older plugins keep working.
 
-New in API 4: `plugin.set_home_layout()` (see its own doc section below) --
-per-tile color/radius/size/alignment/icon overrides for Home's 6 fixed
-tiles, plus an optional switch from Home's native icon grid to a scrollable
-pill-list. Purely additive, no breaking changes bundled into this window. A
-plugin that only needs this one function can feature-detect it with
-`plugin.has_capability("ui.home_layout")` instead of bumping `api_min`.
+## Screens
 
-#### API version 5 changelog
+### `plugin.register_list_item(list_id, label, on_open [, options])`
 
-New in API 5: `plugin.reload_ui()` (see its own doc section below) --
-rebuilds every screen/style in the same process, so a `set_icon()`/
-`set_background_color()`/`set_text_color()`/`set_home_layout()` call takes
-full effect without the player being killed and relaunched. Purely
-additive, no breaking changes bundled into this window. A plugin that only
-needs this one function can feature-detect it with
-`plugin.has_capability("ui.reload")` instead of bumping `api_min`.
+Adds a row to a native list (see [Where your plugin
+appears](#where-your-plugin-appears)). `on_open()` runs when the row is
+tapped; open your first screen from there.
 
-#### API version 6 changelog
+`options` may contain the [row options](#row-options) `icon`, `height`,
+`width` and `text_size`, plus `group` (up to 32 bytes) to place the row in a
+submenu:
 
-New in API 6: `plugin.refresh_theme()` -- applies theme assets and Home
-layout without tearing down screens, plugins, or live services. Feature-
-detect it with `plugin.has_capability("ui.theme_refresh")`.
+- In `music_audio`: `"effects"` (under Sound Effects) or `"profiles"` (under
+  Equalizer > Profiles > Download profiles).
+- In `display`: `"appearance"` or `"player_layout"` (under those submenus).
+- Other values leave the row directly in its list. Older players ignore
+  `group`.
 
-#### API version 7 changelog
+A plugin may register several rows. More than 8 rows in one list (all plugins
+together) is an error.
 
-New in API 7: `plugin.register_home_tile()` (see its own doc section below)
--- a plugin can add its own tile to Home, the same way
-`plugin.register_stream_media_tile()` already does for Stream Media. Paired
-with `plugin.set_home_layout()`'s new `options.order` (an ordered list of
-native-tile-keys/plugin-tile-ids controlling which tiles Home shows and in
-what position -- see its own doc section), a theme can now reorder any
-tile, drop a native one, or interleave a plugin-registered one among the
-native six, none of which was previously possible (Home was always exactly
-the 6 native tiles, always in a fixed order). Purely additive, no breaking
-changes bundled into this window. A plugin that only needs this can
-feature-detect it with `plugin.has_capability("ui.home_tiles")` instead of
-bumping `api_min`.
+### `plugin.register_stream_media_tile(label, on_open [, icon])`
 
-#### API version 10 changelog
+Adds a tile to Stream Media, after Subsonic. Good for streaming and radio
+plugins. `icon` is a theme image path, default `"stream_media/radio.png"`. Up
+to 5 plugin tiles; the grid doesn't scroll.
 
-New in API 10: `plugin.set_home_layout()`'s new `options.background_image`
-field (see its own doc section below) -- a static `.png`/`.jpg`/`.jpeg`
-shown behind Home's own tiles/rows, in both tile and list mode. Unlike
-`plugin.set_background_color("screen", ...)`, this affects Home's root
-object only, not every screen in the app. Purely additive, no breaking
-changes bundled into this window. A plugin that only needs this can
-feature-detect it with `plugin.has_capability("ui.home_background")`
-instead of bumping `api_min`.
+### `plugin.register_home_tile(id, label, on_open, icon)`
 
-#### API version 11 changelog
+Registers a tile that a Home layout can show (see
+[`set_home_layout`](#pluginset_home_layouttiles-options)). Registering alone
+doesn't show it: it appears once a layout's `order` lists its `id`.
 
-New in API 11: `plugin.set_hw_volume_curve()` (see its own doc section
-above) -- lets a plugin replace the app's own UI-volume -> internal-DAC-
-register mapping with a custom 101-entry table, e.g. to reproduce a real
-device's Low/Medium/High Gain modes. Purely additive, no breaking changes
-bundled into this window. A plugin that only needs this can feature-detect
-it with `plugin.has_capability("audio.hw_volume_curve")` instead of
-bumping `api_min`.
-
-#### API version 12 changelog
-
-New in API 12: `plugin.register_quick_toggle()` and
-`plugin.set_quick_toggle()` (see their own doc section below) -- put an
-on/off tile in the quick drawer's expanded area, alongside the built-in
-Wi-Fi/Bluetooth/Sleep/Crossfade ones. Purely additive, no breaking changes
-bundled into this window. A plugin that only needs this can feature-detect
-it with `plugin.has_capability("ui.quick_toggle")` instead of bumping
-`api_min`.
-
-#### API version 13 changelog
-
-New in API 13: the plugin LED controls, `plugin.get_volume()`,
-`plugin.get_battery()`, and the `volume_changed`, `battery_changed`,
-`suspending`, and `system_resumed` events. LED hardware presence is
-board-specific, so there is no static `led` capability token; use
-`plugin.led_available()` for the actual sysfs nodes.
-
-#### API version 14 changelog
-
-New in API 14: `plugin.zip_read()` / `plugin.zip_list()`,
-`plugin.zip_image_async()`, `plugin.html_to_blocks()`, and
-`plugin.show_text_view()` with picture pages (see their own doc sections);
-`plugin.show_list()` takes `layout = "grid"` for a grid of cards and returns
-a handle that `plugin.is_list_showing()` checks; and one
-`plugin.http_request()` header value per request may be up to 4095 bytes
-instead of 767 (for OAuth bearer tokens). Purely additive. A plugin that
-only needs one of them can feature-detect it with
-`plugin.has_capability()` and `"data.zip"`, `"data.zip_image"`,
-`"data.image_thumbnail"`,
-`"data.html"`, `"ui.text_view"`, `"ui.text_view_images"`, `"ui.list_grid"`,
-`"ui.list_wrap"`,
-or `"ui.list_showing"` instead of bumping `api_min`.
+- `id`: 1 to 39 letters, digits, `.`, `_` or `-`, unique among all Home tiles,
+  and not a native key (`music`, `stream_media`, `wireless`, `books`,
+  `settings`, `dac`, `subsonic`).
+- `icon`: required, a theme image path of at most 79 characters.
+- Up to 6 plugin tiles.
 
 ### `plugin.register_quick_toggle(id, label, on_change, options)`
 
-Adds a tile to the quick drawer's expanded area -- pull the drawer down,
-then drag the small handle below the first toggle row. For a feature that
-is a plain on/off the user wants to reach without walking into Settings.
-A plugin that needs a whole screen should use `register_list_item()`
-instead.
+Adds an on/off tile to the quick drawer's expanded area (pull the drawer
+down, then drag the handle below the first row). Use it for a simple switch;
+use a list row for anything that needs a screen.
 
-At most four plugin tiles exist across all plugins combined; they fill the
-drawer's third row in registration order. With none registered, the drawer
-simply expands by one row instead of two.
+- `id`: 1 to 39 letters, digits, `.`, `_` or `-`, unique.
+- `label`: short caption, about 8 characters fit.
+- `on_change(new_value)`: called with the new boolean when tapped.
+- `options.icon` (required, under 80 characters): the off-state image.
+- `options.icon_selected`: the on-state image. Default: `icon` with
+  `_s.png` in place of its extension. It is recolored to the accent color.
+- `options.value`: initial state, default `false`.
+- `options.on_text`, `options.off_text`: state captions, default `"On"` and
+  `"Off"`.
+- `options.on_hold()`: called when the tile is held, for example to open the
+  plugin's settings.
 
-- `id` -- 1-39 characters, letters/digits/`.`/`_`/`-`. Must be unique.
-- `label` -- caption under the icon. Keep it short: the slot is 84px wide
-  and uses a fixed 12px font, so roughly 8 characters fit.
-- `on_change(new_value)` -- called with the new boolean when tapped.
-- `options.icon` -- **required**, the off-state image, under 80 characters.
-- `options.icon_selected` -- on-state image. Defaults to `icon` with its
-  extension replaced by `_s.png`, the convention the bundled artwork uses.
-  The on-state image is automatically recolored to the user's accent color.
-- `options.value` -- initial state, default `false`.
-- `options.on_text` / `options.off_text` -- state caption under the label,
-  default `"On"` / `"Off"`.
-- `options.on_hold` (function, optional) -- called with no arguments when
-  the tile is held. Use it to open the same settings screen as the list row.
-  Omitting it leaves the tile's hold gesture without an action.
+Up to 4 tiles from all plugins; they fill the drawer's third row in
+registration order.
 
 ```lua
 if plugin.has_capability("ui.quick_toggle") then
-    plugin.register_quick_toggle("mseb", "MSEB", function(on)
-        set_enabled(on)
-    end, {
-        icon = "pull_down/mseb.png",
-        value = enabled,
-    })
+    plugin.register_quick_toggle("mseb", "MSEB", function(on) set_enabled(on) end,
+        { icon = "pull_down/mseb.png", value = enabled })
 end
 ```
 
 ### `plugin.set_quick_toggle(id, value)`
 
-Publishes a state change the plugin made on its own, so the drawer shows it
-next time it is expanded. Does **not** fire `on_change` -- the plugin is the
-one reporting the change, so calling back into it would loop. Call this
-whenever the same setting is changed from somewhere else in the plugin (its
-own settings screen, say), or the drawer's tile will drift out of step.
+Updates the tile's state without calling `on_change`. Use it when the plugin
+changes the setting elsewhere, such as its own settings screen.
 
-The drawer re-reads every tile's value when the expansion opens rather than
-being pushed to, so this only needs to keep the stored value current.
+### `plugin.show_list(title, items, on_select [, options])`
 
-<a id="plugin-ui"></a>
+Opens a list screen and returns a handle (`nil` on players older than API
+14).
 
-## 🖥️ Lists and Settings UI
+- `items`: one entry per row. Either a string, or a table
+  `{ label = "...", icon = "...", text_size = "...", wrap = true }`.
+  - Labels are up to 159 bytes, or 511 with `wrap = true`, which wraps the
+    label onto several lines and grows the row instead of scrolling it
+    (check `ui.list_wrap`).
+  - Up to 500 rows; the rest are dropped.
+- `on_select(index)`: called with the 1-based index of the tapped row. Not
+  called if the user goes back.
+- `options`:
+  - `height`, `width`: size of every row (see [row options](#row-options)).
+  - `selected`: 1-based row drawn with an accent outline. The outline follows
+    later taps.
+  - `layout = "grid"`: shows cards instead of rows. Each card shows its `icon`
+    in a 2:3 portrait area (fitted, not cropped, like a book cover) with the
+    label below in up to two lines; without an icon, the label fills the
+    card. `height` and `width` don't apply. Check `ui.list_grid`.
+  - `columns`: cards per row in a grid, 2 to 4, default 3.
 
-### `plugin.register_list_item(list_id, label, on_open [, options])`
+Calling `show_list` again (for example from `on_select`) opens a new screen
+on top, and Back returns to the previous one with its own callback. Up to 4
+lists can be stacked; going deeper breaks Back navigation.
 
-Adds a row to an existing native list screen.
+`plugin.is_list_showing(handle)` returns `true` while that list is the screen
+in front. Check it before opening a screen from a late callback (an HTTP
+response, a finished image job), so you don't open it over whatever the user
+moved on to. Check `ui.list_showing`.
 
-- `list_id` (string): which screen to add to -- `"books"`, `"settings"`,
-  `"display"`, `"playback"`, `"music_audio"`, `"music_controls"`,
-  `"music_timers"`, `"music_library"`, `"power"`, or `"system"` (see "Adding
-  Your Plugin to the UI" above for what each targets) -- anything else raises
-  a Lua error immediately, rather than silently registering into nothing.
-- `label` (string): the row's visible text.
-- `on_open` (function): called with zero arguments when the row is tapped.
-  This is where you'd call `plugin.show_list()` or
-  `plugin.show_settings_list()` to show your first screen.
-- `options` (table, optional): `{ icon = "...", height = n, width = n,
-  text_size = "...", group = "..." }` -- see "Row images, resizing, and
-  text size" below. `group` is optional, up to 32 bytes; the built-in
-  settings screens recognize `"effects"`, `"profiles"`, `"appearance"`,
-  and `"player_layout"` when arranging plugin rows. In `music_audio`,
-  `"effects"` opens under Sound Effects and `"profiles"` under Equalizer →
-  Profiles → Download profiles. In `display`, `"appearance"` and
-  `"player_layout"` open under those submenus. Unset or unknown groups
-  remain directly accessible in their category. Registration IDs stay
-  compatible with older player versions, which ignore grouping metadata.
+Rows with icons use the native submenu look (44 px icons, 96 px rows, a blue
+gradient that a custom `list_row` color replaces). Text-only lists stay
+compact.
 
-Every plugin that calls this gets its own row (unlike the old
-`register_tile()` this replaced, where only the first caller was ever
-reachable) -- a script can still call it more than once if it genuinely
-wants multiple independent entry points into the same list.
+### `plugin.show_settings_list(title, items)`
 
-Errors if more than that `list_id`'s own cap (currently 8 for each of the
-ten) is registered, across every loaded plugin combined.
+Opens a screen that looks like a native Settings submenu, with real switches
+and sliders. Each item is a table with `type` and `label`:
 
-### `plugin.register_stream_media_tile(label, on_open [, icon])`
+```lua
+plugin.show_settings_list("My Plugin", {
+    { type = "row",    label = "About",  on_select = function() ... end },
+    { type = "toggle", label = "Enable", value = true, on_change = function(on) ... end },
+    { type = "slider", label = "Boost",  min = 0, max = 12, value = 3,
+      on_change = function(v) ... end },
+})
+```
 
-A separate registry from `register_list_item()` above, reached differently
--- see "Reaching a plugin from the UI". Use this one for a plugin that
-thematically belongs in Stream Media (a streaming/radio source, for
-instance -- see `plugins_examples/NetRadio.lua`).
+- `row`: `on_select()` runs on tap. Open another `show_settings_list` from it
+  for a nested submenu.
+- `toggle`: `on_change(new_value)` runs on every tap.
+- `slider`: integer range `min` to `max`. `on_change(new_value)` runs once,
+  when the finger is lifted.
+- Every type accepts the [row options](#row-options) `icon`, `width` and
+  `text_size`; `height` works on rows and toggles but not sliders. Rows and
+  toggles also accept `wrap = true` for labels up to 511 bytes (95 without
+  it). Check `ui.settings_list_wrap`.
+- Up to 24 items and 4 sliders per screen; extras are dropped. A missing
+  `type`, an unknown `text_size`, or a missing callback is an error.
+- Up to 2 settings screens can be stacked.
 
-- `label` (string): shown as the tile's caption.
-- `on_open` (function): called with zero arguments when the tile is
-  tapped.
-- `icon` (string, optional): a theme2-relative asset path, actually shown
-  this time. Defaults to `"stream_media/radio.png"` (a real stock asset)
-  if omitted -- a sensible default for the kind of plugin this registry is
-  for.
+### Row options
 
-Errors if more than `PLUGIN_MAX_STREAM_TILES` (currently 5, across every
-loaded plugin combined) are registered.
+These optional fields work in `register_list_item` options, `show_list`
+items and `show_settings_list` items. In `show_list`, `height` and `width` go
+in the call's `options` so every row matches.
 
-### `plugin.register_home_tile(id, label, on_open, icon)`
+| Field | Meaning |
+| --- | --- |
+| `icon` | An image shown left of the label, scaled to a fixed size. An absolute path, or a path relative to `<SD card>/.plugins/`. A missing image is skipped, not an error. |
+| `height` | Row height in px, clamped to 100 to 220. Default: 124 for list rows added with `register_list_item`, 84 for plain `show_list` rows. |
+| `width` | Row width in px, clamped to 240 to 464, kept centered. |
+| `text_size` | `"small"`, `"medium"`, `"large"` (with fallback fonts for Cyrillic, CJK, Korean and Thai) or `"mono"` (an ASCII-only pixel font). Any other value is an error. |
 
-Registers a tile a theme can place on Home via `set_home_layout()`'s
-`options.order` below -- naming this tile by `id` alongside any of the 6
-native keys. Registering alone doesn't show it anywhere; a theme (or your
-own plugin's own top-level code) still has to reference `id` in `order` for
-it to actually appear.
+### `plugin.show_text_input(title, initial_text, is_password, on_submit)`
 
-- `id` (string): a stable name other code references this tile by. 1-39
-  characters, letters/digits/`.`/`_`/`-` only (same rule `plugin.define()`'s
-  own `id` uses) -- a home tile id can end up inside a `.theme` file's
-  comma-separated `home_order=` line (`plugins_examples/Themes.lua`), so a
-  comma or whitespace would parse incorrectly there. Must also not be one of
-  the 7 native keys (`"music"`, `"stream_media"`, `"wireless"`, `"books"`,
-  `"settings"`, `"dac"`, `"subsonic"`) -- those always resolve to the real native tile
-  first, so a plugin tile registered under one would silently never be
-  reachable. Must be unique across every registered home tile, not just
-  your own plugin's -- two plugins picking the same id is an immediate Lua
-  error. Required, unlike `register_stream_media_tile()` above, since
-  Stream Media has no reordering concept and never needed a name to
-  reference a tile by.
-- `label` (string): shown as the tile's caption.
-- `on_open` (function): called with zero arguments when the tile is tapped.
-- `icon` (string): a theme2-relative asset path, non-empty, at most 79
-  characters. Unlike `register_stream_media_tile()`'s own optional `icon`
-  (which falls back to a small default), this is required -- Home's tiles
-  are large and deliberate, and there's no generic placeholder asset that
-  would look right at that size across every device/theme.
+Opens the app's keypad text entry (the one used for Wi-Fi passwords).
+`on_submit(text)` runs when the user presses Enter; it doesn't run if they go
+back. Returns `true`, or `false, "text input busy"` if another request is
+open. You can open the next input from inside `on_submit` (for example a
+username, then a password).
 
-Errors if more than `PLUGIN_MAX_HOME_TILES` (currently 6, across every
-loaded plugin combined) are registered, or if `id`/`icon` fails any of the
-checks above.
+### `plugin.show_text_view(title, text [, options])`
 
-A tile registered this way but never referenced by any `order` (or
-referenced by a theme that failed to load, or hasn't loaded yet -- see
-`set_home_layout()`'s own note on plugin load order) simply isn't shown --
-not an error.
+Opens a paged reader for long text. Returns `true`, or `false, "busy"` if one
+is already open, or `false, "unavailable"` during a screen transition.
 
-### `plugin.set_icon(theme2_relative_path, source_file_path)`
+- `text`: up to 256 KB; longer text is cut.
+- `options.page` (1-based) or `options.offset` (byte offset): where to start.
+  `page` wins.
+- `options.images`: up to 64 picture files (usually made by
+  `zip_image_async`). The text shows picture `n` (0-based) where it contains
+  `"\27" .. n .. "\27"`. Each picture gets its own page. Check
+  `ui.text_view_images`.
+- `options.on_turn(page, pages, byte_offset)`: runs shortly after the view
+  opens (never inside the `show_text_view` call), after each page turn, and
+  when the final page count is known. Use it to save the reading position.
+  While the view is still finding the requested `page` or `offset`, it isn't
+  called, so a saved position is never overwritten by a temporary one.
+- `options.on_close(page, byte_offset)`: runs after the view closes, however
+  it was closed. If it closes before reaching the requested `offset`, it
+  reports that offset. Not called on a plugin reload.
+- `options.font_px` is accepted but ignored; the text uses the Font Size
+  setting.
 
-Reskins an **existing** tile's icon in place -- a different case from
-`register_stream_media_tile()`'s own icon argument above (which points a
-brand-new tile at whatever icon it likes, no special handling needed) and
-from `register_list_item()`'s/`show_list()`'s/`show_settings_list()`'s own
-`icon` option (which puts a NEW icon on a row that has none, from an
-arbitrary SD-card file rather than an existing theme2 asset -- see "Row
-images, resizing, and text size" below). This function is specifically for
-changing what an *already-existing* stock icon looks like. For example,
-`plugin.set_icon("launcher/book.png", plugin.sd_root() .. "/my_icon.png")`
-changes what Home's Books tile looks like.
+Tap the right third or swipe left for the next page; tap the left third or
+swipe right for the previous page. Swiping right on the first page, or the
+Back button, closes the view. The footer shows `page / pages`. Pagination runs
+in the background, so very long texts open immediately; past 8192 pages the
+rest isn't shown.
 
-Copies `source_file_path`'s bytes into the app's writable theme-override
-directory under `theme2_relative_path`, the same mechanism this app
-already uses for its own non-stock icons (e.g. Subsonic's).
+### `plugin.show_toast(message [, duration_ms])`
 
-**Call this from your plugin's top-level script code only** (i.e. during
-load, not from inside `on_open`/`on_select`/any callback that might run
-after the app has already shown a screen). LVGL caches decoded images by
-path string for the app's whole lifetime, with no cache-invalidation call
-anywhere in this codebase -- an override written *after* the first time
-that path was resolved+decoded this boot will silently not take effect
-until the next full app restart. Since every plugin's top-level code runs
-during `plugin_manager_init()`, which always runs before `gui_init()`
-builds any icon-grid/pill-list screen, calling this at load time is always
-safe.
+Shows a short message at the bottom of the screen. Duration 100 to 30000 ms,
+default 5000.
 
-Also worth knowing: a tile's on-screen icon size/position is computed once,
-at screen-build time, from the *original* icon's dimensions, and never
-recomputed on a later icon change -- a replacement PNG with a very
-different aspect ratio than the original will render at a size/position
-tuned for the original, not the replacement. Keep replacement icons
-roughly the same aspect ratio as what they're replacing.
+### `plugin.screenshot()`
 
-Raises a Lua error if `source_file_path` can't be read or copied.
+Starts a screenshot. Returns `true`, or `false, reason` with one of
+`screen_off`, `no_card`, `usb_storage`, `busy`, `framebuffer_unavailable`,
+`worker_start_failed` or `unavailable`. The screen flashes and a toast
+confirms it. Files go to `<SD card>/Screenshots/`. Listen to the
+`screenshot_saved` and `screenshot_failed` events for the result.
 
-### `plugin.set_background_color(slot, rgb)`
+### `plugin.show_lock_screen(options)`
 
-Sets one of three background-color slots, live, app-wide, no restart
-needed:
+Shows a full-screen lock screen over everything, dismissed by swiping up.
+Returns `true`, or `false, message`.
 
-- `"screen"` -- every screen's own background.
-- `"card"` -- every popup, EQ card, and settings slider card -- every
-  neutral dark surface that isn't a plain screen or a list row.
-- `"list_row"` -- every row in every list screen (All Songs, Artists,
-  Playlists, Files, Queue, ...).
+- `mode` (required): `"album_art"` (the current cover, or the default
+  cover when there is none), `"image"` or `"clock"`.
+- `image_path`: the image file, required for `"image"`.
+- `image_fit`: `"contain"` (fit, no cropping) or `"cover"` (fill, cropped).
+  Without it, the image is shown at its own size, centered.
+- `clock_24h`: 24-hour clock, default `true`.
 
-`rgb` is a packed `0xRRGGBB` integer, e.g. `0x1E1E22`. Unlike
-`plugin.set_icon()`, this is safe to call at any time, including from
-inside a callback well after load -- it's a plain style-property update
-plus a redraw request, no file/cache involved.
+## Theming
 
-Raises a Lua error if `slot` isn't one of the three names above.
+Colors and layouts aren't saved; only icons copied with `set_icon` stay on
+the device. To keep a look across restarts, save the user's choice in your own
+file or `plugin.storage` and apply it again from top-level code every time
+the plugin loads. `plugins_examples/Themes.lua` does exactly that.
 
-### `plugin.set_text_color(slot, rgb)`
+| To apply... | Call |
+| --- | --- |
+| colors | nothing, they apply immediately |
+| icons, Home and launcher layouts | `plugin.refresh_theme()` |
+| anything, the heavy way | `plugin.reload_ui()` |
 
-Sets one of two text-color slots, live, app-wide, no restart needed:
+### `plugin.set_icon(theme_path, source_file)`
 
-- `"primary"` -- the app's dominant near-white text (labels, titles, list
-  row text).
-- `"muted"` -- secondary/disabled-ish gray text (chevrons, timestamps,
-  subtitles).
+Replaces a built-in icon. `theme_path` is the icon's path in the theme (for
+example `"launcher/book.png"`); `source_file` is the replacement image, which
+is copied into the theme override folder. Raises an error if it can't be
+copied.
 
-Destructive-red text (delete/reset confirmations) and accent-tinted text
-are **not** covered by either slot -- they're semantically fixed, not part
-of the light/dark split these two slots (and `set_background_color()`)
-drive. `rgb` is a packed `0xRRGGBB` integer, same convention as
-`set_background_color()`. Safe to call at any time, same live-update
-mechanism as `set_background_color()` -- no file/cache involved.
+- Call it from top-level code. The app caches icons, and screens built before
+  the override existed keep using the old file until `refresh_theme()` or
+  `reload_ui()`.
+- Keep the replacement close to the original's size and shape: the layout was
+  measured for the original.
 
-Raises a Lua error if `slot` isn't `"primary"` or `"muted"`.
+### `plugin.set_background_color(slot, rgb)` / `plugin.set_text_color(slot, rgb)`
+
+Change colors app-wide, immediately, from anywhere. `rgb` is `0xRRGGBB`.
+
+- Background slots: `"screen"` (every screen), `"card"` (popups and cards),
+  `"list_row"` (every list row).
+- Text slots: `"primary"` (titles and labels) and `"muted"` (secondary text).
+  Red warning text and accent-colored text are not affected.
+
+Another slot name is an error.
 
 ### `plugin.set_home_layout(tiles, options)`
 
-Restyles Home's tiles, and optionally switches Home from its native icon
-grid to a scrollable pill-list. Since API 7, `options.order` (below) also
-controls which tiles Home actually shows and in what position -- a native
-tile left out of `order` isn't shown, and a `plugin.register_home_tile()`
-id included in it is. The native `"subsonic"` key is opt-in and opens
-Subsonic directly; omitting `order` preserves the original six-tile Home.
-Before API 7, Home was always exactly its 6 native
-tiles (`"music"`, `"stream_media"`, `"wireless"`, `"books"`, `"settings"`,
-`"dac"`), always in that fixed order, and this call could only restyle them
--- omitting `order` entirely still gets you exactly that.
+Restyles Home, chooses which tiles it shows, or turns it into a scrolling
+list. Takes effect when Home is rebuilt (`refresh_theme()`, `reload_ui()` or a
+restart). Each call replaces the whole previous layout.
 
-**Never itself persisted, and only takes effect the next time Home is
-actually built** -- a real app start, `plugin.refresh_theme()`, or the
-legacy full `plugin.reload_ui()`. This call only updates an in-memory config that
-`build_home_screen()` reads at that build time; nothing here writes to disk.
-Calling it from inside a callback with no reload/restart following is not an
-error, but has no visible effect until one of those two things actually
-rebuilds Home -- and if nothing ever re-calls this again before that
-happens, the NEXT rebuild reverts to native, same as never having called it
-at all (there is no native persistence to lean on here). To have a layout
-survive a restart or a reload, a plugin must persist its own chosen layout
-to its own state file (the same way `Themes.lua` persists a theme choice)
-and re-call `set_home_layout()` with it from top-level script code every
-time -- see `plugins_examples/Themes.lua`'s own `tile.<key>.<field>=...`
-`.theme` file format for a complete reference implementation of exactly
-this pattern.
-
-**Multiple plugins calling this both restyle the same single global Home
-layout -- there's no per-plugin slot.** Whichever plugin's call runs last
-during startup wins outright (its config completely replaces any earlier
-plugin's, not merged field-by-field); see "How Plugins Load" above for the
-now-deterministic (alphabetical-by-filename) load order this follows. Two
-layout-changing plugins installed together should be considered mutually
-exclusive by design, same as two theme-color plugins both calling
-`set_background_color()`.
-
-`tiles` (array table): one entry per tile being restyled, each
+`tiles` restyles individual tiles, one table per tile:
 
 ```lua
 {
-    key = "music",         -- required: music/stream_media/wireless/books/settings/dac/subsonic, or a plugin tile id
-    bg_color = 0xRRGGBB,   -- optional
-    text_color = 0xRRGGBB, -- optional
-    radius = 12,           -- optional, px
-
-    -- list mode only (ignored in tile mode):
-    height = 88, width = 420,   -- optional, px -- clamped the same as register_list_item()'s own height/width
-    align = "center",            -- optional: "left" (default), "center", or "right"
-    accessory = true,            -- optional: show the row's chevron
-    text_size = "medium",        -- optional: "small", "medium", "large", or "mono"
-    icon = true,                 -- optional: show the tile's own native icon on its list row
+    key = "music",          -- native key or a register_home_tile id (required)
+    bg_color = 0x1e3524, text_color = 0xd8c9a3,
+    radius = 24,            -- px, not negative
+    -- list mode only:
+    height = 92, width = 440,         -- clamped like row options
+    align = "center",                 -- "left" (default), "center" or "right"
+    accessory = true,                 -- show a chevron
+    text_size = "medium",             -- like row options
+    icon = true,                      -- show the tile's icon in the row
 }
 ```
 
-A tile whose key is never mentioned keeps every field at its native
-default. Unlike before API 7, an unrecognized-looking `key` is NOT rejected
-here -- it may name a plugin tile that simply hasn't registered yet (see
-"How Plugins Load" above for load order), so it's resolved later, when Home
-is actually built; a key that still doesn't resolve to anything at that
-point is silently dropped (not shown), not a crash. An `align` or
-`text_size` that isn't one of the values listed above, a non-table array
-entry, more entries than tiles could ever legitimately need (currently 12,
-across native and plugin tiles combined -- this can only mean a duplicate
-key or a copy-paste mistake, so unlike `show_list()`'s own item cap this is
-not silently truncated), or a `height`/`width`/`radius` outside a 32-bit
-integer's range, all still raise a Lua error immediately. A repeated `key`
-within the same `tiles` array cleanly replaces the earlier entry for that
-tile (every field, not just the ones the later entry sets) rather than
-merging the two. `radius` must also be non-negative.
+Native keys: `music`, `stream_media`, `wireless`, `books`, `settings`, `dac`,
+and `subsonic` (opt-in, opens Subsonic directly).
 
-`options` (table, optional -- a non-table, non-nil value here is also a Lua
-error, since there's no reasonable non-table `options`):
+`options`:
 
-```lua
-{
-    mode = "list",  -- "tile" (default, today's icon grid) or "list"
-    tile_gap = 6,   -- tile mode only, px between tiles, clamped to 0-64
-    row_gap = 10,   -- list mode only, px between rows, clamped to 0-84 (0 = the native default of 6)
-    background_image = plugin.sd_root() .. "/wallpaper.jpg",
-                    -- optional: a static image (.png, .jpg, or .jpeg) shown
-                    -- behind Home's own tiles/rows, in both tile and list
-                    -- mode. ONLY Home's background -- unlike
-                    -- plugin.set_background_color("screen", ...), every
-                    -- other screen is unaffected. Copied once into this
-                    -- app's writable theme-override storage the moment this
-                    -- call runs (same mechanism plugin.set_icon() uses), so
-                    -- treat it like set_icon(): call from your plugin's
-                    -- top-level script code for a real app start to pick it
-                    -- up reliably, or follow a later call with plugin.
-                    -- refresh_theme()/reload_ui() the same way any other
-                    -- set_home_layout() change needs one to take visible
-                    -- effect. LVGL draws a bg_image at native size, CENTERED,
-                    -- never stretched to fill -- author the file at exactly
-                    -- the panel's own full-screen resolution (480x800 on
-                    -- R1 -- confirmed in main.c's own SCREEN_WIDTH/
-                    -- SCREEN_HEIGHT; 480x320 is a specific sub-panel
-                    -- elsewhere in the UI, not the whole screen) rather
-                    -- than relying on any scale-to-fit. Raises a Lua error
-                    -- if the file isn't .png/.jpg/.jpeg or can't be read.
-    order = { "dac", "music", "stream_media", "wireless", "books", "settings" },
-                    -- optional (API 7+); which tiles Home shows, and in what
-                    -- position -- position IS order. Each entry is a native
-                    -- key or a plugin.register_home_tile() id (resolved the
-                    -- same deferred way `tiles`' own `key` is, above). A
-                    -- native key simply left out is not shown at all --
-                    -- this is how you drop a tile, not just reorder one.
-                    -- Omit `order` entirely to keep today's fixed native
-                    -- order and show all 6. A literal duplicate entry is
-                    -- rejected immediately (unlike an unresolved name, a
-                    -- repeat can't just be a load-order timing issue).
-                    -- In tile mode specifically, `order` is capped at 6 --
-                    -- build_icon_grid_screen()'s 2-column grid cannot
-                    -- scroll, so more than that would render with tiles
-                    -- unreachable off-screen; switch to list mode instead.
-}
-```
+- `mode`: `"tile"` (the icon grid, default) or `"list"`.
+- `tile_gap` (tile mode, 0 to 64 px) and `row_gap` (list mode, 0 to 84 px,
+  0 means the default 6).
+- `order`: which tiles to show, in order. Leave a tile out to hide it; add a
+  plugin tile's id to show it. Without `order`, Home shows the six original
+  tiles. Tile mode shows at most 6, since the grid doesn't scroll; use list
+  mode for more.
+- `background_image`: a `.png`, `.jpg` or `.jpeg` behind Home only, drawn at
+  its own size and centered. Make it the screen's size (480x800 on the R1).
+  It is copied when you call the function.
 
-Each call to `set_home_layout()` replaces the whole stored config -- there
-is no incremental merge across separate calls, so pass every tile you want
-styled (and the full `order` you want) in the same call.
+Errors: a repeated `order` entry, more than 12 tile entries, an unknown
+`align` or `text_size`, a negative `radius`, an invalid background image, or
+`options` that isn't a table. A tile key that doesn't exist yet is not an
+error (its plugin may load later); if it still doesn't exist when Home is
+built, it is skipped. A repeated key replaces the earlier entry.
 
 ```lua
 plugin.set_home_layout({
-    { key = "music", bg_color = 0x1e3524, text_color = 0xd8c9a3, radius = 24,
-      height = 92, width = 440, align = "center", accessory = true, text_size = "medium", icon = true },
-    -- ... one entry per tile you want to restyle
+    { key = "music", bg_color = 0x1e3524, text_color = 0xd8c9a3, radius = 24 },
 }, { mode = "list", row_gap = 10, order = { "music", "dac", "books" } })
 ```
 
-See `plugins_examples/Themes.lua` and its `plugins_examples/Themes/*.theme`
-files for a complete reference implementation spanning both tile and list
-mode -- e.g. `Terminal.theme`/`GameBoy.theme` (list mode) and
-`Retro.theme`/`Vaporwave.theme` (tile mode).
-
 ### `plugin.set_launcher_layout(options)`
 
-API 8. Switches the native `music`, `stream_media`, and `wireless` launcher
-screens independently between their normal icon grid and pill-list rows.
-Each optional menu table accepts `mode = "tile"|"list"` plus `row_gap`,
-`height`, `width`, `bg_color`, `text_color`, `radius`, `align`, `accessory`,
-`text_size`, and `icon`. Omitted menus retain the native grid; an empty call
-resets all three. Like Home layout changes, call `plugin.refresh_theme()` to
-rebuild the affected screens without restarting plugins or live services.
+Switches the Music, Stream Media and Wireless menus between their icon grid
+and a list, independently. Each of `music`, `stream_media` and `wireless` takes
+`mode = "tile"` or `"list"` plus the list styling fields of
+`set_home_layout` (`row_gap`, `height`, `width`, `bg_color`, `text_color`,
+`radius`, `align`, `accessory`, `text_size`, `icon`). Menus you leave out stay
+a grid; an empty call resets all three. Apply with `refresh_theme()`.
 
 ```lua
 plugin.set_launcher_layout({
     music = { mode = "list", height = 108, width = 480, row_gap = 10,
-              bg_color = 0x000000, text_color = 0x33FF33,
-              align = "left", accessory = true, text_size = "mono", icon = true },
-    stream_media = { mode = "list", height = 108, width = 480 },
-    wireless = { mode = "list", height = 108, width = 480 },
+              bg_color = 0x000000, text_color = 0x33FF33, text_size = "mono" },
 })
 ```
 
@@ -799,8 +526,7 @@ Changes the look of the Player (Now Playing) screen. Every field is optional.
 | `darken_num`, `darken_den` | integers | Darkens the blurred cover by `darken_num / darken_den`. Set both. Default 1/2. |
 
 Each call replaces all of these, so pass every option you want in the same
-call. They live in memory only: call the function from the plugin's
-top-level code so they are applied again each time the plugin loads.
+call.
 
 **Whole layout**
 
@@ -817,26 +543,22 @@ in [docs/PLAYER_LAYOUTS.md](docs/PLAYER_LAYOUTS.md).
   leading outside the folder, or a missing file raise a Lua error.
 - If the file can't be used (invalid XML or a required widget missing), the
   default layout is shown instead.
-- The layout shows up in **Settings > Display > Player Layout > Layout**
-  while the plugin is enabled.
-- Called from top-level code, it only makes the layout available there. Users
-  pick it in Settings like any other layout, and the choice is remembered
-  across restarts for as long as the plugin stays installed and enabled. If the
-  plugin is disabled or removed, the default layout is shown instead.
+- Called from top-level code, it only adds the layout to **Settings > Display
+  > Player Layout > Layout**. Users pick it there like any other layout, and
+  the choice is remembered while the plugin stays installed and enabled. If
+  the plugin is disabled or removed, the default layout is shown instead.
 - Called from a callback (a button, for example), the layout is selected right
-  away for this session and the interface reloads to apply it if that changes
+  away for this session, and the interface reloads to apply it if that changes
   the active layout. It stays until the player restarts or the user picks
-  another layout in Settings. A plugin that offers a layout as an option
-  should do it this way.
-- Check `plugin.has_capability("ui.player_layout_xml")` first if the plugin
-  should also run on older firmware.
+  another layout in Settings.
+- Check `ui.player_layout_xml` first if the plugin should also run on older
+  firmware.
 
 ```lua
 -- Solid dark background instead of the blurred cover
 plugin.set_player_layout({ flat = true, bg_color = 0x101010 })
 
--- A whole new layout shipped with the plugin, plus the same background.
--- Background options go in the same call: each call resets the ones it omits.
+-- Offer a layout shipped with the plugin, with the same background
 if plugin.has_capability("ui.player_layout_xml") then
     plugin.set_player_layout({
         xml = "player_layouts/clean.xml", name = "Clean",
@@ -847,1487 +569,523 @@ end
 
 ### `plugin.refresh_theme()`
 
-Applies already-written theme assets and the current Home layout after the
-calling callback returns. It drops LVGL's decoded-image cache, replaces only
-Home, and refreshes navigation/player/quick-drawer render caches. All other
-screens, plugin Lua states, navigation state, playback, and Wi-Fi/Bluetooth/
-AirPlay/DLNA/Remote Control connections remain alive.
-
-Use this after a batch of `set_icon()`, color, `set_home_layout()`, and
-`set_launcher_layout()` calls.
-Requests are deferred past active transitions and coalesced. The Themes
-example applies its full icon inventory during startup, ensuring existing
-screens already reference the override paths that this call refreshes.
+Applies icon changes and the Home and launcher layouts, without disturbing
+anything else: other screens, navigation, playback and connections stay as
+they are. It runs after your callback returns. Use it after a batch of theme
+calls.
 
 ### `plugin.reload_ui()`
 
-Rebuilds every screen and style in the same process -- the same trick a
-`set_icon()`/`set_background_color()`/`set_text_color()`/`set_home_layout()`
-call would otherwise need a full player restart to take complete effect
-for (an already-decoded icon stays cached, and most screens are only ever
-built once). Never restarts the process, and never touches audio playback
-or any network/Bluetooth/D-Bus connection (Wi-Fi, Subsonic, DLNA, AirPlay,
-Remote Control) -- those stay exactly as they were before the call.
-
-Takes no arguments and returns nothing. Safe to call from any plugin
-callback, including your own settings-row `on_open`/`on_select` handler --
-the actual reload is deferred to run right after your callback returns, not
-inline, so it's never touching your plugin's own still-running script when
-it tears everything down.
-
-**Only call this from a callback that fires in response to an actual user
-action -- never unconditionally from your plugin's own top-level script
-code.** The reload re-runs every plugin's top-level code as part of
-rebuilding, same as a real boot. A guard prevents that from becoming an
-infinite loop (a request made while a reload is already running is dropped,
-not queued), but an unconditional top-level call still wastes one full
-reload the first time your plugin loads, for no reason -- calling this
-conditionally, only when something actually changed, is still the correct
-thing to do, the way the example below does (only inside the `on_select`
-callback, only when the user actually picked something).
+Rebuilds every screen and restarts all plugins, without restarting the app
+or interrupting playback and connections. It runs after your callback
+returns, and the user lands on Home. Call it only in response to a user
+action, never unconditionally from top-level code (that would reload on
+every load; a second request during a reload is ignored).
 
 ```lua
 plugin.register_list_item("display", "Theme", function()
     plugin.show_list("Theme", { "Dark", "White" }, function(index)
-        apply_theme(index == 2 and "white" or "dark") -- your own set_icon()/set_background_color() calls
-        plugin.refresh_theme() -- targeted update; connections and navigation survive
+        apply_theme(index == 2 and "white" or "dark")  -- your own theme calls
+        plugin.refresh_theme()
     end)
 end)
 ```
 
-Navigation always lands back on Home after a reload, regardless of which
-screen was showing before -- there is no "return to where you were" state
-carried across it.
+## Playback
 
-### `plugin.show_list(title, items, on_select [, options])`
+### Playing files
 
-Opens a list screen.
+- `plugin.play_file(path)`: plays one file (absolute path) or stream URL as a
+  new queue, replacing Up Next like tapping a song does.
+- `plugin.play_list(paths [, start_index])`: plays a list of paths or URLs as
+  a new queue, starting at the 1-based `start_index` (default 1, out-of-range
+  values are clamped). Up to 500 entries.
 
-- `title` (string): the screen's header text.
-- `items` (array table): one row per entry, shown in order. Each entry is
-  either a plain string (a row with just a label, as before) or a table
-  `{ label = "...", icon = "...", text_size = "...", wrap = true }` for a
-  row with its own icon, text size, or wrapped label -- see "Row images,
-  resizing, and text size" below. `wrap = true` opts a list row into a
-  longer label (up to 511 bytes) that wraps onto multiple lines and grows the
-  row to fit; it does not use marquee scrolling. Rows without `wrap = true`
-  retain the 159-byte label limit. This field applies to list layout only;
-  grid cards keep their existing label behavior. Feature-detect the option
-  with `plugin.has_capability("ui.list_wrap")`.
-- `on_select` (function): called with the **1-based** index of whichever
-  row was tapped (Lua array convention, not C's 0-based one) when the user
-  taps a row. Not called if the user backs out without tapping anything.
-- `options` (table, optional): `{ height = n, width = n, selected = index }` --
-  resizes every row in this call (not per-row) and optionally draws an
-  accent outline around the selected 1-based row. Selecting another row
-  moves that outline automatically.
-  - `layout` (API 14): `"list"` (the default) or `"grid"`. A grid shows
-    each entry as a card: its `icon` fills a portrait 2:3 picture area
-    (scaled to fit, not cropped, the shape of a book cover) with the label
-    below it in up to two lines. An entry without an icon, or whose icon
-    cannot be drawn, shows its label inside the picture area instead.
-    `height` and `width` are ignored in a grid.
-  - `columns` (API 14, grid only): 2 to 4 cards per row, default 3.
+**Stream URLs** (`http://` or `https://`) play as live streams:
 
-Returns a handle (API 14; `nil` before). `plugin.is_list_showing(handle)`
-is `true` while that list is the screen in front, and `false` once it was
-closed with Back, covered by another screen, or its pool slot was reused.
-Use it before opening a screen from a callback that arrives later (an HTTP
-response, a finished `zip_image_async`), so a screen the user has already
-left does not open over whatever they moved on to.
-
-Each call opens a **new** screen (from a pool of 4 reusable ones -- see
-`PLUGIN_LIST_SCREEN_POOL_SIZE` in `gui.c`), so calling `show_list` again
-from inside an `on_select` callback (to drill into a subfolder, for
-example) pushes a second screen on top rather than replacing the first --
-the device's Back gesture/button naturally returns to the previous list.
-Nesting more than 4 levels deep reuses an earlier pool slot and will
-corrupt back-navigation at that depth; no real plugin should need to nest
-that far.
-
-Each pool slot owns its own `on_select` callback. Backing out of a nested list
-therefore restores the earlier screen and its correct callback. Reusing a slot
-beyond four simultaneously stacked plugin lists remains unsupported.
-
-Icon rows inherit the native submenu design: board-scaled 44 px icons and
-96 px default list-row height, with a shared decoded blue gradient. Explicit
-row sizes and text sizes still take precedence. Plain text-only lists keep
-their compact rendering. Icon-bearing tap and toggle rows in
-`show_settings_list` use the same decoration without changing their control
-behavior; slider cards retain their existing layout. A custom `list_row`
-background color hides the gradient so theme overrides remain visible.
-
-### `plugin.show_settings_list(title, items)`
-
-Opens a **settings submenu** -- indistinguishable from a native Settings
-screen, with real toggle switches and sliders, not plain tappable text.
-Use this instead of `show_list()` whenever your plugin's own screen is
-itself a small settings panel (see `plugins_examples/PlaybackExtras.lua`).
-
-- `title` (string): the screen's header text.
-- `items` (array table of row tables): one row per entry, shown in order.
-  Every row needs `type` and `label`; the rest depends on `type`:
-  - `{ type = "row", label = "...", on_select = function() ... end }` -- a
-    plain tap. `on_select` is called with no arguments. A `show_settings_list`
-    call from inside `on_select` is how you nest a submenu inside a
-    submenu -- no separate "submenu" row type needed.
-  - `{ type = "toggle", label = "...", value = true/false, on_change =
-    function(new_value) ... end }` -- a real on/off switch. `value` is its
-    initial state; `on_change` is called with the new boolean every time
-    it's tapped.
-  - `{ type = "slider", label = "...", min = n, max = n, value = n,
-    on_change = function(new_value) ... end }` -- a real slider, integer
-    range `min`..`max`, initial position `value`. `on_change` fires **once,
-    when the drag is released** -- not on every intermediate tick, same
-    convention every native settings slider (Screen Timeout, Startup
-    Volume, the EQ bands) already uses, so a callback that writes to disk
-    isn't hammered mid-drag.
-
-  Every row type also accepts `icon`, `height`, `width`, and `text_size` (see "Row
-  images, resizing, and text size" below) -- except `height` on a
-  `"slider"` row, which is ignored (its card has its own fixed layout with
-  no spare room to grow into).
-
-  Tap and toggle rows also accept `wrap = true`: the label wraps at word
-  boundaries and the row grows to fit, without a marquee. Wrapped labels
-  support up to 511 bytes; other settings labels retain the 95-byte limit.
-  Slider labels keep their existing layout. Feature-detect this option with
-  `plugin.has_capability("ui.settings_list_wrap")`.
-
-Capped at 24 rows per call, and 4 `"slider"`-type rows per call
-specifically (the underlying swipe-gesture-safety bookkeeping -- see below
--- needs a real, bounded slot per slider). Both cases silently drop the
-excess rather than erroring, same convention as `show_list()`'s own item
-cap. An unknown/missing `type`, an unrecognized `text_size`, or a row
-missing its required callback (`on_select` for `"row"`, `on_change` for
-`"toggle"`/`"slider"`), raises a Lua error immediately instead.
-
-Each call opens a screen from a small **separate** pool from `show_list()`'s
-own (2 slots, smaller since settings submenus nest shallower in practice --
-`PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE` in `plugin_manager.h`). Unlike
-`show_list()`, each pool slot keeps its **own** row callbacks (not one
-shared "most recently opened" registration) -- so if your plugin has a
-submenu open on top of another, backing out to the first one still routes
-its toggle/slider taps correctly, no equivalent to `show_list()`'s own
-"structure it as immediate re-calls" caveat above. Nesting more than 2
-levels deep reuses an earlier pool slot and will corrupt back-navigation at
-that depth, same bounded-pool tradeoff `show_list()` makes at 4.
-
-Every slider row you create is also registered against a fixed-size,
-app-wide "don't let a drag on this become a swipe-to-player/back gesture"
-list -- purely internal bookkeeping (`gui.c`'s `swipe_dead_zones[]`), not
-something your plugin needs to manage, but it's *why* the 4-sliders-per-call
-cap above exists and isn't just an arbitrary round number.
-
-Items beyond the first 500 (`PLUGIN_MAX_LIST_ITEMS`) in a single call are
-silently dropped.
-
-### 🎛️ Row Images, Resizing, and Text Size
-
-`register_list_item()`'s `options` table, `show_list()`'s per-row table
-entries, and `show_settings_list()`'s per-row tables support these optional
-layout fields. For `show_list()`, width and height live in the call-level
-`options` table so every browsing row stays uniform:
-
-- **`icon`** (string) -- either a **raw absolute filesystem path**, e.g.
-  `plugin.sd_root() .. "/.plugins/my_icon.png"` -- **not** a theme2-relative
-  path like `register_stream_media_tile()`'s `icon` argument or
-  `set_icon()`'s first argument use -- **or** a plain relative filename/path
-  (doesn't start with `/`), e.g. `"my_icon.png"`, resolved against
-  `<SD card>/.plugins/` -- the same folder your plugin's own `.lua` file
-  already lives in, so a relative path just means "a file sitting next to
-  my script." Any file your plugin can read works, including a file it
-  downloaded itself at runtime. Drawn to the left of the row's label,
-  scaled to a consistent on-screen size regardless of the source file's own
-  resolution. A missing or corrupt file just renders at its native size
-  rather than erroring -- an icon is cosmetic, not worth failing the whole
-  row over.
-- **`height`** (number, px) -- resizes the row. Clamped to a fixed range
-  (currently 100-220px) rather than erroring if you ask for more or less.
-  Not available on a `show_settings_list()` `"slider"` row (see that
-  function's own section above) -- everywhere else, an unset/zero height
-  keeps that row type's own default (124px for a pill/`register_list_item`
-  row, 84px for a plain `show_list` row).
-- **`width`** (number, px) -- resizes and keeps the row centered. It is
-  available for native-list plugin rows, `show_list()` rows, and every
-  `show_settings_list()` row including sliders. Values are clamped to
-  240-464px; unset/zero keeps the native width. Resizing a pill row replaces
-  its fixed-size background sprite with the matching rounded fill so the
-  artwork is never stretched.
-- **`text_size`** (string) -- `"small"`, `"medium"`, `"large"`, or `"mono"`.
-  `"small"`/`"medium"`/`"large"` use a font with full non-Latin fallback
-  (Cyrillic, CJK, Korean, Thai) -- correct for plugin-authored text, which
-  (unlike this app's own fixed English UI chrome) might not be English.
-  `"mono"` is an 8x16 bitmap monospace font (`lv_font_unscii_16`) for a
-  pixel/terminal look -- **ASCII-only**, no accented or non-Latin glyphs, so
-  only reach for it when you control the text yourself and know it stays
-  plain ASCII (see `plugins_examples/Themes/GameBoy.theme`/`Terminal.theme`).
-  An unrecognized value raises a Lua error; omitting it keeps that
-  row type's own existing default size.
-
-None of the three affect a row that doesn't set them -- a plugin that
-never uses this section's fields renders exactly as it did before they
-existed.
-
-### `plugin.show_lock_screen(options)`
-
-Displays a phone-style full-screen lock screen overlay on top of whatever screen
-is currently active. Dismissed by swiping up. While shown, the status bar and
-home indicator gesture band are hidden, and touches are blocked from reaching the
-underlying screens.
-
-`options` (table):
-- `mode` (string, required): `"album_art"`, `"image"`, or `"clock"`.
-  - `"album_art"`: displays the currently playing track's cover art (or the
-    fallback default cover if none is playing).
-  - `"image"`: displays an image from a local file path.
-  - `"clock"`: displays the current local time in large text, updating every second.
-- `image_path` (string, required if `mode == "image"`): absolute path to an image file.
-  Must be readable.
-- `image_fit` (string, optional with `mode == "image"`): `"contain"` scales the
-  image to fit the screen without cropping; `"cover"` fills the screen and
-  crops the excess while preserving aspect ratio. If omitted, the historical
-  natural-size centered rendering is preserved for existing plugins.
-- `clock_24h` (boolean, optional): if `true` (default), format clock as 24-hour (`HH:MM`);
-  if `false`, format as 12-hour (`hh:MM`).
-
-Returns `true` on success, or `false, "error message"` on failure.
-
-<a id="files-playback"></a>
-
-## 💾 Files and Playback
-
-### `plugin.list_dir(path)`
-
-Lists a directory's immediate children.
-
-- `path` (string): an **absolute** path (build one with `plugin.sd_root()`,
-  there's no relative-path resolution).
-- Returns: an array table, one entry per non-hidden (not starting with
-  `.`) child, each `{ name = "chapter1.mp3", dir = false }`. Order is
-  whatever `readdir()` returns -- not sorted; sort it yourself
-  (`table.sort`) if you need a specific order.
-- Entries also include `size` (bytes) and `modified` (Unix seconds) when
-  filesystem metadata is available. Older players omit these fields.
-- If `path` doesn't exist or can't be opened, returns an empty table (not
-  an error).
-
-### `plugin.sd_root()`
-
-Returns the SD card's absolute mount path as a string (`/data/mnt/sd_0` on
-the real device, `./music` on the host simulator) -- build every path your
-plugin touches from this rather than hardcoding `/data/mnt/sd_0`, so the
-same script works unmodified in the host simulator too.
-
-### Playlist management (`plugin.playlist_*`)
-
-CRUD over `.m3u` playlists, in the same `Playlists` folder the native
-Playlists screen reads from -- a playlist a plugin creates or deletes shows
-up/disappears there immediately, no rescan needed.
-
-- `plugin.playlist_list()` -- array of every playlist's absolute path, or
-  `nil` if there are none.
-- `plugin.playlist_read(m3u_path)` -- array of the playlist's song paths in
-  file order, or `nil` if it can't be read or is empty.
-- `plugin.playlist_create(name, song_path)` -- creates a new playlist named
-  `name` with `song_path` as its first entry. Returns the new playlist's
-  absolute path, or `nil` on failure.
-- `plugin.playlist_add(m3u_path, song_path)` / `plugin.playlist_remove
-  (m3u_path, song_path)` -- append/remove a song from an existing playlist.
-  Both return `bool`; `remove` deletes every matching occurrence, not just
-  the first.
-- `plugin.playlist_delete(m3u_path)` -- deletes the whole playlist file
-  outright (not a single song within it -- see `playlist_remove` for that).
-  Returns `bool`.
-
-```lua
-local m3u = plugin.playlist_create("Favorites Mix", "/path/to/song1.mp3")
-plugin.playlist_add(m3u, "/path/to/song2.mp3")
-local songs = plugin.playlist_read(m3u)
-### `plugin.mkdir(path)`
-
-Creates `path` and any missing parent directories (`mkdir -p` semantics).
-An existing directory is success. Returns `true` on success or `nil, error`
-if a component cannot be created or an existing component is not a directory.
-
-```lua
-local downloads = plugin.sd_root() .. "/Talks/Downloads"
-local ok, err = plugin.mkdir(downloads)
-if not ok then plugin.show_toast(err) end
-```
-
-### `plugin.play_file(path)`
-
-Starts playback of a single file (`path`, absolute) as a fresh one-song
-playlist -- same "starting something new clears Up Next" semantics as
-tapping any song elsewhere in the app. `path` may also be a live
-`http://` or `https://` stream URL (internet radio) -- see "Live stream
-URLs" below for what that actually supports today.
-
-### `plugin.play_list(paths [, start_index])`
-
-Starts playback of `paths` (array table of absolute file path strings, or
-`http(s)://` stream URLs) as a fresh playlist, beginning at the **1-based**
-`start_index` (default `1` if omitted). The rest of the app's normal
-playback machinery (Prev/Next, the "Track X of Y" label) applies exactly as
-if this were any other playlist. Paths beyond the first 500 are silently
-dropped; `start_index` is clamped into range if out-of-bounds rather than
-erroring.
-
-#### 📻 Live Stream URLs
-
-`path`/`paths` entries starting with `http://` or `https://` are treated as
-a live network stream rather than a local file. A dedicated network thread
-reads the stream into an internal buffer so a slow or jittery connection
-doesn't stall audio output outright, but there's no reconnect-on-drop: if
-the connection is lost mid-stream, playback just stops, the same as it
-would for a local file hitting a read error.
-
-**Format defaults to MP3**, since most stream URLs (internet radio mount
-points especially) don't end in anything recognizable. To stream FLAC
-instead, append a `#.flac` suffix to the URL, e.g.
-`"https://example.com/track.flac#.flac"` or even just
-`"https://example.com/opaque-id#.flac"` -- this is a purely local hint (a
-URL fragment is never sent to the server, per RFC 3986) read off the string
-before the request goes out, not a real extension or query parameter. No
-other format is currently supported for streaming; a URL serving something
-else (AAC/Opus/Ogg, or MP3/FLAC mislabeled) will fail to open rather than
-silently misdecode. MP3 and FLAC are the two decoders here with a
-callback-based streaming API available at all -- everything else either
-prescans the whole file up front (incompatible with an unbounded source) or
-has no such API in this vendored library.
-
-A few other things behave differently for a live stream than a local
-track, by design rather than by omission:
-
-- **No seeking**, for either format -- tapping the progress bar does
-  nothing, there's nothing to seek back to on a live source.
-- **Duration differs by format.** FLAC streams show a real, correct
-  duration (from the STREAMINFO metadata block near the top of the file,
-  not a full-stream prescan) and the progress bar fills normally. MP3
-  streams have no equivalent authoritative source without downloading the
-  whole file first, so the progress bar stays at 0:00 for those.
-- **Auto-advance/gapless/crossfade**: for a genuinely unbounded stream
-  (internet radio), none of these ever engage -- there's no "end" to
-  advance from, so a queued next track never starts on its own; the user
-  has to manually skip. A FLAC stream of a real, finite file is the one
-  case this doesn't apply to: it ends when the file ends, same as local
-  playback, and auto-advance into a queued next track works normally.
-- ID3v2 tags a station sends at the start of the stream, and Shoutcast/
-  Icecast's own "now playing" metadata extension (ICY metadata), are both
-  ignored -- `plugin.play_file()`/`plugin.play_list()` don't surface a
-  live stream's track title, only whatever label your own plugin already
-  passed to `show_list()`/`register_stream_media_tile()`.
+- MP3 by default. Add `#.flac` to the URL for FLAC (the fragment is never sent
+  to the server). Other formats fail to open.
+- No seeking. FLAC streams show their duration; MP3 streams don't.
+- No reconnect: if the connection drops, playback stops.
+- An endless stream (radio) never auto-advances. A finite FLAC file does.
+- Stream titles (ID3 or ICY metadata) are not shown.
 
 ### `plugin.play_remote(track)` / `plugin.queue_remote_list(tracks [, start_index])`
 
-The native side of a provider-neutral remote music plugin (Qobuz/Tidal/etc):
-starts playback of one track (`play_remote`) or a fresh playlist of up to
-500 (`queue_remote_list`, same 1-based `start_index` convention as
-`play_list`). Each `track` is a table:
+For streaming-service plugins (Qobuz, Tidal and the like): plays one track,
+or a new queue of up to 500, with full metadata.
 
 ```lua
 plugin.play_remote({
-    provider = "qobuz",           -- required, bounded
-    track_id = "12345",           -- required, bounded -- stable per track
-    stream_url = "https://...",   -- required -- the real, fetchable URL
-    verify_tls = true,            -- optional, default true
-    title = "Song Name", artist = "...", album = "...",  -- optional
-    duration_ms = 214000,         -- optional
-    artwork_url = "https://...",  -- optional
-    codec = "flac",               -- "mp3"/"flac"/"aac", default "mp3"
-    sample_rate = 44100, bit_depth = 16, channels = 2, bitrate_kbps = 0, -- optional, display only
-    replaygain_db = -3.5,         -- optional
+    provider = "qobuz",           -- required
+    track_id = "12345",           -- required, stable for this track
+    stream_url = "https://...",   -- required
+    verify_tls = true,            -- default true
+    title = "Song", artist = "Artist", album = "Album",
+    duration_ms = 214000,
+    artwork_url = "https://...",
+    codec = "flac",               -- "mp3" (default), "flac" or "aac"
+    sample_rate = 44100, bit_depth = 16, channels = 2, bitrate_kbps = 0,  -- display only
+    replaygain_db = -3.5,
 })
 ```
 
-`provider` + `track_id` become a stable synthetic key,
-`remote://<provider>/<track_id>` -- this, never `stream_url`, is what
-Favorites/Most Played/History key against, so the underlying favorite
-toggle and play count *accumulate* correctly across repeated plays even
-though `stream_url` itself may be a single-use or time-limited signed URL
-refreshed on every call.
+- Favorites and play counts use `remote://<provider>/<track_id>`, not the URL,
+  so they add up even when the URL changes on every play. They don't appear
+  in the Favorites and Most Played screens yet.
+- Remote tracks are not resumed after a restart.
+- Playback works like a stream URL above: no seeking, no reconnect.
 
-**This does not yet mean a remote track shows up in the Favorites/Most
-Played screens.** Those screens only ever list rows also present in the
-on-device local library scan (they inner-join against it, so a favorited
-song that's since vanished from your library silently drops off the list
-rather than showing a dead entry) -- a `remote://` key is never a row
-there, so it's filtered out the same way a stale local favorite would be.
-The heart can be toggled and the play count keeps counting up invisibly in
-the database, ready to be surfaced once a persistent remote-track catalog
-(and a way to refresh a track's `stream_url` outside of an active queue)
-exists; neither does yet, so don't build a plugin around a remote track's
-Favorites/Most Played entry being visible or reachable anywhere in the app
-today.
+### Controls
 
-For the same expiring-URL reason, **resume-on-launch skips remote tracks
-entirely** -- there's no stable URL to resume into on a cold launch, so
-`last_track` is simply never set to one.
+| Function | Does |
+| --- | --- |
+| `plugin.toggle_pause()` | Play/pause, like the button (blocked in Bluetooth DAC and AirPlay modes, like the button). |
+| `plugin.stop()` | Stops playback. |
+| `plugin.next_track()`, `plugin.prev_track()` | Next and previous, respecting shuffle. |
+| `plugin.seek(seconds)` | Jumps to a position in the current track. |
+| `plugin.set_volume(percent)` | Sets the volume, 0 to 100, and shows the volume popup. |
+| `plugin.set_transport_skip(dir, seconds)` | Makes Next and Previous skip `seconds` (1 to 300) within files under `dir` instead of changing track; 0 turns it off. Applies to every Next/Previous control, not to automatic track changes. Not saved; the last call wins. Check `playback.transport_skip`. |
 
-Playback itself goes through the exact same MP3/FLAC callback-streaming
-path `play_file()`'s `http(s)://` streaming already uses (see "Live Stream
-URLs" above) -- **no seeking, no reconnect-on-drop, no auth/expiring-URL
-refresh yet**. `codec` is used directly instead of the extension/Content-
-Type sniffing a plain stream URL needs, since the plugin already knows it
-from its own catalog API.
+### Current state
 
-### `plugin.show_toast(message [, duration_ms])`
+| Function | Returns |
+| --- | --- |
+| `plugin.is_playing()`, `plugin.is_paused()` | booleans |
+| `plugin.get_position()`, `plugin.get_duration()` | seconds |
+| `plugin.get_volume()` | 0 to 100 |
+| `plugin.get_now_playing()` | `title, artist, album, duration_seconds`, or `nil` if nothing has played yet |
+| `plugin.get_current_track_path()` | absolute path, or `nil` when nothing is loaded |
+| `plugin.get_play_mode()` | `"sequential"`, `"repeat_all"`, `"repeat_one"` or `"shuffle"` |
 
-Shows the same transient toast used elsewhere in the app (e.g. "Added to
-queue"). Useful for "nothing found" / error feedback -- see
-`Audiobooks.lua`'s use of this when a book folder has no playable chapter
-files in it. The optional duration defaults to 5000ms and accepts
-100..30000ms.
+### `plugin.media_capabilities()`
 
-### `plugin.screenshot()` -> `true` | `false, reason`
+Describes what the player can play, for streaming plugins choosing a quality:
 
-Starts an asynchronous screenshot of the currently visible display. It returns
-`true` when capture starts, or `false` with one of `screen_off`, `no_card`,
-`usb_storage`, `busy`, `framebuffer_unavailable`, `worker_start_failed`, or
-`unavailable`. A started capture flashes the display and shows a completion
-toast. PNG files are written under `<SD card>/Screenshots/`.
+```lua
+-- codecs = {"mp3", "aac", "flac"}, containers = {"mp3", "adts", "flac"}
+-- max_bit_depth = 16, max_channels = 2
+-- max_sample_rate = 0 (unknown), direct_http_streaming = true
+-- range_seeking = false, hls = false, dash = false
+-- encryption_modes = {}, drm_systems = {}
+```
 
-Register `plugin.on("screenshot_saved", function(path) ... end)` to receive the
-full saved path, or `plugin.on("screenshot_failed", function(reason) ... end)`
-for an asynchronous encode or file-write failure. Both callbacks run on the UI
-thread.
+## Music library
 
-### 🎚️ EQ and Sound Profiles
+The library functions read the on-device database. Matching is
+case-insensitive.
 
-This app has its own 10-band parametric EQ (`src/audio/peq.c`) -- these
-functions expose it directly, `luaL_check*`-validated wrappers straight over
-`peq.c`'s own C API (unlike most of the rest of this table, no `gui.c`
-bridge is involved, since the EQ engine has no LVGL/screen state to keep in
-sync -- see "Extending the `plugin.*` API itself" below). Every setter
-below persists immediately (same `peq_save()` every native EQ-screen control
-already calls after each change), so a plugin-driven EQ change survives
-reboot with no extra work and stays consistent with the native EQ screen.
+- `plugin.get_artist_albums(artist)`: the artist's album names, sorted, or
+  `nil`.
+- `plugin.get_album_tracks(artist, album)`: the album's track paths in album
+  order, or `nil`.
+- `plugin.get_next_album_tracks(artist, album)`: the tracks of the artist's
+  next album, or `nil` if there is none (it doesn't wrap). Useful to keep
+  playing through a discography.
 
-- **`plugin.eq_load_profile(path)` -> bool** -- loads and applies a `.peq`
-  profile file from an arbitrary path (see `eq_save_profile` below for the
-  format), applying it immediately and persisting it as the new
-  always-current EQ state. Returns `false` (not a Lua error) if `path`
-  doesn't exist or can't be read.
-- **`plugin.eq_save_profile(path)` -> bool** -- saves the current EQ state
-  (bypass, preamp, all 10 bands) to `path`, plain text, one `key=value` line
-  per field (`bypass=`, `preamp=`, `bandN_freq=`/`bandN_gain=`/`bandN_q=`/
-  `bandN_type=`/`bandN_enabled=` for `N` 0-9). This is the exact format the
-  native EQ screen's own "Save Profile" already writes and "Load Profile"
-  already reads -- a plugin's saved/loaded profiles are fully interchangeable
-  with ones a user creates by hand in the EQ screen. Returns `false` if
-  `path` can't be written.
-- **`plugin.eq_reset()`** -- restores every band, the preamp, and bypass to
-  built-in defaults (same as the native EQ screen's Reset button), then
-  persists.
-- **`plugin.eq_set_bypass(enabled)`** -- `enabled` (bool): `true` bypasses
-  the whole EQ (flat, unprocessed).
-- **`plugin.eq_set_preamp(db)`** -- `db` (number): the whole-EQ pre-amp gain,
-  in dB.
-- **`plugin.eq_set_band(index, freq_hz, gain_db, q)`** -- sets one band's
-  frequency, gain, and Q. `index` is **1-based** (1..10, matching every
-  other 1-based index in this API), not `peq.c`'s own 0-based one. Raises a
-  Lua error if `index` is out of range.
-- **`plugin.eq_set_band_type(index, type)`** -- `type` (string): `"peaking"`,
-  `"low_shelf"`, or `"high_shelf"`. Raises a Lua error on an unrecognized
-  string or out-of-range `index`.
-- **`plugin.eq_set_band_enabled(index, enabled)`** -- toggles whether that
-  band is applied at all.
+### Paged access
 
-There's no getter -- nothing in the profile-switcher use case these are
-built for needs to read EQ state back into Lua, and the native EQ screen
-already re-reads `peq_get_*()` fresh every time it's opened, so it stays
-correct regardless of what a plugin changed. See
-`plugins_examples/SoundProfiles.lua`.
+For browsing the whole library without loading it all. `limit` defaults to,
+and is capped at, 200; use `offset` to page. Check `library.paged`.
+
+- `plugin.library_song_count()`: number of songs.
+- `plugin.library_get_songs([offset], [limit], [filters])`: returns
+  `songs, total`. `filters` may contain `query` (part of the title or artist),
+  `artist`, `album_artist` and `album` (exact matches). `total` counts all
+  matches, for "page N of M".
+- `plugin.library_search(query, [limit])`: songs whose title or artist
+  contains `query`.
+- `plugin.library_get_song(id)`: one song, or `nil` if it no longer exists.
+- `plugin.library_get_artists([offset], [limit])`: artist groups.
+- `plugin.library_get_albums([offset], [limit], [artist])`: album groups,
+  optionally only those whose artist or album artist is `artist`.
+
+A **song** is `{ id, path, title, artist, album, album_artist }`. Its `id`
+survives rescans: keep it to look the song up later with
+`library_get_song(id)`. A **group** is
+`{ name, count, first_song_id, album_artist }`; `album_artist` tells apart
+same-named albums by different artists.
+
+```lua
+local songs, total = plugin.library_get_songs(0, 50, { artist = "Boards of Canada" })
+plugin.show_toast(("Found %d songs"):format(total))
+```
+
+### `plugin.refresh_library()`
+
+Rescans the music library, like Settings > Library > Update Music Database,
+with the same progress screen. Needed after a plugin adds music files, since
+the library doesn't watch for changes. Returns `true, "started"`, or
+`false, "already_running"` or `false, "rate_limited"` (one scan per minute per
+plugin). Check `library.refresh`.
+
+## Files and playlists
+
+- `plugin.sd_root()`: the SD card's path (`/data/mnt/sd_0` on the device,
+  `./music` on the simulator). Build every path from it so the plugin works in
+  both.
+- `plugin.list_dir(path)`: the entries of a folder (absolute path), as
+  `{ name, dir, size, modified }` tables (`size` and `modified`, in Unix
+  seconds, when available). Hidden entries are skipped, the order isn't
+  sorted, and a missing folder gives an empty table.
+- `plugin.mkdir(path)`: creates a folder and any missing parents. Returns
+  `true`, or `nil, error`. An existing folder is fine.
+
+### Playlists
+
+These work on the `.m3u` playlists the Playlists screen shows, and changes
+appear there immediately.
+
+| Function | Returns |
+| --- | --- |
+| `plugin.playlist_list()` | paths of all playlists, or `nil` if there are none |
+| `plugin.playlist_read(m3u_path)` | song paths in order, or `nil` |
+| `plugin.playlist_create(name, song_path)` | the new playlist's path (with `song_path` as its first song), or `nil` |
+| `plugin.playlist_add(m3u_path, song_path)` | `true`, or `nil, error` |
+| `plugin.playlist_remove(m3u_path, song_path)` | `true`, or `nil, error`; removes every copy of the song |
+| `plugin.playlist_delete(m3u_path)` | whether it was deleted, or `nil, error` for an invalid path |
+
+## Sound
+
+### Equalizer
+
+These control the player's 10-band parametric EQ. Every change applies and is
+saved immediately, and the EQ screen shows it.
+
+| Function | Does |
+| --- | --- |
+| `plugin.eq_load_profile(path)` | Loads a `.peq` profile. Returns `false` if it can't be read. |
+| `plugin.eq_save_profile(path)` | Saves the current EQ as a `.peq` profile, the same format as the EQ screen. Returns `false` if it can't be written. |
+| `plugin.eq_reset()` | Restores the defaults. |
+| `plugin.eq_set_bypass(on)` | `true` turns the whole EQ off. |
+| `plugin.eq_set_preamp(db)` | Sets the preamp gain. |
+| `plugin.eq_set_band(index, freq_hz, gain_db, q)` | Sets one band. `index` is 1 to 10. |
+| `plugin.eq_set_band_type(index, type)` | `"peaking"`, `"low_shelf"` or `"high_shelf"`. |
+| `plugin.eq_set_band_enabled(index, on)` | Turns one band on or off. |
+
+There are no getters. A bad index or type is an error. Since every call writes
+to storage, change only the bands that changed.
 
 ### `plugin.set_hw_volume_curve(curve)`
 
-Replaces the entire UI-volume (0-100%) -> internal-DAC-hardware-register
-mapping this app's own volume slider drives, letting a plugin implement
-things like the real device's own Low/Medium/High Gain modes (or any other
-custom curve, e.g. one hand-tuned for a specific pair of IEMs) that the
-app's single built-in taper can't cover on its own.
+Replaces how the volume slider maps to the internal DAC, for example to
+recreate the stock firmware's Low and High Gain modes. `curve` is a table of
+exactly 101 integers (volume 0% to 100%), each a raw register value from 0
+(loudest) to 255 (quietest). `nil` restores the built-in curve. It applies
+immediately but isn't saved, so set it again on every load. It affects only
+the headphone and line output, not Bluetooth or USB. See
+`plugins_examples/GainMode.lua`.
 
-`curve` is a Lua table of **exactly 101 integers, 0-255**, index 1
-(`curve[1]`) through index 101 (`curve[101]`) representing UI volume 0%
-through 100% respectively. Each value is a *raw hardware register value*
-for the internal codec's own "Left"/"Right Playback Volume" ALSA controls,
-not a dB number -- lower is louder (0 is the hardware's own loudest,
-zero-attenuation point), higher is quieter, and there is no requirement
-that the curve be monotonic if you have a real reason for it not to be.
-Pass `nil` (or call with no arguments) to restore the app's own built-in
-curve. Raises a Lua error if the table isn't exactly 101 entries long, or
-if any entry is outside 0-255 (naming the offending index).
+## Device
 
-Same shape as `plugin.eq_set_band()` above -- calls straight into
-`src/audio/audio.c`, no `gui.c`-paired UI state to keep in sync (it
-doesn't move the volume slider or its popup; it changes what a given
-slider position maps to internally), and takes effect immediately at
-whatever volume is currently set, not just on the next change. In-process
-only, like every other plugin config call in this API -- not persisted,
-so re-apply it at the top of your own script on every boot, same as
-`set_home_layout()` and friends.
+### LEDs
 
-**Has no effect on Bluetooth or USB output** -- neither ever reaches this
-codec's own hardware register at all (USB pipes PCM to a separate ALSA
-device/process; Bluetooth volume is synced over AVRCP), so a curve set
-here only ever affects the device's own internal headphone/line-out jack.
+Plugins can drive the red and blue charge LEDs while the player is awake.
+First check `plugin.led_available()`.
 
-See `plugins_examples/GainMode.lua` for a complete Low/High Gain
-implementation using the real stock firmware's own measured curves (the
-real firmware also defines a third "Medium" curve, omitted there because
-it's numerically identical to Low on the real device it was extracted
-from).
+| Function | Does |
+| --- | --- |
+| `plugin.led_set(color, on_or_level)` | `color` is `"red"` or `"blue"`. `true` (full), `false` (off) or a level 0 to 100. Works even when the LED Indicator setting is off. |
+| `plugin.led_blink(color, on_ms, off_ms [, level])` | Blinks. Each phase is clamped to 50 to 60000 ms. |
+| `plugin.led_breathe(color, rate [, level])` | Pulses. `rate` up to 600 means breaths per minute; above 600, a period in ms (up to 120000). `level` is the peak, default 100. |
+| `plugin.led_get(color)` | `{ mode, level }`, `mode` being `off`, `on`, `blink`, `breathe` or `status`. |
+| `plugin.led_status([color])` | Returns one LED (or both) to showing the charge status. |
+| `plugin.led_release()` | Gives both LEDs back to the player. |
 
-### Hardware LEDs
-
-Plugins can control the red and blue charge-status LEDs while the player is
-awake. All effect timers and sysfs writes run on the UI thread. The blue LED
-maps plugin brightness 0..100 onto raw hardware brightness 0..50; red maps
-0..100 onto raw 0..100. The normal charge indicator keeps its existing raw
-brightness of 50 for both colors.
-
-- **`plugin.led_available()`** returns `true` when both
-  `/sys/class/leds/red/brightness` and `/sys/class/leds/blue/brightness`
-  exist on this board.
-- **`plugin.led_set(color, on_or_level)`** accepts `color` as exactly
-  `"red"` or `"blue"`. The second argument can be `true` for full user
-  brightness, `false` for off, or an integer brightness 0..100 (clamped).
-  Setting a color cancels its current effect. A plugin override can light an
-  LED while the user's LED Indicator setting is off.
-- **`plugin.led_blink(color, on_ms, off_ms [, level])`** runs a software
-  blink on an LVGL timer. Each phase is clamped to 50..60000ms; `level`
-  defaults to 100 and is clamped to 0..100.
-- **`plugin.led_breathe(color, period_ms_or_bpm [, level])`** pulses the LED.
-  Numeric values 1..600 mean breaths per minute; values above 600 mean a
-  period in milliseconds (clamped to 120000ms). Red at peak level 100 uses
-  the kernel `breathing` trigger. Blue and partial peaks use software
-  brightness stepping at no more than 25Hz, capped to that color's safe raw
-  maximum. Leaving the kernel trigger restores `none` before software
-  brightness is written.
-- **`plugin.led_get(color)`** returns `{ mode = "off"|"on"|"blink"|"breathe"|"status", level = 0..100 }`.
-  For effects, `level` is their configured peak; in `status` mode it is the
-  current normal-indicator brightness. This is software state and does not
-  read sysfs back.
-- **`plugin.led_status([color])`** cancels that color's effect and returns it
-  to normal charge-status indication. Omit the color or pass `nil` to return
-  both LEDs; the other LED keeps its plugin override.
-- **`plugin.led_release()`** stops every effect, clears the shared override,
-  and reapplies the current LED Indicator setting.
-
-The most recent plugin to call a control function owns the shared override;
-only that plugin can release it. The owner is released after a Lua call error,
-a failed script load, plugin manager teardown, or `plugin.reload_ui()`. Effect
-timers are deleted on release and teardown. They are paused before suspend
-and the saved LED state and effects are reasserted after resume. Suspend-to-RAM
-still turns both LEDs off; effects do not run during suspend.
+Levels are clamped to 0 to 100 and default to 100 for effects. The last
+plugin to use the LEDs owns them until it releases them, fails, or
+the plugins reload. Effects pause during suspend and resume afterwards.
 
 ```lua
 if plugin.led_available() then
-    plugin.led_set("blue", 35)
     plugin.led_blink("red", 300, 700, 80)
-    -- Later, when this plugin no longer needs the override:
+    -- later:
     plugin.led_release()
 end
 ```
 
-### ⏯️ Playback Control
+### Battery
 
-Unlike the EQ functions above, these **do** go through `gui.c` bridges
-(`gui_plugin_toggle_pause()` and neighbors, declared in `gui.h`) rather than
-calling `src/audio/audio.c` directly -- the native UI always pairs a
-playback change with other state (the play/pause icon, the volume
-slider/popup, shuffle-aware next/prev stepping) that a direct `audio_*` call
-would leave stale. Each function here calls the exact same local helper the
-native UI itself uses, so a plugin-driven change looks identical to a
-button/remote-control-driven one.
+`plugin.get_battery()` returns `{ level, charging, full, external_power }`,
+`level` being 0 to 100 (0 without a battery). See also the `battery_changed`
+event.
 
-- **`plugin.toggle_pause()`** -- same as tapping the play/pause button
-  (respects the same Bluetooth-DAC/AirPlay-mode block that button does).
-- **`plugin.stop()`** -- stops playback outright (not resumable the way
-  pause is).
-- **`plugin.next_track()` / `plugin.prev_track()`** -- shuffle-aware
-  next/previous, same stepping logic Prev/Next and a Bluetooth/phone remote
-  already use.
-- **`plugin.set_transport_skip(directory, seconds)`** -- changes manual
-  Next/Previous controls to time skipping for active files inside this
-  directory (including subdirectories). Physical, Now Playing, and remote
-  transport controls share this behavior. `seconds` is 0 to disable, or
-  1..300; backward skips clamp at zero and forward skips stop just before
-  the current file ends. Automatic track advancement is unchanged.
-  Check `playback.transport_skip` before use. The last caller's configuration
-  applies and plugin reload clears it; persist the preference in the plugin.
-- **`plugin.seek(seconds)`** -- seeks the current track to an absolute
-  position.
-- **`plugin.set_volume(percent)`** -- `percent` (0-100, clamped): sets
-  system volume, also updating the on-screen volume slider/popup, same as a
-  hardware volume-button press.
-- **`plugin.is_playing()` / `plugin.is_paused()`** -> bool.
-- **`plugin.get_position()` / `plugin.get_duration()`** -> number (seconds).
-- **`plugin.get_volume()`** -> current applied volume, integer 0..100.
-- **`plugin.get_battery()`** -> `{ level = 0..100, charging = bool, full = bool,
-  external_power = bool }`. A missing battery reports level 0. `charging` and
-  `full` use the same charge-limiter and power-supply status logic as the
-  built-in charge LED.
+## Network
 
-These are always called from inside a plugin callback (`on_open`,
-`on_select`, a tile click), which is itself already dispatched synchronously
-on the main UI thread from an LVGL click event -- the same thread every
-native playback control already runs on, so there's nothing new to worry
-about thread-safety-wise.
+### `plugin.http_request(options, callback)`
 
-<a id="networking"></a>
+The way to make HTTP requests. It returns a handle immediately, the request
+runs in the background, and `callback(status, body, error, headers)` runs when
+it finishes. On success `error` is `nil` and `headers` is a table of response
+headers; on failure `status` and `body` are `nil` and `error` says why.
 
-## 🌐 Networking
-
-> [!IMPORTANT]
-> New plugins should use asynchronous `plugin.http_request()`. The older
-> `http_get()` and `http_post()` functions block the UI thread while waiting.
-
-### `plugin.http_get(url [, verify_tls])`
-
-Synchronous GET request, bridging `src/network/http_client.c` (the same one
-this app's own Subsonic integration uses) directly -- no `gui.c` layer
-needed, since there's no LVGL/playback state involved. `verify_tls` defaults
-to `true`; pass `false` only for a server you've deliberately chosen to
-trust despite a self-signed/invalid certificate.
-
-Returns `status, body` on success (`status` an HTTP status code, `body` the
-full response as a Lua string -- binary-safe, not truncated at a NUL byte).
-On a DNS/connect/TLS-level failure, returns `nil, "network error"` instead
-of raising, so a plugin can show its own error toast rather than crash. A
-real HTTP error status (404, 500, ...) is **not** treated as failure here --
-you still get `status, body` back and inspect `status` yourself.
-
-**Runs on the calling thread** -- i.e. whatever plugin callback invoked it,
-always the main UI thread. A slow or hanging server blocks the whole app's
-UI until the request completes or times out. Keep calls fast, or trigger
-them from a user tap (a `register_list_item`/`show_list` row) rather than
-anywhere that could be called in a loop.
-
-### `plugin.http_post(url, body [, content_type] [, verify_tls])`
-
-Same shape, return values, and blocking caveat as `http_get()` above, for a
-POST. `content_type` defaults to `"application/x-www-form-urlencoded"` if
-omitted or `nil` -- what most simple API POSTs (including Last.fm's) expect;
-pass `"application/json"` or anything else your target API needs. `body` is
-sent as-is, byte for byte -- this function doesn't URL-encode or otherwise
-transform it, so build the string yourself first.
-
-### `plugin.http_request(options, callback)` / `plugin.cancel(handle)`
-
-Preferred non-blocking HTTP interface. It returns a request handle immediately;
-DNS, connection, TLS, upload, and response reads happen on a native worker.
-`callback(status, body, error, headers)` is later invoked on the main Lua/UI
-thread. On success, `status` and the binary-safe `body` are set, `error` is
-`nil`, and `headers` is a `{Name = "value", ...}` table of the response's
-headers. On failure, `status` and `body` are `nil` and `error` is a short,
-stable string (see the error codes below).
+If the request can't start, it returns `nil, error` instead (for example
+`"too many active HTTP requests"`), and the callback never runs.
 
 ```lua
-local handle, err = plugin.http_request({
-    url = "https://example.com/api",
-    method = "POST", -- GET, POST, PUT, PATCH, DELETE, or HEAD; GET is the default
-    headers = { Authorization = "Bearer " .. token, ["X-Custom"] = "value" },
-    body = '{"hello":"world"}',
+local handle = plugin.http_request({
+    url = "https://example.com/api",       -- the only required field
+    method = "POST",                       -- GET (default), POST, PUT, PATCH, DELETE, HEAD
+    headers = { Authorization = "Bearer " .. token },
+    body = '{"hello":"world"}',            -- sent only with POST, PUT and PATCH
     content_type = "application/json",
-    verify_tls = true,
-    max_response_bytes = 262144,
-    connect_timeout_ms = 10000,
+    verify_tls = true,                     -- default true
+    max_response_bytes = 262144,           -- default 512 KB, at most 2 MB
+    connect_timeout_ms = 10000,            -- timeouts: none by default, at most 5 minutes
     read_timeout_ms = 15000,
     total_timeout_ms = 30000,
-    redirect_limit = 5,
-}, function(status, body, request_error, headers)
-    if request_error then
-        plugin.show_toast(request_error)
-        return
-    end
-    plugin.show_toast("HTTP " .. status .. ", " .. #body .. " bytes, content-type=" ..
-                       (headers["Content-Type"] or "?"))
+    redirect_limit = 5,                    -- default 0, at most 10
+}, function(status, body, err, headers)
+    if err then plugin.show_toast(err) return end
+    plugin.show_toast("HTTP " .. status .. ", " .. #body .. " bytes")
 end)
 ```
 
-**Compatibility:** every field above except `url` is optional, and a callback
-declared with the original 3 parameters (`status, body, error`) keeps working
-completely unchanged -- Lua silently drops extra arguments a function doesn't
-declare, so the new 4th `headers` argument is invisible to existing plugins.
-`method` still defaults to `GET`; `headers`/`connect_timeout_ms`/
-`read_timeout_ms`/`total_timeout_ms`/`redirect_limit` all default to their
-exact previous (nonexistent) behavior when omitted -- no timeout, no
-redirects followed (a 3xx response is returned as an ordinary result with
-that status code, matching curl's own `--max-redirs 0` convention, not
-treated as an error), no extra headers. `body`/`content_type` are only ever
-sent for `POST`/`PUT`/`PATCH` -- exactly as before, when only `GET`/`POST`
-existed and a `body` set on a `GET` request was silently ignored; that
-silent-ignore behavior for non-body methods is preserved deliberately, not
-newly introduced.
+Limits and rules:
 
-`max_response_bytes` defaults to 512 KiB and may be 1 byte through 2 MiB.
-Request bodies are capped at 1 MiB. Request headers are capped at 32
-entries with names up to 63 bytes and values up to 767 bytes; since API 14
-one more header per request may have a value up to 4095 bytes (a long bearer token, for
-example), except for Host, User-Agent, Content-Type, Content-Length and
-Connection. More headers, longer values, or a NUL byte in a name or value
-raise an error rather than being dropped or cut.
-At most four asynchronous requests may be active across all plugins. The
-returned handle includes a generation number, so a stale handle cannot
-affect a newer request that reused the pool slot.
+- Up to 4 requests at a time, from all plugins together.
+- Request body up to 1 MB. Up to 32 headers, names up to 63 bytes, values up
+  to 767 bytes, plus one value per request up to 4095 bytes (for long tokens;
+  not for Host, User-Agent, Content-Type, Content-Length or Connection). Going
+  over a limit, or a value out of range, raises an error instead of being cut.
+- Without `redirect_limit`, a 3xx response is returned as a normal result.
+  Redirects follow browser rules (303, and 301/302 after a POST, become a GET
+  without body), and credentials (`Authorization`, `Cookie`, `Cookie2`,
+  `Proxy-Authorization`) are never sent to a different origin (scheme, host
+  or port). A redirect from
+  HTTPS to HTTP is refused while `verify_tls` is on.
+- If a response repeats a header, the last one wins.
 
-A repeated response header name keeps only the LAST occurrence in the
-`headers` table passed to your callback -- true case-insensitive
-last-occurrence-wins (matching HTTP's own case-insensitive header-name
-rule), not just a Lua-table-key coincidence: `Content-Type: a` followed by
-`content-type: b` on the same response collapses to one `Content-Type`
-(or `content-type`, whichever spelling came last) key holding `"b"`.
+Error values: `invalid_url`, `invalid_request` (a line break in the URL or a
+header), `dns_failure`, `connect_failed`, `connect_timeout`, `tls_failure`,
+`timeout`, `cancelled`, `too_many_redirects`, `response_too_large`,
+`malformed_response`, `io_error`, `insecure_redirect`. They are stable, so you
+can compare against them.
 
-`connect_timeout_ms`/`read_timeout_ms`/`total_timeout_ms` may not exceed
-5 minutes; `redirect_limit` may not exceed 10. A value outside that range
-is a Lua error immediately, not silently clamped -- fix the value rather
-than relying on it being adjusted for you.
-
-**Redirects follow standard method/credential semantics**, not a blind
-resend of the original request: a `303` always becomes a `GET` with no
-body, regardless of the original method; `301`/`302` conventionally
-rewrite `POST` to `GET` with no body (matching curl's own default and
-every major browser); `307`/`308`, and any non-`POST` method on
-`301`/`302`, preserve the original method and body exactly. Separately,
-**`Authorization`/`Cookie`/`Cookie2`/`Proxy-Authorization` are stripped
-from any redirect hop that changes origin** (scheme, host, or port) --
-your bearer token never follows a redirect to a different host. An
-`https://` request redirected to plain `http://` is refused outright
-(`insecure_redirect`) while `verify_tls` is `true`, rather than silently
-sending anything over the downgraded connection.
-
-**Error codes** (the `error` string on failure): `invalid_url`,
-`invalid_request` (a header name/value or the URL itself contained a
-raw CR or LF byte -- rejected outright, not sanitized, since that's the
-actual header-injection vector), `dns_failure`, `connect_failed`,
-`connect_timeout`, `tls_failure`, `timeout` (a `total_timeout_ms`
-deadline was hit -- this now genuinely bounds connect/TLS/upload/
-response-header reads too, each stage using whatever's left of the
-budget, not only the time between response body chunks), `cancelled`,
-`too_many_redirects`, `response_too_large`, `malformed_response`,
-`io_error`, `insecure_redirect`. These are stable strings safe to match
-on in your own code, not just display.
-
-`plugin.cancel(handle)` returns whether it matched an active request. Unlike
-before, this now forces the underlying connection closed immediately (the
-same technique the internet-radio player already used internally) -- it can
-interrupt a request stuck in connect/TLS handshake, not only between
-response chunks. One honest limitation: DNS resolution itself cannot be
-interrupted this way (it's a single blocking system call with no portable
-way to cancel it from another thread) -- a cancel requested while still
-resolving the hostname is only noticed once resolution finishes, same as
-before. The occupied worker slot becomes reusable as soon as the native
-operation notices and unwinds, not only once the connection
-finishes or times out on its own.
+`plugin.cancel(handle)` stops a request (or download) and returns whether it
+was still running. Its callback is then not called. The connection closes at
+once, except while the host name is being looked up, which finishes first.
 
 ### `plugin.download_file_async(url, dest_path [, verify_tls], callback)`
 
-Downloads a GET response directly to disk on a native worker without holding
-the response in RAM or blocking the UI. `verify_tls` defaults to `true`.
-The callback runs on the main Lua/UI thread as `callback(saved_path, error)`:
-`saved_path` is the requested destination and `error` is `nil` on success;
-on failure they are `nil, "download failed"`.
+Downloads a file straight to disk in the background, without loading it into
+memory. `verify_tls` defaults to `true`. It returns a handle, or `nil, error`
+if it can't start. `callback(saved_path, error)` runs when it ends; on failure
+it gets `nil, "download failed"`. The file only appears at `dest_path` after
+a complete HTTP 2xx response, so a failed download never leaves a broken file
+or replaces an existing one. It shares the 4 request slots and can be
+cancelled with `plugin.cancel()`.
 
 ```lua
 local dir = plugin.sd_root() .. "/Talks"
-local ok, mkdir_err = plugin.mkdir(dir)
-if ok then
-    local handle, err = plugin.download_file_async(
-        "https://example.com/talk.mp3",
-        dir .. "/talk.mp3",
-        function(saved_path, download_err)
-            plugin.show_toast(download_err or ("Saved " .. saved_path))
-        end)
+if plugin.mkdir(dir) then
+    plugin.download_file_async("https://example.com/talk.mp3", dir .. "/talk.mp3",
+        function(path, err) plugin.show_toast(err or ("Saved " .. path)) end)
 end
 ```
 
-The response is streamed into a unique temporary file beside the destination
-and atomically renamed only after a complete HTTP 2xx response. Failed and
-cancelled downloads remove the temporary file and leave an existing destination
-unchanged. Download jobs share the four-slot asynchronous HTTP pool, and their
-handles can be passed to `plugin.cancel(handle)`. Unlike buffered requests,
-cancellation interrupts a file download during its next received chunk.
+### `plugin.http_get(url [, verify_tls])` / `plugin.http_post(url, body [, content_type] [, verify_tls])`
 
-The older `http_get()` and `http_post()` remain available for compatibility,
-but run synchronously on the UI thread. New plugins should use
-`http_request()`.
+Older, blocking requests: the whole player freezes until they finish. Use
+`http_request` instead. They return `status, body` (HTTP error codes such as
+404 included), or `nil, "network error"`. `http_post` sends `body` as is, with
+`content_type` defaulting to `application/x-www-form-urlencoded`.
 
-### `plugin.md5(text)`
+## Data and storage
 
-Returns the MD5 hash of `text` as a lowercase hex string. Bridges
-`mbedtls_md5()` (already vendored, already used the same way by this app's
-own Subsonic integration for its token auth) -- no new dependency. Useful
-for any API that needs a request signed this way, e.g. Last.fm's own
-`api_sig` scheme (see `plugins_examples/LastFmScrobbler.lua`).
+### `plugin.storage` and `plugin.secrets`
 
-### `plugin.json_decode(text [, limits])` / `plugin.json_encode(value [, limits])`
-
-Bounded JSON support (wraps the vendored cJSON, already used internally for
-Subsonic responses). Both run synchronously on the calling thread --
-decode/encode a body you already fetched via `http_request()`, don't hold a
-large body across a `set_interval()` tick waiting to parse it.
-
-`json_decode(text, limits)` returns `value, nil` on success or `nil, error`
-on failure. `limits` is optional; every field has a default and a hard
-ceiling a plugin cannot raise past:
-
-| Field | Default | Hard ceiling |
-|---|---|---|
-| `max_input_bytes` | 512 KiB | 512 KiB |
-| `max_nesting` | 32 | 64 |
-| `max_entries` | 10000 | 10000 |
-
-The hard ceiling is the real safety limit on this ~56 MiB device -- a
-decode simultaneously holds the source string, the cJSON tree, and the
-converted Lua tables/strings, so the ceiling is set to what the *default*
-used to be, not a higher number a plugin could opt into via `limits`.
-Passing a larger value in `limits` is silently clamped down to the
-ceiling, not an error.
-
-`json_encode(value, limits)` returns `text, nil` or `nil, error`. Its
-`limits` table uses `max_output_bytes` (same default/ceiling numbers as
-`max_input_bytes` above) instead of `max_input_bytes`, plus the same
-`max_nesting`/`max_entries`.
-
-Known limitations, not bugs -- both follow ordinary JSON-in-a-dynamic-
-language conventions, not something specific to this player:
-- JSON `null` decodes as Lua `nil`, indistinguishable from a missing table
-  key or array hole. Don't rely on `null`'s mere presence in a response.
-- Numbers decode as Lua numbers (IEEE-754 double) -- exact only up to
-  2^53. A provider that needs an exact large ID should emit it as a JSON
-  *string*; treat provider track/album/artist IDs as strings in your own
-  plugin code rather than relying on round-tripping a huge JSON integer.
-- A Lua table with `#t > 0` encodes as a JSON array (indices `1..#t`); any
-  other table, including an empty one, encodes as a JSON object. Object
-  keys must be Lua strings -- a non-string key is a clean encode error,
-  not a crash.
-- Invalid UTF-8 in either direction is a clean decode/encode error rather
-  than being silently passed through or replaced.
-
-```lua
-local resp_text = ... -- from an http_request() callback's result body
-local data, err = plugin.json_decode(resp_text)
-if not data then
-    plugin.show_toast("Bad response: " .. err)
-    return
-end
-
-local body, err2 = plugin.json_encode({ query = "abba", limit = 50 })
-```
-
-### `plugin.storage` / `plugin.secrets`
-
-Namespaced key/value storage, private to your plugin's own `id` (from
-`plugin.define`) and stored under this device's internal persistent
-partition -- **never the removable SD card**, so it survives an SD swap
-and isn't readable by just pulling the card.
+Private key-value storage for your plugin (keyed by its `id`, so call
+`plugin.define()` first), kept on the player's internal memory, not the SD
+card.
 
 ```lua
 plugin.storage.set("last_sync", tostring(os.time()))
-local last = plugin.storage.get("last_sync", "never")
-
-local keys = plugin.storage.list("cache_") -- array of matching key names
+local last = plugin.storage.get("last_sync", "never")   -- with a default
+local keys = plugin.storage.list("cache_")              -- keys starting with "cache_"
 plugin.storage.delete("last_sync")
-```
 
-- `plugin.storage.get(key [, default])` -- returns the stored value, or
-  `default` (or `nil` if omitted) when the key doesn't exist.
-- `plugin.storage.set(key, value)` -- `value` is any Lua string, including
-  binary bytes (up to 256 KiB per value); returns `true`, or `false` if it
-  failed (invalid input, or a quota below would be exceeded). A `set()`
-  that would store the exact same bytes already on disk is a fast no-op --
-  it doesn't touch flash again.
-- `plugin.storage.delete(key)` -- returns whether a key was removed *and*
-  that removal's durability across an immediate power loss was confirmed.
-  Same nuance as `set()` below: `false` can mean the key really is gone
-  but that durability confirmation failed, not that it's still there.
-- `plugin.storage.list(prefix)` -- returns an array of key name strings
-  starting with `prefix` (or all keys, if `prefix` is omitted/`""`).
-
-**Quotas**: each plugin's combined `storage` + `secrets` usage is capped
-at 2 MiB and 500 keys, and every plugin's byte usage combined is capped
-at 8 MiB total -- this keeps one plugin from filling the same
-`/usr/data` partition the app's own settings and music database need to
-write to. Usage is tracked with an in-memory cache seeded from a real
-directory scan the first time a plugin id is touched and updated
-incrementally on every write/delete afterward (periodically re-validated
-against a fresh scan), not recomputed by scanning every file on every
-single call -- `set()` stays fast even with many existing keys. `set()`
-returns `false` if a quota would be exceeded; there's no separate error
-code for "quota" vs. other failures yet, so check the return value, not
-just assume success. `false` can also mean the value was written and
-already exists on disk, just that the write's durability across an
-immediate power loss couldn't be confirmed -- not that nothing happened.
-Don't retry a "failed" `set()` in a tight loop assuming it's a no-op.
-
-`plugin.secrets` has the identical `set`/`exists`/`delete` shape for
-credentials (tokens, refresh tokens) but **deliberately no `list()`** --
-your plugin has to remember its own secret key names, so nothing can
-enumerate what secrets exist just by holding a reference to the plugin's
-id.
-
-```lua
 plugin.secrets.set("access_token", token)
+local token = plugin.secrets.get("access_token")         -- nil if missing
 if plugin.secrets.exists("access_token") then ... end
-plugin.secrets.delete("access_token") -- e.g. on log out
+plugin.secrets.delete("access_token")
 ```
 
-**Threat model, stated plainly:** this device has no confirmed hardware
-keystore or secure enclave. "Secrets" storage means restrictive file
-permissions (owner-only, `0600`/`0700`) on the internal partition rather
-than the SD card, **plus** a path guard on `io.open()`/`io.lines()`/
-`io.input()`/`io.output()`/`os.remove()`/`os.rename()` that refuses any
-path resolving into `/usr/data/plugins/` (see "Sandboxing" above) -- that guard, not the file
-permissions, is what actually stops one plugin from reading another's
-secrets: every plugin's Lua code runs in the *same* OS process and user,
-so 0600/0700 alone would do nothing against a plugin that simply
-`io.open()`'d another plugin's predictably-named secrets file directly.
-Neither layer defends against a local attacker with root or physical
-access to this specific running device; there's no device-unique key
-available to this codebase to wrap the data with that such an attacker
-couldn't equally derive. Don't describe this to your own users as
-"encrypted" storage -- it isn't.
+- `get(key [, default])` returns `default` (or `nil`) for a missing key.
+  `list([prefix])` lists all keys when the prefix is omitted or empty.
+- Values are strings (binary is fine), up to 256 KB each. Setting the same
+  value again doesn't write to storage again.
+- `set` and `delete` return `true` on success. `false` can mean a limit was
+  reached, or that the change was made but couldn't be confirmed as safe from
+  a sudden power loss, so don't retry in a loop.
+- Limits: 2 MB and 500 keys per plugin (storage and secrets together), 8 MB
+  for all plugins.
+- `secrets` is for tokens and passwords. It has `get`, `set`, `exists` and
+  `delete` but no `list`, so secret names can't be enumerated. `get` returns
+  `nil` for a missing secret (it was added later: check
+  `storage.secrets_get`). Only your plugin can read its secrets, but they are
+  **not encrypted**: anyone with root access to the device can. Don't describe
+  them as encrypted to your users.
 
-### `plugin.media_capabilities()`
+### `plugin.json_decode(text [, limits])` / `plugin.json_encode(value [, limits])`
 
-Reports what this build's audio pipeline actually supports, as a plain
-table -- useful for a remote-catalog plugin deciding what quality tier to
-request:
+Convert between JSON and Lua. They return `value` or `nil, error`.
 
-```lua
-local caps = plugin.media_capabilities()
--- caps.codecs               = {"mp3", "aac", "flac"}
--- caps.containers           = {"mp3", "adts", "flac"}
--- caps.max_bit_depth        = 16   -- every output path (internal DAC,
---                                     USB DAC, Bluetooth) is fixed 16-bit
--- caps.max_channels         = 2
--- caps.max_sample_rate      = 0    -- not independently verified against
---                                     real hardware limits yet; treat as
---                                     informational only, not a real cap
--- caps.direct_http_streaming = true
--- caps.range_seeking        = false -- not built yet
--- caps.hls / caps.dash      = false
--- caps.encryption_modes = {}, caps.drm_systems = {} -- none supported
-```
+| Limit | Default and maximum |
+| --- | --- |
+| `max_input_bytes` (decode) / `max_output_bytes` (encode) | 512 KB |
+| `max_nesting` | 32, at most 64 |
+| `max_entries` | 10000 |
 
-### `plugin.show_text_input(title, initial_text, is_password, on_submit)`
+Larger values are lowered to the maximum. Keep in mind:
 
-Opens the app's own T9 multi-tap keypad text-entry screen -- the same one
-used for Wi-Fi passwords and Subsonic server login.
+- JSON `null` becomes `nil`, so it looks like a missing key.
+- Numbers are exact only up to 2^53: treat large ids as strings.
+- A table with items `1..n` becomes a JSON array; any other table, even an
+  empty one, an object. Object keys must be strings.
+- Invalid UTF-8 is an error.
 
-- `title` (string): the screen's header text.
-- `initial_text` (string or `nil`): pre-fills the field; `nil` starts empty.
-- `is_password` (boolean): masks the input.
-- `on_submit` (function): called with the entered text when the T9 keypad's
-  Enter key is pressed.
+### `plugin.md5(text)`
 
-**`on_submit` is not called if the user backs out instead of submitting** --
-not with an empty string, not at all. Don't assume it always fires.
+Returns the MD5 hash of `text` in lowercase hex, for APIs that sign requests
+this way (like Last.fm).
 
-This is a **true singleton screen**. The call returns `true` when it opens, or
-`false, "text input busy"` if another plugin request is pending. Cancelling
-with Back releases ownership. Chaining calls from within `on_submit` itself
-(for example username followed by password) works because the first request is
-released before its callback runs.
+### ZIP files and EPUBs
 
-### `plugin.zip_read(path, entry)` / `plugin.zip_list(path)`
+- `plugin.zip_list(path)`: the names of all entries, folders included.
+- `plugin.zip_read(path, entry)`: one entry's contents (`entry` is the exact,
+  case-sensitive name), as `bytes, info` with `info.method` (0 stored, 8
+  deflate), `info.compressed` and `info.uncompressed`. Both the compressed and
+  the uncompressed size must be at most 256 KB.
 
-`plugin.zip_read(path, entry)` reads one ZIP entry without writing a temporary file.
+Both return `nil, reason` on failure: `not_found`, `encrypted`,
+`zip64_unsupported`, `unsupported_method`, `corrupt`, `crc_mismatch`,
+`entry_too_large`, `io_error` or `nomem`. Archives with more than 2000 entries
+or a directory larger than 256 KB count as `corrupt`.
 
-- `path` (string): any file the process can read; a path reserved for `plugin.storage` / `plugin.secrets` raises the same error as `plugin.list_dir`.
-- `entry` (string): the exact central-directory name (case-sensitive, no slash normalization, the first match wins).
+### Image thumbnails
 
-Returns `bytes, info` with `info.method` 0 (stored) or 8 (deflate), `info.compressed`, and `info.uncompressed`. Returns `nil, reason` otherwise. Reasons: `not_found`, `encrypted`, `zip64_unsupported`, `unsupported_method`, `corrupt`, `crc_mismatch`, `entry_too_large`, `io_error`, `nomem`. Both the compressed and uncompressed sizes are capped at 256 KiB; a larger declared size is `entry_too_large` and is never allocated. ZIP64, encryption, and any method other than store or raw deflate are rejected. The central directory itself is capped at 256 KiB and 2,000 entries.
+- `plugin.zip_image_async(path, entry, dest, max_w, max_h, callback)` makes a
+  thumbnail from a JPEG, PNG or BMP inside a ZIP (an EPUB cover, for example),
+  up to 3 MB.
+- `plugin.image_thumbnail_async(source, dest, max_w, max_h, callback)` does
+  the same from an image file, up to 3 MB. Check `data.image_thumbnail`.
 
-`plugin.zip_list(path)` returns a 1-based array of entry names in central-directory order, including directory names. An empty archive is an empty table.
+Both scale the image to fit `max_w` x `max_h` (16 to 800), never enlarging or
+cropping it, and write it to `dest`, which must end in `.bin`. The result can
+be used as a `show_list` icon or a `show_text_view` picture. They run in the
+background and call `callback(dest)` or `callback(nil, reason)`.
 
-- `path` (string): path to the ZIP archive; the same path error as `zip_read` applies.
-
-The same `nil, reason` failures as `zip_read` apply (`not_found` is not used). Names inside encrypted or ZIP64 entries are still listed; reading those entries fails with the reasons above. More than 2,000 entries, or a central directory bigger than 256 KiB, is `corrupt`.
-
-### `plugin.zip_image_async(path, entry, dest, max_w, max_h, callback)`
-
-Reads a JPEG, PNG or BMP from a ZIP entry (an EPUB cover or illustration),
-scales it to fit `max_w` x `max_h` keeping its aspect ratio (never cropped
-or enlarged), and writes it to `dest` as an LVGL binary image. The file can
-then be used as a `show_list` icon or a `show_text_view` picture and draws
-with no further decoding. Reading and decoding run on a worker thread.
-
-- `path` (string): the ZIP archive; the same path rule as `zip_read` applies.
-- `entry` (string): the exact entry name.
-- `dest` (string): where to write; must end in `.bin`. It is replaced
-  atomically, and nothing is left there on failure. The same path rule
-  applies, so plugin storage paths are refused.
-- `max_w`, `max_h` (integers): 16 to 800.
-- `callback` (function): `callback(dest)` on success or
-  `callback(nil, reason)` on failure, later, on the UI thread.
-
-Returns `true` when the job started, or `nil, "busy"` while another job
-(from any plugin) is running; try again later, for example from a
-`set_interval()` tick. Wrong arguments raise an error.
-
-The entry may be up to 3 MiB compressed and uncompressed. Failure reasons
-are the `zip_read` reasons plus `"unsupported image"`, `"could not decode
-image"`, `"could not write image"`, and `"busy"`. `"busy"` (and `"nomem"`)
-means the decoder or its memory was in use by the player's own artwork at
-that moment; the same call may work a little later, so do not record it as
-a broken image. The job is cancelled without calling back when the plugin
-is reloaded.
-
-### `plugin.image_thumbnail_async(source, dest, max_w, max_h, callback)`
-
-Reads a JPEG, PNG or BMP image from a regular file, scales it to fit the
-requested dimensions without enlarging it, and writes an LVGL binary image to
-`dest`. The source read and image decoding use the same single background
-worker as `zip_image_async`.
-
-- `source` (string): image file path; the same external path rule as `zip_read`
-  applies. Files larger than 3 MiB are rejected. Feature-detect this API with
-  `plugin.has_capability("data.image_thumbnail")`.
-- `dest` (string): output path ending in `.bin`; the same path rule and atomic
-  replacement behavior as `zip_image_async` apply.
-- `max_w`, `max_h` (integers): 16 to 800.
-- `callback` (function): `callback(dest)` on success or
-  `callback(nil, reason)` on failure, later, on the UI thread.
-
-Returns `true` when the job starts, or `nil, "busy"` while a ZIP or file image
-thumbnail job is running. Failure reasons include `"could not open image"`,
-`"not a regular file"`, `"image too large"`, `"could not read image"`, and
-the image decode/write reasons documented for `zip_image_async`. The job is
-cancelled without calling back when the plugin is reloaded.
+- They return `true`, or `nil, "busy"` while another thumbnail job (from any
+  plugin) runs: try again a bit later.
+- Failure reasons include the ZIP reasons, `"unsupported image"`, `"could not
+  decode image"`, `"could not write image"`, `"could not open image"`,
+  `"not a regular file"`, `"image too large"` and `"could not read image"`.
+  `"busy"` and `"nomem"` are temporary (the player was decoding artwork), so
+  don't treat the image as broken.
+- `dest` is replaced only on success. Jobs are cancelled, without callback,
+  when the plugins reload.
 
 ### `plugin.html_to_blocks(bytes [, options])`
 
-Turns one HTML or XHTML chapter into a flat list of blocks.
+Turns an HTML or XHTML chapter into a list of blocks for `show_text_view`.
+Returns a list of `{ kind, level, text }` with a `truncated` flag, or
+`nil, reason` (`input_too_large` over 512 KB, `bad_args`, `nomem`).
 
-- `bytes` (string): input bytes. Input above 512 KiB returns `nil, "input_too_large"` and is not scanned.
-- `options` (table, optional): if passed, must be a table and is currently ignored.
+- `kind` is `"p"` (paragraphs, `div`, `li`, `blockquote`), `"h"` (headings,
+  with `level` 1 to 6), `"img"` (`text` is the image source, `alt` its alt
+  text) or `"hr"`.
+- Scripts, styles, `head` and comments are dropped. Common entities are
+  decoded, whitespace is collapsed, and `<br>` becomes a line break.
+- Output stops at 2000 blocks or 256 KB of text, with `truncated` set.
+- `options` is reserved; if given, it must be a table.
 
-The result is an array of `{ kind, level, text }` plus a boolean `truncated` field on that same table.
-
-- `kind` is `"p"` (`p`, `div`, `li`, `blockquote`), `"h"` (`h1`–`h6`, `level` 1–6), `"img"` (`text` is the `src`, `alt` is the alt text, possibly `""`), or `"hr"`.
-- `script`, `style`, `head`, comments, and processing instructions are dropped. CDATA markers are dropped and the CDATA text is kept.
-- Named entities `amp lt gt quot apos nbsp mdash ndash hellip lsquo rsquo ldquo rdquo` (semicolon required) and numeric entities are decoded.
-- Whitespace collapses to a single space; `<br>` is a newline inside the block.
-- A leading UTF-8 BOM is skipped. Invalid UTF-8 bytes become `?`.
-- At most 2,000 blocks and 256 KiB of output text; past that, `truncated` is true and the rest is dropped. Other failures are `nil, "bad_args"` or `nil, "nomem"`.
-
-### `plugin.show_text_view(title, text [, options])`
-
-Opens one paged reading screen.
-
-- `title` (string): the screen's header text.
-- `text` (string): at most 256 KiB; a longer string is cut on a UTF-8 boundary.
-- `options` (table, optional):
-  - `page` (number): 1-based start page and wins over `options.offset`.
-  - `offset` (number): byte offset, snapped to a UTF-8 boundary.
-  - `font_px` (number): accepted and ignored, because the font stack does not build arbitrary sizes.
-  - `images` (array of strings, API 14): up to 64 picture files, usually written by `plugin.zip_image_async()`. The text shows picture `n` (0-based) where it contains `"\27" .. n .. "\27"` (ESC, 1 to 3 digits, ESC). Each picture gets a page of its own, scaled to fit, and text pages end before it. A marker with no matching entry, or any other ESC, is plain text. Without `images`, ESC is never treated as a marker.
-  - `on_turn` (function): `options.on_turn(page, pages, byte_offset)` runs shortly after the screen opens (never inside the `show_text_view` call itself), after every page change, and once more when the page count becomes final if that count changed. While a `page` or `offset` start position is still being paginated it is not reported, so a saved position is not overwritten by a provisional page.
-  - `on_close` (function): `options.on_close(page, byte_offset)` runs after the view closes and its back animation finishes, including when another navigation (such as swipe-up to Home) dismisses it. A screen opened on top, such as the lock screen, only covers the view. If it closes before a start `offset` was reached, `byte_offset` is that requested offset.
-
-The body font is the current Font Size tier (CJK, Thai, and emoji fallbacks included). Returns `true`, or `false, "busy"` if a view is already open, or `false, "unavailable"` if the screen was not created or a screen transition is still animating.
-
-Tap the right third or swipe left for the next page; tap the left third or swipe right for the previous page. Swipe right on the first page, or the header Back button, closes it. The usual app-wide swipe-to-player and swipe-back are disabled on this screen so those drags can turn pages. A small footer shows `page / pages`, or `page / ...` until pagination finishes. Past 8192 pages the footer shows `page / 8192+` and bytes after the last real page are not shown. Pagination is incremental (a few milliseconds per turn of the UI timer) so a 256 KiB chapter does not stall the open call.
-
-`options.on_close` does not run on a plugin reload; the callbacks are released without being called. Both callbacks run on the UI thread under the normal plugin time budget. A reload or teardown closes the screen and drops the Lua refs.
-
-### `plugin.get_now_playing()`
-
-Returns `title, artist, album, duration_seconds` for whatever's currently
-loaded, or a single `nil` if nothing has played yet this session. The same
-metadata a `"track_started"` event handler already receives as arguments
-(see "Events" below) -- this is for code that isn't reacting to that event
-directly, e.g. a `set_interval()` tick double-checking what's still playing.
-
-### `plugin.get_play_mode()`
-
-Returns one of `"sequential"`, `"repeat_all"`, `"repeat_one"`, `"shuffle"` --
-the current state of the order/loop/single/random icon on the player
-screen.
-
-### `plugin.get_current_track_path()`
-
-Returns the absolute path of the currently loaded track, or `nil` if
-nothing is loaded (no active playlist yet, or playback was stopped rather
-than paused).
-
-### `plugin.get_artist_albums(artist)`
-
-Returns `{ album_name, ... }` (a plain array, 1-indexed) for every album
-that has at least one song tagged with this artist, in the same
-alphabetical order the on-device Artists screen's own drill-down uses. `nil`
-if `artist` doesn't match any song's artist tag. Matching is
-case-insensitive, same as every other Artists/Albums grouping in this app.
-
-### `plugin.get_album_tracks(artist, album)`
-
-Returns `{ track_path, ... }` for one artist's one album, in the same order
-the on-device album view would display them (path-sorted). `nil` if either
-`artist` or `album` doesn't match. `artist` scopes the lookup so a
-same-named album by a different artist is never returned by mistake.
-
-### `plugin.get_next_album_tracks(artist, current_album)`
-
-Same return shape as `get_album_tracks()` above, for whichever album comes
-immediately after `current_album` in that artist's own alphabetical album
-order. Returns `nil` both when `current_album` doesn't match anything and
-when it's already the artist's last album -- this does **not** wrap around
-to the first album. Meant for auto-continuing playback across an artist's
-discography once an album finishes; pair with `"track_started"` or
-`get_current_track_path()` to detect the album boundary.
-
-### Paged library access (`library_*`)
-
-Unlike `get_artist_albums()`/`get_album_tracks()`/`get_next_album_tracks()`
-above (already scoped to one artist or album), these query the on-disk
-library database directly and are bounded per call -- none of them ever
-materializes the whole library, regardless of how many songs it has. Every
-call accepts `offset`/`limit`; `limit` is silently clamped to 200 (songs) or
-200 (artist/album groups) if omitted or too large. Check
-`plugin.has_capability("library.paged")` before relying on this group if you
-need to support older player builds.
-
-A **song** table has the fields `id`, `path`, `title`, `artist`, `album`,
-`album_artist`. `id` is a stable identifier for that song (survives a
-re-scan) -- hand it back to `library_get_song(id)` later rather than storing
-a path if you need to look the same song up again. A **group** table (from
-`library_get_artists`/`library_get_albums`) has `name`, `count` (song
-count), `first_song_id` (a representative song, e.g. for cover art), and
-`album_artist` (only meaningful from `library_get_albums` -- an album's
-real identity is the *pair* of its name and album artist, so two different
-artists' same-titled albums show as separate rows with this field set to
-tell them apart; empty from `library_get_artists`).
-
-- `plugin.library_song_count()` -- total number of songs in the library.
-- `plugin.library_get_songs([offset], [limit], [filters])` -- returns
-  `{ song, ... }, total`. `filters` is an optional table with any of
-  `query` (title/artist substring match), `artist`, `album_artist`, `album`
-  (each an exact, case-insensitive match) -- every field is optional.
-  `total` is the match count across every page, useful for a "page N of M"
-  UI.
-- `plugin.library_search(query, [limit])` -- `{ song, ... }`, a plain
-  title/artist substring search with no offset (always replace, not append,
-  your previous result set, same convention this app's own on-device search
-  follows).
-- `plugin.library_get_song(id)` -- one song table, or `nil` if `id` doesn't
-  match any song (e.g. it was deleted in a later re-scan).
-- `plugin.library_get_artists([offset], [limit])` -- `{ group, ... }`.
-- `plugin.library_get_albums([offset], [limit], [artist])` -- `{ group,
-  ... }`. `artist` restricts to one artist or album\_artist's own albums;
-  omit it for every album, unfiltered.
-
-### `plugin.refresh_library()`
-
-Triggers the same background rescan as Settings -> Music Settings -> Update Music Database --
-useful after a plugin writes new files under `plugin.sd_root()`, since none
-of the `library_*()` functions above notice new files on their own;
-there's no filesystem watcher, only a rescan triggered by this, that same
-Settings row, an SD reinsert, or a restart. Shows the same native "Updating
-music database..." progress screen a user tapping that row would see.
-Returns `true, "started"` when accepted, or `false, "already_running"` /
-`false, "rate_limited"`. Each plugin may start at most one scan per minute;
-requests made while a scan is active are coalesced by returning
-`already_running`. Check `plugin.has_capability("library.refresh")` before
-relying on this interface.
-
-```lua
-plugin.define({ id = "org.example.library_browser", api_min = 1 })
-
-local songs, total = plugin.library_get_songs(0, 50, { artist = "Boards of Canada" })
-plugin.show_toast(("Found %d songs (%d shown)"):format(total, #songs))
-
-local artists = plugin.library_get_artists(0, 100)
-for _, a in ipairs(artists) do
-    print(a.name, a.count)
-end
-```
-
-<a id="events"></a>
-
-## 🔔 Events and Timers
+## Events and timers
 
 ### `plugin.on(event, callback)`
 
-Subscribes to a playback or device lifecycle change your plugin didn't
-itself cause. Unlike `register_list_item()` (where each plugin's row
-coexists as its own list entry), an event has no UI real estate to divide
-up -- **every** plugin subscribed to a given event fires, not just the
-first or the most recent. The recognized events are:
+Runs `callback` whenever something happens. Every subscribed plugin is
+called. Up to 8 subscribers per event; an unknown event name is an error.
 
-- `"track_started"` -- `callback(title, artist, album, duration_seconds,
-  provider, track_id)`. Fires whenever a new track begins playing, whatever
-  the cause: a manual tap, next/prev, a gapless or crossfade auto-advance, a
-  plugin's own `play_file()`/`play_list()`/`play_remote()`, or remote
-  control. There's deliberately no separate "next"/"prev" event -- from a
-  subscriber's point of view it's the same fact ("a new track started,
-  here's its metadata") regardless of what triggered it. `provider`/
-  `track_id` are `""` for a local or Subsonic track, and only non-empty for
-  one started via `plugin.play_remote()`/`queue_remote_list()` -- added
-  after `duration_seconds`, so an existing handler declared with only 4
-  parameters keeps working unchanged (Lua silently drops extra arguments a
-  function doesn't declare).
-- `"paused"` / `"resumed"` -- `callback()`, no arguments. Fire on every
-  pause/resume transition, however it was triggered (the play/pause button,
-  a hardware button, `plugin.toggle_pause()`).
-- `"stopped"` -- `callback()`, no arguments. Fires when playback stops
-  outright (not paused) -- deleting the currently-playing song, a DLNA stop
-  request, enabling Bluetooth/USB/AirPlay DAC mode (which force-stops local
-  playback), or `plugin.stop()`. **Known gap**: does *not* fire when a
-  playlist simply reaches its end with Repeat off -- that path doesn't
-  route through any of this app's own explicit stop points. Not needed for
-  scrobbling (which only cares about elapsed listening time, and simply
-  stops noticing once nothing's playing), but worth knowing if you're
-  relying on it for something else. See the new `"queue_exhausted"` event below for reacting to a manual Next/Previous press at that same boundary.
-- `"screen_woke"` -- `callback()`, no arguments. Fires when the device's screen
-  wakes from being off/asleep (e.g. power button pressed to wake the display).
-- `"queue_exhausted"` -- `callback(direction)`, `direction` is `1` (Next) or `-1`
-  (Previous). Fires when a manual step (button/touch/remote) finds no further
-  track to advance to in that direction under the current play mode -- e.g.
-  pressing Next on the last track in Sequential mode, or Previous on the first
-  track. Lets a plugin react immediately instead of only on natural playback-end
-  (see the "stopped" event's own Known gap note above) -- useful for anything
-  that wants to continue playback past the edge of the current playlist, such as
-  jumping to a next album/folder.
-- `"volume_changed"` -- `callback(percent)`, integer 0..100. Fires when the
-  applied volume changes from any source. The player samples and dispatches it
-  on its existing 500ms UI tick, so a slider drag is coalesced to at most one
-  notification per tick.
-- `"battery_changed"` -- `callback(info)`, with the same fields as
-  `plugin.get_battery()`. Fires only when one or more fields changes, polled on
-  the existing UI tick.
-- `"screenshot_saved"` -- `callback(path)`, after a screenshot PNG is saved.
-- `"screenshot_failed"` -- `callback(reason)`, if the asynchronous screenshot
-  encode or file write fails.
-- `"suspending"` -- `callback()`, just before idle suspend-to-RAM. It is a
-  notification only; it cannot cancel suspend and uses the normal plugin call
-  time budget.
-- `"system_resumed"` -- `callback()`, after suspend-to-RAM returns and the
-  player's UI/LED state is restored. This name is separate from `"resumed"`,
-  which continues to mean playback resumed.
-
-Passing an unrecognized event name raises a Lua error immediately, same
-convention as an unrecognized `list_id`. Capped at 8 subscribers per event,
-across every loaded plugin combined.
+| Event | Arguments | When |
+| --- | --- | --- |
+| `track_started` | `title, artist, album, duration_seconds, provider, track_id` | A new track starts, for any reason. `provider` and `track_id` are `""` except for `play_remote` tracks. |
+| `paused`, `resumed` | none | Playback pauses or resumes. |
+| `stopped` | none | Playback stops (not when a queue simply ends; see `queue_exhausted`). |
+| `queue_exhausted` | `direction` (`1` next, `-1` previous) | Next or Previous is pressed with no track left in that direction. |
+| `screen_woke` | none | The screen turns back on. |
+| `volume_changed` | `percent` | The volume changes, at most twice a second. |
+| `battery_changed` | same table as `get_battery()` | A battery value changes. |
+| `screenshot_saved` | `path` | A screenshot was saved. |
+| `screenshot_failed` | `reason` | A screenshot couldn't be saved. |
+| `suspending` | none | The player is about to sleep (it can't be stopped). |
+| `system_resumed` | none | The player woke from sleep. |
 
 ### `plugin.set_interval(seconds, callback)` / `plugin.clear_interval(handle)`
 
-A generic repeating timer -- for anything that needs to poll rather than
-react to an event, e.g. checking `get_position()` against some threshold
-periodically. `set_interval()` returns a `handle` to later pass to
-`clear_interval()` to stop it. `seconds` below 1 is silently clamped up to
-1 second (not an error) -- this prevents one plugin from flooding the main
-UI thread with timer callbacks. Capped at 8 concurrently-active intervals,
-across every loaded plugin combined -- exceeding that raises a Lua error.
+Runs `callback` every `seconds` (at least 1) until cleared. Returns a handle;
+clearing an unknown or already cleared handle does nothing. Up to 8 timers
+from all plugins together. Callbacks run on the interface thread, so keep
+them quick.
 
-A callback registered this way runs on the main UI thread, exactly like
-every other `plugin.*` callback -- a slow `http_get()`/`http_post()` inside
-one will visibly stall the whole UI until it returns, same tradeoff
-`http_get()` itself already documents.
+## Examples
 
-<a id="examples"></a>
+All in `plugins_examples/`:
 
-## 🧪 Complete Examples
-
-| Example | What it demonstrates |
-|---|---|
-| `Audiobooks.lua` | Nested book discovery, delayed-seek resume, bookmarks, embedded chapters, and sleep timers |
-| `Podcasts.lua` | RSS and OPML subscriptions, episode downloads, resume and progress |
-| `NetRadio.lua` | Stream Media tile and live MP3 streams |
-| `Themes.lua` | Display row, icon overrides, background/text colors |
-| `SoundProfiles.lua` | PEQ profile selection and persistence |
-| `MSEB.lua` | Chained settings-list screens, summed EQ band contributions, backup/restore |
-| `GainMode.lua` | Hardware volume curve switching, real stock Low/High Gain curves, safe unset-until-chosen default |
-| `PlaybackExtras.lua` | Native-looking toggles, sliders, and nested settings |
-| `PlayThrough.lua` | Natural-end detection and folder/album continuation |
-| `ExtendedSleepTimer.lua` | Persistent duration, session timer, and delayed playback stop |
+| Example | Shows |
+| --- | --- |
+| `Audiobooks.lua` | Books row, folder scanning, resume, bookmarks, chapters, sleep timer |
+| `Podcasts.lua` | RSS and OPML, episode downloads, resume |
+| `NetRadio.lua` | Stream Media tile and radio streams from `Radio.txt` |
+| `Themes.lua` | Full theming: icons, colors, Home layout, saved choice, `refresh_theme` |
+| `SoundProfiles.lua` | Switching EQ profiles |
+| `MSEB.lua` | Chained settings screens, sliders sharing EQ bands, backup and restore |
+| `GainMode.lua` | Low/High Gain volume curves |
+| `PlaybackExtras.lua` | Toggles, sliders, nested settings, row icons |
+| `PlayThrough.lua` | Continuing into the next folder or album when a queue ends |
+| `ExtendedSleepTimer.lua` | A longer sleep timer with `stop()` |
 | `LastFmScrobbler.lua` | Events, timers, text input, MD5, async HTTP |
-| `AsyncHttp.lua` | Bounded requests and cancellation |
-| `PluginApiInfo.lua` | Identity, version, and capability discovery |
-| `NestedLists.lua` | Nested callback ownership and text-input busy handling |
-| `EpubReader.lua` | Books row, ZIP/HTML primitives, paged reading, saved position |
+| `AsyncHttp.lua` | `http_request` and `cancel` |
+| `PluginApiInfo.lua` | Version and capability checks |
+| `NestedLists.lua` | Stacked lists and busy text input |
+| `EpubReader.lua` | ZIP and HTML helpers, paged reading, saved position |
 
-The summaries below explain when each example is useful and call out its
-important implementation details.
+## Testing and debugging
 
-`plugins_examples/Audiobooks.lua` discovers loose audio files and books in
-`Audiobooks/Title/`, `Title/CD1/`, `Author/Title/`, or
-`Author/Title/CD1/` layouts. It keeps books out of the music database,
-stores per-book resume and bookmarks, retries seeks after tracks open,
-parses ID3, M4B, QuickTime, and CUE chapters, and provides skip and sleep
-controls. Playback speed, Now Playing buttons, hardware Next/Previous, and
-the progress bar remain per file. Copy it to `.plugins/Audiobooks.lua` and
-put audiobook folders under `<SD card>/Audiobooks/`.
+1. Write the plugin in any text editor. `luac -p MyPlugin.lua` catches syntax
+   errors before copying.
+2. Copy it to `<SD card>/.plugins/`.
+3. Tap **Refresh Plugins** in Settings > System > Plugin Manager (this reloads
+   every plugin and returns to Home), or restart.
+4. Watch the player's output through ADB.
 
-`plugins_examples/Podcasts.lua` is a download-first podcast library for
-`<SD card>/Podcasts`. Add feeds by search or URL, import OPML files placed in
-that folder, and export the subscription list as `subscriptions.opml`. It
-caches the 40 newest RSS episodes per show, downloads enclosures for local
-playback and resume, and can stream MP3 episodes without resume.
+Errors look like this:
 
-`plugins_examples/NetRadio.lua` is the reference implementation for both
-`register_stream_media_tile()` and live stream URLs. It reloads
-`<SD card>/Radio.txt` whenever its tile opens, displays each station through
-`show_list()`, and starts it with `plugin.play_list()`. Use one station per
-line as `Station Name | http(s)://direct-mp3-stream`; blank lines and `#`
-comments are ignored, and URL-only lines are accepted. A ready-to-copy
-`plugins_examples/Radio.txt` is included. The plugin header covers the
-remaining live-stream limitations (MP3-only, no seeking or auto-reconnect).
+| Message | Meaning |
+| --- | --- |
+| `[plugins] failed to load <path>: <error>` | A syntax error or an error in the top-level code. |
+| `[plugins] <context> error: <error>` | A callback failed; `<context>` names which one. |
 
-`plugins_examples/Themes.lua` is the reference implementation for the full
-theme API. It discovers `.theme` files, installs their icon sets, applies
-colors/Home layout, persists the selection, and uses `refresh_theme()` for
-live switching without disrupting navigation or services.
+Plugin Manager can switch each plugin off. Switching one off stops it from
+loading; it doesn't undo what it already changed. Copied icons and EQ settings,
+for example, stay until changed again.
 
-`plugins_examples/SoundProfiles.lua` is the reference implementation for the
-EQ functions -- a handful of curated `.peq` presets reachable from
-Settings -> Music Settings -> Audio -> Sound Profile, switched with `plugin.eq_load_profile()` and
-`plugin.show_list()`, following the exact same "`register_list_item` ->
-`show_list` -> apply and persist to a state file" shape `Themes.lua` already
-established for theme switching.
+## Extending the API (C developers)
 
-`plugins_examples/MSEB.lua` builds on the same EQ functions -- ten
-mood-based tuning sliders (Sound Temperature, Bass Extension, Vocal
-Position, and so on, modeled after the stock HiBy firmware's own "MSEB"
-feature, reverse-engineered down to the real slider list but not its
-unrecoverable mapping formulas -- this plugin's mapping is original) grouped
-across three chained `show_settings_list()` screens, since
-`PLUGIN_SETTINGS_LIST_MAX_SLIDERS` caps a single call at 4. Two axes share
-a PEQ band each (a whole-spectrum "tilt" control alongside a dedicated
-bass/treble one) -- demonstrates summing contributions into a shared band
-with `plugin.eq_set_band()` rather than one axis overwriting another's.
-Also demonstrates snapshotting the live PEQ curve with
-`plugin.eq_save_profile()` the first time the feature is enabled and
-restoring it with `plugin.eq_load_profile()` on disable, so toggling it
-never destroys a hand-tuned manual curve -- and calling `eq_set_band()`
-only for the specific band(s) a changed slider actually owns, never all 10
-bands on every release, since each call persists to disk immediately.
+To add a function plugins can call, follow the existing `l_plugin_*`
+functions in `src/plugins/plugin_manager.c`: read the arguments with
+`luaL_check*`/`luaL_opt*`, do the work, push the results, return their
+count, and add the function to `plugin_funcs[]`.
 
-`plugins_examples/PlaybackExtras.lua` is the reference implementation for
-`register_list_item("music_audio", ...)` and `show_settings_list()` -- a
-"Loudness Boost" row in Settings -> Music Settings -> Audio opening a submenu with a real
-toggle switch, a real slider (both driving `plugin.eq_set_preamp()`), and a
-nested `"row"` ("About") that opens a second `show_settings_list()` screen
-on top of the first, demonstrating submenu-inside-a-submenu nesting -- and,
-since this session's row-images/resizing/text-size work, the toggle row's
-own `icon` (pointed at a real stock theme2 asset by its raw filesystem
-path) and the "About" row's `text_size = "large"`.
+- If it touches screens, widgets or other UI state, go through a
+  `gui_plugin_*` function in `gui.c` (declared in `gui.h`), like `show_list`,
+  `play_file` and the playback controls do.
+- If it uses a self-contained module with no UI (`peq.c`, `http_client.c`),
+  call it directly, like the `eq_*` and HTTP functions do.
 
-`plugins_examples/PlayThrough.lua` adds persistent **Play Through Folders**
-and **Play Through Albums** controls under Settings → Music Settings →
-Playback. It combines
-playback events, a short polling interval, library album queries, SD-card
-directory browsing, and `play_list()` to continue only after a genuine
-natural playlist end. Album continuation has priority when both options are
-enabled; folder continuation is the fallback. Explicit Stop and non-sequential
-play modes are deliberately respected.
+When unsure, look at what the native UI does around the same call. If it also
+updates icons, saves state or checks a condition, that belongs in the `gui.c`
+bridge too, so a plugin can't skip it.
 
-`plugins_examples/ExtendedSleepTimer.lua` adds an **Extended Sleep Timer**
-under Settings → Music Settings → Timers with a 15–180 minute range. It demonstrates a
-persistent preferred duration, session-only armed state, countdown status,
-and a lightweight interval that calls `plugin.stop()` at expiration. Like the
-native timer, an active countdown does not survive restarting the player.
-
-`plugins_examples/LastFmScrobbler.lua` is the reference implementation for
-`plugin.on()`, `set_interval()`/`clear_interval()`, `get_now_playing()`,
-`http_request()`, `md5()`, and `show_text_input()` together -- a real Last.fm
-scrobbler. Logs in via `show_text_input()` (username, then password,
-chained), signs and POSTs `auth.getMobileSession` to obtain a session key
-(persisted; the password itself isn't), sends `track.updateNowPlaying` on
-every `"track_started"` event, and uses a 15-second `set_interval()` to
-POST `track.scrobble` once `get_position()` crosses Last.fm's own "50% or 4
-minutes played" threshold. Every request is asynchronous, so a slow Last.fm
-connection cannot freeze touch input. A scrobble is marked complete only after
-Last.fm accepts it; failures remain eligible for retry. Requires a free Last.fm
-API account -- see the plugin's own header comment for where to get one and
-where to put the key.
-
-`plugins_examples/AsyncHttp.lua` is a compact `http_request()` and `cancel()`
-example. It starts a bounded HTTPS GET, demonstrates that the UI remains
-responsive, reports its completion callback, and offers a separate cancel row.
-
-`plugins_examples/PluginApiInfo.lua` demonstrates `define()`, `api_version()`,
-`get_app_info()`, and `has_capability()` by presenting the current build and a
-few optional interfaces in a list.
-
-`plugins_examples/NestedLists.lua` exercises the corrected per-screen callback
-ownership: open a child list, go Back, and the parent callback remains active.
-It also demonstrates the success/busy return contract of `show_text_input()`.
-
-`plugins_examples/EpubReader.lua` is a Books-screen reader for unencrypted EPUB files under `<SD card>/Books` (that folder and one level of subfolders, 200 files). It reads `META-INF/container.xml` and the OPF with `zip_read`, shows the spine in `show_list` using NCX or nav titles when those hrefs match, turns each chapter into paragraphs with `html_to_blocks`, and opens `show_text_view`. `on_turn` stores the spine index and byte offset in `plugin.storage`, and a `Continue reading` row reopens that place. It needs API 14 (`data.zip`, `data.html`, `ui.text_view`).
-
-<a id="testing"></a>
-
-## 🚀 Writing and Testing Your Plugin
-
-1. Write the plugin in any text editor—there is no separate plugin build.
-2. Optionally run `luac -p MyPlugin.lua` to catch syntax errors locally.
-3. Copy it to `<SD card>/.plugins/`.
-4. Either restart the player, or open Settings -> System -> Plugin Manager and tap
-   "Refresh Plugins" to pick up the new/edited file without restarting (same
-   full reload `plugin.reload_ui()` itself triggers -- every other loaded
-   plugin's top-level code re-runs too, and navigation lands back on Home).
-   That screen also has a per-plugin on/off toggle. **The toggle only
-   controls whether a plugin's script runs on the next reload -- it does
-   not undo anything that plugin already did.** A plugin that only adds
-   list rows/tiles or registers callbacks disappears cleanly. A plugin that
-   called `set_icon()` (theme icon files under `theme_overrides/`, never
-   attributed to any one plugin) or the `eq_*` family (persisted EQ state)
-   leaves those changes in place after being toggled off; only reverting
-   them yourself (or a plugin that explicitly does so, e.g. re-toggling a
-   theme back on and picking a different one) removes them.
-5. Launch through ADB and watch the foreground output.
-
-### Reading plugin errors
-
-| Log shape | Meaning |
-|---|---|
-| `[plugins] failed to load <path>: <error>` | Syntax error or failure in top-level plugin code |
-| `[plugins] <context> error: <error>` | A callback failed after the plugin loaded |
-
-The context identifies the failing callback, such as a list item's
-`on_open`, `show_list on_select`, a settings `on_change`, an event handler,
-an interval callback, or text-input submission.
-
-> [!NOTE]
-> A broken plugin or callback is isolated. It is logged and skipped without
-> crashing the player or disabling other plugins.
-
-Multiple plugins can register rows and Stream Media tiles at the same time;
-there is no “first plugin wins” limitation.
-
-## 🛠️ Extending the `plugin.*` API Itself
-
-If you're modifying `plugin_manager.c` to add a new function (not writing
-a plugin script, but adding to what plugins *can* call): follow the
-existing `l_plugin_*` functions as the pattern -- `luaL_check*`/`luaL_opt*`
-to pull typed arguments off the Lua stack, do the work, push however many
-return values, `return <that count>;`, then add the new
-`{ "name", l_plugin_name }` entry to the `plugin_funcs[]` table.
-
-"Do the work" means one of two things, depending on whether LVGL/screen
-state is involved:
-
-- If it touches LVGL objects/styles or other `gui.c`-local state (screens,
-  widgets, the current playlist/play-button icon) -- go through a
-  `gui_plugin_*` bridge function declared in `gui.h` and implemented in
-  `gui.c`, same as `show_list`/`play_file`/`set_background_color`/the
-  playback-control functions all do. `gui.c` is where that state actually
-  lives; `plugin_manager.c` itself has no LVGL/screen code of its own.
-- If it's a self-contained subsystem with no LVGL dependency of its own
-  (`src/audio/peq.c`'s EQ engine, `src/network/http_client.c`'s HTTP client)
-  -- call its public API directly from `plugin_manager.c`, the way
-  `plugin.eq_*()`/`plugin.http_get()` and `list_dir`/`sd_root` already do.
-  No pointless `gui.c` indirection for something that was never a
-  screen/widget concern in the first place.
-
-When in doubt, check whether the native UI's own call sites for that
-functionality do anything beyond the bare library call (icon updates, extra
-persistence, a guard condition) -- if they do, that logic needs to live in
-the `gui.c` bridge too, not be silently skipped by a plugin. This is exactly
-why playback control (`toggle_pause`/`stop`/`next_track`/...) goes through
-`gui.c` while the EQ and HTTP functions don't: `audio.c`'s own functions are
-always paired with `gui.c`-local UI updates at their native call sites,
-while `peq.c`/`http_client.c` are not.
+Add a capability token to `plugin_capabilities[]` so plugins can detect the
+new feature, and document it here.

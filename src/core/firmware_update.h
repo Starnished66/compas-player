@@ -29,7 +29,7 @@ bool firmware_update_scan(char * out_path, size_t out_size);
  * The recovery image handles the rest (finding and flashing the *.upt file,
  * switching the flag back to the main slot, rebooting again) entirely on
  * its own, exactly as it does for the stock firmware's own "Firmware
- * Update" menu item. */
+ * Update" menu item. Returns on failure so callers can report the error. */
 void firmware_update_enter_recovery(void);
 
 /* Checks whether Power + Volume Up (Power + Play/Pause on the R3II 2025, the
@@ -41,10 +41,10 @@ void firmware_update_enter_recovery(void);
  * calls firmware_update_enter_recovery() immediately with no confirmation
  * prompt -- this is the deliberate hold-at-boot recovery gesture, the same
  * kind of unprompted combo other devices use for the same purpose -- and
- * does not return. Meant to be called once, very early in main(), before
+ * does not return on success. Meant to run once, very early in main(), before
  * any display/GUI setup, so a held combo never even flashes the normal UI
  * on screen first. No-op (returns normally) if the combo isn't held or no
- * update file is present. */
+ * update file is present, or entering recovery fails. */
 void firmware_update_check_boot_combo(void);
 
 #endif /* FIRMWARE_UPDATE_H */

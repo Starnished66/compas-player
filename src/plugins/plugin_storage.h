@@ -28,6 +28,7 @@ bool plugin_storage_set(const char * plugin_id, const char * key, const char * v
 bool plugin_storage_delete(const char * plugin_id, const char * key);
 int plugin_storage_list(const char * plugin_id, const char * prefix, char *** out_keys);
 
+bool plugin_secrets_get(const char * plugin_id, const char * key, char ** out_value, size_t * out_len);
 bool plugin_secrets_set(const char * plugin_id, const char * key, const char * value, size_t value_len);
 bool plugin_secrets_exists(const char * plugin_id, const char * key);
 bool plugin_secrets_delete(const char * plugin_id, const char * key);

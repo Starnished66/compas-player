@@ -541,6 +541,7 @@ static void firmware_update_confirm_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     hide_firmware_update_popup();
     firmware_update_enter_recovery();
+    show_error_toast("Could not enter recovery. Restart the player and try again.");
 }
 
 static void build_firmware_update_popup(void) {
@@ -2670,6 +2671,13 @@ static void quick_drawer_volume_visible_switch_event_cb(lv_event_t * e) {
     gui_shell_refresh_quick_drawer_volume_visibility();
 }
 
+static void artist_images_switch_event_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+    current_settings.show_artist_images = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
+    settings_save_async(&current_settings);
+    gui_library_set_artist_images_enabled(current_settings.show_artist_images);
+}
+
 void gui_display_apply_rotation(bool upside_down) {
     lv_display_t * disp = lv_display_get_default();
     if (!disp) return;
@@ -2682,7 +2690,7 @@ void gui_display_apply_rotation(bool upside_down) {
 }
 
 static lv_obj_t * build_settings_appearance_screen(void) {
-    static pill_list_item_t items[5 + PLUGIN_MAX_DISPLAY_LIST_ITEMS];
+    static pill_list_item_t items[6 + PLUGIN_MAX_DISPLAY_LIST_ITEMS];
     items[0] = (pill_list_item_t){ "Accent Color", PILL_ACCESSORY_CHEVRON, false, accent_color_row_cb, NULL, NULL };
     items[1] = (pill_list_item_t){ "Font", PILL_ACCESSORY_CHEVRON, false, custom_font_row_cb, NULL, NULL };
     items[2] = (pill_list_item_t){ "Font Size", PILL_ACCESSORY_CHEVRON, false, font_size_settings_row_cb, NULL, NULL };
@@ -2692,7 +2700,10 @@ static lv_obj_t * build_settings_appearance_screen(void) {
     items[4] = (pill_list_item_t){ "Battery Percentage", PILL_ACCESSORY_TOGGLE,
                                     current_settings.show_battery_percent, NULL,
                                     battery_percent_switch_event_cb, NULL };
-    int count = append_grouped_plugin_rows(items, 5, PLUGIN_MAX_DISPLAY_LIST_ITEMS,
+    items[5] = (pill_list_item_t){ "Artist Images", PILL_ACCESSORY_TOGGLE,
+                                    current_settings.show_artist_images, NULL,
+                                    artist_images_switch_event_cb, NULL };
+    int count = append_grouped_plugin_rows(items, 6, PLUGIN_MAX_DISPLAY_LIST_ITEMS,
         "display", "appearance", plugin_manager_get_display_list_item_count,
         plugin_manager_get_display_list_item_label, plugin_manager_get_display_list_item_options,
         plugin_display_list_item_click_cb);

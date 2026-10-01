@@ -41,6 +41,7 @@ void gui_library_suspend_boot_prompt(void);
  * reload can call gui_library_init() again from a clean slate. */
 void gui_library_teardown(void);
 void gui_library_refresh_music_screen(void);
+void gui_library_set_artist_images_enabled(bool enabled);
 
 void start_library_rescan(void);
 void start_library_auto_rescan(void);

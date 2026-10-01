@@ -73,6 +73,34 @@ static void copy_bounded(char * dst, size_t dst_size, const char * src, size_t s
     utf8_truncate_safe_bounded(dst, dst_size, src, src_len);
 }
 
+/* Unmarked LIST/INFO text is not guaranteed to be UTF-8. Preserve valid text,
+ * but record when a title needed sanitizing so an embedded ID3 title
+ * can recover it. This does not try to guess a legacy code page. */
+static bool is_valid_utf8(const char * text, size_t size) {
+    if (!text) return size == 0;
+    size_t i = 0;
+    while (i < size) {
+        unsigned char c = (unsigned char) text[i++];
+        if (c == 0) break; /* LIST/INFO text is NUL-terminated; ignore padding after it. */
+        if (c < 0x80) continue;
+        unsigned need;
+        if (c >= 0xC2 && c <= 0xDF) need = 1;
+        else if (c >= 0xE0 && c <= 0xEF) need = 2;
+        else if (c >= 0xF0 && c <= 0xF4) need = 3;
+        else return false;
+        if (i + need > size) return false;
+        unsigned char first = (unsigned char) text[i];
+        if ((c == 0xE0 && first < 0xA0) || (c == 0xED && first >= 0xA0) ||
+            (c == 0xF0 && first < 0x90) || (c == 0xF4 && first >= 0x90)) return false;
+        for (unsigned j = 0; j < need; j++) {
+            if (((unsigned char) text[i++] & 0xC0) != 0x80) return false;
+        }
+    }
+    return true;
+}
+
+static void decode_id3v2_text_frame(const uint8_t * data, uint32_t size, char * out, size_t out_size);
+
 static bool parse_sequence_number(const char * text, size_t len, int * out_value) {
     size_t i = 0;
     while (i < len && (text[i] == ' ' || text[i] == '\t')) i++;
@@ -191,6 +219,13 @@ static void apply_vorbis_comment_field(track_metadata_t * out, const char * comm
         copy_bounded(out->album, sizeof(out->album), value, value_len);
         out->has_album = true;
     } else if (key_len == 11 && strncasecmp(comment, "ALBUMARTIST", 11) == 0) {
+        copy_bounded(out->album_artist, sizeof(out->album_artist), value, value_len);
+        out->has_album_artist = true;
+    } else if (key_len == 12 && !out->album_artist[0] &&
+               (strncasecmp(comment, "ALBUM ARTIST", 12) == 0 ||
+                strncasecmp(comment, "ALBUM_ARTIST", 12) == 0)) {
+        /* Accept common Vorbis aliases, but let canonical ALBUMARTIST win
+         * regardless of comment order when both forms are present. */
         copy_bounded(out->album_artist, sizeof(out->album_artist), value, value_len);
         out->has_album_artist = true;
     } else if (key_len == 5 && strncasecmp(comment, "GENRE", 5) == 0) {
@@ -390,16 +425,42 @@ static void read_flac_metadata(const char * path, track_metadata_t * out, bool i
 
 /* ---- WAV: RIFF LIST/INFO chunk (dr_wav parses this natively) ---- */
 
-static void read_wav_metadata(const char * path, track_metadata_t * out) {
+static bool read_wav_metadata(const char * path, track_metadata_t * out) {
     drwav wav;
-    if (!drwav_init_file_with_metadata(&wav, path, drwav_metadata_type_list_all_info_strings, NULL)) return;
+    if (!drwav_init_file_with_metadata(&wav, path, drwav_metadata_type_list_all_info_strings, NULL)) return false;
+    bool invalid_title_utf8 = false;
 
     for (drwav_uint32 i = 0; i < wav.metadataCount; i++) {
         drwav_metadata * meta = &wav.pMetadata[i];
         switch (meta->type) {
             case drwav_metadata_type_list_info_title:
-                copy_bounded(out->title, sizeof(out->title), meta->data.infoText.pString, meta->data.infoText.stringLength);
-                out->has_title = true;
+                {
+                    const uint8_t * raw = (const uint8_t *) meta->data.infoText.pString;
+                    size_t len = meta->data.infoText.stringLength;
+                    invalid_title_utf8 = false;
+                    if (len >= 2 && ((raw[0] == 0xFF && raw[1] == 0xFE) || (raw[0] == 0xFE && raw[1] == 0xFF))) {
+                        uint8_t tagged[2 * sizeof(out->title) + 3];
+                        /* dr_wav exposes stringLength as chunkSize - 1 and
+                         * allocates/reads the final byte too, even when a
+                         * non-terminated UTF-16 value ends in a code unit. */
+                        size_t copy_len = len + 1;
+                        if (copy_len > sizeof(tagged) - 1) copy_len = sizeof(tagged) - 1;
+                        copy_len &= ~(size_t) 1;
+                        tagged[0] = 1;
+                        memcpy(tagged + 1, raw, copy_len);
+                        decode_id3v2_text_frame(tagged, (uint32_t) (copy_len + 1), out->title, sizeof(out->title));
+                        size_t decoded_len = strlen(out->title);
+                        if (!is_valid_utf8(out->title, decoded_len)) {
+                            invalid_title_utf8 = true;
+                            utf8_sanitize(out->title);
+                        }
+                    } else {
+                        if (len >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF) { raw += 3; len -= 3; }
+                        invalid_title_utf8 = !is_valid_utf8((const char *) raw, len);
+                        copy_bounded(out->title, sizeof(out->title), (const char *) raw, len);
+                    }
+                }
+                out->has_title = out->title[0] != '\0';
                 break;
             case drwav_metadata_type_list_info_artist:
                 copy_bounded(out->artist, sizeof(out->artist), meta->data.infoText.pString, meta->data.infoText.stringLength);
@@ -418,6 +479,7 @@ static void read_wav_metadata(const char * path, track_metadata_t * out) {
     }
 
     drwav_uninit(&wav);
+    return invalid_title_utf8;
 }
 
 /* ---- MP3: ID3v2 (falling back to ID3v1) -- dr_mp3 has no tag support ---- */
@@ -1899,16 +1961,25 @@ static void read_wma_metadata(const char * path, track_metadata_t * out) {
 }
 
 static void read_wav_all(const char * path, track_metadata_t * out, bool include_blobs) {
-    read_wav_metadata(path, out);
+    bool invalid_info_title = read_wav_metadata(path, out);
     if (!out->has_title) {
         read_wav_id3_fallback(path, out, include_blobs); /* see its own comment */
-    } else if (include_blobs) {
+    } else if (include_blobs || invalid_info_title) {
         /* LIST/INFO carries only text: a cover or lyrics can live solely in
-         * the "id3 " chunk. Take just those blobs from it so the LIST/INFO
-         * text tags stay authoritative. */
+         * the "id3 " chunk. Its text stays authoritative unless INFO bytes
+         * were invalid UTF-8 and an ID3 title can recover the display text. */
         track_metadata_t id3;
         memset(&id3, 0, sizeof(id3));
-        read_wav_id3_fallback(path, &id3, true);
+        read_wav_id3_fallback(path, &id3, include_blobs);
+        if (invalid_info_title && id3.has_title) {
+            copy_bounded(out->title, sizeof(out->title), id3.title, strnlen(id3.title, sizeof(id3.title)));
+            out->has_title = true;
+        }
+        if (!include_blobs) {
+            free(id3.picture_data);
+            free(id3.lyrics);
+            return;
+        }
         out->picture_data = id3.picture_data;
         out->picture_size = id3.picture_size;
         out->picture_too_large = id3.picture_too_large;

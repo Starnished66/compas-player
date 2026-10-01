@@ -3985,7 +3985,7 @@ static const char * const plugin_capabilities[] = {
     "ui.home_background", "audio.hw_volume_curve", "ui.lock_screen", "ui.quick_toggle",
     "data.zip", "data.html", "ui.text_view", "data.zip_image", "data.image_thumbnail", "ui.list_grid", "ui.list_showing",
     "ui.text_view_images", "ui.list_wrap", "ui.settings_list_wrap", "playback.transport_skip",
-    "ui.player_layout_xml"
+    "ui.player_layout_xml", "storage.secrets_get"
 };
 
 static int l_plugin_has_capability(lua_State * L) {
@@ -4118,9 +4118,24 @@ static int l_plugin_storage_list(lua_State * L) {
     return 1;
 }
 
-/* plugin.secrets.set/exists/delete -- deliberately no .list(), so a
+/* plugin.secrets.get/set/exists/delete -- deliberately no .list(), so a
  * plugin (or anything reading its own diagnostics) can't enumerate secret
- * key names; see plugin_storage.h's threat-model comment. */
+ * key names; see plugin_storage.h's threat-model comment. get() reads only
+ * the calling plugin's own namespace, same as plugin.storage.get(). */
+static int l_plugin_secrets_get(lua_State * L) {
+    const char * id = require_plugin_id(L);
+    const char * key = luaL_checkstring(L, 1);
+    char * value = NULL;
+    size_t value_len = 0;
+    if (plugin_secrets_get(id, key, &value, &value_len)) {
+        lua_pushlstring(L, value, value_len);
+        free(value);
+        return 1;
+    }
+    lua_pushnil(L);
+    return 1;
+}
+
 static int l_plugin_secrets_set(lua_State * L) {
     const char * id = require_plugin_id(L);
     const char * key = luaL_checkstring(L, 1);
@@ -4879,6 +4894,7 @@ static const luaL_Reg plugin_storage_funcs[] = {
 };
 
 static const luaL_Reg plugin_secrets_funcs[] = {
+    { "get",    l_plugin_secrets_get },
     { "set",    l_plugin_secrets_set },
     { "exists", l_plugin_secrets_exists },
     { "delete", l_plugin_secrets_delete },

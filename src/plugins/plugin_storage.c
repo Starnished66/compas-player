@@ -603,6 +603,10 @@ int plugin_storage_list(const char * plugin_id, const char * prefix, char *** ou
     return count;
 }
 
+bool plugin_secrets_get(const char * plugin_id, const char * key, char ** out_value, size_t * out_len) {
+    return kv_get(plugin_id, "secrets", key, out_value, out_len);
+}
+
 bool plugin_secrets_set(const char * plugin_id, const char * key, const char * value, size_t value_len) {
     return kv_set(plugin_id, "secrets", key, value, value_len);
 }

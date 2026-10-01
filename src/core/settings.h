@@ -257,6 +257,10 @@ typedef struct {
      * this app had. */
     bool show_battery_percent;
 
+    /* Show artist and album-artist artwork in their library rows. Album and
+     * song artwork is independent. Defaults on to preserve the existing UI. */
+    bool show_artist_images;
+
     /* Idle action after a long stretch idle (screen off, not playing, not
      * charging) -- either power_suspend_now() (suspend-to-RAM, see
      * idle_suspend_enabled below) or a full poweroff (idle_shutdown.h; the

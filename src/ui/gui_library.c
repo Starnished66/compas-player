@@ -111,6 +111,7 @@ static const thumbnail_decorator_context_t album_artist_thumbnail_context = {
     .key_kind = THUMBNAIL_KEY_ARTIST,
     .artist_group_kind = METADATA_DB_GROUP_ALBUM_ARTIST
 };
+static atomic_bool artist_thumbnail_work_enabled = true;
 
 static lv_obj_t * album_thumbnail_active_list = NULL;
 extern bool library_rescan_active;
@@ -3021,6 +3022,7 @@ static artist_thumbnail_result_t artist_thumbnail_load_or_decode(
 }
 
 static bool album_thumb_gen_warm_artist_aliases(int my_generation) {
+    if (!atomic_load(&artist_thumbnail_work_enabled)) return true;
     const metadata_db_group_kind_t kinds[] = {
         METADATA_DB_GROUP_ARTIST,
         METADATA_DB_GROUP_ALBUM_ARTIST
@@ -3049,6 +3051,7 @@ static bool album_thumb_gen_warm_artist_aliases(int my_generation) {
             if (n <= 0) break;
             for (int i = 0; i < n; i++) {
                 if (album_thumb_gen_should_cancel(my_generation)) return false;
+                if (!atomic_load(&artist_thumbnail_work_enabled)) return true;
                 if (audio_is_playing() || album_thumbnail_lazy_work_pending()) {
                     atomic_store(&album_thumb_gen_retry_pending, true);
                     return false;
@@ -3652,7 +3655,8 @@ static int prepare_album_thumbnail_generation(bool user_visible, bool force_relo
                                                 artist_thumbnail_alias_cache[i].artist_group_kind };
     atomic_store(&album_thumb_gen_done_count, 0);
     int total = single_album ? 1 : album_count;
-    if (!user_visible && !single_album) total += artist_count + album_artist_count;
+    if (!user_visible && !single_album && atomic_load(&artist_thumbnail_work_enabled))
+        total += artist_count + album_artist_count;
     atomic_store(&album_thumb_gen_total_count, total);
     atomic_store(&album_thumb_gen_cancel, false);
     atomic_store(&album_thumb_gen_cache_epoch, atomic_load(&album_thumbnail_cache_epoch));
@@ -3744,7 +3748,8 @@ static void start_next_album_thumbnail(void) {
 static void queue_thumbnail(lv_obj_t * list, int logical_index, thumbnail_key_kind_t key_kind,
                             uint64_t key, int64_t representative_song_id,
                             metadata_db_group_kind_t artist_group_kind, const char * artist_name) {
-    if (library_rescan_active || representative_song_id <= 0 || key == 0 || album_thumbnail_scrolling ||
+    if ((key_kind == THUMBNAIL_KEY_ARTIST && !atomic_load(&artist_thumbnail_work_enabled)) ||
+        library_rescan_active || representative_song_id <= 0 || key == 0 || album_thumbnail_scrolling ||
         list != album_thumbnail_active_list || !album_thumbnail_list_is_visible(list) ||
         album_thumbnail_cache_find(key_kind, key)) return;
     int view_generation = atomic_load(&album_thumbnail_view_generation);
@@ -3998,6 +4003,12 @@ static void thumbnail_row_decorator(lv_obj_t * list, lv_obj_t * row, lv_obj_t * 
                                     uint64_t artwork_key, const char * artwork_name, void * ctx) {
     (void) pool_slot;
     const thumbnail_decorator_context_t * context = ctx ? ctx : &album_thumbnail_context;
+    if (context->key_kind == THUMBNAIL_KEY_ARTIST &&
+        !atomic_load(&artist_thumbnail_work_enabled)) {
+        lv_obj_set_style_pad_left(row, LIST_ROW_LABEL_INSET, 0);
+        lv_obj_add_flag(image, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
     /* 14px card inset + 72px cover + 14px breathing room before text. */
     lv_obj_set_style_pad_left(row, 100, 0);
     if (representative_song_id <= 0 || artwork_key == 0) {
@@ -9091,6 +9102,7 @@ static int album_artists_fetch_page(void * ctx, int offset, int count, compact_l
 static void library_teardown_diag(const char * step);
 
 void gui_library_init(void) {
+    atomic_store(&artist_thumbnail_work_enabled, current_settings.show_artist_images);
     library_teardown_diag("az_index_drag_timer before");
     if (!az_index_drag_timer) az_index_drag_timer = lv_timer_create(poll_az_index_drag, LV_DEF_REFR_PERIOD, NULL);
     library_teardown_diag("build_files_screen before");
@@ -9212,6 +9224,25 @@ void gui_library_init(void) {
     library_teardown_diag("build_library_update_prompt_popup before");
     build_library_update_prompt_popup();
     library_teardown_diag("gui_library_init done");
+}
+
+void gui_library_set_artist_images_enabled(bool enabled) {
+    atomic_store(&artist_thumbnail_work_enabled, enabled);
+    if (!enabled) {
+        /* Discard queued artist-only work; persistent and RAM cache entries
+         * remain intact and album-cover requests remain queued. */
+        for (int i = album_thumbnail_queue_count - 1; i >= 0; i--) {
+            if (album_thumbnail_queue[i].key_kind != THUMBNAIL_KEY_ARTIST &&
+                album_thumbnail_queue[i].list != artists_list &&
+                album_thumbnail_queue[i].list != album_artist_list) continue;
+            memmove(&album_thumbnail_queue[i], &album_thumbnail_queue[i + 1],
+                    (size_t) (album_thumbnail_queue_count - i - 1) * sizeof(album_thumbnail_queue[0]));
+            album_thumbnail_queue_count--;
+        }
+    }
+    if (artists_list) compact_list_refresh_visible(artists_list);
+    if (album_artist_list) compact_list_refresh_visible(album_artist_list);
+    gui_navigation_invalidate_theme_snapshots();
 }
 
 /* For gui_reload.c's in-process UI reload -- deletes every screen this

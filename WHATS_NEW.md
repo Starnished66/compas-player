@@ -1,10 +1,17 @@
 # What's New
 
+- **Artist images:** Settings > Display > Appearance > Artist Images hides artist and album-artist artwork and gives their names more space.
+- **WAV titles:** Unicode titles with UTF-8 or UTF-16 markers display correctly; embedded ID3 titles can recover incorrectly encoded INFO titles.
+- **Compilation albums:** common album-artist tag spellings are now recognized.
+- **Firmware updates:** failed recovery-script or reboot requests now report an error.
+
+**After updating:** run **Settings > Library > Refresh All Metadata** once to apply the WAV-title and album-artist fixes to songs already in your database. Update Music Database alone keeps cached tags for unchanged files.
+
 - **Native DSD:** DSD64/128 play natively on headphones, with a seamless fallback. Converter rebuilt: no more dropouts.
 - **Online firmware updates:** update over Wi-Fi from Settings > About > Firmware Update.
 - **Plugin Store:** install, update and remove plugins over Wi-Fi from Plugin Manager.
 - **Remote control:** control playback and browse your library from your phone, with PIN pairing and library sync.
-- **Faster library:** database builds about twice as fast, with progress shown. Refresh metadata or covers for one item or everything, all in Settings > Music Database.
+- **Faster library:** database builds about twice as fast, with progress shown. Refresh metadata or covers for one item or everything, all in Settings > Library.
 - **Covers everywhere:** Artists and song lists show art.
 - **Interface:** redesigned Accent Color screen with Match album art, Animation Speed setting, snappier controls, volume card, Playlists/Books refresh buttons, and the Files browser remembers your place.
 - **Screenshots:** Power + Volume Down, once enabled in Developer Options.

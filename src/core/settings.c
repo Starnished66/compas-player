@@ -128,6 +128,7 @@ static void set_defaults(player_settings_t * out) {
     out->charge_limiter_enabled = false; /* opt-in -- caps max charge voltage to 4.2V, a real behavior change the user should choose, not a default surprise */
     out->safe_charging_enabled = false; /* off means leave the PMIC charge-current setting untouched */
     out->show_battery_percent = true; /* on by default -- matches every previous version's always-on behavior */
+    out->show_artist_images = true;
     /* Defaults on: a device left screen-off with idle_shutdown_enabled=false
      * sits at full power indefinitely. Suspend-to-RAM (not a full poweroff)
      * avoids resetting the music queue. 10 minutes (IDLE_SHUTDOWN_STEPS min)
@@ -441,6 +442,8 @@ bool settings_load(player_settings_t * out) {
             out->safe_charging_enabled = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "show_battery_percent") == 0) {
             out->show_battery_percent = (strcmp(value, "1") == 0);
+        } else if (strcmp(key, "show_artist_images") == 0) {
+            out->show_artist_images = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "idle_shutdown_enabled") == 0) {
             out->idle_shutdown_enabled = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "idle_shutdown_minutes") == 0) {
@@ -632,6 +635,7 @@ static void settings_write_file(const player_settings_t * settings) {
     fprintf(f, "charge_limiter_enabled=%d\n", settings->charge_limiter_enabled ? 1 : 0);
     fprintf(f, "safe_charging_enabled=%d\n", settings->safe_charging_enabled ? 1 : 0);
     fprintf(f, "show_battery_percent=%d\n", settings->show_battery_percent ? 1 : 0);
+    fprintf(f, "show_artist_images=%d\n", settings->show_artist_images ? 1 : 0);
     fprintf(f, "idle_shutdown_enabled=%d\n", settings->idle_shutdown_enabled ? 1 : 0);
     fprintf(f, "idle_shutdown_minutes=%d\n", settings->idle_shutdown_minutes);
     fprintf(f, "idle_suspend_enabled=%d\n", settings->idle_suspend_enabled ? 1 : 0);
