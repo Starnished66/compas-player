@@ -100,15 +100,44 @@ static lv_obj_t * clock_timezone_value_label;
 static lv_obj_t * eq_screen;
 static lv_obj_t * eq_profiles_screen;
 static char eq_current_profile_name[256];
+static void eq_profile_display_name(const char * name, char * out, size_t size) {
+    if (!name || !name[0]) name = "Custom";
+    if (strncmp(name, "AutoEQ - ", 9) == 0) {
+        snprintf(out, size, "%s", name + 9);
+        char * suffix = strrchr(out, ' ');
+        if (suffix && suffix >= out + 2 && suffix[-1] == '-' && suffix[-2] == ' ' &&
+            strlen(suffix + 1) == 10 && strspn(suffix + 1, "0123456789abcdefABCDEF") == 10)
+            suffix[-2] = '\0';
+    } else snprintf(out, size, "%s", name);
+}
+
+static void style_settings_dropdown(lv_obj_t * dropdown) {
+    lv_obj_add_style(dropdown, &style_theme_card_bg, 0);
+    lv_obj_add_style(dropdown, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(dropdown, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    lv_obj_set_style_border_width(dropdown, 0, 0);
+    lv_obj_set_style_radius(dropdown, BOARD_SCALE_PX(12), 0);
+    lv_obj_set_style_pad_all(dropdown, BOARD_SCALE_PX(16), 0);
+    lv_obj_t * list = lv_dropdown_get_list(dropdown);
+    lv_obj_add_style(list, &style_theme_card_bg, 0);
+    lv_obj_add_style(list, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(list, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    lv_obj_add_style(list, gui_theme_accent_style(), LV_PART_SELECTED | LV_STATE_CHECKED);
+    lv_obj_set_style_text_color(list, lv_color_black(), LV_PART_SELECTED | LV_STATE_CHECKED);
+    lv_obj_set_style_pad_ver(list, BOARD_SCALE_PX(12), 0);
+}
+
 static lv_obj_t * settings_eq_summary;
 static lv_obj_t * settings_car_summary;
 static lv_obj_t * settings_sleep_summary;
 
 static void settings_summary_loaded_cb(lv_event_t * e) {
     (void) e;
-    if (settings_eq_summary)
-        lv_label_set_text_fmt(settings_eq_summary, "%s · %s", peq_get_bypass() ? "Off" : "On",
-            eq_current_profile_name[0] ? eq_current_profile_name : "Custom");
+    if (settings_eq_summary) {
+        char name[256];
+        eq_profile_display_name(eq_current_profile_name, name, sizeof(name));
+        lv_label_set_text_fmt(settings_eq_summary, "%s · %s", peq_get_bypass() ? "Off" : "On", name);
+    }
     if (settings_car_summary)
         lv_label_set_text(settings_car_summary, current_settings.car_mode_enabled ? "On" : "Off");
     if (settings_sleep_summary) {
@@ -647,7 +676,7 @@ static void build_firmware_ota_popups(void) {
     static const menu_popup_row_t rows[] = {
         { "Check for online update", firmware_source_online_cb, false },
         { "Install from SD card", firmware_source_sd_cb, false },
-        { "Cancel", firmware_source_backdrop_cb, false },
+        { "Cancel", firmware_source_backdrop_cb, false, true },
     };
     firmware_source_menu = build_menu_popup(rows, (int) (sizeof(rows) / sizeof(rows[0])),
                                             firmware_source_backdrop_cb, &firmware_source_backdrop);
@@ -789,16 +818,18 @@ static lv_obj_t * build_buy_me_a_coffee_screen(void) {
 }
 
 static lv_obj_t * build_about_screen(void) {
-    static pill_list_item_t items[5];
+    static pill_list_item_t items[4];
+    lv_obj_t * version_row = NULL;
     items[0] = (pill_list_item_t){ "Compás Player", PILL_ACCESSORY_NONE, false, NULL, NULL, NULL };
-    items[1] = (pill_list_item_t){ app_version_label(), PILL_ACCESSORY_NONE, false, NULL, NULL, NULL };
+    items[0].out_row = &version_row;
+    items[1] = (pill_list_item_t){ "Firmware Update", PILL_ACCESSORY_CHEVRON, false,
+                                    firmware_update_row_cb, NULL, NULL };
     items[2] = (pill_list_item_t){ "Buy Me a Coffee", PILL_ACCESSORY_CHEVRON, false,
                                     buy_me_a_coffee_row_cb, NULL, NULL };
-    items[3] =
-        (pill_list_item_t){ "Firmware Update", PILL_ACCESSORY_CHEVRON, false, firmware_update_row_cb, NULL, NULL };
-    items[4] =
-        (pill_list_item_t){ "Developer Options", PILL_ACCESSORY_CHEVRON, false, dev_options_row_cb, NULL, NULL };
-    lv_obj_t * scr = build_pill_list_screen("About", generic_back_cb, items, 5, gui_theme_accent_style(), GUI_ROW_GAP, 100);
+    items[3] = (pill_list_item_t){ "Developer Options", PILL_ACCESSORY_CHEVRON, false,
+                                    dev_options_row_cb, NULL, NULL };
+    lv_obj_t * scr = build_pill_list_screen("About", generic_back_cb, items, 4, gui_theme_accent_style(), GUI_ROW_GAP, 100);
+    lv_label_set_text(settings_add_summary(version_row), app_version_label());
     finalize_screen_navigation(scr);
     return scr;
 }
@@ -1338,10 +1369,20 @@ static lv_obj_t * build_custom_font_screen(void) {
 
     build_screen_header(scr, "Font", generic_back_cb, NULL, NULL);
 
-    /* Preview card pinned at top */
-    lv_obj_t * preview_card = lv_obj_create(scr);
-    lv_obj_set_size(preview_card, lv_pct(90), BOARD_SCALE_PX(120));
-    lv_obj_align(preview_card, LV_ALIGN_TOP_MID, 0, STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT + 8);
+    lv_obj_t * body = lv_obj_create(scr);
+    lv_obj_remove_style_all(body);
+    int32_t top = STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT + BOARD_SCALE_PX(8);
+    lv_obj_set_size(body, lv_pct(100), BOARD_SCREEN_HEIGHT - top - BOARD_SCALE_PX(24));
+    lv_obj_set_pos(body, 0, top);
+    lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(body, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(body, BOARD_SCALE_PX(8), 0);
+    lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t * preview_card = lv_obj_create(body);
+    lv_obj_set_size(preview_card, lv_pct(90), LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_all(preview_card, BOARD_SCALE_PX(12), 0);
+    lv_obj_set_style_pad_row(preview_card, BOARD_SCALE_PX(6), 0);
+    lv_obj_set_flex_flow(preview_card, LV_FLEX_FLOW_COLUMN);
     lv_obj_add_style(preview_card, &style_theme_card_bg, 0);
     lv_obj_set_style_border_width(preview_card, 0, 0);
     lv_obj_set_style_radius(preview_card, 10, 0);
@@ -1351,13 +1392,15 @@ static lv_obj_t * build_custom_font_screen(void) {
     lv_label_set_text(preview_title, "Preview");
     lv_obj_add_style(preview_title, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(preview_title, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
-    lv_obj_align(preview_title, LV_ALIGN_TOP_LEFT, 12, 6);
+    lv_obj_set_width(preview_title, lv_pct(100));
+    lv_label_set_long_mode(preview_title, LV_LABEL_LONG_WRAP);
 
     custom_font_preview_latin = lv_label_create(preview_card);
     lv_label_set_text(custom_font_preview_latin, "The quick brown fox jumps 123");
     lv_obj_add_style(custom_font_preview_latin, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(custom_font_preview_latin, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
-    lv_obj_align(custom_font_preview_latin, LV_ALIGN_TOP_LEFT, 12, 32);
+    lv_obj_set_width(custom_font_preview_latin, lv_pct(100));
+    lv_label_set_long_mode(custom_font_preview_latin, LV_LABEL_LONG_WRAP);
 
     /* Custom fonts intentionally replace only the Latin face.  Rendering a
      * sample spanning every file-backed fallback here made this screen take
@@ -1367,20 +1410,21 @@ static lv_obj_t * build_custom_font_screen(void) {
     lv_label_set_text(custom_font_preview_note, "Custom fonts affect Latin text only.");
     lv_obj_add_style(custom_font_preview_note, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(custom_font_preview_note, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
-    lv_obj_align(custom_font_preview_note, LV_ALIGN_TOP_LEFT, 12, 62);
+    lv_obj_set_width(custom_font_preview_note, lv_pct(100));
+    lv_label_set_long_mode(custom_font_preview_note, LV_LABEL_LONG_WRAP);
 
     lv_obj_t * hint = lv_label_create(preview_card);
     lv_label_set_text(hint, "Place .ttf fonts in SD /Fonts folder.");
     lv_obj_add_style(hint, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(hint, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
-    lv_obj_align(hint, LV_ALIGN_TOP_LEFT, 12, 92);
+    lv_obj_set_width(hint, lv_pct(100));
+    lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
 
     /* Scrollable font list */
-    custom_font_list = lv_obj_create(scr);
-    int32_t top_offset = STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT + 136;
-    lv_obj_set_size(custom_font_list, lv_pct(100),
-                    lv_display_get_vertical_resolution(lv_display_get_default()) - top_offset);
-    lv_obj_align(custom_font_list, LV_ALIGN_TOP_MID, 0, top_offset);
+    custom_font_list = lv_obj_create(body);
+    lv_obj_set_size(custom_font_list, lv_pct(100), 0);
+    lv_obj_set_flex_grow(custom_font_list, 1);
+    lv_obj_set_scrollbar_mode(custom_font_list, LV_SCROLLBAR_MODE_ACTIVE);
     lv_obj_set_style_bg_opa(custom_font_list, 0, 0);
     lv_obj_set_style_border_width(custom_font_list, 0, 0);
     lv_obj_set_style_pad_all(custom_font_list, 0, 0);
@@ -1845,8 +1889,7 @@ static lv_obj_t * build_car_mode_screen(void) {
     lv_obj_set_flex_grow(gain_label, 1);
     car_mode_gain_dropdown = lv_dropdown_create(car_mode_gain_row);
     lv_dropdown_set_options(car_mode_gain_dropdown, "Low\nHigh");
-    lv_obj_set_style_text_font(car_mode_gain_dropdown, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-    lv_obj_set_style_text_font(lv_dropdown_get_list(car_mode_gain_dropdown), gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    style_settings_dropdown(car_mode_gain_dropdown);
     lv_obj_set_width(car_mode_gain_dropdown, BOARD_SCALE_PX(170));
     lv_obj_add_event_cb(car_mode_gain_dropdown, car_mode_gain_dropdown_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(scr, car_mode_screen_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
@@ -2158,14 +2201,16 @@ static lv_obj_t * build_idle_shutdown_screen(void) {
 
     idle_action_poweroff_row = add_pill_row_base(idle_action_section, "Power Off");
     lv_obj_align(idle_action_poweroff_row, LV_ALIGN_TOP_MID, 0, idle_action_row1_y);
-    lv_obj_set_style_border_color(idle_action_poweroff_row, accent_lv_color(), 0);
+    lv_obj_add_style(idle_action_poweroff_row, gui_theme_accent_outline_style(), 0);
+    lv_obj_add_style(idle_action_poweroff_row, &style_theme_card_bg, 0);
     lv_obj_set_style_border_width(idle_action_poweroff_row, current_settings.idle_suspend_enabled ? 0 : 3, 0);
     lv_obj_add_flag(idle_action_poweroff_row, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(idle_action_poweroff_row, idle_action_choice_cb, LV_EVENT_CLICKED, (void *) (intptr_t) false);
 
     idle_action_suspend_row = add_pill_row_base(idle_action_section, "Suspend to RAM");
     lv_obj_align(idle_action_suspend_row, LV_ALIGN_TOP_MID, 0, idle_action_row2_y);
-    lv_obj_set_style_border_color(idle_action_suspend_row, accent_lv_color(), 0);
+    lv_obj_add_style(idle_action_suspend_row, gui_theme_accent_outline_style(), 0);
+    lv_obj_add_style(idle_action_suspend_row, &style_theme_card_bg, 0);
     lv_obj_set_style_border_width(idle_action_suspend_row, current_settings.idle_suspend_enabled ? 3 : 0, 0);
     lv_obj_add_flag(idle_action_suspend_row, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(idle_action_suspend_row, idle_action_choice_cb, LV_EVENT_CLICKED, (void *) (intptr_t) true);
@@ -3500,18 +3545,8 @@ static void refresh_all_eq_widgets(void) {
     if (eq_preamp_value_label) lv_label_set_text_fmt(eq_preamp_value_label, "Pre-Amp: %+.2f dB", peq_get_preamp_db());
     refresh_eq_band_widgets();
     if (eq_profile_button_label) {
-        const char * name = eq_current_profile_name[0] ? eq_current_profile_name : "Custom";
-        char display_name[sizeof(eq_current_profile_name)];
-        /* Keep the original name for saving; the button needs the headphone
-         * name rather than AutoEQ's source prefix and catalog hash. */
-        if (strncmp(name, "AutoEQ - ", 9) == 0) {
-            snprintf(display_name, sizeof(display_name), "%s", name + 9);
-            char * suffix = strrchr(display_name, ' ');
-            if (suffix && suffix >= display_name + 2 && suffix[-1] == '-' && suffix[-2] == ' ' &&
-                strlen(suffix + 1) == 10 && strspn(suffix + 1, "0123456789abcdefABCDEF") == 10)
-                suffix[-2] = '\0';
-            name = display_name;
-        }
+        char name[256];
+        eq_profile_display_name(eq_current_profile_name, name, sizeof(name));
         lv_label_set_text(eq_profile_button_label, name);
     }
     if (eq_graph_visible && eq_graph_chart && eq_graph_series) {
@@ -3898,15 +3933,18 @@ static void populate_eq_profiles_screen(void) {
         lv_obj_set_style_border_width(row, 0, 0);
         lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
-        char display[64];
-        snprintf(display, sizeof(display), "%s", basename_of(eq_profile_paths[i]));
-        char * dot = strrchr(display, '.');
+        char display[256], stem[256];
+        snprintf(stem, sizeof(stem), "%s", basename_of(eq_profile_paths[i]));
+        char * dot = strrchr(stem, '.');
         if (dot) *dot = '\0';
+        eq_profile_display_name(stem, display, sizeof(display));
 
         lv_obj_t * label = lv_label_create(row);
         lv_label_set_text(label, display);
         lv_obj_add_style(label, &style_theme_text_primary, 0);
-        lv_obj_set_style_text_font(label, &LIST_ROW_FONT, 0);
+        lv_obj_set_style_text_font(label, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
+        lv_obj_set_width(label, LIST_ROW_WIDTH - LIST_ROW_LABEL_INSET - BOARD_SCALE_PX(64));
+        lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
         lv_obj_align(label, LV_ALIGN_LEFT_MID, LIST_ROW_LABEL_INSET, 0);
 
         if (eq_profiles_edit_mode) {
@@ -3963,7 +4001,8 @@ static lv_obj_t * build_eq_profiles_screen(void) {
     lv_obj_add_event_cb(scr, eq_profiles_screen_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
     eq_profiles_edit_btn = lv_label_create(scr);
     lv_label_set_text(eq_profiles_edit_btn, "Edit");
-    lv_obj_set_style_text_color(eq_profiles_edit_btn, accent_lv_color(), 0);
+    lv_obj_add_style(eq_profiles_edit_btn, gui_theme_accent_style(), 0);
+    lv_obj_set_ext_click_area(eq_profiles_edit_btn, BOARD_SCALE_PX(16));
     lv_obj_set_style_text_font(eq_profiles_edit_btn, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     align_screen_header_action(eq_profiles_edit_btn, 20);
     lv_obj_add_flag(eq_profiles_edit_btn, LV_OBJ_FLAG_CLICKABLE);
@@ -4197,8 +4236,7 @@ static lv_obj_t * build_eq_band_options_screen(void) {
     eq_type_dropdown = lv_dropdown_create(content);
     lv_dropdown_set_options(eq_type_dropdown, "Peaking\nLow Shelf\nHigh Shelf");
     lv_obj_set_width(eq_type_dropdown, lv_pct(95));
-    lv_obj_set_style_text_font(eq_type_dropdown, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-    lv_obj_set_style_text_font(lv_dropdown_get_list(eq_type_dropdown), gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    style_settings_dropdown(eq_type_dropdown);
     lv_obj_t * enable_row = lv_obj_create(content);
     lv_obj_set_width(enable_row, lv_pct(95));
     lv_obj_set_height(enable_row, LV_SIZE_CONTENT);

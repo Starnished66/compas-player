@@ -211,6 +211,40 @@ static void check_switching_and_failures(void) {
     assert(player_layouts_session_clear_selection());
     assert(strcmp(player_layouts_effective_id(), PLAYER_LAYOUT_ID_DEFAULT) == 0);
 
+    /* A layout registered while a plugin loads is only offered: it does not
+     * change the effective id, the user's pick makes it effective, and a reload
+     * (reset, then register again) keeps it so without duplicating the entry. */
+    player_layouts_session_reset();
+    assert(!strcmp(player_layouts_effective_id(), PLAYER_LAYOUT_ID_DEFAULT));
+    int count_before = player_layouts_count();
+    assert(player_layouts_session_register_xml("plugin.clean", "Clean", good, false));
+    assert(player_layouts_count() == count_before + 1);
+    assert(player_layouts_find("plugin.clean") >= 0);
+    assert(!strcmp(player_layouts_effective_id(), PLAYER_LAYOUT_ID_DEFAULT));
+    snprintf(current_settings.player_layout, sizeof(current_settings.player_layout), "plugin.clean");
+    assert(!strcmp(player_layouts_effective_id(), "plugin.clean"));
+    player_layouts_session_reset();
+    assert(player_layouts_find("plugin.clean") < 0);
+    assert(!strcmp(player_layouts_effective_id(), PLAYER_LAYOUT_ID_DEFAULT));
+    assert(player_layouts_session_register_xml("plugin.clean", "Clean", good, false));
+    assert(player_layouts_session_register_xml("plugin.clean", "Clean", good, false));
+    assert(player_layouts_count() == count_before + 1);
+    assert(!strcmp(player_layouts_effective_id(), "plugin.clean"));
+    root = player_layouts_create("plugin.clean", scr, &kind);
+    assert(root && lv_obj_get_style_width(root, 0) == 111);
+    lv_obj_clean(scr);
+    player_layouts_release();
+
+    /* A callback selection overrides the saved choice for the session, and
+     * clearing it brings the saved choice back. */
+    assert(player_layouts_session_select_xml("from_callback2", "Callback", good, true));
+    assert(!strcmp(player_layouts_effective_id(), "from_callback2"));
+    assert(player_layouts_session_clear_selection());
+    assert(!strcmp(player_layouts_effective_id(), "plugin.clean"));
+    current_settings.player_layout[0] = '\0';
+    player_layouts_session_reset();
+    assert(player_layouts_find("plugin.clean") < 0);
+
     lv_obj_delete(scr);
     unlink(good); unlink(bad); unlink(variant);
     rmdir(dir);

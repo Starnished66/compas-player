@@ -1446,10 +1446,20 @@ static void populate_subsonic_saved_servers_screen(void) {
 
     lv_obj_clean(subsonic_saved_servers_list);
     if (subsonic_saved_server_count == 0) {
-        lv_obj_t * label = lv_label_create(subsonic_saved_servers_list);
-        lv_label_set_text(label, "No saved servers yet");
-        lv_obj_add_style(label, &style_theme_text_muted, 0);
-        lv_obj_set_style_pad_left(label, BOARD_SCALE_PX(24), 0);
+        lv_obj_t * title = lv_label_create(subsonic_saved_servers_list);
+        lv_label_set_text(title, "No saved servers");
+        lv_obj_add_style(title, &style_theme_text_primary, 0);
+        lv_obj_set_style_text_font(title, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
+        lv_obj_set_width(title, lv_pct(100));
+        lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+
+        lv_obj_t * hint = lv_label_create(subsonic_saved_servers_list);
+        lv_label_set_text(hint, "Go back and choose New Connection to add one.");
+        lv_obj_add_style(hint, &style_theme_text_muted, 0);
+        lv_obj_set_style_text_font(hint, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+        lv_obj_set_width(hint, lv_pct(88));
+        lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
         return;
     }
     populate_indexed_list(subsonic_saved_servers_list, subsonic_saved_server_count, subsonic_saved_server_label_of,

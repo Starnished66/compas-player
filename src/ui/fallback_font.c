@@ -121,6 +121,23 @@ typedef struct {
     int count;
 } face_table_t;
 
+/* Tier and Lyrics values are design-reference pixels. R3II's 320x480
+ * geometry scales those references to its physical panel; Montserrat is
+ * compiled only at even sizes, so round upward after scaling. */
+static int board_font_px(int reference_px) {
+#if defined(BOARD_R3II_2025)
+    int scaled_px = BOARD_SCALE_PX(reference_px);
+    int compiled_px = ((scaled_px + 1) / 2) * 2;
+    return compiled_px < 12 ? 12 : compiled_px;
+#else
+    return reference_px;
+#endif
+}
+
+static int lyrics_pixel_size(int tier) {
+    return board_font_px(tier == 1 ? 32 : 40);
+}
+
 static void tier_pixel_sizes(int tier, int * out_16_slot, int * out_20_slot, int * out_22_slot, int * out_28_slot) {
     switch (tier) {
         case 1: /* Medium */
@@ -142,11 +159,18 @@ static void tier_pixel_sizes(int tier, int * out_16_slot, int * out_20_slot, int
             *out_28_slot = 28;
             break;
     }
+    *out_16_slot = board_font_px(*out_16_slot);
+    *out_20_slot = board_font_px(*out_20_slot);
+    *out_22_slot = board_font_px(*out_22_slot);
+    *out_28_slot = board_font_px(*out_28_slot);
 }
 
 static const lv_font_t * get_montserrat_font_for_px(int px) {
     switch (px) {
+        case 12: return &lv_font_montserrat_12;
+        case 14: return &lv_font_montserrat_14;
         case 16: return &lv_font_montserrat_16;
+        case 18: return &lv_font_montserrat_18;
         case 20: return &lv_font_montserrat_20;
         case 22: return &lv_font_montserrat_22;
         case 24: return &lv_font_montserrat_24;
@@ -469,7 +493,7 @@ bool fallback_font_apply_size_tier(int tier) {
     tier_pixel_sizes(tier, &size_16, &size_20, &size_22, &size_28);
 
     face_table_t candidate = {0};
-    int lyrics_px = s_lyrics_font_size_tier == 1 ? 32 : 40;
+    int lyrics_px = lyrics_pixel_size(s_lyrics_font_size_tier);
     int size_player_title = PLAYER_TITLE_FONT_PX;
     int size_player_meta = PLAYER_META_FONT_PX;
     /* A general slot can legitimately equal the independent lyrics slot
@@ -558,7 +582,7 @@ bool fallback_font_apply_lyrics_size_tier(int tier) {
 
     int size_16, size_20, size_22, size_28;
     tier_pixel_sizes(s_font_size_tier, &size_16, &size_20, &size_22, &size_28);
-    int size_lyrics = (tier == 1) ? 32 : 40;
+    int size_lyrics = lyrics_pixel_size(tier);
     int size_player_title = PLAYER_TITLE_FONT_PX;
     int size_player_meta = PLAYER_META_FONT_PX;
 
@@ -676,7 +700,7 @@ bool fallback_font_validate_file(const char * path) {
     }
 
     /* Validate test loads and metrics at all tier pixel sizes */
-    static const int s_test_sizes[] = { 16, 20, 22, 24, 26, 28, 30, 32, 34, 40 };
+    static const int s_test_sizes[] = { 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 40 };
     bool valid = true;
 
     for (size_t s = 0; s < sizeof(s_test_sizes)/sizeof(s_test_sizes[0]); s++) {
@@ -931,7 +955,7 @@ bool fallback_font_apply_custom(const char * custom_filename) {
 
     int size_16, size_20, size_22, size_28;
     tier_pixel_sizes(s_font_size_tier, &size_16, &size_20, &size_22, &size_28);
-    int size_lyrics = (s_lyrics_font_size_tier == 1) ? 32 : 40;
+    int size_lyrics = lyrics_pixel_size(s_lyrics_font_size_tier);
     int size_player_title = PLAYER_TITLE_FONT_PX;
     int size_player_meta = PLAYER_META_FONT_PX;
 
@@ -1044,7 +1068,7 @@ void fallback_font_init_early(int font_size_tier, int lyrics_font_size_tier) {
 
     int size_16, size_20, size_22, size_28;
     tier_pixel_sizes(font_size_tier, &size_16, &size_20, &size_22, &size_28);
-    int size_lyrics = (lyrics_font_size_tier == 1) ? 32 : 40;
+    int size_lyrics = lyrics_pixel_size(lyrics_font_size_tier);
     int size_player_title = PLAYER_TITLE_FONT_PX;
     int size_player_meta = PLAYER_META_FONT_PX;
 
@@ -1080,7 +1104,7 @@ void fallback_font_load_now(void) {
 
     int size_16, size_20, size_22, size_28;
     tier_pixel_sizes(s_font_size_tier, &size_16, &size_20, &size_22, &size_28);
-    int size_lyrics = (s_lyrics_font_size_tier == 1) ? 32 : 40;
+    int size_lyrics = lyrics_pixel_size(s_lyrics_font_size_tier);
     int size_player_title = PLAYER_TITLE_FONT_PX;
     int size_player_meta = PLAYER_META_FONT_PX;
 

@@ -1,5 +1,6 @@
 extern int subprocess_run(char * const argv[], char ** out_output, int timeout_sec);
 #include "gui.h"
+#include "gui_theme.h"
 #include "gui_network.h"
 #include "gui_text_input.h"
 #include "audio.h"
@@ -142,6 +143,14 @@ extern lv_obj_t * add_pill_toggle_row(lv_obj_t * parent, const char * label_text
 extern lv_obj_t * add_pill_row_base(lv_obj_t * list, const char * text);
 extern const lv_font_t * gui_theme_font(gui_font_role_t role);
 extern void generic_back_cb(lv_event_t * e);
+
+static void configure_network_row_line(lv_obj_t * label, int32_t width,
+                                       const lv_font_t * font) {
+    lv_obj_set_width(label, width);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_font(label, font, 0);
+    row_label_apply_bounded_height(label, font);
+}
 static gui_busy_handle_t wifi_connect_saved_token = 0;
 extern gui_busy_handle_t gui_busy_show(const char * title, const char * msg);
 extern void gui_busy_hide(gui_busy_handle_t handle);
@@ -487,8 +496,7 @@ static bool wifi_cached_info_is_current(void) {
 static void set_wifi_rescan_active(bool active) {
     if (!wifi_rescan_btn) return;
     lv_label_set_text(wifi_rescan_btn, active ? "Scanning..." : "Rescan");
-    lv_obj_set_style_text_color(wifi_rescan_btn,
-                                active ? lv_color_make(160, 160, 160) : accent_lv_color(), 0);
+    lv_obj_set_style_opa(wifi_rescan_btn, active ? LV_OPA_60 : LV_OPA_COVER, 0);
     align_screen_header_action(wifi_rescan_btn, 20);
     if (active) {
         lv_obj_remove_flag(wifi_rescan_btn, LV_OBJ_FLAG_CLICKABLE);
@@ -745,8 +753,11 @@ static void populate_wifi_info_screen(void) {
         lv_obj_t * label = lv_label_create(wifi_info_list);
         lv_label_set_text(label, lines[i]);
         lv_obj_add_style(label, &style_theme_text_primary, 0);
-        lv_obj_set_style_text_font(label, &LIST_ROW_FONT, 0);
+        lv_obj_set_width(label, lv_pct(100));
+        lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_font(label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
         lv_obj_set_style_pad_left(label, BOARD_SCALE_PX(24), 0);
+        lv_obj_set_style_pad_right(label, BOARD_SCALE_PX(24), 0);
         lv_obj_set_style_pad_top(label, BOARD_SCALE_PX(12), 0);
     }
 }
@@ -891,10 +902,10 @@ void populate_wifi_screen(bool enabled) {
      * would undermine the immediate feedback this state exists to provide. */
     bool have_settings_snapshot = wifi_cached_info_is_current();
     if (wifi_saved_result_count == 0) {
-        lv_obj_t * label = lv_label_create(wifi_list);
-        lv_label_set_text(label, have_settings_snapshot ? "No memorized networks" : "Loading Wi-Fi settings...");
-        lv_obj_add_style(label, &style_theme_text_muted, 0);
-        lv_obj_set_style_pad_left(label, BOARD_SCALE_PX(24), 0);
+        if (have_settings_snapshot)
+            build_list_message(wifi_list, "No memorized networks", "Networks you connect to will appear here.");
+        else
+            build_list_message(wifi_list, "Loading Wi-Fi settings", "Saved network details are being checked.");
     }
     /* Cross-reference wpa_cli status against saved network SSIDs to indicate
      * which saved network is currently connected. */
@@ -909,14 +920,19 @@ void populate_wifi_screen(bool enabled) {
         lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
         bool is_connected = wifi_currently_connected && strcmp(wifi_saved_results[i].ssid, wifi_cached_info.ssid) == 0;
-        char text[WIFI_MAX_SSID_LEN + 20];
-        snprintf(text, sizeof(text), "%s%s", wifi_saved_results[i].ssid, is_connected ? "  - Connected" : "");
-
         lv_obj_t * label = lv_label_create(row);
-        lv_label_set_text(label, text);
+        lv_label_set_text(label, wifi_saved_results[i].ssid);
         lv_obj_add_style(label, &style_theme_text_primary, 0);
-        lv_obj_set_style_text_font(label, &LIST_ROW_FONT, 0);
-        lv_obj_align(label, LV_ALIGN_LEFT_MID, LIST_ROW_LABEL_INSET, 0);
+        configure_network_row_line(label, LIST_ROW_WIDTH - 2 * LIST_ROW_LABEL_INSET,
+                                   gui_theme_font(GUI_FONT_ROLE_BODY));
+        lv_obj_align(label, LV_ALIGN_TOP_LEFT, LIST_ROW_LABEL_INSET, BOARD_SCALE_PX(10));
+
+        lv_obj_t * status = lv_label_create(row);
+        lv_label_set_text(status, is_connected ? "Connected" : "Saved network");
+        lv_obj_add_style(status, is_connected ? gui_theme_accent_style() : &style_theme_text_muted, 0);
+        configure_network_row_line(status, LIST_ROW_WIDTH - 2 * LIST_ROW_LABEL_INSET,
+                                   gui_theme_font(GUI_FONT_ROLE_SUBTEXT));
+        lv_obj_align(status, LV_ALIGN_TOP_LEFT, LIST_ROW_LABEL_INSET, BOARD_SCALE_PX(18) + lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_BODY)));
 
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(row, wifi_saved_row_click_cb, LV_EVENT_CLICKED, (void *) (intptr_t) i);
@@ -941,22 +957,30 @@ void populate_wifi_screen(bool enabled) {
         lv_obj_align(icon, LV_ALIGN_LEFT_MID, BOARD_SCALE_PX(20), 0);
 
         lv_obj_t * label = lv_label_create(row);
-        char text[256];
-        snprintf(text, sizeof(text), "%.128s%s%s", net->ssid, net->secured ? "  (secured)" : "",
-                 net->is_current ? "  - Connected" : "");
-        lv_label_set_text(label, text);
+        lv_label_set_text(label, net->ssid);
         lv_obj_add_style(label, &style_theme_text_primary, 0);
-        lv_obj_set_style_text_font(label, &LIST_ROW_FONT, 0);
-        lv_obj_align(label, LV_ALIGN_LEFT_MID, BOARD_SCALE_PX(64), 0);
+        configure_network_row_line(label, LIST_ROW_WIDTH - BOARD_SCALE_PX(88),
+                                   gui_theme_font(GUI_FONT_ROLE_BODY));
+        lv_obj_align(label, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(64), BOARD_SCALE_PX(10));
+
+        lv_obj_t * status = lv_label_create(row);
+        const char * network_status = net->is_current
+            ? (net->secured ? "Secured · Connected" : "Open · Connected")
+            : net->secured ? "Secured network" : "Open network";
+        lv_label_set_text(status, network_status);
+        lv_obj_add_style(status, net->is_current ? gui_theme_accent_style() : &style_theme_text_muted, 0);
+        configure_network_row_line(status, LIST_ROW_WIDTH - BOARD_SCALE_PX(88),
+                                   gui_theme_font(GUI_FONT_ROLE_SUBTEXT));
+        lv_obj_align(status, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(64), BOARD_SCALE_PX(18) + lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_BODY)));
 
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(row, wifi_row_click_cb, LV_EVENT_CLICKED, (void *) (intptr_t) i);
     }
     if (wifi_scan_result_count == 0) {
-        lv_obj_t * label = lv_label_create(wifi_list);
-        lv_label_set_text(label, wifi_enable_pending_feedback ? "Scanning for networks..." : "No networks found");
-        lv_obj_add_style(label, &style_theme_text_muted, 0);
-        lv_obj_set_style_pad_left(label, BOARD_SCALE_PX(24), 0);
+        if (wifi_enable_pending_feedback)
+            build_list_message(wifi_list, "Scanning for networks", "Nearby Wi-Fi networks will appear here.");
+        else
+            build_list_message(wifi_list, "No networks found", "Check that Wi-Fi is enabled, then rescan.");
     }
 }
 
@@ -966,7 +990,7 @@ static lv_obj_t * build_wifi_screen(void) {
 
     wifi_rescan_btn = lv_label_create(scr);
     lv_label_set_text(wifi_rescan_btn, "Rescan");
-    lv_obj_set_style_text_color(wifi_rescan_btn, accent_lv_color(), 0);
+    lv_obj_add_style(wifi_rescan_btn, gui_theme_accent_style(), 0);
     lv_obj_set_style_text_font(wifi_rescan_btn, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     align_screen_header_action(wifi_rescan_btn, 20);
     lv_obj_add_flag(wifi_rescan_btn, LV_OBJ_FLAG_CLICKABLE);
@@ -1238,8 +1262,7 @@ static lv_obj_t * bt_rescan_btn;
 static void set_bt_rescan_active(bool active) {
     if (!bt_rescan_btn) return;
     lv_label_set_text(bt_rescan_btn, active ? "Scanning..." : "Rescan");
-    lv_obj_set_style_text_color(bt_rescan_btn,
-                                active ? lv_color_make(160, 160, 160) : accent_lv_color(), 0);
+    lv_obj_set_style_opa(bt_rescan_btn, active ? LV_OPA_60 : LV_OPA_COVER, 0);
     align_screen_header_action(bt_rescan_btn, 20);
     if (active) {
         lv_obj_remove_flag(bt_rescan_btn, LV_OBJ_FLAG_CLICKABLE);
@@ -1296,22 +1319,21 @@ static void add_bt_device_row(lv_obj_t * parent, int index) {
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t * label = lv_label_create(row);
-    char text[96];
-    const char * status;
-    if (strcmp(dev->mac, bt_connecting_mac) == 0) status = "  - Connecting...";
-    else if (strcmp(dev->mac, bt_connect_failed_mac) == 0) status = "  - Failed to connect";
-    else if (dev->connected) status = "  - Connected";
-    else if (dev->paired) status = "  - Paired";
-    else status = "";
-    snprintf(text, sizeof(text), "%s%s", dev->name[0] != '\0' ? dev->name : dev->mac, status);
-    lv_label_set_text(label, text);
+    lv_label_set_text(label, dev->name[0] != '\0' ? dev->name : dev->mac);
     lv_obj_add_style(label, &style_theme_text_primary, 0);
-    lv_obj_set_style_text_font(label, &LIST_ROW_FONT, 0);
-    if (show_codec) {
-        lv_obj_align(label, LV_ALIGN_TOP_LEFT, LIST_ROW_LABEL_INSET, BOARD_SCALE_PX(14));
-    } else {
-        lv_obj_align(label, LV_ALIGN_LEFT_MID, LIST_ROW_LABEL_INSET, 0);
-    }
+    configure_network_row_line(label, LIST_ROW_WIDTH - 2 * LIST_ROW_LABEL_INSET,
+                               gui_theme_font(GUI_FONT_ROLE_BODY));
+    lv_obj_align(label, LV_ALIGN_TOP_LEFT, LIST_ROW_LABEL_INSET, BOARD_SCALE_PX(8));
+
+    lv_obj_t * status_label = lv_label_create(row);
+    const char * status = strcmp(dev->mac, bt_connecting_mac) == 0 ? "Connecting" :
+                          strcmp(dev->mac, bt_connect_failed_mac) == 0 ? "Connection failed" :
+                          dev->connected ? "Connected" : dev->paired ? "Paired" : "Available";
+    lv_label_set_text(status_label, status);
+    lv_obj_add_style(status_label, dev->connected ? gui_theme_accent_style() : &style_theme_text_muted, 0);
+    configure_network_row_line(status_label, LIST_ROW_WIDTH - 2 * LIST_ROW_LABEL_INSET,
+                               gui_theme_font(GUI_FONT_ROLE_SUBTEXT));
+    lv_obj_align(status_label, LV_ALIGN_TOP_LEFT, LIST_ROW_LABEL_INSET, BOARD_SCALE_PX(45));
 
     if (show_codec) {
         lv_obj_t * codec_label = lv_label_create(row);
@@ -1979,7 +2001,7 @@ typedef struct {
 } font_size_option_t;
 
 static const font_size_option_t font_size_options[] = {
-    { 0, "Small" }, { 1, "Medium" }, { 2, "BlindMF" },
+    { 0, "Small" }, { 1, "Medium" }, { 2, "Large" },
 };
 #define FONT_SIZE_OPTION_COUNT (sizeof(font_size_options) / sizeof(font_size_options[0]))
 
@@ -2679,6 +2701,7 @@ void populate_bt_screen(void) {
     add_pill_toggle_row(bt_list, "Bluetooth", powered, quick_drawer_bt_event_cb);
 
     if (!powered) {
+        build_list_message(bt_list, "Bluetooth is off", "Turn on Bluetooth to see paired and nearby devices.");
         lv_obj_scroll_to_y(bt_list, saved_scroll_y, LV_ANIM_OFF);
         return;
     }
@@ -2694,10 +2717,7 @@ void populate_bt_screen(void) {
         paired_shown++;
     }
     if (paired_shown == 0) {
-        lv_obj_t * label = lv_label_create(bt_list);
-        lv_label_set_text(label, "No paired devices");
-        lv_obj_add_style(label, &style_theme_text_muted, 0);
-        lv_obj_set_style_pad_left(label, BOARD_SCALE_PX(24), 0);
+        build_list_message(bt_list, "No paired devices", "Previously connected accessories will appear here.");
     }
 
     add_section_header(bt_list, "Available Devices");
@@ -2709,10 +2729,7 @@ void populate_bt_screen(void) {
         available_shown++;
     }
     if (available_shown == 0) {
-        lv_obj_t * label = lv_label_create(bt_list);
-        lv_label_set_text(label, "No devices found");
-        lv_obj_add_style(label, &style_theme_text_muted, 0);
-        lv_obj_set_style_pad_left(label, BOARD_SCALE_PX(24), 0);
+        build_list_message(bt_list, "No nearby devices", "Make an accessory discoverable, then tap Rescan.");
     }
 
     lv_obj_scroll_to_y(bt_list, saved_scroll_y, LV_ANIM_OFF);
@@ -2724,7 +2741,7 @@ static lv_obj_t * build_bluetooth_screen(void) {
 
     bt_rescan_btn = lv_label_create(scr);
     lv_label_set_text(bt_rescan_btn, "Rescan");
-    lv_obj_set_style_text_color(bt_rescan_btn, accent_lv_color(), 0);
+    lv_obj_add_style(bt_rescan_btn, gui_theme_accent_style(), 0);
     lv_obj_set_style_text_font(bt_rescan_btn, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     align_screen_header_action(bt_rescan_btn, 20);
     lv_obj_add_flag(bt_rescan_btn, LV_OBJ_FLAG_CLICKABLE);
@@ -3081,7 +3098,7 @@ static lv_obj_t * build_import_wifi_screen(void) {
 #endif
 
     import_wifi_url_label = lv_label_create(scr);
-    lv_obj_set_style_text_color(import_wifi_url_label, accent_lv_color(), 0);
+    lv_obj_add_style(import_wifi_url_label, gui_theme_accent_style(), 0);
     lv_obj_set_style_text_font(import_wifi_url_label, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
     lv_obj_align(import_wifi_url_label, LV_ALIGN_TOP_MID, 0, STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT + BOARD_SCALE_PX(350));
 
@@ -3720,7 +3737,7 @@ static lv_obj_t * build_remote_control_screen(void) {
      * widen its touch area. */
     lv_obj_t * regenerate_icon = lv_label_create(pin_row);
     lv_label_set_text(regenerate_icon, LV_SYMBOL_REFRESH);
-    lv_obj_set_style_text_color(regenerate_icon, accent_lv_color(), 0);
+    lv_obj_add_style(regenerate_icon, gui_theme_accent_style(), 0);
     lv_obj_set_style_text_font(regenerate_icon, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     lv_obj_align(regenerate_icon, LV_ALIGN_RIGHT_MID, -20, 0);
     lv_obj_add_flag(regenerate_icon, LV_OBJ_FLAG_CLICKABLE);
@@ -3772,7 +3789,7 @@ static lv_obj_t * build_remote_control_screen(void) {
     lv_obj_set_width(remote_control_url_label, lv_pct(90));
     lv_label_set_long_mode(remote_control_url_label, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_align(remote_control_url_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_color(remote_control_url_label, accent_lv_color(), 0);
+    lv_obj_add_style(remote_control_url_label, gui_theme_accent_style(), 0);
     lv_obj_set_style_text_font(remote_control_url_label, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
     remote_control_bluetooth_label = lv_label_create(list);
     lv_obj_set_width(remote_control_bluetooth_label, lv_pct(90));

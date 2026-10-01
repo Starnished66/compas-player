@@ -20,10 +20,16 @@ lv_style_t * gui_theme_accent_style(void) { return &accent_style; }
 lv_style_t * gui_theme_accent_knob_style(void) { return &accent_knob_style; }
 lv_style_t * gui_theme_accent_outline_style(void) { return &accent_outline_style; }
 lv_color_t accent_lv_color(void) { return lv_color_hex(0x2196f3); }
+bool gui_anims_off(void) { return false; }
 bool favorite_is_set;
 player_layout_config_t player_layout_config;
 lv_font_t app_font_16, app_font_20, app_font_22, app_font_28, app_font_lyrics;
 lv_font_t app_font_player_title, app_font_player_meta;
+
+LV_DRAW_BUF_DEFINE(test_prev_normal, 40, 40, LV_COLOR_FORMAT_RGB565);
+LV_DRAW_BUF_DEFINE(test_prev_pressed, 40, 40, LV_COLOR_FORMAT_RGB565);
+LV_DRAW_BUF_DEFINE(test_play_normal, 84, 84, LV_COLOR_FORMAT_RGB565);
+LV_DRAW_BUF_DEFINE(test_play_pause, 84, 84, LV_COLOR_FORMAT_RGB565);
 
 const char * asset_path(const char * relative_path) {
     static char paths[64][128];
@@ -63,6 +69,9 @@ void gui_lyrics_show_embedded(lv_obj_t * parent, int32_t top, int32_t height) {
     assert(parent == player_screen);
     assert(height > 0 && top + height <= BOARD_SCREEN_HEIGHT);
     ++show_count;
+}
+void gui_lyrics_prepare_embedded(lv_obj_t * parent, int32_t top, int32_t height) {
+    gui_lyrics_show_embedded(parent, top, height);
 }
 void gui_lyrics_hide_embedded(void) { ++hide_count; }
 
@@ -133,11 +142,96 @@ static void check_all_roles_bound(void) {
     assert(lv_obj_has_flag(cover_img, LV_OBJ_FLAG_CLICKABLE));
 }
 
+static void check_r3ii_builtin_transport_geometry(void) {
+#if defined(BOARD_R3II_2025)
+    lv_obj_t * icons[] = { order_icon, prev_btn, play_btn, next_btn,
+                           lv_obj_find_by_name(player_screen, "more_btn") };
+    lv_area_t row_area, icon_area[5], pill_area;
+    lv_obj_t * row = lv_obj_get_parent(play_btn);
+    assert(row && row == lv_obj_get_parent(order_icon) && row == lv_obj_get_parent(prev_btn));
+    assert(row == lv_obj_get_parent(next_btn) && row == lv_obj_get_parent(icons[4]));
+    lv_obj_update_layout(row);
+    lv_obj_get_coords(row, &row_area);
+    assert(row_area.x1 == 0 && row_area.x2 == BOARD_SCREEN_WIDTH - 1);
+    assert(row_area.y1 >= 0 && row_area.y2 < BOARD_SCREEN_HEIGHT);
+
+    const int32_t expected[] = { player_s(40), player_s(40), player_s(84),
+                                 player_s(40), player_s(40) };
+    for (int i = 0; i < 5; ++i) {
+        assert(icons[i]);
+        lv_obj_get_coords(icons[i], &icon_area[i]);
+        assert(lv_area_get_width(&icon_area[i]) == expected[i]);
+        assert(lv_area_get_height(&icon_area[i]) == expected[i]);
+        assert(icon_area[i].x1 >= row_area.x1 && icon_area[i].x2 <= row_area.x2);
+        assert(icon_area[i].y1 >= row_area.y1 && icon_area[i].y2 <= row_area.y2);
+        if (i > 0) assert(icon_area[i - 1].x2 < icon_area[i].x1);
+    }
+
+    lv_obj_get_coords(quality_pill, &pill_area);
+    assert(lv_obj_get_height(quality_pill) >= player_s(36));
+    assert(pill_area.y1 >= 0 && pill_area.y2 < row_area.y1);
+
+    /* Pressed transport art and play/pause source changes must keep the
+     * contained image boxes at their compact-board dimensions. */
+    lv_image_set_src(prev_btn, &test_prev_pressed);
+    assert(lv_image_get_src(prev_btn) == &test_prev_pressed);
+    lv_obj_update_layout(row);
+    lv_area_t changed;
+    lv_obj_get_coords(prev_btn, &changed);
+    assert(lv_area_get_width(&changed) == expected[1]);
+    assert(lv_area_get_height(&changed) == expected[1]);
+    assert(changed.x1 == icon_area[1].x1 && changed.y1 == icon_area[1].y1 &&
+           changed.x2 == icon_area[1].x2 && changed.y2 == icon_area[1].y2);
+    lv_image_set_src(prev_btn, &test_prev_normal);
+    assert(lv_image_get_src(prev_btn) == &test_prev_normal);
+    lv_obj_update_layout(row);
+    lv_obj_get_coords(prev_btn, &changed);
+    assert(lv_area_get_width(&changed) == expected[1]);
+    assert(lv_area_get_height(&changed) == expected[1]);
+    assert(changed.x1 == icon_area[1].x1 && changed.y1 == icon_area[1].y1 &&
+           changed.x2 == icon_area[1].x2 && changed.y2 == icon_area[1].y2);
+
+    lv_image_set_src(play_btn, &test_play_pause);
+    assert(lv_image_get_src(play_btn) == &test_play_pause);
+    lv_obj_update_layout(row);
+    lv_obj_get_coords(play_btn, &changed);
+    assert(lv_area_get_width(&changed) == expected[2]);
+    assert(lv_area_get_height(&changed) == expected[2]);
+    assert(changed.x1 == icon_area[2].x1 && changed.y1 == icon_area[2].y1 &&
+           changed.x2 == icon_area[2].x2 && changed.y2 == icon_area[2].y2);
+    lv_image_set_src(play_btn, &test_play_normal);
+    assert(lv_image_get_src(play_btn) == &test_play_normal);
+    lv_obj_update_layout(row);
+    lv_obj_get_coords(play_btn, &changed);
+    assert(lv_area_get_width(&changed) == expected[2]);
+    assert(lv_area_get_height(&changed) == expected[2]);
+    assert(changed.x1 == icon_area[2].x1 && changed.y1 == icon_area[2].y1 &&
+           changed.x2 == icon_area[2].x2 && changed.y2 == icon_area[2].y2);
+    lv_image_set_src(prev_btn, NULL);
+    lv_image_set_src(play_btn, NULL);
+#endif
+}
+
+static void check_r3ii_az_index_font_fit(void) {
+#if defined(BOARD_R3II_2025)
+    const int32_t available_h = BOARD_SCREEN_HEIGHT - STATUS_BAR_CLEARANCE
+                              - TITLE_ROW_HEIGHT - HOME_INDICATOR_CONTENT_INSET;
+    const int32_t line_h = lv_font_get_line_height(&lv_font_montserrat_14);
+    int32_t line_space = (available_h - line_h * 27) / 26;
+    if (line_h * 27 + line_space * 26 > available_h) line_space--;
+    if (line_space < -6) line_space = -6;
+    if (line_space > 3) line_space = 3;
+    assert(available_h > 0 && line_h > 0);
+    assert(line_h * 27 + line_space * 26 <= available_h);
+#endif
+}
+
 static void check_builtin(void) {
     select_layout("");
     build();
     assert(player_layout_builtin && !player_layout_root);
     check_all_roles_bound();
+    check_r3ii_builtin_transport_geometry();
 
     /* The C morph works with the optional metadata labels gone. */
     lv_obj_t * artist = artist_label, * album = album_label;
@@ -146,7 +240,7 @@ static void check_builtin(void) {
     current_settings.lyrics_enabled = true;
     player_lyrics_set_open(true, true);
     run_ms(600);
-    assert(player_lyrics_open && !player_lyrics_animating && show_count == shows + 1);
+    assert(player_lyrics_open && !player_lyrics_animating && show_count >= shows + 1);
     assert(lv_obj_has_flag(play_btn, LV_OBJ_FLAG_HIDDEN) || lv_obj_has_flag(lv_obj_get_parent(play_btn), LV_OBJ_FLAG_HIDDEN));
     player_lyrics_set_open(false, true);
     run_ms(600);
@@ -250,7 +344,7 @@ static void check_minimal_layout_and_null_safety(const char * dir) {
     int shows = show_count;
     player_lyrics_set_open(true, true);
     run_ms(600);
-    assert(player_lyrics_open && show_count == shows + 1);
+    assert(player_lyrics_open && show_count >= shows + 1);
     assert(player_lyrics_object_count == 2); /* cover and title; the stand-ins do not move */
     assert(lv_obj_has_flag(artist_label, LV_OBJ_FLAG_HIDDEN));
     player_lyrics_set_open(false, true);
@@ -326,8 +420,20 @@ int main(void) {
     lv_style_set_bg_color(&accent_style, lv_color_hex(0x2196f3));
     lv_style_init(&accent_knob_style);
     lv_style_init(&accent_outline_style);
+#if defined(BOARD_R3II_2025)
+    /* Use the board's actual default type sizes so compact geometry checks
+     * include realistic quality-pill and metadata measurements. */
+    app_font_16 = lv_font_montserrat_12;
+    app_font_20 = lv_font_montserrat_14;
+    app_font_22 = lv_font_montserrat_16;
+    app_font_28 = lv_font_montserrat_20;
+    app_font_player_title = lv_font_montserrat_16;
+    app_font_player_meta = lv_font_montserrat_16;
+    check_r3ii_az_index_font_fit();
+#else
     app_font_16 = app_font_20 = app_font_22 = app_font_28 = lv_font_montserrat_16;
     app_font_player_title = app_font_player_meta = lv_font_montserrat_20;
+#endif
 
     char dir[] = "/tmp/player_bind_test_XXXXXX";
     assert(mkdtemp(dir));

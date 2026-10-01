@@ -111,6 +111,30 @@ bool transition_compositor_begin_vertical_overlay(const lv_draw_buf_t * overlay,
                                                   int32_t fixed_top_rows,
                                                   bool reuse_saved_base);
 bool transition_compositor_vertical_overlay_frame(int32_t y);
+
+/* Vertical reveal compositor for drawer expansion. base and expanded are
+ * complete opaque RGB565 screen frames, independently owned and kept alive
+ * until transition_compositor_end(). The output uses base everywhere,
+ * reveals rows from expanded downward, and moves the expanded controls strip
+ * from controls_top - rows_height to controls_top in sync with the reveal.
+ * fixed_top_rows are copied from the active physical page into an owned base
+ * before composition so persistent topbar changes remain current. */
+bool transition_compositor_begin_vertical_reveal(const lv_draw_buf_t * base,
+                                                 const lv_draw_buf_t * expanded,
+                                                 int32_t rows_top, int32_t rows_height,
+                                                 int32_t controls_top, int32_t controls_height,
+                                                 int32_t fixed_top_rows);
+bool transition_compositor_vertical_reveal_frame(int32_t revealed);
+
+/* Pure RGB565 composition primitive used by the direct reveal path. Honors
+ * independent row strides and clamps `revealed` to [0, rows_height]. */
+bool transition_compositor_compose_vertical_reveal_rgb565(uint8_t * dst, uint32_t dst_stride,
+                                                           const uint8_t * base, uint32_t base_stride,
+                                                           const uint8_t * expanded, uint32_t expanded_stride,
+                                                           int32_t width, int32_t height,
+                                                           int32_t rows_top, int32_t rows_height,
+                                                           int32_t controls_top, int32_t controls_height,
+                                                           int32_t revealed);
 /* Testable production primitive used by the ARGB8888 vertical path. Blends
  * straight-alpha BGRA rows over RGB565 while honoring independent strides. */
 void transition_compositor_blend_argb8888_over_rgb565(uint8_t * dst, uint32_t dst_stride,

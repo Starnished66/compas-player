@@ -36,7 +36,8 @@ void fallback_font_load_now(void);
 bool fallback_font_apply_size_tier(int tier);
 
 /* Transactionally rebuilds only app_font_lyrics for a Settings -> Display
- * -> Lyrics Text Size tier (1 = Medium/32px, 2 = Large/40px). Mirrors
+ * -> Lyrics Text Size tier (1 = Medium/32 reference px, 2 = Large/40
+ * reference px; R3II 2025 scales these to the board's compiled physical px). Mirrors
  * fallback_font_apply_size_tier()'s own shape but keyed the other way --
  * uses build_candidate_slot()'s reuse-aware primitive (same one
  * fallback_font_apply_custom() already uses) for all five font handles,

@@ -14,6 +14,7 @@
 static lv_obj_t * lock_screen = NULL;
 static lv_obj_t * lock_image_obj = NULL;
 static lv_obj_t * lock_clock_label = NULL;
+static lv_obj_t * lock_swipe_hint = NULL;
 static lv_timer_t * lock_clock_timer = NULL;
 static lv_timer_t * lock_touch_timer = NULL;
 
@@ -81,6 +82,48 @@ static void update_clock_display(void) {
 static void lock_clock_timer_cb(lv_timer_t * timer) {
     (void) timer;
     update_clock_display();
+}
+
+/* Compute the same 256-based scaling used by album-art lock screens. The
+ * custom image is first loaded at natural size so the R1 LVGL build can
+ * provide its dimensions without newer image-decoder APIs. */
+static void fit_custom_lock_image(gui_lock_screen_image_fit_t fit) {
+    if (fit == LOCK_SCREEN_IMAGE_FIT_NATURAL) {
+        lv_obj_set_size(lock_image_obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+        lv_obj_set_align(lock_image_obj, LV_ALIGN_CENTER);
+        lv_image_set_inner_align(lock_image_obj, LV_IMAGE_ALIGN_DEFAULT);
+        lv_image_set_scale(lock_image_obj, 256);
+        return;
+    }
+
+    lv_obj_set_size(lock_image_obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_align(lock_image_obj, LV_ALIGN_CENTER);
+    lv_image_set_inner_align(lock_image_obj, LV_IMAGE_ALIGN_DEFAULT);
+    lv_image_set_scale(lock_image_obj, 256);
+    lv_obj_update_layout(lock_image_obj);
+
+    int32_t image_w = lv_obj_get_width(lock_image_obj);
+    int32_t image_h = lv_obj_get_height(lock_image_obj);
+    int32_t screen_w = lv_obj_get_width(lock_screen);
+    int32_t screen_h = lv_obj_get_height(lock_screen);
+    uint32_t scale = 256;
+    if (image_w > 0 && image_h > 0 && screen_w > 0 && screen_h > 0) {
+        bool cover = fit == LOCK_SCREEN_IMAGE_FIT_COVER;
+        uint32_t scale_x = cover
+            ? ((uint32_t) screen_w * 256U + (uint32_t) image_w - 1U) / (uint32_t) image_w
+            : ((uint32_t) screen_w * 256U) / (uint32_t) image_w;
+        uint32_t scale_y = cover
+            ? ((uint32_t) screen_h * 256U + (uint32_t) image_h - 1U) / (uint32_t) image_h
+            : ((uint32_t) screen_h * 256U) / (uint32_t) image_h;
+        scale = cover ? (scale_x > scale_y ? scale_x : scale_y)
+                      : (scale_x < scale_y ? scale_x : scale_y);
+        if (scale == 0) scale = 1;
+    }
+
+    lv_obj_set_size(lock_image_obj, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_align(lock_image_obj, LV_ALIGN_CENTER);
+    lv_image_set_inner_align(lock_image_obj, LV_IMAGE_ALIGN_CENTER);
+    lv_image_set_scale(lock_image_obj, scale);
 }
 
 static void lock_settle_done_cb(lv_anim_t * a) {
@@ -271,8 +314,21 @@ static void build_lock_screen_if_needed(void) {
     lv_obj_add_style(lock_clock_label, &style_theme_text_primary, 0);
     lv_obj_set_style_text_align(lock_clock_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(lock_clock_label, gui_theme_font(GUI_FONT_ROLE_TITLE), 0);
+    lv_obj_set_style_shadow_color(lock_clock_label, lv_color_black(), 0);
+    lv_obj_set_style_shadow_width(lock_clock_label, BOARD_SCALE_PX(5), 0);
+    lv_obj_set_style_shadow_opa(lock_clock_label, LV_OPA_80, 0);
+    lv_obj_set_style_shadow_offset_y(lock_clock_label, BOARD_SCALE_PX(1), 0);
     lv_obj_align(lock_clock_label, LV_ALIGN_CENTER, 0, 0);
     lv_obj_add_flag(lock_clock_label, LV_OBJ_FLAG_HIDDEN);
+
+    lock_swipe_hint = lv_label_create(lock_screen);
+    lv_label_set_text(lock_swipe_hint, "Swipe up to unlock");
+    lv_obj_add_style(lock_swipe_hint, &style_theme_text_muted, 0);
+    lv_obj_set_style_text_font(lock_swipe_hint, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+    lv_obj_set_style_text_opa(lock_swipe_hint, LV_OPA_80, 0);
+    lv_obj_set_style_text_align(lock_swipe_hint, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(lock_swipe_hint, lv_pct(90));
+    lv_obj_align(lock_swipe_hint, LV_ALIGN_BOTTOM_MID, 0, -BOARD_SCALE_PX(32));
 }
 
 bool gui_lock_screen_show(const gui_lock_screen_options_t * options) {
@@ -356,13 +412,10 @@ bool gui_lock_screen_show(const gui_lock_screen_options_t * options) {
         snprintf(prefixed_path, sizeof(prefixed_path), "S:%s", options->image_path);
         lv_image_set_src(lock_image_obj, prefixed_path);
 
-        /* Custom images keep their existing natural/content-sized behavior.
-         * Only Album Art is treated as a full-screen cover. Reset the image
-         * scale here so the previous album-art scale cannot carry over. */
-        lv_obj_set_size(lock_image_obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-        lv_obj_set_align(lock_image_obj, LV_ALIGN_CENTER);
-        lv_image_set_inner_align(lock_image_obj, LV_IMAGE_ALIGN_DEFAULT);
-        lv_image_set_scale(lock_image_obj, 256);
+        /* Plugins that omit image_fit retain the historical natural-size
+         * rendering. The opt-in contain/cover modes fit to the screen using
+         * the dimensions LVGL reports for the loaded image. */
+        fit_custom_lock_image(options->image_fit);
 
         lv_obj_remove_flag(lock_image_obj, LV_OBJ_FLAG_HIDDEN);
         update_clock_display();
@@ -399,6 +452,7 @@ void gui_lock_screen_init(void) {
     lock_screen = NULL;
     lock_image_obj = NULL;
     lock_clock_label = NULL;
+    lock_swipe_hint = NULL;
     lock_clock_timer = NULL;
     lock_touch_timer = NULL;
     current_mode = LOCK_SCREEN_MODE_OFF;

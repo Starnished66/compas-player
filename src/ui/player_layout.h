@@ -31,13 +31,13 @@ typedef struct {
     bool has_bg_color;
     uint32_t bg_color;
 
-    /* Blur radius for the frosted glass background (default: 32).
+    /* Blur radius for the frosted glass background (default: 5).
      * Clamped at point of use in gui_player.c to 0..64. */
     bool has_blur_radius;
     int32_t blur_radius;
 
     /* Number of blur passes for horizontal and vertical separable blur
-     * (default: 5). Clamped at point of use in gui_player.c to 0..16. */
+     * (default: 3). Clamped at point of use in gui_player.c to 0..16. */
     bool has_blur_passes;
     int32_t blur_passes;
 

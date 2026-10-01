@@ -38,7 +38,7 @@ typedef struct {
 #define LYRICS_POOL_SIZE 20
 #define LYRICS_ROW_WIDTH (BOARD_SCREEN_WIDTH - BOARD_SCALE_PX(40))
 #define LYRICS_ROW_GAP BOARD_SCALE_PX(24)
-#define LYRICS_ACTIVE_LINE_ANCHOR_Y (lyrics_embedded ? BOARD_SCALE_PX(16) : BOARD_SCALE_PX(200))
+#define LYRICS_ACTIVE_LINE_ANCHOR_Y (lyrics_embedded ? BOARD_SCALE_PX(16) : (BOARD_SCREEN_HEIGHT / 4))
 #define LYRICS_TOP_PAD LYRICS_ACTIVE_LINE_ANCHOR_Y
 #define LYRICS_TIMER_PERIOD_MS 150
 #define LYRICS_AUTO_FOLLOW_RESUME_MS 3000L
@@ -470,7 +470,13 @@ static lv_obj_t * lyrics_rows[LYRICS_POOL_SIZE];
 static lyrics_layout_t lyrics_layout;
 static int lyrics_window_start = -1; /* index currently shown by lyrics_rows[0]; -1 forces the first update to actually run */
 static int lyrics_pool_synced_for_index = -1; /* current_lyrics_doc_for_index the pool/spacer were last built from */
-static int lyrics_pool_synced_generation = -1; /* current_lyrics_doc_generation the layout table was last built from */
+static int lyrics_pool_synced_generation = -1; /* current_lyrics_doc_generation the row pool was last synchronized from */
+/* Layout validity is independent of the row pool: the pool is reset when
+ * the list is reparented, while the measured offsets remain valid for the
+ * same document and font. */
+static int lyrics_layout_for_index = -1;
+static int lyrics_layout_generation = -1;
+static bool lyrics_layout_valid;
 static bool lyrics_auto_follow = true;
 static int lyrics_last_centered_index = -2; /* -2 = "never centered yet", distinct from -1 (a real "before the first line" position) */
 static struct timespec lyrics_last_manual_scroll_at;
@@ -499,6 +505,38 @@ static void lyrics_build_line_offsets(void) {
 static int lyrics_first_line_at_y(int32_t y, int count) {
     return lyrics_layout_first_at_y(&lyrics_layout, y, count);
 }
+/* Ensure measured geometry matches the current document, font invalidation
+ * epoch and list anchor. This deliberately has no row-pool or scroll side
+ * effects so the player can pay the first measurement before its opening
+ * animation starts. */
+static void lyrics_ensure_layout(bool force_layout_rebuild) {
+    int count = current_lyrics_doc_valid ? current_lyrics_doc.count : 0;
+    /* lyrics_layout_build() calls lv_text_get_size() once per line -- real,
+     * synchronous UI-thread cost that scales with document length. Its
+     * validity is tracked separately from pool synchronization because
+     * embedding reparents/resets the row pool without changing measured
+     * geometry. Font changes explicitly force a rebuild even though the
+     * document identity stays the same. */
+    if (force_layout_rebuild || !lyrics_layout_valid ||
+        current_lyrics_doc_for_index != lyrics_layout_for_index ||
+        current_lyrics_doc_generation != lyrics_layout_generation) {
+        uint64_t t0 = db_log_now_ms();
+        lyrics_build_line_offsets();
+        lyrics_layout_for_index = current_lyrics_doc_for_index;
+        lyrics_layout_generation = current_lyrics_doc_generation;
+        lyrics_layout_valid = true;
+        DB_LOG("LYRICS", "layout_build_ms=%llu lines=%d", (unsigned long long) (db_log_now_ms() - t0), count);
+    } else if (lyrics_layout.top_pad != LYRICS_TOP_PAD) {
+        /* The embedded and fullscreen lists use different top anchors.
+         * Translate the cached prefix offsets instead of remeasuring each
+         * line; the per-line heights and wrap measurements are unchanged. */
+        int32_t delta = LYRICS_TOP_PAD - lyrics_layout.top_pad;
+        if (lyrics_layout.offsets) {
+            for (int i = 0; i <= lyrics_layout.count; i++) lyrics_layout.offsets[i] += delta;
+        }
+        lyrics_layout.top_pad = LYRICS_TOP_PAD;
+    }
+}
 /* Re-syncs the row pool/spacer/empty-state to whatever current_lyrics_doc
  * currently holds -- called on every open (open_lyrics_screen() below) and
  * whenever lyrics_timer_cb() notices the doc changed while already open
@@ -508,25 +546,10 @@ static int lyrics_first_line_at_y(int32_t y, int count) {
  * previous track's manual scroll happened to leave it.
  *
  * force_layout_rebuild: gui_lyrics_refresh_layout() (font size / custom font
- * changed) must pass true -- the document identity (index/generation) is
- * unchanged in that case, but the measurements lyrics_layout holds are for
- * the OLD font and would otherwise be wrongly kept, see below. */
+ * changed) must pass true -- see lyrics_ensure_layout() for the cache key. */
 static void lyrics_reset_pool(bool force_layout_rebuild) {
     int count = current_lyrics_doc_valid ? current_lyrics_doc.count : 0;
-    /* lyrics_layout_build() calls lv_text_get_size() once per line -- real,
-     * synchronous UI-thread cost that scales with document length. Skip
-     * rebuilding it when it is already valid for the exact document this
-     * reset is for (e.g. the user closed and reopened the lyrics screen for
-     * a still-playing track with no track change in between): everything
-     * below that reads the layout table (lyrics_line_y() et al.) still
-     * produces correct results from the untouched table in that case. */
-    if (force_layout_rebuild ||
-        current_lyrics_doc_for_index != lyrics_pool_synced_for_index ||
-        current_lyrics_doc_generation != lyrics_pool_synced_generation) {
-        uint64_t t0 = db_log_now_ms();
-        lyrics_build_line_offsets();
-        DB_LOG("LYRICS", "layout_build_ms=%llu lines=%d", (unsigned long long) (db_log_now_ms() - t0), count);
-    }
+    lyrics_ensure_layout(force_layout_rebuild);
 
     /* current_lyrics_plain_mode -- see its own doc comment: a single static
      * text block, no per-line pool/highlight/auto-follow at all. Handled as
@@ -805,10 +828,22 @@ void gui_lyrics_show_embedded(lv_obj_t * parent, int32_t top, int32_t height) {
      * empty state outside the requested region. */
     lv_obj_update_layout(lyrics_list);
     lv_obj_align_to(lyrics_empty_label, lyrics_list, LV_ALIGN_CENTER, 0, 0);
-    /* The embedded view has a different top anchor from the legacy screen. */
-    lyrics_reset_pool(true);
+    /* Reset row position/scroll for the embedded view. The measured line
+     * geometry is unchanged by reparenting and is reused unless its
+     * document identity changed while hidden. */
+    lyrics_reset_pool(false);
     lv_timer_resume(lyrics_timer);
     lyrics_timer_cb(NULL);
+}
+
+void gui_lyrics_prepare_embedded(lv_obj_t * parent, int32_t top, int32_t height) {
+    /* Populate and lay out the rows before the player starts moving. Keep
+     * them hidden and paused until show_embedded reveals the finished pane. */
+    gui_lyrics_show_embedded(parent, top, height);
+    if (!lyrics_embedded) return;
+    lv_timer_pause(lyrics_timer);
+    lv_obj_add_flag(lyrics_list, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(lyrics_empty_label, LV_OBJ_FLAG_HIDDEN);
 }
 
 void gui_lyrics_hide_embedded(void) {
@@ -822,9 +857,8 @@ void gui_lyrics_hide_embedded(void) {
     lv_obj_align(lyrics_list, LV_ALIGN_TOP_LEFT, 0, 0);
     lv_obj_center(lyrics_empty_label);
     lyrics_embedded = false;
-    /* Force legacy open to rebuild offsets for its full-screen top anchor. */
-    lyrics_pool_synced_generation = -1;
-    /* Fullscreen open restores visibility and reconciles the document. */
+    /* Fullscreen open restores visibility and reconciles the row pool. The
+     * measured line geometry is independent of this list's parent/anchor. */
 }
 static lv_obj_t * build_lyrics_screen(void) {
     lv_obj_t * scr = lv_obj_create(NULL);
@@ -1064,10 +1098,12 @@ lv_obj_t * gui_lyrics_get_screen(void) {
 }
 
 void gui_lyrics_poll_load(void) {
+    if (gui_player_lyrics_animation_in_progress()) return;
     poll_lyrics_load();
 }
 
 void gui_lyrics_poll_backdrop(void) {
+    if (gui_player_lyrics_animation_in_progress()) return;
     poll_lyrics_backdrop();
 }
 
@@ -1131,4 +1167,8 @@ void gui_lyrics_refresh_layout(void) {
     if (!lv_obj_has_flag(lyrics_screen, LV_OBJ_FLAG_HIDDEN)) {
         lv_obj_invalidate(lyrics_screen);
     }
+}
+
+void gui_lyrics_prepare_layout(void) {
+    lyrics_ensure_layout(false);
 }

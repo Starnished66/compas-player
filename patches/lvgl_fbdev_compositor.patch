@@ -1,5 +1,5 @@
 diff --git a/src/drivers/display/fb/lv_linux_fbdev.c b/src/drivers/display/fb/lv_linux_fbdev.c
-index c78b881..b4b648b 100644
+index c78b881..ccd7a6e 100644
 --- a/src/drivers/display/fb/lv_linux_fbdev.c
 +++ b/src/drivers/display/fb/lv_linux_fbdev.c
 @@ -71,6 +71,25 @@ typedef struct {
@@ -103,7 +103,7 @@ index c78b881..b4b648b 100644
  
      lv_display_set_resolution(disp, hor_res, ver_res);
      lv_display_set_buffers(disp, draw_buf, draw_buf_2, draw_buf_size, LV_LINUX_FBDEV_RENDER_MODE);
-@@ -262,6 +322,101 @@ void lv_linux_fbdev_set_force_refresh(lv_display_t * disp, bool enabled)
+@@ -262,6 +322,113 @@ void lv_linux_fbdev_set_force_refresh(lv_display_t * disp, bool enabled)
      dsc->force_refresh = enabled;
  }
  
@@ -143,6 +143,18 @@ index c78b881..b4b648b 100644
 +    if(!dsc || !dsc->pan_double_buffer) return false;
 +    if(lv_display_get_rotation(disp) != LV_DISPLAY_ROTATION_0) return false;
 +    if(dsc->external_composition_active) return false; /* reject nested ownership */
++
++    /* A DIRECT-mode refresh can have queued invalidation areas and buffer
++     * synchronization work before external composition takes ownership.
++     * Disabling invalidation in the caller only rejects new areas; the
++     * refresh timer will still render existing ones, directly into one of
++     * these physical pages. External composition replaces complete frames,
++     * so discard both queues at the ownership boundary. */
++    disp->inv_p = 0;
++    lv_memzero(disp->inv_areas, sizeof(disp->inv_areas));
++    lv_memzero(disp->inv_area_joined, sizeof(disp->inv_area_joined));
++    lv_ll_clear(&disp->sync_areas);
++
 +    dsc->external_composition_active = true;
 +    return true;
 +}
@@ -205,7 +217,7 @@ index c78b881..b4b648b 100644
  /**********************
   *   STATIC FUNCTIONS
   **********************/
-@@ -297,14 +452,53 @@ static void del_event_cb(lv_event_t * e)
+@@ -297,14 +464,53 @@ static void del_event_cb(lv_event_t * e)
          dsc->fbfd = -1;
      }
      if(dsc->rotated_buf) lv_free(dsc->rotated_buf);
@@ -261,7 +273,7 @@ index c78b881..b4b648b 100644
  static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * color_p)
  {
      lv_linux_fb_t * dsc = lv_display_get_driver_data(disp);
-@@ -316,6 +510,67 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
+@@ -316,6 +522,67 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
      }
  #endif
  

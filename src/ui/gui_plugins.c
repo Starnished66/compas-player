@@ -100,6 +100,29 @@ void configure_scrolling_row_label(lv_obj_t * label, int32_t width) {
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_LEFT, 0);
 }
 
+/* Plugin screens share the native header, but plugin supplied titles can be
+ * much longer than native labels. Keep the display bounded and show the
+ * beginning of the title without continuously scrolling it. */
+static void configure_plugin_screen_title(lv_obj_t * label) {
+    int32_t screen_w = lv_display_get_horizontal_resolution(lv_display_get_default());
+    int32_t width = screen_w - BOARD_SCALE_PX(96);
+    if (width < BOARD_SCALE_PX(80)) width = BOARD_SCALE_PX(80);
+    lv_obj_set_width(label, width);
+    lv_obj_set_style_text_font(label, gui_theme_font(GUI_FONT_ROLE_TITLE), 0);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+}
+
+static void add_plugin_empty_state(lv_obj_t * list, const char * message) {
+    lv_obj_t * label = lv_label_create(list);
+    lv_label_set_text(label, message);
+    lv_obj_add_style(label, &style_theme_text_muted, 0);
+    lv_obj_set_style_text_font(label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    lv_obj_set_width(label, lv_pct(90));
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_pad_top(label, BOARD_SCALE_PX(48), 0);
+}
+
 #ifdef HOST_BUILD
   #define MUSIC_ROOT_DIR "./music"
 #else
@@ -219,6 +242,7 @@ int gui_plugin_show_list(const char * title, const char * const * labels, const 
     plugin_list_pool_next = (slot + 1) % PLUGIN_LIST_SCREEN_POOL_SIZE;
 
     lv_label_set_text(plugin_list_title_labels[slot], title);
+    configure_plugin_screen_title(plugin_list_title_labels[slot]);
     lv_obj_t * list = plugin_list_lists[slot];
     lv_obj_clean(list);
 
@@ -236,10 +260,7 @@ int gui_plugin_show_list(const char * title, const char * const * labels, const 
     lv_obj_set_style_pad_gap(list, GUI_ROW_GAP, 0);
 
     if (count <= 0) {
-        lv_obj_t * label = lv_label_create(list);
-        lv_label_set_text(label, "Nothing here");
-        lv_obj_add_style(label, &style_theme_text_muted, 0);
-        lv_obj_set_style_pad_left(label, BOARD_SCALE_PX(24), 0);
+        add_plugin_empty_state(list, "No entries to display");
     }
 
     /* Any icon anywhere in this call, or an explicit height, means every row
@@ -303,21 +324,55 @@ int gui_plugin_show_list(const char * title, const char * const * labels, const 
         lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_style(row, &list_row_pressed_style, LV_STATE_PRESSED);
 
-        lv_obj_t * label = lv_label_create(row);
-        lv_label_set_text(label, labels[i]);
-        lv_obj_add_style(label, &style_theme_text_primary, 0);
-        /* "medium" default -- matches LIST_ROW_FONT (app_font_22), today's
-         * existing show_list() row font, so a row without an explicit
-         * text_size still renders at its previous size. */
-        lv_obj_set_style_text_font(label, pill_row_resolve_text_size(text_size ? text_size : "medium"), 0);
         int32_t label_left = icon ? BOARD_SCALE_PX(96) : LIST_ROW_LABEL_INSET;
-        lv_obj_align(label, LV_ALIGN_LEFT_MID, label_left, 0);
-        pill_row_apply_icon(row, label, icon, BOARD_SCALE_PX(44), LV_ALIGN_LEFT_MID, BOARD_SCALE_PX(28), 0);
-        /* The icon helper sets a compact default inset; match the native
-         * category text column after installing the plugin's icon. */
-        lv_obj_align(label, LV_ALIGN_LEFT_MID, label_left, 0);
         int32_t label_width = row_w - label_left - LIST_ROW_LABEL_INSET;
-        configure_plugin_row_label(row, label, label_width, wrap_labels && wrap_labels[i]);
+        const char * source = labels[i] ? labels[i] : "";
+        const char * newline = wrap_labels && wrap_labels[i] ? strchr(source, '\n') : NULL;
+        if (newline) {
+            /* Backward-compatible convention for wrapped plugin rows:
+             * `title\nsecondary metadata` gives the title primary styling
+             * and the remaining line a quieter metadata style. The public
+             * Lua API still passes one label string and click indexes are
+             * unchanged. */
+            lv_obj_t * title = lv_label_create(row);
+            lv_label_set_text_fmt(title, "%.*s", (int) (newline - source), source);
+            lv_obj_add_style(title, &style_theme_text_primary, 0);
+            lv_obj_set_style_text_font(title, pill_row_resolve_text_size(text_size ? text_size : "medium"), 0);
+            lv_obj_set_width(title, label_width);
+            lv_label_set_long_mode(title, LV_LABEL_LONG_WRAP);
+            lv_obj_align(title, LV_ALIGN_TOP_LEFT, label_left, BOARD_SCALE_PX(10));
+            lv_obj_update_layout(title);
+
+            lv_obj_t * metadata = lv_label_create(row);
+            lv_label_set_text(metadata, newline + 1);
+            lv_obj_add_style(metadata, &style_theme_text_muted, 0);
+            lv_obj_set_style_text_font(metadata, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+            lv_obj_set_width(metadata, label_width);
+            lv_label_set_long_mode(metadata, LV_LABEL_LONG_DOT);
+            int32_t metadata_y = BOARD_SCALE_PX(10) + lv_obj_get_height(title) + BOARD_SCALE_PX(3);
+            lv_obj_align(metadata, LV_ALIGN_TOP_LEFT, label_left, metadata_y);
+
+            int32_t needed = metadata_y + lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT)) +
+                             BOARD_SCALE_PX(10);
+            if (needed > lv_obj_get_height(row)) lv_obj_set_height(row, needed);
+            pill_row_apply_icon(row, title, icon, BOARD_SCALE_PX(44), LV_ALIGN_LEFT_MID, BOARD_SCALE_PX(28), 0);
+            lv_obj_align(title, LV_ALIGN_TOP_LEFT, label_left, BOARD_SCALE_PX(10));
+            lv_obj_align(metadata, LV_ALIGN_TOP_LEFT, label_left, metadata_y);
+        } else {
+            lv_obj_t * label = lv_label_create(row);
+            lv_label_set_text(label, source);
+            lv_obj_add_style(label, &style_theme_text_primary, 0);
+            /* "medium" default -- matches LIST_ROW_FONT (app_font_22), today's
+             * existing show_list() row font, so a row without an explicit
+             * text_size still renders at its previous size. */
+            lv_obj_set_style_text_font(label, pill_row_resolve_text_size(text_size ? text_size : "medium"), 0);
+            lv_obj_align(label, LV_ALIGN_LEFT_MID, label_left, 0);
+            pill_row_apply_icon(row, label, icon, BOARD_SCALE_PX(44), LV_ALIGN_LEFT_MID, BOARD_SCALE_PX(28), 0);
+            /* The icon helper sets a compact default inset; match the native
+             * category text column after installing the plugin's icon. */
+            lv_obj_align(label, LV_ALIGN_LEFT_MID, label_left, 0);
+            configure_plugin_row_label(row, label, label_width, wrap_labels && wrap_labels[i]);
+        }
         if (icon) decorate_category_row(row, NULL, NULL);
 
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
@@ -790,10 +845,7 @@ static void populate_plugin_settings_list_screen(int slot) {
 
     int count = plugin_settings_list_row_state_count[slot];
     if (count <= 0) {
-        lv_obj_t * label = lv_label_create(list);
-        lv_label_set_text(label, "Nothing here");
-        lv_obj_add_style(label, &style_theme_text_muted, 0);
-        lv_obj_set_style_pad_left(label, BOARD_SCALE_PX(24), 0);
+        add_plugin_empty_state(list, "No plugin settings available");
         return;
     }
 
@@ -887,6 +939,7 @@ int gui_plugin_show_settings_list(const char * title, const int * row_types, con
     plugin_settings_list_pool_next = (slot + 1) % PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE;
 
     lv_label_set_text(plugin_settings_list_title_labels[slot], title);
+    configure_plugin_screen_title(plugin_settings_list_title_labels[slot]);
 
     int n = count;
     if (n > PLUGIN_SETTINGS_LIST_MAX_ROWS) n = PLUGIN_SETTINGS_LIST_MAX_ROWS;

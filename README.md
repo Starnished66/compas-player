@@ -76,6 +76,10 @@ Drop a `.lua` file in `.plugins/` on the SD card. Plugins are loaded at startup.
 
 Examples live in `plugins_examples/` (Audiobooks, Themes, MSEB, Net Radio, Last.fm, Play Through, and others).
 
+Install ready-made plugins from the on-device **Plugin Store** (Settings > System > Plugin Manager > Plugin Store), or browse them in the **[compas-plugins repository](https://github.com/Starnished66/compas-plugins)**.
+
+The Now Playing screen can be redesigned with an XML layout file, picked in Settings or shipped by a plugin: **[docs/PLAYER_LAYOUTS.md](docs/PLAYER_LAYOUTS.md)**
+
 Full API: **[PLUGINS.md](PLUGINS.md)**
 
 ---

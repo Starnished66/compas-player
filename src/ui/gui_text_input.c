@@ -49,8 +49,8 @@ static void * text_entry_user_data;
  * Column 0 holds mode buttons (123/ABC/sym); columns 1-3 hold the 3x3
  * letter/digit/symbol pad; column 4 holds Del, Key 0/Shift, and Enter
  * (spanning rows 2-3). Row 3 holds Left, Right, and Space (cols 2-3). ---- */
-#define TEXT_ENTRY_KEY_SIZE BOARD_SCALE_PX(94)
-#define TEXT_ENTRY_KEY_GAP BOARD_SCALE_PX(2)
+#define TEXT_ENTRY_KEY_SIZE BOARD_SCALE_PX(90)
+#define TEXT_ENTRY_KEY_GAP BOARD_SCALE_PX(4)
 #define TEXT_ENTRY_GRID_COLS 5
 #define TEXT_ENTRY_GRID_ROWS 4
 #define TEXT_ENTRY_GRID_WIDTH (TEXT_ENTRY_GRID_COLS * TEXT_ENTRY_KEY_SIZE + (TEXT_ENTRY_GRID_COLS - 1) * TEXT_ENTRY_KEY_GAP)

@@ -30,6 +30,7 @@
 #define STATUS_BAR_CLEARANCE BOARD_SCALE_PX(32)
 #define TITLE_ROW_HEIGHT BOARD_SCALE_PX(64)
 #define HOME_INDICATOR_BAND_HEIGHT BOARD_SCALE_PX(24)
+#define HOME_INDICATOR_CONTENT_INSET (HOME_INDICATOR_BAND_HEIGHT + BOARD_SCALE_PX(8))
 
 /* Shared touch-list row geometry -- every tappable row-of-text list
  * (Artists/Albums/Album Artist/Genres/All Songs/group-songs drill-down,
@@ -422,6 +423,9 @@ lv_obj_t * build_launcher_menu_screen(const char * title, lv_event_cb_t back_btn
  * paths share one retained decoded buffer across rows/screens; it is released
  * when the last referencing image is deleted. */
 void decorate_category_row(lv_obj_t * row, const char * icon_asset, const char * bg_asset);
+/* Adds a passive accent-colored Play All marker to an existing row and
+ * returns its circle so pooled label rows can realign it after padding changes. */
+lv_obj_t * decorate_play_all_row(lv_obj_t * row);
 
 /* Builds a Settings-style vertical category menu. Six-or-more entries use
  * 96px reference rows; up to five use 112px. Explicit item/layout overrides
@@ -614,11 +618,21 @@ void compact_list_set_paged_provider(lv_obj_t * list, compact_list_fetch_page_cb
                                       int total_count);
 
 lv_obj_t * build_subsonic_list_screen(const char * default_title, lv_obj_t ** out_title_label, lv_obj_t ** out_list);
+/* Shared modal surface and full-width actions; callbacks remain owned by callers. */
+lv_obj_t * build_popup_surface(lv_event_cb_t backdrop_cb, lv_obj_t ** out_backdrop);
+void style_popup_action_row(lv_obj_t * row);
+
 lv_obj_t * build_confirm_popup(const char * title_text, lv_label_long_mode_t title_long_mode,
                                lv_obj_t ** out_title, const char * body_text, const char * confirm_text,
                                lv_color_t confirm_color, lv_event_cb_t confirm_cb, lv_obj_t ** out_confirm_row,
                                const char * cancel_text, lv_color_t cancel_color, lv_event_cb_t cancel_cb,
                                lv_obj_t ** out_cancel_row, lv_event_cb_t backdrop_cb, lv_obj_t ** out_backdrop);
+
+/* Bottom-sheet Power Hub. action_cb is attached to each full card/Cancel
+ * surface; userdata indices are poweroff, restart, screenoff, sleep timer,
+ * and cancel (0..4). out_actions receives those five tappable surfaces. */
+lv_obj_t * build_power_hub_panel(lv_obj_t * parent, lv_event_cb_t action_cb,
+                                 lv_obj_t ** out_status, lv_obj_t ** out_actions);
 lv_obj_t * build_confirm_popup_with_labels(const char * title_text, lv_label_long_mode_t title_long_mode,
                                            lv_obj_t ** out_title, const char * body_text, lv_obj_t ** out_body,
                                            const char * confirm_text, lv_obj_t ** out_confirm_label,

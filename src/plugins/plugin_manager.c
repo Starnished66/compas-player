@@ -2210,7 +2210,7 @@ static int l_plugin_set_player_layout(lua_State * L) {
     }
     lua_pop(L, 2);
 
-    /* Optional XML layout for the Player screen, for this session only. */
+    /* Optional XML layout for the Player screen, registered for this session only. */
     bool layout_changed = false;
     lua_getfield(L, 1, "xml");
     if (!lua_isnil(L, -1)) {
@@ -2259,8 +2259,13 @@ static int l_plugin_set_player_layout(lua_State * L) {
         }
         if (!player_layouts_id_is_valid(id_buf))
             return luaL_error(L, "plugin.set_player_layout: id must be 1-63 letters, digits, '_', '-' or '.', and not 'default'");
-        layout_changed = player_layouts_session_select_xml(id_buf, name_arg ? name_arg : stem, full_real,
-                                                           loading_plugin_slot < 0);
+        /* While the plugin loads the layout is only offered in Settings: the
+         * user's pick (the saved id) wins, and the plugin registers it again
+         * on every load. A callback selects it for the session right away. */
+        if (loading_plugin_slot >= 0)
+            player_layouts_session_register_xml(id_buf, name_arg ? name_arg : stem, full_real, false);
+        else
+            layout_changed = player_layouts_session_select_xml(id_buf, name_arg ? name_arg : stem, full_real, true);
         lua_pop(L, 2);
     }
     lua_pop(L, 1);
@@ -3752,6 +3757,25 @@ static int l_plugin_show_lock_screen(lua_State * L) {
             return 2;
         }
         snprintf(opts.image_path, sizeof(opts.image_path), "%s", path);
+        lua_pop(L, 1);
+
+        lua_getfield(L, 1, "image_fit");
+        if (lua_isnil(L, -1)) {
+            /* Older plugins keep their historical natural-size behavior. */
+            opts.image_fit = LOCK_SCREEN_IMAGE_FIT_NATURAL;
+        } else {
+            const char * fit = lua_tostring(L, -1);
+            if (fit && strcmp(fit, "contain") == 0) {
+                opts.image_fit = LOCK_SCREEN_IMAGE_FIT_CONTAIN;
+            } else if (fit && strcmp(fit, "cover") == 0) {
+                opts.image_fit = LOCK_SCREEN_IMAGE_FIT_COVER;
+            } else {
+                lua_pop(L, 1);
+                lua_pushboolean(L, false);
+                lua_pushliteral(L, "image_fit must be 'contain' or 'cover'");
+                return 2;
+            }
+        }
         lua_pop(L, 1);
     }
 

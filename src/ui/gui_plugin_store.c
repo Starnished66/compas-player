@@ -76,20 +76,16 @@ static void store_action_cb(lv_event_t * e);
 static lv_obj_t * add_action_row(lv_obj_t * popup, const char * text, lv_color_t color,
                                  store_action_t action) {
     lv_obj_t * row = lv_obj_create(popup);
-    lv_obj_set_width(row, lv_pct(100));
-    lv_obj_set_height(row, LV_SIZE_CONTENT);
-    lv_obj_set_style_pad_all(row, 14, 0);
-    lv_obj_set_style_radius(row, 12, 0);
-    lv_obj_set_style_bg_opa(row, 0, 0);
-    lv_obj_set_style_border_width(row, 0, 0);
-    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    style_popup_action_row(row);
     lv_obj_add_event_cb(row, store_action_cb, LV_EVENT_CLICKED, (void *) (intptr_t) action);
     lv_obj_t * label = lv_label_create(row);
+    lv_obj_set_width(label, lv_pct(100));
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
     lv_label_set_text(label, text);
     lv_obj_set_style_text_color(label, color, 0);
     lv_obj_set_style_text_font(label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-    lv_obj_center(label);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_remove_flag(label, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
     return row;
 }
 
@@ -102,34 +98,9 @@ static void popup_backdrop_cb(lv_event_t * e) {
 
 static void create_popup(gui_popup_t * popup, lv_obj_t ** title_out, lv_obj_t ** body_out,
                          bool with_body) {
-    lv_obj_t * top = lv_layer_top();
-    popup->backdrop = lv_obj_create(top);
-    lv_obj_set_size(popup->backdrop, lv_pct(100), lv_pct(100));
-    lv_obj_set_style_bg_color(popup->backdrop, lv_color_black(), 0);
-    lv_obj_set_style_bg_opa(popup->backdrop, LV_OPA_50, 0);
-    lv_obj_set_style_border_width(popup->backdrop, 0, 0);
-    lv_obj_remove_flag(popup->backdrop, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(popup->backdrop, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_event_cb(popup->backdrop, popup_backdrop_cb, LV_EVENT_CLICKED, NULL);
-
-    popup->popup = lv_obj_create(top);
-    lv_obj_set_width(popup->popup, lv_pct(84));
-    lv_obj_set_height(popup->popup, LV_SIZE_CONTENT);
-    lv_obj_align(popup->popup, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_style_radius(popup->popup, 16, 0);
-    lv_obj_add_style(popup->popup, &style_theme_card_bg, 0);
-    lv_obj_set_style_bg_opa(popup->popup, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(popup->popup, 0, 0);
-    lv_obj_set_style_pad_all(popup->popup, 20, 0);
-    lv_obj_set_style_pad_row(popup->popup, 10, 0);
+    popup->popup = build_popup_surface(popup_backdrop_cb, &popup->backdrop);
     /* A long description scrolls inside the popup instead of pushing the
      * buttons off a small screen. */
-    lv_obj_set_style_max_height(popup->popup, lv_pct(90), 0);
-    lv_obj_add_flag(popup->popup, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_scroll_dir(popup->popup, LV_DIR_VER);
-    lv_obj_add_flag(popup->popup, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_flex_flow(popup->popup, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(popup->popup, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
     lv_obj_t * title = lv_label_create(popup->popup);
     lv_label_set_text(title, "");
@@ -158,7 +129,7 @@ static void build_popups(void) {
     add_action_row(detail_popup.popup, "Update", accent_lv_color(), ACTION_UPDATE);
     add_action_row(detail_popup.popup, "Replace", accent_lv_color(), ACTION_REPLACE);
     add_action_row(detail_popup.popup, "Remove", lv_color_make(255, 120, 120), ACTION_REMOVE);
-    add_action_row(detail_popup.popup, "Cancel", accent_lv_color(), ACTION_CANCEL);
+    add_action_row(detail_popup.popup, "Cancel", lv_color_make(255, 120, 120), ACTION_CANCEL);
 
     create_popup(&remove_popup, &remove_title, NULL, false);
     lv_obj_t * body = lv_label_create(remove_popup.popup);
@@ -169,12 +140,12 @@ static void build_popups(void) {
     lv_obj_add_style(body, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(body, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
     add_action_row(remove_popup.popup, "Remove", lv_color_make(255, 120, 120), ACTION_REMOVE);
-    add_action_row(remove_popup.popup, "Cancel", accent_lv_color(), ACTION_CANCEL);
+    add_action_row(remove_popup.popup, "Cancel", lv_color_make(255, 120, 120), ACTION_CANCEL);
 
     create_popup(&confirm_popup, &confirm_title, NULL, false);
     add_action_row(confirm_popup.popup, "Replace", accent_lv_color(), ACTION_REPLACE);
     add_action_row(confirm_popup.popup, "Update individually", accent_lv_color(), ACTION_CLOSE);
-    add_action_row(confirm_popup.popup, "Cancel", accent_lv_color(), ACTION_CANCEL);
+    add_action_row(confirm_popup.popup, "Cancel", lv_color_make(255, 120, 120), ACTION_CANCEL);
 }
 
 static const char * row_status(const plugin_store_result_t * row, char * out, size_t cap) {
@@ -182,14 +153,20 @@ static const char * row_status(const plugin_store_result_t * row, char * out, si
         return "Needs newer firmware";
     switch (row->state) {
         case PLUGIN_STORE_PLUGIN_UPDATE:
-            snprintf(out, cap, "Update to %s", row->version);
+            snprintf(out, cap, "Update available · %s", row->version);
             return out;
         case PLUGIN_STORE_PLUGIN_INSTALLED:
-        case PLUGIN_STORE_PLUGIN_REMOVED:
-            snprintf(out, cap, "%s", row->version[0] ? row->version : "Installed");
+            if (row->version[0]) snprintf(out, cap, "Installed · %s", row->version);
+            else snprintf(out, cap, "Installed");
             return out;
+        case PLUGIN_STORE_PLUGIN_REMOVED: return "Removed";
         case PLUGIN_STORE_PLUGIN_MANUAL: return "Installed manually";
-        default: return "";
+        default:
+            if (row->version[0]) {
+                snprintf(out, cap, "Available · %s", row->version);
+                return out;
+            }
+            return "Available";
     }
 }
 
@@ -199,10 +176,24 @@ static void show_details(void) {
     snprintf(store_selected_id, sizeof(store_selected_id), "%s", row->id);
     plugin_store_details_t details = {0};
     bool has_details = plugin_store_get_details(row->id, &details);
-    char title[128], body[512];
-    snprintf(title, sizeof(title), "%s\n%s", row->name[0] ? row->name : row->id,
-             row->version[0] ? row->version : "");
-    snprintf(body, sizeof(body), "%s%s%s", has_details ? details.description : "",
+    char title[128], body[640], metadata[160];
+    snprintf(title, sizeof(title), "%s", row->name[0] ? row->name : row->id);
+    const char * state = "Available";
+    if (row->incompatible || row->state == PLUGIN_STORE_PLUGIN_INCOMPATIBLE)
+        state = "Needs newer firmware";
+    else if (row->state == PLUGIN_STORE_PLUGIN_UPDATE)
+        state = "Update available";
+    else if (row->state == PLUGIN_STORE_PLUGIN_INSTALLED)
+        state = "Installed";
+    else if (row->state == PLUGIN_STORE_PLUGIN_REMOVED)
+        state = "Removed";
+    else if (row->state == PLUGIN_STORE_PLUGIN_MANUAL)
+        state = "Installed manually";
+    if (row->version[0]) snprintf(metadata, sizeof(metadata), "Version %s · %s", row->version, state);
+    else snprintf(metadata, sizeof(metadata), "%s", state);
+    snprintf(body, sizeof(body), "%s%s%s%s%s",
+             metadata, has_details && details.description[0] ? "\n\n" : "",
+             has_details ? details.description : "",
              has_details && details.author[0] ? "\n\nBy " : "",
              has_details && details.author[0] ? details.author : "");
     lv_label_set_text(detail_title, title);
@@ -254,6 +245,8 @@ static void add_plugin_row(int index) {
         lv_label_set_text(label, secondary);
         lv_obj_add_style(label, &style_theme_text_muted, 0);
         lv_obj_set_style_text_font(label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+        lv_obj_set_width(label, pill_row_default_width() - GUI_TEXT_INSET - BOARD_SCALE_PX(72));
+        lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
         lv_obj_align(label, LV_ALIGN_BOTTOM_LEFT, GUI_TEXT_INSET, -9);
     }
     lv_obj_t * chevron = lv_label_create(pill);
@@ -284,6 +277,19 @@ static void populate_store_screen(void) {
     plugin_store_get_status(&status, store_rows, PLUGIN_STORE_MAX_RESULTS);
     store_row_count = status.result_count;
     lv_obj_clean(store_list);
+
+    if (store_row_count == 0 && status.state == PLUGIN_STORE_READY) {
+        lv_obj_t * empty = lv_label_create(store_list);
+        lv_label_set_text(empty, "No plugins are available in the catalog.");
+        lv_obj_add_style(empty, &style_theme_text_muted, 0);
+        lv_obj_set_style_text_font(empty, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+        lv_obj_set_width(empty, lv_pct(90));
+        lv_label_set_long_mode(empty, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_align(empty, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_pad_top(empty, BOARD_SCALE_PX(48), 0);
+        add_pill_chevron_row(store_list, "Refresh plugin catalog", gui_plugin_store_row_cb);
+        return;
+    }
 
     bool updates = false;
     for (size_t i = 0; i < store_row_count; i++)

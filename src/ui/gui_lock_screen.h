@@ -11,8 +11,16 @@ typedef enum {
     LOCK_SCREEN_MODE_CLOCK,
 } gui_lock_screen_mode_t;
 
+typedef enum {
+    /* Preserve the historical native behavior when older plugins omit it. */
+    LOCK_SCREEN_IMAGE_FIT_NATURAL = 0,
+    LOCK_SCREEN_IMAGE_FIT_CONTAIN,
+    LOCK_SCREEN_IMAGE_FIT_COVER,
+} gui_lock_screen_image_fit_t;
+
 typedef struct {
     gui_lock_screen_mode_t mode;
+    gui_lock_screen_image_fit_t image_fit;
     char image_path[256];
     bool clock_24h;
 } gui_lock_screen_options_t;

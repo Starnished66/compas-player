@@ -12,7 +12,8 @@
  *     logo2.jpeg all measuring exactly 480x720 -- the same evidentiary
  *     standard src/bootloader/fb_draw.h's own comment already relies on:
  *     the boot splash is authored to exactly match the real panel).
- *   - R3II 2025: 320x480 from the specs in hiby wiki. */
+ *   - R3II 2025: extracted v1.3 firmware's gt9xx_touch.sh sets the touch
+ *     limits to 320x480, corroborated by its 320x480 boot logos. */
 #if defined(BOARD_R3PROII)
   #define BOARD_SCREEN_WIDTH  480
   #define BOARD_SCREEN_HEIGHT 720

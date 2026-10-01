@@ -182,6 +182,7 @@ static asset_decoded_image_t volume_popup_speaker_image;
 static asset_decoded_image_t play_btn_play_img;
 static asset_decoded_image_t play_btn_pause_img;
 static void load_play_btn_images(void);
+static void player_fit_small_screen_icon(lv_obj_t * icon, int32_t reference_px);
 static gui_popup_t delete_song_popup;
 static lv_obj_t * delete_song_popup_title = NULL;
 
@@ -328,6 +329,7 @@ static void build_volume_popup(void) {
     const void * speaker = asset_decoded_image_open(&volume_popup_speaker_image, "volume/vol.png")
                          ? asset_decoded_image_source(&volume_popup_speaker_image) : NULL;
     lv_image_set_src(volume_popup_speaker_icon, speaker ? speaker : asset_path("volume/vol.png"));
+    player_fit_small_screen_icon(volume_popup_speaker_icon, 30);
     lv_obj_align(volume_popup_speaker_icon, LV_ALIGN_LEFT_MID, BOARD_SCALE_PX(21), 0);
 
     /* Drawer geometry relative to its card (x=34): track at 103, value
@@ -377,6 +379,20 @@ static inline int32_t player_y(int32_t px) { return (int32_t) (((int64_t) px * B
 static inline int32_t player_s(int32_t px) {
     int32_t sx = player_x(px), sy = player_y(px);
     return sx < sy ? sx : sy;
+}
+
+static void player_fit_small_screen_icon(lv_obj_t * icon, int32_t reference_px) {
+#if defined(BOARD_R3II_2025)
+    /* R3 stock transport PNGs still have the reference board's dimensions.
+     * Contain scales their paint AND layout box, including later source swaps
+     * for pressed/play/pause states. XML layouts retain their own sizing. */
+    int32_t size = player_s(reference_px);
+    lv_obj_set_size(icon, size, size);
+    lv_image_set_inner_align(icon, LV_IMAGE_ALIGN_CONTAIN);
+#else
+    (void) icon;
+    (void) reference_px;
+#endif
 }
 
 #define REFLECTION_WIDTH BOARD_SCREEN_WIDTH
@@ -1225,7 +1241,7 @@ void poll_cover_decode(void) {
     /* Slides display owned snapshots. Applying artwork now cannot update
      * those frames, but image/layout work can delay their presentation.
      * Leave the completed result owned by the worker until the next poll. */
-    if (gui_navigation_transition_in_progress()) return;
+    if (gui_navigation_transition_in_progress() || gui_player_lyrics_animation_in_progress()) return;
     if (!cover_decode_active || !atomic_load_explicit(&cover_decode_done_flag, memory_order_acquire)) return;
     cover_decode_active = false;
     pthread_join(cover_decode_thread, NULL);
@@ -1891,7 +1907,7 @@ void apply_track_metadata_to_ui(int index, track_metadata_t * out_meta) {
     displayed_position_second = -1;
     displayed_duration_second = -1;
     if (pos_label) lv_label_set_text(pos_label, "0:00");
-    if (dur_label) lv_label_set_text(dur_label, "0:00");
+    if (dur_label) lv_label_set_text(dur_label, "--:--");
 
     if (song_count_label) {
         lv_label_set_text_fmt(song_count_label, "%d/%d", index + 1, playlist_count);
@@ -2079,6 +2095,7 @@ static void build_more_menu_popup(void) {
         { "Information", more_menu_information_cb, false },
         { "EQ", more_menu_eq_cb, false },
         { "Delete", more_menu_delete_cb, true },
+        { "Cancel", more_menu_popup_backdrop_cb, false, true },
     };
     more_menu_popup = build_menu_popup(rows, (int) (sizeof(rows) / sizeof(rows[0])), more_menu_popup_backdrop_cb,
                                         &more_menu_popup_backdrop);
@@ -2093,10 +2110,16 @@ typedef struct {
     int32_t height_style;
     int32_t normal_pad_left;
     int32_t centered_text_inset;
+    int32_t text_frame_inset;
+    lv_obj_t * text_clip;
+    lv_obj_t * text_image;
+    lv_draw_buf_t * text_frame;
+    lv_label_long_mode_t long_mode;
 } player_lyrics_geometry_t;
 
 static bool player_lyrics_open;
 static bool player_lyrics_animating;
+bool gui_player_lyrics_animation_in_progress(void) { return player_lyrics_animating; }
 #define PLAYER_LYRICS_MORPH_OBJECT_COUNT 4
 static player_lyrics_geometry_t player_lyrics_geometry[PLAYER_LYRICS_MORPH_OBJECT_COUNT];
 /* Cover first, then the metadata labels the layout has; the title is required
@@ -2106,6 +2129,100 @@ static lv_obj_t * player_lyrics_hidden[32];
 static unsigned player_lyrics_hidden_count;
 static int32_t player_lyrics_content_top;
 static lv_image_header_t player_lyrics_cover_header;
+static bool player_lyrics_cover_antialias;
+static bool player_lyrics_cover_clip_corner;
+static const void * player_lyrics_cover_source;
+static bool player_lyrics_cover_source_owned;
+static lv_draw_buf_t * player_lyrics_cover_frame;
+
+#ifdef UI_PERF_TRACE
+typedef struct {
+    uint64_t refresh_start_us;
+    uint64_t render_start_us;
+    uint64_t last_refresh_start_us;
+    uint64_t render_total_us;
+    uint64_t render_max_us;
+    uint64_t refresh_total_us;
+    uint64_t refresh_max_us;
+    uint64_t max_gap_us;
+    unsigned render_count;
+    unsigned refresh_count;
+    bool refresh_started;
+    bool render_started;
+} player_lyrics_perf_stats_t;
+
+static player_lyrics_perf_stats_t player_lyrics_perf_stats;
+static lv_display_t * player_lyrics_perf_registered_display;
+
+static void player_lyrics_perf_display_event_cb(lv_event_t * e) {
+    if (!player_lyrics_animating) return;
+
+    uint64_t now_us = ui_perf_now_us();
+    switch (lv_event_get_code(e)) {
+        case LV_EVENT_REFR_START:
+            if (player_lyrics_perf_stats.last_refresh_start_us) {
+                uint64_t gap_us = now_us - player_lyrics_perf_stats.last_refresh_start_us;
+                if (gap_us > player_lyrics_perf_stats.max_gap_us)
+                    player_lyrics_perf_stats.max_gap_us = gap_us;
+            }
+            player_lyrics_perf_stats.last_refresh_start_us = now_us;
+            player_lyrics_perf_stats.refresh_start_us = now_us;
+            player_lyrics_perf_stats.refresh_started = true;
+            break;
+        case LV_EVENT_RENDER_START:
+            player_lyrics_perf_stats.render_start_us = now_us;
+            player_lyrics_perf_stats.render_started = true;
+            break;
+        case LV_EVENT_RENDER_READY:
+            if (player_lyrics_perf_stats.render_started) {
+                uint64_t render_us = now_us - player_lyrics_perf_stats.render_start_us;
+                player_lyrics_perf_stats.render_total_us += render_us;
+                if (render_us > player_lyrics_perf_stats.render_max_us)
+                    player_lyrics_perf_stats.render_max_us = render_us;
+                player_lyrics_perf_stats.render_count++;
+                player_lyrics_perf_stats.render_started = false;
+            }
+            break;
+        case LV_EVENT_REFR_READY:
+            if (player_lyrics_perf_stats.refresh_started) {
+                uint64_t refresh_us = now_us - player_lyrics_perf_stats.refresh_start_us;
+                player_lyrics_perf_stats.refresh_total_us += refresh_us;
+                if (refresh_us > player_lyrics_perf_stats.refresh_max_us)
+                    player_lyrics_perf_stats.refresh_max_us = refresh_us;
+                player_lyrics_perf_stats.refresh_count++;
+                player_lyrics_perf_stats.refresh_started = false;
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+static void player_lyrics_perf_register_display_events(void) {
+    lv_display_t * disp = lv_display_get_default();
+    if (!disp || disp == player_lyrics_perf_registered_display) return;
+    lv_display_add_event_cb(disp, player_lyrics_perf_display_event_cb, LV_EVENT_REFR_START, NULL);
+    lv_display_add_event_cb(disp, player_lyrics_perf_display_event_cb, LV_EVENT_REFR_READY, NULL);
+    lv_display_add_event_cb(disp, player_lyrics_perf_display_event_cb, LV_EVENT_RENDER_START, NULL);
+    lv_display_add_event_cb(disp, player_lyrics_perf_display_event_cb, LV_EVENT_RENDER_READY, NULL);
+    player_lyrics_perf_registered_display = disp;
+}
+
+static void player_lyrics_perf_reset(void) {
+    memset(&player_lyrics_perf_stats, 0, sizeof(player_lyrics_perf_stats));
+}
+
+static void player_lyrics_perf_log_summary(bool open) {
+    const player_lyrics_perf_stats_t * s = &player_lyrics_perf_stats;
+    printf("PERF player_lyrics_morph direction=%s count=%u render_avg_us=%llu render_max_us=%llu refresh_count=%u refresh_avg_us=%llu refresh_max_us=%llu maxgap_us=%llu\n",
+           open ? "open" : "close", s->render_count,
+           (unsigned long long) (s->render_count ? s->render_total_us / s->render_count : 0),
+           (unsigned long long) s->render_max_us, s->refresh_count,
+           (unsigned long long) (s->refresh_count ? s->refresh_total_us / s->refresh_count : 0),
+           (unsigned long long) s->refresh_max_us,
+           (unsigned long long) s->max_gap_us);
+}
+#endif
 
 static int32_t player_lyrics_lerp(int32_t a, int32_t b, int32_t progress) {
     return a + (int32_t) (((int64_t) (b - a) * progress) / 1024);
@@ -2116,6 +2233,16 @@ static void player_lyrics_morph(void * unused, int32_t progress) {
     if (!player_lyrics_object_count) return;
     for (unsigned i = 0; i < player_lyrics_object_count; ++i) {
         player_lyrics_geometry_t * g = &player_lyrics_geometry[i];
+        if (g->text_frame) {
+            lv_obj_set_pos(g->text_clip, player_lyrics_lerp(g->x, g->compact_x, progress),
+                          player_lyrics_lerp(g->y, g->compact_y, progress));
+            lv_obj_set_size(g->text_clip, player_lyrics_lerp(g->w, g->compact_w, progress),
+                           player_lyrics_lerp(g->h, g->compact_h, progress));
+            lv_obj_set_pos(g->text_image, g->normal_pad_left +
+                           player_lyrics_lerp(g->centered_text_inset, 0, progress) - g->text_frame_inset,
+                           -g->text_frame_inset);
+            continue;
+        }
         lv_obj_set_pos(g->obj, player_lyrics_lerp(g->x, g->compact_x, progress),
                               player_lyrics_lerp(g->y, g->compact_y, progress));
         lv_obj_set_size(g->obj, player_lyrics_lerp(g->w, g->compact_w, progress),
@@ -2132,15 +2259,68 @@ static void player_lyrics_morph(void * unused, int32_t progress) {
      * Cache the image header once per transition, not on each animation tick. */
     int32_t size = player_lyrics_lerp(player_lyrics_geometry[0].w,
                                     player_lyrics_geometry[0].compact_w, progress);
+    int32_t height = player_lyrics_lerp(player_lyrics_geometry[0].h,
+                                      player_lyrics_geometry[0].compact_h, progress);
     if (player_lyrics_cover_header.w && player_lyrics_cover_header.h) {
         int32_t sx = (size * LV_SCALE_NONE + player_lyrics_cover_header.w - 1) / player_lyrics_cover_header.w;
-        int32_t sy = (size * LV_SCALE_NONE + player_lyrics_cover_header.h - 1) / player_lyrics_cover_header.h;
+        int32_t sy = (height * LV_SCALE_NONE + player_lyrics_cover_header.h - 1) / player_lyrics_cover_header.h;
         lv_image_set_scale(cover_img, sx > sy ? sx : sy);
         /* LVGL alignment writes coordinates; it is not a persistent layout
          * constraint. Recenter as the parent card changes size so the image
          * follows the card throughout the reverse morph instead of snapping
          * into place only when fit_cover_img_to_card() runs at completion. */
         lv_obj_center(cover_img);
+    }
+}
+
+/* Text does not change during this short motion. Rasterize it once instead
+ * of reflowing labels and drawing font glyphs as their bounds change. Each
+ * transparent image moves inside a rectangular clip matching the live row. */
+static void player_lyrics_prepare_text_frames(void) {
+    for (unsigned i = 1; i < player_lyrics_object_count; ++i) {
+        player_lyrics_geometry_t * g = &player_lyrics_geometry[i];
+        if (lv_obj_has_flag(g->obj, LV_OBJ_FLAG_HIDDEN)) continue;
+        lv_obj_t * parent = lv_obj_get_parent(g->obj);
+        /* Hiding a participating flex/grid item changes sibling geometry.
+         * Keep such custom-layout labels live; only cache absolute items. */
+        if (lv_obj_get_style_layout(parent, 0) != LV_LAYOUT_NONE &&
+            !lv_obj_has_flag(g->obj, LV_OBJ_FLAG_IGNORE_LAYOUT)) continue;
+        g->long_mode = lv_label_get_long_mode(g->obj);
+        lv_label_set_long_mode(g->obj, LV_LABEL_LONG_CLIP);
+        lv_obj_set_style_pad_left(g->obj, 0, 0);
+        lv_obj_set_size(g->obj, g->w, g->h);
+        lv_obj_update_layout(g->obj);
+        /* Snapshots include the label's extended drawing area on all sides
+         * (LVGL reserves this for glyph overhang). Keep that transparent
+         * margin outside the row so cached and live glyph origins agree. */
+        g->text_frame = lv_snapshot_take(g->obj, LV_COLOR_FORMAT_ARGB8888);
+        if (!g->text_frame) {
+            lv_label_set_long_mode(g->obj, g->long_mode);
+            lv_obj_set_style_pad_left(g->obj, g->normal_pad_left, 0);
+            continue;
+        }
+        g->text_frame_inset = ((int32_t) g->text_frame->header.w - g->w) / 2;
+        g->text_clip = lv_obj_create(lv_obj_get_parent(g->obj));
+        lv_obj_remove_style_all(g->text_clip);
+        lv_obj_add_flag(g->text_clip, LV_OBJ_FLAG_IGNORE_LAYOUT);
+        lv_obj_remove_flag(g->text_clip, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+        g->text_image = lv_image_create(g->text_clip);
+        lv_image_set_src(g->text_image, g->text_frame);
+        lv_obj_add_flag(g->obj, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static void player_lyrics_release_text_frames(void) {
+    for (unsigned i = 1; i < player_lyrics_object_count; ++i) {
+        player_lyrics_geometry_t * g = &player_lyrics_geometry[i];
+        if (!g->text_frame) continue;
+        lv_obj_delete(g->text_clip);
+        g->text_clip = NULL;
+        g->text_image = NULL;
+        lv_draw_buf_destroy(g->text_frame);
+        g->text_frame = NULL;
+        lv_label_set_long_mode(g->obj, g->long_mode);
+        lv_obj_remove_flag(g->obj, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -2158,10 +2338,36 @@ static void player_lyrics_restore_controls(void) {
 
 static void player_lyrics_morph_done(lv_anim_t * anim) {
     (void) anim;
+#ifdef UI_PERF_TRACE
+    bool completed_animation = anim != NULL && player_lyrics_animating;
+    if (completed_animation) player_lyrics_perf_log_summary(player_lyrics_open);
+#endif
     player_lyrics_animating = false;
+    player_lyrics_release_text_frames();
+    player_lyrics_morph(NULL, player_lyrics_open ? 1024 : 0);
+    if (player_lyrics_cover_frame) {
+        lv_image_set_src(cover_img, player_lyrics_cover_source);
+        lv_obj_set_style_clip_corner(cover_card, player_lyrics_cover_clip_corner, 0);
+        lv_draw_buf_destroy(player_lyrics_cover_frame);
+        player_lyrics_cover_frame = NULL;
+    }
+    if (player_lyrics_cover_source_owned) {
+        lv_free((void *) player_lyrics_cover_source);
+        player_lyrics_cover_source_owned = false;
+    }
+    player_lyrics_cover_source = NULL;
+    lv_image_set_antialias(cover_img, player_lyrics_cover_antialias);
     if (player_lyrics_open) {
+#ifdef UI_PERF_TRACE
+        uint64_t show_embedded_start_us = completed_animation ? ui_perf_now_us() : 0;
+#endif
         gui_lyrics_show_embedded(player_screen, player_lyrics_content_top,
                                 BOARD_SCREEN_HEIGHT - player_lyrics_content_top - player_y(32));
+#ifdef UI_PERF_TRACE
+        if (completed_animation)
+            printf("PERF player_lyrics_morph_done show_embedded_us=%llu\n",
+                   (unsigned long long) (ui_perf_now_us() - show_embedded_start_us));
+#endif
     } else {
         player_lyrics_restore_controls();
     }
@@ -2228,6 +2434,7 @@ static void player_lyrics_set_open_timeline(bool open, bool animate) {
     lv_anim_timeline_pause(player_timeline_lyrics_close);
     player_lyrics_object_count = 0;
     if (open) {
+        gui_lyrics_prepare_layout();
         lv_obj_update_layout(player_screen);
     } else {
         gui_lyrics_hide_embedded();
@@ -2250,15 +2457,42 @@ static void player_lyrics_set_open_timeline(bool open, bool animate) {
     lv_timer_set_repeat_count(player_lyrics_timeline_timer, 1);
 }
 
+static lv_timer_t * player_lyrics_start_timer;
+
+static void player_lyrics_start_timer_cb(lv_timer_t * timer) {
+    lv_timer_delete(timer);
+    player_lyrics_start_timer = NULL;
+#ifdef UI_PERF_TRACE
+    player_lyrics_perf_reset();
+#endif
+    lv_anim_t anim;
+    lv_anim_init(&anim);
+    lv_anim_set_var(&anim, player_screen);
+    lv_anim_set_values(&anim, player_lyrics_open ? 0 : 1024, player_lyrics_open ? 1024 : 0);
+    lv_anim_set_duration(&anim, gui_anim_ms(240));
+    lv_anim_set_path_cb(&anim, lv_anim_path_ease_in_out);
+    lv_anim_set_exec_cb(&anim, player_lyrics_morph);
+    lv_anim_set_completed_cb(&anim, player_lyrics_morph_done);
+    lv_anim_start(&anim);
+}
+
 static void player_lyrics_set_open(bool open, bool animate) {
     if (!player_screen || (animate && player_lyrics_animating)) return;
+    if (gui_anims_off()) animate = false;
     if (open == player_lyrics_open && !player_lyrics_animating) return;
     lv_anim_delete(player_screen, player_lyrics_morph);
+    if (player_lyrics_start_timer) {
+        lv_timer_delete(player_lyrics_start_timer);
+        player_lyrics_start_timer = NULL;
+    }
     if (player_timeline_lyrics_open && player_timeline_lyrics_close) {
         player_lyrics_set_open_timeline(open, animate);
         return;
     }
     if (open) {
+        /* Measure lyrics before motion, so first entry does not stall the
+         * final animation frame on document layout. */
+        gui_lyrics_prepare_layout();
         lv_obj_update_layout(player_screen);
         /* Artist and album are optional roles in a custom layout. */
         lv_obj_t * objects[PLAYER_LYRICS_MORPH_OBJECT_COUNT] = { cover_card, song_title_label };
@@ -2331,20 +2565,53 @@ static void player_lyrics_set_open(bool open, bool animate) {
     memset(&player_lyrics_cover_header, 0, sizeof(player_lyrics_cover_header));
     lv_image_decoder_get_info(lv_image_get_src(cover_img), &player_lyrics_cover_header);
     if (!animate) {
+        if (!player_lyrics_animating)
+            player_lyrics_cover_antialias = lv_image_get_antialias(cover_img);
         player_lyrics_morph(NULL, open ? 1024 : 0);
         player_lyrics_morph_done(NULL);
         return;
     }
+    if (open)
+        gui_lyrics_prepare_embedded(player_screen, player_lyrics_content_top,
+                                    BOARD_SCREEN_HEIGHT - player_lyrics_content_top - player_y(32));
+#ifdef UI_PERF_TRACE
+    player_lyrics_perf_reset();
+#endif
+    /* Bilinear software sampling is costly while the cover changes size.
+     * Use nearest sampling only in motion, restoring the original image
+     * antialias setting before the final settled frame. */
+    player_lyrics_cover_antialias = lv_image_get_antialias(cover_img);
+    /* Cache the rounded cover once at its full resting resolution. Drawing
+     * a transformed image inside a rounded clip otherwise builds and masks
+     * an intermediate layer every frame. The cached alpha carries those
+     * corners while the normal card mask is disabled during motion. */
+    player_lyrics_cover_source = lv_image_get_src(cover_img);
+    /* LVGL owns file/symbol strings and frees them when set_src replaces
+     * them. Preserve a separate copy before switching to the snapshot. */
+    lv_image_src_t source_type = lv_image_src_get_type(player_lyrics_cover_source);
+    player_lyrics_cover_source_owned = source_type == LV_IMAGE_SRC_FILE || source_type == LV_IMAGE_SRC_SYMBOL;
+    if (player_lyrics_cover_source_owned)
+        player_lyrics_cover_source = lv_strdup(player_lyrics_cover_source);
+    player_lyrics_cover_clip_corner = lv_obj_get_style_clip_corner(cover_card, 0);
+    lv_obj_set_size(cover_card, player_lyrics_geometry[0].w, player_lyrics_geometry[0].h);
+    lv_obj_update_layout(cover_card);
+    fit_cover_img_to_card();
+    player_lyrics_cover_frame = player_lyrics_cover_source ?
+        lv_snapshot_take(cover_card, LV_COLOR_FORMAT_ARGB8888) : NULL;
+    if (player_lyrics_cover_frame) {
+        lv_image_set_src(cover_img, player_lyrics_cover_frame);
+        player_lyrics_cover_header = player_lyrics_cover_frame->header;
+        lv_obj_set_style_clip_corner(cover_card, false, 0);
+    }
+    lv_image_set_antialias(cover_img, false);
+    player_lyrics_prepare_text_frames();
+    player_lyrics_morph(NULL, open ? 0 : 1024);
     player_lyrics_animating = true;
-    lv_anim_t anim;
-    lv_anim_init(&anim);
-    lv_anim_set_var(&anim, player_screen);
-    lv_anim_set_values(&anim, open ? 0 : 1024, open ? 1024 : 0);
-    lv_anim_set_duration(&anim, gui_anim_ms(240));
-    lv_anim_set_path_cb(&anim, lv_anim_path_ease_in_out);
-    lv_anim_set_exec_cb(&anim, player_lyrics_morph);
-    lv_anim_set_completed_cb(&anim, player_lyrics_morph_done);
-    lv_anim_start(&anim);
+    /* main.c advances LVGL's clock between handler passes. Preparation above
+     * can take time while that clock is frozen; starting an animation here
+     * would count preparation toward its duration and skip its first frames.
+     * A positive timer period starts it on a fresh clock tick instead. */
+    player_lyrics_start_timer = lv_timer_create(player_lyrics_start_timer_cb, 1, NULL);
 }
 
 static void cover_img_tap_cb(lv_event_t * e) {
@@ -2729,6 +2996,7 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
     lv_obj_t * fav_icon = lv_image_create(fav_circle);
     lv_obj_set_name_static(fav_icon, "favorite_icon");
     lv_image_set_src(fav_icon, asset_path("playing_plane/collect_out.png"));
+    player_fit_small_screen_icon(fav_icon, 40);
     lv_obj_add_style(fav_icon, &icon_press_style, LV_STATE_PRESSED);
     lv_obj_center(fav_icon);
 
@@ -2794,7 +3062,8 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
     /* This label is intentionally not marquee-animated: the pill grows to
      * the complete, short format string and therefore never clips codec,
      * bit-depth, or sample-rate information. */
-    lv_obj_set_size(pill, LV_SIZE_CONTENT, player_s(36));
+    lv_obj_set_size(pill, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_min_height(pill, player_s(36), 0);
     lv_obj_align(pill, LV_ALIGN_TOP_MID, 0, player_y(518));
     lv_obj_set_style_pad_hor(pill, player_s(14), 0);
     lv_obj_set_style_pad_ver(pill, player_s(6), 0);
@@ -2851,7 +3120,7 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
 
     lv_obj_t * dur = lv_label_create(time_row);
     lv_obj_set_name_static(dur, "dur_label");
-    lv_label_set_text(dur, "0:00");
+    lv_label_set_text(dur, "--:--");
     lv_obj_add_style(dur, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(dur, player_meta_font, 0);
 
@@ -2882,11 +3151,13 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
     lv_obj_t * order = lv_image_create(controls_row);
     lv_obj_set_name_static(order, "order_btn");
     lv_image_set_src(order, asset_path(play_mode_icon_asset((play_mode_t) current_settings.play_mode)));
+    player_fit_small_screen_icon(order, 40);
     lv_obj_add_style(order, &icon_press_style, LV_STATE_PRESSED);
 
     lv_obj_t * prev = lv_image_create(controls_row);
     lv_obj_set_name_static(prev, "prev_btn");
     lv_image_set_src(prev, asset_path("playing_plane/btn_prev.png"));
+    player_fit_small_screen_icon(prev, 40);
 
     /* btn_play.png/btn_pause.png already contain their own filled accent
      * circle -- no separate outline ring needed here, unlike favorite_circle/
@@ -2895,16 +3166,19 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
     lv_obj_set_name_static(play, "play_btn");
     load_play_btn_images();
     lv_image_set_src(play, gui_player_play_btn_image_src(audio_is_playing()));
+    player_fit_small_screen_icon(play, 84);
     lv_obj_add_style(play, &icon_press_style, LV_STATE_PRESSED);
 
     lv_obj_t * more = lv_image_create(controls_row);
     lv_obj_set_name_static(more, "more_btn");
     lv_image_set_src(more, asset_path("playing_plane/ic_more.png"));
+    player_fit_small_screen_icon(more, 40);
     lv_obj_add_style(more, &icon_press_style, LV_STATE_PRESSED);
 
     lv_obj_t * next = lv_image_create(controls_row);
     lv_obj_set_name_static(next, "next_btn");
     lv_image_set_src(next, asset_path("playing_plane/btn_next.png"));
+    player_fit_small_screen_icon(next, 40);
 
     lv_obj_update_layout(controls_row);
     int32_t row_h = lv_obj_get_height(controls_row);
@@ -3297,6 +3571,9 @@ static void player_reset_widget_globals(void) {
 static lv_obj_t * build_player_screen(uint32_t screen_width, uint32_t screen_height) {
     (void) screen_width;
     (void) screen_height;
+#ifdef UI_PERF_TRACE
+    player_lyrics_perf_register_display_events();
+#endif
     lv_obj_t * scr = lv_obj_create(NULL);
     lv_obj_add_style(scr, &style_theme_screen_bg, 0);
 
@@ -4889,7 +5166,8 @@ void gui_player_update_progress(void) {
     if (dur_label && duration_second != displayed_duration_second) {
         char dur_str[24];
         displayed_duration_second = duration_second;
-        gui_format_time(duration, dur_str, sizeof(dur_str));
+        if (duration > 0) gui_format_time(duration, dur_str, sizeof(dur_str));
+        else snprintf(dur_str, sizeof(dur_str), "--:--");
         lv_label_set_text(dur_label, dur_str);
     }
 }

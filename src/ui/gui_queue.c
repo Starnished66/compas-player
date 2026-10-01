@@ -9,6 +9,7 @@
 #include "metadata.h"
 #include "assets.h"
 #include "fallback_font.h"
+#include "src/misc/lv_text_private.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -36,6 +37,21 @@ static bool queue_editing;
 static lv_obj_t * queue_actions, * queue_actions_backdrop;
 static void queue_actions_open(lv_event_t * e);
 static int displayed_current = -1;
+
+static int32_t queue_state_column_width(void) {
+    static const char * states[] = { "Played", "Playing", "Queued", "Next" };
+    const lv_font_t * font = gui_theme_font(GUI_FONT_ROLE_SUBTEXT);
+    lv_text_attributes_t attributes;
+    lv_text_attributes_init(&attributes);
+    int32_t width = BOARD_SCALE_PX(72);
+    for (size_t i = 0; i < sizeof(states) / sizeof(states[0]); ++i) {
+        int32_t text_width = lv_text_get_width(states[i], (uint32_t) strlen(states[i]), font, &attributes);
+        if (text_width > width) width = text_width;
+    }
+    int32_t maximum = LIST_ROW_WIDTH / 3;
+    if (width > maximum) width = maximum;
+    return width + BOARD_SCALE_PX(8);
+}
 
 bool gui_queue_boot_prompt_blocked(void) {
     return (queue_actions && !lv_obj_has_flag(queue_actions, LV_OBJ_FLAG_HIDDEN)) ||
@@ -129,16 +145,32 @@ void populate_queue_screen(void) {
             subtitle[0] = '\0';
         }
         const char * state = i < current ? "Played" : i == current ? "Playing" :
-            i <= current + gui_player_get_queued_count() ? "Queued" : "Upcoming";
+            i <= current + gui_player_get_queued_count() ? "Queued" : "Next";
         snprintf(numbered_title, sizeof(numbered_title), "%d. %s", i + 1, title);
         if (queue_editing && i > current) {
-            lv_obj_t * row = build_music_list_row(queue_list, numbered_title, subtitle, 180);
+            const int32_t action_slot = BOARD_SCALE_PX(44);
+            const int32_t action_gap = BOARD_SCALE_PX(8);
+            const int32_t action_reserve = 3 * action_slot + 2 * action_gap + BOARD_SCALE_PX(12);
+            lv_obj_t * row = build_music_list_row(queue_list, numbered_title, subtitle, action_reserve);
             for (int a = 0; a < 3; a++) {
-                lv_obj_t * button = lv_label_create(row);
-                lv_label_set_text(button, a == 0 ? LV_SYMBOL_UP : a == 1 ? LV_SYMBOL_DOWN : LV_SYMBOL_TRASH);
-                lv_obj_align(button, LV_ALIGN_RIGHT_MID, BOARD_SCALE_PX(-110 + a * 50), 0);
+                lv_obj_t * button = lv_obj_create(row);
+                lv_obj_set_size(button, action_slot, action_slot);
+                lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, 0);
+                lv_obj_set_style_border_width(button, 0, 0);
+                lv_obj_set_style_pad_all(button, 0, 0);
+                lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_EVENT_BUBBLE);
                 lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
-                lv_obj_set_ext_click_area(button, BOARD_SCALE_PX(12));
+                lv_obj_add_style(button, &list_row_pressed_style, LV_STATE_PRESSED);
+
+                lv_obj_t * symbol = lv_label_create(button);
+                lv_label_set_text(symbol, a == 0 ? LV_SYMBOL_UP : a == 1 ? LV_SYMBOL_DOWN : LV_SYMBOL_TRASH);
+                lv_obj_add_style(symbol, &style_theme_text_primary, 0);
+                lv_obj_set_style_text_font(symbol, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+                lv_obj_center(symbol);
+                lv_obj_remove_flag(symbol, LV_OBJ_FLAG_CLICKABLE);
+
+                int32_t right_offset = BOARD_SCALE_PX(34 + (2 - a) * 52);
+                lv_obj_align(button, LV_ALIGN_RIGHT_MID, -right_offset, 0);
                 lv_obj_add_event_cb(button, queue_edit_cb, LV_EVENT_CLICKED, (void *) (intptr_t) (i * 3 + a));
             }
         } else {
@@ -146,13 +178,13 @@ void populate_queue_screen(void) {
              * dedicated trailing column reserved before either label is
              * laid out. The queue state shares the metadata baseline but
              * cannot overlap or be crossed by either marquee. */
-            const int32_t state_column_width = BOARD_SCALE_PX(112);
-            const int32_t state_column_reserve = state_column_width + GUI_TEXT_INSET + BOARD_SCALE_PX(12);
+            const int32_t state_column_width = queue_state_column_width();
+            const int32_t state_column_reserve = state_column_width + GUI_TEXT_INSET + BOARD_SCALE_PX(8);
             lv_obj_t * row = build_music_list_row(queue_list, numbered_title, subtitle, state_column_reserve);
             lv_obj_t * state_label = lv_label_create(row);
             lv_label_set_text(state_label, state);
             lv_obj_add_style(state_label, &style_theme_text_muted, 0);
-            lv_obj_set_style_text_font(state_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+            lv_obj_set_style_text_font(state_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
             lv_obj_set_width(state_label, state_column_width);
             lv_obj_set_pos(state_label, LIST_ROW_WIDTH - GUI_TEXT_INSET - state_column_width, BOARD_SCALE_PX(64));
             lv_obj_set_style_text_align(state_label, LV_TEXT_ALIGN_RIGHT, 0);
@@ -242,7 +274,7 @@ static lv_obj_t * build_queue_screen(void) {
         { "Edit / Done", queue_toggle_edit, false },
         { "Clear Queue", queue_clear_cb, false },
         { "Save as Playlist", queue_save_cb, false },
-        { "Cancel", queue_actions_hide, false },
+        { "Cancel", queue_actions_hide, false, true },
     };
     queue_actions = build_menu_popup(rows, sizeof(rows) / sizeof(rows[0]), queue_actions_hide, &queue_actions_backdrop);
     return screen;
@@ -339,7 +371,7 @@ static void build_song_context_menu_popup(void) {
         { "Add to Queue", song_context_menu_add_to_queue_cb, false },
         { "Add to Playlist", song_context_menu_add_to_playlist_cb, false },
         { "Refresh metadata", song_context_menu_refresh_metadata_cb, false },
-        { "Cancel", song_context_menu_cancel_cb, false },
+        { "Cancel", song_context_menu_cancel_cb, false, true },
     };
     song_context_menu_popup = build_menu_popup(rows, (int) (sizeof(rows) / sizeof(rows[0])),
                                                 song_context_menu_popup_backdrop_cb,

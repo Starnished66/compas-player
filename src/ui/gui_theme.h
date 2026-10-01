@@ -17,7 +17,7 @@
 #define GUI_ROW_GAP BOARD_SCALE_PX(8)
 #define GUI_TEXT_INSET BOARD_SCALE_PX(24)
 #define GUI_SETTINGS_ROW_HEIGHT BOARD_SCALE_PX(112)
-#define GUI_MUSIC_ROW_HEIGHT BOARD_SCALE_PX(112)
+#define GUI_MUSIC_ROW_HEIGHT BOARD_SCALE_PX(96)
 /* Shared native-painted track thickness -- every slider except Player's
  * own progress_slider, which stays at a hardcoded 440x12 to match its
  * fixed-size progress_bg.png/progress.png art (gui_player.c's own comment

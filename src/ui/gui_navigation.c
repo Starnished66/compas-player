@@ -51,7 +51,7 @@ extern bool active_press_is_over_drag_adjust_widget(void);
 /* Forward navigation slides the current screen out to the left as the new
  * one slides in from the right (matching a left-swipe gesture); back
  * navigation is the mirror of that. */
-#define NAV_ANIM_TIME_MS 165 /* 220ms * 0.75, per real-hardware feedback */
+#define NAV_ANIM_TIME_MS 120 /* Short settle; input feedback precedes movement. */
 
 /* Slide transitions use pre-rendered RGB565 bitmaps rather than animating
  * the live widget trees. Two static snapshots (one per screen) are blitted
@@ -279,7 +279,43 @@ static lv_draw_buf_t * get_static_snapshot(lv_obj_t * scr) {
     return NULL;
 }
 
+/* Refresh a scrolled menu while idle, so returning to it does not need
+ * to render its entire widget tree in the navigation callback. */
+static void static_scroll_snapshot_async(void * data) {
+    int index = (int) (intptr_t) data;
+    if (gui_navigation_transition_in_progress() || index < 0 ||
+        index >= STATIC_SNAPSHOT_SCREEN_COUNT) return;
+    for (lv_indev_t * indev = lv_indev_get_next(NULL); indev; indev = lv_indev_get_next(indev)) {
+        if (lv_indev_get_type(indev) == LV_INDEV_TYPE_POINTER &&
+            lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED) return;
+    }
+    lv_obj_t * screen = static_snapshot_screen[index];
+    if (!screen) return;
+    uint64_t scroll = static_snapshot_scroll_state_for(screen);
+    if (static_snapshot_buf[index] && static_snapshot_scroll_state[index] == scroll) return;
+    lv_draw_buf_t * fresh = snapshot_screen_base(screen);
+    if (!fresh) return;
+    if (static_snapshot_buf[index]) lv_draw_buf_destroy(static_snapshot_buf[index]);
+    static_snapshot_buf[index] = fresh;
+    static_snapshot_scroll_state[index] = scroll;
+}
+
+static void static_scroll_end_cb(lv_event_t * event) {
+    lv_async_call(static_scroll_snapshot_async, lv_event_get_user_data(event));
+}
+
+static void register_static_scroll_callbacks(lv_obj_t * obj, int index) {
+    void * data = (void *) (intptr_t) index;
+    lv_obj_remove_event_cb_with_user_data(obj, static_scroll_end_cb, data);
+    if (lv_obj_has_flag(obj, LV_OBJ_FLAG_SCROLLABLE))
+        lv_obj_add_event_cb(obj, static_scroll_end_cb, LV_EVENT_SCROLL_END, data);
+    for (uint32_t i = 0; i < lv_obj_get_child_count(obj); ++i)
+        register_static_scroll_callbacks(lv_obj_get_child(obj, (int32_t) i), index);
+}
+
 void register_static_snapshot(int index, lv_obj_t * scr) {
+    if (index < 0 || index >= STATIC_SNAPSHOT_SCREEN_COUNT || !scr) return;
+    register_static_scroll_callbacks(scr, index);
     /* Destroy any buffer from a prior registration of this slot first -- see
      * gui_navigation_invalidate_font_snapshots()'s own destroy-before-
      * overwrite pattern just below. Without this, re-registering the same
@@ -458,6 +494,10 @@ static void back_target_cache_discard(void) {
     if (back_target_cache_buf) lv_draw_buf_destroy(back_target_cache_buf);
     back_target_cache_buf = NULL;
     if (back_target_cache_screen) lv_async_call(back_target_cache_rebuild_cb, NULL);
+}
+
+void gui_navigation_invalidate_back_snapshot(lv_obj_t * screen) {
+    if (screen && back_target_cache_screen == screen) back_target_cache_discard();
 }
 
 /* Called from nav_push() right after it decides `scr` is being left behind

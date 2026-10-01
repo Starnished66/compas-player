@@ -829,14 +829,17 @@ static lv_obj_t * add_file_row(const char * label_text, const char * icon_asset,
     lv_label_set_text(label, label_text);
     lv_obj_add_style(label, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(label, &LIST_ROW_FONT, 0);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
 
     if (icon_asset) {
         lv_obj_t * icon = lv_image_create(row);
         lv_image_set_src(icon, asset_path(icon_asset));
         lv_obj_align(icon, LV_ALIGN_LEFT_MID, 16, 0);
         lv_obj_align(label, LV_ALIGN_LEFT_MID, 72, 0);
+        lv_obj_set_width(label, LIST_ROW_WIDTH_WIDE - BOARD_SCALE_PX(88));
     } else {
         lv_obj_align(label, LV_ALIGN_LEFT_MID, LIST_ROW_LABEL_INSET, 0);
+        lv_obj_set_width(label, LIST_ROW_WIDTH_WIDE - 2 * LIST_ROW_LABEL_INSET);
     }
 
     if (cb) {
@@ -863,6 +866,15 @@ static void rebuild_list(void) {
     if (page_start > 0) {
         add_file_row("Previous", "sub_back/btn_back.png", page_click_cb,
                      (void *) (intptr_t) -FILE_BROWSER_PAGE_SIZE);
+    }
+
+    if (entry_count == 0) {
+        build_list_message(list,
+                           strlen(current_dir) > strlen(root_dir)
+                               ? "No playable files here"
+                               : "No playable audio files found",
+                           "Open a folder containing supported audio files.");
+        return;
     }
 
     int page_end = page_start + FILE_BROWSER_PAGE_SIZE;
@@ -998,6 +1010,10 @@ void file_browser_init(lv_obj_t * parent, const char * root, file_browser_select
 
     path_label = lv_label_create(parent);
     lv_obj_set_style_text_color(path_label, lv_color_make(180, 180, 180), 0);
+    lv_obj_set_width(path_label, lv_display_get_horizontal_resolution(lv_display_get_default()) -
+                                 BOARD_SCALE_PX(20));
+    lv_label_set_long_mode(path_label, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_font(path_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
     lv_obj_align(path_label, LV_ALIGN_TOP_LEFT, 10, STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT + 4);
     lv_label_set_text(path_label, current_dir);
 
@@ -1006,18 +1022,25 @@ void file_browser_init(lv_obj_t * parent, const char * root, file_browser_select
     list = lv_obj_create(parent);
     lv_obj_set_size(list, lv_pct(100),
                     lv_display_get_vertical_resolution(lv_display_get_default()) - STATUS_BAR_CLEARANCE -
-                        TITLE_ROW_HEIGHT - 32 /* path_label row */);
-    lv_obj_align(list, LV_ALIGN_BOTTOM_MID, 0, 0);
+                        TITLE_ROW_HEIGHT - (lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT)) +
+                        BOARD_SCALE_PX(10)) - HOME_INDICATOR_CONTENT_INSET);
+    lv_obj_align(list, LV_ALIGN_BOTTOM_MID, 0, -HOME_INDICATOR_CONTENT_INSET);
     lv_obj_set_style_bg_opa(list, 0, 0);
     lv_obj_set_style_border_width(list, 0, 0);
     /* Vertical-only scrolling so horizontal back-swipe gestures can escalate
      * to LV_EVENT_GESTURE instead of being consumed as scroll events. */
     lv_obj_set_scroll_dir(list, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_set_style_width(list, BOARD_SCALE_PX(3), LV_PART_SCROLLBAR);
+    lv_obj_set_style_radius(list, BOARD_SCALE_PX(2), LV_PART_SCROLLBAR);
+    lv_obj_set_style_bg_opa(list, LV_OPA_50, LV_PART_SCROLLBAR);
+    lv_obj_add_style(list, gui_theme_accent_style(), LV_PART_SCROLLBAR);
     /* Clear default theme padding so rows center properly without edge clipping. */
     lv_obj_set_style_pad_all(list, 0, 0);
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_gap(list, GUI_ROW_GAP, 0);
     lv_obj_set_style_pad_top(list, GUI_ROW_GAP, 0);
+    lv_obj_set_style_pad_bottom(list, BOARD_SCALE_PX(8), 0);
     /* Rows follow the live display width. Explicit cross-axis centering also
      * keeps this correct if a future parent is narrower than the display. */
     lv_obj_set_flex_align(list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);

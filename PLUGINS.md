@@ -41,6 +41,11 @@ Install it as:
 <SD card>/.plugins/HelloPlayer.lua
 ```
 
+Ready-made plugins live in the
+[compas-plugins repository](https://github.com/Starnished66/compas-plugins).
+The in-app **Plugin Store** (Settings > System > Plugin Manager > Plugin
+Store) installs from it. Browse it for real examples, or contribute your own.
+
 > [!TIP]
 > Start with an example close to what you want to build. `Audiobooks.lua`,
 > `NetRadio.lua`, `Themes.lua`, and `LastFmScrobbler.lua` cover most common
@@ -198,7 +203,7 @@ on one of these screens:
 Passing anything else raises a Lua error at load time rather than silently
 registering into nothing. If no plugin registers a row for a destination, no
 plugin row is appended. The Library category always includes the native
-**Update Music Database** action and Maintenance tools.
+**Update Music Database**, **Refresh All Metadata**, and **Refresh All Covers** actions.
 `build_pill_list_screen()` rows scroll, so every registered row remains
 reachable even when several plugins target the same screen.
 
@@ -266,12 +271,12 @@ using an identity derived from their filename.
 - `plugin.api_version()` returns the current integer plugin API version (currently `14`).
 - `plugin.has_capability(name)` reports whether an optional interface exists.
   Supported capability tokens:
-  - UI: `ui.list`, `ui.settings`, `ui.row_width`, `ui.text_input`, `ui.toast`, `ui.theme`, `ui.home_layout`, `ui.launcher_layout`, `ui.home_background`, `ui.lock_screen`, `ui.text_view`, `ui.text_view_images`, `ui.list_grid`, `ui.list_showing`
-  - Playback & Audio: `playback.control`, `playback.state`, `playback.events`, `playback.remote`, `audio.peq`, `audio.hw_volume_curve`
+  - UI: `ui.list`, `ui.settings`, `ui.row_width`, `ui.text_input`, `ui.toast`, `ui.screenshot`, `ui.theme`, `ui.theme_refresh`, `ui.reload`, `ui.home_layout`, `ui.home_tiles`, `ui.launcher_layout`, `ui.home_background`, `ui.lock_screen`, `ui.quick_toggle`, `ui.text_view`, `ui.text_view_images`, `ui.list_grid`, `ui.list_showing`, `ui.list_wrap`, `ui.settings_list_wrap`, `ui.player_layout_xml`
+  - Playback & Audio: `playback.control`, `playback.state`, `playback.events`, `playback.remote`, `playback.transport_skip`, `audio.peq`, `audio.hw_volume_curve`
   - Filesystem & Playlists: `filesystem.sd`, `filesystem.mkdir`, `filesystem.playlists`
   - Storage & Secrets: `storage.namespaced`, `storage.secrets`
   - Network: `network.http.sync`, `network.http.async`, `network.http.download`
-  - Data & Crypto: `data.json`, `crypto.md5`, `data.zip`, `data.zip_image`, `data.html`
+  - Data & Crypto: `data.json`, `crypto.md5`, `data.zip`, `data.zip_image`, `data.image_thumbnail`, `data.html`
   - Library: `library.artist_albums`, `library.paged`, `library.refresh`
 - LED availability varies by board, so use `plugin.led_available()` instead
   of `plugin.has_capability()` to check for the red and blue charge LEDs.
@@ -781,44 +786,63 @@ plugin.set_launcher_layout({
 
 ### `plugin.set_player_layout(options)`
 
-Changes how the Player (Now Playing) screen looks. Every field is optional:
+Changes the look of the Player (Now Playing) screen. Every field is optional.
 
-- `flat` (boolean): `true` skips the blurred cover-art background and fills
-  the screen with `bg_color`, or the theme background if that is not set.
-- `bg_color` (integer, `0xRRGGBB`): the flat background color.
-- `blur_radius` (integer, clamped to 0..64, default 32) and `blur_passes`
-  (integer, clamped to 0..16, default 5): strength of the blur.
-- `darken_num` and `darken_den` (integers, set together): the blurred image is
-  multiplied by `darken_num / darken_den`. `darken_num` is clamped to 0..64,
-  `darken_den` to 1..64. Default 1/2.
-- `xml` (string): an LVGL XML layout file for the whole Player screen,
-  relative to `<SD card>/.plugins/`. Absolute paths, `..` segments and paths
-  that resolve outside that folder (symlinks included) raise a Lua error, as
-  does a file that does not exist. The file must define the widget roles
-  described in `docs/PLAYER_LAYOUTS.md`; if it does not, or fails to parse,
-  the built-in layout is used instead.
-- `id` (string, with `xml`): 1 to 63 of letters, digits, `_`, `-`, `.`, not
-  `default`. Default `plugin.<file name without .xml>`.
-- `name` (string, with `xml`): the name shown in Settings > Display > Player
-  Layout > Layout. Default: the file name without `.xml`.
+**Background**
 
-The settings are held in memory only: they are never written to disk and a
-plugin reload or restart discards them, so call this from the plugin's
-top-level code to keep them. An `xml` layout is registered and selected for
-the current session only, and choosing a layout in Settings replaces it.
-Called from top-level code (at startup or during a UI reload) it belongs to
-the plugin and takes effect when the UI is built. Called from a callback, the
-UI is rebuilt to apply it and the layout then stays selected until the app
-restarts, even across plugin reloads. Check
-`plugin.has_capability("ui.player_layout_xml")` before using `xml`.
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `flat` | boolean | `true` replaces the blurred cover background with a solid color. |
+| `bg_color` | `0xRRGGBB` | The solid color for `flat`. Without it, the theme background is used. |
+| `blur_radius` | integer | Blur strength, 0 to 64. Default 5. |
+| `blur_passes` | integer | Blur passes, 0 to 16. Default 3. |
+| `darken_num`, `darken_den` | integers | Darkens the blurred cover by `darken_num / darken_den`. Set both. Default 1/2. |
+
+Each call replaces all of these, so pass every option you want in the same
+call. They live in memory only: call the function from the plugin's
+top-level code so they are applied again each time the plugin loads.
+
+**Whole layout**
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `xml` | string | An XML layout file, relative to `<SD card>/.plugins/`. |
+| `name` | string | Name shown in Settings. Default: the file name without `.xml`. |
+| `id` | string | Internal id, 1 to 63 letters, digits, `_`, `-` or `.`; not `default`. Default: `plugin.<file name without .xml>`, other characters replaced by `_`. Longer ids are cut short. |
+
+How to write the XML file, and which widget names the app needs, is explained
+in [docs/PLAYER_LAYOUTS.md](docs/PLAYER_LAYOUTS.md).
+
+- The file must be inside the `.plugins` folder. Absolute paths, `..`, links
+  leading outside the folder, or a missing file raise a Lua error.
+- If the file can't be used (invalid XML or a required widget missing), the
+  default layout is shown instead.
+- The layout shows up in **Settings > Display > Player Layout > Layout**
+  while the plugin is enabled.
+- Called from top-level code, it only makes the layout available there. Users
+  pick it in Settings like any other layout, and the choice is remembered
+  across restarts for as long as the plugin stays installed and enabled. If the
+  plugin is disabled or removed, the default layout is shown instead.
+- Called from a callback (a button, for example), the layout is selected right
+  away for this session and the interface reloads to apply it if that changes
+  the active layout. It stays until the player restarts or the user picks
+  another layout in Settings. A plugin that offers a layout as an option
+  should do it this way.
+- Check `plugin.has_capability("ui.player_layout_xml")` first if the plugin
+  should also run on older firmware.
 
 ```lua
+-- Solid dark background instead of the blurred cover
 plugin.set_player_layout({ flat = true, bg_color = 0x101010 })
 
-plugin.set_player_layout({
-    xml  = "player_layouts/clean.xml",
-    name = "Clean",
-})
+-- A whole new layout shipped with the plugin, plus the same background.
+-- Background options go in the same call: each call resets the ones it omits.
+if plugin.has_capability("ui.player_layout_xml") then
+    plugin.set_player_layout({
+        xml = "player_layouts/clean.xml", name = "Clean",
+        flat = true, bg_color = 0x101010,
+    })
+end
 ```
 
 ### `plugin.refresh_theme()`
@@ -1060,6 +1084,10 @@ underlying screens.
   - `"clock"`: displays the current local time in large text, updating every second.
 - `image_path` (string, required if `mode == "image"`): absolute path to an image file.
   Must be readable.
+- `image_fit` (string, optional with `mode == "image"`): `"contain"` scales the
+  image to fit the screen without cropping; `"cover"` fills the screen and
+  crops the excess while preserving aspect ratio. If omitted, the historical
+  natural-size centered rendering is preserved for existing plugins.
 - `clock_24h` (boolean, optional): if `true` (default), format clock as 24-hour (`HH:MM`);
   if `false`, format as 12-hour (`hh:MM`).
 

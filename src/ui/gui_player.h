@@ -53,6 +53,8 @@ void favorite_icon_event_cb(lv_event_t * e);
 int gui_player_get_playlist_count(void);
 int gui_player_get_playlist_index(void);
 bool gui_player_has_active_track(void);
+/* Defer visual refresh work while the lyrics pane is moving. */
+bool gui_player_lyrics_animation_in_progress(void);
 const char * gui_player_get_current_track_path(void);
 const char * gui_player_get_track_path_at(int index);
 /* Resolve Subsonic stream identity by exact URL after validating the current

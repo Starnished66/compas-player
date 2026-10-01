@@ -239,10 +239,11 @@ static void populate_books_files_screen(void) {
     }
 
     if (count == 0) {
-        lv_obj_t * label = lv_label_create(books_files_list);
-        lv_label_set_text(label, books_showing_favorites ? "No favorites yet" : "No .txt files found");
-        lv_obj_add_style(label, &style_theme_text_muted, 0);
-        lv_obj_set_style_pad_left(label, BOARD_SCALE_PX(24), 0);
+        build_list_message(books_files_list,
+                           books_showing_favorites ? "No favorites yet" : "No books found",
+                           books_showing_favorites
+                               ? "Open a book and tap the bookmark icon to save it here."
+                               : "Add .txt files to the Books folder, then refresh the library.");
         free(paths);
         return;
     }
@@ -308,12 +309,18 @@ static lv_obj_t * build_text_reader_screen(void) {
     text_reader_scroll = lv_obj_create(scr);
     lv_obj_set_size(text_reader_scroll, lv_pct(100),
                     lv_display_get_vertical_resolution(lv_display_get_default()) - STATUS_BAR_CLEARANCE -
-                        TITLE_ROW_HEIGHT);
-    lv_obj_align(text_reader_scroll, LV_ALIGN_BOTTOM_MID, 0, 0);
+                        TITLE_ROW_HEIGHT - HOME_INDICATOR_CONTENT_INSET);
+    lv_obj_align(text_reader_scroll, LV_ALIGN_BOTTOM_MID, 0, -HOME_INDICATOR_CONTENT_INSET);
     lv_obj_set_style_bg_opa(text_reader_scroll, 0, 0);
     lv_obj_set_style_border_width(text_reader_scroll, 0, 0);
     lv_obj_set_scroll_dir(text_reader_scroll, LV_DIR_VER);
     lv_obj_set_style_pad_all(text_reader_scroll, BOARD_SCALE_PX(16), 0);
+    lv_obj_set_style_pad_bottom(text_reader_scroll, BOARD_SCALE_PX(8), 0);
+    lv_obj_set_scrollbar_mode(text_reader_scroll, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_set_style_width(text_reader_scroll, BOARD_SCALE_PX(3), LV_PART_SCROLLBAR);
+    lv_obj_set_style_radius(text_reader_scroll, BOARD_SCALE_PX(2), LV_PART_SCROLLBAR);
+    lv_obj_set_style_bg_opa(text_reader_scroll, LV_OPA_50, LV_PART_SCROLLBAR);
+    lv_obj_add_style(text_reader_scroll, gui_theme_accent_style(), LV_PART_SCROLLBAR);
 
     text_reader_content_label = lv_label_create(text_reader_scroll);
     lv_label_set_long_mode(text_reader_content_label, LV_LABEL_LONG_WRAP);

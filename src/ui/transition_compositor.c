@@ -40,6 +40,7 @@ typedef enum {
     COMPOSITOR_MODE_NONE,
     COMPOSITOR_MODE_HORIZONTAL,
     COMPOSITOR_MODE_VERTICAL_OVERLAY,
+    COMPOSITOR_MODE_VERTICAL_REVEAL,
 } compositor_mode_t;
 static compositor_mode_t compositor_mode = COMPOSITOR_MODE_NONE;
 static const lv_draw_buf_t * compositor_from;
@@ -55,6 +56,12 @@ static int32_t compositor_vertical_base_width;
 static int32_t compositor_vertical_base_height;
 static uint32_t compositor_vertical_base_stride;
 static int32_t compositor_vertical_fixed_top;
+static uint8_t * compositor_vertical_reveal_base;
+static uint32_t compositor_vertical_reveal_base_stride;
+static int32_t compositor_reveal_rows_top;
+static int32_t compositor_reveal_rows_height;
+static int32_t compositor_reveal_controls_top;
+static int32_t compositor_reveal_controls_height;
 #endif
 
 /* Deliberately identical to LVGL's lv_color_24_16_mix() quantization. This
@@ -102,6 +109,7 @@ static uint64_t compositor_perf_present_max_us;
 static unsigned compositor_perf_frame_count;
 static unsigned compositor_perf_present_failures;
 static uint64_t compositor_perf_last_frame_start_us;
+static uint64_t compositor_perf_gap_max_us;
 #endif
 
 bool transition_compositor_available(void) {
@@ -206,6 +214,8 @@ bool transition_compositor_begin(const lv_draw_buf_t * from, const lv_draw_buf_t
     compositor_perf_present_max_us = 0;
     compositor_perf_frame_count = 0;
     compositor_perf_present_failures = 0;
+    compositor_perf_last_frame_start_us = 0;
+    compositor_perf_gap_max_us = 0;
 #endif
 
     /* Nothing may touch buf_1/buf_2 (the two physical framebuffer pages)
@@ -243,6 +253,7 @@ bool transition_compositor_frame(int32_t v) {
     uint64_t perf_gap_us = compositor_perf_frame_count ?
                             (perf_frame_start_us - compositor_perf_last_frame_start_us) : 0;
     compositor_perf_last_frame_start_us = perf_frame_start_us;
+    if (perf_gap_us > compositor_perf_gap_max_us) compositor_perf_gap_max_us = perf_gap_us;
 #endif
     lv_display_t * disp = lv_display_get_default();
     /* Re-queried every frame, not cached at begin() -- the inactive half
@@ -389,6 +400,200 @@ bool transition_compositor_frame(int32_t v) {
 #endif /* COMPOSITOR_DISABLED || !LV_USE_LINUX_FBDEV */
 }
 
+static void compositor_copy_rgb565_span(uint8_t * dst, uint32_t dst_stride,
+                                        const uint8_t * src, uint32_t src_stride,
+                                        int32_t start_y, int32_t row_count, size_t row_bytes) {
+    if (row_count <= 0 || row_bytes == 0) return;
+    dst += (size_t) start_y * dst_stride;
+    src += (size_t) start_y * src_stride;
+    for (int32_t row = 0; row < row_count; row++) {
+        memcpy(dst, src, row_bytes);
+        dst += dst_stride;
+        src += src_stride;
+    }
+}
+
+bool transition_compositor_compose_vertical_reveal_rgb565(uint8_t * dst, uint32_t dst_stride,
+                                                           const uint8_t * base, uint32_t base_stride,
+                                                           const uint8_t * expanded, uint32_t expanded_stride,
+                                                           int32_t width, int32_t height,
+                                                           int32_t rows_top, int32_t rows_height,
+                                                           int32_t controls_top, int32_t controls_height,
+                                                           int32_t revealed) {
+    if (!dst || !base || !expanded || width <= 0 || height <= 0 ||
+        rows_top < 0 || rows_height <= 0 || controls_height <= 0 ||
+        (int64_t) controls_top < (int64_t) rows_top + rows_height ||
+        (int64_t) rows_top + rows_height > height ||
+        (int64_t) controls_top + controls_height > height) return false;
+    uint64_t row_bytes64 = (uint64_t) (uint32_t) width * 2U;
+    if (row_bytes64 > SIZE_MAX || dst_stride < row_bytes64 ||
+        base_stride < row_bytes64 || expanded_stride < row_bytes64 ||
+        (uint64_t) dst_stride * (uint32_t) height > SIZE_MAX ||
+        (uint64_t) base_stride * (uint32_t) height > SIZE_MAX ||
+        (uint64_t) expanded_stride * (uint32_t) height > SIZE_MAX) return false;
+
+    if (revealed < 0) revealed = 0;
+    if (revealed > rows_height) revealed = rows_height;
+    int32_t rows_end = rows_top + revealed;
+    int32_t controls_dest_top = controls_top - rows_height + revealed;
+    int32_t controls_dest_end = controls_dest_top + controls_height;
+    if (controls_dest_top < rows_end || controls_dest_end > height) return false;
+
+    size_t row_bytes = (size_t) row_bytes64;
+    compositor_copy_rgb565_span(dst, dst_stride, base, base_stride,
+                                0, rows_top, row_bytes);
+    compositor_copy_rgb565_span(dst, dst_stride, expanded, expanded_stride,
+                                rows_top, revealed, row_bytes);
+    compositor_copy_rgb565_span(dst, dst_stride, base, base_stride,
+                                rows_end, controls_dest_top - rows_end, row_bytes);
+    /* Controls move, so the destination starts above their expanded source. */
+    if (controls_height > 0) {
+        uint8_t * dst_row = dst + (size_t) controls_dest_top * dst_stride;
+        const uint8_t * src_row = expanded + (size_t) controls_top * expanded_stride;
+        for (int32_t row = 0; row < controls_height; row++) {
+            memcpy(dst_row, src_row, row_bytes);
+            dst_row += dst_stride;
+            src_row += expanded_stride;
+        }
+    }
+    compositor_copy_rgb565_span(dst, dst_stride, base, base_stride,
+                                controls_dest_end, height - controls_dest_end, row_bytes);
+    return true;
+}
+
+bool transition_compositor_begin_vertical_reveal(const lv_draw_buf_t * base,
+                                                 const lv_draw_buf_t * expanded,
+                                                 int32_t rows_top, int32_t rows_height,
+                                                 int32_t controls_top, int32_t controls_height,
+                                                 int32_t fixed_top_rows) {
+#if COMPOSITOR_DISABLED || !LV_USE_LINUX_FBDEV
+    (void) base;
+    (void) expanded;
+    (void) rows_top;
+    (void) rows_height;
+    (void) controls_top;
+    (void) controls_height;
+    (void) fixed_top_rows;
+    return false;
+#else
+    if (!base || !expanded) return false;
+    lv_display_t * disp = lv_display_get_default();
+    if (!disp) return false;
+    int32_t w = lv_display_get_horizontal_resolution(disp);
+    int32_t h = lv_display_get_vertical_resolution(disp);
+    if (rows_top < fixed_top_rows || fixed_top_rows < 0 ||
+        rows_height <= 0 || rows_top + (int64_t) rows_height > h ||
+        controls_top < rows_top + (int64_t) rows_height || controls_height <= 0 ||
+        controls_top + (int64_t) controls_height > h) return false;
+
+    /* Reuse the established full-frame shape/stride checks and fbdev handoff.
+     * A successful begin disables invalidation; all later failures end that
+     * session through the common synchronization path. */
+    if (w <= 0 || !transition_compositor_begin(base, expanded, w, false)) return false;
+
+    uint64_t base_size64 = (uint64_t) base->header.stride * (uint32_t) h;
+    if (base_size64 > SIZE_MAX) {
+        transition_compositor_end();
+        return false;
+    }
+    size_t base_size = (size_t) base_size64;
+    uint8_t * owned_base = malloc(base_size);
+    if (!owned_base) {
+        transition_compositor_end();
+        return false;
+    }
+    memcpy(owned_base, base->data, base_size);
+
+    const uint8_t * active_page = (const uint8_t *) lv_linux_fbdev_get_active_page(disp);
+    if (!active_page) {
+        free(owned_base);
+        transition_compositor_end();
+        return false;
+    }
+    uint32_t fb_stride = lv_linux_fbdev_get_stride(disp);
+    size_t row_bytes = (size_t) (uint32_t) w * 2U;
+    for (int32_t row = 0; row < fixed_top_rows; row++) {
+        memcpy(owned_base + (size_t) row * base->header.stride,
+               active_page + (size_t) row * fb_stride, row_bytes);
+    }
+
+    compositor_vertical_reveal_base = owned_base;
+    compositor_vertical_reveal_base_stride = base->header.stride;
+    compositor_reveal_rows_top = rows_top;
+    compositor_reveal_rows_height = rows_height;
+    compositor_reveal_controls_top = controls_top;
+    compositor_reveal_controls_height = controls_height;
+    compositor_mode = COMPOSITOR_MODE_VERTICAL_REVEAL;
+#ifdef UI_PERF_TRACE
+    printf("PERF drawer_reveal begin_active=1 w=%d h=%d rows_top=%d rows_height=%d controls_top=%d controls_height=%d fixed_top=%d\n",
+           w, h, rows_top, rows_height, controls_top, controls_height, fixed_top_rows);
+#endif
+    return true;
+#endif
+}
+
+bool transition_compositor_vertical_reveal_frame(int32_t revealed) {
+#if COMPOSITOR_DISABLED || !LV_USE_LINUX_FBDEV
+    (void) revealed;
+    return false;
+#else
+    if (!compositor_active || compositor_mode != COMPOSITOR_MODE_VERTICAL_REVEAL) return false;
+#ifdef UI_PERF_TRACE
+    uint64_t perf_frame_start_us = compositor_perf_now_us();
+    uint64_t perf_gap_us = compositor_perf_frame_count ?
+        perf_frame_start_us - compositor_perf_last_frame_start_us : 0;
+    compositor_perf_last_frame_start_us = perf_frame_start_us;
+    if (perf_gap_us > compositor_perf_gap_max_us) compositor_perf_gap_max_us = perf_gap_us;
+#endif
+    lv_display_t * disp = lv_display_get_default();
+    uint8_t * dest = (uint8_t *) lv_linux_fbdev_get_inactive_page(disp);
+    if (!dest) {
+        transition_compositor_end();
+        return false;
+    }
+    if (!transition_compositor_compose_vertical_reveal_rgb565(
+            dest, compositor_fb_stride,
+            compositor_vertical_reveal_base, compositor_vertical_reveal_base_stride,
+            (const uint8_t *) compositor_to->data, compositor_to->header.stride,
+            compositor_width, compositor_height,
+            compositor_reveal_rows_top, compositor_reveal_rows_height,
+            compositor_reveal_controls_top, compositor_reveal_controls_height,
+            revealed)) {
+        transition_compositor_end();
+        return false;
+    }
+#ifdef UI_PERF_TRACE
+    uint64_t perf_compose_end_us = compositor_perf_now_us();
+#endif
+    if (!lv_linux_fbdev_present_external_page(disp)) {
+#ifdef UI_PERF_TRACE
+        compositor_perf_present_failures++;
+        printf("PERF drawer_reveal present_failed revealed=%d\n", revealed);
+#endif
+        transition_compositor_end();
+        return false;
+    }
+#ifdef UI_PERF_TRACE
+    uint64_t perf_present_end_us = compositor_perf_now_us();
+    uint64_t perf_compose_us = perf_compose_end_us - perf_frame_start_us;
+    uint64_t perf_present_us = perf_present_end_us - perf_compose_end_us;
+    uint64_t perf_frame_us = perf_present_end_us - perf_frame_start_us;
+    compositor_perf_compose_total_us += perf_compose_us;
+    if (perf_compose_us > compositor_perf_compose_max_us) compositor_perf_compose_max_us = perf_compose_us;
+    compositor_perf_present_total_us += perf_present_us;
+    if (perf_present_us > compositor_perf_present_max_us) compositor_perf_present_max_us = perf_present_us;
+    compositor_perf_frame_total_us += perf_frame_us;
+    if (perf_frame_us > compositor_perf_frame_max_us) compositor_perf_frame_max_us = perf_frame_us;
+    printf("PERF drawer_reveal frame idx=%u gap_us=%llu compose_us=%llu present_us=%llu total_us=%llu revealed=%d\n",
+           compositor_perf_frame_count, (unsigned long long) perf_gap_us,
+           (unsigned long long) perf_compose_us, (unsigned long long) perf_present_us,
+           (unsigned long long) perf_frame_us, revealed);
+    compositor_perf_frame_count++;
+#endif
+    return true;
+#endif
+}
+
 bool transition_compositor_begin_vertical_overlay(const lv_draw_buf_t * overlay,
                                                   int32_t fixed_top_rows,
                                                   bool reuse_saved_base) {
@@ -478,6 +683,8 @@ bool transition_compositor_begin_vertical_overlay(const lv_draw_buf_t * overlay,
     compositor_perf_present_max_us = 0;
     compositor_perf_frame_count = 0;
     compositor_perf_present_failures = 0;
+    compositor_perf_last_frame_start_us = 0;
+    compositor_perf_gap_max_us = 0;
     printf("PERF drawer compositor begin_active=1 w=%d h=%d stride=%u fixed_top=%d\n",
            w, h, fb_stride, fixed_top_rows);
 #endif
@@ -507,6 +714,10 @@ bool transition_compositor_vertical_overlay_frame(int32_t y) {
     if (!compositor_active || compositor_mode != COMPOSITOR_MODE_VERTICAL_OVERLAY) return false;
 #ifdef UI_PERF_TRACE
     uint64_t perf_frame_start_us = compositor_perf_now_us();
+    uint64_t perf_gap_us = compositor_perf_frame_count ?
+        perf_frame_start_us - compositor_perf_last_frame_start_us : 0;
+    compositor_perf_last_frame_start_us = perf_frame_start_us;
+    if (perf_gap_us > compositor_perf_gap_max_us) compositor_perf_gap_max_us = perf_gap_us;
 #endif
     lv_display_t * disp = lv_display_get_default();
     uint8_t * dest = (uint8_t *) lv_linux_fbdev_get_inactive_page(disp);
@@ -618,11 +829,15 @@ void transition_compositor_end(void) {
     lv_linux_fbdev_end_external_composition(disp);
     lv_display_enable_invalidation(disp, true);
     compositor_mode = COMPOSITOR_MODE_NONE;
+    free(compositor_vertical_reveal_base);
+    compositor_vertical_reveal_base = NULL;
+    compositor_vertical_reveal_base_stride = 0;
 #ifdef UI_PERF_TRACE
-    printf("PERF compositor end frames=%u avg_us=%llu max_us=%llu present_failures=%u compose_avg_us=%llu compose_max_us=%llu present_avg_us=%llu present_max_us=%llu\n",
+    printf("PERF compositor end frames=%u avg_us=%llu max_us=%llu max_gap_us=%llu present_failures=%u compose_avg_us=%llu compose_max_us=%llu present_avg_us=%llu present_max_us=%llu\n",
            compositor_perf_frame_count,
            (unsigned long long) (compositor_perf_frame_count ? compositor_perf_frame_total_us / compositor_perf_frame_count : 0),
            (unsigned long long) compositor_perf_frame_max_us,
+           (unsigned long long) compositor_perf_gap_max_us,
            compositor_perf_present_failures,
            (unsigned long long) (compositor_perf_frame_count ? compositor_perf_compose_total_us / compositor_perf_frame_count : 0),
            (unsigned long long) compositor_perf_compose_max_us,

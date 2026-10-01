@@ -43,6 +43,45 @@ static bool screenshot_requested = false;
 static bool screenshot_combo_enabled = false;
 static int volume_delta = 0;
 
+/* The R3 II knob is reported as arrow-key pairs. Track each physical key per
+ * evdev fd so a repeated KEY_DOWN without a release cannot become multiple
+ * detents; unlike ordinary volume keys, these inputs never enter the hold
+ * repeat path below. */
+static void handle_knob_key_event(unsigned short code, int value, bool * left_held, bool * right_held) {
+    bool * held = code == KEY_LEFT ? left_held : code == KEY_RIGHT ? right_held : NULL;
+    if (!held) return;
+
+    pthread_mutex_lock(&state_mutex);
+    if (value == 1 && !*held) {
+        /* Reverse the stock arrow mapping to match the reported wheel direction. */
+        volume_delta += code == KEY_RIGHT ? VOLUME_STEP_PERCENT : -VOLUME_STEP_PERCENT;
+        *held = true;
+    } else if (value == 0) {
+        *held = false;
+    }
+    pthread_mutex_unlock(&state_mutex);
+}
+
+/* SYN_DROPPED invalidates the remainder of the current evdev packet. Discard
+ * through SYN_REPORT and clear held guards there so a lost release cannot
+ * suppress future knob impulses. */
+static bool knob_consume_sync_event(unsigned short type, unsigned short code,
+                                    bool * sync_dropped, bool * left_held, bool * right_held) {
+    if (*sync_dropped) {
+        if (type == EV_SYN && code == SYN_REPORT) {
+            *sync_dropped = false;
+            *left_held = false;
+            *right_held = false;
+        }
+        return true;
+    }
+    if (type == EV_SYN && code == SYN_DROPPED) {
+        *sync_dropped = true;
+        return true;
+    }
+    return false;
+}
+
 /* Held-state + next-repeat-due tracking for volume up/down specifically --
  * the only two keys that repeat while held. Everything else (play/pause,
  * next/prev) stays single-shot: repeating a track skip while a finger
@@ -370,8 +409,7 @@ static void * hw_buttons_thread_func(void * arg) {
         /* Wired headphone inline remote (earpods_adc). */
         { "earpods_adc", "earpods_adc", false },
 #if defined(BOARD_R3II_2025)
-        /* Volume knob: one KEY_LEFT (up) or KEY_RIGHT (down) press/release
-         * per detent. */
+        /* Volume knob: arrow events are handled as single detent impulses. */
         { "sa-ring-keys", "sa-ring-keys", true },
 #endif
     };
@@ -382,6 +420,9 @@ static void * hw_buttons_thread_func(void * arg) {
     char paths[HW_BUTTONS_MAX_FDS][64];
     /* Arrow keys mean volume only on the knob, never on an accessory. */
     bool knob[HW_BUTTONS_MAX_FDS] = { false };
+    bool knob_left_held[HW_BUTTONS_MAX_FDS] = { false };
+    bool knob_right_held[HW_BUTTONS_MAX_FDS] = { false };
+    bool knob_sync_dropped[HW_BUTTONS_MAX_FDS] = { false };
     int nfds = 0;
     int found = 0;
     for (size_t i = 0; i < sizeof(BUTTON_DEVICES) / sizeof(BUTTON_DEVICES[0]); i++) {
@@ -451,10 +492,16 @@ static void * hw_buttons_thread_func(void * arg) {
                 if (i != nfds) {
                     fds[i] = fds[nfds];
                     knob[i] = knob[nfds];
+                    knob_left_held[i] = knob_left_held[nfds];
+                    knob_right_held[i] = knob_right_held[nfds];
+                    knob_sync_dropped[i] = knob_sync_dropped[nfds];
                     memcpy(paths[i], paths[nfds], sizeof(paths[i]));
                 }
                 /* A rescan may reuse the freed slot for an accessory. */
                 knob[nfds] = false;
+                knob_left_held[nfds] = false;
+                knob_right_held[nfds] = false;
+                knob_sync_dropped[nfds] = false;
                 i--;
                 continue;
             }
@@ -463,14 +510,18 @@ static void * hw_buttons_thread_func(void * arg) {
             struct input_event ev;
             while (read(fds[i].fd, &ev, sizeof(ev)) == (ssize_t) sizeof(ev)) {
                 DBG_LOG("hw_buttons: raw event fd_index=%d type=%u code=%u value=%d\n", i, ev.type, ev.code, ev.value);
+                if (knob[i] && knob_consume_sync_event(ev.type, ev.code,
+                                                       &knob_sync_dropped[i],
+                                                       &knob_left_held[i],
+                                                       &knob_right_held[i])) continue;
                 if (ev.type == EV_KEY && ev.value != 2) { /* key down/up, ignore kernel autorepeat */
                     unsigned short code = ev.code;
                     if (knob[i]) {
-                        if (code == KEY_LEFT) code = KEY_VOLUMEUP;
-                        else if (code == KEY_RIGHT) code = KEY_VOLUMEDOWN;
-                        else continue;
+                        handle_knob_key_event(code, ev.value,
+                                              &knob_left_held[i], &knob_right_held[i]);
+                    } else {
+                        handle_key_event(code, ev.value);
                     }
-                    handle_key_event(code, ev.value);
                 }
             }
         }

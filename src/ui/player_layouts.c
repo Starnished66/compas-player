@@ -168,19 +168,26 @@ const char * player_layouts_effective_id(void) {
     return PLAYER_LAYOUT_ID_DEFAULT;
 }
 
-bool player_layouts_session_select_xml(const char * id, const char * display_name, const char * path,
-                                       bool from_callback) {
+bool player_layouts_session_register_xml(const char * id, const char * display_name, const char * path,
+                                         bool from_callback) {
     ensure_builtin_entry();
     if (!id_is_valid(id) || !path || !path[0] || strlen(path) >= MAX_LAYOUT_PATH) return false;
     int existing = player_layouts_find(id);
     if (existing >= 0 && !entries[existing].session) return false;
-    char before[PLAYER_LAYOUT_ID_MAX];
-    snprintf(before, sizeof(before), "%s", player_layouts_effective_id());
+    /* Replaces an entry of the same id in place: a reload registers it again. */
     layout_entry_t * e = upsert_entry(id, display_name, PLAYER_LAYOUT_XML_FILE);
     if (!e) return false;
     e->session = true;
     e->from_callback = from_callback;
     snprintf(e->path, sizeof(e->path), "%s", path);
+    return true;
+}
+
+bool player_layouts_session_select_xml(const char * id, const char * display_name, const char * path,
+                                       bool from_callback) {
+    char before[PLAYER_LAYOUT_ID_MAX];
+    snprintf(before, sizeof(before), "%s", player_layouts_effective_id());
+    if (!player_layouts_session_register_xml(id, display_name, path, from_callback)) return false;
     snprintf(session_selected, sizeof(session_selected), "%s", id);
     return !same_id(before, player_layouts_effective_id());
 }

@@ -1,248 +1,276 @@
 # Player layouts
 
-The Player (Now Playing) screen can be built from more than the hand-written
-layout in `src/ui/gui_player.c`. A layout is only widgets, geometry, styles and
-animations. The app finds the widgets it cares about by name and attaches
-everything that does something (taps, seeking, touch targets, theme colors,
-the lyrics view). Three kinds of layout exist:
+You can redesign the Now Playing screen without touching C code. A layout is
+an LVGL XML file that says what the screen looks like. The app takes care of
+what it does: playback, seeking, cover art, lyrics, theme colors.
 
-| Kind | Where it comes from | Registered by |
-| --- | --- | --- |
-| Built-in | `player_layout_create_builtin()` in `gui_player.c` | always, id `default` |
-| Exported C | a component exported from XML to C by LVGL's UI Editor, compiled into the app | `player_layouts_register_c()` |
-| XML file | an LVGL XML component read from the device at runtime | found by scanning, or `plugin.set_player_layout{xml=...}` |
+If you don't install a layout, nothing changes. The built-in layout is the
+default, and it is also the fallback whenever a custom one fails to load.
 
-The built-in layout is the default and the fallback. It renders exactly as it
-always did.
+## Quick start
 
-## Choosing a layout
+1. Copy `assets/theme2/player_layouts/example_minimal.xml` and rename it, for
+   example `clean.xml`. The file name (without `.xml`) is the name shown in
+   Settings.
+2. Edit it. Keep the widget names listed under [Widgets the app looks
+   for](#widgets-the-app-looks-for); everything else is up to you.
+3. Copy it to the SD card, into `.plugins/player_layouts/`.
+4. On the player, open **Settings > Display > Player Layout > Layout** and
+   pick it. The interface reloads with the new layout, and the choice is
+   remembered across restarts.
 
-Settings > Display > Player Layout > Layout lists every registered layout and
-applies the choice by rebuilding the UI (the same soft reload plugins use).
-The choice is saved in `settings.txt` as `player_layout=<id>`; an empty value
-or an id that no longer exists means the built-in layout. A plugin can select
-an XML layout for the current session only, see [Plugins](#plugins).
+To go back, pick **Default** in the same list.
 
-If a layout cannot be built (missing or invalid file, a required widget
-missing), the app logs a line to stderr and builds the built-in layout instead.
-The Player is never empty and never crashes on a bad layout.
+After editing the layout that is already active, pick another layout and then
+yours again (or call `plugin.reload_ui()`) to load the new version.
 
-## XML files
+## Where layout files go
 
-### Where they are found
+The app looks for `*.xml` files in these folders. If two folders have a file
+with the same name, the later one in this list wins:
 
-Files named `*.xml` are found in these directories, later ones replacing an
-earlier file with the same name:
-
-1. `<theme root>/player_layouts/`: `/usr/resource/litegui/theme2/player_layouts/`
-   on the device (the repository's `assets/theme2/player_layouts/` ships there
-   with the firmware image), `assets/theme2/player_layouts/` on the simulator.
-2. `/usr/data/theme_overrides/player_layouts/` on the device, the writable
-   override root that `asset_path()` checks first. Not used on the simulator.
-3. `<SD card>/.plugins/player_layouts/` (`./music/.plugins/player_layouts/` on
-   the simulator), next to the plugins.
-
-The file name without `.xml` is the layout id and the name shown in Settings.
-Ids use letters, digits, `_`, `-` and `.`. `default` is reserved. The list is
-rescanned every time the UI is built and every time the Layout screen opens.
-
-A layout must be one self-contained file, at most 256 KB. It is registered as
-one component, so it cannot include other XML files.
-
-### Board variants
-
-For `foo.xml` the app uses `foo@<W>x<H>.xml` instead when that file exists
-next to it: `foo@480x800.xml` (R1), `foo@480x720.xml` (R3 Pro II),
-`foo@320x480.xml` (R3 II 2025). The variant is not listed separately.
-
-### Shape of a file
-
-One `<component>` with an optional `<consts>`, `<styles>` and `<animations>`
-and a `<view>`. The `<view>` is the root of the layout and is created as the
-only child of the Player screen. The format and the widgets available are
-documented in LVGL's XML docs (`lvgl/docs/src/xml/`), with these limits:
-
-- The XML engine is LVGL 9.4's, vendored in `third_party/lv_xml/` because 9.5
-  removed it. Everything in the 9.4 docs applies, nothing newer does.
-- The layout is registered under a fixed component name, so `<view>` tags must
-  not refer to other components. Plain widgets (`lv_obj`, `lv_label`,
-  `lv_image`, `lv_slider`, `lv_button`, `lv_bar`, `lv_arc`, `lv_switch` and the
-  other built-in ones) are fine.
-- Image names in `<styles>` (`bg_image_src`) cannot use the names below, since
-  styles are read before the images are registered. Use an `<lv_image>` widget
-  instead.
-- There is no way to call app functions from XML. Behavior comes from the
-  roles below.
-
-`assets/theme2/player_layouts/example_minimal.xml` is a complete example: all
-roles, a flex-based arrangement that fits every screen, and all four
-timelines. Copy it to start a layout.
-
-### Fonts, images and constants
-
-Registered for XML layouts, usable by name:
-
-- Fonts: `player_title` and `player_meta` (the Player's own fixed sizes),
-  `font_16`, `font_20`, `font_22`, `font_28` (the general UI sizes, which follow
-  Settings > Font Size and a custom font), and `lv_font_default`. Use them as
-  `style_text_font="player_title"`.
-- Images, as the file name without `.png` from `playing_plane/` (resolved
-  through `asset_path()`, so theme overrides apply): `default_cover`,
-  `collect_out`, `collect_in`, `quality_waveform`, `btn_prev`, `btn_prev_s`,
-  `btn_next`, `btn_next_s`, `btn_play`, `btn_pause`, `ic_more`, `order`,
-  `loop`, `single`, `random`, and `btn_back` (from `sub_back/`). Use them as
-  `<lv_image src="btn_prev"/>`. The built-in layout loads the same files, so
-  the image cache holds each one once.
-- Constants: `screen_w` and `screen_h`, the screen size in pixels
-  (`width="#screen_w"`).
-
-Names the XML declares itself in `<consts>`, `<fonts>` or `<images>` take
-precedence over these.
-
-## Roles
-
-A widget becomes a role by its `name` attribute (`lv_obj_set_name()` in C).
-Names are looked up once when the screen is built, never per frame.
-
-Required. If any is missing or has the wrong type, the layout is rejected:
-
-| Name | Widget | What the app does |
-| --- | --- | --- |
-| `cover_card` | any | Container the cover is fitted into. Clipped and sized by the layout. |
-| `cover_img` | `lv_image` | Shows the cover art. Tapping it opens and closes the lyrics view. Should be a child of `cover_card`: the app scales it to cover the card and centers it there. |
-| `title` | `lv_label` | Track title. Scrolls when too long. |
-| `play_btn` | `lv_image` | Play/pause icon, recolored to the accent. Tap toggles playback. |
-| `progress_slider` | `lv_slider` | Seek bar, range 0 to 100. Gets the accent colors, a larger touch margin and exempts itself from the swipe-back gesture. |
-
-Optional. A missing one (or one of the wrong type) is simply absent, and every
-place the app updates it checks for that:
-
-| Name | Widget | What the app does |
-| --- | --- | --- |
-| `artist`, `album` | `lv_label` | Artist (folder when untagged) and album. Scroll when too long. |
-| `pos_label`, `dur_label` | `lv_label` | Elapsed and total time. |
-| `song_count` | `lv_label` | Position in the queue ("3/12"), shown once a track plays. |
-| `quality_pill` | any | Container of the format badge. Hidden while lyrics are open. |
-| `format_badge` | `lv_label` | Codec, bit depth and sample rate. |
-| `favorite_circle` | any | The heart's backdrop, which gets the accent outline. A touch target is added over it. |
-| `favorite_icon` | `lv_image` | The heart glyph, swapped when the track is (un)favorited. |
-| `order_btn` | `lv_image` | Play mode icon (order, loop, single, shuffle). Tap cycles the mode. |
-| `prev_btn`, `next_btn` | `lv_image` | Previous and next. Tap skips, holding seeks. The pressed artwork (`btn_prev_s`, `btn_next_s`) is shown while held. |
-| `more_btn` | `lv_image` | Opens the song menu. |
-| `dismiss_btn` | any | Tap leaves the Player (same as back). |
-| `overlay_panel` | any | Full-screen surface the blurred-cover background paints on. |
-| `background_img` | `lv_image` | The blurred cover image, inside `overlay_panel`. |
-| `volume_slider` | `lv_slider` | Mirrors the volume. An indicator only: it is made non-clickable. |
-
-If a layout has no `overlay_panel`, `background_img`, `volume_slider`, `artist`
-or `album`, the app creates hidden ones (the overlay behind everything)
-because the background and volume code expect them, and because the artist and
-album text is kept in those labels: Remote Control and the quick drawer read it
-back from there, so it is tracked even when the layout does not show it. The
-hidden labels are never laid out, scrolled, styled or moved by the lyrics view. `plugin.set_player_layout` background settings
-(`flat`, `blur_radius`, ...) therefore still work with any layout, but the
-blurred cover is only visible if the layout leaves what covers the overlay
-transparent.
-
-### What the app adds
-
-- Touch targets. The transport icons and the heart are small, so the app adds
-  invisible, larger targets beside them. For a custom layout each one is
-  centered on the widget's final position and is at least 44x44. They are
-  direct children of the Player screen, above the layout.
-- Theme. Custom layouts get the theme's primary text color on `title` and
-  `song_count`, the muted one on the other labels, the accent on the slider,
-  the heart's outline and the play button's glyph, and the pressed-dimming on
-  the icons. Properties the XML sets itself win over these.
-- Text scrolling on `title`, `artist` and `album`: these labels scroll
-  circularly. Give them a fixed width (for example `100%`) so they have a width
-  to scroll within.
-- The metadata block of the built-in layout (heights of the three labels) is
-  not applied to other layouts: their labels are positioned by the layout.
-
-## Animations
-
-A layout may define these timelines (`<animations><timeline name="...">`).
-All are optional. A missing one does nothing.
-
-| Timeline | Played |
+| Folder | Use it for |
 | --- | --- |
-| `screen_enter` | when the Player screen is loaded |
-| `track_change` | after a new track's title, artist and album are set |
-| `lyrics_open`, `lyrics_close` | instead of the built-in morph, when opening and closing the lyrics view |
+| `/usr/resource/litegui/theme2/player_layouts/` | Layouts shipped with the firmware (from `assets/theme2/player_layouts/` in this repo). |
+| `/usr/data/theme_overrides/player_layouts/` | Layouts installed on the device's internal storage. |
+| `<SD card>/.plugins/player_layouts/` | Layouts on the SD card. The easiest place for your own. |
 
-The lyrics pair works only when both exist. With the built-in morph (no pair),
-the cover and metadata move to the top of the screen and the controls are
-hidden; it works without `artist` and `album`, and moves a nested widget to the
-same place on screen.
+On the simulator, the folders are `assets/theme2/player_layouts/` and
+`./music/.plugins/player_layouts/`.
 
-With the pair, the timelines own the motion. The app only:
+File names (without `.xml`) are 1 to 63 letters, digits, `_`, `-` or `.`,
+must not start with `.`, and `default` is reserved. A file can be up to
+256 KB, and the list holds up to 24 layouts including Default.
 
-- disables the touch targets for the duration;
-- hides the layout's controls (every optional role above that is a control,
-  except the cover and metadata) when `lyrics_open` ends, and shows them again
-  when `lyrics_close` starts so they can animate in;
-- puts the lyrics below the lowest of `cover_card`, `title`, `artist` and
-  `album` when `lyrics_open` ends;
-- refits the cover image to `cover_card`.
+### One file per screen size
 
-Timeline end values should match the layout's resting state, since leaving the
-Player closes the lyrics by jumping `lyrics_close` to its end.
+The players have different screens: R1 is 480x800, R3 Pro II is 480x720 and
+R3 II 2025 is 320x480. A layout built with percentages and flex rows can fit
+all of them. If it doesn't, add a version for a specific screen next to it,
+named `name@WIDTHxHEIGHT.xml`:
 
-Timelines animate style properties only (see `ui_elements/animations.rst` in
-LVGL's XML docs): opacity, size, padding, translate and so on. They do not scale
-the cover image while the card resizes; it is refitted at the end.
-
-## Exported C (XML to C)
-
-LVGL's UI Editor can export a component as C:
-
-```c
-lv_obj_t * my_player_create(lv_obj_t * parent);
+```
+clean.xml            used on every screen without its own file
+clean@320x480.xml    used instead on the R3 II 2025
 ```
 
-Add the exported `.c`/`.h` files to `APP_SRCS`, name the widgets with the roles
-above in the XML before exporting, and register it once at startup, before the
-first Player screen is built (for example at the top of `gui_init()`):
+Only `clean` appears in Settings. The example layout ships with a 320x480
+version you can compare with.
 
-```c
-#include "player_layouts.h"
-#include "my_player.h"
+## Writing the XML
 
-player_layouts_register_c("my_player", "My player", my_player_create);
-```
+A layout is one LVGL XML `<component>`: optional `<consts>`, `<styles>` and
+`<animations>`, plus a `<view>` holding the widgets. The format is described
+in LVGL's XML documentation (`lvgl/docs/src/xml/` once the project has been
+built once). Things to know:
 
-It then appears in Settings next to the others. A worked example, including
-the optional timeline hook, is in `docs/player_layouts/README.md`.
+- The app uses the **LVGL 9.4** XML engine, so follow the 9.4 docs.
+- Use LVGL's own widgets (`lv_obj`, `lv_label`, `lv_image`, `lv_slider`,
+  `lv_button`, `lv_bar`, `lv_arc` and so on). A layout cannot use other
+  components or other XML files.
+- XML cannot call app code. Interactive widgets work through the names below.
+- Sizes are in pixels. Use `#screen_w`, `#screen_h`, percentages and flex
+  layouts to adapt to the screen.
 
-## Plugins
+### Ready-made fonts, images and sizes
 
-`plugin.set_player_layout{...}` accepts three more fields next to the
-background ones:
+These names can be used directly:
+
+- **Fonts:** `player_title` and `player_meta` (the built-in Player's title and
+  artist fonts), `font_16`, `font_20`, `font_22` and `font_28` (these follow
+  the Font Size setting and a custom font), and `lv_font_default`. Example:
+  `style_text_font="player_title"`.
+- **Images:** the Player's own icons, which also follow theme overrides:
+  `default_cover`, `btn_play`, `btn_pause`, `btn_prev`, `btn_prev_s`,
+  `btn_next`, `btn_next_s`, `ic_more`, `collect_out`, `collect_in`,
+  `quality_waveform`, `order`, `loop`, `single`, `random`, `btn_back`.
+  Example: `<lv_image src="btn_next"/>`. These names don't work for
+  `bg_image_src` inside `<styles>`; use an `<lv_image>` widget there instead.
+- **Sizes:** `screen_w` and `screen_h`, the screen size in pixels. Example:
+  `width="#screen_w"`.
+
+Anything you declare in your own `<consts>`, `<fonts>` or `<images>` takes
+priority over these names.
+
+## Widgets the app looks for
+
+The app finds widgets by their `name` attribute and brings them to life. The
+rest of your layout is decoration.
+
+**Required.** Without these the layout is rejected and the default one is
+used:
+
+| Name | Type | What it does |
+| --- | --- | --- |
+| `cover_card` | any | Frame for the cover art. Give it a size, rounded corners, clipping. |
+| `cover_img` | `lv_image` | The cover art. Put it inside `cover_card`; it is scaled to fill the card. Tapping it opens and closes lyrics. |
+| `title` | `lv_label` | Song title. Scrolls when too long. |
+| `play_btn` | `lv_image` | Play/pause. Its icon switches automatically and takes the accent color. |
+| `progress_slider` | `lv_slider` | Seek bar. |
+
+**Optional.** Leave out what you don't want:
+
+| Name | Type | What it does |
+| --- | --- | --- |
+| `artist`, `album` | `lv_label` | Artist (or folder name) and album. Scroll when too long. |
+| `pos_label`, `dur_label` | `lv_label` | Elapsed and total time. |
+| `song_count` | `lv_label` | Position in the queue, for example "3/12". |
+| `format_badge` | `lv_label` | Codec, bit depth and sample rate. |
+| `quality_pill` | any | Container around the format badge. |
+| `favorite_circle` | any | Background of the heart button. Tapping it toggles the favorite. |
+| `favorite_icon` | `lv_image` | The heart. Switches between empty and full. |
+| `order_btn` | `lv_image` | Play mode (in order, repeat, repeat one, shuffle). Tap to change. |
+| `prev_btn`, `next_btn` | `lv_image` | Previous and next. Hold to seek. |
+| `more_btn` | `lv_image` | Opens the song menu. |
+| `dismiss_btn` | any | Leaves the Player, like Back. |
+| `overlay_panel` | any | Full-screen surface the blurred cover background is drawn on. |
+| `background_img` | `lv_image` | The blurred cover, inside `overlay_panel`. |
+| `volume_slider` | `lv_slider` | Shows the volume. Display only, it can't be dragged. |
+
+A widget with the right name but the wrong type is ignored (for a required
+one, the layout is rejected).
+
+### What you get for free
+
+- **Theme colors.** Labels get the theme's text colors, and the slider, heart
+  outline and play button get the accent color. These are applied after the
+  layout's `<styles>`, so to use your own color set it directly on the widget,
+  for example `style_text_color="0xFFFFFF"`.
+- **Bigger touch areas.** Small buttons get an invisible touch area of at
+  least 44x44 pixels around them. It is placed once, when the screen is built,
+  so a timeline that moves a button doesn't move its touch area.
+- **Scrolling text.** `title`, `artist` and `album` scroll when the text is
+  too long. Give them a fixed width (for example `width="100%"`).
+- **The blurred background.** If you leave out `overlay_panel` and
+  `background_img`, the app adds hidden ones behind everything. To see the
+  blurred cover, keep whatever sits on top of them transparent.
+- **Song info for other features.** If you leave out `artist` or `album`, the
+  app keeps hidden copies, so Remote Control and the quick drawer still show
+  them.
+
+## Animations and the lyrics view
+
+Add a `<timeline>` with one of these names to animate the screen. Each one is
+optional:
+
+| Timeline | Plays when |
+| --- | --- |
+| `screen_enter` | the Player opens |
+| `track_change` | a new song starts (after its title and artist are shown) |
+| `lyrics_open` | lyrics open (tap on the cover) |
+| `lyrics_close` | lyrics close |
+
+Timelines animate style properties such as opacity, size, position offsets
+(`translate`) and padding. See `ui_elements/animations.rst` in LVGL's XML
+docs.
+
+**Lyrics without timelines.** If the layout doesn't define both
+`lyrics_open` and `lyrics_close`, the standard animation runs: the cover
+shrinks to the top-left corner, the song info moves next to it, the controls
+hide, and the lyrics fill the space below.
+
+**Lyrics with timelines.** If both exist, your timelines move things, and the
+app:
+
+1. turns off the buttons' touch areas while lyrics are open,
+2. when `lyrics_open` finishes, hides these widgets: `order_btn`, `prev_btn`,
+   `play_btn`, `next_btn`, `more_btn`, `progress_slider`, `pos_label`,
+   `dur_label`, `quality_pill`, `dismiss_btn` and `song_count` (except one
+   that contains, or sits inside, the cover or the song info), and always
+   `favorite_circle`,
+3. shows the lyrics below whichever of the cover, title, artist or album ends
+   lowest,
+4. shows those widgets again when `lyrics_close` starts, so they can animate
+   back in.
+
+Anything else on the screen, such as decorations, is left as is: hide or fade
+it in your timelines.
+
+Tips:
+
+- End `lyrics_close` in the layout's normal state. Leaving the Player jumps
+  straight to its end.
+- The cover image isn't resized while `cover_card` changes size; it is fitted
+  again when the animation ends.
+- The lyrics text itself (font, colors, highlighting) and the lyrics area's
+  side and bottom margins are not part of the layout.
+
+## Using a layout from a plugin
+
+A plugin can ship a layout and offer it in Settings:
 
 ```lua
-plugin.set_player_layout({
-  xml  = "player_layouts/clean.xml",  -- file inside <SD card>/.plugins/
-  id   = "clean",                     -- optional, default "plugin.<file name>"
-  name = "Clean",                     -- optional, default the file name
-})
+plugin.set_player_layout({ xml = "player_layouts/clean.xml", name = "Clean" })
 ```
 
-`xml` is relative to the plugins folder. Absolute paths, `..` segments and
-paths that resolve outside the folder (symlinks included) are rejected with a
-Lua error, as is a file that does not exist. The layout is registered and
-selected for this session only and is never saved. Called from the plugin's
-top-level code it belongs to the plugin: it is registered again on each plugin
-reload and gone when the plugin is. Called from a callback, the UI is rebuilt
-to apply it and it stays selected until the app restarts. Choosing another
-layout in Settings replaces it.
+The path is relative to the SD card's `.plugins` folder. Called from the
+plugin's top-level code, this only adds the layout to **Settings > Display >
+Player Layout > Layout**; the user picks it there and the choice is remembered
+while the plugin stays installed. Called from a callback, it switches to the
+layout right away, for this session only. See `plugin.set_player_layout` in
+[PLUGINS.md](../PLUGINS.md) for the details. Published plugins, including ones
+that ship layouts, live in the
+[compas-plugins repository](https://github.com/Starnished66/compas-plugins).
 
-## Limits
+## Building a layout into the firmware
 
-- One XML layout is live at a time. Switching rebuilds the whole UI.
-- A failed XML parse leaves no trace, but a file the parser accepts can still
-  log warnings for attributes it does not know (LVGL's logging is off in
-  release builds, so they are silent).
-- The XML engine adds about 220 KB to the binary.
-- `background_img` is always sized to the full screen and placed at its origin
-  by the blurred-background code, wherever the layout put it.
+Developers can compile a layout into the app instead of shipping an XML file.
+LVGL's UI Editor (LVGL Pro) can export an XML component as C, which gives a
+function like `lv_obj_t * my_player_create(lv_obj_t * parent);`.
+
+1. In the editor, name the widgets as above, then export the component.
+2. Copy the generated `.c` and `.h` into `src/ui/` and add the `.c` to
+   `APP_SRCS` in the `Makefile`. The code must build against LVGL 9.5 in
+   `lvgl/`. Fonts and icons are app objects there: use the C names, for
+   example `app_font_player_title` and `asset_path("playing_plane/btn_play.png")`
+   (`src/ui/player_layouts.c` lists them all).
+3. Register the layout once, early in `gui_init()` and before
+   `gui_player_init()`:
+
+   ```c
+   #include "player_layouts.h"
+   #include "my_player.h"
+
+   player_layouts_register_c("my_player", "My player", my_player_create);
+   ```
+
+   The first argument is the id saved in the settings, the second the name
+   shown in Settings. The create function must return the root object it made,
+   or NULL on failure.
+
+4. To use timelines from exported code, register a function that returns
+   them by name. It is called once per name when the screen is built, and each
+   timeline must belong to `root`:
+
+   ```c
+   static lv_anim_timeline_t * my_player_timeline(lv_obj_t * root, const char * name) {
+       if (strcmp(name, "track_change") == 0) return my_player_get_track_change(root);
+       return NULL;
+   }
+
+   player_layouts_register_c_ex("my_player", "My player", my_player_create, my_player_timeline);
+   ```
+
+## If something goes wrong
+
+- **The default layout shows instead of mine.** The file failed to load, or a
+  required widget is missing or has the wrong type. The reason is printed to
+  the app's error output (stderr). On the simulator, run it from a terminal
+  to see it.
+- **My layout isn't in the list.** Check the folder, the `.xml` extension, and
+  that the name only uses letters, digits, `_`, `-` and `.`. Files with `@` in
+  the name are screen-size versions and are not listed.
+- **Part of the screen is cut off on one model.** Add a
+  `name@WIDTHxHEIGHT.xml` version for that screen.
+- **An attribute seems to do nothing.** LVGL ignores attributes it doesn't
+  know, and in release builds it doesn't warn about them. Check the spelling
+  against the 9.4 XML docs.
+
+## Notes
+
+- Only one XML layout is loaded at a time. Switching reloads the interface.
+- The XML engine adds about 220 KB to the app. It only starts when an XML
+  layout is used.
+- The app sizes `background_img` to the full screen and places it at the
+  top-left of its parent, so put it in a full-screen container at the
+  top-left of the screen (as `overlay_panel` is in the example).

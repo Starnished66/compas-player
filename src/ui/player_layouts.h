@@ -64,14 +64,23 @@ bool player_layouts_register_c_ex(const char * id, const char * display_name, pl
 /* True for an id player_layouts_register_c() / a plugin may use. */
 bool player_layouts_id_is_valid(const char * id);
 
-/* Registers an XML layout at `path` for this session only and makes it the
- * effective layout (plugin.set_player_layout). `path` must already be a
- * resolved, trusted path. Returns true when the effective layout changed.
+/* Registers an XML layout at `path` for this session only so it appears in
+ * the Settings list, without selecting it (plugin.set_player_layout called
+ * from top-level code). `path` must already be a resolved, trusted path.
+ * Registering an id again replaces its entry, so a plugin reload does not
+ * duplicate it. Returns false when the id or path is unusable.
  *
  * A layout registered while a plugin loads (`from_callback` false) belongs to
  * that plugin: it goes away on plugin reset and is registered again when the
  * plugin reloads. One registered from a plugin callback has no code that would
  * register it again, so it survives plugin resets until the app restarts. */
+bool player_layouts_session_register_xml(const char * id, const char * display_name, const char * path,
+                                         bool from_callback);
+
+/* Registers like player_layouts_session_register_xml() and also makes the
+ * layout the session's effective one until the user picks a layout in
+ * Settings (plugin.set_player_layout called from a callback). Returns true
+ * when the effective layout changed. */
 bool player_layouts_session_select_xml(const char * id, const char * display_name, const char * path,
                                        bool from_callback);
 

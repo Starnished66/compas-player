@@ -3,7 +3,6 @@
 #include "gui.h"
 #include "gui_theme.h"
 #include "screen_builders.h"
-#include "src/misc/lv_text_private.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -25,6 +24,7 @@ static bool rendered_runtime_valid;
 static uint64_t local_facts_generation;
 static bool local_stat_ok;
 static uint64_t local_file_size;
+static int info_line_count;
 
 static const char * codec_name(audio_codec_t codec) {
     switch (codec) {
@@ -114,116 +114,46 @@ static void sanitized_url_host(const char * url, char * out, size_t out_size) {
     out[len] = '\0';
 }
 
-static void wrap_text_to_width(const char * src, char * out, size_t out_size, const lv_font_t * font, int32_t max_width) {
-    if (!src || !out || out_size == 0) return;
-    if (!font || max_width <= 0) {
-        snprintf(out, out_size, "%s", src);
-        return;
-    }
-
-    size_t out_pos = 0;
-    int32_t cur_line_w = 0;
-
-    /* uint32_t, not size_t -- lv_text_encoded_next()'s own signature is
-     * uint32_t (*)(const char *, uint32_t *) (lv_text_private.h). On a
-     * 32-bit target size_t and uint32_t are the same width, so this built
-     * silently there, but on a 64-bit host passing a size_t* (8 bytes)
-     * where the callee only ever writes/reads 4 lets the top 4 bytes sit
-     * uninitialized garbage that the next `i`/`c_idx` read as part of a
-     * wider size_t -- a real correctness bug on host, not just a build
-     * nuisance. token_start/token_bytes/c_idx/char_start are all derived
-     * from the same byte-index space and follow suit; char_len already
-     * was uint32_t. */
-    uint32_t i = 0;
-    while (src[i] != '\0' && out_pos + 1 < out_size) {
-        if (src[i] == '\n') {
-            out[out_pos++] = '\n';
-            cur_line_w = 0;
-            i++;
-            continue;
-        }
-
-        uint32_t token_start = i;
-        int32_t token_w = 0;
-        while (src[i] != '\0' && src[i] != '\n') {
-            uint32_t letter = lv_text_encoded_next(src, &i);
-            uint32_t next_letter = src[i] ? lv_text_encoded_next(src, NULL) : 0;
-            token_w += lv_font_get_glyph_width(font, letter, next_letter);
-
-            if (letter == '/' || letter == ' ' || letter == '-' || letter == '_' ||
-                letter == '.' || letter == ':' || letter == '\\') {
-                break;
-            }
-        }
-        uint32_t token_bytes = i - token_start;
-
-        if (cur_line_w + token_w <= max_width || cur_line_w == 0) {
-            if (out_pos + token_bytes < out_size) {
-                memcpy(&out[out_pos], &src[token_start], token_bytes);
-                out_pos += token_bytes;
-                cur_line_w += token_w;
-            } else {
-                break;
-            }
-        } else {
-            if (out_pos + 1 < out_size) {
-                out[out_pos++] = '\n';
-                cur_line_w = 0;
-            }
-
-            if (token_w > max_width) {
-                uint32_t c_idx = token_start;
-                while (c_idx < token_start + token_bytes && out_pos + 1 < out_size) {
-                    uint32_t char_start = c_idx;
-                    uint32_t letter = lv_text_encoded_next(src, &c_idx);
-                    uint32_t next_letter = (c_idx < token_start + token_bytes) ? lv_text_encoded_next(src, NULL) : 0;
-                    int32_t glyph_w = lv_font_get_glyph_width(font, letter, next_letter);
-                    uint32_t char_len = c_idx - char_start;
-
-                    if (cur_line_w + glyph_w > max_width && cur_line_w > 0) {
-                        out[out_pos++] = '\n';
-                        cur_line_w = 0;
-                    }
-                    if (out_pos + char_len < out_size) {
-                        memcpy(&out[out_pos], &src[char_start], char_len);
-                        out_pos += char_len;
-                        cur_line_w += glyph_w;
-                    }
-                }
-            } else {
-                if (out_pos + token_bytes < out_size) {
-                    memcpy(&out[out_pos], &src[token_start], token_bytes);
-                    out_pos += token_bytes;
-                    cur_line_w = token_w;
-                }
-            }
-        }
-    }
-    out[out_pos < out_size ? out_pos : out_size - 1] = '\0';
-}
-
 static void add_info_line(const char * name, const char * value) {
     if (!info_list || !name || !value || !value[0]) return;
-    char raw_line[2304];
-    snprintf(raw_line, sizeof(raw_line), "%s: %s", name, value);
 
-    const lv_font_t * font = gui_theme_font(GUI_FONT_ROLE_BODY);
-    int32_t scr_w = lv_display_get_horizontal_resolution(lv_display_get_default());
-    int32_t max_w = scr_w - BOARD_SCALE_PX(48);
-    if (max_w <= 0) max_w = BOARD_SCREEN_WIDTH - BOARD_SCALE_PX(48);
+    lv_obj_t * field = lv_obj_create(info_list);
+    lv_obj_set_width(field, lv_pct(100));
+    lv_obj_set_height(field, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(field, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(field, 0, 0);
+    lv_obj_set_style_pad_all(field, 0, 0);
+    lv_obj_set_style_pad_top(field, BOARD_SCALE_PX(8), 0);
+    lv_obj_set_flex_flow(field, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_gap(field, BOARD_SCALE_PX(2), 0);
+    lv_obj_remove_flag(field, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
 
-    char wrapped_line[4096];
-    wrap_text_to_width(raw_line, wrapped_line, sizeof(wrapped_line), font, max_w);
+    lv_obj_t * name_label = lv_label_create(field);
+    lv_obj_set_width(name_label, lv_pct(100));
+    lv_label_set_long_mode(name_label, LV_LABEL_LONG_WRAP);
+    lv_label_set_text(name_label, name);
+    lv_obj_add_style(name_label, &style_theme_text_muted, 0);
+    lv_obj_set_style_text_font(name_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+    lv_obj_add_flag(name_label, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
+    lv_obj_t * value_label = lv_label_create(field);
+    lv_obj_set_width(value_label, lv_pct(100));
+    lv_label_set_long_mode(value_label, LV_LABEL_LONG_WRAP);
+    lv_label_set_text(value_label, value);
+    lv_obj_add_style(value_label, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(value_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    lv_obj_add_flag(value_label, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    info_line_count++;
+}
+
+static void add_info_section(const char * title) {
     lv_obj_t * label = lv_label_create(info_list);
-    lv_obj_set_width(label, max_w);
-    lv_obj_set_height(label, LV_SIZE_CONTENT);
-    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
-    lv_obj_add_style(label, &style_theme_text_primary, 0);
-    lv_obj_set_style_text_font(label, font, 0);
-    lv_obj_set_style_pad_top(label, BOARD_SCALE_PX(8), 0);
-    lv_obj_add_flag(label, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    lv_label_set_text(label, wrapped_line);
+    lv_obj_set_width(label, lv_pct(100));
+    lv_label_set_text(label, title);
+    lv_obj_add_style(label, &style_theme_text_muted, 0);
+    lv_obj_set_style_text_font(label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+    lv_obj_set_style_pad_top(label, BOARD_SCALE_PX(14), 0);
+    lv_obj_set_style_pad_bottom(label, BOARD_SCALE_PX(2), 0);
 }
 
 static void load_local_facts_once(void) {
@@ -254,6 +184,7 @@ static bool current_runtime(audio_current_format_info_t * out) {
 static void rebuild_info_text(const audio_current_format_info_t * runtime, bool runtime_valid) {
     if (!info_list) return;
     lv_obj_clean(info_list);
+    info_line_count = 0;
     load_local_facts_once();
 
     char value[256];
@@ -261,6 +192,7 @@ static void rebuild_info_text(const audio_current_format_info_t * runtime, bool 
     audio_codec_t codec = runtime_valid && runtime->codec != AUDIO_CODEC_UNKNOWN
         ? runtime->codec : current_context.declared_codec;
     if (codec == AUDIO_CODEC_UNKNOWN) codec = codec_from_container(current_context.container);
+    add_info_section("Audio");
     add_info_line("Codec", codec_name(codec));
     add_info_line("Container", current_context.container);
 
@@ -328,6 +260,7 @@ static void rebuild_info_text(const audio_current_format_info_t * runtime, bool 
         add_info_line("File size", value);
     }
 
+    add_info_section("Track");
     value[0] = '\0';
     if (current_context.has_disc_number && current_context.has_track_number)
         snprintf(value, sizeof(value), "Disc %d / Track %d", current_context.disc_number,
@@ -354,6 +287,7 @@ static void rebuild_info_text(const audio_current_format_info_t * runtime, bool 
     }
     add_info_line("ReplayGain", value);
 
+    add_info_section("Source");
     value[0] = '\0';
     if (current_context.source == GUI_TRACK_SOURCE_SUBSONIC) {
         add_info_line("Provider", "Subsonic");
@@ -381,14 +315,14 @@ static void rebuild_info_text(const audio_current_format_info_t * runtime, bool 
         add_info_line("Location", local_path);
     }
 
-    if (lv_obj_get_child_count(info_list) == 0) {
+    if (info_line_count == 0) {
         lv_obj_t * label = lv_label_create(info_list);
         lv_obj_set_width(label, lv_pct(100));
         lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
         lv_obj_add_style(label, &style_theme_text_primary, 0);
         lv_obj_set_style_text_font(label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
         lv_obj_set_style_pad_top(label, BOARD_SCALE_PX(8), 0);
-        lv_label_set_text(label, "No track information available");
+        lv_label_set_text(label, "Track details are not available yet. Keep playback open and check again.");
     }
 }
 
@@ -413,7 +347,7 @@ void gui_track_info_init(void) {
     lv_obj_set_style_pad_left(info_list, BOARD_SCALE_PX(24), 0);
     lv_obj_set_style_pad_right(info_list, BOARD_SCALE_PX(24), 0);
     lv_obj_set_style_pad_top(info_list, BOARD_SCALE_PX(12), 0);
-    lv_obj_set_style_pad_bottom(info_list, BOARD_SCALE_PX(16), 0);
+    lv_obj_set_style_pad_bottom(info_list, BOARD_SCALE_PX(8), 0);
 }
 
 lv_obj_t * gui_track_info_get_screen(void) {

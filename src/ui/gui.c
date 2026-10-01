@@ -476,16 +476,11 @@ static void power_button_timer_cb(lv_timer_t * timer) {
     process_power_button_events();
 }
 
-static void update_timer_cb(lv_timer_t * timer) {
+/* Only cheap event consumption runs at input cadence. Periodic status,
+ * storage and service work remains on the 500 ms update timer. Keep all
+ * player and LVGL actions on this thread, including while the screen is off. */
+static void media_button_timer_cb(lv_timer_t * timer) {
     (void) timer;
-
-    /* Physical volume/skip/play-pause buttons: applied here, on the one
-     * thread allowed to touch LVGL widgets (see hw_buttons.h). Play/pause
-     * is a count, not a bool -- this poll only runs every 500ms, and a real
-     * double-click's two presses routinely land inside one poll window; a
-     * count of 2 here dispatches immediately, twice in a row, letting
-     * handle_physical_play_pause_press()'s own click-count state (mode 2)
-     * see it as a same-tick double-click without waiting on its timer. */
     int played_paused_count = hw_buttons_consume_play_pause();
     for (int i = 0; i < played_paused_count; i++) {
         handle_physical_play_pause_press();
@@ -508,6 +503,27 @@ static void update_timer_cb(lv_timer_t * timer) {
     if (next_seek_steps > 0) {
         gui_player_hw_next_seek_steps(next_seek_steps, next_seek_is_first);
     }
+    int volume_delta = hw_buttons_consume_volume_delta();
+    if (volume_delta != 0) {
+        int32_t new_percent = gui_player_get_volume_percent() + volume_delta;
+        if (new_percent < 0) new_percent = 0;
+        if (new_percent > 100) new_percent = 100;
+        gui_player_set_volume_percent(new_percent);
+        audio_set_volume((float) new_percent / 100.0f);
+        gui_player_remember_volume_percent(new_percent);
+        settings_save_async(&current_settings);
+        show_volume_popup(new_percent);
+        refresh_volume_topbar(new_percent);
+    }
+
+    if (played_paused_count > 0 || skipped_next || skipped_prev || volume_delta != 0 || next_seek_steps > 0) {
+        lv_display_trigger_activity(NULL);
+    }
+}
+
+static void update_timer_cb(lv_timer_t * timer) {
+    (void) timer;
+
     bool screenshot_request_pending = hw_buttons_consume_screenshot();
 
 #ifndef HOST_BUILD
@@ -547,19 +563,6 @@ static void update_timer_cb(lv_timer_t * timer) {
         settings_save_async(&current_settings);
         show_volume_popup(bt_synced_volume_percent);
         refresh_volume_topbar(bt_synced_volume_percent);
-    }
-
-    int volume_delta = hw_buttons_consume_volume_delta();
-    if (volume_delta != 0) {
-        int32_t new_percent = gui_player_get_volume_percent() + volume_delta;
-        if (new_percent < 0) new_percent = 0;
-        if (new_percent > 100) new_percent = 100;
-        gui_player_set_volume_percent(new_percent);
-        audio_set_volume((float) new_percent / 100.0f);
-        gui_player_remember_volume_percent(new_percent);
-        settings_save_async(&current_settings);
-        show_volume_popup(new_percent);
-        refresh_volume_topbar(new_percent);
     }
 
     /* Phone remote-control (Phase 2, remote_control.h): same "background
@@ -821,12 +824,6 @@ static void update_timer_cb(lv_timer_t * timer) {
         }
     }
 #endif
-
-    /* Feed button activity into the inactivity clock so physical button presses
-     * delay auto-timeout during active use without waking an already-off screen. */
-    if (played_paused_count > 0 || skipped_next || skipped_prev || volume_delta != 0) {
-        lv_display_trigger_activity(NULL);
-    }
 
     bool screen_was_on = backlight_screen_is_on();
 
@@ -1105,7 +1102,7 @@ static void update_timer_cb(lv_timer_t * timer) {
 
     /* The slide displays frozen frames; defer purely visual refreshes until
      * it settles, while keeping the playback/hardware polling above live. */
-    if (gui_navigation_transition_in_progress()) return;
+    if (gui_navigation_transition_in_progress() || gui_player_lyrics_animation_in_progress()) return;
 
     if (!gui_player_has_active_track() || gui_player_is_seeking()) return;
 
@@ -1691,6 +1688,7 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
      * start runtime update timer, and install gesture indev hooks. */
     gui_reset_interactive_timeout_baseline();
     lv_timer_create(power_button_timer_cb, 25, NULL);
+    lv_timer_create(media_button_timer_cb, 16, NULL);
     lv_timer_create(update_timer_cb, 500, NULL);
     lv_indev_t * gesture_indev = find_pointer_indev();
     gui_shell_install_indev_hooks(gesture_indev);

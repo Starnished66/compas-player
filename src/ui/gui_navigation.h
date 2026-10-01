@@ -105,3 +105,6 @@ void gui_navigation_invalidate_font_snapshots(void);
 void gui_navigation_invalidate_theme_snapshots(void);
 
 void full_redraw_async_cb(void * unused);
+
+/* UI-thread notification after a covered screen receives worker results. */
+void gui_navigation_invalidate_back_snapshot(lv_obj_t * screen);

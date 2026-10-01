@@ -221,7 +221,7 @@ endif
 LVGL_PATCH := patches/lvgl_fbdev_compositor.patch
 LVGL_RUNTIME_FIXES_PATCH := patches/lvgl_runtime_fixes.patch
 LVGL_GENERATED_FONTS_DIR := patches/lvgl_generated_fonts
-LVGL_GENERATED_FONTS := lv_font_montserrat_16.c lv_font_montserrat_20.c lv_font_montserrat_22.c lv_font_montserrat_24.c lv_font_montserrat_26.c lv_font_montserrat_28.c lv_font_montserrat_30.c lv_font_montserrat_32.c lv_font_montserrat_34.c lv_font_montserrat_40.c
+LVGL_GENERATED_FONTS := lv_font_montserrat_12.c lv_font_montserrat_14.c lv_font_montserrat_16.c lv_font_montserrat_18.c lv_font_montserrat_20.c lv_font_montserrat_22.c lv_font_montserrat_24.c lv_font_montserrat_26.c lv_font_montserrat_28.c lv_font_montserrat_30.c lv_font_montserrat_32.c lv_font_montserrat_34.c lv_font_montserrat_40.c
 LVGL_PINNED_COMMIT := 85aa60d18b3d5e5588d7b247abf90198f07c8a63
 LVGL_FBDEV_C := $(LVGL_DIR)/src/drivers/display/fb/lv_linux_fbdev.c
 LVGL_FBDEV_H := $(LVGL_DIR)/src/drivers/display/fb/lv_linux_fbdev.h
@@ -1091,16 +1091,21 @@ bluetooth-codec-selftest:
 # Headless real-LVGL layout tests: no SDL development package or device
 # required. Keep these objects separate from both production configurations.
 UI_STYLE_TEST_SRCS = $(LVGL_SRCS) src/ui/screen_builders.c src/ui/gui_theme.c src/ui/gui_notifications.c src/ui/gui_plugins.c src/ui/transition_compositor.c src/ui/frosted_glass.c src/ui/screen_builders_test.c
-UI_STYLE_TEST_OBJS = $(UI_STYLE_TEST_SRCS:%.c=build_ui_test/%.o)
-ui-style-selftest: build_ui_test/ui_style_test
-	./build_ui_test/ui_style_test
+ifeq ($(BOARD),r1)
+UI_STYLE_TEST_DIR = build_ui_test
+else
+UI_STYLE_TEST_DIR = build_ui_test_$(BOARD)
+endif
+UI_STYLE_TEST_OBJS = $(UI_STYLE_TEST_SRCS:%.c=$(UI_STYLE_TEST_DIR)/%.o)
+ui-style-selftest: $(UI_STYLE_TEST_DIR)/ui_style_test
+	./$(UI_STYLE_TEST_DIR)/ui_style_test
 
-build_ui_test/ui_style_test: $(UI_STYLE_TEST_OBJS)
+$(UI_STYLE_TEST_DIR)/ui_style_test: $(UI_STYLE_TEST_OBJS)
 	$(CC) $^ -Wl,--gc-sections -lpthread -lm -o $@
 
-build_ui_test/%.o: %.c
+$(UI_STYLE_TEST_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -O0 -ffunction-sections -fdata-sections -c $< -o $@
+	$(CC) $(CFLAGS) $(BOARD_DEFINE) -O0 -ffunction-sections -fdata-sections -c $< -o $@
 
 -include $(UI_STYLE_TEST_OBJS:.o=.d)
 

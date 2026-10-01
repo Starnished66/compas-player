@@ -54,7 +54,9 @@ uint32_t gui_anim_ms(uint32_t base_ms); /* src/ui/gui_theme.c */
                                   * own clock/volume/battery faces), so they
                                   * still fit their 84px slot under the icon
                                   * regardless of the Settings > Font Size tier */
+#define LV_FONT_MONTSERRAT_14 1 /* R3II 2025 scaled Small/Medium tiers */
 #define LV_FONT_MONTSERRAT_16 1
+#define LV_FONT_MONTSERRAT_18 1 /* R3II 2025 scaled Medium tier */
 #define LV_FONT_MONTSERRAT_20 1 /* status bar text, 16*1.25 -- see build_status_bar() */
 #define LV_FONT_MONTSERRAT_22 1 /* touch_list rows (Artists/Albums/Songs/...) -- see LIST_ROW_FONT */
 #define LV_FONT_MONTSERRAT_28 1

@@ -188,7 +188,7 @@
 
 # Build outputs
 /build_host/
-/build_ui_test/
+/build_ui_test*/
 /build_layouts_test*/
 /build_bootloader_test/
 /build_test/
@@ -359,6 +359,8 @@ repomix-output.xml
 src/library/cover_decode_scale_test.c
 inline remote follow-up fixes.diff
 src/ui/screen_builders_test.c
+!scripts/generate_power_action_icons.py
+!/assets/theme1/power_action/
 print_heights.c
 final_diff.patch
 
@@ -373,8 +375,6 @@ docs/INCREMENTAL_DATABASE.md
 # Player layouts: the docs and tests belong to the feature, so they are
 # exempt from the blanket *.md and *_test.c rules above.
 !/docs/PLAYER_LAYOUTS.md
-!/docs/player_layouts/
-!/docs/player_layouts/README.md
 !/third_party/lv_xml/README.md
 !/src/ui/player_layouts_test.c
 !/src/ui/player_layout_bind_test.c
