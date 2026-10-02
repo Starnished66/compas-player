@@ -1,0 +1,34 @@
+# Approval candidate; uses the existing Themes file format.
+name=Rose Quartz
+screen=0xF4E8EC
+card=0xFFF7F9
+list_row=0xFFF7F9
+text_primary=0x542C3D
+text_muted=0x785B67
+icon_root=theme1
+home_mode=tile
+home_tile_gap=10
+
+tile.music.bg_color=0xFFF7F9
+tile.music.text_color=0x542C3D
+tile.music.radius=18
+
+tile.stream_media.bg_color=0xE8CED8
+tile.stream_media.text_color=0x542C3D
+tile.stream_media.radius=18
+
+tile.wireless.bg_color=0xE8CED8
+tile.wireless.text_color=0x542C3D
+tile.wireless.radius=18
+
+tile.books.bg_color=0xFFF7F9
+tile.books.text_color=0x542C3D
+tile.books.radius=18
+
+tile.settings.bg_color=0xFFF7F9
+tile.settings.text_color=0x542C3D
+tile.settings.radius=18
+
+tile.dac.bg_color=0xE8CED8
+tile.dac.text_color=0x542C3D
+tile.dac.radius=18

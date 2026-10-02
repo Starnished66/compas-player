@@ -1,0 +1,34 @@
+# Approval candidate; uses the existing Themes file format.
+name=Brass Studio
+screen=0x171512
+card=0x28231B
+list_row=0x28231B
+text_primary=0xF4E8CF
+text_muted=0xBDB09A
+icon_root=theme2
+home_mode=tile
+home_tile_gap=10
+
+tile.music.bg_color=0x30291D
+tile.music.text_color=0xF2D493
+tile.music.radius=4
+
+tile.stream_media.bg_color=0x25221B
+tile.stream_media.text_color=0xF2D493
+tile.stream_media.radius=4
+
+tile.wireless.bg_color=0x25221B
+tile.wireless.text_color=0xF2D493
+tile.wireless.radius=4
+
+tile.books.bg_color=0x30291D
+tile.books.text_color=0xF2D493
+tile.books.radius=4
+
+tile.settings.bg_color=0x30291D
+tile.settings.text_color=0xF2D493
+tile.settings.radius=4
+
+tile.dac.bg_color=0x25221B
+tile.dac.text_color=0xF2D493
+tile.dac.radius=4

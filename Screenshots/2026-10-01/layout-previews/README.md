@@ -1,0 +1,1 @@
+Host layout previews, not device framebuffer captures. English and Spanish welcome pills passed bounds and group-centering assertions at all three board resolutions. Actual R1 screenshot: ../setup/00-welcome-centered.png.

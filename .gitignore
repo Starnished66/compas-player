@@ -295,7 +295,8 @@
 /TECHNICAL_NOTES.md
 /WHATS_NEW_NEXT.md
 /POSSIBLE_IMPROVEMENTS.md
-/Screenshots/
+/Screenshots/*
+!/Screenshots/2026-10-01/
 /tools/
 
 # Claude Code
@@ -378,3 +379,6 @@ docs/INCREMENTAL_DATABASE.md
 !/third_party/lv_xml/README.md
 !/src/ui/player_layouts_test.c
 !/src/ui/player_layout_bind_test.c
+
+# Keep the recent UI walkthrough and its gallery notes in the repository.
+!/Screenshots/2026-10-01/**/*.md

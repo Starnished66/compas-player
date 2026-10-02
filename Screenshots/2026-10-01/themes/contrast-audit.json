@@ -1,0 +1,210 @@
+[
+  {
+    "theme": "Earthy",
+    "field": "text_muted",
+    "before": "0x9A8060",
+    "after": "0xA1886B",
+    "contrast_before": 4.15,
+    "contrast_after": 4.61
+  },
+  {
+    "theme": "Earthy",
+    "field": "tile.stream_media.text_color",
+    "before": "0xF5EAD9",
+    "after": "0x000000",
+    "contrast_before": 3.82,
+    "contrast_after": 4.62
+  },
+  {
+    "theme": "Earthy",
+    "field": "tile.wireless.text_color",
+    "before": "0x3A2A1E",
+    "after": "0x1F1710",
+    "contrast_before": 3.58,
+    "contrast_after": 4.6
+  },
+  {
+    "theme": "Earthy",
+    "field": "tile.settings.text_color",
+    "before": "0x3A2A1E",
+    "after": "0x291E15",
+    "contrast_before": 3.89,
+    "contrast_after": 4.61
+  },
+  {
+    "theme": "Earthy",
+    "field": "tile.dac.text_color",
+    "before": "0xF5EAD9",
+    "after": "0x000000",
+    "contrast_before": 3.83,
+    "contrast_after": 4.61
+  },
+  {
+    "theme": "Monastic",
+    "field": "text_muted",
+    "before": "0x776f61",
+    "after": "0x5E574C",
+    "contrast_before": 3.22,
+    "contrast_after": 4.63
+  },
+  {
+    "theme": "MountainSunset",
+    "field": "tile.wireless.text_color",
+    "before": "0xFFE8D6",
+    "after": "0x131110",
+    "contrast_before": 3.44,
+    "contrast_after": 4.64
+  },
+  {
+    "theme": "Retro",
+    "field": "text_muted",
+    "before": "0x9A7A4A",
+    "after": "0xA3865A",
+    "contrast_before": 3.97,
+    "contrast_after": 4.62
+  },
+  {
+    "theme": "Retro",
+    "field": "tile.books.text_color",
+    "before": "0xF2E9D8",
+    "after": "0x1A1917",
+    "contrast_before": 3.16,
+    "contrast_after": 4.61
+  },
+  {
+    "theme": "Retro",
+    "field": "tile.settings.text_color",
+    "before": "0xF2E9D8",
+    "after": "0xFBF8F2",
+    "contrast_before": 4.07,
+    "contrast_after": 4.63
+  },
+  {
+    "theme": "Retro",
+    "field": "tile.dac.text_color",
+    "before": "0xF2E9D8",
+    "after": "0x242320",
+    "contrast_before": 2.83,
+    "contrast_after": 4.6
+  },
+  {
+    "theme": "Swamp",
+    "field": "text_muted",
+    "before": "0x72814a",
+    "after": "0x909C70",
+    "contrast_before": 3.2,
+    "contrast_after": 4.64
+  },
+  {
+    "theme": "Swamp",
+    "field": "tile.stream_media.text_color",
+    "before": "0x7C8F4E",
+    "after": "0x8C9D64",
+    "contrast_before": 3.81,
+    "contrast_after": 4.6
+  },
+  {
+    "theme": "Swamp",
+    "field": "tile.books.text_color",
+    "before": "0x7C8F4E",
+    "after": "0x8B9C62",
+    "contrast_before": 3.89,
+    "contrast_after": 4.64
+  },
+  {
+    "theme": "Swamp",
+    "field": "tile.dac.text_color",
+    "before": "0x7C8F4E",
+    "after": "0x829456",
+    "contrast_before": 4.33,
+    "contrast_after": 4.65
+  },
+  {
+    "theme": "Terminal",
+    "field": "text_muted",
+    "before": "0x2E7D2E",
+    "after": "0x478D47",
+    "contrast_before": 3.64,
+    "contrast_after": 4.6
+  },
+  {
+    "theme": "Trees",
+    "field": "text_muted",
+    "before": "0x778665",
+    "after": "0x96A288",
+    "contrast_before": 3.2,
+    "contrast_after": 4.65
+  },
+  {
+    "theme": "Vaporwave",
+    "field": "tile.books.text_color",
+    "before": "0xFFF0FF",
+    "after": "0xFFFDFF",
+    "contrast_before": 4.26,
+    "contrast_after": 4.61
+  },
+  {
+    "theme": "Vaporwave",
+    "field": "tile.settings.text_color",
+    "before": "0xFFF5FB",
+    "after": "0x1E1D1E",
+    "contrast_before": 3.42,
+    "contrast_after": 4.6
+  },
+  {
+    "theme": "Vaporwave",
+    "field": "tile.dac.text_color",
+    "before": "0xFFFFFF",
+    "after": "0x363636",
+    "contrast_before": 2.62,
+    "contrast_after": 4.61
+  },
+  {
+    "theme": "Wavy",
+    "field": "text_muted",
+    "before": "0x5A92A8",
+    "after": "0x6C9EB2",
+    "contrast_before": 3.93,
+    "contrast_after": 4.61
+  },
+  {
+    "theme": "Wavy",
+    "field": "tile.settings.text_color",
+    "before": "0x87CFDC",
+    "after": "0xBAE4EB",
+    "contrast_before": 3.59,
+    "contrast_after": 4.61
+  },
+  {
+    "theme": "Wavy",
+    "field": "tile.dac.text_color",
+    "before": "0x7FCCDC",
+    "after": "0xFBFEFE",
+    "contrast_before": 2.57,
+    "contrast_after": 4.61
+  },
+  {
+    "theme": "White",
+    "field": "text_muted",
+    "before": "0x6E6E6E",
+    "after": "0x696969",
+    "contrast_before": 4.32,
+    "contrast_after": 4.65
+  },
+  {
+    "theme": "ZenTerracotta",
+    "field": "text_muted",
+    "before": "0x806a58",
+    "after": "0x645345",
+    "contrast_before": 3.22,
+    "contrast_after": 4.63
+  },
+  {
+    "theme": "ArcticGlass",
+    "field": "text_muted",
+    "before": "0x536D7D",
+    "after": "0x516A7A",
+    "contrast_before": 4.42,
+    "contrast_after": 4.61
+  }
+]

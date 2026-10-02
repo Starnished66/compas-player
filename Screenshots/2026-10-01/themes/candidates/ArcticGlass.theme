@@ -1,0 +1,34 @@
+# Approval candidate; uses the existing Themes file format.
+name=Arctic Glass
+screen=0xDEE9F0
+card=0xF4FAFE
+list_row=0xF4FAFE
+text_primary=0x153A51
+text_muted=0x516A7A
+icon_root=theme1
+home_mode=tile
+home_tile_gap=10
+
+tile.music.bg_color=0xF2F8FC
+tile.music.text_color=0x193F58
+tile.music.radius=30
+
+tile.stream_media.bg_color=0xCADFEA
+tile.stream_media.text_color=0x193F58
+tile.stream_media.radius=30
+
+tile.wireless.bg_color=0xCADFEA
+tile.wireless.text_color=0x193F58
+tile.wireless.radius=30
+
+tile.books.bg_color=0xF2F8FC
+tile.books.text_color=0x193F58
+tile.books.radius=30
+
+tile.settings.bg_color=0xF2F8FC
+tile.settings.text_color=0x193F58
+tile.settings.radius=30
+
+tile.dac.bg_color=0xCADFEA
+tile.dac.text_color=0x193F58
+tile.dac.radius=30

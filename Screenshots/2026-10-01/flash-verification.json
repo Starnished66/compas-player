@@ -1,0 +1,15 @@
+{
+  "device": "R1",
+  "adb_serial": "ingenic_2233",
+  "upt": "/data/mnt/sd_0/r1.upt",
+  "upt_md5": "7f0c834c38d13b241783cde72bb94610",
+  "installed_player_md5": "f872e47b23d6dc54ed721c5fea1980eb",
+  "matches_release_binary": true,
+  "new_boot_id": "2d91ee44-7987-408c-a9da-2a1516c0dd9e",
+  "runtime_path": "/usr/bin/compas_player",
+  "theme1_car_asset_verified": true,
+  "theme2_car_asset_verified": true,
+  "network": "Home Network",
+  "wifi_association": "COMPLETED",
+  "walkthrough_complete": false
+}

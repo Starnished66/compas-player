@@ -1,0 +1,725 @@
+{
+  "source": "Actual Home builder extracted from gui_settings.c with LVGL screen builders; native icons and small font tier. Status numbers/indicator are illustrative fixture chrome. No physical R3 validation.",
+  "results": [
+    {
+      "board": "r1",
+      "theme": "Default",
+      "rows": 6,
+      "first_y": 32,
+      "last_y": 766,
+      "viewport_top": 32,
+      "viewport_bottom": 767,
+      "geometry_passed": true
+    },
+    {
+      "board": "r1",
+      "theme": "Earthy",
+      "rows": 6,
+      "first_y": 34,
+      "last_y": 764,
+      "viewport_top": 32,
+      "viewport_bottom": 767,
+      "geometry_passed": true
+    },
+    {
+      "board": "r1",
+      "theme": "GameBoy",
+      "rows": 7,
+      "first_y": 40,
+      "last_y": 759,
+      "viewport_top": 32,
+      "viewport_bottom": 767,
+      "geometry_passed": true
+    },
+    {
+      "board": "r1",
+      "theme": "Monastic",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 759,
+      "viewport_top": 32,
+      "viewport_bottom": 767,
+      "geometry_passed": true
+    },
+    {
+      "board": "r1",
+      "theme": "MountainSunset",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 759,
+      "viewport_top": 32,
+      "viewport_bottom": 767,
+      "geometry_passed": true
+    },
+    {
+      "board": "r1",
+      "theme": "ObsidianAudio",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 759,
+      "viewport_top": 32,
+      "viewport_bottom": 767,
+      "geometry_passed": true
+    },
+    {
+      "board": "r1",
+      "theme": "Retro",
+      "rows": 6,
+      "first_y": 35,
+      "last_y": 763,
+      "viewport_top": 32,
+      "viewport_bottom": 767,
+      "geometry_passed": true
+    },
+    {
+      "board": "r1",
+      "theme": "Swamp",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 759,
+      "viewport_top": 32,
+      "viewport_bottom": 767,
+      "geometry_passed": true
+    },
+    {
+      "board": "r1",
+      "theme": "Terminal",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 759,
+      "viewport_top": 32,
+      "viewport_bottom": 767,
+      "geometry_passed": true
+    },
+    {
+      "board": "r1",
+      "theme": "Trees",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 759,
+      "viewport_top": 32,
+      "viewport_bottom": 767,
+      "geometry_passed": true
+    },
+    {
+      "board": "r1",
+      "theme": "Vaporwave",
+      "rows": 6,
+      "first_y": 38,
+      "last_y": 760,
+      "viewport_top": 32,
+      "viewport_bottom": 767,
+      "geometry_passed": true
+    },
+    {
+      "board": "r1",
+      "theme": "Wavy",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 759,
+      "viewport_top": 32,
+      "viewport_bottom": 767,
+      "geometry_passed": true
+    },
+    {
+      "board": "r1",
+      "theme": "White",
+      "rows": 6,
+      "first_y": 32,
+      "last_y": 766,
+      "viewport_top": 32,
+      "viewport_bottom": 767,
+      "geometry_passed": true
+    },
+    {
+      "board": "r1",
+      "theme": "ZenTerracotta",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 759,
+      "viewport_top": 32,
+      "viewport_bottom": 767,
+      "geometry_passed": true
+    },
+    {
+      "board": "r1",
+      "theme": "ArcticGlass",
+      "rows": 6,
+      "first_y": 37,
+      "last_y": 761,
+      "viewport_top": 32,
+      "viewport_bottom": 767,
+      "geometry_passed": true
+    },
+    {
+      "board": "r1",
+      "theme": "Blueprint",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 759,
+      "viewport_top": 32,
+      "viewport_bottom": 767,
+      "geometry_passed": true
+    },
+    {
+      "board": "r1",
+      "theme": "BrassStudio",
+      "rows": 6,
+      "first_y": 37,
+      "last_y": 761,
+      "viewport_top": 32,
+      "viewport_bottom": 767,
+      "geometry_passed": true
+    },
+    {
+      "board": "r1",
+      "theme": "CherryNoir",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 759,
+      "viewport_top": 32,
+      "viewport_bottom": 767,
+      "geometry_passed": true
+    },
+    {
+      "board": "r1",
+      "theme": "CitrusSlate",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 759,
+      "viewport_top": 32,
+      "viewport_bottom": 767,
+      "geometry_passed": true
+    },
+    {
+      "board": "r1",
+      "theme": "CobaltSignal",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 759,
+      "viewport_top": 32,
+      "viewport_bottom": 767,
+      "geometry_passed": true
+    },
+    {
+      "board": "r1",
+      "theme": "InkPaper",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 759,
+      "viewport_top": 32,
+      "viewport_bottom": 767,
+      "geometry_passed": true
+    },
+    {
+      "board": "r1",
+      "theme": "MidnightIndigo",
+      "rows": 6,
+      "first_y": 37,
+      "last_y": 761,
+      "viewport_top": 32,
+      "viewport_bottom": 767,
+      "geometry_passed": true
+    },
+    {
+      "board": "r1",
+      "theme": "Porcelain",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 759,
+      "viewport_top": 32,
+      "viewport_bottom": 767,
+      "geometry_passed": true
+    },
+    {
+      "board": "r1",
+      "theme": "RoseQuartz",
+      "rows": 6,
+      "first_y": 37,
+      "last_y": 761,
+      "viewport_top": 32,
+      "viewport_bottom": 767,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3proii",
+      "theme": "Default",
+      "rows": 6,
+      "first_y": 32,
+      "last_y": 685,
+      "viewport_top": 32,
+      "viewport_bottom": 687,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3proii",
+      "theme": "Earthy",
+      "rows": 6,
+      "first_y": 34,
+      "last_y": 683,
+      "viewport_top": 32,
+      "viewport_bottom": 687,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3proii",
+      "theme": "GameBoy",
+      "rows": 7,
+      "first_y": 40,
+      "last_y": 679,
+      "viewport_top": 32,
+      "viewport_bottom": 687,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3proii",
+      "theme": "Monastic",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 679,
+      "viewport_top": 32,
+      "viewport_bottom": 687,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3proii",
+      "theme": "MountainSunset",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 679,
+      "viewport_top": 32,
+      "viewport_bottom": 687,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3proii",
+      "theme": "ObsidianAudio",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 679,
+      "viewport_top": 32,
+      "viewport_bottom": 687,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3proii",
+      "theme": "Retro",
+      "rows": 6,
+      "first_y": 35,
+      "last_y": 682,
+      "viewport_top": 32,
+      "viewport_bottom": 687,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3proii",
+      "theme": "Swamp",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 679,
+      "viewport_top": 32,
+      "viewport_bottom": 687,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3proii",
+      "theme": "Terminal",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 679,
+      "viewport_top": 32,
+      "viewport_bottom": 687,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3proii",
+      "theme": "Trees",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 679,
+      "viewport_top": 32,
+      "viewport_bottom": 687,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3proii",
+      "theme": "Vaporwave",
+      "rows": 6,
+      "first_y": 38,
+      "last_y": 679,
+      "viewport_top": 32,
+      "viewport_bottom": 687,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3proii",
+      "theme": "Wavy",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 679,
+      "viewport_top": 32,
+      "viewport_bottom": 687,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3proii",
+      "theme": "White",
+      "rows": 6,
+      "first_y": 32,
+      "last_y": 685,
+      "viewport_top": 32,
+      "viewport_bottom": 687,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3proii",
+      "theme": "ZenTerracotta",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 679,
+      "viewport_top": 32,
+      "viewport_bottom": 687,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3proii",
+      "theme": "ArcticGlass",
+      "rows": 6,
+      "first_y": 37,
+      "last_y": 680,
+      "viewport_top": 32,
+      "viewport_bottom": 687,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3proii",
+      "theme": "Blueprint",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 679,
+      "viewport_top": 32,
+      "viewport_bottom": 687,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3proii",
+      "theme": "BrassStudio",
+      "rows": 6,
+      "first_y": 37,
+      "last_y": 680,
+      "viewport_top": 32,
+      "viewport_bottom": 687,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3proii",
+      "theme": "CherryNoir",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 679,
+      "viewport_top": 32,
+      "viewport_bottom": 687,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3proii",
+      "theme": "CitrusSlate",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 679,
+      "viewport_top": 32,
+      "viewport_bottom": 687,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3proii",
+      "theme": "CobaltSignal",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 679,
+      "viewport_top": 32,
+      "viewport_bottom": 687,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3proii",
+      "theme": "InkPaper",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 679,
+      "viewport_top": 32,
+      "viewport_bottom": 687,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3proii",
+      "theme": "MidnightIndigo",
+      "rows": 6,
+      "first_y": 37,
+      "last_y": 680,
+      "viewport_top": 32,
+      "viewport_bottom": 687,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3proii",
+      "theme": "Porcelain",
+      "rows": 6,
+      "first_y": 40,
+      "last_y": 679,
+      "viewport_top": 32,
+      "viewport_bottom": 687,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3proii",
+      "theme": "RoseQuartz",
+      "rows": 6,
+      "first_y": 37,
+      "last_y": 680,
+      "viewport_top": 32,
+      "viewport_bottom": 687,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3ii_2025",
+      "theme": "Default",
+      "rows": 6,
+      "first_y": 21,
+      "last_y": 458,
+      "viewport_top": 21,
+      "viewport_bottom": 458,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3ii_2025",
+      "theme": "Earthy",
+      "rows": 6,
+      "first_y": 22,
+      "last_y": 457,
+      "viewport_top": 21,
+      "viewport_bottom": 458,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3ii_2025",
+      "theme": "GameBoy",
+      "rows": 7,
+      "first_y": 26,
+      "last_y": 453,
+      "viewport_top": 21,
+      "viewport_bottom": 458,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3ii_2025",
+      "theme": "Monastic",
+      "rows": 6,
+      "first_y": 26,
+      "last_y": 453,
+      "viewport_top": 21,
+      "viewport_bottom": 458,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3ii_2025",
+      "theme": "MountainSunset",
+      "rows": 6,
+      "first_y": 26,
+      "last_y": 453,
+      "viewport_top": 21,
+      "viewport_bottom": 458,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3ii_2025",
+      "theme": "ObsidianAudio",
+      "rows": 6,
+      "first_y": 26,
+      "last_y": 453,
+      "viewport_top": 21,
+      "viewport_bottom": 458,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3ii_2025",
+      "theme": "Retro",
+      "rows": 6,
+      "first_y": 23,
+      "last_y": 456,
+      "viewport_top": 21,
+      "viewport_bottom": 458,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3ii_2025",
+      "theme": "Swamp",
+      "rows": 6,
+      "first_y": 26,
+      "last_y": 453,
+      "viewport_top": 21,
+      "viewport_bottom": 458,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3ii_2025",
+      "theme": "Terminal",
+      "rows": 6,
+      "first_y": 26,
+      "last_y": 453,
+      "viewport_top": 21,
+      "viewport_bottom": 458,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3ii_2025",
+      "theme": "Trees",
+      "rows": 6,
+      "first_y": 26,
+      "last_y": 453,
+      "viewport_top": 21,
+      "viewport_bottom": 458,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3ii_2025",
+      "theme": "Vaporwave",
+      "rows": 6,
+      "first_y": 25,
+      "last_y": 454,
+      "viewport_top": 21,
+      "viewport_bottom": 458,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3ii_2025",
+      "theme": "Wavy",
+      "rows": 6,
+      "first_y": 26,
+      "last_y": 453,
+      "viewport_top": 21,
+      "viewport_bottom": 458,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3ii_2025",
+      "theme": "White",
+      "rows": 6,
+      "first_y": 21,
+      "last_y": 458,
+      "viewport_top": 21,
+      "viewport_bottom": 458,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3ii_2025",
+      "theme": "ZenTerracotta",
+      "rows": 6,
+      "first_y": 26,
+      "last_y": 453,
+      "viewport_top": 21,
+      "viewport_bottom": 458,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3ii_2025",
+      "theme": "ArcticGlass",
+      "rows": 6,
+      "first_y": 24,
+      "last_y": 455,
+      "viewport_top": 21,
+      "viewport_bottom": 458,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3ii_2025",
+      "theme": "Blueprint",
+      "rows": 6,
+      "first_y": 26,
+      "last_y": 453,
+      "viewport_top": 21,
+      "viewport_bottom": 458,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3ii_2025",
+      "theme": "BrassStudio",
+      "rows": 6,
+      "first_y": 24,
+      "last_y": 455,
+      "viewport_top": 21,
+      "viewport_bottom": 458,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3ii_2025",
+      "theme": "CherryNoir",
+      "rows": 6,
+      "first_y": 26,
+      "last_y": 453,
+      "viewport_top": 21,
+      "viewport_bottom": 458,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3ii_2025",
+      "theme": "CitrusSlate",
+      "rows": 6,
+      "first_y": 26,
+      "last_y": 453,
+      "viewport_top": 21,
+      "viewport_bottom": 458,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3ii_2025",
+      "theme": "CobaltSignal",
+      "rows": 6,
+      "first_y": 26,
+      "last_y": 453,
+      "viewport_top": 21,
+      "viewport_bottom": 458,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3ii_2025",
+      "theme": "InkPaper",
+      "rows": 6,
+      "first_y": 26,
+      "last_y": 453,
+      "viewport_top": 21,
+      "viewport_bottom": 458,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3ii_2025",
+      "theme": "MidnightIndigo",
+      "rows": 6,
+      "first_y": 24,
+      "last_y": 455,
+      "viewport_top": 21,
+      "viewport_bottom": 458,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3ii_2025",
+      "theme": "Porcelain",
+      "rows": 6,
+      "first_y": 26,
+      "last_y": 453,
+      "viewport_top": 21,
+      "viewport_bottom": 458,
+      "geometry_passed": true
+    },
+    {
+      "board": "r3ii_2025",
+      "theme": "RoseQuartz",
+      "rows": 6,
+      "first_y": 24,
+      "last_y": 455,
+      "viewport_top": 21,
+      "viewport_bottom": 458,
+      "geometry_passed": true
+    }
+  ]
+}

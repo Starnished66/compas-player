@@ -1,0 +1,277 @@
+{"file": "Screenshots/2026-10-01/setup/05-library-scan-progress.png", "actions": ["wait:15"], "timestamp": "2026-10-01T19:11:15-0600"}
+{"file": "Screenshots/2026-10-01/player/01-home.png", "actions": ["240,750"], "timestamp": "2026-10-01T19:11:25-0600"}
+{"file": "Screenshots/2026-10-01/player/02-music-menu.png", "actions": ["120,150"], "timestamp": "2026-10-01T19:11:33-0600"}
+{"file": "Screenshots/2026-10-01/player/music-files.png", "actions": ["160,160"], "timestamp": "2026-10-01T19:11:51-0600"}
+{"file": "Screenshots/2026-10-01/player/music-artists.png", "actions": ["30,65", "160,280"], "timestamp": "2026-10-01T19:11:54-0600"}
+{"file": "Screenshots/2026-10-01/player/music-artist-albums.png", "actions": ["170,170"], "timestamp": "2026-10-01T19:11:56-0600"}
+{"file": "Screenshots/2026-10-01/player/music-album-songs.png", "actions": ["160,255"], "timestamp": "2026-10-01T19:12:05-0600"}
+{"file": "Screenshots/2026-10-01/dialogs/music-play-all.png", "actions": ["448,64"], "timestamp": "2026-10-01T19:12:07-0600"}
+{"file": "Screenshots/2026-10-01/player/music-albums.png", "actions": ["240,680", "30,65", "30,65", "160,400"], "timestamp": "2026-10-01T19:12:13-0600"}
+{"file": "Screenshots/2026-10-01/player/music-album-songs.png", "actions": ["406,70"], "timestamp": "2026-10-01T19:12:21-0600"}
+{"file": "Screenshots/2026-10-01/player/now-playing.png", "actions": ["240,695"], "timestamp": "2026-10-01T19:12:36-0600"}
+{"file": "Screenshots/2026-10-01/dialogs/now-playing-options.png", "actions": ["423,697"], "timestamp": "2026-10-01T19:12:38-0600"}
+{"file": "Screenshots/2026-10-01/player/queue.png", "actions": ["180,160"], "timestamp": "2026-10-01T19:12:46-0600"}
+{"file": "Screenshots/2026-10-01/dialogs/track-information.png", "actions": ["30,65", "423,697", "180,350"], "timestamp": "2026-10-01T19:12:49-0600"}
+{"file": "Screenshots/2026-10-01/player/track-information-tags.png", "actions": ["240,700,240,220,450,18"], "timestamp": "2026-10-01T19:13:01-0600"}
+{"file": "Screenshots/2026-10-01/player/lyrics.png", "actions": ["30,65", "240,430,240,180,400,18"], "timestamp": "2026-10-01T19:13:04-0600"}
+{"file": "Screenshots/2026-10-01/player/lyrics.png", "actions": ["220,320"], "timestamp": "2026-10-01T19:13:13-0600"}
+{"file": "Screenshots/2026-10-01/player/music-album-songs.png", "actions": ["220,320", "20,450,420,450,450,20"], "timestamp": "2026-10-01T19:13:16-0600"}
+{"file": "Screenshots/2026-10-01/player/music-album-songs.png", "actions": ["406,70"], "timestamp": "2026-10-01T19:13:27-0600"}
+{"file": "Screenshots/2026-10-01/dialogs/music-play-all.png", "actions": ["180,155"], "timestamp": "2026-10-01T19:13:37-0600"}
+{"file": "Screenshots/2026-10-01/player/music-albums.png", "actions": ["10,760", "30,65", "30,65", "160,400"], "timestamp": "2026-10-01T19:13:42-0600"}
+{"file": "Screenshots/2026-10-01/player/music-albums.png", "actions": ["30,65", "30,65", "160,400"], "timestamp": "2026-10-01T19:13:55-0600"}
+{"file": "Screenshots/2026-10-01/dialogs/album-actions.png", "actions": ["445,155"], "timestamp": "2026-10-01T19:14:05-0600"}
+{"file": "Screenshots/2026-10-01/player/music-album-artists.png", "actions": ["240,640", "30,65", "160,520"], "timestamp": "2026-10-01T19:14:09-0600"}
+{"file": "Screenshots/2026-10-01/player/music-albums.png", "actions": ["wait:3"], "timestamp": "2026-10-01T19:14:30-0600"}
+{"file": "Screenshots/2026-10-01/player/music-album-artists.png", "actions": ["30,65", "160,520"], "timestamp": "2026-10-01T19:14:40-0600"}
+{"file": "Screenshots/2026-10-01/player/music-genres.png", "actions": ["30,65", "160,640"], "timestamp": "2026-10-01T19:14:43-0600"}
+{"file": "Screenshots/2026-10-01/player/music-genre-songs.png", "actions": ["160,165"], "timestamp": "2026-10-01T19:14:45-0600"}
+{"file": "Screenshots/2026-10-01/player/music-all-songs.png", "actions": ["30,65", "30,65", "160,750"], "timestamp": "2026-10-01T19:14:57-0600"}
+{"file": "Screenshots/2026-10-01/player/music-menu-bottom.png", "actions": ["30,65", "240,700,240,230,400,18"], "timestamp": "2026-10-01T19:15:00-0600"}
+{"file": "Screenshots/2026-10-01/player/music-playlists.png", "actions": ["170,705"], "timestamp": "2026-10-01T19:15:09-0600"}
+{"file": "Screenshots/2026-10-01/player/music-playlist-detail.png", "actions": ["170,165"], "timestamp": "2026-10-01T19:15:11-0600"}
+{"file": "Screenshots/2026-10-01/player/settings-menu.png", "actions": ["30,65", "30,65", "30,65", "30,65", "120,650"], "timestamp": "2026-10-01T19:15:25-0600"}
+{"file": "Screenshots/2026-10-01/player/music-favorites.png", "actions": ["150,312"], "timestamp": "2026-10-01T19:15:34-0600"}
+{"file": "Screenshots/2026-10-01/player/music-recently-added.png", "actions": ["30,65", "150,620"], "timestamp": "2026-10-01T19:15:45-0600"}
+{"file": "Screenshots/2026-10-01/player/music-menu-bottom.png", "actions": ["30,65", "30,65"], "timestamp": "2026-10-01T19:15:48-0600"}
+{"file": "Screenshots/2026-10-01/player/settings-menu.png", "actions": ["30,65", "120,650"], "timestamp": "2026-10-01T19:15:56-0600"}
+{"file": "Screenshots/2026-10-01/player/settings-sound.png", "actions": ["160,153"], "timestamp": "2026-10-01T19:16:04-0600"}
+{"file": "Screenshots/2026-10-01/player/peq-band.png", "actions": ["160,155"], "timestamp": "2026-10-01T19:16:15-0600"}
+{"file": "Screenshots/2026-10-01/dialogs/peq-band-options.png", "actions": ["240,173"], "timestamp": "2026-10-01T19:16:16-0600"}
+{"file": "Screenshots/2026-10-01/dialogs/peq-filter-types.png", "actions": ["240,290"], "timestamp": "2026-10-01T19:16:25-0600"}
+{"file": "Screenshots/2026-10-01/dialogs/peq-profiles.png", "actions": ["460,700", "30,65", "240,745"], "timestamp": "2026-10-01T19:16:29-0600"}
+{"file": "Screenshots/2026-10-01/plugins/autoeq-search.png", "actions": ["170,620"], "timestamp": "2026-10-01T19:16:40-0600"}
+{"file": "Screenshots/2026-10-01/player/peq-graph.png", "actions": ["30,65", "30,65", "445,120,100", "445,120,100", "445,120,100", "445,120,100", "445,120,100", "445,120,100", "445,120,100", "445,120,100", "445,120,100", "445,120,100"], "timestamp": "2026-10-01T19:16:54-0600"}
+{"file": "Screenshots/2026-10-01/plugins/gain-mode.png", "actions": ["30,65", "150,280"], "timestamp": "2026-10-01T19:17:07-0600"}
+{"file": "Screenshots/2026-10-01/player/startup-volume.png", "actions": ["30,65", "150,400"], "timestamp": "2026-10-01T19:17:10-0600"}
+{"file": "Screenshots/2026-10-01/player/replaygain.png", "actions": ["30,65", "150,520"], "timestamp": "2026-10-01T19:17:12-0600"}
+{"file": "Screenshots/2026-10-01/player/settings-playback.png", "actions": ["30,65", "30,65", "160,255"], "timestamp": "2026-10-01T19:17:25-0600"}
+{"file": "Screenshots/2026-10-01/player/resume-last-track.png", "actions": ["160,160"], "timestamp": "2026-10-01T19:17:34-0600"}
+{"file": "Screenshots/2026-10-01/player/car-mode.png", "actions": ["30,65", "160,520"], "timestamp": "2026-10-01T19:17:37-0600"}
+{"file": "Screenshots/2026-10-01/player/buttons-remote.png", "actions": ["30,65", "160,640"], "timestamp": "2026-10-01T19:17:39-0600"}
+{"file": "Screenshots/2026-10-01/plugins/play-through.png", "actions": ["30,65", "160,755"], "timestamp": "2026-10-01T19:17:42-0600"}
+{"file": "Screenshots/2026-10-01/plugins/play-through-help.png", "actions": ["160,460"], "timestamp": "2026-10-01T19:17:55-0600"}
+{"file": "Screenshots/2026-10-01/player/play-pause-button.png", "actions": ["30,65", "30,65", "160,640", "160,160"], "timestamp": "2026-10-01T19:18:00-0600"}
+{"file": "Screenshots/2026-10-01/player/settings-display.png", "actions": ["30,65", "30,65", "30,65", "160,360"], "timestamp": "2026-10-01T19:18:05-0600"}
+{"file": "Screenshots/2026-10-01/player/wifi.png", "actions": ["160,220"], "timestamp": "2026-10-01T19:18:41-0600"}
+{"file": "Screenshots/2026-10-01/player/wifi.png", "actions": ["160,160"], "timestamp": "2026-10-01T19:18:50-0600"}
+{"file": "Screenshots/2026-10-01/player/wifi-info.png", "actions": ["160,280"], "timestamp": "2026-10-01T19:19:00-0600"}
+{"file": "Screenshots/2026-10-01/player/wifi-dns.png", "actions": ["30,65", "160,520"], "timestamp": "2026-10-01T19:19:02-0600"}
+{"file": "Screenshots/2026-10-01/dialogs/wifi-hidden-network.png", "actions": ["30,65", "160,400"], "timestamp": "2026-10-01T19:19:05-0600"}
+{"file": "Screenshots/2026-10-01/player/bluetooth.png", "actions": ["30,65", "30,65", "160,280"], "timestamp": "2026-10-01T19:19:20-0600"}
+{"file": "Screenshots/2026-10-01/player/bluetooth-enabled.png", "actions": ["435,160", "wait:5"], "timestamp": "2026-10-01T19:19:35-0600"}
+{"file": "Screenshots/2026-10-01/player/bluetooth-dac.png", "actions": ["160,280"], "timestamp": "2026-10-01T19:19:43-0600"}
+{"file": "Screenshots/2026-10-01/player/bluetooth-advanced.png", "actions": ["30,65", "160,400"], "timestamp": "2026-10-01T19:19:47-0600"}
+{"file": "Screenshots/2026-10-01/player/bluetooth-current.png", "actions": ["wait:3"], "timestamp": "2026-10-01T19:19:59-0600"}
+{"file": "Screenshots/2026-10-01/player/bluetooth-codecs.png", "actions": ["160,280"], "timestamp": "2026-10-01T19:20:15-0600"}
+{"file": "Screenshots/2026-10-01/player/bluetooth-sample-rate.png", "actions": ["30,65", "160,400"], "timestamp": "2026-10-01T19:20:20-0600"}
+{"file": "Screenshots/2026-10-01/player/airplay.png", "actions": ["30,65", "30,65", "435,160", "30,65", "160,400"], "timestamp": "2026-10-01T19:20:33-0600"}
+{"file": "Screenshots/2026-10-01/player/airplay.png", "actions": ["30,65", "160,400"], "timestamp": "2026-10-01T19:20:54-0600"}
+{"file": "Screenshots/2026-10-01/player/dlna.png", "actions": ["30,65", "160,520"], "timestamp": "2026-10-01T19:20:59-0600"}
+{"file": "Screenshots/2026-10-01/player/remote.png", "actions": ["30,65", "160,640"], "timestamp": "2026-10-01T19:21:03-0600"}
+{"file": "Screenshots/2026-10-01/player/wifi-import.png", "actions": ["30,65", "160,760"], "timestamp": "2026-10-01T19:21:08-0600"}
+{"file": "Screenshots/2026-10-01/player/settings-display.png", "actions": ["30,65", "30,65", "120,650", "160,360"], "timestamp": "2026-10-01T19:21:31-0600"}
+{"file": "Screenshots/2026-10-01/player/screen-timeout.png", "actions": ["160,160"], "timestamp": "2026-10-01T19:21:42-0600"}
+{"file": "Screenshots/2026-10-01/player/screen-dimming.png", "actions": ["30,65", "160,280"], "timestamp": "2026-10-01T19:21:46-0600"}
+{"file": "Screenshots/2026-10-01/player/appearance.png", "actions": ["30,65", "160,400"], "timestamp": "2026-10-01T19:21:51-0600"}
+{"file": "Screenshots/2026-10-01/player/current-no-navigation.png", "actions": ["wait:4"], "timestamp": "2026-10-01T19:22:36-0600"}
+{"file": "Screenshots/2026-10-01/player/settings-display.png", "actions": ["30,65", "120,650", "160,360", "wait:4"], "timestamp": "2026-10-01T19:23:11-0600"}
+{"file": "Screenshots/2026-10-01/player/screen-timeout.png", "actions": ["160,160", "wait:3"], "timestamp": "2026-10-01T19:23:28-0600"}
+{"file": "Screenshots/2026-10-01/player/screen-dimming.png", "actions": ["410,165", "30,65", "160,280"], "timestamp": "2026-10-01T19:23:44-0600"}
+{"file": "Screenshots/2026-10-01/player/appearance.png", "actions": ["30,65", "160,400"], "timestamp": "2026-10-01T19:23:49-0600"}
+{"file": "Screenshots/2026-10-01/player/accent-color.png", "actions": ["160,160"], "timestamp": "2026-10-01T19:24:07-0600"}
+{"file": "Screenshots/2026-10-01/player/font-selector.png", "actions": ["30,65", "160,280"], "timestamp": "2026-10-01T19:24:12-0600"}
+{"file": "Screenshots/2026-10-01/player/font-size.png", "actions": ["30,65", "160,400"], "timestamp": "2026-10-01T19:24:16-0600"}
+{"file": "Screenshots/2026-10-01/player/appearance-bottom.png", "actions": ["30,65", "240,700,240,250,400,18"], "timestamp": "2026-10-01T19:24:21-0600"}
+{"file": "Screenshots/2026-10-01/plugins/themes.png", "actions": ["160,750"], "timestamp": "2026-10-01T19:24:38-0600"}
+{"file": "Screenshots/2026-10-01/player/player-layout-selector.png", "actions": ["30,65", "30,65", "160,520"], "timestamp": "2026-10-01T19:24:45-0600"}
+{"file": "Screenshots/2026-10-01/player/gestures-orientation.png", "actions": ["30,65", "160,640"], "timestamp": "2026-10-01T19:24:49-0600"}
+{"file": "Screenshots/2026-10-01/player/settings-power.png", "actions": ["30,65", "30,65", "160,465"], "timestamp": "2026-10-01T19:24:56-0600"}
+{"file": "Screenshots/2026-10-01/player/sleep-timer.png", "actions": ["160,160"], "timestamp": "2026-10-01T19:25:08-0600"}
+{"file": "Screenshots/2026-10-01/player/idle-shutdown.png", "actions": ["30,65", "160,280"], "timestamp": "2026-10-01T19:25:13-0600"}
+{"file": "Screenshots/2026-10-01/player/charging.png", "actions": ["30,65", "160,400"], "timestamp": "2026-10-01T19:25:18-0600"}
+{"file": "Screenshots/2026-10-01/player/settings-library.png", "actions": ["30,65", "30,65", "160,567"], "timestamp": "2026-10-01T19:25:25-0600"}
+{"file": "Screenshots/2026-10-01/player/library-sorting.png", "actions": ["160,580"], "timestamp": "2026-10-01T19:25:38-0600"}
+{"file": "Screenshots/2026-10-01/player/settings-system.png", "actions": ["30,65", "30,65", "160,673"], "timestamp": "2026-10-01T19:25:45-0600"}
+{"file": "Screenshots/2026-10-01/player/settings-system.png", "actions": ["160,673"], "timestamp": "2026-10-01T19:26:04-0600"}
+{"file": "Screenshots/2026-10-01/player/system-clock.png", "actions": ["160,280"], "timestamp": "2026-10-01T19:26:07-0600"}
+{"file": "Screenshots/2026-10-01/player/timezone-regions.png", "actions": ["160,520"], "timestamp": "2026-10-01T19:26:17-0600"}
+{"file": "Screenshots/2026-10-01/player/timezone-cities.png", "actions": ["160,160"], "timestamp": "2026-10-01T19:26:20-0600"}
+{"file": "Screenshots/2026-10-01/player/system-language.png", "actions": ["30,65", "30,65", "30,65", "160,400"], "timestamp": "2026-10-01T19:26:29-0600"}
+{"file": "Screenshots/2026-10-01/player/system-maintenance.png", "actions": ["30,65", "160,640"], "timestamp": "2026-10-01T19:26:48-0600"}
+{"file": "Screenshots/2026-10-01/dialogs/hostname-entry.png", "actions": ["160,160"], "timestamp": "2026-10-01T19:26:51-0600"}
+{"file": "Screenshots/2026-10-01/dialogs/factory-reset-confirmation.png", "actions": ["30,65", "160,280"], "timestamp": "2026-10-01T19:26:55-0600"}
+{"file": "Screenshots/2026-10-01/player/system-about.png", "actions": ["240,473", "30,65", "160,760"], "timestamp": "2026-10-01T19:27:18-0600"}
+{"file": "Screenshots/2026-10-01/player/plugin-manager.png", "actions": ["30,65", "160,520"], "timestamp": "2026-10-01T19:27:22-0600"}
+{"file": "Screenshots/2026-10-01/player/plugin-store.png", "actions": ["160,160", "wait:5"], "timestamp": "2026-10-01T19:27:45-0600"}
+{"file": "Screenshots/2026-10-01/dialogs/plugin-store-detail.png", "actions": ["170,340"], "timestamp": "2026-10-01T19:27:55-0600"}
+{"file": "Screenshots/2026-10-01/player/plugin-store-installed.png", "actions": ["15,750", "240,700,240,200,500,20"], "timestamp": "2026-10-01T19:28:00-0600"}
+{"file": "Screenshots/2026-10-01/player/plugin-store-available.png", "actions": ["240,700,240,180,500,20", "240,700,240,180,500,20", "240,700,240,180,500,20"], "timestamp": "2026-10-01T19:28:25-0600"}
+{"file": "Screenshots/2026-10-01/player/plugins-refreshed.png", "actions": ["30,65", "160,280", "wait:5"], "timestamp": "2026-10-01T19:28:34-0600"}
+{"file": "Screenshots/2026-10-01/player/stream-media.png", "actions": ["360,150"], "timestamp": "2026-10-01T19:28:54-0600"}
+{"file": "Screenshots/2026-10-01/player/subsonic.png", "actions": ["160,160"], "timestamp": "2026-10-01T19:28:57-0600"}
+{"file": "Screenshots/2026-10-01/player/subsonic-saved-servers.png", "actions": ["160,160"], "timestamp": "2026-10-01T19:29:06-0600"}
+{"file": "Screenshots/2026-10-01/player/subsonic-library.png", "actions": ["160,160", "wait:5"], "timestamp": "2026-10-01T19:29:13-0600"}
+{"file": "Screenshots/2026-10-01/player/subsonic-stream-quality.png", "actions": ["160,160"], "timestamp": "2026-10-01T19:29:33-0600"}
+{"file": "Screenshots/2026-10-01/player/subsonic-download-settings.png", "actions": ["30,65", "160,280"], "timestamp": "2026-10-01T19:29:38-0600"}
+{"file": "Screenshots/2026-10-01/player/subsonic-artists.png", "actions": ["30,65", "160,400", "wait:3"], "timestamp": "2026-10-01T19:29:45-0600"}
+{"file": "Screenshots/2026-10-01/player/subsonic-artist-albums.png", "actions": ["160,142", "wait:2"], "timestamp": "2026-10-01T19:30:09-0600"}
+{"file": "Screenshots/2026-10-01/player/subsonic-album-songs.png", "actions": ["160,160", "wait:2"], "timestamp": "2026-10-01T19:30:13-0600"}
+{"file": "Screenshots/2026-10-01/player/subsonic-playlists.png", "actions": ["30,65", "30,65", "30,65", "160,520"], "timestamp": "2026-10-01T19:30:46-0600"}
+{"file": "Screenshots/2026-10-01/plugins/net-radio.png", "actions": ["30,65", "30,65", "30,65", "30,65", "160,280"], "timestamp": "2026-10-01T19:30:57-0600"}
+{"file": "Screenshots/2026-10-01/plugins/net-radio.png", "actions": ["30,65", "360,150", "160,280"], "timestamp": "2026-10-01T19:31:39-0600"}
+{"file": "Screenshots/2026-10-01/plugins/podcasts-home.png", "actions": ["30,65", "160,400"], "timestamp": "2026-10-01T19:31:44-0600"}
+{"file": "Screenshots/2026-10-01/plugins/podcasts-episodes.png", "actions": ["160,256"], "timestamp": "2026-10-01T19:32:19-0600"}
+{"file": "Screenshots/2026-10-01/plugins/podcasts-episode-actions.png", "actions": ["160,256,800"], "timestamp": "2026-10-01T19:32:23-0600"}
+{"file": "Screenshots/2026-10-01/plugins/podcasts-episode-detail.png", "actions": ["160,160"], "timestamp": "2026-10-01T19:32:59-0600"}
+{"file": "Screenshots/2026-10-01/plugins/podcasts-discover.png", "actions": ["30,65", "30,65", "160,466"], "timestamp": "2026-10-01T19:33:18-0600"}
+{"file": "Screenshots/2026-10-01/plugins/podcasts-manage-subscriptions.png", "actions": ["30,65", "160,570"], "timestamp": "2026-10-01T19:33:22-0600"}
+{"file": "Screenshots/2026-10-01/plugins/podcasts-add-feed.png", "actions": ["160,160"], "timestamp": "2026-10-01T19:33:25-0600"}
+{"file": "Screenshots/2026-10-01/plugins/podcasts-import-picker.png", "actions": ["30,65", "160,256"], "timestamp": "2026-10-01T19:33:56-0600"}
+{"file": "Screenshots/2026-10-01/plugins/podcasts-downloads.png", "actions": ["30,65", "30,65", "160,152"], "timestamp": "2026-10-01T19:34:03-0600"}
+{"file": "Screenshots/2026-10-01/plugins/podcasts-downloads.png", "actions": ["30,65", "160,400", "160,152"], "timestamp": "2026-10-01T19:34:48-0600"}
+{"file": "Screenshots/2026-10-01/plugins/podcasts-download-actions.png", "actions": ["160,152"], "timestamp": "2026-10-01T19:34:51-0600"}
+{"file": "Screenshots/2026-10-01/plugins/qobuz-login.png", "actions": ["30,65", "30,65", "30,65", "160,520"], "timestamp": "2026-10-01T19:35:12-0600"}
+{"file": "Screenshots/2026-10-01/plugins/qobuz-home.png", "actions": ["30,65"], "timestamp": "2026-10-01T19:35:14-0600"}
+{"file": "Screenshots/2026-10-01/plugins/tidal-login.png", "actions": ["30,65", "160,640", "wait:4"], "timestamp": "2026-10-01T19:35:23-0600"}
+{"file": "Screenshots/2026-10-01/plugins/tidal-home.png", "actions": ["30,65"], "timestamp": "2026-10-01T19:35:56-0600"}
+{"file": "Screenshots/2026-10-01/player/books-menu.png", "actions": ["30,65", "30,65", "360,390"], "timestamp": "2026-10-01T19:36:03-0600"}
+{"file": "Screenshots/2026-10-01/player/books-files.png", "actions": ["160,160"], "timestamp": "2026-10-01T19:36:15-0600"}
+{"file": "Screenshots/2026-10-01/player/books-favorites.png", "actions": ["30,65", "160,280"], "timestamp": "2026-10-01T19:36:20-0600"}
+{"file": "Screenshots/2026-10-01/plugins/audiobooks-home.png", "actions": ["30,65", "160,400"], "timestamp": "2026-10-01T19:36:25-0600"}
+{"file": "Screenshots/2026-10-01/plugins/audiobooks-settings.png", "actions": ["160,440"], "timestamp": "2026-10-01T19:36:48-0600"}
+{"file": "Screenshots/2026-10-01/plugins/audiobooks-library.png", "actions": ["30,65", "160,320"], "timestamp": "2026-10-01T19:36:52-0600"}
+{"file": "Screenshots/2026-10-01/plugins/audiobook-controls.png", "actions": ["160,160"], "timestamp": "2026-10-01T19:36:55-0600"}
+{"file": "Screenshots/2026-10-01/plugins/audiobook-details.png", "actions": ["160,160"], "timestamp": "2026-10-01T19:37:09-0600"}
+{"file": "Screenshots/2026-10-01/plugins/audiobook-chapters.png", "actions": ["30,65", "160,400"], "timestamp": "2026-10-01T19:37:14-0600"}
+{"file": "Screenshots/2026-10-01/plugins/audiobook-bookmarks.png", "actions": ["30,65", "160,640"], "timestamp": "2026-10-01T19:37:19-0600"}
+{"file": "Screenshots/2026-10-01/plugins/audiobook-controls-bottom.png", "actions": ["30,65", "240,700,240,230,450,18"], "timestamp": "2026-10-01T19:37:24-0600"}
+{"file": "Screenshots/2026-10-01/plugins/audiobook-chapters.png", "actions": ["160,400", "160,320", "160,160", "160,400"], "timestamp": "2026-10-01T19:37:50-0600"}
+{"file": "Screenshots/2026-10-01/plugins/audiobook-bookmarks.png", "actions": ["30,65", "160,640"], "timestamp": "2026-10-01T19:38:05-0600"}
+{"file": "Screenshots/2026-10-01/plugins/audiobook-controls-bottom.png", "actions": ["240,700,240,230,450,18"], "timestamp": "2026-10-01T19:38:08-0600"}
+{"file": "Screenshots/2026-10-01/plugins/audiobook-bookmark-actions.png", "actions": ["160,160"], "timestamp": "2026-10-01T19:38:31-0600"}
+{"file": "Screenshots/2026-10-01/plugins/audiobook-controls-bottom.png", "actions": ["30,65", "30,65", "240,700,240,230,450,18"], "timestamp": "2026-10-01T19:38:38-0600"}
+{"file": "Screenshots/2026-10-01/plugins/audiobook-sleep-timer.png", "actions": ["160,585"], "timestamp": "2026-10-01T19:38:51-0600"}
+{"file": "Screenshots/2026-10-01/plugins/epub-library.png", "actions": ["30,65", "30,65", "30,65", "30,65", "160,520"], "timestamp": "2026-10-01T19:39:03-0600"}
+{"file": "Screenshots/2026-10-01/plugins/epub-contents.png", "actions": ["160,160"], "timestamp": "2026-10-01T19:39:05-0600"}
+{"file": "Screenshots/2026-10-01/plugins/epub-books.png", "actions": ["30,65", "160,280"], "timestamp": "2026-10-01T19:39:32-0600"}
+{"file": "Screenshots/2026-10-01/plugins/epub-contents.png", "actions": ["160,160"], "timestamp": "2026-10-01T19:39:35-0600"}
+{"file": "Screenshots/2026-10-01/plugins/epub-picture-chapter.png", "actions": ["160,239"], "timestamp": "2026-10-01T19:39:48-0600"}
+{"file": "Screenshots/2026-10-01/plugins/epub-reader-actions.png", "actions": ["160,320,800"], "timestamp": "2026-10-01T19:39:51-0600"}
+{"file": "Screenshots/2026-10-01/plugins/epub-picture-page.png", "actions": ["430,400", "430,400", "430,400", "wait:3"], "timestamp": "2026-10-01T19:41:44-0600"}
+{"file": "Screenshots/2026-10-01/player/native-text-reader.png", "actions": ["30,65", "30,65", "30,65", "30,65", "160,160", "160,160"], "timestamp": "2026-10-01T19:41:58-0600"}
+{"file": "Screenshots/2026-10-01/player/settings-sound-all-plugins.png", "actions": ["30,65", "30,65", "30,65", "120,650", "160,153"], "timestamp": "2026-10-01T19:42:43-0600"}
+{"file": "Screenshots/2026-10-01/player/sound-effects.png", "actions": ["160,640"], "timestamp": "2026-10-01T19:43:18-0600"}
+{"file": "Screenshots/2026-10-01/plugins/mseb.png", "actions": ["160,160"], "timestamp": "2026-10-01T19:43:21-0600"}
+{"file": "Screenshots/2026-10-01/plugins/mseb-bass-warmth.png", "actions": ["160,280"], "timestamp": "2026-10-01T19:43:34-0600"}
+{"file": "Screenshots/2026-10-01/plugins/mseb-vocals-instruments.png", "actions": ["30,65", "160,400"], "timestamp": "2026-10-01T19:43:39-0600"}
+{"file": "Screenshots/2026-10-01/plugins/mseb-treble-air.png", "actions": ["30,65", "160,520"], "timestamp": "2026-10-01T19:43:44-0600"}
+{"file": "Screenshots/2026-10-01/plugins/loudness-boost.png", "actions": ["30,65", "30,65", "160,280"], "timestamp": "2026-10-01T19:43:51-0600"}
+{"file": "Screenshots/2026-10-01/plugins/loudness-about.png", "actions": ["160,420"], "timestamp": "2026-10-01T19:44:23-0600"}
+{"file": "Screenshots/2026-10-01/plugins/sound-profiles.png", "actions": ["30,65", "30,65", "160,400"], "timestamp": "2026-10-01T19:44:30-0600"}
+{"file": "Screenshots/2026-10-01/player/settings-playback-all-plugins.png", "actions": ["30,65", "30,65", "30,65", "160,255"], "timestamp": "2026-10-01T19:44:40-0600"}
+{"file": "Screenshots/2026-10-01/player/settings-playback-bottom.png", "actions": ["240,700,240,230,450,18"], "timestamp": "2026-10-01T19:45:12-0600"}
+{"file": "Screenshots/2026-10-01/plugins/lastfm-scrobbler.png", "actions": ["160,742"], "timestamp": "2026-10-01T19:45:15-0600"}
+{"file": "Screenshots/2026-10-01/player/library-sorting.png", "actions": ["30,65", "30,65", "160,567", "160,520"], "timestamp": "2026-10-01T19:46:35-0600"}
+{"file": "Screenshots/2026-10-01/plugins/lastfm-scrobbler.png", "actions": ["30,65", "160,640"], "timestamp": "2026-10-01T19:46:39-0600"}
+{"file": "Screenshots/2026-10-01/plugins/lastfm-account-required.png", "actions": ["160,280"], "timestamp": "2026-10-01T19:47:05-0600"}
+{"file": "Screenshots/2026-10-01/plugins/extended-sleep-timer.png", "actions": ["30,65", "30,65", "160,465", "160,520"], "timestamp": "2026-10-01T19:47:14-0600"}
+{"file": "Screenshots/2026-10-01/plugins/lock-screen.png", "actions": ["30,65", "30,65", "160,360", "160,520", "160,640"], "timestamp": "2026-10-01T19:47:26-0600"}
+{"file": "Screenshots/2026-10-01/player/player-layout-choices.png", "actions": ["30,65", "160,160"], "timestamp": "2026-10-01T19:48:09-0600"}
+{"file": "Screenshots/2026-10-01/player/dac-menu.png", "actions": ["30,65", "30,65", "30,65", "30,65", "360,650"], "timestamp": "2026-10-01T19:48:20-0600"}
+{"file": "Screenshots/2026-10-01/player/usb-dac.png", "actions": ["160,160"], "timestamp": "2026-10-01T19:48:34-0600"}
+{"file": "Screenshots/2026-10-01/player/drawer-collapsed.png", "actions": ["30,65", "30,65", "240,2,240,380,500,25"], "timestamp": "2026-10-01T19:48:41-0600"}
+{"file": "Screenshots/2026-10-01/player/drawer-expanded.png", "actions": ["240,220"], "timestamp": "2026-10-01T19:49:03-0600"}
+{"file": "Screenshots/2026-10-01/player/drawer-closed.png", "actions": ["240,700,240,120,450,18"], "timestamp": "2026-10-01T19:49:06-0600"}
+{"file": "Screenshots/2026-10-01/dialogs/power-menu.png", "actions": ["wait:2"], "timestamp": "2026-10-01T19:49:59-0600"}
+{"file": "Screenshots/2026-10-01/player/car-mode-from-drawer.png", "actions": ["240,710", "240,2,240,380,500,25", "240,220", "80,400,900"], "timestamp": "2026-10-01T19:50:22-0600"}
+{"file": "Screenshots/2026-10-01/plugins/autoeq-home.png", "actions": ["30,65", "380,65", "160,160", "240,745", "160,620", "160,160"], "timestamp": "2026-10-01T19:50:40-0600"}
+{"file": "Screenshots/2026-10-01/player/car-mode-from-drawer.png", "actions": ["80,400,1800", "wait:2"], "timestamp": "2026-10-01T19:51:17-0600"}
+{"file": "Screenshots/2026-10-01/plugins/autoeq-home.png", "actions": ["30,65", "30,65", "120,650", "160,153", "160,160", "240,745", "160,620", "160,160", "wait:3"], "timestamp": "2026-10-01T19:51:54-0600"}
+{"file": "Screenshots/2026-10-01/plugins/autoeq-search-input.png", "actions": ["160,160", "wait:3"], "timestamp": "2026-10-01T19:52:19-0600"}
+{"file": "Screenshots/2026-10-01/plugins/autoeq-search-input.png", "actions": ["160,145"], "timestamp": "2026-10-01T19:52:40-0600"}
+{"file": "Screenshots/2026-10-01/plugins/autoeq-search-input.png", "actions": ["wait:3"], "timestamp": "2026-10-01T19:52:58-0600"}
+{"file": "Screenshots/2026-10-01/plugins/autoeq-search-input.png", "actions": ["160,145,200", "wait:2"], "timestamp": "2026-10-01T19:53:18-0600"}
+{"file": "Screenshots/2026-10-01/plugins/autoeq-input-recheck.png", "actions": ["160,145"], "timestamp": "2026-10-01T19:57:38-0600"}
+{"file": "Screenshots/2026-10-01/plugins/autoeq-about.png", "actions": ["160,422"], "timestamp": "2026-10-01T19:57:54-0600"}
+{"file": "Screenshots/2026-10-01/setup/00-welcome.png", "actions": [], "timestamp": "2026-10-01T19:59:39-0600"}
+{"file": "Screenshots/2026-10-01/setup/01-language.png", "actions": ["230,740"], "timestamp": "2026-10-01T19:59:41-0600"}
+{"file": "Screenshots/2026-10-01/setup/01-language-picker.png", "actions": ["200,480"], "timestamp": "2026-10-01T19:59:51-0600"}
+{"file": "Screenshots/2026-10-01/setup/01-language-spanish.png", "actions": ["170,310"], "timestamp": "2026-10-01T20:00:01-0600"}
+{"file": "Screenshots/2026-10-01/setup/02-timezone.png", "actions": ["180,480", "150,242", "220,746"], "timestamp": "2026-10-01T20:00:08-0600"}
+{"file": "Screenshots/2026-10-01/setup/01-language-return.png", "actions": ["50,82", "180,480"], "timestamp": "2026-10-01T20:00:19-0600"}
+{"file": "Screenshots/2026-10-01/setup/02-timezone.png", "actions": ["180,450", "170,242", "230,745"], "timestamp": "2026-10-01T20:00:33-0600"}
+{"file": "Screenshots/2026-10-01/setup/03-wifi-postflash.png", "actions": ["240,745"], "timestamp": "2026-10-01T20:00:36-0600"}
+{"file": "Screenshots/2026-10-01/setup/04-plugins-postflash.png", "actions": ["240,745", "wait:5"], "timestamp": "2026-10-01T20:00:44-0600"}
+{"file": "Screenshots/2026-10-01/setup/04-plugins-postflash.png", "actions": ["240,775", "wait:4"], "timestamp": "2026-10-01T20:00:55-0600"}
+{"file": "Screenshots/2026-10-01/setup/04-more-plugin-list.png", "actions": ["200,670"], "timestamp": "2026-10-01T20:01:07-0600"}
+{"file": "Screenshots/2026-10-01/setup/05-your-music.png", "actions": ["240,700", "380,80"], "timestamp": "2026-10-01T20:01:11-0600"}
+{"file": "Screenshots/2026-10-01/setup/06-complete-postflash.png", "actions": ["410,525", "240,746"], "timestamp": "2026-10-01T20:01:56-0600"}
+{"file": "Screenshots/2026-10-01/player/01-home-postflash.png", "actions": ["240,746"], "timestamp": "2026-10-01T20:01:59-0600"}
+{"file": "Screenshots/2026-10-01/player/stream-menu-postflash.png", "actions": ["350,155"], "timestamp": "2026-10-01T20:02:08-0600"}
+{"file": "Screenshots/2026-10-01/player/subsonic-postflash.png", "actions": ["200,160"], "timestamp": "2026-10-01T20:02:17-0600"}
+{"file": "Screenshots/2026-10-01/player/subsonic-connected-postflash.png", "actions": ["180,160", "180,160", "wait:3"], "timestamp": "2026-10-01T20:02:31-0600"}
+{"file": "Screenshots/2026-10-01/player/subsonic-playlists-fixed.png", "actions": ["200,520", "wait:3"], "timestamp": "2026-10-01T20:02:53-0600"}
+{"file": "Screenshots/2026-10-01/player/return-home-postflash.png", "actions": ["30,65", "30,65", "30,65", "30,65", "30,65"], "timestamp": "2026-10-01T20:03:16-0600"}
+{"file": "Screenshots/2026-10-01/player/books-postflash.png", "actions": ["350,400"], "timestamp": "2026-10-01T20:03:26-0600"}
+{"file": "Screenshots/2026-10-01/plugins/epub-home-postflash.png", "actions": ["210,520"], "timestamp": "2026-10-01T20:03:39-0600"}
+{"file": "Screenshots/2026-10-01/plugins/epub-books-postflash.png", "actions": ["220,280"], "timestamp": "2026-10-01T20:03:53-0600"}
+{"file": "Screenshots/2026-10-01/plugins/epub-chapters-postflash.png", "actions": ["340,260", "wait:2"], "timestamp": "2026-10-01T20:04:13-0600"}
+{"file": "Screenshots/2026-10-01/plugins/epub-reader-footer-fixed.png", "actions": ["180,145", "wait:3"], "timestamp": "2026-10-01T20:04:23-0600"}
+{"file": "Screenshots/2026-10-01/player/settings-postflash.png", "actions": ["240,790,240,400,400,20", "120,650", "180,670", "180,760"], "timestamp": "2026-10-01T20:04:46-0600"}
+{"file": "Screenshots/2026-10-01/player/firmware-update.png", "actions": ["190,280"], "timestamp": "2026-10-01T20:04:58-0600"}
+{"file": "Screenshots/2026-10-01/player/buy-me-coffee.png", "actions": ["30,65", "190,400"], "timestamp": "2026-10-01T20:05:03-0600"}
+{"file": "Screenshots/2026-10-01/player/developer-options.png", "actions": ["30,65", "190,520"], "timestamp": "2026-10-01T20:05:08-0600"}
+{"file": "Screenshots/2026-10-01/player/sound-postflash.png", "actions": ["240,790,240,400,400,20", "120,650", "190,155"], "timestamp": "2026-10-01T20:05:22-0600"}
+{"file": "Screenshots/2026-10-01/player/peq-postflash.png", "actions": ["160,155"], "timestamp": "2026-10-01T20:05:33-0600"}
+{"file": "Screenshots/2026-10-01/player/peq-profile-menu-postflash.png", "actions": ["240,743"], "timestamp": "2026-10-01T20:05:43-0600"}
+{"file": "Screenshots/2026-10-01/plugins/autoeq-search-fresh.png", "actions": ["200,617", "180,145"], "timestamp": "2026-10-01T20:06:06-0600"}
+{"file": "Screenshots/2026-10-01/plugins/autoeq-search-input.png", "actions": ["180,145", "wait:2"], "timestamp": "2026-10-01T20:06:18-0600"}
+{"file": "Screenshots/2026-10-01/player/text-input-home-gesture.png", "actions": ["240,790,240,400,400,20"], "timestamp": "2026-10-01T20:06:28-0600"}
+{"file": "Screenshots/2026-10-01/plugins/autoeq-stale-input-reproduction.png", "actions": ["120,650", "180,155", "160,155", "240,740", "200,617"], "timestamp": "2026-10-01T20:06:39-0600"}
+{"file": "Screenshots/2026-10-01/plugins/autoeq-stale-input-reproduction.png", "actions": ["180,145"], "timestamp": "2026-10-01T20:06:48-0600"}
+{"file": "Screenshots/2026-10-01/plugins/autoeq-back-swipe.png", "actions": ["50,300,450,300,500,25"], "timestamp": "2026-10-01T20:07:10-0600"}
+{"file": "Screenshots/2026-10-01/plugins/autoeq-stale-input-reproduction.png", "actions": ["180,145"], "timestamp": "2026-10-01T20:07:13-0600"}
+{"file": "Screenshots/2026-10-01/plugins/autoeq-search-query.png", "actions": [], "timestamp": "2026-10-01T20:08:14-0600"}
+{"file": "Screenshots/2026-10-01/plugins/autoeq-results.png", "actions": ["430,695", "wait:2"], "timestamp": "2026-10-01T20:08:27-0600"}
+{"file": "Screenshots/2026-10-01/plugins/autoeq-profile-details.png", "actions": ["200,605"], "timestamp": "2026-10-01T20:08:42-0600"}
+{"file": "Screenshots/2026-10-01/setup/00-welcome-aligned.png", "actions": [], "timestamp": "2026-10-01T20:09:58-0600"}
+{"file": "Screenshots/2026-10-01/setup/01-language-final.png", "actions": ["240,746"], "timestamp": "2026-10-01T20:10:23-0600"}
+{"file": "Screenshots/2026-10-01/setup/02-timezone-final.png", "actions": ["240,746"], "timestamp": "2026-10-01T20:10:26-0600"}
+{"file": "Screenshots/2026-10-01/setup/03-wifi-final.png", "actions": ["240,746", "wait:2"], "timestamp": "2026-10-01T20:10:31-0600"}
+{"file": "Screenshots/2026-10-01/setup/04-plugins-final.png", "actions": ["wait:4", "240,750", "wait:3"], "timestamp": "2026-10-01T20:10:50-0600"}
+{"file": "Screenshots/2026-10-01/setup/05-your-music-final.png", "actions": ["380,82"], "timestamp": "2026-10-01T20:10:53-0600"}
+{"file": "Screenshots/2026-10-01/setup/06-complete-final.png", "actions": ["410,525", "240,746"], "timestamp": "2026-10-01T20:12:17-0600"}
+{"file": "Screenshots/2026-10-01/player/home-final.png", "actions": ["240,746"], "timestamp": "2026-10-01T20:12:20-0600"}
+{"file": "Screenshots/2026-10-01/player/screen-timeout-restore.png", "actions": ["120,650", "180,360", "180,160"], "timestamp": "2026-10-01T20:12:44-0600"}
+{"file": "Screenshots/2026-10-01/player/screen-timeout-restored.png", "actions": ["410,166"], "timestamp": "2026-10-01T20:13:11-0600"}
+{"file": "Screenshots/2026-10-01/player/plugin-manager-final-pass.png", "actions": ["240,790,240,400,400,20", "120,650", "180,670", "180,400"], "timestamp": "2026-10-01T20:13:20-0600"}
+{"file": "Screenshots/2026-10-01/player/system-final-pass.png", "actions": ["30,65"], "timestamp": "2026-10-01T20:13:30-0600"}
+{"file": "Screenshots/2026-10-01/player/plugin-manager-reload.png", "actions": ["180,520", "430,65", "wait:3"], "timestamp": "2026-10-01T20:13:43-0600"}
+{"file": "Screenshots/2026-10-01/player/plugins-refreshed-final.png", "actions": ["180,280", "wait:4"], "timestamp": "2026-10-01T20:14:03-0600"}
+{"file": "Screenshots/2026-10-01/player/sound-all-final.png", "actions": ["120,650", "180,155"], "timestamp": "2026-10-01T20:14:19-0600"}
+{"file": "Screenshots/2026-10-01/player/sound-effects-final.png", "actions": ["180,640"], "timestamp": "2026-10-01T20:14:27-0600"}
+{"file": "Screenshots/2026-10-01/plugins/mseb-bottom.png", "actions": ["170,160", "240,700,240,340,400,20"], "timestamp": "2026-10-01T20:14:41-0600"}
+{"file": "Screenshots/2026-10-01/plugins/mseb-save-slots.png", "actions": ["200,583"], "timestamp": "2026-10-01T20:14:56-0600"}
+{"file": "Screenshots/2026-10-01/plugins/mseb-load-slots.png", "actions": ["30,65", "200,704"], "timestamp": "2026-10-01T20:15:00-0600"}
+{"file": "Screenshots/2026-10-01/plugins/play-through-final.png", "actions": ["240,790,240,400,400,20", "120,650", "180,255", "180,520"], "timestamp": "2026-10-01T20:15:42-0600"}
+{"file": "Screenshots/2026-10-01/player/playback-all-final.png", "actions": ["30,65"], "timestamp": "2026-10-01T20:16:01-0600"}
+{"file": "Screenshots/2026-10-01/plugins/play-through-final.png", "actions": ["180,760"], "timestamp": "2026-10-01T20:16:11-0600"}
+{"file": "Screenshots/2026-10-01/plugins/play-through-help.png", "actions": ["180,400"], "timestamp": "2026-10-01T20:16:14-0600"}
+{"file": "Screenshots/2026-10-01/setup/00-welcome-aligned.png", "actions": [], "timestamp": "2026-10-01T20:18:07-0600"}
+{"file": "Screenshots/2026-10-01/setup/00-welcome-centered.png", "actions": [], "timestamp": "2026-10-01T20:30:02-0600"}
+{"file": "Screenshots/2026-10-01/setup/00-welcome-centered.png", "actions": ["50,82"], "timestamp": "2026-10-01T20:30:36-0600"}
+{"file": "Screenshots/2026-10-01/setup/plugin-picker-before-scroll-fix.png", "actions": [], "timestamp": "2026-10-01T20:33:57-0600"}
+{"file": "Screenshots/2026-10-01/setup/04-plugins-scroll-fixed-build.png", "actions": [], "timestamp": "2026-10-01T20:43:26-0600"}
+{"file": "Screenshots/2026-10-01/setup/04-plugin-picker-restoring.png", "actions": ["415,443", "240,670"], "timestamp": "2026-10-01T20:43:51-0600"}
+{"file": "Screenshots/2026-10-01/setup/04-plugin-picker-first-selections.png", "actions": ["420,149", "420,410", "420,541", "220,580,220,270,600,30"], "timestamp": "2026-10-01T20:44:17-0600"}
+{"file": "Screenshots/2026-10-01/setup/04-plugin-picker-home-selected.png", "actions": ["420,291"], "timestamp": "2026-10-01T20:44:31-0600"}
+{"file": "Screenshots/2026-10-01/setup/04-plugin-picker-middle.png", "actions": ["220,580,220,300,600,30"], "timestamp": "2026-10-01T20:44:34-0600"}
+{"file": "Screenshots/2026-10-01/setup/04-plugin-picker-lock-selected.png", "actions": ["420,236"], "timestamp": "2026-10-01T20:44:46-0600"}
+{"file": "Screenshots/2026-10-01/setup/04-plugin-picker-lower.png", "actions": ["220,580,220,310,600,30"], "timestamp": "2026-10-01T20:44:49-0600"}
+{"file": "Screenshots/2026-10-01/setup/04-plugin-picker-playback-selected.png", "actions": ["420,330"], "timestamp": "2026-10-01T20:45:00-0600"}
+{"file": "Screenshots/2026-10-01/setup/04-plugin-picker-bottom.png", "actions": ["220,580,220,250,600,30"], "timestamp": "2026-10-01T20:45:03-0600"}
+{"file": "Screenshots/2026-10-01/setup/04-plugin-picker-scrolled-selected.png", "actions": ["420,582"], "timestamp": "2026-10-01T20:45:33-0600"}
+{"file": "Screenshots/2026-10-01/setup/04-plugin-picker-scrolled-deselected.png", "actions": ["420,582"], "timestamp": "2026-10-01T20:45:35-0600"}
+{"file": "Screenshots/2026-10-01/setup/04-plugin-picker-scrolled-restored.png", "actions": ["420,582"], "timestamp": "2026-10-01T20:45:38-0600"}
+{"file": "Screenshots/2026-10-01/themes/device/setup-before.png", "actions": ["240,709"], "timestamp": "2026-10-01T21:42:21-0600"}

@@ -1,0 +1,34 @@
+# Approval candidate; uses the existing Themes file format.
+name=Midnight Indigo
+screen=0x070918
+card=0x11162C
+list_row=0x11162C
+text_primary=0xF2F2FF
+text_muted=0xA9B0CD
+icon_root=theme2
+home_mode=tile
+home_tile_gap=10
+
+tile.music.bg_color=0x171B38
+tile.music.text_color=0xC5C4FF
+tile.music.radius=24
+
+tile.stream_media.bg_color=0x202347
+tile.stream_media.text_color=0xC5C4FF
+tile.stream_media.radius=24
+
+tile.wireless.bg_color=0x171B38
+tile.wireless.text_color=0xC5C4FF
+tile.wireless.radius=24
+
+tile.books.bg_color=0x202347
+tile.books.text_color=0xC5C4FF
+tile.books.radius=24
+
+tile.settings.bg_color=0x171B38
+tile.settings.text_color=0xC5C4FF
+tile.settings.radius=24
+
+tile.dac.bg_color=0x202347
+tile.dac.text_color=0xC5C4FF
+tile.dac.radius=24
