@@ -56,4 +56,8 @@ relative include paths land on the right files without editing upstream.
   layout never pay for the engine's startup allocations). `lv_xml_deinit()` is
   never called: LVGL itself stays up across soft UI reloads.
 - Compiled with `-Os`: the expat tokenizer alone is about 70 KB at `-O3`.
-- All widget parsers of 9.4 built against 9.5 without changes, none were dropped.
+- Timeline properties include numeric `text_align` so layouts can switch
+  metadata alignment between playback and lyrics views.
+- The image parser recognizes 9.5 `contain` and `cover` alignment so stock
+  assets retain their aspect ratio in XML layouts. The other 9.4 widget parsers
+  built against 9.5 unchanged; none were dropped.

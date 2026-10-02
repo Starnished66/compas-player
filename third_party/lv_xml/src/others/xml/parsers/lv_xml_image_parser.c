@@ -95,6 +95,9 @@ static lv_image_align_t image_align_to_enum(const char * txt)
     if(lv_streq("left_mid", txt)) return LV_IMAGE_ALIGN_LEFT_MID;
     if(lv_streq("center", txt)) return LV_IMAGE_ALIGN_CENTER;
     if(lv_streq("stretch", txt)) return LV_IMAGE_ALIGN_STRETCH;
+    /* LVGL 9.5 adds aspect-preserving sizing; retain it in the 9.4 XML bridge. */
+    if(lv_streq("contain", txt)) return LV_IMAGE_ALIGN_CONTAIN;
+    if(lv_streq("cover", txt)) return LV_IMAGE_ALIGN_COVER;
     if(lv_streq("tile", txt)) return LV_IMAGE_ALIGN_TILE;
 
     LV_LOG_WARN("%s is an unknown value for image align", txt);

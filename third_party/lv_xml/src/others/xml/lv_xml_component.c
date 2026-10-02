@@ -1017,6 +1017,7 @@ static style_prop_anim_type_t style_prop_anim_get_type(lv_style_prop_t prop)
         case LV_STYLE_SHADOW_SPREAD:
         case LV_STYLE_SHADOW_OPA:
         case LV_STYLE_TEXT_OPA:
+        case LV_STYLE_TEXT_ALIGN:
         case LV_STYLE_TEXT_LETTER_SPACE:
         case LV_STYLE_TEXT_LINE_SPACE:
         case LV_STYLE_IMAGE_OPA:

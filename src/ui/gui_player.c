@@ -145,6 +145,15 @@ static lv_obj_t * player_hit_targets[PLAYER_MAX_HIT_TARGETS];
 static unsigned player_hit_target_count;
 static lv_obj_t * player_lyrics_controls[PLAYER_MAX_LYRICS_CONTROLS];
 static unsigned player_lyrics_control_count;
+/* A layout's `lyrics_area`: where the lyrics are shown instead of below the
+ * metadata, and what they look like there (read once, at bind time). A layout
+ * with an area owns the placement, so the app neither runs the C morph nor
+ * hides the controls. */
+static lv_obj_t * player_lyrics_area;
+/* Optional custom-layout roles. The thumbnail shares the decoded cover;
+ * the play circle provides a larger hit target around the stock play icon. */
+static lv_obj_t * player_cover_thumbnail;
+static lv_obj_t * player_play_circle;
 /* artist_label/album_label are where the now-playing text is kept (Remote
  * Control and the quick drawer read it back), so a layout without those roles
  * gets hidden labels. They are not layout widgets: never laid out, scrolled,
@@ -1230,6 +1239,11 @@ static void fit_cover_img_to_card(void) {
     int32_t scale = scale_w > scale_h ? scale_w : scale_h;
     lv_image_set_scale(cover_img, scale);
     lv_obj_align(cover_img, LV_ALIGN_CENTER, 0, 0);
+}
+
+static void player_cover_size_changed_cb(lv_event_t * e) {
+    (void) e;
+    fit_cover_img_to_card();
 }
 
 /* Called every tick from update_timer_cb. Applies the finished decode to
@@ -2383,6 +2397,57 @@ static void player_lyrics_hide_object(lv_obj_t * obj) {
     lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
 }
 
+static void player_lyrics_unhide_object(lv_obj_t * obj) {
+    for (unsigned i = 0; i < player_lyrics_hidden_count; ++i) {
+        if (player_lyrics_hidden[i] != obj) continue;
+        player_lyrics_hidden[i] = player_lyrics_hidden[--player_lyrics_hidden_count];
+        lv_obj_remove_flag(obj, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+}
+
+/* Screen rectangle of the layout's lyrics area, after layout. */
+static bool player_lyrics_area_rect(lv_area_t * area) {
+    if (!player_lyrics_area || !player_screen) return false;
+    lv_obj_update_layout(player_screen);
+    lv_obj_get_coords(player_lyrics_area, area);
+    return true;
+}
+
+static void player_lyrics_set_open(bool open, bool animate);
+
+static void player_lyrics_area_empty_tap(void) {
+    player_lyrics_set_open(false, true);
+}
+
+/* Shows the lyrics in the area. Touch targets over it would take the taps
+ * meant for the lyrics, so those stay off while the others come back. */
+static void player_lyrics_show_in_area(const lv_area_t * area) {
+    for (unsigned i = 0; i < player_hit_target_count; ++i) {
+        lv_area_t hit;
+        lv_obj_get_coords(player_hit_targets[i], &hit);
+        bool overlaps = hit.x1 <= area->x2 && hit.x2 >= area->x1 && hit.y1 <= area->y2 && hit.y2 >= area->y1;
+        if (overlaps) player_lyrics_hide_object(player_hit_targets[i]);
+        else player_lyrics_unhide_object(player_hit_targets[i]);
+    }
+    gui_lyrics_show_embedded_area(player_screen, area->x1, area->y1, lv_area_get_width(area),
+                                  lv_area_get_height(area));
+}
+
+/* Without timelines, a layout with an area just shows and hides the lyrics. */
+static void player_lyrics_set_open_area(bool open) {
+    player_lyrics_object_count = 0;
+    player_lyrics_open = open;
+    lv_area_t area;
+    if (open && player_lyrics_area_rect(&area)) {
+        player_lyrics_show_in_area(&area);
+    } else {
+        gui_lyrics_hide_embedded();
+        player_lyrics_restore_controls();
+    }
+    player_transition_mark_dirty();
+}
+
 /* A layout that ships both `lyrics_open` and `lyrics_close` timelines animates
  * the transition itself; the C morph below is used otherwise. The timelines
  * own the geometry, so all this does is sequence them with what must stay
@@ -2400,7 +2465,10 @@ static void player_lyrics_timeline_cancel_timer(void) {
 
 static void player_lyrics_timeline_finish(void) {
     player_lyrics_animating = false;
-    if (player_lyrics_open) {
+    lv_area_t lyrics_rect;
+    if (player_lyrics_open && player_lyrics_area_rect(&lyrics_rect)) {
+        player_lyrics_show_in_area(&lyrics_rect);
+    } else if (player_lyrics_open) {
         for (unsigned i = 0; i < player_lyrics_control_count; ++i) player_lyrics_hide_object(player_lyrics_controls[i]);
         player_lyrics_hide_object(favorite_circle);
         int32_t bottom = 0;
@@ -2435,7 +2503,9 @@ static void player_lyrics_set_open_timeline(bool open, bool animate) {
     lv_anim_timeline_pause(player_timeline_lyrics_close);
     player_lyrics_object_count = 0;
     if (open) {
-        gui_lyrics_prepare_layout();
+        lv_area_t area;
+        if (player_lyrics_area_rect(&area)) gui_lyrics_prepare_layout_for_width(lv_area_get_width(&area));
+        else gui_lyrics_prepare_layout();
         lv_obj_update_layout(player_screen);
     } else {
         gui_lyrics_hide_embedded();
@@ -2488,6 +2558,10 @@ static void player_lyrics_set_open(bool open, bool animate) {
     }
     if (player_timeline_lyrics_open && player_timeline_lyrics_close) {
         player_lyrics_set_open_timeline(open, animate);
+        return;
+    }
+    if (player_lyrics_area) {
+        player_lyrics_set_open_area(open);
         return;
     }
     if (open) {
@@ -2799,6 +2873,10 @@ static void forward_press_state_to_icon_cb(lv_event_t * e) {
 
 static void library_btn_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (player_lyrics_area && player_lyrics_open) {
+        player_lyrics_set_open(false, true);
+        return;
+    }
     nav_pop();
 }
 
@@ -3297,6 +3375,12 @@ static bool player_bind_widgets(lv_obj_t * scr) {
     lv_obj_t * r_more = player_find_role(scr, "more_btn", &lv_image_class);
     lv_obj_t * r_dismiss = player_find_role(scr, "dismiss_btn", NULL);
     lv_obj_t * r_volume = player_find_role(scr, "volume_slider", &lv_slider_class);
+    lv_obj_t * r_lyrics_area = player_find_role(scr, "lyrics_area", NULL);
+    lv_obj_t * r_lyrics_active = player_find_role(scr, "lyrics_active", &lv_label_class);
+    lv_obj_t * r_lyrics_toggle = player_find_role(scr, "lyrics_toggle", NULL);
+    player_cover_thumbnail = player_find_role(scr, "cover_thumbnail", &lv_image_class);
+    player_play_circle = player_find_role(scr, "play_circle", NULL);
+    lv_obj_t * r_transport_color = player_find_role(scr, "transport_color", &lv_label_class);
 
     transport_btn_ctx_t * prev_ctx = NULL;
     transport_btn_ctx_t * next_ctx = NULL;
@@ -3373,11 +3457,58 @@ static bool player_bind_widgets(lv_obj_t * scr) {
     player_dismiss_btn = r_dismiss;
     volume_slider = r_volume;
 
+    /* Lyrics placement and colors, read once. The area's own text color and
+     * alignment style the normal lines, `lyrics_active` the current one. The
+     * area must not take taps meant for what lies under it; the lyrics list
+     * handles its own. */
+    player_lyrics_area = r_lyrics_area;
+    gui_lyrics_look_t lyrics_look = { 0 };
+    lyrics_look.active_marker = player_find_role(scr, "lyrics_marker", NULL) != NULL;
+    if (r_lyrics_area) {
+        lv_style_value_t value;
+        lv_obj_remove_flag(r_lyrics_area, LV_OBJ_FLAG_CLICKABLE);
+        if (lv_obj_get_local_style_prop(r_lyrics_area, LV_STYLE_TEXT_COLOR, &value, LV_PART_MAIN) == LV_STYLE_RES_FOUND) {
+            lyrics_look.has_normal = true;
+            lyrics_look.normal = value.color;
+        }
+        if (lv_obj_get_local_style_prop(r_lyrics_area, LV_STYLE_TEXT_ALIGN, &value, LV_PART_MAIN) == LV_STYLE_RES_FOUND) {
+            lyrics_look.has_align = true;
+            lyrics_look.align = (lv_text_align_t) value.num;
+        }
+        lyrics_look.on_empty_tap = player_lyrics_area_empty_tap;
+    }
+    if (r_lyrics_active) {
+        lyrics_look.has_active = true;
+        lyrics_look.active = lv_obj_get_style_text_color(r_lyrics_active, LV_PART_MAIN);
+    }
+    gui_lyrics_set_look(&lyrics_look);
+    if (r_lyrics_toggle) {
+        lv_obj_add_flag(r_lyrics_toggle, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(r_lyrics_toggle, cover_img_tap_cb, LV_EVENT_CLICKED, NULL);
+    }
+    if (player_cover_thumbnail) {
+        lv_obj_add_flag(player_cover_thumbnail, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(player_cover_thumbnail, cover_img_tap_cb, LV_EVENT_CLICKED, NULL);
+    }
+
     /* Custom layouts style themselves, but inherit the theme's text colors
      * and the accent so a light/dark or accent change still reaches them.
      * Local XML style properties outrank these shared styles. The built-in
      * creator applies the same styles itself, in its original order. */
     if (!builtin) {
+        if (player_play_circle) lv_obj_add_style(player_play_circle, gui_theme_accent_style(), 0);
+        if (r_transport_color) {
+            lv_color_t color = lv_obj_get_style_text_color(r_transport_color, 0);
+            lv_obj_t * icons[] = { r_order, r_play, r_prev, r_next, r_more, r_fav_icon,
+                                  player_find_role(scr, "dismiss_icon", &lv_image_class),
+                                  player_find_role(scr, "lyrics_icon", &lv_image_class),
+                                  r_lyrics_toggle && lv_obj_check_type(r_lyrics_toggle, &lv_image_class) ? r_lyrics_toggle : NULL };
+            for (unsigned i = 0; i < sizeof(icons) / sizeof(icons[0]); ++i) {
+                if (!icons[i]) continue;
+                lv_obj_set_style_image_recolor(icons[i], color, 0);
+                lv_obj_set_style_image_recolor_opa(icons[i], LV_OPA_COVER, 0);
+            }
+        }
         lv_obj_t * primary[] = { r_title, r_count };
         lv_obj_t * muted[] = { r_artist, r_album, r_badge, r_pos, r_dur };
         for (unsigned i = 0; i < sizeof(primary) / sizeof(primary[0]); ++i)
@@ -3401,6 +3532,7 @@ static bool player_bind_widgets(lv_obj_t * scr) {
 
     lv_obj_add_flag(r_cover_img, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(r_cover_img, cover_img_tap_cb, LV_EVENT_CLICKED, NULL);
+    if (!builtin) lv_obj_add_event_cb(r_cover_card, player_cover_size_changed_cb, LV_EVENT_SIZE_CHANGED, NULL);
 
     player_label_enable_marquee(r_title);
     if (r_album) player_secondary_label_enable_marquee(r_album);
@@ -3449,7 +3581,8 @@ static bool player_bind_widgets(lv_obj_t * scr) {
         lv_obj_add_event_cb(prev_hit, transport_seek_repeat_cb, LV_EVENT_LONG_PRESSED_REPEAT, (void *) (intptr_t) -1);
     }
 
-    lv_obj_t * play_hit = player_add_hit_target(scr, r_play, player_x(240), player_s(94), transport_center_y,
+    lv_obj_t * play_hit = player_add_hit_target(scr, player_play_circle ? player_play_circle : r_play,
+                                                player_x(240), player_s(94), transport_center_y,
                                                 play_btn_event_cb, lv_palette_main(LV_PALETTE_BLUE));
     lv_obj_add_event_cb(play_hit, forward_press_state_to_icon_cb, LV_EVENT_PRESSED, r_play);
     lv_obj_add_event_cb(play_hit, forward_press_state_to_icon_cb, LV_EVENT_RELEASED, r_play);
@@ -3577,6 +3710,10 @@ static void player_reset_widget_globals(void) {
     player_timeline_screen_enter = NULL;
     player_hit_target_count = 0;
     player_lyrics_control_count = 0;
+    player_lyrics_area = NULL;
+    player_cover_thumbnail = NULL;
+    player_play_circle = NULL;
+    gui_lyrics_set_look(NULL);
     player_artist_standin = false;
     player_album_standin = false;
     player_lyrics_object_count = 0;

@@ -17,6 +17,27 @@ void gui_lyrics_open_screen(void);
 /* Precomputes or updates line geometry without changing list visibility,
  * parenting, scroll position, or row-pool state. */
 void gui_lyrics_prepare_layout(void);
+
+/* Look of the embedded pane, from the player layout's roles. Colors apply to
+ * every embedded pane where has_normal / has_active is set; align and
+ * on_empty_tap only to a pane placed by gui_lyrics_show_embedded_area().
+ * The struct is copied. NULL restores the defaults. */
+typedef struct {
+    bool has_normal;
+    lv_color_t normal;
+    bool has_active;
+    lv_color_t active;
+    bool has_align;
+    lv_text_align_t align;
+    bool active_marker; /* Accent rule beside the current embedded lyric. */
+    void (*on_empty_tap)(void);
+} gui_lyrics_look_t;
+void gui_lyrics_set_look(const gui_lyrics_look_t * look);
+/* Same as gui_lyrics_prepare_layout() for an embedded pane `width` pixels wide. */
+void gui_lyrics_prepare_layout_for_width(int32_t width);
+/* Like gui_lyrics_show_embedded() for the exact rectangle x, y, w, h of parent
+ * (a layout's own lyrics area). */
+void gui_lyrics_show_embedded_area(lv_obj_t * parent, int32_t x, int32_t y, int32_t w, int32_t h);
 /* Borrows parent for content only; no navigation or player chrome changes.
  * Caller must hide before deleting parent (including player teardown). */
 void gui_lyrics_show_embedded(lv_obj_t * parent, int32_t top, int32_t height);

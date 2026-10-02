@@ -36,7 +36,11 @@ typedef struct {
 #define LYRICS_BACKDROP_DARKEN_NUM 9
 #define LYRICS_BACKDROP_DARKEN_DEN 20
 #define LYRICS_POOL_SIZE 20
-#define LYRICS_ROW_WIDTH (BOARD_SCREEN_WIDTH - BOARD_SCALE_PX(40))
+/* Both side margins together. Scaled as one value, not twice 20: on the
+ * 320px board the rounding differs and the fullscreen width must not move. */
+#define LYRICS_ROW_MARGINS BOARD_SCALE_PX(40)
+#define LYRICS_ROW_WIDTH (BOARD_SCREEN_WIDTH - LYRICS_ROW_MARGINS)
+#define LYRICS_ROW_MIN_WIDTH BOARD_SCALE_PX(80)
 #define LYRICS_ROW_GAP BOARD_SCALE_PX(24)
 #define LYRICS_ACTIVE_LINE_ANCHOR_Y (lyrics_embedded ? BOARD_SCALE_PX(16) : (BOARD_SCREEN_HEIGHT / 4))
 #define LYRICS_TOP_PAD LYRICS_ACTIVE_LINE_ANCHOR_Y
@@ -136,8 +140,14 @@ static lv_obj_t * lyrics_list;
 static lv_obj_t * lyrics_spacer;
 static lv_obj_t * lyrics_empty_label;
 static lv_obj_t * lyrics_plain_label; /* current_lyrics_plain_mode's own display -- see its own comment */
+static lv_obj_t * lyrics_active_marker;
 static lv_timer_t * lyrics_timer;
 static bool lyrics_embedded = false;
+/* Row width of the embedded pane (a layout's lyrics_area may be narrower than
+ * the screen), reset when it is hidden, and the layout's look. */
+static int32_t lyrics_embedded_row_width = LYRICS_ROW_WIDTH;
+static bool lyrics_area_mode; /* embedded in a layout's own area */
+static gui_lyrics_look_t lyrics_look;
 static bool lyrics_backdrop_discard_active = false;
 static uint8_t * current_lyrics_backdrop_bytes;
 static lv_image_dsc_t current_lyrics_backdrop_dsc;
@@ -498,9 +508,20 @@ static int32_t lyrics_line_height(int index) {
 static int32_t lyrics_line_line_space(int index) {
     return lyrics_layout_line_space(&lyrics_layout, index);
 }
-static void lyrics_build_line_offsets(void) {
+static void lyrics_build_line_offsets(int32_t row_width) {
     lyrics_layout_build(&lyrics_layout, current_lyrics_doc_valid ? &current_lyrics_doc : NULL,
-                        &app_font_lyrics, LYRICS_ROW_WIDTH, LYRICS_ROW_GAP, LYRICS_TOP_PAD);
+                        &app_font_lyrics, row_width, LYRICS_ROW_GAP, LYRICS_TOP_PAD);
+}
+/* Line width for a pane `pane_width` wide: the same side margins as the
+ * fullscreen list, kept sane for a very narrow pane. */
+static int32_t lyrics_row_width_for(int32_t pane_width) {
+    int32_t width = pane_width - LYRICS_ROW_MARGINS;
+    if (width < LYRICS_ROW_MIN_WIDTH) width = LYRICS_ROW_MIN_WIDTH;
+    if (width > pane_width) width = pane_width;
+    return width;
+}
+static int32_t lyrics_target_row_width(void) {
+    return lyrics_embedded ? lyrics_embedded_row_width : LYRICS_ROW_WIDTH;
 }
 static int lyrics_first_line_at_y(int32_t y, int count) {
     return lyrics_layout_first_at_y(&lyrics_layout, y, count);
@@ -509,19 +530,21 @@ static int lyrics_first_line_at_y(int32_t y, int count) {
  * epoch and list anchor. This deliberately has no row-pool or scroll side
  * effects so the player can pay the first measurement before its opening
  * animation starts. */
-static void lyrics_ensure_layout(bool force_layout_rebuild) {
+static void lyrics_ensure_layout_width(bool force_layout_rebuild, int32_t row_width) {
     int count = current_lyrics_doc_valid ? current_lyrics_doc.count : 0;
     /* lyrics_layout_build() calls lv_text_get_size() once per line -- real,
      * synchronous UI-thread cost that scales with document length. Its
      * validity is tracked separately from pool synchronization because
      * embedding reparents/resets the row pool without changing measured
      * geometry. Font changes explicitly force a rebuild even though the
-     * document identity stays the same. */
-    if (force_layout_rebuild || !lyrics_layout_valid ||
+     * document identity stays the same. The row width is part of the key:
+     * wrapping depends on it, and the fullscreen list, the default embedded
+     * pane and a layout's own area can differ. */
+    if (force_layout_rebuild || !lyrics_layout_valid || lyrics_layout.row_width != row_width ||
         current_lyrics_doc_for_index != lyrics_layout_for_index ||
         current_lyrics_doc_generation != lyrics_layout_generation) {
         uint64_t t0 = db_log_now_ms();
-        lyrics_build_line_offsets();
+        lyrics_build_line_offsets(row_width);
         lyrics_layout_for_index = current_lyrics_doc_for_index;
         lyrics_layout_generation = current_lyrics_doc_generation;
         lyrics_layout_valid = true;
@@ -537,6 +560,9 @@ static void lyrics_ensure_layout(bool force_layout_rebuild) {
         lyrics_layout.top_pad = LYRICS_TOP_PAD;
     }
 }
+static void lyrics_ensure_layout(bool force_layout_rebuild) {
+    lyrics_ensure_layout_width(force_layout_rebuild, lyrics_target_row_width());
+}
 /* Re-syncs the row pool/spacer/empty-state to whatever current_lyrics_doc
  * currently holds -- called on every open (open_lyrics_screen() below) and
  * whenever lyrics_timer_cb() notices the doc changed while already open
@@ -548,6 +574,7 @@ static void lyrics_ensure_layout(bool force_layout_rebuild) {
  * force_layout_rebuild: gui_lyrics_refresh_layout() (font size / custom font
  * changed) must pass true -- see lyrics_ensure_layout() for the cache key. */
 static void lyrics_reset_pool(bool force_layout_rebuild) {
+    if (lyrics_active_marker) lv_obj_add_flag(lyrics_active_marker, LV_OBJ_FLAG_HIDDEN);
     int count = current_lyrics_doc_valid ? current_lyrics_doc.count : 0;
     lyrics_ensure_layout(force_layout_rebuild);
 
@@ -615,6 +642,18 @@ static void lyrics_update_window(int active_index) {
     bool window_moved = first != lyrics_window_start;
     if (window_moved) lyrics_window_start = first;
 
+    if (lyrics_active_marker) {
+        bool show = lyrics_embedded && lyrics_area_mode && lyrics_look.active_marker &&
+                    active_index >= first && active_index < first + LYRICS_POOL_SIZE && active_index < count;
+        if (show) {
+            int32_t row_x = lv_obj_get_x(lyrics_rows[0]);
+            lv_obj_set_pos(lyrics_active_marker, row_x - BOARD_SCALE_PX(10), lyrics_line_y(active_index));
+            lv_obj_set_size(lyrics_active_marker, BOARD_SCALE_PX(3), lyrics_line_height(active_index));
+            lv_obj_set_style_bg_color(lyrics_active_marker, accent_lv_color(), 0);
+            lv_obj_remove_flag(lyrics_active_marker, LV_OBJ_FLAG_HIDDEN);
+        } else lv_obj_add_flag(lyrics_active_marker, LV_OBJ_FLAG_HIDDEN);
+    }
+
     for (int slot = 0; slot < LYRICS_POOL_SIZE; slot++) {
         int index = first + slot;
         lv_obj_t * row = lyrics_rows[slot];
@@ -629,7 +668,9 @@ static void lyrics_update_window(int active_index) {
             lv_obj_set_style_text_line_space(row, lyrics_line_line_space(index), 0);
             lv_label_set_text(row, current_lyrics_doc.lines[index].text);
         }
-        lv_obj_set_style_text_color(row, index == active_index ? accent_lv_color() : lv_color_make(150, 150, 150), 0);
+        lv_color_t active = lyrics_embedded && lyrics_look.has_active ? lyrics_look.active : accent_lv_color();
+        lv_color_t normal = lyrics_embedded && lyrics_look.has_normal ? lyrics_look.normal : lv_color_make(150, 150, 150);
+        lv_obj_set_style_text_color(row, index == active_index ? active : normal, 0);
     }
 }
 /* Tap a line to seek playback to it -- pool_slot (this row's fixed slot in
@@ -650,6 +691,14 @@ static void lyrics_row_click_cb(lv_event_t * e) {
     audio_seek(current_lyrics_doc.lines[index].time_ms / 1000.0);
     lyrics_auto_follow = true;
     lyrics_last_centered_index = -2;
+}
+/* A tap that lands on the pane itself rather than on a line: a layout's own
+ * lyrics area uses it to close the lyrics. Lines handle their own taps and
+ * do not bubble them. */
+static void lyrics_list_click_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED || lv_event_get_target(e) != lyrics_list) return;
+    void (*on_empty_tap)(void) = lyrics_embedded && lyrics_area_mode ? lyrics_look.on_empty_tap : NULL;
+    if (on_empty_tap) on_empty_tap();
 }
 /* Shared shutdown for every way out of this screen (manual swipe-back below,
  * and lyrics_timer_cb()'s own auto-close when a track change resolves to no
@@ -813,20 +862,63 @@ static void open_lyrics_screen(void) {
     lyrics_timer_cb(NULL); /* one immediate tick so the view isn't blank for up to LYRICS_TIMER_PERIOD_MS after opening */
 }
 
-void gui_lyrics_show_embedded(lv_obj_t * parent, int32_t top, int32_t height) {
-    if (!parent || !lyrics_screen || height <= 0) return;
+/* Row width, position and text alignment follow the pane they sit in. */
+static void lyrics_apply_row_geometry(int32_t pane_width, int32_t row_width, lv_text_align_t align) {
+    int32_t x = (pane_width - row_width) / 2;
+    for (int slot = 0; slot < LYRICS_POOL_SIZE; slot++) {
+        lv_obj_set_width(lyrics_rows[slot], row_width);
+        lv_obj_set_x(lyrics_rows[slot], x);
+        lv_obj_set_style_text_align(lyrics_rows[slot], align, 0);
+    }
+    lv_obj_set_width(lyrics_plain_label, row_width);
+    lv_obj_set_x(lyrics_plain_label, x);
+    lv_obj_set_style_text_align(lyrics_plain_label, align, 0);
+}
+
+void gui_lyrics_set_look(const gui_lyrics_look_t * look) {
+    if (look) lyrics_look = *look;
+    else memset(&lyrics_look, 0, sizeof(lyrics_look));
+}
+
+void gui_lyrics_prepare_layout_for_width(int32_t width) {
+    lyrics_ensure_layout_width(false, lyrics_row_width_for(width));
+}
+
+static void lyrics_show_embedded(lv_obj_t * parent, int32_t x, int32_t y, int32_t w, int32_t h, bool area_mode) {
+    if (!parent || !lyrics_screen || h <= 0 || w <= 0) return;
     lyrics_embedded = true;
+    lyrics_area_mode = area_mode;
+    lyrics_embedded_row_width = lyrics_row_width_for(w);
+    lyrics_apply_row_geometry(w, lyrics_embedded_row_width,
+                              area_mode && lyrics_look.has_align ? lyrics_look.align : LV_TEXT_ALIGN_CENTER);
+    /* Empty and plain lyrics need the same contrast as synchronized lines. */
+    lv_obj_set_style_text_color(lyrics_empty_label, lyrics_look.has_normal ? lyrics_look.normal : lv_color_hex(0xc8c8c8), 0);
+    lv_obj_set_style_text_color(lyrics_plain_label, lyrics_look.has_normal ? lyrics_look.normal : lv_color_hex(0xe6e6e6), 0);
     lyrics_backdrop_discard_active = lyrics_backdrop_active;
     lyrics_backdrop_regenerate_pending = false;
     lv_obj_add_flag(lyrics_backdrop_img, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_parent(lyrics_list, parent);
     lv_obj_set_parent(lyrics_empty_label, parent);
-    lv_obj_align(lyrics_list, LV_ALIGN_TOP_LEFT, 0, top);
-    lv_obj_set_size(lyrics_list, BOARD_SCREEN_WIDTH, height);
+    /* Its 90% width is relative to the parent, the whole screen; a layout's
+     * area may be narrower, so size it to the pane there. */
+    if (area_mode) lv_obj_set_width(lyrics_empty_label, w * 9 / 10);
+    lv_obj_align(lyrics_list, LV_ALIGN_TOP_LEFT, x, y);
+    lv_obj_set_size(lyrics_list, w, h);
     lv_obj_remove_flag(lyrics_list, LV_OBJ_FLAG_HIDDEN);
     /* Align to the list's center so parent height/padding do not shift the
      * empty state outside the requested region. */
     lv_obj_update_layout(lyrics_list);
+    if (area_mode) {
+        /* A short area: keep the message inside it, ending in an ellipsis.
+         * Measured from its natural wrapped height each time it is shown. */
+        lv_label_set_long_mode(lyrics_empty_label, LV_LABEL_LONG_WRAP);
+        lv_obj_set_height(lyrics_empty_label, LV_SIZE_CONTENT);
+        lv_obj_update_layout(lyrics_empty_label);
+        if (lv_obj_get_height(lyrics_empty_label) > h) {
+            lv_label_set_long_mode(lyrics_empty_label, LV_LABEL_LONG_DOT);
+            lv_obj_set_height(lyrics_empty_label, h);
+        }
+    }
     lv_obj_align_to(lyrics_empty_label, lyrics_list, LV_ALIGN_CENTER, 0, 0);
     /* Reset row position/scroll for the embedded view. The measured line
      * geometry is unchanged by reparenting and is reused unless its
@@ -834,6 +926,14 @@ void gui_lyrics_show_embedded(lv_obj_t * parent, int32_t top, int32_t height) {
     lyrics_reset_pool(false);
     lv_timer_resume(lyrics_timer);
     lyrics_timer_cb(NULL);
+}
+
+void gui_lyrics_show_embedded(lv_obj_t * parent, int32_t top, int32_t height) {
+    lyrics_show_embedded(parent, 0, top, BOARD_SCREEN_WIDTH, height, false);
+}
+
+void gui_lyrics_show_embedded_area(lv_obj_t * parent, int32_t x, int32_t y, int32_t w, int32_t h) {
+    lyrics_show_embedded(parent, x, y, w, h, true);
 }
 
 void gui_lyrics_prepare_embedded(lv_obj_t * parent, int32_t top, int32_t height) {
@@ -855,8 +955,17 @@ void gui_lyrics_hide_embedded(void) {
     lv_obj_set_parent(lyrics_empty_label, lyrics_screen);
     lv_obj_set_size(lyrics_list, LYRICS_BACKDROP_WIDTH, LYRICS_BACKDROP_HEIGHT);
     lv_obj_align(lyrics_list, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_width(lyrics_empty_label, lv_pct(90));
+    lv_obj_set_height(lyrics_empty_label, LV_SIZE_CONTENT);
+    lv_label_set_long_mode(lyrics_empty_label, LV_LABEL_LONG_WRAP);
     lv_obj_center(lyrics_empty_label);
     lyrics_embedded = false;
+    lyrics_area_mode = false;
+    lv_obj_set_style_text_color(lyrics_empty_label, lv_color_hex(0xc8c8c8), 0);
+    lv_obj_set_style_text_color(lyrics_plain_label, lv_color_hex(0xe6e6e6), 0);
+    if (lyrics_active_marker) lv_obj_add_flag(lyrics_active_marker, LV_OBJ_FLAG_HIDDEN);
+    lyrics_embedded_row_width = LYRICS_ROW_WIDTH;
+    lyrics_apply_row_geometry(LYRICS_BACKDROP_WIDTH, LYRICS_ROW_WIDTH, LV_TEXT_ALIGN_CENTER);
     /* Fullscreen open restores visibility and reconciles the row pool. The
      * measured line geometry is independent of this list's parent/anchor. */
 }
@@ -932,6 +1041,12 @@ static lv_obj_t * build_lyrics_screen(void) {
         lyrics_rows[slot] = row;
     }
 
+    lyrics_active_marker = lv_obj_create(lyrics_list);
+    lv_obj_remove_style_all(lyrics_active_marker);
+    lv_obj_set_style_bg_opa(lyrics_active_marker, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(lyrics_active_marker, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(lyrics_active_marker, LV_OBJ_FLAG_HIDDEN);
+
     /* current_lyrics_plain_mode's own display -- a single wrapped label
      * showing the whole embedded-tag text as a static block (no per-line
      * highlight, no auto-follow-with-playback), for the common case where
@@ -963,6 +1078,7 @@ static lv_obj_t * build_lyrics_screen(void) {
     lv_obj_set_pos(lyrics_spacer, 0, 0);
 
     lv_obj_add_event_cb(lyrics_list, lyrics_scroll_event_cb, LV_EVENT_SCROLL, NULL);
+    lv_obj_add_event_cb(lyrics_list, lyrics_list_click_cb, LV_EVENT_CLICKED, NULL);
 
     /* Right-swipe-to-exit -- see lyrics_gesture_event_cb()'s own doc
      * comment for why this is a dedicated handler rather than finalize_
@@ -1090,6 +1206,7 @@ void gui_lyrics_teardown(void) {
      * timer, see its own comment. */
     if (lyrics_timer) { lv_timer_del(lyrics_timer); lyrics_timer = NULL; }
     if (lyrics_screen) { lv_obj_delete(lyrics_screen); lyrics_screen = NULL; }
+    lyrics_active_marker = NULL;
     if (lyrics_font_size_screen) { lv_obj_delete(lyrics_font_size_screen); lyrics_font_size_screen = NULL; }
 }
 
