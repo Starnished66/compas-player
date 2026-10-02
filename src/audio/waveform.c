@@ -26,12 +26,20 @@
 #define WAVEFORM_CACHE_MAGIC "WFM1"
 #define WAVEFORM_CACHE_HEADER_SIZE 26U
 #define WAVEFORM_CACHE_RECORD_MAX (WAVEFORM_CACHE_HEADER_SIZE + WAVEFORM_PATH_MAX + WAVEFORM_BINS + 4U)
+#define WAVEFORM_FAILURE_CACHE_LIMIT 16U
 
 typedef struct {
     off_t size;
     int64_t mtime_sec;
     uint32_t mtime_nsec;
 } file_facts_t;
+
+typedef struct {
+    bool valid;
+    char path[WAVEFORM_PATH_MAX];
+    file_facts_t facts;
+    uint64_t last_used;
+} failed_waveform_t;
 
 static pthread_mutex_t waveform_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t waveform_cond = PTHREAD_COND_INITIALIZER;
@@ -44,6 +52,8 @@ static uint64_t waveform_generation;
 static char waveform_requested_path[WAVEFORM_PATH_MAX];
 static char waveform_result_path[WAVEFORM_PATH_MAX];
 static uint8_t waveform_result_bins[WAVEFORM_BINS];
+static failed_waveform_t waveform_failures[WAVEFORM_FAILURE_CACHE_LIMIT];
+static uint64_t waveform_failure_clock;
 
 static bool path_is_local(const char * path) {
     return path && path[0] && !strchr(path, ':') &&
@@ -62,6 +72,62 @@ static bool get_file_facts(const char * path, file_facts_t * facts) {
 
 static bool facts_equal(const file_facts_t * a, const file_facts_t * b) {
     return a->size == b->size && a->mtime_sec == b->mtime_sec && a->mtime_nsec == b->mtime_nsec;
+}
+
+/* Remember failed identities only in RAM. Reopening the same unchanged file
+ * after switching tracks must not repeat a long background scan, while a
+ * changed size/mtime gets a fresh attempt. */
+static bool failure_cache_contains(const char * path, const file_facts_t * facts) {
+    bool found = false;
+    pthread_mutex_lock(&waveform_mutex);
+    for (size_t i = 0; i < WAVEFORM_FAILURE_CACHE_LIMIT; i++) {
+        failed_waveform_t * entry = &waveform_failures[i];
+        if (!entry->valid || strcmp(entry->path, path) != 0) continue;
+        if (!facts_equal(&entry->facts, facts)) {
+            entry->valid = false;
+            entry->path[0] = '\0';
+            continue;
+        }
+        entry->last_used = ++waveform_failure_clock;
+        found = true;
+    }
+    pthread_mutex_unlock(&waveform_mutex);
+    return found;
+}
+
+static void failure_cache_store_if_current(uint64_t generation, const char * path,
+                                           const file_facts_t * facts) {
+    pthread_mutex_lock(&waveform_mutex);
+    if (waveform_stopping || waveform_generation != generation ||
+        strcmp(waveform_requested_path, path) != 0) {
+        pthread_mutex_unlock(&waveform_mutex);
+        return;
+    }
+    size_t slot = WAVEFORM_FAILURE_CACHE_LIMIT;
+    uint64_t oldest = UINT64_MAX;
+    for (size_t i = 0; i < WAVEFORM_FAILURE_CACHE_LIMIT; i++) {
+        failed_waveform_t * entry = &waveform_failures[i];
+        if (entry->valid && strcmp(entry->path, path) == 0) {
+            slot = i;
+            break;
+        }
+        if (!entry->valid) {
+            slot = i;
+            break;
+        }
+        if (entry->last_used < oldest) {
+            oldest = entry->last_used;
+            slot = i;
+        }
+    }
+    if (slot < WAVEFORM_FAILURE_CACHE_LIMIT) {
+        failed_waveform_t * entry = &waveform_failures[slot];
+        snprintf(entry->path, sizeof(entry->path), "%s", path);
+        entry->facts = *facts;
+        entry->last_used = ++waveform_failure_clock;
+        entry->valid = true;
+    }
+    pthread_mutex_unlock(&waveform_mutex);
 }
 
 static bool generation_cancelled(void * opaque) {
@@ -278,6 +344,7 @@ static void * waveform_worker(void * unused) {
         if (generation_cancelled(&generation)) continue;
         file_facts_t facts;
         if (!get_file_facts(path, &facts)) continue;
+        bool previously_failed = failure_cache_contains(path, &facts);
 
         uint8_t bins[WAVEFORM_BINS];
         if (cache_load(path, &facts, bins)) {
@@ -287,10 +354,15 @@ static void * waveform_worker(void * unused) {
                 publish_result(generation, path, bins);
             continue;
         }
+        if (previously_failed) continue;
         if (generation_cancelled(&generation)) continue;
         if (!audio_extract_waveform(path, bins, WAVEFORM_BINS, generation_cancelled,
-                                   &generation))
+                                    &generation)) {
+            file_facts_t after_failure;
+            if (get_file_facts(path, &after_failure) && facts_equal(&facts, &after_failure))
+                failure_cache_store_if_current(generation, path, &facts);
             continue;
+        }
         if (generation_cancelled(&generation)) continue;
         file_facts_t after;
         if (!get_file_facts(path, &after) || !facts_equal(&facts, &after)) continue;

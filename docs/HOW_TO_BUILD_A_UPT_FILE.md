@@ -1,183 +1,154 @@
-# How to build an R1 `.upt` firmware image
+# How to build a `.upt` firmware image
 
-This guide explains how to build a complete HiBy R1 firmware update package
-from:
+This guide explains how to build a complete firmware update package for the
+HiBy R1, R3 Pro II, or R3II 2025 from an approved base image and matching
+Compás player and bootloader binaries. Each output is for one exact board.
 
-- an approved R1 **Staging Image** supplied by the user;
-- a newly built player binary; and
-- a newly built bootloader binary.
-
-The repository does not contain a redistributable stock firmware image. The
-base image must therefore be obtained separately and must be the approved
-Staging Image described below.
+The repository does not contain redistributable stock HiBy firmware. Obtain
+the approved base image separately and keep it outside the repository. The
+GitHub workflows use the private `staging-image-base` release and verify each
+base against a repository secret before packaging it. The secret names are
+`STAGING_IMAGE_SHA256` (R1), `R3PROII_STAGING_IMAGE_SHA256` (R3 Pro II), and
+`R3II_2025_STAGING_IMAGE_SHA256` (R3II 2025). The secret values are never
+needed in the source tree or in these instructions.
 
 ## What the script produces
 
 [`scripts/repack_upt.sh`](../scripts/repack_upt.sh) creates an ISO 9660 `.upt`
-file with the layout expected by the R1 recovery updater. It:
+file in the format expected by the device recovery updater. It extracts the
+base, checks its board identity and player/bootloader handoff, installs the
+matching binaries, copies tracked project assets and the firmware overlay,
+recompresses the root filesystem, builds the OTA chunks and metadata, and
+checks the final package against the 45 MiB limit (47,185,920 bytes).
 
-1. extracts the base image;
-2. joins and unpacks its `rootfs.squashfs` and `xImage` chunks;
-3. verifies that the base image's `usr/bin/hiby_player.sh` invokes the
-   bootloader, then rewrites the handoff to `/usr/bin/compas_bootloader`;
-4. installs the supplied player and bootloader binaries;
-5. copies the repository's git-tracked assets and fonts to their device paths,
-   then every file under `firmware/overlay/` into the root filesystem;
-6. recompresses the root filesystem with SquashFS;
-7. splits the kernel and root filesystem into 512 KiB OTA chunks and writes
-   the MD5 metadata and hash chains; and
-8. creates the final ISO and rejects it if it is larger than 45 MiB
-   (47,185,920 bytes).
-
-The script uses a temporary working directory and does not modify the base
-image or the source tree. The output path must be different from the base
-image path.
+The script works in a temporary directory. It does not modify the base image
+or source tree, and the output path must differ from the base image path.
 
 ## Requirements
 
-Run the commands below from the repository root. A Linux host is assumed.
-
-The repack step requires these commands:
+Run the commands from the repository root on Linux. The repack step requires:
 
 ```text
-7z
-unsquashfs
-mksquashfs
-genisoimage
-md5sum
-sha256sum
-split
+7z, unsquashfs, mksquashfs, genisoimage, file, md5sum, sha256sum, split
 ```
 
-On Debian or Ubuntu, the non-standard tools can be installed with:
+On Debian or Ubuntu, install the non-core tools with:
 
 ```sh
-sudo apt-get install genisoimage p7zip-full squashfs-tools
+sudo apt-get install genisoimage p7zip-full squashfs-tools file
 ```
 
-`md5sum`, `sha256sum`, and `split` are provided by the usual GNU coreutils
-package.
+`md5sum`, `sha256sum`, and `split` come from GNU coreutils. Building the
+binaries also needs the project build dependencies and MIPS musl cross-toolchain;
+see the build section in [`README.md`](../README.md).
 
-Building the binaries also requires the project build dependencies and the
-MIPS musl cross-toolchain. See the build section in [`README.md`](../README.md)
-for the toolchain setup.
+## 1. Obtain the matching approved base image
 
-## 1. Obtain a compatible base image
+Use a complete, approved staging image for the same model as the binaries:
 
-Use a complete R1 Staging Image, for example:
+| Board | Base image example | Firmware board marker | Panel |
+| --- | --- | --- | --- |
+| HiBy R1 | `/path/to/r1.upt` | R1 | 480×800 |
+| HiBy R3 Pro II | `/path/to/r3proii.upt` | `R3PROII` | 480×720 |
+| HiBy R3II 2025 | `/path/to/r3ii_2025.upt` | `R3II_2025` | 320×480 |
 
-```text
-/path/to/base_staging.upt
-```
+The R3 bases must also contain the supported BlueALSA 5 / BlueZ runtime and
+Speex rate-conversion files required by the player. The packer checks these
+requirements and stops if they are missing. Do not substitute an arbitrary
+stock image or an older public beta: the packer checks the firmware identity,
+required runtime files, font checksums, and bootloader handoff. Keep the base
+unchanged as a recovery image.
 
-Do not use an arbitrary stock `.upt` file or an older public beta. The repack
-script intentionally refuses a base image whose `hiby_player.sh` does not
-contain the bootloader handoff. This check prevents creating an image that
-contains the new bootloader binary but never starts it.
+The approved base images contain proprietary HiBy files. They remain external
+inputs and must not be committed, uploaded as public source artifacts, or
+included in this repository. GitHub Actions obtains its copies from the
+private `staging-image-base` release and validates them with the corresponding
+checksum secret.
 
-The base image contains proprietary HiBy files and is not supplied by this
-repository. Keep it outside the repository if it is not already ignored.
+## 2. Build matching player and bootloader binaries
 
-## 2. Build the R1 binaries
+Build both outputs for the same board. The Makefile writes board-specific
+outputs so builds do not overwrite each other:
 
-Build the player and the bootloader for the R1. `r1` is the Makefile default,
-but specifying it explicitly avoids accidentally packaging binaries for a
-different board:
+| Board | Build commands | Player output | Bootloader output |
+| --- | --- | --- | --- |
+| R1 | `make target BOARD=r1`<br>`make bootloader BOARD=r1` | `compas_player_target` | `compas_bootloader` |
+| R3 Pro II | `make target BOARD=r3proii`<br>`make bootloader BOARD=r3proii` | `compas_player_target_r3proii` | `compas_bootloader_r3proii` |
+| R3II 2025 | `make target BOARD=r3ii_2025`<br>`make bootloader BOARD=r3ii_2025` | `compas_player_target_r3ii_2025` | `compas_bootloader_r3ii_2025` |
 
-```sh
-make target BOARD=r1
-make bootloader BOARD=r1
-```
+Do not mix binaries between boards or use a host executable. The image installs
+them as `/usr/bin/compas_player` and `/usr/bin/compas_bootloader`. It also
+removes the old `/usr/bin/open_hiby_bootloader` and updates the launcher to
+start the new bootloader.
 
-The commands must produce these two non-empty files in the repository root:
+## 3. Check the repository inputs
 
-```text
-compas_player_target
-compas_bootloader
-```
+The repacker adds project-maintained files after unpacking the base. It copies
+only files tracked by Git from `assets/`:
 
-The repack script installs them as:
-
-```text
-/usr/bin/compas_player
-/usr/bin/compas_bootloader
-```
-
-Older installs may still have `/usr/bin/open_hiby_bootloader`. Repacking an
-image removes that old binary and installs `/usr/bin/compas_bootloader`.
-
-Both files must be R1 MIPS binaries. Do not substitute the R3 Pro II build
-outputs or a host executable.
-
-## 3. Check what the repository contributes before packaging
-
-Besides the two binary arguments, the repack script copies repository-managed
-files from three places, after the binaries are installed:
-
-| Repository path | Lands at | Holds |
+| Repository path | Device destination | Application order |
 | --- | --- | --- |
-| `assets/theme2/` | `/usr/resource/litegui/theme2/` | UI icons |
-| `assets/fonts/` | `/usr/resource/fonts/` | fonts |
-| `firmware/overlay/` | `/` (root-relative) | non-asset files |
+| `assets/theme1/` | `/usr/resource/litegui/theme1/` | Shared theme assets |
+| `assets/theme2/` | `/usr/resource/litegui/theme2/` | Shared theme assets |
+| `assets/r1/`, `assets/r3proii/`, or `assets/r3ii_2025/` | matching device paths | Board-specific files are applied after shared files and take priority |
+| `assets/fonts/` | `/usr/resource/fonts/` | Tracked project fonts are copied after the board assets |
+| `firmware/overlay/` | `/` (root-relative) | All files and symlinks are copied after the assets |
 
-The two `assets/` trees mirror the device layout, so a file's path under
-`assets/` is its path on the device minus the prefix above. `firmware/overlay/`
-is root-filesystem-relative instead, and holds only what is not an asset --
-currently `usr/bin/sync_ntp.sh` and a `udhcpc` NTP hook.
+The `assets/` trees mirror paths below their destination directory. The
+`firmware/overlay/` tree is already root-filesystem-relative and holds files
+that are not UI assets, such as the NTP helper, filesystem tools, and the
+Speex runtime files.
 
-**Only files tracked in git are copied from the `assets/` trees.** The script
-lists them with `git ls-files`, so "tracked in git" and "shipped on the device"
-mean the same thing. That matters because `assets/theme2/` is where a
-contributor also populates their own stock-firmware dump for local work (see
-`.gitignore`): those files are ignored, so they are never packaged, and stock
-assets come from the base image instead.
+The Korean font is intentionally not tracked because its source image does not
+provide a license. The approved base supplies `/usr/resource/fonts/Korean.ttf`;
+the packer checks its checksum along with the other required firmware fonts.
+Likewise, ignored files copied from a local stock firmware dump are not
+packaged. Stock assets not replaced by tracked project assets come from the
+approved base image.
 
-To see exactly what the repository will contribute:
+To inspect the exact tracked inputs before packaging:
 
 ```sh
-git ls-files assets/theme2 assets/fonts
-find firmware/overlay -type f -o -type l | sort
+git ls-files assets/theme1 assets/theme2 assets/r1 assets/r3proii assets/r3ii_2025 assets/fonts
+find firmware/overlay \( -type f -o -type l \) -print | sort
 ```
 
-An asset that is present locally but untracked will silently not ship. That is
-a real failure mode, not a hypothetical: it is how the Subsonic download icon
-went missing from a release while appearing to be present in the source tree.
-
-The assets and overlay are copied after the player is installed. Do not place
-`usr/bin/compas_bootloader` under `firmware/overlay/`; the supplied bootloader
-is installed after the overlays are applied.
+An asset present locally but untracked will not ship. Track all intended
+project assets before creating a release image. Do not put generated binaries,
+extracted firmware trees, local overlays, private base images, or checksum
+secret values in a commit.
 
 ## 4. Create the `.upt` file
 
-Invoke the script with exactly four arguments, in this order:
+Choose the command matching the base and binary set. The output directory is
+created automatically.
 
 ```sh
-scripts/repack_upt.sh \
-  /path/to/base_staging.upt \
-  compas_player_target \
-  compas_bootloader \
-  output/r1-custom.upt
+# R1
+scripts/repack_upt.sh --board r1 \
+  /path/to/r1.upt compas_player_target compas_bootloader output/r1-custom.upt
+
+# R3 Pro II
+scripts/repack_upt.sh --board r3proii \
+  /path/to/r3proii.upt compas_player_target_r3proii \
+  compas_bootloader_r3proii output/r3proii-custom.upt
+
+# R3II 2025
+scripts/repack_upt.sh --board r3ii_2025 \
+  /path/to/r3ii_2025.upt compas_player_target_r3ii_2025 \
+  compas_bootloader_r3ii_2025 output/r3ii_2025-custom.upt
 ```
 
-The output directory is created automatically. On success, the script prints
-the output size and its SHA-256 checksum. A successful run also means that:
-
-- the base image contained both `rootfs.squashfs` and `xImage` chunks;
-- the base image passed the bootloader-handoff check;
-- the root filesystem was recompressed successfully;
-- the OTA chunk and MD5 metadata files were generated; and
-- the final image passed the 45 MiB size limit.
-
-If the command reports that the image is too large, do not flash it. Reduce
-the contents of the root filesystem or overlay, then rebuild the image.
+On success, the script prints the output size and SHA-256 checksum. A
+successful run also means the base had the required filesystem and kernel
+chunks, passed the board/runtime/font/handoff checks, and the final image
+passed the size limit. If the size check fails, do not flash the image; review
+the filesystem and overlay contents before rebuilding.
 
 ## 5. Inspect the generated package
 
-The result should be a valid ISO archive containing `ota_config.in`,
-`ota_v0/ota_update.in`, `ota_v0/ota_v0.ok`, the `xImage` chunks, the
-`rootfs.squashfs` chunks, and one `ota_md5_*` file for each image.
-
-Run these checks after building:
+For example, inspect the R1 output (substitute the matching path for another
+board):
 
 ```sh
 file output/r1-custom.upt
@@ -185,12 +156,12 @@ file output/r1-custom.upt
 7z l output/r1-custom.upt | sed -n '1,40p'
 ```
 
-`file` should identify the output as an ISO 9660 filesystem, and `7z t`
-should report that the archive has no errors. `7z l` should show the
-`ota_v0/` directory and the files listed above.
+`file` should identify an ISO 9660 filesystem and `7z t` should report no
+errors. The archive should contain `ota_config.in`, `ota_v0/ota_update.in`,
+`ota_v0/ota_v0.ok`, the `xImage` and `rootfs.squashfs` chunks, and the
+corresponding `ota_md5_*` files.
 
-For a more detailed inspection, extract the package to a temporary directory
-and review the metadata:
+For a closer inspection:
 
 ```sh
 inspect_dir=$(mktemp -d)
@@ -200,21 +171,26 @@ cat "$inspect_dir/ota_config.in"
 rm -rf "$inspect_dir"
 ```
 
-`ota_update.in` should identify both `xImage` and `rootfs.squashfs`, including
-each image's byte size and initial MD5. `ota_config.in` should contain:
+`ota_update.in` identifies the kernel and root filesystem images, including
+their byte sizes and initial MD5. `ota_config.in` should contain
+`current_version=0`.
 
-```text
-current_version=0
-```
+## Optional: creating an upgraded runtime base
+
+The normal `.upt` workflow starts from an approved staging image and adds the
+tracked project assets, firmware overlay, player, and bootloader. The separate
+`scripts/build_base_*.sh` and `scripts/prepare_*overlay.sh` recipes build
+optional replacement runtime components from source for preparing such a
+staging image. They are not needed to compile the player or repack an already
+approved base. Their stock firmware trees and build stages are local inputs;
+they are not the three-board GitHub packaging workflow and must not be
+committed.
 
 ## Important limitations
 
-This procedure creates the same package format used by the repository's R1
-release workflow, but a successful build is not a substitute for hardware
-testing. Before distributing or installing an image, verify it on an R1 and
-keep a known-good recovery image available.
-
-Changing only the player does not require a full `.upt` rebuild: the standalone
-`compas_player` update can be used when appropriate. Changes to the kernel,
-root filesystem, bootloader, fonts, icons, scripts, or other packaged content
-require a complete repack.
+A successfully created image has not necessarily been tested on hardware.
+Install only an image for the exact model and retain a known-good recovery
+image. R3 Pro II and R3II 2025 builds still require target hardware validation.
+For a player-only update, use the standalone binary for the matching board;
+changes to assets, fonts, firmware overlay, or the bootloader require a full
+`.upt` rebuild.

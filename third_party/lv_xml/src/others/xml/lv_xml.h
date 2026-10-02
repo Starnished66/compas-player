@@ -18,7 +18,6 @@ extern "C" {
 #if LV_USE_XML
 #include "../../misc/lv_event.h"
 #include "../../others/observer/lv_observer.h"
-#include "lv_xml_test.h"
 #include "lv_xml_translation.h"
 #include "lv_xml_component.h"
 #include "lv_xml_widget.h"

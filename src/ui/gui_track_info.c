@@ -1,4 +1,5 @@
 #include "gui_track_info.h"
+#include "i18n.h"
 
 #include "gui.h"
 #include "gui_theme.h"
@@ -80,7 +81,7 @@ static void format_file_size(uint64_t bytes, char * out, size_t out_size) {
     else if (bytes >= 1024ULL)
         snprintf(out, out_size, "%.1f KB", (double) bytes / 1024.0);
     else
-        snprintf(out, out_size, "%llu bytes", (unsigned long long) bytes);
+        snprintf(out, out_size, TR("%llu bytes"), (unsigned long long) bytes);
 }
 
 /* Extract only a radio host. Userinfo, port, path, query and fragment are
@@ -192,9 +193,9 @@ static void rebuild_info_text(const audio_current_format_info_t * runtime, bool 
     audio_codec_t codec = runtime_valid && runtime->codec != AUDIO_CODEC_UNKNOWN
         ? runtime->codec : current_context.declared_codec;
     if (codec == AUDIO_CODEC_UNKNOWN) codec = codec_from_container(current_context.container);
-    add_info_section("Audio");
-    add_info_line("Codec", codec_name(codec));
-    add_info_line("Container", current_context.container);
+    add_info_section(TR("Audio"));
+    add_info_line(TR("Codec"), codec_name(codec));
+    add_info_line(TR("Container"), current_context.container);
 
     unsigned int source_rate = runtime_valid && runtime->source_sample_rate
         ? runtime->source_sample_rate : current_context.declared_sample_rate;
@@ -212,25 +213,25 @@ static void rebuild_info_text(const audio_current_format_info_t * runtime, bool 
     } else if (source_depth) {
         snprintf(value, sizeof(value), "%u-bit", source_depth);
     }
-    add_info_line("Source", value);
+    add_info_line(TR("Source"), value);
 
     if (runtime_valid && runtime->dsd_native) {
-        snprintf(value, sizeof(value), "Native DSD (DoP) / %.4g MHz", (double) source_rate / 1000000.0);
-        add_info_line("Output", value);
+        snprintf(value, sizeof(value), TR("Native DSD (DoP) / %.4g MHz"), (double) source_rate / 1000000.0);
+        add_info_line(TR("Output"), value);
     } else if (runtime_valid && runtime->output_sample_rate) {
         format_rate(runtime->output_sample_rate, rate, sizeof(rate));
         snprintf(value, sizeof(value), "%u-bit PCM / %s",
                  runtime->output_bit_depth ? runtime->output_bit_depth : 16, rate);
-        add_info_line("Output", value);
+        add_info_line(TR("Output"), value);
     }
 
     unsigned int channels = runtime_valid && runtime->channels
         ? runtime->channels : current_context.declared_channels;
-    if (channels == 1) snprintf(value, sizeof(value), "Mono (1 channel)");
-    else if (channels == 2) snprintf(value, sizeof(value), "Stereo (2 channels)");
-    else if (channels > 0) snprintf(value, sizeof(value), "%u channels", channels);
+    if (channels == 1) snprintf(value, sizeof(value), "%s", TR("Mono (1 channel)"));
+    else if (channels == 2) snprintf(value, sizeof(value), "%s", TR("Stereo (2 channels)"));
+    else if (channels > 0) snprintf(value, sizeof(value), TR("%u channels"), channels);
     else value[0] = '\0';
-    add_info_line("Channels", value);
+    add_info_line(TR("Channels"), value);
 
     unsigned int bitrate = runtime_valid && runtime->bitrate_kbps
         ? runtime->bitrate_kbps : current_context.declared_bitrate_kbps;
@@ -247,72 +248,72 @@ static void rebuild_info_text(const audio_current_format_info_t * runtime, bool 
     }
     if (bitrate) snprintf(value, sizeof(value), "%s%u kbps", bitrate_estimated ? "~" : "", bitrate);
     else value[0] = '\0';
-    add_info_line("Bitrate", value);
+    add_info_line(TR("Bitrate"), value);
 
     if (duration > 0.0) {
         gui_format_time(duration, value, sizeof(value));
     } else {
         value[0] = '\0';
     }
-    add_info_line("Duration", value);
+    add_info_line(TR("Duration"), value);
     if (local_stat_ok) {
         format_file_size(local_file_size, value, sizeof(value));
-        add_info_line("File size", value);
+        add_info_line(TR("File size"), value);
     }
 
-    add_info_section("Track");
+    add_info_section(TR("Track"));
     value[0] = '\0';
     if (current_context.has_disc_number && current_context.has_track_number)
-        snprintf(value, sizeof(value), "Disc %d / Track %d", current_context.disc_number,
+        snprintf(value, sizeof(value), TR("Disc %d / Track %d"), current_context.disc_number,
                  current_context.track_number);
     else if (current_context.has_disc_number)
-        snprintf(value, sizeof(value), "Disc %d", current_context.disc_number);
+        snprintf(value, sizeof(value), TR("Disc %d"), current_context.disc_number);
     else if (current_context.has_track_number)
-        snprintf(value, sizeof(value), "Track %d", current_context.track_number);
-    add_info_line("Position", value);
+        snprintf(value, sizeof(value), TR("Track %d"), current_context.track_number);
+    add_info_line(TR("Position"), value);
 
     value[0] = '\0';
     if (runtime_valid && runtime->replaygain_applied) {
-        snprintf(value, sizeof(value), "Applied %+.1f dB", runtime->replaygain_applied_db);
+        snprintf(value, sizeof(value), TR("Applied %+.1f dB"), runtime->replaygain_applied_db);
     } else if (current_context.has_replaygain_track || current_context.has_replaygain_album) {
         if (current_context.replaygain_mode == 0) {
-            snprintf(value, sizeof(value), "Off");
+            snprintf(value, sizeof(value), "%s", TR("Off"));
         } else if (current_context.replaygain_mode == 2 && current_context.has_replaygain_album) {
-            snprintf(value, sizeof(value), "Album %+.1f dB", current_context.replaygain_album_db);
+            snprintf(value, sizeof(value), TR("Album %+.1f dB"), current_context.replaygain_album_db);
         } else if (current_context.has_replaygain_track) {
-            snprintf(value, sizeof(value), "Track %+.1f dB", current_context.replaygain_track_db);
+            snprintf(value, sizeof(value), TR("Track %+.1f dB"), current_context.replaygain_track_db);
         } else {
-            snprintf(value, sizeof(value), "Album %+.1f dB", current_context.replaygain_album_db);
+            snprintf(value, sizeof(value), TR("Album %+.1f dB"), current_context.replaygain_album_db);
         }
     }
-    add_info_line("ReplayGain", value);
+    add_info_line(TR("ReplayGain"), value);
 
-    add_info_section("Source");
+    add_info_section(TR("Source"));
     value[0] = '\0';
     if (current_context.source == GUI_TRACK_SOURCE_SUBSONIC) {
-        add_info_line("Provider", "Subsonic");
+        add_info_line(TR("Provider"), TR("Subsonic"));
     } else if (current_context.source == GUI_TRACK_SOURCE_PLUGIN) {
         if (current_context.provider[0] && current_context.track_id[0])
             snprintf(value, sizeof(value), "%s / %s", current_context.provider, current_context.track_id);
         else
             snprintf(value, sizeof(value), "%s", current_context.provider);
-        add_info_line("Provider", value);
+        add_info_line(TR("Provider"), value);
     } else if (current_context.source == GUI_TRACK_SOURCE_RADIO) {
         char host[192];
         sanitized_url_host(current_context.path, host, sizeof(host));
-        if (host[0]) snprintf(value, sizeof(value), "Radio / %s", host);
-        else snprintf(value, sizeof(value), "Radio");
-        add_info_line("Provider", value);
+        if (host[0]) snprintf(value, sizeof(value), TR("Radio / %s"), host);
+        else snprintf(value, sizeof(value), "%s", TR("Radio"));
+        add_info_line(TR("Provider"), value);
     } else if (runtime_valid && runtime->is_stream) {
         /* Do not expose runtime->path here: it may be a signed/authenticated
          * URL.  This fallback only describes the source generically. */
-        add_info_line("Provider", "Network stream");
+        add_info_line(TR("Provider"), TR("Network stream"));
     } else {
         const char * local_path = current_context.path;
         if (!local_path[0] && runtime_valid && !runtime->is_stream &&
             !strstr(runtime->path, "://"))
             local_path = runtime->path;
-        add_info_line("Location", local_path);
+        add_info_line(TR("Location"), local_path);
     }
 
     if (info_line_count == 0) {
@@ -322,7 +323,7 @@ static void rebuild_info_text(const audio_current_format_info_t * runtime, bool 
         lv_obj_add_style(label, &style_theme_text_primary, 0);
         lv_obj_set_style_text_font(label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
         lv_obj_set_style_pad_top(label, BOARD_SCALE_PX(8), 0);
-        lv_label_set_text(label, "Track details are not available yet. Keep playback open and check again.");
+        lv_label_set_text(label, TR("Track details are not available yet. Keep playback open and check again."));
     }
 }
 
@@ -339,7 +340,7 @@ void gui_track_info_teardown(void) {
 
 void gui_track_info_init(void) {
     if (info_screen) return;
-    info_screen = build_subsonic_list_screen("Information", &info_title, &info_list);
+    info_screen = build_subsonic_list_screen(TR("Information"), &info_title, &info_list);
     /* Plain left-aligned Name: value labels, same pattern as Wi-Fi Info.
      * No pill rows, no marquee.  The list stays vertically scrollable for a
      * long local path or a larger font size. */

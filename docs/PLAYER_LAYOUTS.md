@@ -7,6 +7,14 @@ what it does: playback, seeking, cover art, lyrics, theme colors.
 If you don't install a layout, nothing changes. The built-in layout is the
 default, and it is also the fallback whenever a custom one fails to load.
 
+## Included designs
+
+The Player Layout selector includes **Gallery**, **Panorama** and **Vinyl**,
+each fitted to all three players. Tap the cover to open or close lyrics.
+Gallery and Panorama retain controls in their lyrics views; Vinyl uses the
+default full lyrics page with a circular cover. Gallery and Vinyl use the player's frosted glass cover pipeline behind
+the artwork. Gallery keeps the menu alongside its playback controls. The designs reuse the player's existing icons.
+
 ## Quick start
 
 1. Copy `assets/theme2/player_layouts/example_minimal.xml` and rename it, for
@@ -83,9 +91,21 @@ These names can be used directly:
 - **Images:** the Player's own icons, which also follow theme overrides:
   `default_cover`, `btn_play`, `btn_pause`, `btn_prev`, `btn_prev_s`,
   `btn_next`, `btn_next_s`, `ic_more`, `collect_out`, `collect_in`,
-  `quality_waveform`, `order`, `loop`, `single`, `random`, `btn_back`.
+  `quality_waveform`, `order`, `loop`, `single`, `random`, `btn_back`, the
+  pressed versions `btn_play_s`, `btn_pause_s`, `ic_more_s`, `collect_out_s`,
+  `order_s`, `loop_s`, `single_s`, `random_s` and `speed_s`, and the stock
+  Now Playing artwork `topbar_bg` (480x50), `bottom_panel` (480x320),
+  `progress` and `progress_bg` (440x12), `speed` and `dlna`. A name whose file
+  the theme doesn't have shows nothing.
   Example: `<lv_image src="btn_next"/>`. These names don't work for
   `bg_image_src` inside `<styles>`; use an `<lv_image>` widget there instead.
+- **Your own images:** for a layout file `<folder>/<name>.xml`, every `*.png`
+  directly inside `<folder>/<name>/` is available by its file name without
+  `.png`, so `<folder>/clean/heart.png` is `<lv_image src="heart"/>`. Names
+  use letters, digits, `_` and `-`, at most 32 files are used (in name order),
+  and other files are ignored. A name your XML declares itself wins over the
+  folder, and the folder wins over the ready-made names above. Plugins can
+  ship the folder next to their layout.
 - **Sizes:** `screen_w` and `screen_h`, the screen size in pixels. Example:
   `width="#screen_w"`.
 
@@ -113,7 +133,6 @@ used:
 | Name | Type | What it does |
 | --- | --- | --- |
 | `seek_style` | `lv_label` | Hidden configuration label selecting a waveform seek-bar renderer. See below. |
-| `cover_fade` | `lv_image` | A noninteractive image matching the cover rectangle. The player fills it with a stable, spatially dithered fade to the layout root background. |
 | `artist`, `album` | `lv_label` | Artist (or folder name) and album. Scroll when too long. Tapping opens the matching local artist or album when the playing path is in the library. |
 | `pos_label`, `dur_label` | `lv_label` | Elapsed and total time. |
 | `song_count` | `lv_label` | Position in the queue, for example "3/12". |
@@ -128,9 +147,47 @@ used:
 | `overlay_panel` | any | Full-screen surface the blurred cover background is drawn on. |
 | `background_img` | `lv_image` | The blurred cover, inside `overlay_panel`. |
 | `volume_slider` | `lv_slider` | Shows the volume. Display only, it can't be dragged. |
+| `lyrics_area` | any | Where the lyrics are shown. See [Lyrics in your own area](#lyrics-in-your-own-area). |
+| `lyrics_active` | `lv_label` | Its text color is the current lyrics line's color. Normally hidden. |
+| `lyrics_toggle` | any | Tapping it opens and closes the lyrics, like tapping the cover. |
+| `cover_thumbnail` | `lv_image` | A compact second cover that shares the decoded artwork. Tapping it toggles lyrics. |
+| `play_circle` | any | Container around `play_btn`. Its whole rectangle is included in the play button's touch target. |
+| `transport_color` | `lv_label` | Normally hidden. Its text color tints the transport icons, heart, and `dismiss_icon`, useful for light backgrounds. |
+| `lyrics_marker` | any | Normally hidden. Enables an accent rule beside the current synchronized lyric. |
+| `cover_fade` | `lv_image` | A noninteractive image matching the cover rectangle. The player fills it with a stable, spatially dithered fade to the layout root's background color. It leaves the cover and thumbnail images unchanged. |
 
 A widget with the right name but the wrong type is ignored (for a required
 one, the layout is rejected).
+
+### Waveform seek bars
+
+Keep the required `progress_slider` and add a hidden label to select its renderer:
+
+```xml
+<lv_label name="seek_style" text="waveform_bars" hidden="true" />
+<lv_slider name="progress_slider" x="24" y="580" width="432" height="30"
+           style_bg_color="0x789096" style_bg_opa="255" />
+```
+
+The available renderers are `waveform_bars` (rounded, mirrored bars),
+`waveform_half` (bars rising from a baseline), and `waveform_envelope`
+(contiguous filled columns). The slider's rectangle sets the waveform size;
+its background color sets the neutral waveform color. Played bars and the
+position marker follow the current accent. Reserve space below for time labels
+and at least a 44px touch target. The slider still handles seeking normally.
+
+Omitting the label, or using an unknown value, keeps the normal LVGL slider.
+Each waveform renderer shows a regular rail while data is unavailable.
+Local files are decoded by a separate background worker into 256 RMS bins and
+cached under `.compas/waveforms` on the SD card. The cache is capped at 64
+entries and checks the file's path, size, and modification time. Changing
+tracks cancels the previous request. Network streams, DSD, APE, unknown-duration
+files, and files exceeding the extraction limits use the rail fallback.
+Extraction keeps a 90-second time limit. Up to 16 failed file identities are
+remembered in memory until restart or eviction, so revisiting an unchanged
+unsupported track does not repeatedly decode it. Changing its size or
+modification time allows another attempt. Cancelled scans remain retryable.
+Generating a waveform never changes the playing decoder, volume, or effects.
 
 ### What you get for free
 
@@ -143,6 +200,8 @@ one, the layout is rejected).
   so a timeline that moves a button doesn't move its touch area.
 - **Scrolling text.** `title`, `artist` and `album` scroll when the text is
   too long. Give them a fixed width (for example `width="100%"`).
+  Use `height="content"` to keep the full font height available, including
+  at larger font settings, so the marquee scrolls horizontally.
 - **Artist and album taps.** Keep the `artist` and `album` labels outside the
   cover image's hit area: tapping the cover toggles lyrics, while tapping a
   metadata label opens its matching local library group. Streams and tracks
@@ -192,14 +251,49 @@ app:
 Anything else on the screen, such as decorations, is left as is: hide or fade
 it in your timelines.
 
+### Lyrics in your own area
+
+Without `lyrics_area` the lyrics fill the width of the screen below the cover
+and song info. Add a `lyrics_area` (normally an empty transparent `lv_obj`) and
+they appear exactly inside its rectangle instead:
+
+- **You own the placement.** The app does not run its cover animation and does
+  not hide any controls. With no `lyrics_open` and `lyrics_close` timelines the
+  lyrics simply appear in the area and disappear on close. With both, they play
+  as above and the lyrics appear in the area when `lyrics_open` ends.
+- **Taps.** Touch targets that overlap the area are turned off while the
+  lyrics are open, so they don't take the taps meant for the lyrics. Tapping a
+  line seeks to it, as always. Tapping empty space inside the area closes the
+  lyrics. `lyrics_toggle`, if you have one, opens and closes them in any mode.
+- **Line width.** Lines wrap to the width of the area (with the usual side
+  margins), not the screen's.
+- **Alignment and colors.** The area's `style_text_align` sets the alignment
+  of the lines (centered by default). Its own `style_text_color` is the color
+  of normal lines (gray by default), and the `style_text_color` of the
+  `lyrics_active` label is the color of the current line (the accent color by
+  default). The colors also apply when there is no `lyrics_area`. They are read
+  once, when the screen is built. The text size is the Lyrics Text Size
+  setting; a layout can't change it.
+
+```xml
+<lv_obj name="lyrics_area" x="0" y="50" width="480" height="430"
+        style_bg_opa="0" style_border_width="0"
+        style_text_color="0xffffff" style_text_align="center"/>
+<lv_label name="lyrics_active" text="" hidden="true" style_text_color="0x1062f2"/>
+```
+
+`plugins_examples/player_layouts/hiby_stock.xml` is a complete layout built
+this way, with `lyrics_open` and `lyrics_close` timelines that dim the cover.
+
 Tips:
 
 - End `lyrics_close` in the layout's normal state. Leaving the Player jumps
   straight to its end.
 - The cover image isn't resized while `cover_card` changes size; it is fitted
   again when the animation ends.
-- The lyrics text itself (font, colors, highlighting) and the lyrics area's
-  side and bottom margins are not part of the layout.
+- The lyrics text itself (font and highlighting) and the lyrics pane's side
+  and bottom margins are not part of the layout; the colors and alignment
+  can be set with the roles above.
 
 ## Using a layout from a plugin
 
@@ -213,7 +307,10 @@ The path is relative to the SD card's `.plugins` folder. Called from the
 plugin's top-level code, this only adds the layout to **Settings > Display >
 Player Layout > Layout**; the user picks it there and the choice is remembered
 while the plugin stays installed. Called from a callback, it switches to the
-layout right away, for this session only. See `plugin.set_player_layout` in
+layout right away, for this session only. The background options of
+`set_player_layout` (`flat`, `bg_color`, blur) are global and apply to every
+layout, so a layout that wants its own background should paint it itself.
+`plugins_examples/HiByStockPlayer.lua` is a complete example. See `plugin.set_player_layout` in
 [PLUGINS.md](../PLUGINS.md) for the details. Published plugins, including ones
 that ship layouts, live in the
 [compas-plugins repository](https://github.com/Starnished66/compas-plugins).
@@ -223,32 +320,6 @@ that ship layouts, live in the
 Developers can compile a layout into the app instead of shipping an XML file.
 LVGL's UI Editor (LVGL Pro) can export an XML component as C, which gives a
 function like `lv_obj_t * my_player_create(lv_obj_t * parent);`.
-
-### Waveform seek bars
-
-Keep the required `progress_slider` and add a hidden label to select its renderer:
-
-```xml
-<lv_label name="seek_style" text="waveform_bars" hidden="true" />
-<lv_slider name="progress_slider" x="24" y="580" width="432" height="30"
-           style_bg_color="0x789096" style_bg_opa="255" />
-```
-
-The available renderers are `waveform_bars` (rounded, mirrored bars),
-`waveform_half` (bars rising from a baseline), and `waveform_envelope`
-(contiguous filled columns). The slider's rectangle sets the waveform size;
-its background color sets the neutral waveform color. Played bars and the
-position marker follow the current accent. Reserve space below for time labels
-and at least a 44px touch target. The slider still handles seeking normally.
-
-Omitting the label, or using an unknown value, keeps the normal LVGL slider.
-Each renderer shows a regular rail while data is unavailable. Local files are
-decoded by a separate background worker into 256 RMS bins and cached under
-`.compas/waveforms` on the SD card. The cache is capped at 64 entries and
-checks the file's path, size, and modification time. Changing tracks cancels
-the previous request. Network streams, DSD, APE, unknown-duration files, and
-files exceeding extraction limits use the rail fallback. Generating a
-waveform never changes the playing decoder, volume, or effects.
 
 1. In the editor, name the widgets as above, then export the component.
 2. Copy the generated `.c` and `.h` into `src/ui/` and add the `.c` to

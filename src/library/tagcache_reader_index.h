@@ -10,7 +10,123 @@ static int legacy_group_ids(int kind, int gi, int offset, int32_t *ids, int max)
 
 #define TC_INDEX_MAGIC 0x54434931u
 #define TC_INDEX_VERSION 4u
+#define TC_ALBUM_ORDER_MAGIC 0x5443414fu
+#define TC_ALBUM_ORDER_VERSION 1u
 static bool reader_build_indexes(void);
+static void tc_index_name(char *out, size_t out_size, int32_t gen, const char *suffix);
+static bool tc_index_copy_fd(int from, int to, uint64_t *size_out);
+
+typedef struct { int32_t canonical_rank, value; } reader_album_order_key_t;
+
+static int reader_compare_album_order(const void *a, const void *b, void *context) {
+    int sort = *(const int *)context;
+    const reader_album_order_key_t *ka = a, *kb = b;
+    if (ka->value != kb->value) {
+        if (sort == 0) return ka->value > kb->value ? -1 : 1;
+        return ka->value < kb->value ? -1 : 1;
+    }
+    return (ka->canonical_rank > kb->canonical_rank) - (ka->canonical_rank < kb->canonical_rank);
+}
+
+static bool reader_build_album_order(int sort, int scratch);
+
+typedef struct {
+    uint32_t magic, version;
+    int32_t generation, serial, commitid, count;
+} tc_album_order_meta_t;
+
+static void reader_album_order_name(char *out, size_t size, int32_t gen, int sort, bool inverse) {
+    const char *name = sort == 0 ? (inverse ? ".album_recent_inverse" : ".album_recent")
+                                 : (inverse ? ".album_year_inverse" : ".album_year");
+    tc_index_name(out, size, gen, name);
+}
+
+static void reader_close_album_orders(void) {
+    for (int i = 0; i < 2; i++) {
+        if (reader_album_order_fd[i] >= 0) close(reader_album_order_fd[i]);
+        if (reader_album_inverse_fd[i] >= 0) close(reader_album_inverse_fd[i]);
+        reader_album_order_fd[i] = reader_album_inverse_fd[i] = -1;
+    }
+}
+
+static void reader_open_album_orders(int32_t gen) {
+    char path[640];
+    tc_album_order_meta_t meta;
+    reader_close_album_orders();
+    tc_index_name(path, sizeof(path), gen, ".album_meta");
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) return; /* Older valid generations retain alphabetical browsing. */
+    struct stat st;
+    bool valid = fstat(fd, &st) == 0 && st.st_size == (off_t)sizeof(meta) &&
+                 reader_read_at(fd, &meta, sizeof(meta), 0) && meta.magic == TC_ALBUM_ORDER_MAGIC &&
+                 meta.version == TC_ALBUM_ORDER_VERSION && meta.generation == gen &&
+                 meta.serial == master_serial && meta.commitid == master_commitid &&
+                 meta.count == reader_group_n[TAGCACHE_GROUP_ALBUM];
+    close(fd);
+    if (!valid) return;
+    for (int i = 0; i < 2; i++) {
+        reader_album_order_name(path, sizeof(path), gen, i, false);
+        reader_album_order_fd[i] = open(path, O_RDONLY);
+        reader_album_order_name(path, sizeof(path), gen, i, true);
+        reader_album_inverse_fd[i] = open(path, O_RDONLY);
+        struct stat order_stat, inverse_stat;
+        off_t expected = (off_t)meta.count * (off_t)sizeof(int32_t);
+        if (reader_album_order_fd[i] < 0 || reader_album_inverse_fd[i] < 0 ||
+            fstat(reader_album_order_fd[i], &order_stat) != 0 || order_stat.st_size != expected ||
+            fstat(reader_album_inverse_fd[i], &inverse_stat) != 0 || inverse_stat.st_size != expected) {
+            reader_close_album_orders();
+            return;
+        }
+        for (int32_t rank = 0; rank < meta.count; rank++) {
+            int32_t canonical, inverse_rank;
+            bool row_ok = reader_read_at(reader_album_order_fd[i], &canonical, sizeof(canonical),
+                                         (off_t)rank * sizeof(canonical)) && canonical >= 0 &&
+                          canonical < meta.count;
+            if (row_ok) {
+                row_ok = reader_read_at(reader_album_inverse_fd[i], &inverse_rank, sizeof(inverse_rank),
+                                        (off_t)canonical * sizeof(inverse_rank)) && inverse_rank == rank;
+            }
+            if (!row_ok) {
+                reader_close_album_orders();
+                return;
+            }
+        }
+    }
+}
+
+static bool reader_write_album_orders(int32_t gen) {
+    char path[640], tmp[680];
+    for (int i = 0; i < 2; i++) for (int inverse = 0; inverse < 2; inverse++) {
+        reader_album_order_name(path, sizeof(path), gen, i, inverse != 0);
+        snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+        int out = open(tmp, O_CREAT | O_TRUNC | O_WRONLY, 0644);
+        int src = inverse ? reader_album_inverse_fd[i] : reader_album_order_fd[i];
+        bool ok = out >= 0 && src >= 0;
+        if (out >= 0) {
+            if (ok) ok = tc_index_copy_fd(src, out, NULL);
+            bool synced = close_synced(out);
+            out = -1;
+            if (!synced) ok = false;
+        }
+        if (!ok) { if (out >= 0) close(out); unlink(tmp); return false; }
+        if (rename(tmp, path) != 0) { unlink(tmp); return false; }
+    }
+    tc_album_order_meta_t meta = { TC_ALBUM_ORDER_MAGIC, TC_ALBUM_ORDER_VERSION,
+        gen, master_serial, master_commitid, reader_group_n[TAGCACHE_GROUP_ALBUM] };
+    tc_index_name(path, sizeof(path), gen, ".album_meta");
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    int fd = open(tmp, O_CREAT | O_TRUNC | O_WRONLY, 0644);
+    bool ok = fd >= 0;
+    if (fd >= 0) {
+        if (ok) ok = write_fully(fd, &meta, sizeof(meta));
+        bool synced = close_synced(fd);
+        fd = -1;
+        if (!synced) ok = false;
+    }
+    if (!ok) { if (fd >= 0) close(fd); unlink(tmp); return false; }
+    if (rename(tmp, path) != 0) { unlink(tmp); return false; }
+    return true;
+}
 
 static size_t mem_available_bytes(void) {
     FILE * f = fopen("/proc/meminfo", "r");
@@ -163,6 +279,7 @@ static bool reader_write_indexes(int32_t gen) {
         ok = out >= 0 && tc_index_copy_fd(reader_artist_names_fd, out, &meta.size[17]);
         if (out >= 0 && !close_synced(out)) ok = false;
     }
+    if (ok) ok = reader_write_album_orders(gen);
     if (ok) ok = write_fully(mfd, &meta, sizeof(meta));
     if (ok) ok = fsync(mfd) == 0;
     if (close(mfd) != 0) ok = false;
@@ -176,6 +293,14 @@ static bool reader_write_indexes(int32_t gen) {
             char name[640];
             tc_index_name(name, sizeof(name), gen, tc_index_suffixes[i]);
             unlink(name);
+        }
+        const char *extra[] = {".album_recent", ".album_recent_inverse", ".album_year",
+                               ".album_year_inverse", ".album_meta"};
+        for (size_t i = 0; i < sizeof(extra) / sizeof(extra[0]); i++) {
+            tc_index_name(path, sizeof(path), gen, extra[i]);
+            unlink(path);
+            snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+            unlink(tmp);
         }
     }
     return ok;
@@ -257,6 +382,7 @@ static int reader_open_indexes(int32_t gen) {
             return -1;
         }
     }
+    reader_open_album_orders(gen);
     return 1;
 }
 
@@ -264,6 +390,14 @@ static void reader_unlink_indexes(int32_t gen) {
     char path[640], tmp[680];
     for (int i = 0; i < 20; i++) {
         tc_index_name(path, sizeof(path), gen, i == 19 ? ".query" : i == 18 ? ".meta" : tc_index_suffixes[i]);
+        unlink(path);
+        snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+        unlink(tmp);
+    }
+    const char *extra[] = {".album_recent", ".album_recent_inverse", ".album_year",
+                           ".album_year_inverse", ".album_meta"};
+    for (size_t i = 0; i < sizeof(extra) / sizeof(extra[0]); i++) {
+        tc_index_name(path, sizeof(path), gen, extra[i]);
         unlink(path);
         snprintf(tmp, sizeof(tmp), "%s.tmp", path);
         unlink(tmp);
@@ -280,6 +414,7 @@ static int reader_create_temp(void) {
 }
 
 static void reader_close_indexes(void) {
+    reader_close_album_orders();
     int *single[] = {&reader_query_fd, &reader_title_fd, &reader_recency_fd, &reader_path_fd, &reader_artist_names_fd};
     for (size_t i = 0; i < sizeof(single) / sizeof(single[0]); i++) {
         if (*single[i] >= 0) close(*single[i]);
@@ -804,6 +939,72 @@ static bool reader_build_groups(int kind, int scratch) {
     return ok;
 }
 
+static bool reader_build_album_order(int sort, int scratch) {
+    int count = reader_group_n[TAGCACHE_GROUP_ALBUM];
+    int keys = reader_create_temp();
+    reader_album_order_fd[sort] = reader_create_temp();
+    reader_album_inverse_fd[sort] = reader_create_temp();
+    bool ok = keys >= 0 && reader_album_order_fd[sort] >= 0 &&
+              reader_album_inverse_fd[sort] >= 0 &&
+              ftruncate(reader_album_inverse_fd[sort], (off_t)count * sizeof(int32_t)) == 0;
+    size_t capacity = READER_TEMP_BATCH_BYTES / sizeof(reader_album_order_key_t);
+    reader_album_order_key_t *batch = ok ? malloc(READER_TEMP_BATCH_BYTES) : NULL;
+    if (ok && !batch) ok = false;
+    size_t used = 0;
+    for (int rank = 0; ok && rank < count; rank++) {
+        reader_group_record_t group;
+        if (stats_read_at(reader_group_fd[TAGCACHE_GROUP_ALBUM], &group, sizeof(group),
+                          (off_t)rank * sizeof(group)) != STATS_READ_OK) { ok = false; break; }
+        int32_t value = sort == 0 ? INT32_MIN : INT32_MAX;
+        for (int member = 0; member < group.count; member++) {
+            int32_t id;
+            struct index_entry idx;
+            off_t member_off = (off_t)(group.start + member) * sizeof(id);
+            if (stats_read_at(reader_members_fd[TAGCACHE_GROUP_ALBUM], &id, sizeof(id), member_off) != STATS_READ_OK ||
+                !reader_index(id - 1, &idx)) { ok = false; break; }
+            if (sort == 0) {
+                if (idx.tag_seek[tag_commitid] > value) value = idx.tag_seek[tag_commitid];
+            } else {
+                int32_t year = idx.tag_seek[tag_year];
+                if (year > 0 && year < value) value = year;
+            }
+        }
+        if (!ok) break;
+        batch[used++] = (reader_album_order_key_t){rank, value};
+        if (used == capacity || rank + 1 == count) {
+            off_t off = (off_t)(rank + 1 - (int)used) * sizeof(*batch);
+            ok = tc_sort_io_write(keys, batch, used * sizeof(*batch), off);
+            used = 0;
+        }
+    }
+    if (ok) ok = tc_sort_fd(keys, sizeof(reader_album_order_key_t), count,
+                            reader_compare_album_order, &sort, scratch);
+    free(batch);
+    batch = NULL;
+    if (ok && count > 0) {
+        batch = malloc(READER_TEMP_BATCH_BYTES);
+        if (!batch) ok = false;
+    }
+    size_t read_capacity = READER_TEMP_BATCH_BYTES / sizeof(reader_album_order_key_t);
+    for (int rank = 0; ok && rank < count;) {
+        size_t n = (size_t)(count - rank);
+        if (n > read_capacity) n = read_capacity;
+        ok = stats_read_at(keys, batch, n * sizeof(*batch), (off_t)rank * sizeof(*batch)) == STATS_READ_OK;
+        for (size_t i = 0; ok && i < n; i++) {
+            reader_album_order_key_t *key = &batch[i];
+            int32_t sorted_rank = rank + (int32_t)i;
+            ok = tc_sort_io_write(reader_album_order_fd[sort], &key->canonical_rank,
+                                  sizeof(key->canonical_rank), (off_t)sorted_rank * sizeof(int32_t)) &&
+                 tc_sort_io_write(reader_album_inverse_fd[sort], &sorted_rank, sizeof(sorted_rank),
+                                  (off_t)key->canonical_rank * sizeof(int32_t));
+        }
+        rank += (int)n;
+    }
+    free(batch);
+    if (keys >= 0) close(keys);
+    return ok;
+}
+
 static bool reader_build_indexes(void) {
     reader_close_indexes();
     reader_reset_cache();
@@ -925,6 +1126,7 @@ static bool reader_build_indexes(void) {
         }
     }
     for (int kind = 0; ok && kind < 3; kind++) ok = reader_build_groups(kind, scratch);
+    for (int sort = 0; ok && sort < 2; sort++) ok = reader_build_album_order(sort, scratch);
     if (scratch >= 0) close(scratch);
     if (title_keys >= 0) close(title_keys);
     if (recency_keys >= 0) close(recency_keys);

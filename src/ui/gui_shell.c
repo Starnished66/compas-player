@@ -1,4 +1,5 @@
 #include "gui_shell.h"
+#include "i18n.h"
 #include "app_clock.h"
 #include "topbar_icon_layout.h"
 #include "gui.h"
@@ -683,7 +684,7 @@ static void quick_drawer_refresh_volume(void) {
 static void quick_drawer_set_toggle_state_text(int index, bool enabled, const char * text) {
     if (index < 0 || index >= QUICK_DRAWER_TOGGLE_SLOTS) return;
     if (!quick_drawer_toggle_state[index]) return;
-    const char * caption = text ? text : (enabled ? "On" : "Off");
+    const char * caption = text ? text : (enabled ? TR("On") : TR("Off"));
     lv_color_t color = enabled ? accent_lv_color() : lv_color_hex(0x8d918f);
     if (strcmp(lv_label_get_text(quick_drawer_toggle_state[index]), caption) == 0 &&
         lv_color_eq(lv_obj_get_style_text_color(quick_drawer_toggle_state[index], 0), color)) return;
@@ -826,15 +827,13 @@ static void sync_bt_codec_status_icon(void);
 void gui_shell_set_status_bar_screen_context(lv_obj_t * screen) {
     if (!status_bar_band) return;
 
-    /* Library/settings screens already provide a stable background behind
-     * the persistent status icons.  Player and Lyrics intentionally draw
-     * edge-to-edge artwork, which can be nearly white and make those icons
-     * disappear, so give only those two screens a neutral translucent
-     * backing.  Keeping this on the persistent band (rather than either
-     * screen) also lets transition snapshots composite the same treatment. */
+    /* White status glyphs need a stable black surface on ordinary screens,
+     * especially when a light theme is active. Player and Lyrics draw
+     * edge-to-edge artwork, so keep their backing translucent. Keeping this
+     * on the persistent band also lets transition snapshots composite it. */
     bool over_artwork = screen == gui_player_get_screen() || screen == gui_lyrics_get_screen();
     lv_obj_set_style_bg_color(status_bar_band, lv_color_black(), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(status_bar_band, over_artwork ? LV_OPA_50 : LV_OPA_TRANSP,
+    lv_obj_set_style_bg_opa(status_bar_band, over_artwork ? LV_OPA_50 : LV_OPA_COVER,
                             LV_PART_MAIN);
 }
 
@@ -986,6 +985,10 @@ static void build_status_bar(void) {
     lv_obj_t * band = lv_obj_create(bar);
     status_bar_band = band;
     lv_obj_remove_style_all(band);
+    /* Status glyphs and digits are white independently of theme colors.
+     * Give them a stable surface when Home or another page uses a light theme. */
+    lv_obj_set_style_bg_color(band, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(band, LV_OPA_COVER, 0);
     lv_obj_set_size(band, lv_pct(100), STATUS_BAR_CLEARANCE);
     lv_obj_set_pos(band, 0, 0);
     lv_obj_remove_flag(band, LV_OBJ_FLAG_SCROLLABLE);
@@ -1009,7 +1012,7 @@ static void build_status_bar(void) {
         lv_obj_set_style_translate_y(clock_topbar_digit[i], BOARD_SCALE_PX(2), 0);
     }
     clock_topbar_ampm = lv_label_create(clock_topbar_group);
-    lv_label_set_text(clock_topbar_ampm, "AM");
+    lv_label_set_text(clock_topbar_ampm, TR("AM"));
     style_topbar_text(clock_topbar_ampm, topbar_ampm_font());
     lv_obj_set_style_translate_y(clock_topbar_ampm, BOARD_SCALE_PX(2), 0);
     lv_obj_add_flag(clock_topbar_ampm, LV_OBJ_FLAG_HIDDEN); /* refresh_clock_label() unhides this if clock_24h is off */
@@ -2381,7 +2384,7 @@ static void poll_usb_audio_output(void) {
     bool connected = current_settings.usb_mode != USB_MODE_DAC &&
                       usb_audio_output_is_connected(alsa_device, sizeof(alsa_device));
 
-    if (connected && !was_connected) show_error_toast("USB audio device detected");
+    if (connected && !was_connected) show_error_toast(TR("USB audio device detected"));
     was_connected = connected;
 
     audio_set_usb_output(connected, alsa_device);
@@ -2466,7 +2469,7 @@ static void apply_sleep_timer_active(bool active) {
     if (sleep_timer_active) {
         sleep_timer_start_tick = lv_tick_get();
         quick_drawer_set_toggle_image(quick_drawer_sleep_icon, quick_drawer_toggle_src(QD_TOGGLE_SLEEP, true));
-        lv_label_set_text_fmt(quick_drawer_sleep_label, "%dm", current_settings.sleep_timer_minutes);
+        lv_label_set_text_fmt(quick_drawer_sleep_label, TR("%dm"), current_settings.sleep_timer_minutes);
         /* The measured drawer reserves the state row for "On"/"Off"; keep
          * the minute countdown internal so it cannot collide with that row. */
         lv_obj_add_flag(quick_drawer_sleep_label, LV_OBJ_FLAG_HIDDEN);
@@ -2527,7 +2530,7 @@ static void poll_sleep_timer(void) {
      * sub-minute stretch -- counts down 15,14,...,1 then disarms above
      * rather than ever displaying a misleading zero. */
     int remaining_min = (int) ((total_ms - elapsed_ms + 59999) / 60000);
-    lv_label_set_text_fmt(quick_drawer_sleep_label, "%dm", remaining_min);
+    lv_label_set_text_fmt(quick_drawer_sleep_label, TR("%dm"), remaining_min);
     quick_drawer_mark_snapshot_dirty();
 }
 
@@ -3127,6 +3130,7 @@ static int32_t quick_drawer_expansion_drag_start_y = 0;
 static int32_t quick_drawer_expansion_drag_start_value = 0;
 
 static void poll_quick_drawer_drag(lv_timer_t * timer) {
+    if (!current_settings.setup_complete) return;
     lv_indev_t * indev = find_pointer_indev();
     if (!indev) return;
 
@@ -3873,6 +3877,36 @@ void quick_drawer_wifi_event_cb(lv_event_t * e) {
     }
 }
 
+bool gui_shell_wifi_ensure_enabled(void) {
+    if (wifi_toggle_active) {
+        if (wifi_toggle_queued && wifi_toggle_queued_target) return true;
+        if (!wifi_toggle_queued && wifi_toggle_target_enabled) return true;
+        wifi_toggle_queued_target = true;
+        wifi_toggle_queued = true;
+        wifi_toggle_apply_optimistic_ui(true);
+        return true;
+    }
+
+    if (wifi_control_is_enabled()) return true;
+    wifi_toggle_active = true;
+    wifi_toggle_is_radio_suspend = false;
+    atomic_store_explicit(&wifi_toggle_done_flag, false, memory_order_relaxed);
+    wifi_toggle_target_enabled = true;
+    wifi_toggle_apply_optimistic_ui(true);
+    if (pthread_create(&wifi_toggle_thread, NULL, wifi_toggle_thread_func, NULL) != 0) {
+        wifi_toggle_active = false;
+        refresh_wifi_icon();
+        start_bt_dac_startup_reapply_if_needed();
+        gui_network_wifi_toggle_completed(wifi_control_is_enabled());
+        return false;
+    }
+    return true;
+}
+
+bool gui_shell_wifi_enabled_and_settled(void) {
+    return !wifi_toggle_active && !wifi_toggle_queued && wifi_control_is_enabled();
+}
+
 static void poll_wifi_toggle(void) {
     if (!wifi_toggle_active || !atomic_load_explicit(&wifi_toggle_done_flag, memory_order_acquire)) return;
     wifi_toggle_active = false;
@@ -3880,7 +3914,7 @@ static void poll_wifi_toggle(void) {
     bool enabled = wifi_control_is_enabled();
     refresh_wifi_icon(); /* re-reads the real state -- updates both the status bar and drawer icons */
     gui_network_wifi_toggle_completed(enabled); /* authoritative rows + scan state */
-    if (enabled != wifi_toggle_target_enabled) show_error_toast("Wi-Fi failed to change state");
+    if (enabled != wifi_toggle_target_enabled) show_error_toast(TR("Wi-Fi failed to change state"));
 
     /* Only shut AirPlay/DLNA/Remote Control/Import down once the disable is
      * AUTHORITATIVELY confirmed via the real wifi_control_is_enabled() read
@@ -4121,7 +4155,7 @@ void quick_drawer_bt_event_cb(lv_event_t * e) {
         bt_toggle_active = false;
         bt_is_powered_cached = !bt_will_be_powered;
         if (gui_navigation_is_top(gui_network_get_bt_screen())) populate_bt_screen();
-        show_info_toast("Failed to toggle Bluetooth");
+        show_info_toast(TR("Failed to toggle Bluetooth"));
     }
 }
 
@@ -4151,7 +4185,7 @@ static void poll_bt_toggle(void) {
                            bt_toggle_target_arg(target)) == 0)
             return;
         bt_toggle_active = false;
-        show_info_toast("Failed to toggle Bluetooth");
+        show_info_toast(TR("Failed to toggle Bluetooth"));
     }
 
     /* start_refresh_bt_icon() only starts the background check -- it
@@ -4494,11 +4528,11 @@ static void build_quick_drawer(void) {
      * in this 84px-wide slot below its icon even at the default tier, let alone
      * BlindMF. Fixed and non-scaling, same "accessibility-independent" choice
      * build_status_bar() already makes for its own clock/volume/battery faces. */
-    const char * names[] = { "Wi-Fi", "Bluetooth", "Sleep", "Crossfade" };
+    const char * names[] = { N_("Wi-Fi"), N_("Bluetooth"), N_("Sleep"), N_("Crossfade") };
     const int label_x[] = { 39, 143, 251, 358 };
     for (int i = 0; i < 4; i++) {
         lv_obj_t * name = lv_label_create(quick_drawer);
-        lv_label_set_text(name, names[i]);
+        lv_label_set_text(name, TR(names[i]));
         lv_obj_add_style(name, &style_theme_text_primary, 0);
         lv_obj_set_style_text_font(name, &lv_font_montserrat_12, 0);
         lv_obj_set_width(name, BOARD_SCALE_PX(84));
@@ -4509,7 +4543,7 @@ static void build_quick_drawer(void) {
         lv_obj_set_style_text_align(quick_drawer_toggle_state[i], LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_text_font(quick_drawer_toggle_state[i], &lv_font_montserrat_12, 0);
         lv_obj_align(quick_drawer_toggle_state[i], LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(label_x[i]), QUICK_DRAWER_ROW1_TOP + QUICK_DRAWER_TOGGLE_ICON_PX + BOARD_SCALE_PY(24));
-        lv_label_set_text(quick_drawer_toggle_state[i], "Off");
+        lv_label_set_text(quick_drawer_toggle_state[i], TR("Off"));
         lv_obj_set_style_text_color(quick_drawer_toggle_state[i], lv_color_hex(0x8d918f), 0);
     }
     quick_drawer_set_toggle_state(0, gui_shell_wifi_effective_enabled());
@@ -4537,7 +4571,7 @@ static void build_quick_drawer(void) {
     /* "RC", not "HiBy Link": the stock asset is hibylink.png but what it
      * actually drives here is remote_control.h's own phone web UI, and the
      * full name does not fit an 84px slot at any font tier. */
-    static const char * const row2_names[] = { "AirPlay", "DLNA", "Gapless", "RC" };
+    static const char * const row2_names[] = { N_("AirPlay"), N_("DLNA"), N_("Gapless"), N_("RC") };
     for (int i = 0; i < 4; i++) {
         int32_t x = BOARD_SCALE_PX(label_x[i]);
         lv_obj_t * icon = lv_image_create(quick_drawer_expansion_box);
@@ -4545,7 +4579,7 @@ static void build_quick_drawer(void) {
         lv_obj_add_flag(icon, LV_OBJ_FLAG_CLICKABLE);
 
         lv_obj_t * name = lv_label_create(quick_drawer_expansion_box);
-        lv_label_set_text(name, row2_names[i]);
+        lv_label_set_text(name, TR(row2_names[i]));
         lv_obj_add_style(name, &style_theme_text_primary, 0);
         lv_obj_set_style_text_font(name, &lv_font_montserrat_12, 0);
         lv_obj_set_width(name, BOARD_SCALE_PX(84));
@@ -4558,7 +4592,7 @@ static void build_quick_drawer(void) {
         lv_obj_set_style_text_align(quick_drawer_toggle_state[slot], LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_text_font(quick_drawer_toggle_state[slot], &lv_font_montserrat_12, 0);
         lv_obj_set_pos(quick_drawer_toggle_state[slot], x, QUICK_DRAWER_TOGGLE_ICON_PX + BOARD_SCALE_PY(24));
-        lv_label_set_text(quick_drawer_toggle_state[slot], "Off");
+        lv_label_set_text(quick_drawer_toggle_state[slot], TR("Off"));
         lv_obj_set_style_text_color(quick_drawer_toggle_state[slot], lv_color_hex(0x8d918f), 0);
 
         switch (slot) {
@@ -4618,7 +4652,7 @@ static void build_quick_drawer(void) {
         }
 
         lv_obj_t * name = lv_label_create(quick_drawer_expansion_box);
-        lv_label_set_text(name, is_car_mode ? "Car Mode" : plugin_manager_get_quick_toggle_label(plugin_index));
+        lv_label_set_text(name, is_car_mode ? TR("Car Mode") : plugin_manager_get_quick_toggle_label(plugin_index));
         lv_obj_add_style(name, &style_theme_text_primary, 0);
         lv_obj_set_style_text_font(name, &lv_font_montserrat_12, 0);
         lv_obj_set_width(name, BOARD_SCALE_PX(84));
@@ -4815,7 +4849,7 @@ static void build_quick_drawer(void) {
     int32_t text_width = QUICK_DRAWER_CARD_W - 2 * BOARD_SCALE_PX(15);
 
     quick_drawer_title_label = lv_label_create(band);
-    lv_label_set_text(quick_drawer_title_label, "No track loaded");
+    lv_label_set_text(quick_drawer_title_label, TR("No track loaded"));
     lv_obj_add_style(quick_drawer_title_label, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(quick_drawer_title_label, &app_font_player_title, 0);
     lv_obj_set_width(quick_drawer_title_label, text_width);
@@ -4926,7 +4960,7 @@ static void build_quick_drawer(void) {
     lv_obj_t * eq_label = lv_label_create(quick_drawer_eq_button);
     lv_obj_add_style(eq_label, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(eq_label, &lv_font_montserrat_16, 0);
-    lv_label_set_text(eq_label, "EQ");
+    lv_label_set_text(eq_label, TR("EQ"));
     lv_obj_center(eq_label);
     quick_drawer_register_shift_obj(quick_drawer_eq_button, BOARD_SCALE_PY(416));
 
@@ -4957,7 +4991,7 @@ void refresh_clock_label(void) {
     if (current_settings.clock_24h) {
         lv_obj_add_flag(clock_topbar_ampm, LV_OBJ_FLAG_HIDDEN);
     } else {
-        lv_label_set_text(clock_topbar_ampm, tm_info.tm_hour < 12 ? "AM" : "PM");
+        lv_label_set_text(clock_topbar_ampm, tm_info.tm_hour < 12 ? TR("AM") : TR("PM"));
         lv_obj_remove_flag(clock_topbar_ampm, LV_OBJ_FLAG_HIDDEN);
     }
     /* Center alignment follows the clock's width automatically. Recheck
@@ -5441,7 +5475,7 @@ void gui_shell_set_home_indicator_visible(bool visible) {
 void gui_shell_update_quick_drawer_track(const char * title, const char * artist,
                                          const char * album) {
     if (quick_drawer_title_label) {
-        const char * want_title = title ? title : "No track loaded";
+        const char * want_title = title ? title : TR("No track loaded");
         const char * want_artist = artist ? artist : "";
         const char * cur_title = lv_label_get_text(quick_drawer_title_label);
         const char * want_album = album ? album : "";

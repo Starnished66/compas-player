@@ -46,6 +46,7 @@ typedef struct {
     int32_t rating; /* 1 = favorite, matching Rockbox's rating tag */
     int32_t track_number;
     int32_t disc_number;
+    int32_t release_year; /* -1 when absent; 0 for legacy rows not yet rescanned */
     const char * path;
     const char * title;
     const char * artist;
@@ -123,6 +124,10 @@ void tagcache_upsert_changed(const char * path, int32_t mtime, int32_t size, con
                              const char * artist, const char * album, const char * album_artist,
                              const char * genre, int32_t track_number, int32_t disc_number,
                              bool * out_tags_changed);
+void tagcache_upsert_year_changed(const char * path, int32_t mtime, int32_t size, const char * title,
+                                  const char * artist, const char * album, const char * album_artist,
+                                  const char * genre, int32_t track_number, int32_t disc_number,
+                                  int32_t release_year, bool * out_tags_changed);
 /* Commits the pass: rebuilds indexes and persists. A row not seen during the
  * pass is removed only when stat() reports ENOENT, any other stat error keeps
  * it. A rebuild after a failed load rejects an empty result and leaves the
@@ -169,6 +174,9 @@ void tagcache_query_skip(tagcache_query_t *query, int32_t count);
 int tagcache_group_album_count(int kind, const char *name);
 int tagcache_group_album_at(int kind, const char *name, int offset);
 int tagcache_group_album_offset(int kind, const char *name, const char *album, const char *album_artist);
+bool tagcache_album_group_at_sorted(int sort, int rank, tagcache_group_t *out);
+int tagcache_album_group_sorted_offset(int sort, const char *album, const char *album_artist);
+bool tagcache_album_sort_available(int sort);
 
 int tagcache_group_count(int kind);
 bool tagcache_group_at(int kind, int index, tagcache_group_t * out);

@@ -1,4 +1,5 @@
 #include "gui_lock_screen.h"
+#include "i18n.h"
 #include "gui_navigation.h"
 #include "gui_shell.h"
 #include "gui_theme.h"
@@ -322,7 +323,7 @@ static void build_lock_screen_if_needed(void) {
     lv_obj_add_flag(lock_clock_label, LV_OBJ_FLAG_HIDDEN);
 
     lock_swipe_hint = lv_label_create(lock_screen);
-    lv_label_set_text(lock_swipe_hint, "Swipe up to unlock");
+    lv_label_set_text(lock_swipe_hint, TR("Swipe up to unlock"));
     lv_obj_add_style(lock_swipe_hint, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(lock_swipe_hint, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
     lv_obj_set_style_text_opa(lock_swipe_hint, LV_OPA_80, 0);

@@ -1,4 +1,5 @@
 #include "plugin_store.h"
+#include "i18n.h"
 #include "http_client.h"
 #include "storage_paths.h"
 #include "gui_library.h" /* sd_card_root_is_mounted() */
@@ -275,7 +276,7 @@ bool plugin_store_parse_index(const char * json, size_t length, plugin_store_plu
     if (tag_out) {
         tag_out[0] = '\0';
     }
-    error_text(error, error_size, "Unexpected reply from GitHub.");
+    error_text(error, error_size, TR("Unexpected reply from GitHub."));
     if (!json || !out || !tag_out || length > STORE_INDEX_LIMIT) {
         return false;
     }
@@ -1045,16 +1046,16 @@ static void finish(plugin_store_state_t state, const char * error, bool changed)
 
 static const char * http_error(const char * e) {
     if (e && strcmp(e, HTTP_ERR_TLS) == 0) {
-        return "Secure connection failed. Check Wi-Fi and the date and time.";
+        return TR("Secure connection failed. Check Wi-Fi and the date and time.");
     }
     if (e && (strcmp(e, HTTP_ERR_DNS) == 0 || strcmp(e, HTTP_ERR_CONNECT) == 0 ||
               strcmp(e, HTTP_ERR_CONNECT_TIMEOUT) == 0)) {
-        return "Cannot reach GitHub. Check the Wi-Fi connection.";
+        return TR("Cannot reach GitHub. Check the Wi-Fi connection.");
     }
     if (e && strcmp(e, HTTP_ERR_TIMEOUT) == 0) {
-        return "GitHub did not respond in time. Try again.";
+        return TR("GitHub did not respond in time. Try again.");
     }
-    return "Could not read the plugin list from GitHub.";
+    return TR("Could not read the plugin list from GitHub.");
 }
 /* Build the compact UI rows from the current index and installed record. */
 static void compute_results(void) {
@@ -1312,7 +1313,7 @@ static void * refresh_worker(void * unused) {
     }
     if (response.status != 200) {
         http_response_free(&response);
-        finish(PLUGIN_STORE_FAILED, "Could not read the plugin list from GitHub.", false);
+        finish(PLUGIN_STORE_FAILED, TR("Could not read the plugin list from GitHub."), false);
         return NULL;
     }
     plugin_store_plugin_t * parsed = NULL;
@@ -1378,7 +1379,7 @@ static void * install_worker(void * arg) {
     free(arg);
     store_card_t card;
     if (!card_mounted(&card)) {
-        finish(PLUGIN_STORE_FAILED, "Insert an SD card to install plugins.", false);
+        finish(PLUGIN_STORE_FAILED, TR("Insert an SD card to install plugins."), false);
         return NULL;
     }
     plugin_store_plugin_t p = job.plugin;
@@ -1387,7 +1388,7 @@ static void * install_worker(void * arg) {
     char (*vers)[32];
     size_t rn;
     if (!read_record_alloc(&rec, &vers, &rn)) {
-        finish(PLUGIN_STORE_FAILED, "Could not read installed plugins.", false);
+        finish(PLUGIN_STORE_FAILED, TR("Could not read installed plugins."), false);
         return NULL;
     }
     int installed = -1;
@@ -1402,25 +1403,25 @@ static void * install_worker(void * arg) {
     if (p.api_min > PLUGIN_API_VERSION) {
         free(rec);
         free(vers);
-        finish(PLUGIN_STORE_FAILED, "This plugin needs a newer player version.", false);
+        finish(PLUGIN_STORE_FAILED, TR("This plugin needs a newer player version."), false);
         return NULL;
     }
     if (installed < 0 && rn >= STORE_MAX_RECORD) {
         free(rec);
         free(vers);
-        finish(PLUGIN_STORE_FAILED, "Too many plugins are installed. Remove one and try again.", false);
+        finish(PLUGIN_STORE_FAILED, TR("Too many plugins are installed. Remove one and try again."), false);
         return NULL;
     }
     if (job.state == PLUGIN_STORE_INSTALLING && installed >= 0) {
         free(rec);
         free(vers);
-        finish(PLUGIN_STORE_FAILED, "This plugin is already installed by the store.", false);
+        finish(PLUGIN_STORE_FAILED, TR("This plugin is already installed by the store."), false);
         return NULL;
     }
     if (job.state == PLUGIN_STORE_UPDATING && !updateable) {
         free(rec);
         free(vers);
-        finish(PLUGIN_STORE_FAILED, "This plugin has no update available.", false);
+        finish(PLUGIN_STORE_FAILED, TR("This plugin has no update available."), false);
         return NULL;
     }
     uint64_t total = 0;
@@ -1437,7 +1438,7 @@ static void * install_worker(void * arg) {
     if (!disk_space(total)) {
         free(rec);
         free(vers);
-        finish(PLUGIN_STORE_FAILED, "Not enough free space on the SD card.", false);
+        finish(PLUGIN_STORE_FAILED, TR("Not enough free space on the SD card."), false);
         return NULL;
     }
     char stage[PATH_MAX];
@@ -1446,7 +1447,7 @@ static void * install_worker(void * arg) {
         cleanup_stage(&card, stage, p.file_count);
         free(rec);
         free(vers);
-        finish(PLUGIN_STORE_FAILED, "The plugin download failed verification. Try again.",
+        finish(PLUGIN_STORE_FAILED, TR("The plugin download failed verification. Try again."),
                false);
         return NULL;
     }
@@ -1454,7 +1455,7 @@ static void * install_worker(void * arg) {
         /* No cleanup: the stage path now belongs to the other card. */
         free(rec);
         free(vers);
-        finish(PLUGIN_STORE_FAILED, "The SD card changed during the download.", false);
+        finish(PLUGIN_STORE_FAILED, TR("The SD card changed during the download."), false);
         return NULL;
     }
     if (conflict_exists(STORE_SD_ROOT, &p, rec, vers, rn) && !job.force) {
@@ -1462,7 +1463,7 @@ static void * install_worker(void * arg) {
         free(rec);
         free(vers);
         finish(PLUGIN_STORE_NEEDS_CONFIRM,
-               "A local plugin file will be replaced. Confirm to continue.", false);
+               TR("A local plugin file will be replaced. Confirm to continue."), false);
         return NULL;
     }
     commit_card = &card;
@@ -1478,12 +1479,12 @@ static void * install_worker(void * arg) {
     free(vers);
     if (!ok) {
         if (!same) {
-            finish(PLUGIN_STORE_FAILED, "The SD card changed during the operation.", false);
+            finish(PLUGIN_STORE_FAILED, TR("The SD card changed during the operation."), false);
         } else if (needs_confirmation) {
             finish(PLUGIN_STORE_NEEDS_CONFIRM,
-                   "A local plugin file will be replaced. Confirm to continue.", false);
+                   TR("A local plugin file will be replaced. Confirm to continue."), false);
         } else {
-            finish(PLUGIN_STORE_FAILED, "Could not install the plugin on the SD card.", false);
+            finish(PLUGIN_STORE_FAILED, TR("Could not install the plugin on the SD card."), false);
         }
         return NULL;
     }
@@ -1530,7 +1531,7 @@ static bool start_install(const char * id, bool force, plugin_store_state_t stat
     job->state = state;
     if (!start_thread(install_worker, job)) {
         free(job);
-        finish(PLUGIN_STORE_FAILED, "Could not start the plugin operation.", false);
+        finish(PLUGIN_STORE_FAILED, TR("Could not start the plugin operation."), false);
         return false;
     }
     return true;
@@ -1540,7 +1541,7 @@ bool plugin_store_refresh(void) {
         return false;
     }
     if (!start_thread(refresh_worker, NULL)) {
-        finish(PLUGIN_STORE_FAILED, "Could not start the plugin refresh.", false);
+        finish(PLUGIN_STORE_FAILED, TR("Could not start the plugin refresh."), false);
         return false;
     }
     return true;
@@ -1585,14 +1586,14 @@ static void * uninstall_worker(void * arg) {
     free(arg);
     store_card_t card;
     if (!card_mounted(&card)) {
-        finish(PLUGIN_STORE_FAILED, "Insert an SD card to remove plugins.", false);
+        finish(PLUGIN_STORE_FAILED, TR("Insert an SD card to remove plugins."), false);
         return NULL;
     }
     plugin_store_plugin_t * rec;
     char (*vers)[32];
     size_t rn;
     if (!read_record_alloc(&rec, &vers, &rn)) {
-        finish(PLUGIN_STORE_FAILED, "Could not read installed plugins.", false);
+        finish(PLUGIN_STORE_FAILED, TR("Could not read installed plugins."), false);
         return NULL;
     }
     int found = -1;
@@ -1605,7 +1606,7 @@ static void * uninstall_worker(void * arg) {
     if (found < 0) {
         free(rec);
         free(vers);
-        finish(PLUGIN_STORE_FAILED, "This plugin is not installed by the store.", false);
+        finish(PLUGIN_STORE_FAILED, TR("This plugin is not installed by the store."), false);
         return NULL;
     }
     char stage[PATH_MAX];
@@ -1613,7 +1614,7 @@ static void * uninstall_worker(void * arg) {
     if (!mkdir_tree(STORE_SD_ROOT, stage)) {
         free(rec);
         free(vers);
-        finish(PLUGIN_STORE_FAILED, "Could not prepare plugin removal.", false);
+        finish(PLUGIN_STORE_FAILED, TR("Could not prepare plugin removal."), false);
         return NULL;
     }
     bool backed[PLUGIN_STORE_MAX_FILES] = {false};
@@ -1626,7 +1627,7 @@ static void * uninstall_worker(void * arg) {
             /* Another card: restoring backups would write to it. */
             free(rec);
             free(vers);
-            finish(PLUGIN_STORE_FAILED, "The SD card changed during the operation.", false);
+            finish(PLUGIN_STORE_FAILED, TR("The SD card changed during the operation."), false);
             return NULL;
         }
         char path[PATH_MAX], backup[PATH_MAX + 32];
@@ -1649,7 +1650,7 @@ static void * uninstall_worker(void * arg) {
                 }
                 free(rec);
                 free(vers);
-                finish(PLUGIN_STORE_FAILED, "Could not remove a plugin file.", false);
+                finish(PLUGIN_STORE_FAILED, TR("Could not remove a plugin file."), false);
                 return NULL;
             }
             backed[i] = true;
@@ -1659,7 +1660,7 @@ static void * uninstall_worker(void * arg) {
         /* Another card: restoring backups would write to it. */
         free(rec);
         free(vers);
-        finish(PLUGIN_STORE_FAILED, "The SD card changed during the operation.", false);
+        finish(PLUGIN_STORE_FAILED, TR("The SD card changed during the operation."), false);
         return NULL;
     }
     commit_card = &card;
@@ -1688,7 +1689,7 @@ static void * uninstall_worker(void * arg) {
     free(rec);
     free(vers);
     if (!ok) {
-        finish(PLUGIN_STORE_FAILED, "Could not update the installed plugin record.", false);
+        finish(PLUGIN_STORE_FAILED, TR("Could not update the installed plugin record."), false);
         return NULL;
     }
     sync();
@@ -1702,12 +1703,12 @@ bool plugin_store_uninstall(const char * id) {
     }
     char * copy = strdup(id);
     if (!copy) {
-        finish(PLUGIN_STORE_FAILED, "Could not start the plugin operation.", false);
+        finish(PLUGIN_STORE_FAILED, TR("Could not start the plugin operation."), false);
         return false;
     }
     if (!start_thread(uninstall_worker, copy)) {
         free(copy);
-        finish(PLUGIN_STORE_FAILED, "Could not start the plugin operation.", false);
+        finish(PLUGIN_STORE_FAILED, TR("Could not start the plugin operation."), false);
         return false;
     }
     return true;
@@ -1716,14 +1717,14 @@ static void * update_all_worker(void * unused) {
     (void) unused;
     store_card_t card;
     if (!card_mounted(&card)) {
-        finish(PLUGIN_STORE_FAILED, "Insert an SD card to update plugins.", false);
+        finish(PLUGIN_STORE_FAILED, TR("Insert an SD card to update plugins."), false);
         return NULL;
     }
     plugin_store_plugin_t * rec;
     char (*vers)[32];
     size_t rn;
     if (!read_record_alloc(&rec, &vers, &rn)) {
-        finish(PLUGIN_STORE_FAILED, "Could not read installed plugins.", false);
+        finish(PLUGIN_STORE_FAILED, TR("Could not read installed plugins."), false);
         return NULL;
     }
     pthread_mutex_lock(&store_mutex);
@@ -1777,7 +1778,7 @@ static void * update_all_worker(void * unused) {
             required += p->files[j].size;
         }
         if (!disk_space(required)) {
-            failure = "Not enough free space on the SD card.";
+            failure = TR("Not enough free space on the SD card.");
             continue;
         }
         char stage[PATH_MAX];
@@ -1785,13 +1786,13 @@ static void * update_all_worker(void * unused) {
         uint64_t bytes = 0;
         if (!download_plugin_files(p, tag, stage, &bytes)) {
             cleanup_stage(&card, stage, p->file_count);
-            failure = "A plugin download failed verification. Try again.";
+            failure = TR("A plugin download failed verification. Try again.");
             continue;
         }
         if (!card_still(&card)) {
             free(rec);
             free(vers);
-            finish(PLUGIN_STORE_FAILED, "The SD card changed during the operation.", changed);
+            finish(PLUGIN_STORE_FAILED, TR("The SD card changed during the operation."), changed);
             return NULL;
         }
         commit_card = &card;
@@ -1800,7 +1801,7 @@ static void * update_all_worker(void * unused) {
         if (!installed && !card_still(&card)) {
             free(rec);
             free(vers);
-            finish(PLUGIN_STORE_FAILED, "The SD card changed during the operation.", changed);
+            finish(PLUGIN_STORE_FAILED, TR("The SD card changed during the operation."), changed);
             return NULL;
         }
         if (installed) {
@@ -1808,7 +1809,7 @@ static void * update_all_worker(void * unused) {
             free(rec);
             free(vers);
             if (!read_record_alloc(&rec, &vers, &rn)) {
-                finish(PLUGIN_STORE_FAILED, "Could not read installed plugins.", changed);
+                finish(PLUGIN_STORE_FAILED, TR("Could not read installed plugins."), changed);
                 return NULL;
             }
         } else if (conflict_exists(STORE_SD_ROOT, p, rec, vers, rn) &&
@@ -1816,7 +1817,7 @@ static void * update_all_worker(void * unused) {
             snprintf(pending, sizeof(pending), "%.64s", p->name);
             snprintf(pending_ids[pending_count++], 64, "%.63s", p->id);
         } else if (!installed) {
-            failure = "Could not install a plugin on the SD card.";
+            failure = TR("Could not install a plugin on the SD card.");
         }
         cleanup_stage(&card, stage, p->file_count);
     }
@@ -1840,7 +1841,7 @@ static void * update_all_worker(void * unused) {
             finish(PLUGIN_STORE_FAILED, failure, changed);
         } else {
             finish(PLUGIN_STORE_NEEDS_CONFIRM,
-                   "Some updates need confirmation before replacing local files.", changed);
+                   TR("Some updates need confirmation before replacing local files."), changed);
         }
     } else {
         finish(PLUGIN_STORE_READY, NULL, changed);
@@ -1858,7 +1859,7 @@ bool plugin_store_update_all(void) {
         return false;
     }
     if (!start_thread(update_all_worker, NULL)) {
-        finish(PLUGIN_STORE_FAILED, "Could not start the plugin update.", false);
+        finish(PLUGIN_STORE_FAILED, TR("Could not start the plugin update."), false);
         return false;
     }
     return true;

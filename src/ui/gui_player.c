@@ -1,5 +1,6 @@
 #include <limits.h>
 #include "board_config.h"
+#include "i18n.h"
 #include "usb_mode_control.h"
 #include "file_browser.h"
 #include "remote_control.h"
@@ -1229,21 +1230,30 @@ static void launch_cover_decode_from_url(int for_index, const char * url, bool v
 
 static void fit_cover_img_to_card(void) {
     if (!cover_img || !cover_card) return;
-    if (player_cover_thumbnail && lv_image_get_src(player_cover_thumbnail) != lv_image_get_src(cover_img)) {
-        lv_image_set_src(player_cover_thumbnail, lv_image_get_src(cover_img));
+    const void * source = lv_image_get_src(cover_img);
+    const void * thumbnail_source = player_cover_thumbnail ? lv_image_get_src(player_cover_thumbnail) : NULL;
+    bool same_source = source == thumbnail_source;
+    if (!same_source && source && thumbnail_source &&
+        lv_image_src_get_type(source) == LV_IMAGE_SRC_FILE &&
+        lv_image_src_get_type(thumbnail_source) == LV_IMAGE_SRC_FILE)
+        same_source = strcmp(source, thumbnail_source) == 0;
+    if (player_cover_thumbnail && !same_source) {
+        lv_image_set_src(player_cover_thumbnail, source);
         lv_image_set_inner_align(player_cover_thumbnail, LV_IMAGE_ALIGN_CONTAIN);
     }
-    lv_image_header_t header;
-    if (lv_image_decoder_get_info(lv_image_get_src(cover_img), &header) != LV_RESULT_OK ||
-        header.w <= 0 || header.h <= 0) return;
+    /* lv_image_set_src already decoded the source dimensions. Reuse them
+     * while the card animates instead of reopening a file on every frame. */
+    int32_t source_w = lv_image_get_src_width(cover_img);
+    int32_t source_h = lv_image_get_src_height(cover_img);
+    if (source_w <= 0 || source_h <= 0) return;
     int32_t card_w = lv_obj_get_width(cover_card);
     int32_t card_h = lv_obj_get_height(cover_card);
     if (card_w <= 0 || card_h <= 0) {
         card_w = player_s(350);
         card_h = player_s(350);
     }
-    int32_t scale_w = (card_w * LV_SCALE_NONE + header.w - 1) / header.w;
-    int32_t scale_h = (card_h * LV_SCALE_NONE + header.h - 1) / header.h;
+    int32_t scale_w = (card_w * LV_SCALE_NONE + source_w - 1) / source_w;
+    int32_t scale_h = (card_h * LV_SCALE_NONE + source_h - 1) / source_h;
     int32_t scale = scale_w > scale_h ? scale_w : scale_h;
     lv_image_set_scale(cover_img, scale);
     lv_obj_align(cover_img, LV_ALIGN_CENTER, 0, 0);
@@ -1667,8 +1677,9 @@ static audio_codec_t info_codec_from_hint(const char * hint) {
     if (*hint == '.') hint++;
     if (strcasecmp(hint, "flac") == 0) return AUDIO_CODEC_FLAC;
     if (strcasecmp(hint, "mp3") == 0) return AUDIO_CODEC_MP3;
-    if (strcasecmp(hint, "wav") == 0 || strcasecmp(hint, "aif") == 0 ||
-        strcasecmp(hint, "aiff") == 0) return AUDIO_CODEC_PCM;
+    if (strcasecmp(hint, "wav") == 0 || strcasecmp(hint, "rf64") == 0 ||
+        strcasecmp(hint, "w64") == 0 || strcasecmp(hint, "aif") == 0 ||
+        strcasecmp(hint, "aiff") == 0 || strcasecmp(hint, "aifc") == 0) return AUDIO_CODEC_PCM;
     if (strcasecmp(hint, "dsf") == 0 || strcasecmp(hint, "dff") == 0)
         return AUDIO_CODEC_DSD;
     if (strcasecmp(hint, "aac") == 0 || strcasecmp(hint, "aacp") == 0)
@@ -1684,13 +1695,15 @@ static void info_container_from_hint(const char * hint, char out[16]) {
     out[0] = '\0';
     if (!hint || !hint[0]) return;
     if (*hint == '.') hint++;
-    if (strcasecmp(hint, "aif") == 0 || strcasecmp(hint, "aiff") == 0)
+    if (strcasecmp(hint, "aif") == 0 || strcasecmp(hint, "aiff") == 0 ||
+        strcasecmp(hint, "aifc") == 0)
         snprintf(out, 16, "AIFF");
     else if (strcasecmp(hint, "aac") == 0 || strcasecmp(hint, "aacp") == 0)
         snprintf(out, 16, "ADTS");
     else if (strcasecmp(hint, "wma") == 0 || strcasecmp(hint, "asf") == 0)
         snprintf(out, 16, "ASF");
-    else if (strcasecmp(hint, "m4a") == 0 || strcasecmp(hint, "mp4") == 0)
+    else if (strcasecmp(hint, "m4a") == 0 || strcasecmp(hint, "m4b") == 0 ||
+             strcasecmp(hint, "mp4") == 0)
         snprintf(out, 16, "M4A");
     else if (strcasecmp(hint, "ogg") == 0 || strcasecmp(hint, "oga") == 0 ||
              strcasecmp(hint, "opus") == 0)
@@ -2017,7 +2030,7 @@ static void delete_song_confirm_cb(lv_event_t * e) {
         playlist_lazy_sort_order = NULL;
         clear_player_source();
         set_play_button_state(false);
-        lv_label_set_text(song_title_label, "No track loaded");
+        lv_label_set_text(song_title_label, TR("No track loaded"));
         if (album_label) lv_label_set_text(album_label, "");
         now_playing_genre[0] = '\0';
         now_playing_track_number = 0;
@@ -2030,7 +2043,7 @@ static void delete_song_confirm_cb(lv_event_t * e) {
 
     unlink(to_delete); /* only after playback has moved off it */
     free(to_delete);
-    show_error_toast("Song deleted");
+    show_error_toast(TR("Song deleted"));
 }
 
 /* Defined alongside build_confirm_popup() above -- see its own doc comment
@@ -2043,8 +2056,8 @@ static void build_delete_song_popup(void) {
      * (delete_song_confirm_prompt() below) to "Delete <filename>?..." with
      * an arbitrary-length real filename spliced in, so it needs to
      * truncate rather than potentially wrap across several lines. */
-    delete_song_popup.popup = build_confirm_popup("", LV_LABEL_LONG_DOT, &delete_song_popup_title, NULL, "Delete",
-                                             lv_color_make(255, 120, 120), delete_song_confirm_cb, NULL, "Cancel",
+    delete_song_popup.popup = build_confirm_popup("", LV_LABEL_LONG_DOT, &delete_song_popup_title, NULL, TR("Delete"),
+                                             lv_color_make(255, 120, 120), delete_song_confirm_cb, NULL, TR("Cancel"),
                                              accent_lv_color(), delete_song_cancel_cb, NULL,
                                              delete_song_popup_backdrop_cb, &delete_song_popup.backdrop);
 }
@@ -2097,7 +2110,7 @@ static void more_menu_delete_cb(lv_event_t * e) {
     hide_more_menu_popup();
     if (playlist_index < 0 || playlist_index >= playlist_count) return;
 
-    lv_label_set_text_fmt(delete_song_popup_title, "Delete %s?\nThis cannot be undone.", basename_of(playlist_path_at(playlist_index)));
+    lv_label_set_text_fmt(delete_song_popup_title, TR("Delete %s?\nThis cannot be undone."), basename_of(playlist_path_at(playlist_index)));
     gui_popup_show(&delete_song_popup);
 }
 
@@ -2112,13 +2125,13 @@ static void more_icon_event_cb(lv_event_t * e) {
 }
 
 static void build_more_menu_popup(void) {
-    static const menu_popup_row_t rows[] = {
-        { "Queue", more_menu_queue_cb, false },
-        { "Add to Playlist", more_menu_add_to_playlist_cb, false },
-        { "Information", more_menu_information_cb, false },
-        { "EQ", more_menu_eq_cb, false },
-        { "Delete", more_menu_delete_cb, true },
-        { "Cancel", more_menu_popup_backdrop_cb, false, true },
+    const menu_popup_row_t rows[] = {
+        { TR("Queue"), more_menu_queue_cb, false },
+        { TR("Add to Playlist"), more_menu_add_to_playlist_cb, false },
+        { TR("Information"), more_menu_information_cb, false },
+        { TR("EQ"), more_menu_eq_cb, false },
+        { TR("Delete"), more_menu_delete_cb, true },
+        { TR("Cancel"), more_menu_popup_backdrop_cb, false, true },
     };
     more_menu_popup = build_menu_popup(rows, (int) (sizeof(rows) / sizeof(rows[0])), more_menu_popup_backdrop_cb,
                                         &more_menu_popup_backdrop);
@@ -2143,6 +2156,13 @@ typedef struct {
 static bool player_lyrics_open;
 static bool player_lyrics_animating;
 bool gui_player_lyrics_animation_in_progress(void) { return player_lyrics_animating; }
+static void player_lyrics_update_thumbnail_clickable(void) {
+    if (!player_cover_thumbnail) return;
+    if (player_lyrics_open && !player_lyrics_animating)
+        lv_obj_add_flag(player_cover_thumbnail, LV_OBJ_FLAG_CLICKABLE);
+    else
+        lv_obj_remove_flag(player_cover_thumbnail, LV_OBJ_FLAG_CLICKABLE);
+}
 #define PLAYER_LYRICS_MORPH_OBJECT_COUNT 4
 static player_lyrics_geometry_t player_lyrics_geometry[PLAYER_LYRICS_MORPH_OBJECT_COUNT];
 /* Cover first, then the metadata labels the layout has; the title is required
@@ -2366,10 +2386,14 @@ static void player_lyrics_morph_done(lv_anim_t * anim) {
     if (completed_animation) player_lyrics_perf_log_summary(player_lyrics_open);
 #endif
     player_lyrics_animating = false;
+    player_lyrics_update_thumbnail_clickable();
     player_lyrics_release_text_frames();
     player_lyrics_morph(NULL, player_lyrics_open ? 1024 : 0);
     if (player_lyrics_cover_frame) {
         lv_image_set_src(cover_img, player_lyrics_cover_source);
+        /* Retarget the thumbnail while the snapshot is still alive. File
+         * source equality checks must never inspect a released descriptor. */
+        fit_cover_img_to_card();
         lv_obj_set_style_clip_corner(cover_card, player_lyrics_cover_clip_corner, 0);
         lv_draw_buf_destroy(player_lyrics_cover_frame);
         player_lyrics_cover_frame = NULL;
@@ -2446,6 +2470,8 @@ static void player_lyrics_show_in_area(const lv_area_t * area) {
 static void player_lyrics_set_open_area(bool open) {
     player_lyrics_object_count = 0;
     player_lyrics_open = open;
+    player_lyrics_animating = false;
+    player_lyrics_update_thumbnail_clickable();
     lv_area_t area;
     if (open && player_lyrics_area_rect(&area)) {
         player_lyrics_show_in_area(&area);
@@ -2473,6 +2499,7 @@ static void player_lyrics_timeline_cancel_timer(void) {
 
 static void player_lyrics_timeline_finish(void) {
     player_lyrics_animating = false;
+    player_lyrics_update_thumbnail_clickable();
     lv_area_t lyrics_rect;
     if (player_lyrics_open && player_lyrics_area_rect(&lyrics_rect)) {
         player_lyrics_show_in_area(&lyrics_rect);
@@ -2525,14 +2552,21 @@ static void player_lyrics_set_open_timeline(bool open, bool animate) {
 
     lv_anim_timeline_t * timeline = open ? player_timeline_lyrics_open : player_timeline_lyrics_close;
     if (!animate) {
+        player_lyrics_animating = false;
         lv_anim_timeline_set_progress(timeline, 0);
         lv_anim_timeline_set_progress(timeline, LV_ANIM_TIMELINE_PROGRESS_MAX);
         player_lyrics_timeline_finish();
         return;
     }
     player_lyrics_animating = true;
+    player_lyrics_update_thumbnail_clickable();
     uint32_t playtime = player_timeline_play(timeline);
     player_lyrics_timeline_timer = lv_timer_create(player_lyrics_timeline_timer_cb, playtime + 20, NULL);
+    if (!player_lyrics_timeline_timer) {
+        lv_anim_timeline_set_progress(timeline, LV_ANIM_TIMELINE_PROGRESS_MAX);
+        player_lyrics_timeline_finish();
+        return;
+    }
     lv_timer_set_repeat_count(player_lyrics_timeline_timer, 1);
 }
 
@@ -2690,11 +2724,16 @@ static void player_lyrics_set_open(bool open, bool animate) {
     player_lyrics_prepare_text_frames();
     player_lyrics_morph(NULL, open ? 0 : 1024);
     player_lyrics_animating = true;
+    player_lyrics_update_thumbnail_clickable();
     /* main.c advances LVGL's clock between handler passes. Preparation above
      * can take time while that clock is frozen; starting an animation here
      * would count preparation toward its duration and skip its first frames.
      * A positive timer period starts it on a fresh clock tick instead. */
     player_lyrics_start_timer = lv_timer_create(player_lyrics_start_timer_cb, 1, NULL);
+    if (!player_lyrics_start_timer) {
+        player_lyrics_morph(NULL, open ? 1024 : 0);
+        player_lyrics_morph_done(NULL);
+    }
 }
 
 static void cover_img_tap_cb(lv_event_t * e) {
@@ -3096,7 +3135,7 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
 
     lv_obj_t * title = lv_label_create(scr);
     lv_obj_set_name_static(title, "title");
-    lv_label_set_text(title, "No track loaded");
+    lv_label_set_text(title, TR("No track loaded"));
     lv_obj_add_style(title, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(title, player_title_font, 0);
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
@@ -3496,8 +3535,8 @@ static bool player_bind_widgets(lv_obj_t * scr) {
         lv_obj_add_event_cb(r_lyrics_toggle, cover_img_tap_cb, LV_EVENT_CLICKED, NULL);
     }
     if (player_cover_thumbnail) {
-        lv_obj_add_flag(player_cover_thumbnail, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(player_cover_thumbnail, cover_img_tap_cb, LV_EVENT_CLICKED, NULL);
+        player_lyrics_update_thumbnail_clickable();
     }
 
     /* Custom layouts style themselves, but inherit the theme's text colors
@@ -3710,6 +3749,8 @@ static bool player_bind_widgets(lv_obj_t * scr) {
 /* Clears every widget global and cached pointer derived from the tree. Used
  * by teardown and when a layout is discarded. */
 static void player_reset_widget_globals(void) {
+    player_lyrics_open = false;
+    player_lyrics_animating = false;
     if (player_waveform_seekbar) waveform_cancel();
     player_waveform_seekbar = false;
     player_overlay_panel = NULL;
@@ -4558,7 +4599,7 @@ void gui_player_queue_add_many(const char * const * paths, int count) {
         current_settings.last_source_kind = 0;
         current_settings.last_source_name[0] = '\0';
         settings_save_async(&current_settings);
-        show_info_toast("Queue ready. Press Play to start.");
+        show_info_toast(TR("Queue ready. Press Play to start."));
         return;
     }
     int pos = (queue_next_insert_index >= 0 && queue_next_insert_index <= playlist_count)
@@ -4598,8 +4639,8 @@ void gui_player_queue_add_many(const char * const * paths, int count) {
     if (song_count_label) lv_label_set_text_fmt(song_count_label, "%d/%d", playlist_index + 1, playlist_count);
     arm_next_track_for_audio(playlist_index);
 
-    char msg[64];
-    snprintf(msg, sizeof(msg), "Added %d songs to queue", count);
+    char msg[128];
+    snprintf(msg, sizeof(msg), TR_N("Added %d song to queue", "Added %d songs to queue", count), count);
     show_info_toast(msg);
 }
 
@@ -4618,12 +4659,12 @@ void queue_remove_song_at_offset(int offset) {
     queue_next_insert_index = queued_pending_count > 0 ? playlist_index + 1 + queued_pending_count : -1;
     if (song_count_label) lv_label_set_text_fmt(song_count_label, "%d/%d", playlist_index + 1, playlist_count);
     arm_next_track_for_audio(playlist_index);
-    show_info_toast("Removed from queue");
+    show_info_toast(TR("Removed from queue"));
 }
 
 void queue_clear_pending(void) {
     while (queued_pending_count > 0) queue_remove_song_at_offset(queued_pending_count - 1);
-    show_info_toast("Queue cleared");
+    show_info_toast(TR("Queue cleared"));
 }
 
 /* Bluetooth DAC mode and AirPlay receive mode both feed real-time audio
@@ -4648,8 +4689,8 @@ void queue_clear_pending(void) {
  * local playback. AirPlay discoverability does not block local playback;
  * active streams are auto-disconnected instead. */
 static const char * external_dac_block_reason(void) {
-    if (current_settings.bt_dac_mode_enabled && bt_is_powered_cached) return "Turn off Bluetooth DAC to play music on this device";
-    if (current_settings.usb_mode == USB_MODE_DAC) return "Exit USB DAC mode to play music on this device";
+    if (current_settings.bt_dac_mode_enabled && bt_is_powered_cached) return TR("Turn off Bluetooth DAC to play music on this device");
+    if (current_settings.usb_mode == USB_MODE_DAC) return TR("Exit USB DAC mode to play music on this device");
     return NULL;
 }
 
@@ -5859,7 +5900,7 @@ void gui_player_handle_sd_unmount(void) {
     free_playlist();
     clear_player_source();
     set_play_button_state(false);
-    if (song_title_label) lv_label_set_text(song_title_label, "No track loaded");
+    if (song_title_label) lv_label_set_text(song_title_label, TR("No track loaded"));
     if (album_label) lv_label_set_text(album_label, "");
     now_playing_genre[0] = '\0';
     now_playing_track_number = 0;
@@ -6882,11 +6923,13 @@ void gui_player_handle_playback_error_ex(audio_error_t err, uint64_t err_generat
         deferred_resume_position = (pos > 0.0) ? pos : 0.0;
         deferred_resume_pending = true;
         set_play_button_state(false);
-        show_error_toast("Playback error: audio output failed");
+        show_error_toast(TR("Playback error: audio output failed"));
         return;
     }
 
-    if (err == AUDIO_ERROR_DECODER_FAILED) {
+    if (err == AUDIO_ERROR_DECODER_FAILED || err == AUDIO_ERROR_FILE_UNAVAILABLE ||
+        err == AUDIO_ERROR_UNSUPPORTED_FORMAT || err == AUDIO_ERROR_UNSUPPORTED_CHANNELS) {
+        char failure_message[96];
         /* Record the failed track's physical path */
         const char * failed_path = playlist_path_at(playlist_index);
         if (failed_path) record_failed_physical_path(failed_path);
@@ -6898,7 +6941,9 @@ void gui_player_handle_playback_error_ex(audio_error_t err, uint64_t err_generat
             deferred_resume_pending = false;
             deferred_resume_position = 0.0;
             reset_decoder_failure_tracking();
-            show_error_toast("Playback stopped: too many unplayable tracks");
+            snprintf(failure_message, sizeof(failure_message), TR("Playback stopped: %s"),
+                     TR(audio_error_description(err)));
+            show_error_toast(failure_message);
             return;
         }
 
@@ -6930,14 +6975,17 @@ void gui_player_handle_playback_error_ex(audio_error_t err, uint64_t err_generat
             deferred_resume_pending = false;
             deferred_resume_position = 0.0;
             reset_decoder_failure_tracking();
-            show_error_toast("Playback stopped: too many unplayable tracks");
+            snprintf(failure_message, sizeof(failure_message), TR("Playback stopped: %s"),
+                     TR(audio_error_description(err)));
+            show_error_toast(failure_message);
             return;
         }
 
         commit_decoder_failure_advance_plan(&plan);
         deferred_resume_pending = false;
         deferred_resume_position = 0.0;
-        show_error_toast("Skipped unplayable track");
+        snprintf(failure_message, sizeof(failure_message), TR("Skipped: %s"), TR(audio_error_description(err)));
+        show_error_toast(failure_message);
         play_track_at_from_internal(plan.target_index, 0.0, false, false);
     }
 }

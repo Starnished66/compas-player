@@ -103,6 +103,14 @@ bool file_browser_build_playlist_from_m3u(const char * m3u_path, char *** out_pl
  * that bound is exceeded. The index pins its source directory FD. Handles
  * may be duplicated for the queue worker; each owner closes its own handle. */
 typedef struct file_browser_index file_browser_index_t;
+typedef enum {
+    FILE_BROWSER_SORT_NAME = 0,
+    FILE_BROWSER_SORT_NEWEST = 1,
+} file_browser_sort_mode_t;
+/* Sort setting is snapshotted by each scan/index operation. Changing it
+ * rebuilds the visible directory while preserving its path. */
+void file_browser_set_sort_mode(file_browser_sort_mode_t mode);
+file_browser_sort_mode_t file_browser_get_sort_mode(void);
 typedef void (*file_browser_index_select_cb_t)(file_browser_index_t *index,
                                                unsigned playable_count,
                                                unsigned selected_playable);

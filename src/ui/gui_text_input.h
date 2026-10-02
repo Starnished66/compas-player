@@ -23,5 +23,9 @@ const char * t9_keypad_get_text(void);
 int32_t t9_keypad_get_grid_y(void);
 
 lv_obj_t * gui_text_input_get_screen(void);
+/* Releases a pending plugin text-input callback if navigation removes the
+ * shared text-entry screen from its stack. Covering the screen keeps input
+ * active; callers pass only slots that are actually being removed. */
+void gui_text_input_cancel_if_removed(lv_obj_t * removed_screen);
 
 #endif /* GUI_TEXT_INPUT_H */

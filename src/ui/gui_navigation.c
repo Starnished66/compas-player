@@ -1,4 +1,5 @@
 #include "gui_navigation.h"
+#include "gui_setup.h"
 #include "gui.h"
 #include "gui_theme.h"
 #include "gui_notifications.h"
@@ -12,6 +13,7 @@
 #include "gui_shell.h"
 #include "gui_books.h"
 #include "gui_lock_screen.h"
+#include "gui_text_input.h"
 #include "gui_text_view.h"
 #include "screen_builders.h"
 #include "metadata.h"
@@ -29,6 +31,17 @@ static int nav_depth = 0;
 #include <string.h>
 
 extern player_settings_t current_settings;
+
+/* A callback can chain through an intermediate screen and push another
+ * text-entry prompt before the old text-entry slot is removed. Cancel only
+ * when the shared text-entry screen no longer exists anywhere in the stack. */
+static void cancel_text_input_if_unstacked(lv_obj_t * removed_screen) {
+    if (removed_screen != gui_text_input_get_screen()) return;
+    for (int i = 0; i < nav_depth; i++) {
+        if (nav_stack[i] == removed_screen) return;
+    }
+    gui_text_input_cancel_if_removed(removed_screen);
+}
 
 extern lv_obj_t * gui_shell_get_home_screen();
 
@@ -543,7 +556,8 @@ static bool slide_transition_active = false;
  * disables its gesture. Apply its visibility at real screen handoffs so it
  * is never restored early and baked into the outgoing Lyrics frame. */
 static void sync_home_indicator_visibility(lv_obj_t * screen) {
-    gui_shell_set_home_indicator_visible(current_settings.swipe_up_home_enabled &&
+    gui_shell_set_home_indicator_visible(current_settings.setup_complete &&
+                                         current_settings.swipe_up_home_enabled &&
                                          screen != gui_shell_get_home_screen() &&
                                          screen != gui_lyrics_get_screen() &&
                                          screen != gui_lock_screen_get_screen());
@@ -1021,7 +1035,12 @@ static void note_text_view_if_dropped(void) {
 }
 
 void nav_pop_ex(bool forward, bool vertical, bool reveal) {
-    if (nav_depth > 1) nav_depth--;
+    if (!current_settings.setup_complete && lv_screen_active() == gui_setup_get_screen()) return;
+    if (nav_depth > 1) {
+        lv_obj_t * removed = nav_stack[nav_depth - 1];
+        nav_depth--;
+        cancel_text_input_if_unstacked(removed);
+    }
     /* Keep the outgoing screen's bars untouched until its physical frame
      * has been captured. The transition completion/cut-fallback path
      * applies the destination state at the actual screen handoff. */
@@ -1034,7 +1053,11 @@ void nav_pop(void) {
 }
 
 void nav_pop_stack_only(void) {
-    if (nav_depth > 1) nav_depth--;
+    if (nav_depth > 1) {
+        lv_obj_t * removed = nav_stack[nav_depth - 1];
+        nav_depth--;
+        cancel_text_input_if_unstacked(removed);
+    }
     note_text_view_if_dropped();
 }
 
@@ -1047,8 +1070,11 @@ void nav_pop_stack_only(void) {
  * Bookkeeping only -- whatever is currently on screen was already loaded
  * by the nav_push() that grew the stack past `index`. */
 void nav_remove_stack_slot(int index) {
+    if (index < 0 || index >= nav_depth) return;
+    lv_obj_t * removed = nav_stack[index];
     for (int i = index; i < nav_depth - 1; i++) nav_stack[i] = nav_stack[i + 1];
     if (nav_depth > 0) nav_depth--;
+    cancel_text_input_if_unstacked(removed);
     note_text_view_if_dropped();
 }
 
@@ -1074,9 +1100,17 @@ static lv_obj_t * nav_home_target(void) {
 }
 
 void nav_reset_to_home(void) {
+    if (!current_settings.setup_complete) return;
     lv_obj_t * target = nav_home_target();
+    bool removed_text_entry = false;
+    lv_obj_t * text_entry = gui_text_input_get_screen();
+    for (int i = 0; i < nav_depth; i++) {
+        if (nav_stack[i] == text_entry) removed_text_entry = true;
+    }
     nav_depth = 1;
     nav_stack[0] = target;
+    /* Check after replacing the stack so a retained target can keep a prompt. */
+    if (removed_text_entry) cancel_text_input_if_unstacked(text_entry);
     lv_screen_load(target);
     sync_player_topbar_visibility(target);
     sync_home_indicator_visibility(target);
@@ -1084,8 +1118,15 @@ void nav_reset_to_home(void) {
 }
 
 void nav_reset_to_home_stack_only(void) {
+    if (!current_settings.setup_complete) return;
+    bool removed_text_entry = false;
+    lv_obj_t * text_entry = gui_text_input_get_screen();
+    for (int i = 0; i < nav_depth; i++) {
+        if (nav_stack[i] == text_entry) removed_text_entry = true;
+    }
     nav_depth = 1;
     nav_stack[0] = nav_home_target();
+    if (removed_text_entry) cancel_text_input_if_unstacked(text_entry);
     note_text_view_if_dropped();
 }
 

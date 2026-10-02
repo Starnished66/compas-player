@@ -295,7 +295,13 @@ typedef enum {
     AUDIO_ERROR_NONE = 0,
     AUDIO_ERROR_DECODER_FAILED,  /* unrecoverable decode/container/file failure */
     AUDIO_ERROR_OUTPUT_FAILED,   /* output write error -- hardware recovery exhausted */
+    AUDIO_ERROR_FILE_UNAVAILABLE,
+    AUDIO_ERROR_UNSUPPORTED_FORMAT,
+    AUDIO_ERROR_UNSUPPORTED_CHANNELS,
 } audio_error_t;
+
+/* Short, static explanation suitable for logs and playback error toasts. */
+const char * audio_error_description(audio_error_t error);
 
 /* Returns the most recent unrecoverable error (and clears it) exactly once.
  * AUDIO_ERROR_NONE means no pending error. Polled from the GUI timer. */

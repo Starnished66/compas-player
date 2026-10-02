@@ -1,0 +1,36 @@
+<component>
+    <view extends="lv_obj" width="#screen_w" height="#screen_h" scrollable="false" style_bg_color="0x080b0e" style_bg_opa="0" style_border_width="0" style_radius="0" style_pad_all="0">
+        <lv_obj name="cover_card" x="80" y="66" width="320" height="320" scrollable="false" style_radius="32767" style_clip_corner="true" style_bg_color="0x11171b" style_bg_opa="255" style_border_width="0" style_pad_all="0" clickable="false">
+            <lv_image name="cover_img" src="default_cover" align="center" />
+            <lv_obj name="record_outer" align="center" width="100%" height="100%" scrollable="false" style_radius="32767" style_bg_opa="0" style_border_width="2" style_border_color="0x39434a" style_pad_all="0" clickable="false" />
+
+            <lv_obj name="record_ring_outer" align="center" width="96%" height="96%" scrollable="false" style_radius="32767" style_bg_opa="0" style_border_width="2" style_border_color="0x252e34" style_pad_all="0" clickable="false" />
+            <lv_obj name="record_ring_inner" align="center" width="91%" height="91%" scrollable="false" style_radius="32767" style_bg_opa="0" style_border_width="2" style_border_color="0x303a40" style_pad_all="0" clickable="false" />
+        </lv_obj>
+        <lv_obj name="dismiss_btn" x="8" y="32" width="44" height="44" scrollable="false" style_bg_opa="0" style_border_width="0" style_pad_all="0">
+            <lv_image name="dismiss_icon" src="btn_back" x="10" y="10" width="24" height="24" inner_align="contain" />
+        </lv_obj>
+        <lv_image name="more_btn" src="ic_more" x="412" y="638" width="40" height="40" inner_align="contain" />
+        <lv_label name="title" text="" x="24" y="398" width="432" height="content" style_text_font="player_title" style_text_color="0xf2f2f2" style_text_align="center" style_pad_all="0" />
+        <lv_label name="artist" text="" x="24" y="435" width="432" height="content" style_text_font="font_16" style_text_color="0xb9c0c5" style_text_align="center" style_pad_all="0" />
+        <lv_label name="album" text="" x="24" y="461" width="432" height="content" style_text_font="font_16" style_text_color="0x858f95" style_text_align="center" style_pad_all="0" />
+        <lv_label name="song_count" text="" x="24" y="497" width="58" height="content" style_text_font="font_16" style_text_color="0xb9c0c5" style_pad_all="0" />
+        <lv_obj name="quality_pill" x="90" y="495" width="314" height="28" scrollable="false" style_bg_opa="0" style_border_width="0" style_pad_all="0" clickable="false">
+            <lv_label name="format_badge" text="" x="0" y="2" width="100%" height="content" style_text_font="font_16" style_text_color="0xb9c0c5" style_text_align="center" style_pad_all="0" />
+        </lv_obj>
+        <lv_obj name="favorite_circle" x="412" y="487" width="44" height="44" scrollable="false" style_radius="100" style_bg_color="0x080b0e" style_bg_opa="128" style_border_width="0" style_pad_all="0">
+            <lv_image name="favorite_icon" src="collect_out" x="7" y="7" width="30" height="30" inner_align="contain" />
+        </lv_obj>
+        <lv_label name="seek_style" text="waveform_envelope" x="0" y="0" width="1" height="1" style_opa="0" clickable="false" />
+        <lv_slider name="progress_slider" x="24" y="552" width="432" height="24" style_bg_color="0x596269" style_bg_opa="255" style_radius="7" />
+        <lv_label name="pos_label" text="0:00" x="24" y="588" width="100" height="content" style_text_font="font_16" style_text_color="0xb9c0c5" style_pad_all="0" />
+        <lv_label name="dur_label" text="--:--" x="356" y="588" width="100" height="content" style_text_font="font_16" style_text_color="0xb9c0c5" style_text_align="right" style_pad_all="0" />
+        <lv_image name="order_btn" src="order" x="28" y="638" width="40" height="40" inner_align="contain" />
+        <lv_image name="prev_btn" src="btn_prev" x="124" y="638" width="40" height="40" inner_align="contain" />
+        <lv_obj name="play_circle" x="198" y="616" width="84" height="84" scrollable="false" style_radius="100" style_bg_opa="0" style_border_width="0" style_pad_all="0" clickable="false">
+            <lv_image name="play_btn" src="btn_play" x="0" y="0" width="84" height="84" inner_align="contain" />
+        </lv_obj>
+        <lv_image name="next_btn" src="btn_next" x="316" y="638" width="40" height="40" inner_align="contain" />
+        <lv_slider name="volume_slider" width="100" height="10" hidden="true" />
+    </view>
+</component>

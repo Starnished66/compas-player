@@ -3,6 +3,7 @@
 #include "neaacdec.h"
 
 #include <stdio.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -55,11 +56,60 @@ static bool parse_adts_header(const uint8_t * h, unsigned int * out_frame_length
     return true;
 }
 
+/* Raw AAC files may carry one ID3v2 tag before the first ADTS frame. The
+ * declared size is synchsafe and excludes the ten-byte header and, for v2.4
+ * tags with a footer, excludes the footer too. Seek over the body without
+ * allocating based on tag metadata, and require the complete tag to exist. */
+static bool skip_leading_id3v2(FILE * f) {
+    uint8_t header[10];
+    if (fseek(f, 0, SEEK_SET) != 0) return false;
+    size_t got = fread(header, 1, 3, f);
+    if (got != 3) return ferror(f) == 0 && fseek(f, 0, SEEK_SET) == 0;
+    if (memcmp(header, "ID3", 3) != 0) return fseek(f, 0, SEEK_SET) == 0;
+    if (fread(header + 3, 1, sizeof(header) - 3, f) != sizeof(header) - 3) return false;
+
+    uint8_t version = header[3];
+    uint8_t revision = header[4];
+    uint8_t flags = header[5];
+    if (version < 2 || version > 4 || revision == 0xFF) return false;
+    uint8_t allowed_flags = version == 2 ? 0xC0 : version == 3 ? 0xE0 : 0xF0;
+    if ((flags & (uint8_t) ~allowed_flags) != 0) return false;
+
+    uint32_t tag_size = 0;
+    for (unsigned int i = 6; i < 10; ++i) {
+        if ((header[i] & 0x80) != 0) return false;
+        tag_size = (tag_size << 7) | header[i];
+    }
+    bool has_footer = version == 4 && (flags & 0x10) != 0;
+    long body_start = ftell(f);
+    if (body_start < 0 || fseek(f, 0, SEEK_END) != 0) return false;
+    long file_end = ftell(f);
+    uint64_t full_tag_size = (uint64_t)tag_size + (has_footer ? 10U : 0U);
+    if (file_end < body_start || (uint64_t)(file_end - body_start) < full_tag_size) return false;
+
+    if (has_footer) {
+        long footer_pos = body_start + (long)tag_size;
+        uint8_t footer[10];
+        if (fseek(f, footer_pos, SEEK_SET) != 0 || fread(footer, 1, sizeof(footer), f) != sizeof(footer)) return false;
+        if (memcmp(footer, "3DI", 3) != 0 || footer[3] != version || footer[4] != revision ||
+            footer[5] != flags || memcmp(footer + 6, header + 6, 4) != 0) return false;
+    }
+
+    long tag_end = body_start + (long)full_tag_size;
+    return fseek(f, tag_end, SEEK_SET) == 0;
+}
+
 /* Scans the whole file up front, recording each ADTS frame's byte offset.
  * Cheap (header parsing only) and gives O(1) seek lookups and an exact
  * frame count for duration. */
 static bool prescan_adts(FILE * f, uint64_t ** out_offsets, uint64_t * out_count) {
-    fseek(f, 0, SEEK_SET);
+    *out_offsets = NULL;
+    *out_count = 0;
+    if (!skip_leading_id3v2(f)) return false;
+    long file_start = ftell(f);
+    if (file_start < 0 || fseek(f, 0, SEEK_END) != 0) return false;
+    long file_end = ftell(f);
+    if (file_end < file_start || fseek(f, file_start, SEEK_SET) != 0) return false;
 
     uint64_t capacity = 1024;
     uint64_t count = 0;
@@ -72,16 +122,20 @@ static bool prescan_adts(FILE * f, uint64_t ** out_offsets, uint64_t * out_count
 
     while (1) {
         long pos = ftell(f);
+        if (pos < 0 || pos > file_end) break;
         uint8_t header[7];
         if (fread(header, 1, sizeof(header), f) != sizeof(header)) break;
 
         unsigned int frame_length;
         if (!parse_adts_header(header, &frame_length)) break;
+        if (frame_length <= 7 || (uint64_t)frame_length > (uint64_t)(file_end - pos)) break;
 
         if (count == capacity) {
             /* Safely grow the frame offset table, stopping the scan and
              * preserving existing offsets if realloc fails. */
+            if (capacity > UINT64_MAX / 2) break;
             uint64_t new_capacity = capacity * 2;
+            if (new_capacity > SIZE_MAX / sizeof(*offsets)) break;
             uint64_t * grown = realloc(offsets, sizeof(uint64_t) * new_capacity);
             if (!grown) break;
             offsets = grown;
@@ -103,7 +157,8 @@ static bool prescan_adts(FILE * f, uint64_t ** out_offsets, uint64_t * out_count
 static unsigned int read_compressed_frame(aac_decoder_t * dec, uint64_t frame_index, uint8_t * buf, unsigned int buf_size) {
     if (dec->source_type == AAC_SOURCE_ADTS) {
         if (frame_index >= dec->frame_count) return 0;
-        fseek(dec->f, (long) dec->frame_offsets[frame_index], SEEK_SET);
+        if (dec->frame_offsets[frame_index] > LONG_MAX ||
+            fseek(dec->f, (long) dec->frame_offsets[frame_index], SEEK_SET) != 0) return 0;
 
         if (fread(buf, 1, 7, dec->f) != 7) return 0;
         unsigned int frame_length;
@@ -248,7 +303,12 @@ aac_decoder_t * aac_open_file(const char * path) {
     configure_decoder(handle);
 
     uint8_t first_frame[ADTS_MAX_FRAME_BYTES];
-    fseek(f, (long) offsets[0], SEEK_SET);
+    if (offsets[0] > LONG_MAX || fseek(f, (long) offsets[0], SEEK_SET) != 0) {
+        NeAACDecClose(handle);
+        free(offsets);
+        fclose(f);
+        return NULL;
+    }
     if (fread(first_frame, 1, 7, f) != 7) {
         NeAACDecClose(handle);
         free(offsets);
@@ -275,6 +335,12 @@ aac_decoder_t * aac_open_file(const char * path) {
     }
 
     aac_decoder_t * dec = calloc(1, sizeof(*dec));
+    if (!dec) {
+        NeAACDecClose(handle);
+        free(offsets);
+        fclose(f);
+        return NULL;
+    }
     dec->source_type = AAC_SOURCE_ADTS;
     dec->f = f;
     dec->frame_offsets = offsets;
@@ -329,6 +395,11 @@ aac_decoder_t * aac_open_file_mp4(const char * path) {
     }
 
     aac_decoder_t * dec = calloc(1, sizeof(*dec));
+    if (!dec) {
+        NeAACDecClose(handle);
+        mp4_demux_close(demux);
+        return NULL;
+    }
     dec->source_type = AAC_SOURCE_MP4;
     dec->demux = demux;
     dec->handle = handle;

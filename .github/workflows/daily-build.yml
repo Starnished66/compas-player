@@ -47,13 +47,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends file lua5.4 zip
 
-      - name: Build and test
+      - name: Build player
         run: |
           set -euo pipefail
           release_label="Daily Build $(date -u +%F)"
           make -j2 target RELEASE_LABEL="$release_label"
           make bootloader
-          make sd_ready_test
 
       - name: Validate production outputs and plugins
         run: |

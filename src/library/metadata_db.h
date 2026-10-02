@@ -28,7 +28,14 @@ typedef struct {
     char genre[128];
     int32_t track_number; /* -1 when absent; 0 marks a legacy cache row */
     int32_t disc_number;  /* -1 when absent; 0 marks a legacy cache row */
+    int32_t release_year; /* -1 when absent; 0 marks a legacy cache row */
 } cached_tags_t;
+
+typedef enum {
+    METADATA_DB_ALBUM_SORT_NAME = 0,
+    METADATA_DB_ALBUM_SORT_RECENT = 1,
+    METADATA_DB_ALBUM_SORT_YEAR = 2
+} metadata_db_album_sort_t;
 
 typedef enum {
     METADATA_DB_LOAD_SUCCESS_NORMAL,
@@ -324,7 +331,14 @@ int metadata_db_get_songs_filtered_page(const char * query, const char * artist_
  * (album, album_artist) pairs so identically named albums remain separate;
  * out_rows[i].album_artist carries the album artist identity. Offset-paginated. */
 int metadata_db_get_albums_page_filtered(const char * artist_or_album_artist_filter, int offset, int max_rows,
-                                          group_row_t * out_rows);
+                                         group_row_t * out_rows);
+int metadata_db_get_albums_page_sorted(const char * artist_filter, metadata_db_album_sort_t sort,
+                                      int offset, int max_rows, group_row_t * out_rows);
+int metadata_db_get_album_sorted_offset(metadata_db_album_sort_t sort, const char * album,
+                                        const char * album_artist);
+int metadata_db_album_canonical_to_sorted(metadata_db_album_sort_t sort, int canonical_rank);
+int metadata_db_album_sorted_to_canonical(metadata_db_album_sort_t sort, int sorted_rank);
+bool metadata_db_album_sort_available(metadata_db_album_sort_t sort);
 
 /* Exact Artist/Album-Artist drill-down variants. Unlike the legacy remote
  * helper above, these filter only the requested tag column. */

@@ -36,20 +36,6 @@ HOST_BIN = compas_player_host_$(BOARD)
 TARGET_BIN = compas_player_target_$(BOARD)
 endif
 
-# Test-only boot behavior gets its own object directory and executable. Make
-# does not notice CFLAGS changes, so sharing build_target/ could silently keep
-# TEST_BOOT_RC objects in a later normal build (or vice versa).
-ifeq ($(TEST_BOOT_RC),1)
-ifeq ($(BOARD),r1)
-BUILD_TARGET_DIR := build_target_test_boot_rc
-TARGET_BIN := compas_player_target_test_boot_rc
-else
-BUILD_TARGET_DIR := build_target_$(BOARD)_test_boot_rc
-TARGET_BIN := compas_player_target_test_boot_rc_$(BOARD)
-endif
-TEST_BOOT_RC_DEFINE = -DTEST_BOOT_RC=1
-endif
-
 # Compiler and Linker configuration
 CC = gcc
 CXX = g++
@@ -505,8 +491,8 @@ BUILD_STAMP_DEFINE = -DBUILD_STAMP=\"$(shell date +%Y-%m-%d_%H:%M)\"
 # #include <execinfo.h> resolves to on target: musl (unlike host's glibc)
 # ships no execinfo.h/backtrace() of its own, which is what main.c's SIGSEGV
 # handler needs. Host build doesn't need this -- glibc already provides it.
-TARGET_CFLAGS = $(CFLAGS) -I$(LIBEXECINFO_DIR) -I$(LVGL_DIR)/src -I$(TINYALSA_DIR)/include -Idbus_vendor_config -I$(DBUS_DIR) $(BOARD_DEFINE) $(TEST_BOOT_RC_DEFINE) $(TEST_BUILD_TAG_DEFINE) $(RELEASE_LABEL_DEFINE) $(UI_PERF_TRACE_DEFINE) $(UI_GESTURE_TRACE_DEFINE) $(UI_HITBOX_DEBUG_DEFINE) $(BUILD_STAMP_DEFINE) -I$(TINFL_DIR) -DMINIZ_NO_DEFLATE_APIS -DMINIZ_NO_ARCHIVE_APIS
-TARGET_CXXFLAGS = $(CXXFLAGS) -I$(LIBEXECINFO_DIR) -I$(LVGL_DIR)/src -I$(TINYALSA_DIR)/include -Idbus_vendor_config -I$(DBUS_DIR) $(BOARD_DEFINE) $(TEST_BOOT_RC_DEFINE) $(TEST_BUILD_TAG_DEFINE) $(RELEASE_LABEL_DEFINE) $(UI_PERF_TRACE_DEFINE) $(UI_GESTURE_TRACE_DEFINE) $(UI_HITBOX_DEBUG_DEFINE) $(BUILD_STAMP_DEFINE) -I$(TINFL_DIR) -DMINIZ_NO_DEFLATE_APIS -DMINIZ_NO_ARCHIVE_APIS
+TARGET_CFLAGS = $(CFLAGS) -I$(LIBEXECINFO_DIR) -I$(LVGL_DIR)/src -I$(TINYALSA_DIR)/include -Idbus_vendor_config -I$(DBUS_DIR) $(BOARD_DEFINE) $(TEST_BUILD_TAG_DEFINE) $(RELEASE_LABEL_DEFINE) $(UI_PERF_TRACE_DEFINE) $(UI_GESTURE_TRACE_DEFINE) $(UI_HITBOX_DEBUG_DEFINE) $(BUILD_STAMP_DEFINE) -I$(TINFL_DIR) -DMINIZ_NO_DEFLATE_APIS -DMINIZ_NO_ARCHIVE_APIS
+TARGET_CXXFLAGS = $(CXXFLAGS) -I$(LIBEXECINFO_DIR) -I$(LVGL_DIR)/src -I$(TINYALSA_DIR)/include -Idbus_vendor_config -I$(DBUS_DIR) $(BOARD_DEFINE) $(TEST_BUILD_TAG_DEFINE) $(RELEASE_LABEL_DEFINE) $(UI_PERF_TRACE_DEFINE) $(UI_GESTURE_TRACE_DEFINE) $(UI_HITBOX_DEBUG_DEFINE) $(BUILD_STAMP_DEFINE) -I$(TINFL_DIR) -DMINIZ_NO_DEFLATE_APIS -DMINIZ_NO_ARCHIVE_APIS
 TINYALSA_CFLAGS = -O3 -g -Wall -I$(TINYALSA_DIR)/include -I$(TINYALSA_DIR)/src
 # DBUS_COMPILATION/DBUS_STATIC_BUILD: libdbus's own headers gate some
 # declarations on these (matching how its own build always defines them
@@ -573,6 +559,7 @@ TARGET_LDFLAGS = -static -no-pie -lpthread -lm
 # misc). main.c stays at src/ root as the entry point.
 APP_SRCS = src/main.c src/ui/gui.c src/ui/gui_subsonic.c src/ui/gui_settings.c src/ui/gui_network.c src/ui/gui_theme.c src/ui/gui_notifications.c src/ui/gui_library.c src/ui/gui_queue.c src/ui/gui_player.c src/ui/gui_track_info.c src/ui/gui_plugins.c src/ui/gui_shell.c src/ui/gui_navigation.c src/ui/gui_books.c src/ui/gui_text_input.c src/ui/gui_lyrics.c src/ui/gui_reload.c src/audio/audio.c src/library/file_browser.c src/hardware/hw_buttons.c src/hardware/input_device_utils.c src/library/metadata.c src/library/metadata_db.c src/core/settings.c src/core/screenshot.c src/core/app_version.c src/audio/aiff_decoder.c src/audio/dsd_filter.c src/audio/dsd_decoder.c src/audio/aac_decoder.c src/audio/mp4_demux.c src/audio/ape_demux.c src/audio/ape_decoder.c src/audio/peq.c src/ui/assets.c src/ui/screen_builders.c src/hardware/battery.c src/network/wifi_status.c src/network/ca_bundle.c src/network/http_conn.c src/network/http_client.c src/network/http_stream.c src/network/subsonic_client.c src/library/cover_decode.c src/library/image_thumb.c src/library/lyrics.c src/audio/asf_demux.c src/audio/wma_decoder.c src/audio/ogg_demux.c src/audio/opus_decoder.c src/audio/vorbis_decoder.c src/library/cue_parser.c src/ui/fallback_font.c src/ui/gui_text_view.c \
 src/core/subprocess.c src/network/wifi_control.c src/network/bluetooth_control.c src/network/hiby_sys_server.c src/hardware/backlight.c src/network/import_web.c src/network/airplay_control.c src/network/airplay_bridge.c src/network/airplay_metadata.c src/hardware/headphone_status.c src/hardware/device_config.c src/hardware/led_control.c src/hardware/charge_limiter.c src/core/idle_shutdown.c src/hardware/power_suspend.c src/core/text_reader.c src/hardware/usb_mode_control.c src/hardware/usb_dac_bridge.c src/hardware/usb_audio_output.c src/core/firmware_update.c src/library/playlist_files.c src/library/favorite_writer.c src/network/firmware_ota.c src/network/plugin_store.c src/core/timezone_data.c src/core/timezone_apply.c src/core/hostname_apply.c src/network/dlna_control.c src/network/remote_control.c src/network/catalog_source_cache.c src/network/remote_control_mdns.c src/plugins/plugin_manager.c
+APP_SRCS += src/ui/gui_setup.c src/ui/gui_setup_plugins.c src/core/timezone_location.c
 APP_SRCS += src/ui/lyrics_layout.c src/ui/transition_compositor.c src/ui/frosted_glass.c src/ui/hw_volume_coalesce.c
 APP_SRCS += src/core/storage_migration.c src/core/sd_fsck.c src/core/sd_fsck_run.c
 APP_SRCS += src/plugins/plugin_json.c src/plugins/plugin_storage.c src/plugins/plugin_disabled_list.c
@@ -583,6 +570,7 @@ APP_SRCS += src/audio/track_probe.c
 APP_SRCS += src/library/albumart.c src/library/tagcache.c src/library/path_cache.c src/library/remote_state.c src/library/subsonic_saved_servers.c src/library/artwork_coordinator.c
 APP_SRCS += src/core/utf8_util.c src/core/app_clock.c src/core/db_log.c src/core/zip_reader.c src/core/html_blocks.c
 APP_SRCS += src/ui/gesture_detector.c
+APP_SRCS += src/ui/i18n.c src/ui/i18n_catalog.c
 APP_SRCS += src/ui/player_layouts.c
 APP_SRCS += src/ui/player_seekbar.c src/audio/waveform.c
 APP_SRCS += src/ui/player_cover_fade.c
@@ -719,7 +707,7 @@ TARGET_OBJS = $(APP_SRCS:src/%.c=$(BUILD_TARGET_DIR)/%.o) $(APP_CXX_SRCS:src/%.c
               $(JPEG_SRCS:$(JPEG_DIR)/%.c=$(BUILD_TARGET_DIR)/jpeg/%.o) \
               $(TINFL_SRCS:$(TINFL_DIR)/%.c=$(BUILD_TARGET_DIR)/tinfl/%.o)
 
-.PHONY: all host target bootloader sd_ready_test cover_decode_scale_test clean compile_commands.json FORCE_VERSION
+.PHONY: all host target bootloader clean compile_commands.json FORCE_VERSION
 
 # Default target builds for host simulation and generates compile commands for IDE
 all: host compile_commands.json
@@ -865,12 +853,6 @@ $(BUILD_HOST_DIR)/lua/%.o: $(LUA_DIR)/src/%.c
 # Build for target (MIPS HiBy Device)
 target: $(TARGET_BIN) compile_commands.json
 
-# Clearly named, isolated test binary: powers Bluetooth and enables both
-# Remote Control transports on boot. Normal `make target` is unchanged.
-.PHONY: target-test-boot-rc
-target-test-boot-rc:
-	$(MAKE) target TEST_BOOT_RC=1
-
 $(TARGET_BIN): $(TARGET_OBJS)
 	$(CROSS_CXX) -o $(BUILD_TARGET_DIR)/$(TARGET_BIN)_unstripped $(TARGET_OBJS) $(TARGET_LDFLAGS)
 	$(CROSS_STRIP) -s -o $@ $(BUILD_TARGET_DIR)/$(TARGET_BIN)_unstripped
@@ -903,459 +885,11 @@ BOOTLOADER_SRCS = src/bootloader/main.c src/bootloader/fb_draw.c \
 # the statically linked mount helpers and JPEG decoder small.
 BOOTLOADER_CFLAGS = -O2 -Wall -I. -Isrc/bootloader -Isrc/core $(BOARD_DEFINE) -ffunction-sections -fdata-sections
 
-.PHONY: bootloader-player-selftest
-bootloader-player-selftest:
-	@mkdir -p build_bootloader_test
-	$(CC) -O0 -g -Wall -Wextra -ffunction-sections -fdata-sections -Isrc/bootloader -Isrc/core \
-	    src/bootloader/player_selection_test.c src/bootloader/scanner.c src/bootloader/installer.c \
-	    -Wl,--gc-sections -Wl,--wrap=unlink -o build_bootloader_test/player_selection_test
-	./build_bootloader_test/player_selection_test
-
 bootloader:
 	@mkdir -p $(BUILD_TARGET_DIR)
 	$(CROSS_CC) $(BOOTLOADER_CFLAGS) -static -no-pie $(BOOTLOADER_SRCS) -o $(BUILD_TARGET_DIR)/$(BOOTLOADER_BIN)_unstripped -Wl,--gc-sections
 	$(CROSS_STRIP) -s -o $(BOOTLOADER_BIN) $(BUILD_TARGET_DIR)/$(BOOTLOADER_BIN)_unstripped
 	@echo "Bootloader build complete: File ready at '$(BOOTLOADER_BIN)'"
-
-# Host-buildable unit tests for sd_ready.c's pure wait_for_sd_ready() state
-# machine (see sd_ready_test.c's own top comment) -- plain host gcc, no
-# cross toolchain, no dependency on the rest of the bootloader (scanner.c,
-# subprocess.c, sd_ready_real.c's real mount/inotify/sysfs probes are never
-# linked into this binary). Not part of `all`: run explicitly with
-# `make sd_ready_test` after touching sd_ready.c or its header.
-sd_ready_test:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O0 -g -Wall -Isrc/bootloader src/bootloader/sd_ready.c src/bootloader/sd_ready_test.c \
-	    -o $(BUILD_TARGET_DIR)/sd_ready_test
-	./$(BUILD_TARGET_DIR)/sd_ready_test
-
-# Pure hotplug identity rules (sd_card_identity.h). Not part of `all`.
-.PHONY: sd-card-identity-selftest
-sd-card-identity-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O0 -g -Wall -Wextra -Isrc/ui src/ui/sd_card_identity_test.c -o $(BUILD_TARGET_DIR)/sd_card_identity_test
-	./$(BUILD_TARGET_DIR)/sd_card_identity_test
-
-.PHONY: wifi-status-selftest subprocess-timeout-selftest
-wifi-status-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O0 -g -Wall -Wextra -Isrc/network -Isrc/core src/network/wifi_status.c src/network/wifi_status_test.c -o $(BUILD_TARGET_DIR)/wifi_status_test
-	./$(BUILD_TARGET_DIR)/wifi_status_test
-
-# Unit check for DNS-SD query parsing and the responder's emitted RR wire data.
-.PHONY: remote-control-mdns-selftest
-remote-control-mdns-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O0 -g -Wall -Wextra -Isrc/network src/network/remote_control_mdns_test.c -pthread \
-	    -o $(BUILD_TARGET_DIR)/remote_control_mdns_test
-	./$(BUILD_TARGET_DIR)/remote_control_mdns_test
-
-# Remote Control PIN lifecycle: random 6-digit PIN generated once and reused,
-# "0000" placeholder migration, Generate New PIN clearing a lockout. Includes
-# the real remote_control.c; section GC discards the unreached server code.
-.PHONY: remote-control-pin-selftest
-remote-control-pin-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O0 -g -Wall -Wextra -ffunction-sections -fdata-sections -DHOST_BUILD=1 \
-	    -I. -Isrc/network -Isrc/core -Isrc/audio -Isrc/library -Isrc/ui \
-	    -Ilvgl -Idr_libs -Ifaad2/include -Ialac/codec -Imbedtls/include -IcJSON -Iopus/include \
-	    -Ilua/src -Istb_vorbis -Ijpeg_vendor_config -Ijpeg -Itinfl -DLV_CONF_INCLUDE_SIMPLE=1 \
-	    src/network/remote_control_pin_test.c -Wl,--gc-sections -lpthread \
-	    -o $(BUILD_TARGET_DIR)/remote_control_pin_test
-	./$(BUILD_TARGET_DIR)/remote_control_pin_test
-
-# Remote Control v1 extension routes (folders, recently played, favorites,
-# queue move/play, playlist management and import) over a socketpair, with a
-# fake library and Files index. Includes the real remote_control.c and links
-# the real playlist_files.c; section GC discards the unreached server code.
-.PHONY: remote-control-api-selftest
-remote-control-api-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O0 -g -Wall -Wextra -ffunction-sections -fdata-sections -DHOST_BUILD=1 \
-	    -I. -Isrc/network -Isrc/core -Isrc/audio -Isrc/library -Isrc/ui \
-	    -Ilvgl -Idr_libs -Ifaad2/include -Ialac/codec -Imbedtls/include -IcJSON -Iopus/include \
-	    -Ilua/src -Istb_vorbis -Ijpeg_vendor_config -Ijpeg -Itinfl -DLV_CONF_INCLUDE_SIMPLE=1 \
-	    src/network/remote_control_api_test.c src/library/playlist_files.c src/library/favorite_writer.c -Wl,--gc-sections -lpthread \
-	    -o $(BUILD_TARGET_DIR)/remote_control_api_test
-	./$(BUILD_TARGET_DIR)/remote_control_api_test
-
-# Ordering of the shared favorite writer (player heart vs Remote Control).
-.PHONY: favorite-writer-selftest
-favorite-writer-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O0 -g -Wall -Wextra -Isrc/library src/library/favorite_writer.c src/library/favorite_writer_test.c \
-	    -lpthread -o $(BUILD_TARGET_DIR)/favorite_writer_test
-	./$(BUILD_TARGET_DIR)/favorite_writer_test
-
-# DSD decoder: synthetic DSF/DFF tones for level, noise, bit order, seek
-# continuity, rates, malformed headers and 64-bit offsets. The same test
-# also runs as a MIPS build under qemu-mipsel when available (32-bit long).
-.PHONY: dsd-decoder-selftest
-dsd-decoder-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O2 -g -Wall -Wextra -Isrc/audio src/audio/dsd_decoder.c src/audio/dsd_filter.c \
-	    src/audio/dsd_decoder_test.c -lm -lpthread -o $(BUILD_TARGET_DIR)/dsd_decoder_test
-	./$(BUILD_TARGET_DIR)/dsd_decoder_test
-	@if command -v qemu-mipsel >/dev/null 2>&1; then \
-	    $(CROSS_CC) -O2 -static -Wall -Isrc/audio src/audio/dsd_decoder.c src/audio/dsd_filter.c \
-	        src/audio/dsd_decoder_test.c -lm -lpthread -o $(BUILD_TARGET_DIR)/dsd_decoder_test_mips && \
-	    qemu-mipsel ./$(BUILD_TARGET_DIR)/dsd_decoder_test_mips; fi
-
-# Online firmware update helpers: weekly release selection, SHA256SUMS
-# parsing and installed-version dates. No network.
-.PHONY: firmware-ota-selftest
-firmware-ota-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O0 -g -Wall -Wextra -ffunction-sections -fdata-sections -DHOST_BUILD=1 \
-	    -I. -Isrc/network -Isrc/core -Isrc/hardware -Isrc/ui -Isrc/library -Ilvgl -IcJSON -Imbedtls/include \
-	    src/network/firmware_ota_test.c src/network/firmware_ota.c cJSON/cJSON.c \
-	    -Wl,--gc-sections -lpthread -lm -o $(BUILD_TARGET_DIR)/firmware_ota_test
-	./$(BUILD_TARGET_DIR)/firmware_ota_test
-
-.PHONY: plugin-store-selftest
-plugin-store-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O0 -g -Wall -Wextra -ffunction-sections -fdata-sections -DHOST_BUILD=1 \
-	    -I. -Isrc/network -Isrc/core -Isrc/hardware -Isrc/ui -Isrc/library -Isrc/plugins -Ilvgl -IcJSON -Imbedtls/include \
-	    src/network/plugin_store_test.c src/network/plugin_store.c cJSON/cJSON.c mbedtls/library/sha256.c mbedtls/library/platform_util.c \
-	    -Wl,--gc-sections -lpthread -lm -o $(BUILD_TARGET_DIR)/plugin_store_test
-	./$(BUILD_TARGET_DIR)/plugin_store_test
-
-subprocess-timeout-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O0 -g -Wall -Wextra -Isrc/core src/core/subprocess.c src/core/subprocess_timeout_test.c -o $(BUILD_TARGET_DIR)/subprocess_timeout_test
-	./$(BUILD_TARGET_DIR)/subprocess_timeout_test
-
-# Host worker tests with a controlled probe stub; no decoder or UI linkage.
-.PHONY: track-probe-selftest
-track-probe-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O0 -g -Wall -Wextra -Isrc/audio src/audio/track_probe.c src/audio/track_probe_test.c \
-	    -Wl,--wrap=calloc,--wrap=malloc,--wrap=pthread_create,--wrap=pthread_join \
-	    -pthread -o $(BUILD_TARGET_DIR)/track_probe_test
-	./$(BUILD_TARGET_DIR)/track_probe_test
-
-# Isolated host codec tests; include real Bluetooth code and discard unused
-# hardware paths. The test mocks the process and BlueALSA 5 control paths.
-.PHONY: bluetooth-codec-selftest bluetooth-monitor-selftest bluetooth-reconnect-selftest
-bluetooth-reconnect-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O0 -g -Wall -Wextra -ffunction-sections -fdata-sections -Isrc/network -Isrc/core -Isrc/audio \
-	    src/network/bluetooth_reconnect_test.c -Wl,--gc-sections -lpthread \
-	    -o $(BUILD_TARGET_DIR)/bluetooth_reconnect_test
-	./$(BUILD_TARGET_DIR)/bluetooth_reconnect_test
-	$(CC) -O0 -g -Wall -Wextra -ffunction-sections -fdata-sections -Isrc/network -Isrc/core -Isrc/audio \
-	    src/network/bluetooth_reconnect_backend_test.c -Wl,--gc-sections -lpthread \
-	    -o $(BUILD_TARGET_DIR)/bluetooth_reconnect_backend_test
-	./$(BUILD_TARGET_DIR)/bluetooth_reconnect_backend_test
-
-.PHONY: subsonic-client-selftest
-subsonic-client-selftest:
-	@mkdir -p $(BUILD_HOST_DIR)
-	$(CC) -O0 -g -Wall -Wextra -ffunction-sections -fdata-sections -DLV_CONF_INCLUDE_SIMPLE=1 \
-	    -I. -Isrc/network -Isrc/core -Isrc/ui -Ilvgl -Imbedtls/include -IcJSON \
-	    src/network/subsonic_client_test.c src/network/subsonic_client.c src/core/utf8_util.c \
-	    cJSON/cJSON.c mbedtls/library/md5.c mbedtls/library/platform_util.c \
-	    -Wl,--gc-sections -lpthread -o $(BUILD_HOST_DIR)/subsonic_client_test
-	./$(BUILD_HOST_DIR)/subsonic_client_test
-
-.PHONY: subsonic-ui-selftest
-subsonic-ui-selftest:
-	@mkdir -p $(BUILD_HOST_DIR)
-	$(CC) -O0 -g -Wall -ffunction-sections -fdata-sections -DLV_CONF_INCLUDE_SIMPLE=1 \
-	    -I. -Isrc/network -Isrc/core -Isrc/ui -Isrc/library -Isrc/audio -Isrc/plugins -Isrc/hardware -Ilvgl \
-	    src/ui/subsonic_queue_identity_test.c src/core/utf8_util.c \
-	    -Wl,--gc-sections -lpthread -lm -o $(BUILD_HOST_DIR)/subsonic_queue_identity_test
-	./$(BUILD_HOST_DIR)/subsonic_queue_identity_test
-	$(CC) -O0 -g -Wall -ffunction-sections -fdata-sections -DLV_CONF_INCLUDE_SIMPLE=1 \
-	    -I. -Isrc/network -Isrc/core -Isrc/ui -Isrc/library -Isrc/audio -Isrc/plugins -Isrc/hardware -Ilvgl \
-	    -Imbedtls/include -IcJSON src/ui/subsonic_download_filename_test.c src/core/utf8_util.c \
-	    -Wl,--gc-sections -lpthread -lm -o $(BUILD_HOST_DIR)/subsonic_download_filename_test
-	./$(BUILD_HOST_DIR)/subsonic_download_filename_test
-
-bluetooth-monitor-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O0 -g -Wall -Wextra -ffunction-sections -fdata-sections -Isrc/network -Isrc/core -Isrc/audio \
-	    src/network/bluetooth_monitor_test.c -Wl,--gc-sections -lpthread \
-	    -o $(BUILD_TARGET_DIR)/bluetooth_monitor_test
-	./$(BUILD_TARGET_DIR)/bluetooth_monitor_test
-
-bluetooth-codec-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O0 -g -Wall -Wextra -ffunction-sections -fdata-sections -Isrc/network -Isrc/core -Isrc/audio \
-	    src/network/bluetooth_codec_test.c -Wl,--gc-sections -Wl,--wrap=fopen -lpthread \
-	    -Wl,--wrap=opendir -Wl,--wrap=readdir -Wl,--wrap=closedir -Wl,--wrap=pthread_create \
-	    -o $(BUILD_TARGET_DIR)/bluetooth_codec_test
-	./$(BUILD_TARGET_DIR)/bluetooth_codec_test
-
-.PHONY: playlist-selftest
-.PHONY: ui-style-selftest
-# Headless real-LVGL layout tests: no SDL development package or device
-# required. Keep these objects separate from both production configurations.
-UI_STYLE_TEST_SRCS = $(LVGL_SRCS) src/ui/screen_builders.c src/ui/gui_theme.c src/ui/gui_notifications.c src/ui/gui_plugins.c src/ui/transition_compositor.c src/ui/frosted_glass.c src/ui/screen_builders_test.c
-ifeq ($(BOARD),r1)
-UI_STYLE_TEST_DIR = build_ui_test
-else
-UI_STYLE_TEST_DIR = build_ui_test_$(BOARD)
-endif
-UI_STYLE_TEST_OBJS = $(UI_STYLE_TEST_SRCS:%.c=$(UI_STYLE_TEST_DIR)/%.o)
-ui-style-selftest: $(UI_STYLE_TEST_DIR)/ui_style_test
-	./$(UI_STYLE_TEST_DIR)/ui_style_test
-
-$(UI_STYLE_TEST_DIR)/ui_style_test: $(UI_STYLE_TEST_OBJS)
-	$(CC) $^ -Wl,--gc-sections -lpthread -lm -o $@
-
-$(UI_STYLE_TEST_DIR)/%.o: %.c
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(BOARD_DEFINE) -O0 -ffunction-sections -fdata-sections -c $< -o $@
-
--include $(UI_STYLE_TEST_OBJS:.o=.d)
-
-# Headless Player layout registry + XML loader test. Logging is on so a layout
-# attribute the vendored XML engine does not understand shows up as a warning.
-# Own object directory: the LVGL objects here are built with different flags
-# than the ui-style-selftest ones.
-.PHONY: player-layouts-selftest
-# Per-board object directory (the layouts depend on the screen size).
-LT_DIR = build_layouts_test$(if $(filter-out r1,$(BOARD)),_$(BOARD))
-PLAYER_LAYOUTS_TEST_SRCS = $(LVGL_SRCS) $(LV_XML_SRCS) src/ui/player_layouts.c src/ui/player_layouts_test.c
-PLAYER_LAYOUTS_TEST_OBJS = $(PLAYER_LAYOUTS_TEST_SRCS:%.c=$(LT_DIR)/%.o)
-player-layouts-selftest: $(LT_DIR)/player_layouts_test
-	./$(LT_DIR)/player_layouts_test
-
-$(LT_DIR)/player_layouts_test: $(PLAYER_LAYOUTS_TEST_OBJS)
-	$(CC) $^ -Wl,--gc-sections -lpthread -lm -o $@
-
-$(LT_DIR)/%.o: %.c
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(BOARD_DEFINE) $(LV_XML_INC) -O0 -DLV_USE_LOG=1 -DLV_LOG_LEVEL=LV_LOG_LEVEL_WARN \
-	    -ffunction-sections -fdata-sections -c $< -o $@
-
--include $(PLAYER_LAYOUTS_TEST_OBJS:.o=.d)
-
-# The same screen-building code the device runs, including gui_player.c, against
-# real LVGL and the XML engine. Event callbacks keep playback code referenced
-# that this test never fires, so those references stay unresolved at link time.
-.PHONY: player-layout-bind-selftest
-PLAYER_BIND_TEST_OBJS = $(filter-out $(LT_DIR)/src/ui/player_layouts_test.o,$(PLAYER_LAYOUTS_TEST_OBJS)) \
-                        $(LT_DIR)/src/ui/player_layout_bind_test.o \
-                        $(LT_DIR)/src/ui/player_seekbar.o \
-                        $(LT_DIR)/src/ui/player_cover_fade.o $(LT_DIR)/src/ui/frosted_glass.o
-player-layout-bind-selftest: $(LT_DIR)/player_layout_bind_test
-	./$(LT_DIR)/player_layout_bind_test
-
-$(LT_DIR)/player_layout_bind_test: $(PLAYER_BIND_TEST_OBJS)
-	$(CC) $^ -Wl,--gc-sections -Wl,--unresolved-symbols=ignore-all -lpthread -lm -o $@
-
--include $(LT_DIR)/src/ui/player_layout_bind_test.d
-
-PLAYLIST_TEST_SANITIZERS ?=
-playlist-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O1 -g -Wall -Wextra $(PLAYLIST_TEST_SANITIZERS) -ffunction-sections -fdata-sections -Isrc/library \
-	    src/library/playlist_test.c src/library/playlist_files.c src/library/queue_resume.c \
-	    -Wl,--gc-sections -lpthread -lm -o $(BUILD_TARGET_DIR)/playlist_test
-	./$(BUILD_TARGET_DIR)/playlist_test
-
-.PHONY: path-cache-migration-selftest
-path-cache-migration-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O0 -g -Wall -Wextra -DHOST_BUILD=1 -I. -Isrc/library -Isrc/core \
-	    src/library/path_cache_migration_test.c src/library/path_cache.c \
-	    -o $(BUILD_TARGET_DIR)/path_cache_migration_test
-	./$(BUILD_TARGET_DIR)/path_cache_migration_test
-
-.PHONY: sd-fsck-selftest
-sd-fsck-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O0 -g -Wall -Wextra -DHOST_BUILD=1 -I. -Isrc/core \
-	    src/core/sd_fsck_test.c src/core/sd_fsck.c \
-	    -o $(BUILD_TARGET_DIR)/sd_fsck_test
-	./$(BUILD_TARGET_DIR)/sd_fsck_test
-
-.PHONY: zip-reader-selftest
-zip-reader-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -std=gnu11 -O0 -g -Wall -Wextra -Werror -DHOST_BUILD=1 -D_FILE_OFFSET_BITS=64 \
-	    -I. -Isrc/core -Itinfl -DMINIZ_NO_DEFLATE_APIS -DMINIZ_NO_ARCHIVE_APIS \
-	    src/core/zip_reader_test.c src/core/zip_reader.c tinfl/miniz_tinfl.c \
-	    -o $(BUILD_TARGET_DIR)/zip_reader_test
-	./$(BUILD_TARGET_DIR)/zip_reader_test
-
-.PHONY: html-blocks-selftest
-html-blocks-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -std=gnu11 -O0 -g -Wall -Wextra -Werror -DHOST_BUILD=1 \
-	    -I. -Isrc/core \
-	    src/core/html_blocks_test.c src/core/html_blocks.c src/core/utf8_util.c \
-	    -o $(BUILD_TARGET_DIR)/html_blocks_test
-	./$(BUILD_TARGET_DIR)/html_blocks_test
-
-.PHONY: storage-migration-selftest
-storage-migration-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O0 -g -Wall -Wextra -DHOST_BUILD=1 -I. -Isrc/core \
-	    src/core/storage_migration_test.c src/core/storage_migration.c \
-	    -o $(BUILD_TARGET_DIR)/storage_migration_test
-	./$(BUILD_TARGET_DIR)/storage_migration_test
-
-.PHONY: albumart-migration-selftest
-albumart-migration-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O0 -g -Wall -Wextra -DHOST_BUILD=1 -ffunction-sections -fdata-sections \
-	    -I. -Isrc/library -Isrc/core \
-	    src/library/albumart_migration_test.c src/library/albumart.c \
-	    -Wl,--gc-sections -o $(BUILD_TARGET_DIR)/albumart_migration_test
-	./$(BUILD_TARGET_DIR)/albumart_migration_test
-
-# Metadata migration retry regression: a legacy favorite whose file still
-# exists but was omitted by one scan must keep migration pending until retry.
-.PHONY: metadata-migration-retry-selftest
-metadata-migration-retry-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -std=gnu11 -O0 -g -Wall -Wextra -DHOST_BUILD=1 -ffunction-sections -fdata-sections \
-	    -I. -Isrc -Isrc/library -Isrc/core -Isrc/ui -Ilvgl \
-	    src/library/metadata_migration_retry_test.c src/library/metadata_db.c src/library/tagcache.c src/core/db_log.c \
-	    -Wl,--gc-sections -lpthread -lm -o $(BUILD_TARGET_DIR)/metadata_migration_retry_test
-	./$(BUILD_TARGET_DIR)/metadata_migration_retry_test
-
-# Bounded catalog snapshot identity, revision, album-key grouping, and cover-source validation.
-.PHONY: metadata-catalog-selftest
-metadata-catalog-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -std=gnu11 -O0 -g -Wall -Wextra -DHOST_BUILD=1 -ffunction-sections -fdata-sections \
-	    -I. -Isrc -Isrc/library -Isrc/network -Isrc/core -Isrc/ui -Ilvgl \
-	    src/library/metadata_catalog_test.c src/library/metadata_db.c src/library/tagcache.c \
-	    src/library/albumart.c src/network/catalog_source_cache.c src/core/db_log.c \
-	    -Wl,--gc-sections -lpthread -lm -o $(BUILD_TARGET_DIR)/metadata_catalog_test
-	./$(BUILD_TARGET_DIR)/metadata_catalog_test
-
-# End-to-end tagcache generation, snapshot, remap, numeric and WAV coverage.
-.PHONY: tagcache-storage-selftest
-tagcache-storage-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -std=gnu11 -O0 -g -Wall -Wextra -DHOST_BUILD=1 -ffunction-sections -fdata-sections \
-	    -I. -Isrc -Isrc/library -Isrc/core -Idr_libs \
-	    src/library/tagcache_storage_test.c src/library/tagcache.c src/core/db_log.c \
-	    -Wl,--gc-sections -lpthread -lm -o $(BUILD_TARGET_DIR)/tagcache_storage_test
-	./$(BUILD_TARGET_DIR)/tagcache_storage_test
-
-# Reports write/pwrite volume for initial, unchanged, changed, appended and
-# deleted scan passes.  Use --wrap so fixture setup can be excluded by reset.
-.PHONY: tagcache-write-volume-selftest
-tagcache-write-volume-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -std=gnu11 -O0 -g -Wall -Wextra -DHOST_BUILD=1 -ffunction-sections -fdata-sections \
-	    -I. -Isrc -Isrc/library -Isrc/core \
-	    src/library/tagcache_write_volume_test.c src/library/tagcache.c src/core/db_log.c \
-	    -Wl,--gc-sections -Wl,--wrap=write -Wl,--wrap=pwrite -lpthread -lm \
-	    -o $(BUILD_TARGET_DIR)/tagcache_write_volume_test
-	./$(BUILD_TARGET_DIR)/tagcache_write_volume_test
-
-.PHONY: tagcache-write-volume-disk-selftest
-tagcache-write-volume-disk-selftest: tagcache-write-volume-selftest
-	TAGCACHE_DISABLE_RAM_HASH=1 ./$(BUILD_TARGET_DIR)/tagcache_write_volume_test
-
-.PHONY: tagcache-incremental-selftest
-tagcache-incremental-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -std=gnu11 -O0 -g -Wall -Wextra -DHOST_BUILD=1 -ffunction-sections -fdata-sections \
-	    -I. -Isrc -Isrc/library -Isrc/core \
-	    src/library/tagcache_incremental_test.c src/library/tagcache.c src/core/db_log.c \
-	    -Wl,--gc-sections -Wl,--wrap=write -Wl,--wrap=pwrite -lpthread -lm \
-	    -o $(BUILD_TARGET_DIR)/tagcache_incremental_test
-	./$(BUILD_TARGET_DIR)/tagcache_incremental_test
-
-.PHONY: tagcache-refs-selftest
-tagcache-refs-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -std=gnu11 -O0 -g -Wall -Wextra -DHOST_BUILD=1 -ffunction-sections -fdata-sections \
-	    -I. -Isrc -Isrc/library -Isrc/core \
-	    src/library/tagcache_refs_test.c src/library/tagcache.c src/core/db_log.c \
-	    -Wl,--gc-sections -lpthread -lm -o $(BUILD_TARGET_DIR)/tagcache_refs_test
-	./$(BUILD_TARGET_DIR)/tagcache_refs_test
-
-.PHONY: tagcache-commit-failure-selftest
-tagcache-commit-failure-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -std=gnu11 -O0 -g -Wall -Wextra -DHOST_BUILD=1 -ffunction-sections -fdata-sections \
-	    -I. -Isrc -Isrc/library -Isrc/core \
-	    src/library/tagcache_commit_failure_test.c src/library/tagcache.c src/core/db_log.c \
-	    -Wl,--gc-sections -Wl,--wrap=write -Wl,--wrap=fsync -Wl,--wrap=rename -lpthread -lm \
-	    -o $(BUILD_TARGET_DIR)/tagcache_commit_failure_test
-	./$(BUILD_TARGET_DIR)/tagcache_commit_failure_test
-
-# Host tests for artwork-only parsing, size admission and helper allocation limits.
-.PHONY: metadata-artwork-selftest
-metadata-artwork-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O0 -g -Wall -ffunction-sections -fdata-sections -DHOST_BUILD=1 -DLV_CONF_INCLUDE_SIMPLE=1 \
-	    -I. -Isrc/library -Isrc/core -Isrc/audio -Isrc/ui -Ilvgl -Idr_libs -Istb_vorbis -Imbedtls/include \
-	    src/library/metadata_artwork_test.c src/library/artwork_coordinator.c src/library/albumart.c src/core/utf8_util.c \
-	    -Wl,--gc-sections -lpthread -lm -o $(BUILD_TARGET_DIR)/metadata_artwork_test
-	./$(BUILD_TARGET_DIR)/metadata_artwork_test
-
-# Host JPEG decoder tests plus the mocked LVGL PNG buffer ownership contract.
-# Depends on LVGL_PATCH_STAMP: tjpgd.c is compiled directly against a fresh
-# lvgl/ clone here (not through the normal $(BUILD_HOST_DIR)/lvgl/%.o pattern
-# rule, which already carries this dependency), and tjpgd's decoded pixel
-# format/geometry depend on lvgl/src/libs/tjpgd/tjpgdcnf.h's project-specific
-# customization, one of the golden files the patch stamp installs.
-# Host image_thumb tests: size detection, fit math, and a BMP decoded,
-# fitted and written as an LVGL RGB565 .bin file.
-image-thumb-selftest: $(LVGL_PATCH_STAMP)
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O0 -g -Wall -DHOST_BUILD=1 -DLV_CONF_INCLUDE_SIMPLE=1 \
-	    -I. -Isrc/library -Isrc/core -Isrc/audio -Ilvgl \
-	    -Ijpeg_vendor_config -I$(JPEG_DIR) -I$(TINFL_DIR) \
-	    -DMINIZ_NO_DEFLATE_APIS -DMINIZ_NO_ARCHIVE_APIS \
-	    src/library/image_thumb_test.c src/library/image_thumb.c src/library/cover_decode.c \
-	    src/library/artwork_coordinator.c lvgl/src/libs/tjpgd/tjpgd.c \
-	    $(JPEG_SRCS) $(TINFL_SRCS) \
-	    -lpthread -lm -o $(BUILD_TARGET_DIR)/image_thumb_test
-	./$(BUILD_TARGET_DIR)/image_thumb_test
-
-cover_decode_scale_test: $(LVGL_PATCH_STAMP)
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O0 -g -Wall -DHOST_BUILD=1 -DLV_CONF_INCLUDE_SIMPLE=1 \
-	    -I. -Isrc/library -Isrc/core -Isrc/audio -Ilvgl \
-	    -Ijpeg_vendor_config -I$(JPEG_DIR) -I$(TINFL_DIR) \
-	    -DMINIZ_NO_DEFLATE_APIS -DMINIZ_NO_ARCHIVE_APIS \
-	    src/library/cover_decode_scale_test.c src/library/cover_decode.c \
-	    src/library/artwork_coordinator.c lvgl/src/libs/tjpgd/tjpgd.c \
-	    $(JPEG_SRCS) $(TINFL_SRCS) \
-	    -lpthread -lm -o $(BUILD_TARGET_DIR)/cover_decode_scale_test
-	./$(BUILD_TARGET_DIR)/cover_decode_scale_test
-
-# Host charge-limiter tests: mocked I2C seams, no real device needed (see
-# charge_limiter_test.c's own top comment). Built twice -- once per board --
-# since HAS_MP2731 (BOARD_R3PROII) changes which registers exist at compile
-# time, not just at runtime. CHARGE_LIMITER_BASELINE_PATH is overridden to a
-# scratch file under $(BUILD_TARGET_DIR) (the real default, /usr/data/...,
-# does not exist on a dev machine) and removed before every scenario so one
-# scenario's persisted baseline can never leak into the next -- each
-# scenario is its own process, but they'd otherwise share one file on disk.
-CHARGE_LIMITER_TEST_R1_SCENARIOS = r1-no-mp2731 voltage-restore lower-current backup-failure current-restore stale-baseline-recovers
-CHARGE_LIMITER_TEST_R3PROII_SCENARIOS = r3proii-voltage-baseline-restore r3proii-voltage-cap-applied r3proii-current-restore
-.PHONY: charge_limiter_test
-charge_limiter_test:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O0 -g -Wall -Wextra -Isrc/hardware -Isrc/core \
-	    -DCHARGE_LIMITER_BASELINE_PATH='"$(BUILD_TARGET_DIR)/charge_limiter_test_r1_baseline.txt"' \
-	    src/hardware/charge_limiter_test.c \
-	    -lpthread -o $(BUILD_TARGET_DIR)/charge_limiter_test_r1
-	@for s in $(CHARGE_LIMITER_TEST_R1_SCENARIOS); do \
-	  rm -f $(BUILD_TARGET_DIR)/charge_limiter_test_r1_baseline.txt; \
-	  ./$(BUILD_TARGET_DIR)/charge_limiter_test_r1 $$s || exit 1; \
-	done
-	$(CC) -O0 -g -Wall -Wextra -Isrc/hardware -Isrc/core -DBOARD_R3PROII \
-	    -DCHARGE_LIMITER_BASELINE_PATH='"$(BUILD_TARGET_DIR)/charge_limiter_test_r3proii_baseline.txt"' \
-	    src/hardware/charge_limiter_test.c \
-	    -lpthread -o $(BUILD_TARGET_DIR)/charge_limiter_test_r3proii
-	@for s in $(CHARGE_LIMITER_TEST_R3PROII_SCENARIOS); do \
-	  rm -f $(BUILD_TARGET_DIR)/charge_limiter_test_r3proii_baseline.txt; \
-	  ./$(BUILD_TARGET_DIR)/charge_limiter_test_r3proii $$s || exit 1; \
-	done
 
 $(BUILD_TARGET_DIR)/%.o: src/%.c $(LVGL_PATCH_STAMP)
 	@mkdir -p $(dir $@)
@@ -1445,26 +979,34 @@ clean:
 	    compas_player_target compas_player_target_* \
 	    compile_commands.json compile_flags.txt
 
-.PHONY: waveform-selftest
-waveform-selftest:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -DHOST_BUILD -std=c11 -Wall -Wextra -Werror -pthread \
-	    src/audio/waveform.c src/audio/waveform_check.c -o $(BUILD_TARGET_DIR)/waveform_check
-	./$(BUILD_TARGET_DIR)/waveform_check
+# UI translations (see po/README.md). `make i18n` re-extracts the template,
+# merges it into every po/*.po and regenerates src/ui/i18n_catalog.c (checked
+# in, so `make target` needs no Python or gettext). `make i18n-check` runs the
+# same checks without writing anything.
+I18N_SCAN_SRCS = $(shell find src -type f \( -name '*.c' -o -name '*.h' \) \
+    ! -name '*_test.c' ! -name '*_check.c' ! -name '*_regression.c' ! -name i18n_catalog.c | sort)
+I18N_XGETTEXT = xgettext --language=C --from-code=UTF-8 --no-location \
+    --keyword=TR --keyword=N_ --keyword=TR_N:1,2 --keyword=TR_C:1c,2 \
+    --add-comments=TRANSLATORS --package-name=compas-player --msgid-bugs-address=none
 
-# Focused target-path audio retry regression test. It includes the real
-# audio.c, mocks audio_output_* and usleep, and relies on section GC to discard
-# unrelated decoder/playback code. Keep this host-only target out of all.
-.PHONY: audio-restart-selftest
-audio-restart-selftest:
+.PHONY: i18n i18n-check
+i18n:
 	@mkdir -p $(BUILD_TARGET_DIR)
-	$(CC) -O0 -g -Wall -Wextra -ffunction-sections -fdata-sections -DTEST_BUILD_TAG \
-	    -I. -Isrc/audio -Isrc/library -Isrc/core -Isrc/network -Isrc/hardware -Isrc/plugins \
-	    -Ilvgl -Idr_libs -Ifaad2/include -Ialac/codec -Imbedtls/include -IcJSON -Iopus/include \
-	    -Ilua/src -Istb_vorbis -Ijpeg_vendor_config -Ijpeg -Itinfl \
-	    src/audio/audio_restart_test.c -Wl,--gc-sections -Wl,--wrap=usleep -lpthread -lm \
-	    -o $(BUILD_TARGET_DIR)/audio_restart_test
-	./$(BUILD_TARGET_DIR)/audio_restart_test
+	@$(I18N_XGETTEXT) -o $(BUILD_TARGET_DIR)/compas.pot.new $(I18N_SCAN_SRCS)
+	@if [ ! -f po/compas.pot ] || ! diff -q -I '^"POT-Creation-Date' $(BUILD_TARGET_DIR)/compas.pot.new po/compas.pot >/dev/null; then \
+	    cp $(BUILD_TARGET_DIR)/compas.pot.new po/compas.pot; echo "po/compas.pot updated"; fi
+	@for po in po/*.po; do msgmerge --update --backup=none --no-wrap -q $$po po/compas.pot; \
+	    msgfmt -c --check-format -o /dev/null $$po || exit 1; done
+	python3 scripts/i18n/po2c.py
+
+i18n-check:
+	@mkdir -p $(BUILD_TARGET_DIR)
+	@$(I18N_XGETTEXT) -o $(BUILD_TARGET_DIR)/compas.pot.new $(I18N_SCAN_SRCS)
+	@diff -q -I '^"POT-Creation-Date' $(BUILD_TARGET_DIR)/compas.pot.new po/compas.pot >/dev/null \
+	    || { echo "po/compas.pot is stale; run make i18n"; exit 1; }
+	@for po in po/*.po; do msgfmt -c --check-format --statistics -o /dev/null $$po || exit 1; done
+	python3 scripts/i18n/po2c.py --check
+	python3 scripts/i18n/find_untranslated.py
 
 # Companion to -MMD -MP in CFLAGS above (see that comment for the real-
 # device/real-build incident this exists to prevent) -- pulls in every

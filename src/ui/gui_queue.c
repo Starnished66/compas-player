@@ -1,4 +1,5 @@
 #include "gui_queue.h"
+#include "i18n.h"
 #include "gui.h"
 #include "gui_player.h"
 #include "gui_theme.h"
@@ -39,13 +40,14 @@ static void queue_actions_open(lv_event_t * e);
 static int displayed_current = -1;
 
 static int32_t queue_state_column_width(void) {
-    static const char * states[] = { "Played", "Playing", "Queued", "Next" };
+    static const char * states[] = { N_("Played"), N_("Playing"), N_("Queued"), N_("Next") };
     const lv_font_t * font = gui_theme_font(GUI_FONT_ROLE_SUBTEXT);
     lv_text_attributes_t attributes;
     lv_text_attributes_init(&attributes);
     int32_t width = BOARD_SCALE_PX(72);
     for (size_t i = 0; i < sizeof(states) / sizeof(states[0]); ++i) {
-        int32_t text_width = lv_text_get_width(states[i], (uint32_t) strlen(states[i]), font, &attributes);
+        const char * state = TR(states[i]);
+        int32_t text_width = lv_text_get_width(state, (uint32_t) strlen(state), font, &attributes);
         if (text_width > width) width = text_width;
     }
     int32_t maximum = LIST_ROW_WIDTH / 3;
@@ -63,7 +65,7 @@ bool gui_queue_boot_prompt_blocked(void) {
 
 static void queue_row_click_cb(lv_event_t * e) {
     if (!gui_player_queue_select(displayed_revision, (int) (intptr_t) lv_event_get_user_data(e)))
-        show_error_toast("Queue changed. Try again.");
+        show_error_toast(TR("Queue changed. Try again."));
 }
 
 static void queue_edit_cb(lv_event_t * e) {
@@ -71,7 +73,7 @@ static void queue_edit_cb(lv_event_t * e) {
     int index = value / 3, action = value % 3;
     int to = action == 2 ? -1 : index + (action == 0 ? -1 : 1);
     if (!gui_player_queue_edit(displayed_revision, index, to))
-        show_error_toast("Cannot move this entry");
+        show_error_toast(TR("Cannot move this entry"));
     populate_queue_screen();
 }
 
@@ -99,13 +101,13 @@ void populate_queue_screen(void) {
      * queue_actions popup (Start sequentially/Shuffle/Edit/Clear/Save),
      * so this was a plain duplicate entry point, not the only way in. */
     if (!count) {
-        build_list_message(queue_list, "Queue is empty", "Play an album or playlist to see its songs here.");
+        build_list_message(queue_list, TR("Queue is empty"), TR("Play an album or playlist to see its songs here."));
         free(order); return;
     }
     if (queue_page < 0) queue_page = 0;
     if (queue_page >= count) queue_page = ((count - 1) / QUEUE_PAGE_SIZE) * QUEUE_PAGE_SIZE;
     if (queue_page > 0) {
-        lv_obj_t * row = queue_label("Previous page");
+        lv_obj_t * row = queue_label(TR("Previous page"));
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(row, queue_page_cb, LV_EVENT_CLICKED, (void *) (intptr_t) -QUEUE_PAGE_SIZE);
     }
@@ -128,10 +130,10 @@ void populate_queue_screen(void) {
             if (stream_title[0]) snprintf(title, sizeof(title), "%s", stream_title);
             if (stream_artist[0] || stream_album[0]) {
                 utf8_truncate_safe(display_artist,
-                                   stream_artist[0] ? stream_artist : "Unknown artist",
+                                   stream_artist[0] ? stream_artist : TR("Unknown artist"),
                                    sizeof(display_artist));
                 utf8_truncate_safe(display_album,
-                                   stream_album[0] ? stream_album : "Unknown album",
+                                   stream_album[0] ? stream_album : TR("Unknown album"),
                                    sizeof(display_album));
                 snprintf(subtitle, sizeof(subtitle), "%s · %s",
                          display_artist, display_album);
@@ -144,8 +146,8 @@ void populate_queue_screen(void) {
             get_display_names(path, title, sizeof(title), folder, sizeof(folder));
             subtitle[0] = '\0';
         }
-        const char * state = i < current ? "Played" : i == current ? "Playing" :
-            i <= current + gui_player_get_queued_count() ? "Queued" : "Next";
+        const char * state = i < current ? TR("Played") : i == current ? TR("Playing") :
+            i <= current + gui_player_get_queued_count() ? TR("Queued") : TR("Next");
         snprintf(numbered_title, sizeof(numbered_title), "%d. %s", i + 1, title);
         if (queue_editing && i > current) {
             const int32_t action_slot = BOARD_SCALE_PX(44);
@@ -176,7 +178,7 @@ void populate_queue_screen(void) {
         } else {
             /* Same title/metadata geometry as Favorites/Most Played, with a
              * dedicated trailing column reserved before either label is
-             * laid out. The queue state shares the metadata baseline but
+             * laid out. The queue state aligns with the metadata line and
              * cannot overlap or be crossed by either marquee. */
             const int32_t state_column_width = queue_state_column_width();
             const int32_t state_column_reserve = state_column_width + GUI_TEXT_INSET + BOARD_SCALE_PX(8);
@@ -186,9 +188,10 @@ void populate_queue_screen(void) {
             lv_obj_add_style(state_label, &style_theme_text_muted, 0);
             lv_obj_set_style_text_font(state_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
             lv_obj_set_width(state_label, state_column_width);
-            lv_obj_set_pos(state_label, LIST_ROW_WIDTH - GUI_TEXT_INSET - state_column_width, BOARD_SCALE_PX(64));
+            lv_obj_set_pos(state_label, LIST_ROW_WIDTH - GUI_TEXT_INSET - state_column_width, 0);
             lv_obj_set_style_text_align(state_label, LV_TEXT_ALIGN_RIGHT, 0);
-            row_label_apply_bounded_height(state_label, gui_theme_font(GUI_FONT_ROLE_BODY));
+            row_label_apply_bounded_height(state_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT));
+            music_list_row_align_badge(row, state_label);
             lv_label_set_long_mode(state_label, LV_LABEL_LONG_DOT);
             if (i == current) {
                 lv_obj_add_style(state_label, gui_theme_accent_style(), 0);
@@ -201,7 +204,7 @@ void populate_queue_screen(void) {
         }
     }
     if (end < count) {
-        lv_obj_t * row = queue_label("Next page");
+        lv_obj_t * row = queue_label(TR("Next page"));
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(row, queue_page_cb, LV_EVENT_CLICKED, (void *) (intptr_t) QUEUE_PAGE_SIZE);
     }
@@ -229,7 +232,7 @@ static void queue_start(lv_event_t * e, bool shuffle) {
      * switch mode. Ranks stay integers; paths that are already resolved
      * keep their existing pointers. */
     if (!gui_player_queue_restart_displayed(selected)) {
-        show_error_toast("Cannot start queue");
+        show_error_toast(TR("Cannot start queue"));
         return;
     }
     clear_player_source();
@@ -243,12 +246,12 @@ static void queue_clear_cb(lv_event_t * e) {
 }
 static void queue_save_done(const char * name, void * data) {
     (void) data;
-    if (gui_player_queue_save_as(name)) show_info_toast("Saving playlist…");
-    else show_error_toast("Cannot save playlist");
+    if (gui_player_queue_save_as(name)) show_info_toast(TR("Saving playlist…"));
+    else show_error_toast(TR("Cannot save playlist"));
 }
 static void queue_save_cb(lv_event_t * e) {
     queue_actions_hide(e);
-    show_text_entry("Save Queue as Playlist", "", false, false, queue_save_done, NULL);
+    show_text_entry(TR("Save Queue as Playlist"), "", false, false, queue_save_done, NULL);
 }
 static void queue_actions_open(lv_event_t * e) {
     (void) e;
@@ -260,7 +263,7 @@ static void queue_actions_open(lv_event_t * e) {
 
 static lv_obj_t * build_queue_screen(void) {
     lv_obj_t * title;
-    lv_obj_t * screen = build_subsonic_list_screen("Queue", &title, &queue_list);
+    lv_obj_t * screen = build_subsonic_list_screen(TR("Queue"), &title, &queue_list);
     /* Real stock-firmware icon (sub_back/set.png, 51x51), not a text label --
      * present on every real R1 as-is (THEME_ROOT points straight at the
      * stock firmware's own resource pack on target builds, see assets.c's
@@ -268,13 +271,13 @@ static lv_obj_t * build_queue_screen(void) {
      * parity. build_top_right_icon_button() guarantees this lands at
      * exactly the same visual level as the screen's own back arrow. */
     build_top_right_icon_button(screen, asset_path("sub_back/set.png"), queue_actions_open);
-    static const menu_popup_row_t rows[] = {
-        { "Start sequentially", queue_start_sequential, false },
-        { "Shuffle from a random song", queue_start_shuffle, false },
-        { "Edit / Done", queue_toggle_edit, false },
-        { "Clear Queue", queue_clear_cb, false },
-        { "Save as Playlist", queue_save_cb, false },
-        { "Cancel", queue_actions_hide, false, true },
+    const menu_popup_row_t rows[] = {
+        { TR("Start sequentially"), queue_start_sequential, false },
+        { TR("Shuffle from a random song"), queue_start_shuffle, false },
+        { TR("Edit / Done"), queue_toggle_edit, false },
+        { TR("Clear Queue"), queue_clear_cb, false },
+        { TR("Save as Playlist"), queue_save_cb, false },
+        { TR("Cancel"), queue_actions_hide, false, true },
     };
     queue_actions = build_menu_popup(rows, sizeof(rows) / sizeof(rows[0]), queue_actions_hide, &queue_actions_backdrop);
     return screen;
@@ -299,7 +302,7 @@ void open_queue_screen(void) {
 void gui_queue_poll(void) {
     bool save_done = false, save_ok = false;
     if (gui_player_queue_save_as_poll(&save_done, &save_ok) && save_done) {
-        show_info_toast(save_ok ? "Playlist saved" : "Cannot save: invalid or streaming entries");
+        show_info_toast(save_ok ? TR("Playlist saved") : TR("Cannot save: invalid or streaming entries"));
     }
     static uint64_t saved_revision;
     static uint32_t last_checkpoint;
@@ -366,12 +369,12 @@ void open_song_context_menu(const char * path) {
 }
 
 static void build_song_context_menu_popup(void) {
-    static const menu_popup_row_t rows[] = {
-        { "Play Next", song_context_menu_play_next_cb, false },
-        { "Add to Queue", song_context_menu_add_to_queue_cb, false },
-        { "Add to Playlist", song_context_menu_add_to_playlist_cb, false },
-        { "Refresh metadata", song_context_menu_refresh_metadata_cb, false },
-        { "Cancel", song_context_menu_cancel_cb, false, true },
+    const menu_popup_row_t rows[] = {
+        { TR("Play Next"), song_context_menu_play_next_cb, false },
+        { TR("Add to Queue"), song_context_menu_add_to_queue_cb, false },
+        { TR("Add to Playlist"), song_context_menu_add_to_playlist_cb, false },
+        { TR("Refresh metadata"), song_context_menu_refresh_metadata_cb, false },
+        { TR("Cancel"), song_context_menu_cancel_cb, false, true },
     };
     song_context_menu_popup = build_menu_popup(rows, (int) (sizeof(rows) / sizeof(rows[0])),
                                                 song_context_menu_popup_backdrop_cb,

@@ -1,4 +1,5 @@
 #include "gui_lyrics.h"
+#include "i18n.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -196,12 +197,24 @@ static void * lyrics_load_thread_func(void * arg) {
         track_metadata_t meta;
         metadata_read_lyrics_without_artwork(req->track_path, &meta);
         if (meta.lyrics) {
-            if (lyrics_parse_buffer(meta.lyrics, strlen(meta.lyrics), &doc)) {
-                ok = true;
-            } else {
-                plain_mode = true;
-                plain_text = meta.lyrics;
-                meta.lyrics = NULL; /* ownership transferred to plain_text -- don't free it below */
+            /* Keep embedded lyrics under the same byte limit as sidecars.
+             * Apart from avoiding a large parser/UI allocation, bounded
+             * length prevents strlen() from walking arbitrarily far through
+             * a malformed decoder result. Oversized or empty tags behave as
+             * no lyrics; metadata.lyrics remains owned here and is freed
+             * below. */
+            size_t lyrics_len = strnlen(meta.lyrics, LYRICS_MAX_FILE_BYTES + 1U);
+            if (lyrics_len > 0 && lyrics_len <= LYRICS_MAX_FILE_BYTES) {
+                if (lyrics_parse_buffer(meta.lyrics, lyrics_len, &doc)) {
+                    ok = true;
+                } else {
+                    /* Only the unsynchronized/plain fallback is sanitized.
+                     * Valid synced lyrics retain their parser behavior. */
+                    utf8_sanitize(meta.lyrics);
+                    plain_mode = true;
+                    plain_text = meta.lyrics;
+                    meta.lyrics = NULL; /* ownership transferred to plain_text -- don't free it below */
+                }
             }
         }
         free(meta.picture_data);
@@ -995,7 +1008,7 @@ static lv_obj_t * build_lyrics_screen(void) {
     lv_obj_remove_flag(dark_overlay, LV_OBJ_FLAG_CLICKABLE);
 
     lyrics_empty_label = lv_label_create(scr);
-    lv_label_set_text(lyrics_empty_label, "No synchronized lyrics found");
+    lv_label_set_text(lyrics_empty_label, TR("No synchronized lyrics found"));
     lv_obj_set_style_text_font(lyrics_empty_label, &app_font_22, 0);
     lv_obj_set_style_text_color(lyrics_empty_label, lv_color_make(200, 200, 200), 0);
     /* app_font_22 is one of the size-tier-swappable app_font_* handles (see
@@ -1104,7 +1117,7 @@ static lv_obj_t * build_lyrics_screen(void) {
     return scr;
 }
 static const lyrics_font_size_option_t lyrics_font_size_options[] = {
-    { 1, "Medium" }, { 2, "Large" },
+    { 1, N_("Medium") }, { 2, N_("Large") },
 };
 static lv_obj_t * lyrics_font_size_screen;
 static lv_obj_t * lyrics_font_size_list;
@@ -1113,7 +1126,7 @@ static void populate_lyrics_font_size_screen(void) {
     lv_obj_clean(lyrics_font_size_list);
     for (size_t i = 0; i < LYRICS_FONT_SIZE_OPTION_COUNT; i++) {
         bool selected = current_settings.lyrics_font_size_tier == lyrics_font_size_options[i].tier;
-        add_pill_option_row(lyrics_font_size_list, lyrics_font_size_options[i].label,
+        add_pill_option_row(lyrics_font_size_list, TR(lyrics_font_size_options[i].label),
                             selected, lyrics_font_size_option_row_cb, (void *) (intptr_t) i);
     }
 }
@@ -1131,7 +1144,7 @@ static void lyrics_font_size_apply_timer_cb(lv_timer_t * timer) {
     lv_timer_delete(timer);
     if (!fallback_font_apply_lyrics_size_tier(target)) {
         lv_obj_delete(mask);
-        show_error_toast("Could not apply lyrics text size");
+        show_error_toast(TR("Could not apply lyrics text size"));
         return;
     }
 
@@ -1175,7 +1188,7 @@ static void lyrics_font_size_option_row_cb(lv_event_t * e) {
 }
 static lv_obj_t * build_lyrics_font_size_screen(void) {
     lv_obj_t * title_label; /* unused after build -- title never changes */
-    return build_subsonic_list_screen("Lyrics Text Size", &title_label, &lyrics_font_size_list);
+    return build_subsonic_list_screen(TR("Lyrics Text Size"), &title_label, &lyrics_font_size_list);
 }
 static void open_lyrics_font_size_screen(void) {
     populate_lyrics_font_size_screen();

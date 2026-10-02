@@ -1,4 +1,5 @@
 #include "gui.h"
+#include "i18n.h"
 #include "gui_subsonic.h"
 #include "settings.h"
 #include "utf8_util.h"
@@ -177,14 +178,14 @@ static void start_subsonic_download(const char * url, bool verify_tls, const cha
     http_cancel_token_init(&download_cancel);
     download_active = true;
 
-    download_token = gui_busy_show("Downloading", display_title);
+    download_token = gui_busy_show(TR("Downloading"), display_title);
 
     if (pthread_create(&download_thread, NULL, download_thread_func, req) != 0) {
         download_active = false;
         http_cancel_token_destroy(&download_cancel);
         free(req);
         gui_busy_hide(download_token);
-        show_error_toast("Thread launch failed");
+        show_error_toast(TR("Thread launch failed"));
     }
 }
 
@@ -654,7 +655,7 @@ static void start_subsonic_library_download(subsonic_song_t * songs, int song_co
     if (!req) {
         free(songs);
         free(albums_to_expand);
-        show_error_toast("Not enough memory to start download");
+        show_error_toast(TR("Not enough memory to start download"));
         return;
     }
     req->server = subsonic_server_from_settings();
@@ -667,7 +668,7 @@ static void start_subsonic_library_download(subsonic_song_t * songs, int song_co
         free(songs);
         free(albums_to_expand);
         free(req);
-        show_error_toast("Invalid download folder");
+        show_error_toast(TR("Invalid download folder"));
         return;
     }
     req->download_layout = current_settings.subsonic_download_layout == 1 ? 1 : 0;
@@ -690,7 +691,7 @@ static void start_subsonic_library_download(subsonic_song_t * songs, int song_co
         free(req->albums_to_expand);
         free(req);
         gui_busy_hide(subsonic_library_download_token);
-        show_error_toast("Thread launch failed");
+        show_error_toast(TR("Thread launch failed"));
     }
 }
 
@@ -718,7 +719,7 @@ void poll_subsonic_library_download(void) {
          * snapshots and libraries that failed to load. */
         start_library_auto_rescan();
     } else {
-        show_error_toast("Download failed");
+        show_error_toast(TR("Download failed"));
     }
 }
 
@@ -775,13 +776,13 @@ static lv_obj_t * subsonic_download_layout_options[2];
 static lv_obj_t * subsonic_download_settings_row;
 
 static const char * subsonic_quality_name(int quality) {
-    static const char * names[] = { "Original", "Low", "Medium", "High" };
-    return quality >= 0 && quality < 4 ? names[quality] : names[0];
+    static const char * names[] = { N_("Original"), N_("Low"), N_("Medium"), N_("High") };
+    return TR(quality >= 0 && quality < 4 ? names[quality] : names[0]);
 }
 
 static void subsonic_quality_update_menu_label(void) {
     char label[64];
-    snprintf(label, sizeof(label), "Stream quality: %s",
+    snprintf(label, sizeof(label), TR("Stream quality: %s"),
              subsonic_quality_name(current_settings.subsonic_stream_quality));
     if (subsonic_quality_row) lv_label_set_text(lv_obj_get_child(subsonic_quality_row, 0), label);
 }
@@ -804,12 +805,12 @@ static void subsonic_quality_row_cb(lv_event_t * e) {
 
 static lv_obj_t * build_subsonic_quality_screen(void) {
     lv_obj_t * title;
-    lv_obj_t * screen = build_subsonic_list_screen("Stream Quality", &title, &subsonic_quality_list);
+    lv_obj_t * screen = build_subsonic_list_screen(TR("Stream Quality"), &title, &subsonic_quality_list);
     (void) title;
-    add_section_header(subsonic_quality_list, "Applies to new streaming queues");
-    static const char * labels[] = { "Original", "Low (96 kbps)", "Medium (192 kbps)", "High (320 kbps)" };
+    add_section_header(subsonic_quality_list, TR("Applies to new streaming queues"));
+    static const char * labels[] = { N_("Original"), N_("Low (96 kbps)"), N_("Medium (192 kbps)"), N_("High (320 kbps)") };
     for (int i = 0; i < 4; i++) {
-        subsonic_quality_options[i] = add_pill_option_row(subsonic_quality_list, labels[i],
+        subsonic_quality_options[i] = add_pill_option_row(subsonic_quality_list, TR(labels[i]),
                                                           current_settings.subsonic_stream_quality == i,
                                                           subsonic_quality_option_cb, (void *) (intptr_t) i);
     }
@@ -822,9 +823,9 @@ static void subsonic_download_folder_update_row(void) {
     if (current_settings.subsonic_download_subfolder[0]) {
         char preview[49];
         utf8_truncate_safe(preview, current_settings.subsonic_download_subfolder, sizeof(preview));
-        snprintf(label, sizeof(label), "Download folder: %s", preview);
+        snprintf(label, sizeof(label), TR("Download folder: %s"), preview);
     } else {
-        snprintf(label, sizeof(label), "Download folder: SD root");
+        snprintf(label, sizeof(label), "%s", TR("Download folder: SD root"));
     }
     lv_label_set_text(lv_obj_get_child(subsonic_download_folder_row, 0), label);
 }
@@ -833,7 +834,7 @@ static void subsonic_download_folder_done(const char * text, void * user_data) {
     (void)user_data;
     char checked[SETTINGS_SUBSONIC_DOWNLOAD_SUBFOLDER_MAX];
     if (!settings_validate_subsonic_download_subfolder(text ? text : "", checked, sizeof(checked))) {
-        show_error_toast("Invalid download folder name");
+        show_error_toast(TR("Invalid download folder name"));
         return;
     }
     snprintf(current_settings.subsonic_download_subfolder,
@@ -844,7 +845,7 @@ static void subsonic_download_folder_done(const char * text, void * user_data) {
 
 static void subsonic_download_folder_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    show_text_entry("Download subfolder", current_settings.subsonic_download_subfolder,
+    show_text_entry(TR("Download subfolder"), current_settings.subsonic_download_subfolder,
                     false, false, subsonic_download_folder_done, NULL);
 }
 
@@ -864,22 +865,22 @@ static void subsonic_download_settings_row_cb(lv_event_t * e) {
 
 static lv_obj_t * build_subsonic_download_settings_screen(void) {
     lv_obj_t * title;
-    lv_obj_t * screen = build_subsonic_list_screen("Download Settings", &title,
+    lv_obj_t * screen = build_subsonic_list_screen(TR("Download Settings"), &title,
                                                     &subsonic_download_settings_list);
     (void)title;
     subsonic_download_folder_row = add_pill_chevron_row(subsonic_download_settings_list,
-        "Subfolder: SD root", subsonic_download_folder_row_cb);
+        TR("Subfolder: SD root"), subsonic_download_folder_row_cb);
     subsonic_download_folder_update_row();
     lv_obj_t * folder_help = add_section_header(subsonic_download_settings_list,
-        "Subfolder is relative to SD root (example: Music/Offline); empty uses SD root");
+        TR("Subfolder is relative to SD root (example: Music/Offline); empty uses SD root"));
     lv_obj_set_width(folder_help, lv_pct(100));
     lv_obj_set_style_pad_right(folder_help, BOARD_SCALE_PX(24), 0);
     lv_label_set_long_mode(folder_help, LV_LABEL_LONG_WRAP);
-    add_section_header(subsonic_download_settings_list, "Folder layout for downloaded albums");
-    static const char * labels[] = { "Album Artist / Album", "Album Artist - Album" };
+    add_section_header(subsonic_download_settings_list, TR("Folder layout for downloaded albums"));
+    static const char * labels[] = { N_("Album Artist / Album"), N_("Album Artist - Album") };
     for (int i = 0; i < 2; i++)
         subsonic_download_layout_options[i] = add_pill_option_row(subsonic_download_settings_list,
-            labels[i], current_settings.subsonic_download_layout == i,
+            TR(labels[i]), current_settings.subsonic_download_layout == i,
             subsonic_download_layout_option_cb, (void *)(intptr_t)i);
     return screen;
 }
@@ -1122,7 +1123,7 @@ static void * subsonic_browse_thread_func(void * arg) {
 
     if (!ok) {
         subsonic_copy_request_error(subsonic_browse_result_error, sizeof(subsonic_browse_result_error),
-                                    "Failed to load from server");
+                                    TR("Failed to load from server"));
     }
     subsonic_browse_result_kind = req->kind;
     snprintf(subsonic_browse_result_title, sizeof(subsonic_browse_result_title), "%s", req->title);
@@ -1134,13 +1135,13 @@ static void * subsonic_browse_thread_func(void * arg) {
 
 static void start_subsonic_browse(subsonic_browse_kind_t kind, const char * id, const char * title) {
     if (subsonic_browse_active || subsonic_connect_active) {
-        show_info_toast("Previous request still finishing");
+        show_info_toast(TR("Previous request still finishing"));
         return;
     }
 
     subsonic_browse_request_t * req = calloc(1, sizeof(*req));
     if (!req) {
-        show_error_toast("Not enough memory to load from server");
+        show_error_toast(TR("Not enough memory to load from server"));
         return;
     }
     req->kind = kind;
@@ -1161,14 +1162,14 @@ static void start_subsonic_browse(subsonic_browse_kind_t kind, const char * id, 
     http_cancel_token_init(&subsonic_browse_cancel);
     subsonic_browse_active = true;
 
-    subsonic_browse_token = gui_busy_show("Loading from server...", "");
+    subsonic_browse_token = gui_busy_show(TR("Loading from server..."), "");
     if (pthread_create(&subsonic_browse_thread, NULL, subsonic_browse_thread_func, req) != 0) {
         subsonic_browse_active = false;
         http_cancel_token_destroy(&subsonic_browse_cancel);
         free(req);
         gui_busy_hide(subsonic_browse_token);
         subsonic_browse_token = 0;
-        show_error_toast("Thread launch failed");
+        show_error_toast(TR("Thread launch failed"));
     }
 }
 
@@ -1180,7 +1181,7 @@ void poll_subsonic_browse(void) {
         http_cancel_token_cancel(&subsonic_browse_cancel);
         gui_busy_hide(subsonic_browse_token);
         subsonic_browse_token = 0;
-        show_error_toast("Server request timed out after 30 seconds");
+        show_error_toast(TR("Server request timed out after 30 seconds"));
         /* Keep the worker and its buffers alive; a later poll reaps it. */
         return;
     }
@@ -1206,7 +1207,7 @@ void poll_subsonic_browse(void) {
                 } else {
                     success = false;
                     snprintf(subsonic_browse_result_error, sizeof(subsonic_browse_result_error),
-                             "Not enough memory to load artists");
+                             TR("Not enough memory to load artists"));
                 }
                 break;
             case SUBSONIC_BROWSE_ALBUM_SONGS:
@@ -1310,26 +1311,26 @@ static void subsonic_playlist_row_click_cb(lv_event_t * e) {
 static void subsonic_menu_artists_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     if (subsonic_connect_active || subsonic_browse_active) {
-        show_info_toast("Previous request still finishing");
+        show_info_toast(TR("Previous request still finishing"));
         return;
     }
     if (subsonic_artists_loaded) {
         nav_push(subsonic_artists_screen);
     } else {
-        start_subsonic_browse(SUBSONIC_BROWSE_ARTISTS, NULL, "Artists");
+        start_subsonic_browse(SUBSONIC_BROWSE_ARTISTS, NULL, TR("Artists"));
     }
 }
 
 static void subsonic_menu_playlists_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
 
-    start_subsonic_browse(SUBSONIC_BROWSE_PLAYLISTS, NULL, "Playlists");
+    start_subsonic_browse(SUBSONIC_BROWSE_PLAYLISTS, NULL, TR("Playlists"));
 }
 
 static void subsonic_menu_albums_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
 
-    start_subsonic_browse(SUBSONIC_BROWSE_ALL_ALBUMS, NULL, "Albums");
+    start_subsonic_browse(SUBSONIC_BROWSE_ALL_ALBUMS, NULL, TR("Albums"));
 }
 
 static subsonic_download_pending_t subsonic_download_pending = SUBSONIC_DOWNLOAD_PENDING_NONE;
@@ -1363,12 +1364,12 @@ static void subsonic_download_songs_now(void) {
     if (subsonic_songs_count == 0) return;
 
     subsonic_song_t * songs_copy = malloc(sizeof(subsonic_song_t) * (size_t) subsonic_songs_count);
-    if (!songs_copy) { show_error_toast("Not enough memory to start download"); return; }
+    if (!songs_copy) { show_error_toast(TR("Not enough memory to start download")); return; }
     memcpy(songs_copy, subsonic_songs_cache, sizeof(subsonic_song_t) * (size_t) subsonic_songs_count);
 
     const char * playlist_name = subsonic_songs_context_is_playlist ? subsonic_songs_context_playlist_name : NULL;
     char label[192];
-    snprintf(label, sizeof(label), "Downloading\n%s...", lv_label_get_text(subsonic_songs_title_label));
+    snprintf(label, sizeof(label), TR("Downloading\n%s..."), lv_label_get_text(subsonic_songs_title_label));
     start_subsonic_library_download(songs_copy, subsonic_songs_count, NULL, 0, playlist_name, label);
 }
 
@@ -1377,7 +1378,7 @@ static void subsonic_download_songs_btn_cb(lv_event_t * e) {
     if (subsonic_songs_count == 0) return;
 
     char msg[224];
-    snprintf(msg, sizeof(msg), "Download \"%s\"?", lv_label_get_text(subsonic_songs_title_label));
+    snprintf(msg, sizeof(msg), TR("Download \"%s\"?"), lv_label_get_text(subsonic_songs_title_label));
     show_subsonic_download_confirm_popup(SUBSONIC_DOWNLOAD_PENDING_SONGS, msg);
 }
 
@@ -1385,11 +1386,11 @@ static void subsonic_download_artist_now(void) {
     if (subsonic_albums_context_artist[0] == '\0' || subsonic_albums_count == 0) return;
 
     subsonic_album_t * albums_copy = malloc(sizeof(subsonic_album_t) * (size_t) subsonic_albums_count);
-    if (!albums_copy) { show_error_toast("Not enough memory to start download"); return; }
+    if (!albums_copy) { show_error_toast(TR("Not enough memory to start download")); return; }
     memcpy(albums_copy, subsonic_albums_cache, sizeof(subsonic_album_t) * (size_t) subsonic_albums_count);
 
     char label[192];
-    snprintf(label, sizeof(label), "Downloading\n%s...", subsonic_albums_context_artist);
+    snprintf(label, sizeof(label), TR("Downloading\n%s..."), subsonic_albums_context_artist);
     start_subsonic_library_download(NULL, 0, albums_copy, subsonic_albums_count, NULL, label);
 }
 
@@ -1398,7 +1399,7 @@ static void subsonic_download_artist_btn_cb(lv_event_t * e) {
     if (subsonic_albums_context_artist[0] == '\0' || subsonic_albums_count == 0) return;
 
     char msg[224];
-    snprintf(msg, sizeof(msg), "Download every album from \"%s\"?", subsonic_albums_context_artist);
+    snprintf(msg, sizeof(msg), TR("Download every album from \"%s\"?"), subsonic_albums_context_artist);
     show_subsonic_download_confirm_popup(SUBSONIC_DOWNLOAD_PENDING_ARTIST, msg);
 }
 
@@ -1412,8 +1413,8 @@ static void subsonic_download_confirm_cb(lv_event_t * e) {
 
 static void build_subsonic_download_confirm_popup(void) {
     subsonic_download_confirm_popup.popup = build_confirm_popup(
-        "", LV_LABEL_LONG_WRAP, &subsonic_download_confirm_title, NULL, "Download", accent_lv_color(),
-        subsonic_download_confirm_cb, NULL, "Cancel", lv_color_make(160, 160, 160), subsonic_download_confirm_cancel_cb,
+        "", LV_LABEL_LONG_WRAP, &subsonic_download_confirm_title, NULL, TR("Download"), accent_lv_color(),
+        subsonic_download_confirm_cb, NULL, TR("Cancel"), lv_color_make(160, 160, 160), subsonic_download_confirm_cancel_cb,
         NULL, subsonic_download_confirm_backdrop_cb, &subsonic_download_confirm_popup.backdrop);
 }
 
@@ -1448,11 +1449,11 @@ static void * subsonic_connect_thread_func(void * arg) {
                                  &subsonic_connect_result_artists_count, &subsonic_connect_cancel);
         if (!subsonic_connect_artists_success) {
             subsonic_copy_request_error(subsonic_connect_result_error, sizeof(subsonic_connect_result_error),
-                                        "Failed to load artists");
+                                        TR("Failed to load artists"));
         }
     } else {
         subsonic_copy_request_error(subsonic_connect_result_error, sizeof(subsonic_connect_result_error),
-                                    "Failed to connect to server");
+                                    TR("Failed to connect to server"));
     }
 
     subsonic_connect_success_flag = authenticated;
@@ -1469,7 +1470,7 @@ void poll_subsonic_connect(void) {
         http_cancel_token_cancel(&subsonic_connect_cancel);
         gui_busy_hide(subsonic_connect_token);
         subsonic_connect_token = 0;
-        show_error_toast("Connection timed out after 30 seconds");
+        show_error_toast(TR("Connection timed out after 30 seconds"));
         /* Do not join a request that may still be blocked in the network. */
         return;
     }
@@ -1532,7 +1533,7 @@ void poll_subsonic_connect(void) {
             subsonic_artists_loaded = populate_subsonic_artists();
             if (!subsonic_artists_loaded) {
                 snprintf(subsonic_connect_result_error, sizeof(subsonic_connect_result_error),
-                         "Not enough memory to load artists");
+                         TR("Not enough memory to load artists"));
             }
         }
         nav_push(subsonic_menu_screen);
@@ -1549,7 +1550,7 @@ void poll_subsonic_connect(void) {
         show_error_toast(subsonic_connect_result_error);
     } else if (!subsonic_artists_loaded) {
         char message[320];
-        snprintf(message, sizeof(message), "Failed to load artists: %s", subsonic_connect_result_error);
+        snprintf(message, sizeof(message), TR("Failed to load artists: %s"), subsonic_connect_result_error);
         show_error_toast(message);
     }
 }
@@ -1576,13 +1577,13 @@ void poll_subsonic_connect(void) {
 static bool subsonic_wifi_connected_guard(void) {
     int level;
     if (wifi_get_status(&level)) return true;
-    show_error_toast("Connect to Wi-Fi first");
+    show_error_toast(TR("Connect to Wi-Fi first"));
     return false;
 }
 
 static void start_subsonic_connect(const subsonic_server_t * server) {
     if (subsonic_connect_active || subsonic_browse_active) {
-        show_info_toast("Previous request still finishing");
+        show_info_toast(TR("Previous request still finishing"));
         return;
     }
     if (!subsonic_wifi_connected_guard()) return;
@@ -1590,7 +1591,7 @@ static void start_subsonic_connect(const subsonic_server_t * server) {
 
     subsonic_connect_request_t * req = malloc(sizeof(*req));
     if (!req) {
-        show_error_toast("Not enough memory to connect");
+        show_error_toast(TR("Not enough memory to connect"));
         return;
     }
     req->server = *server;
@@ -1606,7 +1607,7 @@ static void start_subsonic_connect(const subsonic_server_t * server) {
     http_cancel_token_init(&subsonic_connect_cancel);
     subsonic_connect_active = true;
 
-    subsonic_connect_token = gui_busy_show("Connecting to server...", "");
+    subsonic_connect_token = gui_busy_show(TR("Connecting to server..."), "");
 
     if (pthread_create(&subsonic_connect_thread, NULL, subsonic_connect_thread_func, req) != 0) {
         free(req);
@@ -1614,7 +1615,7 @@ static void start_subsonic_connect(const subsonic_server_t * server) {
         http_cancel_token_destroy(&subsonic_connect_cancel);
         gui_busy_hide(subsonic_connect_token);
         subsonic_connect_token = 0;
-        show_error_toast("Failed to start connection");
+        show_error_toast(TR("Failed to start connection"));
     }
 }
 
@@ -1646,14 +1647,14 @@ static void populate_subsonic_saved_servers_screen(void) {
     lv_obj_clean(subsonic_saved_servers_list);
     if (subsonic_saved_server_count == 0) {
         lv_obj_t * title = lv_label_create(subsonic_saved_servers_list);
-        lv_label_set_text(title, "No saved servers");
+        lv_label_set_text(title, TR("No saved servers"));
         lv_obj_add_style(title, &style_theme_text_primary, 0);
         lv_obj_set_style_text_font(title, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
         lv_obj_set_width(title, lv_pct(100));
         lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
 
         lv_obj_t * hint = lv_label_create(subsonic_saved_servers_list);
-        lv_label_set_text(hint, "Go back and choose New Connection to add one.");
+        lv_label_set_text(hint, TR("Go back and choose New Connection to add one."));
         lv_obj_add_style(hint, &style_theme_text_muted, 0);
         lv_obj_set_style_text_font(hint, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
         lv_obj_set_width(hint, lv_pct(88));
@@ -1667,7 +1668,7 @@ static void populate_subsonic_saved_servers_screen(void) {
 
 static lv_obj_t * build_subsonic_saved_servers_screen(void) {
     lv_obj_t * title_label; /* unused after build -- title never changes */
-    return build_subsonic_list_screen("Saved Servers", &title_label, &subsonic_saved_servers_list);
+    return build_subsonic_list_screen(TR("Saved Servers"), &title_label, &subsonic_saved_servers_list);
 }
 
 static void subsonic_saved_servers_row_cb(lv_event_t * e) {
@@ -1690,7 +1691,9 @@ static void subsonic_new_conn_url_entry_done(const char * text, void * user_data
 
 static void subsonic_new_conn_url_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    show_text_entry("Server URL (e.g. https://myserver:4040)", subsonic_new_conn_form.base_url, false, false,
+    char title[96];
+    snprintf(title, sizeof(title), TR("Server URL (e.g. %s)"), "https://myserver:4040");
+    show_text_entry(title, subsonic_new_conn_form.base_url, false, false,
                     subsonic_new_conn_url_entry_done, NULL);
 }
 
@@ -1702,7 +1705,7 @@ static void subsonic_new_conn_username_entry_done(const char * text, void * user
 
 static void subsonic_new_conn_username_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    show_text_entry("Username", subsonic_new_conn_form.username, false, false, subsonic_new_conn_username_entry_done, NULL);
+    show_text_entry(TR("Username"), subsonic_new_conn_form.username, false, false, subsonic_new_conn_username_entry_done, NULL);
 }
 
 static void subsonic_new_conn_password_entry_done(const char * text, void * user_data) {
@@ -1713,7 +1716,7 @@ static void subsonic_new_conn_password_entry_done(const char * text, void * user
 
 static void subsonic_new_conn_password_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    show_text_entry("Password", subsonic_new_conn_form.password, true, false, subsonic_new_conn_password_entry_done, NULL);
+    show_text_entry(TR("Password"), subsonic_new_conn_form.password, true, false, subsonic_new_conn_password_entry_done, NULL);
 }
 
 static void subsonic_new_conn_verify_tls_toggle_cb(lv_event_t * e) {
@@ -1731,27 +1734,27 @@ static void populate_subsonic_new_connection_screen(void) {
     lv_obj_clean(subsonic_new_connection_list);
 
     char url_text[300];
-    snprintf(url_text, sizeof(url_text), "Server URL: %s",
-             subsonic_new_conn_form.base_url[0] ? subsonic_new_conn_form.base_url : "Not set");
+    snprintf(url_text, sizeof(url_text), TR("Server URL: %s"),
+             subsonic_new_conn_form.base_url[0] ? subsonic_new_conn_form.base_url : TR("Not set"));
     add_pill_chevron_row(subsonic_new_connection_list, url_text, subsonic_new_conn_url_row_cb);
 
-    add_pill_toggle_row(subsonic_new_connection_list, "Verify server certificate", subsonic_new_conn_form.verify_tls,
+    add_pill_toggle_row(subsonic_new_connection_list, TR("Verify server certificate"), subsonic_new_conn_form.verify_tls,
                         subsonic_new_conn_verify_tls_toggle_cb);
 
     char username_text[160];
-    snprintf(username_text, sizeof(username_text), "Username: %s",
-             subsonic_new_conn_form.username[0] ? subsonic_new_conn_form.username : "Not set");
+    snprintf(username_text, sizeof(username_text), TR("Username: %s"),
+             subsonic_new_conn_form.username[0] ? subsonic_new_conn_form.username : TR("Not set"));
     add_pill_chevron_row(subsonic_new_connection_list, username_text, subsonic_new_conn_username_row_cb);
 
-    add_pill_chevron_row(subsonic_new_connection_list, subsonic_new_conn_form.password[0] ? "Password: Set" : "Password: Not set",
+    add_pill_chevron_row(subsonic_new_connection_list, subsonic_new_conn_form.password[0] ? TR("Password: Set") : TR("Password: Not set"),
                          subsonic_new_conn_password_row_cb);
 
-    add_pill_chevron_row(subsonic_new_connection_list, "Connect & Browse", subsonic_new_conn_connect_row_cb);
+    add_pill_chevron_row(subsonic_new_connection_list, TR("Connect & Browse"), subsonic_new_conn_connect_row_cb);
 }
 
 static lv_obj_t * build_subsonic_new_connection_screen(void) {
     lv_obj_t * title_label; /* unused after build -- title never changes */
-    return build_subsonic_list_screen("New Connection", &title_label, &subsonic_new_connection_list);
+    return build_subsonic_list_screen(TR("New Connection"), &title_label, &subsonic_new_connection_list);
 }
 
 static void subsonic_new_connection_row_cb(lv_event_t * e) {
@@ -1770,9 +1773,9 @@ static void subsonic_new_connection_row_cb(lv_event_t * e) {
 
 static lv_obj_t * build_subsonic_entry_screen(void) {
     static pill_list_item_t items[2];
-    items[0] = (pill_list_item_t){ "Saved Servers", PILL_ACCESSORY_CHEVRON, false, subsonic_saved_servers_row_cb, NULL, NULL };
-    items[1] = (pill_list_item_t){ "New Connection", PILL_ACCESSORY_CHEVRON, false, subsonic_new_connection_row_cb, NULL, NULL };
-    lv_obj_t * scr = build_pill_list_screen("Subsonic", generic_back_cb, items, 2, gui_theme_accent_style(), GUI_ROW_GAP, 100);
+    items[0] = (pill_list_item_t){ TR("Saved Servers"), PILL_ACCESSORY_CHEVRON, false, subsonic_saved_servers_row_cb, NULL, NULL };
+    items[1] = (pill_list_item_t){ TR("New Connection"), PILL_ACCESSORY_CHEVRON, false, subsonic_new_connection_row_cb, NULL, NULL };
+    lv_obj_t * scr = build_pill_list_screen(TR("Subsonic"), generic_back_cb, items, 2, gui_theme_accent_style(), GUI_ROW_GAP, 100);
     finalize_screen_navigation(scr);
     return scr;
 }
@@ -1792,48 +1795,48 @@ void gui_subsonic_init(void) {
      * now the first screen after connecting -- see poll_subsonic_connect().
      * Rows built once here, not repopulated per visit, since this list
      * never changes. */
-    subsonic_menu_screen = build_subsonic_list_screen("Subsonic", &subsonic_menu_title_label, &subsonic_menu_list);
+    subsonic_menu_screen = build_subsonic_list_screen(TR("Subsonic"), &subsonic_menu_title_label, &subsonic_menu_list);
     subsonic_quality_screen = build_subsonic_quality_screen();
     subsonic_download_settings_screen = build_subsonic_download_settings_screen();
     {
         char quality_label[64];
-        snprintf(quality_label, sizeof(quality_label), "Stream quality: %s",
+        snprintf(quality_label, sizeof(quality_label), TR("Stream quality: %s"),
                  subsonic_quality_name(current_settings.subsonic_stream_quality));
         subsonic_quality_row = add_pill_chevron_row(subsonic_menu_list, quality_label, subsonic_quality_row_cb);
         lv_obj_set_style_text_font(lv_obj_get_child(subsonic_quality_row, 0), gui_theme_font(GUI_FONT_ROLE_BODY), 0);
 
         subsonic_download_settings_row = add_pill_chevron_row(subsonic_menu_list,
-            "Download settings", subsonic_download_settings_row_cb);
+            TR("Download settings"), subsonic_download_settings_row_cb);
         lv_obj_set_style_text_font(lv_obj_get_child(subsonic_download_settings_row, 0),
                                    gui_theme_font(GUI_FONT_ROLE_BODY), 0);
 
-        lv_obj_t * artists_row = add_pill_row_base(subsonic_menu_list, "Artists");
+        lv_obj_t * artists_row = add_pill_row_base(subsonic_menu_list, TR("Artists"));
         lv_obj_set_style_text_font(lv_obj_get_child(artists_row, 0), gui_theme_font(GUI_FONT_ROLE_BODY), 0);
         lv_obj_add_flag(artists_row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(artists_row, subsonic_menu_artists_row_cb, LV_EVENT_CLICKED, NULL);
 
-        lv_obj_t * playlists_row = add_pill_row_base(subsonic_menu_list, "Playlists");
+        lv_obj_t * playlists_row = add_pill_row_base(subsonic_menu_list, TR("Playlists"));
         lv_obj_set_style_text_font(lv_obj_get_child(playlists_row, 0), gui_theme_font(GUI_FONT_ROLE_BODY), 0);
         lv_obj_add_flag(playlists_row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(playlists_row, subsonic_menu_playlists_row_cb, LV_EVENT_CLICKED, NULL);
 
-        lv_obj_t * albums_row = add_pill_row_base(subsonic_menu_list, "Albums");
+        lv_obj_t * albums_row = add_pill_row_base(subsonic_menu_list, TR("Albums"));
         lv_obj_set_style_text_font(lv_obj_get_child(albums_row, 0), gui_theme_font(GUI_FONT_ROLE_BODY), 0);
         lv_obj_add_flag(albums_row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(albums_row, subsonic_menu_albums_row_cb, LV_EVENT_CLICKED, NULL);
     }
 
-    subsonic_artists_screen = build_compact_list_screen("Artists", generic_back_cb, NULL, 0, subsonic_artist_row_click_cb,
+    subsonic_artists_screen = build_compact_list_screen(TR("Artists"), generic_back_cb, NULL, 0, subsonic_artist_row_click_cb,
                                                           NULL, &subsonic_artists_list, &subsonic_artists_title_label,
                                                           LIST_ROW_WIDTH_WIDE, false, lv_color_black());
-    subsonic_albums_screen = build_compact_list_screen("Albums", generic_back_cb, NULL, 0, subsonic_album_row_click_cb,
+    subsonic_albums_screen = build_compact_list_screen(TR("Albums"), generic_back_cb, NULL, 0, subsonic_album_row_click_cb,
                                                          NULL, &subsonic_albums_list, &subsonic_albums_title_label,
                                                          LIST_ROW_WIDTH_WIDE, false, lv_color_black());
     /* Finalize navigation handlers and gesture support for swipe-back navigation. */
     finalize_screen_navigation(subsonic_artists_screen);
     finalize_screen_navigation(subsonic_albums_screen);
-    subsonic_songs_screen = build_subsonic_list_screen("Songs", &subsonic_songs_title_label, &subsonic_songs_list);
-    subsonic_playlists_screen = build_subsonic_list_screen("Playlists", &subsonic_playlists_title_label, &subsonic_playlists_list);
+    subsonic_songs_screen = build_subsonic_list_screen(TR("Songs"), &subsonic_songs_title_label, &subsonic_songs_list);
+    subsonic_playlists_screen = build_subsonic_list_screen(TR("Playlists"), &subsonic_playlists_title_label, &subsonic_playlists_list);
 
     subsonic_albums_download_btn = lv_image_create(subsonic_albums_screen);
     lv_image_set_src(subsonic_albums_download_btn, asset_path("stream_media/download.png"));

@@ -60,6 +60,14 @@ void populate_bt_screen(void);
 void gui_network_show_wifi_toggle_pending(bool enabled);
 void gui_network_wifi_toggle_completed(bool enabled);
 
+/* Setup wizard Wi-Fi discovery uses the normal toggle, scan, settings
+ * snapshot, and connect workers. The supplied parent remains caller-owned. */
+void gui_network_setup_wifi_prepare(void);
+void gui_network_setup_wifi_mount(lv_obj_t * parent);
+void gui_network_setup_wifi_rescan(void);
+void gui_network_setup_wifi_add_hidden(void);
+bool gui_network_setup_wifi_connected(void);
+
 bool start_usb_mode_switch(usb_mode_t target);
 bool gui_network_adb_active(void);
 

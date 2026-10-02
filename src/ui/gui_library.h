@@ -42,9 +42,13 @@ void gui_library_suspend_boot_prompt(void);
 void gui_library_teardown(void);
 void gui_library_refresh_music_screen(void);
 void gui_library_set_artist_images_enabled(bool enabled);
+/* Apply persisted Files/Albums display ordering without replacing playback queues. */
+void gui_library_apply_sorting(void);
 
 void start_library_rescan(void);
 void start_library_auto_rescan(void);
+/* Explicit setup scan; reports completion on the UI thread and returns to setup. */
+bool gui_library_start_setup_scan(void (*on_complete)(bool success));
 void start_library_metadata_refresh_paths(const char * const * paths, int count);
 void start_library_metadata_refresh_album(const char * album, const char * album_artist);
 void start_library_metadata_refresh_artist(metadata_db_group_kind_t kind, const char * name);

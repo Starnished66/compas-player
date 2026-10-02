@@ -1,5 +1,6 @@
 #include "gui.h"
 #include "app_clock.h"
+#include "i18n.h"
 #include "gui_library.h"
 #include "gui_lock_screen.h"
 #include "gui_queue.h"
@@ -7,6 +8,7 @@
 #include "gui_plugins.h"
 #include "gui_shell.h"
 #include "gui_navigation.h"
+#include "gui_setup.h"
 
 #define PLAYLISTS_DIR MUSIC_ROOT_DIR "/Playlists"
 #define SUBSONIC_STREAM_CACHE_DIR "/tmp/subsonic_stream_cache"
@@ -230,10 +232,12 @@ void poll_bt_forget(void);
  * suspend to the same short timer would punish a user who's still actively
  * using the device, just with the screen dimming between taps. Skipped
  * entirely while music is playing, either DAC receive mode is on (both need
- * their radio to stay up to receive), or the device is charging (no battery
- * pressure to justify the reassociation cost). Whichever radios were
- * actually on get suspended, and only those get resumed on wake -- a radio
- * the user already had off before sleeping stays off. */
+ * their radio to stay up to receive), or external power is connected or
+ * unknown. A USB power source can remain connected while the battery reports
+ * discharging, so charger status alone is not enough to identify that case.
+ * Whichever radios were actually on get suspended, and only those get
+ * resumed on wake -- a radio the user already had off before sleeping stays
+ * off. */
 #define RADIO_SUSPEND_DELAY_MS (10 * 60 * 1000)
 static uint32_t screen_off_since_tick = 0;
 static bool inactivity_dimmed = false;
@@ -271,14 +275,15 @@ static bool screen_off_playback_active = false;
 
 /* Idle shutdown: a full poweroff (see idle_shutdown.h) after
  * current_settings.idle_shutdown_minutes with the screen off and nothing
- * going on -- same gating as radio-suspend above (not playing, not
- * charging, no DAC receive mode active) since none of those should ever be
- * interrupted by the device turning itself off. */
+ * going on -- same gating as radio-suspend above (not playing, no external
+ * power, not charging, no DAC receive mode active) since none of those should
+ * ever be interrupted by the device turning itself off. */
 /* Idle shutdown logic:
  *
  * Automatically power off if the device is inactive for a user-defined period
- * with the screen off. Shutdown is blocked if music is playing, the device is
- * charging, or if external audio (USB/WiFi/BT DAC) is active.
+ * with the screen off. Shutdown is blocked if music is playing, external
+ * power is connected or unknown, the battery is charging, or external audio
+ * (USB/WiFi/BT DAC) is active.
  *
  * In addition to WiFi and Bluetooth DAC modes, USB DAC mode (USB_MODE_DAC)
  * is checked to prevent idle suspend or radio disconnect while receiving USB audio. */
@@ -482,17 +487,17 @@ static void power_button_timer_cb(lv_timer_t * timer) {
 static void media_button_timer_cb(lv_timer_t * timer) {
     (void) timer;
     int played_paused_count = hw_buttons_consume_play_pause();
-    for (int i = 0; i < played_paused_count; i++) {
+    for (int i = 0; current_settings.setup_complete && i < played_paused_count; i++) {
         handle_physical_play_pause_press();
     }
     /* Physical skip buttons use gui_player_step_manual() so shuffle and repeat
      * modes are respected consistently with on-screen transport controls. */
     bool skipped_next = hw_buttons_consume_next();
-    if (skipped_next) {
+    if (current_settings.setup_complete && skipped_next) {
         gui_player_step_manual(1);
     }
     bool skipped_prev = hw_buttons_consume_prev();
-    if (skipped_prev) {
+    if (current_settings.setup_complete && skipped_prev) {
         gui_player_step_manual(-1);
     }
     /* Holding the physical Next button fast-forwards within the track, same
@@ -500,7 +505,7 @@ static void media_button_timer_cb(lv_timer_t * timer) {
      * own comment. */
     bool next_seek_is_first;
     int next_seek_steps = hw_buttons_consume_next_seek_steps(&next_seek_is_first);
-    if (next_seek_steps > 0) {
+    if (current_settings.setup_complete && next_seek_steps > 0) {
         gui_player_hw_next_seek_steps(next_seek_steps, next_seek_is_first);
     }
     int volume_delta = hw_buttons_consume_volume_delta();
@@ -575,12 +580,12 @@ static void update_timer_cb(lv_timer_t * timer) {
     screenshot_completion_t screenshot_result;
     if (screenshot_poll_completion(&screenshot_result)) {
         if (screenshot_result.saved) {
-            show_info_toast("Screenshot saved");
+            show_info_toast(TR("Screenshot saved"));
             plugin_manager_notify_screenshot_saved(screenshot_result.path);
         } else {
-            char failed_msg[64];
-            snprintf(failed_msg, sizeof(failed_msg), "Screenshot failed (%s)",
-                     screenshot_result.reason[0] ? screenshot_result.reason : "unknown");
+            char failed_msg[128];
+            snprintf(failed_msg, sizeof(failed_msg), TR("Screenshot failed (%s)"),
+                     screenshot_result.reason[0] ? screenshot_result.reason : TR("unknown"));
             show_error_toast(failed_msg);
             plugin_manager_notify_screenshot_failed(screenshot_result.reason);
         }
@@ -643,7 +648,7 @@ static void update_timer_cb(lv_timer_t * timer) {
     char remote_folder_track[REMOTE_CONTROL_PATH_MAX];
     if (remote_control_consume_folder_play(remote_folder_track, sizeof(remote_folder_track)) &&
         !gui_player_play_folder_track(remote_folder_track))
-        show_error_toast("Cannot play folder");
+        show_error_toast(TR("Cannot play folder"));
     int64_t remote_play_id;
     char remote_play_playlist[128], remote_play_artist[128], remote_play_album_artist[128], remote_play_album[128];
     char remote_play_catalog_revision[METADATA_DB_CATALOG_REVISION_SIZE] = {0};
@@ -728,7 +733,7 @@ static void update_timer_cb(lv_timer_t * timer) {
             DBG_LOG("gui: output disconnected while playing -- pausing playback\n");
             audio_toggle_pause();
             set_play_button_state(false);
-            show_error_toast("Paused: headphones disconnected");
+            show_error_toast(TR("Paused: headphones disconnected"));
         }
         last_output_connected = output_connected;
     }
@@ -902,6 +907,13 @@ static void update_timer_cb(lv_timer_t * timer) {
             screen_off_since_tick = lv_tick_get();
         }
         screen_off_playback_active = playing_now_for_idle;
+        /* Cable presence and charger status are separate signals: a USB
+         * source can remain connected while the battery reports discharging.
+         * Treat UNKNOWN conservatively so background power actions never
+         * suspend or power off while external power may still be present. */
+        battery_external_power_state_t external_power_state = battery_get_external_power_state();
+        bool external_power_blocks_idle =
+            external_power_state != BATTERY_EXTERNAL_POWER_DISCONNECTED;
         /* bt_is_powered_cached, not bt_control_is_powered(), deliberately --
          * the latter forks a process, and this condition is checked every
          * tick while the screen is off, not throttled like refresh_bt_icon()
@@ -910,7 +922,8 @@ static void update_timer_cb(lv_timer_t * timer) {
          * state without a UI the user can't reach with the screen off. */
         if (!radios_suspended && !current_settings.wifi_dac_mode_enabled && !current_settings.bt_dac_mode_enabled &&
             current_settings.usb_mode != (int) USB_MODE_DAC &&
-            !audio_is_playing() && !battery_is_charging() && !shutdown_background_work_active() &&
+            !audio_is_playing() && !external_power_blocks_idle && !battery_is_charging() &&
+            !shutdown_background_work_active() &&
             lv_tick_elaps(screen_off_since_tick) >= RADIO_SUSPEND_DELAY_MS) {
             gui_shell_suspend_connections(&wifi_was_on_before_suspend, &bt_was_on_before_suspend);
             radios_suspended = true;
@@ -926,7 +939,8 @@ static void update_timer_cb(lv_timer_t * timer) {
                                idle_elapsed_ms >= (uint32_t) current_settings.idle_shutdown_minutes * 60 * 1000;
         if ((radio_suspend_due || idle_action_due) &&
             !current_settings.wifi_dac_mode_enabled && !current_settings.bt_dac_mode_enabled &&
-            current_settings.usb_mode != (int) USB_MODE_DAC && !audio_is_playing() && !battery_is_charging()) {
+            current_settings.usb_mode != (int) USB_MODE_DAC && !audio_is_playing() &&
+            !external_power_blocks_idle && !battery_is_charging()) {
             bool library_busy = gui_library_has_background_work();
             bool subsonic_busy = gui_subsonic_has_background_work();
             bool network_busy = gui_network_has_background_work();
@@ -953,13 +967,14 @@ static void update_timer_cb(lv_timer_t * timer) {
          * is a separate, normally-longer setting than RADIO_SUSPEND_DELAY_MS,
          * and shutdown should still happen on its own schedule even if radio
          * suspend is impossible right now (e.g. wifi_dac_mode_enabled) --
-         * except it explicitly shares the same DAC-mode/playing/charging
-         * gate, since none of those should ever be interrupted by the
-         * device powering itself off out from under them. */
+         * except it explicitly shares the same DAC-mode/playing/external-
+         * power/charging gate, since none of those should ever be interrupted
+         * by the device powering itself off out from under them. */
         if (!idle_shutdown_attempted && current_settings.idle_shutdown_enabled &&
             !current_settings.wifi_dac_mode_enabled && !current_settings.bt_dac_mode_enabled &&
             current_settings.usb_mode != (int) USB_MODE_DAC &&
-            !audio_is_playing() && !battery_is_charging() && !shutdown_background_work_active() &&
+            !audio_is_playing() && !external_power_blocks_idle && !battery_is_charging() &&
+            !shutdown_background_work_active() &&
             lv_tick_elaps(screen_off_since_tick) >= (uint32_t) current_settings.idle_shutdown_minutes * 60 * 1000) {
             if (current_settings.idle_suspend_enabled) {
                 plugin_manager_notify_suspending();
@@ -1077,14 +1092,14 @@ static void update_timer_cb(lv_timer_t * timer) {
     static bool queue_checkpoint_failure_notified;
     if (gui_player_queue_checkpoint_failed()) {
         if (!queue_checkpoint_failure_notified) {
-            show_error_toast("Queue checkpoint failed; storage may be read-only");
+            show_error_toast(TR("Queue checkpoint failed; storage may be read-only"));
             queue_checkpoint_failure_notified = true;
         }
     } else queue_checkpoint_failure_notified = false;
     static bool numeric_failure_notified;
     if (metadata_db_numeric_write_failed()) {
         if (!numeric_failure_notified) {
-            show_error_toast("Playback history could not be saved");
+            show_error_toast(TR("Playback history could not be saved"));
             numeric_failure_notified = true;
         }
     } else numeric_failure_notified = false;
@@ -1390,7 +1405,7 @@ static void poll_dlna_control(void) {
 
 static lv_obj_t * build_stream_media_screen(void) {
     static icon_grid_item_t items[1 + PLUGIN_MAX_STREAM_TILES];
-    items[0] = (icon_grid_item_t){ "stream_media/subsonic_row.png", "stream_media/subsonic_row_s.png", "Subsonic", subsonic_tile_cb, NULL };
+    items[0] = (icon_grid_item_t){ "stream_media/subsonic_row.png", "stream_media/subsonic_row_s.png", TR("Subsonic"), subsonic_tile_cb, NULL };
 
     int count = 1;
     int plugin_count = plugin_manager_get_stream_tile_count();
@@ -1401,7 +1416,7 @@ static lv_obj_t * build_stream_media_screen(void) {
         };
     }
 
-    lv_obj_t * scr = build_category_menu_screen("Stream Media", generic_back_cb, items, count,
+    lv_obj_t * scr = build_category_menu_screen(TR("Stream Media"), generic_back_cb, items, count,
                                                 &launcher_layout_config.stream_media);
     finalize_screen_navigation(scr);
     return scr;
@@ -1449,6 +1464,7 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
     boot_checkpoint("gui_init entered");
 #endif
     settings_load(&current_settings);
+    i18n_set_language(current_settings.language);
     gui_display_apply_rotation(current_settings.screen_upside_down);
     bt_control_restore_codec_preference(current_settings.bt_codec);
     bt_control_set_speexrate_enabled(current_settings.bt_speexrate_enabled);
@@ -1702,13 +1718,14 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
      * metadata database. Both paths use the same Car Mode / general resume policy.
      * Tracks in SUBSONIC_STREAM_CACHE_DIR are skipped to prevent resuming into
      * transient cache files without network connectivity. */
+    bool setup_active = gui_setup_show_if_needed();
     bool sd_restored = false;
-    if (sd_card_root_is_mounted()) {
+    if (!setup_active && sd_card_root_is_mounted()) {
         sd_restored = gui_player_restore_sd_queue(true);
     }
 
     int boot_resume_mode = gui_player_boot_resume_mode();
-    if (!sd_restored && boot_resume_mode != 0 && current_settings.last_track[0] != '\0' &&
+    if (!setup_active && !sd_restored && boot_resume_mode != 0 && current_settings.last_track[0] != '\0' &&
         strncmp(current_settings.last_track, SUBSONIC_STREAM_CACHE_DIR, strlen(SUBSONIC_STREAM_CACHE_DIR)) != 0) {
         char ** resume_playlist;
         int resume_count, resume_index;
@@ -1746,6 +1763,7 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
 
 
 void gui_deinit(void) {
+    gui_setup_teardown();
     gui_library_cancel_scan();
     gui_library_cancel_background_work();
     gui_subsonic_cancel_background_work();

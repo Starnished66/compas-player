@@ -96,9 +96,12 @@ lv_obj_t * row_label_create_subtitle(lv_obj_t * row);
 void row_label_set_identity(lv_obj_t * row, lv_obj_t * subtitle_label,
                             const char * title, const char * subtitle, int32_t height);
 int32_t ui_music_row_height(void);
-/* Label-as-card contract, shared by bounded playlist/queue pages. */
+/* Container rows shared by bounded playlist/queue pages. */
 lv_obj_t * build_music_list_row(lv_obj_t * parent, const char * title, const char * subtitle,
                                int32_t trailing_space);
+/* Aligns a row's trailing status label to its metadata line, or to the title
+ * when the row has no subtitle. Alignment is recomputed after font changes. */
+void music_list_row_align_badge(lv_obj_t * row, lv_obj_t * badge);
 lv_obj_t * build_list_section(lv_obj_t * parent, const char * title);
 lv_obj_t * build_list_message(lv_obj_t * parent, const char * title, const char * detail);
 /* Sizes a bounded scrolling row label's own box tall enough for real glyph
@@ -230,6 +233,10 @@ void align_screen_header_action(lv_obj_t * action, int32_t right_inset);
  * whose contents come from a cached scan; busy greys it out and blocks taps. */
 lv_obj_t * build_header_refresh_action(lv_obj_t * scr, lv_event_cb_t click_cb);
 void set_header_refresh_action_busy(lv_obj_t * icon, bool busy);
+/* Fits a header title built by build_screen_header() to its single line
+ * (smaller font, then ellipsis). Call again after changing its width. */
+void screen_title_fit(lv_obj_t * label);
+
 /* Returns the title label. Optional trailing action reserves its hitbox. */
 lv_obj_t * build_screen_header(lv_obj_t * scr, const char * title, lv_event_cb_t back_cb,
                               const char * trailing_asset, lv_event_cb_t trailing_cb);

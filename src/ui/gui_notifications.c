@@ -125,6 +125,8 @@ gui_busy_handle_t gui_busy_show(const char * title, const char * msg) {
 
         gui_busy_label = lv_label_create(gui_busy_screen);
         lv_obj_add_style(gui_busy_label, &style_theme_text_primary, 0);
+        lv_obj_set_width(gui_busy_label, LV_PCT(90));
+        lv_label_set_long_mode(gui_busy_label, LV_LABEL_LONG_WRAP);
         lv_obj_set_style_text_align(gui_busy_label, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_align(gui_busy_label, LV_ALIGN_CENTER, 0, -BOARD_SCALE_PX(20));
 

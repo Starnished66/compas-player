@@ -1,0 +1,98 @@
+<!--
+  Player layout in the style of the stock HiBy OS player, for the 480x800
+  screen: a full-width square cover with the top bar over its upper edge, and
+  the 480x320 bottom panel with the title, artist, progress bar and transport
+  row. hiby_stock@480x720.xml and hiby_stock@320x480.xml are the same layout
+  fitted to the other screens; the right one is picked by file name.
+
+  The artwork (topbar_bg, bottom_panel) is the stock theme's own; a missing
+  file just shows nothing. Extra images could go in a hiby_stock/ folder next
+  to this file (see docs/PLAYER_LAYOUTS.md).
+
+  Lyrics replace the cover: lyrics_area sits over it, the cover dims while
+  they are open, and lyrics_active is the blue of the current line. The root
+  is opaque black, so the blurred cover background is never shown.
+  See docs/PLAYER_LAYOUTS.md for the widget names.
+-->
+<component>
+    <animations>
+        <timeline name="lyrics_open">
+            <animation prop="opa" target="cover_img" start="255" end="50" duration="250"/>
+        </timeline>
+        <timeline name="lyrics_close">
+            <animation prop="opa" target="cover_img" start="50" end="255" duration="250"/>
+        </timeline>
+    </animations>
+
+    <view extends="lv_obj" width="#screen_w" height="#screen_h" scrollable="false"
+          style_bg_color="0x000000" style_bg_opa="255" style_border_width="0"
+          style_radius="0" style_pad_all="0">
+
+        <!-- Cover: full width, square. cover_img fills the card. -->
+        <lv_obj name="cover_card" x="0" y="0" width="480" height="480" scrollable="false"
+                style_radius="0" style_clip_corner="true"
+                style_bg_opa="0" style_border_width="0" style_pad_all="0">
+            <lv_image name="cover_img" src="default_cover" align="center"/>
+        </lv_obj>
+
+        <!-- Lyrics go here, over the cover and below the top bar. The text
+             color is the normal lines, lyrics_active the current line. -->
+        <lv_obj name="lyrics_area" x="0" y="50" width="480" height="430" scrollable="false"
+                style_bg_opa="0" style_border_width="0" style_pad_all="0"
+                style_text_color="0xffffff" style_text_align="center"/>
+        <lv_label name="lyrics_active" text="" hidden="true" style_text_color="0x1062f2"/>
+
+        <lv_image name="topbar_bg" src="topbar_bg" x="0" y="0" width="480" height="50"
+                  inner_align="stretch"/>
+
+        <lv_image name="bottom_panel" src="bottom_panel" x="0" y="480" width="480" height="320"
+                  inner_align="stretch"/>
+
+        <!-- Title, artist and album stack, so differing font sizes cannot overlap. -->
+        <lv_obj x="20" y="488" width="388" height="content" scrollable="false"
+                flex_flow="column" style_pad_row="2"
+                style_bg_opa="0" style_border_width="0" style_pad_all="0">
+            <lv_label name="title" text="" width="100%" style_text_font="player_title"
+                      style_text_color="0xffffff"/>
+            <lv_label name="artist" text="" width="100%" style_text_font="player_meta"
+                      style_text_color="0x9a9a9a"/>
+            <lv_label name="album" text="" width="100%" style_text_font="player_meta"
+                      style_text_color="0x7a7a7a"/>
+        </lv_obj>
+
+        <lv_obj name="favorite_circle" x="418" y="488" width="44" height="44" scrollable="false"
+                style_radius="100" style_bg_opa="0" style_border_width="0" style_pad_all="0">
+            <lv_image name="favorite_icon" src="collect_out" width="40" height="40"
+                      inner_align="contain" align="center"/>
+        </lv_obj>
+
+        <!-- Format text on the left, queue position on the right. -->
+        <lv_obj name="quality_pill" x="20" y="590" width="content" height="30" scrollable="false"
+                flex_flow="row" style_flex_cross_place="center"
+                style_bg_opa="0" style_border_width="0" style_pad_all="0">
+            <lv_label name="format_badge" text="" style_text_font="font_16" style_text_color="0x8a8a8a"/>
+        </lv_obj>
+        <lv_label name="song_count" text="" x="360" y="592" width="100" style_text_font="font_16"
+                  style_text_color="0x8a8a8a" style_text_align="right"/>
+
+        <lv_slider name="progress_slider" x="20" y="630" width="440" height="12"
+                   style_bg_color="0x3a3a3a" style_bg_opa="255" style_radius="6"/>
+        <lv_label name="pos_label" text="0:00" x="20" y="648" width="100" style_text_font="font_16"
+                  style_text_color="0x9a9a9a"/>
+        <lv_label name="dur_label" text="--:--" x="360" y="648" width="100" style_text_font="font_16"
+                  style_text_color="0x9a9a9a" style_text_align="right"/>
+
+        <lv_image name="order_btn" src="order" x="40" y="704" width="40" height="40" inner_align="contain"/>
+        <lv_image name="prev_btn" src="btn_prev" x="130" y="704" width="40" height="40" inner_align="contain"/>
+        <lv_image name="play_btn" src="btn_play" x="198" y="682" width="84" height="84" inner_align="contain"/>
+        <lv_image name="next_btn" src="btn_next" x="310" y="704" width="40" height="40" inner_align="contain"/>
+        <lv_image name="more_btn" src="ic_more" x="400" y="704" width="40" height="40" inner_align="contain"/>
+
+        <!-- Display only; the app owns volume. -->
+        <lv_slider name="volume_slider" width="100" height="10" hidden="true"/>
+
+        <!-- Transparent tap target below the app's status bar. -->
+        <lv_obj name="dismiss_btn" x="0" y="34" width="56" height="56" scrollable="false"
+                style_bg_opa="0" style_border_width="0"/>
+    </view>
+</component>

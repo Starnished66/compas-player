@@ -15,7 +15,7 @@ lv_style_t * gui_theme_accent_outline_style(void) { return &style_accent_outline
 lv_style_t * gui_theme_muted_text_style(void) { return &style_theme_text_muted; }
 
 const uint32_t accent_palette[ACCENT_PALETTE_COUNT] = {
-    0x2196F3, /* blue (default) */
+    0x2196F3, /* blue */
     0x4CAF50, /* green */
     0xF44336, /* red */
     0xFF9800, /* orange */
@@ -23,7 +23,7 @@ const uint32_t accent_palette[ACCENT_PALETTE_COUNT] = {
     0x009688, /* teal */
     0xE91E63, /* pink */
     0xE0E0E0, /* light gray */
-    0xFFEB3B, /* yellow */
+    DEFAULT_ACCENT_COLOR, /* light yellow (default) */
     0x00BCD4, /* cyan */
     0x3F51B5, /* indigo */
     0xFFC107, /* amber */
@@ -34,7 +34,7 @@ const uint32_t accent_palette[ACCENT_PALETTE_COUNT] = {
 };
 
 /* Effective accent (see accent_lv_color()) and the last cover's color. */
-static uint32_t accent_rgb = 0x2196F3;
+static uint32_t accent_rgb = DEFAULT_ACCENT_COLOR;
 static bool cover_accent_valid;
 static uint32_t cover_accent;
 

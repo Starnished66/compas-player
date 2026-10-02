@@ -647,10 +647,11 @@ static int32_t text_view_display_height(void) {
 
 /* Font Size swaps the subtext font in place and does not rebuild this
  * screen, so each open has to resize the footer and body before pages
- * are measured. Otherwise the box from init clips the larger glyphs. */
+ * are measured. Keep the footer above the home-indicator content inset. */
 static void text_view_apply_chrome(const lv_font_t * subtext_font) {
     int32_t footer_height = lv_font_get_line_height(subtext_font) + BOARD_SCALE_PX(8);
-    s_body_height = text_view_display_height() - STATUS_BAR_CLEARANCE - TITLE_ROW_HEIGHT - footer_height;
+    s_body_height = text_view_display_height() - STATUS_BAR_CLEARANCE - TITLE_ROW_HEIGHT - footer_height -
+                    HOME_INDICATOR_CONTENT_INSET;
     if (s_body_height < 1) s_body_height = 1;
     if (s_body) {
         lv_obj_set_size(s_body, s_screen_width, s_body_height);

@@ -130,6 +130,7 @@ typedef struct {
     size_t tag_size[TAG_COUNT];
     bool fds_ready, requires_indexes, legacy_active, compact_sort, compact_order, sort_failed;
     int query_fd, artist_names_fd, title_fd, recency_fd, path_fd, rank_fd[2], group_fd[3], members_fd[3], group_n[3], sort_kind;
+    int album_order_fd[2], album_inverse_fd[2];
     bool query_cache_valid;
     uint64_t query_cache_block;
     uint32_t query_cache_values[TC_QUERY_BLOCK_VALUES];
@@ -166,6 +167,8 @@ static int32_t commit_slot_map_count;
 #define reader_group_fd (READER->group_fd)
 #define reader_members_fd (READER->members_fd)
 #define reader_group_n (READER->group_n)
+#define reader_album_order_fd (READER->album_order_fd)
+#define reader_album_inverse_fd (READER->album_inverse_fd)
 #define reader_query_cache_valid (READER->query_cache_valid)
 #define reader_query_cache_block (READER->query_cache_block)
 #define reader_query_cache_values (READER->query_cache_values)
@@ -175,6 +178,7 @@ static void reader_context_init(reader_context_t *context) {
     for (int i = 0; i < TAG_COUNT; i++) context->tag_fd[i] = -1;
     for (int i = 0; i < 3; i++) context->group_fd[i] = context->members_fd[i] = -1;
     for (int i = 0; i < 2; i++) context->rank_fd[i] = -1;
+    for (int i = 0; i < 2; i++) context->album_order_fd[i] = context->album_inverse_fd[i] = -1;
     context->fds_ready = true;
     context->serial = 1;
     context->query_cache_valid = false;
@@ -1948,7 +1952,8 @@ static void tagcache_begin_update_mode_with_lock(void (*unlock)(void), void (*lo
     scan_unlock_cb = unlock;
     scan_lock_cb = lock;
     scan_force_publication = !disk_ready || rebuild_preserve_generations ||
-                             last_load_outcome == TAGCACHE_LOAD_SUCCESS_RECOVERED;
+                             last_load_outcome == TAGCACHE_LOAD_SUCCESS_RECOVERED ||
+                             !tagcache_album_sort_available(1) || !tagcache_album_sort_available(2);
     size_t bytes = ((size_t)ent_count + 7u) / 8u;
     if (bytes) scan_seen_bitmap = calloc(1, bytes);
     if (bytes && !scan_seen_bitmap) {
@@ -1996,6 +2001,11 @@ bool tagcache_lookup(const char *path, int32_t mtime, int32_t size, tagcache_son
     return true;
 }
 
+static void tagcache_upsert_internal(const char *path, int32_t mtime, int32_t size, const char *title,
+                                     const char *artist, const char *album, const char *album_artist,
+                                     const char *genre, int32_t track_number, int32_t disc_number,
+                                     int32_t release_year, bool update_year, bool *out_tags_changed);
+
 void tagcache_upsert(const char *path, int32_t mtime, int32_t size, const char *title, const char *artist,
                      const char *album, const char *album_artist, const char *genre,
                      int32_t track_number, int32_t disc_number) {
@@ -2007,6 +2017,22 @@ void tagcache_upsert_changed(const char *path, int32_t mtime, int32_t size, cons
                              const char *artist, const char *album, const char *album_artist,
                              const char *genre, int32_t track_number, int32_t disc_number,
                              bool *out_tags_changed) {
+    tagcache_upsert_internal(path, mtime, size, title, artist, album, album_artist, genre,
+                             track_number, disc_number, 0, false, out_tags_changed);
+}
+
+void tagcache_upsert_year_changed(const char *path, int32_t mtime, int32_t size, const char *title,
+                                  const char *artist, const char *album, const char *album_artist,
+                                  const char *genre, int32_t track_number, int32_t disc_number,
+                                  int32_t release_year, bool *out_tags_changed) {
+    tagcache_upsert_internal(path, mtime, size, title, artist, album, album_artist, genre,
+                             track_number, disc_number, release_year, true, out_tags_changed);
+}
+
+static void tagcache_upsert_internal(const char *path, int32_t mtime, int32_t size, const char *title,
+                                     const char *artist, const char *album, const char *album_artist,
+                                     const char *genre, int32_t track_number, int32_t disc_number,
+                                     int32_t release_year, bool update_year, bool *out_tags_changed) {
     /* Anything short of a completed write with identical stored tags counts
      * as changed, so a failed upsert can never pass for a no-op. */
     if (out_tags_changed) *out_tags_changed = true;
@@ -2025,9 +2051,11 @@ void tagcache_upsert_changed(const char *path, int32_t mtime, int32_t size, cons
     } else if (!reader_index(slot, &idx)) { update_failed = true; return; }
     int32_t stored_track = track_number > 0 ? track_number : -1;
     int32_t stored_disc = disc_number > 0 ? disc_number : -1;
+    int32_t stored_year = release_year >= 1000 && release_year <= 9999 ? release_year : -1;
     bool tags_changed = fresh || (idx.flag & (FLAG_DELETED | FLAG_TAGS_INCOMPLETE)) ||
                         idx.tag_seek[tag_tracknumber] != stored_track ||
-                        idx.tag_seek[tag_discnumber] != stored_disc;
+                        idx.tag_seek[tag_discnumber] != stored_disc ||
+                        (update_year && idx.tag_seek[tag_year] != stored_year);
     const int tags[] = {tag_filename, tag_title, tag_artist, tag_album, tag_albumartist, tag_genre};
     const char *values[] = {path, title, artist, album, album_artist, genre};
     for (int i = 0; i < 6; i++) {
@@ -2055,6 +2083,7 @@ void tagcache_upsert_changed(const char *path, int32_t mtime, int32_t size, cons
     idx.tag_seek[tag_lastoffset] = size;
     idx.tag_seek[tag_tracknumber] = stored_track;
     idx.tag_seek[tag_discnumber] = stored_disc;
+    if (update_year) idx.tag_seek[tag_year] = stored_year;
     idx.flag = (idx.flag & ~(FLAG_DELETED | FLAG_TAGS_INCOMPLETE)) | FLAG_SEEN;
     if (!scan_write_index(slot, &idx)) return;
     reader_reset_cache();
@@ -2661,6 +2690,40 @@ bool tagcache_song_at_recency_rank(int32_t rank, tagcache_song_t *out) {
 
 int tagcache_group_count(int kind) { return db_open && kind >= 0 && kind < 3 ? (reader_legacy_active ? legacy_group_count(kind) : reader_group_n[kind]) : 0; }
 bool tagcache_group_at(int kind, int index, tagcache_group_t *out) { return db_open && reader_group_at(kind, index, out); }
+bool tagcache_album_sort_available(int sort) {
+    if (!db_open) return false;
+    if (sort == 0) return true;
+    if (sort < 1 || sort > 2 || reader_legacy_active) return false;
+    int index = sort - 1;
+    return reader_album_order_fd[index] >= 0 && reader_album_inverse_fd[index] >= 0;
+}
+
+bool tagcache_album_group_at_sorted(int sort, int rank, tagcache_group_t *out) {
+    int count = tagcache_group_count(TAGCACHE_GROUP_ALBUM);
+    if (!db_open || rank < 0 || rank >= count) return false;
+    if (sort == 0 || !tagcache_album_sort_available(sort))
+        return reader_group_at(TAGCACHE_GROUP_ALBUM, rank, out);
+    int32_t canonical;
+    int index = sort - 1;
+    if (stats_read_at(reader_album_order_fd[index], &canonical, sizeof(canonical),
+                      (off_t)rank * sizeof(canonical)) != STATS_READ_OK ||
+        canonical < 0 || canonical >= count) return false;
+    return reader_group_at(TAGCACHE_GROUP_ALBUM, canonical, out);
+}
+
+int tagcache_album_group_sorted_offset(int sort, const char *album, const char *album_artist) {
+    if (!db_open) return -1;
+    int canonical = reader_group_index(TAGCACHE_GROUP_ALBUM, album, album_artist);
+    if (canonical < 0) return -1;
+    if (sort == 0 || !tagcache_album_sort_available(sort)) return canonical;
+    int32_t sorted;
+    int index = sort - 1;
+    if (stats_read_at(reader_album_inverse_fd[index], &sorted, sizeof(sorted),
+                      (off_t)canonical * sizeof(sorted)) != STATS_READ_OK ||
+        sorted < 0 || sorted >= tagcache_group_count(TAGCACHE_GROUP_ALBUM)) return canonical;
+    return sorted;
+}
+
 int tagcache_group_index(int kind, const char *name, const char *aa) {
     return db_open ? reader_group_index(kind, name, aa) : -1;
 }

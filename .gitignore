@@ -255,27 +255,6 @@
 # gitignore never affects files git already tracks; `git rm --cached` them
 # too if the intent is to stop tracking those as well.
 *_test.c
-!src/network/subsonic_client_test.c
-!/src/ui/subsonic_queue_identity_test.c
-!/src/ui/subsonic_download_filename_test.c
-!/src/library/path_cache_migration_test.c
-!/src/core/storage_migration_test.c
-!/src/core/sd_fsck_test.c
-!/src/core/zip_reader_test.c
-!/src/core/html_blocks_test.c
-!/src/library/albumart_migration_test.c
-!/src/library/metadata_migration_retry_test.c
-!/src/network/remote_control_mdns_test.c
-!/src/library/tagcache_storage_test.c
-!/src/library/tagcache_write_volume_test.c
-!/src/library/metadata_catalog_test.c
-!/src/library/tagcache_incremental_test.c
-!/src/library/tagcache_refs_test.c
-!/src/library/tagcache_commit_failure_test.c
-!/src/bootloader/sd_ready_test.c
-!/src/library/playlist_test.c
-!/src/network/bluetooth_codec_test.c
-!/src/ui/sd_card_identity_test.c
 
 # Local GUI-refactor extraction workspace
 /scratch/
@@ -297,6 +276,7 @@
 /POSSIBLE_IMPROVEMENTS.md
 /Screenshots/*
 !/Screenshots/2026-10-01/
+!/Screenshots/2026-10-02/
 /tools/
 
 # Claude Code
@@ -373,12 +353,45 @@ src/library/metadata_artwork_test.c
 docs/INCREMENTAL_DATABASE.md
 *.md
 
-# Player layouts: the docs and tests belong to the feature, so they are
-# exempt from the blanket *.md and *_test.c rules above.
+# Player-layout documentation is deliberately kept in the public source.
 !/docs/PLAYER_LAYOUTS.md
 !/third_party/lv_xml/README.md
-!/src/ui/player_layouts_test.c
-!/src/ui/player_layout_bind_test.c
+
+# Translations: the po/ guide and the scripts make i18n runs are part of the
+# build, so they are exempt from the blanket *.md and *.py rules above.
+!/po/README.md
+!/scripts/i18n/*.py
+compas_player_setup_r1
+compas_player_power_release
+compas_player_power_r3proii
+compas_player_power_perf
+compas_player_power_r3ii_2025
 
 # Keep the recent UI walkthrough and its gallery notes in the repository.
 !/Screenshots/2026-10-01/**/*.md
+
+!/Screenshots/2026-10-02/**/*.md
+
+# Development harnesses and scratch output stay local.
+*_test.c
+*_test.h
+*_check.c
+*_check.h
+*_regression.c
+*_regression.h
+test_*.c
+/scripts/test_*.sh
+/scripts/base_image/*smoke*
+/scripts/base_image/*harness.c
+/scripts/base_image/wpa-test.conf
+__pycache__/
+*.pyc
+/player_i18n_*
+/work/
+# Provisional layout; publish after its device review.
+/assets/theme2/player_layouts/paper*.xml
+
+# Regenerate the compiled setup geographic data when needed.
+!/scripts/generate_setup_world_map.py
+!/scripts/generate_timezone_locations.py
+/scripts/base_image/alsa-null.conf

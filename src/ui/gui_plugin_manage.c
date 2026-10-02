@@ -1,4 +1,6 @@
+#include "gui_setup.h"
 #include "gui_plugin_manage.h"
+#include "i18n.h"
 #include "gui_plugin_store.h"
 #include "screen_builders.h"
 #include "gui_theme.h"
@@ -12,6 +14,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <string.h>
 #include <strings.h>
 
 /* A bound, not a promise -- plugin_manager_scan_available() truncates its
@@ -46,11 +49,12 @@ static void plugin_manage_format_label(int index, const plugin_available_entry_t
     if (!entry->loaded && length > 4 && strcasecmp(display_name + length - 4, ".lua") == 0)
         display_name[length - 4] = '\0';
 
-    const char * status = "";
     if (!entry->disabled && !entry->loaded) {
-        status = entry->over_limit ? " · Not loaded: limit reached" : " · Not loaded";
+        snprintf(manage_labels[index], sizeof(manage_labels[index]),
+                 entry->over_limit ? TR("%s · Not loaded: limit reached") : TR("%s · Not loaded"), display_name);
+    } else {
+        snprintf(manage_labels[index], sizeof(manage_labels[index]), "%s", display_name);
     }
-    snprintf(manage_labels[index], sizeof(manage_labels[index]), "%s%s", display_name, status);
 }
 
 static void plugin_manage_apply_changes(void) {
@@ -66,7 +70,7 @@ static void plugin_manage_reload_row_cb(lv_event_t * e) {
     /* Triggers a soft reload to rescan plugins from disk, displaying a toast
      * notification that survives the screen rebuild. */
     manage_changes_dirty = false;
-    show_info_toast("Refreshing plugins...");
+    show_info_toast(TR("Refreshing plugins..."));
     gui_reload_request();
 }
 
@@ -118,16 +122,16 @@ static void plugin_manage_toggle_cb(lv_event_t * e) {
     bool restore_checked = !manage_entries[index].disabled;
     if (restore_checked) lv_obj_add_state(toggle_img, LV_STATE_CHECKED);
     else lv_obj_clear_state(toggle_img, LV_STATE_CHECKED);
-    show_info_toast("Couldn't save -- plugin change was not applied");
+    show_info_toast(TR("Couldn't save -- plugin change was not applied"));
 }
 
 lv_obj_t * gui_plugin_manage_build_screen(void) {
     manage_entry_count = plugin_manager_scan_available(manage_entries, PLUGIN_MANAGE_MAX_ROWS);
 
     static pill_list_item_t items[2 + PLUGIN_MANAGE_MAX_ROWS];
-    items[0] = (pill_list_item_t){ "Plugin Store", PILL_ACCESSORY_CHEVRON, false,
+    items[0] = (pill_list_item_t){ TR("Plugin Store"), PILL_ACCESSORY_CHEVRON, false,
                                     gui_plugin_store_row_cb, NULL, NULL };
-    items[1] = (pill_list_item_t){ "Refresh Plugins", PILL_ACCESSORY_NONE, false,
+    items[1] = (pill_list_item_t){ TR("Refresh Plugins"), PILL_ACCESSORY_NONE, false,
                                     plugin_manage_reload_row_cb, NULL, NULL };
     int count = 2;
     for (int i = 0; i < manage_entry_count; i++) {
@@ -141,7 +145,7 @@ lv_obj_t * gui_plugin_manage_build_screen(void) {
         };
     }
 
-    lv_obj_t * scr = build_pill_list_screen("Plugin Manager", generic_back_cb, items, count,
+    lv_obj_t * scr = build_pill_list_screen(TR("Plugin Manager"), generic_back_cb, items, count,
                                              gui_theme_accent_style(), 6, 100);
     lv_obj_add_event_cb(scr, plugin_manage_screen_unloaded_cb, LV_EVENT_SCREEN_UNLOADED, NULL);
     finalize_screen_navigation(scr);
@@ -164,6 +168,10 @@ void gui_plugin_manage_poll(void) {
      * without another unload event. */
     if (manage_changes_dirty && plugin_manage_screen && !gui_navigation_contains(plugin_manage_screen))
         plugin_manage_apply_changes();
+}
+
+void gui_setup_open_plugins(void) {
+    nav_push(plugin_manage_screen);
 }
 
 void gui_plugin_manage_row_cb(lv_event_t * e) {

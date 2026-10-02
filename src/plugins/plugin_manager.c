@@ -1,4 +1,5 @@
 #include "plugin_manager.h"
+#include "i18n.h"
 #include "gui.h"
 #include "gui_player.h"
 #include "gui_reload.h"
@@ -918,13 +919,13 @@ static int l_plugin_register_quick_toggle(lua_State * L) {
 
     lua_getfield(L, 4, "on_text");
     const char * on_text = lua_tostring(L, -1);
-    snprintf(t->on_text, sizeof(t->on_text), "%s", on_text && on_text[0] ? on_text : "On");
+    snprintf(t->on_text, sizeof(t->on_text), "%s", on_text && on_text[0] ? on_text : TR("On"));
     utf8_sanitize(t->on_text);
     lua_pop(L, 1);
 
     lua_getfield(L, 4, "off_text");
     const char * off_text = lua_tostring(L, -1);
-    snprintf(t->off_text, sizeof(t->off_text), "%s", off_text && off_text[0] ? off_text : "Off");
+    snprintf(t->off_text, sizeof(t->off_text), "%s", off_text && off_text[0] ? off_text : TR("Off"));
     utf8_sanitize(t->off_text);
     lua_pop(L, 1);
 
@@ -5873,7 +5874,7 @@ const char * plugin_manager_get_quick_toggle_icon_selected(int index) {
 }
 
 const char * plugin_manager_get_quick_toggle_state_text(int index, bool on) {
-    if (index < 0 || index >= plugin_quick_toggle_count) return on ? "On" : "Off";
+    if (index < 0 || index >= plugin_quick_toggle_count) return on ? TR("On") : TR("Off");
     return on ? plugin_quick_toggles[index].on_text : plugin_quick_toggles[index].off_text;
 }
 

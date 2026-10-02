@@ -436,6 +436,7 @@ static void copy_song(const tagcache_song_t * src, song_row_t * dst) {
     snprintf(dst->tags.genre, sizeof(dst->tags.genre), "%s", src->genre);
     dst->tags.track_number = src->track_number;
     dst->tags.disc_number = src->disc_number;
+    dst->tags.release_year = src->release_year;
 }
 
 static void copy_group(const tagcache_group_t * src, group_row_t * dst) {
@@ -793,7 +794,7 @@ bool metadata_db_get(const char * path, int64_t mtime, int64_t size, cached_tags
     /* Databases written before album-order support left Rockbox's numeric
      * track/disc slots at zero. New scans persist -1 for a genuinely absent
      * tag, so zero/zero is an unambiguous one-time upgrade miss. */
-    if (song.track_number == 0 && song.disc_number == 0) return false;
+    if ((song.track_number == 0 && song.disc_number == 0) || song.release_year == 0) return false;
     snprintf(out->title, sizeof(out->title), "%s", song.title);
     snprintf(out->artist, sizeof(out->artist), "%s", song.artist);
     snprintf(out->album, sizeof(out->album), "%s", song.album);
@@ -801,6 +802,7 @@ bool metadata_db_get(const char * path, int64_t mtime, int64_t size, cached_tags
     snprintf(out->genre, sizeof(out->genre), "%s", song.genre);
     out->track_number = song.track_number;
     out->disc_number = song.disc_number;
+    out->release_year = song.release_year;
     return true;
 }
 
@@ -809,9 +811,9 @@ bool metadata_db_put(const char * path, int64_t mtime, int64_t size, const cache
     METADATA_DB_GUARD;
     if (!db_ready || !tags) return true;
     bool tags_changed = true;
-    tagcache_upsert_changed(path, clamp_i32(mtime), clamp_i32(size), tags->title, tags->artist, tags->album,
-                            tags->album_artist, tags->genre, tags->track_number, tags->disc_number,
-                            &tags_changed);
+    tagcache_upsert_year_changed(path, clamp_i32(mtime), clamp_i32(size), tags->title, tags->artist, tags->album,
+                                 tags->album_artist, tags->genre, tags->track_number, tags->disc_number,
+                                 tags->release_year, &tags_changed);
     int32_t rating = 0, playcount = 0, last_played = 0;
     if (remote_state_take(path, &rating, &playcount, &last_played))
         tagcache_overlay_stats(path, rating, playcount, last_played);
@@ -1406,6 +1408,68 @@ int metadata_db_get_albums_page_filtered(const char *filter, int offset, int max
         if (tagcache_group_at(TAGCACHE_GROUP_ALBUM, rank, &group)) copy_group(&group, &out_rows[w++]);
     }
     return w;
+}
+
+bool metadata_db_album_sort_available(metadata_db_album_sort_t sort) {
+    METADATA_DB_GUARD;
+    return db_ready && sort >= METADATA_DB_ALBUM_SORT_NAME && sort <= METADATA_DB_ALBUM_SORT_YEAR &&
+           tagcache_album_sort_available((int)sort);
+}
+
+int metadata_db_album_canonical_to_sorted(metadata_db_album_sort_t sort, int canonical_rank) {
+    METADATA_DB_GUARD;
+    if (!db_ready || sort < METADATA_DB_ALBUM_SORT_NAME || sort > METADATA_DB_ALBUM_SORT_YEAR ||
+        canonical_rank < 0 || canonical_rank >= tagcache_group_count(TAGCACHE_GROUP_ALBUM)) return -1;
+    if (!tagcache_album_sort_available((int)sort)) return canonical_rank;
+    tagcache_group_t group;
+    if (!tagcache_group_at(TAGCACHE_GROUP_ALBUM, canonical_rank, &group)) return -1;
+    return tagcache_album_group_sorted_offset((int)sort, group.name, group.album_artist);
+}
+
+int metadata_db_album_sorted_to_canonical(metadata_db_album_sort_t sort, int sorted_rank) {
+    METADATA_DB_GUARD;
+    if (!db_ready || sort < METADATA_DB_ALBUM_SORT_NAME || sort > METADATA_DB_ALBUM_SORT_YEAR ||
+        sorted_rank < 0 || sorted_rank >= tagcache_group_count(TAGCACHE_GROUP_ALBUM)) return -1;
+    if (!tagcache_album_sort_available((int)sort)) return sorted_rank;
+    tagcache_group_t group;
+    if (!tagcache_album_group_at_sorted((int)sort, sorted_rank, &group)) return -1;
+    return tagcache_group_index(TAGCACHE_GROUP_ALBUM, group.name, group.album_artist);
+}
+
+int metadata_db_get_album_sorted_offset(metadata_db_album_sort_t sort, const char *album,
+                                        const char *album_artist) {
+    METADATA_DB_GUARD;
+    if (!db_ready || sort < METADATA_DB_ALBUM_SORT_NAME || sort > METADATA_DB_ALBUM_SORT_YEAR) return -1;
+    return tagcache_album_group_sorted_offset((int)sort, album, album_artist);
+}
+
+int metadata_db_get_albums_page_sorted(const char *artist_filter, metadata_db_album_sort_t sort,
+                                      int offset, int max_rows, group_row_t *out_rows) {
+    METADATA_DB_GUARD;
+    if (!db_ready || !out_rows || max_rows <= 0 ||
+        sort < METADATA_DB_ALBUM_SORT_NAME || sort > METADATA_DB_ALBUM_SORT_YEAR) return 0;
+    if (offset < 0) offset = 0;
+    if (sort == METADATA_DB_ALBUM_SORT_NAME || !tagcache_album_sort_available((int)sort))
+        return metadata_db_get_albums_page_filtered(artist_filter, offset, max_rows, out_rows);
+    int count = tagcache_group_count(TAGCACHE_GROUP_ALBUM);
+    int written = 0, matched = 0;
+    int first_rank = artist_filter && artist_filter[0] ? 0 : offset;
+    int end_rank = count;
+    if ((!artist_filter || !artist_filter[0]) && max_rows <= INT_MAX - offset) {
+        end_rank = offset + max_rows;
+        if (end_rank > count) end_rank = count;
+    }
+    for (int rank = first_rank; rank < end_rank && written < max_rows; rank++) {
+        tagcache_group_t group;
+        if (!tagcache_album_group_at_sorted((int)sort, rank, &group)) continue;
+        if (artist_filter && artist_filter[0] &&
+            tagcache_group_album_offset(TAGCACHE_GROUP_ARTIST, artist_filter, group.name, group.album_artist) < 0 &&
+            tagcache_group_album_offset(TAGCACHE_GROUP_ALBUM_ARTIST, artist_filter, group.name, group.album_artist) < 0)
+            continue;
+        if (artist_filter && artist_filter[0] && matched++ < offset) continue;
+        copy_group(&group, &out_rows[written++]);
+    }
+    return written;
 }
 
 int64_t metadata_db_count_albums_for_group(metadata_db_group_kind_t kind, const char *name) {

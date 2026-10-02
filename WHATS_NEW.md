@@ -1,5 +1,13 @@
 # What's New
 
+- **Track compatibility:** tagged AAC playback, OGA/AIFC/RF64/Wave64 file support, 32-bit PCM AIFF playback, safer malformed-file handling, and clearer playback errors.
+
+- **MP3 tags:** bounded parsing of damaged tags and oversized embedded lyrics.
+
+- **Queue rows:** centered song text and aligned status labels, including larger font sizes.
+
+- **Library sorting:** Settings > Library > Sorting adds newest-modified Files order and Recently Added or Release Year order for the main Albums list. Run Update Music Database once to read release years from existing files.
+
 - **Subsonic downloads:** choose a folder on the SD card and organize downloads as Album Artist/Album or Album Artist - Album.
 - **Now Playing:** tap the artist or album to open its local library page.
 - **Artist images:** Settings > Display > Appearance > Artist Images hides artist and album-artist artwork and gives their names more space.

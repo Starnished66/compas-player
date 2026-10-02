@@ -108,6 +108,9 @@ static bool valid_remote_control_pin(const char * value) {
 }
 
 static void set_defaults(player_settings_t * out) {
+    out->setup_complete = false;
+    out->setup_intro_played = false;
+    out->setup_step = 0;
     out->volume = 1.0f;
     out->last_track[0] = '\0';
     out->last_position = 0.0;
@@ -115,7 +118,7 @@ static void set_defaults(player_settings_t * out) {
     out->last_source_name[0] = '\0';
     out->resume_mode = 0;
     out->play_pause_button_mode = 0;
-    out->accent_color = 0x2196F3; /* matches the app's existing default blue */
+    out->accent_color = DEFAULT_ACCENT_COLOR;
     out->accent_dynamic = false;
     out->crossfade_enabled = false;
     out->gapless_enabled = true; /* on by default -- see settings.h */
@@ -162,6 +165,8 @@ static void set_defaults(player_settings_t * out) {
     out->safe_charging_enabled = false; /* off means leave the PMIC charge-current setting untouched */
     out->show_battery_percent = true; /* on by default -- matches every previous version's always-on behavior */
     out->show_artist_images = true;
+    out->file_sort_mode = 0;
+    out->album_sort_mode = 0;
     /* Defaults on: a device left screen-off with idle_shutdown_enabled=false
      * sits at full power indefinitely. Suspend-to-RAM (not a full poweroff)
      * avoids resetting the music queue. 10 minutes (IDLE_SHUTDOWN_STEPS min)
@@ -189,6 +194,7 @@ static void set_defaults(player_settings_t * out) {
     out->clock_system_reference = 0;
     out->custom_font[0] = '\0';
     out->player_layout[0] = '\0';
+    snprintf(out->language, sizeof(out->language), "en");
 }
 
 void settings_subsonic_server_upsert(player_settings_t * settings, const char * url, const char * username,
@@ -327,6 +333,9 @@ bool settings_load(player_settings_t * out) {
         return false;
     }
 
+    /* Pre-setup settings files belong to existing users. An explicit zero
+     * survives early boot saves and restarts until setup is finished. */
+    out->setup_complete = true;
     char line[600];
     while (fgets(line, sizeof(line), f)) {
         line[strcspn(line, "\n")] = '\0';
@@ -337,7 +346,13 @@ bool settings_load(player_settings_t * out) {
         const char * key = line;
         const char * value = eq + 1;
 
-        if (strcmp(key, "volume") == 0) {
+        if (strcmp(key, "setup_complete") == 0) {
+            out->setup_complete = strcmp(value, "1") == 0;
+        } else if (strcmp(key, "setup_intro_played") == 0) {
+            out->setup_intro_played = strcmp(value, "1") == 0;
+        } else if (strcmp(key, "setup_step") == 0) {
+            out->setup_step = atoi(value);
+        } else if (strcmp(key, "volume") == 0) {
             out->volume = (float) atof(value);
         } else if (strcmp(key, "last_track") == 0) {
             snprintf(out->last_track, sizeof(out->last_track), "%s", value);
@@ -481,6 +496,10 @@ bool settings_load(player_settings_t * out) {
             out->safe_charging_enabled = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "show_battery_percent") == 0) {
             out->show_battery_percent = (strcmp(value, "1") == 0);
+        } else if (strcmp(key, "file_sort_mode") == 0) {
+            out->file_sort_mode = strcmp(value, "1") == 0 ? 1 : 0;
+        } else if (strcmp(key, "album_sort_mode") == 0) {
+            out->album_sort_mode = strcmp(value, "1") == 0 ? 1 : (strcmp(value, "2") == 0 ? 2 : 0);
         } else if (strcmp(key, "show_artist_images") == 0) {
             out->show_artist_images = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "idle_shutdown_enabled") == 0) {
@@ -541,9 +560,19 @@ bool settings_load(player_settings_t * out) {
             } else {
                 out->player_layout[0] = '\0';
             }
+        } else if (strcmp(key, "language") == 0) {
+            /* Short code made of letters, digits, '-' or '_'; anything else is English. */
+            size_t n = strlen(value);
+            bool ok = n > 0 && n < sizeof(out->language);
+            for (size_t i = 0; ok && i < n; i++) {
+                char c = value[i];
+                ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_';
+            }
+            snprintf(out->language, sizeof(out->language), "%s", ok ? value : "en");
         }
     }
 
+    if (out->setup_step < 0 || out->setup_step > 6) out->setup_step = 0;
     if (out->usb_mode < 0 || out->usb_mode > 2) out->usb_mode = 0; /* defensive re-clamp, same reasoning as screen_timeout_seconds -- the settings file is plaintext and could be hand-edited out of range */
     if (out->play_mode < 0 || out->play_mode > 3) out->play_mode = 0;
     if (out->font_size_tier < 0 || out->font_size_tier > 2) out->font_size_tier = 0;
@@ -680,6 +709,8 @@ static void settings_write_file(const player_settings_t * settings) {
     fprintf(f, "safe_charging_enabled=%d\n", settings->safe_charging_enabled ? 1 : 0);
     fprintf(f, "show_battery_percent=%d\n", settings->show_battery_percent ? 1 : 0);
     fprintf(f, "show_artist_images=%d\n", settings->show_artist_images ? 1 : 0);
+    fprintf(f, "file_sort_mode=%d\n", settings->file_sort_mode == 1 ? 1 : 0);
+    fprintf(f, "album_sort_mode=%d\n", settings->album_sort_mode >= 0 && settings->album_sort_mode <= 2 ? settings->album_sort_mode : 0);
     fprintf(f, "idle_shutdown_enabled=%d\n", settings->idle_shutdown_enabled ? 1 : 0);
     fprintf(f, "idle_shutdown_minutes=%d\n", settings->idle_shutdown_minutes);
     fprintf(f, "idle_suspend_enabled=%d\n", settings->idle_suspend_enabled ? 1 : 0);
@@ -703,6 +734,10 @@ static void settings_write_file(const player_settings_t * settings) {
     fprintf(f, "clock_system_reference=%lld\n", (long long) settings->clock_system_reference);
     fprintf(f, "custom_font=%s\n", settings->custom_font);
     fprintf(f, "player_layout=%s\n", settings->player_layout);
+    fprintf(f, "language=%s\n", settings->language[0] ? settings->language : "en");
+    fprintf(f, "setup_complete=%d\n", settings->setup_complete ? 1 : 0);
+    fprintf(f, "setup_step=%d\n", settings->setup_step);
+    fprintf(f, "setup_intro_played=%d\n", settings->setup_intro_played ? 1 : 0);
 
     fflush(f);
     fsync(fileno(f));

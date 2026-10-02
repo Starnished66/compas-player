@@ -459,7 +459,7 @@ restart). Each call replaces the whole previous layout.
     bg_color = 0x1e3524, text_color = 0xd8c9a3,
     radius = 24,            -- px, not negative
     -- list mode only:
-    height = 92, width = 440,         -- clamped like row options
+    height = 92, width = 440,         -- Home reference sizing (see below)
     align = "center",                 -- "left" (default), "center" or "right"
     accessory = true,                 -- show a chevron
     text_size = "medium",             -- like row options
@@ -469,6 +469,13 @@ restart). Each call replaces the whole previous layout.
 
 Native keys: `music`, `stream_media`, `wireless`, `books`, `settings`, `dac`,
 and `subsonic` (opt-in, opens Subsonic directly).
+
+Home measurements use the R1's 480×800 screen as a reference. Widths,
+radii and gaps scale to the active board. In list mode, heights express
+the relative row proportions: Home expands or shrinks them to fill the
+space between the status bar and gesture area, respecting font and touch
+minimums. If those minimums cannot fit, the list scrolls. This Home fitting
+does not change dimensions passed to submenu layouts or other plugin lists.
 
 `options`:
 
@@ -526,7 +533,9 @@ Changes the look of the Player (Now Playing) screen. Every field is optional.
 | `darken_num`, `darken_den` | integers | Darkens the blurred cover by `darken_num / darken_den`. Set both. Default 1/2. |
 
 Each call replaces all of these, so pass every option you want in the same
-call.
+call. They are global: they apply to every layout, including Default, and not
+only to one you ship. A layout that wants its own background should paint it
+(an opaque root) instead of relying on `flat`.
 
 **Whole layout**
 
@@ -1037,6 +1046,7 @@ All in `plugins_examples/`:
 | `Audiobooks.lua` | Books row, folder scanning, resume, bookmarks, chapters, sleep timer |
 | `Podcasts.lua` | RSS and OPML, episode downloads, resume |
 | `NetRadio.lua` | Stream Media tile and radio streams from `Radio.txt` |
+| `HiByStockPlayer.lua` | A Player layout in the style of the stock HiBy OS player, with its own lyrics area, offered in Settings and applied from a row |
 | `Themes.lua` | Full theming: icons, colors, Home layout, saved choice, `refresh_theme` |
 | `SoundProfiles.lua` | Switching EQ profiles |
 | `MSEB.lua` | Chained settings screens, sliders sharing EQ bands, backup and restore |

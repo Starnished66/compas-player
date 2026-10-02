@@ -1,15 +1,26 @@
-# Gallery layout
+# Final player layout captures
 
-Final device screenshots use **The Silent Man — Dream Theater**, from the SD card’s Awake album, with its existing synced lyrics. Playback was paused for both captures.
+These are the latest final R1 device captures kept for the shipped Gallery,
+Panorama, and Vinyl layouts. The matching playback and lyrics views use **The
+Silent Man — Dream Theater** from the SD card, with its existing synced lyrics.
 
-- `gallery-silent-man-playing.png`: top bar, raised cover, spaced metadata and evenly distributed controls.
-- `gallery-silent-man-lyrics.png`: title and artist aligned beside the cover, with real track lyrics.
+## Gallery
 
-Earlier captures document the spacing and header alignment checks.
+- [Playing](gallery-silent-man-playing.png)
+- [Lyrics](gallery-silent-man-lyrics.png)
 
-## Panorama waveform seek bar
+## Panorama
 
-- `panorama-rounded-waveform-playing.png`: rounded waveform bars generated from the actual local track, evenly spaced transport controls and heart.
-- `panorama-rounded-waveform-lyrics.png`: the same seek bar and transport row with the track’s existing synchronized lyrics.
+- [Playing](panorama-heart-scaled.png) — latest device capture, with the
+  rounded waveform seek bar and cover fade.
+- [Lyrics](panorama-rounded-waveform-lyrics.png)
 
-The device check included dragging to 2:26 and restarting to confirm cache reuse. Waveform data was reused without rewriting the cache. The usual 30-second screen timeout and 86% volume were restored; playback was left paused.
+## Vinyl
+
+- [Playing](vinyl-waveform_envelope.png) — the selected filled envelope seek
+  bar.
+- [Lyrics](vinyl-default-circle-lyrics.png) — uses the player's default lyrics
+  view for this layout.
+
+The player layout documentation links to these captures. Other screenshots in
+the dated walkthrough cover unrelated screens and remain available there.

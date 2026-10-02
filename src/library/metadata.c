@@ -1,5 +1,6 @@
 #include "metadata.h"
 #include "library_endian.h"
+#include "lyrics.h"
 
 #include "dr_flac.h"
 #include "dr_wav.h"
@@ -42,12 +43,15 @@ static bool safe_chunk_advance(long chunk_start, uint64_t size, long pad, long *
  * Decode also rejects sources with post-scale RGB888 above 1200x1200 (JPEG
  * allows native up to 4096 if scaled <= 1200; PNG/BMP reject native > 1200);
  * this stops the malloc of a 10 MiB APIC before that decoder runs. Also used
- * as a hard cap on ID3 tag bodies, USLT/lyrics payloads, and base64
- * METADATA_BLOCK_PICTURE decodes so a lying size field cannot malloc tens of
- * MiB in-process. */
+ * as the buffered ID3 tag limit and the base64 METADATA_BLOCK_PICTURE
+ * decode cap. Larger ID3 tags are streamed; lyrics use the smaller
+ * LYRICS_MAX_FILE_BYTES limit. */
 #define METADATA_BLOB_MAX_BYTES (4U * 1024U * 1024U)
 #define EMBEDDED_COVER_MAX_BYTES METADATA_BLOB_MAX_BYTES
 #define ID3_TEXT_FRAME_MAX_BYTES (64U * 1024U)
+#define ID3_FRAME_COUNT_MAX 4096U
+#define ID3_STREAM_WORK_BUDGET_BYTES (METADATA_BLOB_MAX_BYTES + ID3_TEXT_FRAME_MAX_BYTES + \
+                                      ID3_FRAME_COUNT_MAX * 10U + 10U)
 
 /* Enabled only in the disposable artwork helper, never in playback readers. */
 static bool artwork_only;
@@ -126,6 +130,87 @@ static void apply_sequence_text(track_metadata_t * out, bool disc, const char * 
     } else {
         out->track_number = number;
         out->has_track_number = true;
+    }
+}
+
+static bool parse_two_digits(const char * text, size_t len, size_t * pos, int * out) {
+    if (*pos + 2 > len || text[*pos] < '0' || text[*pos] > '9' ||
+        text[*pos + 1] < '0' || text[*pos + 1] > '9') return false;
+    *out = (text[*pos] - '0') * 10 + text[*pos + 1] - '0';
+    *pos += 2;
+    return true;
+}
+
+/* Accept a year by itself, YYYY-MM, or a valid ISO calendar date optionally
+ * followed by an ISO time and zone. Refuse a valid-looking year embedded in
+ * arbitrary text (for example "1234 remaster"). */
+static bool parse_release_year(const char * value, size_t len, int * out_year) {
+    if (!value || !out_year) return false;
+    size_t begin = 0, end = len;
+    while (begin < end && (value[begin] == ' ' || value[begin] == '\t' || value[begin] == '\r' || value[begin] == '\n')) begin++;
+    while (end > begin && (value[end - 1] == ' ' || value[end - 1] == '\t' || value[end - 1] == '\r' || value[end - 1] == '\n')) end--;
+    if (end - begin < 4) return false;
+    int year = 0;
+    for (size_t i = 0; i < 4; i++) {
+        char c = value[begin + i];
+        if (c < '0' || c > '9') return false;
+        year = year * 10 + c - '0';
+    }
+    if (year < 1000 || year > 9999) return false;
+    size_t p = begin + 4;
+    if (p == end) { *out_year = year; return true; }
+
+    int month = 0, day = 1;
+    if (value[p++] != '-' || !parse_two_digits(value, end, &p, &month) || month < 1 || month > 12) return false;
+    if (p < end) {
+        if (value[p++] != '-' || !parse_two_digits(value, end, &p, &day)) return false;
+        static const int days_in_month[] = {0,31,28,31,30,31,30,31,31,30,31,30,31};
+        int max_day = days_in_month[month];
+        if (month == 2 && year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) max_day++;
+        if (day < 1 || day > max_day) return false;
+    }
+    if (p == end) { *out_year = year; return true; }
+
+    /* ISO time requires a complete day and hh:mm. Seconds and fractional
+     * seconds are optional; a zone is allowed with or without seconds. */
+    if (day == 1 && p == begin + 7) return false; /* YYYY-MM has no time form */
+    if (value[p] != 'T' && value[p] != 't' && value[p] != ' ') return false;
+    p++;
+    int hour, minute, second = 0;
+    if (!parse_two_digits(value, end, &p, &hour) || p >= end || value[p++] != ':' ||
+        !parse_two_digits(value, end, &p, &minute) || hour > 23 || minute > 59) return false;
+    if (p < end && value[p] == ':') {
+        p++;
+        if (!parse_two_digits(value, end, &p, &second) || second > 60) return false;
+        if (p < end && value[p] == '.') {
+            p++;
+            size_t digits = p;
+            while (p < end && value[p] >= '0' && value[p] <= '9') p++;
+            if (p == digits) return false;
+        }
+    }
+    if (p < end && (value[p] == 'Z' || value[p] == 'z')) p++;
+    else if (p < end && (value[p] == '+' || value[p] == '-')) {
+        p++;
+        int zone_hour, zone_minute;
+        if (!parse_two_digits(value, end, &p, &zone_hour) || p >= end || value[p++] != ':' ||
+            !parse_two_digits(value, end, &p, &zone_minute) || zone_hour > 14 || zone_minute > 59 ||
+            (zone_hour == 14 && zone_minute != 0)) return false;
+    }
+    if (p != end) return false;
+    *out_year = year;
+    return true;
+}
+
+static void apply_release_year(track_metadata_t * out, const char * value, size_t value_len,
+                               bool canonical_date) {
+    int year;
+    if (!parse_release_year(value, value_len, &year)) return;
+    /* Canonical date/recording-time fields override year-only aliases even
+     * when the alias appears later in the file. */
+    if (canonical_date || !out->has_release_year) {
+        out->release_year = year;
+        out->has_release_year = true;
     }
 }
 
@@ -231,6 +316,10 @@ static void apply_vorbis_comment_field(track_metadata_t * out, const char * comm
     } else if (key_len == 5 && strncasecmp(comment, "GENRE", 5) == 0) {
         copy_bounded(out->genre, sizeof(out->genre), value, value_len);
         out->has_genre = true;
+    } else if (key_len == 4 && strncasecmp(comment, "DATE", 4) == 0) {
+        apply_release_year(out, value, value_len, true);
+    } else if (key_len == 4 && strncasecmp(comment, "YEAR", 4) == 0) {
+        apply_release_year(out, value, value_len, false);
     } else if (key_len == 11 && strncasecmp(comment, "TRACKNUMBER", 11) == 0) {
         apply_sequence_text(out, false, value, value_len);
     } else if ((key_len == 10 && strncasecmp(comment, "DISCNUMBER", 10) == 0) ||
@@ -689,22 +778,43 @@ static void decode_id3v2_uslt_frame(const uint8_t * data, uint32_t size, track_m
     if (text_start == 0 || text_start > size) return; /* malformed -- no terminator found */
 
     uint32_t text_len = size - text_start;
-    if (text_len == 0 || text_len > METADATA_BLOB_MAX_BYTES) return;
+    if (text_len == 0 || text_len > LYRICS_MAX_FILE_BYTES) return;
 
-    /* decode_id3v2_text_frame() expects data[0] to be the encoding byte, so
-     * re-prefix the text into a malloc'd buffer the same way decode_id3v2_
-     * txxx_frame() does for its own (much smaller) fields -- lyrics can run
-     * several KB, so this can't reuse a small stack buffer. text_len*2+16 is
-     * a generous worst-case UTF-16-source-to-UTF-8 expansion bound (see
-     * decode_id3v2_text_frame()'s own 4-bytes-out-per-2-bytes-in surrogate
-     * pair handling), plenty for Latin-1/UTF-8 source (1 byte in, at most 1
-     * byte out) too. */
+    /* Lyrics are retained as complete text, so reject a frame whose decoded
+     * form would exceed the sidecar limit instead of keeping a partial one. */
+    size_t decoded_len = 0;
+    if (encoding == 0x00 || encoding == 0x03) decoded_len = text_len;
+    else if (encoding == 0x01 || encoding == 0x02) {
+        size_t src = 0;
+        bool big_endian = encoding == 0x02;
+        if (encoding == 0x01 && text_len >= 2) {
+            if (data[text_start] == 0xFF && data[text_start + 1] == 0xFE) src = 2;
+            else if (data[text_start] == 0xFE && data[text_start + 1] == 0xFF) { big_endian = true; src = 2; }
+        }
+        while (src + 1 < text_len) {
+            uint16_t unit = big_endian ? (uint16_t)((data[text_start + src] << 8) | data[text_start + src + 1])
+                                       : (uint16_t)((data[text_start + src + 1] << 8) | data[text_start + src]);
+            src += 2;
+            if (unit == 0) break;
+            uint32_t cp = unit;
+            if (unit >= 0xD800 && unit <= 0xDBFF && src + 1 < text_len) {
+                uint16_t low = big_endian ? (uint16_t)((data[text_start + src] << 8) | data[text_start + src + 1])
+                                          : (uint16_t)((data[text_start + src + 1] << 8) | data[text_start + src]);
+                if (low >= 0xDC00 && low <= 0xDFFF) { cp = 0x10000 + (((uint32_t)unit - 0xD800) << 10) + low - 0xDC00; src += 2; }
+            }
+            decoded_len += cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+            if (decoded_len > LYRICS_MAX_FILE_BYTES) return;
+        }
+    } else return;
+    if (decoded_len == 0 || decoded_len > LYRICS_MAX_FILE_BYTES) return;
+
+    /* Re-prefix into a bounded buffer for decode_id3v2_text_frame(). */
     uint8_t * prefixed = malloc((size_t) text_len + 1);
     if (!prefixed) return;
     prefixed[0] = encoding;
     memcpy(prefixed + 1, data + text_start, text_len);
 
-    size_t out_size = (size_t) text_len * 2 + 16;
+    size_t out_size = decoded_len + 5U;
     char * lyrics = malloc(out_size);
     if (lyrics) {
         decode_id3v2_text_frame(prefixed, text_len + 1, lyrics, out_size);
@@ -727,6 +837,7 @@ static uint32_t id3_deunsync_in_place(uint8_t * data, uint32_t size) {
 typedef struct {
     FILE * f;
     uint32_t raw_remaining;
+    uint32_t work_remaining;
     bool tag_unsync;
     bool previous_ff;
 } id3_stream_t;
@@ -734,9 +845,11 @@ typedef struct {
 static bool id3_stream_read(id3_stream_t * s, uint8_t * out, uint32_t count) {
     uint32_t written = 0;
     while (written < count && s->raw_remaining > 0) {
+        if (s->work_remaining == 0) return false;
         int c = fgetc(s->f);
         if (c == EOF) return false;
         s->raw_remaining--;
+        s->work_remaining--;
         if (s->tag_unsync && s->previous_ff && c == 0x00) {
             s->previous_ff = false;
             continue;
@@ -773,17 +886,20 @@ static bool read_id3v2_streaming(FILE * f, track_metadata_t * out, uint8_t major
     if (body_start < 0 || tag_size > (uint32_t) LONG_MAX || body_start > LONG_MAX - (long) tag_size) return false;
     long tag_end = body_start + (long) tag_size;
     bool found_any = false;
-    id3_stream_t stream = { f, tag_size, (tag_flags & 0x80) != 0, false };
+    id3_stream_t stream = { f, tag_size, ID3_STREAM_WORK_BUDGET_BYTES,
+                            (tag_flags & 0x80) != 0, false };
 
     if (major_version >= 3 && (tag_flags & 0x40)) {
         uint8_t ext[4];
         if (!id3_stream_read(&stream, ext, 4)) return false;
         uint32_t ext_size = read_be32(ext, major_version >= 4);
         uint64_t ext_total = major_version >= 4 ? ext_size : (uint64_t) ext_size + 4U;
-        if (ext_total < 4 || ext_total > tag_size || !id3_stream_skip(&stream, (uint32_t) ext_total - 4U)) return false;
+        uint64_t min_ext_total = major_version >= 4 ? 6U : 10U;
+        if (ext_total < min_ext_total || ext_total > tag_size ||
+            !id3_stream_skip(&stream, (uint32_t) ext_total - 4U)) return false;
     }
 
-    for (;;) {
+    for (uint32_t frame_count = 0; frame_count < ID3_FRAME_COUNT_MAX; frame_count++) {
         uint32_t header_size = major_version <= 2 ? 6U : 10U;
         uint8_t hdr[10];
         if (!id3_stream_read(&stream, hdr, header_size)) break;
@@ -806,11 +922,14 @@ static bool read_id3v2_streaming(FILE * f, track_metadata_t * out, uint8_t major
                        strcmp(id, major_version <= 2 ? "TP2" : "TPE2") == 0 ||
                        strcmp(id, major_version <= 2 ? "TCO" : "TCON") == 0 ||
                        strcmp(id, major_version <= 2 ? "TRK" : "TRCK") == 0 ||
-                       strcmp(id, major_version <= 2 ? "TPA" : "TPOS") == 0;
+                       strcmp(id, major_version <= 2 ? "TPA" : "TPOS") == 0 ||
+                       strcmp(id, major_version <= 2 ? "TYE" : "TYER") == 0 ||
+                       (major_version >= 3 && strcmp(id, "TDRC") == 0);
         bool is_picture = strcmp(id, major_version <= 2 ? "PIC" : "APIC") == 0;
         bool is_txxx = major_version >= 3 && strcmp(id, "TXXX") == 0;
         bool is_lyrics = major_version >= 3 && strcmp(id, "USLT") == 0;
-        uint32_t limit = (is_text || is_txxx) ? ID3_TEXT_FRAME_MAX_BYTES : METADATA_BLOB_MAX_BYTES;
+        uint32_t limit = (is_text || is_txxx) ? ID3_TEXT_FRAME_MAX_BYTES :
+                         (is_lyrics ? LYRICS_MAX_FILE_BYTES : METADATA_BLOB_MAX_BYTES);
 
         bool compressed = false, encrypted = false, grouped = false, frame_unsync = false, data_len = false;
         if (major_version >= 4) {
@@ -825,7 +944,8 @@ static bool read_id3v2_streaming(FILE * f, track_metadata_t * out, uint8_t major
         bool wanted = is_text || is_txxx ||
                       (include_blobs && !lyrics_only && is_picture) ||
                       (include_blobs && is_lyrics && !artwork_only);
-        if (wanted && !compressed && !encrypted && frame_size <= limit) {
+        if (wanted && !compressed && !encrypted && frame_size <= limit &&
+            frame_size <= stream.raw_remaining) {
             uint8_t * data = malloc(frame_size ? frame_size : 1);
             bool read_ok = data && id3_stream_read(&stream, data, frame_size);
             if (read_ok) {
@@ -850,6 +970,14 @@ static bool read_id3v2_streaming(FILE * f, track_metadata_t * out, uint8_t major
                         char sequence[32];
                         decode_id3v2_text_frame(payload, n, sequence, sizeof(sequence));
                         apply_sequence_text(out, id[1] == 'P', sequence, strlen(sequence));
+                    } else if (strcmp(id, major_version <= 2 ? "TYE" : "TYER") == 0) {
+                        char year[32];
+                        decode_id3v2_text_frame(payload, n, year, sizeof(year));
+                        apply_release_year(out, year, strlen(year), false);
+                    } else if (major_version >= 3 && strcmp(id, "TDRC") == 0) {
+                        char date[64];
+                        decode_id3v2_text_frame(payload, n, date, sizeof(date));
+                        apply_release_year(out, date, strlen(date), true);
                     } else if (is_picture) {
                         if (major_version <= 2) decode_id3v2_pic_frame(payload, n, out); else decode_id3v2_apic_frame(payload, n, out);
                     } else if (is_txxx) decode_id3v2_txxx_frame(payload, n, out);
@@ -868,8 +996,24 @@ static bool read_id3v2_streaming(FILE * f, track_metadata_t * out, uint8_t major
             if (!id3_stream_skip(&stream, frame_size)) break;
         }
     }
-    fseek(f, tag_end, SEEK_SET);
+    (void) fseek(f, tag_end, SEEK_SET);
     return found_any;
+}
+
+/* ID3 is parsed inline for MP3/AAC scans, so reject a declared body that
+ * extends past a regular, seekable file before walking frames. Non-seekable
+ * streams retain the streaming reader's own byte bound. */
+static bool id3_tag_fits_file(FILE * f, uint32_t tag_size) {
+    long body_start = ftell(f);
+    if (body_start < 0) return true;
+    if (fseek(f, 0, SEEK_END) != 0) {
+        clearerr(f);
+        return fseek(f, body_start, SEEK_SET) == 0;
+    }
+    long file_end = ftell(f);
+    bool restored = fseek(f, body_start, SEEK_SET) == 0;
+    return restored && file_end >= body_start &&
+           (uint64_t) (file_end - body_start) >= (uint64_t) tag_size;
 }
 
 static bool read_id3v2(FILE * f, track_metadata_t * out, bool include_blobs) {
@@ -882,6 +1026,7 @@ static bool read_id3v2(FILE * f, track_metadata_t * out, bool include_blobs) {
     if (major_version < 2 || major_version > 4) return false;
     uint32_t tag_size = read_be32(&header[6], true); /* overall tag size is always synchsafe */
     if (tag_size == 0) return false;
+    if (!id3_tag_fits_file(f, tag_size)) return false;
     /* A database scan only needs bounded text frames. Always stream in that
      * mode so a large APIC/USLT body is skipped without allocating the
      * complete ID3 tag first. */
@@ -905,10 +1050,13 @@ static bool read_id3v2(FILE * f, track_metadata_t * out, bool include_blobs) {
 
     /* Skip the optional extended header if present (flags bit 0x40).
      * In ID3v2.4 the size includes itself; in ID3v2.3 it excludes the 4-byte size field. */
-    if (major_version >= 3 && (flags & 0x40) && tag_size >= 4) {
+    if (major_version >= 3 && (flags & 0x40)) {
+        if (tag_size < 4) { free(tag_data); return false; }
         uint32_t ext_size = read_be32(tag_data, major_version >= 4);
-        uint32_t ext_total = (major_version >= 4) ? ext_size : (ext_size + 4);
-        if (ext_total <= tag_size) body_start = ext_total;
+        uint64_t ext_total = major_version >= 4 ? (uint64_t) ext_size : (uint64_t) ext_size + 4U;
+        uint64_t min_ext_total = major_version >= 4 ? 6U : 10U;
+        if (ext_total < min_ext_total || ext_total > tag_size) { free(tag_data); return false; }
+        body_start = (uint32_t) ext_total;
     }
 
     bool found_any = false;
@@ -917,7 +1065,7 @@ static bool read_id3v2(FILE * f, track_metadata_t * out, bool include_blobs) {
         /* ID3v2.2 uses 3-character frame IDs and 6-byte frame headers (3-char ID
          * plus 3-byte size without flags). PIC picture frames use a distinct layout. */
         uint32_t pos = body_start;
-        while (pos + 6 <= tag_size) {
+        for (uint32_t frame_count = 0; frame_count < ID3_FRAME_COUNT_MAX && pos + 6 <= tag_size; frame_count++) {
             if (tag_data[pos] == '\0') break;
 
             char frame_id[4];
@@ -948,6 +1096,11 @@ static bool read_id3v2(FILE * f, track_metadata_t * out, bool include_blobs) {
                 decode_id3v2_text_frame(tag_data + pos, frame_size, out->genre, sizeof(out->genre));
                 out->has_genre = out->genre[0] != '\0';
                 found_any = true;
+            } else if (strcmp(frame_id, "TYE") == 0) {
+                char year[32];
+                decode_id3v2_text_frame(tag_data + pos, frame_size, year, sizeof(year));
+                apply_release_year(out, year, strlen(year), false);
+                found_any = true;
             } else if (strcmp(frame_id, "TRK") == 0 || strcmp(frame_id, "TPA") == 0) {
                 char sequence[32];
                 decode_id3v2_text_frame(tag_data + pos, frame_size, sequence, sizeof(sequence));
@@ -968,7 +1121,8 @@ static bool read_id3v2(FILE * f, track_metadata_t * out, bool include_blobs) {
     bool frame_size_synchsafe = (major_version >= 4);
     uint32_t pos = body_start;
 
-    while (pos + 10 <= tag_size) {
+    for (uint32_t frame_count = 0;
+         frame_count < ID3_FRAME_COUNT_MAX && pos + 10 <= tag_size; frame_count++) {
         if (tag_data[pos] == '\0') break; /* start of padding */
 
         char frame_id[5];
@@ -1044,6 +1198,16 @@ static bool read_id3v2(FILE * f, track_metadata_t * out, bool include_blobs) {
                 decode_id3v2_text_frame(frame_data, frame_data_size, out->genre, sizeof(out->genre));
                 out->has_genre = out->genre[0] != '\0';
                 found_any = true;
+            } else if (strcmp(frame_id, "TYER") == 0) {
+                char year[32];
+                decode_id3v2_text_frame(frame_data, frame_data_size, year, sizeof(year));
+                apply_release_year(out, year, strlen(year), false);
+                found_any = true;
+            } else if (strcmp(frame_id, "TDRC") == 0) {
+                char date[64];
+                decode_id3v2_text_frame(frame_data, frame_data_size, date, sizeof(date));
+                apply_release_year(out, date, strlen(date), true);
+                found_any = true;
             } else if (strcmp(frame_id, "TRCK") == 0 || strcmp(frame_id, "TPOS") == 0) {
                 char sequence[32];
                 decode_id3v2_text_frame(frame_data, frame_data_size, sequence, sizeof(sequence));
@@ -1055,7 +1219,7 @@ static bool read_id3v2(FILE * f, track_metadata_t * out, bool include_blobs) {
             } else if (strcmp(frame_id, "TXXX") == 0) {
                 decode_id3v2_txxx_frame(frame_data, frame_data_size, out);
                 found_any = true;
-            } else if (strcmp(frame_id, "USLT") == 0) {
+            } else if (strcmp(frame_id, "USLT") == 0 && frame_data_size <= LYRICS_MAX_FILE_BYTES) {
                 decode_id3v2_uslt_frame(frame_data, frame_data_size, out);
                 found_any = true;
             }
@@ -1090,6 +1254,7 @@ static bool read_id3v1(FILE * f, track_metadata_t * out) {
         out->track_number = tag[126];
         out->has_track_number = true;
     }
+    apply_release_year(out, (const char *) tag + 93, 4, false);
     return true;
 }
 
@@ -1097,8 +1262,16 @@ static void read_mp3_metadata(const char * path, track_metadata_t * out, bool in
     FILE * f = fopen(path, "rb");
     if (!f) return;
 
-    if (!read_id3v2(f, out, include_blobs)) {
-        read_id3v1(f, out);
+    bool have_v2 = read_id3v2(f, out, include_blobs);
+    if (!have_v2) read_id3v1(f, out);
+    else if (!out->has_release_year) {
+        /* ID3v1 remains a low-priority year fallback even when an ID3v2 tag
+         * supplied the other display metadata. */
+        track_metadata_t legacy = {0};
+        if (read_id3v1(f, &legacy) && legacy.has_release_year)
+            out->release_year = legacy.release_year;
+        if (legacy.has_release_year)
+            out->has_release_year = true;
     }
 
     fclose(f);
@@ -1368,6 +1541,11 @@ static void read_m4a_metadata(const char * path, track_metadata_t * out, bool in
             m4a_read_text_tag(f, item, out->album_artist, sizeof(out->album_artist), &out->has_album_artist);
         } else if (strcmp(item.type, "\xA9" "gen") == 0) {
             m4a_read_text_tag(f, item, out->genre, sizeof(out->genre), &out->has_genre);
+        } else if (strcmp(item.type, "\xA9" "day") == 0) {
+            char date[64] = {0};
+            bool have_date = false;
+            m4a_read_text_tag(f, item, date, sizeof(date), &have_date);
+            if (have_date) apply_release_year(out, date, strlen(date), true);
         } else if (strcmp(item.type, "trkn") == 0) {
             m4a_read_sequence_tag(f, item, false, out);
         } else if (strcmp(item.type, "disk") == 0) {
@@ -1620,6 +1798,8 @@ static void apply_title_artist_album_field(track_metadata_t * out, const char * 
     } else if (key_len == 5 && strncasecmp(key, "Album", 5) == 0) {
         copy_bounded(out->album, sizeof(out->album), value, value_len);
         out->has_album = true;
+    } else if (key_len == 4 && strncasecmp(key, "Year", 4) == 0) {
+        apply_release_year(out, value, value_len, false);
     } else if ((key_len == 5 && strncasecmp(key, "Track", 5) == 0) ||
                (key_len == 11 && strncasecmp(key, "TrackNumber", 11) == 0)) {
         apply_sequence_text(out, false, value, value_len);
@@ -1964,7 +2144,7 @@ static void read_wav_all(const char * path, track_metadata_t * out, bool include
     bool invalid_info_title = read_wav_metadata(path, out);
     if (!out->has_title) {
         read_wav_id3_fallback(path, out, include_blobs); /* see its own comment */
-    } else if (include_blobs || invalid_info_title) {
+    } else if (include_blobs || invalid_info_title || !out->has_release_year) {
         /* LIST/INFO carries only text: a cover or lyrics can live solely in
          * the "id3 " chunk. Its text stays authoritative unless INFO bytes
          * were invalid UTF-8 and an ID3 title can recover the display text. */
@@ -1974,6 +2154,10 @@ static void read_wav_all(const char * path, track_metadata_t * out, bool include
         if (invalid_info_title && id3.has_title) {
             copy_bounded(out->title, sizeof(out->title), id3.title, strnlen(id3.title, sizeof(id3.title)));
             out->has_title = true;
+        }
+        if (!out->has_release_year && id3.has_release_year) {
+            out->release_year = id3.release_year;
+            out->has_release_year = true;
         }
         if (!include_blobs) {
             free(id3.picture_data);
@@ -2035,7 +2219,8 @@ static void metadata_read_dispatch(const char * path, track_metadata_t * out, bo
         read_flac_metadata(path, out, include_blobs);
     } else if (strcasecmp(ext, ".mp3") == 0) {
         read_mp3_metadata(path, out, include_blobs);
-    } else if (strcasecmp(ext, ".wav") == 0) {
+    } else if (strcasecmp(ext, ".wav") == 0 || strcasecmp(ext, ".rf64") == 0 ||
+               strcasecmp(ext, ".w64") == 0) {
         read_wav_all(path, out, include_blobs);
     } else if (strcasecmp(ext, ".aac") == 0) {
         read_aac_metadata(path, out, include_blobs);
@@ -2043,11 +2228,12 @@ static void metadata_read_dispatch(const char * path, track_metadata_t * out, bo
         read_m4a_metadata(path, out, include_blobs);
     } else if (strcasecmp(ext, ".opus") == 0) {
         read_opus_metadata(path, out, include_blobs);
-    } else if (strcasecmp(ext, ".ogg") == 0) {
+    } else if (strcasecmp(ext, ".ogg") == 0 || strcasecmp(ext, ".oga") == 0) {
         ogg_codec_t codec = ogg_detect_codec(path);
         if (codec == OGG_CODEC_OPUS) read_opus_metadata(path, out, include_blobs);
         else if (codec == OGG_CODEC_VORBIS) read_ogg_vorbis_metadata(path, out, include_blobs);
-    } else if (strcasecmp(ext, ".aiff") == 0 || strcasecmp(ext, ".aif") == 0) {
+    } else if (strcasecmp(ext, ".aiff") == 0 || strcasecmp(ext, ".aif") == 0 ||
+               strcasecmp(ext, ".aifc") == 0) {
         read_aiff_metadata(path, out, include_blobs);
     } else if (strcasecmp(ext, ".dsf") == 0) {
         read_dsf_metadata(path, out, include_blobs);

@@ -41,6 +41,12 @@ typedef struct {
     bool has_track_number;
     bool has_disc_number;
 
+    /* Release year from common DATE/YEAR, ID3 recording-time/year, MP4
+     * ©day, and APE YEAR tags. Date precision is intentionally reduced to
+     * its validated four-digit year for library sorting. */
+    int release_year;
+    bool has_release_year;
+
     /* Embedded cover art (FLAC METADATA_BLOCK_PICTURE, MP3 ID3v2 APIC),
      * still-encoded (JPEG or PNG) bytes -- NULL if the file has none or
      * isn't a supported container. malloc'd by metadata_read(); caller

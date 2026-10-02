@@ -74,7 +74,27 @@ static const layout_image_t layout_images[] = {
     { "single", "playing_plane/single.png" },
     { "random", "playing_plane/random.png" },
     { "btn_back", "sub_back/btn_back.png" },
+    /* Pressed variants and the rest of the stock Now Playing artwork. Files
+     * missing from a theme just draw nothing. */
+    { "btn_play_s", "playing_plane/btn_play_s.png" },
+    { "btn_pause_s", "playing_plane/btn_pause_s.png" },
+    { "ic_more_s", "playing_plane/ic_more_s.png" },
+    { "collect_out_s", "playing_plane/collect_out_s.png" },
+    { "order_s", "playing_plane/order_s.png" },
+    { "loop_s", "playing_plane/loop_s.png" },
+    { "single_s", "playing_plane/single_s.png" },
+    { "random_s", "playing_plane/random_s.png" },
+    { "topbar_bg", "playing_plane/topbar_bg.png" },
+    { "bottom_panel", "playing_plane/buttom.png" }, /* sic: the stock file name is misspelled */
+    { "progress", "playing_plane/progress.png" },
+    { "progress_bg", "playing_plane/progress_bg.png" },
+    { "speed", "playing_plane/speed.png" },
+    { "speed_s", "playing_plane/speed_s.png" },
+    { "dlna", "playing_plane/dlna.png" },
 };
+
+#define LAYOUT_FOLDER_IMAGES_MAX 32
+#define LAYOUT_FOLDER_IMAGE_NAME_MAX 64
 
 static bool id_is_valid(const char * id) {
     if (!id || !id[0] || strlen(id) >= PLAYER_LAYOUT_ID_MAX) return false;
@@ -362,6 +382,64 @@ void player_layouts_release(void) {
     xml_component_registered = false;
 }
 
+static int name_cmp(const void * a, const void * b) {
+    return strcmp((const char *) a, (const char *) b);
+}
+
+/* `<dir>/<stem>.xml` may ship artwork in `<dir>/<stem>/`: each `*.png` there
+ * becomes an image named by its file stem (letters, digits, `_`, `-`), up to
+ * LAYOUT_FOLDER_IMAGES_MAX in name order. Registered before the built-in
+ * names, so a file here replaces a built-in of the same name; first
+ * registration wins, so names the XML declares itself still take precedence. */
+static void register_layout_folder_images(lv_xml_component_scope_t * scope, const char * entry_path) {
+    const char * dot = strrchr(entry_path, '.');
+    if (!scope || !dot) return;
+    char folder[MAX_LAYOUT_PATH];
+    if (snprintf(folder, sizeof(folder), "%.*s", (int) (dot - entry_path), entry_path) >= (int) sizeof(folder)) return;
+    DIR * d = opendir(folder);
+    if (!d) return;
+
+    /* The LAYOUT_FOLDER_IMAGES_MAX smallest names, whatever the directory
+     * order: a full table replaces its largest name with a smaller one. */
+    char names[LAYOUT_FOLDER_IMAGES_MAX][LAYOUT_FOLDER_IMAGE_NAME_MAX];
+    int count = 0;
+    struct dirent * ent;
+    while ((ent = readdir(d)) != NULL) {
+        size_t len = strlen(ent->d_name);
+        if (len < 5 || len - 4 >= LAYOUT_FOLDER_IMAGE_NAME_MAX || strcmp(ent->d_name + len - 4, ".png") != 0) continue;
+        bool ok = true;
+        for (size_t i = 0; i < len - 4 && ok; ++i)
+            ok = isalnum((unsigned char) ent->d_name[i]) || ent->d_name[i] == '_' || ent->d_name[i] == '-';
+        if (!ok) continue;
+        char path[MAX_LAYOUT_PATH];
+        struct stat st;
+        if (snprintf(path, sizeof(path), "%s/%s", folder, ent->d_name) >= (int) sizeof(path)) continue;
+        if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) continue;
+        char name[LAYOUT_FOLDER_IMAGE_NAME_MAX];
+        memcpy(name, ent->d_name, len - 4);
+        name[len - 4] = '\0';
+        int slot = count;
+        if (count == LAYOUT_FOLDER_IMAGES_MAX) {
+            slot = 0;
+            for (int i = 1; i < count; ++i)
+                if (strcmp(names[i], names[slot]) > 0) slot = i;
+            if (strcmp(name, names[slot]) >= 0) continue;
+        } else {
+            ++count;
+        }
+        memcpy(names[slot], name, len - 3);
+    }
+    closedir(d);
+    qsort(names, (size_t) count, sizeof(names[0]), name_cmp);
+    for (int i = 0; i < count; ++i) {
+        /* The XML engine keeps image paths in LV_XML_MAX_PATH_LENGTH bytes and
+         * would cut a longer one; such a file is skipped instead. */
+        char src[LV_XML_MAX_PATH_LENGTH];
+        if (snprintf(src, sizeof(src), "S:%s/%s.png", folder, names[i]) >= (int) sizeof(src)) continue;
+        lv_xml_register_image(scope, names[i], src);
+    }
+}
+
 static void delete_children_from(lv_obj_t * parent, uint32_t first) {
     while (lv_obj_get_child_count(parent) > first) lv_obj_delete(lv_obj_get_child(parent, (int32_t) first));
 }
@@ -399,8 +477,10 @@ static lv_obj_t * create_xml_layout(const char * entry_path, lv_obj_t * parent) 
     /* Images go into the component's own scope, after its metadata pass: the
      * paths depend on theme overrides, which may differ between builds, and
      * the scope is released together with the layout. A name the XML declares
-     * itself keeps precedence. */
+     * itself keeps precedence, then the layout's own image folder, then the
+     * built-in names. */
     lv_xml_component_scope_t * scope = lv_xml_component_get_scope(XML_COMPONENT_NAME);
+    register_layout_folder_images(scope, entry_path);
     for (size_t i = 0; scope && i < sizeof(layout_images) / sizeof(layout_images[0]); ++i)
         lv_xml_register_image(scope, layout_images[i].name, asset_path(layout_images[i].relative_path));
 

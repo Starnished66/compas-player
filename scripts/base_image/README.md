@@ -28,10 +28,10 @@ stream fields and the negotiated rate/channel mode, commits IMDCT history only
 for fully valid frames, and fixes upstream decoding bugs (fine-precision cap
 and dequantization, descending gradient, dual-channel blocks, mode-2 scale
 factor wrap, scale factor 0, S32 gain). Soname, exports and ABI match the
-vendor build. `ldac_decoder_harness.c` is the host check: it encodes with the
-pinned AOSP encoder and decodes through dlopen, reporting rejects and SNR.
-The small decoder compatibility header supplies the declarations BlueALSA
-needs.
+vendor build. During development, a temporary local host harness encoded with
+the pinned AOSP encoder and decoded through `dlopen`, reporting rejects and
+SNR; that harness is not a repository build input. The small decoder
+compatibility header supplies the declarations BlueALSA needs.
 Keep libc/loader, OpenSSL, curl, Wi-Fi drivers/firmware and the working player
 mbedTLS version unchanged in this batch. Shared-library SONAME filenames do
 not establish upstream source versions.
@@ -74,7 +74,6 @@ bash scripts/build_base_glib.sh
 bash scripts/build_base_dbus.sh
 bash scripts/build_base_bt_codecs.sh
 bash scripts/build_base_bluealsa.sh
-make bluetooth-codec-selftest
 make -j4 target
 bash scripts/prepare_base_image_overlay.sh
 ```
@@ -85,20 +84,48 @@ under `scratch/base-upgrade`; the overlay script does not install or flash.
 Keep the downloaded sources, notices and these recipes with release source
 materials. Runtime notices are included in the overlay.
 
-## Validation and installation
+## Local validation and installation
 
-Copy the stock root into a fresh scratch directory, merge
-`scratch/base-upgrade/overlay/` into that copy, then run:
+These base-image recipes are local development tools; this guide does not
+depend on a checked-in test runner or fixture files. After merging the overlay
+into a disposable copy of the matching stock root, check that the target
+binaries have the expected architecture and can report their versions or
+capabilities under QEMU user emulation:
 
 ```sh
-bash scripts/test_base_image.sh /absolute/path/to/candidate/root
+root=/absolute/path/to/candidate/root
+file "$root/usr/bin/bluealsad" "$root/usr/bin/bluealsactl"
+qemu-mipsel -L "$root" "$root/usr/bin/bluealsad" --version
+qemu-mipsel -L "$root" "$root/usr/bin/bluealsactl" --help
 ```
 
-This checks eager dynamic linking of new and retained tools, both BlueALSA
-plugins, compression roundtrip, XML parsing, ALSA configuration allocation,
-and SBC encoding/decoding. It is **not** a kernel boot, audio quality,
-Bluetooth pairing, suspend, or radio firmware test. QEMU user emulation uses
-the host kernel, not the device's Linux 4.4 kernel.
+For an R3 Bluetooth overlay, also check the staged BlueZ daemon and CLI:
+
+```sh
+qemu-mipsel -L "$root" "$root/usr/libexec/bluetooth/bluetoothd" --version
+qemu-mipsel -L "$root" "$root/usr/bin/bluetoothctl" --help
+```
+
+For a Wi-Fi overlay, check the staged supplicant's version and compiled
+capabilities:
+
+```sh
+qemu-mipsel -L "$root" "$root/usr/sbin/wpa_supplicant" -v
+qemu-mipsel -L "$root" "$root/usr/sbin/wpa_supplicant" -h
+```
+
+Use the actual paths present in the candidate root for components not included
+in a particular overlay. These checks exercise the built target binaries and
+libraries, but QEMU uses the host kernel. They do not validate kernel boot,
+audio quality, Bluetooth pairing, Wi-Fi association, suspend, or radio
+firmware behavior; those require testing on the matching hardware.
+
+Earlier local development checks passed eager dynamic linking of new and
+retained tools, both BlueALSA plugins, compression roundtrip, XML parsing,
+ALSA configuration allocation, and SBC encoding/decoding. A null-device
+ALSA playback/capture check also passed under QEMU and on the R1 kernel/libc.
+These are historical results from local harnesses, not commands or test files
+provided by this repository.
 
 Back up the extracted stock tree on the workstation before applying the
 overlay to Test2. Do not put backups in `/usr/data`. Preserve existing D-Bus
@@ -137,7 +164,6 @@ bash scripts/build_base_alsa_utils.sh
 bash scripts/prepare_player_base_overlay.sh alsa
 
 bash scripts/build_base_bluez.sh
-make bluetooth-codec-selftest
 make -j4 target
 bash scripts/prepare_player_base_overlay.sh bluetooth
 
@@ -152,8 +178,9 @@ libraries are already present and includes the matching player binary.
 
 - **ALSA utilities 1.2.16:** only `aplay`, `arecord`, and `amixer` are installed.
   Keep the vendor mixer/state configuration and existing `alsamixer`.
-  `test_base_alsa_utils.sh ROOTFS` exercises the player's raw-PCM pipe using
-  the null device at 44.1/48/192 kHz, in S16_LE/S24_LE, plus null capture.
+  Earlier local null-device checks exercised the player's raw-PCM pipe at
+  44.1/48/192 kHz in S16_LE/S24_LE, plus null capture; no repository test
+  helper is required for this base recipe.
 - **BlueZ 5.87:** upgrade `bluetoothd`, `bluetoothctl`, `hciconfig`, `hcitool`
   and `btmon`. Preserve UART/firmware loaders (`hciattach`,
   `brcm_patchram_plus`, etc.), init scripts, configuration and pairing data.
@@ -187,11 +214,12 @@ establish headphone pairing, audible playback, Wi-Fi association, or suspend
 correctness; those remain release gates. Keep radio overlays out of Test2
 until the corresponding device tests are completed.
 
-Wi-Fi validation also passed on the R1: `netlink_smoke.c` resolved `nlctrl`
-and `nl80211` through the new libnl; `wpa-control-smoke.sh` started the new
-supplicant with the `none` backend on loopback, received `PONG`, checked the
-TLS/PEAP/TTLS/FAST method list, and terminated that isolated instance. The
-test uses `wpa-test.conf`, not saved networks, and never takes over `wlan0`.
+Earlier local Wi-Fi checks passed on the R1: a temporary host-side check
+resolved `nlctrl` and `nl80211` through the new libnl, and an isolated
+supplicant instance using the `none` backend answered `PONG` and reported the
+TLS/PEAP/TTLS/FAST methods. Those temporary helpers and configuration are not
+repository artifacts; the checks did not use saved networks or take over
+`wlan0`.
 
 RAM caution: `/tmp` is RAM-backed and the R1 exposes about 56 MiB total RAM.
 Keeping several batches of test binaries/libraries there exhausted enough

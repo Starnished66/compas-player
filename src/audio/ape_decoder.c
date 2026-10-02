@@ -680,8 +680,9 @@ static bool ensure_swapbuf_capacity(ape_decoder_t * ctx, uint32_t needed) {
 /* Decodes physical frame frame_index in full into ctx->decoded[0..channels),
  * ready to be read out via the carry buffer. Mirrors ape_decode_frame, but
  * always decodes the whole frame in one call rather than in
- * blocks_per_loop-sized chunks (fine -- one frame is at most 73728*2 = ~590KB
- * of int32 samples per channel, an acceptable one-shot allocation). */
+ * blocks_per_loop-sized chunks (the supported Insane profile permits
+ * 73728*16 blocks per frame, bounding each two-channel int32 working buffer
+ * to about 9 MiB). */
 static bool decode_physical_frame(ape_decoder_t * ctx, uint32_t frame_index) {
     uint32_t skip = ape_demux_get_frame_skip(ctx->demux, frame_index);
     uint32_t raw_size;
@@ -739,6 +740,7 @@ ape_decoder_t * ape_open_file(const char * path) {
     int fset = compression_level / 1000 - 1;
 
     ape_decoder_t * ctx = calloc(1, sizeof(*ctx));
+    if (!ctx) { ape_demux_close(demux); return NULL; }
     ctx->demux = demux;
     ctx->channels = (int) channels;
     ctx->bps = (int) bps;
@@ -764,6 +766,10 @@ ape_decoder_t * ape_open_file(const char * path) {
 
     ctx->max_frame_blocks = ape_demux_get_blocks_per_frame(demux);
     uint32_t aligned = (ctx->max_frame_blocks + 7u) & ~7u;
+    if ((size_t)aligned > SIZE_MAX / (2U * sizeof(int32_t))) {
+        ape_close(ctx);
+        return NULL;
+    }
     ctx->decoded_buffer = malloc(2 * (size_t) aligned * sizeof(int32_t));
     if (!ctx->decoded_buffer) { ape_close(ctx); return NULL; }
     ctx->decoded[0] = ctx->decoded_buffer;

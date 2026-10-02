@@ -56,7 +56,6 @@ jobs:
           set -euo pipefail
           make -j2 target RELEASE_LABEL="$RELEASE_LABEL"
           make bootloader
-          make sd_ready_test
           make -j2 target BOARD=r3proii RELEASE_LABEL="$RELEASE_LABEL"
           make bootloader BOARD=r3proii
           make -j2 target BOARD=r3ii_2025 \

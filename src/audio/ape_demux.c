@@ -4,6 +4,32 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
+#include <stdint.h>
+
+#define APE_MAX_BLOCKS_PER_FRAME (73728U * 16U)
+/* Prevent a tiny or sparse seek table from requesting impractical long-lived
+ * index memory: ape_frame_t is 24 bytes, so this caps the index near 3 MiB. */
+#define APE_MAX_FRAME_COUNT 131072U
+
+static bool ape_seek_abs(FILE * f, uint64_t offset) {
+    if (offset > (uint64_t)LONG_MAX) return false;
+    return fseek(f, (long)offset, SEEK_SET) == 0;
+}
+
+static bool ape_get_file_size(FILE * f, uint64_t * out_size) {
+    if (fseek(f, 0, SEEK_END) != 0) return false;
+    long size = ftell(f);
+    if (size < 0 || fseek(f, 0, SEEK_SET) != 0) return false;
+    *out_size = (uint64_t)size;
+    return true;
+}
+
+static bool ape_add_u64(uint64_t a, uint64_t b, uint64_t * out) {
+    if (UINT64_MAX - a < b) return false;
+    *out = a + b;
+    return true;
+}
 
 typedef struct {
     uint64_t pos;
@@ -33,6 +59,9 @@ ape_demux_t * ape_demux_open(const char * path) {
     FILE * f = fopen(path, "rb");
     if (!f) return NULL;
 
+    uint64_t file_size;
+    if (!ape_get_file_size(f, &file_size)) { fclose(f); return NULL; }
+
     uint8_t hdr[4];
     if (fread(hdr, 1, 4, f) != 4 || memcmp(hdr, "MAC ", 4) != 0) {
         fclose(f);
@@ -61,16 +90,27 @@ ape_demux_t * ape_demux_open(const char * path) {
     uint32_t headerlength = audio_read_u32le(desc + 6);
     uint32_t seektablelength = audio_read_u32le(desc + 10);
     uint32_t wavheaderlength = audio_read_u32le(desc + 14);
+    uint32_t audiodatalength = audio_read_u32le(desc + 18);
+    uint32_t audiodatalength_high = audio_read_u32le(desc + 22);
     uint32_t wavtaillength = audio_read_u32le(desc + 26);
 
-    if (descriptorlength > 52) {
-        if (fseek(f, (long) (descriptorlength - 52), SEEK_CUR) != 0) { fclose(f); return NULL; }
+    if (descriptorlength < 52 || headerlength < 24) { fclose(f); return NULL; }
+    uint64_t header_start = descriptorlength;
+    uint64_t table_start, audio_start;
+    if (!ape_add_u64(header_start, headerlength, &table_start) ||
+        !ape_add_u64(table_start, seektablelength, &audio_start) ||
+        !ape_add_u64(audio_start, wavheaderlength, &audio_start) ||
+        audio_start > file_size || !ape_seek_abs(f, header_start)) {
+        fclose(f); return NULL;
     }
 
     uint8_t hb[24];
     if (fread(hb, 1, 24, f) != 24) { fclose(f); return NULL; }
 
+    if (!ape_seek_abs(f, table_start)) { fclose(f); return NULL; }
+
     ape_demux_t * d = calloc(1, sizeof(*d));
+    if (!d) { fclose(f); return NULL; }
     d->f = f;
     d->fileversion = fileversion;
     d->compressiontype = audio_read_u16le(hb + 0);
@@ -82,70 +122,87 @@ ape_demux_t * ape_demux_open(const char * path) {
     d->channels = audio_read_u16le(hb + 18);
     d->samplerate = audio_read_u32le(hb + 20);
 
-    if (!d->totalframes || d->channels == 0 || d->channels > 2 ||
-        (d->bps != 16 && d->bps != 24)) {
+    uint64_t min_table_size = (uint64_t)d->totalframes * 4U;
+    uint64_t audio_data_size = ((uint64_t)audiodatalength_high << 32) | audiodatalength;
+    uint64_t audio_end;
+    if (!d->totalframes || d->totalframes > APE_MAX_FRAME_COUNT ||
+        min_table_size > seektablelength ||
+        d->blocksperframe == 0 || d->blocksperframe > APE_MAX_BLOCKS_PER_FRAME ||
+        d->finalframeblocks == 0 || d->finalframeblocks > d->blocksperframe ||
+        d->channels == 0 || d->channels > 2 || (d->bps != 16 && d->bps != 24) ||
+        d->samplerate == 0 ||
+        (uint64_t)d->totalframes > SIZE_MAX / sizeof(ape_frame_t) ||
+        (audio_data_size != 0 && !ape_add_u64(audio_start, audio_data_size, &audio_end))) {
         fclose(f);
         free(d);
         return NULL;
     }
 
+    if (audio_data_size == 0) {
+        if (wavtaillength > file_size - audio_start) { fclose(f); free(d); return NULL; }
+        audio_end = file_size - wavtaillength;
+    }
+    if (audio_end < audio_start || audio_end > file_size ||
+        wavtaillength > file_size - audio_end) { fclose(f); free(d); return NULL; }
+
     d->total_samples = d->finalframeblocks;
     if (d->totalframes > 1) d->total_samples += (uint64_t) d->blocksperframe * (d->totalframes - 1);
 
-    d->frames = malloc(sizeof(ape_frame_t) * d->totalframes);
+    d->frames = calloc((size_t)d->totalframes, sizeof(ape_frame_t));
     if (!d->frames) {
         fclose(f);
         free(d);
         return NULL;
     }
 
-    long firstframe = (long) descriptorlength + (long) headerlength + (long) seektablelength + (long) wavheaderlength;
-
-    d->frames[0].pos = (uint64_t) firstframe;
+    d->frames[0].pos = audio_start;
     d->frames[0].nblocks = d->blocksperframe;
 
     uint8_t entry[4];
-    if (fread(entry, 1, 4, f) != 4) { /* seektable[0], unused -- frames[0].pos is computed directly */
-        ape_demux_close(d);
-        return NULL;
+    if (fread(entry, 1, 4, f) != 4) { /* first entry is redundant in this layout */
+        ape_demux_close(d); return NULL;
     }
     for (uint32_t i = 1; i < d->totalframes; i++) {
         if (fread(entry, 1, 4, f) != 4) { ape_demux_close(d); return NULL; }
         uint32_t seektable_entry = audio_read_u32le(entry);
+        if ((uint64_t)seektable_entry <= d->frames[i - 1].pos ||
+            (uint64_t)seektable_entry >= audio_end) { ape_demux_close(d); return NULL; }
         d->frames[i].pos = seektable_entry;
         d->frames[i].nblocks = d->blocksperframe;
         d->frames[i - 1].size = d->frames[i].pos - d->frames[i - 1].pos;
-        d->frames[i].skip = (uint32_t) ((d->frames[i].pos - d->frames[0].pos) & 3);
+        d->frames[i].skip = (uint32_t)((d->frames[i].pos - d->frames[0].pos) & 3U);
     }
     d->frames[0].skip = 0;
 
-    uint32_t seektable_entries_read = d->totalframes;
-    uint32_t seektable_total_entries = seektablelength / 4;
-    if (seektable_total_entries > seektable_entries_read) {
-        if (fseek(f, (long) (seektable_total_entries - seektable_entries_read) * 4, SEEK_CUR) != 0) {
-            ape_demux_close(d);
-            return NULL;
-        }
-    }
-
     d->frames[d->totalframes - 1].nblocks = d->finalframeblocks;
 
-    fseek(f, 0, SEEK_END);
-    long file_size = ftell(f);
-    int64_t final_size = 0;
-    if (file_size > 0) {
-        final_size = (int64_t) file_size - (int64_t) d->frames[d->totalframes - 1].pos - wavtaillength;
-        final_size -= final_size & 3;
-    }
-    if (file_size <= 0 || final_size <= 0) final_size = (int64_t) d->finalframeblocks * 8;
-    d->frames[d->totalframes - 1].size = (uint64_t) final_size;
+    uint64_t last_pos = d->frames[d->totalframes - 1].pos;
+    if (last_pos >= audio_end) { ape_demux_close(d); return NULL; }
+    uint64_t final_size = audio_end - last_pos;
+    final_size -= final_size & 3U; /* preserve the decoder's whole-word tail behavior */
+    if (final_size == 0) { ape_demux_close(d); return NULL; }
+    d->frames[d->totalframes - 1].size = final_size;
 
     for (uint32_t i = 0; i < d->totalframes; i++) {
+        if (UINT64_MAX - d->frames[i].size < d->frames[i].skip) {
+            ape_demux_close(d); return NULL;
+        }
+        if (d->frames[i].skip > d->frames[i].pos) {
+            ape_demux_close(d); return NULL;
+        }
         if (d->frames[i].skip) {
             d->frames[i].pos -= d->frames[i].skip;
             d->frames[i].size += d->frames[i].skip;
         }
-        d->frames[i].size = (d->frames[i].size + 3) & ~(uint64_t) 3;
+        if (UINT64_MAX - d->frames[i].size < 3U) {
+            ape_demux_close(d); return NULL;
+        }
+        d->frames[i].size = (d->frames[i].size + 3U) & ~(uint64_t)3U;
+        uint64_t rounded_end;
+        if (!ape_add_u64(d->frames[i].pos, d->frames[i].size, &rounded_end) ||
+            rounded_end > file_size || d->frames[i].size > UINT32_MAX) {
+            ape_demux_close(d); return NULL;
+        }
     }
 
     return d;

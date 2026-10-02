@@ -42,6 +42,10 @@ void db_log_set_enabled(bool enabled);
 bool db_log_enabled(void);
 
 void db_log(const char * area, const char * fmt, ...);
+/* Flush buffered output and force it to storage when logging is enabled.
+ * Returns false when logging is disabled, no file is open, or either sync
+ * operation fails. Intended for infrequent crash/suspend phase markers. */
+bool db_log_flush(void);
 /* Guard at the call site so logging-only arguments (RSS reads, clock calls,
  * DB queries) are not evaluated at all in the default disabled mode. The
  * implementation deliberately rechecks after taking its mutex as well, to

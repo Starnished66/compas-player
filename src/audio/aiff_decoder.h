@@ -7,7 +7,7 @@
 /* Minimal AIFF/AIFF-C reader (big-endian PCM container). No dr_libs
  * equivalent exists for this format, so it's hand-written here, matching
  * the same open/read/seek/close shape as dr_flac/dr_mp3/dr_wav so it slots
- * into audio.c's decoder dispatch the same way. Supports 8/16/24-bit PCM
+ * into audio.c's decoder dispatch the same way. Supports 8/16/24/32-bit PCM
  * ('AIFF' and uncompressed 'AIFC'); compressed AIFC variants are not
  * supported. */
 

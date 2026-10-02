@@ -1,4 +1,5 @@
 #include "audio.h"
+#include "i18n.h"
 
 /* Default (4096 bytes) is dr_flac's own general-purpose tuning -- its header
  * comment notes "diminishing returns after about 4KB" for a typical fast
@@ -24,6 +25,7 @@
 #include "alac_decoder.h"
 #include "mp4_demux.h"
 #include "ape_decoder.h"
+#include "ape_demux.h"
 #include "wma_decoder.h"
 #include "opus_decoder.h"
 #include "ogg_demux.h"
@@ -45,6 +47,7 @@
 #include <stdatomic.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <errno.h>
 #include <time.h>
 
 #include "debug_log.h"
@@ -66,6 +69,7 @@
 #define NORMAL_CHUNK_FRAMES 4096
 #define LOW_POWER_CHUNK_FRAMES 8192
 #define MAX_CHUNK_FRAMES LOW_POWER_CHUNK_FRAMES
+#define MAX_CHANNELS 8
 
 /* --- Decoder dispatch: dr_flac/dr_mp3/dr_wav all expose the same shape of
  * API (open, channels/sampleRate, read_pcm_frames_s16, seek_to_pcm_frame,
@@ -107,6 +111,7 @@ typedef struct {
     unsigned int source_bit_depth;
     unsigned int bitrate_kbps;
     uint64_t total_frames;
+    audio_error_t open_error;
 
     /* Local MP3 only. dr_mp3 never owns a bound seek table, so this tagged
      * decoder owns and frees it alongside the drmp3 instance. */
@@ -187,8 +192,9 @@ static drflac_bool32 flac_file_seek_cb(void * user_data, int offset, drflac_seek
     return fseek((FILE *) user_data, (long) offset, whence) == 0 ? DRFLAC_TRUE : DRFLAC_FALSE;
 }
 
-static bool decoder_open(decoder_t * dec, const char * path) {
+static bool decoder_open_internal(decoder_t * dec, const char * path) {
     memset(dec, 0, sizeof(*dec));
+    dec->open_error = AUDIO_ERROR_DECODER_FAILED;
 
     /* A remote-provider track (plugin.play_remote(), see remote_track.h):
      * path is the stable "remote://<provider>/<track_id>" synthetic key
@@ -299,7 +305,7 @@ static bool decoder_open(decoder_t * dec, const char * path) {
     }
 
     const char * ext = strrchr(path, '.');
-    if (!ext) return false;
+    if (!ext) { dec->open_error = AUDIO_ERROR_UNSUPPORTED_FORMAT; return false; }
 
     if (strcasecmp(ext, ".flac") == 0) {
         dec->type = DECODER_FLAC;
@@ -336,7 +342,8 @@ static bool decoder_open(decoder_t * dec, const char * path) {
         return true;
     }
 
-    if (strcasecmp(ext, ".wav") == 0) {
+    if (strcasecmp(ext, ".wav") == 0 || strcasecmp(ext, ".rf64") == 0 ||
+        strcasecmp(ext, ".w64") == 0) {
         dec->type = DECODER_WAV;
         dec->as.wav = malloc(sizeof(drwav));
         if (!dec->as.wav || !drwav_init_file(dec->as.wav, path, NULL)) {
@@ -352,7 +359,8 @@ static bool decoder_open(decoder_t * dec, const char * path) {
         return true;
     }
 
-    if (strcasecmp(ext, ".aiff") == 0 || strcasecmp(ext, ".aif") == 0) {
+    if (strcasecmp(ext, ".aiff") == 0 || strcasecmp(ext, ".aif") == 0 ||
+        strcasecmp(ext, ".aifc") == 0) {
         dec->type = DECODER_AIFF;
         dec->as.aiff = aiff_open_file(path);
         if (!dec->as.aiff) return false;
@@ -415,6 +423,7 @@ static bool decoder_open(decoder_t * dec, const char * path) {
             dec->total_frames = aac_get_total_pcm_frame_count(dec->as.aac);
             return true;
         }
+        dec->open_error = AUDIO_ERROR_UNSUPPORTED_FORMAT;
         return false;
     }
 
@@ -452,7 +461,7 @@ static bool decoder_open(decoder_t * dec, const char * path) {
         return true;
     }
 
-    if (strcasecmp(ext, ".ogg") == 0) {
+    if (strcasecmp(ext, ".ogg") == 0 || strcasecmp(ext, ".oga") == 0) {
         ogg_codec_t codec = ogg_detect_codec(path);
         if (codec == OGG_CODEC_OPUS) {
             dec->type = DECODER_OPUS;
@@ -474,9 +483,11 @@ static bool decoder_open(decoder_t * dec, const char * path) {
             dec->total_frames = vorbis_get_total_pcm_frame_count(dec->as.vorbis);
             return true;
         }
+        dec->open_error = AUDIO_ERROR_UNSUPPORTED_FORMAT;
         return false;
     }
 
+    dec->open_error = AUDIO_ERROR_UNSUPPORTED_FORMAT;
     return false;
 }
 
@@ -578,7 +589,8 @@ static decoder_read_result_t decoder_read_s32(decoder_t * dec, uint64_t frames, 
             return ape_read_pcm_frames_s32(dec->as.ape, frames, buf);
         case DECODER_AIFF:
             /* AIFF decodes internally to right-justified sign-extended int32 for
-             * 24-bit sources: DO NOT shift; already in S24_LE layout. */
+             * 24-bit sources (32-bit sources are reduced to 24 there):
+             * DO NOT shift; already in S24_LE layout. */
             return aiff_read_pcm_frames_s32(dec->as.aiff, frames, buf);
         case DECODER_DSD:
             /* The DSD decimator's float output is quantized straight to
@@ -709,6 +721,57 @@ static void decoder_close(decoder_t * dec) {
     }
 }
 
+const char * audio_error_description(audio_error_t error) {
+    switch (error) {
+        case AUDIO_ERROR_FILE_UNAVAILABLE: return N_("File unavailable");
+        case AUDIO_ERROR_UNSUPPORTED_FORMAT: return N_("Unsupported audio format");
+        case AUDIO_ERROR_UNSUPPORTED_CHANNELS: return N_("Too many audio channels");
+        case AUDIO_ERROR_OUTPUT_FAILED: return N_("Audio output failed");
+        case AUDIO_ERROR_DECODER_FAILED: return N_("Audio could not be decoded");
+        default: return N_("Playback error");
+    }
+}
+
+/* Every decoder feeds the same eight-channel playback buffers. Check the
+ * decoded format before any playback/probe client can read into them. */
+static bool decoder_format_is_safe(decoder_t * dec) {
+    if (dec->channels > MAX_CHANNELS) {
+        dec->open_error = AUDIO_ERROR_UNSUPPORTED_CHANNELS;
+        return false;
+    }
+    if (dec->channels == 0 || dec->sample_rate == 0) {
+        dec->open_error = AUDIO_ERROR_DECODER_FAILED;
+        return false;
+    }
+    return true;
+}
+
+static bool decoder_open(decoder_t * dec, const char * path) {
+    if (!path || !path[0]) {
+        memset(dec, 0, sizeof(*dec));
+        dec->open_error = AUDIO_ERROR_FILE_UNAVAILABLE;
+        return false;
+    }
+    errno = 0;
+    if (!decoder_open_internal(dec, path)) {
+        int saved_errno = errno;
+        if (!is_stream_url(path) && !remote_track_path_is_remote(path) &&
+            (saved_errno == ENOENT || saved_errno == ENOTDIR || saved_errno == EACCES))
+            dec->open_error = AUDIO_ERROR_FILE_UNAVAILABLE;
+        DBG_LOG("audio: open rejected (%s): %s\n",
+                safe_path_tail(path), audio_error_description(dec->open_error));
+        return false;
+    }
+    if (!decoder_format_is_safe(dec)) {
+        DBG_LOG("audio: unsafe format rejected (%s): %u channels, %u Hz\n",
+                safe_path_tail(path), dec->channels, dec->sample_rate);
+        decoder_close(dec);
+        return false;
+    }
+    dec->open_error = AUDIO_ERROR_NONE;
+    return true;
+}
+
 /* --- Playback state ---
  *
  * A single playback thread lives for the app's whole lifetime (created once
@@ -751,7 +814,6 @@ static bool next_replaygain_applied = false;
 
 static bool crossfade_enabled = false;
 #define CROSSFADE_SECONDS 3.0
-#define MAX_CHANNELS 8
 
 static float volume = 1.0f;      /* UI-facing 0.0-1.0 percent, what audio_get_volume() returns */
 static float volume_gain = 1.0f; /* actual linear PCM multiplier the playback thread applies -- see audio_set_volume() */
@@ -1284,6 +1346,41 @@ static audio_codec_t public_codec_for_decoder(decoder_type_t type) {
 
 bool audio_probe_file_format(const char * path, audio_current_format_info_t * out) {
     if (!path || !path[0] || !out || is_stream_url(path) || remote_track_path_is_remote(path)) return false;
+
+    /* APE open decodes its first complete physical frame to validate decoder
+     * state and allocates frame-sized working buffers. A format probe only
+     * needs the already-validated container/header facts; avoid that heavy
+     * first-frame path on the GUI/library-probe workers. */
+    const char * ext = strrchr(path, '.');
+    if (ext && strcasecmp(ext, ".ape") == 0) {
+        ape_demux_t * demux = ape_demux_open(path);
+        if (!demux) return false;
+
+        int compression = ape_demux_get_compression_level(demux);
+        unsigned int channels = ape_demux_get_channels(demux);
+        unsigned int sample_rate = ape_demux_get_sample_rate(demux);
+        unsigned int bit_depth = ape_demux_get_bits_per_sample(demux);
+        uint64_t total_samples = ape_demux_get_total_samples(demux);
+        bool supported = compression >= 1000 && compression <= 5000 && compression % 1000 == 0 &&
+                         channels >= 1 && channels <= 2 && sample_rate > 0 &&
+                         (bit_depth == 16 || bit_depth == 24) && total_samples > 0;
+        if (!supported) {
+            ape_demux_close(demux);
+            return false;
+        }
+
+        memset(out, 0, sizeof(*out));
+        out->valid = true;
+        snprintf(out->path, sizeof(out->path), "%s", path);
+        out->codec = AUDIO_CODEC_APE;
+        out->source_sample_rate = sample_rate;
+        out->source_bit_depth = bit_depth;
+        out->channels = channels;
+        out->duration_seconds = (double) total_samples / (double) sample_rate;
+        ape_demux_close(demux);
+        return true;
+    }
+
     decoder_t dec;
     memset(&dec, 0, sizeof(dec));
     if (!decoder_open(&dec, path)) return false;
@@ -1307,13 +1404,19 @@ bool audio_probe_file_format(const char * path, audio_current_format_info_t * ou
  * replaygain, or playback mutex. */
 bool audio_extract_waveform(const char * path, uint8_t * bins, size_t count,
                             bool (*cancel)(void *), void * user) {
-    enum { WAVEFORM_MAX_BINS = 256, WAVEFORM_READ_FRAMES = 4096 };
+    enum {
+        WAVEFORM_MAX_BINS = 256,
+        WAVEFORM_READ_FRAMES = 4096,
+        WAVEFORM_YIELD_INTERVAL_MS = 100,
+        WAVEFORM_YIELD_SLEEP_US = 1000,
+        WAVEFORM_MAX_CONSECUTIVE_ERRORS = 10
+    };
     const uint64_t budget_ns = UINT64_C(90) * 1000000000;
     decoder_t dec;
     int16_t pcm[WAVEFORM_READ_FRAMES * MAX_CHANNELS];
     uint64_t sums[WAVEFORM_MAX_BINS] = { 0 };
     uint64_t sample_counts[WAVEFORM_MAX_BINS] = { 0 };
-    struct timespec started = { 0 }, now = { 0 };
+    struct timespec started = { 0 }, now = { 0 }, last_yield = { 0 };
     bool opened = false, ok = false;
     double rms[WAVEFORM_MAX_BINS] = { 0 };
     double peak_rms = 0.0;
@@ -1329,6 +1432,7 @@ bool audio_extract_waveform(const char * path, uint8_t * bins, size_t count,
     if (ext && (strcasecmp(ext, ".dsf") == 0 || strcasecmp(ext, ".dff") == 0 ||
                 strcasecmp(ext, ".ape") == 0)) return false;
     (void) clock_gettime(CLOCK_MONOTONIC, &started);
+    last_yield = started;
     if (!decoder_open(&dec, path)) return false;
     opened = true;
 
@@ -1340,6 +1444,7 @@ bool audio_extract_waveform(const char * path, uint8_t * bins, size_t count,
 
     uint64_t frame = 0;
     size_t bin = 0;
+    unsigned consecutive_errors = 0;
     while (frame < dec.total_frames && bin < count) {
         uint64_t bin_end = (dec.total_frames * (uint64_t)(bin + 1) + count - 1) / count;
         if (bin_end <= frame) {
@@ -1356,7 +1461,20 @@ bool audio_extract_waveform(const char * path, uint8_t * bins, size_t count,
         uint64_t want = bin_end - frame;
         if (want > WAVEFORM_READ_FRAMES) want = WAVEFORM_READ_FRAMES;
         decoder_read_result_t read = decoder_read_s16(&dec, want, pcm);
-        if (read.status == DECODER_READ_FATAL_ERROR || read.frames != want) goto done;
+        if (read.status == DECODER_READ_FATAL_ERROR) goto done;
+        if (read.status == DECODER_READ_RECOVERABLE_ERROR) {
+            if (++consecutive_errors >= WAVEFORM_MAX_CONSECUTIVE_ERRORS) goto done;
+            if (read.frames == 0) continue;
+        } else {
+            consecutive_errors = 0;
+        }
+        if (read.frames == 0) {
+            /* Container estimates can outlive a truncated or damaged stream.
+             * A clean EOF is useful when earlier bins contain real samples. */
+            if (read.status == DECODER_READ_EOF && frame > 0) break;
+            goto done;
+        }
+        if (read.frames > want) goto done;
 
         for (uint64_t i = 0; i < read.frames; ++i) {
             for (unsigned ch = 0; ch < dec.channels; ++ch) {
@@ -1367,7 +1485,21 @@ bool audio_extract_waveform(const char * path, uint8_t * bins, size_t count,
         }
         frame += read.frames;
         if (frame >= bin_end) bin++;
-        usleep(2000);
+        if (read.status == DECODER_READ_EOF) {
+            /* A decoder may report real samples with EOF on its final read.
+             * Preserve those bins and leave the remaining estimate empty. */
+            break;
+        }
+
+        (void) clock_gettime(CLOCK_MONOTONIC, &now);
+        int64_t since_yield_ns =
+            (int64_t)(now.tv_sec - last_yield.tv_sec) * INT64_C(1000000000) +
+            (int64_t)now.tv_nsec - (int64_t)last_yield.tv_nsec;
+        if (since_yield_ns >= (int64_t)WAVEFORM_YIELD_INTERVAL_MS * 1000000) {
+            if (cancel && cancel(user)) goto done;
+            usleep(WAVEFORM_YIELD_SLEEP_US);
+            last_yield = now;
+        }
     }
 
     (void) clock_gettime(CLOCK_MONOTONIC, &now);
@@ -1375,7 +1507,7 @@ bool audio_extract_waveform(const char * path, uint8_t * bins, size_t count,
         uint64_t elapsed = (uint64_t)(now.tv_sec - started.tv_sec) * UINT64_C(1000000000);
         if (now.tv_nsec >= started.tv_nsec) elapsed += (uint64_t)(now.tv_nsec - started.tv_nsec);
         else elapsed -= (uint64_t)(started.tv_nsec - now.tv_nsec);
-        if (elapsed > budget_ns || (cancel && cancel(user))) goto done;
+        if (elapsed > budget_ns || frame == 0 || (cancel && cancel(user))) goto done;
     }
     for (size_t i = 0; i < count; ++i) {
         if (!sample_counts[i]) {
@@ -2179,11 +2311,13 @@ static void * audio_thread_func(void * arg) {
         if (cur_open) { decoder_close(&cur_dec); cur_open = false; }
 
         if (!cur_path_local || !decoder_open(&cur_dec, cur_path_local)) {
-            if (cur_path_local) fprintf(stderr, "audio: failed to open '%s'\n", cur_path_local);
+            if (cur_path_local)
+                fprintf(stderr, "audio: playback open rejected (%s): %s\n",
+                        safe_path_tail(cur_path_local), audio_error_description(cur_dec.open_error));
             pthread_mutex_lock(&audio_mutex);
             have_current = false;
             clear_current_format_locked();
-            last_playback_error = AUDIO_ERROR_DECODER_FAILED;
+            last_playback_error = cur_path_local ? cur_dec.open_error : AUDIO_ERROR_DECODER_FAILED;
             last_playback_error_generation = cur_generation;
             pthread_mutex_unlock(&audio_mutex);
             continue;
@@ -2277,6 +2411,8 @@ static void * audio_thread_func(void * arg) {
                 paused = false;
                 stop_requested = false;
             } else if (!stale_or_cancelled && !stale_generation && !cancelled) {
+                fprintf(stderr, "audio: output open failed (%s): %u channels, %u Hz\n",
+                        safe_path_tail(cur_path_local), cur_dec.channels, cur_dec.sample_rate);
                 have_current = false;
                 clear_current_format_locked();
                 last_playback_error = AUDIO_ERROR_OUTPUT_FAILED;

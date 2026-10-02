@@ -78,6 +78,7 @@
  * both, unlike gui_shell_init()). */
 
 #include "gui_reload.h"
+#include "gui_setup.h"
 
 #include "lvgl/lvgl.h"
 #include "src/misc/cache/instance/lv_image_cache.h"
@@ -157,6 +158,7 @@ void gui_soft_reload(void) {
     reset_swipe_dead_zones();
     reload_diag("gui_navigation_teardown: before");
     gui_navigation_teardown();
+    gui_setup_teardown();
 
     reload_diag("gui_player_teardown: before");
     gui_player_teardown();
@@ -240,6 +242,8 @@ void gui_soft_reload(void) {
 
     reload_diag("gui_navigation_init: before");
     gui_navigation_init();
+    gui_setup_show_if_needed();
+    gui_setup_after_reload();
     reload_diag("gui_soft_reload: end");
 }
 

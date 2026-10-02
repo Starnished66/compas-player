@@ -10,7 +10,12 @@
 #include <string.h>
 #include <time.h>
 
+#ifndef POWER_SUPPLY_DIR
 #define POWER_SUPPLY_DIR "/sys/class/power_supply"
+#endif
+#ifndef USB_UDC_DIR
+#define USB_UDC_DIR "/sys/class/udc"
+#endif
 
 /* Reads a single-line sysfs attribute (e.g. ".../battery/capacity") into
  * `out`, trimming the trailing newline. Returns false if the file doesn't
@@ -33,6 +38,54 @@ static bool read_sysfs_attr(const char * device_name, const char * attr, char * 
     while (len > 0 && (out[len - 1] == '\n' || out[len - 1] == '\r')) out[--len] = '\0';
     return len > 0;
 }
+
+#ifndef HOST_BUILD
+/* The UDC class `state` attribute comes from usb_state_string() in Linux.
+ * Any recognized state past "not attached" proves that the device has
+ * physically reached the USB bus, including suspended configurations. */
+static bool udc_state_is_connected(const char * state) {
+    static const char * const connected_states[] = {
+        "attached", "powered", "reconnecting", "unauthenticated",
+        "default", "addressed", "configured", "suspended",
+    };
+    for (size_t i = 0; i < sizeof(connected_states) / sizeof(connected_states[0]); i++) {
+        if (strcmp(state, connected_states[i]) == 0) return true;
+    }
+    return false;
+}
+
+/* UDC state supplements power_supply: on some firmwares USB data mode keeps
+ * VBUS connected while every charger supply reports online=0. Treat missing,
+ * unreadable, and unrecognized UDC state as no additional evidence so the
+ * existing charger-only and unplugged decisions keep their behavior. */
+static bool udc_reports_connected(void) {
+    DIR * dir = opendir(USB_UDC_DIR);
+    if (!dir) return false;
+
+    struct dirent * entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_name[0] == '.') continue;
+
+        char path[512];
+        snprintf(path, sizeof(path), "%s/%s/state", USB_UDC_DIR, entry->d_name);
+        FILE * f = fopen(path, "r");
+        if (!f) continue;
+
+        char state[32];
+        bool read_ok = fgets(state, sizeof(state), f) != NULL;
+        fclose(f);
+        if (!read_ok) continue;
+        size_t len = strlen(state);
+        while (len > 0 && (state[len - 1] == '\n' || state[len - 1] == '\r')) state[--len] = '\0';
+        if (udc_state_is_connected(state)) {
+            closedir(dir);
+            return true;
+        }
+    }
+    closedir(dir);
+    return false;
+}
+#endif
 
 /* Same dynamic scan the stock hiby_player itself uses (confirmed via
  * strings on the real binary: it enumerates every entry under
@@ -130,7 +183,9 @@ battery_external_power_state_t battery_get_external_power_state(void) {
     return BATTERY_EXTERNAL_POWER_UNKNOWN;
 #else
     DIR * dir = opendir(POWER_SUPPLY_DIR);
-    if (!dir) return BATTERY_EXTERNAL_POWER_UNKNOWN;
+    if (!dir) {
+        return udc_reports_connected() ? BATTERY_EXTERNAL_POWER_CONNECTED : BATTERY_EXTERNAL_POWER_UNKNOWN;
+    }
 
     bool saw_offline = false;
     bool saw_unreadable = false;
@@ -164,6 +219,7 @@ battery_external_power_state_t battery_get_external_power_state(void) {
     if (errno != 0) saw_unreadable = true;
     closedir(dir);
 
+    if (udc_reports_connected()) return BATTERY_EXTERNAL_POWER_CONNECTED;
     if (saw_offline && !saw_unreadable) return BATTERY_EXTERNAL_POWER_DISCONNECTED;
     return BATTERY_EXTERNAL_POWER_UNKNOWN;
 #endif

@@ -199,8 +199,11 @@ copy_tracked_assets() {
         cp -a "$repo/$f" "$dest/$rel"
     done < <(git -C "$repo" ls-files "$src")
 }
+copy_tracked_assets assets/theme1 "$work/root/usr/resource/litegui/theme1"
+copy_tracked_assets assets/theme2 "$work/root/usr/resource/litegui/theme2"
+# Shared icons ship on every board. Panel-specific artwork and icon variants
+# must win over the shared files, particularly the full-screen boot images.
 if [[ $board == r1 ]]; then
-    copy_tracked_assets assets/theme2 "$work/root/usr/resource/litegui/theme2"
     copy_tracked_assets assets/r1/etc "$work/root/etc"
 elif [[ $board == r3ii_2025 ]]; then
     copy_tracked_assets assets/r3ii_2025/theme2 "$work/root/usr/resource/litegui/theme2"

@@ -5,6 +5,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#define DEFAULT_ACCENT_COLOR 0xF4E58C /* soft light yellow */
+
 /* Discrete screen-timeout presets. The original useful coarse progression
  * is preserved, with a new 15-second choice added at the beginning. */
 extern const int SCREEN_TIMEOUT_STEPS[];
@@ -264,6 +266,8 @@ typedef struct {
     /* Show artist and album-artist artwork in their library rows. Album and
      * song artwork is independent. Defaults on to preserve the existing UI. */
     bool show_artist_images;
+    int file_sort_mode; /* 0 Name, 1 Newest Modified; directories stay first. */
+    int album_sort_mode; /* 0 Name, 1 Recently Added, 2 Release Year (oldest first). */
 
     /* Idle action after a long stretch idle (screen off, not playing, not
      * charging) -- either power_suspend_now() (suspend-to-RAM, see
@@ -401,6 +405,16 @@ typedef struct {
      * built-in layout. An id that is no longer registered (a deleted XML
      * file) also falls back to the built-in one at build time. */
     char player_layout[64];
+
+    /* Settings -> System -> Language. Code of the UI language (see
+     * src/ui/i18n.h); "en" is the default and the fallback for any code
+     * without a catalog. */
+    char language[8];
+
+    /* False only on a fresh install or unfinished first-run setup. */
+    bool setup_complete;
+    bool setup_intro_played; /* Reset with settings; prevents replay during setup. */
+    int setup_step; /* 0 welcome, 1..5 quick setup, 6 complete; retained across restarts. */
 } player_settings_t;
 
 /* Validate a relative Subsonic download folder. Empty is a valid setting;

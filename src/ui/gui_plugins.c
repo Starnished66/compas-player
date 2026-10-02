@@ -1,4 +1,5 @@
 #include "gui_plugins.h"
+#include "i18n.h"
 #include "gui.h"
 #include "gui_theme.h"
 #include "gui_notifications.h"
@@ -260,7 +261,7 @@ int gui_plugin_show_list(const char * title, const char * const * labels, const 
     lv_obj_set_style_pad_gap(list, GUI_ROW_GAP, 0);
 
     if (count <= 0) {
-        add_plugin_empty_state(list, "No entries to display");
+        add_plugin_empty_state(list, TR("No entries to display"));
     }
 
     /* Any icon anywhere in this call, or an explicit height, means every row
@@ -845,7 +846,7 @@ static void populate_plugin_settings_list_screen(int slot) {
 
     int count = plugin_settings_list_row_state_count[slot];
     if (count <= 0) {
-        add_plugin_empty_state(list, "No plugin settings available");
+        add_plugin_empty_state(list, TR("No plugin settings available"));
         return;
     }
 
@@ -968,10 +969,10 @@ int gui_plugin_show_settings_list(const char * title, const int * row_types, con
 
 void gui_plugins_init(void) {
     for (int i = 0; i < PLUGIN_LIST_SCREEN_POOL_SIZE; i++) {
-        plugin_list_screens[i] = build_subsonic_list_screen("Plugin", &plugin_list_title_labels[i], &plugin_list_lists[i]);
+        plugin_list_screens[i] = build_subsonic_list_screen(TR("Plugin"), &plugin_list_title_labels[i], &plugin_list_lists[i]);
     }
     for (int i = 0; i < PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE; i++) {
-        plugin_settings_list_screens[i] = build_subsonic_list_screen("Plugin Settings", &plugin_settings_list_title_labels[i], &plugin_settings_list_lists[i]);
+        plugin_settings_list_screens[i] = build_subsonic_list_screen(TR("Plugin Settings"), &plugin_settings_list_title_labels[i], &plugin_settings_list_lists[i]);
     }
 }
 

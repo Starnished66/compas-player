@@ -738,6 +738,13 @@ lv_obj_t * gui_text_input_get_screen(void) {
     return text_entry_screen;
 }
 
+void gui_text_input_cancel_if_removed(lv_obj_t * removed_screen) {
+    if (removed_screen == text_entry_screen &&
+        text_entry_on_done == plugin_text_entry_done_cb) {
+        plugin_manager_text_input_cancelled();
+    }
+}
+
 void t9_keypad_dismiss_only(void) {
     lv_obj_set_parent(text_entry_keypad_group, text_entry_screen);
     text_entry_inline_mode_active = false;

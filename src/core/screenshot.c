@@ -1,4 +1,5 @@
 #include "screenshot.h"
+#include "i18n.h"
 
 #include <pthread.h>
 #include <stdio.h>
@@ -9,7 +10,7 @@
 #include "../ui/gui_notifications.h"
 
 screenshot_result_t screenshot_start(void) {
-    show_error_toast("Screenshots unavailable");
+    show_error_toast(TR("Screenshots unavailable"));
     return SCREENSHOT_RESULT_UNAVAILABLE;
 }
 
@@ -419,11 +420,11 @@ screenshot_result_t screenshot_start(void) {
     pthread_mutex_unlock(&screenshot_mutex);
 
     if (!sd_card_root_is_mounted()) {
-        show_error_toast("Screenshot needs an SD card");
+        show_error_toast(TR("Screenshot needs an SD card"));
         return SCREENSHOT_RESULT_NO_CARD;
     }
     if (gui_network_usb_storage_session_active()) {
-        show_error_toast("Disconnect USB storage first");
+        show_error_toast(TR("Disconnect USB storage first"));
         return SCREENSHOT_RESULT_USB_STORAGE;
     }
 
@@ -441,14 +442,14 @@ screenshot_result_t screenshot_start(void) {
     unsigned width = 0, height = 0;
     if (!capture_visible_framebuffer(&pixels, &width, &height)) {
         screenshot_set_idle();
-        show_error_toast("Screenshot failed (framebuffer)");
+        show_error_toast(TR("Screenshot failed (framebuffer)"));
         return SCREENSHOT_RESULT_FRAMEBUFFER;
     }
 
     screenshot_job_t * job = (screenshot_job_t *) malloc(sizeof(*job));
     if (!job) {
         screenshot_set_idle();
-        show_error_toast("Screenshot failed (worker)");
+        show_error_toast(TR("Screenshot failed (worker)"));
         return SCREENSHOT_RESULT_WORKER_START;
     }
     job->pixels = pixels;
@@ -461,7 +462,7 @@ screenshot_result_t screenshot_start(void) {
         fprintf(stderr, "screenshot: worker thread start failed: %s\n", strerror(rc));
         free(job);
         screenshot_set_idle();
-        show_error_toast("Screenshot failed (worker)");
+        show_error_toast(TR("Screenshot failed (worker)"));
         return SCREENSHOT_RESULT_WORKER_START;
     }
     pthread_detach(worker);

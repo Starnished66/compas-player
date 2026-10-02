@@ -7,6 +7,7 @@
 #include <time.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <unistd.h>
 
 #ifdef HOST_BUILD
 #define DB_LOG_DIR "./music/.logs"
@@ -128,4 +129,23 @@ void db_log(const char * area, const char * fmt, ...) {
         db_log_rotate_if_needed_locked();
     }
     pthread_mutex_unlock(&db_log_mutex);
+}
+
+bool db_log_flush(void) {
+    if (!db_log_enabled()) return false;
+
+    pthread_mutex_lock(&db_log_mutex);
+    bool ok = false;
+    /* Match db_log()'s second enabled check so a concurrent disable cannot
+     * make this flush a closed/replaced file. */
+    if (db_log_enabled() && db_log_file) {
+        ok = fflush(db_log_file) == 0;
+        if (ok) ok = fsync(fileno(db_log_file)) == 0;
+        if (ok) {
+            db_log_lines_since_flush = 0;
+            db_log_rotate_if_needed_locked();
+        }
+    }
+    pthread_mutex_unlock(&db_log_mutex);
+    return ok;
 }

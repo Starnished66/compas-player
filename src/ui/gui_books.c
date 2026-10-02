@@ -1,4 +1,5 @@
 #include "gui_books.h"
+#include "i18n.h"
 #include "gui.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -94,15 +95,15 @@ static void open_text_reader(const char * path) {
     text_reader_current_content = text_reader_load(path, &truncated);
 
     if (!text_reader_current_content) {
-        lv_label_set_text(text_reader_content_label, "Could not open this file.");
+        lv_label_set_text(text_reader_content_label, TR("Could not open this file."));
     } else if (truncated) {
         /* Prepend a plain-text note rather than reaching for a separate
          * toast/label widget -- simplest way to say "there's more" for a
          * feature this basic. */
-        char * buf = malloc(strlen(text_reader_current_content) + 128);
+        char * buf = malloc(strlen(text_reader_current_content) + 256);
         if (buf) {
-            snprintf(buf, strlen(text_reader_current_content) + 128,
-                     "[File truncated at %d KB -- showing the first part only]\n\n%s",
+            snprintf(buf, strlen(text_reader_current_content) + 256,
+                     TR("[File truncated at %d KB -- showing the first part only]\n\n%s"),
                      TEXT_READER_MAX_BYTES / 1024, text_reader_current_content);
             free(text_reader_current_content);
             text_reader_current_content = buf;
@@ -192,7 +193,7 @@ static void books_refresh_timer_cb(lv_timer_t * timer) {
         books_scan_commit(w);
         books_refresh_finish();
         if (lv_screen_active() == books_files_screen) populate_books_files_screen();
-        show_info_toast("Books refreshed");
+        show_info_toast(TR("Books refreshed"));
         return;
     }
     if (lv_tick_elaps(books_refresh_started) < BOOKS_SCAN_TIMEOUT_MS) return;
@@ -201,14 +202,14 @@ static void books_refresh_timer_cb(lv_timer_t * timer) {
     metadata_db_book_replace_all(NULL, 0);
     books_refresh_finish();
     if (lv_screen_active() == books_files_screen) populate_books_files_screen();
-    show_error_toast("Could not read the Books folder");
+    show_error_toast(TR("Could not read the Books folder"));
 }
 
 static void books_refresh_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED || books_refresh_work) return;
     books_refresh_work = books_scan_start(BOOKS_ROOT_DIR);
     if (!books_refresh_work) {
-        show_error_toast("Could not refresh books");
+        show_error_toast(TR("Could not refresh books"));
         return;
     }
     books_refresh_started = lv_tick_get();
@@ -225,7 +226,7 @@ static void free_user_data_event_cb(lv_event_t * e) {
 
 static void populate_books_files_screen(void) {
     lv_obj_clean(books_files_list);
-    lv_label_set_text(books_files_title_label, books_showing_favorites ? "Favorites" : "Books");
+    lv_label_set_text(books_files_title_label, books_showing_favorites ? TR("Favorites") : TR("Books"));
 
     char ** paths;
     int count;
@@ -240,10 +241,10 @@ static void populate_books_files_screen(void) {
 
     if (count == 0) {
         build_list_message(books_files_list,
-                           books_showing_favorites ? "No favorites yet" : "No books found",
+                           books_showing_favorites ? TR("No favorites yet") : TR("No books found"),
                            books_showing_favorites
-                               ? "Open a book and tap the bookmark icon to save it here."
-                               : "Add .txt files to the Books folder, then refresh the library.");
+                               ? TR("Open a book and tap the bookmark icon to save it here.")
+                               : TR("Add .txt files to the Books folder, then refresh the library."));
         free(paths);
         return;
     }
@@ -292,7 +293,7 @@ static void books_favorites_row_cb(lv_event_t * e) {
 }
 
 static lv_obj_t * build_books_files_screen(void) {
-    lv_obj_t * scr = build_subsonic_list_screen("Books", &books_files_title_label, &books_files_list);
+    lv_obj_t * scr = build_subsonic_list_screen(TR("Books"), &books_files_title_label, &books_files_list);
     books_refresh_icon = build_header_refresh_action(scr, books_refresh_cb);
     return scr;
 }
@@ -346,8 +347,8 @@ static void plugin_books_list_item_click_cb(lv_event_t * e) {
 static lv_obj_t * build_books_screen(void) {
     static pill_list_item_t items[2 + PLUGIN_MAX_BOOKS_LIST_ITEMS];
     lv_obj_t * native_rows[2 + PLUGIN_MAX_BOOKS_LIST_ITEMS] = { NULL };
-    items[0] = (pill_list_item_t){ "Books", PILL_ACCESSORY_CHEVRON, false, books_files_row_cb, NULL, NULL };
-    items[1] = (pill_list_item_t){ "Favorites", PILL_ACCESSORY_CHEVRON, false, books_favorites_row_cb, NULL, NULL };
+    items[0] = (pill_list_item_t){ TR("Books"), PILL_ACCESSORY_CHEVRON, false, books_files_row_cb, NULL, NULL };
+    items[1] = (pill_list_item_t){ TR("Favorites"), PILL_ACCESSORY_CHEVRON, false, books_favorites_row_cb, NULL, NULL };
 
     int count = 2;
     count = append_plugin_list_rows(items, count, PLUGIN_MAX_BOOKS_LIST_ITEMS,
@@ -358,7 +359,7 @@ static lv_obj_t * build_books_screen(void) {
 
     for (int i = 0; i < count; ++i) items[i].out_row = &native_rows[i];
     int icon_percent = (BOARD_SCALE_PX(44) * 100 + PILL_ROW_ICON_PX_DEFAULT - 1) / PILL_ROW_ICON_PX_DEFAULT;
-    lv_obj_t * scr = build_pill_list_screen("Books", generic_back_cb, items, count, gui_theme_accent_style(), GUI_ROW_GAP, icon_percent);
+    lv_obj_t * scr = build_pill_list_screen(TR("Books"), generic_back_cb, items, count, gui_theme_accent_style(), GUI_ROW_GAP, icon_percent);
     if (native_rows[0]) decorate_category_row(native_rows[0], "submenu/books.png", NULL);
     if (native_rows[1]) decorate_category_row(native_rows[1], "submenu/favorites.png", NULL);
     for (int i = 2; i < count; ++i) {

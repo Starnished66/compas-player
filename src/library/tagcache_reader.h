@@ -125,6 +125,7 @@ static bool reader_song_fields(int32_t slot, unsigned fields, tagcache_song_t *o
     out->rating = idx.tag_seek[tag_rating];
     out->disc_number = idx.tag_seek[tag_discnumber];
     out->track_number = idx.tag_seek[tag_tracknumber];
+    out->release_year = idx.tag_seek[tag_year];
     if (((fields & TAGCACHE_FIELD_PATH) && !reader_string(tag_filename, idx.tag_seek[tag_filename], slot, out->path_storage, sizeof(out->path_storage))) ||
         ((fields & TAGCACHE_FIELD_TITLE) && !reader_string(tag_title, idx.tag_seek[tag_title], slot, out->title_storage, sizeof(out->title_storage))) ||
         ((fields & (TAGCACHE_FIELD_ARTIST | TAGCACHE_FIELD_ALBUM_ARTIST)) && !reader_string(tag_artist, idx.tag_seek[tag_artist], -1, out->artist_storage, sizeof(out->artist_storage)))) return false;

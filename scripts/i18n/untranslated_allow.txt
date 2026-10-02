@@ -1,0 +1,18 @@
+# Intentional English for scripts/i18n/find_untranslated.py.
+# A line is either a bare literal (allowed everywhere) or "path::literal".
+# Comment lines start with "#". Literals are the text between the quotes in C
+# source, escapes included.
+AM\nPM
+src/ui/gui_settings.c::Default
+src/ui/gui_library.c::Unknown Artist
+src/ui/gui_library.c::Unknown Album
+src/ui/gui_library.c::Unknown Genre
+src/ui/gui_subsonic.c::Unknown Artist
+src/ui/gui_subsonic.c::Unknown Album
+src/ui/gui_subsonic.c::Unknown Title
+src/ui/gui_network.c::44.1 kHz
+src/library/metadata.c::scan
+src/library/metadata.c::artwork
+1k
+20k Hz
+src/ui/gui_setup.c::Aa

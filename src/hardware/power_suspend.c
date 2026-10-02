@@ -1,6 +1,7 @@
 #include "power_suspend.h"
+#include "battery.h"
 #include "bluetooth_control.h"
-#include "debug_log.h"
+#include "db_log.h"
 #include "subprocess.h"
 #include "wifi_control.h"
 
@@ -14,13 +15,22 @@
 
 /* Monotonic timestamp in milliseconds. Uses CLOCK_MONOTONIC to align with
  * hw_buttons timestamps on the same timeline. */
-#ifdef TEST_BUILD_TAG
 static uint32_t monotonic_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint32_t) (ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 }
-#endif
+
+/* Persist phase markers only when the user has enabled the runtime
+ * diagnostic log. Suspend is infrequent, so syncing each marker is a small
+ * bounded cost and leaves the last reached stage on storage after a hang. */
+#define SUSPEND_LOG(fmt, ...) \
+    do { \
+        if (db_log_enabled()) { \
+            db_log("power_suspend", fmt, ##__VA_ARGS__); \
+            (void) db_log_flush(); \
+        } \
+    } while (0)
 
 static void write_sysfs(const char * path, const char * value) {
     FILE * f = fopen(path, "w");
@@ -31,22 +41,24 @@ static void write_sysfs(const char * path, const char * value) {
 
 /* Writes a sysfs value and reports success/failure.
  * Used for /sys/power/state to detect if the write itself failed. */
-static bool write_sysfs_checked(const char * path, const char * value) {
+static bool write_sysfs_checked(const char * path, const char * value, int * error_out) {
+    int write_error = 0;
     FILE * f = fopen(path, "w");
     if (!f) {
-        DBG_LOG("power_suspend: fopen(%s) failed: %s\n", path, strerror(errno));
+        write_error = errno;
+        if (error_out) *error_out = write_error;
         return false;
     }
     bool ok = fprintf(f, "%s", value) >= 0;
-    if (!ok) DBG_LOG("power_suspend: write to %s failed: %s\n", path, strerror(errno));
+    if (!ok) write_error = errno ? errno : EIO;
     if (fclose(f) != 0 && ok) {
-        DBG_LOG("power_suspend: fclose(%s) failed: %s\n", path, strerror(errno));
+        write_error = errno ? errno : EIO;
         ok = false;
     }
+    if (error_out) *error_out = write_error;
     return ok;
 }
 
-#ifdef TEST_BUILD_TAG
 /* CLOCK_MONOTONIC does not advance across Linux suspend-to-RAM.
  * CLOCK_BOOTTIME is used to measure elapsed time across suspend. */
 static clockid_t suspend_duration_clock_id(void) {
@@ -66,10 +78,11 @@ static uint32_t suspend_duration_ms_now(void) {
     return (uint32_t) (ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 }
 
-/* Logs suspend duration and wakeup IRQ diagnostics for test builds. */
-static void log_suspend_diagnostics(uint32_t slept_ms, bool suspend_write_ok) {
-    static unsigned int suspend_cycle_count = 0;
-    suspend_cycle_count++;
+/* Logs elapsed suspend time and the last wake IRQ when runtime logging is
+ * enabled. */
+static void log_suspend_diagnostics(uint32_t slept_ms, bool suspend_write_ok, int write_errno) {
+    static unsigned int suspend_cycle_count;
+    ++suspend_cycle_count;
     char wakeup_irq[32] = "";
     FILE * f = fopen("/sys/power/pm_wakeup_irq", "r");
     if (f) {
@@ -78,10 +91,10 @@ static void log_suspend_diagnostics(uint32_t slept_ms, bool suspend_write_ok) {
     }
     size_t irq_len = strlen(wakeup_irq);
     if (irq_len > 0 && wakeup_irq[irq_len - 1] == '\n') wakeup_irq[irq_len - 1] = '\0';
-    DBG_LOG("power_suspend: cycle #%u slept %ums, write_ok=%d, pm_wakeup_irq=%s\n", suspend_cycle_count, slept_ms,
-            suspend_write_ok, wakeup_irq[0] ? wakeup_irq : "(unavailable)");
+    SUSPEND_LOG("cycle=%u returned slept_ms=%u write_ok=%d errno=%d wake_irq=%s",
+                suspend_cycle_count, slept_ms, suspend_write_ok, write_errno,
+                wakeup_irq[0] ? wakeup_irq : "(unavailable)");
 }
-#endif /* TEST_BUILD_TAG */
 
 static void radio_restore_perform(bool wifi_was_on, bool bt_was_on) {
     if (bt_was_on) {
@@ -102,31 +115,49 @@ static void * radio_restore_thread_func(void * arg) {
 }
 
 void power_suspend_now(void) {
+    /* Recheck at the suspend boundary, independently of the UI idle gate.
+     * An uncertain sample must never authorize sleeping on external power. */
+    if (battery_get_external_power_state() != BATTERY_EXTERNAL_POWER_DISCONNECTED) {
+        SUSPEND_LOG("blocked: external power connected or unknown");
+        return;
+    }
+    const bool diagnostics_enabled = db_log_enabled();
     bool wifi_was_on = wifi_control_is_enabled();
     bool bt_was_on = bt_control_is_powered();
+    SUSPEND_LOG("begin wifi_was_on=%d bt_was_on=%d", wifi_was_on, bt_was_on);
 
-    if (wifi_was_on) wifi_control_disable();
+    if (wifi_was_on) {
+        SUSPEND_LOG("wifi_disable begin");
+        wifi_control_disable();
+    }
 
     /* Cleanly disable Bluetooth through D-Bus before invoking raw bt_suspend
      * to ensure active links are gracefully disconnected. */
-    if (bt_was_on) bt_control_disable();
+    if (bt_was_on) {
+        SUSPEND_LOG("bluetooth_disable begin");
+        bt_control_disable();
+    }
 
     char * bt_suspend_argv[] = { (char *) "/usr/bin/bt_suspend", NULL };
+    SUSPEND_LOG("bt_suspend begin");
     subprocess_run(bt_suspend_argv, NULL, 0);
 
+    SUSPEND_LOG("framebuffer_blank begin");
     write_sysfs("/sys/class/graphics/fb0/blank", "4"); /* FB_BLANK_POWERDOWN */
 
-    DBG_LOG("power_suspend: entering mem sleep at t=%u\n", monotonic_ms());
-#ifdef TEST_BUILD_TAG
-    uint32_t sleep_start_ms = suspend_duration_ms_now();
-#endif
-    bool suspend_write_ok = write_sysfs_checked("/sys/power/state", "mem"); /* blocks here until the device wakes back up, if it actually took */
-#ifdef TEST_BUILD_TAG
-    log_suspend_diagnostics(suspend_duration_ms_now() - sleep_start_ms, suspend_write_ok);
-#else
-    (void) suspend_write_ok;
-#endif
-    DBG_LOG("power_suspend: returned from mem sleep at t=%u\n", monotonic_ms());
+    /* USB can be inserted while radio shutdown is in progress. In that
+     * case unwind the preparation below without writing the sleep request. */
+    if (battery_get_external_power_state() == BATTERY_EXTERNAL_POWER_DISCONNECTED) {
+        SUSPEND_LOG("mem_write begin monotonic_ms=%u", monotonic_ms());
+        uint32_t sleep_start_ms = diagnostics_enabled ? suspend_duration_ms_now() : 0;
+        int suspend_write_errno = 0;
+        bool suspend_write_ok = write_sysfs_checked("/sys/power/state", "mem", &suspend_write_errno);
+        if (diagnostics_enabled) {
+            log_suspend_diagnostics(suspend_duration_ms_now() - sleep_start_ms, suspend_write_ok, suspend_write_errno);
+        }
+    } else {
+        SUSPEND_LOG("cancelled: external power connected or unknown after preparation");
+    }
 
     write_sysfs("/sys/class/graphics/fb0/blank", "0"); /* FB_BLANK_UNBLANK */
 

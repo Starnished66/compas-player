@@ -1,4 +1,5 @@
 #include "subsonic_client.h"
+#include "i18n.h"
 #include "http_client.h"
 
 #include "mbedtls/md5.h"
@@ -21,7 +22,7 @@
 static _Thread_local char api_error[128];
 
 const char * subsonic_last_error(void) {
-    return api_error[0] ? api_error : "Unexpected library response";
+    return api_error[0] ? api_error : TR("Unexpected library response");
 }
 
 static void url_encode(const char * in, char * out, size_t out_size) {
@@ -362,10 +363,17 @@ bool subsonic_get_playlists(const subsonic_server_t * server, subsonic_playlist_
 
     cJSON * list_obj = cJSON_GetObjectItemCaseSensitive(resp, "playlists");
     cJSON * playlist_arr = cJSON_GetObjectItemCaseSensitive(list_obj, "playlist");
-    if (!cJSON_IsArray(playlist_arr)) { cJSON_Delete(root); return false; }
+    /* Subsonic servers may omit the playlist member when the valid result is
+     * empty (for example, Navidrome serializes an empty playlists object as
+     * {"playlists":{}}). Treat that as a successful empty list. */
+    if (!cJSON_IsObject(list_obj) || (!cJSON_IsArray(playlist_arr) && playlist_arr != NULL)) {
+        cJSON_Delete(root);
+        return false;
+    }
 
-    int count = cJSON_GetArraySize(playlist_arr);
-    subsonic_playlist_t * playlists = malloc(sizeof(subsonic_playlist_t) * (size_t) (count > 0 ? count : 1));
+    int count = cJSON_IsArray(playlist_arr) ? cJSON_GetArraySize(playlist_arr) : 0;
+    subsonic_playlist_t * playlists = count > 0 ? malloc(sizeof(subsonic_playlist_t) * (size_t) count) : NULL;
+    if (count > 0 && !playlists) { cJSON_Delete(root); return false; }
 
     int i = 0;
     cJSON * playlist_item;
@@ -378,7 +386,7 @@ bool subsonic_get_playlists(const subsonic_server_t * server, subsonic_playlist_
     cJSON_Delete(root);
     *out_playlists = playlists;
     *out_count = count;
-    return count > 0;
+    return true;
 }
 
 bool subsonic_get_playlist_songs(const subsonic_server_t * server, const char * playlist_id,

@@ -1,0 +1,2724 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the compas-player package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: compas-player\n"
+"Report-Msgid-Bugs-To: none\n"
+"POT-Creation-Date: 2026-10-02 05:17-0600\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
+
+msgid "File unavailable"
+msgstr ""
+
+msgid "Unsupported audio format"
+msgstr ""
+
+msgid "Too many audio channels"
+msgstr ""
+
+msgid "Audio output failed"
+msgstr ""
+
+msgid "Audio could not be decoded"
+msgstr ""
+
+msgid "Playback error"
+msgstr ""
+
+msgid "Screenshots unavailable"
+msgstr ""
+
+msgid "Screenshot needs an SD card"
+msgstr ""
+
+msgid "Disconnect USB storage first"
+msgstr ""
+
+msgid "Screenshot failed (framebuffer)"
+msgstr ""
+
+msgid "Screenshot failed (worker)"
+msgstr ""
+
+msgid "Folder too large to index (tap Back)"
+msgstr ""
+
+msgid "Unable to read folder (tap Back and retry)"
+msgstr ""
+
+msgid "Back"
+msgstr ""
+
+msgid "Previous"
+msgstr ""
+
+msgid "No playable files here"
+msgstr ""
+
+msgid "No playable audio files found"
+msgstr ""
+
+msgid "Open a folder containing supported audio files."
+msgstr ""
+
+msgid "Next"
+msgstr ""
+
+msgid "Unexpected reply from GitHub"
+msgstr ""
+
+#, c-format
+msgid "No weekly release has a %s image"
+msgstr ""
+
+msgid "Secure connection failed. Check Wi-Fi and the date and time."
+msgstr ""
+
+msgid "Cannot reach GitHub. Check the Wi-Fi connection."
+msgstr ""
+
+msgid "GitHub did not respond in time. Try again."
+msgstr ""
+
+msgid "Could not read the release list from GitHub."
+msgstr ""
+
+msgid "GitHub is limiting requests. Try again later."
+msgstr ""
+
+#, c-format
+msgid "GitHub returned HTTP %d."
+msgstr ""
+
+msgid "Insert an SD card to download the update."
+msgstr ""
+
+msgid "Could not download the release checksums."
+msgstr ""
+
+msgid "The release has no checksum for this device's image."
+msgstr ""
+
+msgid ""
+"This release's image does not match its checksums. Try again after the next "
+"weekly release."
+msgstr ""
+
+msgid "Not enough free space on the SD card for the update."
+msgstr ""
+
+msgid "The download did not complete. Check Wi-Fi and try again."
+msgstr ""
+
+msgid "The downloaded image failed verification and was deleted."
+msgstr ""
+
+msgid "The SD card changed during the download."
+msgstr ""
+
+msgid "Could not record the verified update on the SD card."
+msgstr ""
+
+msgid "Could not place the update on the SD card."
+msgstr ""
+
+msgid "Could not start the update check."
+msgstr ""
+
+msgid "Could not start the download."
+msgstr ""
+
+msgid "No verified update is on this SD card. Download it again."
+msgstr ""
+
+msgid ""
+"Cannot read the update file on the SD card. Check the card and try again."
+msgstr ""
+
+msgid "The update file on the SD card changed. Download it again."
+msgstr ""
+
+msgid "Cannot read the SD card."
+msgstr ""
+
+msgid "Could not move other .upt files aside on the SD card."
+msgstr ""
+
+msgid "Could not enter recovery mode."
+msgstr ""
+
+#, c-format
+msgid "Charge to at least %d%% or connect power before updating."
+msgstr ""
+
+msgid "An update is already in progress."
+msgstr ""
+
+msgid "Could not start the installation."
+msgstr ""
+
+msgid "Unexpected reply from GitHub."
+msgstr ""
+
+msgid "Could not read the plugin list from GitHub."
+msgstr ""
+
+msgid "Insert an SD card to install plugins."
+msgstr ""
+
+msgid "Could not read installed plugins."
+msgstr ""
+
+msgid "This plugin needs a newer player version."
+msgstr ""
+
+msgid "Too many plugins are installed. Remove one and try again."
+msgstr ""
+
+msgid "This plugin is already installed by the store."
+msgstr ""
+
+msgid "This plugin has no update available."
+msgstr ""
+
+msgid "Not enough free space on the SD card."
+msgstr ""
+
+msgid "The plugin download failed verification. Try again."
+msgstr ""
+
+msgid "A local plugin file will be replaced. Confirm to continue."
+msgstr ""
+
+msgid "The SD card changed during the operation."
+msgstr ""
+
+msgid "Could not install the plugin on the SD card."
+msgstr ""
+
+msgid "Could not start the plugin operation."
+msgstr ""
+
+msgid "Could not start the plugin refresh."
+msgstr ""
+
+msgid "Insert an SD card to remove plugins."
+msgstr ""
+
+msgid "This plugin is not installed by the store."
+msgstr ""
+
+msgid "Could not prepare plugin removal."
+msgstr ""
+
+msgid "Could not remove a plugin file."
+msgstr ""
+
+msgid "Could not update the installed plugin record."
+msgstr ""
+
+msgid "Insert an SD card to update plugins."
+msgstr ""
+
+msgid "A plugin download failed verification. Try again."
+msgstr ""
+
+msgid "Could not install a plugin on the SD card."
+msgstr ""
+
+msgid "Some updates need confirmation before replacing local files."
+msgstr ""
+
+msgid "Could not start the plugin update."
+msgstr ""
+
+msgid "Unexpected library response"
+msgstr ""
+
+msgid "On"
+msgstr ""
+
+msgid "Off"
+msgstr ""
+
+msgid "Screenshot saved"
+msgstr ""
+
+#, c-format
+msgid "Screenshot failed (%s)"
+msgstr ""
+
+msgid "unknown"
+msgstr ""
+
+msgid "Cannot play folder"
+msgstr ""
+
+msgid "Paused: headphones disconnected"
+msgstr ""
+
+msgid "Queue checkpoint failed; storage may be read-only"
+msgstr ""
+
+msgid "Playback history could not be saved"
+msgstr ""
+
+msgid "Subsonic"
+msgstr ""
+
+msgid "Stream Media"
+msgstr ""
+
+msgid "Could not open this file."
+msgstr ""
+
+#, c-format
+msgid ""
+"[File truncated at %d KB -- showing the first part only]\n"
+"\n"
+"%s"
+msgstr ""
+
+msgid "Books refreshed"
+msgstr ""
+
+msgid "Could not read the Books folder"
+msgstr ""
+
+msgid "Could not refresh books"
+msgstr ""
+
+msgid "Favorites"
+msgstr ""
+
+msgid "Books"
+msgstr ""
+
+msgid "No favorites yet"
+msgstr ""
+
+msgid "No books found"
+msgstr ""
+
+msgid "Open a book and tap the bookmark icon to save it here."
+msgstr ""
+
+msgid "Add .txt files to the Books folder, then refresh the library."
+msgstr ""
+
+msgid "Playlist created"
+msgstr ""
+
+msgid "Failed to create playlist"
+msgstr ""
+
+msgid "Playlist Name"
+msgstr ""
+
+msgid "Song already added"
+msgstr ""
+
+msgid "Added to playlist"
+msgstr ""
+
+msgid "Failed to add to playlist"
+msgstr ""
+
+msgid "+ New Playlist"
+msgstr ""
+
+msgid "Add to Playlist"
+msgstr ""
+
+msgid "Files"
+msgstr ""
+
+msgid "Audio"
+msgstr ""
+
+msgid "Unknown artist"
+msgstr ""
+
+msgid "Unknown album"
+msgstr ""
+
+msgid "Play All"
+msgstr ""
+
+#, c-format
+msgid "%lld track"
+msgid_plural "%lld tracks"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "All Songs"
+msgstr ""
+
+msgid "Recently Added"
+msgstr ""
+
+msgid "Playlist changed. Select a song again."
+msgstr ""
+
+msgid "Playlist is empty"
+msgstr ""
+
+msgid "Start sequentially"
+msgstr ""
+
+msgid "Shuffle from a random song"
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
+
+msgid "Done"
+msgstr ""
+
+msgid "Edit"
+msgstr ""
+
+#, c-format
+msgid "%d track"
+msgid_plural "%d tracks"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "Loading tracks…"
+msgstr ""
+
+msgid "Add songs from a song menu."
+msgstr ""
+
+msgid "No tracks found"
+msgstr ""
+
+msgid "Refresh the music database to update this list."
+msgstr ""
+
+#, c-format
+msgid "Previous  •  %d–%d of %d"
+msgstr ""
+
+#, c-format
+msgid "Disc %d"
+msgstr ""
+
+#, c-format
+msgid "Next  •  %d–%d of %d"
+msgstr ""
+
+msgid "Most Played"
+msgstr ""
+
+msgid "Library changed. Open the album again."
+msgstr ""
+
+msgid "Cannot load album tracks"
+msgstr ""
+
+msgid "Artists"
+msgstr ""
+
+msgid "Albums"
+msgstr ""
+
+msgid "Album Artist"
+msgstr ""
+
+#, c-format
+msgid "%d song"
+msgid_plural "%d songs"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "Genres"
+msgstr ""
+
+msgid "Recently Played"
+msgstr ""
+
+msgid "Cannot read playlist"
+msgstr ""
+
+msgid "Playlist changed. Try again."
+msgstr ""
+
+msgid "Cannot reorder playlist"
+msgstr ""
+
+msgid "Cannot remove entry"
+msgstr ""
+
+msgid "Removed from playlist"
+msgstr ""
+
+msgid "Playlist unavailable or unreadable"
+msgstr ""
+
+msgid "Cannot delete playlist"
+msgstr ""
+
+msgid "Playlist deleted"
+msgstr ""
+
+msgid "Cannot rename: invalid name or file exists"
+msgstr ""
+
+msgid "Playlist renamed"
+msgstr ""
+
+msgid "Rename Playlist"
+msgstr ""
+
+msgid "Delete playlist?"
+msgstr ""
+
+msgid "The playlist file will be deleted. Music files are kept."
+msgstr ""
+
+msgid "Delete"
+msgstr ""
+
+msgid "Delete Playlist"
+msgstr ""
+
+msgid "System playlists"
+msgstr ""
+
+msgid "Queue"
+msgstr ""
+
+msgid "User playlists"
+msgstr ""
+
+msgid "No user playlists"
+msgstr ""
+
+msgid "Create a playlist above or copy one to the SD card's Playlists folder."
+msgstr ""
+
+msgid "SD card not available"
+msgstr ""
+
+msgid "Playlists"
+msgstr ""
+
+msgid "Not enough memory to load CUE tracks"
+msgstr ""
+
+#, c-format
+msgid "Track %d"
+msgstr ""
+
+msgid "Tracks"
+msgstr ""
+
+msgid "Couldn't read this .cue file"
+msgstr ""
+
+msgid "Library recovered. Use Settings > Update Music Database to save"
+msgstr ""
+
+msgid "No music database"
+msgstr ""
+
+msgid "Build it now? Large libraries can take several minutes."
+msgstr ""
+
+msgid "Build"
+msgstr ""
+
+msgid "Music database unavailable"
+msgstr ""
+
+msgid "It could not be loaded. Rebuild it now?"
+msgstr ""
+
+msgid "Rebuild"
+msgstr ""
+
+msgid "Update music database?"
+msgstr ""
+
+msgid "Files on the card may have changed."
+msgstr ""
+
+msgid "Update"
+msgstr ""
+
+msgid "Use Settings > Update Music Database"
+msgstr ""
+
+msgid "Later"
+msgstr ""
+
+msgid "Library migration pending. Favourites and play history will be kept"
+msgstr ""
+
+msgid "No SD card"
+msgstr ""
+
+msgid "Library loaded"
+msgstr ""
+
+msgid ""
+"Migrating\n"
+"music database..."
+msgstr ""
+
+msgid ""
+"Refreshing\n"
+"all metadata..."
+msgstr ""
+
+msgid ""
+"Refreshing\n"
+"metadata..."
+msgstr ""
+
+msgid ""
+"Updating\n"
+"music database..."
+msgstr ""
+
+msgid "Preparing database migration..."
+msgstr ""
+
+msgid "Preparing metadata refresh..."
+msgstr ""
+
+msgid "Preparing music library..."
+msgstr ""
+
+msgid "Thread launch failed"
+msgstr ""
+
+msgid "No songs to refresh"
+msgstr ""
+
+msgid "Library is busy"
+msgstr ""
+
+msgid "Album unavailable"
+msgstr ""
+
+msgid ""
+"Refreshing\n"
+"all covers..."
+msgstr ""
+
+msgid ""
+"Reloading\n"
+"cover..."
+msgstr ""
+
+msgid "Preparing cover refresh..."
+msgstr ""
+
+msgid "Refresh all covers?"
+msgstr ""
+
+msgid "Removes saved covers and extracts them again. This may take a while."
+msgstr ""
+
+msgid "Refresh"
+msgstr ""
+
+msgid "Refresh all metadata?"
+msgstr ""
+
+msgid "Reads the tags of every song again. This may take a while."
+msgstr ""
+
+msgid "Some covers could not be refreshed"
+msgstr ""
+
+msgid "Could not reload cover"
+msgstr ""
+
+msgid "Covers refreshed"
+msgstr ""
+
+msgid "Cover reloaded"
+msgstr ""
+
+#, c-format
+msgid ""
+"Refreshing covers\n"
+"%d of %d (%d%%)"
+msgstr ""
+
+#, c-format
+msgid ""
+"Reloading cover\n"
+"%d of %d (%d%%)"
+msgstr ""
+
+msgid "Refreshing covers"
+msgstr ""
+
+msgid "Reloading cover"
+msgstr ""
+
+msgid "Preparing metadata refresh"
+msgstr ""
+
+#, c-format
+msgid ""
+"Looking for music files\n"
+"%d items checked"
+msgstr ""
+
+msgid "Looking for music files"
+msgstr ""
+
+#, c-format
+msgid ""
+"Reading tags\n"
+"%d of %d songs (%d%%)"
+msgstr ""
+
+msgid "Saving music database"
+msgstr ""
+
+msgid ""
+"Saving music database\n"
+"This can take a while on large libraries"
+msgstr ""
+
+msgid ""
+"Library migration failed. Old library intact. Use Settings > Update Music "
+"Database to retry"
+msgstr ""
+
+msgid "Library unavailable. Use Settings > Update Music Database to rebuild"
+msgstr ""
+
+msgid "Library update failed. Check SD card and retry"
+msgstr ""
+
+msgid "Some songs could not be read"
+msgstr ""
+
+msgid "Metadata refreshed"
+msgstr ""
+
+msgid "Library migrated. Old database cleanup will retry"
+msgstr ""
+
+msgid "Library migrated. Favourites and play history kept"
+msgstr ""
+
+msgid "Library recovered and saved, some folders could not be read"
+msgstr ""
+
+msgid "Library recovered and saved"
+msgstr ""
+
+msgid "Library updated, some folders could not be read"
+msgstr ""
+
+msgid "Library updated"
+msgstr ""
+
+msgid "Checking the SD card. This may take a while"
+msgstr ""
+
+msgid "SD card repaired"
+msgstr ""
+
+msgid "SD card checked"
+msgstr ""
+
+msgid "SD card is still read-only"
+msgstr ""
+
+msgid "Could not repair the SD card"
+msgstr ""
+
+msgid "SD card may have errors. Check it on a computer"
+msgstr ""
+
+msgid "SD card is read-only. Check it on a computer"
+msgstr ""
+
+msgid "SD card repair is still running"
+msgstr ""
+
+msgid ""
+"Formatting\n"
+"SD Card..."
+msgstr ""
+
+msgid "SD card formatted"
+msgstr ""
+
+msgid "SD card format failed"
+msgstr ""
+
+msgid "SD card couldn't be read"
+msgstr ""
+
+msgid ""
+"It may have no partition table or a file system this player can't use. "
+"Formatting will erase it and set it up for this player."
+msgstr ""
+
+msgid "Format SD Card"
+msgstr ""
+
+msgid "Dismiss"
+msgstr ""
+
+msgid "Erase and format SD card?"
+msgstr ""
+
+msgid "This permanently deletes everything on the card. This cannot be undone."
+msgstr ""
+
+msgid "Format"
+msgstr ""
+
+msgid "Tap Power off again to confirm"
+msgstr ""
+
+msgid "Tap Restart again to confirm"
+msgstr ""
+
+#, c-format
+msgid "Sleep timer: %d min remaining"
+msgstr ""
+
+msgid "Sleep timer: Off"
+msgstr ""
+
+msgid "Music"
+msgstr ""
+
+#, c-format
+msgid "Showing first %d of %d songs"
+msgstr ""
+
+msgid "Play all shuffled"
+msgstr ""
+
+msgid "Play sequentially"
+msgstr ""
+
+msgid "Add a random song to queue"
+msgstr ""
+
+msgid "Refresh metadata"
+msgstr ""
+
+msgid "Add album to queue"
+msgstr ""
+
+msgid "Reload cover"
+msgstr ""
+
+msgid "Playlists refreshed"
+msgstr ""
+
+msgid "Some playlists could not be read"
+msgstr ""
+
+msgid "Swipe up to unlock"
+msgstr ""
+
+msgid "No synchronized lyrics found"
+msgstr ""
+
+msgid "Medium"
+msgstr ""
+
+msgid "Large"
+msgstr ""
+
+msgid "Could not apply lyrics text size"
+msgstr ""
+
+msgid "Lyrics Text Size"
+msgstr ""
+
+msgid "Wi-Fi is busy"
+msgstr ""
+
+msgid "Connecting to"
+msgstr ""
+
+msgid "Couldn't connect to Wi-Fi network"
+msgstr ""
+
+msgid "Wi-Fi Password"
+msgstr ""
+
+msgid "Scanning..."
+msgstr ""
+
+msgid "Rescan"
+msgstr ""
+
+msgid "Secured · Connected"
+msgstr ""
+
+msgid "Open · Connected"
+msgstr ""
+
+msgid "Saved network"
+msgstr ""
+
+msgid "Secured network"
+msgstr ""
+
+msgid "Open network"
+msgstr ""
+
+msgid "Wi-Fi could not be enabled"
+msgstr ""
+
+msgid "Check the wireless switch and try again."
+msgstr ""
+
+msgid "Turning Wi-Fi on"
+msgstr ""
+
+msgid "Nearby networks will appear when Wi-Fi is ready."
+msgstr ""
+
+msgid "Searching for networks"
+msgstr ""
+
+msgid "This can take a few seconds."
+msgstr ""
+
+msgid "No networks found"
+msgstr ""
+
+msgid "Try scanning again or add a hidden network."
+msgstr ""
+
+msgid "SSID must be 1 to 32 bytes"
+msgstr ""
+
+msgid "Wi-Fi is still starting"
+msgstr ""
+
+msgid "Network Name (SSID)"
+msgstr ""
+
+msgid "Connect"
+msgstr ""
+
+msgid "Forget"
+msgstr ""
+
+msgid "Loading..."
+msgstr ""
+
+msgid "Not connected"
+msgstr ""
+
+msgid "Weak"
+msgstr ""
+
+msgid "Fair"
+msgstr ""
+
+msgid "Good"
+msgstr ""
+
+msgid "Excellent"
+msgstr ""
+
+#, c-format
+msgid "SSID: %s"
+msgstr ""
+
+#, c-format
+msgid "IP Address: %s"
+msgstr ""
+
+#, c-format
+msgid "Gateway: %s"
+msgstr ""
+
+#, c-format
+msgid "MAC Address: %s"
+msgstr ""
+
+#, c-format
+msgid "Signal: %s"
+msgstr ""
+
+msgid "Wi-Fi Info"
+msgstr ""
+
+msgid "Primary DNS"
+msgstr ""
+
+msgid "Secondary DNS"
+msgstr ""
+
+msgid "Not set"
+msgstr ""
+
+msgid "DNS Settings"
+msgstr ""
+
+msgid "Wi-Fi"
+msgstr ""
+
+msgid "Manual SSID Entry"
+msgstr ""
+
+msgid "Memorized Networks"
+msgstr ""
+
+msgid "No memorized networks"
+msgstr ""
+
+msgid "Networks you connect to will appear here."
+msgstr ""
+
+msgid "Loading Wi-Fi settings"
+msgstr ""
+
+msgid "Saved network details are being checked."
+msgstr ""
+
+msgid "Connected"
+msgstr ""
+
+msgid "Available Networks"
+msgstr ""
+
+msgid "Scanning for networks"
+msgstr ""
+
+msgid "Nearby Wi-Fi networks will appear here."
+msgstr ""
+
+msgid "Check that Wi-Fi is enabled, then rescan."
+msgstr ""
+
+msgid "Connecting"
+msgstr ""
+
+msgid "Connection failed"
+msgstr ""
+
+msgid "Paired"
+msgstr ""
+
+msgid "Available"
+msgstr ""
+
+msgid ""
+"When on, this device stays visible and pairable to other Bluetooth devices, "
+"so a phone or computer can stream audio TO it and play through this device's "
+"own output -- using it as an external DAC."
+msgstr ""
+
+msgid "Enable Bluetooth DAC"
+msgstr ""
+
+msgid "Bluetooth DAC"
+msgstr ""
+
+msgid "Enable Bluetooth in settings to use BT DAC mode"
+msgstr ""
+
+msgid "Leave Bluetooth DAC mode?"
+msgstr ""
+
+msgid "Leave"
+msgstr ""
+
+msgid "Bluetooth DAC mode"
+msgstr ""
+
+msgid "This device is now receiving Bluetooth audio"
+msgstr ""
+
+msgid "Waiting for Bluetooth stream…"
+msgstr ""
+
+msgid "Auto"
+msgstr ""
+
+msgid "LDAC Quality"
+msgstr ""
+
+msgid "LDAC Standard"
+msgstr ""
+
+msgid "Could not save Bluetooth codec"
+msgstr ""
+
+msgid "Turn Bluetooth off and on to apply"
+msgstr ""
+
+msgid "Automatic (44.1 kHz)"
+msgstr ""
+
+msgid "Reading supported rates..."
+msgstr ""
+
+msgid "Connect a device to see its supported rates"
+msgstr ""
+
+msgid "Still applying the previous choice"
+msgstr ""
+
+msgid "Headset may disconnect, manual reconnection might be required"
+msgstr ""
+
+msgid "Sample Rate"
+msgstr ""
+
+msgid "Bluetooth Volume Sync"
+msgstr ""
+
+msgid "Codec"
+msgstr ""
+
+msgid "Speex Resampling"
+msgstr ""
+
+msgid "Hide Unnamed Devices"
+msgstr ""
+
+msgid "Advanced"
+msgstr ""
+
+msgid "Resume and Play"
+msgstr ""
+
+msgid "Resume, but Paused"
+msgstr ""
+
+msgid "Applies next time you launch the app"
+msgstr ""
+
+msgid "Resume Last Track"
+msgstr ""
+
+msgid "Play/Pause"
+msgstr ""
+
+msgid "Previous Track"
+msgstr ""
+
+msgid "Play/Pause + Previous Track (Double-Click)"
+msgstr ""
+
+msgid "Applies immediately"
+msgstr ""
+
+msgid "Play/Pause Button"
+msgstr ""
+
+msgid "Small"
+msgstr ""
+
+msgid "Could not apply font size"
+msgstr ""
+
+msgid "Font Size"
+msgstr ""
+
+msgid "Per Track"
+msgstr ""
+
+msgid "Per Album"
+msgstr ""
+
+msgid "ReplayGain"
+msgstr ""
+
+msgid "Storage"
+msgstr ""
+
+msgid "USB DAC"
+msgstr ""
+
+msgid "ADB"
+msgstr ""
+
+msgid "Could not start USB mode switch"
+msgstr ""
+
+msgid "USB mode"
+msgstr ""
+
+#, c-format
+msgid "Failed to switch to %s"
+msgstr ""
+
+msgid "USB Mode"
+msgstr ""
+
+msgid "Leave USB DAC mode?"
+msgstr ""
+
+msgid "USB DAC mode"
+msgstr ""
+
+msgid "Waiting for USB audio…"
+msgstr ""
+
+msgid "Unknown rate"
+msgstr ""
+
+msgid "Unknown format"
+msgstr ""
+
+msgid "Unknown codec"
+msgstr ""
+
+msgid "This device is now a USB sound card"
+msgstr ""
+
+#, c-format
+msgid "USB input: %s · %u-bit"
+msgstr ""
+
+#, c-format
+msgid "DAC path: %s · %u-bit"
+msgstr ""
+
+msgid "Bluetooth"
+msgstr ""
+
+msgid "Bluetooth is off"
+msgstr ""
+
+msgid "Turn on Bluetooth to see paired and nearby devices."
+msgstr ""
+
+msgid "Paired Devices"
+msgstr ""
+
+msgid "No paired devices"
+msgstr ""
+
+msgid "Previously connected accessories will appear here."
+msgstr ""
+
+msgid "Available Devices"
+msgstr ""
+
+msgid "No nearby devices"
+msgstr ""
+
+msgid "Make an accessory discoverable, then tap Rescan."
+msgstr ""
+
+msgid "Connect to Wi-Fi first"
+msgstr ""
+
+msgid "Open this address on your phone or computer:"
+msgstr ""
+
+msgid ""
+"Closing\n"
+"Web Server..."
+msgstr ""
+
+msgid "Import via Wi-Fi"
+msgstr ""
+
+msgid "Enable WiFi to access"
+msgstr ""
+
+msgid "Web Server is busy"
+msgstr ""
+
+msgid "AirPlay"
+msgstr ""
+
+msgid ""
+"When on, this device is visible to AirPlay senders on your Wi-Fi network -- "
+"stream audio from an iPhone, iPad, or Mac to be played through this device's "
+"own output."
+msgstr ""
+
+msgid "Failed to enable AirPlay"
+msgstr ""
+
+msgid "AirPlay stopped unexpectedly"
+msgstr ""
+
+msgid "DLNA Renderer"
+msgstr ""
+
+msgid ""
+"When on, this device is visible to DLNA/UPnP controller apps on your Wi-Fi "
+"network -- cast a track from one to play it here. Pause, mute, volume, and "
+"seek from the controller app aren't supported; use this device's own "
+"controls instead once a track starts."
+msgstr ""
+
+msgid "Service is busy"
+msgstr ""
+
+msgid "DLNA"
+msgstr ""
+
+msgid "Unavailable"
+msgstr ""
+
+msgid "Turn this on to see the address here."
+msgstr ""
+
+msgid "Bluetooth remote service is unavailable; retrying."
+msgstr ""
+
+msgid "Bluetooth remote service is starting…"
+msgstr ""
+
+msgid "Enable Wi-Fi or Bluetooth to connect."
+msgstr ""
+
+msgid "Bluetooth: registration failed; retrying"
+msgstr ""
+
+msgid "Bluetooth: waiting for service registration"
+msgstr ""
+
+msgid "Connect using either available route:"
+msgstr ""
+
+msgid "Bluetooth: Compas Remote Control"
+msgstr ""
+
+msgid "Could not generate a new PIN"
+msgstr ""
+
+msgid "New PIN generated"
+msgstr ""
+
+msgid "Generate a new PIN?"
+msgstr ""
+
+msgid ""
+"Apps and browsers using the current PIN will need the new one to reconnect."
+msgstr ""
+
+msgid "Generate"
+msgstr ""
+
+msgid "Remote Control"
+msgstr ""
+
+msgid "Connection PIN"
+msgstr ""
+
+msgid ""
+"Connect over Wi-Fi or Bluetooth to see what's playing, control playback, and "
+"browse your library. Enter this PIN when the app or browser asks for it; "
+"Bluetooth also requires pairing."
+msgstr ""
+
+msgid "Remote"
+msgstr ""
+
+msgid "Import"
+msgstr ""
+
+msgid "Wireless"
+msgstr ""
+
+msgid "No track loaded"
+msgstr ""
+
+msgid "Song deleted"
+msgstr ""
+
+#, c-format
+msgid ""
+"Delete %s?\n"
+"This cannot be undone."
+msgstr ""
+
+msgid "Information"
+msgstr ""
+
+msgid "EQ"
+msgstr ""
+
+msgid "Queue ready. Press Play to start."
+msgstr ""
+
+#, c-format
+msgid "Added %d song to queue"
+msgid_plural "Added %d songs to queue"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "Removed from queue"
+msgstr ""
+
+msgid "Queue cleared"
+msgstr ""
+
+msgid "Turn off Bluetooth DAC to play music on this device"
+msgstr ""
+
+msgid "Exit USB DAC mode to play music on this device"
+msgstr ""
+
+msgid "Playback error: audio output failed"
+msgstr ""
+
+#, c-format
+msgid "Playback stopped: %s"
+msgstr ""
+
+#, c-format
+msgid "Skipped: %s"
+msgstr ""
+
+#, c-format
+msgid "%s · Not loaded: limit reached"
+msgstr ""
+
+#, c-format
+msgid "%s · Not loaded"
+msgstr ""
+
+msgid "Refreshing plugins..."
+msgstr ""
+
+msgid "Couldn't save -- plugin change was not applied"
+msgstr ""
+
+msgid "Plugin Store"
+msgstr ""
+
+msgid "Refresh Plugins"
+msgstr ""
+
+msgid "Plugin Manager"
+msgstr ""
+
+msgid "Install"
+msgstr ""
+
+msgid "Replace"
+msgstr ""
+
+msgid "Remove"
+msgstr ""
+
+msgid "Its settings stay on the card."
+msgstr ""
+
+msgid "Update individually"
+msgstr ""
+
+msgid "Choose plugins"
+msgstr ""
+
+msgid "Needs newer firmware"
+msgstr ""
+
+#, c-format
+msgid "Update available · %s"
+msgstr ""
+
+#, c-format
+msgid "Installed · %s"
+msgstr ""
+
+msgid "Installed"
+msgstr ""
+
+msgid "Removed"
+msgstr ""
+
+msgid "Installed manually"
+msgstr ""
+
+#, c-format
+msgid "Available · %s"
+msgstr ""
+
+msgid "Update available"
+msgstr ""
+
+#, c-format
+msgid "Version %s · %s"
+msgstr ""
+
+#, c-format
+msgid "By %s"
+msgstr ""
+
+msgid "No description"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "No longer in the catalog"
+msgstr ""
+
+msgid "Already installed"
+msgstr ""
+
+msgid "No plugins are available in the catalog."
+msgstr ""
+
+msgid "A plugin operation is already in progress"
+msgstr ""
+
+msgid "Updating plugins"
+msgstr ""
+
+msgid "This may take a while"
+msgstr ""
+
+msgid "Refresh plugin catalog"
+msgstr ""
+
+msgid "Updates"
+msgstr ""
+
+msgid "Update All"
+msgstr ""
+
+msgid "Could not start the plugin operation"
+msgstr ""
+
+msgid "Installing plugin"
+msgstr ""
+
+msgid "Removing plugin"
+msgstr ""
+
+#, c-format
+msgid "Remove %s?"
+msgstr ""
+
+msgid "Update these plugins individually"
+msgstr ""
+
+msgid "Plugin is unavailable"
+msgstr ""
+
+msgid "Not enough memory to load the plugin store"
+msgstr ""
+
+msgid "Turn on Wi-Fi and connect first"
+msgstr ""
+
+msgid "Could not start the plugin refresh"
+msgstr ""
+
+msgid "Loading plugins"
+msgstr ""
+
+msgid "No network detected. Connect to a network to download plugins."
+msgstr ""
+
+msgid "Could not load the plugin catalog."
+msgstr ""
+
+msgid "Plugin is unavailable in the catalog"
+msgstr ""
+
+msgid "Some plugin files were changed on the card. Replace them?"
+msgstr ""
+
+msgid "Plugin operation failed"
+msgstr ""
+
+msgid "No entries to display"
+msgstr ""
+
+msgid "No plugin settings available"
+msgstr ""
+
+msgid "Plugin"
+msgstr ""
+
+msgid "Plugin Settings"
+msgstr ""
+
+msgid "Played"
+msgstr ""
+
+msgid "Playing"
+msgstr ""
+
+msgid "Queued"
+msgstr ""
+
+msgid "Queue changed. Try again."
+msgstr ""
+
+msgid "Cannot move this entry"
+msgstr ""
+
+msgid "Queue is empty"
+msgstr ""
+
+msgid "Play an album or playlist to see its songs here."
+msgstr ""
+
+msgid "Previous page"
+msgstr ""
+
+msgid "Next page"
+msgstr ""
+
+msgid "Cannot start queue"
+msgstr ""
+
+msgid "Saving playlist…"
+msgstr ""
+
+msgid "Cannot save playlist"
+msgstr ""
+
+msgid "Save Queue as Playlist"
+msgstr ""
+
+msgid "Edit / Done"
+msgstr ""
+
+msgid "Clear Queue"
+msgstr ""
+
+msgid "Save as Playlist"
+msgstr ""
+
+msgid "Playlist saved"
+msgstr ""
+
+msgid "Cannot save: invalid or streaming entries"
+msgstr ""
+
+msgid "Play Next"
+msgstr ""
+
+msgid "Add to Queue"
+msgstr ""
+
+msgid "Custom"
+msgstr ""
+
+#, c-format
+msgid "%d min remaining"
+msgstr ""
+
+#, c-format
+msgid "Pre-Amp: %+.2f dB"
+msgstr ""
+
+#, c-format
+msgid "%.0f Hz"
+msgstr ""
+
+msgid "Pre-Amp (dB, -12 to 12)"
+msgstr ""
+
+msgid "Frequency (Hz, 20 to 20000)"
+msgstr ""
+
+msgid "Gain (dB, -12 to 12)"
+msgstr ""
+
+msgid "OFF"
+msgstr ""
+
+msgid "ON"
+msgstr ""
+
+msgid "EQ curve"
+msgstr ""
+
+#, c-format
+msgid "Band %d / %d"
+msgstr ""
+
+msgid "Could not enter recovery. Restart the player and try again."
+msgstr ""
+
+msgid "Update & Reboot"
+msgstr ""
+
+msgid "No .upt firmware file found on SD card"
+msgstr ""
+
+#, c-format
+msgid ""
+"Update using %s?\n"
+"Device will reboot into recovery mode."
+msgstr ""
+
+#, c-format
+msgid ""
+"Weekly Beta %s is downloaded and verified.\n"
+"\n"
+"Install now? The device reboots into recovery to flash it. Do not turn it "
+"off until it restarts."
+msgstr ""
+
+msgid "An update is already in progress"
+msgstr ""
+
+msgid ""
+"The downloaded update changed on the SD card and was set aside. Download it "
+"again."
+msgstr ""
+
+msgid ""
+"Cannot read the update record on the SD card. Check the card and try again."
+msgstr ""
+
+msgid "Checking for updates"
+msgstr ""
+
+msgid "Could not start the download"
+msgstr ""
+
+msgid "Downloading update"
+msgstr ""
+
+msgid ""
+"Update saved. Install it any time from Firmware Update > Install from SD "
+"card."
+msgstr ""
+
+msgid "Preparing update"
+msgstr ""
+
+msgid "Checking the file on the SD card"
+msgstr ""
+
+msgid "Check for online update"
+msgstr ""
+
+msgid "Install from SD card"
+msgstr ""
+
+msgid "Download"
+msgstr ""
+
+msgid "Install & Reboot"
+msgstr ""
+
+#, c-format
+msgid ""
+"Weekly Beta %s is available.\n"
+"Installed: %s\n"
+"\n"
+"Download it now? This may take a while."
+msgstr ""
+
+#, c-format
+msgid ""
+"You have the latest weekly (%s).\n"
+"\n"
+"Download and reinstall it anyway? This may take a while."
+msgstr ""
+
+msgid "Buy Me a Coffee"
+msgstr ""
+
+msgid "Scan with your phone to support Compás Player on PayPal"
+msgstr ""
+
+msgid "Compás Player"
+msgstr ""
+
+msgid "Firmware Update"
+msgstr ""
+
+msgid "Developer Options"
+msgstr ""
+
+msgid "About"
+msgstr ""
+
+msgid "Screenshots (Power + Previous)"
+msgstr ""
+
+msgid "Screenshots (Power + Vol Down)"
+msgstr ""
+
+msgid "Enable debug logging"
+msgstr ""
+
+msgid "LDAC in DAC mode (Experimental)"
+msgstr ""
+
+msgid "Load covers during playback (Experimental)"
+msgstr ""
+
+msgid "Custom color"
+msgstr ""
+
+msgid "From album art"
+msgstr ""
+
+msgid "From album art (no cover, using custom)"
+msgstr ""
+
+msgid "Accent Color"
+msgstr ""
+
+msgid "Match album art"
+msgstr ""
+
+msgid "Takes its color from the cover of the playing track"
+msgstr ""
+
+msgid "Presets"
+msgstr ""
+
+msgid "Default (Built-in)"
+msgstr ""
+
+msgid "No .ttf fonts found in /Fonts"
+msgstr ""
+
+msgid "Font selection is no longer available"
+msgstr ""
+
+msgid "Failed to load font. Check format & memory."
+msgstr ""
+
+msgid "Font"
+msgstr ""
+
+msgid "Preview"
+msgstr ""
+
+msgid "The quick brown fox jumps 123"
+msgstr ""
+
+msgid "Custom fonts affect Latin text only."
+msgstr ""
+
+msgid "Place .ttf fonts in SD /Fonts folder."
+msgstr ""
+
+msgid "Screen Timeout"
+msgstr ""
+
+msgid "Turn off screen automatically"
+msgstr ""
+
+msgid "Screen Dimming"
+msgstr ""
+
+msgid "Dim screen before timeout"
+msgstr ""
+
+msgid "Startup Volume"
+msgstr ""
+
+msgid "Launch at a fixed volume"
+msgstr ""
+
+msgid "Car Mode"
+msgstr ""
+
+msgid "Car Mode is disabled."
+msgstr ""
+
+msgid "Car Mode Volume"
+msgstr ""
+
+msgid "Auto-resume"
+msgstr ""
+
+msgid "Resume playback when external power turns the player on."
+msgstr ""
+
+msgid "Gain"
+msgstr ""
+
+msgid ""
+"Low\n"
+"High"
+msgstr ""
+
+#, c-format
+msgid "%d min"
+msgstr ""
+
+#, c-format
+msgid "%d hr"
+msgstr ""
+
+#, c-format
+msgid "%d hr %d min"
+msgstr ""
+
+#, c-format
+msgid "Time remaining: %d:%02d:%02d"
+msgstr ""
+
+#, c-format
+msgid "Time remaining: %d:%02d"
+msgstr ""
+
+msgid "Sleep Timer"
+msgstr ""
+
+msgid "Enable Sleep Timer"
+msgstr ""
+
+msgid "Show Time Remaining"
+msgstr ""
+
+msgid "Idle Shutdown"
+msgstr ""
+
+msgid "Automatically go idle"
+msgstr ""
+
+msgid "Choose what happens when idle:"
+msgstr ""
+
+msgid "Power Off"
+msgstr ""
+
+msgid "Suspend to RAM"
+msgstr ""
+
+msgid "Idle timeout:"
+msgstr ""
+
+msgid "Africa"
+msgstr ""
+
+msgid "America"
+msgstr ""
+
+msgid "Antarctica"
+msgstr ""
+
+msgid "Arctic"
+msgstr ""
+
+msgid "Asia"
+msgstr ""
+
+msgid "Atlantic"
+msgstr ""
+
+msgid "Australia"
+msgstr ""
+
+msgid "Europe"
+msgstr ""
+
+msgid "Indian"
+msgstr ""
+
+msgid "Pacific"
+msgstr ""
+
+msgid "Not selected (UTC)"
+msgstr ""
+
+msgid "Failed to apply time zone"
+msgstr ""
+
+#, c-format
+msgid "%s (current)"
+msgstr ""
+
+msgid "Time Zone"
+msgstr ""
+
+msgid "Sound Effects"
+msgstr ""
+
+msgid "Download Profiles"
+msgstr ""
+
+msgid "Crossfade"
+msgstr ""
+
+msgid "Gapless"
+msgstr ""
+
+msgid "Buttons & Remote"
+msgstr ""
+
+msgid "Playback & Controls"
+msgstr ""
+
+msgid "Equalizer"
+msgstr ""
+
+msgid "Sound"
+msgstr ""
+
+msgid "In-line Remote"
+msgstr ""
+
+msgid "Update Music Database to enable this album order"
+msgstr ""
+
+msgid "Sorting"
+msgstr ""
+
+msgid "Files (folders stay first)"
+msgstr ""
+
+msgid "Name (A–Z)"
+msgstr ""
+
+msgid "Newest Modified"
+msgstr ""
+
+msgid "Release Year (oldest first)"
+msgstr ""
+
+msgid "Albums (main list)"
+msgstr ""
+
+msgid ""
+"Files use modification dates. Albums use the newest track added; missing "
+"release years sort last. Update Music Database once to read years from "
+"existing files."
+msgstr ""
+
+msgid "Update Music Database"
+msgstr ""
+
+msgid "Refresh All Metadata"
+msgstr ""
+
+msgid "Refresh All Covers"
+msgstr ""
+
+msgid "Library"
+msgstr ""
+
+msgid "Animation Speed"
+msgstr ""
+
+msgid "Drawer Volume Slider"
+msgstr ""
+
+msgid "Battery Percentage"
+msgstr ""
+
+msgid "Artist Images"
+msgstr ""
+
+msgid "Appearance"
+msgstr ""
+
+msgid "Applying layout, this may take a while"
+msgstr ""
+
+msgid "Layout"
+msgstr ""
+
+msgid "Lyrics"
+msgstr ""
+
+msgid "Hide Player/Lyrics Top Bar"
+msgstr ""
+
+msgid "Player Layout"
+msgstr ""
+
+msgid "Swipe Up for Home"
+msgstr ""
+
+msgid "Upside Down Screen"
+msgstr ""
+
+msgid "Gestures & Orientation"
+msgstr ""
+
+msgid "Display"
+msgstr ""
+
+msgid "Charge Limit (85%)"
+msgstr ""
+
+msgid "Safe Charging (500mA)"
+msgstr ""
+
+msgid "LED charge indicator"
+msgstr ""
+
+msgid "Charging"
+msgstr ""
+
+msgid "Power"
+msgstr ""
+
+msgid "Additional Tools"
+msgstr ""
+
+msgid "Turn off Automatic to set the clock"
+msgstr ""
+
+msgid "Automatic"
+msgstr ""
+
+msgid "Set Time"
+msgstr ""
+
+msgid "24-Hour Clock"
+msgstr ""
+
+msgid "Clock"
+msgstr ""
+
+msgid "Save"
+msgstr ""
+
+msgid "Hostname"
+msgstr ""
+
+msgid "Factory Reset"
+msgstr ""
+
+msgid "Maintenance"
+msgstr ""
+
+msgid "Applying language, this may take a while"
+msgstr ""
+
+msgid "Language"
+msgstr ""
+
+msgid "System"
+msgstr ""
+
+msgid "Settings"
+msgstr ""
+
+msgid ""
+"Turn off ADB first (Settings > System > USB Mode), then enable USB DAC from "
+"here."
+msgstr ""
+
+msgid "DAC"
+msgstr ""
+
+msgid "Combined response (dB) · EQ off"
+msgstr ""
+
+msgid "Combined response (dB)"
+msgstr ""
+
+msgid "PEQ reset to defaults"
+msgstr ""
+
+msgid "Reset PEQ to defaults?"
+msgstr ""
+
+msgid "Reset"
+msgstr ""
+
+msgid "Reset all settings and reboot?"
+msgstr ""
+
+msgid "Restart now to apply the new hostname?"
+msgstr ""
+
+msgid "Restart Now"
+msgstr ""
+
+msgid "Hostname can only use letters, numbers, and hyphens"
+msgstr ""
+
+msgid "Invalid profile name"
+msgstr ""
+
+msgid "Failed to save profile"
+msgstr ""
+
+msgid "Profile saved"
+msgstr ""
+
+msgid "Failed to load profile"
+msgstr ""
+
+msgid "Profile loaded"
+msgstr ""
+
+msgid "Failed to delete profile"
+msgstr ""
+
+msgid "Profile deleted"
+msgstr ""
+
+msgid "Failed to rename profile"
+msgstr ""
+
+msgid "Profile renamed"
+msgstr ""
+
+msgid "Rename Profile"
+msgstr ""
+
+msgid "Replace Profile"
+msgstr ""
+
+msgid "Profiles"
+msgstr ""
+
+msgid "No saved profiles"
+msgstr ""
+
+msgid "Download profiles"
+msgstr ""
+
+msgid "Delete this profile?"
+msgstr ""
+
+msgid "Save Profile As"
+msgstr ""
+
+msgid "Profile Name"
+msgstr ""
+
+msgid "Save Profile"
+msgstr ""
+
+msgid "Save as a new profile, or replace one that already exists?"
+msgstr ""
+
+msgid "Replace Existing"
+msgstr ""
+
+msgid "New Profile"
+msgstr ""
+
+msgid "Band options"
+msgstr ""
+
+msgid "Filter type"
+msgstr ""
+
+msgid ""
+"Peaking\n"
+"Low Shelf\n"
+"High Shelf"
+msgstr ""
+
+msgid "Enable band"
+msgstr ""
+
+msgid "Reset to defaults"
+msgstr ""
+
+msgid "Parametric EQ"
+msgstr ""
+
+msgid "Frequency"
+msgstr ""
+
+msgid "48 kHz reference"
+msgstr ""
+
+msgid "Flat"
+msgstr ""
+
+msgid "Please wait for the library scan to finish"
+msgstr ""
+
+msgid "Please wait for plugin installation to finish"
+msgstr ""
+
+msgid "Connect to a Wi-Fi network before continuing."
+msgstr ""
+
+msgid "Could not start the library scan. Please try again."
+msgstr ""
+
+msgid "Insert an SD card to scan for music, or turn off Scan for music."
+msgstr ""
+
+msgid "Choose a language"
+msgstr ""
+
+msgid "Could not load the plugin catalog. Tap More to retry."
+msgstr ""
+
+msgid "Loading plugin catalog..."
+msgstr ""
+
+msgid "No network detected"
+msgstr ""
+
+msgid "Time zone"
+msgstr ""
+
+msgid "Plugins"
+msgstr ""
+
+msgid "Quick setup"
+msgstr ""
+
+msgid "Skip for now"
+msgstr ""
+
+msgid "Your setup journey"
+msgstr ""
+
+msgid "Welcome to Compás"
+msgstr ""
+
+msgid "Get started"
+msgstr ""
+
+msgid "Quick Setup Complete"
+msgstr ""
+
+msgid "Continue"
+msgstr ""
+
+#, c-format
+msgid "Step %d of %d"
+msgstr ""
+
+msgid "Your music"
+msgstr ""
+
+msgid "Choose the language for your player."
+msgstr ""
+
+msgid "Set your local time zone so the clock is right."
+msgstr ""
+
+msgid "Connect to Wi-Fi for streaming, updates, and online services."
+msgstr ""
+
+msgid "Start with these suggestions, or explore more plugins."
+msgstr ""
+
+msgid ""
+"Insert your SD card with music files. Compas Player can scan it and build "
+"your library."
+msgstr ""
+
+msgid "Choose time zone"
+msgstr ""
+
+msgid "Add hidden network"
+msgstr ""
+
+msgid "Connect to a network to download plugins."
+msgstr ""
+
+msgid "Connect to Wi-Fi"
+msgstr ""
+
+msgid "AutoEQ"
+msgstr ""
+
+msgid "More"
+msgstr ""
+
+msgid "Scan for music"
+msgstr ""
+
+msgid "No SD card detected. You can scan later from Library settings."
+msgstr ""
+
+msgid "You can select up to 32 plugins"
+msgstr ""
+
+#, c-format
+msgid "%s has local files that would be replaced."
+msgstr ""
+
+msgid "Install selected plugins?"
+msgstr ""
+
+msgid "OK"
+msgstr ""
+
+msgid "Replace local plugin files?"
+msgstr ""
+
+msgid "Plugin setup complete"
+msgstr ""
+
+msgid "Continue setup"
+msgstr ""
+
+#, c-format
+msgid "Retrying plugins %zu/%zu"
+msgstr ""
+
+#, c-format
+msgid "Downloading and installing plugins %zu/%zu"
+msgstr ""
+
+msgid "Failed plugins:\n"
+msgstr ""
+
+msgid "Selected plugins are ready.\n"
+msgstr ""
+
+msgid ""
+"Manage plugins later in Settings > System > Plugin Manager to search, "
+"update, or remove them."
+msgstr ""
+
+msgid "Plugin setup needs attention"
+msgstr ""
+
+msgid "Could not start refreshing the plugin catalog."
+msgstr ""
+
+msgid "Plugin selection could not be resumed."
+msgstr ""
+
+msgid "A selected plugin is no longer available."
+msgstr ""
+
+msgid "Could not start replacing plugin files."
+msgstr ""
+
+msgid "Installation skipped. You can try it again later."
+msgstr ""
+
+msgid "Select at least one plugin to continue."
+msgstr ""
+
+msgid "Could not open plugin confirmation."
+msgstr ""
+
+msgid "AM"
+msgstr ""
+
+msgid "USB audio device detected"
+msgstr ""
+
+#, c-format
+msgid "%dm"
+msgstr ""
+
+msgid "Wi-Fi failed to change state"
+msgstr ""
+
+msgid "Failed to toggle Bluetooth"
+msgstr ""
+
+msgid "Sleep"
+msgstr ""
+
+msgid "RC"
+msgstr ""
+
+msgid "PM"
+msgstr ""
+
+msgid "Downloading"
+msgstr ""
+
+msgid "Not enough memory to start download"
+msgstr ""
+
+msgid "Invalid download folder"
+msgstr ""
+
+msgid "Download failed"
+msgstr ""
+
+msgid "Original"
+msgstr ""
+
+msgid "Low"
+msgstr ""
+
+msgid "High"
+msgstr ""
+
+#, c-format
+msgid "Stream quality: %s"
+msgstr ""
+
+msgid "Stream Quality"
+msgstr ""
+
+msgid "Applies to new streaming queues"
+msgstr ""
+
+msgid "Low (96 kbps)"
+msgstr ""
+
+msgid "Medium (192 kbps)"
+msgstr ""
+
+msgid "High (320 kbps)"
+msgstr ""
+
+#, c-format
+msgid "Download folder: %s"
+msgstr ""
+
+msgid "Download folder: SD root"
+msgstr ""
+
+msgid "Invalid download folder name"
+msgstr ""
+
+msgid "Download subfolder"
+msgstr ""
+
+msgid "Download Settings"
+msgstr ""
+
+msgid "Subfolder: SD root"
+msgstr ""
+
+msgid ""
+"Subfolder is relative to SD root (example: Music/Offline); empty uses SD root"
+msgstr ""
+
+msgid "Folder layout for downloaded albums"
+msgstr ""
+
+msgid "Album Artist / Album"
+msgstr ""
+
+msgid "Album Artist - Album"
+msgstr ""
+
+msgid "Failed to load from server"
+msgstr ""
+
+msgid "Previous request still finishing"
+msgstr ""
+
+msgid "Not enough memory to load from server"
+msgstr ""
+
+msgid "Loading from server..."
+msgstr ""
+
+msgid "Server request timed out after 30 seconds"
+msgstr ""
+
+msgid "Not enough memory to load artists"
+msgstr ""
+
+#, c-format
+msgid ""
+"Downloading\n"
+"%s..."
+msgstr ""
+
+#, c-format
+msgid "Download \"%s\"?"
+msgstr ""
+
+#, c-format
+msgid "Download every album from \"%s\"?"
+msgstr ""
+
+msgid "Failed to load artists"
+msgstr ""
+
+msgid "Failed to connect to server"
+msgstr ""
+
+msgid "Connection timed out after 30 seconds"
+msgstr ""
+
+#, c-format
+msgid "Failed to load artists: %s"
+msgstr ""
+
+msgid "Not enough memory to connect"
+msgstr ""
+
+msgid "Connecting to server..."
+msgstr ""
+
+msgid "Failed to start connection"
+msgstr ""
+
+msgid "No saved servers"
+msgstr ""
+
+msgid "Go back and choose New Connection to add one."
+msgstr ""
+
+msgid "Saved Servers"
+msgstr ""
+
+#, c-format
+msgid "Server URL (e.g. %s)"
+msgstr ""
+
+msgid "Username"
+msgstr ""
+
+msgid "Password"
+msgstr ""
+
+#, c-format
+msgid "Server URL: %s"
+msgstr ""
+
+msgid "Verify server certificate"
+msgstr ""
+
+#, c-format
+msgid "Username: %s"
+msgstr ""
+
+msgid "Password: Set"
+msgstr ""
+
+msgid "Password: Not set"
+msgstr ""
+
+msgid "Connect & Browse"
+msgstr ""
+
+msgid "New Connection"
+msgstr ""
+
+msgid "Download settings"
+msgstr ""
+
+msgid "Songs"
+msgstr ""
+
+#, c-format
+msgid "%llu bytes"
+msgstr ""
+
+msgid "Container"
+msgstr ""
+
+msgid "Source"
+msgstr ""
+
+#, c-format
+msgid "Native DSD (DoP) / %.4g MHz"
+msgstr ""
+
+msgid "Output"
+msgstr ""
+
+msgid "Mono (1 channel)"
+msgstr ""
+
+msgid "Stereo (2 channels)"
+msgstr ""
+
+#, c-format
+msgid "%u channels"
+msgstr ""
+
+msgid "Channels"
+msgstr ""
+
+msgid "Bitrate"
+msgstr ""
+
+msgid "Duration"
+msgstr ""
+
+msgid "File size"
+msgstr ""
+
+msgid "Track"
+msgstr ""
+
+#, c-format
+msgid "Disc %d / Track %d"
+msgstr ""
+
+msgid "Position"
+msgstr ""
+
+#, c-format
+msgid "Applied %+.1f dB"
+msgstr ""
+
+#, c-format
+msgid "Album %+.1f dB"
+msgstr ""
+
+#, c-format
+msgid "Track %+.1f dB"
+msgstr ""
+
+msgid "Provider"
+msgstr ""
+
+#, c-format
+msgid "Radio / %s"
+msgstr ""
+
+msgid "Radio"
+msgstr ""
+
+msgid "Network stream"
+msgstr ""
+
+msgid "Location"
+msgstr ""
+
+msgid ""
+"Track details are not available yet. Keep playback open and check again."
+msgstr ""
+
+msgid "No items"
+msgstr ""
+
+msgid "Unable to load items"
+msgstr ""
+
+msgid "There are no entries in this view."
+msgstr ""
+
+msgid "Your library is being loaded."
+msgstr ""
+
+msgid "Leave this view and try again."
+msgstr ""
+
+msgid "Power off"
+msgstr ""
+
+msgid "Restart"
+msgstr ""
+
+msgid "Screen off"
+msgstr ""
+
+msgid "Sleep timer"
+msgstr ""
+
+msgid "Power controls"
+msgstr ""
+
+msgid "Playback and device actions"
+msgstr ""

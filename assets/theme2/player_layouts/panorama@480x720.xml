@@ -1,7 +1,7 @@
 <component>
     <animations>
         <timeline name="lyrics_open">
-            <animation prop="width" target="title" start="432" end="368" duration="260" />
+            <animation prop="width" target="title" start="432" end="324" duration="260" />
             <animation prop="width" target="artist" start="432" end="368" duration="260" />
             <animation prop="opa" target="album" start="255" end="0" duration="180" />
             <animation prop="translate_x" target="title" start="0" end="68" duration="260" />
@@ -16,7 +16,7 @@
             <animation prop="opa" target="dismiss_btn" start="255" end="0" duration="80" />
         </timeline>
         <timeline name="lyrics_close">
-            <animation prop="width" target="title" start="368" end="432" duration="260" />
+            <animation prop="width" target="title" start="324" end="432" duration="260" />
             <animation prop="width" target="artist" start="368" end="432" duration="260" />
             <animation prop="opa" target="album" start="0" end="255" duration="200" delay="80" />
             <animation prop="translate_x" target="title" start="68" end="0" duration="260" />

@@ -1,4 +1,5 @@
 #include "screen_builders.h"
+#include "i18n.h"
 #include "gui_theme.h"
 #include "gui_plugins.h"
 #include "gui_navigation.h"
@@ -201,8 +202,57 @@ void row_label_apply_bounded_height(lv_obj_t * label, const lv_font_t * font) {
     lv_obj_add_flag(label, LV_OBJ_FLAG_USER_3);
 }
 
+static char music_list_row_layout_marker;
+static char music_list_row_badge_marker;
+
+static void layout_music_list_row(lv_obj_t * row) {
+    if (!row || lv_obj_get_child_count(row) < 2) return;
+    lv_obj_t * title = lv_obj_get_child(row, 0);
+    lv_obj_t * subtitle = lv_obj_get_child(row, 1);
+    bool has_subtitle = lv_label_get_text(subtitle)[0] != '\0';
+    const lv_font_t *title_font = lv_obj_get_style_text_font(title, LV_PART_MAIN);
+    const lv_font_t *subtitle_font = lv_obj_get_style_text_font(subtitle, LV_PART_MAIN);
+    int32_t title_height = row_label_bounded_height(title_font);
+    int32_t subtitle_height = row_label_bounded_height(subtitle_font);
+    int32_t gap = has_subtitle ? BOARD_SCALE_PX(4) : 0;
+    int32_t group_height = title_height + (has_subtitle ? gap + subtitle_height : 0);
+    int32_t height = group_height + 2 * BOARD_SCALE_PX(8);
+    if (height < ui_music_row_height()) height = ui_music_row_height();
+    int32_t top = (height - group_height) / 2;
+    lv_obj_set_height(row, height);
+    lv_obj_set_y(title, top);
+    if (has_subtitle) {
+        lv_obj_set_y(subtitle, top + title_height + gap);
+        lv_obj_remove_flag(subtitle, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(subtitle, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static void layout_music_list_badge(lv_obj_t * badge) {
+    if (!badge) return;
+    lv_obj_t * row = lv_obj_get_parent(badge);
+    if (!row || lv_obj_get_child_count(row) < 2) return;
+    lv_obj_t * title = lv_obj_get_child(row, 0);
+    lv_obj_t * subtitle = lv_obj_get_child(row, 1);
+    lv_obj_t * anchor = lv_obj_has_flag(subtitle, LV_OBJ_FLAG_HIDDEN) ? title : subtitle;
+    int32_t anchor_height = row_label_bounded_height(
+        lv_obj_get_style_text_font(anchor, LV_PART_MAIN));
+    int32_t badge_height = row_label_bounded_height(lv_obj_get_style_text_font(badge, LV_PART_MAIN));
+    lv_obj_set_y(badge, lv_obj_get_style_y(anchor, 0) +
+                        (anchor_height - badge_height) / 2);
+}
+
+void music_list_row_align_badge(lv_obj_t * row, lv_obj_t * badge) {
+    if (!row || !badge || lv_obj_get_parent(badge) != row) return;
+    lv_obj_set_user_data(badge, &music_list_row_badge_marker);
+    layout_music_list_badge(badge);
+}
+
 static void refresh_icon_caption_geometry_recursive(lv_obj_t * obj) {
     /* Reserved for native headers, secondary labels and virtual lists. */
+    if (lv_obj_get_user_data(obj) == &music_list_row_layout_marker)
+        layout_music_list_row(obj);
     if (lv_obj_has_flag(obj, LV_OBJ_FLAG_USER_4)) {
         if (!lv_obj_check_type(obj, &lv_label_class)) compact_list_refresh_font_layout(obj);
         else if (lv_obj_get_user_data(obj)) {
@@ -212,8 +262,7 @@ static void refresh_icon_caption_geometry_recursive(lv_obj_t * obj) {
             if (!pooled && height >= MUSIC_LIST_ROW_HEIGHT) height = ui_music_row_height();
             row_label_layout_identity(lv_obj_get_parent(obj), obj, height);
         } else {
-            lv_obj_set_y(obj, STATUS_BAR_CLEARANCE +
-                (TITLE_ROW_HEIGHT - lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_TITLE))) / 2);
+            screen_title_fit(obj);
         }
     }
     /* Re-applies row_label_apply_bounded_height() using this label's
@@ -226,6 +275,9 @@ static void refresh_icon_caption_geometry_recursive(lv_obj_t * obj) {
     if (lv_obj_check_type(obj, &lv_label_class) && lv_obj_has_flag(obj, LV_OBJ_FLAG_USER_3)) {
         row_label_apply_bounded_height(obj, lv_obj_get_style_text_font(obj, LV_PART_MAIN));
     }
+    if (lv_obj_check_type(obj, &lv_label_class) &&
+        lv_obj_get_user_data(obj) == &music_list_row_badge_marker)
+        layout_music_list_badge(obj);
 
     uint32_t child_count = lv_obj_get_child_count(obj);
     if (child_count >= 2 && lv_obj_has_flag(obj, LV_OBJ_FLAG_USER_1)) {
@@ -377,6 +429,7 @@ lv_obj_t * build_music_list_row(lv_obj_t * parent, const char * title, const cha
     lv_obj_set_size(row, LIST_ROW_WIDTH, ui_music_row_height());
     lv_obj_set_style_pad_all(row, 0, 0);
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_user_data(row, &music_list_row_layout_marker);
 
     const char * newline = title ? strchr(title, '\n') : NULL;
     if (!subtitle && newline) subtitle = newline + 1;
@@ -385,7 +438,7 @@ lv_obj_t * build_music_list_row(lv_obj_t * parent, const char * title, const cha
     else lv_label_set_text(primary, title ? title : "");
     lv_obj_add_style(primary, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(primary, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
-    lv_obj_set_pos(primary, GUI_TEXT_INSET, 20);
+    lv_obj_set_pos(primary, GUI_TEXT_INSET, 0);
     lv_obj_set_width(primary, LIST_ROW_WIDTH - GUI_TEXT_INSET -
                              (trailing_space > 0 ? trailing_space : GUI_TEXT_INSET));
     row_label_apply_bounded_height(primary, gui_theme_font(GUI_FONT_ROLE_ROW));
@@ -395,12 +448,13 @@ lv_obj_t * build_music_list_row(lv_obj_t * parent, const char * title, const cha
     lv_label_set_text(secondary, subtitle ? subtitle : "");
     lv_obj_add_style(secondary, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(secondary, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-    lv_obj_set_pos(secondary, GUI_TEXT_INSET, 64);
+    lv_obj_set_pos(secondary, GUI_TEXT_INSET, 0);
     lv_obj_set_width(secondary, LIST_ROW_WIDTH - GUI_TEXT_INSET -
                                (trailing_space > 0 ? trailing_space : GUI_TEXT_INSET));
     row_label_apply_bounded_height(secondary, gui_theme_font(GUI_FONT_ROLE_BODY));
     row_label_enable_marquee(secondary);
     if (!subtitle || !subtitle[0]) lv_obj_add_flag(secondary, LV_OBJ_FLAG_HIDDEN);
+    layout_music_list_row(row);
     return row;
 }
 
@@ -589,8 +643,10 @@ lv_obj_t * build_top_right_icon_button(lv_obj_t * scr, const char * icon_asset, 
     for (uint32_t i = 0; i < lv_obj_get_child_count(scr); ++i) {
         lv_obj_t * child = lv_obj_get_child(scr, i);
         if (lv_obj_check_type(child, &lv_label_class) &&
-            lv_obj_has_flag(child, LV_OBJ_FLAG_USER_4) && !lv_obj_get_user_data(child))
+            lv_obj_has_flag(child, LV_OBJ_FLAG_USER_4) && !lv_obj_get_user_data(child)) {
             lv_obj_set_width(child, active_display_width() - 76 - TITLE_ROW_HEIGHT - 12);
+            screen_title_fit(child);
+        }
     }
     return btn;
 }
@@ -605,6 +661,28 @@ lv_obj_t * build_top_right_icon_button(lv_obj_t * scr, const char * icon_asset, 
 #define BUILD_TITLE_LEFT_INSET 76
 #define BUILD_TITLE_RIGHT_MARGIN 20
 
+/* Keeps a header title on its one line, vertically centered within the
+ * TITLE_ROW_HEIGHT band below the status bar (matches the back button's own
+ * 64px height). A title wider than the label (translations often are) drops
+ * to the row font; if even that is too wide it ends in an ellipsis. The
+ * fixed one-line height is what stops LV_LABEL_LONG_DOT from wrapping onto
+ * the first row, including for titles whose text changes later. Rerun after
+ * the label's width or the font tier changes. */
+void screen_title_fit(lv_obj_t * label) {
+    const lv_font_t * font = gui_theme_font(GUI_FONT_ROLE_TITLE);
+    int32_t width = lv_obj_get_style_width(label, LV_PART_MAIN);
+    const char * text = lv_label_get_text(label);
+    if (text && LV_COORD_IS_PX(width) && width > 0) {
+        lv_point_t size;
+        lv_text_get_size(&size, text, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        if (size.x > width) font = gui_theme_font(GUI_FONT_ROLE_ROW);
+    }
+    int32_t line_h = lv_font_get_line_height(font);
+    lv_obj_set_style_text_font(label, font, 0);
+    lv_obj_set_height(label, line_h);
+    lv_obj_set_y(label, STATUS_BAR_CLEARANCE + (TITLE_ROW_HEIGHT - line_h) / 2);
+}
+
 static lv_obj_t * build_title(lv_obj_t * scr, const char * title) {
     lv_obj_t * label = lv_label_create(scr);
     lv_obj_add_flag(label, LV_OBJ_FLAG_USER_4);
@@ -614,13 +692,10 @@ static lv_obj_t * build_title(lv_obj_t * scr, const char * title) {
      * remain still and readable until the user opens the corresponding list. */
     lv_obj_set_width(label, lv_display_get_horizontal_resolution(lv_display_get_default()) -
                                  BUILD_TITLE_LEFT_INSET - BUILD_TITLE_RIGHT_MARGIN);
-    /* Vertically centered within the TITLE_ROW_HEIGHT band below the
-     * status bar (matches the back button's own 64px height). */
-    lv_obj_align(label, LV_ALIGN_TOP_LEFT, BUILD_TITLE_LEFT_INSET,
-                 STATUS_BAR_CLEARANCE + (TITLE_ROW_HEIGHT - lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_TITLE))) / 2);
+    lv_obj_align(label, LV_ALIGN_TOP_LEFT, BUILD_TITLE_LEFT_INSET, 0);
     lv_obj_add_style(label, &style_theme_text_primary, 0);
-    lv_obj_set_style_text_font(label, gui_theme_font(GUI_FONT_ROLE_TITLE), 0);
     lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+    screen_title_fit(label);
     return label;
 }
 
@@ -631,7 +706,10 @@ lv_obj_t * build_screen_header(lv_obj_t * scr, const char * title, lv_event_cb_t
     lv_obj_t * label = title ? build_title(scr, title) : NULL;
     if (trailing_asset) {
         build_top_right_icon_button(scr, trailing_asset, trailing_cb);
-        if (label) lv_obj_set_width(label, active_display_width() - BUILD_TITLE_LEFT_INSET - TITLE_ROW_HEIGHT - 12);
+        if (label) {
+            lv_obj_set_width(label, active_display_width() - BUILD_TITLE_LEFT_INSET - TITLE_ROW_HEIGHT - 12);
+            screen_title_fit(label);
+        }
     }
     return label;
 }
@@ -713,7 +791,8 @@ lv_obj_t * build_icon_grid_screen(const char * title, lv_event_cb_t back_btn_cb,
 
     /* Rows use fixed pixel height based on ICON_GRID_REFERENCE_ROWS rather than
      * fractional shares, so cell heights remain consistent regardless of row count. */
-    int32_t row_h = (scr_h - header_h) / ICON_GRID_REFERENCE_ROWS;
+    int32_t home_indicator_inset = (!title && !back_btn_cb) ? HOME_INDICATOR_CONTENT_INSET : 0;
+    int32_t row_h = (scr_h - header_h - home_indicator_inset) / ICON_GRID_REFERENCE_ROWS;
 
     int32_t * row_dsc = grid_dsc->rows;
     for (int r = 0; r < row_count && r < ICON_GRID_MAX_ROWS; r++) row_dsc[r] = row_h;
@@ -1002,7 +1081,7 @@ lv_obj_t * build_pill_list_screen(const char * title, lv_event_cb_t back_btn_cb,
      * target_icon_px -- 100 (every native call site) reproduces
      * PILL_ROW_ICON_PX_DEFAULT exactly, unchanged from before this
      * parameter existed. */
-    int32_t icon_px = (PILL_ROW_ICON_PX_DEFAULT * icon_scale_pct) / 100;
+    int32_t icon_px = (BOARD_SCALE_PX(PILL_ROW_ICON_PX_DEFAULT) * icon_scale_pct) / 100;
 
     /* Clamped here, not just left to whatever the caller passed -- every
      * native call site already passes a small literal (6), but
@@ -1097,16 +1176,18 @@ lv_obj_t * build_pill_list_screen(const char * title, lv_event_cb_t back_btn_cb,
          * pill_row_resolve_text_size()'s own comment. */
         lv_obj_set_style_text_font(label, pill_row_resolve_text_size(item->text_size), 0);
         if (item->has_text_color) lv_obj_set_style_text_color(label, lv_color_hex(item->text_color), 0);
-        lv_obj_align(label, LV_ALIGN_LEFT_MID, 24, 0);
-        pill_row_apply_icon(row, label, item->icon_asset, icon_px, LV_ALIGN_LEFT_MID, 24, 0);
+        int32_t label_inset = BOARD_SCALE_PX(24);
+        lv_obj_align(label, LV_ALIGN_LEFT_MID, label_inset, 0);
+        pill_row_apply_icon(row, label, item->icon_asset, icon_px, LV_ALIGN_LEFT_MID, label_inset, 0);
 
         /* Keep long labels inside their own row instead of letting the
          * label's content-sized box extend over the accessory or following
          * row. LV_LABEL_LONG_SCROLL_CIRCULAR is inert when the text fits and
          * becomes a single-line marquee only when it does not. */
-        int32_t label_left = 24 + (item->icon_asset ? icon_px + 12 : 0);
-        int32_t accessory_space = item->accessory == PILL_ACCESSORY_TOGGLE ? 112
-                                  : item->accessory == PILL_ACCESSORY_CHEVRON ? 60 : 24;
+        int32_t label_left = label_inset + (item->icon_asset ? icon_px + 12 : 0);
+        int32_t accessory_space = item->accessory == PILL_ACCESSORY_TOGGLE ? BOARD_SCALE_PX(112)
+                                  : item->accessory == PILL_ACCESSORY_CHEVRON ? BOARD_SCALE_PX(60)
+                                  : label_inset;
         int32_t label_width = width - label_left - accessory_space;
         /* configure_scrolling_row_label() (gui_plugins.c) is the one shared
          * construction path for every bounded scrolling row label, native or
@@ -1132,7 +1213,7 @@ lv_obj_t * build_pill_list_screen(const char * title, lv_event_cb_t back_btn_cb,
             /* Non-clickable switch visual driven by row tap (row handles the click event). */
             lv_obj_t * toggle_sw = lv_switch_create(row);
             lv_obj_remove_flag(toggle_sw, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_align(toggle_sw, LV_ALIGN_RIGHT_MID, -20, 0);
+            lv_obj_align(toggle_sw, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(20), 0);
             if (item->toggle_initial_state) lv_obj_add_state(toggle_sw, LV_STATE_CHECKED);
             if (toggle_accent_style) lv_obj_add_style(toggle_sw, toggle_accent_style, LV_PART_INDICATOR | LV_STATE_CHECKED);
 
@@ -1165,8 +1246,10 @@ lv_obj_t * build_pill_list_screen(const char * title, lv_event_cb_t back_btn_cb,
                 lv_obj_t * chevron = lv_label_create(row);
                 lv_label_set_text(chevron, ">");
                 lv_obj_add_style(chevron, &style_theme_text_muted, 0);
+                if (item->has_text_color)
+                    lv_obj_set_style_text_color(chevron, lv_color_hex(item->text_color), 0);
                 lv_obj_set_style_text_font(chevron, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-                lv_obj_align(chevron, LV_ALIGN_RIGHT_MID, -20, 0);
+                lv_obj_align(chevron, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(20), 0);
             }
 
             if (item->on_click) {
@@ -1177,12 +1260,14 @@ lv_obj_t * build_pill_list_screen(const char * title, lv_event_cb_t back_btn_cb,
         }
     }
 
-    /* Headerless Home lists should occupy the screen as one balanced
-     * block. Keep START for oversized/plugin lists so their first row
-     * remains reachable by scrolling. */
-    int32_t list_h = lv_display_get_vertical_resolution(lv_display_get_default()) - header_h;
+    /* Headerless Home lists should occupy the actual Home viewport, ending
+     * above the gesture-indicator hit area. Keep START and the native pads
+     * for oversized lists so their first row remains reachable by scrolling. */
+    int32_t list_h = lv_display_get_vertical_resolution(lv_display_get_default())
+                   - header_h - ((!title && !back_btn_cb) ? HOME_INDICATOR_CONTENT_INSET : 0);
     if (!title && !back_btn_cb && content_h <= list_h) {
         lv_obj_set_style_pad_top(list, 0, 0);
+        lv_obj_set_style_pad_bottom(list, 0, 0);
         lv_obj_set_flex_align(list, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     }
 
@@ -1964,10 +2049,10 @@ static void compact_list_update_window(lv_obj_t * list, compact_list_virtual_dat
         if (!lv_obj_has_flag(data->rows[slot], LV_OBJ_FLAG_HIDDEN)) any_visible = true;
     if (any_visible) lv_obj_add_flag(data->message, LV_OBJ_FLAG_HIDDEN);
     else {
-        const char * heading = data->item_count == 0 ? "No items" :
-                               data->pending_job ? "Loading..." : "Unable to load items";
-        const char * detail = data->item_count == 0 ? "There are no entries in this view." :
-                              data->pending_job ? "Your library is being loaded." : "Leave this view and try again.";
+        const char * heading = data->item_count == 0 ? TR("No items") :
+                               data->pending_job ? TR("Loading...") : TR("Unable to load items");
+        const char * detail = data->item_count == 0 ? TR("There are no entries in this view.") :
+                              data->pending_job ? TR("Your library is being loaded.") : TR("Leave this view and try again.");
         lv_label_set_text(lv_obj_get_child(data->message, 0), heading);
         lv_label_set_text(lv_obj_get_child(data->message, 1), detail);
         lv_obj_set_y(data->message, lv_obj_get_scroll_y(list) + COMPACT_LIST_TOP_PAD);
@@ -2385,7 +2470,7 @@ lv_obj_t * build_compact_list_widget(lv_obj_t * parent, const compact_list_item_
     data->poll_timer = lv_timer_create(compact_list_poll_fetch_cb, COMPACT_LIST_FETCH_POLL_MS, list);
     lv_timer_pause(data->poll_timer);
 
-    data->message = build_list_message(list, "No items", "There are no entries in this view.");
+    data->message = build_list_message(list, TR("No items"), TR("There are no entries in this view."));
     lv_obj_set_x(data->message, (active_display_width() - LIST_ROW_WIDTH) / 2);
     compact_list_update_window(list, data); /* populate the initially-visible rows */
     register_active_compact_list(data);
@@ -2789,7 +2874,7 @@ static lv_obj_t * power_hub_card(lv_obj_t * parent, const char * title,
 
 lv_obj_t * build_power_hub_panel(lv_obj_t * parent, lv_event_cb_t action_cb,
                                  lv_obj_t ** out_status, lv_obj_t ** out_actions) {
-    static const char * titles[] = {"Power off", "Restart", "Screen off", "Sleep timer"};
+    static const char * titles[] = {N_("Power off"), N_("Restart"), N_("Screen off"), N_("Sleep timer")};
     static const char * icons[] = {"power_action/power.png", "power_action/reboot.png",
                                    "power_action/screen_off.png", "power_action/sleep_timer.png"};
     static const char * symbols[] = {LV_SYMBOL_POWER, LV_SYMBOL_REFRESH, LV_SYMBOL_EYE_CLOSE, LV_SYMBOL_SETTINGS};
@@ -2814,14 +2899,14 @@ lv_obj_t * build_power_hub_panel(lv_obj_t * parent, lv_event_cb_t action_cb,
     lv_obj_set_flex_align(panel, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
     lv_obj_t * title = lv_label_create(panel);
-    lv_label_set_text(title, "Power controls");
+    lv_label_set_text(title, TR("Power controls"));
     lv_obj_set_width(title, lv_pct(100));
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_LEFT, 0);
     lv_obj_add_style(title, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(title, gui_theme_font(GUI_FONT_ROLE_TITLE), 0);
     lv_obj_remove_flag(title, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_t * subtitle = lv_label_create(panel);
-    lv_label_set_text(subtitle, "Playback and device actions");
+    lv_label_set_text(subtitle, TR("Playback and device actions"));
     lv_obj_set_width(subtitle, lv_pct(100));
     lv_label_set_long_mode(subtitle, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_align(subtitle, LV_TEXT_ALIGN_LEFT, 0);
@@ -2848,7 +2933,7 @@ lv_obj_t * build_power_hub_panel(lv_obj_t * parent, lv_event_cb_t action_cb,
         lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
         for (int column = 0; column < 2; ++column) {
             int i = row_index * 2 + column;
-            lv_obj_t * card = power_hub_card(row, titles[i], icons[i], symbols[i], action_cb, i);
+            lv_obj_t * card = power_hub_card(row, TR(titles[i]), icons[i], symbols[i], action_cb, i);
             if (out_actions) out_actions[i] = card;
         }
     }
@@ -2867,7 +2952,7 @@ lv_obj_t * build_power_hub_panel(lv_obj_t * parent, lv_event_cb_t action_cb,
     lv_obj_remove_flag(cancel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(cancel, action_cb, LV_EVENT_CLICKED, (void *)(intptr_t)4);
     lv_obj_t * cancel_label = lv_label_create(cancel);
-    lv_label_set_text(cancel_label, "Cancel");
+    lv_label_set_text(cancel_label, TR("Cancel"));
     lv_obj_set_width(cancel_label, lv_pct(100));
     lv_obj_set_style_text_align(cancel_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(cancel_label, lv_color_make(255, 120, 120), 0);

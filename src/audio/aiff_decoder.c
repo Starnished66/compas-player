@@ -1,6 +1,7 @@
 #include "aiff_decoder.h"
 #include "audio_helpers.h"
 
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -56,6 +57,24 @@ aiff_decoder_t * aiff_open_file(const char * path) {
         return NULL;
     }
 
+    uint32_t form_size = audio_read_u32be(header + 4);
+    if (form_size < 4 || fseek(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        return NULL;
+    }
+    long physical_file_end = ftell(f);
+    uint64_t form_end_u64 = 8U + (uint64_t)form_size;
+    if (physical_file_end < 0 || form_end_u64 > (uint64_t)LONG_MAX ||
+        form_end_u64 > (uint64_t)physical_file_end + 1U || fseek(f, 12, SEEK_SET) != 0) {
+        fclose(f);
+        return NULL;
+    }
+    /* Some existing files omit the final odd-sized SSND pad byte; tolerate
+     * its absence whether FORM's size counts that missing byte or not. */
+    bool form_size_counts_missing_pad = form_end_u64 > (uint64_t)physical_file_end;
+    long form_end = (long)(form_end_u64 > (uint64_t)physical_file_end
+                               ? (uint64_t)physical_file_end : form_end_u64);
+
     aiff_decoder_t * dec = calloc(1, sizeof(*dec));
     if (!dec) {
         fclose(f);
@@ -65,8 +84,12 @@ aiff_decoder_t * aiff_open_file(const char * path) {
 
     bool have_comm = false;
     bool have_ssnd = false;
+    bool saw_missing_final_ssnd_pad = false;
+    uint64_t ssnd_data_bytes = 0;
 
     while (1) {
+        long chunk_header_start = ftell(f);
+        if (chunk_header_start < 0 || chunk_header_start > form_end || form_end - chunk_header_start < 8) break;
         uint8_t chunk_header[8];
         if (fread(chunk_header, 1, sizeof(chunk_header), f) != sizeof(chunk_header)) break;
 
@@ -74,6 +97,21 @@ aiff_decoder_t * aiff_open_file(const char * path) {
         memcpy(chunk_id, chunk_header, 4);
         uint32_t chunk_size = audio_read_u32be(chunk_header + 4);
         long chunk_data_start = ftell(f);
+        if (chunk_data_start < 0 || (uint64_t)chunk_data_start > (uint64_t)form_end) break;
+        uint64_t data_end_u64 = (uint64_t)chunk_data_start + (uint64_t)chunk_size;
+        if (data_end_u64 > (uint64_t)form_end || data_end_u64 > (uint64_t)physical_file_end ||
+            data_end_u64 > (uint64_t)LONG_MAX) break;
+        uint64_t next_u64 = data_end_u64 + (chunk_size & 1U);
+        bool missing_final_ssnd_pad = (chunk_size & 1U) != 0 && strcmp(chunk_id, "SSND") == 0 &&
+                                      data_end_u64 == (uint64_t)form_end &&
+                                      data_end_u64 == (uint64_t)physical_file_end;
+        if (next_u64 > (uint64_t)form_end || next_u64 > (uint64_t)physical_file_end) {
+            if (!missing_final_ssnd_pad) break;
+            saw_missing_final_ssnd_pad = true;
+            next_u64 = data_end_u64;
+        }
+        if (next_u64 > (uint64_t)LONG_MAX) break;
+        long next = (long)next_u64;
 
         if (strcmp(chunk_id, "COMM") == 0 && chunk_size >= 18) {
             uint8_t comm[18];
@@ -85,28 +123,41 @@ aiff_decoder_t * aiff_open_file(const char * path) {
             dec->sample_rate = (unsigned int) read_ieee80_extended(comm + 8);
             dec->little_endian = false;
 
-            /* AIFC: a compressionType follows COMM's normal 18 bytes. 'sowt' is
-             * "PCM, but little-endian" -- common from macOS-authored files.
-             * Anything else compressed is not supported. */
-            if (memcmp(header + 8, "AIFC", 4) == 0 && chunk_size >= 22) {
+            /* AIFC: a compressionType follows COMM's normal 18 bytes. Accept
+             * only uncompressed big-endian NONE and little-endian sowt PCM. */
+            if (memcmp(header + 8, "AIFC", 4) == 0) {
+                if (chunk_size < 22) {
+                    fclose(f);
+                    free(dec);
+                    return NULL;
+                }
                 uint8_t comp_type[4];
-                if (fread(comp_type, 1, sizeof(comp_type), f) == sizeof(comp_type)) {
-                    if (memcmp(comp_type, "sowt", 4) == 0) {
-                        dec->little_endian = true;
-                    } else if (memcmp(comp_type, "NONE", 4) != 0) {
-                        fclose(f);
-                        free(dec);
-                        return NULL; /* unsupported compressed AIFC variant */
-                    }
+                if (fread(comp_type, 1, sizeof(comp_type), f) != sizeof(comp_type)) {
+                    fclose(f);
+                    free(dec);
+                    return NULL;
+                }
+                if (memcmp(comp_type, "sowt", 4) == 0) {
+                    dec->little_endian = true;
+                } else if (memcmp(comp_type, "NONE", 4) != 0) {
+                    fclose(f);
+                    free(dec);
+                    return NULL; /* unsupported compressed AIFC variant */
                 }
             }
 
             have_comm = true;
         } else if (strcmp(chunk_id, "SSND") == 0) {
+            if (chunk_size < 8) break;
             uint8_t ssnd_header[8];
             if (fread(ssnd_header, 1, sizeof(ssnd_header), f) != sizeof(ssnd_header)) break;
             uint32_t data_offset = audio_read_u32be(ssnd_header);
-            dec->data_start_offset = chunk_data_start + 8 + (long) data_offset;
+            if (data_offset > chunk_size - 8) break;
+            uint64_t data_start_u64 = (uint64_t)chunk_data_start + 8U + data_offset;
+            if (data_start_u64 > (uint64_t)LONG_MAX || data_start_u64 > (uint64_t)form_end ||
+                data_start_u64 > (uint64_t)physical_file_end) break;
+            dec->data_start_offset = (long)data_start_u64;
+            ssnd_data_bytes = (uint64_t)chunk_size - 8U - data_offset;
             have_ssnd = true;
             /* Sample data itself doesn't need parsing here -- reads happen on demand. */
         }
@@ -114,18 +165,25 @@ aiff_decoder_t * aiff_open_file(const char * path) {
         if (have_comm && have_ssnd) break;
 
         /* Chunks are padded to an even number of bytes. */
-        long next = chunk_data_start + (long) chunk_size + (long) (chunk_size & 1);
         if (fseek(f, next, SEEK_SET) != 0) break;
     }
 
-    if (!have_comm || !have_ssnd || dec->channels == 0 || dec->channels > 8 ||
-        (dec->bits_per_sample != 8 && dec->bits_per_sample != 16 && dec->bits_per_sample != 24)) {
+    if (!have_comm || !have_ssnd || (form_size_counts_missing_pad && !saw_missing_final_ssnd_pad) ||
+        dec->channels == 0 || dec->channels > 8 ||
+        (dec->bits_per_sample != 8 && dec->bits_per_sample != 16 &&
+         dec->bits_per_sample != 24 && dec->bits_per_sample != 32)) {
         fclose(f);
         free(dec);
         return NULL;
     }
 
     unsigned int bytes_per_sample = dec->bits_per_sample / 8;
+    uint64_t required_pcm_bytes = dec->total_frames * (uint64_t)dec->channels * bytes_per_sample;
+    if (required_pcm_bytes > ssnd_data_bytes) {
+        fclose(f);
+        free(dec);
+        return NULL;
+    }
     size_t frame_bytes = 0;
     if (!checked_mul_size((size_t) dec->channels, (size_t) bytes_per_sample, &frame_bytes) ||
         !checked_mul_size((size_t) AIFF_MAX_CHUNK_FRAMES, frame_bytes, &dec->raw_buffer_capacity_bytes)) {
@@ -142,7 +200,12 @@ aiff_decoder_t * aiff_open_file(const char * path) {
     }
     dec->max_chunk_frames = AIFF_MAX_CHUNK_FRAMES;
 
-    fseek(f, dec->data_start_offset, SEEK_SET);
+    if (fseek(f, dec->data_start_offset, SEEK_SET) != 0) {
+        fclose(f);
+        free(dec->raw_buffer);
+        free(dec);
+        return NULL;
+    }
     return dec;
 }
 
@@ -217,16 +280,22 @@ decoder_read_result_t aiff_read_pcm_frames_s16(aiff_decoder_t * dec, uint64_t fr
             int32_t sample;
 
             if (dec->bits_per_sample == 8) {
-                sample = (int32_t) ((int8_t) s[0]) << 8; /* AIFF 8-bit PCM is signed */
+                sample = (int32_t) ((int8_t) s[0]) * 256; /* AIFF 8-bit PCM is signed */
             } else if (dec->bits_per_sample == 16) {
                 sample = dec->little_endian ? (int16_t) (s[0] | (s[1] << 8))
                                              : (int16_t) ((s[0] << 8) | s[1]);
-            } else { /* 24-bit: keep the top 16 bits, same precision-reduction dr_libs uses */
+            } else if (dec->bits_per_sample == 24) { /* keep the top 16 bits */
                 int32_t s24 = dec->little_endian
                     ? (int32_t) ((uint32_t) s[0] | ((uint32_t) s[1] << 8) | ((uint32_t) s[2] << 16))
                     : (int32_t) (((uint32_t) s[0] << 16) | ((uint32_t) s[1] << 8) | (uint32_t) s[2]);
                 if (s24 & 0x800000) s24 |= (int32_t) 0xFF000000; /* sign-extend */
                 sample = s24 >> 8;
+            } else { /* 32-bit: retain the most significant 16 bits */
+                uint32_t s32 = dec->little_endian
+                    ? ((uint32_t)s[0] | ((uint32_t)s[1] << 8) | ((uint32_t)s[2] << 16) | ((uint32_t)s[3] << 24))
+                    : (((uint32_t)s[0] << 24) | ((uint32_t)s[1] << 16) | ((uint32_t)s[2] << 8) | (uint32_t)s[3]);
+                uint32_t top = s32 >> 16;
+                sample = (top & 0x8000U) ? (int32_t)top - 0x10000 : (int32_t)top;
             }
 
             out_ptr[i] = (int16_t) sample;
@@ -309,16 +378,22 @@ decoder_read_result_t aiff_read_pcm_frames_s32(aiff_decoder_t * dec, uint64_t fr
             int32_t sample;
 
             if (dec->bits_per_sample == 8) {
-                sample = (int32_t) ((int8_t) s[0]) << 8; /* AIFF 8-bit PCM is signed */
+                sample = (int32_t) ((int8_t) s[0]) * 256; /* AIFF 8-bit PCM is signed */
             } else if (dec->bits_per_sample == 16) {
                 sample = dec->little_endian ? (int16_t) (s[0] | (s[1] << 8))
                                              : (int16_t) ((s[0] << 8) | s[1]);
-            } else { /* 24-bit: sign-extended right-justified int32 directly in low 24 bits for S24_LE (no >> 8) */
+            } else if (dec->bits_per_sample == 24) { /* right-justified in low 24 bits for S24_LE */
                 int32_t s24 = dec->little_endian
                     ? (int32_t) ((uint32_t) s[0] | ((uint32_t) s[1] << 8) | ((uint32_t) s[2] << 16))
                     : (int32_t) (((uint32_t) s[0] << 16) | ((uint32_t) s[1] << 8) | (uint32_t) s[2]);
                 if (s24 & 0x800000) s24 |= (int32_t) 0xFF000000; /* sign-extend */
                 sample = s24;
+            } else { /* 32-bit: reduce to signed 24-bit ALSA S24_LE range */
+                uint32_t s32 = dec->little_endian
+                    ? ((uint32_t)s[0] | ((uint32_t)s[1] << 8) | ((uint32_t)s[2] << 16) | ((uint32_t)s[3] << 24))
+                    : (((uint32_t)s[0] << 24) | ((uint32_t)s[1] << 16) | ((uint32_t)s[2] << 8) | (uint32_t)s[3]);
+                uint32_t top = s32 >> 8;
+                sample = (top & 0x800000U) ? (int32_t)top - 0x1000000 : (int32_t)top;
             }
 
             out_ptr[i] = sample;
@@ -352,7 +427,9 @@ bool aiff_seek_to_pcm_frame(aiff_decoder_t * dec, uint64_t frame_index) {
 
     unsigned int bytes_per_sample = dec->bits_per_sample / 8;
     size_t frame_bytes = (size_t) dec->channels * bytes_per_sample;
-    long byte_offset = dec->data_start_offset + (long) (frame_index * frame_bytes);
+    if (frame_bytes == 0 || dec->data_start_offset < 0 ||
+        frame_index > (uint64_t)(LONG_MAX - dec->data_start_offset) / frame_bytes) return false;
+    long byte_offset = dec->data_start_offset + (long)(frame_index * frame_bytes);
 
     if (fseek(dec->f, byte_offset, SEEK_SET) != 0) return false;
     dec->current_frame = frame_index;

@@ -1,205 +1,199 @@
 # Compás Player
 
-An open-source music player replacement for HiBy OS, built from scratch in C with [LVGL](https://lvgl.io/).
+<p align="center">
+  <strong>A community-built music player for HiBy devices, with room to make it your own.</strong><br>
+  Open source · Touch-friendly · Extendable with Lua plugins
+</p>
 
-The goal is to replace the closed-source stock `hiby_player` with a community-driven player that makes better use of the hardware.
+<p align="center">
+  <a href="LICENSE"><img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-blue.svg"></a>
+  <a href="https://github.com/Starnished66/compas-player/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Starnished66/compas-player"></a>
+  <a href="https://github.com/Starnished66/compas-plugins"><img alt="Lua plugins" src="https://img.shields.io/badge/plugins-Lua-7f52ff.svg"></a>
+</p>
 
-> **Status:** Fully usable on real R1 hardware. Board-specific builds also exist for the R3 Pro II and R3 II 2025; support is model-specific and should not be assumed for unlisted HiBy devices.
+<p align="center">
+  <a href="#see-the-player">Screenshots</a> ·
+  <a href="#quick-setup">Quick setup</a> ·
+  <a href="#plugins">Plugins</a> ·
+  <a href="#install-and-update">Installation</a> ·
+  <a href="#build-from-source">Build from source</a>
+</p>
 
----
+Compás Player is an open-source replacement for HiBy OS's closed-source `hiby_player`, written in C with [LVGL](https://lvgl.io/). It is usable on real HiBy R1 hardware. Builds also exist for the R3 Pro II and R3 II 2025, but those builds have not been tested on their target hardware.
 
-# Support the Project
+## Get started
 
-This Open Source Player is developed and tested on real hardware. If you would like to help fund continued development, device testing, and future hardware support (the HiBy R3 Pro II, for example), donation links can be found here:
+1. Check the [device support notes](#device-support) and make sure the build is for your exact model.
+2. If this is your first install, follow [First install](#first-install-full-firmware) to flash the full firmware package once.
+3. For later player updates, download the matching player binary from [the latest release](https://github.com/Starnished66/compas-player/releases/latest) and copy it to `SD/.compas/compas_player`. See [Player-only update](#player-only-update) for details.
+4. Browse and install add-ons in **Settings → System → Plugin Manager → Plugin Store**, or visit the [compas-plugins catalog](https://github.com/Starnished66/compas-plugins).
 
-- **PayPal:** [Donate via PayPal](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=josegarita%40protonmail.com&currency_code=USD)
+The first full firmware install replaces part of the device firmware. Keep a known-good recovery image and read the device-specific notes before flashing.
 
-Contributing code, testing builds, documenting hardware behavior, and reporting reproducible bugs are equally valuable ways to support the project.
+## See the player
 
----
+Captured on a HiBy R1 running the current development build; published releases may have a different interface.
 
-# Device Support
+Browse the [full UI walkthrough](Screenshots/2026-10-01/README.md) for coverage and findings. Download or clone the repository and open [`Screenshots/2026-10-01/index.html`](Screenshots/2026-10-01/index.html) locally for the complete gallery, including menus, plugins and board layout previews.
 
-Makefile `BOARD` values: `r1` (default), `r3proii`, `r3ii_2025`. R1 binaries keep the unsuffixed names; the others get a `_$(BOARD)` suffix so they cannot overwrite an R1 build.
+**Welcome & plugin selection**
 
-## HiBy R1
+<p>
+  <img src="docs/images/readme/welcome.png" width="210" alt="Welcome and initial setup screen">
+  <img src="docs/images/readme/plugin-selection.png" width="210" alt="Initial plugin selection screen">
+</p>
 
-**Status: Supported and actively tested.** Primary development platform. Tested on real hardware (framebuffer, touchscreen, audio, physical buttons, Bluetooth, Wi-Fi).
+**Now Playing · Lyrics · Settings**
 
-```bash
-make target                 # -> compas_player_target
-make bootloader             # -> compas_bootloader
+<p>
+  <img src="docs/images/readme/now-playing.png" width="210" alt="Now Playing screen">
+  <img src="docs/images/readme/lyrics.png" width="210" alt="Synchronized lyrics screen">
+  <img src="docs/images/readme/settings.png" width="210" alt="Settings screen">
+</p>
+
+## Quick setup
+
+A fresh install or factory reset opens a guided setup, starting with a short musical welcome animation.
+
+1. **Language:** choose the language used throughout setup and the player.
+2. **Time zone:** select your region with a map preview.
+3. **Wi-Fi:** pick an available network or add a hidden network.
+4. **Plugins:** select suggested Gain Mode and AutoEQ plugins, or open **More** to browse the live Plugin Store catalog and its descriptions. Confirm your selection and follow installation progress.
+5. **Your music:** scan the SD card to build your library, then continue to the main screen.
+
+Wi-Fi and plugins can be skipped and configured later. Failed plugin installations get one retry, with any remaining failures shown before setup finishes.
+
+## What it can do
+
+- **Play music:** FLAC, MP3, WAV, AIFF, DSD, AAC, ALAC, APE, Opus and more; gapless playback, crossfade, ReplayGain, a 10-band PEQ, queue controls, hardware buttons, Bluetooth audio and USB DAC mode.
+- **Organize a library:** browse files, artists, albums and playlists; scan incrementally; use Rockbox tagcache; read synced lyrics and plain-text books; handle SD card removal and insertion. Audiobook features are available as a plugin.
+- **Connect and stream:** Subsonic-compatible streaming over HTTPS, downloads, DLNA renderer, AirPlay through stock protocols where possible, Wi-Fi and Bluetooth remote control, and Wi-Fi music import.
+- **Tune the device:** charge limit and Safe Charging, suspend or idle shutdown, car mode, USB Storage/DAC/ADB selector, timezone and charge LED controls.
+- **Shape the interface:** swipe navigation, quick controls, themes, a customizable Home screen and non-Latin text including Cyrillic, Japanese, Korean and Thai.
+
+Android client authors can use the [Remote Control API v1 contract](docs/REMOTE_CONTROL_API.md).
+
+## Plugins
+
+Plugins add screens, settings, themes, streaming sources and other features using Lua. Install a ready-made plugin through the on-device Plugin Store or download it from the [compas-plugins repository](https://github.com/Starnished66/compas-plugins). The Store catalog is published as [`index.json`](https://github.com/Starnished66/compas-plugins/releases/latest/download/index.json); packaged plugin downloads are attached to [the latest catalog release](https://github.com/Starnished66/compas-plugins/releases/latest).
+
+Start with **AutoEQ** for downloadable headphone EQ profiles, **Gain Mode** for low/high gain controls, **Audiobooks** for bookmarks and listening progress, or **Podcasts** and **EPUB Reader** for more ways to enjoy your library. Browse the repository for the full catalog and each plugin's requirements.
+
+For manual installation, follow the [plugins repository's installation instructions](https://github.com/Starnished66/compas-plugins#installing-by-hand): copy the `.lua` file to `SD/.plugins/` and any companion files to the destinations listed in its `store.json`. Then choose **Refresh Plugins** in **Settings → System → Plugin Manager** or restart the player. Plugins can be enabled or disabled without removing their files. No C toolchain, player rebuild or firmware reflash is needed.
+
+Developers can start with the [plugin API guide](PLUGINS.md) and examples in [`plugins_examples/`](plugins_examples/). The guide documents the versioned `plugin.*` API for UI extensions, playback, library access, HTTP, themes and PEQ. For Now Playing layout customization, see [Player layouts](docs/PLAYER_LAYOUTS.md).
+
+## Device support
+
+| Device | Build target | Screen | Status |
+| --- | --- | ---: | --- |
+| HiBy R1 | `r1` (default) | 480×800 | Supported and actively tested on real hardware, including display, touch, audio, buttons, Bluetooth and Wi-Fi. |
+| HiBy R3 Pro II | `r3proii` | 480×720 | Board-specific build exists; not tested on R3 Pro II hardware. Not an R1 binary. |
+| HiBy R3 II 2025 | `r3ii_2025` | 320×480 | Board-specific build exists; not tested on R3 II 2025 hardware. Not an R1 binary. |
+
+Other HiBy models are not supported unless explicitly listed and tested. Build output names for R3 models have a board suffix so they do not overwrite R1 binaries.
+
+## Install and update
+
+### First install: full firmware
+
+The full `.upt` package installs the open-source bootloader and the complete firmware image. This step is required once before player-only updates will work. On stock firmware, the SD card update path is not read.
+
+Download the R1 `r1.upt` from [releases](https://github.com/Starnished66/compas-player/releases/latest), keep a known-good recovery image, and install the package using the device's recovery updater. Use only an image intended for your model. The full package includes repository-tracked UI assets, fonts and `firmware/overlay/` files, along with the firmware files from its approved base image.
+
+### Player-only update
+
+After the open-source bootloader is installed, use this for normal player updates. Download the player binary for your exact board from [the latest release](https://github.com/Starnished66/compas-player/releases/latest), or build it yourself, then copy it to this exact SD-card path:
+
+```text
+SD/.compas/compas_player
 ```
 
-## HiBy R3 Pro II
+Keep the existing `.compas` directory and place the binary inside it. Reboot; the bootloader copies the new player into internal storage. **A player-only binary update does not include updated assets, fonts or firmware overlay files.** If an update requires those files, install a new full firmware image.
 
-```bash
-make target BOARD=r3proii   # -> compas_player_target_r3proii
-make bootloader BOARD=r3proii # -> compas_bootloader_r3proii
-```
+Older bootloaders look for `SD/.open_hiby_player/open_hiby_player`. Flash a current full `.upt` once to switch to the `.compas` path. Older installations may also have `/usr/bin/open_hiby_bootloader`; the current full image installs `/usr/bin/compas_bootloader` and updates the wrapper that starts it.
 
-The tree has a 480×720 layout, 4.4 mm balanced-output routing, extra charger-IC handling, and UI scaling. Do not treat an R3 build as an R1 binary. The scheduled GitHub **Daily build** workflow publishes these two R3 binaries as a downloadable workflow artifact. A complete R3 `.upt` release requires a separately approved R3 staging image and checksum secret; the stock image is not used automatically.
+During the compatibility window, each mount migrates up to 256 top-level entries from `SD/.open_hiby_player` to `SD/.compas`, excluding database and bootloader entries. Remaining entries are retried on a later boot or card reinsertion. Existing destinations are preserved so retries are safe; large cache directories are renamed in constant time when the destination is absent. Archived database files and stock/update bootloader artifacts remain in the old directory. This migration is planned for removal after the compatibility window.
 
-For a local R3 firmware candidate, supply your own R3 Pro II `.upt` and run `BOARD=r3proii scripts/repack_upt.sh BASE_R3_UPT compas_player_target_r3proii compas_bootloader_r3proii OUTPUT_R3_UPT`. The repacker checks the device config (`/usr/resource/config.json`) for the R3 board marker, adds the bootloader handoff, and installs the 480×720 boot assets. Keep the original base image for recovery; the candidate has not been validated on R3 hardware.
+## Build from source
 
-When the repository secret `R3PROII_STAGING_IMAGE_SHA256` is configured, the same workflow can verify the R3 base image and publish a second, staging-only workflow artifact containing the repacked `.upt`. The manual workflow's `r3_base_asset` input selects the `.upt` asset from the private `staging-image-base` release. No public GitHub release is created by this path.
+The host simulator is the quickest way to explore the interface. On Arch Linux, install `sdl2`, `make`, `gcc`/`g++` and `git`; `make` fetches LVGL when needed:
 
-## HiBy R3 II 2025
-
-```bash
-make target BOARD=r3ii_2025 # -> compas_player_target_r3ii_2025
-```
-
-The tree has a 320×480 layout and the same `BOARD` scaling path. Same caution: model-specific, not an R1 drop-in.
-
-Support for other HiBy devices may be possible, but should not be assumed without hardware testing.
-
----
-
-# Features
-
-- 🎵 **Playback** — local files (FLAC, MP3, WAV, AIFF, DSD, AAC, ALAC, APE, Opus, and others), gapless by default, crossfade, ReplayGain, 10-band PEQ with SD-card presets, hardware buttons, Bluetooth (including Bluetooth DAC), USB DAC, queue / Up Next
-- 📚 **Library** — file browser, artists / albums / playlists (including M3U/M3U8), Rockbox tagcache, incremental scans, synced lyrics, SD hotplug, plain-text book reader; audiobooks via plugin
-- 🌐 **Network** — Subsonic-compatible streaming (HTTPS), downloads, DLNA renderer, AirPlay via stock protocols where possible, Wi-Fi and Bluetooth remote control, Wi-Fi music import
-- 🔌 **Device** — charge limiter and Safe Charging, idle shutdown or suspend, car mode, USB Storage / DAC / ADB selector, timezone, configurable charge LEDs
-- 🎨 **Interface** — stock assets and fonts, swipe navigation, pull-down quick controls, `.theme` files, customizable Home screen, non-Latin text (Cyrillic, Japanese, Korean, Thai)
-
-Android client developers can use the [Remote Control API v1 contract](docs/REMOTE_CONTROL_API.md).
-
----
-
-# 🧩 Plugins
-
-Third-party features are plain Lua — no C toolchain, rebuild, or firmware reflash.
-
-Drop a `.lua` file in `.plugins/` on the SD card. Plugins are loaded at startup. Enable or disable them from Settings without deleting the files. The versioned `plugin.*` API covers UI extensions (including Home tiles), playback, library access, HTTP, theming, and PEQ.
-
-Examples live in `plugins_examples/` (Audiobooks, Themes, MSEB, Net Radio, Last.fm, Play Through, and others).
-
-Install ready-made plugins from the on-device **Plugin Store** (Settings > System > Plugin Manager > Plugin Store), or browse them in the **[compas-plugins repository](https://github.com/Starnished66/compas-plugins)**.
-
-The Now Playing screen can be redesigned with an XML layout file, picked in Settings or shipped by a plugin: **[docs/PLAYER_LAYOUTS.md](docs/PLAYER_LAYOUTS.md)**
-
-Full API: **[PLUGINS.md](PLUGINS.md)**
-
----
-
-# Development
-
-## Host simulator (Arch Linux)
-
-Requirements: `sdl2`, `make`, `gcc`/`g++`, `git`. `make` clones LVGL if needed.
-
-Stock graphics are not redistributed — populate `assets/theme2/` from your own firmware dump.
-
-```bash
+```sh
 make
 ./compas_player_host
 ```
 
-(`make` is `make host`. Default `BOARD` is `r1`.) Click-and-drag in the SDL2 window simulates touch.
+Click and drag in the SDL2 window to simulate touch. Stock graphics are not redistributed. To populate the local simulator asset mirror, copy `theme2` assets from your own firmware dump into `assets/theme2/`; these ignored stock files are not packaged or committed.
 
-## Cross-compile for HiBy OS
-
-HiBy devices are little-endian MIPS, so target builds use a static musl toolchain (`mipsel-linux-musl-gcc`). On Arch Linux:
-
-```bash
-yay -S mipsel-linux-musl-cross
-```
-
-That builds from source and takes a while. Other distributions are not documented yet.
-
-```bash
-make target
-```
-
-Produces a stripped `compas_player_target` (or `compas_player_target_<board>`). Pass `BOARD` as in Device Support.
-
----
-
-# Installing on a device
-
-## Player-only update (preferred)
-
-> **Requires the full `.upt` to have been flashed first.** This method works only because the open-source bootloader is already on the device, and that bootloader arrives with the firmware image below. On stock firmware nothing reads this path and the update is ignored. Flash the `.upt` once, then use this for every update after it.
-
-Download `compas_player` from the **[releases page](https://github.com/Starnished66/compas-player/releases)**, or build your own with `make target`. Copy it to this exact path (*inside* `.compas`; never replace that directory):
-
-```text
-/data/mnt/sd_0/.compas/compas_player
-```
-
-On the card that is `SD/.compas/compas_player`. Use the matching board binary, then reboot — the bootloader copies it to internal storage.
-
-Devices still running the older bootloader look for
-`SD/.open_hiby_player/open_hiby_player`; flash the current full `.upt` once to
-enable the Compás Player path above.
-
-Older installs may have `/usr/bin/open_hiby_bootloader`. The current full
-`.upt` installs `/usr/bin/compas_bootloader` and updates the wrapper.
-
-For the next release, each mount processes up to 256 top-level non-database,
-non-bootloader entries from `SD/.open_hiby_player` into `SD/.compas`; remaining
-entries retry on a later boot or card reinsertion. Existing destination entries
-are preserved for safe retries, and large cache directories are renamed in O(1)
-when the destination is absent. Archived database files and bootloader
-stock/update artifacts remain under the legacy path during the compatibility
-window. This compatibility migration is planned for removal afterward.
-
-## Full firmware image (`.upt`)
-
-This rewrites the recovery-updatable firmware. Needed once, to put the open-source bootloader on the device, and again only when the bootloader itself changes. After that, player updates go through the SD path above.
-
-Download `r1.upt` from the **[releases page](https://github.com/Starnished66/compas-player/releases)**. Keep a known-good recovery image first.
-
-### Building one yourself
-
-Build the R1 binaries with `make target BOARD=r1` and `make bootloader BOARD=r1`, then follow **[docs/HOW_TO_BUILD_A_UPT_FILE.md](docs/HOW_TO_BUILD_A_UPT_FILE.md)**.
-
-This needs a base image, which is not in the repository — download the *Base image for new releases* from the releases page. It has to be that approved staging image: the packer checks the base's `hiby_player.sh` and refuses an arbitrary stock `.upt` or an older public beta. It also rejects images over 45 MiB and will not mix R1 and R3 binaries.
-
-To build both board images in one run, provide the approved R1 and R3 Pro II
-base images and an output directory:
+Target builds use a static MIPS musl toolchain (`mipsel-linux-musl-gcc`). On Arch Linux, install it with `yay -S mipsel-linux-musl-cross`, then build the selected board:
 
 ```sh
-scripts/build_both_upt.sh /path/to/r1-base.upt /path/to/r3proii-base.upt output/
+make target                 # R1: compas_player_target
+make target BOARD=r3proii   # R3 Pro II: compas_player_target_r3proii
+make target BOARD=r3ii_2025 # R3 II 2025: compas_player_target_r3ii_2025
 ```
 
-This builds each board's player and bootloader, then writes `output/r1.upt` and
-`output/r3proii.upt` without modifying either base image.
+<details>
+<summary>Advanced firmware packaging and release workflow</summary>
 
-The GitHub **Daily build** workflow also packages both board images as separate
-staging artifacts. It reads `r1.upt` and the selected R3 `.upt` from the
-`staging-image-base` release and requires their corresponding checksum secrets
-(`STAGING_IMAGE_SHA256` and `R3PROII_STAGING_IMAGE_SHA256`). A package job is
-shown as skipped when its secret is absent. The weekly beta packages both R1
-and R3 Pro II and requires both approved base images and checksum secrets;
-R3 Pro II still needs validation on real hardware.
+### Build a `.upt` for any supported board
 
----
+The full-image guide covers the R1, R3 Pro II, and R3II 2025, including the
+exact matching binary names, base-image requirements, and repack commands:
+[How to build a `.upt` firmware image](docs/HOW_TO_BUILD_A_UPT_FILE.md).
+Build the player and bootloader for one board before packaging its matching
+base image:
 
-# Acknowledgments
+```sh
+make target BOARD=r1
+make bootloader BOARD=r1
 
-This project builds on important prior work from the HiBy modding community.
+make target BOARD=r3proii
+make bootloader BOARD=r3proii
 
-### [hiby-modding/hiby_os_crack](https://github.com/hiby-modding/hiby_os_crack)
+make target BOARD=r3ii_2025
+make bootloader BOARD=r3ii_2025
+```
 
-The parent toolkit this project was originally developed alongside.
+The packer requires an approved base `.upt` for the same board. Proprietary
+base images remain external and are not committed to this repository. The
+packer verifies the board identity, required runtime and font files,
+bootloader handoff, and 45 MiB package limit. It copies Git-tracked shared and
+board-specific assets, fonts, and every file under `firmware/overlay/`; local
+ignored stock files do not ship. Changes to those files require a full `.upt`
+to reach the device.
 
-Its `.upt` firmware unpacking/repacking tools, QEMU setup, device layouts, and general HiBy OS reverse-engineering work made it possible to build and flash modified firmware images in the first place.
+The daily workflow builds player and bootloader binaries for all three boards.
+It packages each board when its approved base image and matching checksum
+secret are available: `STAGING_IMAGE_SHA256` for R1,
+`R3PROII_STAGING_IMAGE_SHA256` for R3 Pro II, and
+`R3II_2025_STAGING_IMAGE_SHA256` for R3II 2025. These are downloadable
+workflow artifacts, not public GitHub releases. The weekly beta workflow
+builds and packages all three boards and publishes their packages; it requires
+all three checksum secrets and the matching images in the private
+`staging-image-base` release. Secret values must stay in GitHub Actions
+settings and must never be added to the repository.
 
-### [bidhata/Hiby-R1-Mod](https://github.com/bidhata/Hiby-R1-Mod)
+Keep each original base image for recovery. R3 Pro II and R3II 2025 builds
+have not been validated on target hardware; use builds for the exact model
+only.
 
-An unpacked/mirrored copy of the R1 stock firmware was used as the local development source for the host simulator's `theme2` UI asset mirror and for identifying stock font files used by the player at runtime.
+</details>
 
-Huge thanks to everyone who has contributed to the existing HiBy reverse-engineering ecosystem.
+## Support the project
 
----
+Help improve Compás by testing builds, reporting reproducible bugs, contributing code or documenting hardware behavior. Donations help fund development and device testing: [Donate via PayPal](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=josegarita%40protonmail.com&currency_code=USD).
 
-# License
+## Acknowledgments
 
-See **[LICENSE](LICENSE)** (GNU GPL version 3).
+Compás Player builds on the HiBy modding community's earlier work.
 
-The project statically links [FAAD2](https://github.com/knik0/faad2) for AAC decoding, which is GPLv2-licensed. Other major dependencies, including `dr_libs`, LVGL, and tinyalsa, use permissive licenses.
+- [hiby-modding/hiby_os_crack](https://github.com/hiby-modding/hiby_os_crack) provided the `.upt` unpacking and repacking tools, QEMU setup, device layouts and reverse-engineering work that made modified firmware possible. This project was originally developed alongside that toolkit.
+- [bidhata/Hiby-R1-Mod](https://github.com/bidhata/Hiby-R1-Mod) provided an unpacked mirror of R1 stock firmware used locally as the host simulator's `theme2` asset source and to identify stock runtime fonts.
 
-If that copyleft combination is ever undesirable for a particular deployment, the practical solution would be to remove AAC support or replace FAAD2 with a decoder under a compatible permissive license — not to attempt to isolate the existing FAAD2 implementation from the resulting binary.
+Thanks to everyone who has contributed to the HiBy reverse-engineering ecosystem.
+
+## License
+
+This project is licensed under the [GNU General Public License, version 3](LICENSE). The project statically links [FAAD2](https://github.com/knik0/faad2) for AAC decoding, which is GPLv2-licensed. Other major dependencies, including `dr_libs`, LVGL and tinyalsa, use permissive licenses. A deployment that needs to avoid this copyleft combination would need to remove AAC support or replace FAAD2 with a compatible decoder; isolating the existing FAAD2 code does not change the resulting binary's license obligations.

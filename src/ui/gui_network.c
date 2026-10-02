@@ -1,5 +1,7 @@
+#include "gui_setup.h"
 extern int subprocess_run(char * const argv[], char ** out_output, int timeout_sec);
 #include "gui.h"
+#include "i18n.h"
 #include "gui_theme.h"
 #include "gui_network.h"
 #include "gui_text_input.h"
@@ -189,6 +191,23 @@ static lv_obj_t * wifi_list;
 static lv_obj_t * wifi_rescan_btn;
 static bool wifi_enable_pending_feedback = false;
 static char wifi_connect_pending_ssid[WIFI_MAX_SSID_LEN];
+static lv_obj_t * wifi_setup_parent;
+static bool wifi_setup_requested;
+static bool wifi_setup_scan_started;
+static bool wifi_setup_scan_finished;
+static bool wifi_setup_enable_failed;
+
+typedef struct {
+    char ssid[WIFI_MAX_SSID_LEN];
+    bool secured;
+    bool connected;
+    int saved_id;
+} wifi_setup_row_t;
+
+static void wifi_setup_render(void);
+static void wifi_setup_start_scan_once(void);
+static int wifi_setup_saved_id(const char * ssid);
+static void wifi_password_entered_cb(const char * text, void * user_data);
 
 /* Saved-network/configuration reads are deliberately kept separate from the
  * scan buffers.  The worker owns its staging snapshot; the UI copies it only
@@ -223,12 +242,15 @@ static void populate_import_wifi_screen(void);
 static void remote_control_refresh_address(void);
 static void remote_control_refresh_pin_label(void);
 
-static void start_wifi_scan(void);
+static bool start_wifi_scan(void);
 static void wifi_settings_snapshot_invalidate(void);
 static void wifi_settings_snapshot_start(void);
 
 static pthread_t wifi_connect_thread;
 static bool wifi_connect_active = false;
+static bool wifi_connect_saved_active;
+static bool wifi_disconnect_active;
+static bool wifi_scan_active;
 static atomic_bool wifi_connect_done_flag = false;
 static volatile bool wifi_connect_succeeded = false;
 
@@ -262,6 +284,10 @@ static void * wifi_connect_thread_func(void * arg) {
 }
 
 static void start_wifi_connect(const char * ssid, const char * password) {
+    if (wifi_connect_active || wifi_connect_saved_active || wifi_disconnect_active) {
+        show_info_toast(TR("Wi-Fi is busy"));
+        return;
+    }
     wifi_connect_request_t * req = malloc(sizeof(*req));
     if (!req) return;
     snprintf(req->ssid, sizeof(req->ssid), "%s", ssid);
@@ -270,13 +296,13 @@ static void start_wifi_connect(const char * ssid, const char * password) {
     atomic_store_explicit(&wifi_connect_done_flag, false, memory_order_relaxed);
     wifi_connect_active = true;
 
-    wifi_connect_token = gui_busy_show("Connecting to", ssid);
+    wifi_connect_token = gui_busy_show(TR("Connecting to"), ssid);
 
         if (pthread_create(&wifi_connect_thread, NULL, wifi_connect_thread_func, req) != 0) {
         wifi_connect_active = false;
         free(req);
         gui_busy_hide(wifi_connect_token);
-        show_error_toast("Thread launch failed");
+        show_error_toast(TR("Thread launch failed"));
     }
 }
 
@@ -287,7 +313,7 @@ void poll_wifi_connect(void) {
     pthread_join(wifi_connect_thread, NULL);
     gui_busy_hide(wifi_connect_token);
     if (!wifi_connect_succeeded) {
-        show_error_toast("Couldn't connect to Wi-Fi network");
+        show_error_toast(TR("Couldn't connect to Wi-Fi network"));
     }
     wifi_settings_snapshot_invalidate();
     wifi_settings_snapshot_start();
@@ -329,6 +355,10 @@ static void * wifi_connect_saved_thread_func(void * arg) {
 }
 
 static void start_wifi_connect_saved(int id, const char * ssid) {
+    if (wifi_connect_active || wifi_connect_saved_active || wifi_disconnect_active) {
+        show_info_toast(TR("Wi-Fi is busy"));
+        return;
+    }
     wifi_connect_saved_request_t * req = malloc(sizeof(*req));
     if (!req) return;
     req->id = id;
@@ -336,13 +366,13 @@ static void start_wifi_connect_saved(int id, const char * ssid) {
     atomic_store_explicit(&wifi_connect_saved_done_flag, false, memory_order_relaxed);
     wifi_connect_saved_active = true;
 
-    wifi_connect_saved_token = gui_busy_show("Connecting to", ssid);
+    wifi_connect_saved_token = gui_busy_show(TR("Connecting to"), ssid);
 
         if (pthread_create(&wifi_connect_saved_thread, NULL, wifi_connect_saved_thread_func, req) != 0) {
         wifi_connect_saved_active = false;
         free(req);
         gui_busy_hide(wifi_connect_saved_token);
-        show_error_toast("Thread launch failed");
+        show_error_toast(TR("Thread launch failed"));
     }
 }
 
@@ -353,7 +383,7 @@ void poll_wifi_connect_saved(void) {
     pthread_join(wifi_connect_saved_thread, NULL);
     gui_busy_hide(wifi_connect_saved_token);
     if (!wifi_connect_saved_succeeded) {
-        show_error_toast("Couldn't connect to Wi-Fi network");
+        show_error_toast(TR("Couldn't connect to Wi-Fi network"));
     }
     wifi_settings_snapshot_invalidate();
     wifi_settings_snapshot_start();
@@ -376,7 +406,7 @@ static void start_wifi_disconnect(void) {
     wifi_disconnect_active = true;
         if (pthread_create(&wifi_disconnect_thread, NULL, wifi_disconnect_thread_func, NULL) != 0) {
         wifi_disconnect_active = false;
-        show_error_toast("Thread launch failed");
+        show_error_toast(TR("Thread launch failed"));
     }
 }
 
@@ -405,7 +435,7 @@ static void wifi_row_click_cb(lv_event_t * e) {
 
     snprintf(wifi_connect_pending_ssid, sizeof(wifi_connect_pending_ssid), "%s", net->ssid);
     if (net->secured) {
-        show_text_entry("Wi-Fi Password", NULL, true, false, wifi_password_entered_cb, NULL);
+        show_text_entry(TR("Wi-Fi Password"), NULL, true, false, wifi_password_entered_cb, NULL);
     } else {
         start_wifi_connect(net->ssid, NULL);
     }
@@ -495,7 +525,7 @@ static bool wifi_cached_info_is_current(void) {
 
 static void set_wifi_rescan_active(bool active) {
     if (!wifi_rescan_btn) return;
-    lv_label_set_text(wifi_rescan_btn, active ? "Scanning..." : "Rescan");
+    lv_label_set_text(wifi_rescan_btn, active ? TR("Scanning...") : TR("Rescan"));
     lv_obj_set_style_opa(wifi_rescan_btn, active ? LV_OPA_60 : LV_OPA_COVER, 0);
     align_screen_header_action(wifi_rescan_btn, 20);
     if (active) {
@@ -507,8 +537,209 @@ static void set_wifi_rescan_active(bool active) {
     }
 }
 
+static void wifi_setup_row_delete_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) == LV_EVENT_DELETE) free(lv_event_get_user_data(e));
+}
+
+static void wifi_setup_row_click_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    wifi_setup_row_t * row = lv_event_get_user_data(e);
+    if (!row || row->connected) return;
+    if (wifi_connect_active || wifi_connect_saved_active || wifi_disconnect_active) {
+        show_info_toast(TR("Wi-Fi is busy"));
+        return;
+    }
+    snprintf(wifi_connect_pending_ssid, sizeof(wifi_connect_pending_ssid), "%s", row->ssid);
+    int saved_id = wifi_setup_saved_id(row->ssid);
+    if (saved_id < 0) saved_id = row->saved_id;
+    if (saved_id >= 0) {
+        start_wifi_connect_saved(saved_id, row->ssid);
+    } else if (row->secured) {
+        show_text_entry(TR("Wi-Fi Password"), NULL, true, false, wifi_password_entered_cb, NULL);
+    } else {
+        start_wifi_connect(row->ssid, NULL);
+    }
+}
+
+static int wifi_setup_saved_id(const char * ssid) {
+    if (!wifi_cached_info_is_current()) return -1;
+    for (int i = 0; i < wifi_saved_result_count; ++i)
+        if (strcmp(wifi_saved_results[i].ssid, ssid) == 0) return wifi_saved_results[i].id;
+    return -1;
+}
+
+static void wifi_setup_add_row(const wifi_network_t * net) {
+    lv_obj_t * parent = wifi_setup_parent;
+    if (!parent) return;
+    lv_obj_t * row_obj = lv_obj_create(parent);
+    lv_obj_set_width(row_obj, LV_PCT(100));
+    lv_obj_set_height(row_obj, BOARD_SCALE_PX(76));
+    lv_obj_set_style_radius(row_obj, BOARD_SCALE_PX(16), 0);
+    lv_obj_add_style(row_obj, &style_theme_card_bg, 0);
+    lv_obj_set_style_border_width(row_obj, 0, 0);
+    lv_obj_set_style_pad_all(row_obj, 0, 0);
+    lv_obj_remove_flag(row_obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(row_obj, LV_OBJ_FLAG_CLICKABLE);
+
+    wifi_setup_row_t * context = calloc(1, sizeof(*context));
+    if (!context) { lv_obj_delete(row_obj); return; }
+    size_t ssid_len = strnlen(net->ssid, sizeof(context->ssid) - 1);
+    memcpy(context->ssid, net->ssid, ssid_len);
+    context->ssid[ssid_len] = '\0';
+    context->secured = net->secured;
+    context->connected = net->is_current ||
+        (wifi_cached_info_is_current() && wifi_cached_info_connected &&
+         strcmp(net->ssid, wifi_cached_info.ssid) == 0);
+    context->saved_id = wifi_setup_saved_id(net->ssid);
+    lv_obj_add_event_cb(row_obj, wifi_setup_row_delete_cb, LV_EVENT_DELETE, context);
+    lv_obj_add_event_cb(row_obj, wifi_setup_row_click_cb, LV_EVENT_CLICKED, context);
+
+    lv_obj_t * title = lv_label_create(row_obj);
+    lv_label_set_text(title, net->ssid);
+    lv_obj_add_style(title, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(title, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(title, LV_PCT(100));
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(10), BOARD_SCALE_PX(8));
+
+    lv_obj_t * status = lv_label_create(row_obj);
+    const char * status_text = context->connected
+        ? (net->secured ? TR("Secured · Connected") : TR("Open · Connected"))
+        : context->saved_id >= 0 ? TR("Saved network")
+        : net->secured ? TR("Secured network") : TR("Open network");
+    lv_label_set_text(status, status_text);
+    lv_obj_add_style(status, context->connected ? gui_theme_accent_style() : &style_theme_text_muted, 0);
+    lv_obj_set_style_text_font(status, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+    lv_label_set_long_mode(status, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(status, LV_PCT(100));
+    lv_obj_align(status, LV_ALIGN_BOTTOM_LEFT, BOARD_SCALE_PX(10), -BOARD_SCALE_PX(8));
+
+    lv_obj_t * signal = lv_image_create(row_obj);
+    char icon_path[40];
+    int signal_level = net->signal_level < 0 ? 0 : net->signal_level > 3 ? 3 : net->signal_level;
+    snprintf(icon_path, sizeof(icon_path), "topbar/wifi_connect_%d.png", signal_level);
+    lv_image_set_src(signal, asset_path(icon_path));
+    lv_obj_set_size(signal, BOARD_SCALE_PX(28), BOARD_SCALE_PX(28));
+    lv_image_set_inner_align(signal, LV_IMAGE_ALIGN_CONTAIN);
+    lv_obj_align(signal, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(10), 0);
+    lv_obj_set_width(title, LV_PCT(72));
+    lv_obj_set_width(status, LV_PCT(72));
+}
+
+static void wifi_setup_render(void) {
+    lv_obj_t * parent = wifi_setup_parent;
+    if (!parent) return;
+    lv_obj_clean(parent);
+    if (wifi_setup_enable_failed) {
+        build_list_message(parent, TR("Wi-Fi could not be enabled"), TR("Check the wireless switch and try again."));
+        return;
+    }
+    if (!gui_shell_wifi_enabled_and_settled()) {
+        build_list_message(parent, TR("Turning Wi-Fi on"), TR("Nearby networks will appear when Wi-Fi is ready."));
+        return;
+    }
+    if (wifi_scan_active || (!wifi_setup_scan_finished && wifi_setup_scan_started)) {
+        build_list_message(parent, TR("Searching for networks"), TR("This can take a few seconds."));
+        return;
+    }
+    if (wifi_scan_result_count == 0) {
+        build_list_message(parent, TR("No networks found"), TR("Try scanning again or add a hidden network."));
+        return;
+    }
+    for (int i = 0; i < wifi_scan_result_count; ++i) wifi_setup_add_row(&wifi_scan_results[i]);
+}
+
+static void wifi_setup_start_scan_once(void) {
+    if (!wifi_setup_requested || !gui_shell_wifi_enabled_and_settled()) return;
+    wifi_settings_snapshot_enabled = true;
+    wifi_settings_snapshot_start();
+    if (wifi_setup_scan_started) return;
+    if (wifi_scan_active) {
+        wifi_setup_scan_started = true;
+        wifi_setup_scan_finished = false;
+        return;
+    }
+    wifi_setup_scan_finished = false;
+    wifi_scan_result_count = 0;
+    bool started = start_wifi_scan();
+    wifi_setup_scan_started = true;
+    wifi_setup_scan_finished = !started;
+}
+
+static void wifi_setup_parent_delete_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) == LV_EVENT_DELETE && lv_event_get_target(e) == wifi_setup_parent) {
+        wifi_setup_parent = NULL;
+    }
+}
+
+void gui_network_setup_wifi_prepare(void) {
+    wifi_setup_requested = true;
+    wifi_setup_enable_failed = !gui_shell_wifi_ensure_enabled();
+    if (!wifi_setup_enable_failed) wifi_setup_start_scan_once();
+    wifi_setup_render();
+}
+
+void gui_network_setup_wifi_mount(lv_obj_t * parent) {
+    if (wifi_setup_parent && wifi_setup_parent != parent) wifi_setup_parent = NULL;
+    wifi_setup_parent = parent;
+    if (parent) lv_obj_add_event_cb(parent, wifi_setup_parent_delete_cb, LV_EVENT_DELETE, NULL);
+    wifi_setup_render();
+}
+
+void gui_network_setup_wifi_rescan(void) {
+    if (!wifi_setup_requested) gui_network_setup_wifi_prepare();
+    if (wifi_scan_active) {
+        wifi_setup_scan_started = true;
+        wifi_setup_scan_finished = false;
+        wifi_setup_render();
+        return;
+    }
+    if (!gui_shell_wifi_enabled_and_settled()) {
+        wifi_setup_enable_failed = !gui_shell_wifi_ensure_enabled();
+        wifi_setup_render();
+        return;
+    }
+    wifi_setup_enable_failed = false;
+    wifi_setup_scan_started = false;
+    wifi_setup_scan_finished = false;
+    wifi_scan_result_count = 0;
+    wifi_setup_start_scan_once();
+    wifi_setup_render();
+}
+
+static void wifi_setup_hidden_ssid_cb(const char * text, void * user_data) {
+    (void) user_data;
+    if (wifi_connect_active || wifi_connect_saved_active || wifi_disconnect_active) {
+        show_info_toast(TR("Wi-Fi is busy"));
+        return;
+    }
+    size_t len = text ? strlen(text) : 0;
+    if (len == 0 || len >= WIFI_MAX_SSID_LEN) {
+        show_error_toast(TR("SSID must be 1 to 32 bytes"));
+        return;
+    }
+    memcpy(wifi_connect_pending_ssid, text, len + 1);
+    show_text_entry(TR("Wi-Fi Password"), NULL, true, false, wifi_password_entered_cb, NULL);
+}
+
+void gui_network_setup_wifi_add_hidden(void) {
+    if (!gui_shell_wifi_enabled_and_settled()) {
+        show_info_toast(TR("Wi-Fi is still starting"));
+        return;
+    }
+    if (wifi_connect_active || wifi_connect_saved_active || wifi_disconnect_active) {
+        show_info_toast(TR("Wi-Fi is busy"));
+        return;
+    }
+    show_text_entry(TR("Network Name (SSID)"), NULL, false, false, wifi_setup_hidden_ssid_cb, NULL);
+}
+
+bool gui_network_setup_wifi_connected(void) {
+    return gui_shell_wifi_enabled_and_settled() && wifi_cached_info_is_current() &&
+           wifi_cached_info_connected && lv_tick_elaps(wifi_settings_snapshot_tick) < 10000;
+}
+
 static pthread_t wifi_scan_thread;
-static bool wifi_scan_active = false;
 static atomic_bool wifi_scan_done_flag = false;
 
 static void * wifi_scan_thread_func(void * arg) {
@@ -534,8 +765,8 @@ static void * wifi_scan_thread_func(void * arg) {
  * (multiple uncoordinated users of one shared overlay, plus the overlay
  * getting buried under further navigation), which not having an overlay at
  * all sidesteps entirely. */
-static void start_wifi_scan(void) {
-    if (wifi_scan_active) return;
+static bool start_wifi_scan(void) {
+    if (wifi_scan_active) return false;
 
     atomic_store_explicit(&wifi_scan_done_flag, false, memory_order_relaxed);
     wifi_scan_active = true;
@@ -544,7 +775,9 @@ static void start_wifi_scan(void) {
     if (pthread_create(&wifi_scan_thread, NULL, wifi_scan_thread_func, NULL) != 0) {
         wifi_scan_active = false;
         set_wifi_rescan_active(false);
+        return false;
     }
+    return true;
 }
 
 void poll_wifi_scan(void) {
@@ -560,10 +793,12 @@ void poll_wifi_scan(void) {
         set_wifi_rescan_active(false);
         scan_published = true;
     }
+    if (scan_published && wifi_setup_scan_started) wifi_setup_scan_finished = true;
 
     if ((snapshot_published || scan_published) &&
         wifi_screen && gui_navigation_is_top(wifi_screen))
         populate_wifi_screen(wifi_control_is_enabled());
+    if (snapshot_published || scan_published) wifi_setup_render();
 
     if (snapshot_published) {
         if (wifi_info_screen && gui_navigation_is_top(wifi_info_screen)) populate_wifi_info_screen();
@@ -585,6 +820,8 @@ void poll_wifi_scan(void) {
     }
 #endif
     if ((wifi_screen && gui_navigation_is_top(wifi_screen)) ||
+        (wifi_setup_requested && !current_settings.setup_complete &&
+         gui_shell_wifi_enabled_and_settled()) ||
         (wifi_info_screen && gui_navigation_is_top(wifi_info_screen)) ||
         (import_wifi_screen && gui_navigation_is_top(import_wifi_screen)) ||
         (remote_control_screen && gui_navigation_is_top(remote_control_screen)))
@@ -615,6 +852,11 @@ void gui_network_wifi_toggle_completed(bool enabled) {
     wifi_settings_snapshot_invalidate();
     wifi_settings_snapshot_enabled = enabled;
     if (enabled) wifi_settings_snapshot_start();
+    if (wifi_setup_requested) {
+        wifi_setup_enable_failed = !enabled && !gui_shell_wifi_effective_enabled();
+        if (enabled) wifi_setup_start_scan_once();
+        wifi_setup_render();
+    }
     if (!gui_navigation_is_top(gui_network_get_wifi_screen())) {
         set_wifi_rescan_active(wifi_scan_active);
         return;
@@ -705,8 +947,8 @@ static void wifi_action_forget_cb(lv_event_t * e) {
 }
 
 void build_wifi_action_popup(void) {
-    wifi_action_popup.popup = build_confirm_popup("", LV_LABEL_LONG_DOT, &wifi_action_popup_title, NULL, "Connect",
-                                                   accent_lv_color(), wifi_action_connect_cb, NULL, "Forget",
+    wifi_action_popup.popup = build_confirm_popup("", LV_LABEL_LONG_DOT, &wifi_action_popup_title, NULL, TR("Connect"),
+                                                   accent_lv_color(), wifi_action_connect_cb, NULL, TR("Forget"),
                                                    lv_color_make(255, 120, 120), wifi_action_forget_cb, NULL,
                                                    wifi_action_popup_backdrop_cb, &wifi_action_popup.backdrop);
 }
@@ -733,21 +975,21 @@ static void populate_wifi_info_screen(void) {
     wifi_settings_snapshot_start();
     if (!wifi_cached_info_is_current() || !wifi_cached_info_connected) {
         lv_obj_t * label = lv_label_create(wifi_info_list);
-        lv_label_set_text(label, wifi_settings_snapshot_active ? "Loading..." : "Not connected");
+        lv_label_set_text(label, wifi_settings_snapshot_active ? TR("Loading...") : TR("Not connected"));
         lv_obj_add_style(label, &style_theme_text_muted, 0);
         lv_obj_set_style_pad_left(label, BOARD_SCALE_PX(24), 0);
         return;
     }
 
     wifi_info_t info = wifi_cached_info;
-    static const char * signal_labels[] = { "Weak", "Fair", "Good", "Excellent" };
+    static const char * signal_labels[] = { N_("Weak"), N_("Fair"), N_("Good"), N_("Excellent") };
     int signal_index = (info.signal_level >= 0 && info.signal_level <= 3) ? info.signal_level : 0;
-    char lines[5][80];
-    snprintf(lines[0], sizeof(lines[0]), "SSID: %s", info.ssid);
-    snprintf(lines[1], sizeof(lines[1]), "IP Address: %s", info.ip[0] ? info.ip : "-");
-    snprintf(lines[2], sizeof(lines[2]), "Gateway: %s", info.gateway[0] ? info.gateway : "-");
-    snprintf(lines[3], sizeof(lines[3]), "MAC Address: %s", info.mac[0] ? info.mac : "-");
-    snprintf(lines[4], sizeof(lines[4]), "Signal: %s", signal_labels[signal_index]);
+    char lines[5][160];
+    snprintf(lines[0], sizeof(lines[0]), TR("SSID: %s"), info.ssid);
+    snprintf(lines[1], sizeof(lines[1]), TR("IP Address: %s"), info.ip[0] ? info.ip : "-");
+    snprintf(lines[2], sizeof(lines[2]), TR("Gateway: %s"), info.gateway[0] ? info.gateway : "-");
+    snprintf(lines[3], sizeof(lines[3]), TR("MAC Address: %s"), info.mac[0] ? info.mac : "-");
+    snprintf(lines[4], sizeof(lines[4]), TR("Signal: %s"), TR(signal_labels[signal_index]));
 
     for (int i = 0; i < 5; i++) {
         lv_obj_t * label = lv_label_create(wifi_info_list);
@@ -764,7 +1006,7 @@ static void populate_wifi_info_screen(void) {
 
 static lv_obj_t * build_wifi_info_screen(void) {
     lv_obj_t * title_label; /* unused after build -- title never changes */
-    return build_subsonic_list_screen("Wi-Fi Info", &title_label, &wifi_info_list);
+    return build_subsonic_list_screen(TR("Wi-Fi Info"), &title_label, &wifi_info_list);
 }
 
 static void open_wifi_info_screen(void) {
@@ -789,12 +1031,12 @@ static void wifi_info_row_cb(lv_event_t * e) {
 static void wifi_manual_ssid_entered_cb(const char * text, void * user_data) {
     (void) user_data;
     snprintf(wifi_connect_pending_ssid, sizeof(wifi_connect_pending_ssid), "%s", text);
-    show_text_entry("Wi-Fi Password", NULL, true, false, wifi_password_entered_cb, NULL);
+    show_text_entry(TR("Wi-Fi Password"), NULL, true, false, wifi_password_entered_cb, NULL);
 }
 
 static void wifi_manual_entry_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    show_text_entry("Network Name (SSID)", NULL, false, false, wifi_manual_ssid_entered_cb, NULL);
+    show_text_entry(TR("Network Name (SSID)"), NULL, false, false, wifi_manual_ssid_entered_cb, NULL);
 }
 
 /* ---- DNS settings screen -- view/edit the 2 servers currently in
@@ -818,10 +1060,10 @@ static void populate_wifi_dns_screen(void) {
     }
     wifi_dns_server_count = count;
 
-    static const char * slot_labels[2] = { "Primary DNS", "Secondary DNS" };
+    static const char * slot_labels[2] = { N_("Primary DNS"), N_("Secondary DNS") };
     for (int i = 0; i < 2; i++) {
         char text[64];
-        snprintf(text, sizeof(text), "%s: %s", slot_labels[i], wifi_dns_servers[i][0] ? wifi_dns_servers[i] : "Not set");
+        snprintf(text, sizeof(text), "%s: %s", TR(slot_labels[i]), wifi_dns_servers[i][0] ? wifi_dns_servers[i] : TR("Not set"));
         lv_obj_t * row = add_pill_chevron_row(wifi_dns_list, text, NULL);
         lv_obj_add_event_cb(row, wifi_dns_row_cb, LV_EVENT_CLICKED, (void *) (intptr_t) i);
     }
@@ -840,13 +1082,13 @@ static void wifi_dns_entered_cb(const char * text, void * user_data) {
 static void wifi_dns_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     int slot = (int) (intptr_t) lv_event_get_user_data(e);
-    show_text_entry(slot == 0 ? "Primary DNS" : "Secondary DNS", wifi_dns_servers[slot], false, false, wifi_dns_entered_cb,
+    show_text_entry(slot == 0 ? TR("Primary DNS") : TR("Secondary DNS"), wifi_dns_servers[slot], false, false, wifi_dns_entered_cb,
                     (void *) (intptr_t) slot);
 }
 
 static lv_obj_t * build_wifi_dns_screen(void) {
     lv_obj_t * title_label; /* unused after build -- title never changes */
-    return build_subsonic_list_screen("DNS Settings", &title_label, &wifi_dns_list);
+    return build_subsonic_list_screen(TR("DNS Settings"), &title_label, &wifi_dns_list);
 }
 
 static void open_wifi_dns_screen(void) {
@@ -885,17 +1127,17 @@ void populate_wifi_screen(bool enabled) {
      * it's reused directly here rather than duplicating the thread-kickoff
      * boilerplate. poll_wifi_toggle() repopulates this screen once the
      * toggle completes. */
-    add_pill_toggle_row(wifi_list, "Wi-Fi", enabled, quick_drawer_wifi_event_cb);
+    add_pill_toggle_row(wifi_list, TR("Wi-Fi"), enabled, quick_drawer_wifi_event_cb);
 
     if (!enabled) return;
 
     wifi_settings_snapshot_start();
 
-    add_pill_chevron_row(wifi_list, "Wi-Fi Info", wifi_info_row_cb);
-    add_pill_chevron_row(wifi_list, "Manual SSID Entry", wifi_manual_entry_row_cb);
-    add_pill_chevron_row(wifi_list, "DNS Settings", wifi_dns_settings_row_cb);
+    add_pill_chevron_row(wifi_list, TR("Wi-Fi Info"), wifi_info_row_cb);
+    add_pill_chevron_row(wifi_list, TR("Manual SSID Entry"), wifi_manual_entry_row_cb);
+    add_pill_chevron_row(wifi_list, TR("DNS Settings"), wifi_dns_settings_row_cb);
 
-    add_section_header(wifi_list, "Memorized Networks");
+    add_section_header(wifi_list, TR("Memorized Networks"));
     /* During an optimistic cold enable there is no wpa_supplicant control
      * socket yet. Keep the last cached saved-network rows instead of
      * launching synchronous wpa_cli subprocesses that cannot succeed and
@@ -903,9 +1145,9 @@ void populate_wifi_screen(bool enabled) {
     bool have_settings_snapshot = wifi_cached_info_is_current();
     if (wifi_saved_result_count == 0) {
         if (have_settings_snapshot)
-            build_list_message(wifi_list, "No memorized networks", "Networks you connect to will appear here.");
+            build_list_message(wifi_list, TR("No memorized networks"), TR("Networks you connect to will appear here."));
         else
-            build_list_message(wifi_list, "Loading Wi-Fi settings", "Saved network details are being checked.");
+            build_list_message(wifi_list, TR("Loading Wi-Fi settings"), TR("Saved network details are being checked."));
     }
     /* Cross-reference wpa_cli status against saved network SSIDs to indicate
      * which saved network is currently connected. */
@@ -928,7 +1170,7 @@ void populate_wifi_screen(bool enabled) {
         lv_obj_align(label, LV_ALIGN_TOP_LEFT, LIST_ROW_LABEL_INSET, BOARD_SCALE_PX(10));
 
         lv_obj_t * status = lv_label_create(row);
-        lv_label_set_text(status, is_connected ? "Connected" : "Saved network");
+        lv_label_set_text(status, is_connected ? TR("Connected") : TR("Saved network"));
         lv_obj_add_style(status, is_connected ? gui_theme_accent_style() : &style_theme_text_muted, 0);
         configure_network_row_line(status, LIST_ROW_WIDTH - 2 * LIST_ROW_LABEL_INSET,
                                    gui_theme_font(GUI_FONT_ROLE_SUBTEXT));
@@ -938,7 +1180,7 @@ void populate_wifi_screen(bool enabled) {
         lv_obj_add_event_cb(row, wifi_saved_row_click_cb, LV_EVENT_CLICKED, (void *) (intptr_t) i);
     }
 
-    add_section_header(wifi_list, "Available Networks");
+    add_section_header(wifi_list, TR("Available Networks"));
     for (int i = 0; i < wifi_scan_result_count; i++) {
         wifi_network_t * net = &wifi_scan_results[i];
 
@@ -965,8 +1207,8 @@ void populate_wifi_screen(bool enabled) {
 
         lv_obj_t * status = lv_label_create(row);
         const char * network_status = net->is_current
-            ? (net->secured ? "Secured · Connected" : "Open · Connected")
-            : net->secured ? "Secured network" : "Open network";
+            ? (net->secured ? TR("Secured · Connected") : TR("Open · Connected"))
+            : net->secured ? TR("Secured network") : TR("Open network");
         lv_label_set_text(status, network_status);
         lv_obj_add_style(status, net->is_current ? gui_theme_accent_style() : &style_theme_text_muted, 0);
         configure_network_row_line(status, LIST_ROW_WIDTH - BOARD_SCALE_PX(88),
@@ -978,18 +1220,18 @@ void populate_wifi_screen(bool enabled) {
     }
     if (wifi_scan_result_count == 0) {
         if (wifi_enable_pending_feedback)
-            build_list_message(wifi_list, "Scanning for networks", "Nearby Wi-Fi networks will appear here.");
+            build_list_message(wifi_list, TR("Scanning for networks"), TR("Nearby Wi-Fi networks will appear here."));
         else
-            build_list_message(wifi_list, "No networks found", "Check that Wi-Fi is enabled, then rescan.");
+            build_list_message(wifi_list, TR("No networks found"), TR("Check that Wi-Fi is enabled, then rescan."));
     }
 }
 
 static lv_obj_t * build_wifi_screen(void) {
     lv_obj_t * title_label; /* unused after build -- title never changes */
-    lv_obj_t * scr = build_subsonic_list_screen("Wi-Fi", &title_label, &wifi_list);
+    lv_obj_t * scr = build_subsonic_list_screen(TR("Wi-Fi"), &title_label, &wifi_list);
 
     wifi_rescan_btn = lv_label_create(scr);
-    lv_label_set_text(wifi_rescan_btn, "Rescan");
+    lv_label_set_text(wifi_rescan_btn, TR("Rescan"));
     lv_obj_add_style(wifi_rescan_btn, gui_theme_accent_style(), 0);
     lv_obj_set_style_text_font(wifi_rescan_btn, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     align_screen_header_action(wifi_rescan_btn, 20);
@@ -997,6 +1239,10 @@ static lv_obj_t * build_wifi_screen(void) {
     lv_obj_add_event_cb(wifi_rescan_btn, wifi_rescan_btn_cb, LV_EVENT_CLICKED, NULL);
 
     return scr;
+}
+
+void gui_setup_open_wifi(void) {
+    open_wifi_screen();
 }
 
 void open_wifi_screen(void) {
@@ -1204,8 +1450,8 @@ static void bt_action_forget_cb(lv_event_t * e) {
 }
 
 void build_bt_action_popup(void) {
-    bt_action_popup.popup = build_confirm_popup("", LV_LABEL_LONG_DOT, &bt_action_popup_title, NULL, "Connect",
-                                                 accent_lv_color(), bt_action_connect_cb, &bt_action_connect_row, "Forget",
+    bt_action_popup.popup = build_confirm_popup("", LV_LABEL_LONG_DOT, &bt_action_popup_title, NULL, TR("Connect"),
+                                                 accent_lv_color(), bt_action_connect_cb, &bt_action_connect_row, TR("Forget"),
                                                  lv_color_make(255, 120, 120), bt_action_forget_cb, &bt_action_forget_row,
                                                  bt_action_popup_backdrop_cb, &bt_action_popup.backdrop);
 }
@@ -1261,7 +1507,7 @@ static lv_obj_t * bt_rescan_btn;
 
 static void set_bt_rescan_active(bool active) {
     if (!bt_rescan_btn) return;
-    lv_label_set_text(bt_rescan_btn, active ? "Scanning..." : "Rescan");
+    lv_label_set_text(bt_rescan_btn, active ? TR("Scanning...") : TR("Rescan"));
     lv_obj_set_style_opa(bt_rescan_btn, active ? LV_OPA_60 : LV_OPA_COVER, 0);
     align_screen_header_action(bt_rescan_btn, 20);
     if (active) {
@@ -1326,9 +1572,9 @@ static void add_bt_device_row(lv_obj_t * parent, int index) {
     lv_obj_align(label, LV_ALIGN_TOP_LEFT, LIST_ROW_LABEL_INSET, BOARD_SCALE_PX(8));
 
     lv_obj_t * status_label = lv_label_create(row);
-    const char * status = strcmp(dev->mac, bt_connecting_mac) == 0 ? "Connecting" :
-                          strcmp(dev->mac, bt_connect_failed_mac) == 0 ? "Connection failed" :
-                          dev->connected ? "Connected" : dev->paired ? "Paired" : "Available";
+    const char * status = strcmp(dev->mac, bt_connecting_mac) == 0 ? TR("Connecting") :
+                          strcmp(dev->mac, bt_connect_failed_mac) == 0 ? TR("Connection failed") :
+                          dev->connected ? TR("Connected") : dev->paired ? TR("Paired") : TR("Available");
     lv_label_set_text(status_label, status);
     lv_obj_add_style(status_label, dev->connected ? gui_theme_accent_style() : &style_theme_text_muted, 0);
     configure_network_row_line(status_label, LIST_ROW_WIDTH - 2 * LIST_ROW_LABEL_INSET,
@@ -1435,9 +1681,9 @@ void populate_bt_dac_screen(void) {
 
     lv_obj_t * explanation = lv_label_create(bt_dac_list);
     lv_label_set_text(explanation,
-                      "When on, this device stays visible and pairable to other Bluetooth devices, "
+                      TR("When on, this device stays visible and pairable to other Bluetooth devices, "
                       "so a phone or computer can stream audio TO it and play through this device's "
-                      "own output -- using it as an external DAC.");
+                      "own output -- using it as an external DAC."));
     lv_obj_set_width(explanation, lv_pct(90));
     lv_label_set_long_mode(explanation, LV_LABEL_LONG_WRAP);
     lv_obj_add_style(explanation, &style_theme_text_muted, 0);
@@ -1446,7 +1692,7 @@ void populate_bt_dac_screen(void) {
     lv_obj_set_style_pad_top(explanation, BOARD_SCALE_PX(12), 0);
     lv_obj_set_style_pad_bottom(explanation, BOARD_SCALE_PX(12), 0);
 
-    lv_obj_t * row = add_pill_row_base(bt_dac_list, "Enable Bluetooth DAC");
+    lv_obj_t * row = add_pill_row_base(bt_dac_list, TR("Enable Bluetooth DAC"));
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(row, bt_dac_enable_row_cb, LV_EVENT_CLICKED, NULL);
 }
@@ -1485,7 +1731,7 @@ static void bt_dac_enable_row_cb(lv_event_t * e) {
 
 static lv_obj_t * build_bt_dac_screen(void) {
     lv_obj_t * title_label; /* unused after build -- title never changes */
-    return build_subsonic_list_screen("Bluetooth DAC", &title_label, &bt_dac_list);
+    return build_subsonic_list_screen(TR("Bluetooth DAC"), &title_label, &bt_dac_list);
 }
 
 static void open_bt_dac_screen(void) {
@@ -1500,7 +1746,7 @@ static void open_bt_dac_screen(void) {
      * to head straight into enable_bt_dac_and_show_overlay(), which just
      * spawns bluealsa/bt-agent against a radio that isn't even on. */
     if (!bt_is_powered_cached) {
-        show_error_toast("Enable Bluetooth in settings to use BT DAC mode");
+        show_error_toast(TR("Enable Bluetooth in settings to use BT DAC mode"));
         return;
     }
     /* Already on -- re-apply and go straight to the overlay rather than
@@ -1557,8 +1803,8 @@ static void bt_dac_overlay_back_cb(lv_event_t * e) {
 }
 
 void build_bt_dac_leave_popup(void) {
-    bt_dac_leave_popup.popup = build_confirm_popup("Leave Bluetooth DAC mode?", LV_LABEL_LONG_WRAP, NULL, NULL, "Leave",
-                                                    lv_color_make(255, 120, 120), bt_dac_leave_confirm_cb, NULL, "Cancel",
+    bt_dac_leave_popup.popup = build_confirm_popup(TR("Leave Bluetooth DAC mode?"), LV_LABEL_LONG_WRAP, NULL, NULL, TR("Leave"),
+                                                    lv_color_make(255, 120, 120), bt_dac_leave_confirm_cb, NULL, TR("Cancel"),
                                                     accent_lv_color(), bt_dac_leave_cancel_cb, NULL,
                                                     bt_dac_leave_popup_backdrop_cb, &bt_dac_leave_popup.backdrop);
 }
@@ -1574,13 +1820,13 @@ static lv_obj_t * build_bt_dac_overlay_screen(void) {
     lv_obj_align(icon, LV_ALIGN_CENTER, 0, BOARD_SCALE_PX(-40));
 
     lv_obj_t * status_label = lv_label_create(scr);
-    lv_label_set_text(status_label, "Bluetooth DAC mode");
+    lv_label_set_text(status_label, TR("Bluetooth DAC mode"));
     lv_obj_add_style(status_label, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(status_label, gui_theme_font(GUI_FONT_ROLE_TITLE), 0);
     lv_obj_align_to(status_label, icon, LV_ALIGN_OUT_BOTTOM_MID, 0, BOARD_SCALE_PX(24));
 
     lv_obj_t * hint_label = lv_label_create(scr);
-    lv_label_set_text(hint_label, "This device is now receiving Bluetooth audio");
+    lv_label_set_text(hint_label, TR("This device is now receiving Bluetooth audio"));
     lv_obj_add_style(hint_label, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(hint_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
     /* Same fixed-width + center treatment as the USB DAC screen's own
@@ -1594,7 +1840,7 @@ static lv_obj_t * build_bt_dac_overlay_screen(void) {
     lv_obj_align_to(hint_label, status_label, LV_ALIGN_OUT_BOTTOM_MID, 0, BOARD_SCALE_PX(8));
 
     bt_dac_stream_label = lv_label_create(scr);
-    lv_label_set_text(bt_dac_stream_label, "Waiting for Bluetooth stream…");
+    lv_label_set_text(bt_dac_stream_label, TR("Waiting for Bluetooth stream…"));
     lv_obj_add_style(bt_dac_stream_label, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(bt_dac_stream_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
     lv_obj_set_width(bt_dac_stream_label, LV_PCT(90));
@@ -1617,7 +1863,7 @@ typedef struct {
 } bt_codec_option_t;
 
 static const bt_codec_option_t bt_codec_options[] = {
-    { "auto", "Auto" },      { "ldac_hq", "LDAC Quality" }, { "ldac_sq", "LDAC Standard" },
+    { "auto", N_("Auto") },   { "ldac_hq", N_("LDAC Quality") }, { "ldac_sq", N_("LDAC Standard") },
     { "aptx", "aptX" },      { "aac", "AAC" },              { "sbc", "SBC" },
     { "sbc_xq", "SBC-XQ" },
 };
@@ -1631,7 +1877,7 @@ static void populate_bt_codec_screen(void) {
     lv_obj_clean(bt_codec_list);
     for (size_t i = 0; i < BT_CODEC_OPTION_COUNT; i++) {
         bool selected = strcmp(current_settings.bt_codec, bt_codec_options[i].value) == 0;
-        add_pill_option_row(bt_codec_list, bt_codec_options[i].label,
+        add_pill_option_row(bt_codec_list, TR(bt_codec_options[i].label),
                             selected, bt_codec_option_row_cb, (void *) (intptr_t) i);
     }
 }
@@ -1643,13 +1889,13 @@ static void bt_codec_option_row_cb(lv_event_t * e) {
     const char * codec = bt_codec_options[index].value;
     bool codec_changed = strcmp(current_settings.bt_codec, codec) != 0;
     if (!bt_control_set_codec(codec)) {
-        show_error_toast("Could not save Bluetooth codec");
+        show_error_toast(TR("Could not save Bluetooth codec"));
         return;
     }
     snprintf(current_settings.bt_codec, sizeof(current_settings.bt_codec), "%s", codec);
     settings_save_async(&current_settings);
     populate_bt_codec_screen();
-    if (codec_changed) show_info_toast("Turn Bluetooth off and on to apply");
+    if (codec_changed) show_info_toast(TR("Turn Bluetooth off and on to apply"));
 }
 
 /* ---- Bluetooth > Advanced ---------------------------------------------
@@ -1682,7 +1928,7 @@ static unsigned int bt_rate_selected(void) {
 
 static void populate_bt_rate_screen(void) {
     lv_obj_clean(bt_rate_list);
-    add_pill_option_row(bt_rate_list, "Automatic (44.1 kHz)", bt_rate_selected() == 0,
+    add_pill_option_row(bt_rate_list, TR("Automatic (44.1 kHz)"), bt_rate_selected() == 0,
                         bt_rate_option_row_cb, (void *) (intptr_t) 0);
 
     /* Nothing connected means nothing to query, and only 44.1 can be applied
@@ -1690,8 +1936,8 @@ static void populate_bt_rate_screen(void) {
     if (bt_rate_option_count == 0) {
         add_pill_option_row(bt_rate_list, "44.1 kHz", bt_rate_selected() == 44100,
                             bt_rate_option_row_cb, (void *) (intptr_t) 44100);
-        add_section_header(bt_rate_list, bt_rate_query_active ? "Reading supported rates..."
-                                                              : "Connect a device to see its supported rates");
+        add_section_header(bt_rate_list, bt_rate_query_active ? TR("Reading supported rates...")
+                                                              : TR("Connect a device to see its supported rates"));
         return;
     }
     for (int i = 0; i < bt_rate_option_count; i++) {
@@ -1758,7 +2004,7 @@ static void bt_rate_option_row_cb(lv_event_t * e) {
     if (bt_rate_apply_active) {
         /* Silently dropping this would leave the setting saying one thing and
          * the transport doing another. */
-        show_info_toast("Still applying the previous choice");
+        show_info_toast(TR("Still applying the previous choice"));
         return;
     }
     atomic_store_explicit(&bt_rate_apply_done_flag, false, memory_order_relaxed);
@@ -1766,15 +2012,15 @@ static void bt_rate_option_row_cb(lv_event_t * e) {
     bt_rate_apply_active = true;
     if (pthread_create(&bt_rate_apply_thread, NULL, bt_rate_apply_thread_func, NULL) != 0) {
         bt_rate_apply_active = false;
-        show_info_toast("Turn Bluetooth off and on to apply");
+        show_info_toast(TR("Turn Bluetooth off and on to apply"));
         return;
     }
-    show_info_toast("Headset may disconnect, manual reconnection might be required");
+    show_info_toast(TR("Headset may disconnect, manual reconnection might be required"));
 }
 
 static lv_obj_t * build_bt_rate_screen(void) {
     lv_obj_t * title_label;
-    return build_subsonic_list_screen("Sample Rate", &title_label, &bt_rate_list);
+    return build_subsonic_list_screen(TR("Sample Rate"), &title_label, &bt_rate_list);
 }
 
 /* The query forks bluealsactl, which must never happen on the UI thread:
@@ -1842,22 +2088,22 @@ static void bt_speexrate_toggle_cb(lv_event_t * e) {
 
 static void populate_bt_advanced_screen(void) {
     lv_obj_clean(bt_advanced_list);
-    add_pill_toggle_row(bt_advanced_list, "Bluetooth Volume Sync",
+    add_pill_toggle_row(bt_advanced_list, TR("Bluetooth Volume Sync"),
                         current_settings.bt_volume_sync_enabled, bt_volume_sync_toggle_cb);
-    add_pill_chevron_row(bt_advanced_list, "Codec", bt_codec_settings_row_cb);
-    add_pill_chevron_row(bt_advanced_list, "Sample Rate", bt_rate_settings_row_cb);
+    add_pill_chevron_row(bt_advanced_list, TR("Codec"), bt_codec_settings_row_cb);
+    add_pill_chevron_row(bt_advanced_list, TR("Sample Rate"), bt_rate_settings_row_cb);
     /* Only does anything for a track whose rate differs from the negotiated
      * transport rate; with Sample Rate at 44.1 kHz most tracks never reach
      * the resampler at all. */
-    add_pill_toggle_row(bt_advanced_list, "Speex Resampling",
+    add_pill_toggle_row(bt_advanced_list, TR("Speex Resampling"),
                         current_settings.bt_speexrate_enabled, bt_speexrate_toggle_cb);
-    add_pill_toggle_row(bt_advanced_list, "Hide Unnamed Devices",
+    add_pill_toggle_row(bt_advanced_list, TR("Hide Unnamed Devices"),
                         current_settings.bt_hide_unnamed_devices, bt_hide_unnamed_toggle_cb);
 }
 
 static lv_obj_t * build_bt_advanced_screen(void) {
     lv_obj_t * title_label;
-    return build_subsonic_list_screen("Advanced", &title_label, &bt_advanced_list);
+    return build_subsonic_list_screen(TR("Advanced"), &title_label, &bt_advanced_list);
 }
 
 static void bt_advanced_settings_row_cb(lv_event_t * e) {
@@ -1868,7 +2114,7 @@ static void bt_advanced_settings_row_cb(lv_event_t * e) {
 
 static lv_obj_t * build_bt_codec_screen(void) {
     lv_obj_t * title_label; /* unused after build -- title never changes */
-    return build_subsonic_list_screen("Codec", &title_label, &bt_codec_list);
+    return build_subsonic_list_screen(TR("Codec"), &title_label, &bt_codec_list);
 }
 
 static void open_bt_codec_screen(void) {
@@ -1895,7 +2141,7 @@ typedef struct {
 } resume_mode_option_t;
 
 static const resume_mode_option_t resume_mode_options[] = {
-    { 0, "Off" }, { 1, "Resume and Play" }, { 2, "Resume, but Paused" },
+    { 0, N_("Off") }, { 1, N_("Resume and Play") }, { 2, N_("Resume, but Paused") },
 };
 #define RESUME_MODE_OPTION_COUNT (sizeof(resume_mode_options) / sizeof(resume_mode_options[0]))
 
@@ -1905,7 +2151,7 @@ static void populate_resume_mode_screen(void) {
     lv_obj_clean(resume_mode_list);
     for (size_t i = 0; i < RESUME_MODE_OPTION_COUNT; i++) {
         bool selected = current_settings.resume_mode == resume_mode_options[i].mode;
-        add_pill_option_row(resume_mode_list, resume_mode_options[i].label,
+        add_pill_option_row(resume_mode_list, TR(resume_mode_options[i].label),
                             selected, resume_mode_option_row_cb, (void *) (intptr_t) i);
     }
 }
@@ -1916,12 +2162,12 @@ static void resume_mode_option_row_cb(lv_event_t * e) {
     current_settings.resume_mode = resume_mode_options[index].mode;
     settings_save(&current_settings);
     populate_resume_mode_screen();
-    show_info_toast("Applies next time you launch the app");
+    show_info_toast(TR("Applies next time you launch the app"));
 }
 
 static lv_obj_t * build_resume_mode_screen(void) {
     lv_obj_t * title_label; /* unused after build -- title never changes */
-    return build_subsonic_list_screen("Resume Last Track", &title_label, &resume_mode_list);
+    return build_subsonic_list_screen(TR("Resume Last Track"), &title_label, &resume_mode_list);
 }
 
 static void open_resume_mode_screen(void) {
@@ -1950,7 +2196,7 @@ typedef struct {
 } play_pause_button_mode_option_t;
 
 static const play_pause_button_mode_option_t play_pause_button_mode_options[] = {
-    { 0, "Play/Pause" }, { 1, "Previous Track" }, { 2, "Play/Pause + Previous Track (Double-Click)" },
+    { 0, N_("Play/Pause") }, { 1, N_("Previous Track") }, { 2, N_("Play/Pause + Previous Track (Double-Click)") },
 };
 #define PLAY_PAUSE_BUTTON_MODE_OPTION_COUNT (sizeof(play_pause_button_mode_options) / sizeof(play_pause_button_mode_options[0]))
 
@@ -1962,7 +2208,7 @@ static void populate_play_pause_button_mode_screen(void) {
     lv_obj_clean(play_pause_button_mode_list);
     for (size_t i = 0; i < PLAY_PAUSE_BUTTON_MODE_OPTION_COUNT; i++) {
         bool selected = current_settings.play_pause_button_mode == play_pause_button_mode_options[i].mode;
-        add_pill_option_row(play_pause_button_mode_list, play_pause_button_mode_options[i].label,
+        add_pill_option_row(play_pause_button_mode_list, TR(play_pause_button_mode_options[i].label),
                             selected, play_pause_button_mode_option_row_cb, (void *) (intptr_t) i);
     }
 }
@@ -1973,12 +2219,12 @@ static void play_pause_button_mode_option_row_cb(lv_event_t * e) {
     current_settings.play_pause_button_mode = play_pause_button_mode_options[index].mode;
     settings_save(&current_settings);
     populate_play_pause_button_mode_screen();
-    show_info_toast("Applies immediately");
+    show_info_toast(TR("Applies immediately"));
 }
 
 static lv_obj_t * build_play_pause_button_mode_screen(void) {
     lv_obj_t * title_label; /* unused after build -- title never changes */
-    return build_subsonic_list_screen("Play/Pause Button", &title_label, &play_pause_button_mode_list);
+    return build_subsonic_list_screen(TR("Play/Pause Button"), &title_label, &play_pause_button_mode_list);
 }
 
 static void open_play_pause_button_mode_screen(void) {
@@ -2001,7 +2247,7 @@ typedef struct {
 } font_size_option_t;
 
 static const font_size_option_t font_size_options[] = {
-    { 0, "Small" }, { 1, "Medium" }, { 2, "Large" },
+    { 0, N_("Small") }, { 1, N_("Medium") }, { 2, N_("Large") },
 };
 #define FONT_SIZE_OPTION_COUNT (sizeof(font_size_options) / sizeof(font_size_options[0]))
 
@@ -2013,7 +2259,7 @@ static void populate_font_size_screen(void) {
     lv_obj_clean(font_size_list);
     for (size_t i = 0; i < FONT_SIZE_OPTION_COUNT; i++) {
         bool selected = current_settings.font_size_tier == font_size_options[i].tier;
-        add_pill_option_row(font_size_list, font_size_options[i].label,
+        add_pill_option_row(font_size_list, TR(font_size_options[i].label),
                             selected, font_size_option_row_cb, (void *) (intptr_t) i);
     }
 }
@@ -2024,7 +2270,7 @@ static void font_size_apply_timer_cb(lv_timer_t * timer) {
     lv_timer_delete(timer);
     if (!fallback_font_apply_size_tier(target)) {
         lv_obj_delete(mask);
-        show_error_toast("Could not apply font size");
+        show_error_toast(TR("Could not apply font size"));
         return;
     }
 
@@ -2085,7 +2331,7 @@ static void font_size_option_row_cb(lv_event_t * e) {
 
 static lv_obj_t * build_font_size_screen(void) {
     lv_obj_t * title_label; /* unused after build -- title never changes */
-    return build_subsonic_list_screen("Font Size", &title_label, &font_size_list);
+    return build_subsonic_list_screen(TR("Font Size"), &title_label, &font_size_list);
 }
 
 static void open_font_size_screen(void) {
@@ -2110,7 +2356,7 @@ typedef struct {
 } replaygain_mode_option_t;
 
 static const replaygain_mode_option_t replaygain_mode_options[] = {
-    { 0, "Off" }, { 1, "Per Track" }, { 2, "Per Album" },
+    { 0, N_("Off") }, { 1, N_("Per Track") }, { 2, N_("Per Album") },
 };
 #define REPLAYGAIN_MODE_OPTION_COUNT (sizeof(replaygain_mode_options) / sizeof(replaygain_mode_options[0]))
 
@@ -2122,7 +2368,7 @@ static void populate_replaygain_mode_screen(void) {
     lv_obj_clean(replaygain_mode_list);
     for (size_t i = 0; i < REPLAYGAIN_MODE_OPTION_COUNT; i++) {
         bool selected = current_settings.replaygain_mode == replaygain_mode_options[i].mode;
-        add_pill_option_row(replaygain_mode_list, replaygain_mode_options[i].label,
+        add_pill_option_row(replaygain_mode_list, TR(replaygain_mode_options[i].label),
                             selected, replaygain_mode_option_row_cb, (void *) (intptr_t) i);
     }
 }
@@ -2138,7 +2384,7 @@ static void replaygain_mode_option_row_cb(lv_event_t * e) {
 
 static lv_obj_t * build_replaygain_mode_screen(void) {
     lv_obj_t * title_label; /* unused after build -- title never changes */
-    return build_subsonic_list_screen("ReplayGain", &title_label, &replaygain_mode_list);
+    return build_subsonic_list_screen(TR("ReplayGain"), &title_label, &replaygain_mode_list);
 }
 
 static void open_replaygain_mode_screen(void) {
@@ -2162,9 +2408,9 @@ typedef struct {
 } usb_mode_option_t;
 
 static const usb_mode_option_t usb_mode_options[] = {
-    { USB_MODE_STORAGE, "Storage" },
-    { USB_MODE_DAC, "USB DAC" },
-    { USB_MODE_ADB, "ADB" },
+    { USB_MODE_STORAGE, N_("Storage") },
+    { USB_MODE_DAC, N_("USB DAC") },
+    { USB_MODE_ADB, N_("ADB") },
 };
 #define USB_MODE_OPTION_COUNT (sizeof(usb_mode_options) / sizeof(usb_mode_options[0]))
 
@@ -2210,7 +2456,7 @@ static void populate_usb_mode_screen(void) {
         if (usb_mode_options[i].mode == USB_MODE_ADB) continue; /* handled by the toggle above */
 
         bool selected = !adb_active && current_settings.usb_mode == (int) usb_mode_options[i].mode;
-        lv_obj_t * row = add_pill_option_row(usb_mode_list, usb_mode_options[i].label,
+        lv_obj_t * row = add_pill_option_row(usb_mode_list, TR(usb_mode_options[i].label),
                                             selected, usb_mode_option_row_cb, (void *) (intptr_t) i);
 
         if (adb_active) {
@@ -2250,7 +2496,7 @@ static bool launch_usb_mode_switch(void) {
          * failure leaves the guard latched forever: every later tap is
          * ignored until the player or device is restarted. */
         usb_mode_switch_active = false;
-        show_error_toast("Could not start USB mode switch");
+        show_error_toast(TR("Could not start USB mode switch"));
         return false;
     }
     return true;
@@ -2332,12 +2578,12 @@ void poll_usb_mode_switch(void) {
      * (the switch genuinely didn't happen) rather than optimistically
      * recording what was merely requested. */
     if (!usb_mode_switch_succeeded) {
-        const char * label = "USB mode";
+        const char * label = TR("USB mode");
         for (size_t i = 0; i < USB_MODE_OPTION_COUNT; i++) {
-            if (usb_mode_options[i].mode == usb_mode_switch_target) { label = usb_mode_options[i].label; break; }
+            if (usb_mode_options[i].mode == usb_mode_switch_target) { label = TR(usb_mode_options[i].label); break; }
         }
-        char msg[64];
-        snprintf(msg, sizeof(msg), "Failed to switch to %s", label);
+        char msg[128];
+        snprintf(msg, sizeof(msg), TR("Failed to switch to %s"), label);
         show_error_toast(msg);
         /* apply() tears the old gadget down before bringing the target up, so
          * a failure can leave neither bound -- the recorded mode is then not
@@ -2493,7 +2739,7 @@ static void usb_mode_option_row_cb(lv_event_t * e) {
 
 static lv_obj_t * build_usb_mode_screen(void) {
     lv_obj_t * title_label; /* unused after build -- title never changes */
-    return build_subsonic_list_screen("USB Mode", &title_label, &usb_mode_list);
+    return build_subsonic_list_screen(TR("USB Mode"), &title_label, &usb_mode_list);
 }
 
 static void open_usb_mode_screen(void) {
@@ -2559,8 +2805,8 @@ static void usb_dac_overlay_back_cb(lv_event_t * e) {
 }
 
 void build_usb_dac_leave_popup(void) {
-    usb_dac_leave_popup.popup = build_confirm_popup("Leave USB DAC mode?", LV_LABEL_LONG_WRAP, NULL, NULL, "Leave",
-                                                     lv_color_make(255, 120, 120), usb_dac_leave_confirm_cb, NULL, "Cancel",
+    usb_dac_leave_popup.popup = build_confirm_popup(TR("Leave USB DAC mode?"), LV_LABEL_LONG_WRAP, NULL, NULL, TR("Leave"),
+                                                     lv_color_make(255, 120, 120), usb_dac_leave_confirm_cb, NULL, TR("Cancel"),
                                                      accent_lv_color(), usb_dac_leave_cancel_cb, NULL,
                                                      usb_dac_leave_popup_backdrop_cb, &usb_dac_leave_popup.backdrop);
 }
@@ -2576,7 +2822,7 @@ static lv_obj_t * build_usb_dac_overlay_screen(void) {
     lv_obj_align(icon, LV_ALIGN_CENTER, 0, BOARD_SCALE_PX(-40));
 
     lv_obj_t * status_label = lv_label_create(scr);
-    lv_label_set_text(status_label, "USB DAC mode");
+    lv_label_set_text(status_label, TR("USB DAC mode"));
     lv_obj_add_style(status_label, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(status_label, gui_theme_font(GUI_FONT_ROLE_TITLE), 0);
     lv_obj_align_to(status_label, icon, LV_ALIGN_OUT_BOTTOM_MID, 0, BOARD_SCALE_PX(24));
@@ -2584,7 +2830,7 @@ static lv_obj_t * build_usb_dac_overlay_screen(void) {
     /* Use fixed width with centered text alignment so the labels stay centered
      * when their text content updates dynamically. */
     usb_dac_hint_label = lv_label_create(scr);
-    lv_label_set_text(usb_dac_hint_label, "Waiting for USB audio…");
+    lv_label_set_text(usb_dac_hint_label, TR("Waiting for USB audio…"));
     lv_obj_add_style(usb_dac_hint_label, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(usb_dac_hint_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
     lv_obj_set_width(usb_dac_hint_label, LV_PCT(90));
@@ -2615,7 +2861,7 @@ static void set_label_if_changed(lv_obj_t * label, const char * text) {
 static void format_rate(char * out, size_t size, unsigned int rate) {
     if (rate && rate % 1000 == 0) snprintf(out, size, "%u kHz", rate / 1000);
     else if (rate) snprintf(out, size, "%.1f kHz", (double) rate / 1000.0);
-    else snprintf(out, size, "Unknown rate");
+    else snprintf(out, size, "%s", TR("Unknown rate"));
 }
 
 static lv_timer_t * dac_stream_labels_timer = NULL;
@@ -2626,27 +2872,27 @@ static void dac_stream_labels_timer_cb(lv_timer_t * timer) {
     bt_control_get_dac_stream_info(&bt);
     char text[160];
     if (!bt.available || !bt.running) {
-        snprintf(text, sizeof(text), "Waiting for Bluetooth stream…");
+        snprintf(text, sizeof(text), "%s", TR("Waiting for Bluetooth stream…"));
     } else {
         char rate[32];
         format_rate(rate, sizeof(rate), bt.sample_rate);
-        const char * format = bt.bit_depth ? NULL : (bt.pcm_format[0] ? bt.pcm_format : "Unknown format");
+        const char * format = bt.bit_depth ? NULL : (bt.pcm_format[0] ? bt.pcm_format : TR("Unknown format"));
         if (bt.bit_depth)
-            snprintf(text, sizeof(text), "%s · %s · %u-bit", bt.codec[0] ? bt.codec : "Unknown codec", rate, bt.bit_depth);
+            snprintf(text, sizeof(text), "%s · %s · %u-bit", bt.codec[0] ? bt.codec : TR("Unknown codec"), rate, bt.bit_depth);
         else
-            snprintf(text, sizeof(text), "%s · %s · %s", bt.codec[0] ? bt.codec : "Unknown codec", rate, format);
+            snprintf(text, sizeof(text), "%s · %s · %s", bt.codec[0] ? bt.codec : TR("Unknown codec"), rate, format);
     }
     set_label_if_changed(bt_dac_stream_label, text);
 
     usb_dac_stream_info_t usb;
     usb_dac_bridge_get_stream_info(&usb);
-    set_label_if_changed(usb_dac_hint_label, usb.streaming ? "This device is now a USB sound card" : "Waiting for USB audio…");
+    set_label_if_changed(usb_dac_hint_label, usb.streaming ? TR("This device is now a USB sound card") : TR("Waiting for USB audio…"));
     char input_rate[32], output_rate[32];
     format_rate(input_rate, sizeof(input_rate), usb.input_sample_rate);
     format_rate(output_rate, sizeof(output_rate), usb.output_sample_rate);
-    snprintf(text, sizeof(text), "USB input: %s · %u-bit", input_rate, usb.input_bit_depth);
+    snprintf(text, sizeof(text), TR("USB input: %s · %u-bit"), input_rate, usb.input_bit_depth);
     set_label_if_changed(usb_dac_input_label, text);
-    snprintf(text, sizeof(text), "DAC path: %s · %u-bit", output_rate, usb.output_bit_depth);
+    snprintf(text, sizeof(text), TR("DAC path: %s · %u-bit"), output_rate, usb.output_bit_depth);
     set_label_if_changed(usb_dac_path_label, text);
 }
 
@@ -2698,18 +2944,18 @@ void populate_bt_screen(void) {
     /* quick_drawer_bt_event_cb is the SAME real toggle-thread trigger the
      * drawer's own bt icon uses -- see populate_wifi_screen()'s identical
      * reasoning for wifi. */
-    add_pill_toggle_row(bt_list, "Bluetooth", powered, quick_drawer_bt_event_cb);
+    add_pill_toggle_row(bt_list, TR("Bluetooth"), powered, quick_drawer_bt_event_cb);
 
     if (!powered) {
-        build_list_message(bt_list, "Bluetooth is off", "Turn on Bluetooth to see paired and nearby devices.");
+        build_list_message(bt_list, TR("Bluetooth is off"), TR("Turn on Bluetooth to see paired and nearby devices."));
         lv_obj_scroll_to_y(bt_list, saved_scroll_y, LV_ANIM_OFF);
         return;
     }
 
-    add_pill_chevron_row(bt_list, "Bluetooth DAC", bt_dac_settings_row_cb);
-    add_pill_chevron_row(bt_list, "Advanced", bt_advanced_settings_row_cb);
+    add_pill_chevron_row(bt_list, TR("Bluetooth DAC"), bt_dac_settings_row_cb);
+    add_pill_chevron_row(bt_list, TR("Advanced"), bt_advanced_settings_row_cb);
 
-    add_section_header(bt_list, "Paired Devices");
+    add_section_header(bt_list, TR("Paired Devices"));
     int paired_shown = 0;
     for (int i = 0; i < bt_scan_result_count; i++) {
         if (!bt_scan_results[i].paired) continue;
@@ -2717,10 +2963,10 @@ void populate_bt_screen(void) {
         paired_shown++;
     }
     if (paired_shown == 0) {
-        build_list_message(bt_list, "No paired devices", "Previously connected accessories will appear here.");
+        build_list_message(bt_list, TR("No paired devices"), TR("Previously connected accessories will appear here."));
     }
 
-    add_section_header(bt_list, "Available Devices");
+    add_section_header(bt_list, TR("Available Devices"));
     int available_shown = 0;
     for (int i = 0; i < bt_scan_result_count; i++) {
         if (bt_scan_results[i].paired) continue;
@@ -2729,7 +2975,7 @@ void populate_bt_screen(void) {
         available_shown++;
     }
     if (available_shown == 0) {
-        build_list_message(bt_list, "No nearby devices", "Make an accessory discoverable, then tap Rescan.");
+        build_list_message(bt_list, TR("No nearby devices"), TR("Make an accessory discoverable, then tap Rescan."));
     }
 
     lv_obj_scroll_to_y(bt_list, saved_scroll_y, LV_ANIM_OFF);
@@ -2737,10 +2983,10 @@ void populate_bt_screen(void) {
 
 static lv_obj_t * build_bluetooth_screen(void) {
     lv_obj_t * title_label; /* unused after build -- title never changes */
-    lv_obj_t * scr = build_subsonic_list_screen("Bluetooth", &title_label, &bt_list);
+    lv_obj_t * scr = build_subsonic_list_screen(TR("Bluetooth"), &title_label, &bt_list);
 
     bt_rescan_btn = lv_label_create(scr);
-    lv_label_set_text(bt_rescan_btn, "Rescan");
+    lv_label_set_text(bt_rescan_btn, TR("Rescan"));
     lv_obj_add_style(bt_rescan_btn, gui_theme_accent_style(), 0);
     lv_obj_set_style_text_font(bt_rescan_btn, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     align_screen_header_action(bt_rescan_btn, 20);
@@ -2780,7 +3026,7 @@ static lv_obj_t * import_wifi_qrcode;
 static void populate_import_wifi_screen(void) {
     wifi_settings_snapshot_start();
     if (!wifi_cached_info_is_current() || !wifi_cached_info_connected || wifi_cached_info.ip[0] == '\0') {
-        lv_label_set_text(import_wifi_status_label, "Connect to Wi-Fi first");
+        lv_label_set_text(import_wifi_status_label, TR("Connect to Wi-Fi first"));
         lv_label_set_text(import_wifi_url_label, "");
 #if LV_USE_QRCODE
         lv_obj_add_flag(import_wifi_qrcode, LV_OBJ_FLAG_HIDDEN);
@@ -2790,7 +3036,7 @@ static void populate_import_wifi_screen(void) {
 
     char url[64];
     snprintf(url, sizeof(url), "http://%s:4399", wifi_cached_info.ip);
-    lv_label_set_text(import_wifi_status_label, "Open this address on your phone or computer:");
+    lv_label_set_text(import_wifi_status_label, TR("Open this address on your phone or computer:"));
     lv_label_set_text(import_wifi_url_label, url);
 #if LV_USE_QRCODE
     lv_obj_remove_flag(import_wifi_qrcode, LV_OBJ_FLAG_HIDDEN);
@@ -3025,7 +3271,7 @@ void poll_import_web_stop(void) {
 static void import_web_stop_start(bool suppress_rescan) {
     import_web_stop_suppress_rescan = suppress_rescan;
     import_web_stop_nav_slot = gui_navigation_get_depth() - 1; /* this screen's own slot, before pushing the busy screen on top of it */
-    import_web_stop_token = gui_busy_show("Closing\nWeb Server...", "");
+    import_web_stop_token = gui_busy_show(TR("Closing\nWeb Server..."), "");
 
     import_web_stop_active = true;
     import_web_stop_via_service_worker = false;
@@ -3034,7 +3280,7 @@ static void import_web_stop_start(bool suppress_rescan) {
             import_web_stop_active = false;
             import_web_stop_suppress_rescan = false;
             gui_busy_hide(import_web_stop_token);
-            show_error_toast("Thread launch failed");
+            show_error_toast(TR("Thread launch failed"));
             return;
         }
         import_web_stop_via_service_worker = true;
@@ -3046,7 +3292,7 @@ static void import_web_stop_start(bool suppress_rescan) {
         import_web_stop_active = false;
         import_web_stop_suppress_rescan = false;
         gui_busy_hide(import_web_stop_token);
-        show_error_toast("Thread launch failed");
+        show_error_toast(TR("Thread launch failed"));
         return; /* import_web_active stays true -- nothing was actually stopped */
     }
     import_web_active = false; /* only now that the stop is genuinely in flight */
@@ -3077,7 +3323,7 @@ static lv_obj_t * build_import_wifi_screen(void) {
     lv_obj_t * scr = lv_obj_create(NULL);
     lv_obj_add_style(scr, &style_theme_screen_bg, 0);
 
-    build_screen_header(scr, "Import via Wi-Fi", import_wifi_back_cb, NULL, NULL);
+    build_screen_header(scr, TR("Import via Wi-Fi"), import_wifi_back_cb, NULL, NULL);
 
     import_wifi_status_label = lv_label_create(scr);
     lv_obj_set_width(import_wifi_status_label, lv_pct(90));
@@ -3122,20 +3368,20 @@ static lv_obj_t * build_import_wifi_screen(void) {
  * enable/toggle path (screen may already be open when Wi-Fi goes away). */
 static bool wifi_feature_guard(void) {
     if (gui_shell_wifi_effective_enabled()) return true;
-    show_error_toast("Enable WiFi to access");
+    show_error_toast(TR("Enable WiFi to access"));
     return false;
 }
 
 static void open_import_wifi_screen(void) {
     if (!wifi_feature_guard()) return;
     if (import_web_active || import_web_stop_active || network_service_is_busy(NETWORK_SERVICE_IMPORT)) {
-        show_info_toast("Web Server is busy");
+        show_info_toast(TR("Web Server is busy"));
         return;
     }
     wifi_settings_snapshot_invalidate();
     wifi_settings_snapshot_enabled = true;
     if (!network_service_enqueue(NETWORK_SERVICE_IMPORT, true, false)) {
-        show_error_toast("Thread launch failed");
+        show_error_toast(TR("Thread launch failed"));
         return;
     }
     populate_import_wifi_screen();
@@ -3160,12 +3406,12 @@ static void airplay_toggle_cb(lv_event_t * e);
 
 static void populate_airplay_screen(void) {
     lv_obj_clean(airplay_list);
-    add_pill_toggle_row(airplay_list, "AirPlay", current_settings.wifi_dac_mode_enabled, airplay_toggle_cb);
+    add_pill_toggle_row(airplay_list, TR("AirPlay"), current_settings.wifi_dac_mode_enabled, airplay_toggle_cb);
 
     lv_obj_t * explanation = lv_label_create(airplay_list);
     lv_label_set_text(explanation,
-                      "When on, this device is visible to AirPlay senders on your Wi-Fi network -- stream "
-                      "audio from an iPhone, iPad, or Mac to be played through this device's own output.");
+                      TR("When on, this device is visible to AirPlay senders on your Wi-Fi network -- stream "
+                      "audio from an iPhone, iPad, or Mac to be played through this device's own output."));
     lv_obj_set_width(explanation, lv_pct(90));
     lv_label_set_long_mode(explanation, LV_LABEL_LONG_WRAP);
     lv_obj_add_style(explanation, &style_theme_text_muted, 0);
@@ -3227,7 +3473,7 @@ bool gui_network_toggle_airplay(void) {
              * device as "on" when it can't produce sound or be discovered. */
             current_settings.wifi_dac_mode_enabled = false;
             settings_save_async(&current_settings);
-            show_error_toast("Failed to enable AirPlay");
+            show_error_toast(TR("Failed to enable AirPlay"));
             refresh_airplay_screen_if_built();
             return current_settings.wifi_dac_mode_enabled;
         }
@@ -3265,7 +3511,7 @@ static void airplay_toggle_cb(lv_event_t * e) {
 
 static lv_obj_t * build_airplay_screen(void) {
     lv_obj_t * title_label; /* unused after build -- title never changes */
-    return build_subsonic_list_screen("AirPlay", &title_label, &airplay_list);
+    return build_subsonic_list_screen(TR("AirPlay"), &title_label, &airplay_list);
 }
 
 static void open_airplay_screen(void) {
@@ -3300,7 +3546,7 @@ static lv_obj_t * build_airplay_overlay_screen(void) {
     lv_obj_align(airplay_overlay_cover_img, LV_ALIGN_CENTER, 0, BOARD_SCALE_PX(-60));
 
     airplay_overlay_title_label = lv_label_create(scr);
-    lv_label_set_text(airplay_overlay_title_label, "AirPlay");
+    lv_label_set_text(airplay_overlay_title_label, TR("AirPlay"));
     lv_obj_add_style(airplay_overlay_title_label, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(airplay_overlay_title_label, gui_theme_font(GUI_FONT_ROLE_TITLE), 0);
     lv_obj_set_width(airplay_overlay_title_label, lv_pct(85));
@@ -3344,7 +3590,7 @@ void gui_network_poll_airplay_overlay(void) {
     if (current_settings.wifi_dac_mode_enabled && !airplay_control_is_active()) {
         current_settings.wifi_dac_mode_enabled = false;
         settings_save(&current_settings);
-        show_error_toast("AirPlay stopped unexpectedly");
+        show_error_toast(TR("AirPlay stopped unexpectedly"));
         populate_airplay_screen();
     }
 
@@ -3379,7 +3625,7 @@ void gui_network_poll_airplay_overlay(void) {
              * this session's leftover content is already gone -- closing
              * the same staleness gap without racing a legitimate early
              * update for the next session. */
-            lv_label_set_text(airplay_overlay_title_label, "AirPlay");
+            lv_label_set_text(airplay_overlay_title_label, TR("AirPlay"));
             free(airplay_overlay_cover_bytes);
             airplay_overlay_cover_bytes = NULL;
             lv_image_set_src(airplay_overlay_cover_img, asset_path("playing_plane/default_cover_565.png"));
@@ -3415,7 +3661,7 @@ void gui_network_poll_airplay_overlay(void) {
      * could possibly arrive, so nothing from a PREVIOUS session is ever
      * still sitting in these widgets by the time an early update for a new
      * one shows up here. */
-    lv_label_set_text(airplay_overlay_title_label, upd.title[0] ? upd.title : "AirPlay");
+    lv_label_set_text(airplay_overlay_title_label, upd.title[0] ? upd.title : TR("AirPlay"));
 
     if (!upd.has_cover) {
         free(airplay_overlay_cover_bytes);
@@ -3449,13 +3695,13 @@ static void dlna_toggle_cb(lv_event_t * e);
 
 static void populate_dlna_screen(void) {
     lv_obj_clean(dlna_list);
-    add_pill_toggle_row(dlna_list, "DLNA Renderer", current_settings.dlna_renderer_enabled, dlna_toggle_cb);
+    add_pill_toggle_row(dlna_list, TR("DLNA Renderer"), current_settings.dlna_renderer_enabled, dlna_toggle_cb);
 
     lv_obj_t * explanation = lv_label_create(dlna_list);
     lv_label_set_text(explanation,
-                      "When on, this device is visible to DLNA/UPnP controller apps on your Wi-Fi network -- cast "
+                      TR("When on, this device is visible to DLNA/UPnP controller apps on your Wi-Fi network -- cast "
                       "a track from one to play it here. Pause, mute, volume, and seek from the controller app "
-                      "aren't supported; use this device's own controls instead once a track starts.");
+                      "aren't supported; use this device's own controls instead once a track starts."));
     lv_obj_set_width(explanation, lv_pct(90));
     lv_label_set_long_mode(explanation, LV_LABEL_LONG_WRAP);
     lv_obj_add_style(explanation, &style_theme_text_muted, 0);
@@ -3481,7 +3727,7 @@ bool gui_network_toggle_dlna(void) {
     }
     if (network_service_is_busy(NETWORK_SERVICE_DLNA) ||
         !network_service_enqueue(NETWORK_SERVICE_DLNA, turning_on, false)) {
-        show_info_toast("Service is busy");
+        show_info_toast(TR("Service is busy"));
         refresh_dlna_screen_if_built();
         return current_settings.dlna_renderer_enabled;
     }
@@ -3499,7 +3745,7 @@ static void dlna_toggle_cb(lv_event_t * e) {
 
 static lv_obj_t * build_dlna_screen(void) {
     lv_obj_t * title_label; /* unused after build -- title never changes */
-    return build_subsonic_list_screen("DLNA", &title_label, &dlna_list);
+    return build_subsonic_list_screen(TR("DLNA"), &title_label, &dlna_list);
 }
 
 static void open_dlna_screen(void) {
@@ -3545,7 +3791,7 @@ static void remote_control_refresh_pin_label(void) {
     if (remote_control_displayed_pin_valid && strcmp(remote_control_displayed_pin, pin) == 0) return;
     /* Empty only if the system random source failed; the server refuses to
      * start in that state too, so say so rather than show a fake PIN. */
-    lv_label_set_text(remote_control_pin_label, pin[0] ? pin : "Unavailable");
+    lv_label_set_text(remote_control_pin_label, pin[0] ? pin : TR("Unavailable"));
     snprintf(remote_control_displayed_pin, sizeof(remote_control_displayed_pin), "%s", pin);
     remote_control_displayed_pin_valid = true;
 }
@@ -3554,7 +3800,7 @@ static void remote_control_refresh_address(void) {
     remote_control_refresh_pin_label();
     if (!current_settings.remote_control_enabled) {
         lv_label_set_text(remote_control_status_label,
-                           "Turn this on to see the address here.");
+                           TR("Turn this on to see the address here."));
         lv_label_set_text(remote_control_url_label, "");
         lv_label_set_text(remote_control_bluetooth_label, "");
 #if LV_USE_QRCODE
@@ -3577,16 +3823,16 @@ static void remote_control_refresh_address(void) {
 #endif
     if (!wifi_available && !bluetooth_available) {
         if (bluetooth_powered && bluetooth_status == BT_REMOTE_CONTROL_FAILED)
-            lv_label_set_text(remote_control_status_label, "Bluetooth remote service is unavailable; retrying.");
+            lv_label_set_text(remote_control_status_label, TR("Bluetooth remote service is unavailable; retrying."));
         else if (bluetooth_powered)
-            lv_label_set_text(remote_control_status_label, "Bluetooth remote service is starting…");
+            lv_label_set_text(remote_control_status_label, TR("Bluetooth remote service is starting…"));
         else
-            lv_label_set_text(remote_control_status_label, "Enable Wi-Fi or Bluetooth to connect.");
+            lv_label_set_text(remote_control_status_label, TR("Enable Wi-Fi or Bluetooth to connect."));
         lv_label_set_text(remote_control_url_label, "");
         if (bluetooth_powered && bluetooth_status == BT_REMOTE_CONTROL_FAILED)
-            lv_label_set_text(remote_control_bluetooth_label, "Bluetooth: registration failed; retrying");
+            lv_label_set_text(remote_control_bluetooth_label, TR("Bluetooth: registration failed; retrying"));
         else if (bluetooth_powered)
-            lv_label_set_text(remote_control_bluetooth_label, "Bluetooth: waiting for service registration");
+            lv_label_set_text(remote_control_bluetooth_label, TR("Bluetooth: waiting for service registration"));
         else
             lv_label_set_text(remote_control_bluetooth_label, "");
 #if LV_USE_QRCODE
@@ -3596,7 +3842,7 @@ static void remote_control_refresh_address(void) {
         return;
     }
 
-    lv_label_set_text(remote_control_status_label, "Connect using either available route:");
+    lv_label_set_text(remote_control_status_label, TR("Connect using either available route:"));
     if (wifi_available) {
         char url[64];
         snprintf(url, sizeof(url), "Wi-Fi: http://%s:8899", wifi_cached_info.ip);
@@ -3604,11 +3850,11 @@ static void remote_control_refresh_address(void) {
     } else {
         lv_label_set_text(remote_control_url_label, "");
     }
-    if (bluetooth_available) lv_label_set_text(remote_control_bluetooth_label, "Bluetooth: Compas Remote Control");
+    if (bluetooth_available) lv_label_set_text(remote_control_bluetooth_label, TR("Bluetooth: Compas Remote Control"));
     else if (bluetooth_powered && bluetooth_status == BT_REMOTE_CONTROL_FAILED)
-        lv_label_set_text(remote_control_bluetooth_label, "Bluetooth: registration failed; retrying");
+        lv_label_set_text(remote_control_bluetooth_label, TR("Bluetooth: registration failed; retrying"));
     else if (bluetooth_powered)
-        lv_label_set_text(remote_control_bluetooth_label, "Bluetooth: waiting for service registration");
+        lv_label_set_text(remote_control_bluetooth_label, TR("Bluetooth: waiting for service registration"));
     else lv_label_set_text(remote_control_bluetooth_label, "");
 #if LV_USE_QRCODE
     if (wifi_available) {
@@ -3655,7 +3901,7 @@ bool gui_network_toggle_remote_control(void) {
     bool turning_on = !current_settings.remote_control_enabled;
     if (network_service_is_busy(NETWORK_SERVICE_REMOTE) ||
         !network_service_enqueue(NETWORK_SERVICE_REMOTE, turning_on, false)) {
-        show_info_toast("Service is busy");
+        show_info_toast(TR("Service is busy"));
         refresh_remote_control_screen_if_built();
         return current_settings.remote_control_enabled;
     }
@@ -3693,11 +3939,11 @@ static void remote_control_new_pin_confirm_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     gui_popup_hide(&remote_control_new_pin_popup);
     if (!remote_control_generate_new_pin()) {
-        show_info_toast("Could not generate a new PIN");
+        show_info_toast(TR("Could not generate a new PIN"));
         return;
     }
     remote_control_refresh_pin_label();
-    show_info_toast("New PIN generated");
+    show_info_toast(TR("New PIN generated"));
 }
 
 static void remote_control_regenerate_pin_cb(lv_event_t * e) {
@@ -3707,9 +3953,9 @@ static void remote_control_regenerate_pin_cb(lv_event_t * e) {
 
 static void build_remote_control_new_pin_popup(void) {
     remote_control_new_pin_popup.popup = build_confirm_popup(
-        "Generate a new PIN?", LV_LABEL_LONG_WRAP, NULL,
-        "Apps and browsers using the current PIN will need the new one to reconnect.", "Generate",
-        lv_color_make(255, 120, 120), remote_control_new_pin_confirm_cb, NULL, "Cancel", accent_lv_color(),
+        TR("Generate a new PIN?"), LV_LABEL_LONG_WRAP, NULL,
+        TR("Apps and browsers using the current PIN will need the new one to reconnect."), TR("Generate"),
+        lv_color_make(255, 120, 120), remote_control_new_pin_confirm_cb, NULL, TR("Cancel"), accent_lv_color(),
         remote_control_new_pin_popup_dismiss_cb, NULL, remote_control_new_pin_popup_dismiss_cb,
         &remote_control_new_pin_popup.backdrop);
 }
@@ -3721,15 +3967,15 @@ static void build_remote_control_new_pin_popup(void) {
 static lv_obj_t * build_remote_control_screen(void) {
     lv_obj_t * title_label;
     lv_obj_t * list;
-    lv_obj_t * scr = build_subsonic_list_screen("Remote Control", &title_label, &list);
+    lv_obj_t * scr = build_subsonic_list_screen(TR("Remote Control"), &title_label, &list);
 
-    lv_obj_t * toggle_row = add_pill_toggle_row(list, "Remote Control", current_settings.remote_control_enabled,
+    lv_obj_t * toggle_row = add_pill_toggle_row(list, TR("Remote Control"), current_settings.remote_control_enabled,
                                                 remote_control_toggle_cb);
     /* add_pill_toggle_row() creates the label first and the switch last;
      * gui_network_toggle_remote_control() drives this switch's state. */
     remote_control_toggle_img = lv_obj_get_child(toggle_row, -1);
 
-    lv_obj_t * pin_row = add_pill_row_base(list, "Connection PIN");
+    lv_obj_t * pin_row = add_pill_row_base(list, TR("Connection PIN"));
 
     /* Refresh icon at the row's trailing edge (same -20 inset as the toggle
      * and chevron rows) regenerates the PIN; LV_SYMBOL_REFRESH comes from the
@@ -3758,9 +4004,9 @@ static lv_obj_t * build_remote_control_screen(void) {
 
     lv_obj_t * explanation = lv_label_create(list);
     lv_label_set_text(explanation,
-                      "Connect over Wi-Fi or Bluetooth to see what's playing, control playback, and browse "
+                      TR("Connect over Wi-Fi or Bluetooth to see what's playing, control playback, and browse "
                       "your library. Enter this PIN when the app or browser asks for it; Bluetooth also "
-                      "requires pairing.");
+                      "requires pairing."));
     lv_obj_set_width(explanation, lv_pct(90));
     lv_label_set_long_mode(explanation, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_align(explanation, LV_TEXT_ALIGN_CENTER, 0);
@@ -3869,13 +4115,13 @@ static lv_obj_t * build_wireless_screen(void) {
      * every board's own firmware (missing on R1, so the tile silently rendered
      * without one there) and measurably added render/decode cost on R3 Pro II
      * for a background that isn't load-bearing to this screen. */
-    items[0] = (icon_grid_item_t){ "wireless/list_wifi.png", NULL, "Wi-Fi", wifi_tile_cb, NULL };
-    items[1] = (icon_grid_item_t){ "wireless/list_bt.png", NULL, "Bluetooth", bt_tile_cb, NULL };
-    items[2] = (icon_grid_item_t){ "wireless/list_airplay.png", NULL, "AirPlay", airplay_tile_cb, NULL };
-    items[3] = (icon_grid_item_t){ "wireless/list_dlna.png", NULL, "DLNA", dlna_tile_cb, NULL };
-    items[4] = (icon_grid_item_t){ "wireless/list_remote.png", NULL, "Remote", remote_control_tile_cb, NULL };
-    items[5] = (icon_grid_item_t){ "wireless/list_import.png", NULL, "Import", import_wifi_tile_cb, NULL };
-    lv_obj_t * scr = build_category_menu_screen("Wireless", generic_back_cb, items, 6,
+    items[0] = (icon_grid_item_t){ "wireless/list_wifi.png", NULL, TR("Wi-Fi"), wifi_tile_cb, NULL };
+    items[1] = (icon_grid_item_t){ "wireless/list_bt.png", NULL, TR("Bluetooth"), bt_tile_cb, NULL };
+    items[2] = (icon_grid_item_t){ "wireless/list_airplay.png", NULL, TR("AirPlay"), airplay_tile_cb, NULL };
+    items[3] = (icon_grid_item_t){ "wireless/list_dlna.png", NULL, TR("DLNA"), dlna_tile_cb, NULL };
+    items[4] = (icon_grid_item_t){ "wireless/list_remote.png", NULL, TR("Remote"), remote_control_tile_cb, NULL };
+    items[5] = (icon_grid_item_t){ "wireless/list_import.png", NULL, TR("Import"), import_wifi_tile_cb, NULL };
+    lv_obj_t * scr = build_category_menu_screen(TR("Wireless"), generic_back_cb, items, 6,
                                                 &launcher_layout_config.wireless);
     finalize_screen_navigation(scr);
     return scr;
@@ -3933,6 +4179,11 @@ void gui_network_init(void) {
  * as children of any of these screens, so each needs its own explicit
  * deletion. */
 void gui_network_teardown(void) {
+    wifi_setup_parent = NULL;
+    wifi_setup_requested = false;
+    wifi_setup_scan_started = false;
+    wifi_setup_scan_finished = false;
+    wifi_setup_enable_failed = false;
     wifi_settings_snapshot_enabled = false;
     wifi_settings_snapshot_invalidate();
     gui_popup_teardown(&bt_action_popup);

@@ -11,6 +11,10 @@ void gui_shell_refresh_home(void);
  * in-flight toggle's target state wins while it's still settling (see the
  * .c definition). Read-only -- exposes no way to drive the toggle itself. */
 bool gui_shell_wifi_effective_enabled(void);
+/* Ensure the existing asynchronous Wi-Fi toggle worker is headed to enabled.
+ * Idempotent while already enabled or while an enable is in flight. */
+bool gui_shell_wifi_ensure_enabled(void);
+bool gui_shell_wifi_enabled_and_settled(void);
 
 void gui_shell_update_quick_drawer_track(const char * title, const char * artist,
                                          const char * album);
