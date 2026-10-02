@@ -16,6 +16,8 @@ void box_blur_1d(const uint8_t * src, uint8_t * dst, int length, int stride, int
 uint16_t rgb888_to_565_dithered(int r, int g, int b, int x, int y);
 /* Non-periodic, coordinate-stable variant for full-screen frosted artwork. */
 uint16_t rgb888_to_565_spatial_dithered(int r, int g, int b, int x, int y);
+/* Coordinate-stable 0..63 noise shared by color and alpha dithering. */
+uint8_t frosted_glass_spatial_threshold(int x, int y);
 
 /* Full pipeline: snapshot source_screen, downsample into a work_width x
  * work_height buffer, run a separable box blur (blur_radius, blur_passes)

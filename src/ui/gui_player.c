@@ -63,6 +63,9 @@ static bool is_sd_card_path(const char *path);
 #include "frosted_glass.h"
 #include "player_layout.h"
 #include "player_layouts.h"
+#include "player_seekbar.h"
+#include "player_cover_fade.h"
+#include "waveform.h"
 #include "gui_track_info.h"
 #include "gui_settings.h"
 #include "gui_subsonic.h"
@@ -120,6 +123,7 @@ lv_obj_t * play_btn = NULL;
 lv_obj_t * prev_btn = NULL;
 lv_obj_t * next_btn = NULL;
 lv_obj_t * progress_slider = NULL;
+static bool player_waveform_seekbar;
 lv_obj_t * progress_label = NULL;
 lv_obj_t * duration_label = NULL;
 lv_obj_t * volume_slider = NULL;
@@ -1225,6 +1229,10 @@ static void launch_cover_decode_from_url(int for_index, const char * url, bool v
 
 static void fit_cover_img_to_card(void) {
     if (!cover_img || !cover_card) return;
+    if (player_cover_thumbnail && lv_image_get_src(player_cover_thumbnail) != lv_image_get_src(cover_img)) {
+        lv_image_set_src(player_cover_thumbnail, lv_image_get_src(cover_img));
+        lv_image_set_inner_align(player_cover_thumbnail, LV_IMAGE_ALIGN_CONTAIN);
+    }
     lv_image_header_t header;
     if (lv_image_decoder_get_info(lv_image_get_src(cover_img), &header) != LV_RESULT_OK ||
         header.w <= 0 || header.h <= 0) return;
@@ -3381,6 +3389,7 @@ static bool player_bind_widgets(lv_obj_t * scr) {
     player_cover_thumbnail = player_find_role(scr, "cover_thumbnail", &lv_image_class);
     player_play_circle = player_find_role(scr, "play_circle", NULL);
     lv_obj_t * r_transport_color = player_find_role(scr, "transport_color", &lv_label_class);
+    lv_obj_t * r_cover_fade = player_find_role(scr, "cover_fade", &lv_image_class);
 
     transport_btn_ctx_t * prev_ctx = NULL;
     transport_btn_ctx_t * next_ctx = NULL;
@@ -3533,6 +3542,15 @@ static bool player_bind_widgets(lv_obj_t * scr) {
     lv_obj_add_flag(r_cover_img, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(r_cover_img, cover_img_tap_cb, LV_EVENT_CLICKED, NULL);
     if (!builtin) lv_obj_add_event_cb(r_cover_card, player_cover_size_changed_cb, LV_EVENT_SIZE_CHANGED, NULL);
+    if (r_cover_fade) {
+        lv_obj_update_layout(scr);
+        lv_color_t fade_color = lv_obj_get_style_bg_color(player_layout_root, LV_PART_MAIN);
+        if (!player_cover_fade_attach(r_cover_fade, fade_color)) {
+            /* If the mask cannot be allocated, preserve metadata contrast. */
+            lv_obj_set_style_bg_color(r_cover_fade, fade_color, 0);
+            lv_obj_set_style_bg_opa(r_cover_fade, LV_OPA_60, 0);
+        }
+    }
 
     player_label_enable_marquee(r_title);
     if (r_album) player_secondary_label_enable_marquee(r_album);
@@ -3549,6 +3567,16 @@ static bool player_bind_widgets(lv_obj_t * scr) {
     lv_obj_set_ext_click_area(r_progress, player_y(20));
     lv_obj_add_event_cb(r_progress, progress_slider_event_cb, LV_EVENT_ALL, NULL);
     register_swipe_dead_zone(r_progress);
+    lv_obj_t * r_seek_style = player_find_role(scr, "seek_style", &lv_label_class);
+    player_waveform_seekbar = r_seek_style &&
+        player_seekbar_attach(r_progress, lv_label_get_text(r_seek_style));
+    if (player_waveform_seekbar) {
+        /* The waveform itself is taller than a normal rail. Keep a 44px
+         * target without extending over the last lines of the lyrics. */
+        lv_obj_update_layout(r_progress);
+        int32_t extra = (44 - lv_obj_get_height(r_progress) + 1) / 2;
+        lv_obj_set_ext_click_area(r_progress, extra > 0 ? extra : 0);
+    }
 
     lv_slider_set_range(r_volume, 0, 100);
     lv_slider_set_value(r_volume, (int32_t) (audio_get_volume() * 100.0f), LV_ANIM_OFF);
@@ -3682,6 +3710,8 @@ static bool player_bind_widgets(lv_obj_t * scr) {
 /* Clears every widget global and cached pointer derived from the tree. Used
  * by teardown and when a layout is discarded. */
 static void player_reset_widget_globals(void) {
+    if (player_waveform_seekbar) waveform_cancel();
+    player_waveform_seekbar = false;
     player_overlay_panel = NULL;
     player_background_img = NULL;
     cover_card = NULL;
@@ -5297,6 +5327,12 @@ void gui_player_poll_confirmed_playback(void) {
 
 void gui_player_update_progress(void) {
     gui_player_poll_confirmed_playback();
+    if (player_waveform_seekbar && progress_slider) {
+        const char * path = gui_player_get_current_track_path();
+        waveform_data_t data;
+        waveform_request(path);
+        player_seekbar_update(progress_slider, waveform_copy(path, &data) ? &data : NULL);
+    }
     if (deferred_resume_pending) return; /* audio_get_position_seconds()/
         audio_get_duration_seconds() are both meaningless here -- no decoder is open
         yet. Preserve prepare_deferred_resume()'s seeded slider/label values until the

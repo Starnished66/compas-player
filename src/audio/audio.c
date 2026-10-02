@@ -45,6 +45,7 @@
 #include <stdatomic.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <time.h>
 
 #include "debug_log.h"
 #include "audio_helpers.h"
@@ -1299,6 +1300,100 @@ bool audio_probe_file_format(const char * path, audio_current_format_info_t * ou
     out->is_dsd = dec.type == DECODER_DSD;
     decoder_close(&dec);
     return true;
+}
+
+/* A separate, bounded decode pass for waveform previews. This deliberately
+ * uses decoder_t directly and never touches the active decoder, output, PEQ,
+ * replaygain, or playback mutex. */
+bool audio_extract_waveform(const char * path, uint8_t * bins, size_t count,
+                            bool (*cancel)(void *), void * user) {
+    enum { WAVEFORM_MAX_BINS = 256, WAVEFORM_READ_FRAMES = 4096 };
+    const uint64_t budget_ns = UINT64_C(90) * 1000000000;
+    decoder_t dec;
+    int16_t pcm[WAVEFORM_READ_FRAMES * MAX_CHANNELS];
+    uint64_t sums[WAVEFORM_MAX_BINS] = { 0 };
+    uint64_t sample_counts[WAVEFORM_MAX_BINS] = { 0 };
+    struct timespec started = { 0 }, now = { 0 };
+    bool opened = false, ok = false;
+    double rms[WAVEFORM_MAX_BINS] = { 0 };
+    double peak_rms = 0.0;
+
+    if (bins && count <= WAVEFORM_MAX_BINS) memset(bins, 0, count);
+    if (!path || !path[0] || !bins || count == 0 || count > WAVEFORM_MAX_BINS ||
+        is_stream_url(path) || remote_track_path_is_remote(path) ||
+        (cancel && cancel(user))) return false;
+
+    struct stat st;
+    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) return false;
+    const char * ext = strrchr(path, '.');
+    if (ext && (strcasecmp(ext, ".dsf") == 0 || strcasecmp(ext, ".dff") == 0 ||
+                strcasecmp(ext, ".ape") == 0)) return false;
+    (void) clock_gettime(CLOCK_MONOTONIC, &started);
+    if (!decoder_open(&dec, path)) return false;
+    opened = true;
+
+    if ((cancel && cancel(user)) || dec.type == DECODER_DSD || dec.type == DECODER_APE ||
+        dec.total_frames == 0 || dec.sample_rate == 0 || dec.sample_rate > 192000 ||
+        dec.channels == 0 || dec.channels > MAX_CHANNELS ||
+        dec.total_frames > (uint64_t)dec.sample_rate * 60 * 60 * 2)
+        goto done;
+
+    uint64_t frame = 0;
+    size_t bin = 0;
+    while (frame < dec.total_frames && bin < count) {
+        uint64_t bin_end = (dec.total_frames * (uint64_t)(bin + 1) + count - 1) / count;
+        if (bin_end <= frame) {
+            bin++;
+            continue;
+        }
+        if (cancel && cancel(user)) goto done;
+        (void) clock_gettime(CLOCK_MONOTONIC, &now);
+        uint64_t elapsed = (uint64_t)(now.tv_sec - started.tv_sec) * UINT64_C(1000000000);
+        if (now.tv_nsec >= started.tv_nsec) elapsed += (uint64_t)(now.tv_nsec - started.tv_nsec);
+        else elapsed -= (uint64_t)(started.tv_nsec - now.tv_nsec);
+        if (elapsed > budget_ns) goto done;
+
+        uint64_t want = bin_end - frame;
+        if (want > WAVEFORM_READ_FRAMES) want = WAVEFORM_READ_FRAMES;
+        decoder_read_result_t read = decoder_read_s16(&dec, want, pcm);
+        if (read.status == DECODER_READ_FATAL_ERROR || read.frames != want) goto done;
+
+        for (uint64_t i = 0; i < read.frames; ++i) {
+            for (unsigned ch = 0; ch < dec.channels; ++ch) {
+                int64_t sample = pcm[i * dec.channels + ch];
+                sums[bin] += (uint64_t)(sample * sample);
+                sample_counts[bin]++;
+            }
+        }
+        frame += read.frames;
+        if (frame >= bin_end) bin++;
+        usleep(2000);
+    }
+
+    (void) clock_gettime(CLOCK_MONOTONIC, &now);
+    {
+        uint64_t elapsed = (uint64_t)(now.tv_sec - started.tv_sec) * UINT64_C(1000000000);
+        if (now.tv_nsec >= started.tv_nsec) elapsed += (uint64_t)(now.tv_nsec - started.tv_nsec);
+        else elapsed -= (uint64_t)(started.tv_nsec - now.tv_nsec);
+        if (elapsed > budget_ns || (cancel && cancel(user))) goto done;
+    }
+    for (size_t i = 0; i < count; ++i) {
+        if (!sample_counts[i]) {
+            bins[i] = 0;
+            continue;
+        }
+        rms[i] = sqrt((double)sums[i] / (double)sample_counts[i]);
+        if (rms[i] > peak_rms) peak_rms = rms[i];
+    }
+    if (peak_rms > 0.0)
+        for (size_t i = 0; i < count; ++i)
+            bins[i] = (uint8_t)lround((rms[i] / peak_rms) * 255.0);
+    ok = true;
+
+done:
+    if (opened) decoder_close(&dec);
+    if (!ok) memset(bins, 0, count);
+    return ok;
 }
 
 #ifndef HOST_BUILD

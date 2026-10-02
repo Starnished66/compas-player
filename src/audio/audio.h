@@ -2,6 +2,7 @@
 #define AUDIO_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include "decoder_result.h"
 
@@ -154,6 +155,15 @@ bool audio_get_current_format_info(audio_current_format_info_t * out);
 /* Opens a local file only long enough to read its stream/container facts,
  * then closes it without touching playback state or the output device. */
 bool audio_probe_file_format(const char * path, audio_current_format_info_t * out);
+
+/* Extract per-time-bin RMS levels from a local regular audio file, normalized
+ * relative to the loudest bin (which is 255; silence stays 0).
+ * Uses a private decoder instance and never changes playback state. `count`
+ * must be in 1..256; `cancel`, when provided, is polled between decode reads.
+ * Requires a known complete duration, sample rate <=192kHz, and duration <=2h;
+ * DSD and APE are intentionally unsupported for this background preview. */
+bool audio_extract_waveform(const char * path, uint8_t * bins, size_t count,
+                            bool (*cancel)(void *), void * user);
 
 /* 0.0 (silent) - 1.0 (full volume). Applied as software gain on the decoded PCM. */
 void audio_set_volume(float volume);

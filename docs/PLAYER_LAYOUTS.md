@@ -112,6 +112,8 @@ used:
 
 | Name | Type | What it does |
 | --- | --- | --- |
+| `seek_style` | `lv_label` | Hidden configuration label selecting a waveform seek-bar renderer. See below. |
+| `cover_fade` | `lv_image` | A noninteractive image matching the cover rectangle. The player fills it with a stable, spatially dithered fade to the layout root background. |
 | `artist`, `album` | `lv_label` | Artist (or folder name) and album. Scroll when too long. Tapping opens the matching local artist or album when the playing path is in the library. |
 | `pos_label`, `dur_label` | `lv_label` | Elapsed and total time. |
 | `song_count` | `lv_label` | Position in the queue, for example "3/12". |
@@ -221,6 +223,32 @@ that ship layouts, live in the
 Developers can compile a layout into the app instead of shipping an XML file.
 LVGL's UI Editor (LVGL Pro) can export an XML component as C, which gives a
 function like `lv_obj_t * my_player_create(lv_obj_t * parent);`.
+
+### Waveform seek bars
+
+Keep the required `progress_slider` and add a hidden label to select its renderer:
+
+```xml
+<lv_label name="seek_style" text="waveform_bars" hidden="true" />
+<lv_slider name="progress_slider" x="24" y="580" width="432" height="30"
+           style_bg_color="0x789096" style_bg_opa="255" />
+```
+
+The available renderers are `waveform_bars` (rounded, mirrored bars),
+`waveform_half` (bars rising from a baseline), and `waveform_envelope`
+(contiguous filled columns). The slider's rectangle sets the waveform size;
+its background color sets the neutral waveform color. Played bars and the
+position marker follow the current accent. Reserve space below for time labels
+and at least a 44px touch target. The slider still handles seeking normally.
+
+Omitting the label, or using an unknown value, keeps the normal LVGL slider.
+Each renderer shows a regular rail while data is unavailable. Local files are
+decoded by a separate background worker into 256 RMS bins and cached under
+`.compas/waveforms` on the SD card. The cache is capped at 64 entries and
+checks the file's path, size, and modification time. Changing tracks cancels
+the previous request. Network streams, DSD, APE, unknown-duration files, and
+files exceeding extraction limits use the rail fallback. Generating a
+waveform never changes the playing decoder, volume, or effects.
 
 1. In the editor, name the widgets as above, then export the component.
 2. Copy the generated `.c` and `.h` into `src/ui/` and add the `.c` to

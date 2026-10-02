@@ -584,6 +584,8 @@ APP_SRCS += src/library/albumart.c src/library/tagcache.c src/library/path_cache
 APP_SRCS += src/core/utf8_util.c src/core/app_clock.c src/core/db_log.c src/core/zip_reader.c src/core/html_blocks.c
 APP_SRCS += src/ui/gesture_detector.c
 APP_SRCS += src/ui/player_layouts.c
+APP_SRCS += src/ui/player_seekbar.c src/audio/waveform.c
+APP_SRCS += src/ui/player_cover_fade.c
 APP_SRCS += src/network/bluetooth_reconnect.c
 APP_CXX_SRCS = src/audio/alac_decoder.cpp
 LVGL_SRCS = $(sort $(shell find $(LVGL_DIR)/src -type f -name '*.c'))
@@ -1136,7 +1138,9 @@ $(LT_DIR)/%.o: %.c
 # that this test never fires, so those references stay unresolved at link time.
 .PHONY: player-layout-bind-selftest
 PLAYER_BIND_TEST_OBJS = $(filter-out $(LT_DIR)/src/ui/player_layouts_test.o,$(PLAYER_LAYOUTS_TEST_OBJS)) \
-                        $(LT_DIR)/src/ui/player_layout_bind_test.o
+                        $(LT_DIR)/src/ui/player_layout_bind_test.o \
+                        $(LT_DIR)/src/ui/player_seekbar.o \
+                        $(LT_DIR)/src/ui/player_cover_fade.o $(LT_DIR)/src/ui/frosted_glass.o
 player-layout-bind-selftest: $(LT_DIR)/player_layout_bind_test
 	./$(LT_DIR)/player_layout_bind_test
 
@@ -1440,6 +1444,13 @@ clean:
 	    compas_player_host compas_player_host_* \
 	    compas_player_target compas_player_target_* \
 	    compile_commands.json compile_flags.txt
+
+.PHONY: waveform-selftest
+waveform-selftest:
+	@mkdir -p $(BUILD_TARGET_DIR)
+	$(CC) -DHOST_BUILD -std=c11 -Wall -Wextra -Werror -pthread \
+	    src/audio/waveform.c src/audio/waveform_check.c -o $(BUILD_TARGET_DIR)/waveform_check
+	./$(BUILD_TARGET_DIR)/waveform_check
 
 # Focused target-path audio retry regression test. It includes the real
 # audio.c, mocks audio_output_* and usleep, and relies on section GC to discard

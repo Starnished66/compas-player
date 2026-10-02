@@ -1,5 +1,6 @@
 #include "lvgl/lvgl.h"
 #include "audio.h"
+#include "waveform.h"
 #include "backlight.h"
 #include "metadata.h"
 #include <errno.h>
@@ -677,6 +678,7 @@ int main(int argc, char ** argv) {
         usleep(time_till_next * 1000); /* Convert milliseconds to microseconds */
     }
 
+    waveform_shutdown();
     gui_deinit();
     return 0;
 }

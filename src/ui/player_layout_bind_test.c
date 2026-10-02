@@ -46,6 +46,14 @@ const void * asset_decoded_image_source(const asset_decoded_image_t * image) { (
 
 bool audio_is_playing(void) { return false; }
 float audio_get_volume(void) { return 0.5f; }
+static unsigned waveform_cancellations;
+void waveform_cancel(void) { ++waveform_cancellations; }
+void waveform_request(const char * path) { (void) path; }
+bool waveform_copy(const char * path, waveform_data_t * out) {
+    (void) path;
+    memset(out, 0, sizeof(*out));
+    return false;
+}
 uint32_t gui_anim_ms(uint32_t base_ms) { return base_ms; }
 void player_transition_mark_dirty(void) {}
 void finalize_screen_navigation(lv_obj_t * screen) { lv_obj_add_flag(screen, LV_OBJ_FLAG_CLICKABLE); }
@@ -65,6 +73,7 @@ lv_obj_t * build_header_back_button(lv_obj_t * screen, lv_event_cb_t cb) {
 
 static int show_count, hide_count;
 void gui_lyrics_prepare_layout(void) {}
+void gui_lyrics_set_look(const gui_lyrics_look_t * look) { (void) look; }
 void gui_lyrics_show_embedded(lv_obj_t * parent, int32_t top, int32_t height) {
     assert(parent == player_screen);
     assert(height > 0 && top + height <= BOARD_SCREEN_HEIGHT);
@@ -356,6 +365,63 @@ static void check_minimal_layout_and_null_safety(const char * dir) {
     unlink(path);
 }
 
+static void check_waveform_seekbars(const char * dir) {
+    char path[256];
+    snprintf(path, sizeof(path), "%s/waveform.xml", dir);
+    const char * styles[] = { "waveform_bars", "waveform_envelope", "waveform_half", "unknown" };
+    for (unsigned i = 0; i < sizeof(styles) / sizeof(styles[0]); ++i) {
+        char xml[1600];
+        snprintf(xml, sizeof(xml),
+            "<component><view extends=\"lv_obj\" width=\"100%%\" height=\"100%%\">"
+            "<lv_obj name=\"cover_card\" width=\"120\" height=\"120\"><lv_image name=\"cover_img\"/></lv_obj>"
+            "<lv_image name=\"cover_fade\" width=\"120\" height=\"120\" clickable=\"false\"/>"
+            "<lv_label name=\"title\" text=\"Track\"/><lv_image name=\"play_btn\"/>"
+            "<lv_slider name=\"progress_slider\" x=\"12\" y=\"220\" width=\"280\" height=\"38\"/>"
+            "<lv_label name=\"seek_style\" text=\"%s\" hidden=\"true\"/>"
+            "</view></component>", styles[i]);
+        write_file(path, xml);
+        assert(player_layouts_session_select_xml("waveform", "Waveform", path, false));
+        unsigned before = waveform_cancellations;
+        build();
+        assert(!player_layout_builtin);
+        assert(player_waveform_seekbar == (i < 3));
+        assert(lv_slider_get_max_value(progress_slider) == 100);
+        lv_obj_t * fade = lv_obj_find_by_name(player_screen, "cover_fade");
+        assert(fade && lv_obj_get_child_count(fade) == 1);
+        const lv_image_dsc_t * mask = lv_image_get_src(lv_obj_get_child(fade, 0));
+        assert(mask && mask->header.cf == LV_COLOR_FORMAT_A8);
+        assert(mask->header.w == 120 && mask->header.h == 120);
+        bool spatial_variation = false;
+        for (unsigned x = 0; x < mask->header.w; ++x) {
+            assert(mask->data[x] == 0);
+            assert(mask->data[119 * mask->header.stride + x] == 255);
+            if (mask->data[60 * mask->header.stride + x] !=
+                mask->data[60 * mask->header.stride]) spatial_variation = true;
+        }
+        assert(spatial_variation);
+        /* Exercise fallback, waveform drawing, both endpoints and cache removal
+         * through the same slider used by seeking; no second input widget. */
+        if (player_waveform_seekbar) {
+            waveform_data_t data = { .ready = true };
+            for (unsigned bin = 0; bin < WAVEFORM_BINS; ++bin)
+                data.bins[bin] = (uint8_t) bin;
+            player_seekbar_update(progress_slider, &data);
+            lv_slider_set_value(progress_slider, 50, LV_ANIM_OFF);
+            run_ms(40);
+            lv_slider_set_value(progress_slider, 100, LV_ANIM_OFF);
+            run_ms(40);
+            player_seekbar_update(progress_slider, NULL);
+            run_ms(40);
+        }
+        discard();
+        assert(waveform_cancellations == before + (i < 3));
+        assert(!player_waveform_seekbar);
+        player_layouts_session_reset();
+    }
+    unlink(path);
+}
+
+
 static void check_fallback(const char * dir) {
     char missing_role[256], broken[256];
     snprintf(missing_role, sizeof(missing_role), "%s/no_play.xml", dir);
@@ -440,6 +506,7 @@ int main(void) {
     check_builtin();
     check_example_layout();
     check_minimal_layout_and_null_safety(dir);
+    check_waveform_seekbars(dir);
     check_fallback(dir);
     check_no_heap_growth();
     rmdir(dir);

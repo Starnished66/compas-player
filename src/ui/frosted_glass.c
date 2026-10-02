@@ -53,7 +53,7 @@ uint16_t rgb888_to_565_dithered(int r, int g, int b, int x, int y) {
     return rgb888_to_565_with_threshold(r, g, b, threshold);
 }
 
-uint16_t rgb888_to_565_spatial_dithered(int r, int g, int b, int x, int y) {
+uint8_t frosted_glass_spatial_threshold(int x, int y) {
     /* Coordinate-only noise: immutable between redraws and decodes. Unlike
      * the Bayer matrix it does not concentrate high/low pixels on alternate
      * scanlines or columns across the full-screen Player background. Keep
@@ -64,7 +64,11 @@ uint16_t rgb888_to_565_spatial_dithered(int r, int g, int b, int x, int y) {
     h ^= h >> 15;
     h *= 0x846ca68bu;
     h ^= h >> 16;
-    return rgb888_to_565_with_threshold(r, g, b, (int)(h >> 26));
+    return (uint8_t)(h >> 26);
+}
+
+uint16_t rgb888_to_565_spatial_dithered(int r, int g, int b, int x, int y) {
+    return rgb888_to_565_with_threshold(r, g, b, frosted_glass_spatial_threshold(x, y));
 }
 
 static uint8_t frosted_glass_bilerp_plane(const uint8_t * plane, int width, int height, uint32_t x_fp, uint32_t y_fp) {
