@@ -101,6 +101,14 @@ The full `.upt` package installs the open-source bootloader and the complete fir
 
 Download the R1 `r1.upt` from [releases](https://github.com/Starnished66/compas-player/releases/latest), keep a known-good recovery image, and install the package using the device's recovery updater. Use only an image intended for your model. The full package includes repository-tracked UI assets, fonts and `firmware/overlay/` files, along with the firmware files from its approved base image.
 
+### Full firmware updates in Compás
+
+Open **Settings → System → About → Firmware Update**. Online updates use only GitHub's designated latest published weekly release, with no fallback to older releases. A saved online download requires Wi-Fi when installing so the player can check that it still matches the latest release.
+
+For an offline update, place one firmware file in the SD card root, named `r1.upt`, `r3proii.upt`, or `r3ii_2025.upt` for your model, then choose **Install from SD card**. The player checks the package structure and chunk checksums before preparing recovery. Renaming another model's image does not make it compatible.
+
+Preparation runs in the background and records its phases and helper output in `SD/.compas/ota/update.log`. If preparation takes longer than expected, keep the player powered and wait: flash helpers are allowed to finish rather than being interrupted. Recovery performs the actual firmware installation after reboot.
+
 ### Player-only update
 
 After the open-source bootloader is installed, use this for normal player updates. Download the player binary for your exact board from [the latest release](https://github.com/Starnished66/compas-player/releases/latest), or build it yourself, then copy it to this exact SD-card path:

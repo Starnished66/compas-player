@@ -2510,6 +2510,10 @@ static bool launch_usb_mode_switch(void) {
  * ahead of the hardware needs to know when a tap was dropped, or the control
  * ends up showing a state nothing is working toward. */
 bool start_usb_mode_switch(usb_mode_t target) {
+    if (firmware_update_busy()) {
+        show_error_toast(TR("An update is already in progress"));
+        return false;
+    }
     if (usb_mode_switch_active) return false;
     gui_library_suspend_boot_prompt();
     usb_mode_switch_target = target;

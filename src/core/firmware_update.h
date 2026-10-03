@@ -18,18 +18,43 @@
  * is untouched by this project's own repack, no custom flashing logic is
  * needed here at all -- only the same trigger the stock player uses. */
 
-/* Scans the SD card root (not recursive -- matches the stock hiby_player's
- * own fixed "sd_0" + ".upt" lookup, not a user-organized folder) for the
- * first *.upt file. Writes its full path into out_path. Returns false if none
- * found. */
+/* Only one regular board-named image may exist at the SD root. The checked
+ * form describes missing, ambiguous, wrong-board and unreadable files. */
 bool firmware_update_scan(char * out_path, size_t out_size);
+bool firmware_update_scan_checked(char * out_path, size_t out_size, char * error, size_t error_size);
 
-/* Flips the boot flag to the recovery partition (kernel2/rootfs2) via
- * /usr/bin/bootmode.sh Recovery, then reboots. Does not return on success.
- * The recovery image handles the rest (finding and flashing the *.upt file,
- * switching the flag back to the main slot, rebooting again) entirely on
- * its own, exactly as it does for the stock firmware's own "Firmware
- * Update" menu item. Returns on failure so callers can report the error. */
+typedef enum {
+    FIRMWARE_UPDATE_IDLE,
+    FIRMWARE_UPDATE_VALIDATING,
+    FIRMWARE_UPDATE_BOOTFLAG,
+    FIRMWARE_UPDATE_SYNC,
+    FIRMWARE_UPDATE_REBOOT,
+    FIRMWARE_UPDATE_FAILED
+} firmware_update_phase_t;
+
+typedef struct {
+    firmware_update_phase_t phase;
+    bool busy;
+    bool delayed; /* helper exceeded 15 seconds; no retry while it still runs */
+    char error[160];
+} firmware_update_status_t;
+
+void firmware_update_get_status(firmware_update_status_t * out);
+bool firmware_update_busy(void);
+/* Shared atomic gate for online check/download/install and manual recovery.
+ * OTA release only drops an OTA-owned claim, never an active NAND operation. */
+bool firmware_update_claim_ota(void);
+void firmware_update_release_ota(void);
+bool firmware_update_enter_ota_recovery_for_path(const char * path);
+/* Starts manual validation/recovery on a single-flight worker. No LVGL work.
+ * All diagnostics are persisted at SD/.compas/ota/update.log. */
+bool firmware_update_start(const char * path, char * error, size_t error_size);
+/* Synchronous worker/early-boot entry. Validates the selected package, checks
+ * erase/write and verifies the recovery flag before flushing and rebooting.
+ * Host builds only validate. Returns false on failure; success on device does
+ * not return. NAND helpers are never killed by a UI deadline; delayed status
+ * remains busy until they finish, preventing unsafe retries. */
+bool firmware_update_enter_recovery_for_path(const char * path);
 void firmware_update_enter_recovery(void);
 
 /* Checks whether Power + Volume Up (Power + Play/Pause on the R3II 2025, the

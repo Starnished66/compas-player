@@ -1,6 +1,7 @@
 #include "gui_navigation.h"
 #include "i18n.h"
 #include "gui_library.h"
+#include "firmware_update.h"
 #include "gui_network.h"
 #include "gui_shell.h"
 #include "gui_lock_screen.h"
@@ -8396,6 +8397,10 @@ static void power_action_clicked_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     int action = (int) (intptr_t) lv_event_get_user_data(e);
     if (action == 0 || action == 1) {
+        if (firmware_update_busy()) {
+            lv_label_set_text(power_action_status, TR("An update is in progress. Please wait."));
+            return;
+        }
         if (power_action_pending != action) {
             power_action_pending = action;
             lv_label_set_text(power_action_status, action == 0

@@ -1,4 +1,5 @@
 #include "idle_shutdown.h"
+#include "firmware_update.h"
 
 #ifndef HOST_BUILD
 #include <stdbool.h>
@@ -24,6 +25,7 @@ static bool parent_is_bootloader(void) {
 #endif
 
 void idle_shutdown_now(void) {
+    if (firmware_update_busy()) return;
 #ifndef HOST_BUILD
     extern void gui_player_queue_flush(void);
     gui_player_queue_flush();
@@ -40,6 +42,7 @@ void idle_shutdown_now(void) {
 }
 
 void idle_shutdown_reboot_now(void) {
+    if (firmware_update_busy()) return;
 #ifndef HOST_BUILD
     extern void gui_player_queue_flush(void);
     gui_player_queue_flush();

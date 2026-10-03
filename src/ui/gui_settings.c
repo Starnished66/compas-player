@@ -530,6 +530,17 @@ static void eq_q_slider_event_cb(lv_event_t * e) {
 
 static gui_popup_t firmware_update_popup;
 static lv_obj_t * firmware_update_popup_title;
+static char firmware_update_selected_path[512];
+static bool manual_update_ui_active;
+static gui_busy_handle_t manual_update_busy;
+static int update_ui_last_phase = -1;
+static bool update_ui_last_delayed;
+
+static bool firmware_usb_ready(void) {
+    if (!gui_network_usb_prompt_invalidated()) return true;
+    show_error_toast(TR("Wait for USB mode switching to finish and disconnect USB storage before updating."));
+    return false;
+}
 
 static void hide_firmware_update_popup(void) {
     gui_popup_hide(&firmware_update_popup);
@@ -548,8 +559,15 @@ static void firmware_update_cancel_cb(lv_event_t * e) {
 static void firmware_update_confirm_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     hide_firmware_update_popup();
-    firmware_update_enter_recovery();
-    show_error_toast(TR("Could not enter recovery. Restart the player and try again."));
+    if (!firmware_usb_ready()) return;
+    char error[160];
+    if (!firmware_update_start(firmware_update_selected_path, error, sizeof(error))) {
+        show_error_toast(error);
+        return;
+    }
+    manual_update_ui_active = true;
+    update_ui_last_phase = -1;
+    manual_update_busy = gui_busy_show(TR("Preparing update"), TR("Checking the file on the SD card"));
 }
 
 static void build_firmware_update_popup(void) {
@@ -560,14 +578,15 @@ static void build_firmware_update_popup(void) {
 }
 
 static void firmware_update_from_sd(void) {
-    char path[512];
-    if (!firmware_update_scan(path, sizeof(path))) {
-        show_error_toast(TR("No .upt firmware file found on SD card"));
+    char error[160];
+    if (!firmware_update_scan_checked(firmware_update_selected_path, sizeof(firmware_update_selected_path),
+                                     error, sizeof(error))) {
+        show_error_toast(error);
         return;
     }
 
-    const char * filename = strrchr(path, '/');
-    filename = filename ? filename + 1 : path;
+    const char * filename = strrchr(firmware_update_selected_path, '/');
+    filename = filename ? filename + 1 : firmware_update_selected_path;
     lv_label_set_text_fmt(firmware_update_popup_title, TR("Update using %s?\nDevice will reboot into recovery mode."),
                            filename);
 
@@ -607,6 +626,7 @@ static void show_ota_install_popup(const char * date) {
 static void firmware_source_sd_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     hide_firmware_source_menu();
+    if (!firmware_usb_ready()) return;
     /* An online check/download/install worker is running (reachable even
      * from here: the busy screen allows swiping back to the player and
      * back into Settings). Refuse outright rather than falling through to
@@ -622,7 +642,7 @@ static void firmware_source_sd_cb(lv_event_t * e) {
     firmware_ota_pending_t state = firmware_ota_pending(&pending);
     if (state == FIRMWARE_OTA_PENDING_VALID) show_ota_install_popup(pending.date);
     else if (state == FIRMWARE_OTA_PENDING_REJECTED)
-        show_error_toast(TR("The downloaded update changed on the SD card and was set aside. Download it again."));
+        show_error_toast(TR("The downloaded update record is invalid. Download the update again."));
     else if (state == FIRMWARE_OTA_PENDING_UNREADABLE)
         show_error_toast(TR("Cannot read the update record on the SD card. Check the card and try again."));
     else firmware_update_from_sd();
@@ -631,6 +651,7 @@ static void firmware_source_sd_cb(lv_event_t * e) {
 static void firmware_source_online_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     hide_firmware_source_menu();
+    if (!firmware_usb_ready()) return;
     if (!gui_shell_wifi_effective_enabled()) {
         show_error_toast(TR("Turn on Wi-Fi and connect first"));
         return;
@@ -652,6 +673,7 @@ static void ota_offer_cancel_cb(lv_event_t * e) {
 static void ota_offer_download_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     gui_popup_hide(&ota_offer_popup);
+    if (!firmware_usb_ready()) return;
     if (!firmware_ota_start_download()) {
         show_error_toast(TR("Could not start the download"));
         firmware_ota_reset();
@@ -665,19 +687,21 @@ static void ota_offer_download_cb(lv_event_t * e) {
 static void ota_install_later_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     gui_popup_hide(&ota_install_popup);
-    show_info_toast(TR("Update saved. Install it any time from Firmware Update > Install from SD card."));
+    show_info_toast(TR("Update saved. Connect to Wi-Fi, then install from Firmware Update > Install from SD card."));
     firmware_ota_reset();
 }
 
 static void ota_install_now_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     gui_popup_hide(&ota_install_popup);
+    if (!firmware_usb_ready()) return;
     char error[160];
     if (ota_ui_active || !firmware_ota_start_install(error, sizeof(error))) {
         show_error_toast(ota_ui_active ? TR("An update is already in progress") : error);
         return;
     }
     ota_ui_active = true;
+    update_ui_last_phase = -1;
     ota_busy = gui_busy_show(TR("Preparing update"), TR("Checking the file on the SD card"));
 }
 
@@ -707,6 +731,28 @@ void firmware_update_row_cb(lv_event_t * e) {
 }
 
 void poll_firmware_ota(void) {
+    if (manual_update_ui_active || ota_ui_active) {
+        firmware_update_status_t recovery;
+        firmware_update_get_status(&recovery);
+        if (recovery.busy && ((int) recovery.phase != update_ui_last_phase ||
+                              recovery.delayed != update_ui_last_delayed)) {
+            const char * detail = TR("Checking the file on the SD card");
+            if (recovery.delayed) detail = recovery.error;
+            else if (recovery.phase == FIRMWARE_UPDATE_BOOTFLAG) detail = TR("Preparing and verifying recovery mode");
+            else if (recovery.phase == FIRMWARE_UPDATE_SYNC) detail = TR("Saving data before reboot");
+            else if (recovery.phase == FIRMWARE_UPDATE_REBOOT) detail = TR("Restarting into recovery. Do not turn off the player.");
+            gui_busy_set_detail(manual_update_ui_active ? manual_update_busy : ota_busy, detail);
+            update_ui_last_phase = recovery.phase;
+            update_ui_last_delayed = recovery.delayed;
+        }
+        if (manual_update_ui_active) {
+            if (recovery.busy) return;
+            gui_busy_hide(manual_update_busy);
+            manual_update_ui_active = false;
+            if (recovery.phase == FIRMWARE_UPDATE_FAILED) show_error_toast(recovery.error);
+            return;
+        }
+    }
     if (!ota_ui_active) return;
     firmware_ota_status_t status;
     firmware_ota_get_status(&status);
@@ -3863,6 +3909,10 @@ static void factory_reset_cancel_cb(lv_event_t * e) {
 static void factory_reset_confirm_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     hide_factory_reset_popup();
+    if (firmware_update_busy()) {
+        show_error_toast(TR("An update is already in progress"));
+        return;
+    }
     settings_factory_reset(); /* deletes the settings file and reboots -- see its own comment in settings.h/.c */
 }
 

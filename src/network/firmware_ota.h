@@ -7,11 +7,12 @@
 
 /* Online firmware update from the latest weekly release on GitHub.
  *
- * Check: reads the repository's release list and picks the newest
- * non-draft release tagged weekly-beta-YYYY-MM-DD (never the
- * staging-image-base release, which holds the unmodified base image). It
- * must carry this board's image (r1.upt, r3proii.upt or r3ii_2025.upt) and
- * SHA256SUMS.
+ * Check: reads GitHub's authoritative /releases/latest object. That object
+ * must be a published, non-prerelease weekly-beta-YYYY-MM-DD release (never
+ * the staging-image-base release, which holds the unmodified base image),
+ * and must carry this board's image (r1.upt, r3proii.upt or r3ii_2025.upt)
+ * and SHA256SUMS. Missing or unsuitable assets fail closed; older releases
+ * are never considered as a fallback.
  *
  * Download: fetches SHA256SUMS, then streams the image into
  * SD/.compas/ota/, checks its size and SHA-256 against the release, and
@@ -22,10 +23,12 @@
  * A verified download leaves a record (asset, size, SHA-256) in
  * SD/.compas/ota/pending, on the same card, so it can be installed later.
  *
- * Install (a worker): re-hashes the image at the root against that record,
+ * Install (a worker): re-checks that the record still describes GitHub's
+ * latest release and re-hashes the image at the root against that record,
  * moves any other *.upt out of the root (renamed *.upt.parked, so recovery
  * cannot pick a different image) and reboots into recovery via
- * firmware_update_enter_recovery(), the same path as the SD-card update.
+ * firmware_update_enter_ota_recovery_for_path(), the same preparation as the SD-card
+ * update.
  *
  * The check and download run on a worker thread; the UI polls
  * firmware_ota_get_status(). No function here touches LVGL. */
@@ -75,10 +78,9 @@ void firmware_ota_reset(void);
 
 /* Whether the mounted card holds a verified download. VALID fills *out's
  * asset name, size and date (content is re-hashed at install). REJECTED
- * means a record exists but the image no longer matches it: the image is
- * renamed *.rejected and then the record removed; if the rename fails the
- * record stays, so this keeps answering REJECTED and no install path can
- * use the image. UNREADABLE means the record could not be opened (an SD
+ * means the record is invalid. This query never changes files; the install
+ * worker re-hashes the image and parks rejected content while holding the
+ * shared update claim. UNREADABLE means the record could not be opened (an SD
  * error): refuse rather than fall back. NONE means no record (or no card). */
 typedef enum {
     FIRMWARE_OTA_PENDING_NONE,
@@ -95,7 +97,7 @@ bool firmware_ota_start_install(char * error, size_t error_size);
 
 /* ---- Pure helpers, exposed for the host selftest ---- */
 
-/* Picks the newest weekly release from a GitHub releases JSON array. */
+/* Parses GitHub's /releases/latest object; it never searches older releases. */
 bool firmware_ota_parse_releases(const char * json, size_t length, const char * asset_name,
                                  firmware_ota_release_t * out, char * error, size_t error_size);
 /* Finds asset_name's lowercase hex digest in a SHA256SUMS text. */

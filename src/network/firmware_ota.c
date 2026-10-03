@@ -23,7 +23,7 @@
 #include <unistd.h>
 
 #ifndef OTA_RELEASES_URL
-#define OTA_RELEASES_URL "https://api.github.com/repos/Starnished66/compas-player/releases?per_page=20"
+#define OTA_RELEASES_URL "https://api.github.com/repos/Starnished66/compas-player/releases/latest"
 #endif
 #define OTA_TAG_PREFIX "weekly-beta-"
 #define OTA_SUMS_NAME "SHA256SUMS"
@@ -36,9 +36,9 @@
 #define OTA_WORK_DIR SD_COMPAS_ROOT "/ota"
 
 /* Current images are ~38 MiB and the repacker refuses anything over
- * 45 MiB; a release asset outside this range is not a firmware image. */
+ * 45 MiB; reject larger release assets before allocating SD space. */
 #define OTA_MIN_IMAGE_BYTES (1u << 20)
-#define OTA_MAX_IMAGE_BYTES (64u << 20)
+#define OTA_MAX_IMAGE_BYTES (45u << 20)
 #define OTA_MAX_SUMS_BYTES (64u << 10)
 #define OTA_FREE_SPACE_MARGIN (8ull << 20)
 #define OTA_MIN_BATTERY_PERCENT 30
@@ -93,63 +93,62 @@ static bool copy_https_url(char * out, size_t size, const char * url) {
 bool firmware_ota_parse_releases(const char * json, size_t length, const char * asset_name,
                                  firmware_ota_release_t * out, char * error, size_t error_size) {
     memset(out, 0, sizeof(*out));
-    cJSON * root = cJSON_ParseWithLength(json, length);
-    if (!cJSON_IsArray(root)) {
+    cJSON * release = cJSON_ParseWithLength(json, length);
+    if (!cJSON_IsObject(release)) {
         snprintf(error, error_size, TR("Unexpected reply from GitHub"));
-        cJSON_Delete(root);
+        cJSON_Delete(release);
         return false;
     }
-    bool found = false;
-    const cJSON * release;
-    cJSON_ArrayForEach(release, root) {
-        const char * tag = json_string(release, "tag_name");
-        size_t prefix_len = sizeof(OTA_TAG_PREFIX) - 1;
-        if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(release, "draft")) || !tag ||
-            strncmp(tag, OTA_TAG_PREFIX, prefix_len) != 0 || strlen(tag) != prefix_len + 10 ||
-            !is_date(tag + prefix_len))
-            continue;
-        const char * date = tag + prefix_len;
-        /* Newest by the date in the tag, not by list order. */
-        if (found && strcmp(date, out->date) <= 0) continue;
-
-        firmware_ota_release_t candidate;
-        memset(&candidate, 0, sizeof(candidate));
-        bool have_asset = false, have_sums = false;
-        const cJSON * asset;
-        cJSON_ArrayForEach(asset, cJSON_GetObjectItemCaseSensitive(release, "assets")) {
-            const char * name = json_string(asset, "name");
-            const char * url = json_string(asset, "browser_download_url");
-            if (!name) continue;
-            if (strcmp(name, asset_name) == 0) {
-                const cJSON * size = cJSON_GetObjectItemCaseSensitive(asset, "size");
-                if (cJSON_IsNumber(size) && size->valuedouble >= OTA_MIN_IMAGE_BYTES &&
-                    size->valuedouble <= OTA_MAX_IMAGE_BYTES &&
-                    copy_https_url(candidate.asset_url, sizeof(candidate.asset_url), url)) {
-                    candidate.asset_size = (uint64_t) size->valuedouble;
-                    have_asset = true;
-                    const char * digest = json_string(asset, "digest");
-                    if (digest && strncmp(digest, "sha256:", 7) == 0 && strlen(digest + 7) == 64) {
-                        bool hex = true;
-                        for (int i = 0; i < 64 && hex; i++) hex = isxdigit((unsigned char) digest[7 + i]) != 0;
-                        for (int i = 0; hex && i < 64; i++)
-                            candidate.asset_digest[i] = (char) tolower((unsigned char) digest[7 + i]);
-                    }
-                }
-            } else if (strcmp(name, OTA_SUMS_NAME) == 0) {
-                have_sums = copy_https_url(candidate.sums_url, sizeof(candidate.sums_url), url);
-            }
-        }
-        /* A week without this board's image is skipped, not an error. */
-        if (!have_asset || !have_sums) continue;
-        snprintf(candidate.tag, sizeof(candidate.tag), "%s", tag);
-        memcpy(candidate.date, date, 10);
-        snprintf(candidate.asset_name, sizeof(candidate.asset_name), "%s", asset_name);
-        *out = candidate;
-        found = true;
+    const char * tag = json_string(release, "tag_name");
+    size_t prefix_len = sizeof(OTA_TAG_PREFIX) - 1;
+    bool prerelease = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(release, "prerelease"));
+    bool draft = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(release, "draft"));
+    if (!tag || draft || prerelease || strncmp(tag, OTA_TAG_PREFIX, prefix_len) != 0 ||
+        strlen(tag) != prefix_len + 10 || !is_date(tag + prefix_len)) {
+        snprintf(error, error_size, TR("GitHub's latest release is not a supported weekly firmware release."));
+        cJSON_Delete(release);
+        return false;
     }
-    cJSON_Delete(root);
-    if (!found) snprintf(error, error_size, TR("No weekly release has a %s image"), asset_name);
-    return found;
+
+    firmware_ota_release_t candidate;
+    memset(&candidate, 0, sizeof(candidate));
+    bool have_asset = false, have_sums = false;
+    const cJSON * asset;
+    cJSON_ArrayForEach(asset, cJSON_GetObjectItemCaseSensitive(release, "assets")) {
+        const char * name = json_string(asset, "name");
+        const char * url = json_string(asset, "browser_download_url");
+        if (!name) continue;
+        if (strcmp(name, asset_name) == 0) {
+            const cJSON * size = cJSON_GetObjectItemCaseSensitive(asset, "size");
+            if (cJSON_IsNumber(size) && size->valuedouble >= OTA_MIN_IMAGE_BYTES &&
+                size->valuedouble <= OTA_MAX_IMAGE_BYTES &&
+                copy_https_url(candidate.asset_url, sizeof(candidate.asset_url), url)) {
+                candidate.asset_size = (uint64_t) size->valuedouble;
+                have_asset = true;
+                const char * digest = json_string(asset, "digest");
+                if (digest && strncmp(digest, "sha256:", 7) == 0 && strlen(digest + 7) == 64) {
+                    bool hex = true;
+                    for (int i = 0; i < 64 && hex; i++) hex = isxdigit((unsigned char) digest[7 + i]) != 0;
+                    for (int i = 0; hex && i < 64; i++)
+                        candidate.asset_digest[i] = (char) tolower((unsigned char) digest[7 + i]);
+                    if (!hex) candidate.asset_digest[0] = '\0';
+                }
+            }
+        } else if (strcmp(name, OTA_SUMS_NAME) == 0) {
+            have_sums = copy_https_url(candidate.sums_url, sizeof(candidate.sums_url), url);
+        }
+    }
+    if (!have_asset || !have_sums) {
+        cJSON_Delete(release);
+        snprintf(error, error_size, TR("GitHub's latest release has no valid %s image and checksum."), asset_name);
+        return false;
+    }
+    snprintf(candidate.tag, sizeof(candidate.tag), "%s", tag);
+    memcpy(candidate.date, tag + prefix_len, 10);
+    snprintf(candidate.asset_name, sizeof(candidate.asset_name), "%s", asset_name);
+    cJSON_Delete(release);
+    *out = candidate;
+    return true;
 }
 
 bool firmware_ota_parse_sums(const char * text, size_t length, const char * asset_name, char out_hex[65]) {
@@ -189,6 +188,7 @@ static void set_failed(const char * message) {
     snprintf(ota_status.error, sizeof(ota_status.error), "%s", message);
     ota_worker_running = false;
     pthread_mutex_unlock(&ota_mutex);
+    firmware_update_release_ota();
 }
 
 static const char * describe_http_error(const char * code) {
@@ -200,8 +200,7 @@ static const char * describe_http_error(const char * code) {
     return TR("Could not read the release list from GitHub.");
 }
 
-static void * check_worker(void * unused) {
-    (void) unused;
+static bool fetch_latest_release(firmware_ota_release_t * release, char * error, size_t error_size) {
     http_request_t request;
     memset(&request, 0, sizeof(request));
     snprintf(request.url, sizeof(request.url), "%s", OTA_RELEASES_URL);
@@ -221,28 +220,29 @@ static void * check_worker(void * unused) {
     http_response_t response;
     bool ok = http_request_ex(&request, NULL, &response);
     if (!ok || !response.body) {
-        const char * message = describe_http_error(ok ? NULL : response.error);
+        snprintf(error, error_size, "%s", describe_http_error(ok ? NULL : response.error));
         http_response_free(&response);
-        set_failed(message);
-        return NULL;
+        return false;
     }
     if (response.status != 200) {
-        char message[96];
         if (response.status == 403 || response.status == 429)
-            snprintf(message, sizeof(message), TR("GitHub is limiting requests. Try again later."));
+            snprintf(error, error_size, "%s", TR("GitHub is limiting requests. Try again later."));
         else
-            snprintf(message, sizeof(message), TR("GitHub returned HTTP %d."), response.status);
+            snprintf(error, error_size, TR("GitHub returned HTTP %d."), response.status);
         http_response_free(&response);
-        set_failed(message);
-        return NULL;
+        return false;
     }
+    bool parsed = firmware_ota_parse_releases((const char *) response.body, response.body_len,
+                                              firmware_ota_board_asset(), release, error, error_size);
+    http_response_free(&response);
+    return parsed;
+}
 
+static void * check_worker(void * unused) {
+    (void) unused;
     firmware_ota_release_t release;
     char error[128];
-    bool parsed = firmware_ota_parse_releases((const char *) response.body, response.body_len,
-                                              firmware_ota_board_asset(), &release, error, sizeof(error));
-    http_response_free(&response);
-    if (!parsed) {
+    if (!fetch_latest_release(&release, error, sizeof(error))) {
         set_failed(error);
         return NULL;
     }
@@ -255,6 +255,7 @@ static void * check_worker(void * unused) {
     ota_status.state = FIRMWARE_OTA_CHECKED;
     ota_worker_running = false;
     pthread_mutex_unlock(&ota_mutex);
+    firmware_update_release_ota();
     return NULL;
 }
 
@@ -383,6 +384,18 @@ static bool sd_mounted(dev_t * out_device) {
 static void * download_worker(void * arg) {
     firmware_ota_release_t release = *(firmware_ota_release_t *) arg;
     free(arg);
+    firmware_ota_release_t latest;
+    char latest_error[160];
+    if (!fetch_latest_release(&latest, latest_error, sizeof(latest_error))) {
+        set_failed(latest_error);
+        return NULL;
+    }
+    if (strcmp(latest.tag, release.tag) != 0 || strcmp(latest.asset_name, release.asset_name) != 0 ||
+        latest.asset_size != release.asset_size || strcmp(latest.asset_digest, release.asset_digest) != 0) {
+        set_failed(TR("A newer or changed release is available. Check for updates again before downloading."));
+        return NULL;
+    }
+    release = latest;
     dev_t card;
     if (!sd_mounted(&card)) {
         set_failed(TR("Insert an SD card to download the update."));
@@ -475,6 +488,7 @@ static void * download_worker(void * arg) {
     ota_status.state = FIRMWARE_OTA_READY;
     ota_worker_running = false;
     pthread_mutex_unlock(&ota_mutex);
+    firmware_update_release_ota();
     return NULL;
 }
 
@@ -490,9 +504,11 @@ static bool start_worker(void * (*fn)(void *), void * arg) {
 }
 
 bool firmware_ota_start_check(void) {
+    if (!firmware_update_claim_ota()) return false;
     pthread_mutex_lock(&ota_mutex);
     if (ota_worker_running) {
         pthread_mutex_unlock(&ota_mutex);
+        firmware_update_release_ota();
         return false;
     }
     memset(&ota_status, 0, sizeof(ota_status));
@@ -508,14 +524,17 @@ bool firmware_ota_start_check(void) {
 }
 
 bool firmware_ota_start_download(void) {
+    if (!firmware_update_claim_ota()) return false;
     pthread_mutex_lock(&ota_mutex);
     if (ota_worker_running || ota_status.state != FIRMWARE_OTA_CHECKED) {
         pthread_mutex_unlock(&ota_mutex);
+        firmware_update_release_ota();
         return false;
     }
     firmware_ota_release_t * release = malloc(sizeof(*release));
     if (!release) {
         pthread_mutex_unlock(&ota_mutex);
+        firmware_update_release_ota();
         return false;
     }
     *release = ota_status.release;
@@ -541,7 +560,7 @@ bool firmware_ota_busy(void) {
     pthread_mutex_lock(&ota_mutex);
     bool busy = ota_worker_running;
     pthread_mutex_unlock(&ota_mutex);
-    return busy;
+    return busy || firmware_update_busy();
 }
 
 void firmware_ota_reset(void) {
@@ -599,7 +618,8 @@ firmware_ota_pending_t firmware_ota_pending(firmware_ota_release_t * out) {
         return FIRMWARE_OTA_PENDING_VALID;
     }
     if (!present) return FIRMWARE_OTA_PENDING_NONE;
-    reject_pending(firmware_ota_board_asset());
+    /* UI queries are read-only. Only the install worker, holding the shared
+     * update claim, may rename a rejected image or flush the card. */
     return FIRMWARE_OTA_PENDING_REJECTED;
 }
 
@@ -626,6 +646,46 @@ static void * install_worker(void * unused) {
     if (actual_size != pending.release.asset_size || strcmp(actual, pending.sha256) != 0) {
         reject_pending(pending.release.asset_name);
         set_failed(TR("The update file on the SD card changed. Download it again."));
+        return NULL;
+    }
+
+    /* A pending download may have sat on the card while a newer release
+     * became latest. Re-check GitHub immediately before making recovery
+     * able to see this image. */
+    firmware_ota_release_t latest;
+    char latest_error[160];
+    char expected_tag[64];
+    snprintf(expected_tag, sizeof(expected_tag), "%s%s", OTA_TAG_PREFIX, pending.release.date);
+    if (!fetch_latest_release(&latest, latest_error, sizeof(latest_error))) {
+        set_failed(latest_error);
+        return NULL;
+    }
+    if (strcmp(latest.tag, expected_tag) != 0 ||
+        strcmp(latest.asset_name, pending.release.asset_name) != 0 ||
+        latest.asset_size != pending.release.asset_size) {
+        set_failed(TR("This update is no longer the latest release. Check for updates and download the latest image."));
+        return NULL;
+    }
+    char sums_path[256];
+    snprintf(sums_path, sizeof(sums_path), "%s/%s.install.part", OTA_WORK_DIR, OTA_SUMS_NAME);
+    int sums_status = 0;
+    if (!http_get_to_file_redirects(latest.sums_url, true, sums_path, OTA_MAX_SUMS_BYTES, NULL, NULL,
+                                    OTA_CONNECT_TIMEOUT_MS, OTA_READ_TIMEOUT_MS, NULL, 5, &sums_status)) {
+        unlink(sums_path);
+        set_failed(TR("Could not verify the latest release checksums."));
+        return NULL;
+    }
+    char sums[OTA_MAX_SUMS_BYTES + 1];
+    FILE * sums_file = fopen(sums_path, "rb");
+    size_t sums_len = sums_file ? fread(sums, 1, OTA_MAX_SUMS_BYTES, sums_file) : 0;
+    bool sums_read_ok = sums_file && !ferror(sums_file);
+    if (sums_file) fclose(sums_file);
+    unlink(sums_path);
+    char latest_digest[65];
+    if (!sums_read_ok || !firmware_ota_parse_sums(sums, sums_len, latest.asset_name, latest_digest) ||
+        strcmp(latest_digest, pending.sha256) != 0 ||
+        (latest.asset_digest[0] && strcmp(latest.asset_digest, pending.sha256) != 0)) {
+        set_failed(TR("This update no longer matches the latest release. Download the latest image again."));
         return NULL;
     }
 
@@ -658,17 +718,23 @@ static void * install_worker(void * unused) {
         set_failed(TR("Could not move other .upt files aside on the SD card."));
         return NULL;
     }
-    sync();
-    firmware_update_enter_recovery(); /* does not return on the device */
-    set_failed(TR("Could not enter recovery mode."));
+    if (!firmware_update_enter_ota_recovery_for_path(path)) {
+        firmware_update_status_t update_status;
+        firmware_update_get_status(&update_status);
+        set_failed(update_status.error[0] ? update_status.error : TR("Could not enter recovery mode."));
+        return NULL;
+    }
+    /* HOST_BUILD reports accepted without reboot; leave the verified image
+     * ready so the caller can inspect the result without a false failure. */
+    pthread_mutex_lock(&ota_mutex);
+    ota_status.state = FIRMWARE_OTA_READY;
+    ota_worker_running = false;
+    pthread_mutex_unlock(&ota_mutex);
+    firmware_update_release_ota();
     return NULL;
 }
 
 bool firmware_ota_start_install(char * error, size_t error_size) {
-    if (firmware_ota_pending(NULL) != FIRMWARE_OTA_PENDING_VALID) {
-        snprintf(error, error_size, TR("No verified update is on this SD card. Download it again."));
-        return false;
-    }
     int battery = battery_get_percent();
 #ifdef HOST_BUILD
     if (battery < 0) battery = 100; /* the host has no battery */
@@ -678,9 +744,14 @@ bool firmware_ota_start_install(char * error, size_t error_size) {
                  OTA_MIN_BATTERY_PERCENT);
         return false;
     }
+    if (!firmware_update_claim_ota()) {
+        snprintf(error, error_size, "%s", TR("A firmware update is already in progress."));
+        return false;
+    }
     pthread_mutex_lock(&ota_mutex);
     if (ota_worker_running) {
         pthread_mutex_unlock(&ota_mutex);
+        firmware_update_release_ota();
         snprintf(error, error_size, TR("An update is already in progress."));
         return false;
     }
