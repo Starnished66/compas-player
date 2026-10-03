@@ -20,6 +20,7 @@ extern lv_style_t style_button_pressed;
 extern void nav_remove_stack_slot(int depth);
 extern void enable_gesture_bubble_recursive(lv_obj_t * parent);
 extern void search_textarea_value_changed_cb(lv_event_t * e);
+extern void search_keypad_dismissed(void);
 extern void nav_push(lv_obj_t * screen);
 extern void nav_pop(void);
 extern void nav_reset_to_home(void);
@@ -746,6 +747,9 @@ void gui_text_input_cancel_if_removed(lv_obj_t * removed_screen) {
 }
 
 void t9_keypad_dismiss_only(void) {
+    /* The inline-search list was shortened to leave room for the keypad.
+     * Restore it before moving the shared keypad off the active screen. */
+    search_keypad_dismissed();
     lv_obj_set_parent(text_entry_keypad_group, text_entry_screen);
     text_entry_inline_mode_active = false;
 }

@@ -5401,6 +5401,23 @@ static void search_restore_list_geometry(lv_obj_t * list) {
     lv_obj_align(list, LV_ALIGN_BOTTOM_MID, 0, -HOME_INDICATOR_CONTENT_INSET);
 }
 
+/* Called by the shared T9 Enter handler before it reparents the keypad away
+ * from the active library screen. Keep the live query/filter and expand the
+ * list into the space the keypad occupied. */
+void search_keypad_dismissed(void) {
+    search_binding_t * b = find_search_binding_for_screen(lv_screen_active());
+    if (!b || !b->active) return;
+    if (search_debounce_timer) {
+        lv_timer_delete(search_debounce_timer);
+        search_debounce_timer = NULL;
+        search_apply_filter(b, t9_keypad_get_text());
+    }
+    lv_obj_set_size(b->list, lv_pct(100),
+                   lv_display_get_vertical_resolution(lv_display_get_default()) -
+                       SEARCH_BAR_Y - SEARCH_BAR_HEIGHT - HOME_INDICATOR_CONTENT_INSET);
+    lv_obj_align(b->list, LV_ALIGN_TOP_MID, 0, SEARCH_BAR_Y + SEARCH_BAR_HEIGHT);
+}
+
 /* Enter's meaning while a search binding owns the keypad: hide just the
  * keypad (search bar, typed query, and the current filter all stay) and
  * give the list back the vertical space the keypad occupied -- matches a
