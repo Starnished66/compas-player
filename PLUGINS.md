@@ -162,7 +162,7 @@ plugin.define({
 
 ### Checking what the player supports
 
-- `plugin.api_version()` returns the API version, currently `14`.
+- `plugin.api_version()` returns the API version, currently `15`.
 - `plugin.has_capability(name)` returns whether one feature exists. Prefer it
   over `api_min` when you only need one feature. Tokens:
 
@@ -195,6 +195,7 @@ plugin.define({
 | 12 | `register_quick_toggle`, `set_quick_toggle` |
 | 13 | LED control, `get_volume`, `get_battery`, and the `volume_changed`, `battery_changed`, `suspending` and `system_resumed` events |
 | 14 | `zip_read`, `zip_list`, `zip_image_async`, `html_to_blocks`, `show_text_view` with pictures, grid lists, `is_list_showing`, and one long (4095-byte) HTTP header per request |
+| 15 | Full XML Player-layout support (`ui.player_layout_xml`), including plugin-bundle discovery, current named-widget features, companion PNG previews, and resolution-specific XML variants using `@WIDTHxHEIGHT` or `_WIDTHxHEIGHT` filenames |
 
 All of these are additions; older plugins keep working.
 
