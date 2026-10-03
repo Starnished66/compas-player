@@ -414,7 +414,7 @@ typedef struct {
     /* False only on a fresh install or unfinished first-run setup. */
     bool setup_complete;
     bool setup_intro_played; /* Reset with settings; prevents replay during setup. */
-    int setup_step; /* 0 welcome, 1..5 quick setup, 6 complete; retained across restarts. */
+    int setup_step; /* Persisted IDs: 0 welcome, 1 language, 2 timezone, 3 Wi-Fi, 4 plugins, 5 scan, 6 complete, 7 layout; retained across restarts. */
 } player_settings_t;
 
 /* Validate a relative Subsonic download folder. Empty is a valid setting;

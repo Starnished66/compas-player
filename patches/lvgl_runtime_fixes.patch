@@ -165,3 +165,667 @@ index 79b64b1..3774def 100644
  
      cache->size = 0;
  }
+diff --git a/src/draw/lv_draw_image.c b/src/draw/lv_draw_image.c
+index e5f33d4..09cacbd 100644
+--- a/src/draw/lv_draw_image.c
++++ b/src/draw/lv_draw_image.c
+@@ -325,6 +325,19 @@ void lv_image_buf_get_transformed_area(lv_area_t * res, int32_t w, int32_t h, in
+         return;
+     }
+ 
++    if(angle == 0) {
++        /*Round geometric edges outward, retaining partially covered edge pixels.*/
++        int64_t left = (int64_t)pivot->x * LV_SCALE_NONE - (int64_t)pivot->x * scale_x;
++        int64_t top = (int64_t)pivot->y * LV_SCALE_NONE - (int64_t)pivot->y * scale_y;
++        int64_t right = left + (int64_t)w * scale_x;
++        int64_t bottom = top + (int64_t)h * scale_y;
++        res->x1 = (int32_t)(left / LV_SCALE_NONE - (left % LV_SCALE_NONE < 0));
++        res->y1 = (int32_t)(top / LV_SCALE_NONE - (top % LV_SCALE_NONE < 0));
++        res->x2 = (int32_t)(right / LV_SCALE_NONE + (right % LV_SCALE_NONE > 0)) - 1;
++        res->y2 = (int32_t)(bottom / LV_SCALE_NONE + (bottom % LV_SCALE_NONE > 0)) - 1;
++        return;
++    }
++
+     lv_point_t p[4] = {
+         {0, 0},
+         {w, 0},
+diff --git a/src/draw/sw/lv_draw_sw_transform.c b/src/draw/sw/lv_draw_sw_transform.c
+index 674e54d..489dee7 100644
+--- a/src/draw/sw/lv_draw_sw_transform.c
++++ b/src/draw/sw/lv_draw_sw_transform.c
+@@ -37,6 +37,21 @@ typedef struct {
+     lv_point_t pivot;
+ } point_transform_dsc_t;
+ 
++typedef struct {
++    int32_t coord_q8;
++    int32_t remainder;
++    int32_t step_q8;
++    int32_t step_remainder;
++    int32_t scale;
++} sample_axis_t;
++
++typedef struct {
++    bool scale_only;
++    sample_axis_t x_axis_start;
++    bool edge_extend_x;
++    bool edge_extend_y;
++} sample_transform_dsc_t;
++
+ /**********************
+  *  STATIC PROTOTYPES
+  **********************/
+@@ -50,47 +65,52 @@ typedef struct {
+  */
+ static void transform_point_upscaled(point_transform_dsc_t * t, int32_t xin, int32_t yin, int32_t * xout,
+                                      int32_t * yout);
++static int32_t clamp_upscale_sample_q8(int32_t sample_q8, int32_t src_size, bool edge_extend);
++static bool should_fade_missing_sample_edge(const sample_transform_dsc_t * sample_dsc, int32_t sample_index,
++                                            int32_t src_size, int32_t neighbor_offset, int32_t weight, bool x_axis);
++static sample_axis_t sample_axis_init(int32_t dest, int32_t pivot, int32_t scale);
++static void sample_axis_advance(sample_axis_t * axis);
+ 
+ #if LV_DRAW_SW_SUPPORT_RGB888 || LV_DRAW_SW_SUPPORT_XRGB8888
+ static void transform_rgb888(const uint8_t * src, int32_t src_w, int32_t src_h, int32_t src_stride,
+                              int32_t xs_ups, int32_t ys_ups, int32_t xs_step, int32_t ys_step,
+-                             int32_t x_end, uint8_t * dest_buf, bool aa, uint32_t px_size);
++                             int32_t x_end, uint8_t * dest_buf, bool aa, uint32_t px_size, const sample_transform_dsc_t * sample_dsc);
+ #endif
+ 
+ #if LV_DRAW_SW_SUPPORT_ARGB8888
+ static void transform_argb8888(const uint8_t * src, int32_t src_w, int32_t src_h, int32_t src_stride,
+                                int32_t xs_ups, int32_t ys_ups, int32_t xs_step, int32_t ys_step,
+-                               int32_t x_end, uint8_t * dest_buf, bool aa);
++                               int32_t x_end, uint8_t * dest_buf, bool aa, const sample_transform_dsc_t * sample_dsc);
+ #endif
+ 
+ #if LV_DRAW_SW_SUPPORT_ARGB8888_PREMULTIPLIED
+ static void transform_argb8888_premultiplied(const uint8_t * src, int32_t src_w, int32_t src_h, int32_t src_stride,
+                                              int32_t xs_ups, int32_t ys_ups, int32_t xs_step, int32_t ys_step,
+-                                             int32_t x_end, uint8_t * dest_buf, bool aa);
++                                             int32_t x_end, uint8_t * dest_buf, bool aa, const sample_transform_dsc_t * sample_dsc);
+ #endif
+ 
+ #if LV_DRAW_SW_SUPPORT_RGB565A8
+ static void transform_rgb565a8(const uint8_t * src, int32_t src_w, int32_t src_h, int32_t src_stride,
+                                int32_t xs_ups, int32_t ys_ups, int32_t xs_step, int32_t ys_step,
+-                               int32_t x_end, uint16_t * cbuf, uint8_t * abuf, bool src_has_a8, bool aa);
++                               int32_t x_end, uint16_t * cbuf, uint8_t * abuf, bool src_has_a8, bool aa, const sample_transform_dsc_t * sample_dsc);
+ #endif
+ 
+ #if LV_DRAW_SW_SUPPORT_RGB565_SWAPPED
+ static void transform_rgb565a8_swapped(const uint8_t * src, int32_t src_w, int32_t src_h, int32_t src_stride,
+                                        int32_t xs_ups, int32_t ys_ups, int32_t xs_step, int32_t ys_step,
+-                                       int32_t x_end, uint16_t * cbuf, uint8_t * abuf, bool src_has_a8, bool aa);
++                                       int32_t x_end, uint16_t * cbuf, uint8_t * abuf, bool src_has_a8, bool aa, const sample_transform_dsc_t * sample_dsc);
+ #endif
+ 
+ #if LV_DRAW_SW_SUPPORT_A8
+ static void transform_a8(const uint8_t * src, int32_t src_w, int32_t src_h, int32_t src_stride,
+                          int32_t xs_ups, int32_t ys_ups, int32_t xs_step, int32_t ys_step,
+-                         int32_t x_end, uint8_t * abuf, bool aa);
++                         int32_t x_end, uint8_t * abuf, bool aa, const sample_transform_dsc_t * sample_dsc);
+ #endif
+ 
+ #if LV_DRAW_SW_SUPPORT_L8 || LV_DRAW_SW_SUPPORT_AL88
+ static void transform_al88(const uint8_t * src, int32_t src_w, int32_t src_h, int32_t src_stride,
+                            int32_t xs_ups, int32_t ys_ups, int32_t xs_step, int32_t ys_step,
+-                           int32_t x_end, uint8_t * cbuf, uint8_t * abuf, bool src_has_a8, bool aa);
++                           int32_t x_end, uint8_t * cbuf, uint8_t * abuf, bool src_has_a8, bool aa, const sample_transform_dsc_t * sample_dsc);
+ #endif
+ 
+ /**********************
+@@ -168,7 +188,7 @@ void lv_draw_sw_transform(const lv_area_t * dest_area, const void * src_buf,
+     bool aa = (bool) draw_dsc->antialias;
+     bool is_rotated = draw_dsc->rotation;
+ 
+-    int32_t xs_ups = 0, ys_ups = 0, ys_ups_start = 0, ys_step_256_original = 0;
++    int32_t xs_ups = 0, ys_ups = 0;
+     int32_t xs_step_256 = 0, ys_step_256 = 0;
+ 
+     /*When some of the color formats are disabled, these variables could be unused, avoid warning here*/
+@@ -178,50 +198,26 @@ void lv_draw_sw_transform(const lv_area_t * dest_area, const void * src_buf,
+     LV_UNUSED(xs_step_256);
+     LV_UNUSED(ys_step_256);
+ 
+-    /*If scaled only make some simplification to avoid rounding errors.
+-     *For example if there is a 100x100 image zoomed to 300%
+-     *The destination area in X will be x1=0; x2=299
+-     *When the step is calculated below it will think that stepping
+-     *1/3 pixels on the original image will result in 300% zoom.
+-     *However this way the last pixel will be on the 99.67 coordinate.
+-     *As it's larger than 99.5 LVGL will start to mix the next coordinate
+-     *which is out of the image, so will make the pixel more transparent.
+-     *To avoid it in case of scale only limit the coordinates to the 0..297 range,
+-     *that is to 0..(src_w-1)*zoom */
+-    if(is_rotated == false) {
+-        int32_t xs1_ups, ys1_ups, xs2_ups, ys2_ups;
+-
+-        int32_t x_max = (((src_w - 1 - draw_dsc->pivot.x) * draw_dsc->scale_x) >> 8) + draw_dsc->pivot.x;
+-        int32_t y_max = (((src_h - 1 - draw_dsc->pivot.y) * draw_dsc->scale_y) >> 8) + draw_dsc->pivot.y;
+-
+-        lv_area_t dest_area_limited;
+-        dest_area_limited.x1 = dest_area->x1 > x_max ? x_max : dest_area->x1;
+-        dest_area_limited.x2 = dest_area->x2 > x_max ? x_max : dest_area->x2;
+-        dest_area_limited.y1 = dest_area->y1 > y_max ? y_max : dest_area->y1;
+-        dest_area_limited.y2 = dest_area->y2 > y_max ? y_max : dest_area->y2;
+-
+-        transform_point_upscaled(&tr_dsc, dest_area_limited.x1, dest_area_limited.y1, &xs1_ups, &ys1_ups);
+-        transform_point_upscaled(&tr_dsc, dest_area_limited.x2, dest_area_limited.y2, &xs2_ups, &ys2_ups);
++    sample_transform_dsc_t sample_dsc = {
++        .scale_only = !is_rotated,
++        .edge_extend_x = !is_rotated && tr_dsc.scale_x > LV_SCALE_NONE,
++        .edge_extend_y = !is_rotated && tr_dsc.scale_y > LV_SCALE_NONE,
++    };
++    sample_axis_t y_axis = {0};
+ 
+-        int32_t xs_diff = xs2_ups - xs1_ups;
+-        int32_t ys_diff = ys2_ups - ys1_ups;
++    if(is_rotated == false) {
++        sample_dsc.x_axis_start = sample_axis_init(dest_area->x1, tr_dsc.pivot.x, tr_dsc.scale_x);
++        y_axis = sample_axis_init(dest_area->y1, tr_dsc.pivot.y, tr_dsc.scale_y);
++        xs_ups = sample_dsc.x_axis_start.coord_q8;
+         xs_step_256 = 0;
+-        ys_step_256_original = 0;
+-        if(dest_w > 1) {
+-            xs_step_256 = (256 * xs_diff) / (dest_w - 1);
+-        }
+-        if(dest_h > 1) {
+-            ys_step_256_original = (256 * ys_diff) / (dest_h - 1);
+-        }
+-
+-        xs_ups = xs1_ups + 0x80;
+-        ys_ups_start = ys1_ups + 0x80;
++        ys_step_256 = 0;
+     }
+ 
+     int32_t y;
+     for(y = 0; y < dest_h; y++) {
+         if(is_rotated == false) {
+-            ys_ups = ys_ups_start + ((ys_step_256_original * y) >> 8);
++            ys_ups = y_axis.coord_q8;
++            sample_axis_advance(&y_axis);
+             ys_step_256 = 0;
+         }
+         else {
+@@ -246,50 +242,50 @@ void lv_draw_sw_transform(const lv_area_t * dest_area, const void * src_buf,
+ #if LV_DRAW_SW_SUPPORT_XRGB8888
+             case LV_COLOR_FORMAT_XRGB8888:
+                 transform_rgb888(src_buf, src_w, src_h, src_stride, xs_ups, ys_ups, xs_step_256, ys_step_256, dest_w, dest_buf, aa,
+-                                 4);
++                                 4, &sample_dsc);
+                 break;
+ #endif
+ #if LV_DRAW_SW_SUPPORT_RGB888
+             case LV_COLOR_FORMAT_RGB888:
+                 transform_rgb888(src_buf, src_w, src_h, src_stride, xs_ups, ys_ups, xs_step_256, ys_step_256, dest_w, dest_buf, aa,
+-                                 3);
++                                 3, &sample_dsc);
+                 break;
+ #endif
+ #if LV_DRAW_SW_SUPPORT_A8
+             case LV_COLOR_FORMAT_A8:
+-                transform_a8(src_buf, src_w, src_h, src_stride, xs_ups, ys_ups, xs_step_256, ys_step_256, dest_w, dest_buf, aa);
++                transform_a8(src_buf, src_w, src_h, src_stride, xs_ups, ys_ups, xs_step_256, ys_step_256, dest_w, dest_buf, aa, &sample_dsc);
+                 break;
+ #endif
+ #if LV_DRAW_SW_SUPPORT_ARGB8888
+             case LV_COLOR_FORMAT_ARGB8888:
+                 transform_argb8888(src_buf, src_w, src_h, src_stride, xs_ups, ys_ups, xs_step_256, ys_step_256, dest_w, dest_buf,
+-                                   aa);
++                                   aa, &sample_dsc);
+                 break;
+ #endif
+ #if LV_DRAW_SW_SUPPORT_ARGB8888_PREMULTIPLIED
+             case LV_COLOR_FORMAT_ARGB8888_PREMULTIPLIED:
+                 transform_argb8888_premultiplied(src_buf, src_w, src_h, src_stride, xs_ups, ys_ups, xs_step_256, ys_step_256, dest_w,
+                                                  dest_buf,
+-                                                 aa);
++                                                 aa, &sample_dsc);
+                 break;
+ #endif
+ #if LV_DRAW_SW_SUPPORT_RGB565 && LV_DRAW_SW_SUPPORT_RGB565A8
+             case LV_COLOR_FORMAT_RGB565:
+                 transform_rgb565a8(src_buf, src_w, src_h, src_stride, xs_ups, ys_ups, xs_step_256, ys_step_256, dest_w, dest_buf,
+-                                   alpha_buf, false, aa);
++                                   alpha_buf, false, aa, &sample_dsc);
+                 break;
+ #endif
+ #if LV_DRAW_SW_SUPPORT_RGB565_SWAPPED
+             case LV_COLOR_FORMAT_RGB565_SWAPPED:
+                 transform_rgb565a8_swapped(src_buf, src_w, src_h, src_stride, xs_ups, ys_ups, xs_step_256, ys_step_256, dest_w,
+-                                           dest_buf, alpha_buf, false, aa);
++                                           dest_buf, alpha_buf, false, aa, &sample_dsc);
+                 break;
+ #endif
+ #if LV_DRAW_SW_SUPPORT_RGB565A8
+             case LV_COLOR_FORMAT_RGB565A8:
+                 transform_rgb565a8(src_buf, src_w, src_h, src_stride, xs_ups, ys_ups, xs_step_256, ys_step_256, dest_w,
+                                    (uint16_t *)dest_buf,
+-                                   alpha_buf, true, aa);
++                                   alpha_buf, true, aa, &sample_dsc);
+                 break;
+ #endif
+ 
+@@ -297,7 +293,7 @@ void lv_draw_sw_transform(const lv_area_t * dest_area, const void * src_buf,
+             case LV_COLOR_FORMAT_L8:
+                 transform_al88(src_buf, src_w, src_h, src_stride, xs_ups, ys_ups, xs_step_256, ys_step_256, dest_w,
+                                dest_buf,
+-                               alpha_buf, false, aa);
++                               alpha_buf, false, aa, &sample_dsc);
+                 break;
+ #endif
+ 
+@@ -305,7 +301,7 @@ void lv_draw_sw_transform(const lv_area_t * dest_area, const void * src_buf,
+             case LV_COLOR_FORMAT_AL88:
+                 transform_al88(src_buf, src_w, src_h, src_stride, xs_ups, ys_ups, xs_step_256, ys_step_256, dest_w,
+                                dest_buf,
+-                               alpha_buf, true, aa);
++                               alpha_buf, true, aa, &sample_dsc);
+                 break;
+ #endif
+ 
+@@ -330,16 +326,29 @@ void lv_draw_sw_transform(const lv_area_t * dest_area, const void * src_buf,
+ 
+ static void transform_rgb888(const uint8_t * src, int32_t src_w, int32_t src_h, int32_t src_stride,
+                              int32_t xs_ups, int32_t ys_ups, int32_t xs_step, int32_t ys_step,
+-                             int32_t x_end, uint8_t * dest_buf, bool aa, uint32_t px_size)
++                             int32_t x_end, uint8_t * dest_buf, bool aa, uint32_t px_size, const sample_transform_dsc_t * sample_dsc)
+ {
+     int32_t xs_ups_start = xs_ups;
+     int32_t ys_ups_start = ys_ups;
++    sample_axis_t x_axis = {0};
++    if(sample_dsc->scale_only) {
++        x_axis = sample_dsc->x_axis_start;
++    }
+     lv_color32_t * dest_c32 = (lv_color32_t *) dest_buf;
+ 
+     int32_t x;
+     for(x = 0; x < x_end; x++) {
+-        xs_ups = xs_ups_start + ((xs_step * x) >> 8);
+-        ys_ups = ys_ups_start + ((ys_step * x) >> 8);
++        if(sample_dsc->scale_only) {
++            xs_ups = x_axis.coord_q8;
++            sample_axis_advance(&x_axis);
++            ys_ups = ys_ups_start;
++        }
++        else {
++            xs_ups = xs_ups_start + ((xs_step * x) >> 8);
++            ys_ups = ys_ups_start + ((ys_step * x) >> 8);
++        }
++        xs_ups = clamp_upscale_sample_q8(xs_ups, src_w, sample_dsc->edge_extend_x);
++        ys_ups = clamp_upscale_sample_q8(ys_ups, src_h, sample_dsc->edge_extend_y);
+ 
+         int32_t xs_int = xs_ups >> 8;
+         int32_t ys_int = ys_ups >> 8;
+@@ -414,10 +423,10 @@ static void transform_rgb888(const uint8_t * src, int32_t src_w, int32_t src_h,
+         else {
+             lv_opa_t a = 0xff;
+ 
+-            if((xs_int == 0 && x_next < 0) || (xs_int == src_w - 1 && x_next > 0))  {
++            if(should_fade_missing_sample_edge(sample_dsc, xs_int, src_w, x_next, xs_fract, true))  {
+                 dest_c32[x].alpha = (a * (0xFF - xs_fract)) >> 8;
+             }
+-            else if((ys_int == 0 && y_next < 0) || (ys_int == src_h - 1 && y_next > 0))  {
++            else if(should_fade_missing_sample_edge(sample_dsc, ys_int, src_h, y_next, ys_fract, false))  {
+                 dest_c32[x].alpha = (a * (0xFF - ys_fract)) >> 8;
+             }
+         }
+@@ -430,16 +439,29 @@ static void transform_rgb888(const uint8_t * src, int32_t src_w, int32_t src_h,
+ 
+ static void transform_argb8888(const uint8_t * src, int32_t src_w, int32_t src_h, int32_t src_stride,
+                                int32_t xs_ups, int32_t ys_ups, int32_t xs_step, int32_t ys_step,
+-                               int32_t x_end, uint8_t * dest_buf, bool aa)
++                               int32_t x_end, uint8_t * dest_buf, bool aa, const sample_transform_dsc_t * sample_dsc)
+ {
+     int32_t xs_ups_start = xs_ups;
+     int32_t ys_ups_start = ys_ups;
++    sample_axis_t x_axis = {0};
++    if(sample_dsc->scale_only) {
++        x_axis = sample_dsc->x_axis_start;
++    }
+     lv_color32_t * dest_c32 = (lv_color32_t *) dest_buf;
+ 
+     int32_t x;
+     for(x = 0; x < x_end; x++) {
+-        xs_ups = xs_ups_start + ((xs_step * x) >> 8);
+-        ys_ups = ys_ups_start + ((ys_step * x) >> 8);
++        if(sample_dsc->scale_only) {
++            xs_ups = x_axis.coord_q8;
++            sample_axis_advance(&x_axis);
++            ys_ups = ys_ups_start;
++        }
++        else {
++            xs_ups = xs_ups_start + ((xs_step * x) >> 8);
++            ys_ups = ys_ups_start + ((ys_step * x) >> 8);
++        }
++        xs_ups = clamp_upscale_sample_q8(xs_ups, src_w, sample_dsc->edge_extend_x);
++        ys_ups = clamp_upscale_sample_q8(ys_ups, src_h, sample_dsc->edge_extend_y);
+ 
+         int32_t xs_int = xs_ups >> 8;
+         int32_t ys_int = ys_ups >> 8;
+@@ -507,10 +529,10 @@ static void transform_argb8888(const uint8_t * src, int32_t src_w, int32_t src_h
+         }
+         /*Partially out of the image*/
+         else {
+-            if((xs_int == 0 && x_next < 0) || (xs_int == src_w - 1 && x_next > 0))  {
++            if(should_fade_missing_sample_edge(sample_dsc, xs_int, src_w, x_next, xs_fract, true))  {
+                 dest_c32[x].alpha = (dest_c32[x].alpha * (0x7F - xs_fract)) >> 7;
+             }
+-            else if((ys_int == 0 && y_next < 0) || (ys_int == src_h - 1 && y_next > 0))  {
++            else if(should_fade_missing_sample_edge(sample_dsc, ys_int, src_h, y_next, ys_fract, false))  {
+                 dest_c32[x].alpha = (dest_c32[x].alpha * (0x7F - ys_fract)) >> 7;
+             }
+         }
+@@ -540,16 +562,29 @@ static lv_color32_t unpremultiply(lv_color32_t c)
+ 
+ static void transform_argb8888_premultiplied(const uint8_t * src, int32_t src_w, int32_t src_h, int32_t src_stride,
+                                              int32_t xs_ups, int32_t ys_ups, int32_t xs_step, int32_t ys_step,
+-                                             int32_t x_end, uint8_t * dest_buf, bool aa)
++                                             int32_t x_end, uint8_t * dest_buf, bool aa, const sample_transform_dsc_t * sample_dsc)
+ {
+     int32_t xs_ups_start = xs_ups;
+     int32_t ys_ups_start = ys_ups;
++    sample_axis_t x_axis = {0};
++    if(sample_dsc->scale_only) {
++        x_axis = sample_dsc->x_axis_start;
++    }
+     lv_color32_t * dest_c32 = (lv_color32_t *) dest_buf;
+ 
+     int32_t x;
+     for(x = 0; x < x_end; x++) {
+-        xs_ups = xs_ups_start + ((xs_step * x) >> 8);
+-        ys_ups = ys_ups_start + ((ys_step * x) >> 8);
++        if(sample_dsc->scale_only) {
++            xs_ups = x_axis.coord_q8;
++            sample_axis_advance(&x_axis);
++            ys_ups = ys_ups_start;
++        }
++        else {
++            xs_ups = xs_ups_start + ((xs_step * x) >> 8);
++            ys_ups = ys_ups_start + ((ys_step * x) >> 8);
++        }
++        xs_ups = clamp_upscale_sample_q8(xs_ups, src_w, sample_dsc->edge_extend_x);
++        ys_ups = clamp_upscale_sample_q8(ys_ups, src_h, sample_dsc->edge_extend_y);
+ 
+         int32_t xs_int = xs_ups >> 8;
+         int32_t ys_int = ys_ups >> 8;
+@@ -629,7 +664,7 @@ static void transform_argb8888_premultiplied(const uint8_t * src, int32_t src_w,
+         }
+         /*Partially out of the image*/
+         else {
+-            if((xs_int == 0 && x_next < 0) || (xs_int == src_w - 1 && x_next > 0))  {
++            if(should_fade_missing_sample_edge(sample_dsc, xs_int, src_w, x_next, xs_fract, true))  {
+                 dest_c32[x] = unpremultiply(dest_c32[x]);
+                 lv_opa_t alpha = (dest_c32[x].alpha * (0x7F - xs_fract)) >> 7;
+                 dest_c32[x].alpha = alpha;
+@@ -638,7 +673,7 @@ static void transform_argb8888_premultiplied(const uint8_t * src, int32_t src_w,
+                 dest_c32[x].blue = (dest_c32[x].blue * dest_c32[x].alpha) >> 8;
+ 
+             }
+-            else if((ys_int == 0 && y_next < 0) || (ys_int == src_h - 1 && y_next > 0))  {
++            else if(should_fade_missing_sample_edge(sample_dsc, ys_int, src_h, y_next, ys_fract, false))  {
+                 dest_c32[x] = unpremultiply(dest_c32[x]);
+                 lv_opa_t alpha = (dest_c32[x].alpha * (0x7F - ys_fract)) >> 7;
+                 dest_c32[x].alpha = alpha;
+@@ -655,10 +690,14 @@ static void transform_argb8888_premultiplied(const uint8_t * src, int32_t src_w,
+ 
+ static void transform_rgb565a8(const uint8_t * src, int32_t src_w, int32_t src_h, int32_t src_stride,
+                                int32_t xs_ups, int32_t ys_ups, int32_t xs_step, int32_t ys_step,
+-                               int32_t x_end, uint16_t * cbuf, uint8_t * abuf, bool src_has_a8, bool aa)
++                               int32_t x_end, uint16_t * cbuf, uint8_t * abuf, bool src_has_a8, bool aa, const sample_transform_dsc_t * sample_dsc)
+ {
+     int32_t xs_ups_start = xs_ups;
+     int32_t ys_ups_start = ys_ups;
++    sample_axis_t x_axis = {0};
++    if(sample_dsc->scale_only) {
++        x_axis = sample_dsc->x_axis_start;
++    }
+ 
+     const lv_opa_t * src_alpha = src + src_stride * src_h;
+ 
+@@ -667,8 +706,17 @@ static void transform_rgb565a8(const uint8_t * src, int32_t src_w, int32_t src_h
+ 
+     int32_t x;
+     for(x = 0; x < x_end; x++) {
+-        xs_ups = xs_ups_start + ((xs_step * x) >> 8);
+-        ys_ups = ys_ups_start + ((ys_step * x) >> 8);
++        if(sample_dsc->scale_only) {
++            xs_ups = x_axis.coord_q8;
++            sample_axis_advance(&x_axis);
++            ys_ups = ys_ups_start;
++        }
++        else {
++            xs_ups = xs_ups_start + ((xs_step * x) >> 8);
++            ys_ups = ys_ups_start + ((ys_step * x) >> 8);
++        }
++        xs_ups = clamp_upscale_sample_q8(xs_ups, src_w, sample_dsc->edge_extend_x);
++        ys_ups = clamp_upscale_sample_q8(ys_ups, src_h, sample_dsc->edge_extend_y);
+ 
+         int32_t xs_int = xs_ups >> 8;
+         int32_t ys_int = ys_ups >> 8;
+@@ -751,10 +799,10 @@ static void transform_rgb565a8(const uint8_t * src, int32_t src_w, int32_t src_h
+                 a = 0xff;
+             }
+ 
+-            if((xs_int == 0 && x_next < 0) || (xs_int == src_w - 1 && x_next > 0))  {
++            if(should_fade_missing_sample_edge(sample_dsc, xs_int, src_w, x_next, xs_fract, true))  {
+                 abuf[x] = (a * (0xFF - xs_fract)) >> 8;
+             }
+-            else if((ys_int == 0 && y_next < 0) || (ys_int == src_h - 1 && y_next > 0))  {
++            else if(should_fade_missing_sample_edge(sample_dsc, ys_int, src_h, y_next, ys_fract, false))  {
+                 abuf[x] = (a * (0xFF - ys_fract)) >> 8;
+             }
+             else {
+@@ -770,10 +818,14 @@ static void transform_rgb565a8(const uint8_t * src, int32_t src_w, int32_t src_h
+ 
+ static void transform_rgb565a8_swapped(const uint8_t * src, int32_t src_w, int32_t src_h, int32_t src_stride,
+                                        int32_t xs_ups, int32_t ys_ups, int32_t xs_step, int32_t ys_step,
+-                                       int32_t x_end, uint16_t * cbuf, uint8_t * abuf, bool src_has_a8, bool aa)
++                                       int32_t x_end, uint16_t * cbuf, uint8_t * abuf, bool src_has_a8, bool aa, const sample_transform_dsc_t * sample_dsc)
+ {
+     int32_t xs_ups_start = xs_ups;
+     int32_t ys_ups_start = ys_ups;
++    sample_axis_t x_axis = {0};
++    if(sample_dsc->scale_only) {
++        x_axis = sample_dsc->x_axis_start;
++    }
+ 
+     const lv_opa_t * src_alpha = src + src_stride * src_h;
+ 
+@@ -782,8 +834,17 @@ static void transform_rgb565a8_swapped(const uint8_t * src, int32_t src_w, int32
+ 
+     int32_t x;
+     for(x = 0; x < x_end; x++) {
+-        xs_ups = xs_ups_start + ((xs_step * x) >> 8);
+-        ys_ups = ys_ups_start + ((ys_step * x) >> 8);
++        if(sample_dsc->scale_only) {
++            xs_ups = x_axis.coord_q8;
++            sample_axis_advance(&x_axis);
++            ys_ups = ys_ups_start;
++        }
++        else {
++            xs_ups = xs_ups_start + ((xs_step * x) >> 8);
++            ys_ups = ys_ups_start + ((ys_step * x) >> 8);
++        }
++        xs_ups = clamp_upscale_sample_q8(xs_ups, src_w, sample_dsc->edge_extend_x);
++        ys_ups = clamp_upscale_sample_q8(ys_ups, src_h, sample_dsc->edge_extend_y);
+ 
+         int32_t xs_int = xs_ups >> 8;
+         int32_t ys_int = ys_ups >> 8;
+@@ -867,10 +928,10 @@ static void transform_rgb565a8_swapped(const uint8_t * src, int32_t src_w, int32
+                 a = 0xff;
+             }
+ 
+-            if((xs_int == 0 && x_next < 0) || (xs_int == src_w - 1 && x_next > 0))  {
++            if(should_fade_missing_sample_edge(sample_dsc, xs_int, src_w, x_next, xs_fract, true))  {
+                 abuf[x] = (a * (0xFF - xs_fract)) >> 8;
+             }
+-            else if((ys_int == 0 && y_next < 0) || (ys_int == src_h - 1 && y_next > 0))  {
++            else if(should_fade_missing_sample_edge(sample_dsc, ys_int, src_h, y_next, ys_fract, false))  {
+                 abuf[x] = (a * (0xFF - ys_fract)) >> 8;
+             }
+             else {
+@@ -886,15 +947,28 @@ static void transform_rgb565a8_swapped(const uint8_t * src, int32_t src_w, int32
+ 
+ static void transform_a8(const uint8_t * src, int32_t src_w, int32_t src_h, int32_t src_stride,
+                          int32_t xs_ups, int32_t ys_ups, int32_t xs_step, int32_t ys_step,
+-                         int32_t x_end, uint8_t * abuf, bool aa)
++                         int32_t x_end, uint8_t * abuf, bool aa, const sample_transform_dsc_t * sample_dsc)
+ {
+     int32_t xs_ups_start = xs_ups;
+     int32_t ys_ups_start = ys_ups;
++    sample_axis_t x_axis = {0};
++    if(sample_dsc->scale_only) {
++        x_axis = sample_dsc->x_axis_start;
++    }
+ 
+     int32_t x;
+     for(x = 0; x < x_end; x++) {
+-        xs_ups = xs_ups_start + ((xs_step * x) >> 8);
+-        ys_ups = ys_ups_start + ((ys_step * x) >> 8);
++        if(sample_dsc->scale_only) {
++            xs_ups = x_axis.coord_q8;
++            sample_axis_advance(&x_axis);
++            ys_ups = ys_ups_start;
++        }
++        else {
++            xs_ups = xs_ups_start + ((xs_step * x) >> 8);
++            ys_ups = ys_ups_start + ((ys_step * x) >> 8);
++        }
++        xs_ups = clamp_upscale_sample_q8(xs_ups, src_w, sample_dsc->edge_extend_x);
++        ys_ups = clamp_upscale_sample_q8(ys_ups, src_h, sample_dsc->edge_extend_y);
+ 
+         int32_t xs_int = xs_ups >> 8;
+         int32_t ys_int = ys_ups >> 8;
+@@ -948,10 +1022,10 @@ static void transform_a8(const uint8_t * src, int32_t src_w, int32_t src_h, int3
+         }
+         else {
+             /*Partially out of the image*/
+-            if((xs_int == 0 && x_next < 0) || (xs_int == src_w - 1 && x_next > 0))  {
++            if(should_fade_missing_sample_edge(sample_dsc, xs_int, src_w, x_next, xs_fract, true))  {
+                 abuf[x] = (src_tmp[0] * (0xFF - xs_fract)) >> 8;
+             }
+-            else if((ys_int == 0 && y_next < 0) || (ys_int == src_h - 1 && y_next > 0))  {
++            else if(should_fade_missing_sample_edge(sample_dsc, ys_int, src_h, y_next, ys_fract, false))  {
+                 abuf[x] = (src_tmp[0] * (0xFF - ys_fract)) >> 8;
+             }
+         }
+@@ -964,15 +1038,28 @@ static void transform_a8(const uint8_t * src, int32_t src_w, int32_t src_h, int3
+ 
+ static void transform_al88(const uint8_t * src, int32_t src_w, int32_t src_h, int32_t src_stride,
+                            int32_t xs_ups, int32_t ys_ups, int32_t xs_step, int32_t ys_step,
+-                           int32_t x_end, uint8_t * cbuf, uint8_t * abuf, bool src_has_a8, bool aa)
++                           int32_t x_end, uint8_t * cbuf, uint8_t * abuf, bool src_has_a8, bool aa, const sample_transform_dsc_t * sample_dsc)
+ {
+     int32_t xs_ups_start = xs_ups;
+     int32_t ys_ups_start = ys_ups;
++    sample_axis_t x_axis = {0};
++    if(sample_dsc->scale_only) {
++        x_axis = sample_dsc->x_axis_start;
++    }
+ 
+     int32_t x;
+     for(x = 0; x < x_end; x++) {
+-        xs_ups = xs_ups_start + ((xs_step * x) >> 8);
+-        ys_ups = ys_ups_start + ((ys_step * x) >> 8);
++        if(sample_dsc->scale_only) {
++            xs_ups = x_axis.coord_q8;
++            sample_axis_advance(&x_axis);
++            ys_ups = ys_ups_start;
++        }
++        else {
++            xs_ups = xs_ups_start + ((xs_step * x) >> 8);
++            ys_ups = ys_ups_start + ((ys_step * x) >> 8);
++        }
++        xs_ups = clamp_upscale_sample_q8(xs_ups, src_w, sample_dsc->edge_extend_x);
++        ys_ups = clamp_upscale_sample_q8(ys_ups, src_h, sample_dsc->edge_extend_y);
+ 
+         int32_t xs_int = xs_ups >> 8;
+         int32_t ys_int = ys_ups >> 8;
+@@ -1038,10 +1125,10 @@ static void transform_al88(const uint8_t * src, int32_t src_w, int32_t src_h, in
+             }
+             else {
+                 /*Partially out of the image*/
+-                if((xs_int == 0 && x_next < 0) || (xs_int == src_w - 1 && x_next > 0)) {
++                if(should_fade_missing_sample_edge(sample_dsc, xs_int, src_w, x_next, xs_fract, true)) {
+                     abuf[x] = (abuf[x] * (0xFF - xs_fract)) >> 8;
+                 }
+-                else if((ys_int == 0 && y_next < 0) || (ys_int == src_h - 1 && y_next > 0)) {
++                else if(should_fade_missing_sample_edge(sample_dsc, ys_int, src_h, y_next, ys_fract, false)) {
+                     abuf[x] = (abuf[x] * (0xFF - ys_fract)) >> 8;
+                 }
+             }
+@@ -1067,10 +1154,10 @@ static void transform_al88(const uint8_t * src, int32_t src_w, int32_t src_h, in
+             }
+             else {
+                 /*Partially out of the image - reduce alpha for edge pixels*/
+-                if((xs_int == 0 && x_next < 0) || (xs_int == src_w - 1 && x_next > 0)) {
++                if(should_fade_missing_sample_edge(sample_dsc, xs_int, src_w, x_next, xs_fract, true)) {
+                     abuf[x] = (0xff * (0xFF - xs_fract)) >> 8;
+                 }
+-                else if((ys_int == 0 && y_next < 0) || (ys_int == src_h - 1 && y_next > 0)) {
++                else if(should_fade_missing_sample_edge(sample_dsc, ys_int, src_h, y_next, ys_fract, false)) {
+                     abuf[x] = (0xff * (0xFF - ys_fract)) >> 8;
+                 }
+             }
+@@ -1080,6 +1167,59 @@ static void transform_al88(const uint8_t * src, int32_t src_w, int32_t src_h, in
+ 
+ #endif
+ 
++static int64_t floor_divide_i64(int64_t numerator, int32_t denominator)
++{
++    int64_t quotient = numerator / denominator;
++    if(numerator % denominator < 0) quotient--;
++    return quotient;
++}
++
++static sample_axis_t sample_axis_init(int32_t dest, int32_t pivot, int32_t scale)
++{
++    int64_t delta = (int64_t)dest - pivot;
++    int64_t numerator = delta * 65536 + 32768;
++    int64_t quotient = floor_divide_i64(numerator, scale);
++    int64_t remainder = numerator - quotient * scale;
++    sample_axis_t axis = {
++        .coord_q8 = (int32_t)(quotient + (int64_t)pivot * 256),
++        .remainder = (int32_t)remainder,
++        .step_q8 = 65536 / scale,
++        .step_remainder = 65536 % scale,
++        .scale = scale,
++    };
++    return axis;
++}
++
++static void sample_axis_advance(sample_axis_t * axis)
++{
++    axis->coord_q8 += axis->step_q8;
++    axis->remainder += axis->step_remainder;
++    if(axis->remainder >= axis->scale) {
++        axis->coord_q8++;
++        axis->remainder -= axis->scale;
++    }
++}
++
++static int32_t clamp_upscale_sample_q8(int32_t sample_q8, int32_t src_size, bool edge_extend)
++{
++    int64_t source_extent_q8 = (int64_t)src_size * 256;
++    if(edge_extend && sample_q8 >= 0 && (int64_t)sample_q8 < source_extent_q8) {
++        if(sample_q8 < 128) return 128;
++        int64_t last_center_q8 = source_extent_q8 - 128;
++        if((int64_t)sample_q8 > last_center_q8) return (int32_t)last_center_q8;
++    }
++    return sample_q8;
++}
++
++static bool should_fade_missing_sample_edge(const sample_transform_dsc_t * sample_dsc, int32_t sample_index,
++                                            int32_t src_size, int32_t neighbor_offset, int32_t weight, bool x_axis)
++{
++    bool edge_extend = x_axis ? sample_dsc->edge_extend_x : sample_dsc->edge_extend_y;
++    if(edge_extend || (sample_dsc->scale_only && weight == 0)) return false;
++    return (sample_index == 0 && neighbor_offset < 0) ||
++           (sample_index == src_size - 1 && neighbor_offset > 0);
++}
++
+ static void transform_point_upscaled(point_transform_dsc_t * t, int32_t xin, int32_t yin, int32_t * xout,
+                                      int32_t * yout)
+ {

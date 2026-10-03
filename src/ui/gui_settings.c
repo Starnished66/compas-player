@@ -2398,7 +2398,7 @@ static void build_timezone_city_screen_items(compact_list_item_t * items, const 
 static lv_obj_t * build_timezone_city_screen(const char * region) {
     compact_list_item_t * items = malloc(sizeof(compact_list_item_t) * (size_t) TIMEZONE_TABLE_COUNT);
     build_timezone_city_screen_items(items, region);
-    lv_obj_t * scr = build_compact_list_screen(region, generic_back_cb, items, timezone_city_count, timezone_city_row_click_cb, NULL, NULL, NULL, LIST_ROW_WIDTH, false, lv_color_black());
+    lv_obj_t * scr = build_compact_list_screen(region, generic_back_cb, items, timezone_city_count, timezone_city_row_click_cb, NULL, NULL, NULL, LIST_ROW_WIDTH, false, NULL);
     free(items);
     finalize_screen_navigation(scr);
     return scr;
@@ -2859,21 +2859,35 @@ static void player_layout_download_cb(lv_event_t * e) {
     (void) gui_plugin_store_open_player_layouts();
 }
 
-static void populate_player_layout_choice_screen(void) {
-    if (!player_layout_choice_list) return;
-    lv_obj_clean(player_layout_choice_list);
+void gui_settings_populate_player_layout_picker(lv_obj_t * list, bool suggested_only) {
+    if (!list) return;
+    lv_obj_clean(list);
     player_layouts_rescan();
-    add_pill_chevron_row(player_layout_choice_list, TR("Download"), player_layout_download_cb);
+    if (!suggested_only) {
+        lv_obj_t * download = add_pill_chevron_row(list, TR("Download"), player_layout_download_cb);
+        lv_obj_set_width(download, lv_pct(100));
+    }
     const char * active = player_layouts_effective_id();
-    lv_obj_t * grid = lv_obj_create(player_layout_choice_list);
+    lv_obj_t * grid = lv_obj_create(list);
     lv_obj_remove_style_all(grid);
     lv_obj_set_width(grid, lv_pct(100));
     lv_obj_set_height(grid, LV_SIZE_CONTENT);
     lv_obj_remove_flag(grid, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     configure_cover_card_grid(grid, 2);
-    const lv_font_t * status_font = gui_theme_font(GUI_FONT_ROLE_SUBTEXT);
-    int32_t status_height = lv_font_get_line_height(status_font) + BOARD_SCALE_PX(4);
-    for (int i = 0; i < player_layouts_count(); i++) {
+    /* The outline extends outside each card. Reserve space at the grid's
+     * edges so its first and last rows retain the complete selection ring. */
+    lv_obj_set_style_pad_top(grid, BOARD_SCALE_PX(6), 0);
+    lv_obj_set_style_pad_bottom(grid, BOARD_SCALE_PX(6), 0);
+    int preferred_vinyl_index = player_layouts_find("vinyl");
+    if (preferred_vinyl_index < 0)
+        preferred_vinyl_index = player_layouts_find("plugin.vinyl_player");
+    int default_index = player_layouts_find(PLAYER_LAYOUT_ID_DEFAULT);
+    int layout_count = suggested_only ? 2 : player_layouts_count();
+    for (int selection = 0; selection < layout_count; selection++) {
+        int i = suggested_only
+            ? (selection == 0 ? default_index : preferred_vinyl_index)
+            : selection;
+        if (i < 0 || (suggested_only && selection == 1 && i == default_index)) continue;
         const player_layout_info_t * info = player_layouts_get(i);
         bool selected = strcmp(info->id, active) == 0;
         char preview[512], resolved[520];
@@ -2891,21 +2905,13 @@ static void populate_player_layout_choice_screen(void) {
         lv_obj_set_style_outline_opa(card, LV_OPA_COVER, 0);
         lv_obj_set_style_outline_pad(card, BOARD_SCALE_PX(2), 0);
 
-        lv_obj_t * status = lv_label_create(card);
-        lv_label_set_text(status, selected ? TR("Selected") : "");
-        lv_obj_set_width(status, lv_pct(100));
-        lv_obj_set_height(status, status_height);
-        lv_label_set_long_mode(status, LV_LABEL_LONG_DOT);
-        lv_obj_add_style(status, selected ? &style_theme_text_primary : &style_theme_text_muted, 0);
-        lv_obj_set_style_text_font(status, status_font, 0);
-        lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_remove_flag(status, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
     }
 }
 
 static void player_layout_choice_settings_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    populate_player_layout_choice_screen();
+    if (!player_layout_choice_screen) return;
+    gui_settings_populate_player_layout_picker(player_layout_choice_list, false);
     nav_push(player_layout_choice_screen);
 }
 

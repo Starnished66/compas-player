@@ -5,6 +5,7 @@
 #include "gui_reload.h"
 #include "gui_network.h"
 #include "gui_plugin_store.h"
+#include "gui_settings.h"
 #include "gui_setup_plugins.h"
 #include "gui_notifications.h"
 #include "gui_theme.h"
@@ -24,7 +25,29 @@
 #include <string.h>
 
 extern player_settings_t current_settings;
-enum { STEP_WELCOME, STEP_LANGUAGE, STEP_TIMEZONE, STEP_WIFI, STEP_PLUGINS, STEP_SCAN, STEP_COMPLETE };
+/* Keep persisted IDs stable; Layout is appended as ID 7. Display order is
+ * separate because Layout now sits between Plugins and Scan. */
+enum {
+    STEP_WELCOME = 0, STEP_LANGUAGE = 1, STEP_TIMEZONE = 2, STEP_WIFI = 3,
+    STEP_PLUGINS = 4, STEP_SCAN = 5, STEP_COMPLETE = 6, STEP_LAYOUT = 7
+};
+static const int setup_step_order[] = {
+    STEP_WELCOME, STEP_LANGUAGE, STEP_TIMEZONE, STEP_WIFI,
+    STEP_PLUGINS, STEP_LAYOUT, STEP_SCAN, STEP_COMPLETE
+};
+
+static int setup_step_position(int value) {
+    for (size_t i = 0; i < sizeof(setup_step_order) / sizeof(setup_step_order[0]); ++i)
+        if (setup_step_order[i] == value) return (int)i;
+    return -1;
+}
+
+static int setup_step_at_position(int position) {
+    const int count = (int)(sizeof(setup_step_order) / sizeof(setup_step_order[0]));
+    if (position < 0) position = 0;
+    if (position >= count) position = count - 1;
+    return setup_step_order[position];
+}
 static lv_obj_t * setup_screen;
 static lv_obj_t * content;
 static lv_obj_t * setup_body;
@@ -148,7 +171,8 @@ static bool installation_blocks_navigation(void) {
 }
 static void advance_step(const char * source) {
     int previous_step = step;
-    if (step < STEP_COMPLETE) step++;
+    int position = setup_step_position(step);
+    if (position >= 0) step = setup_step_at_position(position + 1);
     if (step == STEP_TIMEZONE || step == STEP_WIFI) gui_network_setup_wifi_prepare();
     DB_LOG("SETUP_NAV", "advance source=%s before=%d after=%d", source ? source : "unknown",
            previous_step, step);
@@ -160,7 +184,7 @@ static void skip_cb(lv_event_t * e) {
     if (!installation_blocks_navigation()) advance_step("skip");
 }
 static void plugins_installed(void) {
-    step = STEP_SCAN;
+    step = STEP_LAYOUT;
     save_progress_from("plugins-installed");
     gui_reload_request();
 }
@@ -179,7 +203,7 @@ static void next_cb(lv_event_t * e) {
         if (strcmp(staged_language, current_settings.language) != 0) {
             snprintf(current_settings.language, sizeof(current_settings.language), "%s", staged_language);
             i18n_set_language(staged_language);
-            step++;
+            step = setup_step_at_position(setup_step_position(step) + 1);
             save_progress_from("language-next");
             gui_reload_request();
             return;
@@ -196,7 +220,8 @@ static void back_cb(lv_event_t * e) {
            step, (void *)target, target && lv_obj_is_valid(target), (void *)indev, point.x, point.y);
     (void)db_log_flush();
     if (installation_blocks_navigation()) return;
-    if (step > STEP_WELCOME) step--;
+    int position = setup_step_position(step);
+    if (position > 0) step = setup_step_at_position(position - 1);
     save_progress_from("back");
     schedule_render();
 }
@@ -387,6 +412,10 @@ static void open_plugins_cb(lv_event_t * e) {
     (void)e;
     (void)gui_plugin_store_open_picker(gui_setup_plugins_is_selected, gui_setup_plugins_toggle);
 }
+static void open_player_layouts_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    (void)gui_plugin_store_open_player_layouts();
+}
 static void style_plugin_selection(lv_obj_t * row, const char * id) {
     bool selected = gui_setup_plugins_is_selected(id);
     lv_obj_set_style_border_width(row, selected ? BOARD_SCALE_PX(2) : 0, 0);
@@ -469,10 +498,12 @@ static void add_page_title(lv_obj_t * parent, const char * title, const char * d
 }
 
 static const char * const journey_icons[] = {
-    LV_SYMBOL_SETTINGS, LV_SYMBOL_GPS, LV_SYMBOL_WIFI, LV_SYMBOL_LIST, LV_SYMBOL_AUDIO
+    LV_SYMBOL_SETTINGS, LV_SYMBOL_GPS, LV_SYMBOL_WIFI, LV_SYMBOL_LIST,
+    LV_SYMBOL_IMAGE, LV_SYMBOL_AUDIO
 };
 static const char * const journey_names[] = {
-    N_("Language"), N_("Time zone"), N_("Wi-Fi"), N_("Plugins"), N_("Music")
+    N_("Language"), N_("Time zone"), N_("Wi-Fi"), N_("Plugins"),
+    N_("Layout"), N_("Music")
 };
 
 static void add_header(void) {
@@ -554,13 +585,14 @@ static void add_progress(void) {
     lv_obj_set_style_pad_column(strip, BOARD_SCALE_PX(5), 0);
     lv_obj_set_flex_flow(strip, LV_FLEX_FLOW_ROW);
     no_scrollbar(strip);
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 6; ++i) {
         lv_obj_t * segment = lv_obj_create(strip);
         lv_obj_set_height(segment, BOARD_SCALE_PX(6));
         lv_obj_set_flex_grow(segment, 1);
         lv_obj_set_style_radius(segment, LV_RADIUS_CIRCLE, 0);
         lv_obj_set_style_border_width(segment, 0, 0);
-        lv_obj_set_style_bg_color(segment, i + 1 <= step ? accent_lv_color() : lv_color_hex(GUI_COLOR_PANEL), 0);
+        lv_obj_set_style_bg_color(segment, i + 1 <= setup_step_position(step)
+            ? accent_lv_color() : lv_color_hex(GUI_COLOR_PANEL), 0);
         lv_obj_set_style_bg_opa(segment, LV_OPA_COVER, 0);
         no_scrollbar(segment);
     }
@@ -611,6 +643,7 @@ static void add_journey(void) {
     lv_obj_set_style_text_font(heading, gui_theme_font(GUI_FONT_ROLE_STATUS), 0);
     lv_obj_set_style_text_color(heading, lv_color_hex(GUI_COLOR_SECONDARY), 0);
     lv_obj_set_style_text_align(heading, LV_TEXT_ALIGN_CENTER, 0);
+    const int position = setup_step_position(step);
     for (int row_index = 0; row_index < 3; ++row_index) {
         lv_obj_t * row = lv_obj_create(panel);
         lv_obj_set_width(row, LV_PCT(100));
@@ -625,16 +658,15 @@ static void add_journey(void) {
         no_scrollbar(row);
         int start = row_index * 2;
         int end = start + 2;
-        if (end > 5) end = 5;
+        if (end > 6) end = 6;
         for (int i = start; i < end; ++i) {
             lv_obj_t * chip = lv_obj_create(row);
             lv_obj_set_height(chip, LV_PCT(100));
-            if (row_index == 2) lv_obj_set_width(chip, LV_PCT(100));
-            else lv_obj_set_flex_grow(chip, 1);
+            lv_obj_set_flex_grow(chip, 1);
             lv_obj_set_style_bg_color(chip, lv_color_hex(GUI_COLOR_PANEL), 0);
             lv_obj_set_style_bg_opa(chip, LV_OPA_COVER, 0);
             lv_obj_set_style_radius(chip, LV_RADIUS_CIRCLE, 0);
-            lv_obj_set_style_border_width(chip, i + 1 == step ? BOARD_SCALE_PX(1) : 0, 0);
+            lv_obj_set_style_border_width(chip, i + 1 == position ? BOARD_SCALE_PX(1) : 0, 0);
             lv_obj_set_style_border_color(chip, accent_lv_color(), 0);
             no_scrollbar(chip);
             lv_obj_set_style_pad_top(chip, 0, 0);
@@ -648,7 +680,7 @@ static void add_journey(void) {
             lv_obj_t * icon = lv_label_create(chip);
             lv_label_set_text(icon, journey_icons[i]);
             lv_obj_set_width(icon, icon_column_width);
-            lv_obj_set_style_text_color(icon, i + 1 <= step ? accent_lv_color() : lv_color_hex(GUI_COLOR_SECONDARY), 0);
+            lv_obj_set_style_text_color(icon, i + 1 <= position ? accent_lv_color() : lv_color_hex(GUI_COLOR_SECONDARY), 0);
             lv_obj_set_style_text_font(icon, icon_font, 0);
             lv_obj_set_style_text_align(icon, LV_TEXT_ALIGN_CENTER, 0);
             lv_obj_t * name = lv_label_create(chip);
@@ -796,9 +828,10 @@ static void add_step_illustration(void) {
         lv_obj_add_event_cb(visual, timezone_map_draw, LV_EVENT_DRAW_MAIN, NULL);
         return;
     }
-    const int32_t size = BOARD_SCALE_PX(step == STEP_WIFI ? 56 : step == STEP_PLUGINS ? 56 : 92);
+    const bool compact_badge = step == STEP_WIFI || step == STEP_PLUGINS;
+    const int32_t size = BOARD_SCALE_PX(compact_badge ? 56 : 92);
     if (step == STEP_WIFI) lv_obj_set_height(visual, BOARD_SCALE_PX(64));
-    if (step == STEP_PLUGINS) lv_obj_set_height(visual, BOARD_SCALE_PX(56));
+    else if (compact_badge) lv_obj_set_height(visual, BOARD_SCALE_PX(56));
     lv_obj_t * badge = lv_obj_create(visual);
     lv_obj_set_size(badge, size, size);
     lv_obj_align(badge, LV_ALIGN_LEFT_MID, BOARD_SCALE_PX(2), 0);
@@ -1003,19 +1036,23 @@ static void render_async(void * unused) {
 
     lv_obj_t * step_count = label(setup_body, "", GUI_FONT_ROLE_STATUS,
                                   style_color(&style_theme_text_muted, LV_STYLE_TEXT_COLOR, GUI_COLOR_SECONDARY), LV_PCT(100));
-    lv_label_set_text_fmt(step_count, TR("Step %d of %d"), step, STEP_SCAN);
+    int position = setup_step_position(step);
+    lv_label_set_text_fmt(step_count, TR("Step %d of %d"), position,
+                          setup_step_position(STEP_SCAN));
     if (step == STEP_TIMEZONE) gui_network_setup_wifi_prepare();
-    add_step_illustration();
+    if (step != STEP_LAYOUT) add_step_illustration();
 
     const char * title = step == STEP_LANGUAGE ? TR("Language") :
                          step == STEP_TIMEZONE ? TR("Time zone") :
                          step == STEP_WIFI ? TR("Wi-Fi") :
-                         step == STEP_PLUGINS ? TR("Plugins") : TR("Your music");
+                         step == STEP_PLUGINS ? TR("Plugins") :
+                         step == STEP_LAYOUT ? TR("Player Layout") : TR("Your music");
     char timezone_detail[192];
     const char * detail = step == STEP_LANGUAGE ? TR("Choose the language for your player.") :
                           step == STEP_TIMEZONE ? TR("Set your local time zone so the clock is right.") :
                           step == STEP_WIFI ? TR("Connect to Wi-Fi for streaming, updates, and online services.") :
                           step == STEP_PLUGINS ? TR("Start with these suggestions, or explore more plugins.") :
+                          step == STEP_LAYOUT ? NULL :
                           TR("Insert your SD card with music files. Compas Player can scan it and build your library.");
     if (step == STEP_TIMEZONE) {
         const char * selected_timezone = current_settings.timezone[0] ? current_settings.timezone : TR("Not selected (UTC)");
@@ -1113,6 +1150,15 @@ static void render_async(void * unused) {
         plugin_network_refresh();
         if (!plugin_network_timer) plugin_network_timer = lv_timer_create(plugin_network_poll, 500, NULL);
         button(footer, TR("Done"), true, next_cb);
+        return;
+    }
+    if (step == STEP_LAYOUT) {
+        lv_obj_set_style_bg_opa(card, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_pad_all(card, 0, 0);
+        lv_obj_set_style_border_width(card, 0, 0);
+        gui_settings_populate_player_layout_picker(card, true);
+        button(card, TR("More"), false, open_player_layouts_cb);
+        button(footer, TR("Continue"), true, next_cb);
         return;
     }
     lv_obj_t * row = lv_obj_create(card);
@@ -1262,6 +1308,7 @@ bool gui_setup_show_if_needed(void) {
     if (!setup_started) {
         setup_started = true;
         step = current_settings.setup_step;
+        if (setup_step_position(step) < 0) step = STEP_WELCOME;
         staged_scan = true;
         snprintf(staged_language, sizeof(staged_language), "%s",
                  current_settings.language[0] ? current_settings.language : I18N_DEFAULT_LANGUAGE);

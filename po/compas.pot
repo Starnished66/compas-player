@@ -1529,6 +1529,9 @@ msgstr ""
 msgid "Could not start the plugin refresh"
 msgstr ""
 
+msgid "Loading layouts"
+msgstr ""
+
 msgid "Loading plugins"
 msgstr ""
 

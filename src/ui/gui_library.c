@@ -650,7 +650,7 @@ static void all_songs_row_long_press_cb(int display_index) {
 static lv_obj_t * build_all_songs_screen(void) {
     lv_obj_t * scr = build_compact_list_screen(TR("All Songs"), generic_back_cb, NULL, 0, all_songs_row_click_cb,
                                                 all_songs_row_long_press_cb, &all_songs_list, NULL,
-                                                LIST_ROW_WIDTH_WIDE, true, accent_lv_color());
+                                                LIST_ROW_WIDTH_WIDE, true, gui_theme_accent_style());
     compact_list_set_row_height(all_songs_list, MUSIC_LIST_ROW_HEIGHT);
     compact_list_set_paged_provider(all_songs_list, all_songs_fetch_page, NULL,
                                      (int) metadata_db_get_song_count() + 1);
@@ -737,7 +737,7 @@ static void recently_added_row_long_press_cb(int display_index) {
 static lv_obj_t * build_recently_added_screen(void) {
     lv_obj_t * scr = build_compact_list_screen(TR("Recently Added"), generic_back_cb, NULL, 0, recently_added_row_click_cb,
                                                 recently_added_row_long_press_cb, &recently_added_list, NULL,
-                                                LIST_ROW_WIDTH_WIDE, true, accent_lv_color());
+                                                LIST_ROW_WIDTH_WIDE, true, gui_theme_accent_style());
     compact_list_set_row_height(recently_added_list, MUSIC_LIST_ROW_HEIGHT);
     compact_list_set_paged_provider(recently_added_list, recently_added_fetch_page, NULL,
                                      (int) metadata_db_get_song_count() + 1);
@@ -1275,7 +1275,7 @@ static void populate_group_songs_rows(void) {
     lv_obj_remove_style_all(group_songs_now_playing_bar);
     lv_obj_set_size(group_songs_now_playing_bar, BOARD_SCALE_PX(5), ui_list_row_height());
     lv_obj_add_style(group_songs_now_playing_bar, &native_row_min_style, 0);
-    lv_obj_set_style_bg_color(group_songs_now_playing_bar, accent_lv_color(), 0);
+    lv_obj_add_style(group_songs_now_playing_bar, gui_theme_accent_style(), 0);
     lv_obj_set_style_bg_opa(group_songs_now_playing_bar, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(group_songs_now_playing_bar, 2, 0);
     lv_obj_add_flag(group_songs_now_playing_bar, LV_OBJ_FLAG_IGNORE_LAYOUT);
@@ -4528,7 +4528,7 @@ static void album_row_click_cb(int index) {
 static lv_obj_t * build_artists_screen(void) {
     lv_obj_t * scr = build_compact_list_screen(TR("Artists"), generic_back_cb, NULL, 0, artist_row_click_cb,
                                                 artist_collection_long_press_cb, &artists_list, NULL,
-                                                LIST_ROW_WIDTH_WIDE, true, accent_lv_color());
+                                                LIST_ROW_WIDTH_WIDE, true, gui_theme_accent_style());
     compact_list_set_row_height(artists_list, MUSIC_LIST_ROW_HEIGHT);
     int artist_count = 0, album_artist_count = 0, album_count = 0;
     metadata_db_get_group_counts(&artist_count, &album_artist_count, &album_count);
@@ -4548,7 +4548,7 @@ static lv_obj_t * build_artists_screen(void) {
 static lv_obj_t * build_albums_screen(void) {
     lv_obj_t * scr = build_compact_list_screen(TR("Albums"), generic_back_cb, NULL, 0, album_row_click_cb,
                                                 album_row_long_press_cb, &albums_list, NULL,
-                                                LIST_ROW_WIDTH_WIDE, true, accent_lv_color());
+                                                LIST_ROW_WIDTH_WIDE, true, gui_theme_accent_style());
     compact_list_set_row_height(albums_list, MUSIC_LIST_ROW_HEIGHT);
     int artist_count = 0, album_artist_count = 0, album_count = 0;
     metadata_db_get_group_counts(&artist_count, &album_artist_count, &album_count);
@@ -4587,7 +4587,7 @@ static void album_artist_row_click_cb(int index) {
 static lv_obj_t * build_album_artist_screen(void) {
     lv_obj_t * scr = build_compact_list_screen(TR("Album Artist"), generic_back_cb, NULL, 0, album_artist_row_click_cb,
                                                 album_artist_collection_long_press_cb, &album_artist_list, NULL,
-                                                LIST_ROW_WIDTH_WIDE, true, accent_lv_color());
+                                                LIST_ROW_WIDTH_WIDE, true, gui_theme_accent_style());
     compact_list_set_row_height(album_artist_list, MUSIC_LIST_ROW_HEIGHT);
     int artist_count = 0, album_artist_count = 0, album_count = 0;
     metadata_db_get_group_counts(&artist_count, &album_artist_count, &album_count);
@@ -4713,7 +4713,7 @@ static void genre_row_click_cb(int index) {
 static lv_obj_t * build_genres_screen(void) {
     lv_obj_t * scr = build_compact_list_screen(TR("Genres"), generic_back_cb, NULL, 0, genre_row_click_cb,
                                                 NULL, &genres_list, NULL,
-                                                LIST_ROW_WIDTH_WIDE, false, lv_color_black());
+                                                LIST_ROW_WIDTH_WIDE, false, NULL);
     compact_list_set_row_height(genres_list, MUSIC_LIST_ROW_HEIGHT);
     compact_list_set_paged_provider(genres_list, genres_fetch_page, NULL, count_genres_from_database());
     finalize_screen_navigation(scr);
@@ -9441,7 +9441,7 @@ void gui_library_init(void) {
     artist_albums_screen = build_compact_list_screen(TR("Albums"), generic_back_cb, NULL, 0,
                                                       artist_album_row_click_cb, NULL,
                                                       &artist_albums_list, &artist_albums_title_label,
-                                                      LIST_ROW_WIDTH_WIDE, true, accent_lv_color());
+                                                      LIST_ROW_WIDTH_WIDE, true, gui_theme_accent_style());
     library_teardown_diag("compact_list_set_row_height before");
     compact_list_set_row_height(artist_albums_list, MUSIC_LIST_ROW_HEIGHT);
     compact_list_set_row_decorator(artist_albums_list, thumbnail_row_decorator,
@@ -9487,7 +9487,7 @@ void gui_library_init(void) {
                     true, METADATA_DB_AZ_ALL_SONGS, recently_added_fetch_page);
 
     library_teardown_diag("build_compact_list_widget(files_search) before");
-    files_search_list = build_compact_list_widget(files_screen, NULL, 0, files_search_row_click_cb, NULL, LIST_ROW_WIDTH_WIDE, false, lv_color_black());
+    files_search_list = build_compact_list_widget(files_screen, NULL, 0, files_search_row_click_cb, NULL, LIST_ROW_WIDTH_WIDE, false, NULL);
     lv_obj_set_style_bg_opa(files_search_list, LV_OPA_COVER, 0);
     lv_obj_add_style(files_search_list, &style_theme_screen_bg, 0);
     lv_obj_add_flag(files_search_list, LV_OBJ_FLAG_HIDDEN);
@@ -9507,7 +9507,7 @@ void gui_library_init(void) {
     group_songs_search_list = build_compact_list_widget(group_songs_screen, NULL, 0,
                                                         group_songs_search_row_click_cb,
                                                         group_songs_search_row_long_press_cb,
-                                                        LIST_ROW_WIDTH_WIDE, true, accent_lv_color());
+                                                        LIST_ROW_WIDTH_WIDE, true, gui_theme_accent_style());
     lv_obj_set_style_bg_opa(group_songs_search_list, LV_OPA_COVER, 0);
     lv_obj_add_style(group_songs_search_list, &style_theme_screen_bg, 0);
     lv_obj_add_flag(group_songs_search_list, LV_OBJ_FLAG_HIDDEN);

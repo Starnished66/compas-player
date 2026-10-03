@@ -1828,10 +1828,10 @@ void gui_subsonic_init(void) {
 
     subsonic_artists_screen = build_compact_list_screen(TR("Artists"), generic_back_cb, NULL, 0, subsonic_artist_row_click_cb,
                                                           NULL, &subsonic_artists_list, &subsonic_artists_title_label,
-                                                          LIST_ROW_WIDTH_WIDE, false, lv_color_black());
+                                                          LIST_ROW_WIDTH_WIDE, false, NULL);
     subsonic_albums_screen = build_compact_list_screen(TR("Albums"), generic_back_cb, NULL, 0, subsonic_album_row_click_cb,
                                                          NULL, &subsonic_albums_list, &subsonic_albums_title_label,
-                                                         LIST_ROW_WIDTH_WIDE, false, lv_color_black());
+                                                         LIST_ROW_WIDTH_WIDE, false, NULL);
     /* Finalize navigation handlers and gesture support for swipe-back navigation. */
     finalize_screen_navigation(subsonic_artists_screen);
     finalize_screen_navigation(subsonic_albums_screen);

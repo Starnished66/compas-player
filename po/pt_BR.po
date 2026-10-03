@@ -1569,6 +1569,9 @@ msgstr "Ligue o Wi-Fi e conecte primeiro"
 msgid "Could not start the plugin refresh"
 msgstr "Não foi possível iniciar a atualização do catálogo"
 
+msgid "Loading layouts"
+msgstr "Carregando layouts"
+
 msgid "Loading plugins"
 msgstr "Carregando plugins"
 

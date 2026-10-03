@@ -153,7 +153,7 @@ used:
 | `cover_img` | `lv_image` | The cover art. Put it inside `cover_card`; it is scaled to fill the card. Tapping it opens and closes lyrics. |
 | `title` | `lv_label` | Song title. Scrolls when too long. |
 | `play_btn` | `lv_image` | Play/pause. Its icon switches automatically and takes the accent color. |
-| `progress_slider` | `lv_slider` or `lv_arc` | Seek control. Both widget types use the same audio position and seek behavior. For a circular control, use a full-circle `lv_arc` with background angles from 0 to 360 and set its rotation in XML. |
+| `progress_slider` | `lv_slider` or `lv_arc` | Seek control. Both widget types use the same audio position and seek behavior. For a circular control, use a full-circle `lv_arc` with background angles from 0 to 360 and set its rotation in XML. When a previous page is available, the leftmost 48 reference pixels (scaled for the board) are reserved for swipe-back; seeking remains available around the rest of the ring. |
 
 **Optional.** Leave out what you don't want:
 

@@ -375,19 +375,9 @@ const lv_font_t * pill_row_resolve_text_size(const char * text_size);
  * touch_list/item_bg.png pill rows, each with a label and an optional
  * right-side chevron or toggle. toggle_accent_style is applied (via
  * lv_obj_add_style(), not read as a plain value) to every PILL_ACCESSORY_
- * TOGGLE row's own lv_switch (LV_PART_INDICATOR|LV_STATE_CHECKED) -- a
- * style pointer rather than a
- * resolved lv_color_t like build_compact_list_widget()'s own
- * now_playing_color, specifically because these pill-list screens are each
- * built once at startup and never rebuilt (see e.g.
- * build_timezone_region_screen()'s own comment), unlike the list screens
- * now_playing_color feeds -- a plain color captured once here would go
- * stale forever after the very next accent color change, where a shared,
- * in-place-updated style (gui.c's style_accent, kept live via
- * lv_obj_report_style_change()) doesn't. Caller owns the style object's
- * lifetime; screen_builders.c never reads its properties directly, only
- * attaches it (same "no visibility into gui.c's accent state" boundary as
- * now_playing_color's own doc comment describes). */
+ * TOGGLE row's own lv_switch (LV_PART_INDICATOR|LV_STATE_CHECKED). The
+ * caller owns the style object's lifetime; screen_builders.c only attaches
+ * the style and never reads its properties directly. */
 /* row_gap: vertical spacing between rows, in px (every existing caller
  * passes 6, today's exact hardcoded value -- see build_pill_list_screen()'s
  * own history). Only plugin.set_home_layout()'s options.row_gap
@@ -502,7 +492,7 @@ lv_obj_t * build_compact_list_screen(const char * title, lv_event_cb_t back_btn_
                                       const compact_list_item_t * items, int item_count,
                                       compact_list_click_cb_t on_click, compact_list_click_cb_t on_long_press,
                                       lv_obj_t ** out_list, lv_obj_t ** out_title_label, int32_t row_width,
-                                      bool enable_now_playing, lv_color_t now_playing_color);
+                                      bool enable_now_playing, lv_style_t * now_playing_style);
 
 /* The virtualized list widget itself (what build_compact_list_screen()
  * builds internally), with no screen/back-button/title wrapper -- for a
@@ -513,15 +503,14 @@ lv_obj_t * build_compact_list_screen(const char * title, lv_event_cb_t back_btn_
  * row_width overrides list_row_style's own LIST_ROW_WIDTH per-instance (pass
  * LIST_ROW_WIDTH for the shared default, or LIST_ROW_WIDTH_WIDE to match a
  * widened parent screen -- e.g. the Files search overlay matching Files'
- * own now-wider rows). enable_now_playing/now_playing_color: see
- * compact_list_set_now_playing()'s own doc comment below -- pass false/
- * anything when a list has no now-playing concept (e.g. the Files search
- * overlay, the timezone city list). Color is threaded through as a
- * parameter rather than read directly (screen_builders.c has no visibility
- * into gui.c's current_settings.accent_color/accent_lv_color()). */
+ * own now-wider rows). enable_now_playing/now_playing_style: pass true and
+ * a shared style when the list needs a now-playing marker, or false/NULL
+ * when it does not (e.g. the Files search overlay or timezone city list).
+ * The style pointer is attached to the marker and can remain live as its
+ * properties change; screen_builders.c never resolves its color itself. */
 lv_obj_t * build_compact_list_widget(lv_obj_t * parent, const compact_list_item_t * items, int item_count,
                                       compact_list_click_cb_t on_click, compact_list_click_cb_t on_long_press,
-                                      int32_t row_width, bool enable_now_playing, lv_color_t now_playing_color);
+                                      int32_t row_width, bool enable_now_playing, lv_style_t * now_playing_style);
 
 /* Shows/moves/hides a thin accent-colored bar flush against the screen's
  * far-left edge (independent of row_width/any row's own inset -- this is a

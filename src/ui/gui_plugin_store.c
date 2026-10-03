@@ -809,7 +809,8 @@ static bool start_catalog_refresh(const char * requested_id) {
     store_is_refresh = true;
     store_open_when_ready = true;
     set_store_title();
-    store_busy = gui_busy_show(TR("Loading plugins"), TR("This may take a while"));
+    store_busy = gui_busy_show(store_player_layouts_only ? TR("Loading layouts") : TR("Loading plugins"),
+                               TR("This may take a while"));
     return true;
 }
 

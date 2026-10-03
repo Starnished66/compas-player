@@ -1,4 +1,5 @@
 #include "gui_theme.h"
+#include "gui_navigation.h"
 #include "gui.h"
 #include "settings.h"
 #include "screen_builders.h"
@@ -127,6 +128,8 @@ static void refresh_accent(void) {
         /* Same deal for the quick drawer's "on" toggle icons: a baked-in
          * #009FF6 circle under a near-white glyph. */
         gui_shell_refresh_quick_drawer_toggle_accent();
+        /* Swipe transitions must not reuse frames painted with the previous accent. */
+        gui_navigation_invalidate_theme_snapshots();
     }
     gui_settings_accent_changed();
 }

@@ -221,6 +221,8 @@ LVGL_TJPGDCNF := $(LVGL_DIR)/src/libs/tjpgd/tjpgdcnf.h
 LVGL_LRU_RB := $(LVGL_DIR)/src/misc/cache/class/lv_cache_lru_rb.c
 LVGL_LODEPNG := $(LVGL_DIR)/src/libs/lodepng/lodepng.c
 LVGL_OBJ_POS := $(LVGL_DIR)/src/core/lv_obj_pos.c
+LVGL_DRAW_IMAGE := $(LVGL_DIR)/src/draw/lv_draw_image.c
+LVGL_SW_TRANSFORM := $(LVGL_DIR)/src/draw/sw/lv_draw_sw_transform.c
 LVGL_FONT_TARGETS := $(LVGL_GENERATED_FONTS:%=$(LVGL_DIR)/src/font/%)
 LVGL_FONT_GOLDEN := $(LVGL_GENERATED_FONTS:%=$(LVGL_GENERATED_FONTS_DIR)/%)
 LVGL_PATCH_STAMP := $(LVGL_DIR)/.lvgl_fbdev_patch_applied
@@ -562,7 +564,7 @@ TARGET_LDFLAGS = -static -no-pie -lpthread -lm
 # streaming), library/ (metadata/file browsing/playlists), hardware/ (device
 # control), ui/ (gui/screens/assets/fonts), core/ (settings, subprocess,
 # misc). main.c stays at src/ root as the entry point.
-APP_SRCS = src/main.c src/ui/gui.c src/ui/gui_subsonic.c src/ui/gui_settings.c src/ui/gui_network.c src/ui/gui_theme.c src/ui/gui_notifications.c src/ui/gui_library.c src/ui/gui_queue.c src/ui/gui_player.c src/ui/gui_track_info.c src/ui/gui_plugins.c src/ui/gui_shell.c src/ui/gui_navigation.c src/ui/gui_books.c src/ui/gui_text_input.c src/ui/gui_lyrics.c src/ui/gui_reload.c src/audio/audio.c src/library/file_browser.c src/hardware/hw_buttons.c src/hardware/input_device_utils.c src/library/metadata.c src/library/metadata_db.c src/core/settings.c src/core/screenshot.c src/core/app_version.c src/audio/aiff_decoder.c src/audio/dsd_filter.c src/audio/dsd_decoder.c src/audio/aac_decoder.c src/audio/mp4_demux.c src/audio/ape_demux.c src/audio/ape_decoder.c src/audio/peq.c src/ui/assets.c src/ui/screen_builders.c src/hardware/battery.c src/network/wifi_status.c src/network/ca_bundle.c src/network/http_conn.c src/network/http_client.c src/network/http_stream.c src/network/subsonic_client.c src/library/cover_decode.c src/library/image_thumb.c src/library/lyrics.c src/audio/asf_demux.c src/audio/wma_decoder.c src/audio/ogg_demux.c src/audio/opus_decoder.c src/audio/vorbis_decoder.c src/library/cue_parser.c src/ui/fallback_font.c src/ui/gui_text_view.c \
+APP_SRCS = src/main.c src/ui/gui.c src/ui/gui_subsonic.c src/ui/gui_settings.c src/ui/gui_network.c src/ui/gui_theme.c src/ui/gui_notifications.c src/ui/gui_library.c src/ui/gui_queue.c src/ui/gui_player.c src/ui/gui_track_info.c src/ui/gui_plugins.c src/ui/gui_shell.c src/ui/gui_navigation.c src/ui/gui_books.c src/ui/gui_text_input.c src/ui/gui_lyrics.c src/ui/gui_reload.c src/audio/audio.c src/library/file_browser.c src/hardware/hw_buttons.c src/hardware/input_device_utils.c src/library/metadata.c src/library/metadata_db.c src/core/settings.c src/core/screenshot.c src/core/app_version.c src/audio/aiff_decoder.c src/audio/dsd_filter.c src/audio/dsd_decoder.c src/audio/aac_decoder.c src/audio/mp4_demux.c src/audio/ape_demux.c src/audio/ape_decoder.c src/audio/peq.c src/ui/assets.c src/ui/screen_builders.c src/ui/cover_card_preview.c src/hardware/battery.c src/network/wifi_status.c src/network/ca_bundle.c src/network/http_conn.c src/network/http_client.c src/network/http_stream.c src/network/subsonic_client.c src/library/cover_decode.c src/library/image_thumb.c src/library/lyrics.c src/audio/asf_demux.c src/audio/wma_decoder.c src/audio/ogg_demux.c src/audio/opus_decoder.c src/audio/vorbis_decoder.c src/library/cue_parser.c src/ui/fallback_font.c src/ui/gui_text_view.c \
 src/core/subprocess.c src/network/wifi_control.c src/network/bluetooth_control.c src/network/hiby_sys_server.c src/hardware/backlight.c src/network/import_web.c src/network/airplay_control.c src/network/airplay_bridge.c src/network/airplay_metadata.c src/hardware/headphone_status.c src/hardware/device_config.c src/hardware/led_control.c src/hardware/charge_limiter.c src/core/idle_shutdown.c src/hardware/power_suspend.c src/core/text_reader.c src/hardware/usb_mode_control.c src/hardware/usb_dac_bridge.c src/hardware/usb_audio_output.c src/core/firmware_update.c src/library/playlist_files.c src/library/favorite_writer.c src/network/firmware_ota.c src/network/plugin_store.c src/core/timezone_data.c src/core/timezone_apply.c src/core/hostname_apply.c src/network/dlna_control.c src/network/remote_control.c src/network/catalog_source_cache.c src/network/remote_control_mdns.c src/plugins/plugin_manager.c
 APP_SRCS += src/ui/gui_setup.c src/ui/gui_setup_plugins.c src/core/timezone_location.c
 APP_SRCS += src/ui/lyrics_layout.c src/ui/transition_compositor.c src/ui/frosted_glass.c src/ui/hw_volume_coalesce.c
@@ -735,7 +737,7 @@ $(HOST_BIN): $(HOST_OBJS)
 # on the tracked patch file (so a future change to the patch itself also
 # invalidates it), not just on $(LVGL_DIR) existing.
 $(LVGL_PATCH_STAMP): $(LVGL_FBDEV_C) $(LVGL_FBDEV_H) $(LVGL_PATCH) \
-                     $(LVGL_TINY_TTF) $(LVGL_TJPGDCNF) $(LVGL_LRU_RB) $(LVGL_LODEPNG) $(LVGL_OBJ_POS) $(LVGL_RUNTIME_FIXES_PATCH) \
+                     $(LVGL_TINY_TTF) $(LVGL_TJPGDCNF) $(LVGL_LRU_RB) $(LVGL_LODEPNG) $(LVGL_OBJ_POS) $(LVGL_DRAW_IMAGE) $(LVGL_SW_TRANSFORM) $(LVGL_RUNTIME_FIXES_PATCH) \
                      $(LVGL_EVDEV_C) $(LVGL_EVDEV_FRAMES_PATCH) \
                      $(LVGL_FONT_TARGETS) $(LVGL_FONT_GOLDEN)
 	@set -e; \

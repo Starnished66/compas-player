@@ -1,5 +1,9 @@
 #include "player_seekbar.h"
+#include "lvgl/src/core/lv_obj_event_private.h"
 
+#include "board_config.h"
+#include "gui_navigation.h"
+#include "gui_player.h"
 #include "gui_theme.h"
 
 #include <stdlib.h>
@@ -68,6 +72,21 @@ static bool arc_is_full_circle(lv_obj_t * arc)
 static void arc_pointer_event(lv_event_t * event)
 {
     lv_event_code_t code = lv_event_get_code(event);
+    if (code == LV_EVENT_HIT_TEST) {
+        lv_obj_t * arc = lv_event_get_target(event);
+        lv_hit_test_info_t * info = lv_event_get_param(event);
+        if (arc && info && info->point && arc_is_full_circle(arc) &&
+            lv_screen_active() == gui_player_get_screen() &&
+            gui_navigation_get_depth() > 1 &&
+            info->point->x < BOARD_SCALE_PX(48)) {
+            /* Keep the screen's left-edge back-swipe gutter available even
+             * where it overlaps the seek ring. LVGL's own arc hit test runs
+             * first, so the annulus and cover-hole behavior remain intact
+             * everywhere else. */
+            info->res = false;
+        }
+        return;
+    }
     if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING) return;
     lv_obj_t * arc = lv_event_get_target(event);
     arc_pointer_ctx_t * ctx = lv_event_get_user_data(event);
@@ -131,6 +150,7 @@ bool player_seekbar_configure(lv_obj_t * obj)
         if (!ctx) return false;
         lv_obj_add_event_cb(obj, arc_pointer_event, LV_EVENT_PRESSED, ctx);
         lv_obj_add_event_cb(obj, arc_pointer_event, LV_EVENT_PRESSING, ctx);
+        lv_obj_add_event_cb(obj, arc_pointer_event, LV_EVENT_HIT_TEST, ctx);
         lv_obj_add_event_cb(obj, arc_pointer_delete, LV_EVENT_DELETE, ctx);
     }
     lv_arc_set_range(obj, 0, 100);

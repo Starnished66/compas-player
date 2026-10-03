@@ -1,5 +1,6 @@
 #pragma once
 #include <lvgl/lvgl.h>
+#include <stdbool.h>
 
 /* Screen accessors */
 lv_obj_t * gui_settings_get_screen(void);
@@ -18,6 +19,9 @@ void gui_settings_open_eq(void);
 void gui_settings_open_sleep_timer(void);
 void gui_settings_open_playback(void);
 void gui_settings_open_library(void);
+/* Suggested mode shows Default and Vinyl; full mode includes all installed
+ * layouts and the repository download entry. Replaces the list's children. */
+void gui_settings_populate_player_layout_picker(lv_obj_t * list, bool suggested_only);
 
 void gui_settings_init(void);
 /* Deletes every screen this module owns (not build_home_screen()'s result --

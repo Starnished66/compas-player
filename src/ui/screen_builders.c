@@ -1,4 +1,5 @@
 #include "screen_builders.h"
+#include "cover_card_preview.h"
 #include "i18n.h"
 #include "gui_theme.h"
 #include "gui_plugins.h"
@@ -2325,7 +2326,7 @@ void compact_list_set_paged_provider(lv_obj_t * list, compact_list_fetch_page_cb
  * folder-browsing UI rather than needing a whole separate screen. */
 lv_obj_t * build_compact_list_widget(lv_obj_t * parent, const compact_list_item_t * items, int item_count,
                                       compact_list_click_cb_t on_click, compact_list_click_cb_t on_long_press,
-                                      int32_t row_width, bool enable_now_playing, lv_color_t now_playing_color) {
+                                      int32_t row_width, bool enable_now_playing, lv_style_t * now_playing_style) {
     lv_obj_t * list = lv_obj_create(parent);
     lv_obj_set_size(list, lv_pct(100),
                     lv_display_get_vertical_resolution(lv_display_get_default()) - STATUS_BAR_CLEARANCE -
@@ -2450,7 +2451,7 @@ lv_obj_t * build_compact_list_widget(lv_obj_t * parent, const compact_list_item_
         lv_obj_t * bar = lv_obj_create(list);
         lv_obj_remove_style_all(bar);
         lv_obj_set_size(bar, COMPACT_LIST_NOW_PLAYING_BAR_WIDTH, data->row_height);
-        lv_obj_set_style_bg_color(bar, now_playing_color, 0);
+        if (now_playing_style) lv_obj_add_style(bar, now_playing_style, 0);
         lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
         lv_obj_set_style_radius(bar, COMPACT_LIST_NOW_PLAYING_BAR_WIDTH / 2, 0);
         lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
@@ -2572,7 +2573,7 @@ lv_obj_t * build_compact_list_screen(const char * title, lv_event_cb_t back_btn_
                                       const compact_list_item_t * items, int item_count,
                                       compact_list_click_cb_t on_click, compact_list_click_cb_t on_long_press,
                                       lv_obj_t ** out_list, lv_obj_t ** out_title_label, int32_t row_width,
-                                      bool enable_now_playing, lv_color_t now_playing_color) {
+                                      bool enable_now_playing, lv_style_t * now_playing_style) {
     lv_obj_t * scr = lv_obj_create(NULL);
     lv_obj_add_style(scr, &style_theme_screen_bg, 0);
 
@@ -2580,7 +2581,7 @@ lv_obj_t * build_compact_list_screen(const char * title, lv_event_cb_t back_btn_
     if (out_title_label) *out_title_label = title_label;
 
     lv_obj_t * list = build_compact_list_widget(scr, items, item_count, on_click, on_long_press, row_width,
-                                                 enable_now_playing, now_playing_color);
+                                                 enable_now_playing, now_playing_style);
 
     if (out_list) *out_list = list;
     return scr;
@@ -2708,13 +2709,66 @@ void configure_cover_card_grid(lv_obj_t * list, int columns) {
     lv_obj_set_style_pad_row(list, gap, 0);
 }
 
+typedef struct {
+    lv_obj_t * cover;
+    lv_point_t press_point;
+    bool tracking;
+    bool cancelled;
+} cover_card_event_ctx_t;
+
+/* LVGL suppresses CLICKED once scrolling owns the pointer. Track the
+ * original touch point too, so small drags and press-lost transitions do
+ * not select a card. The caller's callback keeps its original user data. */
+static void cover_card_guard_event_cb(lv_event_t * e) {
+    cover_card_event_ctx_t * ctx = lv_event_get_user_data(e);
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_DELETE) {
+        lv_free(ctx);
+        return;
+    }
+    if (!ctx) return;
+
+    if (code == LV_EVENT_PRESSED) {
+        lv_indev_t * indev = lv_event_get_indev(e);
+        if (indev) lv_indev_get_point(indev, &ctx->press_point);
+        ctx->tracking = indev != NULL;
+        ctx->cancelled = indev && lv_indev_get_scroll_obj(indev) != NULL;
+        lv_obj_set_style_border_width(ctx->cover, BOARD_SCALE_PX(2), 0);
+    } else if (code == LV_EVENT_PRESSING || code == LV_EVENT_RELEASED) {
+        lv_indev_t * indev = lv_event_get_indev(e);
+        if (ctx->tracking && indev) {
+            lv_point_t point;
+            lv_indev_get_point(indev, &point);
+            if (LV_ABS(point.x - ctx->press_point.x) > BOARD_SCALE_PX(8) ||
+                LV_ABS(point.y - ctx->press_point.y) > BOARD_SCALE_PX(8) ||
+                lv_indev_get_scroll_obj(indev))
+                ctx->cancelled = true;
+        }
+        if (code == LV_EVENT_RELEASED) {
+            ctx->tracking = false;
+            lv_obj_set_style_border_width(ctx->cover, 0, 0);
+        }
+    } else if (code == LV_EVENT_PRESS_LOST) {
+        ctx->tracking = false;
+        ctx->cancelled = true;
+        lv_obj_set_style_border_width(ctx->cover, 0, 0);
+    } else if (code == LV_EVENT_CLICKED) {
+        if (ctx->cancelled) lv_event_stop_processing(e);
+        ctx->tracking = false;
+        ctx->cancelled = false;
+    }
+}
+
 lv_obj_t * add_cover_card(lv_obj_t * list, const char * label,
                           const char * resolved_image_src, int columns,
                           lv_event_cb_t on_click, void * user_data) {
     if (!list || columns < 1) return NULL;
-    int32_t screen_w = lv_display_get_horizontal_resolution(lv_display_get_default());
-    int32_t side = BOARD_SCALE_PX(16), gap = BOARD_SCALE_PX(14);
-    int32_t card_w = (screen_w - 2 * side - (columns - 1) * gap) / columns;
+    /* Resolve percentage widths before sizing cards in an inset container,
+     * such as Quick Setup; full-screen grids retain the same geometry. */
+    lv_obj_update_layout(list);
+    int32_t gap = lv_obj_get_style_pad_column(list, 0);
+    int32_t card_w = (lv_obj_get_content_width(list) - (columns - 1) * gap) / columns;
+    if (card_w < 1) return NULL;
     int32_t cover_h = card_w * 3 / 2;
     const lv_font_t * font = gui_theme_font(GUI_FONT_ROLE_SUBTEXT);
 
@@ -2723,7 +2777,6 @@ lv_obj_t * add_cover_card(lv_obj_t * list, const char * label,
     lv_obj_set_size(card, card_w, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(card, BOARD_SCALE_PX(6), 0);
-    lv_obj_set_style_opa(card, LV_OPA_70, LV_STATE_PRESSED);
     lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
 
@@ -2734,16 +2787,20 @@ lv_obj_t * add_cover_card(lv_obj_t * list, const char * label,
     lv_obj_set_style_bg_opa(cover, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(cover, BOARD_SCALE_PX(10), 0);
     lv_obj_set_style_clip_corner(cover, true, 0);
+    lv_obj_set_style_border_width(cover, 0, 0);
+    lv_obj_set_style_border_color(cover, lv_color_white(), 0);
     lv_obj_remove_flag(cover, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     if (resolved_image_src && resolved_image_src[0]) {
         lv_image_header_t header;
         if (lv_image_decoder_get_info(resolved_image_src, &header) == LV_RESULT_OK &&
             header.w > 0 && header.h > 0) {
             lv_obj_t * image = lv_image_create(cover);
-            lv_image_set_src(image, resolved_image_src);
-            int64_t scale_w = (int64_t) card_w * 256 / header.w;
-            int64_t scale_h = (int64_t) cover_h * 256 / header.h;
-            lv_image_set_scale(image, (uint32_t) (scale_w < scale_h ? scale_w : scale_h));
+            if (!cover_card_preview_set(image, resolved_image_src, card_w, cover_h)) {
+                lv_image_set_src(image, resolved_image_src);
+                int64_t scale_w = (int64_t) card_w * 256 / header.w;
+                int64_t scale_h = (int64_t) cover_h * 256 / header.h;
+                lv_image_set_scale(image, (uint32_t) (scale_w < scale_h ? scale_w : scale_h));
+            }
             lv_obj_center(image);
         }
     }
@@ -2765,7 +2822,16 @@ lv_obj_t * add_cover_card(lv_obj_t * list, const char * label,
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_size(title, card_w, lv_font_get_line_height(font) * 2);
     lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-    if (on_click) lv_obj_add_event_cb(card, on_click, LV_EVENT_CLICKED, user_data);
+    if (on_click) {
+        cover_card_event_ctx_t * ctx = lv_malloc(sizeof(*ctx));
+        if (ctx) {
+            *ctx = (cover_card_event_ctx_t) { .cover = cover };
+            lv_obj_add_event_cb(card, cover_card_guard_event_cb, LV_EVENT_ALL, ctx);
+            lv_obj_add_event_cb(card, on_click, LV_EVENT_CLICKED, user_data);
+        } else {
+            lv_obj_remove_flag(card, LV_OBJ_FLAG_CLICKABLE);
+        }
+    }
     return card;
 }
 
