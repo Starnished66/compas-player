@@ -32,3 +32,10 @@ the dated walkthrough cover unrelated screens and remain available there.
 - [Lyrics](hibys-lyrics.png) — XML transition with left-aligned metadata.
 
 These captures use **Dead Asleep — Dream Theater**.
+
+## Hiby’s Graph
+
+- [Playing](hibys-graph-playing.png) — selected filled envelope waveform.
+- [Lyrics](hibys-graph-lyrics.png) — matching XML lyrics view.
+
+Final R1 captures use **Dead Asleep — Dream Theater**.

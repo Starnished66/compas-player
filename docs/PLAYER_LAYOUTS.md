@@ -20,6 +20,10 @@ status bar over the cover, a brighter frosted footer and XML lyrics
 transitions. Board variants cover R1, R3 Pro II and R3 II 2025; the two
 shorter screens omit the album line to keep controls clear.
 
+Hiby’s Graph duplicates Hiby’s with the existing **filled envelope** waveform
+seek bar. It uses XML only, reuses all icons and includes all three board
+variants. Tap the cover for lyrics and seek directly on the waveform.
+
 ## Quick start
 
 1. Copy `assets/theme2/player_layouts/example_minimal.xml` and rename it, for
