@@ -19,6 +19,128 @@ typedef struct {
     bool ready;
 } seekbar_ctx_t;
 
+typedef struct {
+    int32_t previous_angle;
+    int32_t unwrapped_angle;
+} arc_pointer_ctx_t;
+
+static bool is_slider(const lv_obj_t * obj)
+{
+    return obj && lv_obj_check_type(obj, &lv_slider_class);
+}
+
+static bool is_arc(const lv_obj_t * obj)
+{
+    return obj && lv_obj_check_type(obj, &lv_arc_class);
+}
+
+bool player_seekbar_is_supported(lv_obj_t * obj)
+{
+    return is_slider(obj) || is_arc(obj);
+}
+
+int32_t player_seekbar_get_value(lv_obj_t * obj)
+{
+    if (is_slider(obj)) return lv_slider_get_value(obj);
+    if (is_arc(obj)) return lv_arc_get_value(obj);
+    return 0;
+}
+
+void player_seekbar_set_value(lv_obj_t * obj, int32_t value)
+{
+    if (value < 0) value = 0;
+    if (value > 100) value = 100;
+    if (is_slider(obj)) lv_slider_set_value(obj, value, LV_ANIM_OFF);
+    else if (is_arc(obj)) lv_arc_set_value(obj, value);
+}
+
+static void arc_pointer_delete(lv_event_t * event)
+{
+    if (lv_event_get_code(event) == LV_EVENT_DELETE) free(lv_event_get_user_data(event));
+}
+
+static bool arc_is_full_circle(lv_obj_t * arc)
+{
+    return lv_arc_get_mode(arc) == LV_ARC_MODE_NORMAL &&
+           lv_arc_get_bg_angle_start(arc) == 0 && lv_arc_get_bg_angle_end(arc) == 360;
+}
+
+static void arc_pointer_event(lv_event_t * event)
+{
+    lv_event_code_t code = lv_event_get_code(event);
+    if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING) return;
+    lv_obj_t * arc = lv_event_get_target(event);
+    arc_pointer_ctx_t * ctx = lv_event_get_user_data(event);
+    if (!arc || !ctx || !arc_is_full_circle(arc)) return;
+    lv_indev_t * indev = lv_indev_active();
+    if (!indev || lv_indev_get_type(indev) != LV_INDEV_TYPE_POINTER) return;
+
+    lv_point_t point;
+    lv_indev_get_point(indev, &point);
+    /* Match LVGL's arc geometry, including asymmetric main-part padding. */
+    int32_t left_pad = lv_obj_get_style_pad_left(arc, LV_PART_MAIN);
+    int32_t right_pad = lv_obj_get_style_pad_right(arc, LV_PART_MAIN);
+    int32_t top_pad = lv_obj_get_style_pad_top(arc, LV_PART_MAIN);
+    int32_t bottom_pad = lv_obj_get_style_pad_bottom(arc, LV_PART_MAIN);
+    int32_t radius = LV_MIN(lv_obj_get_width(arc) - left_pad - right_pad,
+                            lv_obj_get_height(arc) - top_pad - bottom_pad) / 2;
+    lv_area_t bounds;
+    lv_obj_get_coords(arc, &bounds);
+    int32_t x = point.x - (bounds.x1 + radius + left_pad);
+    int32_t y = point.y - (bounds.y1 + radius + top_pad);
+    if (x == 0 && y == 0) return;
+    int32_t angle = (int32_t)lv_atan2(y, x) - lv_arc_get_rotation(arc);
+    angle %= 360;
+    if (angle < 0) angle += 360;
+    if (code == LV_EVENT_PRESSED) {
+        ctx->unwrapped_angle = angle;
+    }
+    else {
+        int32_t delta = angle - ctx->previous_angle;
+        if (delta > 180) delta -= 360;
+        else if (delta < -180) delta += 360;
+        ctx->unwrapped_angle += delta;
+    }
+    ctx->previous_angle = angle;
+    /* Keep the physical angle through the seam, clamping only its display. */
+    int32_t display_angle = ctx->unwrapped_angle;
+    if (display_angle < 0) display_angle = 0;
+    if (display_angle > 360) display_angle = 360;
+    player_seekbar_set_value(arc, (display_angle * 100 + 180) / 360);
+}
+
+bool player_seekbar_configure(lv_obj_t * obj)
+{
+    if (is_slider(obj)) {
+        lv_slider_set_range(obj, 0, 100);
+        return true;
+    }
+    if (!is_arc(obj)) return false;
+
+    arc_pointer_ctx_t * ctx = NULL;
+    uint32_t event_count = lv_obj_get_event_count(obj);
+    for (uint32_t i = 0; i < event_count; ++i) {
+        lv_event_dsc_t * dsc = lv_obj_get_event_dsc(obj, i);
+        if (lv_event_dsc_get_cb(dsc) == arc_pointer_event) {
+            ctx = lv_event_dsc_get_user_data(dsc);
+            break;
+        }
+    }
+    if (!ctx) {
+        ctx = calloc(1, sizeof(*ctx));
+        if (!ctx) return false;
+        lv_obj_add_event_cb(obj, arc_pointer_event, LV_EVENT_PRESSED, ctx);
+        lv_obj_add_event_cb(obj, arc_pointer_event, LV_EVENT_PRESSING, ctx);
+        lv_obj_add_event_cb(obj, arc_pointer_delete, LV_EVENT_DELETE, ctx);
+    }
+    lv_arc_set_range(obj, 0, 100);
+    /* Arc hit testing without ADV_HITTEST intercepts taps inside the ring's
+     * hole. Its precise test rejects the hole so the cover beneath gets them. */
+    lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_ADV_HITTEST |
+                         LV_OBJ_FLAG_PRESS_LOCK);
+    return true;
+}
+
 static lv_opa_t multiply_opa(lv_opa_t a, lv_opa_t b)
 {
     return (lv_opa_t)(((uint16_t)a * b + 127u) / 255u);
@@ -154,7 +276,7 @@ static void seekbar_delete(lv_event_t * event)
 
 bool player_seekbar_attach(lv_obj_t * slider, const char * style)
 {
-    if (!slider || !style) return false;
+    if (!is_slider(slider) || !style) return false;
     seekbar_style_t selected;
     if (strcmp(style, "waveform_bars") == 0) selected = SEEKBAR_BARS;
     else if (strcmp(style, "waveform_envelope") == 0) selected = SEEKBAR_ENVELOPE;

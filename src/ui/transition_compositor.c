@@ -39,6 +39,7 @@ static bool compositor_active = false;
 typedef enum {
     COMPOSITOR_MODE_NONE,
     COMPOSITOR_MODE_HORIZONTAL,
+    COMPOSITOR_MODE_VERTICAL,
     COMPOSITOR_MODE_VERTICAL_OVERLAY,
     COMPOSITOR_MODE_VERTICAL_REVEAL,
     COMPOSITOR_MODE_BOTTOM_SHEET,
@@ -51,6 +52,7 @@ static bool compositor_reveal;
 static int32_t compositor_width;
 static int32_t compositor_height;
 static uint32_t compositor_fb_stride;
+static bool compositor_vertical;
 static uint8_t * compositor_vertical_base;
 static size_t compositor_vertical_base_size;
 static int32_t compositor_vertical_base_width;
@@ -101,6 +103,66 @@ void transition_compositor_blend_argb8888_over_rgb565(uint8_t * dst, uint32_t ds
     }
 }
 
+bool transition_compositor_compose_rgb565(uint8_t * dst, uint32_t dst_stride,
+                                          const uint8_t * from, uint32_t from_stride,
+                                          const uint8_t * to, uint32_t to_stride,
+                                          int32_t width, int32_t height, int32_t v,
+                                          int32_t to_offset, bool vertical, bool reveal) {
+    if (!dst || !from || !to || width <= 0 || height <= 0) return false;
+    int32_t axis = vertical ? height : width;
+    if (to_offset != axis && to_offset != -axis) return false;
+    uint64_t row_bytes64 = (uint64_t) (uint32_t) width * 2U;
+    if (row_bytes64 > SIZE_MAX || dst_stride < row_bytes64 ||
+        from_stride < row_bytes64 || to_stride < row_bytes64 ||
+        (uint64_t) dst_stride * (uint32_t) height > SIZE_MAX ||
+        (uint64_t) from_stride * (uint32_t) height > SIZE_MAX ||
+        (uint64_t) to_stride * (uint32_t) height > SIZE_MAX) return false;
+    if (to_offset > 0) {
+        if (v > 0) v = 0;
+        if (v < -axis) v = -axis;
+    } else {
+        if (v < 0) v = 0;
+        if (v > axis) v = axis;
+    }
+    int32_t from_pos = v;
+    int32_t to_pos = reveal ? 0 : v + to_offset;
+    size_t row_bytes = (size_t) row_bytes64;
+    if (vertical) {
+        for (int32_t y = 0; y < height; ++y) {
+            int64_t fy = (int64_t) y - from_pos;
+            int64_t ty = (int64_t) y - to_pos;
+            uint8_t * drow = dst + (size_t) y * dst_stride;
+            if (ty >= 0 && ty < height)
+                memcpy(drow, to + (size_t) ty * to_stride, row_bytes);
+            if (fy >= 0 && fy < height)
+                memcpy(drow, from + (size_t) fy * from_stride, row_bytes);
+        }
+    } else {
+        int64_t from_start64 = from_pos < 0 ? 0 : from_pos;
+        int64_t from_end64 = (int64_t) from_pos + width > width ? width : (int64_t) from_pos + width;
+        int64_t to_start64 = to_pos < 0 ? 0 : to_pos;
+        int64_t to_end64 = (int64_t) to_pos + width > width ? width : (int64_t) to_pos + width;
+        int32_t from_start = (int32_t) from_start64;
+        int32_t from_end = (int32_t) from_end64;
+        int32_t to_start = (int32_t) to_start64;
+        int32_t to_end = (int32_t) to_end64;
+        if (from_end < from_start) from_end = from_start;
+        if (to_end < to_start) to_end = to_start;
+        size_t from_bytes = (size_t) (from_end - from_start) * 2U;
+        size_t to_bytes = (size_t) (to_end - to_start) * 2U;
+        for (int32_t y = 0; y < height; ++y) {
+            uint8_t * drow = dst + (size_t) y * dst_stride;
+            const uint8_t * frow = from + (size_t) y * from_stride;
+            const uint8_t * trow = to + (size_t) y * to_stride;
+            if (to_bytes) memcpy(drow + (size_t) to_start * 2U,
+                                 trow + (size_t) (to_start - to_pos) * 2U, to_bytes);
+            if (from_bytes) memcpy(drow + (size_t) from_start * 2U,
+                                   frow + (size_t) (from_start - from_pos) * 2U, from_bytes);
+        }
+    }
+    return true;
+}
+
 #ifdef UI_PERF_TRACE
 static uint64_t compositor_perf_now_us(void) {
     struct timespec ts;
@@ -128,8 +190,13 @@ bool transition_compositor_available(void) {
 }
 
 bool transition_compositor_begin(const lv_draw_buf_t * from, const lv_draw_buf_t * to, int32_t to_offset, bool reveal) {
+    return transition_compositor_begin_ex(from, to, to_offset, false, reveal);
+}
+
+bool transition_compositor_begin_ex(const lv_draw_buf_t * from, const lv_draw_buf_t * to,
+                                    int32_t to_offset, bool vertical, bool reveal) {
 #if COMPOSITOR_DISABLED || !LV_USE_LINUX_FBDEV
-    (void) from; (void) to; (void) to_offset; (void) reveal;
+    (void) from; (void) to; (void) to_offset; (void) vertical; (void) reveal;
     return false;
 #else
     if (compositor_active) return false; /* only one slide transition is ever in flight at once (see slide_transition_active in gui.c) -- never expected, guarded anyway */
@@ -153,7 +220,9 @@ bool transition_compositor_begin(const lv_draw_buf_t * from, const lv_draw_buf_t
 
     int32_t w = lv_display_get_horizontal_resolution(disp);
     int32_t h = lv_display_get_vertical_resolution(disp);
-    if (w <= 0 || h <= 0 || (to_offset != w && to_offset != -w)) {
+    int32_t axis = vertical ? h : w;
+    if (w <= 0 || h <= 0 || (to_offset != axis && to_offset != -axis) ||
+        (uint64_t) fb_stride < (uint64_t) (uint32_t) w * 2U) {
 #ifdef UI_PERF_TRACE
         printf("PERF compositor begin_active=0 reason=geometry w=%d h=%d to_offset=%d\n",
                w, h, to_offset);
@@ -166,7 +235,7 @@ bool transition_compositor_begin(const lv_draw_buf_t * from, const lv_draw_buf_t
      * out-of-bounds row math, so assert loudly in diagnostic builds rather
      * than assume. */
 #ifdef UI_PERF_TRACE
-    LV_ASSERT(to_offset == w || to_offset == -w);
+    LV_ASSERT(to_offset == axis || to_offset == -axis);
     LV_ASSERT(from->header.stride > 0 && to->header.stride > 0);
 #endif
     if ((int32_t) from->header.w != w || (int32_t) from->header.h != h ||
@@ -208,10 +277,11 @@ bool transition_compositor_begin(const lv_draw_buf_t * from, const lv_draw_buf_t
     compositor_to = to;
     compositor_to_offset = to_offset;
     compositor_reveal = reveal;
+    compositor_vertical = vertical;
     compositor_width = w;
     compositor_height = h;
     compositor_fb_stride = fb_stride;
-    compositor_mode = COMPOSITOR_MODE_HORIZONTAL;
+    compositor_mode = vertical ? COMPOSITOR_MODE_VERTICAL : COMPOSITOR_MODE_HORIZONTAL;
 #ifdef UI_PERF_TRACE
     compositor_perf_frame_total_us = 0;
     compositor_perf_frame_max_us = 0;
@@ -248,7 +318,8 @@ bool transition_compositor_frame(int32_t v) {
     (void) v;
     return false;
 #else
-    if (compositor_mode != COMPOSITOR_MODE_HORIZONTAL) return false;
+    if (compositor_mode != COMPOSITOR_MODE_HORIZONTAL &&
+        compositor_mode != COMPOSITOR_MODE_VERTICAL) return false;
 #ifdef UI_PERF_TRACE
     uint64_t perf_frame_start_us = compositor_perf_now_us();
     /* Gap since the PREVIOUS frame's own start -- the metric that actually
@@ -280,78 +351,89 @@ bool transition_compositor_frame(int32_t v) {
         return false;
     }
 
-    int32_t w = compositor_width;
-    int32_t from_x = v;
-    int32_t to_x = compositor_reveal ? 0 : (v + compositor_to_offset);
+    if (compositor_vertical) {
+        if (!transition_compositor_compose_rgb565(dest_page, compositor_fb_stride,
+                compositor_from->data, compositor_from->header.stride,
+                compositor_to->data, compositor_to->header.stride,
+                compositor_width, compositor_height, v, compositor_to_offset,
+                true, compositor_reveal)) {
+            transition_compositor_end();
+            return false;
+        }
+    } else {
+        int32_t w = compositor_width;
+        int32_t from_x = v;
+        int32_t to_x = compositor_reveal ? 0 : (v + compositor_to_offset);
 
-    /* Intersect each source's current on-screen span with the visible
-     * [0, w) screen area -- handles every offset (0, -w/+w, any
-     * intermediate value, and a clamped overshoot past either end)
-     * uniformly, with no separate forward/backward special-casing. In
-     * non-reveal mode, the two spans are always exactly adjacent
-     * (to_offset is always +-w), so together they cover the full
-     * destination row with no gap or overlap. In reveal mode, the
-     * destination span stays fixed across the entire width [0, w), so the
-     * two spans intentionally overlap: writing `to` first and `from` second
-     * ensures the moving outgoing screen correctly covers the stationary
-     * incoming screen on top without being overwritten. In non-reveal mode,
-     * the spans are disjoint, so write order is completely interchangeable.
-     * At v==0, from_start=0/from_end=w and to_start=to_end (nothing) in
-     * non-reveal mode; in reveal mode, from covers the full row over to.
-     * At v==-to_offset, the incoming source is fully revealed -- the exact
-     * boundary invariants TARGET ARCHITECTURE section D calls for. */
-    int32_t from_start = from_x < 0 ? 0 : from_x;
-    int32_t from_end = (from_x + w > w) ? w : from_x + w;
-    if (from_end < from_start) from_end = from_start;
-    int32_t to_start = to_x < 0 ? 0 : to_x;
-    int32_t to_end = (to_x + w > w) ? w : to_x + w;
-    if (to_end < to_start) to_end = to_start;
+        /* Intersect each source's current on-screen span with the visible
+         * [0, w) screen area -- handles every offset (0, -w/+w, any
+         * intermediate value, and a clamped overshoot past either end)
+         * uniformly, with no separate forward/backward special-casing. In
+         * non-reveal mode, the two spans are always exactly adjacent
+         * (to_offset is always +-w), so together they cover the full
+         * destination row with no gap or overlap. In reveal mode, the
+         * destination span stays fixed across the entire width [0, w), so the
+         * two spans intentionally overlap: writing `to` first and `from` second
+         * ensures the moving outgoing screen correctly covers the stationary
+         * incoming screen on top without being overwritten. In non-reveal mode,
+         * the spans are disjoint, so write order is completely interchangeable.
+         * At v==0, from_start=0/from_end=w and to_start=to_end (nothing) in
+         * non-reveal mode; in reveal mode, from covers the full row over to.
+         * At v==-to_offset, the incoming source is fully revealed -- the exact
+         * boundary invariants TARGET ARCHITECTURE section D calls for. */
+        int32_t from_start = from_x < 0 ? 0 : from_x;
+        int32_t from_end = (from_x + w > w) ? w : from_x + w;
+        if (from_end < from_start) from_end = from_start;
+        int32_t to_start = to_x < 0 ? 0 : to_x;
+        int32_t to_end = (to_x + w > w) ? w : to_x + w;
+        if (to_end < to_start) to_end = to_start;
 
-    /* RGB565 was validated in begin(), so every pixel is exactly two bytes
-     * and neither source has an indexed-color palette prefix. Compute each
-     * visible span's first-row address once and walk all three buffers by
-     * their independent strides. The old loop called lv_draw_buf_goto_xy()
-     * for each visible source on every scanline, repeating format-size and
-     * y*stride calculations up to twice per row even though only y changed. */
-    const size_t from_copy_bytes = (size_t) (from_end - from_start) * 2U;
-    const size_t to_copy_bytes = (size_t) (to_end - to_start) * 2U;
-    const uint8_t * from_row = (const uint8_t *) compositor_from->data;
-    const uint8_t * to_row = (const uint8_t *) compositor_to->data;
-    if (from_copy_bytes) from_row += (size_t) (from_start - from_x) * 2U;
-    if (to_copy_bytes) to_row += (size_t) (to_start - to_x) * 2U;
-    uint8_t * dest_row = dest_page;
+        /* RGB565 was validated in begin(), so every pixel is exactly two bytes
+         * and neither source has an indexed-color palette prefix. Compute each
+         * visible span's first-row address once and walk all three buffers by
+         * their independent strides. The old loop called lv_draw_buf_goto_xy()
+         * for each visible source on every scanline, repeating format-size and
+         * y*stride calculations up to twice per row even though only y changed. */
+        const size_t from_copy_bytes = (size_t) (from_end - from_start) * 2U;
+        const size_t to_copy_bytes = (size_t) (to_end - to_start) * 2U;
+        const uint8_t * from_row = (const uint8_t *) compositor_from->data;
+        const uint8_t * to_row = (const uint8_t *) compositor_to->data;
+        if (from_copy_bytes) from_row += (size_t) (from_start - from_x) * 2U;
+        if (to_copy_bytes) to_row += (size_t) (to_start - to_x) * 2U;
+        uint8_t * dest_row = dest_page;
 
 #ifdef UI_PERF_TRACE
-    /* begin() already proves stride*height is inside data_size. These
-     * tighter frame-specific checks document that the selected horizontal
-     * spans also end within every row before the raw-pointer fast path is
-     * entered. */
-    LV_ASSERT(!from_copy_bytes ||
-              ((uint64_t) (uint32_t) (from_start - from_x) * 2ULL + from_copy_bytes <=
-               compositor_from->header.stride));
-    LV_ASSERT(!to_copy_bytes ||
-              ((uint64_t) (uint32_t) (to_start - to_x) * 2ULL + to_copy_bytes <=
-               compositor_to->header.stride));
-    LV_ASSERT(!from_copy_bytes ||
-              ((uint64_t) (uint32_t) from_start * 2ULL + from_copy_bytes <= compositor_fb_stride));
-    LV_ASSERT(!to_copy_bytes ||
-              ((uint64_t) (uint32_t) to_start * 2ULL + to_copy_bytes <= compositor_fb_stride));
+        /* begin() already proves stride*height is inside data_size. These
+         * tighter frame-specific checks document that the selected horizontal
+         * spans also end within every row before the raw-pointer fast path is
+         * entered. */
+        LV_ASSERT(!from_copy_bytes ||
+                  ((uint64_t) (uint32_t) (from_start - from_x) * 2ULL + from_copy_bytes <=
+                   compositor_from->header.stride));
+        LV_ASSERT(!to_copy_bytes ||
+                  ((uint64_t) (uint32_t) (to_start - to_x) * 2ULL + to_copy_bytes <=
+                   compositor_to->header.stride));
+        LV_ASSERT(!from_copy_bytes ||
+                  ((uint64_t) (uint32_t) from_start * 2ULL + from_copy_bytes <= compositor_fb_stride));
+        LV_ASSERT(!to_copy_bytes ||
+                  ((uint64_t) (uint32_t) to_start * 2ULL + to_copy_bytes <= compositor_fb_stride));
 #endif
 
-    /* Every row, y=0 through height-1 -- no top/bottom margin is ever
-     * skipped or separately re-stamped (see this module's own header
-     * comment on why: both `from` and `to` are already complete, full-
-     * screen frames with the persistent status bar/home-indicator content
-     * baked in, so compositing the whole frame uniformly is what makes
-     * those bars slide correctly instead of staying stationary). */
-    for (int32_t y = 0; y < compositor_height; y++) {
-        if (to_copy_bytes)
-            memcpy(dest_row + (size_t) to_start * 2U, to_row, to_copy_bytes);
-        if (from_copy_bytes)
-            memcpy(dest_row + (size_t) from_start * 2U, from_row, from_copy_bytes);
-        from_row += compositor_from->header.stride;
-        to_row += compositor_to->header.stride;
-        dest_row += compositor_fb_stride;
+        /* Every row, y=0 through height-1 -- no top/bottom margin is ever
+         * skipped or separately re-stamped (see this module's own header
+         * comment on why: both `from` and `to` are already complete, full-
+         * screen frames with the persistent status bar/home-indicator content
+         * baked in, so compositing the whole frame uniformly is what makes
+         * those bars slide correctly instead of staying stationary). */
+        for (int32_t y = 0; y < compositor_height; y++) {
+            if (to_copy_bytes)
+                memcpy(dest_row + (size_t) to_start * 2U, to_row, to_copy_bytes);
+            if (from_copy_bytes)
+                memcpy(dest_row + (size_t) from_start * 2U, from_row, from_copy_bytes);
+            from_row += compositor_from->header.stride;
+            to_row += compositor_to->header.stride;
+            dest_row += compositor_fb_stride;
+        }
     }
 
 #ifdef UI_PERF_TRACE

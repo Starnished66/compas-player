@@ -118,7 +118,7 @@ void screen_builders_init_list_row_style(void) {
 
     lv_style_init(&list_row_style);
     lv_style_init(&native_row_min_style);
-    lv_style_set_min_height(&native_row_min_style, GUI_SETTINGS_ROW_HEIGHT);
+    lv_style_set_min_height(&native_row_min_style, GUI_ROW_HEIGHT);
     lv_style_set_width(&list_row_style, LIST_ROW_WIDTH);
     lv_style_set_height(&list_row_style, LIST_ROW_HEIGHT);
     lv_style_set_radius(&list_row_style, LIST_ROW_RADIUS);
@@ -316,12 +316,12 @@ static void refresh_icon_caption_geometry_recursive(lv_obj_t * obj) {
 
 void screen_builders_refresh_font_geometry(lv_obj_t * root) {
     if (!root) {
-        int32_t minimum = lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_TITLE)) + 32;
-        if (minimum < GUI_SETTINGS_ROW_HEIGHT) minimum = GUI_SETTINGS_ROW_HEIGHT;
+        int32_t minimum = ui_list_row_height();
         lv_style_set_min_height(&native_row_min_style, minimum);
         lv_obj_report_style_change(&native_row_min_style);
+        lv_style_set_height(&list_row_style, minimum);
         lv_style_set_pad_top(&list_row_style,
-                             (LIST_ROW_HEIGHT - lv_font_get_line_height(&LIST_ROW_FONT)) / 2);
+                             (minimum - lv_font_get_line_height(&LIST_ROW_FONT)) / 2);
         lv_style_set_text_font(&list_row_style, &LIST_ROW_FONT);
         lv_obj_report_style_change(&list_row_style);
         return;
@@ -351,10 +351,14 @@ void row_label_enable_marquee(lv_obj_t * label) {
     lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
 }
 
-int32_t ui_music_row_height(void) {
+int32_t ui_list_row_height(void) {
     int32_t needed = lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_ROW)) +
                      lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT)) + 32;
-    return needed > MUSIC_LIST_ROW_HEIGHT ? needed : MUSIC_LIST_ROW_HEIGHT;
+    return needed > GUI_ROW_HEIGHT ? needed : GUI_ROW_HEIGHT;
+}
+
+int32_t ui_music_row_height(void) {
+    return ui_list_row_height();
 }
 
 lv_obj_t * row_label_create_subtitle(lv_obj_t * row) {
@@ -1139,7 +1143,7 @@ lv_obj_t * build_pill_list_screen(const char * title, lv_event_cb_t back_btn_cb,
         const pill_list_item_t * item = &items[i];
 
         /* Native density; explicit plugin dimensions remain authoritative. */
-        int32_t height = GUI_SETTINGS_ROW_HEIGHT;
+        int32_t height = ui_list_row_height();
         int32_t font_min = lv_font_get_line_height(pill_row_resolve_text_size(item->text_size)) + 32;
         if (height < font_min) height = font_min;
         int32_t width = pill_row_default_width();
@@ -1541,26 +1545,21 @@ lv_obj_t * build_category_menu_screen(const char * title, lv_event_cb_t back_btn
     pill_list_item_t rows[item_count];
     lv_obj_t * row_objects[item_count];
     memset(row_objects, 0, sizeof(row_objects));
-    /* Category rows use one consistent native height. Longer menus remain
-     * scrollable instead of silently compressing every row to fit. */
-    int32_t default_height = BOARD_SCALE_PX(112);
+    /* Category rows use the shared native default. Leave that default
+     * implicit so native_row_min_style can follow live font-tier changes. */
 
     for (int i = 0; i < item_count; ++i) {
         bool accessory = items[i].has_accessory ? items[i].accessory
                          : !(layout && layout->has_accessory && !layout->accessory);
         const char * text_size = items[i].text_size ? items[i].text_size
                               : (layout && layout->text_size[0] ? layout->text_size : NULL);
-        int32_t native_height = default_height;
-        int32_t font_height = lv_font_get_line_height(pill_row_resolve_text_size(text_size)) +
-                              BOARD_SCALE_PX(32);
-        if (native_height < font_height) native_height = font_height;
         rows[i] = (pill_list_item_t) {
             .label = items[i].label,
             .accessory = accessory ? PILL_ACCESSORY_CHEVRON : PILL_ACCESSORY_NONE,
             .on_click = items[i].on_click,
             .user_data = items[i].user_data,
             .row_height = items[i].has_row_height ? items[i].row_height
-                        : (layout && layout->height > 0 ? layout->height : native_height),
+                        : (layout && layout->height > 0 ? layout->height : 0),
             .row_width = items[i].has_row_width ? items[i].row_width : (layout ? layout->width : 0),
             .text_size = text_size,
             .has_bg_color = items[i].has_bg_color || (layout && layout->has_bg_color),
@@ -1616,7 +1615,6 @@ int append_plugin_list_rows(pill_list_item_t * items, int count, int max_items,
 /* Matches the old flex layout's own spacing (pad_top=4, pad_gap=4) --
  * explicit here instead since a virtualized list positions every row by
  * hand (lv_obj_set_pos), not through LVGL's flex engine. */
-#define COMPACT_LIST_ROW_STRIDE (LIST_ROW_HEIGHT + GUI_ROW_GAP)
 #define COMPACT_LIST_TOP_PAD GUI_ROW_GAP
 
 /* Real row objects that exist at once, reused (repositioned + relabeled)
@@ -2352,9 +2350,9 @@ lv_obj_t * build_compact_list_widget(lv_obj_t * parent, const compact_list_item_
     data->on_click = on_click;
     data->on_long_press = on_long_press;
     data->long_press_fired = false;
-    data->row_height = LIST_ROW_HEIGHT;
-    data->requested_row_height = LIST_ROW_HEIGHT;
-    data->row_stride = COMPACT_LIST_ROW_STRIDE;
+    data->row_height = ui_list_row_height();
+    data->requested_row_height = GUI_ROW_HEIGHT;
+    data->row_stride = data->row_height + GUI_ROW_GAP;
     data->window_start = -1;
     data->refresh_index = -1;
     data->items = NULL;
@@ -2383,6 +2381,9 @@ lv_obj_t * build_compact_list_widget(lv_obj_t * parent, const compact_list_item_
         lv_obj_t * row = lv_label_create(list);
         lv_obj_add_style(row, &list_row_style, 0);
         lv_obj_add_style(row, &list_row_pressed_style, LV_STATE_PRESSED);
+        lv_obj_set_style_height(row, data->row_height, LV_PART_MAIN);
+        lv_obj_set_style_pad_top(row,
+            (data->row_height - lv_font_get_line_height(&LIST_ROW_FONT)) / 2, LV_PART_MAIN);
         if (row_width != LIST_ROW_WIDTH) lv_obj_set_style_width(row, row_width, 0); /* local override -- see this param's own doc comment (screen_builders.h) */
         /* This label is also the fixed-size row/card. Explicit scroll long
          * mode prevents LVGL's default wrapping while preserving the full
@@ -2588,8 +2589,7 @@ lv_obj_t * build_compact_list_screen(const char * title, lv_event_cb_t back_btn_
 lv_obj_t * add_pill_row_base(lv_obj_t * parent, const char * label_text) {
     lv_obj_t * row = lv_obj_create(parent);
     int32_t row_width = pill_row_default_width();
-    int32_t height = lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_BODY)) + 32;
-    if (height < GUI_SETTINGS_ROW_HEIGHT) height = GUI_SETTINGS_ROW_HEIGHT;
+    int32_t height = ui_list_row_height();
     lv_obj_set_size(row, row_width, height);
     lv_obj_add_style(row, &native_row_min_style, 0);
     lv_obj_set_style_pad_all(row, 0, 0);
@@ -2695,6 +2695,78 @@ lv_obj_t * build_subsonic_list_screen(const char * default_title, lv_obj_t ** ou
     *out_list = list;
     finalize_screen_navigation(scr);
     return scr;
+}
+
+void configure_cover_card_grid(lv_obj_t * list, int columns) {
+    if (!list || columns < 1) return;
+    int32_t side = BOARD_SCALE_PX(16), gap = BOARD_SCALE_PX(14);
+    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_flex_align(list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_left(list, side, 0);
+    lv_obj_set_style_pad_right(list, side, 0);
+    lv_obj_set_style_pad_column(list, gap, 0);
+    lv_obj_set_style_pad_row(list, gap, 0);
+}
+
+lv_obj_t * add_cover_card(lv_obj_t * list, const char * label,
+                          const char * resolved_image_src, int columns,
+                          lv_event_cb_t on_click, void * user_data) {
+    if (!list || columns < 1) return NULL;
+    int32_t screen_w = lv_display_get_horizontal_resolution(lv_display_get_default());
+    int32_t side = BOARD_SCALE_PX(16), gap = BOARD_SCALE_PX(14);
+    int32_t card_w = (screen_w - 2 * side - (columns - 1) * gap) / columns;
+    int32_t cover_h = card_w * 3 / 2;
+    const lv_font_t * font = gui_theme_font(GUI_FONT_ROLE_SUBTEXT);
+
+    lv_obj_t * card = lv_obj_create(list);
+    lv_obj_remove_style_all(card);
+    lv_obj_set_size(card, card_w, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(card, BOARD_SCALE_PX(6), 0);
+    lv_obj_set_style_opa(card, LV_OPA_70, LV_STATE_PRESSED);
+    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t * cover = lv_obj_create(card);
+    lv_obj_remove_style_all(cover);
+    lv_obj_set_size(cover, card_w, cover_h);
+    lv_obj_add_style(cover, &style_theme_card_bg, 0);
+    lv_obj_set_style_bg_opa(cover, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(cover, BOARD_SCALE_PX(10), 0);
+    lv_obj_set_style_clip_corner(cover, true, 0);
+    lv_obj_remove_flag(cover, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    if (resolved_image_src && resolved_image_src[0]) {
+        lv_image_header_t header;
+        if (lv_image_decoder_get_info(resolved_image_src, &header) == LV_RESULT_OK &&
+            header.w > 0 && header.h > 0) {
+            lv_obj_t * image = lv_image_create(cover);
+            lv_image_set_src(image, resolved_image_src);
+            int64_t scale_w = (int64_t) card_w * 256 / header.w;
+            int64_t scale_h = (int64_t) cover_h * 256 / header.h;
+            lv_image_set_scale(image, (uint32_t) (scale_w < scale_h ? scale_w : scale_h));
+            lv_obj_center(image);
+        }
+    }
+    if (lv_obj_get_child_count(cover) == 0) {
+        lv_obj_t * placeholder = lv_label_create(cover);
+        lv_label_set_text(placeholder, label);
+        lv_obj_add_style(placeholder, &style_theme_text_muted, 0);
+        lv_obj_set_style_text_font(placeholder, font, 0);
+        lv_obj_set_style_text_align(placeholder, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_width(placeholder, card_w - BOARD_SCALE_PX(16));
+        lv_label_set_long_mode(placeholder, LV_LABEL_LONG_WRAP);
+        lv_obj_center(placeholder);
+    }
+
+    lv_obj_t * title = lv_label_create(card);
+    lv_label_set_text(title, label);
+    lv_obj_add_style(title, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(title, font, 0);
+    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_size(title, card_w, lv_font_get_line_height(font) * 2);
+    lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
+    if (on_click) lv_obj_add_event_cb(card, on_click, LV_EVENT_CLICKED, user_data);
+    return card;
 }
 
 /* Shared 2-button confirmation popup builder (backdrop, card, wrapped title,

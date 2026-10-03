@@ -56,6 +56,7 @@
 #include "hiby_sys_server.h"
 #ifndef HOST_BUILD
 #include "bt_media_player.h"
+#include "bt_cover_art.h"
 #endif
 #include "headphone_status.h"
 #include "plugin_manager.h"
@@ -153,8 +154,8 @@ uint64_t ui_perf_now_us(void) {
 #define BOOKS_ROOT_DIR MUSIC_ROOT_DIR "/Books"
 #define AUDIOBOOKS_LIBRARY_DIR_NAME "Audiobooks"
 
-/* Music browsing benefits from roomier touch targets and artwork, while
- * Settings and the rest of the app retain the denser shared 84px rows. */
+/* Native list rows share one font-aware base height across Music, Settings,
+ * and the other list screens. */
 
 /* General UI text uses fallback_font.h's stable app_font_* handles.  Their
  * descriptors are rebuilt transactionally for live Font Size changes, so
@@ -548,12 +549,15 @@ static void update_timer_cb(lv_timer_t * timer) {
      * call site that can change play state. */
     bt_media_player_notify_playback_state(audio_is_playing());
     bool has_track = gui_player_has_active_track();
+    char bt_art_url[256] = "";
+    if (has_track) bt_cover_art_get_url(bt_art_url, sizeof(bt_art_url));
+    else bt_cover_art_begin_track(NULL);
     bt_media_player_notify_track(has_track ? gui_player_get_now_playing_title() : "",
                                  has_track ? gui_player_get_now_playing_folder() : "",
                                  has_track ? gui_player_get_now_playing_album() : "",
                                  has_track ? gui_player_get_now_playing_genre() : "",
                                  has_track ? gui_player_get_now_playing_track_number() : 0,
-                                 audio_get_position_seconds(), audio_get_duration_seconds());
+                                 audio_get_position_seconds(), audio_get_duration_seconds(), bt_art_url);
 #endif
 
     /* Accessory-originated AVRCP volume changes arrive on bluealsa's

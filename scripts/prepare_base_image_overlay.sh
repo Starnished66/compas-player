@@ -24,6 +24,8 @@ copy_libraries "$base/expat/current" libexpat
 copy_libraries "$base/bluez-library/stage" libbluetooth
 copy_libraries "$base/dbus/stage" libdbus-1
 copy_libraries "$base/glib/stage" libglib-2.0 libgobject-2.0 libgio-2.0 libgmodule-2.0 libgthread-2.0 libffi libpcre2-8
+"$repo/scripts/prepare_sys_server_mpris_overlay.sh" "$stock" "$overlay"
+"$repo/scripts/prepare_bt_cover_art_overlay.sh" "$base/bluez/stage" "$stock" "$overlay"
 copy_libraries "$base/codecs/stage" libfdk-aac libopenaptx libldacdec
 for binary in bluealsad bluealsactl bluealsa-aplay; do
     cp "$base/bluealsa/stage/usr/bin/$binary" "$overlay/usr/bin/"

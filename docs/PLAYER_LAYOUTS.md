@@ -4,21 +4,23 @@ You can redesign the Now Playing screen without touching C code. A layout is
 an LVGL XML file that says what the screen looks like. The app takes care of
 what it does: playback, seeking, cover art, lyrics, theme colors.
 
-If you don't install a layout, nothing changes. The built-in layout is the
-default, and it is also the fallback whenever a custom one fails to load.
+The Player Layout picker discovers XML files on each visit. Drop a layout on
+the SD card, close and reopen the picker, then select it. There is no Lua
+registration step and installing a file never activates it automatically. The
+built-in layout remains the default and the fallback whenever a custom one
+fails to load.
 
 ## Included designs
 
-The Player Layout selector includes **Gallery**, **Panorama** and **Vinyl**,
-each fitted to all three players. Tap the cover to open or close lyrics.
-Gallery and Panorama retain controls in their lyrics views; Vinyl uses the
-default full lyrics page with a circular cover. Gallery and Vinyl use the player's frosted glass cover pipeline behind
-the artwork. Gallery keeps the menu alongside its playback controls. The designs reuse the player's existing icons.
-
-Hiby’s is also included, with full-width square artwork, the translucent
-status bar over the cover, a brighter frosted footer and XML lyrics
-transitions. Board variants cover R1, R3 Pro II and R3 II 2025; the two
-shorter screens omit the album line to keep controls clear.
+The Player Layout selector includes **Gallery**, **Panorama**, **Vinyl**,
+**Orbit** and **Hiby’s**, each fitted to all three players. Tap the cover to
+open or close lyrics. Gallery and Panorama retain controls in their lyrics views; Vinyl and
+Orbit use the standard lyrics page. Gallery and Vinyl use the player's frosted
+glass cover pipeline behind the artwork. The designs reuse the player's
+existing icons. Hiby’s places square artwork flush with the top edge, with the
+translucent status bar over it and a frosted footer. Its XML timelines preserve
+left-aligned metadata when returning from lyrics. The compact R3 II 2025
+and R3 Pro II variants omit the album line to leave room for playback controls.
 
 Hiby’s Graph duplicates Hiby’s with the existing **filled envelope** waveform
 seek bar. It uses XML only, reuses all icons and includes all three board
@@ -26,38 +28,46 @@ variants. Tap the cover for lyrics and seek directly on the waveform.
 
 ## Quick start
 
-1. Copy `assets/theme2/player_layouts/example_minimal.xml` and rename it, for
-   example `clean.xml`. The file name (without `.xml`) is the name shown in
-   Settings.
-2. Edit it. Keep the widget names listed under [Widgets the app looks
-   for](#widgets-the-app-looks-for); everything else is up to you.
-3. Copy it to the SD card, into `.plugins/player_layouts/`.
-4. On the player, open **Settings > Display > Player Layout > Layout** and
-   pick it. The interface reloads with the new layout, and the choice is
-   remembered across restarts.
+1. Save one XML component, such as `clean.xml`, anywhere in one of the plugin
+   layout folders below. Its file name (without `.xml`) is shown in Settings.
+2. Keep the widget names listed under [Widgets the app looks
+   for](#widgets-the-app-looks-for); timelines and visual styling belong in
+   the XML.
+3. On the player, open **Settings > Display > Player Layout > Layout**. If the
+   picker is already open, close and reopen it to rescan, then select `Clean`.
+   The interface reloads and remembers the choice across restarts.
 
 To go back, pick **Default** in the same list.
 
-After editing the layout that is already active, pick another layout and then
-yours again (or call `plugin.reload_ui()`) to load the new version.
+After editing the active XML file, close and reopen the picker, select another
+layout (or **Default**), then select yours again to reload it.
 
 ## Where layout files go
 
-The app looks for `*.xml` files in these folders. If two folders have a file
-with the same name, the later one in this list wins:
+The app rescans these folders whenever the layout picker opens. Each folder
+scheme creates IDs as shown below:
 
 | Folder | Use it for |
 | --- | --- |
 | `/usr/resource/litegui/theme2/player_layouts/` | Layouts shipped with the firmware (from `assets/theme2/player_layouts/` in this repo). |
 | `/usr/data/theme_overrides/player_layouts/` | Layouts installed on the device's internal storage. |
-| `<SD card>/.plugins/player_layouts/` | Layouts on the SD card. The easiest place for your own. |
+| `<SD card>/.plugins/player_layouts/*.xml` | Legacy shared-folder files; their historical ID is the bare stem. |
+| `<SD card>/.plugins/*.xml` | Plugin-root XML files; ID is `plugin.<stem>`. |
+| `<SD card>/.plugins/<bundle>/player_layouts/*.xml` | Plugin-bundle files; ID is `plugin.<bundle>.<stem>`, such as `plugin.GalleryPlayer.gallery_player`. |
 
-On the simulator, the folders are `assets/theme2/player_layouts/` and
-`./music/.plugins/player_layouts/`.
+On the simulator, the folders are `assets/theme2/player_layouts/`,
+`./music/.plugins/*.xml`, `./music/.plugins/player_layouts/` and
+`./music/.plugins/<bundle>/player_layouts/`.
 
 File names (without `.xml`) are 1 to 63 letters, digits, `_`, `-` or `.`,
-must not start with `.`, and `default` is reserved. A file can be up to
-256 KB, and the list holds up to 24 layouts including Default.
+must not start with `.`, and `default` is reserved. A layout is one `.xml`
+component up to 256 KB. It may use PNGs in a matching sibling image folder as
+described below. The picker holds up to 64 layouts including Default. A later
+file takes precedence only when it resolves to the same ID; equal stems in
+different plugin bundles have different IDs and can both appear.
+In the firmware and theme-override folders, names beginning with `example_`
+are reserved for developer examples and are hidden from the picker; plugin
+layouts may use that prefix.
 
 ### One file per screen size
 
@@ -69,10 +79,18 @@ named `name@WIDTHxHEIGHT.xml`:
 ```
 clean.xml            used on every screen without its own file
 clean@320x480.xml    used instead on the R3 II 2025
+clean_320x480.xml    also recognized as a board-size variant
 ```
 
-Only `clean` appears in Settings. The example layout ships with a 320x480
-version you can compare with.
+Only `clean` appears in Settings. `@WIDTHxHEIGHT` is preferred when both
+suffix styles exist; `_WIDTHxHEIGHT` remains supported for older plugin
+packages. Neither variant appears as its own picker entry.
+
+The boards are R1 at 480x800, R3 Pro II at 480x720 and R3 II 2025 at 320x480.
+Keep content below the status bar: allow 40 px on the two 480 px wide boards
+and 27 px on the compact board. Leave the bottom 31 px clear for the home
+gesture area. Give touch controls at least a 44x44 px hit target, even when
+their visible icon is smaller.
 
 ## Writing the XML
 
@@ -135,13 +153,13 @@ used:
 | `cover_img` | `lv_image` | The cover art. Put it inside `cover_card`; it is scaled to fill the card. Tapping it opens and closes lyrics. |
 | `title` | `lv_label` | Song title. Scrolls when too long. |
 | `play_btn` | `lv_image` | Play/pause. Its icon switches automatically and takes the accent color. |
-| `progress_slider` | `lv_slider` | Seek bar. |
+| `progress_slider` | `lv_slider` or `lv_arc` | Seek control. Both widget types use the same audio position and seek behavior. For a circular control, use a full-circle `lv_arc` with background angles from 0 to 360 and set its rotation in XML. |
 
 **Optional.** Leave out what you don't want:
 
 | Name | Type | What it does |
 | --- | --- | --- |
-| `seek_style` | `lv_label` | Hidden configuration label selecting a waveform seek-bar renderer. See below. |
+| `seek_style` | `lv_label` | Hidden configuration label selecting a waveform renderer for an `lv_slider` seek control. See below. It does not apply to an `lv_arc`. |
 | `artist`, `album` | `lv_label` | Artist (or folder name) and album. Scroll when too long. Tapping opens the matching local artist or album when the playing path is in the library. |
 | `pos_label`, `dur_label` | `lv_label` | Elapsed and total time. |
 | `song_count` | `lv_label` | Position in the queue, for example "3/12". |
@@ -156,7 +174,9 @@ used:
 | `overlay_panel` | any | Full-screen surface the blurred cover background is drawn on. |
 | `background_img` | `lv_image` | The blurred cover, inside `overlay_panel`. |
 | `volume_slider` | `lv_slider` | Shows the volume. Display only, it can't be dragged. |
-| `lyrics_area` | any | Where the lyrics are shown. See [Lyrics in your own area](#lyrics-in-your-own-area). |
+| `lyrics_backdrop` | any | Optional wrapper around the cover, dim layer and lyrics-area background. Allows a cached crossfade when the XML opacity timelines are compatible. Keep labels and controls that animate outside this wrapper. |
+| `lyrics_dim` | any | Optional dim layer inside `lyrics_backdrop`; its background opacity is used for the open state. |
+| `lyrics_area` | any | Where the lyrics are shown. Its background opacity participates in the optional cached lyrics backdrop. See [Lyrics in your own area](#lyrics-in-your-own-area). |
 | `lyrics_active` | `lv_label` | Its text color is the current lyrics line's color. Normally hidden. |
 | `lyrics_toggle` | any | Tapping it opens and closes the lyrics, like tapping the cover. |
 | `cover_thumbnail` | `lv_image` | A compact second cover that shares the decoded artwork. Tapping it toggles lyrics. |
@@ -170,7 +190,7 @@ one, the layout is rejected).
 
 ### Waveform seek bars
 
-Keep the required `progress_slider` and add a hidden label to select its renderer:
+Use an `lv_slider` named `progress_slider` and add a hidden label to select its renderer:
 
 ```xml
 <lv_label name="seek_style" text="waveform_bars" hidden="true" />
@@ -178,7 +198,8 @@ Keep the required `progress_slider` and add a hidden label to select its rendere
            style_bg_color="0x789096" style_bg_opa="255" />
 ```
 
-The available renderers are `waveform_bars` (rounded, mirrored bars),
+Waveforms apply only to `lv_slider`; an `lv_arc` always renders as an arc. The
+available renderers are `waveform_bars` (rounded, mirrored bars),
 `waveform_half` (bars rising from a baseline), and `waveform_envelope`
 (contiguous filled columns). The slider's rectangle sets the waveform size;
 its background color sets the neutral waveform color. Played bars and the
@@ -238,6 +259,45 @@ Timelines animate style properties such as opacity, size, position offsets
 (`translate`) and padding. See `ui_elements/animations.rst` in LVGL's XML
 docs.
 
+### Timeline performance
+
+- The XML timeline runner skips a style update when its interpolated value is
+  unchanged from the current value. This avoids redundant invalidation and
+  layout work on frames where an integer property rounds to the same value.
+- Animation Scale applies to XML timeline durations and delays, including
+  per-animation delays and timeline start or repeat delays. Choose timings at
+  the normal 100% scale; nonzero intervals have a short minimum so LVGL can
+  finish the animation cleanly at low scales.
+- Prefer animating `translate_x` or `translate_y` when an object only needs to
+  move. Animate `width` or `height` when its visible bounds really need to
+  change, because size changes can trigger layout work each frame.
+- For lyrics timelines, the player can snapshot eligible short, single-line
+  labels through a private clone, then move the transparent frames during the
+  transition without disturbing the live label's marquee state. Text that
+  needs marquee scrolling or wrapping stays live. Custom drawing, unsupported
+  animated styles or layout-managed labels also stay live; no special XML
+  markup is needed.
+- A `lyrics_backdrop` can cache the cover and lyrics-area backgrounds as two
+  opaque RGB565 endpoints, then blend between them using the opacity timelines
+  in the XML. For the proxy to cover the captured bounds, give the wrapper zero
+  padding, border and radius, use no flex/grid layout or transforms, and keep
+  it and its ancestors visible and opaque. Set the wrapper background to
+  opaque (`style_bg_opa="255"`) because RGB565 snapshots do not retain
+  transparency. Keep only the `lyrics_dim` and `lyrics_area` background opacity
+  animations inside the wrapper. The open timeline must animate both from
+  their closed values to their open values, and the close timeline must reverse
+  those endpoints. Within each direction, both animations need matching delay,
+  duration and easing. The opening and closing timelines may use different
+  timing curves; each blend follows its own XML timeline. At the start of each
+  transition, the visible opacities must match that direction's start values.
+  For a delayed animation without `early_apply`, ensure the opacity left
+  visible before the delay also matches its start value. Unsupported geometry,
+  animation or starting state keeps the live XML rendering in use.
+- Avoid an extra opaque fill behind cover art that fully covers its card. Keep
+  the card's rounded clipping, and retain a background when the artwork can be
+  transparent, missing, or otherwise leave parts of the card uncovered. The
+  opaque `lyrics_backdrop` wrapper above is still needed when using its cache.
+
 **Lyrics without timelines.** If the layout doesn't define both
 `lyrics_open` and `lyrics_close`, the standard animation runs: the cover
 shrinks to the top-left corner, the song info moves next to it, the controls
@@ -261,6 +321,13 @@ Anything else on the screen, such as decorations, is left as is: hide or fade
 it in your timelines.
 
 ### Lyrics in your own area
+
+For a cached crossfade of the cover and lyrics backdrop, place the cover,
+`lyrics_dim` and `lyrics_area` inside a `lyrics_backdrop` wrapper. These three
+roles are optional as a group; omit any one of them to use ordinary XML
+rendering. Keep metadata and controls outside the wrapper so their own XML
+timelines continue to animate them. The cache refreshes when the cover or
+background changes.
 
 Without `lyrics_area` the lyrics fill the width of the screen below the cover
 and song info. Add a `lyrics_area` (normally an empty transparent `lv_obj`) and
@@ -298,8 +365,8 @@ Tips:
 
 - End `lyrics_close` in the layout's normal state. Leaving the Player jumps
   straight to its end.
-- The cover image isn't resized while `cover_card` changes size; it is fitted
-  again when the animation ends.
+- During a lyrics transition, the player can use a captured cover frame and
+  scale it with `cover_card`, then restore the live image when motion ends.
 - The lyrics text itself (font and highlighting) and the lyrics pane's side
   and bottom margins are not part of the layout; the colors and alignment
   can be set with the roles above.
@@ -323,6 +390,39 @@ layout, so a layout that wants its own background should paint it itself.
 [PLUGINS.md](../PLUGINS.md) for the details. Published plugins, including ones
 that ship layouts, live in the
 [compas-plugins repository](https://github.com/Starnished66/compas-plugins).
+
+### Download cards and previews
+
+**Layout > Download** shows published layouts as cover cards using the EPUB
+reader's grid style. Tap a card for its description and the existing install,
+update, or remove actions. The regular Plugin Manager hides layout packages.
+
+To give a package a preview, add `"preview": "preview.jpg"` to its `store.json`
+in `compas-plugins`. Use an actual device screenshot exported as a baseline
+JPEG, at most 240 × 400 pixels and 64 KiB. The release builder publishes it as
+an independent asset with dimensions, size, and SHA-256 in the catalog; it is
+not installed on the SD card or counted in the plugin's installation size.
+Previews download and convert to fitted RGB565 thumbnails in the background
+into a bounded RAM cache. Visible cards are requested first, with nearby cards
+prefetched; offscreen previews can be evicted so larger catalogs remain
+browsable. Temporary decoder contention allows up to three attempts with
+a delay between attempts. Packages without
+an image, or with an unavailable image, keep a named placeholder card.
+
+The installed **Layout** selector uses the same cards, with an accent outline
+and a **Selected** label for the active layout. Its previews work offline:
+place a PNG beside the XML with the same base filename, such as
+`player_layouts/gallery_player.png` for `gallery_player.xml`. Resolution
+variants (`gallery_player@320x480.xml` or `gallery_player_480x720.xml`) share
+that PNG. Session registrations also use the XML filename, independently of
+their registered ID. Include the PNG in the package's `files` list so it is
+installed along with the XML.
+
+Use an actual device screenshot, at most **240 × 400 pixels** and **512 KiB**.
+The preview must be a regular PNG file beside the XML; missing or unsupported
+previews fall back to a named card. Built-in layouts use
+`player_layouts/<layout-id>.png` from the theme assets, including `default.png`.
+This offline PNG is separate from the JPEG published for download cards.
 
 ## Building a layout into the firmware
 

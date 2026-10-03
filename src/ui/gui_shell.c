@@ -2987,6 +2987,7 @@ static bool active_object_is_drag_adjust_widget(void) {
     lv_obj_t * act = lv_indev_get_active_obj();
     while (act) {
         if (lv_obj_check_type(act, &lv_slider_class) ||
+            lv_obj_check_type(act, &lv_arc_class) ||
             lv_obj_check_type(act, &lv_switch_class) ||
             lv_obj_check_type(act, &lv_dropdown_class) ||
             lv_obj_check_type(act, &lv_roller_class)) {
@@ -3058,6 +3059,11 @@ bool point_in_swipe_dead_zone(lv_point_t p) {
         lv_obj_t * obj = swipe_dead_zones[i];
         if (lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) continue;
         if (lv_obj_get_screen(obj) != lv_screen_active()) continue;
+        /* A seek ring reserves only its annulus, not the cover centre. */
+        if (lv_obj_check_type(obj, &lv_arc_class)) {
+            if (lv_obj_hit_test(obj, &p)) return true;
+            continue;
+        }
         lv_area_t area;
         /* lv_obj_get_click_area(), not lv_obj_get_coords() -- a native
          * slider's raw box can be a few px tall (e.g. the player's progress
@@ -3296,7 +3302,8 @@ static void poll_quick_drawer_drag(lv_timer_t * timer) {
                gui_navigation_get_depth());
     }
 
-    if (pressed && home_swipe_candidate && !home_swipe_tracking && !player_swipe_tracking && !back_swipe_tracking) {
+    if (pressed && home_swipe_candidate && !home_swipe_tracking && !player_swipe_tracking && !back_swipe_tracking &&
+        !transition_compositor_is_active()) {
         int32_t dx = p.x - home_swipe_touch_start_x;
         int32_t dy = p.y - home_swipe_touch_start_y;
         int32_t adx = dx < 0 ? -dx : dx;
@@ -3905,6 +3912,10 @@ bool gui_shell_wifi_ensure_enabled(void) {
 
 bool gui_shell_wifi_enabled_and_settled(void) {
     return !wifi_toggle_active && !wifi_toggle_queued && wifi_control_is_enabled();
+}
+
+bool gui_shell_wifi_connected(void) {
+    return gui_shell_wifi_enabled_and_settled() && wifi_status_enabled && wifi_status_connected;
 }
 
 static void poll_wifi_toggle(void) {
@@ -5016,6 +5027,12 @@ void gui_shell_build_screens(uint32_t screen_width, uint32_t screen_height) {
     build_status_bar();
     build_home_indicator_bar();
     build_quick_drawer();
+    if (gui_player_has_active_track()) {
+        gui_shell_update_quick_drawer_track(gui_player_get_now_playing_title(),
+                                            gui_player_get_now_playing_folder(),
+                                            gui_player_get_now_playing_album());
+    }
+    refresh_format_badge();
     refresh_clock_label();
     refresh_battery_topbar();
     refresh_wifi_icon();
@@ -5092,6 +5109,10 @@ void gui_shell_teardown(void) {
         quick_drawer = NULL;
     }
     quick_drawer_brightness_icon = NULL;
+    quick_drawer_title_label = NULL;
+    quick_drawer_artist_label = NULL;
+    quick_drawer_album_label = NULL;
+    quick_drawer_format_label = NULL;
     quick_drawer_cover_img = NULL; /* child of quick_drawer -- already deleted by the delete above */
     quick_drawer_cover_frame = NULL;
     quick_drawer_volume_container = NULL;
@@ -5371,16 +5392,9 @@ void gui_shell_player_swipe_recover(void * ctx) {
     back_swipe_owns_press = false;
     back_swipe_just_confirmed = false;
     back_swipe_target_scr = NULL;
-    /* home_swipe_ctx is never driven through the compositor by its OWN
-     * begin_slide_transition_ex() call (vertical=true skips that), but
-     * transition_compositor_is_active() is a single global flag shared with
-     * close_quick_drawer()'s own vertical-overlay compositor session --
-     * quick_drawer_open already flips false the instant that close starts,
-     * well before its ~200ms animation (and that compositor session) ends,
-     * so a home-swipe confirmed in that window still sees the drawer's
-     * session as "active" on its very first tick, hits a compositor mode
-     * mismatch, and lands here with sctx == home_swipe_ctx even though
-     * home_swipe never touched the compositor itself. */
+    /* Vertical Home gestures share the same compositor and recovery path
+     * as horizontal player/back gestures. Clear the owner before the
+     * navigation layer frees a failed transition context. */
     if (sctx == home_swipe_ctx) home_swipe_ctx = NULL;
     home_swipe_tracking = false;
     home_swipe_candidate = false;

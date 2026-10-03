@@ -43,12 +43,21 @@ typedef enum {
 /* Rows are about 170 bytes; details are fetched on demand. The UI can receive
  * at most PLUGIN_STORE_MAX_RESULTS rows in its caller-owned result buffer. */
 typedef struct {
+    char asset[128];
+    char sha256[65];
+    uint32_t size;
+    uint32_t width;
+    uint32_t height;
+} plugin_store_preview_t;
+
+typedef struct {
     char id[64];
     char name[65];
     char version[32];
     plugin_store_plugin_state_t state;
     bool incompatible;
     bool needs_confirmation;
+    bool player_layout;
 } plugin_store_result_t;
 
 typedef struct {
@@ -84,6 +93,7 @@ typedef struct {
     char category[33];
     char author[65];
     uint32_t size;
+    plugin_store_preview_t preview; /* Optional, independently fetched; never installed. */
     int file_count;
     plugin_store_file_t files[PLUGIN_STORE_MAX_FILES];
 } plugin_store_plugin_t;
@@ -96,6 +106,17 @@ bool plugin_store_uninstall(const char * id);
 void plugin_store_get_status(plugin_store_status_t * out, plugin_store_result_t * results,
                              size_t result_capacity);
 bool plugin_store_get_details(const char * id, plugin_store_details_t * out);
+/* Marks installed Lua files whose record also owns an XML player layout.
+ * Existing true flags are preserved. */
+void plugin_store_classify_layout_loaders(const char * const * filenames, bool * flags, size_t count);
+/* Non-blocking, verified layout previews. Missing/failed previews use a placeholder. */
+#define PLUGIN_STORE_PREVIEW_CAPACITY 16
+/* Requests visible/nearby IDs; offscreen previews may be evicted. */
+bool plugin_store_prepare_previews(const char * const * ids, size_t count);
+bool plugin_store_get_preview(const char * id, char * out, size_t size);
+uint64_t plugin_store_preview_generation(void);
+/* Stop pending preview transfers when the layout browser is left. */
+void plugin_store_cancel_previews(void);
 bool plugin_store_busy(void);
 void plugin_store_reset(void);
 

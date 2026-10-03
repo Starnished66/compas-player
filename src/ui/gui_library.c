@@ -325,7 +325,8 @@ static void populate_add_to_playlist_screen(void) {
     lv_obj_clean(add_to_playlist_list);
 
     lv_obj_t * new_row = lv_obj_create(add_to_playlist_list);
-    lv_obj_set_size(new_row, LIST_ROW_WIDTH, LIST_ROW_HEIGHT);
+    lv_obj_set_size(new_row, LIST_ROW_WIDTH, ui_list_row_height());
+    lv_obj_add_style(new_row, &native_row_min_style, 0);
     lv_obj_set_style_radius(new_row, LIST_ROW_RADIUS, 0);
     lv_obj_set_style_bg_color(new_row, LIST_ROW_BG_COLOR, 0);
     lv_obj_set_style_bg_opa(new_row, LV_OPA_COVER, 0);
@@ -350,7 +351,8 @@ static void populate_add_to_playlist_screen(void) {
 
     for (int i = 0; i < count; i++) {
         lv_obj_t * row = lv_obj_create(add_to_playlist_list);
-        lv_obj_set_size(row, LIST_ROW_WIDTH, LIST_ROW_HEIGHT);
+        lv_obj_set_size(row, LIST_ROW_WIDTH, ui_list_row_height());
+        lv_obj_add_style(row, &native_row_min_style, 0);
         lv_obj_set_style_radius(row, LIST_ROW_RADIUS, 0);
         lv_obj_set_style_bg_color(row, LIST_ROW_BG_COLOR, 0);
         lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
@@ -885,9 +887,11 @@ static lv_obj_t * add_group_songs_page_row(const char * text, lv_event_cb_t cb) 
     if (group_songs_music_submenu) lv_obj_set_width(row, lv_pct(100));
     lv_obj_add_style(row, &list_row_pressed_style, LV_STATE_PRESSED);
     row_label_enable_marquee(row);
-    lv_obj_set_style_height(row, MUSIC_LIST_ROW_HEIGHT, LV_PART_MAIN);
+    int32_t row_height = ui_list_row_height();
+    lv_obj_set_style_height(row, row_height, LV_PART_MAIN);
+    lv_obj_add_style(row, &native_row_min_style, 0);
     lv_obj_set_style_pad_top(row,
-        (MUSIC_LIST_ROW_HEIGHT - lv_font_get_line_height(&LIST_ROW_FONT)) / 2, LV_PART_MAIN);
+        (row_height - lv_font_get_line_height(&LIST_ROW_FONT)) / 2, LV_PART_MAIN);
     lv_obj_set_style_text_align(row, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
     lv_label_set_text(row, text);
@@ -1268,7 +1272,8 @@ static void populate_group_songs_rows(void) {
      * open, e.g. a gapless auto-advance to the next track in the group. */
     group_songs_now_playing_bar = lv_obj_create(group_songs_list);
     lv_obj_remove_style_all(group_songs_now_playing_bar);
-    lv_obj_set_size(group_songs_now_playing_bar, BOARD_SCALE_PX(5), MUSIC_LIST_ROW_HEIGHT);
+    lv_obj_set_size(group_songs_now_playing_bar, BOARD_SCALE_PX(5), ui_list_row_height());
+    lv_obj_add_style(group_songs_now_playing_bar, &native_row_min_style, 0);
     lv_obj_set_style_bg_color(group_songs_now_playing_bar, accent_lv_color(), 0);
     lv_obj_set_style_bg_opa(group_songs_now_playing_bar, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(group_songs_now_playing_bar, 2, 0);
@@ -6064,7 +6069,8 @@ static void playlist_row_click_cb(lv_event_t * e) {
  * ...) not part of this request. */
 static lv_obj_t * add_playlist_row_base(lv_obj_t * parent, const char * label_text) {
     lv_obj_t * row = lv_obj_create(parent);
-    lv_obj_set_size(row, LIST_ROW_WIDTH_WIDE, MUSIC_LIST_ROW_HEIGHT);
+    lv_obj_set_size(row, LIST_ROW_WIDTH_WIDE, ui_list_row_height());
+    lv_obj_add_style(row, &native_row_min_style, 0);
     lv_obj_add_style(row, &pill_row_bg_style, 0);
     lv_obj_add_style(row, &list_row_pressed_style, LV_STATE_PRESSED);
     lv_obj_set_style_pad_all(row, 0, 0);
@@ -10694,7 +10700,12 @@ bool gui_library_navigation_blocked(void) {
     return library_rescan_active || library_rescan_success_pending || sd_format_active;
 }
 
-void gui_library_prepare_for_ui_reload(void) {
+void gui_library_prepare_for_ui_reload(bool preserve_artwork) {
+#ifdef UI_PERF_TRACE
+    unsigned decoded_before = 0;
+    for (int i = 0; i < ALBUM_THUMBNAIL_CACHE_SIZE; ++i)
+        if (album_thumbnail_cache[i].pixels) ++decoded_before;
+#endif
     cancel_album_load();
     cancel_group_song_probes();
     bool cover_reload = library_rescan_active &&
@@ -10714,7 +10725,20 @@ void gui_library_prepare_for_ui_reload(void) {
         atomic_store_explicit(&library_rescan_done_flag, false, memory_order_relaxed);
     }
     quiesce_album_artwork_workers();
-    album_thumbnail_cache_clear();
+    /* The decoded LRU and alias records are independent of the screen tree.
+     * Workers are joined and their epochs invalidated above, so their results
+     * cannot target deleted list objects. Keep the owned pixels for a layout
+     * reload when the library itself is unchanged; full reload callers retain
+     * the previous clear behavior. */
+    if (!preserve_artwork) album_thumbnail_cache_clear();
+#ifdef UI_PERF_TRACE
+    unsigned decoded_after = 0;
+    for (int i = 0; i < ALBUM_THUMBNAIL_CACHE_SIZE; ++i)
+        if (album_thumbnail_cache[i].pixels) ++decoded_after;
+    printf("PERF artwork_reload preserved=%d decoded_before=%u decoded_after=%u\n",
+           preserve_artwork, decoded_before, decoded_after);
+#endif
+
 
     if (search_debounce_timer) lv_timer_pause(search_debounce_timer);
     search_job_pending_valid = false;

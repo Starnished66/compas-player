@@ -145,7 +145,7 @@ static int32_t reload_display_height(void) {
     return height > 0 ? height : BOARD_SCREEN_HEIGHT;
 }
 
-void gui_soft_reload(void) {
+static void gui_soft_reload_with_artwork(bool preserve_artwork) {
     reload_diag("gui_soft_reload: begin");
     int32_t screen_width = reload_display_width();
     int32_t screen_height = reload_display_height();
@@ -153,7 +153,7 @@ void gui_soft_reload(void) {
     reload_diag("gui_shell_reset_drag_state: before");
     gui_shell_reset_drag_state();
     reload_diag("gui_library_prepare_for_ui_reload: before");
-    gui_library_prepare_for_ui_reload();
+    gui_library_prepare_for_ui_reload(preserve_artwork);
     reload_diag("reset_swipe_dead_zones: before");
     reset_swipe_dead_zones();
     reload_diag("gui_navigation_teardown: before");
@@ -247,9 +247,14 @@ void gui_soft_reload(void) {
     reload_diag("gui_soft_reload: end");
 }
 
+void gui_soft_reload(void) {
+    gui_soft_reload_with_artwork(false);
+}
+
 /* gui_reload_request()'s scheduling state -- see its own comment. */
 static bool reload_scheduled = false;
 static bool reload_in_progress = false;
+static bool reload_preserve_artwork = false;
 static uint32_t last_reload_tick = 0;
 
 /* How often the pending-reload timer rechecks gui_navigation_transition_in_
@@ -300,13 +305,20 @@ static void reload_trigger_cb(lv_timer_t * timer) {
      * for the entire duration of the call it needs to block requests
      * during. */
     reload_in_progress = true;
-    gui_soft_reload();
+    bool preserve_artwork = reload_preserve_artwork;
+    reload_preserve_artwork = false;
+    gui_soft_reload_with_artwork(preserve_artwork);
     reload_in_progress = false;
     last_reload_tick = lv_tick_get();
 }
 
-void gui_reload_request(void) {
-    if (reload_in_progress || reload_scheduled) return; /* coalesce -- one pending/running reload covers any others requested meanwhile */
+static void gui_reload_schedule(bool preserve_artwork) {
+    if (reload_in_progress) return;
+    if (reload_scheduled) {
+        /* A full asset/theme reload takes precedence over layout-only reuse. */
+        reload_preserve_artwork = reload_preserve_artwork && preserve_artwork;
+        return;
+    } /* coalesce -- one pending/running reload covers any others requested meanwhile */
     if (last_reload_tick != 0 && lv_tick_elaps(last_reload_tick) < RELOAD_COOLDOWN_MS) {
         LV_LOG_WARN("gui_reload_request: ignored -- another reload finished under %dms ago "
                      "(a plugin calling plugin.reload_ui() unconditionally from its own top-level "
@@ -314,8 +326,17 @@ void gui_reload_request(void) {
                      RELOAD_COOLDOWN_MS);
         return;
     }
+    reload_preserve_artwork = preserve_artwork;
     reload_scheduled = true;
     lv_timer_create(reload_trigger_cb, RELOAD_RETRY_PERIOD_MS, NULL);
+}
+
+void gui_reload_request(void) {
+    gui_reload_schedule(false);
+}
+
+void gui_player_layout_reload_request(void) {
+    gui_reload_schedule(true);
 }
 
 static bool theme_refresh_scheduled = false;

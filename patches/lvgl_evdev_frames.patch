@@ -1,0 +1,17 @@
+--- a/src/drivers/evdev/lv_evdev.c
++++ b/src/drivers/evdev/lv_evdev.c
+@@ -305,6 +305,14 @@
+             }
+         }
+ #endif
++
++        /* A pointer sample is the complete input frame ending at SYN_REPORT.
++         * Return it before consuming the next frame so a press and release
++         * queued together cannot collapse into a single released sample. */
++        if(in.type == EV_SYN && in.code == SYN_REPORT && lv_indev_get_type(indev) == LV_INDEV_TYPE_POINTER) {
++            data->continue_reading = true;
++            break;
++        }
+     }
+ 
+     if(!dsc->deleting && br == -1 && errno != EAGAIN) {

@@ -16,6 +16,7 @@
 #include "plugin_storage.h"
 #include "plugin_internal.h"
 #include "plugin_disabled_list.h"
+#include "plugin_store.h"
 #include "../core/screenshot.h"
 #include "db_log.h"
 #include "app_version.h"
@@ -2276,7 +2277,7 @@ static int l_plugin_set_player_layout(lua_State * L) {
     /* The player screen only exists once the UI is up. Plugins run before it
      * is built on boot and inside a reload, where the new layout is picked up
      * anyway; a call from a callback needs the rebuild. */
-    if (layout_changed && gui_player_get_screen()) gui_reload_request();
+    if (layout_changed && gui_player_get_screen()) gui_player_layout_reload_request();
     return 0;
 }
 
@@ -5366,6 +5367,7 @@ static void fill_available_entry(plugin_available_entry_t * e, const char * file
     e->disabled = plugin_disabled_list_contains(filename);
     e->loaded = false;
     e->over_limit = false;
+    e->player_layout = false;
     uint64_t h = plugin_filename_hash(filename);
     for (int j = 0; j < plugin_over_limit_count; j++) {
         if (plugin_over_limit[j] == h) {
@@ -5380,6 +5382,45 @@ static void fill_available_entry(plugin_available_entry_t * e, const char * file
             e->loaded = true;
             snprintf(e->display_name, sizeof(e->display_name), "%s", plugin_instances[j].name);
             break;
+        }
+    }
+
+    /* Layout-only bundles are still represented by their Lua loader file.
+     * Detect their companion directory from disk so disabled and over-limit
+     * plugins are classified without executing their scripts. */
+    size_t filename_len = strlen(filename);
+    if (filename_len > 4 && strcasecmp(filename + filename_len - 4, ".lua") == 0) {
+        char stem[256];
+        size_t stem_len = filename_len - 4;
+        if (stem_len < sizeof(stem)) {
+            memcpy(stem, filename, stem_len);
+            stem[stem_len] = '\0';
+            char bundle[900], layout_dir[1000];
+            int bn = snprintf(bundle, sizeof(bundle), "%s/%s", MUSIC_ROOT_DIR "/.plugins", stem);
+            int ln = (bn > 0 && bn < (int) sizeof(bundle)) ?
+                snprintf(layout_dir, sizeof(layout_dir), "%s/player_layouts", bundle) : -1;
+            struct stat st;
+            if (ln > 0 && ln < (int) sizeof(layout_dir) &&
+                lstat(bundle, &st) == 0 && S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode) &&
+                lstat(layout_dir, &st) == 0 && S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode)) {
+                DIR * layouts = opendir(layout_dir);
+                if (layouts) {
+                    struct dirent * ent;
+                    while ((ent = readdir(layouts)) != NULL) {
+                        size_t len = strlen(ent->d_name);
+                        if (ent->d_name[0] == '.' || len <= 4 ||
+                            strcasecmp(ent->d_name + len - 4, ".xml") != 0) continue;
+                        char path[1200];
+                        int pn = snprintf(path, sizeof(path), "%s/%s", layout_dir, ent->d_name);
+                        if (pn <= 0 || pn >= (int) sizeof(path)) continue;
+                        if (lstat(path, &st) == 0 && S_ISREG(st.st_mode) && !S_ISLNK(st.st_mode)) {
+                            e->player_layout = true;
+                            break;
+                        }
+                    }
+                    closedir(layouts);
+                }
+            }
         }
     }
 }
@@ -5424,6 +5465,20 @@ int plugin_manager_scan_available(plugin_available_entry_t * out, int max) {
         free(included);
     }
 
+    if (count > 0) {
+        const char ** filenames = calloc((size_t) count, sizeof(*filenames));
+        bool * layout_flags = calloc((size_t) count, sizeof(*layout_flags));
+        if (filenames && layout_flags) {
+            for (int i = 0; i < count; i++) {
+                filenames[i] = out[i].filename;
+                layout_flags[i] = out[i].player_layout;
+            }
+            plugin_store_classify_layout_loaders(filenames, layout_flags, (size_t) count);
+            for (int i = 0; i < count; i++) out[i].player_layout = layout_flags[i];
+        }
+        free(filenames);
+        free(layout_flags);
+    }
     free(names);
     return count;
 }

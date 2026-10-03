@@ -57,6 +57,11 @@
  * active, or either buffer isn't a plain, full-screen, opaque RGB565
  * buffer of the expected shape. */
 bool transition_compositor_begin(const lv_draw_buf_t * from, const lv_draw_buf_t * to, int32_t to_offset, bool reveal);
+/* Extended full-frame compositor. Vertical mode uses +/-screen height for
+ * to_offset and frame offsets; horizontal mode retains +/-screen width.
+ * The legacy begin() entry point is horizontal for compatibility. */
+bool transition_compositor_begin_ex(const lv_draw_buf_t * from, const lv_draw_buf_t * to,
+                                    int32_t to_offset, bool vertical, bool reveal);
 
 /* True if this display could potentially use the compositor at all (pan-
  * based double buffering active) -- doesn't guarantee a later
@@ -67,11 +72,11 @@ bool transition_compositor_begin(const lv_draw_buf_t * from, const lv_draw_buf_t
  * alias isn't safe here) before it has them in hand yet. */
 bool transition_compositor_available(void);
 
-/* Composes and presents exactly one frame at horizontal offset v (the
- * outgoing frame effectively at x=v, the incoming one at x=v+to_offset --
- * same convention slide_transition_anim_x_cb() uses -- except in reveal
- * mode, where the incoming frame stays pinned at x=0 for the whole
- * gesture instead). Every row from y=0
+/* Composes and presents exactly one frame at offset v along the selected
+ * axis (the outgoing frame effectively at x=v or y=v, the incoming one at
+ * x/y=v+to_offset -- same convention as the matching navigation animation
+ * callback -- except in reveal mode, where the incoming frame stays pinned
+ * at the origin for the whole gesture). Every row from y=0
  * through height-1 is recomposited from `from`/`to` on every call -- no
  * row is ever skipped, re-stamped from a fixed source, or left untouched,
  * so the persistent status bar / home-indicator content (already baked
@@ -93,6 +98,14 @@ bool transition_compositor_available(void);
  * treat the gesture as live, or committing to the destination screen,
  * would leave GUI-level state disagreeing with what's actually on screen. */
 bool transition_compositor_frame(int32_t v);
+/* Pure full-screen RGB565 slide/reveal composition primitive. Frames may
+ * have independent padded strides. `v` is clamped to +/-height (vertical)
+ * or +/-width (horizontal); every destination pixel is rewritten. */
+bool transition_compositor_compose_rgb565(uint8_t * dst, uint32_t dst_stride,
+                                          const uint8_t * from, uint32_t from_stride,
+                                          const uint8_t * to, uint32_t to_stride,
+                                          int32_t width, int32_t height, int32_t v,
+                                          int32_t to_offset, bool vertical, bool reveal);
 
 /* Vertical overlay variant used by the quick drawer. `overlay` may be an
  * opaque RGB565 buffer (the original memcpy fast path) or an unpremultiplied

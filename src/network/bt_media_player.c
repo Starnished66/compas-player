@@ -8,6 +8,8 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/input.h>
+#include <limits.h>
+#include <math.h>
 #include <poll.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -23,7 +25,8 @@
  * 2. Reads AVRCP button events from BlueZ's virtual evdev keyboard device
  *    ("<name> (AVRCP)") to handle play/pause, next, and previous inputs. */
 
-#define BT_MEDIA_PLAYER_OBJECT_PATH "/org/openhibyplayer/MediaPlayer"
+#define BT_MEDIA_PLAYER_OBJECT_PATH "/org/mpris/MediaPlayer2"
+#define BT_MEDIA_PLAYER_BUS_NAME "org.mpris.MediaPlayer2.compas"
 #define BT_MEDIA_PLAYER_ADAPTER_PATH "/org/bluez/hci0"
 #define BT_MEDIA_PLAYER_POLL_TIMEOUT_MS 200
 /* Let GUI labels and decoder duration settle before notifying AVRCP. */
@@ -43,6 +46,7 @@ static bool prev_requested = false;
 /* Current AVRCP track data, copied by the GUI thread and read by dispatch. */
 typedef struct {
     char title[256], artist[256], album[256], genre[256];
+    char art_url[256];
     int track_number;
     double position_seconds, duration_seconds;
     uint64_t generation;
@@ -64,6 +68,17 @@ static track_snapshot_t snapshot_copy(void) {
     pthread_mutex_unlock(&state_mutex);
     return copy;
 }
+
+/* The legacy sys_server protocol accepts milliseconds in a signed long.
+ * Keep conversion defined on 32-bit targets and for invalid decoder values. */
+#ifndef BOARD_R3PROII
+static long seconds_to_milliseconds(double seconds) {
+    if (!isfinite(seconds) || seconds <= 0.0 || seconds > (double) LONG_MAX / 1000.0) {
+        return 0;
+    }
+    return (long) (seconds * 1000.0);
+}
+#endif
 
 static bool append_variant_bool(DBusMessageIter * iter, dbus_bool_t value) {
     DBusMessageIter variant;
@@ -155,6 +170,7 @@ static bool append_metadata(DBusMessageIter * dict, const track_snapshot_t * s) 
     if (!append_dict_string(dict, "xesam:title", s->title) ||
         !append_dict_string_array(dict, "xesam:artist", s->artist) ||
         !append_dict_string(dict, "xesam:album", s->album)) return false;
+    if (s->art_url[0] && !append_dict_string(dict, "mpris:artUrl", s->art_url)) return false;
     if (s->genre[0] && !append_dict_string_array(dict, "xesam:genre", s->genre)) return false;
     if (s->track_number > 0 &&
         !append_dict_int32(dict, "xesam:trackNumber", s->track_number)) return false;
@@ -483,6 +499,10 @@ static void call_register_player(bool register_it) {
             dbus_message_unref(msg);
             return;
         }
+        if (!append_dict_string(&dict_iter, "Identity", "Compás")) {
+            dbus_message_unref(msg);
+            return;
+        }
         static const char * const cap_names[] = {
             "CanPlay", "CanPause", "CanControl", "CanGoNext", "CanGoPrevious"
         };
@@ -551,7 +571,8 @@ static void send_playback_status_changed(void) {
     dbus_message_unref(signal);
 }
 
-static bool send_track_changed(bool metadata_changed, bool position_changed) {
+static bool send_track_changed(bool metadata_changed, bool position_changed,
+                               const track_snapshot_t * s) {
     DBusMessage * signal = dbus_message_new_signal(BT_MEDIA_PLAYER_OBJECT_PATH, "org.freedesktop.DBus.Properties", "PropertiesChanged");
     if (!signal) return false;
     DBusMessageIter iter, dict, invalid;
@@ -559,9 +580,8 @@ static bool send_track_changed(bool metadata_changed, bool position_changed) {
     const char * interface_name = "org.mpris.MediaPlayer2.Player";
     bool ok = dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &interface_name);
     if (ok) ok = dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY, "{sv}", &dict);
-    track_snapshot_t s = snapshot_copy();
-    if (ok && metadata_changed) ok = append_metadata_entry(&dict, &s);
-    if (ok && position_changed) ok = append_position_entry(&dict, s.position_seconds);
+    if (ok && metadata_changed) ok = append_metadata_entry(&dict, s);
+    if (ok && position_changed) ok = append_position_entry(&dict, s->position_seconds);
     if (ok) ok = dbus_message_iter_close_container(&iter, &dict);
     if (ok) ok = dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY, "s", &invalid);
     if (ok) ok = dbus_message_iter_close_container(&iter, &invalid);
@@ -584,6 +604,7 @@ static void * dispatch_thread_func(void * arg) {
     call_register_player(true);
     uint64_t last_seen_generation = snapshot_copy().generation;
     uint64_t last_emitted_generation = last_seen_generation;
+    bool initial_metadata_pending = true;
     double last_position = snapshot_copy().position_seconds;
     DBG_LOG("bt_media_player: registered\n");
 
@@ -602,7 +623,8 @@ static void * dispatch_thread_func(void * arg) {
 
         if (current_playing != last_notified_playing) {
             send_playback_status_changed();
-            send_track_changed(false, true);
+            track_snapshot_t status_track = snapshot_copy();
+            send_track_changed(false, true, &status_track);
             hiby_sys_server_report_playback_status(current_playing);
             last_notified_playing = current_playing;
         }
@@ -613,7 +635,7 @@ static void * dispatch_thread_func(void * arg) {
         }
         double metadata_stable_seconds = (double) (iteration_time.tv_sec - metadata_change_time.tv_sec) +
                                         (double) (iteration_time.tv_nsec - metadata_change_time.tv_nsec) / 1000000000.0;
-        bool metadata_pending = current.generation != last_emitted_generation;
+        bool metadata_pending = initial_metadata_pending || current.generation != last_emitted_generation;
         bool metadata_settled = metadata_stable_seconds >= (BT_MEDIA_PLAYER_METADATA_SETTLE_MS / 1000.0);
         bool emit_metadata = metadata_pending && metadata_settled;
         double elapsed_position = last_position + (current_playing ? elapsed_seconds : 0.0);
@@ -621,8 +643,23 @@ static void * dispatch_thread_func(void * arg) {
                              (elapsed_position - current.position_seconds > 2.0);
         bool position_changed = emit_metadata || (!metadata_pending && seek_detected);
         if (emit_metadata || (!metadata_pending && seek_detected)) {
-            send_track_changed(emit_metadata, position_changed);
-            if (emit_metadata) last_emitted_generation = current.generation;
+            bool sent = send_track_changed(emit_metadata, position_changed, &current);
+            if (emit_metadata) {
+#ifndef BOARD_R3PROII
+                /* The GUI's immediate legacy report can precede async decoder
+                 * startup, when duration is still unknown. Report this
+                 * settled canonical snapshot once per generation so the
+                 * legacy AVRCP bridge receives the resolved duration too. */
+                hiby_sys_server_report_metadata(current.title, current.artist,
+                                                current.album, current.genre,
+                                                seconds_to_milliseconds(current.duration_seconds));
+                hiby_sys_server_report_position(seconds_to_milliseconds(current.position_seconds));
+#endif
+                if (sent) {
+                    last_emitted_generation = current.generation;
+                    initial_metadata_pending = false;
+                }
+            }
         }
         last_position = current.position_seconds;
 
@@ -657,6 +694,15 @@ static bool attempt_connect_once(void) {
     }
     dbus_error_free(&err);
 
+    int ownership = dbus_bus_request_name(conn, BT_MEDIA_PLAYER_BUS_NAME,
+                                          DBUS_NAME_FLAG_DO_NOT_QUEUE, &err);
+    if (dbus_error_is_set(&err) || (ownership != DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER &&
+         ownership != DBUS_REQUEST_NAME_REPLY_ALREADY_OWNER)) {
+        DBG_LOG("bt_media_player: cannot own MPRIS name: %s\n", err.message ? err.message : "already owned");
+        dbus_error_free(&err);
+        /* Older bases deny this name; keep the existing AVRCP provider
+         * working under its unique name until the base is upgraded. */
+    }
     if (!dbus_connection_register_object_path(conn, BT_MEDIA_PLAYER_OBJECT_PATH, &vtable, NULL)) {
         DBG_LOG("bt_media_player: failed to register object path\n");
         return false;
@@ -790,19 +836,21 @@ void bt_media_player_notify_playback_state(bool playing) {
 
 void bt_media_player_notify_track(const char * title, const char * artist, const char * album,
                                   const char * genre, int track_number, double position_seconds,
-                                  double duration_seconds) {
+                                  double duration_seconds, const char * art_url) {
     track_snapshot_t next = {0};
     copy_utf8(next.title, sizeof(next.title), title);
     copy_utf8(next.artist, sizeof(next.artist), artist);
     copy_utf8(next.album, sizeof(next.album), album);
     copy_utf8(next.genre, sizeof(next.genre), genre);
+    copy_utf8(next.art_url, sizeof(next.art_url), art_url);
     next.track_number = track_number > 0 ? track_number : 0;
     next.position_seconds = position_seconds > 0 ? position_seconds : 0;
     next.duration_seconds = duration_seconds > 0 ? duration_seconds : 0;
     pthread_mutex_lock(&state_mutex);
     bool changed = strcmp(track_state.title, next.title) || strcmp(track_state.artist, next.artist) ||
                    strcmp(track_state.album, next.album) || strcmp(track_state.genre, next.genre) ||
-                   track_state.track_number != next.track_number || track_state.duration_seconds != next.duration_seconds;
+                   track_state.track_number != next.track_number || track_state.duration_seconds != next.duration_seconds ||
+                   strcmp(track_state.art_url, next.art_url);
     next.generation = track_state.generation + (changed ? 1 : 0);
     track_state = next;
     pthread_mutex_unlock(&state_mutex);

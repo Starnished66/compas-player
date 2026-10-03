@@ -1,0 +1,115 @@
+Subject: [PATCH] Add OBEX cover-art-only build mode
+
+Build just Bluetooth and AVRCP cover-art responder plugins, without libical or client plugins.
+
+diff --git a/configure.ac b/configure.ac
+--- a/configure.ac
++++ b/configure.ac
+@@ -305,12 +305,28 @@
+ 
+ AC_ARG_ENABLE(obex, AS_HELP_STRING([--disable-obex],
+ 		[disable OBEX profile support]), [enable_obex=${enableval}])
+-if (test "${enable_obex}" != "no"); then
++AC_ARG_ENABLE([obex-cover-art-only],
++	AS_HELP_STRING([--enable-obex-cover-art-only],
++		[build only the Bluetooth AVRCP cover-art responder]),
++	[enable_obex_cover_art_only=${enableval}],
++	[enable_obex_cover_art_only=no])
++if (test "${enable_obex_cover_art_only}" = "yes" &&
++		test "${enable_obex}" = "no"); then
++	AC_MSG_ERROR([--enable-obex-cover-art-only requires OBEX])
++fi
++if (test "${enable_obex}" != "no" &&
++		test "${enable_obex_cover_art_only}" != "yes"); then
+ 	PKG_CHECK_MODULES(ICAL, [libicalvcal >= 4.0.0], [],
+                 [PKG_CHECK_MODULES(ICAL, [libical])]
+         )
+ fi
++if (test "${enable_obex_cover_art_only}" = "yes"); then
++	AC_DEFINE([OBEX_COVER_ART_ONLY], [1],
++		[Build only the Bluetooth AVRCP cover-art responder])
++fi
+ AM_CONDITIONAL(OBEX, test "${enable_obex}" != "no")
++AM_CONDITIONAL(OBEX_COVER_ART_ONLY,
++	test "${enable_obex_cover_art_only}" = "yes")
+ 
+ AC_ARG_ENABLE(btpclient, AS_HELP_STRING([--enable-btpclient],
+ 		[enable BTP client]), [enable_btpclient=${enableval}])
+diff --git a/Makefile.obexd b/Makefile.obexd
+--- a/Makefile.obexd
++++ b/Makefile.obexd
+@@ -24,6 +24,11 @@
+ obexd_builtin_sources =
+ obexd_builtin_nodist =
+ 
++if OBEX_COVER_ART_ONLY
++obexd_builtin_modules += bluetooth bip_avrcp
++obexd_builtin_sources += obexd/plugins/bluetooth.c \
++			obexd/plugins/bip-avrcp.c
++else
+ obexd_builtin_modules += filesystem
+ obexd_builtin_sources += obexd/plugins/filesystem.c obexd/plugins/filesystem.h
+ 
+@@ -61,6 +66,8 @@
+ obexd_builtin_sources += obexd/client/mns.c obexd/src/map_ap.h \
+ 				obexd/client/map-event.h
+ 
++endif
++
+ pkglibexec_PROGRAMS += obexd/src/obexd
+ 
+ obexd_src_obexd_SOURCES = $(btio_sources) $(gobex_sources) \
+@@ -74,8 +81,9 @@
+ 			obexd/src/mimetype.h obexd/src/mimetype.c \
+ 			obexd/src/service.h obexd/src/service.c \
+ 			obexd/src/transport.h obexd/src/transport.c \
+-			obexd/src/server.h obexd/src/server.c \
+-			obexd/client/manager.h obexd/client/manager.c \
++			obexd/src/server.h obexd/src/server.c
++if !OBEX_COVER_ART_ONLY
++obexd_src_obexd_SOURCES += obexd/client/manager.h obexd/client/manager.c \
+ 			obexd/client/session.h obexd/client/session.c \
+ 			obexd/client/bluetooth.h obexd/client/bluetooth.c \
+ 			obexd/client/sync.h obexd/client/sync.c \
+@@ -90,11 +98,15 @@
+ 			obexd/client/transport.h obexd/client/transport.c \
+ 			obexd/client/driver.h obexd/client/driver.c \
+ 			obexd/src/map_ap.h
++endif
++
+ obexd_src_obexd_LDADD = lib/libbluetooth-internal.la \
+ 			gdbus/libgdbus-internal.la \
+ 			src/libshared-glib.la \
+-			$(ICAL_LIBS) $(DBUS_LIBS) $(LIBEBOOK_LIBS) \
+-			$(LIBEDATASERVER_LIBS) $(GLIB_LIBS) -ldl
++			$(DBUS_LIBS) $(GLIB_LIBS) -ldl
++if !OBEX_COVER_ART_ONLY
++obexd_src_obexd_LDADD += $(ICAL_LIBS) $(LIBEBOOK_LIBS) $(LIBEDATASERVER_LIBS)
++endif
+ 
+ if EXTERNAL_PLUGINS
+ obexd_src_obexd_LDFLAGS = $(AM_LDFLAGS) -Wl,--export-dynamic
+diff --git a/obexd/src/main.c b/obexd/src/main.c
+--- a/obexd/src/main.c
++++ b/obexd/src/main.c
+@@ -322,16 +322,20 @@
+ 		exit(EXIT_FAILURE);
+ 	}
+ 
++#ifndef OBEX_COVER_ART_ONLY
+ 	if (client_manager_init() < 0) {
+ 		error("client_manager_init failed");
+ 		exit(EXIT_FAILURE);
+ 	}
++#endif
+ 
+ 	g_main_loop_run(main_loop);
+ 
+ 	g_source_remove(signal);
+ 
++#ifndef OBEX_COVER_ART_ONLY
+ 	client_manager_exit();
++#endif
+ 
+ 	obex_server_exit();
+ 

@@ -5,16 +5,24 @@
 #include "fallback_font.h"
 #include "assets.h"
 #include "settings.h"
+#include "gui_theme.h"
 
 #include "../../third_party/lv_xml/src/others/xml/lv_xml.h"
 #include "../../third_party/lv_xml/src/others/xml/lv_xml_compat.h"
+#include "../../lvgl/src/misc/lv_anim_timeline_private.h"
 
 #include <ctype.h>
+#include <errno.h>
 #include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
+#include <strings.h>
+#include <fcntl.h>
 #include <sys/stat.h>
+#include <limits.h>
+#include <unistd.h>
 
 #ifdef HOST_BUILD
   #define PLUGIN_LAYOUT_DIR "./music/.plugins/player_layouts"
@@ -22,7 +30,7 @@
   #define PLUGIN_LAYOUT_DIR "/data/mnt/sd_0/.plugins/player_layouts"
 #endif
 
-#define MAX_LAYOUTS 24
+#define MAX_LAYOUTS 64
 #define MAX_LAYOUT_PATH 512
 #define MAX_XML_BYTES (256 * 1024)
 /* The one XML component name in use. Only one XML layout exists at a time:
@@ -44,6 +52,24 @@ static char session_selected[PLAYER_LAYOUT_ID_MAX];
 static bool xml_engine_ready;
 static bool xml_globals_ready;
 static bool xml_component_registered;
+static bool active_xml_layout;
+typedef struct prepared_xml_timeline_t {
+    struct prepared_xml_timeline_t * next;
+    lv_anim_timeline_t * timeline;
+    uint32_t original_delay;
+    uint32_t original_repeat_delay;
+    uint32_t anim_count;
+    struct { uint32_t start_time, duration; } originals[];
+} prepared_xml_timeline_t;
+static prepared_xml_timeline_t * prepared_xml_timelines;
+#define MAX_TIMELINE_SUPPRESSIONS 64
+typedef struct {
+    lv_anim_timeline_t * timeline;
+    lv_obj_t * obj;
+    lv_style_prop_t prop;
+    lv_style_selector_t selector;
+} timeline_suppression_t;
+static timeline_suppression_t timeline_suppressions[MAX_TIMELINE_SUPPRESSIONS];
 /* Timeline hook of the layout created last, for exported layouts. */
 static player_layout_timeline_fn active_timeline_fn;
 
@@ -127,6 +153,88 @@ const player_layout_info_t * player_layouts_get(int index) {
     return index >= 0 && index < entry_count ? &entries[index].info : NULL;
 }
 
+static bool layout_preview_variant_suffix(const char * suffix) {
+    if (!suffix || (*suffix != '@' && *suffix != '_')) return false;
+    const char * p = suffix + 1;
+    const char * digits = p;
+    while (*p >= '0' && *p <= '9') p++;
+    if (p == digits || *p++ != 'x') return false;
+    digits = p;
+    while (*p >= '0' && *p <= '9') p++;
+    return p != digits && *p == '\0';
+}
+
+static bool layout_preview_png_valid(const char * path) {
+    static const unsigned char signature[8] = { 0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a };
+    int fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0) return false;
+    struct stat st;
+    unsigned char header[24];
+    size_t used = 0;
+    bool valid = fstat(fd, &st) == 0 && S_ISREG(st.st_mode) &&
+                 st.st_size >= (off_t) sizeof(header) && st.st_size <= 512 * 1024;
+    while (valid && used < sizeof(header)) {
+        ssize_t n = read(fd, header + used, sizeof(header) - used);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) { valid = false; break; }
+        used += (size_t) n;
+    }
+    close(fd);
+    if (!valid || used != sizeof(header) || memcmp(header, signature, sizeof(signature)) != 0 ||
+        header[8] != 0 || header[9] != 0 || header[10] != 0 || header[11] != 13 ||
+        memcmp(header + 12, "IHDR", 4) != 0) return false;
+    uint32_t width = ((uint32_t)header[16] << 24) | ((uint32_t)header[17] << 16) |
+                     ((uint32_t)header[18] << 8) | header[19];
+    uint32_t height = ((uint32_t)header[20] << 24) | ((uint32_t)header[21] << 16) |
+                      ((uint32_t)header[22] << 8) | header[23];
+    return width > 0 && width <= 240 && height > 0 && height <= 400;
+}
+
+bool player_layouts_get_preview(int index, char * out, size_t size) {
+    ensure_builtin_entry();
+    if (!out || !size) return false;
+    out[0] = '\0';
+    if (index < 0 || index >= entry_count) return false;
+    const layout_entry_t * entry = &entries[index];
+    char path[MAX_LAYOUT_PATH];
+    if (entry->info.kind != PLAYER_LAYOUT_XML_FILE) {
+        char relative[PLAYER_LAYOUT_ID_MAX + 32];
+        int n = snprintf(relative, sizeof(relative), "player_layouts/%s.png", entry->info.id);
+        if (n <= 0 || n >= (int)sizeof(relative)) return false;
+        const char * resolved = asset_path_plain(relative);
+        if (!resolved || snprintf(path, sizeof(path), "%s", resolved) >= (int)sizeof(path)) return false;
+    } else {
+        const char * slash = strrchr(entry->path, '/');
+        const char * leaf = slash ? slash + 1 : entry->path;
+        size_t leaf_len = strlen(leaf);
+        if (leaf_len <= 4 || strcasecmp(leaf + leaf_len - 4, ".xml") != 0) return false;
+        size_t stem_len = leaf_len - 4;
+        char stem[PLAYER_LAYOUT_ID_MAX + 32];
+        if (stem_len >= sizeof(stem)) return false;
+        memcpy(stem, leaf, stem_len); stem[stem_len] = '\0';
+        char * sep = strrchr(stem, '@');
+        char * under = strrchr(stem, '_');
+        if (!sep || (under && under > sep)) sep = under;
+        if (sep && layout_preview_variant_suffix(sep)) *sep = '\0';
+        int n = slash ? snprintf(path, sizeof(path), "%.*s/%s.png", (int)(slash - entry->path),
+                                  entry->path, stem) : snprintf(path, sizeof(path), "%s.png", stem);
+        if (n <= 0 || n >= (int)sizeof(path)) return false;
+
+        /* The sidecar must live beside the resolved XML file. This also
+         * rejects a sibling path that escapes through a symlinked file. */
+        char xml_real[PATH_MAX], png_real[PATH_MAX];
+        if (!realpath(entry->path, xml_real) || !realpath(path, png_real)) return false;
+        char * xml_slash = strrchr(xml_real, '/');
+        char * png_slash = strrchr(png_real, '/');
+        if (!xml_slash || !png_slash || (size_t)(xml_slash - xml_real) != (size_t)(png_slash - png_real) ||
+            strncmp(xml_real, png_real, (size_t)(xml_slash - xml_real)) != 0) return false;
+    }
+    if (!layout_preview_png_valid(path)) return false;
+    int n = snprintf(out, size, "%s", path);
+    if (n <= 0 || (size_t)n >= size) { out[0] = '\0'; return false; }
+    return true;
+}
+
 int player_layouts_find(const char * id) {
     ensure_builtin_entry();
     if (!id) return -1;
@@ -193,7 +301,22 @@ bool player_layouts_session_register_xml(const char * id, const char * display_n
     ensure_builtin_entry();
     if (!id_is_valid(id) || !path || !path[0] || strlen(path) >= MAX_LAYOUT_PATH) return false;
     int existing = player_layouts_find(id);
-    if (existing >= 0 && !entries[existing].session) return false;
+    if (existing >= 0 && !entries[existing].session && entries[existing].info.kind != PLAYER_LAYOUT_XML_FILE) return false;
+    /* A runtime registration of a discovered file upgrades that entry in
+     * place. Also discard other automatically discovered aliases of the same
+     * canonical XML, except IDs selected in Settings or for this session. */
+    char registered_real[PATH_MAX];
+    if (realpath(path, registered_real)) {
+        for (int i = entry_count - 1; i >= 1; --i) {
+            if (i == existing || entries[i].info.kind != PLAYER_LAYOUT_XML_FILE || entries[i].session ||
+                !entries[i].path[0] || strcmp(entries[i].info.id, current_settings.player_layout) == 0 ||
+                strcmp(entries[i].info.id, session_selected) == 0) continue;
+            char discovered_real[PATH_MAX];
+            if (realpath(entries[i].path, discovered_real) && strcmp(registered_real, discovered_real) == 0)
+                remove_entry(i);
+        }
+    }
+    existing = player_layouts_find(id);
     /* Replaces an entry of the same id in place: a reload registers it again. */
     layout_entry_t * e = upsert_entry(id, display_name, PLAYER_LAYOUT_XML_FILE);
     if (!e) return false;
@@ -231,6 +354,7 @@ bool player_layouts_session_clear_selection(void) {
 
 typedef struct {
     char id[PLAYER_LAYOUT_ID_MAX];
+    char name[PLAYER_LAYOUT_NAME_MAX];
     char path[MAX_LAYOUT_PATH];
 } found_layout_t;
 
@@ -240,10 +364,24 @@ static int found_cmp(const void * a, const void * b) {
 
 /* `foo@480x800.xml` is a board variant of `foo.xml`, never an entry itself. */
 static bool file_is_board_variant(const char * name) {
-    return strchr(name, '@') != NULL;
+    const char * at = strrchr(name, '@');
+    if (at) return true;
+    size_t len = strlen(name);
+    if (len < 8 || strcasecmp(name + len - 4, ".xml") != 0) return false;
+    const char * end = name + len - 4;
+    const char * p = end;
+    while (p > name && isdigit((unsigned char) p[-1])) --p;
+    if (p == end || p == name || p[-1] != 'x') return false;
+    const char * x = p - 1;
+    p = x;
+    while (p > name && isdigit((unsigned char) p[-1])) --p;
+    if (p == x || p == name || p[-1] != '_') return false;
+    return true;
 }
 
-static void scan_directory(const char * dir, found_layout_t * found, int * found_count, int max_found) {
+static void scan_directory(const char * dir, const char * id_prefix, const char * display_prefix,
+                           found_layout_t * found, int * found_count, int max_found,
+                           const char * containment_root, bool skip_developer_examples) {
     if (!dir || !dir[0]) return;
     DIR * d = opendir(dir);
     if (!d) return;
@@ -252,15 +390,32 @@ static void scan_directory(const char * dir, found_layout_t * found, int * found
         size_t len = strlen(ent->d_name);
         if (len < 5 || strcasecmp(ent->d_name + len - 4, ".xml") != 0) continue;
         if (ent->d_name[0] == '.' || file_is_board_variant(ent->d_name)) continue;
-        char id[PLAYER_LAYOUT_ID_MAX];
-        if (len - 4 >= sizeof(id)) continue;
-        memcpy(id, ent->d_name, len - 4);
-        id[len - 4] = '\0';
+        char stem[PLAYER_LAYOUT_ID_MAX], id[PLAYER_LAYOUT_ID_MAX];
+        if (len - 4 >= sizeof(stem)) continue;
+        memcpy(stem, ent->d_name, len - 4);
+        stem[len - 4] = '\0';
+        /* Developer examples are source-tree fixtures, not shipped layouts.
+         * Keep this limited to the native stock/override directories so a
+         * plugin or user-provided layout can still use the same filename. */
+        if (skip_developer_examples && strncmp(stem, "example_", 8) == 0) continue;
+        int id_len = id_prefix ? snprintf(id, sizeof(id), "%s%s", id_prefix, stem) :
+                                  snprintf(id, sizeof(id), "%s", stem);
+        if (id_len < 0 || id_len >= (int) sizeof(id)) continue;
         if (!id_is_valid(id)) continue;
         char path[MAX_LAYOUT_PATH];
         if (snprintf(path, sizeof(path), "%s/%s", dir, ent->d_name) >= (int) sizeof(path)) continue;
         struct stat st;
-        if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) continue;
+        if (containment_root) {
+            if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) continue;
+        } else if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) continue;
+        if (containment_root) {
+            char real_root[PATH_MAX], real_file[PATH_MAX];
+            if (!realpath(containment_root, real_root) || !realpath(path, real_file)) continue;
+            size_t root_len = strlen(real_root);
+            if (strncmp(real_file, real_root, root_len) != 0 || real_file[root_len] != '/') continue;
+            if (strlen(real_file) >= sizeof(path)) continue;
+            snprintf(path, sizeof(path), "%s", real_file);
+        }
 
         /* A later directory replaces an earlier file of the same id. */
         int slot = -1;
@@ -268,10 +423,19 @@ static void scan_directory(const char * dir, found_layout_t * found, int * found
             if (strcmp(found[i].id, id) == 0) { slot = i; break; }
         }
         if (slot < 0) {
-            if (*found_count >= max_found) continue;
-            slot = (*found_count)++;
+            if (*found_count >= max_found) {
+                /* Keep the lexically first IDs if discovery exceeds its
+                 * bounded scratch table, independent of readdir order. */
+                slot = 0;
+                for (int i = 1; i < *found_count; ++i)
+                    if (strcmp(found[i].id, found[slot].id) > 0) slot = i;
+                if (strcmp(id, found[slot].id) >= 0) continue;
+            } else slot = (*found_count)++;
         }
         snprintf(found[slot].id, sizeof(found[slot].id), "%s", id);
+        snprintf(found[slot].name, sizeof(found[slot].name), "%s%s", display_prefix ? display_prefix : "", stem);
+        if (id_prefix)
+            for (char * p = found[slot].name; *p; ++p) if (*p == '_') *p = ' ';
         snprintf(found[slot].path, sizeof(found[slot].path), "%s", path);
     }
     closedir(d);
@@ -293,18 +457,64 @@ static void rescan_xml_layouts(void) {
     int found_count = 0;
     char dir[MAX_LAYOUT_PATH];
     join_layout_dir(dir, sizeof(dir), asset_stock_root());
-    scan_directory(dir, found, &found_count, MAX_LAYOUTS);
+    scan_directory(dir, NULL, NULL, found, &found_count, MAX_LAYOUTS, NULL, true);
     if (asset_override_root()) {
         join_layout_dir(dir, sizeof(dir), asset_override_root());
-        scan_directory(dir, found, &found_count, MAX_LAYOUTS);
+        scan_directory(dir, NULL, NULL, found, &found_count, MAX_LAYOUTS, NULL, true);
     }
-    scan_directory(PLUGIN_LAYOUT_DIR, found, &found_count, MAX_LAYOUTS);
+    /* Legacy plugin layouts retain their historical bare stem IDs/priority. */
+    scan_directory(PLUGIN_LAYOUT_DIR, NULL, NULL, found, &found_count, MAX_LAYOUTS, NULL, false);
+    char plugin_root[MAX_LAYOUT_PATH];
+#ifdef HOST_BUILD
+    snprintf(plugin_root, sizeof(plugin_root), "./music/.plugins");
+#else
+    snprintf(plugin_root, sizeof(plugin_root), "/data/mnt/sd_0/.plugins");
+#endif
+    char root_real[PATH_MAX];
+    if (realpath(plugin_root, root_real)) {
+        scan_directory(root_real, "plugin.", "", found, &found_count, MAX_LAYOUTS, root_real, false);
+        DIR * pd = opendir(root_real);
+        if (pd) {
+            struct dirent * pe;
+            while ((pe = readdir(pd)) != NULL) {
+                if (pe->d_name[0] == '.') continue;
+                char bundle[MAX_LAYOUT_PATH], prefix[PLAYER_LAYOUT_ID_MAX];
+                int bn = snprintf(bundle, sizeof(bundle), "%s/%s", root_real, pe->d_name);
+                struct stat st;
+                if (bn <= 0 || bn >= (int) sizeof(bundle) || lstat(bundle, &st) != 0 ||
+                    !S_ISDIR(st.st_mode) || S_ISLNK(st.st_mode) ||
+                    strcmp(pe->d_name, "player_layouts") == 0) continue;
+                char layout_dir[MAX_LAYOUT_PATH];
+                int ln = snprintf(layout_dir, sizeof(layout_dir), "%s/player_layouts", bundle);
+                if (ln <= 0 || ln >= (int) sizeof(layout_dir)) continue;
+                struct stat layout_st;
+                if (lstat(layout_dir, &layout_st) != 0 || !S_ISDIR(layout_st.st_mode) || S_ISLNK(layout_st.st_mode)) continue;
+                int pn = snprintf(prefix, sizeof(prefix), "plugin.%s.", pe->d_name);
+                if (pn <= 0 || pn >= (int) sizeof(prefix)) continue;
+                scan_directory(layout_dir, prefix, "", found, &found_count, MAX_LAYOUTS, root_real, false);
+            }
+            closedir(pd);
+        }
+    }
     qsort(found, (size_t) found_count, sizeof(found[0]), found_cmp);
 
     for (int i = 0; i < found_count; ++i) {
         /* Never shadow a C layout or a plugin's session layout of the same id. */
         if (player_layouts_find(found[i].id) >= 0) continue;
-        layout_entry_t * e = upsert_entry(found[i].id, found[i].id, PLAYER_LAYOUT_XML_FILE);
+        bool duplicate = false;
+        for (int j = 1; j < entry_count; ++j) {
+            if (entries[j].session && entries[j].path[0]) {
+                char a[PATH_MAX], b[PATH_MAX];
+                if (realpath(entries[j].path, a) && realpath(found[i].path, b) && strcmp(a, b) == 0) duplicate = true;
+            }
+        }
+        /* A selected discovery ID remains a valid saved/session choice even
+         * when a plugin also registers the same file under a historical ID.
+         * Keep that alias so the selection survives the next rescan. */
+        bool selected_alias = strcmp(found[i].id, current_settings.player_layout) == 0 ||
+                              strcmp(found[i].id, session_selected) == 0;
+        if (duplicate && !selected_alias) continue;
+        layout_entry_t * e = upsert_entry(found[i].id, found[i].name, PLAYER_LAYOUT_XML_FILE);
         if (!e) break;
         snprintf(e->path, sizeof(e->path), "%s", found[i].path);
     }
@@ -354,6 +564,12 @@ static void resolve_board_variant(const char * path, char * out, size_t size) {
     if (n <= 0 || n >= (int) sizeof(variant)) return;
     struct stat st;
     if (stat(variant, &st) == 0 && S_ISREG(st.st_mode)) snprintf(out, size, "%s", variant);
+    else {
+        n = snprintf(variant, sizeof(variant), "%.*s_%dx%d%s", (int) (dot - path), path,
+                     BOARD_SCREEN_WIDTH, BOARD_SCREEN_HEIGHT, dot);
+        if (n > 0 && n < (int) sizeof(variant) && stat(variant, &st) == 0 && S_ISREG(st.st_mode))
+            snprintf(out, size, "%s", variant);
+    }
 }
 
 /* Fonts and constants are global in the XML engine and first registration
@@ -377,9 +593,19 @@ static void register_xml_globals_once(void) {
 }
 
 void player_layouts_release(void) {
-    if (!xml_component_registered) return;
-    lv_xml_component_unregister(XML_COMPONENT_NAME);
-    xml_component_registered = false;
+    prepared_xml_timeline_t * prepared = prepared_xml_timelines;
+    while (prepared) {
+        prepared_xml_timeline_t * next = prepared->next;
+        free(prepared);
+        prepared = next;
+    }
+    prepared_xml_timelines = NULL;
+    memset(timeline_suppressions, 0, sizeof(timeline_suppressions));
+    active_xml_layout = false;
+    if (xml_component_registered) {
+        lv_xml_component_unregister(XML_COMPONENT_NAME);
+        xml_component_registered = false;
+    }
 }
 
 static int name_cmp(const void * a, const void * b) {
@@ -444,6 +670,98 @@ static void delete_children_from(lv_obj_t * parent, uint32_t first) {
     while (lv_obj_get_child_count(parent) > first) lv_obj_delete(lv_obj_get_child(parent, (int32_t) first));
 }
 
+/* XML style animations encode selector and property in user_data. Keep that
+ * word untouched: other LVGL code and the transition query depend on it. */
+static void xml_style_anim_exec_cb(lv_anim_t * anim, int32_t value) {
+    uint32_t packed = (uint32_t) (uintptr_t) lv_anim_get_user_data(anim);
+    lv_style_prop_t prop = (lv_style_prop_t) (packed >> 24);
+    lv_style_selector_t selector = (lv_style_selector_t) (packed & 0x00ffffffU);
+    for (uint32_t i = 0; i < MAX_TIMELINE_SUPPRESSIONS; ++i) {
+        timeline_suppression_t * s = &timeline_suppressions[i];
+        if (s->timeline && s->obj == anim->var && s->prop == prop && s->selector == selector) return;
+    }
+    lv_style_value_t current;
+    if (lv_obj_get_local_style_prop((lv_obj_t *) anim->var, prop, &current, selector) == LV_STYLE_RES_FOUND &&
+        current.num == value) return;
+    lv_style_value_t next;
+    next.num = value;
+    lv_obj_set_local_style_prop((lv_obj_t *) anim->var, prop, next, selector);
+}
+
+static bool xml_timeline_is_prepared(lv_anim_timeline_t * timeline) {
+    for (prepared_xml_timeline_t * p = prepared_xml_timelines; p; p = p->next)
+        if (p->timeline == timeline) return true;
+    return false;
+}
+
+bool player_layouts_timeline_refresh_timing(lv_anim_timeline_t * timeline) {
+    for (prepared_xml_timeline_t * p = prepared_xml_timelines; p; p = p->next) {
+        if (p->timeline != timeline) continue;
+        if (timeline->delay != (p->original_delay ? gui_anim_ms(p->original_delay) : 0))
+            timeline->delay = p->original_delay ? gui_anim_ms(p->original_delay) : 0;
+        if (timeline->repeat_delay != (p->original_repeat_delay ? gui_anim_ms(p->original_repeat_delay) : 0))
+            timeline->repeat_delay = p->original_repeat_delay ? gui_anim_ms(p->original_repeat_delay) : 0;
+        uint32_t limit = p->anim_count < timeline->anim_dsc_cnt ? p->anim_count : timeline->anim_dsc_cnt;
+        for (uint32_t i = 0; i < limit; ++i) {
+            uint32_t start = p->originals[i].start_time ? gui_anim_ms(p->originals[i].start_time) : 0;
+            uint32_t duration = p->originals[i].duration ? gui_anim_ms(p->originals[i].duration) : 0;
+            if (timeline->anim_dsc[i].start_time != start) timeline->anim_dsc[i].start_time = start;
+            if (timeline->anim_dsc[i].anim.duration != duration) timeline->anim_dsc[i].anim.duration = duration;
+        }
+        return true;
+    }
+    return false;
+}
+
+bool player_layouts_timeline_suppress_style(lv_anim_timeline_t * timeline, lv_obj_t * obj,
+                                             lv_style_prop_t prop, lv_style_selector_t selector,
+                                             bool suppress) {
+    if (!timeline || !obj || !xml_timeline_is_prepared(timeline)) return false;
+    timeline_suppression_t * free_slot = NULL;
+    for (uint32_t i = 0; i < MAX_TIMELINE_SUPPRESSIONS; ++i) {
+        timeline_suppression_t * s = &timeline_suppressions[i];
+        if (!s->timeline && !free_slot) free_slot = s;
+        if (s->timeline == timeline && s->obj == obj && s->prop == prop && s->selector == selector) {
+            if (!suppress) memset(s, 0, sizeof(*s));
+            return true;
+        }
+    }
+    if (!suppress) return true;
+    if (!free_slot) return false;
+    free_slot->timeline = timeline;
+    free_slot->obj = obj;
+    free_slot->prop = prop;
+    free_slot->selector = selector;
+    return true;
+}
+
+/* Prepare only timelines actually requested by the UI. Allocate the marker
+ * first so allocation failure leaves the timeline completely untouched. */
+static void prepare_xml_timeline(lv_anim_timeline_t * timeline) {
+    if (!timeline || xml_timeline_is_prepared(timeline)) return;
+    if (timeline->anim_dsc_cnt > (SIZE_MAX - sizeof(prepared_xml_timeline_t)) /
+                                 sizeof(((prepared_xml_timeline_t *) 0)->originals[0])) return;
+    size_t bytes = sizeof(prepared_xml_timeline_t) +
+                   (size_t) timeline->anim_dsc_cnt * sizeof(((prepared_xml_timeline_t *) 0)->originals[0]);
+    prepared_xml_timeline_t * marker = malloc(bytes);
+    if (!marker) return;
+    marker->timeline = timeline;
+    marker->original_delay = timeline->delay;
+    marker->original_repeat_delay = timeline->repeat_delay;
+    marker->anim_count = timeline->anim_dsc_cnt;
+    for (uint32_t i = 0; i < timeline->anim_dsc_cnt; ++i) {
+        lv_anim_timeline_dsc_t * dsc = &timeline->anim_dsc[i];
+        marker->originals[i].start_time = dsc->start_time;
+        marker->originals[i].duration = dsc->anim.duration;
+        if (dsc->anim.custom_exec_cb)
+            lv_anim_set_custom_exec_cb(&dsc->anim, xml_style_anim_exec_cb);
+    }
+    /* Publish before refresh so timing is always derived from originals. */
+    marker->next = prepared_xml_timelines;
+    prepared_xml_timelines = marker;
+    player_layouts_timeline_refresh_timing(timeline);
+}
+
 /* The engine registers its widget parsers and a global scope on start, so it
  * is started by the first XML layout rather than for everyone. It lives for
  * the rest of the process: soft UI reloads keep LVGL, and with it the engine,
@@ -502,10 +820,12 @@ lv_obj_t * player_layouts_create(const char * id, lv_obj_t * parent, player_layo
     const layout_entry_t * e = &entries[index];
     if (kind_out) *kind_out = e->info.kind;
     active_timeline_fn = NULL;
+    active_xml_layout = false;
 
     lv_obj_t * root = NULL;
     if (e->info.kind == PLAYER_LAYOUT_XML_FILE) {
         root = create_xml_layout(e->path, parent);
+        active_xml_layout = root != NULL;
     } else if (e->create) {
         uint32_t children_before = lv_obj_get_child_count(parent);
         root = e->create(parent);
@@ -525,7 +845,121 @@ lv_anim_timeline_t * player_layouts_find_timeline(lv_obj_t * root, const char * 
     if (!timelines) return NULL;
     for (uint32_t i = 0; timelines[i]; ++i) {
         const char * timeline_name = lv_anim_timeline_get_user_data(timelines[i]);
-        if (timeline_name && strcmp(timeline_name, name) == 0) return timelines[i];
+        if (timeline_name && strcmp(timeline_name, name) == 0) {
+            if (active_xml_layout) prepare_xml_timeline(timelines[i]);
+            return timelines[i];
+        }
     }
     return NULL;
+}
+
+bool player_layouts_timeline_style_transition(lv_anim_timeline_t * timeline, lv_obj_t * obj,
+                                               lv_style_prop_t prop, lv_style_selector_t selector,
+                                               player_layout_style_transition_t * transition) {
+    if (!timeline || !obj || !transition || !xml_timeline_is_prepared(timeline)) return false;
+    for (uint32_t i = 0; i < timeline->anim_dsc_cnt; ++i) {
+        lv_anim_timeline_dsc_t * dsc = &timeline->anim_dsc[i];
+        lv_anim_t * anim = &dsc->anim;
+        if (anim->custom_exec_cb != xml_style_anim_exec_cb || anim->var != obj) continue;
+        uint32_t packed = (uint32_t) (uintptr_t) lv_anim_get_user_data(anim);
+        if ((lv_style_prop_t) (packed >> 24) != prop ||
+            (lv_style_selector_t) (packed & 0x00ffffffU) != selector) continue;
+        transition->start_value = anim->start_value;
+        transition->end_value = anim->end_value;
+        transition->start_time = dsc->start_time;
+        transition->duration = anim->duration;
+        transition->current_value = anim->current_value;
+        transition->path_cb = anim->path_cb;
+        transition->animation = *anim;
+        transition->has_current_value = false;
+        if (timeline->act_time < (int32_t) dsc->start_time) {
+            transition->has_current_value = anim->early_apply;
+            if (anim->early_apply) transition->current_value = anim->start_value;
+        } else {
+            transition->has_current_value = true;
+            transition->animation.act_time = (int32_t) (timeline->act_time - dsc->start_time);
+            if (transition->animation.act_time > transition->animation.duration)
+                transition->animation.act_time = transition->animation.duration;
+            transition->current_value = transition->animation.duration == 0 ? anim->end_value :
+                (transition->animation.path_cb ? transition->animation.path_cb(&transition->animation) : anim->end_value);
+        }
+        transition->target = obj;
+        transition->prop = prop;
+        transition->selector = selector;
+        return true;
+    }
+    return false;
+}
+
+uint32_t player_layouts_timeline_style_transition_count(lv_anim_timeline_t * timeline, lv_obj_t * obj,
+                                                         lv_style_prop_t prop, lv_style_selector_t selector) {
+    if (!timeline || !obj || !xml_timeline_is_prepared(timeline)) return 0;
+    uint32_t count = 0;
+    for (uint32_t i = 0; i < timeline->anim_dsc_cnt; ++i) {
+        lv_anim_t * anim = &timeline->anim_dsc[i].anim;
+        if (anim->custom_exec_cb != xml_style_anim_exec_cb || anim->var != obj) continue;
+        uint32_t packed = (uint32_t) (uintptr_t) lv_anim_get_user_data(anim);
+        if ((lv_style_prop_t) (packed >> 24) == prop &&
+            (lv_style_selector_t) (packed & 0x00ffffffU) == selector) ++count;
+    }
+    return count;
+}
+
+uint32_t player_layouts_timeline_style_animation_count(lv_anim_timeline_t * timeline) {
+    if (!timeline || !xml_timeline_is_prepared(timeline)) return 0;
+    uint32_t count = 0;
+    for (uint32_t i = 0; i < timeline->anim_dsc_cnt; ++i)
+        if (timeline->anim_dsc[i].anim.custom_exec_cb == xml_style_anim_exec_cb) ++count;
+    return count;
+}
+
+bool player_layouts_timeline_get_style_animation(lv_anim_timeline_t * timeline, uint32_t index,
+                                                  player_layout_style_transition_t * transition) {
+    if (!timeline || !transition || !xml_timeline_is_prepared(timeline)) return false;
+    for (uint32_t i = 0; i < timeline->anim_dsc_cnt; ++i) {
+        lv_anim_timeline_dsc_t * dsc = &timeline->anim_dsc[i];
+        lv_anim_t * anim = &dsc->anim;
+        if (anim->custom_exec_cb != xml_style_anim_exec_cb) continue;
+        if (index-- != 0) continue;
+        uint32_t packed = (uint32_t) (uintptr_t) lv_anim_get_user_data(anim);
+        transition->target = (lv_obj_t *) anim->var;
+        transition->prop = (lv_style_prop_t) (packed >> 24);
+        transition->selector = (lv_style_selector_t) (packed & 0x00ffffffU);
+        transition->start_value = anim->start_value;
+        transition->end_value = anim->end_value;
+        transition->start_time = dsc->start_time;
+        transition->duration = anim->duration;
+        transition->current_value = anim->current_value;
+        transition->path_cb = anim->path_cb;
+        transition->animation = *anim;
+        transition->has_current_value = false;
+        if (timeline->act_time < (int32_t) dsc->start_time) {
+            transition->has_current_value = anim->early_apply;
+            if (anim->early_apply) transition->current_value = anim->start_value;
+        } else {
+            transition->has_current_value = true;
+            transition->animation.act_time = (int32_t) (timeline->act_time - dsc->start_time);
+            if (transition->animation.act_time > transition->animation.duration)
+                transition->animation.act_time = transition->animation.duration;
+            transition->current_value = transition->animation.duration == 0 ? anim->end_value :
+                (transition->animation.path_cb ? transition->animation.path_cb(&transition->animation) : anim->end_value);
+        }
+        return true;
+    }
+    return false;
+}
+
+bool player_layouts_timeline_has_animation_for_obj(lv_anim_timeline_t * timeline, lv_obj_t * obj) {
+    if (!timeline || !obj) return false;
+    for (uint32_t i = 0; i < timeline->anim_dsc_cnt; ++i)
+        if (timeline->anim_dsc[i].anim.var == obj) return true;
+    return false;
+}
+
+uint32_t player_layouts_timeline_animation_count_for_obj(lv_anim_timeline_t * timeline, lv_obj_t * obj) {
+    if (!timeline || !obj) return 0;
+    uint32_t count = 0;
+    for (uint32_t i = 0; i < timeline->anim_dsc_cnt; ++i)
+        if (timeline->anim_dsc[i].anim.var == obj) ++count;
+    return count;
 }

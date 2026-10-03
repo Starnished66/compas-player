@@ -33,6 +33,7 @@
 #include "firmware_ota.h"
 #include "plugin_manager.h"
 #include "gui_plugin_manage.h"
+#include "gui_plugin_store.h"
 #include "fallback_font.h"
 #include "gui_navigation.h"
 #include "gui_player.h"
@@ -2184,8 +2185,7 @@ static lv_obj_t * build_idle_shutdown_screen(void) {
      * so this stays correct at every tier without needing another manual
      * retune. */
     int32_t idle_action_explain_h = lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT));
-    int32_t idle_action_row_h = lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_BODY)) + 32;
-    if (idle_action_row_h < GUI_SETTINGS_ROW_HEIGHT) idle_action_row_h = GUI_SETTINGS_ROW_HEIGHT;
+    int32_t idle_action_row_h = ui_list_row_height();
     int32_t idle_action_row1_y = idle_action_explain_h + 14;
     int32_t idle_action_row_gap = 10;
     int32_t idle_action_row2_y = idle_action_row1_y + idle_action_row_h + idle_action_row_gap;
@@ -2805,18 +2805,55 @@ static void player_layout_choice_row_cb(lv_event_t * e) {
              strcmp(info->id, PLAYER_LAYOUT_ID_DEFAULT) == 0 ? "" : info->id);
     settings_save(&current_settings);
     show_info_toast(TR("Applying layout, this may take a while"));
-    gui_reload_request();
+    gui_player_layout_reload_request();
+}
+
+static void player_layout_download_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    (void) gui_plugin_store_open_player_layouts();
 }
 
 static void populate_player_layout_choice_screen(void) {
     if (!player_layout_choice_list) return;
     lv_obj_clean(player_layout_choice_list);
     player_layouts_rescan();
+    add_pill_chevron_row(player_layout_choice_list, TR("Download"), player_layout_download_cb);
     const char * active = player_layouts_effective_id();
+    lv_obj_t * grid = lv_obj_create(player_layout_choice_list);
+    lv_obj_remove_style_all(grid);
+    lv_obj_set_width(grid, lv_pct(100));
+    lv_obj_set_height(grid, LV_SIZE_CONTENT);
+    lv_obj_remove_flag(grid, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    configure_cover_card_grid(grid, 2);
+    const lv_font_t * status_font = gui_theme_font(GUI_FONT_ROLE_SUBTEXT);
+    int32_t status_height = lv_font_get_line_height(status_font) + BOARD_SCALE_PX(4);
     for (int i = 0; i < player_layouts_count(); i++) {
         const player_layout_info_t * info = player_layouts_get(i);
-        add_pill_option_row(player_layout_choice_list, info->name, strcmp(info->id, active) == 0,
-                            player_layout_choice_row_cb, (void *) (intptr_t) i);
+        bool selected = strcmp(info->id, active) == 0;
+        char preview[512], resolved[520];
+        const char * preview_src = NULL;
+        if (player_layouts_get_preview(i, preview, sizeof(preview))) {
+            snprintf(resolved, sizeof(resolved), "S:%s", preview);
+            preview_src = resolved;
+        }
+        lv_obj_t * card = add_cover_card(grid, info->name, preview_src, 2,
+                                          player_layout_choice_row_cb, (void *) (intptr_t) i);
+        if (!card) continue;
+        lv_obj_set_style_radius(card, BOARD_SCALE_PX(10), 0);
+        lv_obj_set_style_outline_width(card, selected ? BOARD_SCALE_PX(2) : 0, 0);
+        lv_obj_set_style_outline_color(card, accent_lv_color(), 0);
+        lv_obj_set_style_outline_opa(card, LV_OPA_COVER, 0);
+        lv_obj_set_style_outline_pad(card, BOARD_SCALE_PX(2), 0);
+
+        lv_obj_t * status = lv_label_create(card);
+        lv_label_set_text(status, selected ? TR("Selected") : "");
+        lv_obj_set_width(status, lv_pct(100));
+        lv_obj_set_height(status, status_height);
+        lv_label_set_long_mode(status, LV_LABEL_LONG_DOT);
+        lv_obj_add_style(status, selected ? &style_theme_text_primary : &style_theme_text_muted, 0);
+        lv_obj_set_style_text_font(status, status_font, 0);
+        lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_remove_flag(status, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
     }
 }
 
@@ -3292,12 +3329,8 @@ static lv_obj_t * build_settings_screen(void) {
     items[3] = (pill_list_item_t){ TR("Power"), PILL_ACCESSORY_CHEVRON, false, settings_category_power_cb, NULL, NULL };
     items[4] = (pill_list_item_t){ TR("Library"), PILL_ACCESSORY_CHEVRON, false, settings_category_library_cb, NULL, NULL };
     items[5] = (pill_list_item_t){ TR("System"), PILL_ACCESSORY_CHEVRON, false, settings_category_system_cb, NULL, NULL };
-    int32_t category_height = BOARD_SCALE_PX(96);
-    int32_t font_height = lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_BODY)) + BOARD_SCALE_PX(32);
-    if (category_height < font_height) category_height = font_height;
     for (unsigned i = 0; i < 6; ++i) {
         items[i].out_row = &category_rows[i];
-        items[i].row_height = category_height;
     }
 
     lv_obj_t * scr = build_pill_list_screen(TR("Settings"), generic_back_cb, items, 6, gui_theme_accent_style(), GUI_ROW_GAP, 100);
@@ -4114,7 +4147,8 @@ static void populate_eq_profiles_screen(void) {
 
     for (int i = 0; i < eq_profile_count; i++) {
         lv_obj_t * row = lv_obj_create(eq_profiles_list);
-        lv_obj_set_size(row, LIST_ROW_WIDTH, LIST_ROW_HEIGHT);
+        lv_obj_set_size(row, LIST_ROW_WIDTH, ui_list_row_height());
+        lv_obj_add_style(row, &native_row_min_style, 0);
         lv_obj_set_style_radius(row, LIST_ROW_RADIUS, 0);
         lv_obj_set_style_bg_color(row, LIST_ROW_BG_COLOR, 0);
         lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);

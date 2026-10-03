@@ -4,6 +4,8 @@
 #include "storage_paths.h"
 #include "gui_library.h" /* sd_card_root_is_mounted() */
 #include "plugin_manager.h"
+#include "image_thumb.h"
+#include "board_config.h"
 #include "cJSON.h"
 #include "mbedtls/sha256.h"
 
@@ -18,6 +20,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <sys/file.h>
 #include <sys/statvfs.h>
 #include <time.h>
 #include <unistd.h>
@@ -50,6 +53,11 @@
  * still installed do not make the record unreadable after catalog turnover;
  * new installs stop at this limit instead. */
 #define STORE_MAX_RECORD 400
+#define STORE_PREVIEW_LIMIT 65536U
+#define STORE_PREVIEW_COUNT PLUGIN_STORE_PREVIEW_CAPACITY
+#ifndef STORE_PREVIEW_ROOT
+#define STORE_PREVIEW_ROOT "/tmp/compas-store-previews"
+#endif
 
 static pthread_mutex_t store_mutex = PTHREAD_MUTEX_INITIALIZER;
 static plugin_store_status_t store_status;
@@ -58,6 +66,17 @@ static plugin_store_result_t * store_results;
 static plugin_store_plugin_t * last_index;
 static size_t last_index_count;
 static char last_tag[64];
+static uint64_t preview_epoch = 1, preview_generation, preview_use_counter;
+static bool preview_worker_running;
+static uint64_t preview_spawn_epoch, preview_spawn_retry_ms;
+static unsigned preview_spawn_attempts;
+typedef struct {
+    char sha[65];
+    uint64_t attempted_epoch, retry_after_ms, last_used;
+    unsigned attempts;
+    bool ready;
+} preview_cache_entry_t;
+static preview_cache_entry_t preview_cache[STORE_PREVIEW_COUNT];
 
 static bool read_record_alloc(plugin_store_plugin_t ** out, char (**versions)[32], size_t * count);
 
@@ -320,6 +339,18 @@ bool plugin_store_parse_index(const char * json, size_t length, plugin_store_plu
         snprintf(d->description, sizeof(d->description), "%s", desc);
         snprintf(d->category, sizeof(d->category), "%s", cat);
         snprintf(d->author, sizeof(d->author), "%s", author);
+
+        const cJSON * preview = field(p, "preview");
+        if (preview) {
+            const char * asset = string_field(preview, "asset");
+            const char * sha = string_field(preview, "sha256");
+            if (!cJSON_IsObject(preview) || !regex_token(asset, 127, true) || !sha_valid(sha) ||
+                !integer_field(preview, "size", 1, STORE_PREVIEW_LIMIT, &d->preview.size) ||
+                !integer_field(preview, "width", 1, 240, &d->preview.width) ||
+                !integer_field(preview, "height", 1, 400, &d->preview.height)) goto fail;
+            snprintf(d->preview.asset, sizeof(d->preview.asset), "%s", asset);
+            snprintf(d->preview.sha256, sizeof(d->preview.sha256), "%s", sha);
+        }
 
         const cJSON * files = field(p, "files");
         int file_count = cJSON_GetArraySize(files);
@@ -1058,6 +1089,30 @@ static const char * http_error(const char * e) {
     return TR("Could not read the plugin list from GitHub.");
 }
 /* Build the compact UI rows from the current index and installed record. */
+static bool plugin_contains_player_layout(const plugin_store_plugin_t * plugin) {
+    for (int f = 0; f < plugin->file_count; f++) {
+        const char * dest = plugin->files[f].dest;
+        /* Layout XML can be installed directly in player_layouts/ or
+         * inside a plugin bundle below .plugins/<bundle>/player_layouts/. */
+        size_t len = strlen(dest);
+        const char * layout_file = NULL;
+        if (strncmp(dest, ".plugins/", 9) == 0 && !strchr(dest + 9, '/')) {
+            layout_file = dest + 9;
+        } else if (strncmp(dest, ".plugins/player_layouts/", 24) == 0) {
+            layout_file = dest + 24;
+        } else if (strncmp(dest, ".plugins/", 9) == 0) {
+            const char * bundle_end = strchr(dest + 9, '/');
+            if (bundle_end && strncmp(bundle_end, "/player_layouts/", 16) == 0)
+                layout_file = bundle_end + 16;
+        }
+        if (layout_file && !strchr(layout_file, '/') && strlen(layout_file) > 4 &&
+            strcasecmp(dest + len - 4, ".xml") == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static void compute_results(void) {
     size_t index_count;
     pthread_mutex_lock(&store_mutex);
@@ -1106,6 +1161,7 @@ static void compute_results(void) {
         snprintf(row->id, sizeof(row->id), "%s", plugin.id);
         snprintf(row->name, sizeof(row->name), "%s", plugin.name);
         snprintf(row->version, sizeof(row->version), "%s", plugin.version);
+        row->player_layout = plugin_contains_player_layout(&plugin);
         row->state = plugin_store_compute_state(&plugin, match >= 0 ? vers[match] : NULL,
                                                 STORE_SD_ROOT "/.plugins", &row->incompatible);
     }
@@ -1125,6 +1181,7 @@ static void compute_results(void) {
             snprintf(row->id, sizeof(row->id), "%s", rec[r].id);
             snprintf(row->version, sizeof(row->version), "%s", vers[r]);
             row->state = PLUGIN_STORE_PLUGIN_REMOVED;
+            row->player_layout = plugin_contains_player_layout(&rec[r]);
         }
     }
     pthread_mutex_lock(&store_mutex);
@@ -1173,6 +1230,31 @@ static bool read_record_alloc(plugin_store_plugin_t ** out, char (**versions)[32
     *count = plugin_store_record_read(STORE_SD_ROOT, *out, *versions, capacity);
     return true;
 }
+
+void plugin_store_classify_layout_loaders(const char * const * filenames, bool * flags, size_t count) {
+    if (!filenames || !flags || !count) return;
+    plugin_store_plugin_t * records = NULL;
+    char (*versions)[32] = NULL;
+    size_t record_count = 0;
+    if (!read_record_alloc(&records, &versions, &record_count)) return;
+
+    for (size_t r = 0; r < record_count; r++) {
+        const plugin_store_plugin_t * record = &records[r];
+        if (!plugin_contains_player_layout(record)) continue;
+        for (int f = 0; f < record->file_count; f++) {
+            const char * dest = record->files[f].dest;
+            if (strncmp(dest, ".plugins/", 9) != 0 || strchr(dest + 9, '/')) continue;
+            size_t len = strlen(dest + 9);
+            if (len <= 4 || strcasecmp(dest + 9 + len - 4, ".lua") != 0) continue;
+            for (size_t i = 0; i < count; i++) {
+                if (filenames[i] && strcmp(filenames[i], dest + 9) == 0) flags[i] = true;
+            }
+        }
+    }
+    free(records);
+    free(versions);
+}
+
 static bool conflict_exists(const char * root, const plugin_store_plugin_t * p,
                             const plugin_store_plugin_t * rec, const char (*vers)[32],
                             size_t rn) {
@@ -1291,6 +1373,364 @@ static bool start_thread(void * (*fn)(void *), void * arg) {
     pthread_attr_destroy(&a);
     return ok;
 }
+/* Preview I/O never runs on LVGL's thread or changes installer progress. */
+typedef struct {
+    int slot;
+    plugin_store_preview_t preview;
+    char evicted_sha[65];
+    preview_cache_entry_t previous;
+} preview_item_t;
+typedef struct {
+    uint64_t epoch;
+    char tag[64];
+    size_t count;
+    preview_item_t items[STORE_PREVIEW_COUNT];
+} preview_job_t;
+static int preview_dir_fd = -1, preview_lock_fd = -1;
+
+static uint64_t preview_now_ms(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (uint64_t) now.tv_sec * 1000 + (uint64_t) now.tv_nsec / 1000000;
+}
+
+static bool preview_cache_open(void) {
+    if (preview_dir_fd >= 0) return true;
+    if (mkdir(STORE_PREVIEW_ROOT, 0700) != 0 && errno != EEXIST) return false;
+    int dir = open(STORE_PREVIEW_ROOT, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (dir < 0) return false;
+    struct stat st;
+    if (fstat(dir, &st) != 0 || st.st_uid != geteuid() || (st.st_mode & 0077)) {
+        close(dir); return false;
+    }
+    int lock = openat(dir, ".owner-lock", O_RDWR | O_CREAT | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC, 0600);
+    if (lock < 0 || fstat(lock, &st) != 0 || !S_ISREG(st.st_mode) ||
+        st.st_uid != geteuid() || (st.st_mode & 0077) || flock(lock, LOCK_EX | LOCK_NB) != 0) {
+        if (lock >= 0) close(lock);
+        close(dir); return false;
+    }
+    /* Keep only files assigned to our bounded cache, including previews that
+     * can be reused after a player restart. Ignore unrelated filenames. */
+    int scan_fd = dup(dir);
+    DIR * scan = scan_fd >= 0 ? fdopendir(scan_fd) : NULL;
+    if (!scan && scan_fd >= 0) close(scan_fd);
+    if (scan) {
+        struct dirent * ent;
+        while ((ent = readdir(scan)) != NULL) {
+            size_t len = strlen(ent->d_name);
+            bool part = strncmp(ent->d_name, ".part-", 6) == 0;
+            bool thumb_tmp = len == 72 && strcmp(ent->d_name + 64, ".bin.tmp") == 0;
+            bool keep = false;
+            if ((len == 68 && (strcmp(ent->d_name + 64, ".jpg") == 0 ||
+                               strcmp(ent->d_name + 64, ".bin") == 0))) {
+                char sha[65]; memcpy(sha, ent->d_name, 64); sha[64] = 0;
+                if (!sha_valid(sha)) continue;
+                pthread_mutex_lock(&store_mutex);
+                for (int i = 0; i < STORE_PREVIEW_COUNT; i++)
+                    if (strcmp(preview_cache[i].sha, sha) == 0) { keep = true; break; }
+                pthread_mutex_unlock(&store_mutex);
+            } else if (!part && !thumb_tmp) continue;
+            if (!keep && fstatat(dir, ent->d_name, &st, AT_SYMLINK_NOFOLLOW) == 0 &&
+                S_ISREG(st.st_mode) && st.st_uid == geteuid()) unlinkat(dir, ent->d_name, 0);
+        }
+        closedir(scan);
+    }
+    preview_lock_fd = lock; /* Held for this process; no stale PID/lock directory. */
+    preview_dir_fd = dir;
+    return true;
+}
+
+static bool preview_jpeg_valid(const char * path, const plugin_store_preview_t * meta) {
+    int fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0) return false;
+    struct stat st;
+    bool valid = fstat(fd, &st) == 0 && S_ISREG(st.st_mode) &&
+                 st.st_size == meta->size && st.st_size >= 4 && st.st_size <= STORE_PREVIEW_LIMIT;
+    unsigned char * data = valid ? malloc(meta->size) : NULL;
+    size_t used = 0;
+    while (data && used < meta->size) {
+        ssize_t n = read(fd, data + used, meta->size - used);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) break;
+        used += (size_t) n;
+    }
+    close(fd);
+    valid = data && used == meta->size && data[0] == 0xff && data[1] == 0xd8 &&
+            data[used - 2] == 0xff && data[used - 1] == 0xd9;
+    bool frame = false, scan = false;
+    for (size_t pos = 2; valid && pos < used; ) {
+        if (data[pos] != 0xff) { valid = false; break; }
+        while (pos < used && data[pos] == 0xff) pos++;
+        if (pos >= used) { valid = false; break; }
+        unsigned marker = data[pos++];
+        if (marker == 0xd9) break;
+        if (marker == 0xd8 || (marker >= 0xd0 && marker <= 0xd7) || marker == 1) continue;
+        if (used - pos < 2) { valid = false; break; }
+        size_t len = ((size_t) data[pos] << 8) | data[pos + 1];
+        if (len < 2 || len > used - pos) { valid = false; break; }
+        if (marker == 0xc0) {
+            if (frame || len < 8) { valid = false; break; }
+            unsigned h = ((unsigned) data[pos + 3] << 8) | data[pos + 4];
+            unsigned w = ((unsigned) data[pos + 5] << 8) | data[pos + 6];
+            unsigned components = data[pos + 7];
+            valid = data[pos + 2] == 8 && (components == 1 || components == 3) &&
+                    len == 8 + 3 * components && w == meta->width && h == meta->height;
+            frame = valid;
+        } else if (marker >= 0xc1 && marker <= 0xcf && marker != 0xc4 && marker != 0xc8 && marker != 0xcc) {
+            valid = false;
+        } else if (marker == 0xda) { scan = frame && len >= 6; break; }
+        pos += len;
+    }
+    free(data);
+    return valid && frame && scan;
+}
+
+static bool preview_file_verified(const char * path, const plugin_store_preview_t * meta) {
+    char sha[65]; uint64_t bytes;
+    return preview_jpeg_valid(path, meta) && hash_file(path, &bytes, sha) &&
+           bytes == meta->size && strcmp(sha, meta->sha256) == 0;
+}
+
+static bool preview_progress(uint64_t downloaded, uint64_t total, void * context) {
+    (void) downloaded; (void) total;
+    const preview_job_t * job = context;
+    pthread_mutex_lock(&store_mutex);
+    bool current = preview_epoch == job->epoch;
+    pthread_mutex_unlock(&store_mutex);
+    return current;
+}
+
+static bool preview_decode_cancel(void * context) {
+    return !preview_progress(0, 0, context);
+}
+
+static bool preview_read_jpeg(const char * path, const plugin_store_preview_t * meta,
+                              uint8_t ** data_out) {
+    *data_out = NULL;
+    if (!preview_file_verified(path, meta)) return false;
+    int fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0) return false;
+    struct stat st;
+    bool valid = fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && st.st_size == meta->size &&
+                 st.st_size > 0 && st.st_size <= STORE_PREVIEW_LIMIT;
+    uint8_t * data = valid ? malloc(meta->size) : NULL;
+    size_t used = 0;
+    while (data && used < meta->size) {
+        ssize_t n = read(fd, data + used, meta->size - used);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) break;
+        used += (size_t) n;
+    }
+    close(fd);
+    if (!data || used != meta->size) { free(data); return false; }
+    *data_out = data;
+    return true;
+}
+
+static void * preview_worker(void * context) {
+    preview_job_t * job = context;
+    bool opened = preview_cache_open();
+    /* Drain every eviction even if navigation cancelled the transfer batch.
+     * Slot ownership changed before launch; skipping later evictions would
+     * lose their filenames and let abandoned cache files accumulate. */
+    for (size_t i = 0; opened && i < job->count; i++) {
+        if (!job->items[i].evicted_sha[0]) continue;
+        char name[80];
+        snprintf(name, sizeof(name), "%s.jpg", job->items[i].evicted_sha);
+        unlinkat(preview_dir_fd, name, 0);
+        snprintf(name, sizeof(name), "%s.bin", job->items[i].evicted_sha);
+        unlinkat(preview_dir_fd, name, 0);
+    }
+    for (size_t i = 0; opened && i < job->count && preview_progress(0, 0, job); i++) {
+        preview_item_t * item = &job->items[i];
+        char name[80], path[PATH_MAX], part[PATH_MAX], url[512], bin_path[PATH_MAX];
+        snprintf(name, sizeof(name), "%s.jpg", item->preview.sha256);
+        snprintf(path, sizeof(path), "%s/%s", STORE_PREVIEW_ROOT, name);
+        bool retryable = false;
+        bool ready = preview_file_verified(path, &item->preview);
+        if (!ready) {
+            snprintf(part, sizeof(part), "%s/.part-%s", STORE_PREVIEW_ROOT, item->preview.sha256);
+            unlink(part); /* Private directory, owned by this worker's process lock. */
+            int status = 0;
+            ready = make_asset_url(url, sizeof(url), job->tag, item->preview.asset) &&
+                http_get_to_file_redirects(url, true, part, STORE_PREVIEW_LIMIT, preview_progress,
+                    job, 5000, 8000, NULL, 5, &status) &&
+                preview_progress(0, 0, job) && preview_file_verified(part, &item->preview) &&
+                rename(part, path) == 0;
+            if (!ready) unlink(part);
+        }
+        if (ready && preview_progress(0, 0, job)) {
+            snprintf(name, sizeof(name), "%s.bin", item->preview.sha256);
+            snprintf(bin_path, sizeof(bin_path), "%s/%s", STORE_PREVIEW_ROOT, name);
+            uint8_t * jpeg = NULL;
+            const char * reason = NULL;
+            if (preview_read_jpeg(path, &item->preview, &jpeg)) {
+                int card_w = (BOARD_SCREEN_WIDTH - 2 * BOARD_SCALE_PX(16) - BOARD_SCALE_PX(14)) / 2;
+                int cover_h = card_w * 3 / 2;
+                ready = image_thumb_write_bin(jpeg, item->preview.size, card_w, cover_h, bin_path,
+                                              ARTWORK_PRIO_THUMBNAIL, preview_decode_cancel, job,
+                                              &reason) && preview_progress(0, 0, job);
+                retryable = !ready && reason && strcmp(reason, "busy") == 0;
+                free(jpeg);
+            } else {
+                ready = false;
+            }
+            if (!ready) unlink(bin_path);
+        } else {
+            ready = false;
+        }
+        pthread_mutex_lock(&store_mutex);
+        preview_cache_entry_t * cached = &preview_cache[item->slot];
+        if (preview_epoch == job->epoch && strcmp(cached->sha, item->preview.sha256) == 0) {
+            if (ready) {
+                cached->ready = true;
+                preview_generation++;
+            } else if (retryable && cached->attempts < 3) {
+                cached->retry_after_ms = preview_now_ms() + 1000 * cached->attempts;
+            }
+        }
+        pthread_mutex_unlock(&store_mutex);
+    }
+    pthread_mutex_lock(&store_mutex);
+    preview_worker_running = false;
+    pthread_mutex_unlock(&store_mutex);
+    free(job);
+    return NULL;
+}
+
+bool plugin_store_prepare_previews(const char * const * ids, size_t count) {
+    if (!ids || !count) return false;
+    if (count > STORE_PREVIEW_COUNT) count = STORE_PREVIEW_COUNT;
+    pthread_mutex_lock(&store_mutex);
+    if (preview_worker_running || !last_index_count) {
+        pthread_mutex_unlock(&store_mutex); return false;
+    }
+    uint64_t now = preview_now_ms();
+    if (preview_spawn_epoch != preview_epoch) {
+        preview_spawn_epoch = preview_epoch;
+        preview_spawn_attempts = 0;
+        preview_spawn_retry_ms = 0;
+    }
+    if (now < preview_spawn_retry_ms || preview_spawn_attempts >= 3) {
+        pthread_mutex_unlock(&store_mutex); return false;
+    }
+    const plugin_store_plugin_t * requested[STORE_PREVIEW_COUNT] = {0};
+    bool protected[STORE_PREVIEW_COUNT] = {0};
+    for (size_t i = 0; i < count; i++) {
+        if (!ids[i]) continue;
+        for (size_t p = 0; p < last_index_count; p++) {
+            if (strcmp(last_index[p].id, ids[i]) != 0) continue;
+            if (last_index[p].preview.asset[0] && plugin_contains_player_layout(&last_index[p]))
+                requested[i] = &last_index[p];
+            break;
+        }
+        if (!requested[i]) continue;
+        for (int c = 0; c < STORE_PREVIEW_COUNT; c++)
+            if (strcmp(preview_cache[c].sha, requested[i]->preview.sha256) == 0)
+                protected[c] = true;
+    }
+    preview_job_t * job = NULL;
+    for (size_t i = 0; i < count; i++) {
+        const plugin_store_plugin_t * p = requested[i];
+        if (!p) continue;
+        int slot = -1;
+        for (int c = 0; c < STORE_PREVIEW_COUNT; c++)
+            if (strcmp(preview_cache[c].sha, p->preview.sha256) == 0) { slot = c; break; }
+        if (slot >= 0) {
+            preview_cache_entry_t * cached = &preview_cache[slot];
+            cached->last_used = ++preview_use_counter;
+            if (cached->ready) continue;
+            if (cached->attempted_epoch == preview_epoch && cached->attempts &&
+                (!cached->retry_after_ms || now < cached->retry_after_ms || cached->attempts >= 3)) continue;
+        } else {
+            /* Visible/nearby cards are pinned for this request. Replace only
+             * an offscreen slot, preferring an empty then the oldest slot. */
+            for (int c = 0; c < STORE_PREVIEW_COUNT; c++) {
+                if (protected[c]) continue;
+                if (slot < 0 || preview_cache[c].last_used < preview_cache[slot].last_used) slot = c;
+                if (!preview_cache[c].sha[0]) { slot = c; break; }
+            }
+        }
+        if (slot < 0) continue;
+        if (!job) {
+            job = calloc(1, sizeof(*job));
+            if (!job) break;
+            job->epoch = preview_epoch;
+            snprintf(job->tag, sizeof(job->tag), "%s", last_tag);
+        }
+        preview_item_t * item = &job->items[job->count++];
+        item->slot = slot;
+        item->preview = p->preview;
+        preview_cache_entry_t * cached = &preview_cache[slot];
+        item->previous = *cached;
+        if (strcmp(cached->sha, p->preview.sha256) != 0) {
+            memcpy(item->evicted_sha, cached->sha, sizeof(item->evicted_sha));
+            if (cached->ready) preview_generation++;
+            memset(cached, 0, sizeof(*cached));
+            memcpy(cached->sha, p->preview.sha256, sizeof(cached->sha));
+        }
+        if (cached->attempted_epoch != job->epoch) cached->attempts = 0;
+        cached->attempted_epoch = job->epoch;
+        cached->attempts++;
+        cached->retry_after_ms = 0;
+        cached->last_used = ++preview_use_counter;
+        protected[slot] = true;
+    }
+    preview_worker_running = job != NULL;
+    pthread_mutex_unlock(&store_mutex);
+    if (!job) return false;
+    if (!start_thread(preview_worker, job)) {
+        pthread_mutex_lock(&store_mutex);
+        preview_worker_running = false;
+        preview_spawn_attempts++;
+        preview_spawn_retry_ms = preview_now_ms() + 1000;
+        for (size_t i = 0; i < job->count; i++) {
+            /* No worker ran: keep old files and their ownership so a failed
+             * thread start cannot orphan evicted files in the RAM cache. */
+            preview_cache[job->items[i].slot] = job->items[i].previous;
+        }
+        pthread_mutex_unlock(&store_mutex);
+        free(job); return false;
+    }
+    pthread_mutex_lock(&store_mutex);
+    preview_spawn_attempts = 0;
+    pthread_mutex_unlock(&store_mutex);
+    return true;
+}
+
+bool plugin_store_get_preview(const char * id, char * out, size_t size) {
+    if (!id || !out || !size) return false;
+    out[0] = 0;
+    bool found = false;
+    pthread_mutex_lock(&store_mutex);
+    for (size_t i = 0; i < last_index_count; i++) {
+        if (strcmp(last_index[i].id, id) != 0 || !last_index[i].preview.asset[0]) continue;
+        for (int c = 0; c < STORE_PREVIEW_COUNT; c++) {
+            if (!preview_cache[c].ready || strcmp(preview_cache[c].sha, last_index[i].preview.sha256) != 0) continue;
+            int n = snprintf(out, size, "%s/%s.bin", STORE_PREVIEW_ROOT, preview_cache[c].sha);
+            found = n > 0 && (size_t) n < size;
+            break;
+        }
+        break;
+    }
+    pthread_mutex_unlock(&store_mutex);
+    if (!found) out[0] = 0;
+    return found;
+}
+
+void plugin_store_cancel_previews(void) {
+    pthread_mutex_lock(&store_mutex);
+    preview_epoch++;
+    pthread_mutex_unlock(&store_mutex);
+}
+
+uint64_t plugin_store_preview_generation(void) {
+    pthread_mutex_lock(&store_mutex);
+    uint64_t generation = preview_generation;
+    pthread_mutex_unlock(&store_mutex);
+    return generation;
+}
+
 static void * refresh_worker(void * unused) {
     (void) unused;
     http_request_t req;
@@ -1331,6 +1771,7 @@ static void * refresh_worker(void * unused) {
     free(last_index);
     last_index = parsed;
     last_index_count = count;
+    preview_epoch++;
     snprintf(last_tag, sizeof(last_tag), "%s", tag);
     pthread_mutex_unlock(&store_mutex);
     compute_results();
@@ -1915,6 +2356,7 @@ void plugin_store_reset(void) {
         free(last_index);
         last_index = NULL;
         last_index_count = 0;
+        preview_epoch++;
         last_tag[0] = 0;
     }
     pthread_mutex_unlock(&store_mutex);

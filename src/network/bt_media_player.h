@@ -22,7 +22,7 @@ void bt_media_player_notify_playback_state(bool playing);
 void bt_media_player_notify_track(const char * title, const char * artist,
                                   const char * album, const char * genre,
                                   int track_number, double position_seconds,
-                                  double duration_seconds);
+                                  double duration_seconds, const char * art_url);
 
 /* Each returns true (and clears the flag) exactly once when the connected
  * accessory's own play/pause/next/previous button was pressed since the

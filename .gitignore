@@ -355,6 +355,7 @@ docs/INCREMENTAL_DATABASE.md
 
 # Player-layout documentation is deliberately kept in the public source.
 !/docs/PLAYER_LAYOUTS.md
+!/docs/BLUETOOTH_METADATA.md
 !/third_party/lv_xml/README.md
 
 # Translations: the po/ guide and the scripts make i18n runs are part of the

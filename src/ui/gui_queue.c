@@ -264,13 +264,7 @@ static void queue_actions_open(lv_event_t * e) {
 static lv_obj_t * build_queue_screen(void) {
     lv_obj_t * title;
     lv_obj_t * screen = build_subsonic_list_screen(TR("Queue"), &title, &queue_list);
-    /* Real stock-firmware icon (sub_back/set.png, 51x51), not a text label --
-     * present on every real R1 as-is (THEME_ROOT points straight at the
-     * stock firmware's own resource pack on target builds, see assets.c's
-     * own comment), and copied into assets/theme2/ here too for host-build
-     * parity. build_top_right_icon_button() guarantees this lands at
-     * exactly the same visual level as the screen's own back arrow. */
-    build_top_right_icon_button(screen, asset_path("sub_back/set.png"), queue_actions_open);
+    build_top_right_icon_button(screen, asset_path("settings/playback.png"), queue_actions_open);
     const menu_popup_row_t rows[] = {
         { TR("Start sequentially"), queue_start_sequential, false },
         { TR("Shuffle from a random song"), queue_start_shuffle, false },

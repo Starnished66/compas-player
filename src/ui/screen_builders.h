@@ -23,11 +23,11 @@
  * text entry, group songs, subsonic lists), reserves these so its own
  * content never competes with the persistent status bar (clock/battery/
  * wifi, drawn separately on lv_layer_top()) for the same pixels. */
-/* Clearance band height (32px) between the display top and screen headers.
- * Topbar assets (clock, battery, wifi, codec badges) are 30px tall, leaving
- * 1px margin above/below them. Consumers derive positions algebraically
- * from this constant. */
-#define STATUS_BAR_CLEARANCE BOARD_SCALE_PX(32)
+/* Clearance band height (40px) between the display top and screen headers.
+ * The largest status glyph (battery) is rendered at 38px, leaving 1px
+ * margin above/below it. Consumers derive positions algebraically from this
+ * constant. */
+#define STATUS_BAR_CLEARANCE BOARD_SCALE_PX(40)
 #define TITLE_ROW_HEIGHT BOARD_SCALE_PX(64)
 #define HOME_INDICATOR_BAND_HEIGHT BOARD_SCALE_PX(24)
 #define HOME_INDICATOR_CONTENT_INSET (HOME_INDICATOR_BAND_HEIGHT + BOARD_SCALE_PX(8))
@@ -44,7 +44,7 @@ int32_t ui_list_row_width_wide(void);
 /* Compatibility name used by roomier library lists. Both row-width helpers
  * follow the active display width and intentionally add no outer gutter. */
 #define LIST_ROW_WIDTH_WIDE (ui_list_row_width_wide())
-#define LIST_ROW_HEIGHT BOARD_SCALE_PX(84)
+#define LIST_ROW_HEIGHT GUI_ROW_HEIGHT
 #define MUSIC_LIST_ROW_HEIGHT GUI_MUSIC_ROW_HEIGHT
 #define LIST_ROW_RADIUS BOARD_SCALE_PX(16)
 #define LIST_ROW_BG_COLOR lv_color_hex(GUI_COLOR_ROW)
@@ -96,6 +96,7 @@ lv_obj_t * row_label_create_subtitle(lv_obj_t * row);
 void row_label_set_identity(lv_obj_t * row, lv_obj_t * subtitle_label,
                             const char * title, const char * subtitle, int32_t height);
 int32_t ui_music_row_height(void);
+int32_t ui_list_row_height(void);
 /* Container rows shared by bounded playlist/queue pages. */
 lv_obj_t * build_music_list_row(lv_obj_t * parent, const char * title, const char * subtitle,
                                int32_t trailing_space);
@@ -264,7 +265,7 @@ typedef struct {
      * `options` table, PLUGINS.md) -- every existing native row across every
      * build_pill_list_screen() caller leaves these NULL/0 (a plain compound
      * literal without designators for trailing fields already defaults them
-     * that way), selecting native rounded surfaces, font-aware 84px
+     * that way), selecting native rounded surfaces, font-aware 96px
      * minimum rows and app_font_20 labels. Only a
      * plugin-appended row (gui.c's build_settings_*_screen() plugin-row
      * loops) ever sets these. ---- */
@@ -336,7 +337,7 @@ int32_t pill_row_default_width(void);
 /* On-screen icon footprint (longest edge, in px) a plugin row's icon targets
  * -- same scaling formula as build_icon_grid_screen()'s own
  * ICON_GRID_TARGET_ICON_PX, just a smaller target since this sits inside a
- * single row rather than a whole tile. Fits the native 84px row with
+ * single row rather than a whole tile. Fits the native 96px row with
  * 10px clearance above and below. */
 #define PILL_ROW_ICON_PX_DEFAULT 64
 
@@ -434,9 +435,9 @@ void decorate_category_row(lv_obj_t * row, const char * icon_asset, const char *
  * returns its circle so pooled label rows can realign it after padding changes. */
 lv_obj_t * decorate_play_all_row(lv_obj_t * row);
 
-/* Builds a Settings-style vertical category menu. Six-or-more entries use
- * 96px reference rows; up to five use 112px. Explicit item/layout overrides
- * remain authoritative. icon_asset/bg_image paths are theme-relative. */
+/* Builds a Settings-style vertical category menu with the shared font-aware
+ * native row height. Explicit item/layout overrides remain authoritative.
+ * icon_asset/bg_image paths are theme-relative. */
 lv_obj_t * build_category_menu_screen(const char * title, lv_event_cb_t back_btn_cb,
                                       const icon_grid_item_t * items, int item_count,
                                       const launcher_menu_layout_t * layout);
@@ -475,7 +476,7 @@ typedef struct {
 typedef void (*compact_list_click_cb_t)(int index);
 
 /* Titled screen: real back-arrow button and a vertically scrollable,
- * virtualized list of compact 84px rows (no icon, no accessory -- just a
+ * virtualized list of compact shared-height rows (no icon, no accessory -- just a
  * label). Virtualized because a flat list can contain thousands of songs:
  * only a small pool of row widgets exists at once, repositioned and
  * relabeled as the list scrolls, avoiding the memory and layout overhead
@@ -625,6 +626,12 @@ void compact_list_set_paged_provider(lv_obj_t * list, compact_list_fetch_page_cb
                                       int total_count);
 
 lv_obj_t * build_subsonic_list_screen(const char * default_title, lv_obj_t ** out_title_label, lv_obj_t ** out_list);
+/* Shared cover cards for plugin supplied grids and the plugin store. The
+ * caller resolves image paths to an LVGL source (for example, "S:/path"). */
+void configure_cover_card_grid(lv_obj_t * list, int columns);
+lv_obj_t * add_cover_card(lv_obj_t * list, const char * label,
+                          const char * resolved_image_src, int columns,
+                          lv_event_cb_t on_click, void * user_data);
 /* Shared modal surface and full-width actions; callbacks remain owned by callers. */
 lv_obj_t * build_popup_surface(lv_event_cb_t backdrop_cb, lv_obj_t ** out_backdrop);
 void style_popup_action_row(lv_obj_t * row);

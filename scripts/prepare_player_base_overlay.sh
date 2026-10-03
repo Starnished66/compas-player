@@ -24,8 +24,10 @@ case "$component" in
         done
         ;;
     bluetooth)
+        stock=${BASE_STOCK_ROOT:-/home/josegarita/Desktop/Test2/squashfs-root}
+        "$repo/scripts/prepare_sys_server_mpris_overlay.sh" "$stock" "$overlay"
         mkdir -p "$overlay/usr/libexec/bluetooth"
-        cp "$stage/usr/libexec/bluetooth/bluetoothd" "$overlay/usr/libexec/bluetooth/"
+        "$repo/scripts/prepare_bt_cover_art_overlay.sh" "$stage" "$stock" "$overlay"
         # Keep vendor firmware/UART attachment tools and radio init scripts.
         # Only replace the daemon and its player-facing control/diagnostic tools.
         for binary in bluetoothctl hciconfig hcitool btmon; do

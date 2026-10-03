@@ -1154,7 +1154,8 @@ void populate_wifi_screen(bool enabled) {
     bool wifi_currently_connected = have_settings_snapshot && wifi_cached_info_connected;
     for (int i = 0; i < wifi_saved_result_count; i++) {
         lv_obj_t * row = lv_obj_create(wifi_list);
-        lv_obj_set_size(row, LIST_ROW_WIDTH, LIST_ROW_HEIGHT);
+        lv_obj_set_size(row, LIST_ROW_WIDTH, ui_list_row_height());
+        lv_obj_add_style(row, &native_row_min_style, 0);
         lv_obj_set_style_radius(row, LIST_ROW_RADIUS, 0);
         lv_obj_set_style_bg_color(row, LIST_ROW_BG_COLOR, 0);
         lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
@@ -1185,7 +1186,8 @@ void populate_wifi_screen(bool enabled) {
         wifi_network_t * net = &wifi_scan_results[i];
 
         lv_obj_t * row = lv_obj_create(wifi_list);
-        lv_obj_set_size(row, LIST_ROW_WIDTH, LIST_ROW_HEIGHT);
+        lv_obj_set_size(row, LIST_ROW_WIDTH, ui_list_row_height());
+        lv_obj_add_style(row, &native_row_min_style, 0);
         lv_obj_set_style_radius(row, LIST_ROW_RADIUS, 0);
         lv_obj_set_style_bg_color(row, LIST_ROW_BG_COLOR, 0);
         lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
@@ -1557,7 +1559,9 @@ static void add_bt_device_row(lv_obj_t * parent, int index) {
                        strcasecmp(dev->mac, bt_connected_mac_cached) == 0;
 
     lv_obj_t * row = lv_obj_create(parent);
-    lv_obj_set_size(row, LIST_ROW_WIDTH, LIST_ROW_HEIGHT + (show_codec ? BT_DEVICE_ROW_CODEC_EXTRA_HEIGHT : 0));
+    lv_obj_set_size(row, LIST_ROW_WIDTH,
+                    ui_list_row_height() + (show_codec ? BT_DEVICE_ROW_CODEC_EXTRA_HEIGHT : 0));
+    lv_obj_add_style(row, &native_row_min_style, 0);
     lv_obj_set_style_radius(row, LIST_ROW_RADIUS, 0);
     lv_obj_set_style_bg_color(row, LIST_ROW_BG_COLOR, 0);
     lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);

@@ -105,6 +105,7 @@ static void refresh_accent(void) {
         accent_rgb = rgb;
         lv_color_t c = lv_color_hex(rgb);
         lv_style_set_bg_color(&style_accent, c);
+        lv_style_set_arc_color(&style_accent, c);
         lv_style_set_text_color(&style_accent, c);
         lv_style_set_bg_image_recolor(&style_accent, c);
         lv_style_set_bg_image_recolor_opa(&style_accent, LV_OPA_COVER);
@@ -176,6 +177,7 @@ static void init_style_objects(void) {
 
     lv_style_init(&style_accent);
     lv_style_set_bg_color(&style_accent, accent_lv_color());
+    lv_style_set_arc_color(&style_accent, accent_lv_color());
     lv_style_set_text_color(&style_accent, accent_lv_color());
     lv_style_set_bg_image_recolor(&style_accent, accent_lv_color());
     lv_style_set_bg_image_recolor_opa(&style_accent, LV_OPA_COVER);

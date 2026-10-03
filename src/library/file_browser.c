@@ -855,10 +855,10 @@ static void entry_click_cb(lv_event_t * e) {
  * their own real icon. */
 static lv_obj_t * add_file_row(const char * label_text, const char * icon_asset, lv_event_cb_t cb, void * user_data) {
     lv_obj_t * row = lv_obj_create(list);
-    /* Files is a Music submenu, so it shares the roomier 100px browsing
-     * density used by Artists/Albums/All Songs; Settings stays at the
-     * shared 84px default. */
-    lv_obj_set_size(row, LIST_ROW_WIDTH_WIDE, MUSIC_LIST_ROW_HEIGHT);
+    /* Files uses the same font-aware ordinary row height as other native
+     * lists, including the music browser. */
+    lv_obj_set_size(row, LIST_ROW_WIDTH_WIDE, ui_list_row_height());
+    lv_obj_add_style(row, &native_row_min_style, 0);
     lv_obj_add_style(row, &pill_row_bg_style, 0);
     lv_obj_add_style(row, &list_row_pressed_style, LV_STATE_PRESSED);
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);

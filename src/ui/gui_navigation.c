@@ -786,8 +786,8 @@ slide_transition_ctx_t * begin_slide_transition_ex(lv_obj_t * to_scr, bool forwa
      * makes those self-inflicted invalidations a silent no-op. Deliberately
      * narrow: re-enabled immediately below, right after buf_from is
      * captured, NOT held disabled for the rest of the transition -- the
-     * LVGL-overlay fallback further down (any vertical slide, or a
-     * horizontal one the compositor declines) creates real lv_obj_t/
+     * LVGL-overlay fallback further down (when the compositor declines)
+     * creates real lv_obj_t/
      * lv_image_t children and drives them via lv_obj_set_x/set_y for the
      * whole gesture, which only ever reaches the screen through LVGL's
      * normal invalidate-then-redraw pipeline -- leaving invalidation
@@ -903,13 +903,11 @@ slide_transition_ctx_t * begin_slide_transition_ex(lv_obj_t * to_scr, bool forwa
     /* Handoff transition to the direct-framebuffer compositor before
      * creating LVGL overlay/image objects. Skipping overlay objects when
      * the compositor takes over avoids queuing initial-draw invalidations
-     * that could flash during compositing. The compositor's fast path is
-     * horizontal-only (see transition_compositor.c) -- a vertical slide
-     * always takes the LVGL-overlay branch below -- but now handles reveal
-     * too (destination pinned at (0,0), source slides over/off it), so a
-     * horizontal reveal request no longer needs to fall back to the slower
-     * LVGL-overlay path the way it used to. */
-    if (!vertical && transition_compositor_begin(buf_from, buf_to, to_offset, reveal)) {
+     * that could flash during compositing. The compositor's fast path
+     * handles either axis, including reveal (destination pinned at (0,0),
+     * source slides over/off it). This keeps vertical Home gestures from
+     * redrawing the live custom player underneath moving image overlays. */
+    if (transition_compositor_begin_ex(buf_from, buf_to, to_offset, vertical, reveal)) {
         ctx->overlay = NULL;
         ctx->img_from = NULL;
         ctx->img_to = NULL;

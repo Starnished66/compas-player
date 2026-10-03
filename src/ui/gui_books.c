@@ -251,7 +251,8 @@ static void populate_books_files_screen(void) {
 
     for (int i = 0; i < count; i++) {
         lv_obj_t * row = lv_obj_create(books_files_list);
-        lv_obj_set_size(row, LIST_ROW_WIDTH, LIST_ROW_HEIGHT);
+        lv_obj_set_size(row, LIST_ROW_WIDTH, ui_list_row_height());
+        lv_obj_add_style(row, &native_row_min_style, 0);
         lv_obj_set_style_radius(row, LIST_ROW_RADIUS, 0);
         lv_obj_set_style_bg_color(row, LIST_ROW_BG_COLOR, 0);
         lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);

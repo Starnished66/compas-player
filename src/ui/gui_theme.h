@@ -16,8 +16,11 @@
 #define GUI_COLOR_BORDER 0x343B46
 #define GUI_ROW_GAP BOARD_SCALE_PX(8)
 #define GUI_TEXT_INSET BOARD_SCALE_PX(24)
-#define GUI_SETTINGS_ROW_HEIGHT BOARD_SCALE_PX(112)
-#define GUI_MUSIC_ROW_HEIGHT BOARD_SCALE_PX(96)
+#define GUI_ROW_HEIGHT BOARD_SCALE_PX(96)
+/* Compatibility names for call sites that need to express row content, not
+ * a separate ordinary-row density. Font/content minimums may still expand. */
+#define GUI_SETTINGS_ROW_HEIGHT GUI_ROW_HEIGHT
+#define GUI_MUSIC_ROW_HEIGHT GUI_ROW_HEIGHT
 /* Shared native-painted track thickness -- every slider except Player's
  * own progress_slider, which stays at a hardcoded 440x12 to match its
  * fixed-size progress_bg.png/progress.png art (gui_player.c's own comment

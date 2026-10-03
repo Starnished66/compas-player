@@ -3,6 +3,7 @@
 
 #include "lvgl.h"
 #include <stdbool.h>
+#include <stddef.h>
 
 /* Registry of Player screen layouts. A layout is anything that can fill an
  * empty screen with a widget tree that follows the named-widget contract in
@@ -14,7 +15,8 @@
  *  - EXPORTED_C: a component exported to C by LVGL's UI Editor ("XML to C"),
  *    compiled in and registered with player_layouts_register_c().
  *  - XML_FILE: an LVGL XML file read at runtime, found by scanning the
- *    layout directories or registered by a plugin for the current session. */
+ *    layout directories, discovered under `.plugins` (root files and one
+ *    bundle directory level), or registered by a plugin for this session. */
 
 #define PLAYER_LAYOUT_ID_DEFAULT "default"
 #define PLAYER_LAYOUT_ID_MAX 64
@@ -49,8 +51,9 @@ typedef struct {
  * started by the first XML layout that is created, once per process. */
 void player_layouts_init(player_layout_create_fn builtin_create);
 
-/* Re-reads the layout directories, so a file copied to the device while the
- * app runs shows up in the Settings list. The active layout is unaffected. */
+/* Re-reads the layout directories, including `.plugins` root and bundle XML,
+ * so files added while the app runs show up in Settings. The active layout is
+ * unaffected. */
 void player_layouts_rescan(void);
 
 /* Registers an exported C layout. `id` is 1..63 characters of
@@ -69,6 +72,8 @@ bool player_layouts_id_is_valid(const char * id);
  * from top-level code). `path` must already be a resolved, trusted path.
  * Registering an id again replaces its entry, so a plugin reload does not
  * duplicate it. Returns false when the id or path is unusable.
+ * If another discovered id points at the same XML file, a currently selected
+ * id remains available across directory rescans.
  *
  * A layout registered while a plugin loads (`from_callback` false) belongs to
  * that plugin: it goes away on plugin reset and is registered again when the
@@ -94,6 +99,8 @@ bool player_layouts_session_clear_selection(void);
 
 int player_layouts_count(void);
 const player_layout_info_t * player_layouts_get(int index);
+/* Returns a validated filesystem PNG preview path for this layout. */
+bool player_layouts_get_preview(int index, char * out, size_t size);
 int player_layouts_find(const char * id);
 
 /* Session selection if any and still registered, else
@@ -108,6 +115,47 @@ lv_obj_t * player_layouts_create(const char * id, lv_obj_t * parent, player_layo
  * ones registered with a timeline function); NULL if absent. Looked up once
  * at bind time, never per frame. The timeline belongs to `root`. */
 lv_anim_timeline_t * player_layouts_find_timeline(lv_obj_t * root, const char * name);
+
+typedef struct {
+    lv_obj_t * target;
+    lv_style_prop_t prop;
+    lv_style_selector_t selector;
+    int32_t start_value;
+    int32_t end_value;
+    uint32_t start_time;
+    uint32_t duration;
+    int32_t current_value;
+    bool has_current_value;
+    lv_anim_path_cb_t path_cb;
+    lv_anim_t animation;
+} player_layout_style_transition_t;
+
+/* Finds a matching property animation in a prepared XML timeline. Values and
+ * timing reflect the animation scale applied when the timeline was bound. */
+bool player_layouts_timeline_style_transition(lv_anim_timeline_t * timeline, lv_obj_t * obj,
+                                               lv_style_prop_t prop, lv_style_selector_t selector,
+                                               player_layout_style_transition_t * transition);
+uint32_t player_layouts_timeline_style_transition_count(lv_anim_timeline_t * timeline, lv_obj_t * obj,
+                                                         lv_style_prop_t prop, lv_style_selector_t selector);
+
+/* Enumerates the XML style-property animations in a prepared timeline. */
+uint32_t player_layouts_timeline_style_animation_count(lv_anim_timeline_t * timeline);
+bool player_layouts_timeline_get_style_animation(lv_anim_timeline_t * timeline, uint32_t index,
+                                                  player_layout_style_transition_t * transition);
+
+/* True when a timeline contains any animation targeting obj. */
+bool player_layouts_timeline_has_animation_for_obj(lv_anim_timeline_t * timeline, lv_obj_t * obj);
+uint32_t player_layouts_timeline_animation_count_for_obj(lv_anim_timeline_t * timeline, lv_obj_t * obj);
+
+/* Reapply animation_scale from preserved XML timing, avoiding cumulative
+ * scaling when the setting changes during a UI build. */
+bool player_layouts_timeline_refresh_timing(lv_anim_timeline_t * timeline);
+
+/* Temporarily suppress one XML style write while a raster proxy represents
+ * it. The registry is bounded and requires no per-frame allocation. */
+bool player_layouts_timeline_suppress_style(lv_anim_timeline_t * timeline, lv_obj_t * obj,
+                                             lv_style_prop_t prop, lv_style_selector_t selector,
+                                             bool suppress);
 
 /* Releases the XML component registered for the last XML layout. Call after
  * the tree built from it has been deleted: its styles live in that component. */

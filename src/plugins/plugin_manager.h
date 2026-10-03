@@ -213,6 +213,7 @@ typedef struct {
     bool disabled;
     bool loaded;
     bool over_limit; /* enabled, but the last load hit PLUGIN_MAX_FILES first */
+    bool player_layout; /* bundle contains at least one regular player layout XML */
     char display_name[96];
 } plugin_available_entry_t;
 

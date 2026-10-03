@@ -15,6 +15,9 @@ bool gui_shell_wifi_effective_enabled(void);
  * Idempotent while already enabled or while an enable is in flight. */
 bool gui_shell_wifi_ensure_enabled(void);
 bool gui_shell_wifi_enabled_and_settled(void);
+/* Cached connection state from the shell's existing Wi-Fi status worker.
+ * Does not require the Network settings page's IP/details snapshot. */
+bool gui_shell_wifi_connected(void);
 
 void gui_shell_update_quick_drawer_track(const char * title, const char * artist,
                                          const char * album);

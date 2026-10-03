@@ -26,6 +26,10 @@ void gui_soft_reload(void);
  * is back in gui.c's lv_timer_handler() loop. */
 void gui_reload_request(void);
 
+/* Layout-only reload: preserve reusable decoded library artwork while
+ * replacing widgets. Coalesced full reload requests still invalidate it. */
+void gui_player_layout_reload_request(void);
+
 /* Applies already-written theme assets/config after the caller returns.
  * Rebuilds Home and render caches only; screens, plugins, navigation,
  * playback, and connection-owning services remain alive. */

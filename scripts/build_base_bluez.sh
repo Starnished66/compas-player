@@ -39,9 +39,18 @@ done
 [[ -d $STOCK_ROOT/usr/lib ]] || die "stock root is missing usr/lib: $STOCK_ROOT"
 [[ -d $GLIB_STAGE/usr/include && -d $GLIB_STAGE/usr/lib/pkgconfig ]] || die "GLib stage is incomplete: $GLIB_STAGE"
 [[ -d $DBUS_STAGE/usr/include && -d $DBUS_STAGE/usr/lib/pkgconfig ]] || die "D-Bus stage is incomplete: $DBUS_STAGE"
-for tool in curl sha256sum tar make pkg-config readelf file rg mktemp; do
+for tool in curl sha256sum tar make pkg-config readelf file rg mktemp \
+    autoreconf autoconf aclocal automake libtoolize; do
     command -v "$tool" >/dev/null || die "$tool is required"
 done
+
+readonly AUTOCONF_VERSION=$(autoconf --version | sed -n '1p')
+readonly AUTOMAKE_VERSION=$(automake --version | sed -n '1p')
+readonly LIBTOOLIZE_VERSION=$(libtoolize --version | sed -n '1p')
+readonly ACLOCAL_VERSION=$(aclocal --version | sed -n '1p')
+readonly PKG_M4_PATH=$(aclocal --print-ac-dir)/pkg.m4
+[[ -f $PKG_M4_PATH ]] || die "pkg-config m4 macros are missing: $PKG_M4_PATH"
+readonly PKG_M4_SHA256=$(sha256sum "$PKG_M4_PATH" | awk '{print $1}')
 
 cc="${CROSS_PREFIX}gcc"
 ar="${CROSS_PREFIX}ar"
@@ -85,6 +94,9 @@ bluez_patches=$(LC_ALL=C ls -1 "$REPO_ROOT"/scripts/base_image/bluez-*.patch | L
 while IFS= read -r fix; do
     (cd "$SOURCE" && patch -p1 --forward --fuzz=0 --no-backup-if-mismatch < "$fix")
 done <<< "$bluez_patches"
+# The cover-only build option changes Automake conditionals and source lists.
+# Regenerate the release's shipped configure/Makefile.in after applying patches.
+(cd "$SOURCE" && autoreconf -fi)
 for patched in a2dp.c avdtp.c; do
     grep -q 'BT_IO_OPT_IMTU, 1024' "$SOURCE/profiles/audio/$patched" ||
         die "BlueZ AVDTP MTU patch not applied to $patched"
@@ -174,7 +186,8 @@ env CFLAGS="$CFLAGS" CPPFLAGS="$CPPFLAGS" CXXFLAGS="$CXXFLAGS" LDFLAGS="$LDFLAGS
     --with-dbussystembusdir=/usr/share/dbus-1/system-services \
     --with-dbussessionbusdir=/usr/share/dbus-1/services \
     --disable-library --enable-tools --enable-client --enable-monitor \
-    --enable-deprecated --disable-udev --disable-cups --disable-obex \
+    --enable-deprecated --disable-udev --disable-cups --enable-obex \
+    --enable-obex-cover-art-only \
     --disable-mesh --disable-btpclient --disable-midi --disable-manpages \
     --disable-bap --disable-bass --disable-mcp --disable-ccp --disable-vcp \
     --disable-micp --disable-csip --disable-tmap --disable-gmap --disable-asha \
@@ -206,7 +219,9 @@ fi
 readonly DAEMON="$STAGE/usr/libexec/bluetooth/bluetoothd"
 readonly REQUIRED_TOOLS=(bluetoothctl btmon btattach rctest l2test l2ping bluemoon hex2hcd isotest \
     hciattach hciconfig hcitool rfcomm sdptool ciptool gatttool)
+readonly OBEXD="$STAGE/usr/libexec/bluetooth/obexd"
 [[ -x $DAEMON ]] || die "missing staged daemon: $DAEMON"
+[[ -x $OBEXD ]] || die "missing staged obexd: $OBEXD"
 daemon_strings=$(strings "$DAEMON") || die 'unable to inspect staged bluetoothd strings'
 printf '%s\n' "$daemon_strings" | grep -Fx "$BLUEZ_STORAGE_DIR" >/dev/null ||
     die "staged bluetoothd does not contain $BLUEZ_STORAGE_DIR"
@@ -226,13 +241,136 @@ printf '%s\n' \
     "BlueZ $BLUEZ_VERSION daemon/tools source: $BLUEZ_URL" \
     "SHA256: $BLUEZ_SHA256" \
     "Target: mips-linux-gnu, $TARGET_FLAGS" \
+    "Autoconf: $AUTOCONF_VERSION" \
+    "Automake: $AUTOMAKE_VERSION" \
+    "Libtoolize: $LIBTOOLIZE_VERSION" \
+    "Aclocal: $ACLOCAL_VERSION" \
+    "pkg.m4 source: $PKG_M4_PATH" \
+    "pkg.m4 SHA256: $PKG_M4_SHA256" \
     "Readline headers: GNU Readline $READLINE_VERSION (runtime ABI retained from stock root)" \
     "Configured runtime daemon path: /usr/libexec/bluetooth/bluetoothd" \
     "Persistent BlueZ storage path: $BLUEZ_STORAGE_DIR" \
     "Expected invocation: bluetoothd -n -C -f /etc/bluetooth/main.conf" \
+    "OBEX cover responder: obexd --system-bus --nodetach --plugin=bluetooth,bip_avrcp" \
+    "Expected obexd startup log: OBEX daemon $BLUEZ_VERSION" \
     > "$STAGE/usr/share/licenses/bluez-daemon-tools/BUILD-NOTICE.txt"
 
-for elf in "$DAEMON" "${REQUIRED_TOOLS[@]/#/$STAGE/usr/bin/}"; do
+# The responder runs on the system bus after the vendor's S80_bt_init hook.
+mkdir -p "$STAGE/etc/dbus-1/system.d" "$STAGE/etc/init.d"
+cat > "$STAGE/etc/dbus-1/system.d/org.bluez.obex.conf" <<'EOF'
+<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig>
+  <policy user="root">
+    <allow own="org.bluez.obex"/>
+    <allow send_destination="org.bluez.obex"/>
+    <allow own="org.mpris.MediaPlayer2.compas"/>
+    <allow send_destination="org.mpris.MediaPlayer2.compas"/>
+  </policy>
+  <policy context="default">
+    <deny own="org.bluez.obex"/>
+    <deny own="org.mpris.MediaPlayer2.compas"/>
+  </policy>
+</busconfig>
+EOF
+cat > "$STAGE/etc/init.d/S81compas_obex" <<'EOF'
+#!/bin/sh
+
+OBEXD=/usr/libexec/bluetooth/obexd
+OBEX_ROOT=/tmp/compas-obexd
+PIDFILE=/var/run/compas-obexd.pid
+
+is_owned_obexd() {
+    pid=$1
+    case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+    [ -e "/proc/$pid/exe" ] || return 1
+    executable=$(readlink "/proc/$pid/exe" 2>/dev/null) || return 1
+    [ "$executable" = "$OBEXD" ]
+}
+
+start_obexd() {
+    [ -x "$OBEXD" ] || exit 1
+    if [ -L "$OBEX_ROOT" ] || { [ -e "$OBEX_ROOT" ] && [ ! -d "$OBEX_ROOT" ]; }; then
+        echo "Refusing unsafe OBEX root: $OBEX_ROOT" >&2
+        return 1
+    fi
+    mkdir -p "$OBEX_ROOT" || return 1
+    [ ! -L "$OBEX_ROOT" ] || {
+        echo "Refusing symlink OBEX root: $OBEX_ROOT" >&2
+        return 1
+    }
+    chmod 0700 "$OBEX_ROOT" || return 1
+    if [ -f "$PIDFILE" ]; then
+        pid=$(cat "$PIDFILE")
+        case "$pid" in
+            ''|*[!0-9]*) rm -f "$PIDFILE" ;;
+            *)
+                if is_owned_obexd "$pid"; then return 0; fi
+                rm -f "$PIDFILE"
+                ;;
+        esac
+    fi
+    if pidof obexd >/dev/null 2>&1; then
+        echo 'An obexd process is already running without the Compas PID file' >&2
+        return 1
+    fi
+    "$OBEXD" --system-bus --nodetach --root="$OBEX_ROOT" \
+        --plugin=bluetooth,bip_avrcp \
+        >/dev/null 2>&1 &
+    pid=$!
+    echo "$pid" > "$PIDFILE"
+    sleep 1
+    attempt=0
+    while [ "$attempt" -lt 4 ]; do
+        is_owned_obexd "$pid" && return 0
+        kill -0 "$pid" 2>/dev/null || break
+        attempt=$((attempt + 1))
+        sleep 1
+    done
+    if is_owned_obexd "$pid"; then kill "$pid" 2>/dev/null || true; fi
+    rm -f "$PIDFILE"
+    return 1
+}
+
+stop_obexd() {
+    if [ -f "$PIDFILE" ]; then
+        pid=$(cat "$PIDFILE")
+        case "$pid" in
+            ''|*[!0-9]*) rm -f "$PIDFILE"; return 0 ;;
+            *)
+                if ! is_owned_obexd "$pid"; then
+                    rm -f "$PIDFILE"
+                    return 0
+                fi
+                kill "$pid" 2>/dev/null || true
+                attempt=0
+                while [ "$attempt" -lt 5 ]; do
+                    if ! is_owned_obexd "$pid"; then
+                        rm -f "$PIDFILE"
+                        return 0
+                    fi
+                    attempt=$((attempt + 1))
+                    sleep 1
+                done
+                echo "obexd pid $pid is still running after the stop timeout" >&2
+                return 1
+                ;;
+        esac
+    fi
+    return 0
+}
+
+case "$1" in
+    start|start-sync) start_obexd ;;
+    stop) stop_obexd ;;
+    restart) stop_obexd && start_obexd ;;
+    *) echo "Usage: $0 {start|start-sync|stop|restart}" >&2; exit 2 ;;
+esac
+EOF
+chmod 0644 "$STAGE/etc/dbus-1/system.d/org.bluez.obex.conf"
+chmod 0755 "$STAGE/etc/init.d/S81compas_obex"
+
+for elf in "$DAEMON" "$OBEXD" "${REQUIRED_TOOLS[@]/#/$STAGE/usr/bin/}"; do
     file "$elf" | rg 'ELF 32-bit.*LSB.*MIPS' >/dev/null || die "wrong ELF format: $elf"
     readelf -h "$elf" | rg 'Flags:.*mips32r2' >/dev/null || die "wrong MIPS ISA flags: $elf"
     readelf -A "$elf" | rg 'Tag_GNU_MIPS_ABI_FP:.*Hard float' >/dev/null || die "wrong FP ABI: $elf"
@@ -242,6 +380,7 @@ for elf in "$DAEMON" "${REQUIRED_TOOLS[@]/#/$STAGE/usr/bin/}"; do
     fi
 done
 readelf -d "$DAEMON" | rg 'NEEDED|RPATH|RUNPATH' || true
+readelf -d "$OBEXD" | rg 'NEEDED|RPATH|RUNPATH' || true
 readelf -d "$STAGE/usr/bin/bluetoothctl" | rg 'NEEDED|RPATH|RUNPATH' || true
 
 # This is a real target execution under qemu-user, using the read-only stock
@@ -253,6 +392,9 @@ qemu=(qemu-mipsel -L "$STOCK_ROOT" -E LD_BIND_NOW=1 -E "LD_LIBRARY_PATH=$runtime
 rg -q '^bluetoothctl' "$RUN/bluetoothctl-help.txt" || die "bluetoothctl --help did not produce expected output"
 "${qemu[@]}" "$DAEMON" --version > "$RUN/bluetoothd-version.txt"
 rg -q "^5\.87" "$RUN/bluetoothd-version.txt" || die "bluetoothd --version was not 5.87"
+"${qemu[@]}" "$OBEXD" --help > "$RUN/obexd-help.txt" 2>&1
+rg -q -- '--system-bus' "$RUN/obexd-help.txt" || die 'obexd help is missing --system-bus'
+rg -q -- '--plugin' "$RUN/obexd-help.txt" || die 'obexd help is missing --plugin'
 
 [[ ! -e "$STABLE_STAGE" || -L "$STABLE_STAGE" ]] || die 'stage must be a symlink'
 ln -sfnT -- "$STAGE" "$STABLE_STAGE"

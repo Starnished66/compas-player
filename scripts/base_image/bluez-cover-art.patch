@@ -1,0 +1,1444 @@
+From: Jan-Michael Brummer <jan.brummer@tabos.org>
+Subject: [PATCH] AVRCP cover art sender, adapted for Compas firmware
+
+Based on upstream BlueZ v3 cover-art series (2026-09-07), commit
+f564a391812ee22092d379939d4d55ca74a44afa, PR #2500:
+https://github.com/bluez/bluez/pull/2500
+
+Backported to BlueZ 5.87 after the repository AVDTP/volume patches.
+Firmware adaptations: asynchronous fixed MPRIS provider discovery,
+private JPEG cache access, mandatory 200x200 thumbnails, authenticated
+L2CAP transport, image-handle cleanup, replay existing PSM listeners,
+and prefer the complete Compas provider over the vendor fallback.
+
+diff --git a/gobex/gobex.c b/gobex/gobex.c
+--- a/gobex/gobex.c
++++ b/gobex/gobex.c
+@@ -1730,6 +1730,8 @@
+ 		return G_OBEX_RSP_SERVICE_UNAVAILABLE;
+ 	case -ENOSYS:
+ 		return G_OBEX_RSP_NOT_IMPLEMENTED;
++	case -ENOTSUP:
++		return G_OBEX_RSP_NOT_ACCEPTABLE;
+ 	case -ENOTEMPTY:
+ 	case -EEXIST:
+ 		return G_OBEX_RSP_PRECONDITION_FAILED;
+diff --git a/Makefile.obexd b/Makefile.obexd
+--- a/Makefile.obexd
++++ b/Makefile.obexd
+@@ -40,6 +40,9 @@
+ 
+ obexd_builtin_modules += ftp
+ obexd_builtin_sources += obexd/plugins/ftp.c obexd/plugins/ftp.h
++
++obexd_builtin_modules += bip_avrcp
++obexd_builtin_sources += obexd/plugins/bip-avrcp.c
+ 
+ obexd_builtin_modules += irmc
+ obexd_builtin_sources += obexd/plugins/irmc.c
+diff --git a/lib/bluetooth/uuid.h b/lib/bluetooth/uuid.h
+--- a/lib/bluetooth/uuid.h
++++ b/lib/bluetooth/uuid.h
+@@ -102,6 +102,8 @@
+ #define OBEX_MAS_UUID		"00001132-0000-1000-8000-00805f9b34fb"
+ #define OBEX_MNS_UUID		"00001133-0000-1000-8000-00805f9b34fb"
+ #define OBEX_MAP_UUID		"00001134-0000-1000-8000-00805f9b34fb"
++/* AVRCP 1.6 Cover Art, Imaging Responder role */
++#define OBEX_BIP_AVRCP_UUID	"0000111b-0000-1000-8000-00805f9b34fb"
+ 
+ /* GATT UUIDs section */
+ #define GATT_PRIM_SVC_UUID				0x2800
+diff --git a/obexd/plugins/bip-avrcp.c b/obexd/plugins/bip-avrcp.c
+new file mode 100644
+--- /dev/null
++++ b/obexd/plugins/bip-avrcp.c
+@@ -0,0 +1,713 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++/*
++ *
++ *  OBEX Server - AVRCP Cover Art responder
++ *
++ *  Copyright (C) 2026  Jan-Michael Brummer <jan.brummer@tabos.org>
++ *
++ *
++ */
++
++#ifdef HAVE_CONFIG_H
++#include <config.h>
++#endif
++
++#include <errno.h>
++#include <fcntl.h>
++#include <stdint.h>
++#include <stdbool.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++#include <sys/stat.h>
++
++#include <glib.h>
++#include <dbus/dbus.h>
++
++#include "gdbus/gdbus.h"
++
++#include "obexd/src/obexd.h"
++#include "obexd/src/plugin.h"
++#include "obexd/src/obex.h"
++#include "obexd/src/service.h"
++#include "obexd/src/mimetype.h"
++#include "obexd/src/log.h"
++#include "obexd/src/manager.h"
++
++/* AVRCP 1.6 section 5.14.2.1 */
++#define COVER_ART_TARGET ((const uint8_t *) \
++	"\x71\x63\xDD\x54\x4A\x7E\x11\xE2\xB4\x7C\x00\x50\xC2\x49\x00\x48")
++#define COVER_ART_TARGET_SIZE 16
++
++#define COVER_ART_MAX_SIZE (1024 * 1024)
++
++#define MPRIS_SERVICE "org.mpris.MediaPlayer2.compas"
++#define MPRIS_PATH "/org/mpris/MediaPlayer2"
++#define MPRIS_PLAYER_INTERFACE "org.mpris.MediaPlayer2.Player"
++#define COVER_ART_DIRECTORY "/tmp/compas-bt-art/"
++
++static GDBusClient *player_client;
++
++struct cover_art_object {
++	int fd;
++	char *contents;		/* Properties document, NULL for images */
++	size_t size;
++	size_t offset;
++};
++
++/* Compás allocates unique seven-digit handles in JPEG filenames. The
++ * RAM counter survives player restarts within a boot; neither daemon hashes
++ * URLs, which would permit collisions. Keep these parsers in sync. */
++static bool cover_art_handle(const char *url, char *handle, size_t len)
++{
++	const char *name = strrchr(url, '/');
++	unsigned int i;
++	if (name == NULL || len < 8 || !g_str_has_prefix(name + 1, "cover-") ||
++			strlen(name + 1) != 17 || strcmp(name + 14, ".jpg") != 0)
++		return false;
++	for (i = 0; i < 7; i++) {
++		if (name[7 + i] < '0' || name[7 + i] > '9')
++			return false;
++	}
++	memcpy(handle, name + 7, 7);
++	handle[7] = '\0';
++	return true;
++}
++
++/*
++ * Controllers fetch lazily and commonly ask for the previous track's
++ * handle after a track change, when the player no longer advertises that
++ * art URL. Remember the last few resolved handles so those requests can
++ * still be answered.
++ */
++#define COVER_ART_CACHE_SIZE 4
++
++struct cover_art_entry {
++	char handle[8];
++	char *filename;
++};
++
++static GQueue cover_art_cache = G_QUEUE_INIT;
++
++static void cover_art_cache_add(const char *handle, const char *filename)
++{
++	struct cover_art_entry *entry;
++	GList *l;
++
++	for (l = cover_art_cache.head; l != NULL; l = g_list_next(l)) {
++		entry = l->data;
++
++		if (!g_str_equal(entry->handle, handle))
++			continue;
++
++		g_free(entry->filename);
++		entry->filename = g_strdup(filename);
++		g_queue_unlink(&cover_art_cache, l);
++		g_queue_push_head_link(&cover_art_cache, l);
++		return;
++	}
++
++	if (g_queue_get_length(&cover_art_cache) >= COVER_ART_CACHE_SIZE) {
++		entry = g_queue_pop_tail(&cover_art_cache);
++		g_free(entry->filename);
++		g_free(entry);
++	}
++
++	entry = g_new0(struct cover_art_entry, 1);
++	strncpy(entry->handle, handle, sizeof(entry->handle) - 1);
++	entry->filename = g_strdup(filename);
++
++	g_queue_push_head(&cover_art_cache, entry);
++}
++
++static char *cover_art_cache_lookup(const char *handle)
++{
++	GList *l;
++
++	for (l = cover_art_cache.head; l != NULL; l = g_list_next(l)) {
++		struct cover_art_entry *entry = l->data;
++
++		if (g_str_equal(entry->handle, handle))
++			return g_strdup(entry->filename);
++	}
++
++	return NULL;
++}
++
++static void cover_art_cache_clear(void)
++{
++	struct cover_art_entry *entry;
++
++	while ((entry = g_queue_pop_head(&cover_art_cache)) != NULL) {
++		g_free(entry->filename);
++		g_free(entry);
++	}
++}
++
++/* Metadata is discovered asynchronously; an OBEX GET never blocks the
++ * main loop on a player or trusts filenames supplied by the controller. */
++static void metadata_changed(GDBusProxy *proxy, const char *property,
++				DBusMessageIter *iter, void *user_data)
++{
++	DBusMessageIter dict;
++
++	if (!g_str_equal(property, "Metadata") || iter == NULL ||
++			dbus_message_iter_get_arg_type(iter) != DBUS_TYPE_ARRAY)
++		return;
++
++	dbus_message_iter_recurse(iter, &dict);
++	while (dbus_message_iter_get_arg_type(&dict) == DBUS_TYPE_DICT_ENTRY) {
++		DBusMessageIter entry, value;
++		const char *key, *url;
++		char *filename;
++		char handle[8];
++
++		dbus_message_iter_recurse(&dict, &entry);
++		if (dbus_message_iter_get_arg_type(&entry) != DBUS_TYPE_STRING)
++			return;
++		dbus_message_iter_get_basic(&entry, &key);
++		if (!dbus_message_iter_next(&entry) ||
++			dbus_message_iter_get_arg_type(&entry) != DBUS_TYPE_VARIANT)
++			return;
++		dbus_message_iter_recurse(&entry, &value);
++		if (g_str_equal(key, "mpris:artUrl") &&
++				dbus_message_iter_get_arg_type(&value) == DBUS_TYPE_STRING) {
++			dbus_message_iter_get_basic(&value, &url);
++			filename = g_filename_from_uri(url, NULL, NULL);
++			if (filename != NULL &&
++					g_str_has_prefix(filename, COVER_ART_DIRECTORY) &&
++					strchr(filename + strlen(COVER_ART_DIRECTORY), '/') == NULL) {
++				if (cover_art_handle(url, handle, sizeof(handle)))
++					cover_art_cache_add(handle, filename);
++			}
++			g_free(filename);
++			return;
++		}
++		dbus_message_iter_next(&dict);
++	}
++}
++
++static void player_connected(DBusConnection *conn, void *user_data)
++{
++	GDBusProxy *proxy;
++
++	proxy = g_dbus_proxy_new(player_client, MPRIS_PATH, MPRIS_PLAYER_INTERFACE);
++	if (proxy == NULL)
++		return;
++	g_dbus_proxy_set_property_watch(proxy, metadata_changed, NULL);
++	g_dbus_proxy_unref(proxy);
++}
++
++static void player_disconnected(DBusConnection *conn, void *user_data)
++{
++	cover_art_cache_clear();
++}
++
++static char *cover_art_lookup(const char *handle)
++{
++	unsigned int i;
++
++	if (handle == NULL || strlen(handle) != 7)
++		return NULL;
++	for (i = 0; i < 7; i++) {
++		if (handle[i] < '0' || handle[i] > '9')
++			return NULL;
++	}
++	return cover_art_cache_lookup(handle);
++}
++
++static void *cover_art_open_image(const char *name, int oflag, mode_t mode,
++					void *context, size_t *size, int *err)
++{
++	struct cover_art_object *obj;
++	struct stat st;
++	char *filename;
++	int fd, dirfd;
++	struct stat directory;
++
++	if (oflag != O_RDONLY) {
++		if (err)
++			*err = -EPERM;
++		return NULL;
++	}
++
++	filename = cover_art_lookup(name);
++	if (filename == NULL) {
++		DBG("no image for handle %s", name ? name : "(none)");
++		if (err)
++			*err = -ENOENT;
++		return NULL;
++	}
++
++	dirfd = open("/tmp/compas-bt-art", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
++	if (dirfd < 0 || fstat(dirfd, &directory) < 0 ||
++			directory.st_uid != geteuid() || (directory.st_mode & 0077)) {
++		if (dirfd >= 0)
++			close(dirfd);
++		g_free(filename);
++		if (err)
++			*err = -EPERM;
++		return NULL;
++	}
++	fd = openat(dirfd, filename + strlen(COVER_ART_DIRECTORY),
++				O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK);
++	close(dirfd);
++	g_free(filename);
++
++	if (fd < 0) {
++		if (err)
++			*err = -errno;
++		return NULL;
++	}
++
++	if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) ||
++					st.st_size <= 0 || st.st_size > COVER_ART_MAX_SIZE) {
++		close(fd);
++		if (err)
++			*err = -EINVAL;
++		return NULL;
++	}
++
++	obj = g_new0(struct cover_art_object, 1);
++	obj->fd = fd;
++	obj->size = st.st_size;
++
++	if (size)
++		*size = obj->size;
++
++	if (err)
++		*err = 0;
++
++	return obj;
++}
++
++/*
++ * Parse the JPEG start-of-frame marker for the image dimensions, which the
++ * image-properties document has to carry.
++ */
++static gboolean jpeg_dimensions(int fd, unsigned int *width,
++						unsigned int *height)
++{
++	uint8_t buf[4];
++	off_t pos = 2;
++
++	if (lseek(fd, 0, SEEK_SET) < 0)
++		return FALSE;
++
++	if (read(fd, buf, 2) != 2 || buf[0] != 0xff || buf[1] != 0xd8)
++		return FALSE;
++
++	while (lseek(fd, pos, SEEK_SET) >= 0 && read(fd, buf, 4) == 4) {
++		uint16_t len = (buf[2] << 8) | buf[3];
++
++		if (buf[0] != 0xff)
++			return FALSE;
++
++		/* SOF0..SOF3, SOF5..SOF7, SOF9..SOF11, SOF13..SOF15 */
++		if (buf[1] >= 0xc0 && buf[1] <= 0xcf &&
++				buf[1] != 0xc4 && buf[1] != 0xc8 &&
++				buf[1] != 0xcc) {
++			uint8_t sof[5];
++
++			if (read(fd, sof, 5) != 5)
++				return FALSE;
++
++			*height = (sof[1] << 8) | sof[2];
++			*width = (sof[3] << 8) | sof[4];
++
++			return *width == 200 && *height == 200;
++		}
++
++		if (len < 2)
++			return FALSE;
++
++		pos += 2 + len;
++	}
++
++	return FALSE;
++}
++
++static void *cover_art_open_properties(const char *name, int oflag,
++					mode_t mode, void *context,
++					size_t *size, int *err)
++{
++	struct cover_art_object *obj;
++	unsigned int width = 0, height = 0;
++	GString *props;
++
++	obj = cover_art_open_image(name, oflag, mode, context, NULL, err);
++	if (obj == NULL)
++		return NULL;
++
++	if (!jpeg_dimensions(obj->fd, &width, &height)) {
++		close(obj->fd);
++		g_free(obj);
++		if (err)
++			*err = -EINVAL;
++		return NULL;
++	}
++
++	props = g_string_new("<image-properties version=\"1.0\" handle=\"");
++	g_string_append_printf(props, "%s\">\n", name);
++	g_string_append_printf(props,
++		"<native encoding=\"JPEG\" pixel=\"%u*%u\" size=\"%zu\"/>\n",
++		width, height, obj->size);
++	g_string_append(props, "</image-properties>\n");
++
++	close(obj->fd);
++	obj->fd = -1;
++	obj->size = props->len;
++	obj->contents = g_string_free(props, FALSE);
++
++	if (size)
++		*size = obj->size;
++
++	return obj;
++}
++
++static ssize_t cover_art_read(void *object, void *buf, size_t count)
++{
++	struct cover_art_object *obj = object;
++	ssize_t len;
++
++	if (obj->contents != NULL) {
++		len = MIN(count, obj->size - obj->offset);
++		memcpy(buf, obj->contents + obj->offset, len);
++		obj->offset += len;
++
++		return len;
++	}
++
++	len = read(obj->fd, buf, count);
++	if (len < 0)
++		return -errno;
++
++	return len;
++}
++
++static int cover_art_close(void *object)
++{
++	struct cover_art_object *obj = object;
++
++	if (obj->fd >= 0)
++		close(obj->fd);
++
++	g_free(obj->contents);
++	g_free(obj);
++
++	return 0;
++}
++
++static void *cover_art_connect(struct obex_session *os, int *err)
++{
++	DBG("");
++
++	manager_register_session(os);
++
++	if (err)
++		*err = 0;
++
++	return NULL;
++}
++
++static void cover_art_disconnect(struct obex_session *os, void *user_data)
++{
++	DBG("");
++
++	manager_unregister_session(os);
++}
++
++/* BIP accepts exact dimensions, free ranges and fixed-aspect ranges.
++ * Parsing is bounded to the protocol's unsigned 16-bit dimensions. */
++static bool pixel_number(const char **text, unsigned int *value)
++{
++	unsigned int n = 0, digits = 0;
++	while (**text >= '0' && **text <= '9') {
++		if (++digits > 5)
++			return false;
++		n = n * 10 + *(*text)++ - '0';
++	}
++	if (digits == 0 || n > 65535)
++		return false;
++	*value = n;
++	return true;
++}
++
++static bool pixel_supported(const char *text)
++{
++	unsigned int low_w, low_h, high_w, high_h;
++	bool fixed = false;
++	if (*text == '\0')
++		return true;
++	if (!pixel_number(&text, &low_w) || *text++ != '*')
++		return false;
++	if (*text == '*') {
++		fixed = true;
++		text++;
++		low_h = 0;
++	} else if (!pixel_number(&text, &low_h)) {
++		return false;
++	}
++	if (*text == '\0')
++		return !fixed && low_w == 200 && low_h == 200;
++	if (*text++ != '-' || !pixel_number(&text, &high_w) ||
++			*text++ != '*' || !pixel_number(&text, &high_h) || *text)
++		return false;
++	return low_w <= 200 && low_h <= 200 && high_w >= 200 && high_h >= 200 &&
++			(!fixed || high_w == high_h);
++}
++
++struct image_descriptor {
++	unsigned int depth;
++	bool root, image, valid, supported;
++	uint64_t maxsize, size;
++};
++
++static void descriptor_start(GMarkupParseContext *context, const gchar *name,
++				const gchar **names, const gchar **values,
++				gpointer user_data, GError **error)
++{
++	struct image_descriptor *desc = user_data;
++	bool version = false, encoding = false, pixel = false;
++	unsigned int i;
++
++	if (desc->depth == 0 && !desc->root &&
++			g_str_equal(name, "image-descriptor")) {
++		desc->root = true;
++		for (i = 0; names[i] != NULL; i++) {
++			if (!g_str_equal(names[i], "version") ||
++					!g_str_equal(values[i], "1.0") || version)
++				desc->valid = false;
++			version = true;
++		}
++		if (!version)
++			desc->valid = false;
++	} else if (desc->depth == 1 && !desc->image && g_str_equal(name, "image")) {
++		desc->image = true;
++		for (i = 0; names[i] != NULL; i++) {
++			if (g_str_equal(names[i], "encoding")) {
++				if (encoding)
++					desc->valid = false;
++				if (values[i][0] && !g_str_equal(values[i], "JPEG"))
++					desc->supported = false;
++				encoding = true;
++			} else if (g_str_equal(names[i], "pixel")) {
++				if (pixel)
++					desc->valid = false;
++				if (!pixel_supported(values[i]))
++					desc->supported = false;
++				pixel = true;
++			} else if (g_str_equal(names[i], "maxsize") ||
++					g_str_equal(names[i], "size")) {
++				char *end;
++				uint64_t size;
++				errno = 0;
++				size = g_ascii_strtoull(values[i], &end, 10);
++				if (errno || end == values[i] || *end || size == 0 ||
++						values[i][0] < '0' || values[i][0] > '9')
++					desc->valid = false;
++				else if (g_str_equal(names[i], "size"))
++					desc->size = size;
++				else
++					desc->maxsize = size;
++			} else if (g_str_equal(names[i], "transformation")) {
++				/* At identical dimensions these are all no-ops. */
++				if (!g_str_equal(values[i], "crop") &&
++						!g_str_equal(values[i], "stretch") &&
++						!g_str_equal(values[i], "fill"))
++					desc->supported = false;
++			} else {
++				desc->valid = false;
++			}
++		}
++		if (!encoding || !pixel)
++			desc->valid = false;
++	} else {
++		desc->valid = false;
++	}
++	desc->depth++;
++}
++
++static void descriptor_end(GMarkupParseContext *context, const gchar *name,
++				gpointer user_data, GError **error)
++{
++	struct image_descriptor *desc = user_data;
++	if (desc->depth > 0)
++		desc->depth--;
++}
++
++static void descriptor_text(GMarkupParseContext *context, const gchar *text,
++				gsize len, gpointer user_data, GError **error)
++{
++	struct image_descriptor *desc = user_data;
++	gsize i;
++	for (i = 0; i < len; i++) {
++		if (!g_ascii_isspace(text[i]))
++			desc->valid = false;
++	}
++}
++
++static int check_image_descriptor(struct obex_session *os, const char *handle)
++{
++	static const GMarkupParser parser = {
++		descriptor_start, descriptor_end, descriptor_text, NULL, NULL
++	};
++	struct image_descriptor desc = { .valid = true, .supported = true };
++	GMarkupParseContext *context;
++	GError *error = NULL;
++	const uint8_t *bytes;
++	size_t len;
++	bool valid;
++
++	bytes = obex_get_img_descriptor(os, &len);
++	/* An omitted/empty descriptor requests the native image. */
++	if (len == 0)
++		return 0;
++	if (bytes == NULL || len > 1024)
++		return -EBADR;
++	context = g_markup_parse_context_new(&parser, 0, &desc, NULL);
++	valid = g_markup_parse_context_parse(context, (const char *) bytes, len, &error) &&
++			g_markup_parse_context_end_parse(context, &error) &&
++			desc.valid && desc.root && desc.image && desc.depth == 0;
++	g_clear_error(&error);
++	g_markup_parse_context_free(context);
++	if (!valid)
++		return -EBADR;
++	if (!desc.supported)
++		return -ENOTSUP;
++	if (desc.maxsize > 0 || desc.size > 0) {
++		struct cover_art_object *obj;
++		int err;
++		obj = cover_art_open_image(handle, O_RDONLY, 0, NULL, NULL, &err);
++		if (obj == NULL)
++			return err;
++		valid = (desc.maxsize == 0 || obj->size <= desc.maxsize) &&
++			(desc.size == 0 || obj->size == desc.size);
++		cover_art_close(obj);
++		if (!valid)
++			return -ENOTSUP;
++	}
++	return 0;
++}
++
++static int cover_art_get(struct obex_session *os, void *user_data)
++{
++	const char *type = obex_get_type(os);
++	const char *handle = obex_get_img_handle(os);
++
++	DBG("type %s handle %s", type ? type : "(none)",
++					handle ? handle : "(none)");
++
++	if (type == NULL || handle == NULL || strlen(handle) != 7)
++		return -EBADR;
++	if (g_str_equal(type, "x-bt/img-img")) {
++		int err = check_image_descriptor(os, handle);
++		if (err < 0)
++			return err;
++	} else if (!g_str_equal(type, "x-bt/img-properties") &&
++			!g_str_equal(type, "x-bt/img-thm")) {
++		return -ENOTSUP;
++	}
++
++	return obex_get_stream_start(os, handle);
++}
++
++static const struct obex_service_driver cover_art = {
++	.name = "AVRCP Cover Art server",
++	.service = OBEX_BIP,
++	.target = COVER_ART_TARGET,
++	.target_size = COVER_ART_TARGET_SIZE,
++	.connect = cover_art_connect,
++	.get = cover_art_get,
++	.disconnect = cover_art_disconnect,
++};
++
++static const struct obex_mime_type_driver properties = {
++	.target = COVER_ART_TARGET,
++	.target_size = COVER_ART_TARGET_SIZE,
++	.mimetype = "x-bt/img-properties",
++	.open = cover_art_open_properties,
++	.close = cover_art_close,
++	.read = cover_art_read,
++};
++
++/*
++ * Compás publishes baseline 200x200 JPEGs, so the same file satisfies
++ * the mandatory linked thumbnail without decoding on the OBEX main loop.
++ */
++static const struct obex_mime_type_driver thumbnail = {
++	.target = COVER_ART_TARGET,
++	.target_size = COVER_ART_TARGET_SIZE,
++	.mimetype = "x-bt/img-thm",
++	.open = cover_art_open_image,
++	.close = cover_art_close,
++	.read = cover_art_read,
++};
++
++static const struct obex_mime_type_driver image = {
++	.target = COVER_ART_TARGET,
++	.target_size = COVER_ART_TARGET_SIZE,
++	.mimetype = "x-bt/img-img",
++	.open = cover_art_open_image,
++	.close = cover_art_close,
++	.read = cover_art_read,
++};
++
++static int bip_avrcp_init(void)
++{
++	int err;
++
++	err = obex_mime_type_driver_register(&properties);
++	if (err < 0)
++		return err;
++
++	err = obex_mime_type_driver_register(&thumbnail);
++	if (err < 0)
++		goto failed_thumbnail;
++
++	err = obex_mime_type_driver_register(&image);
++	if (err < 0)
++		goto failed_image;
++
++	err = obex_service_driver_register(&cover_art);
++	if (err < 0)
++		goto failed_service;
++
++	player_client = g_dbus_client_new_full(obex_get_dbus_connection(),
++					MPRIS_SERVICE, MPRIS_PATH, NULL);
++	if (player_client == NULL) {
++		obex_service_driver_unregister(&cover_art);
++		err = -ENOMEM;
++		goto failed_service;
++	}
++	g_dbus_client_set_connect_watch(player_client, player_connected, NULL);
++	g_dbus_client_set_disconnect_watch(player_client, player_disconnected, NULL);
++
++	return 0;
++
++failed_service:
++	obex_mime_type_driver_unregister(&image);
++failed_image:
++	obex_mime_type_driver_unregister(&thumbnail);
++failed_thumbnail:
++	obex_mime_type_driver_unregister(&properties);
++
++	return err;
++}
++
++static void bip_avrcp_exit(void)
++{
++	if (player_client != NULL) {
++		g_dbus_client_unref(player_client);
++		player_client = NULL;
++	}
++	cover_art_cache_clear();
++
++	obex_service_driver_unregister(&cover_art);
++	obex_mime_type_driver_unregister(&image);
++	obex_mime_type_driver_unregister(&thumbnail);
++	obex_mime_type_driver_unregister(&properties);
++}
++
++OBEX_PLUGIN_DEFINE(bip_avrcp, bip_avrcp_init, bip_avrcp_exit)
+diff --git a/obexd/plugins/bluetooth.c b/obexd/plugins/bluetooth.c
+--- a/obexd/plugins/bluetooth.c
++++ b/obexd/plugins/bluetooth.c
+@@ -259,6 +259,17 @@
+ 					&opt);
+ 	g_dbus_dict_append_entry(&opt, "AutoConnect", DBUS_TYPE_BOOLEAN,
+ 								&auto_connect);
++	if (profile->driver->service == OBEX_BIP) {
++		dbus_uint16_t psm = 0;
++
++		/*
++		 * Ask for a dynamically assigned L2CAP PSM: Cover Art is
++		 * advertised inside the AVRCP target record, which
++		 * bluetoothd builds once it knows which PSM was handed
++		 * out, so no separate service record is published here.
++		 */
++		g_dbus_dict_append_entry(&opt, "PSM", DBUS_TYPE_UINT16, &psm);
++	}
+ 	if (profile->driver->record) {
+ 		if (profile->driver->port != 0)
+ 			xml = g_markup_printf_escaped(profile->driver->record,
+@@ -309,6 +320,8 @@
+ 		return OBEX_MAS_UUID;
+ 	case OBEX_MNS:
+ 		return OBEX_MNS_UUID;
++	case OBEX_BIP:
++		return OBEX_BIP_AVRCP_UUID;
+ 	}
+ 
+ 	return NULL;
+diff --git a/obexd/src/obex-priv.h b/obexd/src/obex-priv.h
+--- a/obexd/src/obex-priv.h
++++ b/obexd/src/obex-priv.h
+@@ -17,6 +17,9 @@
+ 	char *src;
+ 	char *dst;
+ 	char *name;
++	char *img_handle;
++	uint8_t *img_descriptor;
++	size_t img_descriptor_len;
+ 	char *destname;
+ 	char *type;
+ 	char *path;
+diff --git a/obexd/src/obex.c b/obexd/src/obex.c
+--- a/obexd/src/obex.c
++++ b/obexd/src/obex.c
+@@ -133,6 +133,11 @@
+ 		g_free(os->name);
+ 		os->name = NULL;
+ 	}
++	g_free(os->img_handle);
++	os->img_handle = NULL;
++	g_free(os->img_descriptor);
++	os->img_descriptor = NULL;
++	os->img_descriptor_len = 0;
+ 	if (os->type) {
+ 		g_free(os->type);
+ 		os->type = NULL;
+@@ -582,6 +587,51 @@
+ 	DBG("NAME: %s", os->name);
+ }
+ 
++/*
++ * BIP carries the image handle in an application specific header rather
++ * than in Name; see the Basic Imaging Profile, Img-Handle.
++ */
++#define OBEX_HDR_IMG_HANDLE 0x30
++
++static void parse_img_handle(struct obex_session *os, GObexPacket *req)
++{
++	GObexHeader *hdr;
++	const char *handle;
++
++	g_free(os->img_handle);
++	os->img_handle = NULL;
++
++	hdr = g_obex_packet_get_header(req, OBEX_HDR_IMG_HANDLE);
++	if (hdr == NULL)
++		return;
++
++	if (!g_obex_header_get_unicode(hdr, &handle))
++		return;
++
++	os->img_handle = g_strdup(handle);
++	DBG("IMG-HANDLE: %s", os->img_handle);
++}
++
++static void parse_img_descriptor(struct obex_session *os, GObexPacket *req)
++{
++	GObexHeader *hdr;
++	const void *bytes;
++	gsize len;
++
++	g_free(os->img_descriptor);
++	os->img_descriptor = NULL;
++	os->img_descriptor_len = 0;
++	hdr = g_obex_packet_get_header(req, 0x71);
++	if (hdr == NULL)
++		return;
++	if (!g_obex_header_get_bytes(hdr, &bytes, &len) || len > 1024) {
++		os->img_descriptor_len = 1025;
++		return;
++	}
++	os->img_descriptor = g_memdup2(bytes, len);
++	os->img_descriptor_len = len;
++}
++
+ static void parse_apparam(struct obex_session *os, GObexPacket *req)
+ {
+ 	GObexHeader *hdr;
+@@ -637,6 +687,9 @@
+ 	os->cmd = G_OBEX_OP_GET;
+ 
+ 	parse_name(os, req);
++
++	parse_img_handle(os, req);
++	parse_img_descriptor(os, req);
+ 
+ 	parse_apparam(os, req);
+ 
+@@ -1008,6 +1061,17 @@
+ 	return os->name;
+ }
+ 
++const char *obex_get_img_handle(struct obex_session *os)
++{
++	return os->img_handle;
++}
++
++const uint8_t *obex_get_img_descriptor(struct obex_session *os, size_t *len)
++{
++	*len = os->img_descriptor_len;
++	return os->img_descriptor;
++}
++
+ const char *obex_get_destname(struct obex_session *os)
+ {
+ 	return os->destname;
+diff --git a/obexd/src/obex.h b/obexd/src/obex.h
+--- a/obexd/src/obex.h
++++ b/obexd/src/obex.h
+@@ -21,6 +21,8 @@
+ int obex_get_stream_start(struct obex_session *os, const char *filename);
+ int obex_put_stream_start(struct obex_session *os, const char *filename);
+ const char *obex_get_name(struct obex_session *os);
++const char *obex_get_img_handle(struct obex_session *os);
++const uint8_t *obex_get_img_descriptor(struct obex_session *os, size_t *len);
+ const char *obex_get_destname(struct obex_session *os);
+ void obex_set_name(struct obex_session *os, const char *name);
+ ssize_t obex_get_size(struct obex_session *os);
+diff --git a/profiles/audio/avrcp.c b/profiles/audio/avrcp.c
+--- a/profiles/audio/avrcp.c
++++ b/profiles/audio/avrcp.c
+@@ -217,6 +217,8 @@
+ 	struct btd_adapter *adapter;
+ 	bool browsing;
+ 	uint32_t tg_record_id;
++	uint16_t cover_psm;
++	unsigned int cover_watch;
+ 	uint32_t ct_record_id;
+ 	GSList *players;
+ 	GSList *sessions;
+@@ -487,7 +489,63 @@
+ 	return record;
+ }
+ 
+-static sdp_record_t *avrcp_tg_record(bool browsing)
++static void avrcp_tg_add_protos(sdp_record_t *record, sdp_data_t *version,
++					bool browsing, uint16_t cover_psm)
++{
++	sdp_list_t *apseq_browsing = NULL, *apseq_obex = NULL;
++	uuid_t l2cap, avctp, obex;
++	sdp_list_t *aproto = NULL, *proto[2] = { NULL, NULL };
++	sdp_list_t *oproto[2] = { NULL, NULL };
++	sdp_data_t *psm = NULL, *opsm = NULL;
++	uint16_t ap = AVCTP_BROWSING_PSM;
++
++	if (!browsing && cover_psm == 0)
++		return;
++
++	sdp_uuid16_create(&l2cap, L2CAP_UUID);
++
++	if (browsing) {
++		proto[0] = sdp_list_append(NULL, &l2cap);
++		psm = sdp_data_alloc(SDP_UINT16, &ap);
++		proto[0] = sdp_list_append(proto[0], psm);
++		apseq_browsing = sdp_list_append(NULL, proto[0]);
++
++		sdp_uuid16_create(&avctp, AVCTP_UUID);
++		proto[1] = sdp_list_append(NULL, &avctp);
++		proto[1] = sdp_list_append(proto[1], version);
++		apseq_browsing = sdp_list_append(apseq_browsing, proto[1]);
++
++		aproto = sdp_list_append(aproto, apseq_browsing);
++	}
++
++	/* AVRCP 1.6 section 8: Cover Art OBEX transport entry */
++	if (cover_psm != 0) {
++		oproto[0] = sdp_list_append(NULL, &l2cap);
++		opsm = sdp_data_alloc(SDP_UINT16, &cover_psm);
++		oproto[0] = sdp_list_append(oproto[0], opsm);
++		apseq_obex = sdp_list_append(NULL, oproto[0]);
++
++		sdp_uuid16_create(&obex, OBEX_UUID);
++		oproto[1] = sdp_list_append(NULL, &obex);
++		apseq_obex = sdp_list_append(apseq_obex, oproto[1]);
++
++		aproto = sdp_list_append(aproto, apseq_obex);
++	}
++
++	sdp_set_add_access_protos(record, aproto);
++
++	free(psm);
++	free(opsm);
++	sdp_list_free(proto[0], NULL);
++	sdp_list_free(proto[1], NULL);
++	sdp_list_free(oproto[0], NULL);
++	sdp_list_free(oproto[1], NULL);
++	sdp_list_free(apseq_browsing, NULL);
++	sdp_list_free(apseq_obex, NULL);
++	sdp_list_free(aproto, NULL);
++}
++
++static sdp_record_t *avrcp_tg_record(bool browsing, uint16_t cover_psm)
+ {
+ 	sdp_list_t *svclass_id, *pfseq, *apseq, *root;
+ 	uuid_t root_uuid, l2cap, avctp, avrtg;
+@@ -503,6 +561,9 @@
+ 					AVRCP_FEATURE_CATEGORY_4 |
+ 					AVRCP_FEATURE_TG_PLAYER_SETTINGS);
+ 
++	if (cover_psm != 0)
++		feat |= AVRCP_FEATURE_TG_COVERT_ART;
++
+ 	record = sdp_record_alloc();
+ 	if (!record)
+ 		return NULL;
+@@ -533,10 +594,10 @@
+ 	sdp_set_access_protos(record, aproto_control);
+ 
+ 	/* Additional Protocol Descriptor List */
+-	if (browsing) {
++	if (browsing)
+ 		feat |= AVRCP_FEATURE_BROWSING;
+-		avrcp_browsing_record(record, version);
+-	}
++
++	avrcp_tg_add_protos(record, version, browsing, cover_psm);
+ 
+ 	/* Bluetooth Profile Descriptor List */
+ 	sdp_uuid16_create(&profile[0].uuid, AV_REMOTE_PROFILE_ID);
+@@ -1213,7 +1274,7 @@
+ 	return 0;
+ }
+ 
+-static GList *player_list_metadata(struct avrcp_player *player)
++static GList *player_list_metadata(struct avrcp_player *player, bool cover_available)
+ {
+ 	GList *l, *attrs = NULL;
+ 
+@@ -1225,6 +1286,8 @@
+ 	for (; l; l = l->next) {
+ 		const char *key = l->data;
+ 
++		if (!cover_available && str_to_metadata(key) == AVRCP_MEDIA_ATTRIBUTE_IMG_HANDLE)
++			continue;
+ 		attrs = g_list_append(attrs,
+ 					GUINT_TO_POINTER(str_to_metadata(key)));
+ 	}
+@@ -1242,18 +1305,22 @@
+ {
+ 	struct avrcp_player *player = target_get_player(session);
+ 	uint16_t len = be16_to_cpu(pdu->params_len);
+-	uint64_t identifier = get_le64(&pdu->params[0]);
++	uint64_t identifier;
+ 	uint16_t pos;
+ 	uint8_t nattr;
+ 	GList *attr_ids;
+ 	uint16_t offset;
+-
+-	if (len < 9 || identifier != 0)
++	bool missing_cover = false;
++
++	if (len < 9)
+ 		goto err;
++	identifier = get_le64(&pdu->params[0]);
++	if (identifier != 0)
++		goto err;
+ 
+ 	nattr = pdu->params[8];
+ 
+-	if (len < nattr * sizeof(uint32_t) + 1)
++	if (len < nattr * sizeof(uint32_t) + 9)
+ 		goto err;
+ 
+ 	if (!nattr) {
+@@ -1261,7 +1328,7 @@
+ 		 * Return all available information, at least
+ 		 * title must be returned if there's a track selected.
+ 		 */
+-		attr_ids = player_list_metadata(player);
++		attr_ids = player_list_metadata(player, session->server->cover_psm != 0);
+ 		len = g_list_length(attr_ids);
+ 	} else {
+ 		unsigned int i;
+@@ -1275,6 +1342,21 @@
+ 					id > AVRCP_MEDIA_ATTRIBUTE_LAST)
+ 				continue;
+ 
++			/*
++			 * AVRCP 1.6 Section 5.14: the Default Cover Art
++			 * attribute shall only be included if a valid
++			 * image handle exists for the current track.
++			 * Returning it with an empty value makes some
++			 * head units (e.g. VW MIB) give up on Cover Art
++			 * for the rest of the session.
++			 */
++			if (id == AVRCP_MEDIA_ATTRIBUTE_IMG_HANDLE &&
++					(session->server->cover_psm == 0 ||
++					player_get_metadata(player, id) == NULL)) {
++				missing_cover = true;
++				continue;
++			}
++
+ 			len++;
+ 			attr_ids = g_list_prepend(attr_ids,
+ 							GUINT_TO_POINTER(id));
+@@ -1283,7 +1365,7 @@
+ 		attr_ids = g_list_reverse(attr_ids);
+ 	}
+ 
+-	if (!len)
++	if (!len && !missing_cover)
+ 		goto err;
+ 
+ 	session_abort_pending_pdu(session);
+@@ -4639,7 +4721,14 @@
+ 	player->user_data = user_data;
+ 	player->destroy = destroy;
+ 
+-	server->players = g_slist_append(server->players, player);
++	/* The vendor daemon registers a second, incomplete provider first.
++	 * Prefer Compás while it is present; unregister falls back normally. */
++	const char *name = cb->get_name ? cb->get_name(user_data) : NULL;
++	bool preferred = name != NULL && strcmp(name, "Compás") == 0;
++	if (preferred)
++		server->players = g_slist_prepend(server->players, player);
++	else
++		server->players = g_slist_append(server->players, player);
+ 
+ 	/* Assign player to session without current player */
+ 	for (l = server->sessions; l; l = l->next) {
+@@ -4649,10 +4738,15 @@
+ 		if (target == NULL)
+ 			continue;
+ 
+-		if (target->player == NULL) {
++		if (target->player == NULL || preferred) {
++			struct avrcp_player *previous = target->player;
++			if (previous != NULL)
++				previous->sessions = g_slist_remove(previous->sessions, session);
+ 			target->player = player;
+ 			player->sessions = g_slist_append(player->sessions,
+ 								session);
++			if (previous != NULL)
++				notify_addressed_player_changed(player);
+ 		}
+ 	}
+ 
+@@ -4892,6 +4986,12 @@
+ 	if (!server)
+ 		return;
+ 
++	if (server->cover_watch != 0) {
++		btd_profile_remove_psm_watch(server->cover_watch);
++		server->cover_watch = 0;
++	}
++	server->cover_psm = 0;
++
+ 	if (server->tg_record_id != 0) {
+ 		adapter_service_remove(adapter, server->tg_record_id);
+ 		server->tg_record_id = 0;
+@@ -4901,10 +5001,56 @@
+ 		avrcp_server_unregister(server);
+ }
+ 
++/*
++ * The Cover Art PSM belongs to the responder in obexd, which registers its
++ * profile whenever the session daemon happens to start. Rebuild the record
++ * when that changes so the advertised PSM always matches a listening
++ * socket, and so no Cover Art is advertised while none is there.
++ */
++static int avrcp_tg_record_update(struct avrcp_server *server)
++{
++	sdp_record_t *record;
++
++	if (server->tg_record_id != 0) {
++		adapter_service_remove(server->adapter, server->tg_record_id);
++		server->tg_record_id = 0;
++	}
++
++	record = avrcp_tg_record(server->browsing, server->cover_psm);
++	if (!record) {
++		error("Unable to allocate new service record");
++		return -1;
++	}
++
++	if (adapter_service_add(server->adapter, record) < 0) {
++		error("Unable to register AVRCP target service record");
++		sdp_record_free(record);
++		return -1;
++	}
++
++	server->tg_record_id = record->handle;
++
++	return 0;
++}
++
++static void avrcp_cover_art_psm_cb(struct btd_adapter *adapter, uint16_t psm,
++							void *user_data)
++{
++	struct avrcp_server *server = user_data;
++
++	if (server->adapter != adapter || server->cover_psm == psm)
++		return;
++
++	DBG("Cover Art PSM %u", psm);
++
++	server->cover_psm = psm;
++
++	avrcp_tg_record_update(server);
++}
++
+ static int avrcp_target_server_probe(struct btd_profile *p,
+ 						struct btd_adapter *adapter)
+ {
+-	sdp_record_t *record;
+ 	struct avrcp_server *server;
+ 
+ 	DBG("path %s", adapter_get_path(adapter));
+@@ -4918,20 +5064,16 @@
+ 		return -EPROTONOSUPPORT;
+ 
+ done:
+-	record = avrcp_tg_record(server->browsing);
+-	if (!record) {
+-		error("Unable to allocate new service record");
++	if (server->cover_watch == 0)
++		server->cover_watch = btd_profile_add_psm_watch(
++						OBEX_BIP_AVRCP_UUID,
++						avrcp_cover_art_psm_cb,
++						server);
++
++	if (avrcp_tg_record_update(server) < 0) {
+ 		avrcp_target_server_remove(p, adapter);
+ 		return -1;
+ 	}
+-
+-	if (adapter_service_add(adapter, record) < 0) {
+-		error("Unable to register AVRCP target service record");
+-		avrcp_target_server_remove(p, adapter);
+-		sdp_record_free(record);
+-		return -1;
+-	}
+-	server->tg_record_id = record->handle;
+ 
+ 	return 0;
+ }
+diff --git a/profiles/audio/media.c b/profiles/audio/media.c
+--- a/profiles/audio/media.c
++++ b/profiles/audio/media.c
+@@ -2458,6 +2458,39 @@
+ 	return TRUE;
+ }
+ 
++/* Compás allocates unique seven-digit handles in JPEG filenames. The
++ * RAM counter survives player restarts within a boot; neither daemon hashes
++ * URLs, which would permit collisions. Keep these parsers in sync. */
++static gboolean parse_art_url_metadata(struct local_player *mp,
++							DBusMessageIter *iter)
++{
++	const char *url;
++	char handle[8];
++
++	if (dbus_message_iter_get_arg_type(iter) != DBUS_TYPE_STRING)
++		return FALSE;
++
++	dbus_message_iter_get_basic(iter, &url);
++	if (url[0] == '\0' || !g_str_has_prefix(url, "file:///tmp/compas-bt-art/"))
++		return TRUE;
++
++	const char *name = strrchr(url, '/');
++	if (name == NULL || !g_str_has_prefix(name + 1, "cover-") ||
++			strlen(name + 1) != 17 || strcmp(name + 14, ".jpg") != 0)
++		return TRUE;
++	for (unsigned int i = 0; i < 7; i++) {
++		if (name[7 + i] < '0' || name[7 + i] > '9')
++			return TRUE;
++	}
++	memcpy(handle, name + 7, 7);
++	handle[7] = '\0';
++
++	g_hash_table_insert(mp->track, g_strdup("ImgHandle"),
++							g_strdup(handle));
++
++	return TRUE;
++}
++
+ static gboolean parse_player_metadata(struct local_player *mp,
+ 							DBusMessageIter *iter)
+ {
+@@ -2516,6 +2549,9 @@
+ 				return FALSE;
+ 		} else if (strcasecmp(key, "xesam:trackNumber") == 0) {
+ 			if (!parse_int32_metadata(mp, "TrackNumber", &var))
++				return FALSE;
++		} else if (strcasecmp(key, "mpris:artUrl") == 0) {
++			if (!parse_art_url_metadata(mp, &var))
+ 				return FALSE;
+ 		} else
+ 			DBG("%s not supported, ignoring", key);
+diff --git a/src/profile.c b/src/profile.c
+--- a/src/profile.c
++++ b/src/profile.c
+@@ -59,6 +59,9 @@
+ #define BT_RX_MTU		32767
+ 
+ #define BTD_PROFILE_PSM_AUTO	-1
++
++static void psm_watch_notify(const char *uuid, struct btd_adapter *adapter,
++							uint16_t psm);
+ #define BTD_PROFILE_CHAN_AUTO	-1
+ 
+ #define HFP_HF_RECORD							\
+@@ -1444,6 +1447,8 @@
+ 			l2cap->adapter = btd_adapter_ref(adapter);
+ 			ext->servers = g_slist_append(ext->servers, l2cap);
+ 			DBG("%s listening on PSM %u", ext->name, psm);
++
++			psm_watch_notify(ext->uuid, adapter, psm);
+ 		}
+ 	}
+ 
+@@ -1494,6 +1499,77 @@
+ 	return 0;
+ }
+ 
++struct psm_watch {
++	unsigned int id;
++	char *uuid;
++	btd_profile_psm_func func;
++	void *user_data;
++};
++
++static GSList *psm_watches;
++static unsigned int psm_watch_id;
++
++unsigned int btd_profile_add_psm_watch(const char *uuid,
++					btd_profile_psm_func func,
++					void *user_data)
++{
++	struct psm_watch *watch;
++
++	if (uuid == NULL || func == NULL)
++		return 0;
++
++	watch = g_new0(struct psm_watch, 1);
++	watch->id = ++psm_watch_id;
++	watch->uuid = g_strdup(uuid);
++	watch->func = func;
++	watch->user_data = user_data;
++
++	psm_watches = g_slist_append(psm_watches, watch);
++
++	/* A responder may have registered before AVRCP's adapter probe. */
++	for (GSList *l = ext_profiles; l != NULL; l = g_slist_next(l)) {
++		struct ext_profile *ext = l->data;
++		if (strcasecmp(ext->uuid, uuid) != 0)
++			continue;
++		for (GSList *n = ext->servers; n != NULL; n = g_slist_next(n)) {
++			struct ext_io *server = n->data;
++			if (server->proto == BTPROTO_L2CAP)
++				func(server->adapter, server->psm, user_data);
++		}
++	}
++	return watch->id;
++}
++
++static void psm_watch_notify(const char *uuid, struct btd_adapter *adapter,
++							uint16_t psm)
++{
++	GSList *l;
++
++	for (l = psm_watches; l != NULL; l = g_slist_next(l)) {
++		struct psm_watch *watch = l->data;
++
++		if (strcasecmp(watch->uuid, uuid) == 0)
++			watch->func(adapter, psm, watch->user_data);
++	}
++}
++
++void btd_profile_remove_psm_watch(unsigned int id)
++{
++	GSList *l;
++
++	for (l = psm_watches; l != NULL; l = g_slist_next(l)) {
++		struct psm_watch *watch = l->data;
++
++		if (watch->id != id)
++			continue;
++
++		psm_watches = g_slist_remove(psm_watches, watch);
++		g_free(watch->uuid);
++		g_free(watch);
++		return;
++	}
++}
++
+ static struct ext_profile *find_ext(struct btd_profile *p)
+ {
+ 	GSList *l;
+@@ -1573,6 +1649,9 @@
+ 
+ 		if (server->adapter != adapter)
+ 			continue;
++
++		if (server->proto == BTPROTO_L2CAP)
++			psm_watch_notify(ext->uuid, adapter, 0);
+ 
+ 		ext->servers = g_slist_remove(ext->servers, server);
+ 		ext_io_destroy(server);
+@@ -2072,6 +2151,13 @@
+ 	g_free(ver_attr);
+ 
+ 	return rec;
++}
++
++/* Cover Art appears only in the AVRCP target record. */
++static char *get_cover_art_record(struct ext_profile *ext,
++				struct ext_io *l2cap, struct ext_io *rfcomm)
++{
++	return NULL;
+ }
+ 
+ static struct default_settings {
+@@ -2213,6 +2299,16 @@
+ 		.get_record	= get_mns_record,
+ 		.version	= 0x0104,
+ 		.imtu		= BT_RX_MTU,
++	}, {
++		.uuid		= OBEX_BIP_AVRCP_UUID,
++		.name		= "AVRCP Cover Art",
++		.get_record	= get_cover_art_record,
++		.psm		= BTD_PROFILE_PSM_AUTO,
++		.mode		= BT_IO_MODE_ERTM,
++		.sec_level	= BT_IO_SEC_MEDIUM,
++		.authorize	= false,
++		.version	= 0x0100,
++		.imtu		= BT_RX_MTU,
+ 	},
+ };
+ 
+diff --git a/src/profile.h b/src/profile.h
+--- a/src/profile.h
++++ b/src/profile.h
+@@ -112,3 +112,10 @@
+ 							void *user_data);
+ GSList *btd_profile_sort_list(GSList *list, btd_profile_list_get get,
+ 							void *user_data);
++
++typedef void (*btd_profile_psm_func)(struct btd_adapter *adapter,
++					uint16_t psm, void *user_data);
++unsigned int btd_profile_add_psm_watch(const char *uuid,
++					btd_profile_psm_func func,
++					void *user_data);
++void btd_profile_remove_psm_watch(unsigned int id);

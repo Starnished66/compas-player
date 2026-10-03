@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/resource.h>
 #include "artwork_coordinator.h"
@@ -1006,6 +1007,15 @@ static bool read_id3v2_streaming(FILE * f, track_metadata_t * out, uint8_t major
 static bool id3_tag_fits_file(FILE * f, uint32_t tag_size) {
     long body_start = ftell(f);
     if (body_start < 0) return true;
+    /* Regular files already expose their size through the open descriptor.
+     * Avoid an EOF seek and a second seek back for every MP3/AAC tag; this
+     * also keeps rejection independent of the card's end-of-file seek cost. */
+    struct stat st;
+    int fd = fileno(f);
+    if (fd >= 0 && fstat(fd, &st) == 0 && S_ISREG(st.st_mode)) {
+        return st.st_size >= 0 && (uint64_t) st.st_size >= (uint64_t) body_start &&
+               (uint64_t) st.st_size - (uint64_t) body_start >= (uint64_t) tag_size;
+    }
     if (fseek(f, 0, SEEK_END) != 0) {
         clearerr(f);
         return fseek(f, body_start, SEEK_SET) == 0;

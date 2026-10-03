@@ -64,7 +64,7 @@ void gui_reset_interactive_timeout_baseline(void);
  * screen_builders.h's pill_row_apply_icon())/text-size ("small"/"medium"/
  * "large", already validated by plugin_manager.c) -- a row with neither set
  * anywhere in this call keeps today's exact plain-label rendering. height
- * (0 = default 84px, or 96px for icon lists, scaled for the board) applies
+ * (0 = shared font-aware 96px default, scaled for the board) applies
  * to every row in this call, not per-row. Icon rows inherit native category
  * gradients and use 44px reference icons. wrap_labels opts individual rows
  * into multiline text and grows them beyond the minimum height to fit. Returns

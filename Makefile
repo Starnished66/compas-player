@@ -62,8 +62,7 @@ LUA_DIR = lua
 # otherwise-unrelated stb monorepo for no real benefit over committing it).
 STB_VORBIS_DIR = stb_vorbis
 # Classic IJG libjpeg v9f (see LICENSE.md -- IJG/BSD-style/zlib terms), used
-# ONLY as a fallback for progressive (SOF2) JPEG cover art, which tjpgd
-# (LVGL's vendored decoder, used for every baseline JPEG) explicitly rejects.
+# as a progressive-JPEG decode fallback and for baseline AVRCP cover export.
 # Cloned from libjpeg-turbo's own "ijg" mirror -- the official, canonical
 # source for unmodified historical IJG releases, not a random fork.
 JPEG_DIR = jpeg
@@ -89,7 +88,7 @@ $(shell git clone --depth 1 -b v9.5.0 https://github.com/lvgl/lvgl.git)
 endif
 
 # This project's own LVGL checkout (gitignored -- real upstream source,
-# not ours to redistribute) carries three categories of local
+# not ours to redistribute) carries four categories of local
 # customization that upstream v9.5.0 does not have, all needed for a
 # clean GitHub clone to both LINK and BEHAVE like this developer's tree
 # (see ISSUES.md's "clean GitHub clones cannot link the transition
@@ -144,7 +143,11 @@ endif
 #      later as a segfault inside an unrelated free() call and a reboot-on-
 #      crash loop. Fixed by sizing that buffer's stride to the larger of
 #      the native row width and the ARGB8888 row width.
-#   3. generated fonts (patches/lvgl_generated_fonts/, copied in whole
+#   3. evdev pointer frames (patches/lvgl_evdev_frames.patch): return at
+#      each complete pointer SYN_REPORT with continue_reading set, so a
+#      queued press and release remain separate samples while keypad reads
+#      keep their existing key-event behavior.
+#   4. generated fonts (patches/lvgl_generated_fonts/, copied in whole
 #      rather than diffed): ten Montserrat .c files regenerated with an
 #      expanded lv_font_conv codepoint range (Latin-1 Supplement +
 #      Latin Extended-A + typographic punctuation added to upstream's
@@ -165,17 +168,17 @@ endif
 #      regardless of which Font Size tier is active. These are
 #      machine-generated hex-array files with no stable diff context
 #      (every glyph/kerning table shifts on any range change), so unlike
-#      the two patches above they are tracked and restored as whole-file
+#      the three patches above they are tracked and restored as whole-file
 #      copies rather than a text diff -- diffing them would be both far
 #      larger than the files themselves and fragile to patch fuzz.
 #
 # LVGL_PINNED_COMMIT is v9.5.0's tag commit (the tag object peels to this
 # -- `git ls-remote https://github.com/lvgl/lvgl.git refs/tags/
-# v9.5.0^{}`), checked before touching anything so none of the three
+# v9.5.0^{}`), checked before touching anything so none of the four
 # categories above can silently apply to a different LVGL revision and
 # produce a corrupted tree.
 #
-# All three are applied/verified by one real stamp-file TARGET
+# All three patches and the generated-font copies are applied/verified by one real stamp-file TARGET
 # (LVGL_PATCH_STAMP below, wired as a NORMAL prerequisite -- not
 # order-only -- on every object pattern rule that compiles either LVGL or
 # this app's own sources). Two independent reasons neither the stamp nor
@@ -185,7 +188,7 @@ endif
 # pointer-returning function is undefined behavior on the mipsel target,
 # not just a warning; (2) this project has no per-file #include
 # dependency tracking (no -MMD/.d generation anywhere in this Makefile),
-# so if a future revision of any of the three categories changes what
+# so if a future revision of any of the four categories changes what
 # callers see, only a NORMAL prerequisite forces every object --
 # including ones some earlier build already compiled and cached -- to be
 # reconsidered against the new stamp timestamp; an order-only prerequisite
@@ -206,6 +209,8 @@ endif
 # tracked golden copy) than a plain clone does.
 LVGL_PATCH := patches/lvgl_fbdev_compositor.patch
 LVGL_RUNTIME_FIXES_PATCH := patches/lvgl_runtime_fixes.patch
+LVGL_EVDEV_FRAMES_PATCH := patches/lvgl_evdev_frames.patch
+LVGL_EVDEV_C := $(LVGL_DIR)/src/drivers/evdev/lv_evdev.c
 LVGL_GENERATED_FONTS_DIR := patches/lvgl_generated_fonts
 LVGL_GENERATED_FONTS := lv_font_montserrat_12.c lv_font_montserrat_14.c lv_font_montserrat_16.c lv_font_montserrat_18.c lv_font_montserrat_20.c lv_font_montserrat_22.c lv_font_montserrat_24.c lv_font_montserrat_26.c lv_font_montserrat_28.c lv_font_montserrat_30.c lv_font_montserrat_32.c lv_font_montserrat_34.c lv_font_montserrat_40.c
 LVGL_PINNED_COMMIT := 85aa60d18b3d5e5588d7b247abf90198f07c8a63
@@ -219,10 +224,10 @@ LVGL_OBJ_POS := $(LVGL_DIR)/src/core/lv_obj_pos.c
 LVGL_FONT_TARGETS := $(LVGL_GENERATED_FONTS:%=$(LVGL_DIR)/src/font/%)
 LVGL_FONT_GOLDEN := $(LVGL_GENERATED_FONTS:%=$(LVGL_GENERATED_FONTS_DIR)/%)
 LVGL_PATCH_STAMP := $(LVGL_DIR)/.lvgl_fbdev_patch_applied
-# "Already applied?" for the two patches is decided by `patch --dry-run
+# "Already applied?" for each of the three patches is decided by `patch --dry-run
 # --reverse` against the CURRENT patch file (see the stamp recipe below)
 # -- an exact byte-for-byte check of real file content against exactly
-# what that patch produces, not a heuristic. That one check already means
+# what the corresponding patch produces, not a heuristic. That one check already means
 # a revised patch against an already-patched tree is correctly detected
 # as needing re-evaluation (the old content won't reverse-apply cleanly
 # against the new patch text) rather than being waved through because a
@@ -573,8 +578,8 @@ APP_SRCS += src/ui/gesture_detector.c
 APP_SRCS += src/ui/i18n.c src/ui/i18n_catalog.c
 APP_SRCS += src/ui/player_layouts.c
 APP_SRCS += src/ui/player_seekbar.c src/audio/waveform.c
-APP_SRCS += src/ui/player_cover_fade.c
-APP_SRCS += src/network/bluetooth_reconnect.c
+APP_SRCS += src/ui/player_cover_fade.c src/ui/player_lyrics_backdrop.c src/ui/player_timeline_labels.c
+APP_SRCS += src/network/bluetooth_reconnect.c src/network/bt_cover_art.c
 APP_CXX_SRCS = src/audio/alac_decoder.cpp
 LVGL_SRCS = $(sort $(shell find $(LVGL_DIR)/src -type f -name '*.c'))
 # LVGL 9.5 dropped the XML engine; v9.4.0's is vendored (see
@@ -622,7 +627,8 @@ CJSON_SRCS = $(CJSON_DIR)/cJSON.c
 # compiled exactly once here); stb_vorbis.h is a header-only shim other .c
 # files include instead -- see that file's own comment.
 STB_VORBIS_SRCS = $(STB_VORBIS_DIR)/stb_vorbis.c
-# Decoder-only IJG libjpeg v9f -- no encoder (jc*.c/cjpeg.c/djpeg.c/jpegtran.c),
+# IJG library sources for JPEG decode and encode -- no cjpeg/djpeg/jpegtran
+# front ends,
 # no rd*/wr*.c non-JPEG format converters (BMP/GIF/PPM/Targa, cjpeg/djpeg's
 # own file-format glue, unused here), no jmemansi.c/jmemname.c/jmemdos.c/
 # jmemmac.c (temp-file-backed allocators -- jmemnobs.c is the ONLY one
@@ -641,11 +647,14 @@ STB_VORBIS_SRCS = $(STB_VORBIS_DIR)/stb_vorbis.c
 # jinit_2pass_quantizer/jinit_arith_decoder unconditionally as C symbols
 # regardless of which runtime branch actually executes -- confirmed via a
 # real link failure, not guessed. This matches how every real IJG decoder-
-# only build (e.g. djpeg's own Makefile) links these same files.
-JPEG_SRCS = $(addprefix $(JPEG_DIR)/, jdapimin.c jdapistd.c jdatasrc.c jdcoefct.c jdcolor.c \
+# build links these decoder and encoder files; cjpeg itself also needs the
+# excluded front ends and image-format converters.
+JPEG_SRCS = $(addprefix $(JPEG_DIR)/, jcapimin.c jcapistd.c jcarith.c jccoefct.c jccolor.c \
+              jcdctmgr.c jchuff.c jcinit.c jcmainct.c jcmarker.c jcmaster.c jcparam.c \
+              jcprepct.c jcsample.c jdapimin.c jdapistd.c jdatasrc.c jdcoefct.c jdcolor.c \
               jddctmgr.c jdhuff.c jdinput.c jdmainct.c jdmarker.c jdmaster.c jdmerge.c \
               jdpostct.c jdsample.c jdtrans.c jdarith.c jaricom.c jcomapi.c jerror.c jmemmgr.c jmemnobs.c \
-              jutils.c jidctint.c jidctfst.c jidctflt.c jquant1.c jquant2.c)
+              jutils.c jidctint.c jidctfst.c jidctflt.c jfdctint.c jfdctfst.c jfdctflt.c jquant1.c jquant2.c)
 # Library sources only (verified against this checkout's own doc/readme.html
 # file list) -- excludes lua.c/luac.c, the standalone interpreter/compiler
 # CLI mains, since this is an embedded library build.
@@ -726,6 +735,7 @@ $(HOST_BIN): $(HOST_OBJS)
 # invalidates it), not just on $(LVGL_DIR) existing.
 $(LVGL_PATCH_STAMP): $(LVGL_FBDEV_C) $(LVGL_FBDEV_H) $(LVGL_PATCH) \
                      $(LVGL_TINY_TTF) $(LVGL_TJPGDCNF) $(LVGL_LRU_RB) $(LVGL_LODEPNG) $(LVGL_OBJ_POS) $(LVGL_RUNTIME_FIXES_PATCH) \
+                     $(LVGL_EVDEV_C) $(LVGL_EVDEV_FRAMES_PATCH) \
                      $(LVGL_FONT_TARGETS) $(LVGL_FONT_GOLDEN)
 	@set -e; \
 	actual_commit=$$(git -C $(LVGL_DIR) rev-parse HEAD 2>/dev/null || echo ""); \
@@ -776,6 +786,23 @@ $(LVGL_PATCH_STAMP): $(LVGL_FBDEV_C) $(LVGL_FBDEV_H) $(LVGL_PATCH) \
 	  echo "ERROR: $(LVGL_DIR) matches the pinned commit $(LVGL_PINNED_COMMIT) but layout/tiny_ttf/tjpgd/lru-rb/lodepng are"; \
 	  echo "       neither a pristine match for $(LVGL_RUNTIME_FIXES_PATCH) nor an exact match for its"; \
 	  echo "       already-applied result. Remove $(LVGL_DIR) and re-run make to start from a clean checkout."; \
+	  exit 1; \
+	fi; \
+	if patch -p1 -d $(LVGL_DIR) --force --fuzz=0 --dry-run --reverse < $(LVGL_EVDEV_FRAMES_PATCH) >/dev/null 2>&1; then \
+	  echo "LVGL evdev frame patch already applied in $(LVGL_DIR) and matches $(LVGL_EVDEV_FRAMES_PATCH) exactly, skipping."; \
+	elif patch -p1 -d $(LVGL_DIR) --force --fuzz=0 --dry-run < $(LVGL_EVDEV_FRAMES_PATCH) >/dev/null 2>&1; then \
+	  echo "Applying $(LVGL_EVDEV_FRAMES_PATCH) to $(LVGL_DIR)..."; \
+	  patch -p1 -d $(LVGL_DIR) --force --fuzz=0 < $(LVGL_EVDEV_FRAMES_PATCH) || { \
+	    echo "ERROR: $(LVGL_EVDEV_FRAMES_PATCH) failed to apply to $(LVGL_DIR) even though a dry run just succeeded --"; \
+	    echo "       investigate before building (disk full, read-only checkout, concurrent modification)."; \
+	    exit 1; \
+	  }; \
+	  echo "LVGL evdev frame patch applied successfully."; \
+	else \
+	  echo "ERROR: $(LVGL_DIR) matches the pinned commit $(LVGL_PINNED_COMMIT) but evdev driver file is"; \
+	  echo "       neither a pristine match for $(LVGL_EVDEV_FRAMES_PATCH) nor an exact match for its"; \
+	  echo "       already-applied result -- hand-modified or patched against a since-updated $(LVGL_EVDEV_FRAMES_PATCH)."; \
+	  echo "       Remove $(LVGL_DIR) and re-run make to start from a clean pinned checkout."; \
 	  exit 1; \
 	fi; \
 	for f in $(LVGL_GENERATED_FONTS); do \

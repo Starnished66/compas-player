@@ -633,7 +633,7 @@ plugin.register_list_item("display", "Theme", function()
         apply_theme(new_def)
         plugin.show_toast("Theme applied", 1000)
         plugin.refresh_theme()
-    end, { selected = selected_index, height = 100 })
+    end, { selected = selected_index })
 end)
 
 -- After the settings row is registered so a failure here cannot take the

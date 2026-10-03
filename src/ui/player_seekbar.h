@@ -15,4 +15,11 @@ bool player_seekbar_attach(lv_obj_t * slider, const char * style);
  * fallback until waveform data is ready. */
 void player_seekbar_update(lv_obj_t * slider, const waveform_data_t * data);
 
+/* Generic progress control helpers. Sliders and arcs use the same percentage
+ * range and role; full-circle arcs receive direct pointer-to-angle mapping. */
+bool player_seekbar_is_supported(lv_obj_t * obj);
+int32_t player_seekbar_get_value(lv_obj_t * obj);
+void player_seekbar_set_value(lv_obj_t * obj, int32_t value);
+bool player_seekbar_configure(lv_obj_t * obj);
+
 #endif

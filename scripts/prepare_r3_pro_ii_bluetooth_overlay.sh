@@ -86,7 +86,7 @@ for stage in "$audio" "$bluez_lib" "$glib" "$dbus" "$codecs" "$zlib" "$expat"; d
     copy_shared_libs "$stage"
 done
 
-cp -a "$bluez/usr/libexec/bluetooth/bluetoothd" "$overlay/usr/libexec/bluetooth/"
+"$REPO_ROOT/scripts/prepare_bt_cover_art_overlay.sh" "$bluez" "$stock" "$overlay"
 for binary in "$bluez"/usr/bin/*; do
     [[ -f $binary && -x $binary ]] || continue
     cp -a "$binary" "$overlay/usr/bin/"

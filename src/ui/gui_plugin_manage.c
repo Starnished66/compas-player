@@ -136,7 +136,7 @@ lv_obj_t * gui_plugin_manage_build_screen(void) {
     int count = 2;
     for (int i = 0; i < manage_entry_count; i++) {
         const plugin_available_entry_t * en = &manage_entries[i];
-        if (plugin_manage_is_support_module(en->filename)) continue;
+        if (en->player_layout || plugin_manage_is_support_module(en->filename)) continue;
         plugin_manage_format_label(i, en);
         items[count++] = (pill_list_item_t){
             manage_labels[i], PILL_ACCESSORY_TOGGLE,

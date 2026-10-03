@@ -1,6 +1,7 @@
 #include "hiby_sys_server.h"
 #include "bluetooth_control.h"
 #include "debug_log.h"
+#include "utf8_util.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -56,9 +57,21 @@ void hiby_sys_server_report_playback_status(bool playing) {
 
 void hiby_sys_server_report_metadata(const char * title, const char * artist,
                                       const char * album, const char * genre, long length_ms) {
+    /* The daemon stores title/artist/album in 128 bytes and genre in 64.
+     * Bound each field before framing, so long snapshots cannot truncate
+     * later fields or
+     * split a UTF-8 character. Tabs are protocol separators, not tag text. */
+    const char * source[] = { title, artist, album, genre };
+    char fields[4][128];
+    for (size_t i = 0; i < 4; i++) {
+        const char * text = source[i] ? source[i] : "";
+        utf8_truncate_safe_bounded(fields[i], i == 3 ? 64 : sizeof(fields[i]), text, strlen(text));
+        for (char * p = fields[i]; *p; p++)
+            if (*p == '\t' || *p == '\r' || *p == '\n') *p = ' ';
+    }
     char cmd[600];
     snprintf(cmd, sizeof(cmd), "BT:METADATA:%s\t%s\t%s\t%s\t%ld",
-             title ? title : "", artist ? artist : "", album ? album : "", genre ? genre : "", length_ms);
+             fields[0], fields[1], fields[2], fields[3], length_ms);
     send_command(cmd);
 }
 

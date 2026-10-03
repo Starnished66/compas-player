@@ -124,7 +124,8 @@ void gui_library_set_covers_during_playback(bool enabled);
  * workers such as album-art warming remain background work for shutdown
  * coordination, but must not disable the drawer or screen gestures. */
 bool gui_library_navigation_blocked(void);
-/* Joins UI-pointer-bearing artwork/search jobs before a soft screen rebuild. */
-void gui_library_prepare_for_ui_reload(void);
+/* Joins UI-pointer-bearing artwork/search jobs before a soft screen rebuild.
+ * Layout-only reloads may retain decoded artwork; full reloads invalidate it. */
+void gui_library_prepare_for_ui_reload(bool preserve_artwork);
 void gui_library_cancel_background_work(void);
 void gui_library_cancel_scan(void);
