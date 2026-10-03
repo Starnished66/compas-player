@@ -24,3 +24,11 @@ Silent Man — Dream Theater** from the SD card, with its existing synced lyrics
 
 The player layout documentation links to these captures. Other screenshots in
 the dated walkthrough cover unrelated screens and remain available there.
+
+## Hiby’s
+
+- [Playing](hibys-playing.png) — full-width artwork, translucent top bar and
+  brighter frosted footer, captured on the R1.
+- [Lyrics](hibys-lyrics.png) — XML transition with left-aligned metadata.
+
+These captures use **Dead Asleep — Dream Theater**.

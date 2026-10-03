@@ -15,6 +15,11 @@ Gallery and Panorama retain controls in their lyrics views; Vinyl uses the
 default full lyrics page with a circular cover. Gallery and Vinyl use the player's frosted glass cover pipeline behind
 the artwork. Gallery keeps the menu alongside its playback controls. The designs reuse the player's existing icons.
 
+Hiby’s is also included, with full-width square artwork, the translucent
+status bar over the cover, a brighter frosted footer and XML lyrics
+transitions. Board variants cover R1, R3 Pro II and R3 II 2025; the two
+shorter screens omit the album line to keep controls clear.
+
 ## Quick start
 
 1. Copy `assets/theme2/player_layouts/example_minimal.xml` and rename it, for
