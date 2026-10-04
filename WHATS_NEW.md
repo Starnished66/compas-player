@@ -4,7 +4,7 @@ A refreshed player experience, from first setup to Now Playing.
 
 ## Highlights
 
-- **Downloadable player layouts:** browse picture cards and install **Gallery, Panorama, Vinyl, or Orbit** from **Settings > Display > Player Layout > Layout > Download**. **Hiby's and Hiby's Graph** are included. Tap the cover for lyrics in every layout.
+- **Downloadable player layouts:** browse picture cards and install **Gallery, Panorama, Vinyl, Orbit, Hiby's, or Hiby's Graph** from **Settings > Display > Player Layout > Layout > Download**. Tap the cover for lyrics in every layout.
 - **New Car Mode options:** a dedicated volume applied when Car Mode is enabled, a drawer quick toggle with long-press access to settings, **Low/High gain** when the Gain plugin is installed, and optional **Auto-resume** on external-power startup with headphones connected.
 - **Welcome & Quick Setup:** a musical welcome animation followed by language, time zone, Wi-Fi, plugins, layout selection, and library scanning. Selected plugins and layouts install together at the end, with progress and one retry for failures.
 - **Revised themes:** improved Home screen layouts and eight new looks through the **Themes** plugin, including Porcelain, Arctic Glass, Cherry Noir, and Citrus Slate.

@@ -201,12 +201,22 @@ copy_tracked_assets() {
 }
 copy_tracked_assets assets/theme1 "$work/root/usr/resource/litegui/theme1"
 copy_tracked_assets assets/theme2 "$work/root/usr/resource/litegui/theme2"
-# Vinyl is offered by the layout repository. Drop any native copy left by
-# an older base so a fresh image does not offer it before catalog loading.
-rm -f "$work/root/usr/resource/litegui/theme2/player_layouts/vinyl.xml" \
-      "$work/root/usr/resource/litegui/theme2/player_layouts/vinyl@320x480.xml" \
-      "$work/root/usr/resource/litegui/theme2/player_layouts/vinyl@480x720.xml" \
-      "$work/root/usr/resource/litegui/theme2/player_layouts/vinyl.png"
+# These designs are offered by the downloadable layout repository. Drop
+# native copies after all board assets have been copied so older bases or
+# board-specific assets cannot expose a second, firmware-bundled copy.
+remove_downloadable_layout_assets() {
+    local layout name
+    for layout in vinyl Hibys HibysGraph; do
+        for name in \
+            "$layout.xml" "$layout.png" \
+            "${layout}@320x480.xml" "${layout}_320x480.xml" \
+            "${layout}@320x480.png" "${layout}_320x480.png" \
+            "${layout}@480x720.xml" "${layout}_480x720.xml" \
+            "${layout}@480x720.png" "${layout}_480x720.png"; do
+            rm -f "$work/root/usr/resource/litegui/theme2/player_layouts/$name"
+        done
+    done
+}
 # Shared icons ship on every board. Panel-specific artwork and icon variants
 # must win over the shared files, particularly the full-screen boot images.
 if [[ $board == r1 ]]; then
@@ -241,6 +251,8 @@ if [[ $board != r1 && -n ${R3_RUNTIME_OVERLAY:-} ]]; then
     runtime_overlay=$(realpath "$R3_RUNTIME_OVERLAY")
     cp -a "$runtime_overlay"/. "$work/root/"
 fi
+
+remove_downloadable_layout_assets
 
 # Apply the handoff after overlays so they cannot restore an old launcher.
 wrapper="$work/root/usr/bin/hiby_player.sh"

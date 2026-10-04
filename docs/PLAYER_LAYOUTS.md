@@ -10,19 +10,20 @@ registration step and installing a file never activates it automatically. The
 built-in layout remains the default and the fallback whenever a custom one
 fails to load.
 
-## Included designs
+## Included and downloadable designs
 
-The Player Layout selector includes **Gallery**, **Panorama**, **Vinyl**,
-**Orbit** and **Hiby’s**, each fitted to all three players. Tap the cover to
-open or close lyrics. Gallery and Panorama retain controls in their lyrics views; Vinyl and
-Orbit use the standard lyrics page. Gallery and Vinyl use the player's frosted
-glass cover pipeline behind the artwork. The designs reuse the player's
-existing icons. Hiby’s places square artwork flush with the top edge, with the
-translucent status bar over it and a frosted footer. Its XML timelines preserve
-left-aligned metadata when returning from lyrics. The compact R3 II 2025
-and R3 Pro II variants omit the album line to leave room for playback controls.
+The firmware bundles **Gallery**, **Panorama** and **Orbit**. The layout
+download gallery offers **Vinyl**, **Hiby’s** and **Hiby’s Graph** as separate plugins, each fitted to
+all three players. Tap the cover to open or close lyrics. Gallery and Panorama
+retain controls in their lyrics views; Vinyl and Orbit use the standard lyrics
+page. Gallery and Vinyl use the player's frosted glass cover pipeline behind
+the artwork. The designs reuse the player's existing icons. Hiby’s places
+square artwork flush with the top edge, with the translucent status bar over
+it and a frosted footer. Its XML timelines preserve left-aligned metadata when
+returning from lyrics. The compact R3 II 2025 and R3 Pro II variants omit the
+album line to leave room for playback controls.
 
-Hiby’s Graph duplicates Hiby’s with the existing **filled envelope** waveform
+Hiby’s Graph follows Hiby’s design with the existing **filled envelope** waveform
 seek bar. It uses XML only, reuses all icons and includes all three board
 variants. Tap the cover for lyrics and seek directly on the waveform.
 
