@@ -198,8 +198,8 @@ static void set_defaults(player_settings_t * out) {
     out->sleep_timer_minutes = 15;
     out->timezone[0] = '\0';
     out->hostname[0] = '\0'; /* empty -- stock's own /usr/resource/hostname stays in effect */
-    out->font_size_tier = 0;
-    out->lyrics_font_size_tier = 2; /* Large -- see settings.h's own comment */
+    out->font_size_tier = 1;
+    out->lyrics_font_size_tier = 1; /* Medium -- see settings.h's own comment */
     out->brightness_percent = 80;
     out->clock_24h = true; /* matches the app's original, only-ever clock format -- existing installs see no change */
     out->clock_automatic = true;
@@ -600,8 +600,8 @@ bool settings_load(player_settings_t * out) {
     if (out->setup_step < 0 || out->setup_step > 7) out->setup_step = 0;
     if (out->usb_mode < 0 || out->usb_mode > 2) out->usb_mode = 0; /* defensive re-clamp, same reasoning as screen_timeout_seconds -- the settings file is plaintext and could be hand-edited out of range */
     if (out->play_mode < 0 || out->play_mode > 3) out->play_mode = 0;
-    if (out->font_size_tier < 0 || out->font_size_tier > 2) out->font_size_tier = 0;
-    if (out->lyrics_font_size_tier != 1 && out->lyrics_font_size_tier != 2) out->lyrics_font_size_tier = 2; /* Medium/Large only, see settings.h */
+    if (out->font_size_tier < 0 || out->font_size_tier > 2) out->font_size_tier = 1;
+    if (out->lyrics_font_size_tier != 1 && out->lyrics_font_size_tier != 2) out->lyrics_font_size_tier = 1; /* Medium/Large only, see settings.h */
     if (out->replaygain_mode < 0 || out->replaygain_mode > 2) out->replaygain_mode = 1; /* Off/Per Track/Per Album only, see settings.h */
     if (out->animation_scale != 0 && out->animation_scale != 25 && out->animation_scale != 50 &&
         out->animation_scale != 75 && out->animation_scale != 100) out->animation_scale = 100;

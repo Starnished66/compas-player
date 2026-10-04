@@ -379,11 +379,11 @@ typedef struct {
 
     /* UI text size (Settings -> Display -> Font Size): 0 = Small, 1 =
      * Medium, 2 = "BlindMF" (largest). Applied at startup and live
-     * via fallback_font_apply_size_tier(). */
+     * via fallback_font_apply_size_tier(). Defaults to 1 (Medium). */
     int font_size_tier;
 
     /* Settings -> Lyrics Text Size: independent text size control for the
-     * fullscreen synchronized lyrics view (1 = Medium, 2 = Large). Defaults to 2 (Large). */
+     * fullscreen synchronized lyrics view (1 = Medium, 2 = Large). Defaults to 1 (Medium). */
     int lyrics_font_size_tier;
 
     /* Screen brightness (0-100), applied at startup and updated when adjusted.

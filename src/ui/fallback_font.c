@@ -81,8 +81,8 @@ extern void player_transition_mark_dirty(void);
 extern void boot_checkpoint(const char * step);
 #endif
 
-static int s_font_size_tier = 0;
-static int s_lyrics_font_size_tier = 2;
+static int s_font_size_tier = 1;
+static int s_lyrics_font_size_tier = 1;
 static char s_active_custom_name[64] = "";
 static bool s_custom_staged_valid = false;
 static uint32_t s_custom_font_generation = 0;
