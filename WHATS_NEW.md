@@ -25,6 +25,7 @@
 - **Covers everywhere:** Artists and song lists show art.
 - **Interface:** redesigned Accent Color screen with Match album art, Animation Speed setting, snappier controls, volume card, Playlists/Books refresh buttons, and the Files browser remembers your place.
 - **Screenshots:** Power + Volume Down, once enabled in Developer Options.
+- **Bluetooth DAC:** LDAC now enables automatically with the rebuilt decoder; its experimental Developer Options toggle has been removed.
 - **Bluetooth:** song info on headphones and car stereos, better codec selection, aptX/aptX HD in DAC mode, phone volume works in DAC mode, SBC-XQ fallback.
 - **USB DAC:** clean, in-sync, true stereo, 24-bit where available.
 - **SD cards:** player data in a `.compas` folder, USB changes recognised on unplug, card checked after unsafe removal, proper close at power-off.

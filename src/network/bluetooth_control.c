@@ -60,9 +60,8 @@ static const char * bluealsa_ctl_name(void) {
     return bluealsa_backend().ctl;
 }
 
-/* Both are pushed in from the UI; see their setters below. */
+/* Pushed in from the UI; see the setter below. */
 static atomic_bool bt_speexrate_enabled = false;
-static atomic_bool bt_dac_all_codecs = false;
 /* Requested A2DP transport rate in Hz, 0 for BlueALSA's own choice. */
 static atomic_uint bt_sample_rate = 44100;
 
@@ -118,14 +117,6 @@ static bool bt_rate_wants_audio_cd(void) {
  * which is why the transport rate matters more than the converter. */
 void bt_control_set_speexrate_enabled(bool enabled) {
     atomic_store(&bt_speexrate_enabled, enabled);
-}
-
-/* Experimental (Developer Options): DAC mode's sink also registers LDAC
- * (aptX and aptX-HD are always registered). The source encoder preference
- * does not apply to a sink, which decodes whatever the phone picked. Takes
- * effect the next time the sink daemon starts. */
-void bt_control_set_dac_all_codecs(bool enabled) {
-    atomic_store(&bt_dac_all_codecs, enabled);
 }
 
 #ifndef BT_LDAC_DECODER_PATH
@@ -3210,13 +3201,14 @@ bool bt_control_apply_output_settings(bool dac_mode_enabled, bool volume_sync_en
         argv[i++] = (char *) "--sbc-quality=xq";
     if (dac_mode_enabled) {
         /* aptX and aptX-HD decode reliably and are always offered, on top of
-         * BlueALSA's defaults (SBC, AAC). LDAC is the experimental option,
-         * and only with the rebuilt decoder. */
+         * BlueALSA's defaults (SBC, AAC). The stock firmware's LDAC decoder
+         * crashes on phone streams, so offer LDAC only when the rebuilt
+         * decoder is installed. */
         argv[i++] = (char *) "-c";
         argv[i++] = (char *) "aptX";
         argv[i++] = (char *) "-c";
         argv[i++] = (char *) "aptX-HD";
-        if (atomic_load(&bt_dac_all_codecs) && bt_ldac_decoder_is_rebuilt()) {
+        if (bt_ldac_decoder_is_rebuilt()) {
             argv[i++] = (char *) "-c";
             argv[i++] = (char *) "LDAC";
         }

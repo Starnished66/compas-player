@@ -187,11 +187,6 @@ void bt_control_restore_codec_preference(const char * codec);
 /* Selects the speex resampler for Bluetooth output instead of alsa-lib's
  * built-in linear one. On by default; roughly a point of CPU more. */
 void bt_control_set_speexrate_enabled(bool enabled);
-/* Experimental: also offer LDAC in DAC mode (aptX and aptX-HD always are).
- * No effect on firmware without the rebuilt decoder, whose stock one
- * crashes. */
-void bt_control_set_dac_all_codecs(bool enabled);
-
 /* Requested A2DP transport rate in Hz, or 0 for BlueALSA's own choice
  * (highest up to 48 kHz). 44100 is applied as a daemon argument, so it needs
  * a Bluetooth off/on cycle; any other rate is selected per connection. */

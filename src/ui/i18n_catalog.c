@@ -369,487 +369,486 @@ static const char * const f365[] = {"julio"};
 static const char * const f366[] = {"junio"};
 static const char * const f367[] = {"LDAC calidad"};
 static const char * const f368[] = {"LDAC estándar"};
-static const char * const f369[] = {"LDAC en modo DAC (experimental)"};
-static const char * const f370[] = {"Indicador LED de carga"};
-static const char * const f371[] = {"Idioma"};
-static const char * const f372[] = {"Grande"};
-static const char * const f373[] = {"Después"};
-static const char * const f374[] = {"Iniciar con un volumen fijo"};
-static const char * const f375[] = {"Diseño"};
-static const char * const f376[] = {"Salir"};
-static const char * const f377[] = {"¿Salir del modo DAC Bluetooth?"};
-static const char * const f378[] = {"¿Salir del modo DAC USB?"};
-static const char * const f379[] = {"Sal de esta vista e inténtalo de nuevo."};
-static const char * const f380[] = {"Biblioteca"};
-static const char * const f381[] = {"La biblioteca cambió. Abre el álbum otra vez."};
-static const char * const f382[] = {"La biblioteca está ocupada"};
-static const char * const f383[] = {"Biblioteca cargada"};
-static const char * const f384[] = {"Biblioteca migrada. Se conservaron favoritos e historial"};
-static const char * const f385[] = {"Biblioteca migrada. Se reintentará limpiar la base de datos anterior"};
-static const char * const f386[] = {"Falló la migración de la biblioteca. La anterior sigue intacta. Usa Ajustes > Actualizar base de datos de música para reintentar"};
-static const char * const f387[] = {"Migración de la biblioteca pendiente. Se conservarán favoritos e historial"};
-static const char * const f388[] = {"Biblioteca recuperada y guardada"};
-static const char * const f389[] = {"Biblioteca recuperada y guardada; no se pudieron leer algunas carpetas"};
-static const char * const f390[] = {"Biblioteca recuperada. Usa Ajustes > Actualizar base de datos de música para guardar"};
-static const char * const f391[] = {"Biblioteca no disponible. Usa Ajustes > Actualizar base de datos de música para reconstruirla"};
-static const char * const f392[] = {"Falló la actualización de la biblioteca. Revisa la tarjeta SD y reintenta"};
-static const char * const f393[] = {"Biblioteca actualizada"};
-static const char * const f394[] = {"Biblioteca actualizada; no se pudieron leer algunas carpetas"};
-static const char * const f395[] = {"Cargar carátulas al reproducir (experimental)"};
-static const char * const f396[] = {"Cargando ajustes de Wi-Fi"};
-static const char * const f397[] = {"Cargando desde el servidor..."};
-static const char * const f398[] = {"Cargando diseños"};
-static const char * const f399[] = {"Cargando catálogo de plugins…"};
-static const char * const f400[] = {"Cargando plugins"};
-static const char * const f401[] = {"Cargando pistas…"};
-static const char * const f402[] = {"Cargando..."};
-static const char * const f403[] = {"Ubicación"};
-static const char * const f404[] = {"Buscando archivos de música"};
-static const char * const f405[] = {"Buscando archivos de música\n%d elementos revisados"};
-static const char * const f406[] = {"Bajo"};
-static const char * const f407[] = {"Bajo\nAlto"};
-static const char * const f408[] = {"Baja (96 kbps)"};
-static const char * const f409[] = {"Letras"};
-static const char * const f410[] = {"Tamaño de la letra"};
-static const char * const f411[] = {"Dirección MAC: %s"};
-static const char * const f412[] = {"Mantenimiento"};
-static const char * const f413[] = {"Haz visible un accesorio y toca Buscar de nuevo."};
-static const char * const f414[] = {"Administra los plugins más tarde en Ajustes > Sistema > Administrador de plugins para buscarlos, actualizarlos o eliminarlos."};
-static const char * const f415[] = {"SSID manual"};
-static const char * const f416[] = {"marzo"};
-static const char * const f417[] = {"Igualar la carátula"};
-static const char * const f418[] = {"mayo"};
-static const char * const f419[] = {"Mediano"};
-static const char * const f420[] = {"Media (192 kbps)"};
-static const char * const f421[] = {"Redes guardadas"};
-static const char * const f422[] = {"Metadatos actualizados"};
-static const char * const f423[] = {"Migrando\nbase de datos de música..."};
-static const char * const f424[] = {"lunes"};
-static const char * const f425[] = {"Mono (1 canal)"};
-static const char * const f426[] = {"Más"};
-static const char * const f427[] = {"Más reproducidas"};
-static const char * const f428[] = {"Música"};
-static const char * const f429[] = {"Base de datos de música no disponible"};
-static const char * const f430[] = {"Nombre (A–Z)"};
-static const char * const f431[] = {"DSD nativo (DoP) / %.4g MHz"};
-static const char * const f432[] = {"Las redes Wi-Fi cercanas aparecerán aquí."};
-static const char * const f433[] = {"Requiere firmware más reciente"};
-static const char * const f434[] = {"Nombre de red (SSID)"};
-static const char * const f435[] = {"Transmisión de red"};
-static const char * const f436[] = {"Las redes a las que te conectes aparecerán aquí."};
-static const char * const f437[] = {"Nueva conexión"};
-static const char * const f438[] = {"PIN nuevo generado"};
-static const char * const f439[] = {"Perfil nuevo"};
-static const char * const f440[] = {"Modificados recientemente"};
-static const char * const f441[] = {"Siguiente"};
-static const char * const f442[] = {"Siguiente  •  %d–%d de %d"};
-static const char * const f443[] = {"Página siguiente"};
-static const char * const f444[] = {"No se encontraron fuentes .ttf en /Fonts"};
-static const char * const f445[] = {"No se encontró un archivo de firmware .upt en la tarjeta SD"};
-static const char * const f446[] = {"Sin tarjeta SD"};
-static const char * const f447[] = {"No se detectó una tarjeta SD. Puedes analizarla después desde los ajustes de la biblioteca."};
-static const char * const f448[] = {"No se encontraron libros"};
-static const char * const f449[] = {"No hay entradas para mostrar"};
-static const char * const f450[] = {"Aún no hay favoritos"};
-static const char * const f451[] = {"No hay elementos"};
-static const char * const f452[] = {"No hay redes guardadas"};
-static const char * const f453[] = {"No hay base de datos de música"};
-static const char * const f454[] = {"No hay dispositivos cercanos"};
-static const char * const f455[] = {"No se detectó ninguna red"};
-static const char * const f456[] = {"No se detectó ninguna red. Conéctate a una red para descargar plugins."};
-static const char * const f457[] = {"No se encontraron redes"};
-static const char * const f458[] = {"No se encontraron otras redes"};
-static const char * const f459[] = {"No hay dispositivos vinculados"};
-static const char * const f460[] = {"No hay archivos de audio reproducibles"};
-static const char * const f461[] = {"No hay archivos reproducibles aquí"};
-static const char * const f462[] = {"No hay ajustes de plugin disponibles"};
-static const char * const f463[] = {"No hay plugins disponibles en el catálogo."};
-static const char * const f464[] = {"No hay perfiles guardados"};
-static const char * const f465[] = {"No hay servidores guardados"};
-static const char * const f466[] = {"No hay canciones para actualizar"};
-static const char * const f467[] = {"No se encontró letra sincronizada"};
-static const char * const f468[] = {"Sin pista cargada"};
-static const char * const f469[] = {"No se encontraron pistas"};
-static const char * const f470[] = {"No hay listas del usuario"};
-static const char * const f471[] = {"No hay una actualización verificada en esta tarjeta SD. Descárgala de nuevo."};
-static const char * const f472[] = {"No conectado"};
-static const char * const f473[] = {"No hay espacio suficiente en la tarjeta SD para la actualización."};
-static const char * const f474[] = {"No hay espacio suficiente en la tarjeta SD."};
-static const char * const f475[] = {"No hay memoria suficiente para conectar"};
-static const char * const f476[] = {"No hay memoria suficiente para cargar las pistas CUE"};
-static const char * const f477[] = {"No hay memoria suficiente para cargar artistas"};
-static const char * const f478[] = {"No hay memoria suficiente para cargar desde el servidor"};
-static const char * const f479[] = {"No hay memoria suficiente para cargar la tienda de plugins"};
-static const char * const f480[] = {"No hay memoria suficiente para iniciar la descarga"};
-static const char * const f481[] = {"Sin seleccionar (UTC)"};
-static const char * const f482[] = {"Sin definir"};
-static const char * const f483[] = {"noviembre"};
-static const char * const f484[] = {"NO"};
-static const char * const f485[] = {"SÍ"};
-static const char * const f486[] = {"octubre"};
-static const char * const f487[] = {"Desactivado"};
-static const char * const f488[] = {"Activado"};
-static const char * const f489[] = {"Abre un libro y toca el ícono de marcador para guardarlo aquí."};
-static const char * const f490[] = {"Abre una carpeta con archivos de audio compatibles."};
-static const char * const f491[] = {"Red abierta"};
-static const char * const f492[] = {"Abre esta dirección en tu teléfono o computadora:"};
-static const char * const f493[] = {"Abierta · Conectada"};
-static const char * const f494[] = {"Original"};
-static const char * const f495[] = {"Salida"};
-static const char * const f496[] = {"PEQ restablecido a los valores predeterminados"};
-static const char * const f497[] = {"Pacífico"};
-static const char * const f498[] = {"Vinculado"};
-static const char * const f499[] = {"Dispositivos vinculados"};
-static const char * const f500[] = {"EQ paramétrico"};
-static const char * const f501[] = {"Contraseña"};
-static const char * const f502[] = {"Contraseña: sin definir"};
-static const char * const f503[] = {"Contraseña: definida"};
-static const char * const f504[] = {"En pausa: audífonos desconectados"};
-static const char * const f505[] = {"Pico\nEstante bajo\nEstante alto"};
-static const char * const f506[] = {"Por álbum"};
-static const char * const f507[] = {"Por pista"};
-static const char * const f508[] = {"Coloca fuentes .ttf en la carpeta /Fonts de la tarjeta SD."};
-static const char * const f509[] = {"Reproducir todo"};
-static const char * const f510[] = {"Reproducir a continuación"};
-static const char * const f511[] = {"Reproducir todo en aleatorio"};
-static const char * const f512[] = {"Reproduce un álbum o una lista para ver aquí sus canciones."};
-static const char * const f513[] = {"Reproducir en orden"};
-static const char * const f514[] = {"Reproducir/Pausa"};
-static const char * const f515[] = {"Reproducir/Pausa + Pista anterior (doble clic)"};
-static const char * const f516[] = {"Botón Reproducir/Pausa"};
-static const char * const f517[] = {"Reproducción y controles"};
-static const char * const f518[] = {"Reproducción y acciones del equipo"};
-static const char * const f519[] = {"Error de reproducción"};
-static const char * const f520[] = {"Error de reproducción: falló la salida de audio"};
-static const char * const f521[] = {"No se pudo guardar el historial de reproducción"};
-static const char * const f522[] = {"Reproducción detenida: %s"};
-static const char * const f523[] = {"Reprod."};
-static const char * const f524[] = {"Diseño del reproductor"};
-static const char * const f525[] = {"Sonando"};
-static const char * const f526[] = {"Nombre de la lista"};
-static const char * const f527[] = {"La lista cambió. Selecciona una canción otra vez."};
-static const char * const f528[] = {"La lista cambió. Inténtalo de nuevo."};
-static const char * const f529[] = {"Lista creada"};
-static const char * const f530[] = {"Lista eliminada"};
-static const char * const f531[] = {"La lista está vacía"};
-static const char * const f532[] = {"Lista renombrada"};
-static const char * const f533[] = {"Lista guardada"};
-static const char * const f534[] = {"Lista no disponible o ilegible"};
-static const char * const f535[] = {"Listas"};
-static const char * const f536[] = {"Listas actualizadas"};
-static const char * const f537[] = {"Espera a que termine la instalación de plugins"};
-static const char * const f538[] = {"Espera a que termine el análisis de la biblioteca"};
-static const char * const f539[] = {"Plugin"};
-static const char * const f540[] = {"Administrador de plugins"};
-static const char * const f541[] = {"Ajustes del plugin"};
-static const char * const f542[] = {"Tienda de plugins"};
-static const char * const f543[] = {"El plugin no está disponible en el catálogo"};
-static const char * const f544[] = {"Falló la operación del plugin"};
-static const char * const f545[] = {"Configuración de plugins completa"};
-static const char * const f546[] = {"La configuración de plugins requiere atención"};
-static const char * const f547[] = {"El almacenamiento de plugins no está disponible."};
-static const char * const f548[] = {"Plugins"};
-static const char * const f549[] = {"Posición"};
-static const char * const f550[] = {"Energía"};
-static const char * const f551[] = {"Apagar"};
-static const char * const f552[] = {"Controles de energía"};
-static const char * const f553[] = {"Apagar"};
-static const char * const f554[] = {"Preamplificador (dB, -12 a 12)"};
-static const char * const f555[] = {"Preamplificador: %+.2f dB"};
-static const char * const f556[] = {"Preparando la actualización de carátulas..."};
-static const char * const f557[] = {"Preparando la migración de la base de datos..."};
-static const char * const f558[] = {"Preparando la actualización de metadatos"};
-static const char * const f559[] = {"Preparando la actualización de metadatos..."};
-static const char * const f560[] = {"Preparando la biblioteca de música..."};
-static const char * const f561[] = {"Preparando actualización"};
-static const char * const f562[] = {"Predefinidos"};
-static const char * const f563[] = {"Vista previa"};
-static const char * const f564[] = {"Anterior"};
-static const char * const f565[] = {"Anterior  •  %d–%d de %d"};
-static const char * const f566[] = {"Pista anterior"};
-static const char * const f567[] = {"Página anterior"};
-static const char * const f568[] = {"La solicitud anterior aún termina"};
-static const char * const f569[] = {"Los accesorios conectados antes aparecerán aquí."};
-static const char * const f570[] = {"DNS primario"};
-static const char * const f571[] = {"Nombre del perfil"};
-static const char * const f572[] = {"Perfil eliminado"};
-static const char * const f573[] = {"Perfil cargado"};
-static const char * const f574[] = {"Perfil renombrado"};
-static const char * const f575[] = {"Perfil guardado"};
-static const char * const f576[] = {"Perfiles"};
-static const char * const f577[] = {"Proveedor"};
-static const char * const f578[] = {"Cola"};
-static const char * const f579[] = {"La cola cambió. Inténtalo de nuevo."};
-static const char * const f580[] = {"Falló el punto de control de la cola; el almacenamiento puede ser de solo lectura"};
-static const char * const f581[] = {"Cola vaciada"};
-static const char * const f582[] = {"La cola está vacía"};
-static const char * const f583[] = {"Cola lista. Pulsa Reproducir para empezar."};
-static const char * const f584[] = {"En cola"};
-static const char * const f585[] = {"Configuración rápida completa"};
-static const char * const f586[] = {"Configuración rápida"};
-static const char * const f587[] = {"RC"};
-static const char * const f588[] = {"Radio"};
-static const char * const f589[] = {"Radio / %s"};
-static const char * const f590[] = {"Leyendo frecuencias compatibles..."};
-static const char * const f591[] = {"Leyendo etiquetas\n%d de %d canciones (%d%%)"};
-static const char * const f592[] = {"Lee de nuevo las etiquetas de cada canción. Puede tardar un poco."};
-static const char * const f593[] = {"Reconstruir"};
-static const char * const f594[] = {"Agregadas recientemente"};
-static const char * const f595[] = {"Reproducidas recientemente"};
-static const char * const f596[] = {"Actualizar"};
-static const char * const f597[] = {"Actualizar todas las carátulas"};
-static const char * const f598[] = {"Actualizar todos los metadatos"};
-static const char * const f599[] = {"Actualizar plugins"};
-static const char * const f600[] = {"¿Actualizar todas las carátulas?"};
-static const char * const f601[] = {"¿Actualizar todos los metadatos?"};
-static const char * const f602[] = {"Actualizar metadatos"};
-static const char * const f603[] = {"Actualizar catálogo de plugins"};
-static const char * const f604[] = {"Actualiza la base de datos de música para refrescar esta lista."};
-static const char * const f605[] = {"Actualizando\ntodas las carátulas..."};
-static const char * const f606[] = {"Actualizando\ntodos los metadatos..."};
-static const char * const f607[] = {"Actualizando\nmetadatos..."};
-static const char * const f608[] = {"Actualizando carátulas"};
-static const char * const f609[] = {"Actualizando carátulas\n%d de %d (%d%%)"};
-static const char * const f610[] = {"Actualizando plugins..."};
-static const char * const f611[] = {"Año de lanzamiento (más antiguo primero)"};
-static const char * const f612[] = {"Recargar carátula"};
-static const char * const f613[] = {"Recargando\ncarátula..."};
-static const char * const f614[] = {"Recargando carátula"};
-static const char * const f615[] = {"Recargando carátula\n%d de %d (%d%%)"};
-static const char * const f616[] = {"Remoto"};
-static const char * const f617[] = {"Control remoto"};
-static const char * const f618[] = {"Quitar"};
-static const char * const f619[] = {"¿Quitar %s?"};
-static const char * const f620[] = {"Quitado"};
-static const char * const f621[] = {"Quitada de la lista"};
-static const char * const f622[] = {"Quitada de la cola"};
-static const char * const f623[] = {"Quita las carátulas guardadas y las extrae de nuevo. Puede tardar un poco."};
-static const char * const f624[] = {"Quitando plugin"};
-static const char * const f625[] = {"Renombrar lista"};
-static const char * const f626[] = {"Renombrar perfil"};
-static const char * const f627[] = {"Reemplazar"};
-static const char * const f628[] = {"Reemplazar existente"};
-static const char * const f629[] = {"Reemplazar perfil"};
-static const char * const f630[] = {"ReplayGain"};
-static const char * const f631[] = {"Refrescar"};
-static const char * const f632[] = {"Restablecer"};
-static const char * const f633[] = {"¿Restablecer el PEQ a los valores predeterminados?"};
-static const char * const f634[] = {"¿Restablecer todos los ajustes y reiniciar?"};
-static const char * const f635[] = {"Restablecer valores"};
-static const char * const f636[] = {"Reiniciar"};
-static const char * const f637[] = {"Reiniciar ahora"};
-static const char * const f638[] = {"¿Reiniciar ahora para aplicar el nuevo nombre del equipo?"};
-static const char * const f639[] = {"Reanudar última pista"};
-static const char * const f640[] = {"Reanudar y reproducir"};
-static const char * const f641[] = {"Reanuda la reproducción cuando la alimentación externa enciende el reproductor."};
-static const char * const f642[] = {"Reanudar en pausa"};
-static const char * const f643[] = {"Reintentando plugins %zu/%zu"};
-static const char * const f644[] = {"Tarjeta SD revisada"};
-static const char * const f645[] = {"No se pudo leer la tarjeta SD"};
-static const char * const f646[] = {"Falló el formateo de la tarjeta SD"};
-static const char * const f647[] = {"Tarjeta SD formateada"};
-static const char * const f648[] = {"La tarjeta SD es de solo lectura. Revísala en una computadora"};
-static const char * const f649[] = {"La tarjeta SD sigue en solo lectura"};
-static const char * const f650[] = {"La tarjeta SD puede tener errores. Revísala en una computadora"};
-static const char * const f651[] = {"Tarjeta SD no disponible"};
-static const char * const f652[] = {"La reparación de la tarjeta SD sigue en curso"};
-static const char * const f653[] = {"Tarjeta SD reparada"};
-static const char * const f654[] = {"SSID: %s"};
-static const char * const f655[] = {"Carga segura (500 mA)"};
-static const char * const f656[] = {"Frecuencia de muestreo"};
-static const char * const f657[] = {"sábado"};
-static const char * const f658[] = {"Guardar"};
-static const char * const f659[] = {"Guardar perfil"};
-static const char * const f660[] = {"Guardar perfil como"};
-static const char * const f661[] = {"Guardar cola como lista"};
-static const char * const f662[] = {"Guardar como lista"};
-static const char * const f663[] = {"¿Guardar como perfil nuevo o reemplazar uno existente?"};
-static const char * const f664[] = {"Servidores guardados"};
-static const char * const f665[] = {"Red guardada"};
-static const char * const f666[] = {"Se están revisando los datos de la red guardada."};
-static const char * const f667[] = {"Guardando la base de datos de música"};
-static const char * const f668[] = {"Guardando la base de datos de música\nPuede tardar en bibliotecas grandes"};
-static const char * const f669[] = {"Guardando lista…"};
-static const char * const f670[] = {"Buscar música"};
-static const char * const f671[] = {"Escanea con tu teléfono para apoyar a Compás Player en PayPal"};
-static const char * const f672[] = {"Buscando redes"};
-static const char * const f673[] = {"Atenuar pantalla"};
-static const char * const f674[] = {"Apagado de pantalla"};
-static const char * const f675[] = {"Apagar pantalla"};
-static const char * const f676[] = {"Falló la captura (%s)"};
-static const char * const f677[] = {"Falló la captura (framebuffer)"};
-static const char * const f678[] = {"Falló la captura (proceso)"};
-static const char * const f679[] = {"La captura necesita una tarjeta SD"};
-static const char * const f680[] = {"Captura guardada"};
-static const char * const f681[] = {"Capturas (Encendido + Anterior)"};
-static const char * const f682[] = {"Capturas (Encendido + Vol. -)"};
-static const char * const f683[] = {"Capturas no disponibles"};
-static const char * const f684[] = {"DNS secundario"};
-static const char * const f685[] = {"Falló la conexión segura. Revisa el Wi-Fi y la fecha y hora."};
-static const char * const f686[] = {"Red protegida"};
-static const char * const f687[] = {"Protegida · Conectada"};
-static const char * const f688[] = {"Selecciona al menos un plugin para continuar."};
-static const char * const f689[] = {"Los plugins seleccionados están listos.\n"};
-static const char * const f690[] = {"septiembre"};
-static const char * const f691[] = {"URL del servidor (ej. %s)"};
-static const char * const f692[] = {"URL del servidor: %s"};
-static const char * const f693[] = {"La solicitud al servidor excedió el tiempo de espera (30 segundos)"};
-static const char * const f694[] = {"El servicio está ocupado"};
-static const char * const f695[] = {"Ajustar hora"};
-static const char * const f696[] = {"Configura tu zona horaria para que el reloj muestre la hora correcta."};
-static const char * const f697[] = {"Ajustes"};
-static const char * const f698[] = {"Mostrar tiempo restante"};
-static const char * const f699[] = {"Se muestran las primeras %d de %d canciones"};
-static const char * const f700[] = {"Aleatorio desde una canción al azar"};
-static const char * const f701[] = {"Señal: %s"};
-static const char * const f702[] = {"Omitir por ahora"};
-static const char * const f703[] = {"Omitida: %s"};
-static const char * const f704[] = {"Dormir"};
-static const char * const f705[] = {"Temporizador de sueño"};
-static const char * const f706[] = {"Temporizador"};
-static const char * const f707[] = {"Temporizador: faltan %d min"};
-static const char * const f708[] = {"Temporizador: apagado"};
-static const char * const f709[] = {"Pequeño"};
-static const char * const f710[] = {"No se pudieron actualizar algunas carátulas"};
-static const char * const f711[] = {"No se pudieron leer algunas listas"};
-static const char * const f712[] = {"Algunos archivos del plugin cambiaron en la tarjeta. ¿Reemplazarlos?"};
-static const char * const f713[] = {"No se pudieron leer algunas canciones"};
-static const char * const f714[] = {"Algunas actualizaciones necesitan confirmación antes de reemplazar archivos locales."};
-static const char * const f715[] = {"La canción ya está agregada"};
-static const char * const f716[] = {"Canción eliminada"};
-static const char * const f717[] = {"Canciones"};
-static const char * const f718[] = {"Orden"};
-static const char * const f719[] = {"Sonido"};
-static const char * const f720[] = {"Efectos de sonido"};
-static const char * const f721[] = {"Origen"};
-static const char * const f722[] = {"Remuestreo Speex"};
-static const char * const f723[] = {"Iniciar en orden"};
-static const char * const f724[] = {"Empieza con estas sugerencias o explora más plugins."};
-static const char * const f725[] = {"Volumen de inicio"};
-static const char * const f726[] = {"Paso %d de %d"};
-static const char * const f727[] = {"Estéreo (2 canales)"};
-static const char * const f728[] = {"Aún se aplica la opción anterior"};
-static const char * const f729[] = {"Almacenamiento"};
-static const char * const f730[] = {"Streaming"};
-static const char * const f731[] = {"Calidad de streaming"};
-static const char * const f732[] = {"Calidad de streaming: %s"};
-static const char * const f733[] = {"La subcarpeta es relativa a la raíz de la SD (ejemplo: Music/Offline); vacío usa la raíz de la SD"};
-static const char * const f734[] = {"Subcarpeta: raíz de la SD"};
-static const char * const f735[] = {"Subsonic"};
-static const char * const f736[] = {"domingo"};
-static const char * const f737[] = {"Suspender a RAM"};
-static const char * const f738[] = {"Deslizar arriba para ir a Inicio"};
-static const char * const f739[] = {"Desliza hacia arriba para desbloquear"};
-static const char * const f740[] = {"Sistema"};
-static const char * const f741[] = {"Listas del sistema"};
-static const char * const f742[] = {"Toma su color de la carátula de la pista actual"};
-static const char * const f743[] = {"Toca Apagar otra vez para confirmar"};
-static const char * const f744[] = {"Toca Reiniciar otra vez para confirmar"};
-static const char * const f745[] = {"La tarjeta SD cambió durante la descarga."};
-static const char * const f746[] = {"La tarjeta SD cambió durante la operación."};
-static const char * const f747[] = {"La tarjeta SD es de solo lectura. Comprueba su protección contra escritura."};
-static const char * const f748[] = {"La descarga no se completó. Revisa el Wi-Fi e inténtalo de nuevo."};
-static const char * const f749[] = {"La imagen descargada no pasó la verificación y se eliminó."};
-static const char * const f750[] = {"Se eliminará el archivo de la lista. Los archivos de música se conservan."};
-static const char * const f751[] = {"La descarga del plugin no pasó la verificación. Inténtalo de nuevo."};
-static const char * const f752[] = {"El veloz murciélago hindú 123"};
-static const char * const f753[] = {"La versión no tiene suma de verificación para la imagen de este equipo."};
-static const char * const f754[] = {"El archivo de actualización en la tarjeta SD cambió. Descárgalo de nuevo."};
-static const char * const f755[] = {"No hay entradas en esta vista."};
-static const char * const f756[] = {"Este equipo ahora es una tarjeta de sonido USB"};
-static const char * const f757[] = {"Este equipo ahora recibe audio por Bluetooth"};
-static const char * const f758[] = {"Puede tardar un poco"};
-static const char * const f759[] = {"Esto elimina todo en la tarjeta de forma permanente. No se puede deshacer."};
-static const char * const f760[] = {"Este plugin no tiene actualizaciones."};
-static const char * const f761[] = {"Este plugin ya fue instalado desde la tienda."};
-static const char * const f762[] = {"Este plugin no fue instalado desde la tienda."};
-static const char * const f763[] = {"Este plugin necesita una versión más reciente del reproductor."};
-static const char * const f764[] = {"La imagen de esta versión no coincide con sus sumas de verificación. Inténtalo después de la próxima versión semanal."};
-static const char * const f765[] = {"No se pudo iniciar el proceso"};
-static const char * const f766[] = {"jueves"};
-static const char * const f767[] = {"Zona horaria"};
-static const char * const f768[] = {"Tiempo restante: %d:%02d"};
-static const char * const f769[] = {"Tiempo restante: %d:%02d:%02d"};
-static const char * const f770[] = {"Zona horaria"};
-static const char * const f771[] = {"Demasiados canales de audio"};
-static const char * const f772[] = {"Hay demasiados plugins instalados. Quita uno e inténtalo de nuevo."};
-static const char * const f773[] = {"Pista"};
-static const char * const f774[] = {"Pista %+.1f dB"};
-static const char * const f775[] = {"Pista %d"};
-static const char * const f776[] = {"Los detalles de la pista aún no están disponibles. Mantén la reproducción abierta y revisa de nuevo."};
-static const char * const f777[] = {"Pistas"};
-static const char * const f778[] = {"martes"};
-static const char * const f779[] = {"Apaga y enciende Bluetooth para aplicar"};
-static const char * const f780[] = {"Desactiva primero ADB (Ajustes > Sistema > Modo USB) y luego activa el DAC USB desde aquí."};
-static const char * const f781[] = {"Desactiva Automático para ajustar el reloj"};
-static const char * const f782[] = {"Apaga el DAC Bluetooth para reproducir música en este equipo"};
-static const char * const f783[] = {"Apagar la pantalla automáticamente"};
-static const char * const f784[] = {"Enciende Bluetooth para ver los dispositivos vinculados y cercanos."};
-static const char * const f785[] = {"Activa el Wi-Fi y conéctate primero"};
-static const char * const f786[] = {"Activa esto para ver la dirección aquí."};
-static const char * const f787[] = {"DAC USB"};
-static const char * const f788[] = {"Modo DAC USB"};
-static const char * const f789[] = {"Modo USB"};
-static const char * const f790[] = {"Dispositivo de audio USB detectado"};
-static const char * const f791[] = {"Entrada USB: %s · %u bits"};
-static const char * const f792[] = {"Modo USB"};
-static const char * const f793[] = {"No se pudieron cargar los elementos"};
-static const char * const f794[] = {"No se puede leer la carpeta (toca Atrás y reintenta)"};
-static const char * const f795[] = {"No disponible"};
-static const char * const f796[] = {"Respuesta inesperada de la biblioteca"};
-static const char * const f797[] = {"Respuesta inesperada de GitHub"};
-static const char * const f798[] = {"Respuesta inesperada de GitHub."};
-static const char * const f799[] = {"Álbum desconocido"};
-static const char * const f800[] = {"Artista desconocido"};
-static const char * const f801[] = {"Códec desconocido"};
-static const char * const f802[] = {"Formato desconocido"};
-static const char * const f803[] = {"Frecuencia desconocida"};
-static const char * const f804[] = {"Formato de audio no compatible"};
-static const char * const f805[] = {"Actualizar"};
-static const char * const f806[] = {"Actualizar y reiniciar"};
-static const char * const f807[] = {"Actualizar todo"};
-static const char * const f808[] = {"Actualizar base de datos de música"};
-static const char * const f809[] = {"Actualiza la base de datos de música para activar este orden de álbumes"};
-static const char * const f810[] = {"Actualización disponible"};
-static const char * const f811[] = {"Actualización disponible · %s"};
-static const char * const f812[] = {"Actualizar uno por uno"};
-static const char * const f813[] = {"¿Actualizar la base de datos de música?"};
-static const char * const f814[] = {"Actualiza estos plugins uno por uno"};
-static const char * const f815[] = {"¿Actualizar con %s?\nEl equipo se reiniciará en modo de recuperación."};
-static const char * const f816[] = {"Actualizaciones"};
-static const char * const f817[] = {"Actualizando\nbase de datos de música..."};
-static const char * const f818[] = {"Actualizando plugins"};
-static const char * const f819[] = {"Pantalla invertida"};
-static const char * const f820[] = {"Usa Ajustes > Actualizar base de datos de música"};
-static const char * const f821[] = {"Listas del usuario"};
-static const char * const f822[] = {"Usuario"};
-static const char * const f823[] = {"Usuario: %s"};
-static const char * const f824[] = {"Verificar certificado del servidor"};
-static const char * const f825[] = {"Versión %s · %s"};
-static const char * const f826[] = {"Esperando transmisión Bluetooth…"};
-static const char * const f827[] = {"Esperando audio USB…"};
-static const char * const f828[] = {"Débil"};
-static const char * const f829[] = {"El servidor web está ocupado"};
-static const char * const f830[] = {"miércoles"};
-static const char * const f831[] = {"Weekly Beta %s está disponible.\nInstalada: %s\n\n¿Descargarla ahora? Puede tardar un poco."};
-static const char * const f832[] = {"Weekly Beta %s está descargada y verificada.\n\n¿Instalar ahora? El equipo se reinicia en recuperación para instalarla. No lo apagues hasta que reinicie."};
-static const char * const f833[] = {"Te damos la bienvenida a Compás"};
-static const char * const f834[] = {"Si está activado, este equipo es visible para emisores AirPlay en tu red Wi-Fi: envía audio desde un iPhone, iPad o Mac para reproducirlo por su propia salida."};
-static const char * const f835[] = {"Si está activado, este equipo es visible para apps controladoras DLNA/UPnP en tu red Wi-Fi: envía una pista desde una para reproducirla aquí. Pausa, silencio, volumen y búsqueda desde la app no son compatibles; usa los controles de este equipo cuando empiece la pista."};
-static const char * const f836[] = {"Si está activado, este equipo permanece visible y vinculable para otros dispositivos Bluetooth, así un teléfono o computadora puede enviarle audio y reproducirlo por su propia salida, usándolo como DAC externo."};
-static const char * const f837[] = {"Wi-Fi"};
-static const char * const f838[] = {"Info de Wi-Fi"};
-static const char * const f839[] = {"Contraseña de Wi-Fi"};
-static const char * const f840[] = {"El Wi-Fi no pudo cambiar de estado"};
-static const char * const f841[] = {"El Wi-Fi está ocupado"};
-static const char * const f842[] = {"Inalámbrico"};
-static const char * const f843[] = {"Puedes seleccionar hasta 32 plugins"};
-static const char * const f844[] = {"Tienes la última versión semanal (%s).\n\n¿Descargarla y reinstalarla de todos modos? Puede tardar un poco."};
-static const char * const f845[] = {"Se está cargando tu biblioteca."};
-static const char * const f846[] = {"Tu música"};
-static const char * const f847[] = {"Tu recorrido de configuración"};
-static const char * const f848[] = {"[Archivo truncado a %d KB: se muestra solo la primera parte]\n\n%s"};
-static const char * const f849[] = {"desconocido"};
+static const char * const f369[] = {"Indicador LED de carga"};
+static const char * const f370[] = {"Idioma"};
+static const char * const f371[] = {"Grande"};
+static const char * const f372[] = {"Después"};
+static const char * const f373[] = {"Iniciar con un volumen fijo"};
+static const char * const f374[] = {"Diseño"};
+static const char * const f375[] = {"Salir"};
+static const char * const f376[] = {"¿Salir del modo DAC Bluetooth?"};
+static const char * const f377[] = {"¿Salir del modo DAC USB?"};
+static const char * const f378[] = {"Sal de esta vista e inténtalo de nuevo."};
+static const char * const f379[] = {"Biblioteca"};
+static const char * const f380[] = {"La biblioteca cambió. Abre el álbum otra vez."};
+static const char * const f381[] = {"La biblioteca está ocupada"};
+static const char * const f382[] = {"Biblioteca cargada"};
+static const char * const f383[] = {"Biblioteca migrada. Se conservaron favoritos e historial"};
+static const char * const f384[] = {"Biblioteca migrada. Se reintentará limpiar la base de datos anterior"};
+static const char * const f385[] = {"Falló la migración de la biblioteca. La anterior sigue intacta. Usa Ajustes > Actualizar base de datos de música para reintentar"};
+static const char * const f386[] = {"Migración de la biblioteca pendiente. Se conservarán favoritos e historial"};
+static const char * const f387[] = {"Biblioteca recuperada y guardada"};
+static const char * const f388[] = {"Biblioteca recuperada y guardada; no se pudieron leer algunas carpetas"};
+static const char * const f389[] = {"Biblioteca recuperada. Usa Ajustes > Actualizar base de datos de música para guardar"};
+static const char * const f390[] = {"Biblioteca no disponible. Usa Ajustes > Actualizar base de datos de música para reconstruirla"};
+static const char * const f391[] = {"Falló la actualización de la biblioteca. Revisa la tarjeta SD y reintenta"};
+static const char * const f392[] = {"Biblioteca actualizada"};
+static const char * const f393[] = {"Biblioteca actualizada; no se pudieron leer algunas carpetas"};
+static const char * const f394[] = {"Cargar carátulas al reproducir (experimental)"};
+static const char * const f395[] = {"Cargando ajustes de Wi-Fi"};
+static const char * const f396[] = {"Cargando desde el servidor..."};
+static const char * const f397[] = {"Cargando diseños"};
+static const char * const f398[] = {"Cargando catálogo de plugins…"};
+static const char * const f399[] = {"Cargando plugins"};
+static const char * const f400[] = {"Cargando pistas…"};
+static const char * const f401[] = {"Cargando..."};
+static const char * const f402[] = {"Ubicación"};
+static const char * const f403[] = {"Buscando archivos de música"};
+static const char * const f404[] = {"Buscando archivos de música\n%d elementos revisados"};
+static const char * const f405[] = {"Bajo"};
+static const char * const f406[] = {"Bajo\nAlto"};
+static const char * const f407[] = {"Baja (96 kbps)"};
+static const char * const f408[] = {"Letras"};
+static const char * const f409[] = {"Tamaño de la letra"};
+static const char * const f410[] = {"Dirección MAC: %s"};
+static const char * const f411[] = {"Mantenimiento"};
+static const char * const f412[] = {"Haz visible un accesorio y toca Buscar de nuevo."};
+static const char * const f413[] = {"Administra los plugins más tarde en Ajustes > Sistema > Administrador de plugins para buscarlos, actualizarlos o eliminarlos."};
+static const char * const f414[] = {"SSID manual"};
+static const char * const f415[] = {"marzo"};
+static const char * const f416[] = {"Igualar la carátula"};
+static const char * const f417[] = {"mayo"};
+static const char * const f418[] = {"Mediano"};
+static const char * const f419[] = {"Media (192 kbps)"};
+static const char * const f420[] = {"Redes guardadas"};
+static const char * const f421[] = {"Metadatos actualizados"};
+static const char * const f422[] = {"Migrando\nbase de datos de música..."};
+static const char * const f423[] = {"lunes"};
+static const char * const f424[] = {"Mono (1 canal)"};
+static const char * const f425[] = {"Más"};
+static const char * const f426[] = {"Más reproducidas"};
+static const char * const f427[] = {"Música"};
+static const char * const f428[] = {"Base de datos de música no disponible"};
+static const char * const f429[] = {"Nombre (A–Z)"};
+static const char * const f430[] = {"DSD nativo (DoP) / %.4g MHz"};
+static const char * const f431[] = {"Las redes Wi-Fi cercanas aparecerán aquí."};
+static const char * const f432[] = {"Requiere firmware más reciente"};
+static const char * const f433[] = {"Nombre de red (SSID)"};
+static const char * const f434[] = {"Transmisión de red"};
+static const char * const f435[] = {"Las redes a las que te conectes aparecerán aquí."};
+static const char * const f436[] = {"Nueva conexión"};
+static const char * const f437[] = {"PIN nuevo generado"};
+static const char * const f438[] = {"Perfil nuevo"};
+static const char * const f439[] = {"Modificados recientemente"};
+static const char * const f440[] = {"Siguiente"};
+static const char * const f441[] = {"Siguiente  •  %d–%d de %d"};
+static const char * const f442[] = {"Página siguiente"};
+static const char * const f443[] = {"No se encontraron fuentes .ttf en /Fonts"};
+static const char * const f444[] = {"No se encontró un archivo de firmware .upt en la tarjeta SD"};
+static const char * const f445[] = {"Sin tarjeta SD"};
+static const char * const f446[] = {"No se detectó una tarjeta SD. Puedes analizarla después desde los ajustes de la biblioteca."};
+static const char * const f447[] = {"No se encontraron libros"};
+static const char * const f448[] = {"No hay entradas para mostrar"};
+static const char * const f449[] = {"Aún no hay favoritos"};
+static const char * const f450[] = {"No hay elementos"};
+static const char * const f451[] = {"No hay redes guardadas"};
+static const char * const f452[] = {"No hay base de datos de música"};
+static const char * const f453[] = {"No hay dispositivos cercanos"};
+static const char * const f454[] = {"No se detectó ninguna red"};
+static const char * const f455[] = {"No se detectó ninguna red. Conéctate a una red para descargar plugins."};
+static const char * const f456[] = {"No se encontraron redes"};
+static const char * const f457[] = {"No se encontraron otras redes"};
+static const char * const f458[] = {"No hay dispositivos vinculados"};
+static const char * const f459[] = {"No hay archivos de audio reproducibles"};
+static const char * const f460[] = {"No hay archivos reproducibles aquí"};
+static const char * const f461[] = {"No hay ajustes de plugin disponibles"};
+static const char * const f462[] = {"No hay plugins disponibles en el catálogo."};
+static const char * const f463[] = {"No hay perfiles guardados"};
+static const char * const f464[] = {"No hay servidores guardados"};
+static const char * const f465[] = {"No hay canciones para actualizar"};
+static const char * const f466[] = {"No se encontró letra sincronizada"};
+static const char * const f467[] = {"Sin pista cargada"};
+static const char * const f468[] = {"No se encontraron pistas"};
+static const char * const f469[] = {"No hay listas del usuario"};
+static const char * const f470[] = {"No hay una actualización verificada en esta tarjeta SD. Descárgala de nuevo."};
+static const char * const f471[] = {"No conectado"};
+static const char * const f472[] = {"No hay espacio suficiente en la tarjeta SD para la actualización."};
+static const char * const f473[] = {"No hay espacio suficiente en la tarjeta SD."};
+static const char * const f474[] = {"No hay memoria suficiente para conectar"};
+static const char * const f475[] = {"No hay memoria suficiente para cargar las pistas CUE"};
+static const char * const f476[] = {"No hay memoria suficiente para cargar artistas"};
+static const char * const f477[] = {"No hay memoria suficiente para cargar desde el servidor"};
+static const char * const f478[] = {"No hay memoria suficiente para cargar la tienda de plugins"};
+static const char * const f479[] = {"No hay memoria suficiente para iniciar la descarga"};
+static const char * const f480[] = {"Sin seleccionar (UTC)"};
+static const char * const f481[] = {"Sin definir"};
+static const char * const f482[] = {"noviembre"};
+static const char * const f483[] = {"NO"};
+static const char * const f484[] = {"SÍ"};
+static const char * const f485[] = {"octubre"};
+static const char * const f486[] = {"Desactivado"};
+static const char * const f487[] = {"Activado"};
+static const char * const f488[] = {"Abre un libro y toca el ícono de marcador para guardarlo aquí."};
+static const char * const f489[] = {"Abre una carpeta con archivos de audio compatibles."};
+static const char * const f490[] = {"Red abierta"};
+static const char * const f491[] = {"Abre esta dirección en tu teléfono o computadora:"};
+static const char * const f492[] = {"Abierta · Conectada"};
+static const char * const f493[] = {"Original"};
+static const char * const f494[] = {"Salida"};
+static const char * const f495[] = {"PEQ restablecido a los valores predeterminados"};
+static const char * const f496[] = {"Pacífico"};
+static const char * const f497[] = {"Vinculado"};
+static const char * const f498[] = {"Dispositivos vinculados"};
+static const char * const f499[] = {"EQ paramétrico"};
+static const char * const f500[] = {"Contraseña"};
+static const char * const f501[] = {"Contraseña: sin definir"};
+static const char * const f502[] = {"Contraseña: definida"};
+static const char * const f503[] = {"En pausa: audífonos desconectados"};
+static const char * const f504[] = {"Pico\nEstante bajo\nEstante alto"};
+static const char * const f505[] = {"Por álbum"};
+static const char * const f506[] = {"Por pista"};
+static const char * const f507[] = {"Coloca fuentes .ttf en la carpeta /Fonts de la tarjeta SD."};
+static const char * const f508[] = {"Reproducir todo"};
+static const char * const f509[] = {"Reproducir a continuación"};
+static const char * const f510[] = {"Reproducir todo en aleatorio"};
+static const char * const f511[] = {"Reproduce un álbum o una lista para ver aquí sus canciones."};
+static const char * const f512[] = {"Reproducir en orden"};
+static const char * const f513[] = {"Reproducir/Pausa"};
+static const char * const f514[] = {"Reproducir/Pausa + Pista anterior (doble clic)"};
+static const char * const f515[] = {"Botón Reproducir/Pausa"};
+static const char * const f516[] = {"Reproducción y controles"};
+static const char * const f517[] = {"Reproducción y acciones del equipo"};
+static const char * const f518[] = {"Error de reproducción"};
+static const char * const f519[] = {"Error de reproducción: falló la salida de audio"};
+static const char * const f520[] = {"No se pudo guardar el historial de reproducción"};
+static const char * const f521[] = {"Reproducción detenida: %s"};
+static const char * const f522[] = {"Reprod."};
+static const char * const f523[] = {"Diseño del reproductor"};
+static const char * const f524[] = {"Sonando"};
+static const char * const f525[] = {"Nombre de la lista"};
+static const char * const f526[] = {"La lista cambió. Selecciona una canción otra vez."};
+static const char * const f527[] = {"La lista cambió. Inténtalo de nuevo."};
+static const char * const f528[] = {"Lista creada"};
+static const char * const f529[] = {"Lista eliminada"};
+static const char * const f530[] = {"La lista está vacía"};
+static const char * const f531[] = {"Lista renombrada"};
+static const char * const f532[] = {"Lista guardada"};
+static const char * const f533[] = {"Lista no disponible o ilegible"};
+static const char * const f534[] = {"Listas"};
+static const char * const f535[] = {"Listas actualizadas"};
+static const char * const f536[] = {"Espera a que termine la instalación de plugins"};
+static const char * const f537[] = {"Espera a que termine el análisis de la biblioteca"};
+static const char * const f538[] = {"Plugin"};
+static const char * const f539[] = {"Administrador de plugins"};
+static const char * const f540[] = {"Ajustes del plugin"};
+static const char * const f541[] = {"Tienda de plugins"};
+static const char * const f542[] = {"El plugin no está disponible en el catálogo"};
+static const char * const f543[] = {"Falló la operación del plugin"};
+static const char * const f544[] = {"Configuración de plugins completa"};
+static const char * const f545[] = {"La configuración de plugins requiere atención"};
+static const char * const f546[] = {"El almacenamiento de plugins no está disponible."};
+static const char * const f547[] = {"Plugins"};
+static const char * const f548[] = {"Posición"};
+static const char * const f549[] = {"Energía"};
+static const char * const f550[] = {"Apagar"};
+static const char * const f551[] = {"Controles de energía"};
+static const char * const f552[] = {"Apagar"};
+static const char * const f553[] = {"Preamplificador (dB, -12 a 12)"};
+static const char * const f554[] = {"Preamplificador: %+.2f dB"};
+static const char * const f555[] = {"Preparando la actualización de carátulas..."};
+static const char * const f556[] = {"Preparando la migración de la base de datos..."};
+static const char * const f557[] = {"Preparando la actualización de metadatos"};
+static const char * const f558[] = {"Preparando la actualización de metadatos..."};
+static const char * const f559[] = {"Preparando la biblioteca de música..."};
+static const char * const f560[] = {"Preparando actualización"};
+static const char * const f561[] = {"Predefinidos"};
+static const char * const f562[] = {"Vista previa"};
+static const char * const f563[] = {"Anterior"};
+static const char * const f564[] = {"Anterior  •  %d–%d de %d"};
+static const char * const f565[] = {"Pista anterior"};
+static const char * const f566[] = {"Página anterior"};
+static const char * const f567[] = {"La solicitud anterior aún termina"};
+static const char * const f568[] = {"Los accesorios conectados antes aparecerán aquí."};
+static const char * const f569[] = {"DNS primario"};
+static const char * const f570[] = {"Nombre del perfil"};
+static const char * const f571[] = {"Perfil eliminado"};
+static const char * const f572[] = {"Perfil cargado"};
+static const char * const f573[] = {"Perfil renombrado"};
+static const char * const f574[] = {"Perfil guardado"};
+static const char * const f575[] = {"Perfiles"};
+static const char * const f576[] = {"Proveedor"};
+static const char * const f577[] = {"Cola"};
+static const char * const f578[] = {"La cola cambió. Inténtalo de nuevo."};
+static const char * const f579[] = {"Falló el punto de control de la cola; el almacenamiento puede ser de solo lectura"};
+static const char * const f580[] = {"Cola vaciada"};
+static const char * const f581[] = {"La cola está vacía"};
+static const char * const f582[] = {"Cola lista. Pulsa Reproducir para empezar."};
+static const char * const f583[] = {"En cola"};
+static const char * const f584[] = {"Configuración rápida completa"};
+static const char * const f585[] = {"Configuración rápida"};
+static const char * const f586[] = {"RC"};
+static const char * const f587[] = {"Radio"};
+static const char * const f588[] = {"Radio / %s"};
+static const char * const f589[] = {"Leyendo frecuencias compatibles..."};
+static const char * const f590[] = {"Leyendo etiquetas\n%d de %d canciones (%d%%)"};
+static const char * const f591[] = {"Lee de nuevo las etiquetas de cada canción. Puede tardar un poco."};
+static const char * const f592[] = {"Reconstruir"};
+static const char * const f593[] = {"Agregadas recientemente"};
+static const char * const f594[] = {"Reproducidas recientemente"};
+static const char * const f595[] = {"Actualizar"};
+static const char * const f596[] = {"Actualizar todas las carátulas"};
+static const char * const f597[] = {"Actualizar todos los metadatos"};
+static const char * const f598[] = {"Actualizar plugins"};
+static const char * const f599[] = {"¿Actualizar todas las carátulas?"};
+static const char * const f600[] = {"¿Actualizar todos los metadatos?"};
+static const char * const f601[] = {"Actualizar metadatos"};
+static const char * const f602[] = {"Actualizar catálogo de plugins"};
+static const char * const f603[] = {"Actualiza la base de datos de música para refrescar esta lista."};
+static const char * const f604[] = {"Actualizando\ntodas las carátulas..."};
+static const char * const f605[] = {"Actualizando\ntodos los metadatos..."};
+static const char * const f606[] = {"Actualizando\nmetadatos..."};
+static const char * const f607[] = {"Actualizando carátulas"};
+static const char * const f608[] = {"Actualizando carátulas\n%d de %d (%d%%)"};
+static const char * const f609[] = {"Actualizando plugins..."};
+static const char * const f610[] = {"Año de lanzamiento (más antiguo primero)"};
+static const char * const f611[] = {"Recargar carátula"};
+static const char * const f612[] = {"Recargando\ncarátula..."};
+static const char * const f613[] = {"Recargando carátula"};
+static const char * const f614[] = {"Recargando carátula\n%d de %d (%d%%)"};
+static const char * const f615[] = {"Remoto"};
+static const char * const f616[] = {"Control remoto"};
+static const char * const f617[] = {"Quitar"};
+static const char * const f618[] = {"¿Quitar %s?"};
+static const char * const f619[] = {"Quitado"};
+static const char * const f620[] = {"Quitada de la lista"};
+static const char * const f621[] = {"Quitada de la cola"};
+static const char * const f622[] = {"Quita las carátulas guardadas y las extrae de nuevo. Puede tardar un poco."};
+static const char * const f623[] = {"Quitando plugin"};
+static const char * const f624[] = {"Renombrar lista"};
+static const char * const f625[] = {"Renombrar perfil"};
+static const char * const f626[] = {"Reemplazar"};
+static const char * const f627[] = {"Reemplazar existente"};
+static const char * const f628[] = {"Reemplazar perfil"};
+static const char * const f629[] = {"ReplayGain"};
+static const char * const f630[] = {"Refrescar"};
+static const char * const f631[] = {"Restablecer"};
+static const char * const f632[] = {"¿Restablecer el PEQ a los valores predeterminados?"};
+static const char * const f633[] = {"¿Restablecer todos los ajustes y reiniciar?"};
+static const char * const f634[] = {"Restablecer valores"};
+static const char * const f635[] = {"Reiniciar"};
+static const char * const f636[] = {"Reiniciar ahora"};
+static const char * const f637[] = {"¿Reiniciar ahora para aplicar el nuevo nombre del equipo?"};
+static const char * const f638[] = {"Reanudar última pista"};
+static const char * const f639[] = {"Reanudar y reproducir"};
+static const char * const f640[] = {"Reanuda la reproducción cuando la alimentación externa enciende el reproductor."};
+static const char * const f641[] = {"Reanudar en pausa"};
+static const char * const f642[] = {"Reintentando plugins %zu/%zu"};
+static const char * const f643[] = {"Tarjeta SD revisada"};
+static const char * const f644[] = {"No se pudo leer la tarjeta SD"};
+static const char * const f645[] = {"Falló el formateo de la tarjeta SD"};
+static const char * const f646[] = {"Tarjeta SD formateada"};
+static const char * const f647[] = {"La tarjeta SD es de solo lectura. Revísala en una computadora"};
+static const char * const f648[] = {"La tarjeta SD sigue en solo lectura"};
+static const char * const f649[] = {"La tarjeta SD puede tener errores. Revísala en una computadora"};
+static const char * const f650[] = {"Tarjeta SD no disponible"};
+static const char * const f651[] = {"La reparación de la tarjeta SD sigue en curso"};
+static const char * const f652[] = {"Tarjeta SD reparada"};
+static const char * const f653[] = {"SSID: %s"};
+static const char * const f654[] = {"Carga segura (500 mA)"};
+static const char * const f655[] = {"Frecuencia de muestreo"};
+static const char * const f656[] = {"sábado"};
+static const char * const f657[] = {"Guardar"};
+static const char * const f658[] = {"Guardar perfil"};
+static const char * const f659[] = {"Guardar perfil como"};
+static const char * const f660[] = {"Guardar cola como lista"};
+static const char * const f661[] = {"Guardar como lista"};
+static const char * const f662[] = {"¿Guardar como perfil nuevo o reemplazar uno existente?"};
+static const char * const f663[] = {"Servidores guardados"};
+static const char * const f664[] = {"Red guardada"};
+static const char * const f665[] = {"Se están revisando los datos de la red guardada."};
+static const char * const f666[] = {"Guardando la base de datos de música"};
+static const char * const f667[] = {"Guardando la base de datos de música\nPuede tardar en bibliotecas grandes"};
+static const char * const f668[] = {"Guardando lista…"};
+static const char * const f669[] = {"Buscar música"};
+static const char * const f670[] = {"Escanea con tu teléfono para apoyar a Compás Player en PayPal"};
+static const char * const f671[] = {"Buscando redes"};
+static const char * const f672[] = {"Atenuar pantalla"};
+static const char * const f673[] = {"Apagado de pantalla"};
+static const char * const f674[] = {"Apagar pantalla"};
+static const char * const f675[] = {"Falló la captura (%s)"};
+static const char * const f676[] = {"Falló la captura (framebuffer)"};
+static const char * const f677[] = {"Falló la captura (proceso)"};
+static const char * const f678[] = {"La captura necesita una tarjeta SD"};
+static const char * const f679[] = {"Captura guardada"};
+static const char * const f680[] = {"Capturas (Encendido + Anterior)"};
+static const char * const f681[] = {"Capturas (Encendido + Vol. -)"};
+static const char * const f682[] = {"Capturas no disponibles"};
+static const char * const f683[] = {"DNS secundario"};
+static const char * const f684[] = {"Falló la conexión segura. Revisa el Wi-Fi y la fecha y hora."};
+static const char * const f685[] = {"Red protegida"};
+static const char * const f686[] = {"Protegida · Conectada"};
+static const char * const f687[] = {"Selecciona al menos un plugin para continuar."};
+static const char * const f688[] = {"Los plugins seleccionados están listos.\n"};
+static const char * const f689[] = {"septiembre"};
+static const char * const f690[] = {"URL del servidor (ej. %s)"};
+static const char * const f691[] = {"URL del servidor: %s"};
+static const char * const f692[] = {"La solicitud al servidor excedió el tiempo de espera (30 segundos)"};
+static const char * const f693[] = {"El servicio está ocupado"};
+static const char * const f694[] = {"Ajustar hora"};
+static const char * const f695[] = {"Configura tu zona horaria para que el reloj muestre la hora correcta."};
+static const char * const f696[] = {"Ajustes"};
+static const char * const f697[] = {"Mostrar tiempo restante"};
+static const char * const f698[] = {"Se muestran las primeras %d de %d canciones"};
+static const char * const f699[] = {"Aleatorio desde una canción al azar"};
+static const char * const f700[] = {"Señal: %s"};
+static const char * const f701[] = {"Omitir por ahora"};
+static const char * const f702[] = {"Omitida: %s"};
+static const char * const f703[] = {"Dormir"};
+static const char * const f704[] = {"Temporizador de sueño"};
+static const char * const f705[] = {"Temporizador"};
+static const char * const f706[] = {"Temporizador: faltan %d min"};
+static const char * const f707[] = {"Temporizador: apagado"};
+static const char * const f708[] = {"Pequeño"};
+static const char * const f709[] = {"No se pudieron actualizar algunas carátulas"};
+static const char * const f710[] = {"No se pudieron leer algunas listas"};
+static const char * const f711[] = {"Algunos archivos del plugin cambiaron en la tarjeta. ¿Reemplazarlos?"};
+static const char * const f712[] = {"No se pudieron leer algunas canciones"};
+static const char * const f713[] = {"Algunas actualizaciones necesitan confirmación antes de reemplazar archivos locales."};
+static const char * const f714[] = {"La canción ya está agregada"};
+static const char * const f715[] = {"Canción eliminada"};
+static const char * const f716[] = {"Canciones"};
+static const char * const f717[] = {"Orden"};
+static const char * const f718[] = {"Sonido"};
+static const char * const f719[] = {"Efectos de sonido"};
+static const char * const f720[] = {"Origen"};
+static const char * const f721[] = {"Remuestreo Speex"};
+static const char * const f722[] = {"Iniciar en orden"};
+static const char * const f723[] = {"Empieza con estas sugerencias o explora más plugins."};
+static const char * const f724[] = {"Volumen de inicio"};
+static const char * const f725[] = {"Paso %d de %d"};
+static const char * const f726[] = {"Estéreo (2 canales)"};
+static const char * const f727[] = {"Aún se aplica la opción anterior"};
+static const char * const f728[] = {"Almacenamiento"};
+static const char * const f729[] = {"Streaming"};
+static const char * const f730[] = {"Calidad de streaming"};
+static const char * const f731[] = {"Calidad de streaming: %s"};
+static const char * const f732[] = {"La subcarpeta es relativa a la raíz de la SD (ejemplo: Music/Offline); vacío usa la raíz de la SD"};
+static const char * const f733[] = {"Subcarpeta: raíz de la SD"};
+static const char * const f734[] = {"Subsonic"};
+static const char * const f735[] = {"domingo"};
+static const char * const f736[] = {"Suspender a RAM"};
+static const char * const f737[] = {"Deslizar arriba para ir a Inicio"};
+static const char * const f738[] = {"Desliza hacia arriba para desbloquear"};
+static const char * const f739[] = {"Sistema"};
+static const char * const f740[] = {"Listas del sistema"};
+static const char * const f741[] = {"Toma su color de la carátula de la pista actual"};
+static const char * const f742[] = {"Toca Apagar otra vez para confirmar"};
+static const char * const f743[] = {"Toca Reiniciar otra vez para confirmar"};
+static const char * const f744[] = {"La tarjeta SD cambió durante la descarga."};
+static const char * const f745[] = {"La tarjeta SD cambió durante la operación."};
+static const char * const f746[] = {"La tarjeta SD es de solo lectura. Comprueba su protección contra escritura."};
+static const char * const f747[] = {"La descarga no se completó. Revisa el Wi-Fi e inténtalo de nuevo."};
+static const char * const f748[] = {"La imagen descargada no pasó la verificación y se eliminó."};
+static const char * const f749[] = {"Se eliminará el archivo de la lista. Los archivos de música se conservan."};
+static const char * const f750[] = {"La descarga del plugin no pasó la verificación. Inténtalo de nuevo."};
+static const char * const f751[] = {"El veloz murciélago hindú 123"};
+static const char * const f752[] = {"La versión no tiene suma de verificación para la imagen de este equipo."};
+static const char * const f753[] = {"El archivo de actualización en la tarjeta SD cambió. Descárgalo de nuevo."};
+static const char * const f754[] = {"No hay entradas en esta vista."};
+static const char * const f755[] = {"Este equipo ahora es una tarjeta de sonido USB"};
+static const char * const f756[] = {"Este equipo ahora recibe audio por Bluetooth"};
+static const char * const f757[] = {"Puede tardar un poco"};
+static const char * const f758[] = {"Esto elimina todo en la tarjeta de forma permanente. No se puede deshacer."};
+static const char * const f759[] = {"Este plugin no tiene actualizaciones."};
+static const char * const f760[] = {"Este plugin ya fue instalado desde la tienda."};
+static const char * const f761[] = {"Este plugin no fue instalado desde la tienda."};
+static const char * const f762[] = {"Este plugin necesita una versión más reciente del reproductor."};
+static const char * const f763[] = {"La imagen de esta versión no coincide con sus sumas de verificación. Inténtalo después de la próxima versión semanal."};
+static const char * const f764[] = {"No se pudo iniciar el proceso"};
+static const char * const f765[] = {"jueves"};
+static const char * const f766[] = {"Zona horaria"};
+static const char * const f767[] = {"Tiempo restante: %d:%02d"};
+static const char * const f768[] = {"Tiempo restante: %d:%02d:%02d"};
+static const char * const f769[] = {"Zona horaria"};
+static const char * const f770[] = {"Demasiados canales de audio"};
+static const char * const f771[] = {"Hay demasiados plugins instalados. Quita uno e inténtalo de nuevo."};
+static const char * const f772[] = {"Pista"};
+static const char * const f773[] = {"Pista %+.1f dB"};
+static const char * const f774[] = {"Pista %d"};
+static const char * const f775[] = {"Los detalles de la pista aún no están disponibles. Mantén la reproducción abierta y revisa de nuevo."};
+static const char * const f776[] = {"Pistas"};
+static const char * const f777[] = {"martes"};
+static const char * const f778[] = {"Apaga y enciende Bluetooth para aplicar"};
+static const char * const f779[] = {"Desactiva primero ADB (Ajustes > Sistema > Modo USB) y luego activa el DAC USB desde aquí."};
+static const char * const f780[] = {"Desactiva Automático para ajustar el reloj"};
+static const char * const f781[] = {"Apaga el DAC Bluetooth para reproducir música en este equipo"};
+static const char * const f782[] = {"Apagar la pantalla automáticamente"};
+static const char * const f783[] = {"Enciende Bluetooth para ver los dispositivos vinculados y cercanos."};
+static const char * const f784[] = {"Activa el Wi-Fi y conéctate primero"};
+static const char * const f785[] = {"Activa esto para ver la dirección aquí."};
+static const char * const f786[] = {"DAC USB"};
+static const char * const f787[] = {"Modo DAC USB"};
+static const char * const f788[] = {"Modo USB"};
+static const char * const f789[] = {"Dispositivo de audio USB detectado"};
+static const char * const f790[] = {"Entrada USB: %s · %u bits"};
+static const char * const f791[] = {"Modo USB"};
+static const char * const f792[] = {"No se pudieron cargar los elementos"};
+static const char * const f793[] = {"No se puede leer la carpeta (toca Atrás y reintenta)"};
+static const char * const f794[] = {"No disponible"};
+static const char * const f795[] = {"Respuesta inesperada de la biblioteca"};
+static const char * const f796[] = {"Respuesta inesperada de GitHub"};
+static const char * const f797[] = {"Respuesta inesperada de GitHub."};
+static const char * const f798[] = {"Álbum desconocido"};
+static const char * const f799[] = {"Artista desconocido"};
+static const char * const f800[] = {"Códec desconocido"};
+static const char * const f801[] = {"Formato desconocido"};
+static const char * const f802[] = {"Frecuencia desconocida"};
+static const char * const f803[] = {"Formato de audio no compatible"};
+static const char * const f804[] = {"Actualizar"};
+static const char * const f805[] = {"Actualizar y reiniciar"};
+static const char * const f806[] = {"Actualizar todo"};
+static const char * const f807[] = {"Actualizar base de datos de música"};
+static const char * const f808[] = {"Actualiza la base de datos de música para activar este orden de álbumes"};
+static const char * const f809[] = {"Actualización disponible"};
+static const char * const f810[] = {"Actualización disponible · %s"};
+static const char * const f811[] = {"Actualizar uno por uno"};
+static const char * const f812[] = {"¿Actualizar la base de datos de música?"};
+static const char * const f813[] = {"Actualiza estos plugins uno por uno"};
+static const char * const f814[] = {"¿Actualizar con %s?\nEl equipo se reiniciará en modo de recuperación."};
+static const char * const f815[] = {"Actualizaciones"};
+static const char * const f816[] = {"Actualizando\nbase de datos de música..."};
+static const char * const f817[] = {"Actualizando plugins"};
+static const char * const f818[] = {"Pantalla invertida"};
+static const char * const f819[] = {"Usa Ajustes > Actualizar base de datos de música"};
+static const char * const f820[] = {"Listas del usuario"};
+static const char * const f821[] = {"Usuario"};
+static const char * const f822[] = {"Usuario: %s"};
+static const char * const f823[] = {"Verificar certificado del servidor"};
+static const char * const f824[] = {"Versión %s · %s"};
+static const char * const f825[] = {"Esperando transmisión Bluetooth…"};
+static const char * const f826[] = {"Esperando audio USB…"};
+static const char * const f827[] = {"Débil"};
+static const char * const f828[] = {"El servidor web está ocupado"};
+static const char * const f829[] = {"miércoles"};
+static const char * const f830[] = {"Weekly Beta %s está disponible.\nInstalada: %s\n\n¿Descargarla ahora? Puede tardar un poco."};
+static const char * const f831[] = {"Weekly Beta %s está descargada y verificada.\n\n¿Instalar ahora? El equipo se reinicia en recuperación para instalarla. No lo apagues hasta que reinicie."};
+static const char * const f832[] = {"Te damos la bienvenida a Compás"};
+static const char * const f833[] = {"Si está activado, este equipo es visible para emisores AirPlay en tu red Wi-Fi: envía audio desde un iPhone, iPad o Mac para reproducirlo por su propia salida."};
+static const char * const f834[] = {"Si está activado, este equipo es visible para apps controladoras DLNA/UPnP en tu red Wi-Fi: envía una pista desde una para reproducirla aquí. Pausa, silencio, volumen y búsqueda desde la app no son compatibles; usa los controles de este equipo cuando empiece la pista."};
+static const char * const f835[] = {"Si está activado, este equipo permanece visible y vinculable para otros dispositivos Bluetooth, así un teléfono o computadora puede enviarle audio y reproducirlo por su propia salida, usándolo como DAC externo."};
+static const char * const f836[] = {"Wi-Fi"};
+static const char * const f837[] = {"Info de Wi-Fi"};
+static const char * const f838[] = {"Contraseña de Wi-Fi"};
+static const char * const f839[] = {"El Wi-Fi no pudo cambiar de estado"};
+static const char * const f840[] = {"El Wi-Fi está ocupado"};
+static const char * const f841[] = {"Inalámbrico"};
+static const char * const f842[] = {"Puedes seleccionar hasta 32 plugins"};
+static const char * const f843[] = {"Tienes la última versión semanal (%s).\n\n¿Descargarla y reinstalarla de todos modos? Puede tardar un poco."};
+static const char * const f844[] = {"Se está cargando tu biblioteca."};
+static const char * const f845[] = {"Tu música"};
+static const char * const f846[] = {"Tu recorrido de configuración"};
+static const char * const f847[] = {"[Archivo truncado a %d KB: se muestra solo la primera parte]\n\n%s"};
+static const char * const f848[] = {"desconocido"};
 
 static const i18n_entry_t entries_es[] = {
     {"%.0f Hz", f1, 1},
@@ -1220,5599 +1219,5592 @@ static const i18n_entry_t entries_es[] = {
     {"June", f366, 1},
     {"LDAC Quality", f367, 1},
     {"LDAC Standard", f368, 1},
-    {"LDAC in DAC mode (Experimental)", f369, 1},
-    {"LED charge indicator", f370, 1},
-    {"Language", f371, 1},
-    {"Large", f372, 1},
-    {"Later", f373, 1},
-    {"Launch at a fixed volume", f374, 1},
-    {"Layout", f375, 1},
-    {"Leave", f376, 1},
-    {"Leave Bluetooth DAC mode?", f377, 1},
-    {"Leave USB DAC mode?", f378, 1},
-    {"Leave this view and try again.", f379, 1},
-    {"Library", f380, 1},
-    {"Library changed. Open the album again.", f381, 1},
-    {"Library is busy", f382, 1},
-    {"Library loaded", f383, 1},
-    {"Library migrated. Favourites and play history kept", f384, 1},
-    {"Library migrated. Old database cleanup will retry", f385, 1},
-    {"Library migration failed. Old library intact. Use Settings > Update Music Database to retry", f386, 1},
-    {"Library migration pending. Favourites and play history will be kept", f387, 1},
-    {"Library recovered and saved", f388, 1},
-    {"Library recovered and saved, some folders could not be read", f389, 1},
-    {"Library recovered. Use Settings > Update Music Database to save", f390, 1},
-    {"Library unavailable. Use Settings > Update Music Database to rebuild", f391, 1},
-    {"Library update failed. Check SD card and retry", f392, 1},
-    {"Library updated", f393, 1},
-    {"Library updated, some folders could not be read", f394, 1},
-    {"Load covers during playback (Experimental)", f395, 1},
-    {"Loading Wi-Fi settings", f396, 1},
-    {"Loading from server...", f397, 1},
-    {"Loading layouts", f398, 1},
-    {"Loading plugin catalog...", f399, 1},
-    {"Loading plugins", f400, 1},
-    {"Loading tracks…", f401, 1},
-    {"Loading...", f402, 1},
-    {"Location", f403, 1},
-    {"Looking for music files", f404, 1},
-    {"Looking for music files\n%d items checked", f405, 1},
-    {"Low", f406, 1},
-    {"Low\nHigh", f407, 1},
-    {"Low (96 kbps)", f408, 1},
-    {"Lyrics", f409, 1},
-    {"Lyrics Text Size", f410, 1},
-    {"MAC Address: %s", f411, 1},
-    {"Maintenance", f412, 1},
-    {"Make an accessory discoverable, then tap Rescan.", f413, 1},
-    {"Manage plugins later in Settings > System > Plugin Manager to search, update, or remove them.", f414, 1},
-    {"Manual SSID Entry", f415, 1},
-    {"March", f416, 1},
-    {"Match album art", f417, 1},
-    {"May", f418, 1},
-    {"Medium", f419, 1},
-    {"Medium (192 kbps)", f420, 1},
-    {"Memorized Networks", f421, 1},
-    {"Metadata refreshed", f422, 1},
-    {"Migrating\nmusic database...", f423, 1},
-    {"Monday", f424, 1},
-    {"Mono (1 channel)", f425, 1},
-    {"More", f426, 1},
-    {"Most Played", f427, 1},
-    {"Music", f428, 1},
-    {"Music database unavailable", f429, 1},
-    {"Name (A–Z)", f430, 1},
-    {"Native DSD (DoP) / %.4g MHz", f431, 1},
-    {"Nearby Wi-Fi networks will appear here.", f432, 1},
-    {"Needs newer firmware", f433, 1},
-    {"Network Name (SSID)", f434, 1},
-    {"Network stream", f435, 1},
-    {"Networks you connect to will appear here.", f436, 1},
-    {"New Connection", f437, 1},
-    {"New PIN generated", f438, 1},
-    {"New Profile", f439, 1},
-    {"Newest Modified", f440, 1},
-    {"Next", f441, 1},
-    {"Next  •  %d–%d of %d", f442, 1},
-    {"Next page", f443, 1},
-    {"No .ttf fonts found in /Fonts", f444, 1},
-    {"No .upt firmware file found on SD card", f445, 1},
-    {"No SD card", f446, 1},
-    {"No SD card detected. You can scan later from Library settings.", f447, 1},
-    {"No books found", f448, 1},
-    {"No entries to display", f449, 1},
-    {"No favorites yet", f450, 1},
-    {"No items", f451, 1},
-    {"No memorized networks", f452, 1},
-    {"No music database", f453, 1},
-    {"No nearby devices", f454, 1},
-    {"No network detected", f455, 1},
-    {"No network detected. Connect to a network to download plugins.", f456, 1},
-    {"No networks found", f457, 1},
-    {"No other networks found", f458, 1},
-    {"No paired devices", f459, 1},
-    {"No playable audio files found", f460, 1},
-    {"No playable files here", f461, 1},
-    {"No plugin settings available", f462, 1},
-    {"No plugins are available in the catalog.", f463, 1},
-    {"No saved profiles", f464, 1},
-    {"No saved servers", f465, 1},
-    {"No songs to refresh", f466, 1},
-    {"No synchronized lyrics found", f467, 1},
-    {"No track loaded", f468, 1},
-    {"No tracks found", f469, 1},
-    {"No user playlists", f470, 1},
-    {"No verified update is on this SD card. Download it again.", f471, 1},
-    {"Not connected", f472, 1},
-    {"Not enough free space on the SD card for the update.", f473, 1},
-    {"Not enough free space on the SD card.", f474, 1},
-    {"Not enough memory to connect", f475, 1},
-    {"Not enough memory to load CUE tracks", f476, 1},
-    {"Not enough memory to load artists", f477, 1},
-    {"Not enough memory to load from server", f478, 1},
-    {"Not enough memory to load the plugin store", f479, 1},
-    {"Not enough memory to start download", f480, 1},
-    {"Not selected (UTC)", f481, 1},
-    {"Not set", f482, 1},
-    {"November", f483, 1},
-    {"OFF", f484, 1},
-    {"ON", f485, 1},
-    {"October", f486, 1},
-    {"Off", f487, 1},
-    {"On", f488, 1},
-    {"Open a book and tap the bookmark icon to save it here.", f489, 1},
-    {"Open a folder containing supported audio files.", f490, 1},
-    {"Open network", f491, 1},
-    {"Open this address on your phone or computer:", f492, 1},
-    {"Open · Connected", f493, 1},
-    {"Original", f494, 1},
-    {"Output", f495, 1},
-    {"PEQ reset to defaults", f496, 1},
-    {"Pacific", f497, 1},
-    {"Paired", f498, 1},
-    {"Paired Devices", f499, 1},
-    {"Parametric EQ", f500, 1},
-    {"Password", f501, 1},
-    {"Password: Not set", f502, 1},
-    {"Password: Set", f503, 1},
-    {"Paused: headphones disconnected", f504, 1},
-    {"Peaking\nLow Shelf\nHigh Shelf", f505, 1},
-    {"Per Album", f506, 1},
-    {"Per Track", f507, 1},
-    {"Place .ttf fonts in SD /Fonts folder.", f508, 1},
-    {"Play All", f509, 1},
-    {"Play Next", f510, 1},
-    {"Play all shuffled", f511, 1},
-    {"Play an album or playlist to see its songs here.", f512, 1},
-    {"Play sequentially", f513, 1},
-    {"Play/Pause", f514, 1},
-    {"Play/Pause + Previous Track (Double-Click)", f515, 1},
-    {"Play/Pause Button", f516, 1},
-    {"Playback & Controls", f517, 1},
-    {"Playback and device actions", f518, 1},
-    {"Playback error", f519, 1},
-    {"Playback error: audio output failed", f520, 1},
-    {"Playback history could not be saved", f521, 1},
-    {"Playback stopped: %s", f522, 1},
-    {"Played", f523, 1},
-    {"Player Layout", f524, 1},
-    {"Playing", f525, 1},
-    {"Playlist Name", f526, 1},
-    {"Playlist changed. Select a song again.", f527, 1},
-    {"Playlist changed. Try again.", f528, 1},
-    {"Playlist created", f529, 1},
-    {"Playlist deleted", f530, 1},
-    {"Playlist is empty", f531, 1},
-    {"Playlist renamed", f532, 1},
-    {"Playlist saved", f533, 1},
-    {"Playlist unavailable or unreadable", f534, 1},
-    {"Playlists", f535, 1},
-    {"Playlists refreshed", f536, 1},
-    {"Please wait for plugin installation to finish", f537, 1},
-    {"Please wait for the library scan to finish", f538, 1},
-    {"Plugin", f539, 1},
-    {"Plugin Manager", f540, 1},
-    {"Plugin Settings", f541, 1},
-    {"Plugin Store", f542, 1},
-    {"Plugin is unavailable in the catalog", f543, 1},
-    {"Plugin operation failed", f544, 1},
-    {"Plugin setup complete", f545, 1},
-    {"Plugin setup needs attention", f546, 1},
-    {"Plugin storage is unavailable.", f547, 1},
-    {"Plugins", f548, 1},
-    {"Position", f549, 1},
-    {"Power", f550, 1},
-    {"Power Off", f551, 1},
-    {"Power controls", f552, 1},
-    {"Power off", f553, 1},
-    {"Pre-Amp (dB, -12 to 12)", f554, 1},
-    {"Pre-Amp: %+.2f dB", f555, 1},
-    {"Preparing cover refresh...", f556, 1},
-    {"Preparing database migration...", f557, 1},
-    {"Preparing metadata refresh", f558, 1},
-    {"Preparing metadata refresh...", f559, 1},
-    {"Preparing music library...", f560, 1},
-    {"Preparing update", f561, 1},
-    {"Presets", f562, 1},
-    {"Preview", f563, 1},
-    {"Previous", f564, 1},
-    {"Previous  •  %d–%d of %d", f565, 1},
-    {"Previous Track", f566, 1},
-    {"Previous page", f567, 1},
-    {"Previous request still finishing", f568, 1},
-    {"Previously connected accessories will appear here.", f569, 1},
-    {"Primary DNS", f570, 1},
-    {"Profile Name", f571, 1},
-    {"Profile deleted", f572, 1},
-    {"Profile loaded", f573, 1},
-    {"Profile renamed", f574, 1},
-    {"Profile saved", f575, 1},
-    {"Profiles", f576, 1},
-    {"Provider", f577, 1},
-    {"Queue", f578, 1},
-    {"Queue changed. Try again.", f579, 1},
-    {"Queue checkpoint failed; storage may be read-only", f580, 1},
-    {"Queue cleared", f581, 1},
-    {"Queue is empty", f582, 1},
-    {"Queue ready. Press Play to start.", f583, 1},
-    {"Queued", f584, 1},
-    {"Quick Setup Complete", f585, 1},
-    {"Quick setup", f586, 1},
-    {"RC", f587, 1},
-    {"Radio", f588, 1},
-    {"Radio / %s", f589, 1},
-    {"Reading supported rates...", f590, 1},
-    {"Reading tags\n%d of %d songs (%d%%)", f591, 1},
-    {"Reads the tags of every song again. This may take a while.", f592, 1},
-    {"Rebuild", f593, 1},
-    {"Recently Added", f594, 1},
-    {"Recently Played", f595, 1},
-    {"Refresh", f596, 1},
-    {"Refresh All Covers", f597, 1},
-    {"Refresh All Metadata", f598, 1},
-    {"Refresh Plugins", f599, 1},
-    {"Refresh all covers?", f600, 1},
-    {"Refresh all metadata?", f601, 1},
-    {"Refresh metadata", f602, 1},
-    {"Refresh plugin catalog", f603, 1},
-    {"Refresh the music database to update this list.", f604, 1},
-    {"Refreshing\nall covers...", f605, 1},
-    {"Refreshing\nall metadata...", f606, 1},
-    {"Refreshing\nmetadata...", f607, 1},
-    {"Refreshing covers", f608, 1},
-    {"Refreshing covers\n%d of %d (%d%%)", f609, 1},
-    {"Refreshing plugins...", f610, 1},
-    {"Release Year (oldest first)", f611, 1},
-    {"Reload cover", f612, 1},
-    {"Reloading\ncover...", f613, 1},
-    {"Reloading cover", f614, 1},
-    {"Reloading cover\n%d of %d (%d%%)", f615, 1},
-    {"Remote", f616, 1},
-    {"Remote Control", f617, 1},
-    {"Remove", f618, 1},
-    {"Remove %s?", f619, 1},
-    {"Removed", f620, 1},
-    {"Removed from playlist", f621, 1},
-    {"Removed from queue", f622, 1},
-    {"Removes saved covers and extracts them again. This may take a while.", f623, 1},
-    {"Removing plugin", f624, 1},
-    {"Rename Playlist", f625, 1},
-    {"Rename Profile", f626, 1},
-    {"Replace", f627, 1},
-    {"Replace Existing", f628, 1},
-    {"Replace Profile", f629, 1},
-    {"ReplayGain", f630, 1},
-    {"Rescan", f631, 1},
-    {"Reset", f632, 1},
-    {"Reset PEQ to defaults?", f633, 1},
-    {"Reset all settings and reboot?", f634, 1},
-    {"Reset to defaults", f635, 1},
-    {"Restart", f636, 1},
-    {"Restart Now", f637, 1},
-    {"Restart now to apply the new hostname?", f638, 1},
-    {"Resume Last Track", f639, 1},
-    {"Resume and Play", f640, 1},
-    {"Resume playback when external power turns the player on.", f641, 1},
-    {"Resume, but Paused", f642, 1},
-    {"Retrying plugins %zu/%zu", f643, 1},
-    {"SD card checked", f644, 1},
-    {"SD card couldn't be read", f645, 1},
-    {"SD card format failed", f646, 1},
-    {"SD card formatted", f647, 1},
-    {"SD card is read-only. Check it on a computer", f648, 1},
-    {"SD card is still read-only", f649, 1},
-    {"SD card may have errors. Check it on a computer", f650, 1},
-    {"SD card not available", f651, 1},
-    {"SD card repair is still running", f652, 1},
-    {"SD card repaired", f653, 1},
-    {"SSID: %s", f654, 1},
-    {"Safe Charging (500mA)", f655, 1},
-    {"Sample Rate", f656, 1},
-    {"Saturday", f657, 1},
-    {"Save", f658, 1},
-    {"Save Profile", f659, 1},
-    {"Save Profile As", f660, 1},
-    {"Save Queue as Playlist", f661, 1},
-    {"Save as Playlist", f662, 1},
-    {"Save as a new profile, or replace one that already exists?", f663, 1},
-    {"Saved Servers", f664, 1},
-    {"Saved network", f665, 1},
-    {"Saved network details are being checked.", f666, 1},
-    {"Saving music database", f667, 1},
-    {"Saving music database\nThis can take a while on large libraries", f668, 1},
-    {"Saving playlist…", f669, 1},
-    {"Scan for music", f670, 1},
-    {"Scan with your phone to support Compás Player on PayPal", f671, 1},
-    {"Scanning for networks", f672, 1},
-    {"Screen Dimming", f673, 1},
-    {"Screen Timeout", f674, 1},
-    {"Screen off", f675, 1},
-    {"Screenshot failed (%s)", f676, 1},
-    {"Screenshot failed (framebuffer)", f677, 1},
-    {"Screenshot failed (worker)", f678, 1},
-    {"Screenshot needs an SD card", f679, 1},
-    {"Screenshot saved", f680, 1},
-    {"Screenshots (Power + Previous)", f681, 1},
-    {"Screenshots (Power + Vol Down)", f682, 1},
-    {"Screenshots unavailable", f683, 1},
-    {"Secondary DNS", f684, 1},
-    {"Secure connection failed. Check Wi-Fi and the date and time.", f685, 1},
-    {"Secured network", f686, 1},
-    {"Secured · Connected", f687, 1},
-    {"Select at least one plugin to continue.", f688, 1},
-    {"Selected plugins are ready.\n", f689, 1},
-    {"September", f690, 1},
-    {"Server URL (e.g. %s)", f691, 1},
-    {"Server URL: %s", f692, 1},
-    {"Server request timed out after 30 seconds", f693, 1},
-    {"Service is busy", f694, 1},
-    {"Set Time", f695, 1},
-    {"Set your local time zone so the clock is right.", f696, 1},
-    {"Settings", f697, 1},
-    {"Show Time Remaining", f698, 1},
-    {"Showing first %d of %d songs", f699, 1},
-    {"Shuffle from a random song", f700, 1},
-    {"Signal: %s", f701, 1},
-    {"Skip for now", f702, 1},
-    {"Skipped: %s", f703, 1},
-    {"Sleep", f704, 1},
-    {"Sleep Timer", f705, 1},
-    {"Sleep timer", f706, 1},
-    {"Sleep timer: %d min remaining", f707, 1},
-    {"Sleep timer: Off", f708, 1},
-    {"Small", f709, 1},
-    {"Some covers could not be refreshed", f710, 1},
-    {"Some playlists could not be read", f711, 1},
-    {"Some plugin files were changed on the card. Replace them?", f712, 1},
-    {"Some songs could not be read", f713, 1},
-    {"Some updates need confirmation before replacing local files.", f714, 1},
-    {"Song already added", f715, 1},
-    {"Song deleted", f716, 1},
-    {"Songs", f717, 1},
-    {"Sorting", f718, 1},
-    {"Sound", f719, 1},
-    {"Sound Effects", f720, 1},
-    {"Source", f721, 1},
-    {"Speex Resampling", f722, 1},
-    {"Start sequentially", f723, 1},
-    {"Start with these suggestions, or explore more plugins.", f724, 1},
-    {"Startup Volume", f725, 1},
-    {"Step %d of %d", f726, 1},
-    {"Stereo (2 channels)", f727, 1},
-    {"Still applying the previous choice", f728, 1},
-    {"Storage", f729, 1},
-    {"Stream Media", f730, 1},
-    {"Stream Quality", f731, 1},
-    {"Stream quality: %s", f732, 1},
-    {"Subfolder is relative to SD root (example: Music/Offline); empty uses SD root", f733, 1},
-    {"Subfolder: SD root", f734, 1},
-    {"Subsonic", f735, 1},
-    {"Sunday", f736, 1},
-    {"Suspend to RAM", f737, 1},
-    {"Swipe Up for Home", f738, 1},
-    {"Swipe up to unlock", f739, 1},
-    {"System", f740, 1},
-    {"System playlists", f741, 1},
-    {"Takes its color from the cover of the playing track", f742, 1},
-    {"Tap Power off again to confirm", f743, 1},
-    {"Tap Restart again to confirm", f744, 1},
-    {"The SD card changed during the download.", f745, 1},
-    {"The SD card changed during the operation.", f746, 1},
-    {"The SD card is read-only. Check its write protection.", f747, 1},
-    {"The download did not complete. Check Wi-Fi and try again.", f748, 1},
-    {"The downloaded image failed verification and was deleted.", f749, 1},
-    {"The playlist file will be deleted. Music files are kept.", f750, 1},
-    {"The plugin download failed verification. Try again.", f751, 1},
-    {"The quick brown fox jumps 123", f752, 1},
-    {"The release has no checksum for this device's image.", f753, 1},
-    {"The update file on the SD card changed. Download it again.", f754, 1},
-    {"There are no entries in this view.", f755, 1},
-    {"This device is now a USB sound card", f756, 1},
-    {"This device is now receiving Bluetooth audio", f757, 1},
-    {"This may take a while", f758, 1},
-    {"This permanently deletes everything on the card. This cannot be undone.", f759, 1},
-    {"This plugin has no update available.", f760, 1},
-    {"This plugin is already installed by the store.", f761, 1},
-    {"This plugin is not installed by the store.", f762, 1},
-    {"This plugin needs a newer player version.", f763, 1},
-    {"This release's image does not match its checksums. Try again after the next weekly release.", f764, 1},
-    {"Thread launch failed", f765, 1},
-    {"Thursday", f766, 1},
-    {"Time Zone", f767, 1},
-    {"Time remaining: %d:%02d", f768, 1},
-    {"Time remaining: %d:%02d:%02d", f769, 1},
-    {"Time zone", f770, 1},
-    {"Too many audio channels", f771, 1},
-    {"Too many plugins are installed. Remove one and try again.", f772, 1},
-    {"Track", f773, 1},
-    {"Track %+.1f dB", f774, 1},
-    {"Track %d", f775, 1},
-    {"Track details are not available yet. Keep playback open and check again.", f776, 1},
-    {"Tracks", f777, 1},
-    {"Tuesday", f778, 1},
-    {"Turn Bluetooth off and on to apply", f779, 1},
-    {"Turn off ADB first (Settings > System > USB Mode), then enable USB DAC from here.", f780, 1},
-    {"Turn off Automatic to set the clock", f781, 1},
-    {"Turn off Bluetooth DAC to play music on this device", f782, 1},
-    {"Turn off screen automatically", f783, 1},
-    {"Turn on Bluetooth to see paired and nearby devices.", f784, 1},
-    {"Turn on Wi-Fi and connect first", f785, 1},
-    {"Turn this on to see the address here.", f786, 1},
-    {"USB DAC", f787, 1},
-    {"USB DAC mode", f788, 1},
-    {"USB Mode", f789, 1},
-    {"USB audio device detected", f790, 1},
-    {"USB input: %s · %u-bit", f791, 1},
-    {"USB mode", f792, 1},
-    {"Unable to load items", f793, 1},
-    {"Unable to read folder (tap Back and retry)", f794, 1},
-    {"Unavailable", f795, 1},
-    {"Unexpected library response", f796, 1},
-    {"Unexpected reply from GitHub", f797, 1},
-    {"Unexpected reply from GitHub.", f798, 1},
-    {"Unknown album", f799, 1},
-    {"Unknown artist", f800, 1},
-    {"Unknown codec", f801, 1},
-    {"Unknown format", f802, 1},
-    {"Unknown rate", f803, 1},
-    {"Unsupported audio format", f804, 1},
-    {"Update", f805, 1},
-    {"Update & Reboot", f806, 1},
-    {"Update All", f807, 1},
-    {"Update Music Database", f808, 1},
-    {"Update Music Database to enable this album order", f809, 1},
-    {"Update available", f810, 1},
-    {"Update available · %s", f811, 1},
-    {"Update individually", f812, 1},
-    {"Update music database?", f813, 1},
-    {"Update these plugins individually", f814, 1},
-    {"Update using %s?\nDevice will reboot into recovery mode.", f815, 1},
-    {"Updates", f816, 1},
-    {"Updating\nmusic database...", f817, 1},
-    {"Updating plugins", f818, 1},
-    {"Upside Down Screen", f819, 1},
-    {"Use Settings > Update Music Database", f820, 1},
-    {"User playlists", f821, 1},
-    {"Username", f822, 1},
-    {"Username: %s", f823, 1},
-    {"Verify server certificate", f824, 1},
-    {"Version %s · %s", f825, 1},
-    {"Waiting for Bluetooth stream…", f826, 1},
-    {"Waiting for USB audio…", f827, 1},
-    {"Weak", f828, 1},
-    {"Web Server is busy", f829, 1},
-    {"Wednesday", f830, 1},
-    {"Weekly Beta %s is available.\nInstalled: %s\n\nDownload it now? This may take a while.", f831, 1},
-    {"Weekly Beta %s is downloaded and verified.\n\nInstall now? The device reboots into recovery to flash it. Do not turn it off until it restarts.", f832, 1},
-    {"Welcome to Compás", f833, 1},
-    {"When on, this device is visible to AirPlay senders on your Wi-Fi network -- stream audio from an iPhone, iPad, or Mac to be played through this device's own output.", f834, 1},
-    {"When on, this device is visible to DLNA/UPnP controller apps on your Wi-Fi network -- cast a track from one to play it here. Pause, mute, volume, and seek from the controller app aren't supported; use this device's own controls instead once a track starts.", f835, 1},
-    {"When on, this device stays visible and pairable to other Bluetooth devices, so a phone or computer can stream audio TO it and play through this device's own output -- using it as an external DAC.", f836, 1},
-    {"Wi-Fi", f837, 1},
-    {"Wi-Fi Info", f838, 1},
-    {"Wi-Fi Password", f839, 1},
-    {"Wi-Fi failed to change state", f840, 1},
-    {"Wi-Fi is busy", f841, 1},
-    {"Wireless", f842, 1},
-    {"You can select up to 32 plugins", f843, 1},
-    {"You have the latest weekly (%s).\n\nDownload and reinstall it anyway? This may take a while.", f844, 1},
-    {"Your library is being loaded.", f845, 1},
-    {"Your music", f846, 1},
-    {"Your setup journey", f847, 1},
-    {"[File truncated at %d KB -- showing the first part only]\n\n%s", f848, 1},
-    {"unknown", f849, 1},
+    {"LED charge indicator", f369, 1},
+    {"Language", f370, 1},
+    {"Large", f371, 1},
+    {"Later", f372, 1},
+    {"Launch at a fixed volume", f373, 1},
+    {"Layout", f374, 1},
+    {"Leave", f375, 1},
+    {"Leave Bluetooth DAC mode?", f376, 1},
+    {"Leave USB DAC mode?", f377, 1},
+    {"Leave this view and try again.", f378, 1},
+    {"Library", f379, 1},
+    {"Library changed. Open the album again.", f380, 1},
+    {"Library is busy", f381, 1},
+    {"Library loaded", f382, 1},
+    {"Library migrated. Favourites and play history kept", f383, 1},
+    {"Library migrated. Old database cleanup will retry", f384, 1},
+    {"Library migration failed. Old library intact. Use Settings > Update Music Database to retry", f385, 1},
+    {"Library migration pending. Favourites and play history will be kept", f386, 1},
+    {"Library recovered and saved", f387, 1},
+    {"Library recovered and saved, some folders could not be read", f388, 1},
+    {"Library recovered. Use Settings > Update Music Database to save", f389, 1},
+    {"Library unavailable. Use Settings > Update Music Database to rebuild", f390, 1},
+    {"Library update failed. Check SD card and retry", f391, 1},
+    {"Library updated", f392, 1},
+    {"Library updated, some folders could not be read", f393, 1},
+    {"Load covers during playback (Experimental)", f394, 1},
+    {"Loading Wi-Fi settings", f395, 1},
+    {"Loading from server...", f396, 1},
+    {"Loading layouts", f397, 1},
+    {"Loading plugin catalog...", f398, 1},
+    {"Loading plugins", f399, 1},
+    {"Loading tracks…", f400, 1},
+    {"Loading...", f401, 1},
+    {"Location", f402, 1},
+    {"Looking for music files", f403, 1},
+    {"Looking for music files\n%d items checked", f404, 1},
+    {"Low", f405, 1},
+    {"Low\nHigh", f406, 1},
+    {"Low (96 kbps)", f407, 1},
+    {"Lyrics", f408, 1},
+    {"Lyrics Text Size", f409, 1},
+    {"MAC Address: %s", f410, 1},
+    {"Maintenance", f411, 1},
+    {"Make an accessory discoverable, then tap Rescan.", f412, 1},
+    {"Manage plugins later in Settings > System > Plugin Manager to search, update, or remove them.", f413, 1},
+    {"Manual SSID Entry", f414, 1},
+    {"March", f415, 1},
+    {"Match album art", f416, 1},
+    {"May", f417, 1},
+    {"Medium", f418, 1},
+    {"Medium (192 kbps)", f419, 1},
+    {"Memorized Networks", f420, 1},
+    {"Metadata refreshed", f421, 1},
+    {"Migrating\nmusic database...", f422, 1},
+    {"Monday", f423, 1},
+    {"Mono (1 channel)", f424, 1},
+    {"More", f425, 1},
+    {"Most Played", f426, 1},
+    {"Music", f427, 1},
+    {"Music database unavailable", f428, 1},
+    {"Name (A–Z)", f429, 1},
+    {"Native DSD (DoP) / %.4g MHz", f430, 1},
+    {"Nearby Wi-Fi networks will appear here.", f431, 1},
+    {"Needs newer firmware", f432, 1},
+    {"Network Name (SSID)", f433, 1},
+    {"Network stream", f434, 1},
+    {"Networks you connect to will appear here.", f435, 1},
+    {"New Connection", f436, 1},
+    {"New PIN generated", f437, 1},
+    {"New Profile", f438, 1},
+    {"Newest Modified", f439, 1},
+    {"Next", f440, 1},
+    {"Next  •  %d–%d of %d", f441, 1},
+    {"Next page", f442, 1},
+    {"No .ttf fonts found in /Fonts", f443, 1},
+    {"No .upt firmware file found on SD card", f444, 1},
+    {"No SD card", f445, 1},
+    {"No SD card detected. You can scan later from Library settings.", f446, 1},
+    {"No books found", f447, 1},
+    {"No entries to display", f448, 1},
+    {"No favorites yet", f449, 1},
+    {"No items", f450, 1},
+    {"No memorized networks", f451, 1},
+    {"No music database", f452, 1},
+    {"No nearby devices", f453, 1},
+    {"No network detected", f454, 1},
+    {"No network detected. Connect to a network to download plugins.", f455, 1},
+    {"No networks found", f456, 1},
+    {"No other networks found", f457, 1},
+    {"No paired devices", f458, 1},
+    {"No playable audio files found", f459, 1},
+    {"No playable files here", f460, 1},
+    {"No plugin settings available", f461, 1},
+    {"No plugins are available in the catalog.", f462, 1},
+    {"No saved profiles", f463, 1},
+    {"No saved servers", f464, 1},
+    {"No songs to refresh", f465, 1},
+    {"No synchronized lyrics found", f466, 1},
+    {"No track loaded", f467, 1},
+    {"No tracks found", f468, 1},
+    {"No user playlists", f469, 1},
+    {"No verified update is on this SD card. Download it again.", f470, 1},
+    {"Not connected", f471, 1},
+    {"Not enough free space on the SD card for the update.", f472, 1},
+    {"Not enough free space on the SD card.", f473, 1},
+    {"Not enough memory to connect", f474, 1},
+    {"Not enough memory to load CUE tracks", f475, 1},
+    {"Not enough memory to load artists", f476, 1},
+    {"Not enough memory to load from server", f477, 1},
+    {"Not enough memory to load the plugin store", f478, 1},
+    {"Not enough memory to start download", f479, 1},
+    {"Not selected (UTC)", f480, 1},
+    {"Not set", f481, 1},
+    {"November", f482, 1},
+    {"OFF", f483, 1},
+    {"ON", f484, 1},
+    {"October", f485, 1},
+    {"Off", f486, 1},
+    {"On", f487, 1},
+    {"Open a book and tap the bookmark icon to save it here.", f488, 1},
+    {"Open a folder containing supported audio files.", f489, 1},
+    {"Open network", f490, 1},
+    {"Open this address on your phone or computer:", f491, 1},
+    {"Open · Connected", f492, 1},
+    {"Original", f493, 1},
+    {"Output", f494, 1},
+    {"PEQ reset to defaults", f495, 1},
+    {"Pacific", f496, 1},
+    {"Paired", f497, 1},
+    {"Paired Devices", f498, 1},
+    {"Parametric EQ", f499, 1},
+    {"Password", f500, 1},
+    {"Password: Not set", f501, 1},
+    {"Password: Set", f502, 1},
+    {"Paused: headphones disconnected", f503, 1},
+    {"Peaking\nLow Shelf\nHigh Shelf", f504, 1},
+    {"Per Album", f505, 1},
+    {"Per Track", f506, 1},
+    {"Place .ttf fonts in SD /Fonts folder.", f507, 1},
+    {"Play All", f508, 1},
+    {"Play Next", f509, 1},
+    {"Play all shuffled", f510, 1},
+    {"Play an album or playlist to see its songs here.", f511, 1},
+    {"Play sequentially", f512, 1},
+    {"Play/Pause", f513, 1},
+    {"Play/Pause + Previous Track (Double-Click)", f514, 1},
+    {"Play/Pause Button", f515, 1},
+    {"Playback & Controls", f516, 1},
+    {"Playback and device actions", f517, 1},
+    {"Playback error", f518, 1},
+    {"Playback error: audio output failed", f519, 1},
+    {"Playback history could not be saved", f520, 1},
+    {"Playback stopped: %s", f521, 1},
+    {"Played", f522, 1},
+    {"Player Layout", f523, 1},
+    {"Playing", f524, 1},
+    {"Playlist Name", f525, 1},
+    {"Playlist changed. Select a song again.", f526, 1},
+    {"Playlist changed. Try again.", f527, 1},
+    {"Playlist created", f528, 1},
+    {"Playlist deleted", f529, 1},
+    {"Playlist is empty", f530, 1},
+    {"Playlist renamed", f531, 1},
+    {"Playlist saved", f532, 1},
+    {"Playlist unavailable or unreadable", f533, 1},
+    {"Playlists", f534, 1},
+    {"Playlists refreshed", f535, 1},
+    {"Please wait for plugin installation to finish", f536, 1},
+    {"Please wait for the library scan to finish", f537, 1},
+    {"Plugin", f538, 1},
+    {"Plugin Manager", f539, 1},
+    {"Plugin Settings", f540, 1},
+    {"Plugin Store", f541, 1},
+    {"Plugin is unavailable in the catalog", f542, 1},
+    {"Plugin operation failed", f543, 1},
+    {"Plugin setup complete", f544, 1},
+    {"Plugin setup needs attention", f545, 1},
+    {"Plugin storage is unavailable.", f546, 1},
+    {"Plugins", f547, 1},
+    {"Position", f548, 1},
+    {"Power", f549, 1},
+    {"Power Off", f550, 1},
+    {"Power controls", f551, 1},
+    {"Power off", f552, 1},
+    {"Pre-Amp (dB, -12 to 12)", f553, 1},
+    {"Pre-Amp: %+.2f dB", f554, 1},
+    {"Preparing cover refresh...", f555, 1},
+    {"Preparing database migration...", f556, 1},
+    {"Preparing metadata refresh", f557, 1},
+    {"Preparing metadata refresh...", f558, 1},
+    {"Preparing music library...", f559, 1},
+    {"Preparing update", f560, 1},
+    {"Presets", f561, 1},
+    {"Preview", f562, 1},
+    {"Previous", f563, 1},
+    {"Previous  •  %d–%d of %d", f564, 1},
+    {"Previous Track", f565, 1},
+    {"Previous page", f566, 1},
+    {"Previous request still finishing", f567, 1},
+    {"Previously connected accessories will appear here.", f568, 1},
+    {"Primary DNS", f569, 1},
+    {"Profile Name", f570, 1},
+    {"Profile deleted", f571, 1},
+    {"Profile loaded", f572, 1},
+    {"Profile renamed", f573, 1},
+    {"Profile saved", f574, 1},
+    {"Profiles", f575, 1},
+    {"Provider", f576, 1},
+    {"Queue", f577, 1},
+    {"Queue changed. Try again.", f578, 1},
+    {"Queue checkpoint failed; storage may be read-only", f579, 1},
+    {"Queue cleared", f580, 1},
+    {"Queue is empty", f581, 1},
+    {"Queue ready. Press Play to start.", f582, 1},
+    {"Queued", f583, 1},
+    {"Quick Setup Complete", f584, 1},
+    {"Quick setup", f585, 1},
+    {"RC", f586, 1},
+    {"Radio", f587, 1},
+    {"Radio / %s", f588, 1},
+    {"Reading supported rates...", f589, 1},
+    {"Reading tags\n%d of %d songs (%d%%)", f590, 1},
+    {"Reads the tags of every song again. This may take a while.", f591, 1},
+    {"Rebuild", f592, 1},
+    {"Recently Added", f593, 1},
+    {"Recently Played", f594, 1},
+    {"Refresh", f595, 1},
+    {"Refresh All Covers", f596, 1},
+    {"Refresh All Metadata", f597, 1},
+    {"Refresh Plugins", f598, 1},
+    {"Refresh all covers?", f599, 1},
+    {"Refresh all metadata?", f600, 1},
+    {"Refresh metadata", f601, 1},
+    {"Refresh plugin catalog", f602, 1},
+    {"Refresh the music database to update this list.", f603, 1},
+    {"Refreshing\nall covers...", f604, 1},
+    {"Refreshing\nall metadata...", f605, 1},
+    {"Refreshing\nmetadata...", f606, 1},
+    {"Refreshing covers", f607, 1},
+    {"Refreshing covers\n%d of %d (%d%%)", f608, 1},
+    {"Refreshing plugins...", f609, 1},
+    {"Release Year (oldest first)", f610, 1},
+    {"Reload cover", f611, 1},
+    {"Reloading\ncover...", f612, 1},
+    {"Reloading cover", f613, 1},
+    {"Reloading cover\n%d of %d (%d%%)", f614, 1},
+    {"Remote", f615, 1},
+    {"Remote Control", f616, 1},
+    {"Remove", f617, 1},
+    {"Remove %s?", f618, 1},
+    {"Removed", f619, 1},
+    {"Removed from playlist", f620, 1},
+    {"Removed from queue", f621, 1},
+    {"Removes saved covers and extracts them again. This may take a while.", f622, 1},
+    {"Removing plugin", f623, 1},
+    {"Rename Playlist", f624, 1},
+    {"Rename Profile", f625, 1},
+    {"Replace", f626, 1},
+    {"Replace Existing", f627, 1},
+    {"Replace Profile", f628, 1},
+    {"ReplayGain", f629, 1},
+    {"Rescan", f630, 1},
+    {"Reset", f631, 1},
+    {"Reset PEQ to defaults?", f632, 1},
+    {"Reset all settings and reboot?", f633, 1},
+    {"Reset to defaults", f634, 1},
+    {"Restart", f635, 1},
+    {"Restart Now", f636, 1},
+    {"Restart now to apply the new hostname?", f637, 1},
+    {"Resume Last Track", f638, 1},
+    {"Resume and Play", f639, 1},
+    {"Resume playback when external power turns the player on.", f640, 1},
+    {"Resume, but Paused", f641, 1},
+    {"Retrying plugins %zu/%zu", f642, 1},
+    {"SD card checked", f643, 1},
+    {"SD card couldn't be read", f644, 1},
+    {"SD card format failed", f645, 1},
+    {"SD card formatted", f646, 1},
+    {"SD card is read-only. Check it on a computer", f647, 1},
+    {"SD card is still read-only", f648, 1},
+    {"SD card may have errors. Check it on a computer", f649, 1},
+    {"SD card not available", f650, 1},
+    {"SD card repair is still running", f651, 1},
+    {"SD card repaired", f652, 1},
+    {"SSID: %s", f653, 1},
+    {"Safe Charging (500mA)", f654, 1},
+    {"Sample Rate", f655, 1},
+    {"Saturday", f656, 1},
+    {"Save", f657, 1},
+    {"Save Profile", f658, 1},
+    {"Save Profile As", f659, 1},
+    {"Save Queue as Playlist", f660, 1},
+    {"Save as Playlist", f661, 1},
+    {"Save as a new profile, or replace one that already exists?", f662, 1},
+    {"Saved Servers", f663, 1},
+    {"Saved network", f664, 1},
+    {"Saved network details are being checked.", f665, 1},
+    {"Saving music database", f666, 1},
+    {"Saving music database\nThis can take a while on large libraries", f667, 1},
+    {"Saving playlist…", f668, 1},
+    {"Scan for music", f669, 1},
+    {"Scan with your phone to support Compás Player on PayPal", f670, 1},
+    {"Scanning for networks", f671, 1},
+    {"Screen Dimming", f672, 1},
+    {"Screen Timeout", f673, 1},
+    {"Screen off", f674, 1},
+    {"Screenshot failed (%s)", f675, 1},
+    {"Screenshot failed (framebuffer)", f676, 1},
+    {"Screenshot failed (worker)", f677, 1},
+    {"Screenshot needs an SD card", f678, 1},
+    {"Screenshot saved", f679, 1},
+    {"Screenshots (Power + Previous)", f680, 1},
+    {"Screenshots (Power + Vol Down)", f681, 1},
+    {"Screenshots unavailable", f682, 1},
+    {"Secondary DNS", f683, 1},
+    {"Secure connection failed. Check Wi-Fi and the date and time.", f684, 1},
+    {"Secured network", f685, 1},
+    {"Secured · Connected", f686, 1},
+    {"Select at least one plugin to continue.", f687, 1},
+    {"Selected plugins are ready.\n", f688, 1},
+    {"September", f689, 1},
+    {"Server URL (e.g. %s)", f690, 1},
+    {"Server URL: %s", f691, 1},
+    {"Server request timed out after 30 seconds", f692, 1},
+    {"Service is busy", f693, 1},
+    {"Set Time", f694, 1},
+    {"Set your local time zone so the clock is right.", f695, 1},
+    {"Settings", f696, 1},
+    {"Show Time Remaining", f697, 1},
+    {"Showing first %d of %d songs", f698, 1},
+    {"Shuffle from a random song", f699, 1},
+    {"Signal: %s", f700, 1},
+    {"Skip for now", f701, 1},
+    {"Skipped: %s", f702, 1},
+    {"Sleep", f703, 1},
+    {"Sleep Timer", f704, 1},
+    {"Sleep timer", f705, 1},
+    {"Sleep timer: %d min remaining", f706, 1},
+    {"Sleep timer: Off", f707, 1},
+    {"Small", f708, 1},
+    {"Some covers could not be refreshed", f709, 1},
+    {"Some playlists could not be read", f710, 1},
+    {"Some plugin files were changed on the card. Replace them?", f711, 1},
+    {"Some songs could not be read", f712, 1},
+    {"Some updates need confirmation before replacing local files.", f713, 1},
+    {"Song already added", f714, 1},
+    {"Song deleted", f715, 1},
+    {"Songs", f716, 1},
+    {"Sorting", f717, 1},
+    {"Sound", f718, 1},
+    {"Sound Effects", f719, 1},
+    {"Source", f720, 1},
+    {"Speex Resampling", f721, 1},
+    {"Start sequentially", f722, 1},
+    {"Start with these suggestions, or explore more plugins.", f723, 1},
+    {"Startup Volume", f724, 1},
+    {"Step %d of %d", f725, 1},
+    {"Stereo (2 channels)", f726, 1},
+    {"Still applying the previous choice", f727, 1},
+    {"Storage", f728, 1},
+    {"Stream Media", f729, 1},
+    {"Stream Quality", f730, 1},
+    {"Stream quality: %s", f731, 1},
+    {"Subfolder is relative to SD root (example: Music/Offline); empty uses SD root", f732, 1},
+    {"Subfolder: SD root", f733, 1},
+    {"Subsonic", f734, 1},
+    {"Sunday", f735, 1},
+    {"Suspend to RAM", f736, 1},
+    {"Swipe Up for Home", f737, 1},
+    {"Swipe up to unlock", f738, 1},
+    {"System", f739, 1},
+    {"System playlists", f740, 1},
+    {"Takes its color from the cover of the playing track", f741, 1},
+    {"Tap Power off again to confirm", f742, 1},
+    {"Tap Restart again to confirm", f743, 1},
+    {"The SD card changed during the download.", f744, 1},
+    {"The SD card changed during the operation.", f745, 1},
+    {"The SD card is read-only. Check its write protection.", f746, 1},
+    {"The download did not complete. Check Wi-Fi and try again.", f747, 1},
+    {"The downloaded image failed verification and was deleted.", f748, 1},
+    {"The playlist file will be deleted. Music files are kept.", f749, 1},
+    {"The plugin download failed verification. Try again.", f750, 1},
+    {"The quick brown fox jumps 123", f751, 1},
+    {"The release has no checksum for this device's image.", f752, 1},
+    {"The update file on the SD card changed. Download it again.", f753, 1},
+    {"There are no entries in this view.", f754, 1},
+    {"This device is now a USB sound card", f755, 1},
+    {"This device is now receiving Bluetooth audio", f756, 1},
+    {"This may take a while", f757, 1},
+    {"This permanently deletes everything on the card. This cannot be undone.", f758, 1},
+    {"This plugin has no update available.", f759, 1},
+    {"This plugin is already installed by the store.", f760, 1},
+    {"This plugin is not installed by the store.", f761, 1},
+    {"This plugin needs a newer player version.", f762, 1},
+    {"This release's image does not match its checksums. Try again after the next weekly release.", f763, 1},
+    {"Thread launch failed", f764, 1},
+    {"Thursday", f765, 1},
+    {"Time Zone", f766, 1},
+    {"Time remaining: %d:%02d", f767, 1},
+    {"Time remaining: %d:%02d:%02d", f768, 1},
+    {"Time zone", f769, 1},
+    {"Too many audio channels", f770, 1},
+    {"Too many plugins are installed. Remove one and try again.", f771, 1},
+    {"Track", f772, 1},
+    {"Track %+.1f dB", f773, 1},
+    {"Track %d", f774, 1},
+    {"Track details are not available yet. Keep playback open and check again.", f775, 1},
+    {"Tracks", f776, 1},
+    {"Tuesday", f777, 1},
+    {"Turn Bluetooth off and on to apply", f778, 1},
+    {"Turn off ADB first (Settings > System > USB Mode), then enable USB DAC from here.", f779, 1},
+    {"Turn off Automatic to set the clock", f780, 1},
+    {"Turn off Bluetooth DAC to play music on this device", f781, 1},
+    {"Turn off screen automatically", f782, 1},
+    {"Turn on Bluetooth to see paired and nearby devices.", f783, 1},
+    {"Turn on Wi-Fi and connect first", f784, 1},
+    {"Turn this on to see the address here.", f785, 1},
+    {"USB DAC", f786, 1},
+    {"USB DAC mode", f787, 1},
+    {"USB Mode", f788, 1},
+    {"USB audio device detected", f789, 1},
+    {"USB input: %s · %u-bit", f790, 1},
+    {"USB mode", f791, 1},
+    {"Unable to load items", f792, 1},
+    {"Unable to read folder (tap Back and retry)", f793, 1},
+    {"Unavailable", f794, 1},
+    {"Unexpected library response", f795, 1},
+    {"Unexpected reply from GitHub", f796, 1},
+    {"Unexpected reply from GitHub.", f797, 1},
+    {"Unknown album", f798, 1},
+    {"Unknown artist", f799, 1},
+    {"Unknown codec", f800, 1},
+    {"Unknown format", f801, 1},
+    {"Unknown rate", f802, 1},
+    {"Unsupported audio format", f803, 1},
+    {"Update", f804, 1},
+    {"Update & Reboot", f805, 1},
+    {"Update All", f806, 1},
+    {"Update Music Database", f807, 1},
+    {"Update Music Database to enable this album order", f808, 1},
+    {"Update available", f809, 1},
+    {"Update available · %s", f810, 1},
+    {"Update individually", f811, 1},
+    {"Update music database?", f812, 1},
+    {"Update these plugins individually", f813, 1},
+    {"Update using %s?\nDevice will reboot into recovery mode.", f814, 1},
+    {"Updates", f815, 1},
+    {"Updating\nmusic database...", f816, 1},
+    {"Updating plugins", f817, 1},
+    {"Upside Down Screen", f818, 1},
+    {"Use Settings > Update Music Database", f819, 1},
+    {"User playlists", f820, 1},
+    {"Username", f821, 1},
+    {"Username: %s", f822, 1},
+    {"Verify server certificate", f823, 1},
+    {"Version %s · %s", f824, 1},
+    {"Waiting for Bluetooth stream…", f825, 1},
+    {"Waiting for USB audio…", f826, 1},
+    {"Weak", f827, 1},
+    {"Web Server is busy", f828, 1},
+    {"Wednesday", f829, 1},
+    {"Weekly Beta %s is available.\nInstalled: %s\n\nDownload it now? This may take a while.", f830, 1},
+    {"Weekly Beta %s is downloaded and verified.\n\nInstall now? The device reboots into recovery to flash it. Do not turn it off until it restarts.", f831, 1},
+    {"Welcome to Compás", f832, 1},
+    {"When on, this device is visible to AirPlay senders on your Wi-Fi network -- stream audio from an iPhone, iPad, or Mac to be played through this device's own output.", f833, 1},
+    {"When on, this device is visible to DLNA/UPnP controller apps on your Wi-Fi network -- cast a track from one to play it here. Pause, mute, volume, and seek from the controller app aren't supported; use this device's own controls instead once a track starts.", f834, 1},
+    {"When on, this device stays visible and pairable to other Bluetooth devices, so a phone or computer can stream audio TO it and play through this device's own output -- using it as an external DAC.", f835, 1},
+    {"Wi-Fi", f836, 1},
+    {"Wi-Fi Info", f837, 1},
+    {"Wi-Fi Password", f838, 1},
+    {"Wi-Fi failed to change state", f839, 1},
+    {"Wi-Fi is busy", f840, 1},
+    {"Wireless", f841, 1},
+    {"You can select up to 32 plugins", f842, 1},
+    {"You have the latest weekly (%s).\n\nDownload and reinstall it anyway? This may take a while.", f843, 1},
+    {"Your library is being loaded.", f844, 1},
+    {"Your music", f845, 1},
+    {"Your setup journey", f846, 1},
+    {"[File truncated at %d KB -- showing the first part only]\n\n%s", f847, 1},
+    {"unknown", f848, 1},
 };
 
-static const char * const f850[] = {"%.0f Hz"};
-static const char * const f851[] = {"%d h"};
-static const char * const f852[] = {"%d h %d min"};
-static const char * const f853[] = {"%d min"};
-static const char * const f854[] = {"%d min restantes"};
-static const char * const f855[] = {"%d morceau", "%d morceaux"};
-static const char * const f856[] = {"%d piste", "%d pistes"};
-static const char * const f857[] = {"%d min"};
-static const char * const f858[] = {"%lld piste", "%lld pistes"};
-static const char * const f859[] = {"%llu octets"};
-static const char * const f860[] = {"%s (actuel)"};
-static const char * const f861[] = {"%s · Non chargé"};
-static const char * const f862[] = {"%s · Non chargé : limite atteinte"};
-static const char * const f863[] = {"%u canaux"};
-static const char * const f864[] = {"+ Nouvelle playlist"};
-static const char * const f865[] = {"Format 24 heures"};
-static const char * const f866[] = {"Référence 48 kHz"};
-static const char * const f867[] = {"Un fichier de plugin local sera remplacé. Confirmez pour continuer."};
-static const char * const f868[] = {"Un plugin téléchargé a échoué à la vérification. Réessayez."};
-static const char * const f869[] = {"Une opération sur les plugins est déjà en cours"};
-static const char * const f870[] = {"ADB"};
-static const char * const f871[] = {"À propos"};
-static const char * const f872[] = {"Couleur d'accent"};
-static const char * const f873[] = {"Ajoutez des fichiers .txt au dossier Livres, puis actualisez la bibliothèque."};
-static const char * const f874[] = {"Ajouter un morceau au hasard à la file"};
-static const char * const f875[] = {"Ajouter l'album à la file"};
-static const char * const f876[] = {"Ajouter un réseau masqué"};
-static const char * const f877[] = {"Ajoutez des morceaux depuis le menu d'un morceau."};
-static const char * const f878[] = {"Ajouter à une playlist"};
-static const char * const f879[] = {"Ajouter à la file"};
-static const char * const f880[] = {"%d morceau ajouté à la file", "%d morceaux ajoutés à la file"};
-static const char * const f881[] = {"Ajouté à la playlist"};
-static const char * const f882[] = {"Outils supplémentaires"};
-static const char * const f883[] = {"Avancé"};
-static const char * const f884[] = {"Afrique"};
-static const char * const f885[] = {"AirPlay"};
-static const char * const f886[] = {"AirPlay s'est arrêté de façon inattendue"};
-static const char * const f887[] = {"Album %+.1f dB"};
-static const char * const f888[] = {"Artiste de l'album"};
-static const char * const f889[] = {"Artiste de l'album - Album"};
-static const char * const f890[] = {"Artiste de l'album / Album"};
-static const char * const f891[] = {"Album indisponible"};
-static const char * const f892[] = {"Albums"};
-static const char * const f893[] = {"Albums (liste principale)"};
-static const char * const f894[] = {"Tous les morceaux"};
-static const char * const f895[] = {"Tous les réseaux visibles sont déjà enregistrés."};
-static const char * const f896[] = {"Déjà installé"};
-static const char * const f897[] = {"Amérique"};
-static const char * const f898[] = {"Une mise à jour est déjà en cours"};
-static const char * const f899[] = {"Une mise à jour est déjà en cours."};
-static const char * const f900[] = {"Vitesse d'animation"};
-static const char * const f901[] = {"Antarctique"};
-static const char * const f902[] = {"Apparence"};
-static const char * const f903[] = {"Appliqué %+.1f dB"};
-static const char * const f904[] = {"S'applique immédiatement"};
-static const char * const f905[] = {"S'applique au prochain lancement de l'appli"};
-static const char * const f906[] = {"S'applique aux nouvelles files en streaming"};
-static const char * const f907[] = {"Application de la langue, cela peut prendre un certain temps"};
-static const char * const f908[] = {"Application de la disposition, cela peut prendre un certain temps"};
-static const char * const f909[] = {"Les applis et navigateurs utilisant le PIN actuel auront besoin du nouveau pour se reconnecter."};
-static const char * const f910[] = {"avril"};
-static const char * const f911[] = {"Arctique"};
-static const char * const f912[] = {"Images d'artistes"};
-static const char * const f913[] = {"Artistes"};
-static const char * const f914[] = {"Asie"};
-static const char * const f915[] = {"Atlantique"};
-static const char * const f916[] = {"Audio"};
-static const char * const f917[] = {"Impossible de décoder l'audio"};
-static const char * const f918[] = {"Échec de la sortie audio"};
-static const char * const f919[] = {"août"};
-static const char * const f920[] = {"Australie"};
-static const char * const f921[] = {"Auto"};
-static const char * const f922[] = {"Reprise auto"};
-static const char * const f923[] = {"Automatique"};
-static const char * const f924[] = {"Automatique (44,1 kHz)"};
-static const char * const f925[] = {"Se mettre en veille automatiquement"};
-static const char * const f926[] = {"Disponible"};
-static const char * const f927[] = {"Appareils disponibles"};
-static const char * const f928[] = {"Réseaux disponibles"};
-static const char * const f929[] = {"Disponible · %s"};
-static const char * const f930[] = {"Retour"};
-static const char * const f931[] = {"Bande %d / %d"};
-static const char * const f932[] = {"Options de bande"};
-static const char * const f933[] = {"Pourcentage de batterie"};
-static const char * const f934[] = {"Débit"};
-static const char * const f935[] = {"Bluetooth"};
-static const char * const f936[] = {"DAC Bluetooth"};
-static const char * const f937[] = {"Mode DAC Bluetooth"};
-static const char * const f938[] = {"Synchro du volume Bluetooth"};
-static const char * const f939[] = {"Le Bluetooth est désactivé"};
-static const char * const f940[] = {"Démarrage du service de télécommande Bluetooth..."};
-static const char * const f941[] = {"Service de télécommande Bluetooth indisponible ; nouvelle tentative."};
-static const char * const f942[] = {"Bluetooth : Compas Remote Control"};
-static const char * const f943[] = {"Bluetooth : échec de l'enregistrement ; nouvelle tentative"};
-static const char * const f944[] = {"Bluetooth : en attente de l'enregistrement du service"};
-static const char * const f945[] = {"Livres"};
-static const char * const f946[] = {"Livres actualisés"};
-static const char * const f947[] = {"Créer"};
-static const char * const f948[] = {"La créer maintenant ? Cela peut prendre un certain temps pour les grandes bibliothèques."};
-static const char * const f949[] = {"Boutons et télécommande"};
-static const char * const f950[] = {"Offrez-moi un café"};
-static const char * const f951[] = {"Par %s"};
-static const char * const f952[] = {"Annuler"};
-static const char * const f953[] = {"Impossible de vérifier l’accès en écriture au stockage des plugins."};
-static const char * const f954[] = {"Impossible de supprimer la playlist"};
-static const char * const f955[] = {"Impossible de charger les pistes de l'album"};
-static const char * const f956[] = {"Impossible de déplacer cet élément"};
-static const char * const f957[] = {"Impossible de lire le dossier"};
-static const char * const f958[] = {"GitHub est inaccessible. Vérifiez la connexion Wi-Fi."};
-static const char * const f959[] = {"Impossible de lire la playlist"};
-static const char * const f960[] = {"Impossible de lire la carte SD."};
-static const char * const f961[] = {"Impossible de lire le fichier de mise à jour sur la carte SD. Vérifiez la carte et réessayez."};
-static const char * const f962[] = {"Impossible de lire l'enregistrement de mise à jour sur la carte SD. Vérifiez la carte et réessayez."};
-static const char * const f963[] = {"Impossible de lire l’état de l’assistant de mise à jour : %s"};
-static const char * const f964[] = {"Impossible de supprimer l'élément"};
-static const char * const f965[] = {"Renommage impossible : nom invalide ou fichier existant"};
-static const char * const f966[] = {"Impossible de réorganiser la playlist"};
-static const char * const f967[] = {"Impossible d'enregistrer la playlist"};
-static const char * const f968[] = {"Enregistrement impossible : éléments invalides ou en streaming"};
-static const char * const f969[] = {"Impossible de démarrer la file"};
-static const char * const f970[] = {"Mode voiture"};
-static const char * const f971[] = {"Volume du mode voiture"};
-static const char * const f972[] = {"Le mode voiture est désactivé."};
-static const char * const f973[] = {"Canaux"};
-static const char * const f974[] = {"Limite de charge (85 %)"};
-static const char * const f975[] = {"Chargez à au moins %d%% ou branchez l'alimentation avant la mise à jour."};
-static const char * const f976[] = {"Chargez à au moins 30%% ou branchez l’alimentation avant la mise à jour."};
-static const char * const f977[] = {"Charge"};
-static const char * const f978[] = {"Rechercher une mise à jour en ligne"};
-static const char * const f979[] = {"Vérifiez que le Wi-Fi est activé, puis relancez la recherche."};
-static const char * const f980[] = {"Recherche de mises à jour"};
-static const char * const f981[] = {"Vérification de la carte SD. Cela peut prendre un certain temps"};
-static const char * const f982[] = {"Vérification du fichier sur la carte SD"};
-static const char * const f983[] = {"Choisissez une langue"};
-static const char * const f984[] = {"Choisir des plugins"};
-static const char * const f985[] = {"Choisissez la langue de votre lecteur."};
-static const char * const f986[] = {"Choisir un fuseau horaire"};
-static const char * const f987[] = {"Choisissez l'action en cas d'inactivité :"};
-static const char * const f988[] = {"Vider la file"};
-static const char * const f989[] = {"Horloge"};
-static const char * const f990[] = {"Fermer"};
-static const char * const f991[] = {"Fermeture du\nserveur web..."};
-static const char * const f992[] = {"Codec"};
-static const char * const f993[] = {"Réponse combinée (dB)"};
-static const char * const f994[] = {"Réponse combinée (dB) · EQ désactivé"};
-static const char * const f995[] = {"Compás Player"};
-static const char * const f996[] = {"Connecter"};
-static const char * const f997[] = {"Connecter et parcourir"};
-static const char * const f998[] = {"Connectez un appareil pour voir ses fréquences prises en charge"};
-static const char * const f999[] = {"Connectez-vous par Wi-Fi ou Bluetooth pour voir la lecture en cours, la contrôler et parcourir votre bibliothèque. Saisissez ce PIN quand l'appli ou le navigateur le demande ; le Bluetooth nécessite aussi un appairage."};
-static const char * const f1000[] = {"Se connecter au Wi-Fi"};
-static const char * const f1001[] = {"Connectez-vous d'abord au Wi-Fi"};
-static const char * const f1002[] = {"Connectez-vous au Wi-Fi pour le streaming, les mises à jour et les services en ligne."};
-static const char * const f1003[] = {"Connectez-vous à un réseau Wi-Fi pour continuer."};
-static const char * const f1004[] = {"Connectez-vous à un réseau pour télécharger des plugins."};
-static const char * const f1005[] = {"Connectez-vous par l'une des voies disponibles :"};
-static const char * const f1006[] = {"Connecté"};
-static const char * const f1007[] = {"Connexion"};
-static const char * const f1008[] = {"Connexion à"};
-static const char * const f1009[] = {"Connexion au serveur..."};
-static const char * const f1010[] = {"PIN de connexion"};
-static const char * const f1011[] = {"Échec de la connexion"};
-static const char * const f1012[] = {"La connexion a expiré après 30 secondes"};
-static const char * const f1013[] = {"Conteneur"};
-static const char * const f1014[] = {"Continuer"};
-static const char * const f1015[] = {"Continuer la configuration"};
-static const char * const f1016[] = {"Impossible d'appliquer la taille de police"};
-static const char * const f1017[] = {"Impossible d'appliquer la taille du texte des paroles"};
-static const char * const f1018[] = {"Impossible de télécharger les sommes de contrôle de la version."};
-static const char * const f1019[] = {"Impossible d'entrer en mode de récupération."};
-static const char * const f1020[] = {"Impossible de générer un nouveau PIN"};
-static const char * const f1021[] = {"Impossible d'installer un plugin sur la carte SD."};
-static const char * const f1022[] = {"Impossible d'installer le plugin sur la carte SD."};
-static const char * const f1023[] = {"Impossible de charger la photo de verrouillage"};
-static const char * const f1024[] = {"Impossible de charger le catalogue des plugins."};
-static const char * const f1025[] = {"Impossible de charger le catalogue des plugins. Touchez Plus pour réessayer."};
-static const char * const f1026[] = {"Impossible de mettre de côté les autres fichiers .upt de la carte SD."};
-static const char * const f1027[] = {"Impossible d'ouvrir ce fichier."};
-static const char * const f1028[] = {"Impossible de placer la mise à jour sur la carte SD."};
-static const char * const f1029[] = {"Impossible de préparer la suppression du plugin."};
-static const char * const f1030[] = {"Impossible de préparer l’assistant de mise à jour : %s"};
-static const char * const f1031[] = {"Impossible de lire les plugins installés."};
-static const char * const f1032[] = {"Impossible de lire le dossier Livres"};
-static const char * const f1033[] = {"Impossible de lire la liste des plugins sur GitHub."};
-static const char * const f1034[] = {"Impossible de lire la liste des versions sur GitHub."};
-static const char * const f1035[] = {"Impossible d'enregistrer la mise à jour vérifiée sur la carte SD."};
-static const char * const f1036[] = {"Impossible d'actualiser les livres"};
-static const char * const f1037[] = {"Impossible de recharger la pochette"};
-static const char * const f1038[] = {"Impossible de supprimer un fichier de plugin."};
-static const char * const f1039[] = {"Impossible de réparer la carte SD"};
-static const char * const f1040[] = {"Impossible d'enregistrer le codec Bluetooth"};
-static const char * const f1041[] = {"Impossible de changer le mode USB"};
-static const char * const f1042[] = {"Impossible de lancer l’actualisation du catalogue des plugins."};
-static const char * const f1043[] = {"Impossible de lancer le téléchargement"};
-static const char * const f1044[] = {"Impossible de lancer le téléchargement."};
-static const char * const f1045[] = {"Impossible de lancer l'installation."};
-static const char * const f1046[] = {"Impossible de lancer l’analyse de la bibliothèque. Veuillez réessayer."};
-static const char * const f1047[] = {"Impossible de lancer l’opération sur le plugin"};
-static const char * const f1048[] = {"Impossible de lancer l'opération sur le plugin."};
-static const char * const f1049[] = {"Impossible de lancer l’actualisation du catalogue"};
-static const char * const f1050[] = {"Impossible de lancer l'actualisation des plugins."};
-static const char * const f1051[] = {"Impossible de lancer la mise à jour du plugin."};
-static const char * const f1052[] = {"Impossible de lancer la recherche de mise à jour."};
-static const char * const f1053[] = {"Impossible de démarrer l’assistant de mise à jour : %s"};
-static const char * const f1054[] = {"Impossible de mettre à jour l'enregistrement des plugins installés."};
-static const char * const f1055[] = {"Connexion au réseau Wi-Fi impossible"};
-static const char * const f1056[] = {"Impossible de lire ce fichier .cue"};
-static const char * const f1057[] = {"Enregistrement impossible -- la modification du plugin n'a pas été appliquée"};
-static const char * const f1058[] = {"Pochette rechargée"};
-static const char * const f1059[] = {"Pochettes actualisées"};
-static const char * const f1060[] = {"Créez une playlist ci-dessus ou copiez-en une dans le dossier Playlists de la carte SD."};
-static const char * const f1061[] = {"Crossfade"};
-static const char * const f1062[] = {"Perso"};
-static const char * const f1063[] = {"Couleur perso"};
-static const char * const f1064[] = {"Les polices perso ne concernent que le texte latin."};
-static const char * const f1065[] = {"DAC"};
-static const char * const f1066[] = {"Chemin DAC : %s · %u bits"};
-static const char * const f1067[] = {"DLNA"};
-static const char * const f1068[] = {"Rendu DLNA"};
-static const char * const f1069[] = {"Réglages DNS"};
-static const char * const f1070[] = {"décembre"};
-static const char * const f1071[] = {"Par défaut (intégrée)"};
-static const char * const f1072[] = {"Supprimer"};
-static const char * const f1073[] = {"Supprimer %s ?\nCette action est irréversible."};
-static const char * const f1074[] = {"Supprimer la playlist"};
-static const char * const f1075[] = {"Supprimer la playlist ?"};
-static const char * const f1076[] = {"Supprimer ce profil ?"};
-static const char * const f1077[] = {"Options pour développeurs"};
-static const char * const f1078[] = {"Atténuer l'écran avant l'extinction"};
-static const char * const f1079[] = {"Disque %d"};
-static const char * const f1080[] = {"Disque %d / Piste %d"};
-static const char * const f1081[] = {"Déconnecter"};
-static const char * const f1082[] = {"Déconnectez d'abord le stockage USB"};
-static const char * const f1083[] = {"Déconnectez le stockage USB de l’ordinateur avant de modifier les plugins."};
-static const char * const f1084[] = {"Ignorer"};
-static const char * const f1085[] = {"Affichage"};
-static const char * const f1086[] = {"Terminé"};
-static const char * const f1087[] = {"Télécharger"};
-static const char * const f1088[] = {"Télécharger \"%s\" ?"};
-static const char * const f1089[] = {"Profils de téléchargement"};
-static const char * const f1090[] = {"Réglages de téléchargement"};
-static const char * const f1091[] = {"Télécharger tous les albums de \"%s\" ?"};
-static const char * const f1092[] = {"Échec du téléchargement"};
-static const char * const f1093[] = {"Dossier de téléchargement : %s"};
-static const char * const f1094[] = {"Dossier de téléchargement : racine SD"};
-static const char * const f1095[] = {"Profils de téléchargement"};
-static const char * const f1096[] = {"Réglages de téléchargement"};
-static const char * const f1097[] = {"Sous-dossier de téléchargement"};
-static const char * const f1098[] = {"Téléchargement"};
-static const char * const f1099[] = {"Téléchargement de\n%s..."};
-static const char * const f1100[] = {"Téléchargement et installation des plugins %zu/%zu"};
-static const char * const f1101[] = {"Téléchargement de la mise à jour"};
-static const char * const f1102[] = {"Curseur de volume du tiroir"};
-static const char * const f1103[] = {"Durée"};
-static const char * const f1104[] = {"EQ"};
-static const char * const f1105[] = {"Courbe EQ"};
-static const char * const f1106[] = {"Modifier"};
-static const char * const f1107[] = {"Modifier / OK"};
-static const char * const f1108[] = {"Activer le DAC Bluetooth"};
-static const char * const f1109[] = {"Activez le Bluetooth dans les paramètres pour utiliser le mode DAC BT"};
-static const char * const f1110[] = {"Activer la minuterie d'arrêt"};
-static const char * const f1111[] = {"Activez le Wi-Fi ou le Bluetooth pour vous connecter."};
-static const char * const f1112[] = {"Activez le Wi-Fi pour accéder"};
-static const char * const f1113[] = {"Activer la bande"};
-static const char * const f1114[] = {"Activer le journal de débogage"};
-static const char * const f1115[] = {"Égaliseur"};
-static const char * const f1116[] = {"Effacer et formater la carte SD ?"};
-static const char * const f1117[] = {"Europe"};
-static const char * const f1118[] = {"Excellent"};
-static const char * const f1119[] = {"Quittez le mode DAC USB pour lire de la musique sur cet appareil"};
-static const char * const f1120[] = {"Réinitialisation d'usine"};
-static const char * const f1121[] = {"Plugins en échec :\n"};
-static const char * const f1122[] = {"Échec de l'ajout à la playlist"};
-static const char * const f1123[] = {"Échec de l'application du fuseau horaire"};
-static const char * const f1124[] = {"Échec de la connexion au serveur"};
-static const char * const f1125[] = {"Échec de la création de la playlist"};
-static const char * const f1126[] = {"Échec de la suppression du profil"};
-static const char * const f1127[] = {"Échec de l'activation d'AirPlay"};
-static const char * const f1128[] = {"Échec du chargement des artistes"};
-static const char * const f1129[] = {"Échec du chargement des artistes : %s"};
-static const char * const f1130[] = {"Échec du chargement de la police. Vérifiez le format et la mémoire."};
-static const char * const f1131[] = {"Échec du chargement depuis le serveur"};
-static const char * const f1132[] = {"Échec du chargement du profil"};
-static const char * const f1133[] = {"Échec du renommage du profil"};
-static const char * const f1134[] = {"Échec de l'enregistrement du profil"};
-static const char * const f1135[] = {"Échec du lancement de la connexion"};
-static const char * const f1136[] = {"Échec du passage à %s"};
-static const char * const f1137[] = {"Échec du changement d'état du Bluetooth"};
-static const char * const f1138[] = {"Moyen"};
-static const char * const f1139[] = {"Favoris"};
-static const char * const f1140[] = {"février"};
-static const char * const f1141[] = {"Taille du fichier"};
-static const char * const f1142[] = {"Fichier indisponible"};
-static const char * const f1143[] = {"Fichiers"};
-static const char * const f1144[] = {"Fichiers (dossiers en premier)"};
-static const char * const f1145[] = {"Les fichiers de la carte ont peut-être changé."};
-static const char * const f1146[] = {"Les fichiers utilisent la date de modification. Les albums utilisent la piste ajoutée la plus récente ; les années de sortie manquantes passent en dernier. Mettez à jour la base musicale une fois pour lire les années des fichiers existants."};
-static const char * const f1147[] = {"Type de filtre"};
-static const char * const f1148[] = {"Mise à jour du firmware"};
-static const char * const f1149[] = {"Neutre"};
-static const char * const f1150[] = {"Organisation des dossiers des albums téléchargés"};
-static const char * const f1151[] = {"Dossier trop volumineux à indexer (appuyez sur Retour)"};
-static const char * const f1152[] = {"Police"};
-static const char * const f1153[] = {"Taille de police"};
-static const char * const f1154[] = {"Le choix de la police n'est plus disponible"};
-static const char * const f1155[] = {"Oublier"};
-static const char * const f1156[] = {"Formater"};
-static const char * const f1157[] = {"Formater la carte SD"};
-static const char * const f1158[] = {"Formatage de\nla carte SD..."};
-static const char * const f1159[] = {"Fréquence"};
-static const char * const f1160[] = {"Fréquence (Hz, 20 à 20000)"};
-static const char * const f1161[] = {"vendredi"};
-static const char * const f1162[] = {"Selon la pochette"};
-static const char * const f1163[] = {"Selon la pochette (sans pochette, couleur perso)"};
-static const char * const f1164[] = {"Gain"};
-static const char * const f1165[] = {"Gain (dB, -12 à 12)"};
-static const char * const f1166[] = {"Gapless"};
-static const char * const f1167[] = {"Passerelle : %s"};
-static const char * const f1168[] = {"Générer"};
-static const char * const f1169[] = {"Générer un nouveau PIN ?"};
-static const char * const f1170[] = {"Genres"};
-static const char * const f1171[] = {"Gestes et orientation"};
-static const char * const f1172[] = {"Commencer"};
-static const char * const f1173[] = {"GitHub n'a pas répondu à temps. Réessayez."};
-static const char * const f1174[] = {"GitHub limite les requêtes. Réessayez plus tard."};
-static const char * const f1175[] = {"GitHub a renvoyé HTTP %d."};
-static const char * const f1176[] = {"Revenez en arrière et choisissez Nouvelle connexion pour en ajouter un."};
-static const char * const f1177[] = {"Bon"};
-static const char * const f1178[] = {"Le casque peut se déconnecter, une reconnexion manuelle peut être nécessaire"};
-static const char * const f1179[] = {"Masquer la barre du haut Lecteur/Paroles"};
-static const char * const f1180[] = {"Masquer les appareils sans nom"};
-static const char * const f1181[] = {"Haut"};
-static const char * const f1182[] = {"Haute (320 kbit/s)"};
-static const char * const f1183[] = {"Nom d'hôte"};
-static const char * const f1184[] = {"Le nom d'hôte ne peut contenir que des lettres, chiffres et tirets"};
-static const char * const f1185[] = {"Adresse IP : %s"};
-static const char * const f1186[] = {"Arrêt en veille"};
-static const char * const f1187[] = {"Délai d'inactivité :"};
-static const char * const f1188[] = {"Importer"};
-static const char * const f1189[] = {"Importer par Wi-Fi"};
-static const char * const f1190[] = {"Télécommande filaire"};
-static const char * const f1191[] = {"Indien"};
-static const char * const f1192[] = {"Informations"};
-static const char * const f1193[] = {"Insérez une carte SD pour modifier les plugins."};
-static const char * const f1194[] = {"Insérez une carte SD pour télécharger la mise à jour."};
-static const char * const f1195[] = {"Insérez une carte SD pour installer des plugins."};
-static const char * const f1196[] = {"Insérez une carte SD pour supprimer des plugins."};
-static const char * const f1197[] = {"Insérez une carte SD pour rechercher de la musique, ou désactivez la recherche de musique."};
-static const char * const f1198[] = {"Insérez une carte SD pour mettre à jour des plugins."};
-static const char * const f1199[] = {"Insérez votre carte SD contenant de la musique. Compas Player peut l’analyser et créer votre bibliothèque."};
-static const char * const f1200[] = {"Installer"};
-static const char * const f1201[] = {"Installer et redémarrer"};
-static const char * const f1202[] = {"Installer depuis la carte SD"};
-static const char * const f1203[] = {"Installé"};
-static const char * const f1204[] = {"Installé manuellement"};
-static const char * const f1205[] = {"Installé · %s"};
-static const char * const f1206[] = {"Installation du plugin"};
-static const char * const f1207[] = {"Dossier de téléchargement invalide"};
-static const char * const f1208[] = {"Nom de dossier de téléchargement invalide"};
-static const char * const f1209[] = {"Nom de profil invalide"};
-static const char * const f1210[] = {"Impossible de la charger. La reconstruire maintenant ?"};
-static const char * const f1211[] = {"Elle n'a peut-être pas de table de partitions ou utilise un système de fichiers que ce lecteur ne gère pas. Le formatage l'effacera et la préparera pour ce lecteur."};
-static const char * const f1212[] = {"Ses réglages restent sur la carte."};
-static const char * const f1213[] = {"janvier"};
-static const char * const f1214[] = {"juillet"};
-static const char * const f1215[] = {"juin"};
-static const char * const f1216[] = {"Qualité LDAC"};
-static const char * const f1217[] = {"LDAC standard"};
-static const char * const f1218[] = {"LDAC en mode DAC (expérimental)"};
-static const char * const f1219[] = {"Voyant LED de charge"};
-static const char * const f1220[] = {"Langue"};
-static const char * const f1221[] = {"Grand"};
-static const char * const f1222[] = {"Plus tard"};
-static const char * const f1223[] = {"Démarrer à un volume fixe"};
-static const char * const f1224[] = {"Disposition"};
-static const char * const f1225[] = {"Quitter"};
-static const char * const f1226[] = {"Quitter le mode DAC Bluetooth ?"};
-static const char * const f1227[] = {"Quitter le mode DAC USB ?"};
-static const char * const f1228[] = {"Quittez cette vue et réessayez."};
-static const char * const f1229[] = {"Bibliothèque"};
-static const char * const f1230[] = {"Bibliothèque modifiée. Rouvrez l'album."};
-static const char * const f1231[] = {"Bibliothèque occupée"};
-static const char * const f1232[] = {"Bibliothèque chargée"};
-static const char * const f1233[] = {"Bibliothèque migrée. Favoris et historique conservés"};
-static const char * const f1234[] = {"Bibliothèque migrée. Le nettoyage de l'ancienne base sera retenté"};
-static const char * const f1235[] = {"Échec de la migration. Ancienne bibliothèque intacte. Utilisez Paramètres > Mettre à jour la base musicale pour réessayer"};
-static const char * const f1236[] = {"Migration de la bibliothèque en attente. Les favoris et l'historique seront conservés"};
-static const char * const f1237[] = {"Bibliothèque récupérée et enregistrée"};
-static const char * const f1238[] = {"Bibliothèque récupérée et enregistrée, certains dossiers illisibles"};
-static const char * const f1239[] = {"Bibliothèque récupérée. Utilisez Paramètres > Mettre à jour la base musicale pour l'enregistrer"};
-static const char * const f1240[] = {"Bibliothèque indisponible. Utilisez Paramètres > Mettre à jour la base musicale pour la reconstruire"};
-static const char * const f1241[] = {"Échec de la mise à jour. Vérifiez la carte SD et réessayez"};
-static const char * const f1242[] = {"Bibliothèque mise à jour"};
-static const char * const f1243[] = {"Bibliothèque mise à jour, certains dossiers illisibles"};
-static const char * const f1244[] = {"Charger les pochettes pendant la lecture (expérimental)"};
-static const char * const f1245[] = {"Chargement des réglages Wi-Fi"};
-static const char * const f1246[] = {"Chargement depuis le serveur..."};
-static const char * const f1247[] = {"Chargement des dispositions"};
-static const char * const f1248[] = {"Chargement du catalogue des plugins…"};
-static const char * const f1249[] = {"Chargement des plugins"};
-static const char * const f1250[] = {"Chargement des pistes..."};
-static const char * const f1251[] = {"Chargement..."};
-static const char * const f1252[] = {"Emplacement"};
-static const char * const f1253[] = {"Recherche des fichiers musicaux"};
-static const char * const f1254[] = {"Recherche des fichiers musicaux\n%d éléments vérifiés"};
-static const char * const f1255[] = {"Bas"};
-static const char * const f1256[] = {"Bas\nHaut"};
-static const char * const f1257[] = {"Basse (96 kbit/s)"};
-static const char * const f1258[] = {"Paroles"};
-static const char * const f1259[] = {"Taille du texte des paroles"};
-static const char * const f1260[] = {"Adresse MAC : %s"};
-static const char * const f1261[] = {"Maintenance"};
-static const char * const f1262[] = {"Rendez un accessoire détectable, puis touchez Relancer."};
-static const char * const f1263[] = {"Gérez les plugins plus tard dans Paramètres > Système > Gestionnaire de plugins pour les rechercher, les mettre à jour ou les supprimer."};
-static const char * const f1264[] = {"Saisie manuelle du SSID"};
-static const char * const f1265[] = {"mars"};
-static const char * const f1266[] = {"Selon la pochette"};
-static const char * const f1267[] = {"mai"};
-static const char * const f1268[] = {"Moyen"};
-static const char * const f1269[] = {"Moyenne (192 kbit/s)"};
-static const char * const f1270[] = {"Réseaux mémorisés"};
-static const char * const f1271[] = {"Métadonnées actualisées"};
-static const char * const f1272[] = {"Migration de la\nbase musicale..."};
-static const char * const f1273[] = {"lundi"};
-static const char * const f1274[] = {"Mono (1 canal)"};
-static const char * const f1275[] = {"Plus"};
-static const char * const f1276[] = {"Les plus écoutés"};
-static const char * const f1277[] = {"Musique"};
-static const char * const f1278[] = {"Base musicale indisponible"};
-static const char * const f1279[] = {"Nom (A-Z)"};
-static const char * const f1280[] = {"DSD natif (DoP) / %.4g MHz"};
-static const char * const f1281[] = {"Les réseaux Wi-Fi à proximité apparaîtront ici."};
-static const char * const f1282[] = {"Firmware plus récent requis"};
-static const char * const f1283[] = {"Nom du réseau (SSID)"};
-static const char * const f1284[] = {"Flux réseau"};
-static const char * const f1285[] = {"Les réseaux auxquels vous vous connectez apparaîtront ici."};
-static const char * const f1286[] = {"Nouvelle connexion"};
-static const char * const f1287[] = {"Nouveau PIN généré"};
-static const char * const f1288[] = {"Nouveau profil"};
-static const char * const f1289[] = {"Modifiés récemment"};
-static const char * const f1290[] = {"Suivant"};
-static const char * const f1291[] = {"Suivant  ·  %d-%d sur %d"};
-static const char * const f1292[] = {"Page suivante"};
-static const char * const f1293[] = {"Aucune police .ttf trouvée dans /Fonts"};
-static const char * const f1294[] = {"Aucun fichier firmware .upt trouvé sur la carte SD"};
-static const char * const f1295[] = {"Pas de carte SD"};
-static const char * const f1296[] = {"Aucune carte SD détectée. Vous pourrez lancer l’analyse plus tard dans les réglages de la bibliothèque."};
-static const char * const f1297[] = {"Aucun livre trouvé"};
-static const char * const f1298[] = {"Aucun élément à afficher"};
-static const char * const f1299[] = {"Aucun favori pour l'instant"};
-static const char * const f1300[] = {"Aucun élément"};
-static const char * const f1301[] = {"Aucun réseau mémorisé"};
-static const char * const f1302[] = {"Aucune base musicale"};
-static const char * const f1303[] = {"Aucun appareil à proximité"};
-static const char * const f1304[] = {"Aucun réseau détecté"};
-static const char * const f1305[] = {"Aucun réseau détecté. Connectez-vous à un réseau pour télécharger des plugins."};
-static const char * const f1306[] = {"Aucun réseau trouvé"};
-static const char * const f1307[] = {"Aucun autre réseau trouvé"};
-static const char * const f1308[] = {"Aucun appareil associé"};
-static const char * const f1309[] = {"Aucun fichier audio lisible trouvé"};
-static const char * const f1310[] = {"Aucun fichier lisible ici"};
-static const char * const f1311[] = {"Aucun réglage de plugin disponible"};
-static const char * const f1312[] = {"Aucun plugin disponible dans le catalogue."};
-static const char * const f1313[] = {"Aucun profil enregistré"};
-static const char * const f1314[] = {"Aucun serveur enregistré"};
-static const char * const f1315[] = {"Aucun morceau à actualiser"};
-static const char * const f1316[] = {"Aucune parole synchronisée trouvée"};
-static const char * const f1317[] = {"Aucune piste chargée"};
-static const char * const f1318[] = {"Aucune piste trouvée"};
-static const char * const f1319[] = {"Aucune playlist personnelle"};
-static const char * const f1320[] = {"Aucune mise à jour vérifiée sur cette carte SD. Téléchargez-la de nouveau."};
-static const char * const f1321[] = {"Non connecté"};
-static const char * const f1322[] = {"Espace libre insuffisant sur la carte SD pour la mise à jour."};
-static const char * const f1323[] = {"Espace libre insuffisant sur la carte SD."};
-static const char * const f1324[] = {"Mémoire insuffisante pour se connecter"};
-static const char * const f1325[] = {"Mémoire insuffisante pour charger les pistes CUE"};
-static const char * const f1326[] = {"Mémoire insuffisante pour charger les artistes"};
-static const char * const f1327[] = {"Mémoire insuffisante pour charger depuis le serveur"};
-static const char * const f1328[] = {"Mémoire insuffisante pour charger la boutique de plugins"};
-static const char * const f1329[] = {"Mémoire insuffisante pour lancer le téléchargement"};
-static const char * const f1330[] = {"Non sélectionné (UTC)"};
-static const char * const f1331[] = {"Non défini"};
-static const char * const f1332[] = {"novembre"};
-static const char * const f1333[] = {"OFF"};
-static const char * const f1334[] = {"ON"};
-static const char * const f1335[] = {"octobre"};
-static const char * const f1336[] = {"Désactivé"};
-static const char * const f1337[] = {"Activé"};
-static const char * const f1338[] = {"Ouvrez un livre et touchez l'icône de signet pour l'enregistrer ici."};
-static const char * const f1339[] = {"Ouvrez un dossier contenant des fichiers audio pris en charge."};
-static const char * const f1340[] = {"Réseau ouvert"};
-static const char * const f1341[] = {"Ouvrez cette adresse sur votre téléphone ou ordinateur :"};
-static const char * const f1342[] = {"Ouvert · Connecté"};
-static const char * const f1343[] = {"Original"};
-static const char * const f1344[] = {"Sortie"};
-static const char * const f1345[] = {"PEQ rétabli par défaut"};
-static const char * const f1346[] = {"Pacifique"};
-static const char * const f1347[] = {"Associé"};
-static const char * const f1348[] = {"Appareils associés"};
-static const char * const f1349[] = {"EQ paramétrique"};
-static const char * const f1350[] = {"Mot de passe"};
-static const char * const f1351[] = {"Mot de passe : non défini"};
-static const char * const f1352[] = {"Mot de passe : défini"};
-static const char * const f1353[] = {"En pause : casque débranché"};
-static const char * const f1354[] = {"Pic\nShelf grave\nShelf aigu"};
-static const char * const f1355[] = {"Par album"};
-static const char * const f1356[] = {"Par piste"};
-static const char * const f1357[] = {"Placez les polices .ttf dans le dossier /Fonts de la carte SD."};
-static const char * const f1358[] = {"Tout lire"};
-static const char * const f1359[] = {"Lire ensuite"};
-static const char * const f1360[] = {"Tout lire en aléatoire"};
-static const char * const f1361[] = {"Lisez un album ou une playlist pour voir ses morceaux ici."};
-static const char * const f1362[] = {"Lire dans l'ordre"};
-static const char * const f1363[] = {"Lecture/Pause"};
-static const char * const f1364[] = {"Lecture/Pause + Piste précédente (double clic)"};
-static const char * const f1365[] = {"Bouton Lecture/Pause"};
-static const char * const f1366[] = {"Lecture et commandes"};
-static const char * const f1367[] = {"Actions de lecture et de l'appareil"};
-static const char * const f1368[] = {"Erreur de lecture"};
-static const char * const f1369[] = {"Erreur de lecture : échec de la sortie audio"};
-static const char * const f1370[] = {"Impossible d'enregistrer l'historique de lecture"};
-static const char * const f1371[] = {"Lecture arrêtée : %s"};
-static const char * const f1372[] = {"Lu"};
-static const char * const f1373[] = {"Disposition du lecteur"};
-static const char * const f1374[] = {"En lecture"};
-static const char * const f1375[] = {"Nom de la playlist"};
-static const char * const f1376[] = {"Playlist modifiée. Sélectionnez de nouveau un morceau."};
-static const char * const f1377[] = {"Playlist modifiée. Réessayez."};
-static const char * const f1378[] = {"Playlist créée"};
-static const char * const f1379[] = {"Playlist supprimée"};
-static const char * const f1380[] = {"La playlist est vide"};
-static const char * const f1381[] = {"Playlist renommée"};
-static const char * const f1382[] = {"Playlist enregistrée"};
-static const char * const f1383[] = {"Playlist indisponible ou illisible"};
-static const char * const f1384[] = {"Playlists"};
-static const char * const f1385[] = {"Playlists actualisées"};
-static const char * const f1386[] = {"Veuillez attendre la fin de l’installation des plugins"};
-static const char * const f1387[] = {"Veuillez attendre la fin de l’analyse de la bibliothèque"};
-static const char * const f1388[] = {"Plugin"};
-static const char * const f1389[] = {"Gestionnaire de plugins"};
-static const char * const f1390[] = {"Réglages du plugin"};
-static const char * const f1391[] = {"Boutique de plugins"};
-static const char * const f1392[] = {"Le plugin est indisponible dans le catalogue"};
-static const char * const f1393[] = {"Échec de l'opération sur le plugin"};
-static const char * const f1394[] = {"Configuration des plugins terminée"};
-static const char * const f1395[] = {"La configuration des plugins nécessite votre attention"};
-static const char * const f1396[] = {"Le stockage des plugins est indisponible."};
-static const char * const f1397[] = {"Plugins"};
-static const char * const f1398[] = {"Position"};
-static const char * const f1399[] = {"Alimentation"};
+static const char * const f849[] = {"%.0f Hz"};
+static const char * const f850[] = {"%d h"};
+static const char * const f851[] = {"%d h %d min"};
+static const char * const f852[] = {"%d min"};
+static const char * const f853[] = {"%d min restantes"};
+static const char * const f854[] = {"%d morceau", "%d morceaux"};
+static const char * const f855[] = {"%d piste", "%d pistes"};
+static const char * const f856[] = {"%d min"};
+static const char * const f857[] = {"%lld piste", "%lld pistes"};
+static const char * const f858[] = {"%llu octets"};
+static const char * const f859[] = {"%s (actuel)"};
+static const char * const f860[] = {"%s · Non chargé"};
+static const char * const f861[] = {"%s · Non chargé : limite atteinte"};
+static const char * const f862[] = {"%u canaux"};
+static const char * const f863[] = {"+ Nouvelle playlist"};
+static const char * const f864[] = {"Format 24 heures"};
+static const char * const f865[] = {"Référence 48 kHz"};
+static const char * const f866[] = {"Un fichier de plugin local sera remplacé. Confirmez pour continuer."};
+static const char * const f867[] = {"Un plugin téléchargé a échoué à la vérification. Réessayez."};
+static const char * const f868[] = {"Une opération sur les plugins est déjà en cours"};
+static const char * const f869[] = {"ADB"};
+static const char * const f870[] = {"À propos"};
+static const char * const f871[] = {"Couleur d'accent"};
+static const char * const f872[] = {"Ajoutez des fichiers .txt au dossier Livres, puis actualisez la bibliothèque."};
+static const char * const f873[] = {"Ajouter un morceau au hasard à la file"};
+static const char * const f874[] = {"Ajouter l'album à la file"};
+static const char * const f875[] = {"Ajouter un réseau masqué"};
+static const char * const f876[] = {"Ajoutez des morceaux depuis le menu d'un morceau."};
+static const char * const f877[] = {"Ajouter à une playlist"};
+static const char * const f878[] = {"Ajouter à la file"};
+static const char * const f879[] = {"%d morceau ajouté à la file", "%d morceaux ajoutés à la file"};
+static const char * const f880[] = {"Ajouté à la playlist"};
+static const char * const f881[] = {"Outils supplémentaires"};
+static const char * const f882[] = {"Avancé"};
+static const char * const f883[] = {"Afrique"};
+static const char * const f884[] = {"AirPlay"};
+static const char * const f885[] = {"AirPlay s'est arrêté de façon inattendue"};
+static const char * const f886[] = {"Album %+.1f dB"};
+static const char * const f887[] = {"Artiste de l'album"};
+static const char * const f888[] = {"Artiste de l'album - Album"};
+static const char * const f889[] = {"Artiste de l'album / Album"};
+static const char * const f890[] = {"Album indisponible"};
+static const char * const f891[] = {"Albums"};
+static const char * const f892[] = {"Albums (liste principale)"};
+static const char * const f893[] = {"Tous les morceaux"};
+static const char * const f894[] = {"Tous les réseaux visibles sont déjà enregistrés."};
+static const char * const f895[] = {"Déjà installé"};
+static const char * const f896[] = {"Amérique"};
+static const char * const f897[] = {"Une mise à jour est déjà en cours"};
+static const char * const f898[] = {"Une mise à jour est déjà en cours."};
+static const char * const f899[] = {"Vitesse d'animation"};
+static const char * const f900[] = {"Antarctique"};
+static const char * const f901[] = {"Apparence"};
+static const char * const f902[] = {"Appliqué %+.1f dB"};
+static const char * const f903[] = {"S'applique immédiatement"};
+static const char * const f904[] = {"S'applique au prochain lancement de l'appli"};
+static const char * const f905[] = {"S'applique aux nouvelles files en streaming"};
+static const char * const f906[] = {"Application de la langue, cela peut prendre un certain temps"};
+static const char * const f907[] = {"Application de la disposition, cela peut prendre un certain temps"};
+static const char * const f908[] = {"Les applis et navigateurs utilisant le PIN actuel auront besoin du nouveau pour se reconnecter."};
+static const char * const f909[] = {"avril"};
+static const char * const f910[] = {"Arctique"};
+static const char * const f911[] = {"Images d'artistes"};
+static const char * const f912[] = {"Artistes"};
+static const char * const f913[] = {"Asie"};
+static const char * const f914[] = {"Atlantique"};
+static const char * const f915[] = {"Audio"};
+static const char * const f916[] = {"Impossible de décoder l'audio"};
+static const char * const f917[] = {"Échec de la sortie audio"};
+static const char * const f918[] = {"août"};
+static const char * const f919[] = {"Australie"};
+static const char * const f920[] = {"Auto"};
+static const char * const f921[] = {"Reprise auto"};
+static const char * const f922[] = {"Automatique"};
+static const char * const f923[] = {"Automatique (44,1 kHz)"};
+static const char * const f924[] = {"Se mettre en veille automatiquement"};
+static const char * const f925[] = {"Disponible"};
+static const char * const f926[] = {"Appareils disponibles"};
+static const char * const f927[] = {"Réseaux disponibles"};
+static const char * const f928[] = {"Disponible · %s"};
+static const char * const f929[] = {"Retour"};
+static const char * const f930[] = {"Bande %d / %d"};
+static const char * const f931[] = {"Options de bande"};
+static const char * const f932[] = {"Pourcentage de batterie"};
+static const char * const f933[] = {"Débit"};
+static const char * const f934[] = {"Bluetooth"};
+static const char * const f935[] = {"DAC Bluetooth"};
+static const char * const f936[] = {"Mode DAC Bluetooth"};
+static const char * const f937[] = {"Synchro du volume Bluetooth"};
+static const char * const f938[] = {"Le Bluetooth est désactivé"};
+static const char * const f939[] = {"Démarrage du service de télécommande Bluetooth..."};
+static const char * const f940[] = {"Service de télécommande Bluetooth indisponible ; nouvelle tentative."};
+static const char * const f941[] = {"Bluetooth : Compas Remote Control"};
+static const char * const f942[] = {"Bluetooth : échec de l'enregistrement ; nouvelle tentative"};
+static const char * const f943[] = {"Bluetooth : en attente de l'enregistrement du service"};
+static const char * const f944[] = {"Livres"};
+static const char * const f945[] = {"Livres actualisés"};
+static const char * const f946[] = {"Créer"};
+static const char * const f947[] = {"La créer maintenant ? Cela peut prendre un certain temps pour les grandes bibliothèques."};
+static const char * const f948[] = {"Boutons et télécommande"};
+static const char * const f949[] = {"Offrez-moi un café"};
+static const char * const f950[] = {"Par %s"};
+static const char * const f951[] = {"Annuler"};
+static const char * const f952[] = {"Impossible de vérifier l’accès en écriture au stockage des plugins."};
+static const char * const f953[] = {"Impossible de supprimer la playlist"};
+static const char * const f954[] = {"Impossible de charger les pistes de l'album"};
+static const char * const f955[] = {"Impossible de déplacer cet élément"};
+static const char * const f956[] = {"Impossible de lire le dossier"};
+static const char * const f957[] = {"GitHub est inaccessible. Vérifiez la connexion Wi-Fi."};
+static const char * const f958[] = {"Impossible de lire la playlist"};
+static const char * const f959[] = {"Impossible de lire la carte SD."};
+static const char * const f960[] = {"Impossible de lire le fichier de mise à jour sur la carte SD. Vérifiez la carte et réessayez."};
+static const char * const f961[] = {"Impossible de lire l'enregistrement de mise à jour sur la carte SD. Vérifiez la carte et réessayez."};
+static const char * const f962[] = {"Impossible de lire l’état de l’assistant de mise à jour : %s"};
+static const char * const f963[] = {"Impossible de supprimer l'élément"};
+static const char * const f964[] = {"Renommage impossible : nom invalide ou fichier existant"};
+static const char * const f965[] = {"Impossible de réorganiser la playlist"};
+static const char * const f966[] = {"Impossible d'enregistrer la playlist"};
+static const char * const f967[] = {"Enregistrement impossible : éléments invalides ou en streaming"};
+static const char * const f968[] = {"Impossible de démarrer la file"};
+static const char * const f969[] = {"Mode voiture"};
+static const char * const f970[] = {"Volume du mode voiture"};
+static const char * const f971[] = {"Le mode voiture est désactivé."};
+static const char * const f972[] = {"Canaux"};
+static const char * const f973[] = {"Limite de charge (85 %)"};
+static const char * const f974[] = {"Chargez à au moins %d%% ou branchez l'alimentation avant la mise à jour."};
+static const char * const f975[] = {"Chargez à au moins 30%% ou branchez l’alimentation avant la mise à jour."};
+static const char * const f976[] = {"Charge"};
+static const char * const f977[] = {"Rechercher une mise à jour en ligne"};
+static const char * const f978[] = {"Vérifiez que le Wi-Fi est activé, puis relancez la recherche."};
+static const char * const f979[] = {"Recherche de mises à jour"};
+static const char * const f980[] = {"Vérification de la carte SD. Cela peut prendre un certain temps"};
+static const char * const f981[] = {"Vérification du fichier sur la carte SD"};
+static const char * const f982[] = {"Choisissez une langue"};
+static const char * const f983[] = {"Choisir des plugins"};
+static const char * const f984[] = {"Choisissez la langue de votre lecteur."};
+static const char * const f985[] = {"Choisir un fuseau horaire"};
+static const char * const f986[] = {"Choisissez l'action en cas d'inactivité :"};
+static const char * const f987[] = {"Vider la file"};
+static const char * const f988[] = {"Horloge"};
+static const char * const f989[] = {"Fermer"};
+static const char * const f990[] = {"Fermeture du\nserveur web..."};
+static const char * const f991[] = {"Codec"};
+static const char * const f992[] = {"Réponse combinée (dB)"};
+static const char * const f993[] = {"Réponse combinée (dB) · EQ désactivé"};
+static const char * const f994[] = {"Compás Player"};
+static const char * const f995[] = {"Connecter"};
+static const char * const f996[] = {"Connecter et parcourir"};
+static const char * const f997[] = {"Connectez un appareil pour voir ses fréquences prises en charge"};
+static const char * const f998[] = {"Connectez-vous par Wi-Fi ou Bluetooth pour voir la lecture en cours, la contrôler et parcourir votre bibliothèque. Saisissez ce PIN quand l'appli ou le navigateur le demande ; le Bluetooth nécessite aussi un appairage."};
+static const char * const f999[] = {"Se connecter au Wi-Fi"};
+static const char * const f1000[] = {"Connectez-vous d'abord au Wi-Fi"};
+static const char * const f1001[] = {"Connectez-vous au Wi-Fi pour le streaming, les mises à jour et les services en ligne."};
+static const char * const f1002[] = {"Connectez-vous à un réseau Wi-Fi pour continuer."};
+static const char * const f1003[] = {"Connectez-vous à un réseau pour télécharger des plugins."};
+static const char * const f1004[] = {"Connectez-vous par l'une des voies disponibles :"};
+static const char * const f1005[] = {"Connecté"};
+static const char * const f1006[] = {"Connexion"};
+static const char * const f1007[] = {"Connexion à"};
+static const char * const f1008[] = {"Connexion au serveur..."};
+static const char * const f1009[] = {"PIN de connexion"};
+static const char * const f1010[] = {"Échec de la connexion"};
+static const char * const f1011[] = {"La connexion a expiré après 30 secondes"};
+static const char * const f1012[] = {"Conteneur"};
+static const char * const f1013[] = {"Continuer"};
+static const char * const f1014[] = {"Continuer la configuration"};
+static const char * const f1015[] = {"Impossible d'appliquer la taille de police"};
+static const char * const f1016[] = {"Impossible d'appliquer la taille du texte des paroles"};
+static const char * const f1017[] = {"Impossible de télécharger les sommes de contrôle de la version."};
+static const char * const f1018[] = {"Impossible d'entrer en mode de récupération."};
+static const char * const f1019[] = {"Impossible de générer un nouveau PIN"};
+static const char * const f1020[] = {"Impossible d'installer un plugin sur la carte SD."};
+static const char * const f1021[] = {"Impossible d'installer le plugin sur la carte SD."};
+static const char * const f1022[] = {"Impossible de charger la photo de verrouillage"};
+static const char * const f1023[] = {"Impossible de charger le catalogue des plugins."};
+static const char * const f1024[] = {"Impossible de charger le catalogue des plugins. Touchez Plus pour réessayer."};
+static const char * const f1025[] = {"Impossible de mettre de côté les autres fichiers .upt de la carte SD."};
+static const char * const f1026[] = {"Impossible d'ouvrir ce fichier."};
+static const char * const f1027[] = {"Impossible de placer la mise à jour sur la carte SD."};
+static const char * const f1028[] = {"Impossible de préparer la suppression du plugin."};
+static const char * const f1029[] = {"Impossible de préparer l’assistant de mise à jour : %s"};
+static const char * const f1030[] = {"Impossible de lire les plugins installés."};
+static const char * const f1031[] = {"Impossible de lire le dossier Livres"};
+static const char * const f1032[] = {"Impossible de lire la liste des plugins sur GitHub."};
+static const char * const f1033[] = {"Impossible de lire la liste des versions sur GitHub."};
+static const char * const f1034[] = {"Impossible d'enregistrer la mise à jour vérifiée sur la carte SD."};
+static const char * const f1035[] = {"Impossible d'actualiser les livres"};
+static const char * const f1036[] = {"Impossible de recharger la pochette"};
+static const char * const f1037[] = {"Impossible de supprimer un fichier de plugin."};
+static const char * const f1038[] = {"Impossible de réparer la carte SD"};
+static const char * const f1039[] = {"Impossible d'enregistrer le codec Bluetooth"};
+static const char * const f1040[] = {"Impossible de changer le mode USB"};
+static const char * const f1041[] = {"Impossible de lancer l’actualisation du catalogue des plugins."};
+static const char * const f1042[] = {"Impossible de lancer le téléchargement"};
+static const char * const f1043[] = {"Impossible de lancer le téléchargement."};
+static const char * const f1044[] = {"Impossible de lancer l'installation."};
+static const char * const f1045[] = {"Impossible de lancer l’analyse de la bibliothèque. Veuillez réessayer."};
+static const char * const f1046[] = {"Impossible de lancer l’opération sur le plugin"};
+static const char * const f1047[] = {"Impossible de lancer l'opération sur le plugin."};
+static const char * const f1048[] = {"Impossible de lancer l’actualisation du catalogue"};
+static const char * const f1049[] = {"Impossible de lancer l'actualisation des plugins."};
+static const char * const f1050[] = {"Impossible de lancer la mise à jour du plugin."};
+static const char * const f1051[] = {"Impossible de lancer la recherche de mise à jour."};
+static const char * const f1052[] = {"Impossible de démarrer l’assistant de mise à jour : %s"};
+static const char * const f1053[] = {"Impossible de mettre à jour l'enregistrement des plugins installés."};
+static const char * const f1054[] = {"Connexion au réseau Wi-Fi impossible"};
+static const char * const f1055[] = {"Impossible de lire ce fichier .cue"};
+static const char * const f1056[] = {"Enregistrement impossible -- la modification du plugin n'a pas été appliquée"};
+static const char * const f1057[] = {"Pochette rechargée"};
+static const char * const f1058[] = {"Pochettes actualisées"};
+static const char * const f1059[] = {"Créez une playlist ci-dessus ou copiez-en une dans le dossier Playlists de la carte SD."};
+static const char * const f1060[] = {"Crossfade"};
+static const char * const f1061[] = {"Perso"};
+static const char * const f1062[] = {"Couleur perso"};
+static const char * const f1063[] = {"Les polices perso ne concernent que le texte latin."};
+static const char * const f1064[] = {"DAC"};
+static const char * const f1065[] = {"Chemin DAC : %s · %u bits"};
+static const char * const f1066[] = {"DLNA"};
+static const char * const f1067[] = {"Rendu DLNA"};
+static const char * const f1068[] = {"Réglages DNS"};
+static const char * const f1069[] = {"décembre"};
+static const char * const f1070[] = {"Par défaut (intégrée)"};
+static const char * const f1071[] = {"Supprimer"};
+static const char * const f1072[] = {"Supprimer %s ?\nCette action est irréversible."};
+static const char * const f1073[] = {"Supprimer la playlist"};
+static const char * const f1074[] = {"Supprimer la playlist ?"};
+static const char * const f1075[] = {"Supprimer ce profil ?"};
+static const char * const f1076[] = {"Options pour développeurs"};
+static const char * const f1077[] = {"Atténuer l'écran avant l'extinction"};
+static const char * const f1078[] = {"Disque %d"};
+static const char * const f1079[] = {"Disque %d / Piste %d"};
+static const char * const f1080[] = {"Déconnecter"};
+static const char * const f1081[] = {"Déconnectez d'abord le stockage USB"};
+static const char * const f1082[] = {"Déconnectez le stockage USB de l’ordinateur avant de modifier les plugins."};
+static const char * const f1083[] = {"Ignorer"};
+static const char * const f1084[] = {"Affichage"};
+static const char * const f1085[] = {"Terminé"};
+static const char * const f1086[] = {"Télécharger"};
+static const char * const f1087[] = {"Télécharger \"%s\" ?"};
+static const char * const f1088[] = {"Profils de téléchargement"};
+static const char * const f1089[] = {"Réglages de téléchargement"};
+static const char * const f1090[] = {"Télécharger tous les albums de \"%s\" ?"};
+static const char * const f1091[] = {"Échec du téléchargement"};
+static const char * const f1092[] = {"Dossier de téléchargement : %s"};
+static const char * const f1093[] = {"Dossier de téléchargement : racine SD"};
+static const char * const f1094[] = {"Profils de téléchargement"};
+static const char * const f1095[] = {"Réglages de téléchargement"};
+static const char * const f1096[] = {"Sous-dossier de téléchargement"};
+static const char * const f1097[] = {"Téléchargement"};
+static const char * const f1098[] = {"Téléchargement de\n%s..."};
+static const char * const f1099[] = {"Téléchargement et installation des plugins %zu/%zu"};
+static const char * const f1100[] = {"Téléchargement de la mise à jour"};
+static const char * const f1101[] = {"Curseur de volume du tiroir"};
+static const char * const f1102[] = {"Durée"};
+static const char * const f1103[] = {"EQ"};
+static const char * const f1104[] = {"Courbe EQ"};
+static const char * const f1105[] = {"Modifier"};
+static const char * const f1106[] = {"Modifier / OK"};
+static const char * const f1107[] = {"Activer le DAC Bluetooth"};
+static const char * const f1108[] = {"Activez le Bluetooth dans les paramètres pour utiliser le mode DAC BT"};
+static const char * const f1109[] = {"Activer la minuterie d'arrêt"};
+static const char * const f1110[] = {"Activez le Wi-Fi ou le Bluetooth pour vous connecter."};
+static const char * const f1111[] = {"Activez le Wi-Fi pour accéder"};
+static const char * const f1112[] = {"Activer la bande"};
+static const char * const f1113[] = {"Activer le journal de débogage"};
+static const char * const f1114[] = {"Égaliseur"};
+static const char * const f1115[] = {"Effacer et formater la carte SD ?"};
+static const char * const f1116[] = {"Europe"};
+static const char * const f1117[] = {"Excellent"};
+static const char * const f1118[] = {"Quittez le mode DAC USB pour lire de la musique sur cet appareil"};
+static const char * const f1119[] = {"Réinitialisation d'usine"};
+static const char * const f1120[] = {"Plugins en échec :\n"};
+static const char * const f1121[] = {"Échec de l'ajout à la playlist"};
+static const char * const f1122[] = {"Échec de l'application du fuseau horaire"};
+static const char * const f1123[] = {"Échec de la connexion au serveur"};
+static const char * const f1124[] = {"Échec de la création de la playlist"};
+static const char * const f1125[] = {"Échec de la suppression du profil"};
+static const char * const f1126[] = {"Échec de l'activation d'AirPlay"};
+static const char * const f1127[] = {"Échec du chargement des artistes"};
+static const char * const f1128[] = {"Échec du chargement des artistes : %s"};
+static const char * const f1129[] = {"Échec du chargement de la police. Vérifiez le format et la mémoire."};
+static const char * const f1130[] = {"Échec du chargement depuis le serveur"};
+static const char * const f1131[] = {"Échec du chargement du profil"};
+static const char * const f1132[] = {"Échec du renommage du profil"};
+static const char * const f1133[] = {"Échec de l'enregistrement du profil"};
+static const char * const f1134[] = {"Échec du lancement de la connexion"};
+static const char * const f1135[] = {"Échec du passage à %s"};
+static const char * const f1136[] = {"Échec du changement d'état du Bluetooth"};
+static const char * const f1137[] = {"Moyen"};
+static const char * const f1138[] = {"Favoris"};
+static const char * const f1139[] = {"février"};
+static const char * const f1140[] = {"Taille du fichier"};
+static const char * const f1141[] = {"Fichier indisponible"};
+static const char * const f1142[] = {"Fichiers"};
+static const char * const f1143[] = {"Fichiers (dossiers en premier)"};
+static const char * const f1144[] = {"Les fichiers de la carte ont peut-être changé."};
+static const char * const f1145[] = {"Les fichiers utilisent la date de modification. Les albums utilisent la piste ajoutée la plus récente ; les années de sortie manquantes passent en dernier. Mettez à jour la base musicale une fois pour lire les années des fichiers existants."};
+static const char * const f1146[] = {"Type de filtre"};
+static const char * const f1147[] = {"Mise à jour du firmware"};
+static const char * const f1148[] = {"Neutre"};
+static const char * const f1149[] = {"Organisation des dossiers des albums téléchargés"};
+static const char * const f1150[] = {"Dossier trop volumineux à indexer (appuyez sur Retour)"};
+static const char * const f1151[] = {"Police"};
+static const char * const f1152[] = {"Taille de police"};
+static const char * const f1153[] = {"Le choix de la police n'est plus disponible"};
+static const char * const f1154[] = {"Oublier"};
+static const char * const f1155[] = {"Formater"};
+static const char * const f1156[] = {"Formater la carte SD"};
+static const char * const f1157[] = {"Formatage de\nla carte SD..."};
+static const char * const f1158[] = {"Fréquence"};
+static const char * const f1159[] = {"Fréquence (Hz, 20 à 20000)"};
+static const char * const f1160[] = {"vendredi"};
+static const char * const f1161[] = {"Selon la pochette"};
+static const char * const f1162[] = {"Selon la pochette (sans pochette, couleur perso)"};
+static const char * const f1163[] = {"Gain"};
+static const char * const f1164[] = {"Gain (dB, -12 à 12)"};
+static const char * const f1165[] = {"Gapless"};
+static const char * const f1166[] = {"Passerelle : %s"};
+static const char * const f1167[] = {"Générer"};
+static const char * const f1168[] = {"Générer un nouveau PIN ?"};
+static const char * const f1169[] = {"Genres"};
+static const char * const f1170[] = {"Gestes et orientation"};
+static const char * const f1171[] = {"Commencer"};
+static const char * const f1172[] = {"GitHub n'a pas répondu à temps. Réessayez."};
+static const char * const f1173[] = {"GitHub limite les requêtes. Réessayez plus tard."};
+static const char * const f1174[] = {"GitHub a renvoyé HTTP %d."};
+static const char * const f1175[] = {"Revenez en arrière et choisissez Nouvelle connexion pour en ajouter un."};
+static const char * const f1176[] = {"Bon"};
+static const char * const f1177[] = {"Le casque peut se déconnecter, une reconnexion manuelle peut être nécessaire"};
+static const char * const f1178[] = {"Masquer la barre du haut Lecteur/Paroles"};
+static const char * const f1179[] = {"Masquer les appareils sans nom"};
+static const char * const f1180[] = {"Haut"};
+static const char * const f1181[] = {"Haute (320 kbit/s)"};
+static const char * const f1182[] = {"Nom d'hôte"};
+static const char * const f1183[] = {"Le nom d'hôte ne peut contenir que des lettres, chiffres et tirets"};
+static const char * const f1184[] = {"Adresse IP : %s"};
+static const char * const f1185[] = {"Arrêt en veille"};
+static const char * const f1186[] = {"Délai d'inactivité :"};
+static const char * const f1187[] = {"Importer"};
+static const char * const f1188[] = {"Importer par Wi-Fi"};
+static const char * const f1189[] = {"Télécommande filaire"};
+static const char * const f1190[] = {"Indien"};
+static const char * const f1191[] = {"Informations"};
+static const char * const f1192[] = {"Insérez une carte SD pour modifier les plugins."};
+static const char * const f1193[] = {"Insérez une carte SD pour télécharger la mise à jour."};
+static const char * const f1194[] = {"Insérez une carte SD pour installer des plugins."};
+static const char * const f1195[] = {"Insérez une carte SD pour supprimer des plugins."};
+static const char * const f1196[] = {"Insérez une carte SD pour rechercher de la musique, ou désactivez la recherche de musique."};
+static const char * const f1197[] = {"Insérez une carte SD pour mettre à jour des plugins."};
+static const char * const f1198[] = {"Insérez votre carte SD contenant de la musique. Compas Player peut l’analyser et créer votre bibliothèque."};
+static const char * const f1199[] = {"Installer"};
+static const char * const f1200[] = {"Installer et redémarrer"};
+static const char * const f1201[] = {"Installer depuis la carte SD"};
+static const char * const f1202[] = {"Installé"};
+static const char * const f1203[] = {"Installé manuellement"};
+static const char * const f1204[] = {"Installé · %s"};
+static const char * const f1205[] = {"Installation du plugin"};
+static const char * const f1206[] = {"Dossier de téléchargement invalide"};
+static const char * const f1207[] = {"Nom de dossier de téléchargement invalide"};
+static const char * const f1208[] = {"Nom de profil invalide"};
+static const char * const f1209[] = {"Impossible de la charger. La reconstruire maintenant ?"};
+static const char * const f1210[] = {"Elle n'a peut-être pas de table de partitions ou utilise un système de fichiers que ce lecteur ne gère pas. Le formatage l'effacera et la préparera pour ce lecteur."};
+static const char * const f1211[] = {"Ses réglages restent sur la carte."};
+static const char * const f1212[] = {"janvier"};
+static const char * const f1213[] = {"juillet"};
+static const char * const f1214[] = {"juin"};
+static const char * const f1215[] = {"Qualité LDAC"};
+static const char * const f1216[] = {"LDAC standard"};
+static const char * const f1217[] = {"Voyant LED de charge"};
+static const char * const f1218[] = {"Langue"};
+static const char * const f1219[] = {"Grand"};
+static const char * const f1220[] = {"Plus tard"};
+static const char * const f1221[] = {"Démarrer à un volume fixe"};
+static const char * const f1222[] = {"Disposition"};
+static const char * const f1223[] = {"Quitter"};
+static const char * const f1224[] = {"Quitter le mode DAC Bluetooth ?"};
+static const char * const f1225[] = {"Quitter le mode DAC USB ?"};
+static const char * const f1226[] = {"Quittez cette vue et réessayez."};
+static const char * const f1227[] = {"Bibliothèque"};
+static const char * const f1228[] = {"Bibliothèque modifiée. Rouvrez l'album."};
+static const char * const f1229[] = {"Bibliothèque occupée"};
+static const char * const f1230[] = {"Bibliothèque chargée"};
+static const char * const f1231[] = {"Bibliothèque migrée. Favoris et historique conservés"};
+static const char * const f1232[] = {"Bibliothèque migrée. Le nettoyage de l'ancienne base sera retenté"};
+static const char * const f1233[] = {"Échec de la migration. Ancienne bibliothèque intacte. Utilisez Paramètres > Mettre à jour la base musicale pour réessayer"};
+static const char * const f1234[] = {"Migration de la bibliothèque en attente. Les favoris et l'historique seront conservés"};
+static const char * const f1235[] = {"Bibliothèque récupérée et enregistrée"};
+static const char * const f1236[] = {"Bibliothèque récupérée et enregistrée, certains dossiers illisibles"};
+static const char * const f1237[] = {"Bibliothèque récupérée. Utilisez Paramètres > Mettre à jour la base musicale pour l'enregistrer"};
+static const char * const f1238[] = {"Bibliothèque indisponible. Utilisez Paramètres > Mettre à jour la base musicale pour la reconstruire"};
+static const char * const f1239[] = {"Échec de la mise à jour. Vérifiez la carte SD et réessayez"};
+static const char * const f1240[] = {"Bibliothèque mise à jour"};
+static const char * const f1241[] = {"Bibliothèque mise à jour, certains dossiers illisibles"};
+static const char * const f1242[] = {"Charger les pochettes pendant la lecture (expérimental)"};
+static const char * const f1243[] = {"Chargement des réglages Wi-Fi"};
+static const char * const f1244[] = {"Chargement depuis le serveur..."};
+static const char * const f1245[] = {"Chargement des dispositions"};
+static const char * const f1246[] = {"Chargement du catalogue des plugins…"};
+static const char * const f1247[] = {"Chargement des plugins"};
+static const char * const f1248[] = {"Chargement des pistes..."};
+static const char * const f1249[] = {"Chargement..."};
+static const char * const f1250[] = {"Emplacement"};
+static const char * const f1251[] = {"Recherche des fichiers musicaux"};
+static const char * const f1252[] = {"Recherche des fichiers musicaux\n%d éléments vérifiés"};
+static const char * const f1253[] = {"Bas"};
+static const char * const f1254[] = {"Bas\nHaut"};
+static const char * const f1255[] = {"Basse (96 kbit/s)"};
+static const char * const f1256[] = {"Paroles"};
+static const char * const f1257[] = {"Taille du texte des paroles"};
+static const char * const f1258[] = {"Adresse MAC : %s"};
+static const char * const f1259[] = {"Maintenance"};
+static const char * const f1260[] = {"Rendez un accessoire détectable, puis touchez Relancer."};
+static const char * const f1261[] = {"Gérez les plugins plus tard dans Paramètres > Système > Gestionnaire de plugins pour les rechercher, les mettre à jour ou les supprimer."};
+static const char * const f1262[] = {"Saisie manuelle du SSID"};
+static const char * const f1263[] = {"mars"};
+static const char * const f1264[] = {"Selon la pochette"};
+static const char * const f1265[] = {"mai"};
+static const char * const f1266[] = {"Moyen"};
+static const char * const f1267[] = {"Moyenne (192 kbit/s)"};
+static const char * const f1268[] = {"Réseaux mémorisés"};
+static const char * const f1269[] = {"Métadonnées actualisées"};
+static const char * const f1270[] = {"Migration de la\nbase musicale..."};
+static const char * const f1271[] = {"lundi"};
+static const char * const f1272[] = {"Mono (1 canal)"};
+static const char * const f1273[] = {"Plus"};
+static const char * const f1274[] = {"Les plus écoutés"};
+static const char * const f1275[] = {"Musique"};
+static const char * const f1276[] = {"Base musicale indisponible"};
+static const char * const f1277[] = {"Nom (A-Z)"};
+static const char * const f1278[] = {"DSD natif (DoP) / %.4g MHz"};
+static const char * const f1279[] = {"Les réseaux Wi-Fi à proximité apparaîtront ici."};
+static const char * const f1280[] = {"Firmware plus récent requis"};
+static const char * const f1281[] = {"Nom du réseau (SSID)"};
+static const char * const f1282[] = {"Flux réseau"};
+static const char * const f1283[] = {"Les réseaux auxquels vous vous connectez apparaîtront ici."};
+static const char * const f1284[] = {"Nouvelle connexion"};
+static const char * const f1285[] = {"Nouveau PIN généré"};
+static const char * const f1286[] = {"Nouveau profil"};
+static const char * const f1287[] = {"Modifiés récemment"};
+static const char * const f1288[] = {"Suivant"};
+static const char * const f1289[] = {"Suivant  ·  %d-%d sur %d"};
+static const char * const f1290[] = {"Page suivante"};
+static const char * const f1291[] = {"Aucune police .ttf trouvée dans /Fonts"};
+static const char * const f1292[] = {"Aucun fichier firmware .upt trouvé sur la carte SD"};
+static const char * const f1293[] = {"Pas de carte SD"};
+static const char * const f1294[] = {"Aucune carte SD détectée. Vous pourrez lancer l’analyse plus tard dans les réglages de la bibliothèque."};
+static const char * const f1295[] = {"Aucun livre trouvé"};
+static const char * const f1296[] = {"Aucun élément à afficher"};
+static const char * const f1297[] = {"Aucun favori pour l'instant"};
+static const char * const f1298[] = {"Aucun élément"};
+static const char * const f1299[] = {"Aucun réseau mémorisé"};
+static const char * const f1300[] = {"Aucune base musicale"};
+static const char * const f1301[] = {"Aucun appareil à proximité"};
+static const char * const f1302[] = {"Aucun réseau détecté"};
+static const char * const f1303[] = {"Aucun réseau détecté. Connectez-vous à un réseau pour télécharger des plugins."};
+static const char * const f1304[] = {"Aucun réseau trouvé"};
+static const char * const f1305[] = {"Aucun autre réseau trouvé"};
+static const char * const f1306[] = {"Aucun appareil associé"};
+static const char * const f1307[] = {"Aucun fichier audio lisible trouvé"};
+static const char * const f1308[] = {"Aucun fichier lisible ici"};
+static const char * const f1309[] = {"Aucun réglage de plugin disponible"};
+static const char * const f1310[] = {"Aucun plugin disponible dans le catalogue."};
+static const char * const f1311[] = {"Aucun profil enregistré"};
+static const char * const f1312[] = {"Aucun serveur enregistré"};
+static const char * const f1313[] = {"Aucun morceau à actualiser"};
+static const char * const f1314[] = {"Aucune parole synchronisée trouvée"};
+static const char * const f1315[] = {"Aucune piste chargée"};
+static const char * const f1316[] = {"Aucune piste trouvée"};
+static const char * const f1317[] = {"Aucune playlist personnelle"};
+static const char * const f1318[] = {"Aucune mise à jour vérifiée sur cette carte SD. Téléchargez-la de nouveau."};
+static const char * const f1319[] = {"Non connecté"};
+static const char * const f1320[] = {"Espace libre insuffisant sur la carte SD pour la mise à jour."};
+static const char * const f1321[] = {"Espace libre insuffisant sur la carte SD."};
+static const char * const f1322[] = {"Mémoire insuffisante pour se connecter"};
+static const char * const f1323[] = {"Mémoire insuffisante pour charger les pistes CUE"};
+static const char * const f1324[] = {"Mémoire insuffisante pour charger les artistes"};
+static const char * const f1325[] = {"Mémoire insuffisante pour charger depuis le serveur"};
+static const char * const f1326[] = {"Mémoire insuffisante pour charger la boutique de plugins"};
+static const char * const f1327[] = {"Mémoire insuffisante pour lancer le téléchargement"};
+static const char * const f1328[] = {"Non sélectionné (UTC)"};
+static const char * const f1329[] = {"Non défini"};
+static const char * const f1330[] = {"novembre"};
+static const char * const f1331[] = {"OFF"};
+static const char * const f1332[] = {"ON"};
+static const char * const f1333[] = {"octobre"};
+static const char * const f1334[] = {"Désactivé"};
+static const char * const f1335[] = {"Activé"};
+static const char * const f1336[] = {"Ouvrez un livre et touchez l'icône de signet pour l'enregistrer ici."};
+static const char * const f1337[] = {"Ouvrez un dossier contenant des fichiers audio pris en charge."};
+static const char * const f1338[] = {"Réseau ouvert"};
+static const char * const f1339[] = {"Ouvrez cette adresse sur votre téléphone ou ordinateur :"};
+static const char * const f1340[] = {"Ouvert · Connecté"};
+static const char * const f1341[] = {"Original"};
+static const char * const f1342[] = {"Sortie"};
+static const char * const f1343[] = {"PEQ rétabli par défaut"};
+static const char * const f1344[] = {"Pacifique"};
+static const char * const f1345[] = {"Associé"};
+static const char * const f1346[] = {"Appareils associés"};
+static const char * const f1347[] = {"EQ paramétrique"};
+static const char * const f1348[] = {"Mot de passe"};
+static const char * const f1349[] = {"Mot de passe : non défini"};
+static const char * const f1350[] = {"Mot de passe : défini"};
+static const char * const f1351[] = {"En pause : casque débranché"};
+static const char * const f1352[] = {"Pic\nShelf grave\nShelf aigu"};
+static const char * const f1353[] = {"Par album"};
+static const char * const f1354[] = {"Par piste"};
+static const char * const f1355[] = {"Placez les polices .ttf dans le dossier /Fonts de la carte SD."};
+static const char * const f1356[] = {"Tout lire"};
+static const char * const f1357[] = {"Lire ensuite"};
+static const char * const f1358[] = {"Tout lire en aléatoire"};
+static const char * const f1359[] = {"Lisez un album ou une playlist pour voir ses morceaux ici."};
+static const char * const f1360[] = {"Lire dans l'ordre"};
+static const char * const f1361[] = {"Lecture/Pause"};
+static const char * const f1362[] = {"Lecture/Pause + Piste précédente (double clic)"};
+static const char * const f1363[] = {"Bouton Lecture/Pause"};
+static const char * const f1364[] = {"Lecture et commandes"};
+static const char * const f1365[] = {"Actions de lecture et de l'appareil"};
+static const char * const f1366[] = {"Erreur de lecture"};
+static const char * const f1367[] = {"Erreur de lecture : échec de la sortie audio"};
+static const char * const f1368[] = {"Impossible d'enregistrer l'historique de lecture"};
+static const char * const f1369[] = {"Lecture arrêtée : %s"};
+static const char * const f1370[] = {"Lu"};
+static const char * const f1371[] = {"Disposition du lecteur"};
+static const char * const f1372[] = {"En lecture"};
+static const char * const f1373[] = {"Nom de la playlist"};
+static const char * const f1374[] = {"Playlist modifiée. Sélectionnez de nouveau un morceau."};
+static const char * const f1375[] = {"Playlist modifiée. Réessayez."};
+static const char * const f1376[] = {"Playlist créée"};
+static const char * const f1377[] = {"Playlist supprimée"};
+static const char * const f1378[] = {"La playlist est vide"};
+static const char * const f1379[] = {"Playlist renommée"};
+static const char * const f1380[] = {"Playlist enregistrée"};
+static const char * const f1381[] = {"Playlist indisponible ou illisible"};
+static const char * const f1382[] = {"Playlists"};
+static const char * const f1383[] = {"Playlists actualisées"};
+static const char * const f1384[] = {"Veuillez attendre la fin de l’installation des plugins"};
+static const char * const f1385[] = {"Veuillez attendre la fin de l’analyse de la bibliothèque"};
+static const char * const f1386[] = {"Plugin"};
+static const char * const f1387[] = {"Gestionnaire de plugins"};
+static const char * const f1388[] = {"Réglages du plugin"};
+static const char * const f1389[] = {"Boutique de plugins"};
+static const char * const f1390[] = {"Le plugin est indisponible dans le catalogue"};
+static const char * const f1391[] = {"Échec de l'opération sur le plugin"};
+static const char * const f1392[] = {"Configuration des plugins terminée"};
+static const char * const f1393[] = {"La configuration des plugins nécessite votre attention"};
+static const char * const f1394[] = {"Le stockage des plugins est indisponible."};
+static const char * const f1395[] = {"Plugins"};
+static const char * const f1396[] = {"Position"};
+static const char * const f1397[] = {"Alimentation"};
+static const char * const f1398[] = {"Éteindre"};
+static const char * const f1399[] = {"Commandes d'alimentation"};
 static const char * const f1400[] = {"Éteindre"};
-static const char * const f1401[] = {"Commandes d'alimentation"};
-static const char * const f1402[] = {"Éteindre"};
-static const char * const f1403[] = {"Préampli (dB, -12 à 12)"};
-static const char * const f1404[] = {"Préampli : %+.2f dB"};
-static const char * const f1405[] = {"Préparation de l'actualisation des pochettes..."};
-static const char * const f1406[] = {"Préparation de la migration de la base..."};
-static const char * const f1407[] = {"Préparation de l'actualisation des métadonnées"};
-static const char * const f1408[] = {"Préparation de l'actualisation des métadonnées..."};
-static const char * const f1409[] = {"Préparation de la bibliothèque musicale..."};
-static const char * const f1410[] = {"Préparation de la mise à jour"};
-static const char * const f1411[] = {"Préréglages"};
-static const char * const f1412[] = {"Aperçu"};
-static const char * const f1413[] = {"Précédent"};
-static const char * const f1414[] = {"Précédent  ·  %d-%d sur %d"};
-static const char * const f1415[] = {"Piste précédente"};
-static const char * const f1416[] = {"Page précédente"};
-static const char * const f1417[] = {"La requête précédente se termine encore"};
-static const char * const f1418[] = {"Les accessoires déjà connectés apparaîtront ici."};
-static const char * const f1419[] = {"DNS principal"};
-static const char * const f1420[] = {"Nom du profil"};
-static const char * const f1421[] = {"Profil supprimé"};
-static const char * const f1422[] = {"Profil chargé"};
-static const char * const f1423[] = {"Profil renommé"};
-static const char * const f1424[] = {"Profil enregistré"};
-static const char * const f1425[] = {"Profils"};
-static const char * const f1426[] = {"Fournisseur"};
-static const char * const f1427[] = {"File d'attente"};
-static const char * const f1428[] = {"File modifiée. Réessayez."};
-static const char * const f1429[] = {"Échec de la sauvegarde de la file ; le stockage est peut-être en lecture seule"};
-static const char * const f1430[] = {"File vidée"};
-static const char * const f1431[] = {"La file est vide"};
-static const char * const f1432[] = {"File prête. Appuyez sur Lecture pour démarrer."};
-static const char * const f1433[] = {"En file"};
-static const char * const f1434[] = {"Configuration rapide terminée"};
-static const char * const f1435[] = {"Configuration rapide"};
-static const char * const f1436[] = {"RC"};
-static const char * const f1437[] = {"Radio"};
-static const char * const f1438[] = {"Radio / %s"};
-static const char * const f1439[] = {"Lecture des fréquences prises en charge..."};
-static const char * const f1440[] = {"Lecture des tags\n%d sur %d morceaux (%d%%)"};
-static const char * const f1441[] = {"Relit les tags de chaque morceau. Cela peut prendre un certain temps."};
-static const char * const f1442[] = {"Reconstruire"};
-static const char * const f1443[] = {"Ajoutés récemment"};
-static const char * const f1444[] = {"Écoutés récemment"};
-static const char * const f1445[] = {"Actualiser"};
-static const char * const f1446[] = {"Actualiser toutes les pochettes"};
-static const char * const f1447[] = {"Actualiser toutes les métadonnées"};
-static const char * const f1448[] = {"Actualiser les plugins"};
-static const char * const f1449[] = {"Actualiser toutes les pochettes ?"};
-static const char * const f1450[] = {"Actualiser toutes les métadonnées ?"};
-static const char * const f1451[] = {"Actualiser les métadonnées"};
-static const char * const f1452[] = {"Actualiser le catalogue de plugins"};
-static const char * const f1453[] = {"Actualisez la base musicale pour mettre à jour cette liste."};
-static const char * const f1454[] = {"Actualisation de\ntoutes les pochettes..."};
-static const char * const f1455[] = {"Actualisation de\ntoutes les métadonnées..."};
-static const char * const f1456[] = {"Actualisation des\nmétadonnées..."};
-static const char * const f1457[] = {"Actualisation des pochettes"};
-static const char * const f1458[] = {"Actualisation des pochettes\n%d sur %d (%d%%)"};
-static const char * const f1459[] = {"Actualisation des plugins..."};
-static const char * const f1460[] = {"Année de sortie (anciens d'abord)"};
-static const char * const f1461[] = {"Recharger la pochette"};
-static const char * const f1462[] = {"Rechargement de\nla pochette..."};
-static const char * const f1463[] = {"Rechargement de la pochette"};
-static const char * const f1464[] = {"Rechargement de la pochette\n%d sur %d (%d%%)"};
-static const char * const f1465[] = {"Commande"};
-static const char * const f1466[] = {"Télécommande"};
-static const char * const f1467[] = {"Supprimer"};
-static const char * const f1468[] = {"Supprimer %s ?"};
-static const char * const f1469[] = {"Supprimé"};
-static const char * const f1470[] = {"Supprimé de la playlist"};
-static const char * const f1471[] = {"Retiré de la file"};
-static const char * const f1472[] = {"Supprime les pochettes enregistrées et les extrait de nouveau. Cela peut prendre un certain temps."};
-static const char * const f1473[] = {"Suppression du plugin"};
-static const char * const f1474[] = {"Renommer la playlist"};
-static const char * const f1475[] = {"Renommer le profil"};
-static const char * const f1476[] = {"Remplacer"};
-static const char * const f1477[] = {"Remplacer l'existant"};
-static const char * const f1478[] = {"Remplacer le profil"};
-static const char * const f1479[] = {"ReplayGain"};
-static const char * const f1480[] = {"Relancer l’analyse"};
-static const char * const f1481[] = {"Rétablir"};
-static const char * const f1482[] = {"Rétablir le PEQ par défaut ?"};
-static const char * const f1483[] = {"Réinitialiser tous les paramètres et redémarrer ?"};
-static const char * const f1484[] = {"Rétablir par défaut"};
-static const char * const f1485[] = {"Redémarrer"};
-static const char * const f1486[] = {"Redémarrer"};
-static const char * const f1487[] = {"Redémarrer maintenant pour appliquer le nouveau nom d'hôte ?"};
-static const char * const f1488[] = {"Reprendre la dernière piste"};
-static const char * const f1489[] = {"Reprendre et lire"};
-static const char * const f1490[] = {"Reprendre la lecture quand une alimentation externe allume le lecteur."};
-static const char * const f1491[] = {"Reprendre en pause"};
-static const char * const f1492[] = {"Nouvelle tentative pour les plugins %zu/%zu"};
-static const char * const f1493[] = {"Carte SD vérifiée"};
-static const char * const f1494[] = {"Impossible de lire la carte SD"};
-static const char * const f1495[] = {"Échec du formatage de la carte SD"};
-static const char * const f1496[] = {"Carte SD formatée"};
-static const char * const f1497[] = {"La carte SD est en lecture seule. Vérifiez-la sur un ordinateur"};
-static const char * const f1498[] = {"La carte SD est toujours en lecture seule"};
-static const char * const f1499[] = {"La carte SD présente peut-être des erreurs. Vérifiez-la sur un ordinateur"};
-static const char * const f1500[] = {"Carte SD indisponible"};
-static const char * const f1501[] = {"La réparation de la carte SD est en cours"};
-static const char * const f1502[] = {"Carte SD réparée"};
-static const char * const f1503[] = {"SSID : %s"};
-static const char * const f1504[] = {"Charge sûre (500 mA)"};
-static const char * const f1505[] = {"Fréquence d'échantillonnage"};
-static const char * const f1506[] = {"samedi"};
-static const char * const f1507[] = {"Enregistrer"};
-static const char * const f1508[] = {"Enregistrer le profil"};
-static const char * const f1509[] = {"Enregistrer le profil sous"};
-static const char * const f1510[] = {"Enregistrer la file en playlist"};
-static const char * const f1511[] = {"Enregistrer en playlist"};
-static const char * const f1512[] = {"Enregistrer comme nouveau profil ou remplacer un profil existant ?"};
-static const char * const f1513[] = {"Serveurs enregistrés"};
-static const char * const f1514[] = {"Réseau enregistré"};
-static const char * const f1515[] = {"Vérification des détails des réseaux enregistrés."};
-static const char * const f1516[] = {"Enregistrement de la base musicale"};
-static const char * const f1517[] = {"Enregistrement de la base musicale\nCela peut prendre du temps pour les grandes bibliothèques"};
-static const char * const f1518[] = {"Enregistrement de la playlist..."};
-static const char * const f1519[] = {"Rechercher de la musique"};
-static const char * const f1520[] = {"Scannez avec votre téléphone pour soutenir Compás Player sur PayPal"};
-static const char * const f1521[] = {"Recherche de réseaux"};
-static const char * const f1522[] = {"Atténuation de l'écran"};
-static const char * const f1523[] = {"Extinction de l'écran"};
-static const char * const f1524[] = {"Écran off"};
-static const char * const f1525[] = {"Échec de la capture (%s)"};
-static const char * const f1526[] = {"Échec de la capture (framebuffer)"};
-static const char * const f1527[] = {"Échec de la capture (processus)"};
-static const char * const f1528[] = {"La capture d'écran nécessite une carte SD"};
-static const char * const f1529[] = {"Capture d'écran enregistrée"};
-static const char * const f1530[] = {"Captures d'écran (Power + Précédent)"};
-static const char * const f1531[] = {"Captures d'écran (Power + Vol -)"};
-static const char * const f1532[] = {"Captures d'écran indisponibles"};
-static const char * const f1533[] = {"DNS secondaire"};
-static const char * const f1534[] = {"Échec de la connexion sécurisée. Vérifiez le Wi-Fi, la date et l'heure."};
-static const char * const f1535[] = {"Réseau sécurisé"};
-static const char * const f1536[] = {"Sécurisé · Connecté"};
-static const char * const f1537[] = {"Sélectionnez au moins un plugin pour continuer."};
-static const char * const f1538[] = {"Les plugins sélectionnés sont prêts.\n"};
-static const char * const f1539[] = {"septembre"};
-static const char * const f1540[] = {"URL du serveur (ex. %s)"};
-static const char * const f1541[] = {"URL du serveur : %s"};
-static const char * const f1542[] = {"La requête au serveur a expiré après 30 secondes"};
-static const char * const f1543[] = {"Service occupé"};
-static const char * const f1544[] = {"Régler l'heure"};
-static const char * const f1545[] = {"Définissez votre fuseau horaire pour afficher l’heure correcte."};
-static const char * const f1546[] = {"Paramètres"};
-static const char * const f1547[] = {"Afficher le temps restant"};
-static const char * const f1548[] = {"Affichage des %d premiers morceaux sur %d"};
-static const char * const f1549[] = {"Aléatoire depuis un morceau au hasard"};
-static const char * const f1550[] = {"Signal : %s"};
-static const char * const f1551[] = {"Ignorer pour le moment"};
-static const char * const f1552[] = {"Ignoré : %s"};
-static const char * const f1553[] = {"Veille"};
-static const char * const f1554[] = {"Minuterie d'arrêt"};
-static const char * const f1555[] = {"Minuterie"};
-static const char * const f1556[] = {"Minuterie : %d min restantes"};
-static const char * const f1557[] = {"Minuterie : désactivée"};
-static const char * const f1558[] = {"Petit"};
-static const char * const f1559[] = {"Certaines pochettes n'ont pas pu être actualisées"};
-static const char * const f1560[] = {"Certaines playlists n'ont pas pu être lues"};
-static const char * const f1561[] = {"Certains fichiers de plugin ont été modifiés sur la carte. Les remplacer ?"};
-static const char * const f1562[] = {"Certains morceaux n'ont pas pu être lus"};
-static const char * const f1563[] = {"Certaines mises à jour demandent une confirmation avant de remplacer des fichiers locaux."};
-static const char * const f1564[] = {"Morceau déjà ajouté"};
-static const char * const f1565[] = {"Morceau supprimé"};
-static const char * const f1566[] = {"Morceaux"};
-static const char * const f1567[] = {"Tri"};
-static const char * const f1568[] = {"Son"};
-static const char * const f1569[] = {"Effets sonores"};
-static const char * const f1570[] = {"Source"};
-static const char * const f1571[] = {"Rééchantillonnage Speex"};
-static const char * const f1572[] = {"Lire dans l'ordre"};
-static const char * const f1573[] = {"Commencez avec ces suggestions ou parcourez les autres plugins."};
-static const char * const f1574[] = {"Volume au démarrage"};
-static const char * const f1575[] = {"Étape %d sur %d"};
-static const char * const f1576[] = {"Stéréo (2 canaux)"};
-static const char * const f1577[] = {"Application du choix précédent en cours"};
-static const char * const f1578[] = {"Stockage"};
-static const char * const f1579[] = {"Streaming"};
-static const char * const f1580[] = {"Qualité du flux"};
-static const char * const f1581[] = {"Qualité du flux : %s"};
-static const char * const f1582[] = {"Le sous-dossier est relatif à la racine SD (exemple : Music/Offline) ; vide = racine SD"};
-static const char * const f1583[] = {"Sous-dossier : racine SD"};
-static const char * const f1584[] = {"Subsonic"};
-static const char * const f1585[] = {"dimanche"};
-static const char * const f1586[] = {"Veille en RAM"};
-static const char * const f1587[] = {"Balayer vers le haut pour l'accueil"};
-static const char * const f1588[] = {"Balayez vers le haut pour déverrouiller"};
-static const char * const f1589[] = {"Système"};
-static const char * const f1590[] = {"Playlists système"};
-static const char * const f1591[] = {"Prend la couleur de la pochette de la piste en cours"};
-static const char * const f1592[] = {"Touchez Éteindre à nouveau pour confirmer"};
-static const char * const f1593[] = {"Touchez Redémarrer à nouveau pour confirmer"};
-static const char * const f1594[] = {"La carte SD a changé pendant le téléchargement."};
-static const char * const f1595[] = {"La carte SD a changé pendant l'opération."};
-static const char * const f1596[] = {"La carte SD est en lecture seule. Vérifiez sa protection contre l’écriture."};
-static const char * const f1597[] = {"Le téléchargement n'a pas abouti. Vérifiez le Wi-Fi et réessayez."};
-static const char * const f1598[] = {"L'image téléchargée a échoué à la vérification et a été supprimée."};
-static const char * const f1599[] = {"Le fichier de la playlist sera supprimé. Les fichiers musicaux sont conservés."};
-static const char * const f1600[] = {"Le plugin téléchargé a échoué à la vérification. Réessayez."};
-static const char * const f1601[] = {"Portez ce vieux whisky au juge blond qui fume 123"};
-static const char * const f1602[] = {"La version n'a pas de somme de contrôle pour l'image de cet appareil."};
-static const char * const f1603[] = {"Le fichier de mise à jour de la carte SD a changé. Téléchargez-le de nouveau."};
-static const char * const f1604[] = {"Cette vue ne contient aucun élément."};
-static const char * const f1605[] = {"Cet appareil est maintenant une carte son USB"};
-static const char * const f1606[] = {"Cet appareil reçoit maintenant l'audio Bluetooth"};
-static const char * const f1607[] = {"Cela peut prendre un certain temps"};
-static const char * const f1608[] = {"Tout le contenu de la carte sera définitivement supprimé. Cette action est irréversible."};
-static const char * const f1609[] = {"Aucune mise à jour n'est disponible pour ce plugin."};
-static const char * const f1610[] = {"Ce plugin est déjà installé par la boutique."};
-static const char * const f1611[] = {"Ce plugin n'est pas installé par la boutique."};
-static const char * const f1612[] = {"Ce plugin nécessite une version plus récente du lecteur."};
-static const char * const f1613[] = {"L'image de cette version ne correspond pas à ses sommes de contrôle. Réessayez après la prochaine version hebdomadaire."};
-static const char * const f1614[] = {"Échec du lancement du thread"};
-static const char * const f1615[] = {"jeudi"};
-static const char * const f1616[] = {"Fuseau horaire"};
-static const char * const f1617[] = {"Temps restant : %d:%02d"};
-static const char * const f1618[] = {"Temps restant : %d:%02d:%02d"};
-static const char * const f1619[] = {"Fuseau horaire"};
-static const char * const f1620[] = {"Trop de canaux audio"};
-static const char * const f1621[] = {"Trop de plugins sont installés. Supprimez-en un et réessayez."};
-static const char * const f1622[] = {"Piste"};
-static const char * const f1623[] = {"Piste %+.1f dB"};
-static const char * const f1624[] = {"Piste %d"};
-static const char * const f1625[] = {"Les détails de la piste ne sont pas encore disponibles. Laissez la lecture ouverte et revérifiez."};
-static const char * const f1626[] = {"Pistes"};
-static const char * const f1627[] = {"mardi"};
-static const char * const f1628[] = {"Désactivez puis réactivez le Bluetooth pour appliquer"};
-static const char * const f1629[] = {"Désactivez d'abord ADB (Paramètres > Système > Mode USB), puis activez le DAC USB ici."};
-static const char * const f1630[] = {"Désactivez Automatique pour régler l'horloge"};
-static const char * const f1631[] = {"Désactivez le DAC Bluetooth pour lire de la musique sur cet appareil"};
-static const char * const f1632[] = {"Éteindre l'écran automatiquement"};
-static const char * const f1633[] = {"Activez le Bluetooth pour voir les appareils associés et à proximité."};
-static const char * const f1634[] = {"Activez d'abord le Wi-Fi et connectez-vous"};
-static const char * const f1635[] = {"Activez ceci pour afficher l'adresse ici."};
-static const char * const f1636[] = {"DAC USB"};
-static const char * const f1637[] = {"Mode DAC USB"};
-static const char * const f1638[] = {"Mode USB"};
-static const char * const f1639[] = {"Appareil audio USB détecté"};
-static const char * const f1640[] = {"Entrée USB : %s · %u bits"};
-static const char * const f1641[] = {"Mode USB"};
-static const char * const f1642[] = {"Impossible de charger les éléments"};
-static const char * const f1643[] = {"Lecture du dossier impossible (appuyez sur Retour et réessayez)"};
-static const char * const f1644[] = {"Indisponible"};
-static const char * const f1645[] = {"Réponse inattendue de la bibliothèque"};
-static const char * const f1646[] = {"Réponse inattendue de GitHub"};
-static const char * const f1647[] = {"Réponse inattendue de GitHub."};
-static const char * const f1648[] = {"Album inconnu"};
-static const char * const f1649[] = {"Artiste inconnu"};
-static const char * const f1650[] = {"Codec inconnu"};
-static const char * const f1651[] = {"Format inconnu"};
-static const char * const f1652[] = {"Fréquence inconnue"};
-static const char * const f1653[] = {"Format audio non pris en charge"};
-static const char * const f1654[] = {"Mettre à jour"};
-static const char * const f1655[] = {"Mettre à jour et redémarrer"};
-static const char * const f1656[] = {"Tout mettre à jour"};
-static const char * const f1657[] = {"Mettre à jour la base musicale"};
-static const char * const f1658[] = {"Mettez à jour la base musicale pour activer cet ordre d'albums"};
-static const char * const f1659[] = {"Mise à jour disponible"};
-static const char * const f1660[] = {"Mise à jour disponible · %s"};
-static const char * const f1661[] = {"Mettre à jour séparément"};
-static const char * const f1662[] = {"Mettre à jour la base musicale ?"};
-static const char * const f1663[] = {"Mettez à jour ces plugins séparément"};
-static const char * const f1664[] = {"Mettre à jour avec %s ?\nL'appareil redémarrera en mode de récupération."};
-static const char * const f1665[] = {"Mises à jour"};
-static const char * const f1666[] = {"Mise à jour de la\nbase musicale..."};
-static const char * const f1667[] = {"Mise à jour des plugins"};
-static const char * const f1668[] = {"Écran à l'envers"};
-static const char * const f1669[] = {"Utilisez Paramètres > Mettre à jour la base musicale"};
-static const char * const f1670[] = {"Playlists personnelles"};
-static const char * const f1671[] = {"Nom d'utilisateur"};
-static const char * const f1672[] = {"Nom d'utilisateur : %s"};
-static const char * const f1673[] = {"Vérifier le certificat du serveur"};
-static const char * const f1674[] = {"Version %s · %s"};
-static const char * const f1675[] = {"En attente du flux Bluetooth..."};
-static const char * const f1676[] = {"En attente de l'audio USB..."};
-static const char * const f1677[] = {"Faible"};
-static const char * const f1678[] = {"Le serveur web est occupé"};
-static const char * const f1679[] = {"mercredi"};
-static const char * const f1680[] = {"Weekly Beta %s est disponible.\nInstallée : %s\n\nLa télécharger maintenant ? Cela peut prendre un certain temps."};
-static const char * const f1681[] = {"Weekly Beta %s est téléchargée et vérifiée.\n\nInstaller maintenant ? L'appareil redémarre en mode de récupération pour la flasher. Ne l'éteignez pas avant son redémarrage."};
-static const char * const f1682[] = {"Bienvenue dans Compás"};
-static const char * const f1683[] = {"Si activé, cet appareil est visible des émetteurs AirPlay de votre réseau Wi-Fi : diffusez l'audio d'un iPhone, iPad ou Mac pour le lire sur la sortie de cet appareil."};
-static const char * const f1684[] = {"Si activé, cet appareil est visible des applis de contrôle DLNA/UPnP de votre réseau Wi-Fi : envoyez-y un morceau pour le lire ici. La pause, le mode muet, le volume et la recherche depuis l'appli ne sont pas pris en charge ; utilisez les commandes de cet appareil une fois la lecture lancée."};
-static const char * const f1685[] = {"Si activé, cet appareil reste visible et associable aux autres appareils Bluetooth : un téléphone ou un ordinateur peut lui envoyer de l'audio et le lire sur la sortie de cet appareil, qui sert alors de DAC externe."};
-static const char * const f1686[] = {"Wi-Fi"};
-static const char * const f1687[] = {"Infos Wi-Fi"};
-static const char * const f1688[] = {"Mot de passe Wi-Fi"};
-static const char * const f1689[] = {"Le Wi-Fi n'a pas pu changer d'état"};
-static const char * const f1690[] = {"Le Wi-Fi est occupé"};
-static const char * const f1691[] = {"Sans fil"};
-static const char * const f1692[] = {"Vous pouvez sélectionner jusqu’à 32 plugins"};
-static const char * const f1693[] = {"Vous avez la dernière version hebdomadaire (%s).\n\nLa télécharger et la réinstaller quand même ? Cela peut prendre un certain temps."};
-static const char * const f1694[] = {"Votre bibliothèque est en cours de chargement."};
-static const char * const f1695[] = {"Votre musique"};
-static const char * const f1696[] = {"Votre parcours de configuration"};
-static const char * const f1697[] = {"[Fichier tronqué à %d Ko -- seul le début est affiché]\n\n%s"};
-static const char * const f1698[] = {"inconnu"};
+static const char * const f1401[] = {"Préampli (dB, -12 à 12)"};
+static const char * const f1402[] = {"Préampli : %+.2f dB"};
+static const char * const f1403[] = {"Préparation de l'actualisation des pochettes..."};
+static const char * const f1404[] = {"Préparation de la migration de la base..."};
+static const char * const f1405[] = {"Préparation de l'actualisation des métadonnées"};
+static const char * const f1406[] = {"Préparation de l'actualisation des métadonnées..."};
+static const char * const f1407[] = {"Préparation de la bibliothèque musicale..."};
+static const char * const f1408[] = {"Préparation de la mise à jour"};
+static const char * const f1409[] = {"Préréglages"};
+static const char * const f1410[] = {"Aperçu"};
+static const char * const f1411[] = {"Précédent"};
+static const char * const f1412[] = {"Précédent  ·  %d-%d sur %d"};
+static const char * const f1413[] = {"Piste précédente"};
+static const char * const f1414[] = {"Page précédente"};
+static const char * const f1415[] = {"La requête précédente se termine encore"};
+static const char * const f1416[] = {"Les accessoires déjà connectés apparaîtront ici."};
+static const char * const f1417[] = {"DNS principal"};
+static const char * const f1418[] = {"Nom du profil"};
+static const char * const f1419[] = {"Profil supprimé"};
+static const char * const f1420[] = {"Profil chargé"};
+static const char * const f1421[] = {"Profil renommé"};
+static const char * const f1422[] = {"Profil enregistré"};
+static const char * const f1423[] = {"Profils"};
+static const char * const f1424[] = {"Fournisseur"};
+static const char * const f1425[] = {"File d'attente"};
+static const char * const f1426[] = {"File modifiée. Réessayez."};
+static const char * const f1427[] = {"Échec de la sauvegarde de la file ; le stockage est peut-être en lecture seule"};
+static const char * const f1428[] = {"File vidée"};
+static const char * const f1429[] = {"La file est vide"};
+static const char * const f1430[] = {"File prête. Appuyez sur Lecture pour démarrer."};
+static const char * const f1431[] = {"En file"};
+static const char * const f1432[] = {"Configuration rapide terminée"};
+static const char * const f1433[] = {"Configuration rapide"};
+static const char * const f1434[] = {"RC"};
+static const char * const f1435[] = {"Radio"};
+static const char * const f1436[] = {"Radio / %s"};
+static const char * const f1437[] = {"Lecture des fréquences prises en charge..."};
+static const char * const f1438[] = {"Lecture des tags\n%d sur %d morceaux (%d%%)"};
+static const char * const f1439[] = {"Relit les tags de chaque morceau. Cela peut prendre un certain temps."};
+static const char * const f1440[] = {"Reconstruire"};
+static const char * const f1441[] = {"Ajoutés récemment"};
+static const char * const f1442[] = {"Écoutés récemment"};
+static const char * const f1443[] = {"Actualiser"};
+static const char * const f1444[] = {"Actualiser toutes les pochettes"};
+static const char * const f1445[] = {"Actualiser toutes les métadonnées"};
+static const char * const f1446[] = {"Actualiser les plugins"};
+static const char * const f1447[] = {"Actualiser toutes les pochettes ?"};
+static const char * const f1448[] = {"Actualiser toutes les métadonnées ?"};
+static const char * const f1449[] = {"Actualiser les métadonnées"};
+static const char * const f1450[] = {"Actualiser le catalogue de plugins"};
+static const char * const f1451[] = {"Actualisez la base musicale pour mettre à jour cette liste."};
+static const char * const f1452[] = {"Actualisation de\ntoutes les pochettes..."};
+static const char * const f1453[] = {"Actualisation de\ntoutes les métadonnées..."};
+static const char * const f1454[] = {"Actualisation des\nmétadonnées..."};
+static const char * const f1455[] = {"Actualisation des pochettes"};
+static const char * const f1456[] = {"Actualisation des pochettes\n%d sur %d (%d%%)"};
+static const char * const f1457[] = {"Actualisation des plugins..."};
+static const char * const f1458[] = {"Année de sortie (anciens d'abord)"};
+static const char * const f1459[] = {"Recharger la pochette"};
+static const char * const f1460[] = {"Rechargement de\nla pochette..."};
+static const char * const f1461[] = {"Rechargement de la pochette"};
+static const char * const f1462[] = {"Rechargement de la pochette\n%d sur %d (%d%%)"};
+static const char * const f1463[] = {"Commande"};
+static const char * const f1464[] = {"Télécommande"};
+static const char * const f1465[] = {"Supprimer"};
+static const char * const f1466[] = {"Supprimer %s ?"};
+static const char * const f1467[] = {"Supprimé"};
+static const char * const f1468[] = {"Supprimé de la playlist"};
+static const char * const f1469[] = {"Retiré de la file"};
+static const char * const f1470[] = {"Supprime les pochettes enregistrées et les extrait de nouveau. Cela peut prendre un certain temps."};
+static const char * const f1471[] = {"Suppression du plugin"};
+static const char * const f1472[] = {"Renommer la playlist"};
+static const char * const f1473[] = {"Renommer le profil"};
+static const char * const f1474[] = {"Remplacer"};
+static const char * const f1475[] = {"Remplacer l'existant"};
+static const char * const f1476[] = {"Remplacer le profil"};
+static const char * const f1477[] = {"ReplayGain"};
+static const char * const f1478[] = {"Relancer l’analyse"};
+static const char * const f1479[] = {"Rétablir"};
+static const char * const f1480[] = {"Rétablir le PEQ par défaut ?"};
+static const char * const f1481[] = {"Réinitialiser tous les paramètres et redémarrer ?"};
+static const char * const f1482[] = {"Rétablir par défaut"};
+static const char * const f1483[] = {"Redémarrer"};
+static const char * const f1484[] = {"Redémarrer"};
+static const char * const f1485[] = {"Redémarrer maintenant pour appliquer le nouveau nom d'hôte ?"};
+static const char * const f1486[] = {"Reprendre la dernière piste"};
+static const char * const f1487[] = {"Reprendre et lire"};
+static const char * const f1488[] = {"Reprendre la lecture quand une alimentation externe allume le lecteur."};
+static const char * const f1489[] = {"Reprendre en pause"};
+static const char * const f1490[] = {"Nouvelle tentative pour les plugins %zu/%zu"};
+static const char * const f1491[] = {"Carte SD vérifiée"};
+static const char * const f1492[] = {"Impossible de lire la carte SD"};
+static const char * const f1493[] = {"Échec du formatage de la carte SD"};
+static const char * const f1494[] = {"Carte SD formatée"};
+static const char * const f1495[] = {"La carte SD est en lecture seule. Vérifiez-la sur un ordinateur"};
+static const char * const f1496[] = {"La carte SD est toujours en lecture seule"};
+static const char * const f1497[] = {"La carte SD présente peut-être des erreurs. Vérifiez-la sur un ordinateur"};
+static const char * const f1498[] = {"Carte SD indisponible"};
+static const char * const f1499[] = {"La réparation de la carte SD est en cours"};
+static const char * const f1500[] = {"Carte SD réparée"};
+static const char * const f1501[] = {"SSID : %s"};
+static const char * const f1502[] = {"Charge sûre (500 mA)"};
+static const char * const f1503[] = {"Fréquence d'échantillonnage"};
+static const char * const f1504[] = {"samedi"};
+static const char * const f1505[] = {"Enregistrer"};
+static const char * const f1506[] = {"Enregistrer le profil"};
+static const char * const f1507[] = {"Enregistrer le profil sous"};
+static const char * const f1508[] = {"Enregistrer la file en playlist"};
+static const char * const f1509[] = {"Enregistrer en playlist"};
+static const char * const f1510[] = {"Enregistrer comme nouveau profil ou remplacer un profil existant ?"};
+static const char * const f1511[] = {"Serveurs enregistrés"};
+static const char * const f1512[] = {"Réseau enregistré"};
+static const char * const f1513[] = {"Vérification des détails des réseaux enregistrés."};
+static const char * const f1514[] = {"Enregistrement de la base musicale"};
+static const char * const f1515[] = {"Enregistrement de la base musicale\nCela peut prendre du temps pour les grandes bibliothèques"};
+static const char * const f1516[] = {"Enregistrement de la playlist..."};
+static const char * const f1517[] = {"Rechercher de la musique"};
+static const char * const f1518[] = {"Scannez avec votre téléphone pour soutenir Compás Player sur PayPal"};
+static const char * const f1519[] = {"Recherche de réseaux"};
+static const char * const f1520[] = {"Atténuation de l'écran"};
+static const char * const f1521[] = {"Extinction de l'écran"};
+static const char * const f1522[] = {"Écran off"};
+static const char * const f1523[] = {"Échec de la capture (%s)"};
+static const char * const f1524[] = {"Échec de la capture (framebuffer)"};
+static const char * const f1525[] = {"Échec de la capture (processus)"};
+static const char * const f1526[] = {"La capture d'écran nécessite une carte SD"};
+static const char * const f1527[] = {"Capture d'écran enregistrée"};
+static const char * const f1528[] = {"Captures d'écran (Power + Précédent)"};
+static const char * const f1529[] = {"Captures d'écran (Power + Vol -)"};
+static const char * const f1530[] = {"Captures d'écran indisponibles"};
+static const char * const f1531[] = {"DNS secondaire"};
+static const char * const f1532[] = {"Échec de la connexion sécurisée. Vérifiez le Wi-Fi, la date et l'heure."};
+static const char * const f1533[] = {"Réseau sécurisé"};
+static const char * const f1534[] = {"Sécurisé · Connecté"};
+static const char * const f1535[] = {"Sélectionnez au moins un plugin pour continuer."};
+static const char * const f1536[] = {"Les plugins sélectionnés sont prêts.\n"};
+static const char * const f1537[] = {"septembre"};
+static const char * const f1538[] = {"URL du serveur (ex. %s)"};
+static const char * const f1539[] = {"URL du serveur : %s"};
+static const char * const f1540[] = {"La requête au serveur a expiré après 30 secondes"};
+static const char * const f1541[] = {"Service occupé"};
+static const char * const f1542[] = {"Régler l'heure"};
+static const char * const f1543[] = {"Définissez votre fuseau horaire pour afficher l’heure correcte."};
+static const char * const f1544[] = {"Paramètres"};
+static const char * const f1545[] = {"Afficher le temps restant"};
+static const char * const f1546[] = {"Affichage des %d premiers morceaux sur %d"};
+static const char * const f1547[] = {"Aléatoire depuis un morceau au hasard"};
+static const char * const f1548[] = {"Signal : %s"};
+static const char * const f1549[] = {"Ignorer pour le moment"};
+static const char * const f1550[] = {"Ignoré : %s"};
+static const char * const f1551[] = {"Veille"};
+static const char * const f1552[] = {"Minuterie d'arrêt"};
+static const char * const f1553[] = {"Minuterie"};
+static const char * const f1554[] = {"Minuterie : %d min restantes"};
+static const char * const f1555[] = {"Minuterie : désactivée"};
+static const char * const f1556[] = {"Petit"};
+static const char * const f1557[] = {"Certaines pochettes n'ont pas pu être actualisées"};
+static const char * const f1558[] = {"Certaines playlists n'ont pas pu être lues"};
+static const char * const f1559[] = {"Certains fichiers de plugin ont été modifiés sur la carte. Les remplacer ?"};
+static const char * const f1560[] = {"Certains morceaux n'ont pas pu être lus"};
+static const char * const f1561[] = {"Certaines mises à jour demandent une confirmation avant de remplacer des fichiers locaux."};
+static const char * const f1562[] = {"Morceau déjà ajouté"};
+static const char * const f1563[] = {"Morceau supprimé"};
+static const char * const f1564[] = {"Morceaux"};
+static const char * const f1565[] = {"Tri"};
+static const char * const f1566[] = {"Son"};
+static const char * const f1567[] = {"Effets sonores"};
+static const char * const f1568[] = {"Source"};
+static const char * const f1569[] = {"Rééchantillonnage Speex"};
+static const char * const f1570[] = {"Lire dans l'ordre"};
+static const char * const f1571[] = {"Commencez avec ces suggestions ou parcourez les autres plugins."};
+static const char * const f1572[] = {"Volume au démarrage"};
+static const char * const f1573[] = {"Étape %d sur %d"};
+static const char * const f1574[] = {"Stéréo (2 canaux)"};
+static const char * const f1575[] = {"Application du choix précédent en cours"};
+static const char * const f1576[] = {"Stockage"};
+static const char * const f1577[] = {"Streaming"};
+static const char * const f1578[] = {"Qualité du flux"};
+static const char * const f1579[] = {"Qualité du flux : %s"};
+static const char * const f1580[] = {"Le sous-dossier est relatif à la racine SD (exemple : Music/Offline) ; vide = racine SD"};
+static const char * const f1581[] = {"Sous-dossier : racine SD"};
+static const char * const f1582[] = {"Subsonic"};
+static const char * const f1583[] = {"dimanche"};
+static const char * const f1584[] = {"Veille en RAM"};
+static const char * const f1585[] = {"Balayer vers le haut pour l'accueil"};
+static const char * const f1586[] = {"Balayez vers le haut pour déverrouiller"};
+static const char * const f1587[] = {"Système"};
+static const char * const f1588[] = {"Playlists système"};
+static const char * const f1589[] = {"Prend la couleur de la pochette de la piste en cours"};
+static const char * const f1590[] = {"Touchez Éteindre à nouveau pour confirmer"};
+static const char * const f1591[] = {"Touchez Redémarrer à nouveau pour confirmer"};
+static const char * const f1592[] = {"La carte SD a changé pendant le téléchargement."};
+static const char * const f1593[] = {"La carte SD a changé pendant l'opération."};
+static const char * const f1594[] = {"La carte SD est en lecture seule. Vérifiez sa protection contre l’écriture."};
+static const char * const f1595[] = {"Le téléchargement n'a pas abouti. Vérifiez le Wi-Fi et réessayez."};
+static const char * const f1596[] = {"L'image téléchargée a échoué à la vérification et a été supprimée."};
+static const char * const f1597[] = {"Le fichier de la playlist sera supprimé. Les fichiers musicaux sont conservés."};
+static const char * const f1598[] = {"Le plugin téléchargé a échoué à la vérification. Réessayez."};
+static const char * const f1599[] = {"Portez ce vieux whisky au juge blond qui fume 123"};
+static const char * const f1600[] = {"La version n'a pas de somme de contrôle pour l'image de cet appareil."};
+static const char * const f1601[] = {"Le fichier de mise à jour de la carte SD a changé. Téléchargez-le de nouveau."};
+static const char * const f1602[] = {"Cette vue ne contient aucun élément."};
+static const char * const f1603[] = {"Cet appareil est maintenant une carte son USB"};
+static const char * const f1604[] = {"Cet appareil reçoit maintenant l'audio Bluetooth"};
+static const char * const f1605[] = {"Cela peut prendre un certain temps"};
+static const char * const f1606[] = {"Tout le contenu de la carte sera définitivement supprimé. Cette action est irréversible."};
+static const char * const f1607[] = {"Aucune mise à jour n'est disponible pour ce plugin."};
+static const char * const f1608[] = {"Ce plugin est déjà installé par la boutique."};
+static const char * const f1609[] = {"Ce plugin n'est pas installé par la boutique."};
+static const char * const f1610[] = {"Ce plugin nécessite une version plus récente du lecteur."};
+static const char * const f1611[] = {"L'image de cette version ne correspond pas à ses sommes de contrôle. Réessayez après la prochaine version hebdomadaire."};
+static const char * const f1612[] = {"Échec du lancement du thread"};
+static const char * const f1613[] = {"jeudi"};
+static const char * const f1614[] = {"Fuseau horaire"};
+static const char * const f1615[] = {"Temps restant : %d:%02d"};
+static const char * const f1616[] = {"Temps restant : %d:%02d:%02d"};
+static const char * const f1617[] = {"Fuseau horaire"};
+static const char * const f1618[] = {"Trop de canaux audio"};
+static const char * const f1619[] = {"Trop de plugins sont installés. Supprimez-en un et réessayez."};
+static const char * const f1620[] = {"Piste"};
+static const char * const f1621[] = {"Piste %+.1f dB"};
+static const char * const f1622[] = {"Piste %d"};
+static const char * const f1623[] = {"Les détails de la piste ne sont pas encore disponibles. Laissez la lecture ouverte et revérifiez."};
+static const char * const f1624[] = {"Pistes"};
+static const char * const f1625[] = {"mardi"};
+static const char * const f1626[] = {"Désactivez puis réactivez le Bluetooth pour appliquer"};
+static const char * const f1627[] = {"Désactivez d'abord ADB (Paramètres > Système > Mode USB), puis activez le DAC USB ici."};
+static const char * const f1628[] = {"Désactivez Automatique pour régler l'horloge"};
+static const char * const f1629[] = {"Désactivez le DAC Bluetooth pour lire de la musique sur cet appareil"};
+static const char * const f1630[] = {"Éteindre l'écran automatiquement"};
+static const char * const f1631[] = {"Activez le Bluetooth pour voir les appareils associés et à proximité."};
+static const char * const f1632[] = {"Activez d'abord le Wi-Fi et connectez-vous"};
+static const char * const f1633[] = {"Activez ceci pour afficher l'adresse ici."};
+static const char * const f1634[] = {"DAC USB"};
+static const char * const f1635[] = {"Mode DAC USB"};
+static const char * const f1636[] = {"Mode USB"};
+static const char * const f1637[] = {"Appareil audio USB détecté"};
+static const char * const f1638[] = {"Entrée USB : %s · %u bits"};
+static const char * const f1639[] = {"Mode USB"};
+static const char * const f1640[] = {"Impossible de charger les éléments"};
+static const char * const f1641[] = {"Lecture du dossier impossible (appuyez sur Retour et réessayez)"};
+static const char * const f1642[] = {"Indisponible"};
+static const char * const f1643[] = {"Réponse inattendue de la bibliothèque"};
+static const char * const f1644[] = {"Réponse inattendue de GitHub"};
+static const char * const f1645[] = {"Réponse inattendue de GitHub."};
+static const char * const f1646[] = {"Album inconnu"};
+static const char * const f1647[] = {"Artiste inconnu"};
+static const char * const f1648[] = {"Codec inconnu"};
+static const char * const f1649[] = {"Format inconnu"};
+static const char * const f1650[] = {"Fréquence inconnue"};
+static const char * const f1651[] = {"Format audio non pris en charge"};
+static const char * const f1652[] = {"Mettre à jour"};
+static const char * const f1653[] = {"Mettre à jour et redémarrer"};
+static const char * const f1654[] = {"Tout mettre à jour"};
+static const char * const f1655[] = {"Mettre à jour la base musicale"};
+static const char * const f1656[] = {"Mettez à jour la base musicale pour activer cet ordre d'albums"};
+static const char * const f1657[] = {"Mise à jour disponible"};
+static const char * const f1658[] = {"Mise à jour disponible · %s"};
+static const char * const f1659[] = {"Mettre à jour séparément"};
+static const char * const f1660[] = {"Mettre à jour la base musicale ?"};
+static const char * const f1661[] = {"Mettez à jour ces plugins séparément"};
+static const char * const f1662[] = {"Mettre à jour avec %s ?\nL'appareil redémarrera en mode de récupération."};
+static const char * const f1663[] = {"Mises à jour"};
+static const char * const f1664[] = {"Mise à jour de la\nbase musicale..."};
+static const char * const f1665[] = {"Mise à jour des plugins"};
+static const char * const f1666[] = {"Écran à l'envers"};
+static const char * const f1667[] = {"Utilisez Paramètres > Mettre à jour la base musicale"};
+static const char * const f1668[] = {"Playlists personnelles"};
+static const char * const f1669[] = {"Nom d'utilisateur"};
+static const char * const f1670[] = {"Nom d'utilisateur : %s"};
+static const char * const f1671[] = {"Vérifier le certificat du serveur"};
+static const char * const f1672[] = {"Version %s · %s"};
+static const char * const f1673[] = {"En attente du flux Bluetooth..."};
+static const char * const f1674[] = {"En attente de l'audio USB..."};
+static const char * const f1675[] = {"Faible"};
+static const char * const f1676[] = {"Le serveur web est occupé"};
+static const char * const f1677[] = {"mercredi"};
+static const char * const f1678[] = {"Weekly Beta %s est disponible.\nInstallée : %s\n\nLa télécharger maintenant ? Cela peut prendre un certain temps."};
+static const char * const f1679[] = {"Weekly Beta %s est téléchargée et vérifiée.\n\nInstaller maintenant ? L'appareil redémarre en mode de récupération pour la flasher. Ne l'éteignez pas avant son redémarrage."};
+static const char * const f1680[] = {"Bienvenue dans Compás"};
+static const char * const f1681[] = {"Si activé, cet appareil est visible des émetteurs AirPlay de votre réseau Wi-Fi : diffusez l'audio d'un iPhone, iPad ou Mac pour le lire sur la sortie de cet appareil."};
+static const char * const f1682[] = {"Si activé, cet appareil est visible des applis de contrôle DLNA/UPnP de votre réseau Wi-Fi : envoyez-y un morceau pour le lire ici. La pause, le mode muet, le volume et la recherche depuis l'appli ne sont pas pris en charge ; utilisez les commandes de cet appareil une fois la lecture lancée."};
+static const char * const f1683[] = {"Si activé, cet appareil reste visible et associable aux autres appareils Bluetooth : un téléphone ou un ordinateur peut lui envoyer de l'audio et le lire sur la sortie de cet appareil, qui sert alors de DAC externe."};
+static const char * const f1684[] = {"Wi-Fi"};
+static const char * const f1685[] = {"Infos Wi-Fi"};
+static const char * const f1686[] = {"Mot de passe Wi-Fi"};
+static const char * const f1687[] = {"Le Wi-Fi n'a pas pu changer d'état"};
+static const char * const f1688[] = {"Le Wi-Fi est occupé"};
+static const char * const f1689[] = {"Sans fil"};
+static const char * const f1690[] = {"Vous pouvez sélectionner jusqu’à 32 plugins"};
+static const char * const f1691[] = {"Vous avez la dernière version hebdomadaire (%s).\n\nLa télécharger et la réinstaller quand même ? Cela peut prendre un certain temps."};
+static const char * const f1692[] = {"Votre bibliothèque est en cours de chargement."};
+static const char * const f1693[] = {"Votre musique"};
+static const char * const f1694[] = {"Votre parcours de configuration"};
+static const char * const f1695[] = {"[Fichier tronqué à %d Ko -- seul le début est affiché]\n\n%s"};
+static const char * const f1696[] = {"inconnu"};
 
 static const i18n_entry_t entries_fr[] = {
-    {"%.0f Hz", f850, 1},
-    {"%d hr", f851, 1},
-    {"%d hr %d min", f852, 1},
-    {"%d min", f853, 1},
-    {"%d min remaining", f854, 1},
-    {"%d song", f855, 2},
-    {"%d track", f856, 2},
-    {"%dm", f857, 1},
-    {"%lld track", f858, 2},
-    {"%llu bytes", f859, 1},
-    {"%s (current)", f860, 1},
-    {"%s · Not loaded", f861, 1},
-    {"%s · Not loaded: limit reached", f862, 1},
-    {"%u channels", f863, 1},
-    {"+ New Playlist", f864, 1},
-    {"24-Hour Clock", f865, 1},
-    {"48 kHz reference", f866, 1},
-    {"A local plugin file will be replaced. Confirm to continue.", f867, 1},
-    {"A plugin download failed verification. Try again.", f868, 1},
-    {"A plugin operation is already in progress", f869, 1},
-    {"ADB", f870, 1},
-    {"About", f871, 1},
-    {"Accent Color", f872, 1},
-    {"Add .txt files to the Books folder, then refresh the library.", f873, 1},
-    {"Add a random song to queue", f874, 1},
-    {"Add album to queue", f875, 1},
-    {"Add hidden network", f876, 1},
-    {"Add songs from a song menu.", f877, 1},
-    {"Add to Playlist", f878, 1},
-    {"Add to Queue", f879, 1},
-    {"Added %d song to queue", f880, 2},
-    {"Added to playlist", f881, 1},
-    {"Additional Tools", f882, 1},
-    {"Advanced", f883, 1},
-    {"Africa", f884, 1},
-    {"AirPlay", f885, 1},
-    {"AirPlay stopped unexpectedly", f886, 1},
-    {"Album %+.1f dB", f887, 1},
-    {"Album Artist", f888, 1},
-    {"Album Artist - Album", f889, 1},
-    {"Album Artist / Album", f890, 1},
-    {"Album unavailable", f891, 1},
-    {"Albums", f892, 1},
-    {"Albums (main list)", f893, 1},
-    {"All Songs", f894, 1},
-    {"All visible networks are already saved.", f895, 1},
-    {"Already installed", f896, 1},
-    {"America", f897, 1},
-    {"An update is already in progress", f898, 1},
-    {"An update is already in progress.", f899, 1},
-    {"Animation Speed", f900, 1},
-    {"Antarctica", f901, 1},
-    {"Appearance", f902, 1},
-    {"Applied %+.1f dB", f903, 1},
-    {"Applies immediately", f904, 1},
-    {"Applies next time you launch the app", f905, 1},
-    {"Applies to new streaming queues", f906, 1},
-    {"Applying language, this may take a while", f907, 1},
-    {"Applying layout, this may take a while", f908, 1},
-    {"Apps and browsers using the current PIN will need the new one to reconnect.", f909, 1},
-    {"April", f910, 1},
-    {"Arctic", f911, 1},
-    {"Artist Images", f912, 1},
-    {"Artists", f913, 1},
-    {"Asia", f914, 1},
-    {"Atlantic", f915, 1},
-    {"Audio", f916, 1},
-    {"Audio could not be decoded", f917, 1},
-    {"Audio output failed", f918, 1},
-    {"August", f919, 1},
-    {"Australia", f920, 1},
-    {"Auto", f921, 1},
-    {"Auto-resume", f922, 1},
-    {"Automatic", f923, 1},
-    {"Automatic (44.1 kHz)", f924, 1},
-    {"Automatically go idle", f925, 1},
-    {"Available", f926, 1},
-    {"Available Devices", f927, 1},
-    {"Available Networks", f928, 1},
-    {"Available · %s", f929, 1},
-    {"Back", f930, 1},
-    {"Band %d / %d", f931, 1},
-    {"Band options", f932, 1},
-    {"Battery Percentage", f933, 1},
-    {"Bitrate", f934, 1},
-    {"Bluetooth", f935, 1},
-    {"Bluetooth DAC", f936, 1},
-    {"Bluetooth DAC mode", f937, 1},
-    {"Bluetooth Volume Sync", f938, 1},
-    {"Bluetooth is off", f939, 1},
-    {"Bluetooth remote service is starting…", f940, 1},
-    {"Bluetooth remote service is unavailable; retrying.", f941, 1},
-    {"Bluetooth: Compas Remote Control", f942, 1},
-    {"Bluetooth: registration failed; retrying", f943, 1},
-    {"Bluetooth: waiting for service registration", f944, 1},
-    {"Books", f945, 1},
-    {"Books refreshed", f946, 1},
-    {"Build", f947, 1},
-    {"Build it now? Large libraries can take several minutes.", f948, 1},
-    {"Buttons & Remote", f949, 1},
-    {"Buy Me a Coffee", f950, 1},
-    {"By %s", f951, 1},
-    {"Cancel", f952, 1},
-    {"Cannot check plugin storage write access.", f953, 1},
-    {"Cannot delete playlist", f954, 1},
-    {"Cannot load album tracks", f955, 1},
-    {"Cannot move this entry", f956, 1},
-    {"Cannot play folder", f957, 1},
-    {"Cannot reach GitHub. Check the Wi-Fi connection.", f958, 1},
-    {"Cannot read playlist", f959, 1},
-    {"Cannot read the SD card.", f960, 1},
-    {"Cannot read the update file on the SD card. Check the card and try again.", f961, 1},
-    {"Cannot read the update record on the SD card. Check the card and try again.", f962, 1},
-    {"Cannot read update helper status: %s", f963, 1},
-    {"Cannot remove entry", f964, 1},
-    {"Cannot rename: invalid name or file exists", f965, 1},
-    {"Cannot reorder playlist", f966, 1},
-    {"Cannot save playlist", f967, 1},
-    {"Cannot save: invalid or streaming entries", f968, 1},
-    {"Cannot start queue", f969, 1},
-    {"Car Mode", f970, 1},
-    {"Car Mode Volume", f971, 1},
-    {"Car Mode is disabled.", f972, 1},
-    {"Channels", f973, 1},
-    {"Charge Limit (85%)", f974, 1},
-    {"Charge to at least %d%% or connect power before updating.", f975, 1},
-    {"Charge to at least 30%% or connect power before updating.", f976, 1},
-    {"Charging", f977, 1},
-    {"Check for online update", f978, 1},
-    {"Check that Wi-Fi is enabled, then rescan.", f979, 1},
-    {"Checking for updates", f980, 1},
-    {"Checking the SD card. This may take a while", f981, 1},
-    {"Checking the file on the SD card", f982, 1},
-    {"Choose a language", f983, 1},
-    {"Choose plugins", f984, 1},
-    {"Choose the language for your player.", f985, 1},
-    {"Choose time zone", f986, 1},
-    {"Choose what happens when idle:", f987, 1},
-    {"Clear Queue", f988, 1},
-    {"Clock", f989, 1},
-    {"Close", f990, 1},
-    {"Closing\nWeb Server...", f991, 1},
-    {"Codec", f992, 1},
-    {"Combined response (dB)", f993, 1},
-    {"Combined response (dB) · EQ off", f994, 1},
-    {"Compás Player", f995, 1},
-    {"Connect", f996, 1},
-    {"Connect & Browse", f997, 1},
-    {"Connect a device to see its supported rates", f998, 1},
-    {"Connect over Wi-Fi or Bluetooth to see what's playing, control playback, and browse your library. Enter this PIN when the app or browser asks for it; Bluetooth also requires pairing.", f999, 1},
-    {"Connect to Wi-Fi", f1000, 1},
-    {"Connect to Wi-Fi first", f1001, 1},
-    {"Connect to Wi-Fi for streaming, updates, and online services.", f1002, 1},
-    {"Connect to a Wi-Fi network before continuing.", f1003, 1},
-    {"Connect to a network to download plugins.", f1004, 1},
-    {"Connect using either available route:", f1005, 1},
-    {"Connected", f1006, 1},
-    {"Connecting", f1007, 1},
-    {"Connecting to", f1008, 1},
-    {"Connecting to server...", f1009, 1},
-    {"Connection PIN", f1010, 1},
-    {"Connection failed", f1011, 1},
-    {"Connection timed out after 30 seconds", f1012, 1},
-    {"Container", f1013, 1},
-    {"Continue", f1014, 1},
-    {"Continue setup", f1015, 1},
-    {"Could not apply font size", f1016, 1},
-    {"Could not apply lyrics text size", f1017, 1},
-    {"Could not download the release checksums.", f1018, 1},
-    {"Could not enter recovery mode.", f1019, 1},
-    {"Could not generate a new PIN", f1020, 1},
-    {"Could not install a plugin on the SD card.", f1021, 1},
-    {"Could not install the plugin on the SD card.", f1022, 1},
-    {"Could not load lock screen photo", f1023, 1},
-    {"Could not load the plugin catalog.", f1024, 1},
-    {"Could not load the plugin catalog. Tap More to retry.", f1025, 1},
-    {"Could not move other .upt files aside on the SD card.", f1026, 1},
-    {"Could not open this file.", f1027, 1},
-    {"Could not place the update on the SD card.", f1028, 1},
-    {"Could not prepare plugin removal.", f1029, 1},
-    {"Could not prepare update helper: %s", f1030, 1},
-    {"Could not read installed plugins.", f1031, 1},
-    {"Could not read the Books folder", f1032, 1},
-    {"Could not read the plugin list from GitHub.", f1033, 1},
-    {"Could not read the release list from GitHub.", f1034, 1},
-    {"Could not record the verified update on the SD card.", f1035, 1},
-    {"Could not refresh books", f1036, 1},
-    {"Could not reload cover", f1037, 1},
-    {"Could not remove a plugin file.", f1038, 1},
-    {"Could not repair the SD card", f1039, 1},
-    {"Could not save Bluetooth codec", f1040, 1},
-    {"Could not start USB mode switch", f1041, 1},
-    {"Could not start refreshing the plugin catalog.", f1042, 1},
-    {"Could not start the download", f1043, 1},
-    {"Could not start the download.", f1044, 1},
-    {"Could not start the installation.", f1045, 1},
-    {"Could not start the library scan. Please try again.", f1046, 1},
-    {"Could not start the plugin operation", f1047, 1},
-    {"Could not start the plugin operation.", f1048, 1},
-    {"Could not start the plugin refresh", f1049, 1},
-    {"Could not start the plugin refresh.", f1050, 1},
-    {"Could not start the plugin update.", f1051, 1},
-    {"Could not start the update check.", f1052, 1},
-    {"Could not start update helper: %s", f1053, 1},
-    {"Could not update the installed plugin record.", f1054, 1},
-    {"Couldn't connect to Wi-Fi network", f1055, 1},
-    {"Couldn't read this .cue file", f1056, 1},
-    {"Couldn't save -- plugin change was not applied", f1057, 1},
-    {"Cover reloaded", f1058, 1},
-    {"Covers refreshed", f1059, 1},
-    {"Create a playlist above or copy one to the SD card's Playlists folder.", f1060, 1},
-    {"Crossfade", f1061, 1},
-    {"Custom", f1062, 1},
-    {"Custom color", f1063, 1},
-    {"Custom fonts affect Latin text only.", f1064, 1},
-    {"DAC", f1065, 1},
-    {"DAC path: %s · %u-bit", f1066, 1},
-    {"DLNA", f1067, 1},
-    {"DLNA Renderer", f1068, 1},
-    {"DNS Settings", f1069, 1},
-    {"December", f1070, 1},
-    {"Default (Built-in)", f1071, 1},
-    {"Delete", f1072, 1},
-    {"Delete %s?\nThis cannot be undone.", f1073, 1},
-    {"Delete Playlist", f1074, 1},
-    {"Delete playlist?", f1075, 1},
-    {"Delete this profile?", f1076, 1},
-    {"Developer Options", f1077, 1},
-    {"Dim screen before timeout", f1078, 1},
-    {"Disc %d", f1079, 1},
-    {"Disc %d / Track %d", f1080, 1},
-    {"Disconnect", f1081, 1},
-    {"Disconnect USB storage first", f1082, 1},
-    {"Disconnect USB storage from the host before changing plugins.", f1083, 1},
-    {"Dismiss", f1084, 1},
-    {"Display", f1085, 1},
-    {"Done", f1086, 1},
-    {"Download", f1087, 1},
-    {"Download \"%s\"?", f1088, 1},
-    {"Download Profiles", f1089, 1},
-    {"Download Settings", f1090, 1},
-    {"Download every album from \"%s\"?", f1091, 1},
-    {"Download failed", f1092, 1},
-    {"Download folder: %s", f1093, 1},
-    {"Download folder: SD root", f1094, 1},
-    {"Download profiles", f1095, 1},
-    {"Download settings", f1096, 1},
-    {"Download subfolder", f1097, 1},
-    {"Downloading", f1098, 1},
-    {"Downloading\n%s...", f1099, 1},
-    {"Downloading and installing plugins %zu/%zu", f1100, 1},
-    {"Downloading update", f1101, 1},
-    {"Drawer Volume Slider", f1102, 1},
-    {"Duration", f1103, 1},
-    {"EQ", f1104, 1},
-    {"EQ curve", f1105, 1},
-    {"Edit", f1106, 1},
-    {"Edit / Done", f1107, 1},
-    {"Enable Bluetooth DAC", f1108, 1},
-    {"Enable Bluetooth in settings to use BT DAC mode", f1109, 1},
-    {"Enable Sleep Timer", f1110, 1},
-    {"Enable Wi-Fi or Bluetooth to connect.", f1111, 1},
-    {"Enable WiFi to access", f1112, 1},
-    {"Enable band", f1113, 1},
-    {"Enable debug logging", f1114, 1},
-    {"Equalizer", f1115, 1},
-    {"Erase and format SD card?", f1116, 1},
-    {"Europe", f1117, 1},
-    {"Excellent", f1118, 1},
-    {"Exit USB DAC mode to play music on this device", f1119, 1},
-    {"Factory Reset", f1120, 1},
-    {"Failed plugins:\n", f1121, 1},
-    {"Failed to add to playlist", f1122, 1},
-    {"Failed to apply time zone", f1123, 1},
-    {"Failed to connect to server", f1124, 1},
-    {"Failed to create playlist", f1125, 1},
-    {"Failed to delete profile", f1126, 1},
-    {"Failed to enable AirPlay", f1127, 1},
-    {"Failed to load artists", f1128, 1},
-    {"Failed to load artists: %s", f1129, 1},
-    {"Failed to load font. Check format & memory.", f1130, 1},
-    {"Failed to load from server", f1131, 1},
-    {"Failed to load profile", f1132, 1},
-    {"Failed to rename profile", f1133, 1},
-    {"Failed to save profile", f1134, 1},
-    {"Failed to start connection", f1135, 1},
-    {"Failed to switch to %s", f1136, 1},
-    {"Failed to toggle Bluetooth", f1137, 1},
-    {"Fair", f1138, 1},
-    {"Favorites", f1139, 1},
-    {"February", f1140, 1},
-    {"File size", f1141, 1},
-    {"File unavailable", f1142, 1},
-    {"Files", f1143, 1},
-    {"Files (folders stay first)", f1144, 1},
-    {"Files on the card may have changed.", f1145, 1},
-    {"Files use modification dates. Albums use the newest track added; missing release years sort last. Update Music Database once to read years from existing files.", f1146, 1},
-    {"Filter type", f1147, 1},
-    {"Firmware Update", f1148, 1},
-    {"Flat", f1149, 1},
-    {"Folder layout for downloaded albums", f1150, 1},
-    {"Folder too large to index (tap Back)", f1151, 1},
-    {"Font", f1152, 1},
-    {"Font Size", f1153, 1},
-    {"Font selection is no longer available", f1154, 1},
-    {"Forget", f1155, 1},
-    {"Format", f1156, 1},
-    {"Format SD Card", f1157, 1},
-    {"Formatting\nSD Card...", f1158, 1},
-    {"Frequency", f1159, 1},
-    {"Frequency (Hz, 20 to 20000)", f1160, 1},
-    {"Friday", f1161, 1},
-    {"From album art", f1162, 1},
-    {"From album art (no cover, using custom)", f1163, 1},
-    {"Gain", f1164, 1},
-    {"Gain (dB, -12 to 12)", f1165, 1},
-    {"Gapless", f1166, 1},
-    {"Gateway: %s", f1167, 1},
-    {"Generate", f1168, 1},
-    {"Generate a new PIN?", f1169, 1},
-    {"Genres", f1170, 1},
-    {"Gestures & Orientation", f1171, 1},
-    {"Get started", f1172, 1},
-    {"GitHub did not respond in time. Try again.", f1173, 1},
-    {"GitHub is limiting requests. Try again later.", f1174, 1},
-    {"GitHub returned HTTP %d.", f1175, 1},
-    {"Go back and choose New Connection to add one.", f1176, 1},
-    {"Good", f1177, 1},
-    {"Headset may disconnect, manual reconnection might be required", f1178, 1},
-    {"Hide Player/Lyrics Top Bar", f1179, 1},
-    {"Hide Unnamed Devices", f1180, 1},
-    {"High", f1181, 1},
-    {"High (320 kbps)", f1182, 1},
-    {"Hostname", f1183, 1},
-    {"Hostname can only use letters, numbers, and hyphens", f1184, 1},
-    {"IP Address: %s", f1185, 1},
-    {"Idle Shutdown", f1186, 1},
-    {"Idle timeout:", f1187, 1},
-    {"Import", f1188, 1},
-    {"Import via Wi-Fi", f1189, 1},
-    {"In-line Remote", f1190, 1},
-    {"Indian", f1191, 1},
-    {"Information", f1192, 1},
-    {"Insert an SD card to change plugins.", f1193, 1},
-    {"Insert an SD card to download the update.", f1194, 1},
-    {"Insert an SD card to install plugins.", f1195, 1},
-    {"Insert an SD card to remove plugins.", f1196, 1},
-    {"Insert an SD card to scan for music, or turn off Scan for music.", f1197, 1},
-    {"Insert an SD card to update plugins.", f1198, 1},
-    {"Insert your SD card with music files. Compas Player can scan it and build your library.", f1199, 1},
-    {"Install", f1200, 1},
-    {"Install & Reboot", f1201, 1},
-    {"Install from SD card", f1202, 1},
-    {"Installed", f1203, 1},
-    {"Installed manually", f1204, 1},
-    {"Installed · %s", f1205, 1},
-    {"Installing plugin", f1206, 1},
-    {"Invalid download folder", f1207, 1},
-    {"Invalid download folder name", f1208, 1},
-    {"Invalid profile name", f1209, 1},
-    {"It could not be loaded. Rebuild it now?", f1210, 1},
-    {"It may have no partition table or a file system this player can't use. Formatting will erase it and set it up for this player.", f1211, 1},
-    {"Its settings stay on the card.", f1212, 1},
-    {"January", f1213, 1},
-    {"July", f1214, 1},
-    {"June", f1215, 1},
-    {"LDAC Quality", f1216, 1},
-    {"LDAC Standard", f1217, 1},
-    {"LDAC in DAC mode (Experimental)", f1218, 1},
-    {"LED charge indicator", f1219, 1},
-    {"Language", f1220, 1},
-    {"Large", f1221, 1},
-    {"Later", f1222, 1},
-    {"Launch at a fixed volume", f1223, 1},
-    {"Layout", f1224, 1},
-    {"Leave", f1225, 1},
-    {"Leave Bluetooth DAC mode?", f1226, 1},
-    {"Leave USB DAC mode?", f1227, 1},
-    {"Leave this view and try again.", f1228, 1},
-    {"Library", f1229, 1},
-    {"Library changed. Open the album again.", f1230, 1},
-    {"Library is busy", f1231, 1},
-    {"Library loaded", f1232, 1},
-    {"Library migrated. Favourites and play history kept", f1233, 1},
-    {"Library migrated. Old database cleanup will retry", f1234, 1},
-    {"Library migration failed. Old library intact. Use Settings > Update Music Database to retry", f1235, 1},
-    {"Library migration pending. Favourites and play history will be kept", f1236, 1},
-    {"Library recovered and saved", f1237, 1},
-    {"Library recovered and saved, some folders could not be read", f1238, 1},
-    {"Library recovered. Use Settings > Update Music Database to save", f1239, 1},
-    {"Library unavailable. Use Settings > Update Music Database to rebuild", f1240, 1},
-    {"Library update failed. Check SD card and retry", f1241, 1},
-    {"Library updated", f1242, 1},
-    {"Library updated, some folders could not be read", f1243, 1},
-    {"Load covers during playback (Experimental)", f1244, 1},
-    {"Loading Wi-Fi settings", f1245, 1},
-    {"Loading from server...", f1246, 1},
-    {"Loading layouts", f1247, 1},
-    {"Loading plugin catalog...", f1248, 1},
-    {"Loading plugins", f1249, 1},
-    {"Loading tracks…", f1250, 1},
-    {"Loading...", f1251, 1},
-    {"Location", f1252, 1},
-    {"Looking for music files", f1253, 1},
-    {"Looking for music files\n%d items checked", f1254, 1},
-    {"Low", f1255, 1},
-    {"Low\nHigh", f1256, 1},
-    {"Low (96 kbps)", f1257, 1},
-    {"Lyrics", f1258, 1},
-    {"Lyrics Text Size", f1259, 1},
-    {"MAC Address: %s", f1260, 1},
-    {"Maintenance", f1261, 1},
-    {"Make an accessory discoverable, then tap Rescan.", f1262, 1},
-    {"Manage plugins later in Settings > System > Plugin Manager to search, update, or remove them.", f1263, 1},
-    {"Manual SSID Entry", f1264, 1},
-    {"March", f1265, 1},
-    {"Match album art", f1266, 1},
-    {"May", f1267, 1},
-    {"Medium", f1268, 1},
-    {"Medium (192 kbps)", f1269, 1},
-    {"Memorized Networks", f1270, 1},
-    {"Metadata refreshed", f1271, 1},
-    {"Migrating\nmusic database...", f1272, 1},
-    {"Monday", f1273, 1},
-    {"Mono (1 channel)", f1274, 1},
-    {"More", f1275, 1},
-    {"Most Played", f1276, 1},
-    {"Music", f1277, 1},
-    {"Music database unavailable", f1278, 1},
-    {"Name (A–Z)", f1279, 1},
-    {"Native DSD (DoP) / %.4g MHz", f1280, 1},
-    {"Nearby Wi-Fi networks will appear here.", f1281, 1},
-    {"Needs newer firmware", f1282, 1},
-    {"Network Name (SSID)", f1283, 1},
-    {"Network stream", f1284, 1},
-    {"Networks you connect to will appear here.", f1285, 1},
-    {"New Connection", f1286, 1},
-    {"New PIN generated", f1287, 1},
-    {"New Profile", f1288, 1},
-    {"Newest Modified", f1289, 1},
-    {"Next", f1290, 1},
-    {"Next  •  %d–%d of %d", f1291, 1},
-    {"Next page", f1292, 1},
-    {"No .ttf fonts found in /Fonts", f1293, 1},
-    {"No .upt firmware file found on SD card", f1294, 1},
-    {"No SD card", f1295, 1},
-    {"No SD card detected. You can scan later from Library settings.", f1296, 1},
-    {"No books found", f1297, 1},
-    {"No entries to display", f1298, 1},
-    {"No favorites yet", f1299, 1},
-    {"No items", f1300, 1},
-    {"No memorized networks", f1301, 1},
-    {"No music database", f1302, 1},
-    {"No nearby devices", f1303, 1},
-    {"No network detected", f1304, 1},
-    {"No network detected. Connect to a network to download plugins.", f1305, 1},
-    {"No networks found", f1306, 1},
-    {"No other networks found", f1307, 1},
-    {"No paired devices", f1308, 1},
-    {"No playable audio files found", f1309, 1},
-    {"No playable files here", f1310, 1},
-    {"No plugin settings available", f1311, 1},
-    {"No plugins are available in the catalog.", f1312, 1},
-    {"No saved profiles", f1313, 1},
-    {"No saved servers", f1314, 1},
-    {"No songs to refresh", f1315, 1},
-    {"No synchronized lyrics found", f1316, 1},
-    {"No track loaded", f1317, 1},
-    {"No tracks found", f1318, 1},
-    {"No user playlists", f1319, 1},
-    {"No verified update is on this SD card. Download it again.", f1320, 1},
-    {"Not connected", f1321, 1},
-    {"Not enough free space on the SD card for the update.", f1322, 1},
-    {"Not enough free space on the SD card.", f1323, 1},
-    {"Not enough memory to connect", f1324, 1},
-    {"Not enough memory to load CUE tracks", f1325, 1},
-    {"Not enough memory to load artists", f1326, 1},
-    {"Not enough memory to load from server", f1327, 1},
-    {"Not enough memory to load the plugin store", f1328, 1},
-    {"Not enough memory to start download", f1329, 1},
-    {"Not selected (UTC)", f1330, 1},
-    {"Not set", f1331, 1},
-    {"November", f1332, 1},
-    {"OFF", f1333, 1},
-    {"ON", f1334, 1},
-    {"October", f1335, 1},
-    {"Off", f1336, 1},
-    {"On", f1337, 1},
-    {"Open a book and tap the bookmark icon to save it here.", f1338, 1},
-    {"Open a folder containing supported audio files.", f1339, 1},
-    {"Open network", f1340, 1},
-    {"Open this address on your phone or computer:", f1341, 1},
-    {"Open · Connected", f1342, 1},
-    {"Original", f1343, 1},
-    {"Output", f1344, 1},
-    {"PEQ reset to defaults", f1345, 1},
-    {"Pacific", f1346, 1},
-    {"Paired", f1347, 1},
-    {"Paired Devices", f1348, 1},
-    {"Parametric EQ", f1349, 1},
-    {"Password", f1350, 1},
-    {"Password: Not set", f1351, 1},
-    {"Password: Set", f1352, 1},
-    {"Paused: headphones disconnected", f1353, 1},
-    {"Peaking\nLow Shelf\nHigh Shelf", f1354, 1},
-    {"Per Album", f1355, 1},
-    {"Per Track", f1356, 1},
-    {"Place .ttf fonts in SD /Fonts folder.", f1357, 1},
-    {"Play All", f1358, 1},
-    {"Play Next", f1359, 1},
-    {"Play all shuffled", f1360, 1},
-    {"Play an album or playlist to see its songs here.", f1361, 1},
-    {"Play sequentially", f1362, 1},
-    {"Play/Pause", f1363, 1},
-    {"Play/Pause + Previous Track (Double-Click)", f1364, 1},
-    {"Play/Pause Button", f1365, 1},
-    {"Playback & Controls", f1366, 1},
-    {"Playback and device actions", f1367, 1},
-    {"Playback error", f1368, 1},
-    {"Playback error: audio output failed", f1369, 1},
-    {"Playback history could not be saved", f1370, 1},
-    {"Playback stopped: %s", f1371, 1},
-    {"Played", f1372, 1},
-    {"Player Layout", f1373, 1},
-    {"Playing", f1374, 1},
-    {"Playlist Name", f1375, 1},
-    {"Playlist changed. Select a song again.", f1376, 1},
-    {"Playlist changed. Try again.", f1377, 1},
-    {"Playlist created", f1378, 1},
-    {"Playlist deleted", f1379, 1},
-    {"Playlist is empty", f1380, 1},
-    {"Playlist renamed", f1381, 1},
-    {"Playlist saved", f1382, 1},
-    {"Playlist unavailable or unreadable", f1383, 1},
-    {"Playlists", f1384, 1},
-    {"Playlists refreshed", f1385, 1},
-    {"Please wait for plugin installation to finish", f1386, 1},
-    {"Please wait for the library scan to finish", f1387, 1},
-    {"Plugin", f1388, 1},
-    {"Plugin Manager", f1389, 1},
-    {"Plugin Settings", f1390, 1},
-    {"Plugin Store", f1391, 1},
-    {"Plugin is unavailable in the catalog", f1392, 1},
-    {"Plugin operation failed", f1393, 1},
-    {"Plugin setup complete", f1394, 1},
-    {"Plugin setup needs attention", f1395, 1},
-    {"Plugin storage is unavailable.", f1396, 1},
-    {"Plugins", f1397, 1},
-    {"Position", f1398, 1},
-    {"Power", f1399, 1},
-    {"Power Off", f1400, 1},
-    {"Power controls", f1401, 1},
-    {"Power off", f1402, 1},
-    {"Pre-Amp (dB, -12 to 12)", f1403, 1},
-    {"Pre-Amp: %+.2f dB", f1404, 1},
-    {"Preparing cover refresh...", f1405, 1},
-    {"Preparing database migration...", f1406, 1},
-    {"Preparing metadata refresh", f1407, 1},
-    {"Preparing metadata refresh...", f1408, 1},
-    {"Preparing music library...", f1409, 1},
-    {"Preparing update", f1410, 1},
-    {"Presets", f1411, 1},
-    {"Preview", f1412, 1},
-    {"Previous", f1413, 1},
-    {"Previous  •  %d–%d of %d", f1414, 1},
-    {"Previous Track", f1415, 1},
-    {"Previous page", f1416, 1},
-    {"Previous request still finishing", f1417, 1},
-    {"Previously connected accessories will appear here.", f1418, 1},
-    {"Primary DNS", f1419, 1},
-    {"Profile Name", f1420, 1},
-    {"Profile deleted", f1421, 1},
-    {"Profile loaded", f1422, 1},
-    {"Profile renamed", f1423, 1},
-    {"Profile saved", f1424, 1},
-    {"Profiles", f1425, 1},
-    {"Provider", f1426, 1},
-    {"Queue", f1427, 1},
-    {"Queue changed. Try again.", f1428, 1},
-    {"Queue checkpoint failed; storage may be read-only", f1429, 1},
-    {"Queue cleared", f1430, 1},
-    {"Queue is empty", f1431, 1},
-    {"Queue ready. Press Play to start.", f1432, 1},
-    {"Queued", f1433, 1},
-    {"Quick Setup Complete", f1434, 1},
-    {"Quick setup", f1435, 1},
-    {"RC", f1436, 1},
-    {"Radio", f1437, 1},
-    {"Radio / %s", f1438, 1},
-    {"Reading supported rates...", f1439, 1},
-    {"Reading tags\n%d of %d songs (%d%%)", f1440, 1},
-    {"Reads the tags of every song again. This may take a while.", f1441, 1},
-    {"Rebuild", f1442, 1},
-    {"Recently Added", f1443, 1},
-    {"Recently Played", f1444, 1},
-    {"Refresh", f1445, 1},
-    {"Refresh All Covers", f1446, 1},
-    {"Refresh All Metadata", f1447, 1},
-    {"Refresh Plugins", f1448, 1},
-    {"Refresh all covers?", f1449, 1},
-    {"Refresh all metadata?", f1450, 1},
-    {"Refresh metadata", f1451, 1},
-    {"Refresh plugin catalog", f1452, 1},
-    {"Refresh the music database to update this list.", f1453, 1},
-    {"Refreshing\nall covers...", f1454, 1},
-    {"Refreshing\nall metadata...", f1455, 1},
-    {"Refreshing\nmetadata...", f1456, 1},
-    {"Refreshing covers", f1457, 1},
-    {"Refreshing covers\n%d of %d (%d%%)", f1458, 1},
-    {"Refreshing plugins...", f1459, 1},
-    {"Release Year (oldest first)", f1460, 1},
-    {"Reload cover", f1461, 1},
-    {"Reloading\ncover...", f1462, 1},
-    {"Reloading cover", f1463, 1},
-    {"Reloading cover\n%d of %d (%d%%)", f1464, 1},
-    {"Remote", f1465, 1},
-    {"Remote Control", f1466, 1},
-    {"Remove", f1467, 1},
-    {"Remove %s?", f1468, 1},
-    {"Removed", f1469, 1},
-    {"Removed from playlist", f1470, 1},
-    {"Removed from queue", f1471, 1},
-    {"Removes saved covers and extracts them again. This may take a while.", f1472, 1},
-    {"Removing plugin", f1473, 1},
-    {"Rename Playlist", f1474, 1},
-    {"Rename Profile", f1475, 1},
-    {"Replace", f1476, 1},
-    {"Replace Existing", f1477, 1},
-    {"Replace Profile", f1478, 1},
-    {"ReplayGain", f1479, 1},
-    {"Rescan", f1480, 1},
-    {"Reset", f1481, 1},
-    {"Reset PEQ to defaults?", f1482, 1},
-    {"Reset all settings and reboot?", f1483, 1},
-    {"Reset to defaults", f1484, 1},
-    {"Restart", f1485, 1},
-    {"Restart Now", f1486, 1},
-    {"Restart now to apply the new hostname?", f1487, 1},
-    {"Resume Last Track", f1488, 1},
-    {"Resume and Play", f1489, 1},
-    {"Resume playback when external power turns the player on.", f1490, 1},
-    {"Resume, but Paused", f1491, 1},
-    {"Retrying plugins %zu/%zu", f1492, 1},
-    {"SD card checked", f1493, 1},
-    {"SD card couldn't be read", f1494, 1},
-    {"SD card format failed", f1495, 1},
-    {"SD card formatted", f1496, 1},
-    {"SD card is read-only. Check it on a computer", f1497, 1},
-    {"SD card is still read-only", f1498, 1},
-    {"SD card may have errors. Check it on a computer", f1499, 1},
-    {"SD card not available", f1500, 1},
-    {"SD card repair is still running", f1501, 1},
-    {"SD card repaired", f1502, 1},
-    {"SSID: %s", f1503, 1},
-    {"Safe Charging (500mA)", f1504, 1},
-    {"Sample Rate", f1505, 1},
-    {"Saturday", f1506, 1},
-    {"Save", f1507, 1},
-    {"Save Profile", f1508, 1},
-    {"Save Profile As", f1509, 1},
-    {"Save Queue as Playlist", f1510, 1},
-    {"Save as Playlist", f1511, 1},
-    {"Save as a new profile, or replace one that already exists?", f1512, 1},
-    {"Saved Servers", f1513, 1},
-    {"Saved network", f1514, 1},
-    {"Saved network details are being checked.", f1515, 1},
-    {"Saving music database", f1516, 1},
-    {"Saving music database\nThis can take a while on large libraries", f1517, 1},
-    {"Saving playlist…", f1518, 1},
-    {"Scan for music", f1519, 1},
-    {"Scan with your phone to support Compás Player on PayPal", f1520, 1},
-    {"Scanning for networks", f1521, 1},
-    {"Screen Dimming", f1522, 1},
-    {"Screen Timeout", f1523, 1},
-    {"Screen off", f1524, 1},
-    {"Screenshot failed (%s)", f1525, 1},
-    {"Screenshot failed (framebuffer)", f1526, 1},
-    {"Screenshot failed (worker)", f1527, 1},
-    {"Screenshot needs an SD card", f1528, 1},
-    {"Screenshot saved", f1529, 1},
-    {"Screenshots (Power + Previous)", f1530, 1},
-    {"Screenshots (Power + Vol Down)", f1531, 1},
-    {"Screenshots unavailable", f1532, 1},
-    {"Secondary DNS", f1533, 1},
-    {"Secure connection failed. Check Wi-Fi and the date and time.", f1534, 1},
-    {"Secured network", f1535, 1},
-    {"Secured · Connected", f1536, 1},
-    {"Select at least one plugin to continue.", f1537, 1},
-    {"Selected plugins are ready.\n", f1538, 1},
-    {"September", f1539, 1},
-    {"Server URL (e.g. %s)", f1540, 1},
-    {"Server URL: %s", f1541, 1},
-    {"Server request timed out after 30 seconds", f1542, 1},
-    {"Service is busy", f1543, 1},
-    {"Set Time", f1544, 1},
-    {"Set your local time zone so the clock is right.", f1545, 1},
-    {"Settings", f1546, 1},
-    {"Show Time Remaining", f1547, 1},
-    {"Showing first %d of %d songs", f1548, 1},
-    {"Shuffle from a random song", f1549, 1},
-    {"Signal: %s", f1550, 1},
-    {"Skip for now", f1551, 1},
-    {"Skipped: %s", f1552, 1},
-    {"Sleep", f1553, 1},
-    {"Sleep Timer", f1554, 1},
-    {"Sleep timer", f1555, 1},
-    {"Sleep timer: %d min remaining", f1556, 1},
-    {"Sleep timer: Off", f1557, 1},
-    {"Small", f1558, 1},
-    {"Some covers could not be refreshed", f1559, 1},
-    {"Some playlists could not be read", f1560, 1},
-    {"Some plugin files were changed on the card. Replace them?", f1561, 1},
-    {"Some songs could not be read", f1562, 1},
-    {"Some updates need confirmation before replacing local files.", f1563, 1},
-    {"Song already added", f1564, 1},
-    {"Song deleted", f1565, 1},
-    {"Songs", f1566, 1},
-    {"Sorting", f1567, 1},
-    {"Sound", f1568, 1},
-    {"Sound Effects", f1569, 1},
-    {"Source", f1570, 1},
-    {"Speex Resampling", f1571, 1},
-    {"Start sequentially", f1572, 1},
-    {"Start with these suggestions, or explore more plugins.", f1573, 1},
-    {"Startup Volume", f1574, 1},
-    {"Step %d of %d", f1575, 1},
-    {"Stereo (2 channels)", f1576, 1},
-    {"Still applying the previous choice", f1577, 1},
-    {"Storage", f1578, 1},
-    {"Stream Media", f1579, 1},
-    {"Stream Quality", f1580, 1},
-    {"Stream quality: %s", f1581, 1},
-    {"Subfolder is relative to SD root (example: Music/Offline); empty uses SD root", f1582, 1},
-    {"Subfolder: SD root", f1583, 1},
-    {"Subsonic", f1584, 1},
-    {"Sunday", f1585, 1},
-    {"Suspend to RAM", f1586, 1},
-    {"Swipe Up for Home", f1587, 1},
-    {"Swipe up to unlock", f1588, 1},
-    {"System", f1589, 1},
-    {"System playlists", f1590, 1},
-    {"Takes its color from the cover of the playing track", f1591, 1},
-    {"Tap Power off again to confirm", f1592, 1},
-    {"Tap Restart again to confirm", f1593, 1},
-    {"The SD card changed during the download.", f1594, 1},
-    {"The SD card changed during the operation.", f1595, 1},
-    {"The SD card is read-only. Check its write protection.", f1596, 1},
-    {"The download did not complete. Check Wi-Fi and try again.", f1597, 1},
-    {"The downloaded image failed verification and was deleted.", f1598, 1},
-    {"The playlist file will be deleted. Music files are kept.", f1599, 1},
-    {"The plugin download failed verification. Try again.", f1600, 1},
-    {"The quick brown fox jumps 123", f1601, 1},
-    {"The release has no checksum for this device's image.", f1602, 1},
-    {"The update file on the SD card changed. Download it again.", f1603, 1},
-    {"There are no entries in this view.", f1604, 1},
-    {"This device is now a USB sound card", f1605, 1},
-    {"This device is now receiving Bluetooth audio", f1606, 1},
-    {"This may take a while", f1607, 1},
-    {"This permanently deletes everything on the card. This cannot be undone.", f1608, 1},
-    {"This plugin has no update available.", f1609, 1},
-    {"This plugin is already installed by the store.", f1610, 1},
-    {"This plugin is not installed by the store.", f1611, 1},
-    {"This plugin needs a newer player version.", f1612, 1},
-    {"This release's image does not match its checksums. Try again after the next weekly release.", f1613, 1},
-    {"Thread launch failed", f1614, 1},
-    {"Thursday", f1615, 1},
-    {"Time Zone", f1616, 1},
-    {"Time remaining: %d:%02d", f1617, 1},
-    {"Time remaining: %d:%02d:%02d", f1618, 1},
-    {"Time zone", f1619, 1},
-    {"Too many audio channels", f1620, 1},
-    {"Too many plugins are installed. Remove one and try again.", f1621, 1},
-    {"Track", f1622, 1},
-    {"Track %+.1f dB", f1623, 1},
-    {"Track %d", f1624, 1},
-    {"Track details are not available yet. Keep playback open and check again.", f1625, 1},
-    {"Tracks", f1626, 1},
-    {"Tuesday", f1627, 1},
-    {"Turn Bluetooth off and on to apply", f1628, 1},
-    {"Turn off ADB first (Settings > System > USB Mode), then enable USB DAC from here.", f1629, 1},
-    {"Turn off Automatic to set the clock", f1630, 1},
-    {"Turn off Bluetooth DAC to play music on this device", f1631, 1},
-    {"Turn off screen automatically", f1632, 1},
-    {"Turn on Bluetooth to see paired and nearby devices.", f1633, 1},
-    {"Turn on Wi-Fi and connect first", f1634, 1},
-    {"Turn this on to see the address here.", f1635, 1},
-    {"USB DAC", f1636, 1},
-    {"USB DAC mode", f1637, 1},
-    {"USB Mode", f1638, 1},
-    {"USB audio device detected", f1639, 1},
-    {"USB input: %s · %u-bit", f1640, 1},
-    {"USB mode", f1641, 1},
-    {"Unable to load items", f1642, 1},
-    {"Unable to read folder (tap Back and retry)", f1643, 1},
-    {"Unavailable", f1644, 1},
-    {"Unexpected library response", f1645, 1},
-    {"Unexpected reply from GitHub", f1646, 1},
-    {"Unexpected reply from GitHub.", f1647, 1},
-    {"Unknown album", f1648, 1},
-    {"Unknown artist", f1649, 1},
-    {"Unknown codec", f1650, 1},
-    {"Unknown format", f1651, 1},
-    {"Unknown rate", f1652, 1},
-    {"Unsupported audio format", f1653, 1},
-    {"Update", f1654, 1},
-    {"Update & Reboot", f1655, 1},
-    {"Update All", f1656, 1},
-    {"Update Music Database", f1657, 1},
-    {"Update Music Database to enable this album order", f1658, 1},
-    {"Update available", f1659, 1},
-    {"Update available · %s", f1660, 1},
-    {"Update individually", f1661, 1},
-    {"Update music database?", f1662, 1},
-    {"Update these plugins individually", f1663, 1},
-    {"Update using %s?\nDevice will reboot into recovery mode.", f1664, 1},
-    {"Updates", f1665, 1},
-    {"Updating\nmusic database...", f1666, 1},
-    {"Updating plugins", f1667, 1},
-    {"Upside Down Screen", f1668, 1},
-    {"Use Settings > Update Music Database", f1669, 1},
-    {"User playlists", f1670, 1},
-    {"Username", f1671, 1},
-    {"Username: %s", f1672, 1},
-    {"Verify server certificate", f1673, 1},
-    {"Version %s · %s", f1674, 1},
-    {"Waiting for Bluetooth stream…", f1675, 1},
-    {"Waiting for USB audio…", f1676, 1},
-    {"Weak", f1677, 1},
-    {"Web Server is busy", f1678, 1},
-    {"Wednesday", f1679, 1},
-    {"Weekly Beta %s is available.\nInstalled: %s\n\nDownload it now? This may take a while.", f1680, 1},
-    {"Weekly Beta %s is downloaded and verified.\n\nInstall now? The device reboots into recovery to flash it. Do not turn it off until it restarts.", f1681, 1},
-    {"Welcome to Compás", f1682, 1},
-    {"When on, this device is visible to AirPlay senders on your Wi-Fi network -- stream audio from an iPhone, iPad, or Mac to be played through this device's own output.", f1683, 1},
-    {"When on, this device is visible to DLNA/UPnP controller apps on your Wi-Fi network -- cast a track from one to play it here. Pause, mute, volume, and seek from the controller app aren't supported; use this device's own controls instead once a track starts.", f1684, 1},
-    {"When on, this device stays visible and pairable to other Bluetooth devices, so a phone or computer can stream audio TO it and play through this device's own output -- using it as an external DAC.", f1685, 1},
-    {"Wi-Fi", f1686, 1},
-    {"Wi-Fi Info", f1687, 1},
-    {"Wi-Fi Password", f1688, 1},
-    {"Wi-Fi failed to change state", f1689, 1},
-    {"Wi-Fi is busy", f1690, 1},
-    {"Wireless", f1691, 1},
-    {"You can select up to 32 plugins", f1692, 1},
-    {"You have the latest weekly (%s).\n\nDownload and reinstall it anyway? This may take a while.", f1693, 1},
-    {"Your library is being loaded.", f1694, 1},
-    {"Your music", f1695, 1},
-    {"Your setup journey", f1696, 1},
-    {"[File truncated at %d KB -- showing the first part only]\n\n%s", f1697, 1},
-    {"unknown", f1698, 1},
+    {"%.0f Hz", f849, 1},
+    {"%d hr", f850, 1},
+    {"%d hr %d min", f851, 1},
+    {"%d min", f852, 1},
+    {"%d min remaining", f853, 1},
+    {"%d song", f854, 2},
+    {"%d track", f855, 2},
+    {"%dm", f856, 1},
+    {"%lld track", f857, 2},
+    {"%llu bytes", f858, 1},
+    {"%s (current)", f859, 1},
+    {"%s · Not loaded", f860, 1},
+    {"%s · Not loaded: limit reached", f861, 1},
+    {"%u channels", f862, 1},
+    {"+ New Playlist", f863, 1},
+    {"24-Hour Clock", f864, 1},
+    {"48 kHz reference", f865, 1},
+    {"A local plugin file will be replaced. Confirm to continue.", f866, 1},
+    {"A plugin download failed verification. Try again.", f867, 1},
+    {"A plugin operation is already in progress", f868, 1},
+    {"ADB", f869, 1},
+    {"About", f870, 1},
+    {"Accent Color", f871, 1},
+    {"Add .txt files to the Books folder, then refresh the library.", f872, 1},
+    {"Add a random song to queue", f873, 1},
+    {"Add album to queue", f874, 1},
+    {"Add hidden network", f875, 1},
+    {"Add songs from a song menu.", f876, 1},
+    {"Add to Playlist", f877, 1},
+    {"Add to Queue", f878, 1},
+    {"Added %d song to queue", f879, 2},
+    {"Added to playlist", f880, 1},
+    {"Additional Tools", f881, 1},
+    {"Advanced", f882, 1},
+    {"Africa", f883, 1},
+    {"AirPlay", f884, 1},
+    {"AirPlay stopped unexpectedly", f885, 1},
+    {"Album %+.1f dB", f886, 1},
+    {"Album Artist", f887, 1},
+    {"Album Artist - Album", f888, 1},
+    {"Album Artist / Album", f889, 1},
+    {"Album unavailable", f890, 1},
+    {"Albums", f891, 1},
+    {"Albums (main list)", f892, 1},
+    {"All Songs", f893, 1},
+    {"All visible networks are already saved.", f894, 1},
+    {"Already installed", f895, 1},
+    {"America", f896, 1},
+    {"An update is already in progress", f897, 1},
+    {"An update is already in progress.", f898, 1},
+    {"Animation Speed", f899, 1},
+    {"Antarctica", f900, 1},
+    {"Appearance", f901, 1},
+    {"Applied %+.1f dB", f902, 1},
+    {"Applies immediately", f903, 1},
+    {"Applies next time you launch the app", f904, 1},
+    {"Applies to new streaming queues", f905, 1},
+    {"Applying language, this may take a while", f906, 1},
+    {"Applying layout, this may take a while", f907, 1},
+    {"Apps and browsers using the current PIN will need the new one to reconnect.", f908, 1},
+    {"April", f909, 1},
+    {"Arctic", f910, 1},
+    {"Artist Images", f911, 1},
+    {"Artists", f912, 1},
+    {"Asia", f913, 1},
+    {"Atlantic", f914, 1},
+    {"Audio", f915, 1},
+    {"Audio could not be decoded", f916, 1},
+    {"Audio output failed", f917, 1},
+    {"August", f918, 1},
+    {"Australia", f919, 1},
+    {"Auto", f920, 1},
+    {"Auto-resume", f921, 1},
+    {"Automatic", f922, 1},
+    {"Automatic (44.1 kHz)", f923, 1},
+    {"Automatically go idle", f924, 1},
+    {"Available", f925, 1},
+    {"Available Devices", f926, 1},
+    {"Available Networks", f927, 1},
+    {"Available · %s", f928, 1},
+    {"Back", f929, 1},
+    {"Band %d / %d", f930, 1},
+    {"Band options", f931, 1},
+    {"Battery Percentage", f932, 1},
+    {"Bitrate", f933, 1},
+    {"Bluetooth", f934, 1},
+    {"Bluetooth DAC", f935, 1},
+    {"Bluetooth DAC mode", f936, 1},
+    {"Bluetooth Volume Sync", f937, 1},
+    {"Bluetooth is off", f938, 1},
+    {"Bluetooth remote service is starting…", f939, 1},
+    {"Bluetooth remote service is unavailable; retrying.", f940, 1},
+    {"Bluetooth: Compas Remote Control", f941, 1},
+    {"Bluetooth: registration failed; retrying", f942, 1},
+    {"Bluetooth: waiting for service registration", f943, 1},
+    {"Books", f944, 1},
+    {"Books refreshed", f945, 1},
+    {"Build", f946, 1},
+    {"Build it now? Large libraries can take several minutes.", f947, 1},
+    {"Buttons & Remote", f948, 1},
+    {"Buy Me a Coffee", f949, 1},
+    {"By %s", f950, 1},
+    {"Cancel", f951, 1},
+    {"Cannot check plugin storage write access.", f952, 1},
+    {"Cannot delete playlist", f953, 1},
+    {"Cannot load album tracks", f954, 1},
+    {"Cannot move this entry", f955, 1},
+    {"Cannot play folder", f956, 1},
+    {"Cannot reach GitHub. Check the Wi-Fi connection.", f957, 1},
+    {"Cannot read playlist", f958, 1},
+    {"Cannot read the SD card.", f959, 1},
+    {"Cannot read the update file on the SD card. Check the card and try again.", f960, 1},
+    {"Cannot read the update record on the SD card. Check the card and try again.", f961, 1},
+    {"Cannot read update helper status: %s", f962, 1},
+    {"Cannot remove entry", f963, 1},
+    {"Cannot rename: invalid name or file exists", f964, 1},
+    {"Cannot reorder playlist", f965, 1},
+    {"Cannot save playlist", f966, 1},
+    {"Cannot save: invalid or streaming entries", f967, 1},
+    {"Cannot start queue", f968, 1},
+    {"Car Mode", f969, 1},
+    {"Car Mode Volume", f970, 1},
+    {"Car Mode is disabled.", f971, 1},
+    {"Channels", f972, 1},
+    {"Charge Limit (85%)", f973, 1},
+    {"Charge to at least %d%% or connect power before updating.", f974, 1},
+    {"Charge to at least 30%% or connect power before updating.", f975, 1},
+    {"Charging", f976, 1},
+    {"Check for online update", f977, 1},
+    {"Check that Wi-Fi is enabled, then rescan.", f978, 1},
+    {"Checking for updates", f979, 1},
+    {"Checking the SD card. This may take a while", f980, 1},
+    {"Checking the file on the SD card", f981, 1},
+    {"Choose a language", f982, 1},
+    {"Choose plugins", f983, 1},
+    {"Choose the language for your player.", f984, 1},
+    {"Choose time zone", f985, 1},
+    {"Choose what happens when idle:", f986, 1},
+    {"Clear Queue", f987, 1},
+    {"Clock", f988, 1},
+    {"Close", f989, 1},
+    {"Closing\nWeb Server...", f990, 1},
+    {"Codec", f991, 1},
+    {"Combined response (dB)", f992, 1},
+    {"Combined response (dB) · EQ off", f993, 1},
+    {"Compás Player", f994, 1},
+    {"Connect", f995, 1},
+    {"Connect & Browse", f996, 1},
+    {"Connect a device to see its supported rates", f997, 1},
+    {"Connect over Wi-Fi or Bluetooth to see what's playing, control playback, and browse your library. Enter this PIN when the app or browser asks for it; Bluetooth also requires pairing.", f998, 1},
+    {"Connect to Wi-Fi", f999, 1},
+    {"Connect to Wi-Fi first", f1000, 1},
+    {"Connect to Wi-Fi for streaming, updates, and online services.", f1001, 1},
+    {"Connect to a Wi-Fi network before continuing.", f1002, 1},
+    {"Connect to a network to download plugins.", f1003, 1},
+    {"Connect using either available route:", f1004, 1},
+    {"Connected", f1005, 1},
+    {"Connecting", f1006, 1},
+    {"Connecting to", f1007, 1},
+    {"Connecting to server...", f1008, 1},
+    {"Connection PIN", f1009, 1},
+    {"Connection failed", f1010, 1},
+    {"Connection timed out after 30 seconds", f1011, 1},
+    {"Container", f1012, 1},
+    {"Continue", f1013, 1},
+    {"Continue setup", f1014, 1},
+    {"Could not apply font size", f1015, 1},
+    {"Could not apply lyrics text size", f1016, 1},
+    {"Could not download the release checksums.", f1017, 1},
+    {"Could not enter recovery mode.", f1018, 1},
+    {"Could not generate a new PIN", f1019, 1},
+    {"Could not install a plugin on the SD card.", f1020, 1},
+    {"Could not install the plugin on the SD card.", f1021, 1},
+    {"Could not load lock screen photo", f1022, 1},
+    {"Could not load the plugin catalog.", f1023, 1},
+    {"Could not load the plugin catalog. Tap More to retry.", f1024, 1},
+    {"Could not move other .upt files aside on the SD card.", f1025, 1},
+    {"Could not open this file.", f1026, 1},
+    {"Could not place the update on the SD card.", f1027, 1},
+    {"Could not prepare plugin removal.", f1028, 1},
+    {"Could not prepare update helper: %s", f1029, 1},
+    {"Could not read installed plugins.", f1030, 1},
+    {"Could not read the Books folder", f1031, 1},
+    {"Could not read the plugin list from GitHub.", f1032, 1},
+    {"Could not read the release list from GitHub.", f1033, 1},
+    {"Could not record the verified update on the SD card.", f1034, 1},
+    {"Could not refresh books", f1035, 1},
+    {"Could not reload cover", f1036, 1},
+    {"Could not remove a plugin file.", f1037, 1},
+    {"Could not repair the SD card", f1038, 1},
+    {"Could not save Bluetooth codec", f1039, 1},
+    {"Could not start USB mode switch", f1040, 1},
+    {"Could not start refreshing the plugin catalog.", f1041, 1},
+    {"Could not start the download", f1042, 1},
+    {"Could not start the download.", f1043, 1},
+    {"Could not start the installation.", f1044, 1},
+    {"Could not start the library scan. Please try again.", f1045, 1},
+    {"Could not start the plugin operation", f1046, 1},
+    {"Could not start the plugin operation.", f1047, 1},
+    {"Could not start the plugin refresh", f1048, 1},
+    {"Could not start the plugin refresh.", f1049, 1},
+    {"Could not start the plugin update.", f1050, 1},
+    {"Could not start the update check.", f1051, 1},
+    {"Could not start update helper: %s", f1052, 1},
+    {"Could not update the installed plugin record.", f1053, 1},
+    {"Couldn't connect to Wi-Fi network", f1054, 1},
+    {"Couldn't read this .cue file", f1055, 1},
+    {"Couldn't save -- plugin change was not applied", f1056, 1},
+    {"Cover reloaded", f1057, 1},
+    {"Covers refreshed", f1058, 1},
+    {"Create a playlist above or copy one to the SD card's Playlists folder.", f1059, 1},
+    {"Crossfade", f1060, 1},
+    {"Custom", f1061, 1},
+    {"Custom color", f1062, 1},
+    {"Custom fonts affect Latin text only.", f1063, 1},
+    {"DAC", f1064, 1},
+    {"DAC path: %s · %u-bit", f1065, 1},
+    {"DLNA", f1066, 1},
+    {"DLNA Renderer", f1067, 1},
+    {"DNS Settings", f1068, 1},
+    {"December", f1069, 1},
+    {"Default (Built-in)", f1070, 1},
+    {"Delete", f1071, 1},
+    {"Delete %s?\nThis cannot be undone.", f1072, 1},
+    {"Delete Playlist", f1073, 1},
+    {"Delete playlist?", f1074, 1},
+    {"Delete this profile?", f1075, 1},
+    {"Developer Options", f1076, 1},
+    {"Dim screen before timeout", f1077, 1},
+    {"Disc %d", f1078, 1},
+    {"Disc %d / Track %d", f1079, 1},
+    {"Disconnect", f1080, 1},
+    {"Disconnect USB storage first", f1081, 1},
+    {"Disconnect USB storage from the host before changing plugins.", f1082, 1},
+    {"Dismiss", f1083, 1},
+    {"Display", f1084, 1},
+    {"Done", f1085, 1},
+    {"Download", f1086, 1},
+    {"Download \"%s\"?", f1087, 1},
+    {"Download Profiles", f1088, 1},
+    {"Download Settings", f1089, 1},
+    {"Download every album from \"%s\"?", f1090, 1},
+    {"Download failed", f1091, 1},
+    {"Download folder: %s", f1092, 1},
+    {"Download folder: SD root", f1093, 1},
+    {"Download profiles", f1094, 1},
+    {"Download settings", f1095, 1},
+    {"Download subfolder", f1096, 1},
+    {"Downloading", f1097, 1},
+    {"Downloading\n%s...", f1098, 1},
+    {"Downloading and installing plugins %zu/%zu", f1099, 1},
+    {"Downloading update", f1100, 1},
+    {"Drawer Volume Slider", f1101, 1},
+    {"Duration", f1102, 1},
+    {"EQ", f1103, 1},
+    {"EQ curve", f1104, 1},
+    {"Edit", f1105, 1},
+    {"Edit / Done", f1106, 1},
+    {"Enable Bluetooth DAC", f1107, 1},
+    {"Enable Bluetooth in settings to use BT DAC mode", f1108, 1},
+    {"Enable Sleep Timer", f1109, 1},
+    {"Enable Wi-Fi or Bluetooth to connect.", f1110, 1},
+    {"Enable WiFi to access", f1111, 1},
+    {"Enable band", f1112, 1},
+    {"Enable debug logging", f1113, 1},
+    {"Equalizer", f1114, 1},
+    {"Erase and format SD card?", f1115, 1},
+    {"Europe", f1116, 1},
+    {"Excellent", f1117, 1},
+    {"Exit USB DAC mode to play music on this device", f1118, 1},
+    {"Factory Reset", f1119, 1},
+    {"Failed plugins:\n", f1120, 1},
+    {"Failed to add to playlist", f1121, 1},
+    {"Failed to apply time zone", f1122, 1},
+    {"Failed to connect to server", f1123, 1},
+    {"Failed to create playlist", f1124, 1},
+    {"Failed to delete profile", f1125, 1},
+    {"Failed to enable AirPlay", f1126, 1},
+    {"Failed to load artists", f1127, 1},
+    {"Failed to load artists: %s", f1128, 1},
+    {"Failed to load font. Check format & memory.", f1129, 1},
+    {"Failed to load from server", f1130, 1},
+    {"Failed to load profile", f1131, 1},
+    {"Failed to rename profile", f1132, 1},
+    {"Failed to save profile", f1133, 1},
+    {"Failed to start connection", f1134, 1},
+    {"Failed to switch to %s", f1135, 1},
+    {"Failed to toggle Bluetooth", f1136, 1},
+    {"Fair", f1137, 1},
+    {"Favorites", f1138, 1},
+    {"February", f1139, 1},
+    {"File size", f1140, 1},
+    {"File unavailable", f1141, 1},
+    {"Files", f1142, 1},
+    {"Files (folders stay first)", f1143, 1},
+    {"Files on the card may have changed.", f1144, 1},
+    {"Files use modification dates. Albums use the newest track added; missing release years sort last. Update Music Database once to read years from existing files.", f1145, 1},
+    {"Filter type", f1146, 1},
+    {"Firmware Update", f1147, 1},
+    {"Flat", f1148, 1},
+    {"Folder layout for downloaded albums", f1149, 1},
+    {"Folder too large to index (tap Back)", f1150, 1},
+    {"Font", f1151, 1},
+    {"Font Size", f1152, 1},
+    {"Font selection is no longer available", f1153, 1},
+    {"Forget", f1154, 1},
+    {"Format", f1155, 1},
+    {"Format SD Card", f1156, 1},
+    {"Formatting\nSD Card...", f1157, 1},
+    {"Frequency", f1158, 1},
+    {"Frequency (Hz, 20 to 20000)", f1159, 1},
+    {"Friday", f1160, 1},
+    {"From album art", f1161, 1},
+    {"From album art (no cover, using custom)", f1162, 1},
+    {"Gain", f1163, 1},
+    {"Gain (dB, -12 to 12)", f1164, 1},
+    {"Gapless", f1165, 1},
+    {"Gateway: %s", f1166, 1},
+    {"Generate", f1167, 1},
+    {"Generate a new PIN?", f1168, 1},
+    {"Genres", f1169, 1},
+    {"Gestures & Orientation", f1170, 1},
+    {"Get started", f1171, 1},
+    {"GitHub did not respond in time. Try again.", f1172, 1},
+    {"GitHub is limiting requests. Try again later.", f1173, 1},
+    {"GitHub returned HTTP %d.", f1174, 1},
+    {"Go back and choose New Connection to add one.", f1175, 1},
+    {"Good", f1176, 1},
+    {"Headset may disconnect, manual reconnection might be required", f1177, 1},
+    {"Hide Player/Lyrics Top Bar", f1178, 1},
+    {"Hide Unnamed Devices", f1179, 1},
+    {"High", f1180, 1},
+    {"High (320 kbps)", f1181, 1},
+    {"Hostname", f1182, 1},
+    {"Hostname can only use letters, numbers, and hyphens", f1183, 1},
+    {"IP Address: %s", f1184, 1},
+    {"Idle Shutdown", f1185, 1},
+    {"Idle timeout:", f1186, 1},
+    {"Import", f1187, 1},
+    {"Import via Wi-Fi", f1188, 1},
+    {"In-line Remote", f1189, 1},
+    {"Indian", f1190, 1},
+    {"Information", f1191, 1},
+    {"Insert an SD card to change plugins.", f1192, 1},
+    {"Insert an SD card to download the update.", f1193, 1},
+    {"Insert an SD card to install plugins.", f1194, 1},
+    {"Insert an SD card to remove plugins.", f1195, 1},
+    {"Insert an SD card to scan for music, or turn off Scan for music.", f1196, 1},
+    {"Insert an SD card to update plugins.", f1197, 1},
+    {"Insert your SD card with music files. Compas Player can scan it and build your library.", f1198, 1},
+    {"Install", f1199, 1},
+    {"Install & Reboot", f1200, 1},
+    {"Install from SD card", f1201, 1},
+    {"Installed", f1202, 1},
+    {"Installed manually", f1203, 1},
+    {"Installed · %s", f1204, 1},
+    {"Installing plugin", f1205, 1},
+    {"Invalid download folder", f1206, 1},
+    {"Invalid download folder name", f1207, 1},
+    {"Invalid profile name", f1208, 1},
+    {"It could not be loaded. Rebuild it now?", f1209, 1},
+    {"It may have no partition table or a file system this player can't use. Formatting will erase it and set it up for this player.", f1210, 1},
+    {"Its settings stay on the card.", f1211, 1},
+    {"January", f1212, 1},
+    {"July", f1213, 1},
+    {"June", f1214, 1},
+    {"LDAC Quality", f1215, 1},
+    {"LDAC Standard", f1216, 1},
+    {"LED charge indicator", f1217, 1},
+    {"Language", f1218, 1},
+    {"Large", f1219, 1},
+    {"Later", f1220, 1},
+    {"Launch at a fixed volume", f1221, 1},
+    {"Layout", f1222, 1},
+    {"Leave", f1223, 1},
+    {"Leave Bluetooth DAC mode?", f1224, 1},
+    {"Leave USB DAC mode?", f1225, 1},
+    {"Leave this view and try again.", f1226, 1},
+    {"Library", f1227, 1},
+    {"Library changed. Open the album again.", f1228, 1},
+    {"Library is busy", f1229, 1},
+    {"Library loaded", f1230, 1},
+    {"Library migrated. Favourites and play history kept", f1231, 1},
+    {"Library migrated. Old database cleanup will retry", f1232, 1},
+    {"Library migration failed. Old library intact. Use Settings > Update Music Database to retry", f1233, 1},
+    {"Library migration pending. Favourites and play history will be kept", f1234, 1},
+    {"Library recovered and saved", f1235, 1},
+    {"Library recovered and saved, some folders could not be read", f1236, 1},
+    {"Library recovered. Use Settings > Update Music Database to save", f1237, 1},
+    {"Library unavailable. Use Settings > Update Music Database to rebuild", f1238, 1},
+    {"Library update failed. Check SD card and retry", f1239, 1},
+    {"Library updated", f1240, 1},
+    {"Library updated, some folders could not be read", f1241, 1},
+    {"Load covers during playback (Experimental)", f1242, 1},
+    {"Loading Wi-Fi settings", f1243, 1},
+    {"Loading from server...", f1244, 1},
+    {"Loading layouts", f1245, 1},
+    {"Loading plugin catalog...", f1246, 1},
+    {"Loading plugins", f1247, 1},
+    {"Loading tracks…", f1248, 1},
+    {"Loading...", f1249, 1},
+    {"Location", f1250, 1},
+    {"Looking for music files", f1251, 1},
+    {"Looking for music files\n%d items checked", f1252, 1},
+    {"Low", f1253, 1},
+    {"Low\nHigh", f1254, 1},
+    {"Low (96 kbps)", f1255, 1},
+    {"Lyrics", f1256, 1},
+    {"Lyrics Text Size", f1257, 1},
+    {"MAC Address: %s", f1258, 1},
+    {"Maintenance", f1259, 1},
+    {"Make an accessory discoverable, then tap Rescan.", f1260, 1},
+    {"Manage plugins later in Settings > System > Plugin Manager to search, update, or remove them.", f1261, 1},
+    {"Manual SSID Entry", f1262, 1},
+    {"March", f1263, 1},
+    {"Match album art", f1264, 1},
+    {"May", f1265, 1},
+    {"Medium", f1266, 1},
+    {"Medium (192 kbps)", f1267, 1},
+    {"Memorized Networks", f1268, 1},
+    {"Metadata refreshed", f1269, 1},
+    {"Migrating\nmusic database...", f1270, 1},
+    {"Monday", f1271, 1},
+    {"Mono (1 channel)", f1272, 1},
+    {"More", f1273, 1},
+    {"Most Played", f1274, 1},
+    {"Music", f1275, 1},
+    {"Music database unavailable", f1276, 1},
+    {"Name (A–Z)", f1277, 1},
+    {"Native DSD (DoP) / %.4g MHz", f1278, 1},
+    {"Nearby Wi-Fi networks will appear here.", f1279, 1},
+    {"Needs newer firmware", f1280, 1},
+    {"Network Name (SSID)", f1281, 1},
+    {"Network stream", f1282, 1},
+    {"Networks you connect to will appear here.", f1283, 1},
+    {"New Connection", f1284, 1},
+    {"New PIN generated", f1285, 1},
+    {"New Profile", f1286, 1},
+    {"Newest Modified", f1287, 1},
+    {"Next", f1288, 1},
+    {"Next  •  %d–%d of %d", f1289, 1},
+    {"Next page", f1290, 1},
+    {"No .ttf fonts found in /Fonts", f1291, 1},
+    {"No .upt firmware file found on SD card", f1292, 1},
+    {"No SD card", f1293, 1},
+    {"No SD card detected. You can scan later from Library settings.", f1294, 1},
+    {"No books found", f1295, 1},
+    {"No entries to display", f1296, 1},
+    {"No favorites yet", f1297, 1},
+    {"No items", f1298, 1},
+    {"No memorized networks", f1299, 1},
+    {"No music database", f1300, 1},
+    {"No nearby devices", f1301, 1},
+    {"No network detected", f1302, 1},
+    {"No network detected. Connect to a network to download plugins.", f1303, 1},
+    {"No networks found", f1304, 1},
+    {"No other networks found", f1305, 1},
+    {"No paired devices", f1306, 1},
+    {"No playable audio files found", f1307, 1},
+    {"No playable files here", f1308, 1},
+    {"No plugin settings available", f1309, 1},
+    {"No plugins are available in the catalog.", f1310, 1},
+    {"No saved profiles", f1311, 1},
+    {"No saved servers", f1312, 1},
+    {"No songs to refresh", f1313, 1},
+    {"No synchronized lyrics found", f1314, 1},
+    {"No track loaded", f1315, 1},
+    {"No tracks found", f1316, 1},
+    {"No user playlists", f1317, 1},
+    {"No verified update is on this SD card. Download it again.", f1318, 1},
+    {"Not connected", f1319, 1},
+    {"Not enough free space on the SD card for the update.", f1320, 1},
+    {"Not enough free space on the SD card.", f1321, 1},
+    {"Not enough memory to connect", f1322, 1},
+    {"Not enough memory to load CUE tracks", f1323, 1},
+    {"Not enough memory to load artists", f1324, 1},
+    {"Not enough memory to load from server", f1325, 1},
+    {"Not enough memory to load the plugin store", f1326, 1},
+    {"Not enough memory to start download", f1327, 1},
+    {"Not selected (UTC)", f1328, 1},
+    {"Not set", f1329, 1},
+    {"November", f1330, 1},
+    {"OFF", f1331, 1},
+    {"ON", f1332, 1},
+    {"October", f1333, 1},
+    {"Off", f1334, 1},
+    {"On", f1335, 1},
+    {"Open a book and tap the bookmark icon to save it here.", f1336, 1},
+    {"Open a folder containing supported audio files.", f1337, 1},
+    {"Open network", f1338, 1},
+    {"Open this address on your phone or computer:", f1339, 1},
+    {"Open · Connected", f1340, 1},
+    {"Original", f1341, 1},
+    {"Output", f1342, 1},
+    {"PEQ reset to defaults", f1343, 1},
+    {"Pacific", f1344, 1},
+    {"Paired", f1345, 1},
+    {"Paired Devices", f1346, 1},
+    {"Parametric EQ", f1347, 1},
+    {"Password", f1348, 1},
+    {"Password: Not set", f1349, 1},
+    {"Password: Set", f1350, 1},
+    {"Paused: headphones disconnected", f1351, 1},
+    {"Peaking\nLow Shelf\nHigh Shelf", f1352, 1},
+    {"Per Album", f1353, 1},
+    {"Per Track", f1354, 1},
+    {"Place .ttf fonts in SD /Fonts folder.", f1355, 1},
+    {"Play All", f1356, 1},
+    {"Play Next", f1357, 1},
+    {"Play all shuffled", f1358, 1},
+    {"Play an album or playlist to see its songs here.", f1359, 1},
+    {"Play sequentially", f1360, 1},
+    {"Play/Pause", f1361, 1},
+    {"Play/Pause + Previous Track (Double-Click)", f1362, 1},
+    {"Play/Pause Button", f1363, 1},
+    {"Playback & Controls", f1364, 1},
+    {"Playback and device actions", f1365, 1},
+    {"Playback error", f1366, 1},
+    {"Playback error: audio output failed", f1367, 1},
+    {"Playback history could not be saved", f1368, 1},
+    {"Playback stopped: %s", f1369, 1},
+    {"Played", f1370, 1},
+    {"Player Layout", f1371, 1},
+    {"Playing", f1372, 1},
+    {"Playlist Name", f1373, 1},
+    {"Playlist changed. Select a song again.", f1374, 1},
+    {"Playlist changed. Try again.", f1375, 1},
+    {"Playlist created", f1376, 1},
+    {"Playlist deleted", f1377, 1},
+    {"Playlist is empty", f1378, 1},
+    {"Playlist renamed", f1379, 1},
+    {"Playlist saved", f1380, 1},
+    {"Playlist unavailable or unreadable", f1381, 1},
+    {"Playlists", f1382, 1},
+    {"Playlists refreshed", f1383, 1},
+    {"Please wait for plugin installation to finish", f1384, 1},
+    {"Please wait for the library scan to finish", f1385, 1},
+    {"Plugin", f1386, 1},
+    {"Plugin Manager", f1387, 1},
+    {"Plugin Settings", f1388, 1},
+    {"Plugin Store", f1389, 1},
+    {"Plugin is unavailable in the catalog", f1390, 1},
+    {"Plugin operation failed", f1391, 1},
+    {"Plugin setup complete", f1392, 1},
+    {"Plugin setup needs attention", f1393, 1},
+    {"Plugin storage is unavailable.", f1394, 1},
+    {"Plugins", f1395, 1},
+    {"Position", f1396, 1},
+    {"Power", f1397, 1},
+    {"Power Off", f1398, 1},
+    {"Power controls", f1399, 1},
+    {"Power off", f1400, 1},
+    {"Pre-Amp (dB, -12 to 12)", f1401, 1},
+    {"Pre-Amp: %+.2f dB", f1402, 1},
+    {"Preparing cover refresh...", f1403, 1},
+    {"Preparing database migration...", f1404, 1},
+    {"Preparing metadata refresh", f1405, 1},
+    {"Preparing metadata refresh...", f1406, 1},
+    {"Preparing music library...", f1407, 1},
+    {"Preparing update", f1408, 1},
+    {"Presets", f1409, 1},
+    {"Preview", f1410, 1},
+    {"Previous", f1411, 1},
+    {"Previous  •  %d–%d of %d", f1412, 1},
+    {"Previous Track", f1413, 1},
+    {"Previous page", f1414, 1},
+    {"Previous request still finishing", f1415, 1},
+    {"Previously connected accessories will appear here.", f1416, 1},
+    {"Primary DNS", f1417, 1},
+    {"Profile Name", f1418, 1},
+    {"Profile deleted", f1419, 1},
+    {"Profile loaded", f1420, 1},
+    {"Profile renamed", f1421, 1},
+    {"Profile saved", f1422, 1},
+    {"Profiles", f1423, 1},
+    {"Provider", f1424, 1},
+    {"Queue", f1425, 1},
+    {"Queue changed. Try again.", f1426, 1},
+    {"Queue checkpoint failed; storage may be read-only", f1427, 1},
+    {"Queue cleared", f1428, 1},
+    {"Queue is empty", f1429, 1},
+    {"Queue ready. Press Play to start.", f1430, 1},
+    {"Queued", f1431, 1},
+    {"Quick Setup Complete", f1432, 1},
+    {"Quick setup", f1433, 1},
+    {"RC", f1434, 1},
+    {"Radio", f1435, 1},
+    {"Radio / %s", f1436, 1},
+    {"Reading supported rates...", f1437, 1},
+    {"Reading tags\n%d of %d songs (%d%%)", f1438, 1},
+    {"Reads the tags of every song again. This may take a while.", f1439, 1},
+    {"Rebuild", f1440, 1},
+    {"Recently Added", f1441, 1},
+    {"Recently Played", f1442, 1},
+    {"Refresh", f1443, 1},
+    {"Refresh All Covers", f1444, 1},
+    {"Refresh All Metadata", f1445, 1},
+    {"Refresh Plugins", f1446, 1},
+    {"Refresh all covers?", f1447, 1},
+    {"Refresh all metadata?", f1448, 1},
+    {"Refresh metadata", f1449, 1},
+    {"Refresh plugin catalog", f1450, 1},
+    {"Refresh the music database to update this list.", f1451, 1},
+    {"Refreshing\nall covers...", f1452, 1},
+    {"Refreshing\nall metadata...", f1453, 1},
+    {"Refreshing\nmetadata...", f1454, 1},
+    {"Refreshing covers", f1455, 1},
+    {"Refreshing covers\n%d of %d (%d%%)", f1456, 1},
+    {"Refreshing plugins...", f1457, 1},
+    {"Release Year (oldest first)", f1458, 1},
+    {"Reload cover", f1459, 1},
+    {"Reloading\ncover...", f1460, 1},
+    {"Reloading cover", f1461, 1},
+    {"Reloading cover\n%d of %d (%d%%)", f1462, 1},
+    {"Remote", f1463, 1},
+    {"Remote Control", f1464, 1},
+    {"Remove", f1465, 1},
+    {"Remove %s?", f1466, 1},
+    {"Removed", f1467, 1},
+    {"Removed from playlist", f1468, 1},
+    {"Removed from queue", f1469, 1},
+    {"Removes saved covers and extracts them again. This may take a while.", f1470, 1},
+    {"Removing plugin", f1471, 1},
+    {"Rename Playlist", f1472, 1},
+    {"Rename Profile", f1473, 1},
+    {"Replace", f1474, 1},
+    {"Replace Existing", f1475, 1},
+    {"Replace Profile", f1476, 1},
+    {"ReplayGain", f1477, 1},
+    {"Rescan", f1478, 1},
+    {"Reset", f1479, 1},
+    {"Reset PEQ to defaults?", f1480, 1},
+    {"Reset all settings and reboot?", f1481, 1},
+    {"Reset to defaults", f1482, 1},
+    {"Restart", f1483, 1},
+    {"Restart Now", f1484, 1},
+    {"Restart now to apply the new hostname?", f1485, 1},
+    {"Resume Last Track", f1486, 1},
+    {"Resume and Play", f1487, 1},
+    {"Resume playback when external power turns the player on.", f1488, 1},
+    {"Resume, but Paused", f1489, 1},
+    {"Retrying plugins %zu/%zu", f1490, 1},
+    {"SD card checked", f1491, 1},
+    {"SD card couldn't be read", f1492, 1},
+    {"SD card format failed", f1493, 1},
+    {"SD card formatted", f1494, 1},
+    {"SD card is read-only. Check it on a computer", f1495, 1},
+    {"SD card is still read-only", f1496, 1},
+    {"SD card may have errors. Check it on a computer", f1497, 1},
+    {"SD card not available", f1498, 1},
+    {"SD card repair is still running", f1499, 1},
+    {"SD card repaired", f1500, 1},
+    {"SSID: %s", f1501, 1},
+    {"Safe Charging (500mA)", f1502, 1},
+    {"Sample Rate", f1503, 1},
+    {"Saturday", f1504, 1},
+    {"Save", f1505, 1},
+    {"Save Profile", f1506, 1},
+    {"Save Profile As", f1507, 1},
+    {"Save Queue as Playlist", f1508, 1},
+    {"Save as Playlist", f1509, 1},
+    {"Save as a new profile, or replace one that already exists?", f1510, 1},
+    {"Saved Servers", f1511, 1},
+    {"Saved network", f1512, 1},
+    {"Saved network details are being checked.", f1513, 1},
+    {"Saving music database", f1514, 1},
+    {"Saving music database\nThis can take a while on large libraries", f1515, 1},
+    {"Saving playlist…", f1516, 1},
+    {"Scan for music", f1517, 1},
+    {"Scan with your phone to support Compás Player on PayPal", f1518, 1},
+    {"Scanning for networks", f1519, 1},
+    {"Screen Dimming", f1520, 1},
+    {"Screen Timeout", f1521, 1},
+    {"Screen off", f1522, 1},
+    {"Screenshot failed (%s)", f1523, 1},
+    {"Screenshot failed (framebuffer)", f1524, 1},
+    {"Screenshot failed (worker)", f1525, 1},
+    {"Screenshot needs an SD card", f1526, 1},
+    {"Screenshot saved", f1527, 1},
+    {"Screenshots (Power + Previous)", f1528, 1},
+    {"Screenshots (Power + Vol Down)", f1529, 1},
+    {"Screenshots unavailable", f1530, 1},
+    {"Secondary DNS", f1531, 1},
+    {"Secure connection failed. Check Wi-Fi and the date and time.", f1532, 1},
+    {"Secured network", f1533, 1},
+    {"Secured · Connected", f1534, 1},
+    {"Select at least one plugin to continue.", f1535, 1},
+    {"Selected plugins are ready.\n", f1536, 1},
+    {"September", f1537, 1},
+    {"Server URL (e.g. %s)", f1538, 1},
+    {"Server URL: %s", f1539, 1},
+    {"Server request timed out after 30 seconds", f1540, 1},
+    {"Service is busy", f1541, 1},
+    {"Set Time", f1542, 1},
+    {"Set your local time zone so the clock is right.", f1543, 1},
+    {"Settings", f1544, 1},
+    {"Show Time Remaining", f1545, 1},
+    {"Showing first %d of %d songs", f1546, 1},
+    {"Shuffle from a random song", f1547, 1},
+    {"Signal: %s", f1548, 1},
+    {"Skip for now", f1549, 1},
+    {"Skipped: %s", f1550, 1},
+    {"Sleep", f1551, 1},
+    {"Sleep Timer", f1552, 1},
+    {"Sleep timer", f1553, 1},
+    {"Sleep timer: %d min remaining", f1554, 1},
+    {"Sleep timer: Off", f1555, 1},
+    {"Small", f1556, 1},
+    {"Some covers could not be refreshed", f1557, 1},
+    {"Some playlists could not be read", f1558, 1},
+    {"Some plugin files were changed on the card. Replace them?", f1559, 1},
+    {"Some songs could not be read", f1560, 1},
+    {"Some updates need confirmation before replacing local files.", f1561, 1},
+    {"Song already added", f1562, 1},
+    {"Song deleted", f1563, 1},
+    {"Songs", f1564, 1},
+    {"Sorting", f1565, 1},
+    {"Sound", f1566, 1},
+    {"Sound Effects", f1567, 1},
+    {"Source", f1568, 1},
+    {"Speex Resampling", f1569, 1},
+    {"Start sequentially", f1570, 1},
+    {"Start with these suggestions, or explore more plugins.", f1571, 1},
+    {"Startup Volume", f1572, 1},
+    {"Step %d of %d", f1573, 1},
+    {"Stereo (2 channels)", f1574, 1},
+    {"Still applying the previous choice", f1575, 1},
+    {"Storage", f1576, 1},
+    {"Stream Media", f1577, 1},
+    {"Stream Quality", f1578, 1},
+    {"Stream quality: %s", f1579, 1},
+    {"Subfolder is relative to SD root (example: Music/Offline); empty uses SD root", f1580, 1},
+    {"Subfolder: SD root", f1581, 1},
+    {"Subsonic", f1582, 1},
+    {"Sunday", f1583, 1},
+    {"Suspend to RAM", f1584, 1},
+    {"Swipe Up for Home", f1585, 1},
+    {"Swipe up to unlock", f1586, 1},
+    {"System", f1587, 1},
+    {"System playlists", f1588, 1},
+    {"Takes its color from the cover of the playing track", f1589, 1},
+    {"Tap Power off again to confirm", f1590, 1},
+    {"Tap Restart again to confirm", f1591, 1},
+    {"The SD card changed during the download.", f1592, 1},
+    {"The SD card changed during the operation.", f1593, 1},
+    {"The SD card is read-only. Check its write protection.", f1594, 1},
+    {"The download did not complete. Check Wi-Fi and try again.", f1595, 1},
+    {"The downloaded image failed verification and was deleted.", f1596, 1},
+    {"The playlist file will be deleted. Music files are kept.", f1597, 1},
+    {"The plugin download failed verification. Try again.", f1598, 1},
+    {"The quick brown fox jumps 123", f1599, 1},
+    {"The release has no checksum for this device's image.", f1600, 1},
+    {"The update file on the SD card changed. Download it again.", f1601, 1},
+    {"There are no entries in this view.", f1602, 1},
+    {"This device is now a USB sound card", f1603, 1},
+    {"This device is now receiving Bluetooth audio", f1604, 1},
+    {"This may take a while", f1605, 1},
+    {"This permanently deletes everything on the card. This cannot be undone.", f1606, 1},
+    {"This plugin has no update available.", f1607, 1},
+    {"This plugin is already installed by the store.", f1608, 1},
+    {"This plugin is not installed by the store.", f1609, 1},
+    {"This plugin needs a newer player version.", f1610, 1},
+    {"This release's image does not match its checksums. Try again after the next weekly release.", f1611, 1},
+    {"Thread launch failed", f1612, 1},
+    {"Thursday", f1613, 1},
+    {"Time Zone", f1614, 1},
+    {"Time remaining: %d:%02d", f1615, 1},
+    {"Time remaining: %d:%02d:%02d", f1616, 1},
+    {"Time zone", f1617, 1},
+    {"Too many audio channels", f1618, 1},
+    {"Too many plugins are installed. Remove one and try again.", f1619, 1},
+    {"Track", f1620, 1},
+    {"Track %+.1f dB", f1621, 1},
+    {"Track %d", f1622, 1},
+    {"Track details are not available yet. Keep playback open and check again.", f1623, 1},
+    {"Tracks", f1624, 1},
+    {"Tuesday", f1625, 1},
+    {"Turn Bluetooth off and on to apply", f1626, 1},
+    {"Turn off ADB first (Settings > System > USB Mode), then enable USB DAC from here.", f1627, 1},
+    {"Turn off Automatic to set the clock", f1628, 1},
+    {"Turn off Bluetooth DAC to play music on this device", f1629, 1},
+    {"Turn off screen automatically", f1630, 1},
+    {"Turn on Bluetooth to see paired and nearby devices.", f1631, 1},
+    {"Turn on Wi-Fi and connect first", f1632, 1},
+    {"Turn this on to see the address here.", f1633, 1},
+    {"USB DAC", f1634, 1},
+    {"USB DAC mode", f1635, 1},
+    {"USB Mode", f1636, 1},
+    {"USB audio device detected", f1637, 1},
+    {"USB input: %s · %u-bit", f1638, 1},
+    {"USB mode", f1639, 1},
+    {"Unable to load items", f1640, 1},
+    {"Unable to read folder (tap Back and retry)", f1641, 1},
+    {"Unavailable", f1642, 1},
+    {"Unexpected library response", f1643, 1},
+    {"Unexpected reply from GitHub", f1644, 1},
+    {"Unexpected reply from GitHub.", f1645, 1},
+    {"Unknown album", f1646, 1},
+    {"Unknown artist", f1647, 1},
+    {"Unknown codec", f1648, 1},
+    {"Unknown format", f1649, 1},
+    {"Unknown rate", f1650, 1},
+    {"Unsupported audio format", f1651, 1},
+    {"Update", f1652, 1},
+    {"Update & Reboot", f1653, 1},
+    {"Update All", f1654, 1},
+    {"Update Music Database", f1655, 1},
+    {"Update Music Database to enable this album order", f1656, 1},
+    {"Update available", f1657, 1},
+    {"Update available · %s", f1658, 1},
+    {"Update individually", f1659, 1},
+    {"Update music database?", f1660, 1},
+    {"Update these plugins individually", f1661, 1},
+    {"Update using %s?\nDevice will reboot into recovery mode.", f1662, 1},
+    {"Updates", f1663, 1},
+    {"Updating\nmusic database...", f1664, 1},
+    {"Updating plugins", f1665, 1},
+    {"Upside Down Screen", f1666, 1},
+    {"Use Settings > Update Music Database", f1667, 1},
+    {"User playlists", f1668, 1},
+    {"Username", f1669, 1},
+    {"Username: %s", f1670, 1},
+    {"Verify server certificate", f1671, 1},
+    {"Version %s · %s", f1672, 1},
+    {"Waiting for Bluetooth stream…", f1673, 1},
+    {"Waiting for USB audio…", f1674, 1},
+    {"Weak", f1675, 1},
+    {"Web Server is busy", f1676, 1},
+    {"Wednesday", f1677, 1},
+    {"Weekly Beta %s is available.\nInstalled: %s\n\nDownload it now? This may take a while.", f1678, 1},
+    {"Weekly Beta %s is downloaded and verified.\n\nInstall now? The device reboots into recovery to flash it. Do not turn it off until it restarts.", f1679, 1},
+    {"Welcome to Compás", f1680, 1},
+    {"When on, this device is visible to AirPlay senders on your Wi-Fi network -- stream audio from an iPhone, iPad, or Mac to be played through this device's own output.", f1681, 1},
+    {"When on, this device is visible to DLNA/UPnP controller apps on your Wi-Fi network -- cast a track from one to play it here. Pause, mute, volume, and seek from the controller app aren't supported; use this device's own controls instead once a track starts.", f1682, 1},
+    {"When on, this device stays visible and pairable to other Bluetooth devices, so a phone or computer can stream audio TO it and play through this device's own output -- using it as an external DAC.", f1683, 1},
+    {"Wi-Fi", f1684, 1},
+    {"Wi-Fi Info", f1685, 1},
+    {"Wi-Fi Password", f1686, 1},
+    {"Wi-Fi failed to change state", f1687, 1},
+    {"Wi-Fi is busy", f1688, 1},
+    {"Wireless", f1689, 1},
+    {"You can select up to 32 plugins", f1690, 1},
+    {"You have the latest weekly (%s).\n\nDownload and reinstall it anyway? This may take a while.", f1691, 1},
+    {"Your library is being loaded.", f1692, 1},
+    {"Your music", f1693, 1},
+    {"Your setup journey", f1694, 1},
+    {"[File truncated at %d KB -- showing the first part only]\n\n%s", f1695, 1},
+    {"unknown", f1696, 1},
 };
 
-static const char * const f1699[] = {"%.0f Hz"};
-static const char * const f1700[] = {"%d h"};
-static const char * const f1701[] = {"%d h %d min"};
-static const char * const f1702[] = {"%d min"};
-static const char * const f1703[] = {"%d min rimanenti"};
-static const char * const f1704[] = {"%d brano", "%d brani"};
-static const char * const f1705[] = {"%d brano", "%d brani"};
-static const char * const f1706[] = {"%dm"};
-static const char * const f1707[] = {"%lld brano", "%lld brani"};
-static const char * const f1708[] = {"%llu byte"};
-static const char * const f1709[] = {"%s (attuale)"};
-static const char * const f1710[] = {"%s · Non caricato"};
-static const char * const f1711[] = {"%s · Non caricato: limite raggiunto"};
-static const char * const f1712[] = {"%u canali"};
-static const char * const f1713[] = {"+ Nuova playlist"};
-static const char * const f1714[] = {"Orologio 24 ore"};
-static const char * const f1715[] = {"Riferimento 48 kHz"};
-static const char * const f1716[] = {"Un file plugin locale verrà sostituito. Conferma per continuare."};
-static const char * const f1717[] = {"Il download di un plugin non ha superato la verifica. Riprova."};
-static const char * const f1718[] = {"È già in corso un’operazione sui plugin"};
-static const char * const f1719[] = {"ADB"};
-static const char * const f1720[] = {"Info"};
-static const char * const f1721[] = {"Colore principale"};
-static const char * const f1722[] = {"Aggiungi file .txt alla cartella Books, poi aggiorna la libreria."};
-static const char * const f1723[] = {"Aggiungi un brano a caso alla coda"};
-static const char * const f1724[] = {"Aggiungi album alla coda"};
-static const char * const f1725[] = {"Aggiungi rete nascosta"};
-static const char * const f1726[] = {"Aggiungi brani dal menu di un brano."};
-static const char * const f1727[] = {"Aggiungi alla playlist"};
-static const char * const f1728[] = {"Aggiungi alla coda"};
-static const char * const f1729[] = {"Aggiunto %d brano alla coda", "Aggiunti %d brani alla coda"};
-static const char * const f1730[] = {"Aggiunto alla playlist"};
-static const char * const f1731[] = {"Strumenti aggiuntivi"};
-static const char * const f1732[] = {"Avanzate"};
-static const char * const f1733[] = {"Africa"};
-static const char * const f1734[] = {"AirPlay"};
-static const char * const f1735[] = {"AirPlay si è interrotto inaspettatamente"};
-static const char * const f1736[] = {"Album %+.1f dB"};
-static const char * const f1737[] = {"Artista album"};
-static const char * const f1738[] = {"Artista album - Album"};
-static const char * const f1739[] = {"Artista album / Album"};
-static const char * const f1740[] = {"Album non disponibile"};
-static const char * const f1741[] = {"Album"};
-static const char * const f1742[] = {"Album (elenco principale)"};
-static const char * const f1743[] = {"Tutti i brani"};
-static const char * const f1744[] = {"Tutte le reti visibili sono già salvate."};
-static const char * const f1745[] = {"Già installato"};
-static const char * const f1746[] = {"America"};
-static const char * const f1747[] = {"Un aggiornamento è già in corso"};
-static const char * const f1748[] = {"Un aggiornamento è già in corso."};
-static const char * const f1749[] = {"Velocità animazioni"};
-static const char * const f1750[] = {"Antartide"};
-static const char * const f1751[] = {"Aspetto"};
-static const char * const f1752[] = {"Applicato %+.1f dB"};
-static const char * const f1753[] = {"Si applica subito"};
-static const char * const f1754[] = {"Si applica al prossimo avvio dell'app"};
-static const char * const f1755[] = {"Si applica alle nuove code in streaming"};
-static const char * const f1756[] = {"Applicazione della lingua, potrebbe volerci un po'"};
-static const char * const f1757[] = {"Applicazione del layout, potrebbe volerci un po'"};
-static const char * const f1758[] = {"App e browser che usano il PIN attuale avranno bisogno del nuovo per riconnettersi."};
-static const char * const f1759[] = {"aprile"};
-static const char * const f1760[] = {"Artico"};
-static const char * const f1761[] = {"Immagini degli artisti"};
-static const char * const f1762[] = {"Artisti"};
-static const char * const f1763[] = {"Asia"};
-static const char * const f1764[] = {"Atlantico"};
-static const char * const f1765[] = {"Audio"};
-static const char * const f1766[] = {"Impossibile decodificare l'audio"};
-static const char * const f1767[] = {"Uscita audio non riuscita"};
-static const char * const f1768[] = {"agosto"};
-static const char * const f1769[] = {"Australia"};
-static const char * const f1770[] = {"Auto"};
-static const char * const f1771[] = {"Ripresa automatica"};
-static const char * const f1772[] = {"Automatico"};
-static const char * const f1773[] = {"Automatica (44.1 kHz)"};
-static const char * const f1774[] = {"Vai in standby automaticamente"};
-static const char * const f1775[] = {"Disponibile"};
-static const char * const f1776[] = {"Dispositivi disponibili"};
-static const char * const f1777[] = {"Reti disponibili"};
-static const char * const f1778[] = {"Disponibile · %s"};
-static const char * const f1779[] = {"Indietro"};
-static const char * const f1780[] = {"Banda %d / %d"};
-static const char * const f1781[] = {"Opzioni banda"};
-static const char * const f1782[] = {"Percentuale batteria"};
-static const char * const f1783[] = {"Bitrate"};
-static const char * const f1784[] = {"Bluetooth"};
-static const char * const f1785[] = {"DAC Bluetooth"};
-static const char * const f1786[] = {"Modalità DAC Bluetooth"};
-static const char * const f1787[] = {"Sincronia volume Bluetooth"};
-static const char * const f1788[] = {"Il Bluetooth è spento"};
-static const char * const f1789[] = {"Il servizio remoto Bluetooth si sta avviando..."};
-static const char * const f1790[] = {"Il servizio remoto Bluetooth non è disponibile; nuovo tentativo in corso."};
-static const char * const f1791[] = {"Bluetooth: Compas Remote Control"};
-static const char * const f1792[] = {"Bluetooth: registrazione non riuscita; nuovo tentativo"};
-static const char * const f1793[] = {"Bluetooth: in attesa della registrazione del servizio"};
-static const char * const f1794[] = {"Libri"};
-static const char * const f1795[] = {"Libri aggiornati"};
-static const char * const f1796[] = {"Crea"};
-static const char * const f1797[] = {"Crearlo ora? Le librerie grandi possono richiedere diversi minuti."};
-static const char * const f1798[] = {"Pulsanti e telecomando"};
-static const char * const f1799[] = {"Offrimi un caffè"};
-static const char * const f1800[] = {"Di %s"};
-static const char * const f1801[] = {"Annulla"};
-static const char * const f1802[] = {"Impossibile verificare l’accesso in scrittura all’archiviazione dei plugin."};
-static const char * const f1803[] = {"Impossibile eliminare la playlist"};
-static const char * const f1804[] = {"Impossibile caricare i brani dell'album"};
-static const char * const f1805[] = {"Impossibile spostare questa voce"};
-static const char * const f1806[] = {"Impossibile riprodurre la cartella"};
-static const char * const f1807[] = {"Impossibile raggiungere GitHub. Controlla la connessione Wi-Fi."};
-static const char * const f1808[] = {"Impossibile leggere la playlist"};
-static const char * const f1809[] = {"Impossibile leggere la scheda SD."};
-static const char * const f1810[] = {"Impossibile leggere il file di aggiornamento sulla scheda SD. Controlla la scheda e riprova."};
-static const char * const f1811[] = {"Impossibile leggere il registro dell'aggiornamento sulla scheda SD. Controlla la scheda e riprova."};
-static const char * const f1812[] = {"Impossibile leggere lo stato dell’assistente di aggiornamento: %s"};
-static const char * const f1813[] = {"Impossibile rimuovere la voce"};
-static const char * const f1814[] = {"Impossibile rinominare: nome non valido o file esistente"};
-static const char * const f1815[] = {"Impossibile riordinare la playlist"};
-static const char * const f1816[] = {"Impossibile salvare la playlist"};
-static const char * const f1817[] = {"Impossibile salvare: voci non valide o in streaming"};
-static const char * const f1818[] = {"Impossibile avviare la coda"};
-static const char * const f1819[] = {"Modalità auto"};
-static const char * const f1820[] = {"Volume modalità auto"};
-static const char * const f1821[] = {"La modalità auto è disattivata."};
-static const char * const f1822[] = {"Canali"};
-static const char * const f1823[] = {"Limite di carica (85%)"};
-static const char * const f1824[] = {"Carica almeno al %d%% o collega l'alimentazione prima di aggiornare."};
-static const char * const f1825[] = {"Carica almeno al 30%% o collega l’alimentazione prima di aggiornare."};
-static const char * const f1826[] = {"Ricarica"};
-static const char * const f1827[] = {"Cerca aggiornamenti online"};
-static const char * const f1828[] = {"Controlla che il Wi-Fi sia attivo, poi cerca ancora."};
-static const char * const f1829[] = {"Controllo degli aggiornamenti"};
-static const char * const f1830[] = {"Controllo della scheda SD. Potrebbe volerci un po'"};
-static const char * const f1831[] = {"Controllo del file sulla scheda SD"};
-static const char * const f1832[] = {"Scegli una lingua"};
-static const char * const f1833[] = {"Scegli i plugin"};
-static const char * const f1834[] = {"Scegli la lingua del lettore."};
-static const char * const f1835[] = {"Scegli fuso orario"};
-static const char * const f1836[] = {"Scegli cosa succede quando è inattivo:"};
-static const char * const f1837[] = {"Svuota coda"};
-static const char * const f1838[] = {"Orologio"};
-static const char * const f1839[] = {"Chiudi"};
-static const char * const f1840[] = {"Chiusura\nserver web..."};
-static const char * const f1841[] = {"Codec"};
-static const char * const f1842[] = {"Risposta combinata (dB)"};
-static const char * const f1843[] = {"Risposta combinata (dB) · EQ off"};
-static const char * const f1844[] = {"Compás Player"};
-static const char * const f1845[] = {"Connetti"};
-static const char * const f1846[] = {"Connetti e sfoglia"};
-static const char * const f1847[] = {"Connetti un dispositivo per vedere le frequenze supportate"};
-static const char * const f1848[] = {"Connettiti via Wi-Fi o Bluetooth per vedere cosa è in riproduzione, controllare la riproduzione e sfogliare la libreria. Inserisci questo PIN quando l'app o il browser lo chiede; il Bluetooth richiede anche l'associazione."};
-static const char * const f1849[] = {"Connetti al Wi-Fi"};
-static const char * const f1850[] = {"Connettiti prima al Wi-Fi"};
-static const char * const f1851[] = {"Connettiti al Wi-Fi per streaming, aggiornamenti e servizi online."};
-static const char * const f1852[] = {"Connettiti a una rete Wi-Fi per continuare."};
-static const char * const f1853[] = {"Connettiti a una rete per scaricare i plugin."};
-static const char * const f1854[] = {"Connettiti usando uno dei percorsi disponibili:"};
-static const char * const f1855[] = {"Connesso"};
-static const char * const f1856[] = {"Connessione"};
-static const char * const f1857[] = {"Connessione a"};
-static const char * const f1858[] = {"Connessione al server..."};
-static const char * const f1859[] = {"PIN di connessione"};
-static const char * const f1860[] = {"Connessione non riuscita"};
-static const char * const f1861[] = {"Connessione scaduta dopo 30 secondi"};
-static const char * const f1862[] = {"Contenitore"};
-static const char * const f1863[] = {"Continua"};
-static const char * const f1864[] = {"Continua configurazione"};
-static const char * const f1865[] = {"Impossibile applicare la dimensione del carattere"};
-static const char * const f1866[] = {"Impossibile applicare la dimensione del testo"};
-static const char * const f1867[] = {"Impossibile scaricare i checksum della release."};
-static const char * const f1868[] = {"Impossibile entrare in modalità recovery."};
-static const char * const f1869[] = {"Impossibile generare un nuovo PIN"};
-static const char * const f1870[] = {"Impossibile installare un plugin sulla scheda SD."};
-static const char * const f1871[] = {"Impossibile installare il plugin sulla scheda SD."};
-static const char * const f1872[] = {"Impossibile caricare la foto della schermata di blocco"};
-static const char * const f1873[] = {"Impossibile caricare il catalogo dei plugin."};
-static const char * const f1874[] = {"Impossibile caricare il catalogo dei plugin. Tocca Altro per riprovare."};
-static const char * const f1875[] = {"Impossibile spostare gli altri file .upt sulla scheda SD."};
-static const char * const f1876[] = {"Impossibile aprire questo file."};
-static const char * const f1877[] = {"Impossibile collocare l'aggiornamento sulla scheda SD."};
-static const char * const f1878[] = {"Impossibile preparare la rimozione del plugin."};
-static const char * const f1879[] = {"Impossibile preparare l’assistente di aggiornamento: %s"};
-static const char * const f1880[] = {"Impossibile leggere i plugin installati."};
-static const char * const f1881[] = {"Impossibile leggere la cartella Books"};
-static const char * const f1882[] = {"Impossibile leggere l'elenco dei plugin da GitHub."};
-static const char * const f1883[] = {"Impossibile leggere l'elenco delle release da GitHub."};
-static const char * const f1884[] = {"Impossibile registrare l'aggiornamento verificato sulla scheda SD."};
-static const char * const f1885[] = {"Impossibile aggiornare i libri"};
-static const char * const f1886[] = {"Impossibile ricaricare la copertina"};
-static const char * const f1887[] = {"Impossibile rimuovere un file del plugin."};
-static const char * const f1888[] = {"Impossibile riparare la scheda SD"};
-static const char * const f1889[] = {"Impossibile salvare il codec Bluetooth"};
-static const char * const f1890[] = {"Impossibile avviare il cambio modalità USB"};
-static const char * const f1891[] = {"Impossibile avviare l’aggiornamento del catalogo dei plugin."};
-static const char * const f1892[] = {"Impossibile avviare il download"};
-static const char * const f1893[] = {"Impossibile avviare il download."};
-static const char * const f1894[] = {"Impossibile avviare l'installazione."};
-static const char * const f1895[] = {"Impossibile avviare la scansione della libreria. Riprova."};
-static const char * const f1896[] = {"Impossibile avviare l’operazione sul plugin"};
-static const char * const f1897[] = {"Impossibile avviare l'operazione sul plugin."};
-static const char * const f1898[] = {"Impossibile avviare l’aggiornamento del catalogo"};
-static const char * const f1899[] = {"Impossibile avviare l'aggiornamento dei plugin."};
-static const char * const f1900[] = {"Impossibile avviare l'aggiornamento dei plugin."};
-static const char * const f1901[] = {"Impossibile avviare il controllo degli aggiornamenti."};
-static const char * const f1902[] = {"Impossibile avviare l’assistente di aggiornamento: %s"};
-static const char * const f1903[] = {"Impossibile aggiornare il registro dei plugin installati."};
-static const char * const f1904[] = {"Impossibile connettersi alla rete Wi-Fi"};
-static const char * const f1905[] = {"Impossibile leggere questo file .cue"};
-static const char * const f1906[] = {"Impossibile salvare -- la modifica del plugin non è stata applicata"};
-static const char * const f1907[] = {"Copertina ricaricata"};
-static const char * const f1908[] = {"Copertine aggiornate"};
-static const char * const f1909[] = {"Crea una playlist qui sopra o copiane una nella cartella Playlists della scheda SD."};
-static const char * const f1910[] = {"Crossfade"};
-static const char * const f1911[] = {"Personalizzato"};
-static const char * const f1912[] = {"Colore personalizzato"};
-static const char * const f1913[] = {"I font personalizzati influiscono solo sul testo latino."};
-static const char * const f1914[] = {"DAC"};
-static const char * const f1915[] = {"Percorso DAC: %s · %u-bit"};
-static const char * const f1916[] = {"DLNA"};
-static const char * const f1917[] = {"Renderer DLNA"};
-static const char * const f1918[] = {"Impostazioni DNS"};
-static const char * const f1919[] = {"dicembre"};
-static const char * const f1920[] = {"Predefinito (integrato)"};
-static const char * const f1921[] = {"Elimina"};
-static const char * const f1922[] = {"Eliminare %s?\nL'operazione non può essere annullata."};
-static const char * const f1923[] = {"Elimina playlist"};
-static const char * const f1924[] = {"Eliminare la playlist?"};
-static const char * const f1925[] = {"Eliminare questo profilo?"};
-static const char * const f1926[] = {"Opzioni sviluppatore"};
-static const char * const f1927[] = {"Attenua lo schermo prima del timeout"};
-static const char * const f1928[] = {"Disco %d"};
-static const char * const f1929[] = {"Disco %d / Brano %d"};
-static const char * const f1930[] = {"Disconnetti"};
-static const char * const f1931[] = {"Disconnetti prima l'archiviazione USB"};
-static const char * const f1932[] = {"Scollega l’archiviazione USB dal computer prima di modificare i plugin."};
-static const char * const f1933[] = {"Chiudi"};
-static const char * const f1934[] = {"Schermo"};
-static const char * const f1935[] = {"Fine"};
-static const char * const f1936[] = {"Scarica"};
-static const char * const f1937[] = {"Scaricare \"%s\"?"};
-static const char * const f1938[] = {"Profili di download"};
-static const char * const f1939[] = {"Impostazioni download"};
-static const char * const f1940[] = {"Scaricare tutti gli album di \"%s\"?"};
-static const char * const f1941[] = {"Download non riuscito"};
-static const char * const f1942[] = {"Cartella di download: %s"};
-static const char * const f1943[] = {"Cartella di download: radice SD"};
-static const char * const f1944[] = {"Profili di download"};
-static const char * const f1945[] = {"Impostazioni download"};
-static const char * const f1946[] = {"Sottocartella di download"};
-static const char * const f1947[] = {"Download in corso"};
-static const char * const f1948[] = {"Download in corso\n%s..."};
-static const char * const f1949[] = {"Download e installazione plugin %zu/%zu"};
-static const char * const f1950[] = {"Download dell'aggiornamento"};
-static const char * const f1951[] = {"Cursore volume nel pannello"};
-static const char * const f1952[] = {"Durata"};
-static const char * const f1953[] = {"EQ"};
-static const char * const f1954[] = {"Curva EQ"};
-static const char * const f1955[] = {"Modifica"};
-static const char * const f1956[] = {"Modifica / Fine"};
-static const char * const f1957[] = {"Attiva DAC Bluetooth"};
-static const char * const f1958[] = {"Attiva il Bluetooth nelle impostazioni per usare la modalità DAC BT"};
-static const char * const f1959[] = {"Attiva timer di spegnimento"};
-static const char * const f1960[] = {"Attiva il Wi-Fi o il Bluetooth per connetterti."};
-static const char * const f1961[] = {"Attiva il Wi-Fi per accedere"};
-static const char * const f1962[] = {"Attiva banda"};
-static const char * const f1963[] = {"Attiva log di debug"};
-static const char * const f1964[] = {"Equalizzatore"};
-static const char * const f1965[] = {"Cancellare e formattare la scheda SD?"};
-static const char * const f1966[] = {"Europa"};
-static const char * const f1967[] = {"Ottimo"};
-static const char * const f1968[] = {"Esci dalla modalità DAC USB per riprodurre musica su questo dispositivo"};
-static const char * const f1969[] = {"Ripristino di fabbrica"};
-static const char * const f1970[] = {"Plugin non riusciti:\n"};
-static const char * const f1971[] = {"Aggiunta alla playlist non riuscita"};
-static const char * const f1972[] = {"Impossibile applicare il fuso orario"};
-static const char * const f1973[] = {"Connessione al server non riuscita"};
-static const char * const f1974[] = {"Creazione della playlist non riuscita"};
-static const char * const f1975[] = {"Eliminazione del profilo non riuscita"};
-static const char * const f1976[] = {"Impossibile attivare AirPlay"};
-static const char * const f1977[] = {"Caricamento degli artisti non riuscito"};
-static const char * const f1978[] = {"Caricamento degli artisti non riuscito: %s"};
-static const char * const f1979[] = {"Impossibile caricare il font. Controlla formato e memoria."};
-static const char * const f1980[] = {"Caricamento dal server non riuscito"};
-static const char * const f1981[] = {"Caricamento del profilo non riuscito"};
-static const char * const f1982[] = {"Rinomina del profilo non riuscita"};
-static const char * const f1983[] = {"Salvataggio del profilo non riuscito"};
-static const char * const f1984[] = {"Avvio della connessione non riuscito"};
-static const char * const f1985[] = {"Passaggio a %s non riuscito"};
-static const char * const f1986[] = {"Cambio stato del Bluetooth non riuscito"};
-static const char * const f1987[] = {"Discreto"};
-static const char * const f1988[] = {"Preferiti"};
-static const char * const f1989[] = {"febbraio"};
-static const char * const f1990[] = {"Dimensione file"};
-static const char * const f1991[] = {"File non disponibile"};
-static const char * const f1992[] = {"File"};
-static const char * const f1993[] = {"File (le cartelle restano prima)"};
-static const char * const f1994[] = {"I file sulla scheda potrebbero essere cambiati."};
-static const char * const f1995[] = {"I file usano le date di modifica. Gli album usano il brano aggiunto più di recente; gli anni di uscita mancanti vanno per ultimi. Aggiorna una volta il database musicale per leggere gli anni dai file esistenti."};
-static const char * const f1996[] = {"Tipo di filtro"};
-static const char * const f1997[] = {"Aggiornamento firmware"};
-static const char * const f1998[] = {"Piatto"};
-static const char * const f1999[] = {"Struttura delle cartelle per gli album scaricati"};
-static const char * const f2000[] = {"Cartella troppo grande da indicizzare (tocca Indietro)"};
-static const char * const f2001[] = {"Font"};
-static const char * const f2002[] = {"Dimensione carattere"};
-static const char * const f2003[] = {"La selezione del font non è più disponibile"};
-static const char * const f2004[] = {"Dimentica"};
-static const char * const f2005[] = {"Formatta"};
-static const char * const f2006[] = {"Formatta scheda SD"};
-static const char * const f2007[] = {"Formattazione\nscheda SD..."};
-static const char * const f2008[] = {"Frequenza"};
-static const char * const f2009[] = {"Frequenza (Hz, da 20 a 20000)"};
-static const char * const f2010[] = {"venerdì"};
-static const char * const f2011[] = {"Dalla copertina"};
-static const char * const f2012[] = {"Dalla copertina (nessuna copertina, uso il personalizzato)"};
-static const char * const f2013[] = {"Guadagno"};
-static const char * const f2014[] = {"Guadagno (dB, da -12 a 12)"};
-static const char * const f2015[] = {"Gapless"};
-static const char * const f2016[] = {"Gateway: %s"};
-static const char * const f2017[] = {"Genera"};
-static const char * const f2018[] = {"Generare un nuovo PIN?"};
-static const char * const f2019[] = {"Generi"};
-static const char * const f2020[] = {"Gesti e orientamento"};
-static const char * const f2021[] = {"Inizia"};
-static const char * const f2022[] = {"GitHub non ha risposto in tempo. Riprova."};
-static const char * const f2023[] = {"GitHub sta limitando le richieste. Riprova più tardi."};
-static const char * const f2024[] = {"GitHub ha restituito HTTP %d."};
-static const char * const f2025[] = {"Torna indietro e scegli Nuova connessione per aggiungerne uno."};
-static const char * const f2026[] = {"Buono"};
-static const char * const f2027[] = {"Le cuffie potrebbero disconnettersi, potrebbe essere necessaria la riconnessione manuale"};
-static const char * const f2028[] = {"Nascondi barra superiore Player/Testi"};
-static const char * const f2029[] = {"Nascondi dispositivi senza nome"};
-static const char * const f2030[] = {"Alta"};
-static const char * const f2031[] = {"Alta (320 kbps)"};
-static const char * const f2032[] = {"Nome host"};
-static const char * const f2033[] = {"Il nome host può contenere solo lettere, numeri e trattini"};
-static const char * const f2034[] = {"Indirizzo IP: %s"};
-static const char * const f2035[] = {"Spegnimento per inattività"};
-static const char * const f2036[] = {"Timeout inattività:"};
-static const char * const f2037[] = {"Importa"};
-static const char * const f2038[] = {"Importa via Wi-Fi"};
-static const char * const f2039[] = {"Telecomando in linea"};
-static const char * const f2040[] = {"Indiano"};
-static const char * const f2041[] = {"Informazioni"};
-static const char * const f2042[] = {"Inserisci una scheda SD per modificare i plugin."};
-static const char * const f2043[] = {"Inserisci una scheda SD per scaricare l'aggiornamento."};
-static const char * const f2044[] = {"Inserisci una scheda SD per installare i plugin."};
-static const char * const f2045[] = {"Inserisci una scheda SD per rimuovere i plugin."};
-static const char * const f2046[] = {"Inserisci una scheda SD per cercare musica oppure disattiva Cerca musica."};
-static const char * const f2047[] = {"Inserisci una scheda SD per aggiornare i plugin."};
-static const char * const f2048[] = {"Inserisci la scheda SD con i file musicali. Compas Player può analizzarla e creare la tua libreria."};
-static const char * const f2049[] = {"Installa"};
-static const char * const f2050[] = {"Installa e riavvia"};
-static const char * const f2051[] = {"Installa da scheda SD"};
-static const char * const f2052[] = {"Installato"};
-static const char * const f2053[] = {"Installato manualmente"};
-static const char * const f2054[] = {"Installato · %s"};
-static const char * const f2055[] = {"Installazione del plugin"};
-static const char * const f2056[] = {"Cartella di download non valida"};
-static const char * const f2057[] = {"Nome della cartella di download non valido"};
-static const char * const f2058[] = {"Nome profilo non valido"};
-static const char * const f2059[] = {"Impossibile caricarlo. Ricrearlo ora?"};
-static const char * const f2060[] = {"Potrebbe non avere una tabella delle partizioni o avere un file system che questo player non può usare. La formattazione la cancellerà e la preparerà per questo player."};
-static const char * const f2061[] = {"Le sue impostazioni restano sulla scheda."};
-static const char * const f2062[] = {"gennaio"};
-static const char * const f2063[] = {"luglio"};
-static const char * const f2064[] = {"giugno"};
-static const char * const f2065[] = {"Qualità LDAC"};
-static const char * const f2066[] = {"LDAC standard"};
-static const char * const f2067[] = {"LDAC in modalità DAC (sperimentale)"};
-static const char * const f2068[] = {"LED di ricarica"};
-static const char * const f2069[] = {"Lingua"};
-static const char * const f2070[] = {"Grande"};
-static const char * const f2071[] = {"Più tardi"};
-static const char * const f2072[] = {"Avvia a un volume fisso"};
-static const char * const f2073[] = {"Layout"};
-static const char * const f2074[] = {"Esci"};
-static const char * const f2075[] = {"Uscire dalla modalità DAC Bluetooth?"};
-static const char * const f2076[] = {"Uscire dalla modalità DAC USB?"};
-static const char * const f2077[] = {"Esci da questa vista e riprova."};
-static const char * const f2078[] = {"Libreria"};
-static const char * const f2079[] = {"La libreria è cambiata. Apri di nuovo l'album."};
-static const char * const f2080[] = {"La libreria è occupata"};
-static const char * const f2081[] = {"Libreria caricata"};
-static const char * const f2082[] = {"Libreria migrata. Preferiti e cronologia mantenuti"};
-static const char * const f2083[] = {"Libreria migrata. La pulizia del vecchio database verrà ritentata"};
-static const char * const f2084[] = {"Migrazione della libreria non riuscita. La vecchia libreria è intatta. Usa Impostazioni > Aggiorna database musicale per riprovare"};
-static const char * const f2085[] = {"Migrazione della libreria in sospeso. Preferiti e cronologia verranno mantenuti"};
-static const char * const f2086[] = {"Libreria recuperata e salvata"};
-static const char * const f2087[] = {"Libreria recuperata e salvata, alcune cartelle non sono state lette"};
-static const char * const f2088[] = {"Libreria recuperata. Usa Impostazioni > Aggiorna database musicale per salvare"};
-static const char * const f2089[] = {"Libreria non disponibile. Usa Impostazioni > Aggiorna database musicale per ricrearla"};
-static const char * const f2090[] = {"Aggiornamento della libreria non riuscito. Controlla la scheda SD e riprova"};
-static const char * const f2091[] = {"Libreria aggiornata"};
-static const char * const f2092[] = {"Libreria aggiornata, alcune cartelle non sono state lette"};
-static const char * const f2093[] = {"Carica copertine durante la riproduzione (sperimentale)"};
-static const char * const f2094[] = {"Caricamento impostazioni Wi-Fi"};
-static const char * const f2095[] = {"Caricamento dal server..."};
-static const char * const f2096[] = {"Caricamento dei layout"};
-static const char * const f2097[] = {"Caricamento catalogo plugin…"};
-static const char * const f2098[] = {"Caricamento dei plugin"};
-static const char * const f2099[] = {"Caricamento dei brani..."};
-static const char * const f2100[] = {"Caricamento..."};
-static const char * const f2101[] = {"Percorso"};
-static const char * const f2102[] = {"Ricerca di file musicali"};
-static const char * const f2103[] = {"Ricerca di file musicali\n%d elementi controllati"};
-static const char * const f2104[] = {"Bassa"};
-static const char * const f2105[] = {"Basso\nAlto"};
-static const char * const f2106[] = {"Bassa (96 kbps)"};
-static const char * const f2107[] = {"Testi"};
-static const char * const f2108[] = {"Dimensione testo"};
-static const char * const f2109[] = {"Indirizzo MAC: %s"};
-static const char * const f2110[] = {"Manutenzione"};
-static const char * const f2111[] = {"Rendi rilevabile un accessorio, poi tocca Cerca ancora."};
-static const char * const f2112[] = {"Gestisci i plugin in seguito da Impostazioni > Sistema > Gestione plugin per cercarli, aggiornarli o rimuoverli."};
-static const char * const f2113[] = {"Inserisci SSID manualmente"};
-static const char * const f2114[] = {"marzo"};
-static const char * const f2115[] = {"Segui la copertina"};
-static const char * const f2116[] = {"maggio"};
-static const char * const f2117[] = {"Medio"};
-static const char * const f2118[] = {"Media (192 kbps)"};
-static const char * const f2119[] = {"Reti memorizzate"};
-static const char * const f2120[] = {"Metadati aggiornati"};
-static const char * const f2121[] = {"Migrazione del\ndatabase musicale..."};
-static const char * const f2122[] = {"lunedì"};
-static const char * const f2123[] = {"Mono (1 canale)"};
-static const char * const f2124[] = {"Altro"};
-static const char * const f2125[] = {"Più ascoltati"};
-static const char * const f2126[] = {"Musica"};
-static const char * const f2127[] = {"Database musicale non disponibile"};
-static const char * const f2128[] = {"Nome (A–Z)"};
-static const char * const f2129[] = {"DSD nativo (DoP) / %.4g MHz"};
-static const char * const f2130[] = {"Le reti Wi-Fi vicine appariranno qui."};
-static const char * const f2131[] = {"Richiede un firmware più recente"};
-static const char * const f2132[] = {"Nome rete (SSID)"};
-static const char * const f2133[] = {"Stream di rete"};
-static const char * const f2134[] = {"Le reti a cui ti connetti appariranno qui."};
-static const char * const f2135[] = {"Nuova connessione"};
-static const char * const f2136[] = {"Nuovo PIN generato"};
-static const char * const f2137[] = {"Nuovo profilo"};
-static const char * const f2138[] = {"Modificati di recente"};
-static const char * const f2139[] = {"Avanti"};
-static const char * const f2140[] = {"Successivo  •  %d–%d di %d"};
-static const char * const f2141[] = {"Pagina successiva"};
-static const char * const f2142[] = {"Nessun font .ttf trovato in /Fonts"};
-static const char * const f2143[] = {"Nessun file firmware .upt trovato sulla scheda SD"};
-static const char * const f2144[] = {"Nessuna scheda SD"};
-static const char * const f2145[] = {"Nessuna scheda SD rilevata. Puoi avviare la scansione più tardi dalle impostazioni della libreria."};
-static const char * const f2146[] = {"Nessun libro trovato"};
-static const char * const f2147[] = {"Nessuna voce da mostrare"};
-static const char * const f2148[] = {"Ancora nessun preferito"};
-static const char * const f2149[] = {"Nessun elemento"};
-static const char * const f2150[] = {"Nessuna rete memorizzata"};
-static const char * const f2151[] = {"Nessun database musicale"};
-static const char * const f2152[] = {"Nessun dispositivo vicino"};
-static const char * const f2153[] = {"Nessuna rete rilevata"};
-static const char * const f2154[] = {"Nessuna rete rilevata. Connettiti a una rete per scaricare i plugin."};
-static const char * const f2155[] = {"Nessuna rete trovata"};
-static const char * const f2156[] = {"Nessun'altra rete trovata"};
-static const char * const f2157[] = {"Nessun dispositivo associato"};
-static const char * const f2158[] = {"Nessun file audio riproducibile trovato"};
-static const char * const f2159[] = {"Nessun file riproducibile qui"};
-static const char * const f2160[] = {"Nessuna impostazione del plugin disponibile"};
-static const char * const f2161[] = {"Nessun plugin disponibile nel catalogo."};
-static const char * const f2162[] = {"Nessun profilo salvato"};
-static const char * const f2163[] = {"Nessun server salvato"};
-static const char * const f2164[] = {"Nessun brano da aggiornare"};
-static const char * const f2165[] = {"Nessun testo sincronizzato trovato"};
-static const char * const f2166[] = {"Nessun brano caricato"};
-static const char * const f2167[] = {"Nessun brano trovato"};
-static const char * const f2168[] = {"Nessuna playlist personale"};
-static const char * const f2169[] = {"Nessun aggiornamento verificato su questa scheda SD. Scaricalo di nuovo."};
-static const char * const f2170[] = {"Non connesso"};
-static const char * const f2171[] = {"Spazio libero insufficiente sulla scheda SD per l'aggiornamento."};
-static const char * const f2172[] = {"Spazio libero insufficiente sulla scheda SD."};
-static const char * const f2173[] = {"Memoria insufficiente per connettersi"};
-static const char * const f2174[] = {"Memoria insufficiente per caricare i brani CUE"};
-static const char * const f2175[] = {"Memoria insufficiente per caricare gli artisti"};
-static const char * const f2176[] = {"Memoria insufficiente per caricare dal server"};
-static const char * const f2177[] = {"Memoria insufficiente per caricare lo store dei plugin"};
-static const char * const f2178[] = {"Memoria insufficiente per avviare il download"};
-static const char * const f2179[] = {"Non selezionato (UTC)"};
-static const char * const f2180[] = {"Non impostato"};
-static const char * const f2181[] = {"novembre"};
-static const char * const f2182[] = {"OFF"};
-static const char * const f2183[] = {"ON"};
-static const char * const f2184[] = {"ottobre"};
-static const char * const f2185[] = {"Off"};
-static const char * const f2186[] = {"On"};
-static const char * const f2187[] = {"Apri un libro e tocca l'icona del segnalibro per salvarlo qui."};
-static const char * const f2188[] = {"Apri una cartella con file audio supportati."};
-static const char * const f2189[] = {"Rete aperta"};
-static const char * const f2190[] = {"Apri questo indirizzo sul telefono o sul computer:"};
-static const char * const f2191[] = {"Aperta · Connesso"};
-static const char * const f2192[] = {"Originale"};
-static const char * const f2193[] = {"Uscita"};
-static const char * const f2194[] = {"PEQ ripristinato ai valori predefiniti"};
-static const char * const f2195[] = {"Pacifico"};
-static const char * const f2196[] = {"Associato"};
-static const char * const f2197[] = {"Dispositivi associati"};
-static const char * const f2198[] = {"EQ parametrico"};
-static const char * const f2199[] = {"Password"};
-static const char * const f2200[] = {"Password: non impostata"};
-static const char * const f2201[] = {"Password: impostata"};
-static const char * const f2202[] = {"In pausa: cuffie scollegate"};
-static const char * const f2203[] = {"Picco\nShelf bassi\nShelf alti"};
-static const char * const f2204[] = {"Per album"};
-static const char * const f2205[] = {"Per brano"};
-static const char * const f2206[] = {"Metti i font .ttf nella cartella /Fonts della scheda SD."};
-static const char * const f2207[] = {"Riproduci tutto"};
-static const char * const f2208[] = {"Riproduci dopo"};
-static const char * const f2209[] = {"Riproduci tutto in casuale"};
-static const char * const f2210[] = {"Riproduci un album o una playlist per vederne i brani qui."};
-static const char * const f2211[] = {"Riproduci in ordine"};
-static const char * const f2212[] = {"Play/Pausa"};
-static const char * const f2213[] = {"Play/Pausa + Brano precedente (doppio clic)"};
-static const char * const f2214[] = {"Tasto Play/Pausa"};
-static const char * const f2215[] = {"Riproduzione e controlli"};
-static const char * const f2216[] = {"Azioni di riproduzione e dispositivo"};
-static const char * const f2217[] = {"Errore di riproduzione"};
-static const char * const f2218[] = {"Errore di riproduzione: uscita audio non riuscita"};
-static const char * const f2219[] = {"Impossibile salvare la cronologia di riproduzione"};
-static const char * const f2220[] = {"Riproduzione interrotta: %s"};
-static const char * const f2221[] = {"Riprodotto"};
-static const char * const f2222[] = {"Layout del player"};
-static const char * const f2223[] = {"In riproduzione"};
-static const char * const f2224[] = {"Nome della playlist"};
-static const char * const f2225[] = {"La playlist è cambiata. Seleziona di nuovo un brano."};
-static const char * const f2226[] = {"La playlist è cambiata. Riprova."};
-static const char * const f2227[] = {"Playlist creata"};
-static const char * const f2228[] = {"Playlist eliminata"};
-static const char * const f2229[] = {"La playlist è vuota"};
-static const char * const f2230[] = {"Playlist rinominata"};
-static const char * const f2231[] = {"Playlist salvata"};
-static const char * const f2232[] = {"Playlist non disponibile o illeggibile"};
-static const char * const f2233[] = {"Playlist"};
-static const char * const f2234[] = {"Playlist aggiornate"};
-static const char * const f2235[] = {"Attendi il completamento dell’installazione dei plugin"};
-static const char * const f2236[] = {"Attendi il completamento della scansione della libreria"};
-static const char * const f2237[] = {"Plugin"};
-static const char * const f2238[] = {"Gestione plugin"};
-static const char * const f2239[] = {"Impostazioni plugin"};
-static const char * const f2240[] = {"Store dei plugin"};
-static const char * const f2241[] = {"Il plugin non è disponibile nel catalogo"};
-static const char * const f2242[] = {"Operazione sul plugin non riuscita"};
-static const char * const f2243[] = {"Configurazione plugin completata"};
-static const char * const f2244[] = {"La configurazione plugin richiede attenzione"};
-static const char * const f2245[] = {"L’archiviazione dei plugin non è disponibile."};
-static const char * const f2246[] = {"Plugin"};
-static const char * const f2247[] = {"Posizione"};
-static const char * const f2248[] = {"Alimentazione"};
-static const char * const f2249[] = {"Spegni"};
-static const char * const f2250[] = {"Controlli di alimentazione"};
-static const char * const f2251[] = {"Spegni"};
-static const char * const f2252[] = {"Pre-Amp (dB, da -12 a 12)"};
-static const char * const f2253[] = {"Pre-Amp: %+.2f dB"};
-static const char * const f2254[] = {"Preparazione dell'aggiornamento delle copertine..."};
-static const char * const f2255[] = {"Preparazione della migrazione del database..."};
-static const char * const f2256[] = {"Preparazione aggiornamento metadati"};
-static const char * const f2257[] = {"Preparazione dell'aggiornamento dei metadati..."};
-static const char * const f2258[] = {"Preparazione della libreria musicale..."};
-static const char * const f2259[] = {"Preparazione dell'aggiornamento"};
-static const char * const f2260[] = {"Preset"};
-static const char * const f2261[] = {"Anteprima"};
-static const char * const f2262[] = {"Precedente"};
-static const char * const f2263[] = {"Precedente  •  %d–%d di %d"};
-static const char * const f2264[] = {"Brano precedente"};
-static const char * const f2265[] = {"Pagina precedente"};
-static const char * const f2266[] = {"La richiesta precedente è ancora in corso"};
-static const char * const f2267[] = {"Gli accessori connessi in precedenza appariranno qui."};
-static const char * const f2268[] = {"DNS primario"};
-static const char * const f2269[] = {"Nome del profilo"};
-static const char * const f2270[] = {"Profilo eliminato"};
-static const char * const f2271[] = {"Profilo caricato"};
-static const char * const f2272[] = {"Profilo rinominato"};
-static const char * const f2273[] = {"Profilo salvato"};
-static const char * const f2274[] = {"Profili"};
-static const char * const f2275[] = {"Provider"};
-static const char * const f2276[] = {"Coda"};
-static const char * const f2277[] = {"La coda è cambiata. Riprova."};
-static const char * const f2278[] = {"Checkpoint della coda non riuscito; l'archiviazione potrebbe essere di sola lettura"};
-static const char * const f2279[] = {"Coda svuotata"};
-static const char * const f2280[] = {"La coda è vuota"};
-static const char * const f2281[] = {"Coda pronta. Premi Play per avviare."};
-static const char * const f2282[] = {"In coda"};
-static const char * const f2283[] = {"Configurazione rapida completata"};
-static const char * const f2284[] = {"Configurazione rapida"};
-static const char * const f2285[] = {"RC"};
-static const char * const f2286[] = {"Radio"};
-static const char * const f2287[] = {"Radio / %s"};
-static const char * const f2288[] = {"Lettura delle frequenze supportate..."};
-static const char * const f2289[] = {"Lettura dei tag\n%d di %d brani (%d%%)"};
-static const char * const f2290[] = {"Rilegge i tag di ogni brano. Potrebbe volerci un po'."};
-static const char * const f2291[] = {"Ricrea"};
-static const char * const f2292[] = {"Aggiunti di recente"};
-static const char * const f2293[] = {"Ascoltati di recente"};
-static const char * const f2294[] = {"Aggiorna"};
-static const char * const f2295[] = {"Aggiorna tutte le copertine"};
-static const char * const f2296[] = {"Aggiorna tutti i metadati"};
-static const char * const f2297[] = {"Aggiorna plugin"};
-static const char * const f2298[] = {"Aggiornare tutte le copertine?"};
-static const char * const f2299[] = {"Aggiornare tutti i metadati?"};
-static const char * const f2300[] = {"Aggiorna metadati"};
-static const char * const f2301[] = {"Aggiorna catalogo plugin"};
-static const char * const f2302[] = {"Aggiorna il database musicale per aggiornare questo elenco."};
-static const char * const f2303[] = {"Aggiornamento di tutte\nle copertine..."};
-static const char * const f2304[] = {"Aggiornamento di tutti\ni metadati..."};
-static const char * const f2305[] = {"Aggiornamento dei\nmetadati..."};
-static const char * const f2306[] = {"Aggiornamento copertine"};
-static const char * const f2307[] = {"Aggiornamento copertine\n%d di %d (%d%%)"};
-static const char * const f2308[] = {"Aggiornamento dei plugin..."};
-static const char * const f2309[] = {"Anno di uscita (dal più vecchio)"};
-static const char * const f2310[] = {"Ricarica copertina"};
-static const char * const f2311[] = {"Ricaricamento\ndella copertina..."};
-static const char * const f2312[] = {"Ricaricamento copertina"};
-static const char * const f2313[] = {"Ricaricamento copertina\n%d di %d (%d%%)"};
-static const char * const f2314[] = {"Remoto"};
-static const char * const f2315[] = {"Controllo remoto"};
-static const char * const f2316[] = {"Rimuovi"};
-static const char * const f2317[] = {"Rimuovere %s?"};
-static const char * const f2318[] = {"Rimosso"};
-static const char * const f2319[] = {"Rimosso dalla playlist"};
-static const char * const f2320[] = {"Rimosso dalla coda"};
-static const char * const f2321[] = {"Rimuove le copertine salvate e le estrae di nuovo. Potrebbe volerci un po'."};
-static const char * const f2322[] = {"Rimozione del plugin"};
-static const char * const f2323[] = {"Rinomina playlist"};
-static const char * const f2324[] = {"Rinomina profilo"};
-static const char * const f2325[] = {"Sostituisci"};
-static const char * const f2326[] = {"Sostituisci esistente"};
-static const char * const f2327[] = {"Sostituisci profilo"};
-static const char * const f2328[] = {"ReplayGain"};
-static const char * const f2329[] = {"Nuova scansione"};
-static const char * const f2330[] = {"Ripristina"};
-static const char * const f2331[] = {"Ripristinare il PEQ ai valori predefiniti?"};
-static const char * const f2332[] = {"Ripristinare tutte le impostazioni e riavviare?"};
-static const char * const f2333[] = {"Ripristina predefiniti"};
-static const char * const f2334[] = {"Riavvia"};
-static const char * const f2335[] = {"Riavvia ora"};
-static const char * const f2336[] = {"Riavviare ora per applicare il nuovo nome host?"};
-static const char * const f2337[] = {"Riprendi ultimo brano"};
-static const char * const f2338[] = {"Riprendi e riproduci"};
-static const char * const f2339[] = {"Riprendi la riproduzione quando l'alimentazione esterna accende il player."};
-static const char * const f2340[] = {"Riprendi in pausa"};
-static const char * const f2341[] = {"Nuovo tentativo per i plugin %zu/%zu"};
-static const char * const f2342[] = {"Scheda SD controllata"};
-static const char * const f2343[] = {"Impossibile leggere la scheda SD"};
-static const char * const f2344[] = {"Formattazione della scheda SD non riuscita"};
-static const char * const f2345[] = {"Scheda SD formattata"};
-static const char * const f2346[] = {"La scheda SD è di sola lettura. Controllala su un computer"};
-static const char * const f2347[] = {"La scheda SD è ancora di sola lettura"};
-static const char * const f2348[] = {"La scheda SD potrebbe avere errori. Controllala su un computer"};
-static const char * const f2349[] = {"Scheda SD non disponibile"};
-static const char * const f2350[] = {"La riparazione della scheda SD è ancora in corso"};
-static const char * const f2351[] = {"Scheda SD riparata"};
-static const char * const f2352[] = {"SSID: %s"};
-static const char * const f2353[] = {"Ricarica sicura (500mA)"};
-static const char * const f2354[] = {"Frequenza di campionamento"};
-static const char * const f2355[] = {"sabato"};
-static const char * const f2356[] = {"Salva"};
-static const char * const f2357[] = {"Salva profilo"};
-static const char * const f2358[] = {"Salva profilo come"};
-static const char * const f2359[] = {"Salva coda come playlist"};
-static const char * const f2360[] = {"Salva come playlist"};
-static const char * const f2361[] = {"Salvare come nuovo profilo o sostituirne uno esistente?"};
-static const char * const f2362[] = {"Server salvati"};
-static const char * const f2363[] = {"Rete salvata"};
-static const char * const f2364[] = {"Controllo dei dettagli delle reti salvate in corso."};
-static const char * const f2365[] = {"Salvataggio del database musicale"};
-static const char * const f2366[] = {"Salvataggio del database musicale\nPotrebbe volerci un po' con le librerie grandi"};
-static const char * const f2367[] = {"Salvataggio della playlist..."};
-static const char * const f2368[] = {"Cerca musica"};
-static const char * const f2369[] = {"Inquadra con il telefono per sostenere Compás Player su PayPal"};
-static const char * const f2370[] = {"Ricerca di reti"};
-static const char * const f2371[] = {"Attenuazione schermo"};
-static const char * const f2372[] = {"Timeout schermo"};
-static const char * const f2373[] = {"Schermo off"};
-static const char * const f2374[] = {"Screenshot non riuscito (%s)"};
-static const char * const f2375[] = {"Screenshot non riuscito (framebuffer)"};
-static const char * const f2376[] = {"Screenshot non riuscito (processo)"};
-static const char * const f2377[] = {"Lo screenshot richiede una scheda SD"};
-static const char * const f2378[] = {"Screenshot salvato"};
-static const char * const f2379[] = {"Screenshot (Power + Precedente)"};
-static const char * const f2380[] = {"Screenshot (Power + Vol giù)"};
-static const char * const f2381[] = {"Screenshot non disponibili"};
-static const char * const f2382[] = {"DNS secondario"};
-static const char * const f2383[] = {"Connessione sicura non riuscita. Controlla il Wi-Fi, la data e l'ora."};
-static const char * const f2384[] = {"Rete protetta"};
-static const char * const f2385[] = {"Protetta · Connesso"};
-static const char * const f2386[] = {"Seleziona almeno un plugin per continuare."};
-static const char * const f2387[] = {"I plugin selezionati sono pronti.\n"};
-static const char * const f2388[] = {"settembre"};
-static const char * const f2389[] = {"URL del server (es. %s)"};
-static const char * const f2390[] = {"URL del server: %s"};
-static const char * const f2391[] = {"Richiesta al server scaduta dopo 30 secondi"};
-static const char * const f2392[] = {"Il servizio è occupato"};
-static const char * const f2393[] = {"Imposta ora"};
-static const char * const f2394[] = {"Imposta il fuso orario locale per visualizzare l’ora corretta."};
-static const char * const f2395[] = {"Impostazioni"};
-static const char * const f2396[] = {"Mostra tempo rimanente"};
-static const char * const f2397[] = {"Mostrati i primi %d di %d brani"};
-static const char * const f2398[] = {"Casuale da un brano a caso"};
-static const char * const f2399[] = {"Segnale: %s"};
-static const char * const f2400[] = {"Salta per ora"};
-static const char * const f2401[] = {"Saltato: %s"};
-static const char * const f2402[] = {"Standby"};
-static const char * const f2403[] = {"Timer di spegnimento"};
-static const char * const f2404[] = {"Timer"};
-static const char * const f2405[] = {"Timer di spegnimento: %d min rimanenti"};
-static const char * const f2406[] = {"Timer di spegnimento: Off"};
-static const char * const f2407[] = {"Piccolo"};
-static const char * const f2408[] = {"Alcune copertine non sono state aggiornate"};
-static const char * const f2409[] = {"Alcune playlist non sono state lette"};
-static const char * const f2410[] = {"Alcuni file dei plugin sono stati modificati sulla scheda. Sostituirli?"};
-static const char * const f2411[] = {"Alcuni brani non sono stati letti"};
-static const char * const f2412[] = {"Alcuni aggiornamenti richiedono conferma prima di sostituire i file locali."};
-static const char * const f2413[] = {"Brano già aggiunto"};
-static const char * const f2414[] = {"Brano eliminato"};
-static const char * const f2415[] = {"Brani"};
-static const char * const f2416[] = {"Ordinamento"};
-static const char * const f2417[] = {"Suono"};
-static const char * const f2418[] = {"Effetti sonori"};
-static const char * const f2419[] = {"Origine"};
-static const char * const f2420[] = {"Ricampionamento Speex"};
-static const char * const f2421[] = {"Avvia in ordine"};
-static const char * const f2422[] = {"Inizia con questi suggerimenti o scopri altri plugin."};
-static const char * const f2423[] = {"Volume iniziale"};
-static const char * const f2424[] = {"Passaggio %d di %d"};
-static const char * const f2425[] = {"Stereo (2 canali)"};
-static const char * const f2426[] = {"Applicazione della scelta precedente ancora in corso"};
-static const char * const f2427[] = {"Archiviazione"};
-static const char * const f2428[] = {"Streaming"};
-static const char * const f2429[] = {"Qualità streaming"};
-static const char * const f2430[] = {"Qualità streaming: %s"};
-static const char * const f2431[] = {"La sottocartella è relativa alla radice SD (esempio: Music/Offline); se vuota usa la radice SD"};
-static const char * const f2432[] = {"Sottocartella: radice SD"};
-static const char * const f2433[] = {"Subsonic"};
-static const char * const f2434[] = {"domenica"};
-static const char * const f2435[] = {"Sospendi in RAM"};
-static const char * const f2436[] = {"Scorri su per la Home"};
-static const char * const f2437[] = {"Scorri verso l'alto per sbloccare"};
-static const char * const f2438[] = {"Sistema"};
-static const char * const f2439[] = {"Playlist di sistema"};
-static const char * const f2440[] = {"Prende il colore dalla copertina del brano in riproduzione"};
-static const char * const f2441[] = {"Tocca di nuovo Spegni per confermare"};
-static const char * const f2442[] = {"Tocca di nuovo Riavvia per confermare"};
-static const char * const f2443[] = {"La scheda SD è cambiata durante il download."};
-static const char * const f2444[] = {"La scheda SD è cambiata durante l'operazione."};
-static const char * const f2445[] = {"La scheda SD è di sola lettura. Controlla la protezione da scrittura."};
-static const char * const f2446[] = {"Il download non è stato completato. Controlla il Wi-Fi e riprova."};
-static const char * const f2447[] = {"L'immagine scaricata non ha superato la verifica ed è stata eliminata."};
-static const char * const f2448[] = {"Il file della playlist verrà eliminato. I file musicali restano."};
-static const char * const f2449[] = {"Il download del plugin non ha superato la verifica. Riprova."};
-static const char * const f2450[] = {"La rapida volpe bruna salta 123"};
-static const char * const f2451[] = {"La release non ha un checksum per l'immagine di questo dispositivo."};
-static const char * const f2452[] = {"Il file di aggiornamento sulla scheda SD è cambiato. Scaricalo di nuovo."};
-static const char * const f2453[] = {"Non ci sono voci in questa vista."};
-static const char * const f2454[] = {"Questo dispositivo ora è una scheda audio USB"};
-static const char * const f2455[] = {"Questo dispositivo sta ricevendo audio Bluetooth"};
-static const char * const f2456[] = {"Potrebbe volerci un po'"};
-static const char * const f2457[] = {"Questo elimina definitivamente tutto sulla scheda. L'operazione non può essere annullata."};
-static const char * const f2458[] = {"Per questo plugin non ci sono aggiornamenti."};
-static const char * const f2459[] = {"Questo plugin è già installato dallo store."};
-static const char * const f2460[] = {"Questo plugin non è installato dallo store."};
-static const char * const f2461[] = {"Questo plugin richiede una versione più recente del player."};
-static const char * const f2462[] = {"L'immagine di questa release non corrisponde ai suoi checksum. Riprova dopo la prossima release settimanale."};
-static const char * const f2463[] = {"Avvio del thread non riuscito"};
-static const char * const f2464[] = {"giovedì"};
+static const char * const f1697[] = {"%.0f Hz"};
+static const char * const f1698[] = {"%d h"};
+static const char * const f1699[] = {"%d h %d min"};
+static const char * const f1700[] = {"%d min"};
+static const char * const f1701[] = {"%d min rimanenti"};
+static const char * const f1702[] = {"%d brano", "%d brani"};
+static const char * const f1703[] = {"%d brano", "%d brani"};
+static const char * const f1704[] = {"%dm"};
+static const char * const f1705[] = {"%lld brano", "%lld brani"};
+static const char * const f1706[] = {"%llu byte"};
+static const char * const f1707[] = {"%s (attuale)"};
+static const char * const f1708[] = {"%s · Non caricato"};
+static const char * const f1709[] = {"%s · Non caricato: limite raggiunto"};
+static const char * const f1710[] = {"%u canali"};
+static const char * const f1711[] = {"+ Nuova playlist"};
+static const char * const f1712[] = {"Orologio 24 ore"};
+static const char * const f1713[] = {"Riferimento 48 kHz"};
+static const char * const f1714[] = {"Un file plugin locale verrà sostituito. Conferma per continuare."};
+static const char * const f1715[] = {"Il download di un plugin non ha superato la verifica. Riprova."};
+static const char * const f1716[] = {"È già in corso un’operazione sui plugin"};
+static const char * const f1717[] = {"ADB"};
+static const char * const f1718[] = {"Info"};
+static const char * const f1719[] = {"Colore principale"};
+static const char * const f1720[] = {"Aggiungi file .txt alla cartella Books, poi aggiorna la libreria."};
+static const char * const f1721[] = {"Aggiungi un brano a caso alla coda"};
+static const char * const f1722[] = {"Aggiungi album alla coda"};
+static const char * const f1723[] = {"Aggiungi rete nascosta"};
+static const char * const f1724[] = {"Aggiungi brani dal menu di un brano."};
+static const char * const f1725[] = {"Aggiungi alla playlist"};
+static const char * const f1726[] = {"Aggiungi alla coda"};
+static const char * const f1727[] = {"Aggiunto %d brano alla coda", "Aggiunti %d brani alla coda"};
+static const char * const f1728[] = {"Aggiunto alla playlist"};
+static const char * const f1729[] = {"Strumenti aggiuntivi"};
+static const char * const f1730[] = {"Avanzate"};
+static const char * const f1731[] = {"Africa"};
+static const char * const f1732[] = {"AirPlay"};
+static const char * const f1733[] = {"AirPlay si è interrotto inaspettatamente"};
+static const char * const f1734[] = {"Album %+.1f dB"};
+static const char * const f1735[] = {"Artista album"};
+static const char * const f1736[] = {"Artista album - Album"};
+static const char * const f1737[] = {"Artista album / Album"};
+static const char * const f1738[] = {"Album non disponibile"};
+static const char * const f1739[] = {"Album"};
+static const char * const f1740[] = {"Album (elenco principale)"};
+static const char * const f1741[] = {"Tutti i brani"};
+static const char * const f1742[] = {"Tutte le reti visibili sono già salvate."};
+static const char * const f1743[] = {"Già installato"};
+static const char * const f1744[] = {"America"};
+static const char * const f1745[] = {"Un aggiornamento è già in corso"};
+static const char * const f1746[] = {"Un aggiornamento è già in corso."};
+static const char * const f1747[] = {"Velocità animazioni"};
+static const char * const f1748[] = {"Antartide"};
+static const char * const f1749[] = {"Aspetto"};
+static const char * const f1750[] = {"Applicato %+.1f dB"};
+static const char * const f1751[] = {"Si applica subito"};
+static const char * const f1752[] = {"Si applica al prossimo avvio dell'app"};
+static const char * const f1753[] = {"Si applica alle nuove code in streaming"};
+static const char * const f1754[] = {"Applicazione della lingua, potrebbe volerci un po'"};
+static const char * const f1755[] = {"Applicazione del layout, potrebbe volerci un po'"};
+static const char * const f1756[] = {"App e browser che usano il PIN attuale avranno bisogno del nuovo per riconnettersi."};
+static const char * const f1757[] = {"aprile"};
+static const char * const f1758[] = {"Artico"};
+static const char * const f1759[] = {"Immagini degli artisti"};
+static const char * const f1760[] = {"Artisti"};
+static const char * const f1761[] = {"Asia"};
+static const char * const f1762[] = {"Atlantico"};
+static const char * const f1763[] = {"Audio"};
+static const char * const f1764[] = {"Impossibile decodificare l'audio"};
+static const char * const f1765[] = {"Uscita audio non riuscita"};
+static const char * const f1766[] = {"agosto"};
+static const char * const f1767[] = {"Australia"};
+static const char * const f1768[] = {"Auto"};
+static const char * const f1769[] = {"Ripresa automatica"};
+static const char * const f1770[] = {"Automatico"};
+static const char * const f1771[] = {"Automatica (44.1 kHz)"};
+static const char * const f1772[] = {"Vai in standby automaticamente"};
+static const char * const f1773[] = {"Disponibile"};
+static const char * const f1774[] = {"Dispositivi disponibili"};
+static const char * const f1775[] = {"Reti disponibili"};
+static const char * const f1776[] = {"Disponibile · %s"};
+static const char * const f1777[] = {"Indietro"};
+static const char * const f1778[] = {"Banda %d / %d"};
+static const char * const f1779[] = {"Opzioni banda"};
+static const char * const f1780[] = {"Percentuale batteria"};
+static const char * const f1781[] = {"Bitrate"};
+static const char * const f1782[] = {"Bluetooth"};
+static const char * const f1783[] = {"DAC Bluetooth"};
+static const char * const f1784[] = {"Modalità DAC Bluetooth"};
+static const char * const f1785[] = {"Sincronia volume Bluetooth"};
+static const char * const f1786[] = {"Il Bluetooth è spento"};
+static const char * const f1787[] = {"Il servizio remoto Bluetooth si sta avviando..."};
+static const char * const f1788[] = {"Il servizio remoto Bluetooth non è disponibile; nuovo tentativo in corso."};
+static const char * const f1789[] = {"Bluetooth: Compas Remote Control"};
+static const char * const f1790[] = {"Bluetooth: registrazione non riuscita; nuovo tentativo"};
+static const char * const f1791[] = {"Bluetooth: in attesa della registrazione del servizio"};
+static const char * const f1792[] = {"Libri"};
+static const char * const f1793[] = {"Libri aggiornati"};
+static const char * const f1794[] = {"Crea"};
+static const char * const f1795[] = {"Crearlo ora? Le librerie grandi possono richiedere diversi minuti."};
+static const char * const f1796[] = {"Pulsanti e telecomando"};
+static const char * const f1797[] = {"Offrimi un caffè"};
+static const char * const f1798[] = {"Di %s"};
+static const char * const f1799[] = {"Annulla"};
+static const char * const f1800[] = {"Impossibile verificare l’accesso in scrittura all’archiviazione dei plugin."};
+static const char * const f1801[] = {"Impossibile eliminare la playlist"};
+static const char * const f1802[] = {"Impossibile caricare i brani dell'album"};
+static const char * const f1803[] = {"Impossibile spostare questa voce"};
+static const char * const f1804[] = {"Impossibile riprodurre la cartella"};
+static const char * const f1805[] = {"Impossibile raggiungere GitHub. Controlla la connessione Wi-Fi."};
+static const char * const f1806[] = {"Impossibile leggere la playlist"};
+static const char * const f1807[] = {"Impossibile leggere la scheda SD."};
+static const char * const f1808[] = {"Impossibile leggere il file di aggiornamento sulla scheda SD. Controlla la scheda e riprova."};
+static const char * const f1809[] = {"Impossibile leggere il registro dell'aggiornamento sulla scheda SD. Controlla la scheda e riprova."};
+static const char * const f1810[] = {"Impossibile leggere lo stato dell’assistente di aggiornamento: %s"};
+static const char * const f1811[] = {"Impossibile rimuovere la voce"};
+static const char * const f1812[] = {"Impossibile rinominare: nome non valido o file esistente"};
+static const char * const f1813[] = {"Impossibile riordinare la playlist"};
+static const char * const f1814[] = {"Impossibile salvare la playlist"};
+static const char * const f1815[] = {"Impossibile salvare: voci non valide o in streaming"};
+static const char * const f1816[] = {"Impossibile avviare la coda"};
+static const char * const f1817[] = {"Modalità auto"};
+static const char * const f1818[] = {"Volume modalità auto"};
+static const char * const f1819[] = {"La modalità auto è disattivata."};
+static const char * const f1820[] = {"Canali"};
+static const char * const f1821[] = {"Limite di carica (85%)"};
+static const char * const f1822[] = {"Carica almeno al %d%% o collega l'alimentazione prima di aggiornare."};
+static const char * const f1823[] = {"Carica almeno al 30%% o collega l’alimentazione prima di aggiornare."};
+static const char * const f1824[] = {"Ricarica"};
+static const char * const f1825[] = {"Cerca aggiornamenti online"};
+static const char * const f1826[] = {"Controlla che il Wi-Fi sia attivo, poi cerca ancora."};
+static const char * const f1827[] = {"Controllo degli aggiornamenti"};
+static const char * const f1828[] = {"Controllo della scheda SD. Potrebbe volerci un po'"};
+static const char * const f1829[] = {"Controllo del file sulla scheda SD"};
+static const char * const f1830[] = {"Scegli una lingua"};
+static const char * const f1831[] = {"Scegli i plugin"};
+static const char * const f1832[] = {"Scegli la lingua del lettore."};
+static const char * const f1833[] = {"Scegli fuso orario"};
+static const char * const f1834[] = {"Scegli cosa succede quando è inattivo:"};
+static const char * const f1835[] = {"Svuota coda"};
+static const char * const f1836[] = {"Orologio"};
+static const char * const f1837[] = {"Chiudi"};
+static const char * const f1838[] = {"Chiusura\nserver web..."};
+static const char * const f1839[] = {"Codec"};
+static const char * const f1840[] = {"Risposta combinata (dB)"};
+static const char * const f1841[] = {"Risposta combinata (dB) · EQ off"};
+static const char * const f1842[] = {"Compás Player"};
+static const char * const f1843[] = {"Connetti"};
+static const char * const f1844[] = {"Connetti e sfoglia"};
+static const char * const f1845[] = {"Connetti un dispositivo per vedere le frequenze supportate"};
+static const char * const f1846[] = {"Connettiti via Wi-Fi o Bluetooth per vedere cosa è in riproduzione, controllare la riproduzione e sfogliare la libreria. Inserisci questo PIN quando l'app o il browser lo chiede; il Bluetooth richiede anche l'associazione."};
+static const char * const f1847[] = {"Connetti al Wi-Fi"};
+static const char * const f1848[] = {"Connettiti prima al Wi-Fi"};
+static const char * const f1849[] = {"Connettiti al Wi-Fi per streaming, aggiornamenti e servizi online."};
+static const char * const f1850[] = {"Connettiti a una rete Wi-Fi per continuare."};
+static const char * const f1851[] = {"Connettiti a una rete per scaricare i plugin."};
+static const char * const f1852[] = {"Connettiti usando uno dei percorsi disponibili:"};
+static const char * const f1853[] = {"Connesso"};
+static const char * const f1854[] = {"Connessione"};
+static const char * const f1855[] = {"Connessione a"};
+static const char * const f1856[] = {"Connessione al server..."};
+static const char * const f1857[] = {"PIN di connessione"};
+static const char * const f1858[] = {"Connessione non riuscita"};
+static const char * const f1859[] = {"Connessione scaduta dopo 30 secondi"};
+static const char * const f1860[] = {"Contenitore"};
+static const char * const f1861[] = {"Continua"};
+static const char * const f1862[] = {"Continua configurazione"};
+static const char * const f1863[] = {"Impossibile applicare la dimensione del carattere"};
+static const char * const f1864[] = {"Impossibile applicare la dimensione del testo"};
+static const char * const f1865[] = {"Impossibile scaricare i checksum della release."};
+static const char * const f1866[] = {"Impossibile entrare in modalità recovery."};
+static const char * const f1867[] = {"Impossibile generare un nuovo PIN"};
+static const char * const f1868[] = {"Impossibile installare un plugin sulla scheda SD."};
+static const char * const f1869[] = {"Impossibile installare il plugin sulla scheda SD."};
+static const char * const f1870[] = {"Impossibile caricare la foto della schermata di blocco"};
+static const char * const f1871[] = {"Impossibile caricare il catalogo dei plugin."};
+static const char * const f1872[] = {"Impossibile caricare il catalogo dei plugin. Tocca Altro per riprovare."};
+static const char * const f1873[] = {"Impossibile spostare gli altri file .upt sulla scheda SD."};
+static const char * const f1874[] = {"Impossibile aprire questo file."};
+static const char * const f1875[] = {"Impossibile collocare l'aggiornamento sulla scheda SD."};
+static const char * const f1876[] = {"Impossibile preparare la rimozione del plugin."};
+static const char * const f1877[] = {"Impossibile preparare l’assistente di aggiornamento: %s"};
+static const char * const f1878[] = {"Impossibile leggere i plugin installati."};
+static const char * const f1879[] = {"Impossibile leggere la cartella Books"};
+static const char * const f1880[] = {"Impossibile leggere l'elenco dei plugin da GitHub."};
+static const char * const f1881[] = {"Impossibile leggere l'elenco delle release da GitHub."};
+static const char * const f1882[] = {"Impossibile registrare l'aggiornamento verificato sulla scheda SD."};
+static const char * const f1883[] = {"Impossibile aggiornare i libri"};
+static const char * const f1884[] = {"Impossibile ricaricare la copertina"};
+static const char * const f1885[] = {"Impossibile rimuovere un file del plugin."};
+static const char * const f1886[] = {"Impossibile riparare la scheda SD"};
+static const char * const f1887[] = {"Impossibile salvare il codec Bluetooth"};
+static const char * const f1888[] = {"Impossibile avviare il cambio modalità USB"};
+static const char * const f1889[] = {"Impossibile avviare l’aggiornamento del catalogo dei plugin."};
+static const char * const f1890[] = {"Impossibile avviare il download"};
+static const char * const f1891[] = {"Impossibile avviare il download."};
+static const char * const f1892[] = {"Impossibile avviare l'installazione."};
+static const char * const f1893[] = {"Impossibile avviare la scansione della libreria. Riprova."};
+static const char * const f1894[] = {"Impossibile avviare l’operazione sul plugin"};
+static const char * const f1895[] = {"Impossibile avviare l'operazione sul plugin."};
+static const char * const f1896[] = {"Impossibile avviare l’aggiornamento del catalogo"};
+static const char * const f1897[] = {"Impossibile avviare l'aggiornamento dei plugin."};
+static const char * const f1898[] = {"Impossibile avviare l'aggiornamento dei plugin."};
+static const char * const f1899[] = {"Impossibile avviare il controllo degli aggiornamenti."};
+static const char * const f1900[] = {"Impossibile avviare l’assistente di aggiornamento: %s"};
+static const char * const f1901[] = {"Impossibile aggiornare il registro dei plugin installati."};
+static const char * const f1902[] = {"Impossibile connettersi alla rete Wi-Fi"};
+static const char * const f1903[] = {"Impossibile leggere questo file .cue"};
+static const char * const f1904[] = {"Impossibile salvare -- la modifica del plugin non è stata applicata"};
+static const char * const f1905[] = {"Copertina ricaricata"};
+static const char * const f1906[] = {"Copertine aggiornate"};
+static const char * const f1907[] = {"Crea una playlist qui sopra o copiane una nella cartella Playlists della scheda SD."};
+static const char * const f1908[] = {"Crossfade"};
+static const char * const f1909[] = {"Personalizzato"};
+static const char * const f1910[] = {"Colore personalizzato"};
+static const char * const f1911[] = {"I font personalizzati influiscono solo sul testo latino."};
+static const char * const f1912[] = {"DAC"};
+static const char * const f1913[] = {"Percorso DAC: %s · %u-bit"};
+static const char * const f1914[] = {"DLNA"};
+static const char * const f1915[] = {"Renderer DLNA"};
+static const char * const f1916[] = {"Impostazioni DNS"};
+static const char * const f1917[] = {"dicembre"};
+static const char * const f1918[] = {"Predefinito (integrato)"};
+static const char * const f1919[] = {"Elimina"};
+static const char * const f1920[] = {"Eliminare %s?\nL'operazione non può essere annullata."};
+static const char * const f1921[] = {"Elimina playlist"};
+static const char * const f1922[] = {"Eliminare la playlist?"};
+static const char * const f1923[] = {"Eliminare questo profilo?"};
+static const char * const f1924[] = {"Opzioni sviluppatore"};
+static const char * const f1925[] = {"Attenua lo schermo prima del timeout"};
+static const char * const f1926[] = {"Disco %d"};
+static const char * const f1927[] = {"Disco %d / Brano %d"};
+static const char * const f1928[] = {"Disconnetti"};
+static const char * const f1929[] = {"Disconnetti prima l'archiviazione USB"};
+static const char * const f1930[] = {"Scollega l’archiviazione USB dal computer prima di modificare i plugin."};
+static const char * const f1931[] = {"Chiudi"};
+static const char * const f1932[] = {"Schermo"};
+static const char * const f1933[] = {"Fine"};
+static const char * const f1934[] = {"Scarica"};
+static const char * const f1935[] = {"Scaricare \"%s\"?"};
+static const char * const f1936[] = {"Profili di download"};
+static const char * const f1937[] = {"Impostazioni download"};
+static const char * const f1938[] = {"Scaricare tutti gli album di \"%s\"?"};
+static const char * const f1939[] = {"Download non riuscito"};
+static const char * const f1940[] = {"Cartella di download: %s"};
+static const char * const f1941[] = {"Cartella di download: radice SD"};
+static const char * const f1942[] = {"Profili di download"};
+static const char * const f1943[] = {"Impostazioni download"};
+static const char * const f1944[] = {"Sottocartella di download"};
+static const char * const f1945[] = {"Download in corso"};
+static const char * const f1946[] = {"Download in corso\n%s..."};
+static const char * const f1947[] = {"Download e installazione plugin %zu/%zu"};
+static const char * const f1948[] = {"Download dell'aggiornamento"};
+static const char * const f1949[] = {"Cursore volume nel pannello"};
+static const char * const f1950[] = {"Durata"};
+static const char * const f1951[] = {"EQ"};
+static const char * const f1952[] = {"Curva EQ"};
+static const char * const f1953[] = {"Modifica"};
+static const char * const f1954[] = {"Modifica / Fine"};
+static const char * const f1955[] = {"Attiva DAC Bluetooth"};
+static const char * const f1956[] = {"Attiva il Bluetooth nelle impostazioni per usare la modalità DAC BT"};
+static const char * const f1957[] = {"Attiva timer di spegnimento"};
+static const char * const f1958[] = {"Attiva il Wi-Fi o il Bluetooth per connetterti."};
+static const char * const f1959[] = {"Attiva il Wi-Fi per accedere"};
+static const char * const f1960[] = {"Attiva banda"};
+static const char * const f1961[] = {"Attiva log di debug"};
+static const char * const f1962[] = {"Equalizzatore"};
+static const char * const f1963[] = {"Cancellare e formattare la scheda SD?"};
+static const char * const f1964[] = {"Europa"};
+static const char * const f1965[] = {"Ottimo"};
+static const char * const f1966[] = {"Esci dalla modalità DAC USB per riprodurre musica su questo dispositivo"};
+static const char * const f1967[] = {"Ripristino di fabbrica"};
+static const char * const f1968[] = {"Plugin non riusciti:\n"};
+static const char * const f1969[] = {"Aggiunta alla playlist non riuscita"};
+static const char * const f1970[] = {"Impossibile applicare il fuso orario"};
+static const char * const f1971[] = {"Connessione al server non riuscita"};
+static const char * const f1972[] = {"Creazione della playlist non riuscita"};
+static const char * const f1973[] = {"Eliminazione del profilo non riuscita"};
+static const char * const f1974[] = {"Impossibile attivare AirPlay"};
+static const char * const f1975[] = {"Caricamento degli artisti non riuscito"};
+static const char * const f1976[] = {"Caricamento degli artisti non riuscito: %s"};
+static const char * const f1977[] = {"Impossibile caricare il font. Controlla formato e memoria."};
+static const char * const f1978[] = {"Caricamento dal server non riuscito"};
+static const char * const f1979[] = {"Caricamento del profilo non riuscito"};
+static const char * const f1980[] = {"Rinomina del profilo non riuscita"};
+static const char * const f1981[] = {"Salvataggio del profilo non riuscito"};
+static const char * const f1982[] = {"Avvio della connessione non riuscito"};
+static const char * const f1983[] = {"Passaggio a %s non riuscito"};
+static const char * const f1984[] = {"Cambio stato del Bluetooth non riuscito"};
+static const char * const f1985[] = {"Discreto"};
+static const char * const f1986[] = {"Preferiti"};
+static const char * const f1987[] = {"febbraio"};
+static const char * const f1988[] = {"Dimensione file"};
+static const char * const f1989[] = {"File non disponibile"};
+static const char * const f1990[] = {"File"};
+static const char * const f1991[] = {"File (le cartelle restano prima)"};
+static const char * const f1992[] = {"I file sulla scheda potrebbero essere cambiati."};
+static const char * const f1993[] = {"I file usano le date di modifica. Gli album usano il brano aggiunto più di recente; gli anni di uscita mancanti vanno per ultimi. Aggiorna una volta il database musicale per leggere gli anni dai file esistenti."};
+static const char * const f1994[] = {"Tipo di filtro"};
+static const char * const f1995[] = {"Aggiornamento firmware"};
+static const char * const f1996[] = {"Piatto"};
+static const char * const f1997[] = {"Struttura delle cartelle per gli album scaricati"};
+static const char * const f1998[] = {"Cartella troppo grande da indicizzare (tocca Indietro)"};
+static const char * const f1999[] = {"Font"};
+static const char * const f2000[] = {"Dimensione carattere"};
+static const char * const f2001[] = {"La selezione del font non è più disponibile"};
+static const char * const f2002[] = {"Dimentica"};
+static const char * const f2003[] = {"Formatta"};
+static const char * const f2004[] = {"Formatta scheda SD"};
+static const char * const f2005[] = {"Formattazione\nscheda SD..."};
+static const char * const f2006[] = {"Frequenza"};
+static const char * const f2007[] = {"Frequenza (Hz, da 20 a 20000)"};
+static const char * const f2008[] = {"venerdì"};
+static const char * const f2009[] = {"Dalla copertina"};
+static const char * const f2010[] = {"Dalla copertina (nessuna copertina, uso il personalizzato)"};
+static const char * const f2011[] = {"Guadagno"};
+static const char * const f2012[] = {"Guadagno (dB, da -12 a 12)"};
+static const char * const f2013[] = {"Gapless"};
+static const char * const f2014[] = {"Gateway: %s"};
+static const char * const f2015[] = {"Genera"};
+static const char * const f2016[] = {"Generare un nuovo PIN?"};
+static const char * const f2017[] = {"Generi"};
+static const char * const f2018[] = {"Gesti e orientamento"};
+static const char * const f2019[] = {"Inizia"};
+static const char * const f2020[] = {"GitHub non ha risposto in tempo. Riprova."};
+static const char * const f2021[] = {"GitHub sta limitando le richieste. Riprova più tardi."};
+static const char * const f2022[] = {"GitHub ha restituito HTTP %d."};
+static const char * const f2023[] = {"Torna indietro e scegli Nuova connessione per aggiungerne uno."};
+static const char * const f2024[] = {"Buono"};
+static const char * const f2025[] = {"Le cuffie potrebbero disconnettersi, potrebbe essere necessaria la riconnessione manuale"};
+static const char * const f2026[] = {"Nascondi barra superiore Player/Testi"};
+static const char * const f2027[] = {"Nascondi dispositivi senza nome"};
+static const char * const f2028[] = {"Alta"};
+static const char * const f2029[] = {"Alta (320 kbps)"};
+static const char * const f2030[] = {"Nome host"};
+static const char * const f2031[] = {"Il nome host può contenere solo lettere, numeri e trattini"};
+static const char * const f2032[] = {"Indirizzo IP: %s"};
+static const char * const f2033[] = {"Spegnimento per inattività"};
+static const char * const f2034[] = {"Timeout inattività:"};
+static const char * const f2035[] = {"Importa"};
+static const char * const f2036[] = {"Importa via Wi-Fi"};
+static const char * const f2037[] = {"Telecomando in linea"};
+static const char * const f2038[] = {"Indiano"};
+static const char * const f2039[] = {"Informazioni"};
+static const char * const f2040[] = {"Inserisci una scheda SD per modificare i plugin."};
+static const char * const f2041[] = {"Inserisci una scheda SD per scaricare l'aggiornamento."};
+static const char * const f2042[] = {"Inserisci una scheda SD per installare i plugin."};
+static const char * const f2043[] = {"Inserisci una scheda SD per rimuovere i plugin."};
+static const char * const f2044[] = {"Inserisci una scheda SD per cercare musica oppure disattiva Cerca musica."};
+static const char * const f2045[] = {"Inserisci una scheda SD per aggiornare i plugin."};
+static const char * const f2046[] = {"Inserisci la scheda SD con i file musicali. Compas Player può analizzarla e creare la tua libreria."};
+static const char * const f2047[] = {"Installa"};
+static const char * const f2048[] = {"Installa e riavvia"};
+static const char * const f2049[] = {"Installa da scheda SD"};
+static const char * const f2050[] = {"Installato"};
+static const char * const f2051[] = {"Installato manualmente"};
+static const char * const f2052[] = {"Installato · %s"};
+static const char * const f2053[] = {"Installazione del plugin"};
+static const char * const f2054[] = {"Cartella di download non valida"};
+static const char * const f2055[] = {"Nome della cartella di download non valido"};
+static const char * const f2056[] = {"Nome profilo non valido"};
+static const char * const f2057[] = {"Impossibile caricarlo. Ricrearlo ora?"};
+static const char * const f2058[] = {"Potrebbe non avere una tabella delle partizioni o avere un file system che questo player non può usare. La formattazione la cancellerà e la preparerà per questo player."};
+static const char * const f2059[] = {"Le sue impostazioni restano sulla scheda."};
+static const char * const f2060[] = {"gennaio"};
+static const char * const f2061[] = {"luglio"};
+static const char * const f2062[] = {"giugno"};
+static const char * const f2063[] = {"Qualità LDAC"};
+static const char * const f2064[] = {"LDAC standard"};
+static const char * const f2065[] = {"LED di ricarica"};
+static const char * const f2066[] = {"Lingua"};
+static const char * const f2067[] = {"Grande"};
+static const char * const f2068[] = {"Più tardi"};
+static const char * const f2069[] = {"Avvia a un volume fisso"};
+static const char * const f2070[] = {"Layout"};
+static const char * const f2071[] = {"Esci"};
+static const char * const f2072[] = {"Uscire dalla modalità DAC Bluetooth?"};
+static const char * const f2073[] = {"Uscire dalla modalità DAC USB?"};
+static const char * const f2074[] = {"Esci da questa vista e riprova."};
+static const char * const f2075[] = {"Libreria"};
+static const char * const f2076[] = {"La libreria è cambiata. Apri di nuovo l'album."};
+static const char * const f2077[] = {"La libreria è occupata"};
+static const char * const f2078[] = {"Libreria caricata"};
+static const char * const f2079[] = {"Libreria migrata. Preferiti e cronologia mantenuti"};
+static const char * const f2080[] = {"Libreria migrata. La pulizia del vecchio database verrà ritentata"};
+static const char * const f2081[] = {"Migrazione della libreria non riuscita. La vecchia libreria è intatta. Usa Impostazioni > Aggiorna database musicale per riprovare"};
+static const char * const f2082[] = {"Migrazione della libreria in sospeso. Preferiti e cronologia verranno mantenuti"};
+static const char * const f2083[] = {"Libreria recuperata e salvata"};
+static const char * const f2084[] = {"Libreria recuperata e salvata, alcune cartelle non sono state lette"};
+static const char * const f2085[] = {"Libreria recuperata. Usa Impostazioni > Aggiorna database musicale per salvare"};
+static const char * const f2086[] = {"Libreria non disponibile. Usa Impostazioni > Aggiorna database musicale per ricrearla"};
+static const char * const f2087[] = {"Aggiornamento della libreria non riuscito. Controlla la scheda SD e riprova"};
+static const char * const f2088[] = {"Libreria aggiornata"};
+static const char * const f2089[] = {"Libreria aggiornata, alcune cartelle non sono state lette"};
+static const char * const f2090[] = {"Carica copertine durante la riproduzione (sperimentale)"};
+static const char * const f2091[] = {"Caricamento impostazioni Wi-Fi"};
+static const char * const f2092[] = {"Caricamento dal server..."};
+static const char * const f2093[] = {"Caricamento dei layout"};
+static const char * const f2094[] = {"Caricamento catalogo plugin…"};
+static const char * const f2095[] = {"Caricamento dei plugin"};
+static const char * const f2096[] = {"Caricamento dei brani..."};
+static const char * const f2097[] = {"Caricamento..."};
+static const char * const f2098[] = {"Percorso"};
+static const char * const f2099[] = {"Ricerca di file musicali"};
+static const char * const f2100[] = {"Ricerca di file musicali\n%d elementi controllati"};
+static const char * const f2101[] = {"Bassa"};
+static const char * const f2102[] = {"Basso\nAlto"};
+static const char * const f2103[] = {"Bassa (96 kbps)"};
+static const char * const f2104[] = {"Testi"};
+static const char * const f2105[] = {"Dimensione testo"};
+static const char * const f2106[] = {"Indirizzo MAC: %s"};
+static const char * const f2107[] = {"Manutenzione"};
+static const char * const f2108[] = {"Rendi rilevabile un accessorio, poi tocca Cerca ancora."};
+static const char * const f2109[] = {"Gestisci i plugin in seguito da Impostazioni > Sistema > Gestione plugin per cercarli, aggiornarli o rimuoverli."};
+static const char * const f2110[] = {"Inserisci SSID manualmente"};
+static const char * const f2111[] = {"marzo"};
+static const char * const f2112[] = {"Segui la copertina"};
+static const char * const f2113[] = {"maggio"};
+static const char * const f2114[] = {"Medio"};
+static const char * const f2115[] = {"Media (192 kbps)"};
+static const char * const f2116[] = {"Reti memorizzate"};
+static const char * const f2117[] = {"Metadati aggiornati"};
+static const char * const f2118[] = {"Migrazione del\ndatabase musicale..."};
+static const char * const f2119[] = {"lunedì"};
+static const char * const f2120[] = {"Mono (1 canale)"};
+static const char * const f2121[] = {"Altro"};
+static const char * const f2122[] = {"Più ascoltati"};
+static const char * const f2123[] = {"Musica"};
+static const char * const f2124[] = {"Database musicale non disponibile"};
+static const char * const f2125[] = {"Nome (A–Z)"};
+static const char * const f2126[] = {"DSD nativo (DoP) / %.4g MHz"};
+static const char * const f2127[] = {"Le reti Wi-Fi vicine appariranno qui."};
+static const char * const f2128[] = {"Richiede un firmware più recente"};
+static const char * const f2129[] = {"Nome rete (SSID)"};
+static const char * const f2130[] = {"Stream di rete"};
+static const char * const f2131[] = {"Le reti a cui ti connetti appariranno qui."};
+static const char * const f2132[] = {"Nuova connessione"};
+static const char * const f2133[] = {"Nuovo PIN generato"};
+static const char * const f2134[] = {"Nuovo profilo"};
+static const char * const f2135[] = {"Modificati di recente"};
+static const char * const f2136[] = {"Avanti"};
+static const char * const f2137[] = {"Successivo  •  %d–%d di %d"};
+static const char * const f2138[] = {"Pagina successiva"};
+static const char * const f2139[] = {"Nessun font .ttf trovato in /Fonts"};
+static const char * const f2140[] = {"Nessun file firmware .upt trovato sulla scheda SD"};
+static const char * const f2141[] = {"Nessuna scheda SD"};
+static const char * const f2142[] = {"Nessuna scheda SD rilevata. Puoi avviare la scansione più tardi dalle impostazioni della libreria."};
+static const char * const f2143[] = {"Nessun libro trovato"};
+static const char * const f2144[] = {"Nessuna voce da mostrare"};
+static const char * const f2145[] = {"Ancora nessun preferito"};
+static const char * const f2146[] = {"Nessun elemento"};
+static const char * const f2147[] = {"Nessuna rete memorizzata"};
+static const char * const f2148[] = {"Nessun database musicale"};
+static const char * const f2149[] = {"Nessun dispositivo vicino"};
+static const char * const f2150[] = {"Nessuna rete rilevata"};
+static const char * const f2151[] = {"Nessuna rete rilevata. Connettiti a una rete per scaricare i plugin."};
+static const char * const f2152[] = {"Nessuna rete trovata"};
+static const char * const f2153[] = {"Nessun'altra rete trovata"};
+static const char * const f2154[] = {"Nessun dispositivo associato"};
+static const char * const f2155[] = {"Nessun file audio riproducibile trovato"};
+static const char * const f2156[] = {"Nessun file riproducibile qui"};
+static const char * const f2157[] = {"Nessuna impostazione del plugin disponibile"};
+static const char * const f2158[] = {"Nessun plugin disponibile nel catalogo."};
+static const char * const f2159[] = {"Nessun profilo salvato"};
+static const char * const f2160[] = {"Nessun server salvato"};
+static const char * const f2161[] = {"Nessun brano da aggiornare"};
+static const char * const f2162[] = {"Nessun testo sincronizzato trovato"};
+static const char * const f2163[] = {"Nessun brano caricato"};
+static const char * const f2164[] = {"Nessun brano trovato"};
+static const char * const f2165[] = {"Nessuna playlist personale"};
+static const char * const f2166[] = {"Nessun aggiornamento verificato su questa scheda SD. Scaricalo di nuovo."};
+static const char * const f2167[] = {"Non connesso"};
+static const char * const f2168[] = {"Spazio libero insufficiente sulla scheda SD per l'aggiornamento."};
+static const char * const f2169[] = {"Spazio libero insufficiente sulla scheda SD."};
+static const char * const f2170[] = {"Memoria insufficiente per connettersi"};
+static const char * const f2171[] = {"Memoria insufficiente per caricare i brani CUE"};
+static const char * const f2172[] = {"Memoria insufficiente per caricare gli artisti"};
+static const char * const f2173[] = {"Memoria insufficiente per caricare dal server"};
+static const char * const f2174[] = {"Memoria insufficiente per caricare lo store dei plugin"};
+static const char * const f2175[] = {"Memoria insufficiente per avviare il download"};
+static const char * const f2176[] = {"Non selezionato (UTC)"};
+static const char * const f2177[] = {"Non impostato"};
+static const char * const f2178[] = {"novembre"};
+static const char * const f2179[] = {"OFF"};
+static const char * const f2180[] = {"ON"};
+static const char * const f2181[] = {"ottobre"};
+static const char * const f2182[] = {"Off"};
+static const char * const f2183[] = {"On"};
+static const char * const f2184[] = {"Apri un libro e tocca l'icona del segnalibro per salvarlo qui."};
+static const char * const f2185[] = {"Apri una cartella con file audio supportati."};
+static const char * const f2186[] = {"Rete aperta"};
+static const char * const f2187[] = {"Apri questo indirizzo sul telefono o sul computer:"};
+static const char * const f2188[] = {"Aperta · Connesso"};
+static const char * const f2189[] = {"Originale"};
+static const char * const f2190[] = {"Uscita"};
+static const char * const f2191[] = {"PEQ ripristinato ai valori predefiniti"};
+static const char * const f2192[] = {"Pacifico"};
+static const char * const f2193[] = {"Associato"};
+static const char * const f2194[] = {"Dispositivi associati"};
+static const char * const f2195[] = {"EQ parametrico"};
+static const char * const f2196[] = {"Password"};
+static const char * const f2197[] = {"Password: non impostata"};
+static const char * const f2198[] = {"Password: impostata"};
+static const char * const f2199[] = {"In pausa: cuffie scollegate"};
+static const char * const f2200[] = {"Picco\nShelf bassi\nShelf alti"};
+static const char * const f2201[] = {"Per album"};
+static const char * const f2202[] = {"Per brano"};
+static const char * const f2203[] = {"Metti i font .ttf nella cartella /Fonts della scheda SD."};
+static const char * const f2204[] = {"Riproduci tutto"};
+static const char * const f2205[] = {"Riproduci dopo"};
+static const char * const f2206[] = {"Riproduci tutto in casuale"};
+static const char * const f2207[] = {"Riproduci un album o una playlist per vederne i brani qui."};
+static const char * const f2208[] = {"Riproduci in ordine"};
+static const char * const f2209[] = {"Play/Pausa"};
+static const char * const f2210[] = {"Play/Pausa + Brano precedente (doppio clic)"};
+static const char * const f2211[] = {"Tasto Play/Pausa"};
+static const char * const f2212[] = {"Riproduzione e controlli"};
+static const char * const f2213[] = {"Azioni di riproduzione e dispositivo"};
+static const char * const f2214[] = {"Errore di riproduzione"};
+static const char * const f2215[] = {"Errore di riproduzione: uscita audio non riuscita"};
+static const char * const f2216[] = {"Impossibile salvare la cronologia di riproduzione"};
+static const char * const f2217[] = {"Riproduzione interrotta: %s"};
+static const char * const f2218[] = {"Riprodotto"};
+static const char * const f2219[] = {"Layout del player"};
+static const char * const f2220[] = {"In riproduzione"};
+static const char * const f2221[] = {"Nome della playlist"};
+static const char * const f2222[] = {"La playlist è cambiata. Seleziona di nuovo un brano."};
+static const char * const f2223[] = {"La playlist è cambiata. Riprova."};
+static const char * const f2224[] = {"Playlist creata"};
+static const char * const f2225[] = {"Playlist eliminata"};
+static const char * const f2226[] = {"La playlist è vuota"};
+static const char * const f2227[] = {"Playlist rinominata"};
+static const char * const f2228[] = {"Playlist salvata"};
+static const char * const f2229[] = {"Playlist non disponibile o illeggibile"};
+static const char * const f2230[] = {"Playlist"};
+static const char * const f2231[] = {"Playlist aggiornate"};
+static const char * const f2232[] = {"Attendi il completamento dell’installazione dei plugin"};
+static const char * const f2233[] = {"Attendi il completamento della scansione della libreria"};
+static const char * const f2234[] = {"Plugin"};
+static const char * const f2235[] = {"Gestione plugin"};
+static const char * const f2236[] = {"Impostazioni plugin"};
+static const char * const f2237[] = {"Store dei plugin"};
+static const char * const f2238[] = {"Il plugin non è disponibile nel catalogo"};
+static const char * const f2239[] = {"Operazione sul plugin non riuscita"};
+static const char * const f2240[] = {"Configurazione plugin completata"};
+static const char * const f2241[] = {"La configurazione plugin richiede attenzione"};
+static const char * const f2242[] = {"L’archiviazione dei plugin non è disponibile."};
+static const char * const f2243[] = {"Plugin"};
+static const char * const f2244[] = {"Posizione"};
+static const char * const f2245[] = {"Alimentazione"};
+static const char * const f2246[] = {"Spegni"};
+static const char * const f2247[] = {"Controlli di alimentazione"};
+static const char * const f2248[] = {"Spegni"};
+static const char * const f2249[] = {"Pre-Amp (dB, da -12 a 12)"};
+static const char * const f2250[] = {"Pre-Amp: %+.2f dB"};
+static const char * const f2251[] = {"Preparazione dell'aggiornamento delle copertine..."};
+static const char * const f2252[] = {"Preparazione della migrazione del database..."};
+static const char * const f2253[] = {"Preparazione aggiornamento metadati"};
+static const char * const f2254[] = {"Preparazione dell'aggiornamento dei metadati..."};
+static const char * const f2255[] = {"Preparazione della libreria musicale..."};
+static const char * const f2256[] = {"Preparazione dell'aggiornamento"};
+static const char * const f2257[] = {"Preset"};
+static const char * const f2258[] = {"Anteprima"};
+static const char * const f2259[] = {"Precedente"};
+static const char * const f2260[] = {"Precedente  •  %d–%d di %d"};
+static const char * const f2261[] = {"Brano precedente"};
+static const char * const f2262[] = {"Pagina precedente"};
+static const char * const f2263[] = {"La richiesta precedente è ancora in corso"};
+static const char * const f2264[] = {"Gli accessori connessi in precedenza appariranno qui."};
+static const char * const f2265[] = {"DNS primario"};
+static const char * const f2266[] = {"Nome del profilo"};
+static const char * const f2267[] = {"Profilo eliminato"};
+static const char * const f2268[] = {"Profilo caricato"};
+static const char * const f2269[] = {"Profilo rinominato"};
+static const char * const f2270[] = {"Profilo salvato"};
+static const char * const f2271[] = {"Profili"};
+static const char * const f2272[] = {"Provider"};
+static const char * const f2273[] = {"Coda"};
+static const char * const f2274[] = {"La coda è cambiata. Riprova."};
+static const char * const f2275[] = {"Checkpoint della coda non riuscito; l'archiviazione potrebbe essere di sola lettura"};
+static const char * const f2276[] = {"Coda svuotata"};
+static const char * const f2277[] = {"La coda è vuota"};
+static const char * const f2278[] = {"Coda pronta. Premi Play per avviare."};
+static const char * const f2279[] = {"In coda"};
+static const char * const f2280[] = {"Configurazione rapida completata"};
+static const char * const f2281[] = {"Configurazione rapida"};
+static const char * const f2282[] = {"RC"};
+static const char * const f2283[] = {"Radio"};
+static const char * const f2284[] = {"Radio / %s"};
+static const char * const f2285[] = {"Lettura delle frequenze supportate..."};
+static const char * const f2286[] = {"Lettura dei tag\n%d di %d brani (%d%%)"};
+static const char * const f2287[] = {"Rilegge i tag di ogni brano. Potrebbe volerci un po'."};
+static const char * const f2288[] = {"Ricrea"};
+static const char * const f2289[] = {"Aggiunti di recente"};
+static const char * const f2290[] = {"Ascoltati di recente"};
+static const char * const f2291[] = {"Aggiorna"};
+static const char * const f2292[] = {"Aggiorna tutte le copertine"};
+static const char * const f2293[] = {"Aggiorna tutti i metadati"};
+static const char * const f2294[] = {"Aggiorna plugin"};
+static const char * const f2295[] = {"Aggiornare tutte le copertine?"};
+static const char * const f2296[] = {"Aggiornare tutti i metadati?"};
+static const char * const f2297[] = {"Aggiorna metadati"};
+static const char * const f2298[] = {"Aggiorna catalogo plugin"};
+static const char * const f2299[] = {"Aggiorna il database musicale per aggiornare questo elenco."};
+static const char * const f2300[] = {"Aggiornamento di tutte\nle copertine..."};
+static const char * const f2301[] = {"Aggiornamento di tutti\ni metadati..."};
+static const char * const f2302[] = {"Aggiornamento dei\nmetadati..."};
+static const char * const f2303[] = {"Aggiornamento copertine"};
+static const char * const f2304[] = {"Aggiornamento copertine\n%d di %d (%d%%)"};
+static const char * const f2305[] = {"Aggiornamento dei plugin..."};
+static const char * const f2306[] = {"Anno di uscita (dal più vecchio)"};
+static const char * const f2307[] = {"Ricarica copertina"};
+static const char * const f2308[] = {"Ricaricamento\ndella copertina..."};
+static const char * const f2309[] = {"Ricaricamento copertina"};
+static const char * const f2310[] = {"Ricaricamento copertina\n%d di %d (%d%%)"};
+static const char * const f2311[] = {"Remoto"};
+static const char * const f2312[] = {"Controllo remoto"};
+static const char * const f2313[] = {"Rimuovi"};
+static const char * const f2314[] = {"Rimuovere %s?"};
+static const char * const f2315[] = {"Rimosso"};
+static const char * const f2316[] = {"Rimosso dalla playlist"};
+static const char * const f2317[] = {"Rimosso dalla coda"};
+static const char * const f2318[] = {"Rimuove le copertine salvate e le estrae di nuovo. Potrebbe volerci un po'."};
+static const char * const f2319[] = {"Rimozione del plugin"};
+static const char * const f2320[] = {"Rinomina playlist"};
+static const char * const f2321[] = {"Rinomina profilo"};
+static const char * const f2322[] = {"Sostituisci"};
+static const char * const f2323[] = {"Sostituisci esistente"};
+static const char * const f2324[] = {"Sostituisci profilo"};
+static const char * const f2325[] = {"ReplayGain"};
+static const char * const f2326[] = {"Nuova scansione"};
+static const char * const f2327[] = {"Ripristina"};
+static const char * const f2328[] = {"Ripristinare il PEQ ai valori predefiniti?"};
+static const char * const f2329[] = {"Ripristinare tutte le impostazioni e riavviare?"};
+static const char * const f2330[] = {"Ripristina predefiniti"};
+static const char * const f2331[] = {"Riavvia"};
+static const char * const f2332[] = {"Riavvia ora"};
+static const char * const f2333[] = {"Riavviare ora per applicare il nuovo nome host?"};
+static const char * const f2334[] = {"Riprendi ultimo brano"};
+static const char * const f2335[] = {"Riprendi e riproduci"};
+static const char * const f2336[] = {"Riprendi la riproduzione quando l'alimentazione esterna accende il player."};
+static const char * const f2337[] = {"Riprendi in pausa"};
+static const char * const f2338[] = {"Nuovo tentativo per i plugin %zu/%zu"};
+static const char * const f2339[] = {"Scheda SD controllata"};
+static const char * const f2340[] = {"Impossibile leggere la scheda SD"};
+static const char * const f2341[] = {"Formattazione della scheda SD non riuscita"};
+static const char * const f2342[] = {"Scheda SD formattata"};
+static const char * const f2343[] = {"La scheda SD è di sola lettura. Controllala su un computer"};
+static const char * const f2344[] = {"La scheda SD è ancora di sola lettura"};
+static const char * const f2345[] = {"La scheda SD potrebbe avere errori. Controllala su un computer"};
+static const char * const f2346[] = {"Scheda SD non disponibile"};
+static const char * const f2347[] = {"La riparazione della scheda SD è ancora in corso"};
+static const char * const f2348[] = {"Scheda SD riparata"};
+static const char * const f2349[] = {"SSID: %s"};
+static const char * const f2350[] = {"Ricarica sicura (500mA)"};
+static const char * const f2351[] = {"Frequenza di campionamento"};
+static const char * const f2352[] = {"sabato"};
+static const char * const f2353[] = {"Salva"};
+static const char * const f2354[] = {"Salva profilo"};
+static const char * const f2355[] = {"Salva profilo come"};
+static const char * const f2356[] = {"Salva coda come playlist"};
+static const char * const f2357[] = {"Salva come playlist"};
+static const char * const f2358[] = {"Salvare come nuovo profilo o sostituirne uno esistente?"};
+static const char * const f2359[] = {"Server salvati"};
+static const char * const f2360[] = {"Rete salvata"};
+static const char * const f2361[] = {"Controllo dei dettagli delle reti salvate in corso."};
+static const char * const f2362[] = {"Salvataggio del database musicale"};
+static const char * const f2363[] = {"Salvataggio del database musicale\nPotrebbe volerci un po' con le librerie grandi"};
+static const char * const f2364[] = {"Salvataggio della playlist..."};
+static const char * const f2365[] = {"Cerca musica"};
+static const char * const f2366[] = {"Inquadra con il telefono per sostenere Compás Player su PayPal"};
+static const char * const f2367[] = {"Ricerca di reti"};
+static const char * const f2368[] = {"Attenuazione schermo"};
+static const char * const f2369[] = {"Timeout schermo"};
+static const char * const f2370[] = {"Schermo off"};
+static const char * const f2371[] = {"Screenshot non riuscito (%s)"};
+static const char * const f2372[] = {"Screenshot non riuscito (framebuffer)"};
+static const char * const f2373[] = {"Screenshot non riuscito (processo)"};
+static const char * const f2374[] = {"Lo screenshot richiede una scheda SD"};
+static const char * const f2375[] = {"Screenshot salvato"};
+static const char * const f2376[] = {"Screenshot (Power + Precedente)"};
+static const char * const f2377[] = {"Screenshot (Power + Vol giù)"};
+static const char * const f2378[] = {"Screenshot non disponibili"};
+static const char * const f2379[] = {"DNS secondario"};
+static const char * const f2380[] = {"Connessione sicura non riuscita. Controlla il Wi-Fi, la data e l'ora."};
+static const char * const f2381[] = {"Rete protetta"};
+static const char * const f2382[] = {"Protetta · Connesso"};
+static const char * const f2383[] = {"Seleziona almeno un plugin per continuare."};
+static const char * const f2384[] = {"I plugin selezionati sono pronti.\n"};
+static const char * const f2385[] = {"settembre"};
+static const char * const f2386[] = {"URL del server (es. %s)"};
+static const char * const f2387[] = {"URL del server: %s"};
+static const char * const f2388[] = {"Richiesta al server scaduta dopo 30 secondi"};
+static const char * const f2389[] = {"Il servizio è occupato"};
+static const char * const f2390[] = {"Imposta ora"};
+static const char * const f2391[] = {"Imposta il fuso orario locale per visualizzare l’ora corretta."};
+static const char * const f2392[] = {"Impostazioni"};
+static const char * const f2393[] = {"Mostra tempo rimanente"};
+static const char * const f2394[] = {"Mostrati i primi %d di %d brani"};
+static const char * const f2395[] = {"Casuale da un brano a caso"};
+static const char * const f2396[] = {"Segnale: %s"};
+static const char * const f2397[] = {"Salta per ora"};
+static const char * const f2398[] = {"Saltato: %s"};
+static const char * const f2399[] = {"Standby"};
+static const char * const f2400[] = {"Timer di spegnimento"};
+static const char * const f2401[] = {"Timer"};
+static const char * const f2402[] = {"Timer di spegnimento: %d min rimanenti"};
+static const char * const f2403[] = {"Timer di spegnimento: Off"};
+static const char * const f2404[] = {"Piccolo"};
+static const char * const f2405[] = {"Alcune copertine non sono state aggiornate"};
+static const char * const f2406[] = {"Alcune playlist non sono state lette"};
+static const char * const f2407[] = {"Alcuni file dei plugin sono stati modificati sulla scheda. Sostituirli?"};
+static const char * const f2408[] = {"Alcuni brani non sono stati letti"};
+static const char * const f2409[] = {"Alcuni aggiornamenti richiedono conferma prima di sostituire i file locali."};
+static const char * const f2410[] = {"Brano già aggiunto"};
+static const char * const f2411[] = {"Brano eliminato"};
+static const char * const f2412[] = {"Brani"};
+static const char * const f2413[] = {"Ordinamento"};
+static const char * const f2414[] = {"Suono"};
+static const char * const f2415[] = {"Effetti sonori"};
+static const char * const f2416[] = {"Origine"};
+static const char * const f2417[] = {"Ricampionamento Speex"};
+static const char * const f2418[] = {"Avvia in ordine"};
+static const char * const f2419[] = {"Inizia con questi suggerimenti o scopri altri plugin."};
+static const char * const f2420[] = {"Volume iniziale"};
+static const char * const f2421[] = {"Passaggio %d di %d"};
+static const char * const f2422[] = {"Stereo (2 canali)"};
+static const char * const f2423[] = {"Applicazione della scelta precedente ancora in corso"};
+static const char * const f2424[] = {"Archiviazione"};
+static const char * const f2425[] = {"Streaming"};
+static const char * const f2426[] = {"Qualità streaming"};
+static const char * const f2427[] = {"Qualità streaming: %s"};
+static const char * const f2428[] = {"La sottocartella è relativa alla radice SD (esempio: Music/Offline); se vuota usa la radice SD"};
+static const char * const f2429[] = {"Sottocartella: radice SD"};
+static const char * const f2430[] = {"Subsonic"};
+static const char * const f2431[] = {"domenica"};
+static const char * const f2432[] = {"Sospendi in RAM"};
+static const char * const f2433[] = {"Scorri su per la Home"};
+static const char * const f2434[] = {"Scorri verso l'alto per sbloccare"};
+static const char * const f2435[] = {"Sistema"};
+static const char * const f2436[] = {"Playlist di sistema"};
+static const char * const f2437[] = {"Prende il colore dalla copertina del brano in riproduzione"};
+static const char * const f2438[] = {"Tocca di nuovo Spegni per confermare"};
+static const char * const f2439[] = {"Tocca di nuovo Riavvia per confermare"};
+static const char * const f2440[] = {"La scheda SD è cambiata durante il download."};
+static const char * const f2441[] = {"La scheda SD è cambiata durante l'operazione."};
+static const char * const f2442[] = {"La scheda SD è di sola lettura. Controlla la protezione da scrittura."};
+static const char * const f2443[] = {"Il download non è stato completato. Controlla il Wi-Fi e riprova."};
+static const char * const f2444[] = {"L'immagine scaricata non ha superato la verifica ed è stata eliminata."};
+static const char * const f2445[] = {"Il file della playlist verrà eliminato. I file musicali restano."};
+static const char * const f2446[] = {"Il download del plugin non ha superato la verifica. Riprova."};
+static const char * const f2447[] = {"La rapida volpe bruna salta 123"};
+static const char * const f2448[] = {"La release non ha un checksum per l'immagine di questo dispositivo."};
+static const char * const f2449[] = {"Il file di aggiornamento sulla scheda SD è cambiato. Scaricalo di nuovo."};
+static const char * const f2450[] = {"Non ci sono voci in questa vista."};
+static const char * const f2451[] = {"Questo dispositivo ora è una scheda audio USB"};
+static const char * const f2452[] = {"Questo dispositivo sta ricevendo audio Bluetooth"};
+static const char * const f2453[] = {"Potrebbe volerci un po'"};
+static const char * const f2454[] = {"Questo elimina definitivamente tutto sulla scheda. L'operazione non può essere annullata."};
+static const char * const f2455[] = {"Per questo plugin non ci sono aggiornamenti."};
+static const char * const f2456[] = {"Questo plugin è già installato dallo store."};
+static const char * const f2457[] = {"Questo plugin non è installato dallo store."};
+static const char * const f2458[] = {"Questo plugin richiede una versione più recente del player."};
+static const char * const f2459[] = {"L'immagine di questa release non corrisponde ai suoi checksum. Riprova dopo la prossima release settimanale."};
+static const char * const f2460[] = {"Avvio del thread non riuscito"};
+static const char * const f2461[] = {"giovedì"};
+static const char * const f2462[] = {"Fuso orario"};
+static const char * const f2463[] = {"Tempo rimanente: %d:%02d"};
+static const char * const f2464[] = {"Tempo rimanente: %d:%02d:%02d"};
 static const char * const f2465[] = {"Fuso orario"};
-static const char * const f2466[] = {"Tempo rimanente: %d:%02d"};
-static const char * const f2467[] = {"Tempo rimanente: %d:%02d:%02d"};
-static const char * const f2468[] = {"Fuso orario"};
-static const char * const f2469[] = {"Troppi canali audio"};
-static const char * const f2470[] = {"Troppi plugin installati. Rimuovine uno e riprova."};
-static const char * const f2471[] = {"Brano"};
-static const char * const f2472[] = {"Brano %+.1f dB"};
-static const char * const f2473[] = {"Brano %d"};
-static const char * const f2474[] = {"I dettagli del brano non sono ancora disponibili. Tieni aperta la riproduzione e riprova."};
-static const char * const f2475[] = {"Brani"};
-static const char * const f2476[] = {"martedì"};
-static const char * const f2477[] = {"Spegni e riaccendi il Bluetooth per applicare"};
-static const char * const f2478[] = {"Disattiva prima ADB (Impostazioni > Sistema > Modalità USB), poi attiva da qui il DAC USB."};
-static const char * const f2479[] = {"Disattiva Automatico per impostare l'ora"};
-static const char * const f2480[] = {"Disattiva il DAC Bluetooth per riprodurre musica su questo dispositivo"};
-static const char * const f2481[] = {"Spegni lo schermo automaticamente"};
-static const char * const f2482[] = {"Attiva il Bluetooth per vedere i dispositivi associati e vicini."};
-static const char * const f2483[] = {"Attiva il Wi-Fi e connettiti prima"};
-static const char * const f2484[] = {"Attivalo per vedere qui l'indirizzo."};
-static const char * const f2485[] = {"DAC USB"};
-static const char * const f2486[] = {"Modalità DAC USB"};
+static const char * const f2466[] = {"Troppi canali audio"};
+static const char * const f2467[] = {"Troppi plugin installati. Rimuovine uno e riprova."};
+static const char * const f2468[] = {"Brano"};
+static const char * const f2469[] = {"Brano %+.1f dB"};
+static const char * const f2470[] = {"Brano %d"};
+static const char * const f2471[] = {"I dettagli del brano non sono ancora disponibili. Tieni aperta la riproduzione e riprova."};
+static const char * const f2472[] = {"Brani"};
+static const char * const f2473[] = {"martedì"};
+static const char * const f2474[] = {"Spegni e riaccendi il Bluetooth per applicare"};
+static const char * const f2475[] = {"Disattiva prima ADB (Impostazioni > Sistema > Modalità USB), poi attiva da qui il DAC USB."};
+static const char * const f2476[] = {"Disattiva Automatico per impostare l'ora"};
+static const char * const f2477[] = {"Disattiva il DAC Bluetooth per riprodurre musica su questo dispositivo"};
+static const char * const f2478[] = {"Spegni lo schermo automaticamente"};
+static const char * const f2479[] = {"Attiva il Bluetooth per vedere i dispositivi associati e vicini."};
+static const char * const f2480[] = {"Attiva il Wi-Fi e connettiti prima"};
+static const char * const f2481[] = {"Attivalo per vedere qui l'indirizzo."};
+static const char * const f2482[] = {"DAC USB"};
+static const char * const f2483[] = {"Modalità DAC USB"};
+static const char * const f2484[] = {"Modalità USB"};
+static const char * const f2485[] = {"Dispositivo audio USB rilevato"};
+static const char * const f2486[] = {"Ingresso USB: %s · %u-bit"};
 static const char * const f2487[] = {"Modalità USB"};
-static const char * const f2488[] = {"Dispositivo audio USB rilevato"};
-static const char * const f2489[] = {"Ingresso USB: %s · %u-bit"};
-static const char * const f2490[] = {"Modalità USB"};
-static const char * const f2491[] = {"Impossibile caricare gli elementi"};
-static const char * const f2492[] = {"Impossibile leggere la cartella (tocca Indietro e riprova)"};
-static const char * const f2493[] = {"Non disponibile"};
-static const char * const f2494[] = {"Risposta inattesa dalla libreria"};
-static const char * const f2495[] = {"Risposta inattesa da GitHub"};
-static const char * const f2496[] = {"Risposta inattesa da GitHub."};
-static const char * const f2497[] = {"Album sconosciuto"};
-static const char * const f2498[] = {"Artista sconosciuto"};
-static const char * const f2499[] = {"Codec sconosciuto"};
-static const char * const f2500[] = {"Formato sconosciuto"};
-static const char * const f2501[] = {"Frequenza sconosciuta"};
-static const char * const f2502[] = {"Formato audio non supportato"};
-static const char * const f2503[] = {"Aggiorna"};
-static const char * const f2504[] = {"Aggiorna e riavvia"};
-static const char * const f2505[] = {"Aggiorna tutto"};
-static const char * const f2506[] = {"Aggiorna database musicale"};
-static const char * const f2507[] = {"Aggiorna il database musicale per attivare questo ordine degli album"};
-static const char * const f2508[] = {"Aggiornamento disponibile"};
-static const char * const f2509[] = {"Aggiornamento disponibile · %s"};
-static const char * const f2510[] = {"Aggiorna singolarmente"};
-static const char * const f2511[] = {"Aggiornare il database musicale?"};
-static const char * const f2512[] = {"Aggiorna questi plugin singolarmente"};
-static const char * const f2513[] = {"Aggiornare usando %s?\nIl dispositivo si riavvierà in modalità recovery."};
-static const char * const f2514[] = {"Aggiornamenti"};
-static const char * const f2515[] = {"Aggiornamento del\ndatabase musicale..."};
-static const char * const f2516[] = {"Aggiornamento dei plugin"};
-static const char * const f2517[] = {"Schermo capovolto"};
-static const char * const f2518[] = {"Usa Impostazioni > Aggiorna database musicale"};
-static const char * const f2519[] = {"Playlist personali"};
-static const char * const f2520[] = {"Nome utente"};
-static const char * const f2521[] = {"Nome utente: %s"};
-static const char * const f2522[] = {"Verifica certificato del server"};
-static const char * const f2523[] = {"Versione %s · %s"};
-static const char * const f2524[] = {"In attesa del flusso Bluetooth..."};
-static const char * const f2525[] = {"In attesa dell'audio USB..."};
-static const char * const f2526[] = {"Debole"};
-static const char * const f2527[] = {"Il server web è occupato"};
-static const char * const f2528[] = {"mercoledì"};
-static const char * const f2529[] = {"Weekly Beta %s è disponibile.\nInstallata: %s\n\nScaricarla ora? Potrebbe volerci un po'."};
-static const char * const f2530[] = {"Weekly Beta %s è scaricata e verificata.\n\nInstallarla ora? Il dispositivo si riavvia in recovery per installarla. Non spegnerlo finché non si riavvia."};
-static const char * const f2531[] = {"Benvenuto in Compás"};
-static const char * const f2532[] = {"Se attivo, questo dispositivo è visibile ai mittenti AirPlay sulla tua rete Wi-Fi: trasmetti audio da un iPhone, iPad o Mac per riprodurlo tramite l'uscita di questo dispositivo."};
-static const char * const f2533[] = {"Se attivo, questo dispositivo è visibile alle app controller DLNA/UPnP sulla tua rete Wi-Fi: invia un brano da una di esse per riprodurlo qui. Pausa, muto, volume e ricerca dall'app controller non sono supportati; una volta avviato il brano, usa invece i controlli di questo dispositivo."};
-static const char * const f2534[] = {"Se attivo, questo dispositivo resta visibile e associabile agli altri dispositivi Bluetooth, così un telefono o un computer può trasmettergli audio e riprodurlo tramite l'uscita di questo dispositivo, usandolo come DAC esterno."};
-static const char * const f2535[] = {"Wi-Fi"};
-static const char * const f2536[] = {"Info Wi-Fi"};
-static const char * const f2537[] = {"Password Wi-Fi"};
-static const char * const f2538[] = {"Cambio stato del Wi-Fi non riuscito"};
-static const char * const f2539[] = {"Il Wi-Fi è occupato"};
-static const char * const f2540[] = {"Wireless"};
-static const char * const f2541[] = {"Puoi selezionare fino a 32 plugin"};
-static const char * const f2542[] = {"Hai l'ultima versione settimanale (%s).\n\nScaricarla e reinstallarla comunque? Potrebbe volerci un po'."};
-static const char * const f2543[] = {"La libreria è in caricamento."};
-static const char * const f2544[] = {"La tua musica"};
-static const char * const f2545[] = {"Il tuo percorso di configurazione"};
-static const char * const f2546[] = {"[File troncato a %d KB -- mostrata solo la prima parte]\n\n%s"};
-static const char * const f2547[] = {"sconosciuto"};
+static const char * const f2488[] = {"Impossibile caricare gli elementi"};
+static const char * const f2489[] = {"Impossibile leggere la cartella (tocca Indietro e riprova)"};
+static const char * const f2490[] = {"Non disponibile"};
+static const char * const f2491[] = {"Risposta inattesa dalla libreria"};
+static const char * const f2492[] = {"Risposta inattesa da GitHub"};
+static const char * const f2493[] = {"Risposta inattesa da GitHub."};
+static const char * const f2494[] = {"Album sconosciuto"};
+static const char * const f2495[] = {"Artista sconosciuto"};
+static const char * const f2496[] = {"Codec sconosciuto"};
+static const char * const f2497[] = {"Formato sconosciuto"};
+static const char * const f2498[] = {"Frequenza sconosciuta"};
+static const char * const f2499[] = {"Formato audio non supportato"};
+static const char * const f2500[] = {"Aggiorna"};
+static const char * const f2501[] = {"Aggiorna e riavvia"};
+static const char * const f2502[] = {"Aggiorna tutto"};
+static const char * const f2503[] = {"Aggiorna database musicale"};
+static const char * const f2504[] = {"Aggiorna il database musicale per attivare questo ordine degli album"};
+static const char * const f2505[] = {"Aggiornamento disponibile"};
+static const char * const f2506[] = {"Aggiornamento disponibile · %s"};
+static const char * const f2507[] = {"Aggiorna singolarmente"};
+static const char * const f2508[] = {"Aggiornare il database musicale?"};
+static const char * const f2509[] = {"Aggiorna questi plugin singolarmente"};
+static const char * const f2510[] = {"Aggiornare usando %s?\nIl dispositivo si riavvierà in modalità recovery."};
+static const char * const f2511[] = {"Aggiornamenti"};
+static const char * const f2512[] = {"Aggiornamento del\ndatabase musicale..."};
+static const char * const f2513[] = {"Aggiornamento dei plugin"};
+static const char * const f2514[] = {"Schermo capovolto"};
+static const char * const f2515[] = {"Usa Impostazioni > Aggiorna database musicale"};
+static const char * const f2516[] = {"Playlist personali"};
+static const char * const f2517[] = {"Nome utente"};
+static const char * const f2518[] = {"Nome utente: %s"};
+static const char * const f2519[] = {"Verifica certificato del server"};
+static const char * const f2520[] = {"Versione %s · %s"};
+static const char * const f2521[] = {"In attesa del flusso Bluetooth..."};
+static const char * const f2522[] = {"In attesa dell'audio USB..."};
+static const char * const f2523[] = {"Debole"};
+static const char * const f2524[] = {"Il server web è occupato"};
+static const char * const f2525[] = {"mercoledì"};
+static const char * const f2526[] = {"Weekly Beta %s è disponibile.\nInstallata: %s\n\nScaricarla ora? Potrebbe volerci un po'."};
+static const char * const f2527[] = {"Weekly Beta %s è scaricata e verificata.\n\nInstallarla ora? Il dispositivo si riavvia in recovery per installarla. Non spegnerlo finché non si riavvia."};
+static const char * const f2528[] = {"Benvenuto in Compás"};
+static const char * const f2529[] = {"Se attivo, questo dispositivo è visibile ai mittenti AirPlay sulla tua rete Wi-Fi: trasmetti audio da un iPhone, iPad o Mac per riprodurlo tramite l'uscita di questo dispositivo."};
+static const char * const f2530[] = {"Se attivo, questo dispositivo è visibile alle app controller DLNA/UPnP sulla tua rete Wi-Fi: invia un brano da una di esse per riprodurlo qui. Pausa, muto, volume e ricerca dall'app controller non sono supportati; una volta avviato il brano, usa invece i controlli di questo dispositivo."};
+static const char * const f2531[] = {"Se attivo, questo dispositivo resta visibile e associabile agli altri dispositivi Bluetooth, così un telefono o un computer può trasmettergli audio e riprodurlo tramite l'uscita di questo dispositivo, usandolo come DAC esterno."};
+static const char * const f2532[] = {"Wi-Fi"};
+static const char * const f2533[] = {"Info Wi-Fi"};
+static const char * const f2534[] = {"Password Wi-Fi"};
+static const char * const f2535[] = {"Cambio stato del Wi-Fi non riuscito"};
+static const char * const f2536[] = {"Il Wi-Fi è occupato"};
+static const char * const f2537[] = {"Wireless"};
+static const char * const f2538[] = {"Puoi selezionare fino a 32 plugin"};
+static const char * const f2539[] = {"Hai l'ultima versione settimanale (%s).\n\nScaricarla e reinstallarla comunque? Potrebbe volerci un po'."};
+static const char * const f2540[] = {"La libreria è in caricamento."};
+static const char * const f2541[] = {"La tua musica"};
+static const char * const f2542[] = {"Il tuo percorso di configurazione"};
+static const char * const f2543[] = {"[File troncato a %d KB -- mostrata solo la prima parte]\n\n%s"};
+static const char * const f2544[] = {"sconosciuto"};
 
 static const i18n_entry_t entries_it[] = {
-    {"%.0f Hz", f1699, 1},
-    {"%d hr", f1700, 1},
-    {"%d hr %d min", f1701, 1},
-    {"%d min", f1702, 1},
-    {"%d min remaining", f1703, 1},
-    {"%d song", f1704, 2},
-    {"%d track", f1705, 2},
-    {"%dm", f1706, 1},
-    {"%lld track", f1707, 2},
-    {"%llu bytes", f1708, 1},
-    {"%s (current)", f1709, 1},
-    {"%s · Not loaded", f1710, 1},
-    {"%s · Not loaded: limit reached", f1711, 1},
-    {"%u channels", f1712, 1},
-    {"+ New Playlist", f1713, 1},
-    {"24-Hour Clock", f1714, 1},
-    {"48 kHz reference", f1715, 1},
-    {"A local plugin file will be replaced. Confirm to continue.", f1716, 1},
-    {"A plugin download failed verification. Try again.", f1717, 1},
-    {"A plugin operation is already in progress", f1718, 1},
-    {"ADB", f1719, 1},
-    {"About", f1720, 1},
-    {"Accent Color", f1721, 1},
-    {"Add .txt files to the Books folder, then refresh the library.", f1722, 1},
-    {"Add a random song to queue", f1723, 1},
-    {"Add album to queue", f1724, 1},
-    {"Add hidden network", f1725, 1},
-    {"Add songs from a song menu.", f1726, 1},
-    {"Add to Playlist", f1727, 1},
-    {"Add to Queue", f1728, 1},
-    {"Added %d song to queue", f1729, 2},
-    {"Added to playlist", f1730, 1},
-    {"Additional Tools", f1731, 1},
-    {"Advanced", f1732, 1},
-    {"Africa", f1733, 1},
-    {"AirPlay", f1734, 1},
-    {"AirPlay stopped unexpectedly", f1735, 1},
-    {"Album %+.1f dB", f1736, 1},
-    {"Album Artist", f1737, 1},
-    {"Album Artist - Album", f1738, 1},
-    {"Album Artist / Album", f1739, 1},
-    {"Album unavailable", f1740, 1},
-    {"Albums", f1741, 1},
-    {"Albums (main list)", f1742, 1},
-    {"All Songs", f1743, 1},
-    {"All visible networks are already saved.", f1744, 1},
-    {"Already installed", f1745, 1},
-    {"America", f1746, 1},
-    {"An update is already in progress", f1747, 1},
-    {"An update is already in progress.", f1748, 1},
-    {"Animation Speed", f1749, 1},
-    {"Antarctica", f1750, 1},
-    {"Appearance", f1751, 1},
-    {"Applied %+.1f dB", f1752, 1},
-    {"Applies immediately", f1753, 1},
-    {"Applies next time you launch the app", f1754, 1},
-    {"Applies to new streaming queues", f1755, 1},
-    {"Applying language, this may take a while", f1756, 1},
-    {"Applying layout, this may take a while", f1757, 1},
-    {"Apps and browsers using the current PIN will need the new one to reconnect.", f1758, 1},
-    {"April", f1759, 1},
-    {"Arctic", f1760, 1},
-    {"Artist Images", f1761, 1},
-    {"Artists", f1762, 1},
-    {"Asia", f1763, 1},
-    {"Atlantic", f1764, 1},
-    {"Audio", f1765, 1},
-    {"Audio could not be decoded", f1766, 1},
-    {"Audio output failed", f1767, 1},
-    {"August", f1768, 1},
-    {"Australia", f1769, 1},
-    {"Auto", f1770, 1},
-    {"Auto-resume", f1771, 1},
-    {"Automatic", f1772, 1},
-    {"Automatic (44.1 kHz)", f1773, 1},
-    {"Automatically go idle", f1774, 1},
-    {"Available", f1775, 1},
-    {"Available Devices", f1776, 1},
-    {"Available Networks", f1777, 1},
-    {"Available · %s", f1778, 1},
-    {"Back", f1779, 1},
-    {"Band %d / %d", f1780, 1},
-    {"Band options", f1781, 1},
-    {"Battery Percentage", f1782, 1},
-    {"Bitrate", f1783, 1},
-    {"Bluetooth", f1784, 1},
-    {"Bluetooth DAC", f1785, 1},
-    {"Bluetooth DAC mode", f1786, 1},
-    {"Bluetooth Volume Sync", f1787, 1},
-    {"Bluetooth is off", f1788, 1},
-    {"Bluetooth remote service is starting…", f1789, 1},
-    {"Bluetooth remote service is unavailable; retrying.", f1790, 1},
-    {"Bluetooth: Compas Remote Control", f1791, 1},
-    {"Bluetooth: registration failed; retrying", f1792, 1},
-    {"Bluetooth: waiting for service registration", f1793, 1},
-    {"Books", f1794, 1},
-    {"Books refreshed", f1795, 1},
-    {"Build", f1796, 1},
-    {"Build it now? Large libraries can take several minutes.", f1797, 1},
-    {"Buttons & Remote", f1798, 1},
-    {"Buy Me a Coffee", f1799, 1},
-    {"By %s", f1800, 1},
-    {"Cancel", f1801, 1},
-    {"Cannot check plugin storage write access.", f1802, 1},
-    {"Cannot delete playlist", f1803, 1},
-    {"Cannot load album tracks", f1804, 1},
-    {"Cannot move this entry", f1805, 1},
-    {"Cannot play folder", f1806, 1},
-    {"Cannot reach GitHub. Check the Wi-Fi connection.", f1807, 1},
-    {"Cannot read playlist", f1808, 1},
-    {"Cannot read the SD card.", f1809, 1},
-    {"Cannot read the update file on the SD card. Check the card and try again.", f1810, 1},
-    {"Cannot read the update record on the SD card. Check the card and try again.", f1811, 1},
-    {"Cannot read update helper status: %s", f1812, 1},
-    {"Cannot remove entry", f1813, 1},
-    {"Cannot rename: invalid name or file exists", f1814, 1},
-    {"Cannot reorder playlist", f1815, 1},
-    {"Cannot save playlist", f1816, 1},
-    {"Cannot save: invalid or streaming entries", f1817, 1},
-    {"Cannot start queue", f1818, 1},
-    {"Car Mode", f1819, 1},
-    {"Car Mode Volume", f1820, 1},
-    {"Car Mode is disabled.", f1821, 1},
-    {"Channels", f1822, 1},
-    {"Charge Limit (85%)", f1823, 1},
-    {"Charge to at least %d%% or connect power before updating.", f1824, 1},
-    {"Charge to at least 30%% or connect power before updating.", f1825, 1},
-    {"Charging", f1826, 1},
-    {"Check for online update", f1827, 1},
-    {"Check that Wi-Fi is enabled, then rescan.", f1828, 1},
-    {"Checking for updates", f1829, 1},
-    {"Checking the SD card. This may take a while", f1830, 1},
-    {"Checking the file on the SD card", f1831, 1},
-    {"Choose a language", f1832, 1},
-    {"Choose plugins", f1833, 1},
-    {"Choose the language for your player.", f1834, 1},
-    {"Choose time zone", f1835, 1},
-    {"Choose what happens when idle:", f1836, 1},
-    {"Clear Queue", f1837, 1},
-    {"Clock", f1838, 1},
-    {"Close", f1839, 1},
-    {"Closing\nWeb Server...", f1840, 1},
-    {"Codec", f1841, 1},
-    {"Combined response (dB)", f1842, 1},
-    {"Combined response (dB) · EQ off", f1843, 1},
-    {"Compás Player", f1844, 1},
-    {"Connect", f1845, 1},
-    {"Connect & Browse", f1846, 1},
-    {"Connect a device to see its supported rates", f1847, 1},
-    {"Connect over Wi-Fi or Bluetooth to see what's playing, control playback, and browse your library. Enter this PIN when the app or browser asks for it; Bluetooth also requires pairing.", f1848, 1},
-    {"Connect to Wi-Fi", f1849, 1},
-    {"Connect to Wi-Fi first", f1850, 1},
-    {"Connect to Wi-Fi for streaming, updates, and online services.", f1851, 1},
-    {"Connect to a Wi-Fi network before continuing.", f1852, 1},
-    {"Connect to a network to download plugins.", f1853, 1},
-    {"Connect using either available route:", f1854, 1},
-    {"Connected", f1855, 1},
-    {"Connecting", f1856, 1},
-    {"Connecting to", f1857, 1},
-    {"Connecting to server...", f1858, 1},
-    {"Connection PIN", f1859, 1},
-    {"Connection failed", f1860, 1},
-    {"Connection timed out after 30 seconds", f1861, 1},
-    {"Container", f1862, 1},
-    {"Continue", f1863, 1},
-    {"Continue setup", f1864, 1},
-    {"Could not apply font size", f1865, 1},
-    {"Could not apply lyrics text size", f1866, 1},
-    {"Could not download the release checksums.", f1867, 1},
-    {"Could not enter recovery mode.", f1868, 1},
-    {"Could not generate a new PIN", f1869, 1},
-    {"Could not install a plugin on the SD card.", f1870, 1},
-    {"Could not install the plugin on the SD card.", f1871, 1},
-    {"Could not load lock screen photo", f1872, 1},
-    {"Could not load the plugin catalog.", f1873, 1},
-    {"Could not load the plugin catalog. Tap More to retry.", f1874, 1},
-    {"Could not move other .upt files aside on the SD card.", f1875, 1},
-    {"Could not open this file.", f1876, 1},
-    {"Could not place the update on the SD card.", f1877, 1},
-    {"Could not prepare plugin removal.", f1878, 1},
-    {"Could not prepare update helper: %s", f1879, 1},
-    {"Could not read installed plugins.", f1880, 1},
-    {"Could not read the Books folder", f1881, 1},
-    {"Could not read the plugin list from GitHub.", f1882, 1},
-    {"Could not read the release list from GitHub.", f1883, 1},
-    {"Could not record the verified update on the SD card.", f1884, 1},
-    {"Could not refresh books", f1885, 1},
-    {"Could not reload cover", f1886, 1},
-    {"Could not remove a plugin file.", f1887, 1},
-    {"Could not repair the SD card", f1888, 1},
-    {"Could not save Bluetooth codec", f1889, 1},
-    {"Could not start USB mode switch", f1890, 1},
-    {"Could not start refreshing the plugin catalog.", f1891, 1},
-    {"Could not start the download", f1892, 1},
-    {"Could not start the download.", f1893, 1},
-    {"Could not start the installation.", f1894, 1},
-    {"Could not start the library scan. Please try again.", f1895, 1},
-    {"Could not start the plugin operation", f1896, 1},
-    {"Could not start the plugin operation.", f1897, 1},
-    {"Could not start the plugin refresh", f1898, 1},
-    {"Could not start the plugin refresh.", f1899, 1},
-    {"Could not start the plugin update.", f1900, 1},
-    {"Could not start the update check.", f1901, 1},
-    {"Could not start update helper: %s", f1902, 1},
-    {"Could not update the installed plugin record.", f1903, 1},
-    {"Couldn't connect to Wi-Fi network", f1904, 1},
-    {"Couldn't read this .cue file", f1905, 1},
-    {"Couldn't save -- plugin change was not applied", f1906, 1},
-    {"Cover reloaded", f1907, 1},
-    {"Covers refreshed", f1908, 1},
-    {"Create a playlist above or copy one to the SD card's Playlists folder.", f1909, 1},
-    {"Crossfade", f1910, 1},
-    {"Custom", f1911, 1},
-    {"Custom color", f1912, 1},
-    {"Custom fonts affect Latin text only.", f1913, 1},
-    {"DAC", f1914, 1},
-    {"DAC path: %s · %u-bit", f1915, 1},
-    {"DLNA", f1916, 1},
-    {"DLNA Renderer", f1917, 1},
-    {"DNS Settings", f1918, 1},
-    {"December", f1919, 1},
-    {"Default (Built-in)", f1920, 1},
-    {"Delete", f1921, 1},
-    {"Delete %s?\nThis cannot be undone.", f1922, 1},
-    {"Delete Playlist", f1923, 1},
-    {"Delete playlist?", f1924, 1},
-    {"Delete this profile?", f1925, 1},
-    {"Developer Options", f1926, 1},
-    {"Dim screen before timeout", f1927, 1},
-    {"Disc %d", f1928, 1},
-    {"Disc %d / Track %d", f1929, 1},
-    {"Disconnect", f1930, 1},
-    {"Disconnect USB storage first", f1931, 1},
-    {"Disconnect USB storage from the host before changing plugins.", f1932, 1},
-    {"Dismiss", f1933, 1},
-    {"Display", f1934, 1},
-    {"Done", f1935, 1},
-    {"Download", f1936, 1},
-    {"Download \"%s\"?", f1937, 1},
-    {"Download Profiles", f1938, 1},
-    {"Download Settings", f1939, 1},
-    {"Download every album from \"%s\"?", f1940, 1},
-    {"Download failed", f1941, 1},
-    {"Download folder: %s", f1942, 1},
-    {"Download folder: SD root", f1943, 1},
-    {"Download profiles", f1944, 1},
-    {"Download settings", f1945, 1},
-    {"Download subfolder", f1946, 1},
-    {"Downloading", f1947, 1},
-    {"Downloading\n%s...", f1948, 1},
-    {"Downloading and installing plugins %zu/%zu", f1949, 1},
-    {"Downloading update", f1950, 1},
-    {"Drawer Volume Slider", f1951, 1},
-    {"Duration", f1952, 1},
-    {"EQ", f1953, 1},
-    {"EQ curve", f1954, 1},
-    {"Edit", f1955, 1},
-    {"Edit / Done", f1956, 1},
-    {"Enable Bluetooth DAC", f1957, 1},
-    {"Enable Bluetooth in settings to use BT DAC mode", f1958, 1},
-    {"Enable Sleep Timer", f1959, 1},
-    {"Enable Wi-Fi or Bluetooth to connect.", f1960, 1},
-    {"Enable WiFi to access", f1961, 1},
-    {"Enable band", f1962, 1},
-    {"Enable debug logging", f1963, 1},
-    {"Equalizer", f1964, 1},
-    {"Erase and format SD card?", f1965, 1},
-    {"Europe", f1966, 1},
-    {"Excellent", f1967, 1},
-    {"Exit USB DAC mode to play music on this device", f1968, 1},
-    {"Factory Reset", f1969, 1},
-    {"Failed plugins:\n", f1970, 1},
-    {"Failed to add to playlist", f1971, 1},
-    {"Failed to apply time zone", f1972, 1},
-    {"Failed to connect to server", f1973, 1},
-    {"Failed to create playlist", f1974, 1},
-    {"Failed to delete profile", f1975, 1},
-    {"Failed to enable AirPlay", f1976, 1},
-    {"Failed to load artists", f1977, 1},
-    {"Failed to load artists: %s", f1978, 1},
-    {"Failed to load font. Check format & memory.", f1979, 1},
-    {"Failed to load from server", f1980, 1},
-    {"Failed to load profile", f1981, 1},
-    {"Failed to rename profile", f1982, 1},
-    {"Failed to save profile", f1983, 1},
-    {"Failed to start connection", f1984, 1},
-    {"Failed to switch to %s", f1985, 1},
-    {"Failed to toggle Bluetooth", f1986, 1},
-    {"Fair", f1987, 1},
-    {"Favorites", f1988, 1},
-    {"February", f1989, 1},
-    {"File size", f1990, 1},
-    {"File unavailable", f1991, 1},
-    {"Files", f1992, 1},
-    {"Files (folders stay first)", f1993, 1},
-    {"Files on the card may have changed.", f1994, 1},
-    {"Files use modification dates. Albums use the newest track added; missing release years sort last. Update Music Database once to read years from existing files.", f1995, 1},
-    {"Filter type", f1996, 1},
-    {"Firmware Update", f1997, 1},
-    {"Flat", f1998, 1},
-    {"Folder layout for downloaded albums", f1999, 1},
-    {"Folder too large to index (tap Back)", f2000, 1},
-    {"Font", f2001, 1},
-    {"Font Size", f2002, 1},
-    {"Font selection is no longer available", f2003, 1},
-    {"Forget", f2004, 1},
-    {"Format", f2005, 1},
-    {"Format SD Card", f2006, 1},
-    {"Formatting\nSD Card...", f2007, 1},
-    {"Frequency", f2008, 1},
-    {"Frequency (Hz, 20 to 20000)", f2009, 1},
-    {"Friday", f2010, 1},
-    {"From album art", f2011, 1},
-    {"From album art (no cover, using custom)", f2012, 1},
-    {"Gain", f2013, 1},
-    {"Gain (dB, -12 to 12)", f2014, 1},
-    {"Gapless", f2015, 1},
-    {"Gateway: %s", f2016, 1},
-    {"Generate", f2017, 1},
-    {"Generate a new PIN?", f2018, 1},
-    {"Genres", f2019, 1},
-    {"Gestures & Orientation", f2020, 1},
-    {"Get started", f2021, 1},
-    {"GitHub did not respond in time. Try again.", f2022, 1},
-    {"GitHub is limiting requests. Try again later.", f2023, 1},
-    {"GitHub returned HTTP %d.", f2024, 1},
-    {"Go back and choose New Connection to add one.", f2025, 1},
-    {"Good", f2026, 1},
-    {"Headset may disconnect, manual reconnection might be required", f2027, 1},
-    {"Hide Player/Lyrics Top Bar", f2028, 1},
-    {"Hide Unnamed Devices", f2029, 1},
-    {"High", f2030, 1},
-    {"High (320 kbps)", f2031, 1},
-    {"Hostname", f2032, 1},
-    {"Hostname can only use letters, numbers, and hyphens", f2033, 1},
-    {"IP Address: %s", f2034, 1},
-    {"Idle Shutdown", f2035, 1},
-    {"Idle timeout:", f2036, 1},
-    {"Import", f2037, 1},
-    {"Import via Wi-Fi", f2038, 1},
-    {"In-line Remote", f2039, 1},
-    {"Indian", f2040, 1},
-    {"Information", f2041, 1},
-    {"Insert an SD card to change plugins.", f2042, 1},
-    {"Insert an SD card to download the update.", f2043, 1},
-    {"Insert an SD card to install plugins.", f2044, 1},
-    {"Insert an SD card to remove plugins.", f2045, 1},
-    {"Insert an SD card to scan for music, or turn off Scan for music.", f2046, 1},
-    {"Insert an SD card to update plugins.", f2047, 1},
-    {"Insert your SD card with music files. Compas Player can scan it and build your library.", f2048, 1},
-    {"Install", f2049, 1},
-    {"Install & Reboot", f2050, 1},
-    {"Install from SD card", f2051, 1},
-    {"Installed", f2052, 1},
-    {"Installed manually", f2053, 1},
-    {"Installed · %s", f2054, 1},
-    {"Installing plugin", f2055, 1},
-    {"Invalid download folder", f2056, 1},
-    {"Invalid download folder name", f2057, 1},
-    {"Invalid profile name", f2058, 1},
-    {"It could not be loaded. Rebuild it now?", f2059, 1},
-    {"It may have no partition table or a file system this player can't use. Formatting will erase it and set it up for this player.", f2060, 1},
-    {"Its settings stay on the card.", f2061, 1},
-    {"January", f2062, 1},
-    {"July", f2063, 1},
-    {"June", f2064, 1},
-    {"LDAC Quality", f2065, 1},
-    {"LDAC Standard", f2066, 1},
-    {"LDAC in DAC mode (Experimental)", f2067, 1},
-    {"LED charge indicator", f2068, 1},
-    {"Language", f2069, 1},
-    {"Large", f2070, 1},
-    {"Later", f2071, 1},
-    {"Launch at a fixed volume", f2072, 1},
-    {"Layout", f2073, 1},
-    {"Leave", f2074, 1},
-    {"Leave Bluetooth DAC mode?", f2075, 1},
-    {"Leave USB DAC mode?", f2076, 1},
-    {"Leave this view and try again.", f2077, 1},
-    {"Library", f2078, 1},
-    {"Library changed. Open the album again.", f2079, 1},
-    {"Library is busy", f2080, 1},
-    {"Library loaded", f2081, 1},
-    {"Library migrated. Favourites and play history kept", f2082, 1},
-    {"Library migrated. Old database cleanup will retry", f2083, 1},
-    {"Library migration failed. Old library intact. Use Settings > Update Music Database to retry", f2084, 1},
-    {"Library migration pending. Favourites and play history will be kept", f2085, 1},
-    {"Library recovered and saved", f2086, 1},
-    {"Library recovered and saved, some folders could not be read", f2087, 1},
-    {"Library recovered. Use Settings > Update Music Database to save", f2088, 1},
-    {"Library unavailable. Use Settings > Update Music Database to rebuild", f2089, 1},
-    {"Library update failed. Check SD card and retry", f2090, 1},
-    {"Library updated", f2091, 1},
-    {"Library updated, some folders could not be read", f2092, 1},
-    {"Load covers during playback (Experimental)", f2093, 1},
-    {"Loading Wi-Fi settings", f2094, 1},
-    {"Loading from server...", f2095, 1},
-    {"Loading layouts", f2096, 1},
-    {"Loading plugin catalog...", f2097, 1},
-    {"Loading plugins", f2098, 1},
-    {"Loading tracks…", f2099, 1},
-    {"Loading...", f2100, 1},
-    {"Location", f2101, 1},
-    {"Looking for music files", f2102, 1},
-    {"Looking for music files\n%d items checked", f2103, 1},
-    {"Low", f2104, 1},
-    {"Low\nHigh", f2105, 1},
-    {"Low (96 kbps)", f2106, 1},
-    {"Lyrics", f2107, 1},
-    {"Lyrics Text Size", f2108, 1},
-    {"MAC Address: %s", f2109, 1},
-    {"Maintenance", f2110, 1},
-    {"Make an accessory discoverable, then tap Rescan.", f2111, 1},
-    {"Manage plugins later in Settings > System > Plugin Manager to search, update, or remove them.", f2112, 1},
-    {"Manual SSID Entry", f2113, 1},
-    {"March", f2114, 1},
-    {"Match album art", f2115, 1},
-    {"May", f2116, 1},
-    {"Medium", f2117, 1},
-    {"Medium (192 kbps)", f2118, 1},
-    {"Memorized Networks", f2119, 1},
-    {"Metadata refreshed", f2120, 1},
-    {"Migrating\nmusic database...", f2121, 1},
-    {"Monday", f2122, 1},
-    {"Mono (1 channel)", f2123, 1},
-    {"More", f2124, 1},
-    {"Most Played", f2125, 1},
-    {"Music", f2126, 1},
-    {"Music database unavailable", f2127, 1},
-    {"Name (A–Z)", f2128, 1},
-    {"Native DSD (DoP) / %.4g MHz", f2129, 1},
-    {"Nearby Wi-Fi networks will appear here.", f2130, 1},
-    {"Needs newer firmware", f2131, 1},
-    {"Network Name (SSID)", f2132, 1},
-    {"Network stream", f2133, 1},
-    {"Networks you connect to will appear here.", f2134, 1},
-    {"New Connection", f2135, 1},
-    {"New PIN generated", f2136, 1},
-    {"New Profile", f2137, 1},
-    {"Newest Modified", f2138, 1},
-    {"Next", f2139, 1},
-    {"Next  •  %d–%d of %d", f2140, 1},
-    {"Next page", f2141, 1},
-    {"No .ttf fonts found in /Fonts", f2142, 1},
-    {"No .upt firmware file found on SD card", f2143, 1},
-    {"No SD card", f2144, 1},
-    {"No SD card detected. You can scan later from Library settings.", f2145, 1},
-    {"No books found", f2146, 1},
-    {"No entries to display", f2147, 1},
-    {"No favorites yet", f2148, 1},
-    {"No items", f2149, 1},
-    {"No memorized networks", f2150, 1},
-    {"No music database", f2151, 1},
-    {"No nearby devices", f2152, 1},
-    {"No network detected", f2153, 1},
-    {"No network detected. Connect to a network to download plugins.", f2154, 1},
-    {"No networks found", f2155, 1},
-    {"No other networks found", f2156, 1},
-    {"No paired devices", f2157, 1},
-    {"No playable audio files found", f2158, 1},
-    {"No playable files here", f2159, 1},
-    {"No plugin settings available", f2160, 1},
-    {"No plugins are available in the catalog.", f2161, 1},
-    {"No saved profiles", f2162, 1},
-    {"No saved servers", f2163, 1},
-    {"No songs to refresh", f2164, 1},
-    {"No synchronized lyrics found", f2165, 1},
-    {"No track loaded", f2166, 1},
-    {"No tracks found", f2167, 1},
-    {"No user playlists", f2168, 1},
-    {"No verified update is on this SD card. Download it again.", f2169, 1},
-    {"Not connected", f2170, 1},
-    {"Not enough free space on the SD card for the update.", f2171, 1},
-    {"Not enough free space on the SD card.", f2172, 1},
-    {"Not enough memory to connect", f2173, 1},
-    {"Not enough memory to load CUE tracks", f2174, 1},
-    {"Not enough memory to load artists", f2175, 1},
-    {"Not enough memory to load from server", f2176, 1},
-    {"Not enough memory to load the plugin store", f2177, 1},
-    {"Not enough memory to start download", f2178, 1},
-    {"Not selected (UTC)", f2179, 1},
-    {"Not set", f2180, 1},
-    {"November", f2181, 1},
-    {"OFF", f2182, 1},
-    {"ON", f2183, 1},
-    {"October", f2184, 1},
-    {"Off", f2185, 1},
-    {"On", f2186, 1},
-    {"Open a book and tap the bookmark icon to save it here.", f2187, 1},
-    {"Open a folder containing supported audio files.", f2188, 1},
-    {"Open network", f2189, 1},
-    {"Open this address on your phone or computer:", f2190, 1},
-    {"Open · Connected", f2191, 1},
-    {"Original", f2192, 1},
-    {"Output", f2193, 1},
-    {"PEQ reset to defaults", f2194, 1},
-    {"Pacific", f2195, 1},
-    {"Paired", f2196, 1},
-    {"Paired Devices", f2197, 1},
-    {"Parametric EQ", f2198, 1},
-    {"Password", f2199, 1},
-    {"Password: Not set", f2200, 1},
-    {"Password: Set", f2201, 1},
-    {"Paused: headphones disconnected", f2202, 1},
-    {"Peaking\nLow Shelf\nHigh Shelf", f2203, 1},
-    {"Per Album", f2204, 1},
-    {"Per Track", f2205, 1},
-    {"Place .ttf fonts in SD /Fonts folder.", f2206, 1},
-    {"Play All", f2207, 1},
-    {"Play Next", f2208, 1},
-    {"Play all shuffled", f2209, 1},
-    {"Play an album or playlist to see its songs here.", f2210, 1},
-    {"Play sequentially", f2211, 1},
-    {"Play/Pause", f2212, 1},
-    {"Play/Pause + Previous Track (Double-Click)", f2213, 1},
-    {"Play/Pause Button", f2214, 1},
-    {"Playback & Controls", f2215, 1},
-    {"Playback and device actions", f2216, 1},
-    {"Playback error", f2217, 1},
-    {"Playback error: audio output failed", f2218, 1},
-    {"Playback history could not be saved", f2219, 1},
-    {"Playback stopped: %s", f2220, 1},
-    {"Played", f2221, 1},
-    {"Player Layout", f2222, 1},
-    {"Playing", f2223, 1},
-    {"Playlist Name", f2224, 1},
-    {"Playlist changed. Select a song again.", f2225, 1},
-    {"Playlist changed. Try again.", f2226, 1},
-    {"Playlist created", f2227, 1},
-    {"Playlist deleted", f2228, 1},
-    {"Playlist is empty", f2229, 1},
-    {"Playlist renamed", f2230, 1},
-    {"Playlist saved", f2231, 1},
-    {"Playlist unavailable or unreadable", f2232, 1},
-    {"Playlists", f2233, 1},
-    {"Playlists refreshed", f2234, 1},
-    {"Please wait for plugin installation to finish", f2235, 1},
-    {"Please wait for the library scan to finish", f2236, 1},
-    {"Plugin", f2237, 1},
-    {"Plugin Manager", f2238, 1},
-    {"Plugin Settings", f2239, 1},
-    {"Plugin Store", f2240, 1},
-    {"Plugin is unavailable in the catalog", f2241, 1},
-    {"Plugin operation failed", f2242, 1},
-    {"Plugin setup complete", f2243, 1},
-    {"Plugin setup needs attention", f2244, 1},
-    {"Plugin storage is unavailable.", f2245, 1},
-    {"Plugins", f2246, 1},
-    {"Position", f2247, 1},
-    {"Power", f2248, 1},
-    {"Power Off", f2249, 1},
-    {"Power controls", f2250, 1},
-    {"Power off", f2251, 1},
-    {"Pre-Amp (dB, -12 to 12)", f2252, 1},
-    {"Pre-Amp: %+.2f dB", f2253, 1},
-    {"Preparing cover refresh...", f2254, 1},
-    {"Preparing database migration...", f2255, 1},
-    {"Preparing metadata refresh", f2256, 1},
-    {"Preparing metadata refresh...", f2257, 1},
-    {"Preparing music library...", f2258, 1},
-    {"Preparing update", f2259, 1},
-    {"Presets", f2260, 1},
-    {"Preview", f2261, 1},
-    {"Previous", f2262, 1},
-    {"Previous  •  %d–%d of %d", f2263, 1},
-    {"Previous Track", f2264, 1},
-    {"Previous page", f2265, 1},
-    {"Previous request still finishing", f2266, 1},
-    {"Previously connected accessories will appear here.", f2267, 1},
-    {"Primary DNS", f2268, 1},
-    {"Profile Name", f2269, 1},
-    {"Profile deleted", f2270, 1},
-    {"Profile loaded", f2271, 1},
-    {"Profile renamed", f2272, 1},
-    {"Profile saved", f2273, 1},
-    {"Profiles", f2274, 1},
-    {"Provider", f2275, 1},
-    {"Queue", f2276, 1},
-    {"Queue changed. Try again.", f2277, 1},
-    {"Queue checkpoint failed; storage may be read-only", f2278, 1},
-    {"Queue cleared", f2279, 1},
-    {"Queue is empty", f2280, 1},
-    {"Queue ready. Press Play to start.", f2281, 1},
-    {"Queued", f2282, 1},
-    {"Quick Setup Complete", f2283, 1},
-    {"Quick setup", f2284, 1},
-    {"RC", f2285, 1},
-    {"Radio", f2286, 1},
-    {"Radio / %s", f2287, 1},
-    {"Reading supported rates...", f2288, 1},
-    {"Reading tags\n%d of %d songs (%d%%)", f2289, 1},
-    {"Reads the tags of every song again. This may take a while.", f2290, 1},
-    {"Rebuild", f2291, 1},
-    {"Recently Added", f2292, 1},
-    {"Recently Played", f2293, 1},
-    {"Refresh", f2294, 1},
-    {"Refresh All Covers", f2295, 1},
-    {"Refresh All Metadata", f2296, 1},
-    {"Refresh Plugins", f2297, 1},
-    {"Refresh all covers?", f2298, 1},
-    {"Refresh all metadata?", f2299, 1},
-    {"Refresh metadata", f2300, 1},
-    {"Refresh plugin catalog", f2301, 1},
-    {"Refresh the music database to update this list.", f2302, 1},
-    {"Refreshing\nall covers...", f2303, 1},
-    {"Refreshing\nall metadata...", f2304, 1},
-    {"Refreshing\nmetadata...", f2305, 1},
-    {"Refreshing covers", f2306, 1},
-    {"Refreshing covers\n%d of %d (%d%%)", f2307, 1},
-    {"Refreshing plugins...", f2308, 1},
-    {"Release Year (oldest first)", f2309, 1},
-    {"Reload cover", f2310, 1},
-    {"Reloading\ncover...", f2311, 1},
-    {"Reloading cover", f2312, 1},
-    {"Reloading cover\n%d of %d (%d%%)", f2313, 1},
-    {"Remote", f2314, 1},
-    {"Remote Control", f2315, 1},
-    {"Remove", f2316, 1},
-    {"Remove %s?", f2317, 1},
-    {"Removed", f2318, 1},
-    {"Removed from playlist", f2319, 1},
-    {"Removed from queue", f2320, 1},
-    {"Removes saved covers and extracts them again. This may take a while.", f2321, 1},
-    {"Removing plugin", f2322, 1},
-    {"Rename Playlist", f2323, 1},
-    {"Rename Profile", f2324, 1},
-    {"Replace", f2325, 1},
-    {"Replace Existing", f2326, 1},
-    {"Replace Profile", f2327, 1},
-    {"ReplayGain", f2328, 1},
-    {"Rescan", f2329, 1},
-    {"Reset", f2330, 1},
-    {"Reset PEQ to defaults?", f2331, 1},
-    {"Reset all settings and reboot?", f2332, 1},
-    {"Reset to defaults", f2333, 1},
-    {"Restart", f2334, 1},
-    {"Restart Now", f2335, 1},
-    {"Restart now to apply the new hostname?", f2336, 1},
-    {"Resume Last Track", f2337, 1},
-    {"Resume and Play", f2338, 1},
-    {"Resume playback when external power turns the player on.", f2339, 1},
-    {"Resume, but Paused", f2340, 1},
-    {"Retrying plugins %zu/%zu", f2341, 1},
-    {"SD card checked", f2342, 1},
-    {"SD card couldn't be read", f2343, 1},
-    {"SD card format failed", f2344, 1},
-    {"SD card formatted", f2345, 1},
-    {"SD card is read-only. Check it on a computer", f2346, 1},
-    {"SD card is still read-only", f2347, 1},
-    {"SD card may have errors. Check it on a computer", f2348, 1},
-    {"SD card not available", f2349, 1},
-    {"SD card repair is still running", f2350, 1},
-    {"SD card repaired", f2351, 1},
-    {"SSID: %s", f2352, 1},
-    {"Safe Charging (500mA)", f2353, 1},
-    {"Sample Rate", f2354, 1},
-    {"Saturday", f2355, 1},
-    {"Save", f2356, 1},
-    {"Save Profile", f2357, 1},
-    {"Save Profile As", f2358, 1},
-    {"Save Queue as Playlist", f2359, 1},
-    {"Save as Playlist", f2360, 1},
-    {"Save as a new profile, or replace one that already exists?", f2361, 1},
-    {"Saved Servers", f2362, 1},
-    {"Saved network", f2363, 1},
-    {"Saved network details are being checked.", f2364, 1},
-    {"Saving music database", f2365, 1},
-    {"Saving music database\nThis can take a while on large libraries", f2366, 1},
-    {"Saving playlist…", f2367, 1},
-    {"Scan for music", f2368, 1},
-    {"Scan with your phone to support Compás Player on PayPal", f2369, 1},
-    {"Scanning for networks", f2370, 1},
-    {"Screen Dimming", f2371, 1},
-    {"Screen Timeout", f2372, 1},
-    {"Screen off", f2373, 1},
-    {"Screenshot failed (%s)", f2374, 1},
-    {"Screenshot failed (framebuffer)", f2375, 1},
-    {"Screenshot failed (worker)", f2376, 1},
-    {"Screenshot needs an SD card", f2377, 1},
-    {"Screenshot saved", f2378, 1},
-    {"Screenshots (Power + Previous)", f2379, 1},
-    {"Screenshots (Power + Vol Down)", f2380, 1},
-    {"Screenshots unavailable", f2381, 1},
-    {"Secondary DNS", f2382, 1},
-    {"Secure connection failed. Check Wi-Fi and the date and time.", f2383, 1},
-    {"Secured network", f2384, 1},
-    {"Secured · Connected", f2385, 1},
-    {"Select at least one plugin to continue.", f2386, 1},
-    {"Selected plugins are ready.\n", f2387, 1},
-    {"September", f2388, 1},
-    {"Server URL (e.g. %s)", f2389, 1},
-    {"Server URL: %s", f2390, 1},
-    {"Server request timed out after 30 seconds", f2391, 1},
-    {"Service is busy", f2392, 1},
-    {"Set Time", f2393, 1},
-    {"Set your local time zone so the clock is right.", f2394, 1},
-    {"Settings", f2395, 1},
-    {"Show Time Remaining", f2396, 1},
-    {"Showing first %d of %d songs", f2397, 1},
-    {"Shuffle from a random song", f2398, 1},
-    {"Signal: %s", f2399, 1},
-    {"Skip for now", f2400, 1},
-    {"Skipped: %s", f2401, 1},
-    {"Sleep", f2402, 1},
-    {"Sleep Timer", f2403, 1},
-    {"Sleep timer", f2404, 1},
-    {"Sleep timer: %d min remaining", f2405, 1},
-    {"Sleep timer: Off", f2406, 1},
-    {"Small", f2407, 1},
-    {"Some covers could not be refreshed", f2408, 1},
-    {"Some playlists could not be read", f2409, 1},
-    {"Some plugin files were changed on the card. Replace them?", f2410, 1},
-    {"Some songs could not be read", f2411, 1},
-    {"Some updates need confirmation before replacing local files.", f2412, 1},
-    {"Song already added", f2413, 1},
-    {"Song deleted", f2414, 1},
-    {"Songs", f2415, 1},
-    {"Sorting", f2416, 1},
-    {"Sound", f2417, 1},
-    {"Sound Effects", f2418, 1},
-    {"Source", f2419, 1},
-    {"Speex Resampling", f2420, 1},
-    {"Start sequentially", f2421, 1},
-    {"Start with these suggestions, or explore more plugins.", f2422, 1},
-    {"Startup Volume", f2423, 1},
-    {"Step %d of %d", f2424, 1},
-    {"Stereo (2 channels)", f2425, 1},
-    {"Still applying the previous choice", f2426, 1},
-    {"Storage", f2427, 1},
-    {"Stream Media", f2428, 1},
-    {"Stream Quality", f2429, 1},
-    {"Stream quality: %s", f2430, 1},
-    {"Subfolder is relative to SD root (example: Music/Offline); empty uses SD root", f2431, 1},
-    {"Subfolder: SD root", f2432, 1},
-    {"Subsonic", f2433, 1},
-    {"Sunday", f2434, 1},
-    {"Suspend to RAM", f2435, 1},
-    {"Swipe Up for Home", f2436, 1},
-    {"Swipe up to unlock", f2437, 1},
-    {"System", f2438, 1},
-    {"System playlists", f2439, 1},
-    {"Takes its color from the cover of the playing track", f2440, 1},
-    {"Tap Power off again to confirm", f2441, 1},
-    {"Tap Restart again to confirm", f2442, 1},
-    {"The SD card changed during the download.", f2443, 1},
-    {"The SD card changed during the operation.", f2444, 1},
-    {"The SD card is read-only. Check its write protection.", f2445, 1},
-    {"The download did not complete. Check Wi-Fi and try again.", f2446, 1},
-    {"The downloaded image failed verification and was deleted.", f2447, 1},
-    {"The playlist file will be deleted. Music files are kept.", f2448, 1},
-    {"The plugin download failed verification. Try again.", f2449, 1},
-    {"The quick brown fox jumps 123", f2450, 1},
-    {"The release has no checksum for this device's image.", f2451, 1},
-    {"The update file on the SD card changed. Download it again.", f2452, 1},
-    {"There are no entries in this view.", f2453, 1},
-    {"This device is now a USB sound card", f2454, 1},
-    {"This device is now receiving Bluetooth audio", f2455, 1},
-    {"This may take a while", f2456, 1},
-    {"This permanently deletes everything on the card. This cannot be undone.", f2457, 1},
-    {"This plugin has no update available.", f2458, 1},
-    {"This plugin is already installed by the store.", f2459, 1},
-    {"This plugin is not installed by the store.", f2460, 1},
-    {"This plugin needs a newer player version.", f2461, 1},
-    {"This release's image does not match its checksums. Try again after the next weekly release.", f2462, 1},
-    {"Thread launch failed", f2463, 1},
-    {"Thursday", f2464, 1},
-    {"Time Zone", f2465, 1},
-    {"Time remaining: %d:%02d", f2466, 1},
-    {"Time remaining: %d:%02d:%02d", f2467, 1},
-    {"Time zone", f2468, 1},
-    {"Too many audio channels", f2469, 1},
-    {"Too many plugins are installed. Remove one and try again.", f2470, 1},
-    {"Track", f2471, 1},
-    {"Track %+.1f dB", f2472, 1},
-    {"Track %d", f2473, 1},
-    {"Track details are not available yet. Keep playback open and check again.", f2474, 1},
-    {"Tracks", f2475, 1},
-    {"Tuesday", f2476, 1},
-    {"Turn Bluetooth off and on to apply", f2477, 1},
-    {"Turn off ADB first (Settings > System > USB Mode), then enable USB DAC from here.", f2478, 1},
-    {"Turn off Automatic to set the clock", f2479, 1},
-    {"Turn off Bluetooth DAC to play music on this device", f2480, 1},
-    {"Turn off screen automatically", f2481, 1},
-    {"Turn on Bluetooth to see paired and nearby devices.", f2482, 1},
-    {"Turn on Wi-Fi and connect first", f2483, 1},
-    {"Turn this on to see the address here.", f2484, 1},
-    {"USB DAC", f2485, 1},
-    {"USB DAC mode", f2486, 1},
-    {"USB Mode", f2487, 1},
-    {"USB audio device detected", f2488, 1},
-    {"USB input: %s · %u-bit", f2489, 1},
-    {"USB mode", f2490, 1},
-    {"Unable to load items", f2491, 1},
-    {"Unable to read folder (tap Back and retry)", f2492, 1},
-    {"Unavailable", f2493, 1},
-    {"Unexpected library response", f2494, 1},
-    {"Unexpected reply from GitHub", f2495, 1},
-    {"Unexpected reply from GitHub.", f2496, 1},
-    {"Unknown album", f2497, 1},
-    {"Unknown artist", f2498, 1},
-    {"Unknown codec", f2499, 1},
-    {"Unknown format", f2500, 1},
-    {"Unknown rate", f2501, 1},
-    {"Unsupported audio format", f2502, 1},
-    {"Update", f2503, 1},
-    {"Update & Reboot", f2504, 1},
-    {"Update All", f2505, 1},
-    {"Update Music Database", f2506, 1},
-    {"Update Music Database to enable this album order", f2507, 1},
-    {"Update available", f2508, 1},
-    {"Update available · %s", f2509, 1},
-    {"Update individually", f2510, 1},
-    {"Update music database?", f2511, 1},
-    {"Update these plugins individually", f2512, 1},
-    {"Update using %s?\nDevice will reboot into recovery mode.", f2513, 1},
-    {"Updates", f2514, 1},
-    {"Updating\nmusic database...", f2515, 1},
-    {"Updating plugins", f2516, 1},
-    {"Upside Down Screen", f2517, 1},
-    {"Use Settings > Update Music Database", f2518, 1},
-    {"User playlists", f2519, 1},
-    {"Username", f2520, 1},
-    {"Username: %s", f2521, 1},
-    {"Verify server certificate", f2522, 1},
-    {"Version %s · %s", f2523, 1},
-    {"Waiting for Bluetooth stream…", f2524, 1},
-    {"Waiting for USB audio…", f2525, 1},
-    {"Weak", f2526, 1},
-    {"Web Server is busy", f2527, 1},
-    {"Wednesday", f2528, 1},
-    {"Weekly Beta %s is available.\nInstalled: %s\n\nDownload it now? This may take a while.", f2529, 1},
-    {"Weekly Beta %s is downloaded and verified.\n\nInstall now? The device reboots into recovery to flash it. Do not turn it off until it restarts.", f2530, 1},
-    {"Welcome to Compás", f2531, 1},
-    {"When on, this device is visible to AirPlay senders on your Wi-Fi network -- stream audio from an iPhone, iPad, or Mac to be played through this device's own output.", f2532, 1},
-    {"When on, this device is visible to DLNA/UPnP controller apps on your Wi-Fi network -- cast a track from one to play it here. Pause, mute, volume, and seek from the controller app aren't supported; use this device's own controls instead once a track starts.", f2533, 1},
-    {"When on, this device stays visible and pairable to other Bluetooth devices, so a phone or computer can stream audio TO it and play through this device's own output -- using it as an external DAC.", f2534, 1},
-    {"Wi-Fi", f2535, 1},
-    {"Wi-Fi Info", f2536, 1},
-    {"Wi-Fi Password", f2537, 1},
-    {"Wi-Fi failed to change state", f2538, 1},
-    {"Wi-Fi is busy", f2539, 1},
-    {"Wireless", f2540, 1},
-    {"You can select up to 32 plugins", f2541, 1},
-    {"You have the latest weekly (%s).\n\nDownload and reinstall it anyway? This may take a while.", f2542, 1},
-    {"Your library is being loaded.", f2543, 1},
-    {"Your music", f2544, 1},
-    {"Your setup journey", f2545, 1},
-    {"[File truncated at %d KB -- showing the first part only]\n\n%s", f2546, 1},
-    {"unknown", f2547, 1},
+    {"%.0f Hz", f1697, 1},
+    {"%d hr", f1698, 1},
+    {"%d hr %d min", f1699, 1},
+    {"%d min", f1700, 1},
+    {"%d min remaining", f1701, 1},
+    {"%d song", f1702, 2},
+    {"%d track", f1703, 2},
+    {"%dm", f1704, 1},
+    {"%lld track", f1705, 2},
+    {"%llu bytes", f1706, 1},
+    {"%s (current)", f1707, 1},
+    {"%s · Not loaded", f1708, 1},
+    {"%s · Not loaded: limit reached", f1709, 1},
+    {"%u channels", f1710, 1},
+    {"+ New Playlist", f1711, 1},
+    {"24-Hour Clock", f1712, 1},
+    {"48 kHz reference", f1713, 1},
+    {"A local plugin file will be replaced. Confirm to continue.", f1714, 1},
+    {"A plugin download failed verification. Try again.", f1715, 1},
+    {"A plugin operation is already in progress", f1716, 1},
+    {"ADB", f1717, 1},
+    {"About", f1718, 1},
+    {"Accent Color", f1719, 1},
+    {"Add .txt files to the Books folder, then refresh the library.", f1720, 1},
+    {"Add a random song to queue", f1721, 1},
+    {"Add album to queue", f1722, 1},
+    {"Add hidden network", f1723, 1},
+    {"Add songs from a song menu.", f1724, 1},
+    {"Add to Playlist", f1725, 1},
+    {"Add to Queue", f1726, 1},
+    {"Added %d song to queue", f1727, 2},
+    {"Added to playlist", f1728, 1},
+    {"Additional Tools", f1729, 1},
+    {"Advanced", f1730, 1},
+    {"Africa", f1731, 1},
+    {"AirPlay", f1732, 1},
+    {"AirPlay stopped unexpectedly", f1733, 1},
+    {"Album %+.1f dB", f1734, 1},
+    {"Album Artist", f1735, 1},
+    {"Album Artist - Album", f1736, 1},
+    {"Album Artist / Album", f1737, 1},
+    {"Album unavailable", f1738, 1},
+    {"Albums", f1739, 1},
+    {"Albums (main list)", f1740, 1},
+    {"All Songs", f1741, 1},
+    {"All visible networks are already saved.", f1742, 1},
+    {"Already installed", f1743, 1},
+    {"America", f1744, 1},
+    {"An update is already in progress", f1745, 1},
+    {"An update is already in progress.", f1746, 1},
+    {"Animation Speed", f1747, 1},
+    {"Antarctica", f1748, 1},
+    {"Appearance", f1749, 1},
+    {"Applied %+.1f dB", f1750, 1},
+    {"Applies immediately", f1751, 1},
+    {"Applies next time you launch the app", f1752, 1},
+    {"Applies to new streaming queues", f1753, 1},
+    {"Applying language, this may take a while", f1754, 1},
+    {"Applying layout, this may take a while", f1755, 1},
+    {"Apps and browsers using the current PIN will need the new one to reconnect.", f1756, 1},
+    {"April", f1757, 1},
+    {"Arctic", f1758, 1},
+    {"Artist Images", f1759, 1},
+    {"Artists", f1760, 1},
+    {"Asia", f1761, 1},
+    {"Atlantic", f1762, 1},
+    {"Audio", f1763, 1},
+    {"Audio could not be decoded", f1764, 1},
+    {"Audio output failed", f1765, 1},
+    {"August", f1766, 1},
+    {"Australia", f1767, 1},
+    {"Auto", f1768, 1},
+    {"Auto-resume", f1769, 1},
+    {"Automatic", f1770, 1},
+    {"Automatic (44.1 kHz)", f1771, 1},
+    {"Automatically go idle", f1772, 1},
+    {"Available", f1773, 1},
+    {"Available Devices", f1774, 1},
+    {"Available Networks", f1775, 1},
+    {"Available · %s", f1776, 1},
+    {"Back", f1777, 1},
+    {"Band %d / %d", f1778, 1},
+    {"Band options", f1779, 1},
+    {"Battery Percentage", f1780, 1},
+    {"Bitrate", f1781, 1},
+    {"Bluetooth", f1782, 1},
+    {"Bluetooth DAC", f1783, 1},
+    {"Bluetooth DAC mode", f1784, 1},
+    {"Bluetooth Volume Sync", f1785, 1},
+    {"Bluetooth is off", f1786, 1},
+    {"Bluetooth remote service is starting…", f1787, 1},
+    {"Bluetooth remote service is unavailable; retrying.", f1788, 1},
+    {"Bluetooth: Compas Remote Control", f1789, 1},
+    {"Bluetooth: registration failed; retrying", f1790, 1},
+    {"Bluetooth: waiting for service registration", f1791, 1},
+    {"Books", f1792, 1},
+    {"Books refreshed", f1793, 1},
+    {"Build", f1794, 1},
+    {"Build it now? Large libraries can take several minutes.", f1795, 1},
+    {"Buttons & Remote", f1796, 1},
+    {"Buy Me a Coffee", f1797, 1},
+    {"By %s", f1798, 1},
+    {"Cancel", f1799, 1},
+    {"Cannot check plugin storage write access.", f1800, 1},
+    {"Cannot delete playlist", f1801, 1},
+    {"Cannot load album tracks", f1802, 1},
+    {"Cannot move this entry", f1803, 1},
+    {"Cannot play folder", f1804, 1},
+    {"Cannot reach GitHub. Check the Wi-Fi connection.", f1805, 1},
+    {"Cannot read playlist", f1806, 1},
+    {"Cannot read the SD card.", f1807, 1},
+    {"Cannot read the update file on the SD card. Check the card and try again.", f1808, 1},
+    {"Cannot read the update record on the SD card. Check the card and try again.", f1809, 1},
+    {"Cannot read update helper status: %s", f1810, 1},
+    {"Cannot remove entry", f1811, 1},
+    {"Cannot rename: invalid name or file exists", f1812, 1},
+    {"Cannot reorder playlist", f1813, 1},
+    {"Cannot save playlist", f1814, 1},
+    {"Cannot save: invalid or streaming entries", f1815, 1},
+    {"Cannot start queue", f1816, 1},
+    {"Car Mode", f1817, 1},
+    {"Car Mode Volume", f1818, 1},
+    {"Car Mode is disabled.", f1819, 1},
+    {"Channels", f1820, 1},
+    {"Charge Limit (85%)", f1821, 1},
+    {"Charge to at least %d%% or connect power before updating.", f1822, 1},
+    {"Charge to at least 30%% or connect power before updating.", f1823, 1},
+    {"Charging", f1824, 1},
+    {"Check for online update", f1825, 1},
+    {"Check that Wi-Fi is enabled, then rescan.", f1826, 1},
+    {"Checking for updates", f1827, 1},
+    {"Checking the SD card. This may take a while", f1828, 1},
+    {"Checking the file on the SD card", f1829, 1},
+    {"Choose a language", f1830, 1},
+    {"Choose plugins", f1831, 1},
+    {"Choose the language for your player.", f1832, 1},
+    {"Choose time zone", f1833, 1},
+    {"Choose what happens when idle:", f1834, 1},
+    {"Clear Queue", f1835, 1},
+    {"Clock", f1836, 1},
+    {"Close", f1837, 1},
+    {"Closing\nWeb Server...", f1838, 1},
+    {"Codec", f1839, 1},
+    {"Combined response (dB)", f1840, 1},
+    {"Combined response (dB) · EQ off", f1841, 1},
+    {"Compás Player", f1842, 1},
+    {"Connect", f1843, 1},
+    {"Connect & Browse", f1844, 1},
+    {"Connect a device to see its supported rates", f1845, 1},
+    {"Connect over Wi-Fi or Bluetooth to see what's playing, control playback, and browse your library. Enter this PIN when the app or browser asks for it; Bluetooth also requires pairing.", f1846, 1},
+    {"Connect to Wi-Fi", f1847, 1},
+    {"Connect to Wi-Fi first", f1848, 1},
+    {"Connect to Wi-Fi for streaming, updates, and online services.", f1849, 1},
+    {"Connect to a Wi-Fi network before continuing.", f1850, 1},
+    {"Connect to a network to download plugins.", f1851, 1},
+    {"Connect using either available route:", f1852, 1},
+    {"Connected", f1853, 1},
+    {"Connecting", f1854, 1},
+    {"Connecting to", f1855, 1},
+    {"Connecting to server...", f1856, 1},
+    {"Connection PIN", f1857, 1},
+    {"Connection failed", f1858, 1},
+    {"Connection timed out after 30 seconds", f1859, 1},
+    {"Container", f1860, 1},
+    {"Continue", f1861, 1},
+    {"Continue setup", f1862, 1},
+    {"Could not apply font size", f1863, 1},
+    {"Could not apply lyrics text size", f1864, 1},
+    {"Could not download the release checksums.", f1865, 1},
+    {"Could not enter recovery mode.", f1866, 1},
+    {"Could not generate a new PIN", f1867, 1},
+    {"Could not install a plugin on the SD card.", f1868, 1},
+    {"Could not install the plugin on the SD card.", f1869, 1},
+    {"Could not load lock screen photo", f1870, 1},
+    {"Could not load the plugin catalog.", f1871, 1},
+    {"Could not load the plugin catalog. Tap More to retry.", f1872, 1},
+    {"Could not move other .upt files aside on the SD card.", f1873, 1},
+    {"Could not open this file.", f1874, 1},
+    {"Could not place the update on the SD card.", f1875, 1},
+    {"Could not prepare plugin removal.", f1876, 1},
+    {"Could not prepare update helper: %s", f1877, 1},
+    {"Could not read installed plugins.", f1878, 1},
+    {"Could not read the Books folder", f1879, 1},
+    {"Could not read the plugin list from GitHub.", f1880, 1},
+    {"Could not read the release list from GitHub.", f1881, 1},
+    {"Could not record the verified update on the SD card.", f1882, 1},
+    {"Could not refresh books", f1883, 1},
+    {"Could not reload cover", f1884, 1},
+    {"Could not remove a plugin file.", f1885, 1},
+    {"Could not repair the SD card", f1886, 1},
+    {"Could not save Bluetooth codec", f1887, 1},
+    {"Could not start USB mode switch", f1888, 1},
+    {"Could not start refreshing the plugin catalog.", f1889, 1},
+    {"Could not start the download", f1890, 1},
+    {"Could not start the download.", f1891, 1},
+    {"Could not start the installation.", f1892, 1},
+    {"Could not start the library scan. Please try again.", f1893, 1},
+    {"Could not start the plugin operation", f1894, 1},
+    {"Could not start the plugin operation.", f1895, 1},
+    {"Could not start the plugin refresh", f1896, 1},
+    {"Could not start the plugin refresh.", f1897, 1},
+    {"Could not start the plugin update.", f1898, 1},
+    {"Could not start the update check.", f1899, 1},
+    {"Could not start update helper: %s", f1900, 1},
+    {"Could not update the installed plugin record.", f1901, 1},
+    {"Couldn't connect to Wi-Fi network", f1902, 1},
+    {"Couldn't read this .cue file", f1903, 1},
+    {"Couldn't save -- plugin change was not applied", f1904, 1},
+    {"Cover reloaded", f1905, 1},
+    {"Covers refreshed", f1906, 1},
+    {"Create a playlist above or copy one to the SD card's Playlists folder.", f1907, 1},
+    {"Crossfade", f1908, 1},
+    {"Custom", f1909, 1},
+    {"Custom color", f1910, 1},
+    {"Custom fonts affect Latin text only.", f1911, 1},
+    {"DAC", f1912, 1},
+    {"DAC path: %s · %u-bit", f1913, 1},
+    {"DLNA", f1914, 1},
+    {"DLNA Renderer", f1915, 1},
+    {"DNS Settings", f1916, 1},
+    {"December", f1917, 1},
+    {"Default (Built-in)", f1918, 1},
+    {"Delete", f1919, 1},
+    {"Delete %s?\nThis cannot be undone.", f1920, 1},
+    {"Delete Playlist", f1921, 1},
+    {"Delete playlist?", f1922, 1},
+    {"Delete this profile?", f1923, 1},
+    {"Developer Options", f1924, 1},
+    {"Dim screen before timeout", f1925, 1},
+    {"Disc %d", f1926, 1},
+    {"Disc %d / Track %d", f1927, 1},
+    {"Disconnect", f1928, 1},
+    {"Disconnect USB storage first", f1929, 1},
+    {"Disconnect USB storage from the host before changing plugins.", f1930, 1},
+    {"Dismiss", f1931, 1},
+    {"Display", f1932, 1},
+    {"Done", f1933, 1},
+    {"Download", f1934, 1},
+    {"Download \"%s\"?", f1935, 1},
+    {"Download Profiles", f1936, 1},
+    {"Download Settings", f1937, 1},
+    {"Download every album from \"%s\"?", f1938, 1},
+    {"Download failed", f1939, 1},
+    {"Download folder: %s", f1940, 1},
+    {"Download folder: SD root", f1941, 1},
+    {"Download profiles", f1942, 1},
+    {"Download settings", f1943, 1},
+    {"Download subfolder", f1944, 1},
+    {"Downloading", f1945, 1},
+    {"Downloading\n%s...", f1946, 1},
+    {"Downloading and installing plugins %zu/%zu", f1947, 1},
+    {"Downloading update", f1948, 1},
+    {"Drawer Volume Slider", f1949, 1},
+    {"Duration", f1950, 1},
+    {"EQ", f1951, 1},
+    {"EQ curve", f1952, 1},
+    {"Edit", f1953, 1},
+    {"Edit / Done", f1954, 1},
+    {"Enable Bluetooth DAC", f1955, 1},
+    {"Enable Bluetooth in settings to use BT DAC mode", f1956, 1},
+    {"Enable Sleep Timer", f1957, 1},
+    {"Enable Wi-Fi or Bluetooth to connect.", f1958, 1},
+    {"Enable WiFi to access", f1959, 1},
+    {"Enable band", f1960, 1},
+    {"Enable debug logging", f1961, 1},
+    {"Equalizer", f1962, 1},
+    {"Erase and format SD card?", f1963, 1},
+    {"Europe", f1964, 1},
+    {"Excellent", f1965, 1},
+    {"Exit USB DAC mode to play music on this device", f1966, 1},
+    {"Factory Reset", f1967, 1},
+    {"Failed plugins:\n", f1968, 1},
+    {"Failed to add to playlist", f1969, 1},
+    {"Failed to apply time zone", f1970, 1},
+    {"Failed to connect to server", f1971, 1},
+    {"Failed to create playlist", f1972, 1},
+    {"Failed to delete profile", f1973, 1},
+    {"Failed to enable AirPlay", f1974, 1},
+    {"Failed to load artists", f1975, 1},
+    {"Failed to load artists: %s", f1976, 1},
+    {"Failed to load font. Check format & memory.", f1977, 1},
+    {"Failed to load from server", f1978, 1},
+    {"Failed to load profile", f1979, 1},
+    {"Failed to rename profile", f1980, 1},
+    {"Failed to save profile", f1981, 1},
+    {"Failed to start connection", f1982, 1},
+    {"Failed to switch to %s", f1983, 1},
+    {"Failed to toggle Bluetooth", f1984, 1},
+    {"Fair", f1985, 1},
+    {"Favorites", f1986, 1},
+    {"February", f1987, 1},
+    {"File size", f1988, 1},
+    {"File unavailable", f1989, 1},
+    {"Files", f1990, 1},
+    {"Files (folders stay first)", f1991, 1},
+    {"Files on the card may have changed.", f1992, 1},
+    {"Files use modification dates. Albums use the newest track added; missing release years sort last. Update Music Database once to read years from existing files.", f1993, 1},
+    {"Filter type", f1994, 1},
+    {"Firmware Update", f1995, 1},
+    {"Flat", f1996, 1},
+    {"Folder layout for downloaded albums", f1997, 1},
+    {"Folder too large to index (tap Back)", f1998, 1},
+    {"Font", f1999, 1},
+    {"Font Size", f2000, 1},
+    {"Font selection is no longer available", f2001, 1},
+    {"Forget", f2002, 1},
+    {"Format", f2003, 1},
+    {"Format SD Card", f2004, 1},
+    {"Formatting\nSD Card...", f2005, 1},
+    {"Frequency", f2006, 1},
+    {"Frequency (Hz, 20 to 20000)", f2007, 1},
+    {"Friday", f2008, 1},
+    {"From album art", f2009, 1},
+    {"From album art (no cover, using custom)", f2010, 1},
+    {"Gain", f2011, 1},
+    {"Gain (dB, -12 to 12)", f2012, 1},
+    {"Gapless", f2013, 1},
+    {"Gateway: %s", f2014, 1},
+    {"Generate", f2015, 1},
+    {"Generate a new PIN?", f2016, 1},
+    {"Genres", f2017, 1},
+    {"Gestures & Orientation", f2018, 1},
+    {"Get started", f2019, 1},
+    {"GitHub did not respond in time. Try again.", f2020, 1},
+    {"GitHub is limiting requests. Try again later.", f2021, 1},
+    {"GitHub returned HTTP %d.", f2022, 1},
+    {"Go back and choose New Connection to add one.", f2023, 1},
+    {"Good", f2024, 1},
+    {"Headset may disconnect, manual reconnection might be required", f2025, 1},
+    {"Hide Player/Lyrics Top Bar", f2026, 1},
+    {"Hide Unnamed Devices", f2027, 1},
+    {"High", f2028, 1},
+    {"High (320 kbps)", f2029, 1},
+    {"Hostname", f2030, 1},
+    {"Hostname can only use letters, numbers, and hyphens", f2031, 1},
+    {"IP Address: %s", f2032, 1},
+    {"Idle Shutdown", f2033, 1},
+    {"Idle timeout:", f2034, 1},
+    {"Import", f2035, 1},
+    {"Import via Wi-Fi", f2036, 1},
+    {"In-line Remote", f2037, 1},
+    {"Indian", f2038, 1},
+    {"Information", f2039, 1},
+    {"Insert an SD card to change plugins.", f2040, 1},
+    {"Insert an SD card to download the update.", f2041, 1},
+    {"Insert an SD card to install plugins.", f2042, 1},
+    {"Insert an SD card to remove plugins.", f2043, 1},
+    {"Insert an SD card to scan for music, or turn off Scan for music.", f2044, 1},
+    {"Insert an SD card to update plugins.", f2045, 1},
+    {"Insert your SD card with music files. Compas Player can scan it and build your library.", f2046, 1},
+    {"Install", f2047, 1},
+    {"Install & Reboot", f2048, 1},
+    {"Install from SD card", f2049, 1},
+    {"Installed", f2050, 1},
+    {"Installed manually", f2051, 1},
+    {"Installed · %s", f2052, 1},
+    {"Installing plugin", f2053, 1},
+    {"Invalid download folder", f2054, 1},
+    {"Invalid download folder name", f2055, 1},
+    {"Invalid profile name", f2056, 1},
+    {"It could not be loaded. Rebuild it now?", f2057, 1},
+    {"It may have no partition table or a file system this player can't use. Formatting will erase it and set it up for this player.", f2058, 1},
+    {"Its settings stay on the card.", f2059, 1},
+    {"January", f2060, 1},
+    {"July", f2061, 1},
+    {"June", f2062, 1},
+    {"LDAC Quality", f2063, 1},
+    {"LDAC Standard", f2064, 1},
+    {"LED charge indicator", f2065, 1},
+    {"Language", f2066, 1},
+    {"Large", f2067, 1},
+    {"Later", f2068, 1},
+    {"Launch at a fixed volume", f2069, 1},
+    {"Layout", f2070, 1},
+    {"Leave", f2071, 1},
+    {"Leave Bluetooth DAC mode?", f2072, 1},
+    {"Leave USB DAC mode?", f2073, 1},
+    {"Leave this view and try again.", f2074, 1},
+    {"Library", f2075, 1},
+    {"Library changed. Open the album again.", f2076, 1},
+    {"Library is busy", f2077, 1},
+    {"Library loaded", f2078, 1},
+    {"Library migrated. Favourites and play history kept", f2079, 1},
+    {"Library migrated. Old database cleanup will retry", f2080, 1},
+    {"Library migration failed. Old library intact. Use Settings > Update Music Database to retry", f2081, 1},
+    {"Library migration pending. Favourites and play history will be kept", f2082, 1},
+    {"Library recovered and saved", f2083, 1},
+    {"Library recovered and saved, some folders could not be read", f2084, 1},
+    {"Library recovered. Use Settings > Update Music Database to save", f2085, 1},
+    {"Library unavailable. Use Settings > Update Music Database to rebuild", f2086, 1},
+    {"Library update failed. Check SD card and retry", f2087, 1},
+    {"Library updated", f2088, 1},
+    {"Library updated, some folders could not be read", f2089, 1},
+    {"Load covers during playback (Experimental)", f2090, 1},
+    {"Loading Wi-Fi settings", f2091, 1},
+    {"Loading from server...", f2092, 1},
+    {"Loading layouts", f2093, 1},
+    {"Loading plugin catalog...", f2094, 1},
+    {"Loading plugins", f2095, 1},
+    {"Loading tracks…", f2096, 1},
+    {"Loading...", f2097, 1},
+    {"Location", f2098, 1},
+    {"Looking for music files", f2099, 1},
+    {"Looking for music files\n%d items checked", f2100, 1},
+    {"Low", f2101, 1},
+    {"Low\nHigh", f2102, 1},
+    {"Low (96 kbps)", f2103, 1},
+    {"Lyrics", f2104, 1},
+    {"Lyrics Text Size", f2105, 1},
+    {"MAC Address: %s", f2106, 1},
+    {"Maintenance", f2107, 1},
+    {"Make an accessory discoverable, then tap Rescan.", f2108, 1},
+    {"Manage plugins later in Settings > System > Plugin Manager to search, update, or remove them.", f2109, 1},
+    {"Manual SSID Entry", f2110, 1},
+    {"March", f2111, 1},
+    {"Match album art", f2112, 1},
+    {"May", f2113, 1},
+    {"Medium", f2114, 1},
+    {"Medium (192 kbps)", f2115, 1},
+    {"Memorized Networks", f2116, 1},
+    {"Metadata refreshed", f2117, 1},
+    {"Migrating\nmusic database...", f2118, 1},
+    {"Monday", f2119, 1},
+    {"Mono (1 channel)", f2120, 1},
+    {"More", f2121, 1},
+    {"Most Played", f2122, 1},
+    {"Music", f2123, 1},
+    {"Music database unavailable", f2124, 1},
+    {"Name (A–Z)", f2125, 1},
+    {"Native DSD (DoP) / %.4g MHz", f2126, 1},
+    {"Nearby Wi-Fi networks will appear here.", f2127, 1},
+    {"Needs newer firmware", f2128, 1},
+    {"Network Name (SSID)", f2129, 1},
+    {"Network stream", f2130, 1},
+    {"Networks you connect to will appear here.", f2131, 1},
+    {"New Connection", f2132, 1},
+    {"New PIN generated", f2133, 1},
+    {"New Profile", f2134, 1},
+    {"Newest Modified", f2135, 1},
+    {"Next", f2136, 1},
+    {"Next  •  %d–%d of %d", f2137, 1},
+    {"Next page", f2138, 1},
+    {"No .ttf fonts found in /Fonts", f2139, 1},
+    {"No .upt firmware file found on SD card", f2140, 1},
+    {"No SD card", f2141, 1},
+    {"No SD card detected. You can scan later from Library settings.", f2142, 1},
+    {"No books found", f2143, 1},
+    {"No entries to display", f2144, 1},
+    {"No favorites yet", f2145, 1},
+    {"No items", f2146, 1},
+    {"No memorized networks", f2147, 1},
+    {"No music database", f2148, 1},
+    {"No nearby devices", f2149, 1},
+    {"No network detected", f2150, 1},
+    {"No network detected. Connect to a network to download plugins.", f2151, 1},
+    {"No networks found", f2152, 1},
+    {"No other networks found", f2153, 1},
+    {"No paired devices", f2154, 1},
+    {"No playable audio files found", f2155, 1},
+    {"No playable files here", f2156, 1},
+    {"No plugin settings available", f2157, 1},
+    {"No plugins are available in the catalog.", f2158, 1},
+    {"No saved profiles", f2159, 1},
+    {"No saved servers", f2160, 1},
+    {"No songs to refresh", f2161, 1},
+    {"No synchronized lyrics found", f2162, 1},
+    {"No track loaded", f2163, 1},
+    {"No tracks found", f2164, 1},
+    {"No user playlists", f2165, 1},
+    {"No verified update is on this SD card. Download it again.", f2166, 1},
+    {"Not connected", f2167, 1},
+    {"Not enough free space on the SD card for the update.", f2168, 1},
+    {"Not enough free space on the SD card.", f2169, 1},
+    {"Not enough memory to connect", f2170, 1},
+    {"Not enough memory to load CUE tracks", f2171, 1},
+    {"Not enough memory to load artists", f2172, 1},
+    {"Not enough memory to load from server", f2173, 1},
+    {"Not enough memory to load the plugin store", f2174, 1},
+    {"Not enough memory to start download", f2175, 1},
+    {"Not selected (UTC)", f2176, 1},
+    {"Not set", f2177, 1},
+    {"November", f2178, 1},
+    {"OFF", f2179, 1},
+    {"ON", f2180, 1},
+    {"October", f2181, 1},
+    {"Off", f2182, 1},
+    {"On", f2183, 1},
+    {"Open a book and tap the bookmark icon to save it here.", f2184, 1},
+    {"Open a folder containing supported audio files.", f2185, 1},
+    {"Open network", f2186, 1},
+    {"Open this address on your phone or computer:", f2187, 1},
+    {"Open · Connected", f2188, 1},
+    {"Original", f2189, 1},
+    {"Output", f2190, 1},
+    {"PEQ reset to defaults", f2191, 1},
+    {"Pacific", f2192, 1},
+    {"Paired", f2193, 1},
+    {"Paired Devices", f2194, 1},
+    {"Parametric EQ", f2195, 1},
+    {"Password", f2196, 1},
+    {"Password: Not set", f2197, 1},
+    {"Password: Set", f2198, 1},
+    {"Paused: headphones disconnected", f2199, 1},
+    {"Peaking\nLow Shelf\nHigh Shelf", f2200, 1},
+    {"Per Album", f2201, 1},
+    {"Per Track", f2202, 1},
+    {"Place .ttf fonts in SD /Fonts folder.", f2203, 1},
+    {"Play All", f2204, 1},
+    {"Play Next", f2205, 1},
+    {"Play all shuffled", f2206, 1},
+    {"Play an album or playlist to see its songs here.", f2207, 1},
+    {"Play sequentially", f2208, 1},
+    {"Play/Pause", f2209, 1},
+    {"Play/Pause + Previous Track (Double-Click)", f2210, 1},
+    {"Play/Pause Button", f2211, 1},
+    {"Playback & Controls", f2212, 1},
+    {"Playback and device actions", f2213, 1},
+    {"Playback error", f2214, 1},
+    {"Playback error: audio output failed", f2215, 1},
+    {"Playback history could not be saved", f2216, 1},
+    {"Playback stopped: %s", f2217, 1},
+    {"Played", f2218, 1},
+    {"Player Layout", f2219, 1},
+    {"Playing", f2220, 1},
+    {"Playlist Name", f2221, 1},
+    {"Playlist changed. Select a song again.", f2222, 1},
+    {"Playlist changed. Try again.", f2223, 1},
+    {"Playlist created", f2224, 1},
+    {"Playlist deleted", f2225, 1},
+    {"Playlist is empty", f2226, 1},
+    {"Playlist renamed", f2227, 1},
+    {"Playlist saved", f2228, 1},
+    {"Playlist unavailable or unreadable", f2229, 1},
+    {"Playlists", f2230, 1},
+    {"Playlists refreshed", f2231, 1},
+    {"Please wait for plugin installation to finish", f2232, 1},
+    {"Please wait for the library scan to finish", f2233, 1},
+    {"Plugin", f2234, 1},
+    {"Plugin Manager", f2235, 1},
+    {"Plugin Settings", f2236, 1},
+    {"Plugin Store", f2237, 1},
+    {"Plugin is unavailable in the catalog", f2238, 1},
+    {"Plugin operation failed", f2239, 1},
+    {"Plugin setup complete", f2240, 1},
+    {"Plugin setup needs attention", f2241, 1},
+    {"Plugin storage is unavailable.", f2242, 1},
+    {"Plugins", f2243, 1},
+    {"Position", f2244, 1},
+    {"Power", f2245, 1},
+    {"Power Off", f2246, 1},
+    {"Power controls", f2247, 1},
+    {"Power off", f2248, 1},
+    {"Pre-Amp (dB, -12 to 12)", f2249, 1},
+    {"Pre-Amp: %+.2f dB", f2250, 1},
+    {"Preparing cover refresh...", f2251, 1},
+    {"Preparing database migration...", f2252, 1},
+    {"Preparing metadata refresh", f2253, 1},
+    {"Preparing metadata refresh...", f2254, 1},
+    {"Preparing music library...", f2255, 1},
+    {"Preparing update", f2256, 1},
+    {"Presets", f2257, 1},
+    {"Preview", f2258, 1},
+    {"Previous", f2259, 1},
+    {"Previous  •  %d–%d of %d", f2260, 1},
+    {"Previous Track", f2261, 1},
+    {"Previous page", f2262, 1},
+    {"Previous request still finishing", f2263, 1},
+    {"Previously connected accessories will appear here.", f2264, 1},
+    {"Primary DNS", f2265, 1},
+    {"Profile Name", f2266, 1},
+    {"Profile deleted", f2267, 1},
+    {"Profile loaded", f2268, 1},
+    {"Profile renamed", f2269, 1},
+    {"Profile saved", f2270, 1},
+    {"Profiles", f2271, 1},
+    {"Provider", f2272, 1},
+    {"Queue", f2273, 1},
+    {"Queue changed. Try again.", f2274, 1},
+    {"Queue checkpoint failed; storage may be read-only", f2275, 1},
+    {"Queue cleared", f2276, 1},
+    {"Queue is empty", f2277, 1},
+    {"Queue ready. Press Play to start.", f2278, 1},
+    {"Queued", f2279, 1},
+    {"Quick Setup Complete", f2280, 1},
+    {"Quick setup", f2281, 1},
+    {"RC", f2282, 1},
+    {"Radio", f2283, 1},
+    {"Radio / %s", f2284, 1},
+    {"Reading supported rates...", f2285, 1},
+    {"Reading tags\n%d of %d songs (%d%%)", f2286, 1},
+    {"Reads the tags of every song again. This may take a while.", f2287, 1},
+    {"Rebuild", f2288, 1},
+    {"Recently Added", f2289, 1},
+    {"Recently Played", f2290, 1},
+    {"Refresh", f2291, 1},
+    {"Refresh All Covers", f2292, 1},
+    {"Refresh All Metadata", f2293, 1},
+    {"Refresh Plugins", f2294, 1},
+    {"Refresh all covers?", f2295, 1},
+    {"Refresh all metadata?", f2296, 1},
+    {"Refresh metadata", f2297, 1},
+    {"Refresh plugin catalog", f2298, 1},
+    {"Refresh the music database to update this list.", f2299, 1},
+    {"Refreshing\nall covers...", f2300, 1},
+    {"Refreshing\nall metadata...", f2301, 1},
+    {"Refreshing\nmetadata...", f2302, 1},
+    {"Refreshing covers", f2303, 1},
+    {"Refreshing covers\n%d of %d (%d%%)", f2304, 1},
+    {"Refreshing plugins...", f2305, 1},
+    {"Release Year (oldest first)", f2306, 1},
+    {"Reload cover", f2307, 1},
+    {"Reloading\ncover...", f2308, 1},
+    {"Reloading cover", f2309, 1},
+    {"Reloading cover\n%d of %d (%d%%)", f2310, 1},
+    {"Remote", f2311, 1},
+    {"Remote Control", f2312, 1},
+    {"Remove", f2313, 1},
+    {"Remove %s?", f2314, 1},
+    {"Removed", f2315, 1},
+    {"Removed from playlist", f2316, 1},
+    {"Removed from queue", f2317, 1},
+    {"Removes saved covers and extracts them again. This may take a while.", f2318, 1},
+    {"Removing plugin", f2319, 1},
+    {"Rename Playlist", f2320, 1},
+    {"Rename Profile", f2321, 1},
+    {"Replace", f2322, 1},
+    {"Replace Existing", f2323, 1},
+    {"Replace Profile", f2324, 1},
+    {"ReplayGain", f2325, 1},
+    {"Rescan", f2326, 1},
+    {"Reset", f2327, 1},
+    {"Reset PEQ to defaults?", f2328, 1},
+    {"Reset all settings and reboot?", f2329, 1},
+    {"Reset to defaults", f2330, 1},
+    {"Restart", f2331, 1},
+    {"Restart Now", f2332, 1},
+    {"Restart now to apply the new hostname?", f2333, 1},
+    {"Resume Last Track", f2334, 1},
+    {"Resume and Play", f2335, 1},
+    {"Resume playback when external power turns the player on.", f2336, 1},
+    {"Resume, but Paused", f2337, 1},
+    {"Retrying plugins %zu/%zu", f2338, 1},
+    {"SD card checked", f2339, 1},
+    {"SD card couldn't be read", f2340, 1},
+    {"SD card format failed", f2341, 1},
+    {"SD card formatted", f2342, 1},
+    {"SD card is read-only. Check it on a computer", f2343, 1},
+    {"SD card is still read-only", f2344, 1},
+    {"SD card may have errors. Check it on a computer", f2345, 1},
+    {"SD card not available", f2346, 1},
+    {"SD card repair is still running", f2347, 1},
+    {"SD card repaired", f2348, 1},
+    {"SSID: %s", f2349, 1},
+    {"Safe Charging (500mA)", f2350, 1},
+    {"Sample Rate", f2351, 1},
+    {"Saturday", f2352, 1},
+    {"Save", f2353, 1},
+    {"Save Profile", f2354, 1},
+    {"Save Profile As", f2355, 1},
+    {"Save Queue as Playlist", f2356, 1},
+    {"Save as Playlist", f2357, 1},
+    {"Save as a new profile, or replace one that already exists?", f2358, 1},
+    {"Saved Servers", f2359, 1},
+    {"Saved network", f2360, 1},
+    {"Saved network details are being checked.", f2361, 1},
+    {"Saving music database", f2362, 1},
+    {"Saving music database\nThis can take a while on large libraries", f2363, 1},
+    {"Saving playlist…", f2364, 1},
+    {"Scan for music", f2365, 1},
+    {"Scan with your phone to support Compás Player on PayPal", f2366, 1},
+    {"Scanning for networks", f2367, 1},
+    {"Screen Dimming", f2368, 1},
+    {"Screen Timeout", f2369, 1},
+    {"Screen off", f2370, 1},
+    {"Screenshot failed (%s)", f2371, 1},
+    {"Screenshot failed (framebuffer)", f2372, 1},
+    {"Screenshot failed (worker)", f2373, 1},
+    {"Screenshot needs an SD card", f2374, 1},
+    {"Screenshot saved", f2375, 1},
+    {"Screenshots (Power + Previous)", f2376, 1},
+    {"Screenshots (Power + Vol Down)", f2377, 1},
+    {"Screenshots unavailable", f2378, 1},
+    {"Secondary DNS", f2379, 1},
+    {"Secure connection failed. Check Wi-Fi and the date and time.", f2380, 1},
+    {"Secured network", f2381, 1},
+    {"Secured · Connected", f2382, 1},
+    {"Select at least one plugin to continue.", f2383, 1},
+    {"Selected plugins are ready.\n", f2384, 1},
+    {"September", f2385, 1},
+    {"Server URL (e.g. %s)", f2386, 1},
+    {"Server URL: %s", f2387, 1},
+    {"Server request timed out after 30 seconds", f2388, 1},
+    {"Service is busy", f2389, 1},
+    {"Set Time", f2390, 1},
+    {"Set your local time zone so the clock is right.", f2391, 1},
+    {"Settings", f2392, 1},
+    {"Show Time Remaining", f2393, 1},
+    {"Showing first %d of %d songs", f2394, 1},
+    {"Shuffle from a random song", f2395, 1},
+    {"Signal: %s", f2396, 1},
+    {"Skip for now", f2397, 1},
+    {"Skipped: %s", f2398, 1},
+    {"Sleep", f2399, 1},
+    {"Sleep Timer", f2400, 1},
+    {"Sleep timer", f2401, 1},
+    {"Sleep timer: %d min remaining", f2402, 1},
+    {"Sleep timer: Off", f2403, 1},
+    {"Small", f2404, 1},
+    {"Some covers could not be refreshed", f2405, 1},
+    {"Some playlists could not be read", f2406, 1},
+    {"Some plugin files were changed on the card. Replace them?", f2407, 1},
+    {"Some songs could not be read", f2408, 1},
+    {"Some updates need confirmation before replacing local files.", f2409, 1},
+    {"Song already added", f2410, 1},
+    {"Song deleted", f2411, 1},
+    {"Songs", f2412, 1},
+    {"Sorting", f2413, 1},
+    {"Sound", f2414, 1},
+    {"Sound Effects", f2415, 1},
+    {"Source", f2416, 1},
+    {"Speex Resampling", f2417, 1},
+    {"Start sequentially", f2418, 1},
+    {"Start with these suggestions, or explore more plugins.", f2419, 1},
+    {"Startup Volume", f2420, 1},
+    {"Step %d of %d", f2421, 1},
+    {"Stereo (2 channels)", f2422, 1},
+    {"Still applying the previous choice", f2423, 1},
+    {"Storage", f2424, 1},
+    {"Stream Media", f2425, 1},
+    {"Stream Quality", f2426, 1},
+    {"Stream quality: %s", f2427, 1},
+    {"Subfolder is relative to SD root (example: Music/Offline); empty uses SD root", f2428, 1},
+    {"Subfolder: SD root", f2429, 1},
+    {"Subsonic", f2430, 1},
+    {"Sunday", f2431, 1},
+    {"Suspend to RAM", f2432, 1},
+    {"Swipe Up for Home", f2433, 1},
+    {"Swipe up to unlock", f2434, 1},
+    {"System", f2435, 1},
+    {"System playlists", f2436, 1},
+    {"Takes its color from the cover of the playing track", f2437, 1},
+    {"Tap Power off again to confirm", f2438, 1},
+    {"Tap Restart again to confirm", f2439, 1},
+    {"The SD card changed during the download.", f2440, 1},
+    {"The SD card changed during the operation.", f2441, 1},
+    {"The SD card is read-only. Check its write protection.", f2442, 1},
+    {"The download did not complete. Check Wi-Fi and try again.", f2443, 1},
+    {"The downloaded image failed verification and was deleted.", f2444, 1},
+    {"The playlist file will be deleted. Music files are kept.", f2445, 1},
+    {"The plugin download failed verification. Try again.", f2446, 1},
+    {"The quick brown fox jumps 123", f2447, 1},
+    {"The release has no checksum for this device's image.", f2448, 1},
+    {"The update file on the SD card changed. Download it again.", f2449, 1},
+    {"There are no entries in this view.", f2450, 1},
+    {"This device is now a USB sound card", f2451, 1},
+    {"This device is now receiving Bluetooth audio", f2452, 1},
+    {"This may take a while", f2453, 1},
+    {"This permanently deletes everything on the card. This cannot be undone.", f2454, 1},
+    {"This plugin has no update available.", f2455, 1},
+    {"This plugin is already installed by the store.", f2456, 1},
+    {"This plugin is not installed by the store.", f2457, 1},
+    {"This plugin needs a newer player version.", f2458, 1},
+    {"This release's image does not match its checksums. Try again after the next weekly release.", f2459, 1},
+    {"Thread launch failed", f2460, 1},
+    {"Thursday", f2461, 1},
+    {"Time Zone", f2462, 1},
+    {"Time remaining: %d:%02d", f2463, 1},
+    {"Time remaining: %d:%02d:%02d", f2464, 1},
+    {"Time zone", f2465, 1},
+    {"Too many audio channels", f2466, 1},
+    {"Too many plugins are installed. Remove one and try again.", f2467, 1},
+    {"Track", f2468, 1},
+    {"Track %+.1f dB", f2469, 1},
+    {"Track %d", f2470, 1},
+    {"Track details are not available yet. Keep playback open and check again.", f2471, 1},
+    {"Tracks", f2472, 1},
+    {"Tuesday", f2473, 1},
+    {"Turn Bluetooth off and on to apply", f2474, 1},
+    {"Turn off ADB first (Settings > System > USB Mode), then enable USB DAC from here.", f2475, 1},
+    {"Turn off Automatic to set the clock", f2476, 1},
+    {"Turn off Bluetooth DAC to play music on this device", f2477, 1},
+    {"Turn off screen automatically", f2478, 1},
+    {"Turn on Bluetooth to see paired and nearby devices.", f2479, 1},
+    {"Turn on Wi-Fi and connect first", f2480, 1},
+    {"Turn this on to see the address here.", f2481, 1},
+    {"USB DAC", f2482, 1},
+    {"USB DAC mode", f2483, 1},
+    {"USB Mode", f2484, 1},
+    {"USB audio device detected", f2485, 1},
+    {"USB input: %s · %u-bit", f2486, 1},
+    {"USB mode", f2487, 1},
+    {"Unable to load items", f2488, 1},
+    {"Unable to read folder (tap Back and retry)", f2489, 1},
+    {"Unavailable", f2490, 1},
+    {"Unexpected library response", f2491, 1},
+    {"Unexpected reply from GitHub", f2492, 1},
+    {"Unexpected reply from GitHub.", f2493, 1},
+    {"Unknown album", f2494, 1},
+    {"Unknown artist", f2495, 1},
+    {"Unknown codec", f2496, 1},
+    {"Unknown format", f2497, 1},
+    {"Unknown rate", f2498, 1},
+    {"Unsupported audio format", f2499, 1},
+    {"Update", f2500, 1},
+    {"Update & Reboot", f2501, 1},
+    {"Update All", f2502, 1},
+    {"Update Music Database", f2503, 1},
+    {"Update Music Database to enable this album order", f2504, 1},
+    {"Update available", f2505, 1},
+    {"Update available · %s", f2506, 1},
+    {"Update individually", f2507, 1},
+    {"Update music database?", f2508, 1},
+    {"Update these plugins individually", f2509, 1},
+    {"Update using %s?\nDevice will reboot into recovery mode.", f2510, 1},
+    {"Updates", f2511, 1},
+    {"Updating\nmusic database...", f2512, 1},
+    {"Updating plugins", f2513, 1},
+    {"Upside Down Screen", f2514, 1},
+    {"Use Settings > Update Music Database", f2515, 1},
+    {"User playlists", f2516, 1},
+    {"Username", f2517, 1},
+    {"Username: %s", f2518, 1},
+    {"Verify server certificate", f2519, 1},
+    {"Version %s · %s", f2520, 1},
+    {"Waiting for Bluetooth stream…", f2521, 1},
+    {"Waiting for USB audio…", f2522, 1},
+    {"Weak", f2523, 1},
+    {"Web Server is busy", f2524, 1},
+    {"Wednesday", f2525, 1},
+    {"Weekly Beta %s is available.\nInstalled: %s\n\nDownload it now? This may take a while.", f2526, 1},
+    {"Weekly Beta %s is downloaded and verified.\n\nInstall now? The device reboots into recovery to flash it. Do not turn it off until it restarts.", f2527, 1},
+    {"Welcome to Compás", f2528, 1},
+    {"When on, this device is visible to AirPlay senders on your Wi-Fi network -- stream audio from an iPhone, iPad, or Mac to be played through this device's own output.", f2529, 1},
+    {"When on, this device is visible to DLNA/UPnP controller apps on your Wi-Fi network -- cast a track from one to play it here. Pause, mute, volume, and seek from the controller app aren't supported; use this device's own controls instead once a track starts.", f2530, 1},
+    {"When on, this device stays visible and pairable to other Bluetooth devices, so a phone or computer can stream audio TO it and play through this device's own output -- using it as an external DAC.", f2531, 1},
+    {"Wi-Fi", f2532, 1},
+    {"Wi-Fi Info", f2533, 1},
+    {"Wi-Fi Password", f2534, 1},
+    {"Wi-Fi failed to change state", f2535, 1},
+    {"Wi-Fi is busy", f2536, 1},
+    {"Wireless", f2537, 1},
+    {"You can select up to 32 plugins", f2538, 1},
+    {"You have the latest weekly (%s).\n\nDownload and reinstall it anyway? This may take a while.", f2539, 1},
+    {"Your library is being loaded.", f2540, 1},
+    {"Your music", f2541, 1},
+    {"Your setup journey", f2542, 1},
+    {"[File truncated at %d KB -- showing the first part only]\n\n%s", f2543, 1},
+    {"unknown", f2544, 1},
 };
 
-static const char * const f2548[] = {"%.0f Hz"};
-static const char * const f2549[] = {"%d h"};
-static const char * const f2550[] = {"%d h %d min"};
-static const char * const f2551[] = {"%d min"};
-static const char * const f2552[] = {"%d min restantes"};
-static const char * const f2553[] = {"%d música", "%d músicas"};
-static const char * const f2554[] = {"%d faixa", "%d faixas"};
-static const char * const f2555[] = {"%dm"};
-static const char * const f2556[] = {"%lld faixa", "%lld faixas"};
-static const char * const f2557[] = {"%llu bytes"};
-static const char * const f2558[] = {"%s (atual)"};
-static const char * const f2559[] = {"%s · Não carregado"};
-static const char * const f2560[] = {"%s · Não carregado: limite atingido"};
-static const char * const f2561[] = {"%u canais"};
-static const char * const f2562[] = {"+ Nova playlist"};
-static const char * const f2563[] = {"Relógio de 24 horas"};
-static const char * const f2564[] = {"Referência de 48 kHz"};
-static const char * const f2565[] = {"Um arquivo de plugin local será substituído. Confirme para continuar."};
-static const char * const f2566[] = {"O download de um plugin falhou na verificação. Tente de novo."};
-static const char * const f2567[] = {"Já existe uma operação de plugin em andamento"};
-static const char * const f2568[] = {"ADB"};
-static const char * const f2569[] = {"Sobre"};
-static const char * const f2570[] = {"Cor de destaque"};
-static const char * const f2571[] = {"Adicione arquivos .txt à pasta Livros e atualize a biblioteca."};
-static const char * const f2572[] = {"Adicionar música aleatória à fila"};
-static const char * const f2573[] = {"Adicionar álbum à fila"};
-static const char * const f2574[] = {"Adicionar rede oculta"};
-static const char * const f2575[] = {"Adicione músicas pelo menu de uma música."};
-static const char * const f2576[] = {"Adicionar à playlist"};
-static const char * const f2577[] = {"Adicionar à fila"};
-static const char * const f2578[] = {"%d música adicionada à fila", "%d músicas adicionadas à fila"};
-static const char * const f2579[] = {"Adicionada à playlist"};
-static const char * const f2580[] = {"Ferramentas adicionais"};
-static const char * const f2581[] = {"Avançado"};
-static const char * const f2582[] = {"África"};
-static const char * const f2583[] = {"AirPlay"};
-static const char * const f2584[] = {"O AirPlay parou inesperadamente"};
-static const char * const f2585[] = {"Álbum %+.1f dB"};
-static const char * const f2586[] = {"Artista do álbum"};
-static const char * const f2587[] = {"Artista do álbum - Álbum"};
-static const char * const f2588[] = {"Artista do álbum / Álbum"};
-static const char * const f2589[] = {"Álbum indisponível"};
-static const char * const f2590[] = {"Álbuns"};
-static const char * const f2591[] = {"Álbuns (lista principal)"};
-static const char * const f2592[] = {"Todas as músicas"};
-static const char * const f2593[] = {"Todas as redes visíveis já estão salvas."};
-static const char * const f2594[] = {"Já instalado"};
-static const char * const f2595[] = {"América"};
-static const char * const f2596[] = {"Já há uma atualização em andamento"};
-static const char * const f2597[] = {"Já há uma atualização em andamento."};
-static const char * const f2598[] = {"Velocidade da animação"};
-static const char * const f2599[] = {"Antártida"};
-static const char * const f2600[] = {"Aparência"};
-static const char * const f2601[] = {"Aplicado %+.1f dB"};
-static const char * const f2602[] = {"Aplica imediatamente"};
-static const char * const f2603[] = {"Aplica na próxima vez que abrir o app"};
-static const char * const f2604[] = {"Vale para novas filas de streaming"};
-static const char * const f2605[] = {"Aplicando o idioma, isso pode demorar"};
-static const char * const f2606[] = {"Aplicando o layout, isso pode demorar"};
-static const char * const f2607[] = {"Apps e navegadores que usam o PIN atual precisarão do novo para reconectar."};
-static const char * const f2608[] = {"abril"};
-static const char * const f2609[] = {"Ártico"};
-static const char * const f2610[] = {"Imagens de artistas"};
-static const char * const f2611[] = {"Artistas"};
-static const char * const f2612[] = {"Ásia"};
-static const char * const f2613[] = {"Atlântico"};
-static const char * const f2614[] = {"Áudio"};
-static const char * const f2615[] = {"Não foi possível decodificar o áudio"};
-static const char * const f2616[] = {"Falha na saída de áudio"};
-static const char * const f2617[] = {"agosto"};
-static const char * const f2618[] = {"Austrália"};
-static const char * const f2619[] = {"Auto"};
-static const char * const f2620[] = {"Retomar automático"};
-static const char * const f2621[] = {"Automático"};
-static const char * const f2622[] = {"Automático (44,1 kHz)"};
-static const char * const f2623[] = {"Entrar em espera automaticamente"};
-static const char * const f2624[] = {"Disponível"};
-static const char * const f2625[] = {"Dispositivos disponíveis"};
-static const char * const f2626[] = {"Redes disponíveis"};
-static const char * const f2627[] = {"Disponível · %s"};
-static const char * const f2628[] = {"Voltar"};
-static const char * const f2629[] = {"Banda %d / %d"};
-static const char * const f2630[] = {"Opções da banda"};
-static const char * const f2631[] = {"Porcentagem da bateria"};
-static const char * const f2632[] = {"Bitrate"};
-static const char * const f2633[] = {"Bluetooth"};
-static const char * const f2634[] = {"DAC Bluetooth"};
-static const char * const f2635[] = {"Modo DAC Bluetooth"};
-static const char * const f2636[] = {"Sincronia de volume Bluetooth"};
-static const char * const f2637[] = {"Bluetooth desligado"};
-static const char * const f2638[] = {"Serviço remoto Bluetooth iniciando..."};
-static const char * const f2639[] = {"Serviço remoto Bluetooth indisponível; tentando de novo."};
-static const char * const f2640[] = {"Bluetooth: Compas Remote Control"};
-static const char * const f2641[] = {"Bluetooth: falha no registro; tentando de novo"};
-static const char * const f2642[] = {"Bluetooth: aguardando registro do serviço"};
-static const char * const f2643[] = {"Livros"};
-static const char * const f2644[] = {"Livros atualizados"};
-static const char * const f2645[] = {"Criar"};
-static const char * const f2646[] = {"Criar agora? Bibliotecas grandes podem demorar bastante."};
-static const char * const f2647[] = {"Botões e controle remoto"};
-static const char * const f2648[] = {"Me pague um café"};
-static const char * const f2649[] = {"Por %s"};
-static const char * const f2650[] = {"Cancelar"};
-static const char * const f2651[] = {"Não foi possível verificar o acesso de gravação ao armazenamento dos plugins."};
-static const char * const f2652[] = {"Não foi possível excluir a playlist"};
-static const char * const f2653[] = {"Não foi possível carregar as faixas do álbum"};
-static const char * const f2654[] = {"Não é possível mover este item"};
-static const char * const f2655[] = {"Não é possível tocar a pasta"};
-static const char * const f2656[] = {"Não foi possível acessar o GitHub. Verifique a conexão Wi-Fi."};
-static const char * const f2657[] = {"Não foi possível ler a playlist"};
-static const char * const f2658[] = {"Não foi possível ler o cartão SD."};
-static const char * const f2659[] = {"Não foi possível ler o arquivo de atualização no cartão SD. Verifique o cartão e tente de novo."};
-static const char * const f2660[] = {"Não foi possível ler o registro da atualização no cartão SD. Verifique o cartão e tente de novo."};
-static const char * const f2661[] = {"Não foi possível ler o estado do assistente de atualização: %s"};
-static const char * const f2662[] = {"Não foi possível remover o item"};
-static const char * const f2663[] = {"Não foi possível renomear: nome inválido ou arquivo já existe"};
-static const char * const f2664[] = {"Não foi possível reordenar a playlist"};
-static const char * const f2665[] = {"Não foi possível salvar a playlist"};
-static const char * const f2666[] = {"Não foi possível salvar: itens inválidos ou de streaming"};
-static const char * const f2667[] = {"Não foi possível iniciar a fila"};
-static const char * const f2668[] = {"Modo carro"};
-static const char * const f2669[] = {"Volume do modo carro"};
-static const char * const f2670[] = {"O modo carro está desativado."};
-static const char * const f2671[] = {"Canais"};
-static const char * const f2672[] = {"Limite de carga (85%)"};
-static const char * const f2673[] = {"Carregue até pelo menos %d%% ou conecte a energia antes de atualizar."};
-static const char * const f2674[] = {"Carregue até pelo menos 30%% ou conecte à energia antes de atualizar."};
-static const char * const f2675[] = {"Carregamento"};
-static const char * const f2676[] = {"Buscar atualização online"};
-static const char * const f2677[] = {"Verifique se o Wi-Fi está ativado e busque de novo."};
-static const char * const f2678[] = {"Buscando atualizações"};
-static const char * const f2679[] = {"Verificando o cartão SD. Isso pode demorar"};
-static const char * const f2680[] = {"Verificando o arquivo no cartão SD"};
-static const char * const f2681[] = {"Escolha um idioma"};
-static const char * const f2682[] = {"Escolher plugins"};
-static const char * const f2683[] = {"Escolha o idioma do seu player."};
-static const char * const f2684[] = {"Escolher fuso horário"};
-static const char * const f2685[] = {"Escolha o que acontece na inatividade:"};
-static const char * const f2686[] = {"Limpar fila"};
-static const char * const f2687[] = {"Relógio"};
-static const char * const f2688[] = {"Fechar"};
-static const char * const f2689[] = {"Fechando\nservidor web..."};
-static const char * const f2690[] = {"Codec"};
-static const char * const f2691[] = {"Resposta combinada (dB)"};
-static const char * const f2692[] = {"Resposta combinada (dB) · EQ desligado"};
-static const char * const f2693[] = {"Compás Player"};
-static const char * const f2694[] = {"Conectar"};
-static const char * const f2695[] = {"Conectar e navegar"};
-static const char * const f2696[] = {"Conecte um dispositivo para ver as taxas compatíveis"};
-static const char * const f2697[] = {"Conecte por Wi-Fi ou Bluetooth para ver o que está tocando, controlar a reprodução e navegar pela biblioteca. Digite este PIN quando o app ou navegador pedir; o Bluetooth também exige pareamento."};
-static const char * const f2698[] = {"Conectar ao Wi-Fi"};
-static const char * const f2699[] = {"Conecte-se ao Wi-Fi primeiro"};
-static const char * const f2700[] = {"Conecte-se ao Wi-Fi para streaming, atualizações e serviços online."};
-static const char * const f2701[] = {"Conecte-se a uma rede Wi-Fi antes de continuar."};
-static const char * const f2702[] = {"Conecte-se a uma rede para baixar plugins."};
-static const char * const f2703[] = {"Conecte por qualquer um dos caminhos disponíveis:"};
-static const char * const f2704[] = {"Conectado"};
-static const char * const f2705[] = {"Conectando"};
-static const char * const f2706[] = {"Conectando a"};
-static const char * const f2707[] = {"Conectando ao servidor..."};
-static const char * const f2708[] = {"PIN de conexão"};
-static const char * const f2709[] = {"Falha na conexão"};
-static const char * const f2710[] = {"A conexão expirou após 30 segundos"};
-static const char * const f2711[] = {"Contêiner"};
-static const char * const f2712[] = {"Continuar"};
-static const char * const f2713[] = {"Continuar configuração"};
-static const char * const f2714[] = {"Não foi possível aplicar o tamanho da fonte"};
-static const char * const f2715[] = {"Não foi possível aplicar o tamanho do texto da letra"};
-static const char * const f2716[] = {"Não foi possível baixar os checksums da versão."};
-static const char * const f2717[] = {"Não foi possível entrar no modo de recuperação."};
-static const char * const f2718[] = {"Não foi possível gerar um novo PIN"};
-static const char * const f2719[] = {"Não foi possível instalar um plugin no cartão SD."};
-static const char * const f2720[] = {"Não foi possível instalar o plugin no cartão SD."};
-static const char * const f2721[] = {"Não foi possível carregar a foto da tela de bloqueio"};
-static const char * const f2722[] = {"Não foi possível carregar o catálogo de plugins."};
-static const char * const f2723[] = {"Não foi possível carregar o catálogo de plugins. Toque em Mais para tentar novamente."};
-static const char * const f2724[] = {"Não foi possível separar os outros arquivos .upt no cartão SD."};
-static const char * const f2725[] = {"Não foi possível abrir este arquivo."};
-static const char * const f2726[] = {"Não foi possível colocar a atualização no cartão SD."};
-static const char * const f2727[] = {"Não foi possível preparar a remoção do plugin."};
-static const char * const f2728[] = {"Não foi possível preparar o assistente de atualização: %s"};
-static const char * const f2729[] = {"Não foi possível ler os plugins instalados."};
-static const char * const f2730[] = {"Não foi possível ler a pasta Livros"};
-static const char * const f2731[] = {"Não foi possível ler a lista de plugins do GitHub."};
-static const char * const f2732[] = {"Não foi possível ler a lista de versões do GitHub."};
-static const char * const f2733[] = {"Não foi possível registrar a atualização verificada no cartão SD."};
-static const char * const f2734[] = {"Não foi possível atualizar os livros"};
-static const char * const f2735[] = {"Não foi possível recarregar a capa"};
-static const char * const f2736[] = {"Não foi possível remover um arquivo de plugin."};
-static const char * const f2737[] = {"Não foi possível reparar o cartão SD"};
-static const char * const f2738[] = {"Não foi possível salvar o codec Bluetooth"};
-static const char * const f2739[] = {"Não foi possível iniciar a troca do modo USB"};
-static const char * const f2740[] = {"Não foi possível iniciar a atualização do catálogo de plugins."};
-static const char * const f2741[] = {"Não foi possível iniciar o download"};
-static const char * const f2742[] = {"Não foi possível iniciar o download."};
-static const char * const f2743[] = {"Não foi possível iniciar a instalação."};
-static const char * const f2744[] = {"Não foi possível iniciar a busca na biblioteca. Tente novamente."};
-static const char * const f2745[] = {"Não foi possível iniciar a operação do plugin"};
-static const char * const f2746[] = {"Não foi possível iniciar a operação do plugin."};
-static const char * const f2747[] = {"Não foi possível iniciar a atualização do catálogo"};
-static const char * const f2748[] = {"Não foi possível iniciar a atualização dos plugins."};
-static const char * const f2749[] = {"Não foi possível iniciar a atualização do plugin."};
-static const char * const f2750[] = {"Não foi possível iniciar a busca por atualização."};
-static const char * const f2751[] = {"Não foi possível iniciar o assistente de atualização: %s"};
-static const char * const f2752[] = {"Não foi possível atualizar o registro de plugins instalados."};
-static const char * const f2753[] = {"Não foi possível conectar à rede Wi-Fi"};
-static const char * const f2754[] = {"Não foi possível ler este arquivo .cue"};
-static const char * const f2755[] = {"Não foi possível salvar -- a mudança do plugin não foi aplicada"};
-static const char * const f2756[] = {"Capa recarregada"};
-static const char * const f2757[] = {"Capas atualizadas"};
-static const char * const f2758[] = {"Crie uma playlist acima ou copie uma para a pasta Playlists do cartão SD."};
-static const char * const f2759[] = {"Crossfade"};
-static const char * const f2760[] = {"Personalizado"};
-static const char * const f2761[] = {"Cor personalizada"};
-static const char * const f2762[] = {"Fontes personalizadas afetam só texto latino."};
-static const char * const f2763[] = {"DAC"};
-static const char * const f2764[] = {"Caminho do DAC: %s · %u-bit"};
-static const char * const f2765[] = {"DLNA"};
-static const char * const f2766[] = {"Renderizador DLNA"};
-static const char * const f2767[] = {"Configurações de DNS"};
-static const char * const f2768[] = {"dezembro"};
-static const char * const f2769[] = {"Padrão (integrada)"};
-static const char * const f2770[] = {"Excluir"};
-static const char * const f2771[] = {"Excluir %s?\nNão é possível desfazer."};
-static const char * const f2772[] = {"Excluir playlist"};
-static const char * const f2773[] = {"Excluir playlist?"};
-static const char * const f2774[] = {"Excluir este perfil?"};
-static const char * const f2775[] = {"Opções do desenvolvedor"};
-static const char * const f2776[] = {"Escurecer a tela antes de desligar"};
-static const char * const f2777[] = {"Disco %d"};
-static const char * const f2778[] = {"Disco %d / Faixa %d"};
-static const char * const f2779[] = {"Desconectar"};
-static const char * const f2780[] = {"Desconecte primeiro o armazenamento USB"};
-static const char * const f2781[] = {"Desconecte o armazenamento USB do computador antes de alterar os plugins."};
-static const char * const f2782[] = {"Dispensar"};
-static const char * const f2783[] = {"Tela"};
-static const char * const f2784[] = {"Concluído"};
-static const char * const f2785[] = {"Baixar"};
-static const char * const f2786[] = {"Baixar \"%s\"?"};
-static const char * const f2787[] = {"Baixar perfis"};
-static const char * const f2788[] = {"Configurações de download"};
-static const char * const f2789[] = {"Baixar todos os álbuns de \"%s\"?"};
-static const char * const f2790[] = {"Falha no download"};
-static const char * const f2791[] = {"Pasta de download: %s"};
-static const char * const f2792[] = {"Pasta de download: raiz do SD"};
-static const char * const f2793[] = {"Baixar perfis"};
-static const char * const f2794[] = {"Configurações de download"};
-static const char * const f2795[] = {"Subpasta de download"};
-static const char * const f2796[] = {"Baixando"};
-static const char * const f2797[] = {"Baixando\n%s..."};
-static const char * const f2798[] = {"Baixando e instalando plugins %zu/%zu"};
-static const char * const f2799[] = {"Baixando atualização"};
-static const char * const f2800[] = {"Controle de volume na gaveta"};
-static const char * const f2801[] = {"Duração"};
-static const char * const f2802[] = {"EQ"};
-static const char * const f2803[] = {"Curva do EQ"};
-static const char * const f2804[] = {"Editar"};
-static const char * const f2805[] = {"Editar / Concluir"};
-static const char * const f2806[] = {"Ativar DAC Bluetooth"};
-static const char * const f2807[] = {"Ative o Bluetooth nas configurações para usar o modo DAC BT"};
-static const char * const f2808[] = {"Ativar timer de sono"};
-static const char * const f2809[] = {"Ative o Wi-Fi ou o Bluetooth para conectar."};
-static const char * const f2810[] = {"Ative o Wi-Fi para acessar"};
-static const char * const f2811[] = {"Ativar banda"};
-static const char * const f2812[] = {"Ativar log de depuração"};
-static const char * const f2813[] = {"Equalizador"};
-static const char * const f2814[] = {"Apagar e formatar o cartão SD?"};
-static const char * const f2815[] = {"Europa"};
-static const char * const f2816[] = {"Excelente"};
-static const char * const f2817[] = {"Saia do modo DAC USB para tocar música neste aparelho"};
-static const char * const f2818[] = {"Restaurar padrão de fábrica"};
-static const char * const f2819[] = {"Plugins que falharam:\n"};
-static const char * const f2820[] = {"Falha ao adicionar à playlist"};
-static const char * const f2821[] = {"Falha ao aplicar o fuso horário"};
-static const char * const f2822[] = {"Falha ao conectar ao servidor"};
-static const char * const f2823[] = {"Falha ao criar a playlist"};
-static const char * const f2824[] = {"Falha ao excluir o perfil"};
-static const char * const f2825[] = {"Falha ao ativar o AirPlay"};
-static const char * const f2826[] = {"Falha ao carregar artistas"};
-static const char * const f2827[] = {"Falha ao carregar artistas: %s"};
-static const char * const f2828[] = {"Falha ao carregar a fonte. Verifique o formato e a memória."};
-static const char * const f2829[] = {"Falha ao carregar do servidor"};
-static const char * const f2830[] = {"Falha ao carregar o perfil"};
-static const char * const f2831[] = {"Falha ao renomear o perfil"};
-static const char * const f2832[] = {"Falha ao salvar o perfil"};
-static const char * const f2833[] = {"Falha ao iniciar a conexão"};
-static const char * const f2834[] = {"Falha ao mudar para %s"};
-static const char * const f2835[] = {"Falha ao alternar o Bluetooth"};
-static const char * const f2836[] = {"Razoável"};
-static const char * const f2837[] = {"Favoritos"};
-static const char * const f2838[] = {"fevereiro"};
-static const char * const f2839[] = {"Tamanho do arquivo"};
-static const char * const f2840[] = {"Arquivo indisponível"};
-static const char * const f2841[] = {"Arquivos"};
-static const char * const f2842[] = {"Arquivos (pastas primeiro)"};
-static const char * const f2843[] = {"Os arquivos do cartão podem ter mudado."};
-static const char * const f2844[] = {"Arquivos usam a data de modificação. Álbuns usam a faixa adicionada mais recentemente; álbuns sem ano de lançamento ficam por último. Atualize o banco de dados de música uma vez para ler os anos dos arquivos existentes."};
-static const char * const f2845[] = {"Tipo de filtro"};
-static const char * const f2846[] = {"Atualização de firmware"};
-static const char * const f2847[] = {"Plano"};
-static const char * const f2848[] = {"Organização das pastas dos álbuns baixados"};
-static const char * const f2849[] = {"Pasta grande demais para indexar (toque em Voltar)"};
-static const char * const f2850[] = {"Fonte"};
-static const char * const f2851[] = {"Tamanho da fonte"};
-static const char * const f2852[] = {"A seleção de fonte não está mais disponível"};
-static const char * const f2853[] = {"Esquecer"};
-static const char * const f2854[] = {"Formatar"};
-static const char * const f2855[] = {"Formatar cartão SD"};
-static const char * const f2856[] = {"Formatando\ncartão SD..."};
-static const char * const f2857[] = {"Frequência"};
-static const char * const f2858[] = {"Frequência (Hz, 20 a 20000)"};
-static const char * const f2859[] = {"sexta-feira"};
-static const char * const f2860[] = {"Da capa do álbum"};
-static const char * const f2861[] = {"Da capa do álbum (sem capa, usando personalizada)"};
-static const char * const f2862[] = {"Ganho"};
-static const char * const f2863[] = {"Ganho (dB, -12 a 12)"};
-static const char * const f2864[] = {"Gapless"};
-static const char * const f2865[] = {"Gateway: %s"};
-static const char * const f2866[] = {"Gerar"};
-static const char * const f2867[] = {"Gerar um novo PIN?"};
-static const char * const f2868[] = {"Gêneros"};
-static const char * const f2869[] = {"Gestos e orientação"};
-static const char * const f2870[] = {"Começar"};
-static const char * const f2871[] = {"O GitHub não respondeu a tempo. Tente de novo."};
-static const char * const f2872[] = {"O GitHub está limitando as solicitações. Tente mais tarde."};
-static const char * const f2873[] = {"O GitHub retornou HTTP %d."};
-static const char * const f2874[] = {"Volte e escolha Nova conexão para adicionar um."};
-static const char * const f2875[] = {"Bom"};
-static const char * const f2876[] = {"O fone pode desconectar; pode ser preciso reconectar manualmente"};
-static const char * const f2877[] = {"Ocultar barra superior do player/letras"};
-static const char * const f2878[] = {"Ocultar dispositivos sem nome"};
-static const char * const f2879[] = {"Alta"};
-static const char * const f2880[] = {"Alta (320 kbps)"};
-static const char * const f2881[] = {"Nome do host"};
-static const char * const f2882[] = {"O nome do host só pode ter letras, números e hifens"};
-static const char * const f2883[] = {"Endereço IP: %s"};
-static const char * const f2884[] = {"Desligar por inatividade"};
-static const char * const f2885[] = {"Tempo de inatividade:"};
-static const char * const f2886[] = {"Importar"};
-static const char * const f2887[] = {"Importar por Wi-Fi"};
-static const char * const f2888[] = {"Controle no cabo"};
-static const char * const f2889[] = {"Índico"};
-static const char * const f2890[] = {"Informações"};
-static const char * const f2891[] = {"Insira um cartão SD para alterar os plugins."};
-static const char * const f2892[] = {"Insira um cartão SD para baixar a atualização."};
-static const char * const f2893[] = {"Insira um cartão SD para instalar plugins."};
-static const char * const f2894[] = {"Insira um cartão SD para remover plugins."};
-static const char * const f2895[] = {"Insira um cartão SD para buscar músicas ou desative Buscar músicas."};
-static const char * const f2896[] = {"Insira um cartão SD para atualizar plugins."};
-static const char * const f2897[] = {"Insira o cartão SD com suas músicas. O Compas Player pode analisá-lo e criar sua biblioteca."};
-static const char * const f2898[] = {"Instalar"};
-static const char * const f2899[] = {"Instalar e reiniciar"};
-static const char * const f2900[] = {"Instalar do cartão SD"};
-static const char * const f2901[] = {"Instalado"};
-static const char * const f2902[] = {"Instalado manualmente"};
-static const char * const f2903[] = {"Instalado · %s"};
-static const char * const f2904[] = {"Instalando plugin"};
-static const char * const f2905[] = {"Pasta de download inválida"};
-static const char * const f2906[] = {"Nome de pasta de download inválido"};
-static const char * const f2907[] = {"Nome de perfil inválido"};
-static const char * const f2908[] = {"Não foi possível carregá-lo. Recriar agora?"};
-static const char * const f2909[] = {"Ele pode não ter tabela de partições ou ter um sistema de arquivos que este player não usa. Formatar vai apagá-lo e prepará-lo para este player."};
-static const char * const f2910[] = {"As configurações dele ficam no cartão."};
-static const char * const f2911[] = {"janeiro"};
-static const char * const f2912[] = {"julho"};
-static const char * const f2913[] = {"junho"};
-static const char * const f2914[] = {"Qualidade LDAC"};
-static const char * const f2915[] = {"LDAC padrão"};
-static const char * const f2916[] = {"LDAC no modo DAC (Experimental)"};
-static const char * const f2917[] = {"LED indicador de carga"};
-static const char * const f2918[] = {"Idioma"};
-static const char * const f2919[] = {"Grande"};
-static const char * const f2920[] = {"Depois"};
-static const char * const f2921[] = {"Iniciar com volume fixo"};
-static const char * const f2922[] = {"Layout"};
-static const char * const f2923[] = {"Sair"};
-static const char * const f2924[] = {"Sair do modo DAC Bluetooth?"};
-static const char * const f2925[] = {"Sair do modo DAC USB?"};
-static const char * const f2926[] = {"Saia desta tela e tente de novo."};
-static const char * const f2927[] = {"Biblioteca"};
-static const char * const f2928[] = {"A biblioteca mudou. Abra o álbum de novo."};
-static const char * const f2929[] = {"A biblioteca está ocupada"};
-static const char * const f2930[] = {"Biblioteca carregada"};
-static const char * const f2931[] = {"Biblioteca migrada. Favoritos e histórico mantidos"};
-static const char * const f2932[] = {"Biblioteca migrada. A limpeza do banco antigo será tentada de novo"};
-static const char * const f2933[] = {"Falha na migração da biblioteca. A biblioteca antiga está intacta. Use Configurações > Atualizar banco de dados de música para tentar de novo"};
-static const char * const f2934[] = {"Migração da biblioteca pendente. Favoritos e histórico serão mantidos"};
-static const char * const f2935[] = {"Biblioteca recuperada e salva"};
-static const char * const f2936[] = {"Biblioteca recuperada e salva, mas algumas pastas não puderam ser lidas"};
-static const char * const f2937[] = {"Biblioteca recuperada. Use Configurações > Atualizar banco de dados de música para salvar"};
-static const char * const f2938[] = {"Biblioteca indisponível. Use Configurações > Atualizar banco de dados de música para recriar"};
-static const char * const f2939[] = {"Falha ao atualizar a biblioteca. Verifique o cartão SD e tente de novo"};
-static const char * const f2940[] = {"Biblioteca atualizada"};
-static const char * const f2941[] = {"Biblioteca atualizada, mas algumas pastas não puderam ser lidas"};
-static const char * const f2942[] = {"Carregar capas durante a reprodução (Experimental)"};
-static const char * const f2943[] = {"Carregando configurações de Wi-Fi"};
-static const char * const f2944[] = {"Carregando do servidor..."};
-static const char * const f2945[] = {"Carregando layouts"};
-static const char * const f2946[] = {"Carregando catálogo de plugins…"};
-static const char * const f2947[] = {"Carregando plugins"};
-static const char * const f2948[] = {"Carregando faixas..."};
-static const char * const f2949[] = {"Carregando..."};
-static const char * const f2950[] = {"Local"};
-static const char * const f2951[] = {"Procurando arquivos de música"};
-static const char * const f2952[] = {"Procurando arquivos de música\n%d itens verificados"};
-static const char * const f2953[] = {"Baixa"};
-static const char * const f2954[] = {"Baixo\nAlto"};
-static const char * const f2955[] = {"Baixa (96 kbps)"};
-static const char * const f2956[] = {"Letras"};
-static const char * const f2957[] = {"Tamanho do texto da letra"};
-static const char * const f2958[] = {"Endereço MAC: %s"};
-static const char * const f2959[] = {"Manutenção"};
-static const char * const f2960[] = {"Deixe um acessório visível e toque em Buscar de novo."};
-static const char * const f2961[] = {"Gerencie os plugins depois em Configurações > Sistema > Gerenciador de plugins para pesquisar, atualizar ou remover."};
-static const char * const f2962[] = {"SSID manual"};
-static const char * const f2963[] = {"março"};
-static const char * const f2964[] = {"Combinar com a capa"};
-static const char * const f2965[] = {"maio"};
-static const char * const f2966[] = {"Médio"};
-static const char * const f2967[] = {"Média (192 kbps)"};
-static const char * const f2968[] = {"Redes memorizadas"};
-static const char * const f2969[] = {"Metadados atualizados"};
-static const char * const f2970[] = {"Migrando\nbanco de dados de música..."};
-static const char * const f2971[] = {"segunda-feira"};
-static const char * const f2972[] = {"Mono (1 canal)"};
-static const char * const f2973[] = {"Mais"};
-static const char * const f2974[] = {"Mais tocadas"};
-static const char * const f2975[] = {"Música"};
-static const char * const f2976[] = {"Banco de dados de música indisponível"};
-static const char * const f2977[] = {"Nome (A–Z)"};
-static const char * const f2978[] = {"DSD nativo (DoP) / %.4g MHz"};
-static const char * const f2979[] = {"As redes Wi-Fi próximas aparecerão aqui."};
-static const char * const f2980[] = {"Precisa de firmware mais novo"};
-static const char * const f2981[] = {"Nome da rede (SSID)"};
-static const char * const f2982[] = {"Stream de rede"};
-static const char * const f2983[] = {"As redes às quais você se conectar aparecerão aqui."};
-static const char * const f2984[] = {"Nova conexão"};
-static const char * const f2985[] = {"Novo PIN gerado"};
-static const char * const f2986[] = {"Novo perfil"};
-static const char * const f2987[] = {"Modificados recentemente"};
-static const char * const f2988[] = {"Próxima"};
-static const char * const f2989[] = {"Próxima  •  %d–%d de %d"};
-static const char * const f2990[] = {"Próxima página"};
-static const char * const f2991[] = {"Nenhuma fonte .ttf encontrada em /Fonts"};
-static const char * const f2992[] = {"Nenhum arquivo de firmware .upt no cartão SD"};
-static const char * const f2993[] = {"Sem cartão SD"};
-static const char * const f2994[] = {"Nenhum cartão SD detectado. Você pode fazer a busca depois nas configurações da biblioteca."};
-static const char * const f2995[] = {"Nenhum livro encontrado"};
-static const char * const f2996[] = {"Nenhum item para mostrar"};
-static const char * const f2997[] = {"Nenhum favorito ainda"};
-static const char * const f2998[] = {"Nenhum item"};
-static const char * const f2999[] = {"Nenhuma rede memorizada"};
-static const char * const f3000[] = {"Sem banco de dados de música"};
-static const char * const f3001[] = {"Nenhum dispositivo próximo"};
-static const char * const f3002[] = {"Nenhuma rede detectada"};
-static const char * const f3003[] = {"Nenhuma rede detectada. Conecte-se a uma rede para baixar plugins."};
-static const char * const f3004[] = {"Nenhuma rede encontrada"};
-static const char * const f3005[] = {"Nenhuma outra rede encontrada"};
-static const char * const f3006[] = {"Nenhum dispositivo pareado"};
-static const char * const f3007[] = {"Nenhum arquivo de áudio reproduzível encontrado"};
-static const char * const f3008[] = {"Nenhum arquivo reproduzível aqui"};
-static const char * const f3009[] = {"Nenhuma configuração de plugin disponível"};
-static const char * const f3010[] = {"Nenhum plugin disponível no catálogo."};
-static const char * const f3011[] = {"Nenhum perfil salvo"};
-static const char * const f3012[] = {"Nenhum servidor salvo"};
-static const char * const f3013[] = {"Nenhuma música para atualizar"};
-static const char * const f3014[] = {"Nenhuma letra sincronizada encontrada"};
-static const char * const f3015[] = {"Nenhuma faixa carregada"};
-static const char * const f3016[] = {"Nenhuma faixa encontrada"};
-static const char * const f3017[] = {"Nenhuma playlist do usuário"};
-static const char * const f3018[] = {"Nenhuma atualização verificada neste cartão SD. Baixe de novo."};
-static const char * const f3019[] = {"Não conectado"};
-static const char * const f3020[] = {"Espaço livre insuficiente no cartão SD para a atualização."};
-static const char * const f3021[] = {"Espaço livre insuficiente no cartão SD."};
-static const char * const f3022[] = {"Memória insuficiente para conectar"};
-static const char * const f3023[] = {"Memória insuficiente para carregar faixas CUE"};
-static const char * const f3024[] = {"Memória insuficiente para carregar artistas"};
-static const char * const f3025[] = {"Memória insuficiente para carregar do servidor"};
-static const char * const f3026[] = {"Memória insuficiente para carregar a loja de plugins"};
-static const char * const f3027[] = {"Memória insuficiente para iniciar o download"};
-static const char * const f3028[] = {"Não selecionado (UTC)"};
-static const char * const f3029[] = {"Não definido"};
-static const char * const f3030[] = {"novembro"};
-static const char * const f3031[] = {"OFF"};
-static const char * const f3032[] = {"ON"};
-static const char * const f3033[] = {"outubro"};
-static const char * const f3034[] = {"Desligado"};
-static const char * const f3035[] = {"Ligado"};
-static const char * const f3036[] = {"Abra um livro e toque no ícone de marcador para salvá-lo aqui."};
-static const char * const f3037[] = {"Abra uma pasta com arquivos de áudio compatíveis."};
-static const char * const f3038[] = {"Rede aberta"};
-static const char * const f3039[] = {"Abra este endereço no celular ou computador:"};
-static const char * const f3040[] = {"Aberta · Conectada"};
-static const char * const f3041[] = {"Original"};
-static const char * const f3042[] = {"Saída"};
-static const char * const f3043[] = {"PEQ restaurado ao padrão"};
-static const char * const f3044[] = {"Pacífico"};
-static const char * const f3045[] = {"Pareado"};
-static const char * const f3046[] = {"Dispositivos pareados"};
-static const char * const f3047[] = {"EQ paramétrico"};
-static const char * const f3048[] = {"Senha"};
-static const char * const f3049[] = {"Senha: não definida"};
-static const char * const f3050[] = {"Senha: definida"};
-static const char * const f3051[] = {"Pausado: fones desconectados"};
-static const char * const f3052[] = {"Peaking\nLow Shelf\nHigh Shelf"};
-static const char * const f3053[] = {"Por álbum"};
-static const char * const f3054[] = {"Por faixa"};
-static const char * const f3055[] = {"Coloque fontes .ttf na pasta /Fonts do SD."};
-static const char * const f3056[] = {"Tocar tudo"};
-static const char * const f3057[] = {"Tocar a seguir"};
-static const char * const f3058[] = {"Tocar tudo em aleatório"};
-static const char * const f3059[] = {"Toque um álbum ou playlist para ver as músicas aqui."};
-static const char * const f3060[] = {"Tocar em sequência"};
-static const char * const f3061[] = {"Tocar/Pausar"};
-static const char * const f3062[] = {"Tocar/Pausar + Faixa anterior (clique duplo)"};
-static const char * const f3063[] = {"Botão Tocar/Pausar"};
-static const char * const f3064[] = {"Reprodução e controles"};
-static const char * const f3065[] = {"Ações de reprodução e do aparelho"};
-static const char * const f3066[] = {"Erro de reprodução"};
-static const char * const f3067[] = {"Erro de reprodução: falha na saída de áudio"};
-static const char * const f3068[] = {"Não foi possível salvar o histórico de reprodução"};
-static const char * const f3069[] = {"Reprodução parada: %s"};
-static const char * const f3070[] = {"Tocada"};
-static const char * const f3071[] = {"Layout do player"};
-static const char * const f3072[] = {"Tocando"};
-static const char * const f3073[] = {"Nome da playlist"};
-static const char * const f3074[] = {"A playlist mudou. Selecione uma música de novo."};
-static const char * const f3075[] = {"A playlist mudou. Tente de novo."};
-static const char * const f3076[] = {"Playlist criada"};
-static const char * const f3077[] = {"Playlist excluída"};
-static const char * const f3078[] = {"A playlist está vazia"};
-static const char * const f3079[] = {"Playlist renomeada"};
-static const char * const f3080[] = {"Playlist salva"};
-static const char * const f3081[] = {"Playlist indisponível ou ilegível"};
-static const char * const f3082[] = {"Playlists"};
-static const char * const f3083[] = {"Playlists atualizadas"};
-static const char * const f3084[] = {"Aguarde a instalação dos plugins terminar"};
-static const char * const f3085[] = {"Aguarde a conclusão da busca na biblioteca"};
-static const char * const f3086[] = {"Plugin"};
-static const char * const f3087[] = {"Gerenciar plugins"};
-static const char * const f3088[] = {"Configurações do plugin"};
-static const char * const f3089[] = {"Loja de plugins"};
-static const char * const f3090[] = {"O plugin não está disponível no catálogo"};
-static const char * const f3091[] = {"Falha na operação do plugin"};
-static const char * const f3092[] = {"Configuração de plugins concluída"};
-static const char * const f3093[] = {"A configuração de plugins precisa de atenção"};
-static const char * const f3094[] = {"O armazenamento dos plugins está indisponível."};
-static const char * const f3095[] = {"Plugins"};
-static const char * const f3096[] = {"Posição"};
-static const char * const f3097[] = {"Energia"};
-static const char * const f3098[] = {"Desligar"};
-static const char * const f3099[] = {"Controles de energia"};
-static const char * const f3100[] = {"Desligar"};
-static const char * const f3101[] = {"Pré-amp (dB, -12 a 12)"};
-static const char * const f3102[] = {"Pré-amp: %+.2f dB"};
-static const char * const f3103[] = {"Preparando atualização das capas..."};
-static const char * const f3104[] = {"Preparando migração do banco de dados..."};
-static const char * const f3105[] = {"Preparando atualização dos metadados"};
-static const char * const f3106[] = {"Preparando atualização dos metadados..."};
-static const char * const f3107[] = {"Preparando biblioteca de música..."};
-static const char * const f3108[] = {"Preparando atualização"};
-static const char * const f3109[] = {"Predefinições"};
-static const char * const f3110[] = {"Prévia"};
-static const char * const f3111[] = {"Anterior"};
-static const char * const f3112[] = {"Anterior  •  %d–%d de %d"};
-static const char * const f3113[] = {"Faixa anterior"};
-static const char * const f3114[] = {"Página anterior"};
-static const char * const f3115[] = {"A solicitação anterior ainda está terminando"};
-static const char * const f3116[] = {"Os acessórios conectados antes aparecerão aqui."};
-static const char * const f3117[] = {"DNS primário"};
-static const char * const f3118[] = {"Nome do perfil"};
-static const char * const f3119[] = {"Perfil excluído"};
-static const char * const f3120[] = {"Perfil carregado"};
-static const char * const f3121[] = {"Perfil renomeado"};
-static const char * const f3122[] = {"Perfil salvo"};
-static const char * const f3123[] = {"Perfis"};
-static const char * const f3124[] = {"Provedor"};
-static const char * const f3125[] = {"Fila"};
-static const char * const f3126[] = {"A fila mudou. Tente de novo."};
-static const char * const f3127[] = {"Falha ao salvar a fila; o armazenamento pode estar somente leitura"};
-static const char * const f3128[] = {"Fila limpa"};
-static const char * const f3129[] = {"A fila está vazia"};
-static const char * const f3130[] = {"Fila pronta. Toque em Play para começar."};
-static const char * const f3131[] = {"Na fila"};
-static const char * const f3132[] = {"Configuração rápida concluída"};
-static const char * const f3133[] = {"Configuração rápida"};
-static const char * const f3134[] = {"RC"};
-static const char * const f3135[] = {"Rádio"};
-static const char * const f3136[] = {"Rádio / %s"};
-static const char * const f3137[] = {"Lendo taxas compatíveis..."};
-static const char * const f3138[] = {"Lendo tags\n%d de %d músicas (%d%%)"};
-static const char * const f3139[] = {"Lê as tags de todas as músicas de novo. Isso pode demorar."};
-static const char * const f3140[] = {"Recriar"};
-static const char * const f3141[] = {"Adicionadas recentemente"};
-static const char * const f3142[] = {"Tocadas recentemente"};
-static const char * const f3143[] = {"Atualizar"};
-static const char * const f3144[] = {"Atualizar todas as capas"};
-static const char * const f3145[] = {"Atualizar todos os metadados"};
-static const char * const f3146[] = {"Atualizar plugins"};
-static const char * const f3147[] = {"Atualizar todas as capas?"};
-static const char * const f3148[] = {"Atualizar todos os metadados?"};
-static const char * const f3149[] = {"Atualizar metadados"};
-static const char * const f3150[] = {"Atualizar catálogo de plugins"};
-static const char * const f3151[] = {"Atualize o banco de dados de música para atualizar esta lista."};
-static const char * const f3152[] = {"Atualizando\ntodas as capas..."};
-static const char * const f3153[] = {"Atualizando\ntodos os metadados..."};
-static const char * const f3154[] = {"Atualizando\nmetadados..."};
-static const char * const f3155[] = {"Atualizando capas"};
-static const char * const f3156[] = {"Atualizando capas\n%d de %d (%d%%)"};
-static const char * const f3157[] = {"Atualizando plugins..."};
-static const char * const f3158[] = {"Ano de lançamento (mais antigo primeiro)"};
-static const char * const f3159[] = {"Recarregar capa"};
-static const char * const f3160[] = {"Recarregando\ncapa..."};
-static const char * const f3161[] = {"Recarregando capa"};
-static const char * const f3162[] = {"Recarregando capa\n%d de %d (%d%%)"};
-static const char * const f3163[] = {"Remoto"};
-static const char * const f3164[] = {"Controle remoto"};
-static const char * const f3165[] = {"Remover"};
-static const char * const f3166[] = {"Remover %s?"};
-static const char * const f3167[] = {"Removido"};
-static const char * const f3168[] = {"Removida da playlist"};
-static const char * const f3169[] = {"Removida da fila"};
-static const char * const f3170[] = {"Remove as capas salvas e as extrai de novo. Isso pode demorar."};
-static const char * const f3171[] = {"Removendo plugin"};
-static const char * const f3172[] = {"Renomear playlist"};
-static const char * const f3173[] = {"Renomear perfil"};
-static const char * const f3174[] = {"Substituir"};
-static const char * const f3175[] = {"Substituir existente"};
-static const char * const f3176[] = {"Substituir perfil"};
-static const char * const f3177[] = {"ReplayGain"};
-static const char * const f3178[] = {"Buscar novamente"};
-static const char * const f3179[] = {"Restaurar"};
-static const char * const f3180[] = {"Restaurar o PEQ ao padrão?"};
-static const char * const f3181[] = {"Restaurar todas as configurações e reiniciar?"};
-static const char * const f3182[] = {"Restaurar padrão"};
-static const char * const f3183[] = {"Reiniciar"};
-static const char * const f3184[] = {"Reiniciar agora"};
-static const char * const f3185[] = {"Reiniciar agora para aplicar o novo nome do host?"};
-static const char * const f3186[] = {"Retomar última faixa"};
-static const char * const f3187[] = {"Retomar e tocar"};
-static const char * const f3188[] = {"Retoma a reprodução quando a energia externa liga o player."};
-static const char * const f3189[] = {"Retomar pausado"};
-static const char * const f3190[] = {"Tentando novamente os plugins %zu/%zu"};
-static const char * const f3191[] = {"Cartão SD verificado"};
-static const char * const f3192[] = {"Não foi possível ler o cartão SD"};
-static const char * const f3193[] = {"Falha ao formatar o cartão SD"};
-static const char * const f3194[] = {"Cartão SD formatado"};
-static const char * const f3195[] = {"O cartão SD está somente leitura. Verifique em um computador"};
-static const char * const f3196[] = {"O cartão SD continua somente leitura"};
-static const char * const f3197[] = {"O cartão SD pode ter erros. Verifique em um computador"};
-static const char * const f3198[] = {"Cartão SD indisponível"};
-static const char * const f3199[] = {"O reparo do cartão SD ainda está em andamento"};
-static const char * const f3200[] = {"Cartão SD reparado"};
-static const char * const f3201[] = {"SSID: %s"};
-static const char * const f3202[] = {"Carga segura (500mA)"};
-static const char * const f3203[] = {"Taxa de amostragem"};
-static const char * const f3204[] = {"sábado"};
-static const char * const f3205[] = {"Salvar"};
-static const char * const f3206[] = {"Salvar perfil"};
-static const char * const f3207[] = {"Salvar perfil como"};
-static const char * const f3208[] = {"Salvar fila como playlist"};
-static const char * const f3209[] = {"Salvar como playlist"};
-static const char * const f3210[] = {"Salvar como novo perfil ou substituir um existente?"};
-static const char * const f3211[] = {"Servidores salvos"};
-static const char * const f3212[] = {"Rede salva"};
-static const char * const f3213[] = {"Os detalhes das redes salvas estão sendo verificados."};
-static const char * const f3214[] = {"Salvando banco de dados de música"};
-static const char * const f3215[] = {"Salvando banco de dados de música\nIsso pode demorar em bibliotecas grandes"};
-static const char * const f3216[] = {"Salvando playlist..."};
-static const char * const f3217[] = {"Buscar músicas"};
-static const char * const f3218[] = {"Escaneie com o celular para apoiar o Compás Player no PayPal"};
-static const char * const f3219[] = {"Buscando redes"};
-static const char * const f3220[] = {"Escurecer a tela"};
-static const char * const f3221[] = {"Tempo de tela ligada"};
-static const char * const f3222[] = {"Tela off"};
-static const char * const f3223[] = {"Falha na captura (%s)"};
-static const char * const f3224[] = {"Falha na captura (framebuffer)"};
-static const char * const f3225[] = {"Falha na captura (processo)"};
-static const char * const f3226[] = {"A captura precisa de um cartão SD"};
-static const char * const f3227[] = {"Captura salva"};
-static const char * const f3228[] = {"Capturas (Power + Anterior)"};
-static const char * const f3229[] = {"Capturas (Power + Vol -)"};
-static const char * const f3230[] = {"Capturas indisponíveis"};
-static const char * const f3231[] = {"DNS secundário"};
-static const char * const f3232[] = {"Falha na conexão segura. Verifique o Wi-Fi e a data e hora."};
-static const char * const f3233[] = {"Rede protegida"};
-static const char * const f3234[] = {"Protegida · Conectada"};
-static const char * const f3235[] = {"Selecione pelo menos um plugin para continuar."};
-static const char * const f3236[] = {"Os plugins selecionados estão prontos.\n"};
-static const char * const f3237[] = {"setembro"};
-static const char * const f3238[] = {"URL do servidor (ex.: %s)"};
-static const char * const f3239[] = {"URL do servidor: %s"};
-static const char * const f3240[] = {"A solicitação ao servidor expirou após 30 segundos"};
-static const char * const f3241[] = {"O serviço está ocupado"};
-static const char * const f3242[] = {"Ajustar hora"};
-static const char * const f3243[] = {"Defina seu fuso horário local para acertar o relógio."};
-static const char * const f3244[] = {"Configurações"};
-static const char * const f3245[] = {"Mostrar tempo restante"};
-static const char * const f3246[] = {"Mostrando as primeiras %d de %d músicas"};
-static const char * const f3247[] = {"Aleatório a partir de uma música"};
-static const char * const f3248[] = {"Sinal: %s"};
-static const char * const f3249[] = {"Pular por enquanto"};
-static const char * const f3250[] = {"Ignorada: %s"};
-static const char * const f3251[] = {"Sono"};
-static const char * const f3252[] = {"Timer de sono"};
-static const char * const f3253[] = {"Timer de sono"};
-static const char * const f3254[] = {"Timer de sono: %d min restantes"};
-static const char * const f3255[] = {"Timer de sono: desligado"};
-static const char * const f3256[] = {"Pequeno"};
-static const char * const f3257[] = {"Algumas capas não puderam ser atualizadas"};
-static const char * const f3258[] = {"Algumas playlists não puderam ser lidas"};
-static const char * const f3259[] = {"Alguns arquivos de plugin foram alterados no cartão. Substituí-los?"};
-static const char * const f3260[] = {"Algumas músicas não puderam ser lidas"};
-static const char * const f3261[] = {"Algumas atualizações precisam de confirmação antes de substituir arquivos locais."};
-static const char * const f3262[] = {"Música já adicionada"};
-static const char * const f3263[] = {"Música excluída"};
-static const char * const f3264[] = {"Músicas"};
-static const char * const f3265[] = {"Ordenação"};
-static const char * const f3266[] = {"Som"};
-static const char * const f3267[] = {"Efeitos de som"};
-static const char * const f3268[] = {"Origem"};
-static const char * const f3269[] = {"Reamostragem Speex"};
-static const char * const f3270[] = {"Iniciar em sequência"};
-static const char * const f3271[] = {"Comece com estas sugestões ou explore outros plugins."};
-static const char * const f3272[] = {"Volume inicial"};
-static const char * const f3273[] = {"Etapa %d de %d"};
-static const char * const f3274[] = {"Estéreo (2 canais)"};
-static const char * const f3275[] = {"Ainda aplicando a escolha anterior"};
-static const char * const f3276[] = {"Armazenamento"};
-static const char * const f3277[] = {"Streaming"};
-static const char * const f3278[] = {"Qualidade do stream"};
-static const char * const f3279[] = {"Qualidade do stream: %s"};
-static const char * const f3280[] = {"A subpasta é relativa à raiz do SD (exemplo: Music/Offline); vazio usa a raiz do SD"};
-static const char * const f3281[] = {"Subpasta: raiz do SD"};
-static const char * const f3282[] = {"Subsonic"};
-static const char * const f3283[] = {"domingo"};
-static const char * const f3284[] = {"Suspender na RAM"};
-static const char * const f3285[] = {"Deslizar para cima para o Início"};
-static const char * const f3286[] = {"Deslize para cima para desbloquear"};
-static const char * const f3287[] = {"Sistema"};
-static const char * const f3288[] = {"Playlists do sistema"};
-static const char * const f3289[] = {"Usa a cor da capa da faixa em reprodução"};
-static const char * const f3290[] = {"Toque em Desligar de novo para confirmar"};
-static const char * const f3291[] = {"Toque em Reiniciar de novo para confirmar"};
-static const char * const f3292[] = {"O cartão SD mudou durante o download."};
-static const char * const f3293[] = {"O cartão SD mudou durante a operação."};
-static const char * const f3294[] = {"O cartão SD está somente para leitura. Verifique a proteção contra gravação."};
-static const char * const f3295[] = {"O download não foi concluído. Verifique o Wi-Fi e tente de novo."};
-static const char * const f3296[] = {"A imagem baixada falhou na verificação e foi excluída."};
-static const char * const f3297[] = {"O arquivo da playlist será excluído. Os arquivos de música são mantidos."};
-static const char * const f3298[] = {"O download do plugin falhou na verificação. Tente de novo."};
-static const char * const f3299[] = {"A rápida raposa marrom salta 123"};
-static const char * const f3300[] = {"A versão não tem checksum para a imagem deste aparelho."};
-static const char * const f3301[] = {"O arquivo de atualização no cartão SD mudou. Baixe de novo."};
-static const char * const f3302[] = {"Não há itens nesta tela."};
-static const char * const f3303[] = {"Este aparelho agora é uma placa de som USB"};
-static const char * const f3304[] = {"Este aparelho está recebendo áudio Bluetooth"};
-static const char * const f3305[] = {"Isso pode demorar"};
-static const char * const f3306[] = {"Isso apaga tudo no cartão de forma permanente. Não é possível desfazer."};
-static const char * const f3307[] = {"Este plugin não tem atualização disponível."};
-static const char * const f3308[] = {"Este plugin já foi instalado pela loja."};
-static const char * const f3309[] = {"Este plugin não foi instalado pela loja."};
-static const char * const f3310[] = {"Este plugin precisa de uma versão mais nova do player."};
-static const char * const f3311[] = {"A imagem desta versão não corresponde aos checksums. Tente de novo após a próxima versão semanal."};
-static const char * const f3312[] = {"Falha ao iniciar a thread"};
-static const char * const f3313[] = {"quinta-feira"};
-static const char * const f3314[] = {"Fuso horário"};
-static const char * const f3315[] = {"Tempo restante: %d:%02d"};
-static const char * const f3316[] = {"Tempo restante: %d:%02d:%02d"};
-static const char * const f3317[] = {"Fuso horário"};
-static const char * const f3318[] = {"Canais de áudio demais"};
-static const char * const f3319[] = {"Há plugins instalados demais. Remova um e tente de novo."};
-static const char * const f3320[] = {"Faixa"};
-static const char * const f3321[] = {"Faixa %+.1f dB"};
-static const char * const f3322[] = {"Faixa %d"};
-static const char * const f3323[] = {"Os detalhes da faixa ainda não estão disponíveis. Mantenha a reprodução aberta e verifique de novo."};
-static const char * const f3324[] = {"Faixas"};
-static const char * const f3325[] = {"terça-feira"};
-static const char * const f3326[] = {"Desligue e ligue o Bluetooth para aplicar"};
-static const char * const f3327[] = {"Desligue o ADB primeiro (Configurações > Sistema > Modo USB) e ative o DAC USB aqui."};
-static const char * const f3328[] = {"Desligue o Automático para ajustar o relógio"};
-static const char * const f3329[] = {"Desligue o DAC Bluetooth para tocar música neste aparelho"};
-static const char * const f3330[] = {"Desligar a tela automaticamente"};
-static const char * const f3331[] = {"Ligue o Bluetooth para ver os dispositivos pareados e próximos."};
-static const char * const f3332[] = {"Ligue o Wi-Fi e conecte primeiro"};
-static const char * const f3333[] = {"Ligue isto para ver o endereço aqui."};
-static const char * const f3334[] = {"DAC USB"};
-static const char * const f3335[] = {"Modo DAC USB"};
-static const char * const f3336[] = {"Modo USB"};
-static const char * const f3337[] = {"Dispositivo de áudio USB detectado"};
-static const char * const f3338[] = {"Entrada USB: %s · %u-bit"};
-static const char * const f3339[] = {"Modo USB"};
-static const char * const f3340[] = {"Não foi possível carregar os itens"};
-static const char * const f3341[] = {"Não foi possível ler a pasta (toque em Voltar e tente de novo)"};
-static const char * const f3342[] = {"Indisponível"};
-static const char * const f3343[] = {"Resposta inesperada da biblioteca"};
-static const char * const f3344[] = {"Resposta inesperada do GitHub"};
-static const char * const f3345[] = {"Resposta inesperada do GitHub."};
-static const char * const f3346[] = {"Álbum desconhecido"};
-static const char * const f3347[] = {"Artista desconhecido"};
-static const char * const f3348[] = {"Codec desconhecido"};
-static const char * const f3349[] = {"Formato desconhecido"};
-static const char * const f3350[] = {"Taxa desconhecida"};
-static const char * const f3351[] = {"Formato de áudio não compatível"};
-static const char * const f3352[] = {"Atualizar"};
-static const char * const f3353[] = {"Atualizar e reiniciar"};
-static const char * const f3354[] = {"Atualizar tudo"};
-static const char * const f3355[] = {"Atualizar banco de dados de música"};
-static const char * const f3356[] = {"Atualize o banco de dados de música para ativar esta ordem de álbuns"};
-static const char * const f3357[] = {"Atualização disponível"};
-static const char * const f3358[] = {"Atualização disponível · %s"};
-static const char * const f3359[] = {"Atualizar individualmente"};
-static const char * const f3360[] = {"Atualizar banco de dados de música?"};
-static const char * const f3361[] = {"Atualize estes plugins individualmente"};
-static const char * const f3362[] = {"Atualizar com %s?\nO aparelho vai reiniciar no modo de recuperação."};
-static const char * const f3363[] = {"Atualizações"};
-static const char * const f3364[] = {"Atualizando\nbanco de dados de música..."};
-static const char * const f3365[] = {"Atualizando plugins"};
-static const char * const f3366[] = {"Tela de cabeça para baixo"};
-static const char * const f3367[] = {"Use Configurações > Atualizar banco de dados de música"};
-static const char * const f3368[] = {"Playlists do usuário"};
-static const char * const f3369[] = {"Usuário"};
-static const char * const f3370[] = {"Usuário: %s"};
-static const char * const f3371[] = {"Verificar certificado do servidor"};
-static const char * const f3372[] = {"Versão %s · %s"};
-static const char * const f3373[] = {"Aguardando stream Bluetooth..."};
-static const char * const f3374[] = {"Aguardando áudio USB..."};
-static const char * const f3375[] = {"Fraco"};
-static const char * const f3376[] = {"O servidor web está ocupado"};
-static const char * const f3377[] = {"quarta-feira"};
-static const char * const f3378[] = {"O Weekly Beta %s está disponível.\nInstalado: %s\n\nBaixar agora? Isso pode demorar."};
-static const char * const f3379[] = {"O Weekly Beta %s foi baixado e verificado.\n\nInstalar agora? O aparelho reinicia na recuperação para gravá-lo. Não o desligue até ele reiniciar."};
-static const char * const f3380[] = {"Boas-vindas ao Compás"};
-static const char * const f3381[] = {"Quando ligado, este aparelho fica visível para emissores AirPlay na sua rede Wi-Fi -- envie áudio de um iPhone, iPad ou Mac para tocar pela saída do próprio aparelho."};
-static const char * const f3382[] = {"Quando ligado, este aparelho fica visível para apps controladores DLNA/UPnP na sua rede Wi-Fi -- envie uma faixa de um deles para tocá-la aqui. Pausar, silenciar, volume e avançar pelo app controlador não são compatíveis; use os controles do próprio aparelho depois que a faixa começar."};
-static const char * const f3383[] = {"Quando ligado, este aparelho fica visível e pode ser pareado por outros dispositivos Bluetooth, para que um celular ou computador envie áudio PARA ele e toque pela saída do próprio aparelho -- usando-o como DAC externo."};
-static const char * const f3384[] = {"Wi-Fi"};
-static const char * const f3385[] = {"Info do Wi-Fi"};
-static const char * const f3386[] = {"Senha do Wi-Fi"};
-static const char * const f3387[] = {"O Wi-Fi não conseguiu mudar de estado"};
-static const char * const f3388[] = {"O Wi-Fi está ocupado"};
-static const char * const f3389[] = {"Sem fio"};
-static const char * const f3390[] = {"Você pode selecionar até 32 plugins"};
-static const char * const f3391[] = {"Você tem a versão semanal mais recente (%s).\n\nBaixar e reinstalar mesmo assim? Isso pode demorar."};
-static const char * const f3392[] = {"Sua biblioteca está sendo carregada."};
-static const char * const f3393[] = {"Sua música"};
-static const char * const f3394[] = {"Seu roteiro de configuração"};
-static const char * const f3395[] = {"[Arquivo truncado em %d KB -- mostrando só o início]\n\n%s"};
-static const char * const f3396[] = {"desconhecido"};
+static const char * const f2545[] = {"%.0f Hz"};
+static const char * const f2546[] = {"%d h"};
+static const char * const f2547[] = {"%d h %d min"};
+static const char * const f2548[] = {"%d min"};
+static const char * const f2549[] = {"%d min restantes"};
+static const char * const f2550[] = {"%d música", "%d músicas"};
+static const char * const f2551[] = {"%d faixa", "%d faixas"};
+static const char * const f2552[] = {"%dm"};
+static const char * const f2553[] = {"%lld faixa", "%lld faixas"};
+static const char * const f2554[] = {"%llu bytes"};
+static const char * const f2555[] = {"%s (atual)"};
+static const char * const f2556[] = {"%s · Não carregado"};
+static const char * const f2557[] = {"%s · Não carregado: limite atingido"};
+static const char * const f2558[] = {"%u canais"};
+static const char * const f2559[] = {"+ Nova playlist"};
+static const char * const f2560[] = {"Relógio de 24 horas"};
+static const char * const f2561[] = {"Referência de 48 kHz"};
+static const char * const f2562[] = {"Um arquivo de plugin local será substituído. Confirme para continuar."};
+static const char * const f2563[] = {"O download de um plugin falhou na verificação. Tente de novo."};
+static const char * const f2564[] = {"Já existe uma operação de plugin em andamento"};
+static const char * const f2565[] = {"ADB"};
+static const char * const f2566[] = {"Sobre"};
+static const char * const f2567[] = {"Cor de destaque"};
+static const char * const f2568[] = {"Adicione arquivos .txt à pasta Livros e atualize a biblioteca."};
+static const char * const f2569[] = {"Adicionar música aleatória à fila"};
+static const char * const f2570[] = {"Adicionar álbum à fila"};
+static const char * const f2571[] = {"Adicionar rede oculta"};
+static const char * const f2572[] = {"Adicione músicas pelo menu de uma música."};
+static const char * const f2573[] = {"Adicionar à playlist"};
+static const char * const f2574[] = {"Adicionar à fila"};
+static const char * const f2575[] = {"%d música adicionada à fila", "%d músicas adicionadas à fila"};
+static const char * const f2576[] = {"Adicionada à playlist"};
+static const char * const f2577[] = {"Ferramentas adicionais"};
+static const char * const f2578[] = {"Avançado"};
+static const char * const f2579[] = {"África"};
+static const char * const f2580[] = {"AirPlay"};
+static const char * const f2581[] = {"O AirPlay parou inesperadamente"};
+static const char * const f2582[] = {"Álbum %+.1f dB"};
+static const char * const f2583[] = {"Artista do álbum"};
+static const char * const f2584[] = {"Artista do álbum - Álbum"};
+static const char * const f2585[] = {"Artista do álbum / Álbum"};
+static const char * const f2586[] = {"Álbum indisponível"};
+static const char * const f2587[] = {"Álbuns"};
+static const char * const f2588[] = {"Álbuns (lista principal)"};
+static const char * const f2589[] = {"Todas as músicas"};
+static const char * const f2590[] = {"Todas as redes visíveis já estão salvas."};
+static const char * const f2591[] = {"Já instalado"};
+static const char * const f2592[] = {"América"};
+static const char * const f2593[] = {"Já há uma atualização em andamento"};
+static const char * const f2594[] = {"Já há uma atualização em andamento."};
+static const char * const f2595[] = {"Velocidade da animação"};
+static const char * const f2596[] = {"Antártida"};
+static const char * const f2597[] = {"Aparência"};
+static const char * const f2598[] = {"Aplicado %+.1f dB"};
+static const char * const f2599[] = {"Aplica imediatamente"};
+static const char * const f2600[] = {"Aplica na próxima vez que abrir o app"};
+static const char * const f2601[] = {"Vale para novas filas de streaming"};
+static const char * const f2602[] = {"Aplicando o idioma, isso pode demorar"};
+static const char * const f2603[] = {"Aplicando o layout, isso pode demorar"};
+static const char * const f2604[] = {"Apps e navegadores que usam o PIN atual precisarão do novo para reconectar."};
+static const char * const f2605[] = {"abril"};
+static const char * const f2606[] = {"Ártico"};
+static const char * const f2607[] = {"Imagens de artistas"};
+static const char * const f2608[] = {"Artistas"};
+static const char * const f2609[] = {"Ásia"};
+static const char * const f2610[] = {"Atlântico"};
+static const char * const f2611[] = {"Áudio"};
+static const char * const f2612[] = {"Não foi possível decodificar o áudio"};
+static const char * const f2613[] = {"Falha na saída de áudio"};
+static const char * const f2614[] = {"agosto"};
+static const char * const f2615[] = {"Austrália"};
+static const char * const f2616[] = {"Auto"};
+static const char * const f2617[] = {"Retomar automático"};
+static const char * const f2618[] = {"Automático"};
+static const char * const f2619[] = {"Automático (44,1 kHz)"};
+static const char * const f2620[] = {"Entrar em espera automaticamente"};
+static const char * const f2621[] = {"Disponível"};
+static const char * const f2622[] = {"Dispositivos disponíveis"};
+static const char * const f2623[] = {"Redes disponíveis"};
+static const char * const f2624[] = {"Disponível · %s"};
+static const char * const f2625[] = {"Voltar"};
+static const char * const f2626[] = {"Banda %d / %d"};
+static const char * const f2627[] = {"Opções da banda"};
+static const char * const f2628[] = {"Porcentagem da bateria"};
+static const char * const f2629[] = {"Bitrate"};
+static const char * const f2630[] = {"Bluetooth"};
+static const char * const f2631[] = {"DAC Bluetooth"};
+static const char * const f2632[] = {"Modo DAC Bluetooth"};
+static const char * const f2633[] = {"Sincronia de volume Bluetooth"};
+static const char * const f2634[] = {"Bluetooth desligado"};
+static const char * const f2635[] = {"Serviço remoto Bluetooth iniciando..."};
+static const char * const f2636[] = {"Serviço remoto Bluetooth indisponível; tentando de novo."};
+static const char * const f2637[] = {"Bluetooth: Compas Remote Control"};
+static const char * const f2638[] = {"Bluetooth: falha no registro; tentando de novo"};
+static const char * const f2639[] = {"Bluetooth: aguardando registro do serviço"};
+static const char * const f2640[] = {"Livros"};
+static const char * const f2641[] = {"Livros atualizados"};
+static const char * const f2642[] = {"Criar"};
+static const char * const f2643[] = {"Criar agora? Bibliotecas grandes podem demorar bastante."};
+static const char * const f2644[] = {"Botões e controle remoto"};
+static const char * const f2645[] = {"Me pague um café"};
+static const char * const f2646[] = {"Por %s"};
+static const char * const f2647[] = {"Cancelar"};
+static const char * const f2648[] = {"Não foi possível verificar o acesso de gravação ao armazenamento dos plugins."};
+static const char * const f2649[] = {"Não foi possível excluir a playlist"};
+static const char * const f2650[] = {"Não foi possível carregar as faixas do álbum"};
+static const char * const f2651[] = {"Não é possível mover este item"};
+static const char * const f2652[] = {"Não é possível tocar a pasta"};
+static const char * const f2653[] = {"Não foi possível acessar o GitHub. Verifique a conexão Wi-Fi."};
+static const char * const f2654[] = {"Não foi possível ler a playlist"};
+static const char * const f2655[] = {"Não foi possível ler o cartão SD."};
+static const char * const f2656[] = {"Não foi possível ler o arquivo de atualização no cartão SD. Verifique o cartão e tente de novo."};
+static const char * const f2657[] = {"Não foi possível ler o registro da atualização no cartão SD. Verifique o cartão e tente de novo."};
+static const char * const f2658[] = {"Não foi possível ler o estado do assistente de atualização: %s"};
+static const char * const f2659[] = {"Não foi possível remover o item"};
+static const char * const f2660[] = {"Não foi possível renomear: nome inválido ou arquivo já existe"};
+static const char * const f2661[] = {"Não foi possível reordenar a playlist"};
+static const char * const f2662[] = {"Não foi possível salvar a playlist"};
+static const char * const f2663[] = {"Não foi possível salvar: itens inválidos ou de streaming"};
+static const char * const f2664[] = {"Não foi possível iniciar a fila"};
+static const char * const f2665[] = {"Modo carro"};
+static const char * const f2666[] = {"Volume do modo carro"};
+static const char * const f2667[] = {"O modo carro está desativado."};
+static const char * const f2668[] = {"Canais"};
+static const char * const f2669[] = {"Limite de carga (85%)"};
+static const char * const f2670[] = {"Carregue até pelo menos %d%% ou conecte a energia antes de atualizar."};
+static const char * const f2671[] = {"Carregue até pelo menos 30%% ou conecte à energia antes de atualizar."};
+static const char * const f2672[] = {"Carregamento"};
+static const char * const f2673[] = {"Buscar atualização online"};
+static const char * const f2674[] = {"Verifique se o Wi-Fi está ativado e busque de novo."};
+static const char * const f2675[] = {"Buscando atualizações"};
+static const char * const f2676[] = {"Verificando o cartão SD. Isso pode demorar"};
+static const char * const f2677[] = {"Verificando o arquivo no cartão SD"};
+static const char * const f2678[] = {"Escolha um idioma"};
+static const char * const f2679[] = {"Escolher plugins"};
+static const char * const f2680[] = {"Escolha o idioma do seu player."};
+static const char * const f2681[] = {"Escolher fuso horário"};
+static const char * const f2682[] = {"Escolha o que acontece na inatividade:"};
+static const char * const f2683[] = {"Limpar fila"};
+static const char * const f2684[] = {"Relógio"};
+static const char * const f2685[] = {"Fechar"};
+static const char * const f2686[] = {"Fechando\nservidor web..."};
+static const char * const f2687[] = {"Codec"};
+static const char * const f2688[] = {"Resposta combinada (dB)"};
+static const char * const f2689[] = {"Resposta combinada (dB) · EQ desligado"};
+static const char * const f2690[] = {"Compás Player"};
+static const char * const f2691[] = {"Conectar"};
+static const char * const f2692[] = {"Conectar e navegar"};
+static const char * const f2693[] = {"Conecte um dispositivo para ver as taxas compatíveis"};
+static const char * const f2694[] = {"Conecte por Wi-Fi ou Bluetooth para ver o que está tocando, controlar a reprodução e navegar pela biblioteca. Digite este PIN quando o app ou navegador pedir; o Bluetooth também exige pareamento."};
+static const char * const f2695[] = {"Conectar ao Wi-Fi"};
+static const char * const f2696[] = {"Conecte-se ao Wi-Fi primeiro"};
+static const char * const f2697[] = {"Conecte-se ao Wi-Fi para streaming, atualizações e serviços online."};
+static const char * const f2698[] = {"Conecte-se a uma rede Wi-Fi antes de continuar."};
+static const char * const f2699[] = {"Conecte-se a uma rede para baixar plugins."};
+static const char * const f2700[] = {"Conecte por qualquer um dos caminhos disponíveis:"};
+static const char * const f2701[] = {"Conectado"};
+static const char * const f2702[] = {"Conectando"};
+static const char * const f2703[] = {"Conectando a"};
+static const char * const f2704[] = {"Conectando ao servidor..."};
+static const char * const f2705[] = {"PIN de conexão"};
+static const char * const f2706[] = {"Falha na conexão"};
+static const char * const f2707[] = {"A conexão expirou após 30 segundos"};
+static const char * const f2708[] = {"Contêiner"};
+static const char * const f2709[] = {"Continuar"};
+static const char * const f2710[] = {"Continuar configuração"};
+static const char * const f2711[] = {"Não foi possível aplicar o tamanho da fonte"};
+static const char * const f2712[] = {"Não foi possível aplicar o tamanho do texto da letra"};
+static const char * const f2713[] = {"Não foi possível baixar os checksums da versão."};
+static const char * const f2714[] = {"Não foi possível entrar no modo de recuperação."};
+static const char * const f2715[] = {"Não foi possível gerar um novo PIN"};
+static const char * const f2716[] = {"Não foi possível instalar um plugin no cartão SD."};
+static const char * const f2717[] = {"Não foi possível instalar o plugin no cartão SD."};
+static const char * const f2718[] = {"Não foi possível carregar a foto da tela de bloqueio"};
+static const char * const f2719[] = {"Não foi possível carregar o catálogo de plugins."};
+static const char * const f2720[] = {"Não foi possível carregar o catálogo de plugins. Toque em Mais para tentar novamente."};
+static const char * const f2721[] = {"Não foi possível separar os outros arquivos .upt no cartão SD."};
+static const char * const f2722[] = {"Não foi possível abrir este arquivo."};
+static const char * const f2723[] = {"Não foi possível colocar a atualização no cartão SD."};
+static const char * const f2724[] = {"Não foi possível preparar a remoção do plugin."};
+static const char * const f2725[] = {"Não foi possível preparar o assistente de atualização: %s"};
+static const char * const f2726[] = {"Não foi possível ler os plugins instalados."};
+static const char * const f2727[] = {"Não foi possível ler a pasta Livros"};
+static const char * const f2728[] = {"Não foi possível ler a lista de plugins do GitHub."};
+static const char * const f2729[] = {"Não foi possível ler a lista de versões do GitHub."};
+static const char * const f2730[] = {"Não foi possível registrar a atualização verificada no cartão SD."};
+static const char * const f2731[] = {"Não foi possível atualizar os livros"};
+static const char * const f2732[] = {"Não foi possível recarregar a capa"};
+static const char * const f2733[] = {"Não foi possível remover um arquivo de plugin."};
+static const char * const f2734[] = {"Não foi possível reparar o cartão SD"};
+static const char * const f2735[] = {"Não foi possível salvar o codec Bluetooth"};
+static const char * const f2736[] = {"Não foi possível iniciar a troca do modo USB"};
+static const char * const f2737[] = {"Não foi possível iniciar a atualização do catálogo de plugins."};
+static const char * const f2738[] = {"Não foi possível iniciar o download"};
+static const char * const f2739[] = {"Não foi possível iniciar o download."};
+static const char * const f2740[] = {"Não foi possível iniciar a instalação."};
+static const char * const f2741[] = {"Não foi possível iniciar a busca na biblioteca. Tente novamente."};
+static const char * const f2742[] = {"Não foi possível iniciar a operação do plugin"};
+static const char * const f2743[] = {"Não foi possível iniciar a operação do plugin."};
+static const char * const f2744[] = {"Não foi possível iniciar a atualização do catálogo"};
+static const char * const f2745[] = {"Não foi possível iniciar a atualização dos plugins."};
+static const char * const f2746[] = {"Não foi possível iniciar a atualização do plugin."};
+static const char * const f2747[] = {"Não foi possível iniciar a busca por atualização."};
+static const char * const f2748[] = {"Não foi possível iniciar o assistente de atualização: %s"};
+static const char * const f2749[] = {"Não foi possível atualizar o registro de plugins instalados."};
+static const char * const f2750[] = {"Não foi possível conectar à rede Wi-Fi"};
+static const char * const f2751[] = {"Não foi possível ler este arquivo .cue"};
+static const char * const f2752[] = {"Não foi possível salvar -- a mudança do plugin não foi aplicada"};
+static const char * const f2753[] = {"Capa recarregada"};
+static const char * const f2754[] = {"Capas atualizadas"};
+static const char * const f2755[] = {"Crie uma playlist acima ou copie uma para a pasta Playlists do cartão SD."};
+static const char * const f2756[] = {"Crossfade"};
+static const char * const f2757[] = {"Personalizado"};
+static const char * const f2758[] = {"Cor personalizada"};
+static const char * const f2759[] = {"Fontes personalizadas afetam só texto latino."};
+static const char * const f2760[] = {"DAC"};
+static const char * const f2761[] = {"Caminho do DAC: %s · %u-bit"};
+static const char * const f2762[] = {"DLNA"};
+static const char * const f2763[] = {"Renderizador DLNA"};
+static const char * const f2764[] = {"Configurações de DNS"};
+static const char * const f2765[] = {"dezembro"};
+static const char * const f2766[] = {"Padrão (integrada)"};
+static const char * const f2767[] = {"Excluir"};
+static const char * const f2768[] = {"Excluir %s?\nNão é possível desfazer."};
+static const char * const f2769[] = {"Excluir playlist"};
+static const char * const f2770[] = {"Excluir playlist?"};
+static const char * const f2771[] = {"Excluir este perfil?"};
+static const char * const f2772[] = {"Opções do desenvolvedor"};
+static const char * const f2773[] = {"Escurecer a tela antes de desligar"};
+static const char * const f2774[] = {"Disco %d"};
+static const char * const f2775[] = {"Disco %d / Faixa %d"};
+static const char * const f2776[] = {"Desconectar"};
+static const char * const f2777[] = {"Desconecte primeiro o armazenamento USB"};
+static const char * const f2778[] = {"Desconecte o armazenamento USB do computador antes de alterar os plugins."};
+static const char * const f2779[] = {"Dispensar"};
+static const char * const f2780[] = {"Tela"};
+static const char * const f2781[] = {"Concluído"};
+static const char * const f2782[] = {"Baixar"};
+static const char * const f2783[] = {"Baixar \"%s\"?"};
+static const char * const f2784[] = {"Baixar perfis"};
+static const char * const f2785[] = {"Configurações de download"};
+static const char * const f2786[] = {"Baixar todos os álbuns de \"%s\"?"};
+static const char * const f2787[] = {"Falha no download"};
+static const char * const f2788[] = {"Pasta de download: %s"};
+static const char * const f2789[] = {"Pasta de download: raiz do SD"};
+static const char * const f2790[] = {"Baixar perfis"};
+static const char * const f2791[] = {"Configurações de download"};
+static const char * const f2792[] = {"Subpasta de download"};
+static const char * const f2793[] = {"Baixando"};
+static const char * const f2794[] = {"Baixando\n%s..."};
+static const char * const f2795[] = {"Baixando e instalando plugins %zu/%zu"};
+static const char * const f2796[] = {"Baixando atualização"};
+static const char * const f2797[] = {"Controle de volume na gaveta"};
+static const char * const f2798[] = {"Duração"};
+static const char * const f2799[] = {"EQ"};
+static const char * const f2800[] = {"Curva do EQ"};
+static const char * const f2801[] = {"Editar"};
+static const char * const f2802[] = {"Editar / Concluir"};
+static const char * const f2803[] = {"Ativar DAC Bluetooth"};
+static const char * const f2804[] = {"Ative o Bluetooth nas configurações para usar o modo DAC BT"};
+static const char * const f2805[] = {"Ativar timer de sono"};
+static const char * const f2806[] = {"Ative o Wi-Fi ou o Bluetooth para conectar."};
+static const char * const f2807[] = {"Ative o Wi-Fi para acessar"};
+static const char * const f2808[] = {"Ativar banda"};
+static const char * const f2809[] = {"Ativar log de depuração"};
+static const char * const f2810[] = {"Equalizador"};
+static const char * const f2811[] = {"Apagar e formatar o cartão SD?"};
+static const char * const f2812[] = {"Europa"};
+static const char * const f2813[] = {"Excelente"};
+static const char * const f2814[] = {"Saia do modo DAC USB para tocar música neste aparelho"};
+static const char * const f2815[] = {"Restaurar padrão de fábrica"};
+static const char * const f2816[] = {"Plugins que falharam:\n"};
+static const char * const f2817[] = {"Falha ao adicionar à playlist"};
+static const char * const f2818[] = {"Falha ao aplicar o fuso horário"};
+static const char * const f2819[] = {"Falha ao conectar ao servidor"};
+static const char * const f2820[] = {"Falha ao criar a playlist"};
+static const char * const f2821[] = {"Falha ao excluir o perfil"};
+static const char * const f2822[] = {"Falha ao ativar o AirPlay"};
+static const char * const f2823[] = {"Falha ao carregar artistas"};
+static const char * const f2824[] = {"Falha ao carregar artistas: %s"};
+static const char * const f2825[] = {"Falha ao carregar a fonte. Verifique o formato e a memória."};
+static const char * const f2826[] = {"Falha ao carregar do servidor"};
+static const char * const f2827[] = {"Falha ao carregar o perfil"};
+static const char * const f2828[] = {"Falha ao renomear o perfil"};
+static const char * const f2829[] = {"Falha ao salvar o perfil"};
+static const char * const f2830[] = {"Falha ao iniciar a conexão"};
+static const char * const f2831[] = {"Falha ao mudar para %s"};
+static const char * const f2832[] = {"Falha ao alternar o Bluetooth"};
+static const char * const f2833[] = {"Razoável"};
+static const char * const f2834[] = {"Favoritos"};
+static const char * const f2835[] = {"fevereiro"};
+static const char * const f2836[] = {"Tamanho do arquivo"};
+static const char * const f2837[] = {"Arquivo indisponível"};
+static const char * const f2838[] = {"Arquivos"};
+static const char * const f2839[] = {"Arquivos (pastas primeiro)"};
+static const char * const f2840[] = {"Os arquivos do cartão podem ter mudado."};
+static const char * const f2841[] = {"Arquivos usam a data de modificação. Álbuns usam a faixa adicionada mais recentemente; álbuns sem ano de lançamento ficam por último. Atualize o banco de dados de música uma vez para ler os anos dos arquivos existentes."};
+static const char * const f2842[] = {"Tipo de filtro"};
+static const char * const f2843[] = {"Atualização de firmware"};
+static const char * const f2844[] = {"Plano"};
+static const char * const f2845[] = {"Organização das pastas dos álbuns baixados"};
+static const char * const f2846[] = {"Pasta grande demais para indexar (toque em Voltar)"};
+static const char * const f2847[] = {"Fonte"};
+static const char * const f2848[] = {"Tamanho da fonte"};
+static const char * const f2849[] = {"A seleção de fonte não está mais disponível"};
+static const char * const f2850[] = {"Esquecer"};
+static const char * const f2851[] = {"Formatar"};
+static const char * const f2852[] = {"Formatar cartão SD"};
+static const char * const f2853[] = {"Formatando\ncartão SD..."};
+static const char * const f2854[] = {"Frequência"};
+static const char * const f2855[] = {"Frequência (Hz, 20 a 20000)"};
+static const char * const f2856[] = {"sexta-feira"};
+static const char * const f2857[] = {"Da capa do álbum"};
+static const char * const f2858[] = {"Da capa do álbum (sem capa, usando personalizada)"};
+static const char * const f2859[] = {"Ganho"};
+static const char * const f2860[] = {"Ganho (dB, -12 a 12)"};
+static const char * const f2861[] = {"Gapless"};
+static const char * const f2862[] = {"Gateway: %s"};
+static const char * const f2863[] = {"Gerar"};
+static const char * const f2864[] = {"Gerar um novo PIN?"};
+static const char * const f2865[] = {"Gêneros"};
+static const char * const f2866[] = {"Gestos e orientação"};
+static const char * const f2867[] = {"Começar"};
+static const char * const f2868[] = {"O GitHub não respondeu a tempo. Tente de novo."};
+static const char * const f2869[] = {"O GitHub está limitando as solicitações. Tente mais tarde."};
+static const char * const f2870[] = {"O GitHub retornou HTTP %d."};
+static const char * const f2871[] = {"Volte e escolha Nova conexão para adicionar um."};
+static const char * const f2872[] = {"Bom"};
+static const char * const f2873[] = {"O fone pode desconectar; pode ser preciso reconectar manualmente"};
+static const char * const f2874[] = {"Ocultar barra superior do player/letras"};
+static const char * const f2875[] = {"Ocultar dispositivos sem nome"};
+static const char * const f2876[] = {"Alta"};
+static const char * const f2877[] = {"Alta (320 kbps)"};
+static const char * const f2878[] = {"Nome do host"};
+static const char * const f2879[] = {"O nome do host só pode ter letras, números e hifens"};
+static const char * const f2880[] = {"Endereço IP: %s"};
+static const char * const f2881[] = {"Desligar por inatividade"};
+static const char * const f2882[] = {"Tempo de inatividade:"};
+static const char * const f2883[] = {"Importar"};
+static const char * const f2884[] = {"Importar por Wi-Fi"};
+static const char * const f2885[] = {"Controle no cabo"};
+static const char * const f2886[] = {"Índico"};
+static const char * const f2887[] = {"Informações"};
+static const char * const f2888[] = {"Insira um cartão SD para alterar os plugins."};
+static const char * const f2889[] = {"Insira um cartão SD para baixar a atualização."};
+static const char * const f2890[] = {"Insira um cartão SD para instalar plugins."};
+static const char * const f2891[] = {"Insira um cartão SD para remover plugins."};
+static const char * const f2892[] = {"Insira um cartão SD para buscar músicas ou desative Buscar músicas."};
+static const char * const f2893[] = {"Insira um cartão SD para atualizar plugins."};
+static const char * const f2894[] = {"Insira o cartão SD com suas músicas. O Compas Player pode analisá-lo e criar sua biblioteca."};
+static const char * const f2895[] = {"Instalar"};
+static const char * const f2896[] = {"Instalar e reiniciar"};
+static const char * const f2897[] = {"Instalar do cartão SD"};
+static const char * const f2898[] = {"Instalado"};
+static const char * const f2899[] = {"Instalado manualmente"};
+static const char * const f2900[] = {"Instalado · %s"};
+static const char * const f2901[] = {"Instalando plugin"};
+static const char * const f2902[] = {"Pasta de download inválida"};
+static const char * const f2903[] = {"Nome de pasta de download inválido"};
+static const char * const f2904[] = {"Nome de perfil inválido"};
+static const char * const f2905[] = {"Não foi possível carregá-lo. Recriar agora?"};
+static const char * const f2906[] = {"Ele pode não ter tabela de partições ou ter um sistema de arquivos que este player não usa. Formatar vai apagá-lo e prepará-lo para este player."};
+static const char * const f2907[] = {"As configurações dele ficam no cartão."};
+static const char * const f2908[] = {"janeiro"};
+static const char * const f2909[] = {"julho"};
+static const char * const f2910[] = {"junho"};
+static const char * const f2911[] = {"Qualidade LDAC"};
+static const char * const f2912[] = {"LDAC padrão"};
+static const char * const f2913[] = {"LED indicador de carga"};
+static const char * const f2914[] = {"Idioma"};
+static const char * const f2915[] = {"Grande"};
+static const char * const f2916[] = {"Depois"};
+static const char * const f2917[] = {"Iniciar com volume fixo"};
+static const char * const f2918[] = {"Layout"};
+static const char * const f2919[] = {"Sair"};
+static const char * const f2920[] = {"Sair do modo DAC Bluetooth?"};
+static const char * const f2921[] = {"Sair do modo DAC USB?"};
+static const char * const f2922[] = {"Saia desta tela e tente de novo."};
+static const char * const f2923[] = {"Biblioteca"};
+static const char * const f2924[] = {"A biblioteca mudou. Abra o álbum de novo."};
+static const char * const f2925[] = {"A biblioteca está ocupada"};
+static const char * const f2926[] = {"Biblioteca carregada"};
+static const char * const f2927[] = {"Biblioteca migrada. Favoritos e histórico mantidos"};
+static const char * const f2928[] = {"Biblioteca migrada. A limpeza do banco antigo será tentada de novo"};
+static const char * const f2929[] = {"Falha na migração da biblioteca. A biblioteca antiga está intacta. Use Configurações > Atualizar banco de dados de música para tentar de novo"};
+static const char * const f2930[] = {"Migração da biblioteca pendente. Favoritos e histórico serão mantidos"};
+static const char * const f2931[] = {"Biblioteca recuperada e salva"};
+static const char * const f2932[] = {"Biblioteca recuperada e salva, mas algumas pastas não puderam ser lidas"};
+static const char * const f2933[] = {"Biblioteca recuperada. Use Configurações > Atualizar banco de dados de música para salvar"};
+static const char * const f2934[] = {"Biblioteca indisponível. Use Configurações > Atualizar banco de dados de música para recriar"};
+static const char * const f2935[] = {"Falha ao atualizar a biblioteca. Verifique o cartão SD e tente de novo"};
+static const char * const f2936[] = {"Biblioteca atualizada"};
+static const char * const f2937[] = {"Biblioteca atualizada, mas algumas pastas não puderam ser lidas"};
+static const char * const f2938[] = {"Carregar capas durante a reprodução (Experimental)"};
+static const char * const f2939[] = {"Carregando configurações de Wi-Fi"};
+static const char * const f2940[] = {"Carregando do servidor..."};
+static const char * const f2941[] = {"Carregando layouts"};
+static const char * const f2942[] = {"Carregando catálogo de plugins…"};
+static const char * const f2943[] = {"Carregando plugins"};
+static const char * const f2944[] = {"Carregando faixas..."};
+static const char * const f2945[] = {"Carregando..."};
+static const char * const f2946[] = {"Local"};
+static const char * const f2947[] = {"Procurando arquivos de música"};
+static const char * const f2948[] = {"Procurando arquivos de música\n%d itens verificados"};
+static const char * const f2949[] = {"Baixa"};
+static const char * const f2950[] = {"Baixo\nAlto"};
+static const char * const f2951[] = {"Baixa (96 kbps)"};
+static const char * const f2952[] = {"Letras"};
+static const char * const f2953[] = {"Tamanho do texto da letra"};
+static const char * const f2954[] = {"Endereço MAC: %s"};
+static const char * const f2955[] = {"Manutenção"};
+static const char * const f2956[] = {"Deixe um acessório visível e toque em Buscar de novo."};
+static const char * const f2957[] = {"Gerencie os plugins depois em Configurações > Sistema > Gerenciador de plugins para pesquisar, atualizar ou remover."};
+static const char * const f2958[] = {"SSID manual"};
+static const char * const f2959[] = {"março"};
+static const char * const f2960[] = {"Combinar com a capa"};
+static const char * const f2961[] = {"maio"};
+static const char * const f2962[] = {"Médio"};
+static const char * const f2963[] = {"Média (192 kbps)"};
+static const char * const f2964[] = {"Redes memorizadas"};
+static const char * const f2965[] = {"Metadados atualizados"};
+static const char * const f2966[] = {"Migrando\nbanco de dados de música..."};
+static const char * const f2967[] = {"segunda-feira"};
+static const char * const f2968[] = {"Mono (1 canal)"};
+static const char * const f2969[] = {"Mais"};
+static const char * const f2970[] = {"Mais tocadas"};
+static const char * const f2971[] = {"Música"};
+static const char * const f2972[] = {"Banco de dados de música indisponível"};
+static const char * const f2973[] = {"Nome (A–Z)"};
+static const char * const f2974[] = {"DSD nativo (DoP) / %.4g MHz"};
+static const char * const f2975[] = {"As redes Wi-Fi próximas aparecerão aqui."};
+static const char * const f2976[] = {"Precisa de firmware mais novo"};
+static const char * const f2977[] = {"Nome da rede (SSID)"};
+static const char * const f2978[] = {"Stream de rede"};
+static const char * const f2979[] = {"As redes às quais você se conectar aparecerão aqui."};
+static const char * const f2980[] = {"Nova conexão"};
+static const char * const f2981[] = {"Novo PIN gerado"};
+static const char * const f2982[] = {"Novo perfil"};
+static const char * const f2983[] = {"Modificados recentemente"};
+static const char * const f2984[] = {"Próxima"};
+static const char * const f2985[] = {"Próxima  •  %d–%d de %d"};
+static const char * const f2986[] = {"Próxima página"};
+static const char * const f2987[] = {"Nenhuma fonte .ttf encontrada em /Fonts"};
+static const char * const f2988[] = {"Nenhum arquivo de firmware .upt no cartão SD"};
+static const char * const f2989[] = {"Sem cartão SD"};
+static const char * const f2990[] = {"Nenhum cartão SD detectado. Você pode fazer a busca depois nas configurações da biblioteca."};
+static const char * const f2991[] = {"Nenhum livro encontrado"};
+static const char * const f2992[] = {"Nenhum item para mostrar"};
+static const char * const f2993[] = {"Nenhum favorito ainda"};
+static const char * const f2994[] = {"Nenhum item"};
+static const char * const f2995[] = {"Nenhuma rede memorizada"};
+static const char * const f2996[] = {"Sem banco de dados de música"};
+static const char * const f2997[] = {"Nenhum dispositivo próximo"};
+static const char * const f2998[] = {"Nenhuma rede detectada"};
+static const char * const f2999[] = {"Nenhuma rede detectada. Conecte-se a uma rede para baixar plugins."};
+static const char * const f3000[] = {"Nenhuma rede encontrada"};
+static const char * const f3001[] = {"Nenhuma outra rede encontrada"};
+static const char * const f3002[] = {"Nenhum dispositivo pareado"};
+static const char * const f3003[] = {"Nenhum arquivo de áudio reproduzível encontrado"};
+static const char * const f3004[] = {"Nenhum arquivo reproduzível aqui"};
+static const char * const f3005[] = {"Nenhuma configuração de plugin disponível"};
+static const char * const f3006[] = {"Nenhum plugin disponível no catálogo."};
+static const char * const f3007[] = {"Nenhum perfil salvo"};
+static const char * const f3008[] = {"Nenhum servidor salvo"};
+static const char * const f3009[] = {"Nenhuma música para atualizar"};
+static const char * const f3010[] = {"Nenhuma letra sincronizada encontrada"};
+static const char * const f3011[] = {"Nenhuma faixa carregada"};
+static const char * const f3012[] = {"Nenhuma faixa encontrada"};
+static const char * const f3013[] = {"Nenhuma playlist do usuário"};
+static const char * const f3014[] = {"Nenhuma atualização verificada neste cartão SD. Baixe de novo."};
+static const char * const f3015[] = {"Não conectado"};
+static const char * const f3016[] = {"Espaço livre insuficiente no cartão SD para a atualização."};
+static const char * const f3017[] = {"Espaço livre insuficiente no cartão SD."};
+static const char * const f3018[] = {"Memória insuficiente para conectar"};
+static const char * const f3019[] = {"Memória insuficiente para carregar faixas CUE"};
+static const char * const f3020[] = {"Memória insuficiente para carregar artistas"};
+static const char * const f3021[] = {"Memória insuficiente para carregar do servidor"};
+static const char * const f3022[] = {"Memória insuficiente para carregar a loja de plugins"};
+static const char * const f3023[] = {"Memória insuficiente para iniciar o download"};
+static const char * const f3024[] = {"Não selecionado (UTC)"};
+static const char * const f3025[] = {"Não definido"};
+static const char * const f3026[] = {"novembro"};
+static const char * const f3027[] = {"OFF"};
+static const char * const f3028[] = {"ON"};
+static const char * const f3029[] = {"outubro"};
+static const char * const f3030[] = {"Desligado"};
+static const char * const f3031[] = {"Ligado"};
+static const char * const f3032[] = {"Abra um livro e toque no ícone de marcador para salvá-lo aqui."};
+static const char * const f3033[] = {"Abra uma pasta com arquivos de áudio compatíveis."};
+static const char * const f3034[] = {"Rede aberta"};
+static const char * const f3035[] = {"Abra este endereço no celular ou computador:"};
+static const char * const f3036[] = {"Aberta · Conectada"};
+static const char * const f3037[] = {"Original"};
+static const char * const f3038[] = {"Saída"};
+static const char * const f3039[] = {"PEQ restaurado ao padrão"};
+static const char * const f3040[] = {"Pacífico"};
+static const char * const f3041[] = {"Pareado"};
+static const char * const f3042[] = {"Dispositivos pareados"};
+static const char * const f3043[] = {"EQ paramétrico"};
+static const char * const f3044[] = {"Senha"};
+static const char * const f3045[] = {"Senha: não definida"};
+static const char * const f3046[] = {"Senha: definida"};
+static const char * const f3047[] = {"Pausado: fones desconectados"};
+static const char * const f3048[] = {"Peaking\nLow Shelf\nHigh Shelf"};
+static const char * const f3049[] = {"Por álbum"};
+static const char * const f3050[] = {"Por faixa"};
+static const char * const f3051[] = {"Coloque fontes .ttf na pasta /Fonts do SD."};
+static const char * const f3052[] = {"Tocar tudo"};
+static const char * const f3053[] = {"Tocar a seguir"};
+static const char * const f3054[] = {"Tocar tudo em aleatório"};
+static const char * const f3055[] = {"Toque um álbum ou playlist para ver as músicas aqui."};
+static const char * const f3056[] = {"Tocar em sequência"};
+static const char * const f3057[] = {"Tocar/Pausar"};
+static const char * const f3058[] = {"Tocar/Pausar + Faixa anterior (clique duplo)"};
+static const char * const f3059[] = {"Botão Tocar/Pausar"};
+static const char * const f3060[] = {"Reprodução e controles"};
+static const char * const f3061[] = {"Ações de reprodução e do aparelho"};
+static const char * const f3062[] = {"Erro de reprodução"};
+static const char * const f3063[] = {"Erro de reprodução: falha na saída de áudio"};
+static const char * const f3064[] = {"Não foi possível salvar o histórico de reprodução"};
+static const char * const f3065[] = {"Reprodução parada: %s"};
+static const char * const f3066[] = {"Tocada"};
+static const char * const f3067[] = {"Layout do player"};
+static const char * const f3068[] = {"Tocando"};
+static const char * const f3069[] = {"Nome da playlist"};
+static const char * const f3070[] = {"A playlist mudou. Selecione uma música de novo."};
+static const char * const f3071[] = {"A playlist mudou. Tente de novo."};
+static const char * const f3072[] = {"Playlist criada"};
+static const char * const f3073[] = {"Playlist excluída"};
+static const char * const f3074[] = {"A playlist está vazia"};
+static const char * const f3075[] = {"Playlist renomeada"};
+static const char * const f3076[] = {"Playlist salva"};
+static const char * const f3077[] = {"Playlist indisponível ou ilegível"};
+static const char * const f3078[] = {"Playlists"};
+static const char * const f3079[] = {"Playlists atualizadas"};
+static const char * const f3080[] = {"Aguarde a instalação dos plugins terminar"};
+static const char * const f3081[] = {"Aguarde a conclusão da busca na biblioteca"};
+static const char * const f3082[] = {"Plugin"};
+static const char * const f3083[] = {"Gerenciar plugins"};
+static const char * const f3084[] = {"Configurações do plugin"};
+static const char * const f3085[] = {"Loja de plugins"};
+static const char * const f3086[] = {"O plugin não está disponível no catálogo"};
+static const char * const f3087[] = {"Falha na operação do plugin"};
+static const char * const f3088[] = {"Configuração de plugins concluída"};
+static const char * const f3089[] = {"A configuração de plugins precisa de atenção"};
+static const char * const f3090[] = {"O armazenamento dos plugins está indisponível."};
+static const char * const f3091[] = {"Plugins"};
+static const char * const f3092[] = {"Posição"};
+static const char * const f3093[] = {"Energia"};
+static const char * const f3094[] = {"Desligar"};
+static const char * const f3095[] = {"Controles de energia"};
+static const char * const f3096[] = {"Desligar"};
+static const char * const f3097[] = {"Pré-amp (dB, -12 a 12)"};
+static const char * const f3098[] = {"Pré-amp: %+.2f dB"};
+static const char * const f3099[] = {"Preparando atualização das capas..."};
+static const char * const f3100[] = {"Preparando migração do banco de dados..."};
+static const char * const f3101[] = {"Preparando atualização dos metadados"};
+static const char * const f3102[] = {"Preparando atualização dos metadados..."};
+static const char * const f3103[] = {"Preparando biblioteca de música..."};
+static const char * const f3104[] = {"Preparando atualização"};
+static const char * const f3105[] = {"Predefinições"};
+static const char * const f3106[] = {"Prévia"};
+static const char * const f3107[] = {"Anterior"};
+static const char * const f3108[] = {"Anterior  •  %d–%d de %d"};
+static const char * const f3109[] = {"Faixa anterior"};
+static const char * const f3110[] = {"Página anterior"};
+static const char * const f3111[] = {"A solicitação anterior ainda está terminando"};
+static const char * const f3112[] = {"Os acessórios conectados antes aparecerão aqui."};
+static const char * const f3113[] = {"DNS primário"};
+static const char * const f3114[] = {"Nome do perfil"};
+static const char * const f3115[] = {"Perfil excluído"};
+static const char * const f3116[] = {"Perfil carregado"};
+static const char * const f3117[] = {"Perfil renomeado"};
+static const char * const f3118[] = {"Perfil salvo"};
+static const char * const f3119[] = {"Perfis"};
+static const char * const f3120[] = {"Provedor"};
+static const char * const f3121[] = {"Fila"};
+static const char * const f3122[] = {"A fila mudou. Tente de novo."};
+static const char * const f3123[] = {"Falha ao salvar a fila; o armazenamento pode estar somente leitura"};
+static const char * const f3124[] = {"Fila limpa"};
+static const char * const f3125[] = {"A fila está vazia"};
+static const char * const f3126[] = {"Fila pronta. Toque em Play para começar."};
+static const char * const f3127[] = {"Na fila"};
+static const char * const f3128[] = {"Configuração rápida concluída"};
+static const char * const f3129[] = {"Configuração rápida"};
+static const char * const f3130[] = {"RC"};
+static const char * const f3131[] = {"Rádio"};
+static const char * const f3132[] = {"Rádio / %s"};
+static const char * const f3133[] = {"Lendo taxas compatíveis..."};
+static const char * const f3134[] = {"Lendo tags\n%d de %d músicas (%d%%)"};
+static const char * const f3135[] = {"Lê as tags de todas as músicas de novo. Isso pode demorar."};
+static const char * const f3136[] = {"Recriar"};
+static const char * const f3137[] = {"Adicionadas recentemente"};
+static const char * const f3138[] = {"Tocadas recentemente"};
+static const char * const f3139[] = {"Atualizar"};
+static const char * const f3140[] = {"Atualizar todas as capas"};
+static const char * const f3141[] = {"Atualizar todos os metadados"};
+static const char * const f3142[] = {"Atualizar plugins"};
+static const char * const f3143[] = {"Atualizar todas as capas?"};
+static const char * const f3144[] = {"Atualizar todos os metadados?"};
+static const char * const f3145[] = {"Atualizar metadados"};
+static const char * const f3146[] = {"Atualizar catálogo de plugins"};
+static const char * const f3147[] = {"Atualize o banco de dados de música para atualizar esta lista."};
+static const char * const f3148[] = {"Atualizando\ntodas as capas..."};
+static const char * const f3149[] = {"Atualizando\ntodos os metadados..."};
+static const char * const f3150[] = {"Atualizando\nmetadados..."};
+static const char * const f3151[] = {"Atualizando capas"};
+static const char * const f3152[] = {"Atualizando capas\n%d de %d (%d%%)"};
+static const char * const f3153[] = {"Atualizando plugins..."};
+static const char * const f3154[] = {"Ano de lançamento (mais antigo primeiro)"};
+static const char * const f3155[] = {"Recarregar capa"};
+static const char * const f3156[] = {"Recarregando\ncapa..."};
+static const char * const f3157[] = {"Recarregando capa"};
+static const char * const f3158[] = {"Recarregando capa\n%d de %d (%d%%)"};
+static const char * const f3159[] = {"Remoto"};
+static const char * const f3160[] = {"Controle remoto"};
+static const char * const f3161[] = {"Remover"};
+static const char * const f3162[] = {"Remover %s?"};
+static const char * const f3163[] = {"Removido"};
+static const char * const f3164[] = {"Removida da playlist"};
+static const char * const f3165[] = {"Removida da fila"};
+static const char * const f3166[] = {"Remove as capas salvas e as extrai de novo. Isso pode demorar."};
+static const char * const f3167[] = {"Removendo plugin"};
+static const char * const f3168[] = {"Renomear playlist"};
+static const char * const f3169[] = {"Renomear perfil"};
+static const char * const f3170[] = {"Substituir"};
+static const char * const f3171[] = {"Substituir existente"};
+static const char * const f3172[] = {"Substituir perfil"};
+static const char * const f3173[] = {"ReplayGain"};
+static const char * const f3174[] = {"Buscar novamente"};
+static const char * const f3175[] = {"Restaurar"};
+static const char * const f3176[] = {"Restaurar o PEQ ao padrão?"};
+static const char * const f3177[] = {"Restaurar todas as configurações e reiniciar?"};
+static const char * const f3178[] = {"Restaurar padrão"};
+static const char * const f3179[] = {"Reiniciar"};
+static const char * const f3180[] = {"Reiniciar agora"};
+static const char * const f3181[] = {"Reiniciar agora para aplicar o novo nome do host?"};
+static const char * const f3182[] = {"Retomar última faixa"};
+static const char * const f3183[] = {"Retomar e tocar"};
+static const char * const f3184[] = {"Retoma a reprodução quando a energia externa liga o player."};
+static const char * const f3185[] = {"Retomar pausado"};
+static const char * const f3186[] = {"Tentando novamente os plugins %zu/%zu"};
+static const char * const f3187[] = {"Cartão SD verificado"};
+static const char * const f3188[] = {"Não foi possível ler o cartão SD"};
+static const char * const f3189[] = {"Falha ao formatar o cartão SD"};
+static const char * const f3190[] = {"Cartão SD formatado"};
+static const char * const f3191[] = {"O cartão SD está somente leitura. Verifique em um computador"};
+static const char * const f3192[] = {"O cartão SD continua somente leitura"};
+static const char * const f3193[] = {"O cartão SD pode ter erros. Verifique em um computador"};
+static const char * const f3194[] = {"Cartão SD indisponível"};
+static const char * const f3195[] = {"O reparo do cartão SD ainda está em andamento"};
+static const char * const f3196[] = {"Cartão SD reparado"};
+static const char * const f3197[] = {"SSID: %s"};
+static const char * const f3198[] = {"Carga segura (500mA)"};
+static const char * const f3199[] = {"Taxa de amostragem"};
+static const char * const f3200[] = {"sábado"};
+static const char * const f3201[] = {"Salvar"};
+static const char * const f3202[] = {"Salvar perfil"};
+static const char * const f3203[] = {"Salvar perfil como"};
+static const char * const f3204[] = {"Salvar fila como playlist"};
+static const char * const f3205[] = {"Salvar como playlist"};
+static const char * const f3206[] = {"Salvar como novo perfil ou substituir um existente?"};
+static const char * const f3207[] = {"Servidores salvos"};
+static const char * const f3208[] = {"Rede salva"};
+static const char * const f3209[] = {"Os detalhes das redes salvas estão sendo verificados."};
+static const char * const f3210[] = {"Salvando banco de dados de música"};
+static const char * const f3211[] = {"Salvando banco de dados de música\nIsso pode demorar em bibliotecas grandes"};
+static const char * const f3212[] = {"Salvando playlist..."};
+static const char * const f3213[] = {"Buscar músicas"};
+static const char * const f3214[] = {"Escaneie com o celular para apoiar o Compás Player no PayPal"};
+static const char * const f3215[] = {"Buscando redes"};
+static const char * const f3216[] = {"Escurecer a tela"};
+static const char * const f3217[] = {"Tempo de tela ligada"};
+static const char * const f3218[] = {"Tela off"};
+static const char * const f3219[] = {"Falha na captura (%s)"};
+static const char * const f3220[] = {"Falha na captura (framebuffer)"};
+static const char * const f3221[] = {"Falha na captura (processo)"};
+static const char * const f3222[] = {"A captura precisa de um cartão SD"};
+static const char * const f3223[] = {"Captura salva"};
+static const char * const f3224[] = {"Capturas (Power + Anterior)"};
+static const char * const f3225[] = {"Capturas (Power + Vol -)"};
+static const char * const f3226[] = {"Capturas indisponíveis"};
+static const char * const f3227[] = {"DNS secundário"};
+static const char * const f3228[] = {"Falha na conexão segura. Verifique o Wi-Fi e a data e hora."};
+static const char * const f3229[] = {"Rede protegida"};
+static const char * const f3230[] = {"Protegida · Conectada"};
+static const char * const f3231[] = {"Selecione pelo menos um plugin para continuar."};
+static const char * const f3232[] = {"Os plugins selecionados estão prontos.\n"};
+static const char * const f3233[] = {"setembro"};
+static const char * const f3234[] = {"URL do servidor (ex.: %s)"};
+static const char * const f3235[] = {"URL do servidor: %s"};
+static const char * const f3236[] = {"A solicitação ao servidor expirou após 30 segundos"};
+static const char * const f3237[] = {"O serviço está ocupado"};
+static const char * const f3238[] = {"Ajustar hora"};
+static const char * const f3239[] = {"Defina seu fuso horário local para acertar o relógio."};
+static const char * const f3240[] = {"Configurações"};
+static const char * const f3241[] = {"Mostrar tempo restante"};
+static const char * const f3242[] = {"Mostrando as primeiras %d de %d músicas"};
+static const char * const f3243[] = {"Aleatório a partir de uma música"};
+static const char * const f3244[] = {"Sinal: %s"};
+static const char * const f3245[] = {"Pular por enquanto"};
+static const char * const f3246[] = {"Ignorada: %s"};
+static const char * const f3247[] = {"Sono"};
+static const char * const f3248[] = {"Timer de sono"};
+static const char * const f3249[] = {"Timer de sono"};
+static const char * const f3250[] = {"Timer de sono: %d min restantes"};
+static const char * const f3251[] = {"Timer de sono: desligado"};
+static const char * const f3252[] = {"Pequeno"};
+static const char * const f3253[] = {"Algumas capas não puderam ser atualizadas"};
+static const char * const f3254[] = {"Algumas playlists não puderam ser lidas"};
+static const char * const f3255[] = {"Alguns arquivos de plugin foram alterados no cartão. Substituí-los?"};
+static const char * const f3256[] = {"Algumas músicas não puderam ser lidas"};
+static const char * const f3257[] = {"Algumas atualizações precisam de confirmação antes de substituir arquivos locais."};
+static const char * const f3258[] = {"Música já adicionada"};
+static const char * const f3259[] = {"Música excluída"};
+static const char * const f3260[] = {"Músicas"};
+static const char * const f3261[] = {"Ordenação"};
+static const char * const f3262[] = {"Som"};
+static const char * const f3263[] = {"Efeitos de som"};
+static const char * const f3264[] = {"Origem"};
+static const char * const f3265[] = {"Reamostragem Speex"};
+static const char * const f3266[] = {"Iniciar em sequência"};
+static const char * const f3267[] = {"Comece com estas sugestões ou explore outros plugins."};
+static const char * const f3268[] = {"Volume inicial"};
+static const char * const f3269[] = {"Etapa %d de %d"};
+static const char * const f3270[] = {"Estéreo (2 canais)"};
+static const char * const f3271[] = {"Ainda aplicando a escolha anterior"};
+static const char * const f3272[] = {"Armazenamento"};
+static const char * const f3273[] = {"Streaming"};
+static const char * const f3274[] = {"Qualidade do stream"};
+static const char * const f3275[] = {"Qualidade do stream: %s"};
+static const char * const f3276[] = {"A subpasta é relativa à raiz do SD (exemplo: Music/Offline); vazio usa a raiz do SD"};
+static const char * const f3277[] = {"Subpasta: raiz do SD"};
+static const char * const f3278[] = {"Subsonic"};
+static const char * const f3279[] = {"domingo"};
+static const char * const f3280[] = {"Suspender na RAM"};
+static const char * const f3281[] = {"Deslizar para cima para o Início"};
+static const char * const f3282[] = {"Deslize para cima para desbloquear"};
+static const char * const f3283[] = {"Sistema"};
+static const char * const f3284[] = {"Playlists do sistema"};
+static const char * const f3285[] = {"Usa a cor da capa da faixa em reprodução"};
+static const char * const f3286[] = {"Toque em Desligar de novo para confirmar"};
+static const char * const f3287[] = {"Toque em Reiniciar de novo para confirmar"};
+static const char * const f3288[] = {"O cartão SD mudou durante o download."};
+static const char * const f3289[] = {"O cartão SD mudou durante a operação."};
+static const char * const f3290[] = {"O cartão SD está somente para leitura. Verifique a proteção contra gravação."};
+static const char * const f3291[] = {"O download não foi concluído. Verifique o Wi-Fi e tente de novo."};
+static const char * const f3292[] = {"A imagem baixada falhou na verificação e foi excluída."};
+static const char * const f3293[] = {"O arquivo da playlist será excluído. Os arquivos de música são mantidos."};
+static const char * const f3294[] = {"O download do plugin falhou na verificação. Tente de novo."};
+static const char * const f3295[] = {"A rápida raposa marrom salta 123"};
+static const char * const f3296[] = {"A versão não tem checksum para a imagem deste aparelho."};
+static const char * const f3297[] = {"O arquivo de atualização no cartão SD mudou. Baixe de novo."};
+static const char * const f3298[] = {"Não há itens nesta tela."};
+static const char * const f3299[] = {"Este aparelho agora é uma placa de som USB"};
+static const char * const f3300[] = {"Este aparelho está recebendo áudio Bluetooth"};
+static const char * const f3301[] = {"Isso pode demorar"};
+static const char * const f3302[] = {"Isso apaga tudo no cartão de forma permanente. Não é possível desfazer."};
+static const char * const f3303[] = {"Este plugin não tem atualização disponível."};
+static const char * const f3304[] = {"Este plugin já foi instalado pela loja."};
+static const char * const f3305[] = {"Este plugin não foi instalado pela loja."};
+static const char * const f3306[] = {"Este plugin precisa de uma versão mais nova do player."};
+static const char * const f3307[] = {"A imagem desta versão não corresponde aos checksums. Tente de novo após a próxima versão semanal."};
+static const char * const f3308[] = {"Falha ao iniciar a thread"};
+static const char * const f3309[] = {"quinta-feira"};
+static const char * const f3310[] = {"Fuso horário"};
+static const char * const f3311[] = {"Tempo restante: %d:%02d"};
+static const char * const f3312[] = {"Tempo restante: %d:%02d:%02d"};
+static const char * const f3313[] = {"Fuso horário"};
+static const char * const f3314[] = {"Canais de áudio demais"};
+static const char * const f3315[] = {"Há plugins instalados demais. Remova um e tente de novo."};
+static const char * const f3316[] = {"Faixa"};
+static const char * const f3317[] = {"Faixa %+.1f dB"};
+static const char * const f3318[] = {"Faixa %d"};
+static const char * const f3319[] = {"Os detalhes da faixa ainda não estão disponíveis. Mantenha a reprodução aberta e verifique de novo."};
+static const char * const f3320[] = {"Faixas"};
+static const char * const f3321[] = {"terça-feira"};
+static const char * const f3322[] = {"Desligue e ligue o Bluetooth para aplicar"};
+static const char * const f3323[] = {"Desligue o ADB primeiro (Configurações > Sistema > Modo USB) e ative o DAC USB aqui."};
+static const char * const f3324[] = {"Desligue o Automático para ajustar o relógio"};
+static const char * const f3325[] = {"Desligue o DAC Bluetooth para tocar música neste aparelho"};
+static const char * const f3326[] = {"Desligar a tela automaticamente"};
+static const char * const f3327[] = {"Ligue o Bluetooth para ver os dispositivos pareados e próximos."};
+static const char * const f3328[] = {"Ligue o Wi-Fi e conecte primeiro"};
+static const char * const f3329[] = {"Ligue isto para ver o endereço aqui."};
+static const char * const f3330[] = {"DAC USB"};
+static const char * const f3331[] = {"Modo DAC USB"};
+static const char * const f3332[] = {"Modo USB"};
+static const char * const f3333[] = {"Dispositivo de áudio USB detectado"};
+static const char * const f3334[] = {"Entrada USB: %s · %u-bit"};
+static const char * const f3335[] = {"Modo USB"};
+static const char * const f3336[] = {"Não foi possível carregar os itens"};
+static const char * const f3337[] = {"Não foi possível ler a pasta (toque em Voltar e tente de novo)"};
+static const char * const f3338[] = {"Indisponível"};
+static const char * const f3339[] = {"Resposta inesperada da biblioteca"};
+static const char * const f3340[] = {"Resposta inesperada do GitHub"};
+static const char * const f3341[] = {"Resposta inesperada do GitHub."};
+static const char * const f3342[] = {"Álbum desconhecido"};
+static const char * const f3343[] = {"Artista desconhecido"};
+static const char * const f3344[] = {"Codec desconhecido"};
+static const char * const f3345[] = {"Formato desconhecido"};
+static const char * const f3346[] = {"Taxa desconhecida"};
+static const char * const f3347[] = {"Formato de áudio não compatível"};
+static const char * const f3348[] = {"Atualizar"};
+static const char * const f3349[] = {"Atualizar e reiniciar"};
+static const char * const f3350[] = {"Atualizar tudo"};
+static const char * const f3351[] = {"Atualizar banco de dados de música"};
+static const char * const f3352[] = {"Atualize o banco de dados de música para ativar esta ordem de álbuns"};
+static const char * const f3353[] = {"Atualização disponível"};
+static const char * const f3354[] = {"Atualização disponível · %s"};
+static const char * const f3355[] = {"Atualizar individualmente"};
+static const char * const f3356[] = {"Atualizar banco de dados de música?"};
+static const char * const f3357[] = {"Atualize estes plugins individualmente"};
+static const char * const f3358[] = {"Atualizar com %s?\nO aparelho vai reiniciar no modo de recuperação."};
+static const char * const f3359[] = {"Atualizações"};
+static const char * const f3360[] = {"Atualizando\nbanco de dados de música..."};
+static const char * const f3361[] = {"Atualizando plugins"};
+static const char * const f3362[] = {"Tela de cabeça para baixo"};
+static const char * const f3363[] = {"Use Configurações > Atualizar banco de dados de música"};
+static const char * const f3364[] = {"Playlists do usuário"};
+static const char * const f3365[] = {"Usuário"};
+static const char * const f3366[] = {"Usuário: %s"};
+static const char * const f3367[] = {"Verificar certificado do servidor"};
+static const char * const f3368[] = {"Versão %s · %s"};
+static const char * const f3369[] = {"Aguardando stream Bluetooth..."};
+static const char * const f3370[] = {"Aguardando áudio USB..."};
+static const char * const f3371[] = {"Fraco"};
+static const char * const f3372[] = {"O servidor web está ocupado"};
+static const char * const f3373[] = {"quarta-feira"};
+static const char * const f3374[] = {"O Weekly Beta %s está disponível.\nInstalado: %s\n\nBaixar agora? Isso pode demorar."};
+static const char * const f3375[] = {"O Weekly Beta %s foi baixado e verificado.\n\nInstalar agora? O aparelho reinicia na recuperação para gravá-lo. Não o desligue até ele reiniciar."};
+static const char * const f3376[] = {"Boas-vindas ao Compás"};
+static const char * const f3377[] = {"Quando ligado, este aparelho fica visível para emissores AirPlay na sua rede Wi-Fi -- envie áudio de um iPhone, iPad ou Mac para tocar pela saída do próprio aparelho."};
+static const char * const f3378[] = {"Quando ligado, este aparelho fica visível para apps controladores DLNA/UPnP na sua rede Wi-Fi -- envie uma faixa de um deles para tocá-la aqui. Pausar, silenciar, volume e avançar pelo app controlador não são compatíveis; use os controles do próprio aparelho depois que a faixa começar."};
+static const char * const f3379[] = {"Quando ligado, este aparelho fica visível e pode ser pareado por outros dispositivos Bluetooth, para que um celular ou computador envie áudio PARA ele e toque pela saída do próprio aparelho -- usando-o como DAC externo."};
+static const char * const f3380[] = {"Wi-Fi"};
+static const char * const f3381[] = {"Info do Wi-Fi"};
+static const char * const f3382[] = {"Senha do Wi-Fi"};
+static const char * const f3383[] = {"O Wi-Fi não conseguiu mudar de estado"};
+static const char * const f3384[] = {"O Wi-Fi está ocupado"};
+static const char * const f3385[] = {"Sem fio"};
+static const char * const f3386[] = {"Você pode selecionar até 32 plugins"};
+static const char * const f3387[] = {"Você tem a versão semanal mais recente (%s).\n\nBaixar e reinstalar mesmo assim? Isso pode demorar."};
+static const char * const f3388[] = {"Sua biblioteca está sendo carregada."};
+static const char * const f3389[] = {"Sua música"};
+static const char * const f3390[] = {"Seu roteiro de configuração"};
+static const char * const f3391[] = {"[Arquivo truncado em %d KB -- mostrando só o início]\n\n%s"};
+static const char * const f3392[] = {"desconhecido"};
 
 static const i18n_entry_t entries_pt_BR[] = {
-    {"%.0f Hz", f2548, 1},
-    {"%d hr", f2549, 1},
-    {"%d hr %d min", f2550, 1},
-    {"%d min", f2551, 1},
-    {"%d min remaining", f2552, 1},
-    {"%d song", f2553, 2},
-    {"%d track", f2554, 2},
-    {"%dm", f2555, 1},
-    {"%lld track", f2556, 2},
-    {"%llu bytes", f2557, 1},
-    {"%s (current)", f2558, 1},
-    {"%s · Not loaded", f2559, 1},
-    {"%s · Not loaded: limit reached", f2560, 1},
-    {"%u channels", f2561, 1},
-    {"+ New Playlist", f2562, 1},
-    {"24-Hour Clock", f2563, 1},
-    {"48 kHz reference", f2564, 1},
-    {"A local plugin file will be replaced. Confirm to continue.", f2565, 1},
-    {"A plugin download failed verification. Try again.", f2566, 1},
-    {"A plugin operation is already in progress", f2567, 1},
-    {"ADB", f2568, 1},
-    {"About", f2569, 1},
-    {"Accent Color", f2570, 1},
-    {"Add .txt files to the Books folder, then refresh the library.", f2571, 1},
-    {"Add a random song to queue", f2572, 1},
-    {"Add album to queue", f2573, 1},
-    {"Add hidden network", f2574, 1},
-    {"Add songs from a song menu.", f2575, 1},
-    {"Add to Playlist", f2576, 1},
-    {"Add to Queue", f2577, 1},
-    {"Added %d song to queue", f2578, 2},
-    {"Added to playlist", f2579, 1},
-    {"Additional Tools", f2580, 1},
-    {"Advanced", f2581, 1},
-    {"Africa", f2582, 1},
-    {"AirPlay", f2583, 1},
-    {"AirPlay stopped unexpectedly", f2584, 1},
-    {"Album %+.1f dB", f2585, 1},
-    {"Album Artist", f2586, 1},
-    {"Album Artist - Album", f2587, 1},
-    {"Album Artist / Album", f2588, 1},
-    {"Album unavailable", f2589, 1},
-    {"Albums", f2590, 1},
-    {"Albums (main list)", f2591, 1},
-    {"All Songs", f2592, 1},
-    {"All visible networks are already saved.", f2593, 1},
-    {"Already installed", f2594, 1},
-    {"America", f2595, 1},
-    {"An update is already in progress", f2596, 1},
-    {"An update is already in progress.", f2597, 1},
-    {"Animation Speed", f2598, 1},
-    {"Antarctica", f2599, 1},
-    {"Appearance", f2600, 1},
-    {"Applied %+.1f dB", f2601, 1},
-    {"Applies immediately", f2602, 1},
-    {"Applies next time you launch the app", f2603, 1},
-    {"Applies to new streaming queues", f2604, 1},
-    {"Applying language, this may take a while", f2605, 1},
-    {"Applying layout, this may take a while", f2606, 1},
-    {"Apps and browsers using the current PIN will need the new one to reconnect.", f2607, 1},
-    {"April", f2608, 1},
-    {"Arctic", f2609, 1},
-    {"Artist Images", f2610, 1},
-    {"Artists", f2611, 1},
-    {"Asia", f2612, 1},
-    {"Atlantic", f2613, 1},
-    {"Audio", f2614, 1},
-    {"Audio could not be decoded", f2615, 1},
-    {"Audio output failed", f2616, 1},
-    {"August", f2617, 1},
-    {"Australia", f2618, 1},
-    {"Auto", f2619, 1},
-    {"Auto-resume", f2620, 1},
-    {"Automatic", f2621, 1},
-    {"Automatic (44.1 kHz)", f2622, 1},
-    {"Automatically go idle", f2623, 1},
-    {"Available", f2624, 1},
-    {"Available Devices", f2625, 1},
-    {"Available Networks", f2626, 1},
-    {"Available · %s", f2627, 1},
-    {"Back", f2628, 1},
-    {"Band %d / %d", f2629, 1},
-    {"Band options", f2630, 1},
-    {"Battery Percentage", f2631, 1},
-    {"Bitrate", f2632, 1},
-    {"Bluetooth", f2633, 1},
-    {"Bluetooth DAC", f2634, 1},
-    {"Bluetooth DAC mode", f2635, 1},
-    {"Bluetooth Volume Sync", f2636, 1},
-    {"Bluetooth is off", f2637, 1},
-    {"Bluetooth remote service is starting…", f2638, 1},
-    {"Bluetooth remote service is unavailable; retrying.", f2639, 1},
-    {"Bluetooth: Compas Remote Control", f2640, 1},
-    {"Bluetooth: registration failed; retrying", f2641, 1},
-    {"Bluetooth: waiting for service registration", f2642, 1},
-    {"Books", f2643, 1},
-    {"Books refreshed", f2644, 1},
-    {"Build", f2645, 1},
-    {"Build it now? Large libraries can take several minutes.", f2646, 1},
-    {"Buttons & Remote", f2647, 1},
-    {"Buy Me a Coffee", f2648, 1},
-    {"By %s", f2649, 1},
-    {"Cancel", f2650, 1},
-    {"Cannot check plugin storage write access.", f2651, 1},
-    {"Cannot delete playlist", f2652, 1},
-    {"Cannot load album tracks", f2653, 1},
-    {"Cannot move this entry", f2654, 1},
-    {"Cannot play folder", f2655, 1},
-    {"Cannot reach GitHub. Check the Wi-Fi connection.", f2656, 1},
-    {"Cannot read playlist", f2657, 1},
-    {"Cannot read the SD card.", f2658, 1},
-    {"Cannot read the update file on the SD card. Check the card and try again.", f2659, 1},
-    {"Cannot read the update record on the SD card. Check the card and try again.", f2660, 1},
-    {"Cannot read update helper status: %s", f2661, 1},
-    {"Cannot remove entry", f2662, 1},
-    {"Cannot rename: invalid name or file exists", f2663, 1},
-    {"Cannot reorder playlist", f2664, 1},
-    {"Cannot save playlist", f2665, 1},
-    {"Cannot save: invalid or streaming entries", f2666, 1},
-    {"Cannot start queue", f2667, 1},
-    {"Car Mode", f2668, 1},
-    {"Car Mode Volume", f2669, 1},
-    {"Car Mode is disabled.", f2670, 1},
-    {"Channels", f2671, 1},
-    {"Charge Limit (85%)", f2672, 1},
-    {"Charge to at least %d%% or connect power before updating.", f2673, 1},
-    {"Charge to at least 30%% or connect power before updating.", f2674, 1},
-    {"Charging", f2675, 1},
-    {"Check for online update", f2676, 1},
-    {"Check that Wi-Fi is enabled, then rescan.", f2677, 1},
-    {"Checking for updates", f2678, 1},
-    {"Checking the SD card. This may take a while", f2679, 1},
-    {"Checking the file on the SD card", f2680, 1},
-    {"Choose a language", f2681, 1},
-    {"Choose plugins", f2682, 1},
-    {"Choose the language for your player.", f2683, 1},
-    {"Choose time zone", f2684, 1},
-    {"Choose what happens when idle:", f2685, 1},
-    {"Clear Queue", f2686, 1},
-    {"Clock", f2687, 1},
-    {"Close", f2688, 1},
-    {"Closing\nWeb Server...", f2689, 1},
-    {"Codec", f2690, 1},
-    {"Combined response (dB)", f2691, 1},
-    {"Combined response (dB) · EQ off", f2692, 1},
-    {"Compás Player", f2693, 1},
-    {"Connect", f2694, 1},
-    {"Connect & Browse", f2695, 1},
-    {"Connect a device to see its supported rates", f2696, 1},
-    {"Connect over Wi-Fi or Bluetooth to see what's playing, control playback, and browse your library. Enter this PIN when the app or browser asks for it; Bluetooth also requires pairing.", f2697, 1},
-    {"Connect to Wi-Fi", f2698, 1},
-    {"Connect to Wi-Fi first", f2699, 1},
-    {"Connect to Wi-Fi for streaming, updates, and online services.", f2700, 1},
-    {"Connect to a Wi-Fi network before continuing.", f2701, 1},
-    {"Connect to a network to download plugins.", f2702, 1},
-    {"Connect using either available route:", f2703, 1},
-    {"Connected", f2704, 1},
-    {"Connecting", f2705, 1},
-    {"Connecting to", f2706, 1},
-    {"Connecting to server...", f2707, 1},
-    {"Connection PIN", f2708, 1},
-    {"Connection failed", f2709, 1},
-    {"Connection timed out after 30 seconds", f2710, 1},
-    {"Container", f2711, 1},
-    {"Continue", f2712, 1},
-    {"Continue setup", f2713, 1},
-    {"Could not apply font size", f2714, 1},
-    {"Could not apply lyrics text size", f2715, 1},
-    {"Could not download the release checksums.", f2716, 1},
-    {"Could not enter recovery mode.", f2717, 1},
-    {"Could not generate a new PIN", f2718, 1},
-    {"Could not install a plugin on the SD card.", f2719, 1},
-    {"Could not install the plugin on the SD card.", f2720, 1},
-    {"Could not load lock screen photo", f2721, 1},
-    {"Could not load the plugin catalog.", f2722, 1},
-    {"Could not load the plugin catalog. Tap More to retry.", f2723, 1},
-    {"Could not move other .upt files aside on the SD card.", f2724, 1},
-    {"Could not open this file.", f2725, 1},
-    {"Could not place the update on the SD card.", f2726, 1},
-    {"Could not prepare plugin removal.", f2727, 1},
-    {"Could not prepare update helper: %s", f2728, 1},
-    {"Could not read installed plugins.", f2729, 1},
-    {"Could not read the Books folder", f2730, 1},
-    {"Could not read the plugin list from GitHub.", f2731, 1},
-    {"Could not read the release list from GitHub.", f2732, 1},
-    {"Could not record the verified update on the SD card.", f2733, 1},
-    {"Could not refresh books", f2734, 1},
-    {"Could not reload cover", f2735, 1},
-    {"Could not remove a plugin file.", f2736, 1},
-    {"Could not repair the SD card", f2737, 1},
-    {"Could not save Bluetooth codec", f2738, 1},
-    {"Could not start USB mode switch", f2739, 1},
-    {"Could not start refreshing the plugin catalog.", f2740, 1},
-    {"Could not start the download", f2741, 1},
-    {"Could not start the download.", f2742, 1},
-    {"Could not start the installation.", f2743, 1},
-    {"Could not start the library scan. Please try again.", f2744, 1},
-    {"Could not start the plugin operation", f2745, 1},
-    {"Could not start the plugin operation.", f2746, 1},
-    {"Could not start the plugin refresh", f2747, 1},
-    {"Could not start the plugin refresh.", f2748, 1},
-    {"Could not start the plugin update.", f2749, 1},
-    {"Could not start the update check.", f2750, 1},
-    {"Could not start update helper: %s", f2751, 1},
-    {"Could not update the installed plugin record.", f2752, 1},
-    {"Couldn't connect to Wi-Fi network", f2753, 1},
-    {"Couldn't read this .cue file", f2754, 1},
-    {"Couldn't save -- plugin change was not applied", f2755, 1},
-    {"Cover reloaded", f2756, 1},
-    {"Covers refreshed", f2757, 1},
-    {"Create a playlist above or copy one to the SD card's Playlists folder.", f2758, 1},
-    {"Crossfade", f2759, 1},
-    {"Custom", f2760, 1},
-    {"Custom color", f2761, 1},
-    {"Custom fonts affect Latin text only.", f2762, 1},
-    {"DAC", f2763, 1},
-    {"DAC path: %s · %u-bit", f2764, 1},
-    {"DLNA", f2765, 1},
-    {"DLNA Renderer", f2766, 1},
-    {"DNS Settings", f2767, 1},
-    {"December", f2768, 1},
-    {"Default (Built-in)", f2769, 1},
-    {"Delete", f2770, 1},
-    {"Delete %s?\nThis cannot be undone.", f2771, 1},
-    {"Delete Playlist", f2772, 1},
-    {"Delete playlist?", f2773, 1},
-    {"Delete this profile?", f2774, 1},
-    {"Developer Options", f2775, 1},
-    {"Dim screen before timeout", f2776, 1},
-    {"Disc %d", f2777, 1},
-    {"Disc %d / Track %d", f2778, 1},
-    {"Disconnect", f2779, 1},
-    {"Disconnect USB storage first", f2780, 1},
-    {"Disconnect USB storage from the host before changing plugins.", f2781, 1},
-    {"Dismiss", f2782, 1},
-    {"Display", f2783, 1},
-    {"Done", f2784, 1},
-    {"Download", f2785, 1},
-    {"Download \"%s\"?", f2786, 1},
-    {"Download Profiles", f2787, 1},
-    {"Download Settings", f2788, 1},
-    {"Download every album from \"%s\"?", f2789, 1},
-    {"Download failed", f2790, 1},
-    {"Download folder: %s", f2791, 1},
-    {"Download folder: SD root", f2792, 1},
-    {"Download profiles", f2793, 1},
-    {"Download settings", f2794, 1},
-    {"Download subfolder", f2795, 1},
-    {"Downloading", f2796, 1},
-    {"Downloading\n%s...", f2797, 1},
-    {"Downloading and installing plugins %zu/%zu", f2798, 1},
-    {"Downloading update", f2799, 1},
-    {"Drawer Volume Slider", f2800, 1},
-    {"Duration", f2801, 1},
-    {"EQ", f2802, 1},
-    {"EQ curve", f2803, 1},
-    {"Edit", f2804, 1},
-    {"Edit / Done", f2805, 1},
-    {"Enable Bluetooth DAC", f2806, 1},
-    {"Enable Bluetooth in settings to use BT DAC mode", f2807, 1},
-    {"Enable Sleep Timer", f2808, 1},
-    {"Enable Wi-Fi or Bluetooth to connect.", f2809, 1},
-    {"Enable WiFi to access", f2810, 1},
-    {"Enable band", f2811, 1},
-    {"Enable debug logging", f2812, 1},
-    {"Equalizer", f2813, 1},
-    {"Erase and format SD card?", f2814, 1},
-    {"Europe", f2815, 1},
-    {"Excellent", f2816, 1},
-    {"Exit USB DAC mode to play music on this device", f2817, 1},
-    {"Factory Reset", f2818, 1},
-    {"Failed plugins:\n", f2819, 1},
-    {"Failed to add to playlist", f2820, 1},
-    {"Failed to apply time zone", f2821, 1},
-    {"Failed to connect to server", f2822, 1},
-    {"Failed to create playlist", f2823, 1},
-    {"Failed to delete profile", f2824, 1},
-    {"Failed to enable AirPlay", f2825, 1},
-    {"Failed to load artists", f2826, 1},
-    {"Failed to load artists: %s", f2827, 1},
-    {"Failed to load font. Check format & memory.", f2828, 1},
-    {"Failed to load from server", f2829, 1},
-    {"Failed to load profile", f2830, 1},
-    {"Failed to rename profile", f2831, 1},
-    {"Failed to save profile", f2832, 1},
-    {"Failed to start connection", f2833, 1},
-    {"Failed to switch to %s", f2834, 1},
-    {"Failed to toggle Bluetooth", f2835, 1},
-    {"Fair", f2836, 1},
-    {"Favorites", f2837, 1},
-    {"February", f2838, 1},
-    {"File size", f2839, 1},
-    {"File unavailable", f2840, 1},
-    {"Files", f2841, 1},
-    {"Files (folders stay first)", f2842, 1},
-    {"Files on the card may have changed.", f2843, 1},
-    {"Files use modification dates. Albums use the newest track added; missing release years sort last. Update Music Database once to read years from existing files.", f2844, 1},
-    {"Filter type", f2845, 1},
-    {"Firmware Update", f2846, 1},
-    {"Flat", f2847, 1},
-    {"Folder layout for downloaded albums", f2848, 1},
-    {"Folder too large to index (tap Back)", f2849, 1},
-    {"Font", f2850, 1},
-    {"Font Size", f2851, 1},
-    {"Font selection is no longer available", f2852, 1},
-    {"Forget", f2853, 1},
-    {"Format", f2854, 1},
-    {"Format SD Card", f2855, 1},
-    {"Formatting\nSD Card...", f2856, 1},
-    {"Frequency", f2857, 1},
-    {"Frequency (Hz, 20 to 20000)", f2858, 1},
-    {"Friday", f2859, 1},
-    {"From album art", f2860, 1},
-    {"From album art (no cover, using custom)", f2861, 1},
-    {"Gain", f2862, 1},
-    {"Gain (dB, -12 to 12)", f2863, 1},
-    {"Gapless", f2864, 1},
-    {"Gateway: %s", f2865, 1},
-    {"Generate", f2866, 1},
-    {"Generate a new PIN?", f2867, 1},
-    {"Genres", f2868, 1},
-    {"Gestures & Orientation", f2869, 1},
-    {"Get started", f2870, 1},
-    {"GitHub did not respond in time. Try again.", f2871, 1},
-    {"GitHub is limiting requests. Try again later.", f2872, 1},
-    {"GitHub returned HTTP %d.", f2873, 1},
-    {"Go back and choose New Connection to add one.", f2874, 1},
-    {"Good", f2875, 1},
-    {"Headset may disconnect, manual reconnection might be required", f2876, 1},
-    {"Hide Player/Lyrics Top Bar", f2877, 1},
-    {"Hide Unnamed Devices", f2878, 1},
-    {"High", f2879, 1},
-    {"High (320 kbps)", f2880, 1},
-    {"Hostname", f2881, 1},
-    {"Hostname can only use letters, numbers, and hyphens", f2882, 1},
-    {"IP Address: %s", f2883, 1},
-    {"Idle Shutdown", f2884, 1},
-    {"Idle timeout:", f2885, 1},
-    {"Import", f2886, 1},
-    {"Import via Wi-Fi", f2887, 1},
-    {"In-line Remote", f2888, 1},
-    {"Indian", f2889, 1},
-    {"Information", f2890, 1},
-    {"Insert an SD card to change plugins.", f2891, 1},
-    {"Insert an SD card to download the update.", f2892, 1},
-    {"Insert an SD card to install plugins.", f2893, 1},
-    {"Insert an SD card to remove plugins.", f2894, 1},
-    {"Insert an SD card to scan for music, or turn off Scan for music.", f2895, 1},
-    {"Insert an SD card to update plugins.", f2896, 1},
-    {"Insert your SD card with music files. Compas Player can scan it and build your library.", f2897, 1},
-    {"Install", f2898, 1},
-    {"Install & Reboot", f2899, 1},
-    {"Install from SD card", f2900, 1},
-    {"Installed", f2901, 1},
-    {"Installed manually", f2902, 1},
-    {"Installed · %s", f2903, 1},
-    {"Installing plugin", f2904, 1},
-    {"Invalid download folder", f2905, 1},
-    {"Invalid download folder name", f2906, 1},
-    {"Invalid profile name", f2907, 1},
-    {"It could not be loaded. Rebuild it now?", f2908, 1},
-    {"It may have no partition table or a file system this player can't use. Formatting will erase it and set it up for this player.", f2909, 1},
-    {"Its settings stay on the card.", f2910, 1},
-    {"January", f2911, 1},
-    {"July", f2912, 1},
-    {"June", f2913, 1},
-    {"LDAC Quality", f2914, 1},
-    {"LDAC Standard", f2915, 1},
-    {"LDAC in DAC mode (Experimental)", f2916, 1},
-    {"LED charge indicator", f2917, 1},
-    {"Language", f2918, 1},
-    {"Large", f2919, 1},
-    {"Later", f2920, 1},
-    {"Launch at a fixed volume", f2921, 1},
-    {"Layout", f2922, 1},
-    {"Leave", f2923, 1},
-    {"Leave Bluetooth DAC mode?", f2924, 1},
-    {"Leave USB DAC mode?", f2925, 1},
-    {"Leave this view and try again.", f2926, 1},
-    {"Library", f2927, 1},
-    {"Library changed. Open the album again.", f2928, 1},
-    {"Library is busy", f2929, 1},
-    {"Library loaded", f2930, 1},
-    {"Library migrated. Favourites and play history kept", f2931, 1},
-    {"Library migrated. Old database cleanup will retry", f2932, 1},
-    {"Library migration failed. Old library intact. Use Settings > Update Music Database to retry", f2933, 1},
-    {"Library migration pending. Favourites and play history will be kept", f2934, 1},
-    {"Library recovered and saved", f2935, 1},
-    {"Library recovered and saved, some folders could not be read", f2936, 1},
-    {"Library recovered. Use Settings > Update Music Database to save", f2937, 1},
-    {"Library unavailable. Use Settings > Update Music Database to rebuild", f2938, 1},
-    {"Library update failed. Check SD card and retry", f2939, 1},
-    {"Library updated", f2940, 1},
-    {"Library updated, some folders could not be read", f2941, 1},
-    {"Load covers during playback (Experimental)", f2942, 1},
-    {"Loading Wi-Fi settings", f2943, 1},
-    {"Loading from server...", f2944, 1},
-    {"Loading layouts", f2945, 1},
-    {"Loading plugin catalog...", f2946, 1},
-    {"Loading plugins", f2947, 1},
-    {"Loading tracks…", f2948, 1},
-    {"Loading...", f2949, 1},
-    {"Location", f2950, 1},
-    {"Looking for music files", f2951, 1},
-    {"Looking for music files\n%d items checked", f2952, 1},
-    {"Low", f2953, 1},
-    {"Low\nHigh", f2954, 1},
-    {"Low (96 kbps)", f2955, 1},
-    {"Lyrics", f2956, 1},
-    {"Lyrics Text Size", f2957, 1},
-    {"MAC Address: %s", f2958, 1},
-    {"Maintenance", f2959, 1},
-    {"Make an accessory discoverable, then tap Rescan.", f2960, 1},
-    {"Manage plugins later in Settings > System > Plugin Manager to search, update, or remove them.", f2961, 1},
-    {"Manual SSID Entry", f2962, 1},
-    {"March", f2963, 1},
-    {"Match album art", f2964, 1},
-    {"May", f2965, 1},
-    {"Medium", f2966, 1},
-    {"Medium (192 kbps)", f2967, 1},
-    {"Memorized Networks", f2968, 1},
-    {"Metadata refreshed", f2969, 1},
-    {"Migrating\nmusic database...", f2970, 1},
-    {"Monday", f2971, 1},
-    {"Mono (1 channel)", f2972, 1},
-    {"More", f2973, 1},
-    {"Most Played", f2974, 1},
-    {"Music", f2975, 1},
-    {"Music database unavailable", f2976, 1},
-    {"Name (A–Z)", f2977, 1},
-    {"Native DSD (DoP) / %.4g MHz", f2978, 1},
-    {"Nearby Wi-Fi networks will appear here.", f2979, 1},
-    {"Needs newer firmware", f2980, 1},
-    {"Network Name (SSID)", f2981, 1},
-    {"Network stream", f2982, 1},
-    {"Networks you connect to will appear here.", f2983, 1},
-    {"New Connection", f2984, 1},
-    {"New PIN generated", f2985, 1},
-    {"New Profile", f2986, 1},
-    {"Newest Modified", f2987, 1},
-    {"Next", f2988, 1},
-    {"Next  •  %d–%d of %d", f2989, 1},
-    {"Next page", f2990, 1},
-    {"No .ttf fonts found in /Fonts", f2991, 1},
-    {"No .upt firmware file found on SD card", f2992, 1},
-    {"No SD card", f2993, 1},
-    {"No SD card detected. You can scan later from Library settings.", f2994, 1},
-    {"No books found", f2995, 1},
-    {"No entries to display", f2996, 1},
-    {"No favorites yet", f2997, 1},
-    {"No items", f2998, 1},
-    {"No memorized networks", f2999, 1},
-    {"No music database", f3000, 1},
-    {"No nearby devices", f3001, 1},
-    {"No network detected", f3002, 1},
-    {"No network detected. Connect to a network to download plugins.", f3003, 1},
-    {"No networks found", f3004, 1},
-    {"No other networks found", f3005, 1},
-    {"No paired devices", f3006, 1},
-    {"No playable audio files found", f3007, 1},
-    {"No playable files here", f3008, 1},
-    {"No plugin settings available", f3009, 1},
-    {"No plugins are available in the catalog.", f3010, 1},
-    {"No saved profiles", f3011, 1},
-    {"No saved servers", f3012, 1},
-    {"No songs to refresh", f3013, 1},
-    {"No synchronized lyrics found", f3014, 1},
-    {"No track loaded", f3015, 1},
-    {"No tracks found", f3016, 1},
-    {"No user playlists", f3017, 1},
-    {"No verified update is on this SD card. Download it again.", f3018, 1},
-    {"Not connected", f3019, 1},
-    {"Not enough free space on the SD card for the update.", f3020, 1},
-    {"Not enough free space on the SD card.", f3021, 1},
-    {"Not enough memory to connect", f3022, 1},
-    {"Not enough memory to load CUE tracks", f3023, 1},
-    {"Not enough memory to load artists", f3024, 1},
-    {"Not enough memory to load from server", f3025, 1},
-    {"Not enough memory to load the plugin store", f3026, 1},
-    {"Not enough memory to start download", f3027, 1},
-    {"Not selected (UTC)", f3028, 1},
-    {"Not set", f3029, 1},
-    {"November", f3030, 1},
-    {"OFF", f3031, 1},
-    {"ON", f3032, 1},
-    {"October", f3033, 1},
-    {"Off", f3034, 1},
-    {"On", f3035, 1},
-    {"Open a book and tap the bookmark icon to save it here.", f3036, 1},
-    {"Open a folder containing supported audio files.", f3037, 1},
-    {"Open network", f3038, 1},
-    {"Open this address on your phone or computer:", f3039, 1},
-    {"Open · Connected", f3040, 1},
-    {"Original", f3041, 1},
-    {"Output", f3042, 1},
-    {"PEQ reset to defaults", f3043, 1},
-    {"Pacific", f3044, 1},
-    {"Paired", f3045, 1},
-    {"Paired Devices", f3046, 1},
-    {"Parametric EQ", f3047, 1},
-    {"Password", f3048, 1},
-    {"Password: Not set", f3049, 1},
-    {"Password: Set", f3050, 1},
-    {"Paused: headphones disconnected", f3051, 1},
-    {"Peaking\nLow Shelf\nHigh Shelf", f3052, 1},
-    {"Per Album", f3053, 1},
-    {"Per Track", f3054, 1},
-    {"Place .ttf fonts in SD /Fonts folder.", f3055, 1},
-    {"Play All", f3056, 1},
-    {"Play Next", f3057, 1},
-    {"Play all shuffled", f3058, 1},
-    {"Play an album or playlist to see its songs here.", f3059, 1},
-    {"Play sequentially", f3060, 1},
-    {"Play/Pause", f3061, 1},
-    {"Play/Pause + Previous Track (Double-Click)", f3062, 1},
-    {"Play/Pause Button", f3063, 1},
-    {"Playback & Controls", f3064, 1},
-    {"Playback and device actions", f3065, 1},
-    {"Playback error", f3066, 1},
-    {"Playback error: audio output failed", f3067, 1},
-    {"Playback history could not be saved", f3068, 1},
-    {"Playback stopped: %s", f3069, 1},
-    {"Played", f3070, 1},
-    {"Player Layout", f3071, 1},
-    {"Playing", f3072, 1},
-    {"Playlist Name", f3073, 1},
-    {"Playlist changed. Select a song again.", f3074, 1},
-    {"Playlist changed. Try again.", f3075, 1},
-    {"Playlist created", f3076, 1},
-    {"Playlist deleted", f3077, 1},
-    {"Playlist is empty", f3078, 1},
-    {"Playlist renamed", f3079, 1},
-    {"Playlist saved", f3080, 1},
-    {"Playlist unavailable or unreadable", f3081, 1},
-    {"Playlists", f3082, 1},
-    {"Playlists refreshed", f3083, 1},
-    {"Please wait for plugin installation to finish", f3084, 1},
-    {"Please wait for the library scan to finish", f3085, 1},
-    {"Plugin", f3086, 1},
-    {"Plugin Manager", f3087, 1},
-    {"Plugin Settings", f3088, 1},
-    {"Plugin Store", f3089, 1},
-    {"Plugin is unavailable in the catalog", f3090, 1},
-    {"Plugin operation failed", f3091, 1},
-    {"Plugin setup complete", f3092, 1},
-    {"Plugin setup needs attention", f3093, 1},
-    {"Plugin storage is unavailable.", f3094, 1},
-    {"Plugins", f3095, 1},
-    {"Position", f3096, 1},
-    {"Power", f3097, 1},
-    {"Power Off", f3098, 1},
-    {"Power controls", f3099, 1},
-    {"Power off", f3100, 1},
-    {"Pre-Amp (dB, -12 to 12)", f3101, 1},
-    {"Pre-Amp: %+.2f dB", f3102, 1},
-    {"Preparing cover refresh...", f3103, 1},
-    {"Preparing database migration...", f3104, 1},
-    {"Preparing metadata refresh", f3105, 1},
-    {"Preparing metadata refresh...", f3106, 1},
-    {"Preparing music library...", f3107, 1},
-    {"Preparing update", f3108, 1},
-    {"Presets", f3109, 1},
-    {"Preview", f3110, 1},
-    {"Previous", f3111, 1},
-    {"Previous  •  %d–%d of %d", f3112, 1},
-    {"Previous Track", f3113, 1},
-    {"Previous page", f3114, 1},
-    {"Previous request still finishing", f3115, 1},
-    {"Previously connected accessories will appear here.", f3116, 1},
-    {"Primary DNS", f3117, 1},
-    {"Profile Name", f3118, 1},
-    {"Profile deleted", f3119, 1},
-    {"Profile loaded", f3120, 1},
-    {"Profile renamed", f3121, 1},
-    {"Profile saved", f3122, 1},
-    {"Profiles", f3123, 1},
-    {"Provider", f3124, 1},
-    {"Queue", f3125, 1},
-    {"Queue changed. Try again.", f3126, 1},
-    {"Queue checkpoint failed; storage may be read-only", f3127, 1},
-    {"Queue cleared", f3128, 1},
-    {"Queue is empty", f3129, 1},
-    {"Queue ready. Press Play to start.", f3130, 1},
-    {"Queued", f3131, 1},
-    {"Quick Setup Complete", f3132, 1},
-    {"Quick setup", f3133, 1},
-    {"RC", f3134, 1},
-    {"Radio", f3135, 1},
-    {"Radio / %s", f3136, 1},
-    {"Reading supported rates...", f3137, 1},
-    {"Reading tags\n%d of %d songs (%d%%)", f3138, 1},
-    {"Reads the tags of every song again. This may take a while.", f3139, 1},
-    {"Rebuild", f3140, 1},
-    {"Recently Added", f3141, 1},
-    {"Recently Played", f3142, 1},
-    {"Refresh", f3143, 1},
-    {"Refresh All Covers", f3144, 1},
-    {"Refresh All Metadata", f3145, 1},
-    {"Refresh Plugins", f3146, 1},
-    {"Refresh all covers?", f3147, 1},
-    {"Refresh all metadata?", f3148, 1},
-    {"Refresh metadata", f3149, 1},
-    {"Refresh plugin catalog", f3150, 1},
-    {"Refresh the music database to update this list.", f3151, 1},
-    {"Refreshing\nall covers...", f3152, 1},
-    {"Refreshing\nall metadata...", f3153, 1},
-    {"Refreshing\nmetadata...", f3154, 1},
-    {"Refreshing covers", f3155, 1},
-    {"Refreshing covers\n%d of %d (%d%%)", f3156, 1},
-    {"Refreshing plugins...", f3157, 1},
-    {"Release Year (oldest first)", f3158, 1},
-    {"Reload cover", f3159, 1},
-    {"Reloading\ncover...", f3160, 1},
-    {"Reloading cover", f3161, 1},
-    {"Reloading cover\n%d of %d (%d%%)", f3162, 1},
-    {"Remote", f3163, 1},
-    {"Remote Control", f3164, 1},
-    {"Remove", f3165, 1},
-    {"Remove %s?", f3166, 1},
-    {"Removed", f3167, 1},
-    {"Removed from playlist", f3168, 1},
-    {"Removed from queue", f3169, 1},
-    {"Removes saved covers and extracts them again. This may take a while.", f3170, 1},
-    {"Removing plugin", f3171, 1},
-    {"Rename Playlist", f3172, 1},
-    {"Rename Profile", f3173, 1},
-    {"Replace", f3174, 1},
-    {"Replace Existing", f3175, 1},
-    {"Replace Profile", f3176, 1},
-    {"ReplayGain", f3177, 1},
-    {"Rescan", f3178, 1},
-    {"Reset", f3179, 1},
-    {"Reset PEQ to defaults?", f3180, 1},
-    {"Reset all settings and reboot?", f3181, 1},
-    {"Reset to defaults", f3182, 1},
-    {"Restart", f3183, 1},
-    {"Restart Now", f3184, 1},
-    {"Restart now to apply the new hostname?", f3185, 1},
-    {"Resume Last Track", f3186, 1},
-    {"Resume and Play", f3187, 1},
-    {"Resume playback when external power turns the player on.", f3188, 1},
-    {"Resume, but Paused", f3189, 1},
-    {"Retrying plugins %zu/%zu", f3190, 1},
-    {"SD card checked", f3191, 1},
-    {"SD card couldn't be read", f3192, 1},
-    {"SD card format failed", f3193, 1},
-    {"SD card formatted", f3194, 1},
-    {"SD card is read-only. Check it on a computer", f3195, 1},
-    {"SD card is still read-only", f3196, 1},
-    {"SD card may have errors. Check it on a computer", f3197, 1},
-    {"SD card not available", f3198, 1},
-    {"SD card repair is still running", f3199, 1},
-    {"SD card repaired", f3200, 1},
-    {"SSID: %s", f3201, 1},
-    {"Safe Charging (500mA)", f3202, 1},
-    {"Sample Rate", f3203, 1},
-    {"Saturday", f3204, 1},
-    {"Save", f3205, 1},
-    {"Save Profile", f3206, 1},
-    {"Save Profile As", f3207, 1},
-    {"Save Queue as Playlist", f3208, 1},
-    {"Save as Playlist", f3209, 1},
-    {"Save as a new profile, or replace one that already exists?", f3210, 1},
-    {"Saved Servers", f3211, 1},
-    {"Saved network", f3212, 1},
-    {"Saved network details are being checked.", f3213, 1},
-    {"Saving music database", f3214, 1},
-    {"Saving music database\nThis can take a while on large libraries", f3215, 1},
-    {"Saving playlist…", f3216, 1},
-    {"Scan for music", f3217, 1},
-    {"Scan with your phone to support Compás Player on PayPal", f3218, 1},
-    {"Scanning for networks", f3219, 1},
-    {"Screen Dimming", f3220, 1},
-    {"Screen Timeout", f3221, 1},
-    {"Screen off", f3222, 1},
-    {"Screenshot failed (%s)", f3223, 1},
-    {"Screenshot failed (framebuffer)", f3224, 1},
-    {"Screenshot failed (worker)", f3225, 1},
-    {"Screenshot needs an SD card", f3226, 1},
-    {"Screenshot saved", f3227, 1},
-    {"Screenshots (Power + Previous)", f3228, 1},
-    {"Screenshots (Power + Vol Down)", f3229, 1},
-    {"Screenshots unavailable", f3230, 1},
-    {"Secondary DNS", f3231, 1},
-    {"Secure connection failed. Check Wi-Fi and the date and time.", f3232, 1},
-    {"Secured network", f3233, 1},
-    {"Secured · Connected", f3234, 1},
-    {"Select at least one plugin to continue.", f3235, 1},
-    {"Selected plugins are ready.\n", f3236, 1},
-    {"September", f3237, 1},
-    {"Server URL (e.g. %s)", f3238, 1},
-    {"Server URL: %s", f3239, 1},
-    {"Server request timed out after 30 seconds", f3240, 1},
-    {"Service is busy", f3241, 1},
-    {"Set Time", f3242, 1},
-    {"Set your local time zone so the clock is right.", f3243, 1},
-    {"Settings", f3244, 1},
-    {"Show Time Remaining", f3245, 1},
-    {"Showing first %d of %d songs", f3246, 1},
-    {"Shuffle from a random song", f3247, 1},
-    {"Signal: %s", f3248, 1},
-    {"Skip for now", f3249, 1},
-    {"Skipped: %s", f3250, 1},
-    {"Sleep", f3251, 1},
-    {"Sleep Timer", f3252, 1},
-    {"Sleep timer", f3253, 1},
-    {"Sleep timer: %d min remaining", f3254, 1},
-    {"Sleep timer: Off", f3255, 1},
-    {"Small", f3256, 1},
-    {"Some covers could not be refreshed", f3257, 1},
-    {"Some playlists could not be read", f3258, 1},
-    {"Some plugin files were changed on the card. Replace them?", f3259, 1},
-    {"Some songs could not be read", f3260, 1},
-    {"Some updates need confirmation before replacing local files.", f3261, 1},
-    {"Song already added", f3262, 1},
-    {"Song deleted", f3263, 1},
-    {"Songs", f3264, 1},
-    {"Sorting", f3265, 1},
-    {"Sound", f3266, 1},
-    {"Sound Effects", f3267, 1},
-    {"Source", f3268, 1},
-    {"Speex Resampling", f3269, 1},
-    {"Start sequentially", f3270, 1},
-    {"Start with these suggestions, or explore more plugins.", f3271, 1},
-    {"Startup Volume", f3272, 1},
-    {"Step %d of %d", f3273, 1},
-    {"Stereo (2 channels)", f3274, 1},
-    {"Still applying the previous choice", f3275, 1},
-    {"Storage", f3276, 1},
-    {"Stream Media", f3277, 1},
-    {"Stream Quality", f3278, 1},
-    {"Stream quality: %s", f3279, 1},
-    {"Subfolder is relative to SD root (example: Music/Offline); empty uses SD root", f3280, 1},
-    {"Subfolder: SD root", f3281, 1},
-    {"Subsonic", f3282, 1},
-    {"Sunday", f3283, 1},
-    {"Suspend to RAM", f3284, 1},
-    {"Swipe Up for Home", f3285, 1},
-    {"Swipe up to unlock", f3286, 1},
-    {"System", f3287, 1},
-    {"System playlists", f3288, 1},
-    {"Takes its color from the cover of the playing track", f3289, 1},
-    {"Tap Power off again to confirm", f3290, 1},
-    {"Tap Restart again to confirm", f3291, 1},
-    {"The SD card changed during the download.", f3292, 1},
-    {"The SD card changed during the operation.", f3293, 1},
-    {"The SD card is read-only. Check its write protection.", f3294, 1},
-    {"The download did not complete. Check Wi-Fi and try again.", f3295, 1},
-    {"The downloaded image failed verification and was deleted.", f3296, 1},
-    {"The playlist file will be deleted. Music files are kept.", f3297, 1},
-    {"The plugin download failed verification. Try again.", f3298, 1},
-    {"The quick brown fox jumps 123", f3299, 1},
-    {"The release has no checksum for this device's image.", f3300, 1},
-    {"The update file on the SD card changed. Download it again.", f3301, 1},
-    {"There are no entries in this view.", f3302, 1},
-    {"This device is now a USB sound card", f3303, 1},
-    {"This device is now receiving Bluetooth audio", f3304, 1},
-    {"This may take a while", f3305, 1},
-    {"This permanently deletes everything on the card. This cannot be undone.", f3306, 1},
-    {"This plugin has no update available.", f3307, 1},
-    {"This plugin is already installed by the store.", f3308, 1},
-    {"This plugin is not installed by the store.", f3309, 1},
-    {"This plugin needs a newer player version.", f3310, 1},
-    {"This release's image does not match its checksums. Try again after the next weekly release.", f3311, 1},
-    {"Thread launch failed", f3312, 1},
-    {"Thursday", f3313, 1},
-    {"Time Zone", f3314, 1},
-    {"Time remaining: %d:%02d", f3315, 1},
-    {"Time remaining: %d:%02d:%02d", f3316, 1},
-    {"Time zone", f3317, 1},
-    {"Too many audio channels", f3318, 1},
-    {"Too many plugins are installed. Remove one and try again.", f3319, 1},
-    {"Track", f3320, 1},
-    {"Track %+.1f dB", f3321, 1},
-    {"Track %d", f3322, 1},
-    {"Track details are not available yet. Keep playback open and check again.", f3323, 1},
-    {"Tracks", f3324, 1},
-    {"Tuesday", f3325, 1},
-    {"Turn Bluetooth off and on to apply", f3326, 1},
-    {"Turn off ADB first (Settings > System > USB Mode), then enable USB DAC from here.", f3327, 1},
-    {"Turn off Automatic to set the clock", f3328, 1},
-    {"Turn off Bluetooth DAC to play music on this device", f3329, 1},
-    {"Turn off screen automatically", f3330, 1},
-    {"Turn on Bluetooth to see paired and nearby devices.", f3331, 1},
-    {"Turn on Wi-Fi and connect first", f3332, 1},
-    {"Turn this on to see the address here.", f3333, 1},
-    {"USB DAC", f3334, 1},
-    {"USB DAC mode", f3335, 1},
-    {"USB Mode", f3336, 1},
-    {"USB audio device detected", f3337, 1},
-    {"USB input: %s · %u-bit", f3338, 1},
-    {"USB mode", f3339, 1},
-    {"Unable to load items", f3340, 1},
-    {"Unable to read folder (tap Back and retry)", f3341, 1},
-    {"Unavailable", f3342, 1},
-    {"Unexpected library response", f3343, 1},
-    {"Unexpected reply from GitHub", f3344, 1},
-    {"Unexpected reply from GitHub.", f3345, 1},
-    {"Unknown album", f3346, 1},
-    {"Unknown artist", f3347, 1},
-    {"Unknown codec", f3348, 1},
-    {"Unknown format", f3349, 1},
-    {"Unknown rate", f3350, 1},
-    {"Unsupported audio format", f3351, 1},
-    {"Update", f3352, 1},
-    {"Update & Reboot", f3353, 1},
-    {"Update All", f3354, 1},
-    {"Update Music Database", f3355, 1},
-    {"Update Music Database to enable this album order", f3356, 1},
-    {"Update available", f3357, 1},
-    {"Update available · %s", f3358, 1},
-    {"Update individually", f3359, 1},
-    {"Update music database?", f3360, 1},
-    {"Update these plugins individually", f3361, 1},
-    {"Update using %s?\nDevice will reboot into recovery mode.", f3362, 1},
-    {"Updates", f3363, 1},
-    {"Updating\nmusic database...", f3364, 1},
-    {"Updating plugins", f3365, 1},
-    {"Upside Down Screen", f3366, 1},
-    {"Use Settings > Update Music Database", f3367, 1},
-    {"User playlists", f3368, 1},
-    {"Username", f3369, 1},
-    {"Username: %s", f3370, 1},
-    {"Verify server certificate", f3371, 1},
-    {"Version %s · %s", f3372, 1},
-    {"Waiting for Bluetooth stream…", f3373, 1},
-    {"Waiting for USB audio…", f3374, 1},
-    {"Weak", f3375, 1},
-    {"Web Server is busy", f3376, 1},
-    {"Wednesday", f3377, 1},
-    {"Weekly Beta %s is available.\nInstalled: %s\n\nDownload it now? This may take a while.", f3378, 1},
-    {"Weekly Beta %s is downloaded and verified.\n\nInstall now? The device reboots into recovery to flash it. Do not turn it off until it restarts.", f3379, 1},
-    {"Welcome to Compás", f3380, 1},
-    {"When on, this device is visible to AirPlay senders on your Wi-Fi network -- stream audio from an iPhone, iPad, or Mac to be played through this device's own output.", f3381, 1},
-    {"When on, this device is visible to DLNA/UPnP controller apps on your Wi-Fi network -- cast a track from one to play it here. Pause, mute, volume, and seek from the controller app aren't supported; use this device's own controls instead once a track starts.", f3382, 1},
-    {"When on, this device stays visible and pairable to other Bluetooth devices, so a phone or computer can stream audio TO it and play through this device's own output -- using it as an external DAC.", f3383, 1},
-    {"Wi-Fi", f3384, 1},
-    {"Wi-Fi Info", f3385, 1},
-    {"Wi-Fi Password", f3386, 1},
-    {"Wi-Fi failed to change state", f3387, 1},
-    {"Wi-Fi is busy", f3388, 1},
-    {"Wireless", f3389, 1},
-    {"You can select up to 32 plugins", f3390, 1},
-    {"You have the latest weekly (%s).\n\nDownload and reinstall it anyway? This may take a while.", f3391, 1},
-    {"Your library is being loaded.", f3392, 1},
-    {"Your music", f3393, 1},
-    {"Your setup journey", f3394, 1},
-    {"[File truncated at %d KB -- showing the first part only]\n\n%s", f3395, 1},
-    {"unknown", f3396, 1},
+    {"%.0f Hz", f2545, 1},
+    {"%d hr", f2546, 1},
+    {"%d hr %d min", f2547, 1},
+    {"%d min", f2548, 1},
+    {"%d min remaining", f2549, 1},
+    {"%d song", f2550, 2},
+    {"%d track", f2551, 2},
+    {"%dm", f2552, 1},
+    {"%lld track", f2553, 2},
+    {"%llu bytes", f2554, 1},
+    {"%s (current)", f2555, 1},
+    {"%s · Not loaded", f2556, 1},
+    {"%s · Not loaded: limit reached", f2557, 1},
+    {"%u channels", f2558, 1},
+    {"+ New Playlist", f2559, 1},
+    {"24-Hour Clock", f2560, 1},
+    {"48 kHz reference", f2561, 1},
+    {"A local plugin file will be replaced. Confirm to continue.", f2562, 1},
+    {"A plugin download failed verification. Try again.", f2563, 1},
+    {"A plugin operation is already in progress", f2564, 1},
+    {"ADB", f2565, 1},
+    {"About", f2566, 1},
+    {"Accent Color", f2567, 1},
+    {"Add .txt files to the Books folder, then refresh the library.", f2568, 1},
+    {"Add a random song to queue", f2569, 1},
+    {"Add album to queue", f2570, 1},
+    {"Add hidden network", f2571, 1},
+    {"Add songs from a song menu.", f2572, 1},
+    {"Add to Playlist", f2573, 1},
+    {"Add to Queue", f2574, 1},
+    {"Added %d song to queue", f2575, 2},
+    {"Added to playlist", f2576, 1},
+    {"Additional Tools", f2577, 1},
+    {"Advanced", f2578, 1},
+    {"Africa", f2579, 1},
+    {"AirPlay", f2580, 1},
+    {"AirPlay stopped unexpectedly", f2581, 1},
+    {"Album %+.1f dB", f2582, 1},
+    {"Album Artist", f2583, 1},
+    {"Album Artist - Album", f2584, 1},
+    {"Album Artist / Album", f2585, 1},
+    {"Album unavailable", f2586, 1},
+    {"Albums", f2587, 1},
+    {"Albums (main list)", f2588, 1},
+    {"All Songs", f2589, 1},
+    {"All visible networks are already saved.", f2590, 1},
+    {"Already installed", f2591, 1},
+    {"America", f2592, 1},
+    {"An update is already in progress", f2593, 1},
+    {"An update is already in progress.", f2594, 1},
+    {"Animation Speed", f2595, 1},
+    {"Antarctica", f2596, 1},
+    {"Appearance", f2597, 1},
+    {"Applied %+.1f dB", f2598, 1},
+    {"Applies immediately", f2599, 1},
+    {"Applies next time you launch the app", f2600, 1},
+    {"Applies to new streaming queues", f2601, 1},
+    {"Applying language, this may take a while", f2602, 1},
+    {"Applying layout, this may take a while", f2603, 1},
+    {"Apps and browsers using the current PIN will need the new one to reconnect.", f2604, 1},
+    {"April", f2605, 1},
+    {"Arctic", f2606, 1},
+    {"Artist Images", f2607, 1},
+    {"Artists", f2608, 1},
+    {"Asia", f2609, 1},
+    {"Atlantic", f2610, 1},
+    {"Audio", f2611, 1},
+    {"Audio could not be decoded", f2612, 1},
+    {"Audio output failed", f2613, 1},
+    {"August", f2614, 1},
+    {"Australia", f2615, 1},
+    {"Auto", f2616, 1},
+    {"Auto-resume", f2617, 1},
+    {"Automatic", f2618, 1},
+    {"Automatic (44.1 kHz)", f2619, 1},
+    {"Automatically go idle", f2620, 1},
+    {"Available", f2621, 1},
+    {"Available Devices", f2622, 1},
+    {"Available Networks", f2623, 1},
+    {"Available · %s", f2624, 1},
+    {"Back", f2625, 1},
+    {"Band %d / %d", f2626, 1},
+    {"Band options", f2627, 1},
+    {"Battery Percentage", f2628, 1},
+    {"Bitrate", f2629, 1},
+    {"Bluetooth", f2630, 1},
+    {"Bluetooth DAC", f2631, 1},
+    {"Bluetooth DAC mode", f2632, 1},
+    {"Bluetooth Volume Sync", f2633, 1},
+    {"Bluetooth is off", f2634, 1},
+    {"Bluetooth remote service is starting…", f2635, 1},
+    {"Bluetooth remote service is unavailable; retrying.", f2636, 1},
+    {"Bluetooth: Compas Remote Control", f2637, 1},
+    {"Bluetooth: registration failed; retrying", f2638, 1},
+    {"Bluetooth: waiting for service registration", f2639, 1},
+    {"Books", f2640, 1},
+    {"Books refreshed", f2641, 1},
+    {"Build", f2642, 1},
+    {"Build it now? Large libraries can take several minutes.", f2643, 1},
+    {"Buttons & Remote", f2644, 1},
+    {"Buy Me a Coffee", f2645, 1},
+    {"By %s", f2646, 1},
+    {"Cancel", f2647, 1},
+    {"Cannot check plugin storage write access.", f2648, 1},
+    {"Cannot delete playlist", f2649, 1},
+    {"Cannot load album tracks", f2650, 1},
+    {"Cannot move this entry", f2651, 1},
+    {"Cannot play folder", f2652, 1},
+    {"Cannot reach GitHub. Check the Wi-Fi connection.", f2653, 1},
+    {"Cannot read playlist", f2654, 1},
+    {"Cannot read the SD card.", f2655, 1},
+    {"Cannot read the update file on the SD card. Check the card and try again.", f2656, 1},
+    {"Cannot read the update record on the SD card. Check the card and try again.", f2657, 1},
+    {"Cannot read update helper status: %s", f2658, 1},
+    {"Cannot remove entry", f2659, 1},
+    {"Cannot rename: invalid name or file exists", f2660, 1},
+    {"Cannot reorder playlist", f2661, 1},
+    {"Cannot save playlist", f2662, 1},
+    {"Cannot save: invalid or streaming entries", f2663, 1},
+    {"Cannot start queue", f2664, 1},
+    {"Car Mode", f2665, 1},
+    {"Car Mode Volume", f2666, 1},
+    {"Car Mode is disabled.", f2667, 1},
+    {"Channels", f2668, 1},
+    {"Charge Limit (85%)", f2669, 1},
+    {"Charge to at least %d%% or connect power before updating.", f2670, 1},
+    {"Charge to at least 30%% or connect power before updating.", f2671, 1},
+    {"Charging", f2672, 1},
+    {"Check for online update", f2673, 1},
+    {"Check that Wi-Fi is enabled, then rescan.", f2674, 1},
+    {"Checking for updates", f2675, 1},
+    {"Checking the SD card. This may take a while", f2676, 1},
+    {"Checking the file on the SD card", f2677, 1},
+    {"Choose a language", f2678, 1},
+    {"Choose plugins", f2679, 1},
+    {"Choose the language for your player.", f2680, 1},
+    {"Choose time zone", f2681, 1},
+    {"Choose what happens when idle:", f2682, 1},
+    {"Clear Queue", f2683, 1},
+    {"Clock", f2684, 1},
+    {"Close", f2685, 1},
+    {"Closing\nWeb Server...", f2686, 1},
+    {"Codec", f2687, 1},
+    {"Combined response (dB)", f2688, 1},
+    {"Combined response (dB) · EQ off", f2689, 1},
+    {"Compás Player", f2690, 1},
+    {"Connect", f2691, 1},
+    {"Connect & Browse", f2692, 1},
+    {"Connect a device to see its supported rates", f2693, 1},
+    {"Connect over Wi-Fi or Bluetooth to see what's playing, control playback, and browse your library. Enter this PIN when the app or browser asks for it; Bluetooth also requires pairing.", f2694, 1},
+    {"Connect to Wi-Fi", f2695, 1},
+    {"Connect to Wi-Fi first", f2696, 1},
+    {"Connect to Wi-Fi for streaming, updates, and online services.", f2697, 1},
+    {"Connect to a Wi-Fi network before continuing.", f2698, 1},
+    {"Connect to a network to download plugins.", f2699, 1},
+    {"Connect using either available route:", f2700, 1},
+    {"Connected", f2701, 1},
+    {"Connecting", f2702, 1},
+    {"Connecting to", f2703, 1},
+    {"Connecting to server...", f2704, 1},
+    {"Connection PIN", f2705, 1},
+    {"Connection failed", f2706, 1},
+    {"Connection timed out after 30 seconds", f2707, 1},
+    {"Container", f2708, 1},
+    {"Continue", f2709, 1},
+    {"Continue setup", f2710, 1},
+    {"Could not apply font size", f2711, 1},
+    {"Could not apply lyrics text size", f2712, 1},
+    {"Could not download the release checksums.", f2713, 1},
+    {"Could not enter recovery mode.", f2714, 1},
+    {"Could not generate a new PIN", f2715, 1},
+    {"Could not install a plugin on the SD card.", f2716, 1},
+    {"Could not install the plugin on the SD card.", f2717, 1},
+    {"Could not load lock screen photo", f2718, 1},
+    {"Could not load the plugin catalog.", f2719, 1},
+    {"Could not load the plugin catalog. Tap More to retry.", f2720, 1},
+    {"Could not move other .upt files aside on the SD card.", f2721, 1},
+    {"Could not open this file.", f2722, 1},
+    {"Could not place the update on the SD card.", f2723, 1},
+    {"Could not prepare plugin removal.", f2724, 1},
+    {"Could not prepare update helper: %s", f2725, 1},
+    {"Could not read installed plugins.", f2726, 1},
+    {"Could not read the Books folder", f2727, 1},
+    {"Could not read the plugin list from GitHub.", f2728, 1},
+    {"Could not read the release list from GitHub.", f2729, 1},
+    {"Could not record the verified update on the SD card.", f2730, 1},
+    {"Could not refresh books", f2731, 1},
+    {"Could not reload cover", f2732, 1},
+    {"Could not remove a plugin file.", f2733, 1},
+    {"Could not repair the SD card", f2734, 1},
+    {"Could not save Bluetooth codec", f2735, 1},
+    {"Could not start USB mode switch", f2736, 1},
+    {"Could not start refreshing the plugin catalog.", f2737, 1},
+    {"Could not start the download", f2738, 1},
+    {"Could not start the download.", f2739, 1},
+    {"Could not start the installation.", f2740, 1},
+    {"Could not start the library scan. Please try again.", f2741, 1},
+    {"Could not start the plugin operation", f2742, 1},
+    {"Could not start the plugin operation.", f2743, 1},
+    {"Could not start the plugin refresh", f2744, 1},
+    {"Could not start the plugin refresh.", f2745, 1},
+    {"Could not start the plugin update.", f2746, 1},
+    {"Could not start the update check.", f2747, 1},
+    {"Could not start update helper: %s", f2748, 1},
+    {"Could not update the installed plugin record.", f2749, 1},
+    {"Couldn't connect to Wi-Fi network", f2750, 1},
+    {"Couldn't read this .cue file", f2751, 1},
+    {"Couldn't save -- plugin change was not applied", f2752, 1},
+    {"Cover reloaded", f2753, 1},
+    {"Covers refreshed", f2754, 1},
+    {"Create a playlist above or copy one to the SD card's Playlists folder.", f2755, 1},
+    {"Crossfade", f2756, 1},
+    {"Custom", f2757, 1},
+    {"Custom color", f2758, 1},
+    {"Custom fonts affect Latin text only.", f2759, 1},
+    {"DAC", f2760, 1},
+    {"DAC path: %s · %u-bit", f2761, 1},
+    {"DLNA", f2762, 1},
+    {"DLNA Renderer", f2763, 1},
+    {"DNS Settings", f2764, 1},
+    {"December", f2765, 1},
+    {"Default (Built-in)", f2766, 1},
+    {"Delete", f2767, 1},
+    {"Delete %s?\nThis cannot be undone.", f2768, 1},
+    {"Delete Playlist", f2769, 1},
+    {"Delete playlist?", f2770, 1},
+    {"Delete this profile?", f2771, 1},
+    {"Developer Options", f2772, 1},
+    {"Dim screen before timeout", f2773, 1},
+    {"Disc %d", f2774, 1},
+    {"Disc %d / Track %d", f2775, 1},
+    {"Disconnect", f2776, 1},
+    {"Disconnect USB storage first", f2777, 1},
+    {"Disconnect USB storage from the host before changing plugins.", f2778, 1},
+    {"Dismiss", f2779, 1},
+    {"Display", f2780, 1},
+    {"Done", f2781, 1},
+    {"Download", f2782, 1},
+    {"Download \"%s\"?", f2783, 1},
+    {"Download Profiles", f2784, 1},
+    {"Download Settings", f2785, 1},
+    {"Download every album from \"%s\"?", f2786, 1},
+    {"Download failed", f2787, 1},
+    {"Download folder: %s", f2788, 1},
+    {"Download folder: SD root", f2789, 1},
+    {"Download profiles", f2790, 1},
+    {"Download settings", f2791, 1},
+    {"Download subfolder", f2792, 1},
+    {"Downloading", f2793, 1},
+    {"Downloading\n%s...", f2794, 1},
+    {"Downloading and installing plugins %zu/%zu", f2795, 1},
+    {"Downloading update", f2796, 1},
+    {"Drawer Volume Slider", f2797, 1},
+    {"Duration", f2798, 1},
+    {"EQ", f2799, 1},
+    {"EQ curve", f2800, 1},
+    {"Edit", f2801, 1},
+    {"Edit / Done", f2802, 1},
+    {"Enable Bluetooth DAC", f2803, 1},
+    {"Enable Bluetooth in settings to use BT DAC mode", f2804, 1},
+    {"Enable Sleep Timer", f2805, 1},
+    {"Enable Wi-Fi or Bluetooth to connect.", f2806, 1},
+    {"Enable WiFi to access", f2807, 1},
+    {"Enable band", f2808, 1},
+    {"Enable debug logging", f2809, 1},
+    {"Equalizer", f2810, 1},
+    {"Erase and format SD card?", f2811, 1},
+    {"Europe", f2812, 1},
+    {"Excellent", f2813, 1},
+    {"Exit USB DAC mode to play music on this device", f2814, 1},
+    {"Factory Reset", f2815, 1},
+    {"Failed plugins:\n", f2816, 1},
+    {"Failed to add to playlist", f2817, 1},
+    {"Failed to apply time zone", f2818, 1},
+    {"Failed to connect to server", f2819, 1},
+    {"Failed to create playlist", f2820, 1},
+    {"Failed to delete profile", f2821, 1},
+    {"Failed to enable AirPlay", f2822, 1},
+    {"Failed to load artists", f2823, 1},
+    {"Failed to load artists: %s", f2824, 1},
+    {"Failed to load font. Check format & memory.", f2825, 1},
+    {"Failed to load from server", f2826, 1},
+    {"Failed to load profile", f2827, 1},
+    {"Failed to rename profile", f2828, 1},
+    {"Failed to save profile", f2829, 1},
+    {"Failed to start connection", f2830, 1},
+    {"Failed to switch to %s", f2831, 1},
+    {"Failed to toggle Bluetooth", f2832, 1},
+    {"Fair", f2833, 1},
+    {"Favorites", f2834, 1},
+    {"February", f2835, 1},
+    {"File size", f2836, 1},
+    {"File unavailable", f2837, 1},
+    {"Files", f2838, 1},
+    {"Files (folders stay first)", f2839, 1},
+    {"Files on the card may have changed.", f2840, 1},
+    {"Files use modification dates. Albums use the newest track added; missing release years sort last. Update Music Database once to read years from existing files.", f2841, 1},
+    {"Filter type", f2842, 1},
+    {"Firmware Update", f2843, 1},
+    {"Flat", f2844, 1},
+    {"Folder layout for downloaded albums", f2845, 1},
+    {"Folder too large to index (tap Back)", f2846, 1},
+    {"Font", f2847, 1},
+    {"Font Size", f2848, 1},
+    {"Font selection is no longer available", f2849, 1},
+    {"Forget", f2850, 1},
+    {"Format", f2851, 1},
+    {"Format SD Card", f2852, 1},
+    {"Formatting\nSD Card...", f2853, 1},
+    {"Frequency", f2854, 1},
+    {"Frequency (Hz, 20 to 20000)", f2855, 1},
+    {"Friday", f2856, 1},
+    {"From album art", f2857, 1},
+    {"From album art (no cover, using custom)", f2858, 1},
+    {"Gain", f2859, 1},
+    {"Gain (dB, -12 to 12)", f2860, 1},
+    {"Gapless", f2861, 1},
+    {"Gateway: %s", f2862, 1},
+    {"Generate", f2863, 1},
+    {"Generate a new PIN?", f2864, 1},
+    {"Genres", f2865, 1},
+    {"Gestures & Orientation", f2866, 1},
+    {"Get started", f2867, 1},
+    {"GitHub did not respond in time. Try again.", f2868, 1},
+    {"GitHub is limiting requests. Try again later.", f2869, 1},
+    {"GitHub returned HTTP %d.", f2870, 1},
+    {"Go back and choose New Connection to add one.", f2871, 1},
+    {"Good", f2872, 1},
+    {"Headset may disconnect, manual reconnection might be required", f2873, 1},
+    {"Hide Player/Lyrics Top Bar", f2874, 1},
+    {"Hide Unnamed Devices", f2875, 1},
+    {"High", f2876, 1},
+    {"High (320 kbps)", f2877, 1},
+    {"Hostname", f2878, 1},
+    {"Hostname can only use letters, numbers, and hyphens", f2879, 1},
+    {"IP Address: %s", f2880, 1},
+    {"Idle Shutdown", f2881, 1},
+    {"Idle timeout:", f2882, 1},
+    {"Import", f2883, 1},
+    {"Import via Wi-Fi", f2884, 1},
+    {"In-line Remote", f2885, 1},
+    {"Indian", f2886, 1},
+    {"Information", f2887, 1},
+    {"Insert an SD card to change plugins.", f2888, 1},
+    {"Insert an SD card to download the update.", f2889, 1},
+    {"Insert an SD card to install plugins.", f2890, 1},
+    {"Insert an SD card to remove plugins.", f2891, 1},
+    {"Insert an SD card to scan for music, or turn off Scan for music.", f2892, 1},
+    {"Insert an SD card to update plugins.", f2893, 1},
+    {"Insert your SD card with music files. Compas Player can scan it and build your library.", f2894, 1},
+    {"Install", f2895, 1},
+    {"Install & Reboot", f2896, 1},
+    {"Install from SD card", f2897, 1},
+    {"Installed", f2898, 1},
+    {"Installed manually", f2899, 1},
+    {"Installed · %s", f2900, 1},
+    {"Installing plugin", f2901, 1},
+    {"Invalid download folder", f2902, 1},
+    {"Invalid download folder name", f2903, 1},
+    {"Invalid profile name", f2904, 1},
+    {"It could not be loaded. Rebuild it now?", f2905, 1},
+    {"It may have no partition table or a file system this player can't use. Formatting will erase it and set it up for this player.", f2906, 1},
+    {"Its settings stay on the card.", f2907, 1},
+    {"January", f2908, 1},
+    {"July", f2909, 1},
+    {"June", f2910, 1},
+    {"LDAC Quality", f2911, 1},
+    {"LDAC Standard", f2912, 1},
+    {"LED charge indicator", f2913, 1},
+    {"Language", f2914, 1},
+    {"Large", f2915, 1},
+    {"Later", f2916, 1},
+    {"Launch at a fixed volume", f2917, 1},
+    {"Layout", f2918, 1},
+    {"Leave", f2919, 1},
+    {"Leave Bluetooth DAC mode?", f2920, 1},
+    {"Leave USB DAC mode?", f2921, 1},
+    {"Leave this view and try again.", f2922, 1},
+    {"Library", f2923, 1},
+    {"Library changed. Open the album again.", f2924, 1},
+    {"Library is busy", f2925, 1},
+    {"Library loaded", f2926, 1},
+    {"Library migrated. Favourites and play history kept", f2927, 1},
+    {"Library migrated. Old database cleanup will retry", f2928, 1},
+    {"Library migration failed. Old library intact. Use Settings > Update Music Database to retry", f2929, 1},
+    {"Library migration pending. Favourites and play history will be kept", f2930, 1},
+    {"Library recovered and saved", f2931, 1},
+    {"Library recovered and saved, some folders could not be read", f2932, 1},
+    {"Library recovered. Use Settings > Update Music Database to save", f2933, 1},
+    {"Library unavailable. Use Settings > Update Music Database to rebuild", f2934, 1},
+    {"Library update failed. Check SD card and retry", f2935, 1},
+    {"Library updated", f2936, 1},
+    {"Library updated, some folders could not be read", f2937, 1},
+    {"Load covers during playback (Experimental)", f2938, 1},
+    {"Loading Wi-Fi settings", f2939, 1},
+    {"Loading from server...", f2940, 1},
+    {"Loading layouts", f2941, 1},
+    {"Loading plugin catalog...", f2942, 1},
+    {"Loading plugins", f2943, 1},
+    {"Loading tracks…", f2944, 1},
+    {"Loading...", f2945, 1},
+    {"Location", f2946, 1},
+    {"Looking for music files", f2947, 1},
+    {"Looking for music files\n%d items checked", f2948, 1},
+    {"Low", f2949, 1},
+    {"Low\nHigh", f2950, 1},
+    {"Low (96 kbps)", f2951, 1},
+    {"Lyrics", f2952, 1},
+    {"Lyrics Text Size", f2953, 1},
+    {"MAC Address: %s", f2954, 1},
+    {"Maintenance", f2955, 1},
+    {"Make an accessory discoverable, then tap Rescan.", f2956, 1},
+    {"Manage plugins later in Settings > System > Plugin Manager to search, update, or remove them.", f2957, 1},
+    {"Manual SSID Entry", f2958, 1},
+    {"March", f2959, 1},
+    {"Match album art", f2960, 1},
+    {"May", f2961, 1},
+    {"Medium", f2962, 1},
+    {"Medium (192 kbps)", f2963, 1},
+    {"Memorized Networks", f2964, 1},
+    {"Metadata refreshed", f2965, 1},
+    {"Migrating\nmusic database...", f2966, 1},
+    {"Monday", f2967, 1},
+    {"Mono (1 channel)", f2968, 1},
+    {"More", f2969, 1},
+    {"Most Played", f2970, 1},
+    {"Music", f2971, 1},
+    {"Music database unavailable", f2972, 1},
+    {"Name (A–Z)", f2973, 1},
+    {"Native DSD (DoP) / %.4g MHz", f2974, 1},
+    {"Nearby Wi-Fi networks will appear here.", f2975, 1},
+    {"Needs newer firmware", f2976, 1},
+    {"Network Name (SSID)", f2977, 1},
+    {"Network stream", f2978, 1},
+    {"Networks you connect to will appear here.", f2979, 1},
+    {"New Connection", f2980, 1},
+    {"New PIN generated", f2981, 1},
+    {"New Profile", f2982, 1},
+    {"Newest Modified", f2983, 1},
+    {"Next", f2984, 1},
+    {"Next  •  %d–%d of %d", f2985, 1},
+    {"Next page", f2986, 1},
+    {"No .ttf fonts found in /Fonts", f2987, 1},
+    {"No .upt firmware file found on SD card", f2988, 1},
+    {"No SD card", f2989, 1},
+    {"No SD card detected. You can scan later from Library settings.", f2990, 1},
+    {"No books found", f2991, 1},
+    {"No entries to display", f2992, 1},
+    {"No favorites yet", f2993, 1},
+    {"No items", f2994, 1},
+    {"No memorized networks", f2995, 1},
+    {"No music database", f2996, 1},
+    {"No nearby devices", f2997, 1},
+    {"No network detected", f2998, 1},
+    {"No network detected. Connect to a network to download plugins.", f2999, 1},
+    {"No networks found", f3000, 1},
+    {"No other networks found", f3001, 1},
+    {"No paired devices", f3002, 1},
+    {"No playable audio files found", f3003, 1},
+    {"No playable files here", f3004, 1},
+    {"No plugin settings available", f3005, 1},
+    {"No plugins are available in the catalog.", f3006, 1},
+    {"No saved profiles", f3007, 1},
+    {"No saved servers", f3008, 1},
+    {"No songs to refresh", f3009, 1},
+    {"No synchronized lyrics found", f3010, 1},
+    {"No track loaded", f3011, 1},
+    {"No tracks found", f3012, 1},
+    {"No user playlists", f3013, 1},
+    {"No verified update is on this SD card. Download it again.", f3014, 1},
+    {"Not connected", f3015, 1},
+    {"Not enough free space on the SD card for the update.", f3016, 1},
+    {"Not enough free space on the SD card.", f3017, 1},
+    {"Not enough memory to connect", f3018, 1},
+    {"Not enough memory to load CUE tracks", f3019, 1},
+    {"Not enough memory to load artists", f3020, 1},
+    {"Not enough memory to load from server", f3021, 1},
+    {"Not enough memory to load the plugin store", f3022, 1},
+    {"Not enough memory to start download", f3023, 1},
+    {"Not selected (UTC)", f3024, 1},
+    {"Not set", f3025, 1},
+    {"November", f3026, 1},
+    {"OFF", f3027, 1},
+    {"ON", f3028, 1},
+    {"October", f3029, 1},
+    {"Off", f3030, 1},
+    {"On", f3031, 1},
+    {"Open a book and tap the bookmark icon to save it here.", f3032, 1},
+    {"Open a folder containing supported audio files.", f3033, 1},
+    {"Open network", f3034, 1},
+    {"Open this address on your phone or computer:", f3035, 1},
+    {"Open · Connected", f3036, 1},
+    {"Original", f3037, 1},
+    {"Output", f3038, 1},
+    {"PEQ reset to defaults", f3039, 1},
+    {"Pacific", f3040, 1},
+    {"Paired", f3041, 1},
+    {"Paired Devices", f3042, 1},
+    {"Parametric EQ", f3043, 1},
+    {"Password", f3044, 1},
+    {"Password: Not set", f3045, 1},
+    {"Password: Set", f3046, 1},
+    {"Paused: headphones disconnected", f3047, 1},
+    {"Peaking\nLow Shelf\nHigh Shelf", f3048, 1},
+    {"Per Album", f3049, 1},
+    {"Per Track", f3050, 1},
+    {"Place .ttf fonts in SD /Fonts folder.", f3051, 1},
+    {"Play All", f3052, 1},
+    {"Play Next", f3053, 1},
+    {"Play all shuffled", f3054, 1},
+    {"Play an album or playlist to see its songs here.", f3055, 1},
+    {"Play sequentially", f3056, 1},
+    {"Play/Pause", f3057, 1},
+    {"Play/Pause + Previous Track (Double-Click)", f3058, 1},
+    {"Play/Pause Button", f3059, 1},
+    {"Playback & Controls", f3060, 1},
+    {"Playback and device actions", f3061, 1},
+    {"Playback error", f3062, 1},
+    {"Playback error: audio output failed", f3063, 1},
+    {"Playback history could not be saved", f3064, 1},
+    {"Playback stopped: %s", f3065, 1},
+    {"Played", f3066, 1},
+    {"Player Layout", f3067, 1},
+    {"Playing", f3068, 1},
+    {"Playlist Name", f3069, 1},
+    {"Playlist changed. Select a song again.", f3070, 1},
+    {"Playlist changed. Try again.", f3071, 1},
+    {"Playlist created", f3072, 1},
+    {"Playlist deleted", f3073, 1},
+    {"Playlist is empty", f3074, 1},
+    {"Playlist renamed", f3075, 1},
+    {"Playlist saved", f3076, 1},
+    {"Playlist unavailable or unreadable", f3077, 1},
+    {"Playlists", f3078, 1},
+    {"Playlists refreshed", f3079, 1},
+    {"Please wait for plugin installation to finish", f3080, 1},
+    {"Please wait for the library scan to finish", f3081, 1},
+    {"Plugin", f3082, 1},
+    {"Plugin Manager", f3083, 1},
+    {"Plugin Settings", f3084, 1},
+    {"Plugin Store", f3085, 1},
+    {"Plugin is unavailable in the catalog", f3086, 1},
+    {"Plugin operation failed", f3087, 1},
+    {"Plugin setup complete", f3088, 1},
+    {"Plugin setup needs attention", f3089, 1},
+    {"Plugin storage is unavailable.", f3090, 1},
+    {"Plugins", f3091, 1},
+    {"Position", f3092, 1},
+    {"Power", f3093, 1},
+    {"Power Off", f3094, 1},
+    {"Power controls", f3095, 1},
+    {"Power off", f3096, 1},
+    {"Pre-Amp (dB, -12 to 12)", f3097, 1},
+    {"Pre-Amp: %+.2f dB", f3098, 1},
+    {"Preparing cover refresh...", f3099, 1},
+    {"Preparing database migration...", f3100, 1},
+    {"Preparing metadata refresh", f3101, 1},
+    {"Preparing metadata refresh...", f3102, 1},
+    {"Preparing music library...", f3103, 1},
+    {"Preparing update", f3104, 1},
+    {"Presets", f3105, 1},
+    {"Preview", f3106, 1},
+    {"Previous", f3107, 1},
+    {"Previous  •  %d–%d of %d", f3108, 1},
+    {"Previous Track", f3109, 1},
+    {"Previous page", f3110, 1},
+    {"Previous request still finishing", f3111, 1},
+    {"Previously connected accessories will appear here.", f3112, 1},
+    {"Primary DNS", f3113, 1},
+    {"Profile Name", f3114, 1},
+    {"Profile deleted", f3115, 1},
+    {"Profile loaded", f3116, 1},
+    {"Profile renamed", f3117, 1},
+    {"Profile saved", f3118, 1},
+    {"Profiles", f3119, 1},
+    {"Provider", f3120, 1},
+    {"Queue", f3121, 1},
+    {"Queue changed. Try again.", f3122, 1},
+    {"Queue checkpoint failed; storage may be read-only", f3123, 1},
+    {"Queue cleared", f3124, 1},
+    {"Queue is empty", f3125, 1},
+    {"Queue ready. Press Play to start.", f3126, 1},
+    {"Queued", f3127, 1},
+    {"Quick Setup Complete", f3128, 1},
+    {"Quick setup", f3129, 1},
+    {"RC", f3130, 1},
+    {"Radio", f3131, 1},
+    {"Radio / %s", f3132, 1},
+    {"Reading supported rates...", f3133, 1},
+    {"Reading tags\n%d of %d songs (%d%%)", f3134, 1},
+    {"Reads the tags of every song again. This may take a while.", f3135, 1},
+    {"Rebuild", f3136, 1},
+    {"Recently Added", f3137, 1},
+    {"Recently Played", f3138, 1},
+    {"Refresh", f3139, 1},
+    {"Refresh All Covers", f3140, 1},
+    {"Refresh All Metadata", f3141, 1},
+    {"Refresh Plugins", f3142, 1},
+    {"Refresh all covers?", f3143, 1},
+    {"Refresh all metadata?", f3144, 1},
+    {"Refresh metadata", f3145, 1},
+    {"Refresh plugin catalog", f3146, 1},
+    {"Refresh the music database to update this list.", f3147, 1},
+    {"Refreshing\nall covers...", f3148, 1},
+    {"Refreshing\nall metadata...", f3149, 1},
+    {"Refreshing\nmetadata...", f3150, 1},
+    {"Refreshing covers", f3151, 1},
+    {"Refreshing covers\n%d of %d (%d%%)", f3152, 1},
+    {"Refreshing plugins...", f3153, 1},
+    {"Release Year (oldest first)", f3154, 1},
+    {"Reload cover", f3155, 1},
+    {"Reloading\ncover...", f3156, 1},
+    {"Reloading cover", f3157, 1},
+    {"Reloading cover\n%d of %d (%d%%)", f3158, 1},
+    {"Remote", f3159, 1},
+    {"Remote Control", f3160, 1},
+    {"Remove", f3161, 1},
+    {"Remove %s?", f3162, 1},
+    {"Removed", f3163, 1},
+    {"Removed from playlist", f3164, 1},
+    {"Removed from queue", f3165, 1},
+    {"Removes saved covers and extracts them again. This may take a while.", f3166, 1},
+    {"Removing plugin", f3167, 1},
+    {"Rename Playlist", f3168, 1},
+    {"Rename Profile", f3169, 1},
+    {"Replace", f3170, 1},
+    {"Replace Existing", f3171, 1},
+    {"Replace Profile", f3172, 1},
+    {"ReplayGain", f3173, 1},
+    {"Rescan", f3174, 1},
+    {"Reset", f3175, 1},
+    {"Reset PEQ to defaults?", f3176, 1},
+    {"Reset all settings and reboot?", f3177, 1},
+    {"Reset to defaults", f3178, 1},
+    {"Restart", f3179, 1},
+    {"Restart Now", f3180, 1},
+    {"Restart now to apply the new hostname?", f3181, 1},
+    {"Resume Last Track", f3182, 1},
+    {"Resume and Play", f3183, 1},
+    {"Resume playback when external power turns the player on.", f3184, 1},
+    {"Resume, but Paused", f3185, 1},
+    {"Retrying plugins %zu/%zu", f3186, 1},
+    {"SD card checked", f3187, 1},
+    {"SD card couldn't be read", f3188, 1},
+    {"SD card format failed", f3189, 1},
+    {"SD card formatted", f3190, 1},
+    {"SD card is read-only. Check it on a computer", f3191, 1},
+    {"SD card is still read-only", f3192, 1},
+    {"SD card may have errors. Check it on a computer", f3193, 1},
+    {"SD card not available", f3194, 1},
+    {"SD card repair is still running", f3195, 1},
+    {"SD card repaired", f3196, 1},
+    {"SSID: %s", f3197, 1},
+    {"Safe Charging (500mA)", f3198, 1},
+    {"Sample Rate", f3199, 1},
+    {"Saturday", f3200, 1},
+    {"Save", f3201, 1},
+    {"Save Profile", f3202, 1},
+    {"Save Profile As", f3203, 1},
+    {"Save Queue as Playlist", f3204, 1},
+    {"Save as Playlist", f3205, 1},
+    {"Save as a new profile, or replace one that already exists?", f3206, 1},
+    {"Saved Servers", f3207, 1},
+    {"Saved network", f3208, 1},
+    {"Saved network details are being checked.", f3209, 1},
+    {"Saving music database", f3210, 1},
+    {"Saving music database\nThis can take a while on large libraries", f3211, 1},
+    {"Saving playlist…", f3212, 1},
+    {"Scan for music", f3213, 1},
+    {"Scan with your phone to support Compás Player on PayPal", f3214, 1},
+    {"Scanning for networks", f3215, 1},
+    {"Screen Dimming", f3216, 1},
+    {"Screen Timeout", f3217, 1},
+    {"Screen off", f3218, 1},
+    {"Screenshot failed (%s)", f3219, 1},
+    {"Screenshot failed (framebuffer)", f3220, 1},
+    {"Screenshot failed (worker)", f3221, 1},
+    {"Screenshot needs an SD card", f3222, 1},
+    {"Screenshot saved", f3223, 1},
+    {"Screenshots (Power + Previous)", f3224, 1},
+    {"Screenshots (Power + Vol Down)", f3225, 1},
+    {"Screenshots unavailable", f3226, 1},
+    {"Secondary DNS", f3227, 1},
+    {"Secure connection failed. Check Wi-Fi and the date and time.", f3228, 1},
+    {"Secured network", f3229, 1},
+    {"Secured · Connected", f3230, 1},
+    {"Select at least one plugin to continue.", f3231, 1},
+    {"Selected plugins are ready.\n", f3232, 1},
+    {"September", f3233, 1},
+    {"Server URL (e.g. %s)", f3234, 1},
+    {"Server URL: %s", f3235, 1},
+    {"Server request timed out after 30 seconds", f3236, 1},
+    {"Service is busy", f3237, 1},
+    {"Set Time", f3238, 1},
+    {"Set your local time zone so the clock is right.", f3239, 1},
+    {"Settings", f3240, 1},
+    {"Show Time Remaining", f3241, 1},
+    {"Showing first %d of %d songs", f3242, 1},
+    {"Shuffle from a random song", f3243, 1},
+    {"Signal: %s", f3244, 1},
+    {"Skip for now", f3245, 1},
+    {"Skipped: %s", f3246, 1},
+    {"Sleep", f3247, 1},
+    {"Sleep Timer", f3248, 1},
+    {"Sleep timer", f3249, 1},
+    {"Sleep timer: %d min remaining", f3250, 1},
+    {"Sleep timer: Off", f3251, 1},
+    {"Small", f3252, 1},
+    {"Some covers could not be refreshed", f3253, 1},
+    {"Some playlists could not be read", f3254, 1},
+    {"Some plugin files were changed on the card. Replace them?", f3255, 1},
+    {"Some songs could not be read", f3256, 1},
+    {"Some updates need confirmation before replacing local files.", f3257, 1},
+    {"Song already added", f3258, 1},
+    {"Song deleted", f3259, 1},
+    {"Songs", f3260, 1},
+    {"Sorting", f3261, 1},
+    {"Sound", f3262, 1},
+    {"Sound Effects", f3263, 1},
+    {"Source", f3264, 1},
+    {"Speex Resampling", f3265, 1},
+    {"Start sequentially", f3266, 1},
+    {"Start with these suggestions, or explore more plugins.", f3267, 1},
+    {"Startup Volume", f3268, 1},
+    {"Step %d of %d", f3269, 1},
+    {"Stereo (2 channels)", f3270, 1},
+    {"Still applying the previous choice", f3271, 1},
+    {"Storage", f3272, 1},
+    {"Stream Media", f3273, 1},
+    {"Stream Quality", f3274, 1},
+    {"Stream quality: %s", f3275, 1},
+    {"Subfolder is relative to SD root (example: Music/Offline); empty uses SD root", f3276, 1},
+    {"Subfolder: SD root", f3277, 1},
+    {"Subsonic", f3278, 1},
+    {"Sunday", f3279, 1},
+    {"Suspend to RAM", f3280, 1},
+    {"Swipe Up for Home", f3281, 1},
+    {"Swipe up to unlock", f3282, 1},
+    {"System", f3283, 1},
+    {"System playlists", f3284, 1},
+    {"Takes its color from the cover of the playing track", f3285, 1},
+    {"Tap Power off again to confirm", f3286, 1},
+    {"Tap Restart again to confirm", f3287, 1},
+    {"The SD card changed during the download.", f3288, 1},
+    {"The SD card changed during the operation.", f3289, 1},
+    {"The SD card is read-only. Check its write protection.", f3290, 1},
+    {"The download did not complete. Check Wi-Fi and try again.", f3291, 1},
+    {"The downloaded image failed verification and was deleted.", f3292, 1},
+    {"The playlist file will be deleted. Music files are kept.", f3293, 1},
+    {"The plugin download failed verification. Try again.", f3294, 1},
+    {"The quick brown fox jumps 123", f3295, 1},
+    {"The release has no checksum for this device's image.", f3296, 1},
+    {"The update file on the SD card changed. Download it again.", f3297, 1},
+    {"There are no entries in this view.", f3298, 1},
+    {"This device is now a USB sound card", f3299, 1},
+    {"This device is now receiving Bluetooth audio", f3300, 1},
+    {"This may take a while", f3301, 1},
+    {"This permanently deletes everything on the card. This cannot be undone.", f3302, 1},
+    {"This plugin has no update available.", f3303, 1},
+    {"This plugin is already installed by the store.", f3304, 1},
+    {"This plugin is not installed by the store.", f3305, 1},
+    {"This plugin needs a newer player version.", f3306, 1},
+    {"This release's image does not match its checksums. Try again after the next weekly release.", f3307, 1},
+    {"Thread launch failed", f3308, 1},
+    {"Thursday", f3309, 1},
+    {"Time Zone", f3310, 1},
+    {"Time remaining: %d:%02d", f3311, 1},
+    {"Time remaining: %d:%02d:%02d", f3312, 1},
+    {"Time zone", f3313, 1},
+    {"Too many audio channels", f3314, 1},
+    {"Too many plugins are installed. Remove one and try again.", f3315, 1},
+    {"Track", f3316, 1},
+    {"Track %+.1f dB", f3317, 1},
+    {"Track %d", f3318, 1},
+    {"Track details are not available yet. Keep playback open and check again.", f3319, 1},
+    {"Tracks", f3320, 1},
+    {"Tuesday", f3321, 1},
+    {"Turn Bluetooth off and on to apply", f3322, 1},
+    {"Turn off ADB first (Settings > System > USB Mode), then enable USB DAC from here.", f3323, 1},
+    {"Turn off Automatic to set the clock", f3324, 1},
+    {"Turn off Bluetooth DAC to play music on this device", f3325, 1},
+    {"Turn off screen automatically", f3326, 1},
+    {"Turn on Bluetooth to see paired and nearby devices.", f3327, 1},
+    {"Turn on Wi-Fi and connect first", f3328, 1},
+    {"Turn this on to see the address here.", f3329, 1},
+    {"USB DAC", f3330, 1},
+    {"USB DAC mode", f3331, 1},
+    {"USB Mode", f3332, 1},
+    {"USB audio device detected", f3333, 1},
+    {"USB input: %s · %u-bit", f3334, 1},
+    {"USB mode", f3335, 1},
+    {"Unable to load items", f3336, 1},
+    {"Unable to read folder (tap Back and retry)", f3337, 1},
+    {"Unavailable", f3338, 1},
+    {"Unexpected library response", f3339, 1},
+    {"Unexpected reply from GitHub", f3340, 1},
+    {"Unexpected reply from GitHub.", f3341, 1},
+    {"Unknown album", f3342, 1},
+    {"Unknown artist", f3343, 1},
+    {"Unknown codec", f3344, 1},
+    {"Unknown format", f3345, 1},
+    {"Unknown rate", f3346, 1},
+    {"Unsupported audio format", f3347, 1},
+    {"Update", f3348, 1},
+    {"Update & Reboot", f3349, 1},
+    {"Update All", f3350, 1},
+    {"Update Music Database", f3351, 1},
+    {"Update Music Database to enable this album order", f3352, 1},
+    {"Update available", f3353, 1},
+    {"Update available · %s", f3354, 1},
+    {"Update individually", f3355, 1},
+    {"Update music database?", f3356, 1},
+    {"Update these plugins individually", f3357, 1},
+    {"Update using %s?\nDevice will reboot into recovery mode.", f3358, 1},
+    {"Updates", f3359, 1},
+    {"Updating\nmusic database...", f3360, 1},
+    {"Updating plugins", f3361, 1},
+    {"Upside Down Screen", f3362, 1},
+    {"Use Settings > Update Music Database", f3363, 1},
+    {"User playlists", f3364, 1},
+    {"Username", f3365, 1},
+    {"Username: %s", f3366, 1},
+    {"Verify server certificate", f3367, 1},
+    {"Version %s · %s", f3368, 1},
+    {"Waiting for Bluetooth stream…", f3369, 1},
+    {"Waiting for USB audio…", f3370, 1},
+    {"Weak", f3371, 1},
+    {"Web Server is busy", f3372, 1},
+    {"Wednesday", f3373, 1},
+    {"Weekly Beta %s is available.\nInstalled: %s\n\nDownload it now? This may take a while.", f3374, 1},
+    {"Weekly Beta %s is downloaded and verified.\n\nInstall now? The device reboots into recovery to flash it. Do not turn it off until it restarts.", f3375, 1},
+    {"Welcome to Compás", f3376, 1},
+    {"When on, this device is visible to AirPlay senders on your Wi-Fi network -- stream audio from an iPhone, iPad, or Mac to be played through this device's own output.", f3377, 1},
+    {"When on, this device is visible to DLNA/UPnP controller apps on your Wi-Fi network -- cast a track from one to play it here. Pause, mute, volume, and seek from the controller app aren't supported; use this device's own controls instead once a track starts.", f3378, 1},
+    {"When on, this device stays visible and pairable to other Bluetooth devices, so a phone or computer can stream audio TO it and play through this device's own output -- using it as an external DAC.", f3379, 1},
+    {"Wi-Fi", f3380, 1},
+    {"Wi-Fi Info", f3381, 1},
+    {"Wi-Fi Password", f3382, 1},
+    {"Wi-Fi failed to change state", f3383, 1},
+    {"Wi-Fi is busy", f3384, 1},
+    {"Wireless", f3385, 1},
+    {"You can select up to 32 plugins", f3386, 1},
+    {"You have the latest weekly (%s).\n\nDownload and reinstall it anyway? This may take a while.", f3387, 1},
+    {"Your library is being loaded.", f3388, 1},
+    {"Your music", f3389, 1},
+    {"Your setup journey", f3390, 1},
+    {"[File truncated at %d KB -- showing the first part only]\n\n%s", f3391, 1},
+    {"unknown", f3392, 1},
 };
 
 const i18n_lang_t i18n_catalog_langs[] = {
-    {"es", "Español", entries_es, 849},
-    {"fr", "Français", entries_fr, 849},
-    {"it", "Italiano", entries_it, 849},
-    {"pt_BR", "Português (Brasil)", entries_pt_BR, 849},
+    {"es", "Español", entries_es, 848},
+    {"fr", "Français", entries_fr, 848},
+    {"it", "Italiano", entries_it, 848},
+    {"pt_BR", "Português (Brasil)", entries_pt_BR, 848},
 };
 const size_t i18n_catalog_lang_count = 4;

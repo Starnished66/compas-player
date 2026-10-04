@@ -29,7 +29,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: compas-player\n"
 "Report-Msgid-Bugs-To: none\n"
-"POT-Creation-Date: 2026-10-04 01:25-0600\n"
+"POT-Creation-Date: 2026-10-04 12:01-0600\n"
 "PO-Revision-Date: 2026-10-01 00:00+0000\n"
 "Last-Translator: Machine draft\n"
 "Language-Team: Italian\n"
@@ -2037,9 +2037,6 @@ msgstr "Screenshot (Power + Vol giù)"
 msgid "Enable debug logging"
 msgstr "Attiva log di debug"
 
-msgid "LDAC in DAC mode (Experimental)"
-msgstr "LDAC in modalità DAC (sperimentale)"
-
 msgid "Load covers during playback (Experimental)"
 msgstr "Carica copertine durante la riproduzione (sperimentale)"
 
@@ -2974,6 +2971,9 @@ msgstr "Controlli di alimentazione"
 
 msgid "Playback and device actions"
 msgstr "Azioni di riproduzione e dispositivo"
+
+#~ msgid "LDAC in DAC mode (Experimental)"
+#~ msgstr "LDAC in modalità DAC (sperimentale)"
 
 #~ msgid "Scanning..."
 #~ msgstr "Ricerca..."
