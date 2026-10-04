@@ -125,6 +125,46 @@ uint64_t ui_perf_now_us(void) {
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t) ts.tv_sec * 1000000ULL + (uint64_t) ts.tv_nsec / 1000ULL;
 }
+
+/* Buffer polling measurements until motion ends, avoiding SD writes mid-slide. */
+static struct { const char * section; uint64_t wall_us; uint64_t cpu_us; } update_perf_records[64];
+static size_t update_perf_count;
+static bool update_perf_capture;
+static uint64_t update_perf_wall_start, update_perf_cpu_start;
+
+static uint64_t update_perf_cpu_us(void) {
+    struct timespec ts = {0};
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+    return (uint64_t) ts.tv_sec * 1000000ULL + (uint64_t) ts.tv_nsec / 1000ULL;
+}
+
+static void update_perf_begin(void) {
+    update_perf_capture = gui_navigation_transition_in_progress();
+    if (!update_perf_capture && !gui_player_lyrics_animation_in_progress()) {
+        for (size_t i = 0; i < update_perf_count; ++i)
+            printf("PERF control_poll section=%s wall_us=%llu cpu_us=%llu\n",
+                   update_perf_records[i].section,
+                   (unsigned long long) update_perf_records[i].wall_us,
+                   (unsigned long long) update_perf_records[i].cpu_us);
+        update_perf_count = 0;
+    }
+    if (update_perf_capture) {
+        update_perf_wall_start = ui_perf_now_us();
+        update_perf_cpu_start = update_perf_cpu_us();
+    }
+}
+
+static void update_perf_mark(const char * section) {
+    if (!update_perf_capture) return;
+    uint64_t wall = ui_perf_now_us(), cpu = update_perf_cpu_us();
+    if (update_perf_count < sizeof(update_perf_records) / sizeof(update_perf_records[0])) {
+        update_perf_records[update_perf_count].section = section;
+        update_perf_records[update_perf_count].wall_us = wall - update_perf_wall_start;
+        update_perf_records[update_perf_count++].cpu_us = cpu - update_perf_cpu_start;
+    }
+    update_perf_wall_start = wall;
+    update_perf_cpu_start = cpu;
+}
 #endif
 
 #ifdef HOST_BUILD
@@ -292,7 +332,7 @@ static bool idle_shutdown_attempted = false;
 
 
 static bool shutdown_background_work_active(void) {
-    return gui_library_has_background_work() || gui_subsonic_has_background_work() ||
+    return gui_lock_screen_has_background_work(true) || gui_library_has_background_work() || gui_subsonic_has_background_work() ||
            gui_network_has_background_work() || gui_lyrics_has_background_work() ||
            gui_player_has_background_work() || gui_shell_has_background_work() ||
            plugin_manager_has_background_work() || playlist_files_has_active_write() ||
@@ -313,6 +353,22 @@ static bool resumed_from_suspend_pending = false;
  * out-of-band wake so the next control tick still runs every ordinary
  * screen_just_woke refresh/status/radio-reset action. */
 static bool force_screen_just_woke = false;
+/* A wake is prepared and painted with the backlight still off. */
+static bool screen_wake_pending = false;
+static bool screen_wake_frame_pending = false;
+static bool screen_wake_flush_seen;
+static bool screen_wake_reveal_pending;
+static uint32_t screen_wake_phase_tick;
+static uint32_t screen_wake_retry_tick;
+#define SCREEN_WAKE_RETRY_MS 100
+#define SCREEN_WAKE_TIMEOUT_MS 1000
+static bool screen_wake_power_menu = false;
+static void request_screen_power(bool on);
+
+bool gui_display_refresh_allowed(void) {
+    /* A prepared wake frame is drawn before the backlight is enabled. */
+    return backlight_screen_is_on() || screen_wake_frame_pending;
+}
 
 /* Keeps the three pieces of screen runtime state inseparable. Merely
  * enabling an indev does not restart its paused LVGL read timer, and merely
@@ -356,9 +412,7 @@ static void apply_screen_runtime_state(bool screen_on) {
 /* Restores backlight, input devices, and inactivity timer state immediately
  * after waking from suspend. Shared between idle-shutdown and Car Mode suspend paths. */
 static void resume_from_suspend_fixups(void) {
-    backlight_set_screen_on(true);
-    apply_screen_runtime_state(true);
-    force_screen_just_woke = true;
+    request_screen_power(true);
     lv_display_trigger_activity(NULL);
     resumed_from_suspend_tick = lv_tick_get();
     resumed_from_suspend_pending = true;
@@ -422,16 +476,77 @@ static void handle_physical_play_pause_press(void) {
     toggle_play_pause();
 }
 
-/* plugin_manager_notify_screen_woke()'s handlers can do real GUI work
- * (LockScreen.lua's own screen_woke handler calls plugin.show_lock_screen(),
- * which nav_push()es a new screen) -- calling that notify function directly
- * from inside the screen_just_woke branch below would be exactly the
- * re-entrant-from-inside-lv_timer_handler() hazard this same function's own
- * comment on full_redraw_async_cb already warns about (a few lines up).
- * Deferred via lv_async_call() the same way, for the same reason. */
-static void notify_screen_woke_async_cb(void * unused) {
-    (void) unused;
+static void finish_screen_wake_reveal(void) {
+    screen_wake_pending = screen_wake_reveal_pending = false;
+    screen_wake_power_menu = false;
+    lv_indev_enable(NULL, true);
+    gui_lock_screen_refresh(false);
+    force_screen_just_woke = true;
+}
+
+static void begin_screen_wake_reveal(void) {
+    screen_wake_frame_pending = false;
+    screen_wake_reveal_pending = true;
+    screen_wake_phase_tick = screen_wake_retry_tick = lv_tick_get();
+    backlight_set_screen_on(true);
+}
+
+/* Lua handlers select their wake surface once dark panel preparation finishes.
+ * Reveal it only after a successful last flush, without nested lv_refr_now(). */
+static void screen_wake_frame_ready_cb(lv_event_t * event) {
+    if (!screen_wake_frame_pending) return;
+    lv_event_code_t code = lv_event_get_code(event);
+    if (code == LV_EVENT_FLUSH_FINISH) {
+        lv_display_t * display = lv_event_get_target(event);
+        if (lv_display_flush_is_last(display)) {
+#ifdef HOST_BUILD
+            screen_wake_flush_seen = true;
+#else
+            screen_wake_flush_seen = lv_linux_fbdev_last_present_succeeded(display);
+#endif
+        }
+        return;
+    }
+    if (code != LV_EVENT_REFR_READY || !screen_wake_flush_seen) return;
+    /* Wait for the short in-memory album blur. File-backed photos can take
+     * longer; show the prepared clock/gesture surface while they load. */
+    if (gui_lock_screen_is_showing() && gui_lock_screen_has_background_work(false)) return;
+    begin_screen_wake_reveal();
+}
+
+static void prepare_screen_wake_frame(void) {
+    if (!screen_wake_pending) return;
     plugin_manager_notify_screen_woke();
+    apply_screen_runtime_state(true);
+    lv_indev_enable(NULL, false);
+    if (screen_wake_power_menu) {
+        screen_wake_power_menu = false;
+        start_power_off_countdown();
+    }
+    full_redraw_async_cb(NULL);
+    screen_wake_frame_pending = true;
+    screen_wake_flush_seen = false;
+    screen_wake_phase_tick = screen_wake_retry_tick = lv_tick_get();
+    lv_timer_t * refresh = lv_display_get_refr_timer(lv_display_get_default());
+    if (refresh) lv_timer_ready(refresh);
+}
+
+static void request_screen_power(bool on) {
+    if (on) {
+        if (backlight_screen_is_on() || screen_wake_pending) return;
+        screen_wake_pending = true;
+        screen_wake_phase_tick = screen_wake_retry_tick = lv_tick_get();
+        backlight_prepare_screen_on();
+    } else {
+
+        screen_wake_pending = false;
+        screen_wake_frame_pending = false;
+        screen_wake_flush_seen = false;
+        screen_wake_reveal_pending = false;
+        screen_wake_power_menu = false;
+        backlight_set_screen_on(false);
+        apply_screen_runtime_state(false);
+    }
 }
 
 /* Keep power-button consumption separate from the 500ms control timer. While
@@ -449,13 +564,11 @@ static void process_power_button_events(void) {
         if (resumed_from_suspend_pending) {
             resumed_from_suspend_pending = false;
         } else {
-            bool turn_on = !backlight_screen_is_on();
+            bool turn_on = !(backlight_screen_is_on() || screen_wake_pending);
             lv_display_trigger_activity(NULL);
-            backlight_set_screen_on(turn_on);
-            apply_screen_runtime_state(turn_on);
+            request_screen_power(turn_on);
             if (turn_on) {
                 inactivity_dimmed = false;
-                force_screen_just_woke = true;
             }
         }
     }
@@ -465,14 +578,15 @@ static void process_power_button_events(void) {
             resumed_from_suspend_pending = false;
         } else {
             bool was_on = backlight_screen_is_on();
-            backlight_set_screen_on(true);
-            if (!was_on) {
-                apply_screen_runtime_state(true);
-                inactivity_dimmed = false;
-                force_screen_just_woke = true;
-            }
             lv_display_trigger_activity(NULL);
-            start_power_off_countdown();
+            if (!was_on) {
+                if (screen_wake_frame_pending || screen_wake_reveal_pending) start_power_off_countdown();
+                else screen_wake_power_menu = true;
+                request_screen_power(true);
+                inactivity_dimmed = false;
+            } else {
+                start_power_off_countdown();
+            }
         }
     }
 }
@@ -480,6 +594,38 @@ static void process_power_button_events(void) {
 static void power_button_timer_cb(lv_timer_t * timer) {
     (void) timer;
     process_power_button_events();
+    if (!screen_wake_pending) return;
+    uint32_t age = lv_tick_elaps(screen_wake_phase_tick);
+    bool retry_due = lv_tick_elaps(screen_wake_retry_tick) >= SCREEN_WAKE_RETRY_MS;
+    if (screen_wake_reveal_pending) {
+        if (backlight_screen_is_visible()) finish_screen_wake_reveal();
+        else if (age >= SCREEN_WAKE_TIMEOUT_MS) {
+            fprintf(stderr, "Screen wake: brightness restore timed out\n");
+            backlight_set_screen_on(true);
+            finish_screen_wake_reveal();
+        } else if (retry_due) {
+            screen_wake_retry_tick = lv_tick_get();
+            backlight_set_screen_on(true);
+        }
+    } else if (!screen_wake_frame_pending) {
+        if (backlight_screen_is_prepared()) prepare_screen_wake_frame();
+        else if (age >= SCREEN_WAKE_TIMEOUT_MS) {
+            fprintf(stderr, "Screen wake: dark preparation timed out, using plain unblank\n");
+            backlight_set_screen_on(true);
+            prepare_screen_wake_frame();
+        } else if (retry_due) {
+            screen_wake_retry_tick = lv_tick_get();
+            backlight_prepare_screen_on();
+        }
+    } else if (age >= SCREEN_WAKE_TIMEOUT_MS) {
+        fprintf(stderr, "Screen wake: frame presentation timed out\n");
+        begin_screen_wake_reveal();
+    } else if (!screen_wake_flush_seen && retry_due) {
+        screen_wake_retry_tick = lv_tick_get();
+        full_redraw_async_cb(NULL);
+        lv_timer_t * refresh = lv_display_get_refr_timer(lv_display_get_default());
+        if (refresh) lv_timer_ready(refresh);
+    }
 }
 
 /* Only cheap event consumption runs at input cadence. Periodic status,
@@ -529,6 +675,9 @@ static void media_button_timer_cb(lv_timer_t * timer) {
 
 static void update_timer_cb(lv_timer_t * timer) {
     (void) timer;
+#ifdef UI_PERF_TRACE
+    update_perf_begin();
+#endif
 
     bool screenshot_request_pending = hw_buttons_consume_screenshot();
 
@@ -866,7 +1015,7 @@ static void update_timer_cb(lv_timer_t * timer) {
     if (current_settings.screen_timeout_enabled && backlight_screen_is_on() &&
         !lyrics_screen_active &&
         screen_inactive_ms >= (uint32_t) current_settings.screen_timeout_seconds * 1000) {
-        backlight_set_screen_on(false);
+        request_screen_power(false);
         inactivity_dimmed = false;
     }
 
@@ -885,19 +1034,18 @@ static void update_timer_cb(lv_timer_t * timer) {
     /* Touch input and display refresh follow screen on/off state. Disabling indev
      * devices when screen is off prevents accidental touch events. Physical buttons
      * continue operating via their dedicated evdev thread. */
-    if (screen_on_now != screen_was_on) {
+    if (!screen_wake_pending && screen_on_now != screen_was_on) {
         apply_screen_runtime_state(screen_on_now);
     }
 
     if (screen_just_woke) {
         inactivity_dimmed = false;
         idle_shutdown_attempted = false;
-        lv_async_call(notify_screen_woke_async_cb, NULL);
         if (radios_suspended) {
             gui_shell_resume_connections(wifi_was_on_before_suspend, bt_was_on_before_suspend);
             radios_suspended = false;
         }
-    } else if (!screen_on_now) {
+    } else if (!screen_on_now && !screen_wake_pending) {
         bool playing_now_for_idle = audio_is_playing();
         if (screen_was_on) {
             /* Just went to sleep this tick -- the 10-minute countdown starts
@@ -1007,9 +1155,15 @@ static void update_timer_cb(lv_timer_t * timer) {
         }
     }
 
+#ifdef UI_PERF_TRACE
+    update_perf_mark("controls");
+#endif
     if (screen_on_now) {
         gui_shell_update_topbar(screen_just_woke);
     }
+#ifdef UI_PERF_TRACE
+    update_perf_mark("topbar");
+#endif
 
     /* Also unconditional on screen state -- charging happens with the
      * screen off far more often than on, so gating this the same way as the
@@ -1018,14 +1172,29 @@ static void update_timer_cb(lv_timer_t * timer) {
      * own actual sysfs work internally, so calling it every tick here is
      * cheap. */
     charge_limiter_poll(current_settings.charge_limiter_enabled, false);
+#ifdef UI_PERF_TRACE
+    update_perf_mark("charge_limit");
+#endif
     safe_charging_poll(current_settings.safe_charging_enabled, false);
+#ifdef UI_PERF_TRACE
+    update_perf_mark("safe_charge");
+#endif
     led_control_poll(current_settings.led_indicator_enabled);
+#ifdef UI_PERF_TRACE
+    update_perf_mark("led_status");
+#endif
     int volume_percent = (int) (audio_get_volume() * 100.0f + 0.5f);
     if (volume_percent < 0) volume_percent = 0;
     if (volume_percent > 100) volume_percent = 100;
     plugin_manager_notify_volume_changed(volume_percent);
     plugin_manager_poll_battery();
+#ifdef UI_PERF_TRACE
+    update_perf_mark("plugin_battery");
+#endif
     headphone_status_refresh_earpods_adc();
+#ifdef UI_PERF_TRACE
+    update_perf_mark("hardware");
+#endif
 
     if (current_settings.remote_control_enabled) {
         gui_player_sync_remote_queue();
@@ -1073,11 +1242,26 @@ static void update_timer_cb(lv_timer_t * timer) {
     poll_library_rescan();
     poll_sd_format();
     poll_import_web_stop();
+#ifdef UI_PERF_TRACE
+    update_perf_mark("network_jobs");
+#endif
     poll_usb_mode_switch();
+#ifdef UI_PERF_TRACE
+    update_perf_mark("usb_mode");
+#endif
     poll_usb_storage_hotplug();
+#ifdef UI_PERF_TRACE
+    update_perf_mark("usb_hotplug");
+#endif
     poll_sd_card_hotplug();
+#ifdef UI_PERF_TRACE
+    update_perf_mark("sd_hotplug");
+#endif
     gui_library_poll_playlists();
     gui_library_poll_track_probes();
+#ifdef UI_PERF_TRACE
+    update_perf_mark("storage_jobs");
+#endif
     poll_cover_decode();
     gui_lyrics_poll_load();
     gui_lyrics_poll_backdrop();
@@ -1111,6 +1295,9 @@ static void update_timer_cb(lv_timer_t * timer) {
     gui_network_poll_airplay_overlay();
     gui_track_info_poll();
     gui_library_poll_boot_prompt();
+#ifdef UI_PERF_TRACE
+    update_perf_mark("player_jobs");
+#endif
 
     /* All correctness-critical work above (buttons, queue transitions and
      * completion of requested background operations) still runs at 500 ms.
@@ -1464,6 +1651,8 @@ static void migration_schedule_deferred_rescan(void) {
 }
 
 void gui_init(uint32_t screen_width, uint32_t screen_height) {
+    lv_display_add_event_cb(lv_display_get_default(), screen_wake_frame_ready_cb,
+                            LV_EVENT_ALL, NULL);
 #ifndef HOST_BUILD
     boot_checkpoint("gui_init entered");
 #endif
@@ -1767,6 +1956,8 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
 
 
 void gui_deinit(void) {
+    lv_display_remove_event_cb_with_user_data(lv_display_get_default(), screen_wake_frame_ready_cb, NULL);
+    screen_wake_pending = screen_wake_frame_pending = screen_wake_power_menu = screen_wake_flush_seen = screen_wake_reveal_pending = false;
     gui_setup_teardown();
     gui_library_cancel_scan();
     gui_library_cancel_background_work();

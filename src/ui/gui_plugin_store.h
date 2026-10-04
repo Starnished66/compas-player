@@ -1,8 +1,11 @@
 #ifndef GUI_PLUGIN_STORE_H
 #define GUI_PLUGIN_STORE_H
 
+#define GUI_SETUP_LAYOUT_PLUGIN_ID "org.compas.vinyl_player"
+
 #include <lvgl/lvgl.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include "plugin_store.h"
 
 void gui_plugin_store_init(void);
@@ -12,8 +15,14 @@ void gui_plugin_store_row_cb(lv_event_t * e);
  * is visible. Pass NULL or an empty ID to open the complete catalog. */
 bool gui_plugin_store_open_recommendation(const char * id);
 bool gui_plugin_store_open_player_layouts(void);
+bool gui_plugin_store_open_layout_picker(bool (*is_selected)(const char * id),
+                                         void (*select)(const char * id, const char * name));
+uint64_t gui_plugin_store_setup_populate_layout_suggestions(
+    lv_obj_t * parent, bool (*is_selected)(const char * id),
+    void (*select)(const char * id, const char * name));
 bool gui_plugin_store_open_picker(bool (*is_selected)(const char * id),
-                                  void (*toggle)(const char * id, const char * name));
+                                  void (*toggle)(const char * id, const char * name),
+                                  void (*done)(void));
 bool gui_plugin_store_operation_active(void);
 bool gui_plugin_store_setup_catalog_prepare(void);
 bool gui_plugin_store_setup_catalog_ready(void);

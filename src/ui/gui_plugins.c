@@ -633,7 +633,12 @@ static int plugin_settings_list_row_state_count[PLUGIN_SETTINGS_LIST_SCREEN_POOL
 static lv_obj_t * plugin_settings_list_screens[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE];
 static lv_obj_t * plugin_settings_list_title_labels[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE];
 static lv_obj_t * plugin_settings_list_lists[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE];
+/* Keep the source title separately from the rendered label. LV_LABEL_LONG_DOT
+ * may rewrite the label's displayed text, which must not affect update lookup. */
+static char * plugin_settings_list_titles[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE];
 static int plugin_settings_list_pool_next = 0;
+static bool plugin_settings_list_preview_enabled[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE];
+static gui_lock_screen_options_t plugin_settings_list_previews[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE];
 
 /* Which slider cards THIS slot registered as swipe dead zones on its last
  * populate -- unregistered (see unregister_swipe_dead_zone()'s own comment)
@@ -794,12 +799,16 @@ static void populate_plugin_settings_list_screen(int slot) {
     plugin_settings_list_slider_card_count[slot] = 0;
 
     lv_obj_t * list = plugin_settings_list_lists[slot];
+    int32_t scroll_y = lv_obj_get_scroll_y(list);
     lv_obj_clean(list);
+
+    if (plugin_settings_list_preview_enabled[slot])
+        gui_lock_screen_create_preview(list, &plugin_settings_list_previews[slot]);
 
     int count = plugin_settings_list_row_state_count[slot];
     if (count <= 0) {
         add_plugin_empty_state(list, TR("No plugin settings available"));
-        return;
+        goto restore_scroll;
     }
 
     for (int row = 0; row < count; row++) {
@@ -858,13 +867,39 @@ static void populate_plugin_settings_list_screen(int slot) {
             if (icon) decorate_category_row(row_obj, NULL, NULL);
         }
     }
+
+restore_scroll:
+    lv_obj_update_layout(list);
+    lv_obj_scroll_to_y(list, scroll_y, LV_ANIM_OFF);
 }
 
 int gui_plugin_show_settings_list(const char * title, const int * row_types, const char * const * labels,
                                    const bool * toggle_initial, const int * slider_min, const int * slider_max,
                                    const int * slider_value, const char * const * icon_paths, const int32_t * heights,
                                    const int32_t * widths, const char * const * text_sizes,
-                                   const bool * wrap_labels, int count) {
+                                   const bool * wrap_labels, int count, bool update_existing,
+                                   const gui_lock_screen_options_t * preview) {
+    const char * raw_title = title ? title : "";
+    int slot = -1;
+    bool updating_existing = false;
+    if (update_existing) {
+        /* Prefer the most deeply nested live screen with this title. This
+         * lets a child settings chooser refresh its covered parent in place
+         * without adding another navigation entry. */
+        for (int depth = gui_navigation_get_depth() - 1; depth >= 0 && slot < 0; depth--) {
+            lv_obj_t * live = gui_navigation_get_screen_at(depth);
+            for (int candidate = 0; candidate < PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE; candidate++) {
+                if (plugin_settings_list_screens[candidate] == live &&
+                    plugin_settings_list_titles[candidate] &&
+                    strcmp(plugin_settings_list_titles[candidate], raw_title) == 0) {
+                    slot = candidate;
+                    updating_existing = true;
+                    break;
+                }
+            }
+        }
+    }
+
     /* WHY BLIND ROUND-ROBIN IS WRONG:
      * A common pattern is: open plugin settings list (slot 0) -> tap an option
      * to open a child list (slot 1) -> back (to slot 0) -> tap a DIFFERENT
@@ -881,17 +916,29 @@ int gui_plugin_show_settings_list(const char * title, const int * row_types, con
      * ancestor screen's content AND releases its Lua callback references (unlike
      * row truncation which just degrades gracefully).
      */
-    int slot = plugin_settings_list_pool_next;
-    for (int i = 0; i < PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE; i++) {
-        int candidate = (plugin_settings_list_pool_next + i) % PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE;
-        if (!gui_navigation_contains(plugin_settings_list_screens[candidate])) {
-            slot = candidate;
-            break;
+    if (slot < 0) {
+        slot = plugin_settings_list_pool_next;
+        for (int i = 0; i < PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE; i++) {
+            int candidate = (plugin_settings_list_pool_next + i) % PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE;
+            if (!gui_navigation_contains(plugin_settings_list_screens[candidate])) {
+                slot = candidate;
+                break;
+            }
         }
+        plugin_settings_list_pool_next = (slot + 1) % PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE;
     }
-    plugin_settings_list_pool_next = (slot + 1) % PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE;
 
-    lv_label_set_text(plugin_settings_list_title_labels[slot], title);
+    char * owned_title = strdup(raw_title);
+    if (!owned_title) return -1;
+    free(plugin_settings_list_titles[slot]);
+    plugin_settings_list_titles[slot] = owned_title;
+
+    /* The screen can be covered while its rows are rebuilt in place. Drop
+     * the cached Back image before mutating that covered screen's contents. */
+    if (updating_existing)
+        gui_navigation_invalidate_back_snapshot(plugin_settings_list_screens[slot]);
+
+    lv_label_set_text(plugin_settings_list_title_labels[slot], raw_title);
     configure_plugin_screen_title(plugin_settings_list_title_labels[slot]);
 
     int n = count;
@@ -913,8 +960,15 @@ int gui_plugin_show_settings_list(const char * title, const int * row_types, con
     }
     plugin_settings_list_row_state_count[slot] = n;
 
+    plugin_settings_list_preview_enabled[slot] = preview != NULL;
+    if (preview) plugin_settings_list_previews[slot] = *preview;
+    else memset(&plugin_settings_list_previews[slot], 0, sizeof(plugin_settings_list_previews[slot]));
+
+    if (!updating_existing)
+        lv_obj_scroll_to_y(plugin_settings_list_lists[slot], 0, LV_ANIM_OFF);
+
     populate_plugin_settings_list_screen(slot);
-    nav_push(plugin_settings_list_screens[slot]);
+    if (!updating_existing) nav_push(plugin_settings_list_screens[slot]);
     return slot;
 }
 
@@ -925,6 +979,8 @@ void gui_plugins_init(void) {
     }
     for (int i = 0; i < PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE; i++) {
         plugin_settings_list_screens[i] = build_subsonic_list_screen(TR("Plugin Settings"), &plugin_settings_list_title_labels[i], &plugin_settings_list_lists[i]);
+        plugin_settings_list_preview_enabled[i] = false;
+        memset(&plugin_settings_list_previews[i], 0, sizeof(plugin_settings_list_previews[i]));
     }
 }
 
@@ -942,7 +998,11 @@ void gui_plugins_teardown(void) {
     }
     for (int i = 0; i < PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE; i++) {
         if (plugin_settings_list_screens[i]) { lv_obj_delete(plugin_settings_list_screens[i]); plugin_settings_list_screens[i] = NULL; }
+        free(plugin_settings_list_titles[i]);
+        plugin_settings_list_titles[i] = NULL;
         plugin_settings_list_slider_card_count[i] = 0;
+        plugin_settings_list_preview_enabled[i] = false;
+        memset(&plugin_settings_list_previews[i], 0, sizeof(plugin_settings_list_previews[i]));
     }
 }
 

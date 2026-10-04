@@ -367,7 +367,7 @@ static int plugin_settings_list_row_counts[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE
  *     selected = n } --
  *     applies to every row in this call (not per-row).
  *
- *   plugin.show_settings_list(title, items)
+ *   plugin.show_settings_list(title, items [, options])
  *     Opens a nested settings submenu titled `title`, indistinguishable
  *     from a native Settings screen -- unlike show_list() above, each row
  *     carries a real accessory and its own callback rather than one shared
@@ -386,7 +386,10 @@ static int plugin_settings_list_row_counts[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE
  *     call, silently truncated past that (same convention as show_list()'s
  *     own item cap) -- an unknown/missing `type`, an unrecognized
  *     `text_size`, or a row missing its required callback, all raise a Lua
- *     error instead.
+ *     error instead. Optional 3rd arg options support `{ update = true }` to
+ *     refresh a live screen with the same title in place, and `preview = { ... }`
+ *     using the same mode/image_path/image_fit/clock_24h fields as
+ *     plugin.show_lock_screen() to embed a lock-screen preview above the rows.
  *
  *   plugin.list_dir(path)
  *     Returns an array table of { name = "...", dir = true/false } for
@@ -1138,9 +1141,109 @@ static int l_plugin_is_list_showing(lua_State * L) {
  * missing its required callback, raises a Lua error (fail loudly at call
  * time, same convention l_plugin_register_list_item() uses for a bad
  * list_id). */
+/* Parse the shared shape used by plugin.show_lock_screen() and the optional
+ * inline settings preview. Keep validation and legacy defaults identical. */
+static bool plugin_parse_lock_screen_options(lua_State * L, int options_index,
+                                            gui_lock_screen_options_t * opts,
+                                            const char ** error_out) {
+    options_index = lua_absindex(L, options_index);
+    memset(opts, 0, sizeof(*opts));
+    if (!lua_istable(L, options_index)) {
+        *error_out = "options must be a table";
+        return false;
+    }
+
+    lua_getfield(L, options_index, "mode");
+    const char * mode_str = lua_tostring(L, -1);
+    if (!mode_str) {
+        lua_pop(L, 1);
+        *error_out = "missing mode";
+        return false;
+    }
+    if (strcmp(mode_str, "album_art") == 0) {
+        opts->mode = LOCK_SCREEN_MODE_ALBUM_ART;
+    } else if (strcmp(mode_str, "image") == 0) {
+        opts->mode = LOCK_SCREEN_MODE_IMAGE;
+    } else if (strcmp(mode_str, "clock") == 0) {
+        opts->mode = LOCK_SCREEN_MODE_CLOCK;
+    } else {
+        lua_pop(L, 1);
+        *error_out = "invalid mode (expected 'album_art', 'image', or 'clock')";
+        return false;
+    }
+    lua_pop(L, 1);
+
+    if (opts->mode == LOCK_SCREEN_MODE_IMAGE) {
+        lua_getfield(L, options_index, "image_path");
+        const char * path = lua_tostring(L, -1);
+        /* Validate before access(), then copy to the bounded core buffer. */
+        if (!path || strlen(path) >= sizeof(opts->image_path)) {
+            lua_pop(L, 1);
+            *error_out = "image_path missing or too long";
+            return false;
+        }
+        if (access(path, R_OK) != 0) {
+            lua_pop(L, 1);
+            *error_out = "image_path inaccessible or not readable";
+            return false;
+        }
+        snprintf(opts->image_path, sizeof(opts->image_path), "%s", path);
+        lua_pop(L, 1);
+    }
+
+    if (opts->mode == LOCK_SCREEN_MODE_IMAGE || opts->mode == LOCK_SCREEN_MODE_ALBUM_ART) {
+        lua_getfield(L, options_index, "image_fit");
+        if (lua_isnil(L, -1)) {
+            /* Older plugins that omit this field retain historical behavior. */
+            opts->image_fit = LOCK_SCREEN_IMAGE_FIT_NATURAL;
+        } else {
+            const char * fit = lua_tostring(L, -1);
+            if (fit && strcmp(fit, "contain") == 0) {
+                opts->image_fit = LOCK_SCREEN_IMAGE_FIT_CONTAIN;
+            } else if (fit && strcmp(fit, "cover") == 0) {
+                opts->image_fit = LOCK_SCREEN_IMAGE_FIT_COVER;
+            } else {
+                lua_pop(L, 1);
+                *error_out = "image_fit must be 'contain' or 'cover'";
+                return false;
+            }
+        }
+        lua_pop(L, 1);
+    }
+
+    lua_getfield(L, options_index, "clock_24h");
+    opts->clock_24h = lua_isboolean(L, -1) ? lua_toboolean(L, -1) : current_settings.clock_24h;
+    lua_pop(L, 1);
+    return true;
+}
+
 static int l_plugin_show_settings_list(lua_State * L) {
     const char * title = luaL_checkstring(L, 1);
     luaL_checktype(L, 2, LUA_TTABLE);
+
+    bool update_existing = false;
+    bool has_preview = false;
+    gui_lock_screen_options_t preview_options;
+    if (!lua_isnoneornil(L, 3)) {
+        luaL_checktype(L, 3, LUA_TTABLE);
+        lua_getfield(L, 3, "update");
+        if (!lua_isnil(L, -1)) {
+            luaL_checktype(L, -1, LUA_TBOOLEAN);
+            update_existing = lua_toboolean(L, -1);
+        }
+        lua_pop(L, 1);
+
+        lua_getfield(L, 3, "preview");
+        if (!lua_isnil(L, -1)) {
+            const char * preview_error = NULL;
+            if (!plugin_parse_lock_screen_options(L, -1, &preview_options, &preview_error)) {
+                return luaL_error(L, "plugin.show_settings_list: invalid preview options: %s",
+                                  preview_error ? preview_error : "invalid options");
+            }
+            has_preview = true;
+        }
+        lua_pop(L, 1);
+    }
 
     lua_Unsigned raw_n = lua_rawlen(L, 2);
     int n = (raw_n > (lua_Unsigned) PLUGIN_SETTINGS_LIST_MAX_ROWS) ? PLUGIN_SETTINGS_LIST_MAX_ROWS : (int) raw_n;
@@ -1267,8 +1370,13 @@ static int l_plugin_show_settings_list(lua_State * L) {
     }
 
     int slot = gui_plugin_show_settings_list(title, row_types, labels, toggle_initial, slider_min, slider_max,
-                                              slider_value, icon_paths, heights, widths, text_sizes, wrap_labels, count);
-    if (slot < 0 || slot >= PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE) return 0; /* defensive -- shouldn't happen */
+                                              slider_value, icon_paths, heights, widths, text_sizes, wrap_labels, count,
+                                              update_existing, has_preview ? &preview_options : NULL);
+    if (slot < 0 || slot >= PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE) {
+        /* A failed native allocation did not take ownership of callbacks. */
+        for (int i = 0; i < count; i++) luaL_unref(L, LUA_REGISTRYINDEX, new_refs[i]);
+        return 0;
+    }
 
     /* Release whatever the reused slot held from its previous population
      * before overwriting -- see plugin_settings_list_rows[]'s own comment on
@@ -3705,93 +3813,13 @@ static int l_plugin_clear_interval(lua_State * L) {
 }
 
 static int l_plugin_show_lock_screen(lua_State * L) {
-    if (!lua_istable(L, 1)) {
-        lua_pushboolean(L, false);
-        lua_pushliteral(L, "options must be a table");
-        return 2;
-    }
-
-    lua_getfield(L, 1, "mode");
-    const char * mode_str = lua_tostring(L, -1);
     gui_lock_screen_options_t opts;
-    memset(&opts, 0, sizeof(opts));
-
-    if (!mode_str) {
-        lua_pop(L, 1);
+    const char * error = NULL;
+    if (!plugin_parse_lock_screen_options(L, 1, &opts, &error)) {
         lua_pushboolean(L, false);
-        lua_pushliteral(L, "missing mode");
+        lua_pushstring(L, error ? error : "invalid options");
         return 2;
     }
-
-    if (strcmp(mode_str, "album_art") == 0) {
-        opts.mode = LOCK_SCREEN_MODE_ALBUM_ART;
-    } else if (strcmp(mode_str, "image") == 0) {
-        opts.mode = LOCK_SCREEN_MODE_IMAGE;
-    } else if (strcmp(mode_str, "clock") == 0) {
-        opts.mode = LOCK_SCREEN_MODE_CLOCK;
-    } else {
-        lua_pop(L, 1);
-        lua_pushboolean(L, false);
-        lua_pushliteral(L, "invalid mode (expected 'album_art', 'image', or 'clock')");
-        return 2;
-    }
-    lua_pop(L, 1);
-
-    if (opts.mode == LOCK_SCREEN_MODE_IMAGE) {
-        lua_getfield(L, 1, "image_path");
-        const char * path = lua_tostring(L, -1);
-        /* Checked BEFORE access() -- access() validates whatever the caller
-         * actually passed, but the real copy below is bounded to
-         * sizeof(opts.image_path); without this check a path >= that size
-         * would pass access() against the real file and then get silently
-         * truncated by snprintf() into a different (or nonexistent) path,
-         * while this function still reports success to Lua. */
-        if (!path || strlen(path) >= sizeof(opts.image_path)) {
-            lua_pop(L, 1);
-            lua_pushboolean(L, false);
-            lua_pushliteral(L, "image_path missing or too long");
-            return 2;
-        }
-        if (access(path, R_OK) != 0) {
-            lua_pop(L, 1);
-            lua_pushboolean(L, false);
-            lua_pushliteral(L, "image_path inaccessible or not readable");
-            return 2;
-        }
-        snprintf(opts.image_path, sizeof(opts.image_path), "%s", path);
-        lua_pop(L, 1);
-
-        lua_getfield(L, 1, "image_fit");
-        if (lua_isnil(L, -1)) {
-            /* Older plugins keep their historical natural-size behavior. */
-            opts.image_fit = LOCK_SCREEN_IMAGE_FIT_NATURAL;
-        } else {
-            const char * fit = lua_tostring(L, -1);
-            if (fit && strcmp(fit, "contain") == 0) {
-                opts.image_fit = LOCK_SCREEN_IMAGE_FIT_CONTAIN;
-            } else if (fit && strcmp(fit, "cover") == 0) {
-                opts.image_fit = LOCK_SCREEN_IMAGE_FIT_COVER;
-            } else {
-                lua_pop(L, 1);
-                lua_pushboolean(L, false);
-                lua_pushliteral(L, "image_fit must be 'contain' or 'cover'");
-                return 2;
-            }
-        }
-        lua_pop(L, 1);
-    }
-
-    lua_getfield(L, 1, "clock_24h");
-    if (lua_isboolean(L, -1)) {
-        opts.clock_24h = lua_toboolean(L, -1);
-    } else {
-        /* No explicit override -- match the device's own 12/24-hour Display
-         * setting rather than silently forcing 24-hour, so the lock screen's
-         * clock doesn't visibly disagree with the status bar/Settings
-         * screen. */
-        opts.clock_24h = current_settings.clock_24h;
-    }
-    lua_pop(L, 1);
 
     bool ok = gui_lock_screen_show(&opts);
     lua_pushboolean(L, ok);

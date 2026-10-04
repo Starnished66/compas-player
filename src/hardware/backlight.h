@@ -19,7 +19,7 @@
 
 /* Minimum brightness in percent. Never go lower than this in either
  * direction -- logical 0 still maps here, not to a true off;
- * only backlight_set_screen_on(false) ever writes a true 0.
+ * dark wake preparation writes true 0 before powering the panel.
  * Values below this make the screen fully black with no visible feedback
  * to adjust back upward. */
 #define BACKLIGHT_MIN_PERCENT 5
@@ -41,18 +41,23 @@ void backlight_request_normal_percent(int percent);
  * brightness. Passing false restores that normal brightness. */
 void backlight_set_dimmed(bool dimmed);
 
-/* Screen power (fully off, not just dimmed to BACKLIGHT_MIN_PERCENT) -- the
- * single shared source of truth behind both the hardware power button
- * (hw_buttons.c) and the auto screen-timeout (gui.c), so the two can't
- * desync into two different ideas of whether the screen is on. Thread-safe:
- * hw_buttons.c calls this from its own dedicated button-reading thread,
- * gui.c calls it from the main/GUI thread. */
+/* Screen power state shared by GUI power-button and timeout handling.
+ * Reports the requested state. Thread-safe. */
 bool backlight_screen_is_on(void);
+
+/* Worker acknowledgement that the requested screen brightness was applied. */
+bool backlight_screen_is_visible(void);
 
 /* Turning off remembers the real current brightness (whatever the user last
  * set via the quick-drawer slider) and restores exactly that on the next
  * turn-on, rather than resetting to a fixed level. No-op if the screen is
- * already in the requested state (no redundant sysfs writes). */
+ * already off. Repeating an on request retries a failed hardware write. */
 void backlight_set_screen_on(bool on);
+
+/* Prepare the powered panel while keeping its PWM at true zero. The GUI
+ * polls completion, presents its wake surface, then reveals it with
+ * backlight_set_screen_on(true). Turning off also cancels preparation. */
+void backlight_prepare_screen_on(void);
+bool backlight_screen_is_prepared(void);
 
 #endif /* BACKLIGHT_H */

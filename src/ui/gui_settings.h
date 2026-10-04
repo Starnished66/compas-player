@@ -17,6 +17,7 @@ lv_obj_t * gui_settings_get_eq_screen(void);
 /* Direct drawer/navigation entry points. */
 void gui_settings_open_eq(void);
 void gui_settings_open_sleep_timer(void);
+void gui_settings_open_sound(void);
 void gui_settings_open_playback(void);
 void gui_settings_open_library(void);
 /* Suggested mode shows Default and Vinyl; full mode includes all installed

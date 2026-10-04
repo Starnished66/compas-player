@@ -1,4 +1,4 @@
-name: Weekly staging beta
+name: Compas weekly releases
 
 on:
   schedule:
@@ -22,7 +22,7 @@ env:
 
 jobs:
   weekly-beta:
-    name: Build, repack, and publish weekly beta
+    name: Compas weekly releases
     runs-on: ubuntu-24.04
     timeout-minutes: 120
 
@@ -32,10 +32,7 @@ jobs:
 
       - name: Set weekly release identity
         id: release
-        run: |
-          release_date=$(date -u +%F)
-          echo "tag=weekly-beta-$release_date" >> "$GITHUB_OUTPUT"
-          echo "title=Weekly Beta $release_date" >> "$GITHUB_OUTPUT"
+        run: scripts/weekly_release_identity.sh >> "$GITHUB_OUTPUT"
 
       - name: Install repository-cached MIPS musl toolchain
         run: |
@@ -47,7 +44,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
-            file genisoimage lua5.4 p7zip-full squashfs-tools zip
+            file genisoimage lua5.4 p7zip-full squashfs-tools
 
       - name: Build and validate player
         env:
@@ -128,14 +125,9 @@ jobs:
             release/r3ii_2025.upt
           cp compas_player_target_r3ii_2025 release/compas_player_r3ii_2025
           (
-            cd plugins_examples
-            zip -q -r ../release/plugin_examples.zip .
-          )
-          (
             cd release
             sha256sum r1.upt r3proii.upt r3ii_2025.upt compas_player \
-              compas_player_r3proii compas_player_r3ii_2025 \
-              plugin_examples.zip > SHA256SUMS
+              compas_player_r3proii compas_player_r3ii_2025 > SHA256SUMS
             sha256sum --check SHA256SUMS
           )
 
@@ -220,9 +212,8 @@ jobs:
             echo "- **compas_player** — standalone Compás Player update for the R1."
             echo "- **compas_player_r3proii** — standalone Compás Player update for the R3 Pro II."
             echo "- **compas_player_r3ii_2025** — **early alpha**, standalone Compás Player update for the R3II 2025."
-            echo "- **plugin_examples.zip** — all example and test plugins from the repository."
             echo
-            echo "R3 Pro II packaging uses the approved staging image and matching board binaries. This weekly prerelease has not been tested on an R3 Pro II device; validate it on hardware before broader deployment."
+            echo "R3 Pro II packaging uses the approved staging image and matching board binaries. This weekly release has not been tested on an R3 Pro II device; validate it on hardware before broader deployment."
             echo
             echo "> **R3II 2025 is an early alpha.** It has not been tested on an R3II (2025) yet and still requires on-device testing. Install it only if you are comfortable recovering the player with the stock HiBy firmware (hold Play/Pause and Power while turning it on, with the stock .upt on the SD card), and please report what works and what does not."
             echo
@@ -233,7 +224,7 @@ jobs:
             echo "Checksums are attached in **SHA256SUMS**."
           } > release/RELEASE_NOTES.md
 
-      - name: Publish weekly prerelease
+      - name: Publish weekly release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.release.outputs.tag }}
@@ -244,21 +235,20 @@ jobs:
             gh release upload "$TAG" release/r1.upt release/r3proii.upt \
               release/r3ii_2025.upt release/compas_player \
               release/compas_player_r3proii release/compas_player_r3ii_2025 \
-              release/plugin_examples.zip release/SHA256SUMS --clobber
-            for legacy_asset in plugins_examples.zip Test-Plugins.zip; do
+              release/SHA256SUMS --clobber
+            for legacy_asset in plugin_examples.zip plugins_examples.zip Test-Plugins.zip; do
               if gh release view "$TAG" --json assets --jq '.assets[].name' \
                   | grep -Fx "$legacy_asset" >/dev/null; then
                 gh release delete-asset "$TAG" "$legacy_asset" --yes
               fi
             done
-            gh release edit "$TAG" --prerelease --title "$TITLE" \
+            gh release edit "$TAG" --prerelease=false --latest --title "$TITLE" \
               --notes-file release/RELEASE_NOTES.md
           else
             gh release create "$TAG" release/r1.upt release/r3proii.upt \
               release/r3ii_2025.upt release/compas_player \
               release/compas_player_r3proii release/compas_player_r3ii_2025 \
-              release/plugin_examples.zip release/SHA256SUMS \
-              --prerelease --target "$GITHUB_SHA" --title "$TITLE" \
+              release/SHA256SUMS --latest --target "$GITHUB_SHA" --title "$TITLE" \
               --notes-file release/RELEASE_NOTES.md
           fi
 
@@ -273,7 +263,6 @@ jobs:
             release/compas_player
             release/compas_player_r3proii
             release/compas_player_r3ii_2025
-            release/plugin_examples.zip
             release/SHA256SUMS
             release/RELEASE_NOTES.md
           if-no-files-found: error

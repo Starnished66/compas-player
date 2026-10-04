@@ -159,7 +159,8 @@ void power_suspend_now(void) {
         SUSPEND_LOG("cancelled: external power connected or unknown after preparation");
     }
 
-    write_sysfs("/sys/class/graphics/fb0/blank", "0"); /* FB_BLANK_UNBLANK */
+    /* The screen-off GUI caller selects and presents its wake surface through
+     * the backlight worker before revealing the panel. Do not unblank early. */
 
     if (bt_was_on || wifi_was_on) {
         uintptr_t flags = (wifi_was_on ? 1u : 0u) | (bt_was_on ? 2u : 0u);

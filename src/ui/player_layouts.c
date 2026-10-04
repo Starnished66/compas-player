@@ -59,6 +59,17 @@ typedef struct prepared_xml_timeline_t {
     uint32_t original_delay;
     uint32_t original_repeat_delay;
     uint32_t anim_count;
+    uint32_t style_anim_count;
+    struct {
+        player_layouts_timeline_observer_cb_t callback;
+        void * user_data;
+        uint32_t act_time;
+        uint32_t registration_id;
+        bool has_act_time;
+    } observers[4];
+    uint32_t observer_registration_id;
+    bool notifying_observers;
+    bool owned_style_timeline;
     struct { uint32_t start_time, duration; } originals[];
 } prepared_xml_timeline_t;
 static prepared_xml_timeline_t * prepared_xml_timelines;
@@ -242,6 +253,61 @@ int player_layouts_find(const char * id) {
         if (strcmp(entries[i].info.id, id) == 0) return i;
     }
     return -1;
+}
+
+static bool path_is_within_root(const char * path, const char * root) {
+    size_t root_len = strlen(root);
+    return strncmp(path, root, root_len) == 0 && path[root_len] == '/';
+}
+
+bool player_layouts_canonical_id(const char * id, char * out, size_t size) {
+    if (!out || !size) return false;
+    out[0] = '\0';
+    if (!id || (strcmp(id, PLAYER_LAYOUT_ID_DEFAULT) != 0 && !id_is_valid(id))) return false;
+
+    ensure_builtin_entry();
+    int index = player_layouts_find(id);
+    if (index < 0) return false;
+    const layout_entry_t * entry = &entries[index];
+    const char * canonical_id = entry->info.id;
+
+    if (entry->info.kind == PLAYER_LAYOUT_XML_FILE && entry->path[0]) {
+        char plugin_root[MAX_LAYOUT_PATH];
+        char real_root[PATH_MAX], real_file[PATH_MAX];
+#ifdef HOST_BUILD
+        snprintf(plugin_root, sizeof(plugin_root), "./music/.plugins");
+#else
+        snprintf(plugin_root, sizeof(plugin_root), "/data/mnt/sd_0/.plugins");
+#endif
+        if (realpath(plugin_root, real_root) && realpath(entry->path, real_file) &&
+            path_is_within_root(real_file, real_root)) {
+            const char * session_alias = NULL;
+            const char * selected_alias = NULL;
+            for (int i = 1; i < entry_count; ++i) {
+                const layout_entry_t * candidate = &entries[i];
+                if (!candidate->session || candidate->info.kind != PLAYER_LAYOUT_XML_FILE ||
+                    !candidate->path[0] || !id_is_valid(candidate->info.id)) continue;
+                char candidate_real[PATH_MAX];
+                if (!realpath(candidate->path, candidate_real) ||
+                    !path_is_within_root(candidate_real, real_root) || strcmp(candidate_real, real_file) != 0)
+                    continue;
+                if (strcmp(candidate->info.id, session_selected) == 0) {
+                    selected_alias = candidate->info.id;
+                    break;
+                }
+                if (!session_alias) session_alias = candidate->info.id;
+            }
+            if (selected_alias) canonical_id = selected_alias;
+            else if (session_alias) canonical_id = session_alias;
+        }
+    }
+
+    int written = snprintf(out, size, "%s", canonical_id);
+    if (written < 0 || (size_t) written >= size) {
+        out[0] = '\0';
+        return false;
+    }
+    return true;
 }
 
 static void remove_entry(int index) {
@@ -596,6 +662,8 @@ void player_layouts_release(void) {
     prepared_xml_timeline_t * prepared = prepared_xml_timelines;
     while (prepared) {
         prepared_xml_timeline_t * next = prepared->next;
+        if (prepared->owned_style_timeline && prepared->timeline)
+            lv_anim_timeline_delete(prepared->timeline);
         free(prepared);
         prepared = next;
     }
@@ -670,9 +738,44 @@ static void delete_children_from(lv_obj_t * parent, uint32_t first) {
     while (lv_obj_get_child_count(parent) > first) lv_obj_delete(lv_obj_get_child(parent, (int32_t) first));
 }
 
-/* XML style animations encode selector and property in user_data. Keep that
- * word untouched: other LVGL code and the transition query depend on it. */
-static void xml_style_anim_exec_cb(lv_anim_t * anim, int32_t value) {
+static prepared_xml_timeline_t * prepared_xml_timeline_for_anim(const lv_anim_t * anim) {
+    for (prepared_xml_timeline_t * p = prepared_xml_timelines; p; p = p->next) {
+        for (uint32_t i = 0; i < p->timeline->anim_dsc_cnt; ++i) {
+            if (&p->timeline->anim_dsc[i].anim == anim) return p;
+        }
+    }
+    return NULL;
+}
+
+static void prepared_xml_timeline_notify(prepared_xml_timeline_t * prepared, bool force) {
+    if (!prepared || prepared->notifying_observers) return;
+    uint32_t act_time = prepared->timeline->act_time;
+    prepared->notifying_observers = true;
+    uint32_t registration_ceiling = prepared->observer_registration_id;
+    for (uint32_t i = 0; i < 4; ++i) {
+        /* Read each slot immediately before invoking it. A callback may detach
+         * another observer; a detach/reattach gets a newer id and waits until
+         * the next timeline sample. */
+        player_layouts_timeline_observer_cb_t callback = prepared->observers[i].callback;
+        void * user_data = prepared->observers[i].user_data;
+        uint32_t registration_id = prepared->observers[i].registration_id;
+        if (!callback || registration_id > registration_ceiling) continue;
+        if (!force && prepared->observers[i].has_act_time &&
+            prepared->observers[i].act_time == act_time) continue;
+        prepared->observers[i].act_time = act_time;
+        prepared->observers[i].has_act_time = true;
+        callback(prepared->timeline, act_time, user_data);
+    }
+    prepared->notifying_observers = false;
+}
+
+/* Prepared style animations encode selector and property in user_data. Keep
+ * that word untouched: the write callback and transition query depend on it. */
+static void style_timeline_exec_cb(lv_anim_t * anim, int32_t value) {
+    /* LVGL updates timeline->act_time before it executes any child. Notify on
+     * the first wrapped style animation for each new time, even when this
+     * object's own style write is suppressed by a visual proxy. */
+    prepared_xml_timeline_notify(prepared_xml_timeline_for_anim(anim), false);
     uint32_t packed = (uint32_t) (uintptr_t) lv_anim_get_user_data(anim);
     lv_style_prop_t prop = (lv_style_prop_t) (packed >> 24);
     lv_style_selector_t selector = (lv_style_selector_t) (packed & 0x00ffffffU);
@@ -713,6 +816,61 @@ bool player_layouts_timeline_refresh_timing(lv_anim_timeline_t * timeline) {
     return false;
 }
 
+bool player_layouts_timeline_observer_attach(lv_anim_timeline_t * timeline,
+                                              player_layouts_timeline_observer_cb_t callback,
+                                              void * user_data) {
+    if (!timeline || !callback) return false;
+    for (prepared_xml_timeline_t * p = prepared_xml_timelines; p; p = p->next) {
+        if (p->timeline != timeline) continue;
+        if (p->style_anim_count == 0) return false;
+        for (uint32_t i = 0; i < 4; ++i) {
+            if (p->observers[i].callback == callback && p->observers[i].user_data == user_data)
+                return true;
+        }
+        for (uint32_t i = 0; i < 4; ++i) {
+            if (p->observers[i].callback) continue;
+            if (++p->observer_registration_id == 0) ++p->observer_registration_id;
+            p->observers[i].callback = callback;
+            p->observers[i].user_data = user_data;
+            p->observers[i].registration_id = p->observer_registration_id;
+            p->observers[i].has_act_time = false;
+            return true;
+        }
+        return false;
+    }
+    return false;
+}
+
+bool player_layouts_timeline_observer_detach(lv_anim_timeline_t * timeline,
+                                              player_layouts_timeline_observer_cb_t callback,
+                                              void * user_data) {
+    if (!timeline || !callback) return false;
+    for (prepared_xml_timeline_t * p = prepared_xml_timelines; p; p = p->next) {
+        if (p->timeline != timeline) continue;
+        for (uint32_t i = 0; i < 4; ++i) {
+            if (p->observers[i].callback != callback || p->observers[i].user_data != user_data) continue;
+            memset(&p->observers[i], 0, sizeof(p->observers[i]));
+            return true;
+        }
+        return false;
+    }
+    return false;
+}
+
+bool player_layouts_timeline_observer_sync(lv_anim_timeline_t * timeline) {
+    if (!timeline) return false;
+    for (prepared_xml_timeline_t * p = prepared_xml_timelines; p; p = p->next) {
+        if (p->timeline != timeline) continue;
+        bool attached = false;
+        for (uint32_t i = 0; i < 4; ++i)
+            if (p->observers[i].callback) attached = true;
+        if (p->style_anim_count == 0 || !attached) return false;
+        prepared_xml_timeline_notify(p, true);
+        return true;
+    }
+    return false;
+}
+
 bool player_layouts_timeline_suppress_style(lv_anim_timeline_t * timeline, lv_obj_t * obj,
                                              lv_style_prop_t prop, lv_style_selector_t selector,
                                              bool suppress) {
@@ -743,7 +901,7 @@ static void prepare_xml_timeline(lv_anim_timeline_t * timeline) {
                                  sizeof(((prepared_xml_timeline_t *) 0)->originals[0])) return;
     size_t bytes = sizeof(prepared_xml_timeline_t) +
                    (size_t) timeline->anim_dsc_cnt * sizeof(((prepared_xml_timeline_t *) 0)->originals[0]);
-    prepared_xml_timeline_t * marker = malloc(bytes);
+    prepared_xml_timeline_t * marker = calloc(1, bytes);
     if (!marker) return;
     marker->timeline = timeline;
     marker->original_delay = timeline->delay;
@@ -753,13 +911,98 @@ static void prepare_xml_timeline(lv_anim_timeline_t * timeline) {
         lv_anim_timeline_dsc_t * dsc = &timeline->anim_dsc[i];
         marker->originals[i].start_time = dsc->start_time;
         marker->originals[i].duration = dsc->anim.duration;
-        if (dsc->anim.custom_exec_cb)
-            lv_anim_set_custom_exec_cb(&dsc->anim, xml_style_anim_exec_cb);
+        if (dsc->anim.custom_exec_cb) {
+            marker->style_anim_count++;
+            lv_anim_set_custom_exec_cb(&dsc->anim, style_timeline_exec_cb);
+        }
     }
     /* Publish before refresh so timing is always derived from originals. */
     marker->next = prepared_xml_timelines;
     prepared_xml_timelines = marker;
     player_layouts_timeline_refresh_timing(timeline);
+}
+
+lv_anim_timeline_t * player_layouts_create_style_timeline(
+    const player_layout_style_transition_t * transitions, uint32_t count) {
+    if (!transitions || count == 0 ||
+        (uint64_t)count * sizeof(lv_anim_timeline_dsc_t) > UINT32_MAX ||
+        count > (SIZE_MAX - sizeof(prepared_xml_timeline_t)) /
+                    sizeof(((prepared_xml_timeline_t *)0)->originals[0])) return NULL;
+
+    for (uint32_t i = 0; i < count; ++i) {
+        const player_layout_style_transition_t * transition = &transitions[i];
+        uint32_t prop = (uint32_t)transition->prop;
+        if (!transition->target || !lv_obj_is_valid(transition->target) ||
+            prop == LV_STYLE_PROP_INV || prop >= LV_STYLE_PROP_ANY ||
+            transition->selector > 0x00ffffffU || transition->start_time > INT32_MAX ||
+            transition->duration > INT32_MAX) return NULL;
+    }
+
+    size_t marker_bytes = sizeof(prepared_xml_timeline_t) +
+                          (size_t)count * sizeof(((prepared_xml_timeline_t *)0)->originals[0]);
+    prepared_xml_timeline_t * marker = calloc(1, marker_bytes);
+    if (!marker) return NULL;
+
+    lv_anim_timeline_t * timeline = lv_anim_timeline_create();
+    if (!timeline) {
+        free(marker);
+        return NULL;
+    }
+    uint32_t dsc_bytes = (uint32_t)((uint64_t)count * sizeof(lv_anim_timeline_dsc_t));
+    lv_anim_timeline_dsc_t * descriptors = lv_malloc_zeroed(dsc_bytes);
+    if (!descriptors) {
+        lv_anim_timeline_delete(timeline);
+        free(marker);
+        return NULL;
+    }
+
+    /* lv_anim_timeline_add() increments the count then blindly assigns the
+     * result of lv_realloc(). Allocate the complete descriptor array first so
+     * failure is atomic and cannot leave a partially built timeline. */
+    for (uint32_t i = 0; i < count; ++i) {
+        const player_layout_style_transition_t * transition = &transitions[i];
+        lv_anim_t * anim = &descriptors[i].anim;
+        lv_anim_init(anim);
+        lv_anim_set_var(anim, transition->target);
+        lv_anim_set_values(anim, transition->start_value, transition->end_value);
+        lv_anim_set_duration(anim, transition->duration ? gui_anim_ms(transition->duration) : 0);
+        lv_anim_set_path_cb(anim, transition->path_cb ? transition->path_cb : lv_anim_path_linear);
+        lv_anim_set_early_apply(anim, transition->animation.early_apply);
+        uint32_t packed = ((uint32_t)transition->prop << 24) | transition->selector;
+        lv_anim_set_user_data(anim, (void *)(uintptr_t)packed);
+        lv_anim_set_custom_exec_cb(anim, style_timeline_exec_cb);
+        descriptors[i].start_time = transition->start_time ? gui_anim_ms(transition->start_time) : 0;
+        marker->originals[i].start_time = transition->start_time;
+        marker->originals[i].duration = transition->duration;
+    }
+
+    timeline->anim_dsc = descriptors;
+    timeline->anim_dsc_cnt = count;
+    marker->timeline = timeline;
+    marker->anim_count = count;
+    marker->style_anim_count = count;
+    marker->owned_style_timeline = true;
+    marker->next = prepared_xml_timelines;
+    prepared_xml_timelines = marker;
+    return timeline;
+}
+
+void player_layouts_destroy_style_timeline(lv_anim_timeline_t * timeline) {
+    if (!timeline) return;
+    prepared_xml_timeline_t ** link = &prepared_xml_timelines;
+    while (*link && ((*link)->timeline != timeline || !(*link)->owned_style_timeline))
+        link = &(*link)->next;
+    if (!*link) return;
+
+    prepared_xml_timeline_t * prepared = *link;
+    *link = prepared->next;
+    for (uint32_t i = 0; i < MAX_TIMELINE_SUPPRESSIONS; ++i) {
+        if (timeline_suppressions[i].timeline == timeline)
+            memset(&timeline_suppressions[i], 0, sizeof(timeline_suppressions[i]));
+    }
+    lv_anim_timeline_pause(timeline);
+    lv_anim_timeline_delete(timeline);
+    free(prepared);
 }
 
 /* The engine registers its widget parsers and a global scope on start, so it
@@ -860,7 +1103,7 @@ bool player_layouts_timeline_style_transition(lv_anim_timeline_t * timeline, lv_
     for (uint32_t i = 0; i < timeline->anim_dsc_cnt; ++i) {
         lv_anim_timeline_dsc_t * dsc = &timeline->anim_dsc[i];
         lv_anim_t * anim = &dsc->anim;
-        if (anim->custom_exec_cb != xml_style_anim_exec_cb || anim->var != obj) continue;
+        if (anim->custom_exec_cb != style_timeline_exec_cb || anim->var != obj) continue;
         uint32_t packed = (uint32_t) (uintptr_t) lv_anim_get_user_data(anim);
         if ((lv_style_prop_t) (packed >> 24) != prop ||
             (lv_style_selector_t) (packed & 0x00ffffffU) != selector) continue;
@@ -874,6 +1117,7 @@ bool player_layouts_timeline_style_transition(lv_anim_timeline_t * timeline, lv_
         transition->has_current_value = false;
         if (timeline->act_time < (int32_t) dsc->start_time) {
             transition->has_current_value = anim->early_apply;
+            transition->animation.act_time = 0;
             if (anim->early_apply) transition->current_value = anim->start_value;
         } else {
             transition->has_current_value = true;
@@ -897,7 +1141,7 @@ uint32_t player_layouts_timeline_style_transition_count(lv_anim_timeline_t * tim
     uint32_t count = 0;
     for (uint32_t i = 0; i < timeline->anim_dsc_cnt; ++i) {
         lv_anim_t * anim = &timeline->anim_dsc[i].anim;
-        if (anim->custom_exec_cb != xml_style_anim_exec_cb || anim->var != obj) continue;
+        if (anim->custom_exec_cb != style_timeline_exec_cb || anim->var != obj) continue;
         uint32_t packed = (uint32_t) (uintptr_t) lv_anim_get_user_data(anim);
         if ((lv_style_prop_t) (packed >> 24) == prop &&
             (lv_style_selector_t) (packed & 0x00ffffffU) == selector) ++count;
@@ -909,7 +1153,7 @@ uint32_t player_layouts_timeline_style_animation_count(lv_anim_timeline_t * time
     if (!timeline || !xml_timeline_is_prepared(timeline)) return 0;
     uint32_t count = 0;
     for (uint32_t i = 0; i < timeline->anim_dsc_cnt; ++i)
-        if (timeline->anim_dsc[i].anim.custom_exec_cb == xml_style_anim_exec_cb) ++count;
+        if (timeline->anim_dsc[i].anim.custom_exec_cb == style_timeline_exec_cb) ++count;
     return count;
 }
 
@@ -919,7 +1163,7 @@ bool player_layouts_timeline_get_style_animation(lv_anim_timeline_t * timeline, 
     for (uint32_t i = 0; i < timeline->anim_dsc_cnt; ++i) {
         lv_anim_timeline_dsc_t * dsc = &timeline->anim_dsc[i];
         lv_anim_t * anim = &dsc->anim;
-        if (anim->custom_exec_cb != xml_style_anim_exec_cb) continue;
+        if (anim->custom_exec_cb != style_timeline_exec_cb) continue;
         if (index-- != 0) continue;
         uint32_t packed = (uint32_t) (uintptr_t) lv_anim_get_user_data(anim);
         transition->target = (lv_obj_t *) anim->var;
@@ -935,6 +1179,7 @@ bool player_layouts_timeline_get_style_animation(lv_anim_timeline_t * timeline, 
         transition->has_current_value = false;
         if (timeline->act_time < (int32_t) dsc->start_time) {
             transition->has_current_value = anim->early_apply;
+            transition->animation.act_time = 0;
             if (anim->early_apply) transition->current_value = anim->start_value;
         } else {
             transition->has_current_value = true;

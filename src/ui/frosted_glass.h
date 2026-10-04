@@ -2,6 +2,7 @@
 #define FROSTED_GLASS_H
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <lvgl/lvgl.h>
 
 #ifdef __cplusplus
@@ -35,6 +36,18 @@ uint8_t * frosted_glass_blur_screen_rgb565(lv_obj_t * source_screen,
                                            int blur_radius, int blur_passes,
                                            int darken_num, int darken_den,
                                            int out_width, int out_height);
+
+/* Blur a tightly packed RGB565 image and return a newly malloc'd,
+ * tightly packed RGB565 output. The input is centered-cropped to the
+ * output aspect ratio and area-averaged into a fixed 60x100 work image
+ * (falling back to bilinear sampling if crop dimensions are smaller than
+ * the work grid). mirror_y flips vertically. Caller owns the result. */
+uint8_t * frosted_glass_blur_rgb565(const uint16_t * source,
+                                    int source_width, int source_height,
+                                    int out_width, int out_height,
+                                    int blur_radius, int blur_passes,
+                                    int darken_num, int darken_den,
+                                    bool mirror_y);
 
 #ifdef __cplusplus
 }

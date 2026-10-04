@@ -1,4 +1,5 @@
 diff --git a/src/core/lv_obj_pos.c b/src/core/lv_obj_pos.c
+index 177b0fb..6547d25 100644
 --- a/src/core/lv_obj_pos.c
 +++ b/src/core/lv_obj_pos.c
 @@ -367,6 +367,10 @@ bool lv_obj_is_layout_positioned(const lv_obj_t * obj)
@@ -12,159 +13,23 @@ diff --git a/src/core/lv_obj_pos.c b/src/core/lv_obj_pos.c
      obj->layout_inv = 1;
  
      /*Mark the screen as dirty too to mark that there is something to do on this screen*/
-diff --git a/src/libs/lodepng/lodepng.c b/src/libs/lodepng/lodepng.c
-index 7e37636..9c617b2 100644
---- a/src/libs/lodepng/lodepng.c
-+++ b/src/libs/lodepng/lodepng.c
-@@ -5795,7 +5795,22 @@ static void decodeGeneric(unsigned char ** out, unsigned * w, unsigned * h,
-     lodepng_free(idat);
+@@ -1328,6 +1332,16 @@ static lv_result_t obj_invalidate_area_internal(const lv_display_t * disp, const
+     lv_result_t res = invalidate_area_core(obj, &area_tmp);
+     if(res == LV_RESULT_INVALID) return res;
  
-     if(!state->error) {
--        lv_draw_buf_t * decoded = lv_draw_buf_create_ex(image_cache_draw_buf_handlers, *w, *h, LV_COLOR_FORMAT_ARGB8888, 4 * *w);
-+        /* postProcessScanlines() below unfilters straight into this buffer at
-+        the PNG's own native bpp (lodepng_get_bpp(&state->info_png.color)),
-+        not at the fixed 4 bytes/pixel this ARGB8888 draw_buf's default
-+        stride assumes -- any source with more than 32 bits per pixel (e.g.
-+        16-bit-per-channel RGBA, 64bpp) overflows a 4**w stride by exactly
-+        that much, corrupting whatever the allocator placed next on the
-+        heap. Widening the stride to the larger of the two needs keeps this
-+        buffer correct for both the native unfilter step here and, when no
-+        color conversion turns out to be needed (lodepng_decode()'s "same
-+        color type" branch), for the final ARGB8888 image this same
-+        allocation becomes. */
-+        size_t native_bpp = lodepng_get_bpp(&state->info_png.color);
-+        size_t native_row_bytes = ((size_t)*w * native_bpp + 7u) / 8u;
-+        size_t argb8888_row_bytes = 4 * (size_t)*w;
-+        uint32_t stride = (uint32_t)(native_row_bytes > argb8888_row_bytes ? native_row_bytes : argb8888_row_bytes);
-+        lv_draw_buf_t * decoded = lv_draw_buf_create_ex(image_cache_draw_buf_handlers, *w, *h, LV_COLOR_FORMAT_ARGB8888, stride);
-         if(decoded) {
-             *out = (unsigned char*)decoded;
-             outsize = decoded->data_size;
-diff --git a/src/libs/tiny_ttf/lv_tiny_ttf.c b/src/libs/tiny_ttf/lv_tiny_ttf.c
-index 09f1e87..f7fd498 100644
---- a/src/libs/tiny_ttf/lv_tiny_ttf.c
-+++ b/src/libs/tiny_ttf/lv_tiny_ttf.c
-@@ -459,6 +459,9 @@ static lv_font_t * lv_tiny_ttf_create(const char * path, const void * data, size
-         dsc->stream.size = data_size;
-     }
-     if(0 == stbtt_InitFont(&dsc->info, &dsc->stream, stbtt_GetFontOffsetForIndex(&dsc->stream, 0))) {
-+        if(path != NULL) {
-+            lv_fs_close(&dsc->file);
-+        }
-         lv_free(dsc);
-         LV_LOG_ERROR("tiny_ttf: init failed");
-         return NULL;
-@@ -477,6 +480,11 @@ static lv_font_t * lv_tiny_ttf_create(const char * path, const void * data, size
- 
-     lv_font_t * out_font = lv_malloc_zeroed(sizeof(lv_font_t));
-     if(out_font == NULL) {
-+#if LV_TINY_TTF_FILE_SUPPORT != 0
-+        if(path != NULL) {
-+            lv_fs_close(&dsc->file);
-+        }
-+#endif
-         lv_free(dsc);
-         LV_LOG_ERROR("tiny_ttf: out of memory");
-         return NULL;
-diff --git a/src/libs/tjpgd/tjpgd.c b/src/libs/tjpgd/tjpgd.c
-index 7152adf..51c7915 100644
---- a/src/libs/tjpgd/tjpgd.c
-+++ b/src/libs/tjpgd/tjpgd.c
-@@ -888,6 +888,60 @@ JRESULT jd_mcu_output(
-                 }
-             }
-         }
-+        /* Descale the MCU rectangular if needed */
-+        if(JD_USE_SCALE && jd->scale) {
-+            unsigned int x, y, r, g, b, s, w, a;
-+            uint8_t * op;
-+
-+            /* Get averaged RGB value of each square corresponding to a pixel */
-+            s = jd->scale * 2;  /* Number of shifts for averaging */
-+            w = 1 << jd->scale; /* Width of square */
-+            a = (mx - w) * (JD_FORMAT != 2 ? 3 : 1); /* Bytes to skip for next line in the square */
-+            op = (uint8_t *)jd->workbuf;
-+            for(iy = 0; iy < my; iy += w) {
-+                for(ix = 0; ix < mx; ix += w) {
-+                    pix = (uint8_t *)jd->workbuf + (iy * mx + ix) * (JD_FORMAT != 2 ? 3 : 1);
-+                    r = g = b = 0;
-+                    for(y = 0; y < w; y++) {
-+                        for(x = 0; x < w; x++) {
-+                            r += *pix++;
-+                            if(JD_FORMAT != 2) {
-+                                g += *pix++;
-+                                b += *pix++;
-+                            }
-+                        }
-+                        pix += a;
-+                    }
-+                    *op++ = (uint8_t)(r >> s);
-+                    if(JD_FORMAT != 2) {
-+                        *op++ = (uint8_t)(g >> s);
-+                        *op++ = (uint8_t)(b >> s);
-+                    }
-+                }
-+            }
-+        }
++    /* Every effect is already covered when a queued area redraws the whole
++     * display. Preserve normal invalidation/events, but avoid repeating the
++     * blur propagation tree walks for each animated property. */
++    for(uint32_t i = 0; i < disp->inv_p; i++) {
++        const lv_area_t * dirty = &disp->inv_areas[i];
++        if(dirty->x1 <= 0 && dirty->y1 <= 0 &&
++           dirty->x2 >= lv_display_get_horizontal_resolution(disp) - 1 &&
++           dirty->y2 >= lv_display_get_vertical_resolution(disp) - 1) return res;
 +    }
-+    else {    /* 1/8 scaling: one pixel per 8x8 from the block DC. B,G,R to match the full-MCU loop above. */
-+        pix = (uint8_t *)jd->workbuf;
-+        pc = jd->mcubuf + mx * my;
-+        cb = pc[0] - 128;
-+        cr = pc[64] - 128;
-+        for(iy = 0; iy < my; iy += 8) {
-+            py = jd->mcubuf;
-+            if(iy == 8) py += 64 * 2;
-+            for(ix = 0; ix < mx; ix += 8) {
-+                yy = *py;
-+                py += 64;
-+                if(JD_FORMAT != 2) {
-+                    *pix++ = /*B*/ BYTECLIP(yy + ((int)(1.772 * CVACC) * cb) / CVACC);
-+                    *pix++ = /*G*/ BYTECLIP(yy - ((int)(0.344 * CVACC) * cb + (int)(0.714 * CVACC) * cr) / CVACC);
-+                    *pix++ = /*R*/ BYTECLIP(yy + ((int)(1.402 * CVACC) * cr) / CVACC);
-+                }
-+                else {
-+                    *pix++ = yy;
-+                }
-+            }
-+        }
-     }
- 
-     /* Squeeze up pixel table if a part of MCU is to be truncated */
-diff --git a/src/libs/tjpgd/tjpgdcnf.h b/src/libs/tjpgd/tjpgdcnf.h
-index dc27d6a..1b543b0 100644
---- a/src/libs/tjpgd/tjpgdcnf.h
-+++ b/src/libs/tjpgd/tjpgdcnf.h
-@@ -2,7 +2,7 @@
- /* TJpgDec System Configurations R0.03          */
- /*----------------------------------------------*/
- 
--#define JD_SZBUF        512
-+#define JD_SZBUF        1024
- /* Specifies size of stream input buffer */
- 
- #define JD_FORMAT       0
-@@ -12,7 +12,7 @@
- /  2: Grayscale (8-bit/pix)
- */
- 
--#define JD_USE_SCALE    0
-+#define JD_USE_SCALE    1
- /* Switches output descaling feature.
- /  0: Disable
- /  1: Enable
-diff --git a/src/misc/cache/class/lv_cache_lru_rb.c b/src/misc/cache/class/lv_cache_lru_rb.c
-index 79b64b1..3774def 100644
---- a/src/misc/cache/class/lv_cache_lru_rb.c
-+++ b/src/misc/cache/class/lv_cache_lru_rb.c
-@@ -410,6 +410,7 @@ static void drop_all_cb(lv_cache_t * cache, void * user_data)
- 
-     lv_rb_destroy(&lru->rb);
-     lv_ll_clear(&lru->ll);
-+    lv_rb_init(&lru->rb, lru->cache.ops.compare_cb, lv_cache_entry_get_size(lru->cache.node_size) + sizeof(void *));
- 
-     cache->size = 0;
- }
++
+     /*If this area is on a blurred widget, invalidate that widget too*/
+     blur_walk_data_t blur_walk_data;
+     blur_walk_data.requester_obj = obj;
 diff --git a/src/draw/lv_draw_image.c b/src/draw/lv_draw_image.c
 index e5f33d4..09cacbd 100644
 --- a/src/draw/lv_draw_image.c
@@ -189,8 +54,1879 @@ index e5f33d4..09cacbd 100644
      lv_point_t p[4] = {
          {0, 0},
          {w, 0},
+diff --git a/src/draw/sw/blend/lv_draw_sw_blend_to_rgb565.c b/src/draw/sw/blend/lv_draw_sw_blend_to_rgb565.c
+index a2bcacd..741a75d 100644
+--- a/src/draw/sw/blend/lv_draw_sw_blend_to_rgb565.c
++++ b/src/draw/sw/blend/lv_draw_sw_blend_to_rgb565.c
+@@ -324,14 +324,14 @@ void LV_ATTRIBUTE_FAST_MEM lv_draw_sw_blend_color_to_rgb565(lv_draw_sw_blend_fil
+             for(y = 0; y < h; y++) {
+                 x = 0;
+                 if((lv_uintptr_t)&dest_buf_u16[0] & 0x3) {
+-                    dest_buf_u16[0] = lv_color_16_16_mix(color16, dest_buf_u16[0], opa);
++                    dest_buf_u16[0] = lv_color_16_16_mix_internal(color16, dest_buf_u16[0], opa);
+                     x = 1;
+                 }
+ 
+                 for(; x < w - 2; x += 2) {
+                     if(dest_buf_u16[x] != dest_buf_u16[x + 1]) {
+-                        dest_buf_u16[x + 0] = lv_color_16_16_mix(color16, dest_buf_u16[x + 0], opa);
+-                        dest_buf_u16[x + 1] = lv_color_16_16_mix(color16, dest_buf_u16[x + 1], opa);
++                        dest_buf_u16[x + 0] = lv_color_16_16_mix_internal(color16, dest_buf_u16[x + 0], opa);
++                        dest_buf_u16[x + 1] = lv_color_16_16_mix_internal(color16, dest_buf_u16[x + 1], opa);
+                     }
+                     else {
+                         volatile uint32_t * dest32 = (uint32_t *)&dest_buf_u16[x];
+@@ -341,7 +341,7 @@ void LV_ATTRIBUTE_FAST_MEM lv_draw_sw_blend_color_to_rgb565(lv_draw_sw_blend_fil
+                         else {
+                             last_dest32_color =  *dest32;
+ 
+-                            dest_buf_u16[x] = lv_color_16_16_mix(color16, dest_buf_u16[x + 0], opa);
++                            dest_buf_u16[x] = lv_color_16_16_mix_internal(color16, dest_buf_u16[x + 0], opa);
+                             dest_buf_u16[x + 1] = dest_buf_u16[x];
+ 
+                             last_res32_color = *dest32;
+@@ -350,7 +350,7 @@ void LV_ATTRIBUTE_FAST_MEM lv_draw_sw_blend_color_to_rgb565(lv_draw_sw_blend_fil
+                 }
+ 
+                 for(; x < w ; x++) {
+-                    dest_buf_u16[x] = lv_color_16_16_mix(color16, dest_buf_u16[x], opa);
++                    dest_buf_u16[x] = lv_color_16_16_mix_internal(color16, dest_buf_u16[x], opa);
+                 }
+                 dest_buf_u16 = drawbuf_next_row(dest_buf_u16, dest_stride);
+             }
+@@ -362,7 +362,7 @@ void LV_ATTRIBUTE_FAST_MEM lv_draw_sw_blend_color_to_rgb565(lv_draw_sw_blend_fil
+             for(y = 0; y < h; y++) {
+                 x = 0;
+                 if((lv_uintptr_t)(mask) & 0x1) {
+-                    dest_buf_u16[x] = lv_color_16_16_mix(color16, dest_buf_u16[x], mask[x]);
++                    dest_buf_u16[x] = lv_color_16_16_mix_internal(color16, dest_buf_u16[x], mask[x]);
+                     x++;
+                 }
+ 
+@@ -373,13 +373,13 @@ void LV_ATTRIBUTE_FAST_MEM lv_draw_sw_blend_color_to_rgb565(lv_draw_sw_blend_fil
+                         dest_buf_u16[x + 1] = color16;
+                     }
+                     else if(mask16 != 0) {
+-                        dest_buf_u16[x + 0] = lv_color_16_16_mix(color16, dest_buf_u16[x + 0], mask[x + 0]);
+-                        dest_buf_u16[x + 1] = lv_color_16_16_mix(color16, dest_buf_u16[x + 1], mask[x + 1]);
++                        dest_buf_u16[x + 0] = lv_color_16_16_mix_internal(color16, dest_buf_u16[x + 0], mask[x + 0]);
++                        dest_buf_u16[x + 1] = lv_color_16_16_mix_internal(color16, dest_buf_u16[x + 1], mask[x + 1]);
+                     }
+                 }
+ 
+                 for(; x < w ; x++) {
+-                    dest_buf_u16[x] = lv_color_16_16_mix(color16, dest_buf_u16[x], mask[x]);
++                    dest_buf_u16[x] = lv_color_16_16_mix_internal(color16, dest_buf_u16[x], mask[x]);
+                 }
+                 dest_buf_u16 = drawbuf_next_row(dest_buf_u16, dest_stride);
+                 mask += mask_stride;
+@@ -391,7 +391,7 @@ void LV_ATTRIBUTE_FAST_MEM lv_draw_sw_blend_color_to_rgb565(lv_draw_sw_blend_fil
+         if(LV_RESULT_INVALID == LV_DRAW_SW_COLOR_BLEND_TO_RGB565_MIX_MASK_OPA(dsc)) {
+             for(y = 0; y < h; y++) {
+                 for(x = 0; x < w; x++) {
+-                    dest_buf_u16[x] = lv_color_16_16_mix(color16, dest_buf_u16[x], LV_OPA_MIX2(mask[x], opa));
++                    dest_buf_u16[x] = lv_color_16_16_mix_internal(color16, dest_buf_u16[x], LV_OPA_MIX2(mask[x], opa));
+                 }
+                 dest_buf_u16 = drawbuf_next_row(dest_buf_u16, dest_stride);
+                 mask += mask_stride;
+@@ -558,13 +558,13 @@ static void LV_ATTRIBUTE_FAST_MEM i1_image_blend(lv_draw_sw_blend_image_dsc_t *
+                     dest_buf_u16[dest_x] = res;
+                 }
+                 else if(mask_buf == NULL && opa < LV_OPA_MAX) {
+-                    dest_buf_u16[dest_x] = lv_color_16_16_mix(res, dest_buf_u16[dest_x], opa);
++                    dest_buf_u16[dest_x] = lv_color_16_16_mix_internal(res, dest_buf_u16[dest_x], opa);
+                 }
+                 else {
+                     if(opa >= LV_OPA_MAX)
+-                        dest_buf_u16[dest_x] = lv_color_16_16_mix(res, dest_buf_u16[dest_x], mask_buf[dest_x]);
++                        dest_buf_u16[dest_x] = lv_color_16_16_mix_internal(res, dest_buf_u16[dest_x], mask_buf[dest_x]);
+                     else
+-                        dest_buf_u16[dest_x] = lv_color_16_16_mix(res, dest_buf_u16[dest_x], LV_OPA_MIX2(mask_buf[dest_x], opa));
++                        dest_buf_u16[dest_x] = lv_color_16_16_mix_internal(res, dest_buf_u16[dest_x], LV_OPA_MIX2(mask_buf[dest_x], opa));
+                 }
+             }
+ 
+@@ -677,14 +677,14 @@ static void LV_ATTRIBUTE_FAST_MEM al88_image_blend(lv_draw_sw_blend_image_dsc_t
+                         return;
+                 }
+                 if(mask_buf == NULL && opa >= LV_OPA_MAX) {
+-                    dest_buf_u16[dest_x] = lv_color_16_16_mix(res, dest_buf_u16[dest_x], src_buf_al88[src_x].alpha);
++                    dest_buf_u16[dest_x] = lv_color_16_16_mix_internal(res, dest_buf_u16[dest_x], src_buf_al88[src_x].alpha);
+                 }
+                 else if(mask_buf == NULL && opa < LV_OPA_MAX) {
+-                    dest_buf_u16[dest_x] = lv_color_16_16_mix(res, dest_buf_u16[dest_x], LV_OPA_MIX2(opa, src_buf_al88[src_x].alpha));
++                    dest_buf_u16[dest_x] = lv_color_16_16_mix_internal(res, dest_buf_u16[dest_x], LV_OPA_MIX2(opa, src_buf_al88[src_x].alpha));
+                 }
+                 else {
+-                    if(opa >= LV_OPA_MAX) dest_buf_u16[dest_x] = lv_color_16_16_mix(res, dest_buf_u16[dest_x], mask_buf[dest_x]);
+-                    else dest_buf_u16[dest_x] = lv_color_16_16_mix(res, dest_buf_u16[dest_x], LV_OPA_MIX3(mask_buf[dest_x], opa,
++                    if(opa >= LV_OPA_MAX) dest_buf_u16[dest_x] = lv_color_16_16_mix_internal(res, dest_buf_u16[dest_x], mask_buf[dest_x]);
++                    else dest_buf_u16[dest_x] = lv_color_16_16_mix_internal(res, dest_buf_u16[dest_x], LV_OPA_MIX3(mask_buf[dest_x], opa,
+                                                                                                               src_buf_al88[src_x].alpha));
+                 }
+             }
+@@ -801,11 +801,11 @@ static void LV_ATTRIBUTE_FAST_MEM l8_image_blend(lv_draw_sw_blend_image_dsc_t *
+                     dest_buf_u16[dest_x] = res;
+                 }
+                 else if(mask_buf == NULL && opa < LV_OPA_MAX) {
+-                    dest_buf_u16[dest_x] = lv_color_16_16_mix(res, dest_buf_u16[dest_x], opa);
++                    dest_buf_u16[dest_x] = lv_color_16_16_mix_internal(res, dest_buf_u16[dest_x], opa);
+                 }
+                 else {
+-                    if(opa >= LV_OPA_MAX) dest_buf_u16[dest_x] = lv_color_16_16_mix(res, dest_buf_u16[dest_x], mask_buf[dest_x]);
+-                    else dest_buf_u16[dest_x] = lv_color_16_16_mix(res, dest_buf_u16[dest_x], LV_OPA_MIX2(mask_buf[dest_x], opa));
++                    if(opa >= LV_OPA_MAX) dest_buf_u16[dest_x] = lv_color_16_16_mix_internal(res, dest_buf_u16[dest_x], mask_buf[dest_x]);
++                    else dest_buf_u16[dest_x] = lv_color_16_16_mix_internal(res, dest_buf_u16[dest_x], LV_OPA_MIX2(mask_buf[dest_x], opa));
+                 }
+             }
+ 
+@@ -848,7 +848,7 @@ static void LV_ATTRIBUTE_FAST_MEM rgb565_image_blend(lv_draw_sw_blend_image_dsc_
+             if(LV_RESULT_INVALID == LV_DRAW_SW_RGB565_BLEND_NORMAL_TO_RGB565_WITH_OPA(dsc)) {
+                 for(y = 0; y < h; y++) {
+                     for(x = 0; x < w; x++) {
+-                        dest_buf_u16[x] = lv_color_16_16_mix(src_buf_u16[x], dest_buf_u16[x], opa);
++                        dest_buf_u16[x] = lv_color_16_16_mix_internal(src_buf_u16[x], dest_buf_u16[x], opa);
+                     }
+                     dest_buf_u16 = drawbuf_next_row(dest_buf_u16, dest_stride);
+                     src_buf_u16 = drawbuf_next_row(src_buf_u16, src_stride);
+@@ -859,7 +859,7 @@ static void LV_ATTRIBUTE_FAST_MEM rgb565_image_blend(lv_draw_sw_blend_image_dsc_
+             if(LV_RESULT_INVALID == LV_DRAW_SW_RGB565_BLEND_NORMAL_TO_RGB565_WITH_MASK(dsc)) {
+                 for(y = 0; y < h; y++) {
+                     for(x = 0; x < w; x++) {
+-                        dest_buf_u16[x] = lv_color_16_16_mix(src_buf_u16[x], dest_buf_u16[x], mask_buf[x]);
++                        dest_buf_u16[x] = lv_color_16_16_mix_internal(src_buf_u16[x], dest_buf_u16[x], mask_buf[x]);
+                     }
+                     dest_buf_u16 = drawbuf_next_row(dest_buf_u16, dest_stride);
+                     src_buf_u16 = drawbuf_next_row(src_buf_u16, src_stride);
+@@ -871,7 +871,7 @@ static void LV_ATTRIBUTE_FAST_MEM rgb565_image_blend(lv_draw_sw_blend_image_dsc_
+             if(LV_RESULT_INVALID == LV_DRAW_SW_RGB565_BLEND_NORMAL_TO_RGB565_MIX_MASK_OPA(dsc)) {
+                 for(y = 0; y < h; y++) {
+                     for(x = 0; x < w; x++) {
+-                        dest_buf_u16[x] = lv_color_16_16_mix(src_buf_u16[x], dest_buf_u16[x], LV_OPA_MIX2(mask_buf[x], opa));
++                        dest_buf_u16[x] = lv_color_16_16_mix_internal(src_buf_u16[x], dest_buf_u16[x], LV_OPA_MIX2(mask_buf[x], opa));
+                     }
+                     dest_buf_u16 = drawbuf_next_row(dest_buf_u16, dest_stride);
+                     src_buf_u16 = drawbuf_next_row(src_buf_u16, src_stride);
+@@ -916,11 +916,11 @@ static void LV_ATTRIBUTE_FAST_MEM rgb565_image_blend(lv_draw_sw_blend_image_dsc_
+                 }
+ 
+                 if(mask_buf == NULL) {
+-                    dest_buf_u16[x] = lv_color_16_16_mix(res, dest_buf_u16[x], opa);
++                    dest_buf_u16[x] = lv_color_16_16_mix_internal(res, dest_buf_u16[x], opa);
+                 }
+                 else {
+-                    if(opa >= LV_OPA_MAX) dest_buf_u16[x] = lv_color_16_16_mix(res, dest_buf_u16[x], mask_buf[x]);
+-                    else dest_buf_u16[x] = lv_color_16_16_mix(res, dest_buf_u16[x], LV_OPA_MIX2(mask_buf[x], opa));
++                    if(opa >= LV_OPA_MAX) dest_buf_u16[x] = lv_color_16_16_mix_internal(res, dest_buf_u16[x], mask_buf[x]);
++                    else dest_buf_u16[x] = lv_color_16_16_mix_internal(res, dest_buf_u16[x], LV_OPA_MIX2(mask_buf[x], opa));
+                 }
+             }
+ 
+@@ -963,7 +963,7 @@ static void LV_ATTRIBUTE_FAST_MEM rgb565_swapped_image_blend(lv_draw_sw_blend_im
+             if(LV_RESULT_INVALID == LV_DRAW_SW_RGB565_SWAPPED_BLEND_NORMAL_TO_RGB565_WITH_OPA(dsc)) {
+                 for(y = 0; y < h; y++) {
+                     for(x = 0; x < w; x++) {
+-                        dest_buf_u16[x] = lv_color_16_16_mix(lv_color_swap_16(src_buf_u16[x]), dest_buf_u16[x], opa);
++                        dest_buf_u16[x] = lv_color_16_16_mix_internal(lv_color_swap_16(src_buf_u16[x]), dest_buf_u16[x], opa);
+                     }
+                     dest_buf_u16 = drawbuf_next_row(dest_buf_u16, dest_stride);
+                     src_buf_u16 = drawbuf_next_row(src_buf_u16, src_stride);
+@@ -974,7 +974,7 @@ static void LV_ATTRIBUTE_FAST_MEM rgb565_swapped_image_blend(lv_draw_sw_blend_im
+             if(LV_RESULT_INVALID == LV_DRAW_SW_RGB565_SWAPPED_BLEND_NORMAL_TO_RGB565_WITH_MASK(dsc)) {
+                 for(y = 0; y < h; y++) {
+                     for(x = 0; x < w; x++) {
+-                        dest_buf_u16[x] = lv_color_16_16_mix(lv_color_swap_16(src_buf_u16[x]), dest_buf_u16[x], mask_buf[x]);
++                        dest_buf_u16[x] = lv_color_16_16_mix_internal(lv_color_swap_16(src_buf_u16[x]), dest_buf_u16[x], mask_buf[x]);
+                     }
+                     dest_buf_u16 = drawbuf_next_row(dest_buf_u16, dest_stride);
+                     src_buf_u16 = drawbuf_next_row(src_buf_u16, src_stride);
+@@ -986,7 +986,7 @@ static void LV_ATTRIBUTE_FAST_MEM rgb565_swapped_image_blend(lv_draw_sw_blend_im
+             if(LV_RESULT_INVALID == LV_DRAW_SW_RGB565_SWAPPED_BLEND_NORMAL_TO_RGB565_MIX_MASK_OPA(dsc)) {
+                 for(y = 0; y < h; y++) {
+                     for(x = 0; x < w; x++) {
+-                        dest_buf_u16[x] = lv_color_16_16_mix(lv_color_swap_16(src_buf_u16[x]), dest_buf_u16[x], LV_OPA_MIX2(mask_buf[x], opa));
++                        dest_buf_u16[x] = lv_color_16_16_mix_internal(lv_color_swap_16(src_buf_u16[x]), dest_buf_u16[x], LV_OPA_MIX2(mask_buf[x], opa));
+                     }
+                     dest_buf_u16 = drawbuf_next_row(dest_buf_u16, dest_stride);
+                     src_buf_u16 = drawbuf_next_row(src_buf_u16, src_stride);
+@@ -1036,11 +1036,11 @@ static void LV_ATTRIBUTE_FAST_MEM rgb565_swapped_image_blend(lv_draw_sw_blend_im
+                 }
+ 
+                 if(mask_buf == NULL) {
+-                    dest_buf_u16[x] = lv_color_16_16_mix(res, dest_buf_u16[x], opa);
++                    dest_buf_u16[x] = lv_color_16_16_mix_internal(res, dest_buf_u16[x], opa);
+                 }
+                 else {
+-                    if(opa >= LV_OPA_MAX) dest_buf_u16[x] = lv_color_16_16_mix(res, dest_buf_u16[x], mask_buf[x]);
+-                    else dest_buf_u16[x] = lv_color_16_16_mix(res, dest_buf_u16[x], LV_OPA_MIX2(mask_buf[x], opa));
++                    if(opa >= LV_OPA_MAX) dest_buf_u16[x] = lv_color_16_16_mix_internal(res, dest_buf_u16[x], mask_buf[x]);
++                    else dest_buf_u16[x] = lv_color_16_16_mix_internal(res, dest_buf_u16[x], LV_OPA_MIX2(mask_buf[x], opa));
+                 }
+             }
+ 
+@@ -1153,11 +1153,11 @@ static void LV_ATTRIBUTE_FAST_MEM rgb888_image_blend(lv_draw_sw_blend_image_dsc_
+                 }
+ 
+                 if(mask_buf == NULL) {
+-                    dest_buf_u16[dest_x] = lv_color_16_16_mix(res, dest_buf_u16[dest_x], opa);
++                    dest_buf_u16[dest_x] = lv_color_16_16_mix_internal(res, dest_buf_u16[dest_x], opa);
+                 }
+                 else {
+-                    if(opa >= LV_OPA_MAX) dest_buf_u16[dest_x] = lv_color_16_16_mix(res, dest_buf_u16[dest_x], mask_buf[dest_x]);
+-                    else dest_buf_u16[dest_x] = lv_color_16_16_mix(res, dest_buf_u16[dest_x], LV_OPA_MIX2(mask_buf[dest_x], opa));
++                    if(opa >= LV_OPA_MAX) dest_buf_u16[dest_x] = lv_color_16_16_mix_internal(res, dest_buf_u16[dest_x], mask_buf[dest_x]);
++                    else dest_buf_u16[dest_x] = lv_color_16_16_mix_internal(res, dest_buf_u16[dest_x], LV_OPA_MIX2(mask_buf[dest_x], opa));
+                 }
+             }
+             dest_buf_u16 = drawbuf_next_row(dest_buf_u16, dest_stride);
+@@ -1271,14 +1271,14 @@ static void LV_ATTRIBUTE_FAST_MEM argb8888_image_blend(lv_draw_sw_blend_image_ds
+                 }
+ 
+                 if(mask_buf == NULL && opa >= LV_OPA_MAX) {
+-                    dest_buf_u16[dest_x] = lv_color_16_16_mix(res, dest_buf_u16[dest_x], src_buf_u8[src_x + 3]);
++                    dest_buf_u16[dest_x] = lv_color_16_16_mix_internal(res, dest_buf_u16[dest_x], src_buf_u8[src_x + 3]);
+                 }
+                 else if(mask_buf == NULL && opa < LV_OPA_MAX) {
+-                    dest_buf_u16[dest_x] = lv_color_16_16_mix(res, dest_buf_u16[dest_x], LV_OPA_MIX2(opa, src_buf_u8[src_x + 3]));
++                    dest_buf_u16[dest_x] = lv_color_16_16_mix_internal(res, dest_buf_u16[dest_x], LV_OPA_MIX2(opa, src_buf_u8[src_x + 3]));
+                 }
+                 else {
+-                    if(opa >= LV_OPA_MAX) dest_buf_u16[dest_x] = lv_color_16_16_mix(res, dest_buf_u16[dest_x], mask_buf[dest_x]);
+-                    else dest_buf_u16[dest_x] = lv_color_16_16_mix(res, dest_buf_u16[dest_x], LV_OPA_MIX3(mask_buf[dest_x], opa,
++                    if(opa >= LV_OPA_MAX) dest_buf_u16[dest_x] = lv_color_16_16_mix_internal(res, dest_buf_u16[dest_x], mask_buf[dest_x]);
++                    else dest_buf_u16[dest_x] = lv_color_16_16_mix_internal(res, dest_buf_u16[dest_x], LV_OPA_MIX3(mask_buf[dest_x], opa,
+                                                                                                               src_buf_u8[src_x + 3]));
+                 }
+             }
+@@ -1437,17 +1437,17 @@ static void LV_ATTRIBUTE_FAST_MEM argb8888_premultiplied_image_blend(lv_draw_sw_
+ 
+                 if(mask_buf == NULL && opa >= LV_OPA_MAX) {
+                     /* Blending premultiplied ARGB8888 to RGB565 with no mask and full opacity */
+-                    dest_buf_u16[dest_x] = lv_color_16_16_mix(res, dest_buf_u16[dest_x], src_buf_u8[src_x + 3]);
++                    dest_buf_u16[dest_x] = lv_color_16_16_mix_internal(res, dest_buf_u16[dest_x], src_buf_u8[src_x + 3]);
+                 }
+                 else if(mask_buf == NULL && opa < LV_OPA_MAX) {
+                     /* Blending premultiplied ARGB8888 to RGB565 with no mask and partial opacity */
+-                    dest_buf_u16[dest_x] = lv_color_16_16_mix(res, dest_buf_u16[dest_x], LV_OPA_MIX2(opa, src_buf_u8[src_x + 3]));
++                    dest_buf_u16[dest_x] = lv_color_16_16_mix_internal(res, dest_buf_u16[dest_x], LV_OPA_MIX2(opa, src_buf_u8[src_x + 3]));
+                 }
+                 else {
+                     if(opa >= LV_OPA_MAX)
+-                        dest_buf_u16[dest_x] = lv_color_16_16_mix(res, dest_buf_u16[dest_x], mask_buf[dest_x]);
++                        dest_buf_u16[dest_x] = lv_color_16_16_mix_internal(res, dest_buf_u16[dest_x], mask_buf[dest_x]);
+                     else
+-                        dest_buf_u16[dest_x] = lv_color_16_16_mix(res, dest_buf_u16[dest_x], LV_OPA_MIX3(mask_buf[dest_x], opa,
++                        dest_buf_u16[dest_x] = lv_color_16_16_mix_internal(res, dest_buf_u16[dest_x], LV_OPA_MIX3(mask_buf[dest_x], opa,
+                                                                                                          src_buf_u8[src_x + 3]));
+                 }
+             }
+diff --git a/src/draw/sw/lv_draw_sw.c b/src/draw/sw/lv_draw_sw.c
+index efca2bd..f932509 100644
+--- a/src/draw/sw/lv_draw_sw.c
++++ b/src/draw/sw/lv_draw_sw.c
+@@ -75,6 +75,8 @@ static int32_t lv_draw_sw_delete(lv_draw_unit_t * draw_unit);
+ void lv_draw_sw_init(void)
+ {
+ 
++    lv_draw_sw_image_cache_init();
++
+ #if LV_DRAW_SW_COMPLEX == 1
+     lv_draw_sw_mask_init();
+ #endif
+@@ -82,7 +84,8 @@ void lv_draw_sw_init(void)
+     lv_draw_sw_unit_t * draw_sw_unit = lv_draw_create_unit(sizeof(lv_draw_sw_unit_t));
+     draw_sw_unit->base_unit.dispatch_cb = dispatch;
+     draw_sw_unit->base_unit.evaluate_cb = evaluate;
+-    draw_sw_unit->base_unit.delete_cb = LV_USE_OS ? lv_draw_sw_delete : NULL;
++    draw_sw_unit->base_unit.delete_cb = lv_draw_sw_delete;
++    draw_sw_unit->base_unit.event_cb = lv_draw_sw_image_cache_event;
+ #if LV_USE_DRAW_ARM2D_SYNC
+     draw_sw_unit->base_unit.name = "SW_ARM2D";
+ #else
+@@ -121,6 +124,9 @@ void lv_draw_sw_deinit(void)
+ #if LV_DRAW_SW_COMPLEX == 1
+     lv_draw_sw_mask_deinit();
+ #endif
++#if !LV_USE_OS
++    lv_draw_sw_image_cache_deinit();
++#endif
+ }
+ 
+ static int32_t lv_draw_sw_delete(lv_draw_unit_t * draw_unit)
+@@ -141,9 +147,12 @@ static int32_t lv_draw_sw_delete(lv_draw_unit_t * draw_unit)
+         lv_thread_delete(&thread_dsc->thread);
+     }
+ 
++    lv_draw_sw_image_cache_deinit();
++
+     return 0;
+ #else
+     LV_UNUSED(draw_unit);
++    lv_draw_sw_image_cache_deinit();
+     return 0;
+ #endif
+ }
+diff --git a/src/draw/sw/lv_draw_sw.h b/src/draw/sw/lv_draw_sw.h
+index c874fd2..2795de8 100644
+--- a/src/draw/sw/lv_draw_sw.h
++++ b/src/draw/sw/lv_draw_sw.h
+@@ -156,6 +156,23 @@ void lv_draw_sw_transform(const lv_area_t * dest_area, const void * src_buf,
+                           int32_t src_w, int32_t src_h, int32_t src_stride,
+                           const lv_draw_image_dsc_t * draw_dsc, const lv_draw_image_sup_t * sup, lv_color_format_t cf, void * dest_buf);
+ 
++/**
++ * Copy the opaque RGB565 interior of a non-rotated scale using native
++ * nearest or antialiased sampling, according to draw_dsc->antialias.
++ * When dest_buf is NULL, safe_area receives the subset of dest_area whose
++ * sampled source coordinates are at least one pixel from every image edge.
++ * If x_samples is also non-NULL, it receives packed source coordinates and
++ * interpolation weights for safe_area, within x_samples_count entries. When
++ * dest_buf is non-NULL, dest_area must be within that safe subset and x_samples must map
++ * its x range; RGB565 pixels are written using dest_stride bytes per row.
++ * @return true if the request is valid; safe_area can be empty.
++ */
++bool lv_draw_sw_transform_rgb565_nearest(const lv_area_t * dest_area, const void * src_buf,
++                                        int32_t src_w, int32_t src_h, int32_t src_stride,
++                                        const lv_draw_image_dsc_t * draw_dsc, uint16_t * dest_buf,
++                                        int32_t dest_stride, lv_area_t * safe_area,
++                                        uint32_t * x_samples, int32_t x_samples_x1, uint32_t x_samples_count);
++
+ #if LV_USE_VECTOR_GRAPHIC && LV_USE_THORVG
+ /**
+  * Draw vector graphics with SW render.
+diff --git a/src/draw/sw/lv_draw_sw_img.c b/src/draw/sw/lv_draw_sw_img.c
+index b401a08..11cbda2 100644
+--- a/src/draw/sw/lv_draw_sw_img.c
++++ b/src/draw/sw/lv_draw_sw_img.c
+@@ -11,9 +11,16 @@
+ #include "../lv_image_decoder_private.h"
+ #include "../lv_draw_image_private.h"
+ #include "../lv_draw_private.h"
++#include "lv_draw_sw_private.h"
+ #include "lv_draw_sw.h"
+ #if LV_USE_DRAW_SW
+ 
++#include <string.h>
++
++#if defined(__linux__)
++#include <time.h>
++#endif
++
+ #include "../../display/lv_display.h"
+ #include "../../display/lv_display_private.h"
+ #include "../../misc/lv_log.h"
+@@ -23,6 +30,7 @@
+ #include "../../misc/lv_color.h"
+ #include "../../stdlib/lv_string.h"
+ #include "../../core/lv_global.h"
++#include "../../osal/lv_os_private.h"
+ 
+ #if LV_USE_DRAW_SW_ASM == LV_DRAW_SW_ASM_HELIUM
+     #include "arm2d/lv_draw_sw_helium.h"
+@@ -83,6 +91,11 @@ static void transform_and_recolor(lv_draw_task_t * t, const lv_draw_image_dsc_t
+                                   const lv_image_decoder_dsc_t * decoder_dsc, lv_draw_image_sup_t * sup,
+                                   const lv_area_t * img_coords, const lv_area_t * clipped_img_area);
+ 
++static bool transform_rgb565_nearest_interior(lv_draw_task_t * t, const lv_draw_image_dsc_t * draw_dsc,
++                                              const lv_image_decoder_dsc_t * decoder_dsc,
++                                              lv_draw_image_sup_t * sup, const lv_area_t * img_coords,
++                                              const lv_area_t * clipped_img_area);
++
+ static void recolor(lv_area_t relative_area, uint8_t * src_buf, uint8_t * dest_buf, int32_t src_stride,
+                     lv_color_format_t cf, const lv_draw_image_dsc_t * draw_dsc);
+ 
+@@ -96,6 +109,171 @@ static bool apply_mask(const lv_draw_image_dsc_t * draw_dsc);
+  **********************/
+ #define _draw_info LV_GLOBAL_DEFAULT()->draw_info
+ 
++/* Cache small clipped transform tiles from complete immutable sources. The
++ * transformed pixels exclude primitive opacity and blend mode, which remain
++ * per draw. */
++#define TRANSFORM_CACHE_ENTRY_MAX (24U * 1024U)
++#define TRANSFORM_CACHE_TOTAL_MAX (64U * 1024U)
++#define TRANSFORM_CACHE_ENTRY_COUNT 32U
++#define TRANSFORM_CACHE_LARGE_ENTRY_COUNT 2U
++#define TRANSFORM_CACHE_LARGE_ENTRY_MAX (512U * 512U * 3U)
++#define TRANSFORM_CACHE_LARGE_TOTAL_MAX (TRANSFORM_CACHE_LARGE_ENTRY_COUNT * TRANSFORM_CACHE_LARGE_ENTRY_MAX)
++#define TRANSFORM_CACHE_ALL_ENTRY_COUNT (TRANSFORM_CACHE_ENTRY_COUNT + TRANSFORM_CACHE_LARGE_ENTRY_COUNT)
++#define TRANSFORM_CACHE_PATH_MAX 128U
++#define TRANSFORM_INTERMEDIATE_ENTRY_COUNT 32U
++#define TRANSFORM_INTERMEDIATE_CANDIDATE_COUNT 64U
++#define TRANSFORM_INTERMEDIATE_HASH_SIZE 128U
++#define TRANSFORM_INTERMEDIATE_BUILD_ROWS 16U
++#define TRANSFORM_INTERMEDIATE_BUDGET (3U * 1024U * 1024U)
++#define TRANSFORM_INTERMEDIATE_ALLOC_OVERHEAD 64U
++#define TRANSFORM_INTERMEDIATE_PRESSURE_LOW (12ULL * 1024ULL * 1024ULL)
++#define TRANSFORM_INTERMEDIATE_PRESSURE_HIGH (14ULL * 1024ULL * 1024ULL)
++
++typedef struct {
++    const void * src;
++    char src_path[TRANSFORM_CACHE_PATH_MAX];
++    const void * decoded_data;
++    const lv_color32_t * palette;
++    uint32_t palette_size;
++    uint32_t src_data_size;
++    uint32_t src_stride;
++    uint32_t src_w;
++    uint32_t src_h;
++    uint32_t src_flags;
++    int32_t dst_x1;
++    int32_t dst_y1;
++    int32_t dst_w;
++    int32_t dst_h;
++    int32_t scale_x;
++    int32_t scale_y;
++    int32_t pivot_x;
++    int32_t pivot_y;
++    int32_t rotation;
++    lv_color_t alpha_color;
++    lv_color_t recolor;
++    lv_opa_t recolor_opa;
++    lv_color_format_t src_cf;
++    lv_color_format_t dst_cf;
++    lv_image_src_t src_type;
++    bool antialias;
++    bool large_source;
++} transform_cache_key_t;
++
++typedef struct {
++    transform_cache_key_t key;
++    uint8_t * pixels;
++    uint32_t bytes;
++    uint64_t last_used;
++} transform_cache_entry_t;
++
++/* USER3 intermediates always contain the complete transformed rectangle. */
++typedef struct {
++    const void * src;
++    const void * decoded_data;
++    uint32_t src_data_size;
++    uint32_t src_stride;
++    uint32_t src_w;
++    uint32_t src_h;
++    uint32_t src_flags;
++    int32_t dst_x1;
++    int32_t dst_y1;
++    int32_t dst_w;
++    int32_t dst_h;
++    int32_t scale_x;
++    int32_t scale_y;
++    int32_t pivot_x;
++    int32_t pivot_y;
++    int32_t rotation;
++    uint32_t alpha_color;
++    uint32_t recolor;
++    uint8_t recolor_opa;
++    uint8_t src_cf;
++    uint8_t dst_cf;
++    uint8_t antialias;
++} transform_intermediate_key_t;
++
++typedef struct {
++    transform_intermediate_key_t key;
++    uint8_t * pixels;
++    uint32_t bytes;
++    uint64_t last_used;
++    lv_area_t opaque_area;
++    bool opaque_valid;
++} transform_intermediate_entry_t;
++
++typedef struct {
++    transform_intermediate_key_t key;
++    uint64_t hash;
++    uint64_t first_seen_order;
++    uint64_t last_epoch;
++    uint64_t distinct_epochs;
++    uint64_t rejected_epochs;
++    int8_t resident_index;
++    bool valid;
++} transform_intermediate_candidate_t;
++
++typedef struct {
++    transform_intermediate_key_t key;
++    uint8_t * pixels;
++    uint8_t * scratch;
++    uint32_t pixel_bytes;
++    uint32_t output_allocation_bytes;
++    uint32_t scratch_allocation_bytes;
++    uint32_t next_row;
++    uint8_t candidate_index;
++    bool active;
++    lv_area_t opaque_area;
++    bool opaque_valid;
++} transform_intermediate_pending_t;
++
++static transform_cache_entry_t transform_cache[TRANSFORM_CACHE_ALL_ENTRY_COUNT];
++static lv_mutex_t transform_cache_mutex;
++static bool transform_cache_initialized;
++static uint64_t transform_cache_clock;
++static uint32_t transform_cache_bytes;
++static uint32_t transform_cache_large_bytes;
++static transform_cache_key_t transform_cache_pending_large_key;
++static bool transform_cache_pending_large_valid;
++static uint8_t transform_cache_pending_large_hits;
++static transform_intermediate_entry_t transform_intermediate_cache[TRANSFORM_INTERMEDIATE_ENTRY_COUNT];
++static transform_intermediate_candidate_t transform_intermediate_candidates[TRANSFORM_INTERMEDIATE_CANDIDATE_COUNT];
++static uint8_t transform_intermediate_hash[TRANSFORM_INTERMEDIATE_HASH_SIZE];
++static transform_intermediate_pending_t transform_intermediate_pending;
++static const lv_draw_buf_t * transform_intermediate_source;
++static const uint8_t * transform_intermediate_source_data;
++static uint32_t transform_intermediate_source_data_size;
++static uint32_t transform_intermediate_source_stride;
++static uint32_t transform_intermediate_source_w;
++static uint32_t transform_intermediate_source_h;
++static uint32_t transform_intermediate_source_flags;
++static uint64_t transform_intermediate_epoch;
++static uint64_t transform_intermediate_clock;
++static uint64_t transform_intermediate_candidate_order;
++static uint32_t transform_intermediate_pixel_bytes;
++static uint32_t transform_intermediate_scratch_bytes;
++static uint32_t transform_intermediate_entry_count;
++static uint32_t transform_intermediate_candidate_count;
++static bool transform_intermediate_transition_active;
++static bool transform_intermediate_pressure_blocked = true;
++static lv_draw_sw_image_cache_stats_t transform_intermediate_stats;
++
++static uint32_t transform_intermediate_metadata_bytes(void);
++static uint64_t transform_intermediate_time_us(void);
++static void transform_intermediate_clear_locked(void);
++static bool transform_intermediate_source_matches(const void * src);
++static transform_intermediate_candidate_t * transform_intermediate_candidate_find_locked(const transform_intermediate_key_t * key, uint64_t hash);
++static bool transform_intermediate_candidate_better(const transform_intermediate_candidate_t * a,
++                                                     const transform_intermediate_candidate_t * b);
++static transform_intermediate_candidate_t * transform_intermediate_observe_locked(const transform_intermediate_key_t * key,
++                                                                                    uint64_t hash);
++static bool transform_intermediate_start_locked(uint8_t candidate_index, uint64_t mem_available_bytes);
++static bool transform_intermediate_slice_locked(void);
++
++static bool transform_cache_draw(lv_draw_task_t * t, const lv_draw_image_dsc_t * draw_dsc,
++                                 const lv_image_decoder_dsc_t * decoder_dsc, const lv_draw_image_sup_t * sup,
++                                 const lv_area_t * img_coords, const lv_area_t * clipped_img_area);
++static void transform_cache_invalidate(const void * src);
++
+ /**********************
+  *      MACROS
+  **********************/
+@@ -212,6 +390,1092 @@ void lv_draw_sw_image(lv_draw_task_t * t, const lv_draw_image_dsc_t * draw_dsc,
+     }
+ }
+ 
++void lv_draw_sw_image_cache_init(void)
++{
++    if(transform_cache_initialized) return;
++    if(lv_mutex_init(&transform_cache_mutex) != LV_RESULT_OK) return;
++    transform_cache_initialized = true;
++}
++
++void lv_draw_sw_image_cache_deinit(void)
++{
++    if(!transform_cache_initialized) return;
++    lv_mutex_lock(&transform_cache_mutex);
++    for(uint32_t i = 0; i < TRANSFORM_CACHE_ALL_ENTRY_COUNT; i++) {
++        lv_free(transform_cache[i].pixels);
++        lv_memzero(&transform_cache[i], sizeof(transform_cache[i]));
++    }
++    transform_intermediate_clear_locked();
++    transform_intermediate_source = NULL;
++    transform_intermediate_source_data = NULL;
++    transform_intermediate_source_data_size = 0;
++    transform_intermediate_source_stride = 0;
++    transform_intermediate_source_w = 0;
++    transform_intermediate_source_h = 0;
++    transform_intermediate_source_flags = 0;
++    transform_intermediate_epoch = 0;
++    transform_intermediate_clock = 0;
++    transform_intermediate_transition_active = false;
++    transform_intermediate_pressure_blocked = true;
++    lv_memzero(&transform_intermediate_stats, sizeof(transform_intermediate_stats));
++    transform_cache_clock = 0;
++    transform_cache_bytes = 0;
++    transform_cache_large_bytes = 0;
++    transform_cache_pending_large_valid = false;
++    transform_cache_pending_large_hits = 0;
++    lv_memzero(&transform_cache_pending_large_key, sizeof(transform_cache_pending_large_key));
++    lv_mutex_unlock(&transform_cache_mutex);
++    lv_mutex_delete(&transform_cache_mutex);
++    transform_cache_initialized = false;
++}
++
++void lv_draw_sw_image_cache_event(lv_event_t * e)
++{
++    if(lv_event_get_code(e) != LV_EVENT_INVALIDATE_AREA) return;
++    transform_cache_invalidate(lv_event_get_param(e));
++}
++
++static bool transform_cache_key_equal(const transform_cache_key_t * a, const transform_cache_key_t * b)
++{
++    bool same_source = a->src_type == LV_IMAGE_SRC_FILE ? lv_strcmp(a->src_path, b->src_path) == 0 :
++                       a->src == b->src;
++    return same_source && a->src_type == b->src_type &&
++           a->decoded_data == b->decoded_data && a->palette == b->palette &&
++           a->palette_size == b->palette_size && a->src_data_size == b->src_data_size &&
++           a->src_stride == b->src_stride && a->src_w == b->src_w && a->src_h == b->src_h &&
++           a->src_flags == b->src_flags &&
++           a->dst_x1 == b->dst_x1 && a->dst_y1 == b->dst_y1 && a->dst_w == b->dst_w &&
++           a->dst_h == b->dst_h && a->scale_x == b->scale_x &&
++           a->scale_y == b->scale_y && a->pivot_x == b->pivot_x && a->pivot_y == b->pivot_y &&
++           a->rotation == b->rotation && lv_color_to_u32(a->alpha_color) == lv_color_to_u32(b->alpha_color) &&
++           lv_color_to_u32(a->recolor) == lv_color_to_u32(b->recolor) && a->recolor_opa == b->recolor_opa &&
++           a->src_cf == b->src_cf && a->dst_cf == b->dst_cf && a->src_type == b->src_type &&
++           a->antialias == b->antialias && a->large_source == b->large_source;
++}
++
++static void transform_cache_invalidate(const void * src)
++{
++    if(!transform_cache_initialized) return;
++    lv_mutex_lock(&transform_cache_mutex);
++    for(uint32_t i = 0; i < TRANSFORM_CACHE_ALL_ENTRY_COUNT; i++) {
++        transform_cache_entry_t * entry = &transform_cache[i];
++        if(!entry->pixels) continue;
++        if(src) {
++            lv_image_src_t src_type = lv_image_src_get_type(src);
++            bool matches = entry->key.src_type != src_type ? false :
++                           src_type == LV_IMAGE_SRC_FILE ?
++                           lv_strcmp(entry->key.src_path, (const char *)src) == 0 :
++                           entry->key.src == src;
++            if(!matches) continue;
++        }
++        if(entry->key.large_source) transform_cache_large_bytes -= entry->bytes;
++        else transform_cache_bytes -= entry->bytes;
++        lv_free(entry->pixels);
++        lv_memzero(entry, sizeof(*entry));
++    }
++    /* A source invalidation also cancels an in-flight large-source promotion. */
++    if(src == NULL || (transform_cache_pending_large_valid &&
++       transform_cache_pending_large_key.src_type == lv_image_src_get_type(src) &&
++       (transform_cache_pending_large_key.src_type == LV_IMAGE_SRC_FILE ?
++        lv_strcmp(transform_cache_pending_large_key.src_path, (const char *)src) == 0 :
++        transform_cache_pending_large_key.src == src))) {
++        transform_cache_pending_large_valid = false;
++        transform_cache_pending_large_hits = 0;
++        lv_memzero(&transform_cache_pending_large_key, sizeof(transform_cache_pending_large_key));
++    }
++    if(src == NULL || src == transform_intermediate_source) {
++        transform_intermediate_clear_locked();
++        transform_intermediate_source = NULL;
++        transform_intermediate_source_data = NULL;
++        transform_intermediate_source_data_size = 0;
++        transform_intermediate_source_stride = 0;
++        transform_intermediate_source_w = 0;
++        transform_intermediate_source_h = 0;
++        transform_intermediate_source_flags = 0;
++        transform_intermediate_transition_active = false;
++        transform_intermediate_epoch = 0;
++        lv_memzero(&transform_intermediate_stats, sizeof(transform_intermediate_stats));
++    }
++    lv_mutex_unlock(&transform_cache_mutex);
++}
++
++static uint32_t transform_intermediate_metadata_bytes(void)
++{
++    return (uint32_t)(sizeof(transform_intermediate_cache) + sizeof(transform_intermediate_candidates) +
++                      sizeof(transform_intermediate_hash) + sizeof(transform_intermediate_pending) +
++                      sizeof(transform_intermediate_stats) + sizeof(transform_intermediate_source) +
++                      sizeof(transform_intermediate_source_data) + sizeof(transform_intermediate_source_data_size) +
++                      sizeof(transform_intermediate_source_stride) + sizeof(transform_intermediate_source_w) +
++                      sizeof(transform_intermediate_source_h) + sizeof(transform_intermediate_source_flags) +
++                      sizeof(transform_intermediate_epoch) + sizeof(transform_intermediate_clock) +
++                      sizeof(transform_intermediate_candidate_order) +
++                      sizeof(transform_intermediate_pixel_bytes) + sizeof(transform_intermediate_scratch_bytes) + sizeof(transform_intermediate_entry_count) +
++                      sizeof(transform_intermediate_candidate_count) + sizeof(transform_intermediate_transition_active) +
++                      sizeof(transform_intermediate_pressure_blocked) + 512U);
++}
++
++static void transform_intermediate_cancel_pending_locked(void)
++{
++    if(!transform_intermediate_pending.active) return;
++    if(transform_intermediate_pending.pixels) lv_free(transform_intermediate_pending.pixels);
++    if(transform_intermediate_pending.scratch) lv_free(transform_intermediate_pending.scratch);
++    if(transform_intermediate_pixel_bytes >= transform_intermediate_pending.output_allocation_bytes)
++        transform_intermediate_pixel_bytes -= transform_intermediate_pending.output_allocation_bytes;
++    transform_intermediate_scratch_bytes = 0;
++    lv_memzero(&transform_intermediate_pending, sizeof(transform_intermediate_pending));
++}
++
++static uint64_t transform_intermediate_time_us(void)
++{
++#if defined(__linux__)
++    struct timespec ts;
++    if(clock_gettime(CLOCK_MONOTONIC, &ts) == 0)
++        return (uint64_t)ts.tv_sec * 1000000ULL + (uint64_t)ts.tv_nsec / 1000ULL;
++#endif
++    return (uint64_t)lv_tick_get() * 1000ULL;
++}
++
++static void transform_intermediate_clear_locked(void)
++{
++    if(transform_intermediate_pending.pixels) lv_free(transform_intermediate_pending.pixels);
++    if(transform_intermediate_pending.scratch) lv_free(transform_intermediate_pending.scratch);
++    lv_memzero(&transform_intermediate_pending, sizeof(transform_intermediate_pending));
++    transform_intermediate_scratch_bytes = 0;
++    for(uint32_t i = 0; i < TRANSFORM_INTERMEDIATE_ENTRY_COUNT; i++) {
++        if(transform_intermediate_cache[i].pixels) {
++            lv_free(transform_intermediate_cache[i].pixels);
++            transform_intermediate_stats.evictions++;
++        }
++        lv_memzero(&transform_intermediate_cache[i], sizeof(transform_intermediate_cache[i]));
++    }
++    lv_memzero(transform_intermediate_candidates, sizeof(transform_intermediate_candidates));
++    lv_memzero(transform_intermediate_hash, sizeof(transform_intermediate_hash));
++    transform_intermediate_pixel_bytes = 0;
++    transform_intermediate_entry_count = 0;
++    transform_intermediate_candidate_count = 0;
++    transform_intermediate_candidate_order = 0;
++}
++
++static bool transform_intermediate_source_matches(const void * src)
++{
++    if(!src || src != transform_intermediate_source ||
++       lv_image_src_get_type(src) != LV_IMAGE_SRC_VARIABLE) return false;
++    const lv_draw_buf_t * published = (const lv_draw_buf_t *)src;
++    return published->data && published->data == transform_intermediate_source_data &&
++           published->data_size == transform_intermediate_source_data_size &&
++           published->header.w == transform_intermediate_source_w &&
++           published->header.h == transform_intermediate_source_h &&
++           published->header.stride == transform_intermediate_source_stride &&
++           published->header.flags == transform_intermediate_source_flags &&
++           published->header.cf == LV_COLOR_FORMAT_RGB565 &&
++           lv_draw_buf_has_flag(published, LV_IMAGE_FLAGS_USER3);
++}
++
++static bool transform_intermediate_key_equal(const transform_intermediate_key_t * a,
++                                             const transform_intermediate_key_t * b)
++{
++    return memcmp(a, b, sizeof(*a)) == 0;
++}
++
++static uint64_t transform_intermediate_key_hash(const transform_intermediate_key_t * key)
++{
++    const uint8_t * p = (const uint8_t *)key;
++    uint64_t hash = 1469598103934665603ULL;
++    for(size_t i = 0; i < sizeof(*key); i++) {
++        hash = (hash ^ p[i]) * 1099511628211ULL;
++    }
++    return hash;
++}
++
++static int32_t transform_intermediate_hash_slot_locked(uint64_t hash, const transform_intermediate_key_t * key)
++{
++    uint32_t start = (uint32_t)hash & (TRANSFORM_INTERMEDIATE_HASH_SIZE - 1U);
++    for(uint32_t n = 0; n < TRANSFORM_INTERMEDIATE_HASH_SIZE; n++) {
++        uint32_t slot = (start + n) & (TRANSFORM_INTERMEDIATE_HASH_SIZE - 1U);
++        uint8_t ref = transform_intermediate_hash[slot];
++        if(ref == 0) return -1;
++        transform_intermediate_candidate_t * candidate = &transform_intermediate_candidates[ref - 1U];
++        if(candidate->valid && candidate->hash == hash && transform_intermediate_key_equal(&candidate->key, key))
++            return (int32_t)(ref - 1U);
++    }
++    return -1;
++}
++
++static bool transform_intermediate_hash_insert_locked(uint8_t candidate_index)
++{
++    transform_intermediate_candidate_t * candidate = &transform_intermediate_candidates[candidate_index];
++    uint32_t start = (uint32_t)candidate->hash & (TRANSFORM_INTERMEDIATE_HASH_SIZE - 1U);
++    for(uint32_t n = 0; n < TRANSFORM_INTERMEDIATE_HASH_SIZE; n++) {
++        uint32_t slot = (start + n) & (TRANSFORM_INTERMEDIATE_HASH_SIZE - 1U);
++        if(transform_intermediate_hash[slot] == 0) {
++            transform_intermediate_hash[slot] = candidate_index + 1U;
++            return true;
++        }
++    }
++    return false;
++}
++
++static void transform_intermediate_hash_remove_locked(uint8_t candidate_index)
++{
++    const uint32_t mask = TRANSFORM_INTERMEDIATE_HASH_SIZE - 1U;
++    uint32_t home = (uint32_t)transform_intermediate_candidates[candidate_index].hash & mask;
++    uint32_t hole = home;
++    for(uint32_t n = 0; n < TRANSFORM_INTERMEDIATE_HASH_SIZE; n++) {
++        if(transform_intermediate_hash[hole] == 0) return;
++        if(transform_intermediate_hash[hole] == candidate_index + 1U) break;
++        hole = (hole + 1U) & mask;
++    }
++    if(transform_intermediate_hash[hole] != candidate_index + 1U) return;
++
++    transform_intermediate_hash[hole] = 0;
++    uint32_t scan = (hole + 1U) & mask;
++    for(uint32_t n = 0; n < TRANSFORM_INTERMEDIATE_HASH_SIZE - 1U; n++) {
++        uint8_t ref = transform_intermediate_hash[scan];
++        if(ref == 0) break;
++        transform_intermediate_candidate_t * candidate = &transform_intermediate_candidates[ref - 1U];
++        uint32_t candidate_home = (uint32_t)candidate->hash & mask;
++        uint32_t distance_to_hole = (hole - candidate_home) & mask;
++        uint32_t distance_to_scan = (scan - candidate_home) & mask;
++        if(distance_to_hole < distance_to_scan) {
++            transform_intermediate_hash[hole] = ref;
++            transform_intermediate_hash[scan] = 0;
++            hole = scan;
++        }
++        scan = (scan + 1U) & mask;
++    }
++}
++
++static transform_intermediate_candidate_t * transform_intermediate_candidate_find_locked(const transform_intermediate_key_t * key,
++                                                                                           uint64_t hash)
++{
++    int32_t i = transform_intermediate_hash_slot_locked(hash, key);
++    return i < 0 ? NULL : &transform_intermediate_candidates[i];
++}
++
++static bool transform_intermediate_candidate_better(const transform_intermediate_candidate_t * a,
++                                                     const transform_intermediate_candidate_t * b)
++{
++    if(!a) return false;
++    if(!b) return true;
++    if(a->distinct_epochs != b->distinct_epochs) return a->distinct_epochs > b->distinct_epochs;
++    uint64_t a_bytes = (uint64_t)a->key.dst_w * a->key.dst_h * 3U;
++    uint64_t b_bytes = (uint64_t)b->key.dst_w * b->key.dst_h * 3U;
++    if(a_bytes != b_bytes) return a_bytes < b_bytes;
++    return a->first_seen_order < b->first_seen_order;
++}
++
++static transform_intermediate_candidate_t * transform_intermediate_observe_locked(const transform_intermediate_key_t * key,
++                                                                                    uint64_t hash)
++{
++    transform_intermediate_candidate_t * candidate = transform_intermediate_candidate_find_locked(key, hash);
++    if(candidate) {
++        if(candidate->last_epoch != transform_intermediate_epoch) {
++            candidate->last_epoch = transform_intermediate_epoch;
++            candidate->distinct_epochs++;
++            transform_intermediate_stats.observations++;
++            if(candidate->distinct_epochs == 2) transform_intermediate_stats.candidate_qualifications++;
++        }
++        return candidate;
++    }
++
++    uint32_t empty = TRANSFORM_INTERMEDIATE_CANDIDATE_COUNT;
++    uint32_t victim = TRANSFORM_INTERMEDIATE_CANDIDATE_COUNT;
++    for(uint32_t i = 0; i < TRANSFORM_INTERMEDIATE_CANDIDATE_COUNT; i++) {
++        transform_intermediate_candidate_t * current = &transform_intermediate_candidates[i];
++        if(!current->valid) {
++            if(empty == TRANSFORM_INTERMEDIATE_CANDIDATE_COUNT) empty = i;
++            continue;
++        }
++        if(current->resident_index >= 0 ||
++           (transform_intermediate_pending.active && transform_intermediate_pending.candidate_index == i)) continue;
++        if(victim == TRANSFORM_INTERMEDIATE_CANDIDATE_COUNT ||
++           transform_intermediate_candidate_better(&transform_intermediate_candidates[victim], current)) victim = i;
++    }
++    uint32_t slot = empty;
++    if(slot == TRANSFORM_INTERMEDIATE_CANDIDATE_COUNT) {
++        slot = victim;
++        if(slot == TRANSFORM_INTERMEDIATE_CANDIDATE_COUNT) return NULL;
++        transform_intermediate_hash_remove_locked((uint8_t)slot);
++        transform_intermediate_stats.candidate_displacements++;
++        lv_memzero(&transform_intermediate_candidates[slot], sizeof(transform_intermediate_candidates[slot]));
++        if(transform_intermediate_candidate_count) transform_intermediate_candidate_count--;
++    }
++    candidate = &transform_intermediate_candidates[slot];
++    lv_memzero(candidate, sizeof(*candidate));
++    candidate->key = *key;
++    candidate->hash = hash;
++    candidate->resident_index = -1;
++    candidate->first_seen_order = ++transform_intermediate_candidate_order;
++    candidate->last_epoch = transform_intermediate_epoch;
++    candidate->distinct_epochs = 1;
++    candidate->valid = true;
++    if(!transform_intermediate_hash_insert_locked((uint8_t)slot)) {
++        lv_memzero(candidate, sizeof(*candidate));
++        return NULL;
++    }
++    transform_intermediate_candidate_count++;
++    transform_intermediate_stats.observations++;
++    return candidate;
++}
++
++static bool transform_intermediate_start_locked(uint8_t candidate_index, uint64_t mem_available_bytes)
++{
++    if(candidate_index >= TRANSFORM_INTERMEDIATE_CANDIDATE_COUNT) return false;
++    transform_intermediate_candidate_t * incoming = &transform_intermediate_candidates[candidate_index];
++    transform_intermediate_key_t * key = &incoming->key;
++    if(!incoming->valid || incoming->distinct_epochs < 2 || incoming->rejected_epochs == incoming->distinct_epochs ||
++       !transform_intermediate_source_matches(key->src) || key->src_cf != LV_COLOR_FORMAT_RGB565 ||
++       key->dst_cf != LV_COLOR_FORMAT_RGB565A8 || key->dst_w <= 0 || key->dst_h <= 0 ||
++       key->dst_w > 512 || key->dst_h > 512) return false;
++
++    uint64_t pixel_bytes = (uint64_t)key->dst_w * key->dst_h * 3U;
++    uint32_t scratch_rows = key->dst_h < TRANSFORM_INTERMEDIATE_BUILD_ROWS ? (uint32_t)key->dst_h : TRANSFORM_INTERMEDIATE_BUILD_ROWS;
++    uint64_t scratch_bytes = (uint64_t)key->dst_w * scratch_rows * 3U;
++    uint64_t output_allocation = pixel_bytes + TRANSFORM_INTERMEDIATE_ALLOC_OVERHEAD;
++    uint64_t scratch_allocation = scratch_bytes + TRANSFORM_INTERMEDIATE_ALLOC_OVERHEAD;
++    uint64_t required = output_allocation + scratch_allocation;
++    uint32_t metadata_bytes = transform_intermediate_metadata_bytes();
++    if(pixel_bytes == 0 || pixel_bytes > TRANSFORM_CACHE_LARGE_ENTRY_MAX ||
++       metadata_bytes > TRANSFORM_INTERMEDIATE_BUDGET || required > TRANSFORM_INTERMEDIATE_BUDGET - metadata_bytes ||
++       mem_available_bytes < TRANSFORM_INTERMEDIATE_PRESSURE_LOW + required) return false;
++
++    bool evict[TRANSFORM_INTERMEDIATE_ENTRY_COUNT] = { false };
++    uint32_t projected_bytes = transform_intermediate_pixel_bytes;
++    uint32_t projected_count = transform_intermediate_entry_count;
++    while((uint64_t)projected_bytes + transform_intermediate_scratch_bytes + required > TRANSFORM_INTERMEDIATE_BUDGET - metadata_bytes ||
++          projected_count >= TRANSFORM_INTERMEDIATE_ENTRY_COUNT) {
++        uint32_t victim = TRANSFORM_INTERMEDIATE_ENTRY_COUNT;
++        transform_intermediate_candidate_t * worst = NULL;
++        for(uint32_t i = 0; i < TRANSFORM_INTERMEDIATE_ENTRY_COUNT; i++) {
++            transform_intermediate_entry_t * entry = &transform_intermediate_cache[i];
++            if(!entry->pixels || evict[i]) continue;
++            int32_t ci = transform_intermediate_hash_slot_locked(transform_intermediate_key_hash(&entry->key), &entry->key);
++            transform_intermediate_candidate_t * resident = ci < 0 ? NULL : &transform_intermediate_candidates[ci];
++            if(!resident || transform_intermediate_candidate_better(incoming, resident)) {
++                if(victim == TRANSFORM_INTERMEDIATE_ENTRY_COUNT || transform_intermediate_candidate_better(worst, resident)) {
++                    victim = i;
++                    worst = resident;
++                }
++            }
++        }
++        if(victim == TRANSFORM_INTERMEDIATE_ENTRY_COUNT) {
++            incoming->rejected_epochs = incoming->distinct_epochs;
++            return false;
++        }
++        evict[victim] = true;
++        projected_bytes -= transform_intermediate_cache[victim].bytes;
++        projected_count--;
++    }
++
++    for(uint32_t i = 0; i < TRANSFORM_INTERMEDIATE_ENTRY_COUNT; i++) {
++        if(!evict[i]) continue;
++        transform_intermediate_entry_t * entry = &transform_intermediate_cache[i];
++        int32_t ci = transform_intermediate_hash_slot_locked(transform_intermediate_key_hash(&entry->key), &entry->key);
++        if(ci >= 0) {
++            transform_intermediate_candidate_t * displaced = &transform_intermediate_candidates[ci];
++            displaced->resident_index = -1;
++            displaced->rejected_epochs = displaced->distinct_epochs;
++        }
++        transform_intermediate_pixel_bytes -= entry->bytes;
++        transform_intermediate_entry_count--;
++        lv_free(entry->pixels);
++        lv_memzero(entry, sizeof(*entry));
++        transform_intermediate_stats.evictions++;
++    }
++
++    uint8_t * pixels = lv_malloc((uint32_t)pixel_bytes);
++    uint8_t * scratch = lv_malloc((uint32_t)scratch_bytes);
++    if(!pixels || !scratch) {
++        if(pixels) lv_free(pixels);
++        if(scratch) lv_free(scratch);
++        return false;
++    }
++    transform_intermediate_pending.key = *key;
++    transform_intermediate_pending.pixels = pixels;
++    transform_intermediate_pending.scratch = scratch;
++    transform_intermediate_pending.pixel_bytes = (uint32_t)pixel_bytes;
++    transform_intermediate_pending.output_allocation_bytes = (uint32_t)output_allocation;
++    transform_intermediate_pending.scratch_allocation_bytes = (uint32_t)scratch_allocation;
++    transform_intermediate_pending.candidate_index = candidate_index;
++    transform_intermediate_pending.active = true;
++    transform_intermediate_pixel_bytes += (uint32_t)output_allocation;
++    transform_intermediate_scratch_bytes = (uint32_t)scratch_allocation;
++    return true;
++}
++
++static bool transform_intermediate_slice_locked(void)
++{
++    transform_intermediate_pending_t * pending = &transform_intermediate_pending;
++    if(!pending->active || !pending->pixels || !pending->scratch ||
++       !transform_intermediate_source_matches(pending->key.src)) {
++        transform_intermediate_cancel_pending_locked();
++        return false;
++    }
++    transform_intermediate_key_t * key = &pending->key;
++    uint32_t rows = (uint32_t)key->dst_h - pending->next_row;
++    if(rows > TRANSFORM_INTERMEDIATE_BUILD_ROWS) rows = TRANSFORM_INTERMEDIATE_BUILD_ROWS;
++    if(rows == 0) return false;
++    uint64_t start_us = transform_intermediate_time_us();
++    lv_draw_image_dsc_t draw_dsc;
++    lv_draw_image_dsc_init(&draw_dsc);
++    draw_dsc.src = key->src;
++    draw_dsc.rotation = key->rotation;
++    draw_dsc.scale_x = key->scale_x;
++    draw_dsc.scale_y = key->scale_y;
++    draw_dsc.pivot.x = key->pivot_x;
++    draw_dsc.pivot.y = key->pivot_y;
++    draw_dsc.recolor = lv_color_hex(key->recolor);
++    draw_dsc.recolor_opa = key->recolor_opa;
++    draw_dsc.antialias = key->antialias;
++    lv_draw_image_sup_t sup;
++    lv_memzero(&sup, sizeof(sup));
++    sup.alpha_color = lv_color_hex(key->alpha_color);
++    lv_area_t dest_area = { .x1 = key->dst_x1,
++                            .y1 = key->dst_y1 + (int32_t)pending->next_row,
++                            .x2 = key->dst_x1 + key->dst_w - 1,
++                            .y2 = key->dst_y1 + (int32_t)pending->next_row + (int32_t)rows - 1 };
++    const lv_draw_buf_t * source = transform_intermediate_source;
++    if(pending->next_row == 0) {
++        lv_area_t full_area = { .x1 = key->dst_x1, .y1 = key->dst_y1,
++                               .x2 = key->dst_x1 + key->dst_w - 1,
++                               .y2 = key->dst_y1 + key->dst_h - 1 };
++        pending->opaque_valid = lv_draw_sw_transform_rgb565_nearest(&full_area, source->data,
++            (int32_t)source->header.w, (int32_t)source->header.h, (int32_t)source->header.stride,
++            &draw_dsc, NULL, 0, &pending->opaque_area, NULL, 0, 0);
++        if(pending->opaque_valid) {
++            pending->opaque_valid = pending->opaque_area.x1 <= pending->opaque_area.x2 &&
++                                    pending->opaque_area.y1 <= pending->opaque_area.y2;
++        }
++    }
++    lv_draw_sw_transform(&dest_area, source->data, (int32_t)source->header.w, (int32_t)source->header.h,
++                         (int32_t)source->header.stride, &draw_dsc, &sup, LV_COLOR_FORMAT_RGB565, pending->scratch);
++    if(key->recolor_opa > LV_OPA_MIN) {
++        lv_area_t chunk_area = { .x1 = 0, .y1 = 0, .x2 = key->dst_w - 1, .y2 = (int32_t)rows - 1 };
++        recolor(chunk_area, pending->scratch, pending->scratch, key->dst_w * 2,
++                LV_COLOR_FORMAT_RGB565A8, &draw_dsc);
++    }
++    size_t full_color_bytes = (size_t)key->dst_w * key->dst_h * 2U;
++    size_t chunk_color_bytes = (size_t)key->dst_w * rows * 2U;
++    for(uint32_t y = 0; y < rows; y++) {
++        size_t dst_row = (size_t)(pending->next_row + y) * key->dst_w;
++        lv_memcpy(pending->pixels + dst_row * 2U, pending->scratch + (size_t)y * key->dst_w * 2U,
++                  (size_t)key->dst_w * 2U);
++        const uint8_t * alpha_row = pending->scratch + chunk_color_bytes + (size_t)y * key->dst_w;
++        lv_memcpy(pending->pixels + full_color_bytes + dst_row, alpha_row, (size_t)key->dst_w);
++        /* Verify the mapper's conservative interior against the actual cached
++         * alpha plane, incrementally inside the existing construction slice. */
++        int32_t relative_y = key->dst_y1 + (int32_t)(pending->next_row + y);
++        if(pending->opaque_valid && relative_y >= pending->opaque_area.y1 && relative_y <= pending->opaque_area.y2) {
++            for(int32_t x = pending->opaque_area.x1; x <= pending->opaque_area.x2; x++) {
++                if(alpha_row[x - key->dst_x1] != LV_OPA_COVER) {
++                    pending->opaque_valid = false;
++                    break;
++                }
++            }
++        }
++    }
++    pending->next_row += rows;
++    uint64_t end_us = transform_intermediate_time_us();
++    uint64_t elapsed_us = end_us >= start_us ? end_us - start_us : 0;
++    transform_intermediate_stats.build_us_total += elapsed_us;
++    if(elapsed_us > transform_intermediate_stats.build_us_max) transform_intermediate_stats.build_us_max = elapsed_us;
++    if(elapsed_us > transform_intermediate_stats.slice_us_max) transform_intermediate_stats.slice_us_max = elapsed_us;
++    if(pending->next_row < (uint32_t)key->dst_h) return true;
++
++    int32_t slot = -1;
++    for(uint32_t i = 0; i < TRANSFORM_INTERMEDIATE_ENTRY_COUNT; i++) {
++        if(!transform_intermediate_cache[i].pixels) { slot = (int32_t)i; break; }
++    }
++    if(slot < 0) {
++        transform_intermediate_cancel_pending_locked();
++        return false;
++    }
++    uint8_t ci = pending->candidate_index;
++    transform_intermediate_entry_t * entry = &transform_intermediate_cache[slot];
++    entry->key = *key;
++    entry->pixels = pending->pixels;
++    entry->bytes = pending->output_allocation_bytes;
++    entry->last_used = ++transform_intermediate_clock;
++    entry->opaque_area = pending->opaque_area;
++    entry->opaque_valid = pending->opaque_valid;
++    transform_intermediate_candidates[ci].resident_index = (int8_t)slot;
++    transform_intermediate_entry_count++;
++    transform_intermediate_stats.builds++;
++    lv_free(pending->scratch);
++    transform_intermediate_scratch_bytes = 0;
++    lv_memzero(pending, sizeof(*pending));
++    return true;
++}
++
++void lv_draw_sw_image_cache_set_intermediate_source(const void * src)
++{
++    if(!transform_cache_initialized) return;
++    const lv_draw_buf_t * published = NULL;
++    if(src && lv_image_src_get_type(src) == LV_IMAGE_SRC_VARIABLE) {
++        published = (const lv_draw_buf_t *)src;
++        if(!published->data || published->header.cf != LV_COLOR_FORMAT_RGB565 ||
++           published->header.w < 1 || published->header.h < 1 ||
++           published->header.w > 512 || published->header.h > 512 ||
++           published->header.stride > INT32_MAX ||
++           (uint64_t)published->header.stride < (uint64_t)published->header.w * 2U ||
++           (uint64_t)published->header.stride * published->header.h > published->data_size ||
++           !lv_draw_buf_has_flag(published, LV_IMAGE_FLAGS_USER3)) published = NULL;
++    }
++    else published = NULL;
++
++    lv_mutex_lock(&transform_cache_mutex);
++    bool same = published && published == transform_intermediate_source &&
++                published->data == transform_intermediate_source_data &&
++                published->data_size == transform_intermediate_source_data_size &&
++                published->header.stride == transform_intermediate_source_stride &&
++                published->header.w == transform_intermediate_source_w &&
++                published->header.h == transform_intermediate_source_h &&
++                published->header.flags == transform_intermediate_source_flags;
++    if(same) {
++        lv_mutex_unlock(&transform_cache_mutex);
++        return;
++    }
++    transform_intermediate_clear_locked();
++    lv_memzero(&transform_intermediate_stats, sizeof(transform_intermediate_stats));
++    transform_intermediate_source = published;
++    transform_intermediate_source_data = published ? published->data : NULL;
++    transform_intermediate_source_data_size = published ? published->data_size : 0;
++    transform_intermediate_source_stride = published ? published->header.stride : 0;
++    transform_intermediate_source_w = published ? published->header.w : 0;
++    transform_intermediate_source_h = published ? published->header.h : 0;
++    transform_intermediate_source_flags = published ? published->header.flags : 0;
++    lv_mutex_unlock(&transform_cache_mutex);
++}
++
++void lv_draw_sw_image_cache_set_transition_active(bool active)
++{
++    if(!transform_cache_initialized) return;
++    lv_mutex_lock(&transform_cache_mutex);
++    /* A transition boundary invalidates work-in-progress, while completed
++     * residents and cross-transition evidence remain reusable. */
++    transform_intermediate_cancel_pending_locked();
++    if(active && !transform_intermediate_transition_active) {
++        transform_intermediate_epoch++;
++    }
++    transform_intermediate_transition_active = active;
++    lv_mutex_unlock(&transform_cache_mutex);
++}
++
++void lv_draw_sw_image_cache_service(uint64_t mem_available_bytes, bool allow_idle_build)
++{
++    if(!transform_cache_initialized) return;
++    lv_mutex_lock(&transform_cache_mutex);
++    transform_intermediate_stats.service_calls++;
++    if(mem_available_bytes < TRANSFORM_INTERMEDIATE_PRESSURE_LOW) {
++        transform_intermediate_stats.service_blocked_pressure++;
++        transform_intermediate_pressure_blocked = true;
++        transform_intermediate_clear_locked();
++        lv_mutex_unlock(&transform_cache_mutex);
++        return;
++    }
++    if(transform_intermediate_pressure_blocked) {
++        if(mem_available_bytes < TRANSFORM_INTERMEDIATE_PRESSURE_HIGH) {
++            transform_intermediate_stats.service_blocked_pressure++;
++            lv_mutex_unlock(&transform_cache_mutex);
++            return;
++        }
++        transform_intermediate_pressure_blocked = false;
++    }
++    if(!allow_idle_build) {
++        transform_intermediate_stats.service_blocked_idle++;
++        lv_mutex_unlock(&transform_cache_mutex);
++        return;
++    }
++    if(transform_intermediate_transition_active) {
++        transform_intermediate_stats.service_blocked_transition++;
++        lv_mutex_unlock(&transform_cache_mutex);
++        return;
++    }
++    if(!transform_intermediate_source_matches(transform_intermediate_source)) {
++        transform_intermediate_stats.source_rejections++;
++        transform_intermediate_cancel_pending_locked();
++        lv_mutex_unlock(&transform_cache_mutex);
++        return;
++    }
++
++    if(transform_intermediate_pending.active) {
++        transform_intermediate_slice_locked();
++        lv_mutex_unlock(&transform_cache_mutex);
++        return;
++    }
++
++    int32_t best_index = -1;
++    transform_intermediate_candidate_t * best = NULL;
++    for(uint32_t i = 0; i < TRANSFORM_INTERMEDIATE_CANDIDATE_COUNT; i++) {
++        transform_intermediate_candidate_t * candidate = &transform_intermediate_candidates[i];
++        if(!candidate->valid || candidate->distinct_epochs < 2 ||
++           candidate->resident_index >= 0) continue;
++        uint64_t bytes64 = (uint64_t)candidate->key.dst_w * candidate->key.dst_h * 3U +
++                           TRANSFORM_INTERMEDIATE_ALLOC_OVERHEAD;
++        uint64_t pixel_bytes = bytes64 - TRANSFORM_INTERMEDIATE_ALLOC_OVERHEAD;
++        if(pixel_bytes == 0 || pixel_bytes > TRANSFORM_CACHE_LARGE_ENTRY_MAX) continue;
++        if(candidate->rejected_epochs == candidate->distinct_epochs) continue;
++        if(!best || transform_intermediate_candidate_better(candidate, best)) {
++            best = candidate;
++            best_index = (int32_t)i;
++        }
++    }
++    if(best_index >= 0) {
++        if(transform_intermediate_start_locked((uint8_t)best_index, mem_available_bytes))
++            transform_intermediate_slice_locked();
++    }
++    else transform_intermediate_stats.service_no_candidate++;
++    lv_mutex_unlock(&transform_cache_mutex);
++}
++
++void lv_draw_sw_image_cache_get_intermediate_stats(lv_draw_sw_image_cache_stats_t * out)
++{
++    if(!out) return;
++    if(!transform_cache_initialized) {
++        lv_memzero(out, sizeof(*out));
++        return;
++    }
++    lv_mutex_lock(&transform_cache_mutex);
++    *out = transform_intermediate_stats;
++    out->bytes = transform_intermediate_metadata_bytes() + transform_intermediate_pixel_bytes + transform_intermediate_scratch_bytes;
++    out->entries = transform_intermediate_entry_count;
++    out->candidates = transform_intermediate_candidate_count;
++    out->pending = transform_intermediate_pending.active;
++    out->pending_rows = transform_intermediate_pending.active ? transform_intermediate_pending.next_row : 0;
++    out->qualified_candidates = 0;
++    for(uint32_t i = 0; i < TRANSFORM_INTERMEDIATE_CANDIDATE_COUNT; i++) {
++        if(transform_intermediate_candidates[i].valid && transform_intermediate_candidates[i].distinct_epochs >= 2)
++            out->qualified_candidates++;
++    }
++    lv_mutex_unlock(&transform_cache_mutex);
++}
++
++static bool transform_cache_draw(lv_draw_task_t * t, const lv_draw_image_dsc_t * draw_dsc,
++                                 const lv_image_decoder_dsc_t * decoder_dsc, const lv_draw_image_sup_t * sup,
++                                 const lv_area_t * img_coords, const lv_area_t * clipped_img_area)
++{
++    if(!transform_cache_initialized || !draw_dsc->src || draw_dsc->tile || draw_dsc->rotation != 0 ||
++       (draw_dsc->scale_x == LV_SCALE_NONE && draw_dsc->scale_y == LV_SCALE_NONE) ||
++       draw_dsc->scale_x <= 0 || draw_dsc->scale_y <= 0 ||
++       draw_dsc->scale_x > UINT16_MAX || draw_dsc->scale_y > UINT16_MAX ||
++       draw_dsc->clip_radius || draw_dsc->colorkey || draw_dsc->bitmap_mask_src ||
++       (draw_dsc->recolor_opa > LV_OPA_MIN && draw_dsc->recolor_opa < LV_OPA_MAX)) return false;
++    lv_image_src_t source_type = lv_image_src_get_type(draw_dsc->src);
++    if(source_type != decoder_dsc->src_type) return false;
++    const lv_draw_buf_t * decoded = decoder_dsc->decoded;
++    if(!decoded) return false;
++    if(source_type == LV_IMAGE_SRC_FILE) {
++        /* File decoders that paint incrementally can replace the decoded
++         * storage between areas, so only complete file decodes are reusable. */
++        if(!decoder_dsc->decoder || decoder_dsc->decoder->get_area_cb) return false;
++    }
++    else if(source_type == LV_IMAGE_SRC_VARIABLE) {
++        const lv_draw_buf_t * published = draw_dsc->src;
++        /* USER2 keeps the existing small-cache identity rule. USER3 is the
++         * explicit publication contract for stable large RGB565 artwork. */
++        bool user2 = lv_draw_buf_has_flag(published, LV_IMAGE_FLAGS_USER2);
++        bool user3 = lv_draw_buf_has_flag(published, LV_IMAGE_FLAGS_USER3);
++        if((!user2 && !user3) || (user2 && published != decoded) ||
++           published->data != decoded->data || published->data_size != decoded->data_size ||
++           published->header.w != decoded->header.w || published->header.h != decoded->header.h ||
++           published->header.stride != decoded->header.stride || published->header.cf != decoded->header.cf ||
++           published->header.flags != decoded->header.flags) return false;
++    }
++    else return false;
++
++    char source_path[TRANSFORM_CACHE_PATH_MAX] = {0};
++    if(source_type == LV_IMAGE_SRC_FILE) {
++        size_t source_path_len = lv_strnlen((const char *)draw_dsc->src, sizeof(source_path));
++        if(source_path_len == sizeof(source_path)) return false;
++        lv_memcpy(source_path, draw_dsc->src, source_path_len);
++    }
++
++    if(!decoded || !decoded->data || decoded->header.w < 1 || decoded->header.h < 1 ||
++       decoded->header.w > INT32_MAX || decoded->header.h > INT32_MAX ||
++       decoded->header.stride > INT32_MAX ||
++       (uint64_t)decoded->header.stride <
++           ((uint64_t)decoded->header.w * lv_color_format_get_bpp(decoded->header.cf) + 7U) / 8U ||
++       (uint64_t)decoded->header.stride * decoded->header.h > decoded->data_size) return false;
++    if(decoded->header.cf == LV_COLOR_FORMAT_RGB565A8 &&
++       ((decoded->header.stride & 1U) != 0 ||
++        (uint64_t)decoded->header.stride * decoded->header.h +
++        (uint64_t)(decoded->header.stride / 2U) * decoded->header.h > decoded->data_size)) return false;
++
++    switch(decoded->header.cf) {
++#if LV_DRAW_SW_SUPPORT_RGB565 && LV_DRAW_SW_SUPPORT_RGB565A8
++        case LV_COLOR_FORMAT_RGB565:
++#endif
++#if LV_DRAW_SW_SUPPORT_RGB565_SWAPPED
++        case LV_COLOR_FORMAT_RGB565_SWAPPED:
++#endif
++#if LV_DRAW_SW_SUPPORT_RGB565A8
++        case LV_COLOR_FORMAT_RGB565A8:
++#endif
++#if LV_DRAW_SW_SUPPORT_RGB888
++        case LV_COLOR_FORMAT_RGB888:
++#endif
++#if LV_DRAW_SW_SUPPORT_XRGB8888
++        case LV_COLOR_FORMAT_XRGB8888:
++#endif
++#if LV_DRAW_SW_SUPPORT_ARGB8888
++        case LV_COLOR_FORMAT_ARGB8888:
++#endif
++#if LV_DRAW_SW_SUPPORT_ARGB8888_PREMULTIPLIED
++        case LV_COLOR_FORMAT_ARGB8888_PREMULTIPLIED:
++#endif
++#if LV_DRAW_SW_SUPPORT_A8
++        case LV_COLOR_FORMAT_A8:
++#endif
++#if LV_DRAW_SW_SUPPORT_L8
++        case LV_COLOR_FORMAT_L8:
++#endif
++#if LV_DRAW_SW_SUPPORT_AL88
++        case LV_COLOR_FORMAT_AL88:
++#endif
++            break;
++        default:
++            return false;
++    }
++
++    int64_t src_w64 = (int64_t)img_coords->x2 - img_coords->x1 + 1;
++    int64_t src_h64 = (int64_t)img_coords->y2 - img_coords->y1 + 1;
++    if(src_w64 != decoded->header.w || src_h64 != decoded->header.h ||
++       decoded->header.w > 512 || decoded->header.h > 512) return false;
++    bool large_source = source_type == LV_IMAGE_SRC_VARIABLE &&
++                        lv_draw_buf_has_flag((const lv_draw_buf_t *)draw_dsc->src, LV_IMAGE_FLAGS_USER3);
++    if(large_source) {
++        if(decoded->header.cf != LV_COLOR_FORMAT_RGB565) return false;
++    }
++    else if(decoded->header.w > 128 || decoded->header.h > 128) return false;
++
++    lv_area_t expected_area;
++    lv_image_buf_get_transformed_area(&expected_area, (int32_t)decoded->header.w, (int32_t)decoded->header.h,
++                                      draw_dsc->rotation, draw_dsc->scale_x, draw_dsc->scale_y,
++                                      &draw_dsc->pivot);
++    int64_t draw_x1 = (int64_t)img_coords->x1 + expected_area.x1;
++    int64_t draw_y1 = (int64_t)img_coords->y1 + expected_area.y1;
++    int64_t draw_x2 = (int64_t)img_coords->x1 + expected_area.x2;
++    int64_t draw_y2 = (int64_t)img_coords->y1 + expected_area.y2;
++    if(draw_x1 < INT32_MIN || draw_x2 > INT32_MAX || draw_y1 < INT32_MIN || draw_y2 > INT32_MAX ||
++       clipped_img_area->x1 < draw_x1 || clipped_img_area->y1 < draw_y1 ||
++       clipped_img_area->x2 > draw_x2 || clipped_img_area->y2 > draw_y2) return false;
++    int64_t expected_w = (int64_t)expected_area.x2 - expected_area.x1 + 1;
++    int64_t expected_h = (int64_t)expected_area.y2 - expected_area.y1 + 1;
++    if(expected_w > (large_source ? 512 : 80) || expected_h > (large_source ? 512 : 80)) return false;
++
++    int64_t dst_w64 = (int64_t)clipped_img_area->x2 - clipped_img_area->x1 + 1;
++    int64_t dst_h64 = (int64_t)clipped_img_area->y2 - clipped_img_area->y1 + 1;
++    int64_t dst_x1 = (int64_t)clipped_img_area->x1 - img_coords->x1;
++    int64_t dst_y1 = (int64_t)clipped_img_area->y1 - img_coords->y1;
++    int64_t dst_x2 = dst_x1 + dst_w64 - 1;
++    int64_t dst_y2 = dst_y1 + dst_h64 - 1;
++    if(dst_w64 <= 0 || dst_h64 <= 0 || dst_w64 > INT32_MAX || dst_h64 > INT32_MAX ||
++       dst_x1 < INT32_MIN || dst_x1 > INT32_MAX || dst_y1 < INT32_MIN || dst_y1 > INT32_MAX ||
++       dst_x2 < expected_area.x1 || dst_x2 > expected_area.x2 ||
++       dst_y2 < expected_area.y1 || dst_y2 > expected_area.y2) return false;
++
++    lv_color_format_t dst_cf = decoded->header.cf;
++    if(dst_cf == LV_COLOR_FORMAT_RGB888 || dst_cf == LV_COLOR_FORMAT_XRGB8888) dst_cf = LV_COLOR_FORMAT_ARGB8888;
++    else if(dst_cf == LV_COLOR_FORMAT_RGB565 || dst_cf == LV_COLOR_FORMAT_RGB565_SWAPPED) dst_cf = LV_COLOR_FORMAT_RGB565A8;
++    else if(dst_cf == LV_COLOR_FORMAT_L8) dst_cf = LV_COLOR_FORMAT_AL88;
++
++    uint32_t dst_bpp;
++    if(dst_cf == LV_COLOR_FORMAT_RGB565A8) dst_bpp = 3;
++    else if(dst_cf == LV_COLOR_FORMAT_AL88) dst_bpp = 2;
++    else dst_bpp = lv_color_format_get_size(dst_cf);
++    uint32_t entry_limit = large_source ? TRANSFORM_CACHE_LARGE_ENTRY_MAX : TRANSFORM_CACHE_ENTRY_MAX;
++    if(dst_bpp == 0 || (uint64_t)dst_w64 * (uint64_t)dst_h64 > entry_limit / dst_bpp) return false;
++    uint32_t dst_w = (uint32_t)dst_w64;
++    uint32_t dst_h = (uint32_t)dst_h64;
++    uint32_t pixel_bytes = dst_w * dst_h * dst_bpp;
++    uint32_t src_size = decoded->data_size;
++    transform_cache_key_t key = {
++        .src = source_type == LV_IMAGE_SRC_FILE ? NULL : draw_dsc->src,
++        .decoded_data = decoded->data,
++        .palette = sup->palette,
++        .palette_size = sup->palette_size,
++        .src_data_size = src_size,
++        .src_stride = decoded->header.stride,
++        .src_w = decoded->header.w,
++        .src_h = decoded->header.h,
++        .src_flags = decoded->header.flags,
++        .dst_x1 = (int32_t)dst_x1,
++        .dst_y1 = (int32_t)dst_y1,
++        .dst_w = (int32_t)dst_w,
++        .dst_h = (int32_t)dst_h,
++        .scale_x = draw_dsc->scale_x,
++        .scale_y = draw_dsc->scale_y,
++        .pivot_x = draw_dsc->pivot.x,
++        .pivot_y = draw_dsc->pivot.y,
++        .rotation = draw_dsc->rotation,
++        .alpha_color = sup->alpha_color,
++        .recolor = draw_dsc->recolor,
++        .recolor_opa = draw_dsc->recolor_opa,
++        .src_cf = decoded->header.cf,
++        .dst_cf = dst_cf,
++        .src_type = decoder_dsc->src_type,
++        .antialias = draw_dsc->antialias,
++        .large_source = large_source,
++    };
++    lv_memcpy(key.src_path, source_path, sizeof(key.src_path));
++
++    transform_intermediate_key_t intermediate_key;
++    uint64_t intermediate_hash = 0;
++
++    lv_mutex_lock(&transform_cache_mutex);
++    transform_cache_entry_t * entry = NULL;
++    transform_intermediate_entry_t * intermediate_cached_entry = NULL;
++    bool intermediate_entry = false;
++    bool intermediate_source_eligible = draw_dsc->src == transform_intermediate_source &&
++        transform_intermediate_source_matches(draw_dsc->src);
++    bool intermediate_registered = transform_intermediate_transition_active && intermediate_source_eligible;
++    if(intermediate_source_eligible) {
++        lv_memzero(&intermediate_key, sizeof(intermediate_key));
++        intermediate_key.src = key.src;
++        intermediate_key.decoded_data = key.decoded_data;
++        intermediate_key.src_data_size = key.src_data_size;
++        intermediate_key.src_stride = key.src_stride;
++        intermediate_key.src_w = key.src_w;
++        intermediate_key.src_h = key.src_h;
++        intermediate_key.src_flags = key.src_flags;
++        intermediate_key.dst_x1 = expected_area.x1;
++        intermediate_key.dst_y1 = expected_area.y1;
++        intermediate_key.dst_w = (int32_t)expected_w;
++        intermediate_key.dst_h = (int32_t)expected_h;
++        intermediate_key.scale_x = key.scale_x;
++        intermediate_key.scale_y = key.scale_y;
++        intermediate_key.pivot_x = key.pivot_x;
++        intermediate_key.pivot_y = key.pivot_y;
++        intermediate_key.rotation = key.rotation;
++        intermediate_key.alpha_color = lv_color_to_u32(key.alpha_color);
++        intermediate_key.recolor = lv_color_to_u32(key.recolor);
++        intermediate_key.recolor_opa = key.recolor_opa;
++        intermediate_key.src_cf = (uint8_t)key.src_cf;
++        intermediate_key.dst_cf = (uint8_t)key.dst_cf;
++        intermediate_key.antialias = key.antialias;
++        intermediate_hash = transform_intermediate_key_hash(&intermediate_key);
++        transform_intermediate_candidate_t * candidate = transform_intermediate_transition_active ?
++            transform_intermediate_observe_locked(&intermediate_key, intermediate_hash) :
++            transform_intermediate_candidate_find_locked(&intermediate_key, intermediate_hash);
++        if(candidate && candidate->resident_index >= 0 && candidate->resident_index < TRANSFORM_INTERMEDIATE_ENTRY_COUNT) {
++            transform_intermediate_entry_t * resident = &transform_intermediate_cache[(uint8_t)candidate->resident_index];
++            if(resident->pixels && transform_intermediate_key_equal(&resident->key, &intermediate_key))
++                intermediate_cached_entry = resident;
++        }
++        if(intermediate_cached_entry) {
++            intermediate_entry = true;
++            transform_intermediate_stats.hits++;
++            uint64_t hit_w = (uint64_t)((int64_t)clipped_img_area->x2 - clipped_img_area->x1 + 1);
++            uint64_t hit_h = (uint64_t)((int64_t)clipped_img_area->y2 - clipped_img_area->y1 + 1);
++            transform_intermediate_stats.hit_pixels += hit_w * hit_h;
++            intermediate_cached_entry->last_used = ++transform_intermediate_clock;
++        }
++        else {
++            transform_intermediate_stats.misses++;
++        }
++    }
++    uint32_t pool_start = large_source ? TRANSFORM_CACHE_ENTRY_COUNT : 0;
++    uint32_t pool_end = large_source ? TRANSFORM_CACHE_ALL_ENTRY_COUNT : TRANSFORM_CACHE_ENTRY_COUNT;
++    if(!entry && !intermediate_cached_entry) {
++        for(uint32_t i = pool_start; i < pool_end; i++) {
++            if(transform_cache[i].pixels && transform_cache_key_equal(&transform_cache[i].key, &key)) {
++                entry = &transform_cache[i];
++                break;
++            }
++        }
++    }
++
++    /* Registered transition artwork may use resident rest-cache entries, but
++     * a motion-only miss must not churn that pool. */
++    if(intermediate_registered && !entry && !intermediate_cached_entry) {
++        if(transform_cache_pending_large_valid &&
++           transform_cache_pending_large_key.src == draw_dsc->src) {
++            transform_cache_pending_large_valid = false;
++            transform_cache_pending_large_hits = 0;
++            lv_memzero(&transform_cache_pending_large_key, sizeof(transform_cache_pending_large_key));
++        }
++        lv_mutex_unlock(&transform_cache_mutex);
++        return false;
++    }
++
++    if(entry || intermediate_cached_entry || !large_source) {
++        transform_cache_pending_large_valid = false;
++        transform_cache_pending_large_hits = 0;
++        lv_memzero(&transform_cache_pending_large_key, sizeof(transform_cache_pending_large_key));
++    }
++    else if(transform_cache_pending_large_valid && transform_cache_key_equal(&transform_cache_pending_large_key, &key)) {
++        if(transform_cache_pending_large_hits < UINT8_MAX) transform_cache_pending_large_hits++;
++    }
++    else {
++        transform_cache_pending_large_key = key;
++        transform_cache_pending_large_valid = true;
++        transform_cache_pending_large_hits = 1;
++    }
++    if(!entry && !intermediate_cached_entry && large_source && transform_cache_pending_large_hits < 2) {
++        lv_mutex_unlock(&transform_cache_mutex);
++        return false;
++    }
++
++    if(!entry && !intermediate_cached_entry) {
++        uint32_t * pool_bytes = large_source ? &transform_cache_large_bytes : &transform_cache_bytes;
++        uint32_t pool_limit = large_source ? TRANSFORM_CACHE_LARGE_TOTAL_MAX : TRANSFORM_CACHE_TOTAL_MAX;
++        uint32_t victim = pool_end;
++        while(*pool_bytes + pixel_bytes > pool_limit) {
++            uint64_t oldest = UINT64_MAX;
++            for(uint32_t i = pool_start; i < pool_end; i++) {
++                if(transform_cache[i].pixels && transform_cache[i].last_used < oldest) {
++                    oldest = transform_cache[i].last_used;
++                    victim = i;
++                }
++            }
++            if(victim == pool_end) {
++                lv_mutex_unlock(&transform_cache_mutex);
++                return false;
++            }
++            if(transform_cache[victim].pixels) {
++                *pool_bytes -= transform_cache[victim].bytes;
++                lv_free(transform_cache[victim].pixels);
++                lv_memzero(&transform_cache[victim], sizeof(transform_cache[victim]));
++            }
++        }
++        victim = pool_end;
++        for(uint32_t i = pool_start; i < pool_end; i++) {
++            if(!transform_cache[i].pixels) { victim = i; break; }
++        }
++        if(victim == pool_end) {
++            uint64_t oldest = UINT64_MAX;
++            for(uint32_t i = pool_start; i < pool_end; i++) {
++                if(transform_cache[i].last_used < oldest) {
++                    oldest = transform_cache[i].last_used;
++                    victim = i;
++                }
++            }
++            *pool_bytes -= transform_cache[victim].bytes;
++            lv_free(transform_cache[victim].pixels);
++            lv_memzero(&transform_cache[victim], sizeof(transform_cache[victim]));
++        }
++        /* Make room before allocation so the live cache plus this transient
++         * replacement never exceeds its independent budget. */
++        uint8_t * pixels = lv_malloc(pixel_bytes);
++        if(!pixels) {
++            lv_mutex_unlock(&transform_cache_mutex);
++            return false;
++        }
++        lv_area_t full_relative = { .x1 = (int32_t)dst_x1, .y1 = (int32_t)dst_y1,
++                                    .x2 = (int32_t)dst_x2, .y2 = (int32_t)dst_y2 };
++        lv_draw_sw_transform(&full_relative, decoded->data, (int32_t)decoded->header.w,
++                             (int32_t)decoded->header.h, (int32_t)decoded->header.stride,
++                             draw_dsc, sup, decoded->header.cf, pixels);
++
++        if(draw_dsc->recolor_opa > LV_OPA_MIN && decoded->header.cf != LV_COLOR_FORMAT_L8 &&
++           decoded->header.cf != LV_COLOR_FORMAT_A8) {
++            int32_t recolor_stride = dst_cf == LV_COLOR_FORMAT_RGB565A8 ? (int32_t)dst_w * 2 :
++                                     dst_cf == LV_COLOR_FORMAT_AL88 ? (int32_t)dst_w :
++                                     (int32_t)dst_w * (int32_t)lv_color_format_get_size(dst_cf);
++            lv_area_t output_area = { .x1 = 0, .y1 = 0, .x2 = (int32_t)dst_w - 1,
++                                      .y2 = (int32_t)dst_h - 1 };
++            recolor(output_area, pixels, pixels, recolor_stride, dst_cf, draw_dsc);
++        }
++
++        entry = &transform_cache[victim];
++        entry->key = key;
++        entry->pixels = pixels;
++        entry->bytes = pixel_bytes;
++        *pool_bytes += pixel_bytes;
++    }
++
++    if(!intermediate_entry) entry->last_used = ++transform_cache_clock;
++    lv_draw_sw_blend_dsc_t blend_dsc;
++    lv_memzero(&blend_dsc, sizeof(blend_dsc));
++    blend_dsc.opa = draw_dsc->opa;
++    blend_dsc.blend_mode = draw_dsc->blend_mode;
++    blend_dsc.src_buf = intermediate_entry ? intermediate_cached_entry->pixels : entry->pixels;
++    blend_dsc.src_area = intermediate_entry ? &(lv_area_t){
++        .x1 = img_coords->x1 + intermediate_key.dst_x1,
++        .y1 = img_coords->y1 + intermediate_key.dst_y1,
++        .x2 = img_coords->x1 + intermediate_key.dst_x1 + intermediate_key.dst_w - 1,
++        .y2 = img_coords->y1 + intermediate_key.dst_y1 + intermediate_key.dst_h - 1,
++    } : clipped_img_area;
++    blend_dsc.blend_area = clipped_img_area;
++    blend_dsc.src_color_format = dst_cf;
++    if(decoded->header.cf == LV_COLOR_FORMAT_L8 || decoded->header.cf == LV_COLOR_FORMAT_A8)
++        blend_dsc.color = draw_dsc->recolor;
++    if(dst_cf == LV_COLOR_FORMAT_RGB565A8) {
++        blend_dsc.src_color_format = LV_COLOR_FORMAT_RGB565;
++        uint32_t blend_w = intermediate_entry ? (uint32_t)intermediate_key.dst_w : dst_w;
++        uint32_t blend_h = intermediate_entry ? (uint32_t)intermediate_key.dst_h : dst_h;
++        blend_dsc.src_stride = (int32_t)blend_w * 2;
++        blend_dsc.mask_buf = blend_dsc.src_buf + (size_t)blend_w * blend_h * 2;
++        blend_dsc.mask_area = blend_dsc.src_area;
++        blend_dsc.mask_stride = (int32_t)blend_w;
++        blend_dsc.mask_res = LV_DRAW_SW_MASK_RES_CHANGED;
++    }
++    else if(dst_cf == LV_COLOR_FORMAT_AL88) {
++        blend_dsc.src_color_format = LV_COLOR_FORMAT_L8;
++        blend_dsc.src_stride = (int32_t)dst_w;
++        blend_dsc.mask_buf = entry->pixels + (size_t)dst_w * dst_h;
++        blend_dsc.mask_area = clipped_img_area;
++        blend_dsc.mask_stride = (int32_t)dst_w;
++        blend_dsc.mask_res = LV_DRAW_SW_MASK_RES_CHANGED;
++    }
++    else if(dst_cf == LV_COLOR_FORMAT_A8) {
++        blend_dsc.src_buf = NULL;
++        blend_dsc.mask_buf = entry->pixels;
++        blend_dsc.mask_area = clipped_img_area;
++        blend_dsc.mask_stride = (int32_t)dst_w;
++        blend_dsc.mask_res = LV_DRAW_SW_MASK_RES_CHANGED;
++        blend_dsc.color = draw_dsc->recolor;
++    }
++    else {
++        blend_dsc.src_stride = (int32_t)dst_w * lv_color_format_get_size(dst_cf);
++    }
++    /* Fractional opacity and other blend modes retain the original mask:
++     * removing alpha 255 there can change LVGL's integer opacity rounding. */
++    lv_area_t opaque_area;
++    bool opaque_hit = intermediate_entry && intermediate_cached_entry->opaque_valid &&
++                      draw_dsc->opa == LV_OPA_COVER && draw_dsc->blend_mode == LV_BLEND_MODE_NORMAL &&
++                      t->target_layer->color_format == LV_COLOR_FORMAT_RGB565;
++    if(opaque_hit) {
++        opaque_area = intermediate_cached_entry->opaque_area;
++        lv_area_move(&opaque_area, img_coords->x1, img_coords->y1);
++        opaque_hit = lv_area_intersect(&opaque_area, &opaque_area, clipped_img_area);
++    }
++    if(opaque_hit) {
++        /* Disjoint strips preserve the A8 perimeter and external layer masks. */
++        lv_area_t strips[4] = {
++            { .x1 = clipped_img_area->x1, .y1 = clipped_img_area->y1,
++              .x2 = clipped_img_area->x2, .y2 = opaque_area.y1 },
++            { .x1 = clipped_img_area->x1, .y1 = opaque_area.y2,
++              .x2 = clipped_img_area->x2, .y2 = clipped_img_area->y2 },
++            { .x1 = clipped_img_area->x1, .y1 = opaque_area.y1,
++              .x2 = opaque_area.x1, .y2 = opaque_area.y2 },
++            { .x1 = opaque_area.x2, .y1 = opaque_area.y1,
++              .x2 = clipped_img_area->x2, .y2 = opaque_area.y2 },
++        };
++        bool has_strip[4] = { clipped_img_area->y1 < opaque_area.y1,
++                              opaque_area.y2 < clipped_img_area->y2,
++                              clipped_img_area->x1 < opaque_area.x1,
++                              opaque_area.x2 < clipped_img_area->x2 };
++        if(has_strip[0]) strips[0].y2--;
++        if(has_strip[1]) strips[1].y1++;
++        if(has_strip[2]) strips[2].x2--;
++        if(has_strip[3]) strips[3].x1++;
++        for(uint32_t i = 0; i < 4; i++) {
++            if(!has_strip[i]) continue;
++            blend_dsc.blend_area = &strips[i];
++            lv_draw_sw_blend(t, &blend_dsc);
++        }
++        blend_dsc.blend_area = &opaque_area;
++        blend_dsc.mask_buf = NULL;
++        blend_dsc.mask_area = NULL;
++        blend_dsc.mask_res = LV_DRAW_SW_MASK_RES_FULL_COVER;
++        lv_draw_sw_blend(t, &blend_dsc);
++    }
++    else lv_draw_sw_blend(t, &blend_dsc);
++    lv_mutex_unlock(&transform_cache_mutex);
++    return true;
++}
++
+ /**********************
+  *   STATIC FUNCTIONS
+  **********************/
+@@ -306,10 +1570,175 @@ static void img_draw_core(lv_draw_task_t * t, const lv_draw_image_dsc_t * draw_d
+                                                   t,                /* target buffer, buffer width, buffer height, buffer stride */
+                                                   draw_dsc)) {      /* opa, recolour_opa and colour */
+         /*In the other cases every pixel need to be checked one-by-one*/
+-        transform_and_recolor(t, draw_dsc, decoder_dsc, sup, img_coords, clipped_img_area);
++        if(!transform_cache_draw(t, draw_dsc, decoder_dsc, sup, img_coords, clipped_img_area) &&
++           !transform_rgb565_nearest_interior(t, draw_dsc, decoder_dsc, sup, img_coords, clipped_img_area)) {
++            transform_and_recolor(t, draw_dsc, decoder_dsc, sup, img_coords, clipped_img_area);
++        }
++
++    }
++}
++
++static bool transform_rgb565_nearest_interior(lv_draw_task_t * t, const lv_draw_image_dsc_t * draw_dsc,
++                                              const lv_image_decoder_dsc_t * decoder_dsc,
++                                              lv_draw_image_sup_t * sup, const lv_area_t * img_coords,
++                                              const lv_area_t * clipped_img_area)
++{
++    const lv_draw_buf_t * decoded = decoder_dsc->decoded;
++    const lv_image_header_t * header = &decoded->header;
++    int64_t img_w64 = (int64_t)img_coords->x2 - img_coords->x1 + 1;
++    int64_t img_h64 = (int64_t)img_coords->y2 - img_coords->y1 + 1;
++
++    if(header->cf != LV_COLOR_FORMAT_RGB565 || decoded->data == NULL || draw_dsc->tile ||
++       draw_dsc->rotation != 0 ||
++       draw_dsc->scale_x <= 0 ||
++       draw_dsc->scale_y <= 0 ||
++       draw_dsc->opa != LV_OPA_COVER || draw_dsc->blend_mode != LV_BLEND_MODE_NORMAL ||
++       draw_dsc->clip_radius != 0 || draw_dsc->recolor_opa > LV_OPA_MIN ||
++       draw_dsc->colorkey != NULL || draw_dsc->bitmap_mask_src != NULL ||
++       header->w < 3 || header->h < 3 || header->w > 32767 || header->h > 32767 ||
++       img_w64 != header->w || img_h64 != header->h || img_w64 < 3 || img_h64 < 3 ||
++       header->stride < header->w * 2 || header->stride > INT32_MAX || (header->stride & 1) != 0 ||
++       (uint64_t)header->stride * header->h > decoded->data_size) {
++        return false;
++    }
++
++    int64_t relative_x1 = (int64_t)clipped_img_area->x1 - img_coords->x1;
++    int64_t relative_x2 = (int64_t)clipped_img_area->x2 - img_coords->x1;
++    int64_t relative_y1 = (int64_t)clipped_img_area->y1 - img_coords->y1;
++    int64_t relative_y2 = (int64_t)clipped_img_area->y2 - img_coords->y1;
++    if(relative_x1 < INT32_MIN ||
++       relative_x1 > INT32_MAX || relative_x2 < INT32_MIN || relative_x2 > INT32_MAX ||
++       relative_y1 < INT32_MIN || relative_y1 > INT32_MAX ||
++       relative_y2 < INT32_MIN || relative_y2 > INT32_MAX) {
++        return false;
++    }
++    lv_area_t relative_area = {
++        .x1 = (int32_t)relative_x1,
++        .y1 = (int32_t)relative_y1,
++        .x2 = (int32_t)relative_x2,
++        .y2 = (int32_t)relative_y2,
++    };
++
++    lv_area_t interior;
++    if(!lv_draw_sw_transform_rgb565_nearest(&relative_area, decoded->data, (int32_t)header->w,
++                                            (int32_t)header->h, (int32_t)header->stride,
++                                            draw_dsc, NULL, 0, &interior, NULL, 0, 0)) {
++        return false;
++    }
++    if(interior.x2 < interior.x1 || interior.y2 < interior.y1) return false;
++
++    int32_t interior_w = lv_area_get_width(&interior);
++    int32_t interior_h = lv_area_get_height(&interior);
++    uint64_t row_bytes64 = (uint64_t)(uint32_t)interior_w * 2;
++    const uint32_t max_tile_rows = 16;
++    lv_display_t * disp = lv_refr_get_disp_refreshing();
++    uint32_t display_width = disp ? lv_display_get_horizontal_resolution(disp) : 0;
++    uint64_t max_buf_size64 = (uint64_t)display_width * sizeof(uint16_t) * max_tile_rows;
++    if(display_width == 0 || max_buf_size64 > UINT32_MAX) return false;
++    uint32_t max_buf_size = (uint32_t)max_buf_size64;
++    if(interior_w <= 0 || interior_h <= 0 || row_bytes64 > INT32_MAX || row_bytes64 > max_buf_size) {
++        return false;
++    }
++    int32_t tile_h = (int32_t)(max_buf_size / row_bytes64);
++    if(tile_h > interior_h) tile_h = interior_h;
++    if(tile_h > (int32_t)max_tile_rows) tile_h = (int32_t)max_tile_rows;
++    if(tile_h <= 0 || row_bytes64 * (uint32_t)tile_h > UINT32_MAX) return false;
++    uint8_t * tile_buf = lv_malloc((uint32_t)(row_bytes64 * (uint32_t)tile_h));
++    if(tile_buf == NULL) return false;
++    uint64_t x_map_bytes64 = (uint64_t)(uint32_t)interior_w * sizeof(uint32_t);
++    if(x_map_bytes64 > UINT32_MAX) { lv_free(tile_buf); return false; }
++    uint32_t * x_samples = lv_malloc((uint32_t)x_map_bytes64);
++    if(x_samples == NULL) {
++        lv_free(tile_buf);
++        return false;
++    }
++    if(!lv_draw_sw_transform_rgb565_nearest(&relative_area, decoded->data, (int32_t)header->w,
++                                            (int32_t)header->h, (int32_t)header->stride,
++                                            draw_dsc, NULL, 0, &interior,
++                                            x_samples, interior.x1, (uint32_t)interior_w)) {
++        lv_free(x_samples);
++        lv_free(tile_buf);
++        return false;
++    }
++
++    /* Keep the original transform path responsible for every edge pixel. */
++    lv_area_t fallback = *clipped_img_area;
++    if(relative_area.y1 < interior.y1) {
++        fallback.y1 = img_coords->y1 + relative_area.y1;
++        fallback.y2 = img_coords->y1 + interior.y1 - 1;
++        transform_and_recolor(t, draw_dsc, decoder_dsc, sup, img_coords, &fallback);
++    }
++    if(interior.y2 < relative_area.y2) {
++        fallback.y1 = img_coords->y1 + interior.y2 + 1;
++        fallback.y2 = img_coords->y1 + relative_area.y2;
++        transform_and_recolor(t, draw_dsc, decoder_dsc, sup, img_coords, &fallback);
++    }
++    if(relative_area.x1 < interior.x1) {
++        fallback.x1 = img_coords->x1 + relative_area.x1;
++        fallback.x2 = img_coords->x1 + interior.x1 - 1;
++        fallback.y1 = img_coords->y1 + interior.y1;
++        fallback.y2 = img_coords->y1 + interior.y2;
++        transform_and_recolor(t, draw_dsc, decoder_dsc, sup, img_coords, &fallback);
++    }
++    if(interior.x2 < relative_area.x2) {
++        fallback.x1 = img_coords->x1 + interior.x2 + 1;
++        fallback.x2 = img_coords->x1 + relative_area.x2;
++        fallback.y1 = img_coords->y1 + interior.y1;
++        fallback.y2 = img_coords->y1 + interior.y2;
++        transform_and_recolor(t, draw_dsc, decoder_dsc, sup, img_coords, &fallback);
++    }
+ 
++    lv_area_t tile_area = interior;
++    tile_area.y2 = tile_area.y1 + tile_h - 1;
++    while(tile_area.y1 <= interior.y2) {
++        lv_area_t tile_relative = {
++            .x1 = tile_area.x1,
++            .y1 = tile_area.y1,
++            .x2 = tile_area.x2,
++            .y2 = tile_area.y2,
++        };
++        lv_area_t tile_safe;
++        if(!lv_draw_sw_transform_rgb565_nearest(&tile_relative, decoded->data, (int32_t)header->w,
++                                                (int32_t)header->h, (int32_t)header->stride,
++                                                draw_dsc, (uint16_t *)tile_buf, (int32_t)row_bytes64,
++                                                &tile_safe, x_samples, interior.x1,
++                                                (uint32_t)interior_w)) {
++            /* Fall back for the not-yet-drawn portion if an invariant is violated. */
++            lv_area_t remainder = {
++                .x1 = img_coords->x1 + tile_area.x1,
++                .y1 = img_coords->y1 + tile_area.y1,
++                .x2 = img_coords->x1 + interior.x2,
++                .y2 = img_coords->y1 + interior.y2,
++            };
++            transform_and_recolor(t, draw_dsc, decoder_dsc, sup, img_coords, &remainder);
++            lv_free(x_samples);
++            lv_free(tile_buf);
++            return true;
++        }
++
++        lv_area_t blend_area = tile_area;
++        lv_area_move(&blend_area, img_coords->x1, img_coords->y1);
++        lv_draw_sw_blend_dsc_t blend_dsc;
++        lv_memzero(&blend_dsc, sizeof(blend_dsc));
++        blend_dsc.opa = draw_dsc->opa;
++        blend_dsc.blend_mode = draw_dsc->blend_mode;
++        blend_dsc.src_stride = (int32_t)row_bytes64;
++        blend_dsc.src_area = &blend_area;
++        blend_dsc.blend_area = &blend_area;
++        blend_dsc.src_buf = tile_buf;
++        blend_dsc.src_color_format = LV_COLOR_FORMAT_RGB565;
++        lv_draw_sw_blend(t, &blend_dsc);
++
++        tile_area.y1 = tile_area.y2 + 1;
++        tile_area.y2 = tile_area.y1 + tile_h - 1;
++        if(tile_area.y2 > interior.y2) tile_area.y2 = interior.y2;
+     }
++
++    lv_free(x_samples);
++    lv_free(tile_buf);
++    return true;
+ }
++
+ #if LV_DRAW_SW_COMPLEX
+ static void radius_only(lv_draw_task_t * t, const lv_draw_image_dsc_t * draw_dsc,
+                         const lv_image_decoder_dsc_t * decoder_dsc,
+diff --git a/src/draw/sw/lv_draw_sw_private.h b/src/draw/sw/lv_draw_sw_private.h
+index 60bf4b6..4f49209 100644
+--- a/src/draw/sw/lv_draw_sw_private.h
++++ b/src/draw/sw/lv_draw_sw_private.h
+@@ -62,6 +62,43 @@ typedef struct {
+  * GLOBAL PROTOTYPES
+  **********************/
+ 
++void lv_draw_sw_image_cache_init(void);
++void lv_draw_sw_image_cache_deinit(void);
++void lv_draw_sw_image_cache_event(lv_event_t * e);
++
++typedef struct {
++    uint64_t hits;
++    uint64_t misses;
++    uint64_t observations;
++    uint64_t builds;
++    uint64_t build_us_total;
++    uint64_t build_us_max;
++    uint64_t slice_us_max;
++    uint64_t evictions;
++    uint64_t candidate_qualifications;
++    uint64_t candidate_displacements;
++    uint64_t hit_pixels;
++    uint64_t service_calls;
++    uint64_t service_blocked_idle;
++    uint64_t service_blocked_transition;
++    uint64_t service_blocked_pressure;
++    uint64_t service_no_candidate;
++    uint64_t source_rejections;
++    uint32_t bytes;
++    uint32_t entries;
++    uint32_t candidates;
++    uint32_t qualified_candidates;
++    uint32_t pending_rows;
++    bool pending;
++} lv_draw_sw_image_cache_stats_t;
++
++void lv_draw_sw_image_cache_set_intermediate_source(const void * src);
++/* Transition boundaries cancel unfinished idle work but retain completed
++ * intermediates and their qualification history. */
++void lv_draw_sw_image_cache_set_transition_active(bool active);
++void lv_draw_sw_image_cache_service(uint64_t mem_available_bytes, bool allow_idle_build);
++void lv_draw_sw_image_cache_get_intermediate_stats(lv_draw_sw_image_cache_stats_t * out);
++
+ /**********************
+  *      MACROS
+  **********************/
 diff --git a/src/draw/sw/lv_draw_sw_transform.c b/src/draw/sw/lv_draw_sw_transform.c
-index 674e54d..489dee7 100644
+index 674e54d..62125e1 100644
 --- a/src/draw/sw/lv_draw_sw_transform.c
 +++ b/src/draw/sw/lv_draw_sw_transform.c
 @@ -37,6 +37,21 @@ typedef struct {
@@ -303,7 +2039,13 @@ index 674e54d..489dee7 100644
 -
 -        int32_t x_max = (((src_w - 1 - draw_dsc->pivot.x) * draw_dsc->scale_x) >> 8) + draw_dsc->pivot.x;
 -        int32_t y_max = (((src_h - 1 - draw_dsc->pivot.y) * draw_dsc->scale_y) >> 8) + draw_dsc->pivot.y;
--
++    sample_transform_dsc_t sample_dsc = {
++        .scale_only = !is_rotated,
++        .edge_extend_x = !is_rotated && tr_dsc.scale_x > LV_SCALE_NONE,
++        .edge_extend_y = !is_rotated && tr_dsc.scale_y > LV_SCALE_NONE,
++    };
++    sample_axis_t y_axis = {0};
+ 
 -        lv_area_t dest_area_limited;
 -        dest_area_limited.x1 = dest_area->x1 > x_max ? x_max : dest_area->x1;
 -        dest_area_limited.x2 = dest_area->x2 > x_max ? x_max : dest_area->x2;
@@ -312,13 +2054,7 @@ index 674e54d..489dee7 100644
 -
 -        transform_point_upscaled(&tr_dsc, dest_area_limited.x1, dest_area_limited.y1, &xs1_ups, &ys1_ups);
 -        transform_point_upscaled(&tr_dsc, dest_area_limited.x2, dest_area_limited.y2, &xs2_ups, &ys2_ups);
-+    sample_transform_dsc_t sample_dsc = {
-+        .scale_only = !is_rotated,
-+        .edge_extend_x = !is_rotated && tr_dsc.scale_x > LV_SCALE_NONE,
-+        .edge_extend_y = !is_rotated && tr_dsc.scale_y > LV_SCALE_NONE,
-+    };
-+    sample_axis_t y_axis = {0};
- 
+-
 -        int32_t xs_diff = xs2_ups - xs1_ups;
 -        int32_t ys_diff = ys2_ups - ys1_ups;
 +    if(is_rotated == false) {
@@ -604,6 +2340,19 @@ index 674e54d..489dee7 100644
  
          int32_t xs_int = xs_ups >> 8;
          int32_t ys_int = ys_ups >> 8;
+@@ -734,9 +782,9 @@ static void transform_rgb565a8(const uint8_t * src, int32_t src_w, int32_t src_h
+             }
+ 
+             if(cbuf[x] != px_ver || cbuf[x] != px_hor) {
+-                uint16_t v = lv_color_16_16_mix(px_ver, cbuf[x], ys_fract);
+-                uint16_t h = lv_color_16_16_mix(px_hor, cbuf[x], xs_fract);
+-                cbuf[x] = lv_color_16_16_mix(h, v, LV_OPA_50);
++                uint16_t v = lv_color_16_16_mix_internal(px_ver, cbuf[x], ys_fract);
++                uint16_t h = lv_color_16_16_mix_internal(px_hor, cbuf[x], xs_fract);
++                cbuf[x] = lv_color_16_16_mix_internal(h, v, LV_OPA_50);
+             }
+         }
+         /*Partially out of the image*/
 @@ -751,10 +799,10 @@ static void transform_rgb565a8(const uint8_t * src, int32_t src_w, int32_t src_h
                  a = 0xff;
              }
@@ -653,6 +2402,19 @@ index 674e54d..489dee7 100644
  
          int32_t xs_int = xs_ups >> 8;
          int32_t ys_int = ys_ups >> 8;
+@@ -850,9 +911,9 @@ static void transform_rgb565a8_swapped(const uint8_t * src, int32_t src_w, int32
+             }
+ 
+             if(cbuf[x] != px_ver || cbuf[x] != px_hor) {
+-                uint16_t v = lv_color_16_16_mix(px_ver, cbuf[x], ys_fract);
+-                uint16_t h = lv_color_16_16_mix(px_hor, cbuf[x], xs_fract);
+-                cbuf[x] =  lv_color_16_16_mix(h, v, LV_OPA_50);
++                uint16_t v = lv_color_16_16_mix_internal(px_ver, cbuf[x], ys_fract);
++                uint16_t h = lv_color_16_16_mix_internal(px_hor, cbuf[x], xs_fract);
++                cbuf[x] =  lv_color_16_16_mix_internal(h, v, LV_OPA_50);
+             }
+         }
+         /*Partially out of the image*/
 @@ -867,10 +928,10 @@ static void transform_rgb565a8_swapped(const uint8_t * src, int32_t src_w, int32
                  a = 0xff;
              }
@@ -769,7 +2531,7 @@ index 674e54d..489dee7 100644
                      abuf[x] = (0xff * (0xFF - ys_fract)) >> 8;
                  }
              }
-@@ -1080,6 +1167,59 @@ static void transform_al88(const uint8_t * src, int32_t src_w, int32_t src_h, in
+@@ -1080,6 +1167,211 @@ static void transform_al88(const uint8_t * src, int32_t src_w, int32_t src_h, in
  
  #endif
  
@@ -806,6 +2568,158 @@ index 674e54d..489dee7 100644
 +    }
 +}
 +
++static bool sample_axis_coord_fits(int32_t dest, int32_t pivot, int32_t scale)
++{
++    int64_t delta = (int64_t)dest - pivot;
++    int64_t numerator = delta * 65536 + 32768;
++    int64_t coordinate = floor_divide_i64(numerator, scale) + (int64_t)pivot * 256;
++    return coordinate >= INT32_MIN && coordinate <= INT32_MAX;
++}
++
++bool lv_draw_sw_transform_rgb565_nearest(const lv_area_t * dest_area, const void * src_buf,
++                                        int32_t src_w, int32_t src_h, int32_t src_stride,
++                                        const lv_draw_image_dsc_t * draw_dsc, uint16_t * dest_buf,
++                                        int32_t dest_stride, lv_area_t * safe_area,
++                                        uint32_t * x_samples, int32_t x_samples_x1, uint32_t x_samples_count)
++{
++    if(dest_area == NULL || src_buf == NULL || draw_dsc == NULL || safe_area == NULL ||
++       src_w < 3 || src_h < 3 || src_w > 32767 || src_h > 32767 ||
++       src_stride < src_w * 2 ||
++       draw_dsc->rotation != 0 ||
++       draw_dsc->scale_x <= 0 ||
++       draw_dsc->scale_y <= 0 ||
++       dest_area->x2 < dest_area->x1 || dest_area->y2 < dest_area->y1) {
++        return false;
++    }
++
++    /* Bound the mapper's signed Q8 state at both ends of each monotonic axis. */
++    if(draw_dsc->pivot.x < -32767 || draw_dsc->pivot.x > 32767 ||
++       draw_dsc->pivot.y < -32767 || draw_dsc->pivot.y > 32767 ||
++       dest_area->x1 < -32767 || dest_area->x2 > 32767 ||
++       dest_area->y1 < -32767 || dest_area->y2 > 32767 || src_stride % 2 != 0 ||
++       !sample_axis_coord_fits(dest_area->x1, draw_dsc->pivot.x, draw_dsc->scale_x) ||
++       !sample_axis_coord_fits(dest_area->x2, draw_dsc->pivot.x, draw_dsc->scale_x) ||
++       !sample_axis_coord_fits(dest_area->y1, draw_dsc->pivot.y, draw_dsc->scale_y) ||
++       !sample_axis_coord_fits(dest_area->y2, draw_dsc->pivot.y, draw_dsc->scale_y)) {
++        return false;
++    }
++
++    /* Rendering consumes an x map prepared before any fallback pixels are drawn. */
++    if(dest_buf != NULL) {
++        int32_t width = lv_area_get_width(dest_area);
++        if(x_samples == NULL || x_samples_x1 != dest_area->x1 ||
++           x_samples_count != (uint32_t)width || dest_stride < width * 2 || (dest_stride & 1) != 0) {
++            return false;
++        }
++        for(uint32_t i = 0; i < x_samples_count; i++) {
++            if((x_samples[i] & 0xFFFFU) < 1 || (x_samples[i] & 0xFFFFU) > (uint32_t)(src_w - 2)) return false;
++        }
++
++        sample_axis_t y_axis = sample_axis_init(dest_area->y1, draw_dsc->pivot.y, draw_dsc->scale_y);
++        int32_t y = dest_area->y1;
++        while(y <= dest_area->y2) {
++            int32_t sample_y = clamp_upscale_sample_q8(y_axis.coord_q8, src_h, false) >> 8;
++            if(sample_y < 1 || sample_y > src_h - 2) return false;
++            if(y == dest_area->y2) break;
++            y++;
++            sample_axis_advance(&y_axis);
++        }
++
++        safe_area->x1 = dest_area->x1;
++        safe_area->y1 = dest_area->y1;
++        safe_area->x2 = dest_area->x2;
++        safe_area->y2 = dest_area->y2;
++        const uint8_t * src = src_buf;
++        y_axis = sample_axis_init(dest_area->y1, draw_dsc->pivot.y, draw_dsc->scale_y);
++        int32_t out_y = 0;
++        for(y = dest_area->y1; y <= dest_area->y2; y++, out_y++) {
++            int32_t sample_y = clamp_upscale_sample_q8(y_axis.coord_q8, src_h, false) >> 8;
++            int32_t y_fract = y_axis.coord_q8 & 0xFF;
++            uint32_t y_weight = y_fract < 0x80 ? (uint32_t)(0x7F - y_fract) * 2U : (uint32_t)(y_fract - 0x80) * 2U;
++            int32_t y_next = y_fract < 0x80 ? -1 : 1;
++            for(uint32_t out_x = 0; out_x < x_samples_count; out_x++) {
++                uint32_t packed = x_samples[out_x];
++                int32_t sx = (int32_t)(packed & 0xFFFFU);
++                int32_t x_weight = (int32_t)(packed >> 16);
++                size_t src_offset = (size_t)(uint32_t)sample_y * (size_t)(uint32_t)src_stride + (size_t)sx * 2;
++                const uint16_t * src_px = (const uint16_t *)(src + src_offset);
++                uint16_t color = src_px[0];
++                if(draw_dsc->antialias) {
++                    uint16_t vert = *(const uint16_t *)((const uint8_t *)src_px + y_next * src_stride);
++                    int32_t x_next = (packed & 0x80000000U) ? 1 : -1;
++                    uint16_t horz = src_px[x_next];
++                    if(color != vert || color != horz) {
++                        uint16_t vertical = lv_color_16_16_mix_internal(vert, color, (lv_opa_t)y_weight);
++                        uint16_t horizontal = lv_color_16_16_mix_internal(horz, color, (lv_opa_t)x_weight);
++                        color = lv_color_16_16_mix_internal(horizontal, vertical, LV_OPA_50);
++                    }
++                }
++                dest_buf[(size_t)out_y * (size_t)(uint32_t)(dest_stride / 2) + out_x] = color;
++            }
++            if(y != dest_area->y2) sample_axis_advance(&y_axis);
++        }
++        return true;
++    }
++
++    sample_axis_t x_axis = sample_axis_init(dest_area->x1, draw_dsc->pivot.x, draw_dsc->scale_x);
++    int32_t first_x = 0;
++    int32_t last_x = -1;
++    int32_t x = dest_area->x1;
++    while(x <= dest_area->x2) {
++        int32_t sample_x = clamp_upscale_sample_q8(x_axis.coord_q8, src_w, false) >> 8;
++        if(sample_x >= 1 && sample_x <= src_w - 2) {
++            if(last_x < first_x) first_x = x;
++            last_x = x;
++        }
++        if(x == dest_area->x2) break;
++        x++;
++        sample_axis_advance(&x_axis);
++    }
++
++    sample_axis_t y_axis = sample_axis_init(dest_area->y1, draw_dsc->pivot.y, draw_dsc->scale_y);
++    int32_t first_y = 0;
++    int32_t last_y = -1;
++    int32_t y = dest_area->y1;
++    while(y <= dest_area->y2) {
++        int32_t sample_y = clamp_upscale_sample_q8(y_axis.coord_q8, src_h, false) >> 8;
++        if(sample_y >= 1 && sample_y <= src_h - 2) {
++            if(last_y < first_y) first_y = y;
++            last_y = y;
++        }
++        if(y == dest_area->y2) break;
++        y++;
++        sample_axis_advance(&y_axis);
++    }
++
++    if(last_x < first_x || last_y < first_y) {
++        safe_area->x1 = 1;
++        safe_area->y1 = 1;
++        safe_area->x2 = 0;
++        safe_area->y2 = 0;
++        return x_samples == NULL || x_samples_count == 0;
++    }
++
++    safe_area->x1 = first_x;
++    safe_area->y1 = first_y;
++    safe_area->x2 = last_x;
++    safe_area->y2 = last_y;
++    if(x_samples == NULL) return true;
++
++    uint32_t safe_width = (uint32_t)lv_area_get_width(safe_area);
++    if(x_samples_count != safe_width) return false;
++    x_axis = sample_axis_init(safe_area->x1, draw_dsc->pivot.x, draw_dsc->scale_x);
++    for(uint32_t i = 0; i < safe_width; i++) {
++        int32_t sample_x = clamp_upscale_sample_q8(x_axis.coord_q8, src_w, false) >> 8;
++        if(sample_x < 1 || sample_x > src_w - 2) return false;
++        int32_t fract = x_axis.coord_q8 & 0xFF;
++        uint32_t weight = fract < 0x80 ? (uint32_t)(0x7F - fract) * 2U : (uint32_t)(fract - 0x80) * 2U;
++        uint32_t direction = fract < 0x80 ? 0U : 0x80000000U;
++        x_samples[i] = (uint32_t)sample_x | (weight << 16) | direction;
++        if(i + 1 < safe_width) sample_axis_advance(&x_axis);
++    }
++    return true;
++}
++
 +static int32_t clamp_upscale_sample_q8(int32_t sample_q8, int32_t src_size, bool edge_extend)
 +{
 +    int64_t source_extent_q8 = (int64_t)src_size * 256;
@@ -829,3 +2743,302 @@ index 674e54d..489dee7 100644
  static void transform_point_upscaled(point_transform_dsc_t * t, int32_t xin, int32_t yin, int32_t * xout,
                                       int32_t * yout)
  {
+diff --git a/src/indev/lv_indev_scroll.c b/src/indev/lv_indev_scroll.c
+index ae7d275..fbbed18 100644
+--- a/src/indev/lv_indev_scroll.c
++++ b/src/indev/lv_indev_scroll.c
+@@ -12,10 +12,13 @@
+ #include "lv_indev_private.h"
+ #include "lv_indev_scroll.h"
+ 
+-/*********************
+- *      DEFINES
+- *********************/
+-#define ELASTIC_SLOWNESS_FACTOR 4   /*Scrolling on elastic parts are slower by this factor*/
++/* LVGL's own default (4) read as "way overshot" on real-hardware feedback
++ * for this app's list submenus -- doubled to halve how far a given drag
++ * distance stretches the list past its bounds, while still leaving some
++ * elastic travel (not clamped to zero). No LV_CONF_H override hook exists
++ * for this one (unlike lv_obj_scroll.c's SCROLL_ANIM_TIME_MIN/MAX, tuned
++ * from lv_conf.h instead), so it's hand-edited directly here. */
++#define ELASTIC_SLOWNESS_FACTOR 8   /*Scrolling on elastic parts are slower by this factor*/
+ 
+ /**********************
+  *      TYPEDEFS
+@@ -657,38 +660,38 @@ static int32_t elastic_diff(lv_obj_t * scroll_obj, int32_t diff, int32_t scroll_
+     }
+     /*Handle elastic scrolling*/
+     else {
+-
+         lv_scroll_snap_t snap;
+         snap = dir == LV_DIR_HOR ? lv_obj_get_scroll_snap_x(scroll_obj) : lv_obj_get_scroll_snap_y(scroll_obj);
+ 
+-        /*Without snapping just scale down the diff when scrolled out*/
+-        if(snap == LV_SCROLL_SNAP_NONE) {
+-            if(scroll_end < 0 || scroll_start < 0) {
+-                /*Rounding*/
+-                if(diff < 0) diff -= ELASTIC_SLOWNESS_FACTOR / 2;
+-                if(diff > 0) diff += ELASTIC_SLOWNESS_FACTOR / 2;
+-                return diff / ELASTIC_SLOWNESS_FACTOR;
+-            }
+-            else {
+-                return diff;
+-            }
++        bool has_start_snap = true, has_end_snap = true;
++        if(snap != LV_SCROLL_SNAP_NONE) {
++            has_more_snap_points(scroll_obj, dir, &has_start_snap, &has_end_snap);
+         }
+ 
+-        /*With snapping the widget is scrolled out if there are no more snap points
+-         *at least in one direction (start or end)*/
+-        bool has_start_snap;
+-        bool has_end_snap;
+-        has_more_snap_points(scroll_obj, dir, &has_start_snap, &has_end_snap);
+-
+-        if(!has_start_snap || !has_end_snap) {
+-            /*Rounding*/
++        /* If we are already out of bounds, damp the entire diff */
++        if(scroll_end < 0 || scroll_start < 0 || (!has_start_snap) || (!has_end_snap)) {
+             if(diff < 0) diff -= ELASTIC_SLOWNESS_FACTOR / 2;
+             if(diff > 0) diff += ELASTIC_SLOWNESS_FACTOR / 2;
+             return diff / ELASTIC_SLOWNESS_FACTOR;
+         }
+-        else {
+-            return diff;
+-        }
++
++        /* We are currently in bounds. Check if this diff will push us out of bounds */
++        const int32_t scroll_ended = diff > 0 ? scroll_start : scroll_end;
++        if(scroll_ended - (diff > 0 ? diff : -diff) < 0) {
++            /* Split into in-bounds and out-of-bounds portions */
++            int32_t in_bounds = diff > 0 ? scroll_ended : -scroll_ended;
++            int32_t out_bounds = diff - in_bounds;
++            
++            /* Damp the out of bounds portion */
++            if(out_bounds < 0) out_bounds -= ELASTIC_SLOWNESS_FACTOR / 2;
++            if(out_bounds > 0) out_bounds += ELASTIC_SLOWNESS_FACTOR / 2;
++            out_bounds /= ELASTIC_SLOWNESS_FACTOR;
++            
++            return in_bounds + out_bounds;
++        }
++
++        /* Fully in bounds */
++        return diff;
+     }
+ 
+     return diff;
+diff --git a/src/libs/lodepng/lodepng.c b/src/libs/lodepng/lodepng.c
+index 7e37636..9c617b2 100644
+--- a/src/libs/lodepng/lodepng.c
++++ b/src/libs/lodepng/lodepng.c
+@@ -5795,7 +5795,22 @@ static void decodeGeneric(unsigned char ** out, unsigned * w, unsigned * h,
+     lodepng_free(idat);
+ 
+     if(!state->error) {
+-        lv_draw_buf_t * decoded = lv_draw_buf_create_ex(image_cache_draw_buf_handlers, *w, *h, LV_COLOR_FORMAT_ARGB8888, 4 * *w);
++        /* postProcessScanlines() below unfilters straight into this buffer at
++        the PNG's own native bpp (lodepng_get_bpp(&state->info_png.color)),
++        not at the fixed 4 bytes/pixel this ARGB8888 draw_buf's default
++        stride assumes -- any source with more than 32 bits per pixel (e.g.
++        16-bit-per-channel RGBA, 64bpp) overflows a 4**w stride by exactly
++        that much, corrupting whatever the allocator placed next on the
++        heap. Widening the stride to the larger of the two needs keeps this
++        buffer correct for both the native unfilter step here and, when no
++        color conversion turns out to be needed (lodepng_decode()'s "same
++        color type" branch), for the final ARGB8888 image this same
++        allocation becomes. */
++        size_t native_bpp = lodepng_get_bpp(&state->info_png.color);
++        size_t native_row_bytes = ((size_t)*w * native_bpp + 7u) / 8u;
++        size_t argb8888_row_bytes = 4 * (size_t)*w;
++        uint32_t stride = (uint32_t)(native_row_bytes > argb8888_row_bytes ? native_row_bytes : argb8888_row_bytes);
++        lv_draw_buf_t * decoded = lv_draw_buf_create_ex(image_cache_draw_buf_handlers, *w, *h, LV_COLOR_FORMAT_ARGB8888, stride);
+         if(decoded) {
+             *out = (unsigned char*)decoded;
+             outsize = decoded->data_size;
+diff --git a/src/libs/tiny_ttf/lv_tiny_ttf.c b/src/libs/tiny_ttf/lv_tiny_ttf.c
+index 09f1e87..f7fd498 100644
+--- a/src/libs/tiny_ttf/lv_tiny_ttf.c
++++ b/src/libs/tiny_ttf/lv_tiny_ttf.c
+@@ -459,6 +459,9 @@ static lv_font_t * lv_tiny_ttf_create(const char * path, const void * data, size
+         dsc->stream.size = data_size;
+     }
+     if(0 == stbtt_InitFont(&dsc->info, &dsc->stream, stbtt_GetFontOffsetForIndex(&dsc->stream, 0))) {
++        if(path != NULL) {
++            lv_fs_close(&dsc->file);
++        }
+         lv_free(dsc);
+         LV_LOG_ERROR("tiny_ttf: init failed");
+         return NULL;
+@@ -477,6 +480,11 @@ static lv_font_t * lv_tiny_ttf_create(const char * path, const void * data, size
+ 
+     lv_font_t * out_font = lv_malloc_zeroed(sizeof(lv_font_t));
+     if(out_font == NULL) {
++#if LV_TINY_TTF_FILE_SUPPORT != 0
++        if(path != NULL) {
++            lv_fs_close(&dsc->file);
++        }
++#endif
+         lv_free(dsc);
+         LV_LOG_ERROR("tiny_ttf: out of memory");
+         return NULL;
+diff --git a/src/libs/tjpgd/tjpgd.c b/src/libs/tjpgd/tjpgd.c
+index 7152adf..51c7915 100644
+--- a/src/libs/tjpgd/tjpgd.c
++++ b/src/libs/tjpgd/tjpgd.c
+@@ -888,6 +888,60 @@ JRESULT jd_mcu_output(
+                 }
+             }
+         }
++        /* Descale the MCU rectangular if needed */
++        if(JD_USE_SCALE && jd->scale) {
++            unsigned int x, y, r, g, b, s, w, a;
++            uint8_t * op;
++
++            /* Get averaged RGB value of each square corresponding to a pixel */
++            s = jd->scale * 2;  /* Number of shifts for averaging */
++            w = 1 << jd->scale; /* Width of square */
++            a = (mx - w) * (JD_FORMAT != 2 ? 3 : 1); /* Bytes to skip for next line in the square */
++            op = (uint8_t *)jd->workbuf;
++            for(iy = 0; iy < my; iy += w) {
++                for(ix = 0; ix < mx; ix += w) {
++                    pix = (uint8_t *)jd->workbuf + (iy * mx + ix) * (JD_FORMAT != 2 ? 3 : 1);
++                    r = g = b = 0;
++                    for(y = 0; y < w; y++) {
++                        for(x = 0; x < w; x++) {
++                            r += *pix++;
++                            if(JD_FORMAT != 2) {
++                                g += *pix++;
++                                b += *pix++;
++                            }
++                        }
++                        pix += a;
++                    }
++                    *op++ = (uint8_t)(r >> s);
++                    if(JD_FORMAT != 2) {
++                        *op++ = (uint8_t)(g >> s);
++                        *op++ = (uint8_t)(b >> s);
++                    }
++                }
++            }
++        }
++    }
++    else {    /* 1/8 scaling: one pixel per 8x8 from the block DC. B,G,R to match the full-MCU loop above. */
++        pix = (uint8_t *)jd->workbuf;
++        pc = jd->mcubuf + mx * my;
++        cb = pc[0] - 128;
++        cr = pc[64] - 128;
++        for(iy = 0; iy < my; iy += 8) {
++            py = jd->mcubuf;
++            if(iy == 8) py += 64 * 2;
++            for(ix = 0; ix < mx; ix += 8) {
++                yy = *py;
++                py += 64;
++                if(JD_FORMAT != 2) {
++                    *pix++ = /*B*/ BYTECLIP(yy + ((int)(1.772 * CVACC) * cb) / CVACC);
++                    *pix++ = /*G*/ BYTECLIP(yy - ((int)(0.344 * CVACC) * cb + (int)(0.714 * CVACC) * cr) / CVACC);
++                    *pix++ = /*R*/ BYTECLIP(yy + ((int)(1.402 * CVACC) * cr) / CVACC);
++                }
++                else {
++                    *pix++ = yy;
++                }
++            }
++        }
+     }
+ 
+     /* Squeeze up pixel table if a part of MCU is to be truncated */
+diff --git a/src/libs/tjpgd/tjpgdcnf.h b/src/libs/tjpgd/tjpgdcnf.h
+index dc27d6a..1b543b0 100644
+--- a/src/libs/tjpgd/tjpgdcnf.h
++++ b/src/libs/tjpgd/tjpgdcnf.h
+@@ -2,7 +2,7 @@
+ /* TJpgDec System Configurations R0.03          */
+ /*----------------------------------------------*/
+ 
+-#define JD_SZBUF        512
++#define JD_SZBUF        1024
+ /* Specifies size of stream input buffer */
+ 
+ #define JD_FORMAT       0
+@@ -12,7 +12,7 @@
+ /  2: Grayscale (8-bit/pix)
+ */
+ 
+-#define JD_USE_SCALE    0
++#define JD_USE_SCALE    1
+ /* Switches output descaling feature.
+ /  0: Disable
+ /  1: Enable
+diff --git a/src/misc/cache/class/lv_cache_lru_rb.c b/src/misc/cache/class/lv_cache_lru_rb.c
+index 79b64b1..3774def 100644
+--- a/src/misc/cache/class/lv_cache_lru_rb.c
++++ b/src/misc/cache/class/lv_cache_lru_rb.c
+@@ -410,6 +410,7 @@ static void drop_all_cb(lv_cache_t * cache, void * user_data)
+ 
+     lv_rb_destroy(&lru->rb);
+     lv_ll_clear(&lru->ll);
++    lv_rb_init(&lru->rb, lru->cache.ops.compare_cb, lv_cache_entry_get_size(lru->cache.node_size) + sizeof(void *));
+ 
+     cache->size = 0;
+ }
+diff --git a/src/misc/lv_color.h b/src/misc/lv_color.h
+index 22a8de5..70323f6 100644
+--- a/src/misc/lv_color.h
++++ b/src/misc/lv_color.h
+@@ -369,6 +369,29 @@ uint16_t lv_color_to_u16(lv_color_t color);
+  */
+ uint32_t lv_color_to_u32(lv_color_t color);
+ 
++/* Shared exact RGB565 mixer for the exported wrapper and transform hot loops. */
++#if defined(__GNUC__) || defined(__clang__)
++#define LV_COLOR_16_16_MIX_INLINE __attribute__((always_inline))
++#else
++#define LV_COLOR_16_16_MIX_INLINE
++#endif
++static inline LV_COLOR_16_16_MIX_INLINE uint16_t lv_color_16_16_mix_internal(uint16_t c1, uint16_t c2, uint8_t mix)
++{
++    if(mix == 255) return c1;
++    if(mix == 0) return c2;
++    if(c1 == c2) return c1;
++
++    /* Source: https://stackoverflow.com/a/50012418/1999969*/
++    mix = (uint32_t)((uint32_t)mix + 4) >> 3;
++
++    /*0x7E0F81F = 0b00000111111000001111100000011111*/
++    uint32_t bg = (uint32_t)(c2 | ((uint32_t)c2 << 16)) & 0x7E0F81F;
++    uint32_t fg = (uint32_t)(c1 | ((uint32_t)c1 << 16)) & 0x7E0F81F;
++    uint32_t result = ((((fg - bg) * mix) >> 5) + bg) & 0x7E0F81F;
++    return (uint16_t)(result >> 16) | result;
++}
++#undef LV_COLOR_16_16_MIX_INLINE
++
+ /**
+  * Mix two RGB565 colors
+  * @param c1        the first color (typically the foreground color)
+diff --git a/src/misc/lv_color.c b/src/misc/lv_color.c
+index fa8d3e7..0d9e883 100644
+--- a/src/misc/lv_color.c
++++ b/src/misc/lv_color.c
+@@ -315,22 +315,7 @@ lv_color_t lv_color_hex3(uint32_t c)
+ 
+ uint16_t LV_ATTRIBUTE_FAST_MEM lv_color_16_16_mix(uint16_t c1, uint16_t c2, uint8_t mix)
+ {
+-    if(mix == 255) return c1;
+-    if(mix == 0) return c2;
+-    if(c1 == c2) return c1;
+-
+-    uint16_t ret;
+-
+-    /* Source: https://stackoverflow.com/a/50012418/1999969*/
+-    mix = (uint32_t)((uint32_t)mix + 4) >> 3;
+-
+-    /*0x7E0F81F = 0b00000111111000001111100000011111*/
+-    uint32_t bg = (uint32_t)(c2 | ((uint32_t)c2 << 16)) & 0x7E0F81F;
+-    uint32_t fg = (uint32_t)(c1 | ((uint32_t)c1 << 16)) & 0x7E0F81F;
+-    uint32_t result = ((((fg - bg) * mix) >> 5) + bg) & 0x7E0F81F;
+-    ret = (uint16_t)(result >> 16) | result;
+-
+-    return ret;
++    return lv_color_16_16_mix_internal(c1, c2, mix);
+ }
+ 
+ lv_color_t lv_color_white(void)

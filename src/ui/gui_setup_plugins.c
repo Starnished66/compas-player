@@ -20,14 +20,10 @@
 extern player_settings_t current_settings;
 extern lv_color_t accent_lv_color(void);
 
-#define SETUP_PLUGIN_LIMIT 32
-#define SETUP_PLUGIN_ID_CAP 64
+#define SETUP_PLUGIN_LIMIT SETTINGS_SETUP_PLUGIN_MAX
+#define SETUP_BATCH_LIMIT (SETUP_PLUGIN_LIMIT + 1)
+#define SETUP_PLUGIN_ID_CAP SETTINGS_SETUP_PLUGIN_ID_MAX
 #define SETUP_PLUGIN_NAME_CAP 65
-/* One selected entry can contain a 64-byte name and a 400-byte catalog
- * description. Keep the rendered summary out of the UI task's stack. */
-#define SETUP_PLUGIN_SUMMARY_CAP \
-    (SETUP_PLUGIN_LIMIT * (SETUP_PLUGIN_NAME_CAP + 401 + 4) + 1)
-
 typedef struct {
     char id[SETUP_PLUGIN_ID_CAP];
     char name[SETUP_PLUGIN_NAME_CAP];
@@ -35,20 +31,20 @@ typedef struct {
 
 typedef enum {
     BATCH_IDLE,
-    BATCH_CONFIRMING,
     BATCH_REFRESHING,
     BATCH_INSTALLING,
-    BATCH_REPLACE_CONFIRMING,
     BATCH_RETRYING,
     BATCH_RESULT
 } batch_stage_t;
 
 static setup_plugin_t selected[SETUP_PLUGIN_LIMIT];
-static char selection_summary[SETUP_PLUGIN_SUMMARY_CAP];
 static size_t selected_count;
-static setup_plugin_t batch[SETUP_PLUGIN_LIMIT];
-static bool batch_succeeded[SETUP_PLUGIN_LIMIT];
-static bool batch_failed[SETUP_PLUGIN_LIMIT];
+static setup_plugin_t batch[SETUP_BATCH_LIMIT];
+static bool batch_is_layout[SETUP_BATCH_LIMIT];
+static bool batch_succeeded[SETUP_BATCH_LIMIT];
+static bool batch_failed[SETUP_BATCH_LIMIT];
+static setup_plugin_t selected_layout;
+static bool layout_ready;
 static plugin_store_result_t catalog[PLUGIN_STORE_MAX_RESULTS];
 static size_t batch_count;
 static size_t batch_index;
@@ -66,24 +62,16 @@ static gui_busy_handle_t batch_busy;
 static lv_timer_t * batch_timer;
 static bool batch_ui_attached;
 
-static gui_popup_t selection_popup;
-static gui_popup_t replace_popup;
 static gui_popup_t result_popup;
-static lv_obj_t * selection_body;
-static lv_obj_t * replace_body;
 static lv_obj_t * result_body;
 static lv_obj_t * result_title;
 
 static void batch_poll_cb(lv_timer_t * timer);
 static void schedule_batch_timer(void);
 static void start_next_batch_item(void);
-static void selection_confirm_cb(lv_event_t * e);
-static void replace_confirm_cb(lv_event_t * e);
-static void replace_cancel_cb(lv_event_t * e);
 static void result_ack_cb(lv_event_t * e);
-static void selection_backdrop_cb(lv_event_t * e);
-static void replace_backdrop_cb(lv_event_t * e);
 static void result_backdrop_cb(lv_event_t * e);
+static int selected_index(const char * id);
 
 static void show_batch_result(void);
 
@@ -92,8 +80,55 @@ static void clear_selection(void) {
     selected_count = 0;
 }
 
+static bool setup_plugin_id_valid(const char * id) {
+    if (!id || !id[0] || strlen(id) >= SETUP_PLUGIN_ID_CAP ||
+        !((*id >= 'a' && *id <= 'z') || (*id >= '0' && *id <= '9'))) return false;
+    for (const unsigned char * p = (const unsigned char *) id; *p; ++p) {
+        if (!((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') ||
+              *p == '.' || *p == '_' || *p == '-')) return false;
+    }
+    return true;
+}
+
+/* Copy the in-memory staging state into the settings snapshot before saving.
+ * Successful regular plugins are removed from this list after each batch;
+ * the independent layout choice remains staged until setup finishes. */
+static void save_pending_selection(void) {
+    memset(current_settings.setup_plugin_ids, 0, sizeof(current_settings.setup_plugin_ids));
+    size_t count = selected_count < SETUP_PLUGIN_LIMIT ? selected_count : SETUP_PLUGIN_LIMIT;
+    for (size_t i = 0; i < count; ++i) {
+        if (setup_plugin_id_valid(selected[i].id))
+            snprintf(current_settings.setup_plugin_ids[i], sizeof(current_settings.setup_plugin_ids[i]), "%s", selected[i].id);
+    }
+    if (setup_plugin_id_valid(selected_layout.id))
+        snprintf(current_settings.setup_layout_plugin_id, sizeof(current_settings.setup_layout_plugin_id), "%s", selected_layout.id);
+    else
+        current_settings.setup_layout_plugin_id[0] = '\0';
+    settings_save(&current_settings);
+}
+
+void gui_setup_plugins_restore_selection(void) {
+    clear_selection();
+    memset(&selected_layout, 0, sizeof(selected_layout));
+    layout_ready = false;
+    if (current_settings.setup_complete) return;
+
+    for (size_t i = 0; i < SETTINGS_SETUP_PLUGIN_MAX && selected_count < SETUP_PLUGIN_LIMIT; ++i) {
+        const char * id = current_settings.setup_plugin_ids[i];
+        if (!setup_plugin_id_valid(id) || selected_index(id) >= 0) continue;
+        setup_plugin_t * item = &selected[selected_count++];
+        snprintf(item->id, sizeof(item->id), "%s", id);
+        snprintf(item->name, sizeof(item->name), "%s", id);
+    }
+    if (setup_plugin_id_valid(current_settings.setup_layout_plugin_id)) {
+        snprintf(selected_layout.id, sizeof(selected_layout.id), "%s", current_settings.setup_layout_plugin_id);
+        snprintf(selected_layout.name, sizeof(selected_layout.name), "%s", current_settings.setup_layout_plugin_id);
+    }
+}
+
 static void clear_batch(void) {
     memset(batch, 0, sizeof(batch));
+    memset(batch_is_layout, 0, sizeof(batch_is_layout));
     memset(batch_succeeded, 0, sizeof(batch_succeeded));
     memset(batch_failed, 0, sizeof(batch_failed));
     batch_count = batch_index = batch_completed = 0;
@@ -119,12 +154,6 @@ static void mark_current_complete(bool succeeded) {
     }
     batch_completed++;
     batch_index++;
-}
-
-static void cancel_initial_batch(void) {
-    /* Confirmation is the first point at which any store worker may start.
-     * Dropping this frozen snapshot alone therefore cannot write to the SD. */
-    clear_batch();
 }
 
 static bool batch_item_waits_for_worker(size_t index_before) {
@@ -162,6 +191,17 @@ static int selected_index(const char * id) {
     return -1;
 }
 
+size_t gui_setup_plugins_selected_count(void) {
+    if (current_settings.setup_complete) clear_selection();
+    return selected_count;
+}
+
+void gui_setup_plugins_clear_selection(void) {
+    if (batch_stage != BATCH_IDLE) return;
+    clear_selection();
+    save_pending_selection();
+}
+
 bool gui_setup_plugins_is_selected(const char * id) {
     if (current_settings.setup_complete) clear_selection();
     return selected_index(id) >= 0;
@@ -177,6 +217,7 @@ void gui_setup_plugins_toggle(const char * id, const char * name) {
     if (found >= 0) {
         for (size_t i = (size_t) found; i + 1 < selected_count; ++i) selected[i] = selected[i + 1];
         memset(&selected[--selected_count], 0, sizeof(selected[0]));
+        save_pending_selection();
         return;
     }
     if (selected_count >= SETUP_PLUGIN_LIMIT) {
@@ -186,77 +227,27 @@ void gui_setup_plugins_toggle(const char * id, const char * name) {
     setup_plugin_t * item = &selected[selected_count++];
     snprintf(item->id, sizeof(item->id), "%s", id);
     snprintf(item->name, sizeof(item->name), "%s", name && name[0] ? name : id);
+    save_pending_selection();
+}
+
+void gui_setup_plugins_set_layout(const char * id, const char * name) {
+    if (current_settings.setup_complete || batch_stage != BATCH_IDLE) return;
+    memset(&selected_layout, 0, sizeof(selected_layout));
+    if (!id || !id[0] || strlen(id) >= sizeof(selected_layout.id)) {
+        save_pending_selection();
+        return;
+    }
+    snprintf(selected_layout.id, sizeof(selected_layout.id), "%s", id);
+    snprintf(selected_layout.name, sizeof(selected_layout.name), "%s", name && name[0] ? name : id);
+    save_pending_selection();
+}
+
+bool gui_setup_plugins_layout_ready(void) {
+    return layout_ready;
 }
 
 static void hide_popups(void) {
-    gui_popup_hide(&selection_popup);
-    gui_popup_hide(&replace_popup);
     gui_popup_hide(&result_popup);
-}
-
-static void update_popup_bodies(void) {
-    size_t used = 0;
-    selection_summary[0] = '\0';
-    for (size_t i = 0; i < batch_count; ++i) {
-        plugin_store_details_t details = {0};
-        bool has_details = plugin_store_get_details(batch[i].id, &details);
-        const char * description = has_details && details.description[0]
-            ? details.description : TR("No description");
-        int n = snprintf(selection_summary + used, sizeof(selection_summary) - used,
-                         "%s%s\n%.400s%s",
-                         i ? "\n" : "", batch[i].name,
-                         description, i + 1 < batch_count ? "\n" : "");
-        if (n < 0) break;
-        size_t added = (size_t) n;
-        if (added >= sizeof(selection_summary) - used) {
-            /* The fixed capacity covers every catalog description and name.
-             * Keep an explicit terminator if a translated fallback exceeds it. */
-            used = sizeof(selection_summary) - 1;
-            selection_summary[used] = '\0';
-            break;
-        }
-        used += added;
-    }
-    if (selection_body) lv_label_set_text(selection_body, selection_summary);
-    if (selection_body) {
-        int32_t screen = lv_display_get_vertical_resolution(lv_display_get_default());
-        lv_obj_update_layout(selection_popup.popup);
-        int32_t reserved = lv_obj_get_style_pad_top(selection_popup.popup, 0) +
-                           lv_obj_get_style_pad_bottom(selection_popup.popup, 0);
-        uint32_t children = lv_obj_get_child_count(selection_popup.popup);
-        for (uint32_t i = 0; i < children; ++i) {
-            lv_obj_t * child = lv_obj_get_child(selection_popup.popup, i);
-            if (child != selection_body) reserved += lv_obj_get_height(child);
-        }
-        reserved += (int32_t)(children - 1) * lv_obj_get_style_pad_row(selection_popup.popup, 0);
-        int32_t cap = LV_MAX(1, screen - 2 * STATUS_BAR_CLEARANCE - reserved);
-        int32_t desired = (int32_t) batch_count * BOARD_SCALE_PX(60) + BOARD_SCALE_PX(24);
-        if (desired < BOARD_SCALE_PX(72)) desired = BOARD_SCALE_PX(72);
-        if (desired > cap) desired = cap;
-        lv_obj_set_height(selection_body, desired);
-        lv_obj_scroll_to_y(selection_body, 0, LV_ANIM_OFF);
-    }
-    if (replace_body) {
-        char prompt[192];
-        snprintf(prompt, sizeof(prompt), TR("%s has local files that would be replaced."),
-                 batch_index < batch_count ? batch[batch_index].name : "");
-        lv_label_set_text(replace_body, prompt);
-        lv_obj_set_height(replace_body, BOARD_SCALE_PX(72));
-    }
-}
-
-static void cancel_initial_confirmation(lv_event_t * e) {
-    if (e && lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    gui_popup_hide(&selection_popup);
-    cancel_initial_batch();
-}
-
-static void selection_backdrop_cb(lv_event_t * e) {
-    cancel_initial_confirmation(e);
-}
-
-static void replace_backdrop_cb(lv_event_t * e) {
-    replace_cancel_cb(e);
 }
 
 static void result_backdrop_cb(lv_event_t * e) { (void)e; }
@@ -319,26 +310,23 @@ static gui_popup_t * create_batch_popup(gui_popup_t * popup, const char * title_
 }
 
 static bool create_popups(void) {
-    create_batch_popup(&selection_popup, TR("Install selected plugins?"), &selection_body,
-                       selection_backdrop_cb, TR("OK"), accent_lv_color(),
-                       selection_confirm_cb, cancel_initial_confirmation, NULL);
-    create_batch_popup(&replace_popup, TR("Replace local plugin files?"), &replace_body,
-                       replace_backdrop_cb, TR("Replace"), lv_color_make(255, 100, 100),
-                       replace_confirm_cb, replace_cancel_cb, NULL);
     create_batch_popup(&result_popup, TR("Plugin setup complete"), &result_body,
                        result_backdrop_cb, TR("Continue setup"), accent_lv_color(),
                        result_ack_cb, NULL, &result_title);
-    return selection_popup.popup && replace_popup.popup && result_popup.popup;
+    return result_popup.popup != NULL;
 }
 
 static void remove_successful_selections(void) {
+    bool removed = false;
     for (size_t i = 0; i < batch_count; ++i) {
         if (!batch_succeeded[i]) continue;
         int found = selected_index(batch[i].id);
         if (found < 0) continue;
         for (size_t j = (size_t) found; j + 1 < selected_count; ++j) selected[j] = selected[j + 1];
         memset(&selected[--selected_count], 0, sizeof(selected[0]));
+        removed = true;
     }
+    if (removed) save_pending_selection();
 }
 
 static void update_progress(int current_percent) {
@@ -358,8 +346,7 @@ static void update_progress(int current_percent) {
 }
 
 static void attach_progress(void) {
-    if (batch_ui_attached || batch_stage == BATCH_IDLE || batch_stage == BATCH_CONFIRMING ||
-        batch_stage == BATCH_REPLACE_CONFIRMING) return;
+    if (batch_ui_attached || batch_stage == BATCH_IDLE) return;
     char title[96];
     snprintf(title, sizeof(title), batch_retry_pass ? TR("Retrying plugins %zu/%zu") : TR("Downloading and installing plugins %zu/%zu"),
              batch_completed, batch_retry_pass ? batch_retry_total : batch_count);
@@ -387,14 +374,19 @@ static void schedule_batch_timer(void) {
     if (!batch_timer) batch_timer = lv_timer_create(batch_poll_cb, 250, NULL);
 }
 
+static bool completed_layout_ready(void) {
+    for (size_t i = 0; i < batch_count; ++i)
+        if (batch_is_layout[i]) return batch_succeeded[i];
+    return false;
+}
+
 static void finish_batch(bool success, const char * failure_message) {
     (void) success;
     (void) failure_message;
     delete_batch_timer();
-    gui_popup_hide(&selection_popup);
-    gui_popup_hide(&replace_popup);
     detach_progress();
     remove_successful_selections();
+    layout_ready = completed_layout_ready();
     show_batch_result();
 }
 
@@ -406,7 +398,7 @@ static void fail_current_and_continue(const char * message) {
 
 static void show_batch_result(void) {
     if (!create_popups()) return;
-    char body[SETUP_PLUGIN_LIMIT * (SETUP_PLUGIN_NAME_CAP + 4) + 256];
+    char body[SETUP_BATCH_LIMIT * (SETUP_PLUGIN_NAME_CAP + 4) + 256];
     size_t used = 0, failures = failed_count();
     if (failures) {
         int n = snprintf(body, sizeof(body), TR("Failed plugins:\n"));
@@ -455,7 +447,23 @@ static int find_catalog_item(const char * id) {
     return -1;
 }
 
-static bool begin_install(bool force) {
+static void update_batch_names_from_catalog(void) {
+    for (size_t i = 0; i < batch_count; ++i) {
+        int item_index = find_catalog_item(batch[i].id);
+        if (item_index < 0 || !catalog[item_index].name[0]) continue;
+        snprintf(batch[i].name, sizeof(batch[i].name), "%s", catalog[item_index].name);
+        if (batch_is_layout[i]) {
+            if (strcmp(selected_layout.id, batch[i].id) == 0)
+                snprintf(selected_layout.name, sizeof(selected_layout.name), "%s", catalog[item_index].name);
+        } else {
+            int selected_item = selected_index(batch[i].id);
+            if (selected_item >= 0)
+                snprintf(selected[selected_item].name, sizeof(selected[selected_item].name), "%s", catalog[item_index].name);
+        }
+    }
+}
+
+static bool begin_install(void) {
     if (batch_index >= batch_count) return false;
     int item_index = find_catalog_item(batch[batch_index].id);
     if (item_index < 0) {
@@ -468,13 +476,9 @@ static bool begin_install(bool force) {
         mark_current_complete(false);
         return true;
     }
-    if (!force && item->state == PLUGIN_STORE_PLUGIN_INSTALLED) {
-        mark_current_complete(true);
-        return true;
-    }
     bool started = item->state == PLUGIN_STORE_PLUGIN_UPDATE
-        ? plugin_store_update(item->id, force)
-        : plugin_store_install(item->id, force);
+        ? plugin_store_update(item->id, true)
+        : plugin_store_install(item->id, true);
     if (!started) {
         mark_current_complete(false);
         return true;
@@ -491,7 +495,7 @@ static void start_next_batch_item(void) {
             continue;
         }
         size_t item_before = batch_index;
-        if (!begin_install(false)) return;
+        if (!begin_install()) return;
         if (batch_item_waits_for_worker(item_before)) {
             attach_progress();
             schedule_batch_timer();
@@ -512,63 +516,11 @@ static void start_next_batch_item(void) {
     finish_batch(true, NULL);
 }
 
-static void selection_confirm_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    gui_popup_hide(&selection_popup);
-    if (!gui_network_setup_wifi_connected()) {
-        clear_batch();
-        show_error_toast(TR("No network detected. Connect to a network to download plugins."));
-        return;
-    }
-    if (plugin_store_busy() || gui_plugin_store_operation_active()) {
-        clear_batch();
-        show_error_toast(TR("A plugin operation is already in progress"));
-        return;
-    }
-    if (!plugin_store_refresh()) {
-        clear_batch();
-        show_error_toast(TR("Could not start refreshing the plugin catalog."));
-        return;
-    }
-    batch_stage = BATCH_REFRESHING;
-    attach_progress();
-    schedule_batch_timer();
-}
-
-static void replace_confirm_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    gui_popup_hide(&replace_popup);
-    if (batch_index >= batch_count) {
-        fail_current_and_continue(TR("Plugin selection could not be resumed."));
-        return;
-    }
-    int item_index = find_catalog_item(batch[batch_index].id);
-    if (item_index < 0) {
-        fail_current_and_continue(TR("A selected plugin is no longer available."));
-        return;
-    }
-    bool started = catalog[item_index].state == PLUGIN_STORE_PLUGIN_UPDATE
-        ? plugin_store_update(batch[batch_index].id, true)
-        : plugin_store_install(batch[batch_index].id, true);
-    if (!started) {
-        fail_current_and_continue(TR("Could not start replacing plugin files."));
-        return;
-    }
-    batch_stage = batch_retry_pass ? BATCH_RETRYING : BATCH_INSTALLING;
-    attach_progress();
-    schedule_batch_timer();
-}
-
-static void replace_cancel_cb(lv_event_t * e) {
-    if (e && lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    gui_popup_hide(&replace_popup);
-    fail_current_and_continue(TR("Installation skipped. You can try it again later."));
-}
-
 static void batch_poll_cb(lv_timer_t * timer) {
     (void) timer;
     if (current_settings.setup_complete) {
         clear_selection();
+        memset(&selected_layout, 0, sizeof(selected_layout));
         delete_batch_timer();
         hide_popups();
         detach_progress();
@@ -605,6 +557,7 @@ static void batch_poll_cb(lv_timer_t * timer) {
         }
         if (status.state == PLUGIN_STORE_READY) {
             catalog_count = status.result_count;
+            update_batch_names_from_catalog();
             if (batch_refresh_retry) {
                 batch_refresh_retry = false;
                 batch_retry_pass = true;
@@ -625,11 +578,9 @@ static void batch_poll_cb(lv_timer_t * timer) {
         return;
     }
     if (status.state == PLUGIN_STORE_NEEDS_CONFIRM) {
-        delete_batch_timer();
-        detach_progress();
-        batch_stage = BATCH_REPLACE_CONFIRMING;
-        update_popup_bodies();
-        gui_popup_show(&replace_popup);
+        /* Setup selections explicitly consent to replacing local plugin files. */
+        batch_changed = batch_changed || status.changed;
+        fail_current_and_continue(TR("Could not replace plugin files."));
         return;
     }
     if (status.state == PLUGIN_STORE_FAILED || status.state == PLUGIN_STORE_IDLE) {
@@ -646,31 +597,49 @@ static void batch_poll_cb(lv_timer_t * timer) {
     }
 }
 
-bool gui_setup_plugins_confirm(void (*on_complete)(void)) {
-    if (current_settings.setup_complete) clear_selection();
+bool gui_setup_plugins_start(void (*on_complete)(void)) {
+    if (current_settings.setup_complete) {
+        clear_selection();
+        memset(&selected_layout, 0, sizeof(selected_layout));
+    }
     if (batch_stage != BATCH_IDLE || plugin_store_busy() || gui_plugin_store_operation_active()) {
         show_error_toast(TR("A plugin operation is already in progress"));
         return false;
     }
-    if (selected_count == 0) {
-        show_info_toast(TR("Select at least one plugin to continue."));
-        return false;
+    clear_batch();
+    layout_ready = false;
+    batch_on_complete = on_complete;
+    if (selected_count == 0 && selected_layout.id[0] == '\0') {
+        void (*done)(void) = batch_on_complete;
+        batch_on_complete = NULL;
+        if (done) done();
+        return true;
     }
     if (!gui_network_setup_wifi_connected()) {
+        clear_batch();
         show_error_toast(TR("No network detected. Connect to a network to download plugins."));
         return false;
     }
     if (!create_popups()) {
-        show_error_toast(TR("Could not open plugin confirmation."));
+        clear_batch();
+        show_error_toast(TR("Could not start the plugin operation"));
         return false;
     }
-    clear_batch();
     memcpy(batch, selected, selected_count * sizeof(selected[0]));
     batch_count = selected_count;
-    batch_stage = BATCH_CONFIRMING;
-    batch_on_complete = on_complete;
-    update_popup_bodies();
-    gui_popup_show(&selection_popup);
+    if (selected_layout.id[0]) {
+        batch[batch_count] = selected_layout;
+        batch_is_layout[batch_count] = true;
+        batch_count++;
+    }
+    if (!plugin_store_refresh()) {
+        clear_batch();
+        show_error_toast(TR("Could not start refreshing the plugin catalog."));
+        return false;
+    }
+    batch_stage = BATCH_REFRESHING;
+    attach_progress();
+    schedule_batch_timer();
     return true;
 }
 
@@ -684,13 +653,12 @@ void gui_setup_plugins_teardown(void) {
         batch_timer = NULL;
     }
     hide_popups();
-    gui_popup_teardown(&selection_popup);
-    gui_popup_teardown(&replace_popup);
     gui_popup_teardown(&result_popup);
-    selection_body = replace_body = result_body = result_title = NULL;
+    result_body = result_title = NULL;
     detach_progress();
     if (current_settings.setup_complete) {
         clear_selection();
+        memset(&selected_layout, 0, sizeof(selected_layout));
         clear_batch();
     }
 }
@@ -698,17 +666,13 @@ void gui_setup_plugins_teardown(void) {
 void gui_setup_plugins_resume(void) {
     if (current_settings.setup_complete) {
         clear_selection();
+        memset(&selected_layout, 0, sizeof(selected_layout));
         clear_batch();
         return;
     }
     if (batch_stage == BATCH_IDLE) return;
     if (!create_popups()) return;
-    update_popup_bodies();
-    if (batch_stage == BATCH_CONFIRMING) {
-        gui_popup_show(&selection_popup);
-    } else if (batch_stage == BATCH_REPLACE_CONFIRMING) {
-        gui_popup_show(&replace_popup);
-    } else if (batch_stage == BATCH_RESULT) {
+    if (batch_stage == BATCH_RESULT) {
         show_batch_result();
     } else {
         attach_progress();
@@ -717,9 +681,8 @@ void gui_setup_plugins_resume(void) {
 }
 
 #ifdef GUI_SETUP_PLUGINS_STATE_TEST
-/* A deterministic state-only check for the batch's two completion paths.
- * It deliberately calls no catalog/network/UI entry point: these scenarios
- * must not produce a plugin write before confirmation. Build this file with
+/* A deterministic state-only check for batch completion and progress.
+ * It deliberately calls no catalog/network/UI entry point. Build this file with
  * -DGUI_SETUP_PLUGINS_STATE_TEST -ffunction-sections -fdata-sections and
  * --gc-sections to run the checks with the tiny main below. */
 int main(void) {
@@ -790,12 +753,21 @@ int main(void) {
     remove_successful_selections();
     if (selected_count != 2 || strcmp(selected[0].id, "failed") || strcmp(selected[1].id, "pending")) return 10;
 
-    /* Cancel before OK only clears the frozen selection snapshot. No backend
-     * operation is started anywhere on this path. */
-    int mock_plugin_writes = 0;
-    batch_stage = BATCH_CONFIRMING;
-    cancel_initial_batch();
-    if (mock_plugin_writes != 0 || batch_stage != BATCH_IDLE) return 11;
+    /* The batch supports 32 regular selections plus one independently
+     * replaceable layout result, and clear_batch leaves the result readable. */
+    clear_batch();
+    batch_count = SETUP_BATCH_LIMIT;
+    batch_is_layout[SETUP_BATCH_LIMIT - 1] = true;
+    batch_succeeded[SETUP_BATCH_LIMIT - 1] = true;
+    layout_ready = completed_layout_ready();
+    if (!layout_ready) return 11;
+    clear_batch();
+    if (!layout_ready) return 12;
+    batch_failed[SETUP_BATCH_LIMIT - 1] = true;
+    batch_succeeded[SETUP_BATCH_LIMIT - 1] = false;
+    layout_ready = completed_layout_ready();
+    if (layout_ready) return 13;
+
     return 0;
 }
 #endif

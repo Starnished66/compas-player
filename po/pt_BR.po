@@ -28,7 +28,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: compas-player\n"
 "Report-Msgid-Bugs-To: none\n"
-"POT-Creation-Date: 2026-10-02 05:17-0600\n"
+"POT-Creation-Date: 2026-10-04 01:25-0600\n"
 "PO-Revision-Date: 2026-10-01 00:00+0000\n"
 "Last-Translator: Machine draft\n"
 "Language-Team: Portuguese (Brazil)\n"
@@ -56,6 +56,116 @@ msgstr "Não foi possível decodificar o áudio"
 
 msgid "Playback error"
 msgstr "Erro de reprodução"
+
+#, fuzzy
+msgid "No SD card is mounted."
+msgstr "Sem cartão SD"
+
+msgid "Cannot read the SD card."
+msgstr "Não foi possível ler o cartão SD."
+
+msgid "No .upt firmware file found on SD card"
+msgstr "Nenhum arquivo de firmware .upt no cartão SD"
+
+#, fuzzy
+msgid "Keep only one .upt file in the SD card root."
+msgstr "Não foi possível separar os outros arquivos .upt no cartão SD."
+
+#, c-format
+msgid "Use a regular %s file for this player. Check the SD card."
+msgstr ""
+
+#, c-format
+msgid "Could not prepare update helper: %s"
+msgstr "Não foi possível preparar o assistente de atualização: %s"
+
+#, c-format
+msgid "Could not start update helper: %s"
+msgstr "Não foi possível iniciar o assistente de atualização: %s"
+
+#, c-format
+msgid "Update helper failed (%s, status %d). See .compas/ota/update.log."
+msgstr ""
+
+#, c-format
+msgid "Cannot read update helper status: %s"
+msgstr "Não foi possível ler o estado do assistente de atualização: %s"
+
+msgid "Still working. Do not turn off the player or retry."
+msgstr ""
+
+msgid "Recovery flag partition does not match this firmware."
+msgstr ""
+
+msgid "Cannot safely access the recovery flag block."
+msgstr ""
+
+msgid "Recovery flag erase failed. Do not reboot; check .compas/ota/update.log."
+msgstr ""
+
+msgid "Recovery flag write failed. Do not reboot; check .compas/ota/update.log."
+msgstr ""
+
+msgid "Recovery flag verification failed. Do not reboot; check the update log."
+msgstr ""
+
+#, fuzzy
+msgid "The selected update file changed. Select it again."
+msgstr "O arquivo de atualização no cartão SD mudou. Baixe de novo."
+
+#, fuzzy
+msgid "Cannot read the selected update file."
+msgstr "Não foi possível ler o cartão SD."
+
+#, fuzzy
+msgid "Cannot create the update log directory."
+msgstr "Não foi possível colocar a atualização no cartão SD."
+
+#, fuzzy
+msgid "Update diagnostics must be stored on the SD card."
+msgstr "Não foi possível colocar a atualização no cartão SD."
+
+#, fuzzy
+msgid "Cannot save update diagnostics on the SD card."
+msgstr "Não foi possível colocar a atualização no cartão SD."
+
+#, fuzzy
+msgid "The update file changed during verification. Select it again."
+msgstr "O download do plugin falhou na verificação. Tente de novo."
+
+msgid "A required recovery helper is missing. Update preparation stopped."
+msgstr ""
+
+msgid "Cannot save update diagnostics. Update preparation stopped."
+msgstr ""
+
+msgid "Recovery boot flag failed."
+msgstr ""
+
+msgid "Recovery remains selected. Keep the update file; saving diagnostics failed."
+msgstr ""
+
+msgid "Saving data failed. Recovery remains selected; keep the update file and check .compas/ota/update.log."
+msgstr ""
+
+#, c-format
+msgid "Recovery remains selected but reboot failed: %s. Keep the update file."
+msgstr ""
+
+msgid "An update is already in progress."
+msgstr "Já há uma atualização em andamento."
+
+#, c-format
+msgid "Charge to at least 30%% or connect power before updating."
+msgstr "Carregue até pelo menos 30%% ou conecte à energia antes de atualizar."
+
+#, fuzzy
+msgid "Invalid update path."
+msgstr "Nome de perfil inválido"
+
+#, fuzzy
+msgid "Could not start the update."
+msgstr "Não foi possível iniciar a busca por atualização."
 
 msgid "Screenshots unavailable"
 msgstr "Capturas indisponíveis"
@@ -99,9 +209,12 @@ msgstr "Próxima"
 msgid "Unexpected reply from GitHub"
 msgstr "Resposta inesperada do GitHub"
 
+msgid "GitHub's latest release is not a supported weekly firmware release."
+msgstr ""
+
 #, c-format
-msgid "No weekly release has a %s image"
-msgstr "Nenhuma versão semanal tem uma imagem %s"
+msgid "GitHub's latest release has no valid %s image and checksum."
+msgstr ""
 
 msgid "Secure connection failed. Check Wi-Fi and the date and time."
 msgstr "Falha na conexão segura. Verifique o Wi-Fi e a data e hora."
@@ -121,6 +234,9 @@ msgstr "O GitHub está limitando as solicitações. Tente mais tarde."
 #, c-format
 msgid "GitHub returned HTTP %d."
 msgstr "O GitHub retornou HTTP %d."
+
+msgid "A newer or changed release is available. Check for updates again before downloading."
+msgstr ""
 
 msgid "Insert an SD card to download the update."
 msgstr "Insira um cartão SD para baixar a atualização."
@@ -167,8 +283,16 @@ msgstr "Não foi possível ler o arquivo de atualização no cartão SD. Verifiq
 msgid "The update file on the SD card changed. Download it again."
 msgstr "O arquivo de atualização no cartão SD mudou. Baixe de novo."
 
-msgid "Cannot read the SD card."
-msgstr "Não foi possível ler o cartão SD."
+msgid "This update is no longer the latest release. Check for updates and download the latest image."
+msgstr ""
+
+#, fuzzy
+msgid "Could not verify the latest release checksums."
+msgstr "Não foi possível baixar os checksums da versão."
+
+#, fuzzy
+msgid "This update no longer matches the latest release. Download the latest image again."
+msgstr "O arquivo de atualização no cartão SD mudou. Baixe de novo."
 
 msgid "Could not move other .upt files aside on the SD card."
 msgstr "Não foi possível separar os outros arquivos .upt no cartão SD."
@@ -180,7 +304,8 @@ msgstr "Não foi possível entrar no modo de recuperação."
 msgid "Charge to at least %d%% or connect power before updating."
 msgstr "Carregue até pelo menos %d%% ou conecte a energia antes de atualizar."
 
-msgid "An update is already in progress."
+#, fuzzy
+msgid "A firmware update is already in progress."
 msgstr "Já há uma atualização em andamento."
 
 msgid "Could not start the installation."
@@ -189,8 +314,23 @@ msgstr "Não foi possível iniciar a instalação."
 msgid "Unexpected reply from GitHub."
 msgstr "Resposta inesperada do GitHub."
 
+msgid "Disconnect USB storage from the host before changing plugins."
+msgstr "Desconecte o armazenamento USB do computador antes de alterar os plugins."
+
+msgid "Cannot check plugin storage write access."
+msgstr "Não foi possível verificar o acesso de gravação ao armazenamento dos plugins."
+
+msgid "The SD card is read-only. Check its write protection."
+msgstr "O cartão SD está somente para leitura. Verifique a proteção contra gravação."
+
+msgid "Plugin storage is unavailable."
+msgstr "O armazenamento dos plugins está indisponível."
+
 msgid "Could not read the plugin list from GitHub."
 msgstr "Não foi possível ler a lista de plugins do GitHub."
+
+msgid "The SD card changed during the operation."
+msgstr "O cartão SD mudou durante a operação."
 
 msgid "Insert an SD card to install plugins."
 msgstr "Insira um cartão SD para instalar plugins."
@@ -219,11 +359,11 @@ msgstr "O download do plugin falhou na verificação. Tente de novo."
 msgid "A local plugin file will be replaced. Confirm to continue."
 msgstr "Um arquivo de plugin local será substituído. Confirme para continuar."
 
-msgid "The SD card changed during the operation."
-msgstr "O cartão SD mudou durante a operação."
-
 msgid "Could not install the plugin on the SD card."
 msgstr "Não foi possível instalar o plugin no cartão SD."
+
+msgid "Insert an SD card to change plugins."
+msgstr "Insira um cartão SD para alterar os plugins."
 
 msgid "Could not start the plugin operation."
 msgstr "Não foi possível iniciar a operação do plugin."
@@ -832,6 +972,10 @@ msgstr "Isso apaga tudo no cartão de forma permanente. Não é possível desfaz
 msgid "Format"
 msgstr "Formatar"
 
+#, fuzzy
+msgid "An update is in progress. Please wait."
+msgstr "Já há uma atualização em andamento."
+
 msgid "Tap Power off again to confirm"
 msgstr "Toque em Desligar de novo para confirmar"
 
@@ -876,6 +1020,66 @@ msgstr "Playlists atualizadas"
 msgid "Some playlists could not be read"
 msgstr "Algumas playlists não puderam ser lidas"
 
+msgid "Sunday"
+msgstr "domingo"
+
+msgid "Monday"
+msgstr "segunda-feira"
+
+msgid "Tuesday"
+msgstr "terça-feira"
+
+msgid "Wednesday"
+msgstr "quarta-feira"
+
+msgid "Thursday"
+msgstr "quinta-feira"
+
+msgid "Friday"
+msgstr "sexta-feira"
+
+msgid "Saturday"
+msgstr "sábado"
+
+msgid "January"
+msgstr "janeiro"
+
+msgid "February"
+msgstr "fevereiro"
+
+msgid "March"
+msgstr "março"
+
+msgid "April"
+msgstr "abril"
+
+msgid "May"
+msgstr "maio"
+
+msgid "June"
+msgstr "junho"
+
+msgid "July"
+msgstr "julho"
+
+msgid "August"
+msgstr "agosto"
+
+msgid "September"
+msgstr "setembro"
+
+msgid "October"
+msgstr "outubro"
+
+msgid "November"
+msgstr "novembro"
+
+msgid "December"
+msgstr "dezembro"
+
+msgid "Could not load lock screen photo"
+msgstr "Não foi possível carregar a foto da tela de bloqueio"
+
 msgid "Swipe up to unlock"
 msgstr "Deslize para cima para desbloquear"
 
@@ -894,9 +1098,8 @@ msgstr "Não foi possível aplicar o tamanho do texto da letra"
 msgid "Lyrics Text Size"
 msgstr "Tamanho do texto da letra"
 
-#, fuzzy
 msgid "Wi-Fi is busy"
-msgstr "A biblioteca está ocupada"
+msgstr "O Wi-Fi está ocupado"
 
 msgid "Connecting to"
 msgstr "Conectando a"
@@ -906,12 +1109,6 @@ msgstr "Não foi possível conectar à rede Wi-Fi"
 
 msgid "Wi-Fi Password"
 msgstr "Senha do Wi-Fi"
-
-msgid "Scanning..."
-msgstr "Buscando..."
-
-msgid "Rescan"
-msgstr "Buscar novamente"
 
 msgid "Secured · Connected"
 msgstr "Protegida · Conectada"
@@ -971,6 +1168,9 @@ msgstr "Conectar"
 
 msgid "Forget"
 msgstr "Esquecer"
+
+msgid "Disconnect"
+msgstr "Desconectar"
 
 msgid "Loading..."
 msgstr "Carregando..."
@@ -1057,6 +1257,12 @@ msgstr "Buscando redes"
 
 msgid "Nearby Wi-Fi networks will appear here."
 msgstr "As redes Wi-Fi próximas aparecerão aqui."
+
+msgid "No other networks found"
+msgstr "Nenhuma outra rede encontrada"
+
+msgid "All visible networks are already saved."
+msgstr "Todas as redes visíveis já estão salvas."
 
 msgid "Check that Wi-Fi is enabled, then rescan."
 msgstr "Verifique se o Wi-Fi está ativado e busque de novo."
@@ -1204,6 +1410,9 @@ msgstr "ADB"
 
 msgid "Could not start USB mode switch"
 msgstr "Não foi possível iniciar a troca do modo USB"
+
+msgid "An update is already in progress"
+msgstr "Já há uma atualização em andamento"
 
 msgid "USB mode"
 msgstr "Modo USB"
@@ -1452,6 +1661,10 @@ msgstr "Atualizar plugins"
 msgid "Plugin Manager"
 msgstr "Gerenciar plugins"
 
+#, fuzzy
+msgid "Download layouts"
+msgstr "Carregando layouts"
+
 msgid "Install"
 msgstr "Instalar"
 
@@ -1530,6 +1743,10 @@ msgstr "Atualizando plugins"
 
 msgid "This may take a while"
 msgstr "Isso pode demorar"
+
+#, fuzzy
+msgid "No layouts are available in the catalog."
+msgstr "Nenhum plugin disponível no catálogo."
 
 msgid "Refresh plugin catalog"
 msgstr "Atualizar catálogo de plugins"
@@ -1699,14 +1916,17 @@ msgstr "Curva do EQ"
 msgid "Band %d / %d"
 msgstr "Banda %d / %d"
 
-msgid "Could not enter recovery. Restart the player and try again."
-msgstr "Não foi possível entrar na recuperação. Reinicie o player e tente de novo."
+msgid "Wait for USB mode switching to finish and disconnect USB storage before updating."
+msgstr ""
+
+msgid "Preparing update"
+msgstr "Preparando atualização"
+
+msgid "Checking the file on the SD card"
+msgstr "Verificando o arquivo no cartão SD"
 
 msgid "Update & Reboot"
 msgstr "Atualizar e reiniciar"
-
-msgid "No .upt firmware file found on SD card"
-msgstr "Nenhum arquivo de firmware .upt no cartão SD"
 
 #, c-format
 msgid ""
@@ -1726,10 +1946,8 @@ msgstr ""
 "\n"
 "Instalar agora? O aparelho reinicia na recuperação para gravá-lo. Não o desligue até ele reiniciar."
 
-msgid "An update is already in progress"
-msgstr "Já há uma atualização em andamento"
-
-msgid "The downloaded update changed on the SD card and was set aside. Download it again."
+#, fuzzy
+msgid "The downloaded update record is invalid. Download the update again."
 msgstr "A atualização baixada mudou no cartão SD e foi separada. Baixe de novo."
 
 msgid "Cannot read the update record on the SD card. Check the card and try again."
@@ -1744,14 +1962,9 @@ msgstr "Não foi possível iniciar o download"
 msgid "Downloading update"
 msgstr "Baixando atualização"
 
-msgid "Update saved. Install it any time from Firmware Update > Install from SD card."
+#, fuzzy
+msgid "Update saved. Connect to Wi-Fi, then install from Firmware Update > Install from SD card."
 msgstr "Atualização salva. Instale quando quiser em Atualização de firmware > Instalar do cartão SD."
-
-msgid "Preparing update"
-msgstr "Preparando atualização"
-
-msgid "Checking the file on the SD card"
-msgstr "Verificando o arquivo no cartão SD"
 
 msgid "Check for online update"
 msgstr "Buscar atualização online"
@@ -1764,6 +1977,15 @@ msgstr "Baixar"
 
 msgid "Install & Reboot"
 msgstr "Instalar e reiniciar"
+
+msgid "Preparing and verifying recovery mode"
+msgstr ""
+
+msgid "Saving data before reboot"
+msgstr ""
+
+msgid "Restarting into recovery. Do not turn off the player."
+msgstr ""
 
 #, c-format
 msgid ""
@@ -2301,6 +2523,9 @@ msgstr "Aguarde a instalação dos plugins terminar"
 msgid "Connect to a Wi-Fi network before continuing."
 msgstr "Conecte-se a uma rede Wi-Fi antes de continuar."
 
+msgid "Select at least one plugin to continue."
+msgstr "Selecione pelo menos um plugin para continuar."
+
 msgid "Could not start the library scan. Please try again."
 msgstr "Não foi possível iniciar a busca na biblioteca. Tente novamente."
 
@@ -2315,6 +2540,10 @@ msgstr "Não foi possível carregar o catálogo de plugins. Toque em Mais para t
 
 msgid "Loading plugin catalog..."
 msgstr "Carregando catálogo de plugins…"
+
+#, fuzzy
+msgid "Default"
+msgstr "Usar padrões"
 
 msgid "No network detected"
 msgstr "Nenhuma rede detectada"
@@ -2374,6 +2603,9 @@ msgstr "Escolher fuso horário"
 msgid "Add hidden network"
 msgstr "Adicionar rede oculta"
 
+msgid "Rescan"
+msgstr "Buscar novamente"
+
 msgid "Connect to a network to download plugins."
 msgstr "Conecte-se a uma rede para baixar plugins."
 
@@ -2395,19 +2627,6 @@ msgstr "Nenhum cartão SD detectado. Você pode fazer a busca depois nas configu
 
 msgid "You can select up to 32 plugins"
 msgstr "Você pode selecionar até 32 plugins"
-
-#, c-format
-msgid "%s has local files that would be replaced."
-msgstr "%s tem arquivos locais que serão substituídos."
-
-msgid "Install selected plugins?"
-msgstr "Instalar os plugins selecionados?"
-
-msgid "OK"
-msgstr "OK"
-
-msgid "Replace local plugin files?"
-msgstr "Substituir os arquivos locais do plugin?"
 
 msgid "Plugin setup complete"
 msgstr "Configuração de plugins concluída"
@@ -2435,26 +2654,12 @@ msgstr "Gerencie os plugins depois em Configurações > Sistema > Gerenciador de
 msgid "Plugin setup needs attention"
 msgstr "A configuração de plugins precisa de atenção"
 
-msgid "Could not start refreshing the plugin catalog."
-msgstr "Não foi possível iniciar a atualização do catálogo de plugins."
-
-msgid "Plugin selection could not be resumed."
-msgstr "Não foi possível retomar a seleção de plugins."
-
-msgid "A selected plugin is no longer available."
-msgstr "Um plugin selecionado não está mais disponível."
-
-msgid "Could not start replacing plugin files."
+#, fuzzy
+msgid "Could not replace plugin files."
 msgstr "Não foi possível iniciar a substituição dos arquivos do plugin."
 
-msgid "Installation skipped. You can try it again later."
-msgstr "Instalação ignorada. Você pode tentar novamente mais tarde."
-
-msgid "Select at least one plugin to continue."
-msgstr "Selecione pelo menos um plugin para continuar."
-
-msgid "Could not open plugin confirmation."
-msgstr "Não foi possível abrir a confirmação dos plugins."
+msgid "Could not start refreshing the plugin catalog."
+msgstr "Não foi possível iniciar a atualização do catálogo de plugins."
 
 msgid "AM"
 msgstr ""
@@ -2769,11 +2974,43 @@ msgstr "Controles de energia"
 msgid "Playback and device actions"
 msgstr "Ações de reprodução e do aparelho"
 
+#~ msgid "Scanning..."
+#~ msgstr "Buscando..."
+
+#, c-format
+#~ msgid "No weekly release has a %s image"
+#~ msgstr "Nenhuma versão semanal tem uma imagem %s"
+
+#~ msgid "Could not enter recovery. Restart the player and try again."
+#~ msgstr "Não foi possível entrar na recuperação. Reinicie o player e tente de novo."
+
+#, c-format
+#~ msgid "%s has local files that would be replaced."
+#~ msgstr "%s tem arquivos locais que serão substituídos."
+
+#~ msgid "Install selected plugins?"
+#~ msgstr "Instalar os plugins selecionados?"
+
+#~ msgid "OK"
+#~ msgstr "OK"
+
+#~ msgid "Replace local plugin files?"
+#~ msgstr "Substituir os arquivos locais do plugin?"
+
+#~ msgid "Plugin selection could not be resumed."
+#~ msgstr "Não foi possível retomar a seleção de plugins."
+
+#~ msgid "A selected plugin is no longer available."
+#~ msgstr "Um plugin selecionado não está mais disponível."
+
+#~ msgid "Installation skipped. You can try it again later."
+#~ msgstr "Instalação ignorada. Você pode tentar novamente mais tarde."
+
+#~ msgid "Could not open plugin confirmation."
+#~ msgstr "Não foi possível abrir a confirmação dos plugins."
+
 #~ msgid "Your music, ready when you are."
 #~ msgstr "Sua música, pronta quando você estiver."
-
-#~ msgid "Use defaults"
-#~ msgstr "Usar padrões"
 
 #, fuzzy
 #~ msgid "Open plugin manager"

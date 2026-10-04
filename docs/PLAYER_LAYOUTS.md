@@ -188,6 +188,14 @@ used:
 A widget with the right name but the wrong type is ignored (for a required
 one, the layout is rejected).
 
+When both lyrics timelines exist, a static `overlay_panel` containing only
+background objects can be cached automatically during the transition. No XML
+opt-in or layout-specific C code is needed. Keep live metadata and controls
+outside it. The cache preserves transparency, uses RGB565 when every captured
+pixel is opaque, and stays within a 1.5 MiB buffer budget. A solid fill, animated
+background descendants, or unsupported geometry uses normal live drawing.
+
+
 ### Waveform seek bars
 
 Use an `lv_slider` named `progress_slider` and add a hidden label to select its renderer:
@@ -261,7 +269,12 @@ docs.
 
 ### Timeline performance
 
-- The XML timeline runner skips a style update when its interpolated value is
+The built-in default and XML lyrics transitions use the same property-timeline
+runner, snapshots, damage handling and completion logic. The default supplies
+responsive geometry in C; downloaded layouts supply geometry in XML. New XML
+layouts do not need their own C animation implementation.
+
+- The shared timeline runner skips a style update when its interpolated value is
   unchanged from the current value. This avoids redundant invalidation and
   layout work on frames where an integer property rounds to the same value.
 - Animation Scale applies to XML timeline durations and delays, including
@@ -276,7 +289,37 @@ docs.
   transition without disturbing the live label's marquee state. Text that
   needs marquee scrolling or wrapping stays live. Custom drawing, unsupported
   animated styles or layout-managed labels also stay live; no special XML
-  markup is needed.
+  markup is needed. Explicitly clipped single-line labels can also use a
+  snapshot. Animated left padding is supported with fixed text alignment;
+  combining animated padding and alignment keeps the label live.
+- The first refresh waits until the deferred lyrics timeline starts. Requests
+  received during preparation are retained, so the first visible frame uses
+  the running animation clock instead of presenting a stationary frame first.
+- Prepared timelines sample moving label frames and cached backdrops from
+  the same animation clock. Exported timelines retain timer-based sampling.
+- Timeline completion reveals lyrics using the animation runner's completion
+  event. The row pool is prepared while hidden without scroll animation and
+  reused when the final pane is shown; its final height is applied before the
+  active line is centered.
+- While a lyrics timeline runs on the active player screen, overlapping damage
+  is combined into a single display region. This avoids drawing the same
+  backdrop repeatedly and copying fragmented regions between framebuffer pages.
+- A plain, opaque cover can reuse its full-size snapshot across lyrics
+  transitions and keep it displayed after closing. This is automatic for
+  rectangular cards with an undecorated cover image and, optionally, an
+  unchanged managed `cover_fade` overlay. Animated dim and lyrics-area layers
+  remain live. Other decorations,
+  masks, opacity changes and unsupported transforms use the existing rendering
+  path. Changing the cover or its styles invalidates the retained snapshot.
+- Decoded cover art can reuse exact resting-size transforms in a separate
+  two-entry cache capped at 1.5 MiB. Only repeated transforms are admitted;
+  animation sizes are rendered from the original artwork. Source replacement
+  drops these entries before releasing pixels. Rounded clipping and native
+  antialias sampling remain in use.
+- Completed intermediate cover transforms can also be reused after a
+  transition ends when the source and every transform property still match.
+  Idle drawing only looks up existing entries; it does not admit new animation
+  sizes or allocate another cache. Source changes invalidate these entries.
 - A `lyrics_backdrop` can cache the cover and lyrics-area backgrounds as two
   opaque RGB565 endpoints, then blend between them using the opacity timelines
   in the XML. For the proxy to cover the captured bounds, give the wrapper zero
@@ -290,9 +333,15 @@ docs.
   duration and easing. The opening and closing timelines may use different
   timing curves; each blend follows its own XML timeline. At the start of each
   transition, the visible opacities must match that direction's start values.
+  If both opacity layers animate and their bounds overlap, they stay live:
+  stacked opacity cannot be reproduced by blending only two endpoint images.
   For a delayed animation without `early_apply`, ensure the opacity left
   visible before the delay also matches its start value. Unsupported geometry,
   animation or starting state keeps the live XML rendering in use.
+- A static `lyrics_backdrop` without `lyrics_dim` or `lyrics_area` can also
+  retain an opaque, recolored RGB565 image. Plain images already use a direct
+  copy and stay live. Masks, layered opacity and unsupported geometry stay live
+  too; changing the source or styles invalidates the retained image.
 - Avoid an extra opaque fill behind cover art that fully covers its card. Keep
   the card's rounded clipping, and retain a background when the artwork can be
   transparent, missing, or otherwise leave parts of the card uncovered. The
@@ -324,8 +373,9 @@ it in your timelines.
 
 For a cached crossfade of the cover and lyrics backdrop, place the cover,
 `lyrics_dim` and `lyrics_area` inside a `lyrics_backdrop` wrapper. These three
-roles are optional as a group; omit any one of them to use ordinary XML
-rendering. Keep metadata and controls outside the wrapper so their own XML
+roles are optional as a group for the crossfade. A wrapper without either
+opacity role instead uses the static backdrop path described above; a wrapper
+with only one opacity role uses ordinary XML rendering. Keep metadata and controls outside the wrapper so their own XML
 timelines continue to animate them. The cache refreshes when the cover or
 background changes.
 

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: compas-player\n"
 "Report-Msgid-Bugs-To: none\n"
-"POT-Creation-Date: 2026-10-02 05:17-0600\n"
+"POT-Creation-Date: 2026-10-04 01:25-0600\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -34,6 +34,111 @@ msgid "Audio could not be decoded"
 msgstr ""
 
 msgid "Playback error"
+msgstr ""
+
+msgid "No SD card is mounted."
+msgstr ""
+
+msgid "Cannot read the SD card."
+msgstr ""
+
+msgid "No .upt firmware file found on SD card"
+msgstr ""
+
+msgid "Keep only one .upt file in the SD card root."
+msgstr ""
+
+#, c-format
+msgid "Use a regular %s file for this player. Check the SD card."
+msgstr ""
+
+#, c-format
+msgid "Could not prepare update helper: %s"
+msgstr ""
+
+#, c-format
+msgid "Could not start update helper: %s"
+msgstr ""
+
+#, c-format
+msgid "Update helper failed (%s, status %d). See .compas/ota/update.log."
+msgstr ""
+
+#, c-format
+msgid "Cannot read update helper status: %s"
+msgstr ""
+
+msgid "Still working. Do not turn off the player or retry."
+msgstr ""
+
+msgid "Recovery flag partition does not match this firmware."
+msgstr ""
+
+msgid "Cannot safely access the recovery flag block."
+msgstr ""
+
+msgid ""
+"Recovery flag erase failed. Do not reboot; check .compas/ota/update.log."
+msgstr ""
+
+msgid ""
+"Recovery flag write failed. Do not reboot; check .compas/ota/update.log."
+msgstr ""
+
+msgid "Recovery flag verification failed. Do not reboot; check the update log."
+msgstr ""
+
+msgid "The selected update file changed. Select it again."
+msgstr ""
+
+msgid "Cannot read the selected update file."
+msgstr ""
+
+msgid "Cannot create the update log directory."
+msgstr ""
+
+msgid "Update diagnostics must be stored on the SD card."
+msgstr ""
+
+msgid "Cannot save update diagnostics on the SD card."
+msgstr ""
+
+msgid "The update file changed during verification. Select it again."
+msgstr ""
+
+msgid "A required recovery helper is missing. Update preparation stopped."
+msgstr ""
+
+msgid "Cannot save update diagnostics. Update preparation stopped."
+msgstr ""
+
+msgid "Recovery boot flag failed."
+msgstr ""
+
+msgid ""
+"Recovery remains selected. Keep the update file; saving diagnostics failed."
+msgstr ""
+
+msgid ""
+"Saving data failed. Recovery remains selected; keep the update file and "
+"check .compas/ota/update.log."
+msgstr ""
+
+#, c-format
+msgid "Recovery remains selected but reboot failed: %s. Keep the update file."
+msgstr ""
+
+msgid "An update is already in progress."
+msgstr ""
+
+#, c-format
+msgid "Charge to at least 30%% or connect power before updating."
+msgstr ""
+
+msgid "Invalid update path."
+msgstr ""
+
+msgid "Could not start the update."
 msgstr ""
 
 msgid "Screenshots unavailable"
@@ -78,8 +183,11 @@ msgstr ""
 msgid "Unexpected reply from GitHub"
 msgstr ""
 
+msgid "GitHub's latest release is not a supported weekly firmware release."
+msgstr ""
+
 #, c-format
-msgid "No weekly release has a %s image"
+msgid "GitHub's latest release has no valid %s image and checksum."
 msgstr ""
 
 msgid "Secure connection failed. Check Wi-Fi and the date and time."
@@ -99,6 +207,11 @@ msgstr ""
 
 #, c-format
 msgid "GitHub returned HTTP %d."
+msgstr ""
+
+msgid ""
+"A newer or changed release is available. Check for updates again before "
+"downloading."
 msgstr ""
 
 msgid "Insert an SD card to download the update."
@@ -149,7 +262,17 @@ msgstr ""
 msgid "The update file on the SD card changed. Download it again."
 msgstr ""
 
-msgid "Cannot read the SD card."
+msgid ""
+"This update is no longer the latest release. Check for updates and download "
+"the latest image."
+msgstr ""
+
+msgid "Could not verify the latest release checksums."
+msgstr ""
+
+msgid ""
+"This update no longer matches the latest release. Download the latest image "
+"again."
 msgstr ""
 
 msgid "Could not move other .upt files aside on the SD card."
@@ -162,7 +285,7 @@ msgstr ""
 msgid "Charge to at least %d%% or connect power before updating."
 msgstr ""
 
-msgid "An update is already in progress."
+msgid "A firmware update is already in progress."
 msgstr ""
 
 msgid "Could not start the installation."
@@ -171,7 +294,22 @@ msgstr ""
 msgid "Unexpected reply from GitHub."
 msgstr ""
 
+msgid "Disconnect USB storage from the host before changing plugins."
+msgstr ""
+
+msgid "Cannot check plugin storage write access."
+msgstr ""
+
+msgid "The SD card is read-only. Check its write protection."
+msgstr ""
+
+msgid "Plugin storage is unavailable."
+msgstr ""
+
 msgid "Could not read the plugin list from GitHub."
+msgstr ""
+
+msgid "The SD card changed during the operation."
 msgstr ""
 
 msgid "Insert an SD card to install plugins."
@@ -201,10 +339,10 @@ msgstr ""
 msgid "A local plugin file will be replaced. Confirm to continue."
 msgstr ""
 
-msgid "The SD card changed during the operation."
+msgid "Could not install the plugin on the SD card."
 msgstr ""
 
-msgid "Could not install the plugin on the SD card."
+msgid "Insert an SD card to change plugins."
 msgstr ""
 
 msgid "Could not start the plugin operation."
@@ -791,6 +929,9 @@ msgstr ""
 msgid "Format"
 msgstr ""
 
+msgid "An update is in progress. Please wait."
+msgstr ""
+
 msgid "Tap Power off again to confirm"
 msgstr ""
 
@@ -835,6 +976,66 @@ msgstr ""
 msgid "Some playlists could not be read"
 msgstr ""
 
+msgid "Sunday"
+msgstr ""
+
+msgid "Monday"
+msgstr ""
+
+msgid "Tuesday"
+msgstr ""
+
+msgid "Wednesday"
+msgstr ""
+
+msgid "Thursday"
+msgstr ""
+
+msgid "Friday"
+msgstr ""
+
+msgid "Saturday"
+msgstr ""
+
+msgid "January"
+msgstr ""
+
+msgid "February"
+msgstr ""
+
+msgid "March"
+msgstr ""
+
+msgid "April"
+msgstr ""
+
+msgid "May"
+msgstr ""
+
+msgid "June"
+msgstr ""
+
+msgid "July"
+msgstr ""
+
+msgid "August"
+msgstr ""
+
+msgid "September"
+msgstr ""
+
+msgid "October"
+msgstr ""
+
+msgid "November"
+msgstr ""
+
+msgid "December"
+msgstr ""
+
+msgid "Could not load lock screen photo"
+msgstr ""
+
 msgid "Swipe up to unlock"
 msgstr ""
 
@@ -863,12 +1064,6 @@ msgid "Couldn't connect to Wi-Fi network"
 msgstr ""
 
 msgid "Wi-Fi Password"
-msgstr ""
-
-msgid "Scanning..."
-msgstr ""
-
-msgid "Rescan"
 msgstr ""
 
 msgid "Secured · Connected"
@@ -923,6 +1118,9 @@ msgid "Connect"
 msgstr ""
 
 msgid "Forget"
+msgstr ""
+
+msgid "Disconnect"
 msgstr ""
 
 msgid "Loading..."
@@ -1009,6 +1207,12 @@ msgid "Scanning for networks"
 msgstr ""
 
 msgid "Nearby Wi-Fi networks will appear here."
+msgstr ""
+
+msgid "No other networks found"
+msgstr ""
+
+msgid "All visible networks are already saved."
 msgstr ""
 
 msgid "Check that Wi-Fi is enabled, then rescan."
@@ -1159,6 +1363,9 @@ msgid "ADB"
 msgstr ""
 
 msgid "Could not start USB mode switch"
+msgstr ""
+
+msgid "An update is already in progress"
 msgstr ""
 
 msgid "USB mode"
@@ -1415,6 +1622,9 @@ msgstr ""
 msgid "Plugin Manager"
 msgstr ""
 
+msgid "Download layouts"
+msgstr ""
+
 msgid "Install"
 msgstr ""
 
@@ -1490,6 +1700,9 @@ msgid "Updating plugins"
 msgstr ""
 
 msgid "This may take a while"
+msgstr ""
+
+msgid "No layouts are available in the catalog."
 msgstr ""
 
 msgid "Refresh plugin catalog"
@@ -1659,13 +1872,18 @@ msgstr ""
 msgid "Band %d / %d"
 msgstr ""
 
-msgid "Could not enter recovery. Restart the player and try again."
+msgid ""
+"Wait for USB mode switching to finish and disconnect USB storage before "
+"updating."
+msgstr ""
+
+msgid "Preparing update"
+msgstr ""
+
+msgid "Checking the file on the SD card"
 msgstr ""
 
 msgid "Update & Reboot"
-msgstr ""
-
-msgid "No .upt firmware file found on SD card"
 msgstr ""
 
 #, c-format
@@ -1682,12 +1900,7 @@ msgid ""
 "off until it restarts."
 msgstr ""
 
-msgid "An update is already in progress"
-msgstr ""
-
-msgid ""
-"The downloaded update changed on the SD card and was set aside. Download it "
-"again."
+msgid "The downloaded update record is invalid. Download the update again."
 msgstr ""
 
 msgid ""
@@ -1704,14 +1917,8 @@ msgid "Downloading update"
 msgstr ""
 
 msgid ""
-"Update saved. Install it any time from Firmware Update > Install from SD "
-"card."
-msgstr ""
-
-msgid "Preparing update"
-msgstr ""
-
-msgid "Checking the file on the SD card"
+"Update saved. Connect to Wi-Fi, then install from Firmware Update > Install "
+"from SD card."
 msgstr ""
 
 msgid "Check for online update"
@@ -1724,6 +1931,15 @@ msgid "Download"
 msgstr ""
 
 msgid "Install & Reboot"
+msgstr ""
+
+msgid "Preparing and verifying recovery mode"
+msgstr ""
+
+msgid "Saving data before reboot"
+msgstr ""
+
+msgid "Restarting into recovery. Do not turn off the player."
 msgstr ""
 
 #, c-format
@@ -2255,6 +2471,9 @@ msgstr ""
 msgid "Connect to a Wi-Fi network before continuing."
 msgstr ""
 
+msgid "Select at least one plugin to continue."
+msgstr ""
+
 msgid "Could not start the library scan. Please try again."
 msgstr ""
 
@@ -2268,6 +2487,9 @@ msgid "Could not load the plugin catalog. Tap More to retry."
 msgstr ""
 
 msgid "Loading plugin catalog..."
+msgstr ""
+
+msgid "Default"
 msgstr ""
 
 msgid "No network detected"
@@ -2330,6 +2552,9 @@ msgstr ""
 msgid "Add hidden network"
 msgstr ""
 
+msgid "Rescan"
+msgstr ""
+
 msgid "Connect to a network to download plugins."
 msgstr ""
 
@@ -2349,19 +2574,6 @@ msgid "No SD card detected. You can scan later from Library settings."
 msgstr ""
 
 msgid "You can select up to 32 plugins"
-msgstr ""
-
-#, c-format
-msgid "%s has local files that would be replaced."
-msgstr ""
-
-msgid "Install selected plugins?"
-msgstr ""
-
-msgid "OK"
-msgstr ""
-
-msgid "Replace local plugin files?"
 msgstr ""
 
 msgid "Plugin setup complete"
@@ -2392,25 +2604,10 @@ msgstr ""
 msgid "Plugin setup needs attention"
 msgstr ""
 
+msgid "Could not replace plugin files."
+msgstr ""
+
 msgid "Could not start refreshing the plugin catalog."
-msgstr ""
-
-msgid "Plugin selection could not be resumed."
-msgstr ""
-
-msgid "A selected plugin is no longer available."
-msgstr ""
-
-msgid "Could not start replacing plugin files."
-msgstr ""
-
-msgid "Installation skipped. You can try it again later."
-msgstr ""
-
-msgid "Select at least one plugin to continue."
-msgstr ""
-
-msgid "Could not open plugin confirmation."
 msgstr ""
 
 msgid "AM"

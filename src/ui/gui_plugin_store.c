@@ -42,6 +42,12 @@ static bool store_picker_refresh_pending;
 static lv_obj_t * store_picker_origin;
 static bool (*store_picker_is_selected)(const char * id);
 static void (*store_picker_toggle)(const char * id, const char * name);
+static void (*store_picker_done)(void);
+static bool store_layout_picker_mode;
+static bool store_layout_picker_pending;
+static lv_obj_t * store_layout_picker_origin;
+static bool (*store_layout_is_selected)(const char * id);
+static void (*store_layout_select)(const char * id, const char * name);
 static bool store_setup_catalog_pending;
 static bool store_setup_catalog_ready;
 static uint64_t store_preview_generation_seen;
@@ -55,6 +61,7 @@ static lv_obj_t * detail_title, *detail_body, *remove_title, *confirm_title, *pi
 static void populate_store_screen(bool preserve_scroll);
 static bool start_catalog_refresh(const char * requested_id);
 static void player_layout_refresh_cb(lv_event_t * e);
+static void layout_picker_card_cb(lv_event_t * e);
 
 static void set_store_title(void) {
     if (store_title) lv_label_set_text(store_title, store_player_layouts_only ?
@@ -75,12 +82,22 @@ static void clear_picker_request(void) {
     store_picker_origin = NULL;
     store_picker_is_selected = NULL;
     store_picker_toggle = NULL;
+    store_picker_done = NULL;
+}
+
+static void clear_layout_picker_request(void) {
+    store_layout_picker_mode = false;
+    store_layout_picker_pending = false;
+    store_layout_picker_origin = NULL;
+    store_layout_is_selected = NULL;
+    store_layout_select = NULL;
 }
 
 bool gui_plugin_store_operation_active(void) {
     return store_ui_active || plugin_store_busy() || store_push_pending || store_confirm_pending ||
            store_recommendation_pending || store_recommendation_details_pending || store_picker_pending ||
-           store_picker_mode || store_setup_catalog_pending;
+           store_picker_mode || store_layout_picker_mode || store_layout_picker_pending ||
+           store_setup_catalog_pending;
 }
 
 static bool result_is_installed(const plugin_store_result_t * row) {
@@ -177,6 +194,7 @@ static void store_screen_unloaded_cb(lv_event_t * e) {
     (void) e;
     plugin_store_cancel_previews();
     if (store_picker_mode && store_left()) clear_picker_request();
+    if (store_layout_picker_mode && store_left()) clear_layout_picker_request();
     if (store_changed_dirty && store_left()) apply_changes();
 }
 
@@ -285,16 +303,15 @@ static void build_popups(void) {
     lv_obj_set_scroll_dir(picker_list, LV_DIR_VER);
     lv_obj_add_flag(picker_list, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(picker_list, LV_OBJ_FLAG_CLICKABLE);
-    int32_t popup_list_max = lv_display_get_vertical_resolution(lv_display_get_default()) -
-                             2 * STATUS_BAR_CLEARANCE - BOARD_SCALE_PX(176);
+    int32_t popup_height = lv_display_get_vertical_resolution(lv_display_get_default()) -
+                           2 * STATUS_BAR_CLEARANCE;
+    int32_t picker_fixed_height = 2 * BOARD_SCALE_PX(12) +
+        lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_ROW)) +
+        3 * GUI_ROW_GAP + 2 * BOARD_SCALE_PX(88);
+    int32_t popup_list_max = popup_height - picker_fixed_height;
     lv_obj_set_style_max_height(picker_list, LV_MAX(BOARD_SCALE_PX(48), popup_list_max), 0);
-    lv_obj_t * done = add_action_row(picker_popup.popup, TR("Done"), accent_lv_color(), ACTION_PICKER_DONE);
-    lv_obj_t * cancel = add_action_row(picker_popup.popup, TR("Cancel"), lv_color_make(255, 120, 120), ACTION_PICKER_CANCEL);
-    lv_obj_t * actions[] = {done, cancel};
-    for (size_t i = 0; i < sizeof(actions) / sizeof(actions[0]); ++i) {
-        lv_obj_set_style_min_height(actions[i], LV_MAX(44, BOARD_SCALE_PX(48)), 0);
-        lv_obj_set_style_pad_all(actions[i], BOARD_SCALE_PX(8), 0);
-    }
+    add_action_row(picker_popup.popup, TR("Done"), accent_lv_color(), ACTION_PICKER_DONE);
+    add_action_row(picker_popup.popup, TR("Cancel"), lv_color_make(255, 120, 120), ACTION_PICKER_CANCEL);
     lv_obj_remove_flag(picker_popup.popup, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scroll_dir(picker_popup.popup, LV_DIR_NONE);
 }
@@ -393,6 +410,54 @@ static void picker_row_clicked_cb(lv_event_t * e) {
     store_picker_refresh_pending = true;
 }
 
+static bool layout_picker_row_enabled(const plugin_store_result_t * row) {
+    return row && row->player_layout && !row->incompatible &&
+           row->state != PLUGIN_STORE_PLUGIN_INCOMPATIBLE &&
+           row->state != PLUGIN_STORE_PLUGIN_REMOVED;
+}
+
+static void layout_picker_card_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED || !store_layout_picker_mode ||
+        !store_layout_select) return;
+    int index = (int) (intptr_t) lv_event_get_user_data(e);
+    if (index < 0 || (size_t) index >= store_row_count ||
+        !layout_picker_row_enabled(&store_rows[index])) return;
+    const plugin_store_result_t * row = &store_rows[index];
+    void (*select)(const char *, const char *) = store_layout_select;
+    char id[sizeof(row->id)], name[sizeof(row->name)];
+    snprintf(id, sizeof(id), "%s", row->id);
+    snprintf(name, sizeof(name), "%s", row->name[0] ? row->name : row->id);
+    clear_layout_picker_request();
+    select(id, name);
+    nav_pop();
+}
+
+typedef struct {
+    char id[64];
+    void (*select)(const char * id, const char * name);
+} layout_suggestion_ctx_t;
+
+static void layout_suggestion_card_cb(lv_event_t * e) {
+    layout_suggestion_ctx_t * ctx = lv_event_get_user_data(e);
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED || !ctx || !ctx->select) return;
+    const plugin_store_result_t * row = NULL;
+    for (size_t i = 0; i < store_row_count; ++i) {
+        if (strcmp(store_rows[i].id, ctx->id) == 0 && layout_picker_row_enabled(&store_rows[i])) {
+            row = &store_rows[i];
+            break;
+        }
+    }
+    if (!row) return;
+    char id[sizeof(row->id)], name[sizeof(row->name)];
+    snprintf(id, sizeof(id), "%s", row->id);
+    snprintf(name, sizeof(name), "%s", row->name[0] ? row->name : row->id);
+    ctx->select(id, name);
+}
+
+static void layout_suggestion_card_delete_cb(lv_event_t * e) {
+    lv_free(lv_event_get_user_data(e));
+}
+
 static void add_plugin_row(int index) {
     plugin_store_result_t * row = &store_rows[index];
     plugin_store_details_t details = {0};
@@ -475,7 +540,7 @@ static void add_picker_popup_row(int index) {
     lv_obj_t * row_obj = lv_obj_create(picker_list);
     lv_obj_set_width(row_obj, lv_pct(100));
     lv_obj_set_height(row_obj, LV_SIZE_CONTENT);
-    lv_obj_set_style_min_height(row_obj, LV_MAX(44, BOARD_SCALE_PX(64)), 0);
+    lv_obj_set_style_min_height(row_obj, ui_list_row_height(), 0);
     lv_obj_set_style_radius(row_obj, BOARD_SCALE_PX(10), 0);
     lv_obj_add_style(row_obj, &pill_row_bg_style, 0);
     lv_obj_set_style_bg_opa(row_obj, LV_OPA_COVER, 0);
@@ -504,7 +569,7 @@ static void add_picker_popup_row(int index) {
     lv_obj_set_width(title, lv_pct(100));
     lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
     lv_obj_add_style(title, &style_theme_text_primary, 0);
-    lv_obj_set_style_text_font(title, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    lv_obj_set_style_text_font(title, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
     lv_obj_t * desc = lv_label_create(text);
     lv_label_set_text(desc, removed ? TR("No longer in the catalog") :
                       details.description[0] ? details.description : TR("No description"));
@@ -555,6 +620,7 @@ static void populate_picker_popup(bool preserve_scroll) {
     lv_obj_clean(picker_list);
     bool any = false;
     for (size_t i = 0; i < store_row_count; ++i) {
+        if (store_rows[i].player_layout) continue;
         add_picker_popup_row((int) i);
         any = true;
     }
@@ -618,8 +684,9 @@ static void populate_store_screen(bool preserve_scroll) {
         lv_label_set_long_mode(empty, LV_LABEL_LONG_WRAP);
         lv_obj_set_style_text_align(empty, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_pad_top(empty, BOARD_SCALE_PX(48), 0);
-        add_pill_chevron_row(store_list, TR("Refresh plugin catalog"), store_player_layouts_only ?
-                             player_layout_refresh_cb : gui_plugin_store_row_cb);
+        if (!store_layout_picker_mode)
+            add_pill_chevron_row(store_list, TR("Refresh plugin catalog"), store_player_layouts_only ?
+                                 player_layout_refresh_cb : gui_plugin_store_row_cb);
         store_preview_generation_seen = generation_snapshot;
         lv_obj_update_layout(store_list);
         if (preserve_scroll) lv_obj_scroll_to_y(store_list, scroll_y, LV_ANIM_OFF);
@@ -628,6 +695,10 @@ static void populate_store_screen(bool preserve_scroll) {
 
     if (store_player_layouts_only && any_visible) {
         configure_cover_card_grid(store_list, 2);
+        if (store_layout_picker_mode) {
+            lv_obj_set_style_pad_top(store_list, BOARD_SCALE_PX(6), 0);
+            lv_obj_set_style_pad_bottom(store_list, BOARD_SCALE_PX(6), 0);
+        }
         for (size_t i = 0; i < store_row_count; i++) {
             if (!visible[i]) continue;
             char preview[512], resolved[520], status_text[96];
@@ -637,9 +708,20 @@ static void populate_store_screen(bool preserve_scroll) {
                 preview_src = resolved;
             }
             const char * label = store_rows[i].name[0] ? store_rows[i].name : store_rows[i].id;
+            lv_event_cb_t on_click = store_layout_picker_mode ? layout_picker_card_cb : store_row_clicked_cb;
             lv_obj_t * card = add_cover_card(store_list, label, preview_src, 2,
-                                              store_row_clicked_cb, (void *) (intptr_t) i);
+                                              on_click, (void *) (intptr_t) i);
             if (card) lv_obj_set_user_data(card, (void *) (intptr_t) (i + 1));
+            if (card && store_layout_picker_mode) {
+                bool selected = store_layout_is_selected && store_layout_is_selected(store_rows[i].id);
+                lv_obj_set_style_radius(card, BOARD_SCALE_PX(10), 0);
+                lv_obj_set_style_outline_width(card, selected ? BOARD_SCALE_PX(2) : 0, 0);
+                lv_obj_set_style_outline_color(card, accent_lv_color(), 0);
+                lv_obj_set_style_outline_opa(card, LV_OPA_COVER, 0);
+                lv_obj_set_style_outline_pad(card, BOARD_SCALE_PX(2), 0);
+                if (!layout_picker_row_enabled(&store_rows[i]))
+                    lv_obj_set_style_opa(card, LV_OPA_50, 0);
+            }
             /* The worker already fits the RGB565 thumbnail to these bounds.
              * File-backed binary images stream by row and cannot transform. */
             if (card && preview_src) {
@@ -721,8 +803,10 @@ static void store_action_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     store_action_t action = (store_action_t) (intptr_t) lv_event_get_user_data(e);
     if (action == ACTION_PICKER_DONE || action == ACTION_PICKER_CANCEL) {
+        void (*done)(void) = action == ACTION_PICKER_DONE ? store_picker_done : NULL;
         gui_popup_hide(&picker_popup);
         clear_picker_request();
+        if (done) done();
         return;
     }
     if (action == ACTION_CANCEL) {
@@ -823,6 +907,7 @@ bool gui_plugin_store_open_recommendation(const char * id) {
         show_error_toast(TR("No network detected. Connect to a network to download plugins."));
         return false;
     }
+    clear_layout_picker_request();
     bool previous_filter = store_player_layouts_only;
     store_player_layouts_only = false;
     if (start_catalog_refresh(id)) return true;
@@ -836,6 +921,7 @@ bool gui_plugin_store_open_player_layouts(void) {
         show_error_toast(TR("No network detected. Connect to a network to download plugins."));
         return false;
     }
+    clear_layout_picker_request();
     bool previous_filter = store_player_layouts_only;
     store_player_layouts_only = true;
     if (start_catalog_refresh(NULL)) return true;
@@ -910,9 +996,93 @@ bool gui_plugin_store_setup_get_plugin(const char * id, plugin_store_result_t * 
     return false;
 }
 
+uint64_t gui_plugin_store_setup_populate_layout_suggestions(
+    lv_obj_t * parent, bool (*is_selected)(const char * id),
+    void (*select)(const char * id, const char * name)) {
+    uint64_t generation = plugin_store_preview_generation();
+    if (!gui_plugin_store_setup_catalog_ready()) return generation;
+
+    /* Pin a stable bounded set, including ready entries. Cycling through
+     * missing-only batches would repeatedly evict and redownload previews. */
+    const char * preview_ids[PLUGIN_STORE_PREVIEW_CAPACITY];
+    size_t preview_count = 0;
+    int vinyl_index = -1;
+    for (size_t i = 0; i < store_row_count; ++i) {
+        if (strcmp(store_rows[i].id, GUI_SETUP_LAYOUT_PLUGIN_ID) == 0 &&
+            layout_picker_row_enabled(&store_rows[i])) {
+            vinyl_index = (int) i;
+            break;
+        }
+    }
+    if (vinyl_index >= 0) {
+        preview_ids[preview_count++] = store_rows[vinyl_index].id;
+    }
+    for (size_t i = 0; i < store_row_count && preview_count < PLUGIN_STORE_PREVIEW_CAPACITY; ++i) {
+        const plugin_store_result_t * candidate = &store_rows[i];
+        if ((int) i == vinyl_index || !layout_picker_row_enabled(candidate)) continue;
+        preview_ids[preview_count++] = candidate->id;
+    }
+    if (preview_count) (void) plugin_store_prepare_previews(preview_ids, preview_count);
+
+    if (!parent || !is_selected || !select || vinyl_index < 0)
+        return generation;
+
+    plugin_store_result_t * row = &store_rows[vinyl_index];
+    char preview[512], resolved[520];
+    const char * preview_src = NULL;
+    if (plugin_store_get_preview(row->id, preview, sizeof(preview))) {
+        snprintf(resolved, sizeof(resolved), "S:%s", preview);
+        preview_src = resolved;
+    }
+    const char * label = row->name[0] ? row->name : row->id;
+    layout_suggestion_ctx_t * ctx = lv_malloc(sizeof(*ctx));
+    if (ctx) {
+        snprintf(ctx->id, sizeof(ctx->id), "%s", row->id);
+        ctx->select = select;
+    }
+    lv_obj_t * card = add_cover_card(parent, label, preview_src, 2,
+                                     ctx ? layout_suggestion_card_cb : NULL, ctx);
+    if (!card && ctx) lv_free(ctx);
+    if (card) {
+        if (ctx) lv_obj_add_event_cb(card, layout_suggestion_card_delete_cb, LV_EVENT_DELETE, ctx);
+        bool selected = is_selected(row->id);
+        lv_obj_set_style_radius(card, BOARD_SCALE_PX(10), 0);
+        lv_obj_set_style_outline_width(card, selected ? BOARD_SCALE_PX(2) : 0, 0);
+        lv_obj_set_style_outline_color(card, accent_lv_color(), 0);
+        lv_obj_set_style_outline_opa(card, LV_OPA_COVER, 0);
+        lv_obj_set_style_outline_pad(card, BOARD_SCALE_PX(2), 0);
+    }
+    return generation;
+}
+
+bool gui_plugin_store_open_layout_picker(bool (*is_selected)(const char * id),
+                                         void (*select)(const char * id, const char * name)) {
+    if (!is_selected || !select || store_layout_picker_mode || store_picker_mode ||
+        store_ui_active || store_push_pending || store_confirm_pending ||
+        store_recommendation_pending || store_recommendation_details_pending ||
+        (plugin_store_busy() && !store_setup_catalog_pending))
+        return false;
+
+    bool ready = gui_plugin_store_setup_catalog_ready();
+    if (!ready && !store_setup_catalog_pending && !gui_plugin_store_setup_catalog_prepare()) return false;
+
+    clear_layout_picker_request();
+    store_player_layouts_only = true;
+    set_store_title();
+    store_layout_picker_mode = true;
+    store_layout_picker_pending = true;
+    store_layout_picker_origin = lv_screen_active();
+    store_layout_is_selected = is_selected;
+    store_layout_select = select;
+    if (ready) store_push_pending = true;
+    return true;
+}
+
 bool gui_plugin_store_open_picker(bool (*is_selected)(const char * id),
-                                  void (*toggle)(const char * id, const char * name)) {
+                                  void (*toggle)(const char * id, const char * name),
+                                  void (*done)(void)) {
     if (!is_selected || !toggle) return false;
+    clear_layout_picker_request();
     if (!gui_shell_wifi_connected()) {
         show_error_toast(TR("No network detected. Connect to a network to download plugins."));
         return false;
@@ -926,6 +1096,7 @@ bool gui_plugin_store_open_picker(bool (*is_selected)(const char * id),
         store_picker_origin = lv_screen_active();
         store_picker_is_selected = is_selected;
         store_picker_toggle = toggle;
+        store_picker_done = done;
         return true;
     }
     if (store_ui_active || store_push_pending || store_confirm_pending ||
@@ -940,6 +1111,7 @@ bool gui_plugin_store_open_picker(bool (*is_selected)(const char * id),
         store_picker_origin = lv_screen_active();
         store_picker_is_selected = is_selected;
         store_picker_toggle = toggle;
+        store_picker_done = done;
         show_picker_popup();
         return true;
     }
@@ -951,11 +1123,13 @@ bool gui_plugin_store_open_picker(bool (*is_selected)(const char * id),
     store_picker_origin = lv_screen_active();
     store_picker_is_selected = is_selected;
     store_picker_toggle = toggle;
+    store_picker_done = done;
     return true;
 }
 
 void gui_plugin_store_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    clear_layout_picker_request();
     bool previous_filter = store_player_layouts_only;
     store_player_layouts_only = false;
     if (!start_catalog_refresh(NULL)) {
@@ -972,6 +1146,24 @@ void poll_plugin_store(void) {
     }
     if (store_picker_pending && store_picker_origin && !gui_navigation_is_top(store_picker_origin))
         clear_picker_request();
+    if (store_layout_picker_mode && !store_layout_picker_pending && store_left())
+        clear_layout_picker_request();
+    if (store_layout_picker_pending && store_layout_picker_origin &&
+        !gui_navigation_is_top(store_layout_picker_origin))
+        clear_layout_picker_request();
+    if (store_layout_picker_pending && store_layout_picker_origin &&
+        gui_navigation_is_top(store_layout_picker_origin)) {
+        plugin_store_status_t layout_status;
+        plugin_store_get_status(&layout_status, NULL, 0);
+        if (layout_status.state == PLUGIN_STORE_READY && gui_plugin_store_setup_catalog_ready()) {
+            store_push_pending = true;
+        } else if ((layout_status.state == PLUGIN_STORE_FAILED ||
+                    layout_status.state == PLUGIN_STORE_IDLE) && !store_setup_catalog_pending) {
+            clear_layout_picker_request();
+            if (layout_status.state == PLUGIN_STORE_FAILED && layout_status.error[0])
+                show_error_toast(layout_status.error);
+        }
+    }
     /* A setup screen may poll catalog readiness before this module's poll.
      * Readiness must still complete a waiting More request even if that poll
      * already consumed store_setup_catalog_pending. */
@@ -995,6 +1187,8 @@ void poll_plugin_store(void) {
         plugin_store_get_status(&setup_status, NULL, 0);
         if (setup_status.state == PLUGIN_STORE_READY) {
             (void) gui_plugin_store_setup_catalog_ready();
+            if (store_layout_picker_pending && store_layout_picker_origin &&
+                gui_navigation_is_top(store_layout_picker_origin)) store_push_pending = true;
             if (store_picker_pending) {
                 if (store_picker_origin && gui_navigation_is_top(store_picker_origin)) {
                     store_picker_pending = false;
@@ -1006,6 +1200,11 @@ void poll_plugin_store(void) {
         } else if (setup_status.state == PLUGIN_STORE_FAILED || setup_status.state == PLUGIN_STORE_IDLE) {
             store_setup_catalog_pending = false;
             store_setup_catalog_ready = false;
+            if (store_layout_picker_pending) {
+                clear_layout_picker_request();
+                if (setup_status.state == PLUGIN_STORE_FAILED && setup_status.error[0])
+                    show_error_toast(setup_status.error);
+            }
             if (store_picker_pending) {
                 clear_picker_request();
                 if (setup_status.state == PLUGIN_STORE_FAILED && setup_status.error[0])
@@ -1042,9 +1241,15 @@ void poll_plugin_store(void) {
             clear_picker_request();
             return;
         }
+        if (store_layout_picker_pending &&
+            (!store_layout_picker_origin || !gui_navigation_is_top(store_layout_picker_origin))) {
+            clear_layout_picker_request();
+            return;
+        }
         nav_push(store_screen);
         if (store_recommendation_pending) store_recommendation_details_pending = true;
         store_picker_pending = false;
+        store_layout_picker_pending = false;
         return;
     }
     if (store_recommendation_details_pending) {
@@ -1156,6 +1361,7 @@ void gui_plugin_store_init(void) {
     store_rows = calloc(PLUGIN_STORE_MAX_RESULTS, sizeof(*store_rows));
     store_row_count = 0;
     store_player_layouts_only = false;
+    clear_layout_picker_request();
     store_preview_generation_seen = plugin_store_preview_generation();
     store_screen = build_subsonic_list_screen(TR("Plugin Store"), &store_title, &store_list);
     lv_obj_add_event_cb(store_screen, store_screen_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
@@ -1167,6 +1373,7 @@ void gui_plugin_store_teardown(void) {
     plugin_store_cancel_previews();
     clear_recommendation_request();
     clear_picker_request();
+    clear_layout_picker_request();
     store_setup_catalog_pending = false;
     store_setup_catalog_ready = false;
     gui_popup_teardown(&detail_popup);

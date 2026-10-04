@@ -101,6 +101,51 @@ static bool xfer(const char *bus, uint8_t addr, uint8_t reg, uint8_t *value, boo
 }
 static bool axp_read(uint8_t r, uint8_t *v) { return xfer(AXP_BUS, AXP_ADDR, r, v, false); }
 static bool axp_write(uint8_t r, uint8_t v) { return xfer(AXP_BUS, AXP_ADDR, r, &v, true); }
+#if !HAS_MP2731
+#define AXP_STATUS_CACHE_NS 100000000LL
+static bool axp_status_cache_valid;
+static bool axp_status_cache_off;
+static clockid_t axp_status_cache_clock;
+static struct timespec axp_status_cache_time;
+
+static void invalidate_axp_status_cache(void) {
+    axp_status_cache_valid = false;
+}
+
+/* Prefer BOOTTIME so a short status cache expires across suspend. If that
+ * clock is unavailable, MONOTONIC is a timing fallback but cache reuse is
+ * disabled because it does not include suspended time. */
+static bool axp_status_cache_now(clockid_t * clock_id, struct timespec * now) {
+#ifdef CLOCK_BOOTTIME
+    if (clock_gettime(CLOCK_BOOTTIME, now) == 0) {
+        *clock_id = CLOCK_BOOTTIME;
+        return true;
+    }
+#endif
+    if (clock_gettime(CLOCK_MONOTONIC, now) == 0) {
+        *clock_id = CLOCK_MONOTONIC;
+        return false;
+    }
+    return false;
+}
+
+static bool axp_status_cache_is_fresh(clockid_t clock_id, const struct timespec * now) {
+    if (!axp_status_cache_valid || clock_id != axp_status_cache_clock) return false;
+    if (now->tv_sec < axp_status_cache_time.tv_sec ||
+        (now->tv_sec == axp_status_cache_time.tv_sec &&
+         now->tv_nsec < axp_status_cache_time.tv_nsec)) {
+        invalidate_axp_status_cache();
+        return false;
+    }
+    int64_t elapsed_ns = ((int64_t) now->tv_sec - (int64_t) axp_status_cache_time.tv_sec) * 1000000000LL +
+                         (int64_t) now->tv_nsec - (int64_t) axp_status_cache_time.tv_nsec;
+    if (elapsed_ns >= AXP_STATUS_CACHE_NS) {
+        invalidate_axp_status_cache();
+        return false;
+    }
+    return true;
+}
+#endif
 #if HAS_MP2731
 static bool mp_read(uint8_t r, uint8_t *v) { return xfer(MP_BUS, MP_ADDR, r, v, false); }
 static bool mp_write(uint8_t r, uint8_t v) { return xfer(MP_BUS, MP_ADDR, r, &v, true); }
@@ -254,6 +299,11 @@ void charge_limiter_poll(bool enabled, bool force) {
     struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
     if (!force && next_run.tv_sec && before(&now, &next_run) && (retry_deadline.tv_sec == 0 || before(&now, &retry_deadline))) return;
     next_run = plus_seconds(now, CHARGE_LIMITER_REEVALUATE_SECONDS);
+#if !HAS_MP2731
+    /* A charge-voltage transition can change the status register; never let
+     * a confirmation read reuse a value sampled before this programming pass. */
+    invalidate_axp_status_cache();
+#endif
     /* No capture_baseline() call here -- voltage restoration uses the known
      * per-board constants above, not a captured value (current-only, see
      * capture_baseline()'s own comment). */
@@ -292,8 +342,23 @@ bool charge_limiter_is_confirmed_off(void) {
      * settles independently of what the MP2731 is actually doing. */
     return battery_is_full();
 #else
+    clockid_t clock_id = CLOCK_MONOTONIC;
+    struct timespec now;
+    bool cacheable = axp_status_cache_now(&clock_id, &now);
+    if (cacheable && axp_status_cache_is_fresh(clock_id, &now))
+        return axp_status_cache_off;
+
+    /* Any clock failure/backwards jump or fallback clock invalidates reuse. */
+    invalidate_axp_status_cache();
     uint8_t status;
-    return axp_read(AXP_REG_STATUS, &status) && (status & 7u) == 4;
+    bool off = axp_read(AXP_REG_STATUS, &status) && (status & 7u) == 4;
+    if (cacheable) {
+        axp_status_cache_off = off; /* a failed read is cached as false too */
+        axp_status_cache_clock = clock_id;
+        axp_status_cache_time = now;
+        axp_status_cache_valid = true;
+    }
+    return off;
 #endif
 #endif
     return false;
@@ -308,6 +373,10 @@ void safe_charging_poll(bool enabled, bool force) {
     if (!force && next_run.tv_sec && before(&now, &next_run) && (retry_deadline.tv_sec == 0 || before(&now, &retry_deadline))) return;
     next_run = plus_seconds(now, CHARGE_LIMITER_REEVALUATE_SECONDS);
     if (!capture_baseline()) { retry_at(&retry_deadline); return; }
+#if !HAS_MP2731
+    /* Current-limit programming can also alter the observed charge state. */
+    invalidate_axp_status_cache();
+#endif
     bool ok = true;
     if (enabled) {
         ok = set_axp_current_capped(AXP_CURRENT_CAP);

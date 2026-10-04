@@ -1,6 +1,13 @@
 #include "frosted_glass.h"
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+
+#define FROSTED_RGB565_WORK_WIDTH 60
+#define FROSTED_RGB565_WORK_HEIGHT 100
+#define FROSTED_MAX_SOURCE_PIXELS (16u * 1024u * 1024u)
+#define FROSTED_MAX_OUTPUT_PIXELS (4u * 1024u * 1024u)
+#define FROSTED_MAX_IMAGE_DIMENSION 8192
 
 /* 1D box blur via a sliding running sum -- O(length) regardless of radius,
  * rather than O(length * radius) from re-summing the whole window at every
@@ -90,6 +97,180 @@ static void frosted_glass_blur_passes(uint8_t * plane, uint8_t * tmp, int width,
         for (int x = 0; x < width; x++) box_blur_1d(plane + x, tmp + x, height, width, radius);
         memcpy(plane, tmp, (size_t) width * height);
     }
+}
+
+uint8_t * frosted_glass_blur_rgb565(const uint16_t * source,
+                                    int source_width, int source_height,
+                                    int out_width, int out_height,
+                                    int blur_radius, int blur_passes,
+                                    int darken_num, int darken_den,
+                                    bool mirror_y) {
+    if (!source || source_width <= 0 || source_height <= 0 ||
+        out_width <= 0 || out_height <= 0 ||
+        source_width > FROSTED_MAX_IMAGE_DIMENSION || source_height > FROSTED_MAX_IMAGE_DIMENSION ||
+        out_width > FROSTED_MAX_IMAGE_DIMENSION || out_height > FROSTED_MAX_IMAGE_DIMENSION ||
+        (size_t) source_width > FROSTED_MAX_SOURCE_PIXELS / (size_t) source_height ||
+        (size_t) out_width > FROSTED_MAX_OUTPUT_PIXELS / (size_t) out_height) {
+        return NULL;
+    }
+
+    if (blur_radius < 0) blur_radius = 0;
+    if (blur_radius > 64) blur_radius = 64;
+    if (blur_passes < 0) blur_passes = 0;
+    if (blur_passes > 16) blur_passes = 16;
+    if (darken_num < 0) darken_num = 0;
+    if (darken_den <= 0) darken_den = 1;
+
+    const int w = FROSTED_RGB565_WORK_WIDTH;
+    const int h = FROSTED_RGB565_WORK_HEIGHT;
+    const size_t work_bytes = (size_t) w * (size_t) h;
+    uint8_t * r = malloc(work_bytes);
+    uint8_t * g = malloc(work_bytes);
+    uint8_t * b = malloc(work_bytes);
+    uint8_t * tmp = malloc(work_bytes);
+    if (!r || !g || !b || !tmp) {
+        free(r); free(g); free(b); free(tmp);
+        return NULL;
+    }
+
+    /* Center-crop the input to the output aspect ratio before downsampling. */
+    int crop_x = 0, crop_y = 0;
+    int crop_w = source_width, crop_h = source_height;
+    if ((int64_t) source_width * out_height > (int64_t) source_height * out_width) {
+        crop_w = (int) ((int64_t) source_height * out_width / out_height);
+        if (crop_w < 1) crop_w = 1;
+        crop_x = (source_width - crop_w) / 2;
+    } else {
+        crop_h = (int) ((int64_t) source_width * out_height / out_width);
+        if (crop_h < 1) crop_h = 1;
+        crop_y = (source_height - crop_h) / 2;
+    }
+
+    if (crop_w >= w && crop_h >= h) {
+        int x_start[FROSTED_RGB565_WORK_WIDTH];
+        int x_end[FROSTED_RGB565_WORK_WIDTH];
+        for (int x = 0; x < w; x++) {
+            x_start[x] = crop_x + (int) (((int64_t) x * crop_w) / w);
+            x_end[x] = crop_x + (int) (((int64_t) (x + 1) * crop_w) / w);
+        }
+
+        uint32_t acc_r[FROSTED_RGB565_WORK_WIDTH];
+        uint32_t acc_g[FROSTED_RGB565_WORK_WIDTH];
+        uint32_t acc_b[FROSTED_RGB565_WORK_WIDTH];
+
+        for (int y = 0; y < h; y++) {
+            int dst_y = mirror_y ? (h - 1 - y) : y;
+            int y0, y1;
+            if (!mirror_y) {
+                y0 = crop_y + (int) (((int64_t) dst_y * crop_h) / h);
+                y1 = crop_y + (int) (((int64_t) (dst_y + 1) * crop_h) / h);
+            } else {
+                y0 = crop_y + crop_h - (int) (((int64_t) (dst_y + 1) * crop_h) / h);
+                y1 = crop_y + crop_h - (int) (((int64_t) dst_y * crop_h) / h);
+            }
+            uint32_t cell_h = (uint32_t) (y1 - y0);
+
+            memset(acc_r, 0, sizeof(acc_r));
+            memset(acc_g, 0, sizeof(acc_g));
+            memset(acc_b, 0, sizeof(acc_b));
+
+            for (int sy = y0; sy < y1; sy++) {
+                const uint16_t * src_row = source + (size_t) sy * source_width;
+                for (int x = 0; x < w; x++) {
+                    uint32_t r_sum = 0, g_sum = 0, b_sum = 0;
+                    int sx_end = x_end[x];
+                    for (int sx = x_start[x]; sx < sx_end; sx++) {
+                        uint16_t px = src_row[sx];
+                        r_sum += (px >> 11) & 0x1fu;
+                        g_sum += (px >> 5) & 0x3fu;
+                        b_sum += px & 0x1fu;
+                    }
+                    acc_r[x] += r_sum;
+                    acc_g[x] += g_sum;
+                    acc_b[x] += b_sum;
+                }
+            }
+
+            size_t dst_row_offset = (size_t) dst_y * w;
+            for (int x = 0; x < w; x++) {
+                uint32_t cell_w = (uint32_t) (x_end[x] - x_start[x]);
+                uint64_t count = (uint64_t) cell_w * cell_h;
+                if (count == 0) {
+                    r[dst_row_offset + x] = 0;
+                    g[dst_row_offset + x] = 0;
+                    b[dst_row_offset + x] = 0;
+                } else {
+                    r[dst_row_offset + x] = (uint8_t) (((uint64_t) acc_r[x] * 255u) / (count * 31u));
+                    g[dst_row_offset + x] = (uint8_t) (((uint64_t) acc_g[x] * 255u) / (count * 63u));
+                    b[dst_row_offset + x] = (uint8_t) (((uint64_t) acc_b[x] * 255u) / (count * 31u));
+                }
+            }
+        }
+    } else {
+        for (int y = 0; y < h; y++) {
+            uint32_t crop_y_fp = h > 1
+                ? (uint32_t) (((uint64_t) y * (uint32_t) (crop_h - 1) << 16) / (h - 1)) : 0;
+            if (mirror_y) crop_y_fp = ((uint32_t) (crop_h - 1) << 16) - crop_y_fp;
+            uint32_t sy_fp = ((uint32_t) crop_y << 16) + crop_y_fp;
+            int sy = (int) (sy_fp >> 16);
+            int sy1 = sy + 1 < source_height ? sy + 1 : sy;
+            uint32_t fy = sy_fp & 0xffffu;
+            for (int x = 0; x < w; x++) {
+                uint32_t sx_fp = (uint32_t) crop_x << 16;
+                if (w > 1) sx_fp += (uint32_t) (((uint64_t) x * (uint32_t) (crop_w - 1) << 16) / (w - 1));
+                int sx = (int) (sx_fp >> 16);
+                int sx1 = sx + 1 < source_width ? sx + 1 : sx;
+                uint32_t fx = sx_fp & 0xffffu;
+                uint16_t px[4] = {
+                    source[(size_t) sy * source_width + sx], source[(size_t) sy * source_width + sx1],
+                    source[(size_t) sy1 * source_width + sx], source[(size_t) sy1 * source_width + sx1]
+                };
+                uint8_t * planes[3] = { r, g, b };
+                for (int c = 0; c < 3; c++) {
+                    uint32_t v[4];
+                    for (int i = 0; i < 4; i++) {
+                        if (c == 0) v[i] = ((px[i] >> 11) & 0x1f) * 255u / 31u;
+                        else if (c == 1) v[i] = ((px[i] >> 5) & 0x3f) * 255u / 63u;
+                        else v[i] = (px[i] & 0x1f) * 255u / 31u;
+                    }
+                    uint32_t top = (v[0] * (65536u - fx) + v[1] * fx) >> 16;
+                    uint32_t bottom = (v[2] * (65536u - fx) + v[3] * fx) >> 16;
+                    planes[c][y * w + x] = (uint8_t) ((top * (65536u - fy) + bottom * fy) >> 16);
+                }
+            }
+        }
+    }
+
+    frosted_glass_blur_passes(r, tmp, w, h, blur_radius, blur_passes);
+    frosted_glass_blur_passes(g, tmp, w, h, blur_radius, blur_passes);
+    frosted_glass_blur_passes(b, tmp, w, h, blur_radius, blur_passes);
+
+    size_t output_pixels = (size_t) out_width * (size_t) out_height;
+    uint8_t * out_bytes = malloc(output_pixels * 2);
+    if (!out_bytes) {
+        free(r); free(g); free(b); free(tmp);
+        return NULL;
+    }
+    uint16_t * out = (uint16_t *) out_bytes;
+    for (int y = 0; y < out_height; y++) {
+        if (y > 0 && y % 40 == 0) usleep(1000);
+        uint32_t y_fp = out_height > 1
+            ? (uint32_t) (((uint64_t) y * (h - 1) << 16) / (out_height - 1)) : 0;
+        uint16_t * row = out + (size_t) y * out_width;
+        for (int x = 0; x < out_width; x++) {
+            uint32_t x_fp = out_width > 1
+                ? (uint32_t) (((uint64_t) x * (w - 1) << 16) / (out_width - 1)) : 0;
+            int rv = (int) ((int64_t) frosted_glass_bilerp_plane(r, w, h, x_fp, y_fp) * darken_num / darken_den);
+            int gv = (int) ((int64_t) frosted_glass_bilerp_plane(g, w, h, x_fp, y_fp) * darken_num / darken_den);
+            int bv = (int) ((int64_t) frosted_glass_bilerp_plane(b, w, h, x_fp, y_fp) * darken_num / darken_den);
+            if (rv > 255) rv = 255;
+            if (gv > 255) gv = 255;
+            if (bv > 255) bv = 255;
+            row[x] = rgb888_to_565_spatial_dithered(rv, gv, bv, x, y);
+        }
+    }
+    free(r); free(g); free(b); free(tmp);
+    return out_bytes;
 }
 
 uint8_t * frosted_glass_blur_screen_rgb565(lv_obj_t * source_screen,

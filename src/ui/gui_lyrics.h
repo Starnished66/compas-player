@@ -41,7 +41,9 @@ void gui_lyrics_show_embedded_area(lv_obj_t * parent, int32_t x, int32_t y, int3
 /* Borrows parent for content only; no navigation or player chrome changes.
  * Caller must hide before deleting parent (including player teardown). */
 void gui_lyrics_show_embedded(lv_obj_t * parent, int32_t top, int32_t height);
-void gui_lyrics_prepare_embedded(lv_obj_t * parent, int32_t top, int32_t height);
+/* Prepares the same full-width or layout-area pane hidden before motion. */
+void gui_lyrics_prepare_embedded(lv_obj_t * parent, int32_t x, int32_t y,
+                                int32_t width, int32_t height, bool area_mode);
 void gui_lyrics_hide_embedded(void);
 void lyrics_font_size_settings_row_cb(lv_event_t * e);
 

@@ -1,8 +1,8 @@
 diff --git a/src/drivers/display/fb/lv_linux_fbdev.c b/src/drivers/display/fb/lv_linux_fbdev.c
-index c78b881..ccd7a6e 100644
+index c78b881..b957046 100644
 --- a/src/drivers/display/fb/lv_linux_fbdev.c
 +++ b/src/drivers/display/fb/lv_linux_fbdev.c
-@@ -71,6 +71,25 @@ typedef struct {
+@@ -71,6 +71,26 @@ typedef struct {
      bool force_refresh;
      uint8_t * draw_buf_1;
      uint8_t * draw_buf_2;
@@ -25,10 +25,11 @@ index c78b881..ccd7a6e 100644
 +     * presentation, in case anything ever queues a real LVGL flush during
 +     * that window despite invalidation being disabled. */
 +    bool external_composition_active;
++    bool last_present_successful;
  } lv_linux_fb_t;
  
  /**********************
-@@ -79,6 +98,7 @@ typedef struct {
+@@ -79,6 +99,7 @@ typedef struct {
  
  static void del_event_cb(lv_event_t * e);
  static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * color_p);
@@ -36,7 +37,7 @@ index c78b881..ccd7a6e 100644
  static uint32_t tick_get_cb(void);
  
  /**********************
-@@ -118,6 +138,7 @@ lv_display_t * lv_linux_fbdev_create(void)
+@@ -118,6 +139,7 @@ lv_display_t * lv_linux_fbdev_create(void)
      lv_display_set_driver_data(disp, dsc);
      lv_display_set_flush_cb(disp, flush_cb);
      lv_display_add_event_cb(disp, del_event_cb, LV_EVENT_DELETE, NULL);
@@ -44,7 +45,7 @@ index c78b881..ccd7a6e 100644
  
      return disp;
  }
-@@ -234,14 +255,53 @@ lv_result_t lv_linux_fbdev_set_file(lv_display_t * disp, const char * file)
+@@ -234,14 +256,53 @@ lv_result_t lv_linux_fbdev_set_file(lv_display_t * disp, const char * file)
  
      uint8_t * draw_buf = NULL;
      uint8_t * draw_buf_2 = NULL;
@@ -103,7 +104,7 @@ index c78b881..ccd7a6e 100644
  
      lv_display_set_resolution(disp, hor_res, ver_res);
      lv_display_set_buffers(disp, draw_buf, draw_buf_2, draw_buf_size, LV_LINUX_FBDEV_RENDER_MODE);
-@@ -262,6 +322,113 @@ void lv_linux_fbdev_set_force_refresh(lv_display_t * disp, bool enabled)
+@@ -262,18 +323,130 @@ void lv_linux_fbdev_set_force_refresh(lv_display_t * disp, bool enabled)
      dsc->force_refresh = enabled;
  }
  
@@ -217,7 +218,27 @@ index c78b881..ccd7a6e 100644
  /**********************
   *   STATIC FUNCTIONS
   **********************/
-@@ -297,14 +464,53 @@ static void del_event_cb(lv_event_t * e)
+ 
+-static void write_to_fb(lv_linux_fb_t * dsc, uint32_t fb_pos, const void * data, size_t sz)
++static bool write_to_fb(lv_linux_fb_t * dsc, uint32_t fb_pos, const void * data, size_t sz)
+ {
+ #if LV_LINUX_FBDEV_MMAP
+     uint8_t * fbp = (uint8_t *)dsc->fbp;
+     lv_memcpy(&fbp[fb_pos], data, sz);
++    return true;
+ #else
+-    if(pwrite(dsc->fbfd, data, sz, fb_pos) < 0)
+-        LV_LOG_ERROR("write failed: %d", errno);
++    ssize_t written = pwrite(dsc->fbfd, data, sz, fb_pos);
++    if(written != (ssize_t)sz) {
++        LV_LOG_ERROR("framebuffer write incomplete: %d", errno);
++        return false;
++    }
++    return true;
+ #endif
+ }
+ 
+@@ -297,17 +470,63 @@ static void del_event_cb(lv_event_t * e)
          dsc->fbfd = -1;
      }
      if(dsc->rotated_buf) lv_free(dsc->rotated_buf);
@@ -270,10 +291,20 @@ index c78b881..ccd7a6e 100644
 +    }
 +}
 +
++bool lv_linux_fbdev_last_present_succeeded(lv_display_t * disp)
++{
++    lv_linux_fb_t * dsc = lv_display_get_driver_data(disp);
++    return dsc && dsc->last_present_successful;
++}
++
  static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * color_p)
  {
      lv_linux_fb_t * dsc = lv_display_get_driver_data(disp);
-@@ -316,6 +522,67 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
++    if(lv_display_flush_is_last(disp)) dsc->last_present_successful = false;
+ 
+ #if LV_LINUX_FBDEV_MMAP
+     if(dsc->fbp == NULL) {
+@@ -316,6 +535,70 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
      }
  #endif
  
@@ -317,11 +348,13 @@ index c78b881..ccd7a6e 100644
 +                }
 +                else {
 +                    dsc->vinfo.yoffset = target_yoffset;
++                    dsc->last_present_successful = true;
 +                }
 +            }
 +            else if(rotation == LV_DISPLAY_ROTATION_0) {
 +                uint32_t target_yoffset = (color_p == dsc->page1) ? dsc->page_yoffset : 0;
-+                if(dsc->vinfo.yoffset != target_yoffset) {
++                if(dsc->vinfo.yoffset == target_yoffset) dsc->last_present_successful = true;
++                else {
 +                    struct fb_var_screeninfo tmp = dsc->vinfo;
 +                    tmp.yoffset = target_yoffset;
 +                    if(ioctl(dsc->fbfd, FBIOPAN_DISPLAY, &tmp) == -1) {
@@ -329,6 +362,7 @@ index c78b881..ccd7a6e 100644
 +                    }
 +                    else {
 +                        dsc->vinfo.yoffset = target_yoffset;
++                        dsc->last_present_successful = true;
 +                    }
 +                }
 +            }
@@ -341,11 +375,49 @@ index c78b881..ccd7a6e 100644
      const bool wait_for_last_flush = LV_LINUX_FBDEV_RENDER_MODE == LV_DISPLAY_RENDER_MODE_FULL;
      const bool is_last_flush = lv_display_flush_is_last(disp);
      const bool skip_flush = wait_for_last_flush && !is_last_flush;
+@@ -390,6 +673,7 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
+         return;
+     }
+ 
++    bool presented = true;
+     uint32_t fb_pos =
+         (clipped_area.x1 + dsc->vinfo.xoffset) * px_size +
+         (clipped_area.y1 + dsc->vinfo.yoffset) * dsc->finfo.line_length;
+@@ -400,7 +684,7 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
+             (clipped_area.x1 - disp->offset_x) * px_size +
+             (clipped_area.y1 - disp->offset_y) * disp->hor_res * px_size;
+         for(int32_t y = clipped_area.y1; y <= clipped_area.y2; y++) {
+-            write_to_fb(dsc, fb_pos, &color_p[color_pos], w * px_size);
++            if(!write_to_fb(dsc, fb_pos, &color_p[color_pos], w * px_size)) presented = false;
+             fb_pos += dsc->finfo.line_length;
+             color_pos += disp->hor_res * px_size;
+         }
+@@ -414,7 +698,7 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
+         color_p += y_offset * stride + x_offset * px_size;
+ 
+         for(int32_t y = clipped_area.y1; y <= clipped_area.y2; y++) {
+-            write_to_fb(dsc, fb_pos, color_p, w * px_size);
++            if(!write_to_fb(dsc, fb_pos, color_p, w * px_size)) presented = false;
+             fb_pos += dsc->finfo.line_length;
+             color_p += stride;
+         }
+@@ -424,9 +708,11 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
+         dsc->vinfo.activate |= FB_ACTIVATE_NOW | FB_ACTIVATE_FORCE;
+         if(ioctl(dsc->fbfd, FBIOPUT_VSCREENINFO, &(dsc->vinfo)) == -1) {
+             perror("Error setting var screen info");
++            presented = false;
+         }
+     }
+ 
++    if(is_last_flush) dsc->last_present_successful = presented;
+     lv_display_flush_ready(disp);
+ }
+ 
 diff --git a/src/drivers/display/fb/lv_linux_fbdev.h b/src/drivers/display/fb/lv_linux_fbdev.h
-index a9b7be0..6759d6a 100644
+index a9b7be0..81be93a 100644
 --- a/src/drivers/display/fb/lv_linux_fbdev.h
 +++ b/src/drivers/display/fb/lv_linux_fbdev.h
-@@ -39,6 +39,77 @@ lv_result_t lv_linux_fbdev_set_file(lv_display_t * disp, const char * file);
+@@ -39,6 +39,81 @@ lv_result_t lv_linux_fbdev_set_file(lv_display_t * disp, const char * file);
   */
  void lv_linux_fbdev_set_force_refresh(lv_display_t * disp, bool enabled);
  
@@ -419,6 +491,10 @@ index a9b7be0..6759d6a 100644
 + * afterward. Returns false (no-op) if no composition session is active.
 + */
 +bool lv_linux_fbdev_end_external_composition(lv_display_t * disp);
++
++/** True only if the most recent native last flush presented successfully.
++ * Read from the display's FLUSH_FINISH event, not from a no-damage refresh. */
++bool lv_linux_fbdev_last_present_succeeded(lv_display_t * disp);
 +
  /**********************
   *      MACROS

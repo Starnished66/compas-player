@@ -235,12 +235,25 @@ int wifi_control_list_saved(wifi_saved_network_t * out, int max_count) {
             line = strtok_r(NULL, "\n", &line_save);
             continue;
         }
+        /* Capture the final column before strtok_r replaces separators. */
+        const char * flags = strrchr(line, '\t');
+        if (flags) flags++;
         char * tab_save = NULL;
         char * id_str = strtok_r(line, "\t", &tab_save);
         char * ssid = strtok_r(NULL, "\t", &tab_save);
         if (id_str && ssid) {
-            out[count].id = atoi(id_str);
-            snprintf(out[count].ssid, sizeof(out[count].ssid), "%s", ssid);
+            wifi_saved_network_t * network = &out[count];
+            memset(network, 0, sizeof(*network));
+            network->id = atoi(id_str);
+            snprintf(network->ssid, sizeof(network->ssid), "%s", ssid);
+
+            /* list_networks has four tab-separated columns. Read flags from
+             * the final column so an empty BSSID doesn't shift the parse. */
+            if (flags) {
+                network->current = strstr(flags, "[CURRENT]") != NULL;
+                network->disabled = strstr(flags, "[DISABLED]") != NULL;
+                network->temp_disabled = strstr(flags, "[TEMP-DISABLED]") != NULL;
+            }
             count++;
         }
         line = strtok_r(NULL, "\n", &line_save);

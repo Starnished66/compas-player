@@ -4,6 +4,7 @@
 #include "lvgl.h"
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 /* Registry of Player screen layouts. A layout is anything that can fill an
  * empty screen with a widget tree that follows the named-widget contract in
@@ -102,6 +103,11 @@ const player_layout_info_t * player_layouts_get(int index);
 /* Returns a validated filesystem PNG preview path for this layout. */
 bool player_layouts_get_preview(int index, char * out, size_t size);
 int player_layouts_find(const char * id);
+/* Resolves an existing layout ID to a session-registered XML alias for the
+ * same contained file when one exists. C layouts and the built-in default
+ * resolve to themselves. Returns false for invalid, unknown, or undersized
+ * output arguments. */
+bool player_layouts_canonical_id(const char * id, char * out, size_t size);
 
 /* Session selection if any and still registered, else
  * current_settings.player_layout if registered, else the default id. */
@@ -130,15 +136,26 @@ typedef struct {
     lv_anim_t animation;
 } player_layout_style_transition_t;
 
-/* Finds a matching property animation in a prepared XML timeline. Values and
- * timing reflect the animation scale applied when the timeline was bound. */
+/* A style transition descriptor uses target/prop/selector/start/end/time/
+ * duration/path to describe one numeric local-style animation. Initialize its
+ * animation field with lv_anim_init() to use LVGL's default execution flags
+ * (including early_apply); the path defaults to linear when omitted. */
+lv_anim_timeline_t * player_layouts_create_style_timeline(
+    const player_layout_style_transition_t * transitions, uint32_t count);
+/* Destroys only timelines created by player_layouts_create_style_timeline().
+ * Call before deleting their target objects; XML-owned timelines stay owned by
+ * their layout tree and must not be passed here. */
+void player_layouts_destroy_style_timeline(lv_anim_timeline_t * timeline);
+
+/* Finds a matching property animation in a prepared XML or generated style
+ * timeline. Values and timing reflect the animation scale applied at binding. */
 bool player_layouts_timeline_style_transition(lv_anim_timeline_t * timeline, lv_obj_t * obj,
                                                lv_style_prop_t prop, lv_style_selector_t selector,
                                                player_layout_style_transition_t * transition);
 uint32_t player_layouts_timeline_style_transition_count(lv_anim_timeline_t * timeline, lv_obj_t * obj,
                                                          lv_style_prop_t prop, lv_style_selector_t selector);
 
-/* Enumerates the XML style-property animations in a prepared timeline. */
+/* Enumerates the style-property animations in a prepared timeline. */
 uint32_t player_layouts_timeline_style_animation_count(lv_anim_timeline_t * timeline);
 bool player_layouts_timeline_get_style_animation(lv_anim_timeline_t * timeline, uint32_t index,
                                                   player_layout_style_transition_t * transition);
@@ -147,12 +164,31 @@ bool player_layouts_timeline_get_style_animation(lv_anim_timeline_t * timeline, 
 bool player_layouts_timeline_has_animation_for_obj(lv_anim_timeline_t * timeline, lv_obj_t * obj);
 uint32_t player_layouts_timeline_animation_count_for_obj(lv_anim_timeline_t * timeline, lv_obj_t * obj);
 
-/* Reapply animation_scale from preserved XML timing, avoiding cumulative
+/* Reapply animation_scale from preserved source timing, avoiding cumulative
  * scaling when the setting changes during a UI build. */
 bool player_layouts_timeline_refresh_timing(lv_anim_timeline_t * timeline);
 
-/* Temporarily suppress one XML style write while a raster proxy represents
- * it. The registry is bounded and requires no per-frame allocation. */
+/* Observe act_time updates from a prepared style timeline. Up to four
+ * independent observers may attach to a timeline. Returns false for timelines
+ * not prepared by the shared style-timeline registry, or when all observer
+ * slots are occupied.
+ * Callbacks may detach observers, but must not release layouts or recursively
+ * change the same timeline's progress. */
+typedef void (*player_layouts_timeline_observer_cb_t)(lv_anim_timeline_t * timeline,
+                                                       uint32_t act_time,
+                                                       void * user_data);
+bool player_layouts_timeline_observer_attach(lv_anim_timeline_t * timeline,
+                                              player_layouts_timeline_observer_cb_t callback,
+                                              void * user_data);
+bool player_layouts_timeline_observer_detach(lv_anim_timeline_t * timeline,
+                                              player_layouts_timeline_observer_cb_t callback,
+                                              void * user_data);
+/* Force synchronization after direct set_progress calls, including when the
+ * requested progress maps to the already observed act_time. */
+bool player_layouts_timeline_observer_sync(lv_anim_timeline_t * timeline);
+
+/* Temporarily suppress one registered style write while a raster proxy
+ * represents it. The registry is bounded and requires no per-frame allocation. */
 bool player_layouts_timeline_suppress_style(lv_anim_timeline_t * timeline, lv_obj_t * obj,
                                              lv_style_prop_t prop, lv_style_selector_t selector,
                                              bool suppress);

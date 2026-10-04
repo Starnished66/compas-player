@@ -9,6 +9,9 @@
 #define PLUGIN_STORE_MAX_FILES 32
 #define PLUGIN_STORE_MAX_RESULTS 600 /* 200 catalog plugins plus up to 400 installed ones no longer offered */
 
+/* Check SD write access before the setup batch or its following scan. */
+bool plugin_store_storage_writable(char * error, size_t error_size);
+
 /* GitHub plugin catalog and SD-card installer. The catalog comes from
  * Starnished66/compas-plugins' latest release index over verified HTTPS;
  * assets come from that release tag and are checked against their declared
@@ -106,6 +109,8 @@ bool plugin_store_uninstall(const char * id);
 void plugin_store_get_status(plugin_store_status_t * out, plugin_store_result_t * results,
                              size_t result_capacity);
 bool plugin_store_get_details(const char * id, plugin_store_details_t * out);
+/* Resolves a selected catalog plugin to its installed primary XML layout ID. */
+bool plugin_store_get_player_layout_id(const char * plugin_id, char * out, size_t size);
 /* Marks installed Lua files whose record also owns an XML player layout.
  * Existing true flags are preserved. */
 void plugin_store_classify_layout_loaders(const char * const * filenames, bool * flags, size_t count);

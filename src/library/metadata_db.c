@@ -1478,21 +1478,30 @@ int64_t metadata_db_count_albums_for_group(metadata_db_group_kind_t kind, const 
     return tagcache_group_album_count(kind == METADATA_DB_GROUP_ARTIST ? TAGCACHE_GROUP_ARTIST : TAGCACHE_GROUP_ALBUM_ARTIST, name);
 }
 
+typedef struct {
+    group_row_t * rows;
+    int written;
+} group_album_page_copy_t;
+
+static void copy_group_album_page_row(int32_t rank, const tagcache_group_t * group,
+                                      void * user_data) {
+    (void) rank;
+    group_album_page_copy_t * copy = user_data;
+    copy_group(group, &copy->rows[copy->written++]);
+}
+
 int metadata_db_get_albums_for_group(metadata_db_group_kind_t kind, const char *name, int offset, int max_rows,
                                     group_row_t *out_rows) {
     METADATA_DB_GUARD;
-    if (!db_ready || !name || max_rows <= 0 ||
+    if (!db_ready || !name || !out_rows || max_rows <= 0 ||
         (kind != METADATA_DB_GROUP_ARTIST && kind != METADATA_DB_GROUP_ALBUM_ARTIST)) return 0;
     if (offset < 0) offset = 0;
     int tc_kind = kind == METADATA_DB_GROUP_ARTIST ? TAGCACHE_GROUP_ARTIST : TAGCACHE_GROUP_ALBUM_ARTIST;
-    int w = 0;
-    for (int i = offset; w < max_rows; i++) {
-        int rank = tagcache_group_album_at(tc_kind, name, i);
-        if (rank < 0) break;
-        tagcache_group_t group;
-        if (tagcache_group_at(TAGCACHE_GROUP_ALBUM, rank, &group)) copy_group(&group, &out_rows[w++]);
-    }
-    return w;
+    group_album_page_copy_t copy = { .rows = out_rows, .written = 0 };
+    (void) tagcache_group_album_page(tc_kind, name, offset, max_rows,
+                                    copy_group_album_page_row, &copy);
+    /* Preserve valid rows copied before a later posting read fails. */
+    return copy.written;
 }
 
 int64_t metadata_db_get_album_for_group_offset(metadata_db_group_kind_t kind, const char *name,

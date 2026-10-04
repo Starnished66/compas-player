@@ -12,6 +12,10 @@ extern "C" {
  * mask follows the image object's bounds and is released with its LVGL child. */
 bool player_cover_fade_attach(lv_obj_t * image, lv_color_t color);
 
+/* True only while the parent is still the untouched placeholder and its
+ * sole child is the exact A8 overlay created by player_cover_fade_attach. */
+bool player_cover_fade_cache_eligible(lv_obj_t * parent);
+
 #ifdef __cplusplus
 }
 #endif

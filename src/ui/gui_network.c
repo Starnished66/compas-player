@@ -153,6 +153,47 @@ static void configure_network_row_line(lv_obj_t * label, int32_t width,
     lv_obj_set_style_text_font(label, font, 0);
     row_label_apply_bounded_height(label, font);
 }
+
+static int32_t network_row_text_stack_height(const lv_font_t * const fonts[], int count) {
+    if (!fonts || count <= 0 || count > 3) return 0;
+    int32_t heights[3];
+    int32_t gap = BOARD_SCALE_PX(2);
+    int32_t total_height = gap * (count - 1);
+    for (int i = 0; i < count; ++i) {
+        heights[i] = row_label_bounded_height(fonts[i]);
+        total_height += heights[i];
+    }
+    return total_height;
+}
+
+/* Keep the standard scaled row height unless the selected font tier needs
+ * more room for the full bounded line stack and its top/bottom breathing room. */
+static int32_t network_row_text_height(int32_t base_height,
+                                       const lv_font_t * const fonts[], int count) {
+    int32_t needed = network_row_text_stack_height(fonts, count) + BOARD_SCALE_PX(16);
+    return needed > base_height ? needed : base_height;
+}
+
+/* Center the visible title/status (and optional codec) stack in the row's
+ * content box. Use bounded label heights rather than raw font line heights
+ * so descender clearance is included on every board. */
+static void align_network_row_text_stack(lv_obj_t * row, lv_obj_t * const labels[],
+                                         const lv_font_t * const fonts[], int count,
+                                         int32_t left) {
+    if (!row || !labels || !fonts || count <= 0 || count > 3) return;
+    int32_t heights[3];
+    int32_t gap = BOARD_SCALE_PX(2);
+    int32_t total_height = network_row_text_stack_height(fonts, count);
+    for (int i = 0; i < count; ++i) heights[i] = row_label_bounded_height(fonts[i]);
+
+    int32_t cursor = -(total_height / 2);
+    for (int i = 0; i < count; ++i) {
+        int32_t y = cursor + heights[i] / 2;
+        lv_obj_align(labels[i], LV_ALIGN_LEFT_MID, left, y);
+        cursor += heights[i] + gap;
+    }
+}
+
 static gui_busy_handle_t wifi_connect_saved_token = 0;
 extern gui_busy_handle_t gui_busy_show(const char * title, const char * msg);
 extern void gui_busy_hide(gui_busy_handle_t handle);
@@ -185,6 +226,11 @@ extern int bt_scan_result_count;
 #define WIFI_MAX_SAVED 32
 static wifi_network_t wifi_scan_results[WIFI_MAX_RESULTS];
 static int wifi_scan_result_count = 0;
+/* The scan worker stages results privately; the UI owns wifi_scan_results and
+ * publishes the staged array only after joining, so snapshot refreshes cannot
+ * observe partially written SSIDs or reorder data under the worker. */
+static wifi_network_t wifi_scan_worker_results[WIFI_MAX_RESULTS];
+static int wifi_scan_worker_result_count;
 static wifi_saved_network_t wifi_saved_results[WIFI_MAX_SAVED];
 static int wifi_saved_result_count = 0;
 static lv_obj_t * wifi_list;
@@ -207,6 +253,7 @@ typedef struct {
 static void wifi_setup_render(void);
 static void wifi_setup_start_scan_once(void);
 static int wifi_setup_saved_id(const char * ssid);
+static int wifi_saved_display_index(int candidate);
 static void wifi_password_entered_cb(const char * text, void * user_data);
 
 /* Saved-network/configuration reads are deliberately kept separate from the
@@ -230,8 +277,12 @@ static unsigned wifi_settings_snapshot_cached_generation = 0;
 static bool wifi_settings_snapshot_cached = false;
 static uint32_t wifi_settings_snapshot_tick;
 static bool wifi_settings_snapshot_enabled = false;
+static bool wifi_settings_snapshot_visible_changed;
 static wifi_info_t wifi_cached_info;
 static bool wifi_cached_info_connected = false;
+static bool wifi_last_connected_saved_valid;
+static int wifi_last_connected_saved_id = -1;
+static char wifi_last_connected_saved_ssid[WIFI_MAX_SSID_LEN];
 #ifndef HOST_BUILD
 static bool remote_control_last_bt_powered;
 static bt_remote_control_status_t remote_control_last_bt_status = BT_REMOTE_CONTROL_DISABLED;
@@ -245,6 +296,7 @@ static void remote_control_refresh_pin_label(void);
 static bool start_wifi_scan(void);
 static void wifi_settings_snapshot_invalidate(void);
 static void wifi_settings_snapshot_start(void);
+static bool wifi_network_is_connected(const wifi_network_t * net);
 
 static pthread_t wifi_connect_thread;
 static bool wifi_connect_active = false;
@@ -428,7 +480,7 @@ static void wifi_row_click_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     int index = (int) (intptr_t) lv_event_get_user_data(e);
     wifi_network_t * net = &wifi_scan_results[index];
-    if (net->is_current) {
+    if (wifi_network_is_connected(net)) {
         start_wifi_disconnect();
         return;
     }
@@ -490,6 +542,20 @@ static void wifi_settings_snapshot_start(void) {
     }
 }
 
+static void wifi_remember_confirmed_saved_profile(void) {
+    if (!wifi_cached_info_connected) return;
+    for (int i = 0; i < wifi_saved_result_count; ++i) {
+        if (wifi_saved_results[i].current &&
+            strcmp(wifi_saved_results[i].ssid, wifi_cached_info.ssid) == 0) {
+            wifi_last_connected_saved_valid = true;
+            wifi_last_connected_saved_id = wifi_saved_results[i].id;
+            snprintf(wifi_last_connected_saved_ssid, sizeof(wifi_last_connected_saved_ssid), "%s",
+                     wifi_saved_results[i].ssid);
+            return;
+        }
+    }
+}
+
 /* Returns true when a completed snapshot was published.  Rendering is kept
  * in the UI poller, never in the worker, and a generation mismatch discards
  * results collected across an enable/disable transition. */
@@ -506,14 +572,41 @@ static bool poll_wifi_settings_snapshot(void) {
         return false;
     }
 
+    bool previous_snapshot_valid = wifi_settings_snapshot_cached &&
+        wifi_settings_snapshot_cached_generation == generation;
+    bool visible_changed = !previous_snapshot_valid ||
+        wifi_saved_result_count != wifi_settings_snapshot_worker.saved_count ||
+        wifi_cached_info_connected != wifi_settings_snapshot_worker.info_connected;
+    if (!visible_changed) {
+        for (int i = 0; i < wifi_settings_snapshot_worker.saved_count; ++i) {
+            if (wifi_saved_results[i].id != wifi_settings_snapshot_worker.saved[i].id ||
+                strcmp(wifi_saved_results[i].ssid, wifi_settings_snapshot_worker.saved[i].ssid) != 0 ||
+                wifi_saved_results[i].current != wifi_settings_snapshot_worker.saved[i].current ||
+                wifi_saved_results[i].disabled != wifi_settings_snapshot_worker.saved[i].disabled ||
+                wifi_saved_results[i].temp_disabled != wifi_settings_snapshot_worker.saved[i].temp_disabled) {
+                visible_changed = true;
+                break;
+            }
+        }
+    }
+    /* Only association affects these rows. IP, gateway and signal changes
+     * still update the info screen, but must not rebuild a scrolling list. */
+    if (!visible_changed && wifi_settings_snapshot_worker.info_connected &&
+        strcmp(wifi_cached_info.ssid, wifi_settings_snapshot_worker.info.ssid) != 0)
+        visible_changed = true;
+
     wifi_saved_result_count = wifi_settings_snapshot_worker.saved_count;
     memcpy(wifi_saved_results, wifi_settings_snapshot_worker.saved,
            sizeof(wifi_saved_results[0]) * (size_t) wifi_saved_result_count);
     wifi_cached_info = wifi_settings_snapshot_worker.info;
     wifi_cached_info_connected = wifi_settings_snapshot_worker.info_connected;
+    /* Remember only a profile that this completed snapshot confirms as both
+     * associated and CURRENT. After disconnect, CURRENT may be cleared. */
+    wifi_remember_confirmed_saved_profile();
     wifi_settings_snapshot_cached_generation = generation;
     wifi_settings_snapshot_cached = true;
     wifi_settings_snapshot_tick = lv_tick_get();
+    wifi_settings_snapshot_visible_changed = visible_changed;
     return true;
 }
 
@@ -523,18 +616,18 @@ static bool wifi_cached_info_is_current(void) {
                atomic_load_explicit(&wifi_settings_snapshot_generation, memory_order_acquire);
 }
 
+/* A fresh status snapshot is authoritative, including its disconnected state.
+ * Scan's is_current bit is only a fallback before any status snapshot exists. */
+static bool wifi_network_is_connected(const wifi_network_t * net) {
+    if (!net) return false;
+    if (wifi_cached_info_is_current())
+        return wifi_cached_info_connected && strcmp(net->ssid, wifi_cached_info.ssid) == 0;
+    return net->is_current;
+}
+
 static void set_wifi_rescan_active(bool active) {
     if (!wifi_rescan_btn) return;
-    lv_label_set_text(wifi_rescan_btn, active ? TR("Scanning...") : TR("Rescan"));
-    lv_obj_set_style_opa(wifi_rescan_btn, active ? LV_OPA_60 : LV_OPA_COVER, 0);
-    align_screen_header_action(wifi_rescan_btn, 20);
-    if (active) {
-        lv_obj_remove_flag(wifi_rescan_btn, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_state(wifi_rescan_btn, LV_STATE_DISABLED);
-    } else {
-        lv_obj_clear_state(wifi_rescan_btn, LV_STATE_DISABLED);
-        lv_obj_add_flag(wifi_rescan_btn, LV_OBJ_FLAG_CLICKABLE);
-    }
+    set_header_refresh_action_busy(wifi_rescan_btn, active);
 }
 
 static void wifi_setup_row_delete_cb(lv_event_t * e) {
@@ -563,9 +656,48 @@ static void wifi_setup_row_click_cb(lv_event_t * e) {
 
 static int wifi_setup_saved_id(const char * ssid) {
     if (!wifi_cached_info_is_current()) return -1;
-    for (int i = 0; i < wifi_saved_result_count; ++i)
-        if (strcmp(wifi_saved_results[i].ssid, ssid) == 0) return wifi_saved_results[i].id;
+    for (int i = 0; i < wifi_saved_result_count; ++i) {
+        if (strcmp(wifi_saved_results[i].ssid, ssid) != 0) continue;
+        int preferred = wifi_saved_display_index(i);
+        return wifi_saved_results[preferred].id;
+    }
     return -1;
+}
+
+static bool wifi_ssid_is_saved(const char * ssid) {
+    if (!ssid) return false;
+    for (int i = 0; i < wifi_saved_result_count; ++i)
+        if (strcmp(wifi_saved_results[i].ssid, ssid) == 0) return true;
+    return false;
+}
+
+/* Keep saved-profile entries (and their callback IDs) untouched, but render
+ * only one row per SSID. Prefer the active profile, the last confirmed
+ * profile, then a profile that is not disabled. */
+static int wifi_saved_display_index(int candidate) {
+    if (candidate < 0 || candidate >= wifi_saved_result_count) return candidate;
+    const char * ssid = wifi_saved_results[candidate].ssid;
+    int best = candidate;
+    const wifi_saved_network_t * initial = &wifi_saved_results[candidate];
+    bool initial_remembered = wifi_last_connected_saved_valid &&
+        initial->id == wifi_last_connected_saved_id &&
+        strcmp(initial->ssid, wifi_last_connected_saved_ssid) == 0;
+    int best_rank = initial->current ? 3 : initial_remembered ? 2 :
+        (!initial->disabled && !initial->temp_disabled) ? 1 : 0;
+    for (int i = 0; i < wifi_saved_result_count; ++i) {
+        if (strcmp(wifi_saved_results[i].ssid, ssid) != 0) continue;
+        const wifi_saved_network_t * current = &wifi_saved_results[i];
+        bool current_remembered = wifi_last_connected_saved_valid &&
+            current->id == wifi_last_connected_saved_id &&
+            strcmp(current->ssid, wifi_last_connected_saved_ssid) == 0;
+        bool current_usable = !current->disabled && !current->temp_disabled;
+        int rank = current->current ? 3 : current_remembered ? 2 : current_usable ? 1 : 0;
+        if (rank > best_rank || (rank == best_rank && i < best)) {
+            best = i;
+            best_rank = rank;
+        }
+    }
+    return best;
 }
 
 static void wifi_setup_add_row(const wifi_network_t * net) {
@@ -587,9 +719,7 @@ static void wifi_setup_add_row(const wifi_network_t * net) {
     memcpy(context->ssid, net->ssid, ssid_len);
     context->ssid[ssid_len] = '\0';
     context->secured = net->secured;
-    context->connected = net->is_current ||
-        (wifi_cached_info_is_current() && wifi_cached_info_connected &&
-         strcmp(net->ssid, wifi_cached_info.ssid) == 0);
+    context->connected = wifi_network_is_connected(net);
     context->saved_id = wifi_setup_saved_id(net->ssid);
     lv_obj_add_event_cb(row_obj, wifi_setup_row_delete_cb, LV_EVENT_DELETE, context);
     lv_obj_add_event_cb(row_obj, wifi_setup_row_click_cb, LV_EVENT_CLICKED, context);
@@ -629,24 +759,44 @@ static void wifi_setup_add_row(const wifi_network_t * net) {
 static void wifi_setup_render(void) {
     lv_obj_t * parent = wifi_setup_parent;
     if (!parent) return;
+    lv_obj_t * scroll_owner = parent;
+    while (scroll_owner && !lv_obj_has_flag(scroll_owner, LV_OBJ_FLAG_SCROLLABLE))
+        scroll_owner = lv_obj_get_parent(scroll_owner);
+    lv_coord_t scroll_y = scroll_owner ? lv_obj_get_scroll_y(scroll_owner) : 0;
     lv_obj_clean(parent);
     if (wifi_setup_enable_failed) {
         build_list_message(parent, TR("Wi-Fi could not be enabled"), TR("Check the wireless switch and try again."));
-        return;
+        goto restore_scroll;
     }
     if (!gui_shell_wifi_enabled_and_settled()) {
         build_list_message(parent, TR("Turning Wi-Fi on"), TR("Nearby networks will appear when Wi-Fi is ready."));
-        return;
+        goto restore_scroll;
     }
     if (wifi_scan_active || (!wifi_setup_scan_finished && wifi_setup_scan_started)) {
         build_list_message(parent, TR("Searching for networks"), TR("This can take a few seconds."));
-        return;
+        goto restore_scroll;
     }
     if (wifi_scan_result_count == 0) {
         build_list_message(parent, TR("No networks found"), TR("Try scanning again or add a hidden network."));
-        return;
+        goto restore_scroll;
+    }
+    for (int i = 0; i < wifi_scan_result_count; ++i) {
+        int index = i;
+        bool current = wifi_network_is_connected(&wifi_scan_results[i]);
+        if (!current) continue;
+        wifi_setup_add_row(&wifi_scan_results[i]);
+        for (int j = 0; j < wifi_scan_result_count; ++j) {
+            if (j == index) continue;
+            wifi_setup_add_row(&wifi_scan_results[j]);
+        }
+        goto restore_scroll;
     }
     for (int i = 0; i < wifi_scan_result_count; ++i) wifi_setup_add_row(&wifi_scan_results[i]);
+restore_scroll:
+    if (scroll_owner) {
+        lv_obj_update_layout(scroll_owner);
+        lv_obj_scroll_to_y(scroll_owner, scroll_y, LV_ANIM_OFF);
+    }
 }
 
 static void wifi_setup_start_scan_once(void) {
@@ -750,7 +900,7 @@ static void * wifi_scan_thread_func(void * arg) {
      * behind the toggle's back. */
     wifi_control_scan_start();
     sleep(3); /* wpa_cli's scan is async -- give the radio time before reading scan_results */
-    wifi_scan_result_count = wifi_control_get_results(wifi_scan_results, WIFI_MAX_RESULTS);
+    wifi_scan_worker_result_count = wifi_control_get_results(wifi_scan_worker_results, WIFI_MAX_RESULTS);
     atomic_store_explicit(&wifi_scan_done_flag, true, memory_order_release); /* written last -- poll_wifi_scan only checks this flag */
     return NULL;
 }
@@ -781,6 +931,16 @@ static bool start_wifi_scan(void) {
 }
 
 void poll_wifi_scan(void) {
+    /* Keep both the rendered rows and their indexed result arrays stable
+     * throughout a touch/kinetic scroll. Completed workers remain staged
+     * until release, rather than deleting LVGL's active event target. */
+    if (wifi_screen && gui_navigation_is_top(wifi_screen)) {
+        if (gui_navigation_transition_in_progress()) return;
+        if (wifi_list && lv_obj_is_scrolling(wifi_list)) return;
+        for (lv_indev_t * indev = lv_indev_get_next(NULL); indev; indev = lv_indev_get_next(indev))
+            if (lv_indev_get_type(indev) == LV_INDEV_TYPE_POINTER &&
+                lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED) return;
+    }
     if (wifi_settings_snapshot_enabled && !gui_shell_wifi_effective_enabled()) {
         wifi_settings_snapshot_enabled = false;
         wifi_settings_snapshot_invalidate();
@@ -790,15 +950,19 @@ void poll_wifi_scan(void) {
     if (wifi_scan_active && atomic_load_explicit(&wifi_scan_done_flag, memory_order_acquire)) {
         wifi_scan_active = false;
         pthread_join(wifi_scan_thread, NULL);
+        wifi_scan_result_count = wifi_scan_worker_result_count;
+        memcpy(wifi_scan_results, wifi_scan_worker_results,
+               sizeof(wifi_scan_results[0]) * (size_t) wifi_scan_result_count);
         set_wifi_rescan_active(false);
         scan_published = true;
     }
     if (scan_published && wifi_setup_scan_started) wifi_setup_scan_finished = true;
 
-    if ((snapshot_published || scan_published) &&
+    bool snapshot_visible_changed = snapshot_published && wifi_settings_snapshot_visible_changed;
+    if ((snapshot_visible_changed || scan_published) &&
         wifi_screen && gui_navigation_is_top(wifi_screen))
         populate_wifi_screen(wifi_control_is_enabled());
-    if (snapshot_published || scan_published) wifi_setup_render();
+    if (snapshot_visible_changed || scan_published) wifi_setup_render();
 
     if (snapshot_published) {
         if (wifi_info_screen && gui_navigation_is_top(wifi_info_screen)) populate_wifi_info_screen();
@@ -837,7 +1001,7 @@ static void show_wifi_toggle_pending_async(void * user_data) {
     wifi_settings_snapshot_enabled = enabled;
     if (enabled) wifi_scan_result_count = 0;
     populate_wifi_screen(enabled);
-    set_wifi_rescan_active(enabled || wifi_scan_active);
+    set_wifi_rescan_active(wifi_scan_active);
 }
 
 void gui_network_show_wifi_toggle_pending(bool enabled) {
@@ -909,11 +1073,16 @@ void poll_wifi_forget(void) {
  * matching bt_action_popup's overlay and backdrop pattern. */
 static gui_popup_t wifi_action_popup;
 static lv_obj_t * wifi_action_popup_title;
-static int wifi_action_popup_network_index = -1;
+static lv_obj_t * wifi_action_primary_label;
+static int wifi_action_popup_network_id = -1;
+static char wifi_action_popup_network_ssid[WIFI_MAX_SSID_LEN];
+static bool wifi_action_disconnect_requested;
 
 static void hide_wifi_action_popup(void) {
     gui_popup_hide(&wifi_action_popup);
-    wifi_action_popup_network_index = -1;
+    wifi_action_popup_network_id = -1;
+    wifi_action_popup_network_ssid[0] = '\0';
+    wifi_action_disconnect_requested = false;
 }
 
 static void wifi_action_popup_backdrop_cb(lv_event_t * e) {
@@ -921,41 +1090,84 @@ static void wifi_action_popup_backdrop_cb(lv_event_t * e) {
     hide_wifi_action_popup();
 }
 
-static void wifi_action_connect_cb(lv_event_t * e) {
+static bool wifi_saved_profile_is_connected(int index) {
+    if (index < 0 || index >= wifi_saved_result_count || !wifi_cached_info_is_current() ||
+        !wifi_cached_info_connected) return false;
+    if (wifi_saved_results[index].current)
+        return strcmp(wifi_saved_results[index].ssid, wifi_cached_info.ssid) == 0;
+    for (int i = 0; i < wifi_saved_result_count; ++i)
+        if (wifi_saved_results[i].current) return false;
+    return strcmp(wifi_saved_results[index].ssid, wifi_cached_info.ssid) == 0 &&
+           wifi_saved_display_index(index) == index;
+}
+
+static int wifi_action_popup_resolve_network(void) {
+    if (wifi_action_popup_network_id < 0 || wifi_action_popup_network_ssid[0] == '\0') return -1;
+    for (int i = 0; i < wifi_saved_result_count; ++i) {
+        if (wifi_saved_results[i].id == wifi_action_popup_network_id &&
+            strcmp(wifi_saved_results[i].ssid, wifi_action_popup_network_ssid) == 0) return i;
+    }
+    return -1;
+}
+
+static bool wifi_action_state_needs_operation(bool disconnect_requested, bool currently_connected) {
+    return disconnect_requested == currently_connected;
+}
+
+static void wifi_action_primary_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    if (wifi_action_popup_network_index < 0 || wifi_action_popup_network_index >= wifi_saved_result_count) {
+    int index = wifi_action_popup_resolve_network();
+    if (index < 0) {
         hide_wifi_action_popup();
         return;
     }
-    wifi_saved_network_t * net = &wifi_saved_results[wifi_action_popup_network_index];
+    if (wifi_connect_active || wifi_connect_saved_active || wifi_disconnect_active) {
+        hide_wifi_action_popup();
+        show_info_toast(TR("Wi-Fi is busy"));
+        return;
+    }
+    wifi_saved_network_t * net = &wifi_saved_results[index];
     int id = net->id;
     char ssid[WIFI_MAX_SSID_LEN];
     snprintf(ssid, sizeof(ssid), "%s", net->ssid);
+    bool connected = wifi_saved_profile_is_connected(index);
+    bool disconnect_requested = wifi_action_disconnect_requested;
     hide_wifi_action_popup();
-    start_wifi_connect_saved(id, ssid);
+    if (!wifi_action_state_needs_operation(disconnect_requested, connected)) return;
+    if (disconnect_requested) start_wifi_disconnect();
+    else start_wifi_connect_saved(id, ssid);
 }
 
 static void wifi_action_forget_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    if (wifi_action_popup_network_index < 0 || wifi_action_popup_network_index >= wifi_saved_result_count) {
+    int index = wifi_action_popup_resolve_network();
+    if (index < 0) {
         hide_wifi_action_popup();
         return;
     }
-    int id = wifi_saved_results[wifi_action_popup_network_index].id;
+    int id = wifi_saved_results[index].id;
     hide_wifi_action_popup();
     start_wifi_forget(id);
 }
 
 void build_wifi_action_popup(void) {
-    wifi_action_popup.popup = build_confirm_popup("", LV_LABEL_LONG_DOT, &wifi_action_popup_title, NULL, TR("Connect"),
-                                                   accent_lv_color(), wifi_action_connect_cb, NULL, TR("Forget"),
+    wifi_action_popup.popup = build_confirm_popup_with_labels(
+                                                   "", LV_LABEL_LONG_DOT, &wifi_action_popup_title,
+                                                   NULL, NULL, TR("Connect"), &wifi_action_primary_label,
+                                                   accent_lv_color(), wifi_action_primary_cb, NULL, TR("Forget"),
                                                    lv_color_make(255, 120, 120), wifi_action_forget_cb, NULL,
                                                    wifi_action_popup_backdrop_cb, &wifi_action_popup.backdrop);
 }
 
 static void show_wifi_action_popup(int index) {
-    wifi_action_popup_network_index = index;
+    if (index < 0 || index >= wifi_saved_result_count) return;
+    wifi_action_popup_network_id = wifi_saved_results[index].id;
+    snprintf(wifi_action_popup_network_ssid, sizeof(wifi_action_popup_network_ssid), "%s",
+             wifi_saved_results[index].ssid);
     lv_label_set_text(wifi_action_popup_title, wifi_saved_results[index].ssid);
+    wifi_action_disconnect_requested = wifi_saved_profile_is_connected(index);
+    lv_label_set_text(wifi_action_primary_label, wifi_action_disconnect_requested
+                      ? TR("Disconnect") : TR("Connect"));
     gui_popup_show(&wifi_action_popup);
 }
 
@@ -1114,6 +1326,7 @@ static void wifi_dns_settings_row_cb(lv_event_t * e) {
  * passes the real wifi_control_is_enabled() value, same as before this was
  * a parameter. */
 void populate_wifi_screen(bool enabled) {
+    lv_coord_t scroll_y = wifi_list ? lv_obj_get_scroll_y(wifi_list) : 0;
     lv_obj_clean(wifi_list);
     wifi_settings_snapshot_enabled = enabled;
 
@@ -1129,7 +1342,7 @@ void populate_wifi_screen(bool enabled) {
      * toggle completes. */
     add_pill_toggle_row(wifi_list, TR("Wi-Fi"), enabled, quick_drawer_wifi_event_cb);
 
-    if (!enabled) return;
+    if (!enabled) goto restore_scroll;
 
     wifi_settings_snapshot_start();
 
@@ -1152,9 +1365,38 @@ void populate_wifi_screen(bool enabled) {
     /* Cross-reference wpa_cli status against saved network SSIDs to indicate
      * which saved network is currently connected. */
     bool wifi_currently_connected = have_settings_snapshot && wifi_cached_info_connected;
-    for (int i = 0; i < wifi_saved_result_count; i++) {
+    int connected_saved_index = -1;
+    if (wifi_currently_connected) {
+        for (int i = 0; i < wifi_saved_result_count; ++i) {
+            if (wifi_saved_results[i].current &&
+                strcmp(wifi_saved_results[i].ssid, wifi_cached_info.ssid) == 0) {
+                connected_saved_index = i;
+                break;
+            }
+        }
+        if (connected_saved_index < 0) {
+            for (int i = 0; i < wifi_saved_result_count; ++i) {
+                if (strcmp(wifi_saved_results[i].ssid, wifi_cached_info.ssid) == 0) {
+                    connected_saved_index = wifi_saved_display_index(i);
+                    break;
+                }
+            }
+        }
+    }
+    for (int position = 0; position < wifi_saved_result_count; position++) {
+        int i = position;
+        if (connected_saved_index >= 0) {
+            if (position == 0) i = connected_saved_index;
+            else if (position <= connected_saved_index) i = position - 1;
+        }
+        if (wifi_saved_display_index(i) != i) continue;
+        const lv_font_t * body_font = gui_theme_font(GUI_FONT_ROLE_BODY);
+        const lv_font_t * subtext_font = gui_theme_font(GUI_FONT_ROLE_SUBTEXT);
+        const lv_font_t * text_fonts[] = {body_font, subtext_font};
         lv_obj_t * row = lv_obj_create(wifi_list);
-        lv_obj_set_size(row, LIST_ROW_WIDTH, ui_list_row_height());
+        lv_obj_set_size(row, LIST_ROW_WIDTH,
+                        network_row_text_height(ui_list_row_height(), text_fonts, 2));
+        lv_obj_set_style_pad_all(row, 0, 0);
         lv_obj_add_style(row, &native_row_min_style, 0);
         lv_obj_set_style_radius(row, LIST_ROW_RADIUS, 0);
         lv_obj_set_style_bg_color(row, LIST_ROW_BG_COLOR, 0);
@@ -1162,31 +1404,53 @@ void populate_wifi_screen(bool enabled) {
         lv_obj_set_style_border_width(row, 0, 0);
         lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
-        bool is_connected = wifi_currently_connected && strcmp(wifi_saved_results[i].ssid, wifi_cached_info.ssid) == 0;
+        bool is_connected = wifi_saved_profile_is_connected(i);
         lv_obj_t * label = lv_label_create(row);
         lv_label_set_text(label, wifi_saved_results[i].ssid);
         lv_obj_add_style(label, &style_theme_text_primary, 0);
         configure_network_row_line(label, LIST_ROW_WIDTH - 2 * LIST_ROW_LABEL_INSET,
-                                   gui_theme_font(GUI_FONT_ROLE_BODY));
-        lv_obj_align(label, LV_ALIGN_TOP_LEFT, LIST_ROW_LABEL_INSET, BOARD_SCALE_PX(10));
+                                   body_font);
 
         lv_obj_t * status = lv_label_create(row);
         lv_label_set_text(status, is_connected ? TR("Connected") : TR("Saved network"));
         lv_obj_add_style(status, is_connected ? gui_theme_accent_style() : &style_theme_text_muted, 0);
         configure_network_row_line(status, LIST_ROW_WIDTH - 2 * LIST_ROW_LABEL_INSET,
-                                   gui_theme_font(GUI_FONT_ROLE_SUBTEXT));
-        lv_obj_align(status, LV_ALIGN_TOP_LEFT, LIST_ROW_LABEL_INSET, BOARD_SCALE_PX(18) + lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_BODY)));
+                                   subtext_font);
+        lv_obj_t * text_lines[] = {label, status};
+        align_network_row_text_stack(row, text_lines, text_fonts, 2, LIST_ROW_LABEL_INSET);
 
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(row, wifi_saved_row_click_cb, LV_EVENT_CLICKED, (void *) (intptr_t) i);
     }
 
     add_section_header(wifi_list, TR("Available Networks"));
+    int current_scan_index = -1;
     for (int i = 0; i < wifi_scan_result_count; i++) {
+        if (wifi_network_is_connected(&wifi_scan_results[i])) {
+            current_scan_index = i;
+            break;
+        }
+    }
+    int available_networks_shown = 0;
+    for (int position = 0; position < wifi_scan_result_count; position++) {
+        int i = position;
+        if (current_scan_index >= 0) {
+            if (position == 0) i = current_scan_index;
+            else if (position <= current_scan_index) i = position - 1;
+        }
         wifi_network_t * net = &wifi_scan_results[i];
+        /* Saved profiles already have persistent action rows above. Do not
+         * repeat the same SSID in the transient scan results section. */
+        if (wifi_ssid_is_saved(net->ssid)) continue;
+        available_networks_shown++;
+        const lv_font_t * body_font = gui_theme_font(GUI_FONT_ROLE_BODY);
+        const lv_font_t * subtext_font = gui_theme_font(GUI_FONT_ROLE_SUBTEXT);
+        const lv_font_t * text_fonts[] = {body_font, subtext_font};
 
         lv_obj_t * row = lv_obj_create(wifi_list);
-        lv_obj_set_size(row, LIST_ROW_WIDTH, ui_list_row_height());
+        lv_obj_set_size(row, LIST_ROW_WIDTH,
+                        network_row_text_height(ui_list_row_height(), text_fonts, 2));
+        lv_obj_set_style_pad_all(row, 0, 0);
         lv_obj_add_style(row, &native_row_min_style, 0);
         lv_obj_set_style_radius(row, LIST_ROW_RADIUS, 0);
         lv_obj_set_style_bg_color(row, LIST_ROW_BG_COLOR, 0);
@@ -1204,27 +1468,36 @@ void populate_wifi_screen(bool enabled) {
         lv_label_set_text(label, net->ssid);
         lv_obj_add_style(label, &style_theme_text_primary, 0);
         configure_network_row_line(label, LIST_ROW_WIDTH - BOARD_SCALE_PX(88),
-                                   gui_theme_font(GUI_FONT_ROLE_BODY));
-        lv_obj_align(label, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(64), BOARD_SCALE_PX(10));
+                                   body_font);
 
         lv_obj_t * status = lv_label_create(row);
-        const char * network_status = net->is_current
+        bool is_connected = wifi_network_is_connected(net);
+        const char * network_status = is_connected
             ? (net->secured ? TR("Secured · Connected") : TR("Open · Connected"))
             : net->secured ? TR("Secured network") : TR("Open network");
         lv_label_set_text(status, network_status);
-        lv_obj_add_style(status, net->is_current ? gui_theme_accent_style() : &style_theme_text_muted, 0);
+        lv_obj_add_style(status, is_connected ? gui_theme_accent_style() : &style_theme_text_muted, 0);
         configure_network_row_line(status, LIST_ROW_WIDTH - BOARD_SCALE_PX(88),
-                                   gui_theme_font(GUI_FONT_ROLE_SUBTEXT));
-        lv_obj_align(status, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(64), BOARD_SCALE_PX(18) + lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_BODY)));
+                                   subtext_font);
+        lv_obj_t * text_lines[] = {label, status};
+        align_network_row_text_stack(row, text_lines, text_fonts, 2, BOARD_SCALE_PX(64));
 
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(row, wifi_row_click_cb, LV_EVENT_CLICKED, (void *) (intptr_t) i);
     }
-    if (wifi_scan_result_count == 0) {
+    if (available_networks_shown == 0) {
         if (wifi_enable_pending_feedback)
             build_list_message(wifi_list, TR("Scanning for networks"), TR("Nearby Wi-Fi networks will appear here."));
+        else if (wifi_scan_result_count > 0)
+            build_list_message(wifi_list, TR("No other networks found"),
+                               TR("All visible networks are already saved."));
         else
             build_list_message(wifi_list, TR("No networks found"), TR("Check that Wi-Fi is enabled, then rescan."));
+    }
+restore_scroll:
+    if (wifi_list) {
+        lv_obj_update_layout(wifi_list);
+        lv_obj_scroll_to_y(wifi_list, scroll_y, LV_ANIM_OFF);
     }
 }
 
@@ -1232,13 +1505,7 @@ static lv_obj_t * build_wifi_screen(void) {
     lv_obj_t * title_label; /* unused after build -- title never changes */
     lv_obj_t * scr = build_subsonic_list_screen(TR("Wi-Fi"), &title_label, &wifi_list);
 
-    wifi_rescan_btn = lv_label_create(scr);
-    lv_label_set_text(wifi_rescan_btn, TR("Rescan"));
-    lv_obj_add_style(wifi_rescan_btn, gui_theme_accent_style(), 0);
-    lv_obj_set_style_text_font(wifi_rescan_btn, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-    align_screen_header_action(wifi_rescan_btn, 20);
-    lv_obj_add_flag(wifi_rescan_btn, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(wifi_rescan_btn, wifi_rescan_btn_cb, LV_EVENT_CLICKED, NULL);
+    wifi_rescan_btn = build_header_refresh_action(scr, wifi_rescan_btn_cb);
 
     return scr;
 }
@@ -1251,6 +1518,7 @@ void open_wifi_screen(void) {
     bool enabled = wifi_control_is_enabled();
     wifi_settings_snapshot_invalidate();
     populate_wifi_screen(enabled);
+    lv_obj_scroll_to_y(wifi_list, 0, LV_ANIM_OFF);
     nav_push(wifi_screen);
     if (enabled) start_wifi_scan(); /* auto-refresh -- matches the old always-scan-on-open behavior, but only when there's a radio to scan with */
 }
@@ -1286,6 +1554,24 @@ static volatile bool bt_connect_succeeded = false;
  * player, means there's no screen to get stuck on at all. */
 static char bt_connecting_mac[18] = "";
 static char bt_connect_failed_mac[18] = "";
+
+static void bt_apply_connection_result_to_snapshot(const char * mac, bool succeeded) {
+    if (!mac || !mac[0]) return;
+    for (int i = 0; i < bt_scan_result_count; ++i) {
+        if (strcasecmp(bt_scan_results[i].mac, mac) != 0) continue;
+        bt_scan_results[i].paired = succeeded || bt_scan_results[i].paired;
+        bt_scan_results[i].connected = succeeded;
+    }
+}
+
+static void bt_clear_snapshot_state_for_mac(const char * mac) {
+    if (!mac || !mac[0]) return;
+    for (int i = 0; i < bt_scan_result_count; ++i) {
+        if (strcasecmp(bt_scan_results[i].mac, mac) != 0) continue;
+        bt_scan_results[i].paired = false;
+        bt_scan_results[i].connected = false;
+    }
+}
 
 typedef struct {
     char mac[18];
@@ -1329,12 +1615,7 @@ void poll_bt_connect(void) {
     if (!bt_connect_succeeded) {
         snprintf(bt_connect_failed_mac, sizeof(bt_connect_failed_mac), "%s", connected_mac);
     }
-    for (int i = 0; i < bt_scan_result_count; i++) {
-        if (strcmp(bt_scan_results[i].mac, connected_mac) != 0) continue;
-        bt_scan_results[i].paired = bt_connect_succeeded || bt_scan_results[i].paired;
-        bt_scan_results[i].connected = bt_connect_succeeded;
-        break;
-    }
+    bt_apply_connection_result_to_snapshot(connected_mac, bt_connect_succeeded);
     bt_connecting_mac[0] = '\0';
     populate_bt_screen();
 }
@@ -1390,14 +1671,8 @@ void poll_bt_forget(void) {
          * have observed the device before Forget completed. Invalidate that
          * positive snapshot before changing the remembered preference. */
         gui_shell_cancel_bt_reconnect();
-        for (int i = 0; i < bt_scan_result_count; i++) {
-            if (strcmp(bt_scan_results[i].mac, bt_forget_pending_req->mac) == 0) {
-                bt_scan_results[i].paired = false;
-                bt_scan_results[i].connected = false;
-                break;
-            }
-        }
-        if (strcmp(current_settings.bt_last_output_mac, bt_forget_pending_req->mac) == 0) {
+        bt_clear_snapshot_state_for_mac(bt_forget_pending_req->mac);
+        if (strcasecmp(current_settings.bt_last_output_mac, bt_forget_pending_req->mac) == 0) {
             current_settings.bt_last_output_mac[0] = '\0';
             settings_save_async(&current_settings);
         }
@@ -1509,16 +1784,7 @@ static lv_obj_t * bt_rescan_btn;
 
 static void set_bt_rescan_active(bool active) {
     if (!bt_rescan_btn) return;
-    lv_label_set_text(bt_rescan_btn, active ? TR("Scanning...") : TR("Rescan"));
-    lv_obj_set_style_opa(bt_rescan_btn, active ? LV_OPA_60 : LV_OPA_COVER, 0);
-    align_screen_header_action(bt_rescan_btn, 20);
-    if (active) {
-        lv_obj_remove_flag(bt_rescan_btn, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_state(bt_rescan_btn, LV_STATE_DISABLED);
-    } else {
-        lv_obj_clear_state(bt_rescan_btn, LV_STATE_DISABLED);
-        lv_obj_add_flag(bt_rescan_btn, LV_OBJ_FLAG_CLICKABLE);
-    }
+    set_header_refresh_action_busy(bt_rescan_btn, active);
 }
 
 /* Checks if the device name is a MAC address placeholder (e.g. "5D-C4-96-7E-56-88")
@@ -1534,6 +1800,43 @@ static bool bt_name_is_mac_placeholder(const bt_device_t * dev) {
         else if (m != n) return false;
     }
     return true;
+}
+
+static int bt_device_state_rank(const bt_device_t * dev) {
+    return dev->connected ? 2 : dev->paired ? 1 : 0;
+}
+
+/* bluetoothctl's device output can contain the same MAC more than once.
+ * Choose one row identity without changing the backend snapshot or the
+ * callback index, preferring live connection state, then pairing state,
+ * then a useful advertised name. */
+static int bt_preferred_device_index(int index) {
+    const bt_device_t * target = &bt_scan_results[index];
+    int preferred = index;
+    for (int i = 0; i < bt_scan_result_count; ++i) {
+        if (strcasecmp(bt_scan_results[i].mac, target->mac) != 0) continue;
+        int candidate_rank = bt_device_state_rank(&bt_scan_results[i]);
+        int preferred_rank = bt_device_state_rank(&bt_scan_results[preferred]);
+        if (candidate_rank > preferred_rank ||
+            (candidate_rank == preferred_rank && bt_name_is_mac_placeholder(&bt_scan_results[preferred]) &&
+             !bt_name_is_mac_placeholder(&bt_scan_results[i])) ||
+            (candidate_rank == preferred_rank &&
+             bt_name_is_mac_placeholder(&bt_scan_results[preferred]) ==
+             bt_name_is_mac_placeholder(&bt_scan_results[i]) && i < preferred)) {
+            preferred = i;
+        }
+    }
+    return preferred;
+}
+
+static void bt_merged_device_state(const char * mac, bool * paired, bool * connected) {
+    *paired = false;
+    *connected = false;
+    for (int i = 0; i < bt_scan_result_count; ++i) {
+        if (strcasecmp(bt_scan_results[i].mac, mac) != 0) continue;
+        *paired |= bt_scan_results[i].paired;
+        *connected |= bt_scan_results[i].connected;
+    }
 }
 
 /* Extra row height (beyond LIST_ROW_WIDTH's normal LIST_ROW_HEIGHT) when a
@@ -1555,12 +1858,21 @@ static void add_bt_device_row(lv_obj_t * parent, int index) {
      * background poll as the rest of this screen's live state (see
      * refresh_bt_icon_thread_func()) -- never a synchronous bluealsactl
      * call here on the UI thread. */
-    bool show_codec = dev->connected && bt_connected_codec_cached[0] != '\0' &&
+    bool device_paired, device_connected;
+    bt_merged_device_state(dev->mac, &device_paired, &device_connected);
+    bool show_codec = device_connected && bt_connected_codec_cached[0] != '\0' &&
                        strcasecmp(dev->mac, bt_connected_mac_cached) == 0;
+    const lv_font_t * body_font = gui_theme_font(GUI_FONT_ROLE_BODY);
+    const lv_font_t * subtext_font = gui_theme_font(GUI_FONT_ROLE_SUBTEXT);
+    const lv_font_t * text_fonts[3] = {body_font, subtext_font, subtext_font};
+    int text_line_count = show_codec ? 3 : 2;
 
     lv_obj_t * row = lv_obj_create(parent);
     lv_obj_set_size(row, LIST_ROW_WIDTH,
-                    ui_list_row_height() + (show_codec ? BT_DEVICE_ROW_CODEC_EXTRA_HEIGHT : 0));
+                    network_row_text_height(ui_list_row_height() +
+                                             (show_codec ? BT_DEVICE_ROW_CODEC_EXTRA_HEIGHT : 0),
+                                             text_fonts, text_line_count));
+    lv_obj_set_style_pad_all(row, 0, 0);
     lv_obj_add_style(row, &native_row_min_style, 0);
     lv_obj_set_style_radius(row, LIST_ROW_RADIUS, 0);
     lv_obj_set_style_bg_color(row, LIST_ROW_BG_COLOR, 0);
@@ -1571,20 +1883,17 @@ static void add_bt_device_row(lv_obj_t * parent, int index) {
     lv_obj_t * label = lv_label_create(row);
     lv_label_set_text(label, dev->name[0] != '\0' ? dev->name : dev->mac);
     lv_obj_add_style(label, &style_theme_text_primary, 0);
-    configure_network_row_line(label, LIST_ROW_WIDTH - 2 * LIST_ROW_LABEL_INSET,
-                               gui_theme_font(GUI_FONT_ROLE_BODY));
-    lv_obj_align(label, LV_ALIGN_TOP_LEFT, LIST_ROW_LABEL_INSET, BOARD_SCALE_PX(8));
+    configure_network_row_line(label, LIST_ROW_WIDTH - 2 * LIST_ROW_LABEL_INSET, body_font);
 
     lv_obj_t * status_label = lv_label_create(row);
-    const char * status = strcmp(dev->mac, bt_connecting_mac) == 0 ? TR("Connecting") :
-                          strcmp(dev->mac, bt_connect_failed_mac) == 0 ? TR("Connection failed") :
-                          dev->connected ? TR("Connected") : dev->paired ? TR("Paired") : TR("Available");
+    const char * status = strcasecmp(dev->mac, bt_connecting_mac) == 0 ? TR("Connecting") :
+                          strcasecmp(dev->mac, bt_connect_failed_mac) == 0 ? TR("Connection failed") :
+                          device_connected ? TR("Connected") : device_paired ? TR("Paired") : TR("Available");
     lv_label_set_text(status_label, status);
-    lv_obj_add_style(status_label, dev->connected ? gui_theme_accent_style() : &style_theme_text_muted, 0);
-    configure_network_row_line(status_label, LIST_ROW_WIDTH - 2 * LIST_ROW_LABEL_INSET,
-                               gui_theme_font(GUI_FONT_ROLE_SUBTEXT));
-    lv_obj_align(status_label, LV_ALIGN_TOP_LEFT, LIST_ROW_LABEL_INSET, BOARD_SCALE_PX(45));
+    lv_obj_add_style(status_label, device_connected ? gui_theme_accent_style() : &style_theme_text_muted, 0);
+    configure_network_row_line(status_label, LIST_ROW_WIDTH - 2 * LIST_ROW_LABEL_INSET, subtext_font);
 
+    lv_obj_t * text_lines[3] = {label, status_label, NULL};
     if (show_codec) {
         lv_obj_t * codec_label = lv_label_create(row);
         /* Codec and rate together: the negotiated link is not necessarily the
@@ -1601,9 +1910,12 @@ static void add_bt_device_row(lv_obj_t * parent, int index) {
         }
         lv_label_set_text(codec_label, codec_text);
         lv_obj_add_style(codec_label, &style_theme_text_muted, 0);
-        lv_obj_set_style_text_font(codec_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
-        lv_obj_align(codec_label, LV_ALIGN_BOTTOM_LEFT, LIST_ROW_LABEL_INSET, BOARD_SCALE_PX(-12));
+        configure_network_row_line(codec_label, LIST_ROW_WIDTH - 2 * LIST_ROW_LABEL_INSET, subtext_font);
+        text_lines[2] = codec_label;
     }
+
+    align_network_row_text_stack(row, text_lines, text_fonts, text_line_count,
+                                 LIST_ROW_LABEL_INSET);
 
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(row, bt_row_click_cb, LV_EVENT_CLICKED, (void *) (intptr_t) index);
@@ -2429,6 +2741,7 @@ static bool usb_bridge_restart_active = false;
 static atomic_bool usb_bridge_restart_done = false;
 static atomic_bool usb_mode_switch_done_flag = false;
 static volatile bool usb_mode_switch_succeeded = false;
+static bool usb_mode_switch_lease_deferred;
 static usb_mode_t usb_mode_switch_target;
 static bool usb_cable_state_initialized;
 static bool usb_cable_was_connected;
@@ -2476,7 +2789,9 @@ static void populate_usb_mode_screen(void) {
 
 static void * usb_mode_switch_thread_func(void * arg) {
     (void) arg;
-    usb_mode_switch_succeeded = usb_mode_control_apply(usb_mode_switch_target);
+    bool storage_busy = false;
+    usb_mode_switch_succeeded = usb_mode_control_apply_with_status(usb_mode_switch_target, &storage_busy);
+    usb_mode_switch_lease_deferred = storage_busy && usb_mode_switch_target == USB_MODE_STORAGE;
     atomic_store_explicit(&usb_mode_switch_done_flag, true, memory_order_release); /* written last -- poll_usb_mode_switch only checks this flag */
     return NULL;
 }
@@ -2586,6 +2901,10 @@ void poll_usb_mode_switch(void) {
      * (the switch genuinely didn't happen) rather than optimistically
      * recording what was merely requested. */
     if (!usb_mode_switch_succeeded) {
+        if (usb_mode_switch_lease_deferred) {
+            usb_storage_rebind_pending = true;
+            return; /* Retry quietly after setup releases the card. */
+        }
         const char * label = TR("USB mode");
         for (size_t i = 0; i < USB_MODE_OPTION_COUNT; i++) {
             if (usb_mode_options[i].mode == usb_mode_switch_target) { label = TR(usb_mode_options[i].label); break; }
@@ -2720,7 +3039,8 @@ void poll_usb_storage_hotplug(void) {
         gui_library_request_files_changed_prompt();
     }
 
-    if (!connected || !usb_storage_rebind_pending || usb_mode_switch_active) return;
+    if (!connected || !usb_storage_rebind_pending || usb_mode_switch_active ||
+        usb_mode_control_storage_write_active()) return;
 
     usb_mode_t live_mode;
     bool have_live_mode = usb_mode_control_detect_current(&live_mode);
@@ -2729,8 +3049,7 @@ void poll_usb_storage_hotplug(void) {
         return;
     }
 
-    usb_storage_rebind_pending = false;
-    start_usb_mode_switch(USB_MODE_STORAGE);
+    if (start_usb_mode_switch(USB_MODE_STORAGE)) usb_storage_rebind_pending = false;
 }
 
 bool gui_network_usb_storage_session_active(void) {
@@ -2966,7 +3285,11 @@ void populate_bt_screen(void) {
     add_section_header(bt_list, TR("Paired Devices"));
     int paired_shown = 0;
     for (int i = 0; i < bt_scan_result_count; i++) {
-        if (!bt_scan_results[i].paired) continue;
+        if (bt_preferred_device_index(i) != i) continue;
+        bool paired, connected;
+        bt_merged_device_state(bt_scan_results[i].mac, &paired, &connected);
+        (void) connected;
+        if (!paired) continue;
         add_bt_device_row(bt_list, i);
         paired_shown++;
     }
@@ -2977,7 +3300,11 @@ void populate_bt_screen(void) {
     add_section_header(bt_list, TR("Available Devices"));
     int available_shown = 0;
     for (int i = 0; i < bt_scan_result_count; i++) {
-        if (bt_scan_results[i].paired) continue;
+        if (bt_preferred_device_index(i) != i) continue;
+        bool paired, connected;
+        bt_merged_device_state(bt_scan_results[i].mac, &paired, &connected);
+        (void) connected;
+        if (paired) continue;
         if (current_settings.bt_hide_unnamed_devices && bt_name_is_mac_placeholder(&bt_scan_results[i])) continue;
         add_bt_device_row(bt_list, i);
         available_shown++;
@@ -2993,13 +3320,7 @@ static lv_obj_t * build_bluetooth_screen(void) {
     lv_obj_t * title_label; /* unused after build -- title never changes */
     lv_obj_t * scr = build_subsonic_list_screen(TR("Bluetooth"), &title_label, &bt_list);
 
-    bt_rescan_btn = lv_label_create(scr);
-    lv_label_set_text(bt_rescan_btn, TR("Rescan"));
-    lv_obj_add_style(bt_rescan_btn, gui_theme_accent_style(), 0);
-    lv_obj_set_style_text_font(bt_rescan_btn, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-    align_screen_header_action(bt_rescan_btn, 20);
-    lv_obj_add_flag(bt_rescan_btn, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(bt_rescan_btn, bt_rescan_btn_cb, LV_EVENT_CLICKED, NULL);
+    bt_rescan_btn = build_header_refresh_action(scr, bt_rescan_btn_cb);
 
     return scr;
 }

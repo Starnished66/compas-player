@@ -30,6 +30,8 @@ extern const int SLEEP_TIMER_STEPS[];
 #define SETTINGS_SUBSONIC_SAVED_MAX 16
 #define SETTINGS_SUBSONIC_DOWNLOAD_SUBFOLDER_MAX 256
 #define REMOTE_CONTROL_PIN_MAX_LENGTH 12
+#define SETTINGS_SETUP_PLUGIN_MAX 32
+#define SETTINGS_SETUP_PLUGIN_ID_MAX 64
 
 #define BT_DEVICE_RATE_MAX 8
 
@@ -415,6 +417,11 @@ typedef struct {
     bool setup_complete;
     bool setup_intro_played; /* Reset with settings; prevents replay during setup. */
     int setup_step; /* Persisted IDs: 0 welcome, 1 language, 2 timezone, 3 Wi-Fi, 4 plugins, 5 scan, 6 complete, 7 layout; retained across restarts. */
+    /* Choices staged during first-run setup. Stored separately so restarting
+     * at the scan step does not discard plugin or layout selections. */
+    char setup_plugin_ids[SETTINGS_SETUP_PLUGIN_MAX][SETTINGS_SETUP_PLUGIN_ID_MAX];
+    char setup_layout_plugin_id[SETTINGS_SETUP_PLUGIN_ID_MAX];
+    bool setup_scan_music;
 } player_settings_t;
 
 /* Validate a relative Subsonic download folder. Empty is a valid setting;

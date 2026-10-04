@@ -20,6 +20,9 @@ extern lv_font_t app_font_lyrics;
 extern lv_font_t app_font_player_title;
 extern lv_font_t app_font_player_meta;
 
+/* Large fixed-size clock/display text, independent of the Font Size tier. */
+extern lv_font_t app_font_display;
+
 /* Initializes the font stack metrics early at startup (before screens are built) */
 void fallback_font_init_early(int font_size_tier, int lyrics_font_size_tier);
 

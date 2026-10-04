@@ -10,6 +10,8 @@
 #include "gui_notifications.h"
 #include "gui_theme.h"
 #include "gui_shell.h"
+#include "player_layouts.h"
+#include "usb_mode_control.h"
 #include "i18n.h"
 #include "screen_builders.h"
 #include "settings.h"
@@ -23,6 +25,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include <pthread.h>
 
 extern player_settings_t current_settings;
 /* Keep persisted IDs stable; Layout is appended as ID 7. Display order is
@@ -58,6 +61,26 @@ static int step;
 static char staged_language[8];
 static bool staged_scan;
 static bool setup_scan_running;
+static bool setup_finalizing;
+static bool setup_apply_pending;
+static lv_timer_t * setup_apply_timer;
+static bool setup_storage_held;
+static bool setup_storage_release;
+static bool setup_storage_done;
+static bool setup_storage_success;
+static bool setup_storage_running;
+static bool setup_storage_release_pending;
+static pthread_t setup_storage_thread;
+static pthread_mutex_t setup_storage_mutex = PTHREAD_MUTEX_INITIALIZER;
+static lv_timer_t * setup_storage_timer;
+static void (*setup_storage_complete)(bool);
+static bool setup_scan_success;
+static char staged_layout_plugin[64];
+static char staged_layout_name[65];
+static lv_timer_t * layout_catalog_timer;
+static bool layout_catalog_ready;
+static uint64_t layout_preview_generation;
+static char layout_suggestion_preview[512];
 static bool setup_started;
 static lv_timer_t * plugin_network_timer;
 static lv_obj_t * plugin_network_notice;
@@ -165,7 +188,7 @@ static bool installation_blocks_navigation(void) {
         show_info_toast(TR("Please wait for the library scan to finish"));
         return true;
     }
-    if (!gui_setup_plugins_busy()) return false;
+    if (!gui_setup_plugins_busy() && !setup_finalizing) return false;
     show_info_toast(TR("Please wait for plugin installation to finish"));
     return true;
 }
@@ -181,12 +204,9 @@ static void advance_step(const char * source) {
 }
 static void skip_cb(lv_event_t * e) {
     (void)e;
-    if (!installation_blocks_navigation()) advance_step("skip");
-}
-static void plugins_installed(void) {
-    step = STEP_LAYOUT;
-    save_progress_from("plugins-installed");
-    gui_reload_request();
+    if (installation_blocks_navigation()) return;
+    if (step == STEP_PLUGINS) gui_setup_plugins_clear_selection();
+    advance_step("skip");
 }
 static void next_cb(lv_event_t * e) {
     (void)e;
@@ -196,8 +216,10 @@ static void next_cb(lv_event_t * e) {
         return;
     }
     if (step == STEP_PLUGINS) {
-        (void)gui_setup_plugins_confirm(plugins_installed);
-        return;
+        if (gui_setup_plugins_selected_count() == 0) {
+            show_info_toast(TR("Select at least one plugin to continue."));
+            return;
+        }
     }
     if (step == STEP_LANGUAGE) {
         if (strcmp(staged_language, current_settings.language) != 0) {
@@ -225,33 +247,155 @@ static void back_cb(lv_event_t * e) {
     save_progress_from("back");
     schedule_render();
 }
+static void * setup_storage_worker(void * unused) {
+    (void)unused;
+    bool success = true;
+    if (setup_storage_release) usb_mode_control_storage_write_end();
+    else success = usb_mode_control_storage_write_begin();
+    pthread_mutex_lock(&setup_storage_mutex);
+    setup_storage_success = success;
+    setup_storage_done = true;
+    pthread_mutex_unlock(&setup_storage_mutex);
+    return NULL;
+}
+static bool setup_storage_job(bool release, void (*complete)(bool));
+static void setup_storage_finished(bool success);
+static void setup_storage_poll(lv_timer_t * timer) {
+    (void)timer;
+    if (!setup_storage_running) {
+        if (setup_storage_release_pending && setup_storage_job(true, setup_storage_finished))
+            setup_storage_release_pending = false;
+        return;
+    }
+    pthread_mutex_lock(&setup_storage_mutex);
+    bool done = setup_storage_done, success = setup_storage_success;
+    pthread_mutex_unlock(&setup_storage_mutex);
+    if (!done) return;
+    pthread_join(setup_storage_thread, NULL);
+    setup_storage_running = false;
+    setup_storage_held = !setup_storage_release && success;
+    void (*complete)(bool) = setup_storage_complete;
+    setup_storage_complete = NULL;
+    if (complete) complete(success);
+    if (!setup_storage_held && !setup_storage_running && !setup_storage_release_pending && setup_storage_timer) {
+        lv_timer_delete(setup_storage_timer);
+        setup_storage_timer = NULL;
+    }
+}
+static bool setup_storage_job(bool release, void (*complete)(bool)) {
+    if (setup_storage_running) return false;
+    if (!setup_storage_timer) setup_storage_timer = lv_timer_create(setup_storage_poll, 50, NULL);
+    if (!setup_storage_timer) return false;
+    setup_storage_release = release;
+    setup_storage_done = false;
+    setup_storage_complete = complete;
+    if (pthread_create(&setup_storage_thread, NULL, setup_storage_worker, NULL) != 0) {
+        setup_storage_complete = NULL;
+        return false;
+    }
+    setup_storage_running = true;
+    return true;
+}
+static void setup_storage_finished(bool success) {
+    (void)success;
+    setup_finalizing = false;
+    if (!setup_screen) return;
+    if (setup_scan_success) advance_step("configuration-applied");
+    else schedule_render();
+}
+static void setup_release_storage(bool success) {
+    setup_scan_success = success;
+    if (!setup_storage_held) { setup_storage_finished(true); return; }
+    if (!setup_storage_job(true, setup_storage_finished)) {
+        /* Retry off the UI thread while retaining exclusive card access. */
+        setup_storage_release_pending = true;
+        show_error_toast(TR("Could not start the plugin operation"));
+    }
+}
 static void setup_scan_completed(bool success) {
     setup_scan_running = false;
-    if (!setup_screen) return;
     DB_LOG("SETUP_NAV", "scan callback success=%d step=%d", success, step);
     (void)db_log_flush();
-    if (success) advance_step("scan-success");
-    else schedule_render();
+    setup_release_storage(success);
 }
 static void start_setup_scan_async(void * unused) {
     (void)unused;
     if (!setup_screen || step != STEP_SCAN) return;
+    char error[256];
+    if (!plugin_store_storage_writable(error, sizeof(error))) {
+        setup_scan_running = false;
+        show_error_toast(error);
+        setup_release_storage(false);
+        return;
+    }
     if (!gui_library_start_setup_scan(setup_scan_completed)) {
         setup_scan_running = false;
         show_error_toast(TR("Could not start the library scan. Please try again."));
+        setup_release_storage(false);
     }
+}
+static void setup_apply_cb(lv_timer_t * timer) {
+    (void)timer;
+    if (setup_apply_pending && setup_screen) gui_reload_request();
+}
+static void setup_batch_finished(void) {
+    if (!setup_screen || step != STEP_SCAN) return;
+    char layout_id[PLAYER_LAYOUT_ID_MAX] = "";
+    if (staged_layout_plugin[0] && gui_setup_plugins_layout_ready()) {
+        if (!plugin_store_get_player_layout_id(staged_layout_plugin, layout_id, sizeof(layout_id)))
+            show_error_toast(TR("Plugin is unavailable in the catalog"));
+    }
+    player_layouts_session_clear_selection();
+    snprintf(current_settings.player_layout, sizeof(current_settings.player_layout), "%s", layout_id);
+    settings_save(&current_settings);
+    /* Load newly installed plugin registrations before the library scan.
+     * The setup state survives the UI reload; after_reload resumes the job. */
+    setup_apply_pending = true;
+    /* Respect the reload cooldown even when an empty batch completes just
+     * after a language reload. Retry until teardown acknowledges the reload. */
+    setup_apply_timer = lv_timer_create(setup_apply_cb, 300, NULL);
+    if (!setup_apply_timer) {
+        setup_apply_pending = false;
+        show_error_toast(TR("Could not start the library scan. Please try again."));
+        setup_release_storage(false);
+    }
+}
+static void setup_storage_acquired(bool success) {
+    if (!success) {
+        setup_finalizing = false;
+        show_error_toast(TR("Disconnect USB storage from the host before changing plugins."));
+        return;
+    }
+    if (!gui_setup_plugins_start(setup_batch_finished)) setup_release_storage(false);
 }
 static void finish_cb(lv_event_t * e) {
     (void)e;
     if (installation_blocks_navigation()) return;
     if (scan_switch) staged_scan = lv_obj_has_state(scan_switch, LV_STATE_CHECKED);
-    if (!staged_scan) { advance_step("scan-skipped"); return; }
-    if (!sd_card_root_is_mounted()) {
+    if (staged_scan && !sd_card_root_is_mounted()) {
         show_error_toast(TR("Insert an SD card to scan for music, or turn off Scan for music."));
         return;
     }
-    setup_scan_running = true;
-    lv_async_call(start_setup_scan_async, NULL);
+    if (staged_scan || staged_layout_plugin[0] || gui_setup_plugins_selected_count() > 0) {
+        if (!sd_card_root_is_mounted()) {
+            show_error_toast(TR("Insert an SD card to change plugins."));
+            return;
+        }
+        char error[256];
+        if (!plugin_store_storage_writable(error, sizeof(error))) {
+            show_error_toast(error);
+            return;
+        }
+    }
+    setup_finalizing = true;
+    if (!staged_scan && !staged_layout_plugin[0] && gui_setup_plugins_selected_count() == 0) {
+        if (!gui_setup_plugins_start(setup_batch_finished)) setup_finalizing = false;
+        return;
+    }
+    if (!setup_storage_job(false, setup_storage_acquired)) {
+        setup_finalizing = false;
+        show_error_toast(TR("Could not start the plugin operation"));
+    }
 }
 static void complete_cb(lv_event_t * e) {
     (void)e;
@@ -408,13 +552,51 @@ static void plugin_network_poll(lv_timer_t * timer) {
             style_plugin_selection(row, suggested_plugin_ids[i]);
     }
 }
+static void setup_plugin_picker_done(void) {
+    if (step == STEP_PLUGINS && !installation_blocks_navigation()) next_cb(NULL);
+}
 static void open_plugins_cb(lv_event_t * e) {
     (void)e;
-    (void)gui_plugin_store_open_picker(gui_setup_plugins_is_selected, gui_setup_plugins_toggle);
+    (void)gui_plugin_store_open_picker(gui_setup_plugins_is_selected, gui_setup_plugins_toggle,
+                                     setup_plugin_picker_done);
+}
+static bool setup_layout_is_selected(const char * id) {
+    return id && strcmp(id, staged_layout_plugin) == 0;
+}
+static void setup_layout_selected(const char * id, const char * name) {
+    if (installation_blocks_navigation() || !id) return;
+    snprintf(staged_layout_plugin, sizeof(staged_layout_plugin), "%s", id);
+    snprintf(staged_layout_name, sizeof(staged_layout_name), "%s", name ? name : "");
+    gui_setup_plugins_set_layout(staged_layout_plugin, staged_layout_name);
+    schedule_render();
+}
+static void setup_default_layout_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED) setup_layout_selected("", TR("Default"));
+}
+static void setup_layout_catalog_poll(lv_timer_t * timer) {
+    (void)timer;
+    if (!setup_screen || step != STEP_LAYOUT) return;
+    if (!gui_navigation_is_top(setup_screen) || gui_navigation_transition_in_progress()) return;
+    bool ready = gui_plugin_store_setup_catalog_ready();
+    if (ready) {
+        char preview[sizeof(layout_suggestion_preview)];
+        if (!plugin_store_get_preview(GUI_SETUP_LAYOUT_PLUGIN_ID, preview, sizeof(preview)))
+            (void)gui_plugin_store_setup_populate_layout_suggestions(NULL, NULL, NULL);
+    }
+    uint64_t previews = plugin_store_preview_generation();
+    if (ready != layout_catalog_ready) schedule_render();
+    else if (previews != layout_preview_generation) {
+        char preview[sizeof(layout_suggestion_preview)] = "";
+        (void)plugin_store_get_preview(GUI_SETUP_LAYOUT_PLUGIN_ID, preview, sizeof(preview));
+        if (strcmp(preview, layout_suggestion_preview) != 0) schedule_render();
+        else layout_preview_generation = previews;
+    }
+    if (!ready && !plugin_catalog_request_started && gui_network_setup_wifi_connected())
+        plugin_catalog_request_started = gui_plugin_store_setup_catalog_prepare();
 }
 static void open_player_layouts_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    (void)gui_plugin_store_open_player_layouts();
+    (void)gui_plugin_store_open_layout_picker(setup_layout_is_selected, setup_layout_selected);
 }
 static void style_plugin_selection(lv_obj_t * row, const char * id) {
     bool selected = gui_setup_plugins_is_selected(id);
@@ -462,10 +644,14 @@ static void scan_row_cb(lv_event_t * e) {
     staged_scan = !staged_scan;
     if (staged_scan) lv_obj_add_state(scan_switch, LV_STATE_CHECKED);
     else lv_obj_remove_state(scan_switch, LV_STATE_CHECKED);
+    current_settings.setup_scan_music = staged_scan;
+    settings_save(&current_settings);
 }
 static void scan_switch_cb(lv_event_t * e) {
     (void)e;
     staged_scan = lv_obj_has_state(scan_switch, LV_STATE_CHECKED);
+    current_settings.setup_scan_music = staged_scan;
+    settings_save(&current_settings);
 }
 
 static lv_obj_t * new_card(lv_obj_t * parent) {
@@ -986,7 +1172,11 @@ static void render_async(void * unused) {
     plugin_catalog_notice = NULL;
     memset(plugin_download_rows, 0, sizeof(plugin_download_rows));
     memset(plugin_download_available, 0, sizeof(plugin_download_available));
-    if (step != STEP_PLUGINS) plugin_catalog_request_started = false;
+    if (step != STEP_PLUGINS && step != STEP_LAYOUT) plugin_catalog_request_started = false;
+    if (step != STEP_LAYOUT && layout_catalog_timer) {
+        lv_timer_delete(layout_catalog_timer);
+        layout_catalog_timer = NULL;
+    }
     lv_obj_clean(content);
     scan_switch = NULL;
     setup_body = NULL;
@@ -1086,10 +1276,22 @@ static void render_async(void * unused) {
         no_scrollbar(actions);
         lv_obj_t * hidden = button(actions, TR("Add hidden network"), false, wifi_hidden_cb);
         lv_obj_set_width(hidden, 0);
-        lv_obj_set_flex_grow(hidden, 2);
+        lv_obj_set_flex_grow(hidden, 1);
         lv_obj_t * rescan = button(actions, TR("Rescan"), false, wifi_rescan_cb);
         lv_obj_set_width(rescan, 0);
         lv_obj_set_flex_grow(rescan, 1);
+        /* Equal action widths leave room for translated refresh captions.
+         * Wrap the longer hidden-network caption inside the button. */
+        lv_obj_t * wifi_actions[] = { hidden, rescan };
+        for (unsigned i = 0; i < sizeof(wifi_actions) / sizeof(wifi_actions[0]); ++i) {
+            lv_obj_t * action = wifi_actions[i];
+            lv_obj_set_height(action, ui_list_row_height());
+            lv_obj_set_style_pad_all(action, BOARD_SCALE_PX(8), 0);
+            lv_obj_t * caption = lv_obj_get_child(action, 0);
+            lv_obj_set_width(caption, LV_PCT(100));
+            lv_label_set_long_mode(caption, LV_LABEL_LONG_WRAP);
+            lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
+        }
         lv_obj_t * networks = lv_obj_create(card);
         lv_obj_set_size(networks, LV_PCT(100), LV_SIZE_CONTENT);
         lv_obj_set_style_bg_opa(networks, LV_OPA_TRANSP, 0);
@@ -1156,7 +1358,40 @@ static void render_async(void * unused) {
         lv_obj_set_style_bg_opa(card, LV_OPA_TRANSP, 0);
         lv_obj_set_style_pad_all(card, 0, 0);
         lv_obj_set_style_border_width(card, 0, 0);
-        gui_settings_populate_player_layout_picker(card, true);
+        lv_obj_t * grid = lv_obj_create(card);
+        lv_obj_remove_style_all(grid);
+        lv_obj_set_size(grid, LV_PCT(100), LV_SIZE_CONTENT);
+        lv_obj_remove_flag(grid, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+        configure_cover_card_grid(grid, 2);
+        lv_obj_set_style_pad_top(grid, BOARD_SCALE_PX(6), 0);
+        lv_obj_set_style_pad_bottom(grid, BOARD_SCALE_PX(6), 0);
+        int default_index = player_layouts_find(PLAYER_LAYOUT_ID_DEFAULT);
+        char preview[512], resolved[520];
+        const char * preview_src = NULL;
+        if (player_layouts_get_preview(default_index, preview, sizeof(preview))) {
+            snprintf(resolved, sizeof(resolved), "S:%s", preview);
+            preview_src = resolved;
+        }
+        lv_obj_t * default_card = add_cover_card(grid, TR("Default"), preview_src, 2,
+                                                 setup_default_layout_cb, NULL);
+        if (default_card) {
+            lv_obj_set_style_outline_width(default_card, staged_layout_plugin[0] ? 0 : BOARD_SCALE_PX(2), 0);
+            lv_obj_set_style_outline_color(default_card, accent_lv_color(), 0);
+            lv_obj_set_style_outline_pad(default_card, BOARD_SCALE_PX(2), 0);
+        }
+        layout_catalog_ready = gui_plugin_store_setup_catalog_ready();
+        layout_preview_generation = plugin_store_preview_generation();
+        layout_suggestion_preview[0] = '\0';
+        (void)plugin_store_get_preview(GUI_SETUP_LAYOUT_PLUGIN_ID, layout_suggestion_preview,
+                                     sizeof(layout_suggestion_preview));
+        (void)gui_plugin_store_setup_populate_layout_suggestions(grid, setup_layout_is_selected, setup_layout_selected);
+        if (!layout_catalog_ready && gui_network_setup_wifi_connected()) {
+            label(card, TR("Loading layouts"), GUI_FONT_ROLE_SUBTEXT,
+                  style_color(&style_theme_text_muted, LV_STYLE_TEXT_COLOR, GUI_COLOR_SECONDARY), LV_PCT(100));
+            if (!plugin_catalog_request_started)
+                plugin_catalog_request_started = gui_plugin_store_setup_catalog_prepare();
+        }
+        if (!layout_catalog_timer) layout_catalog_timer = lv_timer_create(setup_layout_catalog_poll, 500, NULL);
         button(card, TR("More"), false, open_player_layouts_cb);
         button(footer, TR("Continue"), true, next_cb);
         return;
@@ -1192,6 +1427,9 @@ static void finish_async(void * unused) {
     bool language_changed = strcmp(staged_language, current_settings.language) != 0;
     snprintf(current_settings.language, sizeof(current_settings.language), "%s", staged_language);
     current_settings.setup_complete = true;
+    memset(current_settings.setup_plugin_ids, 0, sizeof(current_settings.setup_plugin_ids));
+    current_settings.setup_layout_plugin_id[0] = '\0';
+    current_settings.setup_scan_music = true;
     settings_save(&current_settings);
     if (language_changed) i18n_set_language(staged_language);
     gui_library_invalidate_boot_prompt();
@@ -1309,7 +1547,10 @@ bool gui_setup_show_if_needed(void) {
         setup_started = true;
         step = current_settings.setup_step;
         if (setup_step_position(step) < 0) step = STEP_WELCOME;
-        staged_scan = true;
+        gui_setup_plugins_restore_selection();
+        staged_scan = current_settings.setup_scan_music;
+        snprintf(staged_layout_plugin, sizeof(staged_layout_plugin), "%s", current_settings.setup_layout_plugin_id);
+        snprintf(staged_layout_name, sizeof(staged_layout_name), "%s", staged_layout_plugin);
         snprintf(staged_language, sizeof(staged_language), "%s",
                  current_settings.language[0] ? current_settings.language : I18N_DEFAULT_LANGUAGE);
         DB_LOG("SETUP_NAV", "startup restored step=%d persisted_step=%d setup_complete=%d",
@@ -1347,10 +1588,26 @@ bool gui_setup_show_if_needed(void) {
 }
 
 void gui_setup_after_reload(void) {
-    /* Scanning is completed explicitly on the Your music page. */
+    if (!setup_apply_pending || !setup_screen || step != STEP_SCAN) return;
+    setup_apply_pending = false;
+    char canonical[PLAYER_LAYOUT_ID_MAX];
+    if (current_settings.player_layout[0] &&
+        player_layouts_canonical_id(current_settings.player_layout, canonical, sizeof(canonical)) &&
+        strcmp(canonical, current_settings.player_layout) != 0) {
+        snprintf(current_settings.player_layout, sizeof(current_settings.player_layout), "%s", canonical);
+        settings_save(&current_settings);
+        player_layouts_rescan();
+    }
+    if (staged_scan) {
+        setup_scan_running = true;
+        lv_async_call(start_setup_scan_async, NULL);
+    } else {
+        setup_release_storage(true);
+    }
 }
 
 void gui_setup_teardown(void) {
+    if (setup_apply_timer) { lv_timer_delete(setup_apply_timer); setup_apply_timer = NULL; }
     lv_async_call_cancel(start_setup_scan_async, NULL);
     setup_scan_running = false;
     gui_setup_plugins_teardown();
@@ -1360,6 +1617,7 @@ void gui_setup_teardown(void) {
     plugin_catalog_notice = NULL;
     memset(plugin_download_rows, 0, sizeof(plugin_download_rows));
     if (plugin_network_timer) { lv_timer_delete(plugin_network_timer); plugin_network_timer = NULL; }
+    if (layout_catalog_timer) { lv_timer_delete(layout_catalog_timer); layout_catalog_timer = NULL; }
     intro_cleanup();
     if (!setup_screen) return;
     lv_async_call_cancel(render_async, NULL);
@@ -1372,5 +1630,10 @@ void gui_setup_teardown(void) {
     setup_screen = NULL;
     content = NULL;
     scan_switch = NULL;
-    if (current_settings.setup_complete) setup_started = false;
+    if (current_settings.setup_complete) {
+        if (setup_storage_timer) { lv_timer_delete(setup_storage_timer); setup_storage_timer = NULL; }
+        setup_started = false;
+        setup_finalizing = setup_apply_pending = false;
+        staged_layout_plugin[0] = staged_layout_name[0] = '\0';
+    }
 }

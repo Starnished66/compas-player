@@ -230,10 +230,10 @@ lv_obj_t * build_header_back_button(lv_obj_t * scr, lv_event_cb_t cb);
 /* Align existing text actions/switches by their actual height, not an
  * assumed font or asset size. Position remains centered when size changes. */
 void align_screen_header_action(lv_obj_t * action, int32_t right_inset);
-/* Top-right refresh glyph (LV_SYMBOL_REFRESH, accent color) for list screens
- * whose contents come from a cached scan; busy greys it out and blocks taps. */
+/* Top-right refresh action with a generous header hitbox. Busy state spins
+ * the glyph, greys out the action, and blocks taps until refresh completes. */
 lv_obj_t * build_header_refresh_action(lv_obj_t * scr, lv_event_cb_t click_cb);
-void set_header_refresh_action_busy(lv_obj_t * icon, bool busy);
+void set_header_refresh_action_busy(lv_obj_t * button, bool busy);
 /* Fits a header title built by build_screen_header() to its single line
  * (smaller font, then ellipsis). Call again after changing its width. */
 void screen_title_fit(lv_obj_t * label);
@@ -580,6 +580,12 @@ bool compact_list_shows_artwork_key(lv_obj_t * list, uint64_t key);
 void compact_list_set_trailing_click(lv_obj_t * list, compact_list_click_cb_t cb);
 void compact_list_refresh_visible(lv_obj_t * list);
 void compact_list_refresh_all(void);
+/* Re-runs only the visible row decorators and image alignment for already
+ * bound compact-list rows. Does not fetch a paged provider, move the virtual
+ * window, or rewrite row labels/identity; use for artwork/cache changes. */
+void compact_list_refresh_decorations(lv_obj_t * list);
+/* Rebinds artwork on entry, retrying an uncovered failed page when needed. */
+void compact_list_refresh_on_show(lv_obj_t * list);
 
 /* Recomputes the shared list padding, any icon-caption coordinates, and
  * every bounded scrolling row label's box height (see row_label_apply_

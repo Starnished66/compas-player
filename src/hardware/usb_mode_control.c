@@ -6,6 +6,8 @@
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
+#include <pthread.h>
+#include <stdatomic.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -14,15 +16,33 @@
 /* Storage and DAC both live under this same configfs gadget name (confirmed
  * by reading usb_dev_mass_storage.sh and uac_device_config.sh directly off
  * the device) -- ADB uses a separate "adb_demo" directory. */
-#define ANDROID0_DIR "/sys/kernel/config/usb_gadget/android0"
+#ifndef USB_MODE_CONTROL_ANDROID0_DIR
+#define USB_MODE_CONTROL_ANDROID0_DIR "/sys/kernel/config/usb_gadget/android0"
+#endif
+#ifndef USB_MODE_CONTROL_ADB_DEMO_DIR
+#define USB_MODE_CONTROL_ADB_DEMO_DIR "/sys/kernel/config/usb_gadget/adb_demo"
+#endif
+#ifndef USB_MODE_CONTROL_UDC_STATE_DIR
+#define USB_MODE_CONTROL_UDC_STATE_DIR "/sys/class/udc"
+#endif
+#ifndef USB_MODE_CONTROL_GADGET_ROOT
+#define USB_MODE_CONTROL_GADGET_ROOT "/sys/kernel/config/usb_gadget"
+#endif
+#define ANDROID0_DIR USB_MODE_CONTROL_ANDROID0_DIR
 #define ANDROID0_UDC_PATH ANDROID0_DIR "/UDC"
-#define ADB_DEMO_DIR "/sys/kernel/config/usb_gadget/adb_demo"
+#define ADB_DEMO_DIR USB_MODE_CONTROL_ADB_DEMO_DIR
 #define ADB_DEMO_UDC_PATH ADB_DEMO_DIR "/UDC"
 
 /* Matches subprocess_run()'s own default -- not reused directly since
  * SUBPROCESS_TIMEOUT_MS is private to subprocess.c and there's no public
  * "run with the default timeout, but checked" entry point. */
 #define SCRIPT_TIMEOUT_MS 15000
+
+static pthread_mutex_t usb_mode_mutex = PTHREAD_MUTEX_INITIALIZER;
+static unsigned storage_write_lease_count;
+static atomic_uint storage_write_active_count;
+static bool storage_write_restore_needed;
+static char storage_write_saved_controller[256];
 
 static bool path_exists(const char * path) {
     return access(path, F_OK) == 0;
@@ -257,7 +277,7 @@ static bool start_adb_gadget(void) {
     return ok;
 }
 
-bool usb_mode_control_apply(usb_mode_t mode) {
+static bool usb_mode_control_apply_locked(usb_mode_t mode) {
     fprintf(stderr, "usb_mode_control: switching to mode=%d\n", (int) mode);
     usb_dac_bridge_stop(); /* no-op unless we're actually leaving DAC mode */
 
@@ -342,6 +362,24 @@ bool usb_mode_control_apply(usb_mode_t mode) {
     return false;
 }
 
+bool usb_mode_control_apply_with_status(usb_mode_t mode, bool * storage_busy) {
+    if (storage_busy) *storage_busy = false;
+    pthread_mutex_lock(&usb_mode_mutex);
+    if (storage_write_lease_count != 0) {
+        if (storage_busy) *storage_busy = true;
+        pthread_mutex_unlock(&usb_mode_mutex);
+        fprintf(stderr, "usb_mode_control: mode switch rejected while SD write lease is active\n");
+        return false;
+    }
+    bool applied = usb_mode_control_apply_locked(mode);
+    pthread_mutex_unlock(&usb_mode_mutex);
+    return applied;
+}
+
+bool usb_mode_control_apply(usb_mode_t mode) {
+    return usb_mode_control_apply_with_status(mode, NULL);
+}
+
 bool usb_mode_control_detect_current(usb_mode_t * out_mode) {
     if (udc_is_bound(ADB_DEMO_UDC_PATH) && function_linked(ADB_DEMO_DIR, "ffs.")) {
         *out_mode = USB_MODE_ADB;
@@ -375,6 +413,200 @@ static bool read_storage_host_value(const char * path, char * out, size_t size) 
     return len != 0;
 }
 
+typedef enum {
+    UDC_VALUE_ERROR,
+    UDC_VALUE_UNBOUND,
+    UDC_VALUE_BOUND
+} udc_value_kind_t;
+
+static bool read_udc_value(const char * path, char * out, size_t size, udc_value_kind_t * kind) {
+    if (!path || !out || size < 2 || !kind) return false;
+    out[0] = '\0';
+    FILE * file = fopen(path, "r");
+    if (!file) return false;
+    size_t n = fread(out, 1, size - 1, file);
+    bool ok = !ferror(file) && feof(file);
+    if (fclose(file) != 0) ok = false;
+    if (!ok) return false;
+    while (n && (out[n - 1] == '\n' || out[n - 1] == '\r' || out[n - 1] == ' ' || out[n - 1] == '\t'))
+        out[--n] = '\0';
+    if (!n || strcmp(out, "none") == 0) {
+        *kind = UDC_VALUE_UNBOUND;
+        return true;
+    }
+    if (n > 255) return false;
+    for (size_t i = 0; i < n; ++i) {
+        unsigned char c = (unsigned char) out[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-')) return false;
+    }
+    *kind = UDC_VALUE_BOUND;
+    return true;
+}
+
+static bool write_udc_checked(const char * path, const char * value) {
+    FILE * file = fopen(path, "w");
+    if (!file) return false;
+    bool ok = fputs(value, file) >= 0 && fflush(file) == 0;
+    if (fclose(file) != 0) ok = false;
+    return ok;
+}
+
+static bool wait_udc_value(const char * path, udc_value_kind_t wanted_kind,
+                           const char * wanted_value) {
+    for (int i = 0; i < SETTLE_RETRY_LIMIT; ++i) {
+        char actual[256];
+        udc_value_kind_t kind;
+        if (read_udc_value(path, actual, sizeof(actual), &kind) && kind == wanted_kind &&
+            (wanted_kind != UDC_VALUE_BOUND || (wanted_value && strcmp(actual, wanted_value) == 0)))
+            return true;
+        usleep(50000);
+    }
+    return false;
+}
+
+static bool storage_udc_state_idle(const char * controller) {
+    char path[320], state[32];
+    int n = snprintf(path, sizeof(path), "%s/%s/state", USB_MODE_CONTROL_UDC_STATE_DIR, controller);
+    if (n <= 0 || n >= (int) sizeof(path) || !read_storage_host_value(path, state, sizeof(state))) return false;
+    static const char * const valid_states[] = {
+        "not attached", "attached", "powered", "default", "address"
+    };
+    for (size_t i = 0; i < sizeof(valid_states) / sizeof(valid_states[0]); ++i)
+        if (strcmp(state, valid_states[i]) == 0) return true;
+    /* configured, suspended, and unknown states may still represent a host
+     * that owns the medium; do not revoke its gadget connection. */
+    return false;
+}
+
+/* Refuse to restore Storage if any other configured gadget is bound. */
+static bool other_gadget_bound(void) {
+    DIR * dir = opendir(USB_MODE_CONTROL_GADGET_ROOT);
+    if (!dir) return true; /* Cannot prove the controller is free. */
+    bool busy = false;
+    struct dirent * entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_name[0] == '.' || strcmp(entry->d_name, "android0") == 0) continue;
+        char path[512];
+        int n = snprintf(path, sizeof(path), "%s/%s/UDC", USB_MODE_CONTROL_GADGET_ROOT, entry->d_name);
+        if (n <= 0 || n >= (int) sizeof(path)) { busy = true; break; }
+        char value[256];
+        udc_value_kind_t kind;
+        if (!read_udc_value(path, value, sizeof(value), &kind) || kind == UDC_VALUE_BOUND) {
+            busy = true;
+            break;
+        }
+    }
+    closedir(dir);
+    return busy;
+}
+
+bool usb_mode_control_storage_write_blocked(void) {
+    if (!path_exists(ANDROID0_DIR)) return false;
+    char controller[256];
+    udc_value_kind_t kind;
+    if (!read_udc_value(ANDROID0_UDC_PATH, controller, sizeof(controller), &kind)) return true;
+    if (kind == UDC_VALUE_UNBOUND) return false;
+    bool storage = function_linked(ANDROID0_DIR, "mass_storage.");
+    if (!storage && function_linked(ANDROID0_DIR, "uac_sa.")) return false;
+    return !storage || !storage_udc_state_idle(controller);
+}
+
+bool usb_mode_control_storage_write_begin(void) {
+    pthread_mutex_lock(&usb_mode_mutex);
+    if (storage_write_lease_count) {
+        storage_write_lease_count++;
+        atomic_store_explicit(&storage_write_active_count, storage_write_lease_count, memory_order_release);
+        pthread_mutex_unlock(&usb_mode_mutex);
+        return true;
+    }
+#ifdef HOST_BUILD
+    storage_write_lease_count = 1;
+    atomic_store_explicit(&storage_write_active_count, 1, memory_order_release);
+    pthread_mutex_unlock(&usb_mode_mutex);
+    return true; /* Simulate exclusion without touching host gadget/configfs paths. */
+#endif
+    storage_write_restore_needed = false;
+    storage_write_saved_controller[0] = '\0';
+
+    bool android0_exists = path_exists(ANDROID0_DIR);
+    bool storage_link = function_linked(ANDROID0_DIR, "mass_storage.");
+    bool dac_link = function_linked(ANDROID0_DIR, "uac_sa.");
+    char controller[256];
+    udc_value_kind_t kind = UDC_VALUE_ERROR;
+    bool udc_readable = !android0_exists || read_udc_value(ANDROID0_UDC_PATH, controller, sizeof(controller), &kind);
+    if (!udc_readable || (kind == UDC_VALUE_BOUND && !storage_link && !dac_link)) {
+        pthread_mutex_unlock(&usb_mode_mutex);
+        return false;
+    }
+    if (storage_link && kind == UDC_VALUE_BOUND) {
+        if (!storage_udc_state_idle(controller)) {
+            pthread_mutex_unlock(&usb_mode_mutex);
+            return false;
+        }
+        if (!write_udc_checked(ANDROID0_UDC_PATH, "\n") ||
+            !wait_udc_value(ANDROID0_UDC_PATH, UDC_VALUE_UNBOUND, NULL)) {
+            /* If the write took but verification failed transiently, put the
+             * same UDC back only after confirming no gadget was rebound. */
+            char now[256];
+            udc_value_kind_t now_kind;
+            if (read_udc_value(ANDROID0_UDC_PATH, now, sizeof(now), &now_kind) &&
+                now_kind == UDC_VALUE_UNBOUND && !udc_is_bound(ADB_DEMO_UDC_PATH)) {
+                (void)write_udc_checked(ANDROID0_UDC_PATH, "\n");
+                char bind_value[sizeof(controller) + 2];
+                snprintf(bind_value, sizeof(bind_value), "%s\n", controller);
+                (void)write_udc_checked(ANDROID0_UDC_PATH, bind_value);
+            }
+            pthread_mutex_unlock(&usb_mode_mutex);
+            return false;
+        }
+        snprintf(storage_write_saved_controller, sizeof(storage_write_saved_controller), "%s", controller);
+        storage_write_restore_needed = true;
+    }
+    storage_write_lease_count = 1;
+    atomic_store_explicit(&storage_write_active_count, 1, memory_order_release);
+    pthread_mutex_unlock(&usb_mode_mutex);
+    return true;
+}
+
+void usb_mode_control_storage_write_end(void) {
+    pthread_mutex_lock(&usb_mode_mutex);
+    if (!storage_write_lease_count) {
+        pthread_mutex_unlock(&usb_mode_mutex);
+        return;
+    }
+    if (--storage_write_lease_count) {
+        atomic_store_explicit(&storage_write_active_count, storage_write_lease_count, memory_order_release);
+        pthread_mutex_unlock(&usb_mode_mutex);
+        return;
+    }
+    bool restore = storage_write_restore_needed;
+    char controller[sizeof(storage_write_saved_controller)];
+    snprintf(controller, sizeof(controller), "%s", storage_write_saved_controller);
+    storage_write_restore_needed = false;
+    storage_write_saved_controller[0] = '\0';
+    if (restore) {
+        sync(); /* Flush all plugin/scan writes before exposing the volume again. */
+        if (udc_is_bound(ANDROID0_UDC_PATH) || other_gadget_bound()) {
+            fprintf(stderr, "usb_mode_control: cannot restore Storage UDC; another gadget is bound\n");
+        } else {
+            char bind_value[sizeof(controller) + 2];
+            snprintf(bind_value, sizeof(bind_value), "%s\n", controller);
+            if (!write_udc_checked(ANDROID0_UDC_PATH, bind_value) ||
+                   !wait_udc_value(ANDROID0_UDC_PATH, UDC_VALUE_BOUND, controller)) {
+                fprintf(stderr, "usb_mode_control: failed to restore Storage UDC %s\n", controller);
+            }
+        }
+    }
+    atomic_store_explicit(&storage_write_active_count, 0, memory_order_release);
+    pthread_mutex_unlock(&usb_mode_mutex);
+}
+
+bool usb_mode_control_storage_write_active(void) {
+    bool active = atomic_load_explicit(&storage_write_active_count, memory_order_acquire) != 0;
+    return active;
+}
+
 bool usb_mode_control_storage_host_configured(void) {
     usb_mode_t mode;
     if (!usb_mode_control_detect_current(&mode) || mode != USB_MODE_STORAGE) return false;
@@ -391,7 +623,7 @@ bool usb_mode_control_storage_host_configured(void) {
     }
 
     char path[300];
-    snprintf(path, sizeof(path), "/sys/class/udc/%s/state", controller);
+    snprintf(path, sizeof(path), "%s/%s/state", USB_MODE_CONTROL_UDC_STATE_DIR, controller);
     char state[32];
     return read_storage_host_value(path, state, sizeof(state)) &&
            strcmp(state, "configured") == 0;

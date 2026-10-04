@@ -30,8 +30,6 @@ typedef struct {
  * the active board's real screen size directly (board_config.h, via gui.h). */
 #define LYRICS_BACKDROP_WIDTH BOARD_SCREEN_WIDTH
 #define LYRICS_BACKDROP_HEIGHT BOARD_SCREEN_HEIGHT
-#define LYRICS_BACKDROP_WORK_WIDTH 60
-#define LYRICS_BACKDROP_WORK_HEIGHT 100
 #define LYRICS_BACKDROP_BLUR_RADIUS 5
 #define LYRICS_BACKDROP_BLUR_PASSES 3
 #define LYRICS_BACKDROP_DARKEN_NUM 9
@@ -109,30 +107,6 @@ typedef struct {
 extern player_settings_t current_settings;
 extern lv_font_t app_font_22;
 extern void sync_player_topbar_visibility(lv_obj_t * screen);
-static uint8_t bilerp_plane(const uint8_t * plane, int width, int height, uint32_t x_fp, uint32_t y_fp) {
-    int x0 = (int) (x_fp >> 16), y0 = (int) (y_fp >> 16);
-    int x1 = x0 + 1 < width ? x0 + 1 : x0;
-    int y1 = y0 + 1 < height ? y0 + 1 : y0;
-    uint32_t fx = x_fp & 0xffffu, fy = y_fp & 0xffffu;
-    uint32_t top = ((uint32_t) plane[y0 * width + x0] * (65536u - fx) +
-                    (uint32_t) plane[y0 * width + x1] * fx) >> 16;
-    uint32_t bottom = ((uint32_t) plane[y1 * width + x0] * (65536u - fx) +
-                       (uint32_t) plane[y1 * width + x1] * fx) >> 16;
-    return (uint8_t) ((top * (65536u - fy) + bottom * fy) >> 16);
-}
-
-static void blur_plane_three_passes(uint8_t * plane, uint8_t * tmp, int width, int height) {
-    for (int pass = 0; pass < LYRICS_BACKDROP_BLUR_PASSES; pass++) {
-        for (int y = 0; y < height; y++) {
-            box_blur_1d(plane + y * width, tmp + y * width, width, 1, LYRICS_BACKDROP_BLUR_RADIUS);
-        }
-        memcpy(plane, tmp, (size_t) width * height);
-        for (int x = 0; x < width; x++) {
-            box_blur_1d(plane + x, tmp + x, height, width, LYRICS_BACKDROP_BLUR_RADIUS);
-        }
-        memcpy(plane, tmp, (size_t) width * height);
-    }
-}
 
 bool current_lyrics_plain_mode = false;
 static char * current_lyrics_plain_text = NULL;
@@ -148,6 +122,12 @@ static bool lyrics_embedded = false;
  * the screen), reset when it is hidden, and the layout's look. */
 static int32_t lyrics_embedded_row_width = LYRICS_ROW_WIDTH;
 static bool lyrics_area_mode; /* embedded in a layout's own area */
+/* A hidden prewarm keeps its content/geometry for a matching reveal. Track
+ * changes may still rebuild the pool while hidden, but must not expose it. */
+static bool lyrics_embedded_prepared_hidden;
+static lv_obj_t * lyrics_prepared_parent;
+static int32_t lyrics_prepared_width;
+static bool lyrics_prepared_area_mode;
 static gui_lyrics_look_t lyrics_look;
 static bool lyrics_backdrop_discard_active = false;
 static uint8_t * current_lyrics_backdrop_bytes;
@@ -299,78 +279,15 @@ static int lyrics_backdrop_active_for_index = -1;
 static int lyrics_backdrop_active_generation = -1;
 static int current_lyrics_backdrop_for_index = -1;
 static int current_lyrics_backdrop_generation = -1;
-/* Center-crop the square cover to the display's portrait aspect ratio,
- * sample it bilinearly into a half-resolution work image, apply three box
- * passes (a close bounded approximation of a Gaussian blur), then bilinear-
- * upscale while repacking.  This removes the old nearest-neighbor vertical
- * stretch and is both smoother and cheaper in RAM/CPU than blurring 480x800
- * directly. Pure pixel math: safe on the backdrop worker thread. */
+/* Blur the square cover to the display's fullscreen backdrop via the shared
+ * frosted glass pipeline. Pure pixel math: safe on the backdrop worker thread. */
 static uint8_t * compute_lyrics_backdrop_bytes(const uint8_t * cover_bytes) {
-    int w = LYRICS_BACKDROP_WORK_WIDTH, h = LYRICS_BACKDROP_WORK_HEIGHT;
-    uint8_t * r = malloc((size_t) w * h);
-    uint8_t * g = malloc((size_t) w * h);
-    uint8_t * b = malloc((size_t) w * h);
-    uint8_t * tmp = malloc((size_t) w * h);
-    if (!r || !g || !b || !tmp) {
-        free(r); free(g); free(b); free(tmp);
-        return NULL;
-    }
-
-    const uint16_t * source = (const uint16_t *) cover_bytes;
-    int crop_w = COVER_ART_HEIGHT * LYRICS_BACKDROP_WIDTH / LYRICS_BACKDROP_HEIGHT;
-    int crop_x = (COVER_ART_WIDTH - crop_w) / 2;
-    for (int y = 0; y < h; y++) {
-        uint32_t sy_fp = h > 1 ? (uint32_t) (((uint64_t) y * (COVER_ART_HEIGHT - 1) << 16) / (h - 1)) : 0;
-        int sy = (int) (sy_fp >> 16);
-        int sy1 = sy + 1 < COVER_ART_HEIGHT ? sy + 1 : sy;
-        uint32_t fy = sy_fp & 0xffffu;
-        for (int x = 0; x < w; x++) {
-            uint32_t sx_fp = (uint32_t) crop_x << 16;
-            if (w > 1) sx_fp += (uint32_t) (((uint64_t) x * (crop_w - 1) << 16) / (w - 1));
-            int sx = (int) (sx_fp >> 16);
-            int sx1 = sx + 1 < COVER_ART_WIDTH ? sx + 1 : sx;
-            uint32_t fx = sx_fp & 0xffffu;
-            uint16_t pixels[4] = {
-                source[sy * COVER_ART_WIDTH + sx], source[sy * COVER_ART_WIDTH + sx1],
-                source[sy1 * COVER_ART_WIDTH + sx], source[sy1 * COVER_ART_WIDTH + sx1]
-            };
-            uint8_t * channels[3] = { r, g, b };
-            for (int c = 0; c < 3; c++) {
-                uint32_t values[4];
-                for (int p = 0; p < 4; p++) {
-                    if (c == 0) values[p] = ((pixels[p] >> 11) & 31) * 255 / 31;
-                    else if (c == 1) values[p] = ((pixels[p] >> 5) & 63) * 255 / 63;
-                    else values[p] = (pixels[p] & 31) * 255 / 31;
-                }
-                uint32_t top = (values[0] * (65536u - fx) + values[1] * fx) >> 16;
-                uint32_t bottom = (values[2] * (65536u - fx) + values[3] * fx) >> 16;
-                channels[c][y * w + x] = (uint8_t) ((top * (65536u - fy) + bottom * fy) >> 16);
-            }
-        }
-    }
-
-    blur_plane_three_passes(r, tmp, w, h);
-    blur_plane_three_passes(g, tmp, w, h);
-    blur_plane_three_passes(b, tmp, w, h);
-
-    uint8_t * out_bytes = malloc((size_t) LYRICS_BACKDROP_WIDTH * LYRICS_BACKDROP_HEIGHT * 2);
-    if (!out_bytes) {
-        free(r); free(g); free(b); free(tmp);
-        return NULL;
-    }
-    uint16_t * out = (uint16_t *) out_bytes;
-    for (int y = 0; y < LYRICS_BACKDROP_HEIGHT; y++) {
-        uint32_t y_fp = (uint32_t) (((uint64_t) y * (h - 1) << 16) / (LYRICS_BACKDROP_HEIGHT - 1));
-        for (int x = 0; x < LYRICS_BACKDROP_WIDTH; x++) {
-            uint32_t x_fp = (uint32_t) (((uint64_t) x * (w - 1) << 16) / (LYRICS_BACKDROP_WIDTH - 1));
-            int rv = bilerp_plane(r, w, h, x_fp, y_fp) * LYRICS_BACKDROP_DARKEN_NUM / LYRICS_BACKDROP_DARKEN_DEN;
-            int gv = bilerp_plane(g, w, h, x_fp, y_fp) * LYRICS_BACKDROP_DARKEN_NUM / LYRICS_BACKDROP_DARKEN_DEN;
-            int bv = bilerp_plane(b, w, h, x_fp, y_fp) * LYRICS_BACKDROP_DARKEN_NUM / LYRICS_BACKDROP_DARKEN_DEN;
-            out[y * LYRICS_BACKDROP_WIDTH + x] = rgb888_to_565_dithered(rv, gv, bv, x, y);
-        }
-    }
-    free(r); free(g); free(b); free(tmp);
-    return out_bytes;
+    return frosted_glass_blur_rgb565((const uint16_t *) cover_bytes,
+                                     COVER_ART_WIDTH, COVER_ART_HEIGHT,
+                                     LYRICS_BACKDROP_WIDTH, LYRICS_BACKDROP_HEIGHT,
+                                     LYRICS_BACKDROP_BLUR_RADIUS, LYRICS_BACKDROP_BLUR_PASSES,
+                                     LYRICS_BACKDROP_DARKEN_NUM, LYRICS_BACKDROP_DARKEN_DEN,
+                                     false);
 }
 static void * lyrics_backdrop_thread_func(void * arg) {
     lyrics_backdrop_request_t * req = (lyrics_backdrop_request_t *) arg;
@@ -633,6 +550,10 @@ static void lyrics_reset_pool(bool force_layout_rebuild) {
     lyrics_pool_synced_generation = current_lyrics_doc_generation;
     lyrics_auto_follow = true;
     lyrics_last_centered_index = -2;
+    if (lyrics_embedded_prepared_hidden) {
+        lv_obj_add_flag(lyrics_list, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(lyrics_empty_label, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 /* Repositions/relabels the row pool to cover the range of lines actually
  * scrolled into (or near) view, and recolors every visible row for the
@@ -656,7 +577,8 @@ static void lyrics_update_window(int active_index) {
     if (window_moved) lyrics_window_start = first;
 
     if (lyrics_active_marker) {
-        bool show = lyrics_embedded && lyrics_area_mode && lyrics_look.active_marker &&
+        bool show = lyrics_embedded && !lyrics_embedded_prepared_hidden &&
+                    lyrics_area_mode && lyrics_look.active_marker &&
                     active_index >= first && active_index < first + LYRICS_POOL_SIZE && active_index < count;
         if (show) {
             int32_t row_x = lv_obj_get_x(lyrics_rows[0]);
@@ -770,8 +692,7 @@ static void lyrics_scroll_event_cb(lv_event_t * e) {
     }
     lyrics_update_window(lyrics_current_active_index());
 }
-static void lyrics_timer_cb(lv_timer_t * timer) {
-    (void) timer;
+static void lyrics_timer_update(bool animate_scroll) {
     launch_lyrics_backdrop_decode();
     poll_lyrics_backdrop();
 
@@ -854,11 +775,15 @@ static void lyrics_timer_cb(lv_timer_t * timer) {
     if (lyrics_auto_follow && active_index >= 0 && active_index != lyrics_last_centered_index) {
         int32_t target = lyrics_line_y(active_index) - LYRICS_ACTIVE_LINE_ANCHOR_Y;
         if (target < 0) target = 0;
-        lv_obj_scroll_to_y(lyrics_list, target, LV_ANIM_ON);
+        lv_obj_scroll_to_y(lyrics_list, target, animate_scroll ? LV_ANIM_ON : LV_ANIM_OFF);
         lyrics_last_centered_index = active_index;
     }
 
     lyrics_update_window(active_index);
+}
+static void lyrics_timer_cb(lv_timer_t * timer) {
+    (void) timer;
+    lyrics_timer_update(true);
 }
 static void open_lyrics_screen(void) {
     gui_lyrics_hide_embedded();
@@ -897,27 +822,29 @@ void gui_lyrics_prepare_layout_for_width(int32_t width) {
     lyrics_ensure_layout_width(false, lyrics_row_width_for(width));
 }
 
-static void lyrics_show_embedded(lv_obj_t * parent, int32_t x, int32_t y, int32_t w, int32_t h, bool area_mode) {
-    if (!parent || !lyrics_screen || h <= 0 || w <= 0) return;
+static void lyrics_apply_embedded_geometry(lv_obj_t * parent, int32_t x, int32_t y,
+                                           int32_t w, int32_t h, bool area_mode,
+                                           bool rows_prepared) {
     lyrics_embedded = true;
     lyrics_area_mode = area_mode;
     lyrics_embedded_row_width = lyrics_row_width_for(w);
-    lyrics_apply_row_geometry(w, lyrics_embedded_row_width,
-                              area_mode && lyrics_look.has_align ? lyrics_look.align : LV_TEXT_ALIGN_CENTER);
-    /* Empty and plain lyrics need the same contrast as synchronized lines. */
-    lv_obj_set_style_text_color(lyrics_empty_label, lyrics_look.has_normal ? lyrics_look.normal : lv_color_hex(0xc8c8c8), 0);
-    lv_obj_set_style_text_color(lyrics_plain_label, lyrics_look.has_normal ? lyrics_look.normal : lv_color_hex(0xe6e6e6), 0);
-    lyrics_backdrop_discard_active = lyrics_backdrop_active;
-    lyrics_backdrop_regenerate_pending = false;
-    lv_obj_add_flag(lyrics_backdrop_img, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_parent(lyrics_list, parent);
-    lv_obj_set_parent(lyrics_empty_label, parent);
+    if (!rows_prepared) {
+        lyrics_apply_row_geometry(w, lyrics_embedded_row_width,
+                                  area_mode && lyrics_look.has_align ? lyrics_look.align : LV_TEXT_ALIGN_CENTER);
+        /* Empty and plain lyrics need the same contrast as synchronized lines. */
+        lv_obj_set_style_text_color(lyrics_empty_label, lyrics_look.has_normal ? lyrics_look.normal : lv_color_hex(0xc8c8c8), 0);
+        lv_obj_set_style_text_color(lyrics_plain_label, lyrics_look.has_normal ? lyrics_look.normal : lv_color_hex(0xe6e6e6), 0);
+        lyrics_backdrop_discard_active = lyrics_backdrop_active;
+        lyrics_backdrop_regenerate_pending = false;
+        lv_obj_add_flag(lyrics_backdrop_img, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_parent(lyrics_list, parent);
+        lv_obj_set_parent(lyrics_empty_label, parent);
+    }
     /* Its 90% width is relative to the parent, the whole screen; a layout's
      * area may be narrower, so size it to the pane there. */
     if (area_mode) lv_obj_set_width(lyrics_empty_label, w * 9 / 10);
     lv_obj_align(lyrics_list, LV_ALIGN_TOP_LEFT, x, y);
     lv_obj_set_size(lyrics_list, w, h);
-    lv_obj_remove_flag(lyrics_list, LV_OBJ_FLAG_HIDDEN);
     /* Align to the list's center so parent height/padding do not shift the
      * empty state outside the requested region. */
     lv_obj_update_layout(lyrics_list);
@@ -933,12 +860,63 @@ static void lyrics_show_embedded(lv_obj_t * parent, int32_t x, int32_t y, int32_
         }
     }
     lv_obj_align_to(lyrics_empty_label, lyrics_list, LV_ALIGN_CENTER, 0, 0);
-    /* Reset row position/scroll for the embedded view. The measured line
-     * geometry is unchanged by reparenting and is reused unless its
-     * document identity changed while hidden. */
+}
+
+static bool lyrics_embedded_preparation_matches(lv_obj_t * parent, int32_t w,
+                                                bool area_mode) {
+    return lyrics_embedded_prepared_hidden && lyrics_prepared_parent == parent &&
+           lyrics_prepared_width == w && lyrics_prepared_area_mode == area_mode;
+}
+
+static void lyrics_prepare_embedded_hidden(lv_obj_t * parent, int32_t x, int32_t y,
+                                           int32_t w, int32_t h, bool area_mode) {
+    if (!parent || !lyrics_screen || h <= 0 || w <= 0) return;
+    lyrics_embedded_prepared_hidden = true;
+    lyrics_prepared_parent = parent;
+    lyrics_prepared_width = w;
+    lyrics_prepared_area_mode = area_mode;
+    lv_timer_pause(lyrics_timer);
+    lv_obj_add_flag(lyrics_list, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(lyrics_empty_label, LV_OBJ_FLAG_HIDDEN);
+    if (lyrics_active_marker) lv_obj_add_flag(lyrics_active_marker, LV_OBJ_FLAG_HIDDEN);
+    lyrics_apply_embedded_geometry(parent, x, y, w, h, area_mode, false);
+    /* Build visible rows and center the active line without starting an
+     * LVGL scroll animation on an object that is still hidden. */
     lyrics_reset_pool(false);
+    lyrics_timer_update(false);
+}
+
+static void lyrics_show_embedded(lv_obj_t * parent, int32_t x, int32_t y,
+                                 int32_t w, int32_t h, bool area_mode) {
+    if (!parent || !lyrics_screen || h <= 0 || w <= 0) return;
+    bool prepared = lyrics_embedded_preparation_matches(parent, w, area_mode);
+    if (!prepared) {
+        /* Direct/non-animated callers use the same no-scroll preparation
+         * path, then reveal it synchronously. */
+        lyrics_prepare_embedded_hidden(parent, x, y, w, h, area_mode);
+        prepared = lyrics_embedded_preparation_matches(parent, w, area_mode);
+        if (!prepared) return;
+    } else {
+        /* Timeline endpoints can change pane height/position without changing
+         * row wrapping. Reapply only the cheap rectangle setup, retaining the
+         * prepared content and row pool. */
+        bool height_changed = lv_obj_get_height(lyrics_list) != h;
+        lyrics_apply_embedded_geometry(parent, x, y, w, h, area_mode, true);
+        /* Preparation can use a taller pane. Recenter against the final
+         * scroll bounds without restarting a visible scroll animation. */
+        if (height_changed) lyrics_last_centered_index = -2;
+        lyrics_timer_update(false);
+    }
+    lyrics_embedded_prepared_hidden = false;
+    lv_obj_remove_flag(lyrics_list, LV_OBJ_FLAG_HIDDEN);
+    bool show_empty = !current_lyrics_plain_mode &&
+                      (!current_lyrics_doc_valid || current_lyrics_doc.count == 0);
+    if (show_empty)
+        lv_obj_remove_flag(lyrics_empty_label, LV_OBJ_FLAG_HIDDEN);
+    else
+        lv_obj_add_flag(lyrics_empty_label, LV_OBJ_FLAG_HIDDEN);
+    lyrics_update_window(lyrics_current_active_index());
     lv_timer_resume(lyrics_timer);
-    lyrics_timer_cb(NULL);
 }
 
 void gui_lyrics_show_embedded(lv_obj_t * parent, int32_t top, int32_t height) {
@@ -949,18 +927,19 @@ void gui_lyrics_show_embedded_area(lv_obj_t * parent, int32_t x, int32_t y, int3
     lyrics_show_embedded(parent, x, y, w, h, true);
 }
 
-void gui_lyrics_prepare_embedded(lv_obj_t * parent, int32_t top, int32_t height) {
+void gui_lyrics_prepare_embedded(lv_obj_t * parent, int32_t x, int32_t y,
+                                int32_t width, int32_t height, bool area_mode) {
     /* Populate and lay out the rows before the player starts moving. Keep
-     * them hidden and paused until show_embedded reveals the finished pane. */
-    gui_lyrics_show_embedded(parent, top, height);
-    if (!lyrics_embedded) return;
-    lv_timer_pause(lyrics_timer);
-    lv_obj_add_flag(lyrics_list, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(lyrics_empty_label, LV_OBJ_FLAG_HIDDEN);
+     * both sibling objects hidden and the timer paused until reveal. */
+    lyrics_prepare_embedded_hidden(parent, x, y, width, height, area_mode);
 }
 
 void gui_lyrics_hide_embedded(void) {
     if (!lyrics_embedded) return;
+    lyrics_embedded_prepared_hidden = false;
+    lyrics_prepared_parent = NULL;
+    lyrics_prepared_width = 0;
+    lyrics_prepared_area_mode = false;
     lv_timer_pause(lyrics_timer);
     lv_obj_add_flag(lyrics_list, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(lyrics_empty_label, LV_OBJ_FLAG_HIDDEN);

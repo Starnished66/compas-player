@@ -39,7 +39,7 @@ typedef struct {
     int32_t frame_inset_x, frame_inset_y;
     int32_t text_width;
     int32_t translate_x, translate_y;
-    int32_t pad_left, pad_right;
+    int32_t pad_top, pad_bottom, pad_left, pad_right;
     lv_text_align_t captured_align;
     bool was_hidden;
     bool active;
@@ -50,11 +50,12 @@ static uint8_t proxy_count;
 static size_t snapshot_bytes;
 static lv_anim_timeline_t * active_timeline;
 static lv_timer_t * proxy_timer;
+static bool observer_attached;
 
 static bool prop_is_supported(lv_style_prop_t prop) {
     return prop == LV_STYLE_WIDTH || prop == LV_STYLE_HEIGHT ||
            prop == LV_STYLE_TRANSLATE_X || prop == LV_STYLE_TRANSLATE_Y ||
-           prop == LV_STYLE_TEXT_ALIGN;
+           prop == LV_STYLE_TEXT_ALIGN || prop == LV_STYLE_PAD_LEFT;
 }
 
 static label_animation_t * find_animation(label_proxy_t * proxy, lv_style_prop_t prop) {
@@ -95,6 +96,7 @@ static int32_t captured_property_value(label_proxy_t * proxy, lv_style_prop_t pr
         case LV_STYLE_TRANSLATE_X: return proxy->translate_x;
         case LV_STYLE_TRANSLATE_Y: return proxy->translate_y;
         case LV_STYLE_TEXT_ALIGN: return proxy->captured_align;
+        case LV_STYLE_PAD_LEFT: return proxy->pad_left;
         default: return 0;
     }
 }
@@ -140,6 +142,7 @@ static void update_proxy(label_proxy_t * proxy) {
     label_animation_t * tx_anim = find_animation(proxy, LV_STYLE_TRANSLATE_X);
     label_animation_t * ty_anim = find_animation(proxy, LV_STYLE_TRANSLATE_Y);
     label_animation_t * align_anim = find_animation(proxy, LV_STYLE_TEXT_ALIGN);
+    label_animation_t * pad_left_anim = find_animation(proxy, LV_STYLE_PAD_LEFT);
     int32_t width = proxy->width;
     int32_t height = proxy->height;
     int32_t x = proxy->x;
@@ -152,7 +155,24 @@ static void update_proxy(label_proxy_t * proxy) {
     if (height < 0) height = 0;
 
     int32_t align_offset = 0;
-    if (align_anim) {
+    int32_t clip_x = x;
+    int32_t clip_y = y;
+    int32_t clip_width = width;
+    int32_t clip_height = height;
+    int32_t image_y = -proxy->frame_inset_y;
+    if (pad_left_anim) {
+        /* The private raster has no baked left padding. Follow the sampled
+         * authored padding while retaining the label's normal alignment. */
+        int32_t pad_left = sampled_proxy_value(proxy, pad_left_anim);
+        clip_x += pad_left;
+        clip_y += proxy->pad_top;
+        clip_width -= pad_left + proxy->pad_right;
+        clip_height -= proxy->pad_top + proxy->pad_bottom;
+        align_offset = alignment_offset(proxy->captured_align, width,
+                                        proxy->text_width, pad_left, proxy->pad_right);
+        image_y -= proxy->pad_top;
+    }
+    else if (align_anim) {
         const player_layout_style_transition_t * t = &align_anim->transition;
         label_animation_t * motion = width_anim ? width_anim : (tx_anim ? tx_anim : (ty_anim ? ty_anim : align_anim));
         uint32_t fraction = transition_fraction(motion);
@@ -166,15 +186,26 @@ static void update_proxy(label_proxy_t * proxy) {
                                         proxy->pad_left, proxy->pad_right);
     }
     int32_t inset_x = proxy->frame_inset_x;
-    int32_t inset_y = proxy->frame_inset_y;
-    lv_obj_set_pos(proxy->clip, x, y);
-    lv_obj_set_size(proxy->clip, width, height);
-    lv_obj_set_pos(proxy->image, -inset_x + align_offset, -inset_y);
+    if (clip_width < 0) clip_width = 0;
+    if (clip_height < 0) clip_height = 0;
+    lv_obj_set_pos(proxy->clip, clip_x, clip_y);
+    lv_obj_set_size(proxy->clip, clip_width, clip_height);
+    lv_obj_set_pos(proxy->image, -inset_x + align_offset, image_y);
+}
+
+static void proxy_sample(void) {
+    for (uint8_t i = 0; i < proxy_count; ++i) update_proxy(&proxies[i]);
 }
 
 static void proxy_timer_cb(lv_timer_t * timer) {
     (void) timer;
-    for (uint8_t i = 0; i < proxy_count; ++i) update_proxy(&proxies[i]);
+    proxy_sample();
+}
+
+static void timeline_observer_cb(lv_anim_timeline_t * timeline, uint32_t act_time, void * user_data) {
+    (void) act_time;
+    (void) user_data;
+    if (timeline == active_timeline) proxy_sample();
 }
 
 static bool label_has_unsupported_style(label_proxy_t * proxy, uint32_t style_count) {
@@ -193,6 +224,7 @@ static bool label_has_unsupported_style(label_proxy_t * proxy, uint32_t style_co
     if (player_layouts_timeline_animation_count_for_obj(active_timeline, proxy->label) != proxy->animation_count)
         return true;
     label_animation_t * align = find_animation(proxy, LV_STYLE_TEXT_ALIGN);
+    if (find_animation(proxy, LV_STYLE_PAD_LEFT) && align) return true;
     if (align && (!alignment_valid(align->transition.start_value) || !alignment_valid(align->transition.end_value)))
         return true;
     if (lv_label_get_long_mode(proxy->label) == LV_LABEL_LONG_MODE_WRAP &&
@@ -214,7 +246,8 @@ static bool label_has_custom_drawing(lv_obj_t * label) {
 
 /* Snapshot a private label so capture never resets the live marquee phase.
  * One owned style avoids refreshing the clone once per copied property. */
-static lv_draw_buf_t * snapshot_private_label(lv_obj_t * source, int32_t width, int32_t height) {
+static lv_draw_buf_t * snapshot_private_label(lv_obj_t * source, int32_t width, int32_t height,
+                                              bool zero_left_padding) {
     static const lv_style_prop_t props[] = {
         LV_STYLE_WIDTH, LV_STYLE_HEIGHT,
         LV_STYLE_PAD_TOP, LV_STYLE_PAD_BOTTOM, LV_STYLE_PAD_LEFT, LV_STYLE_PAD_RIGHT,
@@ -246,6 +279,12 @@ static lv_draw_buf_t * snapshot_private_label(lv_obj_t * source, int32_t width, 
     lv_style_set_prop(&style, LV_STYLE_HEIGHT, value);
     value.num = LV_TEXT_ALIGN_LEFT;
     lv_style_set_prop(&style, LV_STYLE_TEXT_ALIGN, value);
+    /* Padding is part of the source ink position. For its animated proxy,
+     * bake none of it into the raster; update_proxy owns the full trajectory. */
+    if (zero_left_padding) {
+        value.num = 0;
+        lv_style_set_prop(&style, LV_STYLE_PAD_LEFT, value);
+    }
     lv_obj_t * clone = lv_label_create(lv_obj_get_parent(source));
     if (!clone) {
         lv_style_reset(&style);
@@ -322,6 +361,11 @@ static bool make_proxy(label_proxy_t * proxy) {
             proxy->capture_height = height_anim->transition.end_value;
         if ((int64_t) proxy->capture_height > (int64_t) proxy->height * 4) return false;
     }
+    label_animation_t * pad_left_anim = find_animation(proxy, LV_STYLE_PAD_LEFT);
+    if (pad_left_anim && (pad_left_anim->transition.start_value < 0 ||
+                          pad_left_anim->transition.end_value < 0 ||
+                          LV_COORD_IS_PCT(pad_left_anim->transition.start_value) ||
+                          LV_COORD_IS_PCT(pad_left_anim->transition.end_value))) return false;
     int32_t ext = lv_obj_calculate_ext_draw_size(label, LV_PART_MAIN);
     if (ext < 0) ext = 0;
     uint64_t estimated_width = (uint64_t) proxy->capture_width + (uint64_t) ext * 2U;
@@ -337,6 +381,8 @@ static bool make_proxy(label_proxy_t * proxy) {
     if (LV_COORD_IS_PCT(proxy->translate_x) || LV_COORD_IS_PCT(proxy->translate_y)) return false;
     proxy->pad_left = lv_obj_get_style_pad_left(label, LV_PART_MAIN);
     proxy->pad_right = lv_obj_get_style_pad_right(label, LV_PART_MAIN);
+    proxy->pad_top = lv_obj_get_style_pad_top(label, LV_PART_MAIN);
+    proxy->pad_bottom = lv_obj_get_style_pad_bottom(label, LV_PART_MAIN);
     proxy->frame_inset_x = 0;
     proxy->frame_inset_y = 0;
     lv_point_t text_size;
@@ -348,19 +394,37 @@ static bool make_proxy(label_proxy_t * proxy) {
     proxy->text_width = text_size.x;
     if (proxy->text_width <= 0 || strchr(lv_label_get_text(label), '\n') ||
         strchr(lv_label_get_text(label), '\r')) return false;
-    int32_t live_text_width = proxy->width - proxy->pad_left - proxy->pad_right;
-    int32_t narrowest_width = live_text_width;
+    int32_t narrowest_width = proxy->width;
     if (width_anim) {
-        int32_t start_width = width_anim->transition.start_value - proxy->pad_left - proxy->pad_right;
-        int32_t end_width = width_anim->transition.end_value - proxy->pad_left - proxy->pad_right;
-        if (start_width < narrowest_width) narrowest_width = start_width;
-        if (end_width < narrowest_width) narrowest_width = end_width;
+        if (width_anim->transition.start_value < narrowest_width)
+            narrowest_width = width_anim->transition.start_value;
+        if (width_anim->transition.end_value < narrowest_width)
+            narrowest_width = width_anim->transition.end_value;
+    }
+    if (pad_left_anim) {
+        int32_t greatest_pad_left = proxy->pad_left;
+        if (pad_left_anim->transition.start_value > greatest_pad_left)
+            greatest_pad_left = pad_left_anim->transition.start_value;
+        if (pad_left_anim->transition.end_value > greatest_pad_left)
+            greatest_pad_left = pad_left_anim->transition.end_value;
+        narrowest_width -= greatest_pad_left + proxy->pad_right;
+    }
+    else {
+        narrowest_width -= proxy->pad_left + proxy->pad_right;
+        if (width_anim) {
+            int32_t start_width = width_anim->transition.start_value - proxy->pad_left - proxy->pad_right;
+            int32_t end_width = width_anim->transition.end_value - proxy->pad_left - proxy->pad_right;
+            if (start_width < narrowest_width) narrowest_width = start_width;
+            if (end_width < narrowest_width) narrowest_width = end_width;
+        }
     }
     if ((proxy->long_mode == LV_LABEL_LONG_MODE_WRAP ||
          proxy->long_mode == LV_LABEL_LONG_MODE_SCROLL ||
          proxy->long_mode == LV_LABEL_LONG_MODE_SCROLL_CIRCULAR ||
          proxy->long_mode == LV_LABEL_LONG_MODE_DOTS) && proxy->text_width > narrowest_width) return false;
-    proxy->frame = snapshot_private_label(label, proxy->capture_width, proxy->capture_height);
+    bool pad_left_animated = find_animation(proxy, LV_STYLE_PAD_LEFT) != NULL;
+    proxy->frame = snapshot_private_label(label, proxy->capture_width, proxy->capture_height,
+                                          pad_left_animated);
     if (!proxy->frame) return false;
     if (proxy->frame->data_size > LABEL_SNAPSHOT_BYTES_MAX - snapshot_bytes) {
         lv_draw_buf_destroy(proxy->frame);
@@ -425,6 +489,11 @@ static void release_proxy(label_proxy_t * proxy, bool commit_endpoints) {
 }
 
 void player_timeline_labels_teardown(void) {
+    if (observer_attached && active_timeline) {
+        player_layouts_timeline_observer_sync(active_timeline);
+        player_layouts_timeline_observer_detach(active_timeline, timeline_observer_cb, NULL);
+        observer_attached = false;
+    }
     if (proxy_timer) {
         lv_timer_delete(proxy_timer);
         proxy_timer = NULL;
@@ -435,6 +504,11 @@ void player_timeline_labels_teardown(void) {
 }
 
 void player_timeline_labels_end(void) {
+    if (observer_attached && active_timeline) {
+        player_layouts_timeline_observer_sync(active_timeline);
+        player_layouts_timeline_observer_detach(active_timeline, timeline_observer_cb, NULL);
+        observer_attached = false;
+    }
     if (proxy_timer) {
         lv_timer_delete(proxy_timer);
         proxy_timer = NULL;
@@ -480,11 +554,17 @@ bool player_timeline_labels_begin(lv_anim_timeline_t * timeline) {
      * the first proxy frame reflects the timeline's true starting geometry. */
     lv_anim_timeline_set_progress(timeline, 0);
     for (uint8_t i = 0; i < proxy_count; ++i) update_proxy(&proxies[i]);
-    proxy_timer = lv_timer_create(proxy_timer_cb, LABEL_PROXY_TIMER_MS, NULL);
-    if (!proxy_timer) {
-        player_timeline_labels_teardown();
-        return false;
+    observer_attached = player_layouts_timeline_observer_attach(timeline, timeline_observer_cb, NULL);
+    if (observer_attached) {
+        player_layouts_timeline_observer_sync(timeline);
     }
-    proxy_timer_cb(proxy_timer);
+    else {
+        proxy_timer = lv_timer_create(proxy_timer_cb, LABEL_PROXY_TIMER_MS, NULL);
+        if (!proxy_timer) {
+            player_timeline_labels_teardown();
+            return false;
+        }
+        proxy_timer_cb(proxy_timer);
+    }
     return true;
 }

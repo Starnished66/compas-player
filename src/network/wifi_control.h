@@ -60,6 +60,9 @@ bool wifi_control_disconnect(void);
 typedef struct {
     int id; /* wpa_supplicant's own network id -- needed by wifi_control_forget() */
     char ssid[WIFI_MAX_SSID_LEN];
+    bool current; /* wpa_supplicant reports this profile as the active network */
+    bool disabled;
+    bool temp_disabled;
 } wifi_saved_network_t;
 
 /* Every network wpa_supplicant has saved (wpa_cli list_networks) -- distinct

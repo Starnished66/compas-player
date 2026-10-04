@@ -307,7 +307,7 @@ Rows with icons use the native submenu look (44 px icons, 96 px rows, a blue
 gradient that a custom `list_row` color replaces). Text-only lists stay
 compact.
 
-### `plugin.show_settings_list(title, items)`
+### `plugin.show_settings_list(title, items [, options])`
 
 Opens a screen that looks like a native Settings submenu, with real switches
 and sliders. Each item is a table with `type` and `label`:
@@ -333,6 +333,14 @@ plugin.show_settings_list("My Plugin", {
 - Up to 24 items and 4 sliders per screen; extras are dropped. A missing
   `type`, an unknown `text_size`, or a missing callback is an error.
 - Up to 2 settings screens can be stacked.
+- Optional third argument `options` supports `update = true`, which refreshes
+  the deepest live settings screen with the same title in place, without
+  adding a navigation entry. If no live screen has that title, it opens a new
+  screen normally. Use this when a child chooser changes a value shown by its
+  covered parent.
+- `options.preview` accepts the same `mode`, `image_path`, `image_fit`, and
+  `clock_24h` fields as `plugin.show_lock_screen()`. It embeds a live lock
+  screen preview above the settings rows.
 
 ### Row options
 
@@ -405,9 +413,14 @@ Returns `true`, or `false, message`.
 - `mode` (required): `"album_art"` (the current cover, or the default
   cover when there is none), `"image"` or `"clock"`.
 - `image_path`: the image file, required for `"image"`.
-- `image_fit`: `"contain"` (fit, no cropping) or `"cover"` (fill, cropped).
-  Without it, the image is shown at its own size, centered.
-- `clock_24h`: 24-hour clock, default `true`.
+- `image_fit`: `"contain"` keeps the whole image over a blurred fill; `"cover"`
+  fills the screen with centered cropping. Applies to photos and album art.
+  Omitted fit preserves native-size photos and fills the screen for album art.
+- `clock_24h`: optional override; otherwise follows the device clock setting.
+
+The `screen_woke` event runs while the panel is still dark, allowing this call
+to prepare the lock screen before the first visible frame. Artwork decoding
+and blur generation run in the background.
 
 ## Theming
 

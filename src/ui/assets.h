@@ -48,7 +48,10 @@ void asset_png_memory_free(const lv_image_dsc_t * image);
 
 /* Keeps one PNG decoded as an LVGL draw buffer until close. Use for large,
  * immutable artwork that is redrawn on every animation/drag frame; unlike
- * the global image cache, this cannot be evicted by unrelated screen art. */
+ * the global image cache, this cannot be evicted by unrelated screen art.
+ * After asset_decoded_image_source() publishes the buffer, callers must treat
+ * its pixels and header as immutable until close. Drop its image-cache entry
+ * before mutating or replacing a published buffer. */
 typedef struct {
     lv_image_decoder_dsc_t decoder;
     char * path;

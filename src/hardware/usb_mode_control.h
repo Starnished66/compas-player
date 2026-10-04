@@ -16,6 +16,16 @@ typedef enum {
  *
  * Returns true only if the mode was applied and verified bound to the UDC. */
 bool usb_mode_control_apply(usb_mode_t mode);
+/* Reports lease rejection separately so automatic Storage binding can retry. */
+bool usb_mode_control_apply_with_status(usb_mode_t mode, bool * storage_busy);
+
+/* Excludes USB mode changes while a worker owns SD write access. On target,
+ * an idle bound Storage gadget is temporarily unbound and restored by the
+ * final matching end call. Begin/end may block and must run off the UI thread.
+ * Calls are reference-counted; every successful begin needs one end. */
+bool usb_mode_control_storage_write_begin(void);
+void usb_mode_control_storage_write_end(void);
+bool usb_mode_control_storage_write_active(void);
 
 /* Inspects live configfs/sysfs gadget state to determine which mode is
  * ACTUALLY active right now, independent of whatever was last persisted to
@@ -35,6 +45,8 @@ bool usb_mode_control_detect_current(usb_mode_t * out_mode);
  * Binding or cable power alone is insufficient. Missing/unreadable state,
  * invalid controller names, and DAC/ADB modes return false; no legacy fallback. */
 bool usb_mode_control_storage_host_configured(void);
+/* Conservative write guard: suspended or unknown bound Storage is also busy. */
+bool usb_mode_control_storage_write_blocked(void);
 
 /* Best-effort physical USB-power/cable presence. Used only to detect a new
  * connection and (re)bind the default Storage gadget; it does not claim to

@@ -9,6 +9,7 @@
 #include "gui_library.h"
 #include "gui_queue.h"
 #include "gui_player.h"
+#include "gui_lock_screen.h"
 
 #include "gui_plugins.h"
 #include "gui_shell.h"
@@ -36,6 +37,8 @@ void gui_stream_media_teardown(void);
 void gui_stream_media_rebuild(void);
 void gui_stream_media_refresh(void);
 void gui_deinit(void);
+/* True while the screen is lit or its selected wake surface is ready to paint. */
+bool gui_display_refresh_allowed(void);
 
 /* Shows a minimal boot-settle splash screen -- call once, as early as
  * possible after display setup, before gui_init(). See gui.c's own
@@ -88,12 +91,16 @@ bool gui_plugin_list_is_top(int slot);
  * HEIGHT_MIN comment for why a resized row needs a different background,
  * which a slider's own fixed-layout card doesn't support). Returns the pool
  * slot index this call landed in, so plugin_manager.c can key its own
- * per-slot Lua callback-ref storage off the same slot gui.c actually used. */
+ * per-slot Lua callback-ref storage off the same slot gui.c actually used.
+ * When update_existing is true, an already-live screen with this title is
+ * repopulated in place and is not pushed again; absent a match, a new screen
+ * is opened normally. */
 int gui_plugin_show_settings_list(const char * title, const int * row_types, const char * const * labels,
                                    const bool * toggle_initial, const int * slider_min, const int * slider_max,
                                    const int * slider_value, const char * const * icon_paths, const int32_t * heights,
                                    const int32_t * widths, const char * const * text_sizes,
-                                   const bool * wrap_labels, int count);
+                                   const bool * wrap_labels, int count, bool update_existing,
+                                   const gui_lock_screen_options_t * preview);
 
 /* Starts playback of a brand-new playlist built from `paths[0..count)`,
  * starting at paths[start_index] -- same "starting something new clears

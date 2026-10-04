@@ -132,6 +132,10 @@ static bool query_group_albums(int kind, const char *name, uint64_t *start, uint
                                       (uint32_t)group, start, count);
 }
 
+static bool query_group_album_rank(uint64_t start, uint64_t count, uint64_t offset, int32_t *rank) {
+    return offset < count && query_posting(start, offset, rank);
+}
+
 int tagcache_group_album_count(int kind, const char *name) {
     if (!db_open || !name || kind < 0 || kind > 1) return 0;
     if (reader_query_fd >= 0) {
@@ -157,6 +161,47 @@ int tagcache_group_album_at(int kind, const char *name, int offset) {
     return -1;
 }
 
+int tagcache_group_album_page(int kind, const char *name, int offset, int max_rows,
+                              tagcache_group_album_page_cb_t callback, void *user_data) {
+    if (!db_open || !name || kind < TAGCACHE_GROUP_ARTIST ||
+        kind > TAGCACHE_GROUP_ALBUM_ARTIST || offset < 0 || max_rows < 0 ||
+        (max_rows > 0 && !callback)) return -1;
+    if (max_rows == 0) return 0;
+
+    int written = 0;
+    if (reader_query_fd >= 0) {
+        uint64_t start, count;
+        if (!query_group_albums(kind, name, &start, &count)) return -1;
+        if ((uint64_t)offset >= count) return 0;
+        for (uint64_t position = (uint64_t)offset;
+             position < count && written < max_rows; position++) {
+            int32_t rank;
+            if (!query_group_album_rank(start, count, position, &rank))
+                return -1;
+            tagcache_group_t group;
+            if (!reader_group_at(TAGCACHE_GROUP_ALBUM, rank, &group)) continue;
+            callback(rank, &group, user_data);
+            written++;
+        }
+        return written;
+    }
+
+    /* Legacy generations have no posting sidecar. Walk canonical album ranks
+     * once, skipping matching albums until the requested offset, rather than
+     * restarting the scan for each item in the page. */
+    int albums = tagcache_group_count(TAGCACHE_GROUP_ALBUM);
+    int matched = 0;
+    for (int rank = 0; rank < albums && written < max_rows; rank++) {
+        if (!query_album_has_group(kind, name, rank)) continue;
+        if (matched++ < offset) continue;
+        tagcache_group_t group;
+        if (!reader_group_at(TAGCACHE_GROUP_ALBUM, rank, &group)) continue;
+        callback(rank, &group, user_data);
+        written++;
+    }
+    return written;
+}
+
 static int query_display_compare(const char *left, const char *right) {
     for (size_t i = 0; i < TAGCACHE_TAG_MAX - 1; i++) {
         unsigned char a = ascii_fold((unsigned char)left[i]);
@@ -169,6 +214,28 @@ static int query_display_compare(const char *left, const char *right) {
 
 int tagcache_group_album_offset(int kind, const char *name, const char *album, const char *album_artist) {
     if (!db_open || !name || !album || !album_artist || kind < 0 || kind > 1) return -1;
+    if (reader_query_fd >= 0) {
+        uint64_t start, count;
+        if (!query_group_albums(kind, name, &start, &count) || count > INT_MAX) return -1;
+        int lo = 0, hi = (int)count;
+        while (lo < hi) {
+            int mid = lo + (hi - lo) / 2;
+            int32_t rank;
+            tagcache_group_t group;
+            if (!query_group_album_rank(start, count, (uint64_t)mid, &rank) ||
+                !reader_group_at(TAGCACHE_GROUP_ALBUM, rank, &group)) return -1;
+            if (query_display_compare(group.name, album) < 0) lo = mid + 1; else hi = mid;
+        }
+        for (; lo < (int)count; lo++) {
+            int32_t rank;
+            tagcache_group_t group;
+            if (!query_group_album_rank(start, count, (uint64_t)lo, &rank) ||
+                !reader_group_at(TAGCACHE_GROUP_ALBUM, rank, &group) ||
+                query_display_compare(group.name, album)) break;
+            if (!query_display_compare(group.album_artist, album_artist)) return lo;
+        }
+        return -1;
+    }
     int count = tagcache_group_album_count(kind, name), lo = 0, hi = count;
     while (lo < hi) {
         int mid = lo + (hi - lo) / 2;

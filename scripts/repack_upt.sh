@@ -201,6 +201,12 @@ copy_tracked_assets() {
 }
 copy_tracked_assets assets/theme1 "$work/root/usr/resource/litegui/theme1"
 copy_tracked_assets assets/theme2 "$work/root/usr/resource/litegui/theme2"
+# Vinyl is offered by the layout repository. Drop any native copy left by
+# an older base so a fresh image does not offer it before catalog loading.
+rm -f "$work/root/usr/resource/litegui/theme2/player_layouts/vinyl.xml" \
+      "$work/root/usr/resource/litegui/theme2/player_layouts/vinyl@320x480.xml" \
+      "$work/root/usr/resource/litegui/theme2/player_layouts/vinyl@480x720.xml" \
+      "$work/root/usr/resource/litegui/theme2/player_layouts/vinyl.png"
 # Shared icons ship on every board. Panel-specific artwork and icon variants
 # must win over the shared files, particularly the full-screen boot images.
 if [[ $board == r1 ]]; then

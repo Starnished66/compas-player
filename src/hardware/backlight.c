@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -112,16 +113,17 @@ int backlight_get_percent(void) {
     return result;
 }
 
-static void backlight_set_percent(int percent) {
+static bool backlight_write_percent(int percent, bool lit) {
+    bool written = false;
     pthread_mutex_lock(&backlight_io_mutex);
     char device_name[64];
-    if (!find_backlight_device(device_name, sizeof(device_name))) goto done;
+    if (!find_backlight_device(device_name, sizeof(device_name))) { written = true; goto done; }
 
     int max = get_max_brightness(device_name);
-    if (max <= 0) goto done;
-    int value = logical_to_raw(percent, max);
+    if (max <= 0) { written = true; goto done; }
+    int value = lit ? logical_to_raw(percent, max) : 0;
 
-    if (value == last_written_raw) goto done;
+    if (value == last_written_raw) { written = true; goto done; }
 
     if (brightness_fd < 0) {
         char path[256];
@@ -144,17 +146,21 @@ static void backlight_set_percent(int percent) {
         goto done;
     }
     last_written_raw = value;
+    written = true;
 
 done:
     pthread_mutex_unlock(&backlight_io_mutex);
+    return written;
 }
 
-/* Guards screen_on/restore_percent below -- accessed from both hw_buttons.c's
- * dedicated button-reading thread (power button) and the main/GUI thread
- * (auto screen-timeout, see gui.c's update_timer_cb), unlike every other
- * function in this file which only the GUI thread ever calls. */
+/* Guards requested/applied screen state and restored brightness across
+ * the GUI and the process-lifetime hardware worker. */
 static pthread_mutex_t screen_power_mutex = PTHREAD_MUTEX_INITIALIZER;
 static bool screen_on = true;
+static bool screen_visible = true;
+static bool screen_preparing;
+static bool screen_prepared;
+static uint64_t screen_power_generation;
 static bool screen_dimmed = false;
 /* Restored on the next turn-on -- seeded to a sensible default matching the
  * old hw_buttons.c hardcoded BACKLIGHT_ON_LEVEL, only actually used if we
@@ -176,36 +182,55 @@ static bool brightness_worker_pending = false;
  * on/off or dim/undim requests (e.g. a live brightness-slider drag while
  * the screen is already on) doesn't re-blank or re-unblank redundantly. */
 static bool fb_blanked = false;
+static bool fb_blank_known;
 
-static void write_fb_blank(bool blank) {
-    if (blank == fb_blanked) return;
+static bool write_fb_blank(bool blank) {
+    if (fb_blank_known && blank == fb_blanked) return true;
     FILE * f = fopen(SYSFS_FB_BLANK, "w");
-    if (!f) return;
-    fprintf(f, blank ? "4" : "0"); /* FB_BLANK_POWERDOWN / FB_BLANK_UNBLANK */
-    fclose(f);
-    fb_blanked = blank;
-}
-
-static void write_screen_off(void) {
-    write_fb_blank(true);
+    if (!f) return false;
+    bool ok = fprintf(f, blank ? "4" : "0") == 1;
+    if (fclose(f) != 0) ok = false;
+    if (ok) { fb_blanked = blank; fb_blank_known = true; }
+    return ok;
 }
 
 static void apply_requested_brightness(void) {
     pthread_mutex_lock(&screen_power_mutex);
     bool on = screen_on;
+    bool preparing = screen_preparing;
+    uint64_t generation = screen_power_generation;
     int normal = restore_percent;
     int target = screen_dimmed && normal > 5 ? 5 : normal;
     pthread_mutex_unlock(&screen_power_mutex);
-    if (on) {
-        /* Unblank before re-driving the PWM channel -- some panel/backlight
-         * controllers need a fresh brightness write after coming out of
-         * blank rather than resuming from whatever the register already
-         * held, so this order matters even though blanking never touched
-         * that register itself. */
-        write_fb_blank(false);
-        backlight_set_percent(target);
+    if (preparing) {
+        /* A blanked panel rejects page flips. Unblank with the PWM truly off
+         * so the GUI can present its selected wake surface before revealing it. */
+#ifdef HOST_BUILD
+        bool ready = true;
+#else
+        fb_blank_known = false; /* Suspend may have blanked outside this worker. */
+        bool ready = backlight_write_percent(target, false) && write_fb_blank(false);
+#endif
+        pthread_mutex_lock(&screen_power_mutex);
+        if (screen_preparing && !screen_on && screen_power_generation == generation) {
+            screen_prepared = ready;
+            if (!ready) screen_preparing = false; /* GUI can retry a failed write. */
+        }
+        pthread_mutex_unlock(&screen_power_mutex);
+    } else if (on) {
+#ifdef HOST_BUILD
+        bool visible = true;
+#else
+        if (!write_fb_blank(false))
+            fprintf(stderr, "Screen wake: panel unblank failed\n");
+        bool visible = backlight_write_percent(target, true);
+#endif
+        pthread_mutex_lock(&screen_power_mutex);
+        if (screen_on && !screen_preparing && screen_power_generation == generation)
+            screen_visible = screen_visible || visible;
+        pthread_mutex_unlock(&screen_power_mutex);
     } else {
-        write_screen_off();
+        (void) write_fb_blank(true);
     }
 }
 
@@ -251,7 +276,7 @@ void backlight_set_normal_percent(int percent) {
     screen_dimmed = false;
     bool write_now = screen_on;
     pthread_mutex_unlock(&screen_power_mutex);
-    if (write_now) backlight_set_percent(percent);
+    if (write_now) (void) backlight_write_percent(percent, true);
 }
 
 void backlight_request_normal_percent(int percent) {
@@ -283,18 +308,51 @@ bool backlight_screen_is_on(void) {
     return result;
 }
 
-void backlight_set_screen_on(bool on) {
+bool backlight_screen_is_visible(void) {
     pthread_mutex_lock(&screen_power_mutex);
-    if (on == screen_on) {
+    bool result = screen_on && screen_visible;
+    pthread_mutex_unlock(&screen_power_mutex);
+    return result;
+}
+
+void backlight_prepare_screen_on(void) {
+    pthread_mutex_lock(&screen_power_mutex);
+    if (screen_on || screen_preparing) {
         pthread_mutex_unlock(&screen_power_mutex);
         return;
     }
+    screen_preparing = true;
+    screen_visible = false;
+    screen_prepared = false;
+    screen_power_generation++;
+    pthread_mutex_unlock(&screen_power_mutex);
+    request_brightness_apply();
+}
+
+bool backlight_screen_is_prepared(void) {
+    pthread_mutex_lock(&screen_power_mutex);
+    bool ready = screen_preparing && screen_prepared && !screen_on;
+    pthread_mutex_unlock(&screen_power_mutex);
+    return ready;
+}
+
+void backlight_set_screen_on(bool on) {
+    pthread_mutex_lock(&screen_power_mutex);
+    if (on == screen_on && !screen_preparing) {
+        pthread_mutex_unlock(&screen_power_mutex);
+        if (on) request_brightness_apply(); /* Retry a failed reveal write. */
+        return;
+    }
+    bool was_on = screen_on;
     screen_on = on;
+    screen_visible = false;
+    screen_preparing = screen_prepared = false;
+    screen_power_generation++;
 
     if (!on) {
         /* Save current brightness level before screen turns off so it can be restored.
          * Any non-negative reading is valid (negative indicates read failure). */
-        if (!screen_dimmed && !restore_percent_set) {
+        if (was_on && !screen_dimmed && !restore_percent_set) {
             int current = backlight_get_percent();
             if (current >= 0) {
                 restore_percent = current;

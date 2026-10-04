@@ -69,6 +69,10 @@ static bool is_sd_card_path(const char *path);
 #include "player_cover_fade.h"
 #include "player_lyrics_backdrop.h"
 #include "player_timeline_labels.h"
+#include "transition_compositor.h"
+#include "lvgl/src/core/lv_obj_draw_private.h"
+#include "lvgl/src/draw/sw/lv_draw_sw_private.h"
+#include "artwork_coordinator.h"
 #include "waveform.h"
 #include "gui_track_info.h"
 #include "gui_settings.h"
@@ -165,6 +169,18 @@ static lv_obj_t * player_play_circle;
 static lv_draw_buf_t * player_timeline_cover_frame;
 static const void * player_timeline_cover_source;
 static bool player_timeline_cover_source_owned;
+/* One exact endpoint raster, reused while its artwork and widget tree stay
+ * unchanged. The active binding borrows this buffer; transient snapshots
+ * for unsupported sources retain their original ownership. */
+static lv_draw_buf_t * player_timeline_cover_cache;
+static uint64_t player_timeline_cover_cache_generation;
+static uint64_t player_timeline_cover_style_epoch;
+static uint64_t player_timeline_cover_cache_epoch;
+static bool player_timeline_cover_cache_antialias;
+static bool player_timeline_cover_internal;
+static lv_display_t * player_timeline_cover_cache_display;
+static void player_timeline_cover_cache_invalidate(void);
+static lv_timer_t * player_artwork_cache_timer;
 /* Layouts without artist/album roles get hidden labels for the player
  * geometry code. They are not layout widgets: never laid out, scrolled,
  * styled or moved by the lyrics view. */
@@ -172,14 +188,33 @@ static bool player_artist_standin;
 static bool player_album_standin;
 static void player_now_playing_group_click_cb(lv_event_t * e);
 
+static void player_lyrics_timeline_completed_cb(lv_anim_t * anim);
+
 /* Plays a layout timeline from its start and returns its length in ms. */
-static uint32_t player_timeline_play(lv_anim_timeline_t * timeline) {
+static uint32_t player_timeline_play(lv_anim_timeline_t * timeline,
+                                     lv_anim_completed_cb_t completed_cb,
+                                     bool * completion_attached,
+                                     bool * runner_available) {
+    if (completion_attached) *completion_attached = false;
+    if (runner_available) *runner_available = false;
     if (!timeline) return 0;
     player_layouts_timeline_refresh_timing(timeline);
     /* A finished timeline would resume at its end and do nothing. */
     lv_anim_timeline_pause(timeline);
     lv_anim_timeline_set_progress(timeline, 0);
-    return lv_anim_timeline_start(timeline);
+    uint32_t playtime = lv_anim_timeline_start(timeline);
+    if (completed_cb) {
+        /* The timeline runner is registered synchronously by start(). LVGL
+         * removes it before calling completed_cb, so the callback can safely
+         * finish UI state that pauses or updates the same timeline. */
+        lv_anim_t * runner = lv_anim_get(timeline, NULL);
+        if (runner) {
+            if (runner_available) *runner_available = true;
+            if (!runner->completed_cb) lv_anim_set_completed_cb(runner, completed_cb);
+            if (completion_attached) *completion_attached = runner->completed_cb == completed_cb;
+        }
+    }
+    return playtime;
 }
 
 static int32_t displayed_progress_percent = -1;
@@ -475,21 +510,8 @@ static void player_fit_small_screen_icon(lv_obj_t * icon, int32_t reference_px) 
 }
 
 #define REFLECTION_WIDTH BOARD_SCREEN_WIDTH
-/* Small work-buffer + bilinear-both-ways architecture, matching gui_lyrics.c's
- * own proven compute_lyrics_backdrop_bytes() exactly (same work size, same
- * blur radius/passes, same bilinear downsample-then-upsample shape) instead
- * of this function's own earlier nearest-neighbor row-duplication approach.
- * That earlier approach hard-repeated each small-buffer source row into
- * ~2-3 destination rows with a hard boundary between them -- real banding in
- * the underlying image that no amount of per-pixel dithering can fix, only
- * mask. The lyrics screen never showed this "shimmer" on the same hardware
- * with the same darken range; this is the actual reason why, not the
- * dither-timing or panel-compositing theories tried (and fixed as real, but
- * insufficient) earlier. Also dramatically cheaper: 6000 work pixels here
- * vs the old 153600, closing the audio-thread-starvation risk at the root
- * instead of needing the cooperative-yield workaround. */
-#define REFLECTION_WORK_WIDTH 60
-#define REFLECTION_WORK_HEIGHT 100
+/* compute_reflection_bytes() keeps the existing 60x100 bounded work image
+ * and delegates its crop/blur/upscale pipeline to frosted_glass.c. */
 #define REFLECTION_BLUR_RADIUS 5
 #define REFLECTION_BLUR_PASSES 3
 /* Kept as an integer ratio (channel * NUM / DEN) rather than a float --
@@ -499,27 +521,6 @@ static void player_fit_small_screen_icon(lv_obj_t * icon, int32_t reference_px) 
 #define REFLECTION_DARKEN_NUM 1
 #define REFLECTION_DARKEN_DEN 2
 
-/* Same bilinear-sample helper as gui_lyrics.c's own bilerp_plane() (not
- * shared between the two files -- both are small, self-contained, and this
- * keeps compute_reflection_bytes() free-standing). x_fp/y_fp are 16.16
- * fixed-point coordinates into `plane`. */
-static uint8_t bilerp_plane(const uint8_t * plane, int width, int height, uint32_t x_fp, uint32_t y_fp) {
-    int x0 = (int) (x_fp >> 16), y0 = (int) (y_fp >> 16);
-    int x1 = x0 + 1 < width ? x0 + 1 : x0;
-    int y1 = y0 + 1 < height ? y0 + 1 : y0;
-    uint32_t fx = x_fp & 0xffffu, fy = y_fp & 0xffffu;
-    uint32_t top = ((uint32_t) plane[y0 * width + x0] * (65536u - fx) +
-                    (uint32_t) plane[y0 * width + x1] * fx) >> 16;
-    uint32_t bottom = ((uint32_t) plane[y1 * width + x0] * (65536u - fx) +
-                       (uint32_t) plane[y1 * width + x1] * fx) >> 16;
-    return (uint8_t) ((top * (65536u - fy) + bottom * fy) >> 16);
-}
-
-/* Pure pixel math -- builds the reflection from a given COVER_ART_WIDTH x
- * COVER_ART_HEIGHT RGB565 buffer and returns a freshly malloc'd
- * REFLECTION_WIDTH x BOARD_SCREEN_HEIGHT RGB565 buffer, or NULL on allocation
- * failure. Caller owns the result. Accepts blur radius, passes, and darken
- * fraction parameters with defensive clamping. */
 /* "Match album art": the cover's most prominent vivid hue. Samples a grid,
  * weights each colorful pixel by saturation x value into 15-degree hue
  * buckets, takes the strongest three-bucket window, and lifts its average
@@ -580,109 +581,13 @@ uint8_t * compute_reflection_bytes(const uint8_t * cover_bytes, int blur_radius,
     if (blur_passes < 0) blur_passes = 0;
     if (darken_num < 0) darken_num = 0;
 
-    int w = REFLECTION_WORK_WIDTH, h = REFLECTION_WORK_HEIGHT;
-    uint8_t * r = malloc((size_t) w * h);
-    uint8_t * g = malloc((size_t) w * h);
-    uint8_t * b = malloc((size_t) w * h);
-    uint8_t * tmp = malloc((size_t) w * h);
-    if (!r || !g || !b || !tmp) {
-        free(r); free(g); free(b); free(tmp);
-        return NULL;
-    }
-
-    /* Bilinear downsample straight from the real (COVER_ART_WIDTH x
-     * COVER_ART_HEIGHT) cover into this tiny work buffer, center-cropping
-     * the source to REFLECTION_WIDTH:BOARD_SCREEN_HEIGHT's aspect first --
-     * same shape as compute_lyrics_backdrop_bytes()'s own crop_w/crop_x,
-     * adapted to this function's own destination aspect ratio. */
-    int crop_w = COVER_ART_HEIGHT * REFLECTION_WIDTH / BOARD_SCREEN_HEIGHT;
-    if (crop_w > COVER_ART_WIDTH) crop_w = COVER_ART_WIDTH;
-    int crop_x = (COVER_ART_WIDTH - crop_w) / 2;
-    const uint16_t * source = (const uint16_t *) cover_bytes;
-    for (int y = 0; y < h; y++) {
-        uint32_t sy_fp = h > 1 ? (uint32_t) (((uint64_t) y * (COVER_ART_HEIGHT - 1) << 16) / (h - 1)) : 0;
-        int sy = (int) (sy_fp >> 16);
-        int sy1 = sy + 1 < COVER_ART_HEIGHT ? sy + 1 : sy;
-        uint32_t fy = sy_fp & 0xffffu;
-        for (int x = 0; x < w; x++) {
-            uint32_t sx_fp = (uint32_t) crop_x << 16;
-            if (w > 1) sx_fp += (uint32_t) (((uint64_t) x * (crop_w - 1) << 16) / (w - 1));
-            int sx = (int) (sx_fp >> 16);
-            int sx1 = sx + 1 < COVER_ART_WIDTH ? sx + 1 : sx;
-            uint32_t fx = sx_fp & 0xffffu;
-            uint16_t px00 = source[sy * COVER_ART_WIDTH + sx], px01 = source[sy * COVER_ART_WIDTH + sx1];
-            uint16_t px10 = source[sy1 * COVER_ART_WIDTH + sx], px11 = source[sy1 * COVER_ART_WIDTH + sx1];
-            uint16_t pixels[4] = { px00, px01, px10, px11 };
-            uint8_t * channels[3] = { r, g, b };
-            for (int c = 0; c < 3; c++) {
-                uint32_t values[4];
-                for (int p = 0; p < 4; p++) {
-                    if (c == 0) values[p] = ((pixels[p] >> 11) & 0x1F) * 255 / 31;
-                    else if (c == 1) values[p] = ((pixels[p] >> 5) & 0x3F) * 255 / 63;
-                    else values[p] = (pixels[p] & 0x1F) * 255 / 31;
-                }
-                uint32_t top = (values[0] * (65536u - fx) + values[1] * fx) >> 16;
-                uint32_t bottom = (values[2] * (65536u - fx) + values[3] * fx) >> 16;
-                channels[c][y * w + x] = (uint8_t) ((top * (65536u - fy) + bottom * fy) >> 16);
-            }
-        }
-    }
-
-    /* Separable box blur on the tiny work buffer -- one horizontal pass
-     * (per row) then one vertical pass (per column), on each channel
-     * independently, for blur_passes passes. */
-    for (int pass = 0; pass < blur_passes; pass++) {
-        for (int y = 0; y < h; y++) box_blur_1d(r + y * w, tmp + y * w, w, 1, blur_radius);
-        memcpy(r, tmp, (size_t) w * h);
-        for (int x = 0; x < w; x++) box_blur_1d(r + x, tmp + x, h, w, blur_radius);
-        memcpy(r, tmp, (size_t) w * h);
-    }
-    for (int pass = 0; pass < blur_passes; pass++) {
-        for (int y = 0; y < h; y++) box_blur_1d(g + y * w, tmp + y * w, w, 1, blur_radius);
-        memcpy(g, tmp, (size_t) w * h);
-        for (int x = 0; x < w; x++) box_blur_1d(g + x, tmp + x, h, w, blur_radius);
-        memcpy(g, tmp, (size_t) w * h);
-    }
-    for (int pass = 0; pass < blur_passes; pass++) {
-        for (int y = 0; y < h; y++) box_blur_1d(b + y * w, tmp + y * w, w, 1, blur_radius);
-        memcpy(b, tmp, (size_t) w * h);
-        for (int x = 0; x < w; x++) box_blur_1d(b + x, tmp + x, h, w, blur_radius);
-        memcpy(b, tmp, (size_t) w * h);
-    }
-
-    uint8_t * out_bytes = malloc((size_t) REFLECTION_WIDTH * BOARD_SCREEN_HEIGHT * 2);
-    if (!out_bytes) {
-        free(r); free(g); free(b); free(tmp);
-        return NULL;
-    }
-
-    /* Bilinear upsample from the tiny blurred work buffer to the full
-     * REFLECTION_WIDTH x BOARD_SCREEN_HEIGHT output, darkening and dithering
-     * at each FINAL destination pixel's own (x,y) -- smooth interpolation
-     * here (not nearest-neighbor row duplication) is what actually removes
-     * the banding that looked like "shimmer" once densely dithered. Still
-     * touches all REFLECTION_WIDTH*BOARD_SCREEN_HEIGHT destination pixels
-     * (the earlier full-resolution pass's own audio-starvation risk applies
-     * here too, just to a cheaper per-pixel cost now), so keep the same
-     * cooperative yield this codebase already uses elsewhere for background
-     * decode work. */
-    uint16_t * out = (uint16_t *) out_bytes;
-#define REFLECTION_UPSAMPLE_YIELD_ROWS 40
-    for (int y = 0; y < BOARD_SCREEN_HEIGHT; y++) {
-        if (y > 0 && (y % REFLECTION_UPSAMPLE_YIELD_ROWS) == 0) usleep(1000);
-        uint32_t y_fp = h > 1 ? (uint32_t) (((uint64_t) y * (h - 1) << 16) / (BOARD_SCREEN_HEIGHT - 1)) : 0;
-        uint16_t * out_row = out + (size_t) y * REFLECTION_WIDTH;
-        for (int x = 0; x < REFLECTION_WIDTH; x++) {
-            uint32_t x_fp = w > 1 ? (uint32_t) (((uint64_t) x * (w - 1) << 16) / (REFLECTION_WIDTH - 1)) : 0;
-            int rv = bilerp_plane(r, w, h, x_fp, y_fp) * darken_num / darken_den;
-            int gv = bilerp_plane(g, w, h, x_fp, y_fp) * darken_num / darken_den;
-            int bv = bilerp_plane(b, w, h, x_fp, y_fp) * darken_num / darken_den;
-            out_row[x] = rgb888_to_565_spatial_dithered(rv, gv, bv, x, y);
-        }
-    }
-#undef REFLECTION_UPSAMPLE_YIELD_ROWS
-    free(r); free(g); free(b); free(tmp);
-    return out_bytes;
+    /* Preserve the historical reflection dimensions, center crop, blur,
+     * darkening, spatial dither, and unmirrored source pixel orientation. */
+    return frosted_glass_blur_rgb565((const uint16_t *) cover_bytes,
+                                     COVER_ART_WIDTH, COVER_ART_HEIGHT,
+                                     REFLECTION_WIDTH, BOARD_SCREEN_HEIGHT,
+                                     blur_radius, blur_passes,
+                                     darken_num, darken_den, false);
 }
 
 typedef struct {
@@ -1399,6 +1304,42 @@ static void player_cover_size_changed_cb(lv_event_t * e) {
     fit_cover_img_to_card();
 }
 
+static bool player_artwork_cache_idle(void) {
+    /* Source pixels are immutable. Unrelated scrolling labels may continue;
+     * foreground gestures and artwork/layout changes defer construction. */
+    bool idle = player_screen && lv_display_get_screen_active(NULL) == player_screen &&
+        backlight_screen_is_on() && !cover_decode_active &&
+        !gui_navigation_transition_in_progress() && !gui_player_lyrics_animation_in_progress() &&
+        !gui_shell_boot_prompt_blocked() && !gui_player_boot_prompt_blocked() &&
+        gui_popup_visible_count() == 0 && !gui_notifications_toast_visible() &&
+        (!cover_img || !lv_anim_get(cover_img, NULL)) &&
+        (!cover_card || !lv_anim_get(cover_card, NULL)) &&
+        lv_display_get_inactive_time(NULL) >= 350;
+    for (lv_indev_t * input = lv_indev_get_next(NULL); idle && input; input = lv_indev_get_next(input))
+        if (lv_indev_get_state(input) == LV_INDEV_STATE_PRESSED) idle = false;
+    return idle;
+}
+
+static void player_artwork_cache_service(lv_timer_t * timer) {
+    bool idle = player_artwork_cache_idle();
+    lv_draw_sw_image_cache_stats_t stats;
+    lv_draw_sw_image_cache_get_intermediate_stats(&stats);
+    /* Without allocations there is nothing to reclaim. Read memory only
+     * when pressure can release storage or eligible idle work can start. */
+    if (!stats.entries && !stats.pending && (!idle || !stats.qualified_candidates)) {
+        if (timer) lv_timer_pause(timer);
+        return;
+    }
+    lv_draw_sw_image_cache_service(system_get_mem_available_bytes(), idle);
+    lv_draw_sw_image_cache_get_intermediate_stats(&stats);
+    if (timer && (!idle || !stats.pending)) lv_timer_pause(timer);
+    if (!timer && idle && stats.pending) {
+        if (!player_artwork_cache_timer)
+            player_artwork_cache_timer = lv_timer_create(player_artwork_cache_service, 20, NULL);
+        else lv_timer_resume(player_artwork_cache_timer);
+    }
+}
+
 /* Called every tick from update_timer_cb. Applies the finished decode to
  * cover_img/player_overlay_panel -- unless playlist_index has already moved
  * on to a different track by the time this lands (another launch_cover_
@@ -1406,6 +1347,10 @@ static void player_cover_size_changed_cb(lv_event_t * e) {
  * one is now either running or about to be), in which case the result is
  * just discarded rather than briefly flashing a stale track's art. */
 void poll_cover_decode(void) {
+    /* Pressure checks also run during transitions. The ordinary maintenance
+     * poll starts optional idle work; a short-lived timer continues slices. */
+    player_artwork_cache_service(NULL);
+
     /* Slides display owned snapshots. Applying artwork now cannot update
      * those frames, but image/layout work can delay their presentation.
      * Leave the completed result owned by the worker until the next poll. */
@@ -1448,6 +1393,7 @@ void poll_cover_decode(void) {
         }
     } else if (!cover_decode_result_ok) {
         free(cover_decode_result_reflection);
+        player_timeline_cover_cache_invalidate();
         /* Retarget every live image object before releasing the backing
          * buffers. The lock screen may keep current_cover_dsc as its source,
          * so clear the descriptor before freeing its pixels. */
@@ -1483,10 +1429,12 @@ void poll_cover_decode(void) {
                 lv_obj_remove_local_style_prop(player_overlay_panel, LV_STYLE_BG_COLOR, 0);
         }
         free(old_cover_bytes);
-        gui_lock_screen_refresh_cover();
+        gui_lock_screen_refresh(true);
         gui_theme_set_cover_accent(false, 0);
         player_transition_mark_dirty(); /* cover_img just changed to the placeholder -- see the cache's own doc comment */
     } else {
+        player_timeline_cover_cache_invalidate();
+        lv_image_cache_drop(&current_cover_dsc);
         free(current_cover_bytes);
         current_cover_generation++;
         current_cover_bytes = (uint8_t *) cover_decode_result_pixels;
@@ -1500,6 +1448,7 @@ void poll_cover_decode(void) {
         memset(&current_cover_dsc, 0, sizeof(current_cover_dsc));
         current_cover_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
         current_cover_dsc.header.cf = LV_COLOR_FORMAT_RGB565;
+        current_cover_dsc.header.flags |= LV_IMAGE_FLAGS_USER3;
         current_cover_dsc.header.w = COVER_ART_WIDTH;
         current_cover_dsc.header.h = COVER_ART_HEIGHT;
         current_cover_dsc.header.stride = COVER_ART_WIDTH * 2;
@@ -1509,7 +1458,7 @@ void poll_cover_decode(void) {
         fit_cover_img_to_card();
         player_lyrics_backdrop_invalidate();
         gui_shell_refresh_quick_drawer_cover();
-        gui_lock_screen_refresh_cover();
+        gui_lock_screen_refresh(true);
 
         /* The reflection this decode computed was built from frost params
          * snapshotted when the decode was LAUNCHED. If a plugin changed
@@ -2061,7 +2010,7 @@ void apply_track_metadata_to_ui(int index, track_metadata_t * out_meta) {
         lv_obj_remove_flag(song_count_label, LV_OBJ_FLAG_HIDDEN);
     }
     player_transition_mark_dirty(); /* title/artist/format badge/progress reset above all just changed player_screen's own content -- see the cache's own doc comment */
-    player_timeline_play(player_timeline_track_change);
+    player_timeline_play(player_timeline_track_change, NULL, NULL, NULL);
 }
 
 /* Resolves which of a track's own ReplayGain fields to actually hand to
@@ -2255,15 +2204,28 @@ typedef struct {
     int32_t height_style;
     int32_t normal_pad_left;
     int32_t centered_text_inset;
-    int32_t text_frame_inset;
-    lv_obj_t * text_clip;
-    lv_obj_t * text_image;
-    lv_draw_buf_t * text_frame;
+    int32_t translate_x, translate_y;
     lv_label_long_mode_t long_mode;
 } player_lyrics_geometry_t;
 
 static bool player_lyrics_open;
 static bool player_lyrics_animating;
+/* Keep preparation damage queued until the timeline starts on a fresh tick. */
+static lv_display_t * player_lyrics_start_display;
+static bool player_lyrics_start_refresh_requested;
+
+static void player_lyrics_release_start_refresh(void) {
+    lv_display_t * display = player_lyrics_start_display;
+    bool requested = player_lyrics_start_refresh_requested;
+    player_lyrics_start_display = NULL;
+    player_lyrics_start_refresh_requested = false;
+    if (!display) return;
+    lv_timer_t * refresh = lv_display_get_refr_timer(display);
+    if (refresh && requested && gui_display_refresh_allowed()) {
+        lv_timer_resume(refresh);
+        lv_timer_ready(refresh);
+    }
+}
 static bool player_timeline_cover_antialias_saved;
 static bool player_timeline_cover_antialias;
 static lv_obj_t * player_timeline_cover_fade;
@@ -2271,6 +2233,7 @@ static bool player_timeline_cover_fade_was_hidden;
 static int32_t player_timeline_cover_w;
 static int32_t player_timeline_cover_h;
 static bool player_timeline_cover_clip_corner;
+static bool player_timeline_backdrop_covers_cover;
 bool gui_player_lyrics_animation_in_progress(void) { return player_lyrics_animating; }
 static void player_lyrics_update_thumbnail_clickable(void) {
     if (!player_cover_thumbnail) return;
@@ -2284,7 +2247,13 @@ static void player_lyrics_update_thumbnail_clickable(void) {
  * cover (including optional fade overlays) and scale that during motion,
  * then restore the original live source at the end. */
 static void player_timeline_cover_snapshot_restore(void) {
-    if (!player_timeline_cover_frame) return;
+    if (!player_timeline_cover_frame) {
+        /* A live cover has no temporary antialias setting to restore. */
+        player_timeline_cover_antialias_saved = false;
+        return;
+    }
+    bool was_internal = player_timeline_cover_internal;
+    player_timeline_cover_internal = true;
     lv_draw_buf_t * frame = player_timeline_cover_frame;
     const void * source = player_timeline_cover_source;
     bool source_owned = player_timeline_cover_source_owned;
@@ -2300,12 +2269,202 @@ static void player_timeline_cover_snapshot_restore(void) {
     if (player_timeline_cover_fade && !player_timeline_cover_fade_was_hidden)
         lv_obj_remove_flag(player_timeline_cover_fade, LV_OBJ_FLAG_HIDDEN);
     player_timeline_cover_fade_was_hidden = false;
-    lv_draw_buf_destroy(frame);
+    if (frame != player_timeline_cover_cache) {
+        lv_image_cache_drop(frame);
+        lv_draw_buf_destroy(frame);
+    }
     if (source_owned) lv_free((void *) source);
+    if (player_timeline_cover_antialias_saved && cover_img) {
+        lv_image_set_antialias(cover_img, player_timeline_cover_antialias);
+        player_timeline_cover_antialias_saved = false;
+    }
+    player_timeline_cover_internal = was_internal;
+}
+
+static void player_timeline_cover_cache_invalidate(void) {
+    player_timeline_cover_snapshot_restore();
+    if (player_timeline_cover_cache) {
+        lv_image_cache_drop(player_timeline_cover_cache);
+        lv_draw_buf_destroy(player_timeline_cover_cache);
+        player_timeline_cover_cache = NULL;
+    }
+}
+
+static void player_timeline_cover_style_changed_cb(lv_event_t * e) {
+    (void) e;
+    if (player_timeline_cover_internal || player_lyrics_animating) return;
+    ++player_timeline_cover_style_epoch;
+    player_timeline_cover_cache_invalidate();
+}
+
+/* Retention is deliberately narrower than the one-shot transition cache:
+ * only a plain opaque bitmap can be reused at rest without baking live
+ * decorations, inherited recolor, or translucent child blend rounding. */
+static void cover_img_tap_cb(lv_event_t * e);
+
+static bool player_timeline_cover_has_only_owned_events(lv_obj_t * object) {
+    for (uint32_t i = 0; i < lv_obj_get_event_count(object); ++i) {
+        lv_event_dsc_t * event = lv_obj_get_event_dsc(object, i);
+        lv_event_cb_t callback = lv_event_dsc_get_cb(event);
+        if (callback != cover_img_tap_cb && callback != player_cover_size_changed_cb &&
+            callback != player_timeline_cover_style_changed_cb) return false;
+    }
+    return true;
+}
+
+static bool player_timeline_cover_can_retain(void) {
+    if (!cover_card || !cover_img || !current_cover_bytes ||
+        current_cover_dsc.header.cf != LV_COLOR_FORMAT_RGB565 ||
+        !player_timeline_cover_has_only_owned_events(cover_card) ||
+        !player_timeline_cover_has_only_owned_events(cover_img) ||
+        lv_obj_get_ext_draw_size(cover_card) != 0 ||
+        lv_obj_get_style_color_filter_dsc(cover_card, 0) ||
+        lv_obj_get_style_color_filter_dsc(cover_img, 0) ||
+        lv_obj_get_style_color_filter_opa(cover_card, 0) != LV_OPA_TRANSP ||
+        lv_obj_get_style_color_filter_opa(cover_img, 0) != LV_OPA_TRANSP ||
+        (lv_obj_get_child_count(cover_card) != 1 &&
+         (lv_obj_get_child_count(cover_card) != 2 || !player_timeline_cover_fade ||
+          lv_obj_get_child(cover_card, 0) != cover_img ||
+          lv_obj_get_child(cover_card, 1) != player_timeline_cover_fade ||
+          lv_obj_get_parent(player_timeline_cover_fade) != cover_card ||
+          !player_cover_fade_cache_eligible(player_timeline_cover_fade) ||
+          (player_timeline_cover_frame
+           ? (!lv_obj_has_flag(player_timeline_cover_fade, LV_OBJ_FLAG_HIDDEN) ||
+              player_timeline_cover_fade_was_hidden)
+           : lv_obj_has_flag(player_timeline_cover_fade, LV_OBJ_FLAG_HIDDEN)))) ||
+        lv_obj_has_flag(cover_card, LV_OBJ_FLAG_OVERFLOW_VISIBLE) ||
+        lv_obj_get_parent(cover_img) != cover_card ||
+        lv_obj_get_child_count(cover_img) != 0 ||
+        lv_obj_get_layer_type(cover_card) != LV_LAYER_TYPE_NONE ||
+        lv_obj_get_layer_type(cover_img) != LV_LAYER_TYPE_NONE ||
+        lv_obj_get_style_opa_recursive(cover_card, 0) != LV_OPA_COVER ||
+        lv_obj_get_style_bg_opa(cover_card, 0) != LV_OPA_TRANSP ||
+        lv_obj_get_style_radius(cover_card, 0) != 0 ||
+        lv_obj_get_style_border_width(cover_card, 0) ||
+        lv_obj_get_style_shadow_width(cover_card, 0) ||
+        lv_obj_get_style_outline_width(cover_card, 0) ||
+        lv_obj_get_style_bg_image_src(cover_card, 0) ||
+        lv_obj_get_style_layout(cover_card, 0) != LV_LAYOUT_NONE ||
+        lv_obj_get_style_pad_left(cover_card, 0) || lv_obj_get_style_pad_right(cover_card, 0) ||
+        lv_obj_get_style_pad_top(cover_card, 0) || lv_obj_get_style_pad_bottom(cover_card, 0) ||
+        lv_obj_get_style_transform_width(cover_card, 0) || lv_obj_get_style_transform_height(cover_card, 0) ||
+        lv_obj_get_style_transform_rotation(cover_card, 0) ||
+        lv_obj_get_style_transform_scale_x(cover_card, 0) != LV_SCALE_NONE ||
+        lv_obj_get_style_transform_scale_y(cover_card, 0) != LV_SCALE_NONE ||
+        lv_obj_get_style_transform_skew_x(cover_card, 0) ||
+        lv_obj_get_style_transform_skew_y(cover_card, 0) ||
+        lv_obj_get_style_opa(cover_img, 0) != LV_OPA_COVER ||
+        lv_obj_get_style_image_opa(cover_img, 0) != LV_OPA_COVER ||
+        lv_obj_get_style_image_recolor_opa(cover_img, 0) != LV_OPA_TRANSP ||
+        lv_obj_get_style_recolor_recursive(cover_img, 0).alpha != 0 ||
+        lv_obj_get_style_bg_opa(cover_img, 0) != LV_OPA_TRANSP ||
+        lv_obj_get_style_border_width(cover_img, 0) ||
+        lv_obj_get_style_shadow_width(cover_img, 0) ||
+        lv_obj_get_style_outline_width(cover_img, 0) ||
+        lv_obj_get_style_bg_image_src(cover_img, 0) ||
+        lv_obj_get_style_blend_mode(cover_img, 0) != LV_BLEND_MODE_NORMAL ||
+        lv_image_get_blend_mode(cover_img) != LV_BLEND_MODE_NORMAL ||
+        lv_image_get_bitmap_map_src(cover_img) ||
+        lv_obj_get_style_radius(cover_img, 0) ||
+        lv_obj_get_style_translate_x(cover_img, 0) || lv_obj_get_style_translate_y(cover_img, 0) ||
+        lv_obj_get_style_transform_width(cover_img, 0) || lv_obj_get_style_transform_height(cover_img, 0) ||
+        lv_obj_get_style_pad_left(cover_img, 0) || lv_obj_get_style_pad_right(cover_img, 0) ||
+        lv_obj_get_style_pad_top(cover_img, 0) || lv_obj_get_style_pad_bottom(cover_img, 0) ||
+        lv_obj_get_style_transform_rotation(cover_img, 0) ||
+        lv_obj_get_style_transform_scale_x(cover_img, 0) != LV_SCALE_NONE ||
+        lv_obj_get_style_transform_scale_y(cover_img, 0) != LV_SCALE_NONE ||
+        lv_obj_get_style_transform_skew_x(cover_img, 0) ||
+        lv_obj_get_style_transform_skew_y(cover_img, 0) ||
+        lv_image_get_rotation(cover_img) ||
+        lv_image_get_offset_x(cover_img) || lv_image_get_offset_y(cover_img)) return false;
+    lv_image_align_t inner_align = lv_image_get_inner_align(cover_img);
+    /* LVGL defaults to CENTER. At intrinsic widget dimensions it is identical
+     * to DEFAULT; other inner alignment geometries remain live. */
+    if (inner_align != LV_IMAGE_ALIGN_DEFAULT &&
+        (inner_align != LV_IMAGE_ALIGN_CENTER ||
+         lv_obj_get_width(cover_img) != lv_image_get_src_width(cover_img) ||
+         lv_obj_get_height(cover_img) != lv_image_get_src_height(cover_img))) return false;
+    lv_point_t pivot;
+    lv_image_get_pivot(cover_img, &pivot);
+    return pivot.x == lv_image_get_src_width(cover_img) / 2 &&
+           pivot.y == lv_image_get_src_height(cover_img) / 2;
+}
+
+/* Drawing-only properties do not all emit STYLE_CHANGED. Revalidate the
+ * narrow retained binding before the display builds draw tasks as well. */
+static bool player_timeline_display_refreshing;
+static void player_timeline_cover_cache_refresh_cb(lv_event_t * e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_REFR_START) player_timeline_display_refreshing = true;
+    else if (code == LV_EVENT_REFR_READY || code == LV_EVENT_DELETE) player_timeline_display_refreshing = false;
+    if (code == LV_EVENT_REFR_REQUEST) {
+        lv_display_t * display = lv_event_get_target(e);
+        if (display == player_lyrics_start_display) {
+            /* LVGL's built-in request handler resumes this timer first. Keep
+             * the barrier intact without dropping or disabling invalidation. */
+            lv_timer_t * refresh = lv_display_get_refr_timer(display);
+            player_lyrics_start_refresh_requested = true;
+            if (refresh) lv_timer_pause(refresh);
+            return;
+        }
+        /* Damage produced after the refresh timer was visited should be
+         * presented on the next handler pass. During a refresh, keep LVGL's
+         * normal scheduling so layout invalidations do not queue an extra
+         * presentation of the same animation sample. */
+        if (!player_timeline_display_refreshing && player_lyrics_animating &&
+            player_timeline_lyrics_open && player_timeline_lyrics_close &&
+            player_screen && lv_display_get_screen_active(display) == player_screen) {
+            lv_timer_t * timer = lv_display_get_refr_timer(display);
+            if (timer) lv_timer_ready(timer);
+        }
+        return;
+    }
+    if (code == LV_EVENT_REFR_READY) return;
+    if (lv_event_get_code(e) == LV_EVENT_DELETE) {
+        if (lv_event_get_target(e) == player_lyrics_start_display) {
+            player_lyrics_start_display = NULL;
+            player_lyrics_start_refresh_requested = false;
+        }
+        if (lv_event_get_target(e) == player_timeline_cover_cache_display)
+            player_timeline_cover_cache_display = NULL;
+        return;
+    }
+    if (lv_event_get_code(e) == LV_EVENT_INVALIDATE_AREA) {
+        /* XML lyrics move several overlapping widgets. One display region
+         * avoids repeatedly drawing the same backdrop and copying fragmented
+         * damage between the direct framebuffer pages. */
+        lv_display_t * display = lv_event_get_target(e);
+        if (player_lyrics_animating && player_timeline_lyrics_open && player_timeline_lyrics_close &&
+            player_screen && lv_display_get_screen_active(display) == player_screen) {
+            lv_area_t * area = lv_event_get_param(e);
+            if (area) {
+                area->x1 = 0;
+                area->y1 = 0;
+                area->x2 = lv_display_get_horizontal_resolution(display) - 1;
+                area->y2 = lv_display_get_vertical_resolution(display) - 1;
+            }
+        }
+        return;
+    }
+    if (player_timeline_cover_internal || player_lyrics_animating ||
+        !player_timeline_cover_cache || player_timeline_cover_frame != player_timeline_cover_cache) return;
+    if (!player_timeline_cover_can_retain() ||
+        player_timeline_cover_cache_generation != current_cover_generation ||
+        player_timeline_cover_cache_epoch != player_timeline_cover_style_epoch ||
+        lv_image_get_src(cover_img) != player_timeline_cover_frame ||
+        lv_obj_get_width(cover_card) != (int32_t) player_timeline_cover_cache->header.w ||
+        lv_obj_get_height(cover_card) != (int32_t) player_timeline_cover_cache->header.h ||
+        lv_image_get_antialias(cover_img)) {
+        /* A caller explicitly enabling antialias on the kept image should
+         * retain that setting when the original source is rebound. */
+        if (cover_img && lv_image_get_antialias(cover_img)) player_timeline_cover_antialias = true;
+        player_timeline_cover_cache_invalidate();
+    }
 }
 
 /* A card snapshot replaces only static cover pixels. Geometry can animate
- * on the card itself; drawing changes or other children must stay live. */
+ * on the card itself; drawing changes or other children must stay live.
+ * Drawing-property animations, including radius, retain live rendering. */
 static bool player_timeline_cover_cache_eligible(lv_anim_timeline_t * timeline) {
     if (!timeline || !cover_card || !cover_img || lv_obj_get_parent(cover_img) != cover_card ||
         lv_obj_get_child_count(cover_img) != 0 ||
@@ -2315,6 +2474,7 @@ static bool player_timeline_cover_cache_eligible(lv_anim_timeline_t * timeline) 
         lv_obj_get_style_border_width(cover_card, 0) ||
         lv_obj_get_style_outline_width(cover_card, 0) || lv_obj_get_style_shadow_width(cover_card, 0) ||
         lv_obj_get_style_opa(cover_card, 0) != LV_OPA_COVER ||
+        lv_obj_get_style_transform_width(cover_card, 0) || lv_obj_get_style_transform_height(cover_card, 0) ||
         lv_obj_get_style_transform_rotation(cover_card, 0) ||
         lv_obj_get_style_transform_scale_x(cover_card, 0) != LV_SCALE_NONE ||
         lv_obj_get_style_transform_scale_y(cover_card, 0) != LV_SCALE_NONE ||
@@ -2323,9 +2483,15 @@ static bool player_timeline_cover_cache_eligible(lv_anim_timeline_t * timeline) 
     uint32_t children = lv_obj_get_child_count(cover_card);
     for (uint32_t i = 0; i < children; ++i) {
         lv_obj_t * child = lv_obj_get_child(cover_card, i);
+        if (child != cover_img && child != player_timeline_cover_fade &&
+            lv_obj_has_flag(child, LV_OBJ_FLAG_HIDDEN) &&
+            !player_layouts_timeline_has_animation_for_obj(timeline, child)) continue;
         if ((child != cover_img && child != player_timeline_cover_fade) ||
-            lv_obj_get_child_count(child) != 0 ||
+            (lv_obj_get_child_count(child) != 0 &&
+             (child != player_timeline_cover_fade || !player_cover_fade_cache_eligible(child))) ||
             player_layouts_timeline_has_animation_for_obj(timeline, child)) return false;
+        if (child == player_timeline_cover_fade && lv_obj_get_child_count(child) &&
+            player_layouts_timeline_has_animation_for_obj(timeline, lv_obj_get_child(child, 0))) return false;
     }
     uint32_t count = player_layouts_timeline_style_animation_count(timeline);
     uint32_t card_count = 0;
@@ -2340,6 +2506,18 @@ static bool player_timeline_cover_cache_eligible(lv_anim_timeline_t * timeline) 
         ++card_count;
     }
     return card_count == player_layouts_timeline_animation_count_for_obj(timeline, cover_card);
+}
+
+static bool player_timeline_cover_snapshot_is_opaque(const lv_draw_buf_t * frame) {
+    if (!frame || !frame->data || frame->header.cf != LV_COLOR_FORMAT_ARGB8888 ||
+        frame->header.stride < (uint64_t) frame->header.w * 4U ||
+        (uint64_t) frame->header.stride * frame->header.h > frame->data_size) return false;
+    for (uint32_t y = 0; y < frame->header.h; ++y) {
+        const uint8_t * row = frame->data + (size_t) y * frame->header.stride;
+        for (uint32_t x = 0; x < frame->header.w; ++x)
+            if (row[(size_t) x * 4U + 3U] != LV_OPA_COVER) return false;
+    }
+    return true;
 }
 
 static void player_timeline_cover_snapshot_take(lv_anim_timeline_t * timeline) {
@@ -2362,24 +2540,109 @@ static void player_timeline_cover_snapshot_take(lv_anim_timeline_t * timeline) {
     int32_t current_h = lv_obj_get_height(cover_card);
     int32_t snapshot_w = player_timeline_cover_w > 0 ? player_timeline_cover_w : current_w;
     int32_t snapshot_h = player_timeline_cover_h > 0 ? player_timeline_cover_h : current_h;
+    bool retain = source == &current_cover_dsc && player_timeline_cover_can_retain() &&
+        snapshot_w > 0 && snapshot_h > 0 &&
+        (uint64_t) lv_draw_buf_width_to_stride(snapshot_w, LV_COLOR_FORMAT_ARGB8888) * snapshot_h +
+            LV_DRAW_BUF_ALIGN - 1U + sizeof(lv_draw_buf_t) <= 1024U * 1024U;
+    bool hit = retain && player_timeline_cover_cache &&
+        player_timeline_cover_cache_generation == current_cover_generation &&
+        player_timeline_cover_cache_epoch == player_timeline_cover_style_epoch &&
+        player_timeline_cover_cache_antialias == lv_image_get_antialias(cover_img) &&
+        player_timeline_cover_cache->header.w == (uint32_t) snapshot_w &&
+        player_timeline_cover_cache->header.h == (uint32_t) snapshot_h;
+    bool was_internal = player_timeline_cover_internal;
+    player_timeline_cover_internal = true;
     player_timeline_cover_clip_corner = lv_obj_get_style_clip_corner(cover_card, 0);
-    lv_obj_set_size(cover_card, snapshot_w, snapshot_h);
-    lv_obj_update_layout(cover_card);
-    fit_cover_img_to_card();
     int32_t card_radius = lv_obj_get_style_radius(cover_card, 0);
     lv_color_format_t format = player_timeline_cover_clip_corner && card_radius != 0 ?
                                LV_COLOR_FORMAT_ARGB8888 : LV_COLOR_FORMAT_RGB565;
-    player_timeline_cover_frame = lv_snapshot_take(cover_card, format);
-    lv_obj_set_size(cover_card, current_w, current_h);
-    lv_obj_update_layout(cover_card);
+    if (hit) {
+        player_timeline_cover_frame = player_timeline_cover_cache;
+    } else {
+        lv_obj_set_size(cover_card, snapshot_w, snapshot_h);
+        lv_obj_update_layout(cover_card);
+        fit_cover_img_to_card();
+        if (retain && !player_timeline_cover_can_retain()) {
+            retain = false;
+            format = LV_COLOR_FORMAT_ARGB8888;
+        }
+        if (retain) {
+            /* An undecorated identity RGB565 image fills every card pixel.
+             * Capture it natively instead of allocating ARGB, checking every
+             * alpha byte and converting the same opaque pixels back to 565. */
+            bool native_opaque = snapshot_w == (int32_t)current_cover_dsc.header.w &&
+                snapshot_h == (int32_t)current_cover_dsc.header.h &&
+                lv_image_get_scale_x(cover_img) == LV_SCALE_NONE &&
+                lv_image_get_scale_y(cover_img) == LV_SCALE_NONE &&
+                lv_obj_get_x(cover_img) == 0 && lv_obj_get_y(cover_img) == 0;
+            bool managed_fade = player_timeline_cover_can_retain() && player_timeline_cover_fade &&
+                lv_obj_get_parent(player_timeline_cover_fade) == cover_card &&
+                player_cover_fade_cache_eligible(player_timeline_cover_fade);
+            if (managed_fade) {
+                /* Prove the underlying cover opaque before adding the tint.
+                 * A8 blending into ARGB can round an opaque alpha down; taking
+                 * the combined snapshot directly in RGB565 preserves native
+                 * tint rounding once its underlying pixels are proven opaque. */
+                format = LV_COLOR_FORMAT_ARGB8888;
+                bool fade_was_hidden = lv_obj_has_flag(player_timeline_cover_fade, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_add_flag(player_timeline_cover_fade, LV_OBJ_FLAG_HIDDEN);
+                lv_draw_buf_t * proof = lv_snapshot_take(cover_card, LV_COLOR_FORMAT_ARGB8888);
+                if (!fade_was_hidden) lv_obj_remove_flag(player_timeline_cover_fade, LV_OBJ_FLAG_HIDDEN);
+                native_opaque = proof && proof->header.w == (uint32_t) snapshot_w &&
+                    proof->header.h == (uint32_t) snapshot_h &&
+                    player_timeline_cover_snapshot_is_opaque(proof);
+                if (proof) lv_draw_buf_destroy(proof);
+                if (!native_opaque) retain = false;
+            }
+            if (retain)
+                player_timeline_cover_frame = lv_snapshot_take(cover_card,
+                    native_opaque ? LV_COLOR_FORMAT_RGB565 : LV_COLOR_FORMAT_ARGB8888);
+            bool opaque = player_timeline_cover_frame &&
+                (native_opaque || player_timeline_cover_snapshot_is_opaque(player_timeline_cover_frame));
+            if (opaque && !native_opaque) {
+                uint32_t stride = lv_draw_buf_width_to_stride(snapshot_w, LV_COLOR_FORMAT_RGB565);
+                transition_compositor_blend_argb8888_over_rgb565(player_timeline_cover_frame->data, stride,
+                    player_timeline_cover_frame->data, player_timeline_cover_frame->header.stride,
+                    snapshot_w, snapshot_h);
+                if (!lv_draw_buf_reshape(player_timeline_cover_frame, LV_COLOR_FORMAT_RGB565,
+                                         snapshot_w, snapshot_h, stride)) opaque = false;
+                else lv_draw_buf_clear_flag(player_timeline_cover_frame, LV_IMAGE_FLAGS_PREMULTIPLIED);
+            }
+            if (!opaque) {
+                if (player_timeline_cover_frame) lv_draw_buf_destroy(player_timeline_cover_frame);
+                player_timeline_cover_frame = NULL;
+                retain = false;
+            }
+        }
+        if (!player_timeline_cover_frame) player_timeline_cover_frame = lv_snapshot_take(cover_card, format);
+        lv_obj_set_size(cover_card, current_w, current_h);
+        lv_obj_update_layout(cover_card);
+        if (retain && player_timeline_cover_frame) {
+            if (player_timeline_cover_cache) {
+                lv_image_cache_drop(player_timeline_cover_cache);
+                lv_draw_buf_destroy(player_timeline_cover_cache);
+            }
+            player_timeline_cover_cache = player_timeline_cover_frame;
+            player_timeline_cover_cache_generation = current_cover_generation;
+            player_timeline_cover_cache_epoch = player_timeline_cover_style_epoch;
+            player_timeline_cover_cache_antialias = lv_image_get_antialias(cover_img);
+        }
+    }
+#ifdef UI_PERF_TRACE
+    printf("PERF player_cover_snapshot retained=%d hit=%d\n", retain, hit);
+#endif
     if (!player_timeline_cover_frame) {
         if (player_timeline_cover_source_owned) lv_free((void *) player_timeline_cover_source);
         player_timeline_cover_source = NULL;
         player_timeline_cover_source_owned = false;
         fit_cover_img_to_card();
+        player_timeline_cover_internal = was_internal;
         return;
     }
 
+    if (player_timeline_cover_frame == player_timeline_cover_cache &&
+        player_timeline_cover_frame->header.cf == LV_COLOR_FORMAT_RGB565)
+        lv_draw_buf_set_flag(player_timeline_cover_frame, LV_IMAGE_FLAGS_USER3);
     lv_image_set_src(cover_img, player_timeline_cover_frame);
     fit_cover_img_to_card();
     if (player_cover_thumbnail) {
@@ -2394,43 +2657,79 @@ static void player_timeline_cover_snapshot_take(lv_anim_timeline_t * timeline) {
     if (player_timeline_cover_fade && !player_timeline_cover_fade_was_hidden)
         lv_obj_add_flag(player_timeline_cover_fade, LV_OBJ_FLAG_HIDDEN);
     lv_image_set_antialias(cover_img, false);
+    player_timeline_cover_internal = was_internal;
 }
-#define PLAYER_LYRICS_MORPH_OBJECT_COUNT 4
-static player_lyrics_geometry_t player_lyrics_geometry[PLAYER_LYRICS_MORPH_OBJECT_COUNT];
+#define PLAYER_LYRICS_GEOMETRY_OBJECT_COUNT 4
+static player_lyrics_geometry_t player_lyrics_geometry[PLAYER_LYRICS_GEOMETRY_OBJECT_COUNT];
 /* Cover first, then the metadata labels the layout has; the title is required
  * but artist and album are optional, so this is 2..4. */
 static unsigned player_lyrics_object_count;
 static lv_obj_t * player_lyrics_hidden[32];
 static unsigned player_lyrics_hidden_count;
 static int32_t player_lyrics_content_top;
-static lv_image_header_t player_lyrics_cover_header;
-static bool player_lyrics_cover_antialias;
-static bool player_lyrics_cover_clip_corner;
-static const void * player_lyrics_cover_source;
-static bool player_lyrics_cover_source_owned;
-static lv_draw_buf_t * player_lyrics_cover_frame;
+static bool player_lyrics_generated_timelines;
 
 #ifdef UI_PERF_TRACE
+#define PLAYER_LYRICS_PERF_FRAME_CAPACITY 64
+typedef struct {
+    unsigned sequence;
+    uint64_t refresh_start_us;
+    uint64_t render_start_us;
+    uint64_t render_ready_us;
+    uint64_t last_flush_start_us;
+    uint64_t last_flush_finish_us;
+    uint64_t present_finish_us;
+    uint64_t last_flush_us;
+    uint64_t flush_total_us;
+    uint64_t present_gap_us;
+    uint64_t refresh_ready_us;
+    int32_t cover_width;
+    int32_t cover_height;
+    unsigned flush_count;
+    bool flush_is_last;
+} player_lyrics_perf_frame_t;
+
 typedef struct {
     uint64_t refresh_start_us;
     uint64_t render_start_us;
     uint64_t last_refresh_start_us;
+    uint64_t last_present_finish_us;
+    uint64_t trace_start_us;
+    uint64_t prep_elapsed_us;
+    uint64_t runner_start_us;
+    uint32_t runner_start_tick;
     uint64_t render_total_us;
     uint64_t render_max_us;
     uint64_t refresh_total_us;
     uint64_t refresh_max_us;
     uint64_t max_gap_us;
+    player_lyrics_perf_frame_t frames[PLAYER_LYRICS_PERF_FRAME_CAPACITY];
+    unsigned frame_record_head;
+    unsigned frame_record_count;
+    unsigned dropped_frame_records;
+    unsigned total_frame_records;
+    unsigned active_frame_index;
     unsigned render_count;
     unsigned refresh_count;
+    unsigned presentation_count;
+    unsigned finish_refreshes_without_present;
+    bool trace_open;
+    bool trace_is_timeline;
     bool refresh_started;
     bool render_started;
+    bool active_frame;
+    bool refresh_had_presentation;
+    bool finish_pending;
 } player_lyrics_perf_stats_t;
 
 static player_lyrics_perf_stats_t player_lyrics_perf_stats;
 static lv_display_t * player_lyrics_perf_registered_display;
+static bool player_lyrics_perf_trace_active;
+
+static void player_lyrics_perf_log_summary(bool final_presented, const char * reason);
 
 static void player_lyrics_perf_display_event_cb(lv_event_t * e) {
-    if (!player_lyrics_animating) return;
+    if (!player_lyrics_perf_trace_active) return;
 
     uint64_t now_us = ui_perf_now_us();
     switch (lv_event_get_code(e)) {
@@ -2443,10 +2742,35 @@ static void player_lyrics_perf_display_event_cb(lv_event_t * e) {
             player_lyrics_perf_stats.last_refresh_start_us = now_us;
             player_lyrics_perf_stats.refresh_start_us = now_us;
             player_lyrics_perf_stats.refresh_started = true;
+            player_lyrics_perf_stats.refresh_had_presentation = false;
+            player_lyrics_perf_stats.active_frame = false;
             break;
         case LV_EVENT_RENDER_START:
             player_lyrics_perf_stats.render_start_us = now_us;
             player_lyrics_perf_stats.render_started = true;
+            if (player_lyrics_perf_stats.frame_record_count < PLAYER_LYRICS_PERF_FRAME_CAPACITY) {
+                player_lyrics_perf_stats.active_frame_index =
+                    (player_lyrics_perf_stats.frame_record_head + player_lyrics_perf_stats.frame_record_count) %
+                    PLAYER_LYRICS_PERF_FRAME_CAPACITY;
+                player_lyrics_perf_stats.frame_record_count++;
+            } else {
+                player_lyrics_perf_stats.active_frame_index = player_lyrics_perf_stats.frame_record_head;
+                player_lyrics_perf_stats.frame_record_head =
+                    (player_lyrics_perf_stats.frame_record_head + 1U) % PLAYER_LYRICS_PERF_FRAME_CAPACITY;
+                player_lyrics_perf_stats.dropped_frame_records++;
+            }
+            player_lyrics_perf_stats.total_frame_records++;
+            player_lyrics_perf_stats.active_frame = true;
+            player_lyrics_perf_frame_t * frame =
+                &player_lyrics_perf_stats.frames[player_lyrics_perf_stats.active_frame_index];
+            memset(frame, 0, sizeof(*frame));
+            frame->sequence = player_lyrics_perf_stats.total_frame_records;
+            frame->refresh_start_us = player_lyrics_perf_stats.refresh_start_us;
+            frame->render_start_us = now_us;
+            if (cover_card) {
+                frame->cover_width = lv_obj_get_width(cover_card);
+                frame->cover_height = lv_obj_get_height(cover_card);
+            }
             break;
         case LV_EVENT_RENDER_READY:
             if (player_lyrics_perf_stats.render_started) {
@@ -2457,6 +2781,30 @@ static void player_lyrics_perf_display_event_cb(lv_event_t * e) {
                 player_lyrics_perf_stats.render_count++;
                 player_lyrics_perf_stats.render_started = false;
             }
+            if (player_lyrics_perf_stats.active_frame) {
+                player_lyrics_perf_stats.frames[player_lyrics_perf_stats.active_frame_index].render_ready_us = now_us;
+            }
+            break;
+        case LV_EVENT_FLUSH_START:
+            if (player_lyrics_perf_stats.active_frame) {
+                player_lyrics_perf_frame_t * frame =
+                    &player_lyrics_perf_stats.frames[player_lyrics_perf_stats.active_frame_index];
+                frame->last_flush_start_us = now_us;
+                frame->flush_is_last = lv_display_flush_is_last((lv_display_t *) lv_event_get_target(e));
+            }
+            break;
+        case LV_EVENT_FLUSH_FINISH:
+            if (player_lyrics_perf_stats.active_frame) {
+                player_lyrics_perf_frame_t * frame =
+                    &player_lyrics_perf_stats.frames[player_lyrics_perf_stats.active_frame_index];
+                frame->last_flush_finish_us = now_us;
+                frame->last_flush_us = frame->last_flush_start_us && now_us >= frame->last_flush_start_us
+                    ? now_us - frame->last_flush_start_us : 0;
+                frame->flush_total_us += frame->last_flush_us;
+                frame->flush_count++;
+                if (frame->flush_is_last) frame->present_finish_us = now_us;
+                if (frame->flush_is_last) player_lyrics_perf_stats.refresh_had_presentation = true;
+            }
             break;
         case LV_EVENT_REFR_READY:
             if (player_lyrics_perf_stats.refresh_started) {
@@ -2466,6 +2814,28 @@ static void player_lyrics_perf_display_event_cb(lv_event_t * e) {
                     player_lyrics_perf_stats.refresh_max_us = refresh_us;
                 player_lyrics_perf_stats.refresh_count++;
                 player_lyrics_perf_stats.refresh_started = false;
+            }
+            if (player_lyrics_perf_stats.active_frame) {
+                player_lyrics_perf_frame_t * frame =
+                    &player_lyrics_perf_stats.frames[player_lyrics_perf_stats.active_frame_index];
+                frame->refresh_ready_us = now_us;
+                if (frame->present_finish_us) {
+                    player_lyrics_perf_stats.presentation_count++;
+                    if (player_lyrics_perf_stats.last_present_finish_us &&
+                        frame->present_finish_us >= player_lyrics_perf_stats.last_present_finish_us) {
+                        frame->present_gap_us = frame->present_finish_us -
+                                                player_lyrics_perf_stats.last_present_finish_us;
+                    }
+                    player_lyrics_perf_stats.last_present_finish_us = frame->present_finish_us;
+                }
+                player_lyrics_perf_stats.active_frame = false;
+            }
+            if (player_lyrics_perf_stats.finish_pending) {
+                if (player_lyrics_perf_stats.refresh_had_presentation) {
+                    player_lyrics_perf_log_summary(true, "settled_frame");
+                } else if (++player_lyrics_perf_stats.finish_refreshes_without_present >= 2U) {
+                    player_lyrics_perf_log_summary(false, "no_final_flush");
+                }
             }
             break;
         default:
@@ -2480,179 +2850,99 @@ static void player_lyrics_perf_register_display_events(void) {
     lv_display_add_event_cb(disp, player_lyrics_perf_display_event_cb, LV_EVENT_REFR_READY, NULL);
     lv_display_add_event_cb(disp, player_lyrics_perf_display_event_cb, LV_EVENT_RENDER_START, NULL);
     lv_display_add_event_cb(disp, player_lyrics_perf_display_event_cb, LV_EVENT_RENDER_READY, NULL);
+    lv_display_add_event_cb(disp, player_lyrics_perf_display_event_cb, LV_EVENT_FLUSH_START, NULL);
+    lv_display_add_event_cb(disp, player_lyrics_perf_display_event_cb, LV_EVENT_FLUSH_FINISH, NULL);
     player_lyrics_perf_registered_display = disp;
 }
 
-static void player_lyrics_perf_reset(void) {
+static void player_lyrics_perf_reset(bool open, bool timeline) {
+    if (player_lyrics_perf_trace_active) {
+        player_lyrics_perf_log_summary(false,
+            player_lyrics_perf_stats.finish_pending ? "interrupted_before_final_flush" : "interrupted");
+    }
     memset(&player_lyrics_perf_stats, 0, sizeof(player_lyrics_perf_stats));
+    player_lyrics_perf_stats.trace_start_us = ui_perf_now_us();
+    player_lyrics_perf_stats.trace_open = open;
+    player_lyrics_perf_stats.trace_is_timeline = timeline;
+    player_lyrics_perf_trace_active = true;
 }
 
-static void player_lyrics_perf_log_summary(bool open) {
+static void player_lyrics_perf_finish_pending(void) {
+    if (!player_lyrics_perf_trace_active) return;
+    player_lyrics_perf_stats.finish_pending = true;
+    player_lyrics_perf_stats.finish_refreshes_without_present = 0;
+}
+
+static void player_lyrics_perf_abort(const char * reason) {
+    if (!player_lyrics_perf_trace_active) return;
+    player_lyrics_perf_log_summary(false, reason);
+}
+
+static void player_lyrics_perf_log_summary(bool final_presented, const char * reason) {
     const player_lyrics_perf_stats_t * s = &player_lyrics_perf_stats;
-    printf("PERF player_lyrics_%s direction=%s count=%u render_avg_us=%llu render_max_us=%llu refresh_count=%u refresh_avg_us=%llu refresh_max_us=%llu maxgap_us=%llu\n",
-           player_timeline_lyrics_open ? "timeline" : "morph",
-           open ? "open" : "close", s->render_count,
+    uint64_t present_gaps[PLAYER_LYRICS_PERF_FRAME_CAPACITY];
+    unsigned present_gap_count = 0;
+    for (unsigned i = 0; i < s->frame_record_count; ++i) {
+        unsigned index = (s->frame_record_head + i) % PLAYER_LYRICS_PERF_FRAME_CAPACITY;
+        uint64_t gap = s->frames[index].present_gap_us;
+        if (!gap) continue;
+        unsigned insert = present_gap_count;
+        while (insert > 0 && present_gaps[insert - 1] > gap) {
+            present_gaps[insert] = present_gaps[insert - 1];
+            insert--;
+        }
+        present_gaps[insert] = gap;
+        present_gap_count++;
+    }
+    uint64_t present_gap_p95_us = present_gap_count
+        ? present_gaps[((present_gap_count * 95U + 99U) / 100U) - 1U] : 0;
+    uint64_t present_gap_p99_us = present_gap_count
+        ? present_gaps[((present_gap_count * 99U + 99U) / 100U) - 1U] : 0;
+    printf("PERF player_lyrics_%s direction=%s end=%s final_presented=%d presentations=%u count=%u prep_us=%llu render_avg_us=%llu render_max_us=%llu refresh_count=%u refresh_avg_us=%llu refresh_max_us=%llu maxgap_us=%llu present_gap_p95_us=%llu present_gap_p99_us=%llu frame_records=%u frame_records_total=%u frame_records_discarded=%u\n",
+           s->trace_is_timeline ? "timeline" : "morph",
+           s->trace_open ? "open" : "close", reason, final_presented, s->presentation_count, s->render_count,
+           (unsigned long long) s->prep_elapsed_us,
            (unsigned long long) (s->render_count ? s->render_total_us / s->render_count : 0),
            (unsigned long long) s->render_max_us, s->refresh_count,
            (unsigned long long) (s->refresh_count ? s->refresh_total_us / s->refresh_count : 0),
            (unsigned long long) s->refresh_max_us,
-           (unsigned long long) s->max_gap_us);
+           (unsigned long long) s->max_gap_us,
+           (unsigned long long) present_gap_p95_us,
+           (unsigned long long) present_gap_p99_us,
+           s->frame_record_count, s->total_frame_records, s->dropped_frame_records);
+    printf("PERF player_lyrics_start runner_us=%llu runner_tick=%u\n",
+           (unsigned long long) s->runner_start_us, s->runner_start_tick);
+    for (unsigned i = 0; i < s->frame_record_count; ++i) {
+        unsigned index = (s->frame_record_head + i) % PLAYER_LYRICS_PERF_FRAME_CAPACITY;
+        const player_lyrics_perf_frame_t * frame = &s->frames[index];
+        uint64_t render_us = frame->render_start_us && frame->render_ready_us >= frame->render_start_us
+            ? frame->render_ready_us - frame->render_start_us : 0;
+        uint64_t raster_us = render_us > frame->flush_total_us
+            ? render_us - frame->flush_total_us : 0;
+        uint64_t refresh_us = frame->refresh_ready_us >= frame->refresh_start_us
+            ? frame->refresh_ready_us - frame->refresh_start_us : 0;
+        printf("PERF player_lyrics_frame seq=%u refresh_start_us=%llu cover_w=%d cover_h=%d raster_us=%llu flush_count=%u flush_total_us=%llu flush_last_us=%llu present_finish_us=%llu present_gap_us=%llu total_us=%llu\n",
+               frame->sequence,
+               (unsigned long long) (frame->refresh_start_us >= s->trace_start_us
+                   ? frame->refresh_start_us - s->trace_start_us : 0),
+               frame->cover_width, frame->cover_height,
+               (unsigned long long) raster_us, frame->flush_count,
+               (unsigned long long) frame->flush_total_us,
+               (unsigned long long) frame->last_flush_us,
+               (unsigned long long) (frame->present_finish_us >= s->trace_start_us
+                   ? frame->present_finish_us - s->trace_start_us : 0),
+               (unsigned long long) frame->present_gap_us,
+               (unsigned long long) refresh_us);
+    }
+    player_lyrics_perf_trace_active = false;
+    player_lyrics_perf_stats.finish_pending = false;
 }
 #endif
-
-static int32_t player_lyrics_lerp(int32_t a, int32_t b, int32_t progress) {
-    return a + (int32_t) (((int64_t) (b - a) * progress) / 1024);
-}
-
-static void player_lyrics_morph(void * unused, int32_t progress) {
-    (void) unused;
-    if (!player_lyrics_object_count) return;
-    for (unsigned i = 0; i < player_lyrics_object_count; ++i) {
-        player_lyrics_geometry_t * g = &player_lyrics_geometry[i];
-        if (g->text_frame) {
-            lv_obj_set_pos(g->text_clip, player_lyrics_lerp(g->x, g->compact_x, progress),
-                          player_lyrics_lerp(g->y, g->compact_y, progress));
-            lv_obj_set_size(g->text_clip, player_lyrics_lerp(g->w, g->compact_w, progress),
-                           player_lyrics_lerp(g->h, g->compact_h, progress));
-            lv_obj_set_pos(g->text_image, g->normal_pad_left +
-                           player_lyrics_lerp(g->centered_text_inset, 0, progress) - g->text_frame_inset,
-                           -g->text_frame_inset);
-            continue;
-        }
-        lv_obj_set_pos(g->obj, player_lyrics_lerp(g->x, g->compact_x, progress),
-                              player_lyrics_lerp(g->y, g->compact_y, progress));
-        lv_obj_set_size(g->obj, player_lyrics_lerp(g->w, g->compact_w, progress),
-                               player_lyrics_lerp(g->h, g->compact_h, progress));
-        if (i) {
-            /* Move the visible text, not just its label box. Keeping LEFT
-             * alignment throughout the morph avoids the old end-of-exit
-             * snap from the box's left edge to its centered text position. */
-            lv_obj_set_style_pad_left(g->obj, g->normal_pad_left +
-                player_lyrics_lerp(g->centered_text_inset, 0, progress), 0);
-        }
-    }
-    /* The decoded image stays the same: only its scale and card bounds move.
-     * Cache the image header once per transition, not on each animation tick. */
-    int32_t size = player_lyrics_lerp(player_lyrics_geometry[0].w,
-                                    player_lyrics_geometry[0].compact_w, progress);
-    int32_t height = player_lyrics_lerp(player_lyrics_geometry[0].h,
-                                      player_lyrics_geometry[0].compact_h, progress);
-    if (player_lyrics_cover_header.w && player_lyrics_cover_header.h) {
-        int32_t sx = (size * LV_SCALE_NONE + player_lyrics_cover_header.w - 1) / player_lyrics_cover_header.w;
-        int32_t sy = (height * LV_SCALE_NONE + player_lyrics_cover_header.h - 1) / player_lyrics_cover_header.h;
-        lv_image_set_scale(cover_img, sx > sy ? sx : sy);
-        /* LVGL alignment writes coordinates; it is not a persistent layout
-         * constraint. Recenter as the parent card changes size so the image
-         * follows the card throughout the reverse morph instead of snapping
-         * into place only when fit_cover_img_to_card() runs at completion. */
-        lv_obj_center(cover_img);
-    }
-}
-
-/* Text does not change during this short motion. Rasterize it once instead
- * of reflowing labels and drawing font glyphs as their bounds change. Each
- * transparent image moves inside a rectangular clip matching the live row. */
-static void player_lyrics_prepare_text_frames(void) {
-    for (unsigned i = 1; i < player_lyrics_object_count; ++i) {
-        player_lyrics_geometry_t * g = &player_lyrics_geometry[i];
-        if (lv_obj_has_flag(g->obj, LV_OBJ_FLAG_HIDDEN)) continue;
-        lv_obj_t * parent = lv_obj_get_parent(g->obj);
-        /* Hiding a participating flex/grid item changes sibling geometry.
-         * Keep such custom-layout labels live; only cache absolute items. */
-        if (lv_obj_get_style_layout(parent, 0) != LV_LAYOUT_NONE &&
-            !lv_obj_has_flag(g->obj, LV_OBJ_FLAG_IGNORE_LAYOUT)) continue;
-        g->long_mode = lv_label_get_long_mode(g->obj);
-        lv_label_set_long_mode(g->obj, LV_LABEL_LONG_CLIP);
-        lv_obj_set_style_pad_left(g->obj, 0, 0);
-        lv_obj_set_size(g->obj, g->w, g->h);
-        lv_obj_update_layout(g->obj);
-        /* Snapshots include the label's extended drawing area on all sides
-         * (LVGL reserves this for glyph overhang). Keep that transparent
-         * margin outside the row so cached and live glyph origins agree. */
-        g->text_frame = lv_snapshot_take(g->obj, LV_COLOR_FORMAT_ARGB8888);
-        if (!g->text_frame) {
-            lv_label_set_long_mode(g->obj, g->long_mode);
-            lv_obj_set_style_pad_left(g->obj, g->normal_pad_left, 0);
-            continue;
-        }
-        g->text_frame_inset = ((int32_t) g->text_frame->header.w - g->w) / 2;
-        g->text_clip = lv_obj_create(lv_obj_get_parent(g->obj));
-        lv_obj_remove_style_all(g->text_clip);
-        lv_obj_add_flag(g->text_clip, LV_OBJ_FLAG_IGNORE_LAYOUT);
-        lv_obj_remove_flag(g->text_clip, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-        g->text_image = lv_image_create(g->text_clip);
-        lv_image_set_src(g->text_image, g->text_frame);
-        lv_obj_add_flag(g->obj, LV_OBJ_FLAG_HIDDEN);
-    }
-}
-
-static void player_lyrics_release_text_frames(void) {
-    for (unsigned i = 1; i < player_lyrics_object_count; ++i) {
-        player_lyrics_geometry_t * g = &player_lyrics_geometry[i];
-        if (!g->text_frame) continue;
-        lv_obj_delete(g->text_clip);
-        g->text_clip = NULL;
-        g->text_image = NULL;
-        lv_draw_buf_destroy(g->text_frame);
-        g->text_frame = NULL;
-        lv_label_set_long_mode(g->obj, g->long_mode);
-        lv_obj_remove_flag(g->obj, LV_OBJ_FLAG_HIDDEN);
-    }
-}
 
 static void player_lyrics_restore_controls(void) {
     for (unsigned i = 0; i < player_lyrics_hidden_count; ++i)
         lv_obj_remove_flag(player_lyrics_hidden[i], LV_OBJ_FLAG_HIDDEN);
     player_lyrics_hidden_count = 0;
-    for (unsigned i = 1; i < player_lyrics_object_count; ++i) {
-        lv_obj_set_style_pad_left(player_lyrics_geometry[i].obj,
-                                 player_lyrics_geometry[i].normal_pad_left, 0);
-        lv_obj_set_height(player_lyrics_geometry[i].obj, player_lyrics_geometry[i].height_style);
-        lv_obj_set_style_text_align(player_lyrics_geometry[i].obj, LV_TEXT_ALIGN_CENTER, 0);
-    }
-}
-
-static void player_lyrics_morph_done(lv_anim_t * anim) {
-    (void) anim;
-#ifdef UI_PERF_TRACE
-    bool completed_animation = anim != NULL && player_lyrics_animating;
-    if (completed_animation) player_lyrics_perf_log_summary(player_lyrics_open);
-#endif
-    player_lyrics_animating = false;
-    player_lyrics_update_thumbnail_clickable();
-    player_lyrics_release_text_frames();
-    player_lyrics_morph(NULL, player_lyrics_open ? 1024 : 0);
-    if (player_lyrics_cover_frame) {
-        lv_image_set_src(cover_img, player_lyrics_cover_source);
-        /* Retarget the thumbnail while the snapshot is still alive. File
-         * source equality checks must never inspect a released descriptor. */
-        fit_cover_img_to_card();
-        lv_obj_set_style_clip_corner(cover_card, player_lyrics_cover_clip_corner, 0);
-        lv_draw_buf_destroy(player_lyrics_cover_frame);
-        player_lyrics_cover_frame = NULL;
-    }
-    if (player_lyrics_cover_source_owned) {
-        lv_free((void *) player_lyrics_cover_source);
-        player_lyrics_cover_source_owned = false;
-    }
-    player_lyrics_cover_source = NULL;
-    lv_image_set_antialias(cover_img, player_lyrics_cover_antialias);
-    if (player_lyrics_open) {
-#ifdef UI_PERF_TRACE
-        uint64_t show_embedded_start_us = completed_animation ? ui_perf_now_us() : 0;
-#endif
-        gui_lyrics_show_embedded(player_screen, player_lyrics_content_top,
-                                BOARD_SCREEN_HEIGHT - player_lyrics_content_top - player_y(32));
-#ifdef UI_PERF_TRACE
-        if (completed_animation)
-            printf("PERF player_lyrics_morph_done show_embedded_us=%llu\n",
-                   (unsigned long long) (ui_perf_now_us() - show_embedded_start_us));
-#endif
-    } else {
-        player_lyrics_restore_controls();
-    }
-    fit_cover_img_to_card();
-    player_transition_mark_dirty();
 }
 
 static void player_lyrics_hide_object(lv_obj_t * obj) {
@@ -2704,6 +2994,7 @@ static void player_lyrics_set_open_area(bool open) {
     player_lyrics_object_count = 0;
     player_lyrics_open = open;
     player_lyrics_animating = false;
+    lv_draw_sw_image_cache_set_transition_active(false);
     player_lyrics_update_thumbnail_clickable();
     lv_area_t area;
     if (open && player_lyrics_area_rect(&area)) {
@@ -2716,14 +3007,17 @@ static void player_lyrics_set_open_area(bool open) {
 }
 
 /* A layout that ships both `lyrics_open` and `lyrics_close` timelines animates
- * the transition itself; the C morph below is used otherwise. The timelines
+ * the transition itself; native layouts supply equivalent measured properties. The timelines
  * own the geometry, so all this does is sequence them with what must stay
  * native: disabling the touch targets, hiding the controls once they have
  * animated away, and embedding the lyrics where the cover and metadata ended
- * up. LVGL timelines have no completion callback, hence the one-shot timer. */
+ * up. The shared runner completes when its native timeline animation finishes. */
 static lv_timer_t * player_lyrics_timeline_timer;
 
 static void player_lyrics_timeline_cancel_timer(void) {
+    player_lyrics_release_start_refresh();
+    if (player_artwork_cache_timer) lv_timer_pause(player_artwork_cache_timer);
+    lv_draw_sw_image_cache_set_transition_active(false);
     if (player_lyrics_timeline_timer) {
         lv_timer_delete(player_lyrics_timeline_timer);
         player_lyrics_timeline_timer = NULL;
@@ -2731,8 +3025,32 @@ static void player_lyrics_timeline_cancel_timer(void) {
 }
 
 static void player_lyrics_timeline_finish(void) {
+    player_lyrics_release_start_refresh();
+    lv_draw_sw_image_cache_set_transition_active(false);
 #ifdef UI_PERF_TRACE
-    if (player_lyrics_animating) player_lyrics_perf_log_summary(player_lyrics_open);
+    lv_draw_sw_image_cache_stats_t cache_stats;
+    lv_draw_sw_image_cache_get_intermediate_stats(&cache_stats);
+    printf("PERF player_intermediate_cache hits=%llu misses=%llu observations=%llu builds=%llu build_us_total=%llu build_us_max=%llu slice_us_max=%llu evictions=%llu bytes=%u entries=%u candidates=%u qualified_candidates=%u pending_rows=%u hit_pixels=%llu qualifications=%llu displacements=%llu service_calls=%llu idle_blocks=%llu transition_blocks=%llu pressure_blocks=%llu no_candidate=%llu source_rejections=%llu\n",
+        (unsigned long long) cache_stats.hits, (unsigned long long) cache_stats.misses,
+        (unsigned long long) cache_stats.observations, (unsigned long long) cache_stats.builds,
+        (unsigned long long) cache_stats.build_us_total, (unsigned long long) cache_stats.build_us_max,
+        (unsigned long long) cache_stats.slice_us_max,
+        (unsigned long long) cache_stats.evictions, cache_stats.bytes, cache_stats.entries, cache_stats.candidates,
+        cache_stats.qualified_candidates, cache_stats.pending_rows,
+        (unsigned long long) cache_stats.hit_pixels,
+        (unsigned long long) cache_stats.candidate_qualifications,
+        (unsigned long long) cache_stats.candidate_displacements,
+        (unsigned long long) cache_stats.service_calls,
+        (unsigned long long) cache_stats.service_blocked_idle,
+        (unsigned long long) cache_stats.service_blocked_transition,
+        (unsigned long long) cache_stats.service_blocked_pressure,
+        (unsigned long long) cache_stats.service_no_candidate,
+        (unsigned long long) cache_stats.source_rejections);
+#endif
+    bool was_internal = player_timeline_cover_internal;
+    player_timeline_cover_internal = true;
+#ifdef UI_PERF_TRACE
+    if (player_lyrics_animating || player_lyrics_perf_trace_active) player_lyrics_perf_finish_pending();
 #endif
     player_lyrics_animating = false;
     lv_anim_timeline_t * finished = player_lyrics_open ? player_timeline_lyrics_open : player_timeline_lyrics_close;
@@ -2741,13 +3059,39 @@ static void player_lyrics_timeline_finish(void) {
         lv_anim_timeline_set_progress(finished, LV_ANIM_TIMELINE_PROGRESS_MAX);
     }
     player_timeline_labels_end();
-    player_lyrics_backdrop_end();
-    player_lyrics_backdrop_set_busy(false);
-    player_timeline_cover_snapshot_restore();
-    if (player_timeline_cover_antialias_saved) {
-        lv_image_set_antialias(cover_img, player_timeline_cover_antialias);
-        player_timeline_cover_antialias_saved = false;
+    if (player_lyrics_generated_timelines) {
+        for (unsigned i = 1; i < player_lyrics_object_count; ++i) {
+            player_lyrics_geometry_t * g = &player_lyrics_geometry[i];
+            lv_label_set_long_mode(g->obj, g->long_mode);
+            if (!player_lyrics_open) {
+                lv_obj_set_style_pad_left(g->obj, g->normal_pad_left, 0);
+                lv_obj_set_height(g->obj, g->height_style);
+                lv_obj_set_style_text_align(g->obj, LV_TEXT_ALIGN_CENTER, 0);
+            }
+        }
     }
+    player_lyrics_backdrop_end(true);
+    player_lyrics_backdrop_set_busy(false);
+    /* Timeline style endpoints and restored labels may still have deferred
+     * geometry. Resolve it before deciding whether the full-size frame fits. */
+    if (player_screen) lv_obj_update_layout(player_screen);
+    bool keep_cover = !player_lyrics_open && player_timeline_cover_frame &&
+        player_timeline_cover_can_retain() &&
+        player_timeline_cover_frame == player_timeline_cover_cache &&
+        player_timeline_cover_cache_generation == current_cover_generation &&
+        player_timeline_cover_cache_epoch == player_timeline_cover_style_epoch &&
+        player_timeline_cover_source == &current_cover_dsc &&
+        lv_image_get_src(cover_img) == player_timeline_cover_frame &&
+        lv_obj_get_width(cover_card) == (int32_t) player_timeline_cover_frame->header.w &&
+        lv_obj_get_height(cover_card) == (int32_t) player_timeline_cover_frame->header.h;
+#ifdef UI_PERF_TRACE
+    printf("PERF player_cover_finish retained_binding=%d eligible=%d card_w=%d card_h=%d image_w=%d image_h=%d source_w=%d source_h=%d\n",
+           keep_cover, player_timeline_cover_can_retain(),
+           cover_card ? lv_obj_get_width(cover_card) : 0, cover_card ? lv_obj_get_height(cover_card) : 0,
+           cover_img ? lv_obj_get_width(cover_img) : 0, cover_img ? lv_obj_get_height(cover_img) : 0,
+           cover_img ? lv_image_get_src_width(cover_img) : 0, cover_img ? lv_image_get_src_height(cover_img) : 0);
+#endif
+    if (!keep_cover) player_timeline_cover_snapshot_restore();
     player_lyrics_update_thumbnail_clickable();
     lv_area_t lyrics_rect;
     if (player_lyrics_open && player_lyrics_area_rect(&lyrics_rect)) {
@@ -2773,22 +3117,67 @@ static void player_lyrics_timeline_finish(void) {
     }
     fit_cover_img_to_card();
     player_transition_mark_dirty();
+    player_timeline_cover_internal = was_internal;
+}
+
+static void player_lyrics_timeline_completed_cb(lv_anim_t * anim) {
+    lv_anim_timeline_t * completed = anim ? (lv_anim_timeline_t *)anim->var : NULL;
+    lv_anim_timeline_t * expected = player_lyrics_open ? player_timeline_lyrics_open : player_timeline_lyrics_close;
+    if (!player_lyrics_animating || !completed || completed != expected) return;
+    player_lyrics_timeline_finish();
+}
+
+static uint32_t player_lyrics_timeline_fallback_delay(lv_anim_timeline_t * timeline, uint32_t playtime) {
+    if (!timeline || playtime == LV_ANIM_PLAYTIME_INFINITE) return LV_ANIM_PLAYTIME_INFINITE;
+    uint32_t repeat_count = lv_anim_timeline_get_repeat_count(timeline);
+    if (repeat_count == LV_ANIM_REPEAT_INFINITE) return LV_ANIM_PLAYTIME_INFINITE;
+    uint32_t repeats = repeat_count ? repeat_count : 1;
+    uint64_t total = (uint64_t)playtime * repeats;
+    uint32_t repeat_delay = lv_anim_timeline_get_repeat_delay(timeline);
+    if (repeats > 1) {
+        uint64_t repeat_time = (uint64_t)repeat_delay * (repeats - 1U);
+        if (total > UINT64_MAX - repeat_time) return LV_ANIM_PLAYTIME_INFINITE;
+        total += repeat_time;
+    }
+    uint32_t delay = lv_anim_timeline_get_delay(timeline);
+    if (total > UINT64_MAX - delay) return LV_ANIM_PLAYTIME_INFINITE;
+    total += delay;
+    if (total >= LV_ANIM_PLAYTIME_INFINITE) return LV_ANIM_PLAYTIME_INFINITE;
+    return (uint32_t)total;
 }
 
 static void player_lyrics_timeline_finish_timer_cb(lv_timer_t * timer) {
-    (void) timer;
+    lv_anim_timeline_t * completed = lv_timer_get_user_data(timer);
     player_lyrics_timeline_timer = NULL; /* repeat count 1: LVGL deletes it */
-    player_lyrics_timeline_finish();
+    lv_anim_timeline_t * expected = player_lyrics_open ? player_timeline_lyrics_open : player_timeline_lyrics_close;
+    if (player_lyrics_animating && completed && completed == expected) player_lyrics_timeline_finish();
 }
 
 static void player_lyrics_timeline_start(void) {
     if (!player_screen) return;
     lv_anim_timeline_t * timeline = player_lyrics_open ? player_timeline_lyrics_open : player_timeline_lyrics_close;
-    uint32_t playtime = player_timeline_play(timeline);
-    uint64_t finish_ms = (uint64_t) playtime + lv_anim_timeline_get_delay(timeline) + 20U;
-    uint32_t finish_delay = finish_ms > UINT32_MAX ? UINT32_MAX : (uint32_t) finish_ms;
-    player_lyrics_timeline_timer = lv_timer_create(player_lyrics_timeline_finish_timer_cb, finish_delay, NULL);
+    bool completion_attached = false;
+    bool runner_available = false;
+    uint32_t playtime = player_timeline_play(timeline, player_lyrics_timeline_completed_cb,
+                                             &completion_attached, &runner_available);
+    if (completion_attached) return;
+    if (!runner_available) {
+        /* lv_anim_start() can fail to allocate its runner. The style endpoint
+         * can still be applied synchronously and must not leave lyrics busy. */
+        if (timeline) lv_anim_timeline_set_progress(timeline, LV_ANIM_TIMELINE_PROGRESS_MAX);
+        player_lyrics_timeline_finish();
+        return;
+    }
+
+    /* Preserve a runner's preexisting callback. Only this uncommon conflict
+     * needs a timer fallback. Infinite timelines have no completion event. */
+    uint32_t finish_delay = player_lyrics_timeline_fallback_delay(timeline, playtime);
+    if (finish_delay == LV_ANIM_PLAYTIME_INFINITE) return;
+    player_lyrics_timeline_timer = lv_timer_create(player_lyrics_timeline_finish_timer_cb, finish_delay, timeline);
     if (!player_lyrics_timeline_timer) {
+        /* The runner may still be live (and may own a preexisting callback).
+         * Stop it before jumping to the endpoint and finishing synchronously. */
+        lv_anim_timeline_pause(timeline);
         lv_anim_timeline_set_progress(timeline, LV_ANIM_TIMELINE_PROGRESS_MAX);
         player_lyrics_timeline_finish();
         return;
@@ -2799,28 +3188,47 @@ static void player_lyrics_timeline_start(void) {
 static void player_lyrics_timeline_start_timer_cb(lv_timer_t * timer) {
     (void) timer;
     player_lyrics_timeline_timer = NULL; /* repeat count 1: LVGL deletes it */
+#ifdef UI_PERF_TRACE
+    player_lyrics_perf_stats.runner_start_us = ui_perf_now_us() - player_lyrics_perf_stats.trace_start_us;
+    player_lyrics_perf_stats.runner_start_tick = lv_tick_get();
+#endif
     player_lyrics_timeline_start();
+    player_lyrics_release_start_refresh();
 }
 
 static void player_lyrics_set_open_timeline(bool open, bool animate) {
+    bool was_internal = player_timeline_cover_internal;
+    player_timeline_cover_internal = true;
+#ifdef UI_PERF_TRACE
+    if (animate && !player_lyrics_generated_timelines) player_lyrics_perf_reset(open, true);
+#endif
     player_lyrics_timeline_cancel_timer();
     lv_anim_timeline_pause(player_timeline_lyrics_open);
     lv_anim_timeline_pause(player_timeline_lyrics_close);
     player_timeline_labels_teardown();
-    player_lyrics_backdrop_end();
+    player_lyrics_backdrop_end(false);
     /* A second request may interrupt a running timeline. Release its cached
      * cover before the next timeline rewrites the same image source. */
     player_timeline_cover_snapshot_restore();
-    player_lyrics_object_count = 0;
+    if (!player_lyrics_generated_timelines) player_lyrics_object_count = 0;
     if (open) {
         lv_area_t area;
-        if (player_lyrics_area_rect(&area)) gui_lyrics_prepare_layout_for_width(lv_area_get_width(&area));
-        else gui_lyrics_prepare_layout();
+        if (player_lyrics_area_rect(&area)) {
+            int32_t width = lv_area_get_width(&area);
+            gui_lyrics_prepare_layout_for_width(width);
+            gui_lyrics_prepare_embedded(player_screen, area.x1, area.y1, width,
+                                        lv_area_get_height(&area), true);
+        } else {
+            gui_lyrics_prepare_layout();
+            gui_lyrics_prepare_embedded(player_screen, 0, 0, BOARD_SCREEN_WIDTH,
+                                        BOARD_SCREEN_HEIGHT, false);
+        }
         lv_obj_update_layout(player_screen);
     } else {
         gui_lyrics_hide_embedded();
-        /* Controls come back to animate in; touch targets wait for the end. */
-        player_lyrics_restore_controls();
+        /* Authored controls animate back in. Native controls retain their
+         * existing hidden-until-complete behavior. */
+        if (!player_lyrics_generated_timelines) player_lyrics_restore_controls();
     }
     for (unsigned i = 0; i < player_hit_target_count; ++i) player_lyrics_hide_object(player_hit_targets[i]);
     player_lyrics_open = open;
@@ -2831,24 +3239,39 @@ static void player_lyrics_set_open_timeline(bool open, bool animate) {
         lv_anim_timeline_set_progress(timeline, 0);
         lv_anim_timeline_set_progress(timeline, LV_ANIM_TIMELINE_PROGRESS_MAX);
         player_lyrics_timeline_finish();
+        player_timeline_cover_internal = was_internal;
         return;
     }
     player_layouts_timeline_refresh_timing(player_timeline_lyrics_open);
     player_layouts_timeline_refresh_timing(player_timeline_lyrics_close);
-    bool cached_backdrop = player_lyrics_backdrop_begin(open);
+    /* A static frosted backdrop can be cached separately from the moving
+     * cover. Only a cache containing that cover replaces its snapshot. */
+    bool cached_backdrop = player_lyrics_backdrop_begin(open) && player_timeline_backdrop_covers_cover;
     if (!cached_backdrop) {
-        if (!player_timeline_cover_antialias_saved) {
-            player_timeline_cover_antialias = lv_image_get_antialias(cover_img);
-            player_timeline_cover_antialias_saved = true;
-        }
-        lv_image_set_antialias(cover_img, player_timeline_cover_antialias);
+        bool antialias = lv_image_get_antialias(cover_img);
         player_timeline_cover_snapshot_take(timeline);
-        if (player_timeline_cover_frame) lv_image_set_antialias(cover_img, false);
+        if (player_timeline_cover_frame) {
+            player_timeline_cover_antialias = antialias;
+            player_timeline_cover_antialias_saved = true;
+            lv_image_set_antialias(cover_img, false);
+        }
     }
     player_timeline_labels_begin(timeline);
 #ifdef UI_PERF_TRACE
-    player_lyrics_perf_reset();
+    player_lyrics_perf_stats.prep_elapsed_us = ui_perf_now_us() - player_lyrics_perf_stats.trace_start_us;
 #endif
+    const void * intermediate_source = NULL;
+    if (!cached_backdrop && cover_img) {
+        const void * source = lv_image_get_src(cover_img);
+        if (source == &current_cover_dsc ||
+            (player_timeline_cover_cache && source == player_timeline_cover_cache &&
+             player_timeline_cover_frame == player_timeline_cover_cache &&
+             player_timeline_cover_cache->header.cf == LV_COLOR_FORMAT_RGB565)) intermediate_source = source;
+    }
+    /* An unsupported transition does not consume this pool. Preserve prior
+     * entries until their owning source is invalidated or replaced. */
+    if (intermediate_source) lv_draw_sw_image_cache_set_intermediate_source(intermediate_source);
+    lv_draw_sw_image_cache_set_transition_active(intermediate_source != NULL);
     player_lyrics_animating = true;
     if (!cached_backdrop) player_lyrics_backdrop_set_busy(true);
     player_lyrics_update_thumbnail_clickable();
@@ -2859,175 +3282,202 @@ static void player_lyrics_set_open_timeline(bool open, bool animate) {
     if (!player_lyrics_timeline_timer) {
         lv_anim_timeline_set_progress(timeline, LV_ANIM_TIMELINE_PROGRESS_MAX);
         player_lyrics_timeline_finish();
+        player_timeline_cover_internal = was_internal;
         return;
     }
     lv_timer_set_repeat_count(player_lyrics_timeline_timer, 1);
+    lv_display_t * display = lv_obj_get_display(player_screen);
+    lv_timer_t * refresh = lv_display_get_refr_timer(display);
+    if (refresh && display == player_timeline_cover_cache_display &&
+        !player_timeline_display_refreshing && gui_display_refresh_allowed() &&
+        lv_display_get_screen_active(display) == player_screen) {
+        player_lyrics_start_display = display;
+        player_lyrics_start_refresh_requested = !lv_timer_get_paused(refresh);
+        lv_timer_pause(refresh);
+    }
+    player_timeline_cover_internal = was_internal;
 }
 
-static lv_timer_t * player_lyrics_start_timer;
-
-static void player_lyrics_start_timer_cb(lv_timer_t * timer) {
-    lv_timer_delete(timer);
-    player_lyrics_start_timer = NULL;
-#ifdef UI_PERF_TRACE
-    player_lyrics_perf_reset();
-#endif
-    lv_anim_t anim;
-    lv_anim_init(&anim);
-    lv_anim_set_var(&anim, player_screen);
-    lv_anim_set_values(&anim, player_lyrics_open ? 0 : 1024, player_lyrics_open ? 1024 : 0);
-    lv_anim_set_duration(&anim, gui_anim_ms(240));
-    lv_anim_set_path_cb(&anim, lv_anim_path_ease_in_out);
-    lv_anim_set_exec_cb(&anim, player_lyrics_morph);
-    lv_anim_set_completed_cb(&anim, player_lyrics_morph_done);
-    lv_anim_start(&anim);
+/* Native layouts supply measured geometry; playback, raster proxies and
+ * lifecycle are shared with authored property timelines. */
+static void player_lyrics_generated_release(bool keep_backdrop) {
+    if (!player_lyrics_generated_timelines) return;
+    player_timeline_labels_teardown();
+    if (keep_backdrop && player_layout_builtin && player_overlay_panel)
+        player_lyrics_backdrop_bind(player_overlay_panel, NULL, NULL, NULL, NULL);
+    else player_lyrics_backdrop_teardown();
+    player_layouts_destroy_style_timeline(player_timeline_lyrics_open);
+    player_layouts_destroy_style_timeline(player_timeline_lyrics_close);
+    player_timeline_lyrics_open = NULL;
+    player_timeline_lyrics_close = NULL;
+    player_lyrics_generated_timelines = false;
 }
 
-static void player_lyrics_set_open(bool open, bool animate) {
-    if (!player_screen || (animate && player_lyrics_animating)) return;
-    if (gui_anims_off()) animate = false;
-    if (open == player_lyrics_open && !player_lyrics_animating) return;
-    lv_anim_delete(player_screen, player_lyrics_morph);
-    if (player_lyrics_start_timer) {
-        lv_timer_delete(player_lyrics_start_timer);
-        player_lyrics_start_timer = NULL;
-    }
-    if (player_timeline_lyrics_open && player_timeline_lyrics_close) {
-        player_lyrics_set_open_timeline(open, animate);
-        return;
-    }
-    if (player_lyrics_area) {
-        player_lyrics_set_open_area(open);
-        return;
-    }
-    if (open) {
-        /* Measure lyrics before motion, so first entry does not stall the
-         * final animation frame on document layout. */
-        gui_lyrics_prepare_layout();
+static bool player_lyrics_generated_prepare(bool opening) {
+    player_lyrics_generated_release(true);
+    if (opening) {
         lv_obj_update_layout(player_screen);
-        /* Artist and album are optional roles in a custom layout. */
-        lv_obj_t * objects[PLAYER_LYRICS_MORPH_OBJECT_COUNT] = { cover_card, song_title_label };
-        unsigned object_count = 2;
-        if (artist_label && !player_artist_standin) objects[object_count++] = artist_label;
-        if (album_label && !player_album_standin) objects[object_count++] = album_label;
-        player_lyrics_object_count = object_count;
+        lv_obj_t * objects[PLAYER_LYRICS_GEOMETRY_OBJECT_COUNT] = { cover_card, song_title_label };
+        unsigned count = 2;
+        if (artist_label && !player_artist_standin) objects[count++] = artist_label;
+        if (album_label && !player_album_standin) objects[count++] = album_label;
+        player_lyrics_object_count = count;
         int32_t cover_size = player_s(112);
         int32_t left = player_x(24), top = player_y(48);
-        int32_t text_x = left + cover_size + player_x(16);
-        int32_t text_y = top;
-        for (unsigned i = 0; i < object_count; ++i) {
+        int32_t text_x = left + cover_size + player_x(16), text_y = top;
+        for (unsigned i = 0; i < count; ++i) {
             player_lyrics_geometry_t * g = &player_lyrics_geometry[i];
+            memset(g, 0, sizeof(*g));
             g->obj = objects[i];
             g->x = lv_obj_get_x(g->obj); g->y = lv_obj_get_y(g->obj);
             g->w = lv_obj_get_width(g->obj); g->h = lv_obj_get_height(g->obj);
             g->height_style = lv_obj_get_style_height(g->obj, 0);
             g->normal_pad_left = lv_obj_get_style_pad_left(g->obj, 0);
+            g->translate_x = lv_obj_get_style_translate_x(g->obj, 0);
+            g->translate_y = lv_obj_get_style_translate_y(g->obj, 0);
             g->compact_x = i ? text_x : left;
             g->compact_y = i ? text_y : top;
             g->compact_w = i ? BOARD_SCREEN_WIDTH - text_x - left : cover_size;
             g->compact_h = i ? g->h : cover_size;
             if (!player_layout_builtin) {
-                /* The compact positions above are screen coordinates. The
-                 * built-in layout places these objects directly on the
-                 * screen; a custom layout may nest them. */
                 lv_area_t area;
                 lv_obj_get_coords(g->obj, &area);
                 g->compact_x -= area.x1 - g->x;
                 g->compact_y -= area.y1 - g->y;
             }
-            if (i) {
-                text_y += g->compact_h + player_y(6);
-                lv_obj_set_style_text_align(g->obj, LV_TEXT_ALIGN_LEFT, 0);
-            }
+            if (i) { g->long_mode = lv_label_get_long_mode(g->obj); text_y += g->compact_h + player_y(6); }
         }
-        player_lyrics_content_top = (text_y > top + cover_size ? text_y : top + cover_size) + player_y(16);
-        /* Hide both visual controls and their separate, enlarged touch targets.
-         * Remember only visible objects so hidden state is restored exactly. */
-        if (player_layout_builtin) {
-            for (uint32_t i = 0; i < lv_obj_get_child_count(player_screen); ++i) {
-                lv_obj_t * child = lv_obj_get_child(player_screen, i);
-                if (child == player_overlay_panel || child == cover_card || child == song_title_label ||
-                    child == album_label || child == artist_label) continue;
-                player_lyrics_hide_object(child);
-            }
-        } else {
-            for (unsigned i = 0; i < player_hit_target_count; ++i) player_lyrics_hide_object(player_hit_targets[i]);
-            for (unsigned i = 0; i < player_lyrics_control_count; ++i) player_lyrics_hide_object(player_lyrics_controls[i]);
-        }
-        player_lyrics_hide_object(favorite_circle);
-    } else {
-        gui_lyrics_hide_embedded();
+        player_timeline_cover_w = player_lyrics_geometry[0].w;
+        player_timeline_cover_h = player_lyrics_geometry[0].h;
     }
-    /* Measure once per direction, since a new track may have been selected
-     * while lyrics were open. Do not measure fonts on animation frames. */
+    player_layout_style_transition_t transitions[PLAYER_LYRICS_GEOMETRY_OBJECT_COUNT * 5] = {0};
+    uint32_t count = 0;
+    for (unsigned i = 0; i < player_lyrics_object_count; ++i) {
+        player_lyrics_geometry_t * g = &player_lyrics_geometry[i];
+        if (i) {
+            lv_point_t text_size;
+            lv_text_get_size(&text_size, lv_label_get_text(g->obj), lv_obj_get_style_text_font(g->obj, 0),
+                            lv_obj_get_style_text_letter_space(g->obj, 0),
+                            lv_obj_get_style_text_line_space(g->obj, 0), LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
+            int32_t available = g->w - g->normal_pad_left - lv_obj_get_style_pad_right(g->obj, 0);
+            g->centered_text_inset = text_size.x < available ? (available - text_size.x) / 2 : 0;
+        }
+        const lv_style_prop_t props[] = { LV_STYLE_TRANSLATE_X, LV_STYLE_TRANSLATE_Y,
+                                         LV_STYLE_WIDTH, LV_STYLE_HEIGHT,
+                                         i ? LV_STYLE_PAD_LEFT : LV_STYLE_RADIUS };
+        const int32_t starts[] = { g->translate_x, g->translate_y, g->w, g->h,
+                                  i ? g->normal_pad_left + g->centered_text_inset :
+                                      lv_obj_get_style_radius(g->obj, 0) };
+        const int32_t ends[] = { g->translate_x + g->compact_x - g->x,
+                                g->translate_y + g->compact_y - g->y,
+                                g->compact_w, g->compact_h,
+                                i ? g->normal_pad_left : lv_obj_get_style_radius(g->obj, 0) };
+        /* A native card keeps its radius in pixels while it changes size.
+         * Declaring that drawing constraint retains the live rounded clipping
+         * through the same eligibility rules used by authored timelines. */
+        for (unsigned j = 0; j < 5U; ++j) {
+            player_layout_style_transition_t * t = &transitions[count++];
+            t->target = g->obj; t->selector = LV_PART_MAIN; t->prop = props[j];
+            t->start_value = starts[j]; t->end_value = ends[j];
+            t->duration = 240; t->path_cb = lv_anim_path_ease_in_out;
+            t->animation.early_apply = true;
+        }
+    }
+    lv_anim_timeline_t * open = player_layouts_create_style_timeline(transitions, count);
+    for (uint32_t i = 0; i < count; ++i) {
+        int32_t start = transitions[i].start_value;
+        transitions[i].start_value = transitions[i].end_value; transitions[i].end_value = start;
+    }
+    lv_anim_timeline_t * close = open ? player_layouts_create_style_timeline(transitions, count) : NULL;
+    if (!open || !close) {
+        player_layouts_destroy_style_timeline(open);
+        player_layouts_destroy_style_timeline(close);
+        player_timeline_lyrics_open = NULL;
+        player_timeline_lyrics_close = NULL;
+        player_lyrics_backdrop_teardown();
+        /* Keep the geometry provider active for endpoint/style restoration
+         * even when no timeline could be allocated. */
+        player_lyrics_generated_timelines = true;
+        return false;
+    }
+    player_timeline_lyrics_open = open;
+    player_timeline_lyrics_close = close;
+    player_lyrics_generated_timelines = true;
+    if (player_layout_builtin && player_overlay_panel)
+        player_lyrics_backdrop_bind(player_overlay_panel, NULL, NULL, open, close);
     for (unsigned i = 1; i < player_lyrics_object_count; ++i) {
         player_lyrics_geometry_t * g = &player_lyrics_geometry[i];
-        lv_point_t text_size;
-        lv_text_get_size(&text_size, lv_label_get_text(g->obj),
-                        lv_obj_get_style_text_font(g->obj, 0),
-                        lv_obj_get_style_text_letter_space(g->obj, 0),
-                        lv_obj_get_style_text_line_space(g->obj, 0),
-                        LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
-        int32_t available = g->w - g->normal_pad_left - lv_obj_get_style_pad_right(g->obj, 0);
-        g->centered_text_inset = text_size.x < available ? (available - text_size.x) / 2 : 0;
+        lv_label_set_long_mode(g->obj, LV_LABEL_LONG_CLIP);
+        lv_obj_set_height(g->obj, g->h);
         lv_obj_set_style_text_align(g->obj, LV_TEXT_ALIGN_LEFT, 0);
+        lv_obj_set_style_pad_left(g->obj, g->normal_pad_left +
+                                 (opening ? g->centered_text_inset : 0), 0);
+    }
+    return true;
+}
+
+static void player_lyrics_native_hide_controls(void) {
+    if (player_layout_builtin) {
+        for (uint32_t i = 0; i < lv_obj_get_child_count(player_screen); ++i) {
+            lv_obj_t * child = lv_obj_get_child(player_screen, i);
+            if (child == player_overlay_panel || child == cover_card || child == song_title_label ||
+                child == album_label || child == artist_label) continue;
+            player_lyrics_hide_object(child);
+        }
+    } else {
+        for (unsigned i = 0; i < player_hit_target_count; ++i) player_lyrics_hide_object(player_hit_targets[i]);
+        for (unsigned i = 0; i < player_lyrics_control_count; ++i) player_lyrics_hide_object(player_lyrics_controls[i]);
+    }
+    player_lyrics_hide_object(favorite_circle);
+}
+
+/* Allocation failure still changes view safely, without a second animation
+ * implementation. Only endpoint geometry is applied directly. */
+static void player_lyrics_generated_endpoint(bool open) {
+    for (unsigned i = 0; i < player_lyrics_object_count; ++i) {
+        player_lyrics_geometry_t * g = &player_lyrics_geometry[i];
+        lv_obj_set_style_translate_x(g->obj, g->translate_x + (open ? g->compact_x - g->x : 0), 0);
+        lv_obj_set_style_translate_y(g->obj, g->translate_y + (open ? g->compact_y - g->y : 0), 0);
+        lv_obj_set_size(g->obj, open ? g->compact_w : g->w, open ? g->compact_h : g->h);
+        if (i) {
+            lv_obj_set_style_text_align(g->obj, open ? LV_TEXT_ALIGN_LEFT : LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_set_style_pad_left(g->obj, g->normal_pad_left, 0);
+        }
     }
     player_lyrics_open = open;
-    memset(&player_lyrics_cover_header, 0, sizeof(player_lyrics_cover_header));
-    lv_image_decoder_get_info(lv_image_get_src(cover_img), &player_lyrics_cover_header);
-    if (!animate) {
-        if (!player_lyrics_animating)
-            player_lyrics_cover_antialias = lv_image_get_antialias(cover_img);
-        player_lyrics_morph(NULL, open ? 1024 : 0);
-        player_lyrics_morph_done(NULL);
-        return;
-    }
-    if (open)
-        gui_lyrics_prepare_embedded(player_screen, player_lyrics_content_top,
-                                    BOARD_SCREEN_HEIGHT - player_lyrics_content_top - player_y(32));
+    player_lyrics_timeline_finish();
+}
+
+static void player_lyrics_set_open(bool open, bool animate) {
+    if (!player_screen || (animate && player_lyrics_animating)) return;
+    if (gui_anims_off()) animate = false;
 #ifdef UI_PERF_TRACE
-    player_lyrics_perf_reset();
+    if (!animate && player_lyrics_perf_trace_active)
+        player_lyrics_perf_abort(player_lyrics_animating ? "interrupted" : "screen_unloaded");
 #endif
-    /* Bilinear software sampling is costly while the cover changes size.
-     * Use nearest sampling only in motion, restoring the original image
-     * antialias setting before the final settled frame. */
-    player_lyrics_cover_antialias = lv_image_get_antialias(cover_img);
-    /* Cache the rounded cover once at its full resting resolution. Drawing
-     * a transformed image inside a rounded clip otherwise builds and masks
-     * an intermediate layer every frame. The cached alpha carries those
-     * corners while the normal card mask is disabled during motion. */
-    player_lyrics_cover_source = lv_image_get_src(cover_img);
-    /* LVGL owns file/symbol strings and frees them when set_src replaces
-     * them. Preserve a separate copy before switching to the snapshot. */
-    lv_image_src_t source_type = lv_image_src_get_type(player_lyrics_cover_source);
-    player_lyrics_cover_source_owned = source_type == LV_IMAGE_SRC_FILE || source_type == LV_IMAGE_SRC_SYMBOL;
-    if (player_lyrics_cover_source_owned)
-        player_lyrics_cover_source = lv_strdup(player_lyrics_cover_source);
-    player_lyrics_cover_clip_corner = lv_obj_get_style_clip_corner(cover_card, 0);
-    lv_obj_set_size(cover_card, player_lyrics_geometry[0].w, player_lyrics_geometry[0].h);
-    lv_obj_update_layout(cover_card);
-    fit_cover_img_to_card();
-    player_lyrics_cover_frame = player_lyrics_cover_source ?
-        lv_snapshot_take(cover_card, LV_COLOR_FORMAT_ARGB8888) : NULL;
-    if (player_lyrics_cover_frame) {
-        lv_image_set_src(cover_img, player_lyrics_cover_frame);
-        player_lyrics_cover_header = player_lyrics_cover_frame->header;
-        lv_obj_set_style_clip_corner(cover_card, false, 0);
+    if (open == player_lyrics_open && !player_lyrics_animating) return;
+    bool native = player_lyrics_generated_timelines ||
+                  (!player_timeline_lyrics_open || !player_timeline_lyrics_close);
+    if (native && !player_lyrics_area) {
+#ifdef UI_PERF_TRACE
+        /* Include responsive geometry and timeline construction in preparation. */
+        if (animate) player_lyrics_perf_reset(open, true);
+#endif
+        player_lyrics_timeline_cancel_timer();
+        player_timeline_labels_teardown();
+        player_timeline_cover_snapshot_restore();
+        bool was_internal = player_timeline_cover_internal;
+        player_timeline_cover_internal = true;
+        bool ready = player_lyrics_generated_prepare(open);
+        if (open) player_lyrics_native_hide_controls();
+        else gui_lyrics_hide_embedded();
+        player_timeline_cover_internal = was_internal;
+        if (!ready) { player_lyrics_generated_endpoint(open); return; }
     }
-    lv_image_set_antialias(cover_img, false);
-    player_lyrics_prepare_text_frames();
-    player_lyrics_morph(NULL, open ? 0 : 1024);
-    player_lyrics_animating = true;
-    player_lyrics_update_thumbnail_clickable();
-    /* main.c advances LVGL's clock between handler passes. Preparation above
-     * can take time while that clock is frozen; starting an animation here
-     * would count preparation toward its duration and skip its first frames.
-     * A positive timer period starts it on a fresh clock tick instead. */
-    player_lyrics_start_timer = lv_timer_create(player_lyrics_start_timer_cb, 1, NULL);
-    if (!player_lyrics_start_timer) {
-        player_lyrics_morph(NULL, open ? 1024 : 0);
-        player_lyrics_morph_done(NULL);
-    }
+    if (player_timeline_lyrics_open && player_timeline_lyrics_close)
+        player_lyrics_set_open_timeline(open, animate);
+    else if (player_lyrics_area)
+        player_lyrics_set_open_area(open);
 }
 
 static void cover_img_tap_cb(lv_event_t * e) {
@@ -3677,7 +4127,7 @@ static void player_add_lyrics_control(lv_obj_t * obj) {
 
 static void player_screen_loaded_cb(lv_event_t * e) {
     (void) e;
-    player_timeline_play(player_timeline_screen_enter);
+    player_timeline_play(player_timeline_screen_enter, NULL, NULL, NULL);
 }
 
 /* Wires a screen built by a layout to the app. Roles and their contract:
@@ -3702,6 +4152,7 @@ static bool player_bind_widgets(lv_obj_t * scr) {
     }
     if (!player_seekbar_configure(r_progress)) return false;
     lv_obj_t * r_overlay = player_find_role(scr, "overlay_panel", NULL);
+    const bool layout_has_overlay = r_overlay != NULL;
     lv_obj_t * r_background = player_find_role(scr, "background_img", &lv_image_class);
     lv_obj_t * r_artist = player_find_role(scr, "artist", &lv_label_class);
     lv_obj_t * r_album = player_find_role(scr, "album", &lv_label_class);
@@ -3883,7 +4334,7 @@ static bool player_bind_widgets(lv_obj_t * scr) {
 
     lv_obj_add_flag(r_cover_img, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(r_cover_img, cover_img_tap_cb, LV_EVENT_CLICKED, NULL);
-    if (!builtin) lv_obj_add_event_cb(r_cover_card, player_cover_size_changed_cb, LV_EVENT_SIZE_CHANGED, NULL);
+    lv_obj_add_event_cb(r_cover_card, player_cover_size_changed_cb, LV_EVENT_SIZE_CHANGED, NULL);
     if (r_cover_fade) {
         lv_obj_update_layout(scr);
         player_timeline_cover_w = lv_obj_get_width(r_cover_card);
@@ -3900,6 +4351,27 @@ static bool player_bind_widgets(lv_obj_t * scr) {
         player_timeline_cover_h = lv_obj_get_height(r_cover_card);
     }
 
+
+    lv_obj_t * cached_cover_objects[] = { r_cover_card, r_cover_img };
+    for (unsigned i = 0; i < sizeof(cached_cover_objects) / sizeof(cached_cover_objects[0]); ++i) {
+        if (!cached_cover_objects[i]) continue;
+        lv_obj_add_event_cb(cached_cover_objects[i], player_timeline_cover_style_changed_cb,
+                            LV_EVENT_STYLE_CHANGED, NULL);
+        lv_obj_add_event_cb(cached_cover_objects[i], player_timeline_cover_style_changed_cb,
+                            LV_EVENT_SIZE_CHANGED, NULL);
+    }
+    lv_display_t * cache_display = lv_obj_get_display(scr);
+    if (cache_display != player_timeline_cover_cache_display) {
+        if (player_timeline_cover_cache_display)
+            lv_display_remove_event_cb_with_user_data(player_timeline_cover_cache_display,
+                                                      player_timeline_cover_cache_refresh_cb, NULL);
+        lv_display_add_event_cb(cache_display, player_timeline_cover_cache_refresh_cb, LV_EVENT_REFR_START, NULL);
+        lv_display_add_event_cb(cache_display, player_timeline_cover_cache_refresh_cb, LV_EVENT_REFR_READY, NULL);
+        lv_display_add_event_cb(cache_display, player_timeline_cover_cache_refresh_cb, LV_EVENT_REFR_REQUEST, NULL);
+        lv_display_add_event_cb(cache_display, player_timeline_cover_cache_refresh_cb, LV_EVENT_INVALIDATE_AREA, NULL);
+        lv_display_add_event_cb(cache_display, player_timeline_cover_cache_refresh_cb, LV_EVENT_DELETE, NULL);
+        player_timeline_cover_cache_display = cache_display;
+    }
 
     player_label_enable_marquee(r_title);
     if (r_album) player_secondary_label_enable_marquee(r_album);
@@ -4058,7 +4530,23 @@ static bool player_bind_widgets(lv_obj_t * scr) {
             lv_obj_add_event_cb(scr, player_screen_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
     }
 
-    player_lyrics_backdrop_bind(r_lyrics_backdrop, r_lyrics_dim, r_lyrics_area,
+    lv_obj_t * backdrop = r_lyrics_backdrop ? r_lyrics_backdrop :
+        (layout_has_overlay && !r_lyrics_dim && !r_lyrics_area ? r_overlay : NULL);
+    if (backdrop && !r_lyrics_dim && !r_lyrics_area) {
+        /* Static caches may contain backgrounds, never live metadata or
+         * controls. A plugin can place these roles anywhere in its tree. */
+        lv_obj_t * live[] = { r_cover_card, r_title, r_artist, r_album, r_order, r_prev,
+            r_play, r_next, r_more, r_progress, r_pos, r_dur, r_pill, r_fav_circle,
+            r_dismiss, r_count, r_volume };
+        for (unsigned i = 0; i < sizeof(live) / sizeof(live[0]); ++i) {
+            if (live[i] && (live[i] == backdrop || player_obj_is_ancestor_of(backdrop, live[i]))) {
+                backdrop = NULL;
+                break;
+            }
+        }
+    }
+    player_timeline_backdrop_covers_cover = backdrop && player_obj_is_ancestor_of(backdrop, r_cover_card);
+    player_lyrics_backdrop_bind(backdrop, r_lyrics_dim, r_lyrics_area,
                                 player_timeline_lyrics_open, player_timeline_lyrics_close);
 
     finalize_screen_navigation(scr);
@@ -4070,13 +4558,19 @@ static bool player_bind_widgets(lv_obj_t * scr) {
 /* Clears every widget global and cached pointer derived from the tree. Used
  * by teardown and when a layout is discarded. */
 static void player_reset_widget_globals(void) {
-    player_timeline_cover_snapshot_restore();
+    lv_draw_sw_image_cache_set_transition_active(false);
+    lv_draw_sw_image_cache_set_intermediate_source(NULL);
+#ifdef UI_PERF_TRACE
+    player_lyrics_perf_abort("screen_unloaded");
+#endif
+    player_timeline_cover_cache_invalidate();
     player_lyrics_open = false;
     player_lyrics_animating = false;
     player_timeline_cover_antialias_saved = false;
     player_timeline_cover_fade = NULL;
     player_timeline_cover_w = 0;
     player_timeline_cover_h = 0;
+    player_timeline_backdrop_covers_cover = false;
     if (player_waveform_seekbar) waveform_cancel();
     player_waveform_seekbar = false;
     player_overlay_panel = NULL;
@@ -4140,6 +4634,7 @@ static lv_obj_t * build_player_screen(uint32_t screen_width, uint32_t screen_hei
             /* The tree is deleted before its XML component, whose styles it uses. */
             player_timeline_labels_teardown();
             player_lyrics_backdrop_teardown();
+            player_timeline_cover_cache_invalidate();
             lv_obj_clean(scr);
             player_reset_widget_globals();
             player_layouts_release();
@@ -5076,6 +5571,7 @@ static void notify_plugin_track_started(const track_metadata_t * meta, const cha
     snprintf(plugin_now_playing_album, sizeof(plugin_now_playing_album), "%s", meta->album);
     plugin_now_playing_duration = audio_get_duration_seconds();
     plugin_now_playing_loaded = true;
+    gui_lock_screen_refresh(false);
 
     remote_track_meta_t remote_meta;
     bool is_remote_track = remote_track_meta_copy_for_path(path, &remote_meta);
@@ -5661,9 +6157,19 @@ void gui_player_init(uint32_t screen_width, uint32_t screen_height) {
  * (see build_confirm_popup()'s own comment), not as children of
  * player_screen, so deleting player_screen alone would not reach them. */
 void gui_player_teardown(void) {
+    /* Also cancel a pending fallback completion after an already-settled
+     * transition, before any timeline or widget can be replaced. */
+    player_lyrics_timeline_cancel_timer();
+    if (player_artwork_cache_timer) {
+        lv_timer_delete(player_artwork_cache_timer);
+        player_artwork_cache_timer = NULL;
+    }
+    lv_draw_sw_image_cache_set_transition_active(false);
+    lv_draw_sw_image_cache_set_intermediate_source(NULL);
     player_lyrics_set_open(false, false);
     player_timeline_labels_teardown();
     player_lyrics_backdrop_teardown();
+    player_lyrics_generated_release(false);
     /* build_volume_popup() creates this with an unguarded lv_timer_create()
      * -- for gui_reload.c's in-process UI reload, delete it here or the old
      * (leaked) timer keeps firing volume_popup_hide_timer_cb() forever,
@@ -5695,6 +6201,8 @@ void gui_player_teardown(void) {
     /* Capture while the old labels are still alive. The audio state and
      * current track continue across a UI-only reload. */
     player_capture_reload_label_text();
+    /* Unbind retained cover pixels while their widgets are still alive. */
+    player_timeline_cover_cache_invalidate();
     if (player_screen) { lv_obj_delete(player_screen); player_screen = NULL; }
     /* player_overlay_panel/cover_img are descendants of player_screen, so
      * lv_obj_delete() above already destroyed them -- null the pointers too
@@ -7392,7 +7900,8 @@ lv_obj_t * gui_player_get_dismiss_btn(void) {
     return player_dismiss_btn;
 }
 
-const lv_image_dsc_t * gui_player_get_current_cover_dsc(void) {
+const lv_image_dsc_t * gui_player_get_current_cover_dsc(uint64_t * generation) {
+    if (generation) *generation = current_cover_generation;
     if (!current_cover_bytes) return NULL;
     return &current_cover_dsc;
 }

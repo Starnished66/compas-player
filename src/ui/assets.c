@@ -156,7 +156,10 @@ bool asset_decoded_image_open(asset_decoded_image_t * image, const char * relati
 
 void asset_decoded_image_close(asset_decoded_image_t * image) {
     if (!image) return;
-    if (image->open) lv_image_decoder_close(&image->decoder);
+    if (image->open) {
+        if (image->decoder.decoded) lv_image_cache_drop(image->decoder.decoded);
+        lv_image_decoder_close(&image->decoder);
+    }
     free(image->path);
     memset(image, 0, sizeof(*image));
 }
@@ -182,5 +185,9 @@ bool asset_decoded_gradient_open(asset_decoded_image_t * image, const char * rel
 }
 
 const void * asset_decoded_image_source(const asset_decoded_image_t * image) {
-    return image && image->open ? image->decoder.decoded : NULL;
+    if (!image || !image->open || !image->decoder.decoded) return NULL;
+    /* Publication promises that this complete, owned buffer stays immutable
+     * until close, which drops renderer and decoder cache entries first. */
+    lv_draw_buf_set_flag((lv_draw_buf_t *)image->decoder.decoded, LV_IMAGE_FLAGS_USER2);
+    return image->decoder.decoded;
 }

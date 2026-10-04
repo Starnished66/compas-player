@@ -16,7 +16,50 @@ enum {
 typedef struct {
     lv_image_dsc_t descriptor;
     uint8_t * pixels;
+    lv_color_t color;
+    uint16_t original_width;
+    uint16_t original_height;
+    uint32_t original_size;
+    lv_event_dsc_t * delete_event;
 } player_cover_fade_data_t;
+
+static bool player_cover_fade_plain_object(lv_obj_t * object, bool check_opacity) {
+    return lv_obj_get_style_bg_opa(object, LV_PART_MAIN) == LV_OPA_TRANSP &&
+           lv_obj_get_style_bg_image_src(object, LV_PART_MAIN) == NULL &&
+           lv_obj_get_style_recolor_recursive(object, LV_PART_MAIN).alpha == 0 &&
+           lv_obj_get_style_color_filter_dsc(object, LV_PART_MAIN) == NULL &&
+           lv_obj_get_style_color_filter_opa(object, LV_PART_MAIN) == LV_OPA_TRANSP &&
+           lv_obj_get_style_border_width(object, LV_PART_MAIN) == 0 &&
+           lv_obj_get_style_outline_width(object, LV_PART_MAIN) == 0 &&
+           lv_obj_get_style_shadow_width(object, LV_PART_MAIN) == 0 &&
+           lv_obj_get_style_radius(object, LV_PART_MAIN) == 0 &&
+           lv_obj_get_style_pad_top(object, LV_PART_MAIN) == 0 &&
+           lv_obj_get_style_pad_bottom(object, LV_PART_MAIN) == 0 &&
+           lv_obj_get_style_pad_left(object, LV_PART_MAIN) == 0 &&
+           lv_obj_get_style_pad_right(object, LV_PART_MAIN) == 0 &&
+           lv_obj_get_style_margin_top(object, LV_PART_MAIN) == 0 &&
+           lv_obj_get_style_margin_bottom(object, LV_PART_MAIN) == 0 &&
+           lv_obj_get_style_margin_left(object, LV_PART_MAIN) == 0 &&
+           lv_obj_get_style_margin_right(object, LV_PART_MAIN) == 0 &&
+           lv_obj_get_style_layout(object, LV_PART_MAIN) == LV_LAYOUT_NONE &&
+           lv_obj_get_scroll_x(object) == 0 && lv_obj_get_scroll_y(object) == 0 &&
+           lv_obj_get_style_transform_width(object, LV_PART_MAIN) == 0 &&
+           lv_obj_get_style_transform_height(object, LV_PART_MAIN) == 0 &&
+           lv_obj_get_style_translate_x(object, LV_PART_MAIN) == 0 &&
+           lv_obj_get_style_translate_y(object, LV_PART_MAIN) == 0 &&
+           lv_obj_get_style_translate_radial(object, LV_PART_MAIN) == 0 &&
+           lv_obj_get_style_transform_rotation(object, LV_PART_MAIN) == 0 &&
+           lv_obj_get_style_transform_pivot_x(object, LV_PART_MAIN) == 0 &&
+           lv_obj_get_style_transform_pivot_y(object, LV_PART_MAIN) == 0 &&
+           lv_obj_get_style_transform_scale_x(object, LV_PART_MAIN) == LV_SCALE_NONE &&
+           lv_obj_get_style_transform_scale_y(object, LV_PART_MAIN) == LV_SCALE_NONE &&
+           lv_obj_get_style_transform_skew_x(object, LV_PART_MAIN) == 0 &&
+           lv_obj_get_style_transform_skew_y(object, LV_PART_MAIN) == 0 &&
+           lv_obj_get_style_bitmap_mask_src(object, LV_PART_MAIN) == NULL &&
+           lv_obj_get_style_blend_mode(object, LV_PART_MAIN) == LV_BLEND_MODE_NORMAL &&
+           (!check_opacity || (lv_obj_get_style_opa(object, LV_PART_MAIN) == LV_OPA_COVER &&
+                               lv_obj_get_style_opa_layered(object, LV_PART_MAIN) == LV_OPA_COVER));
+}
 
 static uint8_t player_cover_fade_alpha(int32_t x, int32_t y, double base, double modulation) {
     double noise = ((double)frosted_glass_spatial_threshold(x, y) / 8.0) - 4.0;
@@ -29,9 +72,9 @@ static uint8_t player_cover_fade_alpha(int32_t x, int32_t y, double base, double
 static void player_cover_fade_delete_cb(lv_event_t * event) {
     if (lv_event_get_code(event) != LV_EVENT_DELETE) return;
     lv_obj_t * overlay = lv_event_get_target(event);
-    player_cover_fade_data_t * data = lv_obj_get_user_data(overlay);
+    player_cover_fade_data_t * data = lv_event_get_user_data(event);
     if (!data) return;
-    lv_obj_set_user_data(overlay, NULL);
+    if (lv_obj_get_user_data(overlay) == data) lv_obj_set_user_data(overlay, NULL);
     lv_image_set_src(overlay, NULL);
     lv_image_cache_drop(&data->descriptor);
     free(data->pixels);
@@ -63,6 +106,10 @@ bool player_cover_fade_attach(lv_obj_t * image, lv_color_t color) {
     data->descriptor.header.stride = (uint16_t)width;
     data->descriptor.data_size = (uint32_t)((size_t)width * (size_t)height);
     data->descriptor.data = data->pixels;
+    data->color = color;
+    data->original_width = (uint16_t)width;
+    data->original_height = (uint16_t)height;
+    data->original_size = data->descriptor.data_size;
     for (int32_t y = 0; y < height; ++y) {
         uint8_t * row = data->pixels + (size_t)y * (size_t)width;
         if (height <= PLAYER_COVER_FADE_SOLID_TAIL_ROWS ||
@@ -84,7 +131,6 @@ bool player_cover_fade_attach(lv_obj_t * image, lv_color_t color) {
         for (int32_t x = 0; x < width; ++x)
             row[x] = player_cover_fade_alpha(x, y, base, modulation);
     }
-
     lv_obj_t * overlay = lv_image_create(image);
     if (!overlay) {
         free(data->pixels);
@@ -102,6 +148,71 @@ bool player_cover_fade_attach(lv_obj_t * image, lv_color_t color) {
     lv_image_set_src(overlay, &data->descriptor);
     lv_obj_set_pos(overlay, 0, 0);
     lv_obj_set_size(overlay, lv_pct(100), lv_pct(100));
-    lv_obj_add_event_cb(overlay, player_cover_fade_delete_cb, LV_EVENT_DELETE, NULL);
+    data->delete_event = lv_obj_add_event_cb(overlay, player_cover_fade_delete_cb, LV_EVENT_DELETE, data);
+    if (!data->delete_event) {
+        lv_obj_set_user_data(overlay, NULL);
+        lv_image_set_src(overlay, NULL);
+        lv_image_cache_drop(&data->descriptor);
+        free(data->pixels);
+        free(data);
+        lv_obj_delete(overlay);
+        return false;
+    }
     return true;
+}
+
+bool player_cover_fade_cache_eligible(lv_obj_t * parent) {
+    if (!parent || !lv_obj_check_type(parent, &lv_image_class) ||
+        lv_image_get_src(parent) != NULL || lv_obj_get_event_count(parent) != 0 ||
+        lv_image_get_blend_mode(parent) != LV_BLEND_MODE_NORMAL ||
+        lv_obj_get_child_count(parent) != 1 || !player_cover_fade_plain_object(parent, true) ||
+        lv_obj_get_x(parent) != 0 || lv_obj_get_y(parent) != 0 ||
+        lv_image_get_rotation(parent) != 0 || lv_image_get_scale_x(parent) != LV_SCALE_NONE ||
+        lv_image_get_scale_y(parent) != LV_SCALE_NONE || lv_image_get_offset_x(parent) != 0 ||
+        lv_image_get_offset_y(parent) != 0 ||
+        lv_obj_get_style_image_opa(parent, LV_PART_MAIN) != LV_OPA_COVER ||
+        lv_obj_get_style_image_recolor_opa(parent, LV_PART_MAIN) != LV_OPA_TRANSP ||
+        lv_obj_get_style_recolor_recursive(parent, LV_PART_MAIN).alpha != 0 ||
+        lv_obj_get_style_bitmap_mask_src(parent, LV_PART_MAIN) != NULL ||
+        lv_image_get_bitmap_map_src(parent) != NULL) return false;
+
+    lv_obj_t * overlay = lv_obj_get_child(parent, 0);
+    if (!overlay || !lv_obj_check_type(overlay, &lv_image_class) ||
+        lv_obj_has_flag(overlay, LV_OBJ_FLAG_HIDDEN) || lv_obj_get_child_count(overlay) != 0 ||
+        lv_obj_get_event_count(overlay) != 1 || !player_cover_fade_plain_object(overlay, true) ||
+        lv_image_get_blend_mode(overlay) != LV_BLEND_MODE_NORMAL ||
+        lv_image_get_rotation(overlay) != 0 || lv_image_get_scale_x(overlay) != LV_SCALE_NONE ||
+        lv_image_get_scale_y(overlay) != LV_SCALE_NONE || lv_image_get_offset_x(overlay) != 0 ||
+        lv_image_get_offset_y(overlay) != 0 ||
+        lv_image_get_inner_align(overlay) != LV_IMAGE_ALIGN_STRETCH ||
+        lv_image_get_bitmap_map_src(overlay) != NULL ||
+        lv_obj_get_style_image_opa(overlay, LV_PART_MAIN) != LV_OPA_COVER ||
+        lv_obj_get_style_blend_mode(overlay, LV_PART_MAIN) != LV_BLEND_MODE_NORMAL) return false;
+
+    lv_event_dsc_t * event_dsc = lv_obj_get_event_dsc(overlay, 0);
+    if (!event_dsc || lv_event_dsc_get_cb(event_dsc) != player_cover_fade_delete_cb) return false;
+    void * event_data = lv_event_dsc_get_user_data(event_dsc);
+    if (!event_data || event_data != lv_obj_get_user_data(overlay) ||
+        event_data != lv_image_get_src(overlay)) return false;
+    player_cover_fade_data_t * data = event_data;
+    if (event_dsc != data->delete_event ||
+        data->descriptor.header.magic != LV_IMAGE_HEADER_MAGIC ||
+        data->descriptor.header.cf != LV_COLOR_FORMAT_A8 || data->descriptor.header.flags != 0 ||
+        data->descriptor.header.w != data->original_width ||
+        data->descriptor.header.h != data->original_height ||
+        data->descriptor.header.stride != data->original_width ||
+        data->descriptor.data_size != data->original_size ||
+        data->descriptor.data != data->pixels || !data->pixels || data->descriptor.reserved != NULL ||
+        data->descriptor.reserved_2 != NULL ||
+        lv_color_to_u32(lv_obj_get_style_image_recolor(overlay, LV_PART_MAIN)) != lv_color_to_u32(data->color) ||
+        lv_obj_get_style_image_recolor_opa(overlay, LV_PART_MAIN) != LV_OPA_COVER) return false;
+
+    lv_obj_update_layout(parent);
+    lv_obj_update_layout(overlay);
+    int32_t width = data->original_width;
+    int32_t height = data->original_height;
+    return lv_obj_get_width(parent) == width && lv_obj_get_height(parent) == height &&
+           lv_obj_get_width(overlay) == width && lv_obj_get_height(overlay) == height &&
+           lv_obj_get_x(overlay) == 0 && lv_obj_get_y(overlay) == 0 &&
+           lv_image_get_src_width(overlay) == width && lv_image_get_src_height(overlay) == height;
 }

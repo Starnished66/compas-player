@@ -1986,6 +1986,11 @@ void gui_settings_open_playback(void) {
     nav_push(music_playback_screen);
 }
 
+void gui_settings_open_sound(void) {
+    if (!music_audio_screen) return;
+    nav_push(music_audio_screen);
+}
+
 /* Index into SLEEP_TIMER_STEPS closest to `minutes' -- same reasoning as
  * screen_timeout_seconds_to_step_index() above. */
 static int sleep_timer_minutes_to_step_index(int minutes) {
@@ -3616,8 +3621,8 @@ static void fit_home_list_rows(icon_grid_item_t * items, const resolved_home_til
     int32_t minimum[HOME_LAYOUT_MAX_TILES];
     int32_t heights[HOME_LAYOUT_MAX_TILES];
     int32_t total_gaps = (count - 1) * row_gap;
-    int32_t viewport = display_height - STATUS_BAR_CLEARANCE - HOME_INDICATOR_CONTENT_INSET;
-    int32_t row_budget = viewport - GUI_ROW_GAP - BOARD_SCALE_PX(8) - total_gaps;
+    int32_t viewport = display_height - STATUS_BAR_CLEARANCE;
+    int32_t row_budget = viewport - total_gaps;
 
     for (int i = 0; i < count; ++i) {
         const home_tile_override_t * ov = resolved[i].override;

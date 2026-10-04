@@ -313,9 +313,6 @@ static sd_repair_kick_result_t repair_kick(void (* release_handles)(void), bool 
     if (!parsed || !info.found) return result;
     if (!sd_fsck_device_allowed(info.device)) return result;
 
-    char cid[64];
-    read_card_cid(cid, sizeof(cid));
-
     if (!info.readonly && (!check_dirty || info.kind != SD_FS_KIND_VFAT)) return result;
 
     bool dirty = false;
@@ -353,6 +350,8 @@ static sd_repair_kick_result_t repair_kick(void (* release_handles)(void), bool 
         sd_repair_fat_attempt_key(stamp, readonly_trigger, key, sizeof(key));
         if (!info.readonly && !dirty) return result;
     } else {
+        char cid[64];
+        read_card_cid(cid, sizeof(cid));
         sd_repair_attempt_key(info.device, cid, key, sizeof(key));
     }
     if (attempt_remembered(key)) return result;

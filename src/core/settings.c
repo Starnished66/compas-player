@@ -107,10 +107,23 @@ static bool valid_remote_control_pin(const char * value) {
     return true;
 }
 
+static bool valid_setup_plugin_id(const char * value) {
+    if (!value || !value[0] || strlen(value) >= SETTINGS_SETUP_PLUGIN_ID_MAX ||
+        !((*value >= 'a' && *value <= 'z') || (*value >= '0' && *value <= '9'))) return false;
+    for (const unsigned char * p = (const unsigned char *) value; *p; ++p) {
+        if (!((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') ||
+              *p == '.' || *p == '_' || *p == '-')) return false;
+    }
+    return true;
+}
+
 static void set_defaults(player_settings_t * out) {
     out->setup_complete = false;
     out->setup_intro_played = false;
     out->setup_step = 0;
+    memset(out->setup_plugin_ids, 0, sizeof(out->setup_plugin_ids));
+    out->setup_layout_plugin_id[0] = '\0';
+    out->setup_scan_music = true;
     out->volume = 1.0f;
     out->last_track[0] = '\0';
     out->last_position = 0.0;
@@ -352,6 +365,18 @@ bool settings_load(player_settings_t * out) {
             out->setup_intro_played = strcmp(value, "1") == 0;
         } else if (strcmp(key, "setup_step") == 0) {
             out->setup_step = atoi(value);
+        } else if (strncmp(key, "setup_plugin_id_", 16) == 0) {
+            int idx = -1;
+            char extra;
+            if (sscanf(key, "setup_plugin_id_%d%c", &idx, &extra) == 1 &&
+                idx >= 0 && idx < SETTINGS_SETUP_PLUGIN_MAX && valid_setup_plugin_id(value)) {
+                snprintf(out->setup_plugin_ids[idx], sizeof(out->setup_plugin_ids[idx]), "%s", value);
+            }
+        } else if (strcmp(key, "setup_layout_plugin_id") == 0) {
+            if (valid_setup_plugin_id(value))
+                snprintf(out->setup_layout_plugin_id, sizeof(out->setup_layout_plugin_id), "%s", value);
+        } else if (strcmp(key, "setup_scan_music") == 0) {
+            out->setup_scan_music = strcmp(value, "1") == 0;
         } else if (strcmp(key, "volume") == 0) {
             out->volume = (float) atof(value);
         } else if (strcmp(key, "last_track") == 0) {
@@ -738,6 +763,14 @@ static void settings_write_file(const player_settings_t * settings) {
     fprintf(f, "setup_complete=%d\n", settings->setup_complete ? 1 : 0);
     fprintf(f, "setup_step=%d\n", settings->setup_step);
     fprintf(f, "setup_intro_played=%d\n", settings->setup_intro_played ? 1 : 0);
+    for (int i = 0; i < SETTINGS_SETUP_PLUGIN_MAX; ++i) {
+        const char * id = valid_setup_plugin_id(settings->setup_plugin_ids[i]) ? settings->setup_plugin_ids[i] : "";
+        fprintf(f, "setup_plugin_id_%d=%s\n", i, id);
+    }
+    const char * layout_id = valid_setup_plugin_id(settings->setup_layout_plugin_id)
+        ? settings->setup_layout_plugin_id : "";
+    fprintf(f, "setup_layout_plugin_id=%s\n", layout_id);
+    fprintf(f, "setup_scan_music=%d\n", settings->setup_scan_music ? 1 : 0);
 
     fflush(f);
     fsync(fileno(f));

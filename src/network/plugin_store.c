@@ -6,6 +6,7 @@
 #include "plugin_manager.h"
 #include "image_thumb.h"
 #include "board_config.h"
+#include "usb_mode_control.h"
 #include "cJSON.h"
 #include "mbedtls/sha256.h"
 
@@ -424,6 +425,42 @@ fail:
     return false;
 }
 
+/* Plugin writes share the SD card with USB mass storage. Check the live
+ * gadget state and filesystem mount flags at every write boundary; persisted
+ * USB settings alone do not tell us whether a host is attached. */
+static bool storage_path_writable(const char * path, char * error, size_t error_size) {
+    if (error && error_size) error[0] = '\0';
+    if (usb_mode_control_storage_write_blocked()) {
+        error_text(error, error_size, TR("Disconnect USB storage from the host before changing plugins."));
+        return false;
+    }
+    struct statvfs fs;
+    if (!path || statvfs(path, &fs) != 0) {
+        error_text(error, error_size, TR("Cannot check plugin storage write access."));
+        return false;
+    }
+    if (fs.f_flag & ST_RDONLY) {
+        error_text(error, error_size, TR("The SD card is read-only. Check its write protection."));
+        return false;
+    }
+    return true;
+}
+
+static void reject_store_operation(const char * error) {
+    pthread_mutex_lock(&store_mutex);
+    if (!store_worker_running) {
+        store_status.state = PLUGIN_STORE_FAILED;
+        store_status.percent = 0;
+        store_status.changed = false;
+        snprintf(store_status.error, sizeof(store_status.error), "%s", error ? error : TR("Plugin storage is unavailable."));
+    }
+    pthread_mutex_unlock(&store_mutex);
+}
+
+bool plugin_store_storage_writable(char * error, size_t error_size) {
+    return storage_path_writable(STORE_SD_ROOT, error, error_size);
+}
+
 static bool mkdir_one(const char * path) {
     if (mkdir(path, 0755) == 0 || errno == EEXIST) {
         struct stat st;
@@ -437,6 +474,7 @@ static bool mkdir_one(const char * path) {
  * trusted: on the device it is reached through the /data symlink. */
 static bool mkdir_tree(const char * root, const char * path) {
     char copy[PATH_MAX];
+    if (!storage_path_writable(root, NULL, 0)) return false;
     size_t root_len = strlen(root);
     if (strlen(path) >= sizeof(copy) || strncmp(path, root, root_len) != 0 ||
         path[root_len] != '/') {
@@ -446,13 +484,13 @@ static bool mkdir_tree(const char * root, const char * path) {
     for (char * p = copy + root_len + 1; *p; p++) {
         if (*p == '/') {
             *p = '\0';
-            if (!mkdir_one(copy)) {
+            if (!storage_path_writable(root, NULL, 0) || !mkdir_one(copy)) {
                 return false;
             }
             *p = '/';
         }
     }
-    return mkdir_one(copy);
+    return storage_path_writable(root, NULL, 0) && mkdir_one(copy);
 }
 
 /* Which card is mounted: its device number, plus the card's own CID where
@@ -635,6 +673,11 @@ static bool record_write_path(const char * path, const plugin_store_plugin_t * p
         (int) sizeof(tmp)) {
         return false;
     }
+    char parent[PATH_MAX];
+    snprintf(parent, sizeof(parent), "%s", path);
+    char * slash = strrchr(parent, '/');
+    if (slash) *slash = '\0';
+    if (!storage_path_writable(parent, NULL, 0)) return false;
     int fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0644);
     if (fd < 0) {
         return false;
@@ -642,11 +685,13 @@ static bool record_write_path(const char * path, const plugin_store_plugin_t * p
     FILE * f = fdopen(fd, "w");
     if (!f) {
         close(fd);
-        unlink(tmp);
+        if (storage_path_writable(parent, NULL, 0)) unlink(tmp);
         return false;
     }
     bool ok = true;
     for (size_t i = 0; i < count && ok; i++) {
+        if (!storage_path_writable(parent, NULL, 0) ||
+            (commit_card && !card_still(commit_card))) { ok = false; break; }
         const plugin_store_plugin_t * p = &plugins[indices[i]];
         ok = fprintf(f, "P %s %s\n", p->id, p->version) > 0;
         for (int j = 0; j < p->file_count && ok; j++) {
@@ -657,11 +702,13 @@ static bool record_write_path(const char * path, const plugin_store_plugin_t * p
     ok = fflush(f) == 0 && ok;
     ok = fsync(fileno(f)) == 0 && ok;
     ok = fclose(f) == 0 && ok;
-    if (commit_card && !card_still(commit_card)) {
+    if (!storage_path_writable(parent, NULL, 0) ||
+        (commit_card && !card_still(commit_card))) {
         return false; /* the temporary file stays on the card it was written to */
     }
     if (!ok || rename(tmp, path) != 0) {
-        unlink(tmp);
+        if (storage_path_writable(parent, NULL, 0) &&
+            (!commit_card || card_still(commit_card))) unlink(tmp);
         return false;
     }
     return true;
@@ -885,10 +932,12 @@ plugin_store_plugin_state_t plugin_store_compute_state(const plugin_store_plugin
     return inc ? PLUGIN_STORE_PLUGIN_INCOMPATIBLE : PLUGIN_STORE_PLUGIN_AVAILABLE;
 }
 
-bool plugin_store_commit_local(const char * root, const char * stage,
-                               const plugin_store_plugin_t * p, bool force,
-                               const plugin_store_plugin_t * rec,
-                               const char (*vers)[32], size_t rn) {
+static bool plugin_store_commit_local_internal(const char * root, const char * stage,
+                                                const plugin_store_plugin_t * p, bool force,
+                                                const plugin_store_plugin_t * rec,
+                                                const char (*vers)[32], size_t rn,
+                                                bool * preserve_stage) {
+    if (preserve_stage) *preserve_stage = false;
     char plugins_path[PATH_MAX], record[PATH_MAX];
     if (!record_paths(root, plugins_path, sizeof(plugins_path), record, sizeof(record))) {
         return false;
@@ -899,6 +948,7 @@ bool plugin_store_commit_local(const char * root, const char * stage,
     bool * existed = calloc(n, sizeof(bool));
     bool * skip = calloc(n, sizeof(bool));
     bool * installed = calloc(n, sizeof(bool));
+    bool mutated = false;
     if (!dests || !backs || !existed || !skip || !installed) {
         goto no_mem;
     }
@@ -940,6 +990,8 @@ bool plugin_store_commit_local(const char * root, const char * stage,
             continue;
         }
         const plugin_store_file_t * f = &p->files[i];
+        char write_error[160];
+        if (!storage_path_writable(root, write_error, sizeof(write_error))) goto card_lost;
         if (commit_card && !card_still(commit_card)) {
             goto card_lost;
         }
@@ -951,17 +1003,19 @@ bool plugin_store_commit_local(const char * root, const char * stage,
         if (existed[i]) {
             snprintf(backs[i], PATH_MAX, "%s/%zu.backup", stage, i);
             if (rename(dests[i], backs[i]) != 0) {
+                backs[i][0] = '\0';
                 goto rollback;
             }
+            mutated = true;
         }
         if (rename(part, dests[i]) != 0) {
             goto rollback;
         }
+        mutated = true;
         installed[i] = true;
     }
-    if (commit_card && !card_still(commit_card)) {
-        goto card_lost;
-    }
+    if (!storage_path_writable(root, NULL, 0) ||
+        (commit_card && !card_still(commit_card))) goto card_lost;
     if (!write_record_after(root, p, rec, vers, rn)) {
         goto rollback;
     }
@@ -991,6 +1045,7 @@ bool plugin_store_commit_local(const char * root, const char * stage,
             uint64_t old_size;
             if (path_for(old_path, sizeof(old_path), root, old_file->dest) &&
                 parent_dirs_safe(root, old_file->dest, false) &&
+                storage_path_writable(root, NULL, 0) &&
                 (!commit_card || card_still(commit_card)) &&
                 lstat(old_path, &old_stat) == 0 && S_ISREG(old_stat.st_mode) &&
                 hash_file(old_path, &old_size, old_sha) &&
@@ -999,11 +1054,10 @@ bool plugin_store_commit_local(const char * root, const char * stage,
             }
         }
     }
-    if (!commit_card || card_still(commit_card)) {
+    if (storage_path_writable(root, NULL, 0) && (!commit_card || card_still(commit_card))) {
         for (size_t i = 0; i < n; i++) {
-            if (backs[i][0]) {
-                unlink(backs[i]);
-            }
+            if (backs[i][0] && storage_path_writable(root, NULL, 0) &&
+                (!commit_card || card_still(commit_card))) unlink(backs[i]);
         }
     }
     free(dests);
@@ -1015,25 +1069,35 @@ bool plugin_store_commit_local(const char * root, const char * stage,
     return true;
 
 rollback:
-    if (commit_card && !card_still(commit_card)) {
-        goto card_lost;
-    }
+    if (!storage_path_writable(root, NULL, 0) ||
+        (commit_card && !card_still(commit_card))) goto card_lost;
     for (size_t i = n; i > 0; i--) {
         size_t k = i - 1;
         if (backs[k][0]) {
             if (installed[k]) {
-                unlink(dests[k]);
+                if (!storage_path_writable(root, NULL, 0) ||
+                    (commit_card && !card_still(commit_card))) goto card_lost;
+                if (unlink(dests[k]) != 0 && errno != ENOENT) goto rollback_incomplete;
             }
-            rename(backs[k], dests[k]);
+            if (!storage_path_writable(root, NULL, 0) ||
+                (commit_card && !card_still(commit_card))) goto card_lost;
+            if (rename(backs[k], dests[k]) != 0) goto rollback_incomplete;
         } else if (installed[k]) {
-            unlink(dests[k]);
+            if (!storage_path_writable(root, NULL, 0) ||
+                (commit_card && !card_still(commit_card))) goto card_lost;
+            if (unlink(dests[k]) != 0 && errno != ENOENT) goto rollback_incomplete;
         }
     }
     goto fail;
 
+rollback_incomplete:
+    if (preserve_stage) *preserve_stage = true;
+    goto conflict;
+
 card_lost:
     /* Another card is mounted now: rolling back would delete and rename
      * files on it that belong to it. Leave both cards as they are. */
+    if (preserve_stage) *preserve_stage = mutated;
 conflict:
     free(dests);
     free(backs);
@@ -1043,7 +1107,8 @@ conflict:
     return false;
 
 fail:
-    for (size_t i = 0; i < n && (!commit_card || card_still(commit_card)); i++) {
+    for (size_t i = 0; i < n && storage_path_writable(root, NULL, 0) &&
+         (!commit_card || card_still(commit_card)); i++) {
         char part[PATH_MAX];
         snprintf(part, sizeof(part), "%s/%zu.part", stage, i);
         unlink(part);
@@ -1062,6 +1127,13 @@ no_mem:
     free(skip);
     free(installed);
     return false;
+}
+
+bool plugin_store_commit_local(const char * root, const char * stage,
+                               const plugin_store_plugin_t * p, bool force,
+                               const plugin_store_plugin_t * rec,
+                               const char (*vers)[32], size_t rn) {
+    return plugin_store_commit_local_internal(root, stage, p, force, rec, vers, rn, NULL);
 }
 
 static void finish(plugin_store_state_t state, const char * error, bool changed) {
@@ -1289,8 +1361,20 @@ static bool make_asset_url(char * out, size_t cap, const char * tag, const char 
     return n > 0 && (size_t) n < cap;
 }
 
-static bool download_progress(uint64_t downloaded, uint64_t total, void * unused) {
-    (void) unused;
+typedef struct {
+    const store_card_t * card;
+    char error[160];
+} download_guard_t;
+
+static bool download_progress(uint64_t downloaded, uint64_t total, void * context) {
+    download_guard_t * guard = context;
+    char error[160] = {0};
+    if (!storage_path_writable(STORE_SD_ROOT, error, sizeof(error)) ||
+        (guard && guard->card && !card_still(guard->card))) {
+        if (guard) snprintf(guard->error, sizeof(guard->error), "%s",
+                            error[0] ? error : TR("The SD card changed during the operation."));
+        return false;
+    }
     int percent = total ? (int) (downloaded * 100 / total) : 0;
     if (percent > 100) {
         percent = 100;
@@ -1302,9 +1386,10 @@ static bool download_progress(uint64_t downloaded, uint64_t total, void * unused
 }
 
 static bool download_plugin_files(const plugin_store_plugin_t * p, const char * tag,
-                                 const char * stage, uint64_t * bytes) {
+                                 const char * stage, uint64_t * bytes, download_guard_t * guard) {
     *bytes = 0;
-    if (!mkdir_tree(STORE_SD_ROOT, stage)) {
+    if (!storage_path_writable(STORE_SD_ROOT, guard ? guard->error : NULL, guard ? sizeof(guard->error) : 0) ||
+        !mkdir_tree(STORE_SD_ROOT, stage)) {
         return false;
     }
     for (int i = 0; i < p->file_count; i++) {
@@ -1324,7 +1409,7 @@ static bool download_plugin_files(const plugin_store_plugin_t * p, const char * 
         }
         int status = 0;
         if (!http_get_to_file_redirects(url, true, dest, STORE_FILE_LIMIT, download_progress,
-                                        NULL, STORE_TIMEOUT_CONNECT, STORE_TIMEOUT_READ, NULL, 5,
+                                        guard, STORE_TIMEOUT_CONNECT, STORE_TIMEOUT_READ, NULL, 5,
                                         &status)) {
             return false;
         }
@@ -1575,7 +1660,7 @@ static void * preview_worker(void * context) {
             } else {
                 ready = false;
             }
-            if (!ready) unlink(bin_path);
+            if (!ready && preview_progress(0, 0, job)) unlink(bin_path);
         } else {
             ready = false;
         }
@@ -1786,7 +1871,7 @@ typedef struct {
 } store_job_t;
 static bool disk_space(uint64_t bytes) {
     struct statvfs fs;
-    return statvfs(STORE_SD_ROOT, &fs) == 0 &&
+    return statvfs(STORE_SD_ROOT, &fs) == 0 && !(fs.f_flag & ST_RDONLY) &&
            (uint64_t) fs.f_bavail * fs.f_frsize >= bytes + STORE_MARGIN;
 }
 
@@ -1807,13 +1892,14 @@ static void cleanup_stage(const store_card_t * card, const char * path, int coun
         return;
     }
     for (int i = 0; i < count; i++) {
+        if (!card_still(card) || !storage_path_writable(STORE_SD_ROOT, NULL, 0)) return;
         char p[PATH_MAX + 32];
         snprintf(p, sizeof(p), "%s/%d.part", path, i);
         unlink(p);
         snprintf(p, sizeof(p), "%s/%d.backup", path, i);
         unlink(p);
     }
-    rmdir(path); /* only succeeds once empty */
+    if (card_still(card) && storage_path_writable(STORE_SD_ROOT, NULL, 0)) rmdir(path); /* only succeeds once empty */
 }
 static void * install_worker(void * arg) {
     store_job_t job = *(store_job_t *) arg;
@@ -1821,6 +1907,11 @@ static void * install_worker(void * arg) {
     store_card_t card;
     if (!card_mounted(&card)) {
         finish(PLUGIN_STORE_FAILED, TR("Insert an SD card to install plugins."), false);
+        return NULL;
+    }
+    char guard_error[160] = {0};
+    if (!storage_path_writable(STORE_SD_ROOT, guard_error, sizeof(guard_error))) {
+        finish(PLUGIN_STORE_FAILED, guard_error, false);
         return NULL;
     }
     plugin_store_plugin_t p = job.plugin;
@@ -1853,7 +1944,7 @@ static void * install_worker(void * arg) {
         finish(PLUGIN_STORE_FAILED, TR("Too many plugins are installed. Remove one and try again."), false);
         return NULL;
     }
-    if (job.state == PLUGIN_STORE_INSTALLING && installed >= 0) {
+    if (job.state == PLUGIN_STORE_INSTALLING && installed >= 0 && !job.force) {
         free(rec);
         free(vers);
         finish(PLUGIN_STORE_FAILED, TR("This plugin is already installed by the store."), false);
@@ -1884,12 +1975,13 @@ static void * install_worker(void * arg) {
     }
     char stage[PATH_MAX];
     make_stage_path(stage, sizeof(stage), "", p.id);
-    if (!download_plugin_files(&p, job.tag, stage, &total)) {
+    download_guard_t download_guard = { .card = &card };
+    if (!download_plugin_files(&p, job.tag, stage, &total, &download_guard)) {
         cleanup_stage(&card, stage, p.file_count);
         free(rec);
         free(vers);
-        finish(PLUGIN_STORE_FAILED, TR("The plugin download failed verification. Try again."),
-               false);
+        finish(PLUGIN_STORE_FAILED, download_guard.error[0] ? download_guard.error :
+               TR("The plugin download failed verification. Try again."), false);
         return NULL;
     }
     if (!card_still(&card)) {
@@ -1907,13 +1999,21 @@ static void * install_worker(void * arg) {
                TR("A local plugin file will be replaced. Confirm to continue."), false);
         return NULL;
     }
+    if (!storage_path_writable(STORE_SD_ROOT, guard_error, sizeof(guard_error)) || !card_still(&card)) {
+        cleanup_stage(&card, stage, p.file_count);
+        free(rec); free(vers);
+        finish(PLUGIN_STORE_FAILED, guard_error[0] ? guard_error : TR("The SD card changed during the operation."), false);
+        return NULL;
+    }
+    bool preserve_stage = false;
     commit_card = &card;
-    bool ok = plugin_store_commit_local(STORE_SD_ROOT, stage, &p, job.force, rec, vers, rn);
+    bool ok = plugin_store_commit_local_internal(STORE_SD_ROOT, stage, &p, job.force, rec, vers, rn,
+                                                 &preserve_stage);
     commit_card = NULL;
     bool same = card_still(&card);
     bool needs_confirmation = !ok && same && !job.force &&
                              conflict_exists(STORE_SD_ROOT, &p, rec, vers, rn);
-    if (same) {
+    if (same && !preserve_stage) {
         cleanup_stage(&card, stage, p.file_count); /* never on another card */
     }
     free(rec);
@@ -1925,7 +2025,9 @@ static void * install_worker(void * arg) {
             finish(PLUGIN_STORE_NEEDS_CONFIRM,
                    TR("A local plugin file will be replaced. Confirm to continue."), false);
         } else {
-            finish(PLUGIN_STORE_FAILED, TR("Could not install the plugin on the SD card."), false);
+            char write_error[160];
+            finish(PLUGIN_STORE_FAILED, !storage_path_writable(STORE_SD_ROOT, write_error, sizeof(write_error)) ? write_error :
+                   TR("Could not install the plugin on the SD card."), false);
         }
         return NULL;
     }
@@ -1937,6 +2039,16 @@ static void * install_worker(void * arg) {
 /* Snapshot the selected catalog entry and claim the worker slot atomically. */
 static bool start_install(const char * id, bool force, plugin_store_state_t state) {
     if (!id || !regex_id(id)) {
+        return false;
+    }
+    char guard_error[160];
+    store_card_t available_card;
+    if (!card_mounted(&available_card)) {
+        reject_store_operation(TR("Insert an SD card to change plugins."));
+        return false;
+    }
+    if (!storage_path_writable(STORE_SD_ROOT, guard_error, sizeof(guard_error))) {
+        reject_store_operation(guard_error);
         return false;
     }
     store_job_t * job = calloc(1, sizeof(*job));
@@ -2030,6 +2142,11 @@ static void * uninstall_worker(void * arg) {
         finish(PLUGIN_STORE_FAILED, TR("Insert an SD card to remove plugins."), false);
         return NULL;
     }
+    char initial_guard_error[160];
+    if (!storage_path_writable(STORE_SD_ROOT, initial_guard_error, sizeof(initial_guard_error))) {
+        finish(PLUGIN_STORE_FAILED, initial_guard_error, false);
+        return NULL;
+    }
     plugin_store_plugin_t * rec;
     char (*vers)[32];
     size_t rn;
@@ -2064,11 +2181,12 @@ static void * uninstall_worker(void * arg) {
         if (f->keep) {
             continue;
         }
-        if (!card_still(&card)) {
-            /* Another card: restoring backups would write to it. */
+        char guard_error[160];
+        if (!storage_path_writable(STORE_SD_ROOT, guard_error, sizeof(guard_error)) || !card_still(&card)) {
+            /* Another card or a read-only/host-shared mount: leave backups untouched. */
             free(rec);
             free(vers);
-            finish(PLUGIN_STORE_FAILED, TR("The SD card changed during the operation."), false);
+            finish(PLUGIN_STORE_FAILED, guard_error[0] ? guard_error : TR("The SD card changed during the operation."), false);
             return NULL;
         }
         char path[PATH_MAX], backup[PATH_MAX + 32];
@@ -2082,7 +2200,7 @@ static void * uninstall_worker(void * arg) {
             unlink(backup);
             if (rename(path, backup) != 0) {
                 for (int j = 0; j < i; j++) {
-                    if (backed[j]) {
+                    if (backed[j] && storage_path_writable(STORE_SD_ROOT, NULL, 0) && card_still(&card)) {
                         char dst[PATH_MAX], bak[PATH_MAX + 32];
                         path_for(dst, sizeof(dst), STORE_SD_ROOT, rec[found].files[j].dest);
                         snprintf(bak, sizeof(bak), "%s/%d.backup", stage, j);
@@ -2104,13 +2222,19 @@ static void * uninstall_worker(void * arg) {
         finish(PLUGIN_STORE_FAILED, TR("The SD card changed during the operation."), false);
         return NULL;
     }
+    char guard_error[160];
+    if (!storage_path_writable(STORE_SD_ROOT, guard_error, sizeof(guard_error)) || !card_still(&card)) {
+        free(rec); free(vers);
+        finish(PLUGIN_STORE_FAILED, guard_error[0] ? guard_error : TR("The SD card changed during the operation."), false);
+        return NULL;
+    }
     commit_card = &card;
     bool ok = write_record_without(STORE_SD_ROOT, rec, vers, rn, id);
     commit_card = NULL;
     bool same = card_still(&card); /* a swapped card's files are left alone */
     if (!ok && same) {
         for (int i = 0; i < rec[found].file_count; i++) {
-            if (backed[i]) {
+            if (backed[i] && storage_path_writable(STORE_SD_ROOT, NULL, 0) && card_still(&card)) {
                 char dst[PATH_MAX], bak[PATH_MAX + 32];
                 path_for(dst, sizeof(dst), STORE_SD_ROOT, rec[found].files[i].dest);
                 snprintf(bak, sizeof(bak), "%s/%d.backup", stage, i);
@@ -2119,13 +2243,13 @@ static void * uninstall_worker(void * arg) {
         }
     } else if (ok && same) {
         for (int i = 0; i < rec[found].file_count; i++) {
-            if (backed[i]) {
+            if (backed[i] && storage_path_writable(STORE_SD_ROOT, NULL, 0) && card_still(&card)) {
                 char bak[PATH_MAX + 32];
                 snprintf(bak, sizeof(bak), "%s/%d.backup", stage, i);
                 unlink(bak);
             }
         }
-        rmdir(stage);
+        if (storage_path_writable(STORE_SD_ROOT, NULL, 0) && card_still(&card)) rmdir(stage);
     }
     free(rec);
     free(vers);
@@ -2139,7 +2263,18 @@ static void * uninstall_worker(void * arg) {
     return NULL;
 }
 bool plugin_store_uninstall(const char * id) {
-    if (!id || !regex_id(id) || !begin(PLUGIN_STORE_UNINSTALLING)) {
+    char guard_error[160];
+    store_card_t available_card;
+    if (!id || !regex_id(id)) return false;
+    if (!card_mounted(&available_card)) {
+        reject_store_operation(TR("Insert an SD card to remove plugins."));
+        return false;
+    }
+    if (!storage_path_writable(STORE_SD_ROOT, guard_error, sizeof(guard_error))) {
+        reject_store_operation(guard_error);
+        return false;
+    }
+    if (!begin(PLUGIN_STORE_UNINSTALLING)) {
         return false;
     }
     char * copy = strdup(id);
@@ -2161,6 +2296,11 @@ static void * update_all_worker(void * unused) {
         finish(PLUGIN_STORE_FAILED, TR("Insert an SD card to update plugins."), false);
         return NULL;
     }
+    char initial_guard_error[160];
+    if (!storage_path_writable(STORE_SD_ROOT, initial_guard_error, sizeof(initial_guard_error))) {
+        finish(PLUGIN_STORE_FAILED, initial_guard_error, false);
+        return NULL;
+    }
     plugin_store_plugin_t * rec;
     char (*vers)[32];
     size_t rn;
@@ -2175,6 +2315,7 @@ static void * update_all_worker(void * unused) {
     pthread_mutex_unlock(&store_mutex);
     bool changed = false;
     const char * failure = NULL; /* the last update that failed, reported at the end */
+    char failure_buffer[160] = {0};
     char pending[65] = "";
     char pending_ids[PLUGIN_STORE_MAX_PLUGINS][64];
     size_t pending_count = 0;
@@ -2199,6 +2340,12 @@ static void * update_all_worker(void * unused) {
         if (r < 0 || plugin_store_version_compare(p->version, vers[r]) <= 0 ||
             p->api_min > PLUGIN_API_VERSION) {
             continue;
+        }
+        char guard_error[160];
+        if (!storage_path_writable(STORE_SD_ROOT, guard_error, sizeof(guard_error)) || !card_still(&card)) {
+            free(rec); free(vers);
+            finish(PLUGIN_STORE_FAILED, guard_error[0] ? guard_error : TR("The SD card changed during the operation."), changed);
+            return NULL;
         }
         progress_set((int) (i * 100 / (index_count ? index_count : 1)), p->name);
         if (conflict_exists(STORE_SD_ROOT, p, rec, vers, rn)) {
@@ -2225,9 +2372,12 @@ static void * update_all_worker(void * unused) {
         char stage[PATH_MAX];
         make_stage_path(stage, sizeof(stage), "", p->id);
         uint64_t bytes = 0;
-        if (!download_plugin_files(p, tag, stage, &bytes)) {
+        download_guard_t download_guard = { .card = &card };
+        if (!download_plugin_files(p, tag, stage, &bytes, &download_guard)) {
             cleanup_stage(&card, stage, p->file_count);
-            failure = TR("A plugin download failed verification. Try again.");
+            snprintf(failure_buffer, sizeof(failure_buffer), "%s", download_guard.error[0]
+                     ? download_guard.error : TR("A plugin download failed verification. Try again."));
+            failure = failure_buffer;
             continue;
         }
         if (!card_still(&card)) {
@@ -2236,8 +2386,15 @@ static void * update_all_worker(void * unused) {
             finish(PLUGIN_STORE_FAILED, TR("The SD card changed during the operation."), changed);
             return NULL;
         }
+        if (!storage_path_writable(STORE_SD_ROOT, guard_error, sizeof(guard_error)) || !card_still(&card)) {
+            free(rec); free(vers);
+            finish(PLUGIN_STORE_FAILED, guard_error[0] ? guard_error : TR("The SD card changed during the operation."), changed);
+            return NULL;
+        }
+        bool preserve_stage = false;
         commit_card = &card;
-        bool installed = plugin_store_commit_local(STORE_SD_ROOT, stage, p, false, rec, vers, rn);
+        bool installed = plugin_store_commit_local_internal(STORE_SD_ROOT, stage, p, false, rec, vers, rn,
+                                                             &preserve_stage);
         commit_card = NULL;
         if (!installed && !card_still(&card)) {
             free(rec);
@@ -2258,9 +2415,15 @@ static void * update_all_worker(void * unused) {
             snprintf(pending, sizeof(pending), "%.64s", p->name);
             snprintf(pending_ids[pending_count++], 64, "%.63s", p->id);
         } else if (!installed) {
-            failure = TR("Could not install a plugin on the SD card.");
+            char write_error[160];
+            if (!storage_path_writable(STORE_SD_ROOT, write_error, sizeof(write_error))) {
+                snprintf(failure_buffer, sizeof(failure_buffer), "%s", write_error);
+                failure = failure_buffer;
+            } else {
+                failure = TR("Could not install a plugin on the SD card.");
+            }
         }
-        cleanup_stage(&card, stage, p->file_count);
+        if (!preserve_stage) cleanup_stage(&card, stage, p->file_count);
     }
     free(rec);
     free(vers);
@@ -2290,6 +2453,16 @@ static void * update_all_worker(void * unused) {
     return NULL;
 }
 bool plugin_store_update_all(void) {
+    char guard_error[160];
+    store_card_t available_card;
+    if (!card_mounted(&available_card)) {
+        reject_store_operation(TR("Insert an SD card to update plugins."));
+        return false;
+    }
+    if (!storage_path_writable(STORE_SD_ROOT, guard_error, sizeof(guard_error))) {
+        reject_store_operation(guard_error);
+        return false;
+    }
     pthread_mutex_lock(&store_mutex);
     bool have_index = last_index != NULL;
     pthread_mutex_unlock(&store_mutex);
@@ -2321,6 +2494,127 @@ void plugin_store_get_status(plugin_store_status_t * out, plugin_store_result_t 
     }
     pthread_mutex_unlock(&store_mutex);
 }
+static bool layout_stem_valid(const char * stem) {
+    if (!stem || !stem[0] || strlen(stem) >= 64) return false;
+    for (const unsigned char * p = (const unsigned char *) stem; *p; ++p)
+        if (!ascii_alnum((char)*p) && *p != '_' && *p != '.' && *p != '-') return false;
+    return true;
+}
+
+static bool layout_filename_is_primary(const char * name) {
+    size_t len = name ? strlen(name) : 0;
+    if (len < 5 || strcasecmp(name + len - 4, ".xml") != 0 || strchr(name, '@')) return false;
+    size_t stem_len = len - 4;
+    char stem[64];
+    if (!stem_len || stem_len >= sizeof(stem)) return false;
+    memcpy(stem, name, stem_len);
+    stem[stem_len] = '\0';
+    const char * underscore = strrchr(stem, '_');
+    if (underscore && (size_t)(stem + stem_len - underscore) >= 4) {
+        const char * p = underscore + 1;
+        const char * end = stem + stem_len;
+        const char * x = p;
+        while (x < end && ascii_digit(*x)) ++x;
+        if (x > p && x < end && *x == 'x') {
+            const char * h = x + 1;
+            while (h < end && ascii_digit(*h)) ++h;
+            if (h == end && h > x + 1) return false;
+        }
+    }
+    return layout_stem_valid(stem);
+}
+
+static bool layout_id_from_catalog_dest(const char * dest, char * out, size_t size) {
+    if (!plugin_store_dest_valid(dest)) return false;
+    const char * filename = NULL;
+    char prefix[64] = "";
+    if (strncmp(dest, ".plugins/player_layouts/", 24) == 0) {
+        filename = dest + 24;
+    } else if (strncmp(dest, ".plugins/", 9) == 0) {
+        const char * rest = dest + 9;
+        const char * slash = strchr(rest, '/');
+        if (!slash) {
+            filename = rest;
+            snprintf(prefix, sizeof(prefix), "plugin.");
+        } else {
+            if (strncmp(slash, "/player_layouts/", 16) != 0) return false;
+            size_t bundle_len = (size_t)(slash - rest);
+            char bundle[64];
+            if (!bundle_len || bundle_len >= sizeof(bundle)) return false;
+            memcpy(bundle, rest, bundle_len);
+            bundle[bundle_len] = '\0';
+            if (!layout_stem_valid(bundle) || snprintf(prefix, sizeof(prefix), "plugin.%s.", bundle) >= (int) sizeof(prefix))
+                return false;
+            filename = slash + 16;
+        }
+    } else {
+        return false;
+    }
+    if (!filename || strchr(filename, '/') || !layout_filename_is_primary(filename)) return false;
+    char stem[64];
+    size_t len = strlen(filename) - 4;
+    if (!len || len >= sizeof(stem)) return false;
+    memcpy(stem, filename, len);
+    stem[len] = '\0';
+    int n = snprintf(out, size, "%s%s", prefix, stem);
+    return n > 0 && (size_t)n < size && layout_stem_valid(out) && strcmp(out, "default") != 0;
+}
+
+bool plugin_store_get_player_layout_id(const char * plugin_id, char * out, size_t size) {
+    if (!out || !size) return false;
+    out[0] = '\0';
+    if (!plugin_id || !regex_id(plugin_id)) return false;
+    plugin_store_plugin_t catalog_plugin;
+    bool found = false;
+    pthread_mutex_lock(&store_mutex);
+    for (size_t i = 0; i < last_index_count; ++i) {
+        if (strcmp(last_index[i].id, plugin_id) == 0) {
+            catalog_plugin = last_index[i];
+            found = true;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&store_mutex);
+    if (!found) return false;
+
+    plugin_store_plugin_t * records = NULL;
+    char (*versions)[32] = NULL;
+    size_t record_count = 0;
+    if (!read_record_alloc(&records, &versions, &record_count)) return false;
+    const plugin_store_plugin_t * installed = NULL;
+    for (size_t i = 0; i < record_count; ++i)
+        if (strcmp(records[i].id, plugin_id) == 0) { installed = &records[i]; break; }
+
+    bool valid = false;
+    if (installed) {
+        char root_real[PATH_MAX];
+        bool root_ok = realpath(STORE_SD_ROOT, root_real) != NULL;
+        for (int f = 0; root_ok && f < catalog_plugin.file_count; ++f) {
+            char layout_id[64], path[PATH_MAX], file_real[PATH_MAX], sha[65];
+            uint64_t bytes = 0;
+            const plugin_store_file_t * file = &catalog_plugin.files[f];
+            if (!layout_id_from_catalog_dest(file->dest, layout_id, sizeof(layout_id))) continue;
+            bool recorded = false;
+            for (int r = 0; r < installed->file_count; ++r)
+                if (strcmp(installed->files[r].dest, file->dest) == 0 &&
+                    strcmp(installed->files[r].sha256, file->sha256) == 0) recorded = true;
+            if (!recorded || !path_for(path, sizeof(path), STORE_SD_ROOT, file->dest) ||
+                !parent_dirs_safe(STORE_SD_ROOT, file->dest, false)) continue;
+            struct stat st;
+            if (lstat(path, &st) != 0 || !S_ISREG(st.st_mode) || !realpath(path, file_real)) continue;
+            size_t root_len = strlen(root_real);
+            if (strncmp(file_real, root_real, root_len) != 0 || file_real[root_len] != '/') continue;
+            if (!hash_file(path, &bytes, sha) || bytes != file->size || strcmp(sha, file->sha256) != 0) continue;
+            if (snprintf(out, size, "%s", layout_id) >= (int) size) { out[0] = '\0'; break; }
+            valid = true;
+            break;
+        }
+    }
+    free(records);
+    free(versions);
+    return valid;
+}
+
 bool plugin_store_get_details(const char * id, plugin_store_details_t * out) {
     if (!id || !out) {
         return false;

@@ -561,6 +561,13 @@ static lv_obj_t * build_t9_keypad_group(lv_obj_t * parent) {
     lv_image_set_src(right_key, asset_path("keyboard/right.png"));
     lv_obj_t * enter_key = text_entry_make_key(group, 4, 2, text_entry_enter_click_cb, NULL);
     lv_image_set_src(enter_key, asset_path("keyboard/enter.png"));
+    /* Match the last row's actual image bounds, including board-specific
+     * row spacing. Stock enter.png is 190px tall versus 188px for the R1
+     * two-row footprint; stretching preserves its rounded bottom edge. */
+    lv_obj_update_layout(right_key);
+    lv_obj_set_size(enter_key, lv_obj_get_width(right_key),
+                    TEXT_ENTRY_KEY_SIZE + TEXT_ENTRY_KEY_GAP + lv_obj_get_height(right_key));
+    lv_image_set_inner_align(enter_key, LV_IMAGE_ALIGN_STRETCH);
     lv_obj_t * space_key = text_entry_make_key(group, 2, 3, text_entry_space_click_cb, NULL);
     lv_image_set_src(space_key, asset_path("keyboard/space2.png"));
 

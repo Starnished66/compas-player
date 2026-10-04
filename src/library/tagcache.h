@@ -173,6 +173,16 @@ int32_t tagcache_query_count(tagcache_query_t *query);
 void tagcache_query_skip(tagcache_query_t *query, int32_t count);
 int tagcache_group_album_count(int kind, const char *name);
 int tagcache_group_album_at(int kind, const char *name, int offset);
+/* Visits one artist/album-artist page in canonical album order. The callback
+ * receives reader-owned group data valid only until it returns. Query mode
+ * resolves the posting range once per page; the legacy reader scans groups
+ * once. Returns the number visited, or -1 for invalid arguments/query error. */
+typedef void (*tagcache_group_album_page_cb_t)(int32_t album_rank,
+                                               const tagcache_group_t *album,
+                                               void *user_data);
+int tagcache_group_album_page(int kind, const char *name, int offset,
+                              int max_rows, tagcache_group_album_page_cb_t callback,
+                              void *user_data);
 int tagcache_group_album_offset(int kind, const char *name, const char *album, const char *album_artist);
 bool tagcache_album_group_at_sorted(int sort, int rank, tagcache_group_t *out);
 int tagcache_album_group_sorted_offset(int sort, const char *album, const char *album_artist);

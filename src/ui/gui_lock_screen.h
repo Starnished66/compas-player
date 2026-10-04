@@ -33,7 +33,12 @@ bool gui_lock_screen_is_showing(void);
 
 /* Shows the lock screen with the specified options. Returns true on success. */
 bool gui_lock_screen_show(const gui_lock_screen_options_t * options);
-void gui_lock_screen_refresh_cover(void);
+/* Uses the same renderer without navigating; the parent owns the preview. */
+lv_obj_t * gui_lock_screen_create_preview(lv_obj_t * parent, const gui_lock_screen_options_t * options);
+/* Refresh metadata, and optionally artwork, on the UI thread. */
+void gui_lock_screen_refresh(bool artwork_changed);
+/* File-backed photos may be excluded for latency-sensitive wake readiness. */
+bool gui_lock_screen_has_background_work(bool include_photos);
 
 /* Drag-state recovery hooks for gui_navigation.c / gui.c */
 void gui_lock_screen_swipe_recover(void * ctx);

@@ -175,3 +175,10 @@ from this file itself), so it's excluded from this public repo pending
 verification. The desktop simulator therefore won't render Korean text
 locally; this has no effect on the real device, where Korean.ttf is never
 copied or modified, only read from its existing on-device location.
+
+# Montserrat-Medium.ttf -- large display text
+
+This is an unchanged copy of LVGL's `scripts/built_in_font/Montserrat-Medium.ttf`,
+the source face for the player's compiled Montserrat UI fonts. It supplies
+reusable large display text through the existing runtime font registry.
+The accompanying license is in `Montserrat-OFL.txt`.
