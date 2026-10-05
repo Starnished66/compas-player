@@ -35,6 +35,9 @@ extern const int SLEEP_TIMER_STEPS[];
 
 #define BT_DEVICE_RATE_MAX 8
 
+#define KEYBOARD_LAYOUT_T9 0
+#define KEYBOARD_LAYOUT_QWERTY 1
+
 typedef struct {
     float volume;              /* 0.0 - 1.0 */
     char last_track[512];      /* absolute path, empty if none */
@@ -377,6 +380,11 @@ typedef struct {
      * Medium, 2 = "BlindMF" (largest). Applied at startup and live
      * via fallback_font_apply_size_tier(). Defaults to 1 (Medium). */
     int font_size_tier;
+
+    /* Settings -> Display -> Appearance -> Keyboard. Layout used by every text
+     * field and inline search: 0 = T9 keypad (default), 1 = QWERTY. Numeric
+     * fields always use the T9 numeric keypad. */
+    int keyboard_layout;
 
     /* Settings -> Lyrics Text Size: independent text size control for the
      * fullscreen synchronized lyrics view (1 = Medium, 2 = Large). Defaults to 1 (Medium). */

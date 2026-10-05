@@ -16,6 +16,7 @@ A refreshed player experience, from first setup to Now Playing.
 - Smoother lyrics, drawer, and power-menu transitions; clearer frosted glass, improved frame pacing, and more reliable touch handling.
 - Redesigned **Parametric EQ** with larger slider touch targets, profile controls, a Flat reset, and a response graph.
 - Reorganized settings, larger popup controls, consistent rows, and **Sound / Playback / Library** shortcuts in Music.
+- T9 remains the default keyboard, with optional QWERTY in **Settings > Display > Appearance > Keyboard** for accented letters and symbols; numeric fields keep the numeric keypad.
 - Improved library search and sorting, Genres browsing, Play All controls, Subsonic queues/downloads/quality, and safer handling of damaged tags and additional track formats.
 - **LDAC in Bluetooth DAC mode is now automatic** with the rebuilt decoder; its experimental toggle is removed.
 - Better Wi-Fi/Bluetooth lists, accent-color refresh, SD-card warning handling, and R3II 2025 scaling/volume-wheel behavior.

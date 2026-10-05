@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: compas-player\n"
 "Report-Msgid-Bugs-To: none\n"
-"POT-Creation-Date: 2026-10-04 12:01-0600\n"
+"POT-Creation-Date: 2026-10-04 17:09-0600\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -2233,6 +2233,15 @@ msgid "Library"
 msgstr ""
 
 msgid "Animation Speed"
+msgstr ""
+
+msgid "T9"
+msgstr ""
+
+msgid "QWERTY"
+msgstr ""
+
+msgid "Keyboard"
 msgstr ""
 
 msgid "Drawer Volume Slider"

@@ -29,7 +29,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: compas-player\n"
 "Report-Msgid-Bugs-To: none\n"
-"POT-Creation-Date: 2026-10-04 12:01-0600\n"
+"POT-Creation-Date: 2026-10-04 17:09-0600\n"
 "PO-Revision-Date: 2026-10-01 00:00+0000\n"
 "Last-Translator: Machine draft\n"
 "Language-Team: Italian\n"
@@ -2286,6 +2286,15 @@ msgstr "Libreria"
 
 msgid "Animation Speed"
 msgstr "Velocità animazioni"
+
+msgid "T9"
+msgstr "T9"
+
+msgid "QWERTY"
+msgstr "QWERTY"
+
+msgid "Keyboard"
+msgstr "Tastiera"
 
 msgid "Drawer Volume Slider"
 msgstr "Cursore volume nel pannello"

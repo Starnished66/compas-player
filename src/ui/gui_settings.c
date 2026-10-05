@@ -77,6 +77,8 @@ static lv_obj_t * music_controls_screen;
 static lv_obj_t * settings_display_screen;
 static lv_obj_t * animation_speed_screen;
 static lv_obj_t * animation_speed_list;
+static lv_obj_t * keyboard_layout_screen;
+static lv_obj_t * keyboard_layout_list;
 static lv_obj_t * player_layout_choice_screen;
 static lv_obj_t * player_layout_choice_list;
 static lv_obj_t * language_choice_screen;
@@ -2773,6 +2775,49 @@ static void animation_speed_settings_row_cb(lv_event_t * e) {
     nav_push(animation_speed_screen);
 }
 
+typedef struct {
+    int layout;
+    const char * label;
+} keyboard_layout_option_t;
+
+static const keyboard_layout_option_t keyboard_layout_options[] = {
+    { KEYBOARD_LAYOUT_T9, N_("T9") }, { KEYBOARD_LAYOUT_QWERTY, N_("QWERTY") },
+};
+#define KEYBOARD_LAYOUT_OPTION_COUNT (sizeof(keyboard_layout_options) / sizeof(keyboard_layout_options[0]))
+
+static void keyboard_layout_option_row_cb(lv_event_t * e);
+
+static void populate_keyboard_layout_screen(void) {
+    if (!keyboard_layout_list) return;
+    lv_obj_clean(keyboard_layout_list);
+    for (size_t i = 0; i < KEYBOARD_LAYOUT_OPTION_COUNT; i++) {
+        bool selected = current_settings.keyboard_layout == keyboard_layout_options[i].layout;
+        add_pill_option_row(keyboard_layout_list, TR(keyboard_layout_options[i].label),
+                            selected, keyboard_layout_option_row_cb, (void *) (intptr_t) i);
+    }
+}
+
+/* Takes effect the next time a text field or inline search opens -- the
+ * shared keyboard picks its layout at session start (gui_text_input.c). */
+static void keyboard_layout_option_row_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    int index = (int) (intptr_t) lv_event_get_user_data(e);
+    current_settings.keyboard_layout = keyboard_layout_options[index].layout;
+    settings_save(&current_settings);
+    populate_keyboard_layout_screen();
+}
+
+static lv_obj_t * build_keyboard_layout_screen(void) {
+    lv_obj_t * title_label; /* unused after build -- title never changes */
+    return build_subsonic_list_screen(TR("Keyboard"), &title_label, &keyboard_layout_list);
+}
+
+static void keyboard_layout_settings_row_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    populate_keyboard_layout_screen();
+    nav_push(keyboard_layout_screen);
+}
+
 static void upside_down_screen_switch_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
     current_settings.screen_upside_down = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
@@ -2807,20 +2852,21 @@ void gui_display_apply_rotation(bool upside_down) {
 }
 
 static lv_obj_t * build_settings_appearance_screen(void) {
-    static pill_list_item_t items[6 + PLUGIN_MAX_DISPLAY_LIST_ITEMS];
+    static pill_list_item_t items[7 + PLUGIN_MAX_DISPLAY_LIST_ITEMS];
     items[0] = (pill_list_item_t){ TR("Accent Color"), PILL_ACCESSORY_CHEVRON, false, accent_color_row_cb, NULL, NULL };
     items[1] = (pill_list_item_t){ TR("Font"), PILL_ACCESSORY_CHEVRON, false, custom_font_row_cb, NULL, NULL };
     items[2] = (pill_list_item_t){ TR("Font Size"), PILL_ACCESSORY_CHEVRON, false, font_size_settings_row_cb, NULL, NULL };
-    items[3] = (pill_list_item_t){ TR("Drawer Volume Slider"), PILL_ACCESSORY_TOGGLE,
+    items[3] = (pill_list_item_t){ TR("Keyboard"), PILL_ACCESSORY_CHEVRON, false, keyboard_layout_settings_row_cb, NULL, NULL };
+    items[4] = (pill_list_item_t){ TR("Drawer Volume Slider"), PILL_ACCESSORY_TOGGLE,
                                     current_settings.quick_drawer_volume_visible, NULL,
                                     quick_drawer_volume_visible_switch_event_cb, NULL };
-    items[4] = (pill_list_item_t){ TR("Battery Percentage"), PILL_ACCESSORY_TOGGLE,
+    items[5] = (pill_list_item_t){ TR("Battery Percentage"), PILL_ACCESSORY_TOGGLE,
                                     current_settings.show_battery_percent, NULL,
                                     battery_percent_switch_event_cb, NULL };
-    items[5] = (pill_list_item_t){ TR("Artist Images"), PILL_ACCESSORY_TOGGLE,
+    items[6] = (pill_list_item_t){ TR("Artist Images"), PILL_ACCESSORY_TOGGLE,
                                     current_settings.show_artist_images, NULL,
                                     artist_images_switch_event_cb, NULL };
-    int count = append_grouped_plugin_rows(items, 6, PLUGIN_MAX_DISPLAY_LIST_ITEMS,
+    int count = append_grouped_plugin_rows(items, 7, PLUGIN_MAX_DISPLAY_LIST_ITEMS,
         "display", "appearance", plugin_manager_get_display_list_item_count,
         plugin_manager_get_display_list_item_label, plugin_manager_get_display_list_item_options,
         plugin_display_list_item_click_cb);
@@ -4801,6 +4847,7 @@ void gui_settings_init(void) {
     music_controls_screen = NULL; /* built on first open of Playback & Controls > Buttons & Remote */
     car_mode_screen = build_car_mode_screen();
     animation_speed_screen = build_animation_speed_screen();
+    keyboard_layout_screen = build_keyboard_layout_screen();
     player_layout_choice_screen = build_player_layout_choice_screen();
     language_choice_screen = build_language_choice_screen();
     settings_display_screen = build_settings_display_screen();
@@ -4889,6 +4936,8 @@ void gui_settings_teardown(void) {
     car_mode_volume_slider = NULL;
     if (animation_speed_screen) { lv_obj_delete(animation_speed_screen); animation_speed_screen = NULL; }
     animation_speed_list = NULL;
+    if (keyboard_layout_screen) { lv_obj_delete(keyboard_layout_screen); keyboard_layout_screen = NULL; }
+    keyboard_layout_list = NULL;
     if (player_layout_choice_screen) { lv_obj_delete(player_layout_choice_screen); player_layout_choice_screen = NULL; }
     player_layout_choice_list = NULL;
     if (language_choice_screen) { lv_obj_delete(language_choice_screen); language_choice_screen = NULL; }

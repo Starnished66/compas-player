@@ -35,7 +35,9 @@ extern void plugin_text_entry_done_cb(const char * text, void * user_data);
 static lv_obj_t * text_entry_screen;
 static lv_obj_t * text_entry_title_label;
 static lv_obj_t * text_entry_textarea;
-static lv_obj_t * text_entry_keypad_group; /* wraps every T9 key -- reparented onto whichever screen has inline search open, see t9_keypad_attach()/t9_keypad_release() */
+static lv_obj_t * text_entry_keypad_group; /* wraps both keypad layouts (T9 pad + QWERTY keyboard) -- reparented onto whichever screen has inline search open, see t9_keypad_attach()/t9_keypad_release() */
+static lv_obj_t * text_entry_t9_pad;      /* every T9 key lives under this; hidden while the QWERTY layout is in use */
+static lv_obj_t * text_entry_qwerty_kb;   /* lv_keyboard, hidden unless Settings -> Keyboard is QWERTY and the field isn't numeric */
 /* Enter's meaning while the keypad is on loan for inline search: dismiss
  * just the keypad (search stays active) instead of text_entry_commit()'s
  * normal nav_pop()-and-fire-callback modal flow -- see
@@ -448,14 +450,19 @@ static void text_entry_space_click_cb(lv_event_t * e) {
  * since it's this file's only reference to search state from within the
  * text-entry section, which comes first. */
 
-static void text_entry_enter_click_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+/* Shared by the T9 and QWERTY Enter keys. */
+static void text_entry_enter(void) {
     text_entry_finalize_pending();
     if (text_entry_inline_mode_active) {
         t9_keypad_dismiss_only();
         return;
     }
     text_entry_commit();
+}
+
+static void text_entry_enter_click_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    text_entry_enter();
 }
 
 /* Every key is a plain clickable image at its own top-left grid cell (col,
@@ -474,6 +481,260 @@ static lv_obj_t * text_entry_make_key(lv_obj_t * scr, int col, int row, lv_event
     return img;
 }
 
+/* ---- QWERTY layout: an lv_keyboard inside the same keypad container as the
+ * T9 pad, covering the same screen footprint (so t9_keypad_get_grid_y() and
+ * every screen's layout are layout-independent). Pages map onto lv_keyboard
+ * modes: TEXT_LOWER/TEXT_UPPER = letters, SPECIAL = numbers + symbols,
+ * USER_1 = more symbols, USER_2/USER_3 = accented letters (lower/upper).
+ * Key labels are fixed ASCII/symbol constants, never translated, so function
+ * keys are told apart by label (the same way lv_keyboard_def_event_cb does);
+ * they carry LV_BUTTONMATRIX_CTRL_CUSTOM_1, every other key just types its
+ * label. Shift reuses text_entry_shift (one-shot) and text_entry_caps_lock. ---- */
+#define QWERTY_KEY_SHIFT LV_SYMBOL_UP
+#define QWERTY_KEY_BACKSPACE LV_SYMBOL_BACKSPACE
+#define QWERTY_KEY_LEFT LV_SYMBOL_LEFT
+#define QWERTY_KEY_RIGHT LV_SYMBOL_RIGHT
+#define QWERTY_KEY_ENTER LV_SYMBOL_NEW_LINE
+#define QWERTY_KEY_SPACE " "
+#define QWERTY_KEY_NUMBERS "123"
+#define QWERTY_KEY_SYMBOLS "#+="
+#define QWERTY_KEY_LETTERS "abc"
+#define QWERTY_KEY_ACCENTS "àé"
+
+/* Character keys fire on release (like the T9 image keys' LV_EVENT_CLICKED) so
+ * a back-swipe that starts on a key does not type; Backspace keeps
+ * press-trigger with auto-repeat so holding it deletes continuously. */
+#define QWERTY_CHAR(w) (LV_BUTTONMATRIX_CTRL_CLICK_TRIG | LV_BUTTONMATRIX_CTRL_NO_REPEAT | (w))
+#define QWERTY_FUNC(w) (QWERTY_CHAR(w) | LV_BUTTONMATRIX_CTRL_CUSTOM_1)
+#define QWERTY_BACKSPACE(w) (LV_BUTTONMATRIX_CTRL_CUSTOM_1 | (w))
+#define QWERTY_ENTER(w) (QWERTY_FUNC(w) | LV_BUTTONMATRIX_CTRL_CHECKED)
+#define QWERTY_ROW4_CTRL QWERTY_FUNC(3), QWERTY_FUNC(2), QWERTY_FUNC(2), QWERTY_FUNC(7), QWERTY_FUNC(2), QWERTY_ENTER(4)
+#define QWERTY_ROW4(mode_key, other_key) mode_key, other_key, QWERTY_KEY_LEFT, QWERTY_KEY_SPACE, QWERTY_KEY_RIGHT, QWERTY_KEY_ENTER
+
+/* Letters: 9-key middle row, 34 buttons. */
+static const lv_buttonmatrix_ctrl_t qwerty_ctrl_letters[] = {
+    QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
+    QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
+    QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
+    QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
+    QWERTY_FUNC(3), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
+    QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_BACKSPACE(3),
+    QWERTY_ROW4_CTRL,
+};
+
+/* Symbols and accents: 10-key middle row, 35 buttons. */
+static const lv_buttonmatrix_ctrl_t qwerty_ctrl_wide[] = {
+    QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
+    QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
+    QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
+    QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
+    QWERTY_FUNC(3), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
+    QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_BACKSPACE(3),
+    QWERTY_ROW4_CTRL,
+};
+
+/* A map has one entry per button plus a "\n" after each of the three row ends
+ * and the "" terminator, so a ctrl map that drifts out of step with its maps
+ * fails the build instead of mis-styling keys at runtime. */
+#define QWERTY_MAP_LEN(map) (sizeof(map) / sizeof((map)[0]))
+#define QWERTY_CTRL_LEN(ctrl) (sizeof(ctrl) / sizeof((ctrl)[0]))
+
+static const char * const qwerty_map_lower[] = {
+    "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "\n",
+    "a", "s", "d", "f", "g", "h", "j", "k", "l", "\n",
+    QWERTY_KEY_SHIFT, "z", "x", "c", "v", "b", "n", "m", QWERTY_KEY_BACKSPACE, "\n",
+    QWERTY_ROW4(QWERTY_KEY_NUMBERS, QWERTY_KEY_ACCENTS), ""
+};
+
+static const char * const qwerty_map_upper[] = {
+    "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "\n",
+    "A", "S", "D", "F", "G", "H", "J", "K", "L", "\n",
+    QWERTY_KEY_SHIFT, "Z", "X", "C", "V", "B", "N", "M", QWERTY_KEY_BACKSPACE, "\n",
+    QWERTY_ROW4(QWERTY_KEY_NUMBERS, QWERTY_KEY_ACCENTS), ""
+};
+
+/* Every ASCII symbol the T9 symbol keys offer is reachable across the two
+ * symbol pages; the second page adds Latin-1 currency/section signs (Montserrat
+ * covers Latin-1 and Latin Extended-A only, so no euro sign or bullet). */
+static const char * const qwerty_map_special[] = {
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "\n",
+    "@", "#", "$", "%", "&", "-", "+", "(", ")", "/", "\n",
+    QWERTY_KEY_SYMBOLS, ".", ",", "?", "!", "'", "\"", ":", QWERTY_KEY_BACKSPACE, "\n",
+    QWERTY_ROW4(QWERTY_KEY_LETTERS, QWERTY_KEY_ACCENTS), ""
+};
+
+static const char * const qwerty_map_symbols[] = {
+    "[", "]", "{", "}", "#", "%", "^", "*", "+", "=", "\n",
+    "_", "\\", "|", "~", "<", ">", "`", "£", "¥", "§", "\n",
+    QWERTY_KEY_NUMBERS, ".", ",", ";", ":", "!", "?", "'", QWERTY_KEY_BACKSPACE, "\n",
+    QWERTY_ROW4(QWERTY_KEY_LETTERS, QWERTY_KEY_ACCENTS), ""
+};
+
+/* Accents: acute/grave vowels, circumflex/diaeresis vowels, then the rest of
+ * the Latin-1 letters (n-tilde, c-cedilla, a/o-tilde, sharp s) and the
+ * inverted ? and !. */
+static const char * const qwerty_map_accents_lower[] = {
+    "á", "é", "í", "ó", "ú", "à", "è", "ì", "ò", "ù", "\n",
+    "â", "ê", "î", "ô", "û", "ä", "ë", "ï", "ö", "ü", "\n",
+    QWERTY_KEY_SHIFT, "ñ", "ç", "ã", "õ", "ß", "¿", "¡", QWERTY_KEY_BACKSPACE, "\n",
+    QWERTY_ROW4(QWERTY_KEY_NUMBERS, QWERTY_KEY_LETTERS), ""
+};
+
+static const char * const qwerty_map_accents_upper[] = {
+    "Á", "É", "Í", "Ó", "Ú", "À", "È", "Ì", "Ò", "Ù", "\n",
+    "Â", "Ê", "Î", "Ô", "Û", "Ä", "Ë", "Ï", "Ö", "Ü", "\n",
+    QWERTY_KEY_SHIFT, "Ñ", "Ç", "Ã", "Õ", "ß", "¿", "¡", QWERTY_KEY_BACKSPACE, "\n",
+    QWERTY_ROW4(QWERTY_KEY_NUMBERS, QWERTY_KEY_LETTERS), ""
+};
+
+_Static_assert(QWERTY_MAP_LEN(qwerty_map_lower) == QWERTY_CTRL_LEN(qwerty_ctrl_letters) + 4, "qwerty lower map/ctrl mismatch");
+_Static_assert(QWERTY_MAP_LEN(qwerty_map_upper) == QWERTY_CTRL_LEN(qwerty_ctrl_letters) + 4, "qwerty upper map/ctrl mismatch");
+_Static_assert(QWERTY_MAP_LEN(qwerty_map_special) == QWERTY_CTRL_LEN(qwerty_ctrl_wide) + 4, "qwerty special map/ctrl mismatch");
+_Static_assert(QWERTY_MAP_LEN(qwerty_map_symbols) == QWERTY_CTRL_LEN(qwerty_ctrl_wide) + 4, "qwerty symbols map/ctrl mismatch");
+_Static_assert(QWERTY_MAP_LEN(qwerty_map_accents_lower) == QWERTY_CTRL_LEN(qwerty_ctrl_wide) + 4, "qwerty accents map/ctrl mismatch");
+_Static_assert(QWERTY_MAP_LEN(qwerty_map_accents_upper) == QWERTY_CTRL_LEN(qwerty_ctrl_wide) + 4, "qwerty accents map/ctrl mismatch");
+
+/* The page's lower-case / base mode: the upper variants fold onto it. */
+static lv_keyboard_mode_t text_entry_qwerty_page(void) {
+    lv_keyboard_mode_t mode = lv_keyboard_get_mode(text_entry_qwerty_kb);
+    if (mode == LV_KEYBOARD_MODE_TEXT_UPPER) return LV_KEYBOARD_MODE_TEXT_LOWER;
+    if (mode == LV_KEYBOARD_MODE_USER_3) return LV_KEYBOARD_MODE_USER_2;
+    return mode;
+}
+
+/* Shows `page` (TEXT_LOWER, SPECIAL, USER_1 or USER_2) in the case the shift
+ * state asks for, and marks the Shift key while caps lock is on (the ctrl map
+ * is reapplied on every mode change, so the mark is set after it). */
+static void text_entry_qwerty_show(lv_keyboard_mode_t page) {
+    bool cased = page == LV_KEYBOARD_MODE_TEXT_LOWER || page == LV_KEYBOARD_MODE_USER_2;
+    lv_keyboard_set_mode(text_entry_qwerty_kb,
+                         (cased && text_entry_is_uppercase()) ? (lv_keyboard_mode_t) (page + 1) : page);
+    if (!cased) return;
+    const char * txt;
+    for (uint32_t i = 0; (txt = lv_buttonmatrix_get_button_text(text_entry_qwerty_kb, i)) != NULL; i++) {
+        if (strcmp(txt, QWERTY_KEY_SHIFT) != 0) continue;
+        if (text_entry_caps_lock) {
+            lv_buttonmatrix_set_button_ctrl(text_entry_qwerty_kb, i, LV_BUTTONMATRIX_CTRL_CHECKED);
+        } else {
+            lv_buttonmatrix_clear_button_ctrl(text_entry_qwerty_kb, i, LV_BUTTONMATRIX_CTRL_CHECKED);
+        }
+        break;
+    }
+}
+
+/* Page switch: a pending one-shot Shift never carries over, and caps lock only
+ * survives between the letters and accents pages. */
+static void text_entry_qwerty_go(lv_keyboard_mode_t page) {
+    text_entry_shift = false;
+    if (page == LV_KEYBOARD_MODE_SPECIAL || page == LV_KEYBOARD_MODE_USER_1) text_entry_caps_lock = false;
+    text_entry_qwerty_show(page);
+}
+
+static void text_entry_qwerty_event_cb(lv_event_t * e) {
+    lv_obj_t * kb = lv_event_get_current_target(e);
+    uint32_t btn = lv_buttonmatrix_get_selected_button(kb);
+    const char * txt = lv_buttonmatrix_get_button_text(kb, btn);
+    if (!txt) return;
+    text_entry_finalize_pending();
+
+    if (!lv_buttonmatrix_has_button_ctrl(kb, btn, LV_BUTTONMATRIX_CTRL_CUSTOM_1)) {
+        lv_textarea_add_text(text_entry_textarea, txt);
+        if (text_entry_shift) { /* one-shot Shift covers exactly one character */
+            text_entry_shift = false;
+            text_entry_qwerty_show(text_entry_qwerty_page());
+        }
+    } else if (strcmp(txt, QWERTY_KEY_BACKSPACE) == 0) {
+        lv_textarea_delete_char(text_entry_textarea);
+    } else if (strcmp(txt, QWERTY_KEY_SPACE) == 0) {
+        lv_textarea_add_char(text_entry_textarea, ' ');
+    } else if (strcmp(txt, QWERTY_KEY_LEFT) == 0) {
+        lv_textarea_cursor_left(text_entry_textarea);
+    } else if (strcmp(txt, QWERTY_KEY_RIGHT) == 0) {
+        lv_textarea_cursor_right(text_entry_textarea);
+    } else if (strcmp(txt, QWERTY_KEY_ENTER) == 0) {
+        text_entry_enter();
+    } else if (strcmp(txt, QWERTY_KEY_SHIFT) == 0) {
+        /* off -> one-shot -> caps lock -> off */
+        if (text_entry_caps_lock) {
+            text_entry_caps_lock = false;
+        } else if (text_entry_shift) {
+            text_entry_shift = false;
+            text_entry_caps_lock = true;
+        } else {
+            text_entry_shift = true;
+        }
+        text_entry_qwerty_show(text_entry_qwerty_page());
+    } else if (strcmp(txt, QWERTY_KEY_NUMBERS) == 0) {
+        text_entry_qwerty_go(LV_KEYBOARD_MODE_SPECIAL);
+    } else if (strcmp(txt, QWERTY_KEY_SYMBOLS) == 0) {
+        text_entry_qwerty_go(LV_KEYBOARD_MODE_USER_1);
+    } else if (strcmp(txt, QWERTY_KEY_LETTERS) == 0) {
+        text_entry_qwerty_go(LV_KEYBOARD_MODE_TEXT_LOWER);
+    } else if (strcmp(txt, QWERTY_KEY_ACCENTS) == 0) {
+        text_entry_qwerty_go(LV_KEYBOARD_MODE_USER_2);
+    }
+}
+
+/* Footprint and padding make the four key rows span exactly the T9 grid's
+ * vertical range, so the keyboard replaces the T9 pad without moving anything
+ * around it. Colors come from the shared theme-live styles, so the keyboard
+ * follows accent and palette changes like the rest of the UI. */
+static lv_obj_t * build_qwerty_keyboard(lv_obj_t * parent) {
+    lv_obj_t * kb = lv_keyboard_create(parent);
+    /* Our handler edits text_entry_textarea directly; lv_keyboard_set_textarea()
+     * is deliberately not used since it would flag the shared textarea focused,
+     * which the T9 keypad never did. Popovers stay at LVGL's default (off). */
+    lv_obj_remove_event_cb(kb, lv_keyboard_def_event_cb);
+    lv_obj_add_event_cb(kb, text_entry_qwerty_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_keyboard_set_map(kb, LV_KEYBOARD_MODE_TEXT_LOWER, qwerty_map_lower, qwerty_ctrl_letters);
+    lv_keyboard_set_map(kb, LV_KEYBOARD_MODE_TEXT_UPPER, qwerty_map_upper, qwerty_ctrl_letters);
+    lv_keyboard_set_map(kb, LV_KEYBOARD_MODE_SPECIAL, qwerty_map_special, qwerty_ctrl_wide);
+    lv_keyboard_set_map(kb, LV_KEYBOARD_MODE_USER_1, qwerty_map_symbols, qwerty_ctrl_wide);
+    lv_keyboard_set_map(kb, LV_KEYBOARD_MODE_USER_2, qwerty_map_accents_lower, qwerty_ctrl_wide);
+    lv_keyboard_set_map(kb, LV_KEYBOARD_MODE_USER_3, qwerty_map_accents_upper, qwerty_ctrl_wide);
+
+    lv_obj_remove_flag(kb, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(kb, lv_pct(100), TEXT_ENTRY_GRID_HEIGHT + TEXT_ENTRY_BOTTOM_MARGIN + 8);
+    lv_obj_align(kb, LV_ALIGN_TOP_LEFT, 0, TEXT_ENTRY_GRID_Y - 8);
+
+    lv_obj_add_style(kb, &style_theme_screen_bg, 0);
+    lv_obj_set_style_bg_opa(kb, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(kb, 0, 0);
+    lv_obj_set_style_radius(kb, 0, 0);
+    lv_obj_set_style_pad_top(kb, 8, 0);
+    lv_obj_set_style_pad_bottom(kb, TEXT_ENTRY_BOTTOM_MARGIN, 0);
+    lv_obj_set_style_pad_left(kb, BOARD_SCALE_PX(4), 0);
+    lv_obj_set_style_pad_right(kb, BOARD_SCALE_PX(4), 0);
+    lv_obj_set_style_pad_row(kb, TEXT_ENTRY_KEY_GAP, 0);
+    lv_obj_set_style_pad_column(kb, TEXT_ENTRY_KEY_GAP, 0);
+
+    /* LVGL's default keyboard theme styles the CHECKED state (grey bg) and the
+     * pressed recolor, so the selectors used here are each given the full set
+     * of properties they need rather than inheriting from the default state. */
+    lv_obj_add_style(kb, &style_theme_card_bg, LV_PART_ITEMS);
+    lv_obj_add_style(kb, &style_theme_text_primary, LV_PART_ITEMS);
+    lv_obj_set_style_bg_opa(kb, LV_OPA_COVER, LV_PART_ITEMS);
+    lv_obj_set_style_radius(kb, BOARD_SCALE_PX(12), LV_PART_ITEMS);
+    lv_obj_set_style_border_width(kb, 0, LV_PART_ITEMS);
+    lv_obj_set_style_shadow_width(kb, 0, LV_PART_ITEMS);
+    lv_obj_set_style_text_font(kb, gui_theme_font(GUI_FONT_ROLE_ROW), LV_PART_ITEMS);
+
+    lv_obj_add_style(kb, &list_row_pressed_style, LV_PART_ITEMS | LV_STATE_PRESSED);
+    lv_obj_add_style(kb, gui_theme_accent_outline_style(), LV_PART_ITEMS | LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(kb, LV_OPA_COVER, LV_PART_ITEMS | LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(kb, BOARD_SCALE_PX(2), LV_PART_ITEMS | LV_STATE_PRESSED);
+
+    /* Enter and a caps-locked Shift: panel background, accent outline. The
+     * accent outline style is transparent and gui_theme_accent_style() would
+     * recolor the label too, hence the explicit opaque panel bg here. */
+    lv_obj_add_style(kb, &style_theme_card_bg, LV_PART_ITEMS | LV_STATE_CHECKED);
+    lv_obj_add_style(kb, gui_theme_accent_outline_style(), LV_PART_ITEMS | LV_STATE_CHECKED);
+    lv_obj_add_style(kb, &style_theme_text_primary, LV_PART_ITEMS | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_opa(kb, LV_OPA_COVER, LV_PART_ITEMS | LV_STATE_CHECKED);
+    lv_obj_set_style_border_width(kb, BOARD_SCALE_PX(3), LV_PART_ITEMS | LV_STATE_CHECKED);
+    return kb;
+}
+
 /* T9 keypad: 5 columns x 4 rows. Row 0: Mode:123 / 1 / 2-ABC / 3-DEF / Del.
  * Row 1: Mode:ABC / 4-GHI / 5-JKL / 6-MNO / 0-or-Shift. Row 2: Mode:sym / 7-PQRS /
  * 8-TUV / 9-WXYZ / Enter (spans rows 2-3). Row 3: Left / Right / Space (spans
@@ -481,29 +742,38 @@ static lv_obj_t * text_entry_make_key(lv_obj_t * scr, int col, int row, lv_event
  * and show a decimal key (same cell as Mode:123) and a minus key (same cell as
  * Mode:ABC) -- see text_entry_refresh_keys().
  *
- * Every key is built as a child of one `group` container (itself a plain
- * full-screen-sized, invisible object at (0,0)) rather than directly on
- * `parent`, so the whole keypad can be reparented in one
+ * Every key is built as a child of one `t9_pad` container, and that and the
+ * QWERTY keyboard (see build_qwerty_keyboard()) are children of one `group`
+ * container (a plain full-screen-sized, invisible object at (0,0)) rather
+ * than directly on `parent`, so the whole keypad can be reparented in one
  * lv_obj_set_parent(group, ...) call -- see t9_keypad_attach()/
  * t9_keypad_release() -- instead of moving each key individually. Every
- * screen this ever attaches to is the same 480x800 full-screen size, so
+ * screen this ever attaches to is the same full-screen size, so
  * TEXT_ENTRY_GRID_X/Y's absolute-pixel positioning (already fixed
- * relative to `group`'s own (0,0) origin) lands identically regardless of
- * which screen currently owns it. */
+ * relative to `group`'s own (0,0) origin, which `t9_pad` shares) lands
+ * identically regardless of which screen currently owns it. Only one of the
+ * two layouts is visible at a time, see text_entry_select_layout(). */
+static lv_obj_t * text_entry_make_container(lv_obj_t * parent) {
+    lv_obj_t * obj = lv_obj_create(parent);
+    lv_obj_set_size(obj, lv_pct(100), lv_pct(100));
+    lv_obj_set_pos(obj, 0, 0);
+    lv_obj_set_style_bg_opa(obj, 0, 0);
+    lv_obj_set_style_border_width(obj, 0, 0);
+    /* Remove padding so key coordinates align cleanly with the container. */
+    lv_obj_set_style_pad_all(obj, 0, 0);
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+    return obj;
+}
+
 static lv_obj_t * build_t9_keypad_group(lv_obj_t * parent) {
-    lv_obj_t * group = lv_obj_create(parent);
-    lv_obj_set_size(group, lv_pct(100), lv_pct(100));
-    lv_obj_set_pos(group, 0, 0);
-    lv_obj_set_style_bg_opa(group, 0, 0);
-    lv_obj_set_style_border_width(group, 0, 0);
-    /* Remove padding so key coordinates align cleanly with the group container. */
-    lv_obj_set_style_pad_all(group, 0, 0);
-    lv_obj_remove_flag(group, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_remove_flag(group, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t * group = text_entry_make_container(parent);
+    lv_obj_t * pad = text_entry_make_container(group);
+    text_entry_t9_pad = pad;
 
     /* Opaque black backing sized to the keypad footprint, placed behind keys
      * so underlying screen content does not show through the key gaps. */
-    lv_obj_t * backing = lv_obj_create(group);
+    lv_obj_t * backing = lv_obj_create(pad);
     lv_obj_set_size(backing, lv_pct(100), TEXT_ENTRY_GRID_HEIGHT + TEXT_ENTRY_BOTTOM_MARGIN + 8);
     lv_obj_set_pos(backing, 0, TEXT_ENTRY_GRID_Y - 8);
     lv_obj_set_style_bg_opa(backing, LV_OPA_COVER, 0);
@@ -516,23 +786,23 @@ static lv_obj_t * build_t9_keypad_group(lv_obj_t * parent) {
     for (int i = 1; i <= 9; i++) {
         int col = 1 + (i - 1) % 3;
         int row = (i - 1) / 3;
-        text_entry_key_img[i] = text_entry_make_key(group, col, row, text_entry_key_click_cb, (void *) (intptr_t) i);
+        text_entry_key_img[i] = text_entry_make_key(pad, col, row, text_entry_key_click_cb, (void *) (intptr_t) i);
     }
-    text_entry_key_img[0] = text_entry_make_key(group, 4, 1, text_entry_key0_click_cb, NULL);
+    text_entry_key_img[0] = text_entry_make_key(pad, 4, 1, text_entry_key0_click_cb, NULL);
 
-    text_entry_num_mode_key = text_entry_make_key(group, 0, 0, text_entry_mode_num_click_cb, NULL);
+    text_entry_num_mode_key = text_entry_make_key(pad, 0, 0, text_entry_mode_num_click_cb, NULL);
     lv_image_set_src(text_entry_num_mode_key, asset_path("keyboard/num.png"));
-    text_entry_abc_mode_key = text_entry_make_key(group, 0, 1, text_entry_mode_abc_click_cb, NULL);
+    text_entry_abc_mode_key = text_entry_make_key(pad, 0, 1, text_entry_mode_abc_click_cb, NULL);
     lv_image_set_src(text_entry_abc_mode_key, asset_path("keyboard/char.png"));
-    text_entry_sym_mode_key = text_entry_make_key(group, 0, 2, text_entry_mode_sym_click_cb, NULL);
+    text_entry_sym_mode_key = text_entry_make_key(pad, 0, 2, text_entry_mode_sym_click_cb, NULL);
     lv_image_set_src(text_entry_sym_mode_key, asset_path("keyboard/symbol.png"));
 
     /* Built after the mode keys they replace so they sit on top when shown. */
-    text_entry_dotneg_key = text_entry_make_key(group, 0, 0, text_entry_key_click_cb, (void *) (intptr_t) 10);
+    text_entry_dotneg_key = text_entry_make_key(pad, 0, 0, text_entry_key_click_cb, (void *) (intptr_t) 10);
     lv_image_set_src(text_entry_dotneg_key, asset_path("keyboard/dot.png"));
     lv_obj_add_flag(text_entry_dotneg_key, LV_OBJ_FLAG_HIDDEN);
 
-    text_entry_neg_key = lv_obj_create(group);
+    text_entry_neg_key = lv_obj_create(pad);
     lv_obj_set_size(text_entry_neg_key, TEXT_ENTRY_KEY_SIZE, TEXT_ENTRY_KEY_SIZE);
     lv_obj_align(text_entry_neg_key, LV_ALIGN_TOP_LEFT,
                  TEXT_ENTRY_GRID_X + 0 * (TEXT_ENTRY_KEY_SIZE + TEXT_ENTRY_KEY_GAP),
@@ -553,13 +823,13 @@ static lv_obj_t * build_t9_keypad_group(lv_obj_t * parent) {
     lv_obj_remove_flag(neg_label, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_center(neg_label);
 
-    lv_obj_t * del_key = text_entry_make_key(group, 4, 0, text_entry_del_click_cb, NULL);
+    lv_obj_t * del_key = text_entry_make_key(pad, 4, 0, text_entry_del_click_cb, NULL);
     lv_image_set_src(del_key, asset_path("keyboard/del.png"));
-    lv_obj_t * left_key = text_entry_make_key(group, 0, 3, text_entry_left_click_cb, NULL);
+    lv_obj_t * left_key = text_entry_make_key(pad, 0, 3, text_entry_left_click_cb, NULL);
     lv_image_set_src(left_key, asset_path("keyboard/left.png"));
-    lv_obj_t * right_key = text_entry_make_key(group, 1, 3, text_entry_right_click_cb, NULL);
+    lv_obj_t * right_key = text_entry_make_key(pad, 1, 3, text_entry_right_click_cb, NULL);
     lv_image_set_src(right_key, asset_path("keyboard/right.png"));
-    lv_obj_t * enter_key = text_entry_make_key(group, 4, 2, text_entry_enter_click_cb, NULL);
+    lv_obj_t * enter_key = text_entry_make_key(pad, 4, 2, text_entry_enter_click_cb, NULL);
     lv_image_set_src(enter_key, asset_path("keyboard/enter.png"));
     /* Match the last row's actual image bounds, including board-specific
      * row spacing. Stock enter.png is 190px tall versus 188px for the R1
@@ -568,11 +838,14 @@ static lv_obj_t * build_t9_keypad_group(lv_obj_t * parent) {
     lv_obj_set_size(enter_key, lv_obj_get_width(right_key),
                     TEXT_ENTRY_KEY_SIZE + TEXT_ENTRY_KEY_GAP + lv_obj_get_height(right_key));
     lv_image_set_inner_align(enter_key, LV_IMAGE_ALIGN_STRETCH);
-    lv_obj_t * space_key = text_entry_make_key(group, 2, 3, text_entry_space_click_cb, NULL);
+    lv_obj_t * space_key = text_entry_make_key(pad, 2, 3, text_entry_space_click_cb, NULL);
     lv_image_set_src(space_key, asset_path("keyboard/space2.png"));
 
     text_entry_multitap_timer = lv_timer_create(text_entry_multitap_timeout_cb, TEXT_ENTRY_MULTITAP_MS, NULL);
     lv_timer_pause(text_entry_multitap_timer);
+
+    text_entry_qwerty_kb = build_qwerty_keyboard(group);
+    lv_obj_add_flag(text_entry_qwerty_kb, LV_OBJ_FLAG_HIDDEN);
 
     /* Lets a swipe started on the keypad (inline search's Enter key sits
      * right where a right-swipe could plausibly start) still bubble up to
@@ -585,9 +858,29 @@ static lv_obj_t * build_t9_keypad_group(lv_obj_t * parent) {
     return group;
 }
 
+static bool text_entry_use_qwerty(void) {
+    return !text_entry_numeric_only && current_settings.keyboard_layout == KEYBOARD_LAYOUT_QWERTY;
+}
+
+/* Shows the T9 pad or the QWERTY keyboard for a fresh session, resetting
+ * QWERTY to the lowercase letters page. Setting changes therefore apply the
+ * next time a field or inline search opens; a keypad currently lent to a
+ * library screen keeps its layout until that search session ends. Numeric
+ * fields always get the T9 pad. */
+static void text_entry_select_layout(void) {
+    if (text_entry_use_qwerty()) {
+        lv_obj_add_flag(text_entry_t9_pad, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(text_entry_qwerty_kb, LV_OBJ_FLAG_HIDDEN);
+        text_entry_qwerty_show(LV_KEYBOARD_MODE_TEXT_LOWER);
+    } else {
+        lv_obj_remove_flag(text_entry_t9_pad, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(text_entry_qwerty_kb, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
 /* Reparents the shared keypad_group + text_entry_textarea onto
  * target_screen for inline search -- see text_entry_inline_mode_active's
- * own comment. Resets mode/shift/caps-lock/numeric state and clears the
+ * own comment. Resets layout/mode/shift/caps-lock/numeric state and clears the
  * textarea the same way show_text_entry() resets it for a fresh modal
  * field, since this is the same shared state machine. Search never needs
  * the password reveal button -- it stays on text_entry_screen, harmless
@@ -607,6 +900,7 @@ void t9_keypad_attach(lv_obj_t * target_screen, lv_obj_t * textarea_parent, int3
     text_entry_shift = false;
     text_entry_caps_lock = false;
     text_entry_numeric_only = false;
+    text_entry_select_layout();
     text_entry_finalize_pending();
     text_entry_refresh_keys();
     text_entry_generation++;
@@ -714,6 +1008,7 @@ void show_text_entry(const char * title, const char * initial_text, bool is_pass
     text_entry_shift = false;
     text_entry_caps_lock = false;
     text_entry_numeric_only = numeric;
+    text_entry_select_layout();
     text_entry_finalize_pending();
     text_entry_refresh_keys();
     text_entry_on_done = on_done;
@@ -740,6 +1035,8 @@ void gui_text_input_teardown(void) {
      * cleaned up even if the two ever get out of sync. */
     if (text_entry_multitap_timer) { lv_timer_del(text_entry_multitap_timer); text_entry_multitap_timer = NULL; }
     if (text_entry_screen) { lv_obj_delete(text_entry_screen); text_entry_screen = NULL; }
+    text_entry_t9_pad = NULL;
+    text_entry_qwerty_kb = NULL;
 }
 
 lv_obj_t * gui_text_input_get_screen(void) {
