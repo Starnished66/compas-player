@@ -2,10 +2,11 @@
 #define SUBPROCESS_H
 
 #include <stdbool.h>
+#include <spawn.h>
 #include <stddef.h>
 #include <sys/types.h>
 
-/* Runs argv[0] with the given arguments directly via fork+execvp -- no
+/* Runs argv[0] with the given arguments directly via posix_spawnp -- no
  * shell is ever involved, so arguments containing shell metacharacters
  * (as a user-typed Wi-Fi SSID/password legitimately might) can never be
  * misinterpreted or escape into command injection, unlike building a
@@ -100,5 +101,11 @@ void subprocess_terminate(pid_t pid);
  * needed the identical "kill any stray instance before starting a fresh
  * one" shape for udhcpc. Capped at 16 matches with margin to spare. */
 void subprocess_kill_all_matching(const char * needle);
+
+/* For callers that build their own posix_spawn() file actions: queues a
+ * close of every fd above stderr that is not already close-on-exec, so the
+ * child inherits nothing it was not explicitly given. Queue it after any
+ * adddup2() whose source fd it would close. Returns 0 or an errno value. */
+int subprocess_close_inherited_fds_action(posix_spawn_file_actions_t * fa);
 
 #endif /* SUBPROCESS_H */

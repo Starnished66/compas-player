@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
+#include <spawn.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/resource.h>
@@ -34,6 +35,66 @@ static void close_inherited_fds(void) {
         if (fd > STDERR_FILENO && fd != dir_fd) close(fd);
     }
     closedir(dir);
+}
+
+extern char ** environ;
+
+/* posix_spawn() equivalent of close_inherited_fds(): queues a close in the
+ * child for every fd above stderr that lacks FD_CLOEXEC (those are the ones
+ * that would otherwise survive exec -- see close_inherited_fds()). fds that
+ * are already close-on-exec are skipped, so a descriptor another thread
+ * closes between this scan and the spawn is the only possible stale entry.
+ * Must be queued AFTER any adddup2() whose source it would close. Best
+ * effort like the fork version: if /proc is unavailable nothing is queued. */
+int subprocess_close_inherited_fds_action(posix_spawn_file_actions_t * fa) {
+    DIR * dir = opendir("/proc/self/fd");
+    if (!dir) return 0;
+    int dir_fd = dirfd(dir);
+
+    int rc = 0;
+    struct dirent * entry;
+    while (rc == 0 && (entry = readdir(dir)) != NULL) {
+        if (entry->d_name[0] < '0' || entry->d_name[0] > '9') continue; /* skip "." / ".." */
+        int fd = atoi(entry->d_name);
+        if (fd <= STDERR_FILENO || fd == dir_fd) continue;
+        int flags = fcntl(fd, F_GETFD);
+        if (flags < 0 || (flags & FD_CLOEXEC)) continue;
+        rc = posix_spawn_file_actions_addclose(fa, fd);
+    }
+    closedir(dir);
+    return rc;
+}
+
+#define SUBPROCESS_STDIN_INHERIT (-1)
+#define SUBPROCESS_STDIN_DEVNULL (-2)
+
+/* Common spawn path: stdin comes from stdin_fd (or is inherited / /dev/null),
+ * stdout from stdout_fd (-1 = /dev/null), stderr is always /dev/null, then
+ * every other inheritable fd is closed. The pipe fds passed in should be
+ * O_CLOEXEC so the dup2 copies are the only ones the child keeps. posix_spawnp() searches PATH exactly
+ * like the execvp() the fork versions used, with the same environ.
+ *
+ * Unlike fork(), clone(CLONE_VM|CLONE_VFORK) inside posix_spawn does not
+ * copy the 20 MiB player address space, which on this 56 MiB no-swap device
+ * both spikes memory and costs page-table copying on a slow CPU. Returns 0
+ * or an errno value; on failure *pid is not valid. */
+static int subprocess_spawn(char * const argv[], int stdin_fd, int stdout_fd, pid_t * pid) {
+    posix_spawn_file_actions_t fa;
+    int rc = posix_spawn_file_actions_init(&fa);
+    if (rc != 0) return rc;
+
+    if (stdin_fd >= 0) rc = posix_spawn_file_actions_adddup2(&fa, stdin_fd, STDIN_FILENO);
+    else if (stdin_fd == SUBPROCESS_STDIN_DEVNULL)
+        rc = posix_spawn_file_actions_addopen(&fa, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
+    if (rc == 0) {
+        if (stdout_fd >= 0) rc = posix_spawn_file_actions_adddup2(&fa, stdout_fd, STDOUT_FILENO);
+        else rc = posix_spawn_file_actions_addopen(&fa, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
+    }
+    if (rc == 0) rc = posix_spawn_file_actions_addopen(&fa, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+    if (rc == 0) rc = subprocess_close_inherited_fds_action(&fa);
+    if (rc == 0) rc = posix_spawnp(pid, argv[0], &fa, NULL, argv, environ);
+    posix_spawn_file_actions_destroy(&fa);
+    return rc;
 }
 
 /* Default subprocess execution timeout (15s) to ensure hung commands do not block the UI.
@@ -75,7 +136,7 @@ static int64_t subprocess_monotonic_ms(void) {
     return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
-/* child_nice is applied in the child between fork() and execvp(). 0 leaves
+/* child_nice is applied to the child right after it is spawned. 0 leaves
  * scheduling alone, which is what every caller except the explicitly
  * low-priority ones gets. */
 static bool subprocess_run_impl(char * const argv[], char * out_buf, size_t out_buf_size, int timeout_ms,
@@ -88,35 +149,27 @@ static bool subprocess_run_impl(char * const argv[], char * out_buf, size_t out_
 
     int pipefd[2] = { -1, -1 };
     if (out_buf && out_buf_size > 0) {
-        if (pipe(pipefd) != 0) return false;
+        if (pipe2(pipefd, O_CLOEXEC) != 0) return false;
         out_buf[0] = '\0';
     }
 
-    pid_t pid = fork();
-    if (pid < 0) {
+    pid_t pid;
+    int spawn_rc = subprocess_spawn(argv, SUBPROCESS_STDIN_INHERIT, pipefd[1], &pid);
+    if (spawn_rc != 0) {
         if (pipefd[0] >= 0) close(pipefd[0]);
         if (pipefd[1] >= 0) close(pipefd[1]);
-        return false;
+        /* The fork version reported a command that could not be executed as
+         * a completed run with exit status 127; keep that. Only resource
+         * exhaustion (the old fork() failure) is a failed spawn. */
+        if (spawn_rc == ENOMEM || spawn_rc == EAGAIN || spawn_rc == EMFILE || spawn_rc == ENFILE)
+            return false;
+        if (out_exit_code) *out_exit_code = 127;
+        return true;
     }
-
-    if (pid == 0) {
-        if (pipefd[1] >= 0) {
-            close(pipefd[0]);
-            dup2(pipefd[1], STDOUT_FILENO);
-            close(pipefd[1]);
-        } else {
-            int devnull_out = open("/dev/null", O_WRONLY);
-            if (devnull_out >= 0) { dup2(devnull_out, STDOUT_FILENO); close(devnull_out); }
-        }
-        int devnull_err = open("/dev/null", O_WRONLY);
-        if (devnull_err >= 0) { dup2(devnull_err, STDERR_FILENO); close(devnull_err); }
-        close_inherited_fds();
-        /* Best-effort: a failure here only means this child keeps normal
-         * priority, which is exactly the old behavior. */
-        if (child_nice != 0) (void) setpriority(PRIO_PROCESS, 0, child_nice);
-        execvp(argv[0], argv);
-        _exit(127); /* execvp only returns on failure */
-    }
+    /* A nice value is inherited across exec, so setting it from here right
+     * after the spawn is equivalent to the old child-side call. Best-effort
+     * for the same reason: failure just leaves normal priority. */
+    if (child_nice != 0) (void) setpriority(PRIO_PROCESS, (id_t) pid, child_nice);
 
     if (pipefd[1] >= 0) close(pipefd[1]);
 
@@ -221,26 +274,14 @@ bool subprocess_spawn_daemon_logged(char * const argv[], const char * log_path) 
 
 bool subprocess_popen(char * const argv[], pid_t * out_pid, int * out_read_fd) {
     int pipefd[2];
-    if (pipe(pipefd) != 0) return false;
+    if (pipe2(pipefd, O_CLOEXEC) != 0) return false;
 
-    pid_t pid = fork();
-    if (pid < 0) {
+    pid_t pid;
+    int spawn_rc = subprocess_spawn(argv, SUBPROCESS_STDIN_DEVNULL, pipefd[1], &pid);
+    if (spawn_rc != 0) {
         close(pipefd[0]);
         close(pipefd[1]);
         return false;
-    }
-
-    if (pid == 0) {
-        close(pipefd[0]);
-        dup2(pipefd[1], STDOUT_FILENO);
-        close(pipefd[1]);
-        int devnull_in = open("/dev/null", O_RDONLY);
-        if (devnull_in >= 0) { dup2(devnull_in, STDIN_FILENO); close(devnull_in); }
-        int devnull_err = open("/dev/null", O_WRONLY);
-        if (devnull_err >= 0) { dup2(devnull_err, STDERR_FILENO); close(devnull_err); }
-        close_inherited_fds();
-        execvp(argv[0], argv);
-        _exit(127); /* execvp only returns on failure */
     }
 
     close(pipefd[1]);
@@ -251,26 +292,14 @@ bool subprocess_popen(char * const argv[], pid_t * out_pid, int * out_read_fd) {
 
 bool subprocess_popen_stdin(char * const argv[], pid_t * out_pid, int * out_write_fd) {
     int pipefd[2];
-    if (pipe(pipefd) != 0) return false;
+    if (pipe2(pipefd, O_CLOEXEC) != 0) return false;
 
-    pid_t pid = fork();
-    if (pid < 0) {
+    pid_t pid;
+    int spawn_rc = subprocess_spawn(argv, pipefd[0], -1, &pid);
+    if (spawn_rc != 0) {
         close(pipefd[0]);
         close(pipefd[1]);
         return false;
-    }
-
-    if (pid == 0) {
-        close(pipefd[1]);
-        dup2(pipefd[0], STDIN_FILENO);
-        close(pipefd[0]);
-        int devnull_out = open("/dev/null", O_WRONLY);
-        if (devnull_out >= 0) { dup2(devnull_out, STDOUT_FILENO); close(devnull_out); }
-        int devnull_err = open("/dev/null", O_WRONLY);
-        if (devnull_err >= 0) { dup2(devnull_err, STDERR_FILENO); close(devnull_err); }
-        close_inherited_fds();
-        execvp(argv[0], argv);
-        _exit(127); /* execvp only returns on failure */
     }
 
     close(pipefd[0]);

@@ -16,6 +16,7 @@
 #include <poll.h>
 #include <pthread.h>
 #include <signal.h>
+#include <spawn.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,6 +26,7 @@
 #include <sys/wait.h>
 #include <sys/resource.h>
 #include "artwork_coordinator.h"
+#include "subprocess.h"
 #include <time.h>
 #include <unistd.h>
 
@@ -2493,6 +2495,8 @@ static bool write_all(int fd, const void * src, size_t size) {
     return true;
 }
 
+extern char ** environ;
+
 static bool metadata_artwork_limit_memory(artwork_priority_t prio) {
     /* Bound ALL parser allocations, including third-party container readers.
      * The limit is headroom, not an allocation: a small picture only uses
@@ -2569,36 +2573,43 @@ static metadata_artwork_result_t metadata_read_artwork_isolated_impl(const char 
     if (!abandoned_metadata_child_capacity_available(&artwork_child_pool))
         return METADATA_ARTWORK_TEMPORARY_FAILURE;
 
+    /* O_CLOEXEC so neither end leaks into any other child spawned meanwhile;
+     * the write end is explicitly re-inherited by the helper below. */
     int pipefd[2];
-    if (pipe(pipefd) != 0) return METADATA_ARTWORK_TEMPORARY_FAILURE;
+    if (pipe2(pipefd, O_CLOEXEC) != 0) return METADATA_ARTWORK_TEMPORARY_FAILURE;
     char output_fd_arg[24];
     snprintf(output_fd_arg, sizeof(output_fd_arg), "%d", pipefd[1]);
-    /* Formatted here, before fork() -- snprintf() in the freshly-forked
-     * (but still address-space-copied, pre-exec) child would run in a
-     * process that inherited every lock this multithreaded parent might
-     * have held mid-acquire; safer to have both argv strings ready in the
-     * parent and just execv() them across. */
     char prio_arg[8];
     snprintf(prio_arg, sizeof(prio_arg), "%d", (int) prio);
-    pid_t pid = fork();
-    if (pid < 0) {
+
+    /* posix_spawn() (CLONE_VM|CLONE_VFORK) instead of fork(): no copy of the
+     * player's address space while the audio/UI threads keep dirtying it. The
+     * helper applies its own RLIMIT_AS and oom_score_adj at startup
+     * (metadata_artwork_helper_run()), so nothing needs to run in the child
+     * before exec. The helper keeps the same fd number as before: dup2 of an
+     * fd onto itself clears its close-on-exec flag. Every other fd without
+     * close-on-exec is closed in the child. */
+    char * const argv[] = {
+        (char *) "compas_player",
+        (char *) "--metadata-artwork-helper",
+        output_fd_arg,
+        (char *) path,
+        prio_arg,
+        NULL,
+    };
+    posix_spawn_file_actions_t fa;
+    pid_t pid = -1;
+    int spawn_rc = posix_spawn_file_actions_init(&fa);
+    if (spawn_rc == 0) {
+        spawn_rc = posix_spawn_file_actions_adddup2(&fa, pipefd[1], pipefd[1]);
+        if (spawn_rc == 0) spawn_rc = subprocess_close_inherited_fds_action(&fa);
+        if (spawn_rc == 0) spawn_rc = posix_spawn(&pid, "/proc/self/exe", &fa, NULL, argv, environ);
+        posix_spawn_file_actions_destroy(&fa);
+    }
+    if (spawn_rc != 0) {
         close(pipefd[0]);
         close(pipefd[1]);
         return METADATA_ARTWORK_TEMPORARY_FAILURE;
-    }
-
-    if (pid == 0) {
-        close(pipefd[0]);
-        char * const argv[] = {
-            (char *) "compas_player",
-            (char *) "--metadata-artwork-helper",
-            output_fd_arg,
-            (char *) path,
-            prio_arg,
-            NULL,
-        };
-        execv("/proc/self/exe", argv);
-        _exit(127);
     }
 
     close(pipefd[1]);
