@@ -468,10 +468,16 @@ static bool read_pending(ota_pending_t * out, bool * present, bool * unreadable)
     bool got_line = fgets(line, sizeof(line), f) != NULL;
     bool truncated = got_line && !strchr(line, '\n') && !feof(f);
     bool trailing_content = false;
+    size_t trailing_scanned = 0;
     int trailing;
-    while ((trailing = fgetc(f)) != EOF) {
-        if (!isspace((unsigned char) trailing)) trailing_content = true;
+    while (trailing_scanned < 513 && (trailing = fgetc(f)) != EOF) {
+        trailing_scanned++;
+        if (!isspace((unsigned char) trailing)) {
+            trailing_content = true;
+            break;
+        }
     }
+    if (trailing_scanned > 512) trailing_content = true;
     /* A read error is not a mismatch: report it so nothing is quarantined. */
     if (ferror(f)) *unreadable = true;
     fclose(f);

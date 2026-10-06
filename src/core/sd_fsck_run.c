@@ -146,9 +146,18 @@ static bool write_marker(const char * key) {
     if (fsync(fd) != 0) ok = false;
     if (close(fd) != 0) ok = false;
     if (!sync_marker_dir()) ok = false;
+    if (!ok) {
+        /* O_TRUNC may have destroyed an older guard. Do not leave an empty
+         * marker that would be read as "unknown" on the next boot. */
+        unlink(SD_FSCK_MARKER_PATH);
+        sync_marker_dir();
+        marker_key[0] = '\0';
+        marker_state = -1;
+        return false;
+    }
     snprintf(marker_key, sizeof(marker_key), "%s", key);
-    marker_state = ok ? 1 : -1;
-    return ok;
+    marker_state = 1;
+    return true;
 }
 
 static void clear_marker(void) {
