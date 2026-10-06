@@ -7,7 +7,10 @@
 
 /* Decides whether a mounted SD card should be repaired, and which
  * non-interactive checker to run. The device runner in sd_fsck_run.c
- * performs the unmount, the check, and the remount. */
+ * performs the unmount, the check, and the remount. Only a card the kernel
+ * remounted read-only is checked: the FAT "not safely removed" flag is set
+ * after every pulled card or unclean shutdown, so it is not evidence of
+ * damage on a player with a removable card. */
 
 #define SD_FSCK_DEVICE_BYTES 96
 #define SD_FSCK_MOUNT_BYTES 160
@@ -28,7 +31,6 @@ typedef enum {
     SD_REPAIR_NOTE_NONE = 0,
     SD_REPAIR_NOTE_STARTED,
     SD_REPAIR_NOTE_REPAIRED,
-    SD_REPAIR_NOTE_CHECKED,
     SD_REPAIR_NOTE_STILL_READONLY,
     SD_REPAIR_NOTE_FAILED,
     SD_REPAIR_NOTE_NEEDS_COMPUTER,
@@ -87,13 +89,15 @@ bool sd_fsck_exit_usable(int exit_code);
  * clusters" summary. output is the tail of what this run printed. */
 bool sd_fsck_tool_succeeded(sd_fs_kind_t kind, int exit_code, const char * output, const char * device);
 
-/* Note for the finished check. dirty_trigger is true when the check ran
- * because the card was not safely removed, false when it was read-only. */
-sd_repair_note_t sd_fsck_outcome(bool tool_ok, bool dirty_trigger, bool mounted, bool readonly);
+/* Note for a finished check of a card the kernel had remounted read-only. */
+sd_repair_note_t sd_fsck_outcome(bool tool_ok, bool mounted, bool readonly);
 
-/* Notification for a check skipped before touching the device. A writable
- * dirty flag alone is not evidence of corruption; read-only skips still warn. */
-sd_repair_note_t sd_fsck_skipped_note(bool readonly, bool dirty_trigger);
+/* Loop guard. marker is the attempt key saved on internal storage before a
+ * check unmounts the card, and removed when the check finishes; NULL or ""
+ * when there is none. A marker left behind means the player exited during
+ * the check. Returns true when that check was for this card (key), or when
+ * either key has no card CID and so cannot tell two cards apart. */
+bool sd_repair_marker_blocks(const char * marker, const char * key);
 
 /* Reads the cluster count from a FAT12/16/32 or exFAT boot sector. */
 bool sd_fsck_parse_boot_sector(const unsigned char * sector, size_t length, sd_fs_geometry_t * out);
@@ -102,19 +106,8 @@ bool sd_fsck_parse_boot_sector(const unsigned char * sector, size_t length, sd_f
  * FAT copies while reading, then one copy plus two per-cluster arrays. */
 uint64_t sd_fsck_memory_estimate(const sd_fs_geometry_t * geometry);
 
-/* True when the kernel log holds a "Volume was not properly unmounted"
- * warning for device_base (for example "mmcblk0p1") after the latest SD
- * card insertion line. SDIO insertions (the Wi-Fi chip) are ignored.
- * stamp receives the insertion line's timestamp, or "none", so a card
- * inserted again gets a new attempt key. */
-bool sd_fsck_klog_dirty(const char * log, const char * device_base, char * stamp, size_t stamp_size);
-
 /* One automatic attempt per card. A readable CID identifies the card;
  * without one, the block node is the identity for this boot. */
 void sd_repair_attempt_key(const char * device, const char * cid, char * out, size_t out_size);
-
-/* One bounded FAT attempt per insertion and trigger, so a writable dirty
- * skip does not suppress a later read-only check for the same card. */
-void sd_repair_fat_attempt_key(const char * stamp, bool readonly_trigger, char * out, size_t out_size);
 
 #endif

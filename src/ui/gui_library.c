@@ -7567,7 +7567,6 @@ static bool sd_mount_fail_notified = false;
 static bool sd_handoff_pending = false;
 
 #ifndef HOST_BUILD
-static bool sd_writable_dirty_check_pending = false;
 
 /* Periodic polling for SD card mount state changes.
  *
@@ -7732,7 +7731,6 @@ static void show_sd_repair_note(void) {
     switch (sd_repair_take_note()) {
     case SD_REPAIR_NOTE_STARTED: message = TR("Checking the SD card. This may take a while"); break;
     case SD_REPAIR_NOTE_REPAIRED: message = TR("SD card repaired"); break;
-    case SD_REPAIR_NOTE_CHECKED: message = TR("SD card checked"); break;
     case SD_REPAIR_NOTE_STILL_READONLY: message = TR("SD card is still read-only"); break;
     case SD_REPAIR_NOTE_FAILED: message = TR("Could not repair the SD card"); break;
     case SD_REPAIR_NOTE_NEEDS_COMPUTER: message = TR("SD card may have errors. Check it on a computer"); break;
@@ -7769,13 +7767,8 @@ void poll_sd_card_hotplug(void) {
 #define SD_UNMOUNT_CONFIRM_STREAK_THRESHOLD 2
 
     time_t now = time(NULL);
-    bool regular_due = last_check == 0 || now - last_check >= SD_CARD_MOUNT_POLL_SECONDS;
-    bool motion_active = gui_navigation_transition_in_progress() ||
-                         gui_player_lyrics_animation_in_progress();
-    bool retry_due = sd_writable_dirty_check_pending && !motion_active;
-    if (!regular_due && !retry_due) return;
-    bool retry_only = !regular_due;
-    if (regular_due) last_check = now;
+    if (last_check != 0 && now - last_check < SD_CARD_MOUNT_POLL_SECONDS) return;
+    last_check = now;
     show_sd_repair_note();
 
     bool mount_observed = false;
@@ -7783,23 +7776,9 @@ void poll_sd_card_hotplug(void) {
     sd_repair_kick_result_t repair = { false, false };
     bool repair_kick_attempted = false;
     if (mounted && !sd_repair_in_progress()) {
+        /* Only a card the kernel remounted read-only is checked; see sd_fsck.h. */
         repair_kick_attempted = true;
-        if (motion_active) {
-            /* Keep read-only recovery checks active while the screen moves, but
-             * defer the writable FAT dirty-log probe until it settles. */
-            repair = sd_readonly_repair_kick(release_sd_handles_for_repair);
-            sd_writable_dirty_check_pending = true;
-        } else {
-            repair = sd_card_repair_kick(release_sd_handles_for_repair);
-            sd_writable_dirty_check_pending = false;
-        }
-    }
-    if (retry_only && !repair.started && !repair.released_handles) {
-        /* This pass exists only to retry the deferred repair decision. Do
-         * not manufacture another absence/CID/handoff sample at 500 ms. */
-        if (!mounted || sd_repair_in_progress()) sd_writable_dirty_check_pending = false;
-        show_sd_repair_note();
-        return;
+        repair = sd_readonly_repair_kick(release_sd_handles_for_repair);
     }
     if (repair_kick_attempted) {
         if (repair.started || !sd_card_root_is_mounted()) {
@@ -7884,7 +7863,7 @@ void poll_sd_card_hotplug(void) {
             album_thumbnail_cache_epoch_advance();
             cancel_album_thumbnail_generation();
             atomic_store(&album_thumb_gen_retry_pending, false);
-            if (regular_due) unmount_confirm_streak++;
+            unmount_confirm_streak++;
             removal_confirmed = sd_card_absence_confirmed(
                 stale_mount || forced_removal, unmount_confirm_streak,
                 SD_UNMOUNT_CONFIRM_STREAK_THRESHOLD);
@@ -7948,17 +7927,15 @@ void poll_sd_card_hotplug(void) {
          * once shown once (sd_mount_fail_notified), so the user isn't
          * nagged again until the card actually changes (removed, or a
          * format attempt runs -- both reset it below/in poll_sd_format()). */
-        if (regular_due) {
-            if (sd_card_base_device_present()) {
-                mount_fail_streak++;
-                if (mount_fail_streak >= SD_MOUNT_FAIL_STREAK_THRESHOLD && !sd_mount_fail_notified && !sd_format_active) {
-                    sd_mount_fail_notified = true;
-                    show_sd_mount_failed_popup();
-                }
-            } else {
-                mount_fail_streak = 0;
-                sd_mount_fail_notified = false;
+        if (sd_card_base_device_present()) {
+            mount_fail_streak++;
+            if (mount_fail_streak >= SD_MOUNT_FAIL_STREAK_THRESHOLD && !sd_mount_fail_notified && !sd_format_active) {
+                sd_mount_fail_notified = true;
+                show_sd_mount_failed_popup();
             }
+        } else {
+            mount_fail_streak = 0;
+            sd_mount_fail_notified = false;
         }
         return;
     }

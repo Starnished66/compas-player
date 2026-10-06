@@ -285,9 +285,8 @@ void mount_sd_card_if_needed(void) {
         try_mount_sd_device_node("/dev/mmcblk0p1");
         if (!sd_mount_point_mounted()) try_mount_sd_device_node("/dev/mmcblk0");
     }
-    /* A card that was not safely removed is checked from the UI poll
-     * instead, after plugins and the library have started: it is common
-     * and the card is still writable, unlike a read-only one. */
+    /* Only a read-only card is checked. A card that was not safely removed
+     * is left alone: that is every pulled card and unclean shutdown. */
     sd_readonly_repair_kick(NULL);
     if (sd_repair_needs_remount()) finish_sd_repair_remount();
 }

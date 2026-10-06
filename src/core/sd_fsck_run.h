@@ -31,15 +31,10 @@ void sd_repair_complete(bool mounted, bool readonly);
  * first unmount is busy; it may be NULL. A failed unmount with no release
  * callback is not remembered, so a later call can close files and retry.
  * One remembered attempt per card, whether it repairs the filesystem or not.
- * A skipped read-only check warns the user. A skipped writable check triggered
- * only by the FAT dirty flag is diagnostic: it stays mounted and unchanged,
- * and no corruption warning is posted. */
+ * A skipped check warns the user. A check the player did not survive is
+ * remembered across reboots and is not run again for that card. A writable
+ * card is never checked, whatever its FAT dirty flag says. */
 sd_repair_kick_result_t sd_readonly_repair_kick(void (* release_handles)(void));
-
-/* Same as sd_readonly_repair_kick(), and also checks a writable FAT card
- * the kernel reported as not safely removed. The kernel log is read on
- * each call; each FAT card insertion is one remembered attempt. */
-sd_repair_kick_result_t sd_card_repair_kick(void (* release_handles)(void));
 
 sd_repair_note_t sd_repair_take_note(void);
 

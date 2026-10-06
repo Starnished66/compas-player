@@ -159,9 +159,10 @@ void sd_repair_attempt_key(const char * device, const char * cid, char * out, si
     else snprintf(out, out_size, "dev:%s", device ? device : "");
 }
 
-void sd_repair_fat_attempt_key(const char * stamp, bool readonly_trigger, char * out, size_t out_size) {
-    if (!out || out_size == 0) return;
-    snprintf(out, out_size, "fat@%.24s:%s", stamp ? stamp : "", readonly_trigger ? "ro" : "dirty");
+bool sd_repair_marker_blocks(const char * marker, const char * key) {
+    if (!marker || !marker[0]) return false;
+    if (!key || strncmp(key, "cid:", 4) != 0 || strncmp(marker, "cid:", 4) != 0) return true;
+    return strcmp(marker, key) == 0;
 }
 
 static bool output_line_is_summary(const char * line, size_t length, const char * device) {
@@ -200,17 +201,11 @@ bool sd_fsck_tool_succeeded(sd_fs_kind_t kind, int exit_code, const char * outpu
     return false;
 }
 
-sd_repair_note_t sd_fsck_outcome(bool tool_ok, bool dirty_trigger, bool mounted, bool readonly) {
+sd_repair_note_t sd_fsck_outcome(bool tool_ok, bool mounted, bool readonly) {
     if (!mounted) return SD_REPAIR_NOTE_FAILED;
     if (readonly) return tool_ok ? SD_REPAIR_NOTE_STILL_READONLY : SD_REPAIR_NOTE_FAILED;
     if (!tool_ok) return SD_REPAIR_NOTE_NEEDS_COMPUTER;
-    return dirty_trigger ? SD_REPAIR_NOTE_CHECKED : SD_REPAIR_NOTE_REPAIRED;
-}
-
-sd_repair_note_t sd_fsck_skipped_note(bool readonly, bool dirty_trigger) {
-    if (readonly) return SD_REPAIR_NOTE_READONLY_NEEDS_COMPUTER;
-    if (dirty_trigger) return SD_REPAIR_NOTE_NONE;
-    return SD_REPAIR_NOTE_NEEDS_COMPUTER;
+    return SD_REPAIR_NOTE_REPAIRED;
 }
 
 static uint32_t read_le16(const unsigned char * p) { return (uint32_t) p[0] | ((uint32_t) p[1] << 8); }
@@ -277,55 +272,4 @@ uint64_t sd_fsck_memory_estimate(const sd_fs_geometry_t * geometry) {
     }
     /* Directory entries and names are not known ahead of the check. */
     return peak + peak / 4 + fixed;
-}
-
-static bool line_contains(const char * line, size_t length, const char * needle) {
-    size_t needle_len = strlen(needle);
-    if (needle_len == 0 || needle_len > length) return needle_len == 0;
-    for (size_t i = 0; i + needle_len <= length; i++) {
-        if (memcmp(line + i, needle, needle_len) == 0) return true;
-    }
-    return false;
-}
-
-static void line_stamp(const char * line, size_t length, char * out, size_t out_size) {
-    const char * open = memchr(line, '[', length);
-    const char * close = open ? memchr(open, ']', length - (size_t) (open - line)) : NULL;
-    if (!open || !close) {
-        snprintf(out, out_size, "none");
-        return;
-    }
-    const char * start = open + 1;
-    while (start < close && *start == ' ') start++;
-    int stamp_len = (int) (close - start);
-    if (stamp_len <= 0) snprintf(out, out_size, "none");
-    else snprintf(out, out_size, "%.*s", stamp_len, start);
-}
-
-bool sd_fsck_klog_dirty(const char * log, const char * device_base, char * stamp, size_t stamp_size) {
-    char dirty_text[96];
-    char latest_stamp[32] = "none";
-    if (stamp && stamp_size) snprintf(stamp, stamp_size, "none");
-    if (!log || !device_base || !device_base[0]) return false;
-    snprintf(dirty_text, sizeof(dirty_text), "FAT-fs (%s): Volume was not properly unmounted", device_base);
-
-    bool dirty = false;
-    const char * line = log;
-    while (*line) {
-        const char * next = strchr(line, '\n');
-        size_t length = next ? (size_t) (next - line) : strlen(line);
-        if (line_contains(line, length, "mmc") && line_contains(line, length, ": new ") &&
-            line_contains(line, length, " card at address ") && !line_contains(line, length, " SDIO card")) {
-            /* The log is in order: a warning before this insertion belongs
-             * to an earlier card. */
-            dirty = false;
-            line_stamp(line, length, latest_stamp, sizeof(latest_stamp));
-        } else if (line_contains(line, length, dirty_text)) {
-            dirty = true;
-        }
-        if (!next) break;
-        line = next + 1;
-    }
-    if (stamp && stamp_size) snprintf(stamp, stamp_size, "%s", latest_stamp);
-    return dirty;
 }
