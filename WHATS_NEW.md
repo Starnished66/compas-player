@@ -8,7 +8,7 @@ A stability update for Compas v1.0.
 - Reduce memory spikes when starting helper processes, and save persistent crash and player-exit diagnostics for unexpected restarts.
 - Support versioned firmware releases while retaining compatibility with dated OTA releases. This update prepares the player for version-only releases starting with v1.1.
 
-Download the `.upt` for your device and verify it against `SHA256SUMS`. R3II 2025 remains Early Alpha.
+Download the `.upt` for your device and verify it against `SHA256SUMS`.
 
 ---
 
