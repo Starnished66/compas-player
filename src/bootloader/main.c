@@ -30,8 +30,8 @@ extern char ** environ;
 
 /* The kernel marks a FAT volume dirty while it is mounted writable and
  * clears the mark only on unmount or a read-only remount. The player has
- * exited here, so its files are closed; without this every power cycle
- * leaves the card looking unsafely removed and the player checks it. */
+ * exited here, so its files are closed; finish pending writes and release
+ * the volume cleanly before rebooting. */
 static void release_sd_card(void) {
     sync();
     if (umount2(SD_MOUNT_POINT, 0) == 0) return;

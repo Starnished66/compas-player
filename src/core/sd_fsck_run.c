@@ -129,24 +129,26 @@ static const char * pending_marker(void) {
     return marker_state == 1 ? marker_key : NULL;
 }
 
-static void sync_marker_dir(void) {
+static bool sync_marker_dir(void) {
     int dir = open("/usr/data", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-    if (dir < 0) return;
-    fsync(dir);
-    close(dir);
+    if (dir < 0) return false;
+    bool ok = fsync(dir) == 0;
+    if (close(dir) != 0) ok = false;
+    return ok;
 }
 
 /* Written and synced before anything that could stop the player. */
-static void write_marker(const char * key) {
+static bool write_marker(const char * key) {
     int fd = open(SD_FSCK_MARKER_PATH, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
-    if (fd < 0) return;
+    if (fd < 0) return false;
     size_t len = strlen(key);
     bool ok = write(fd, key, len) == (ssize_t) len && write(fd, "\n", 1) == 1;
-    fsync(fd);
-    close(fd);
-    sync_marker_dir();
+    if (fsync(fd) != 0) ok = false;
+    if (close(fd) != 0) ok = false;
+    if (!sync_marker_dir()) ok = false;
     snprintf(marker_key, sizeof(marker_key), "%s", key);
     marker_state = ok ? 1 : -1;
+    return ok;
 }
 
 static void clear_marker(void) {
@@ -400,7 +402,13 @@ sd_repair_kick_result_t sd_readonly_repair_kick(void (* release_handles)(void)) 
 
     /* From here the player closes files and detaches the card; if it exits
      * before sd_repair_complete(), the next boot finds this marker. */
-    write_marker(key);
+    if (!write_marker(key)) {
+        remember_attempt(key);
+        post_note(SD_REPAIR_NOTE_READONLY_NEEDS_COMPUTER);
+        log_repair_line("not checking read-only card: could not persist interrupted-check marker");
+        boot_checkpoint("sd repair skipped, loop guard unavailable");
+        return result;
+    }
     bool unmounted = unmount_card(repair_mount_point);
     if (!unmounted && release_handles) {
         release_handles();
