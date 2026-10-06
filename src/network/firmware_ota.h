@@ -5,10 +5,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Online firmware update from the latest weekly release on GitHub.
+/* Online firmware update from the latest supported release on GitHub.
  *
  * Check: reads GitHub's authoritative /releases/latest object. That object
- * must be a published, non-prerelease weekly-beta-YYYY-MM-DD release (never
+ * must be a published, non-prerelease v<major>.<minor>[.<patch>] or
+ * weekly-beta-YYYY-MM-DD release (never
  * the staging-image-base release, which holds the unmodified base image),
  * and must carry this board's image (r1.upt, r3proii.upt or r3ii_2025.upt)
  * and SHA256SUMS. Missing or unsuitable assets fail closed; older releases
@@ -20,7 +21,7 @@
  * replacing an older copy of the same name. Nothing unverified ever
  * reaches the root, where the recovery image looks.
  *
- * A verified download leaves a record (asset, size, SHA-256) in
+ * A verified download leaves a record (asset, size, SHA-256, release tag) in
  * SD/.compas/ota/pending, on the same card, so it can be installed later.
  *
  * Install (a worker): re-checks that the record still describes GitHub's
@@ -36,7 +37,7 @@
 typedef enum {
     FIRMWARE_OTA_IDLE,
     FIRMWARE_OTA_CHECKING,
-    FIRMWARE_OTA_CHECKED,     /* release describes the latest weekly */
+    FIRMWARE_OTA_CHECKED,     /* release describes GitHub's latest release */
     FIRMWARE_OTA_DOWNLOADING, /* percent is valid */
     FIRMWARE_OTA_READY,       /* verified image is on the SD root */
     FIRMWARE_OTA_INSTALLING,  /* re-verifying and parking before recovery */
@@ -44,8 +45,9 @@ typedef enum {
 } firmware_ota_state_t;
 
 typedef struct {
-    char tag[64];         /* weekly-beta-YYYY-MM-DD */
-    char date[11];        /* YYYY-MM-DD */
+    char tag[64];         /* canonical GitHub release tag */
+    char date[11];        /* YYYY-MM-DD for legacy weekly releases */
+    char label[64];       /* user-facing release label */
     char asset_name[32];  /* this board's image name */
     char asset_url[512];
     char sums_url[512];
@@ -77,7 +79,8 @@ bool firmware_ota_busy(void);
 void firmware_ota_reset(void);
 
 /* Whether the mounted card holds a verified download. VALID fills *out's
- * asset name, size and date (content is re-hashed at install). REJECTED
+ * asset name, size, release tag and label (content is re-hashed at install).
+ * Existing records containing a weekly date remain readable. REJECTED
  * means the record is invalid. This query never changes files; the install
  * worker re-hashes the image and parks rejected content while holding the
  * shared update claim. UNREADABLE means the record could not be opened (an SD

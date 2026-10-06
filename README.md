@@ -179,7 +179,9 @@ secret are available: `STAGING_IMAGE_SHA256` for R1,
 `R3II_2025_STAGING_IMAGE_SHA256` for R3II 2025. These are downloadable
 workflow artifacts, not public GitHub releases. The weekly release workflow
 builds and packages all three boards and publishes their packages as **Compas
-v1.0**, **v1.1**, and so on, advancing once each week. It requires
+v1.1**, **v1.2**, and so on, using versioned tags from October 12, 2026.
+Compas v1.0.1 is the final release with a dated OTA companion for older
+firmware; install it before using version-only OTA updates. Packaging requires
 all three checksum secrets and the matching images in the private
 `staging-image-base` release. Secret values must stay in GitHub Actions
 settings and must never be added to the repository.

@@ -617,11 +617,11 @@ static void firmware_source_backdrop_cb(lv_event_t * e) {
     hide_firmware_source_menu();
 }
 
-static void show_ota_install_popup(const char * date) {
+static void show_ota_install_popup(const char * release_label) {
     lv_label_set_text_fmt(ota_install_title,
-                          TR("Weekly Beta %s is downloaded and verified.\n\nInstall now? The device reboots into "
+                          TR("Firmware release %s is downloaded and verified.\n\nInstall now? The device reboots into "
                           "recovery to flash it. Do not turn it off until it restarts."),
-                          date);
+                          release_label);
     gui_popup_show(&ota_install_popup);
 }
 
@@ -642,7 +642,7 @@ static void firmware_source_sd_cb(lv_event_t * e) {
      * gate and parking as installing it right after the download. */
     firmware_ota_release_t pending;
     firmware_ota_pending_t state = firmware_ota_pending(&pending);
-    if (state == FIRMWARE_OTA_PENDING_VALID) show_ota_install_popup(pending.date);
+    if (state == FIRMWARE_OTA_PENDING_VALID) show_ota_install_popup(pending.label);
     else if (state == FIRMWARE_OTA_PENDING_REJECTED)
         show_error_toast(TR("The downloaded update record is invalid. Download the update again."));
     else if (state == FIRMWARE_OTA_PENDING_UNREADABLE)
@@ -770,21 +770,21 @@ void poll_firmware_ota(void) {
             ota_ui_active = false;
             if (status.newer)
                 lv_label_set_text_fmt(ota_offer_title,
-                                      TR("Weekly Beta %s is available.\nInstalled: %s\n\nDownload it now? This may "
+                                      TR("Firmware release %s is available.\nInstalled: %s\n\nDownload it now? This may "
                                       "take a while."),
-                                      status.release.date, status.installed);
+                                      status.release.label, status.installed);
             else
                 lv_label_set_text_fmt(ota_offer_title,
-                                      TR("You have the latest weekly (%s).\n\nDownload and reinstall it anyway? "
+                                      TR("Installed version: %s\nAvailable release: %s\n\nDownload and reinstall it anyway? "
                                       "This may take a while."),
-                                      status.release.date);
+                                      status.installed, status.release.label);
             gui_popup_show(&ota_offer_popup);
             return;
         case FIRMWARE_OTA_READY:
             gui_busy_hide(ota_busy);
             ota_ui_active = false;
             firmware_ota_reset(); /* the record on the card carries it from here */
-            show_ota_install_popup(status.release.date);
+            show_ota_install_popup(status.release.label);
             return;
         case FIRMWARE_OTA_FAILED:
             gui_busy_hide(ota_busy);

@@ -28,7 +28,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: compas-player\n"
 "Report-Msgid-Bugs-To: none\n"
-"POT-Creation-Date: 2026-10-04 17:09-0600\n"
+"POT-Creation-Date: 2026-10-05 22:08-0600\n"
 "PO-Revision-Date: 2026-10-01 00:00+0000\n"
 "Last-Translator: Machine draft\n"
 "Language-Team: Portuguese (Brazil)\n"
@@ -209,7 +209,7 @@ msgstr "Próxima"
 msgid "Unexpected reply from GitHub"
 msgstr "Resposta inesperada do GitHub"
 
-msgid "GitHub's latest release is not a supported weekly firmware release."
+msgid "GitHub's latest release is not a supported firmware release."
 msgstr ""
 
 #, c-format
@@ -919,9 +919,6 @@ msgstr "Verificando o cartão SD. Isso pode demorar"
 
 msgid "SD card repaired"
 msgstr "Cartão SD reparado"
-
-msgid "SD card checked"
-msgstr "Cartão SD verificado"
 
 msgid "SD card is still read-only"
 msgstr "O cartão SD continua somente leitura"
@@ -1938,13 +1935,13 @@ msgstr ""
 
 #, c-format
 msgid ""
-"Weekly Beta %s is downloaded and verified.\n"
+"Firmware release %s is downloaded and verified.\n"
 "\n"
 "Install now? The device reboots into recovery to flash it. Do not turn it off until it restarts."
 msgstr ""
-"O Weekly Beta %s foi baixado e verificado.\n"
+"A versão de firmware %s foi baixada e verificada.\n"
 "\n"
-"Instalar agora? O aparelho reinicia na recuperação para gravá-lo. Não o desligue até ele reiniciar."
+"Instalar agora? O aparelho reinicia na recuperação para gravá-la. Não o desligue até ele reiniciar."
 
 #, fuzzy
 msgid "The downloaded update record is invalid. Download the update again."
@@ -1989,23 +1986,25 @@ msgstr ""
 
 #, c-format
 msgid ""
-"Weekly Beta %s is available.\n"
+"Firmware release %s is available.\n"
 "Installed: %s\n"
 "\n"
 "Download it now? This may take a while."
 msgstr ""
-"O Weekly Beta %s está disponível.\n"
-"Instalado: %s\n"
+"A versão de firmware %s está disponível.\n"
+"Instalada: %s\n"
 "\n"
 "Baixar agora? Isso pode demorar."
 
 #, c-format
 msgid ""
-"You have the latest weekly (%s).\n"
+"Installed version: %s\n"
+"Available release: %s\n"
 "\n"
 "Download and reinstall it anyway? This may take a while."
 msgstr ""
-"Você tem a versão semanal mais recente (%s).\n"
+"Versão instalada: %s\n"
+"Versão disponível: %s\n"
 "\n"
 "Baixar e reinstalar mesmo assim? Isso pode demorar."
 
@@ -2979,6 +2978,9 @@ msgstr "Controles de energia"
 
 msgid "Playback and device actions"
 msgstr "Ações de reprodução e do aparelho"
+
+#~ msgid "SD card checked"
+#~ msgstr "Cartão SD verificado"
 
 #~ msgid "LDAC in DAC mode (Experimental)"
 #~ msgstr "LDAC no modo DAC (Experimental)"

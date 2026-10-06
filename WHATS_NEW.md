@@ -1,3 +1,16 @@
+# Compas v1.0.1
+
+A stability update for Compas v1.0.
+
+- Reduce possible reboots during long MP3 processing and waveform generation by moving large scratch buffers off worker stacks and sizing decoder threads explicitly.
+- Stop checking writable SD cards solely because their FAT dirty flag is set, avoiding unnecessary startup repair loops on small cards. Interrupted checks are guarded against repeated attempts.
+- Reduce memory spikes when starting helper processes, and save persistent crash and player-exit diagnostics for unexpected restarts.
+- Support versioned firmware releases while retaining compatibility with dated OTA releases. This update prepares the player for version-only releases starting with v1.1.
+
+Download the `.upt` for your device and verify it against `SHA256SUMS`. R3II 2025 remains Early Alpha.
+
+---
+
 # Compas v1.0
 
 A refreshed player experience, from first setup to Now Playing.

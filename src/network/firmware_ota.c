@@ -12,6 +12,7 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <limits.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -26,6 +27,7 @@
 #define OTA_RELEASES_URL "https://api.github.com/repos/Starnished66/compas-player/releases/latest"
 #endif
 #define OTA_TAG_PREFIX "weekly-beta-"
+#define OTA_VERSION_PREFIX "v"
 #define OTA_SUMS_NAME "SHA256SUMS"
 
 #ifdef HOST_BUILD
@@ -62,11 +64,117 @@ const char * firmware_ota_board_asset(void) {
 /* ---- Pure helpers ---- */
 
 static bool is_date(const char * s) {
+    if (!s || strlen(s) < 10) return false;
     for (int i = 0; i < 10; i++) {
         bool dash = i == 4 || i == 7;
         if (dash ? s[i] != '-' : !isdigit((unsigned char) s[i])) return false;
     }
+    int year = (s[0] - '0') * 1000 + (s[1] - '0') * 100 + (s[2] - '0') * 10 + (s[3] - '0');
+    int month = (s[5] - '0') * 10 + (s[6] - '0');
+    int day = (s[8] - '0') * 10 + (s[9] - '0');
+    static const int month_days[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    if (month < 1 || month > 12) return false;
+    int max_day = month_days[month - 1];
+    if (month == 2 && ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0)) max_day++;
+    return day >= 1 && day <= max_day;
+}
+
+typedef enum { OTA_ID_UNKNOWN, OTA_ID_VERSION, OTA_ID_WEEKLY } ota_identity_kind_t;
+
+typedef struct {
+    ota_identity_kind_t kind;
+    uint32_t major;
+    uint32_t minor;
+    uint32_t patch;
+    bool has_patch;
+    char date[11];
+} ota_identity_t;
+
+static bool parse_uint32_component(const char ** cursor, uint32_t * value, char terminator) {
+    const char * p = *cursor;
+    if (!isdigit((unsigned char) *p)) return false;
+    if (*p == '0' && isdigit((unsigned char) p[1])) return false; /* canonical decimal */
+    uint32_t n = 0;
+    do {
+        unsigned digit = (unsigned) (*p - '0');
+        if (n > (UINT32_MAX - digit) / 10) return false;
+        n = n * 10 + digit;
+        p++;
+    } while (isdigit((unsigned char) *p));
+    if (*p != terminator) return false;
+    *cursor = p + 1;
+    *value = n;
     return true;
+}
+
+static bool parse_identity(const char * tag, ota_identity_t * identity) {
+    memset(identity, 0, sizeof(*identity));
+    if (!tag) return false;
+    size_t prefix_len = sizeof(OTA_TAG_PREFIX) - 1;
+    if (strncmp(tag, OTA_TAG_PREFIX, prefix_len) == 0) {
+        const char * date = tag + prefix_len;
+        if (strlen(date) != 10 || !is_date(date)) return false;
+        identity->kind = OTA_ID_WEEKLY;
+        memcpy(identity->date, date, 11);
+        return true;
+    }
+    if (tag[0] != OTA_VERSION_PREFIX[0]) return false;
+    const char * cursor = tag + 1;
+    if (!parse_uint32_component(&cursor, &identity->major, '.')) return false;
+    char minor_terminator = strchr(cursor, '.') ? '.' : '\0';
+    if (!parse_uint32_component(&cursor, &identity->minor, minor_terminator)) return false;
+    if (minor_terminator == '.') {
+        if (!parse_uint32_component(&cursor, &identity->patch, '\0')) return false;
+        identity->has_patch = true;
+    }
+    identity->kind = OTA_ID_VERSION;
+    return true;
+}
+
+static bool release_label(const char * tag, char out[64], ota_identity_t * parsed) {
+    ota_identity_t identity;
+    if (!parse_identity(tag, &identity)) return false;
+    int written = identity.kind == OTA_ID_VERSION
+        ? (identity.has_patch
+            ? snprintf(out, 64, "Compas v%" PRIu32 ".%" PRIu32 ".%" PRIu32,
+                       identity.major, identity.minor, identity.patch)
+            : snprintf(out, 64, "Compas v%" PRIu32 ".%" PRIu32,
+                       identity.major, identity.minor))
+        : snprintf(out, 64, "Weekly Beta %s", identity.date);
+    if (written <= 0 || written >= 64) return false;
+    if (parsed) *parsed = identity;
+    return true;
+}
+
+/* -1 if installed is older, 0 if equal, 1 if newer, 2 if incomparable. */
+static int compare_installed_identity(const char * installed_label, const ota_identity_t * latest) {
+    ota_identity_t installed;
+    char installed_date[11];
+    if (parse_identity(installed_label, &installed)) {
+        /* Labels may include a parenthesized build channel suffix. */
+    } else if (firmware_ota_label_date(installed_label, installed_date)) {
+        installed.kind = OTA_ID_WEEKLY;
+        memcpy(installed.date, installed_date, sizeof(installed.date));
+    } else if (installed_label && strncmp(installed_label, "Compas v", 8) == 0) {
+        char canonical[64];
+        const char * suffix = strstr(installed_label + 8, " (");
+        size_t version_len = suffix ? (size_t) (suffix - (installed_label + 8)) : strlen(installed_label + 8);
+        if (!version_len || version_len + 2 >= sizeof(canonical)) return 2;
+        canonical[0] = 'v';
+        memcpy(canonical + 1, installed_label + 8, version_len);
+        canonical[version_len + 1] = '\0';
+        if (!parse_identity(canonical, &installed)) return 2;
+    } else {
+        return 2;
+    }
+    if (installed.kind != latest->kind) return 2;
+    if (installed.kind == OTA_ID_WEEKLY) return strcmp(installed.date, latest->date) < 0 ? -1 :
+                                                    strcmp(installed.date, latest->date) > 0 ? 1 : 0;
+    if (installed.major != latest->major) return installed.major < latest->major ? -1 : 1;
+    if (installed.minor != latest->minor) return installed.minor < latest->minor ? -1 : 1;
+    uint32_t installed_patch = installed.has_patch ? installed.patch : 0;
+    uint32_t latest_patch = latest->has_patch ? latest->patch : 0;
+    return installed_patch < latest_patch ? -1 : installed_patch > latest_patch ? 1 : 0;
 }
 
 bool firmware_ota_label_date(const char * label, char out_date[11]) {
@@ -100,12 +208,11 @@ bool firmware_ota_parse_releases(const char * json, size_t length, const char * 
         return false;
     }
     const char * tag = json_string(release, "tag_name");
-    size_t prefix_len = sizeof(OTA_TAG_PREFIX) - 1;
     bool prerelease = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(release, "prerelease"));
     bool draft = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(release, "draft"));
-    if (!tag || draft || prerelease || strncmp(tag, OTA_TAG_PREFIX, prefix_len) != 0 ||
-        strlen(tag) != prefix_len + 10 || !is_date(tag + prefix_len)) {
-        snprintf(error, error_size, TR("GitHub's latest release is not a supported weekly firmware release."));
+    ota_identity_t identity;
+    if (!tag || draft || prerelease || !parse_identity(tag, &identity)) {
+        snprintf(error, error_size, TR("GitHub's latest release is not a supported firmware release."));
         cJSON_Delete(release);
         return false;
     }
@@ -144,7 +251,12 @@ bool firmware_ota_parse_releases(const char * json, size_t length, const char * 
         return false;
     }
     snprintf(candidate.tag, sizeof(candidate.tag), "%s", tag);
-    memcpy(candidate.date, tag + prefix_len, 10);
+    if (identity.kind == OTA_ID_WEEKLY) memcpy(candidate.date, identity.date, sizeof(candidate.date));
+    if (!release_label(tag, candidate.label, NULL)) {
+        cJSON_Delete(release);
+        snprintf(error, error_size, TR("GitHub's latest release is not a supported firmware release."));
+        return false;
+    }
     snprintf(candidate.asset_name, sizeof(candidate.asset_name), "%s", asset_name);
     cJSON_Delete(release);
     *out = candidate;
@@ -247,11 +359,12 @@ static void * check_worker(void * unused) {
         return NULL;
     }
 
-    char installed_date[11];
-    bool known = firmware_ota_label_date(app_version_label(), installed_date);
+    ota_identity_t latest_identity;
+    (void) parse_identity(release.tag, &latest_identity);
+    int comparison = compare_installed_identity(app_version_label(), &latest_identity);
     pthread_mutex_lock(&ota_mutex);
     ota_status.release = release;
-    ota_status.newer = !known || strcmp(release.date, installed_date) > 0;
+    ota_status.newer = comparison < 0 || comparison == 2;
     ota_status.state = FIRMWARE_OTA_CHECKED;
     ota_worker_running = false;
     pthread_mutex_unlock(&ota_mutex);
@@ -312,7 +425,7 @@ static bool park_file(const char * path) {
 
 /* The verification record lives on the card beside the image, so it
  * survives a reboot and never vouches for an image on a different card.
- * One line: "<asset> <size> <sha256> <date>". */
+ * One line: "<asset> <size> <sha256> <release-tag>". */
 #define OTA_PENDING_PATH OTA_WORK_DIR "/pending"
 /* Record content once an image failed verification but could not be moved
  * out of the root. */
@@ -324,7 +437,7 @@ static bool write_pending(const firmware_ota_release_t * release, const char * s
     FILE * f = fopen(temp, "w");
     if (!f) return false;
     bool ok = fprintf(f, "%s %llu %s %s\n", release->asset_name, (unsigned long long) release->asset_size,
-                      sha256_hex, release->date) > 0;
+                      sha256_hex, release->tag) > 0;
     ok = fflush(f) == 0 && ok;
     ok = fsync(fileno(f)) == 0 && ok;
     ok = fclose(f) == 0 && ok;
@@ -351,16 +464,48 @@ static bool read_pending(ota_pending_t * out, bool * present, bool * unreadable)
     *unreadable = !f && errno != ENOENT;
     *present = f != NULL || *unreadable;
     if (!f) return false;
-    unsigned long long size = 0;
-    int fields = fscanf(f, "%31s %llu %64s %10s", out->release.asset_name, &size, out->sha256, out->release.date);
+    char line[256], size_token[32], digest[66], release_token[64], extra;
+    bool got_line = fgets(line, sizeof(line), f) != NULL;
+    bool truncated = got_line && !strchr(line, '\n') && !feof(f);
+    bool trailing_content = false;
+    int trailing;
+    while ((trailing = fgetc(f)) != EOF) {
+        if (!isspace((unsigned char) trailing)) trailing_content = true;
+    }
     /* A read error is not a mismatch: report it so nothing is quarantined. */
     if (ferror(f)) *unreadable = true;
     fclose(f);
     if (*unreadable) return false;
-    if (fields != 4 || strcmp(out->release.asset_name, OTA_PENDING_REJECTED) == 0 || strcmp(out->release.asset_name, firmware_ota_board_asset()) != 0 ||
-        strlen(out->sha256) != 64 || !is_date(out->release.date))
+    if (!got_line || truncated || trailing_content || sscanf(line, "%31s %31s %65s %63s %c", out->release.asset_name,
+                                         size_token, digest, release_token, &extra) != 4 ||
+        strcmp(out->release.asset_name, OTA_PENDING_REJECTED) == 0 ||
+        strcmp(out->release.asset_name, firmware_ota_board_asset()) != 0 || strlen(digest) != 64)
         return false;
-    out->release.asset_size = size;
+    for (int i = 0; i < 64; i++) {
+        if (!isxdigit((unsigned char) digest[i])) return false;
+        out->sha256[i] = (char) tolower((unsigned char) digest[i]);
+    }
+    out->sha256[64] = '\0';
+    if (!size_token[0] || size_token[0] == '-' || size_token[0] == '+') return false;
+    errno = 0;
+    char * size_end = NULL;
+    unsigned long long size = strtoull(size_token, &size_end, 10);
+    if (errno == ERANGE || !size_end || *size_end || size < OTA_MIN_IMAGE_BYTES || size > OTA_MAX_IMAGE_BYTES)
+        return false;
+    ota_identity_t identity;
+    char canonical_tag[64];
+    if (parse_identity(release_token, &identity)) {
+        snprintf(canonical_tag, sizeof(canonical_tag), "%s", release_token);
+    } else if (strlen(release_token) == 10 && is_date(release_token)) {
+        snprintf(canonical_tag, sizeof(canonical_tag), "%s%s", OTA_TAG_PREFIX, release_token);
+        if (!parse_identity(canonical_tag, &identity)) return false;
+    } else {
+        return false;
+    }
+    snprintf(out->release.tag, sizeof(out->release.tag), "%s", canonical_tag);
+    out->release.asset_size = (uint64_t) size;
+    if (identity.kind == OTA_ID_WEEKLY) memcpy(out->release.date, identity.date, sizeof(identity.date));
+    if (!release_label(canonical_tag, out->release.label, NULL)) return false;
     char path[256];
     struct stat st;
     snprintf(path, sizeof(path), "%s/%s", OTA_SD_ROOT, out->release.asset_name);
@@ -654,13 +799,11 @@ static void * install_worker(void * unused) {
      * able to see this image. */
     firmware_ota_release_t latest;
     char latest_error[160];
-    char expected_tag[64];
-    snprintf(expected_tag, sizeof(expected_tag), "%s%s", OTA_TAG_PREFIX, pending.release.date);
     if (!fetch_latest_release(&latest, latest_error, sizeof(latest_error))) {
         set_failed(latest_error);
         return NULL;
     }
-    if (strcmp(latest.tag, expected_tag) != 0 ||
+    if (strcmp(latest.tag, pending.release.tag) != 0 ||
         strcmp(latest.asset_name, pending.release.asset_name) != 0 ||
         latest.asset_size != pending.release.asset_size) {
         set_failed(TR("This update is no longer the latest release. Check for updates and download the latest image."));

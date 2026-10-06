@@ -20,7 +20,9 @@ weekday=$(date -u -d "$release_date" +%u) || {
   exit 2
 }
 week_monday=$(date -u -d "$release_date -$((weekday - 1)) days" +%F)
-anchor_epoch=$(date -u -d '2026-09-28' +%s)
+# v1.0.1 is the final manual release with a dated OTA companion.
+# Scheduled version-only releases start with v1.1 the following Monday.
+anchor_epoch=$(date -u -d '2026-10-12' +%s)
 week_epoch=$(date -u -d "$week_monday" +%s)
 week_delta=$((week_epoch - anchor_epoch))
 if (( week_delta < 0 || week_delta % 604800 != 0 )); then
@@ -28,6 +30,6 @@ if (( week_delta < 0 || week_delta % 604800 != 0 )); then
   exit 2
 fi
 
-week_number=$((week_delta / 604800))
-printf 'tag=weekly-beta-%s\n' "$week_monday"
+week_number=$((week_delta / 604800 + 1))
+printf 'tag=v1.%s\n' "$week_number"
 printf 'title=Compas v1.%s\n' "$week_number"

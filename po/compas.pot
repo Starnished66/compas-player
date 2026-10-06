@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: compas-player\n"
 "Report-Msgid-Bugs-To: none\n"
-"POT-Creation-Date: 2026-10-04 17:09-0600\n"
+"POT-Creation-Date: 2026-10-05 22:08-0600\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -183,7 +183,7 @@ msgstr ""
 msgid "Unexpected reply from GitHub"
 msgstr ""
 
-msgid "GitHub's latest release is not a supported weekly firmware release."
+msgid "GitHub's latest release is not a supported firmware release."
 msgstr ""
 
 #, c-format
@@ -875,9 +875,6 @@ msgid "Checking the SD card. This may take a while"
 msgstr ""
 
 msgid "SD card repaired"
-msgstr ""
-
-msgid "SD card checked"
 msgstr ""
 
 msgid "SD card is still read-only"
@@ -1894,7 +1891,7 @@ msgstr ""
 
 #, c-format
 msgid ""
-"Weekly Beta %s is downloaded and verified.\n"
+"Firmware release %s is downloaded and verified.\n"
 "\n"
 "Install now? The device reboots into recovery to flash it. Do not turn it "
 "off until it restarts."
@@ -1944,7 +1941,7 @@ msgstr ""
 
 #, c-format
 msgid ""
-"Weekly Beta %s is available.\n"
+"Firmware release %s is available.\n"
 "Installed: %s\n"
 "\n"
 "Download it now? This may take a while."
@@ -1952,7 +1949,8 @@ msgstr ""
 
 #, c-format
 msgid ""
-"You have the latest weekly (%s).\n"
+"Installed version: %s\n"
+"Available release: %s\n"
 "\n"
 "Download and reinstall it anyway? This may take a while."
 msgstr ""
