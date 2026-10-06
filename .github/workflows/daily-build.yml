@@ -395,11 +395,11 @@ jobs:
           compression-level: 6
 
   build-r3ii-2025:
-    # R3II 2025 has not been validated on real hardware and still requires
-    # on-device testing. Publish the
+    # R3II 2025 is an early alpha that has not been validated on real
+    # hardware and still requires on-device testing. Publish the
     # checked binaries as a workflow artifact; the separate, checksum-gated
     # packaging job produces a staging artifact, never a public release.
-    name: Build player for R3II 2025 (compile check and artifact)
+    name: Build player for R3II 2025 early alpha (compile check and artifact)
     runs-on: ubuntu-24.04
     timeout-minutes: 60
 
@@ -422,7 +422,7 @@ jobs:
         run: |
           set -euo pipefail
           make -j2 target BOARD=r3ii_2025 \
-            RELEASE_LABEL="Daily Build R3II 2025 $(date -u +%F)"
+            RELEASE_LABEL="Daily Build R3II 2025 (Early Alpha) $(date -u +%F)"
           make bootloader BOARD=r3ii_2025
 
       - name: Validate build output
@@ -497,7 +497,7 @@ jobs:
     # This is deliberately a workflow artifact, not a GitHub release. The
     # R3II 2025 base image must be approved and hardware-tested before it can
     # become a public firmware release.
-    name: Package R3II 2025 firmware (staging artifact)
+    name: Package R3II 2025 early alpha firmware (staging artifact)
     needs: [build-r3ii-2025, config-r3ii-2025]
     if: ${{ needs['config-r3ii-2025'].outputs.enabled == 'true' }}
     runs-on: ubuntu-24.04
