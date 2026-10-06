@@ -4,6 +4,9 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -201,8 +204,15 @@ static void run_session(void) {
     }
 }
 
+/* Declared in gui.h. Not included here: that header pulls the UI. */
+void install_thread_crash_altstack(void);
+
 static void * metadata_thread_func(void * arg) {
     (void) arg;
+#ifdef __linux__
+    (void) prctl(PR_SET_NAME, "airplay");
+#endif
+    install_thread_crash_altstack(); /* see its own comment (main.c) */
 
     /* Restart-in-place loop: handles restarts requested while stopping without
      * spawning multiple concurrent threads. */
@@ -243,7 +253,17 @@ bool airplay_metadata_start(void) {
     pthread_mutex_unlock(&meta_mutex);
 
     pthread_t thread;
-    if (pthread_create(&thread, NULL, metadata_thread_func, NULL) != 0) {
+    /* cover_decode JPEG/PNG, same accommodation as the album thumbnail worker. */
+    enum { AIRPLAY_ART_THREAD_STACK_SIZE = 4 * 1024 * 1024 };
+    pthread_attr_t attr;
+    pthread_attr_t * attr_ptr = NULL;
+    bool attr_initialized = pthread_attr_init(&attr) == 0;
+    if (attr_initialized &&
+        pthread_attr_setstacksize(&attr, AIRPLAY_ART_THREAD_STACK_SIZE) == 0)
+        attr_ptr = &attr;
+    int create_rc = pthread_create(&thread, attr_ptr, metadata_thread_func, NULL);
+    if (attr_initialized) pthread_attr_destroy(&attr);
+    if (create_rc != 0) {
         pthread_mutex_lock(&meta_mutex);
         meta_state = META_STOPPED;
         pthread_mutex_unlock(&meta_mutex);

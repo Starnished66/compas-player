@@ -5,6 +5,15 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
+
+/* main.c defines the real hook. track_probe_test links this file alone. */
+extern void install_thread_crash_altstack(void) __attribute__((weak));
+
+/* decoder_open on HE-AAC v2 runs the same ~70 KiB faad2 chain as playback. */
+#define TRACK_PROBE_THREAD_STACK_SIZE (256 * 1024)
 
 typedef struct {
     bool valid;
@@ -25,6 +34,10 @@ struct track_probe_job {
 };
 
 static void * track_probe_worker(void * arg) {
+#ifdef __linux__
+    (void) prctl(PR_SET_NAME, "trackprobe");
+#endif
+    if (install_thread_crash_altstack) install_thread_crash_altstack(); /* see its own comment (main.c) */
     track_probe_job_t * job = arg;
     for (size_t i = 0; i < job->count; i++) {
         if (atomic_load_explicit(&job->cancelled, memory_order_acquire)) break;
@@ -71,7 +84,15 @@ track_probe_job_t * track_probe_job_start(const char * const * paths, size_t cou
         job->paths[i] = dst;
         dst += lengths[i];
     }
-    if (pthread_create(&job->thread, NULL, track_probe_worker, job) != 0) {
+    pthread_attr_t attr;
+    pthread_attr_t * attr_ptr = NULL;
+    bool attr_initialized = pthread_attr_init(&attr) == 0;
+    if (attr_initialized &&
+        pthread_attr_setstacksize(&attr, TRACK_PROBE_THREAD_STACK_SIZE) == 0)
+        attr_ptr = &attr;
+    int create_rc = pthread_create(&job->thread, attr_ptr, track_probe_worker, job);
+    if (attr_initialized) pthread_attr_destroy(&attr);
+    if (create_rc != 0) {
         free(job->path_storage);
         free(job);
         return NULL;

@@ -18,6 +18,12 @@
  * on host. */
 void idle_shutdown_now(void);
 
+/* Exit status idle_shutdown_reboot_now() uses when its parent is
+ * compas_bootloader. Non-zero so the supervisor reboots (after releasing
+ * the SD card) instead of treating the exit as a clean poweroff. The
+ * bootloader's player_exit.log marks this value as a requested restart. */
+#define IDLE_SHUTDOWN_REBOOT_EXIT_CODE 75
+
 /* Same mechanism as idle_shutdown_now() (busybox first, raw reboot()
  * syscall as fallback, never returns on the device) but for a normal
  * restart instead of a full poweroff -- same /sbin/reboot + RB_AUTOBOOT

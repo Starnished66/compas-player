@@ -17,6 +17,9 @@
 #include "image_thumb.h"
 #include <pthread.h>
 #include <stdatomic.h>
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -186,8 +189,15 @@ static bool lock_art_should_cancel(void * unused) {
     return atomic_load(&lock_art_cancel);
 }
 
+/* JPEG/PNG photo decode, same accommodation as the album thumbnail worker. */
+#define LOCK_ART_THREAD_STACK_SIZE (4 * 1024 * 1024)
+
 static void * lock_art_worker(void * unused) {
     (void)unused;
+#ifdef __linux__
+    (void) prctl(PR_SET_NAME, "lockart");
+#endif
+    install_thread_crash_altstack(); /* see its own comment (main.c) */
     lock_art_job_t * job = &lock_art_job;
     if (job->mode == LOCK_SCREEN_MODE_IMAGE) {
         uint8_t * data = NULL;
@@ -356,7 +366,15 @@ static void update_lock_art(void) {
     }
     atomic_store(&lock_art_done, false);
     atomic_store(&lock_art_cancel, false);
-    if (pthread_create(&lock_art_thread, NULL, lock_art_worker, NULL) != 0) {
+    pthread_attr_t attr;
+    pthread_attr_t * attr_ptr = NULL;
+    bool attr_initialized = pthread_attr_init(&attr) == 0;
+    if (attr_initialized &&
+        pthread_attr_setstacksize(&attr, LOCK_ART_THREAD_STACK_SIZE) == 0)
+        attr_ptr = &attr;
+    int create_rc = pthread_create(&lock_art_thread, attr_ptr, lock_art_worker, NULL);
+    if (attr_initialized) pthread_attr_destroy(&attr);
+    if (create_rc != 0) {
         stop_lock_art();
         return;
     }

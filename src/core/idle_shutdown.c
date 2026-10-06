@@ -8,9 +8,6 @@
 #include <unistd.h>
 #include <sys/reboot.h>
 
-/* Any non-zero exit makes compas_bootloader reboot the device. */
-#define IDLE_SHUTDOWN_REBOOT_EXIT_CODE 75
-
 static bool parent_is_bootloader(void) {
     char path[32];
     char target[256];

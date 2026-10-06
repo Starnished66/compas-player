@@ -33,6 +33,9 @@
 
 #include <ctype.h>
 #include <dirent.h>
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
 #include <fcntl.h>
 #include <string.h>
 #include <strings.h>
@@ -4345,7 +4348,15 @@ static bool plugin_zip_image_cancelled(void * user) {
     return atomic_load(&((plugin_zip_image_t *) user)->cancel);
 }
 
+/* Weak: tests that #include this file link without main.c, which
+ * defines the real hook. */
+extern void install_thread_crash_altstack(void) __attribute__((weak));
+
 static void * plugin_zip_image_thread(void * arg) {
+#ifdef __linux__
+    (void) prctl(PR_SET_NAME, "pluginimg");
+#endif
+    if (install_thread_crash_altstack) install_thread_crash_altstack(); /* see its own comment (main.c) */
     plugin_zip_image_t * job = arg;
     unsigned char * data = NULL;
     size_t len = 0;

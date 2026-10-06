@@ -49,6 +49,20 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <time.h>
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
+
+/* main.c installs the real alternate stack. */
+void install_thread_crash_altstack(void);
+
+static void set_worker_thread_name(const char * name) {
+#ifdef __linux__
+    (void) prctl(PR_SET_NAME, name);
+#else
+    (void) name;
+#endif
+}
 
 #include "debug_log.h"
 #include "audio_helpers.h"
@@ -1161,6 +1175,8 @@ static drmp3_uint32 mp3_build_seek_points_cancellable(drmp3 * scan, uint64_t tot
 }
 
 static void * mp3_index_worker(void * arg) {
+    set_worker_thread_name("mp3index");
+    install_thread_crash_altstack(); /* see its own comment (main.c) */
     mp3_index_job_t * job = arg;
     (void) nice(10); /* keep the single-core playback thread responsive */
 
@@ -1309,8 +1325,17 @@ static bool request_mp3_seek_index_locked(decoder_t * dec, const char * path,
     job->count = (drmp3_uint32) desired;
 
     pthread_t worker;
+    /* drmp3_init_file plus the frame walk that builds the seek table. */
+    enum { MP3_INDEX_WORKER_STACK_SIZE = 256 * 1024 };
+    pthread_attr_t attr;
+    pthread_attr_t * attr_ptr = NULL;
+    bool attr_initialized = pthread_attr_init(&attr) == 0;
+    if (attr_initialized &&
+        pthread_attr_setstacksize(&attr, MP3_INDEX_WORKER_STACK_SIZE) == 0)
+        attr_ptr = &attr;
     mp3_index_worker_active = true;
-    if (pthread_create(&worker, NULL, mp3_index_worker, job) != 0) {
+    if (pthread_create(&worker, attr_ptr, mp3_index_worker, job) != 0) {
+        if (attr_initialized) pthread_attr_destroy(&attr);
         mp3_index_worker_active = false;
         free_mp3_index_job(job);
         mp3_seek_retry_count++;
@@ -1324,6 +1349,7 @@ static bool request_mp3_seek_index_locked(decoder_t * dec, const char * path,
         return mp3_seek_deferred;
     }
     pthread_detach(worker);
+    if (attr_initialized) pthread_attr_destroy(&attr);
     return true;
 }
 
@@ -1412,13 +1438,17 @@ bool audio_extract_waveform(const char * path, uint8_t * bins, size_t count,
         WAVEFORM_MAX_CONSECUTIVE_ERRORS = 10
     };
     const uint64_t budget_ns = UINT64_C(90) * 1000000000;
+    /* PCM is 64 KiB and the bin accumulators another ~6 KiB. Together with
+     * faad2's HE-AAC v2 frames this overflowed musl's 128 KiB thread stack. */
+    struct {
+        int16_t pcm[WAVEFORM_READ_FRAMES * MAX_CHANNELS];
+        uint64_t sums[WAVEFORM_MAX_BINS];
+        uint64_t sample_counts[WAVEFORM_MAX_BINS];
+        double rms[WAVEFORM_MAX_BINS];
+    } * scratch = NULL;
     decoder_t dec;
-    int16_t pcm[WAVEFORM_READ_FRAMES * MAX_CHANNELS];
-    uint64_t sums[WAVEFORM_MAX_BINS] = { 0 };
-    uint64_t sample_counts[WAVEFORM_MAX_BINS] = { 0 };
     struct timespec started = { 0 }, now = { 0 }, last_yield = { 0 };
     bool opened = false, ok = false;
-    double rms[WAVEFORM_MAX_BINS] = { 0 };
     double peak_rms = 0.0;
 
     if (bins && count <= WAVEFORM_MAX_BINS) memset(bins, 0, count);
@@ -1433,7 +1463,9 @@ bool audio_extract_waveform(const char * path, uint8_t * bins, size_t count,
                 strcasecmp(ext, ".ape") == 0)) return false;
     (void) clock_gettime(CLOCK_MONOTONIC, &started);
     last_yield = started;
-    if (!decoder_open(&dec, path)) return false;
+    scratch = calloc(1, sizeof(*scratch));
+    if (!scratch) return false;
+    if (!decoder_open(&dec, path)) goto done;
     opened = true;
 
     if ((cancel && cancel(user)) || dec.type == DECODER_DSD || dec.type == DECODER_APE ||
@@ -1460,7 +1492,7 @@ bool audio_extract_waveform(const char * path, uint8_t * bins, size_t count,
 
         uint64_t want = bin_end - frame;
         if (want > WAVEFORM_READ_FRAMES) want = WAVEFORM_READ_FRAMES;
-        decoder_read_result_t read = decoder_read_s16(&dec, want, pcm);
+        decoder_read_result_t read = decoder_read_s16(&dec, want, scratch->pcm);
         if (read.status == DECODER_READ_FATAL_ERROR) goto done;
         if (read.status == DECODER_READ_RECOVERABLE_ERROR) {
             if (++consecutive_errors >= WAVEFORM_MAX_CONSECUTIVE_ERRORS) goto done;
@@ -1478,9 +1510,9 @@ bool audio_extract_waveform(const char * path, uint8_t * bins, size_t count,
 
         for (uint64_t i = 0; i < read.frames; ++i) {
             for (unsigned ch = 0; ch < dec.channels; ++ch) {
-                int64_t sample = pcm[i * dec.channels + ch];
-                sums[bin] += (uint64_t)(sample * sample);
-                sample_counts[bin]++;
+                int64_t sample = scratch->pcm[i * dec.channels + ch];
+                scratch->sums[bin] += (uint64_t)(sample * sample);
+                scratch->sample_counts[bin]++;
             }
         }
         frame += read.frames;
@@ -1510,20 +1542,21 @@ bool audio_extract_waveform(const char * path, uint8_t * bins, size_t count,
         if (elapsed > budget_ns || frame == 0 || (cancel && cancel(user))) goto done;
     }
     for (size_t i = 0; i < count; ++i) {
-        if (!sample_counts[i]) {
+        if (!scratch->sample_counts[i]) {
             bins[i] = 0;
             continue;
         }
-        rms[i] = sqrt((double)sums[i] / (double)sample_counts[i]);
-        if (rms[i] > peak_rms) peak_rms = rms[i];
+        scratch->rms[i] = sqrt((double)scratch->sums[i] / (double)scratch->sample_counts[i]);
+        if (scratch->rms[i] > peak_rms) peak_rms = scratch->rms[i];
     }
     if (peak_rms > 0.0)
         for (size_t i = 0; i < count; ++i)
-            bins[i] = (uint8_t)lround((rms[i] / peak_rms) * 255.0);
+            bins[i] = (uint8_t)lround((scratch->rms[i] / peak_rms) * 255.0);
     ok = true;
 
 done:
     if (opened) decoder_close(&dec);
+    free(scratch);
     if (!ok) memset(bins, 0, count);
     return ok;
 }
@@ -2240,6 +2273,8 @@ static void mix_crossfade_s32(const int32_t * buf_cur, const int32_t * buf_next,
 
 static void * audio_thread_func(void * arg) {
     (void) arg;
+    set_worker_thread_name("audio");
+    install_thread_crash_altstack(); /* see its own comment (main.c) */
     /* A modest priority boost, not full SCHED_FIFO: real-time scheduling
      * would risk priority inversion against audio_mutex (also taken by the
      * UI thread for format/volume reads), which could make things worse
@@ -3871,7 +3906,16 @@ void audio_init(void) {
 
     if (!thread_started) {
         thread_started = true;
-        pthread_create(&audio_thread, NULL, audio_thread_func, NULL);
+        /* HE-AAC v2 playback is ~85 KiB, and a crossfade keeps two decoders. */
+        enum { AUDIO_THREAD_STACK_SIZE = 512 * 1024 };
+        pthread_attr_t attr;
+        pthread_attr_t * attr_ptr = NULL;
+        bool attr_initialized = pthread_attr_init(&attr) == 0;
+        if (attr_initialized &&
+            pthread_attr_setstacksize(&attr, AUDIO_THREAD_STACK_SIZE) == 0)
+            attr_ptr = &attr;
+        pthread_create(&audio_thread, attr_ptr, audio_thread_func, NULL);
+        if (attr_initialized) pthread_attr_destroy(&attr);
     }
 }
 

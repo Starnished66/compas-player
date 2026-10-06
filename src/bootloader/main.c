@@ -5,13 +5,20 @@
 #include "scanner.h"
 #include "installer.h"
 #include "fb_draw.h"
+#include "idle_shutdown.h"
 
 #include <errno.h>
+#include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/klog.h>
 #include <sys/mount.h>
 #include <sys/reboot.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 extern char ** environ;
@@ -30,6 +37,132 @@ static void release_sd_card(void) {
     if (umount2(SD_MOUNT_POINT, 0) == 0) return;
     if (errno == EINVAL || errno == ENOENT) return; /* not mounted */
     mount(NULL, SD_MOUNT_POINT, NULL, MS_REMOUNT | MS_RDONLY, NULL);
+}
+
+/* stderr from the player is not kept across a reboot, so an abnormal exit
+ * leaves a bounded record on the writable internal partition. Failures here
+ * must not skip the reboot below. */
+#define PLAYER_EXIT_LOG "/usr/data/player_exit.log"
+#define PLAYER_EXIT_LOG_PREV "/usr/data/player_exit.log.1"
+#define PLAYER_EXIT_LOG_LIMIT (64 * 1024)
+#define PLAYER_EXIT_KLOG_TAIL 4096
+
+static const char * exit_signal_name(int sig) {
+    switch (sig) {
+        case SIGHUP: return "SIGHUP";
+        case SIGINT: return "SIGINT";
+        case SIGQUIT: return "SIGQUIT";
+        case SIGILL: return "SIGILL";
+        case SIGTRAP: return "SIGTRAP";
+        case SIGABRT: return "SIGABRT";
+        case SIGBUS: return "SIGBUS";
+        case SIGFPE: return "SIGFPE";
+        case SIGKILL: return "SIGKILL";
+        case SIGUSR1: return "SIGUSR1";
+        case SIGSEGV: return "SIGSEGV";
+        case SIGUSR2: return "SIGUSR2";
+        case SIGPIPE: return "SIGPIPE";
+        case SIGALRM: return "SIGALRM";
+        case SIGTERM: return "SIGTERM";
+#ifdef SIGEMT
+        case SIGEMT: return "SIGEMT";
+#endif
+#ifdef SIGSTKFLT
+        case SIGSTKFLT: return "SIGSTKFLT";
+#endif
+        case SIGCHLD: return "SIGCHLD";
+        case SIGCONT: return "SIGCONT";
+        case SIGSTOP: return "SIGSTOP";
+        case SIGTSTP: return "SIGTSTP";
+        case SIGTTIN: return "SIGTTIN";
+        case SIGTTOU: return "SIGTTOU";
+        case SIGURG: return "SIGURG";
+        case SIGXCPU: return "SIGXCPU";
+        case SIGXFSZ: return "SIGXFSZ";
+        case SIGVTALRM: return "SIGVTALRM";
+        case SIGPROF: return "SIGPROF";
+        case SIGWINCH: return "SIGWINCH";
+        case SIGIO: return "SIGIO";
+        case SIGPWR: return "SIGPWR";
+        case SIGSYS: return "SIGSYS";
+        default: return "unknown";
+    }
+}
+
+static void write_ignoring_errors(int fd, const void * buf, size_t len) {
+    const char * p = buf;
+    while (len > 0) {
+        ssize_t n = write(fd, p, len);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return;
+        }
+        if (n == 0) return;
+        p += n;
+        len -= (size_t) n;
+    }
+}
+
+static void append_kernel_log_tail(int fd) {
+    int size = klogctl(10, NULL, 0); /* SYSLOG_ACTION_SIZE_BUFFER */
+    if (size <= 0) return;
+    int want = size < PLAYER_EXIT_KLOG_TAIL ? size : PLAYER_EXIT_KLOG_TAIL;
+    char * buf = malloc((size_t) want);
+    if (!buf) return;
+    int n = klogctl(3, buf, want); /* SYSLOG_ACTION_READ_ALL, last `want` bytes */
+    if (n > 0) {
+        if (n > want) n = want;
+        write_ignoring_errors(fd, buf, (size_t) n);
+        if (buf[n - 1] != '\n') write_ignoring_errors(fd, "\n", 1);
+    }
+    free(buf);
+}
+
+/* One line, then the tail of the kernel log (an OOM-killer line lives there).
+ * Exit 75 is the player's intentional restart; it still reboots, but the
+ * line says so. Rotate before appending so the file stays within one
+ * generation plus the previous one. */
+static void record_player_exit(int status) {
+    struct timespec realtime;
+    struct timespec boottime;
+    char line[320];
+    int len;
+    struct stat st;
+
+    if (clock_gettime(CLOCK_REALTIME, &realtime) != 0) realtime.tv_sec = 0;
+    if (clock_gettime(CLOCK_BOOTTIME, &boottime) != 0) boottime.tv_sec = 0;
+
+    if (WIFSIGNALED(status)) {
+        len = snprintf(line, sizeof(line),
+                       "realtime=%lld boottime=%lld status=0x%x signal %d (%s)%s\n",
+                       (long long) realtime.tv_sec, (long long) boottime.tv_sec,
+                       (unsigned) status, WTERMSIG(status), exit_signal_name(WTERMSIG(status)),
+                       WCOREDUMP(status) ? " core" : "");
+    } else if (WIFEXITED(status)) {
+        int code = WEXITSTATUS(status);
+        len = snprintf(line, sizeof(line),
+                       "realtime=%lld boottime=%lld status=0x%x exit code %d%s\n",
+                       (long long) realtime.tv_sec, (long long) boottime.tv_sec,
+                       (unsigned) status, code,
+                       code == IDLE_SHUTDOWN_REBOOT_EXIT_CODE ? " requested restart" : "");
+    } else {
+        len = snprintf(line, sizeof(line),
+                       "realtime=%lld boottime=%lld status=0x%x unrecognized\n",
+                       (long long) realtime.tv_sec, (long long) boottime.tv_sec,
+                       (unsigned) status);
+    }
+    if (len <= 0) return;
+    if (len >= (int) sizeof(line)) len = (int) sizeof(line) - 1;
+
+    if (stat(PLAYER_EXIT_LOG, &st) == 0 && st.st_size > PLAYER_EXIT_LOG_LIMIT)
+        (void) rename(PLAYER_EXIT_LOG, PLAYER_EXIT_LOG_PREV);
+
+    int fd = open(PLAYER_EXIT_LOG, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd < 0) return;
+    write_ignoring_errors(fd, line, (size_t) len);
+    append_kernel_log_tail(fd);
+    (void) fsync(fd);
+    close(fd);
 }
 
 /* Supervises player execution. A clean exit status (0) triggers device poweroff,
@@ -86,6 +219,7 @@ static void run_player_supervised(const char * player_path) {
     } else {
         fprintf(stderr, "compas_bootloader: %s exited abnormally (status=0x%x) -- rebooting\n",
                 player_path, (unsigned) status);
+        record_player_exit(status);
     }
     reboot_device();
 }

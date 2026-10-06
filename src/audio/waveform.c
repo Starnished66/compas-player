@@ -19,6 +19,13 @@
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
+
+/* main.c defines the real hook. A waveform_check link of this file alone
+ * leaves the symbol unresolved-weak and skips the call. */
+extern void install_thread_crash_altstack(void) __attribute__((weak));
 
 #define WAVEFORM_PATH_MAX 2048
 #define WAVEFORM_CACHE_DIR SD_COMPAS_ROOT "/waveforms"
@@ -325,6 +332,10 @@ static void set_worker_background_priority(void) {
 
 static void * waveform_worker(void * unused) {
     (void) unused;
+#ifdef __linux__
+    (void) prctl(PR_SET_NAME, "waveform");
+#endif
+    if (install_thread_crash_altstack) install_thread_crash_altstack(); /* see its own comment (main.c) */
     set_worker_background_priority();
     for (;;) {
         char path[WAVEFORM_PATH_MAX];
@@ -374,10 +385,21 @@ static void * waveform_worker(void * unused) {
     }
 }
 
+/* faad2 HE-AAC v2 decode needs ~70 KiB on top of the decoder frames. */
+#define WAVEFORM_WORKER_STACK_SIZE (256 * 1024)
+
 static bool start_worker_locked(void) {
     if (waveform_thread_started) return true;
     if (waveform_stopping) return false;
-    if (pthread_create(&waveform_thread, NULL, waveform_worker, NULL) != 0) return false;
+    pthread_attr_t attr;
+    pthread_attr_t * attr_ptr = NULL;
+    bool attr_initialized = pthread_attr_init(&attr) == 0;
+    if (attr_initialized &&
+        pthread_attr_setstacksize(&attr, WAVEFORM_WORKER_STACK_SIZE) == 0)
+        attr_ptr = &attr;
+    bool created = pthread_create(&waveform_thread, attr_ptr, waveform_worker, NULL) == 0;
+    if (attr_initialized) pthread_attr_destroy(&attr);
+    if (!created) return false;
     waveform_thread_started = true;
     return true;
 }

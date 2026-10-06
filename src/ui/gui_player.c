@@ -99,6 +99,9 @@ static bool is_sd_card_path(const char *path);
 #include <string.h>
 #include <stdatomic.h>
 #include <pthread.h>
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
 #include <unistd.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -1087,7 +1090,18 @@ static bool player_read_flac_format(const char * path, audio_current_format_info
     return true;
 }
 
+/* Player-size JPEG/PNG cover. Album thumbnails use a 4 MiB stack. */
+/* Weak: tests that #include this file link without main.c, which
+ * defines the real hook. */
+extern void install_thread_crash_altstack(void) __attribute__((weak));
+
+#define COVER_DECODE_THREAD_STACK_SIZE (256 * 1024)
+
 static void * cover_decode_thread_func(void * arg) {
+#ifdef __linux__
+    (void) prctl(PR_SET_NAME, "cover");
+#endif
+    if (install_thread_crash_altstack) install_thread_crash_altstack(); /* see its own comment (main.c) */
     cover_decode_request_t * req = (cover_decode_request_t *) arg;
     uint16_t * pixels = NULL;
     bool ok = false;
@@ -1229,7 +1243,15 @@ static void launch_cover_decode_req(cover_decode_request_t r) {
     /* Marked before the thread exists, so a reload worker can never see
      * "idle" while a created-but-unscheduled decode is about to run. */
     atomic_store_explicit(&cover_decode_running, true, memory_order_release);
-    if (pthread_create(&cover_decode_thread, NULL, cover_decode_thread_func, req) != 0) {
+    pthread_attr_t attr;
+    pthread_attr_t * attr_ptr = NULL;
+    bool attr_initialized = pthread_attr_init(&attr) == 0;
+    if (attr_initialized &&
+        pthread_attr_setstacksize(&attr, COVER_DECODE_THREAD_STACK_SIZE) == 0)
+        attr_ptr = &attr;
+    int create_rc = pthread_create(&cover_decode_thread, attr_ptr, cover_decode_thread_func, req);
+    if (attr_initialized) pthread_attr_destroy(&attr);
+    if (create_rc != 0) {
         free(req->picture_data);
         free(req);
         cover_decode_active = false;

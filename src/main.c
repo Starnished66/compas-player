@@ -77,16 +77,140 @@ void install_thread_crash_altstack(void) {}
 
 #ifndef HOST_BUILD
 #include <ucontext.h>
+#include <sys/prctl.h>
 
 /* See scan_one_song_into_db()'s own comment (gui_library.c) -- breadcrumb
  * for the metadata-parser crash handler below. Reading this global char
  * array from a signal handler is safe (no allocation, no lock). */
 extern char g_scan_last_path[PATH_MAX];
 
+/* Always-on crash line on internal storage. The SD diag below is opt-in and
+ * a full SD card (or logging left off) used to leave no record at all:
+ * stderr is not kept, and the bootloader only sees the wait status. This
+ * path stays async-signal-safe: stack buffers and open/write/fsync/close. */
+#define PLAYER_CRASH_LOG "/usr/data/player_crash.log"
+#define PLAYER_CRASH_LOG_PREV "/usr/data/player_crash.log.1"
+#define PLAYER_CRASH_LOG_LIMIT (64 * 1024)
+
+/* Set once main() is past the artwork-helper dispatch. The exec'd artwork
+ * helper and the forked tag-parser child inherit this handler, but they
+ * exist so a damaged file can crash them without taking the player down;
+ * their pid never matches, so they leave no player crash line. */
+static volatile pid_t crash_player_pid;
+
+static char * crash_put(char * p, char * end, const char * s) {
+    while (*s && p < end) *p++ = *s++;
+    return p;
+}
+
+static char * crash_put_u(char * p, char * end, unsigned long v) {
+    char tmp[20];
+    int n = 0;
+    do {
+        tmp[n++] = (char) ('0' + (v % 10u));
+        v /= 10u;
+    } while (v && n < (int) sizeof(tmp));
+    while (n > 0 && p < end) *p++ = tmp[--n];
+    return p;
+}
+
+static char * crash_put_i(char * p, char * end, int v) {
+    if (v < 0) {
+        if (p < end) *p++ = '-';
+        /* v + 1 first so INT_MIN does not negate itself. */
+        return crash_put_u(p, end, (unsigned) (-(v + 1)) + 1u);
+    }
+    return crash_put_u(p, end, (unsigned long) v);
+}
+
+static char * crash_put_hex8(char * p, char * end, unsigned long v) {
+    const char * digits = "0123456789abcdef";
+    char tmp[8];
+    for (int i = 7; i >= 0; i--) {
+        tmp[i] = digits[v & 0xful];
+        v >>= 4;
+    }
+    for (int i = 0; i < 8 && p < end; i++) *p++ = tmp[i];
+    return p;
+}
+
+static void crash_write_all(int fd, const char * buf, size_t len) {
+    while (len > 0) {
+        ssize_t n = write(fd, buf, len);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return;
+        }
+        if (n == 0) return;
+        buf += n;
+        len -= (size_t) n;
+    }
+}
+
+static void record_player_crash(int sig, siginfo_t * info, void * ucontext_v) {
+    char thread_name[16];
+    char line[192];
+    char * p = line;
+    char * end = line + sizeof(line) - 1;
+    unsigned long pc = 0, ra = 0, sp = 0;
+    int fd;
+    off_t sz;
+
+    if (crash_player_pid == 0 || getpid() != crash_player_pid) return;
+    for (int i = 0; i < (int) sizeof(thread_name); i++) thread_name[i] = '\0';
+    if (prctl(PR_GET_NAME, (unsigned long) thread_name) != 0 || !thread_name[0]) {
+        thread_name[0] = '?';
+        thread_name[1] = '\0';
+    }
+    thread_name[sizeof(thread_name) - 1] = '\0';
+    for (char * c = thread_name; *c; c++) {
+        unsigned char ch = (unsigned char) *c;
+        if (ch < 32 || ch > 126) *c = '?';
+    }
+
+    if (ucontext_v) {
+        ucontext_t * uc = (ucontext_t *) ucontext_v;
+        pc = (unsigned long) uc->uc_mcontext.pc;
+        ra = (unsigned long) uc->uc_mcontext.gregs[31];
+        sp = (unsigned long) uc->uc_mcontext.gregs[29];
+    }
+
+    p = crash_put(p, end, "sig=");
+    p = crash_put_i(p, end, sig);
+    p = crash_put(p, end, " si_code=");
+    p = crash_put_i(p, end, info ? info->si_code : 0);
+    p = crash_put(p, end, " addr=");
+    p = crash_put_hex8(p, end, info ? (unsigned long) info->si_addr : 0);
+    p = crash_put(p, end, " pc=");
+    p = crash_put_hex8(p, end, pc);
+    p = crash_put(p, end, " ra=");
+    p = crash_put_hex8(p, end, ra);
+    p = crash_put(p, end, " sp=");
+    p = crash_put_hex8(p, end, sp);
+    p = crash_put(p, end, " thread=");
+    p = crash_put(p, end, thread_name);
+    if (p < end) *p++ = '\n';
+
+    fd = open(PLAYER_CRASH_LOG, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd < 0) return;
+    sz = lseek(fd, 0, SEEK_END);
+    if (sz > PLAYER_CRASH_LOG_LIMIT) {
+        close(fd);
+        /* rename(2) is async-signal-safe; it replaces an older .1. */
+        (void) rename(PLAYER_CRASH_LOG, PLAYER_CRASH_LOG_PREV);
+        fd = open(PLAYER_CRASH_LOG, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (fd < 0) return;
+    }
+    crash_write_all(fd, line, (size_t) (p - line));
+    (void) fsync(fd);
+    close(fd);
+}
+
 /* Signal handler that logs register state and a stack word scan to the
  * opt-in .logs/reload_diag.log, then re-raises the signal with the default
  * handler. */
 static void crash_diag_handler(int sig, siginfo_t * info, void * ucontext_v) {
+    record_player_crash(sig, info, ucontext_v);
     if (!db_log_enabled()) {
         signal(sig, SIG_DFL);
         raise(sig);
@@ -382,8 +506,18 @@ int main(int argc, char ** argv) {
      * own stack is exhausted. Only takes effect for threads that have called
      * sigaltstack() (install_thread_crash_altstack()). */
     crash_sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
+    /* One handler for every fatal signal. Block the set so a second fault
+     * inside the handler cannot re-enter it. */
+    sigaddset(&crash_sa.sa_mask, SIGSEGV);
+    sigaddset(&crash_sa.sa_mask, SIGBUS);
+    sigaddset(&crash_sa.sa_mask, SIGILL);
+    sigaddset(&crash_sa.sa_mask, SIGFPE);
+    sigaddset(&crash_sa.sa_mask, SIGABRT);
     sigaction(SIGSEGV, &crash_sa, NULL);
     sigaction(SIGBUS, &crash_sa, NULL);
+    sigaction(SIGILL, &crash_sa, NULL);
+    sigaction(SIGFPE, &crash_sa, NULL);
+    sigaction(SIGABRT, &crash_sa, NULL);
 #endif
 
     /* Recognized before validating the full argument count, so a malformed
@@ -414,6 +548,9 @@ int main(int argc, char ** argv) {
         }
         return metadata_artwork_helper_run(argv[3], (int) fd, prio);
     }
+#ifndef HOST_BUILD
+    crash_player_pid = getpid();
+#endif
 
     setvbuf(stdout, NULL, _IOLBF, 0);
     printf("Starting compas_player...\n");
