@@ -2,6 +2,7 @@
 
 A stability update for Compas v1.0.
 
+- **Optional QWERTY keyboard:** choose T9 or QWERTY in **Settings > Display > Appearance > Keyboard**, with accented letters and symbols. T9 remains the default.
 - Reduce possible reboots during long MP3 processing and waveform generation by moving large scratch buffers off worker stacks and sizing decoder threads explicitly.
 - Stop checking writable SD cards solely because their FAT dirty flag is set, avoiding unnecessary startup repair loops on small cards. Interrupted checks are guarded against repeated attempts.
 - Reduce memory spikes when starting helper processes, and save persistent crash and player-exit diagnostics for unexpected restarts.
