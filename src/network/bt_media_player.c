@@ -1,29 +1,27 @@
 #include "bt_media_player.h"
 #include "debug_log.h"
 #include "hiby_sys_server.h"
-#include "input_device_utils.h"
 #include "utf8_util.h"
 
 #include <dbus/dbus.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <linux/input.h>
 #include <limits.h>
 #include <math.h>
-#include <poll.h>
-#include <pthread.h>
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <linux/input.h>
+#include <pthread.h>
 
 /* AVRCP transport button support.
  * 1. Hosts a D-Bus org.mpris.MediaPlayer2.Player object via Media1.RegisterPlayer
  *    to answer metadata and status queries from AVRCP controllers.
- * 2. Reads AVRCP button events from BlueZ's virtual evdev keyboard device
- *    ("<name> (AVRCP)") to handle play/pause, next, and previous inputs. */
+ * 2. hw_buttons reads every BlueZ "<name> (AVRCP)" node and delivers
+ *    KEY_PLAYCD, KEY_PAUSECD, KEY_NEXTSONG, and KEY_PREVIOUSSONG here.
+ *    Volume, fast-forward, and rewind stay on the physical handler.
+ */
 
 #define BT_MEDIA_PLAYER_OBJECT_PATH "/org/mpris/MediaPlayer2"
 #define BT_MEDIA_PLAYER_BUS_NAME "org.mpris.MediaPlayer2.compas"
@@ -35,10 +33,9 @@
 static DBusConnection * conn = NULL;
 static pthread_t dispatch_thread;
 static atomic_bool connect_thread_started = false;
-static atomic_bool avrcp_input_thread_started = false;
+static bool playing_state = false;    /* mirrors audio_is_playing(), for PlaybackStatus -- set via bt_media_player_notify_playback_state() */
 
 static pthread_mutex_t state_mutex = PTHREAD_MUTEX_INITIALIZER;
-static bool playing_state = false;    /* mirrors audio_is_playing(), for PlaybackStatus -- set via bt_media_player_notify_playback_state() */
 static bool play_pause_requested = false;
 static bool next_requested = false;
 static bool prev_requested = false;
@@ -741,73 +738,6 @@ static void * connect_thread_func(void * arg) {
     }
 }
 
-/* See avrcp_input_thread_func()'s own comment (top of file) for why this
- * exists and why it's a separate device from hw_buttons.c's own two. */
-#define BT_AVRCP_INPUT_NAME_MARKER "(AVRCP)"
-#define BT_AVRCP_INPUT_RESCAN_DELAY_US (3 * 1000000)
-#define BT_AVRCP_INPUT_POLL_TIMEOUT_MS 1000
-
-static void * avrcp_input_thread_func(void * arg) {
-    (void) arg;
-    int fd = -1;
-
-    for (;;) {
-        if (fd < 0) {
-            char path[64];
-            if (find_input_device_containing(BT_AVRCP_INPUT_NAME_MARKER, path, sizeof(path))) {
-                fd = open(path, O_RDONLY | O_NONBLOCK);
-                if (fd >= 0) {
-                    DBG_LOG("bt_media_player: AVRCP input device found at %s\n", path);
-                } else {
-                    DBG_LOG("bt_media_player: failed to open AVRCP input device %s\n", path);
-                }
-            }
-            if (fd < 0) {
-                usleep(BT_AVRCP_INPUT_RESCAN_DELAY_US);
-                continue;
-            }
-        }
-
-        struct pollfd pfd;
-        pfd.fd = fd;
-        pfd.events = POLLIN;
-        int ret = poll(&pfd, 1, BT_AVRCP_INPUT_POLL_TIMEOUT_MS);
-        if (ret < 0) {
-            close(fd);
-            fd = -1;
-            continue;
-        }
-        if (ret == 0) continue; /* timeout, nothing to read -- just re-poll */
-
-        struct input_event ev;
-        ssize_t n;
-        while ((n = read(fd, &ev, sizeof(ev))) == (ssize_t) sizeof(ev)) {
-            if (ev.type == EV_KEY && ev.value == 1) { /* press only -- matches hw_buttons.c's own next/prev/play-pause handling, no release-triggered action */
-                pthread_mutex_lock(&state_mutex);
-                switch (ev.code) {
-                    case KEY_PLAYCD:
-                    case KEY_PAUSECD:      play_pause_requested = true; break;
-                    case KEY_NEXTSONG:     next_requested = true; break;
-                    case KEY_PREVIOUSSONG: prev_requested = true; break;
-                    default: break;
-                }
-                pthread_mutex_unlock(&state_mutex);
-            }
-        }
-        /* n == 0 (EOF) or a real error (not EAGAIN, which just means the
-         * queue is empty for now) means the accessory disconnected and
-         * BlueZ's input plugin destroyed this device -- close and go back
-         * to rescanning rather than spinning on a dead fd. */
-        if (n == 0 || (n < 0 && errno != EAGAIN)) {
-            DBG_LOG("bt_media_player: AVRCP input device gone\n");
-            close(fd);
-            fd = -1;
-        }
-    }
-
-    return NULL; /* unreached -- this thread runs for the app's whole lifetime, same as the D-Bus dispatch thread above */
-}
-
 void bt_media_player_init(void) {
     if (!atomic_exchange_explicit(&connect_thread_started, true, memory_order_acq_rel)) {
         pthread_t connect_thread;
@@ -815,15 +745,6 @@ void bt_media_player_init(void) {
             pthread_detach(connect_thread);
         } else {
             atomic_store_explicit(&connect_thread_started, false, memory_order_release);
-        }
-    }
-
-    if (!atomic_exchange_explicit(&avrcp_input_thread_started, true, memory_order_acq_rel)) {
-        pthread_t avrcp_input_thread;
-        if (pthread_create(&avrcp_input_thread, NULL, avrcp_input_thread_func, NULL) == 0) {
-            pthread_detach(avrcp_input_thread);
-        } else {
-            atomic_store_explicit(&avrcp_input_thread_started, false, memory_order_release);
         }
     }
 }
@@ -853,6 +774,22 @@ void bt_media_player_notify_track(const char * title, const char * artist, const
                    strcmp(track_state.art_url, next.art_url);
     next.generation = track_state.generation + (changed ? 1 : 0);
     track_state = next;
+    pthread_mutex_unlock(&state_mutex);
+}
+
+/* hw_buttons is the only evdev reader. A press enqueues on the flags the
+ * D-Bus Play/Pause/Next/Previous methods also set. Release and repeat are
+ * accepted so the reader can drop them without touching physical hold state. */
+void bt_media_player_dispatch_avrcp_key(unsigned short code, int value) {
+    if (value != 1) return;
+    pthread_mutex_lock(&state_mutex);
+    switch (code) {
+        case KEY_PLAYCD:
+        case KEY_PAUSECD:      play_pause_requested = true; break;
+        case KEY_NEXTSONG:     next_requested = true; break;
+        case KEY_PREVIOUSSONG: prev_requested = true; break;
+        default: break;
+    }
     pthread_mutex_unlock(&state_mutex);
 }
 

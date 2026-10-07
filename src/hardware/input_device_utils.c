@@ -11,11 +11,6 @@ static bool match_exact_name(const char * line, const void * context) {
     return strstr(line, quoted_name) != NULL;
 }
 
-static bool match_containing(const char * line, const void * context) {
-    const char * substring = (const char *) context;
-    return strstr(line, "Name=\"") != NULL && strstr(line, substring) != NULL;
-}
-
 static bool scan_input_devices(input_device_match_fn match_fn, const void * context,
                                char * out_path, size_t out_size) {
     FILE * f = fopen("/proc/bus/input/devices", "r");
@@ -48,8 +43,4 @@ bool find_input_device_by_name(const char * name, char * out_path, size_t out_si
     char quoted_name[128];
     snprintf(quoted_name, sizeof(quoted_name), "Name=\"%s\"", name);
     return scan_input_devices(match_exact_name, quoted_name, out_path, out_size);
-}
-
-bool find_input_device_containing(const char * substring, char * out_path, size_t out_size) {
-    return scan_input_devices(match_containing, substring, out_path, out_size);
 }

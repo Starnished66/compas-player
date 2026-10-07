@@ -1,6 +1,9 @@
 #include "hw_buttons.h"
 #include "debug_log.h"
 #include "input_device_utils.h"
+#ifndef HOST_BUILD
+#include "bt_media_player.h"
+#endif
 
 #include <dirent.h>
 #include <fcntl.h>
@@ -292,6 +295,58 @@ static void handle_key_event(unsigned short code, int value) {
     pthread_mutex_unlock(&state_mutex);
 }
 
+/* Per open fd. UNNAMED means EVIOCGNAME failed and the next idle rescan
+ * tries again. OTHER and AVRCP are kept, so a named USB remote is not
+ * reclassified and a named headset is not dropped back onto the physical path. */
+enum {
+    HW_BUTTONS_MEDIA_OTHER = 0,
+    HW_BUTTONS_MEDIA_AVRCP = 1,
+    HW_BUTTONS_MEDIA_UNNAMED = 2,
+};
+
+/* BlueZ names its uinput node "<accessory> (AVRCP)". These four codes are the
+ * transport buttons that node emits. Volume, fast-forward, and rewind are
+ * not in that set and stay on the physical handler. */
+static bool avrcp_transport_code(unsigned short code) {
+    switch (code) {
+        case KEY_PLAYCD:
+        case KEY_PAUSECD:
+        case KEY_NEXTSONG:
+        case KEY_PREVIOUSSONG:
+            return true;
+        default:
+            return false;
+    }
+}
+
+/* One evdev event from a polled button fd. is_knob selects the detent path.
+ * An AVRCP transport code, including release and repeat, goes to
+ * bt_media_player and must not touch physical hold state. The host build
+ * has no media-player object, so those codes keep the physical handler. */
+static void handle_input_event(unsigned short type, unsigned short code, int value,
+                               bool is_knob, unsigned char media_class,
+                               bool * left_held, bool * right_held, bool * sync_dropped) {
+    if (is_knob && knob_consume_sync_event(type, code, sync_dropped, left_held, right_held))
+        return;
+    if (type != EV_KEY) return;
+    if (is_knob) {
+        if (value == 2) return;
+        handle_knob_key_event(code, value, left_held, right_held);
+        return;
+    }
+    if (media_class == HW_BUTTONS_MEDIA_AVRCP && avrcp_transport_code(code)) {
+#ifndef HOST_BUILD
+        bt_media_player_dispatch_avrcp_key(code, value);
+        return;
+#else
+        /* No bt_media_player in the host link. Keep the physical handler. */
+        (void) 0;
+#endif
+    }
+    if (value == 2) return;
+    handle_key_event(code, value);
+}
+
 /* Called on every poll() timeout while a volume key is held (see the main
  * loop below) -- applies a repeat step for whichever key(s) are due,
  * independently, so both keys held at once (unusual, but not prevented)
@@ -361,6 +416,37 @@ static bool device_sends_media_keys(int fd) {
 #undef HW_BUTTONS_HAS_KEY
 }
 
+static bool evdev_name_has_avrcp_marker(const char * name) {
+    return name && strstr(name, "(AVRCP)") != NULL;
+}
+
+/* 1 when the fd is a BlueZ AVRCP node, 0 when it has some other name,
+ * -1 when the name ioctl fails. Callers map -1 to HW_BUTTONS_MEDIA_UNNAMED. */
+static int evdev_fd_avrcp_classification(int fd) {
+    char name[256];
+    memset(name, 0, sizeof(name));
+    if (ioctl(fd, EVIOCGNAME(sizeof(name) - 1), name) < 0) return -1;
+    name[sizeof(name) - 1] = '\0';
+    return evdev_name_has_avrcp_marker(name) ? 1 : 0;
+}
+
+static unsigned char media_class_from_fd(int fd) {
+    int classified = evdev_fd_avrcp_classification(fd);
+    if (classified < 0) return HW_BUTTONS_MEDIA_UNNAMED;
+    return classified ? HW_BUTTONS_MEDIA_AVRCP : HW_BUTTONS_MEDIA_OTHER;
+}
+
+static void retry_unnamed_media_fds(const struct pollfd * fds, unsigned char * media_class, int nfds) {
+    for (int i = 0; i < nfds; i++) {
+        if (media_class[i] != HW_BUTTONS_MEDIA_UNNAMED) continue;
+        unsigned char next = media_class_from_fd(fds[i].fd);
+        if (next == HW_BUTTONS_MEDIA_UNNAMED) continue;
+        media_class[i] = next;
+        DBG_LOG("hw_buttons: fd_index=%d classified avrcp=%d\n",
+                i, next == HW_BUTTONS_MEDIA_AVRCP);
+    }
+}
+
 #define HW_BUTTONS_MAX_FDS 12
 /* Cheap: a readdir plus one ioctl per unopened event node, and only when no
  * key was pressed in that window. */
@@ -368,16 +454,27 @@ static bool device_sends_media_keys(int fd) {
 
 /* Adds any event device with transport keys that is not already open. Called
  * again on a cadence because an accessory can be plugged in long after boot,
- * which the original one-shot enumeration could never see. */
-static int scan_media_key_devices(struct pollfd * fds, int nfds, char paths[][64]) {
+ * which the original one-shot enumeration could never see. An "(AVRCP)" node
+ * stays open here: its transport codes are dispatched to bt_media_player and
+ * its volume and fast-forward/rewind keys still use the physical handler.
+ * fds whose name ioctl failed last time are classified again on this pass. */
+static int scan_media_key_devices(struct pollfd * fds, int nfds, char paths[][64],
+                                 unsigned char * media_class) {
+    retry_unnamed_media_fds(fds, media_class, nfds);
+
     DIR * dir = opendir("/dev/input");
     if (!dir) return nfds;
 
     struct dirent * entry;
     while ((entry = readdir(dir)) != NULL && nfds < HW_BUTTONS_MAX_FDS) {
         if (strncmp(entry->d_name, "event", 5) != 0) continue;
+        /* d_name can be longer than this slot. Skip it rather than opening
+         * a truncated path. Event nodes are "event" plus a short index. */
+        size_t name_len = strlen(entry->d_name);
+        if (name_len == 0 || name_len >= 64 - 11) continue;
         char path[64];
-        snprintf(path, sizeof(path), "/dev/input/%s", entry->d_name);
+        memcpy(path, "/dev/input/", 11);
+        memcpy(path + 11, entry->d_name, name_len + 1);
 
         bool already_open = false;
         for (int i = 0; i < nfds; i++)
@@ -392,12 +489,39 @@ static int scan_media_key_devices(struct pollfd * fds, int nfds, char paths[][64
         }
         fds[nfds].fd = fd;
         fds[nfds].events = POLLIN;
-        snprintf(paths[nfds], 64, "%s", path);
-        DBG_LOG("hw_buttons: media-key device %s opened at fd_index=%d\n", path, nfds);
+        media_class[nfds] = media_class_from_fd(fd);
+        memcpy(paths[nfds], path, name_len + 12);
+        DBG_LOG("hw_buttons: media-key device %s opened at fd_index=%d avrcp=%d\n",
+                path, nfds, media_class[nfds] == HW_BUTTONS_MEDIA_AVRCP);
         nfds++;
     }
     closedir(dir);
     return nfds;
+}
+
+/* Drop fds[index] from the live prefix and slide the last live slot down.
+ * Per-fd flags move with that slot; the vacated index is cleared so the
+ * next open cannot inherit a stale knob bit or media classification. */
+static void compact_button_fd_slot(struct pollfd * fds, char paths[][64],
+                                  bool * knob, bool * knob_left_held,
+                                  bool * knob_right_held, bool * knob_sync_dropped,
+                                  unsigned char * media_class, int * nfds, int index) {
+    (*nfds)--;
+    if (index != *nfds) {
+        fds[index] = fds[*nfds];
+        knob[index] = knob[*nfds];
+        knob_left_held[index] = knob_left_held[*nfds];
+        knob_right_held[index] = knob_right_held[*nfds];
+        knob_sync_dropped[index] = knob_sync_dropped[*nfds];
+        media_class[index] = media_class[*nfds];
+        memcpy(paths[index], paths[*nfds], sizeof(paths[index]));
+    }
+    knob[*nfds] = false;
+    knob_left_held[*nfds] = false;
+    knob_right_held[*nfds] = false;
+    knob_sync_dropped[*nfds] = false;
+    media_class[*nfds] = HW_BUTTONS_MEDIA_OTHER;
+    paths[*nfds][0] = '\0';
 }
 
 static void * hw_buttons_thread_func(void * arg) {
@@ -418,11 +542,14 @@ static void * hw_buttons_thread_func(void * arg) {
      * and starving inputs from the other button devices. */
     struct pollfd fds[HW_BUTTONS_MAX_FDS];
     char paths[HW_BUTTONS_MAX_FDS][64];
-    /* Arrow keys mean volume only on the knob, never on an accessory. */
+    /* Arrow keys mean volume only on the knob, never on an accessory.
+     * media_class selects AVRCP transport dispatch per fd. Named built-in
+     * nodes are OTHER without an ioctl. */
     bool knob[HW_BUTTONS_MAX_FDS] = { false };
     bool knob_left_held[HW_BUTTONS_MAX_FDS] = { false };
     bool knob_right_held[HW_BUTTONS_MAX_FDS] = { false };
     bool knob_sync_dropped[HW_BUTTONS_MAX_FDS] = { false };
+    unsigned char media_class[HW_BUTTONS_MAX_FDS] = { HW_BUTTONS_MEDIA_OTHER };
     int nfds = 0;
     int found = 0;
     for (size_t i = 0; i < sizeof(BUTTON_DEVICES) / sizeof(BUTTON_DEVICES[0]); i++) {
@@ -437,6 +564,7 @@ static void * hw_buttons_thread_func(void * arg) {
         fds[nfds].fd = fd;
         fds[nfds].events = POLLIN;
         knob[nfds] = BUTTON_DEVICES[i].knob;
+        media_class[nfds] = HW_BUTTONS_MEDIA_OTHER;
         snprintf(paths[nfds], sizeof(paths[nfds]), "%s", path);
         DBG_LOG("hw_buttons: fd_index=%d -> %s (%s)\n", nfds, path, BUTTON_DEVICES[i].label);
         nfds++;
@@ -444,7 +572,7 @@ static void * hw_buttons_thread_func(void * arg) {
 
     /* The built-in keys are named and known; an accessory's remote is not, so
      * it is picked up by capability here and on every rescan below. */
-    nfds = scan_media_key_devices(fds, nfds, paths);
+    nfds = scan_media_key_devices(fds, nfds, paths, media_class);
 
     if (found == 0 && nfds == 0) {
         fprintf(stderr, "hw_buttons: no physical button input devices found, hardware keys disabled\n");
@@ -476,7 +604,7 @@ static void * hw_buttons_thread_func(void * arg) {
             apply_due_volume_repeats();
             apply_due_power_long_press();
             apply_due_next_seek();
-            nfds = scan_media_key_devices(fds, nfds, paths);
+            nfds = scan_media_key_devices(fds, nfds, paths, media_class);
             continue;
         }
         if (ret < 0) continue;
@@ -488,20 +616,8 @@ static void * hw_buttons_thread_func(void * arg) {
             if (fds[i].revents & (POLLERR | POLLHUP | POLLNVAL)) {
                 DBG_LOG("hw_buttons: %s went away, closing fd_index=%d\n", paths[i], i);
                 close(fds[i].fd);
-                nfds--;
-                if (i != nfds) {
-                    fds[i] = fds[nfds];
-                    knob[i] = knob[nfds];
-                    knob_left_held[i] = knob_left_held[nfds];
-                    knob_right_held[i] = knob_right_held[nfds];
-                    knob_sync_dropped[i] = knob_sync_dropped[nfds];
-                    memcpy(paths[i], paths[nfds], sizeof(paths[i]));
-                }
-                /* A rescan may reuse the freed slot for an accessory. */
-                knob[nfds] = false;
-                knob_left_held[nfds] = false;
-                knob_right_held[nfds] = false;
-                knob_sync_dropped[nfds] = false;
+                compact_button_fd_slot(fds, paths, knob, knob_left_held, knob_right_held,
+                                       knob_sync_dropped, media_class, &nfds, i);
                 i--;
                 continue;
             }
@@ -510,19 +626,8 @@ static void * hw_buttons_thread_func(void * arg) {
             struct input_event ev;
             while (read(fds[i].fd, &ev, sizeof(ev)) == (ssize_t) sizeof(ev)) {
                 DBG_LOG("hw_buttons: raw event fd_index=%d type=%u code=%u value=%d\n", i, ev.type, ev.code, ev.value);
-                if (knob[i] && knob_consume_sync_event(ev.type, ev.code,
-                                                       &knob_sync_dropped[i],
-                                                       &knob_left_held[i],
-                                                       &knob_right_held[i])) continue;
-                if (ev.type == EV_KEY && ev.value != 2) { /* key down/up, ignore kernel autorepeat */
-                    unsigned short code = ev.code;
-                    if (knob[i]) {
-                        handle_knob_key_event(code, ev.value,
-                                              &knob_left_held[i], &knob_right_held[i]);
-                    } else {
-                        handle_key_event(code, ev.value);
-                    }
-                }
+                handle_input_event(ev.type, ev.code, ev.value, knob[i], media_class[i],
+                                   &knob_left_held[i], &knob_right_held[i], &knob_sync_dropped[i]);
             }
         }
     }

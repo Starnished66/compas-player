@@ -5,9 +5,15 @@
 
 /* AVRCP transport-button and playback status support.
  * Uses a D-Bus MediaPlayer2 player object to answer AVRCP metadata/status
- * queries, and monitors the virtual evdev keyboard device created by BlueZ
- * ("<name> (AVRCP)") to receive remote button presses. */
+ * queries. BlueZ transport buttons are read by hw_buttons and delivered
+ * through bt_media_player_dispatch_avrcp_key(). */
 void bt_media_player_init(void);
+
+/* One BlueZ AVRCP transport event from the hardware reader. value 1 enqueues
+ * play/pause, next, or previous on the same flags the D-Bus methods use.
+ * Release (0) and kernel repeat (2) do not enqueue. The mutex and flags are
+ * statically initialized, so this is safe before bt_media_player_init(). */
+void bt_media_player_dispatch_avrcp_key(unsigned short code, int value);
 
 /* Tells BlueZ (and therefore the connected accessory, if it displays
  * play/pause state) this app's current playback state -- call whenever
