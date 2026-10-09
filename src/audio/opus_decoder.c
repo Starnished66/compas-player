@@ -1,139 +1,56 @@
 #include "opus_decoder.h"
-#include "ogg_demux.h"
-#include "opus.h"
+#include "opusfile_alloc.h"
 
+#include <limits.h>
 #include <stdlib.h>
-#include <string.h>
+#include <stdint.h>
 
-/* opus_decode()'s frame_size parameter is capacity per channel, not total --
- * 5760 = 120ms @ 48kHz, the largest single Opus frame duration RFC 6716
- * defines, so this is always big enough regardless of what any given
- * packet actually contains (opus_decode() itself reports how many samples
- * it decoded). Sized for stereo since channel_mapping_family 0 (the only
- * one ogg_demux.h accepts) tops out at 2 channels. */
-#define OPUS_MAX_FRAME_SAMPLES_PER_CHANNEL 5760
-#define OPUS_MAX_CHANNELS 2
-#define OPUS_MAX_FRAME_SAMPLES (OPUS_MAX_FRAME_SAMPLES_PER_CHANNEL * OPUS_MAX_CHANNELS)
-
-/* One full Ogg page's max payload (255 segments * 255 bytes) -- generous
- * upper bound for a single Opus packet, matching ogg_demux.h's own
- * OGG_MAX_PAGE_SIZE-class sizing rather than guessing a tighter cap. */
-#define OPUS_MAX_PACKET_BYTES (255 * 255)
-#define OPUS_MAX_CONSECUTIVE_ERRORS 5
+#define OPUS_MAX_CONSECUTIVE_HOLES 64
 
 struct opus_decoder_wrap {
-    ogg_demux_t * demux;
-    OpusDecoder * dec;
+    OggOpusFile * file;
     unsigned int channels;
-    uint16_t pre_skip;
     uint64_t total_pcm_frames;
-    unsigned int consecutive_errors;
-
-    uint8_t * packet_buf; /* OPUS_MAX_PACKET_BYTES bytes */
-
-    int16_t carry_buffer[OPUS_MAX_FRAME_SAMPLES];
-    uint64_t carry_frames;
-    uint64_t carry_read_pos;
+    decoder_read_status_t terminal_status;
 };
 
-static bool decode_next_packet_ex(opus_decoder_wrap_t * dec, decoder_read_status_t * out_status) {
-    uint32_t packet_len = ogg_demux_read_packet(dec->demux, dec->packet_buf, OPUS_MAX_PACKET_BYTES);
-    if (packet_len == 0) {
-        if (out_status) *out_status = DECODER_READ_EOF;
-        return false;
+static bool output_channels_for_file(const OggOpusFile * file, unsigned int * channels_out) {
+    int links = op_link_count(file);
+    if (links <= 0) return false;
+
+    unsigned int output_channels = 1;
+    for (int link = 0; link < links; link++) {
+        int channels = op_channel_count(file, link);
+        if (channels < 1 || channels > 8) return false;
+        if (channels > 1) output_channels = 2;
     }
-
-    int frames = opus_decode(dec->dec, dec->packet_buf, (opus_int32) packet_len, dec->carry_buffer,
-                              OPUS_MAX_FRAME_SAMPLES_PER_CHANNEL, 0);
-    if (frames < 0) {
-        dec->consecutive_errors++;
-        /* Attempt Opus Packet Loss Concealment (PLC) using NULL packet */
-        int plc_frames = opus_decode(dec->dec, NULL, 0, dec->carry_buffer, 960, 0);
-        if (plc_frames > 0) {
-            dec->carry_frames = (uint64_t) plc_frames;
-            dec->carry_read_pos = 0;
-        }
-
-        if (dec->consecutive_errors >= OPUS_MAX_CONSECUTIVE_ERRORS) {
-            if (out_status) *out_status = DECODER_READ_FATAL_ERROR;
-            return false;
-        }
-        if (out_status) *out_status = DECODER_READ_RECOVERABLE_ERROR;
-        return (plc_frames > 0);
-    }
-
-    dec->consecutive_errors = 0;
-    dec->carry_frames = (uint64_t) frames;
-    dec->carry_read_pos = 0;
-    if (out_status) *out_status = DECODER_READ_OK;
-    return true;
-}
-
-static bool decode_next_packet(opus_decoder_wrap_t * dec) {
-    return decode_next_packet_ex(dec, NULL);
-}
-
-/* Advances the read position by exactly `count` decoded PCM frames,
- * decoding further packets as needed. Used both to trim the OpusHead
- * pre-skip at open and, after a seek, to discard the gap between the
- * granule position landed on and the exact requested sample -- see
- * ogg_demux_seek_near_granule()'s doc comment for why that gap exists. */
-static bool discard_frames(opus_decoder_wrap_t * dec, uint64_t count) {
-    while (count > 0) {
-        if (dec->carry_read_pos >= dec->carry_frames) {
-            if (!decode_next_packet(dec)) return false;
-        }
-        uint64_t available = dec->carry_frames - dec->carry_read_pos;
-        uint64_t skip = count < available ? count : available;
-        dec->carry_read_pos += skip;
-        count -= skip;
-    }
+    *channels_out = output_channels;
     return true;
 }
 
 opus_decoder_wrap_t * opus_open_file(const char * path) {
-    ogg_demux_t * demux = ogg_demux_open_audio(path);
-    if (!demux) return NULL;
+    if (!path) return NULL;
 
-    unsigned int channels = ogg_demux_get_opus_channels(demux);
+    OggOpusFile * file = compas_opusfile_open(path, false);
+    if (!file) return NULL;
 
-    int err = 0;
-    /* Always decode at 48000 Hz regardless of OpusHead's informational
-     * input-sample-rate field -- Ogg Opus's decoded PCM is defined at
-     * libopus's fixed internal rate, there's no "native rate" to preserve. */
-    OpusDecoder * dec_handle = opus_decoder_create(48000, (int) channels, &err);
-    if (err != OPUS_OK || !dec_handle) {
-        if (dec_handle) opus_decoder_destroy(dec_handle);
-        ogg_demux_close(demux);
+    unsigned int channels;
+    if (!output_channels_for_file(file, &channels)) {
+        op_free(file);
         return NULL;
     }
 
     opus_decoder_wrap_t * dec = calloc(1, sizeof(*dec));
     if (!dec) {
-        opus_decoder_destroy(dec_handle);
-        ogg_demux_close(demux);
+        op_free(file);
         return NULL;
     }
-    dec->packet_buf = malloc(OPUS_MAX_PACKET_BYTES);
-    if (!dec->packet_buf) {
-        free(dec);
-        opus_decoder_destroy(dec_handle);
-        ogg_demux_close(demux);
-        return NULL;
-    }
-    dec->demux = demux;
-    dec->dec = dec_handle;
+
+    ogg_int64_t total = op_pcm_total(file, -1);
+    dec->file = file;
     dec->channels = channels;
-    dec->pre_skip = ogg_demux_get_opus_pre_skip(demux);
-
-    uint64_t total_granule = ogg_demux_get_total_granule(demux);
-    dec->total_pcm_frames = total_granule > dec->pre_skip ? total_granule - dec->pre_skip : 0;
-
-    if (!discard_frames(dec, dec->pre_skip)) {
-        opus_close(dec);
-        return NULL;
-    }
-
+    dec->total_pcm_frames = total > 0 ? (uint64_t) total : 0;
+    dec->terminal_status = DECODER_READ_OK;
     return dec;
 }
 
@@ -150,66 +67,76 @@ uint64_t opus_get_total_pcm_frame_count(const opus_decoder_wrap_t * dec) {
     return dec ? dec->total_pcm_frames : 0;
 }
 
-decoder_read_result_t opus_read_pcm_frames_s16(opus_decoder_wrap_t * dec, uint64_t frames_to_read, int16_t * buffer_out) {
+decoder_read_result_t opus_read_pcm_frames_s16(opus_decoder_wrap_t * dec, uint64_t frames_to_read,
+                                                 int16_t * buffer_out) {
     decoder_read_result_t res = { .frames = 0, .status = DECODER_READ_OK };
-    if (!dec || !buffer_out) {
+    if (!dec || !dec->file || (!buffer_out && frames_to_read > 0) ||
+        (dec && dec->channels > 0 && frames_to_read > SIZE_MAX / sizeof(*buffer_out) / dec->channels)) {
         res.status = DECODER_READ_FATAL_ERROR;
         return res;
     }
-
-    while (res.frames < frames_to_read) {
-        if (dec->carry_read_pos >= dec->carry_frames) {
-            decoder_read_status_t status = DECODER_READ_OK;
-            if (!decode_next_packet_ex(dec, &status)) {
-                if (res.frames > 0) {
-                    res.status = DECODER_READ_OK;
-                } else {
-                    res.status = status;
-                }
-                break;
-            }
-        }
-
-        uint64_t available = dec->carry_frames - dec->carry_read_pos;
-        uint64_t to_copy = frames_to_read - res.frames;
-        if (to_copy > available) to_copy = available;
-
-        memcpy(buffer_out + res.frames * dec->channels, dec->carry_buffer + dec->carry_read_pos * dec->channels,
-               (size_t) to_copy * dec->channels * sizeof(int16_t));
-
-        dec->carry_read_pos += to_copy;
-        res.frames += to_copy;
+    if (frames_to_read == 0) return res;
+    if (dec->terminal_status != DECODER_READ_OK) {
+        res.status = dec->terminal_status;
+        return res;
     }
 
+    unsigned int holes = 0;
+    while (res.frames < frames_to_read) {
+        uint64_t remaining = frames_to_read - res.frames;
+        uint64_t max_frames_for_int = (uint64_t) INT_MAX / dec->channels;
+        if (remaining > max_frames_for_int) remaining = max_frames_for_int;
+        if (remaining == 0) {
+            dec->terminal_status = DECODER_READ_FATAL_ERROR;
+            break;
+        }
+
+        int sample_capacity = (int) (remaining * dec->channels);
+        int16_t * dst = buffer_out + (size_t) res.frames * dec->channels;
+        int got = dec->channels == 1
+            ? op_read(dec->file, dst, sample_capacity, NULL)
+            : op_read_stereo(dec->file, dst, sample_capacity);
+
+        if (got == OP_HOLE) {
+            if (++holes <= OPUS_MAX_CONSECUTIVE_HOLES) continue;
+            dec->terminal_status = DECODER_READ_FATAL_ERROR;
+            break;
+        }
+        if (got < 0) {
+            dec->terminal_status = DECODER_READ_FATAL_ERROR;
+            break;
+        }
+        if (got == 0) {
+            dec->terminal_status = DECODER_READ_EOF;
+            break;
+        }
+
+        holes = 0;
+        res.frames += (uint64_t) got;
+    }
+
+    if (res.frames == 0 && dec->terminal_status != DECODER_READ_OK) {
+        res.status = dec->terminal_status;
+    }
     return res;
 }
 
 bool opus_seek_to_pcm_frame(opus_decoder_wrap_t * dec, uint64_t frame_index) {
-    if (!dec) return false;
-    if (frame_index > dec->total_pcm_frames) frame_index = dec->total_pcm_frames;
-
-    uint64_t target_granule = frame_index + dec->pre_skip;
-    uint64_t landed_granule = ogg_demux_seek_near_granule(dec->demux, target_granule);
-
-    /* Mandatory: libopus's SILK (LSF/pitch prediction history) and CELT
-     * (MDCT overlap buffer) state assumes unbroken packet continuity.
-     * Decoding forward after jumping the container-level read cursor
-     * without resetting this produces audible glitches for the first
-     * several packets. */
-    if (opus_decoder_ctl(dec->dec, OPUS_RESET_STATE) != OPUS_OK) return false;
-
-    dec->carry_frames = 0;
-    dec->carry_read_pos = 0;
-    dec->consecutive_errors = 0;
-
-    uint64_t discard = target_granule > landed_granule ? target_granule - landed_granule : 0;
-    return discard_frames(dec, discard);
+    if (!dec || !dec->file) return false;
+    bool seek_to_end = dec->total_pcm_frames > 0 && frame_index >= dec->total_pcm_frames;
+    if (seek_to_end) {
+        /* libopusfile may reject the exact EOS offset. Land on the last
+         * decodable frame, then expose the logical end position to callers. */
+        frame_index = dec->total_pcm_frames - 1;
+    }
+    if (frame_index > (uint64_t) INT64_MAX) frame_index = (uint64_t) INT64_MAX;
+    if (op_pcm_seek(dec->file, (ogg_int64_t) frame_index) != 0) return false;
+    dec->terminal_status = seek_to_end ? DECODER_READ_EOF : DECODER_READ_OK;
+    return true;
 }
 
 void opus_close(opus_decoder_wrap_t * dec) {
     if (!dec) return;
-    if (dec->dec) opus_decoder_destroy(dec->dec);
-    if (dec->demux) ogg_demux_close(dec->demux);
-    free(dec->packet_buf);
+    if (dec->file) op_free(dec->file);
     free(dec);
 }

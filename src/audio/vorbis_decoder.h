@@ -4,12 +4,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* Ogg Vorbis (.ogg) decoding via stb_vorbis (vendored, stb_vorbis/stb_vorbis.c
- * -- public domain, github.com/nothings/stb) -- unlike Opus above, this one
- * library handles the Ogg container framing AND the Vorbis codec decode
- * itself, so there's no separate ogg_demux.h split here. Named vorbis_
- * decoder_wrap_t (not vorbis_decoder_t) for the same reason opus_decoder_
- * wrap_t is -- avoids clashing with stb_vorbis's own `stb_vorbis` type name. */
+/* Ogg Vorbis (.ogg) decoding via stb_vorbis (vendored,
+ * stb_vorbis/stb_vorbis.c -- public domain, github.com/nothings/stb). The
+ * library handles Ogg framing and Vorbis decoding. Named vorbis_decoder_wrap_t
+ * to avoid clashing with stb_vorbis's own `stb_vorbis` type name. */
 
 #include "decoder_result.h"
 

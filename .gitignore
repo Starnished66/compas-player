@@ -11,6 +11,8 @@
 /cJSON
 /dbus
 /opus
+/libogg
+/opusfile
 /lua
 /libexecinfo
 /jpeg
@@ -424,6 +426,7 @@ __pycache__/
 /compas_player_perf
 
 # Opus stability regressions stay with the decoder fixes.
-!src/audio/ogg_demux_test.c
 !src/audio/opus_decoder_test.c
+!src/audio/opus_resource_test.c
+!src/library/opus_metadata_test.c
 !/scripts/test_opus_decoder.sh

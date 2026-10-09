@@ -4,11 +4,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* Ogg-Opus (.opus) decoding via libopus (github.com/xiph/opus, BSD-3-Clause)
- * for the SILK+CELT audio decode, and ogg_demux.h (hand-written in-tree,
- * not vendored libogg) for the Ogg container framing -- see ogg_demux.h for
- * why. Named opus_decoder_wrap_t (not opus_decoder_t) to avoid clashing
- * with libopus's own OpusDecoder type name. */
+/* Ogg-Opus (.opus) decoding via libopusfile (which wraps libogg and libopus).
+ * The wrapper keeps Compás's decoder API and uses stable mono or stereo
+ * output across all chained links. */
 
 #include "decoder_result.h"
 

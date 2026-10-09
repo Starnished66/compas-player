@@ -28,7 +28,7 @@
 #include "ape_demux.h"
 #include "wma_decoder.h"
 #include "opus_decoder.h"
-#include "ogg_demux.h"
+#include "ogg_probe.h"
 #include "vorbis_decoder.h"
 #include "peq.h"
 #include "audio_tempo.h"

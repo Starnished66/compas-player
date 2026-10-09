@@ -4,7 +4,8 @@
 
 #include "dr_flac.h"
 #include "dr_wav.h"
-#include "ogg_demux.h"
+#include "ogg_probe.h"
+#include "opusfile_alloc.h"
 #include "stb_vorbis.h"
 #include "mbedtls/base64.h"
 
@@ -1577,13 +1578,21 @@ static void read_m4a_metadata(const char * path, track_metadata_t * out, bool in
 /* ---- Opus: OpusTags (Ogg comment header, RFC 7845 5.2) ---- */
 
 static void read_opus_metadata(const char * path, track_metadata_t * out, bool include_blobs) {
-    ogg_demux_t * demux = include_blobs ? ogg_demux_open(path) : ogg_demux_open_metadata(path, true);
-    if (!demux) return;
+    /* Partial open parses OpusHead/OpusTags but skips the full-file seek
+     * index and decoder setup used for playback. libopusfile owns the tag
+     * strings, so consumers can inspect their authoritative lengths without
+     * making another copy. */
+    OggOpusFile *file = compas_opusfile_open(path, true);
+    if (!file) return;
 
-    unsigned int count = ogg_demux_get_comment_count(demux);
-    for (unsigned int i = 0; i < count; i++) {
-        uint32_t comment_len;
-        const char * comment = ogg_demux_get_comment(demux, i, &comment_len);
+    const OpusTags *tags = op_tags(file, 0);
+    int count = tags && tags->comments > 0 && tags->user_comments &&
+                tags->comment_lengths ? tags->comments : 0;
+    for (int i = 0; i < count; i++) {
+        int raw_len = tags->comment_lengths[i];
+        if (raw_len < 0 || !tags->user_comments[i]) continue;
+        size_t comment_len = (size_t)raw_len;
+        const char *comment = tags->user_comments[i];
         if (!comment) continue;
 
         /* METADATA_BLOCK_PICTURE isn't a plain KEY=VALUE text field --
@@ -1619,21 +1628,17 @@ static void read_opus_metadata(const char * path, track_metadata_t * out, bool i
         apply_vorbis_comment_field(out, comment, comment_len, include_blobs);
     }
 
-    ogg_demux_close(demux);
+    op_free(file);
 }
 
 /* ---- Ogg Vorbis (.ogg): comment header, same RFC-ish "vendor string +
  * KEY=VALUE list" layout as Opus's own OpusTags above (Vorbis comments are
  * in fact where that layout originated -- RFC 7845 5.2 explicitly reuses
  * the Vorbis I spec's own comment format). Reuses vorbis_decoder.h's stb_
- * vorbis wrapper's underlying library directly (stb_vorbis_get_comment())
- * rather than ogg_demux.h, which is hardcoded to Opus's own OpusHead/
- * OpusTags packet names (see its own header comment) -- stb_vorbis already
- * does its own complete Ogg demux internally, so there's no reason to
- * duplicate that here. Heavier than ogg_demux's lightweight header-only
- * scan (this opens a full decoder, not just a comment reader), same
- * pragmatic tradeoff class as other formats in this file that reuse a full
- * decoder-open for a metadata-only read. */
+ * vorbis wrapper's underlying library directly (stb_vorbis_get_comment()).
+ * stb_vorbis already performs Ogg demux internally, so there is no need to
+ * duplicate that work here. This opens the decoder for metadata, as with
+ * other formats in this file that reuse a full decoder-open. */
 static void read_ogg_vorbis_metadata(const char * path, track_metadata_t * out, bool include_blobs) {
     int error = 0;
     stb_vorbis * f = stb_vorbis_open_filename(path, &error, NULL);

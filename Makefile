@@ -56,6 +56,8 @@ TINYALSA_DIR = tinyalsa
 FAAD2_DIR = faad2
 ALAC_DIR = alac
 OPUS_DIR = opus
+OGG_DIR = libogg
+OPUSFILE_DIR = opusfile
 MBEDTLS_DIR = mbedtls
 CJSON_DIR = cJSON
 DBUS_DIR = dbus
@@ -300,15 +302,20 @@ $(info Cloning ALAC...)
 $(shell git clone --depth 1 https://github.com/mikebrady/alac.git)
 endif
 
-# libopus (BSD-3-Clause) -- SILK+CELT hybrid decoder for .opus files. Ogg
-# container framing (page/segment parsing, OpusHead/OpusTags) is hand-parsed
-# in-tree (ogg_demux.c/h) rather than vendoring libogg too, matching this
-# project's existing preference for hand-written container demuxers
-# (asf_demux.c/h, mp4_demux.c/h, ape_demux.c/h) over a general-purpose demux
-# library for a comparatively simple bitstream format.
+# Xiph's Opus stack: libopus handles the codec, libogg the container, and
+# libopusfile handles headers, packet buffering, trimming and PCM seeking.
 ifeq ($(wildcard $(OPUS_DIR)),)
 $(info Cloning libopus v1.5.2...)
 $(shell git clone --depth 1 -b v1.5.2 https://github.com/xiph/opus.git)
+endif
+
+ifeq ($(wildcard $(OGG_DIR)),)
+$(info Cloning libogg v1.3.5...)
+$(shell git clone --depth 1 -b v1.3.5 https://github.com/xiph/ogg.git $(OGG_DIR))
+endif
+ifeq ($(wildcard $(OPUSFILE_DIR)),)
+$(info Cloning libopusfile v0.12...)
+$(shell git clone --depth 1 -b v0.12 https://github.com/xiph/opusfile.git $(OPUSFILE_DIR))
 endif
 
 # Classic IJG libjpeg v9f -- decoder-only, progressive-JPEG cover art fallback
@@ -454,7 +461,7 @@ endif
 # the target but are UB by the letter of the standard, which a future optimizer
 # could exploit. This makes that whole class defined for every file we build,
 # at negligible cost, rather than patching each vendored decoder.
-CFLAGS = -O3 -g -Wall -fwrapv -MMD -MP -I. -Isrc/audio -Isrc/network -Isrc/library -Isrc/hardware -Isrc/ui -Isrc/core -Isrc/plugins -I$(LVGL_DIR) -I$(DR_LIBS_DIR) -I$(FAAD2_DIR)/include -I$(ALAC_DIR)/codec -I$(MBEDTLS_DIR)/include -I$(CJSON_DIR) -I$(OPUS_DIR)/include -I$(LUA_DIR)/src -I$(STB_VORBIS_DIR) -Ijpeg_vendor_config -I$(JPEG_DIR) -DLV_CONF_INCLUDE_SIMPLE=1
+CFLAGS = -O3 -g -Wall -fwrapv -MMD -MP -I. -Isrc/audio -Isrc/network -Isrc/library -Isrc/hardware -Isrc/ui -Isrc/core -Isrc/plugins -I$(LVGL_DIR) -I$(DR_LIBS_DIR) -I$(FAAD2_DIR)/include -I$(ALAC_DIR)/codec -I$(MBEDTLS_DIR)/include -I$(CJSON_DIR) -I$(OPUS_DIR)/include -I$(OPUSFILE_DIR)/include -Ilibogg_vendor_config -I$(OGG_DIR)/include -I$(LUA_DIR)/src -I$(STB_VORBIS_DIR) -Ijpeg_vendor_config -I$(JPEG_DIR) -DLV_CONF_INCLUDE_SIMPLE=1
 CXXFLAGS = $(filter-out -Wall,$(CFLAGS)) -std=c++11
 HOST_CFLAGS = $(CFLAGS) -DHOST_BUILD=1 $(BOARD_DEFINE) $(shell sdl2-config --cflags) -I$(TINFL_DIR) -DMINIZ_NO_DEFLATE_APIS -DMINIZ_NO_ARCHIVE_APIS
 HOST_CXXFLAGS = $(CXXFLAGS) -DHOST_BUILD=1 $(BOARD_DEFINE) $(shell sdl2-config --cflags) -I$(TINFL_DIR) -DMINIZ_NO_DEFLATE_APIS -DMINIZ_NO_ARCHIVE_APIS
@@ -532,23 +539,40 @@ FAAD2_CFLAGS = -O3 -g -Wall -I$(FAAD2_DIR)/include -I$(FAAD2_DIR)/libfaad $(FAAD
 ALAC_DEFINES = -DTARGET_RT_LITTLE_ENDIAN=1
 ALAC_CFLAGS = -O3 -g -Wall -I$(ALAC_DIR)/codec $(ALAC_DEFINES)
 ALAC_CXXFLAGS = -O3 -g -I$(ALAC_DIR)/codec -std=c++11 $(ALAC_DEFINES)
-# No configure/cmake step is run for libopus here (same as FAAD2/ALAC above)
-# -- these mirror libopus's own CMakeLists.txt default (non-fixed-point,
-# non-custom-modes, no runtime CPU/SIMD detection) build config instead of
-# guessing. VAR_ARRAYS selects C99 variable-length-array stack allocation
-# (celt/stack_alloc.h requires exactly one of VAR_ARRAYS/USE_ALLOCA/
-# NONTHREADSAFE_PSEUDOSTACK to be defined) -- this is CMake's own default
-# whenever the compiler supports VLAs, true for mipsel-linux-musl-gcc same
-# as any other GCC. HAVE_LRINTF/HAVE_LRINT select the fast C99 lrintf()/
-# lrint() rounding path in celt/float_cast.h over its slower portable
-# fallback -- available since the target isn't built with -ansi/-std=c89.
-# FIXED_POINT is deliberately left undefined: this target already relies on
-# float pervasively (WMA's hand-written decoder, FAAD2's own non-fixed-point
-# mode) with no soft-float workaround flags anywhere in this Makefile, so
-# the floating-point build -- simpler to get right under this no-configure
-# constraint than fixed-point's Q-format SILK API -- is the correct choice.
+# The device uses libopus fixed-point decoding, matching Sonix. Keep the
+# float API available for libopusfile; host simulation uses floating point.
+# VAR_ARRAYS selects thread-safe C99 scratch allocation without RTCD/SIMD.
 OPUS_DEFINES = -DOPUS_BUILD -DVAR_ARRAYS -DHAVE_LRINTF=1 -DHAVE_LRINT=1
-OPUS_CFLAGS = -O3 -g -Wall -I$(OPUS_DIR)/include -I$(OPUS_DIR)/celt -I$(OPUS_DIR)/silk -I$(OPUS_DIR)/silk/float $(OPUS_DEFINES)
+OPUS_CFLAGS = -O3 -g -Wall -MMD -MP -I$(OPUS_DIR)/include -I$(OPUS_DIR)/celt -I$(OPUS_DIR)/silk -I$(OPUS_DIR)/silk/float $(OPUS_DEFINES)
+TARGET_OPUS_CFLAGS = $(filter-out -I$(OPUS_DIR)/silk/float,$(OPUS_CFLAGS)) -I$(OPUS_DIR)/silk/fixed -DFIXED_POINT=1
+.PHONY: FORCE_OPUS_CONFIG
+FORCE_OPUS_CONFIG:
+$(BUILD_TARGET_DIR)/.opus_config: FORCE_OPUS_CONFIG
+	@mkdir -p $(dir $@)
+	@printf '%s\n' '$(TARGET_OPUS_CFLAGS)' > $@.tmp
+	@cmp -s $@.tmp $@ && rm $@.tmp || mv $@.tmp $@
+# Core file APIs only; HTTP support is handled by the player.
+OPUSFILE_ALLOC_FLAGS = -Dmalloc=compas_opusfile_malloc -Dcalloc=compas_opusfile_calloc -Drealloc=compas_opusfile_realloc -Dfree=compas_opusfile_free
+OGG_CFLAGS = -O3 -g -Wall -MMD -MP -Ilibogg_vendor_config -I$(OGG_DIR)/include $(OPUSFILE_ALLOC_FLAGS)
+OPUSFILE_CFLAGS = -O3 -g -Wall -MMD -MP -DOP_HAVE_LRINTF=1 -I$(OPUSFILE_DIR)/include -I$(OPUS_DIR)/include -Ilibogg_vendor_config -I$(OGG_DIR)/include $(OPUSFILE_ALLOC_FLAGS)
+OPUSFILE_PATCH_STAMP = $(OPUSFILE_DIR)/.compas_allocation_safety
+$(OPUSFILE_PATCH_STAMP): patches/opusfile_allocation_safety.patch $(OPUSFILE_DIR)/src/opusfile.c
+	@if patch -p1 -d $(OPUSFILE_DIR) --force --fuzz=0 --dry-run --reverse < $< >/dev/null 2>&1; then \
+	  :; \
+	elif patch -p1 -d $(OPUSFILE_DIR) --force --fuzz=0 --dry-run < $< >/dev/null 2>&1; then \
+	  patch -p1 -d $(OPUSFILE_DIR) --force --fuzz=0 < $<; \
+	else \
+	  echo "libopusfile allocation-safety patch does not match the checkout" >&2; exit 1; \
+	fi
+	@touch $@
+
+# Rebuild both libraries when allocation/configuration flags change.
+.PHONY: FORCE_OPUSFILE_CONFIG
+FORCE_OPUSFILE_CONFIG:
+$(BUILD_HOST_DIR)/.opusfile_config $(BUILD_TARGET_DIR)/.opusfile_config: FORCE_OPUSFILE_CONFIG
+	@mkdir -p $(dir $@)
+	@printf '%s\n' '$(OGG_CFLAGS) $(OPUSFILE_CFLAGS)' > $@.tmp
+	@cmp -s $@.tmp $@ && rm $@.tmp || mv $@.tmp $@
 # jpeg_vendor_config holds a hand-written jconfig.h (no configure/autotools
 # step is run, matching every other vendored library in this Makefile) --
 # jmorecfg.h itself needs no platform customization and is used unmodified
@@ -589,7 +613,7 @@ $(TARGET_CPU_FLAGS_STAMP): FORCE_TARGET_CPU_FLAGS
 # misc). main.c stays at src/ root as the entry point.
 CFLAGS += -Isonic
 
-APP_SRCS = src/main.c src/ui/gui.c src/ui/gui_subsonic.c src/ui/gui_settings.c src/ui/gui_network.c src/ui/gui_theme.c src/ui/gui_notifications.c src/ui/gui_library.c src/ui/gui_queue.c src/ui/gui_player.c src/ui/gui_track_info.c src/ui/gui_plugins.c src/ui/gui_shell.c src/ui/gui_navigation.c src/ui/gui_books.c src/ui/gui_text_input.c src/ui/gui_lyrics.c src/ui/gui_reload.c src/audio/audio.c src/library/file_browser.c src/hardware/hw_buttons.c src/hardware/button_mapping.c src/hardware/input_device_utils.c src/library/metadata.c src/library/metadata_db.c src/core/settings.c src/core/screenshot.c src/core/app_version.c src/audio/aiff_decoder.c src/audio/dsd_filter.c src/audio/dsd_decoder.c src/audio/aac_decoder.c src/audio/mp4_demux.c src/audio/ape_demux.c src/audio/ape_decoder.c src/audio/peq.c src/audio/audio_tempo.c src/ui/assets.c src/ui/screen_builders.c src/ui/cover_card_preview.c src/hardware/battery.c src/network/wifi_status.c src/network/ca_bundle.c src/network/http_conn.c src/network/http_client.c src/network/http_stream.c src/network/subsonic_client.c src/library/cover_decode.c src/library/image_thumb.c src/library/lyrics.c src/audio/asf_demux.c src/audio/wma_decoder.c src/audio/ogg_demux.c src/audio/opus_decoder.c src/audio/vorbis_decoder.c src/library/cue_parser.c src/ui/fallback_font.c src/ui/gui_text_view.c \
+APP_SRCS = src/main.c src/ui/gui.c src/ui/gui_subsonic.c src/ui/gui_settings.c src/ui/gui_network.c src/ui/gui_theme.c src/ui/gui_notifications.c src/ui/gui_library.c src/ui/gui_queue.c src/ui/gui_player.c src/ui/gui_track_info.c src/ui/gui_plugins.c src/ui/gui_shell.c src/ui/gui_navigation.c src/ui/gui_books.c src/ui/gui_text_input.c src/ui/gui_lyrics.c src/ui/gui_reload.c src/audio/audio.c src/library/file_browser.c src/hardware/hw_buttons.c src/hardware/button_mapping.c src/hardware/input_device_utils.c src/library/metadata.c src/library/metadata_db.c src/core/settings.c src/core/screenshot.c src/core/app_version.c src/audio/aiff_decoder.c src/audio/dsd_filter.c src/audio/dsd_decoder.c src/audio/aac_decoder.c src/audio/mp4_demux.c src/audio/ape_demux.c src/audio/ape_decoder.c src/audio/peq.c src/audio/audio_tempo.c src/ui/assets.c src/ui/screen_builders.c src/ui/cover_card_preview.c src/hardware/battery.c src/network/wifi_status.c src/network/ca_bundle.c src/network/http_conn.c src/network/http_client.c src/network/http_stream.c src/network/subsonic_client.c src/library/cover_decode.c src/library/image_thumb.c src/library/lyrics.c src/audio/asf_demux.c src/audio/wma_decoder.c src/audio/ogg_probe.c src/audio/opus_decoder.c src/audio/opusfile_alloc.c src/audio/vorbis_decoder.c src/library/cue_parser.c src/ui/fallback_font.c src/ui/gui_text_view.c \
 src/core/subprocess.c src/network/wifi_control.c src/network/bluetooth_control.c src/network/hiby_sys_server.c src/hardware/backlight.c src/network/import_web.c src/network/airplay_control.c src/network/airplay_bridge.c src/network/airplay_metadata.c src/hardware/headphone_status.c src/hardware/device_config.c src/hardware/led_control.c src/hardware/charge_limiter.c src/core/idle_shutdown.c src/hardware/power_suspend.c src/core/text_reader.c src/hardware/usb_mode_control.c src/hardware/usb_dac_bridge.c src/hardware/usb_audio_output.c src/core/firmware_update.c src/library/playlist_files.c src/library/favorite_writer.c src/network/firmware_ota.c src/network/plugin_store.c src/core/timezone_data.c src/core/timezone_apply.c src/core/hostname_apply.c src/network/dlna_control.c src/network/remote_control.c src/network/catalog_source_cache.c src/network/remote_control_mdns.c src/plugins/plugin_manager.c
 APP_SRCS += src/ui/gui_setup.c src/ui/gui_setup_plugins.c src/core/timezone_location.c
 APP_SRCS += src/ui/lyrics_layout.c src/ui/transition_compositor.c src/ui/frosted_glass.c src/ui/hw_volume_coalesce.c
@@ -636,21 +660,15 @@ FAAD2_SRCS = $(sort $(shell find $(FAAD2_DIR)/libfaad -type f -name '*.c'))
 ALAC_C_SRCS = $(ALAC_DIR)/codec/ag_dec.c $(ALAC_DIR)/codec/dp_dec.c $(ALAC_DIR)/codec/matrix_dec.c \
               $(ALAC_DIR)/codec/ALACBitUtilities.c $(ALAC_DIR)/codec/EndianPortable.c
 ALAC_CXX_SRCS = $(ALAC_DIR)/codec/ALACDecoder.cpp
-# libopus source set, verified against this checkout's own opus_sources.mk/
-# celt_sources.mk/silk_sources.mk and CMakeLists.txt (not guessed): base
-# OPUS_SOURCES + OPUS_SOURCES_FLOAT (the float-build analysis/mlp files) +
-# CELT_SOURCES + SILK_SOURCES + SILK_SOURCES_FLOAT. Excludes celt/silk's
-# x86/arm/mips SIMD subdirectories and silk/fixed (fixed-point only, unused
-# since FIXED_POINT is left undefined above) -- none of those are pulled in
-# by the base CMake build either without explicit RTCD/fixed-point options,
-# which this Makefile doesn't set. The dnn/ (LPCNet-based DRED/OSCE/Deep
-# PLC) directory is excluded entirely -- confirmed via CMakeLists.txt that
-# those sources are only added when OPUS_DRED/OPUS_OSCE/OPUS_DEEP_PLC are
-# explicitly enabled, all off by default, so this stays a plain SILK+CELT
-# decoder build with no separate DNN component to vendor.
-OPUS_SRCS = $(filter-out %/repacketizer_demo.c %/opus_demo.c %/opus_compare.c %/opus_custom_demo.c, \
-              $(sort $(shell find $(OPUS_DIR)/src $(OPUS_DIR)/celt $(OPUS_DIR)/silk -maxdepth 1 -type f -name '*.c'))) \
-            $(sort $(shell find $(OPUS_DIR)/silk/float -maxdepth 1 -type f -name '*.c'))
+# Use Xiph's source manifests so fixed/float codec builds stay consistent.
+include $(OPUS_DIR)/opus_sources.mk
+include $(OPUS_DIR)/celt_sources.mk
+include $(OPUS_DIR)/silk_sources.mk
+OPUS_BASE_SRCS = $(addprefix $(OPUS_DIR)/,$(OPUS_SOURCES) $(OPUS_SOURCES_FLOAT) $(CELT_SOURCES) $(SILK_SOURCES))
+OPUS_SRCS = $(OPUS_BASE_SRCS) $(addprefix $(OPUS_DIR)/,$(SILK_SOURCES_FLOAT))
+TARGET_OPUS_SRCS = $(OPUS_BASE_SRCS) $(addprefix $(OPUS_DIR)/,$(SILK_SOURCES_FIXED))
+OGG_SRCS = $(OGG_DIR)/src/bitwise.c $(OGG_DIR)/src/framing.c
+OPUSFILE_SRCS = $(addprefix $(OPUSFILE_DIR)/src/,info.c internal.c opusfile.c stream.c)
 MBEDTLS_SRCS = $(sort $(shell find $(MBEDTLS_DIR)/library -type f -name '*.c'))
 CJSON_SRCS = $(CJSON_DIR)/cJSON.c
 # stb_vorbis.c is its own complete translation unit (the real implementation,
@@ -728,6 +746,8 @@ HOST_OBJS = $(BUILD_HOST_DIR)/sonic/sonic.o $(APP_SRCS:src/%.c=$(BUILD_HOST_DIR)
             $(ALAC_C_SRCS:$(ALAC_DIR)/codec/%.c=$(BUILD_HOST_DIR)/alac/%.o) $(ALAC_CXX_SRCS:$(ALAC_DIR)/codec/%.cpp=$(BUILD_HOST_DIR)/alac/%.o) \
             $(MBEDTLS_SRCS:$(MBEDTLS_DIR)/library/%.c=$(BUILD_HOST_DIR)/mbedtls/%.o) $(CJSON_SRCS:$(CJSON_DIR)/%.c=$(BUILD_HOST_DIR)/cjson/%.o) \
             $(OPUS_SRCS:$(OPUS_DIR)/%.c=$(BUILD_HOST_DIR)/opus/%.o) \
+            $(OGG_SRCS:$(OGG_DIR)/src/%.c=$(BUILD_HOST_DIR)/libogg/%.o) \
+            $(OPUSFILE_SRCS:$(OPUSFILE_DIR)/src/%.c=$(BUILD_HOST_DIR)/opusfile/%.o) \
             $(STB_VORBIS_SRCS:$(STB_VORBIS_DIR)/%.c=$(BUILD_HOST_DIR)/stb_vorbis/%.o) \
             $(LUA_SRCS:$(LUA_DIR)/src/%.c=$(BUILD_HOST_DIR)/lua/%.o) \
             $(JPEG_SRCS:$(JPEG_DIR)/%.c=$(BUILD_HOST_DIR)/jpeg/%.o) \
@@ -739,7 +759,9 @@ TARGET_OBJS = $(BUILD_TARGET_DIR)/sonic/sonic.o $(APP_SRCS:src/%.c=$(BUILD_TARGE
               $(ALAC_C_SRCS:$(ALAC_DIR)/codec/%.c=$(BUILD_TARGET_DIR)/alac/%.o) $(ALAC_CXX_SRCS:$(ALAC_DIR)/codec/%.cpp=$(BUILD_TARGET_DIR)/alac/%.o) \
               $(MBEDTLS_SRCS:$(MBEDTLS_DIR)/library/%.c=$(BUILD_TARGET_DIR)/mbedtls/%.o) $(CJSON_SRCS:$(CJSON_DIR)/%.c=$(BUILD_TARGET_DIR)/cjson/%.o) \
               $(DBUS_SRCS:$(DBUS_DIR)/dbus/%.c=$(BUILD_TARGET_DIR)/dbus/%.o) \
-              $(OPUS_SRCS:$(OPUS_DIR)/%.c=$(BUILD_TARGET_DIR)/opus/%.o) \
+              $(TARGET_OPUS_SRCS:$(OPUS_DIR)/%.c=$(BUILD_TARGET_DIR)/opus/%.o) \
+            $(OGG_SRCS:$(OGG_DIR)/src/%.c=$(BUILD_TARGET_DIR)/libogg/%.o) \
+            $(OPUSFILE_SRCS:$(OPUSFILE_DIR)/src/%.c=$(BUILD_TARGET_DIR)/opusfile/%.o) \
               $(STB_VORBIS_SRCS:$(STB_VORBIS_DIR)/%.c=$(BUILD_TARGET_DIR)/stb_vorbis/%.o) \
               $(LUA_SRCS:$(LUA_DIR)/src/%.c=$(BUILD_TARGET_DIR)/lua/%.o) \
               $(LIBEXECINFO_SRCS:$(LIBEXECINFO_DIR)/%.c=$(BUILD_TARGET_DIR)/libexecinfo/%.o) \
@@ -895,6 +917,14 @@ $(BUILD_HOST_DIR)/opus/%.o: $(OPUS_DIR)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(OPUS_CFLAGS) -c $< -o $@
 
+$(BUILD_HOST_DIR)/libogg/%.o: $(OGG_DIR)/src/%.c libogg_vendor_config/ogg/config_types.h $(BUILD_HOST_DIR)/.opusfile_config
+	@mkdir -p $(dir $@)
+	$(CC) $(OGG_CFLAGS) -c $< -o $@
+
+$(BUILD_HOST_DIR)/opusfile/%.o: $(OPUSFILE_DIR)/src/%.c libogg_vendor_config/ogg/config_types.h $(BUILD_HOST_DIR)/.opusfile_config $(OPUSFILE_PATCH_STAMP)
+	@mkdir -p $(dir $@)
+	$(CC) $(OPUSFILE_CFLAGS) -c $< -o $@
+
 $(BUILD_HOST_DIR)/tinfl/%.o: $(TINFL_DIR)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(HOST_CFLAGS) -c $< -o $@
@@ -1006,9 +1036,17 @@ $(BUILD_TARGET_DIR)/dbus/%.o: $(DBUS_DIR)/dbus/%.c $(TARGET_CPU_FLAGS_STAMP)
 	@mkdir -p $(dir $@)
 	$(CROSS_CC) $(DBUS_CFLAGS) $(TARGET_CPU_FLAGS) -c $< -o $@
 
-$(BUILD_TARGET_DIR)/opus/%.o: $(OPUS_DIR)/%.c $(TARGET_CPU_FLAGS_STAMP)
+$(BUILD_TARGET_DIR)/opus/%.o: $(OPUS_DIR)/%.c $(TARGET_CPU_FLAGS_STAMP) $(BUILD_TARGET_DIR)/.opus_config
 	@mkdir -p $(dir $@)
-	$(CROSS_CC) $(OPUS_CFLAGS) $(TARGET_CPU_FLAGS) -c $< -o $@
+	$(CROSS_CC) $(TARGET_OPUS_CFLAGS) $(TARGET_CPU_FLAGS) -c $< -o $@
+
+$(BUILD_TARGET_DIR)/libogg/%.o: $(OGG_DIR)/src/%.c libogg_vendor_config/ogg/config_types.h $(TARGET_CPU_FLAGS_STAMP) $(BUILD_TARGET_DIR)/.opusfile_config
+	@mkdir -p $(dir $@)
+	$(CROSS_CC) $(OGG_CFLAGS) $(TARGET_CPU_FLAGS) -c $< -o $@
+
+$(BUILD_TARGET_DIR)/opusfile/%.o: $(OPUSFILE_DIR)/src/%.c libogg_vendor_config/ogg/config_types.h $(TARGET_CPU_FLAGS_STAMP) $(BUILD_TARGET_DIR)/.opusfile_config $(OPUSFILE_PATCH_STAMP)
+	@mkdir -p $(dir $@)
+	$(CROSS_CC) $(OPUSFILE_CFLAGS) $(TARGET_CPU_FLAGS) -c $< -o $@
 
 $(BUILD_TARGET_DIR)/tinfl/%.o: $(TINFL_DIR)/%.c $(TARGET_CPU_FLAGS_STAMP)
 	@mkdir -p $(dir $@)

@@ -1,0 +1,71 @@
+diff --git a/src/opusfile.c b/src/opusfile.c
+index 642c784..3b28bec 100644
+--- a/src/opusfile.c
++++ b/src/opusfile.c
+@@ -95,7 +95,10 @@ int op_test(OpusHead *_head,
+     int              ret;
+     memcpy(data,_initial_data,_initial_bytes);
+     ogg_sync_wrote(&oy,(long)_initial_bytes);
+-    ogg_stream_init(&os,-1);
++    if(ogg_stream_init(&os,-1)<0){
++      ogg_sync_clear(&oy);
++      return OP_EFAULT;
++    }
+     err=OP_FALSE;
+     do{
+       ogg_packet op;
+@@ -148,6 +151,7 @@ static int op_get_data(OggOpusFile *_of,int _nbytes){
+   int            nbytes;
+   OP_ASSERT(_nbytes>0);
+   buffer=(unsigned char *)ogg_sync_buffer(&_of->oy,_nbytes);
++  if(OP_UNLIKELY(buffer==NULL))return OP_EFAULT;
+   nbytes=(int)(*_of->callbacks.read)(_of->stream,buffer,_nbytes);
+   OP_ASSERT(nbytes<=_nbytes);
+   if(OP_LIKELY(nbytes>0))ogg_sync_wrote(&_of->oy,nbytes);
+@@ -1267,6 +1271,9 @@ static int op_bisect_forward_serialno(OggOpusFile *_of,
+     ret=op_fetch_headers(_of,&links[nlinks].head,&links[nlinks].tags,
+      _serialnos,_nserialnos,_cserialnos,last!=next?NULL:&og);
+     if(OP_UNLIKELY(ret<0))return ret;
++    /*The headers own their tags now, even if finding the initial PCM offset
++       for this link fails.  Include them in op_clear()'s cleanup range.*/
++    _of->nlinks=nlinks+1;
+     links[nlinks].offset=next;
+     links[nlinks].data_offset=_of->offset;
+     links[nlinks].serialno=_of->os.serialno;
+@@ -1443,7 +1450,16 @@ static int op_open_seekable2(OggOpusFile *_of){
+   memcpy(op_start,_of->op,sizeof(*op_start)*start_op_count);
+   OP_ASSERT((*_of->callbacks.tell)(_of->stream)==op_position(_of));
+   ogg_sync_init(&_of->oy);
+-  ogg_stream_init(&_of->os,-1);
++  if(ogg_stream_init(&_of->os,-1)<0){
++    ogg_sync_clear(&_of->oy);
++    *&_of->oy=*&oy_start;
++    *&_of->os=*&os_start;
++    _of->offset=start_offset;
++    _of->op_count=start_op_count;
++    memcpy(_of->op,op_start,sizeof(*_of->op)*start_op_count);
++    _ogg_free(op_start);
++    return OP_EFAULT;
++  }
+   ret=op_open_seekable2_impl(_of);
+   /*Restore the old stream state.*/
+   ogg_stream_clear(&_of->os);
+@@ -1527,6 +1543,7 @@ static int op_open1(OggOpusFile *_of,
+   if(_initial_bytes>0){
+     char *buffer;
+     buffer=ogg_sync_buffer(&_of->oy,(long)_initial_bytes);
++    if(OP_UNLIKELY(buffer==NULL))return OP_EFAULT;
+     memcpy(buffer,_initial_data,_initial_bytes*sizeof(*buffer));
+     ogg_sync_wrote(&_of->oy,(long)_initial_bytes);
+   }
+@@ -1548,8 +1565,9 @@ static int op_open1(OggOpusFile *_of,
+   /*Don't seek yet.
+     Set up a 'single' (current) logical bitstream entry for partial open.*/
+   _of->links=(OggOpusLink *)_ogg_malloc(sizeof(*_of->links));
++  if(OP_UNLIKELY(_of->links==NULL))return OP_EFAULT;
+   /*The serialno gets filled in later by op_fetch_headers().*/
+-  ogg_stream_init(&_of->os,-1);
++  if(OP_UNLIKELY(ogg_stream_init(&_of->os,-1)<0))return OP_EFAULT;
+   pog=NULL;
+   for(;;){
+     /*Fetch all BOS pages, store the Opus header and all seen serial numbers,
