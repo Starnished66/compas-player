@@ -65,7 +65,7 @@ Wi-Fi and plugins can be skipped and configured later. Failed plugin installatio
 
 ## What it can do
 
-- **Play music:** FLAC, MP3, WAV, AIFF, DSD, AAC, ALAC, APE, Opus and more; gapless playback, crossfade, ReplayGain, a 10-band PEQ, queue controls, hardware buttons, Bluetooth audio and USB DAC mode.
+- **Play music:** FLAC, MP3, WAV, AIFF, DSD, AAC, ALAC, APE, Opus, WavPack, CAF and more; gapless playback, crossfade, ReplayGain, a 10-band PEQ, queue controls, hardware buttons, Bluetooth audio and USB DAC mode.
 - **Organize a library:** browse files, artists, albums and playlists; scan incrementally; use Rockbox tagcache; read synced lyrics and plain-text books; handle SD card removal and insertion. Audiobook features are available as a plugin.
 - **Connect and stream:** Subsonic-compatible streaming over HTTPS, downloads, DLNA renderer, AirPlay through stock protocols where possible, Wi-Fi and Bluetooth remote control, and Wi-Fi music import.
 - **Tune the device:** charge limit and Safe Charging, suspend or idle shutdown, car mode, USB Storage/DAC/ADB selector, timezone and charge LED controls.
@@ -219,3 +219,5 @@ Thanks to everyone who has contributed to the HiBy reverse-engineering ecosystem
 ## License
 
 This project is licensed under the [GNU General Public License, version 3](LICENSE). The project statically links [FAAD2](https://github.com/knik0/faad2) for AAC decoding, which is GPLv2-licensed. Other major dependencies, including `dr_libs`, LVGL and tinyalsa, use permissive licenses. A deployment that needs to avoid this copyleft combination would need to remove AAC support or replace FAAD2 with a compatible decoder; isolating the existing FAAD2 code does not change the resulting binary's license obligations.
+
+WavPack uses the BSD-licensed [libwavpack](https://github.com/dbry/WavPack), and CAF uses LGPL-licensed [libsndfile](https://github.com/libsndfile/libsndfile). The APE decoder includes an adapted [FFmpeg](https://ffmpeg.org/) decoder; its attribution is preserved in the source and its LGPL license is included in [APE_FFMPEG_CORE_LICENSE.txt](src/audio/APE_FFMPEG_CORE_LICENSE.txt).

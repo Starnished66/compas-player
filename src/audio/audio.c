@@ -30,6 +30,8 @@
 #include "opus_decoder.h"
 #include "ogg_probe.h"
 #include "vorbis_decoder.h"
+#include "wavpack_decoder.h"
+#include "caf_decoder.h"
 #include "peq.h"
 #include "audio_tempo.h"
 #include "http_stream.h"
@@ -103,7 +105,9 @@ typedef enum {
     DECODER_APE,
     DECODER_WMA,
     DECODER_OPUS,
-    DECODER_VORBIS
+    DECODER_VORBIS,
+    DECODER_WAVPACK,
+    DECODER_CAF
 } decoder_type_t;
 
 typedef struct {
@@ -120,6 +124,8 @@ typedef struct {
         wma_decoder_t * wma;
         opus_decoder_wrap_t * opus;
         vorbis_decoder_wrap_t * vorbis;
+        wavpack_decoder_t * wavpack;
+        caf_decoder_t * caf;
     } as;
     unsigned int channels;
     unsigned int sample_rate;
@@ -206,6 +212,17 @@ static drflac_bool32 flac_file_seek_cb(void * user_data, int offset, drflac_seek
     int whence = origin == DRFLAC_SEEK_SET ? SEEK_SET
                : origin == DRFLAC_SEEK_END ? SEEK_END : SEEK_CUR;
     return fseek((FILE *) user_data, (long) offset, whence) == 0 ? DRFLAC_TRUE : DRFLAC_FALSE;
+}
+
+/* .alac is used for both MP4 and CAF files; sniff the container signature. */
+static bool file_is_caf(const char * path) {
+    FILE * file = fopen(path, "rb");
+    if (!file) return false;
+    char magic[4];
+    bool matches = fread(magic, 1, sizeof(magic), file) == sizeof(magic) &&
+                   memcmp(magic, "caff", sizeof(magic)) == 0;
+    fclose(file);
+    return matches;
 }
 
 static bool decoder_open_internal(decoder_t * dec, const char * path) {
@@ -411,7 +428,9 @@ static bool decoder_open_internal(decoder_t * dec, const char * path) {
         return true;
     }
 
-    if (strcasecmp(ext, ".m4a") == 0 || strcasecmp(ext, ".m4b") == 0) {
+    if (strcasecmp(ext, ".m4a") == 0 || strcasecmp(ext, ".m4b") == 0 ||
+        strcasecmp(ext, ".mp4") == 0 ||
+        (strcasecmp(ext, ".alac") == 0 && !file_is_caf(path))) {
         /* .m4a/.m4b is a container, not a codec -- peek which one is actually
          * inside (ALAC or AAC) before picking a decoder. The real decoders
          * each open their own mp4_demux_t; this one is just for the peek. */
@@ -441,6 +460,30 @@ static bool decoder_open_internal(decoder_t * dec, const char * path) {
         }
         dec->open_error = AUDIO_ERROR_UNSUPPORTED_FORMAT;
         return false;
+    }
+
+    if (strcasecmp(ext, ".wv") == 0) {
+        dec->type = DECODER_WAVPACK;
+        dec->as.wavpack = wavpack_open_file(path);
+        if (!dec->as.wavpack) return false;
+        dec->channels = wavpack_get_channels(dec->as.wavpack);
+        dec->sample_rate = wavpack_get_sample_rate(dec->as.wavpack);
+        dec->source_sample_rate = dec->sample_rate;
+        dec->source_bit_depth = wavpack_get_bits_per_sample(dec->as.wavpack);
+        dec->total_frames = wavpack_get_total_pcm_frame_count(dec->as.wavpack);
+        return true;
+    }
+
+    if (strcasecmp(ext, ".caf") == 0 || strcasecmp(ext, ".alac") == 0) {
+        dec->type = DECODER_CAF;
+        dec->as.caf = caf_open_file(path);
+        if (!dec->as.caf) return false;
+        dec->channels = caf_get_channels(dec->as.caf);
+        dec->sample_rate = caf_get_sample_rate(dec->as.caf);
+        dec->source_sample_rate = dec->sample_rate;
+        dec->source_bit_depth = caf_get_bits_per_sample(dec->as.caf);
+        dec->total_frames = caf_get_total_pcm_frame_count(dec->as.caf);
+        return true;
     }
 
     if (strcasecmp(ext, ".ape") == 0) {
@@ -533,6 +576,10 @@ static decoder_read_result_t decoder_read_s16(decoder_t * dec, uint64_t frames, 
             res.status = (r > 0) ? DECODER_READ_OK : DECODER_READ_EOF;
             return res;
         }
+        case DECODER_WAVPACK:
+            return wavpack_read_pcm_frames_s16(dec->as.wavpack, frames, buf);
+        case DECODER_CAF:
+            return caf_read_pcm_frames_s16(dec->as.caf, frames, buf);
         case DECODER_AIFF:
             return aiff_read_pcm_frames_s16(dec->as.aiff, frames, buf);
         case DECODER_DSD: {
@@ -595,6 +642,10 @@ static decoder_read_result_t decoder_read_s32(decoder_t * dec, uint64_t frames, 
             }
             return res;
         }
+        case DECODER_WAVPACK:
+            return wavpack_read_pcm_frames_s32(dec->as.wavpack, frames, buf);
+        case DECODER_CAF:
+            return caf_read_pcm_frames_s32(dec->as.caf, frames, buf);
         case DECODER_ALAC:
             /* ALAC decodes internally to right-justified true-magnitude int32 for
              * 24-bit sources: DO NOT shift; already in S24_LE layout. */
@@ -661,6 +712,8 @@ static bool decoder_seek(decoder_t * dec, uint64_t frame) {
             if (frame > 0 && mp3_needs_seek_index(dec) && !dec->mp3_seek_points &&
                 !dec->mp3_seek_index_attempted) return false;
             return drmp3_seek_to_pcm_frame(dec->as.mp3, frame) != 0;
+        case DECODER_WAVPACK: return wavpack_seek_to_pcm_frame(dec->as.wavpack, frame);
+        case DECODER_CAF: return caf_seek_to_pcm_frame(dec->as.caf, frame);
         case DECODER_WAV:    return drwav_seek_to_pcm_frame(dec->as.wav, frame) != 0;
         case DECODER_AIFF:   return aiff_seek_to_pcm_frame(dec->as.aiff, frame);
         case DECODER_DSD:    return dsd_seek_to_pcm_frame(dec->as.dsd, frame);
@@ -730,6 +783,14 @@ static void decoder_close(decoder_t * dec) {
             break;
         case DECODER_OPUS:
             if (dec->as.opus) { opus_close(dec->as.opus); dec->as.opus = NULL; }
+            break;
+        case DECODER_WAVPACK:
+            wavpack_close(dec->as.wavpack);
+            dec->as.wavpack = NULL;
+            break;
+        case DECODER_CAF:
+            caf_close(dec->as.caf);
+            dec->as.caf = NULL;
             break;
         case DECODER_VORBIS:
             if (dec->as.vorbis) { vorbis_close(dec->as.vorbis); dec->as.vorbis = NULL; }
@@ -1393,8 +1454,10 @@ static bool request_mp3_seek_index_locked(decoder_t * dec, const char * path,
     return true;
 }
 
-static audio_codec_t public_codec_for_decoder(decoder_type_t type) {
-    switch (type) {
+static audio_codec_t public_codec_for_decoder(const decoder_t * dec) {
+    switch (dec->type) {
+        case DECODER_WAVPACK: return AUDIO_CODEC_WAVPACK;
+        case DECODER_CAF: return caf_is_alac(dec->as.caf) ? AUDIO_CODEC_ALAC : AUDIO_CODEC_PCM;
         case DECODER_FLAC: return AUDIO_CODEC_FLAC;
         case DECODER_MP3: return AUDIO_CODEC_MP3;
         case DECODER_WAV:
@@ -1429,7 +1492,7 @@ bool audio_probe_file_format(const char * path, audio_current_format_info_t * ou
         uint64_t total_samples = ape_demux_get_total_samples(demux);
         bool supported = compression >= 1000 && compression <= 5000 && compression % 1000 == 0 &&
                          channels >= 1 && channels <= 2 && sample_rate > 0 &&
-                         (bit_depth == 16 || bit_depth == 24) && total_samples > 0;
+                         (bit_depth == 8 || bit_depth == 16 || bit_depth == 24) && total_samples > 0;
         if (!supported) {
             ape_demux_close(demux);
             return false;
@@ -1453,7 +1516,7 @@ bool audio_probe_file_format(const char * path, audio_current_format_info_t * ou
     memset(out, 0, sizeof(*out));
     out->valid = true;
     snprintf(out->path, sizeof(out->path), "%s", path);
-    out->codec = public_codec_for_decoder(dec.type);
+    out->codec = public_codec_for_decoder(&dec);
     out->source_sample_rate = dec.source_sample_rate ? dec.source_sample_rate : dec.sample_rate;
     out->source_bit_depth = dec.source_bit_depth;
     out->channels = dec.channels;
@@ -1621,6 +1684,8 @@ static bool can_use_wide_path(const decoder_t * dec) {
         dec->type != DECODER_WAV &&
         dec->type != DECODER_ALAC &&
         dec->type != DECODER_APE &&
+        dec->type != DECODER_WAVPACK &&
+        dec->type != DECODER_CAF &&
         dec->type != DECODER_AIFF &&
         dec->type != DECODER_DSD) return false;
     if (!audio_output_supports_wide_path()) return false;
@@ -1699,7 +1764,7 @@ static void publish_current_format_locked(const decoder_t * dec, const char * pa
     memset(&current_format_info, 0, sizeof(current_format_info));
     current_format_info.valid = true;
     if (path) snprintf(current_format_info.path, sizeof(current_format_info.path), "%s", path);
-    current_format_info.codec = public_codec_for_decoder(dec->type);
+    current_format_info.codec = public_codec_for_decoder(dec);
     current_format_info.source_sample_rate = dec->source_sample_rate ? dec->source_sample_rate : dec->sample_rate;
     current_format_info.source_bit_depth = dec->source_bit_depth;
     current_format_info.output_sample_rate = dec->sample_rate;

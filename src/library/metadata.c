@@ -6,6 +6,8 @@
 #include "dr_wav.h"
 #include "ogg_probe.h"
 #include "opusfile_alloc.h"
+#include "wavpack_decoder.h"
+#include "caf_decoder.h"
 #include "stb_vorbis.h"
 #include "mbedtls/base64.h"
 
@@ -1577,6 +1579,52 @@ static void read_m4a_metadata(const char * path, track_metadata_t * out, bool in
 
 /* ---- Opus: OpusTags (Ogg comment header, RFC 7845 5.2) ---- */
 
+typedef struct {
+    track_metadata_t * metadata;
+    bool include_blobs;
+} library_tags_context_t;
+
+/* Library tag APIs expose separate keys/values; reuse the existing bounded
+ * field matcher so sequencing, ReplayGain and lyrics follow the same rules. */
+static void apply_library_tag(void * user, const char * key, const char * value) {
+    library_tags_context_t * ctx = user;
+    if (!key || !value) return;
+    if (strcasecmp(key, "Track") == 0) key = "TRACKNUMBER";
+    else if (strcasecmp(key, "Disc") == 0 || strcasecmp(key, "Disc Number") == 0) key = "DISCNUMBER";
+    else if (strcasecmp(key, "Album Artist") == 0) key = "ALBUMARTIST";
+    size_t key_len = strnlen(key, 64);
+    size_t value_len = strnlen(value, METADATA_BLOB_MAX_BYTES + 1U);
+    if (key_len == 64 || value_len > METADATA_BLOB_MAX_BYTES) return;
+    char * comment = malloc(key_len + 1 + value_len);
+    if (!comment) return;
+    memcpy(comment, key, key_len);
+    comment[key_len] = '=';
+    memcpy(comment + key_len + 1, value, value_len);
+    apply_vorbis_comment_field(ctx->metadata, comment, key_len + 1 + value_len, ctx->include_blobs);
+    free(comment);
+}
+
+static void read_wavpack_metadata(const char * path, track_metadata_t * out, bool include_blobs) {
+    library_tags_context_t ctx = { out, include_blobs };
+    wavpack_get_tags(path, apply_library_tag, &ctx);
+    if (include_blobs && !lyrics_only) {
+        size_t image_size = 0;
+        uint8_t * image = wavpack_get_cover(path, METADATA_BLOB_MAX_BYTES, &image_size);
+        if (image && image_size > 0 && image_size <= METADATA_BLOB_MAX_BYTES) {
+            out->picture_data = image;
+            out->picture_size = (uint32_t) image_size;
+        } else {
+            free(image);
+            if (image_size > METADATA_BLOB_MAX_BYTES) out->picture_too_large = true;
+        }
+    }
+}
+
+static void read_caf_metadata(const char * path, track_metadata_t * out, bool include_blobs) {
+    library_tags_context_t ctx = { out, include_blobs };
+    caf_get_tags(path, apply_library_tag, &ctx);
+}
+
 static void read_opus_metadata(const char * path, track_metadata_t * out, bool include_blobs) {
     /* Partial open parses OpusHead/OpusTags but skips the full-file seek
      * index and decoder setup used for playback. libopusfile owns the tag
@@ -2241,7 +2289,21 @@ static void metadata_read_dispatch(const char * path, track_metadata_t * out, bo
         read_wav_all(path, out, include_blobs);
     } else if (strcasecmp(ext, ".aac") == 0) {
         read_aac_metadata(path, out, include_blobs);
-    } else if (strcasecmp(ext, ".m4a") == 0 || strcasecmp(ext, ".m4b") == 0) {
+    } else if (strcasecmp(ext, ".wv") == 0) {
+        read_wavpack_metadata(path, out, include_blobs);
+    } else if (strcasecmp(ext, ".caf") == 0) {
+        read_caf_metadata(path, out, include_blobs);
+    } else if (strcasecmp(ext, ".alac") == 0) {
+        /* The extension names the codec; CAF carries a distinct signature. */
+        FILE * file = fopen(path, "rb");
+        char magic[4];
+        bool is_caf = file && fread(magic, 1, sizeof(magic), file) == sizeof(magic) &&
+                      memcmp(magic, "caff", sizeof(magic)) == 0;
+        if (file) fclose(file);
+        if (is_caf) read_caf_metadata(path, out, include_blobs);
+        else read_m4a_metadata(path, out, include_blobs);
+    } else if (strcasecmp(ext, ".m4a") == 0 || strcasecmp(ext, ".m4b") == 0 ||
+               strcasecmp(ext, ".mp4") == 0) {
         read_m4a_metadata(path, out, include_blobs);
     } else if (strcasecmp(ext, ".opus") == 0) {
         read_opus_metadata(path, out, include_blobs);

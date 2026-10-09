@@ -4,17 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* Minimal Monkey's Audio (.ape) container parser: reads the "new" (fileversion
- * >= 3980) descriptor+header+seektable layout only. That format has been
- * unchanged since 2007 (Monkey's Audio has kept the on-disk fileversion at
- * 3990 across all its "4.x"/"5.x"/"6.x"/"7.x" encoder releases since then),
- * so this covers the overwhelming majority of real .ape files. Pre-2007
- * files (fileversion < 3980, old header layout, pre-3810 bit-packed skip
- * table) and any leading junk/ID3v2 before the "MAC " tag are not handled.
- *
- * Modeled after ffmpeg's libavformat/ape.c (LGPL 2.1+), simplified to this
- * narrower scope -- see ape_decoder.h for the matching decode-side scope
- * note. */
+/* Monkey's Audio container/index reader for file versions 3.80 through 3.99,
+ * modeled after FFmpeg's libavformat/ape.c (LGPL-2.1+). */
 
 typedef struct ape_demux ape_demux_t;
 
@@ -30,6 +21,9 @@ uint64_t ape_demux_get_total_samples(const ape_demux_t * d);
 uint32_t ape_demux_get_frame_count(const ape_demux_t * d);
 uint32_t ape_demux_get_blocks_per_frame(const ape_demux_t * d);
 uint32_t ape_demux_get_final_frame_blocks(const ape_demux_t * d);
+uint32_t ape_demux_get_frame_size(const ape_demux_t * d, uint32_t frame_index);
+bool ape_demux_read_frame_at(ape_demux_t * d, uint32_t frame_index, uint32_t relative_offset,
+                             uint8_t * buffer, uint32_t bytes, uint32_t * out_bytes);
 
 /* Reads frame_index's compressed bytes (already including its 0-3 byte skip
  * padding at the front, matching the on-disk layout) into buf. out_size is

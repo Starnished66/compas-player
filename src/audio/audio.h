@@ -19,6 +19,7 @@ typedef enum {
     AUDIO_CODEC_WMA,
     AUDIO_CODEC_OPUS,
     AUDIO_CODEC_VORBIS,
+    AUDIO_CODEC_WAVPACK,
 } audio_codec_t;
 
 /* Immutable snapshot of the decoder currently feeding playback. The source

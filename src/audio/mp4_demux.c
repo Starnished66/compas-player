@@ -18,12 +18,15 @@ typedef struct {
     uint32_t samples_per_chunk;
 } stsc_entry_t;
 
+typedef struct { uint32_t count, delta; uint64_t first_sample; } stts_entry_t;
+
 /* Expanded per-sample tables are ~12 bytes each. A 25h AAC audiobook is
  * millions of access units -- tens of MB, enough to OOM this 56 MiB
  * device on open (Linux overcommit makes malloc succeed, then the first
  * write is SIGKILL). Keep ISO-BMFF stsz/stco/stsc compact past this. */
 #define MP4_EXPAND_MAX_SAMPLES 65536
 #define MP4_MAX_STSC_ENTRIES 4096
+#define MP4_MAX_STTS_ENTRIES 4096
 #define MP4_MAX_STSD_ENTRY_BYTES (1024U * 1024U)
 
 struct mp4_demux {
@@ -50,8 +53,31 @@ struct mp4_demux {
     uint64_t cursor_offset;
 
     uint32_t frames_per_sample;
+    uint32_t first_sample_delta;
     uint64_t total_pcm_frames;
+    uint64_t raw_total_pcm_frames;
+    uint32_t media_timescale;
+    uint32_t sample_rate; /* decoded PCM rate; updated from codec config when needed */
+    uint32_t sample_entry_rate;
+    uint32_t movie_timescale;
+    uint64_t edit_priming_ticks;
+    uint64_t edit_playable_ticks;
+    stts_entry_t * stts;
+    uint32_t stts_count;
+    uint64_t gapless_priming;
+    uint64_t gapless_playable;
+    bool has_gapless;
+    bool has_itunsmpb;
+    uint64_t itunsmpb_priming;
+    uint64_t itunsmpb_padding;
+    uint64_t itunsmpb_playable;
 };
+
+static uint64_t ticks_to_frames(uint64_t ticks, uint32_t rate, uint32_t scale) {
+    if (!scale) return 0;
+    /* Split the multiplication to avoid overflow for long timelines. */
+    return (ticks / scale) * rate + (((ticks % scale) * rate) + scale / 2) / scale;
+}
 
 static bool read_box_header(FILE * f, box_header_t * out) {
     long start = ftell(f);
@@ -158,6 +184,8 @@ static bool parse_stsd(mp4_demux_t * d, box_header_t stsd) {
     uint32_t entry_size = audio_read_u32be(entry_header);
     memcpy(d->codec_fourcc, entry_header + 4, 4);
     d->codec_fourcc[4] = '\0';
+    d->sample_entry_rate = audio_read_u32be(entry_header + 32) >> 16;
+    d->sample_rate = d->sample_entry_rate;
 
     if (entry_size <= 36 || entry_size > MP4_MAX_STSD_ENTRY_BYTES || !box_payload_has(stsd, 8, entry_size)) return false;
     uint32_t config_region_size = entry_size - 36;
@@ -439,10 +467,12 @@ static bool parse_stts(mp4_demux_t * d, box_header_t stbl) {
     fseek(d->f, stts_box.data_start, SEEK_SET);
     if (fread(hdr, 1, 8, d->f) != 8) return false;
     uint32_t entry_count = audio_read_u32be(hdr + 4);
-    if (entry_count == 0) return false;
+    if (entry_count == 0 || entry_count > MP4_MAX_STTS_ENTRIES) return false;
     if (!box_payload_has(stts_box, 8, (uint64_t) entry_count * 8U)) return false;
 
-    uint64_t total = 0;
+    d->stts = calloc(entry_count, sizeof(*d->stts));
+    if (!d->stts) return false;
+    d->stts_count = entry_count;
     uint64_t timed_samples = 0;
     for (uint32_t i = 0; i < entry_count; i++) {
         uint8_t entry[8];
@@ -451,12 +481,179 @@ static bool parse_stts(mp4_demux_t * d, box_header_t stbl) {
         uint32_t sample_delta = audio_read_u32be(entry + 4);
         if (sample_count == 0 || sample_delta == 0 || timed_samples + sample_count < timed_samples) return false;
         timed_samples += sample_count;
-        if (i == 0) d->frames_per_sample = sample_delta; /* first entry covers the vast majority of samples */
-        total += (uint64_t) sample_count * sample_delta;
+        d->stts[i].count = sample_count;
+        d->stts[i].delta = sample_delta;
+        d->stts[i].first_sample = timed_samples - sample_count;
+        if (i == 0) d->first_sample_delta = sample_delta;
     }
+    if (!d->media_timescale || !d->first_sample_delta || timed_samples != d->sample_count) return false;
+    uint64_t total_ticks = 0;
+    for (uint32_t i = 0; i < entry_count; i++) total_ticks += (uint64_t)d->stts[i].count * d->stts[i].delta;
+    if (!d->sample_rate) return false;
+    d->frames_per_sample = (uint32_t)ticks_to_frames(d->first_sample_delta, d->sample_rate, d->media_timescale);
+    d->raw_total_pcm_frames = ticks_to_frames(total_ticks, d->sample_rate, d->media_timescale);
+    d->total_pcm_frames = d->raw_total_pcm_frames;
+    return total_ticks > 0;
+}
 
-    d->total_pcm_frames = total;
-    return d->frames_per_sample > 0 && total > 0 && timed_samples == d->sample_count;
+static void apply_gapless_metadata(mp4_demux_t *d) {
+    d->has_gapless = false;
+    d->gapless_priming = 0;
+    d->gapless_playable = 0;
+    d->total_pcm_frames = d->raw_total_pcm_frames;
+    if (d->edit_playable_ticks && d->movie_timescale && d->media_timescale) {
+        uint64_t priming = ticks_to_frames(d->edit_priming_ticks, d->sample_rate, d->media_timescale);
+        uint64_t playable = ticks_to_frames(d->edit_playable_ticks, d->sample_rate, d->movie_timescale);
+        if (priming < d->raw_total_pcm_frames && playable > 0 &&
+            playable <= d->raw_total_pcm_frames - priming + d->frames_per_sample) {
+            d->gapless_priming = priming;
+            d->gapless_playable = playable;
+            d->has_gapless = true;
+            d->total_pcm_frames = playable;
+        }
+    }
+    if (d->has_itunsmpb && d->sample_entry_rate) {
+        /* SMPB values are PCM sample counts, unlike edit-list media/movie
+         * ticks. Keep these counts in decoder PCM units. */
+        uint64_t priming = d->itunsmpb_priming;
+        uint64_t padding = d->itunsmpb_padding;
+        uint64_t playable = d->itunsmpb_playable;
+        if (priming < d->sample_rate && padding < d->sample_rate && priming < d->raw_total_pcm_frames &&
+            playable > 0 && playable <= d->raw_total_pcm_frames - priming + d->frames_per_sample &&
+            padding <= d->raw_total_pcm_frames - priming + d->frames_per_sample - playable) {
+            d->gapless_priming = priming;
+            d->gapless_playable = playable;
+            d->has_gapless = true;
+            d->total_pcm_frames = playable;
+        }
+    }
+}
+
+static bool parse_media_timing(mp4_demux_t *d, box_header_t mdia) {
+    box_header_t mdhd;
+    if (!find_child_box(d->f, mdia.data_start, mdia.size - (uint64_t)mdia.header_size, "mdhd", &mdhd)) return false;
+    uint8_t b[32];
+    if (!box_payload_has(mdhd, 0, 1) || fseek(d->f, mdhd.data_start, SEEK_SET) != 0 || fread(b, 1, 1, d->f) != 1) return false;
+    size_t need = b[0] == 1 ? 24 : 20;
+    if (!box_payload_has(mdhd, 0, need) || fseek(d->f, mdhd.data_start, SEEK_SET) != 0 || fread(b, 1, need, d->f) != need) return false;
+    d->media_timescale = b[0] == 1 ? audio_read_u32be(b + 20) : audio_read_u32be(b + 12);
+    return d->media_timescale != 0;
+}
+
+static bool parse_edit_list(mp4_demux_t *d, box_header_t trak) {
+    box_header_t edts, elst;
+    if (!find_child_box(d->f, trak.data_start, trak.size - (uint64_t)trak.header_size, "edts", &edts) ||
+        !find_child_box(d->f, edts.data_start, edts.size - (uint64_t)edts.header_size, "elst", &elst)) return true;
+    uint8_t h[8];
+    if (!box_payload_has(elst, 0, 8) || fseek(d->f, elst.data_start, SEEK_SET) != 0 || fread(h, 1, 8, d->f) != 8) return false;
+    bool v1 = h[0] == 1;
+    uint32_t count = audio_read_u32be(h + 4);
+    size_t entry_size = v1 ? 20 : 12;
+    if (count != 1 || !box_payload_has(elst, 8, (uint64_t)count * entry_size)) return true;
+    for (uint32_t i = 0; i < count; i++) {
+        uint8_t e[20];
+        if (fread(e, 1, entry_size, d->f) != entry_size) return false;
+        int64_t media_time = v1 ? (int64_t)audio_read_u64be(e + 8) : (int32_t)audio_read_u32be(e + 4);
+        size_t rate_at = v1 ? 16 : 8;
+        if (media_time < 0 || audio_read_u32be(e + rate_at) != 0x00010000U) return true;
+        uint64_t duration = v1 ? audio_read_u64be(e) : audio_read_u32be(e);
+        d->edit_priming_ticks = (uint64_t)media_time;
+        d->edit_playable_ticks = duration;
+        return true;
+    }
+    return true;
+}
+
+static bool parse_movie_timescale(mp4_demux_t *d, box_header_t moov) {
+    box_header_t mvhd;
+    if (!find_child_box(d->f, moov.data_start, moov.size - (uint64_t)moov.header_size, "mvhd", &mvhd)) return true;
+    uint8_t b[24];
+    if (!box_payload_has(mvhd, 0, 1) || fseek(d->f, mvhd.data_start, SEEK_SET) != 0 || fread(b, 1, 1, d->f) != 1) return false;
+    size_t need = b[0] == 1 ? 24 : 16;
+    if (!box_payload_has(mvhd, 0, need) || fseek(d->f, mvhd.data_start, SEEK_SET) != 0 || fread(b, 1, need, d->f) != need) return false;
+    d->movie_timescale = b[0] == 1 ? audio_read_u32be(b + 20) : audio_read_u32be(b + 12);
+    return true;
+}
+
+static bool parse_smpb_text(const uint8_t *data, size_t size, uint64_t *priming,
+                            uint64_t *padding, uint64_t *playable) {
+    uint64_t values[4] = {0};
+    size_t pos = 0;
+    for (size_t i = 0; i < 4; i++) {
+        while (pos < size && (data[pos] == ' ' || data[pos] == '\t')) pos++;
+        size_t digits = 0;
+        while (pos < size) {
+            uint8_t c = data[pos];
+            unsigned int nibble;
+            if (c >= '0' && c <= '9') nibble = c - '0';
+            else if (c >= 'a' && c <= 'f') nibble = c - 'a' + 10;
+            else if (c >= 'A' && c <= 'F') nibble = c - 'A' + 10;
+            else break;
+            if (digits == 16 || values[i] > (UINT64_MAX - nibble) / 16) return false;
+            values[i] = values[i] * 16 + nibble;
+            digits++;
+            pos++;
+        }
+        if (digits == 0 || (i < 3 && (pos >= size || (data[pos] != ' ' && data[pos] != '\t')))) return false;
+    }
+    if (values[3] == 0) return false;
+    *priming = values[1];
+    *padding = values[2];
+    *playable = values[3];
+    return true;
+}
+
+static void parse_itunsmpb_item(mp4_demux_t *d, box_header_t item) {
+    uint64_t payload = item.size - (uint64_t)item.header_size;
+    if (payload > (uint64_t)LONG_MAX || fseek(d->f, item.data_start, SEEK_SET) != 0) return;
+    long end = item.data_start + (long)payload;
+    bool named = false;
+    uint64_t priming = 0, padding = 0, playable = 0;
+    while (ftell(d->f) >= 0 && ftell(d->f) < end) {
+        box_header_t child;
+        if (!read_box_header(d->f, &child)) return;
+        long start = child.data_start - child.header_size;
+        if (start < item.data_start || child.size > (uint64_t)(end - start)) return;
+        if (strcmp(child.type, "name") == 0 && child.size >= (uint64_t)child.header_size + 4 + 8) {
+            char name[16] = {0};
+            if (fseek(d->f, child.data_start + 4, SEEK_SET) == 0 && fread(name, 1, 8, d->f) == 8 && memcmp(name, "iTunSMPB", 8) == 0) named = true;
+        } else if (strcmp(child.type, "data") == 0 && child.size >= (uint64_t)child.header_size + 8) {
+            size_t n = (size_t)(child.size - (uint64_t)child.header_size - 8);
+            if (n > 256) n = 256;
+            uint8_t text[256];
+            if (fseek(d->f, child.data_start + 8, SEEK_SET) == 0 && fread(text, 1, n, d->f) == n)
+                (void)parse_smpb_text(text, n, &priming, &padding, &playable);
+        }
+        if (fseek(d->f, start + (long)child.size, SEEK_SET) != 0) return;
+    }
+    if (named && playable && d->sample_entry_rate && priming < d->sample_entry_rate &&
+        padding < d->sample_entry_rate) {
+        d->itunsmpb_priming = priming;
+        d->itunsmpb_padding = padding;
+        d->itunsmpb_playable = playable;
+        d->has_itunsmpb = true;
+    }
+}
+
+static void parse_itunsmpb(mp4_demux_t *d, box_header_t moov) {
+    box_header_t udta, meta, ilst;
+    if (!find_child_box(d->f, moov.data_start, moov.size - (uint64_t)moov.header_size, "udta", &udta) ||
+        !find_child_box(d->f, udta.data_start, udta.size - (uint64_t)udta.header_size, "meta", &meta) ||
+        !box_payload_has(meta, 0, 4) ||
+        !find_child_box(d->f, meta.data_start + 4, meta.size - (uint64_t)meta.header_size - 4, "ilst", &ilst)) return;
+    long end = ilst.data_start + (long)ilst.size - ilst.header_size;
+    if (fseek(d->f, ilst.data_start, SEEK_SET) != 0) return;
+    while (ftell(d->f) >= 0 && ftell(d->f) < end) {
+        box_header_t item;
+        if (!read_box_header(d->f, &item)) return;
+        long start = item.data_start - item.header_size;
+        if (start < ilst.data_start || item.size > (uint64_t)(end - start)) return;
+        if (strcmp(item.type, "----") == 0) {
+            parse_itunsmpb_item(d, item);
+            if (d->has_itunsmpb) return;
+        }
+        if (fseek(d->f, start + (long)item.size, SEEK_SET) != 0) return;
+    }
 }
 
 mp4_demux_t * mp4_demux_open(const char * path) {
@@ -514,10 +711,14 @@ mp4_demux_t * mp4_demux_open(const char * path) {
     d->f = f;
     d->file_size = (uint64_t) file_size;
 
-    if (!parse_stsd(d, stsd) || !parse_stsz(d, stsz) || !parse_sample_offsets(d, stbl) || !parse_stts(d, stbl)) {
+    if (!parse_stsd(d, stsd) || !parse_media_timing(d, mdia) || !parse_movie_timescale(d, moov) ||
+        !parse_edit_list(d, trak) || !parse_stsz(d, stsz) || !parse_sample_offsets(d, stbl) || !parse_stts(d, stbl)) {
         mp4_demux_close(d);
         return NULL;
     }
+
+    parse_itunsmpb(d, moov);
+    apply_gapless_metadata(d);
 
     return d;
 }
@@ -573,6 +774,70 @@ uint64_t mp4_demux_get_total_pcm_frame_count(const mp4_demux_t * d) {
     return d->total_pcm_frames;
 }
 
+void mp4_demux_set_pcm_sample_rate(mp4_demux_t *d, uint32_t sample_rate) {
+    if (!d || !sample_rate || !d->sample_entry_rate || !d->media_timescale) return;
+    d->sample_rate = sample_rate;
+    uint64_t ticks = 0;
+    for (uint32_t i = 0; i < d->stts_count; i++) ticks += (uint64_t)d->stts[i].count * d->stts[i].delta;
+    d->raw_total_pcm_frames = ticks_to_frames(ticks, d->sample_rate, d->media_timescale);
+    d->frames_per_sample = (uint32_t)ticks_to_frames(d->first_sample_delta, d->sample_rate, d->media_timescale);
+    apply_gapless_metadata(d);
+}
+
+bool mp4_demux_get_gapless_trim(const mp4_demux_t *d, uint64_t *priming, uint64_t *playable) {
+    if (!d || !d->has_gapless) return false;
+    if (priming) *priming = d->gapless_priming;
+    if (playable) *playable = d->gapless_playable;
+    return true;
+}
+
+bool mp4_demux_get_sample_pcm_duration(const mp4_demux_t *d, uint32_t sample, uint64_t *duration) {
+    if (!d || !duration || sample >= d->sample_count) return false;
+    uint64_t ticks = 0;
+    for (uint32_t i = 0; i < d->stts_count; i++) {
+        const stts_entry_t *e = &d->stts[i];
+        if (sample >= e->first_sample && sample - e->first_sample < e->count) {
+            uint64_t before = ticks + (uint64_t)(sample - e->first_sample) * e->delta;
+            uint64_t after = before + e->delta;
+            *duration = ticks_to_frames(after, d->sample_rate, d->media_timescale) -
+                        ticks_to_frames(before, d->sample_rate, d->media_timescale);
+            return true;
+        }
+        ticks += (uint64_t)e->count * e->delta;
+    }
+    return false;
+}
+
+bool mp4_demux_map_pcm_frame(const mp4_demux_t *d, uint64_t frame, uint32_t *sample, uint64_t *discard) {
+    if (!d || !sample || !discard || frame > d->raw_total_pcm_frames) return false;
+    uint64_t target = frame + (d->has_gapless ? d->gapless_priming : 0);
+    uint64_t ticks = 0;
+    for (uint32_t i = 0; i < d->stts_count; i++) {
+        const stts_entry_t *e = &d->stts[i];
+        uint64_t run_ticks = (uint64_t)e->count * e->delta;
+        uint64_t begin = ticks_to_frames(ticks, d->sample_rate, d->media_timescale);
+        uint64_t end = ticks_to_frames(ticks + run_ticks, d->sample_rate, d->media_timescale);
+        if (target < end || (target == end && i + 1 == d->stts_count)) {
+            uint64_t local = target > begin ? target - begin : 0;
+            uint64_t lo = 0, hi = e->count;
+            while (lo + 1 < hi) {
+                uint64_t mid = lo + (hi - lo) / 2;
+                if (ticks_to_frames(ticks + mid * e->delta, d->sample_rate, d->media_timescale) - begin <= local) lo = mid;
+                else hi = mid;
+            }
+            uint64_t sample_offset = lo;
+            *sample = (uint32_t)(e->first_sample + sample_offset);
+            uint64_t sample_start_ticks = ticks + sample_offset * e->delta;
+            *discard = target - ticks_to_frames(sample_start_ticks, d->sample_rate, d->media_timescale);
+            return true;
+        }
+        ticks += run_ticks;
+    }
+    *sample = d->sample_count - 1;
+    *discard = 0;
+    return true;
+}
+
 bool mp4_demux_read_sample(mp4_demux_t * d, uint32_t sample_index, uint8_t * buf, uint32_t buf_size, uint32_t * out_size) {
     uint32_t size;
     uint64_t offset;
@@ -595,5 +860,6 @@ void mp4_demux_close(mp4_demux_t * d) {
     free(d->sample_sizes);
     free(d->sample_offsets);
     free(d->stsc);
+    free(d->stts);
     free(d);
 }

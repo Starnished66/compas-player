@@ -58,6 +58,8 @@ ALAC_DIR = alac
 OPUS_DIR = opus
 OGG_DIR = libogg
 OPUSFILE_DIR = opusfile
+WAVPACK_DIR = third_party/libwavpack
+SNDFILE_DIR = third_party/libsndfile
 MBEDTLS_DIR = mbedtls
 CJSON_DIR = cJSON
 DBUS_DIR = dbus
@@ -69,6 +71,16 @@ LUA_DIR = lua
 # block (which would need to sparse-clone one file out of the much larger,
 # otherwise-unrelated stb monorepo for no real benefit over committing it).
 STB_VORBIS_DIR = stb_vorbis
+# Standard WavPack and CAF parsers/codecs, statically built for musl targets.
+ifeq ($(wildcard $(WAVPACK_DIR)),)
+$(info Cloning libwavpack 5.6.0...)
+$(shell git clone --depth 1 -b 5.6.0 https://github.com/dbry/WavPack.git $(WAVPACK_DIR))
+endif
+ifeq ($(wildcard $(SNDFILE_DIR)),)
+$(info Cloning libsndfile 1.2.2...)
+$(shell git clone --depth 1 -b 1.2.2 https://github.com/libsndfile/libsndfile.git $(SNDFILE_DIR))
+endif
+
 # Classic IJG libjpeg v9f (see LICENSE.md -- IJG/BSD-style/zlib terms), used
 # as a progressive-JPEG decode fallback and for baseline AVRCP cover export.
 # Cloned from libjpeg-turbo's own "ijg" mirror -- the official, canonical
@@ -462,6 +474,7 @@ endif
 # could exploit. This makes that whole class defined for every file we build,
 # at negligible cost, rather than patching each vendored decoder.
 CFLAGS = -O3 -g -Wall -fwrapv -MMD -MP -I. -Isrc/audio -Isrc/network -Isrc/library -Isrc/hardware -Isrc/ui -Isrc/core -Isrc/plugins -I$(LVGL_DIR) -I$(DR_LIBS_DIR) -I$(FAAD2_DIR)/include -I$(ALAC_DIR)/codec -I$(MBEDTLS_DIR)/include -I$(CJSON_DIR) -I$(OPUS_DIR)/include -I$(OPUSFILE_DIR)/include -Ilibogg_vendor_config -I$(OGG_DIR)/include -I$(LUA_DIR)/src -I$(STB_VORBIS_DIR) -Ijpeg_vendor_config -I$(JPEG_DIR) -DLV_CONF_INCLUDE_SIMPLE=1
+CFLAGS += -I$(WAVPACK_DIR)/include -I$(SNDFILE_DIR)/include
 CXXFLAGS = $(filter-out -Wall,$(CFLAGS)) -std=c++11
 HOST_CFLAGS = $(CFLAGS) -DHOST_BUILD=1 $(BOARD_DEFINE) $(shell sdl2-config --cflags) -I$(TINFL_DIR) -DMINIZ_NO_DEFLATE_APIS -DMINIZ_NO_ARCHIVE_APIS
 HOST_CXXFLAGS = $(CXXFLAGS) -DHOST_BUILD=1 $(BOARD_DEFINE) $(shell sdl2-config --cflags) -I$(TINFL_DIR) -DMINIZ_NO_DEFLATE_APIS -DMINIZ_NO_ARCHIVE_APIS
@@ -613,7 +626,7 @@ $(TARGET_CPU_FLAGS_STAMP): FORCE_TARGET_CPU_FLAGS
 # misc). main.c stays at src/ root as the entry point.
 CFLAGS += -Isonic
 
-APP_SRCS = src/main.c src/ui/gui.c src/ui/gui_subsonic.c src/ui/gui_settings.c src/ui/gui_network.c src/ui/gui_theme.c src/ui/gui_notifications.c src/ui/gui_library.c src/ui/gui_queue.c src/ui/gui_player.c src/ui/gui_track_info.c src/ui/gui_plugins.c src/ui/gui_shell.c src/ui/gui_navigation.c src/ui/gui_books.c src/ui/gui_text_input.c src/ui/gui_lyrics.c src/ui/gui_reload.c src/audio/audio.c src/library/file_browser.c src/hardware/hw_buttons.c src/hardware/button_mapping.c src/hardware/input_device_utils.c src/library/metadata.c src/library/metadata_db.c src/core/settings.c src/core/screenshot.c src/core/app_version.c src/audio/aiff_decoder.c src/audio/dsd_filter.c src/audio/dsd_decoder.c src/audio/aac_decoder.c src/audio/mp4_demux.c src/audio/ape_demux.c src/audio/ape_decoder.c src/audio/peq.c src/audio/audio_tempo.c src/ui/assets.c src/ui/screen_builders.c src/ui/cover_card_preview.c src/hardware/battery.c src/network/wifi_status.c src/network/ca_bundle.c src/network/http_conn.c src/network/http_client.c src/network/http_stream.c src/network/subsonic_client.c src/library/cover_decode.c src/library/image_thumb.c src/library/lyrics.c src/audio/asf_demux.c src/audio/wma_decoder.c src/audio/ogg_probe.c src/audio/opus_decoder.c src/audio/opusfile_alloc.c src/audio/vorbis_decoder.c src/library/cue_parser.c src/ui/fallback_font.c src/ui/gui_text_view.c \
+APP_SRCS = src/main.c src/ui/gui.c src/ui/gui_subsonic.c src/ui/gui_settings.c src/ui/gui_network.c src/ui/gui_theme.c src/ui/gui_notifications.c src/ui/gui_library.c src/ui/gui_queue.c src/ui/gui_player.c src/ui/gui_track_info.c src/ui/gui_plugins.c src/ui/gui_shell.c src/ui/gui_navigation.c src/ui/gui_books.c src/ui/gui_text_input.c src/ui/gui_lyrics.c src/ui/gui_reload.c src/audio/audio.c src/library/file_browser.c src/hardware/hw_buttons.c src/hardware/button_mapping.c src/hardware/input_device_utils.c src/library/metadata.c src/library/metadata_db.c src/core/settings.c src/core/screenshot.c src/core/app_version.c src/audio/aiff_decoder.c src/audio/dsd_filter.c src/audio/dsd_decoder.c src/audio/aac_decoder.c src/audio/mp4_demux.c src/audio/ape_demux.c src/audio/ape_decoder.c src/audio/ape_ffmpeg_core.c src/audio/peq.c src/audio/audio_tempo.c src/ui/assets.c src/ui/screen_builders.c src/ui/cover_card_preview.c src/hardware/battery.c src/network/wifi_status.c src/network/ca_bundle.c src/network/http_conn.c src/network/http_client.c src/network/http_stream.c src/network/subsonic_client.c src/library/cover_decode.c src/library/image_thumb.c src/library/lyrics.c src/audio/asf_demux.c src/audio/wma_decoder.c src/audio/ogg_probe.c src/audio/opus_decoder.c src/audio/opusfile_alloc.c src/audio/wavpack_decoder.c src/audio/caf_decoder.c src/audio/vorbis_decoder.c src/library/cue_parser.c src/ui/fallback_font.c src/ui/gui_text_view.c \
 src/core/subprocess.c src/network/wifi_control.c src/network/bluetooth_control.c src/network/hiby_sys_server.c src/hardware/backlight.c src/network/import_web.c src/network/airplay_control.c src/network/airplay_bridge.c src/network/airplay_metadata.c src/hardware/headphone_status.c src/hardware/device_config.c src/hardware/led_control.c src/hardware/charge_limiter.c src/core/idle_shutdown.c src/hardware/power_suspend.c src/core/text_reader.c src/hardware/usb_mode_control.c src/hardware/usb_dac_bridge.c src/hardware/usb_audio_output.c src/core/firmware_update.c src/library/playlist_files.c src/library/favorite_writer.c src/network/firmware_ota.c src/network/plugin_store.c src/core/timezone_data.c src/core/timezone_apply.c src/core/hostname_apply.c src/network/dlna_control.c src/network/remote_control.c src/network/catalog_source_cache.c src/network/remote_control_mdns.c src/plugins/plugin_manager.c
 APP_SRCS += src/ui/gui_setup.c src/ui/gui_setup_plugins.c src/core/timezone_location.c
 APP_SRCS += src/ui/lyrics_layout.c src/ui/transition_compositor.c src/ui/frosted_glass.c src/ui/hw_volume_coalesce.c
@@ -769,6 +782,38 @@ TARGET_OBJS = $(BUILD_TARGET_DIR)/sonic/sonic.o $(APP_SRCS:src/%.c=$(BUILD_TARGE
               $(JPEG_SRCS:$(JPEG_DIR)/%.c=$(BUILD_TARGET_DIR)/jpeg/%.o) \
               $(TINFL_SRCS:$(TINFL_DIR)/%.c=$(BUILD_TARGET_DIR)/tinfl/%.o)
 
+# Use upstream configuration for these libraries, including libsndfile's
+# built-in CAF/ALAC support. No firmware shared libraries are loaded.
+AUDIO_VENDOR_OPTIONS = -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
+WAVPACK_OPTIONS = $(AUDIO_VENDOR_OPTIONS) -DWAVPACK_ENABLE_ASM=OFF -DWAVPACK_ENABLE_DSD=ON -DWAVPACK_ENABLE_LIBCRYPTO=OFF -DWAVPACK_BUILD_PROGRAMS=OFF -DWAVPACK_BUILD_DOCS=OFF
+SNDFILE_OPTIONS = $(AUDIO_VENDOR_OPTIONS) -DENABLE_EXTERNAL_LIBS=OFF -DENABLE_MPEG=OFF -DBUILD_PROGRAMS=OFF -DBUILD_EXAMPLES=OFF
+HOST_AUDIO_LIBS = $(BUILD_HOST_DIR)/libwavpack/libwavpack.a $(BUILD_HOST_DIR)/libsndfile/libsndfile.a
+TARGET_AUDIO_LIBS = $(BUILD_TARGET_DIR)/libwavpack/libwavpack.a $(BUILD_TARGET_DIR)/libsndfile/libsndfile.a
+
+.PHONY: FORCE_AUDIO_VENDOR_CONFIG
+FORCE_AUDIO_VENDOR_CONFIG:
+$(BUILD_HOST_DIR)/.audio_vendor_config: FORCE_AUDIO_VENDOR_CONFIG
+	@mkdir -p $(dir $@)
+	@printf '%s\n' '$(CC) $(WAVPACK_OPTIONS) $(SNDFILE_OPTIONS)' > $@.tmp
+	@cmp -s $@.tmp $@ && rm $@.tmp || mv $@.tmp $@
+$(BUILD_TARGET_DIR)/.audio_vendor_config: FORCE_AUDIO_VENDOR_CONFIG
+	@mkdir -p $(dir $@)
+	@printf '%s\n' '$(CROSS_CC) $(TARGET_CPU_FLAGS) $(WAVPACK_OPTIONS) $(SNDFILE_OPTIONS)' > $@.tmp
+	@cmp -s $@.tmp $@ && rm $@.tmp || mv $@.tmp $@
+
+$(BUILD_HOST_DIR)/libwavpack/libwavpack.a: $(BUILD_HOST_DIR)/.audio_vendor_config $(WAVPACK_DIR)/CMakeLists.txt
+	cmake -S $(WAVPACK_DIR) -B $(dir $@) $(WAVPACK_OPTIONS) -DCMAKE_C_COMPILER=$(CC)
+	+cmake --build $(dir $@) --target wavpack
+$(BUILD_HOST_DIR)/libsndfile/libsndfile.a: $(BUILD_HOST_DIR)/.audio_vendor_config $(SNDFILE_DIR)/CMakeLists.txt
+	cmake -S $(SNDFILE_DIR) -B $(dir $@) $(SNDFILE_OPTIONS) -DCMAKE_C_COMPILER=$(CC)
+	+cmake --build $(dir $@) --target sndfile
+$(BUILD_TARGET_DIR)/libwavpack/libwavpack.a: $(BUILD_TARGET_DIR)/.audio_vendor_config $(WAVPACK_DIR)/CMakeLists.txt
+	cmake -S $(WAVPACK_DIR) -B $(dir $@) $(WAVPACK_OPTIONS) -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=mipsel -DCMAKE_C_COMPILER=$(CROSS_CC) -DCMAKE_C_FLAGS='$(TARGET_CPU_FLAGS)'
+	+cmake --build $(dir $@) --target wavpack
+$(BUILD_TARGET_DIR)/libsndfile/libsndfile.a: $(BUILD_TARGET_DIR)/.audio_vendor_config $(SNDFILE_DIR)/CMakeLists.txt
+	cmake -S $(SNDFILE_DIR) -B $(dir $@) $(SNDFILE_OPTIONS) -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=mipsel -DCMAKE_C_COMPILER=$(CROSS_CC) -DCMAKE_C_FLAGS='$(TARGET_CPU_FLAGS)'
+	+cmake --build $(dir $@) --target sndfile
+
 .PHONY: all host target bootloader clean compile_commands.json FORCE_VERSION
 
 # Default target builds for host simulation and generates compile commands for IDE
@@ -777,8 +822,8 @@ all: host compile_commands.json
 # Build for host (Arch Linux PC)
 host: $(HOST_BIN) compile_commands.json
 
-$(HOST_BIN): $(HOST_OBJS)
-	$(CXX) -o $@ $(HOST_OBJS) $(HOST_LDFLAGS)
+$(HOST_BIN): $(HOST_OBJS) $(HOST_AUDIO_LIBS)
+	$(CXX) -o $@ $(HOST_OBJS) $(HOST_AUDIO_LIBS) $(HOST_LDFLAGS)
 	@echo "Host build complete: Run './$(HOST_BIN)' to start the simulator."
 
 # See LVGL_PATCH's own comment further up for why this exists. Depends on
@@ -941,8 +986,8 @@ $(BUILD_HOST_DIR)/lua/%.o: $(LUA_DIR)/src/%.c
 # Build for target (MIPS HiBy Device)
 target: $(TARGET_BIN) compile_commands.json
 
-$(TARGET_BIN): $(TARGET_OBJS) $(TARGET_CPU_FLAGS_STAMP)
-	$(CROSS_CXX) $(TARGET_CPU_FLAGS) -o $(BUILD_TARGET_DIR)/$(TARGET_BIN)_unstripped $(TARGET_OBJS) $(TARGET_LDFLAGS)
+$(TARGET_BIN): $(TARGET_OBJS) $(TARGET_CPU_FLAGS_STAMP) $(TARGET_AUDIO_LIBS)
+	$(CROSS_CXX) $(TARGET_CPU_FLAGS) -o $(BUILD_TARGET_DIR)/$(TARGET_BIN)_unstripped $(TARGET_OBJS) $(TARGET_AUDIO_LIBS) $(TARGET_LDFLAGS)
 	$(CROSS_STRIP) -s -o $@ $(BUILD_TARGET_DIR)/$(TARGET_BIN)_unstripped
 	@echo "Target build complete: File ready at '$(TARGET_BIN)'"
 

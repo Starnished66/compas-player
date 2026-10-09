@@ -42,6 +42,9 @@ struct aac_decoder {
     unsigned int sample_rate;
     unsigned int frame_size; /* PCM frames per access unit */
     uint64_t total_pcm_frames;
+    uint64_t pcm_position;
+    uint64_t startup_pcm_frames;
+    uint64_t mp4_priming_frames;
 
     int16_t carry_buffer[AAC_MAX_FRAME_SAMPLES];
     uint64_t carry_frames;
@@ -198,13 +201,15 @@ static bool decode_frame_bytes(aac_decoder_t * dec, uint8_t * frame_buf, unsigne
     NeAACDecFrameInfo info;
     memset(&info, 0, sizeof(info));
     void * samples = NeAACDecDecode(dec->handle, &info, frame_buf, frame_length);
-    if (info.error != 0 || !samples || info.channels == 0) return false;
+    if (info.error != 0 || !samples || info.channels == 0 || info.channels > AAC_MAX_CHANNELS ||
+        (dec->channels && info.channels != dec->channels) ||
+        (dec->sample_rate && info.samplerate != dec->sample_rate)) return false;
 
     /* info.samples is the total interleaved sample count across all
      * channels (i.e. PCM frames * channels), matching FAAD2's documented
      * usage convention. */
     uint64_t total_samples = info.samples;
-    if (total_samples > AAC_MAX_FRAME_SAMPLES) total_samples = AAC_MAX_FRAME_SAMPLES;
+    if (total_samples > AAC_MAX_FRAME_SAMPLES || total_samples % info.channels != 0) return false;
     memcpy(dec->carry_buffer, samples, (size_t) total_samples * sizeof(int16_t));
 
     dec->carry_frames = total_samples / info.channels;
@@ -278,7 +283,29 @@ static bool finish_open(aac_decoder_t * dec, uint64_t total_frame_count) {
 
     dec->frame_size = (unsigned int) dec->carry_frames;
     uint64_t priming_frames_consumed = dec->current_frame_index - 1;
+    dec->startup_pcm_frames = priming_frames_consumed * dec->frame_size;
     dec->total_pcm_frames = (total_frame_count - priming_frames_consumed) * dec->frame_size;
+    if (dec->source_type == AAC_SOURCE_MP4) {
+        uint64_t metadata_priming = 0, metadata_playable = 0;
+        if (mp4_demux_get_gapless_trim(dec->demux, &metadata_priming, &metadata_playable)) {
+            dec->mp4_priming_frames = metadata_priming;
+            dec->total_pcm_frames = metadata_playable;
+            uint64_t trim = metadata_priming > dec->startup_pcm_frames ?
+                            metadata_priming - dec->startup_pcm_frames : 0;
+            while (trim > 0) {
+                uint64_t available = dec->carry_frames - dec->carry_read_pos;
+                if (trim < available) {
+                    dec->carry_read_pos += trim;
+                    trim = 0;
+                    break;
+                }
+                trim -= available;
+                dec->carry_read_pos = dec->carry_frames;
+                if (trim && !decode_next_frame(dec)) return false;
+            }
+        }
+    }
+    dec->pcm_position = 0;
     return true;
 }
 
@@ -349,6 +376,8 @@ aac_decoder_t * aac_open_file(const char * path) {
     dec->sample_rate = (unsigned int) init_sample_rate;
     dec->channels = (unsigned int) init_channels;
 
+    dec->frame_size = 1024; /* replaced by first non-empty decode below */
+
     if (!finish_open(dec, count)) {
         aac_close(dec);
         return NULL;
@@ -405,6 +434,8 @@ aac_decoder_t * aac_open_file_mp4(const char * path) {
     dec->handle = handle;
     dec->sample_rate = (unsigned int) init_sample_rate;
     dec->channels = (unsigned int) init_channels;
+    dec->frame_size = 1024;
+    mp4_demux_set_pcm_sample_rate(demux, dec->sample_rate);
 
     if (!finish_open(dec, mp4_demux_get_sample_count(demux))) {
         aac_close(dec);
@@ -475,6 +506,10 @@ decoder_read_result_t aac_read_pcm_frames_s16(aac_decoder_t * dec, uint64_t fram
     }
 
     while (res.frames < frames_to_read) {
+        if (dec->source_type != AAC_SOURCE_STREAM && dec->pcm_position >= dec->total_pcm_frames) {
+            res.status = DECODER_READ_EOF;
+            break;
+        }
         if (dec->carry_read_pos >= dec->carry_frames) {
             decoder_read_status_t status = DECODER_READ_OK;
             if (!decode_next_frame_ex(dec, &status)) {
@@ -490,6 +525,8 @@ decoder_read_result_t aac_read_pcm_frames_s16(aac_decoder_t * dec, uint64_t fram
         uint64_t available = dec->carry_frames - dec->carry_read_pos;
         uint64_t to_copy = frames_to_read - res.frames;
         if (to_copy > available) to_copy = available;
+        if (dec->source_type != AAC_SOURCE_STREAM && to_copy > dec->total_pcm_frames - dec->pcm_position)
+            to_copy = dec->total_pcm_frames - dec->pcm_position;
 
         memcpy(buffer_out + res.frames * dec->channels,
                dec->carry_buffer + dec->carry_read_pos * dec->channels,
@@ -497,6 +534,7 @@ decoder_read_result_t aac_read_pcm_frames_s16(aac_decoder_t * dec, uint64_t fram
 
         dec->carry_read_pos += to_copy;
         res.frames += to_copy;
+        dec->pcm_position += to_copy;
     }
 
     return res;
@@ -508,22 +546,43 @@ bool aac_seek_to_pcm_frame(aac_decoder_t * dec, uint64_t frame_index) {
     if (frame_index > dec->total_pcm_frames) frame_index = dec->total_pcm_frames;
 
     uint64_t total_frame_count = (dec->source_type == AAC_SOURCE_ADTS) ? dec->frame_count : mp4_demux_get_sample_count(dec->demux);
-
-    uint64_t target_frame = dec->frame_size > 0 ? frame_index / dec->frame_size : 0;
-    if (target_frame >= total_frame_count) target_frame = total_frame_count > 0 ? total_frame_count - 1 : 0;
-
-    /* AAC carries inter-frame state (SBR, etc), so the cleanest correct
-     * approach is to reset the decoder entirely and resume from the target
-     * frame boundary -- meaning seeks land on a frame-size boundary, not
-     * the exact requested sample. Accepted imprecision, same as most
-     * frame-based codec seeking. */
+    if (frame_index == dec->total_pcm_frames) {
+        dec->current_frame_index = total_frame_count;
+        dec->carry_frames = dec->carry_read_pos = 0;
+        dec->pcm_position = frame_index;
+        return true;
+    }
+    uint64_t target_frame;
+    uint64_t discard = 0;
+    if (dec->source_type == AAC_SOURCE_MP4) {
+        uint64_t extra_startup = dec->startup_pcm_frames > dec->mp4_priming_frames ?
+                                 dec->startup_pcm_frames - dec->mp4_priming_frames : 0;
+        uint32_t mp4_target;
+        if (frame_index > UINT64_MAX - extra_startup ||
+            !mp4_demux_map_pcm_frame(dec->demux, frame_index + extra_startup, &mp4_target, &discard)) return false;
+        target_frame = mp4_target;
+    } else {
+        uint64_t source_frame = frame_index + dec->startup_pcm_frames;
+        target_frame = dec->frame_size ? (uint32_t)(source_frame / dec->frame_size) : 0;
+        discard = dec->frame_size ? source_frame % dec->frame_size : 0;
+    }
+    if (target_frame >= total_frame_count) {
+        dec->current_frame_index = total_frame_count;
+        dec->carry_frames = dec->carry_read_pos = 0;
+        dec->pcm_position = frame_index;
+        return true;
+    }
+    /* AAC state needs a short run-up after a cold reset. Decode two access
+     * units before the target and discard their PCM, then trim within the
+     * target unit to make the result sample-accurate. */
+    uint64_t start_frame = target_frame > 2 ? target_frame - 2 : 0;
     NeAACDecClose(dec->handle);
     dec->handle = NeAACDecOpen();
     if (!dec->handle) return false;
     configure_decoder(dec->handle);
 
     uint8_t frame_buf[ADTS_MAX_FRAME_BYTES];
-    unsigned int frame_length = read_compressed_frame(dec, target_frame, frame_buf, sizeof(frame_buf));
+    unsigned int frame_length = read_compressed_frame(dec, start_frame, frame_buf, sizeof(frame_buf));
     if (frame_length == 0) return false;
 
     unsigned long sample_rate;
@@ -536,12 +595,17 @@ bool aac_seek_to_pcm_frame(aac_decoder_t * dec, uint64_t frame_index) {
         if (NeAACDecInit2(dec->handle, (unsigned char *) config, config_size, &sample_rate, &channels) != 0) return false;
     }
 
-    dec->current_frame_index = target_frame;
+    dec->current_frame_index = start_frame;
     dec->carry_frames = 0;
     dec->carry_read_pos = 0;
     dec->consecutive_errors = 0;
 
-    if (!decode_next_frame(dec)) return false;
+    while (dec->current_frame_index <= target_frame) {
+        if (!decode_next_frame(dec)) return false;
+        if (dec->current_frame_index <= target_frame) dec->carry_read_pos = dec->carry_frames;
+    }
+    dec->carry_read_pos = (uint64_t)discard < dec->carry_frames ? discard : dec->carry_frames;
+    dec->pcm_position = frame_index;
     return true;
 }
 

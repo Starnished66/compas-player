@@ -632,6 +632,7 @@ static const char * library_codec_name(audio_codec_t codec) {
         case AUDIO_CODEC_WMA: return "WMA";
         case AUDIO_CODEC_OPUS: return "Opus";
         case AUDIO_CODEC_VORBIS: return "Vorbis";
+        case AUDIO_CODEC_WAVPACK: return "WavPack";
         case AUDIO_CODEC_UNKNOWN: break;
     }
     return TR("Audio");

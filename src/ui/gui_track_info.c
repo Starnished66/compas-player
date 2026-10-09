@@ -39,6 +39,7 @@ static const char * codec_name(audio_codec_t codec) {
         case AUDIO_CODEC_WMA: return "WMA";
         case AUDIO_CODEC_OPUS: return "Opus";
         case AUDIO_CODEC_VORBIS: return "Vorbis";
+        case AUDIO_CODEC_WAVPACK: return "WavPack";
         case AUDIO_CODEC_UNKNOWN: break;
     }
     return NULL;
@@ -57,6 +58,7 @@ static audio_codec_t codec_from_container(const char * container) {
     /* M4A may carry AAC or ALAC and Ogg may carry Vorbis or Opus. Wait for
      * the actual decoder snapshot instead of presenting a plausible but
      * potentially wrong codec while the track is still opening. */
+    if (strcasecmp(container, "WV") == 0) return AUDIO_CODEC_WAVPACK;
     if (strcasecmp(container, "APE") == 0) return AUDIO_CODEC_APE;
     if (strcasecmp(container, "ASF") == 0 || strcasecmp(container, "WMA") == 0)
         return AUDIO_CODEC_WMA;

@@ -4,11 +4,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* Minimal MP4/ISO-BMFF demuxer: enough to locate the single audio track's
- * codec config (from stsd) and per-sample file offsets/sizes (from
- * stsz/stco/co64/stsc), for feeding compressed samples to a codec decoder
- * one at a time. No video, no multi-track selection beyond "first audio
- * track found", no editing/fragmented-MP4 support. */
+/* Minimal MP4/ISO-BMFF demuxer: locates one audio track's codec config,
+ * compact sample offsets/sizes and stts timeline, with validated single-edit
+ * and iTunSMPB gapless metadata. No video, multi-track selection beyond the
+ * first audio track, or fragmented MP4 support. */
 
 typedef struct mp4_demux mp4_demux_t;
 
@@ -37,12 +36,21 @@ uint32_t mp4_demux_get_sample_count(const mp4_demux_t * d);
  * files); the last sample may represent fewer. */
 uint32_t mp4_demux_get_frames_per_sample(const mp4_demux_t * d);
 
-/* Exact total PCM frame count for the whole track, summed from every stts
- * entry (not just the uniform frames_per_sample above) -- correctly
- * accounts for the last sample usually representing fewer frames than a
- * full access unit. Use this for duration/buffer-sizing; use
- * mp4_demux_get_frames_per_sample() only for per-call output buffer bounds. */
+/* PCM-frame duration from all stts entries, converted from the media
+ * timescale at the active decoder sample rate. Validated gapless metadata
+ * replaces the raw duration when present. */
 uint64_t mp4_demux_get_total_pcm_frame_count(const mp4_demux_t * d);
+/* Set the decoder's actual output rate (for example HE-AAC SBR can differ
+ * from the sample-entry rate) before querying timeline or gapless values. */
+void mp4_demux_set_pcm_sample_rate(mp4_demux_t * d, uint32_t sample_rate);
+
+/* Timeline in decoded PCM frames. Samples are mapped using stts and the
+ * media timescale, with validated encoder priming/padding removed. */
+bool mp4_demux_get_gapless_trim(const mp4_demux_t * d, uint64_t * priming_frames, uint64_t * playable_frames);
+bool mp4_demux_map_pcm_frame(const mp4_demux_t * d, uint64_t pcm_frame,
+                             uint32_t * sample_index, uint64_t * discard_frames);
+bool mp4_demux_get_sample_pcm_duration(const mp4_demux_t * d, uint32_t sample_index,
+                                       uint64_t * duration_frames);
 
 /* Reads sample_index's compressed bytes into buf (caller-provided,
  * buf_size bytes). Returns false if the index is out of range or the

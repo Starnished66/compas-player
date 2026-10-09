@@ -13,6 +13,8 @@
 /opus
 /libogg
 /opusfile
+/third_party/libwavpack
+/third_party/libsndfile
 /lua
 /libexecinfo
 /jpeg
@@ -437,3 +439,13 @@ __pycache__/
 !src/audio/opus_resource_test.c
 !src/library/opus_metadata_test.c
 !/scripts/test_opus_decoder.sh
+
+# Audio format parity regressions.
+!src/audio/mp4_timing_test.c
+!src/audio/wavpack_caf_decoder_test.c
+!src/library/extra_formats_metadata_test.c
+!/scripts/test_mp4_timing.sh
+!/scripts/ape_parity.sh
+!/scripts/ape_parity_decode.c
+!/scripts/test_wavpack_caf_decoders.sh
+!/scripts/test_music_format_parity.sh

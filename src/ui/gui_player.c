@@ -1846,6 +1846,7 @@ static audio_codec_t info_codec_from_hint(const char * hint) {
         return AUDIO_CODEC_DSD;
     if (strcasecmp(hint, "aac") == 0 || strcasecmp(hint, "aacp") == 0)
         return AUDIO_CODEC_AAC;
+    if (strcasecmp(hint, "wv") == 0 || strcasecmp(hint, "wavpack") == 0) return AUDIO_CODEC_WAVPACK;
     if (strcasecmp(hint, "ape") == 0) return AUDIO_CODEC_APE;
     if (strcasecmp(hint, "wma") == 0 || strcasecmp(hint, "asf") == 0)
         return AUDIO_CODEC_WMA;
@@ -4833,6 +4834,7 @@ static const char * format_codec_name(audio_codec_t codec) {
         case AUDIO_CODEC_WMA: return "WMA";
         case AUDIO_CODEC_OPUS: return "Opus";
         case AUDIO_CODEC_VORBIS: return "Vorbis";
+        case AUDIO_CODEC_WAVPACK: return "WavPack";
         case AUDIO_CODEC_UNKNOWN: break;
     }
     return "";

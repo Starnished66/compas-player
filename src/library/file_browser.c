@@ -111,7 +111,7 @@ static unsigned restore_generation;
 
 /* Kept in sync with audio.c's decoder dispatch. */
 static const char * const PLAYABLE_EXTENSIONS[] = {
-    ".flac", ".mp3", ".wav", ".rf64", ".w64", ".aiff", ".aif", ".aifc", ".dsf", ".dff", ".aac", ".m4a", ".m4b", ".ape", ".wma", ".opus", ".ogg", ".oga",
+    ".flac", ".mp3", ".wav", ".rf64", ".w64", ".aiff", ".aif", ".aifc", ".dsf", ".dff", ".aac", ".m4a", ".m4b", ".mp4", ".alac", ".wv", ".caf", ".ape", ".wma", ".opus", ".ogg", ".oga",
 };
 
 bool file_browser_is_playable_name(const char * name) {
