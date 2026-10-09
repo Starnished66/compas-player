@@ -737,16 +737,33 @@
       "report_sha256": "ca33f8f850848e96e2ea6b92b8946fd242b7e12af90211f7ad2131f336236a7a"
     },
     "checkpoint_preserves_current_benchmarked_version": true,
-    "open_corrections_before_wider_release": [
-      "Nonfatal underrun handling while retaining complete page-ownership fencing.",
-      "One final coherent ownership sample at the pan deadline, without extending wait budget."
-    ],
+    "open_corrections_before_wider_release": [],
     "other_open_validation": [
       "Combined playback, Wi-Fi download, library scan and animated UI load.",
       "Radio suspend-prepare duration with Wi-Fi enabled.",
       "Reboot/shutdown display teardown integration."
     ],
     "release_publication_performed": false,
-    "historical_shipping_approved_fields": "Preserved as historical review decisions; superseded user release selection is recorded here."
+    "historical_shipping_approved_fields": "Preserved as historical review decisions; superseded user release selection is recorded here.",
+    "reviewed_followup": {
+      "changes": [
+        "Keep sustained underruns nonfatal while preserving coherent page ownership and fatal interrupt containment.",
+        "Take one final coherent fence sample at the deadline without extending the wait budget."
+      ],
+      "review_model": "claude-opus-5-5",
+      "review_verdict": "PASS for static host validation; device validation pending",
+      "review_report_sha256": "cd25ebc937e61a6f8230162c4fc6de9a377ea9d2082d3908d016c927a2d79deb",
+      "host_module_sha256": "4fc601b994080843428cc5f3755631bf30781f85d2e3574a77056bf4e5803c41",
+      "build_manifest_sha256": "7eba8d6209f85528132d4547284a5d687c1b8cd357924f3d03511cc2bcc460e5",
+      "mips_build_and_31_selected_module_static_abi": "passed",
+      "host_display_harness_suites": 7,
+      "flashed": false,
+      "performance_measured": false,
+      "release_checkpoint_preserved": "1fa026a",
+      "hardware_checks_pending": [
+        "Sustained underrun interrupt masking and status behavior.",
+        "Playback, Wi-Fi, library scan and animations under combined load."
+      ]
+    }
   }
 }

@@ -319,6 +319,7 @@ static irqreturn_t compas_fb_irq(int irq, void *data)
 	struct compas_fb_device *fb = data;
 	unsigned long flags;
 	u32 events, remaining, stuck, mask_readback, pending, token, raw_events;
+	u32 underrun_mask;
 	unsigned int attempt;
 	bool disable_line = false;
 
@@ -329,7 +330,7 @@ static irqreturn_t compas_fb_irq(int irq, void *data)
 		return IRQ_NONE;
 	/* Preserve simple-reader completion before acknowledging display end. */
 	raw_events |= readl(fb->mmio + COMPAS_FB_HW_REG_STATUS);
-	pending = events;
+	pending = events | (raw_events & COMPAS_FB_HW_UNDERRUN);
 	remaining = events;
 	for (attempt = 0; attempt < 3 && remaining; ++attempt) {
 		writel(pending, fb->mmio + COMPAS_FB_HW_REG_CLEAR_STATUS);
@@ -337,14 +338,24 @@ static irqreturn_t compas_fb_irq(int irq, void *data)
 			    interrupt_events();
 		raw_events |= remaining |
 			readl(fb->mmio + COMPAS_FB_HW_REG_STATUS);
-		pending = remaining;
+		pending = remaining | (raw_events & COMPAS_FB_HW_UNDERRUN);
 	}
 	/* EOD may legitimately reassert on the next normal frame. */
-	stuck = remaining;
+	stuck = remaining & ~COMPAS_FB_HW_UNDERRUN;
+	if (remaining & COMPAS_FB_HW_UNDERRUN) {
+		/* A level-like underrun may persist while scanout recovers. Mask
+		 * only that source; the next pan re-arms the complete event set. */
+		underrun_mask = interrupt_events() & ~COMPAS_FB_HW_UNDERRUN;
+		writel(underrun_mask, fb->mmio + COMPAS_FB_HW_REG_INTERRUPT_MASK);
+		mask_readback = readl(fb->mmio +
+				      COMPAS_FB_HW_REG_INTERRUPT_MASK);
+		if (mask_readback != underrun_mask)
+			stuck |= COMPAS_FB_HW_UNDERRUN;
+	}
 	spin_lock_irqsave(&fb->irq_lock, flags);
 	if (fb->pan.pending) {
 		fb->pan_events |= raw_events;
-		if (raw_events & (COMPAS_FB_HW_UNDERRUN | COMPAS_FB_HW_STOP_ACK))
+		if (raw_events & COMPAS_FB_HW_STOP_ACK)
 			fb->pan_error = -EIO;
 		if ((events & COMPAS_FB_HW_FRAME_END) || fb->pan_error)
 			complete(&fb->pan_done);
@@ -372,7 +383,7 @@ static irqreturn_t compas_fb_irq(int irq, void *data)
 			compas_fb_pan_stop_requested(&fb->pan);
 		}
 	}
-	if (events & COMPAS_FB_HW_UNDERRUN) {
+	if (raw_events & COMPAS_FB_HW_UNDERRUN) {
 		++underrun_count;
 		pr_warn_ratelimited("soc_fb: non-fatal DPU underrun (%lu total)\n",
 				    underrun_count);
@@ -541,12 +552,16 @@ static int wait_live_pan(unsigned int target,
 		msecs_to_jiffies(COMPAS_FB_LIVE_PAN_TIMEOUT_MS);
 	unsigned long flags, now;
 	unsigned int retry;
+	bool deadline_sample = false;
 	int ret;
 
 	for (;;) {
 		for (retry = 0; retry <= COMPAS_FB_HW_ADOPT_FAST_RETRIES; ++retry) {
-			if (time_after_eq(jiffies, deadline))
-				return -ETIMEDOUT;
+			bool final_sample = deadline_sample ||
+				time_after_eq(jiffies, deadline);
+
+			if (final_sample)
+				deadline_sample = true;
 			spin_lock_irqsave(&r1fb.irq_lock, flags);
 			ret = r1fb.pan_error;
 			if (!ret && (r1fb.irq_fault || !r1fb.pan.pending))
@@ -557,18 +572,22 @@ static int wait_live_pan(unsigned int target,
 					r1fb.memory_phys + target * COMPAS_FB_HW_R1_PAGE_BYTES,
 					COMPAS_FB_HW_R1_PAGE_BYTES, r1fb.pan_events, fence);
 			spin_unlock_irqrestore(&r1fb.irq_lock, flags);
-			if (!ret && time_after_eq(jiffies, deadline))
-				return -ETIMEDOUT;
+			if (!ret)
+				return 0;
 			if (ret != -EAGAIN)
 				return ret;
+			if (final_sample)
+				return -ETIMEDOUT;
 			if (retry < COMPAS_FB_HW_ADOPT_FAST_RETRIES)
 				hw_delay_us(NULL, COMPAS_FB_HW_ADOPT_FAST_DELAY_US);
 		}
 		now = jiffies;
-		if (time_after_eq(now, deadline))
-			return -ETIMEDOUT;
+		if (time_after_eq(now, deadline)) {
+			deadline_sample = true;
+			continue;
+		}
 		if (!wait_for_completion_timeout(&r1fb.pan_done, deadline - now))
-			return -ETIMEDOUT;
+			deadline_sample = true;
 	}
 }
 
@@ -633,6 +652,11 @@ static int compas_fb_pan_display(struct fb_var_screeninfo *var,
 		ret = compas_fb_hw_start_rdma(&r1fb.hw_ops,
 			(unsigned long)r1fb.descriptors[target] & 0x1fffffffU);
 	local_irq_restore(flags);
+	if (fence.events & COMPAS_FB_HW_UNDERRUN) {
+		++underrun_count;
+		pr_warn_ratelimited("soc_fb: non-fatal DPU underrun (%lu total)\n",
+				    underrun_count);
+	}
 	if (ret)
 		goto mark_uncertain;
 	/* Fresh retiring-frame ends and target adoption are accumulated together.

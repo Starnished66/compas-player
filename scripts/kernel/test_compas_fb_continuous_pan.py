@@ -92,8 +92,8 @@ static unsigned int seen_page_bytes;
 static int prepare_calls, sample_calls, wakeup_calls;
 static int sample_again_count;
 static unsigned long sample_advance;
-static u32 irq_remaining, irq_writes[8];
-static int irq_write_count, complete_calls;
+static u32 irq_remaining, irq_writes[8], raw_mask, mask_writes[8];
+static int irq_write_count, mask_write_count, complete_calls;
 
 #define mutex_lock(p) ((void)(p))
 #define mutex_unlock(p) ((void)(p))
@@ -114,7 +114,8 @@ static void disable_scanout_irq(void)
 	if (inject_fault_on_disable) r1fb.irq_fault = true;
 }
 static int arm_hardware_events(void)
-{ ++arm_calls; record_call(CALL_ARM); return injected_arm; }
+{ ++arm_calls; record_call(CALL_ARM); raw_mask = COMPAS_FB_HW_FRAME_END |
+	COMPAS_FB_HW_UNDERRUN | COMPAS_FB_HW_STOP_ACK; return injected_arm; }
 static void enable_scanout_irq(void) { record_call(CALL_ENABLE); }
 static unsigned long jiffies;
 static unsigned long msecs_to_jiffies(unsigned int ms) { return ms; }
@@ -176,6 +177,7 @@ static u32 readl(void *address)
 	if (offset == COMPAS_FB_HW_REG_STATUS) return (u32)raw_status;
 	if (offset == COMPAS_FB_HW_REG_INTERRUPT_FLAG) return (u32)raw_flags;
 	if (offset == COMPAS_FB_HW_REG_TFT_STATUS) return (u32)raw_tft;
+	if (offset == COMPAS_FB_HW_REG_INTERRUPT_MASK) return raw_mask;
 	return 0;
 }
 static void writel(u32 value, void *address)
@@ -184,6 +186,9 @@ static void writel(u32 value, void *address)
 	if (offset == COMPAS_FB_HW_REG_CLEAR_STATUS) {
 		if (irq_write_count < 8) irq_writes[irq_write_count++] = value;
 		raw_flags = (int)irq_remaining;
+	} else if (offset == COMPAS_FB_HW_REG_INTERRUPT_MASK) {
+		if (mask_write_count < 8) mask_writes[mask_write_count++] = value;
+		raw_mask = value;
 	}
 }
 static int stop_scanout_locked(void)
@@ -216,6 +221,7 @@ static void reset_case(void)
 	call_count = arm_calls = stop_calls = quarantine_calls = 0;
 	prepare_calls = sample_calls = wakeup_calls = sample_again_count = 0;
 	irq_write_count = complete_calls = 0; irq_remaining = 0;
+	mask_write_count = 0; raw_mask = 0; underrun_count = 0;
 	clear_calls = hw_write_calls = 0;
 	injected_arm = injected_start = injected_prepare = injected_sample = injected_complete = 0;
 	injected_stop = inject_fault_on_disable = 0;
@@ -318,17 +324,17 @@ int main(void)
 	/* The absolute deadline bounds repeated pending samples and wakeups. */
 	reset_case(); r1fb.pan.pending = true; sample_again_count = 100; injected_wakeup_timeout = 1;
 	ret = wait_live_pan(1, &(struct compas_fb_hw_live_fence){0});
-	expect(ret == -ETIMEDOUT && wakeup_calls == 1,
-	       "pending fence returns at the bounded deadline");
+	expect(ret == -ETIMEDOUT && wakeup_calls == 1 && sample_calls == 6,
+	       "missing final completion gets one deadline sample then times out");
 	reset_case(); r1fb.pan.pending = true; sample_again_count = 5;
 	injected_wakeup_expire = 1;
 	ret = wait_live_pan(1, &(struct compas_fb_hw_live_fence){0});
-	expect(ret == -ETIMEDOUT && wakeup_calls == 1 && sample_calls == 5,
-	       "completion at deadline is rejected before another sample");
+	expect(ret == 0 && wakeup_calls == 1 && sample_calls == 6,
+	       "coherent completion in the one final deadline sample is accepted");
 	reset_case(); r1fb.pan.pending = true; sample_advance = 100;
 	ret = wait_live_pan(1, &(struct compas_fb_hw_live_fence){0});
-	expect(ret == -ETIMEDOUT && sample_calls == 1,
-	       "sample success observed at deadline is rejected");
+	expect(ret == 0 && sample_calls == 1,
+	       "coherent sample that crosses deadline is accepted");
 
 	/* IRQ fault and recorded pan error prevent a successful fence/commit. */
 	reset_case(); r1fb.pan.pending = true; r1fb.irq_fault = true;
@@ -352,6 +358,66 @@ int main(void)
 	       complete_calls == 1 && irq_write_count == 1 &&
 	       irq_writes[0] == COMPAS_FB_HW_FRAME_END,
 	       "IRQ latches DMA state before clearing display end and wakes pan");
+
+	/* An underrun while pending is counted/cleared but cannot fail or wake the pan. */
+	reset_case(); r1fb.pan.pending = true;
+	raw_flags = COMPAS_FB_HW_UNDERRUN; irq_remaining = 0;
+	expect(compas_fb_irq(39, &r1fb) == IRQ_HANDLED &&
+	       r1fb.pan_error == 0 &&
+	       (r1fb.pan_events & COMPAS_FB_HW_UNDERRUN) &&
+	       complete_calls == 0 && irq_write_count == 1 &&
+	       irq_writes[0] == COMPAS_FB_HW_UNDERRUN,
+	       "underrun during pending pan is acknowledged without error or completion");
+
+	/* With real EOD and frame-end, underrun is only additional evidence. */
+	reset_case(); r1fb.pan.pending = true;
+	raw_flags = COMPAS_FB_HW_UNDERRUN | COMPAS_FB_HW_FRAME_END;
+	raw_status = COMPAS_FB_HW_SRD_END; irq_remaining = 0;
+	expect(compas_fb_irq(39, &r1fb) == IRQ_HANDLED &&
+	       r1fb.pan_error == 0 &&
+	       (r1fb.pan_events & (COMPAS_FB_HW_UNDERRUN |
+				  COMPAS_FB_HW_SRD_END |
+				  COMPAS_FB_HW_FRAME_END)) ==
+		(COMPAS_FB_HW_UNDERRUN | COMPAS_FB_HW_SRD_END |
+		 COMPAS_FB_HW_FRAME_END) && complete_calls == 1 &&
+	       irq_write_count == 1 &&
+	       irq_writes[0] == (COMPAS_FB_HW_UNDERRUN | COMPAS_FB_HW_FRAME_END),
+	       "underrun alongside genuine ends remains non-fatal and is W1C-cleared");
+
+	/* STATUS may carry bit 8 even when the flag register only reports EOD. */
+	reset_case(); r1fb.pan.pending = true;
+	raw_flags = COMPAS_FB_HW_FRAME_END;
+	raw_status = COMPAS_FB_HW_UNDERRUN;
+	expect(compas_fb_irq(39, &r1fb) == IRQ_HANDLED && r1fb.pan_error == 0 &&
+	       (r1fb.pan_events & COMPAS_FB_HW_UNDERRUN) && irq_write_count == 1 &&
+	       irq_writes[0] == (COMPAS_FB_HW_UNDERRUN | COMPAS_FB_HW_FRAME_END),
+	       "STATUS underrun is counted as evidence and W1C-cleared with EOD");
+
+	/* A sustained underrun is removed from the interrupt mask without
+	 * faulting the IRQ or completing a pan that has no real frame end. */
+	reset_case(); r1fb.pan.pending = true;
+	raw_flags = COMPAS_FB_HW_UNDERRUN;
+	irq_remaining = COMPAS_FB_HW_UNDERRUN;
+	expect(compas_fb_irq(39, &r1fb) == IRQ_HANDLED && !r1fb.irq_fault &&
+	       r1fb.pan_error == 0 && r1fb.pan.pending && complete_calls == 0 &&
+	       stop_calls == 0 && quarantine_calls == 0 &&
+	       underrun_count == 1 && irq_write_count == 3 &&
+	       mask_write_count == 1 &&
+	       raw_mask == (COMPAS_FB_HW_FRAME_END | COMPAS_FB_HW_STOP_ACK) &&
+	       mask_writes[0] == (COMPAS_FB_HW_FRAME_END | COMPAS_FB_HW_STOP_ACK),
+	       "persistent underrun masks only bit 8 and leaves the pan pending");
+	(void)arm_hardware_events();
+	expect(raw_mask == (COMPAS_FB_HW_FRAME_END | COMPAS_FB_HW_UNDERRUN |
+			    COMPAS_FB_HW_STOP_ACK),
+	       "next pan re-arms underrun alongside frame end and STOP_ACK");
+
+	/* A sticky completion source still faults and fails a pending fence. */
+	reset_case(); r1fb.pan.pending = true;
+	raw_flags = COMPAS_FB_HW_FRAME_END;
+	irq_remaining = COMPAS_FB_HW_FRAME_END;
+	expect(compas_fb_irq(39, &r1fb) == IRQ_HANDLED && r1fb.irq_fault &&
+	       r1fb.pan_error == -EIO && complete_calls >= 1 && irq_write_count == 3,
+	       "sticky interrupt remains fatal despite non-fatal underrun policy");
 
 	puts("continuous pan callback paths passed");
 	return 0;

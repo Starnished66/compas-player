@@ -250,7 +250,8 @@ int compas_fb_hw_wait_rdma_adopted(const struct compas_fb_hw_ops *ops,
 	return -ETIMEDOUT;
 }
 
-/* Only completion bits are acknowledged here. Fault evidence must survive. */
+/* Clear fresh completion events and the W1C DPU underrun bit. STOP_ACK and
+ * TFT status are deliberately left untouched. */
 int compas_fb_hw_prepare_live_fence(const struct compas_fb_hw_ops *ops,
 				  struct compas_fb_hw_live_fence *fence)
 {
@@ -263,16 +264,20 @@ int compas_fb_hw_prepare_live_fence(const struct compas_fb_hw_ops *ops,
 	/* A boundary may reassert completion during acknowledgement. Retry the
 	 * sampled-low handshake without waiting inside the caller's IRQ section. */
 	for (retry = 0; retry < 3U; ++retry) {
+		events = ops->read(ops->context, COMPAS_FB_HW_REG_STATUS) |
+			 ops->read(ops->context, COMPAS_FB_HW_REG_INTERRUPT_FLAG);
+		fence->events |= events & COMPAS_FB_HW_UNDERRUN;
 		ops->write(ops->context, COMPAS_FB_HW_REG_CLEAR_STATUS,
-			   COMPAS_FB_HW_SRD_END | COMPAS_FB_HW_FRAME_END);
+			   COMPAS_FB_HW_SRD_END | COMPAS_FB_HW_FRAME_END |
+			   COMPAS_FB_HW_UNDERRUN);
 		status = ops->read(ops->context, COMPAS_FB_HW_REG_STATUS);
 		events = status | ops->read(ops->context,
 					  COMPAS_FB_HW_REG_INTERRUPT_FLAG);
+		fence->events |= events & COMPAS_FB_HW_UNDERRUN;
 		tft = ops->read(ops->context, COMPAS_FB_HW_REG_TFT_STATUS);
 		if (status & R1_OTHER_CHANNEL_ACTIVITY)
 			return -EOPNOTSUPP;
-		if ((events & (COMPAS_FB_HW_UNDERRUN | COMPAS_FB_HW_STOP_ACK)) ||
-		    (tft & COMPAS_FB_HW_TFT_UNDERRUN) ||
+		if ((events & COMPAS_FB_HW_STOP_ACK) ||
 		    !(status & COMPAS_FB_HW_SRD_WORKING) ||
 		    !(tft & COMPAS_FB_HW_TFT_WORKING))
 			return -EIO;
@@ -315,8 +320,7 @@ int compas_fb_hw_sample_live_fence(const struct compas_fb_hw_ops *ops,
 		COMPAS_FB_HW_STOP_ACK);
 	if (status & R1_OTHER_CHANNEL_ACTIVITY)
 		return -EOPNOTSUPP;
-	if ((fence->events & (COMPAS_FB_HW_UNDERRUN | COMPAS_FB_HW_STOP_ACK)) ||
-	    (tft & COMPAS_FB_HW_TFT_UNDERRUN) ||
+	if ((fence->events & COMPAS_FB_HW_STOP_ACK) ||
 	    !(status & COMPAS_FB_HW_SRD_WORKING) ||
 	    !(tft & COMPAS_FB_HW_TFT_WORKING))
 		return -EIO;

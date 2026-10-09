@@ -39,7 +39,7 @@ static void fake_write(void *context, uint32_t offset, uint32_t value)
 	assert(offset == COMPAS_FB_HW_REG_CLEAR_STATUS);
 	assert(f->write_count < sizeof(f->writes) / sizeof(f->writes[0]));
 	f->writes[f->write_count++] = value;
-	/* Model W1C completion bits while retaining unrelated error evidence. */
+	/* Model the driver/SDK W1C bits; TFT status has no write path here. */
 	f->status &= ~value;
 	f->flags &= ~value;
 	if (f->reassert_count) {
@@ -62,20 +62,34 @@ static struct compas_fb_hw_ops ops_for(struct fake *f)
 	return (struct compas_fb_hw_ops) { f, fake_read, fake_write, NULL };
 }
 
-static void test_prepare_clears_only_fence_events_and_preserves_faults(void)
+static void test_prepare_clears_underrun_and_keeps_it_nonfatal(void)
 {
 	struct fake f;
 	struct compas_fb_hw_ops ops;
 	struct compas_fb_hw_live_fence fence = { 99U, 99U };
 	setup(&f);
-	/* Sticky underrun evidence remains visible when completion bits drain. */
+	/* DPU underrun is acknowledged with completion bits, without touching TFT. */
 	f.status |= COMPAS_FB_HW_UNDERRUN;
 	ops = ops_for(&f);
-	assert(compas_fb_hw_prepare_live_fence(&ops, &fence) == -EIO);
+	assert(compas_fb_hw_prepare_live_fence(&ops, &fence) == 0);
 	assert(f.write_count == 1U);
-	assert(f.writes[0] == (COMPAS_FB_HW_SRD_END | COMPAS_FB_HW_FRAME_END));
-	assert(fence.events == 0U && fence.adopted == 0U);
-	assert(f.status & COMPAS_FB_HW_UNDERRUN);
+	assert(f.writes[0] == (COMPAS_FB_HW_SRD_END | COMPAS_FB_HW_FRAME_END |
+		COMPAS_FB_HW_UNDERRUN));
+	assert(fence.events == COMPAS_FB_HW_UNDERRUN && fence.adopted == 0U);
+	assert(!(f.status & COMPAS_FB_HW_UNDERRUN));
+	assert(!(f.writes[0] & COMPAS_FB_HW_TFT_UNDERRUN));
+	/* A pre-submit underrun is evidence only; without both fresh ends the
+	 * target page is not declared complete. */
+	assert(compas_fb_hw_sample_live_fence(&ops, DESC, PAGE,
+		COMPAS_FB_HW_R1_PAGE_BYTES, 0U, &fence) == -EAGAIN);
+	assert(fence.events == COMPAS_FB_HW_UNDERRUN && fence.adopted);
+
+	/* TFT underrun alone is non-fatal and is never written/cleared by software. */
+	setup(&f); f.tft |= COMPAS_FB_HW_TFT_UNDERRUN; ops = ops_for(&f);
+	assert(compas_fb_hw_prepare_live_fence(&ops, &fence) == 0);
+	assert(f.tft & COMPAS_FB_HW_TFT_UNDERRUN);
+	assert(f.write_count == 1U &&
+	       !(f.writes[0] & COMPAS_FB_HW_TFT_UNDERRUN));
 }
 
 static void test_prepare_rejects_stale_and_inactive_state(void)
@@ -190,7 +204,27 @@ static void test_bad_runtime_state_and_target_fail_closed(void)
 	assert(compas_fb_hw_prepare_live_fence(&ops, &fence) == 0);
 	f.status |= COMPAS_FB_HW_UNDERRUN;
 	assert(compas_fb_hw_sample_live_fence(&ops, DESC, PAGE,
-		COMPAS_FB_HW_R1_PAGE_BYTES, 0U, &fence) == -EIO);
+		COMPAS_FB_HW_R1_PAGE_BYTES, 0U, &fence) == -EAGAIN);
+	assert(fence.events & COMPAS_FB_HW_UNDERRUN);
+	/* An underrun concurrent with one display end does not invent DMA EOD. */
+	assert(compas_fb_hw_sample_live_fence(&ops, DESC, PAGE,
+		COMPAS_FB_HW_R1_PAGE_BYTES, COMPAS_FB_HW_FRAME_END, &fence) == -EAGAIN);
+	assert(!(fence.events & COMPAS_FB_HW_SRD_END));
+	/* TFT underrun does not invalidate otherwise complete coherent evidence. */
+	setup(&f); f.tft |= COMPAS_FB_HW_TFT_UNDERRUN; ops = ops_for(&f);
+	assert(compas_fb_hw_prepare_live_fence(&ops, &fence) == 0);
+	assert(compas_fb_hw_sample_live_fence(&ops, DESC, PAGE,
+		COMPAS_FB_HW_R1_PAGE_BYTES,
+		COMPAS_FB_HW_SRD_END | COMPAS_FB_HW_FRAME_END, &fence) == 0);
+	assert(f.tft & COMPAS_FB_HW_TFT_UNDERRUN);
+	assert(f.write_count == 1U &&
+	       !(f.writes[0] & COMPAS_FB_HW_TFT_UNDERRUN));
+	/* STOP_ACK remains fatal even when underrun is also present. */
+	setup(&f); ops = ops_for(&f);
+	assert(compas_fb_hw_prepare_live_fence(&ops, &fence) == 0);
+	assert(compas_fb_hw_sample_live_fence(&ops, DESC, PAGE,
+		COMPAS_FB_HW_R1_PAGE_BYTES,
+		COMPAS_FB_HW_STOP_ACK | COMPAS_FB_HW_UNDERRUN, &fence) == -EIO);
 	setup(&f); ops = ops_for(&f);
 	assert(compas_fb_hw_prepare_live_fence(&ops, &fence) == 0);
 	f.tft = 0U;
@@ -227,7 +261,7 @@ static void test_invalid_inputs_do_not_touch_mmio(void)
 
 int main(void)
 {
-	test_prepare_clears_only_fence_events_and_preserves_faults();
+	test_prepare_clears_underrun_and_keeps_it_nonfatal();
 	test_prepare_rejects_stale_and_inactive_state();
 	test_prepare_reassertion_retries_are_bounded();
 	test_events_before_and_after_target_adoption();
