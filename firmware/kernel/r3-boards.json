@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "kernel_source_pin": "firmware/kernel/upstream.json",
+  "scope": "Initial host-only R3 kernel compatibility ports. All OEM modules remain selected; no R1 display/radio replacement is admitted.",
+  "boards": {
+    "r3proii": {
+      "stock_version": "1.4",
+      "source_archive_filename": "r3proii(v1.4).upt",
+      "source_class": "local saved original firmware archive; no independent vendor signature was checked",
+      "stock_upt_sha256": "6ef350aa4a513201b8376768ed8c7593cf16ae84ae3f458c8a5338adf0420dbf",
+      "stock_kernel_sha256": "a00fd923f1480861de742a42a038f3f21d7605a9220c3cc86bdf7f4a64fc4541",
+      "stock_dtb_sha256": "6a7f3b2b947e08209335cf351e91ec99e58ab862c5125e8af4b5740ed0d1b24e",
+      "stock_modules": {
+        "axp2101.ko": "d00c9b5184509056ffb7f586871e7f7cb3ab46e22a33619652fbf86be70db566",
+        "codec_cs43198_dual.ko": "fea2b60a2501501d214af247612ffecad439f296707f80b9cf4bc22b97be2b96",
+        "cw2015.ko": "c98bf8f00783e1e79f15aa7fa851762aa0b57e7bd26a49ab1f4c50f5d67ac8b9",
+        "cywdhd.ko": "c18a58b6f5749a6b0ebce13ddadcdf1729261d5b62284aaa8ea29e3a03216c31",
+        "fusb302b_add.ko": "d13e244d233b70ea32575fbf71df4362120a4563fdcc721e8f0b315b2e04cfd2",
+        "gpio_aw95016_add.ko": "332ce4f02e6a7128f33e8aaa97033e570293e83b8f4ed26dbe95d16b23f145cb",
+        "gt9xx_touch.ko": "abd0cbb304e10353d579d527dcd3ae03cce4aa4f9ac75ad16066767370876dbc",
+        "i2c_gpio_add.ko": "1b333c2b5e6307dad812b792d039d1a547eea1b0542c889b281cfc859a6b1b21",
+        "keyboard_adc.ko": "436f49447ff93d56b90fe148eb28cc8c5e21ef9b264e6f5dc6c6cee46e5a18d8",
+        "keyboard_gpio_add.ko": "0c4c344927c93f4dc64fb2d2bb71ca7b599d222599882730dbccc335300e5127",
+        "lcd_st7701_sbtc033001.ko": "e4a5d22b50f0e4383c9d4217f2a8d5587e74952175f93aab7071a362ee7399f3",
+        "leds_sgm31324_add.ko": "5be83ef6f8d0a2fe87cbb110e8ce2ea81fb7c470de1afbc711891460f5a940e5",
+        "mp2731.ko": "5e3fcbce19ca14eac81c769e786038d80e1b5aca82e78d47ffcac40241376a16",
+        "pwm_backlight.ko": "378faadaece3ab0fab5f6aab145aa42a1ec098fa52537987568db63e4b6a5113",
+        "rmem_manager.ko": "29c1188ae5dbf7d39d81a3e33a82643ab31a7871f02cb8fcfa0d39b61478f248",
+        "sa_config_module.ko": "66294029d6d03841df1fb73406a67390a58b61b08303c298357b8cf2bd499db8",
+        "sa_earpods_adc.ko": "236b4af6089c130bb4e19c01adb470f4248c0b43b5f08e49117866457427b0f0",
+        "sa_hgl_dma.ko": "3f46ab318c7d62f92941e3ff72226fb55f49885eed931146a5ce5af44cece9ce",
+        "sa_sound_hbc3000.ko": "d7560104dfb2c6d2c5de475cb1d41c2ec0605440709c56639040fe5ac1da3ee2",
+        "sa_sound_switch.ko": "f54a5e92aa390f1a44181e8f2aba8cac61ca988ac1be1acdd44a4f1934bbb7b8",
+        "sau.ko": "98691025774e3486c6897ad811854f8a2fe19957b871217c2b35b8248406cd9a",
+        "soc_adc.ko": "87fc9cc5ebc1f8204a4906ffcb1f835737333acffd1d7de18c4b18c1da35c52e",
+        "soc_aic.ko": "d01a242275b7ef9551f59699c3855f92441fc44908da369c7bd7a5d430b7c382",
+        "soc_efuse.ko": "bee3c098fbb22fb06a06730b16309dcab8213e148870ccb544588ae25405de09",
+        "soc_fb.ko": "ba96de122899718a881ac81683337fd1db251da5fe8f69699b8272eb8b06103d",
+        "soc_gpio.ko": "0a9a3c6031c5f02acfe7699de368e8fc8aa55d4dd0f0bc5c5aaf36661f6d25ff",
+        "soc_i2c.ko": "89da80480a0e96b356cb68e6485c431748a3b3ee60bd397059b2234ed50d160e",
+        "soc_msc.ko": "fdffda7985303396638e79083d09f73f94198ccb94bb24a82b9f13b85a5ce5c0",
+        "soc_pwm.ko": "b0fda1a8b146bb7248e3de70097d9c885e4c30757d091fde2cf607e63e6db4fb",
+        "soc_utils.ko": "417885949b96d9ac7e006a121b23850a577dd587978170ee706ed9d53879fda9",
+        "utils.ko": "98ba114b48e44fc4acb40df11c71b06346390216e1ae40f2f676b81670474964",
+        "x1600_hiby_r3proii_sound_card.ko": "14a53774145466a3a91cbb5689aac9b40f5e9764fff2362b4bb5942755b9c78e"
+      },
+      "expected_vermagic": "4.4.94+ preempt mod_unload MIPS32_R2 32BIT",
+      "screen": {
+        "width": 480,
+        "height": 720,
+        "framebuffer_format": 1,
+        "lcd_mode": 0,
+        "refresh_hz": 62,
+        "panel_descriptor_bytes": 164,
+        "rotation_callback_at_160": false
+      },
+      "status": "host-only kernel compatibility candidate; OEM modules retained",
+      "configuration_provenance": "Pinned upstream native R3 Pro II required/parity fragments.",
+      "required_config": "firmware/kernel/r3proii-required.config",
+      "required_config_sha256": "42b8f266058f5a146dcdd78460f3017ab27518ae9063e52ae9f703e99ea6e9b5",
+      "parity_config": "firmware/kernel/r3proii-parity.config",
+      "parity_config_sha256": "ce0e48539d4e9d9dcce13a645624cfd82cb37352acf9bb532fef8e5e2c117ddd",
+      "profile_config": "firmware/kernel/compas-r3proii.config",
+      "profile_config_sha256": "462926bb0c907edc5359f1e3eb637ff79bf355dc569af0eff9739132d0c18e02",
+      "stock_vmlinux_sha256": "a554e2abef23ffe674b9be8f00e3fd122db6fe21e80d2d0eb6b7fe39de8008cd"
+    },
+    "r3ii_2025": {
+      "stock_version": "1.3",
+      "source_archive_filename": "r3ii2025.upt",
+      "source_class": "local saved original firmware archive; no independent vendor signature was checked",
+      "stock_upt_sha256": "764f0c6724675d4c0009c065576fd8a5d21564396f531a1440f261d46dd8b81a",
+      "stock_kernel_sha256": "0a3d255629c66d70d400b21fd956002b80245acaa0bc2e3092217edfc50f4e8e",
+      "stock_dtb_sha256": "8e99b1a2a0b18c18ba4bfd7240689c570a629e665147249ac2d2095974b33751",
+      "stock_modules": {
+        "axp2101.ko": "b47d58e1a4b275b691749b987b5930b385a25c4da14fafc28369768c9ff4f040",
+        "codec_es9219.ko": "d3dd36175dd56be2499e2231c97c97ff4f8c1a97f1a2f43850ea9ff5fdc088c4",
+        "cw2015.ko": "c59db24c60fbc23c38a1d72f515813cbee295d164bb16dece6714016856b0fe0",
+        "cywdhd.ko": "ac04a3d646792713e5f8a23605c795f2721e9f5d9a4efe9a55c313782e01f220",
+        "gt9xx_touch.ko": "b5c394f2e6ad53985c7c55d8db225f7c349b5e6aad6d8557360b8436efa36f62",
+        "i2c_gpio_add.ko": "1b333c2b5e6307dad812b792d039d1a547eea1b0542c889b281cfc859a6b1b21",
+        "keyboard_adc.ko": "436f49447ff93d56b90fe148eb28cc8c5e21ef9b264e6f5dc6c6cee46e5a18d8",
+        "keyboard_gpio_add.ko": "0be8a25282ce9d3c967285f2821c92c3e9ef3c8bf1699743fb10fd660285507a",
+        "keyboard_ring.ko": "2d2eb2a686e778bec648a1251820103e747da73328fb3e935f3bf9f967701c30",
+        "lcd_st77903_8bit.ko": "d87652a15e018556dff5ce2a67d20ab237e0d20783a9dc106c37a7f37bb5c2cc",
+        "leds_sgm31324_add.ko": "0a16698908aa49be9907826055e7fdb657d8abbce49222349845838eaa259f5a",
+        "pwm_backlight.ko": "378faadaece3ab0fab5f6aab145aa42a1ec098fa52537987568db63e4b6a5113",
+        "rmem_manager.ko": "d7d176057f1246fe77052c09aea67a5788e8c01e07332c3a5b1df55fe43e8b4d",
+        "sa_config_module.ko": "8b169e8a049a436e2d60648dffdca33085b3442046bb0ebd828bade097c30a18",
+        "sa_earpods_adc.ko": "236b4af6089c130bb4e19c01adb470f4248c0b43b5f08e49117866457427b0f0",
+        "sa_hgl_dma.ko": "0e568f2c67108fa8ea9c7b387f946be59d8bc28cc0302b697bea28b8b50b67f7",
+        "sa_sound_hbc3000.ko": "fcc1448f376f1e6a0efc8ca32caa7c820e1b9c55e91b98b5c6acce8385359c2b",
+        "sa_sound_switch.ko": "f54a5e92aa390f1a44181e8f2aba8cac61ca988ac1be1acdd44a4f1934bbb7b8",
+        "sau.ko": "d778df7cb03ee0a91437a90bc6f057ce4df88f2dbafefa325af53a178f109ada",
+        "soc_adc.ko": "9b010c9def91432c10a6b69eab1113d13af0117fc45c7696c29edc6fa41d1adf",
+        "soc_aic.ko": "43b1c5bc4cebf0f1dd0579627cb27d1093ca36043a9a98e11fcd8f822abdf698",
+        "soc_efuse.ko": "01cf14130ee2452ee3253d6c3aa7784c6712557a91808cbbade8064f867b893a",
+        "soc_fb.ko": "e7d535c725f31675c53baeb9b6bda2a7326debd9a9c9198ac7c852588d3f13f6",
+        "soc_gpio.ko": "365ae55161a773c32ef28d669b9a17e54602cc46bd522d24bf55d718a480e0bf",
+        "soc_i2c.ko": "aefbbc6b766d32bd9eaab512a4e630b2afff4dd7b67df722c7d153663ce2fbbe",
+        "soc_msc.ko": "eedf3b2973f55edc534274a813efb6b35c9193280194813f56fac44d9f16a0c6",
+        "soc_pwm.ko": "a116df64c2ab7c998a18f9c5908a43f294f7989633a3bd7907f3d3638f373304",
+        "soc_utils.ko": "417885949b96d9ac7e006a121b23850a577dd587978170ee706ed9d53879fda9",
+        "tcs1421_add.ko": "9c9dbaf1cac772a0041ec640d5b5f6fcb46f32c9ee807cd82682365826e38fd7",
+        "utils.ko": "2be36e593a75493e19277eb9c551190d9b318c9d2e315fee229dd265bb4b0be1",
+        "x1600_hiby_r3ii_sound_card.ko": "bfb8cba7289024ded6dfc89cbd1d3097f627572f1c83b24139d7fbc96c797c10"
+      },
+      "expected_vermagic": "4.4.94+ preempt mod_unload MIPS32_R2 32BIT",
+      "screen": {
+        "width": 320,
+        "height": 480,
+        "framebuffer_format": 1,
+        "lcd_mode": 4,
+        "refresh_hz": 45,
+        "panel_descriptor_bytes": 164,
+        "rotation_callback_at_160": true
+      },
+      "status": "host-only kernel compatibility candidate; OEM modules retained",
+      "configuration_provenance": "Provisional subsystem seed from pinned native R3 Pro II fragments; own R3II2025 DTB and complete OEM module inventory are mandatory. Not stock configuration parity proof.",
+      "required_config": "firmware/kernel/r3ii_2025-required.config",
+      "required_config_sha256": "378fb3b466c6c948730c669b2629808446ad2d3f9ba478cbfdb35f55408eda91",
+      "parity_config": "firmware/kernel/r3ii_2025-parity.config",
+      "parity_config_sha256": "92708b381c13c8143425c020e4d96122b13ea4eb50c6d14302804c85ce521130",
+      "profile_config": "firmware/kernel/compas-r3ii_2025.config",
+      "profile_config_sha256": "462926bb0c907edc5359f1e3eb637ff79bf355dc569af0eff9739132d0c18e02",
+      "stock_vmlinux_sha256": "48e9aff81ae6eb8c23fca255044cfd6a92955bbea53e1ef7e01f31b90df4e02b",
+      "stock_symbol_evidence": {
+        "decoder_sha256": "df4d5d269901c9412a4aca5ae8133ab7ef678f50ab2d16eeb2c975c0889a64d0",
+        "architecture_review_sha256": "2b699f550e301fbd52e316c22ae6ef158471e294e30aa16fbff584b5713e6084",
+        "evidence_json_sha256": "d879dddf3f0629a0a0de701b3fa13106baa698caa72a4da1a28d77ae126e26d8",
+        "symbol_count": 44589,
+        "all_markers_verified": true,
+        "typed_names_sha256": "a635876f81f4d321fb623cca9ea34f53937e8db8acbc553484fa615d35685c04",
+        "layout": {
+          "count_offset": 6463712,
+          "names_offset": 6463728,
+          "markers_offset": 6988176,
+          "token_table_offset": 6988880,
+          "token_index_offset": 6989792
+        },
+        "features": {
+          "pca953x": [
+            "pca953x_probe",
+            "pca953x_irq_handler"
+          ],
+          "debugfs": [
+            "debugfs_create_dir",
+            "debugfs_create_file",
+            "debugfs_remove_recursive"
+          ],
+          "slab": [
+            "kmalloc_slab",
+            "kmalloc_caches",
+            "slabinfo_write",
+            "create_kmalloc_caches"
+          ],
+          "typec_prefixes_absent": [
+            "typec_",
+            "tcpm_register",
+            "tcpm_unregister",
+            "fusb302"
+          ],
+          "compaction_substrings_absent": [
+            "compact"
+          ],
+          "cma_dma_prefixes_absent": [
+            "cma_",
+            "dma_contiguous"
+          ]
+        }
+      }
+    }
+  }
+}

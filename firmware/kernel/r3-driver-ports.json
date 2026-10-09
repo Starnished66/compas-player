@@ -1,0 +1,2361 @@
+{
+  "schema_version": 1,
+  "title": "HiBy R3 driver source and OEM module port inventory",
+  "paths_relative_to": "compas-player repository root; sibling artifacts use ../ relative paths",
+  "scope": "Host-only inventory and port planning for the two extracted R3 firmware models. All actual OEM modules are selected by default. This file makes no compatibility, build, ABI, or runtime pass claim.",
+  "source_kit": {
+    "path": "../hiby-custom-kernel-display-20261009",
+    "git_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c",
+    "license_file": {
+      "path": "../hiby-custom-kernel-display-20261009/LICENSE",
+      "sha256": "e6d6a009505e345fe949e1310334fcb0747f28dae2856759de102ab66b722cb4",
+      "license": "GPL-2.0"
+    },
+    "readme": {
+      "path": "../hiby-custom-kernel-display-20261009/README.md",
+      "sha256": "8f5bca0e3e7b3724f71bc4a5921517af1b47015e4486fb2f6dbc4d6e0cad03f1",
+      "claim": "README states 31 open drop-in replacements for HiBy modules; describes bcm_wlbt_power separately as a cywdhd replacement."
+    },
+    "module_source_directory_counts": {
+      "common": 16,
+      "r3proii_board": 9,
+      "sum": 25
+    },
+    "spdx_handling": "Every source file records its literal SPDX-License-Identifier when present in its opening 2048 bytes; null means no file-level identifier found. The kit LICENSE is recorded separately; no per-file license is inferred."
+  },
+  "port_order": [
+    {
+      "phase": 1,
+      "name": "shared_utils_allocator",
+      "modules": [
+        "utils",
+        "soc_utils",
+        "rmem_manager",
+        "soc_efuse"
+      ],
+      "reason": "Establish exact symbol/provider and reserved-memory contracts before dependent module work. This is a work sequence, not a statement that these sources build or run on either target."
+    },
+    {
+      "phase": 2,
+      "name": "board_peripherals",
+      "modules": "All exact per-board OEM module names categorized board_peripherals.",
+      "reason": "Handle board GPIO, keys, touch, power, USB Type-C, regulators, and bus wiring against each board DT and loader script."
+    },
+    {
+      "phase": 3,
+      "name": "audio_coordinated",
+      "modules": "All exact per-board OEM module names categorized audio_coordinated.",
+      "reason": "Port as a coordinated DMA/I2S/codecs/sound-card group because the modules share kernel and userspace ABI."
+    },
+    {
+      "phase": 4,
+      "name": "display_independent",
+      "modules": "All exact per-board OEM module names categorized display_independent.",
+      "reason": "Keep each panel contract model-specific; the panel module is part of the scanout ABI."
+    },
+    {
+      "phase": 4,
+      "name": "radio_independent",
+      "modules": [
+        "cywdhd"
+      ],
+      "reason": "Retain OEM radio by default. An optional brcmfmac path is a separate migration candidate with board-specific power/wake wiring; do not substitute it implicitly."
+    }
+  ],
+  "boards": {
+    "r3proii": {
+      "model_id": "r3proii",
+      "source_archive": {
+        "path": "../hiby_os_crack/r3proii/firmware/original/r3proii(v1.4).upt",
+        "sha256": "6ef350aa4a513201b8376768ed8c7593cf16ae84ae3f458c8a5338adf0420dbf",
+        "size_bytes": 37996544,
+        "source_class": "local saved original firmware archive; no independent vendor signature was checked"
+      },
+      "extract_manifest": {
+        "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/input-manifest.json",
+        "sha256": "c4edda2a864b2301831007820124f2702623f2c550b8641a902169e242e9bf91",
+        "extract_procedure": "7z unpacked UPT; verified OTA chunks using chained filename MD5 convention and ota_md5 markers; assembled ordered image bytes; verified uImage header+payload CRC32; extracted embedded FDT; unsquashfs extracted complete rootfs."
+      },
+      "kernel": {
+        "stock_ximage": {
+          "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/xImage",
+          "sha256": "a00fd923f1480861de742a42a038f3f21d7605a9220c3cc86bdf7f4a64fc4541",
+          "size_bytes": 3760192
+        },
+        "stock_dtb": {
+          "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/stock.dtb",
+          "sha256": "6a7f3b2b947e08209335cf351e91ec99e58ab862c5125e8af4b5740ed0d1b24e"
+        },
+        "expected_oem_vermagic": "4.4.94+ preempt mod_unload MIPS32_R2 32BIT"
+      },
+      "inventory": {
+        "actual_oem_module_count": 32,
+        "kit_readme_claimed_oem_dropin_count": 31,
+        "kit_source_module_directory_count": 25,
+        "note": "Counts are distinct: R3 Pro II extracted OEM inventory has 32 modules; R3II 2025 has 31. Kit README describes 31 OEM drop-ins plus bcm_wlbt_power as optional cywdhd replacement."
+      },
+      "display_contract": {
+        "width": 480,
+        "height": 720,
+        "framebuffer_format_raw": 1,
+        "lcd_mode_raw": 0,
+        "refresh_hz": 62,
+        "panel_descriptor_bytes": 164,
+        "rotation_callback_at_160": false,
+        "evidence": "Extracted OEM panel modules and firmware kernel/module audit; raw enumerations retained. Do not transfer these values between models."
+      },
+      "stock_radio_wiring": {
+        "evidence_path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/cywdhd.sh",
+        "evidence_sha256": "e5b7881de35b53956396868446bdce589986cfffae992bae4a04e8e46a07be3c",
+        "parameters": {
+          "gpio_bt_wifi_power": "-1",
+          "gpio_wlan_reg_on": "PF02",
+          "gpio_wlan_wake_host": "PC25",
+          "gpio_bt_rst_n": "-1",
+          "gpio_bt_reg_on": "PF03",
+          "gpio_host_wake_bt": "PF05",
+          "gpio_bt_wake_host": "-1",
+          "gpio_bt_uart_rts": "-1"
+        },
+        "policy": "OEM cywdhd remains selected. Parameters document the board stock driver and must not be assumed to match bcm_wlbt_power."
+      },
+      "default_init_script": {
+        "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/driver_default_init_script.sh",
+        "sha256": "54f07dea76784e25a65f458054d8abe50cba65de5ee0a6d050eab6671f4b174f",
+        "size_bytes": 585,
+        "load_order": [
+          "#!/bin/sh",
+          "",
+          "sh utils.sh",
+          "sh rmem_manager.sh",
+          "sh soc_utils.sh",
+          "sh soc_i2c.sh",
+          "sh i2c_gpio_add.sh",
+          "sh axp2101.sh",
+          "sh cw2015.sh",
+          "sh gpio_aw95016_add.sh",
+          "sh keyboard_gpio_add.sh",
+          "sh soc_gpio.sh",
+          "sh soc_pwm.sh",
+          "sh pwm_backlight.sh",
+          "sh soc_fb.sh",
+          "sh lcd_st7701_sbtc033001.sh",
+          "sh soc_aic.sh",
+          "sh soc_msc.sh",
+          "sh soc_adc.sh",
+          "sh sa_sound_switch.sh",
+          "sh sa_sound_hbc3000.sh",
+          "sh codec_cs43198_dual.sh",
+          "sh cywdhd.sh",
+          "sh fusb302b.sh",
+          "sh gt9xx_touch.sh",
+          "sh keyboard_adc.sh",
+          "sh leds_sgm31324_add.sh",
+          "sh mp2731.sh",
+          "sh sa_config.sh",
+          "sh sa_earpods_adc.sh",
+          "sh sa_hgl_dma.sh",
+          "sh sau.sh",
+          "sh soc_efuse.sh",
+          "sh x1600_hiby_r3proii_sound_card.sh"
+        ]
+      },
+      "modules": [
+        {
+          "module": "axp2101.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/axp2101.ko",
+            "sha256": "d00c9b5184509056ffb7f586871e7f7cb3ab46e22a33619652fbf86be70db566",
+            "size_bytes": 91296
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/axp2101.sh",
+            "sha256": "8a6a1b7e950711ab8e160bce022ae55796c8593a2441ebde68922db15a50df1d",
+            "size_bytes": 1279
+          },
+          "source_status": "not_reconstructed",
+          "source": null,
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "codec_cs43198_dual.ko",
+          "default": "oem_stock",
+          "category": "audio_coordinated",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/codec_cs43198_dual.ko",
+            "sha256": "fea2b60a2501501d214af247612ffecad439f296707f80b9cf4bc22b97be2b96",
+            "size_bytes": 23316
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/codec_cs43198_dual.sh",
+            "sha256": "fe81a048496e2fabbb84b3d4282e696664472075a1bfae305d2c01375f67c3a3",
+            "size_bytes": 244
+          },
+          "source_status": "native_board_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/codec_cs43198_dual",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/codec_cs43198_dual/Makefile",
+                "sha256": "a4f2f1ea2827c8a31016e19660732e6a50b69899f4358cc3d595ad55251598f6",
+                "size_bytes": 337,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/codec_cs43198_dual/codec_cs43198_dual.c",
+                "sha256": "ce357624d5411bfc315859b1cd0247d689d807131bc19170c3432b12608a200a",
+                "size_bytes": 23643,
+                "spdx_license_identifier": "GPL-2.0"
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/codec_cs43198_dual/hiby.symvers",
+                "sha256": "ba41dd98f52907dc8315d4d6ceba195572cae2643b6d5f26e1ae93e40dc8ce6a",
+                "size_bytes": 97,
+                "spdx_license_identifier": null
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "cw2015.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/cw2015.ko",
+            "sha256": "c98bf8f00783e1e79f15aa7fa851762aa0b57e7bd26a49ab1f4c50f5d67ac8b9",
+            "size_bytes": 15880
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/cw2015.sh",
+            "sha256": "e619070b629a8999ed44b4e1ba7bc5ab7f3ba7a042b889a35b4f3b4c2657a8b8",
+            "size_bytes": 248
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/cw2015",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/cw2015/Makefile",
+                "sha256": "03d83049421ad979131f900e33c5232be65943f379851c9f74a976740832db32",
+                "size_bytes": 325,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/cw2015/cw2015.c",
+                "sha256": "87f98bb8e6d0584ef87731dd79db3fba8b04f93a9899a28326a44d90d363126a",
+                "size_bytes": 21206,
+                "spdx_license_identifier": "GPL-2.0"
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/cw2015/hiby.symvers",
+                "sha256": "ba41dd98f52907dc8315d4d6ceba195572cae2643b6d5f26e1ae93e40dc8ce6a",
+                "size_bytes": 97,
+                "spdx_license_identifier": null
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "cywdhd.ko",
+          "default": "oem_stock",
+          "category": "radio_independent",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/cywdhd.ko",
+            "sha256": "c18a58b6f5749a6b0ebce13ddadcdf1729261d5b62284aaa8ea29e3a03216c31",
+            "size_bytes": 1407004
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/cywdhd.sh",
+            "sha256": "e5b7881de35b53956396868446bdce589986cfffae992bae4a04e8e46a07be3c",
+            "size_bytes": 279
+          },
+          "source_status": "not_reconstructed",
+          "source": null,
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "fusb302b_add.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/fusb302b_add.ko",
+            "sha256": "d13e244d233b70ea32575fbf71df4362120a4563fdcc721e8f0b315b2e04cfd2",
+            "size_bytes": 5300
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/fusb302b.sh",
+            "sha256": "666bfb28948b3ca485ea1db3d0b098ff33770997d30774d0b7d91fc3acfb0a55",
+            "size_bytes": 152
+          },
+          "source_status": "native_board_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/fusb302b_add",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/fusb302b_add/Makefile",
+                "sha256": "e69996563a80344edfceb147cef6cacb6830ea97a8ded3e98377db61ddc3d0aa",
+                "size_bytes": 331,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/fusb302b_add/fusb302b_add.c",
+                "sha256": "0ebbee20444601b54268842303e5c41ac56aac2b3b7c5ca2f28638619c704689",
+                "size_bytes": 2883,
+                "spdx_license_identifier": "GPL-2.0"
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/fusb302b_add/hiby.symvers",
+                "sha256": "e4160d6ff761fc901b1e51967d168dbd78e8cb46822afd08711dff62c7537a3f",
+                "size_bytes": 97,
+                "spdx_license_identifier": null
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "gpio_aw95016_add.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/gpio_aw95016_add.ko",
+            "sha256": "332ce4f02e6a7128f33e8aaa97033e570293e83b8f4ed26dbe95d16b23f145cb",
+            "size_bytes": 5644
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/gpio_aw95016_add.sh",
+            "sha256": "59cc6dc6acecbdca974e63c185a5b79df2a43e6a478fba8b9df5e2e490ccbaa8",
+            "size_bytes": 95
+          },
+          "source_status": "native_board_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/gpio_aw95016_add",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/gpio_aw95016_add/Makefile",
+                "sha256": "6353da79c3bc5f37c06b8a066c0ea6a116a6e2d18e4d5524e568450aa0c71bb8",
+                "size_bytes": 335,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/gpio_aw95016_add/gpio_aw95016_add.c",
+                "sha256": "713e1b10980b93762781c359045f77b753fb3c4c9f2622c77238db28f68208d0",
+                "size_bytes": 2983,
+                "spdx_license_identifier": "GPL-2.0"
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/gpio_aw95016_add/hiby.symvers",
+                "sha256": "e4160d6ff761fc901b1e51967d168dbd78e8cb46822afd08711dff62c7537a3f",
+                "size_bytes": 97,
+                "spdx_license_identifier": null
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "gt9xx_touch.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/gt9xx_touch.ko",
+            "sha256": "abd0cbb304e10353d579d527dcd3ae03cce4aa4f9ac75ad16066767370876dbc",
+            "size_bytes": 63000
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/gt9xx_touch.sh",
+            "sha256": "11bb55b573dfbe1a9abb678fa2066e7086dfb9dc1393de1f96e343a05b917a0c",
+            "size_bytes": 354
+          },
+          "source_status": "not_reconstructed",
+          "source": null,
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "i2c_gpio_add.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/i2c_gpio_add.ko",
+            "sha256": "1b333c2b5e6307dad812b792d039d1a547eea1b0542c889b281cfc859a6b1b21",
+            "size_bytes": 20088
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/i2c_gpio_add.sh",
+            "sha256": "ac57423a0798fb3308ec5ff1a32a4a580a1b534ed3e91e8b0ccda12cf0461d34",
+            "size_bytes": 119
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/i2c_gpio_add",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/i2c_gpio_add/Makefile",
+                "sha256": "ccd7c16dcd434df583411cad06a5ab3223952ef421ef641e5614641c964a7185",
+                "size_bytes": 331,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/i2c_gpio_add/hiby.symvers",
+                "sha256": "c009ac6f2f67e4629e10c9e537805feb6064b29cc82c53d7227ef0b4f4ff2972",
+                "size_bytes": 176,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/i2c_gpio_add/i2c_gpio_add.c",
+                "sha256": "43c89d9e847f002429a0a36348de539da691fb558250550a7f51829aba4b78ec",
+                "size_bytes": 21601,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "keyboard_adc.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/keyboard_adc.ko",
+            "sha256": "436f49447ff93d56b90fe148eb28cc8c5e21ef9b264e6f5dc6c6cee46e5a18d8",
+            "size_bytes": 12668
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/keyboard_adc.sh",
+            "sha256": "8b8ec38c50ff00313de6ff00f4ea31ed35905eec6684302f32dd31765332e429",
+            "size_bytes": 370
+          },
+          "source_status": "native_board_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/keyboard_adc",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/keyboard_adc/Makefile",
+                "sha256": "a1c116540b40a474ba26b17749d304e4be9a76ad64e4fecf4d51672e2fff33b6",
+                "size_bytes": 331,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/keyboard_adc/hiby.symvers",
+                "sha256": "33eece7c9f54e170726741cc624436cc2f660c71271af301264593b74a300dfd",
+                "size_bytes": 147,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/keyboard_adc/keyboard_adc.c",
+                "sha256": "dc1def3b500b631eb407aba24affcdca4f8b7a92f1ca59f8ddaadd32b1c8c3c9",
+                "size_bytes": 7201,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "keyboard_gpio_add.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/keyboard_gpio_add.ko",
+            "sha256": "0c4c344927c93f4dc64fb2d2bb71ca7b599d222599882730dbccc335300e5127",
+            "size_bytes": 21560
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/keyboard_gpio_add.sh",
+            "sha256": "a9f3b9d0e35336252facd01d6a75cf8246273440410f0102f39d4fa5084d6406",
+            "size_bytes": 295
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/keyboard_gpio_add",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/keyboard_gpio_add/Makefile",
+                "sha256": "5506f424341f594cc08a57347b4dcf411d80707a81e2037e467edf708d3d52bd",
+                "size_bytes": 336,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/keyboard_gpio_add/hiby.symvers",
+                "sha256": "d4d5824bb99c605ff61a6fef408ac3d17af52c5eba11fa4604df6498da679428",
+                "size_bytes": 221,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/keyboard_gpio_add/keyboard_gpio_add.c",
+                "sha256": "853d5d572c0c07b46b1261ac89298d0e313600368000986a6b40451095284795",
+                "size_bytes": 25101,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "lcd_st7701_sbtc033001.ko",
+          "default": "oem_stock",
+          "category": "display_independent",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/lcd_st7701_sbtc033001.ko",
+            "sha256": "e4a5d22b50f0e4383c9d4217f2a8d5587e74952175f93aab7071a362ee7399f3",
+            "size_bytes": 12092
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/lcd_st7701_sbtc033001.sh",
+            "sha256": "fd8ea187a63394c9224b04f9ca572527289db63d0eeb51230058c6e08a1a3a3b",
+            "size_bytes": 202
+          },
+          "source_status": "native_board_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/lcd_st7701_sbtc033001",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/lcd_st7701_sbtc033001/Makefile",
+                "sha256": "fcece4c215f6ac4070f75484258ea6d8511d8e1c33613890a98159318d97abd4",
+                "size_bytes": 340,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/lcd_st7701_sbtc033001/hiby.symvers",
+                "sha256": "addbc6e054610956f85304f9ef1d71533190003a1da0a87f0ebdb71ff6b80c1f",
+                "size_bytes": 139,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/lcd_st7701_sbtc033001/lcd_st7701_sbtc033001.c",
+                "sha256": "bc4c4e22deb5d61bcb35182dbb335c983350ea854668d3ead966d0d0e9e37368",
+                "size_bytes": 10927,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "leds_sgm31324_add.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/leds_sgm31324_add.ko",
+            "sha256": "5be83ef6f8d0a2fe87cbb110e8ce2ea81fb7c470de1afbc711891460f5a940e5",
+            "size_bytes": 13972
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/leds_sgm31324_add.sh",
+            "sha256": "356a7cec30058c5c205d85691439053813ac53abd377278ed6da0dbc48a5b2db",
+            "size_bytes": 820
+          },
+          "source_status": "native_board_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/leds_sgm31324_add",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/leds_sgm31324_add/Makefile",
+                "sha256": "c92834f46836fba166e70a42640cf40df1a288f2f25852c446869ad339f77396",
+                "size_bytes": 336,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/leds_sgm31324_add/hiby.symvers",
+                "sha256": "0d119ec87755e25b794507670892e320a2e4a279f6c2dad277109f5210d16890",
+                "size_bytes": 184,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/leds_sgm31324_add/leds_sgm31324_add.c",
+                "sha256": "4ddc0f1c117d9f07e47f9e860a1dc6714f25780730f8977a3aeb26359dfecbad",
+                "size_bytes": 14490,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "mp2731.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/mp2731.ko",
+            "sha256": "5e3fcbce19ca14eac81c769e786038d80e1b5aca82e78d47ffcac40241376a16",
+            "size_bytes": 29484
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/mp2731.sh",
+            "sha256": "616b83b9f016542ce47d26a7cd97584c57606c1f2f816b6eedbaf8d97f3905d9",
+            "size_bytes": 253
+          },
+          "source_status": "not_reconstructed",
+          "source": null,
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "pwm_backlight.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/pwm_backlight.ko",
+            "sha256": "378faadaece3ab0fab5f6aab145aa42a1ec098fa52537987568db63e4b6a5113",
+            "size_bytes": 6928
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/pwm_backlight.sh",
+            "sha256": "acd10df2f4a13208650ad3bc55efff13a6b3d0847e387b13114465d2a198fd51",
+            "size_bytes": 198
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/pwm_backlight",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/pwm_backlight/Makefile",
+                "sha256": "42743d9b810187e75a247ffc18b1c421dd9259be42c29c8668b4163bbe3bb18e",
+                "size_bytes": 332,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/pwm_backlight/hiby.symvers",
+                "sha256": "b08c4ec84940ff12d49ebc226a0c0afe4b7607a78b85947c0fb815bad195233e",
+                "size_bytes": 274,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/pwm_backlight/pwm_backlight.c",
+                "sha256": "3a54dea269f173533b4626da34f63a5379c83bfe32f1a4922e7273b35435a650",
+                "size_bytes": 5617,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "rmem_manager.ko",
+          "default": "oem_stock",
+          "category": "shared_foundation",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/rmem_manager.ko",
+            "sha256": "29c1188ae5dbf7d39d81a3e33a82643ab31a7871f02cb8fcfa0d39b61478f248",
+            "size_bytes": 13460
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/rmem_manager.sh",
+            "sha256": "1311deca3f92b657498fca15f1412d54f658ff938bd6296114e4754b16eb9f10",
+            "size_bytes": 631
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/rmem_manager",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/rmem_manager/Makefile",
+                "sha256": "61b1a2debea37bb682e2346d36b5a244149f30890005b2035de91934ccdad9ab",
+                "size_bytes": 161,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/rmem_manager/rmem_manager.c",
+                "sha256": "146ac1942886b9cd09baad74ac6f6a24327cbf29df306a18b8e3402089924af8",
+                "size_bytes": 12321,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "sa_config_module.ko",
+          "default": "oem_stock",
+          "category": "audio_coordinated",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/sa_config_module.ko",
+            "sha256": "66294029d6d03841df1fb73406a67390a58b61b08303c298357b8cf2bd499db8",
+            "size_bytes": 7028
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/sa_config.sh",
+            "sha256": "d6e8421640f56c31e5b7351cdc7d31b8259525372527cdfb12637d2e3f51a7c5",
+            "size_bytes": 28
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/sa_config_module",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/sa_config_module/Makefile",
+                "sha256": "ce4ced8bb2b597f1d4a2df57460c5b04109c5e80f49b7062e76e3a2a04aa2b6f",
+                "size_bytes": 350,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/sa_config_module/sa_config_module.c",
+                "sha256": "6bc1c29a5806374270f0b75d9e8bd6cf58eb669857feb008c722865e0c5402d1",
+                "size_bytes": 4227,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "sa_earpods_adc.ko",
+          "default": "oem_stock",
+          "category": "audio_coordinated",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/sa_earpods_adc.ko",
+            "sha256": "236b4af6089c130bb4e19c01adb470f4248c0b43b5f08e49117866457427b0f0",
+            "size_bytes": 15036
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/sa_earpods_adc.sh",
+            "sha256": "0a77a10f6a8b81ff62d7a75667379e5b7471dfc1515c4aa8890c2983a3ce7457",
+            "size_bytes": 370
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/sa_earpods_adc",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/sa_earpods_adc/Makefile",
+                "sha256": "c3ce001c749e0f64f289e5df6a30928b297042c32160a7e297454a3dcce6daf5",
+                "size_bytes": 333,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/sa_earpods_adc/hiby.symvers",
+                "sha256": "72daabe632a11fd2544f34a2229acb141217341cc7957be1d26d314e74137c2c",
+                "size_bytes": 206,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/sa_earpods_adc/sa_earpods_adc.c",
+                "sha256": "c238547835f3947fd8ee705d99098b1562b86f21fcd9387637f62dc2fc1672a5",
+                "size_bytes": 15398,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "sa_hgl_dma.ko",
+          "default": "oem_stock",
+          "category": "audio_coordinated",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/sa_hgl_dma.ko",
+            "sha256": "3f46ab318c7d62f92941e3ff72226fb55f49885eed931146a5ce5af44cece9ce",
+            "size_bytes": 7836
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/sa_hgl_dma.sh",
+            "sha256": "e043116e93e3f6d5dc88ceefebbfe473cbd978593e3f272883a9257d63f761a0",
+            "size_bytes": 47
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/sa_hgl_dma",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/sa_hgl_dma/Makefile",
+                "sha256": "d7468f98d1194791d388818995d6b95569e5f8482627acd96bf79e4d9e985acd",
+                "size_bytes": 329,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/sa_hgl_dma/hiby.symvers",
+                "sha256": "c2c99506675593350f3dc62b046be227d77ef4fa0e6ddeabc0a62dc09ffebb4e",
+                "size_bytes": 105,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/sa_hgl_dma/sa_hgl_dma.c",
+                "sha256": "2c87a9e84fb3e78b7c53954a822cd17166d2e5eed5e7899502c865cdb7c31468",
+                "size_bytes": 6251,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "sa_sound_hbc3000.ko",
+          "default": "oem_stock",
+          "category": "audio_coordinated",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/sa_sound_hbc3000.ko",
+            "sha256": "d7560104dfb2c6d2c5de475cb1d41c2ec0605440709c56639040fe5ac1da3ee2",
+            "size_bytes": 72580
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/sa_sound_hbc3000.sh",
+            "sha256": "3ee73eb2c1a33c51a2b7b43252fdabc683e64bb902ce99331022efb4a702d565",
+            "size_bytes": 354
+          },
+          "source_status": "native_board_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/sa_sound_hbc3000",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/sa_sound_hbc3000/Makefile",
+                "sha256": "c55a7716ad7ac596031bad2d4607ee88239288ef798beac8b7a14d35bdb7a44b",
+                "size_bytes": 335,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/sa_sound_hbc3000/hiby.symvers",
+                "sha256": "b0aa01e2d1594001bf5b70a03440ee90a041ab52fb8b36a0c139e63a82be6041",
+                "size_bytes": 46,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/sa_sound_hbc3000/sa_sound_hbc3000.c",
+                "sha256": "aa9cac3e3932fafec46757e2765436dea891d3aa4a82869678c8b230f8d69efd",
+                "size_bytes": 31264,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "sa_sound_switch.ko",
+          "default": "oem_stock",
+          "category": "audio_coordinated",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/sa_sound_switch.ko",
+            "sha256": "f54a5e92aa390f1a44181e8f2aba8cac61ca988ac1be1acdd44a4f1934bbb7b8",
+            "size_bytes": 19444
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/sa_sound_switch.sh",
+            "sha256": "a441379c07d104bae850dcb5ced1c5a2475ed7e40589b100711e517f32f729bb",
+            "size_bytes": 717
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/sa_sound_switch",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/sa_sound_switch/Makefile",
+                "sha256": "dada9ac9ffffced0c0c7f13d41d39208826bfd48696aa8431b2d7ed40347f384",
+                "size_bytes": 334,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/sa_sound_switch/hiby.symvers",
+                "sha256": "26684449f18b5633f9ed71d9dd566ff142830d87daeabda159f654b049511e0e",
+                "size_bytes": 238,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/sa_sound_switch/sa_sound_switch.c",
+                "sha256": "e1e8bfb3a7390ce83f21573ce1775f28325c498fdc5e7eb986b3ca34eb3c1f15",
+                "size_bytes": 11697,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "sau.ko",
+          "default": "oem_stock",
+          "category": "audio_coordinated",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/sau.ko",
+            "sha256": "98691025774e3486c6897ad811854f8a2fe19957b871217c2b35b8248406cd9a",
+            "size_bytes": 6928
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/sau.sh",
+            "sha256": "513f10cb751f217cc4af0c5dda15b3e22a6bf4e5c06349404d95087ad61c3d99",
+            "size_bytes": 13
+          },
+          "source_status": "native_board_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/sau",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/sau/Makefile",
+                "sha256": "e85a8791212e2130d1390671f1e4b8cbd517a98de4505c814731805d57469958",
+                "size_bytes": 152,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/sau/sau.c",
+                "sha256": "5537f257fa6d17d0569e8aa221233926c8cc8a2f0b701f03273e6665be517e96",
+                "size_bytes": 3830,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "soc_adc.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/soc_adc.ko",
+            "sha256": "87fc9cc5ebc1f8204a4906ffcb1f835737333acffd1d7de18c4b18c1da35c52e",
+            "size_bytes": 13572
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/soc_adc.sh",
+            "sha256": "eb3f4d46b670e611851553eae3af4f0d4dc76ee7628d431885a1adb24bf9cc30",
+            "size_bytes": 33
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/soc_adc",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_adc/Makefile",
+                "sha256": "77fae59e2c5a1e15465c2bbbdaa630b3768cb28f22029b74ac2a6b5f18a6f26d",
+                "size_bytes": 156,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_adc/soc_adc.c",
+                "sha256": "9a1c090ecde90f0192aec8b8c9ea5a3a4021c8adf613c306a788dacc5f2dd282",
+                "size_bytes": 10487,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "soc_aic.ko",
+          "default": "oem_stock",
+          "category": "audio_coordinated",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/soc_aic.ko",
+            "sha256": "d01a242275b7ef9551f59699c3855f92441fc44908da369c7bd7a5d430b7c382",
+            "size_bytes": 31872
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/soc_aic.sh",
+            "sha256": "5f9d6d8223f60473f42760573bcc25969d507441b793dcd663bf8a57d2320c84",
+            "size_bytes": 143
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/soc_aic",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_aic/Makefile",
+                "sha256": "fdf34a38c74ce89c066bf3ee5d5de75af26892921c1d4d8f73b4b5c32af3881f",
+                "size_bytes": 326,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_aic/hiby.symvers",
+                "sha256": "b5868b4dccc14a33152ee8c026ff688d613b401d3d405971ef25110c6a6a5b63",
+                "size_bytes": 174,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_aic/soc_aic.c",
+                "sha256": "cc26e44e94bbd31b3492c5013dce7c56dfc208bb11e3fa7419f6b00922b5c9a8",
+                "size_bytes": 38035,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "soc_efuse.ko",
+          "default": "oem_stock",
+          "category": "shared_foundation",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/soc_efuse.ko",
+            "sha256": "bee3c098fbb22fb06a06730b16309dcab8213e148870ccb544588ae25405de09",
+            "size_bytes": 12744
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/soc_efuse.sh",
+            "sha256": "3970d0b5324048853ad3921c06d40cf31e31ff66e118c8303a290613e7fcd615",
+            "size_bytes": 40
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/soc_efuse",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_efuse/Makefile",
+                "sha256": "6fd4b699f7f45dedba7d4b7947a2871b858809ac440d09979805b71bd1b0e008",
+                "size_bytes": 328,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_efuse/hiby.symvers",
+                "sha256": "dc6866b0293eddbe33c814bbe5d66f022c0de19b56af55995ca1cd2c38eb61f1",
+                "size_bytes": 92,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_efuse/soc_efuse.c",
+                "sha256": "f6d2c50d0442a21758a89bb2d936d59fd6944512fccf8aff1115dc12db30bca7",
+                "size_bytes": 14368,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "soc_fb.ko",
+          "default": "oem_stock",
+          "category": "display_independent",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/soc_fb.ko",
+            "sha256": "ba96de122899718a881ac81683337fd1db251da5fe8f69699b8272eb8b06103d",
+            "size_bytes": 28036
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/soc_fb.sh",
+            "sha256": "3210421b3cb832b234bfedd959ed1a4f954a7eaaf73408a54cecaae1e02d511c",
+            "size_bytes": 65
+          },
+          "source_status": "not_reconstructed",
+          "source": null,
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "soc_gpio.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/soc_gpio.ko",
+            "sha256": "0a9a3c6031c5f02acfe7699de368e8fc8aa55d4dd0f0bc5c5aaf36661f6d25ff",
+            "size_bytes": 8828
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/soc_gpio.sh",
+            "sha256": "9396de65d11c20c3032f6199ec515477057b8e3ffb785ddfdbe8eecd56a20b0a",
+            "size_bytes": 27
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/soc_gpio",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_gpio/Makefile",
+                "sha256": "76e64ed7358381b874ee98dc72cd9ad734e60fdc3c52aceb1ba7e68a0e3ba971",
+                "size_bytes": 327,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_gpio/hiby.symvers",
+                "sha256": "54bb22c18cabcec3df723da5c40f4354fa9af6345c87a6245a415a9c3dd5b08c",
+                "size_bytes": 88,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_gpio/soc_gpio.c",
+                "sha256": "c657b3f76f85dfcf789579238d157841864fff017e18fef4daa3efca86b4f551",
+                "size_bytes": 10388,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "soc_i2c.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/soc_i2c.ko",
+            "sha256": "89da80480a0e96b356cb68e6485c431748a3b3ee60bd397059b2234ed50d160e",
+            "size_bytes": 18108
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/soc_i2c.sh",
+            "sha256": "8a267f258a262f4958d5bb4fa398c9a4872fd2698147ece09efcf23aaf966b09",
+            "size_bytes": 149
+          },
+          "source_status": "not_reconstructed",
+          "source": null,
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "soc_msc.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/soc_msc.ko",
+            "sha256": "fdffda7985303396638e79083d09f73f94198ccb94bb24a82b9f13b85a5ce5c0",
+            "size_bytes": 54520
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/soc_msc.sh",
+            "sha256": "ac85a2467aa950dc929ccb12786358500fbf8fa0dd17a6c46e2f44fa0ee8a735",
+            "size_bytes": 1613
+          },
+          "source_status": "not_reconstructed",
+          "source": null,
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "soc_pwm.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/soc_pwm.ko",
+            "sha256": "b0fda1a8b146bb7248e3de70097d9c885e4c30757d091fde2cf607e63e6db4fb",
+            "size_bytes": 21408
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/soc_pwm.sh",
+            "sha256": "7eba92ea1b5a668b3cb55ce9f6efa47d46e8f4e46ed253a80ee31ccb4109601c",
+            "size_bytes": 19
+          },
+          "source_status": "not_reconstructed",
+          "source": null,
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "soc_utils.ko",
+          "default": "oem_stock",
+          "category": "shared_foundation",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/soc_utils.ko",
+            "sha256": "417885949b96d9ac7e006a121b23850a577dd587978170ee706ed9d53879fda9",
+            "size_bytes": 5048
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/soc_utils.sh",
+            "sha256": "1d4541725de38f3a08c54f75b4a51aca47d619ac8e10148ec62af87aef4165d3",
+            "size_bytes": 38
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/soc_utils",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_utils/Makefile",
+                "sha256": "bcc0634f07a7661dccddf0ae5578fce2b944022405b92405cd0b3dafa636b134",
+                "size_bytes": 328,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_utils/hiby.symvers",
+                "sha256": "a89dc22eeab1bf1c8830c46e73ea9d0882a7568afbec4d9dd8596c34a271cd36",
+                "size_bytes": 45,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_utils/soc_utils.c",
+                "sha256": "fdecf5b069cd58b538d749f872c6bb9dba71c1ad280e85b3f727c39a5fafc1ca",
+                "size_bytes": 3042,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "utils.ko",
+          "default": "oem_stock",
+          "category": "shared_foundation",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/utils.ko",
+            "sha256": "98ba114b48e44fc4acb40df11c71b06346390216e1ae40f2f676b81670474964",
+            "size_bytes": 21100
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/utils.sh",
+            "sha256": "d5173017a4e352a27c3740ce6a2a663f37421fe5202ab05da2148d33c6a618e7",
+            "size_bytes": 16
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/utils",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/utils/Makefile",
+                "sha256": "710b4f77c6e46257752f7933e4130409565a98142a2a70937e7ae78d47203b43",
+                "size_bytes": 154,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/utils/utils.c",
+                "sha256": "1e104f3996e6d75264865757b03331b27d04b688db5114d1c661503bb0e10f75",
+                "size_bytes": 16852,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "x1600_hiby_r3proii_sound_card.ko",
+          "default": "oem_stock",
+          "category": "audio_coordinated",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/x1600_hiby_r3proii_sound_card.ko",
+            "sha256": "14a53774145466a3a91cbb5689aac9b40f5e9764fff2362b4bb5942755b9c78e",
+            "size_bytes": 12316
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3proii/rootfs/module_driver/x1600_hiby_r3proii_sound_card.sh",
+            "sha256": "17ae92d4de4f7dfcf72354cb18f5b43a47962a37c10c552b7a17f660569e5b2b",
+            "size_bytes": 40
+          },
+          "source_status": "native_board_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/x1600_hiby_r3proii_sound_card",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/x1600_hiby_r3proii_sound_card/Makefile",
+                "sha256": "6140bb871540ef10c8378f47a6ee08a9da7c4baba5af9225437959b854c71044",
+                "size_bytes": 348,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/x1600_hiby_r3proii_sound_card/hiby.symvers",
+                "sha256": "681b6a958ba8e7ad46ee225a6f3a8afb8ad913ae4ba8c42406291624de45da46",
+                "size_bytes": 658,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/x1600_hiby_r3proii_sound_card/x1600_hiby_r3proii_sound_card.c",
+                "sha256": "cd8e2d4500a010944b3d8e0efb344db8d34b6039b20296525c535cd4a1b4e081",
+                "size_bytes": 14197,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        }
+      ]
+    },
+    "r3ii_2025": {
+      "model_id": "r3ii_2025",
+      "source_archive": {
+        "path": "../compas-player/work/research/firmware-driver-refresh/vendor/r3ii2025/r3ii2025.upt",
+        "sha256": "764f0c6724675d4c0009c065576fd8a5d21564396f531a1440f261d46dd8b81a",
+        "size_bytes": 46759936,
+        "source_class": "local saved original firmware archive; no independent vendor signature was checked"
+      },
+      "extract_manifest": {
+        "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/input-manifest.json",
+        "sha256": "cc29e4918418462ffaf2ee6d1aad30909c10d73a0ca8341c10e4e22613d6c92b",
+        "extract_procedure": "7z unpacked UPT; verified OTA chunks using chained filename MD5 convention and ota_md5 markers; assembled ordered image bytes; verified uImage header+payload CRC32; extracted embedded FDT; unsquashfs extracted complete rootfs."
+      },
+      "kernel": {
+        "stock_ximage": {
+          "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/xImage",
+          "sha256": "0a3d255629c66d70d400b21fd956002b80245acaa0bc2e3092217edfc50f4e8e",
+          "size_bytes": 3731520
+        },
+        "stock_dtb": {
+          "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/stock.dtb",
+          "sha256": "8e99b1a2a0b18c18ba4bfd7240689c570a629e665147249ac2d2095974b33751"
+        },
+        "expected_oem_vermagic": "4.4.94+ preempt mod_unload MIPS32_R2 32BIT"
+      },
+      "inventory": {
+        "actual_oem_module_count": 31,
+        "kit_readme_claimed_oem_dropin_count": 31,
+        "kit_source_module_directory_count": 25,
+        "note": "Counts are distinct: R3 Pro II extracted OEM inventory has 32 modules; R3II 2025 has 31. Kit README describes 31 OEM drop-ins plus bcm_wlbt_power as optional cywdhd replacement."
+      },
+      "display_contract": {
+        "width": 320,
+        "height": 480,
+        "framebuffer_format_raw": 1,
+        "lcd_mode_raw": 4,
+        "refresh_hz": 45,
+        "panel_descriptor_bytes": 164,
+        "rotation_callback_at_160": true,
+        "evidence": "Extracted OEM panel modules and firmware kernel/module audit; raw enumerations retained. Do not transfer these values between models."
+      },
+      "stock_radio_wiring": {
+        "evidence_path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/cywdhd.sh",
+        "evidence_sha256": "d389ef6e66510573c026a2e3f7a98a2219f0ca080016ec289a652caec2f1fa71",
+        "parameters": {
+          "gpio_bt_wifi_power": "-1",
+          "gpio_wlan_reg_on": "PA19",
+          "gpio_wlan_wake_host": "PB24",
+          "gpio_bt_rst_n": "-1",
+          "gpio_bt_reg_on": "PA18",
+          "gpio_host_wake_bt": "PA12",
+          "gpio_bt_wake_host": "-1",
+          "gpio_bt_uart_rts": "-1"
+        },
+        "policy": "OEM cywdhd remains selected. Parameters document the board stock driver and must not be assumed to match bcm_wlbt_power."
+      },
+      "default_init_script": {
+        "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/driver_default_init_script.sh",
+        "sha256": "bd779e3f745c326efd1594fe7c6b8878e1c2d1c1a37240ce91862370c0fbd012",
+        "size_bytes": 554,
+        "load_order": [
+          "#!/bin/sh",
+          "",
+          "sh utils.sh",
+          "sh rmem_manager.sh",
+          "sh soc_utils.sh",
+          "sh soc_i2c.sh",
+          "sh i2c_gpio_add.sh",
+          "sh axp2101.sh",
+          "sh cw2015.sh",
+          "sh keyboard_gpio_add.sh",
+          "sh soc_gpio.sh",
+          "sh soc_pwm.sh",
+          "sh pwm_backlight.sh",
+          "sh soc_fb.sh",
+          "sh lcd_st77903_8bit.sh",
+          "sh soc_aic.sh",
+          "sh soc_msc.sh",
+          "sh soc_adc.sh",
+          "sh sa_sound_switch.sh",
+          "sh sa_sound_hbc3000.sh",
+          "sh codec_es9219.sh",
+          "sh cywdhd.sh",
+          "sh gt9xx_touch.sh",
+          "sh keyboard_adc.sh",
+          "sh keyboard_ring.sh",
+          "sh leds_sgm31324_add.sh",
+          "sh sa_config.sh",
+          "sh sa_earpods_adc.sh",
+          "sh sa_hgl_dma.sh",
+          "sh sau.sh",
+          "sh soc_efuse.sh",
+          "sh tcs1421.sh",
+          "sh x1600_hiby_r3ii_sound_card.sh"
+        ]
+      },
+      "modules": [
+        {
+          "module": "axp2101.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/axp2101.ko",
+            "sha256": "b47d58e1a4b275b691749b987b5930b385a25c4da14fafc28369768c9ff4f040",
+            "size_bytes": 91296
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/axp2101.sh",
+            "sha256": "c8b3bd5768bf38d3c28c12496bf493899c1e9ee438a24ed06f60fc0e5019e0f7",
+            "size_bytes": 1279
+          },
+          "source_status": "not_reconstructed",
+          "source": null,
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "codec_es9219.ko",
+          "default": "oem_stock",
+          "category": "audio_coordinated",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/codec_es9219.ko",
+            "sha256": "d3dd36175dd56be2499e2231c97c97ff4f8c1a97f1a2f43850ea9ff5fdc088c4",
+            "size_bytes": 26252
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/codec_es9219.sh",
+            "sha256": "9dcc63d56dccb740b0d6dc993a0a31e50388731528b3aa85e029ca09299f77ab",
+            "size_bytes": 283
+          },
+          "source_status": "not_reconstructed",
+          "source": null,
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "cw2015.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/cw2015.ko",
+            "sha256": "c59db24c60fbc23c38a1d72f515813cbee295d164bb16dece6714016856b0fe0",
+            "size_bytes": 15880
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/cw2015.sh",
+            "sha256": "3581a213a38483f9f279ea148049e721bcb74fd8cdbf4573e90e73cb1c0001a3",
+            "size_bytes": 250
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/cw2015",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/cw2015/Makefile",
+                "sha256": "03d83049421ad979131f900e33c5232be65943f379851c9f74a976740832db32",
+                "size_bytes": 325,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/cw2015/cw2015.c",
+                "sha256": "87f98bb8e6d0584ef87731dd79db3fba8b04f93a9899a28326a44d90d363126a",
+                "size_bytes": 21206,
+                "spdx_license_identifier": "GPL-2.0"
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/cw2015/hiby.symvers",
+                "sha256": "ba41dd98f52907dc8315d4d6ceba195572cae2643b6d5f26e1ae93e40dc8ce6a",
+                "size_bytes": 97,
+                "spdx_license_identifier": null
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "cywdhd.ko",
+          "default": "oem_stock",
+          "category": "radio_independent",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/cywdhd.ko",
+            "sha256": "ac04a3d646792713e5f8a23605c795f2721e9f5d9a4efe9a55c313782e01f220",
+            "size_bytes": 1407004
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/cywdhd.sh",
+            "sha256": "d389ef6e66510573c026a2e3f7a98a2219f0ca080016ec289a652caec2f1fa71",
+            "size_bytes": 279
+          },
+          "source_status": "not_reconstructed",
+          "source": null,
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "gt9xx_touch.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/gt9xx_touch.ko",
+            "sha256": "b5c394f2e6ad53985c7c55d8db225f7c349b5e6aad6d8557360b8436efa36f62",
+            "size_bytes": 63000
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/gt9xx_touch.sh",
+            "sha256": "9740dbe00ac702e8bbda216dd97ae63322ed0f87eb4bef4e631c2d33a470566a",
+            "size_bytes": 354
+          },
+          "source_status": "not_reconstructed",
+          "source": null,
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "i2c_gpio_add.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/i2c_gpio_add.ko",
+            "sha256": "1b333c2b5e6307dad812b792d039d1a547eea1b0542c889b281cfc859a6b1b21",
+            "size_bytes": 20088
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/i2c_gpio_add.sh",
+            "sha256": "ac57423a0798fb3308ec5ff1a32a4a580a1b534ed3e91e8b0ccda12cf0461d34",
+            "size_bytes": 119
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/i2c_gpio_add",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/i2c_gpio_add/Makefile",
+                "sha256": "ccd7c16dcd434df583411cad06a5ab3223952ef421ef641e5614641c964a7185",
+                "size_bytes": 331,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/i2c_gpio_add/hiby.symvers",
+                "sha256": "c009ac6f2f67e4629e10c9e537805feb6064b29cc82c53d7227ef0b4f4ff2972",
+                "size_bytes": 176,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/i2c_gpio_add/i2c_gpio_add.c",
+                "sha256": "43c89d9e847f002429a0a36348de539da691fb558250550a7f51829aba4b78ec",
+                "size_bytes": 21601,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "keyboard_adc.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/keyboard_adc.ko",
+            "sha256": "436f49447ff93d56b90fe148eb28cc8c5e21ef9b264e6f5dc6c6cee46e5a18d8",
+            "size_bytes": 12668
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/keyboard_adc.sh",
+            "sha256": "eabaea8d378906884674c1e134bb24b3615ce99e13dafdf9d91e745d6af21fed",
+            "size_bytes": 364
+          },
+          "source_status": "not_reconstructed",
+          "source": null,
+          "other_board_source_candidate": {
+            "board": "r3proii",
+            "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/keyboard_adc",
+            "meaning": "same-name source is R3 Pro II board-specific; not accepted as this board source"
+          },
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "keyboard_gpio_add.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/keyboard_gpio_add.ko",
+            "sha256": "0be8a25282ce9d3c967285f2821c92c3e9ef3c8bf1699743fb10fd660285507a",
+            "size_bytes": 21560
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/keyboard_gpio_add.sh",
+            "sha256": "a9f3b9d0e35336252facd01d6a75cf8246273440410f0102f39d4fa5084d6406",
+            "size_bytes": 295
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/keyboard_gpio_add",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/keyboard_gpio_add/Makefile",
+                "sha256": "5506f424341f594cc08a57347b4dcf411d80707a81e2037e467edf708d3d52bd",
+                "size_bytes": 336,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/keyboard_gpio_add/hiby.symvers",
+                "sha256": "d4d5824bb99c605ff61a6fef408ac3d17af52c5eba11fa4604df6498da679428",
+                "size_bytes": 221,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/keyboard_gpio_add/keyboard_gpio_add.c",
+                "sha256": "853d5d572c0c07b46b1261ac89298d0e313600368000986a6b40451095284795",
+                "size_bytes": 25101,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "keyboard_ring.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/keyboard_ring.ko",
+            "sha256": "2d2eb2a686e778bec648a1251820103e747da73328fb3e935f3bf9f967701c30",
+            "size_bytes": 12196
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/keyboard_ring.sh",
+            "sha256": "fdfc2299418ee873192ae78df473b53d3c4f1c5298dcffbde3566c598594e41b",
+            "size_bytes": 117
+          },
+          "source_status": "not_reconstructed",
+          "source": null,
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "lcd_st77903_8bit.ko",
+          "default": "oem_stock",
+          "category": "display_independent",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/lcd_st77903_8bit.ko",
+            "sha256": "d87652a15e018556dff5ce2a67d20ab237e0d20783a9dc106c37a7f37bb5c2cc",
+            "size_bytes": 12456
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/lcd_st77903_8bit.sh",
+            "sha256": "e53c80fc7cc5544b5b19b447262529de616324b230e24e84510437871fe433e9",
+            "size_bytes": 171
+          },
+          "source_status": "not_reconstructed",
+          "source": null,
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "leds_sgm31324_add.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/leds_sgm31324_add.ko",
+            "sha256": "0a16698908aa49be9907826055e7fdb657d8abbce49222349845838eaa259f5a",
+            "size_bytes": 13972
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/leds_sgm31324_add.sh",
+            "sha256": "138a5bbd7a9e791b463612ff0df9e07dfa9d6ba4e3140848fd6fd7f8a984a393",
+            "size_bytes": 820
+          },
+          "source_status": "not_reconstructed",
+          "source": null,
+          "other_board_source_candidate": {
+            "board": "r3proii",
+            "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/leds_sgm31324_add",
+            "meaning": "same-name source is R3 Pro II board-specific; not accepted as this board source"
+          },
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "pwm_backlight.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/pwm_backlight.ko",
+            "sha256": "378faadaece3ab0fab5f6aab145aa42a1ec098fa52537987568db63e4b6a5113",
+            "size_bytes": 6928
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/pwm_backlight.sh",
+            "sha256": "acd10df2f4a13208650ad3bc55efff13a6b3d0847e387b13114465d2a198fd51",
+            "size_bytes": 198
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/pwm_backlight",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/pwm_backlight/Makefile",
+                "sha256": "42743d9b810187e75a247ffc18b1c421dd9259be42c29c8668b4163bbe3bb18e",
+                "size_bytes": 332,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/pwm_backlight/hiby.symvers",
+                "sha256": "b08c4ec84940ff12d49ebc226a0c0afe4b7607a78b85947c0fb815bad195233e",
+                "size_bytes": 274,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/pwm_backlight/pwm_backlight.c",
+                "sha256": "3a54dea269f173533b4626da34f63a5379c83bfe32f1a4922e7273b35435a650",
+                "size_bytes": 5617,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "rmem_manager.ko",
+          "default": "oem_stock",
+          "category": "shared_foundation",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/rmem_manager.ko",
+            "sha256": "d7d176057f1246fe77052c09aea67a5788e8c01e07332c3a5b1df55fe43e8b4d",
+            "size_bytes": 13460
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/rmem_manager.sh",
+            "sha256": "1311deca3f92b657498fca15f1412d54f658ff938bd6296114e4754b16eb9f10",
+            "size_bytes": 631
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/rmem_manager",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/rmem_manager/Makefile",
+                "sha256": "61b1a2debea37bb682e2346d36b5a244149f30890005b2035de91934ccdad9ab",
+                "size_bytes": 161,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/rmem_manager/rmem_manager.c",
+                "sha256": "146ac1942886b9cd09baad74ac6f6a24327cbf29df306a18b8e3402089924af8",
+                "size_bytes": 12321,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "sa_config_module.ko",
+          "default": "oem_stock",
+          "category": "audio_coordinated",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/sa_config_module.ko",
+            "sha256": "8b169e8a049a436e2d60648dffdca33085b3442046bb0ebd828bade097c30a18",
+            "size_bytes": 7028
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/sa_config.sh",
+            "sha256": "d6e8421640f56c31e5b7351cdc7d31b8259525372527cdfb12637d2e3f51a7c5",
+            "size_bytes": 28
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/sa_config_module",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/sa_config_module/Makefile",
+                "sha256": "ce4ced8bb2b597f1d4a2df57460c5b04109c5e80f49b7062e76e3a2a04aa2b6f",
+                "size_bytes": 350,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/sa_config_module/sa_config_module.c",
+                "sha256": "6bc1c29a5806374270f0b75d9e8bd6cf58eb669857feb008c722865e0c5402d1",
+                "size_bytes": 4227,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "sa_earpods_adc.ko",
+          "default": "oem_stock",
+          "category": "audio_coordinated",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/sa_earpods_adc.ko",
+            "sha256": "236b4af6089c130bb4e19c01adb470f4248c0b43b5f08e49117866457427b0f0",
+            "size_bytes": 15036
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/sa_earpods_adc.sh",
+            "sha256": "5ff76eec3897d59b13f62177070afcaa19b2f19c98c428d35e597b9e94104945",
+            "size_bytes": 371
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/sa_earpods_adc",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/sa_earpods_adc/Makefile",
+                "sha256": "c3ce001c749e0f64f289e5df6a30928b297042c32160a7e297454a3dcce6daf5",
+                "size_bytes": 333,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/sa_earpods_adc/hiby.symvers",
+                "sha256": "72daabe632a11fd2544f34a2229acb141217341cc7957be1d26d314e74137c2c",
+                "size_bytes": 206,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/sa_earpods_adc/sa_earpods_adc.c",
+                "sha256": "c238547835f3947fd8ee705d99098b1562b86f21fcd9387637f62dc2fc1672a5",
+                "size_bytes": 15398,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "sa_hgl_dma.ko",
+          "default": "oem_stock",
+          "category": "audio_coordinated",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/sa_hgl_dma.ko",
+            "sha256": "0e568f2c67108fa8ea9c7b387f946be59d8bc28cc0302b697bea28b8b50b67f7",
+            "size_bytes": 7836
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/sa_hgl_dma.sh",
+            "sha256": "e043116e93e3f6d5dc88ceefebbfe473cbd978593e3f272883a9257d63f761a0",
+            "size_bytes": 47
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/sa_hgl_dma",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/sa_hgl_dma/Makefile",
+                "sha256": "d7468f98d1194791d388818995d6b95569e5f8482627acd96bf79e4d9e985acd",
+                "size_bytes": 329,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/sa_hgl_dma/hiby.symvers",
+                "sha256": "c2c99506675593350f3dc62b046be227d77ef4fa0e6ddeabc0a62dc09ffebb4e",
+                "size_bytes": 105,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/sa_hgl_dma/sa_hgl_dma.c",
+                "sha256": "2c87a9e84fb3e78b7c53954a822cd17166d2e5eed5e7899502c865cdb7c31468",
+                "size_bytes": 6251,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "sa_sound_hbc3000.ko",
+          "default": "oem_stock",
+          "category": "audio_coordinated",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/sa_sound_hbc3000.ko",
+            "sha256": "fcc1448f376f1e6a0efc8ca32caa7c820e1b9c55e91b98b5c6acce8385359c2b",
+            "size_bytes": 72068
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/sa_sound_hbc3000.sh",
+            "sha256": "d1f488029c1db525a2c44e6df50a8cba59c9785a4f14fef831f5a8e756f01de4",
+            "size_bytes": 354
+          },
+          "source_status": "not_reconstructed",
+          "source": null,
+          "other_board_source_candidate": {
+            "board": "r3proii",
+            "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/sa_sound_hbc3000",
+            "meaning": "same-name source is R3 Pro II board-specific; not accepted as this board source"
+          },
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "sa_sound_switch.ko",
+          "default": "oem_stock",
+          "category": "audio_coordinated",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/sa_sound_switch.ko",
+            "sha256": "f54a5e92aa390f1a44181e8f2aba8cac61ca988ac1be1acdd44a4f1934bbb7b8",
+            "size_bytes": 19444
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/sa_sound_switch.sh",
+            "sha256": "95f4d6f276471a518a894ee6ff991807cf300142421c15aa68f22d7cd7c17203",
+            "size_bytes": 716
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/sa_sound_switch",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/sa_sound_switch/Makefile",
+                "sha256": "dada9ac9ffffced0c0c7f13d41d39208826bfd48696aa8431b2d7ed40347f384",
+                "size_bytes": 334,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/sa_sound_switch/hiby.symvers",
+                "sha256": "26684449f18b5633f9ed71d9dd566ff142830d87daeabda159f654b049511e0e",
+                "size_bytes": 238,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/sa_sound_switch/sa_sound_switch.c",
+                "sha256": "e1e8bfb3a7390ce83f21573ce1775f28325c498fdc5e7eb986b3ca34eb3c1f15",
+                "size_bytes": 11697,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "sau.ko",
+          "default": "oem_stock",
+          "category": "audio_coordinated",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/sau.ko",
+            "sha256": "d778df7cb03ee0a91437a90bc6f057ce4df88f2dbafefa325af53a178f109ada",
+            "size_bytes": 6928
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/sau.sh",
+            "sha256": "513f10cb751f217cc4af0c5dda15b3e22a6bf4e5c06349404d95087ad61c3d99",
+            "size_bytes": 13
+          },
+          "source_status": "not_reconstructed",
+          "source": null,
+          "other_board_source_candidate": {
+            "board": "r3proii",
+            "path": "../hiby-custom-kernel-display-20261009/boards/r3proii/modules/sau",
+            "meaning": "same-name source is R3 Pro II board-specific; not accepted as this board source"
+          },
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "soc_adc.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/soc_adc.ko",
+            "sha256": "9b010c9def91432c10a6b69eab1113d13af0117fc45c7696c29edc6fa41d1adf",
+            "size_bytes": 13572
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/soc_adc.sh",
+            "sha256": "eb3f4d46b670e611851553eae3af4f0d4dc76ee7628d431885a1adb24bf9cc30",
+            "size_bytes": 33
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/soc_adc",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_adc/Makefile",
+                "sha256": "77fae59e2c5a1e15465c2bbbdaa630b3768cb28f22029b74ac2a6b5f18a6f26d",
+                "size_bytes": 156,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_adc/soc_adc.c",
+                "sha256": "9a1c090ecde90f0192aec8b8c9ea5a3a4021c8adf613c306a788dacc5f2dd282",
+                "size_bytes": 10487,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "soc_aic.ko",
+          "default": "oem_stock",
+          "category": "audio_coordinated",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/soc_aic.ko",
+            "sha256": "43b1c5bc4cebf0f1dd0579627cb27d1093ca36043a9a98e11fcd8f822abdf698",
+            "size_bytes": 31872
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/soc_aic.sh",
+            "sha256": "5f9d6d8223f60473f42760573bcc25969d507441b793dcd663bf8a57d2320c84",
+            "size_bytes": 143
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/soc_aic",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_aic/Makefile",
+                "sha256": "fdf34a38c74ce89c066bf3ee5d5de75af26892921c1d4d8f73b4b5c32af3881f",
+                "size_bytes": 326,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_aic/hiby.symvers",
+                "sha256": "b5868b4dccc14a33152ee8c026ff688d613b401d3d405971ef25110c6a6a5b63",
+                "size_bytes": 174,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_aic/soc_aic.c",
+                "sha256": "cc26e44e94bbd31b3492c5013dce7c56dfc208bb11e3fa7419f6b00922b5c9a8",
+                "size_bytes": 38035,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "soc_efuse.ko",
+          "default": "oem_stock",
+          "category": "shared_foundation",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/soc_efuse.ko",
+            "sha256": "01cf14130ee2452ee3253d6c3aa7784c6712557a91808cbbade8064f867b893a",
+            "size_bytes": 12744
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/soc_efuse.sh",
+            "sha256": "3970d0b5324048853ad3921c06d40cf31e31ff66e118c8303a290613e7fcd615",
+            "size_bytes": 40
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/soc_efuse",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_efuse/Makefile",
+                "sha256": "6fd4b699f7f45dedba7d4b7947a2871b858809ac440d09979805b71bd1b0e008",
+                "size_bytes": 328,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_efuse/hiby.symvers",
+                "sha256": "dc6866b0293eddbe33c814bbe5d66f022c0de19b56af55995ca1cd2c38eb61f1",
+                "size_bytes": 92,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_efuse/soc_efuse.c",
+                "sha256": "f6d2c50d0442a21758a89bb2d936d59fd6944512fccf8aff1115dc12db30bca7",
+                "size_bytes": 14368,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "soc_fb.ko",
+          "default": "oem_stock",
+          "category": "display_independent",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/soc_fb.ko",
+            "sha256": "e7d535c725f31675c53baeb9b6bda2a7326debd9a9c9198ac7c852588d3f13f6",
+            "size_bytes": 28036
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/soc_fb.sh",
+            "sha256": "3210421b3cb832b234bfedd959ed1a4f954a7eaaf73408a54cecaae1e02d511c",
+            "size_bytes": 65
+          },
+          "source_status": "not_reconstructed",
+          "source": null,
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "soc_gpio.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/soc_gpio.ko",
+            "sha256": "365ae55161a773c32ef28d669b9a17e54602cc46bd522d24bf55d718a480e0bf",
+            "size_bytes": 8828
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/soc_gpio.sh",
+            "sha256": "9396de65d11c20c3032f6199ec515477057b8e3ffb785ddfdbe8eecd56a20b0a",
+            "size_bytes": 27
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/soc_gpio",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_gpio/Makefile",
+                "sha256": "76e64ed7358381b874ee98dc72cd9ad734e60fdc3c52aceb1ba7e68a0e3ba971",
+                "size_bytes": 327,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_gpio/hiby.symvers",
+                "sha256": "54bb22c18cabcec3df723da5c40f4354fa9af6345c87a6245a415a9c3dd5b08c",
+                "size_bytes": 88,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_gpio/soc_gpio.c",
+                "sha256": "c657b3f76f85dfcf789579238d157841864fff017e18fef4daa3efca86b4f551",
+                "size_bytes": 10388,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "soc_i2c.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/soc_i2c.ko",
+            "sha256": "aefbbc6b766d32bd9eaab512a4e630b2afff4dd7b67df722c7d153663ce2fbbe",
+            "size_bytes": 18108
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/soc_i2c.sh",
+            "sha256": "8a267f258a262f4958d5bb4fa398c9a4872fd2698147ece09efcf23aaf966b09",
+            "size_bytes": 149
+          },
+          "source_status": "not_reconstructed",
+          "source": null,
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "soc_msc.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/soc_msc.ko",
+            "sha256": "eedf3b2973f55edc534274a813efb6b35c9193280194813f56fac44d9f16a0c6",
+            "size_bytes": 54520
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/soc_msc.sh",
+            "sha256": "1398a9ec8f96d364e763504425bfefff8af8f4872abd04567758f31e11b0f1c7",
+            "size_bytes": 1613
+          },
+          "source_status": "not_reconstructed",
+          "source": null,
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "soc_pwm.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/soc_pwm.ko",
+            "sha256": "a116df64c2ab7c998a18f9c5908a43f294f7989633a3bd7907f3d3638f373304",
+            "size_bytes": 21408
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/soc_pwm.sh",
+            "sha256": "7eba92ea1b5a668b3cb55ce9f6efa47d46e8f4e46ed253a80ee31ccb4109601c",
+            "size_bytes": 19
+          },
+          "source_status": "not_reconstructed",
+          "source": null,
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "soc_utils.ko",
+          "default": "oem_stock",
+          "category": "shared_foundation",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/soc_utils.ko",
+            "sha256": "417885949b96d9ac7e006a121b23850a577dd587978170ee706ed9d53879fda9",
+            "size_bytes": 5048
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/soc_utils.sh",
+            "sha256": "1d4541725de38f3a08c54f75b4a51aca47d619ac8e10148ec62af87aef4165d3",
+            "size_bytes": 38
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/soc_utils",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_utils/Makefile",
+                "sha256": "bcc0634f07a7661dccddf0ae5578fce2b944022405b92405cd0b3dafa636b134",
+                "size_bytes": 328,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_utils/hiby.symvers",
+                "sha256": "a89dc22eeab1bf1c8830c46e73ea9d0882a7568afbec4d9dd8596c34a271cd36",
+                "size_bytes": 45,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/soc_utils/soc_utils.c",
+                "sha256": "fdecf5b069cd58b538d749f872c6bb9dba71c1ad280e85b3f727c39a5fafc1ca",
+                "size_bytes": 3042,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "tcs1421_add.ko",
+          "default": "oem_stock",
+          "category": "board_peripherals",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/tcs1421_add.ko",
+            "sha256": "9c9dbaf1cac772a0041ec640d5b5f6fcb46f32c9ee807cd82682365826e38fd7",
+            "size_bytes": 8204
+          },
+          "loader_script": null,
+          "source_status": "not_reconstructed",
+          "source": null,
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "utils.ko",
+          "default": "oem_stock",
+          "category": "shared_foundation",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/utils.ko",
+            "sha256": "2be36e593a75493e19277eb9c551190d9b318c9d2e315fee229dd265bb4b0be1",
+            "size_bytes": 21100
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/utils.sh",
+            "sha256": "d5173017a4e352a27c3740ce6a2a663f37421fe5202ab05da2148d33c6a618e7",
+            "size_bytes": 16
+          },
+          "source_status": "native_common_source",
+          "source": {
+            "directory": "../hiby-custom-kernel-display-20261009/modules/utils",
+            "files": [
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/utils/Makefile",
+                "sha256": "710b4f77c6e46257752f7933e4130409565a98142a2a70937e7ae78d47203b43",
+                "size_bytes": 154,
+                "spdx_license_identifier": null
+              },
+              {
+                "path": "../hiby-custom-kernel-display-20261009/modules/utils/utils.c",
+                "sha256": "1e104f3996e6d75264865757b03331b27d04b688db5114d1c661503bb0e10f75",
+                "size_bytes": 16852,
+                "spdx_license_identifier": "GPL-2.0"
+              }
+            ],
+            "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+          },
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        },
+        {
+          "module": "x1600_hiby_r3ii_sound_card.ko",
+          "default": "oem_stock",
+          "category": "audio_coordinated",
+          "oem_artifact": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/x1600_hiby_r3ii_sound_card.ko",
+            "sha256": "bfb8cba7289024ded6dfc89cbd1d3097f627572f1c83b24139d7fbc96c797c10",
+            "size_bytes": 13124
+          },
+          "loader_script": {
+            "path": "../compas-r3-kernel-port-investigation-20261009/inputs/r3ii_2025/rootfs/module_driver/x1600_hiby_r3ii_sound_card.sh",
+            "sha256": "79a5b7c1809f8d0a6111fcf866e4b8b9cfb54153cba01f4d234cd1442100990f",
+            "size_bytes": 97
+          },
+          "source_status": "not_reconstructed",
+          "source": null,
+          "other_board_source_candidate": null,
+          "validation": "inventory_only; source presence is not ABI, build, load, or runtime validation"
+        }
+      ]
+    }
+  },
+  "optional_non_oem_alternatives": [
+    {
+      "module": "bcm_wlbt_power.ko",
+      "role": "optional_replacement_for_cywdhd",
+      "oem_default": false,
+      "source": {
+        "directory": "../hiby-custom-kernel-display-20261009/modules/bcm_wlbt_power",
+        "files": [
+          {
+            "path": "../hiby-custom-kernel-display-20261009/modules/bcm_wlbt_power/Makefile",
+            "sha256": "1de27c690ffdf0f1c13255a16329b1a62c269fb03d0a4292fca523f84ca7713d",
+            "size_bytes": 163,
+            "spdx_license_identifier": null
+          },
+          {
+            "path": "../hiby-custom-kernel-display-20261009/modules/bcm_wlbt_power/bcm_wlbt_power.c",
+            "sha256": "60fe961799983b98ff1414dccc1d8b3b5dfc3fe693709ba0feb3e56b0803b02d",
+            "size_bytes": 14692,
+            "spdx_license_identifier": "GPL-2.0"
+          }
+        ],
+        "kit_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
+      },
+      "source_license_file": {
+        "path": "../hiby-custom-kernel-display-20261009/LICENSE",
+        "sha256": "e6d6a009505e345fe949e1310334fcb0747f28dae2856759de102ab66b722cb4",
+        "license": "GPL-2.0"
+      },
+      "board_support_status": {
+        "r3proii": "not validated as a replacement for this extracted board; stock cywdhd uses PF02/PC25/PF03/PF05 while source comments mention R3 Pro II and R1 wiring but no exact R3ProII board setup is proven here",
+        "r3ii_2025": "no native board wiring or runtime validation; OEM cywdhd script uses PA19/PB24/PA18/PA12"
+      },
+      "warning": "Source presence does not establish ABI or runtime compatibility. Requires explicit board wiring, SDIO lifecycle, firmware, userspace, and validation."
+    }
+  ],
+  "evidence_cautions": [
+    "OEM module hashes identify files in the fresh local extraction, not independently vendor-signed artifacts.",
+    "Source directory/name match is only source availability. It does not establish matching vermagic, imported/exported symbols, struct ABI, behavior, or board wiring.",
+    "The R3II 2025 board has no board-specific source tree in the pinned kit. Never alias R3 Pro II board sources to R3II 2025.",
+    "For the display, preserve raw framebuffer format and LCD mode values per model: R3 Pro II 480x720/fb_fmt=1/lcd_mode=0; R3II 2025 320x480/fb_fmt=1/lcd_mode=4. Both extracted contracts use 164-byte panel descriptors; R3II 2025 rotation callback at 160 is present while R3 Pro II is not. These raw fields are not proof that a candidate display implementation is compatible.",
+    "Radio GPIO parameters come from each exact extracted model cywdhd.sh; values differ between R3 Pro II and R3II 2025. No board wiring should be inferred from another R3 model or from R1."
+  ],
+  "validation_state": "inventory_only; no SDK build, ABI comparison, module load, device call, firmware repack, or flash was performed"
+}

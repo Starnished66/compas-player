@@ -765,5 +765,110 @@
         "Playback, Wi-Fi, library scan and animations under combined load."
       ]
     }
+  },
+  "r3_port_starter_validation": {
+    "date": "2026-10-09",
+    "scope": "Host-only kernel compatibility foundation and four shared utility driver candidates for each model. All OEM modules remain the default.",
+    "source_pin_commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c",
+    "local_kernel_patches": [
+      "compas-dma-signed-gaps.patch",
+      "compas-usb-dac-safety.patch"
+    ],
+    "boards": {
+      "r3proii": {
+        "kernel_preparation": {
+          "path": "../compas-r3-kernel-port-investigation-20261009/build-r3proii-final/preparation.json",
+          "sha256": "ae3563eea52068a6a56357f17ce2fec7f88bccf209fa7d5894b4be9cdd5958cd"
+        },
+        "kernel_sha256": "33d801a85b2bee6fb9e5452881c43d952ae820f118e57df9bb615340e9d8554b",
+        "kernel_size_bytes": 3481664,
+        "system_map_sha256": "f7aa757ac02fe10d817bf0375813edad07fab11d7a53c4c9e554e8ebec8385be",
+        "config_sha256": "a845f0c9d27f784d0a5d4b3e4cab0e460b3684098df2cfe8f4ab4ccbb9ec84a4",
+        "kernel_release": "4.4.94+",
+        "stock_dtb_sha256": "6a7f3b2b947e08209335cf351e91ec99e58ab862c5125e8af4b5740ed0d1b24e",
+        "oem_module_count": 32,
+        "oem_static_symbol_vermagic_checks": "passed",
+        "utility_candidate_build": {
+          "path": "../compas-r3-kernel-port-investigation-20261009/candidate-common-modules-r3proii/build-manifest.json",
+          "sha256": "4aa072cc0ffe0cacc8cf32637d272c58a43874b2ddec80699477b744230db74b"
+        },
+        "utility_candidate_abi": {
+          "path": "../compas-r3-kernel-port-investigation-20261009/candidate-common-modules-r3proii/abi-report.json",
+          "sha256": "25d9424895be958e7ea445960b33bf1137e373dc66220abc4a3962e026bf9570"
+        },
+        "utility_candidate_sha256": {
+          "rmem_manager.ko": "e6249e9bdb604882fcec31d98aa7984c46a0cf0f3150cb65797e71f61110a6bd",
+          "soc_efuse.ko": "431d712f0055f3dbf2f0283c6a3302186a1092d3ccb35dfa311772bb54e373d1",
+          "soc_utils.ko": "9d0c53588af7a263038ea9b4123c4b97fee1e76a40804e31964db70fc4e7b74d",
+          "utils.ko": "26c3b44bf577c97efb3f8b87aa49cc45553995264c593729bda5fb63a8dd8625"
+        },
+        "candidate_selected_module_count": 32,
+        "candidate_remaining_oem_hashes_verified": 28
+      },
+      "r3ii_2025": {
+        "kernel_preparation": {
+          "path": "../compas-r3-kernel-port-investigation-20261009/build-r3ii_2025/preparation.json",
+          "sha256": "3b4f87f2b12fc39a99a2d127ce7a47bf008d08bca6a053d6d3c038bafc3528f8"
+        },
+        "kernel_sha256": "b87957a3ad085e999221fdca698704fe4e49381b68b7d957dbdb28c723b4b418",
+        "kernel_size_bytes": 3448896,
+        "system_map_sha256": "b249ff48b5f5895342e47c0656f1320af3fe9dd48c75159f747068b5f7bf0487",
+        "config_sha256": "cbb9bfe60f9765314cb09779530af5706621ab6f46e2473ff4982d35c90eb56e",
+        "kernel_release": "4.4.94+",
+        "stock_dtb_sha256": "8e99b1a2a0b18c18ba4bfd7240689c570a629e665147249ac2d2095974b33751",
+        "oem_module_count": 31,
+        "oem_static_symbol_vermagic_checks": "passed",
+        "utility_candidate_build": {
+          "path": "../compas-r3-kernel-port-investigation-20261009/candidate-common-modules-r3ii_2025/build-manifest.json",
+          "sha256": "295c3c9b7b509cfb93561f525fd90dd2e692587dc6a003b91cc220460df319f1"
+        },
+        "utility_candidate_abi": {
+          "path": "../compas-r3-kernel-port-investigation-20261009/candidate-common-modules-r3ii_2025/abi-report.json",
+          "sha256": "46fedb951cf04c8bdb083e7387cb48e79c1af3bb74393069f6e9c94df1015315"
+        },
+        "utility_candidate_sha256": {
+          "rmem_manager.ko": "94d0177ffeee18eca073dc864f036ba913f77541cfe875ed43f37b125ddd3fda",
+          "soc_efuse.ko": "457226be5e89745b71dd34023ae26758902d1f779b141b6d4cc8bef33dc3fd78",
+          "soc_utils.ko": "f5a2ee14c25084b52296da3ccf2dd4029540e1c8ab7bc4cd0903f90a8bac9936",
+          "utils.ko": "3e82a712bc884157314882a17a9686d5e52c0f39cfcd8cd22b9fac5574b54058"
+        },
+        "candidate_selected_module_count": 31,
+        "candidate_remaining_oem_hashes_verified": 27
+      }
+    },
+    "reviews": [
+      {
+        "model": "claude-opus-5-5",
+        "scope": "Final preparer/configuration/inventory; PASS for provisional host-only starter",
+        "report": {
+          "path": "../compas-r3-kernel-port-investigation-20261009/opus-r3-final-review.json",
+          "sha256": "c5151e06a54438d2aaff7c02f94dd7ee3d92e105d524fe9838cb9524b2efda53"
+        }
+      },
+      {
+        "model": "gpt-6-astra",
+        "scope": "Stock symbol decoding and kernel/module configuration architecture",
+        "report": {
+          "path": "../compas-r3-kernel-port-investigation-20261009/astra-r3ii-config-architecture-review.json",
+          "sha256": "2b699f550e301fbd52e316c22ae6ef158471e294e30aa16fbff584b5713e6084"
+        }
+      }
+    ],
+    "validation": {
+      "kernel_tool_tests": 205,
+      "root_independent_kernel_validation": "Both exact DTB/config/release and full OEM symbol/vermagic checks passed.",
+      "root_independent_candidate_validation": "Four built modules and all remaining exact OEM hashes verified per model."
+    },
+    "unported_or_pending": [
+      "Board-specific display/panel ABI and lifecycle integration.",
+      "Radio power, readiness, Bluetooth coexistence and suspend/startup integration.",
+      "Board-specific audio and peripherals.",
+      "Utility function/struct/ioctl ABI and hardware validation.",
+      "Firmware packaging and R3 device performance/functional tests."
+    ],
+    "original_oem_config_recovered": false,
+    "r3_device_tested": false,
+    "firmware_packaged_or_flashed": false,
+    "performance_improvement_claim": false
   }
 }
