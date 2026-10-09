@@ -92,7 +92,7 @@ static bool discard_frames(opus_decoder_wrap_t * dec, uint64_t count) {
 }
 
 opus_decoder_wrap_t * opus_open_file(const char * path) {
-    ogg_demux_t * demux = ogg_demux_open(path);
+    ogg_demux_t * demux = ogg_demux_open_audio(path);
     if (!demux) return NULL;
 
     unsigned int channels = ogg_demux_get_opus_channels(demux);

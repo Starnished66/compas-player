@@ -33,6 +33,10 @@ ogg_codec_t ogg_detect_codec(const char * path);
 
 ogg_demux_t * ogg_demux_open(const char * path);
 
+/* Playback open: builds the seek index and consumes OpusTags without
+ * retaining the packet or copying comment values. */
+ogg_demux_t * ogg_demux_open_audio(const char * path);
+
 /* Metadata-only open used by the library scanner. It parses OpusHead and
  * OpusTags but deliberately skips the full-file seek-index build required
  * only for playback. When skip_large_values is true, embedded picture and

@@ -164,8 +164,10 @@ static bool load_page_at(ogg_demux_t * d, long offset) {
  * ogg_demux_read_packet() and the growable header-packet reader below
  * consume pages/segments through. */
 static bool next_segment(ogg_demux_t * d, uint8_t * out_len, const uint8_t ** out_data) {
-    if (d->segment_index >= d->segment_count) {
+    while (d->segment_index >= d->segment_count) {
         if (!load_page_at(d, d->next_page_offset)) return false;
+        /* Empty pages carry no lacing entries. Advance to the next page
+         * instead of reading a stale segment_table[0]. */
     }
     uint8_t seg_len = d->segment_table[d->segment_index];
     const uint8_t * seg_data = d->page_buf + 27 + d->segment_count + d->payload_cursor;
@@ -230,6 +232,22 @@ static bool read_packet_growable(ogg_demux_t * d, uint8_t ** out_buf, uint32_t *
     }
 }
 
+/* Playback needs only to advance past OpusTags. Count the packet's lacing
+ * segments while discarding their payload so oversized/corrupt headers keep
+ * the same bound as the metadata reader without allocating their contents. */
+static bool skip_header_packet(ogg_demux_t * d) {
+    uint32_t consumed = 0;
+    for (;;) {
+        uint8_t seg_len;
+        const uint8_t * seg_data;
+        if (!next_segment(d, &seg_len, &seg_data)) return false;
+        (void) seg_data;
+        if (consumed > OGG_MAX_HEADER_PACKET_SIZE - seg_len) return false;
+        consumed += seg_len;
+        if (seg_len < 255) return true;
+    }
+}
+
 static bool parse_opus_head(ogg_demux_t * d, const uint8_t * data, uint32_t size) {
     if (size < 19 || memcmp(data, "OpusHead", 8) != 0) return false;
     uint8_t version = data[8];
@@ -263,13 +281,13 @@ static void parse_opus_tags(ogg_demux_t * d, const uint8_t * data, uint32_t size
     if (size < 8 || memcmp(data, "OpusTags", 8) != 0) return;
 
     uint32_t pos = 8;
-    if (pos + 4 > size) return;
+    if (size - pos < 4) return;
     uint32_t vendor_len = audio_read_u32le(data + pos);
     pos += 4;
-    if (pos + vendor_len > size) return;
+    if (vendor_len > size - pos) return;
     pos += vendor_len;
 
-    if (pos + 4 > size) return;
+    if (size - pos < 4) return;
     uint32_t comment_count = audio_read_u32le(data + pos);
     pos += 4;
 
@@ -286,10 +304,10 @@ static void parse_opus_tags(ogg_demux_t * d, const uint8_t * data, uint32_t size
 
     unsigned int stored = 0;
     for (uint32_t i = 0; i < comment_count; i++) {
-        if (pos + 4 > size) break;
+        if (size - pos < 4) break;
         uint32_t clen = audio_read_u32le(data + pos);
         pos += 4;
-        if (pos + clen > size) break;
+        if (clen > size - pos) break;
 
         if (skip_large_values && comment_is_large_scan_value(data + pos, clen)) {
             pos += clen;
@@ -359,7 +377,8 @@ static bool build_page_index(ogg_demux_t * d) {
     return d->page_index_count > 0;
 }
 
-static ogg_demux_t * ogg_demux_open_internal(const char * path, bool build_index, bool skip_large_values) {
+static ogg_demux_t * ogg_demux_open_internal(const char * path, bool build_index, bool skip_large_values,
+                                             bool discard_tags) {
     FILE * f = fopen(path, "rb");
     if (!f) return NULL;
 
@@ -398,14 +417,21 @@ static ogg_demux_t * ogg_demux_open_internal(const char * path, bool build_index
         return NULL;
     }
 
-    uint8_t * tags_packet;
-    uint32_t tags_size;
-    if (!read_packet_growable(d, &tags_packet, &tags_size)) {
-        ogg_demux_close(d);
-        return NULL;
+    if (discard_tags) {
+        if (!skip_header_packet(d)) {
+            ogg_demux_close(d);
+            return NULL;
+        }
+    } else {
+        uint8_t * tags_packet;
+        uint32_t tags_size;
+        if (!read_packet_growable(d, &tags_packet, &tags_size)) {
+            ogg_demux_close(d);
+            return NULL;
+        }
+        parse_opus_tags(d, tags_packet, tags_size, skip_large_values);
+        free(tags_packet);
     }
-    parse_opus_tags(d, tags_packet, tags_size, skip_large_values);
-    free(tags_packet);
 
     /* We're positioned exactly at the first audio packet right now --
      * remember it so build_page_index()'s own file seeking (below) can be
@@ -432,11 +458,15 @@ static ogg_demux_t * ogg_demux_open_internal(const char * path, bool build_index
 }
 
 ogg_demux_t * ogg_demux_open(const char * path) {
-    return ogg_demux_open_internal(path, true, false);
+    return ogg_demux_open_internal(path, true, false, false);
+}
+
+ogg_demux_t * ogg_demux_open_audio(const char * path) {
+    return ogg_demux_open_internal(path, true, false, true);
 }
 
 ogg_demux_t * ogg_demux_open_metadata(const char * path, bool skip_large_values) {
-    return ogg_demux_open_internal(path, false, skip_large_values);
+    return ogg_demux_open_internal(path, false, skip_large_values, false);
 }
 
 unsigned int ogg_demux_get_opus_channels(const ogg_demux_t * d) {

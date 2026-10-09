@@ -422,3 +422,8 @@ __pycache__/
 
 # Local instrumented performance binary.
 /compas_player_perf
+
+# Opus stability regressions stay with the decoder fixes.
+!src/audio/ogg_demux_test.c
+!src/audio/opus_decoder_test.c
+!/scripts/test_opus_decoder.sh
