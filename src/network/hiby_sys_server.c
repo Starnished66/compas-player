@@ -6,53 +6,125 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <sys/time.h>
+#include <stdint.h>
+#include <pthread.h>
+#include <poll.h>
+#include <errno.h>
 #include <sys/un.h>
 #include <unistd.h>
 
+#ifndef SYS_SERVER_SOCKET_PATH
 #define SYS_SERVER_SOCKET_PATH "/var/run/sys_server"
+#endif
 
-/* Timeout for sys_server Unix domain socket communication. */
+/* Reports are copied into bounded latest-value slots. Socket and Bluetooth
+ * queries run on this process-lifetime worker, never on the caller/UI. */
 #define SYS_SERVER_TIMEOUT_MS 300
+enum { REPORT_STATUS, REPORT_METADATA, REPORT_POSITION, REPORT_VOLUME, REPORT_COUNT };
+typedef struct {
+    char command[600];
+    uint64_t sequence;
+    bool pending;
+    int volume;
+} report_slot_t;
+static report_slot_t reports[REPORT_COUNT];
+static pthread_mutex_t report_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t report_cond = PTHREAD_COND_INITIALIZER;
+static pthread_once_t report_once = PTHREAD_ONCE_INIT;
+static bool report_worker_ready;
+static uint64_t report_sequence;
+
+static int wait_socket(int fd, short events) {
+    struct pollfd p = { .fd = fd, .events = events };
+    int result;
+    do { result = poll(&p, 1, SYS_SERVER_TIMEOUT_MS); } while (result < 0 && errno == EINTR);
+    return result > 0 && (p.revents & events);
+}
 
 static void send_command(const char * cmd) {
-    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
     if (fd < 0) return;
-
-    struct timeval tv;
-    tv.tv_sec = SYS_SERVER_TIMEOUT_MS / 1000;
-    tv.tv_usec = (SYS_SERVER_TIMEOUT_MS % 1000) * 1000;
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-
-    struct sockaddr_un addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sun_family = AF_UNIX;
+    struct sockaddr_un addr = { .sun_family = AF_UNIX };
     snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", SYS_SERVER_SOCKET_PATH);
-
     if (connect(fd, (struct sockaddr *) &addr, sizeof(addr)) != 0) {
-        close(fd);
-        return;
+        if (errno != EINPROGRESS || !wait_socket(fd, POLLOUT)) goto done;
+        int error = 0;
+        socklen_t size = sizeof(error);
+        if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &size) != 0 || error) goto done;
     }
-
-    if (send(fd, cmd, strlen(cmd), 0) < 0) {
-        close(fd);
-        return;
+    size_t sent = 0, length = strlen(cmd);
+    while (sent < length) {
+        ssize_t count = send(fd, cmd + sent, length - sent, MSG_NOSIGNAL);
+        if (count > 0) sent += (size_t) count;
+        else if (count < 0 && errno == EINTR) continue;
+        else if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) && wait_socket(fd, POLLOUT)) continue;
+        else goto done;
     }
-
-    /* Drain reply so sys_server send does not block. */
-    char reply[64];
-    ssize_t got = recv(fd, reply, sizeof(reply) - 1, 0);
-    if (got > 0) {
-        reply[got] = '\0';
-        DBG_LOG("hiby_sys_server: \"%s\" -> \"%s\"\n", cmd, reply);
+    /* Drain one reply so the daemon's send cannot block. */
+    if (wait_socket(fd, POLLIN)) {
+        char reply[64];
+        ssize_t got = recv(fd, reply, sizeof(reply) - 1, 0);
+        if (got > 0) {
+            reply[got] = '\0';
+            DBG_LOG("hiby_sys_server: \"%s\" -> \"%s\"\n", cmd, reply);
+        }
     }
-
+done:
     close(fd);
 }
 
+static void * report_worker(void * unused) {
+    (void) unused;
+    for (;;) {
+        pthread_mutex_lock(&report_mutex);
+        int selected;
+        for (;;) {
+            selected = -1;
+            for (int i = 0; i < REPORT_COUNT; ++i)
+                if (reports[i].pending && (selected < 0 || reports[i].sequence < reports[selected].sequence)) selected = i;
+            if (selected >= 0) break;
+            pthread_cond_wait(&report_cond, &report_mutex);
+        }
+        report_slot_t report = reports[selected];
+        reports[selected].pending = false;
+        pthread_mutex_unlock(&report_mutex);
+        if (selected == REPORT_VOLUME) {
+            char mac[18];
+            if (!bt_control_get_connected_device_mac(mac, sizeof(mac))) continue;
+            int raw = (report.volume * 127 + 50) / 100;
+            snprintf(report.command, sizeof(report.command), "BT:ABSVOL:%s %d", mac, raw);
+        }
+        send_command(report.command);
+    }
+    return NULL;
+}
+
+static void start_report_worker(void) {
+    pthread_t thread;
+    if (pthread_create(&thread, NULL, report_worker, NULL) == 0) {
+        pthread_detach(thread);
+        report_worker_ready = true;
+    }
+}
+
+static void enqueue_report(int kind, const char * command, int volume) {
+    pthread_once(&report_once, start_report_worker);
+    if (!report_worker_ready) return;
+    pthread_mutex_lock(&report_mutex);
+    /* A new track supersedes any unsent position from the previous track.
+     * The subsequent position call is sequenced after this metadata. */
+    if (kind == REPORT_METADATA) reports[REPORT_POSITION].pending = false;
+    report_slot_t * slot = &reports[kind];
+    snprintf(slot->command, sizeof(slot->command), "%s", command ? command : "");
+    slot->volume = volume;
+    slot->sequence = ++report_sequence;
+    slot->pending = true;
+    pthread_cond_signal(&report_cond);
+    pthread_mutex_unlock(&report_mutex);
+}
+
 void hiby_sys_server_report_playback_status(bool playing) {
-    send_command(playing ? "BT:PLAYER_STATUS:playing" : "BT:PLAYER_STATUS:paused");
+    enqueue_report(REPORT_STATUS, playing ? "BT:PLAYER_STATUS:playing" : "BT:PLAYER_STATUS:paused", 0);
 }
 
 void hiby_sys_server_report_metadata(const char * title, const char * artist,
@@ -72,24 +144,17 @@ void hiby_sys_server_report_metadata(const char * title, const char * artist,
     char cmd[600];
     snprintf(cmd, sizeof(cmd), "BT:METADATA:%s\t%s\t%s\t%s\t%ld",
              fields[0], fields[1], fields[2], fields[3], length_ms);
-    send_command(cmd);
+    enqueue_report(REPORT_METADATA, cmd, 0);
 }
 
 void hiby_sys_server_report_position(long position_ms) {
     char cmd[32];
     snprintf(cmd, sizeof(cmd), "BT:POSITION:%ld", position_ms);
-    send_command(cmd);
+    enqueue_report(REPORT_POSITION, cmd, 0);
 }
 
 void hiby_sys_server_report_volume(int percent) {
-    char mac[18];
-    if (!bt_control_get_connected_device_mac(mac, sizeof(mac))) return;
-
     if (percent < 0) percent = 0;
     if (percent > 100) percent = 100;
-    int raw = (percent * 127 + 50) / 100; /* Scale 0-100 to 0-127 AVRCP absolute volume */
-
-    char cmd[48];
-    snprintf(cmd, sizeof(cmd), "BT:ABSVOL:%s %d", mac, raw);
-    send_command(cmd);
+    enqueue_report(REPORT_VOLUME, NULL, percent);
 }

@@ -1541,17 +1541,18 @@ static void recolor_toggle_on_accent(lv_draw_buf_t * buf, lv_color_t accent) {
 static void load_quick_drawer_toggle_on_images(void) {
     lv_color_t accent = accent_lv_color();
     for (int i = 0; i < QD_TOGGLE_COUNT; i++) {
-        asset_decoded_image_close(&qd_toggle_on_img[i]);
-        if (asset_decoded_image_open(&qd_toggle_on_img[i], qd_toggle_on_asset[i]))
+        if (asset_decoded_image_prepare_retint(&qd_toggle_on_img[i], qd_toggle_on_asset[i]))
             recolor_toggle_on_accent((lv_draw_buf_t *) qd_toggle_on_img[i].decoder.decoded, accent);
     }
     int plugin_count = plugin_manager_get_quick_toggle_count();
     if (plugin_count > PLUGIN_MAX_QUICK_TOGGLES) plugin_count = PLUGIN_MAX_QUICK_TOGGLES;
     for (int i = 0; i < PLUGIN_MAX_QUICK_TOGGLES; i++) {
-        asset_decoded_image_close(&qd_plugin_toggle_on_img[i]);
-        if (i >= plugin_count) continue;
-        if (asset_decoded_image_open(&qd_plugin_toggle_on_img[i],
-                                     plugin_manager_get_quick_toggle_icon_selected(i)))
+        if (i >= plugin_count) {
+            asset_decoded_image_close(&qd_plugin_toggle_on_img[i]);
+            continue;
+        }
+        if (asset_decoded_image_prepare_retint(&qd_plugin_toggle_on_img[i],
+                                               plugin_manager_get_quick_toggle_icon_selected(i)))
             recolor_toggle_on_accent((lv_draw_buf_t *) qd_plugin_toggle_on_img[i].decoder.decoded, accent);
     }
 }
@@ -5231,6 +5232,10 @@ void gui_shell_teardown(void) {
 
 void gui_shell_refresh_static_assets(void) {
     if (!quick_drawer) return;
+    /* Theme/plugin asset files may have changed in place, so discard source
+     * snapshots before rebuilding the accent variants. */
+    for (int i = 0; i < QD_TOGGLE_COUNT; i++) asset_decoded_image_close(&qd_toggle_on_img[i]);
+    for (int i = 0; i < PLUGIN_MAX_QUICK_TOGGLES; i++) asset_decoded_image_close(&qd_plugin_toggle_on_img[i]);
     asset_decoded_image_close(&quick_drawer_brightness_image);
     const void * brightness = asset_decoded_image_open(&quick_drawer_brightness_image, "pull_down/blk.png")
                             ? asset_decoded_image_source(&quick_drawer_brightness_image) : NULL;

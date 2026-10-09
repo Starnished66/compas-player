@@ -2,63 +2,34 @@
 #define HW_BUTTONS_H
 
 #include <stdbool.h>
+#include <stdint.h>
+#include "button_mapping.h"
+
+/* Normalized physical-button gesture delivered to the GUI thread. Timestamp
+ * is monotonic milliseconds from the evdev reader and count is one except for
+ * coalesced/repeated HOLD_REPEAT events. */
+typedef struct {
+    button_mapping_button_t button;
+    button_mapping_gesture_t gesture;
+    unsigned count;
+    uint32_t timestamp_ms;
+} hw_button_event_t;
 
 /* Starts a background thread reading the R1's physical volume/skip/play-pause
- * buttons. They're exposed as two separate evdev nodes (md-gpio-keys and
- * "jz adc keyboard"), already decoded by the kernel driver into standard key
- * codes (KEY_VOLUMEUP/DOWN, KEY_PLAYPAUSE, KEY_NEXTSONG/PREVIOUSSONG).
- *
- * These act as direct hardware shortcuts, not keypad navigation for the UI,
- * so this bypasses LVGL's indev/keypad abstraction entirely: the reader
- * thread only sets flags/counters here, and the GUI's own periodic timer
- * (already running on the one thread allowed to touch LVGL widgets) polls
- * and applies them via the consume_* functions below. */
+ * buttons. The reader normalizes physical input into a bounded event queue;
+ * the GUI drains it and applies mappings on its own thread. */
 void hw_buttons_init(void);
 
-/* Returns the number of physical play/pause presses since the last consume
- * (usually 0 or 1, but can be 2+ if two presses land inside one 500ms poll
- * window -- see hw_buttons.c's play_pause_press_count for why this is a
- * count rather than a bool), and resets it to 0. */
-int hw_buttons_consume_play_pause(void);
+/* Replace the recognizer policy. A binding update discards queued events and
+ * cancels in-progress gestures so an event recognized under the old policy
+ * cannot run under the new one. Call from the GUI thread. */
+void hw_buttons_set_bindings(const button_mapping_binding_t bindings[BUTTON_MAPPING_BUTTON_COUNT]);
 
-/* True once a press-and-release completes WITHOUT having crossed the
- * hold-to-seek threshold (see hw_buttons_consume_next_seek_steps() below) --
- * same "fires on release, suppressed once the hold takes over" convention as
- * hw_buttons_consume_power()/_power_long_press() above. */
-bool hw_buttons_consume_next(void);
-bool hw_buttons_consume_prev(void);
-
-/* Next button, held: number of forward-seek steps (each worth
- * TRANSPORT_SEEK_STEP_SECONDS, gui_player.c) accumulated since the last
- * call, then reset to 0 -- same accumulate-on-the-reader-thread,
- * apply-on-the-GUI-thread split as hw_buttons_consume_volume_delta(), so the
- * repeat rate isn't limited by the GUI's own 500ms poll interval.
- * *out_is_first is set true if this batch includes the very first step of a
- * new hold (the caller should reset its seek-target accumulator from the
- * live playback position for that step, same as a touch long-press's first
- * LV_EVENT_LONG_PRESSED vs its later LV_EVENT_LONG_PRESSED_REPEAT ticks).
- * Mutually exclusive with hw_buttons_consume_next() for the same physical
- * press, same as the power button's short-tap/long-press pair. */
-int hw_buttons_consume_next_seek_steps(bool * out_is_first);
-
-/* Power button, short tap: true once a press-and-release completes without
- * having crossed the long-press threshold (see hw_buttons_consume_power_
- * long_press() below) -- the existing "toggle the screen on/off" gesture.
- * Fires on release, not on press-down, specifically so it can be suppressed
- * when the same press turns into a long-press instead (see
- * handle_key_event()'s own comment in the .c file). Must be applied on the
- * GUI thread (not the reader thread that detects it) so the backlight
- * toggle and the LVGL inactivity clock it shares with auto screen-timeout
- * stay in sync -- see gui.c's update_timer_cb. */
-bool hw_buttons_consume_power(void);
-
-/* Power button, long press: true once, edge-triggered, the moment a hold
- * crosses the long-press threshold -- while still held, not on release --
- * so the consumer (gui.c) can bring up a power-off countdown immediately
- * rather than waiting for the finger to lift. Mutually exclusive with
- * hw_buttons_consume_power() for the same physical press: once this fires,
- * that press's eventual release does not also set the short-tap flag. */
-bool hw_buttons_consume_power_long_press(void);
+/* Pop one normalized event in source order. The GUI should drain this queue
+ * before polling its button_mapping_context_t, then use CLOCK_MONOTONIC for
+ * button_mapping_poll(). This is the physical-button event source for mapped
+ * GUI actions. */
+bool hw_buttons_consume_event(hw_button_event_t *event);
 
 /* True once for a Power + Volume Down screenshot chord (Power + Previous on
  * the R3II 2025, whose volume knob cannot be held), then reset. One
@@ -75,8 +46,9 @@ bool hw_buttons_consume_screenshot(void);
  * both keys keep their ordinary meaning and nothing is suppressed. */
 void hw_buttons_set_screenshot_combo_enabled(bool enabled);
 
-/* Net accumulated volume step (in percent) since the last call, then reset
- * to 0. Positive for volume up, negative for volume down. */
-int hw_buttons_consume_volume_delta(void);
+/* Enable the screen-off volume policy. Tap gestures remain available for
+ * mappings to non-volume actions; the reader stops only holds that resolve to
+ * volume actions, and never resumes a blocked hold after wake. */
+void hw_buttons_set_volume_lock_screen_off(bool enabled);
 
 #endif /* HW_BUTTONS_H */

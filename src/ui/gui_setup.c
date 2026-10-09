@@ -87,10 +87,10 @@ static lv_obj_t * plugin_network_notice;
 static lv_obj_t * plugin_catalog_notice;
 static lv_obj_t * plugin_download_rows[3];
 static bool plugin_download_available[3];
+static const char * const suggested_plugin_ids[] = { "example.gain_mode", "compas.autoeq" };
 static bool plugin_network_connected;
 static bool plugin_catalog_rendered;
 static bool plugin_catalog_request_started;
-static const char * const suggested_plugin_ids[] = { "example.gain_mode", "compas.autoeq" };
 static void style_plugin_selection(lv_obj_t * row, const char * id);
 
 /* Cache the welcome page while the intro paints: the fade only redraws one
@@ -506,13 +506,15 @@ static void plugin_network_refresh(void) {
     plugin_network_connected = connected;
     if (connected && !gui_plugin_store_setup_catalog_ready()) plugin_catalog_request_started = false;
     lv_obj_set_flag(plugin_network_notice, LV_OBJ_FLAG_HIDDEN, connected);
-    for (size_t i = 0; i < 3; ++i) {
+    size_t setup_count = sizeof(suggested_plugin_ids) / sizeof(suggested_plugin_ids[0]);
+    for (size_t i = 0; i <= setup_count; ++i) {
         if (!plugin_download_rows[i]) continue;
-        bool enabled = connected && (i == 2 || plugin_download_available[i]);
+        bool is_more = (i == setup_count);
+        bool enabled = connected && (is_more || plugin_download_available[i]);
         lv_obj_set_style_opa(plugin_download_rows[i], enabled ? LV_OPA_COVER : LV_OPA_50, 0);
         lv_obj_set_flag(plugin_download_rows[i], LV_OBJ_FLAG_CLICKABLE, enabled);
         lv_obj_set_state(plugin_download_rows[i], LV_STATE_DISABLED, !enabled);
-        if (i < 2) {
+        if (!is_more) {
             lv_obj_t * check = lv_obj_get_child(plugin_download_rows[i], lv_obj_get_child_count(plugin_download_rows[i]) - 1);
             lv_obj_set_state(check, LV_STATE_DISABLED, !enabled);
             lv_obj_set_flag(check, LV_OBJ_FLAG_CLICKABLE, enabled);
@@ -544,12 +546,14 @@ static void plugin_network_poll(lv_timer_t * timer) {
         schedule_render();
         return;
     }
-    for (size_t i = 0; i < 2; ++i) {
+    size_t setup_count = sizeof(suggested_plugin_ids) / sizeof(suggested_plugin_ids[0]);
+    for (size_t i = 0; i < setup_count; ++i) {
         lv_obj_t * row = plugin_download_rows[i];
         if (!row) continue;
+        const char * id = suggested_plugin_ids[i];
         lv_obj_t * check = lv_obj_get_child(row, lv_obj_get_child_count(row) - 1);
-        if (lv_obj_has_state(check, LV_STATE_CHECKED) != gui_setup_plugins_is_selected(suggested_plugin_ids[i]))
-            style_plugin_selection(row, suggested_plugin_ids[i]);
+        if (lv_obj_has_state(check, LV_STATE_CHECKED) != gui_setup_plugins_is_selected(id))
+            style_plugin_selection(row, id);
     }
 }
 static void setup_plugin_picker_done(void) {
@@ -605,15 +609,17 @@ static void style_plugin_selection(lv_obj_t * row, const char * id) {
     lv_obj_t * mark = lv_obj_get_child(row, lv_obj_get_child_count(row) - 1);
     lv_obj_set_state(mark, LV_STATE_CHECKED, selected);
 }
-static void set_suggested_plugin_available(lv_obj_t * row, bool available) {
+static void set_suggested_plugin_available(size_t index, lv_obj_t * row, bool available) {
     if (!row) return;
-    plugin_download_available[1] = available;
-    lv_obj_set_style_opa(row, available && gui_network_setup_wifi_connected() ? LV_OPA_COVER : LV_OPA_50, 0);
-    lv_obj_set_flag(row, LV_OBJ_FLAG_CLICKABLE, available && gui_network_setup_wifi_connected());
-    lv_obj_set_state(row, LV_STATE_DISABLED, !available || !gui_network_setup_wifi_connected());
+    if (index < sizeof(plugin_download_available) / sizeof(plugin_download_available[0]))
+        plugin_download_available[index] = available;
+    bool connected = gui_network_setup_wifi_connected();
+    lv_obj_set_style_opa(row, available && connected ? LV_OPA_COVER : LV_OPA_50, 0);
+    lv_obj_set_flag(row, LV_OBJ_FLAG_CLICKABLE, available && connected);
+    lv_obj_set_state(row, LV_STATE_DISABLED, !available || !connected);
     lv_obj_t * check = lv_obj_get_child(row, lv_obj_get_child_count(row) - 1);
-    lv_obj_set_state(check, LV_STATE_DISABLED, !available || !gui_network_setup_wifi_connected());
-    lv_obj_set_flag(check, LV_OBJ_FLAG_CLICKABLE, available && gui_network_setup_wifi_connected());
+    lv_obj_set_state(check, LV_STATE_DISABLED, !available || !connected);
+    lv_obj_set_flag(check, LV_OBJ_FLAG_CLICKABLE, available && connected);
 }
 static const char * suggested_plugin_unavailable_state(void) {
     if (!gui_network_setup_wifi_connected()) return TR("No network detected");
@@ -1305,6 +1311,8 @@ static void render_async(void * unused) {
         return;
     }
     if (step == STEP_PLUGINS) {
+        memset(plugin_download_rows, 0, sizeof(plugin_download_rows));
+        memset(plugin_download_available, 0, sizeof(plugin_download_available));
         gui_network_setup_wifi_prepare();
         lv_obj_set_style_bg_opa(card, LV_OPA_TRANSP, 0);
         lv_obj_set_style_pad_all(card, 0, 0);
@@ -1323,28 +1331,29 @@ static void render_async(void * unused) {
             plugin_catalog_notice = label(card, TR("Loading plugin catalog..."), GUI_FONT_ROLE_SUBTEXT,
                   style_color(&style_theme_text_muted, LV_STYLE_TEXT_COLOR, GUI_COLOR_SECONDARY), LV_PCT(100));
         for (size_t i = 0; i < 2; ++i) {
+            const char * id = suggested_plugin_ids[i];
+            bool is_eq = (i == 1);
+            const char * fallback_name = is_eq ? TR("AutoEQ") : TR("Gain Mode");
             plugin_store_result_t plugin;
             plugin_store_details_t details;
-            bool found = gui_plugin_store_setup_get_plugin(suggested_plugin_ids[i], &plugin, &details);
+            bool found = gui_plugin_store_setup_get_plugin(id, &plugin, &details);
             if (!found) {
-                if (i == 1) {
-                    plugin_download_rows[i] = suggested_plugin(card, TR("AutoEQ"),
-                        suggested_plugin_unavailable_state(), suggested_plugin_ids[i], true);
-                    set_suggested_plugin_available(plugin_download_rows[i], false);
-                }
+                plugin_download_rows[i] = suggested_plugin(card, fallback_name,
+                    suggested_plugin_unavailable_state(), id, is_eq);
+                set_suggested_plugin_available(i, plugin_download_rows[i], false);
                 continue;
             }
-            if (plugin.state == PLUGIN_STORE_PLUGIN_REMOVED || plugin.incompatible) {
-                if (i == 1) {
-                    plugin_download_rows[i] = suggested_plugin(card,
-                        plugin.name[0] ? plugin.name : TR("AutoEQ"), details.description,
-                        suggested_plugin_ids[i], true);
-                    set_suggested_plugin_available(plugin_download_rows[i], false);
-                }
+            if (plugin.incompatible || plugin.state == PLUGIN_STORE_PLUGIN_INCOMPATIBLE) {
+                plugin_download_rows[i] = suggested_plugin(card,
+                    plugin.name[0] ? plugin.name : fallback_name,
+                    TR("Needs newer firmware"),
+                    id, is_eq);
+                set_suggested_plugin_available(i, plugin_download_rows[i], false);
                 continue;
             }
-            plugin_download_rows[i] = suggested_plugin(card, plugin.name[0] ? plugin.name : plugin.id,
-                details.description, suggested_plugin_ids[i], i == 1);
+            plugin_download_rows[i] = suggested_plugin(card,
+                plugin.name[0] ? plugin.name : fallback_name,
+                details.description, id, is_eq);
             plugin_download_available[i] = true;
         }
         plugin_download_rows[2] = button(card, TR("More"), false, open_plugins_cb);

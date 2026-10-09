@@ -26,7 +26,7 @@ bool gui_player_cover_decode_idle(void);
 void gui_player_refresh_static_assets(void);
 void gui_player_refresh_frosted_background(void);
 void sync_player_topbar_visibility(lv_obj_t * screen);
-void apply_track_metadata_to_ui(int index, track_metadata_t * out_meta);
+void gui_player_poll_track_metadata(void);
 void poll_cover_decode(void);
 void gui_player_update_progress(void);
 void gui_format_time(double seconds, char * buf, size_t buf_size);
@@ -104,11 +104,9 @@ void gui_player_play_at_from(int index, double start_seconds);
 void gui_player_step_manual(int direction);
 /* Time skipping applies only to manual transport within this directory. */
 void gui_player_set_transport_skip(const char * directory, int seconds);
-/* Applies `step_count` accumulated forward-seek steps from a held physical
- * Next button (hw_buttons_consume_next_seek_steps()) -- is_first resets the
- * seek target from the live playback position, same as a touch hold's first
- * tick vs its later repeats. */
-void gui_player_hw_next_seek_steps(int step_count, bool is_first);
+/* Apply physical seek steps in either direction, reusing touch seeking's
+ * bounds and playback-generation guard. First resets the held target. */
+void gui_player_hw_seek_steps(int direction, int step_count, bool is_first);
 lv_obj_t * gui_player_get_screen(void);
 lv_obj_t * gui_player_get_cover_img(void);
 /* Copies the currently decoded RGB565 cover for `for_index` into `out`.

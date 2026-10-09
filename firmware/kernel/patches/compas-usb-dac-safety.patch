@@ -1,0 +1,189 @@
+--- a/drivers/usb/gadget/function/f_uac_sa.c
++++ b/drivers/usb/gadget/function/f_uac_sa.c
+@@ -126,7 +126,7 @@
+ 	struct uac_ep out;		/* the samples */
+ 	struct uac_ep fb;		/* the feedback */
+ 
+-	struct cdev cdev;
++	struct cdev *cdev;
+ 	dev_t devt;
+ 	struct class *class;
+ 	struct device *device;
+@@ -689,12 +689,16 @@
+ 	if (err)
+ 		return err;
+ 
++	err = usb_ep_enable(uep->ep);
++	if (err)
++		return err;
+ 	uep->enabled = true;
+-	usb_ep_enable(uep->ep);
+ 
+ 	req = usb_ep_alloc_request(uep->ep, GFP_ATOMIC);
+-	if (!req)
+-		return -ENOMEM;
++	if (!req) {
++		err = -ENOMEM;
++		goto err_disable;
++	}
+ 
+ 	uep->req = req;
+ 	req->zero = 0;
+@@ -715,10 +719,19 @@
+ 	}
+ 
+ 	err = usb_ep_queue(uep->ep, req, GFP_ATOMIC);
+-	if (err)
++	if (err) {
+ 		dev_err(&gadget->dev, "%s: cannot queue on %s: %d\n",
+ 			__func__, uep->ep->name, err);
++		usb_ep_free_request(uep->ep, req);
++		uep->req = NULL;
++		goto err_disable;
++	}
+ 	return 0;
++
++err_disable:
++	uep->enabled = false;
++	usb_ep_disable(uep->ep);
++	return err;
+ }
+ 
+ /* --------------------------------------------------------------------------
+@@ -980,10 +993,20 @@
+ 	if (ret < 0)
+ 		goto err_descs;
+ 
+-	cdev_init(&agdev->cdev, &f_ops);
+-	ret = cdev_add(&agdev->cdev, agdev->devt, 1);
+-	if (ret < 0)
++	/* Open file descriptors may outlive the configfs function. */
++	agdev->cdev = cdev_alloc();
++	if (!agdev->cdev) {
++		ret = -ENOMEM;
+ 		goto err_region;
++	}
++	agdev->cdev->ops = &f_ops;
++	agdev->cdev->owner = THIS_MODULE;
++	ret = cdev_add(agdev->cdev, agdev->devt, 1);
++	if (ret < 0) {
++		kobject_put(&agdev->cdev->kobj);
++		agdev->cdev = NULL;
++		goto err_region;
++	}
+ 
+ 	agdev->class = class_create(THIS_MODULE, UAC_SA_NAME);
+ 	if (IS_ERR(agdev->class)) {
+@@ -1007,7 +1030,8 @@
+ 	class_destroy(agdev->class);
+ 	agdev->class = NULL;
+ err_cdev:
+-	cdev_del(&agdev->cdev);
++	cdev_del(agdev->cdev);
++	agdev->cdev = NULL;
+ err_region:
+ 	unregister_chrdev_region(agdev->devt, 1);
+ err_descs:
+@@ -1034,7 +1058,8 @@
+ 	if (agdev->class)
+ 		class_destroy(agdev->class);
+ 	agdev->class = NULL;
+-	cdev_del(&agdev->cdev);
++	cdev_del(agdev->cdev);
++	agdev->cdev = NULL;
+ 	unregister_chrdev_region(agdev->devt, 1);
+ 
+ 	kfree(agdev->out.buf);
+@@ -1090,9 +1115,16 @@
+ 	spin_unlock_irqrestore(&agdev->ring.lock, flags);
+ 
+ 	ret = uac_ep_start(agdev, &agdev->out, agdev_iso_out_complete);
+-	if (ret)
++	if (ret) {
++		agdev->as_out_alt = 0;
+ 		return ret;
+-	return uac_ep_start(agdev, &agdev->fb, agdev_feedback_complete);
++	}
++	ret = uac_ep_start(agdev, &agdev->fb, agdev_feedback_complete);
++	if (ret) {
++		uac_ep_stop(&agdev->out);
++		agdev->as_out_alt = 0;
++	}
++	return ret;
+ }
+ 
+ static int afunc_get_alt(struct usb_function *fn, unsigned intf)
+@@ -1123,8 +1155,9 @@
+ 	struct usb_ctrlrequest *cr = &agdev->setup_ctrl;
+ 	unsigned long flags;
+ 	u32 rate;
+-
+-	if (req->status || req->actual < 4)
++	unsigned int i;
++
++	if (req->status || req->actual != sizeof(rate))
+ 		return;
+ 	if (cr->bRequest != UAC2_CS_CUR ||
+ 	    (le16_to_cpu(cr->wValue) >> 8) != UAC2_CS_CONTROL_SAM_FREQ ||
+@@ -1132,7 +1165,10 @@
+ 		return;
+ 
+ 	rate = get_unaligned_le32(req->buf);
+-	if (!rate || rate == agdev->rate)
++	for (i = 0; i < ARRAY_SIZE(usb_out_rate_range); i++)
++		if (rate == le32_to_cpu(usb_out_rate_range[i].dMIN))
++			break;
++	if (i == ARRAY_SIZE(usb_out_rate_range) || rate == agdev->rate)
+ 		return;
+ 
+ 	agdev->rate = rate;
+@@ -1140,6 +1176,11 @@
+ 	spin_lock_irqsave(&agdev->ring.lock, flags);
+ 	ring_reset(&agdev->ring, rate);
+ 	spin_unlock_irqrestore(&agdev->ring.lock, flags);
++}
++
++static void uac_setup_in_complete(struct usb_ep *ep, struct usb_request *req)
++{
++	/* IN controls have no device state to update after transmission. */
+ }
+ 
+ static int afunc_setup(struct usb_function *fn, const struct usb_ctrlrequest *cr)
+@@ -1152,7 +1193,11 @@
+ 	u8 entity = le16_to_cpu(cr->wIndex) >> 8;
+ 	int value = -EOPNOTSUPP;
+ 
+-	if ((cr->bRequestType & USB_TYPE_MASK) != USB_TYPE_CLASS)
++	if ((cr->bRequestType & ~USB_DIR_IN) !=
++	    (USB_TYPE_CLASS | USB_RECIP_INTERFACE) ||
++	    le16_to_cpu(cr->wIndex) !=
++	    ((USB_OUT_CLK_ID << 8) | agdev->ac_intf) ||
++	    (le16_to_cpu(cr->wValue) & 0xff))
+ 		return -EOPNOTSUPP;
+ 
+ 	if (cr->bRequestType & USB_DIR_IN) {
+@@ -1176,7 +1221,11 @@
+ 				      2 + sizeof usb_out_rate_range);
+ 		}
+ 	} else {
+-		/* The data stage brings the value: uac_setup_complete. */
++		/* Only the four-byte clock-frequency SET CUR has an OUT stage. */
++		if (cr->bRequest != UAC2_CS_CUR ||
++		    control != UAC2_CS_CONTROL_SAM_FREQ ||
++		    w_length != sizeof(u32))
++			return -EOPNOTSUPP;
+ 		agdev->setup_ctrl = *cr;
+ 		req->context = agdev;
+ 		req->complete = uac_setup_complete;
+@@ -1186,6 +1235,11 @@
+ 	if (value < 0)
+ 		return value;
+ 
++	/* android_setup can bypass composite_setup's usual request reset. */
++	if (cr->bRequestType & USB_DIR_IN) {
++		req->context = NULL;
++		req->complete = uac_setup_in_complete;
++	}
+ 	req->length = value;
+ 	req->zero = value < w_length;
+ 	value = usb_ep_queue(cdev->gadget->ep0, req, GFP_ATOMIC);

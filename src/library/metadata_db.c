@@ -719,6 +719,20 @@ metadata_db_load_outcome_t metadata_db_get_load_outcome(void) {
     return last_outcome;
 }
 
+int32_t metadata_db_get_generation(void) {
+    METADATA_DB_GUARD;
+    return tagcache_generation();
+}
+
+bool metadata_db_try_get_generation(int32_t * out_generation) {
+    if (!out_generation) return false;
+    pthread_once(&metadata_db_mutex_once, metadata_db_mutex_init);
+    if (pthread_mutex_trylock(&metadata_db_mutex) != 0) return false;
+    *out_generation = tagcache_generation();
+    pthread_mutex_unlock(&metadata_db_mutex);
+    return true;
+}
+
 /* Re-files every track under a new delimiter set. Held under the same guard as
  * every other tagcache access: the rebuild frees and replaces the published
  * indexes, so a reader or a background scan running concurrently would be left

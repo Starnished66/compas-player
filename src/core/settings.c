@@ -1,6 +1,8 @@
 #include "settings.h"
 #include "debug_log.h"
 player_settings_t current_settings;
+#include "firmware_update.h"
+#include "idle_shutdown.h"
 #include "subprocess.h"
 #include "subsonic_saved_servers.h"
 #include "storage_paths.h"
@@ -16,9 +18,6 @@ player_settings_t current_settings;
 #include <strings.h>
 #include <unistd.h>
 
-#ifndef HOST_BUILD
-#include <sys/reboot.h>
-#endif
 #include <sys/stat.h>
 
 #ifdef HOST_BUILD
@@ -31,6 +30,54 @@ player_settings_t current_settings;
 #endif
 
 #define SETTINGS_TMP_FILE_PATH SETTINGS_FILE_PATH ".tmp"
+
+/* These names are part of the on-disk settings format. Keep them stable if
+ * enum ordering or display labels change. */
+static const char * const button_setting_names[BUTTON_MAPPING_BUTTON_COUNT] = {
+    "power", "play_pause", "next", "previous", "volume_up", "volume_down"
+};
+static button_mapping_action_t * binding_action(button_mapping_binding_t *binding, int gesture) {
+    switch (gesture) {
+        case BUTTON_MAPPING_GESTURE_TAP: return &binding->tap;
+        case BUTTON_MAPPING_GESTURE_DOUBLE: return &binding->double_tap;
+        case BUTTON_MAPPING_GESTURE_HOLD_FIRST:
+        case BUTTON_MAPPING_GESTURE_HOLD_REPEAT: return &binding->hold;
+        default: return NULL;
+    }
+}
+
+/* New button mapping values are small decimal enum numbers. Accept only a
+ * complete sequence of ASCII digits in range; malformed values keep DEFAULT. */
+static bool parse_button_action(const char *value, button_mapping_action_t *out) {
+    if (!value || !value[0] || !out) return false;
+    unsigned int parsed = 0;
+    for (const unsigned char *p = (const unsigned char *)value; *p; ++p) {
+        if (*p < '0' || *p > '9') return false;
+        unsigned int digit = (unsigned int)(*p - '0');
+        if (parsed > ((unsigned int)BUTTON_MAPPING_ACTION_COUNT - 1u - digit) / 10u) return false;
+        parsed = parsed * 10u + digit;
+    }
+    *out = (button_mapping_action_t)parsed;
+    return true;
+}
+
+static bool parse_button_binding_key(const char *key, int *button, int *gesture) {
+    if (!key || !button || !gesture) return false;
+    static const char * const setting_gesture_names[] = { "tap", "double", "hold" };
+    for (int b = 0; b < BUTTON_MAPPING_BUTTON_COUNT; ++b) {
+        for (int g = 0; g < 3; ++g) {
+            char expected[64];
+            snprintf(expected, sizeof(expected), "button_binding_%s_%s",
+                     button_setting_names[b], setting_gesture_names[g]);
+            if (strcmp(key, expected) == 0) {
+                *button = b;
+                *gesture = g;
+                return true;
+            }
+        }
+    }
+    return false;
+}
 
 const int SCREEN_TIMEOUT_STEPS[SCREEN_TIMEOUT_STEP_COUNT] = { 15, 30, 60, 120, 300, 600, 1800 };
 const int SCREEN_DIM_DELAY_STEPS[SCREEN_DIM_DELAY_STEP_COUNT] = { 5, 10, 15, 30, 60, 120, 300 };
@@ -131,6 +178,12 @@ static void set_defaults(player_settings_t * out) {
     out->last_source_name[0] = '\0';
     out->resume_mode = 0;
     out->play_pause_button_mode = 0;
+    for (int i = 0; i < BUTTON_MAPPING_BUTTON_COUNT; ++i) {
+        out->button_bindings[i].tap = BUTTON_MAPPING_ACTION_DEFAULT;
+        out->button_bindings[i].double_tap = BUTTON_MAPPING_ACTION_DEFAULT;
+        out->button_bindings[i].hold = BUTTON_MAPPING_ACTION_DEFAULT;
+    }
+    out->volume_lock_screen_off = false;
     out->accent_color = DEFAULT_ACCENT_COLOR;
     out->accent_dynamic = false;
     out->crossfade_enabled = false;
@@ -334,6 +387,7 @@ static void sync_subsonic_saved_sidecar(player_settings_t * out) {
 bool settings_load(player_settings_t * out) {
     set_defaults(out);
 
+    bool play_button_mapping_seen = false;
     bool car_mode_volume_percent_seen = false;
     int legacy_car_mode_volume_percent = 80;
     bool legacy_car_mode_volume_percent_seen = false;
@@ -358,6 +412,18 @@ bool settings_load(player_settings_t * out) {
         *eq = '\0';
         const char * key = line;
         const char * value = eq + 1;
+
+        int mapping_button = -1;
+        int mapping_gesture = -1;
+        if (parse_button_binding_key(key, &mapping_button, &mapping_gesture)) {
+            button_mapping_action_t *action = binding_action(&out->button_bindings[mapping_button], mapping_gesture);
+            if (mapping_button == BUTTON_MAPPING_PLAY_PAUSE) play_button_mapping_seen = true;
+            if (action) {
+                button_mapping_action_t parsed_action = BUTTON_MAPPING_ACTION_DEFAULT;
+                *action = parse_button_action(value, &parsed_action) ? parsed_action : BUTTON_MAPPING_ACTION_DEFAULT;
+            }
+            continue;
+        }
 
         if (strcmp(key, "setup_complete") == 0) {
             out->setup_complete = strcmp(value, "1") == 0;
@@ -391,6 +457,8 @@ bool settings_load(player_settings_t * out) {
             out->resume_mode = atoi(value);
         } else if (strcmp(key, "play_pause_button_mode") == 0) {
             out->play_pause_button_mode = atoi(value);
+        } else if (strcmp(key, "volume_lock_screen_off") == 0) {
+            out->volume_lock_screen_off = strcmp(value, "1") == 0;
         } else if (strcmp(key, "accent_color") == 0) {
             out->accent_color = (uint32_t) strtoul(value, NULL, 16);
         } else if (strcmp(key, "accent_dynamic") == 0) {
@@ -614,6 +682,18 @@ bool settings_load(player_settings_t * out) {
     if (out->resume_mode < 0 || out->resume_mode > 2) out->resume_mode = 0;
     if (out->play_pause_button_mode < 0 || out->play_pause_button_mode > 2) out->play_pause_button_mode = 0;
 
+    /* Older settings only had the dedicated play/pause-button mode. Apply it
+     * once to the new binding model only when no new play-button key exists;
+     * an explicitly stored DEFAULT or malformed entry remains authoritative. */
+    if (!play_button_mapping_seen) {
+        if (out->play_pause_button_mode == 1) {
+            out->button_bindings[BUTTON_MAPPING_PLAY_PAUSE].tap = BUTTON_MAPPING_ACTION_PREVIOUS;
+        } else if (out->play_pause_button_mode == 2) {
+            out->button_bindings[BUTTON_MAPPING_PLAY_PAUSE].tap = BUTTON_MAPPING_ACTION_PLAY_PAUSE;
+            out->button_bindings[BUTTON_MAPPING_PLAY_PAUSE].double_tap = BUTTON_MAPPING_ACTION_PREVIOUS;
+        }
+    }
+
     /* One-time forced migration for installs that already have a
      * settings.txt predating idle_suspend_enabled's default flip (see
      * set_defaults() above) -- settings_save() always writes every field,
@@ -684,6 +764,17 @@ static void settings_write_file(const player_settings_t * settings) {
     fprintf(f, "last_source_name=%s\n", settings->last_source_name);
     fprintf(f, "resume_mode=%d\n", settings->resume_mode);
     fprintf(f, "play_pause_button_mode=%d\n", settings->play_pause_button_mode);
+    for (int b = 0; b < BUTTON_MAPPING_BUTTON_COUNT; ++b) {
+        for (int g = 0; g < 3; ++g) {
+            button_mapping_binding_t binding = settings->button_bindings[b];
+            button_mapping_action_t *action = binding_action(&binding, g);
+            int value = action && *action >= BUTTON_MAPPING_ACTION_DEFAULT &&
+                        *action < BUTTON_MAPPING_ACTION_COUNT ? (int)*action : BUTTON_MAPPING_ACTION_DEFAULT;
+            fprintf(f, "button_binding_%s_%s=%d\n", button_setting_names[b],
+                    g == 0 ? "tap" : (g == 1 ? "double" : "hold"), value);
+        }
+    }
+    fprintf(f, "volume_lock_screen_off=%d\n", settings->volume_lock_screen_off ? 1 : 0);
     fprintf(f, "accent_color=%06X\n", (unsigned int) (settings->accent_color & 0xFFFFFF));
     fprintf(f, "accent_dynamic=%d\n", settings->accent_dynamic ? 1 : 0);
     fprintf(f, "crossfade=%d\n", settings->crossfade_enabled ? 1 : 0);
@@ -791,6 +882,8 @@ static player_settings_t settings_queued_snapshot;
 static uint64_t settings_save_generation = 0;
 static uint64_t settings_queued_generation = 0;
 static bool settings_save_pending = false;
+static bool settings_save_in_flight = false;
+static bool settings_shutdown_started = false;
 static bool settings_worker_ready = false;
 
 /* Rate remembered for one accessory, falling back to the global choice when
@@ -828,6 +921,11 @@ void settings_save(const player_settings_t * settings) {
     if (!settings) return;
     pthread_mutex_lock(&settings_write_mutex);
     pthread_mutex_lock(&settings_queue_mutex);
+    if (settings_shutdown_started) {
+        pthread_mutex_unlock(&settings_queue_mutex);
+        pthread_mutex_unlock(&settings_write_mutex);
+        return;
+    }
     settings_save_generation++;
     pthread_mutex_unlock(&settings_queue_mutex);
     settings_write_file(settings);
@@ -843,6 +941,9 @@ static void * settings_worker_main(void * unused) {
         player_settings_t snapshot = settings_queued_snapshot;
         uint64_t generation = settings_queued_generation;
         settings_save_pending = false;
+        /* Mark this before releasing the queue lock. Shutdown must account
+         * for work the worker has consumed but is still waiting to serialize. */
+        settings_save_in_flight = true;
         pthread_mutex_unlock(&settings_queue_mutex);
 
         pthread_mutex_lock(&settings_write_mutex);
@@ -851,6 +952,11 @@ static void * settings_worker_main(void * unused) {
         pthread_mutex_unlock(&settings_queue_mutex);
         if (current) settings_write_file(&snapshot);
         pthread_mutex_unlock(&settings_write_mutex);
+
+        pthread_mutex_lock(&settings_queue_mutex);
+        settings_save_in_flight = false;
+        pthread_cond_broadcast(&settings_queue_cond);
+        pthread_mutex_unlock(&settings_queue_mutex);
     }
     return NULL;
 }
@@ -872,6 +978,10 @@ void settings_save_async(const player_settings_t * settings) {
     }
 
     pthread_mutex_lock(&settings_queue_mutex);
+    if (settings_shutdown_started) {
+        pthread_mutex_unlock(&settings_queue_mutex);
+        return;
+    }
     settings_queued_snapshot = *settings;
     settings_queued_generation = ++settings_save_generation;
     settings_save_pending = true;
@@ -879,9 +989,48 @@ void settings_save_async(const player_settings_t * settings) {
     pthread_mutex_unlock(&settings_queue_mutex);
 }
 
+void settings_shutdown_flush(void) {
+    pthread_mutex_lock(&settings_queue_mutex);
+    settings_shutdown_started = true;
+    pthread_cond_broadcast(&settings_queue_cond);
+    while (settings_save_pending || settings_save_in_flight)
+        pthread_cond_wait(&settings_queue_cond, &settings_queue_mutex);
+    pthread_mutex_unlock(&settings_queue_mutex);
+
+    /* A synchronous save may have passed its shutdown check just before the
+     * latch was set. Taking the writer lock after draining the worker waits
+     * for that last possible write. Later synchronous callers see the latch
+     * under this same writer lock and return without touching disk. */
+    pthread_mutex_lock(&settings_write_mutex);
+    pthread_mutex_unlock(&settings_write_mutex);
+}
+
+void settings_shutdown_cancel(void) {
+    pthread_mutex_lock(&settings_queue_mutex);
+    /* Cancellation is valid only after settings_shutdown_flush() has drained
+     * both queue and writer. Keep this check explicit to catch misuse during
+     * development without introducing a second transition protocol. */
+    if (!settings_save_pending && !settings_save_in_flight)
+        settings_shutdown_started = false;
+    pthread_cond_broadcast(&settings_queue_cond);
+    pthread_mutex_unlock(&settings_queue_mutex);
+}
+
 void settings_factory_reset(void) {
     DBG_LOG("settings_factory_reset: called\n");
+    /* Do not erase settings while an update may be validating or writing
+     * recovery state. This guard precedes all destructive reset work. */
+    if (firmware_update_busy()) {
+        DBG_LOG("settings_factory_reset: refused while firmware update is busy\n");
+        return;
+    }
+    /* Latch settings persistence before removing files: a detached worker
+     * must never recreate settings.txt after the reset has deleted it. */
+    settings_shutdown_flush();
 #ifndef HOST_BUILD
+    /* Join the queue checkpoint writer before erasing its destination. */
+    extern void gui_player_queue_flush(void);
+    gui_player_queue_flush();
     /* Wipes every direct child of /usr/data except "mnt", preserving the physical
      * SD card mount (/usr/data/mnt/sd_0) while clearing all other configuration files. */
     DIR * dir = opendir(SETTINGS_DIR_PATH);
@@ -913,21 +1062,14 @@ void settings_factory_reset(void) {
     remove(SETTINGS_TMP_FILE_PATH); /* stray leftover from an interrupted settings_save(), if any -- harmless to attempt even when it doesn't exist */
 
 #ifndef HOST_BUILD
-    /* Not execl("/sbin/reboot", ...): compas_bootloader's
-     * run_player_supervised() (src/bootloader/main.c) treats ANY clean
-     * (status 0) exit of this exact supervised PID as "player exited
-     * cleanly -- power off", regardless of which command replaced this
-     * process's image. /sbin/reboot typically exits 0 once it hands off to
-     * init, well before the actual kernel restart completes, so the
-     * bootloader's poweroff-on-clean-exit races ahead of and wins over the
-     * real reboot -- this was the reported "factory reset just shuts down
-     * instead of rebooting" bug. Calling reboot(2) directly, same as
-     * main.c's own reboot_device() already does for every other abnormal-
-     * exit reboot, restarts the kernel immediately from within this
-     * process instead of handing off through an external command whose
-     * exit status the supervisor can misread. */
-    sync();
-    reboot(RB_AUTOBOOT);
+    if (!idle_shutdown_reboot_handoff()) {
+        DBG_LOG("settings_factory_reset: reboot handoff failed\n");
+    }
+    /* Configuration was erased. Do not resume the old UI and let its state
+     * recreate settings if a standalone reboot unexpectedly returns. */
     for (;;) pause();
+#else
+    /* A host reset returns to the live simulator instead of rebooting. */
+    settings_shutdown_cancel();
 #endif
 }

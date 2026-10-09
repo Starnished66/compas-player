@@ -75,7 +75,7 @@ void airplay_control_stop(void) {
 }
 
 bool airplay_control_disconnect_active_stream(void) {
-    if (!airplay_bridge_is_streaming()) return false;
+    if (!airplay_bridge_has_active_stream()) return false;
     /* last_device_name is only ever empty if this is called before AirPlay
      * was ever started at all this run, in which case airplay_bridge_is_
      * streaming() above could not have been true either -- defensive, not

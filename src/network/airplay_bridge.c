@@ -7,6 +7,7 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,22 +48,35 @@ typedef enum {
 static pthread_mutex_t bridge_mutex = PTHREAD_MUTEX_INITIALIZER;
 static bridge_state_t bridge_state = BRIDGE_STOPPED;
 static bool restart_requested = false;
-static volatile bool stop_requested = false;
+static atomic_bool stop_requested = false;
 
-/* True only while real PCM is actually flowing through the current session
- * -- see airplay_bridge_start()'s own doc comment for why this is tracked
- * separately from bridge_state (RUNNING means "listening/ready", not
- * "actively using the device"). Guarded by bridge_mutex like everything
- * else here rather than made atomic -- same deliberate, codebase-wide
- * volatile-bool convention as stop_requested, see this file's history for
- * why that tradeoff was made rather than introducing a different
- * synchronization primitive just for these two files. */
+/* The UI overlay follows PCM streaming. Local Play also needs to see the
+ * incoming session while it waits for the previous output owner to stop. */
 static bool is_streaming = false;
+static bool handoff_pending = false; /* Guarded by bridge_mutex. */
 
-static void set_streaming(bool streaming) {
+static bool set_streaming(bool streaming) {
     pthread_mutex_lock(&bridge_mutex);
-    is_streaming = streaming;
+    handoff_pending = false;
+    bool accepted = !streaming || !stop_requested;
+    if (accepted) is_streaming = streaming;
     pthread_mutex_unlock(&bridge_mutex);
+    return accepted;
+}
+
+static bool set_handoff_pending(bool pending) {
+    pthread_mutex_lock(&bridge_mutex);
+    bool accepted = !pending || !stop_requested;
+    if (accepted) handoff_pending = pending;
+    pthread_mutex_unlock(&bridge_mutex);
+    return accepted;
+}
+
+bool airplay_bridge_has_active_stream(void) {
+    pthread_mutex_lock(&bridge_mutex);
+    bool active = handoff_pending || is_streaming;
+    pthread_mutex_unlock(&bridge_mutex);
+    return active;
 }
 
 bool airplay_bridge_is_streaming(void) {
@@ -138,12 +152,10 @@ static void run_session(uint8_t * buf, size_t buf_bytes, uint64_t * total_bytes_
             if (!session_active) {
                 /* Transition to STREAMING. Stops local playback and waits
                  * for the audio thread to release audio output before claiming it. */
+                if (!set_handoff_pending(true)) break;
                 audio_stop();
-                for (int waited_ms = 0; waited_ms < 2000; waited_ms += 20) {
-                    if (!audio_is_playing() && !audio_is_paused()) break;
-                    usleep(20000);
-                }
-                set_streaming(true);
+                while (!stop_requested && !audio_is_idle()) usleep(20000);
+                if (stop_requested || !set_streaming(true)) break;
                 session_active = true;
                 leftover_len = 0;
             }
@@ -167,6 +179,7 @@ static void run_session(uint8_t * buf, size_t buf_bytes, uint64_t * total_bytes_
             if (leftover_len > 0) memcpy(buf, leftover, leftover_len);
         }
         if (stop_requested) stopped_mid_session = true;
+        set_handoff_pending(false);
 
         if (session_active) {
             /* Stream ended (writer closed, error, or a stop was requested

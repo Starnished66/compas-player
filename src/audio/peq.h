@@ -41,6 +41,14 @@ void peq_set_bypass(bool bypass);
 double peq_get_preamp_db(void);
 void peq_set_preamp_db(double db);
 
+/* Stereo width: 0 folds stereo to mono, 1 is neutral, 2 widens.
+ * Smoothed in the PCM thread; mono input is unaffected. Widening applies
+ * headroom compensation and reduces center level. Saved with PEQ profiles,
+ * reset to 1 by old profiles/defaults, and disabled by PEQ bypass. Native
+ * DoP output bypasses the PCM processing stage entirely. */
+double peq_get_stereo_width(void);
+void peq_set_stereo_width(double width);
+
 const peq_band_t * peq_get_band(int index);
 /* Recomputes that band's filter coefficients from the new params -- takes
  * effect on the next processed buffer, no audible click beyond the normal
@@ -61,7 +69,7 @@ void peq_get_response_db(const double * frequencies_hz, double * response_db,
                          size_t count, unsigned int sample_rate);
 
 /* In-place processing of an interleaved S16 buffer. No-op (fast path) if
- * bypassed or no bands are enabled and preamp is 0dB. */
+ * bypassed or no bands are enabled, preamp is 0dB and width is neutral. */
 void peq_process(int16_t * buf, size_t frame_count, int channels, unsigned int sample_rate);
 
 /* In-place processing of an interleaved S24_LE/S32 buffer (low 24 bits active).

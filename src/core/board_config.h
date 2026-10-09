@@ -25,6 +25,13 @@
   #define BOARD_SCREEN_HEIGHT 800
 #endif
 
+/* R1 has Next and Play/Pause, but no dedicated Previous key. */
+#if defined(BOARD_R3PROII) || defined(BOARD_R3II_2025)
+  #define BOARD_HAS_PREVIOUS_BUTTON 1
+#else
+  #define BOARD_HAS_PREVIOUS_BUTTON 0
+#endif
+
 /* Player (Now Playing) screen composition -- a full-bleed cover-art image,
  * top-aligned, plus a bottom-aligned gradient/controls overlay panel that
  * exactly fills the remaining screen height below it, with no gap or

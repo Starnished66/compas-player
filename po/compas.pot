@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: compas-player\n"
 "Report-Msgid-Bugs-To: none\n"
-"POT-Creation-Date: 2026-10-05 22:08-0600\n"
+"POT-Creation-Date: 2026-10-07 23:49-0600\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -1317,21 +1317,6 @@ msgstr ""
 msgid "Resume Last Track"
 msgstr ""
 
-msgid "Play/Pause"
-msgstr ""
-
-msgid "Previous Track"
-msgstr ""
-
-msgid "Play/Pause + Previous Track (Double-Click)"
-msgstr ""
-
-msgid "Applies immediately"
-msgstr ""
-
-msgid "Play/Pause Button"
-msgstr ""
-
 msgid "Small"
 msgstr ""
 
@@ -1622,6 +1607,12 @@ msgstr ""
 msgid "Download layouts"
 msgstr ""
 
+msgid "Download themes"
+msgstr ""
+
+msgid "Extension updates"
+msgstr ""
+
 msgid "Install"
 msgstr ""
 
@@ -1643,12 +1634,7 @@ msgstr ""
 msgid "Needs newer firmware"
 msgstr ""
 
-#, c-format
-msgid "Update available · %s"
-msgstr ""
-
-#, c-format
-msgid "Installed · %s"
+msgid "Update available"
 msgstr ""
 
 msgid "Installed"
@@ -1661,10 +1647,15 @@ msgid "Installed manually"
 msgstr ""
 
 #, c-format
-msgid "Available · %s"
+msgid "Update available · %s"
 msgstr ""
 
-msgid "Update available"
+#, c-format
+msgid "Installed · %s"
+msgstr ""
+
+#, c-format
+msgid "Available · %s"
 msgstr ""
 
 #, c-format
@@ -1699,7 +1690,10 @@ msgstr ""
 msgid "This may take a while"
 msgstr ""
 
-msgid "No layouts are available in the catalog."
+msgid "No network detected. Connect to a network to download plugins."
+msgstr ""
+
+msgid "No updates available."
 msgstr ""
 
 msgid "Refresh plugin catalog"
@@ -1709,6 +1703,15 @@ msgid "Updates"
 msgstr ""
 
 msgid "Update All"
+msgstr ""
+
+msgid "Review updates"
+msgstr ""
+
+msgid "No layouts are available in the catalog."
+msgstr ""
+
+msgid "No themes are available in the catalog."
 msgstr ""
 
 msgid "Could not start the plugin operation"
@@ -1727,9 +1730,6 @@ msgstr ""
 msgid "Update these plugins individually"
 msgstr ""
 
-msgid "Plugin is unavailable"
-msgstr ""
-
 msgid "Not enough memory to load the plugin store"
 msgstr ""
 
@@ -1742,16 +1742,16 @@ msgstr ""
 msgid "Loading layouts"
 msgstr ""
 
+msgid "Loading themes"
+msgstr ""
+
+msgid "Loading updates"
+msgstr ""
+
 msgid "Loading plugins"
 msgstr ""
 
-msgid "No network detected. Connect to a network to download plugins."
-msgstr ""
-
 msgid "Could not load the plugin catalog."
-msgstr ""
-
-msgid "Plugin is unavailable in the catalog"
 msgstr ""
 
 msgid "Some plugin files were changed on the card. Replace them?"
@@ -2188,6 +2188,93 @@ msgstr ""
 msgid "Sound"
 msgstr ""
 
+msgid "Power"
+msgstr ""
+
+msgid "Play/Pause"
+msgstr ""
+
+msgid "Next Track"
+msgstr ""
+
+msgid "Previous Track"
+msgstr ""
+
+msgid "Clockwise"
+msgstr ""
+
+msgid "Counterclockwise"
+msgstr ""
+
+msgid "Volume Up"
+msgstr ""
+
+msgid "Volume Down"
+msgstr ""
+
+msgid "Button"
+msgstr ""
+
+msgid "Default (native behavior)"
+msgstr ""
+
+msgid "Seek Forward"
+msgstr ""
+
+msgid "Seek Backward"
+msgstr ""
+
+msgid "Toggle Screen"
+msgstr ""
+
+msgid "Power Menu"
+msgstr ""
+
+msgid "Do Nothing"
+msgstr ""
+
+msgid "Single press"
+msgstr ""
+
+msgid "Double press"
+msgstr ""
+
+msgid "Long press"
+msgstr ""
+
+msgid "Single"
+msgstr ""
+
+msgid "Double"
+msgstr ""
+
+msgid "Long"
+msgstr ""
+
+msgid "Default"
+msgstr ""
+
+msgid "Disabled"
+msgstr ""
+
+msgid "Reset All"
+msgstr ""
+
+msgid "Button Mapping"
+msgstr ""
+
+msgid "Keep a button assigned to Toggle Screen or Power Menu"
+msgstr ""
+
+msgid "Reset all button mappings?"
+msgstr ""
+
+msgid "Reset"
+msgstr ""
+
+msgid "Volume Lock (Screen Off)"
+msgstr ""
+
 msgid "In-line Remote"
 msgstr ""
 
@@ -2293,9 +2380,6 @@ msgstr ""
 msgid "Charging"
 msgstr ""
 
-msgid "Power"
-msgstr ""
-
 msgid "Additional Tools"
 msgstr ""
 
@@ -2326,6 +2410,9 @@ msgstr ""
 msgid "Maintenance"
 msgstr ""
 
+msgid "Plugins & Layouts"
+msgstr ""
+
 msgid "Applying language, this may take a while"
 msgstr ""
 
@@ -2343,7 +2430,16 @@ msgid ""
 "here."
 msgstr ""
 
-msgid "DAC"
+msgid "Plugins"
+msgstr ""
+
+msgid "Themes"
+msgstr ""
+
+msgid "Now Playing layouts"
+msgstr ""
+
+msgid "More"
 msgstr ""
 
 msgid "Combined response (dB) · EQ off"
@@ -2356,9 +2452,6 @@ msgid "PEQ reset to defaults"
 msgstr ""
 
 msgid "Reset PEQ to defaults?"
-msgstr ""
-
-msgid "Reset"
 msgstr ""
 
 msgid "Reset all settings and reboot?"
@@ -2481,6 +2574,9 @@ msgstr ""
 msgid "Could not start the library scan. Please try again."
 msgstr ""
 
+msgid "Plugin is unavailable in the catalog"
+msgstr ""
+
 msgid "Insert an SD card to scan for music, or turn off Scan for music."
 msgstr ""
 
@@ -2493,16 +2589,10 @@ msgstr ""
 msgid "Loading plugin catalog..."
 msgstr ""
 
-msgid "Default"
-msgstr ""
-
 msgid "No network detected"
 msgstr ""
 
 msgid "Time zone"
-msgstr ""
-
-msgid "Plugins"
 msgstr ""
 
 msgid "Quick setup"
@@ -2568,7 +2658,7 @@ msgstr ""
 msgid "AutoEQ"
 msgstr ""
 
-msgid "More"
+msgid "Gain Mode"
 msgstr ""
 
 msgid "Scan for music"
@@ -2811,6 +2901,9 @@ msgid "Download settings"
 msgstr ""
 
 msgid "Songs"
+msgstr ""
+
+msgid "Could not apply theme"
 msgstr ""
 
 #, c-format

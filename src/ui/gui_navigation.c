@@ -23,6 +23,7 @@
 #include "device_config.h"
 #include "transition_compositor.h"
 #include "db_log.h"
+#include "backlight.h"
 
 static lv_obj_t * nav_stack[NAV_STACK_MAX] = { NULL };
 static int nav_depth = 0;
@@ -254,6 +255,23 @@ static lv_draw_buf_t * build_flattened_transition_frame(lv_obj_t * target_screen
 static lv_obj_t * static_snapshot_screen[STATIC_SNAPSHOT_SCREEN_COUNT];
 static lv_draw_buf_t * static_snapshot_buf[STATIC_SNAPSHOT_SCREEN_COUNT];
 static uint64_t static_snapshot_scroll_state[STATIC_SNAPSHOT_SCREEN_COUNT];
+/* Theme invalidations can arrive in bursts while accent colors are being
+ * applied. Coalesce them, then capture at most one static screen per timer
+ * pass so rebuilding nine full-screen buffers cannot monopolize the UI. */
+#define THEME_SNAPSHOT_REBUILD_DELAY_MS 250
+#define THEME_SNAPSHOT_REBUILD_PERIOD_MS 100
+static lv_timer_t * theme_snapshot_rebuild_timer;
+static uint32_t theme_snapshot_rebuild_after;
+static int theme_snapshot_rebuild_index;
+
+static void theme_snapshot_rebuild_timer_cb(lv_timer_t * timer);
+
+static bool static_snapshot_rebuild_input_active(void) {
+    for (lv_indev_t * indev = lv_indev_get_next(NULL); indev; indev = lv_indev_get_next(indev)) {
+        if (lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED) return true;
+    }
+    return false;
+}
 
 /* Static screen content can still contain scrollable containers. Include
  * every descendant's scroll offsets in the cache key so a screen cached at
@@ -368,14 +386,43 @@ void gui_navigation_invalidate_font_snapshots(void) {
     lv_async_call(rebuild_font_snapshots_async_cb, NULL);
 }
 
-static void rebuild_theme_snapshots_async_cb(void * unused) {
-    (void) unused;
-    for (int i = 0; i < STATIC_SNAPSHOT_SCREEN_COUNT; i++) {
-        if (static_snapshot_screen[i] && !static_snapshot_buf[i]) {
-            static_snapshot_buf[i] = snapshot_screen_base(static_snapshot_screen[i]);
-            static_snapshot_scroll_state[i] = static_snapshot_scroll_state_for(static_snapshot_screen[i]);
-        }
+static void theme_snapshot_rebuild_timer_cb(lv_timer_t * timer) {
+    if (!backlight_screen_is_on()) {
+        lv_timer_pause(timer);
+        return;
     }
+    if (gui_navigation_transition_in_progress() || static_snapshot_rebuild_input_active()) return;
+
+    /* Let a burst of accent changes settle before capturing anything. */
+    if ((int32_t) (lv_tick_get() - theme_snapshot_rebuild_after) < 0) return;
+
+    while (theme_snapshot_rebuild_index < STATIC_SNAPSHOT_SCREEN_COUNT) {
+        int i = theme_snapshot_rebuild_index++;
+        lv_obj_t * screen = static_snapshot_screen[i];
+        if (!screen || static_snapshot_buf[i]) continue;
+
+        lv_draw_buf_t * fresh = snapshot_screen_base(screen);
+        if (!fresh) {
+            /* OOM or snapshot failure: leave remaining slots uncached and
+             * rely on the existing live-render fallback. A later explicit
+             * invalidation can retry; do not spin on a failing allocation. */
+            theme_snapshot_rebuild_timer = NULL;
+            lv_timer_delete(timer);
+            return;
+        }
+        static_snapshot_buf[i] = fresh;
+        static_snapshot_scroll_state[i] = static_snapshot_scroll_state_for(screen);
+        return; /* One expensive capture per eligible UI pass. */
+    }
+
+    theme_snapshot_rebuild_timer = NULL;
+    lv_timer_delete(timer);
+}
+
+void gui_navigation_poll_snapshot_rebuild(void) {
+    if (!theme_snapshot_rebuild_timer) return;
+    if (backlight_screen_is_on()) lv_timer_resume(theme_snapshot_rebuild_timer);
+    else lv_timer_pause(theme_snapshot_rebuild_timer);
 }
 
 void gui_navigation_invalidate_theme_snapshots(void) {
@@ -385,7 +432,16 @@ void gui_navigation_invalidate_theme_snapshots(void) {
     }
     player_transition_discard_cache();
     back_target_cache_discard();
-    lv_async_call(rebuild_theme_snapshots_async_cb, NULL);
+    theme_snapshot_rebuild_index = 0;
+    theme_snapshot_rebuild_after = lv_tick_get() + THEME_SNAPSHOT_REBUILD_DELAY_MS;
+    if (!theme_snapshot_rebuild_timer) {
+        theme_snapshot_rebuild_timer = lv_timer_create(theme_snapshot_rebuild_timer_cb,
+                                                       THEME_SNAPSHOT_REBUILD_PERIOD_MS, NULL);
+    } else {
+        lv_timer_set_period(theme_snapshot_rebuild_timer, THEME_SNAPSHOT_REBUILD_PERIOD_MS);
+        lv_timer_reset(theme_snapshot_rebuild_timer);
+    }
+    gui_navigation_poll_snapshot_rebuild();
 }
 
 /* Player-screen transition-frame cache. gui_player_get_screen() is dynamic
@@ -1285,6 +1341,12 @@ void gui_navigation_init(void) {
  * rebuilt) re-registers the snapshots and restores nav_stack/nav_depth to
  * Home on its own -- no separate "restore navigation" step is needed. */
 void gui_navigation_teardown(void) {
+    if (theme_snapshot_rebuild_timer) {
+        lv_timer_delete(theme_snapshot_rebuild_timer);
+        theme_snapshot_rebuild_timer = NULL;
+    }
+    theme_snapshot_rebuild_index = 0;
+    theme_snapshot_rebuild_after = 0;
     for (int i = 0; i < NAV_STACK_MAX; i++) nav_stack[i] = NULL;
     nav_depth = 0;
     for (int i = 0; i < STATIC_SNAPSHOT_SCREEN_COUNT; i++) {

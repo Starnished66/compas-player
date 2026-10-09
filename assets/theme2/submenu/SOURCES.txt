@@ -17,6 +17,17 @@ gradient, rendered at 176px and Lanczos-scaled to 44px.
 Saved backgrounds reuse the generated Settings and Wireless gradients.
 Rows retain decoded images for their lifetime. No runtime gradient generation.
 
+More-menu additions, rebuilt with python3 scripts/generate_more_menu_icons.py:
+plugins.png uses @phosphor-icons/core@2.1.1 assets/regular/puzzle-piece.svg
+with the violet Settings gradient (#d7a9fa to #a36be4).
+themes.png uses assets/regular/palette.svg with a gold-to-coral gradient
+(#ffda85 to #ee7c83).
+layouts.png uses assets/regular/squares-four.svg with a cyan-to-mint gradient
+(#95d7f0 to #45c4a1).
+The SVG paths are from the package's MIT-licensed regular icon assets; the
+same existing MIT License in this directory applies. USB DAC and Bluetooth
+DAC reuse the existing usb.png and bluetooth.png originals above.
+
 genres.png uses the regular tag glyph from @phosphor-icons/core 2.1.1
 (assets/regular/tag.svg), coral vertical gradient (#ffb4a2 to #ee7c83),
 rendered at 176px and Lanczos-scaled to 44px. See LICENSE for MIT terms.

@@ -126,7 +126,6 @@ static lv_obj_t * remote_control_screen;
 static lv_obj_t * wireless_screen;
 static lv_obj_t * resume_mode_screen;
 static lv_obj_t * resume_mode_list;
-static lv_obj_t * play_pause_button_mode_screen;
 static lv_obj_t * font_size_screen;
 static lv_obj_t * replaygain_mode_screen;
 
@@ -2496,63 +2495,6 @@ void resume_mode_settings_row_cb(lv_event_t * e) {
     open_resume_mode_screen();
 }
 
-/* ---- Play/Pause button behavior selection screen (Settings > Music Settings
- * > Controls & Interface > Play/Pause Button) -- same accent-colored-border
- * single-select shape as Resume Last Track just above. Feature request: the
- * physical play/pause button can act as Previous Track instead, or combine
- * both via a short
- * double-click window -- see handle_physical_play_pause_press() near
- * update_timer_cb for the actual dispatch. Unlike Resume Last Track, this
- * takes effect on the very next physical button press, not just at next
- * boot. ---- */
-
-typedef struct {
-    int mode; /* matches player_settings_t.play_pause_button_mode */
-    const char * label;
-} play_pause_button_mode_option_t;
-
-static const play_pause_button_mode_option_t play_pause_button_mode_options[] = {
-    { 0, N_("Play/Pause") }, { 1, N_("Previous Track") }, { 2, N_("Play/Pause + Previous Track (Double-Click)") },
-};
-#define PLAY_PAUSE_BUTTON_MODE_OPTION_COUNT (sizeof(play_pause_button_mode_options) / sizeof(play_pause_button_mode_options[0]))
-
-static lv_obj_t * play_pause_button_mode_list;
-
-static void play_pause_button_mode_option_row_cb(lv_event_t * e);
-
-static void populate_play_pause_button_mode_screen(void) {
-    lv_obj_clean(play_pause_button_mode_list);
-    for (size_t i = 0; i < PLAY_PAUSE_BUTTON_MODE_OPTION_COUNT; i++) {
-        bool selected = current_settings.play_pause_button_mode == play_pause_button_mode_options[i].mode;
-        add_pill_option_row(play_pause_button_mode_list, TR(play_pause_button_mode_options[i].label),
-                            selected, play_pause_button_mode_option_row_cb, (void *) (intptr_t) i);
-    }
-}
-
-static void play_pause_button_mode_option_row_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    int index = (int) (intptr_t) lv_event_get_user_data(e);
-    current_settings.play_pause_button_mode = play_pause_button_mode_options[index].mode;
-    settings_save(&current_settings);
-    populate_play_pause_button_mode_screen();
-    show_info_toast(TR("Applies immediately"));
-}
-
-static lv_obj_t * build_play_pause_button_mode_screen(void) {
-    lv_obj_t * title_label; /* unused after build -- title never changes */
-    return build_subsonic_list_screen(TR("Play/Pause Button"), &title_label, &play_pause_button_mode_list);
-}
-
-static void open_play_pause_button_mode_screen(void) {
-    populate_play_pause_button_mode_screen();
-    nav_push(play_pause_button_mode_screen);
-}
-
-void play_pause_button_mode_settings_row_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    open_play_pause_button_mode_screen();
-}
-
 /* ---- Font size selection screen (Settings > Font Size).  A changed tier
  * is applied behind one rendered black frame, then navigation is reset
  * directly to Home without disturbing playback or background services. ---- */
@@ -4478,7 +4420,6 @@ void gui_network_init(void) {
     font_size_screen = build_font_size_screen();
     replaygain_mode_screen = build_replaygain_mode_screen();
     resume_mode_screen = build_resume_mode_screen();
-    play_pause_button_mode_screen = build_play_pause_button_mode_screen();
     usb_mode_screen = build_usb_mode_screen();
     usb_dac_overlay_screen = build_usb_dac_overlay_screen();
     import_wifi_screen = build_import_wifi_screen();
@@ -4546,7 +4487,6 @@ void gui_network_teardown(void) {
     if (font_size_screen) { lv_obj_delete(font_size_screen); font_size_screen = NULL; }
     if (replaygain_mode_screen) { lv_obj_delete(replaygain_mode_screen); replaygain_mode_screen = NULL; }
     if (resume_mode_screen) { lv_obj_delete(resume_mode_screen); resume_mode_screen = NULL; }
-    if (play_pause_button_mode_screen) { lv_obj_delete(play_pause_button_mode_screen); play_pause_button_mode_screen = NULL; }
     if (usb_mode_screen) { lv_obj_delete(usb_mode_screen); usb_mode_screen = NULL; }
     if (usb_dac_overlay_screen) { lv_obj_delete(usb_dac_overlay_screen); usb_dac_overlay_screen = NULL; }
     if (import_wifi_screen) { lv_obj_delete(import_wifi_screen); import_wifi_screen = NULL; }

@@ -1,5 +1,6 @@
 #include "idle_shutdown.h"
 #include "firmware_update.h"
+#include "settings.h"
 
 #ifndef HOST_BUILD
 #include <stdbool.h>
@@ -24,6 +25,7 @@ static bool parent_is_bootloader(void) {
 void idle_shutdown_now(void) {
     if (firmware_update_busy()) return;
 #ifndef HOST_BUILD
+    settings_shutdown_flush();
     extern void gui_player_queue_flush(void);
     gui_player_queue_flush();
     /* Must not go through subprocess_run(): that helper waits 15s then
@@ -43,28 +45,23 @@ void idle_shutdown_reboot_now(void) {
 #ifndef HOST_BUILD
     extern void gui_player_queue_flush(void);
     gui_player_queue_flush();
-    /* Unlike idle_shutdown_now() above, this must NOT execl() an external
-     * /sbin/reboot: compas_bootloader's run_player_supervised()
-     * (src/bootloader/main.c) treats ANY clean (status 0) exit of this
-     * exact supervised PID as "player exited cleanly -- power off",
-     * regardless of which command replaced this process's image.
-     * /sbin/reboot typically exits 0 once it hands off to init, well
-     * before the actual kernel restart completes, so the bootloader's
-     * poweroff-on-clean-exit races ahead of and wins over the real reboot
-     * -- confirmed as the cause of a real "reboot just shuts down instead"
-     * report (also fixed in settings.c's factory reset, which used the
-     * same pattern). Calling reboot(2) directly, same as main.c's own
-     * reboot_device() already does for every other abnormal-exit reboot,
-     * restarts the kernel immediately from within this process instead of
-     * handing off through an external command whose exit status the
-     * supervisor can misread. */
-    sync();
-    /* Under the bootloader, exit instead: once this process is gone the
-     * bootloader can unmount the SD card before rebooting, which clears
-     * the FAT dirty mark. Rebooting from here leaves the card looking
-     * unsafely removed on the next boot. */
-    if (parent_is_bootloader()) _exit(IDLE_SHUTDOWN_REBOOT_EXIT_CODE);
-    reboot(RB_AUTOBOOT);
+    if (idle_shutdown_reboot_handoff()) return;
     for (;;) pause();
+#endif
+}
+
+bool idle_shutdown_reboot_handoff(void) {
+#ifndef HOST_BUILD
+    settings_shutdown_flush();
+    /* Let the supervisor release the SD card before restarting it. The
+     * supervisor recognizes this status as a requested reboot. */
+    if (parent_is_bootloader()) _exit(IDLE_SHUTDOWN_REBOOT_EXIT_CODE);
+    sync();
+    if (reboot(RB_AUTOBOOT) == 0) return true;
+    /* Terminal callers keep saves latched. A caller returning to the live UI
+     * must explicitly cancel shutdown after recording this syscall's errno. */
+    return false;
+#else
+    return false;
 #endif
 }

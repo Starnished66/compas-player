@@ -17,6 +17,7 @@
 #include "plugin_internal.h"
 #include "plugin_disabled_list.h"
 #include "plugin_store.h"
+#include "gui_themes.h"
 #include "../core/screenshot.h"
 #include "db_log.h"
 #include "app_version.h"
@@ -49,6 +50,7 @@
 #include <errno.h>
 #include <stdatomic.h>
 #include <limits.h>
+#include <math.h>
 #include <unistd.h>
 #include <setjmp.h>
 
@@ -1861,8 +1863,10 @@ static int l_plugin_set_icon(lua_State * L) {
     if (!copy_file(source_path, dst_path)) {
         return luaL_error(L, "plugin.set_icon: could not copy '%s' to '%s'", source_path, relative_path);
     }
+    gui_themes_clear_legacy_exclusion(relative_path);
 #else
     (void) source_path; /* no override root on HOST_BUILD -- see assets.c's asset_path() */
+    gui_themes_clear_legacy_exclusion(relative_path);
 #endif
     return 0;
 }
@@ -2461,6 +2465,20 @@ static int l_plugin_eq_set_preamp(lua_State * L) {
     return 0;
 }
 
+static int l_plugin_eq_get_stereo_width(lua_State * L) {
+    lua_pushnumber(L, peq_get_stereo_width());
+    return 1;
+}
+
+static int l_plugin_eq_set_stereo_width(lua_State * L) {
+    double width = luaL_checknumber(L, 1);
+    luaL_argcheck(L, isfinite(width) && width >= 0.0 && width <= 2.0, 1,
+                  "stereo width must be finite and between 0 and 2");
+    peq_set_stereo_width(width);
+    peq_save();
+    return 0;
+}
+
 /* Converts a 1-based Lua band index to peq.c's 0-based one, luaL_error()ing
  * if out of range -- same "fail loudly at call time" convention
  * l_plugin_register_list_item() already uses for a bad list_id. */
@@ -2613,6 +2631,19 @@ static int l_plugin_seek(lua_State * L) {
     return 0;
 }
 
+static int l_plugin_set_playback_speed(lua_State * L) {
+    const char * directory = lua_isnil(L, 1) ? NULL :
+        check_plugin_external_path(L, 1, "plugin.set_playback_speed");
+    double speed = luaL_checknumber(L, 2);
+    lua_pushboolean(L, audio_set_playback_speed(directory, speed));
+    return 1;
+}
+
+static int l_plugin_get_playback_speed(lua_State * L) {
+    lua_pushnumber(L, audio_get_playback_speed());
+    return 1;
+}
+
 static int l_plugin_set_transport_skip(lua_State * L) {
     const char * directory = check_plugin_external_path(L, 1, "plugin.set_transport_skip");
     lua_Integer seconds = luaL_checkinteger(L, 2);
@@ -2645,6 +2676,46 @@ static int l_plugin_get_position(lua_State * L) {
 
 static int l_plugin_get_duration(lua_State * L) {
     lua_pushnumber(L, gui_plugin_get_duration_seconds());
+    return 1;
+}
+
+/* plugin.get_playback_progress(expected_path) -> coherent snapshot | nil.
+ * This query runs on every plugin progress tick, so keep its path check
+ * bounded and allocation-free. audio.c compares it with the exact current
+ * path under the playback-state lock; no filesystem lookup is needed here. */
+static int l_plugin_get_playback_progress(lua_State * L) {
+    size_t path_len = 0;
+    const char * expected_path = luaL_checklstring(L, 1, &path_len);
+    if (path_len == 0 || path_len >= PATH_MAX || expected_path[0] != '/' ||
+        memchr(expected_path, '\0', path_len) != NULL) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    audio_playback_progress_t progress;
+    if (!audio_get_playback_progress(expected_path, &progress)
+        || progress.state == AUDIO_PLAYBACK_PROGRESS_NOT_READY) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    const char * terminal = NULL;
+    switch (progress.state) {
+    case AUDIO_PLAYBACK_PROGRESS_ACTIVE: terminal = "active"; break;
+    case AUDIO_PLAYBACK_PROGRESS_NATURAL_EOF: terminal = "natural_eof"; break;
+    case AUDIO_PLAYBACK_PROGRESS_MANUAL_STOP: terminal = "manual_stop"; break;
+    case AUDIO_PLAYBACK_PROGRESS_NOT_READY:
+    default:
+        lua_pushnil(L);
+        return 1;
+    }
+
+    lua_newtable(L);
+    lua_pushnumber(L, progress.position_seconds); lua_setfield(L, -2, "position");
+    lua_pushnumber(L, progress.duration_seconds); lua_setfield(L, -2, "duration");
+    lua_pushboolean(L, progress.is_playing); lua_setfield(L, -2, "playing");
+    lua_pushboolean(L, progress.is_paused); lua_setfield(L, -2, "paused");
+    lua_pushstring(L, terminal); lua_setfield(L, -2, "terminal");
     return 1;
 }
 
@@ -3864,6 +3935,9 @@ static int l_plugin_define(lua_State * L) {
         return luaL_error(L, "plugin.define: id must be 1-%zu characters using letters, digits, '.', '_' or '-'",
                           sizeof(inst->id) - 1);
     }
+    if (gui_themes_is_legacy_theme_loader(id, inst->filename)) {
+        return luaL_error(L, "plugin.define: plugin id '%s' is a legacy theme loader and cannot be registered", id);
+    }
     if (plugin_id_collides(id, loading_plugin_slot)) {
         return luaL_error(L, "plugin.define: duplicate plugin id '%s'", id);
     }
@@ -4015,10 +4089,10 @@ static const char * const plugin_capabilities[] = {
     "network.http.download", "filesystem.mkdir", "crypto.md5", "audio.peq", "data.json",
     "storage.namespaced", "storage.secrets", "playback.remote", "filesystem.playlists", "library.refresh",
     "ui.home_layout", "ui.theme_refresh", "ui.reload", "ui.home_tiles", "ui.launcher_layout",
-    "ui.home_background", "audio.hw_volume_curve", "ui.lock_screen", "ui.quick_toggle",
+    "audio.stereo_width", "playback.speed", "ui.home_background", "audio.hw_volume_curve", "ui.lock_screen", "ui.quick_toggle",
     "data.zip", "data.html", "ui.text_view", "data.zip_image", "data.image_thumbnail", "ui.list_grid", "ui.list_showing",
     "ui.text_view_images", "ui.list_wrap", "ui.settings_list_wrap", "playback.transport_skip",
-    "ui.player_layout_xml", "storage.secrets_get"
+    "ui.player_layout_xml", "storage.secrets_get", "playback.progress"
 };
 
 static int l_plugin_has_capability(lua_State * L) {
@@ -4873,6 +4947,8 @@ static const luaL_Reg plugin_funcs[] = {
     { "eq_reset",                  l_plugin_eq_reset },
     { "eq_set_bypass",             l_plugin_eq_set_bypass },
     { "eq_set_preamp",             l_plugin_eq_set_preamp },
+    { "eq_get_stereo_width",       l_plugin_eq_get_stereo_width },
+    { "eq_set_stereo_width",       l_plugin_eq_set_stereo_width },
     { "eq_set_band",               l_plugin_eq_set_band },
     { "eq_set_band_type",          l_plugin_eq_set_band_type },
     { "eq_set_band_enabled",       l_plugin_eq_set_band_enabled },
@@ -4882,6 +4958,8 @@ static const luaL_Reg plugin_funcs[] = {
     { "next_track",                l_plugin_next_track },
     { "prev_track",                l_plugin_prev_track },
     { "seek",                      l_plugin_seek },
+    { "set_playback_speed",        l_plugin_set_playback_speed },
+    { "get_playback_speed",        l_plugin_get_playback_speed },
     { "set_transport_skip",        l_plugin_set_transport_skip },
     { "set_volume",                l_plugin_set_volume },
     { "get_volume",                l_plugin_get_volume },
@@ -4890,6 +4968,7 @@ static const luaL_Reg plugin_funcs[] = {
     { "is_paused",                 l_plugin_is_paused },
     { "get_position",              l_plugin_get_position },
     { "get_duration",              l_plugin_get_duration },
+    { "get_playback_progress",     l_plugin_get_playback_progress },
     { "http_get",                  l_plugin_http_get },
     { "http_post",                 l_plugin_http_post },
     { "http_request",              l_plugin_http_request },
@@ -5232,14 +5311,18 @@ static void discard_failed_plugin_load(plugin_instance_t * inst, lua_State * L,
 }
 
 static void load_plugin_file(const char * path) {
+    const char * base = strrchr(path, '/');
+    base = base ? base + 1 : path;
+    if (gui_themes_is_legacy_theme_loader(NULL, base)) {
+        fprintf(stderr, "[plugins] suppressing legacy theme loader %s\n", path);
+        return;
+    }
     lua_State * L = luaL_newstate();
     if (!L) return;
     int slot = plugin_instance_count;
     plugin_instance_t * inst = &plugin_instances[slot];
     memset(inst, 0, sizeof(*inst));
     inst->L = L;
-    const char * base = strrchr(path, '/');
-    base = base ? base + 1 : path;
     snprintf(inst->filename, sizeof(inst->filename), "%s", base);
     loading_plugin_slot = slot;
     luaL_openlibs(L);
@@ -5320,6 +5403,7 @@ static char (*scan_plugin_dir_sorted_names(char dir_path_out[600], int * out_cou
     while ((ent = readdir(d)) != NULL) {
         size_t len = strlen(ent->d_name);
         if (len < 5 || strcasecmp(ent->d_name + len - 4, ".lua") != 0) continue;
+        if (gui_themes_is_legacy_theme_loader(NULL, ent->d_name)) continue;
         total++;
     }
     if (total == 0) {
@@ -5344,6 +5428,7 @@ static char (*scan_plugin_dir_sorted_names(char dir_path_out[600], int * out_cou
     while (name_count < total && (ent = readdir(d)) != NULL) {
         size_t len = strlen(ent->d_name);
         if (len < 5 || strcasecmp(ent->d_name + len - 4, ".lua") != 0) continue;
+        if (gui_themes_is_legacy_theme_loader(NULL, ent->d_name)) continue;
         snprintf(names[name_count], sizeof(names[0]), "%s", ent->d_name);
         name_count++;
     }
@@ -5605,6 +5690,7 @@ void plugin_manager_deinit(void) {
     gui_plugin_reset_player_layout();
     player_layouts_session_reset(); /* a plugin's XML layout must not outlive the plugin */
     gui_player_set_transport_skip(NULL, 0);
+    audio_set_playback_speed(NULL, 1.0);
     plugin_led_override_owner = NULL;
     led_control_clear_override();
     led_control_apply(current_settings.led_indicator_enabled);

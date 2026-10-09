@@ -29,7 +29,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: compas-player\n"
 "Report-Msgid-Bugs-To: none\n"
-"POT-Creation-Date: 2026-10-05 22:08-0600\n"
+"POT-Creation-Date: 2026-10-07 23:49-0600\n"
 "PO-Revision-Date: 2026-10-01 00:00+0000\n"
 "Last-Translator: Machine draft\n"
 "Language-Team: French\n"
@@ -1364,21 +1364,6 @@ msgstr "S'applique au prochain lancement de l'appli"
 msgid "Resume Last Track"
 msgstr "Reprendre la dernière piste"
 
-msgid "Play/Pause"
-msgstr "Lecture/Pause"
-
-msgid "Previous Track"
-msgstr "Piste précédente"
-
-msgid "Play/Pause + Previous Track (Double-Click)"
-msgstr "Lecture/Pause + Piste précédente (double clic)"
-
-msgid "Applies immediately"
-msgstr "S'applique immédiatement"
-
-msgid "Play/Pause Button"
-msgstr "Bouton Lecture/Pause"
-
 msgid "Small"
 msgstr "Petit"
 
@@ -1663,6 +1648,12 @@ msgstr "Gestionnaire de plugins"
 msgid "Download layouts"
 msgstr "Chargement des dispositions"
 
+msgid "Download themes"
+msgstr "Télécharger des thèmes"
+
+msgid "Extension updates"
+msgstr "Mises à jour des extensions"
+
 msgid "Install"
 msgstr "Installer"
 
@@ -1684,13 +1675,8 @@ msgstr "Choisir des plugins"
 msgid "Needs newer firmware"
 msgstr "Firmware plus récent requis"
 
-#, c-format
-msgid "Update available · %s"
-msgstr "Mise à jour disponible · %s"
-
-#, c-format
-msgid "Installed · %s"
-msgstr "Installé · %s"
+msgid "Update available"
+msgstr "Mise à jour disponible"
 
 msgid "Installed"
 msgstr "Installé"
@@ -1702,11 +1688,16 @@ msgid "Installed manually"
 msgstr "Installé manuellement"
 
 #, c-format
+msgid "Update available · %s"
+msgstr "Mise à jour disponible · %s"
+
+#, c-format
+msgid "Installed · %s"
+msgstr "Installé · %s"
+
+#, c-format
 msgid "Available · %s"
 msgstr "Disponible · %s"
-
-msgid "Update available"
-msgstr "Mise à jour disponible"
 
 #, c-format
 msgid "Version %s · %s"
@@ -1742,9 +1733,11 @@ msgstr "Mise à jour des plugins"
 msgid "This may take a while"
 msgstr "Cela peut prendre un certain temps"
 
-#, fuzzy
-msgid "No layouts are available in the catalog."
-msgstr "Aucun plugin disponible dans le catalogue."
+msgid "No network detected. Connect to a network to download plugins."
+msgstr "Aucun réseau détecté. Connectez-vous à un réseau pour télécharger des plugins."
+
+msgid "No updates available."
+msgstr "Aucune mise à jour disponible."
 
 msgid "Refresh plugin catalog"
 msgstr "Actualiser le catalogue de plugins"
@@ -1754,6 +1747,16 @@ msgstr "Mises à jour"
 
 msgid "Update All"
 msgstr "Tout mettre à jour"
+
+msgid "Review updates"
+msgstr "Vérifier les mises à jour"
+
+#, fuzzy
+msgid "No layouts are available in the catalog."
+msgstr "Aucun plugin disponible dans le catalogue."
+
+msgid "No themes are available in the catalog."
+msgstr "Aucun thème disponible dans le catalogue."
 
 msgid "Could not start the plugin operation"
 msgstr "Impossible de lancer l’opération sur le plugin"
@@ -1771,10 +1774,6 @@ msgstr "Supprimer %s ?"
 msgid "Update these plugins individually"
 msgstr "Mettez à jour ces plugins séparément"
 
-#, fuzzy
-msgid "Plugin is unavailable"
-msgstr "Le plugin est indisponible dans le catalogue"
-
 msgid "Not enough memory to load the plugin store"
 msgstr "Mémoire insuffisante pour charger la boutique de plugins"
 
@@ -1787,17 +1786,17 @@ msgstr "Impossible de lancer l’actualisation du catalogue"
 msgid "Loading layouts"
 msgstr "Chargement des dispositions"
 
+msgid "Loading themes"
+msgstr "Chargement des thèmes"
+
+msgid "Loading updates"
+msgstr "Chargement des mises à jour"
+
 msgid "Loading plugins"
 msgstr "Chargement des plugins"
 
-msgid "No network detected. Connect to a network to download plugins."
-msgstr "Aucun réseau détecté. Connectez-vous à un réseau pour télécharger des plugins."
-
 msgid "Could not load the plugin catalog."
 msgstr "Impossible de charger le catalogue des plugins."
-
-msgid "Plugin is unavailable in the catalog"
-msgstr "Le plugin est indisponible dans le catalogue"
 
 msgid "Some plugin files were changed on the card. Replace them?"
 msgstr "Certains fichiers de plugin ont été modifiés sur la carte. Les remplacer ?"
@@ -2244,6 +2243,94 @@ msgstr "Égaliseur"
 msgid "Sound"
 msgstr "Son"
 
+msgid "Power"
+msgstr "Alimentation"
+
+msgid "Play/Pause"
+msgstr "Lecture/Pause"
+
+#, fuzzy
+msgid "Next Track"
+msgstr "Par piste"
+
+msgid "Previous Track"
+msgstr "Piste précédente"
+
+msgid "Clockwise"
+msgstr "Sens horaire"
+
+msgid "Counterclockwise"
+msgstr "Sens antihoraire"
+
+msgid "Volume Up"
+msgstr "Augmenter le volume"
+
+msgid "Volume Down"
+msgstr "Baisser le volume"
+
+msgid "Button"
+msgstr "Bouton"
+
+msgid "Default (native behavior)"
+msgstr "Par défaut (comportement natif)"
+
+msgid "Seek Forward"
+msgstr "Avancer dans la piste"
+
+msgid "Seek Backward"
+msgstr "Reculer dans la piste"
+
+msgid "Toggle Screen"
+msgstr "Basculer l’écran"
+
+msgid "Power Menu"
+msgstr "Menu d’alimentation"
+
+msgid "Do Nothing"
+msgstr "Ne rien faire"
+
+msgid "Single press"
+msgstr "Appui simple"
+
+msgid "Double press"
+msgstr "Double appui"
+
+msgid "Long press"
+msgstr "Appui long"
+
+msgid "Single"
+msgstr "Simple"
+
+msgid "Double"
+msgstr "Double"
+
+msgid "Long"
+msgstr "Long"
+
+msgid "Default"
+msgstr "Par défaut"
+
+msgid "Disabled"
+msgstr "Désactivé"
+
+msgid "Reset All"
+msgstr "Tout réinitialiser"
+
+msgid "Button Mapping"
+msgstr "Mappage des boutons"
+
+msgid "Keep a button assigned to Toggle Screen or Power Menu"
+msgstr "Gardez un bouton associé à Basculer l’écran ou au menu d’alimentation"
+
+msgid "Reset all button mappings?"
+msgstr "Réinitialiser tous les mappages de boutons ?"
+
+msgid "Reset"
+msgstr "Rétablir"
+
+msgid "Volume Lock (Screen Off)"
+msgstr "Verrouillage du volume (écran éteint)"
+
 msgid "In-line Remote"
 msgstr "Télécommande filaire"
 
@@ -2346,9 +2433,6 @@ msgstr "Voyant LED de charge"
 msgid "Charging"
 msgstr "Charge"
 
-msgid "Power"
-msgstr "Alimentation"
-
 msgid "Additional Tools"
 msgstr "Outils supplémentaires"
 
@@ -2379,6 +2463,9 @@ msgstr "Réinitialisation d'usine"
 msgid "Maintenance"
 msgstr "Maintenance"
 
+msgid "Plugins & Layouts"
+msgstr "Plugins et dispositions"
+
 msgid "Applying language, this may take a while"
 msgstr "Application de la langue, cela peut prendre un certain temps"
 
@@ -2394,8 +2481,17 @@ msgstr "Paramètres"
 msgid "Turn off ADB first (Settings > System > USB Mode), then enable USB DAC from here."
 msgstr "Désactivez d'abord ADB (Paramètres > Système > Mode USB), puis activez le DAC USB ici."
 
-msgid "DAC"
-msgstr "DAC"
+msgid "Plugins"
+msgstr "Plugins"
+
+msgid "Themes"
+msgstr "Thèmes"
+
+msgid "Now Playing layouts"
+msgstr "Dispositions du lecteur"
+
+msgid "More"
+msgstr "Plus"
 
 msgid "Combined response (dB) · EQ off"
 msgstr "Réponse combinée (dB) · EQ désactivé"
@@ -2408,9 +2504,6 @@ msgstr "PEQ rétabli par défaut"
 
 msgid "Reset PEQ to defaults?"
 msgstr "Rétablir le PEQ par défaut ?"
-
-msgid "Reset"
-msgstr "Rétablir"
 
 msgid "Reset all settings and reboot?"
 msgstr "Réinitialiser tous les paramètres et redémarrer ?"
@@ -2535,6 +2628,9 @@ msgstr "Sélectionnez au moins un plugin pour continuer."
 msgid "Could not start the library scan. Please try again."
 msgstr "Impossible de lancer l’analyse de la bibliothèque. Veuillez réessayer."
 
+msgid "Plugin is unavailable in the catalog"
+msgstr "Le plugin est indisponible dans le catalogue"
+
 msgid "Insert an SD card to scan for music, or turn off Scan for music."
 msgstr "Insérez une carte SD pour rechercher de la musique, ou désactivez la recherche de musique."
 
@@ -2547,18 +2643,11 @@ msgstr "Impossible de charger le catalogue des plugins. Touchez Plus pour réess
 msgid "Loading plugin catalog..."
 msgstr "Chargement du catalogue des plugins…"
 
-#, fuzzy
-msgid "Default"
-msgstr "Utiliser les valeurs par défaut"
-
 msgid "No network detected"
 msgstr "Aucun réseau détecté"
 
 msgid "Time zone"
 msgstr "Fuseau horaire"
-
-msgid "Plugins"
-msgstr "Plugins"
 
 msgid "Quick setup"
 msgstr "Configuration rapide"
@@ -2618,12 +2707,11 @@ msgstr "Connectez-vous à un réseau pour télécharger des plugins."
 msgid "Connect to Wi-Fi"
 msgstr "Se connecter au Wi-Fi"
 
-#, fuzzy
 msgid "AutoEQ"
-msgstr "Auto"
+msgstr "AutoEQ"
 
-msgid "More"
-msgstr "Plus"
+msgid "Gain Mode"
+msgstr "Mode de gain"
 
 msgid "Scan for music"
 msgstr "Rechercher de la musique"
@@ -2867,6 +2955,9 @@ msgstr "Réglages de téléchargement"
 msgid "Songs"
 msgstr "Morceaux"
 
+msgid "Could not apply theme"
+msgstr "Impossible d’appliquer le thème"
+
 #, c-format
 msgid "%llu bytes"
 msgstr "%llu octets"
@@ -2979,6 +3070,55 @@ msgstr "Commandes d'alimentation"
 
 msgid "Playback and device actions"
 msgstr "Actions de lecture et de l'appareil"
+
+#~ msgid "Download Themes"
+#~ msgstr "Télécharger des thèmes"
+
+#~ msgid "Add streaming services"
+#~ msgstr "Ajouter des services de streaming"
+
+#~ msgid "Add book features"
+#~ msgstr "Ajouter des fonctions de lecture"
+
+#~ msgid "Audiobooks"
+#~ msgstr "Livres audio"
+
+#~ msgid "EPUB Reader"
+#~ msgstr "Lecteur EPUB"
+
+#~ msgid "Podcasts"
+#~ msgstr "Podcasts"
+
+#~ msgid "Net Radio"
+#~ msgstr "Radio Internet"
+
+#~ msgid "Last.fm Scrobbler"
+#~ msgstr "Scrobbler Last.fm"
+
+#, fuzzy
+#~ msgid "Plugin is unavailable"
+#~ msgstr "Le plugin est indisponible dans le catalogue"
+
+#~ msgid "Find Last.fm scrobbling"
+#~ msgstr "Trouver le scrobbling Last.fm"
+
+#~ msgid "More appearance options"
+#~ msgstr "Plus d'options d'apparence"
+
+#~ msgid "DAC"
+#~ msgstr "DAC"
+
+#~ msgid "Find AutoEQ profiles"
+#~ msgstr "Trouver des profils AutoEQ"
+
+#~ msgid "Play/Pause + Previous Track (Double-Click)"
+#~ msgstr "Lecture/Pause + Piste précédente (double clic)"
+
+#~ msgid "Applies immediately"
+#~ msgstr "S'applique immédiatement"
+
+#~ msgid "Play/Pause Button"
+#~ msgstr "Bouton Lecture/Pause"
 
 #~ msgid "SD card checked"
 #~ msgstr "Carte SD vérifiée"

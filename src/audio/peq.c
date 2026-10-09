@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -40,6 +41,10 @@ static biquad_state_t state[PEQ_NUM_BANDS][PEQ_MAX_CHANNELS];
 static bool last_call_was_s32 = false;
 static bool bypass = false;
 static double preamp_db = 0.0;
+/* UI/plugin writes are atomic; the smoothed value belongs to the PCM owner. */
+static _Atomic float stereo_width_target = 1.0f;
+static float stereo_width_current = 1.0f;
+#define STEREO_WIDTH_RAMP_SEC 0.020f
 static unsigned int coeffs_sample_rate = 0;
 static bool coeffs_dirty = true;
 
@@ -99,6 +104,7 @@ static void set_defaults(void) {
     }
     bypass = false;
     preamp_db = 0.0;
+    peq_set_stereo_width(1.0);
     update_preamp_linear_cache();
 }
 
@@ -259,6 +265,47 @@ void peq_set_preamp_db(double db) {
     update_preamp_linear_cache();
 }
 
+double peq_get_stereo_width(void) {
+    return atomic_load_explicit(&stereo_width_target, memory_order_relaxed);
+}
+
+void peq_set_stereo_width(double width) {
+    if (!isfinite(width)) width = 1.0;
+    if (width < 0.0) width = 0.0;
+    if (width > 2.0) width = 2.0;
+    atomic_store_explicit(&stereo_width_target, (float) width, memory_order_relaxed);
+}
+
+/* Normalized mid/side matrix. For width > 1 the reciprocal provides
+ * headroom: the absolute coefficients sum to one, so widening cannot
+ * increase a frame's peak. The center becomes quieter when widened.
+ * Unity is an exact no-op; mono buffers never enter this matrix. */
+static void stereo_width_coeffs(float width, float * direct, float * cross) {
+    if (width > 1.0f) {
+        float inverse = 1.0f / width;
+        *direct = (1.0f + inverse) * 0.5f;
+        *cross = (inverse - 1.0f) * 0.5f;
+    } else {
+        *direct = (1.0f + width) * 0.5f;
+        *cross = (1.0f - width) * 0.5f;
+    }
+}
+
+static void stereo_width_frame(float * samples, float target, float step,
+                                float * direct, float * cross) {
+    if (stereo_width_current != target) {
+        if (stereo_width_current < target)
+            stereo_width_current = fminf(target, stereo_width_current + step);
+        else
+            stereo_width_current = fmaxf(target, stereo_width_current - step);
+        stereo_width_coeffs(stereo_width_current, direct, cross);
+    }
+    if (stereo_width_current == 1.0f) return;
+    float left = samples[0], right = samples[1];
+    samples[0] = left * *direct + right * *cross;
+    samples[1] = right * *direct + left * *cross;
+}
+
 const peq_band_t * peq_get_band(int index) {
     if (index < 0 || index >= PEQ_NUM_BANDS) return NULL;
     return &bands[index];
@@ -288,14 +335,17 @@ void peq_process(int16_t * buf, size_t frame_count, int channels, unsigned int s
      * that it starts cleanly the next time processing resumes. */
     if (bypass) {
         limiter_gain = 1.0f;
+        stereo_width_current = 1.0f;
         return;
     }
 
+    float width = (float) peq_get_stereo_width();
+    bool width_active = channels == 2 && (width != 1.0f || stereo_width_current != 1.0f);
     bool any_enabled = false;
     for (int i = 0; i < PEQ_NUM_BANDS; i++) {
         if (bands[i].enabled) { any_enabled = true; break; }
     }
-    if (!any_enabled && preamp_db == 0.0) {
+    if (!any_enabled && preamp_db == 0.0 && !width_active) {
         limiter_gain = 1.0f;
         return;
     }
@@ -315,6 +365,9 @@ void peq_process(int16_t * buf, size_t frame_count, int channels, unsigned int s
     float attack_coeff = cached_attack_coeff;
     float release_coeff = cached_release_coeff;
 
+    float width_direct, width_cross;
+    stereo_width_coeffs(stereo_width_current, &width_direct, &width_cross);
+    float width_step = 2.0f / (STEREO_WIDTH_RAMP_SEC * (float) (sample_rate ? sample_rate : 48000));
     for (size_t i = 0; i < frame_count; i++) {
         float frame_samples[PEQ_MAX_CHANNELS];
         float frame_peak = 0.0f;
@@ -344,7 +397,11 @@ void peq_process(int16_t * buf, size_t frame_count, int channels, unsigned int s
              * the limiter gain or cascading through biquad filters. */
             if (!isfinite(sample)) sample = 0.0f;
             frame_samples[ch] = sample;
-            float abs_sample = sample < 0.0f ? -sample : sample;
+        }
+        if (width_active)
+            stereo_width_frame(frame_samples, width, width_step, &width_direct, &width_cross);
+        for (int ch = 0; ch < channels; ch++) {
+            float abs_sample = fabsf(frame_samples[ch]);
             if (abs_sample > frame_peak) frame_peak = abs_sample;
         }
 
@@ -370,14 +427,17 @@ void peq_process(int16_t * buf, size_t frame_count, int channels, unsigned int s
 void peq_process_s32(int32_t * buf, size_t frame_count, int channels, unsigned int sample_rate) {
     if (bypass) {
         limiter_gain = 1.0f;
+        stereo_width_current = 1.0f;
         return;
     }
 
+    float width = (float) peq_get_stereo_width();
+    bool width_active = channels == 2 && (width != 1.0f || stereo_width_current != 1.0f);
     bool any_enabled = false;
     for (int i = 0; i < PEQ_NUM_BANDS; i++) {
         if (bands[i].enabled) { any_enabled = true; break; }
     }
-    if (!any_enabled && preamp_db == 0.0) {
+    if (!any_enabled && preamp_db == 0.0 && !width_active) {
         limiter_gain = 1.0f;
         return;
     }
@@ -396,6 +456,9 @@ void peq_process_s32(int32_t * buf, size_t frame_count, int channels, unsigned i
     float attack_coeff = cached_attack_coeff;
     float release_coeff = cached_release_coeff;
 
+    float width_direct, width_cross;
+    stereo_width_coeffs(stereo_width_current, &width_direct, &width_cross);
+    float width_step = 2.0f / (STEREO_WIDTH_RAMP_SEC * (float) (sample_rate ? sample_rate : 48000));
     for (size_t i = 0; i < frame_count; i++) {
         float frame_samples[PEQ_MAX_CHANNELS];
         float frame_peak = 0.0f;
@@ -423,7 +486,11 @@ void peq_process_s32(int32_t * buf, size_t frame_count, int channels, unsigned i
 
             if (!isfinite(sample)) sample = 0.0f;
             frame_samples[ch] = sample;
-            float abs_sample = sample < 0.0f ? -sample : sample;
+        }
+        if (width_active)
+            stereo_width_frame(frame_samples, width, width_step, &width_direct, &width_cross);
+        for (int ch = 0; ch < channels; ch++) {
+            float abs_sample = fabsf(frame_samples[ch]);
             if (abs_sample > frame_peak) frame_peak = abs_sample;
         }
 
@@ -444,6 +511,7 @@ bool peq_load_from_path(const char * path) {
     FILE * f = fopen(path, "r");
     if (!f) return false;
 
+    double loaded_width = 1.0; /* Older profiles are neutral, never inherit width. */
     char line[128];
     while (fgets(line, sizeof(line), f)) {
         line[strcspn(line, "\n")] = '\0';
@@ -464,6 +532,15 @@ bool peq_load_from_path(const char * path) {
             continue;
         }
 
+        if (strcmp(key, "stereo_width") == 0) {
+            char * end;
+            double parsed = strtod(value, &end);
+            bool parsed_number = end != value;
+            while (*end == ' ' || *end == '\t' || *end == '\r') end++;
+            if (parsed_number && *end == '\0' && isfinite(parsed)) loaded_width = parsed;
+            continue;
+        }
+
         int index;
         char field[16];
         if (sscanf(key, "band%d_%15s", &index, field) == 2 && index >= 0 && index < PEQ_NUM_BANDS) {
@@ -476,6 +553,7 @@ bool peq_load_from_path(const char * path) {
     }
 
     fclose(f);
+    peq_set_stereo_width(loaded_width);
     coeffs_dirty = true;
     return true;
 }
@@ -507,6 +585,7 @@ bool peq_save_to_path(const char * path) {
 
     fprintf(f, "bypass=%d\n", bypass ? 1 : 0);
     fprintf(f, "preamp=%.2f\n", preamp_db);
+    fprintf(f, "stereo_width=%.6f\n", peq_get_stereo_width());
     for (int i = 0; i < PEQ_NUM_BANDS; i++) {
         fprintf(f, "band%d_freq=%.2f\n", i, bands[i].freq_hz);
         fprintf(f, "band%d_gain=%.2f\n", i, bands[i].gain_db);

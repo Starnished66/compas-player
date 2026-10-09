@@ -55,10 +55,16 @@ void asset_png_memory_free(const lv_image_dsc_t * image);
 typedef struct {
     lv_image_decoder_dsc_t decoder;
     char * path;
+    uint8_t * pristine_pixels;
+    size_t pristine_size;
     bool open;
 } asset_decoded_image_t;
 
 bool asset_decoded_image_open(asset_decoded_image_t * image, const char * relative_path);
+/* Reuse an accent icon's decoded buffer when its resolved source is unchanged.
+ * Restores pristine pixels before returning so callers can apply a new tint.
+ * A missing snapshot (including allocation failure) causes a fresh decode. */
+bool asset_decoded_image_prepare_retint(asset_decoded_image_t * image, const char * relative_path);
 /* Pre-quantize smooth backgrounds with fixed ordered dithering for RGB565.
  * Alpha is preserved; run once at load, never during a redraw. */
 bool asset_decoded_gradient_open(asset_decoded_image_t * image, const char * relative_path);

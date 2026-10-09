@@ -22,6 +22,8 @@
 #include "settings.h"
 #include "db_log.h"
 #include "storage_migration.h"
+#include "ui_wake.h"
+#include <fcntl.h>
 
 #ifdef HOST_BUILD
   #include "src/drivers/sdl/lv_sdl_window.h"
@@ -30,6 +32,7 @@
 #else
   #include "src/drivers/display/fb/lv_linux_fbdev.h"
   #include "src/drivers/evdev/lv_evdev.h"
+  #include "event_input.h"
   #include "input_device_utils.h"
   #include "hw_buttons.h"
   #include "firmware_update.h"
@@ -92,6 +95,30 @@ extern char g_scan_last_path[PATH_MAX];
 #define PLAYER_CRASH_LOG_PREV "/usr/data/player_crash.log.1"
 #define PLAYER_CRASH_LOG_LIMIT (64 * 1024)
 
+#ifndef HOST_BUILD
+static lv_indev_t *event_touch;
+static int event_touch_fd = -1;
+static void event_touch_deleted(lv_event_t *event) {
+    (void)event;
+    event_touch = NULL;
+    event_touch_fd = -1;
+}
+static lv_indev_t *create_touch(const char *path) {
+    if (!ui_wake_enabled()) return lv_evdev_create(LV_INDEV_TYPE_POINTER, path);
+    int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0) return NULL;
+    /* lv_evdev_create_fd owns fd, including failure paths. */
+    lv_indev_t *indev = lv_evdev_create_fd(LV_INDEV_TYPE_POINTER, fd);
+    if (indev) {
+        event_touch = indev;
+        event_touch_fd = fd;
+        lv_indev_set_mode(indev, LV_INDEV_MODE_EVENT);
+        lv_indev_add_event_cb(indev, event_touch_deleted, LV_EVENT_DELETE, NULL);
+    }
+    return indev;
+}
+#endif
+
 /* Set once main() is past the artwork-helper dispatch. The exec'd artwork
  * helper and the forked tag-parser child inherit this handler, but they
  * exist so a damaged file can crash them without taking the player down;
@@ -149,10 +176,10 @@ static void crash_write_all(int fd, const char * buf, size_t len) {
 
 static void record_player_crash(int sig, siginfo_t * info, void * ucontext_v) {
     char thread_name[16];
-    char line[192];
+    char line[224];
     char * p = line;
     char * end = line + sizeof(line) - 1;
-    unsigned long pc = 0, ra = 0, sp = 0;
+    unsigned long pc = 0, ra = 0, sp = 0, t9 = 0, gp = 0;
     int fd;
     off_t sz;
 
@@ -173,6 +200,8 @@ static void record_player_crash(int sig, siginfo_t * info, void * ucontext_v) {
         pc = (unsigned long) uc->uc_mcontext.pc;
         ra = (unsigned long) uc->uc_mcontext.gregs[31];
         sp = (unsigned long) uc->uc_mcontext.gregs[29];
+        t9 = (unsigned long) uc->uc_mcontext.gregs[25];
+        gp = (unsigned long) uc->uc_mcontext.gregs[28];
     }
 
     p = crash_put(p, end, "sig=");
@@ -187,6 +216,10 @@ static void record_player_crash(int sig, siginfo_t * info, void * ucontext_v) {
     p = crash_put_hex8(p, end, ra);
     p = crash_put(p, end, " sp=");
     p = crash_put_hex8(p, end, sp);
+    p = crash_put(p, end, " t9=");
+    p = crash_put_hex8(p, end, t9);
+    p = crash_put(p, end, " gp=");
+    p = crash_put_hex8(p, end, gp);
     p = crash_put(p, end, " thread=");
     p = crash_put(p, end, thread_name);
     if (p < end) *p++ = '\n';
@@ -659,6 +692,8 @@ int main(int argc, char ** argv) {
     settle_sd_mount_during_splash();
     boot_checkpoint("settle_sd_mount_during_splash done");
 
+    ui_wake_init();
+
     /* Create Touch Input device via evdev. Auto-detect the touch controller
      * by name first (works on the R1's Hynitron "hyn_ts"); fall back to
      * guessing event0/event1 for variants where that lookup doesn't match. */
@@ -666,18 +701,18 @@ int main(int argc, char ** argv) {
     char touch_path[64];
     if (find_input_device_by_name("hyn_ts", touch_path, sizeof(touch_path)) || find_input_device_by_name("goodix-ts", touch_path, sizeof(touch_path))) {
         printf("Detected touch controller at %s\n", touch_path);
-        touch = lv_evdev_create(LV_INDEV_TYPE_POINTER, touch_path);
+        touch = create_touch(touch_path);
     }
     boot_checkpoint("touch auto-detect attempt done");
     if (!touch) {
         fprintf(stderr, "Warning: Touch controller not auto-detected. Guessing /dev/input/event0...\n");
         snprintf(touch_path, sizeof(touch_path), "/dev/input/event0");
-        touch = lv_evdev_create(LV_INDEV_TYPE_POINTER, touch_path);
+        touch = create_touch(touch_path);
     }
     if (!touch) {
         fprintf(stderr, "Warning: Failed to open /dev/input/event0. Trying event1...\n");
         snprintf(touch_path, sizeof(touch_path), "/dev/input/event1");
-        touch = lv_evdev_create(LV_INDEV_TYPE_POINTER, touch_path);
+        touch = create_touch(touch_path);
     }
     boot_checkpoint("touch setup done");
 
@@ -811,7 +846,33 @@ int main(int argc, char ** argv) {
          * paused/resumed state of the refresh timer. */
         uint32_t idle_cap_ms = backlight_screen_is_on() ? 100 : 500;
         if (time_till_next > idle_cap_ms) time_till_next = idle_cap_ms;
-        usleep(time_till_next * 1000); /* Convert milliseconds to microseconds */
+#ifndef HOST_BUILD
+        if (ui_wake_enabled()) {
+            /* LVGL has no public enabled/transition getter. Mirror its read
+             * preconditions here: a disabled reader cannot drain a ready fd. */
+            bool can_read_touch = ui_event_input_can_read(event_touch);
+            unsigned ready = ui_wake_wait(can_read_touch ? event_touch_fd : -1, time_till_next);
+            if (ready) {
+                /* Advance ticks before dispatch: gestures must see real event
+                 * time even after an idle wait. The handler accounts the rest. */
+                uint32_t input_tick = custom_tick_get();
+                lv_tick_inc(input_tick - last_real_tick);
+                last_real_tick = input_tick;
+                if ((ready & UI_WAKE_TOUCH_ERROR) && event_touch) {
+                    /* Persistent error readiness cannot be consumed as data. */
+                    fprintf(stderr, "Touch input: descriptor error, removing device\n");
+                    lv_evdev_delete(event_touch);
+                } else if ((ready & UI_WAKE_TOUCH) && event_touch) {
+                    lv_indev_read(event_touch);
+                    /* Explicitly preserve stationary long presses. LVGL also
+                     * resumes this timer in its pointer press handler. */
+                    ui_input_set_runtime_timer(event_touch, true);
+                }
+                if (ready & UI_WAKE_WORKER) gui_process_input_wake();
+            }
+        } else
+#endif
+        usleep(time_till_next * 1000);
     }
 
     waveform_shutdown();

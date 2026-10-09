@@ -474,7 +474,10 @@ void led_indicator_switch_event_cb(lv_event_t * e);
 void battery_percent_switch_event_cb(lv_event_t * e);
 void clock_24h_switch_event_cb(lv_event_t * e);
 void resume_mode_settings_row_cb(lv_event_t * e);
-void play_pause_button_mode_settings_row_cb(lv_event_t * e);
+/* Apply saved hardware bindings on the GUI thread and cancel pending gestures. */
+void gui_apply_button_bindings(void);
+/* A mapping must keep an available physical gesture that can wake the display. */
+bool gui_button_bindings_allow_wake(const button_mapping_binding_t bindings[BUTTON_MAPPING_BUTTON_COUNT]);
 void replaygain_mode_settings_row_cb(lv_event_t * e);
 void font_size_settings_row_cb(lv_event_t * e);
 void usb_mode_settings_row_cb(lv_event_t * e);
@@ -499,3 +502,6 @@ void quick_drawer_bt_event_cb(lv_event_t * e);
 void populate_wifi_screen(bool enabled);
 
 #endif /* GUI_H */
+
+/* Owner-thread service after the opt-in input/worker poll wakes. */
+void gui_process_input_wake(void);

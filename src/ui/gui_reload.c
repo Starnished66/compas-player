@@ -107,6 +107,7 @@
 #include "gui_plugin_manage.h"
 #include "gui_plugin_store.h"
 #include "gui_lock_screen.h"
+#include "gui_themes.h"
 #include "db_log.h"
 
 /* Diagnostic logging for UI reload steps. Append-only with fsync per line
@@ -160,6 +161,8 @@ static void gui_soft_reload_with_artwork(bool preserve_artwork) {
     gui_navigation_teardown();
     gui_setup_teardown();
 
+    reload_diag("gui_themes_teardown: before");
+    gui_themes_teardown();
     reload_diag("gui_player_teardown: before");
     gui_player_teardown();
     reload_diag("gui_lyrics_teardown: before");
@@ -202,9 +205,17 @@ static void gui_soft_reload_with_artwork(bool preserve_artwork) {
     reload_diag("gui_theme_reload_styles: before");
     gui_theme_reload_styles();
 
+    reload_diag("gui_themes_init: before");
+    gui_themes_init();
+    reload_diag("gui_themes_init: after");
+
     reload_diag("plugin_manager_init: before");
     plugin_manager_init();
     reload_diag("plugin_manager_init: after");
+
+    reload_diag("gui_themes_apply_active: before");
+    gui_themes_apply_active();
+    reload_diag("gui_themes_apply_active: after");
 
     reload_diag("gui_player_init: before");
     gui_player_init((uint32_t) screen_width, (uint32_t) screen_height);

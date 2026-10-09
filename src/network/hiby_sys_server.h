@@ -10,7 +10,9 @@
  * signals for AVRCP queries (e.g. car displays, headphones with screens).
  *
  * Target-only: /var/run/sys_server exists on real hardware. Failures to connect
- * or send are silently ignored. Safe to call from any thread. */
+ * or send are silently ignored. Safe to call from any thread. Reports are
+ * copied into bounded latest-value slots; socket I/O and Bluetooth queries
+ * run on a background worker. Intermediate updates may be coalesced. */
 
 void hiby_sys_server_report_playback_status(bool playing);
 

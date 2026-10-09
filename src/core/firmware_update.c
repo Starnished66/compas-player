@@ -5,6 +5,8 @@
 #include "storage_paths.h"
 #include "battery.h"
 #include "i18n.h"
+#include "idle_shutdown.h"
+#include "settings.h"
 #include <pthread.h>
 #include <spawn.h>
 #include <stdlib.h>
@@ -21,10 +23,6 @@
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <unistd.h>
-
-#ifndef HOST_BUILD
-#include <sys/reboot.h>
-#endif
 
 #ifdef HOST_BUILD
   #define FIRMWARE_UPDATE_SD_ROOT "./music"
@@ -330,8 +328,14 @@ static bool prepare_recovery(const char * path) {
         return finish_update(false, TR("Saving data failed. Recovery remains selected; keep the update file and check .compas/ota/update.log."));
     if (!set_phase(FIRMWARE_UPDATE_REBOOT, "requesting recovery reboot"))
         return finish_update(false, TR("Recovery remains selected. Keep the update file; saving diagnostics failed."));
-    reboot(RB_AUTOBOOT);
+    /* Keep the validated SD log open across the handoff. If a standalone
+     * reboot syscall fails, finish_update() can still record the error; if
+     * supervised, _exit() closes it before the parent can reap the player. */
+    if (fsync(phase_log_fd) != 0)
+        return finish_update(false, TR("Recovery remains selected. Keep the update file; saving diagnostics failed."));
+    if (idle_shutdown_reboot_handoff()) return true;
     snprintf(error, sizeof(error), TR("Recovery remains selected but reboot failed: %s. Keep the update file."), strerror(errno));
+    settings_shutdown_cancel();
     return finish_update(false, error);
 #else
     set_phase(FIRMWARE_UPDATE_REBOOT, "host validation complete; no flash or reboot");

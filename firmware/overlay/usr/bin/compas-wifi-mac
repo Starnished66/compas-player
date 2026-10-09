@@ -1,0 +1,644 @@
+#!/bin/sh
+# Shared asynchronous WiFi MAC setup and readiness gate.
+
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+STATE_DIR=${COMPAS_WIFI_MAC_STATE_DIR:-/var/run/compas-wifi-mac}
+DATA_DIR=${COMPAS_WIFI_MAC_DATA_DIR:-/usr/data}
+SYS_CLASS_NET=${COMPAS_WIFI_MAC_SYS_CLASS_NET:-/sys/class/net}
+SYS_MODULE=${COMPAS_WIFI_MAC_SYS_MODULE:-/sys/module}
+PROC_ROOT=${COMPAS_WIFI_MAC_PROC_ROOT:-/proc}
+PROCESS_ROOT=${COMPAS_WIFI_PROCESS_ROOT:-/proc}
+IFCONFIG=${COMPAS_WIFI_MAC_IFCONFIG:-ifconfig}
+GET_BURN_MAC=${COMPAS_WIFI_MAC_BURN_HELPER:-get_burn_partition_macaddr.sh}
+DOWN_SCRIPT=${COMPAS_WIFI_MAC_DOWN_SCRIPT:-/usr/bin/wifi_down.sh}
+OFF_SCRIPT=${COMPAS_WIFI_MAC_OFF_SCRIPT:-/usr/bin/wifi_off.sh}
+WAIT_SECONDS=${COMPAS_WIFI_MAC_WAIT_SECONDS:-5}
+CONTROL_HELD=0
+STOP_ACTIVE=0
+STOP_DOWN_ATTEMPTED=0
+
+if ! mkdir -p "$STATE_DIR" 2>/dev/null; then
+    if [ "$1" = stop ]; then
+        "$DOWN_SCRIPT" || :
+    fi
+    exit 1
+fi
+chmod 700 "$STATE_DIR" 2>/dev/null || :
+
+now_ticks() {
+    # /proc/uptime is monotonic, unlike wall-clock time, and is available on
+    # the target BusyBox system. Convert its first field to centiseconds.
+    read -r uptime rest < "$PROC_ROOT/uptime" 2>/dev/null || return 1
+    case "$uptime" in *.*) ;; *) return 1 ;; esac
+    whole=${uptime%%.*}
+    frac=${uptime#*.}
+    frac=$(printf '%s00' "$frac" | cut -c1-2)
+    case "$whole$frac" in *[!0-9]*|'') return 1 ;; esac
+    # Prefixing with 1 forces decimal parsing in shells that treat leading
+    # zeroes as octal (for example, a fractional value of 08 centiseconds).
+    frac=$((1$frac - 100))
+    printf '%s\n' "$((whole * 100 + frac))"
+}
+
+pid_start() {
+    # Return Linux proc starttime (field 22), robust to spaces/parentheses in
+    # comm by removing through the final ") " first.
+    [ -r "$PROCESS_ROOT/$1/stat" ] || return 1
+    sed 's/^.*) //' "$PROCESS_ROOT/$1/stat" | awk '{print $20}'
+}
+
+owner_alive() {
+    owner_pid=$1
+    owner_start=$2
+    owner_marker=${3:---worker}
+    case "$owner_pid:$owner_start" in ''|:*|*:|*[!0-9:]*) return 1 ;; esac
+    [ -r "$PROCESS_ROOT/$owner_pid/cmdline" ] || return 1
+    actual_start=$(pid_start "$owner_pid") || return 1
+    [ "$actual_start" = "$owner_start" ] || return 1
+    # The manager uses an explicit --worker argv marker. This prevents treating
+    # a reused PID as our worker, even if its starttime file was replaced.
+    tr '\000' ' ' < "$PROCESS_ROOT/$owner_pid/cmdline" | grep -F -- "$owner_marker" >/dev/null 2>&1
+}
+
+status_lock_acquire() {
+    begin=$(now_ticks) || return 1
+    command exec 8>"$STATE_DIR/status.lock" || return 1
+    while ! flock -n 8 2>/dev/null; do
+        current=$(now_ticks) || { exec 8>&-; return 1; }
+        [ "$((current - begin))" -lt 200 ] || { exec 8>&-; return 1; }
+        usleep 50000 2>/dev/null || sleep 0.05
+    done
+}
+
+status_lock_release() {
+    flock -u 8 2>/dev/null || :
+    exec 8>&-
+}
+
+interface_is_up() {
+    flags_file="$SYS_CLASS_NET/wlan0/flags"
+    if [ -r "$flags_file" ]; then
+        flags=$(cat "$flags_file" 2>/dev/null)
+        case "$flags" in
+            0x*) flags=${flags#0x} ;;
+            0X*) flags=${flags#0X} ;;
+            *) return 0 ;;
+        esac
+        case "$flags" in ''|*[!0123456789abcdefABCDEF]*) return 0 ;; esac
+        [ $((0x$flags & 1)) -ne 0 ]
+        return $?
+    fi
+    [ "$(cat "$SYS_CLASS_NET/wlan0/operstate" 2>/dev/null)" = up ]
+}
+
+reap_stale_runtime_locks() {
+    if [ -d "$STATE_DIR/connection.lock" ]; then
+        connection_pid=$(cat "$STATE_DIR/connection.lock/pid" 2>/dev/null)
+        connection_start=$(cat "$STATE_DIR/connection.lock/start" 2>/dev/null)
+        if ! owner_alive "$connection_pid" "$connection_start" wifi_on.sh; then
+            # Only tear down an initial-DOWN lease that never passed the
+            # post-UP MAC guard. Once prepared exists, WPA/DHCP may have begun.
+            if [ "$(cat "$STATE_DIR/connection.lock/initial_down" 2>/dev/null)" = 1 ] &&
+                [ ! -e "$STATE_DIR/connection.lock/prepared" ]; then
+                "$IFCONFIG" wlan0 down >/dev/null 2>&1 || :
+            fi
+            rm -f "$STATE_DIR/connection.lock/pid" "$STATE_DIR/connection.lock/start" \
+                "$STATE_DIR/connection.lock/initial_down" "$STATE_DIR/connection.lock/prepared"
+            rmdir "$STATE_DIR/connection.lock" 2>/dev/null || :
+        fi
+    fi
+}
+
+control_release() {
+    if [ "$CONTROL_HELD" -eq 1 ]; then
+        flock -u 9 2>/dev/null || :
+        exec 9>&-
+        CONTROL_HELD=0
+    fi
+}
+
+run_stop_down() {
+    [ "$STOP_DOWN_ATTEMPTED" -eq 0 ] || return 0
+    STOP_DOWN_ATTEMPTED=1
+    "$DOWN_SCRIPT"
+}
+
+exit_cleanup() {
+    control_release
+    if [ "$STOP_ACTIVE" -eq 1 ]; then
+        run_stop_down || :
+    fi
+}
+
+control_acquire() {
+    begin=$(now_ticks) || return 1
+    command exec 9>"$STATE_DIR/control.lock" || return 1
+    while ! flock -n 9 2>/dev/null; do
+        current=$(now_ticks) || { exec 9>&-; return 1; }
+        if [ "$((current - begin))" -ge 500 ]; then
+            exec 9>&-
+            return 1
+        fi
+        usleep 50000 2>/dev/null || sleep 0.05
+    done
+    CONTROL_HELD=1
+    trap 'exit_cleanup' 0
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+}
+
+record_status() {
+    status_tmp="$STATE_DIR/status.$$"
+    printf '%s\n' "$1" > "$status_tmp" || return 1
+    mv -f "$status_tmp" "$STATE_DIR/status"
+}
+
+valid_mac() {
+    candidate=$1
+    # Support only 12 contiguous hex digits or six consistently separated
+    # octets. Reject malformed separator placement instead of sanitizing it.
+    case "${#candidate}:$candidate" in
+        12:*) ;;
+        17:??:??:??:??:??:??) ;;
+        17:??-??-??-??-??-??) ;;
+        *) return 1 ;;
+    esac
+    case "$candidate" in *[!0123456789abcdefABCDEF:-]*) return 1 ;; esac
+    compact=$(printf '%s' "$candidate" | tr -d ':-')
+    [ "${#compact}" -eq 12 ] || return 1
+    case "$compact" in *[!0123456789abcdefABCDEF]*) return 1 ;; esac
+    compact=$(printf '%s' "$compact" | tr 'ABCDEF' 'abcdef')
+    # Reject all-zero and multicast identities; both indicate invalid source data.
+    [ "$compact" != 000000000000 ] || return 1
+    first=$(printf '%s' "$compact" | cut -c1-2)
+    first_num=$((0x$first)) 2>/dev/null || return 1
+    [ $((first_num % 2)) -eq 0 ] || return 1
+    printf '%s:%s:%s:%s:%s:%s\n' \
+        "$(printf '%s' "$compact" | cut -c1-2)" \
+        "$(printf '%s' "$compact" | cut -c3-4)" \
+        "$(printf '%s' "$compact" | cut -c5-6)" \
+        "$(printf '%s' "$compact" | cut -c7-8)" \
+        "$(printf '%s' "$compact" | cut -c9-10)" \
+        "$(printf '%s' "$compact" | cut -c11-12)"
+}
+
+read_mac() {
+    if [ -f "$DATA_DIR/macaddr.txt" ]; then
+        candidate=$(cat "$DATA_DIR/macaddr.txt" 2>/dev/null | tr -d '\r' | awk '{$1=$1; print}')
+        mac=$(valid_mac "$candidate") && { printf '%s\n' "$mac"; return 0; }
+    fi
+
+    candidate=$("$GET_BURN_MAC" 2>/dev/null)
+    mac=$(valid_mac "$candidate") && { printf '%s\n' "$mac"; return 0; }
+
+    if [ -f "$PROC_ROOT/jz/efuse/efuse_chip_id" ]; then
+        candidate=$(awk 'NF >= 2 { print $2; exit } NF == 1 { print $1; exit }' \
+            "$PROC_ROOT/jz/efuse/efuse_chip_id" 2>/dev/null |
+            sed 's/[^0-9A-Fa-f]//g' | cut -c1-6)
+        candidate=$(printf '%s' "$candidate" | tr 'ABCDEF' 'abcdef')
+        if [ "${#candidate}" -eq 6 ]; then
+            mac=$(valid_mac "d03110$candidate") && { printf '%s\n' "$mac"; return 0; }
+        fi
+    fi
+
+    if [ -f "$PROC_ROOT/sys/kernel/random/uuid" ]; then
+        candidate=$(cat "$PROC_ROOT/sys/kernel/random/uuid" 2>/dev/null)
+        candidate=$(printf '%s' "$candidate" | tr -d '-' | cut -c1-6)
+        case "$candidate" in *[!0123456789abcdefABCDEF]*) candidate= ;; esac
+        candidate=$(printf '%s' "$candidate" | tr 'ABCDEF' 'abcdef')
+        if [ "${#candidate}" -eq 6 ]; then
+            mac=$(valid_mac "d03110$candidate") && { printf '%s\n' "$mac"; return 0; }
+        fi
+    fi
+    return 1
+}
+
+cancelled() { [ -e "$STATE_DIR/cancel" ] || [ -e "$STATE_DIR/stopping" ]; }
+
+configure_mac() {
+    # Give late module/interface registration a bounded chance to complete.
+    # The worker remains asynchronous, so this does not delay boot scripts.
+    interface_begin=$(now_ticks) || return 1
+    interface_deadline=$((interface_begin + 300))
+    while [ ! -e "$SYS_CLASS_NET/wlan0/address" ]; do
+        cancelled && return 1
+        interface_now=$(now_ticks) || return 1
+        [ "$interface_now" -lt "$interface_deadline" ] || return 1
+        usleep 50000 2>/dev/null || sleep 1
+    done
+    cancelled && return 1
+    mac=$(read_mac) || return 1
+    cancelled && return 1
+    if interface_is_up; then
+        return 1
+    fi
+
+    mkdir -p "$DATA_DIR" 2>/dev/null || :
+    wpa_conf="$DATA_DIR/wpa_supplicant.conf"
+    if [ -d "$DATA_DIR" ] && [ ! -f "$wpa_conf" ]; then
+        conf_tmp="$wpa_conf.$$"
+        if ! {
+            printf '%s\n' 'ctrl_interface=/var/run/wpa_supplicant'
+            printf '%s\n' 'update_config=1'
+            printf '%s\n' 'country=GB'
+        } > "$conf_tmp" 2>/dev/null; then
+            rm -f "$conf_tmp"
+        else
+            # A hard link gives create-if-absent semantics and preserves any file
+            # created concurrently by the stock UI or another system service.
+            ln "$conf_tmp" "$wpa_conf" 2>/dev/null || :
+            rm -f "$conf_tmp"
+        fi
+    fi
+
+    if [ -d "$DATA_DIR" ]; then
+        saved_mac=$(cat "$DATA_DIR/macaddr.txt" 2>/dev/null | tr -d '\r' | awk '{$1=$1; print}')
+        saved_valid=$(valid_mac "$saved_mac") || saved_valid=
+        if [ ! -f "$DATA_DIR/macaddr.txt" ] || [ -z "$saved_valid" ]; then
+            saved_tmp="$DATA_DIR/macaddr.txt.$$"
+            if printf '%s\n' "$mac" > "$saved_tmp" 2>/dev/null; then
+                mv -f "$saved_tmp" "$DATA_DIR/macaddr.txt" 2>/dev/null || rm -f "$saved_tmp"
+            else
+                rm -f "$saved_tmp"
+            fi
+        fi
+    fi
+    cancelled && return 1
+    "$IFCONFIG" wlan0 hw ether "$mac" || return 1
+    cancelled && return 1
+
+    if [ -e "$SYS_CLASS_NET/wlan1" ]; then
+        second=$(printf '%s' "$mac" | sed 's/^[^:]*:/D2:/')
+        "$IFCONFIG" wlan1 hw ether "$second" ||
+            echo "WiFi MAC: could not set optional wlan1 address" >&2
+    fi
+    cancelled && return 1
+
+    for driver in cywdhd bcmdhd; do
+        param="$SYS_MODULE/$driver/parameters/bcm_mac_address"
+        if [ -e "$param" ]; then
+            cancelled && return 1
+            printf '%s\n' "$mac" > "$param" ||
+                echo "WiFi MAC: could not set optional $driver address parameter" >&2
+        fi
+    done
+    cancelled && return 1
+    printf '%s\n' "$mac" > "$STATE_DIR/mac"
+}
+
+worker_finish() {
+    result=$1
+    if status_lock_acquire; then
+        if [ "$result" = ready ] && cancelled; then
+            result=failed
+        fi
+        record_status "$result" || :
+        status_lock_release
+    else
+        result=failed
+        record_status "$result" || :
+    fi
+    rm -f "$STATE_DIR/worker.pid" "$STATE_DIR/worker.start"
+    exit 0
+}
+
+worker() {
+    if cancelled || ! configure_mac; then
+        worker_finish failed
+    fi
+    worker_finish ready
+}
+
+worker_pending() {
+    gate=$1
+    tries=0
+    while [ ! -e "$gate" ]; do
+        tries=$((tries + 1))
+        [ "$tries" -lt 1000 ] || exit 1
+        usleep 10000 2>/dev/null || sleep 0.01
+    done
+    rm -f "$gate"
+    worker
+}
+
+start_worker() {
+    # Serialize starts and stale owner cleanup. Connection preparation may
+    # hold this lock across a bounded live-MAC check; stop publishes its
+    # cancellation markers before waiting for the lock.
+    control_acquire || return 1
+    # S43 stop is a shutdown action. Keep the gate closed for the rest of this
+    # boot so a concurrent or later start cannot race cancellation.
+    if [ -e "$STATE_DIR/stopping" ]; then
+        control_release
+        return 1
+    fi
+    reap_stale_runtime_locks
+    if [ -f "$STATE_DIR/worker.pid" ] && [ -f "$STATE_DIR/worker.start" ]; then
+        old_pid=$(cat "$STATE_DIR/worker.pid" 2>/dev/null)
+        old_start=$(cat "$STATE_DIR/worker.start" 2>/dev/null)
+        if owner_alive "$old_pid" "$old_start"; then
+            control_release
+            return 0
+        fi
+    fi
+    if [ -d "$STATE_DIR/connection.lock" ]; then
+        conn_pid=$(cat "$STATE_DIR/connection.lock/pid" 2>/dev/null)
+        conn_start=$(cat "$STATE_DIR/connection.lock/start" 2>/dev/null)
+        if owner_alive "$conn_pid" "$conn_start" wifi_on.sh; then
+            control_release
+            return 0
+        fi
+    fi
+    if [ "$(cat "$STATE_DIR/status" 2>/dev/null)" = ready ] && [ -s "$STATE_DIR/mac" ]; then
+        cached_mac=$(valid_mac "$(cat "$STATE_DIR/mac" 2>/dev/null)") || cached_mac=
+        iface_mac=$(valid_mac "$(cat "$SYS_CLASS_NET/wlan0/address" 2>/dev/null)") || iface_mac=
+        if [ -n "$cached_mac" ] && [ -e "$SYS_CLASS_NET/wlan0/address" ] &&
+            { [ "$iface_mac" = "$cached_mac" ] || ! interface_is_up; }; then
+            # Some Broadcom drivers expose their factory MAC while down and
+            # apply the staged address only after the first UP transition.
+            # Preserve readiness; the activation lease verifies after UP.
+            rm -f "$STATE_DIR/worker.pid" "$STATE_DIR/worker.start"
+            control_release
+            return 0
+        fi
+        if interface_is_up; then
+            record_status failed || :
+            control_release
+            return 0
+        fi
+    fi
+    rm -f "$STATE_DIR/worker.pid" "$STATE_DIR/worker.start"
+    rm -f "$STATE_DIR/status" "$STATE_DIR/mac"
+    worker_gate="$STATE_DIR/worker.go.$$"
+    "$0" --worker-pending "$worker_gate" 9>&- </dev/null >/dev/null 2>&1 &
+    worker_pid=$!
+    printf '%s\n' "$worker_pid" > "$STATE_DIR/worker.pid"
+    attempts=0
+    worker_start=
+    while [ -z "$worker_start" ] && [ "$attempts" -lt 100 ]; do
+        worker_start=$(pid_start "$worker_pid") || worker_start=
+        [ -n "$worker_start" ] || { attempts=$((attempts + 1)); usleep 10000 2>/dev/null || sleep 0.01; }
+    done
+    printf '%s\n' "$worker_start" > "$STATE_DIR/worker.start"
+    if [ -z "$worker_start" ]; then
+        rm -f "$worker_gate" "$STATE_DIR/worker.pid" "$STATE_DIR/worker.start"
+        control_release
+        return 1
+    fi
+    attempts=0
+    while ! owner_alive "$worker_pid" "$worker_start"; do
+        attempts=$((attempts + 1))
+        if [ "$attempts" -ge 100 ]; then
+            rm -f "$worker_gate" "$STATE_DIR/worker.pid" "$STATE_DIR/worker.start"
+            control_release
+            return 1
+        fi
+        usleep 10000 2>/dev/null || sleep 0.01
+    done
+    : > "$worker_gate"
+    control_release
+    return 0
+}
+
+wait_ready() {
+    timeout=$1
+    case "$timeout" in 0|[1-9]|1[0-9]|2[0-9]|30) ;; *) return 2 ;; esac
+    begin=$(now_ticks) || return 1
+    deadline=$((begin + timeout * 100))
+    start_worker || return 1
+    while :; do
+        cancelled && return 1
+        status=$(cat "$STATE_DIR/status" 2>/dev/null)
+        case "$status" in ready) return 0 ;; failed) return 1 ;; esac
+        current=$(now_ticks) || return 1
+        [ "$current" -lt "$deadline" ] || return 1
+        # BusyBox usleep prevents a 50Hz fork/sleep loop while staying responsive.
+        usleep 50000 2>/dev/null || sleep 1
+    done
+}
+
+stop_worker() {
+    # S43 stop is terminal for this boot (the normal rcK shutdown path).
+    # Reboot clears /var/run; no start or wait may clear these markers.
+    STOP_ACTIVE=1
+    STOP_DOWN_ATTEMPTED=0
+    trap 'exit_cleanup' 0
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    result=0
+    touch "$STATE_DIR/stopping" || result=1
+    touch "$STATE_DIR/cancel" || result=1
+    if status_lock_acquire; then
+        record_status failed || result=1
+        status_lock_release
+    else
+        record_status failed || :
+        result=1
+    fi
+
+    # Publish shutdown before attempting the lock. This makes WiFi activation
+    # fail closed even if another process holds the control lock.
+    if ! control_acquire; then
+        run_stop_down || result=1
+        return 1
+    fi
+    begin=$(now_ticks) || begin=
+    if [ -n "$begin" ]; then
+        deadline=$((begin + 700))
+        while :; do
+            reap_stale_runtime_locks
+            worker_active=0
+            if [ -f "$STATE_DIR/worker.pid" ] && [ -f "$STATE_DIR/worker.start" ] &&
+                owner_alive "$(cat "$STATE_DIR/worker.pid" 2>/dev/null)" "$(cat "$STATE_DIR/worker.start" 2>/dev/null)"; then
+                worker_active=1
+            fi
+            [ -d "$STATE_DIR/connection.lock" ] || [ "$worker_active" -eq 1 ] || break
+            current=$(now_ticks) || { result=1; break; }
+            [ "$current" -lt "$deadline" ] || { result=1; break; }
+            usleep 50000 2>/dev/null || sleep 1
+        done
+    else
+        result=1
+    fi
+    [ ! -d "$STATE_DIR/connection.lock" ] || result=1
+    if [ -f "$STATE_DIR/worker.pid" ] && [ -f "$STATE_DIR/worker.start" ] &&
+        owner_alive "$(cat "$STATE_DIR/worker.pid" 2>/dev/null)" "$(cat "$STATE_DIR/worker.start" 2>/dev/null)"; then
+        result=1
+    fi
+    # Always preserve the stock shutdown. If a bounded wait expires, the stop
+    # marker blocks new bringups and wifi_on runs another down pass on exit.
+    run_stop_down || result=1
+    control_release
+    STOP_ACTIVE=0
+    return "$result"
+}
+
+connection_begin() {
+    owner_pid=$1
+    case "$owner_pid" in ''|*[!0-9]*) return 2 ;; esac
+    control_acquire || return 1
+    cached_mac=$(valid_mac "$(cat "$STATE_DIR/mac" 2>/dev/null)") || cached_mac=
+    if [ -e "$STATE_DIR/stopping" ] ||
+        [ -e "$STATE_DIR/cancel" ] ||
+        [ "$(cat "$STATE_DIR/status" 2>/dev/null)" != ready ] ||
+        [ -z "$cached_mac" ] || [ ! -r "$SYS_CLASS_NET/wlan0/address" ]; then
+        result=1
+    elif interface_is_up; then
+        # Do not run any vendor preamble against an already-active interface.
+        # The stock script kills existing WPA/DHCP before its own UP command.
+        result=1
+    elif [ -d "$STATE_DIR/connection.lock" ]; then
+        result=1
+    elif ! mkdir "$STATE_DIR/connection.lock" 2>/dev/null; then
+        result=1
+    else
+        owner_start=$(pid_start "$owner_pid") || owner_start=
+        if [ -z "$owner_start" ]; then
+            result=1
+        elif ! {
+            printf '%s\n' "$owner_pid" > "$STATE_DIR/connection.lock/pid" &&
+            printf '%s\n' "$owner_start" > "$STATE_DIR/connection.lock/start" &&
+            printf '%s\n' 1 > "$STATE_DIR/connection.lock/initial_down"
+        }; then
+            result=1
+        else
+            result=0
+        fi
+        if [ "$result" -ne 0 ]; then
+            rm -f "$STATE_DIR/connection.lock/pid" "$STATE_DIR/connection.lock/start"
+            rm -f "$STATE_DIR/connection.lock/initial_down"
+            rmdir "$STATE_DIR/connection.lock" 2>/dev/null || :
+        fi
+    fi
+    control_release
+    return "$result"
+}
+
+connection_prepare() {
+    owner_pid=$1
+    case "$owner_pid" in ''|*[!0-9]*) return 2 ;; esac
+    control_acquire || return 1
+    recorded_pid=$(cat "$STATE_DIR/connection.lock/pid" 2>/dev/null)
+    recorded_start=$(cat "$STATE_DIR/connection.lock/start" 2>/dev/null)
+    initial_down=$(cat "$STATE_DIR/connection.lock/initial_down" 2>/dev/null)
+    owner_start=$(pid_start "$owner_pid") || owner_start=
+    cached_mac=$(valid_mac "$(cat "$STATE_DIR/mac" 2>/dev/null)") || cached_mac=
+    iface_mac=$(valid_mac "$(cat "$SYS_CLASS_NET/wlan0/address" 2>/dev/null)") || iface_mac=
+    result=1
+    if [ "$owner_pid" = "$recorded_pid" ] && [ -n "$owner_start" ] &&
+        [ "$owner_start" = "$recorded_start" ] &&
+        [ "$initial_down" = 1 ] &&
+        [ "$(cat "$STATE_DIR/status" 2>/dev/null)" = ready ] &&
+        [ -n "$cached_mac" ] && [ -r "$SYS_CLASS_NET/wlan0/address" ] &&
+        ! cancelled && interface_is_up; then
+        # This guard follows the vendor's UP command, which may reset wlan0.
+        # Only a lease that began with wlan0 down may apply the cached MAC.
+        result=0
+        if cancelled || [ "$(cat "$STATE_DIR/status" 2>/dev/null)" != ready ] ||
+            [ "$(pid_start "$owner_pid")" != "$owner_start" ]; then
+            result=1
+        elif [ "$iface_mac" = "$cached_mac" ] || "$IFCONFIG" wlan0 hw ether "$cached_mac"; then
+            begin=$(now_ticks) || begin=
+            [ -n "$begin" ] || result=1
+            deadline=$((begin + 300))
+            if [ "$result" -eq 0 ]; then
+                while :; do
+                    if cancelled || [ "$(cat "$STATE_DIR/status" 2>/dev/null)" != ready ]; then
+                        result=1
+                        break
+                    fi
+                    if [ "$(cat "$STATE_DIR/connection.lock/pid" 2>/dev/null)" != "$owner_pid" ] ||
+                        [ "$(cat "$STATE_DIR/connection.lock/start" 2>/dev/null)" != "$owner_start" ] ||
+                        [ "$(cat "$STATE_DIR/connection.lock/initial_down" 2>/dev/null)" != 1 ]; then
+                        result=1
+                        break
+                    fi
+                    current_start=$(pid_start "$owner_pid") || current_start=
+                    if [ "$current_start" != "$owner_start" ] || ! interface_is_up; then
+                        result=1
+                        break
+                    fi
+                    iface_mac=$(valid_mac "$(cat "$SYS_CLASS_NET/wlan0/address" 2>/dev/null)") || iface_mac=
+                    [ "$iface_mac" = "$cached_mac" ] && break
+                    current=$(now_ticks) || { result=1; break; }
+                    [ "$current" -lt "$deadline" ] || { result=1; break; }
+                    usleep 50000 2>/dev/null || sleep 0.05
+                done
+                if [ "$result" -eq 0 ] && {
+                    cancelled || [ "$(cat "$STATE_DIR/status" 2>/dev/null)" != ready ] ||
+                    [ "$(cat "$STATE_DIR/connection.lock/pid" 2>/dev/null)" != "$owner_pid" ] ||
+                    [ "$(cat "$STATE_DIR/connection.lock/start" 2>/dev/null)" != "$owner_start" ] ||
+                    [ "$(pid_start "$owner_pid")" != "$owner_start" ] ||
+                    ! interface_is_up ||
+                    [ "$(valid_mac "$(cat "$SYS_CLASS_NET/wlan0/address" 2>/dev/null)")" != "$cached_mac" ]
+                }; then
+                    result=1
+                fi
+            fi
+        else
+            result=1
+        fi
+    fi
+    if [ "$result" -eq 0 ]; then
+        printf '%s\n' prepared > "$STATE_DIR/connection.lock/prepared" || result=1
+    fi
+    control_release
+    return "$result"
+}
+
+connection_check() {
+    owner_pid=$1
+    recorded_pid=$(cat "$STATE_DIR/connection.lock/pid" 2>/dev/null)
+    recorded_start=$(cat "$STATE_DIR/connection.lock/start" 2>/dev/null)
+    initial_down=$(cat "$STATE_DIR/connection.lock/initial_down" 2>/dev/null)
+    current_start=$(pid_start "$owner_pid") || current_start=
+    cached_mac=$(valid_mac "$(cat "$STATE_DIR/mac" 2>/dev/null)") || cached_mac=
+    iface_mac=$(valid_mac "$(cat "$SYS_CLASS_NET/wlan0/address" 2>/dev/null)") || iface_mac=
+    [ "$owner_pid" = "$recorded_pid" ] &&
+        [ -n "$current_start" ] && [ "$current_start" = "$recorded_start" ] &&
+        [ ! -e "$STATE_DIR/stopping" ] &&
+        [ ! -e "$STATE_DIR/cancel" ] &&
+        [ "$(cat "$STATE_DIR/status" 2>/dev/null)" = ready ] &&
+        [ -n "$cached_mac" ] &&
+        { [ "$iface_mac" = "$cached_mac" ] || { [ "$initial_down" = 1 ] && ! interface_is_up; }; }
+}
+
+connection_end() {
+    owner_pid=$1
+    bringup_status=${2:-0}
+    case "$bringup_status" in ''|*[!0-9]*) bringup_status=1 ;; esac
+    recorded_pid=$(cat "$STATE_DIR/connection.lock/pid" 2>/dev/null)
+    recorded_start=$(cat "$STATE_DIR/connection.lock/start" 2>/dev/null)
+    [ "$owner_pid" = "$recorded_pid" ] || return 1
+    current_start=$(pid_start "$owner_pid") || current_start=
+    [ "$current_start" = "$recorded_start" ] || return 1
+    result=0
+    if [ -e "$STATE_DIR/stopping" ]; then
+        "$DOWN_SCRIPT" || result=1
+    elif [ "$(cat "$STATE_DIR/connection.lock/initial_down" 2>/dev/null)" = 1 ] &&
+        { [ ! -e "$STATE_DIR/connection.lock/prepared" ] || [ "$bringup_status" -ne 0 ]; }; then
+        # The lease began DOWN and failed before or during vendor bring-up.
+        # Use the stock shutdown path so any WPA/DHCP daemons are removed too.
+        "$OFF_SCRIPT" || result=1
+    fi
+    rm -f "$STATE_DIR/connection.lock/pid" "$STATE_DIR/connection.lock/start" \
+        "$STATE_DIR/connection.lock/initial_down" "$STATE_DIR/connection.lock/prepared"
+    rmdir "$STATE_DIR/connection.lock" 2>/dev/null || return 1
+    return "$result"
+}
+
+case "$1" in
+    start) start_worker ;;
+    wait) wait_ready "${2:-$WAIT_SECONDS}" ;;
+    stop) stop_worker ;;
+    connection-begin) connection_begin "${2:-}" ;;
+    connection-prepare) connection_prepare "${2:-}" ;;
+    connection-check) connection_check "${2:-}" ;;
+    connection-end) connection_end "${2:-}" "${3:-0}" ;;
+    --worker-pending) worker_pending "${2:-}" ;;
+    *) echo "Usage: $0 {start|wait [0-30]|stop|connection-begin PID|connection-prepare PID|connection-check PID|connection-end PID}" >&2; exit 2 ;;
+esac

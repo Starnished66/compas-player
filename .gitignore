@@ -241,6 +241,7 @@
 !/scripts/offline_library_scan.py
 !/scripts/generate_car_mode_toggle.py
 !/scripts/generate_stream_media_icons.py
+!/scripts/kernel/*.py
 
 # Standalone development self-tests are local-only and are not shipped in
 # the public source/release tree. Match future files in any directory too.
@@ -264,6 +265,7 @@
 !/scripts/assets/settings_category_icons/
 !/scripts/assets/settings_category_icons/*.svg
 !/scripts/generate_settings_category_icons.py
+!/scripts/generate_more_menu_icons.py
 !/scripts/assets/submenu_icons/
 !/scripts/assets/submenu_icons/*.svg
 !/scripts/generate_submenu_genres_icon.py
@@ -375,13 +377,23 @@ compas_player_power_r3ii_2025
 
 # Development harnesses and scratch output stay local.
 *_test.c
+!src/core/theme_file_test.c
+!src/ui/gui_themes_test.c
+!src/network/plugin_store_theme_test.c
+!src/library/image_thumb_test.c
 *_test.h
 *_check.c
 *_check.h
 *_regression.c
+!src/ui/phase2_regression_test.c
 *_regression.h
 test_*.c
 /scripts/test_*.sh
+!/scripts/test_phase2_regression.sh
+!/scripts/test_theme_file.sh
+!/scripts/test_gui_themes.sh
+!/scripts/test_theme_store.sh
+!/scripts/test_image_thumb.sh
 /scripts/base_image/*smoke*
 /scripts/base_image/*harness.c
 /scripts/base_image/wpa-test.conf
@@ -396,3 +408,17 @@ __pycache__/
 !/scripts/generate_setup_world_map.py
 !/scripts/generate_timezone_locations.py
 /scripts/base_image/alsa-null.conf
+
+# Keep UI experiment validation and workflow documentation reviewable.
+!/scripts/test_ui_experiments.sh
+!src/core/ui_wake_test.c
+!src/core/ui_event_input_test.c
+!src/library/cover_raster_cache_test.c
+!/docs/ui-experiments.md
+!/docs/audiobook-podcast-workflows.md
+
+# Keep the reproducible audio-output handoff regression with the source.
+!src/hardware/usb_dac_bridge_lifecycle_regression.c
+
+# Local instrumented performance binary.
+/compas_player_perf

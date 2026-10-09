@@ -1,7 +1,7 @@
 # R1 base-image upgrade
 
-This is a staged **userspace** upgrade, not a replacement distribution or
-kernel. The player uses a static musl build; the extracted firmware uses
+This is a staged **userspace** upgrade, not a replacement distribution. The
+player uses a static musl build; the extracted firmware uses
 glibc 2.22. Build its shared libraries with the Ingenic glibc toolchain,
 not `mipsel-linux-musl-gcc`.
 
@@ -84,6 +84,31 @@ under `scratch/base-upgrade`; the overlay script does not install or flash.
 Keep the downloaded sources, notices and these recipes with release source
 materials. Runtime notices are included in the overlay.
 
+## Optional R1 vendor driver refresh
+
+The ordinary four-input `scripts/repack_upt.sh` flow keeps the base kernel and
+drivers. To opt into the pinned official R1 1.8.b2 kernel and matching
+`module_driver` and `lib/firmware` files, pass its UPT explicitly:
+
+```sh
+bash scripts/repack_upt.sh --board r1 \
+  --vendor-drivers /path/to/approved-r1-1.8.b2.upt \
+  BASE_UPT PLAYER_BINARY BOOTLOADER_BINARY OUTPUT_UPT
+```
+
+Only vendor UPTs pinned by SHA-256 in `firmware/vendor_drivers.json` are
+accepted. The repacker validates the OTA chunk chain, board and version,
+kernel image CRCs, then checks that overlays did not change the imported
+kernel or driver payload. It preserves the existing R1 AXP2101 charging
+limits (4350 mV and 70 mA) and writes source and installed hashes to
+`/usr/share/compas/vendor-driver-provenance.json` in the resulting image.
+The vendor initialization sequence replaces the old diagnostic timing wrapper;
+it loads the same modules in the same order without writing the old boot-profile
+log. Provenance records the previous loader hash and this replacement policy.
+Other boards have no approved vendor pin and are rejected if this option is
+used. This refresh replaces the R1 kernel and matching vendor driver payload;
+it is an explicit firmware change and should be hardware-tested before use.
+
 ## Local validation and installation
 
 These base-image recipes are local development tools; this guide does not
@@ -148,11 +173,144 @@ on the actual R1. Repacking/flashing is a separate step.
 
 ## Kernel boundary
 
-The stock kernel is Linux 4.4.94+ and the 29 vendor modules require its exact
+The stock kernel is Linux 4.4.94+ and the vendor modules require its exact
 MIPS32_R2 ABI. The available mainline/Letux tree lacks an R1 board definition
 and validated audio, display/touch and other device support. Replacing the
 kernel safely requires the vendor source/configuration or a full board port;
-it is not a drop-in package upgrade. Keep `xImage` and modules unchanged.
+it is not a drop-in package upgrade. The optional pinned R1 refresh imports
+the matching official vendor kernel and modules as one unit; otherwise keep
+`xImage` and modules unchanged.
+
+### Experimental source-built R1 kernel
+
+`firmware/kernel/upstream.json` pins Jepl4r's
+[hiby-custom-kernel](https://github.com/Jepl4r/hiby-custom-kernel), which builds
+4.4.94+ from the external Ingenic SDK and preserves the R1 device tree and
+vendor-module ABI. Its credits include
+[MatthewBriggs's R1 kernel work](https://github.com/MatthewBriggs/hiby-r1-linux-kernel-compiling).
+The kernel source/toolchain SDK is not bundled or available in this checkout.
+
+Prepare an isolated workspace from a clean checkout at the pinned commit and
+the extracted **base firmware's** `xImage`:
+
+```sh
+python3 scripts/kernel/prepare_r1_kernel.py \
+  --upstream /path/to/hiby-custom-kernel \
+  --stock-kernel /path/to/base/xImage \
+  --workspace /path/to/fresh-compas-kernel-workspace \
+  --profile optimized \
+  --jobs 2
+```
+
+This extracts the stock DTB, copies the pinned source and selected profile,
+and records source, kernel, DTB and profile hashes plus the container command
+in `preparation.json`. `--jobs` controls upstream `build.sh` parallelism and
+defaults to 2 to limit host memory use. The pinned SDK SHA-256 is checked when
+the archive is supplied. The SDK is available from the vendor's X1600 SDK
+directory at
+`ftp://ftp.ingenic.com.cn/DevSupport/X1600/01_SW/06_kernel4.4.94_X1600-sdk_v6.0-20240606/01_ingenic-linux-kernel4.4.94-x1600-v6.0-20240606/`;
+public access instructions are documented at
+https://github.com/hiby-modding/hiby_os_crack.
+
+Preparation does not flash, change the upstream checkout or run a build by
+default. To build, pass `--sdk /path/to/ingenic-linux-kernel4.4.94-x1600-v6.0-20240606.tar.bz2
+--build`. The runtime defaults to Docker when installed, otherwise Podman; use
+`--container-runtime docker` or `--container-runtime podman` to select one
+explicitly. Podman builds apply SELinux mount labels automatically. Build the
+pinned kit's image locally before `--build` (choose the matching runtime):
+the build container sets `TAR_OPTIONS=--no-same-owner` so rootless Podman can
+extract the vendor SDK even when its archived numeric owners exceed the
+container's mapped user-ID range.
+
+```sh
+cd /path/to/hiby-custom-kernel
+podman build --platform linux/amd64 -t hiby-custom-kernel docker/
+```
+
+Preparation is not evidence that a kernel compiled or boots.
+
+After a build, verify the module set that the firmware will actually retain.
+For a kernel-only replacement that keeps the vendor drivers, use:
+
+```sh
+python3 scripts/kernel/verify_module_abi.py \
+  --system-map /path/to/workspace/hiby-custom-kernel/out/System.map-compas-r1 \
+  --built-modules /path/to/workspace/hiby-custom-kernel/out/modules-compas-r1 \
+  --vendor-modules /path/to/base/root/module_driver \
+  --vendor-only --output /path/to/workspace/vendor-module-abi.json
+```
+
+This checks actual exported symbols and full module vermagic, records artifact
+hashes, and fails for unresolved strong imports. In vendor-only mode, rebuilt
+modules cannot satisfy imports; their vermagic still verifies the build's
+module identity. Static checks do not prove structure layouts, load order or
+runtime behavior. Device validation and the repository's C review gate
+remain required before shipping a kernel.
+
+The preparation step also applies reviewed module-source patches from
+`firmware/kernel/module-patches/` to the copied kit before a build. These are
+separate from `firmware/kernel/patches/`, which the upstream build applies to
+the kernel tree. The reconstructed-driver stream replaces 22 selected R1
+modules and retains the seven matching vendor modules; `bcm_wlbt_power` is not
+a drop-in replacement because the Wi-Fi path also depends on `brcmfmac` and
+the matching boot scripts. Keep the vendor Wi-Fi modules until that complete
+path is reviewed and validated.
+
+The kernel-only packer keeps the root filesystem image bytes unchanged:
+
+```sh
+python3 scripts/kernel/repack_kernel_upt.py \
+  --base-upt /path/to/compas-r1-kernel.upt \
+  --kernel-workspace /path/to/workspace \
+  --output /path/to/kernel-only.upt
+```
+
+When replacing reviewed drivers, use `scripts/kernel/repack_driver_upt.py`;
+it rebuilds the root filesystem and checks that only the selected 22 module
+files changed. `--driver-modules /path/to/rebuilt-modules` selects the reviewed
+module output directory and defaults to the kernel workspace's
+`out/modules-compas-r1`. Driver replacement remains subject to source review,
+ABI verification, and device testing.
+
+Both profiles apply upstream `r1-required.config` and `r1-parity.config`
+before our fragment. `parity` keeps kernel debugging symbols for diagnosis;
+`optimized` adds compressed-RAM-swap support and proposes removal of
+unused mac80211, in-kernel NTFS and Bluetooth High Speed. It preserves
+codepage 936, which Compas's FAT mount commands require, and the ABI-sensitive
+netfilter/debugfs options. Unlike upstream's RAM profile, it retains crypto
+self-tests and does not remove crypto algorithms. Compiling zram support does
+not activate swap; activation and its CPU/memory tradeoff need their own test.
+Both CFQ and deadline remain available with CFQ as the optimized profile's
+default; the first device scheduler comparison was mixed.
+
+The pinned kit includes the highatomic-reservation guard for the R1's oversized
+page blocks and the DMA/USB/ALSA compatibility patches. Those are candidates
+for reuse, not measured improvements in Compas. The reconstructed Wi-Fi,
+display, touch and audio modules need separate device validation; copying
+the reconstructed Wi-Fi modules alone would leave Compas's vendor-Wi-Fi scripts inconsistent.
+
+Compas's local corrective patches in `firmware/kernel/patches/` apply after
+the pinned upstream patches. They restrict USB DAC control OUT requests to
+the supported four-byte clock-frequency value, validate rates, preserve
+character-device lifetime across open handles, clean failed endpoint starts,
+and bound and independently encode signed DMA gaps. Preparation records their
+hashes without changing the upstream checkout. Local patch names cannot begin
+with `0` or collide with upstream patch names, which prevents double application.
+Run `scripts/kernel/test_uac_safety.py --source /path/to/built/f_uac_sa.c
+--dma-source /path/to/built/ingenic_dma.c` to compile and exercise the actual
+functions with host-side mocks. These tests do not replace device testing.
+
+The ordinary `repack_upt.sh` path still retains its selected base kernel.
+Custom-kernel firmware packaging and release are pending review and device
+validation, including repeated warm/cold boots, SD access, charging, touch,
+audio formats/underruns, USB DAC and Bluetooth/Wi-Fi. Require matching module
+exports/vermagic, byte-identical DTB and a kernel no larger than the base image.
+
+The existing `compas-boot-tuning` helper also accepts an opt-in
+`COMPAS_SD_SCHEDULER=deadline`, `cfq` or `noop`, but writes only an advertised
+scheduler. An unset or invalid value retains the kernel's current scheduler.
+The tested stock R1 already exposes deadline; a new kernel is not needed to
+compare it against CFQ. No scheduler override is enabled by default.
 
 ## Player-facing follow-up batches
 

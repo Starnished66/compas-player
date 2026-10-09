@@ -22,6 +22,10 @@ bool airplay_bridge_start(void);
  * to decide whether to display the AirPlay overlay. */
 bool airplay_bridge_is_streaming(void);
 
+/* Includes an incoming PCM session waiting to acquire output, so local Play
+ * can disconnect it before starting another decoder. */
+bool airplay_bridge_has_active_stream(void);
+
 /* Signals the bridge thread to stop asynchronously. The thread closes the FIFO,
  * releases the audio output, and transitions to BRIDGE_STOPPED. */
 void airplay_bridge_stop(void);

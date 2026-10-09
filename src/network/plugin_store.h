@@ -61,6 +61,7 @@ typedef struct {
     bool incompatible;
     bool needs_confirmation;
     bool player_layout;
+    bool theme_pack;
 } plugin_store_result_t;
 
 typedef struct {

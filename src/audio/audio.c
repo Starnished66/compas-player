@@ -31,8 +31,10 @@
 #include "ogg_demux.h"
 #include "vorbis_decoder.h"
 #include "peq.h"
+#include "audio_tempo.h"
 #include "http_stream.h"
 #include "remote_track.h"
+#include "metadata.h"
 
 #include <math.h>
 #include <pthread.h>
@@ -816,6 +818,16 @@ static audio_error_t last_playback_error = AUDIO_ERROR_NONE;
 static uint64_t last_playback_error_generation = 0;
 
 static bool restart_requested = false;
+static bool startup_pending = false;
+static bool startup_paused = false;
+static atomic_bool local_output_active;
+static bool restart_read_replaygain = false;
+static int restart_replaygain_mode;
+static track_metadata_t startup_metadata;
+static uint64_t startup_metadata_generation;
+static bool startup_metadata_ready;
+static uint64_t stopped_startup_generation;
+static bool stopped_startup_generation_valid;
 static uint64_t next_track_generation = 0;
 static char * restart_path = NULL;  /* owned; consumed by the thread on restart */
 static double restart_start_seconds = 0.0;
@@ -827,6 +839,28 @@ static float next_replaygain_linear = 1.0f;
 static bool next_replaygain_applied = false;
 
 static bool crossfade_enabled = false;
+static char speed_directory[1024] = "";
+static double requested_playback_speed = 1.0;
+static double applied_playback_speed = 1.0;
+static unsigned speed_setting_serial = 0;
+
+static const char * speed_normalize_path(const char * path) {
+    if (path && strncmp(path, "/usr/data/mnt/sd_0/", sizeof("/usr/data/mnt/sd_0/") - 1) == 0) return path + 4;
+    if (path && strcmp(path, "/usr/data/mnt/sd_0") == 0) return path + 4;
+    return path;
+}
+/* Caller owns audio_mutex. Match a directory boundary, never a raw prefix. */
+static double speed_for_path_locked(const char * path) {
+    path = speed_normalize_path(path);
+    size_t n = strlen(speed_directory);
+    return path && n && strncmp(path, speed_directory, n) == 0 && path[n] == '/'
+        ? requested_playback_speed : 1.0;
+}
+static double speed_for_decoder_locked(const char * path, const decoder_t * dec) {
+    if (dec->type == DECODER_DSD || dec->net_stream || dec->channels > 2 ||
+        dec->sample_rate < 8000 || dec->sample_rate > 96000) return 1.0;
+    return speed_for_path_locked(path);
+}
 #define CROSSFADE_SECONDS 3.0
 
 static float volume = 1.0f;      /* UI-facing 0.0-1.0 percent, what audio_get_volume() returns */
@@ -857,6 +891,12 @@ static double seek_pending_percent = 0.0;
 static uint64_t frames_played = 0;
 static uint64_t current_total_frames = 0;
 static unsigned int current_sample_rate = 0;
+/* The scalar counters above are legacy UI state. This generation and state
+ * make them a trusted tuple for one playback request, including after a
+ * natural EOF or explicit stop closes the live decoder. audio_mutex protects
+ * all five fields together. */
+static uint64_t counter_generation = 0;
+static audio_playback_progress_state_t playback_progress_state = AUDIO_PLAYBACK_PROGRESS_NOT_READY;
 static audio_current_format_info_t current_format_info;
 static uint64_t current_format_generation = 0;
 
@@ -1245,7 +1285,7 @@ static void * mp3_index_worker(void * arg) {
     pthread_mutex_lock(&audio_mutex);
     mp3_index_worker_active = false;
     mp3_index_result = job;
-    pthread_cond_signal(&audio_cond);
+    pthread_cond_broadcast(&audio_cond);
     pthread_mutex_unlock(&audio_mutex);
     return NULL;
 }
@@ -1698,6 +1738,7 @@ static void publish_current_format_locked(const decoder_t * dec, const char * pa
 static void clear_current_format_locked(void) {
     memset(&current_format_info, 0, sizeof(current_format_info));
     current_format_generation++;
+    playback_progress_state = AUDIO_PLAYBACK_PROGRESS_NOT_READY;
 }
 
 #ifdef HOST_BUILD
@@ -1866,12 +1907,15 @@ static void close_device(void) {
     if (sdl_dev != 0) { SDL_CloseAudioDevice(sdl_dev); sdl_dev = 0; }
     device_channels = 0;
     device_sample_rate = 0;
+    atomic_store_explicit(&local_output_active, false, memory_order_release);
 }
 
 static bool ensure_device(unsigned int channels, unsigned int sample_rate) {
+    atomic_store_explicit(&local_output_active, true, memory_order_release);
     bool device_open = (sdl_dev != 0);
     if (device_open && device_channels == channels && device_sample_rate == sample_rate) return true;
     close_device();
+    atomic_store_explicit(&local_output_active, true, memory_order_release);
     return open_device(channels, sample_rate);
 }
 
@@ -1882,7 +1926,7 @@ static void write_device(const int16_t * buf, uint64_t frames, unsigned int chan
     Uint32 max_queued_bytes = device_sample_rate * channels * sizeof(int16_t);
     while (SDL_GetQueuedAudioSize(sdl_dev) > max_queued_bytes) {
         pthread_mutex_lock(&audio_mutex);
-        bool stop_now = stop_requested || restart_requested;
+        bool stop_now = stop_requested || restart_requested || paused || seek_pending;
         pthread_mutex_unlock(&audio_mutex);
         if (stop_now) break;
         usleep(10000);
@@ -1893,6 +1937,7 @@ static void write_device(const int16_t * buf, uint64_t frames, unsigned int chan
  * audio_output.h) for output routing and format configuration. */
 static bool ensure_device_format(unsigned int channels, unsigned int sample_rate, bool want_s24) {
     /* Decoder-fed local playback requests standard battery-tuned local buffer. */
+    atomic_store_explicit(&local_output_active, true, memory_order_release);
     bool ok = audio_output_ensure(channels, sample_rate, false, want_s24);
     if (ok) {
         /* Reapply volume if USB output state changed so digital volume taper
@@ -1911,8 +1956,14 @@ static bool ensure_device(unsigned int channels, unsigned int sample_rate) {
     return ensure_device_format(channels, sample_rate, false);
 }
 
+static bool ensure_device_dop(unsigned int channels, unsigned int sample_rate) {
+    atomic_store_explicit(&local_output_active, true, memory_order_release);
+    return audio_output_ensure_dop(channels, sample_rate);
+}
+
 static void close_device(void) {
     audio_output_close();
+    atomic_store_explicit(&local_output_active, false, memory_order_release);
 }
 
 
@@ -1947,7 +1998,7 @@ static write_result_t ensure_device_with_retry(unsigned int channels,
         pthread_mutex_unlock(&audio_mutex);
         if (abort) return WRITE_RESULT_ABORTED;
 
-        bool ok = dop ? audio_output_ensure_dop(channels, sample_rate)
+        bool ok = dop ? ensure_device_dop(channels, sample_rate)
             : want_s24 ? ensure_device_format(channels, sample_rate, true)
             : ensure_device(channels, sample_rate);
         if (ok) return WRITE_RESULT_OK;
@@ -2078,7 +2129,7 @@ static write_result_t write_device_with_retry_s32_ex(const int32_t * buf, uint64
                 if (out_delivered_frames) *out_delivered_frames = delivered;
                 return WRITE_RESULT_ABORTED;
             }
-            if (dop ? !audio_output_ensure_dop(channels, sample_rate)
+            if (dop ? !ensure_device_dop(channels, sample_rate)
                     : !ensure_device_format(channels, sample_rate, true)) {
                 DBG_LOG("audio: output reopen (s32) failed on retry %d (%s)\n",
                         attempt, safe_path_tail(path));
@@ -2163,7 +2214,7 @@ static inline write_result_t write_device_transition_ramp_s32(const int32_t * bu
 /* The gapless handoff's single open attempt, with the same DoP fallback. */
 static bool ensure_device_for_decoder(decoder_t * dec, uint64_t * frame_io) {
     if (decoder_is_dop(dec)) {
-        if (audio_output_ensure_dop(dec->channels, dec->sample_rate)) return true;
+        if (ensure_device_dop(dec->channels, dec->sample_rate)) return true;
         if (!dop_fall_back_to_pcm(dec, frame_io, NULL, 1.0f, false)) return false;
     }
     return ensure_device_format(dec->channels, dec->sample_rate, can_use_wide_path(dec));
@@ -2271,6 +2322,27 @@ static void mix_crossfade_s32(const int32_t * buf_cur, const int32_t * buf_next,
 }
 #endif
 
+/* Only the audio worker acknowledges a stop, after releasing its output.
+ * A newer queued play keeps the device for reuse and owns its own state. */
+static void finish_startup_without_restart(void) {
+    pthread_mutex_lock(&audio_mutex);
+    uint64_t observed_generation = playback_generation;
+    bool restarting = restart_requested;
+    pthread_mutex_unlock(&audio_mutex);
+    if (restarting) return;
+    close_device();
+    pthread_mutex_lock(&audio_mutex);
+    if (!restart_requested && playback_generation == observed_generation) {
+        startup_pending = false;
+        have_current = false;
+        paused = false;
+        stop_requested = false;
+        clear_current_format_locked();
+        pthread_cond_broadcast(&audio_cond);
+    }
+    pthread_mutex_unlock(&audio_mutex);
+}
+
 static void * audio_thread_func(void * arg) {
     (void) arg;
     set_worker_thread_name("audio");
@@ -2290,6 +2362,15 @@ static void * audio_thread_func(void * arg) {
      * on why period_size is now rate-scaled for the same reason. */
     (void) nice(-5);
 
+    audio_tempo_t * tempo = NULL;
+    double tempo_rate = 1.0;
+    uint64_t tempo_generation = 0;
+    size_t tempo_pending_frames = 0;
+    unsigned tempo_eof_retries = 0;
+    bool tempo_recovery_pending = false;
+    audio_error_t tempo_error = AUDIO_ERROR_DECODER_FAILED;
+    unsigned tempo_setting_seen = 0;
+    bool tempo_finished = false;
     decoder_t cur_dec;
     bool cur_open = false;
     char * cur_path_local = NULL;
@@ -2327,10 +2408,17 @@ static void * audio_thread_func(void * arg) {
 #endif
 
     for (;;) {
+        audio_tempo_destroy(tempo); tempo = NULL;
+        tempo_pending_frames = 0;
+        tempo_finished = false;
         /* Idle until there's a track to (re)start. */
         pthread_mutex_lock(&audio_mutex);
         while (!restart_requested) {
-            pthread_cond_wait(&audio_cond, &audio_mutex);
+            if (stop_requested) {
+                pthread_mutex_unlock(&audio_mutex);
+                finish_startup_without_restart();
+                pthread_mutex_lock(&audio_mutex);
+            } else pthread_cond_wait(&audio_cond, &audio_mutex);
         }
         restart_requested = false;
         free(cur_path_local);
@@ -2339,22 +2427,60 @@ static void * audio_thread_func(void * arg) {
         cur_replaygain_linear = restart_replaygain_linear;
         cur_replaygain_applied = restart_replaygain_applied;
         uint64_t cur_generation = playback_generation;
+        bool read_replaygain = restart_read_replaygain;
+        int replaygain_mode = restart_replaygain_mode;
         pthread_mutex_unlock(&audio_mutex);
 
         close_decoder_if_open(&nxt_dec, &nxt_open);
         nxt_format_matches = false;
         if (cur_open) { decoder_close(&cur_dec); cur_open = false; }
 
+        if (read_replaygain && cur_path_local) {
+            track_metadata_t tags;
+            metadata_read_without_artwork(cur_path_local, &tags);
+            bool album = replaygain_mode == 2 && tags.has_replaygain_album;
+            bool has_gain = replaygain_mode != 0 && (album || tags.has_replaygain);
+            double gain = album ? tags.replaygain_album_gain_db : tags.replaygain_gain_db;
+            bool album_peak = album && tags.has_replaygain_album_peak;
+            bool has_peak = replaygain_mode != 0 && (album_peak || tags.has_replaygain_peak);
+            double peak = album_peak ? tags.replaygain_album_peak : tags.replaygain_peak;
+            cur_replaygain_linear = (float) replaygain_to_linear(has_gain, gain, has_peak, peak);
+            cur_replaygain_applied = has_gain;
+            free(tags.picture_data);
+            free(tags.lyrics);
+            tags.picture_data = NULL;
+            tags.picture_size = 0;
+            tags.lyrics = NULL;
+            pthread_mutex_lock(&audio_mutex);
+            if (playback_generation == cur_generation && !stop_requested && !restart_requested) {
+                startup_metadata = tags;
+                startup_metadata_generation = cur_generation;
+                startup_metadata_ready = true;
+            }
+            pthread_cond_broadcast(&audio_cond);
+            pthread_mutex_unlock(&audio_mutex);
+        }
+        /* Reading a cold file may take seconds. Never open/output a request
+         * that Stop or another track has superseded during that read. */
+        pthread_mutex_lock(&audio_mutex);
+        bool startup_cancelled = playback_generation != cur_generation || stop_requested || restart_requested;
+        pthread_mutex_unlock(&audio_mutex);
+        if (startup_cancelled) { finish_startup_without_restart(); continue; }
+
         if (!cur_path_local || !decoder_open(&cur_dec, cur_path_local)) {
             if (cur_path_local)
                 fprintf(stderr, "audio: playback open rejected (%s): %s\n",
                         safe_path_tail(cur_path_local), audio_error_description(cur_dec.open_error));
             pthread_mutex_lock(&audio_mutex);
-            have_current = false;
-            clear_current_format_locked();
-            last_playback_error = cur_path_local ? cur_dec.open_error : AUDIO_ERROR_DECODER_FAILED;
-            last_playback_error_generation = cur_generation;
+            if (playback_generation == cur_generation && !restart_requested && !stop_requested) {
+                startup_pending = false;
+                have_current = false;
+                clear_current_format_locked();
+                last_playback_error = cur_path_local ? cur_dec.open_error : AUDIO_ERROR_DECODER_FAILED;
+                last_playback_error_generation = cur_generation;
+            }
             pthread_mutex_unlock(&audio_mutex);
+            finish_startup_without_restart();
             continue;
         }
         cur_open = true;
@@ -2408,17 +2534,24 @@ static void * audio_thread_func(void * arg) {
                 if (!reopen_decoder_at(&cur_dec, cur_path_local, 0)) {
                     cur_open = false;
                     pthread_mutex_lock(&audio_mutex);
-                    have_current = false;
-                    clear_current_format_locked();
-                    last_playback_error = AUDIO_ERROR_DECODER_FAILED;
-                    last_playback_error_generation = cur_generation;
+                    if (playback_generation == cur_generation && !restart_requested && !stop_requested) {
+                        startup_pending = false;
+                        have_current = false;
+                        clear_current_format_locked();
+                        last_playback_error = AUDIO_ERROR_DECODER_FAILED;
+                        last_playback_error_generation = cur_generation;
+                    }
                     pthread_mutex_unlock(&audio_mutex);
+                    finish_startup_without_restart();
                     continue;
                 }
                 cur_frames_played_local = 0;
             }
         }
 
+        pthread_mutex_lock(&audio_mutex);
+        bool pause_before_output = startup_paused;
+        pthread_mutex_unlock(&audio_mutex);
 #ifndef HOST_BUILD
         /* Reset S24 probe cache before ensuring format so each new track
          * can negotiate S24_LE output. */
@@ -2426,9 +2559,10 @@ static void * audio_thread_func(void * arg) {
         /* A new DoP decoder starts its markers at 0x05; a DoP stream left
          * open by the previous track may expect 0xFA next. */
         if (decoder_is_dop(&cur_dec) && audio_output_is_dop_active()) close_device();
-        write_result_t initial_output = ensure_output_for_decoder(&cur_dec, &cur_frames_played_local,
-                                                                  cur_path_local, false);
+        write_result_t initial_output = pause_before_output ? WRITE_RESULT_OK :
+            ensure_output_for_decoder(&cur_dec, &cur_frames_played_local, cur_path_local, false);
 #else
+        (void) pause_before_output;
         bool initial_output_ok = ensure_device(cur_dec.channels, cur_dec.sample_rate);
 #endif
 #ifndef HOST_BUILD
@@ -2439,22 +2573,17 @@ static void * audio_thread_func(void * arg) {
             pthread_mutex_lock(&audio_mutex);
             bool stale_generation = playback_generation != cur_generation;
             bool cancelled = stop_requested || restart_requested;
-            bool same_generation_cancel = !stale_generation && cancelled;
-            if (same_generation_cancel) {
-                have_current = false;
-                clear_current_format_locked();
-                paused = false;
-                stop_requested = false;
-            } else if (!stale_or_cancelled && !stale_generation && !cancelled) {
+            if (!stale_or_cancelled && !stale_generation && !cancelled) {
                 fprintf(stderr, "audio: output open failed (%s): %u channels, %u Hz\n",
                         safe_path_tail(cur_path_local), cur_dec.channels, cur_dec.sample_rate);
+                startup_pending = false;
                 have_current = false;
                 clear_current_format_locked();
                 last_playback_error = AUDIO_ERROR_OUTPUT_FAILED;
                 last_playback_error_generation = cur_generation;
             }
             pthread_mutex_unlock(&audio_mutex);
-            if (same_generation_cancel) close_device();
+            finish_startup_without_restart();
             continue;
         }
 #else
@@ -2464,20 +2593,15 @@ static void * audio_thread_func(void * arg) {
             pthread_mutex_lock(&audio_mutex);
             bool same_generation = playback_generation == cur_generation;
             bool cancelled = stop_requested || restart_requested;
-            bool same_generation_cancel = same_generation && cancelled;
-            if (same_generation_cancel) {
-                have_current = false;
-                clear_current_format_locked();
-                paused = false;
-                stop_requested = false;
-            } else if (same_generation && !cancelled) {
+            if (same_generation && !cancelled) {
+                startup_pending = false;
                 have_current = false;
                 clear_current_format_locked();
                 last_playback_error = AUDIO_ERROR_OUTPUT_FAILED;
                 last_playback_error_generation = cur_generation;
             }
             pthread_mutex_unlock(&audio_mutex);
-            if (same_generation_cancel) close_device();
+            finish_startup_without_restart();
             continue;
         }
 #endif
@@ -2489,23 +2613,24 @@ static void * audio_thread_func(void * arg) {
         bool initial_request_stale = playback_generation != cur_generation ||
                                      stop_requested || restart_requested;
         if (initial_request_stale) {
-            bool same_generation_cancel = playback_generation == cur_generation;
-            if (same_generation_cancel) {
-                have_current = false;
-                clear_current_format_locked();
-                paused = false;
-                stop_requested = false;
-            }
             pthread_mutex_unlock(&audio_mutex);
-            if (same_generation_cancel) close_device();
             decoder_close(&cur_dec);
             cur_open = false;
+            finish_startup_without_restart();
             continue;
         }
+        if (startup_pending) paused = startup_paused;
+#ifndef HOST_BUILD
+        bool startup_pause_no_fade = paused;
+#endif
+        startup_pending = false;
         have_current = true;
         frames_played = cur_frames_played_local;
         current_total_frames = cur_dec.total_frames;
         current_sample_rate = cur_dec.sample_rate;
+        counter_generation = cur_generation;
+        playback_progress_state = current_sample_rate > 0
+            ? AUDIO_PLAYBACK_PROGRESS_ACTIVE : AUDIO_PLAYBACK_PROGRESS_NOT_READY;
         publish_current_format_locked(&cur_dec, cur_path_local,
                                       cur_replaygain_linear, cur_replaygain_applied);
         pthread_mutex_unlock(&audio_mutex);
@@ -2513,12 +2638,27 @@ static void * audio_thread_func(void * arg) {
         bool should_restart = false;
         bool was_stopped = false;
         bool ended_with_no_next = false;
+        bool natural_eof = false;
         bool need_fade_in = true;
         bool mp3_seek_output_held = initial_mp3_seek_deferred;
         unsigned int consecutive_decoder_errors = 0;
         unsigned int consecutive_nxt_decoder_errors = 0;
 
         for (;;) {
+            if (tempo_generation != cur_generation) {
+                audio_tempo_destroy(tempo); tempo = NULL;
+                tempo_pending_frames = 0;
+                tempo_finished = false;
+                tempo_generation = cur_generation;
+                tempo_eof_retries = 0;
+                tempo_recovery_pending = false;
+                tempo_error = AUDIO_ERROR_DECODER_FAILED;
+                pthread_mutex_lock(&audio_mutex);
+                tempo_rate = speed_for_decoder_locked(cur_path_local, &cur_dec);
+                tempo_setting_seen = speed_setting_serial;
+                applied_playback_speed = 1.0;
+                pthread_mutex_unlock(&audio_mutex);
+            }
             pthread_mutex_lock(&audio_mutex);
 #ifndef HOST_BUILD
             /* Close the audio output device while paused so the analog amplifier
@@ -2527,7 +2667,7 @@ static void * audio_thread_func(void * arg) {
             if (paused && !stop_requested && !restart_requested) {
                 float vol = volume_gain;
                 pthread_mutex_unlock(&audio_mutex);
-                if (!mp3_seek_output_held && cur_open && cur_dec.sample_rate > 0) {
+                if (!startup_pause_no_fade && tempo_rate == 1.0 && !mp3_seek_output_held && cur_open && cur_dec.sample_rate > 0) {
                     uint64_t rf = calculate_ramp_frames(cur_dec.sample_rate);
                     cur_frames_played_local += write_transition_fade(&cur_dec, rf, buf_cur,
                                                                       buf_cur_s32, cur_replaygain_linear,
@@ -2535,17 +2675,20 @@ static void * audio_thread_func(void * arg) {
                 }
                 close_device();
                 need_fade_in = true;
+                startup_pause_no_fade = false;
                 pthread_mutex_lock(&audio_mutex);
             }
 #endif
             while (paused && !stop_requested && !restart_requested && !seek_pending &&
-                   !mp3_index_result) {
+                   !mp3_index_result && tempo_setting_seen == speed_setting_serial) {
                 pthread_cond_wait(&audio_cond, &audio_mutex);
             }
             bool do_stop = stop_requested;
             bool do_restart = restart_requested;
             bool do_seek = false;
             uint64_t seek_frame = 0;
+            double wanted_speed = speed_for_decoder_locked(cur_path_local, &cur_dec);
+            tempo_setting_seen = speed_setting_serial;
 
             mp3_index_job_t * completed_index = mp3_index_result;
             mp3_index_result = NULL;
@@ -2592,6 +2735,13 @@ static void * audio_thread_func(void * arg) {
                 }
             }
 
+            /* A speed change uses the normal seek machinery. Explicit or
+             * deferred user seeks retain priority over this rewind-to-audible
+             * position, including MP3 seeks waiting for the index. */
+            if (wanted_speed != tempo_rate && !seek_pending && !mp3_seek_deferred && !do_seek) {
+                do_seek = true;
+                seek_frame = cur_frames_played_local;
+            }
             if (seek_pending && seek_pending_playback_generation == cur_generation) {
                 do_seek = true;
                 seek_frame = seek_pending_is_percent
@@ -2645,7 +2795,8 @@ static void * audio_thread_func(void * arg) {
             bool hold_for_mp3_seek = mp3_seek_deferred &&
                                      mp3_seek_deferred_generation == cur_generation &&
                                      !do_seek;
-            bool xfade_on = crossfade_enabled;
+            bool xfade_on = crossfade_enabled && tempo_rate == 1.0 && wanted_speed == 1.0 &&
+                            speed_for_path_locked(next_path) == 1.0;
             float vol = volume_gain;
             bool remain_paused = paused;
             uint64_t chunk_frames = low_power_mode ? LOW_POWER_CHUNK_FRAMES : NORMAL_CHUNK_FRAMES;
@@ -2678,8 +2829,8 @@ static void * audio_thread_func(void * arg) {
                 /* Request S24_LE if both sides of a crossfade are S24_LE-eligible,
                  * avoiding unnecessary close+reopen cycles. */
                 bool blend_can_be_wide = is_blending && can_use_wide_crossfade(&cur_dec, &nxt_dec);
-                bool use_wide = blend_can_be_wide || (!is_blending && can_use_wide_path(&cur_dec));
-                if (decoder_is_dop(&cur_dec) && !audio_output_ensure_dop(cur_dec.channels, cur_dec.sample_rate)) {
+                bool use_wide = tempo_rate == 1.0 && (blend_can_be_wide || (!is_blending && can_use_wide_path(&cur_dec)));
+                if (decoder_is_dop(&cur_dec) && !ensure_device_dop(cur_dec.channels, cur_dec.sample_rate)) {
                     /* The route left the local DAC, or it refused DoP: carry on
                      * converted, from the last frame actually delivered. */
                     close_decoder_if_open(&nxt_dec, &nxt_open);
@@ -2723,7 +2874,7 @@ static void * audio_thread_func(void * arg) {
 
             if (do_restart || do_stop) {
                 /* Phase 4: Controlled transition ramp-down on manual stop/restart */
-                if (!mp3_seek_output_held && cur_open && cur_dec.sample_rate > 0) {
+                if (tempo_rate == 1.0 && !mp3_seek_output_held && cur_open && cur_dec.sample_rate > 0) {
                     uint64_t rf = calculate_ramp_frames(cur_dec.sample_rate);
 #ifndef HOST_BUILD
                     (void) write_transition_fade(&cur_dec, rf, buf_cur, buf_cur_s32,
@@ -2794,7 +2945,7 @@ static void * audio_thread_func(void * arg) {
 
                 /* Smooth seek on the playback-owned decoder. Indexed MP3s
                  * reach this point only after their bounded table is ready. */
-                if (!mp3_seek_output_held && cur_open && cur_dec.sample_rate > 0) {
+                if (!remain_paused && tempo_rate == 1.0 && !mp3_seek_output_held && cur_open && cur_dec.sample_rate > 0) {
                     uint64_t rf = calculate_ramp_frames(cur_dec.sample_rate);
 #ifndef HOST_BUILD
                     (void) write_transition_fade(&cur_dec, rf, buf_cur, buf_cur_s32,
@@ -2816,8 +2967,18 @@ static void * audio_thread_func(void * arg) {
                 if (seek_frame > cur_dec.total_frames) seek_frame = cur_dec.total_frames;
                 if (decoder_seek(&cur_dec, seek_frame)) {
                     cur_frames_played_local = seek_frame;
+                    audio_tempo_destroy(tempo); tempo = NULL;
+                    tempo_pending_frames = 0;
+                    tempo_finished = false;
+                    tempo_rate = wanted_speed;
+                    tempo_eof_retries = 0;
+                    tempo_recovery_pending = false;
                     pthread_mutex_lock(&audio_mutex);
                     frames_played = cur_frames_played_local;
+                    applied_playback_speed = tempo_rate;
+                    publish_current_format_locked(&cur_dec, cur_path_local,
+                        cur_replaygain_linear, cur_replaygain_applied);
+                    if (tempo_rate != 1.0) current_format_info.output_bit_depth = 16;
                     if (mp3_seek_deferred_generation == cur_generation)
                         finish_mp3_deferred_seek_locked();
                     pthread_mutex_unlock(&audio_mutex);
@@ -2852,6 +3013,21 @@ static void * audio_thread_func(void * arg) {
                         goto inner_loop_done;
                     }
                     cur_open = true;
+                    audio_tempo_destroy(tempo); tempo = NULL;
+                    tempo_pending_frames = 0;
+                    tempo_finished = false;
+                    /* The reopen restored the last delivered source position,
+                     * so it can commit this tempo without retrying a failed
+                     * seek or overwriting a newer scoped preference. */
+                    tempo_rate = wanted_speed;
+                    tempo_eof_retries = 0;
+                    tempo_recovery_pending = false;
+                    pthread_mutex_lock(&audio_mutex);
+                    applied_playback_speed = tempo_rate;
+                    publish_current_format_locked(&cur_dec, cur_path_local,
+                        cur_replaygain_linear, cur_replaygain_applied);
+                    if (tempo_rate != 1.0) current_format_info.output_bit_depth = 16;
+                    pthread_mutex_unlock(&audio_mutex);
                     mp3_seek_output_held = remain_paused;
                     need_fade_in = true;
                     consecutive_decoder_errors = 0;
@@ -2859,6 +3035,114 @@ static void * audio_thread_func(void * arg) {
                 continue; /* re-check pause/restart state before decoding */
             }
 
+            if (tempo_rate != 1.0 && !tempo_finished) {
+                if (!tempo) {
+                    tempo = audio_tempo_create(cur_dec.sample_rate, cur_dec.channels,
+                                               tempo_rate, cur_frames_played_local);
+                    if (!tempo) goto tempo_failed;
+                    pthread_mutex_lock(&audio_mutex);
+                    applied_playback_speed = (float) tempo_rate;
+                    current_format_info.output_bit_depth = 16;
+                    pthread_mutex_unlock(&audio_mutex);
+                }
+                bool prepared = tempo_pending_frames != 0;
+                size_t output_frames = prepared ? tempo_pending_frames :
+                    audio_tempo_read(tempo, buf_cur, (size_t) chunk_frames);
+                if (!output_frames && !audio_tempo_drained(tempo)) {
+                    decoder_read_result_t input = decoder_read_s16(&cur_dec, chunk_frames, buf_next);
+                    if (input.status == DECODER_READ_FATAL_ERROR) goto tempo_failed;
+                    if (input.frames) {
+                        if (!audio_tempo_feed(tempo, buf_next, (size_t) input.frames)) goto tempo_failed;
+                        consecutive_decoder_errors = 0;
+                    } else if (input.status != DECODER_READ_EOF) {
+                        if (++consecutive_decoder_errors >= 12) goto tempo_failed;
+                        usleep(1000);
+                        continue;
+                    }
+                    if (input.status == DECODER_READ_EOF && !audio_tempo_flush(tempo)) goto tempo_failed;
+                    output_frames = audio_tempo_read(tempo, buf_cur, (size_t) chunk_frames);
+                }
+                if (!output_frames && audio_tempo_drained(tempo)) {
+                    uint64_t fed = audio_tempo_source_fed(tempo);
+                    if (is_premature_eof(fed, cur_dec.total_frames, false)) {
+                        /* Recover from the delivered source position. Never
+                         * emit recovered decoder frames through the 1x path. */
+                        if (++tempo_eof_retries >= 3) goto tempo_failed;
+                        audio_tempo_destroy(tempo); tempo = NULL;
+                        tempo_pending_frames = 0;
+                        if (!reopen_decoder_at(&cur_dec, cur_path_local, cur_frames_played_local)) {
+                            cur_open = false;
+                            goto tempo_failed;
+                        }
+                        tempo_recovery_pending = true;
+                        continue;
+                    }
+                    cur_frames_played_local = fed;
+                    audio_tempo_destroy(tempo); tempo = NULL;
+                    tempo_pending_frames = 0;
+                    tempo_finished = true;
+                    pthread_mutex_lock(&audio_mutex);
+                    frames_played = cur_frames_played_local;
+                    pthread_mutex_unlock(&audio_mutex);
+                    /* Inject EOF below; decoder EOF must not be read again or
+                     * trigger a second un-stretched recovery path. */
+                } else if (output_frames) {
+                    if (!prepared) {
+                        apply_gain(buf_cur, output_frames * cur_dec.channels, cur_replaygain_linear);
+                        peq_process(buf_cur, output_frames, (int) cur_dec.channels, cur_dec.sample_rate);
+                        apply_gain(buf_cur, output_frames * cur_dec.channels, vol);
+                        if (need_fade_in) {
+                            uint64_t ramp = calculate_ramp_frames(cur_dec.sample_rate);
+                            apply_ramp(buf_cur, output_frames < ramp ? output_frames : ramp,
+                                       cur_dec.channels, 0.0f, 1.0f);
+                            need_fade_in = false;
+                        }
+                    }
+                    uint64_t delivered = output_frames;
+#ifndef HOST_BUILD
+                    write_result_t result = write_device_with_retry(buf_cur, output_frames,
+                        cur_dec.channels, cur_dec.sample_rate, cur_path_local, &delivered);
+#else
+                    write_device(buf_cur, output_frames, cur_dec.channels);
+#endif
+                    cur_frames_played_local = audio_tempo_advance(tempo, (size_t) delivered,
+                                                                 delivered == output_frames);
+                    pthread_mutex_lock(&audio_mutex);
+                    frames_played = cur_frames_played_local;
+                    pthread_mutex_unlock(&audio_mutex);
+#ifndef HOST_BUILD
+                    if (result == WRITE_RESULT_FAILED) {
+                        tempo_error = AUDIO_ERROR_OUTPUT_FAILED;
+                        goto tempo_failed;
+                    }
+#endif
+                    /* Bound retries for one stalled EOF, but let a long track
+                     * recover from later independent read hiccups. Only real
+                     * output after a recovery advances the retry budget. */
+                    if (tempo_recovery_pending && delivered > 0) {
+                        tempo_eof_retries = 0;
+                        tempo_recovery_pending = false;
+                    }
+                    tempo_pending_frames = output_frames - (size_t) delivered;
+                    if (tempo_pending_frames)
+                        memmove(buf_cur, buf_cur + delivered * cur_dec.channels,
+                            tempo_pending_frames * cur_dec.channels * sizeof(*buf_cur));
+                    continue;
+                } else continue;
+            }
+            goto tempo_ready;
+        tempo_failed:
+            pthread_mutex_lock(&audio_mutex);
+            last_playback_error = tempo_error;
+            last_playback_error_generation = cur_generation;
+            have_current = false;
+            clear_current_format_locked();
+            paused = false;
+            pthread_mutex_unlock(&audio_mutex);
+            should_restart = was_stopped = ended_with_no_next = false;
+            goto inner_loop_done;
+        tempo_ready:
+            ;
             uint64_t frames_remaining = (cur_dec.total_frames > cur_frames_played_local)
                 ? cur_dec.total_frames - cur_frames_played_local : 0;
             uint64_t crossfade_frames = (uint64_t) (CROSSFADE_SECONDS * (double) cur_dec.sample_rate);
@@ -3358,7 +3642,12 @@ static void * audio_thread_func(void * arg) {
                  * if not, another audio_set_next_track() replaced the queued track
                  * while we were in the crossfade window; discard the stale prefetch. */
                 pthread_mutex_lock(&audio_mutex);
-                bool snap_still_valid = (staged_next_generation == next_track_generation);
+                bool snap_still_valid =
+                    staged_next_generation == next_track_generation &&
+                    playback_generation == cur_generation &&
+                    !stop_requested && !restart_requested &&
+                    staged_next_path != NULL && next_path != NULL &&
+                    strcmp(next_path, staged_next_path) == 0;
                 if (snap_still_valid) {
                     decoder_close(&cur_dec);
                     cur_dec = nxt_dec;
@@ -3389,6 +3678,9 @@ static void * audio_thread_func(void * arg) {
                     current_total_frames = cur_dec.total_frames;
                     current_sample_rate = cur_dec.sample_rate;
                     frames_played = cur_frames_played_local;
+                    counter_generation = cur_generation;
+                    playback_progress_state = current_sample_rate > 0
+                        ? AUDIO_PLAYBACK_PROGRESS_ACTIVE : AUDIO_PLAYBACK_PROGRESS_NOT_READY;
                     publish_current_format_locked(&cur_dec, cur_path_local,
                                                   cur_replaygain_linear, cur_replaygain_applied);
                     track_advanced = true;
@@ -3426,7 +3718,7 @@ static void * audio_thread_func(void * arg) {
             /* DoP frames never take the s16 path; the next chunk's output
              * check falls back to PCM if the DoP stream is gone. */
             if (dop_chunk && !audio_output_is_dop_active()) continue;
-            if (dop_chunk || (can_use_wide_path(&cur_dec) && audio_output_is_s24_active())) {
+            if (!tempo_finished && (dop_chunk || (can_use_wide_path(&cur_dec) && audio_output_is_s24_active()))) {
                 decoder_read_result_t r_cur = decoder_read_s32(&cur_dec, chunk_frames, buf_cur_s32);
                 uint64_t n_cur = r_cur.frames;
 
@@ -3527,19 +3819,24 @@ static void * audio_thread_func(void * arg) {
 
                         if (nxt_open) {
                             pthread_mutex_lock(&audio_mutex);
-                            bool snap_still_valid = (staged_next_generation == next_track_generation);
+                            bool snap_still_valid =
+                                staged_next_generation == next_track_generation &&
+                                playback_generation == cur_generation &&
+                                !stop_requested && !restart_requested &&
+                                staged_next_path != NULL && next_path != NULL &&
+                                strcmp(next_path, staged_next_path) == 0;
                             if (!snap_still_valid) {
-                                /* Stale next track: queued track was replaced while playing. Discard nxt_dec. */
+                                /* The current queue or playback request changed while
+                                 * opening the prefetched decoder. Discard it and let
+                                 * the loop handle the current request. */
                                 pthread_mutex_unlock(&audio_mutex);
                                 close_decoder_if_open(&nxt_dec, &nxt_open);
                                 nxt_format_matches = false;
                                 DBG_LOG("audio: stale gapless prefetch discarded (%s)\n",
                                         safe_path_tail(staged_next_path));
-                                ended_with_no_next = true;
-                                break;
+                                continue;
                             }
                             pthread_mutex_unlock(&audio_mutex);
-
                             /* Gapless handoff to a different decoder -- see the
                              * initial-open call site's identical comment on why
                              * this must run before ensure_device_format(). */
@@ -3549,16 +3846,31 @@ static void * audio_thread_func(void * arg) {
                             if (decoder_is_dop(&cur_dec) && decoder_is_dop(&nxt_dec))
                                 dsd_continue_dop_markers(nxt_dec.as.dsd, cur_dec.as.dsd);
                             bool device_ok = ensure_device_for_decoder(&nxt_dec, &nxt_frames_consumed);
-                            decoder_close(&cur_dec);
+                            pthread_mutex_lock(&audio_mutex);
+                            snap_still_valid =
+                                staged_next_generation == next_track_generation &&
+                                playback_generation == cur_generation &&
+                                !stop_requested && !restart_requested &&
+                                staged_next_path != NULL && next_path != NULL &&
+                                strcmp(next_path, staged_next_path) == 0;
+                            if (!snap_still_valid) {
+                                pthread_mutex_unlock(&audio_mutex);
+                                close_decoder_if_open(&nxt_dec, &nxt_open);
+                                nxt_format_matches = false;
+                                DBG_LOG("audio: gapless handoff invalidated during device setup (%s)\n",
+                                        safe_path_tail(staged_next_path));
+                                continue;
+                            }
+
+                            decoder_t previous_dec = cur_dec;
+                            char *previous_path = cur_path_local;
                             cur_dec = nxt_dec;
+                            memset(&nxt_dec, 0, sizeof(nxt_dec));
                             cur_open = true;
                             nxt_open = false;
                             cur_frames_played_local = nxt_frames_consumed;
                             cur_replaygain_linear = nxt_replaygain_linear_local;
                             cur_replaygain_applied = nxt_replaygain_applied_local;
-                            free(cur_path_local);
-
-                            pthread_mutex_lock(&audio_mutex);
                             cur_path_local = next_path; next_path = NULL;
                             free(active_path);
                             active_path = cur_path_local ? strdup(cur_path_local) : NULL;
@@ -3571,18 +3883,33 @@ static void * audio_thread_func(void * arg) {
                             current_total_frames = cur_dec.total_frames;
                             current_sample_rate = cur_dec.sample_rate;
                             frames_played = cur_frames_played_local;
-                            publish_current_format_locked(&cur_dec, cur_path_local,
-                                                          cur_replaygain_linear, cur_replaygain_applied);
+                            counter_generation = cur_generation;
+                            if (device_ok) {
+                                playback_progress_state = current_sample_rate > 0
+                                    ? AUDIO_PLAYBACK_PROGRESS_ACTIVE : AUDIO_PLAYBACK_PROGRESS_NOT_READY;
+                                publish_current_format_locked(&cur_dec, cur_path_local,
+                                                              cur_replaygain_linear, cur_replaygain_applied);
+                            } else {
+                                last_playback_error = AUDIO_ERROR_OUTPUT_FAILED;
+                                last_playback_error_generation = cur_generation;
+                                have_current = false;
+                                clear_current_format_locked();
+                                paused = false;
+                            }
                             track_advanced = true;
-                            if (mp3_needs_seek_index(&cur_dec))
+                            if (device_ok && mp3_needs_seek_index(&cur_dec))
                                 request_mp3_seek_index_locked(&cur_dec, cur_path_local, cur_generation);
                             pthread_mutex_unlock(&audio_mutex);
 
-                            if (!device_ok) { ended_with_no_next = true; break; }
+                            decoder_close(&previous_dec);
+                            free(previous_path);
+
+                            if (!device_ok) { ended_with_no_next = false; break; }
                             continue;
                         }
 
                         ended_with_no_next = true;
+                        natural_eof = staged_next_path == NULL && cur_dec.net_stream == NULL;
                         break;
                     }
                 }
@@ -3657,7 +3984,9 @@ static void * audio_thread_func(void * arg) {
             } else
 #endif
             {
-            decoder_read_result_t r_cur = decoder_read_s16(&cur_dec, chunk_frames, buf_cur);
+            decoder_read_result_t r_cur = tempo_finished
+                ? (decoder_read_result_t) { .frames = 0, .status = DECODER_READ_EOF }
+                : decoder_read_s16(&cur_dec, chunk_frames, buf_cur);
             uint64_t n_cur = r_cur.frames;
 
             if (r_cur.status == DECODER_READ_RECOVERABLE_ERROR) {
@@ -3757,19 +4086,24 @@ static void * audio_thread_func(void * arg) {
 
                     if (nxt_open) {
                         pthread_mutex_lock(&audio_mutex);
-                        bool snap_still_valid = (staged_next_generation == next_track_generation);
+                        bool snap_still_valid =
+                            staged_next_generation == next_track_generation &&
+                            playback_generation == cur_generation &&
+                            !stop_requested && !restart_requested &&
+                            staged_next_path != NULL && next_path != NULL &&
+                            strcmp(next_path, staged_next_path) == 0;
                         if (!snap_still_valid) {
-                            /* Stale next track: queued track was replaced while playing. Discard nxt_dec. */
+                            /* The current queue or playback request changed while
+                             * opening the prefetched decoder. Discard it and let
+                             * the loop handle the current request. */
                             pthread_mutex_unlock(&audio_mutex);
                             close_decoder_if_open(&nxt_dec, &nxt_open);
                             nxt_format_matches = false;
                             DBG_LOG("audio: stale gapless prefetch discarded (%s)\n",
                                     safe_path_tail(staged_next_path));
-                            ended_with_no_next = true;
-                            break;
+                            continue;
                         }
                         pthread_mutex_unlock(&audio_mutex);
-
 #ifndef HOST_BUILD
                         /* Gapless handoff to a different decoder -- see the
                          * initial-open call site's identical comment on why
@@ -3780,16 +4114,31 @@ static void * audio_thread_func(void * arg) {
 #else
                         bool device_ok = ensure_device(nxt_dec.channels, nxt_dec.sample_rate);
 #endif
-                        decoder_close(&cur_dec);
+                        pthread_mutex_lock(&audio_mutex);
+                        snap_still_valid =
+                            staged_next_generation == next_track_generation &&
+                            playback_generation == cur_generation &&
+                            !stop_requested && !restart_requested &&
+                            staged_next_path != NULL && next_path != NULL &&
+                            strcmp(next_path, staged_next_path) == 0;
+                        if (!snap_still_valid) {
+                            pthread_mutex_unlock(&audio_mutex);
+                            close_decoder_if_open(&nxt_dec, &nxt_open);
+                            nxt_format_matches = false;
+                            DBG_LOG("audio: gapless handoff invalidated during device setup (%s)\n",
+                                    safe_path_tail(staged_next_path));
+                            continue;
+                        }
+
+                        decoder_t previous_dec = cur_dec;
+                        char *previous_path = cur_path_local;
                         cur_dec = nxt_dec;
+                        memset(&nxt_dec, 0, sizeof(nxt_dec));
                         cur_open = true;
                         nxt_open = false;
                         cur_frames_played_local = nxt_frames_consumed;
                         cur_replaygain_linear = nxt_replaygain_linear_local;
                         cur_replaygain_applied = nxt_replaygain_applied_local;
-                        free(cur_path_local);
-
-                        pthread_mutex_lock(&audio_mutex);
                         cur_path_local = next_path; next_path = NULL;
                         free(active_path);
                         active_path = cur_path_local ? strdup(cur_path_local) : NULL;
@@ -3802,18 +4151,33 @@ static void * audio_thread_func(void * arg) {
                         current_total_frames = cur_dec.total_frames;
                         current_sample_rate = cur_dec.sample_rate;
                         frames_played = cur_frames_played_local;
-                        publish_current_format_locked(&cur_dec, cur_path_local,
-                                                      cur_replaygain_linear, cur_replaygain_applied);
+                        counter_generation = cur_generation;
+                        if (device_ok) {
+                            playback_progress_state = current_sample_rate > 0
+                                ? AUDIO_PLAYBACK_PROGRESS_ACTIVE : AUDIO_PLAYBACK_PROGRESS_NOT_READY;
+                            publish_current_format_locked(&cur_dec, cur_path_local,
+                                                          cur_replaygain_linear, cur_replaygain_applied);
+                        } else {
+                            last_playback_error = AUDIO_ERROR_OUTPUT_FAILED;
+                            last_playback_error_generation = cur_generation;
+                            have_current = false;
+                            clear_current_format_locked();
+                            paused = false;
+                        }
                         track_advanced = true;
-                        if (mp3_needs_seek_index(&cur_dec))
+                        if (device_ok && mp3_needs_seek_index(&cur_dec))
                             request_mp3_seek_index_locked(&cur_dec, cur_path_local, cur_generation);
                         pthread_mutex_unlock(&audio_mutex);
 
-                        if (!device_ok) { ended_with_no_next = true; break; }
+                        decoder_close(&previous_dec);
+                        free(previous_path);
+
+                        if (!device_ok) { ended_with_no_next = false; break; }
                         continue;
                     }
 
                     ended_with_no_next = true;
+                    natural_eof = staged_next_path == NULL && cur_dec.net_stream == NULL;
                     break;
                 }
             }
@@ -3867,6 +4231,12 @@ static void * audio_thread_func(void * arg) {
 
         }
         inner_loop_done: /* error-path goto target: skip break-flag handling */
+        audio_tempo_destroy(tempo); tempo = NULL;
+        tempo_pending_frames = 0;
+        tempo_finished = false;
+        pthread_mutex_lock(&audio_mutex);
+        applied_playback_speed = 1.0;
+        pthread_mutex_unlock(&audio_mutex);
 
         if (should_restart) continue; /* reopen at the top of the outer loop */
 
@@ -3879,9 +4249,18 @@ static void * audio_thread_func(void * arg) {
         pthread_mutex_lock(&audio_mutex);
         /* have_current was already cleared in the error gotos above; for
          * normal break paths (stop, natural EOF) it still needs clearing. */
+        audio_playback_progress_state_t terminal_progress = AUDIO_PLAYBACK_PROGRESS_NOT_READY;
+        if (was_stopped) terminal_progress = AUDIO_PLAYBACK_PROGRESS_MANUAL_STOP;
+        else if (natural_eof) terminal_progress = AUDIO_PLAYBACK_PROGRESS_NATURAL_EOF;
+        bool preserve_terminal_progress = terminal_progress != AUDIO_PLAYBACK_PROGRESS_NOT_READY &&
+            playback_generation == cur_generation && counter_generation == cur_generation &&
+            playback_progress_state == AUDIO_PLAYBACK_PROGRESS_ACTIVE &&
+            !(mp3_seek_deferred && mp3_seek_deferred_generation == cur_generation) &&
+            last_playback_error_generation != cur_generation;
         have_current = false;
         clear_current_format_locked();
         paused = false;
+        if (preserve_terminal_progress) playback_progress_state = terminal_progress;
         if (ended_with_no_next) track_finished = true;
         if (was_stopped) stop_requested = false;
         pthread_mutex_unlock(&audio_mutex);
@@ -3919,17 +4298,24 @@ void audio_init(void) {
     }
 }
 
-void audio_play_file_at(const char * path, double start_seconds,
+static void play_file_request(const char * path, double start_seconds,
                          bool has_replaygain, double replaygain_gain_db,
-                         bool has_replaygain_peak, double replaygain_peak) {
+                         bool has_replaygain_peak, double replaygain_peak, bool read_tags, int gain_mode) {
     pthread_mutex_lock(&audio_mutex);
     free(restart_path);
     restart_path = strdup(path);
+    restart_read_replaygain = read_tags;
+    restart_replaygain_mode = gain_mode;
+    startup_pending = true;
+    startup_paused = false;
+    startup_metadata_ready = false;
+    stopped_startup_generation_valid = false;
     restart_start_seconds = start_seconds;
     restart_replaygain_linear = (float) replaygain_to_linear(has_replaygain, replaygain_gain_db, has_replaygain_peak, replaygain_peak);
     restart_replaygain_applied = has_replaygain;
     free(next_path);
     next_path = NULL; /* the caller re-arms this via audio_set_next_track() right after */
+    next_track_generation++;
     restart_requested = true;
     stop_requested = false;
     paused = false;
@@ -3945,13 +4331,49 @@ void audio_play_file_at(const char * path, double start_seconds,
     free(active_path);
     active_path = strdup(path);
     clear_current_format_locked();
-    pthread_cond_signal(&audio_cond);
+    pthread_cond_broadcast(&audio_cond);
     pthread_mutex_unlock(&audio_mutex);
 }
 
-void audio_set_next_track(const char * path, bool has_replaygain, double replaygain_gain_db,
-                           bool has_replaygain_peak, double replaygain_peak) {
+void audio_play_file_at(const char * path, double start_seconds,
+                         bool has_replaygain, double replaygain_gain_db,
+                         bool has_replaygain_peak, double replaygain_peak) {
+    play_file_request(path, start_seconds, has_replaygain, replaygain_gain_db,
+                      has_replaygain_peak, replaygain_peak, false, 0);
+}
+void audio_play_file_at_with_replaygain_mode(const char * path, double start_seconds, int mode) {
+    play_file_request(path, start_seconds, false, 0.0, false, 0.0, true, mode);
+}
+
+audio_track_metadata_wait_result_t audio_wait_track_metadata(uint64_t generation,
+                                                              track_metadata_t * out) {
+    if (!out) return AUDIO_TRACK_METADATA_REPLACED;
     pthread_mutex_lock(&audio_mutex);
+    while (playback_generation == generation && startup_pending && !stop_requested &&
+           !startup_metadata_ready)
+        pthread_cond_wait(&audio_cond, &audio_mutex);
+    audio_track_metadata_wait_result_t result;
+    if (playback_generation == generation && !stop_requested &&
+        startup_metadata_ready && startup_metadata_generation == generation) {
+        *out = startup_metadata;
+        result = AUDIO_TRACK_METADATA_READY;
+    } else {
+        memset(out, 0, sizeof(*out));
+        result = ((stop_requested && playback_generation == generation) || (stopped_startup_generation_valid &&
+                  stopped_startup_generation == generation))
+            ? AUDIO_TRACK_METADATA_STOPPED : AUDIO_TRACK_METADATA_REPLACED;
+    }
+    pthread_mutex_unlock(&audio_mutex);
+    return result;
+}
+
+static bool set_next_track(const char * path, bool has_replaygain, double replaygain_gain_db,
+                           bool has_replaygain_peak, double replaygain_peak, bool guarded, uint64_t generation) {
+    pthread_mutex_lock(&audio_mutex);
+    if (guarded && (playback_generation != generation || stop_requested)) {
+        pthread_mutex_unlock(&audio_mutex);
+        return false;
+    }
     free(next_path);
     next_path = path ? strdup(path) : NULL;
     next_replaygain_linear = (float) replaygain_to_linear(has_replaygain, replaygain_gain_db, has_replaygain_peak, replaygain_peak);
@@ -3961,6 +4383,56 @@ void audio_set_next_track(const char * path, bool has_replaygain, double replayg
      * discarded when the blend window arrives. */
     next_track_generation++;
     pthread_mutex_unlock(&audio_mutex);
+    return true;
+}
+
+void audio_set_next_track(const char * path, bool has_replaygain, double gain,
+                           bool has_peak, double peak) {
+    set_next_track(path, has_replaygain, gain, has_peak, peak, false, 0);
+}
+bool audio_set_next_track_for_generation(const char * path, bool has_replaygain, double gain,
+                           bool has_peak, double peak, uint64_t generation) {
+    return set_next_track(path, has_replaygain, gain, has_peak, peak, true, generation);
+}
+
+bool audio_set_playback_speed(const char * directory, double speed) {
+    if (!isfinite(speed) || speed < 0.5 || speed > 2.0) return false;
+    directory = speed_normalize_path(directory);
+    if ((!directory && speed != 1.0) || (directory && (directory[0] != '/' || strlen(directory) >= sizeof(speed_directory)))) return false;
+    char normalized[sizeof(speed_directory)];
+    snprintf(normalized, sizeof(normalized), "%s", directory ? directory : "");
+    size_t length = strlen(normalized);
+    while (length > 1 && normalized[length - 1] == '/') normalized[--length] = '\0';
+    if (directory && (length <= 1 || strstr(normalized, "/../") || strstr(normalized, "/./") ||
+        (length >= 3 && strcmp(normalized + length - 3, "/..") == 0))) return false;
+    directory = directory ? normalized : NULL;
+    pthread_mutex_lock(&audio_mutex);
+    /* Unsupported active formats reject a changed tempo, rather than claiming
+     * to apply it. The persisted preference can still apply to the next book. */
+    if (speed != 1.0 && have_current && current_format_info.valid && directory) {
+        size_t n = strlen(directory);
+        const char * active = speed_normalize_path(active_path);
+        if (active && strncmp(active, directory, n) == 0 && active[n] == '/' &&
+            (current_format_info.is_dsd || current_format_info.is_stream || current_format_info.channels > 2 ||
+             current_sample_rate < 8000 || current_sample_rate > 96000)) {
+            pthread_mutex_unlock(&audio_mutex);
+            return false;
+        }
+    }
+    snprintf(speed_directory, sizeof(speed_directory), "%s", directory ? directory : "");
+    size_t n = strlen(speed_directory);
+    while (n > 1 && speed_directory[n - 1] == '/') speed_directory[--n] = '\0';
+    requested_playback_speed = speed;
+    speed_setting_serial++;
+    pthread_cond_broadcast(&audio_cond);
+    pthread_mutex_unlock(&audio_mutex);
+    return true;
+}
+double audio_get_playback_speed(void) {
+    pthread_mutex_lock(&audio_mutex);
+    double speed = have_current ? applied_playback_speed : 1.0;
+    pthread_mutex_unlock(&audio_mutex);
+    return speed;
 }
 
 void audio_set_crossfade_enabled(bool enabled) {
@@ -4002,13 +4474,14 @@ void audio_set_usb_output(bool enabled, const char * alsa_device) {
 
 void audio_toggle_pause(void) {
     pthread_mutex_lock(&audio_mutex);
-    if (!have_current) {
+    if ((!have_current && !startup_pending) || stop_requested) {
         pthread_mutex_unlock(&audio_mutex);
         return;
     }
-    paused = !paused;
-    bool now_paused = paused;
-    pthread_cond_signal(&audio_cond);
+    if (startup_pending) startup_paused = !startup_paused;
+    else paused = !paused;
+    bool now_paused = startup_pending ? startup_paused : paused;
+    pthread_cond_broadcast(&audio_cond);
     pthread_mutex_unlock(&audio_mutex);
 
 #ifdef HOST_BUILD
@@ -4023,21 +4496,41 @@ void audio_toggle_pause(void) {
 void audio_stop(void) {
     pthread_mutex_lock(&audio_mutex);
     stop_requested = true;
+    if (startup_pending) {
+        /* Cancel both a queued restart and a consumed request still reading
+         * tags/opening its decoder. Preserve the generation of established
+         * playback so its final resume checkpoint remains usable. */
+        stopped_startup_generation = playback_generation;
+        stopped_startup_generation_valid = true;
+        ++playback_generation;
+        restart_requested = false;
+        free(restart_path);
+        restart_path = NULL;
+    }
+    startup_pending = false;
     atomic_store_explicit(&mp3_index_stop_flag, true, memory_order_relaxed);
-    pthread_cond_signal(&audio_cond);
+    pthread_cond_broadcast(&audio_cond);
     pthread_mutex_unlock(&audio_mutex);
+}
+
+bool audio_is_idle(void) {
+    pthread_mutex_lock(&audio_mutex);
+    bool idle = !have_current && !startup_pending && !stop_requested && !restart_requested &&
+        !atomic_load_explicit(&local_output_active, memory_order_acquire);
+    pthread_mutex_unlock(&audio_mutex);
+    return idle;
 }
 
 bool audio_is_playing(void) {
     pthread_mutex_lock(&audio_mutex);
-    bool result = have_current && !paused;
+    bool result = !stop_requested && (startup_pending ? !startup_paused : have_current && !paused);
     pthread_mutex_unlock(&audio_mutex);
     return result;
 }
 
 bool audio_is_paused(void) {
     pthread_mutex_lock(&audio_mutex);
-    bool result = have_current && paused;
+    bool result = !stop_requested && (startup_pending ? startup_paused : have_current && paused);
     pthread_mutex_unlock(&audio_mutex);
     return result;
 }
@@ -4113,6 +4606,12 @@ double audio_get_resume_position_seconds(void) {
         mp3_seek_deferred_sample_rate > 0) {
         result = (double) mp3_seek_deferred_frame /
                  (double) mp3_seek_deferred_sample_rate;
+    } else if (counter_generation != playback_generation) {
+        /* A newer request owns this generation while its decoder is still
+         * opening. Do not leak the prior track's frame counter to resume
+         * callers; report that request's sanitized initial checkpoint. */
+        result = isfinite(restart_start_seconds) && restart_start_seconds >= 0.0
+            ? restart_start_seconds : 0.0;
     } else {
         result = current_sample_rate != 0
             ? (double) frames_played / (double) current_sample_rate : 0.0;
@@ -4128,6 +4627,31 @@ double audio_get_duration_seconds(void) {
         : 0.0;
     pthread_mutex_unlock(&audio_mutex);
     return result;
+}
+
+bool audio_get_playback_progress(const char * expected_path, audio_playback_progress_t * out) {
+    if (!out) return false;
+    memset(out, 0, sizeof(*out));
+    if (!expected_path) return false;
+
+    pthread_mutex_lock(&audio_mutex);
+    bool terminal = playback_progress_state == AUDIO_PLAYBACK_PROGRESS_NATURAL_EOF ||
+                    playback_progress_state == AUDIO_PLAYBACK_PROGRESS_MANUAL_STOP;
+    bool valid = active_path && strcmp(active_path, expected_path) == 0 &&
+                 counter_generation == playback_generation && current_sample_rate > 0 &&
+                 !(mp3_seek_deferred && mp3_seek_deferred_generation == playback_generation) &&
+                 ((playback_progress_state == AUDIO_PLAYBACK_PROGRESS_ACTIVE && have_current) ||
+                  (terminal && !have_current));
+    if (valid) {
+        out->position_seconds = (double) frames_played / (double) current_sample_rate;
+        out->duration_seconds = (double) current_total_frames / (double) current_sample_rate;
+        out->is_playing = have_current && !stop_requested && !paused;
+        out->is_paused = have_current && !stop_requested && paused;
+        out->state = playback_progress_state;
+        out->generation = counter_generation;
+    }
+    pthread_mutex_unlock(&audio_mutex);
+    return valid;
 }
 
 unsigned int audio_get_sample_rate(void) {

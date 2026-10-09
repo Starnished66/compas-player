@@ -1,0 +1,24 @@
+--- a/module_drivers/drivers/dma/ingenic/ingenic_dma.c
++++ b/module_drivers/drivers/dma/ingenic/ingenic_dma.c
+@@ -621,6 +621,10 @@
+ 	if (!xt->numf || xt->frame_size != 1 ||
+ 	    chunk->size > INTERLEAVED_MAX_SIZE)
+ 		return NULL;
++	/* Reject gaps the hardware cannot represent without truncation. */
++	if ((s32)chunk->src_icg != (s16)chunk->src_icg ||
++	    (s32)chunk->dst_icg != (s16)chunk->dst_icg)
++		return NULL;
+ 
+ 	nb = DIV_ROUND_UP(xt->numf, INTERLEAVED_MAX_LINES);
+ 	sdesc = ingenic_dma_alloc_swdesc(dmac, nb);
+@@ -644,7 +648,9 @@
+ 		desc->dtc = chunk->size | count << 16;
+ 		desc->dsa = src;
+ 		desc->dta = dst;
+-		desc->sd = chunk->dst_icg << 16 | chunk->src_icg;
++		/* Each signed gap occupies only its own 16-bit field. */
++		desc->sd = (u32)(u16)chunk->dst_icg << 16 |
++			   (u16)chunk->src_icg;
+ 		desc->drt = INGENIC_DMA_REQ_AUTO_TX;
+ 		if (i)
+ 			sdesc->hw_desc[i - 1]->dtc |=

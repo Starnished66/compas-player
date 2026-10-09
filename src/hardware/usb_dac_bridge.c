@@ -762,9 +762,15 @@ static void * bridge_writer_thread_func(void * arg) {
      * asynchronously on that thread. Wait for it to actually finish before
      * touching the shared output device ourselves, or audio_output_ensure()
      * below will fail with EBUSY. */
-    for (int waited_ms = 0; waited_ms < 2000; waited_ms += 20) {
-        if (!audio_is_playing() && !audio_is_paused()) break;
-        usleep(20000);
+    /* Slow SD tag/decoder reads can outlast a fixed timeout. Keep the bridge
+     * pending until ownership is released, while allowing Stop to cancel it. */
+    while (!stop_requested && !audio_is_idle()) usleep(20000);
+
+    if (stop_requested) {
+        stop_requested = true;
+        ring_buffer_signal_finished(&g_rb);
+        writer_finish(NULL, NULL, NULL, false);
+        return NULL;
     }
 
     /* Room for one period of the largest container plus a partial frame

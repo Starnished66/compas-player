@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "boards": {
+    "r1": {
+      "version": "1.8.b2",
+      "sha256": "06b75e47633310c823bc5cc53f3a1b13b70f7c7bcce3ce76a62aa2d4312ddcca",
+      "release_date": "2026-08-04",
+      "source_url": "https://www.reddit.com/r/Hiby/comments/1uvdpkd/r1_official_firmware_beta_18b1/",
+      "archive_url": "https://www.dropbox.com/scl/fi/3tkwh3nbys5h54ch4hjp9/R1_1.8b2_20260804.zip?rlkey=y5507n8j13anbaqxvd8869k9s&dl=0",
+      "source_note": "HiBy representative confirms the 1.8 beta 2 download in the earlier beta 1 announcement thread.",
+      "release_announcement_url": "https://www.reddit.com/r/Hiby/comments/1vgdejc/for_r1_18_beta_2_available_for_download_link/",
+      "archive_sha256": "a11eef48cb12d79f4c027d443b3c019c15712f9af5a840ac4accad7114dcb56e"
+    }
+  }
+}

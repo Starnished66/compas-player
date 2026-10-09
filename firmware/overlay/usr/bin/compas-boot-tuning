@@ -1,0 +1,35 @@
+#!/bin/sh
+# Small, portable boot-time tuning shared by supported HiBy devices.
+# Keep this best-effort: kernels and permissions vary between firmware builds.
+
+read_ahead=/sys/block/mmcblk0/queue/read_ahead_kb
+if [ -e "$read_ahead" ]; then
+    echo 2048 2>/dev/null > "$read_ahead" || :
+fi
+
+cache_pressure=/proc/sys/vm/vfs_cache_pressure
+if [ -e "$cache_pressure" ] && [ -w "$cache_pressure" ]; then
+    echo 50 2>/dev/null > "$cache_pressure" || :
+elif command -v sysctl >/dev/null 2>&1; then
+    sysctl -w vm.vfs_cache_pressure=50 >/dev/null 2>&1 || :
+fi
+
+# Optional per-device SD scheduler override: deadline, cfq, or noop.
+case ${COMPAS_SD_SCHEDULER-} in
+    deadline|cfq|noop)
+        sched_file=/sys/block/mmcblk0/queue/scheduler
+        if [ -r "$sched_file" ] && [ -w "$sched_file" ]; then
+            set -f
+            for sched_token in $(cat "$sched_file" 2>/dev/null); do
+                sched_name=${sched_token#\[}
+                sched_name=${sched_name%\]}
+                if [ "$sched_name" = "$COMPAS_SD_SCHEDULER" ]; then
+                    echo "$COMPAS_SD_SCHEDULER" 2>/dev/null > "$sched_file" || :
+                    break
+                fi
+            done
+        fi
+        ;;
+esac
+
+exit 0

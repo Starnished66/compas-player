@@ -8,13 +8,19 @@
 #include <stdint.h>
 #include "plugin_store.h"
 
+typedef enum {
+    STORE_VIEW_PLUGINS = 0,
+    STORE_VIEW_LAYOUTS,
+    STORE_VIEW_THEMES,
+    STORE_VIEW_UPDATES,
+} gui_plugin_store_view_t;
+
 void gui_plugin_store_init(void);
 void gui_plugin_store_teardown(void);
 void gui_plugin_store_row_cb(lv_event_t * e);
-/* Refresh the catalog and open a requested plugin's details after the store
- * is visible. Pass NULL or an empty ID to open the complete catalog. */
-bool gui_plugin_store_open_recommendation(const char * id);
 bool gui_plugin_store_open_player_layouts(void);
+bool gui_plugin_store_open_themes(void);
+bool gui_plugin_store_open_updates(void);
 bool gui_plugin_store_open_layout_picker(bool (*is_selected)(const char * id),
                                          void (*select)(const char * id, const char * name));
 uint64_t gui_plugin_store_setup_populate_layout_suggestions(

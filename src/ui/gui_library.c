@@ -41,6 +41,7 @@ void refresh_artist_albums_now_playing_indicator(void);
 #include "storage_migration.h"
 #include "sd_fsck_run.h"
 #include "tagcache.h"
+#include "ui_wake.h"
 #include "file_browser.h"
 #include "sd_card_identity.h"
 #include "playlist_files.h"
@@ -179,10 +180,161 @@ static void refresh_group_song_thumbnails(void);
 static int artists_fetch_page(void * ctx, int offset, int count, compact_list_page_row_t out_rows[]);
 static int albums_fetch_page(void * ctx, int offset, int count, compact_list_page_row_t out_rows[]);
 static bool resolve_album_display_row(int index, group_row_t * out);
+static pthread_mutex_t artist_albums_state_mutex;
+static metadata_db_group_kind_t artist_albums_current_kind;
+static char artist_albums_current_name[128];
+static int artist_albums_group_count;
 
 static metadata_db_album_sort_t effective_album_sort(void) {
     metadata_db_album_sort_t sort = (metadata_db_album_sort_t) current_settings.album_sort_mode;
     return metadata_db_album_sort_available(sort) ? sort : METADATA_DB_ALBUM_SORT_NAME;
+}
+
+/* Pure scalar validation for refresh requests; unlike effective_album_sort(),
+ * this does not ask the database whether an optional sort is available. */
+static metadata_db_album_sort_t requested_album_sort(void) {
+    metadata_db_album_sort_t sort = (metadata_db_album_sort_t) current_settings.album_sort_mode;
+    return sort >= METADATA_DB_ALBUM_SORT_NAME && sort <= METADATA_DB_ALBUM_SORT_YEAR
+        ? sort : METADATA_DB_ALBUM_SORT_NAME;
+}
+
+/* Playback can change while the library database is busy. Resolve the
+ * database-only part on one coalescing worker and leave all list/search/LVGL
+ * mapping on the UI thread. The request and result contain copied scalars;
+ * the worker never observes UI-owned state. */
+typedef struct {
+    uint64_t generation;
+    uint64_t lifetime;
+    char path[sizeof(now_playing_path)];
+    metadata_db_album_sort_t album_sort;
+    int32_t library_revision;
+    metadata_db_group_kind_t artist_albums_kind;
+    char artist_albums_name[128];
+} now_playing_lookup_request_t;
+
+typedef struct {
+    now_playing_lookup_request_t request;
+    int artist_row;
+    int album_row;
+    int album_sorted_row;
+    int album_artist_row;
+    int all_songs_row;
+    int recently_added_row;
+    int artist_albums_row;
+    metadata_db_album_sort_t effective_album_sort;
+    int32_t library_revision;
+} now_playing_lookup_result_t;
+
+static pthread_mutex_t now_playing_lookup_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t now_playing_lookup_cond = PTHREAD_COND_INITIALIZER;
+static pthread_once_t now_playing_lookup_once = PTHREAD_ONCE_INIT;
+static now_playing_lookup_request_t now_playing_lookup_request;
+static now_playing_lookup_result_t now_playing_lookup_result;
+static now_playing_lookup_result_t now_playing_lookup_applied_result;
+static uint64_t now_playing_lookup_generation;
+static uint64_t now_playing_lookup_lifetime;
+static bool now_playing_lookup_pending;
+static bool now_playing_lookup_result_ready;
+static bool now_playing_lookup_result_valid;
+static bool now_playing_lookup_applied_valid;
+static bool now_playing_lookup_worker_started;
+static bool library_ui_live;
+
+static void request_now_playing_indicator_lookup(void);
+static void apply_now_playing_indicator_result(const now_playing_lookup_result_t * result);
+
+static void * now_playing_lookup_worker(void * unused) {
+    (void) unused;
+    for (;;) {
+        now_playing_lookup_request_t request;
+        pthread_mutex_lock(&now_playing_lookup_mutex);
+        while (!now_playing_lookup_pending)
+            pthread_cond_wait(&now_playing_lookup_cond, &now_playing_lookup_mutex);
+        request = now_playing_lookup_request;
+        now_playing_lookup_pending = false;
+        pthread_mutex_unlock(&now_playing_lookup_mutex);
+
+        now_playing_lookup_result_t result = { .request = request,
+            .artist_row = -1, .album_row = -1, .album_sorted_row = -1,
+            .album_artist_row = -1, .all_songs_row = -1,
+            .recently_added_row = -1, .artist_albums_row = -1,
+            .effective_album_sort = METADATA_DB_ALBUM_SORT_NAME };
+        int32_t revision_before = metadata_db_get_generation();
+        result.request.library_revision = revision_before;
+        song_row_t song;
+        if (request.path[0] && metadata_db_get_song_by_path(request.path, &song)) {
+            int64_t value = 0;
+            if (metadata_db_try_artist_row(song.tags.artist, &value) && value >= 0 && value <= INT_MAX)
+                result.artist_row = (int) value;
+            value = metadata_db_get_group_offset(METADATA_DB_GROUP_ALBUM,
+                                                  song.tags.album, song.tags.album_artist);
+            if (value >= 0 && value <= INT_MAX) {
+                result.album_row = (int) value;
+                result.effective_album_sort = metadata_db_album_sort_available(request.album_sort)
+                    ? request.album_sort : METADATA_DB_ALBUM_SORT_NAME;
+                result.album_sorted_row = metadata_db_album_canonical_to_sorted(
+                    result.effective_album_sort, result.album_row);
+            }
+            value = metadata_db_get_group_offset(METADATA_DB_GROUP_ALBUM_ARTIST,
+                                                  song.tags.album_artist, NULL);
+            if (value >= 0 && value <= INT_MAX) result.album_artist_row = (int) value;
+            value = metadata_db_get_song_title_offset(request.path);
+            if (value >= 0 && value <= INT_MAX) result.all_songs_row = (int) value;
+            value = metadata_db_get_song_recency_offset(request.path);
+            if (value >= 0 && value <= INT_MAX) result.recently_added_row = (int) value;
+            if (request.artist_albums_name[0]) {
+                value = metadata_db_get_album_for_group_offset(request.artist_albums_kind,
+                                                                request.artist_albums_name,
+                                                                song.tags.album,
+                                                                song.tags.album_artist);
+                if (value >= 0 && value < INT_MAX) result.artist_albums_row = (int) value + 1;
+            }
+        }
+        result.library_revision = metadata_db_get_generation();
+        bool revision_consistent = revision_before == result.library_revision;
+
+        pthread_mutex_lock(&now_playing_lookup_mutex);
+        if (request.generation == now_playing_lookup_generation &&
+            request.lifetime == now_playing_lookup_lifetime) {
+            now_playing_lookup_result = result;
+            now_playing_lookup_result_ready = true;
+            now_playing_lookup_result_valid = revision_consistent;
+        }
+        pthread_mutex_unlock(&now_playing_lookup_mutex);
+        ui_wake_notify();
+    }
+    return NULL;
+}
+
+static void start_now_playing_lookup_worker(void) {
+    pthread_t thread;
+    if (pthread_create(&thread, NULL, now_playing_lookup_worker, NULL) == 0) {
+        pthread_detach(thread);
+        now_playing_lookup_worker_started = true;
+    }
+}
+
+static void request_now_playing_indicator_lookup(void) {
+    pthread_once(&now_playing_lookup_once, start_now_playing_lookup_worker);
+    int32_t revision = -1;
+    (void) metadata_db_try_get_generation(&revision);
+    pthread_mutex_lock(&now_playing_lookup_mutex);
+    now_playing_lookup_generation++;
+    now_playing_lookup_request.generation = now_playing_lookup_generation;
+    now_playing_lookup_request.lifetime = now_playing_lookup_lifetime;
+    snprintf(now_playing_lookup_request.path, sizeof(now_playing_lookup_request.path), "%s", now_playing_path);
+    now_playing_lookup_request.album_sort = requested_album_sort();
+    now_playing_lookup_request.library_revision = revision;
+    pthread_mutex_lock(&artist_albums_state_mutex);
+    now_playing_lookup_request.artist_albums_kind = artist_albums_current_kind;
+    snprintf(now_playing_lookup_request.artist_albums_name,
+             sizeof(now_playing_lookup_request.artist_albums_name), "%s", artist_albums_current_name);
+    pthread_mutex_unlock(&artist_albums_state_mutex);
+    now_playing_lookup_pending = now_playing_lookup_worker_started;
+    now_playing_lookup_result_ready = false;
+    now_playing_lookup_result_valid = false;
+    pthread_cond_signal(&now_playing_lookup_cond);
+    pthread_mutex_unlock(&now_playing_lookup_mutex);
 }
 static int album_artists_fetch_page(void * ctx, int offset, int count, compact_list_page_row_t out_rows[]);
 static int genres_fetch_page(void * ctx, int offset, int count, compact_list_page_row_t out_rows[]);
@@ -5910,33 +6062,19 @@ static int now_playing_list_row(search_binding_id_t binding_id, int row, int pre
     return row >= 0 ? row + prefix : -1;
 }
 
-void refresh_now_playing_indicators(void) {
-    int artist_row = -1, album_row = -1, album_artist_row = -1, all_songs_row = -1, recently_added_row = -1;
-
-    song_row_t row;
-    if (now_playing_path[0] && metadata_db_get_song_by_path(now_playing_path, &row)) {
-        /* The index files a split tag under each artist, so the raw combined
-         * string is not a group -- resolve which row it was filed under. Done
-         * in one call so the name cannot be split under one delimiter set and
-         * looked up in an index built from another, and it gives up rather
-         * than waiting on a rebuild that would stall this refresh. */
-        int64_t v = 0;
-        if (metadata_db_try_artist_row(row.tags.artist, &v) && v >= 0 && v <= INT_MAX) artist_row = (int) v;
-        v = metadata_db_get_group_offset(METADATA_DB_GROUP_ALBUM, row.tags.album, row.tags.album_artist);
-        if (v >= 0 && v <= INT_MAX) album_row = (int) v;
-        v = metadata_db_get_group_offset(METADATA_DB_GROUP_ALBUM_ARTIST, row.tags.album_artist, NULL);
-        if (v >= 0 && v <= INT_MAX) album_artist_row = (int) v;
-        v = metadata_db_get_song_title_offset(now_playing_path);
-        if (v >= 0 && v <= INT_MAX) all_songs_row = (int) v;
-        v = metadata_db_get_song_recency_offset(now_playing_path);
-        if (v >= 0 && v <= INT_MAX) recently_added_row = (int) v;
-    }
-
+static void apply_now_playing_indicator_result(const now_playing_lookup_result_t * result) {
+    if (!result || strcmp(result->request.path, now_playing_path) != 0) return;
+    int artist_row = result->artist_row;
+    int album_row = result->album_row;
+    int album_sorted_row = result->album_sorted_row;
+    int album_artist_row = result->album_artist_row;
+    int all_songs_row = result->all_songs_row;
+    int recently_added_row = result->recently_added_row;
     if (artists_list) compact_list_set_now_playing(artists_list, now_playing_list_row(SEARCH_BINDING_ARTISTS, artist_row, 0));
     if (albums_list) {
         int display_row = search_showing_results(SEARCH_BINDING_ALBUMS)
             ? search_find_filtered_row(SEARCH_BINDING_ALBUMS, album_row)
-            : metadata_db_album_canonical_to_sorted(effective_album_sort(), album_row);
+            : album_sorted_row;
         compact_list_set_now_playing(albums_list, display_row);
     }
     if (album_artist_list)
@@ -5950,7 +6088,70 @@ void refresh_now_playing_indicators(void) {
                                      now_playing_list_row(SEARCH_BINDING_RECENTLY_ADDED, recently_added_row, 1));
 
     refresh_group_songs_now_playing_indicator(); /* group_songs isn't compact_list-based -- see its own comment */
-    refresh_artist_albums_now_playing_indicator(); /* Artists/Album Artist's shared compact album drill-down */
+    pthread_mutex_lock(&artist_albums_state_mutex);
+    bool same_artist_album_view = result->request.artist_albums_kind == artist_albums_current_kind &&
+        strcmp(result->request.artist_albums_name, artist_albums_current_name) == 0;
+    pthread_mutex_unlock(&artist_albums_state_mutex);
+    if (artist_albums_list)
+        compact_list_set_now_playing(artist_albums_list,
+            same_artist_album_view && result->artist_albums_row > 0 &&
+            result->artist_albums_row <= artist_albums_group_count
+                ? result->artist_albums_row : -1);
+}
+
+void refresh_now_playing_indicators(void) {
+    request_now_playing_indicator_lookup();
+    /* These rows are already in memory, so keep their marker responsive while
+     * the database-only lookup runs. */
+    refresh_group_songs_now_playing_indicator();
+    refresh_artist_albums_now_playing_indicator();
+}
+
+void gui_library_poll_now_playing_indicators(void) {
+    now_playing_lookup_result_t result;
+    bool result_valid = false;
+    pthread_mutex_lock(&now_playing_lookup_mutex);
+    bool candidate = library_ui_live && now_playing_lookup_result_ready &&
+        now_playing_lookup_result.request.generation == now_playing_lookup_generation &&
+        now_playing_lookup_result.request.lifetime == now_playing_lookup_lifetime;
+    pthread_mutex_unlock(&now_playing_lookup_mutex);
+    if (!candidate) return;
+
+    /* Keep the completed result queued while a rebuild owns the DB lock. The
+     * try getter is bounded; the next UI poll can consume it after publication. */
+    int32_t current_revision;
+    if (!metadata_db_try_get_generation(&current_revision)) return;
+
+    pthread_mutex_lock(&now_playing_lookup_mutex);
+    bool ready = library_ui_live && now_playing_lookup_result_ready &&
+        now_playing_lookup_result.request.generation == now_playing_lookup_generation &&
+        now_playing_lookup_result.request.lifetime == now_playing_lookup_lifetime;
+    if (ready) {
+        result = now_playing_lookup_result;
+        result_valid = now_playing_lookup_result_valid;
+        now_playing_lookup_result_ready = false;
+    }
+    pthread_mutex_unlock(&now_playing_lookup_mutex);
+    if (ready && strcmp(result.request.path, now_playing_path) != 0) {
+        request_now_playing_indicator_lookup();
+        return;
+    }
+    if (ready && result.request.album_sort != requested_album_sort()) {
+        request_now_playing_indicator_lookup();
+        return;
+    }
+    if (ready && (!result_valid || result.library_revision != current_revision ||
+                  result.request.library_revision != result.library_revision)) {
+        request_now_playing_indicator_lookup();
+        return;
+    }
+    if (ready) {
+        apply_now_playing_indicator_result(&result);
+        pthread_mutex_lock(&now_playing_lookup_mutex);
+        now_playing_lookup_applied_result = result;
+        now_playing_lookup_applied_valid = true;
+        pthread_mutex_unlock(&now_playing_lookup_mutex);
+    }
 }
 
 static void show_favorites(void) {
@@ -9170,20 +9371,20 @@ static void album_thumbnail_screen_unloaded_cb(lv_event_t * e) {
  * change while this screen stays open. */
 void refresh_artist_albums_now_playing_indicator(void) {
     if (!artist_albums_list) return;
-
+    int32_t current_revision;
+    bool have_revision = metadata_db_try_get_generation(&current_revision);
     int match = -1;
-    song_row_t playing;
-    if (now_playing_path[0] && metadata_db_get_song_by_path(now_playing_path, &playing)) {
-        int64_t offset = metadata_db_get_album_for_group_offset(artist_albums_current_kind,
-                                                                 artist_albums_current_name,
-                                                                 playing.tags.album,
-                                                                 playing.tags.album_artist);
-        if (offset >= 0 && offset < artist_albums_group_count)
-            /* +1 -- show_artist_albums() prepends an "All Songs" row at
-             * index 0, ahead of every fetched album row. */
-            match = (int) offset + 1;
-    }
-
+    pthread_mutex_lock(&now_playing_lookup_mutex);
+    const now_playing_lookup_result_t * result = &now_playing_lookup_applied_result;
+    if (now_playing_lookup_applied_valid &&
+        strcmp(result->request.path, now_playing_path) == 0 &&
+        (!have_revision || result->library_revision == current_revision) &&
+        result->request.artist_albums_kind == artist_albums_current_kind &&
+        strcmp(result->request.artist_albums_name, artist_albums_current_name) == 0 &&
+        result->artist_albums_row > 0 &&
+        result->artist_albums_row <= artist_albums_group_count)
+        match = result->artist_albums_row;
+    pthread_mutex_unlock(&now_playing_lookup_mutex);
     compact_list_set_now_playing(artist_albums_list, match);
 }
 
@@ -9247,6 +9448,7 @@ static void populate_artist_albums_view(const char * name, metadata_db_group_kin
     compact_list_set_row_decorator(artist_albums_list, thumbnail_row_decorator,
                                     (void *) &album_thumbnail_context);
     compact_list_set_trailing_click(artist_albums_list, artist_album_more_click_cb);
+    request_now_playing_indicator_lookup();
     refresh_artist_albums_now_playing_indicator();
 }
 
@@ -9437,6 +9639,15 @@ static int album_artists_fetch_page(void * ctx, int offset, int count, compact_l
 static void library_teardown_diag(const char * step);
 
 void gui_library_init(void) {
+    pthread_mutex_lock(&now_playing_lookup_mutex);
+    now_playing_lookup_lifetime++;
+    now_playing_lookup_generation++;
+    library_ui_live = true;
+    now_playing_lookup_pending = false;
+    now_playing_lookup_result_ready = false;
+    now_playing_lookup_result_valid = false;
+    now_playing_lookup_applied_valid = false;
+    pthread_mutex_unlock(&now_playing_lookup_mutex);
     atomic_store(&artist_thumbnail_work_enabled, current_settings.show_artist_images);
     library_teardown_diag("az_index_drag_timer before");
     if (!az_index_drag_timer) az_index_drag_timer = lv_timer_create(poll_az_index_drag, LV_DEF_REFR_PERIOD, NULL);
@@ -9559,6 +9770,7 @@ void gui_library_init(void) {
     library_teardown_diag("build_library_update_prompt_popup before");
     build_library_update_prompt_popup();
     library_teardown_diag("gui_library_init done");
+    refresh_now_playing_indicators();
 }
 
 void gui_library_set_artist_images_enabled(bool enabled) {
@@ -9608,6 +9820,15 @@ static void library_teardown_diag(const char * step) {
 }
 
 void gui_library_teardown(void) {
+    pthread_mutex_lock(&now_playing_lookup_mutex);
+    library_ui_live = false;
+    now_playing_lookup_lifetime++;
+    now_playing_lookup_generation++;
+    now_playing_lookup_pending = false;
+    now_playing_lookup_result_ready = false;
+    now_playing_lookup_result_valid = false;
+    now_playing_lookup_applied_valid = false;
+    pthread_mutex_unlock(&now_playing_lookup_mutex);
     library_setup_scan_complete = NULL;
     cancel_album_load();
     cancel_group_song_probes();

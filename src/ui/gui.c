@@ -4,6 +4,8 @@
 #include "gui_library.h"
 #include "gui_lock_screen.h"
 #include "gui_queue.h"
+#include "ui_wake.h"
+#include "event_input.h"
 #include "gui_player.h"
 #include "gui_plugins.h"
 #include "gui_shell.h"
@@ -13,6 +15,7 @@
 #define PLAYLISTS_DIR MUSIC_ROOT_DIR "/Playlists"
 #define SUBSONIC_STREAM_CACHE_DIR "/tmp/subsonic_stream_cache"
 #include "gui_theme.h"
+#include "gui_themes.h"
 #include "gui_notifications.h"
 #include "gui_settings.h"
 #include "gui_network.h"
@@ -54,6 +57,7 @@
 #include "wifi_control.h"
 #include "bluetooth_control.h"
 #include "hiby_sys_server.h"
+#include "track_metadata_worker.h"
 #ifndef HOST_BUILD
 #include "bt_media_player.h"
 #include "bt_cover_art.h"
@@ -339,7 +343,7 @@ static bool shutdown_background_work_active(void) {
            gui_player_queue_write_busy() || screenshot_is_busy() || firmware_ota_busy() || plugin_store_busy();
 }
 
-/* Grace window after resuming from suspend. hw_buttons sets its short-tap flag
+/* Grace window after resuming from suspend. hw_buttons queues a tap event
  * on button release (handle_key_event, value==0). The physical button press that
  * wakes the kernel from suspend is read asynchronously by the evdev thread,
  * and its release event can be consumed after power_suspend_now() returns.
@@ -355,6 +359,7 @@ static bool resumed_from_suspend_pending = false;
 static bool force_screen_just_woke = false;
 /* A wake is prepared and painted with the backlight still off. */
 static bool screen_wake_pending = false;
+static lv_timer_t *power_input_timer, *media_input_timer;
 static bool screen_wake_frame_pending = false;
 static bool screen_wake_flush_seen;
 static bool screen_wake_reveal_pending;
@@ -394,8 +399,7 @@ static void apply_screen_runtime_state(bool screen_on) {
     for (lv_indev_t * indev = lv_indev_get_next(NULL); indev; indev = lv_indev_get_next(indev)) {
         lv_timer_t * read_timer = lv_indev_get_read_timer(indev);
         if (!read_timer) continue;
-        if (screen_on) lv_timer_resume(read_timer);
-        else lv_timer_pause(read_timer);
+        ui_input_set_runtime_timer(indev, screen_on);
         indev_timer_count++;
     }
 
@@ -434,46 +438,63 @@ static void resume_from_suspend_fixups(void) {
  * down -- forward-declared here since update_timer_cb() (just below) polls
  * it every tick, same as poll_cover_decode()/poll_lyrics_load(). */
 
-/* Physical play/pause button handler. In double-click mode (mode 2), a timer
- * window disambiguates single presses from double clicks across poll cycles. */
-#define PLAY_PAUSE_DOUBLE_CLICK_MS 700
-static lv_timer_t * play_pause_click_timer = NULL;
-static int play_pause_click_count = 0;
+static button_mapping_context_t physical_button_mapping;
+static bool physical_volume_hold_cancelled[BUTTON_MAPPING_BUTTON_COUNT];
+static button_mapping_action_t physical_button_default_action(
+        button_mapping_button_t button, button_mapping_gesture_t gesture);
 
-static void physical_skip_prev_track(void) {
-    gui_player_step_manual(-1);
+bool gui_button_bindings_allow_wake(const button_mapping_binding_t bindings[BUTTON_MAPPING_BUTTON_COUNT]) {
+    if (!bindings) return false;
+    for (unsigned button = 0; button < BUTTON_MAPPING_BUTTON_COUNT; ++button) {
+#if !BOARD_HAS_PREVIOUS_BUTTON
+        if (button == BUTTON_MAPPING_PREVIOUS) continue;
+#endif
+        const button_mapping_action_t actions[] = {
+            bindings[button].tap, bindings[button].double_tap, bindings[button].hold
+        };
+        for (unsigned gesture = 0; gesture < 3; ++gesture) {
+#if defined(BOARD_R3II_2025)
+            if (gesture && (button == BUTTON_MAPPING_VOLUME_UP || button == BUTTON_MAPPING_VOLUME_DOWN))
+                continue; /* Wheel detents cannot produce double/hold assignments. */
+#endif
+            button_mapping_action_t action = actions[gesture];
+            if (action == BUTTON_MAPPING_ACTION_DEFAULT) {
+                if (gesture == 1) continue; /* No double gesture configured. */
+                action = physical_button_default_action((button_mapping_button_t)button,
+                    gesture == 0 ? BUTTON_MAPPING_GESTURE_TAP : BUTTON_MAPPING_GESTURE_HOLD_FIRST);
+            }
+            if (action == BUTTON_MAPPING_ACTION_SCREEN_TOGGLE || action == BUTTON_MAPPING_ACTION_POWER_MENU)
+                return true;
+        }
+    }
+    return false;
 }
 
-static void play_pause_click_timeout_cb(lv_timer_t * timer) {
-    (void) timer;
-    lv_timer_pause(play_pause_click_timer);
-    play_pause_click_count = 0;
-    toggle_play_pause();
-}
-
-static void handle_physical_play_pause_press(void) {
-    int mode = current_settings.play_pause_button_mode;
-    if (mode == 1) {
-        physical_skip_prev_track();
-        return;
+void gui_apply_button_bindings(void) {
+    /* Saved files can also be edited outside the UI; recover a wake action
+     * there as well as preventing the unsafe assignment in the selector. */
+    if (!gui_button_bindings_allow_wake(current_settings.button_bindings)) {
+        current_settings.button_bindings[BUTTON_MAPPING_POWER].tap = BUTTON_MAPPING_ACTION_DEFAULT;
+        settings_save_async(&current_settings);
     }
-    if (mode == 2) {
-        if (!play_pause_click_timer) {
-            play_pause_click_timer = lv_timer_create(play_pause_click_timeout_cb, PLAY_PAUSE_DOUBLE_CLICK_MS, NULL);
-            lv_timer_pause(play_pause_click_timer);
-        }
-        play_pause_click_count++;
-        if (play_pause_click_count >= 2) {
-            lv_timer_pause(play_pause_click_timer);
-            play_pause_click_count = 0;
-            physical_skip_prev_track();
-        } else {
-            lv_timer_reset(play_pause_click_timer);
-            lv_timer_resume(play_pause_click_timer);
-        }
-        return;
+    button_mapping_binding_t bindings[BUTTON_MAPPING_BUTTON_COUNT];
+    memcpy(bindings, current_settings.button_bindings, sizeof(bindings));
+#if defined(BOARD_R3II_2025)
+    bindings[BUTTON_MAPPING_VOLUME_UP].double_tap = BUTTON_MAPPING_ACTION_DEFAULT;
+    bindings[BUTTON_MAPPING_VOLUME_UP].hold = BUTTON_MAPPING_ACTION_DEFAULT;
+    bindings[BUTTON_MAPPING_VOLUME_DOWN].double_tap = BUTTON_MAPPING_ACTION_DEFAULT;
+    bindings[BUTTON_MAPPING_VOLUME_DOWN].hold = BUTTON_MAPPING_ACTION_DEFAULT;
+#endif
+    hw_buttons_set_bindings(bindings);
+    memset(physical_volume_hold_cancelled, 0, sizeof(physical_volume_hold_cancelled));
+    for (unsigned i = 0; i < BUTTON_MAPPING_BUTTON_COUNT; ++i) {
+        button_mapping_set(&physical_button_mapping, (button_mapping_button_t)i, &bindings[i]);
+        bool legacy_double = i == BUTTON_MAPPING_PLAY_PAUSE && current_settings.play_pause_button_mode == 2 &&
+            bindings[i].tap == BUTTON_MAPPING_ACTION_PLAY_PAUSE &&
+            bindings[i].double_tap == BUTTON_MAPPING_ACTION_PREVIOUS;
+        button_mapping_set_double_window_ms(&physical_button_mapping, (button_mapping_button_t)i,
+                                           legacy_double ? 700 : 300);
     }
-    toggle_play_pause();
 }
 
 static void finish_screen_wake_reveal(void) {
@@ -534,11 +555,17 @@ static void prepare_screen_wake_frame(void) {
 static void request_screen_power(bool on) {
     if (on) {
         if (backlight_screen_is_on() || screen_wake_pending) return;
+        for (unsigned i = 0; i < BUTTON_MAPPING_BUTTON_COUNT; ++i)
+            button_mapping_set(&physical_button_mapping, (button_mapping_button_t)i,
+                               &physical_button_mapping.bindings[i]);
         screen_wake_pending = true;
+        if (power_input_timer) lv_timer_resume(power_input_timer);
         screen_wake_phase_tick = screen_wake_retry_tick = lv_tick_get();
         backlight_prepare_screen_on();
     } else {
-
+        for (unsigned i = 0; i < BUTTON_MAPPING_BUTTON_COUNT; ++i)
+            button_mapping_set(&physical_button_mapping, (button_mapping_button_t)i,
+                               &physical_button_mapping.bindings[i]);
         screen_wake_pending = false;
         screen_wake_frame_pending = false;
         screen_wake_flush_seen = false;
@@ -549,52 +576,130 @@ static void request_screen_power(bool on) {
     }
 }
 
-/* Keep power-button consumption separate from the 500ms control timer. While
- * the screen is off, main.c may sleep for up to that same interval, making a
- * button wake feel sluggish even though backlight I/O is asynchronous. */
-static void process_power_button_events(void) {
-    if (resumed_from_suspend_pending && lv_tick_elaps(resumed_from_suspend_tick) >= RESUME_POWER_DRAIN_WINDOW_MS) {
-        DBG_LOG("resume: grace window expired unused at tick=%u\n", lv_tick_get());
+static uint32_t physical_button_now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint32_t)((uint64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+}
+
+static button_mapping_action_t physical_button_default_action(
+        button_mapping_button_t button, button_mapping_gesture_t gesture) {
+    bool tap = gesture == BUTTON_MAPPING_GESTURE_TAP;
+    if (button == BUTTON_MAPPING_POWER && gesture == BUTTON_MAPPING_GESTURE_HOLD_REPEAT)
+        return BUTTON_MAPPING_ACTION_NONE;
+    switch (button) {
+        case BUTTON_MAPPING_POWER:
+            return tap ? BUTTON_MAPPING_ACTION_SCREEN_TOGGLE :
+                         BUTTON_MAPPING_ACTION_POWER_MENU;
+        case BUTTON_MAPPING_PLAY_PAUSE:
+            return tap ? BUTTON_MAPPING_ACTION_PLAY_PAUSE : BUTTON_MAPPING_ACTION_NONE;
+        case BUTTON_MAPPING_NEXT:
+            return tap ? BUTTON_MAPPING_ACTION_NEXT : BUTTON_MAPPING_ACTION_SEEK_FORWARD;
+        case BUTTON_MAPPING_PREVIOUS:
+            return tap ? BUTTON_MAPPING_ACTION_PREVIOUS : BUTTON_MAPPING_ACTION_NONE;
+        case BUTTON_MAPPING_VOLUME_UP: return BUTTON_MAPPING_ACTION_VOLUME_UP;
+        case BUTTON_MAPPING_VOLUME_DOWN: return BUTTON_MAPPING_ACTION_VOLUME_DOWN;
+        default: return BUTTON_MAPPING_ACTION_NONE;
+    }
+}
+
+static void physical_button_action(button_mapping_action_t action,
+        button_mapping_button_t button, button_mapping_gesture_t gesture,
+        unsigned count, bool first, uint32_t timestamp_ms, void *userdata) {
+    (void)timestamp_ms;
+    (void)userdata;
+    if (gesture != BUTTON_MAPPING_GESTURE_HOLD_REPEAT) count = 1;
+    if (count > 100) count = 100;
+    if (action == BUTTON_MAPPING_ACTION_DEFAULT)
+        action = physical_button_default_action(button, gesture);
+    if (action == BUTTON_MAPPING_ACTION_NONE) return;
+    /* The wake key can be replayed by evdev after suspend. Consume that
+     * gesture without triggering its assignment a second time. */
+    if (button == BUTTON_MAPPING_POWER && resumed_from_suspend_pending) {
         resumed_from_suspend_pending = false;
+        return;
     }
-
-    if (hw_buttons_consume_power()) {
-        DBG_LOG("resume: hw_buttons_consume_power() true at tick=%u, pending=%d\n",
-                lv_tick_get(), resumed_from_suspend_pending);
-        if (resumed_from_suspend_pending) {
-            resumed_from_suspend_pending = false;
-        } else {
+    bool volume_action = action == BUTTON_MAPPING_ACTION_VOLUME_UP ||
+                         action == BUTTON_MAPPING_ACTION_VOLUME_DOWN;
+    bool hold = gesture == BUTTON_MAPPING_GESTURE_HOLD_FIRST ||
+                gesture == BUTTON_MAPPING_GESTURE_HOLD_REPEAT;
+    if (gesture != BUTTON_MAPPING_GESTURE_HOLD_REPEAT)
+        physical_volume_hold_cancelled[button] = false;
+    if (volume_action && current_settings.volume_lock_screen_off &&
+        !backlight_screen_is_on()) {
+        if (hold) physical_volume_hold_cancelled[button] = true;
+        return;
+    }
+    /* A mapped volume hold that crossed screen-off stays canceled until a
+     * fresh gesture, matching the physical volume keys' wake behavior. */
+    if (volume_action && hold && physical_volume_hold_cancelled[button]) return;
+    if (!current_settings.setup_complete && !volume_action &&
+        action != BUTTON_MAPPING_ACTION_SCREEN_TOGGLE &&
+        action != BUTTON_MAPPING_ACTION_POWER_MENU) return;
+    switch (action) {
+        case BUTTON_MAPPING_ACTION_SCREEN_TOGGLE: {
             bool turn_on = !(backlight_screen_is_on() || screen_wake_pending);
-            lv_display_trigger_activity(NULL);
             request_screen_power(turn_on);
-            if (turn_on) {
-                inactivity_dimmed = false;
-            }
+            if (turn_on) inactivity_dimmed = false;
+            break;
         }
-    }
-
-    if (hw_buttons_consume_power_long_press()) {
-        if (resumed_from_suspend_pending) {
-            resumed_from_suspend_pending = false;
-        } else {
-            bool was_on = backlight_screen_is_on();
-            lv_display_trigger_activity(NULL);
-            if (!was_on) {
-                if (screen_wake_frame_pending || screen_wake_reveal_pending) start_power_off_countdown();
+        case BUTTON_MAPPING_ACTION_POWER_MENU:
+            if (!backlight_screen_is_on()) {
+                if (screen_wake_frame_pending || screen_wake_reveal_pending)
+                    start_power_off_countdown();
                 else screen_wake_power_menu = true;
                 request_screen_power(true);
                 inactivity_dimmed = false;
-            } else {
-                start_power_off_countdown();
-            }
+            } else start_power_off_countdown();
+            break;
+        case BUTTON_MAPPING_ACTION_PLAY_PAUSE: toggle_play_pause(); break;
+        case BUTTON_MAPPING_ACTION_NEXT: gui_player_step_manual(1); break;
+        case BUTTON_MAPPING_ACTION_PREVIOUS: gui_player_step_manual(-1); break;
+        case BUTTON_MAPPING_ACTION_SEEK_FORWARD:
+        case BUTTON_MAPPING_ACTION_SEEK_BACKWARD:
+            gui_player_hw_seek_steps(action == BUTTON_MAPPING_ACTION_SEEK_FORWARD ? 1 : -1,
+                (int)count, first || gesture == BUTTON_MAPPING_GESTURE_TAP ||
+                gesture == BUTTON_MAPPING_GESTURE_DOUBLE);
+            break;
+        case BUTTON_MAPPING_ACTION_VOLUME_UP:
+        case BUTTON_MAPPING_ACTION_VOLUME_DOWN: {
+            int delta = (int)count * (action == BUTTON_MAPPING_ACTION_VOLUME_UP ? 1 : -1);
+            int new_percent = gui_player_get_volume_percent() + delta;
+            if (new_percent < 0) new_percent = 0;
+            if (new_percent > 100) new_percent = 100;
+            gui_player_set_volume_percent(new_percent);
+            audio_set_volume((float)new_percent / 100.0f);
+            gui_player_remember_volume_percent(new_percent);
+            settings_save_async(&current_settings);
+            show_volume_popup(new_percent);
+            refresh_volume_topbar(new_percent);
+            break;
         }
+        default: return;
     }
+    lv_display_trigger_activity(NULL);
+}
+
+static void process_physical_button_events(void) {
+    if (resumed_from_suspend_pending &&
+        lv_tick_elaps(resumed_from_suspend_tick) >= RESUME_POWER_DRAIN_WINDOW_MS)
+        resumed_from_suspend_pending = false;
+    hw_button_event_t event;
+    while (hw_buttons_consume_event(&event))
+        button_mapping_event(&physical_button_mapping, event.button, event.gesture,
+                             event.count, event.timestamp_ms, physical_button_action, NULL);
+    /* Drain source events before expiring singles: a busy GUI must still
+     * recognize two rapid hardware presses using their original times. */
+    button_mapping_poll(&physical_button_mapping, physical_button_now_ms(),
+                        physical_button_action, NULL);
 }
 
 static void power_button_timer_cb(lv_timer_t * timer) {
     (void) timer;
-    process_power_button_events();
-    if (!screen_wake_pending) return;
+    if (!screen_wake_pending) {
+        if (ui_wake_enabled() && timer) lv_timer_pause(timer);
+        return;
+    }
     uint32_t age = lv_tick_elaps(screen_wake_phase_tick);
     bool retry_due = lv_tick_elaps(screen_wake_retry_tick) >= SCREEN_WAKE_RETRY_MS;
     if (screen_wake_reveal_pending) {
@@ -628,49 +733,22 @@ static void power_button_timer_cb(lv_timer_t * timer) {
     }
 }
 
-/* Only cheap event consumption runs at input cadence. Periodic status,
- * storage and service work remains on the 500 ms update timer. Keep all
- * player and LVGL actions on this thread, including while the screen is off. */
-static void media_button_timer_cb(lv_timer_t * timer) {
-    (void) timer;
-    int played_paused_count = hw_buttons_consume_play_pause();
-    for (int i = 0; current_settings.setup_complete && i < played_paused_count; i++) {
-        handle_physical_play_pause_press();
+/* Keep input consumption separate from periodic status and service work. */
+static void media_button_timer_cb(lv_timer_t *timer) {
+    (void)timer;
+    process_physical_button_events();
+    if (ui_wake_enabled() && media_input_timer) {
+        bool pending = false;
+        for (unsigned i = 0; i < BUTTON_MAPPING_BUTTON_COUNT; ++i)
+            pending |= physical_button_mapping.pending_taps[i].pending;
+        if (pending) lv_timer_resume(media_input_timer);
+        else lv_timer_pause(media_input_timer);
     }
-    /* Physical skip buttons use gui_player_step_manual() so shuffle and repeat
-     * modes are respected consistently with on-screen transport controls. */
-    bool skipped_next = hw_buttons_consume_next();
-    if (current_settings.setup_complete && skipped_next) {
-        gui_player_step_manual(1);
-    }
-    bool skipped_prev = hw_buttons_consume_prev();
-    if (current_settings.setup_complete && skipped_prev) {
-        gui_player_step_manual(-1);
-    }
-    /* Holding the physical Next button fast-forwards within the track, same
-     * as holding the touch one -- see hw_buttons_consume_next_seek_steps()'s
-     * own comment. */
-    bool next_seek_is_first;
-    int next_seek_steps = hw_buttons_consume_next_seek_steps(&next_seek_is_first);
-    if (current_settings.setup_complete && next_seek_steps > 0) {
-        gui_player_hw_next_seek_steps(next_seek_steps, next_seek_is_first);
-    }
-    int volume_delta = hw_buttons_consume_volume_delta();
-    if (volume_delta != 0) {
-        int32_t new_percent = gui_player_get_volume_percent() + volume_delta;
-        if (new_percent < 0) new_percent = 0;
-        if (new_percent > 100) new_percent = 100;
-        gui_player_set_volume_percent(new_percent);
-        audio_set_volume((float) new_percent / 100.0f);
-        gui_player_remember_volume_percent(new_percent);
-        settings_save_async(&current_settings);
-        show_volume_popup(new_percent);
-        refresh_volume_topbar(new_percent);
-    }
+}
 
-    if (played_paused_count > 0 || skipped_next || skipped_prev || volume_delta != 0 || next_seek_steps > 0) {
-        lv_display_trigger_activity(NULL);
-    }
+void gui_process_input_wake(void) {
+    media_button_timer_cb(NULL);
+    poll_cover_decode();
 }
 
 static void update_timer_cb(lv_timer_t * timer) {
@@ -985,7 +1063,7 @@ static void update_timer_cb(lv_timer_t * timer) {
 
     bool screen_was_on = backlight_screen_is_on();
 
-    /* Power-button events are consumed by power_button_timer_cb(). The power
+    /* Physical button events are consumed by media_button_timer_cb(). The power
      * action overlay itself has no timer to poll -- Power Off/Reboot fire
      * immediately on tap. */
 
@@ -1276,6 +1354,9 @@ static void update_timer_cb(lv_timer_t * timer) {
     } else if (audio_consume_track_finished()) {
         gui_player_handle_track_finished();
     }
+    gui_navigation_poll_snapshot_rebuild();
+    gui_player_poll_track_metadata();
+    gui_library_poll_now_playing_indicators();
     gui_player_poll_confirmed_playback();
     static bool queue_checkpoint_failure_notified;
     if (gui_player_queue_checkpoint_failed()) {
@@ -1285,7 +1366,7 @@ static void update_timer_cb(lv_timer_t * timer) {
         }
     } else queue_checkpoint_failure_notified = false;
     static bool numeric_failure_notified;
-    if (metadata_db_numeric_write_failed()) {
+    if (metadata_db_numeric_write_failed() || track_metadata_history_failed()) {
         if (!numeric_failure_notified) {
             show_error_toast(TR("Playback history could not be saved"));
             numeric_failure_notified = true;
@@ -1665,6 +1746,9 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
     bt_control_set_sample_rate(current_settings.bt_sample_rate);
     db_log_set_enabled(current_settings.db_logging_enabled);
     hw_buttons_set_screenshot_combo_enabled(current_settings.screenshot_combo_enabled);
+    hw_buttons_set_volume_lock_screen_off(current_settings.volume_lock_screen_off);
+    button_mapping_init(&physical_button_mapping);
+    gui_apply_button_bindings();
     usb_dac_bridge_set_debug_log_enabled(current_settings.db_logging_enabled);
     headphone_status_refresh_earpods_adc();
     app_clock_init(current_settings.clock_automatic, current_settings.clock_manual_epoch,
@@ -1761,12 +1845,18 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
 
 
 
+    /* Initialize native theme service and legacy migration before plugin_manager_init */
+    gui_themes_init();
+
     /* Discovers plugin rows/tiles by loading and running every .lua file
      * under <SD card>/.plugins/ -- run early, well before Books, Settings,
      * or Stream Media (the current plugin entry points, see build_books_
      * screen()/build_settings_screen()/build_stream_media_screen()) could
      * plausibly be reached. */
     plugin_manager_init();
+
+    /* Apply active native theme on top of fresh plugin baseline before screens are built */
+    gui_themes_apply_active();
 #ifndef HOST_BUILD
     boot_checkpoint("pre-screen-build setup done");
 #endif
@@ -1895,8 +1985,12 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
     /* Initialize user inactivity baseline at the splash-to-Home transition,
      * start runtime update timer, and install gesture indev hooks. */
     gui_reset_interactive_timeout_baseline();
-    lv_timer_create(power_button_timer_cb, 25, NULL);
-    lv_timer_create(media_button_timer_cb, 16, NULL);
+    power_input_timer = lv_timer_create(power_button_timer_cb, 25, NULL);
+    media_input_timer = lv_timer_create(media_button_timer_cb, 16, NULL);
+    if (ui_wake_enabled()) {
+        lv_timer_pause(power_input_timer);
+        lv_timer_pause(media_input_timer);
+    }
     lv_timer_create(update_timer_cb, 500, NULL);
     lv_indev_t * gesture_indev = find_pointer_indev();
     gui_shell_install_indev_hooks(gesture_indev);
@@ -1957,6 +2051,7 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
 void gui_deinit(void) {
     lv_display_remove_event_cb_with_user_data(lv_display_get_default(), screen_wake_frame_ready_cb, NULL);
     screen_wake_pending = screen_wake_frame_pending = screen_wake_power_menu = screen_wake_flush_seen = screen_wake_reveal_pending = false;
+    button_mapping_reset(&physical_button_mapping);
     gui_setup_teardown();
     gui_library_cancel_scan();
     gui_library_cancel_background_work();

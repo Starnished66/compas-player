@@ -1,6 +1,8 @@
 #include "hw_buttons.h"
+#include "button_mapping.h"
 #include "debug_log.h"
 #include "input_device_utils.h"
+#include "backlight.h"
 #ifndef HOST_BUILD
 #include "bt_media_player.h"
 #endif
@@ -11,14 +13,12 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <poll.h>
+#include "ui_wake.h"
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <time.h>
 #include <unistd.h>
-
-/* One physical button press = one percentage point (0-100 range). */
-#define VOLUME_STEP_PERCENT 1
 
 /* Typematic repeat for volume keys: initial delay followed by periodic repeats. */
 #define VOLUME_REPEAT_INITIAL_DELAY_MS 350
@@ -33,18 +33,52 @@
 #define NEXT_SEEK_LONG_PRESS_MS 400
 #define NEXT_SEEK_REPEAT_MS 100
 
+#define BUTTON_EVENT_QUEUE_CAPACITY 64
+#define BUTTON_EVENT_MAX_REPEAT_COUNT 255u
+#define MAPPED_CUSTOM_HOLD_MS 500
+#define MAPPED_CUSTOM_REPEAT_MS 100
+#define SCREENSHOT_CHORD_WINDOW_MS 250
+
+typedef struct {
+    button_mapping_button_t button;
+    button_mapping_gesture_t gesture;
+    unsigned count;
+    uint32_t timestamp_ms;
+} queued_button_event_t;
+
+typedef struct {
+    bool held;
+    bool tap_emitted;
+    bool hold_fired;
+    bool screenshot_chorded;
+    bool tap_waiting_for_chord;
+    bool hold_enabled;
+    bool repeat_enabled;
+    bool volume_hold_blocked;
+    uint32_t pressed_ms;
+    uint32_t hold_due_ms;
+    uint32_t repeat_due_ms;
+    uint32_t repeat_interval_ms;
+} mapped_button_state_t;
+
 static pthread_mutex_t state_mutex = PTHREAD_MUTEX_INITIALIZER;
-/* Tracks press counts between GUI poll intervals to reliably detect multi-clicks. */
-static int play_pause_press_count = 0;
-static bool next_requested = false;
-static bool prev_requested = false;
-static bool power_requested = false;
-static bool power_long_press_requested = false;
+static queued_button_event_t button_event_queue[BUTTON_EVENT_QUEUE_CAPACITY];
+static unsigned button_event_queue_count = 0;
+static button_mapping_binding_t mapped_bindings[BUTTON_MAPPING_BUTTON_COUNT];
+static mapped_button_state_t mapped_button_states[BUTTON_MAPPING_BUTTON_COUNT];
 static bool screenshot_requested = false;
 /* Developer Options arms the chord; written from the UI thread, read here
  * under state_mutex like the rest of the key state. */
 static bool screenshot_combo_enabled = false;
-static int volume_delta = 0;
+static bool screenshot_chord_used_for_power_hold = false;
+static bool volume_lock_screen_off = false;
+static bool physical_key_held[KEY_MAX + 1];
+static uint32_t physical_key_pressed_ms[KEY_MAX + 1];
+
+static uint32_t monotonic_ms(void);
+static void queue_button_event_locked(button_mapping_button_t button,
+                                      button_mapping_gesture_t gesture,
+                                      unsigned count, uint32_t timestamp_ms);
 
 /* The R3 II knob is reported as arrow-key pairs. Track each physical key per
  * evdev fd so a repeated KEY_DOWN without a release cannot become multiple
@@ -57,7 +91,9 @@ static void handle_knob_key_event(unsigned short code, int value, bool * left_he
     pthread_mutex_lock(&state_mutex);
     if (value == 1 && !*held) {
         /* Reverse the stock arrow mapping to match the reported wheel direction. */
-        volume_delta += code == KEY_RIGHT ? VOLUME_STEP_PERCENT : -VOLUME_STEP_PERCENT;
+        bool up = code == KEY_RIGHT;
+        queue_button_event_locked(up ? BUTTON_MAPPING_VOLUME_UP : BUTTON_MAPPING_VOLUME_DOWN,
+                                  BUTTON_MAPPING_GESTURE_TAP, 1, monotonic_ms());
         *held = true;
     } else if (value == 0) {
         *held = false;
@@ -85,21 +121,6 @@ static bool knob_consume_sync_event(unsigned short type, unsigned short code,
     return false;
 }
 
-/* Held-state + next-repeat-due tracking for volume up/down specifically --
- * the only two keys that repeat while held. Everything else (play/pause,
- * next/prev) stays single-shot: repeating a track skip while a finger
- * lingers on the button would be actively wrong, not just unnecessary. */
-static bool volume_up_held = false;
-static bool volume_down_held = false;
-static uint32_t volume_up_next_repeat_ms = 0;
-static uint32_t volume_down_next_repeat_ms = 0;
-/* A Volume Down press can become the first half of the reverse-order
- * screenshot chord. Its step is undoable only until the UI drains the shared
- * volume accumulator; its press time remains available while the key is held. */
-static bool volume_down_initial_step_pending = false;
-static uint32_t volume_down_pressed_ms = 0;
-static bool volume_down_screenshot_chorded = false;
-
 /* The screenshot chord's second key. The R3II 2025 turns volume with a knob,
  * which cannot be held, so it chords Power with Previous instead. */
 #if defined(BOARD_R3II_2025)
@@ -109,40 +130,233 @@ static bool volume_down_screenshot_chorded = false;
 #endif
 #define SCREENSHOT_CHORD_VOLUME_DOWN (!SCREENSHOT_CHORD_PREV)
 
-#if SCREENSHOT_CHORD_PREV
-/* Previous fires on release there, so it can still start the reverse-order
- * chord (Previous, then Power) without skipping a track first. */
-static bool prev_held = false;
-static uint32_t prev_pressed_ms = 0;
-static bool prev_screenshot_chorded = false;
-#endif
-
-/* Power held-state + long-press-due tracking, same shape as the volume
- * repeat state above -- power_long_press_fired guards against firing the
- * long-press flag more than once per physical press, and (in
- * handle_key_event()'s value==0 branch) against also firing the short-tap
- * flag once the same press has already turned into a long-press. */
-static bool power_held = false;
-static bool power_long_press_fired = false;
-static bool power_screenshot_chorded = false;
-static uint32_t power_long_press_due_ms = 0;
-
-/* Next-button hold-to-seek state, same shape as the power long-press state
- * above: next_seek_fired guards against firing the "first step" flag more
- * than once per hold, and against also firing the short-press flag once the
- * hold has taken over. next_seek_step_count accumulates on this thread at
- * NEXT_SEEK_REPEAT_MS granularity; the GUI thread drains it independently of
- * its own (coarser) poll interval, exactly like volume_delta above. */
-static bool next_held = false;
-static bool next_seek_fired = false;
-static uint32_t next_seek_due_ms = 0;
-static int next_seek_step_count = 0;
-static bool next_seek_step_is_first = false;
-
 static uint32_t monotonic_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint32_t) (ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+    return (uint32_t) ((uint64_t) ts.tv_sec * 1000u +
+                       (uint64_t) ts.tv_nsec / 1000000u);
+}
+
+static int event_priority(button_mapping_button_t button,
+                          button_mapping_gesture_t gesture) {
+    if (gesture == BUTTON_MAPPING_GESTURE_HOLD_REPEAT) return 0;
+    if (button == BUTTON_MAPPING_POWER) return 3;
+    return 2;
+}
+
+static void remove_queued_event_locked(unsigned index) {
+    if (index >= button_event_queue_count) return;
+    for (unsigned i = index + 1; i < button_event_queue_count; ++i)
+        button_event_queue[i - 1] = button_event_queue[i];
+    button_event_queue_count--;
+}
+
+static void remove_queued_button_events_locked(button_mapping_button_t button) {
+    for (unsigned i = 0; i < button_event_queue_count;) {
+        if (button_event_queue[i].button == button) remove_queued_event_locked(i);
+        else i++;
+    }
+}
+
+static void remove_queued_volume_hold_events_locked(button_mapping_button_t button) {
+    for (unsigned i = 0; i < button_event_queue_count;) {
+        const button_mapping_gesture_t gesture = button_event_queue[i].gesture;
+        if (button_event_queue[i].button == button &&
+            (gesture == BUTTON_MAPPING_GESTURE_HOLD_FIRST ||
+             gesture == BUTTON_MAPPING_GESTURE_HOLD_REPEAT))
+            remove_queued_event_locked(i);
+        else
+            i++;
+    }
+}
+
+/* Caller holds state_mutex. Repeats merge only with the tail so FIFO source
+ * ordering remains intact. When full, repeats are the first events evicted;
+ * a power/tap edge can therefore never be starved by a held button. */
+static void queue_button_event_locked(button_mapping_button_t button,
+                                      button_mapping_gesture_t gesture,
+                                      unsigned count, uint32_t timestamp_ms) {
+    if ((unsigned) button >= BUTTON_MAPPING_BUTTON_COUNT || count == 0) return;
+    if (mapped_button_states[button].volume_hold_blocked &&
+        (gesture == BUTTON_MAPPING_GESTURE_HOLD_FIRST ||
+         gesture == BUTTON_MAPPING_GESTURE_HOLD_REPEAT))
+        return;
+    if (gesture == BUTTON_MAPPING_GESTURE_HOLD_REPEAT &&
+        count > BUTTON_EVENT_MAX_REPEAT_COUNT)
+        count = BUTTON_EVENT_MAX_REPEAT_COUNT;
+    if (gesture == BUTTON_MAPPING_GESTURE_HOLD_REPEAT && button_event_queue_count) {
+        queued_button_event_t *tail = &button_event_queue[button_event_queue_count - 1];
+        if (tail->button == button && tail->gesture == gesture) {
+            ui_wake_notify();
+            tail->count = count >= BUTTON_EVENT_MAX_REPEAT_COUNT - tail->count
+                              ? BUTTON_EVENT_MAX_REPEAT_COUNT : tail->count + count;
+            return;
+        }
+    }
+    if (button_event_queue_count == BUTTON_EVENT_QUEUE_CAPACITY) {
+        if (gesture == BUTTON_MAPPING_GESTURE_HOLD_REPEAT) return;
+        unsigned victim = BUTTON_EVENT_QUEUE_CAPACITY;
+        int incoming_priority = event_priority(button, gesture);
+        for (unsigned i = 0; i < button_event_queue_count; ++i) {
+            if (button_event_queue[i].gesture == BUTTON_MAPPING_GESTURE_HOLD_REPEAT) {
+                victim = i;
+                break;
+            }
+            if (event_priority(button_event_queue[i].button,
+                               button_event_queue[i].gesture) < incoming_priority &&
+                victim == BUTTON_EVENT_QUEUE_CAPACITY)
+                victim = i;
+        }
+        if (victim == BUTTON_EVENT_QUEUE_CAPACITY) {
+            /* Preserve power edges under pathological tap floods. */
+            if (button != BUTTON_MAPPING_POWER) return;
+            for (unsigned i = 0; i < button_event_queue_count; ++i) {
+                if (button_event_queue[i].button != BUTTON_MAPPING_POWER) {
+                    victim = i;
+                    break;
+                }
+            }
+            if (victim == BUTTON_EVENT_QUEUE_CAPACITY) return;
+        }
+        remove_queued_event_locked(victim);
+    }
+    unsigned insert_at = button_event_queue_count;
+    while (insert_at > 0 &&
+           (int32_t) (button_event_queue[insert_at - 1].timestamp_ms - timestamp_ms) > 0) {
+        button_event_queue[insert_at] = button_event_queue[insert_at - 1];
+        insert_at--;
+    }
+    button_event_queue_count++;
+    ui_wake_notify();
+    queued_button_event_t *event = &button_event_queue[insert_at];
+    event->button = button;
+    event->gesture = gesture;
+    event->count = count;
+    event->timestamp_ms = timestamp_ms;
+}
+
+static bool binding_has_custom_hold_locked(button_mapping_button_t button) {
+    return mapped_bindings[button].hold != BUTTON_MAPPING_ACTION_DEFAULT;
+}
+
+static bool binding_has_double_locked(button_mapping_button_t button) {
+    return mapped_bindings[button].double_tap != BUTTON_MAPPING_ACTION_DEFAULT;
+}
+
+static bool hold_resolves_to_volume_locked(button_mapping_button_t button) {
+    const button_mapping_action_t hold = mapped_bindings[button].hold;
+    if (hold == BUTTON_MAPPING_ACTION_VOLUME_UP ||
+        hold == BUTTON_MAPPING_ACTION_VOLUME_DOWN)
+        return true;
+    return hold == BUTTON_MAPPING_ACTION_DEFAULT &&
+           (button == BUTTON_MAPPING_VOLUME_UP || button == BUTTON_MAPPING_VOLUME_DOWN);
+}
+
+static void latch_volume_hold_blocked_locked(button_mapping_button_t button,
+                                             mapped_button_state_t *state) {
+    if (state->volume_hold_blocked || !hold_resolves_to_volume_locked(button)) return;
+    state->volume_hold_blocked = true;
+    remove_queued_volume_hold_events_locked(button);
+}
+
+static void mapped_button_press_locked(button_mapping_button_t button,
+                                       uint32_t now, bool screen_on,
+                                       uint32_t native_hold_ms,
+                                       uint32_t repeat_ms, bool defer_tap,
+                                       bool wait_for_chord, bool chorded) {
+    mapped_button_state_t *state = &mapped_button_states[button];
+    memset(state, 0, sizeof(*state));
+    state->held = true;
+    state->pressed_ms = now;
+    state->screenshot_chorded = chorded;
+    state->tap_waiting_for_chord = wait_for_chord && !chorded;
+    state->volume_hold_blocked = volume_lock_screen_off && !screen_on &&
+                                 hold_resolves_to_volume_locked(button);
+    bool custom_hold = binding_has_custom_hold_locked(button);
+    bool custom_double = binding_has_double_locked(button);
+    uint32_t hold_ms = native_hold_ms;
+    if (!hold_ms && custom_hold) hold_ms = MAPPED_CUSTOM_HOLD_MS;
+    if (hold_ms) {
+        state->hold_enabled = true;
+        state->hold_due_ms = now + hold_ms;
+        state->repeat_enabled = repeat_ms != 0 || custom_hold;
+        state->repeat_interval_ms = repeat_ms ? repeat_ms : MAPPED_CUSTOM_REPEAT_MS;
+        if (state->repeat_enabled)
+            state->repeat_due_ms = state->hold_due_ms + state->repeat_interval_ms;
+    }
+    bool defer = defer_tap || custom_hold || custom_double;
+    if (!defer && !chorded) {
+        queue_button_event_locked(button, BUTTON_MAPPING_GESTURE_TAP, 1, now);
+        state->tap_emitted = true;
+    }
+}
+
+static void mapped_button_release_locked(button_mapping_button_t button, uint32_t now) {
+    mapped_button_state_t *state = &mapped_button_states[button];
+    if (!state->held) return;
+    if (!state->screenshot_chorded && !state->hold_fired && !state->tap_emitted) {
+        queue_button_event_locked(button, BUTTON_MAPPING_GESTURE_TAP, 1,
+                                  now);
+        state->tap_emitted = true;
+    }
+    state->tap_waiting_for_chord = false;
+    state->held = false;
+}
+
+/* Called from the reader's timed poll path and before each physical event so
+ * a delayed release cannot turn an already completed hold into a tap. */
+static void apply_due_mapped_holds_locked(uint32_t now, bool screen_on) {
+    for (unsigned i = 0; i < BUTTON_MAPPING_BUTTON_COUNT; ++i) {
+        mapped_button_state_t *state = &mapped_button_states[i];
+        if (!state->held || state->screenshot_chorded) continue;
+        if (volume_lock_screen_off && !screen_on)
+            latch_volume_hold_blocked_locked((button_mapping_button_t) i, state);
+        if (state->tap_waiting_for_chord &&
+            (int32_t) (now - (state->pressed_ms + SCREENSHOT_CHORD_WINDOW_MS)) > 0) {
+            if (!binding_has_custom_hold_locked((button_mapping_button_t) i) &&
+                !binding_has_double_locked((button_mapping_button_t) i)) {
+                queue_button_event_locked((button_mapping_button_t) i,
+                                      BUTTON_MAPPING_GESTURE_TAP, 1, now);
+                state->tap_emitted = true;
+            }
+            state->tap_waiting_for_chord = false;
+        }
+        if (!state->hold_enabled) continue;
+        if (!state->hold_fired && (int32_t) (now - state->hold_due_ms) >= 0) {
+            if (state->volume_hold_blocked) {
+                /* The hold still wins tap disambiguation, but its volume
+                 * action and repeats stay suppressed until release. */
+                state->hold_fired = true;
+                state->hold_enabled = false;
+                state->repeat_enabled = false;
+            } else {
+                state->hold_fired = true;
+                queue_button_event_locked((button_mapping_button_t) i,
+                                          BUTTON_MAPPING_GESTURE_HOLD_FIRST, 1,
+                                          state->hold_due_ms);
+            }
+        }
+        if (state->hold_fired && state->repeat_enabled &&
+            (int32_t) (now - state->repeat_due_ms) >= 0) {
+            uint32_t elapsed = now - state->repeat_due_ms;
+            uint32_t interval = state->repeat_interval_ms;
+            uint32_t due_repeats = 1 + elapsed / interval;
+            unsigned repeats = due_repeats > BUTTON_EVENT_MAX_REPEAT_COUNT
+                                   ? BUTTON_EVENT_MAX_REPEAT_COUNT : (unsigned) due_repeats;
+            queue_button_event_locked((button_mapping_button_t) i,
+                                      BUTTON_MAPPING_GESTURE_HOLD_REPEAT,
+                                      repeats, state->repeat_due_ms);
+            state->repeat_due_ms += due_repeats * interval;
+        }
+    }
+}
+
+static void apply_due_mapped_holds(void) {
+    uint32_t now = monotonic_ms();
+    bool screen_on = backlight_screen_is_on();
+    pthread_mutex_lock(&state_mutex);
+    apply_due_mapped_holds_locked(now, screen_on);
+    pthread_mutex_unlock(&state_mutex);
 }
 
 /* value: 1 = key down, 0 = key up (repeat events, value 2, are ignored --
@@ -150,39 +364,57 @@ static uint32_t monotonic_ms(void) {
  * otherwise synthesize, and only actually fires for the two keys that
  * should repeat at all). */
 static void handle_key_event(unsigned short code, int value) {
+    if (code > KEY_MAX) return;
+    /* See handle_knob_key_event() for lock ordering. */
+    bool screen_on = backlight_screen_is_on();
+    uint32_t now = monotonic_ms();
     pthread_mutex_lock(&state_mutex);
     if (value == 1) {
+        if (physical_key_held[code]) {
+            pthread_mutex_unlock(&state_mutex);
+            return;
+        }
+        physical_key_held[code] = true;
+        physical_key_pressed_ms[code] = now;
+        apply_due_mapped_holds_locked(now, screen_on);
         switch (code) {
             case KEY_POWER: {
-                uint32_t now = monotonic_ms();
 #if SCREENSHOT_CHORD_PREV
-                bool reverse_chord = screenshot_combo_enabled && prev_held && !prev_screenshot_chorded &&
-                    (uint32_t) (now - prev_pressed_ms) <= 250;
+        bool reverse_chord = screenshot_combo_enabled && !screenshot_chord_used_for_power_hold &&
+                    physical_key_held[KEY_PREVIOUSSONG] &&
+                    !mapped_button_states[BUTTON_MAPPING_PREVIOUS].screenshot_chorded &&
+                    (uint32_t) (now - physical_key_pressed_ms[KEY_PREVIOUSSONG]) <= SCREENSHOT_CHORD_WINDOW_MS;
 #else
-                bool reverse_chord = screenshot_combo_enabled && volume_down_held &&
-                    (uint32_t) (now - volume_down_pressed_ms) <= 250;
+                bool reverse_chord = screenshot_combo_enabled && !screenshot_chord_used_for_power_hold &&
+                    physical_key_held[KEY_VOLUMEDOWN] &&
+                    !mapped_button_states[BUTTON_MAPPING_VOLUME_DOWN].screenshot_chorded &&
+                    (uint32_t) (now - physical_key_pressed_ms[KEY_VOLUMEDOWN]) <= SCREENSHOT_CHORD_WINDOW_MS;
 #endif
-                power_held = true;
-                power_long_press_fired = false;
-                power_screenshot_chorded = reverse_chord;
-                power_long_press_due_ms = reverse_chord ? 0 : now + POWER_LONG_PRESS_MS;
+                mapped_button_press_locked(BUTTON_MAPPING_POWER, now, screen_on,
+                                           POWER_LONG_PRESS_MS, 0, true, false,
+                                           reverse_chord);
 #if SCREENSHOT_CHORD_PREV
                 if (reverse_chord) {
+                    screenshot_chord_used_for_power_hold = true;
+                    mapped_button_states[BUTTON_MAPPING_POWER].screenshot_chorded = true;
+                    mapped_button_states[BUTTON_MAPPING_PREVIOUS].screenshot_chorded = true;
+                    mapped_button_states[BUTTON_MAPPING_PREVIOUS].tap_waiting_for_chord = false;
+                    remove_queued_button_events_locked(BUTTON_MAPPING_POWER);
+                    remove_queued_button_events_locked(BUTTON_MAPPING_PREVIOUS);
                     screenshot_requested = true;
-                    prev_screenshot_chorded = true;
                     DBG_LOG("hw_buttons: screenshot chord Prev -> Power at t=%u\n", now);
                 } else {
                     DBG_LOG("hw_buttons: KEY_POWER down at t=%u\n", now);
                 }
 #else
                 if (reverse_chord) {
+                    screenshot_chord_used_for_power_hold = true;
+                    mapped_button_states[BUTTON_MAPPING_POWER].screenshot_chorded = true;
+                    mapped_button_states[BUTTON_MAPPING_VOLUME_DOWN].screenshot_chorded = true;
+                    mapped_button_states[BUTTON_MAPPING_VOLUME_DOWN].tap_waiting_for_chord = false;
+                    remove_queued_button_events_locked(BUTTON_MAPPING_POWER);
+                    remove_queued_button_events_locked(BUTTON_MAPPING_VOLUME_DOWN);
                     screenshot_requested = true;
-                    volume_down_screenshot_chorded = true;
-                    volume_down_held = false;
-                    if (volume_down_initial_step_pending) {
-                        volume_delta += VOLUME_STEP_PERCENT;
-                        volume_down_initial_step_pending = false;
-                    }
                     DBG_LOG("hw_buttons: screenshot chord VolDown -> Power at t=%u\n", now);
                 } else {
                     DBG_LOG("hw_buttons: KEY_POWER down at t=%u\n", now);
@@ -196,98 +428,126 @@ static void handle_key_event(unsigned short code, int value) {
             case KEY_PLAYPAUSE:
             case KEY_PLAY:
             case KEY_PLAYCD:
-            case KEY_PAUSECD:        play_pause_press_count++; break;
+            case KEY_PAUSECD:
+                mapped_button_press_locked(BUTTON_MAPPING_PLAY_PAUSE, now, screen_on,
+                                           0, 0, false, false, false);
+                break;
             case KEY_FASTFORWARD:
             case KEY_NEXTSONG: {
-                uint32_t now = monotonic_ms();
-                next_held = true;
-                next_seek_fired = false;
-                next_seek_due_ms = now + NEXT_SEEK_LONG_PRESS_MS;
+                mapped_button_press_locked(BUTTON_MAPPING_NEXT, now, screen_on,
+                                           NEXT_SEEK_LONG_PRESS_MS,
+                                           NEXT_SEEK_REPEAT_MS, true, false, false);
                 break;
             }
 #if SCREENSHOT_CHORD_PREV
-            case KEY_REWIND:         prev_requested = true; break;
+            case KEY_REWIND:
+                mapped_button_press_locked(BUTTON_MAPPING_PREVIOUS, now, screen_on,
+                                           0, 0, false, false, false);
+                break;
             case KEY_PREVIOUSSONG: {
-                uint32_t now = monotonic_ms();
-                if (screenshot_combo_enabled && power_held && !power_long_press_fired) {
-                    if (!power_screenshot_chorded) {
+                bool chord = screenshot_combo_enabled && physical_key_held[KEY_POWER] &&
+                    !mapped_button_states[BUTTON_MAPPING_POWER].hold_fired;
+                bool wait_for_chord = screenshot_combo_enabled;
+                mapped_button_press_locked(BUTTON_MAPPING_PREVIOUS, now, screen_on, 0, 0,
+                                           wait_for_chord, wait_for_chord, chord);
+                if (chord) {
+                    mapped_button_states[BUTTON_MAPPING_POWER].screenshot_chorded = true;
+                    mapped_button_states[BUTTON_MAPPING_PREVIOUS].screenshot_chorded = true;
+                    mapped_button_states[BUTTON_MAPPING_PREVIOUS].tap_waiting_for_chord = false;
+                    remove_queued_button_events_locked(BUTTON_MAPPING_POWER);
+                    remove_queued_button_events_locked(BUTTON_MAPPING_PREVIOUS);
+                    if (!screenshot_chord_used_for_power_hold) {
+                        screenshot_chord_used_for_power_hold = true;
                         screenshot_requested = true;
-                        power_screenshot_chorded = true;
                         DBG_LOG("hw_buttons: screenshot chord Power -> Prev at t=%u\n", now);
                     }
-                    prev_screenshot_chorded = true;
-                } else {
-                    prev_screenshot_chorded = false;
                 }
-                prev_held = true;
-                prev_pressed_ms = now;
                 break;
             }
 #else
             case KEY_REWIND:
-            case KEY_PREVIOUSSONG:   prev_requested = true; break;
+            case KEY_PREVIOUSSONG:
+                mapped_button_press_locked(BUTTON_MAPPING_PREVIOUS, now, screen_on,
+                                           0, 0, false, false, false);
+                break;
 #endif
             case KEY_VOLUMEUP:
-                volume_delta += VOLUME_STEP_PERCENT;
-                volume_up_held = true;
-                volume_up_next_repeat_ms = monotonic_ms() + VOLUME_REPEAT_INITIAL_DELAY_MS;
+                mapped_button_press_locked(BUTTON_MAPPING_VOLUME_UP, now, screen_on,
+                                           VOLUME_REPEAT_INITIAL_DELAY_MS,
+                                           VOLUME_REPEAT_INTERVAL_MS, false, false, false);
                 break;
             case KEY_VOLUMEDOWN: {
-                uint32_t now = monotonic_ms();
-                if (SCREENSHOT_CHORD_VOLUME_DOWN && screenshot_combo_enabled && power_held && !power_long_press_fired) {
-                    if (!power_screenshot_chorded) {
+                bool chord = SCREENSHOT_CHORD_VOLUME_DOWN && screenshot_combo_enabled &&
+                    physical_key_held[KEY_POWER] && !mapped_button_states[BUTTON_MAPPING_POWER].hold_fired;
+                bool wait_for_chord = SCREENSHOT_CHORD_VOLUME_DOWN && screenshot_combo_enabled;
+                if (chord) {
+                    mapped_button_press_locked(BUTTON_MAPPING_VOLUME_DOWN, now, screen_on,
+                                               VOLUME_REPEAT_INITIAL_DELAY_MS,
+                                               VOLUME_REPEAT_INTERVAL_MS, true, true, true);
+                    mapped_button_states[BUTTON_MAPPING_POWER].screenshot_chorded = true;
+                    mapped_button_states[BUTTON_MAPPING_VOLUME_DOWN].screenshot_chorded = true;
+                    mapped_button_states[BUTTON_MAPPING_VOLUME_DOWN].tap_waiting_for_chord = false;
+                    remove_queued_button_events_locked(BUTTON_MAPPING_POWER);
+                    remove_queued_button_events_locked(BUTTON_MAPPING_VOLUME_DOWN);
+                    if (!screenshot_chord_used_for_power_hold) {
+                        screenshot_chord_used_for_power_hold = true;
                         screenshot_requested = true;
-                        power_screenshot_chorded = true;
                         DBG_LOG("hw_buttons: screenshot chord Power -> VolDown at t=%u\n", now);
                     }
-                    volume_down_screenshot_chorded = true;
-                    volume_down_initial_step_pending = false;
-                    volume_down_held = false;
                 } else {
-                    volume_delta -= VOLUME_STEP_PERCENT;
-                    volume_down_held = true;
-                    volume_down_pressed_ms = now;
-                    volume_down_initial_step_pending = true;
-                    volume_down_screenshot_chorded = false;
-                    volume_down_next_repeat_ms = now + VOLUME_REPEAT_INITIAL_DELAY_MS;
+                    if (wait_for_chord)
+                        mapped_button_press_locked(BUTTON_MAPPING_VOLUME_DOWN, now, screen_on,
+                                                   VOLUME_REPEAT_INITIAL_DELAY_MS,
+                                                   VOLUME_REPEAT_INTERVAL_MS, true, true, false);
+                    else
+                        mapped_button_press_locked(BUTTON_MAPPING_VOLUME_DOWN, now, screen_on,
+                                                   VOLUME_REPEAT_INITIAL_DELAY_MS,
+                                                   VOLUME_REPEAT_INTERVAL_MS, false, false, false);
                 }
                 break;
             }
             default: break;
         }
     } else if (value == 0) {
+        if (!physical_key_held[code]) {
+            pthread_mutex_unlock(&state_mutex);
+            return;
+        }
+        apply_due_mapped_holds_locked(now, screen_on);
+        physical_key_held[code] = false;
         switch (code) {
             case KEY_POWER:
-                /* Only a short tap (released before the long-press
-                 * threshold fired) sets the screen-toggle flag -- if
-                 * power_long_press_fired is already true, that flag
-                 * (hw_buttons_consume_power_long_press()) already told
-                 * gui.c to show the power-off countdown for this same
-                 * press, and the release shouldn't also toggle the screen
-                 * out from under it. */
-                if (power_held && !power_long_press_fired && !power_screenshot_chorded) power_requested = true;
-                power_held = false;
-                power_screenshot_chorded = false;
+                mapped_button_release_locked(BUTTON_MAPPING_POWER, now);
+                screenshot_chord_used_for_power_hold = false;
                 break;
-            case KEY_VOLUMEUP:   volume_up_held = false; break;
+            case KEY_VOLUMEUP:
+                mapped_button_release_locked(BUTTON_MAPPING_VOLUME_UP, now);
+                break;
             case KEY_VOLUMEDOWN:
-                volume_down_held = false;
-                volume_down_initial_step_pending = false;
-                volume_down_screenshot_chorded = false;
+                mapped_button_release_locked(BUTTON_MAPPING_VOLUME_DOWN, now);
                 break;
 #if SCREENSHOT_CHORD_PREV
             case KEY_PREVIOUSSONG:
-                if (prev_held && !prev_screenshot_chorded) prev_requested = true;
-                prev_held = false;
-                prev_screenshot_chorded = false;
+                mapped_button_release_locked(BUTTON_MAPPING_PREVIOUS, now);
+                break;
+            case KEY_REWIND:
+                mapped_button_release_locked(BUTTON_MAPPING_PREVIOUS, now);
+                break;
+#else
+            case KEY_PREVIOUSSONG:
+            case KEY_REWIND:
+                mapped_button_release_locked(BUTTON_MAPPING_PREVIOUS, now);
                 break;
 #endif
             case KEY_FASTFORWARD:
             case KEY_NEXTSONG:
-                /* Same suppression as KEY_POWER above: only a release that
-                 * never crossed the seek threshold counts as a short press. */
-                if (next_held && !next_seek_fired) next_requested = true;
-                next_held = false;
+                mapped_button_release_locked(BUTTON_MAPPING_NEXT, now);
+                break;
+            case KEY_PLAYPAUSE:
+            case KEY_PLAY:
+            case KEY_PLAYCD:
+            case KEY_PAUSECD:
+                mapped_button_release_locked(BUTTON_MAPPING_PLAY_PAUSE, now);
                 break;
             default: break;
         }
@@ -345,59 +605,6 @@ static void handle_input_event(unsigned short type, unsigned short code, int val
     }
     if (value == 2) return;
     handle_key_event(code, value);
-}
-
-/* Called on every poll() timeout while a volume key is held (see the main
- * loop below) -- applies a repeat step for whichever key(s) are due,
- * independently, so both keys held at once (unusual, but not prevented)
- * repeat on their own separate schedules rather than one blocking the
- * other. */
-static void apply_due_volume_repeats(void) {
-    uint32_t now = monotonic_ms();
-    pthread_mutex_lock(&state_mutex);
-    if (volume_up_held && (int32_t) (now - volume_up_next_repeat_ms) >= 0) {
-        volume_delta += VOLUME_STEP_PERCENT;
-        volume_up_next_repeat_ms = now + VOLUME_REPEAT_INTERVAL_MS;
-    }
-    if (volume_down_held && !volume_down_screenshot_chorded &&
-        (int32_t) (now - volume_down_next_repeat_ms) >= 0) {
-        volume_delta -= VOLUME_STEP_PERCENT;
-        volume_down_next_repeat_ms = now + VOLUME_REPEAT_INTERVAL_MS;
-    }
-    pthread_mutex_unlock(&state_mutex);
-}
-
-/* Called on every poll() timeout while the power button is held (see the
- * main loop below) -- fires the long-press flag exactly once per press, the
- * moment the hold crosses POWER_LONG_PRESS_MS, independent of when (or
- * whether) the button is ever released. */
-static void apply_due_power_long_press(void) {
-    uint32_t now = monotonic_ms();
-    pthread_mutex_lock(&state_mutex);
-    if (power_held && !power_long_press_fired && !power_screenshot_chorded &&
-        (int32_t) (now - power_long_press_due_ms) >= 0) {
-        power_long_press_fired = true;
-        power_long_press_requested = true;
-    }
-    pthread_mutex_unlock(&state_mutex);
-}
-
-/* Called on every poll() timeout while the Next button is held (see the main
- * loop below) -- accumulates one seek step every NEXT_SEEK_REPEAT_MS once
- * the hold has passed NEXT_SEEK_LONG_PRESS_MS, marking the first such step
- * per hold via next_seek_step_is_first. */
-static void apply_due_next_seek(void) {
-    uint32_t now = monotonic_ms();
-    pthread_mutex_lock(&state_mutex);
-    if (next_held && (int32_t) (now - next_seek_due_ms) >= 0) {
-        next_seek_step_count++;
-        if (!next_seek_fired) {
-            next_seek_fired = true;
-            next_seek_step_is_first = true;
-        }
-        next_seek_due_ms = now + NEXT_SEEK_REPEAT_MS;
-    }
-    pthread_mutex_unlock(&state_mutex);
 }
 
 /* Media keys are what an accessory remote sends: a USB DSP cable or dongle
@@ -585,25 +792,24 @@ static void * hw_buttons_thread_func(void * arg) {
 
     while (1) {
         pthread_mutex_lock(&state_mutex);
-        bool volume_held = volume_up_held || volume_down_held;
-        bool power_pending_long_press = power_held && !power_long_press_fired && !power_screenshot_chorded;
-        bool next_pending_seek = next_held;
+        bool mapped_timer_pending = false;
+        for (unsigned i = 0; i < BUTTON_MAPPING_BUTTON_COUNT; ++i) {
+            const mapped_button_state_t *state = &mapped_button_states[i];
+            if (state->held && (state->tap_waiting_for_chord ||
+                (state->hold_enabled && (!state->hold_fired || state->repeat_enabled)))) {
+                mapped_timer_pending = true;
+                break;
+            }
+        }
         pthread_mutex_unlock(&state_mutex);
 
-        /* Blocks indefinitely except while a volume key, power button, or
-         * Next button is held and awaiting a timed repeat step or long-press
-         * threshold. */
-        /* Never blocks indefinitely any more: an accessory plugged in after
-         * boot only becomes visible on a rescan, and the old -1 meant the
-         * thread sat in poll() forever waiting on keys that did not exist
-         * yet. The wait still shortens while a key is held for its repeat. */
+        /* The timeout services active gestures and rescans for accessories
+         * that may have been plugged in after startup. */
         int ret = poll(fds, (nfds_t) nfds,
-                        (volume_held || power_pending_long_press || next_pending_seek)
+                        mapped_timer_pending
                             ? VOLUME_REPEAT_INTERVAL_MS : MEDIA_KEY_RESCAN_INTERVAL_MS);
         if (ret == 0) {
-            apply_due_volume_repeats();
-            apply_due_power_long_press();
-            apply_due_next_seek();
+            apply_due_mapped_holds();
             nfds = scan_media_key_devices(fds, nfds, paths, media_class);
             continue;
         }
@@ -628,6 +834,7 @@ static void * hw_buttons_thread_func(void * arg) {
                 DBG_LOG("hw_buttons: raw event fd_index=%d type=%u code=%u value=%d\n", i, ev.type, ev.code, ev.value);
                 handle_input_event(ev.type, ev.code, ev.value, knob[i], media_class[i],
                                    &knob_left_held[i], &knob_right_held[i], &knob_sync_dropped[i]);
+                apply_due_mapped_holds();
             }
         }
     }
@@ -641,54 +848,40 @@ void hw_buttons_init(void) {
     pthread_detach(thread);
 }
 
-bool hw_buttons_consume_power(void) {
+void hw_buttons_set_bindings(const button_mapping_binding_t bindings[BUTTON_MAPPING_BUTTON_COUNT]) {
+    if (!bindings) return;
     pthread_mutex_lock(&state_mutex);
-    bool result = power_requested;
-    power_requested = false;
+    for (unsigned i = 0; i < BUTTON_MAPPING_BUTTON_COUNT; ++i) {
+        const button_mapping_binding_t *binding = &bindings[i];
+        mapped_bindings[i].tap = (unsigned) binding->tap < BUTTON_MAPPING_ACTION_COUNT
+                                      ? binding->tap : BUTTON_MAPPING_ACTION_DEFAULT;
+        mapped_bindings[i].double_tap = (unsigned) binding->double_tap < BUTTON_MAPPING_ACTION_COUNT
+                                            ? binding->double_tap : BUTTON_MAPPING_ACTION_DEFAULT;
+        mapped_bindings[i].hold = (unsigned) binding->hold < BUTTON_MAPPING_ACTION_COUNT
+                                      ? binding->hold : BUTTON_MAPPING_ACTION_DEFAULT;
+    }
+    /* Events have already been recognized against the previous policy. Do
+     * not let them execute after settings install a new binding set. */
+    button_event_queue_count = 0;
+    memset(mapped_button_states, 0, sizeof(mapped_button_states));
     pthread_mutex_unlock(&state_mutex);
-    return result;
 }
 
-bool hw_buttons_consume_power_long_press(void) {
+bool hw_buttons_consume_event(hw_button_event_t *event) {
+    if (!event) return false;
     pthread_mutex_lock(&state_mutex);
-    bool result = power_long_press_requested;
-    power_long_press_requested = false;
+    if (!button_event_queue_count) {
+        pthread_mutex_unlock(&state_mutex);
+        return false;
+    }
+    queued_button_event_t queued = button_event_queue[0];
+    remove_queued_event_locked(0);
+    event->button = queued.button;
+    event->gesture = queued.gesture;
+    event->count = queued.count;
+    event->timestamp_ms = queued.timestamp_ms;
     pthread_mutex_unlock(&state_mutex);
-    return result;
-}
-
-int hw_buttons_consume_play_pause(void) {
-    pthread_mutex_lock(&state_mutex);
-    int result = play_pause_press_count;
-    play_pause_press_count = 0;
-    pthread_mutex_unlock(&state_mutex);
-    return result;
-}
-
-bool hw_buttons_consume_next(void) {
-    pthread_mutex_lock(&state_mutex);
-    bool result = next_requested;
-    next_requested = false;
-    pthread_mutex_unlock(&state_mutex);
-    return result;
-}
-
-bool hw_buttons_consume_prev(void) {
-    pthread_mutex_lock(&state_mutex);
-    bool result = prev_requested;
-    prev_requested = false;
-    pthread_mutex_unlock(&state_mutex);
-    return result;
-}
-
-int hw_buttons_consume_next_seek_steps(bool * out_is_first) {
-    pthread_mutex_lock(&state_mutex);
-    int result = next_seek_step_count;
-    next_seek_step_count = 0;
-    if (out_is_first) *out_is_first = next_seek_step_is_first;
-    next_seek_step_is_first = false;
-    pthread_mutex_unlock(&state_mutex);
-    return result;
+    return true;
 }
 
 void hw_buttons_set_screenshot_combo_enabled(bool enabled) {
@@ -697,19 +890,23 @@ void hw_buttons_set_screenshot_combo_enabled(bool enabled) {
     pthread_mutex_unlock(&state_mutex);
 }
 
+void hw_buttons_set_volume_lock_screen_off(bool enabled) {
+    bool screen_on = backlight_screen_is_on();
+    pthread_mutex_lock(&state_mutex);
+    volume_lock_screen_off = enabled;
+    if (enabled && !screen_on) {
+        for (unsigned i = 0; i < BUTTON_MAPPING_BUTTON_COUNT; ++i) {
+            mapped_button_state_t *state = &mapped_button_states[i];
+            if (state->held) latch_volume_hold_blocked_locked((button_mapping_button_t) i, state);
+        }
+    }
+    pthread_mutex_unlock(&state_mutex);
+}
+
 bool hw_buttons_consume_screenshot(void) {
     pthread_mutex_lock(&state_mutex);
     bool result = screenshot_requested;
     screenshot_requested = false;
-    pthread_mutex_unlock(&state_mutex);
-    return result;
-}
-
-int hw_buttons_consume_volume_delta(void) {
-    pthread_mutex_lock(&state_mutex);
-    int result = volume_delta;
-    volume_delta = 0;
-    volume_down_initial_step_pending = false;
     pthread_mutex_unlock(&state_mutex);
     return result;
 }

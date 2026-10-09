@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "decoder_result.h"
+#include "metadata.h"
 
 typedef enum {
     AUDIO_CODEC_UNKNOWN = 0,
@@ -44,6 +45,26 @@ typedef struct {
     double replaygain_applied_db;
     uint64_t generation;
 } audio_current_format_info_t;
+
+typedef enum {
+    AUDIO_PLAYBACK_PROGRESS_NOT_READY = 0,
+    AUDIO_PLAYBACK_PROGRESS_ACTIVE,
+    AUDIO_PLAYBACK_PROGRESS_NATURAL_EOF,
+    AUDIO_PLAYBACK_PROGRESS_MANUAL_STOP,
+} audio_playback_progress_state_t;
+
+/* Coherent position snapshot for one exact playback path. A terminal state
+ * retains the last trusted counters after the live decoder has been closed;
+ * NOT_READY is reported by the function's false return rather than exposed
+ * as a valid snapshot. */
+typedef struct {
+    double position_seconds;
+    double duration_seconds;
+    bool is_playing;
+    bool is_paused;
+    audio_playback_progress_state_t state;
+    uint64_t generation;
+} audio_playback_progress_t;
 
 /* One-time setup of the audio backend (SDL2 audio on host, ALSA/tinyalsa on
  * target) and the single playback thread, which lives for the app's whole
@@ -86,8 +107,32 @@ void audio_play_file_at(const char * path, double start_seconds,
  * automatic transitions stops after one hop. Pass path=NULL to mean "end
  * of playlist, nothing queued" (a true EOF with nothing queued sets
  * audio_consume_track_finished() instead of advancing). */
+/* Local-file startup: read ReplayGain tags on the audio worker before any
+ * output, with the request's captured Settings mode (0 off, 1 track, 2 album). */
+void audio_play_file_at_with_replaygain_mode(const char * path, double start_seconds, int mode);
+typedef enum {
+    AUDIO_TRACK_METADATA_READY,
+    AUDIO_TRACK_METADATA_STOPPED,
+    AUDIO_TRACK_METADATA_REPLACED
+} audio_track_metadata_wait_result_t;
+/* Worker-only wait for scalar tags read by local startup. Distinguishes Stop
+ * (the current UI selection still needs display tags) from a newer request
+ * replacing this one; never call on the UI thread. */
+audio_track_metadata_wait_result_t audio_wait_track_metadata(uint64_t generation,
+                                                              track_metadata_t * out);
+/* Atomic stale-result guard for asynchronous gapless preparation. */
+bool audio_set_next_track_for_generation(const char * path, bool has_replaygain, double gain,
+                           bool has_peak, double peak, uint64_t generation);
+
 void audio_set_next_track(const char * path, bool has_replaygain, double replaygain_gain_db,
                            bool has_replaygain_peak, double replaygain_peak);
+
+/* Pitch-preserving speech tempo for files inside directory (component boundary).
+ * 0.5..2; NULL/1 resets. Other files stay at 1x. Local mono/stereo PCM at
+ * 8..96 kHz supported, non-1x uses S16 output and suspends crossfade.
+ * Changes commit on the audio thread after a source-position-preserving seek. */
+bool audio_set_playback_speed(const char * directory, double speed);
+double audio_get_playback_speed(void);
 
 /* Enables crossfading into the queued next track during the last few
  * seconds of the current one (only when both tracks share the same
@@ -123,6 +168,9 @@ void audio_toggle_pause(void);
 /* Stop playback and release the decoder/output device */
 void audio_stop(void);
 
+/* True only after the audio worker has released local output and acknowledged
+ * Stop. Output bridges must use this rather than transport status. */
+bool audio_is_idle(void);
 bool audio_is_playing(void);
 bool audio_is_paused(void);
 
@@ -144,6 +192,13 @@ double audio_get_position_seconds(void);
  * target while its background seek-index is still being prepared. */
 double audio_get_resume_position_seconds(void);
 double audio_get_duration_seconds(void);
+
+/* Copies position, duration, transport state, and terminal reason under one
+ * audio-state lock. Returns false and zeroes *out unless expected_path exactly
+ * matches the current playback path and the counters belong to the current
+ * generation. ACTIVE requires a live decoder; trusted natural EOF/manual stop
+ * snapshots remain available after decoder cleanup. */
+bool audio_get_playback_progress(const char * expected_path, audio_playback_progress_t * out);
 
 /* Sample rate of the currently loaded track, in Hz. 0 if nothing loaded. */
 unsigned int audio_get_sample_rate(void);

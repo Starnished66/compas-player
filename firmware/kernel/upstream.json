@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "source_repo": "https://github.com/Jepl4r/hiby-custom-kernel.git",
+  "commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c",
+  "license": "GPL-2.0",
+  "model": "r1",
+  "kernel_release": "4.4.94+",
+  "sdk_archive": "ingenic-linux-kernel4.4.94-x1600-v6.0-20240606.tar.bz2",
+  "sdk_sha256": "3e8c101b7c12667dcfed888e2eda63cfa833c6e20f22569e2b646c40f8523641",
+  "sdk_source": "ftp://ftp.ingenic.com.cn/DevSupport/X1600/01_SW/06_kernel4.4.94_X1600-sdk_v6.0-20240606/01_ingenic-linux-kernel4.4.94-x1600-v6.0-20240606/",
+  "credits": [
+    "Jepl4r/hiby-custom-kernel",
+    "MatthewBriggs/hiby-r1-linux-kernel-compiling"
+  ]
+}

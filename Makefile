@@ -587,14 +587,18 @@ $(TARGET_CPU_FLAGS_STAMP): FORCE_TARGET_CPU_FLAGS
 # streaming), library/ (metadata/file browsing/playlists), hardware/ (device
 # control), ui/ (gui/screens/assets/fonts), core/ (settings, subprocess,
 # misc). main.c stays at src/ root as the entry point.
-APP_SRCS = src/main.c src/ui/gui.c src/ui/gui_subsonic.c src/ui/gui_settings.c src/ui/gui_network.c src/ui/gui_theme.c src/ui/gui_notifications.c src/ui/gui_library.c src/ui/gui_queue.c src/ui/gui_player.c src/ui/gui_track_info.c src/ui/gui_plugins.c src/ui/gui_shell.c src/ui/gui_navigation.c src/ui/gui_books.c src/ui/gui_text_input.c src/ui/gui_lyrics.c src/ui/gui_reload.c src/audio/audio.c src/library/file_browser.c src/hardware/hw_buttons.c src/hardware/input_device_utils.c src/library/metadata.c src/library/metadata_db.c src/core/settings.c src/core/screenshot.c src/core/app_version.c src/audio/aiff_decoder.c src/audio/dsd_filter.c src/audio/dsd_decoder.c src/audio/aac_decoder.c src/audio/mp4_demux.c src/audio/ape_demux.c src/audio/ape_decoder.c src/audio/peq.c src/ui/assets.c src/ui/screen_builders.c src/ui/cover_card_preview.c src/hardware/battery.c src/network/wifi_status.c src/network/ca_bundle.c src/network/http_conn.c src/network/http_client.c src/network/http_stream.c src/network/subsonic_client.c src/library/cover_decode.c src/library/image_thumb.c src/library/lyrics.c src/audio/asf_demux.c src/audio/wma_decoder.c src/audio/ogg_demux.c src/audio/opus_decoder.c src/audio/vorbis_decoder.c src/library/cue_parser.c src/ui/fallback_font.c src/ui/gui_text_view.c \
+CFLAGS += -Isonic
+
+APP_SRCS = src/main.c src/ui/gui.c src/ui/gui_subsonic.c src/ui/gui_settings.c src/ui/gui_network.c src/ui/gui_theme.c src/ui/gui_notifications.c src/ui/gui_library.c src/ui/gui_queue.c src/ui/gui_player.c src/ui/gui_track_info.c src/ui/gui_plugins.c src/ui/gui_shell.c src/ui/gui_navigation.c src/ui/gui_books.c src/ui/gui_text_input.c src/ui/gui_lyrics.c src/ui/gui_reload.c src/audio/audio.c src/library/file_browser.c src/hardware/hw_buttons.c src/hardware/button_mapping.c src/hardware/input_device_utils.c src/library/metadata.c src/library/metadata_db.c src/core/settings.c src/core/screenshot.c src/core/app_version.c src/audio/aiff_decoder.c src/audio/dsd_filter.c src/audio/dsd_decoder.c src/audio/aac_decoder.c src/audio/mp4_demux.c src/audio/ape_demux.c src/audio/ape_decoder.c src/audio/peq.c src/audio/audio_tempo.c src/ui/assets.c src/ui/screen_builders.c src/ui/cover_card_preview.c src/hardware/battery.c src/network/wifi_status.c src/network/ca_bundle.c src/network/http_conn.c src/network/http_client.c src/network/http_stream.c src/network/subsonic_client.c src/library/cover_decode.c src/library/image_thumb.c src/library/lyrics.c src/audio/asf_demux.c src/audio/wma_decoder.c src/audio/ogg_demux.c src/audio/opus_decoder.c src/audio/vorbis_decoder.c src/library/cue_parser.c src/ui/fallback_font.c src/ui/gui_text_view.c \
 src/core/subprocess.c src/network/wifi_control.c src/network/bluetooth_control.c src/network/hiby_sys_server.c src/hardware/backlight.c src/network/import_web.c src/network/airplay_control.c src/network/airplay_bridge.c src/network/airplay_metadata.c src/hardware/headphone_status.c src/hardware/device_config.c src/hardware/led_control.c src/hardware/charge_limiter.c src/core/idle_shutdown.c src/hardware/power_suspend.c src/core/text_reader.c src/hardware/usb_mode_control.c src/hardware/usb_dac_bridge.c src/hardware/usb_audio_output.c src/core/firmware_update.c src/library/playlist_files.c src/library/favorite_writer.c src/network/firmware_ota.c src/network/plugin_store.c src/core/timezone_data.c src/core/timezone_apply.c src/core/hostname_apply.c src/network/dlna_control.c src/network/remote_control.c src/network/catalog_source_cache.c src/network/remote_control_mdns.c src/plugins/plugin_manager.c
 APP_SRCS += src/ui/gui_setup.c src/ui/gui_setup_plugins.c src/core/timezone_location.c
 APP_SRCS += src/ui/lyrics_layout.c src/ui/transition_compositor.c src/ui/frosted_glass.c src/ui/hw_volume_coalesce.c
+APP_SRCS += src/core/ui_wake.c src/library/cover_raster_cache.c src/library/track_metadata_worker.c
 APP_SRCS += src/core/firmware_image.c
 APP_SRCS += src/core/storage_migration.c src/core/sd_fsck.c src/core/sd_fsck_run.c
 APP_SRCS += src/plugins/plugin_json.c src/plugins/plugin_storage.c src/plugins/plugin_disabled_list.c
 APP_SRCS += src/ui/gui_plugin_manage.c src/ui/gui_plugin_store.c src/ui/gui_lock_screen.c
+APP_SRCS += src/core/theme_file.c src/ui/gui_themes.c
 APP_SRCS += src/library/remote_track.c
 APP_SRCS += src/library/queue_resume.c
 APP_SRCS += src/audio/track_probe.c
@@ -719,7 +723,7 @@ TARGET_ONLY_APP_SRCS = src/network/bt_media_player.c src/network/bt_remote_contr
 LIBEXECINFO_SRCS = $(LIBEXECINFO_DIR)/execinfo.c $(LIBEXECINFO_DIR)/stacktraverse.c
 
 # Object files
-HOST_OBJS = $(APP_SRCS:src/%.c=$(BUILD_HOST_DIR)/%.o) $(APP_CXX_SRCS:src/%.cpp=$(BUILD_HOST_DIR)/%.o) \
+HOST_OBJS = $(BUILD_HOST_DIR)/sonic/sonic.o $(APP_SRCS:src/%.c=$(BUILD_HOST_DIR)/%.o) $(APP_CXX_SRCS:src/%.cpp=$(BUILD_HOST_DIR)/%.o) \
             $(LVGL_SRCS:$(LVGL_DIR)/%.c=$(BUILD_HOST_DIR)/lvgl/%.o) $(LV_XML_SRCS:$(LV_XML_DIR)/%.c=$(BUILD_HOST_DIR)/lv_xml/%.o) $(FAAD2_SRCS:$(FAAD2_DIR)/libfaad/%.c=$(BUILD_HOST_DIR)/faad2/%.o) \
             $(ALAC_C_SRCS:$(ALAC_DIR)/codec/%.c=$(BUILD_HOST_DIR)/alac/%.o) $(ALAC_CXX_SRCS:$(ALAC_DIR)/codec/%.cpp=$(BUILD_HOST_DIR)/alac/%.o) \
             $(MBEDTLS_SRCS:$(MBEDTLS_DIR)/library/%.c=$(BUILD_HOST_DIR)/mbedtls/%.o) $(CJSON_SRCS:$(CJSON_DIR)/%.c=$(BUILD_HOST_DIR)/cjson/%.o) \
@@ -728,7 +732,7 @@ HOST_OBJS = $(APP_SRCS:src/%.c=$(BUILD_HOST_DIR)/%.o) $(APP_CXX_SRCS:src/%.cpp=$
             $(LUA_SRCS:$(LUA_DIR)/src/%.c=$(BUILD_HOST_DIR)/lua/%.o) \
             $(JPEG_SRCS:$(JPEG_DIR)/%.c=$(BUILD_HOST_DIR)/jpeg/%.o) \
             $(TINFL_SRCS:$(TINFL_DIR)/%.c=$(BUILD_HOST_DIR)/tinfl/%.o)
-TARGET_OBJS = $(APP_SRCS:src/%.c=$(BUILD_TARGET_DIR)/%.o) $(APP_CXX_SRCS:src/%.cpp=$(BUILD_TARGET_DIR)/%.o) \
+TARGET_OBJS = $(BUILD_TARGET_DIR)/sonic/sonic.o $(APP_SRCS:src/%.c=$(BUILD_TARGET_DIR)/%.o) $(APP_CXX_SRCS:src/%.cpp=$(BUILD_TARGET_DIR)/%.o) \
               $(TARGET_ONLY_APP_SRCS:src/%.c=$(BUILD_TARGET_DIR)/%.o) \
               $(LVGL_SRCS:$(LVGL_DIR)/%.c=$(BUILD_TARGET_DIR)/lvgl/%.o) $(LV_XML_SRCS:$(LV_XML_DIR)/%.c=$(BUILD_TARGET_DIR)/lv_xml/%.o) $(TINYALSA_SRCS:$(TINYALSA_DIR)/%.c=$(BUILD_TARGET_DIR)/tinyalsa/%.o) \
               $(FAAD2_SRCS:$(FAAD2_DIR)/libfaad/%.c=$(BUILD_TARGET_DIR)/faad2/%.o) \
@@ -1074,3 +1078,11 @@ i18n-check:
 # file: every .d this generates references targets/variables (BUILD_
 # TARGET_DIR, BUILD_HOST_DIR) that need to already be fully resolved.
 -include $(shell find $(BUILD_TARGET_DIR) $(BUILD_HOST_DIR) -name '*.d' 2>/dev/null)
+
+$(BUILD_HOST_DIR)/sonic/%.o: sonic/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(HOST_CFLAGS) -c $< -o $@
+
+$(BUILD_TARGET_DIR)/sonic/%.o: sonic/%.c $(TARGET_CPU_FLAGS_STAMP)
+	@mkdir -p $(dir $@)
+	$(CROSS_CC) $(TARGET_CFLAGS) -c $< -o $@

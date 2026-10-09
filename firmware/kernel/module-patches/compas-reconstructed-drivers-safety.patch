@@ -1,0 +1,1195 @@
+--- a/boards/r1/modules/codec_cs43131/codec_cs43131.c
++++ b/boards/r1/modules/codec_cs43131/codec_cs43131.c
+@@ -358,6 +358,10 @@
+ 	unsigned int rate = params_rate(&cs43131->params);
+ 	const struct cs43131_reg *r;
+ 
++	/* DSD saves 5 into the persistent register table; restore PCM's 0 before replay. */
++	if (!cs43131->dsd_en)
++		cs43131_write_reg_save(CS43131_SP_BITSIZE, 0);
++
+ 	for (r = cs43131_reg; r->reg != CS43131_REG_END; r++) {
+ 		mutex_lock(&cs43131->reg_mutex);
+ 		cs43131_i2c_write_reg(r->reg, r->val);
+@@ -655,21 +659,30 @@
+ 		goto err_free;
+ 	}
+ 
+-	sysfs_create_group(&dev->kobj, &sys_codec_group);
++	/* Publish only fully initialized state to sysfs and ASoC callbacks. */
++	mutex_init(&cs43131->reg_mutex);
++	cs43131->powered = 0;
++	cs43131->dsd_en = 0;
++	g_cs43131 = cs43131;
++
++	ret = sysfs_create_group(&dev->kobj, &sys_codec_group);
++	if (ret < 0) {
++		printk("[CS43131_MX30] Create codec sysfs group failed.\n");
++		goto err_published;
++	}
+ 
+ 	ret = snd_soc_register_codec(dev, &cs43131_codec_drv, &cs43131_dai_drv, 1);
+ 	if (ret < 0) {
+ 		printk("[CS43131_MX30] Register codec failed.\n");
+ 		sysfs_remove_group(&dev->kobj, &sys_codec_group);
+-		cs43131_free_gpios(pdata);
+-		goto err_free;
+-	}
+-
+-	g_cs43131 = cs43131;
+-	mutex_init(&cs43131->reg_mutex);
+-	cs43131->powered = 0;
+-	return 0;
+-
++		goto err_published;
++	}
++
++	return 0;
++
++err_published:
++	g_cs43131 = NULL;
++	cs43131_free_gpios(pdata);
+ err_free:
+ 	this_i2c = NULL;
+ 	i2c_set_clientdata(client, NULL);
+--- a/boards/r1/modules/cst8xx_touch/cst8xx_touch.c
++++ b/boards/r1/modules/cst8xx_touch/cst8xx_touch.c
+@@ -104,6 +104,7 @@
+ 	struct regulator *vdd;
+ 	struct regulator *vcc_i2c;
+ 	struct notifier_block fb_notif;
++	bool fb_notifier_registered;
+ };
+ 
+ static int cst_i2c_bus_num;
+@@ -589,8 +590,12 @@
+ 	gpio_request(ts_data->irq_gpio, "tp_irq");
+ 
+ 	ts_data->ts_workqueue = create_singlethread_workqueue("hyn_wq");
+-	if (!ts_data->ts_workqueue)
++	if (!ts_data->ts_workqueue) {
+ 		printk(KERN_ERR "[HYN_TS/E]%s:create fts workqueue fail\n", "hyn_ts_probe_entry");
++		ret = -ENOMEM;
++		goto err_gpio;
++	}
++	INIT_WORK(&ts_data->resume_work, hyn_resume_work);
+ 	mutex_init(&ts_data->report_mutex);
+ 	mutex_init(&ts_data->bus_lock);
+ 
+@@ -625,12 +630,13 @@
+ 		goto err_power;
+ 	}
+ 
+-	if (ts_data->ts_workqueue)
+-		INIT_WORK(&ts_data->resume_work, hyn_resume_work);
+ 	ts_data->fb_notif.notifier_call = fb_notifier_callback;
+ 	ret = fb_register_client(&ts_data->fb_notif);
+-	if (ret)
++	if (ret) {
+ 		printk(KERN_ERR "[HYN_TS/E]%s:[FB]Unable to register fb_notifier: %d\n", "hyn_ts_probe_entry", ret);
++	} else {
++		ts_data->fb_notifier_registered = true;
++	}
+ 
+ 	printk(KERN_INFO "[HYN_TS/I]%s:Touch Screen(I2C BUS) driver prboe successfully\n", "hyn_ts_probe");
+ 	return 0;
+@@ -642,8 +648,10 @@
+ err_input:
+ 	input_unregister_device(ts_data->input_dev);
+ err_gpio:
+-	if (ts_data->ts_workqueue)
++	if (ts_data->ts_workqueue) {
++		cancel_work_sync(&ts_data->resume_work);
+ 		destroy_workqueue(ts_data->ts_workqueue);
++	}
+ 	gpio_free(ts_data->irq_gpio);
+ 	gpio_free(ts_data->reset_gpio);
+ 	printk(KERN_ERR "[HYN_TS/E]%s:Touch Screen(I2C BUS) driver probe fail\n", "hyn_ts_probe");
+@@ -660,14 +668,16 @@
+ {
+ 	struct hyn_ts_data *ts = hyn_data;
+ 
+-	free_irq(ts->irq, ts);
+-	if (fb_unregister_client(&ts->fb_notif))
++	if (ts->fb_notifier_registered && fb_unregister_client(&ts->fb_notif))
+ 		printk(KERN_ERR "[HYN_TS/E]%s:Error occurred while unregistering fb_notifier.\n",
+ 		       "hyn_ts_remove_entry");
++	if (ts->ts_workqueue) {
++		cancel_work_sync(&ts->resume_work);
++		destroy_workqueue(ts->ts_workqueue);
++	}
++	free_irq(ts->irq, ts);
+ 	input_unregister_device(ts->input_dev);
+ 	i2cdev_exit();
+-	if (ts->ts_workqueue)
+-		destroy_workqueue(ts->ts_workqueue);
+ 	hyn_power_source_exit(ts);
+ 	gpio_free(ts->irq_gpio);
+ 	gpio_free(ts->reset_gpio);
+--- a/boards/r1/modules/keyboard_adc_multifunc/keyboard_adc_multifunc.c
++++ b/boards/r1/modules/keyboard_adc_multifunc/keyboard_adc_multifunc.c
+@@ -50,6 +50,8 @@
+ extern int adc_read_channel_voltage(int channel);
+ 
+ #define ADC_KEY_MAX	8
++#define ADC_KEY_CHANNELS	4
++#define ADC_KEY_MAX_MV	3300
+ 
+ struct adc_key_info {
+ 	int code;
+@@ -122,6 +124,47 @@
+ module_param_named(adc_key_detectime, data.adc_key_detectime, int, 0644);
+ module_param(debug, int, 0644);
+ 
++static int adc_keyboard_validate(struct adc_keys_data *pdata, int channel)
++{
++	unsigned int i, count = 0;
++	bool terminated = false;
++
++	if (!pdata || !pdata->key_info || channel < 0 || channel >= ADC_KEY_CHANNELS ||
++	    pdata->adc_init_value < 0 || pdata->adc_init_value > ADC_KEY_MAX_MV ||
++	    pdata->adc_deviation <= 0 || pdata->adc_deviation > ADC_KEY_MAX_MV ||
++	    pdata->adc_key_detectime <= 0 || pdata->adc_key_detectime > 1000) {
++		pr_err("adc keyboard: invalid ADC channel or timing/voltage configuration\n");
++		return -EINVAL;
++	}
++
++	for (i = 0; i < ADC_KEY_MAX; i++) {
++		struct adc_key_info *key = &pdata->key_info[i];
++
++		if (key->code == -1) {
++			terminated = true;
++			break;
++		}
++		if (key->code <= 0 || key->code > KEY_MAX ||
++		    (key->reuse_code != -1 &&
++		     (key->reuse_code <= 0 || key->reuse_code > KEY_MAX)) ||
++		    (key->multifunc_enable != 0 && key->multifunc_enable != 1) ||
++		    (key->multifunc_enable && key->reuse_code < 0) ||
++		    key->value < 0 || key->value > ADC_KEY_MAX_MV) {
++			pr_err("adc keyboard: invalid key table entry %u\n", i + 1);
++			return -EINVAL;
++		}
++		count++;
++	}
++	if (!terminated && pdata->key_info[ADC_KEY_MAX].code == -1)
++		terminated = true;
++	if (!terminated || !count) {
++		pr_err("adc keyboard: key table must contain a valid key and terminator\n");
++		return -EINVAL;
++	}
++	pdata->key_count = count;
++	return 0;
++}
++
+ struct adc_keyboard {
+ 	int channel;
+ 	int opened;
+@@ -145,14 +188,13 @@
+ static int adc_key_index(struct adc_keys_data *pdata, int mv)
+ {
+ 	struct adc_key_info *info = pdata->key_info;
+-	int i = 0;
+-
+-	do {
++	unsigned int i;
++
++	for (i = 0; i < pdata->key_count; i++) {
+ 		if (info[i].value - pdata->adc_deviation < mv &&
+ 		    mv < info[i].value + pdata->adc_deviation)
+ 			return i;
+-		i++;
+-	} while (info[i].code != -1);
++	}
+ 	return -1;
+ }
+ 
+@@ -347,6 +389,10 @@
+ 	unsigned int i;
+ 	int ret;
+ 
++	ret = adc_keyboard_validate(pdata, pdev->id);
++	if (ret)
++		return ret;
++
+ 	kbd = kzalloc(sizeof(*kbd), GFP_KERNEL);
+ 	if (!kbd) {
+ 		pr_err("Failed to allocate driver structre\n");
+@@ -374,19 +420,15 @@
+ 	kbd->channel = pdev->id;
+ 	kbd->pdata = pdata;
+ 
+-	i = 0;
+-	do {
++	for (i = 0; i < pdata->key_count; i++) {
+ 		set_bit(pdata->key_info[i].code, input->keybit);
+ 		if (pdata->key_info[i].reuse_code != -1)
+ 			set_bit(pdata->key_info[i].reuse_code, input->keybit);
+-		i++;
+-	} while (pdata->key_info[i].code != -1);
++	}
+ 
+ 	spin_lock_init(&kbd->lock);
+ 	setup_timer(&kbd->timer, multi_click_timer_handler, (unsigned long)kbd);
+ 	kbd->click_key = 0;
+-	pdata->key_count = i;
+-
+ 	input_set_drvdata(input, kbd);
+ 	platform_set_drvdata(pdev, kbd);
+ 
+--- a/boards/r1/modules/lcd_lg35583/lcd_lg35583.c
++++ b/boards/r1/modules/lcd_lg35583/lcd_lg35583.c
+@@ -20,8 +20,8 @@
+ // sets the value the LG35583's register C700 gets at the next power_on;
+ // reading prints the register and its value to the kernel log.
+ //
+-// Unloading leaves the panel registered: jzfb_unregister_lcd() would take the
+-// framebuffer down with it.
++// The panel remains registered with soc_fb, which has no unregister API.
++// This module intentionally has no module_exit handler and must stay loaded.
+ //
+ // Loaded after utils.ko, soc_adc.ko and soc_fb.ko.
+ 
+@@ -29,6 +29,7 @@
+ #include <linux/fs.h>
+ #include <linux/gpio.h>
+ #include <linux/kernel.h>
++#include <linux/bug.h>
+ #include <linux/module.h>
+ #include <linux/moduleparam.h>
+ #include <linux/proc_fs.h>
+@@ -61,7 +62,9 @@
+ 	unsigned int smart_lcd[18];	// smart (MCU) panels only
+ 	int (*power_on)(void *unused);
+ 	int (*power_off)(void *unused);
+-	unsigned int reserved;
++	/* Retained soc_fb reads both optional callback words; keep them zero. */
++	unsigned int optional_ioctl_callback;
++	unsigned int optional_disable_callback;
+ };
+ 
+ // Exported by soc_fb.ko.
+@@ -582,6 +585,13 @@
+ {
+ 	int ret;
+ 
++	BUILD_BUG_ON(sizeof(struct lcdc_data) != 168);
++	BUILD_BUG_ON(offsetof(struct lcdc_data, power_on) != 152);
++	BUILD_BUG_ON(offsetof(struct lcdc_data, power_off) != 156);
++	BUILD_BUG_ON(offsetof(struct lcdc_data, optional_ioctl_callback) != 160);
++	BUILD_BUG_ON(offsetof(struct lcdc_data, optional_disable_callback) != 164);
++
++
+ 	if (gpio_spi_cs < 0 || gpio_spi_sck < 0 || gpio_spi_mosi < 0) {
+ 		printk(KERN_ERR "lg35583: gpio_spi_cs, gpio_spi_sck, gpio_spi_mosi is not defined!\n");
+ 		return -EINVAL;
+@@ -668,27 +678,6 @@
+ }
+ module_init(lg35583_init);
+ 
+-static void __exit lg35583_exit(void)
+-{
+-	proc_remove(lcd_reg_entry);
+-	gpio_free(gpio_spi_mosi);
+-	gpio_free(gpio_spi_sck);
+-	gpio_free(gpio_spi_cs);
+-	if (gpio_lcd_rst >= 0)
+-		gpio_free(gpio_lcd_rst);
+-	if (gpio_lcd_power_en >= 0)
+-		gpio_free(gpio_lcd_power_en);
+-	if (vcc_regulator) {
+-		regulator_put(vcc_regulator);
+-		vcc_regulator = NULL;
+-	}
+-	if (vccio_regulator) {
+-		regulator_put(vccio_regulator);
+-		vccio_regulator = NULL;
+-	}
+-}
+-module_exit(lg35583_exit);
+-
+ MODULE_DESCRIPTION("lg35583 lcd panel driver");
+ MODULE_AUTHOR("Mattia D'Oronzo <doronzomattia26@icloud.com>");
+ MODULE_LICENSE("GPL");
+--- a/boards/r1/modules/leds_pwm_add/leds_pwm_add.c
++++ b/boards/r1/modules/leds_pwm_add/leds_pwm_add.c
+@@ -142,7 +142,12 @@
+ 	led_dat->config.freq = freq ? freq : LED_PWM_DEFAULT_FREQ;
+ 	led_dat->config.levels = led->max_brightness;
+ 	led_dat->config.idle_level = 0;
+-	pwm2_config(led_dat->pwm, &led_dat->config);
++	ret = pwm2_config(led_dat->pwm, &led_dat->config);
++	if (ret) {
++		dev_err(dev, "failed to configure PWM for %s: %d\n", led->name, ret);
++		pwm2_release(led_dat->pwm);
++		return ret;
++	}
+ 
+ 	INIT_WORK(&led_dat->work, led_pwm_work);
+ 
+--- a/boards/r1/modules/tcs1421_add/tcs1421_add.c
++++ b/boards/r1/modules/tcs1421_add/tcs1421_add.c
+@@ -171,15 +171,16 @@
+ 		goto err_free;
+ 	}
+ 
++	tcs1421_set_cfg(priv, "NormalDRP", 1);
++	platform_set_drvdata(pdev, priv);
+ 	ret = device_create_file(&pdev->dev, &dev_attr_tcs1421_cfg);
+ 	if (ret) {
+ 		printk("device_create_file error\n");
++		platform_set_drvdata(pdev, NULL);
+ 		tcs1421_free(priv);
+ 		goto err_free;
+ 	}
+ 
+-	tcs1421_set_cfg(priv, "NormalDRP", 1);
+-	platform_set_drvdata(pdev, priv);
+ 	return 0;
+ 
+ err_free:
+@@ -192,6 +193,7 @@
+ 	struct tcs1421_priv *priv = platform_get_drvdata(pdev);
+ 
+ 	device_remove_file(&pdev->dev, &dev_attr_tcs1421_cfg);
++	platform_set_drvdata(pdev, NULL);
+ 	tcs1421_free(priv);
+ 	kfree(priv);
+ 	return 0;
+--- a/modules/cw2015/cw2015.c
++++ b/modules/cw2015/cw2015.c
+@@ -59,6 +59,13 @@
+ #define HIGH_SOC_SHORT		0x80	// charging stopped short of 100 %
+ #define HIGH_SOC_MASK		0x7f
+ 
++static bool cw_saved_full_valid(u8 high_soc)
++{
++	u8 full = high_soc & HIGH_SOC_MASK;
++
++	return full >= 1 && full <= 100;
++}
++
+ struct cw_bat_platform_data {
+ 	u8 *cw_bat_config_info;
+ };
+@@ -287,6 +294,10 @@
+ 	}
+ 
+ 	full = mark_no_charger_full == 1 ? (high_soc & HIGH_SOC_MASK) : 100;
++	if (mark_no_charger_full && !cw_saved_full_valid(high_soc)) {
++		full = 100;
++		mark_no_charger_full = 0;
++	}
+ 	ui_100 = (real_soc << 8) + remainder;
+ 	ui_soc = ui_100 * 100 / (full << 8);
+ 	if (ui_soc < 100) {
+@@ -640,6 +651,14 @@
+ 	} else {
+ 		last_charger_high_soc = reg_val[0] & HIGH_SOC_MASK;
+ 		mark_no_charger_full = reg_val[0] >> 7;
++		if (mark_no_charger_full && !cw_saved_full_valid(reg_val[0])) {
++			last_charger_high_soc = 96;
++			mark_no_charger_full = 0;
++			reg_val[0] = last_charger_high_soc;
++			ret = cw_write(client, REG_HIGH_SOC, reg_val);
++			if (ret < 0)
++				goto err_data;
++		}
+ 	}
+ 
+ 	ret = i2c_smbus_read_i2c_block_data(client, REG_SOC, 2, reg_val);
+@@ -716,7 +735,7 @@
+ 	struct cw_battery *cw_bat = dev_get_drvdata(dev);
+ 
+ 	dev_info(dev, "%s\n", __func__);
+-	cancel_delayed_work(&cw_bat->battery_delay_work);
++	cancel_delayed_work_sync(&cw_bat->battery_delay_work);
+ 	return 0;
+ }
+ 
+--- a/modules/i2c_gpio_add/i2c_gpio_add.c
++++ b/modules/i2c_gpio_add/i2c_gpio_add.c
+@@ -850,12 +850,17 @@
+ {
+ 	struct i2c_gpio_add_device *d;
+ 	char scl[16], sda[16];
+-	char *p = buffer;
+-
+-	list_for_each_entry(d, &gpio_i2c_list, list)
+-		p += sprintf(p, "bus_num=%d udelay=%dus scl=%s sda=%s\n", d->pdev.id, d->pdata.udelay,
+-			     gpio_to_str(d->pdata.scl_pin, scl), gpio_to_str(d->pdata.sda_pin, sda));
+-	return p - buffer;
++	ssize_t len = 0;
++
++	list_for_each_entry(d, &gpio_i2c_list, list) {
++		if (len >= PAGE_SIZE)
++			break;
++		len += scnprintf(buffer + len, PAGE_SIZE - len,
++				 "bus_num=%d udelay=%dus scl=%s sda=%s\n", d->pdev.id,
++				 d->pdata.udelay, gpio_to_str(d->pdata.scl_pin, scl),
++				 gpio_to_str(d->pdata.sda_pin, sda));
++	}
++	return len;
+ }
+ 
+ static const struct kernel_param_ops param_i2c_bus_ops = {
+--- a/modules/keyboard_gpio_add/keyboard_gpio_add.c
++++ b/modules/keyboard_gpio_add/keyboard_gpio_add.c
+@@ -139,6 +139,7 @@
+ 	bool do_alloc = false, do_register = false;
+ 	struct gpio_keys_button *b;
+ 	unsigned long code = -1, n;
++	int requested_keys = 0;
+ 	const char *v, *w;
+ 	char *tag = NULL;
+ 	char **words;
+@@ -153,11 +154,14 @@
+ 				ret = -EINVAL;
+ 			} else if (!n) {
+ 				ret = -EINVAL;
+-			} else if (keyboard_total_cnt) {
++			} else if (keyboard_total_cnt || do_alloc) {
+ 				pr_err("new alloc %ld can not be done, old keys not register!\n", n);
+ 				ret = -EINVAL;
++			} else if (n > KEY_CNT || n > INT_MAX) {
++				pr_err("alloc=%lu exceeds the key limit\n", n);
++				ret = -ERANGE;
+ 			} else {
+-				keyboard_total_cnt = n;
++				requested_keys = n;
+ 				do_alloc = true;
+ 			}
+ 		} else if (!strcmp(w, "register")) {
+@@ -198,11 +202,16 @@
+ 		goto out;
+ 
+ 	if (do_alloc) {
+-		keyboard_data = kzalloc(sizeof(*keyboard_data) +
+-					keyboard_total_cnt * sizeof(struct gpio_keys_button), GFP_KERNEL);
+-		if (!keyboard_data) {
+-			pr_err("failed to alloc %d keys\n", keyboard_total_cnt);
+-			keyboard_total_cnt = 0;
++		struct keyboard_data *new_data;
++
++		new_data = kzalloc(sizeof(*new_data) +
++				   requested_keys * sizeof(struct gpio_keys_button), GFP_KERNEL);
++		if (!new_data) {
++			pr_err("failed to alloc %d keys\n", requested_keys);
++			ret = -ENOMEM;
++		} else {
++			keyboard_data = new_data;
++			keyboard_total_cnt = requested_keys;
+ 		}
+ 		goto out;
+ 	}
+@@ -243,17 +252,18 @@
+ 	struct keyboard_data *d = keyboard_bnt_cnt ? keyboard_data : keyboard_dev;
+ 	int n = keyboard_bnt_cnt ? keyboard_bnt_cnt : keyboard_save_cnt;
+ 	struct gpio_keys_button *b;
+-	char *p = buffer;
+ 	char pin[16];
++	size_t used = 0;
+ 	int i;
+ 
+-	for (i = 0; i < n; i++) {
++	for (i = 0; d && i < n && used < PAGE_SIZE - 1; i++) {
+ 		b = &d->buttons[i];
+-		p += sprintf(p, "gpio=%s code=%d tag=%s active_level=%s wakeup=%s\n",
+-			     gpio_to_str(b->gpio, pin), b->code, b->desc,
+-			     b->active_low ? "low" : "high", b->wakeup ? "true" : "false");
+-	}
+-	return p - buffer;
++		used += scnprintf(buffer + used, PAGE_SIZE - used,
++				  "gpio=%s code=%d tag=%s active_level=%s wakeup=%s\n",
++				  gpio_to_str(b->gpio, pin), b->code, b->desc,
++				  b->active_low ? "low" : "high", b->wakeup ? "true" : "false");
++	}
++	return used;
+ }
+ 
+ static const struct kernel_param_ops param_keyboard_ops = {
+--- a/modules/pwm_backlight/pwm_backlight.c
++++ b/modules/pwm_backlight/pwm_backlight.c
+@@ -126,8 +126,22 @@
+ 	}
+ 
+ 	backlight_data.pwm = pwm2_request(backlight_data.pwm_gpio, backlight_data.backlight_dev_name);
++	if (backlight_data.pwm < 0) {
++		ret = backlight_data.pwm;
++		pr_err("pwm_backlight: failed to request PWM channel: %d\n", ret);
++		if (backlight_data.power_gpio >= 0)
++			gpio_free(backlight_data.power_gpio);
++		return ret;
++	}
+ 	backlight_data.config.idle_level = !backlight_data.pwm_active_level;
+-	pwm2_config(backlight_data.pwm, &backlight_data.config);
++	ret = pwm2_config(backlight_data.pwm, &backlight_data.config);
++	if (ret) {
++		pr_err("pwm_backlight: failed to configure PWM channel: %d\n", ret);
++		pwm2_release(backlight_data.pwm);
++		if (backlight_data.power_gpio >= 0)
++			gpio_free(backlight_data.power_gpio);
++		return ret;
++	}
+ 
+ 	memset(&props, 0, sizeof(props));
+ 	props.type = BACKLIGHT_RAW;
+@@ -137,6 +151,8 @@
+ 	if (IS_ERR(bd)) {
+ 		pr_err("pwm_backlight %s failed to register backlight\n",
+ 		       backlight_data.backlight_dev_name);
++		pwm2_set_level(backlight_data.pwm, 0);
++		pwm2_release(backlight_data.pwm);
+ 		if (backlight_data.power_gpio >= 0)
+ 			gpio_free(backlight_data.power_gpio);
+ 		return PTR_ERR(bd);
+--- a/modules/rmem_manager/rmem_manager.c
++++ b/modules/rmem_manager/rmem_manager.c
+@@ -318,10 +318,12 @@
+ 		mutex_lock(&pdata->lock);
+ 		list_for_each_entry(ent, &pdata->blocks, list) {
+ 			if (ent->addr == addr) {
++				u32 allocation_size = ent->size;
++
+ 				list_del(&ent->list);
+ 				vfree(ent);
+ 				mutex_unlock(&pdata->lock);
+-				rmem_free(addr, PAGE_ALIGN(v[0]));
++				rmem_free(addr, allocation_size);
+ 				return 0;
+ 			}
+ 		}
+@@ -356,6 +358,7 @@
+ }
+ 
+ static const struct file_operations rmem_misc_fops = {
++	.owner = THIS_MODULE,
+ 	.unlocked_ioctl = rmem_ioctl,
+ 	.mmap = rmem_mmap,
+ 	.open = rmem_open,
+@@ -409,6 +412,7 @@
+ 	.driver = {
+ 		.name = "rmem-manager",
+ 		.owner = THIS_MODULE,
++		.suppress_bind_attrs = true,
+ 	},
+ };
+ 
+@@ -442,6 +446,7 @@
+ 	.driver = {
+ 		.name = "rmem_src",
+ 		.of_match_table = rmem_src_of_match,
++		.suppress_bind_attrs = true,
+ 	},
+ };
+ 
+--- a/modules/sa_config_module/sa_config_module.c
++++ b/modules/sa_config_module/sa_config_module.c
+@@ -80,6 +80,7 @@
+ }
+ 
+ static const struct file_operations sa_config_misc_fops = {
++	.owner = THIS_MODULE,
+ 	.unlocked_ioctl = sa_config_ioctl,
+ 	.open = sa_config_open,
+ 	.release = sa_config_release,
+@@ -98,14 +99,16 @@
+ 	config->misc.minor = MISC_DYNAMIC_MINOR;
+ 	config->misc.name = "sa-config";
+ 	config->misc.fops = &sa_config_misc_fops;
++	mutex_init(&config->lock);
+ 
+ 	ret = misc_register(&config->misc);
+ 	if (ret < 0) {
+ 		dev_err(config->dev, "misc_register failed\n");
++		kfree(config);
++		config = NULL;
+ 		return ret;
+ 	}
+ 	platform_set_drvdata(pdev, config);
+-	mutex_init(&config->lock);
+ 	return 0;
+ }
+ 
+@@ -151,6 +154,7 @@
+ 	.driver = {
+ 		.name = "sa-config",
+ 		.owner = THIS_MODULE,
++		.suppress_bind_attrs = true,
+ 		.pm = &sa_config_pm_ops,
+ 	},
+ };
+--- a/modules/sa_earpods_adc/sa_earpods_adc.c
++++ b/modules/sa_earpods_adc/sa_earpods_adc.c
+@@ -425,19 +425,22 @@
+ 		input_free_device(input);
+ 		goto err_reg;
+ 	}
++
++	ea->channel = pdata->adc_channel;
++	ea->input = input;
++	ea->poll_ms = pdata->poll_ms;
++	INIT_DELAYED_WORK(&ea->work, earpods_adc_work);
++	platform_set_drvdata(pdev, ea);
++	adc_enable();
+ 	ret = sysfs_create_group(&pdev->dev.kobj, &earpods_adc_group);
+ 	if (ret < 0) {
+ 		printk("earpods-adc: Unable to create sysfs group: %d\n", ret);
++		platform_set_drvdata(pdev, NULL);
++		adc_disable();
+ 		input_unregister_device(input);
+ 		goto err_reg;
+ 	}
+ 
+-	ea->channel = pdata->adc_channel;
+-	ea->input = input;
+-	ea->poll_ms = pdata->poll_ms;
+-	platform_set_drvdata(pdev, ea);
+-	INIT_DELAYED_WORK(&ea->work, earpods_adc_work);
+-	adc_enable();
+ 	return 0;
+ 
+ err_reg:
+@@ -454,8 +457,10 @@
+ {
+ 	struct earpods_adc *ea = platform_get_drvdata(pdev);
+ 
++	sysfs_remove_group(&pdev->dev.kobj, &earpods_adc_group);
++	gi_earpods_adc_sw = 0;
+ 	cancel_delayed_work_sync(&ea->work);
+-	sysfs_remove_group(&pdev->dev.kobj, &earpods_adc_group);
++	platform_set_drvdata(pdev, NULL);
+ 	adc_disable();
+ 	device_init_wakeup(&pdev->dev, false);
+ 	input_unregister_device(ea->input);
+--- a/modules/sa_hgl_dma/sa_hgl_dma.c
++++ b/modules/sa_hgl_dma/sa_hgl_dma.c
+@@ -22,6 +22,7 @@
+ #include <linux/mm.h>
+ #include <linux/module.h>
+ #include <linux/moduleparam.h>
++#include <linux/mutex.h>
+ #include <linux/slab.h>
+ #include <linux/uaccess.h>
+ #include <asm/io.h>
+@@ -51,6 +52,9 @@
+ 	struct completion done;
+ } sahd;
+ 
++/* The DMA template, channel and completion are shared by all file operations. */
++static DEFINE_MUTEX(sahd_lock);
++
+ static int sahd_hgl_mem_size = -1;
+ module_param(sahd_hgl_mem_size, int, 0644);
+ 
+@@ -59,7 +63,7 @@
+ 	complete(param);
+ }
+ 
+-static int sahd_open(struct inode *inode, struct file *file)
++static int sahd_open_locked(struct inode *inode, struct file *file)
+ {
+ 	struct dma_interleaved_template *xt;
+ 	struct dma_chan *chan;
+@@ -106,7 +110,7 @@
+ 	return ret;
+ }
+ 
+-static int sahd_release(struct inode *inode, struct file *file)
++static int sahd_release_locked(struct inode *inode, struct file *file)
+ {
+ 	if (!sahd.chan) {
+ 		printk("[SAUD]sahd_release: hgl dma is closed\n");
+@@ -121,7 +125,7 @@
+ 	return 0;
+ }
+ 
+-static int sahd_mmap(struct file *file, struct vm_area_struct *vma)
++static int sahd_mmap_locked(struct file *file, struct vm_area_struct *vma)
+ {
+ 	unsigned long len = vma->vm_end - vma->vm_start;
+ 	unsigned long off = vma->vm_pgoff << PAGE_SHIFT;
+@@ -140,7 +144,7 @@
+ 	return 0;
+ }
+ 
+-static ssize_t sahd_write(struct file *file, const char __user *ubuf, size_t count, loff_t *ppos)
++static ssize_t sahd_write_locked(struct file *file, const char __user *ubuf, size_t count, loff_t *ppos)
+ {
+ 	struct dma_interleaved_template *xt = sahd.xt;
+ 	struct dma_chan *chan = sahd.chan;
+@@ -202,6 +206,46 @@
+ 	return -EFAULT;
+ }
+ 
++static int sahd_open(struct inode *inode, struct file *file)
++{
++	int ret;
++
++	mutex_lock(&sahd_lock);
++	ret = sahd_open_locked(inode, file);
++	mutex_unlock(&sahd_lock);
++	return ret;
++}
++
++static int sahd_release(struct inode *inode, struct file *file)
++{
++	int ret;
++
++	mutex_lock(&sahd_lock);
++	ret = sahd_release_locked(inode, file);
++	mutex_unlock(&sahd_lock);
++	return ret;
++}
++
++static int sahd_mmap(struct file *file, struct vm_area_struct *vma)
++{
++	int ret;
++
++	mutex_lock(&sahd_lock);
++	ret = sahd_mmap_locked(file, vma);
++	mutex_unlock(&sahd_lock);
++	return ret;
++}
++
++static ssize_t sahd_write(struct file *file, const char __user *ubuf, size_t count, loff_t *ppos)
++{
++	ssize_t ret;
++
++	mutex_lock(&sahd_lock);
++	ret = sahd_write_locked(file, ubuf, count, ppos);
++	mutex_unlock(&sahd_lock);
++	return ret;
++}
++
+ static const struct file_operations sahd_fops = {
+ 	.owner = THIS_MODULE,
+ 	.open = sahd_open,
+--- a/modules/sa_sound_switch/sa_sound_switch.c
++++ b/modules/sa_sound_switch/sa_sound_switch.c
+@@ -69,6 +69,8 @@
+ 	int adc_min;
+ 	int adc_max;
+ 	int on_level;			// en_level for a pin, range_state for a channel
++	bool gpio_requested;
++	bool adc_enabled;
+ };
+ 
+ struct sass {
+@@ -222,6 +224,34 @@
+ 	.attrs = sa_switch_attributes,
+ };
+ 
++static void switch_cleanup_items(struct sass *sw)
++{
++	struct sass_item *it;
++	int i;
++
++	for (i = 0; i < sw->count; i++) {
++		it = &sw->items[i];
++		if (it->registered)
++			switch_dev_unregister(&it->sdev);
++		it->registered = false;
++		if (it->gpio_requested) {
++			gpio_free(it->line);
++			it->gpio_requested = false;
++		} else if (it->adc_enabled) {
++			adc_disable();
++			it->adc_enabled = false;
++		}
++	}
++}
++
++static void switch_cleanup_probe(struct platform_device *pdev, struct sass *sw)
++{
++	g_sass_enable = 0;
++	cancel_delayed_work_sync(&sw->work);
++	switch_cleanup_items(sw);
++	platform_set_drvdata(pdev, NULL);
++}
++
+ static int switch_probe(struct platform_device *pdev)
+ {
+ 	struct sass *sw = dev_get_platdata(&pdev->dev);
+@@ -233,63 +263,63 @@
+ 		return -EINVAL;
+ 	}
+ 	platform_set_drvdata(pdev, sw);
+-
+-	ret = sysfs_create_group(&pdev->dev.kobj, &sa_switch_group);
+-	if (ret < 0) {
+-		printk("[SASS]failed to create files\n");
+-		return ret;
+-	}
++	sw->debounce = msecs_to_jiffies(sass_debounce_time);
++	INIT_DELAYED_WORK(&sw->work, switch_work_schedule);
+ 
+ 	for (i = 0; i < sw->count; i++) {
+ 		it = &sw->items[i];
+ 		it->sdev.name = it->name;
+ 		it->sdev.print_name = switch_print_name;
+ 		if (!it->adc) {
+-			if (gpio_request(it->line, it->label) < 0) {
++			ret = gpio_request(it->line, it->label);
++			if (ret < 0) {
+ 				printk("[SASS]failed to init switch item %s\n", it->label);
+-				continue;
++				goto err_probe;
+ 			}
++			it->gpio_requested = true;
+ 			gpio_direction_input(it->line);
+ 			gpio_set_func(it->line, GPIO_INPUT_NO_PULL);
+ 		} else {
+ 			adc_enable();
+-		}
+-		if (switch_dev_register(&it->sdev) < 0) {
++			it->adc_enabled = true;
++		}
++		ret = switch_dev_register(&it->sdev);
++		if (ret < 0) {
+ 			printk("[SASS]failed to regist switch device %s\n", it->name);
+ 			printk("[SASS]failed to init switch item %s\n", it->label);
+-			continue;
++			goto err_probe;
+ 		}
+ 		it->registered = true;
+ 		printk("[SASS]success to init switch item %s\n", it->label);
+ 	}
+ 
+-	sw->debounce = msecs_to_jiffies(sass_debounce_time);
+-	INIT_DELAYED_WORK(&sw->work, switch_work_schedule);
+ 	g_sass_enable = 1;
+ 	queue_delayed_work(system_wq, &sw->work, sw->debounce);
++
++	/* Publish sysfs only after callback state and its work item are ready. */
++	ret = sysfs_create_group(&pdev->dev.kobj, &sa_switch_group);
++	if (ret < 0) {
++		printk("[SASS]failed to create files\n");
++		switch_cleanup_probe(pdev, sw);
++		return ret;
++	}
+ 	printk("[SASS]switch_probe OK\n");
+ 	return 0;
++
++err_probe:
++	switch_cleanup_probe(pdev, sw);
++	return ret;
+ }
+ 
+ static int switch_remove(struct platform_device *pdev)
+ {
+ 	struct sass *sw = platform_get_drvdata(pdev);
+-	struct sass_item *it;
+-	int i;
+-
+-	cancel_delayed_work_sync(&sw->work);
+-	for (i = 0; i < sw->count; i++) {
+-		it = &sw->items[i];
+-		if (it->registered)
+-			switch_dev_unregister(&it->sdev);
+-		it->registered = false;
+-		if (!it->adc)
+-			gpio_free(it->line);
+-		else
+-			adc_disable();
+-	}
++
+ 	sysfs_remove_group(&pdev->dev.kobj, &sa_switch_group);
+ 	g_sass_enable = 0;
++	cancel_delayed_work_sync(&sw->work);
++	switch_cleanup_items(sw);
++	platform_set_drvdata(pdev, NULL);
+ 	return 0;
+ }
+ 
+@@ -301,19 +331,35 @@
+ static int switch_suspend(struct device *dev)
+ {
+ 	struct sass *sw = dev_get_drvdata(dev);
++	struct sass_item *it;
++	int i;
+ 
+ 	printk("[SASS]switch_suspend\n");
+ 	cancel_delayed_work_sync(&sw->work);
+-	adc_disable();
++	for (i = 0; i < sw->count; i++) {
++		it = &sw->items[i];
++		if (it->adc_enabled) {
++			adc_disable();
++			it->adc_enabled = false;
++		}
++	}
+ 	return 0;
+ }
+ 
+ static int switch_resume(struct device *dev)
+ {
+ 	struct sass *sw = dev_get_drvdata(dev);
++	struct sass_item *it;
++	int i;
+ 
+ 	printk("[SASS]switch_resume\n");
+-	adc_enable();
++	for (i = 0; i < sw->count; i++) {
++		it = &sw->items[i];
++		if (it->adc && !it->adc_enabled) {
++			adc_enable();
++			it->adc_enabled = true;
++		}
++	}
+ 	queue_delayed_work(system_wq, &sw->work, sw->debounce);
+ 	return 0;
+ }
+--- a/modules/soc_aic/soc_aic.c
++++ b/modules/soc_aic/soc_aic.c
+@@ -33,6 +33,7 @@
+ #include <linux/io.h>
+ #include <linux/kernel.h>
+ #include <linux/kthread.h>
++#include <linux/math64.h>
+ #include <linux/module.h>
+ #include <linux/moduleparam.h>
+ #include <linux/mutex.h>
+@@ -539,7 +540,8 @@
+ 	dma_addr_t handle;
+ 	void *mem = dma_alloc_coherent(NULL, size, &handle, GFP_KERNEL);
+ 
+-	AIC_ASSERT(mem);
++	if (!mem)
++		return NULL;
+ 	return (void *)CKSEG0ADDR(mem);
+ }
+ 
+@@ -1051,10 +1053,12 @@
+ 
+ // Plays aic_send_invalid_data_time_ms of silence, one period long, to
+ // settle the line before the first playback.
+-static void aic_send_invalid_data(struct aic_stream *s)
++static int aic_send_invalid_data(struct aic_stream *s)
+ {
+ 	void *mem = m_dma_alloc_coherent(s->period_frames);
+ 
++	if (!mem)
++		return -ENOMEM;
+ 	memset(mem, 0, s->period_frames);
+ 	dma_cache_sync(NULL, mem, s->period_frames, DMA_TO_DEVICE);
+ 	mutex_lock(&s->mutex);
+@@ -1071,20 +1075,69 @@
+ 	m_dma_free_coherent(mem, s->period_frames);
+ 	if (!aic_if_send_invalid_data_everytime)
+ 		aic_if_send_invalid_data = 0;
+-}
+-
+-// period_frames, the period size in frames, is also the DMA period in bytes;
+-// the timer ticks every period_frames bytes' worth of audio, in whole
+-// milliseconds.
++	return 0;
++}
++
++// period_frames, the period size in frames, is also the DMA period in bytes.
++// Keep the timer at that byte cadence, represented at nanosecond precision.
++static int aic_dma_period_duration_ns(u32 period_frames, u32 rate,
++				      u32 frame_bytes, u32 *period_ns)
++{
++	u64 bytes_per_second, dma_period_ns;
++
++	if (!period_frames || !rate || !frame_bytes || !period_ns)
++		return -EINVAL;
++
++	bytes_per_second = (u64)rate * frame_bytes;
++	/* div_u64() takes a u32 divisor; supported audio rates fit this bound. */
++	if (!bytes_per_second || bytes_per_second > U32_MAX)
++		return -EINVAL;
++
++	dma_period_ns = div_u64((u64)period_frames * 1000000000ULL,
++				(u32)bytes_per_second);
++	if (!dma_period_ns || dma_period_ns > U32_MAX)
++		return -EINVAL;
++
++	*period_ns = (u32)dma_period_ns;
++	return 0;
++}
++
+ static int aic_dma_pcm_hw_params(struct snd_pcm_substream *substream,
+ 				 struct snd_pcm_hw_params *params)
+ {
+ 	bool playback = substream->stream == SNDRV_PCM_STREAM_PLAYBACK;
+ 	struct aic_stream *s = playback ? &aic_dev.playback : &aic_dev.capture;
+ 	u32 buffer_bytes = params_buffer_bytes(params);
++	int physical_width;
++	u64 frame_bytes;
+ 	int ret;
+ 
+ 	s->period_frames = params_period_size(params);
++	physical_width = snd_pcm_format_physical_width(params_format(params));
++	if (!s->period_frames || !aic_dev.rate || !s->channels ||
++	    physical_width <= 0 || physical_width % 8) {
++		pr_err("AIC: invalid period, rate, channels or PCM width\n");
++		return -EINVAL;
++	}
++	frame_bytes = (u64)(physical_width / 8) * s->channels;
++	if (!frame_bytes || frame_bytes > U32_MAX) {
++		pr_err("AIC: invalid PCM frame size\n");
++		return -EINVAL;
++	}
++	s->frame_bytes = (u32)frame_bytes;
++
++	/* params_period_size() is in frames, but this DMA descriptor has always
++	 * used that numeric count as its byte period (see aic_dma_submit_cyclic).
++	 * Preserve that poll cadence while converting its byte duration directly
++	 * to nanoseconds: truncating to whole milliseconds first can yield zero.
++	 */
++	ret = aic_dma_period_duration_ns(s->period_frames, aic_dev.rate,
++					 s->frame_bytes, &s->period_ns);
++	if (ret) {
++		pr_err("AIC: invalid DMA period duration\n");
++		return -EINVAL;
++	}
++
+ 	if (s->format == SNDRV_PCM_FORMAT_S24_LE ||
+ 	    (s->format == SNDRV_PCM_FORMAT_S16_LE && playback && s->channels != 1)) {
+ 		s->dma.width = DMA_SLAVE_BUSWIDTH_4_BYTES;
+@@ -1103,23 +1156,30 @@
+ 	s->burst = s->dma.burst;
+ 	s->dma_range = buffer_bytes;
+ 	s->buf_bytes = buffer_bytes;
+-	s->frame_bytes = snd_pcm_format_physical_width(params_format(params)) * (int)s->channels / 8;
+-
+ 	substream->dma_buffer.dev.type = SNDRV_DMA_TYPE_DEV;
+ 	ret = snd_pcm_lib_malloc_pages(substream, buffer_bytes);
+ 	if (ret < 0)
+ 		return ret;
+ 
+ 	if (playback) {
+-		if (aic_if_send_invalid_data)
+-			aic_send_invalid_data(s);
++		if (aic_if_send_invalid_data) {
++			ret = aic_send_invalid_data(s);
++			if (ret) {
++				snd_pcm_lib_free_pages(substream);
++				return ret;
++			}
++		}
+ 		s->dma_area = (void *)CKSEG0ADDR(substream->dma_buffer.area);
+ 	} else {
+ 		s->area = (void *)CKSEG0ADDR(substream->dma_buffer.area);
+ 		s->dma_area = m_dma_alloc_coherent(s->buf_bytes);
+-	}
+-
+-	s->period_ns = s->period_frames * 1000 / aic_dev.rate / s->frame_bytes * 1000000;
++		if (!s->dma_area) {
++			s->area = NULL;
++			snd_pcm_lib_free_pages(substream);
++			return -ENOMEM;
++		}
++	}
++
+ 	s->dma_pos = 0;
+ 	s->read_pos = 0;
+ 	s->avail = 0;
+@@ -1130,6 +1190,17 @@
+ 
+ static int aic_dma_pcm_hw_free(struct snd_pcm_substream *substream)
+ {
++	struct aic_stream *s = substream->stream == SNDRV_PCM_STREAM_PLAYBACK ?
++			       &aic_dev.playback : &aic_dev.capture;
++
++	s->running = 0;
++	flush_work(&s->start_work);
++	/* Drain an existing stop before deciding whether a fallback is needed. */
++	flush_work(&s->stop_work);
++	if (s->busy) {
++		queue_work(aic_dev.wq, &s->stop_work);
++		flush_work(&s->stop_work);
++	}
+ 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+ 		int tries = 1000;
+ 
+--- a/modules/soc_efuse/soc_efuse.c
++++ b/modules/soc_efuse/soc_efuse.c
+@@ -104,6 +104,12 @@
+ 	char __user *name;
+ };
+ 
++static bool efuse_range_valid(int size, int offset, int bytes)
++{
++	return size >= 0 && offset >= 0 && bytes >= 0 && offset <= size &&
++	       bytes <= size - offset;
++}
++
+ static int gpio_efuse_vddq = -1;
+ module_param_cb(gpio_efuse_vddq, &param_gpio_ops, &gpio_efuse_vddq, 0644);
+ 
+@@ -142,7 +148,7 @@
+ 
+ 	if (size < 0)
+ 		return -1;
+-	if (info->offset < 0 || info->bytes < 0 || size < info->offset + info->bytes) {
++	if (!efuse_range_valid(size, info->offset, info->bytes)) {
+ 		printk(KERN_ERR "EFUSE: %d segment_size should be less than %d Byte", *id, size);
+ 		return -1;
+ 	}
+@@ -214,7 +220,7 @@
+ 	size = soc_efuse_read_segment_size(info->seg_name, &id);
+ 	if (size < 0)
+ 		goto out;
+-	if (info->offset < 0 || info->bytes < 0 || size < info->offset + info->bytes) {
++	if (!efuse_range_valid(size, info->offset, info->bytes)) {
+ 		printk(KERN_ERR "EFUSE: %d segment_size should be less than %d Byte", id, size);
+ 		goto out;
+ 	}
+@@ -353,7 +359,7 @@
+ 	if (efuse_user_name(name, sizeof(name), (const char __user *)info.seg_name))
+ 		return -1;
+ 	if (info.bytes < 0 || info.bytes > sizeof(buf))
+-		info.bytes = sizeof(buf) + 1;	// fails the segment size check
++		return -1;
+ 	ubuf = (void __user *)info.buf;
+ 	info.seg_name = name;
+ 	info.buf = buf;
+--- a/modules/utils/utils.c
++++ b/modules/utils/utils.c
+@@ -369,30 +369,38 @@
+ static int param_pmu_set(const char *val, const struct kernel_param *kp)
+ {
+ 	struct pmu_param *pmu = kp->arg;
++	const char *regulator_name = pmu->regulator_name;
++	int boot_on = pmu->boot_on;
++	unsigned int work_voltage = pmu->work_voltage;
++	unsigned int suspend_voltage = pmu->suspend_voltage;
+ 	char **words, **w;
+ 	int count, i;
+ 
+ 	words = str_to_words(val, &count);
+ 	for (i = 0, w = words; i < count; i++, w++) {
+ 		if (!strncmp(*w, "regulator_name=", strlen("regulator_name=")))
+-			pmu->regulator_name = *w + strlen("regulator_name=");
++			regulator_name = *w + strlen("regulator_name=");
+ 		if (!strncmp(*w, "boot_on=", strlen("boot_on="))) {
+ 			if (!strcmp(*w + strlen("boot_on="), "enable"))
+-				pmu->boot_on = 1;
++				boot_on = 1;
+ 			if (!strcmp(*w + strlen("boot_on="), "disable"))
+-				pmu->boot_on = 0;
++				boot_on = 0;
+ 		}
+ 		if (!strncmp(*w, "work_voltage=", strlen("work_voltage=")) &&
+-		    kstrtouint(*w + strlen("work_voltage="), 0, &pmu->work_voltage)) {
++		    kstrtouint(*w + strlen("work_voltage="), 0, &work_voltage)) {
+ 			pr_err("Try to set a invalid work_voltage\n");
+ 			goto err;
+ 		}
+ 		if (!strncmp(*w, "suspend_volage=", strlen("suspend_volage=")) &&
+-		    kstrtouint(*w + strlen("suspend_volage="), 0, &pmu->suspend_voltage)) {
++		    kstrtouint(*w + strlen("suspend_volage="), 0, &suspend_voltage)) {
+ 			pr_err("Try to set a invalid suspend_volage\n");
+ 			goto err;
+ 		}
+ 	}
++	pmu->regulator_name = regulator_name;
++	pmu->boot_on = boot_on;
++	pmu->work_voltage = work_voltage;
++	pmu->suspend_voltage = suspend_voltage;
+ 	return 0;
+ err:
+ 	str_free_words(words);

@@ -61,8 +61,8 @@ Save it as `<SD card>/.plugins/HelloPlayer.lua`. The row appears under
 Settings > System > Additional Tools.
 
 Tip: start from the example closest to what you want to build.
-`Audiobooks.lua`, `NetRadio.lua`, `Themes.lua` and `LastFmScrobbler.lua` cover
-the most common shapes.
+`Audiobooks.lua`, `NetRadio.lua`, `LastFmScrobbler.lua`, or the historical
+`Themes.lua` reference cover common shapes.
 
 ## How plugins run
 
@@ -162,14 +162,14 @@ plugin.define({
 
 ### Checking what the player supports
 
-- `plugin.api_version()` returns the API version, currently `15`.
+- `plugin.api_version()` returns the API version, currently `16`.
 - `plugin.has_capability(name)` returns whether one feature exists. Prefer it
   over `api_min` when you only need one feature. Tokens:
 
   | Area | Tokens |
   | --- | --- |
   | UI | `ui.list`, `ui.settings`, `ui.row_width`, `ui.text_input`, `ui.toast`, `ui.screenshot`, `ui.theme`, `ui.theme_refresh`, `ui.reload`, `ui.home_layout`, `ui.home_tiles`, `ui.launcher_layout`, `ui.home_background`, `ui.lock_screen`, `ui.quick_toggle`, `ui.text_view`, `ui.text_view_images`, `ui.list_grid`, `ui.list_showing`, `ui.list_wrap`, `ui.settings_list_wrap`, `ui.player_layout_xml` |
-  | Playback and audio | `playback.control`, `playback.state`, `playback.events`, `playback.remote`, `playback.transport_skip`, `audio.peq`, `audio.hw_volume_curve` |
+  | Playback and audio | `playback.control`, `playback.state`, `playback.events`, `playback.progress`, `playback.remote`, `playback.transport_skip`, `playback.speed`, `audio.peq`, `audio.stereo_width`, `audio.hw_volume_curve` |
   | Files | `filesystem.sd`, `filesystem.mkdir`, `filesystem.playlists` |
   | Storage | `storage.namespaced`, `storage.secrets`, `storage.secrets_get` |
   | Network | `network.http.sync`, `network.http.async`, `network.http.download` |
@@ -196,6 +196,7 @@ plugin.define({
 | 13 | LED control, `get_volume`, `get_battery`, and the `volume_changed`, `battery_changed`, `suspending` and `system_resumed` events |
 | 14 | `zip_read`, `zip_list`, `zip_image_async`, `html_to_blocks`, `show_text_view` with pictures, grid lists, `is_list_showing`, and one long (4095-byte) HTTP header per request |
 | 15 | Full XML Player-layout support (`ui.player_layout_xml`), including plugin-bundle discovery, current named-widget features, companion PNG previews, and resolution-specific XML variants using `@WIDTHxHEIGHT` or `_WIDTHxHEIGHT` filenames |
+| 16 | Scoped pitch-preserving playback speed (`playback.speed`), stereo-width DSP and `audio.stereo_width`, plus coherent `plugin.get_playback_progress(expected_path)` snapshots (`playback.progress`) |
 
 All of these are additions; older plugins keep working.
 
@@ -424,10 +425,21 @@ and blur generation run in the background.
 
 ## Theming
 
-Colors and layouts aren't saved; only icons copied with `set_icon` stay on
-the device. To keep a look across restarts, save the user's choice in your own
-file or `plugin.storage` and apply it again from top-level code every time
-the plugin loads. `plugins_examples/Themes.lua` does exactly that.
+Themes are natively built into Compás and managed via the built-in system
+theme picker (**More → Themes**), loading `.theme` key-value files directly from
+`SD/Themes/` without requiring a Lua theme plugin. Active themes resolve icons
+via an in-memory native icon overlay layer without performing NAND bulk copies.
+When other plugins call `plugin.set_icon`, their explicitly copied overrides
+continue to be supported and take priority over theme layer lookups.
+
+Theme packs distributed via the Plugin Store keep companion `.theme` files
+alongside a legacy `Themes.lua` stub for backward compatibility with older
+player versions and store catalog classification. On current versions of the
+player, `Themes.lua` is recognized as a legacy theme loader and suppressed at
+load time, as native theme management handles `.theme` files directly.
+
+The script `plugins_examples/Themes.lua` remains available as a historical
+reference format for custom theme application and programmatic UI styling.
 
 | To apply... | Call |
 | --- | --- |
@@ -668,7 +680,18 @@ plugin.play_remote({
 | `plugin.next_track()`, `plugin.prev_track()` | Next and previous, respecting shuffle. |
 | `plugin.seek(seconds)` | Jumps to a position in the current track. |
 | `plugin.set_volume(percent)` | Sets the volume, 0 to 100, and shows the volume popup. |
+| `plugin.set_playback_speed(dir, speed)` | API 16, `playback.speed`: requests pitch-preserving speed from 0.5 to 2.0 for local tracks beneath an absolute directory. Returns acceptance, not completion of the asynchronous transition. `nil, 1.0` resets the scope. Scoped to path components; last call wins, cleared on plugin shutdown. |
+| `plugin.get_playback_speed()` | Returns the actual committed speed; 1.0 while idle or for unsupported formats. |
 | `plugin.set_transport_skip(dir, seconds)` | Makes Next and Previous skip `seconds` (1 to 300) within files under `dir` instead of changing track; 0 turns it off. Applies to every Next/Previous control, not to automatic track changes. Not saved; the last call wins. Check `playback.transport_skip`. |
+
+Playback speed uses speech time stretching for local mono/stereo PCM sources from
+8–96 kHz, with 16-bit output while active. DSD and network streams keep normal
+speed. Crossfade is disabled across tracks with active stretching. Seek, chapter,
+bookmark and progress times stay in source seconds; during stretching the
+delivered source position is nominal, with fractional frame accounting and an
+exact source endpoint once the final output is delivered. Speed preferences
+should be saved by the plugin, and scoped to its content directory.
+
 
 ### Current state
 
@@ -676,6 +699,7 @@ plugin.play_remote({
 | --- | --- |
 | `plugin.is_playing()`, `plugin.is_paused()` | booleans |
 | `plugin.get_position()`, `plugin.get_duration()` | seconds |
+| `plugin.get_playback_progress(expected_path)` | A coherent `{ position, duration, playing, paused, terminal }` snapshot, or `nil` unless the absolute path exactly matches the current playback generation or its retained terminal state. Check `playback.progress` before using it. `terminal` is `"active"`, `"natural_eof"`, or `"manual_stop"`. `active` can include decoder recovery after a premature EOF; only `natural_eof` confirms natural completion. Use this for checkpoints that must distinguish completion from a manual stop; the legacy getters above are independent snapshots. |
 | `plugin.get_volume()` | 0 to 100 |
 | `plugin.get_now_playing()` | `title, artist, album, duration_seconds`, or `nil` if nothing has played yet |
 | `plugin.get_current_track_path()` | absolute path, or `nil` when nothing is loaded |
@@ -782,11 +806,21 @@ saved immediately, and the EQ screen shows it.
 | `plugin.eq_reset()` | Restores the defaults. |
 | `plugin.eq_set_bypass(on)` | `true` turns the whole EQ off. |
 | `plugin.eq_set_preamp(db)` | Sets the preamp gain. |
+| `plugin.eq_get_stereo_width()` | Gets the configured width (API 16, capability `audio.stereo_width`). |
+| `plugin.eq_set_stereo_width(width)` | Sets width from 0 (mono fold) through 1 (neutral) to 2 (wider). Rejects nonfinite/out-of-range values. |
 | `plugin.eq_set_band(index, freq_hz, gain_db, q)` | Sets one band. `index` is 1 to 10. |
 | `plugin.eq_set_band_type(index, type)` | `"peaking"`, `"low_shelf"` or `"high_shelf"`. |
 | `plugin.eq_set_band_enabled(index, on)` | Turns one band on or off. |
 
-There are no getters. A bad index or type is an error. Since every call writes
+Stereo width is saved as `stereo_width` in `.peq` profiles, included in backups,
+restored to 1 when loading older profiles, and reset by `eq_reset()`. EQ bypass
+also bypasses width. Slider changes ramp over at most 20 ms; mono input is
+unchanged. Widening applies headroom compensation, reducing the center level.
+Native DSD over PCM (DoP) bypasses all PEQ processing, including width.
+This is stereo width, not crossfeed or a room simulation. The EQ frequency graph
+shows the band/preamp response and excludes this channel-dependent matrix.
+
+A bad index or type is an error. Since every call writes
 to storage, change only the bands that changed.
 
 ### `plugin.set_hw_volume_curve(curve)`
@@ -1061,7 +1095,7 @@ All in `plugins_examples/`:
 | `Podcasts.lua` | RSS and OPML, episode downloads, resume |
 | `NetRadio.lua` | Stream Media tile and radio streams from `Radio.txt` |
 | `HiByStockPlayer.lua` | A Player layout in the style of the stock HiBy OS player, with its own lyrics area, offered in Settings and applied from a row |
-| `Themes.lua` | Full theming: icons, colors, Home layout, saved choice, `refresh_theme` |
+| `Themes.lua` | Historical reference format: icons, colors, Home layout, saved choice, `refresh_theme` |
 | `SoundProfiles.lua` | Switching EQ profiles |
 | `MSEB.lua` | Chained settings screens, sliders sharing EQ bands, backup and restore |
 | `GainMode.lua` | Low/High Gain volume curves |

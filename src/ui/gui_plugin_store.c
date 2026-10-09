@@ -1,4 +1,5 @@
 #include "gui_plugin_store.h"
+#include "assets.h"
 #include "i18n.h"
 
 #include "gui_navigation.h"
@@ -27,15 +28,12 @@ static size_t store_row_count;
 static bool store_changed_dirty;
 static bool store_ui_active;
 static bool store_open_when_ready;
+static lv_obj_t * store_open_origin;
 static bool store_is_refresh;
-static bool store_player_layouts_only;
+static gui_plugin_store_view_t store_view;
 static bool store_pending_update_all;
 static bool store_push_pending; /* open the store once the busy screen's pop has finished */
 static bool store_confirm_pending; /* likewise for the replace-files question */
-static bool store_recommendation_pending;
-static bool store_recommendation_details_pending;
-static char store_recommendation_id[64];
-static lv_obj_t * store_recommendation_origin;
 static bool store_picker_mode;
 static bool store_picker_pending;
 static bool store_picker_refresh_pending;
@@ -57,22 +55,26 @@ static char store_selected_id[64];
 static gui_busy_handle_t store_busy;
 static gui_popup_t detail_popup, remove_popup, confirm_popup, picker_popup;
 static lv_obj_t * detail_title, *detail_body, *remove_title, *confirm_title, *picker_title, *picker_list;
+static lv_obj_t * store_header_review_updates_btn;
 
 static void populate_store_screen(bool preserve_scroll);
-static bool start_catalog_refresh(const char * requested_id);
+static bool start_catalog_refresh(gui_plugin_store_view_t view);
 static void player_layout_refresh_cb(lv_event_t * e);
 static void layout_picker_card_cb(lv_event_t * e);
+static void review_updates_cb(lv_event_t * e);
+static void store_updates_refresh_cb(lv_event_t * e);
+static void theme_store_refresh_cb(lv_event_t * e);
 
 static void set_store_title(void) {
-    if (store_title) lv_label_set_text(store_title, store_player_layouts_only ?
-                                       TR("Download layouts") : TR("Plugin Store"));
-}
-
-static void clear_recommendation_request(void) {
-    store_recommendation_pending = false;
-    store_recommendation_details_pending = false;
-    store_recommendation_id[0] = '\0';
-    store_recommendation_origin = NULL;
+    if (!store_title) return;
+    if (store_view == STORE_VIEW_LAYOUTS)
+        lv_label_set_text(store_title, TR("Download layouts"));
+    else if (store_view == STORE_VIEW_THEMES)
+        lv_label_set_text(store_title, TR("Download themes"));
+    else if (store_view == STORE_VIEW_UPDATES)
+        lv_label_set_text(store_title, TR("Extension updates"));
+    else
+        lv_label_set_text(store_title, TR("Plugin Store"));
 }
 
 static void clear_picker_request(void) {
@@ -95,9 +97,8 @@ static void clear_layout_picker_request(void) {
 
 bool gui_plugin_store_operation_active(void) {
     return store_ui_active || plugin_store_busy() || store_push_pending || store_confirm_pending ||
-           store_recommendation_pending || store_recommendation_details_pending || store_picker_pending ||
-           store_picker_mode || store_layout_picker_mode || store_layout_picker_pending ||
-           store_setup_catalog_pending;
+           store_picker_pending || store_picker_mode || store_layout_picker_mode ||
+           store_layout_picker_pending || store_setup_catalog_pending;
 }
 
 static bool result_is_installed(const plugin_store_result_t * row) {
@@ -134,11 +135,10 @@ static bool store_can_prepare_previews(void) {
     for (lv_indev_t * indev = lv_indev_get_next(NULL); indev; indev = lv_indev_get_next(indev))
         if (lv_indev_get_type(indev) == LV_INDEV_TYPE_POINTER &&
             lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED) return false;
-    return store_player_layouts_only && store_screen && store_list &&
+    return (store_view == STORE_VIEW_LAYOUTS || store_view == STORE_VIEW_THEMES) && store_screen && store_list &&
            gui_navigation_is_top(store_screen) && !gui_navigation_transition_in_progress() &&
            !store_ui_active && !plugin_store_busy() && !store_push_pending &&
-           !store_confirm_pending && !store_recommendation_pending &&
-           !store_recommendation_details_pending && !store_picker_pending && !store_picker_mode &&
+           !store_confirm_pending && !store_picker_pending && !store_picker_mode &&
            !store_preview_popup_visible();
 }
 
@@ -163,7 +163,7 @@ static void store_prepare_previews_if_ready(plugin_store_state_t state) {
             intptr_t encoded_index = (intptr_t) lv_obj_get_user_data(card);
             if (encoded_index <= 0 || (size_t) (encoded_index - 1) >= store_row_count) continue;
             int index = (int) (encoded_index - 1);
-            if (!store_rows[index].player_layout) continue;
+            if (!store_rows[index].player_layout && !store_rows[index].theme_pack) continue;
             lv_area_t card_area;
             lv_obj_get_coords(card, &card_area);
             if (card_area.x2 < viewport.x1 || card_area.x1 > viewport.x2) continue;
@@ -316,25 +316,45 @@ static void build_popups(void) {
     lv_obj_set_scroll_dir(picker_popup.popup, LV_DIR_NONE);
 }
 
-static const char * row_status(const plugin_store_result_t * row, char * out, size_t cap) {
+static const char * plugin_status_label(const plugin_store_result_t * row) {
     if (row->incompatible || row->state == PLUGIN_STORE_PLUGIN_INCOMPATIBLE)
         return TR("Needs newer firmware");
+    switch (row->state) {
+        case PLUGIN_STORE_PLUGIN_UPDATE:
+            return TR("Update available");
+        case PLUGIN_STORE_PLUGIN_INSTALLED:
+            return TR("Installed");
+        case PLUGIN_STORE_PLUGIN_REMOVED:
+            return TR("Removed");
+        case PLUGIN_STORE_PLUGIN_MANUAL:
+            return TR("Installed manually");
+        default:
+            return TR("Available");
+    }
+}
+
+static const char * row_status(const plugin_store_result_t * row, char * out, size_t cap) {
+    if (row->incompatible || row->state == PLUGIN_STORE_PLUGIN_INCOMPATIBLE)
+        return plugin_status_label(row);
     switch (row->state) {
         case PLUGIN_STORE_PLUGIN_UPDATE:
             snprintf(out, cap, TR("Update available · %s"), row->version);
             return out;
         case PLUGIN_STORE_PLUGIN_INSTALLED:
-            if (row->version[0]) snprintf(out, cap, TR("Installed · %s"), row->version);
-            else snprintf(out, cap, "%s", TR("Installed"));
-            return out;
-        case PLUGIN_STORE_PLUGIN_REMOVED: return TR("Removed");
-        case PLUGIN_STORE_PLUGIN_MANUAL: return TR("Installed manually");
+            if (row->version[0]) {
+                snprintf(out, cap, TR("Installed · %s"), row->version);
+                return out;
+            }
+            return plugin_status_label(row);
+        case PLUGIN_STORE_PLUGIN_REMOVED:
+        case PLUGIN_STORE_PLUGIN_MANUAL:
+            return plugin_status_label(row);
         default:
             if (row->version[0]) {
                 snprintf(out, cap, TR("Available · %s"), row->version);
                 return out;
             }
-            return TR("Available");
+            return plugin_status_label(row);
     }
 }
 
@@ -346,17 +366,7 @@ static void show_details(void) {
     bool has_details = plugin_store_get_details(row->id, &details);
     char title[128], body[800], metadata[160];
     snprintf(title, sizeof(title), "%s", row->name[0] ? row->name : row->id);
-    const char * state = TR("Available");
-    if (row->incompatible || row->state == PLUGIN_STORE_PLUGIN_INCOMPATIBLE)
-        state = TR("Needs newer firmware");
-    else if (row->state == PLUGIN_STORE_PLUGIN_UPDATE)
-        state = TR("Update available");
-    else if (row->state == PLUGIN_STORE_PLUGIN_INSTALLED)
-        state = TR("Installed");
-    else if (row->state == PLUGIN_STORE_PLUGIN_REMOVED)
-        state = TR("Removed");
-    else if (row->state == PLUGIN_STORE_PLUGIN_MANUAL)
-        state = TR("Installed manually");
+    const char * state = plugin_status_label(row);
     if (row->version[0]) snprintf(metadata, sizeof(metadata), TR("Version %s · %s"), row->version, state);
     else snprintf(metadata, sizeof(metadata), "%s", state);
     char author_line[160] = "";
@@ -620,7 +630,7 @@ static void populate_picker_popup(bool preserve_scroll) {
     lv_obj_clean(picker_list);
     bool any = false;
     for (size_t i = 0; i < store_row_count; ++i) {
-        if (store_rows[i].player_layout) continue;
+        if (store_rows[i].player_layout || store_rows[i].theme_pack) continue;
         add_picker_popup_row((int) i);
         any = true;
     }
@@ -645,7 +655,7 @@ static void show_picker_popup(void) {
 
 static void update_all_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    if (store_player_layouts_only) return;
+    if (store_view != STORE_VIEW_UPDATES) return;
     if (!plugin_store_update_all()) {
         show_error_toast(TR("A plugin operation is already in progress"));
         return;
@@ -658,6 +668,28 @@ static void update_all_cb(lv_event_t * e) {
     gui_busy_set_progress(store_busy, 0);
 }
 
+static void review_updates_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (store_picker_mode || store_layout_picker_mode || gui_plugin_store_operation_active()) return;
+    plugin_store_cancel_previews();
+    store_view = STORE_VIEW_UPDATES;
+    set_store_title();
+    populate_store_screen(false);
+}
+
+static void store_updates_refresh_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (!gui_shell_wifi_connected()) {
+        show_error_toast(TR("No network detected. Connect to a network to download plugins."));
+        return;
+    }
+    if (gui_plugin_store_operation_active()) {
+        show_error_toast(TR("A plugin operation is already in progress"));
+        return;
+    }
+    (void) start_catalog_refresh(STORE_VIEW_UPDATES);
+}
+
 static void populate_store_screen(bool preserve_scroll) {
     if (!store_screen || !store_list || !store_rows) return;
     int32_t scroll_y = preserve_scroll ? lv_obj_get_scroll_y(store_list) : 0;
@@ -668,32 +700,96 @@ static void populate_store_screen(bool preserve_scroll) {
     reset_store_list_to_rows();
     lv_obj_clean(store_list);
 
-    bool any_visible = false;
-    bool visible[PLUGIN_STORE_MAX_RESULTS];
+    bool has_any_updates = false;
     for (size_t i = 0; i < store_row_count; i++) {
-        visible[i] = store_player_layouts_only == store_rows[i].player_layout;
-        if (visible[i]) any_visible = true;
+        if (store_rows[i].state == PLUGIN_STORE_PLUGIN_UPDATE && !store_rows[i].incompatible) {
+            has_any_updates = true;
+            break;
+        }
     }
-    if (!any_visible && status.state == PLUGIN_STORE_READY) {
-        lv_obj_t * empty = lv_label_create(store_list);
-        lv_label_set_text(empty, store_player_layouts_only ? TR("No layouts are available in the catalog.") :
-                          TR("No plugins are available in the catalog."));
-        lv_obj_add_style(empty, &style_theme_text_muted, 0);
-        lv_obj_set_style_text_font(empty, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-        lv_obj_set_width(empty, lv_pct(90));
-        lv_label_set_long_mode(empty, LV_LABEL_LONG_WRAP);
-        lv_obj_set_style_text_align(empty, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_style_pad_top(empty, BOARD_SCALE_PX(48), 0);
-        if (!store_layout_picker_mode)
-            add_pill_chevron_row(store_list, TR("Refresh plugin catalog"), store_player_layouts_only ?
-                                 player_layout_refresh_cb : gui_plugin_store_row_cb);
+
+    if (store_header_review_updates_btn) {
+        if (store_view == STORE_VIEW_LAYOUTS && has_any_updates && !store_layout_picker_mode && !store_picker_mode) {
+            lv_obj_remove_flag(store_header_review_updates_btn, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(store_header_review_updates_btn, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    if (store_view == STORE_VIEW_UPDATES) {
+        if (!has_any_updates && status.state == PLUGIN_STORE_READY) {
+            lv_obj_t * empty = lv_label_create(store_list);
+            lv_label_set_text(empty, TR("No updates available."));
+            lv_obj_add_style(empty, &style_theme_text_muted, 0);
+            lv_obj_set_style_text_font(empty, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+            lv_obj_set_width(empty, lv_pct(90));
+            lv_label_set_long_mode(empty, LV_LABEL_LONG_WRAP);
+            lv_obj_set_style_text_align(empty, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_set_style_pad_top(empty, BOARD_SCALE_PX(48), 0);
+            add_pill_chevron_row(store_list, TR("Refresh plugin catalog"), store_updates_refresh_cb);
+            store_preview_generation_seen = generation_snapshot;
+            lv_obj_update_layout(store_list);
+            if (preserve_scroll) lv_obj_scroll_to_y(store_list, scroll_y, LV_ANIM_OFF);
+            return;
+        }
+
+        if (has_any_updates) {
+            add_section_header(store_list, TR("Updates"));
+            add_pill_chevron_row(store_list, TR("Update All"), update_all_cb);
+            for (size_t i = 0; i < store_row_count; i++) {
+                if (store_rows[i].state == PLUGIN_STORE_PLUGIN_UPDATE && !store_rows[i].incompatible)
+                    add_plugin_row((int) i);
+            }
+        }
         store_preview_generation_seen = generation_snapshot;
         lv_obj_update_layout(store_list);
         if (preserve_scroll) lv_obj_scroll_to_y(store_list, scroll_y, LV_ANIM_OFF);
         return;
     }
 
-    if (store_player_layouts_only && any_visible) {
+    bool any_visible = false;
+    bool visible[PLUGIN_STORE_MAX_RESULTS];
+    for (size_t i = 0; i < store_row_count; i++) {
+        if (store_view == STORE_VIEW_LAYOUTS)
+            visible[i] = store_rows[i].player_layout;
+        else if (store_view == STORE_VIEW_THEMES)
+            visible[i] = store_rows[i].theme_pack;
+        else
+            visible[i] = !store_rows[i].player_layout && !store_rows[i].theme_pack;
+        if (visible[i]) any_visible = true;
+    }
+
+    if (!any_visible && status.state == PLUGIN_STORE_READY) {
+        if (store_view == STORE_VIEW_PLUGINS && has_any_updates && !store_picker_mode) {
+            add_section_header(store_list, TR("Updates"));
+            add_pill_chevron_row(store_list, TR("Review updates"), review_updates_cb);
+        }
+        lv_obj_t * empty = lv_label_create(store_list);
+        if (store_view == STORE_VIEW_LAYOUTS)
+            lv_label_set_text(empty, TR("No layouts are available in the catalog."));
+        else if (store_view == STORE_VIEW_THEMES)
+            lv_label_set_text(empty, TR("No themes are available in the catalog."));
+        else
+            lv_label_set_text(empty, TR("No plugins are available in the catalog."));
+        lv_obj_add_style(empty, &style_theme_text_muted, 0);
+        lv_obj_set_style_text_font(empty, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+        lv_obj_set_width(empty, lv_pct(90));
+        lv_label_set_long_mode(empty, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_align(empty, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_pad_top(empty, BOARD_SCALE_PX(48), 0);
+        if (!store_layout_picker_mode && !store_picker_mode) {
+            lv_event_cb_t refresh_cb = gui_plugin_store_row_cb;
+            if (store_view == STORE_VIEW_LAYOUTS) refresh_cb = player_layout_refresh_cb;
+            else if (store_view == STORE_VIEW_THEMES) refresh_cb = theme_store_refresh_cb;
+            add_pill_chevron_row(store_list, TR("Refresh plugin catalog"), refresh_cb);
+        }
+        store_preview_generation_seen = generation_snapshot;
+        lv_obj_update_layout(store_list);
+        if (preserve_scroll) lv_obj_scroll_to_y(store_list, scroll_y, LV_ANIM_OFF);
+        return;
+    }
+
+    if ((store_view == STORE_VIEW_LAYOUTS || store_view == STORE_VIEW_THEMES) && any_visible) {
         configure_cover_card_grid(store_list, 2);
         if (store_layout_picker_mode) {
             lv_obj_set_style_pad_top(store_list, BOARD_SCALE_PX(6), 0);
@@ -749,12 +845,9 @@ static void populate_store_screen(bool preserve_scroll) {
         return;
     }
 
-    bool updates = false;
-    for (size_t i = 0; i < store_row_count; i++)
-        if (visible[i] && store_rows[i].state == PLUGIN_STORE_PLUGIN_UPDATE && !store_rows[i].incompatible) updates = true;
-    if (updates) {
+    if (has_any_updates && !store_picker_mode) {
         add_section_header(store_list, TR("Updates"));
-        if (!store_player_layouts_only) add_pill_chevron_row(store_list, TR("Update All"), update_all_cb);
+        add_pill_chevron_row(store_list, TR("Review updates"), review_updates_cb);
         for (size_t i = 0; i < store_row_count; i++)
             if (visible[i] && store_rows[i].state == PLUGIN_STORE_PLUGIN_UPDATE && !store_rows[i].incompatible)
                 add_plugin_row((int) i);
@@ -860,11 +953,7 @@ static void store_action_cb(lv_event_t * e) {
         (void) start_operation(PLUGIN_STORE_UPDATING, false);
 }
 
-static bool start_catalog_refresh(const char * requested_id) {
-    if (requested_id && requested_id[0] && strlen(requested_id) >= sizeof(store_recommendation_id)) {
-        show_error_toast(TR("Plugin is unavailable"));
-        return false;
-    }
+static bool start_catalog_refresh(gui_plugin_store_view_t view) {
     if (!store_rows) {
         show_error_toast(TR("Not enough memory to load the plugin store"));
         return false;
@@ -881,39 +970,20 @@ static bool start_catalog_refresh(const char * requested_id) {
         show_error_toast(TR("Could not start the plugin refresh"));
         return false;
     }
+    store_view = view;
     store_setup_catalog_ready = false;
-    clear_recommendation_request();
-    if (requested_id && requested_id[0]) {
-        size_t len = strlen(requested_id);
-        memcpy(store_recommendation_id, requested_id, len + 1);
-        store_recommendation_origin = lv_screen_active();
-        store_recommendation_pending = true;
-    }
+    store_open_origin = lv_screen_active();
     store_ui_active = true;
     store_is_refresh = true;
-    store_open_when_ready = true;
+    store_open_when_ready = (store_open_origin != store_screen);
     set_store_title();
-    store_busy = gui_busy_show(store_player_layouts_only ? TR("Loading layouts") : TR("Loading plugins"),
-                               TR("This may take a while"));
+    const char * busy_title;
+    if (store_view == STORE_VIEW_LAYOUTS) busy_title = TR("Loading layouts");
+    else if (store_view == STORE_VIEW_THEMES) busy_title = TR("Loading themes");
+    else if (store_view == STORE_VIEW_UPDATES) busy_title = TR("Loading updates");
+    else busy_title = TR("Loading plugins");
+    store_busy = gui_busy_show(busy_title, TR("This may take a while"));
     return true;
-}
-
-bool gui_plugin_store_open_recommendation(const char * id) {
-    if (id && id[0] && strlen(id) >= sizeof(store_recommendation_id)) {
-        show_error_toast(TR("Plugin is unavailable"));
-        return false;
-    }
-    if (!gui_shell_wifi_connected()) {
-        show_error_toast(TR("No network detected. Connect to a network to download plugins."));
-        return false;
-    }
-    clear_layout_picker_request();
-    bool previous_filter = store_player_layouts_only;
-    store_player_layouts_only = false;
-    if (start_catalog_refresh(id)) return true;
-    store_player_layouts_only = previous_filter;
-    set_store_title();
-    return false;
 }
 
 bool gui_plugin_store_open_player_layouts(void) {
@@ -921,18 +991,64 @@ bool gui_plugin_store_open_player_layouts(void) {
         show_error_toast(TR("No network detected. Connect to a network to download plugins."));
         return false;
     }
+    if (gui_plugin_store_operation_active()) {
+        show_error_toast(TR("A plugin operation is already in progress"));
+        return false;
+    }
     clear_layout_picker_request();
-    bool previous_filter = store_player_layouts_only;
-    store_player_layouts_only = true;
-    if (start_catalog_refresh(NULL)) return true;
-    store_player_layouts_only = previous_filter;
-    set_store_title();
-    return false;
+    return start_catalog_refresh(STORE_VIEW_LAYOUTS);
+}
+
+bool gui_plugin_store_open_themes(void) {
+    if (!gui_shell_wifi_connected()) {
+        show_error_toast(TR("No network detected. Connect to a network to download plugins."));
+        return false;
+    }
+    if (gui_plugin_store_operation_active()) {
+        show_error_toast(TR("A plugin operation is already in progress"));
+        return false;
+    }
+    clear_layout_picker_request();
+    return start_catalog_refresh(STORE_VIEW_THEMES);
+}
+
+static void theme_store_refresh_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (!gui_shell_wifi_connected()) {
+        show_error_toast(TR("No network detected. Connect to a network to download plugins."));
+        return;
+    }
+    if (gui_plugin_store_operation_active()) {
+        show_error_toast(TR("A plugin operation is already in progress"));
+        return;
+    }
+    (void) start_catalog_refresh(STORE_VIEW_THEMES);
+}
+
+bool gui_plugin_store_open_updates(void) {
+    if (!gui_shell_wifi_connected()) {
+        show_error_toast(TR("No network detected. Connect to a network to download plugins."));
+        return false;
+    }
+    if (gui_plugin_store_operation_active()) {
+        show_error_toast(TR("A plugin operation is already in progress"));
+        return false;
+    }
+    clear_layout_picker_request();
+    return start_catalog_refresh(STORE_VIEW_UPDATES);
 }
 
 static void player_layout_refresh_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    (void) start_catalog_refresh(NULL);
+    if (!gui_shell_wifi_connected()) {
+        show_error_toast(TR("No network detected. Connect to a network to download plugins."));
+        return;
+    }
+    if (gui_plugin_store_operation_active()) {
+        show_error_toast(TR("A plugin operation is already in progress"));
+        return;
+    }
+    (void) start_catalog_refresh(STORE_VIEW_LAYOUTS);
 }
 
 bool gui_plugin_store_setup_catalog_ready(void) {
@@ -978,7 +1094,7 @@ bool gui_plugin_store_setup_catalog_prepare(void) {
         show_error_toast(TR("Could not start the plugin refresh"));
         return false;
     }
-    store_player_layouts_only = false;
+    store_view = STORE_VIEW_PLUGINS;
     set_store_title();
     store_setup_catalog_ready = false;
     store_setup_catalog_pending = true;
@@ -1059,7 +1175,6 @@ bool gui_plugin_store_open_layout_picker(bool (*is_selected)(const char * id),
                                          void (*select)(const char * id, const char * name)) {
     if (!is_selected || !select || store_layout_picker_mode || store_picker_mode ||
         store_ui_active || store_push_pending || store_confirm_pending ||
-        store_recommendation_pending || store_recommendation_details_pending ||
         (plugin_store_busy() && !store_setup_catalog_pending))
         return false;
 
@@ -1067,7 +1182,7 @@ bool gui_plugin_store_open_layout_picker(bool (*is_selected)(const char * id),
     if (!ready && !store_setup_catalog_pending && !gui_plugin_store_setup_catalog_prepare()) return false;
 
     clear_layout_picker_request();
-    store_player_layouts_only = true;
+    store_view = STORE_VIEW_LAYOUTS;
     set_store_title();
     store_layout_picker_mode = true;
     store_layout_picker_pending = true;
@@ -1082,6 +1197,7 @@ bool gui_plugin_store_open_picker(bool (*is_selected)(const char * id),
                                   void (*toggle)(const char * id, const char * name),
                                   void (*done)(void)) {
     if (!is_selected || !toggle) return false;
+    if (store_layout_picker_mode || store_layout_picker_pending) return false;
     clear_layout_picker_request();
     if (!gui_shell_wifi_connected()) {
         show_error_toast(TR("No network detected. Connect to a network to download plugins."));
@@ -1089,7 +1205,7 @@ bool gui_plugin_store_open_picker(bool (*is_selected)(const char * id),
     }
     if (store_picker_mode) return false;
     if (store_setup_catalog_pending) {
-        store_player_layouts_only = false;
+        store_view = STORE_VIEW_PLUGINS;
         set_store_title();
         store_picker_mode = true;
         store_picker_pending = true;
@@ -1099,13 +1215,12 @@ bool gui_plugin_store_open_picker(bool (*is_selected)(const char * id),
         store_picker_done = done;
         return true;
     }
-    if (store_ui_active || store_push_pending || store_confirm_pending ||
-        store_recommendation_pending || store_recommendation_details_pending || plugin_store_busy()) {
+    if (store_ui_active || store_push_pending || store_confirm_pending || plugin_store_busy()) {
         show_error_toast(TR("A plugin operation is already in progress"));
         return false;
     }
     if (gui_plugin_store_setup_catalog_ready()) {
-        store_player_layouts_only = false;
+        store_view = STORE_VIEW_PLUGINS;
         set_store_title();
         store_picker_mode = true;
         store_picker_origin = lv_screen_active();
@@ -1128,14 +1243,17 @@ bool gui_plugin_store_open_picker(bool (*is_selected)(const char * id),
 }
 
 void gui_plugin_store_row_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    clear_layout_picker_request();
-    bool previous_filter = store_player_layouts_only;
-    store_player_layouts_only = false;
-    if (!start_catalog_refresh(NULL)) {
-        store_player_layouts_only = previous_filter;
-        set_store_title();
+    if (e && lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (!gui_shell_wifi_connected()) {
+        show_error_toast(TR("No network detected. Connect to a network to download plugins."));
+        return;
     }
+    if (gui_plugin_store_operation_active()) {
+        show_error_toast(TR("A plugin operation is already in progress"));
+        return;
+    }
+    clear_layout_picker_request();
+    (void) start_catalog_refresh(STORE_VIEW_PLUGINS);
 }
 
 void poll_plugin_store(void) {
@@ -1218,12 +1336,12 @@ void poll_plugin_store(void) {
     }
     /* Home drops a covered store from the stack without unloading it. */
     if (store_changed_dirty && !store_ui_active && !store_push_pending && store_left()) apply_changes();
-    if ((store_recommendation_pending || store_picker_pending) && store_ui_active && store_is_refresh &&
+    if (store_open_when_ready && store_ui_active && store_is_refresh &&
         !gui_navigation_is_top(gui_busy_get_screen())) {
         /* The user backed out of the loading screen. Let the catalog worker
-         * finish, but do not later open the store or stale recommendation. */
+         * finish, but do not later open the store. */
         store_open_when_ready = false;
-        clear_recommendation_request();
+        store_open_origin = NULL;
         clear_picker_request();
     }
     if (store_push_pending) {
@@ -1231,47 +1349,26 @@ void poll_plugin_store(void) {
          * animation load Plugin Manager over the store. */
         if (gui_navigation_transition_in_progress()) return;
         store_push_pending = false;
-        if (store_recommendation_pending &&
-            (!store_recommendation_origin || !gui_navigation_is_top(store_recommendation_origin))) {
-            clear_recommendation_request();
-            return;
-        }
         if (store_picker_pending &&
             (!store_picker_origin || !gui_navigation_is_top(store_picker_origin))) {
             clear_picker_request();
+            store_open_origin = NULL;
             return;
         }
         if (store_layout_picker_pending &&
             (!store_layout_picker_origin || !gui_navigation_is_top(store_layout_picker_origin))) {
             clear_layout_picker_request();
+            store_open_origin = NULL;
             return;
         }
+        if (store_open_origin && !gui_navigation_is_top(store_open_origin)) {
+            store_open_origin = NULL;
+            return;
+        }
+        store_open_origin = NULL;
         nav_push(store_screen);
-        if (store_recommendation_pending) store_recommendation_details_pending = true;
         store_picker_pending = false;
         store_layout_picker_pending = false;
-        return;
-    }
-    if (store_recommendation_details_pending) {
-        if (gui_navigation_transition_in_progress()) return;
-        if (!gui_navigation_is_top(store_screen)) {
-            clear_recommendation_request();
-            return;
-        }
-        int requested_index = -1;
-        for (size_t i = 0; i < store_row_count; ++i) {
-            if (strcmp(store_rows[i].id, store_recommendation_id) == 0) {
-                requested_index = (int) i;
-                break;
-            }
-        }
-        clear_recommendation_request();
-        if (requested_index < 0) {
-            show_error_toast(TR("Plugin is unavailable in the catalog"));
-            return;
-        }
-        store_selected_index = requested_index;
-        show_details();
         return;
     }
     if (store_confirm_pending) {
@@ -1282,7 +1379,7 @@ void poll_plugin_store(void) {
         gui_popup_show(&confirm_popup);
         return;
     }
-    if (store_player_layouts_only && store_can_prepare_previews()) {
+    if ((store_view == STORE_VIEW_LAYOUTS || store_view == STORE_VIEW_THEMES) && store_can_prepare_previews()) {
         plugin_store_status_t preview_status;
         plugin_store_get_status(&preview_status, NULL, 0);
         if (preview_status.state == PLUGIN_STORE_READY) {
@@ -1303,7 +1400,6 @@ void poll_plugin_store(void) {
         store_ui_active = false;
         store_open_when_ready = false;
         store_pending_update_all = false;
-        clear_recommendation_request();
         clear_picker_request();
         return;
     }
@@ -1332,7 +1428,6 @@ void poll_plugin_store(void) {
         store_ui_active = false;
         store_open_when_ready = false;
         store_pending_update_all = false;
-        clear_recommendation_request();
         store_setup_catalog_ready = false;
         store_setup_catalog_pending = false;
         clear_picker_request();
@@ -1360,10 +1455,15 @@ void poll_plugin_store(void) {
 void gui_plugin_store_init(void) {
     store_rows = calloc(PLUGIN_STORE_MAX_RESULTS, sizeof(*store_rows));
     store_row_count = 0;
-    store_player_layouts_only = false;
+    store_view = STORE_VIEW_PLUGINS;
     clear_layout_picker_request();
     store_preview_generation_seen = plugin_store_preview_generation();
     store_screen = build_subsonic_list_screen(TR("Plugin Store"), &store_title, &store_list);
+    store_header_review_updates_btn = build_top_right_icon_button(store_screen,
+                                                                 asset_path("stream_media/download.png"),
+                                                                 review_updates_cb);
+    if (store_header_review_updates_btn)
+        lv_obj_add_flag(store_header_review_updates_btn, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_event_cb(store_screen, store_screen_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
     lv_obj_add_event_cb(store_screen, store_screen_unloaded_cb, LV_EVENT_SCREEN_UNLOADED, NULL);
     build_popups();
@@ -1371,7 +1471,6 @@ void gui_plugin_store_init(void) {
 
 void gui_plugin_store_teardown(void) {
     plugin_store_cancel_previews();
-    clear_recommendation_request();
     clear_picker_request();
     clear_layout_picker_request();
     store_setup_catalog_pending = false;
@@ -1384,15 +1483,17 @@ void gui_plugin_store_teardown(void) {
         lv_obj_delete(store_screen);
         store_screen = NULL;
         store_list = NULL;
+        store_header_review_updates_btn = NULL;
     }
     free(store_rows);
     store_rows = NULL;
     store_row_count = 0;
-    store_player_layouts_only = false;
+    store_view = STORE_VIEW_PLUGINS;
     store_title = NULL;
     store_push_pending = false;
     store_confirm_pending = false;
     store_open_when_ready = false;
+    store_open_origin = NULL;
     /* A running worker keeps reporting to the rebuilt screens; otherwise
      * start over. */
     if (!plugin_store_busy()) {

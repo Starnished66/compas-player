@@ -35,7 +35,7 @@ void bt_media_player_notify_track(const char * title, const char * artist,
  * last check -- meant to be polled from the GUI thread's own periodic
  * timer (update_timer_cb), the exact same "background thread sets a flag,
  * the one thread allowed to touch LVGL widgets consumes it" pattern
- * hw_buttons_consume_play_pause()/_next()/_prev() already use for this
+ * hw_buttons_consume_event() uses for this
  * device's own physical buttons, since the D-Bus dispatch thread below
  * must not call into gui.c/LVGL directly. */
 bool bt_media_player_consume_play_pause(void);

@@ -1,0 +1,20 @@
+#!/bin/sh
+
+MAC_MANAGER=/usr/bin/compas-wifi-mac
+
+case "$1" in
+    start)
+        # MAC setup runs asynchronously. WiFi activation is gated by wifi_on.
+        "$MAC_MANAGER" start
+        exit $?
+        ;;
+    stop)
+        # rcK shutdown is terminal for this boot; /var/run resets on reboot.
+        "$MAC_MANAGER" stop
+        exit $?
+        ;;
+    *)
+        echo "Usage: $0 {start|stop}" >&2
+        exit 1
+        ;;
+esac

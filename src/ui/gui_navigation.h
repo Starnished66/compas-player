@@ -108,3 +108,6 @@ void full_redraw_async_cb(void * unused);
 
 /* UI-thread notification after a covered screen receives worker results. */
 void gui_navigation_invalidate_back_snapshot(lv_obj_t * screen);
+
+/* Resume pending sliced captures on wake; pause them while the screen is off. */
+void gui_navigation_poll_snapshot_rebuild(void);

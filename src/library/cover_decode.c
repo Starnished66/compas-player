@@ -522,6 +522,14 @@ static uint16_t * resize_cover_fit(const uint8_t * src, int src_w, int src_h, in
     uint16_t * dst = malloc((size_t) dst_w * dst_h * sizeof(uint16_t));
     if (!dst) return NULL;
 
+    if (src_w == dst_w && src_h == dst_h) {
+        size_t pixel_count = (size_t) dst_w * (size_t) dst_h;
+        for (size_t i = 0; i < pixel_count; i++) {
+            dst[i] = rgb888_to_565(src[i * 3], src[i * 3 + 1], src[i * 3 + 2]);
+        }
+        return dst;
+    }
+
     float scale_w = (float) dst_w / (float) src_w;
     float scale_h = (float) dst_h / (float) src_h;
     float scale = scale_w > scale_h ? scale_w : scale_h;

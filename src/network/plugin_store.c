@@ -258,6 +258,64 @@ static bool integer_field(const cJSON * o, const char * name, uint32_t min, uint
     return true;
 }
 
+static bool parse_preview_metadata(const cJSON * value, plugin_store_preview_t * out) {
+    if (!cJSON_IsObject(value)) return false;
+    const char * asset = string_field(value, "asset");
+    const char * sha = string_field(value, "sha256");
+    plugin_store_preview_t parsed = {0};
+    if (!regex_token(asset, 127, true) || !sha_valid(sha) ||
+        !integer_field(value, "size", 1, STORE_PREVIEW_LIMIT, &parsed.size) ||
+        !integer_field(value, "width", 1, 240, &parsed.width) ||
+        !integer_field(value, "height", 1, 400, &parsed.height)) {
+        return false;
+    }
+    snprintf(parsed.asset, sizeof(parsed.asset), "%s", asset);
+    snprintf(parsed.sha256, sizeof(parsed.sha256), "%s", sha);
+    *out = parsed;
+    return true;
+}
+
+static void store_preview_bounds(int * width, int * height) {
+    *width = (BOARD_SCREEN_WIDTH - 2 * BOARD_SCALE_PX(16) - BOARD_SCALE_PX(14)) / 2;
+    *height = *width * 3 / 2;
+}
+
+static bool parse_plugin_preview(const cJSON * preview, plugin_store_preview_t * out) {
+    plugin_store_preview_t candidates[4];
+    if (!parse_preview_metadata(preview, &candidates[0])) return false;
+
+    const cJSON * variants = field(preview, "variants");
+    int variant_count = 0;
+    if (variants) {
+        if (!cJSON_IsArray(variants)) return false;
+        variant_count = cJSON_GetArraySize(variants);
+        if (variant_count > 3) return false;
+        for (int i = 0; i < variant_count; i++) {
+            if (!parse_preview_metadata(cJSON_GetArrayItem(variants, i), &candidates[i + 1])) {
+                return false;
+            }
+        }
+    }
+
+    /* The bounds use the Store's two-column cover layout. */
+    int max_width, max_height;
+    store_preview_bounds(&max_width, &max_height);
+    int best = -1;
+    uint64_t best_area = 0;
+    for (int i = 0; i <= variant_count; i++) {
+        if (candidates[i].width > (uint32_t)max_width || candidates[i].height > (uint32_t)max_height) continue;
+        uint64_t area = (uint64_t)candidates[i].width * candidates[i].height;
+        if (best < 0 || area > best_area) {
+            best = i;
+            best_area = area;
+        }
+    }
+    /* The publisher's default remains a compatible fallback on older indexes
+     * whose preview exceeds this board's card bounds. */
+    *out = candidates[best >= 0 ? best : 0];
+    return true;
+}
+
 static bool same_dest(const char * a, const char * b) {
     return strcasecmp(a, b) == 0;
 }
@@ -342,15 +400,8 @@ bool plugin_store_parse_index(const char * json, size_t length, plugin_store_plu
         snprintf(d->author, sizeof(d->author), "%s", author);
 
         const cJSON * preview = field(p, "preview");
-        if (preview) {
-            const char * asset = string_field(preview, "asset");
-            const char * sha = string_field(preview, "sha256");
-            if (!cJSON_IsObject(preview) || !regex_token(asset, 127, true) || !sha_valid(sha) ||
-                !integer_field(preview, "size", 1, STORE_PREVIEW_LIMIT, &d->preview.size) ||
-                !integer_field(preview, "width", 1, 240, &d->preview.width) ||
-                !integer_field(preview, "height", 1, 400, &d->preview.height)) goto fail;
-            snprintf(d->preview.asset, sizeof(d->preview.asset), "%s", asset);
-            snprintf(d->preview.sha256, sizeof(d->preview.sha256), "%s", sha);
+        if (preview && !parse_plugin_preview(preview, &d->preview)) {
+            goto fail;
         }
 
         const cJSON * files = field(p, "files");
@@ -1161,7 +1212,58 @@ static const char * http_error(const char * e) {
     return TR("Could not read the plugin list from GitHub.");
 }
 /* Build the compact UI rows from the current index and installed record. */
+static bool plugin_contains_theme_pack(const plugin_store_plugin_t * plugin) {
+    for (int f = 0; f < plugin->file_count; f++) {
+        const char * dest = plugin->files[f].dest;
+        size_t len = strlen(dest);
+        /* Recognized via dest Themes/star.theme. Must align with native gui_themes_scan
+         * eligibility:
+         * 1. Path begins with "Themes/"
+         * 2. Strict lowercase ".theme" extension
+         * 3. Max depth <= 2 subdirectories beneath Themes/ (e.g. Themes/file.theme,
+         *    Themes/sub1/file.theme, Themes/sub1/sub2/file.theme)
+         * 4. Total theme identifier relative to Themes/ is < 64 chars (GUI_THEMES_MAX_NAME)
+         *    so the installed pack will have at least one browsable theme in the picker.
+         */
+        if (strncmp(dest, "Themes/", 7) != 0) continue;
+        if (len <= 13 || strcmp(dest + len - 6, ".theme") != 0) continue;
+
+        const char * rel = dest + 7;
+        size_t rel_len = strlen(rel);
+        if (rel_len >= 64 || strstr(rel, "..") || strchr(rel, '\\')) continue; /* Native identifier policy. */
+
+        int slashes = 0;
+        bool valid_depth = true;
+        for (const char * p = rel; *p; p++) {
+            if ((unsigned char)*p < 32 || (unsigned char)*p == 127 ||
+                ((p == rel || p[-1] == '/') && (*p == '.' || *p == '/'))) {
+                valid_depth = false;
+                break;
+            }
+            if (*p == '/') {
+                slashes++;
+                if (slashes > 2) {
+                    valid_depth = false;
+                    break;
+                }
+            }
+        }
+        if (valid_depth) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Mixed XML / theme precedence: If a plugin package delivers both .theme
+ * files and layout XML (e.g. Themes.lua or bundles), it is classified as
+ * a theme_pack first and excluded from player_layout. HiByStockPlayer and
+ * other pure XML layouts without .theme files remain ordinary player layouts.
+ */
 static bool plugin_contains_player_layout(const plugin_store_plugin_t * plugin) {
+    if (plugin_contains_theme_pack(plugin)) {
+        return false;
+    }
     for (int f = 0; f < plugin->file_count; f++) {
         const char * dest = plugin->files[f].dest;
         /* Layout XML can be installed directly in player_layouts/ or
@@ -1233,6 +1335,7 @@ static void compute_results(void) {
         snprintf(row->id, sizeof(row->id), "%s", plugin.id);
         snprintf(row->name, sizeof(row->name), "%s", plugin.name);
         snprintf(row->version, sizeof(row->version), "%s", plugin.version);
+        row->theme_pack = plugin_contains_theme_pack(&plugin);
         row->player_layout = plugin_contains_player_layout(&plugin);
         row->state = plugin_store_compute_state(&plugin, match >= 0 ? vers[match] : NULL,
                                                 STORE_SD_ROOT "/.plugins", &row->incompatible);
@@ -1253,6 +1356,7 @@ static void compute_results(void) {
             snprintf(row->id, sizeof(row->id), "%s", rec[r].id);
             snprintf(row->version, sizeof(row->version), "%s", vers[r]);
             row->state = PLUGIN_STORE_PLUGIN_REMOVED;
+            row->theme_pack = plugin_contains_theme_pack(&rec[r]);
             row->player_layout = plugin_contains_player_layout(&rec[r]);
         }
     }
@@ -1650,8 +1754,8 @@ static void * preview_worker(void * context) {
             uint8_t * jpeg = NULL;
             const char * reason = NULL;
             if (preview_read_jpeg(path, &item->preview, &jpeg)) {
-                int card_w = (BOARD_SCREEN_WIDTH - 2 * BOARD_SCALE_PX(16) - BOARD_SCALE_PX(14)) / 2;
-                int cover_h = card_w * 3 / 2;
+                int card_w, cover_h;
+                store_preview_bounds(&card_w, &cover_h);
                 ready = image_thumb_write_bin(jpeg, item->preview.size, card_w, cover_h, bin_path,
                                               ARTWORK_PRIO_THUMBNAIL, preview_decode_cancel, job,
                                               &reason) && preview_progress(0, 0, job);
@@ -1705,7 +1809,8 @@ bool plugin_store_prepare_previews(const char * const * ids, size_t count) {
         if (!ids[i]) continue;
         for (size_t p = 0; p < last_index_count; p++) {
             if (strcmp(last_index[p].id, ids[i]) != 0) continue;
-            if (last_index[p].preview.asset[0] && plugin_contains_player_layout(&last_index[p]))
+            if (last_index[p].preview.asset[0] &&
+                (plugin_contains_player_layout(&last_index[p]) || plugin_contains_theme_pack(&last_index[p])))
                 requested[i] = &last_index[p];
             break;
         }

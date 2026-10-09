@@ -28,15 +28,28 @@ extern char ** environ;
 
 #define COLOR_BG fb_rgb(0x12, 0x12, 0x12)
 
+static void record_shutdown_phase(const char * phase, int error);
+
 /* The kernel marks a FAT volume dirty while it is mounted writable and
  * clears the mark only on unmount or a read-only remount. The player has
  * exited here, so its files are closed; finish pending writes and release
  * the volume cleanly before rebooting. */
 static void release_sd_card(void) {
     sync();
-    if (umount2(SD_MOUNT_POINT, 0) == 0) return;
-    if (errno == EINVAL || errno == ENOENT) return; /* not mounted */
-    mount(NULL, SD_MOUNT_POINT, NULL, MS_REMOUNT | MS_RDONLY, NULL);
+    if (umount2(SD_MOUNT_POINT, 0) == 0) {
+        record_shutdown_phase("sd unmounted", 0);
+        return;
+    }
+    int error = errno;
+    if (error == EINVAL || error == ENOENT) {
+        record_shutdown_phase("sd not mounted", error);
+        return;
+    }
+    record_shutdown_phase("sd unmount failed", error);
+    if (mount(NULL, SD_MOUNT_POINT, NULL, MS_REMOUNT | MS_RDONLY, NULL) == 0)
+        record_shutdown_phase("sd remounted read-only", 0);
+    else
+        record_shutdown_phase("sd read-only remount failed", errno);
 }
 
 /* stderr from the player is not kept across a reboot, so an abnormal exit
@@ -103,6 +116,31 @@ static void write_ignoring_errors(int fd, const void * buf, size_t len) {
     }
 }
 
+static void rotate_player_exit_log(void) {
+    struct stat st;
+    if (stat(PLAYER_EXIT_LOG, &st) == 0 && st.st_size > PLAYER_EXIT_LOG_LIMIT)
+        (void) rename(PLAYER_EXIT_LOG, PLAYER_EXIT_LOG_PREV);
+}
+
+/* Internal persistent storage remains available after releasing the SD card.
+ * Diagnostics must not prevent a reboot if the log cannot be written. */
+static void record_shutdown_phase(const char * phase, int error) {
+    struct timespec now = {0};
+    (void) clock_gettime(CLOCK_BOOTTIME, &now);
+    char line[256];
+    int len = snprintf(line, sizeof(line), "shutdown boottime=%lld phase=%s errno=%d\n",
+                       (long long) now.tv_sec, phase, error);
+    if (len <= 0) return;
+    if (len >= (int) sizeof(line)) len = sizeof(line) - 1;
+    fprintf(stderr, "%s", line);
+    rotate_player_exit_log();
+    int fd = open(PLAYER_EXIT_LOG, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC | O_NOFOLLOW, 0644);
+    if (fd < 0) return;
+    write_ignoring_errors(fd, line, (size_t) len);
+    (void) fsync(fd);
+    close(fd);
+}
+
 static void append_kernel_log_tail(int fd) {
     int size = klogctl(10, NULL, 0); /* SYSLOG_ACTION_SIZE_BUFFER */
     if (size <= 0) return;
@@ -127,7 +165,6 @@ static void record_player_exit(int status) {
     struct timespec boottime;
     char line[320];
     int len;
-    struct stat st;
 
     if (clock_gettime(CLOCK_REALTIME, &realtime) != 0) realtime.tv_sec = 0;
     if (clock_gettime(CLOCK_BOOTTIME, &boottime) != 0) boottime.tv_sec = 0;
@@ -154,9 +191,7 @@ static void record_player_exit(int status) {
     if (len <= 0) return;
     if (len >= (int) sizeof(line)) len = (int) sizeof(line) - 1;
 
-    if (stat(PLAYER_EXIT_LOG, &st) == 0 && st.st_size > PLAYER_EXIT_LOG_LIMIT)
-        (void) rename(PLAYER_EXIT_LOG, PLAYER_EXIT_LOG_PREV);
-
+    rotate_player_exit_log();
     int fd = open(PLAYER_EXIT_LOG, O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (fd < 0) return;
     write_ignoring_errors(fd, line, (size_t) len);
@@ -165,13 +200,50 @@ static void record_player_exit(int status) {
     close(fd);
 }
 
-/* Supervises player execution. A clean exit status (0) triggers device poweroff,
- * while abnormal termination (signals or non-zero exit) triggers a reboot. */
+static bool init_is_busybox(void) {
+    char executable[256];
+    ssize_t length = readlink("/proc/1/exe", executable, sizeof(executable) - 1);
+    if (length <= 0 || length >= (ssize_t) sizeof(executable) - 1) return false;
+    executable[length] = '\0';
+    const char * name = strrchr(executable, '/');
+    return strcmp(name ? name + 1 : executable, "busybox") == 0;
+}
+
 static void reboot_device(void) {
     sleep(1);
     release_sd_card();
+    /* The child has been reaped, closing its audio and storage handles.
+     * Ask BusyBox init to run rcK and the remaining shutdown hooks. Sending
+     * SIGTERM here cannot be misread as a clean player exit/poweroff.
+     * Keep the normal SIGTERM disposition: init eventually terminates this
+     * supervisor too. The fallback covers hooks that stall before that. */
+    if (init_is_busybox()) {
+        struct sigaction action = {0};
+        sigset_t unblocked;
+        action.sa_handler = SIG_DFL;
+        sigemptyset(&action.sa_mask);
+        sigemptyset(&unblocked);
+        sigaddset(&unblocked, SIGTERM);
+        /* An ignored or blocked signal can survive the launcher exec. Init
+         * must be able to terminate us after its shutdown hooks finish. */
+        if (sigaction(SIGTERM, &action, NULL) != 0 ||
+            sigprocmask(SIG_UNBLOCK, &unblocked, NULL) != 0) {
+            record_shutdown_phase("init signal setup failed; direct fallback", errno);
+        } else {
+            record_shutdown_phase("requesting init reboot", 0);
+            if (kill(1, SIGTERM) == 0) {
+                struct timespec remaining = {20, 0};
+                while (nanosleep(&remaining, &remaining) < 0 && errno == EINTR) {}
+                record_shutdown_phase("init reboot timed out; direct fallback", 0);
+            } else {
+                record_shutdown_phase("init reboot request failed; direct fallback", errno);
+            }
+        }
+    } else {
+        record_shutdown_phase("unsupported init; direct fallback", 0);
+    }
     reboot(RB_AUTOBOOT);
-    /* reboot() is expected to terminate the process; exit if it returns. */
+    record_shutdown_phase("direct reboot failed", errno);
     _exit(1);
 }
 
@@ -179,10 +251,12 @@ static void poweroff_device(void) {
     release_sd_card();
     reboot(RB_POWER_OFF);
     /* If poweroff syscall fails, pause indefinitely rather than rebooting. */
+    record_shutdown_phase("direct poweroff failed", errno);
     perror("compas_bootloader: poweroff syscall failed");
     for (;;) pause();
 }
 
+/* A clean player exit powers off; signals and non-zero exits reboot. */
 static void run_player_supervised(const char * player_path) {
     pid_t pid = fork();
     if (pid < 0) {

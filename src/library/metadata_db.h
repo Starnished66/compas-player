@@ -73,6 +73,11 @@ bool metadata_db_prepare_rebuild(void);
 /* Returns the outcome of the most recent open, update, or abort.
  * FRESH means no saved database files exist; a saved empty database is NORMAL. */
 metadata_db_load_outcome_t metadata_db_get_load_outcome(void);
+/* Tagcache generation protected by the metadata database lock. The blocking
+ * form belongs on workers; the try form never waits and leaves out unchanged
+ * when a rebuild owns the lock. */
+int32_t metadata_db_get_generation(void);
+bool metadata_db_try_get_generation(int32_t * out_generation);
 
 /* Migration extraction and replay run on the existing scan worker. The scan
  * must commit successfully before finish replays and commits statistics. */
