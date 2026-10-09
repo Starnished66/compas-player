@@ -37,6 +37,7 @@
   #include "hw_buttons.h"
   #include "firmware_update.h"
   #include "subprocess.h"
+  #include "boot_trace.h"
   #include "sd_fsck_run.h"
   #include <fcntl.h>
   #include <sys/ioctl.h>
@@ -468,27 +469,19 @@ static void settle_sd_mount_during_splash(void) {
     }
 }
 
-/* Lightweight boot-time diagnostic log at /usr/data/boot_debug.log, readable
- * via adb even after a crash/reboot loop (hiby_player.sh reboots
- * unconditionally on any exit). Not static: gui_init() (gui.c) also calls
- * this directly via its own extern declaration. */
-static int boot_debug_fd = -1;
+/* Startup histories stay on internal flash across reboots. The shared logger
+ * retains prior launches and flushes each stage before its operation begins. */
+static boot_trace_t player_boot_trace = BOOT_TRACE_INITIALIZER;
+static bool player_boot_trace_attempted;
 
 void boot_checkpoint(const char * step) {
-    if (boot_debug_fd < 0) {
-        /* O_TRUNC, not O_APPEND -- only this boot's sequence matters, and
-         * opened once per process lifetime so this naturally resets fresh
-         * on every boot. */
-        boot_debug_fd = open("/usr/data/boot_debug.log", O_WRONLY | O_CREAT | O_TRUNC, 0644);
-        if (boot_debug_fd < 0) return;
+    if (!player_boot_trace_attempted) {
+        player_boot_trace_attempted = true;
+        (void)boot_trace_open(&player_boot_trace, "/usr/data/boot_debug.log");
     }
-    char buf[160];
-    int len = snprintf(buf, sizeof(buf), "[%u ms] %s\n", (unsigned) custom_tick_get(), step);
-    if (len <= 0) return;
-    ssize_t unused_result = write(boot_debug_fd, buf, (size_t) len);
-    (void) unused_result;
-    fdatasync(boot_debug_fd);
+    (void)boot_trace_checkpoint(&player_boot_trace, step);
 }
+
 #endif
 
 #ifdef HOST_BUILD
@@ -604,8 +597,10 @@ int main(int argc, char ** argv) {
 
     /* Must run before firmware_update_check_boot_combo() and gui_init() --
      * both read from the SD card. */
+    boot_checkpoint("mount_sd_card_if_needed begin");
     mount_sd_card_if_needed();
     boot_checkpoint("mount_sd_card_if_needed done");
+    boot_checkpoint("storage migration begin");
     storage_migrate_internal_data();
     if (sd_card_root_is_mounted()) storage_migrate_legacy_data();
     boot_checkpoint("storage migration done");
@@ -618,11 +613,15 @@ int main(int argc, char ** argv) {
     /* Must run before any display/GUI setup -- if Power+Volume Up are held
      * (the recovery-boot gesture) and a *.upt update file is on the SD
      * card, this reboots straight into recovery and never returns. */
+    boot_checkpoint("firmware_update_check_boot_combo begin");
     firmware_update_check_boot_combo();
     boot_checkpoint("firmware_update_check_boot_combo done");
 #endif
 
     /* 1. Initialize LVGL core */
+#ifndef HOST_BUILD
+    boot_checkpoint("lv_init begin");
+#endif
     lv_init();
 
     /* Register the custom tick source */
@@ -660,6 +659,7 @@ int main(int argc, char ** argv) {
     printf("Initializing Target Build (Linux Framebuffer and EVDEV touch)...\n");
 
     /* Create Framebuffer display */
+    boot_checkpoint("lv_linux_fbdev_create begin");
     lv_display_t * disp = lv_linux_fbdev_create();
     if (!disp) {
         fprintf(stderr, "Error: Failed to create Linux framebuffer display\n");
@@ -667,10 +667,12 @@ int main(int argc, char ** argv) {
         return 1;
     }
     boot_checkpoint("lv_linux_fbdev_create done");
+    boot_checkpoint("wait_for_fbdev_ready begin");
     if (!wait_for_fbdev_ready("/dev/fb0", 50, 100)) {
         fprintf(stderr, "Warning: /dev/fb0 not ready after 5s of retries, proceeding anyway...\n");
     }
     boot_checkpoint("wait_for_fbdev_ready done");
+    boot_checkpoint("lv_linux_fbdev_set_file begin");
     if (lv_linux_fbdev_set_file(disp, "/dev/fb0") != LV_RESULT_OK) {
         fprintf(stderr, "Error: Failed to open framebuffer device /dev/fb0\n");
         boot_checkpoint("lv_linux_fbdev_set_file FAILED, returning 1");
@@ -678,7 +680,9 @@ int main(int argc, char ** argv) {
     }
     boot_checkpoint("lv_linux_fbdev_set_file done");
 
+    boot_checkpoint("display settings_load begin");
     settings_load(&current_settings);
+    boot_checkpoint("display settings_load done");
     if (current_settings.screen_upside_down) {
         lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_180);
     }
@@ -686,17 +690,22 @@ int main(int argc, char ** argv) {
     /* As early as this process can paint anything -- see gui_show_boot_
      * splash()'s own comment (gui.c) for why this exists and how gui_init()
      * further down uses the tick recorded here. */
+    boot_checkpoint("gui_show_boot_splash begin");
     gui_show_boot_splash();
     boot_checkpoint("gui_show_boot_splash done");
 
+    boot_checkpoint("settle_sd_mount_during_splash begin");
     settle_sd_mount_during_splash();
     boot_checkpoint("settle_sd_mount_during_splash done");
 
+    boot_checkpoint("ui_wake_init begin");
     ui_wake_init();
+    boot_checkpoint("ui_wake_init done");
 
     /* Create Touch Input device via evdev. Auto-detect the touch controller
      * by name first (works on the R1's Hynitron "hyn_ts"); fall back to
      * guessing event0/event1 for variants where that lookup doesn't match. */
+    boot_checkpoint("touch discovery begin");
     lv_indev_t * touch = NULL;
     char touch_path[64];
     if (find_input_device_by_name("hyn_ts", touch_path, sizeof(touch_path)) || find_input_device_by_name("goodix-ts", touch_path, sizeof(touch_path))) {
@@ -726,17 +735,24 @@ int main(int argc, char ** argv) {
     /* Physical volume/skip/play-pause buttons: a separate poller thread,
      * since they're media-key shortcuts (act regardless of what's focused),
      * not keypad navigation for the UI. */
+    boot_checkpoint("hw_buttons_init begin");
     hw_buttons_init();
     boot_checkpoint("hw_buttons_init done");
 #endif
 
     /* 2. Initialize audio playback and the application GUI */
 #ifndef HOST_BUILD
+    boot_checkpoint("sync_sound_device_nodes begin");
     sync_sound_device_nodes();
+    boot_checkpoint("sync_sound_device_nodes done");
+    boot_checkpoint("audio_init begin");
 #endif
     audio_init();
 #ifndef HOST_BUILD
     boot_checkpoint("audio_init done");
+#endif
+#ifndef HOST_BUILD
+    boot_checkpoint("gui_init begin");
 #endif
     gui_init(SCREEN_WIDTH, SCREEN_HEIGHT);
 #ifndef HOST_BUILD

@@ -5,6 +5,8 @@ import hashlib
 import json
 import pathlib
 import struct
+import shutil
+import subprocess
 
 
 def panel_data(path):
@@ -47,6 +49,20 @@ def verify(vendor, candidate):
             'null_optional_callback_offsets': [160, 164], 'timings_match_vendor': True,
             'candidate_sha256': hashlib.sha256(candidate.read_bytes()).hexdigest(),
             'vendor_sha256': hashlib.sha256(vendor.read_bytes()).hexdigest()}
+
+
+def has_cleanup_module(path, nm=None):
+    """Return whether an ELF module defines cleanup_module, using host nm."""
+    nm = nm or shutil.which('nm')
+    if not nm:
+        raise ValueError('host nm is required to check module exit handlers')
+    try:
+        result = subprocess.run([nm, '-g', '--defined-only', str(path)], check=True,
+                                capture_output=True, text=True)
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise ValueError(f'cannot inspect ELF symbols in {path}: {error}')
+    return any(line.split() and line.split()[-1] == 'cleanup_module'
+               for line in result.stdout.splitlines())
 
 
 if __name__ == '__main__':

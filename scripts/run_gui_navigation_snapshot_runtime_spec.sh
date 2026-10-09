@@ -18,7 +18,8 @@ gcc -std=gnu11 -Wall -Wextra -Werror -pthread -DHOST_BUILD=1 -DBOARD_R1 \
     -I"$repo_root/src/plugins" \
     "$repo_root/src/ui/gui_navigation_snapshot_runtime_spec.c" \
     "${lvgl_objects[@]}" \
-    -Wl,--gc-sections -Wl,--wrap=lv_snapshot_take -lpthread -lm \
+    -Wl,--gc-sections -Wl,--wrap=lv_snapshot_take -Wl,--wrap=lv_timer_create \
+    -Wl,--wrap=lv_anim_start -lpthread -lm \
     -o "$build_dir/gui_navigation_snapshot_runtime_spec"
 
 "$build_dir/gui_navigation_snapshot_runtime_spec"

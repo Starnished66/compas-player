@@ -1,0 +1,1087 @@
+--- a/modules/bcm_wlbt_power/bcm_wlbt_power.c
++++ b/modules/bcm_wlbt_power/bcm_wlbt_power.c
+@@ -1,636 +1,623 @@
+ // SPDX-License-Identifier: GPL-2.0
+-//
+-// bcm_wlbt_power -- power and wiring for a BCM43430 Wi-Fi/Bluetooth combo on
+-// an Ingenic X1600 board (HiBy R3 Pro II, R1), for the mainline brcmfmac driver
+-// and the stock Bluetooth userspace (brcm_patchram_plus on a UART).
+-//
+-// It takes over the board side of the vendor cywdhd.ko and nothing else:
+-//
+-//   Bluetooth  an rfkill named "bluetooth". Writing 1 to its state starts the
+-//              32 kHz LPO, raises BT_REG_ON and waits 300 ms, which is the
+-//              sequence cywdhd runs; 0 reverses it. The radio is off until the
+-//              first write. host_wake_bt (BT_WAKE) is driven high for as long
+-//              as the module is loaded.
+-//
+-//   Wi-Fi      /sys/devices/platform/bcm_wlbt_power/wifi_power. Writing 1 starts
+-//              the LPO and pulses WL_REG_ON low for 100 ms, then has the MMC
+-//              core bring the SDIO card up; 0 powers the card down through
+-//              the MMC core and drops WL_REG_ON. brcmfmac is loaded after 1
+-//              and removed before 0.
+-//
+-//   brcmfmac   the "brcmfmac_sdio" platform device, which hands brcmfmac the
+-//              out-of-band interrupt (WL_HOST_WAKE, active high).
+-//
+-//   chipvendor the attribute cywdhd puts on SDIO function 2, read by the
+-//              player to pick the module's Bluetooth patch: "0x81" on an
+-//              AzureWave AW-NB372SM, "0x00" on an AP6212A. The same value is
+-//              in /sys/devices/platform/bcm_wlbt_power/chipvendor.
+-//
+-// The SDIO controller belongs to soc_msc.ko and the LPO to soc_utils.ko; both
+-// are loaded first. The controller scans its card only when told to
+-// (jzmmc_manual_detect), so the card is enumerated once at load, its vendor
+-// tuple is read, and it is then kept registered and only powered down and up.
+-// A card the MMC core has dropped meanwhile is enumerated again.
+-
++// R1 BCM43430 board power: based on the pinned upstream bcm_wlbt_power driver.
++// This experimental provider stays loaded until reboot. Network modules may
++// be unloaded/reloaded independently; their platform-data storage remains live.
+ #include <linux/ctype.h>
+ #include <linux/delay.h>
+ #include <linux/device.h>
+ #include <linux/err.h>
+ #include <linux/gpio.h>
+ #include <linux/interrupt.h>
+ #include <linux/kernel.h>
+-#include <linux/mmc/card.h>
+-#include <linux/mmc/core.h>
+ #include <linux/mmc/host.h>
+-#include <linux/mmc/sdio_func.h>
++#include <linux/mmc/compas_sdio.h>
+ #include <linux/module.h>
+ #include <linux/mutex.h>
++#include <linux/notifier.h>
+ #include <linux/platform_data/brcmfmac-sdio.h>
+ #include <linux/platform_device.h>
+ #include <linux/rfkill.h>
++#include <linux/suspend.h>
+ #include <linux/workqueue.h>
+ 
+-// Exported by soc_msc.ko: 1 marks the controller's card present, enables its
+-// clock and rescans; 0 marks it absent.
+ extern int jzmmc_manual_detect(int index, int on);
+-
+-// Exported by soc_utils.ko: the 32 kHz clock on PC26, reference counted.
+ extern void ingenic_rtc32k_enable(void);
+ extern void ingenic_rtc32k_disable(void);
+-
+ #define CARD_WAIT_MS 3000
+-
+-// A pin is given as the SoC names it ("PF02") or as a GPIO number; -1 is none.
+-// Port A starts at GPIO 0 and every port is 32 lines wide, the expander's
+-// port F included (gpio_base 160).
+ static int param_set_pin(const char *val, const struct kernel_param *kp)
+ {
+ 	int *pin = kp->arg;
+ 	int parsed = 0;
+ 	int port;
+ 	int line;
+ 	const char *digits;
+ 
+ 	if (!val || !*val)
+ 		return -EINVAL;
+ 
+ 	if (val[0] == 'P' || val[0] == 'p') {
+ 		char letter;
+ 		const char *cursor = val + 1;
+ 
+ 		if (!*cursor)
+ 			return -EINVAL;
+ 		letter = toupper((unsigned char)*cursor++);
+ 		if (letter < 'A' || letter > 'F' || !*cursor)
+ 			return -EINVAL;
+ 		port = letter - 'A';
+ 		for (; *cursor; cursor++) {
+ 			if (*cursor < '0' || *cursor > '9')
+ 				return -EINVAL;
+ 			line = *cursor - '0';
+ 			if (parsed > (31 - line) / 10)
+ 				return -EINVAL;
+ 			parsed = parsed * 10 + line;
+ 		}
+ 		*pin = port * 32 + parsed;
+ 		return 0;
+ 	}
+ 
+ 	if (val[0] == '-') {
+ 		if (val[1] != '1' || val[2] != '\0')
+ 			return -EINVAL;
+ 		*pin = -1;
+ 		return 0;
+ 	}
+ 	for (digits = val; *digits; digits++) {
+ 		int digit;
+ 
+ 		if (*digits < '0' || *digits > '9')
+ 			return -EINVAL;
+ 		digit = *digits - '0';
+ 		if (parsed > (191 - digit) / 10)
+ 			return -EINVAL;
+ 		parsed = parsed * 10 + digit;
+ 	}
+ 	*pin = parsed;
+ 	return 0;
+ }
+ 
+ static const struct kernel_param_ops param_ops_pin = {
+ 	.set = param_set_pin,
+ 	.get = param_get_int,
+ };
+ 
+ static int wl_reg_on = -1;
+ static int wl_host_wake = -1;
+ static int wl_mmc;
+ static int bt_reg_on = -1;
+ static int host_wake_bt = -1;
+ 
+ module_param_cb(wl_reg_on, &param_ops_pin, &wl_reg_on, 0444);
+ MODULE_PARM_DESC(wl_reg_on, "WL_REG_ON, the Wi-Fi power enable");
+ module_param_cb(wl_host_wake, &param_ops_pin, &wl_host_wake, 0444);
+ MODULE_PARM_DESC(wl_host_wake, "WL_HOST_WAKE, the out-of-band Wi-Fi interrupt (-1: in-band)");
+ module_param(wl_mmc, int, 0444);
+ MODULE_PARM_DESC(wl_mmc, "MSC controller of the SDIO card");
+ module_param_cb(bt_reg_on, &param_ops_pin, &bt_reg_on, 0444);
+ MODULE_PARM_DESC(bt_reg_on, "BT_REG_ON, the Bluetooth power enable");
+ module_param_cb(host_wake_bt, &param_ops_pin, &host_wake_bt, 0444);
+ MODULE_PARM_DESC(host_wake_bt, "BT_WAKE, held high to keep the controller awake");
+ 
+-static struct platform_device *radio_pdev;
+-static struct device *msc_dev;		// md_ingenic,mmc.N, owned by soc_msc
++
++static char *profile = "auto";
++module_param(profile, charp, 0444);
++MODULE_PARM_DESC(profile, "auto/azurewave: exact CIS identification; ap6212a: explicitly validated firmware profile");
++
++static struct platform_device *radio_pdev, *brcmf_pdev;
++static struct device *msc_dev;
+ static struct mmc_host *host;
+ static struct rfkill *bt_rfkill;
+-static struct sdio_func *vendor_func;	// the function carrying "chipvendor"
+ static struct work_struct probe_work;
++static DEFINE_MUTEX(tx_lock);
+ static DEFINE_MUTEX(radio_lock);
+-
+-static bool wifi_on;
+-static bool bt_on;
+-static bool bt_synced;
++static bool operational, suspending, transitioning;
++static bool wifi_on, bt_on, manual_clocks_owned;
++static bool sysfs_created;
++static bool pm_off_safe;
++static bool wifi_fault;
++static int wifi_errno;
++enum identity_state { ID_PENDING, ID_READY, ID_ERROR };
++static enum identity_state identity_state = ID_PENDING;
++static int identity_errno;
+ static unsigned int chipvendor;
+-static bool radio_sysfs_attempted;
+-
+-static struct platform_device *brcmf_pdev;
+-
+-// ---------------------------------------------------------------------------
+-// Bluetooth
+-// ---------------------------------------------------------------------------
++static u16 sdio_vendor, sdio_device;
++static const char *identity_profile, *identity_source;
++
++static int match_mmc_host(struct device *dev, void *unused)
++{
++	return dev->class && !strcmp(dev->class->name, "mmc_host");
++}
++
++/* Only tx_lock callers locate/cache these device references. No card pointer
++ * leaves the core guard; driver unbind is checked while its parent is locked. */
++static int begin_guard(struct mmc_compas_sdio_guard **guard)
++{
++	struct device *child;
++	if (!msc_dev)
++		msc_dev = bus_find_device_by_name(&platform_bus_type, NULL, "md_ingenic,mmc.0");
++	if (!msc_dev)
++		return -ENODEV;
++	if (!host) {
++		child = device_find_child(msc_dev, NULL, match_mmc_host);
++		if (!child)
++			return -ENODEV;
++		host = container_of(child, struct mmc_host, class_dev);
++	}
++	return mmc_compas_sdio_begin(host, msc_dev, guard);
++}
++
++/* Caller owns radio_lock. Identity is copied, never a borrowed MMC pointer. */
++static int publish_identity(const struct mmc_compas_sdio_identity *id)
++{
++	unsigned int vendor;
++	const char *selected, *source;
++	if (!id->valid || id->function2_vendor != 0x02d0 || id->function2_device != 0xa9a6)
++		return -ENODEV;
++	if (id->azurewave) {
++		if (!strcmp(profile, "ap6212a"))
++			return -ENODEV;
++		vendor = 0x81;
++		selected = "azurewave";
++		source = "cis";
++	} else {
++		/* No tuple is not proof of a module maker. Accept AP only as the
++		 * explicitly selected, stock-observed firmware/NVRAM profile. */
++		if (strcmp(profile, "ap6212a") || (id->maker_tuple_present && id->maker_tuple_value != 0))
++			return -ENODEV;
++		vendor = 0;
++		selected = "ap6212a";
++		source = "profile";
++	}
++	if (identity_state == ID_READY && (chipvendor != vendor || sdio_vendor != id->function2_vendor ||
++					 sdio_device != id->function2_device))
++		return -ENODEV;
++	chipvendor = vendor;
++	sdio_vendor = id->function2_vendor;
++	sdio_device = id->function2_device;
++	identity_profile = selected;
++	identity_source = source;
++	identity_errno = 0;
++	identity_state = ID_READY;
++	return 0;
++}
+ 
+ static void bt_power(bool on)
+ {
+ 	if (on == bt_on)
+ 		return;
+-
+ 	if (on) {
+ 		ingenic_rtc32k_enable();
+ 		gpio_set_value_cansleep(bt_reg_on, 1);
+ 		msleep(300);
+ 	} else {
+-		ingenic_rtc32k_disable();
+ 		gpio_set_value_cansleep(bt_reg_on, 0);
+ 		msleep(100);
++		ingenic_rtc32k_disable();
+ 	}
+ 	bt_on = on;
+ }
+ 
+-// The first call is the rfkill core applying the global Bluetooth state at
+-// registration, unblocked by default: the radio stays off until something
+-// writes to the state file, as with cywdhd.
+-static int bt_set_block(void *data, bool blocked)
+-{
+-	mutex_lock(&radio_lock);
+-	if (bt_synced)
++/* May run under the system-sleep mutex. Never enter the MMC guard or wait
++ * for bootstrap work here: resume would otherwise recursively lock PM. */
++static int bt_set_block(void *unused, bool blocked)
++{
++	int ret = 0;
++	mutex_lock(&radio_lock);
++	if (!blocked && !operational)
++		ret = -EAGAIN;
++	else if (!blocked && suspending)
++		ret = -EBUSY;
++	else if (!blocked && identity_state != ID_READY)
++		ret = identity_state == ID_PENDING ? -EAGAIN : -ENODEV;
++	else
+ 		bt_power(!blocked);
+-	bt_synced = true;
+-	mutex_unlock(&radio_lock);
+-	return 0;
+-}
+-
+-static const struct rfkill_ops bt_rfkill_ops = {
+-	.set_block = bt_set_block,
+-};
+-
+-// ---------------------------------------------------------------------------
+-// Wi-Fi
+-// ---------------------------------------------------------------------------
+-
+-static int match_mmc_host(struct device *dev, void *data)
+-{
+-	return dev->class && !strcmp(dev->class->name, "mmc_host");
+-}
+-
+-// The mmc_host of the controller, found through its platform device: soc_msc
+-// registers it as md_ingenic,mmc.N and the host's class device is its child.
+-static struct mmc_host *find_host(void)
+-{
+-	char name[32];
+-	struct device *child;
+-
+-	if (host)
+-		return host;
+-
+-	snprintf(name, sizeof(name), "md_ingenic,mmc.%d", wl_mmc);
+-	if (!msc_dev)
+-		msc_dev = bus_find_device_by_name(&platform_bus_type, NULL, name);
+-	if (!msc_dev)
+-		return NULL;
+-
+-	child = device_find_child(msc_dev, NULL, match_mmc_host);
+-	if (!child)
+-		return NULL;
+-	host = container_of(child, struct mmc_host, class_dev);
+-	return host;
+-}
+-
+-// SDIO function 2 of the card, once it is registered: the rescan sets
+-// host->card before it adds the functions, and adds them with the host
+-// released. Called with the host claimed, which keeps the card from going.
+-static struct sdio_func *registered_func2(void)
+-{
+-	struct mmc_card *card = host->card;
+-	int i;
+-
+-	if (!card)
+-		return NULL;
+-	for (i = 0; i < card->sdio_funcs; i++) {
+-		struct sdio_func *func = card->sdio_func[i];
+-
+-		if (func && func->num == 2 && sdio_func_present(func))
+-			return func;
+-	}
+-	return NULL;
+-}
+-
+-static bool wait_for_card(void)
+-{
+-	int waited;
+-	bool found;
+-
+-	for (waited = 0; waited < CARD_WAIT_MS; waited += 20) {
+-		mmc_claim_host(host);
+-		found = registered_func2() != NULL;
+-		mmc_release_host(host);
+-		if (found)
+-			return true;
+-		msleep(20);
+-	}
+-	return false;
+-}
+-
+-static ssize_t chipvendor_show(struct device *dev, struct device_attribute *attr, char *buf)
+-{
+-	return snprintf(buf, PAGE_SIZE, "0x%02x", chipvendor);
+-}
+-
+-static DEVICE_ATTR_RO(chipvendor);
+-
+-// The module maker is in a vendor tuple of the card's common CIS: code 0x81,
+-// one byte, 0x01 on an AzureWave module. cywdhd reports 0x81 for that and 0
+-// otherwise, and puts the attribute on function 2.
+-static void read_vendor(void)
+-{
+-	struct sdio_func_tuple *t;
+-	struct sdio_func *func;
+-
+-	mmc_claim_host(host);
+-	func = registered_func2();
+-	if (func) {
+-		chipvendor = 0;
+-		for (t = host->card->tuples; t; t = t->next) {
+-			if (t->code == 0x81 && t->size >= 1 && t->data[0] == 0x01) {
+-				chipvendor = 0x81;
+-				break;
+-			}
+-		}
+-		if (!device_create_file(&func->dev, &dev_attr_chipvendor)) {
+-			get_device(&func->dev);
+-			vendor_func = func;
+-		}
+-		dev_info(&radio_pdev->dev, "SDIO card %04x:%04x, module vendor 0x%02x (%s)\n", host->card->cis.vendor,
+-			 host->card->cis.device, chipvendor, chipvendor == 0x81 ? "AzureWave" : "AP6212A");
+-	}
+-	mmc_release_host(host);
+-}
+-
+-// Lets go of the function carrying "chipvendor". The card it belongs to may
+-// have been removed meanwhile -- a resume that finds the chip unpowered can
+-// take it out -- and then its attributes went with it.
+-static void forget_vendor_func(void)
+-{
+-	if (!vendor_func)
+-		return;
+-	if (device_is_registered(&vendor_func->dev))
+-		device_remove_file(&vendor_func->dev, &dev_attr_chipvendor);
+-	put_device(&vendor_func->dev);
+-	vendor_func = NULL;
+-}
+-
+-static void wl_reg_on_pulse(void)
+-{
++	mutex_unlock(&radio_lock);
++	return ret;
++}
++static const struct rfkill_ops bt_rfkill_ops = { .set_block = bt_set_block };
++
++/* Begin marks a transition before waiting for PM; PREPARE can veto instead
++ * of sleeping while a transaction waits for the system-sleep mutex. */
++/* A transport failure cannot invalidate an already identified board. Only
++ * an observed identity contradiction is shared with Bluetooth. */
++static void publish_wifi_failure(int cause, bool identity_failure)
++{
++	wifi_fault = true;
++	wifi_errno = cause;
++	if (identity_failure || identity_state != ID_READY) {
++		identity_state = ID_ERROR;
++		identity_errno = cause;
++	}
++}
++
++static int transition_begin(bool on)
++{
++	int ret = 0;
++	mutex_lock(&tx_lock);
++	mutex_lock(&radio_lock);
++	if (!operational)
++		ret = -EAGAIN;
++	else if (suspending)
++		ret = -EBUSY;
++	else if (on && (identity_state == ID_ERROR || wifi_fault))
++		ret = -ENODEV;
++	else
++		transitioning = true;
++	mutex_unlock(&radio_lock);
++	if (ret)
++		mutex_unlock(&tx_lock);
++	return ret;
++}
++static void transition_end(void)
++{
++	mutex_lock(&radio_lock);
++	transitioning = false;
++	mutex_unlock(&radio_lock);
++	mutex_unlock(&tx_lock);
++}
++
++/* Caller has guard then radio_lock. Retained host clocks are enabled once
++ * per provider lifetime, not on each poll or normal Wi-Fi toggle. */
++static int energize_guarded(struct mmc_compas_sdio_guard *guard)
++{
++	int ret = mmc_compas_sdio_set_off(guard, false);
++	if (ret)
++		return ret;
++	pm_off_safe = false;
++	ingenic_rtc32k_enable();
+ 	gpio_set_value_cansleep(wl_reg_on, 0);
+ 	msleep(100);
+ 	gpio_set_value_cansleep(wl_reg_on, 1);
+-}
+-
+-static int wifi_power_up(void)
+-{
+-	int ret = 0;
+-
+-	if (wifi_on)
+-		return 0;
+-	if (!find_host())
+-		return -ENODEV;
+-
+-	if (vendor_func && (!host->card || vendor_func->card != host->card || !device_is_registered(&vendor_func->dev)))
+-		forget_vendor_func();
+-
+-	ingenic_rtc32k_enable();
+-	wl_reg_on_pulse();
+-
+-	if (host->card) {
+-		mmc_claim_host(host);
+-		ret = mmc_power_restore_host(host);
+-		mmc_release_host(host);
+-	} else {
+-		ret = jzmmc_manual_detect(wl_mmc, 1);
+-		if (ret == -1)
+-			ret = -ENODEV;
+-		if (!ret && !wait_for_card())
+-			ret = -ETIMEDOUT;
+-	}
+-
+-	if (ret) {
++	wifi_on = true;
++	if (!manual_clocks_owned) {
++		ret = jzmmc_manual_detect(0, 1);
++		if (ret) {
++			gpio_set_value_cansleep(wl_reg_on, 0);
++			ingenic_rtc32k_disable();
++			wifi_on = false;
++			return ret == -1 ? -ENODEV : ret;
++		}
++		manual_clocks_owned = true;
++	}
++	return 0;
++}
++
++/* Guard excludes clients/scans during rollback. Error becomes terminal;
++ * reboot is required instead of retrying stale bus/clock state. */
++static int rollback_guarded(struct mmc_compas_sdio_guard *guard, int cause, bool new_manual, bool identity_failure)
++{
++	int ret = mmc_compas_sdio_power(guard, false);
++	if (ret && ret != -ENOMEDIUM) {
++		publish_wifi_failure(cause, identity_failure);
++		return cause; /* Retain physical power after an incomplete save. */
++	}
++	if (wifi_on) {
+ 		gpio_set_value_cansleep(wl_reg_on, 0);
+ 		ingenic_rtc32k_disable();
+-		dev_err(&radio_pdev->dev, "Wi-Fi did not come up: %d\n", ret);
++		wifi_on = false;
++	}
++	ret = mmc_compas_sdio_set_off(guard, true);
++	pm_off_safe = !ret;
++	if (new_manual && manual_clocks_owned) {
++		ret = jzmmc_manual_detect(0, 0);
++		if (ret)
++			dev_err(&radio_pdev->dev, "manual clock rollback failed: %d\n", ret);
++		else
++			manual_clocks_owned = false;
++	}
++	publish_wifi_failure(cause, identity_failure);
++	return cause;
++}
++
++static int wifi_transition(bool on)
++{
++	struct mmc_compas_sdio_guard *guard;
++	struct mmc_compas_sdio_identity id;
++	int ret, waited;
++	bool new_manual, identity_failure;
++	ret = transition_begin(on);
++	if (ret)
+ 		return ret;
+-	}
+-
+-	// The card may already be there when the module loads: the controller
+-	// scans it once at probe, and WL_REG_ON is not driven before this module.
+-	if (!vendor_func)
+-		read_vendor();
+-
+-	wifi_on = true;
+-	return 0;
+-}
+-
+-static int wifi_power_down(void)
+-{
+-	int ret = 0;
+-
+-	if (!wifi_on)
++	mutex_lock(&radio_lock);
++	if (wifi_on == on && (on || pm_off_safe)) {
++		mutex_unlock(&radio_lock);
++		transition_end();
+ 		return 0;
+-
+-	if (host && host->card) {
+-		mmc_claim_host(host);
+-		ret = mmc_power_save_host(host);
+-		mmc_release_host(host);
+-		if (ret) {
+-			/* The MMC core returns -EINVAL for an absent or dead bus. Report
+-			 * busy and retain power; this module does not own card lifetime. */
+-			if (ret == -EINVAL)
+-				ret = -EBUSY;
+-			dev_err(&radio_pdev->dev, "Could not power down Wi-Fi card: %d\n", ret);
+-			return ret;
++	}
++	new_manual = !manual_clocks_owned;
++	mutex_unlock(&radio_lock);
++	ret = begin_guard(&guard);
++	if (ret)
++		goto out;
++	mutex_lock(&radio_lock);
++	if (!on) {
++		ret = mmc_compas_sdio_power(guard, false);
++		if (!ret || ret == -ENOMEDIUM) {
++			if (wifi_on) {
++				gpio_set_value_cansleep(wl_reg_on, 0);
++				ingenic_rtc32k_disable();
++				wifi_on = false;
++			}
++			ret = mmc_compas_sdio_set_off(guard, true);
++			pm_off_safe = !ret;
+ 		}
+-	}
+-	gpio_set_value_cansleep(wl_reg_on, 0);
+-	ingenic_rtc32k_disable();
+-	wifi_on = false;
+-	return 0;
+-}
+-
+-// Final teardown must release GPIO and clock ownership even when MMC refuses
+-// the ordinary power-save transition. Call only after users are quiesced.
+-static void wifi_power_force_off(void)
+-{
+-	if (!wifi_on)
+-		return;
+-	gpio_set_value_cansleep(wl_reg_on, 0);
+-	ingenic_rtc32k_disable();
+-	wifi_on = false;
+-}
+-
+-// Final teardown runs only after this module's sysfs/rfkill callbacks and
+-// probe work are quiesced. Try the normal MMC transition first, then balance
+-// our GPIO/clock ownership even if that transition failed.
+-static void wifi_power_teardown(void)
+-{
+-	int ret = wifi_power_down();
+-
++		mutex_unlock(&radio_lock);
++		mmc_compas_sdio_end(guard, ret ? MMC_COMPAS_SDIO_PRESERVE : MMC_COMPAS_SDIO_DISCARD);
++		goto out;
++	}
++	ret = energize_guarded(guard);
+ 	if (ret) {
+-		dev_err(&radio_pdev->dev, "forcing Wi-Fi power off after MMC error %d\n", ret);
+-		wifi_power_force_off();
+-	}
+-}
++		if (!wifi_on) {
++			int off_ret = mmc_compas_sdio_set_off(guard, true);
++			pm_off_safe = !off_ret;
++		}
++		publish_wifi_failure(ret, false);
++		mutex_unlock(&radio_lock);
++		mmc_compas_sdio_end(guard, MMC_COMPAS_SDIO_DISCARD);
++		goto out;
++	}
++	mutex_unlock(&radio_lock);
++	mmc_compas_sdio_end(guard, MMC_COMPAS_SDIO_FORCE);
++
++	/* Poll iterations are bounded, not time spent in an MMC callback. No
++	 * guard/radio lock is retained while sleeping or awaiting enumeration. */
++	for (waited = 0; waited < CARD_WAIT_MS; waited += 20) {
++		ret = begin_guard(&guard);
++		if (ret)
++			break;
++		ret = mmc_compas_sdio_identity(guard, &id);
++		if (!ret) {
++			identity_failure = false;
++			ret = mmc_compas_sdio_power(guard, true);
++			if (!ret) {
++				ret = mmc_compas_sdio_identity(guard, &id);
++				identity_failure = ret == -ENODEV || ret == -EOPNOTSUPP;
++			}
++			mutex_lock(&radio_lock);
++			if (!ret) {
++				ret = publish_identity(&id);
++				identity_failure = ret != 0;
++			}
++			if (ret)
++				rollback_guarded(guard, ret, new_manual, identity_failure);
++			mutex_unlock(&radio_lock);
++			mmc_compas_sdio_end(guard, ret ? MMC_COMPAS_SDIO_DISCARD : MMC_COMPAS_SDIO_PRESERVE);
++			goto out;
++		}
++		if (ret != -ENOMEDIUM && ret != -EAGAIN) {
++			mutex_lock(&radio_lock);
++			rollback_guarded(guard, ret, new_manual, true);
++			mutex_unlock(&radio_lock);
++			mmc_compas_sdio_end(guard, MMC_COMPAS_SDIO_DISCARD);
++			goto out;
++		}
++		mmc_compas_sdio_end(guard, MMC_COMPAS_SDIO_FORCE);
++		msleep(20);
++	}
++	if (!ret || ret == -ENOMEDIUM || ret == -EAGAIN)
++		ret = -ETIMEDOUT;
++	/* A failed guard means no safe rollback. Retain power and publish error;
++	 * PM veto stays active while Wi-Fi is on. A later guarded down can recover. */
++	if (!begin_guard(&guard)) {
++		mutex_lock(&radio_lock);
++		rollback_guarded(guard, ret, new_manual, false);
++		mutex_unlock(&radio_lock);
++		mmc_compas_sdio_end(guard, MMC_COMPAS_SDIO_DISCARD);
++	} else {
++		mutex_lock(&radio_lock);
++		publish_wifi_failure(ret, false);
++		mutex_unlock(&radio_lock);
++	}
++out:
++	transition_end();
++	return ret;
++}
++
++static void probe_card(struct work_struct *unused)
++{
++	int ret = wifi_transition(true);
++	if (!ret)
++		ret = wifi_transition(false);
++	mutex_lock(&radio_lock);
++	if (ret && !suspending && identity_state == ID_PENDING) {
++		publish_wifi_failure(ret, false);
++	}
++	mutex_unlock(&radio_lock);
++}
++
++static int radio_pm_notify(struct notifier_block *nb, unsigned long event, void *unused)
++{
++	int ret = NOTIFY_OK;
++	bool reprobe = false;
++	mutex_lock(&radio_lock);
++	switch (event) {
++	case PM_SUSPEND_PREPARE:
++	case PM_HIBERNATION_PREPARE:
++	case PM_RESTORE_PREPARE:
++		if (!pm_off_safe || wifi_on || bt_on || transitioning)
++			ret = NOTIFY_BAD;
++		else
++			suspending = true;
++		break;
++	case PM_POST_SUSPEND:
++	case PM_POST_HIBERNATION:
++	case PM_POST_RESTORE:
++		suspending = false;
++		reprobe = operational && identity_state == ID_PENDING;
++		break;
++	}
++	mutex_unlock(&radio_lock);
++	if (reprobe)
++		schedule_work(&probe_work);
++	return ret;
++}
++static struct notifier_block radio_pm_notifier = {
++	.notifier_call = radio_pm_notify,
++	.priority = INT_MAX,
++};
++
++static ssize_t wifi_fault_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	int ret;
++	mutex_lock(&radio_lock);
++	ret = scnprintf(buf, PAGE_SIZE, "%u\n", wifi_fault);
++	mutex_unlock(&radio_lock);
++	return ret;
++}
++static DEVICE_ATTR_RO(wifi_fault);
++static ssize_t wifi_errno_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	int ret;
++	mutex_lock(&radio_lock);
++	ret = scnprintf(buf, PAGE_SIZE, "%d\n", wifi_errno);
++	mutex_unlock(&radio_lock);
++	return ret;
++}
++static DEVICE_ATTR_RO(wifi_errno);
+ 
+ static ssize_t wifi_power_show(struct device *dev, struct device_attribute *attr, char *buf)
+ {
+-	return snprintf(buf, PAGE_SIZE, "%d\n", wifi_on);
+-}
+-
+-static ssize_t wifi_power_store(struct device *dev, struct device_attribute *attr, const char *buf,
+-				size_t count)
+-{
+ 	bool on;
+-	int ret = 0;
+-
++	mutex_lock(&radio_lock);
++	on = wifi_on;
++	mutex_unlock(&radio_lock);
++	return scnprintf(buf, PAGE_SIZE, "%u\n", on);
++}
++static ssize_t wifi_power_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
++{
++	bool on;
++	int ret;
+ 	if (strtobool(buf, &on))
+ 		return -EINVAL;
+-
++	/* Early partial group publication must not flush uninitialized work. */
++	mutex_lock(&radio_lock);
++	ret = operational ? 0 : -EAGAIN;
++	mutex_unlock(&radio_lock);
++	if (ret)
++		return ret;
+ 	flush_work(&probe_work);
+-	mutex_lock(&radio_lock);
+-	if (on)
+-		ret = wifi_power_up();
+-	else
+-		ret = wifi_power_down();
+-	mutex_unlock(&radio_lock);
+-
++	ret = wifi_transition(on);
+ 	return ret ? ret : count;
+ }
+-
+ static DEVICE_ATTR_RW(wifi_power);
+ 
++static ssize_t identity_state_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	enum identity_state state;
++	mutex_lock(&radio_lock);
++	state = identity_state;
++	mutex_unlock(&radio_lock);
++	return scnprintf(buf, PAGE_SIZE, "%s\n", state == ID_READY ? "ready" : state == ID_ERROR ? "error" : "pending");
++}
++static DEVICE_ATTR_RO(identity_state);
++static ssize_t identity_errno_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	int error;
++	mutex_lock(&radio_lock);
++	error = identity_errno;
++	mutex_unlock(&radio_lock);
++	return scnprintf(buf, PAGE_SIZE, "%d\n", error);
++}
++static DEVICE_ATTR_RO(identity_errno);
++#define IDENTITY_ATTR(name, format, value) \
++static ssize_t name##_show(struct device *dev, struct device_attribute *attr, char *buf) \
++{ \
++	int ret; \
++	mutex_lock(&radio_lock); \
++	ret = identity_state == ID_READY ? scnprintf(buf, PAGE_SIZE, format, value) : \
++		(identity_state == ID_PENDING ? -EAGAIN : -ENODEV); \
++	mutex_unlock(&radio_lock); \
++	return ret; \
++} \
++static DEVICE_ATTR_RO(name)
++IDENTITY_ATTR(chipvendor, "0x%02x\n", chipvendor);
++IDENTITY_ATTR(sdio_vendor, "0x%04x\n", sdio_vendor);
++IDENTITY_ATTR(sdio_device, "0x%04x\n", sdio_device);
++IDENTITY_ATTR(profile, "%s\n", identity_profile);
++IDENTITY_ATTR(identity_source, "%s\n", identity_source);
+ static struct attribute *radio_attrs[] = {
+-	&dev_attr_wifi_power.attr,
+-	&dev_attr_chipvendor.attr,
+-	NULL,
++	&dev_attr_wifi_power.attr, &dev_attr_wifi_fault.attr, &dev_attr_wifi_errno.attr, &dev_attr_identity_state.attr, &dev_attr_identity_errno.attr,
++	&dev_attr_chipvendor.attr, &dev_attr_sdio_vendor.attr, &dev_attr_sdio_device.attr,
++	&dev_attr_profile.attr, &dev_attr_identity_source.attr, NULL,
+ };
+-
+-static const struct attribute_group radio_group = {
+-	.attrs = radio_attrs,
+-};
+-
+-// sysfs_remove_group waits for active attribute callbacks, so never call it
+-// while holding radio_lock: wifi_power_store takes that lock.
+-static void radio_quiesce_sysfs(void)
+-{
+-	if (!radio_sysfs_attempted)
+-		return;
+-	sysfs_remove_group(&radio_pdev->dev.kobj, &radio_group);
+-	radio_sysfs_attempted = false;
+-}
+-
+-// Caller holds radio_lock and has quiesced sysfs/work before releasing these
+-// references. The SDIO function reference must go before MMC host references.
+-static void radio_release_references_locked(void)
+-{
+-	forget_vendor_func();
+-	if (host) {
+-		put_device(&host->class_dev);
+-		host = NULL;
+-	}
+-	if (msc_dev) {
+-		put_device(msc_dev);
+-		msc_dev = NULL;
+-	}
+-}
+-
+-// Enumerates the card once so that its vendor is known before anything asks,
+-// then powers it down. Run from a work item: it takes a few hundred
+-// milliseconds and the module scripts that follow do not need it.
+-static void probe_card(struct work_struct *work)
+-{
+-	mutex_lock(&radio_lock);
+-	if (!wifi_power_up())
+-		wifi_power_down();
+-	mutex_unlock(&radio_lock);
+-}
+-
+-// ---------------------------------------------------------------------------
+-// module
+-// ---------------------------------------------------------------------------
+-
++static const struct attribute_group radio_group = { .attrs = radio_attrs };
+ static int request_out(int pin, const char *label, int level)
+ {
+-	if (pin < 0)
+-		return 0;
+-	return gpio_request_one(pin, level ? GPIOF_OUT_INIT_HIGH : GPIOF_OUT_INIT_LOW, label);
+-}
+-
+-static void release(int pin)
+-{
+-	if (pin >= 0)
+-		gpio_free(pin);
+-}
+-
++	return pin < 0 ? 0 : gpio_request_one(pin, level ? GPIOF_OUT_INIT_HIGH : GPIOF_OUT_INIT_LOW, label);
++}
++static void release(int pin) { if (pin >= 0) gpio_free(pin); }
+ static int __init bcm_wlbt_power_init(void)
+ {
+-	int ret;
+-
+-	if (wl_mmc != 0) {
+-		pr_err("bcm_wlbt_power: only R1 MMC controller 0 is supported\n");
++	int ret, irq;
++	struct brcmfmac_sdio_platform_data pdata = {
++		.oob_irq_supported = true, .oob_irq_flags = IRQF_TRIGGER_HIGH,
++	};
++	if (wl_mmc != 0 || wl_reg_on != 35 || wl_host_wake != 8 || bt_reg_on != 36 || host_wake_bt != 37)
+ 		return -EINVAL;
+-	}
+-	if (wl_reg_on < 0 || wl_reg_on > 191 || bt_reg_on < 0 || bt_reg_on > 191 ||
+-	    wl_host_wake < -1 || wl_host_wake > 191 || host_wake_bt < -1 || host_wake_bt > 191) {
+-		pr_err("bcm_wlbt_power: required and optional GPIOs must be valid\n");
++	if (strcmp(profile, "auto") && strcmp(profile, "azurewave") && strcmp(profile, "ap6212a"))
+ 		return -EINVAL;
+-	}
+-
+ 	radio_pdev = platform_device_register_simple("bcm_wlbt_power", -1, NULL, 0);
+ 	if (IS_ERR(radio_pdev))
+ 		return PTR_ERR(radio_pdev);
+-
+ 	ret = request_out(wl_reg_on, "wl_reg_on", 0);
+-	if (ret)
+-		goto err_pdev;
++	if (ret) goto err_pdev;
+ 	ret = request_out(bt_reg_on, "bt_reg_on", 0);
+-	if (ret)
+-		goto err_wl;
++	if (ret) goto err_wl;
+ 	ret = request_out(host_wake_bt, "host_wake_bt", 1);
+-	if (ret)
+-		goto err_bt;
+-	if (wl_host_wake >= 0) {
+-		ret = gpio_request_one(wl_host_wake, GPIOF_IN, "wl_host_wake");
+-		if (ret)
+-			goto err_wake_bt;
+-	}
+-
+-	// First, so that it is rfkill0: the player and the stock bt_init write
+-	// /sys/class/rfkill/rfkill0/state. Not given an initial state with
+-	// rfkill_init_sw_state(): that would set the global Bluetooth state, and
+-	// the rfkill of hci0, registered later by the Bluetooth core, would start
+-	// blocked with it.
+-	bt_rfkill = rfkill_alloc("bluetooth", &radio_pdev->dev, RFKILL_TYPE_BLUETOOTH, &bt_rfkill_ops, NULL);
+-	if (!bt_rfkill) {
+-		ret = -ENOMEM;
+-		goto err_wake_wl;
+-	}
++	if (ret) goto err_bt;
++	ret = gpio_request_one(wl_host_wake, GPIOF_IN, "wl_host_wake");
++	if (ret) goto err_wake_bt;
++	irq = gpio_to_irq(wl_host_wake);
++	if (irq < 0) { ret = irq; goto err_wake_wl; }
++	pdata.oob_irq_nr = irq;
++	brcmf_pdev = platform_device_register_data(NULL, BRCMFMAC_SDIO_PDATA_NAME,
++		PLATFORM_DEVID_NONE, &pdata, sizeof(pdata));
++	if (IS_ERR(brcmf_pdev)) { ret = PTR_ERR(brcmf_pdev); brcmf_pdev = NULL; goto err_wake_wl; }
++	bt_rfkill = rfkill_alloc("compas-bluetooth", &radio_pdev->dev, RFKILL_TYPE_BLUETOOTH, &bt_rfkill_ops, NULL);
++	if (!bt_rfkill) { ret = -ENOMEM; goto err_brcmf; }
++	rfkill_init_sw_state(bt_rfkill, true);
+ 	ret = rfkill_register(bt_rfkill);
+-	if (ret)
+-		goto err_rfkill;
+-
+-	if (wl_host_wake >= 0) {
+-		int irq;
+-		struct brcmfmac_sdio_platform_data pdata = {
+-			.oob_irq_supported = true,
+-			.oob_irq_flags = IRQF_TRIGGER_HIGH,
+-		};
+-
+-		irq = gpio_to_irq(wl_host_wake);
+-		if (irq < 0) {
+-			ret = irq;
+-			goto err_unregister;
+-		}
+-		pdata.oob_irq_nr = irq;
+-
+-		brcmf_pdev = platform_device_register_data(NULL, BRCMFMAC_SDIO_PDATA_NAME, PLATFORM_DEVID_NONE,
+-							   &pdata, sizeof(pdata));
+-		if (IS_ERR(brcmf_pdev)) {
+-			ret = PTR_ERR(brcmf_pdev);
+-			brcmf_pdev = NULL;
+-			goto err_unregister;
+-		}
+-	}
+-
++	if (ret) goto err_rfkill;
+ 	INIT_WORK(&probe_work, probe_card);
+-	radio_sysfs_attempted = true;
+ 	ret = sysfs_create_group(&radio_pdev->dev.kobj, &radio_group);
+-	if (ret)
+-		goto err_brcmf;
+-
++	if (ret) goto err_unregister;
++	sysfs_created = true;
++	ret = register_pm_notifier(&radio_pm_notifier);
++	if (ret) goto err_unregister;
++	/* All GPIOs are low/owned and every other fallible init is complete.
++	 * Protect busy, missing and later-created MSC0 before discovery starts. */
++	ret = mmc_compas_sdio_bootstrap_off();
++	if (ret) goto err_pm;
++	mutex_lock(&radio_lock);
++	pm_off_safe = true;
++	operational = true;
++	mutex_unlock(&radio_lock);
+ 	schedule_work(&probe_work);
+ 	return 0;
+-
+-err_brcmf:
+-	if (brcmf_pdev)
+-		platform_device_unregister(brcmf_pdev);
++err_pm:
++	unregister_pm_notifier(&radio_pm_notifier);
+ err_unregister:
++	if (sysfs_created) sysfs_remove_group(&radio_pdev->dev.kobj, &radio_group);
+ 	rfkill_unregister(bt_rfkill);
+ err_rfkill:
+-	/* Drain any partially-created group before balancing raced sysfs work. */
+-	radio_quiesce_sysfs();
+-	mutex_lock(&radio_lock);
+-	wifi_power_teardown();
+-	bt_power(false);
+-	radio_release_references_locked();
+-	mutex_unlock(&radio_lock);
+ 	rfkill_destroy(bt_rfkill);
++err_brcmf:
++	platform_device_unregister(brcmf_pdev);
+ err_wake_wl:
+ 	release(wl_host_wake);
+ err_wake_bt:
+ 	release(host_wake_bt);
+ err_bt:
+ 	release(bt_reg_on);
+ err_wl:
+ 	release(wl_reg_on);
+ err_pdev:
+ 	platform_device_unregister(radio_pdev);
+ 	return ret;
+ }
+-
+-static void __exit bcm_wlbt_power_exit(void)
+-{
+-	flush_work(&probe_work);
+-	radio_quiesce_sysfs();
+-
+-	// Unregister optional platform data and stop rfkill callbacks before local
+-	// power is dropped. Driver/card lifetime outside this module is not pinned.
+-	if (brcmf_pdev)
+-		platform_device_unregister(brcmf_pdev);
+-	rfkill_unregister(bt_rfkill);
+-	rfkill_destroy(bt_rfkill);
+-
+-	mutex_lock(&radio_lock);
+-	wifi_power_teardown();
+-	bt_power(false);
+-	radio_release_references_locked();
+-	mutex_unlock(&radio_lock);
+-
+-	release(wl_host_wake);
+-	release(host_wake_bt);
+-	release(bt_reg_on);
+-	release(wl_reg_on);
+-	platform_device_unregister(radio_pdev);
+-}
+-
+ module_init(bcm_wlbt_power_init);
+-module_exit(bcm_wlbt_power_exit);
+-
+-MODULE_DESCRIPTION("Wi-Fi and Bluetooth power for a BCM43430 combo on Ingenic boards");
++/* Deliberately no module_exit: hardware ownership lasts until reboot. */
++MODULE_DESCRIPTION("Experimental R1 BCM43430 board power and guarded identity");
+ MODULE_AUTHOR("Mattia D'Oronzo <doronzomattia26@icloud.com>");
+ MODULE_LICENSE("GPL");

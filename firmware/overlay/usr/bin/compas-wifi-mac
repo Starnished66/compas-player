@@ -18,6 +18,7 @@ WAIT_SECONDS=${COMPAS_WIFI_MAC_WAIT_SECONDS:-5}
 CONTROL_HELD=0
 STOP_ACTIVE=0
 STOP_DOWN_ATTEMPTED=0
+GENERATION_FILE="$STATE_DIR/generation.wlan0"
 
 if ! mkdir -p "$STATE_DIR" 2>/dev/null; then
     if [ "$1" = stop ]; then
@@ -97,7 +98,7 @@ reap_stale_runtime_locks() {
     if [ -d "$STATE_DIR/connection.lock" ]; then
         connection_pid=$(cat "$STATE_DIR/connection.lock/pid" 2>/dev/null)
         connection_start=$(cat "$STATE_DIR/connection.lock/start" 2>/dev/null)
-        if ! owner_alive "$connection_pid" "$connection_start" wifi_on.sh; then
+        if ! connection_owner_alive "$connection_pid" "$connection_start"; then
             # Only tear down an initial-DOWN lease that never passed the
             # post-UP MAC guard. Once prepared exists, WPA/DHCP may have begun.
             if [ "$(cat "$STATE_DIR/connection.lock/initial_down" 2>/dev/null)" = 1 ] &&
@@ -105,7 +106,8 @@ reap_stale_runtime_locks() {
                 "$IFCONFIG" wlan0 down >/dev/null 2>&1 || :
             fi
             rm -f "$STATE_DIR/connection.lock/pid" "$STATE_DIR/connection.lock/start" \
-                "$STATE_DIR/connection.lock/initial_down" "$STATE_DIR/connection.lock/prepared"
+                "$STATE_DIR/connection.lock/initial_down" "$STATE_DIR/connection.lock/prepared" \
+                "$STATE_DIR/connection.lock/generation"
             rmdir "$STATE_DIR/connection.lock" 2>/dev/null || :
         fi
     fi
@@ -217,6 +219,20 @@ read_mac() {
 }
 
 cancelled() { [ -e "$STATE_DIR/cancel" ] || [ -e "$STATE_DIR/stopping" ]; }
+
+generation_value() {
+    if [ ! -f "$GENERATION_FILE" ]; then
+        printf '0\n'
+        return 0
+    fi
+    value=$(cat "$GENERATION_FILE" 2>/dev/null) || return 1
+    case "$value" in ''|*[!0-9]*) return 1 ;; esac
+    printf '%s\n' "$value"
+}
+
+connection_owner_alive() {
+    owner_alive "$1" "$2" wifi_on.sh || owner_alive "$1" "$2" compas-radio
+}
 
 configure_mac() {
     # Give late module/interface registration a bounded chance to complete.
@@ -335,6 +351,10 @@ start_worker() {
         control_release
         return 1
     fi
+    if [ -e "$STATE_DIR/cancel" ]; then
+        control_release
+        return 1
+    fi
     reap_stale_runtime_locks
     if [ -f "$STATE_DIR/worker.pid" ] && [ -f "$STATE_DIR/worker.start" ]; then
         old_pid=$(cat "$STATE_DIR/worker.pid" 2>/dev/null)
@@ -347,7 +367,7 @@ start_worker() {
     if [ -d "$STATE_DIR/connection.lock" ]; then
         conn_pid=$(cat "$STATE_DIR/connection.lock/pid" 2>/dev/null)
         conn_start=$(cat "$STATE_DIR/connection.lock/start" 2>/dev/null)
-        if owner_alive "$conn_pid" "$conn_start" wifi_on.sh; then
+        if connection_owner_alive "$conn_pid" "$conn_start"; then
             control_release
             return 0
         fi
@@ -481,6 +501,7 @@ connection_begin() {
     owner_pid=$1
     case "$owner_pid" in ''|*[!0-9]*) return 2 ;; esac
     control_acquire || return 1
+    current_generation=$(generation_value) || { control_release; return 1; }
     cached_mac=$(valid_mac "$(cat "$STATE_DIR/mac" 2>/dev/null)") || cached_mac=
     if [ -e "$STATE_DIR/stopping" ] ||
         [ -e "$STATE_DIR/cancel" ] ||
@@ -502,7 +523,8 @@ connection_begin() {
         elif ! {
             printf '%s\n' "$owner_pid" > "$STATE_DIR/connection.lock/pid" &&
             printf '%s\n' "$owner_start" > "$STATE_DIR/connection.lock/start" &&
-            printf '%s\n' 1 > "$STATE_DIR/connection.lock/initial_down"
+            printf '%s\n' 1 > "$STATE_DIR/connection.lock/initial_down" &&
+            printf '%s\n' "$current_generation" > "$STATE_DIR/connection.lock/generation"
         }; then
             result=1
         else
@@ -511,6 +533,7 @@ connection_begin() {
         if [ "$result" -ne 0 ]; then
             rm -f "$STATE_DIR/connection.lock/pid" "$STATE_DIR/connection.lock/start"
             rm -f "$STATE_DIR/connection.lock/initial_down"
+            rm -f "$STATE_DIR/connection.lock/generation"
             rmdir "$STATE_DIR/connection.lock" 2>/dev/null || :
         fi
     fi
@@ -525,6 +548,8 @@ connection_prepare() {
     recorded_pid=$(cat "$STATE_DIR/connection.lock/pid" 2>/dev/null)
     recorded_start=$(cat "$STATE_DIR/connection.lock/start" 2>/dev/null)
     initial_down=$(cat "$STATE_DIR/connection.lock/initial_down" 2>/dev/null)
+    lease_generation=$(cat "$STATE_DIR/connection.lock/generation" 2>/dev/null)
+    current_generation=$(generation_value) || current_generation=
     owner_start=$(pid_start "$owner_pid") || owner_start=
     cached_mac=$(valid_mac "$(cat "$STATE_DIR/mac" 2>/dev/null)") || cached_mac=
     iface_mac=$(valid_mac "$(cat "$SYS_CLASS_NET/wlan0/address" 2>/dev/null)") || iface_mac=
@@ -532,6 +557,7 @@ connection_prepare() {
     if [ "$owner_pid" = "$recorded_pid" ] && [ -n "$owner_start" ] &&
         [ "$owner_start" = "$recorded_start" ] &&
         [ "$initial_down" = 1 ] &&
+        [ -n "$current_generation" ] && [ "$lease_generation" = "$current_generation" ] &&
         [ "$(cat "$STATE_DIR/status" 2>/dev/null)" = ready ] &&
         [ -n "$cached_mac" ] && [ -r "$SYS_CLASS_NET/wlan0/address" ] &&
         ! cancelled && interface_is_up; then
@@ -595,11 +621,14 @@ connection_check() {
     recorded_pid=$(cat "$STATE_DIR/connection.lock/pid" 2>/dev/null)
     recorded_start=$(cat "$STATE_DIR/connection.lock/start" 2>/dev/null)
     initial_down=$(cat "$STATE_DIR/connection.lock/initial_down" 2>/dev/null)
+    lease_generation=$(cat "$STATE_DIR/connection.lock/generation" 2>/dev/null)
+    current_generation=$(generation_value) || current_generation=
     current_start=$(pid_start "$owner_pid") || current_start=
     cached_mac=$(valid_mac "$(cat "$STATE_DIR/mac" 2>/dev/null)") || cached_mac=
     iface_mac=$(valid_mac "$(cat "$SYS_CLASS_NET/wlan0/address" 2>/dev/null)") || iface_mac=
     [ "$owner_pid" = "$recorded_pid" ] &&
         [ -n "$current_start" ] && [ "$current_start" = "$recorded_start" ] &&
+        [ -n "$current_generation" ] && [ "$lease_generation" = "$current_generation" ] &&
         [ ! -e "$STATE_DIR/stopping" ] &&
         [ ! -e "$STATE_DIR/cancel" ] &&
         [ "$(cat "$STATE_DIR/status" 2>/dev/null)" = ready ] &&
@@ -619,6 +648,8 @@ connection_end() {
     result=0
     if [ -e "$STATE_DIR/stopping" ]; then
         "$DOWN_SCRIPT" || result=1
+    elif [ -e "$STATE_DIR/cancel" ]; then
+        "$OFF_SCRIPT" || result=1
     elif [ "$(cat "$STATE_DIR/connection.lock/initial_down" 2>/dev/null)" = 1 ] &&
         { [ ! -e "$STATE_DIR/connection.lock/prepared" ] || [ "$bringup_status" -ne 0 ]; }; then
         # The lease began DOWN and failed before or during vendor bring-up.
@@ -626,19 +657,60 @@ connection_end() {
         "$OFF_SCRIPT" || result=1
     fi
     rm -f "$STATE_DIR/connection.lock/pid" "$STATE_DIR/connection.lock/start" \
-        "$STATE_DIR/connection.lock/initial_down" "$STATE_DIR/connection.lock/prepared"
+        "$STATE_DIR/connection.lock/initial_down" "$STATE_DIR/connection.lock/prepared" \
+        "$STATE_DIR/connection.lock/generation"
     rmdir "$STATE_DIR/connection.lock" 2>/dev/null || return 1
     return "$result"
+}
+
+invalidate_interface() {
+    [ "${1:-}" = wlan0 ] || return 2
+    control_acquire || return 1
+    touch "$STATE_DIR/cancel" || { control_release; return 1; }
+    record_status failed || { control_release; return 1; }
+    control_release
+
+    begin=$(now_ticks) || return 1
+    deadline=$((begin + 700))
+    while :; do
+        control_acquire || return 1
+        reap_stale_runtime_locks
+        worker_active=0
+        if [ -f "$STATE_DIR/worker.pid" ] && [ -f "$STATE_DIR/worker.start" ] &&
+            owner_alive "$(cat "$STATE_DIR/worker.pid" 2>/dev/null)" \
+                "$(cat "$STATE_DIR/worker.start" 2>/dev/null)"; then
+            worker_active=1
+        fi
+        if [ "$worker_active" -eq 0 ] && [ ! -d "$STATE_DIR/connection.lock" ]; then
+            current_generation=$(generation_value) || { control_release; return 1; }
+            next_generation=$((current_generation + 1))
+            generation_tmp="$GENERATION_FILE.$$"
+            if ! printf '%s\n' "$next_generation" > "$generation_tmp" ||
+                ! mv -f "$generation_tmp" "$GENERATION_FILE"; then
+                rm -f "$generation_tmp"
+                control_release
+                return 1
+            fi
+            rm -f "$STATE_DIR/status" "$STATE_DIR/mac" "$STATE_DIR/cancel"
+            control_release
+            return 0
+        fi
+        control_release
+        current=$(now_ticks) || return 1
+        [ "$current" -lt "$deadline" ] || return 1
+        usleep 50000 2>/dev/null || sleep 0.05
+    done
 }
 
 case "$1" in
     start) start_worker ;;
     wait) wait_ready "${2:-$WAIT_SECONDS}" ;;
     stop) stop_worker ;;
+    invalidate) invalidate_interface "${2:-}" ;;
     connection-begin) connection_begin "${2:-}" ;;
     connection-prepare) connection_prepare "${2:-}" ;;
     connection-check) connection_check "${2:-}" ;;
     connection-end) connection_end "${2:-}" "${3:-0}" ;;
     --worker-pending) worker_pending "${2:-}" ;;
-    *) echo "Usage: $0 {start|wait [0-30]|stop|connection-begin PID|connection-prepare PID|connection-check PID|connection-end PID}" >&2; exit 2 ;;
+    *) echo "Usage: $0 {start|wait [0-30]|stop|invalidate wlan0|connection-begin PID|connection-prepare PID|connection-check PID|connection-end PID}" >&2; exit 2 ;;
 esac

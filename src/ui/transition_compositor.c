@@ -322,6 +322,7 @@ bool transition_compositor_frame(int32_t v) {
         compositor_mode != COMPOSITOR_MODE_VERTICAL) return false;
 #ifdef UI_PERF_TRACE
     uint64_t perf_frame_start_us = compositor_perf_now_us();
+    uint32_t perf_lv_tick = lv_tick_get();
     /* Gap since the PREVIOUS frame's own start -- the metric that actually
      * shows pacing unevenness (a frame whose own compose+present took a
      * normal ~16ms can still have been DELIVERED late if something else
@@ -477,8 +478,12 @@ bool transition_compositor_frame(int32_t v) {
      * unevenness (this app's own timers competing for the same tick, an
      * occasional missed vblank, anything else) only shows up as a PATTERN
      * across consecutive frames, which avg_us/max_us alone can't reveal. */
-    printf("PERF compositor frame idx=%u gap_us=%llu compose_us=%llu present_us=%llu total_us=%llu\n",
+    printf("PERF compositor frame idx=%u v=%d lv_tick=%u callback_start_us=%llu present_end_us=%llu gap_us=%llu compose_us=%llu present_us=%llu total_us=%llu\n",
            compositor_perf_frame_count,
+           (int) v,
+           (unsigned int) perf_lv_tick,
+           (unsigned long long) perf_frame_start_us,
+           (unsigned long long) perf_present_end_us,
            (unsigned long long) perf_gap_us,
            (unsigned long long) perf_compose_us,
            (unsigned long long) perf_present_us,

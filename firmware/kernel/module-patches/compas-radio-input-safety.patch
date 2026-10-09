@@ -1,0 +1,275 @@
+--- a/modules/bcm_wlbt_power/bcm_wlbt_power.c
++++ b/modules/bcm_wlbt_power/bcm_wlbt_power.c
+@@ -66,17 +66,54 @@
+ static int param_set_pin(const char *val, const struct kernel_param *kp)
+ {
+ 	int *pin = kp->arg;
+-	char port;
++	int parsed = 0;
++	int port;
+ 	int line;
+-
+-	if ((val[0] == 'P' || val[0] == 'p') && sscanf(val + 1, "%c%d", &port, &line) == 2) {
+-		port = toupper(port);
+-		if (port < 'A' || port > 'F' || line < 0 || line > 31)
++	const char *digits;
++
++	if (!val || !*val)
++		return -EINVAL;
++
++	if (val[0] == 'P' || val[0] == 'p') {
++		char letter;
++		const char *cursor = val + 1;
++
++		if (!*cursor)
+ 			return -EINVAL;
+-		*pin = (port - 'A') * 32 + line;
++		letter = toupper((unsigned char)*cursor++);
++		if (letter < 'A' || letter > 'F' || !*cursor)
++			return -EINVAL;
++		port = letter - 'A';
++		for (; *cursor; cursor++) {
++			if (*cursor < '0' || *cursor > '9')
++				return -EINVAL;
++			line = *cursor - '0';
++			if (parsed > (31 - line) / 10)
++				return -EINVAL;
++			parsed = parsed * 10 + line;
++		}
++		*pin = port * 32 + parsed;
+ 		return 0;
+ 	}
+-	return kstrtoint(val, 0, pin);
++
++	if (val[0] == '-') {
++		if (val[1] != '1' || val[2] != '\0')
++			return -EINVAL;
++		*pin = -1;
++		return 0;
++	}
++	for (digits = val; *digits; digits++) {
++		int digit;
++
++		if (*digits < '0' || *digits > '9')
++			return -EINVAL;
++		digit = *digits - '0';
++		if (parsed > (191 - digit) / 10)
++			return -EINVAL;
++		parsed = parsed * 10 + digit;
++	}
++	*pin = parsed;
++	return 0;
+ }
+ 
+ static const struct kernel_param_ops param_ops_pin = {
+@@ -113,6 +150,7 @@
+ static bool bt_on;
+ static bool bt_synced;
+ static unsigned int chipvendor;
++static bool radio_sysfs_attempted;
+ 
+ static struct platform_device *brcmf_pdev;
+ 
+@@ -296,8 +334,10 @@
+ 		ret = mmc_power_restore_host(host);
+ 		mmc_release_host(host);
+ 	} else {
+-		jzmmc_manual_detect(wl_mmc, 1);
+-		if (!wait_for_card())
++		ret = jzmmc_manual_detect(wl_mmc, 1);
++		if (ret == -1)
++			ret = -ENODEV;
++		if (!ret && !wait_for_card())
+ 			ret = -ETIMEDOUT;
+ 	}
+ 
+@@ -317,19 +357,54 @@
+ 	return 0;
+ }
+ 
+-static void wifi_power_down(void)
+-{
++static int wifi_power_down(void)
++{
++	int ret = 0;
++
+ 	if (!wifi_on)
+-		return;
++		return 0;
+ 
+ 	if (host && host->card) {
+ 		mmc_claim_host(host);
+-		mmc_power_save_host(host);
++		ret = mmc_power_save_host(host);
+ 		mmc_release_host(host);
++		if (ret) {
++			/* The MMC core returns -EINVAL for an absent or dead bus. Report
++			 * busy and retain power; this module does not own card lifetime. */
++			if (ret == -EINVAL)
++				ret = -EBUSY;
++			dev_err(&radio_pdev->dev, "Could not power down Wi-Fi card: %d\n", ret);
++			return ret;
++		}
+ 	}
+ 	gpio_set_value_cansleep(wl_reg_on, 0);
+ 	ingenic_rtc32k_disable();
+ 	wifi_on = false;
++	return 0;
++}
++
++// Final teardown must release GPIO and clock ownership even when MMC refuses
++// the ordinary power-save transition. Call only after users are quiesced.
++static void wifi_power_force_off(void)
++{
++	if (!wifi_on)
++		return;
++	gpio_set_value_cansleep(wl_reg_on, 0);
++	ingenic_rtc32k_disable();
++	wifi_on = false;
++}
++
++// Final teardown runs only after this module's sysfs/rfkill callbacks and
++// probe work are quiesced. Try the normal MMC transition first, then balance
++// our GPIO/clock ownership even if that transition failed.
++static void wifi_power_teardown(void)
++{
++	int ret = wifi_power_down();
++
++	if (ret) {
++		dev_err(&radio_pdev->dev, "forcing Wi-Fi power off after MMC error %d\n", ret);
++		wifi_power_force_off();
++	}
+ }
+ 
+ static ssize_t wifi_power_show(struct device *dev, struct device_attribute *attr, char *buf)
+@@ -351,7 +426,7 @@
+ 	if (on)
+ 		ret = wifi_power_up();
+ 	else
+-		wifi_power_down();
++		ret = wifi_power_down();
+ 	mutex_unlock(&radio_lock);
+ 
+ 	return ret ? ret : count;
+@@ -369,6 +444,31 @@
+ 	.attrs = radio_attrs,
+ };
+ 
++// sysfs_remove_group waits for active attribute callbacks, so never call it
++// while holding radio_lock: wifi_power_store takes that lock.
++static void radio_quiesce_sysfs(void)
++{
++	if (!radio_sysfs_attempted)
++		return;
++	sysfs_remove_group(&radio_pdev->dev.kobj, &radio_group);
++	radio_sysfs_attempted = false;
++}
++
++// Caller holds radio_lock and has quiesced sysfs/work before releasing these
++// references. The SDIO function reference must go before MMC host references.
++static void radio_release_references_locked(void)
++{
++	forget_vendor_func();
++	if (host) {
++		put_device(&host->class_dev);
++		host = NULL;
++	}
++	if (msc_dev) {
++		put_device(msc_dev);
++		msc_dev = NULL;
++	}
++}
++
+ // Enumerates the card once so that its vendor is known before anything asks,
+ // then powers it down. Run from a work item: it takes a few hundred
+ // milliseconds and the module scripts that follow do not need it.
+@@ -401,8 +501,13 @@
+ {
+ 	int ret;
+ 
+-	if (wl_reg_on < 0 || bt_reg_on < 0) {
+-		pr_err("bcm_wlbt_power: wl_reg_on and bt_reg_on are required\n");
++	if (wl_mmc != 0) {
++		pr_err("bcm_wlbt_power: only R1 MMC controller 0 is supported\n");
++		return -EINVAL;
++	}
++	if (wl_reg_on < 0 || wl_reg_on > 191 || bt_reg_on < 0 || bt_reg_on > 191 ||
++	    wl_host_wake < -1 || wl_host_wake > 191 || host_wake_bt < -1 || host_wake_bt > 191) {
++		pr_err("bcm_wlbt_power: required and optional GPIOs must be valid\n");
+ 		return -EINVAL;
+ 	}
+ 
+@@ -440,11 +545,18 @@
+ 		goto err_rfkill;
+ 
+ 	if (wl_host_wake >= 0) {
++		int irq;
+ 		struct brcmfmac_sdio_platform_data pdata = {
+ 			.oob_irq_supported = true,
+-			.oob_irq_nr = gpio_to_irq(wl_host_wake),
+ 			.oob_irq_flags = IRQF_TRIGGER_HIGH,
+ 		};
++
++		irq = gpio_to_irq(wl_host_wake);
++		if (irq < 0) {
++			ret = irq;
++			goto err_unregister;
++		}
++		pdata.oob_irq_nr = irq;
+ 
+ 		brcmf_pdev = platform_device_register_data(NULL, BRCMFMAC_SDIO_PDATA_NAME, PLATFORM_DEVID_NONE,
+ 							   &pdata, sizeof(pdata));
+@@ -456,6 +568,7 @@
+ 	}
+ 
+ 	INIT_WORK(&probe_work, probe_card);
++	radio_sysfs_attempted = true;
+ 	ret = sysfs_create_group(&radio_pdev->dev.kobj, &radio_group);
+ 	if (ret)
+ 		goto err_brcmf;
+@@ -469,6 +582,13 @@
+ err_unregister:
+ 	rfkill_unregister(bt_rfkill);
+ err_rfkill:
++	/* Drain any partially-created group before balancing raced sysfs work. */
++	radio_quiesce_sysfs();
++	mutex_lock(&radio_lock);
++	wifi_power_teardown();
++	bt_power(false);
++	radio_release_references_locked();
++	mutex_unlock(&radio_lock);
+ 	rfkill_destroy(bt_rfkill);
+ err_wake_wl:
+ 	release(wl_host_wake);
+@@ -486,25 +606,20 @@
+ static void __exit bcm_wlbt_power_exit(void)
+ {
+ 	flush_work(&probe_work);
+-	sysfs_remove_group(&radio_pdev->dev.kobj, &radio_group);
+-
+-	// brcmfmac lets go of the card before the power goes, and the rfkill
+-	// before Bluetooth is switched off, so that nothing switches it back on.
++	radio_quiesce_sysfs();
++
++	// Unregister optional platform data and stop rfkill callbacks before local
++	// power is dropped. Driver/card lifetime outside this module is not pinned.
+ 	if (brcmf_pdev)
+ 		platform_device_unregister(brcmf_pdev);
+ 	rfkill_unregister(bt_rfkill);
+ 	rfkill_destroy(bt_rfkill);
+ 
+ 	mutex_lock(&radio_lock);
+-	wifi_power_down();
++	wifi_power_teardown();
+ 	bt_power(false);
+-	forget_vendor_func();
++	radio_release_references_locked();
+ 	mutex_unlock(&radio_lock);
+-
+-	if (host)
+-		put_device(&host->class_dev);
+-	if (msc_dev)
+-		put_device(msc_dev);
+ 
+ 	release(wl_host_wake);
+ 	release(host_wake_bt);

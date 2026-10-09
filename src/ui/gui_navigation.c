@@ -607,6 +607,11 @@ static void back_target_cache_note_replaced(lv_obj_t * old_screen, lv_obj_t * ne
 /* slide_transition_ctx_t defined in gui.h */
 
 static bool slide_transition_active = false;
+/* Fixed navigation snapshots are prepared synchronously while LVGL's tick is
+ * frozen. Start their animation from a one-shot timer so lv_anim_start() gets
+ * a fresh loop-top tick instead of charging snapshot time to the animation. */
+static lv_timer_t * fixed_transition_start_timer;
+static slide_transition_ctx_t * fixed_transition_start_ctx;
 
 /* The home pill is a persistent top-layer object, but Lyrics deliberately
  * disables its gesture. Apply its visibility at real screen handoffs so it
@@ -722,6 +727,14 @@ void slide_transition_cancel(slide_transition_ctx_t ** pctx) {
     }
     slide_transition_ctx_t * ctx = *pctx;
     *pctx = NULL;
+
+    if (fixed_transition_start_ctx == ctx) {
+        fixed_transition_start_ctx = NULL;
+        if (fixed_transition_start_timer) {
+            lv_timer_delete(fixed_transition_start_timer);
+            fixed_transition_start_timer = NULL;
+        }
+    }
 
     /* Delete any pending or in-flight animation for this context to prevent use-after-free */
     lv_anim_delete(ctx, slide_transition_anim_x_cb);
@@ -1030,6 +1043,51 @@ slide_transition_ctx_t * begin_slide_transition_ex(lv_obj_t * to_scr, bool forwa
     return ctx;
 }
 
+static void fixed_transition_start_animation(slide_transition_ctx_t *ctx);
+static void fixed_transition_start_timer_cb(lv_timer_t * timer);
+
+static void fixed_transition_schedule_start(slide_transition_ctx_t *ctx) {
+    fixed_transition_start_ctx = ctx;
+    fixed_transition_start_timer = lv_timer_create(fixed_transition_start_timer_cb, 1, ctx);
+    if (fixed_transition_start_timer) {
+        lv_timer_set_repeat_count(fixed_transition_start_timer, 1);
+    } else {
+        fixed_transition_start_ctx = NULL;
+        fixed_transition_start_animation(ctx);
+    }
+}
+
+static void fixed_transition_start_timer_cb(lv_timer_t * timer) {
+    slide_transition_ctx_t *ctx = lv_timer_get_user_data(timer);
+    /* Clear before starting: lv_anim_start() applies frame zero immediately,
+     * and its callback can complete/finalize the transition on failure. */
+    if (fixed_transition_start_timer == timer) fixed_transition_start_timer = NULL;
+    if (fixed_transition_start_ctx == ctx) fixed_transition_start_ctx = NULL;
+    fixed_transition_start_animation(ctx);
+}
+
+static void fixed_transition_start_animation(slide_transition_ctx_t *ctx) {
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, ctx);
+    lv_anim_set_user_data(&a, ctx);
+    lv_anim_set_values(&a, 0, -ctx->to_offset);
+    lv_anim_set_duration(&a, gui_anim_ms(NAV_ANIM_TIME_MS));
+    lv_anim_set_exec_cb(&a, slide_transition_anim_x_cb);
+    lv_anim_set_completed_cb(&a, slide_transition_done_cb);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+    if (!lv_anim_start(&a)) {
+        /* No animation callback ran, so reuse the normal completed cleanup
+         * after ending compositor ownership. Fixed navigation is committed. */
+        transition_compositor_end();
+        lv_anim_t failed_anim;
+        lv_anim_init(&failed_anim);
+        lv_anim_set_user_data(&failed_anim, ctx);
+        slide_transition_done_cb(&failed_anim);
+        lv_async_call(full_redraw_async_cb, NULL);
+    }
+}
+
 static void screen_transition_slide_ex(lv_obj_t * to_scr, bool forward, bool vertical, bool reveal) {
     /* Animation Speed Off: cut straight to the screen, no snapshots. */
     slide_transition_ctx_t * ctx = gui_anims_off() ? NULL : begin_slide_transition_ex(to_scr, forward, vertical, reveal);
@@ -1040,16 +1098,7 @@ static void screen_transition_slide_ex(lv_obj_t * to_scr, bool forward, bool ver
         return;
     }
 
-    lv_anim_t a;
-    lv_anim_init(&a);
-    lv_anim_set_var(&a, ctx);
-    lv_anim_set_user_data(&a, ctx);
-    lv_anim_set_values(&a, 0, -ctx->to_offset);
-    lv_anim_set_duration(&a, gui_anim_ms(NAV_ANIM_TIME_MS));
-    lv_anim_set_exec_cb(&a, slide_transition_anim_x_cb);
-    lv_anim_set_completed_cb(&a, slide_transition_done_cb);
-    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
-    lv_anim_start(&a);
+    fixed_transition_schedule_start(ctx);
 }
 
 void nav_push(lv_obj_t * scr) {
@@ -1341,6 +1390,10 @@ void gui_navigation_init(void) {
  * rebuilt) re-registers the snapshots and restores nav_stack/nav_depth to
  * Home on its own -- no separate "restore navigation" step is needed. */
 void gui_navigation_teardown(void) {
+    if (fixed_transition_start_ctx) {
+        slide_transition_ctx_t *pending = fixed_transition_start_ctx;
+        slide_transition_cancel(&pending);
+    }
     if (theme_snapshot_rebuild_timer) {
         lv_timer_delete(theme_snapshot_rebuild_timer);
         theme_snapshot_rebuild_timer = NULL;

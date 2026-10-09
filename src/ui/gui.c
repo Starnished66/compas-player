@@ -177,10 +177,7 @@ static void update_perf_mark(const char * section) {
   /* SD card mount point, per the layout the stock hiby_player uses. */
   #define MUSIC_ROOT_DIR "/data/mnt/sd_0"
 
-  /* main.c's own boot-checkpoint logger (see its own comment there) --
-   * gui_init() below calls it directly since the still-unresolved cold-boot
-   * hang has moved further into startup than main.c alone can see. Remove
-   * alongside main.c's own copy once cold boot is confirmed working. */
+  /* Persistent startup checkpoints share main.c's retained boot history. */
   extern void boot_checkpoint(const char * step);
 
   /* main.c's own best-effort `mount -t vfat .../sd_0` retry (see its own
@@ -1737,7 +1734,13 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
 #ifndef HOST_BUILD
     boot_checkpoint("gui_init entered");
 #endif
+#ifndef HOST_BUILD
+    boot_checkpoint("settings_load begin");
+#endif
     settings_load(&current_settings);
+#ifndef HOST_BUILD
+    boot_checkpoint("settings_load done; settings application begin");
+#endif
     i18n_set_language(current_settings.language);
     gui_display_apply_rotation(current_settings.screen_upside_down);
     bt_control_restore_codec_preference(current_settings.bt_codec);
@@ -1754,14 +1757,20 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
     app_clock_init(current_settings.clock_automatic, current_settings.clock_manual_epoch,
                    current_settings.clock_system_reference);
 #ifndef HOST_BUILD
-    boot_checkpoint("settings_load done");
+    boot_checkpoint("settings application done");
 #endif
     /* Must run before anything could turn Wi-Fi/Bluetooth on and trigger
      * wifi_on.sh/bt_init's own one-time read of the file this bind-mounts
      * over -- see hostname_apply()'s own comment. */
     gui_theme_init();
     gui_notifications_init();
+#ifndef HOST_BUILD
+    boot_checkpoint("hostname_apply begin");
+#endif
     hostname_apply(current_settings.hostname);
+#ifndef HOST_BUILD
+    boot_checkpoint("hostname_apply done");
+#endif
 
     /* Must run before any screen below captures a gui_theme_font(GUI_FONT_ROLE_SUBTEXT)/20/22/28
      * pointer into its own style -- see this function's own doc comment. */
@@ -1775,7 +1784,13 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
      * repeatedly during development), which is exactly when the persisted
      * value and reality can disagree. */
     usb_mode_t detected_usb_mode;
+#ifndef HOST_BUILD
+    boot_checkpoint("USB mode discovery begin");
+#endif
     bool detected = usb_mode_control_detect_current(&detected_usb_mode);
+#ifndef HOST_BUILD
+    boot_checkpoint("USB mode discovery done");
+#endif
     if (detected) current_settings.usb_mode = (int) detected_usb_mode;
 
     /* ADB is the one mode that survives a restart, because enabling it means
@@ -1814,10 +1829,16 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
     /* Apply saved brightness level at startup. */
     backlight_set_normal_percent(current_settings.brightness_percent);
 
+#ifndef HOST_BUILD
+    boot_checkpoint("LED charging timezone setup begin");
+#endif
     led_control_apply(current_settings.led_indicator_enabled);
     charge_limiter_poll(current_settings.charge_limiter_enabled, true);
     safe_charging_poll(current_settings.safe_charging_enabled, true);
     if (current_settings.timezone[0] != '\0') timezone_apply(current_settings.timezone);
+#ifndef HOST_BUILD
+    boot_checkpoint("LED charging timezone setup done");
+#endif
 
     /* Receiver/server modes are session-only:
      * Never restore AirPlay, DLNA, or Remote Control automatically after a
@@ -1846,21 +1867,42 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
 
 
     /* Initialize native theme service and legacy migration before plugin_manager_init */
+#ifndef HOST_BUILD
+    boot_checkpoint("gui_themes_init begin");
+#endif
     gui_themes_init();
+#ifndef HOST_BUILD
+    boot_checkpoint("gui_themes_init done");
+#endif
 
     /* Discovers plugin rows/tiles by loading and running every .lua file
      * under <SD card>/.plugins/ -- run early, well before Books, Settings,
      * or Stream Media (the current plugin entry points, see build_books_
      * screen()/build_settings_screen()/build_stream_media_screen()) could
      * plausibly be reached. */
+#ifndef HOST_BUILD
+    boot_checkpoint("plugin_manager_init begin");
+#endif
     plugin_manager_init();
+#ifndef HOST_BUILD
+    boot_checkpoint("plugin_manager_init done");
+#endif
 
     /* Apply active native theme on top of fresh plugin baseline before screens are built */
+#ifndef HOST_BUILD
+    boot_checkpoint("gui_themes_apply_active begin");
+#endif
     gui_themes_apply_active();
+#ifndef HOST_BUILD
+    boot_checkpoint("gui_themes_apply_active done");
+#endif
 #ifndef HOST_BUILD
     boot_checkpoint("pre-screen-build setup done");
 #endif
 
+#ifndef HOST_BUILD
+    boot_checkpoint("gui_player_init begin");
+#endif
     gui_player_init(screen_width, screen_height);
 #ifndef HOST_BUILD
     boot_checkpoint("build_player_screen done");
@@ -1874,6 +1916,9 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
      * locally is dev test fixtures, not real user data. */
 #ifndef HOST_BUILD
     playlist_files_migrate_to_relative(PLAYLISTS_DIR);
+#endif
+#ifndef HOST_BUILD
+    boot_checkpoint("library_load_from_cache_only begin");
 #endif
     library_load_from_cache_only();
 #ifndef HOST_BUILD

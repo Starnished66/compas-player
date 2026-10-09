@@ -46,6 +46,17 @@ bool subprocess_run_timeout(char * const argv[], char * out_buf, size_t out_buf_
 bool subprocess_run_checked(char * const argv[], char * out_buf, size_t out_buf_size, int timeout_ms,
                              int * out_exit_code);
 
+/* Checked command in a new process group. On timeout send TERM, allow 1.5s
+ * for cleanup traps, then KILL the group and reap the leader. Commands that
+ * create their own sessions must terminate those children in their traps.
+ * Cleanup grace is additional to timeout_ms. */
+bool subprocess_run_checked_group(char * const argv[], char * out_buf, size_t out_buf_size,
+                                  int timeout_ms, int * out_exit_code);
+
+/* Radio scripts serialize several bounded phases. Keep callers above their
+ * combined budget (lock, identity, MAC, service startup and rollback). */
+#define SUBPROCESS_RADIO_TIMEOUT_MS 120000
+
 /* Like subprocess_run(), but for a long-running daemon meant to outlive
  * this call (bluealsa, bluealsa-aplay) rather than a one-shot command --
  * double-forks (the standard SysV daemonize idiom) so the actual process

@@ -25,6 +25,27 @@ EXPECTED_COMMIT = "e1c5915290197ba01297e3f7c53f37197e0b1f9c"
 UPSTREAM_REPO_URL = "https://github.com/Jepl4r/hiby-custom-kernel"
 SDK_GLOB_PREFIX = "ingenic-linux-kernel4.4.94-x1600-"
 DOCKER_IMAGE = "hiby-custom-kernel"
+WIFI_FRAGMENTS = {"brcmfmac": "compas-r1-brcmfmac.config"}
+WIFI_MODULE_PATCHES = {
+    "brcmfmac": ("compas-radio-input-safety.patch", "compas-radio-lifecycle.patch"),
+}
+WIFI_KERNEL_PATCHES = {"brcmfmac": "compas-mmc-radio-lifetime.patch"}
+DISPLAY_STACKS = ("vendor", "compas")
+DISPLAY_SOURCE_DIR = pathlib.Path("firmware/kernel/display-experimental")
+DISPLAY_REQUIRED_SYMVERS = {
+    "rmem_alloc_aligned": "rmem_manager",
+    "rmem_free": "rmem_manager",
+    "gpio_port_set_func": "utils",
+}
+RADIO_GUARD_EXPORTS = (
+    "mmc_compas_sdio_bootstrap_off",
+    "mmc_compas_sdio_begin",
+    "mmc_compas_sdio_identity",
+    "mmc_compas_sdio_power",
+    "mmc_compas_sdio_set_off",
+    "mmc_compas_sdio_end",
+)
+EXPECTED_VERMAGIC = "4.4.94+ preempt mod_unload MIPS32_R2 32BIT"
 
 
 class PreparationError(Exception):
@@ -79,20 +100,159 @@ def local_patches(upstream: pathlib.Path) -> list[pathlib.Path]:
     return patches
 
 
-def module_patches() -> list[pathlib.Path]:
+def wifi_kernel_patches(wifi_stack: str = "vendor") -> list[pathlib.Path]:
+    if wifi_stack not in ("vendor", *WIFI_KERNEL_PATCHES):
+        raise PreparationError(f"Unsupported Wi-Fi stack {wifi_stack!r}; choose vendor or brcmfmac")
+    if wifi_stack == "vendor":
+        return []
+    patch_dir = REPO_ROOT / "firmware/kernel/wifi-patches"
+    if patch_dir.is_symlink() or not patch_dir.is_dir():
+        raise PreparationError(f"brcmfmac Wi-Fi build requires a regular kernel patch directory: {patch_dir}")
+    required = WIFI_KERNEL_PATCHES[wifi_stack]
+    patch = patch_dir / required
+    if patch.is_symlink() or not patch.is_file():
+        raise PreparationError(f"brcmfmac Wi-Fi build requires kernel patch: {required}")
+    return [patch]
+
+
+def module_patches(wifi_stack: str = "vendor") -> list[pathlib.Path]:
+    if wifi_stack not in ("vendor", *WIFI_FRAGMENTS):
+        raise PreparationError(f"Unsupported Wi-Fi stack {wifi_stack!r}; choose vendor or brcmfmac")
     patch_dir = REPO_ROOT / "firmware/kernel/module-patches"
     if patch_dir.is_symlink():
         raise PreparationError(f"Module source patch path must be a regular directory: {patch_dir}")
     if not patch_dir.exists():
+        if wifi_stack == "brcmfmac":
+            required = WIFI_MODULE_PATCHES[wifi_stack][0]
+            raise PreparationError(f"brcmfmac Wi-Fi build requires module source patch: {required}")
         return []
     if not patch_dir.is_dir():
         raise PreparationError(f"Module source patch path must be a regular directory: {patch_dir}")
-    patches = sorted(patch_dir.glob("*.patch"), key=lambda path: path.name)
+    wifi_patch_names = {name for names in WIFI_MODULE_PATCHES.values() for name in names}
+    patches = sorted((path for path in patch_dir.glob("*.patch") if path.name not in wifi_patch_names),
+                     key=lambda path: path.name)
+    if wifi_stack == "brcmfmac":
+        required = WIFI_MODULE_PATCHES[wifi_stack]
+        available = {path.name: path for path in patch_dir.glob("*.patch")}
+        for name in required:
+            if name not in available:
+                raise PreparationError(f"brcmfmac Wi-Fi build requires module source patch: {name}")
+        patches.extend(available[name] for name in required)
     for patch in patches:
         if patch.is_symlink() or not patch.is_file():
             raise PreparationError(f"Module source patch must be a regular non-symlink file: {patch}")
         validate_module_patch_paths(patch)
     return patches
+
+
+def display_source_files(display_stack: str = "vendor") -> list[pathlib.Path]:
+    if display_stack not in DISPLAY_STACKS:
+        raise PreparationError(
+            f"Unsupported display stack {display_stack!r}; choose vendor or compas"
+        )
+    if display_stack == "vendor":
+        return []
+    source_dir = REPO_ROOT / DISPLAY_SOURCE_DIR
+    if source_dir.is_symlink() or not source_dir.is_dir():
+        raise PreparationError(f"Compas display build requires source directory: {source_dir}")
+    files = sorted((path for path in source_dir.rglob("*")
+                    if path.is_file() and (path.suffix in (".c", ".h") or
+                                           path.name in ("Makefile", "hiby.symvers"))),
+                   key=lambda path: path.relative_to(source_dir).as_posix())
+    tree_paths = list(source_dir.rglob("*"))
+    for path in tree_paths:
+        if path.is_symlink():
+            raise PreparationError(f"Display source tree must not contain symlinks: {path}")
+    unexpected = [path for path in tree_paths if path.is_file() and path not in files]
+    if unexpected:
+        raise PreparationError(f"Unsupported file in Compas display source tree: {unexpected[0]}")
+    makefiles = [path for path in files if path.name == "Makefile"]
+    if len(makefiles) != 1 or makefiles[0].parent != source_dir:
+        raise PreparationError("Compas display source requires one top-level Makefile")
+    symvers = [path for path in files if path.name == "hiby.symvers"]
+    if len(symvers) != 1 or symvers[0].parent != source_dir:
+        raise PreparationError("Compas display Makefile requires top-level hiby.symvers")
+    if not any(path.suffix == ".c" for path in files) or not any(path.suffix == ".h" for path in files):
+        raise PreparationError("Compas display source requires C and header files")
+    makefile_text = makefiles[0].read_text()
+    if not re.search(r"(?m)^\s*obj-m\s*[+:]?=\s*.*\bsoc_fb\.o\b", makefile_text):
+        raise PreparationError("Compas display Makefile must build soc_fb.o")
+    kbuild_lines = [line for line in makefile_text.splitlines()
+                    if re.match(r"\s*(?:(?:export|override|private)\s+)*KBUILD_EXTRA_SYMBOLS\b", line)]
+    if (len(kbuild_lines) != 1 or not re.fullmatch(
+            r"\s*KBUILD_EXTRA_SYMBOLS\s*\+=\s*\$\(src\)/hiby\.symvers\s*(?:#.*)?",
+            kbuild_lines[0])):
+        raise PreparationError("Compas display Makefile must load only $(src)/hiby.symvers")
+    symvers_entries = {}
+    symvers_valid = True
+    for line in symvers[0].read_text().splitlines():
+        if not line.strip():
+            continue
+        match = re.fullmatch(r"(0x[0-9a-f]{8})\t([A-Za-z_][A-Za-z0-9_]*)\t"
+                             r"([A-Za-z_][A-Za-z0-9_]*)\t(EXPORT_SYMBOL)", line)
+        if not match:
+            symvers_valid = False
+            break
+        crc, symbol, module, _export_type = match.groups()
+        if symbol in symvers_entries:
+            symvers_valid = False
+            break
+        symvers_entries[symbol] = (crc, module)
+    expected_entries = {name: ("0x00000000", module)
+                        for name, module in DISPLAY_REQUIRED_SYMVERS.items()}
+    if not symvers_valid or symvers_entries != expected_entries:
+        raise PreparationError(
+            "Compas display hiby.symvers must contain only the pinned rmem/GPIO exports"
+        )
+    for line in makefile_text.splitlines():
+        match = re.match(r"\s*soc_fb-(?:y|objs)\s*[+:]?=\s*(.*?)\s*(?:#.*)?$", line)
+        if not match:
+            continue
+        for obj in match.group(1).split():
+            if not obj.endswith(".o"):
+                continue
+            source = source_dir / (obj[:-2] + ".c")
+            if not source.is_file() or source.is_symlink():
+                raise PreparationError(f"Compas display Makefile references missing source: {source}")
+    return files
+
+
+def copy_display_sources(kit: pathlib.Path, workspace: pathlib.Path,
+                         sources: list[pathlib.Path]) -> list[dict[str, str]]:
+    if not sources:
+        return []
+    target_dir = kit / "modules/soc_fb"
+    if target_dir.exists() or target_dir.is_symlink():
+        raise PreparationError(f"Pinned kit already contains modules/soc_fb: {target_dir}")
+    source_dir = REPO_ROOT / DISPLAY_SOURCE_DIR
+    records = []
+    for source in sources:
+        relative = source.relative_to(source_dir)
+        target = target_dir / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        records.append({
+            "original_path": (DISPLAY_SOURCE_DIR / relative).as_posix(),
+            "sha256": sha256(source),
+            "copied_to": target.relative_to(workspace).as_posix(),
+            "prepared_sha256": sha256(target),
+        })
+    if any(item["sha256"] != item["prepared_sha256"] for item in records):
+        raise PreparationError("Copied Compas display sources differ from checked-in source hashes")
+    return records
+
+
+def validate_prepared_display_sources(kit: pathlib.Path,
+                                      records: list[dict[str, str]]) -> None:
+    for record in records:
+        relative = pathlib.PurePosixPath(record["copied_to"])
+        if relative.is_absolute() or ".." in relative.parts:
+            raise PreparationError(f"Unsafe prepared display source path: {record['copied_to']}")
+        if relative.parts and relative.parts[0] == kit.name:
+            relative = pathlib.PurePosixPath(*relative.parts[1:])
+        path = kit.joinpath(*relative.parts)
+        if path.is_symlink() or not path.is_file() or sha256(path) != record["prepared_sha256"]:
+            raise PreparationError(f"Prepared Compas display source changed: {record['copied_to']}")
 
 
 def validate_module_patch_paths(patch: pathlib.Path) -> None:
@@ -321,7 +481,9 @@ def docker_volume_name(workspace: pathlib.Path, sdk_sha256: str | None) -> str:
 
 def container_command(runtime: str, workspace: pathlib.Path, sdk: pathlib.Path | None,
                       sdk_sha256: str | None, profile: str, jobs: int = 2,
-                      patches: list[str] | None = None) -> list[str]:
+                      patches: list[str] | None = None,
+                      wifi_stack: str = "vendor",
+                      wifi_patches: list[str] | None = None) -> list[str]:
     kit = workspace / "hiby-custom-kernel"
     volume = docker_volume_name(workspace, sdk_sha256)
     command = [
@@ -340,7 +502,10 @@ def container_command(runtime: str, workspace: pathlib.Path, sdk: pathlib.Path |
         "--name", "compas-r1", "--jobs", str(jobs), "--fragment", "r1-parity.config",
         "--fragment", "compas-r1.config",
     ])
-    for patch in patches or []:
+    wifi_fragment = WIFI_FRAGMENTS.get(wifi_stack)
+    if wifi_fragment:
+        command.extend(["--fragment", wifi_fragment])
+    for patch in [*(patches or []), *(wifi_patches or [])]:
         command.extend(["--patch", patch])
     return command
 
@@ -387,7 +552,7 @@ def expected_r1_modules(kit: pathlib.Path) -> set[str]:
     for directory in (kit / "modules", kit / "boards/r1/modules"):
         for makefile in sorted(directory.glob("*/Makefile")):
             for line in makefile.read_text(errors="replace").splitlines():
-                match = re.match(r"\s*obj-m\s*:?=\s*(.*?)\s*(?:#.*)?$", line)
+                match = re.match(r"\s*obj-m\s*[+:]?=\s*(.*?)\s*(?:#.*)?$", line)
                 if not match:
                     continue
                 expected.update(pathlib.Path(item).stem for item in match.group(1).split() if item.endswith(".o"))
@@ -396,7 +561,20 @@ def expected_r1_modules(kit: pathlib.Path) -> set[str]:
     return expected
 
 
-def validate_build(kit: pathlib.Path, stock_kernel: pathlib.Path) -> dict[str, object]:
+def validate_build(kit: pathlib.Path, stock_kernel: pathlib.Path,
+                   wifi_stack: str = "vendor",
+                   provider_source_sha256: str | None = None,
+                   display_stack: str = "vendor",
+                   display_sources: list[dict[str, str]] | None = None) -> dict[str, object]:
+    if wifi_stack not in ("vendor", *WIFI_FRAGMENTS):
+        raise PreparationError(f"Unsupported Wi-Fi stack {wifi_stack!r}; choose vendor or brcmfmac")
+    if display_stack not in DISPLAY_STACKS:
+        raise PreparationError(f"Unsupported display stack {display_stack!r}; choose vendor or compas")
+    display_sources = display_sources or []
+    if display_stack == "compas" and not display_sources:
+        raise PreparationError("Compas display validation requires copied C/header/Makefile/hiby.symvers")
+    if display_stack == "vendor" and display_sources:
+        raise PreparationError("Vendor display validation cannot include Compas display sources")
     out = kit / "out"
     name = "compas-r1"
     image = out / f"xImage-{name}"
@@ -422,10 +600,15 @@ def validate_build(kit: pathlib.Path, stock_kernel: pathlib.Path) -> dict[str, o
     if actual_dtb != expected_dtb:
         raise PreparationError("Built xImage DTB differs from extracted stock DTB")
 
-    fragment_paths = (kit / "configs/r1-required.config", kit / "configs/r1-parity.config",
-                      kit / "configs/compas-r1.config")
+    fragment_paths = [kit / "configs/r1-required.config", kit / "configs/r1-parity.config",
+                      kit / "configs/compas-r1.config"]
+    wifi_fragment = WIFI_FRAGMENTS.get(wifi_stack)
+    if wifi_fragment:
+        fragment_paths.append(kit / "configs" / wifi_fragment)
     requested = config_requests(*fragment_paths)
     actual_config = parse_kernel_config(config)
+    if wifi_stack == "brcmfmac" and actual_config.get("CONFIG_MODULE_FORCE_UNLOAD", "n") != "n":
+        raise PreparationError("brcmfmac candidate must disable CONFIG_MODULE_FORCE_UNLOAD")
     differences = [f"{symbol}: requested {value}, built {actual_config.get(symbol, 'n')}"
                    for symbol, value in requested.items() if actual_config.get(symbol, "n") != value]
     if differences:
@@ -436,6 +619,12 @@ def validate_build(kit: pathlib.Path, stock_kernel: pathlib.Path) -> dict[str, o
     needed_path = kit / "boards/r1/modules-need.txt"
     needed = [line.strip() for line in needed_path.read_text().splitlines() if line.strip()]
     missing = [symbol for symbol in needed if "__ksymtab_" + symbol not in map_symbols]
+    if wifi_stack == "brcmfmac":
+        missing_guard = [symbol for symbol in RADIO_GUARD_EXPORTS
+                         if "__ksymtab_" + symbol not in map_symbols]
+        if missing_guard:
+            raise PreparationError("Built kernel is missing exported MMC lifetime helpers: "
+                                   + ", ".join(missing_guard))
     if missing:
         raise PreparationError(
             f"Built kernel is missing {len(missing)} exported symbols required by R1 modules: "
@@ -444,6 +633,21 @@ def validate_build(kit: pathlib.Path, stock_kernel: pathlib.Path) -> dict[str, o
 
     expected_modules = expected_r1_modules(kit)
     actual_modules = {path.stem: path for path in modules_dir.glob("*.ko") if path.is_file()}
+    if display_stack == "compas":
+        if "soc_fb" not in expected_modules:
+            raise PreparationError("Compas display kit does not declare the soc_fb module")
+        validate_prepared_display_sources(kit, display_sources)
+    elif "soc_fb" in actual_modules:
+        raise PreparationError("Vendor display build unexpectedly contains a replacement soc_fb.ko")
+    wifi_modules = {"brcmfmac", "brcmutil"}
+    if wifi_stack == "vendor":
+        unexpected_wifi = sorted(wifi_modules & actual_modules.keys())
+        if unexpected_wifi:
+            raise PreparationError(
+                "Vendor Wi-Fi build unexpectedly contains candidate modules: " + ", ".join(unexpected_wifi)
+            )
+    else:
+        expected_modules.update(wifi_modules)
     absent = sorted(expected_modules - actual_modules.keys())
     if absent:
         raise PreparationError("Build is missing expected R1 modules: " + ", ".join(absent))
@@ -458,11 +662,13 @@ def validate_build(kit: pathlib.Path, stock_kernel: pathlib.Path) -> dict[str, o
         except (OSError, subprocess.CalledProcessError) as exc:
             raise PreparationError(f"Cannot read vermagic from {actual_modules[module]}: {exc}") from exc
         value = result.stdout.strip()
-        if not value.split() or value.split()[0] != "4.4.94+":
-            raise PreparationError(f"{module}.ko has unexpected vermagic {value!r}; expected 4.4.94+")
+        if value != EXPECTED_VERMAGIC:
+            raise PreparationError(
+                f"{module}.ko has unexpected vermagic {value!r}; expected {EXPECTED_VERMAGIC!r}"
+            )
         vermagic[module] = value
 
-    return {
+    result = {
         "ximage_sha256": sha256(image),
         "ximage_size": image.stat().st_size,
         "stock_kernel_size": stock_kernel.stat().st_size,
@@ -471,7 +677,32 @@ def validate_build(kit: pathlib.Path, stock_kernel: pathlib.Path) -> dict[str, o
         "required_export_count": len(needed),
         "required_module_count": len(expected_modules),
         "module_vermagic": vermagic,
+        "system_map_path": str(system_map.resolve()),
+        "system_map_sha256": sha256(system_map),
+        "config_path": str(config.resolve()),
+        "ximage_path": str(image.resolve()),
+        "display_stack": display_stack,
     }
+    if display_stack == "compas":
+        source_hashes = {item["original_path"]: item["sha256"] for item in display_sources}
+        result["display_source_sha256"] = source_hashes
+        result["soc_fb_module_path"] = str(actual_modules["soc_fb"].resolve())
+        result["soc_fb_module_sha256"] = sha256(actual_modules["soc_fb"])
+    if wifi_stack == "brcmfmac":
+        provider_source = kit / "modules/bcm_wlbt_power/bcm_wlbt_power.c"
+        provider_module = actual_modules.get("bcm_wlbt_power")
+        if provider_source_sha256 is None:
+            raise PreparationError("brcmfmac validation requires the recorded provider source SHA-256")
+        if not provider_source.is_file() or provider_source.is_symlink():
+            raise PreparationError(f"Prepared provider source is missing or unsafe: {provider_source}")
+        actual_source_sha256 = sha256(provider_source)
+        if actual_source_sha256 != provider_source_sha256:
+            raise PreparationError("Prepared provider source changed after its recorded source hash")
+        if provider_module is None:
+            raise PreparationError("Build is missing bcm_wlbt_power.ko")
+        result["provider_source_sha256"] = actual_source_sha256
+        result["provider_module_sha256"] = sha256(provider_module)
+    return result
 
 
 def prepare(args: argparse.Namespace) -> pathlib.Path:
@@ -492,7 +723,30 @@ def prepare(args: argparse.Namespace) -> pathlib.Path:
             f"{profile_path} must keep CONFIG_NLS_CODEPAGE_936=y; Compás mounts FAT media with codepage 936"
         )
     patches = local_patches(upstream)
-    source_patches = module_patches()
+    wifi_stack = getattr(args, "wifi_stack", "vendor")
+    if wifi_stack not in ("vendor", *WIFI_FRAGMENTS):
+        raise PreparationError(f"Unsupported Wi-Fi stack {wifi_stack!r}; choose vendor or brcmfmac")
+    provider_source_arg = getattr(args, "provider_source", None)
+    if wifi_stack == "brcmfmac":
+        if provider_source_arg is None:
+            raise PreparationError("brcmfmac Wi-Fi build requires --provider-source with the reviewed provider C source")
+        if provider_source_arg.is_symlink() or not provider_source_arg.is_file():
+            raise PreparationError(f"Provider source must be a regular non-symlink file: {provider_source_arg}")
+        provider_source_path = provider_source_arg.resolve()
+        provider_source_sha256 = sha256(provider_source_path)
+    else:
+        if provider_source_arg is not None:
+            raise PreparationError("--provider-source is only valid with --wifi-stack brcmfmac")
+        provider_source_path = None
+        provider_source_sha256 = None
+    display_stack = getattr(args, "display_stack", "vendor")
+    display_sources = display_source_files(display_stack)
+    source_patches = module_patches(wifi_stack)
+    experimental_kernel_patches = wifi_kernel_patches(wifi_stack)
+    wifi_fragment_name = WIFI_FRAGMENTS.get(wifi_stack)
+    wifi_fragment_path = REPO_ROOT / "firmware/kernel" / wifi_fragment_name if wifi_fragment_name else None
+    if wifi_fragment_path and (wifi_fragment_path.is_symlink() or not wifi_fragment_path.is_file()):
+        raise PreparationError(f"Missing regular Wi-Fi config fragment: {wifi_fragment_path}")
     if args.sdk and args.sdk.is_symlink():
         raise PreparationError(f"SDK archive must not be a symlink: {args.sdk}")
     runtime = select_container_runtime(getattr(args, "container_runtime", "auto"))
@@ -513,17 +767,30 @@ def prepare(args: argparse.Namespace) -> pathlib.Path:
     kit_destination = workspace / "hiby-custom-kernel"
     jobs = getattr(args, "jobs", 2)
     patch_names = [patch.name for patch in patches]
-    command = container_command(runtime, workspace, sdk, sdk_sha256, args.profile, jobs, patch_names)
+    wifi_patch_names = [patch.name for patch in experimental_kernel_patches]
+    command = container_command(runtime, workspace, sdk, sdk_sha256, args.profile, jobs, patch_names,
+                                wifi_stack, wifi_patch_names)
 
     workspace.mkdir(parents=True)
     try:
         copy_tracked_checkout(upstream, kit_destination)
         copied_patch_dir = kit_destination / "patches"
-        if patches:
+        if patches or experimental_kernel_patches:
             copied_patch_dir.mkdir(parents=True, exist_ok=True)
-            for patch in patches:
+            for patch in [*patches, *experimental_kernel_patches]:
                 shutil.copy2(patch, copied_patch_dir / patch.name)
         applied_module_patches = apply_module_patches(kit_destination, workspace, source_patches)
+        display_source_records = copy_display_sources(kit_destination, workspace, display_sources)
+        if provider_source_path:
+            prepared_provider = kit_destination / "modules/bcm_wlbt_power/bcm_wlbt_power.c"
+            if not prepared_provider.is_file() or prepared_provider.is_symlink():
+                raise PreparationError("Patched kit is missing a regular bcm_wlbt_power.c source")
+            prepared_hash = sha256(prepared_provider)
+            if prepared_hash != provider_source_sha256:
+                raise PreparationError(
+                    "Authoritative --provider-source does not match the module-patch-produced provider source; "
+                    "update the reviewed patch instead of overriding its result"
+                )
         stock_dtb_dir = kit_destination / "boards/r1"
         stock_dtb_dir.mkdir(parents=True, exist_ok=True)
         subprocess.run(
@@ -534,10 +801,14 @@ def prepare(args: argparse.Namespace) -> pathlib.Path:
         if not dtb.is_file() or dtb.stat().st_size == 0:
             raise PreparationError("Pinned stock extractor did not produce boards/r1/stock.dtb")
         shutil.copy2(profile_path, kit_destination / "configs/compas-r1.config")
+        if wifi_fragment_path:
+            shutil.copy2(wifi_fragment_path, kit_destination / "configs" / wifi_fragment_name)
         manifest = {
             "schema_version": 1,
             "board": "r1",
             "profile": args.profile,
+            "wifi_stack": wifi_stack,
+            "display_stack": display_stack,
             "container_runtime": runtime,
             "jobs": jobs,
             "upstream": pin,
@@ -557,7 +828,27 @@ def prepare(args: argparse.Namespace) -> pathlib.Path:
                 }
                 for patch in patches
             ],
+            "wifi_kernel_patches": [
+                {
+                    "original_path": patch.relative_to(REPO_ROOT).as_posix(),
+                    "sha256": sha256(patch),
+                    "copied_to": f"hiby-custom-kernel/patches/{patch.name}",
+                }
+                for patch in experimental_kernel_patches
+            ],
             "module_patches": applied_module_patches,
+            "display_sources": display_source_records,
+            "provider_source": ({
+                "path": str(provider_source_path),
+                "sha256": provider_source_sha256,
+                "prepared_path": "hiby-custom-kernel/modules/bcm_wlbt_power/bcm_wlbt_power.c",
+                "prepared_sha256": prepared_hash,
+            } if provider_source_path else None),
+            "wifi_config_fragment": ({
+                "path": str(wifi_fragment_path),
+                "sha256": sha256(wifi_fragment_path),
+                "copied_to": f"hiby-custom-kernel/configs/{wifi_fragment_name}",
+            } if wifi_fragment_path else None),
             "build_command": command,
             "build_command_shell": shlex.join(command),
             "sdk_expected_in_workspace_as": None if sdk else pin["sdk_archive"],
@@ -576,7 +867,8 @@ def prepare(args: argparse.Namespace) -> pathlib.Path:
             subprocess.run(command, cwd=workspace, check=True)
         except (OSError, subprocess.CalledProcessError) as exc:
             raise PreparationError(f"Container kernel build failed; prepared workspace is preserved: {exc}") from exc
-        validation = validate_build(kit_destination, stock)
+        validation = validate_build(kit_destination, stock, wifi_stack, provider_source_sha256,
+                                     display_stack, display_source_records)
         manifest_path = workspace / "preparation.json"
         manifest = json.loads(manifest_path.read_text())
         manifest["build_validation"] = validation
@@ -590,6 +882,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--stock-kernel", type=pathlib.Path, required=True, help="base firmware's extracted xImage")
     parser.add_argument("--workspace", type=pathlib.Path, required=True, help="fresh destination directory")
     parser.add_argument("--profile", choices=("parity", "optimized"), required=True)
+    parser.add_argument("--wifi-stack", choices=("vendor", "brcmfmac"), default="vendor",
+                        help="Wi-Fi build profile; brcmfmac builds candidate modules only and does not "
+                        "migrate rootfs loading or activate the radio (default: existing vendor stack)")
+    parser.add_argument("--display-stack", choices=DISPLAY_STACKS, default="vendor",
+                        help="display module source; compas builds an isolated soc_fb replacement, "
+                        "vendor preserves the existing module stack (default: vendor)")
+    parser.add_argument("--provider-source", type=pathlib.Path,
+                        help="reviewed bcm_wlbt_power.c source required for --wifi-stack brcmfmac")
     parser.add_argument("--sdk", type=pathlib.Path, help="optional Ingenic SDK tarball")
     parser.add_argument("--container-runtime", choices=("auto", "docker", "podman"), default="auto",
                         help="container runtime (default: prefer Docker, then Podman)")

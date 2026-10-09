@@ -1,0 +1,487 @@
+--- a/drivers/mmc/core/core.c
++++ b/drivers/mmc/core/core.c
+@@ -35,6 +35,8 @@
+ #include <linux/mmc/mmc.h>
+ #include <linux/mmc/sd.h>
+ #include <linux/mmc/slot-gpio.h>
++#include <linux/mmc/sdio_func.h>
++#include <linux/mmc/compas_sdio.h>
+ 
+ #include "core.h"
+ #include "bus.h"
+@@ -2575,6 +2577,10 @@
+ 		container_of(work, struct mmc_host, detect.work);
+ 	int i;
+ 
++	/* A retained board radio card is physically off until guarded bring-up. */
++	if (mmc_compas_sdio_board_off(host))
++		return;
++
+ 	if (host->trigger_card_event && host->ops->card_event) {
+ 		host->ops->card_event(host);
+ 		host->trigger_card_event = false;
+@@ -2746,6 +2752,388 @@
+ }
+ EXPORT_SYMBOL(mmc_power_restore_host);
+ 
++
++/*
++ * R1-only transaction guard for board radio power changes.  This deliberately
++ * does not add state to struct mmc_host: the existing host ABI is shared with
++ * out-of-tree vendor modules.
++ */
++struct mmc_compas_sdio_guard {
++	struct mmc_host *host;
++	struct device *parent;
++	struct mmc_card *card;
++	struct sdio_func *funcs[SDIO_MAX_FUNCS];
++	unsigned int locked_funcs;
++	bool sleep_locked;
++	bool parent_locked;
++	bool rescan_disabled;
++};
++
++/* The permanent board provider owns one exact host until reboot. Retain a
++ * class-device reference; querying from rescan/PM never takes radio/PM locks. */
++static DEFINE_SPINLOCK(compas_sdio_off_lock);
++static struct mmc_host *compas_sdio_off_host;
++static struct device *compas_sdio_off_parent;
++static bool compas_sdio_off;
++static bool compas_sdio_bootstrap_latched;
++
++bool mmc_compas_sdio_board_off(struct mmc_host *host)
++{
++	unsigned long flags;
++	bool off;
++	spin_lock_irqsave(&compas_sdio_off_lock, flags);
++	off = compas_sdio_off_host == host && compas_sdio_off;
++	if (!compas_sdio_off_host && compas_sdio_bootstrap_latched && host) {
++		struct device *parent = mmc_dev(host);
++		/* Physical R1 MSC0 only, including a host created after bootstrap. */
++		off = parent && host->class_dev.parent == parent &&
++			  !strcmp(dev_name(parent), "md_ingenic,mmc.0") &&
++			  !strcmp(mmc_hostname(host), "mmc0");
++	}
++	spin_unlock_irqrestore(&compas_sdio_off_lock, flags);
++	return off;
++}
++
++/* Called once after the permanent provider has established WL_REG_ON low
++ * and completed all other fallible init. No host discovery is required. */
++int mmc_compas_sdio_bootstrap_off(void)
++{
++	unsigned long flags;
++	int ret = 0;
++	if (in_interrupt() || irqs_disabled() || in_atomic())
++		return -EWOULDBLOCK;
++	lock_system_sleep();
++	spin_lock_irqsave(&compas_sdio_off_lock, flags);
++	if (compas_sdio_off_host)
++		ret = -EBUSY;
++	else
++		compas_sdio_bootstrap_latched = true;
++	spin_unlock_irqrestore(&compas_sdio_off_lock, flags);
++	unlock_system_sleep();
++	return ret;
++}
++EXPORT_SYMBOL_GPL(mmc_compas_sdio_bootstrap_off);
++
++/* PM owns the system-sleep mutex, so publication cannot change here. */
++bool mmc_compas_sdio_pm_off(struct mmc_host *host)
++{
++	if (!mmc_compas_sdio_board_off(host))
++		return false;
++	mmc_claim_host(host);
++	mmc_power_off(host);
++	mmc_set_clock(host, 0);
++	host->pm_flags &= ~MMC_PM_KEEP_POWER;
++	mmc_release_host(host);
++	return true;
++}
++
++static void mmc_compas_sdio_unlock_functions(
++		struct mmc_compas_sdio_guard *guard)
++{
++	while (guard->locked_funcs) {
++		struct sdio_func *func = guard->funcs[--guard->locked_funcs];
++
++		device_unlock(&func->dev);
++	}
++}
++
++/* Caller must hold the parent mutex and system-sleep lock. */
++static void mmc_compas_sdio_finish(struct mmc_compas_sdio_guard *guard,
++				   enum mmc_compas_sdio_end_policy policy)
++{
++	struct mmc_host *host = guard->host;
++	unsigned long flags;
++	bool queue_scan = false;
++
++	mmc_compas_sdio_unlock_functions(guard);
++	if (guard->rescan_disabled) {
++		/* Drain work that was queued while this guard held scanning off. */
++		cancel_delayed_work_sync(&host->detect);
++		/* PRESERVE is conservative like FORCE; only DISCARD loses scan work. */
++		queue_scan = policy != MMC_COMPAS_SDIO_DISCARD;
++
++		spin_lock_irqsave(&host->lock, flags);
++		host->rescan_disable = 0;
++		spin_unlock_irqrestore(&host->lock, flags);
++		guard->rescan_disabled = false;
++
++		/* Queue only after the disable flag is cleared, under parent lock. */
++		if (queue_scan)
++			_mmc_detect_change(host, 0, false);
++	}
++	if (guard->parent_locked) {
++		device_unlock(guard->parent);
++		guard->parent_locked = false;
++	}
++	if (guard->sleep_locked) {
++		unlock_system_sleep();
++		guard->sleep_locked = false;
++	}
++	kfree(guard);
++}
++
++int mmc_compas_sdio_begin(struct mmc_host *host,
++			  struct device *expected_parent,
++			  struct mmc_compas_sdio_guard **out)
++{
++	struct mmc_compas_sdio_guard *guard;
++	unsigned long flags;
++	unsigned int i;
++	int ret = 0;
++
++	if (!host || !expected_parent || !out)
++		return -EINVAL;
++	*out = NULL;
++	if (in_interrupt() || irqs_disabled() || in_atomic())
++		return -EWOULDBLOCK;
++
++	guard = kzalloc(sizeof(*guard), GFP_KERNEL);
++	if (!guard)
++		return -ENOMEM;
++	guard->host = host;
++	guard->parent = expected_parent;
++
++	/* Lock order: system PM, MSC parent, drained detect, functions, caller. */
++	lock_system_sleep();
++	guard->sleep_locked = true;
++	if (!device_trylock(expected_parent)) {
++		ret = -EBUSY;
++		goto fail;
++	}
++	guard->parent_locked = true;
++
++	if (!device_is_registered(expected_parent) || !expected_parent->driver ||
++	    strcmp(dev_name(expected_parent), "md_ingenic,mmc.0") ||
++	    mmc_dev(host) != expected_parent ||
++	    host->class_dev.parent != expected_parent ||
++	    strcmp(mmc_hostname(host), "mmc0") ||
++	    !device_is_registered(&host->class_dev) ||
++	    !host->class_dev.class ||
++	    strcmp(host->class_dev.class->name, "mmc_host")) {
++		ret = -ENODEV;
++		goto fail;
++	}
++	if (!(host->caps & MMC_CAP_NONREMOVABLE) ||
++	    (host->caps & MMC_CAP_POWER_OFF_CARD)) {
++		ret = -EOPNOTSUPP;
++		goto fail;
++	}
++
++	spin_lock_irqsave(&host->lock, flags);
++	if (host->rescan_disable) {
++		spin_unlock_irqrestore(&host->lock, flags);
++		ret = -EBUSY;
++		goto fail;
++	}
++	host->rescan_disable = 1;
++	guard->rescan_disabled = true;
++	spin_unlock_irqrestore(&host->lock, flags);
++
++	/* No card/function pointer is inspected until detect/removal has drained. */
++	cancel_delayed_work_sync(&host->detect);
++	guard->card = host->card;
++	if (guard->card && !mmc_card_sdio(guard->card)) {
++		ret = -EOPNOTSUPP;
++		goto fail;
++	}
++	if (guard->card && guard->card->sdio_funcs > SDIO_MAX_FUNCS) {
++		ret = -EOVERFLOW;
++		goto fail;
++	}
++	if (!guard->card && host->rescan_entered) {
++		/* This SDK's non-removable rescan guard has no safe reset API. */
++		ret = -EOPNOTSUPP;
++		goto fail;
++	}
++	if (guard->card && pm_runtime_enabled(&guard->card->dev)) {
++		ret = -EBUSY;
++		goto fail;
++	}
++
++	if (guard->card) {
++		for (i = 0; i < guard->card->sdio_funcs; i++) {
++			struct sdio_func *func = guard->card->sdio_func[i];
++
++			if (!func || !device_is_registered(&func->dev))
++				continue;
++			if (func->card != guard->card || func->num != i + 1) {
++				ret = -ENODEV;
++				goto fail;
++			}
++			if (!device_trylock(&func->dev)) {
++				ret = -EBUSY;
++				goto fail;
++			}
++			guard->funcs[guard->locked_funcs++] = func;
++			if (!device_is_registered(&func->dev) || func->dev.driver ||
++			    pm_runtime_enabled(&func->dev)) {
++				ret = -EBUSY;
++				goto fail;
++			}
++		}
++	}
++
++	*out = guard;
++	return 0;
++
++fail:
++	if (guard->rescan_disabled)
++		mmc_compas_sdio_finish(guard, MMC_COMPAS_SDIO_PRESERVE);
++	else {
++		if (guard->parent_locked)
++			device_unlock(guard->parent);
++		if (guard->sleep_locked)
++			unlock_system_sleep();
++		kfree(guard);
++	}
++	return ret;
++}
++EXPORT_SYMBOL_GPL(mmc_compas_sdio_begin);
++
++int mmc_compas_sdio_identity(struct mmc_compas_sdio_guard *guard,
++			     struct mmc_compas_sdio_identity *identity)
++{
++	struct mmc_card *card;
++	struct sdio_func *func;
++	struct sdio_func_tuple *tuple;
++	bool malformed = false;
++	bool maker_value_seen = false;
++	unsigned int i;
++	int ret = 0;
++
++	if (!guard || !identity || !guard->rescan_disabled)
++		return -EINVAL;
++	memset(identity, 0, sizeof(*identity));
++	card = guard->card;
++	if (!card || guard->host->card != card)
++		return -ENOMEDIUM;
++
++	mmc_claim_host(guard->host);
++	if (guard->host->card != card || !mmc_card_sdio(card)) {
++		ret = -ENOMEDIUM;
++		goto out;
++	}
++	for (i = 0; i < guard->locked_funcs; i++) {
++		func = guard->funcs[i];
++		if (func->num != 2)
++			continue;
++		if (func->card == card && device_is_registered(&func->dev)) {
++			identity->function2_vendor = func->vendor;
++			identity->function2_device = func->device;
++			identity->valid = true;
++		}
++		break;
++	}
++	for (tuple = card->tuples; tuple; tuple = tuple->next) {
++		if (tuple->code != 0x81)
++			continue;
++		identity->maker_tuple_present = true;
++		if (tuple->size != 1) {
++			malformed = true;
++			continue;
++		}
++		if (maker_value_seen && identity->maker_tuple_value != tuple->data[0]) {
++			malformed = true;
++			continue;
++		}
++		identity->maker_tuple_value = tuple->data[0];
++		maker_value_seen = true;
++	}
++	if (malformed) {
++		ret = -EOPNOTSUPP;
++		goto out;
++	}
++	if (!identity->valid)
++		ret = -ENODEV;
++	else if (identity->maker_tuple_present)
++		identity->azurewave = identity->maker_tuple_value == 1;
++out:
++	mmc_release_host(guard->host);
++	return ret;
++}
++EXPORT_SYMBOL_GPL(mmc_compas_sdio_identity);
++
++int mmc_compas_sdio_power(struct mmc_compas_sdio_guard *guard, bool restore)
++{
++	struct mmc_host *host;
++	struct mmc_card *card;
++	int ret;
++
++	if (!guard || !guard->rescan_disabled)
++		return -EINVAL;
++	host = guard->host;
++	card = guard->card;
++	if (!card || host->card != card || !mmc_card_sdio(card))
++		return -ENOMEDIUM;
++
++	mmc_claim_host(host);
++	if (host->card != card) {
++		ret = -ENOMEDIUM;
++	} else if (restore) {
++		ret = mmc_power_restore_host(host);
++	} else {
++		ret = mmc_power_save_host(host);
++	}
++	mmc_release_host(host);
++	return ret;
++}
++EXPORT_SYMBOL_GPL(mmc_compas_sdio_power);
++
++/* Only a live R1 guard may publish physical off state. Clear before power-up;
++ * set only after save/no-card recovery and WL_REG_ON/LPO shutdown commit. */
++int mmc_compas_sdio_set_off(struct mmc_compas_sdio_guard *guard, bool off)
++{
++	unsigned long flags;
++	int ret = 0;
++	if (!guard || !guard->rescan_disabled)
++		return -EINVAL;
++	spin_lock_irqsave(&compas_sdio_off_lock, flags);
++	if (compas_sdio_off_host && (compas_sdio_off_host != guard->host ||
++							   compas_sdio_off_parent != guard->parent))
++		ret = -EBUSY;
++	spin_unlock_irqrestore(&compas_sdio_off_lock, flags);
++	if (ret)
++		return ret;
++	/* The guard has excluded detection, bind/unbind and system PM. */
++	if (off) {
++		mmc_claim_host(guard->host);
++		mmc_power_off(guard->host);
++		mmc_set_clock(guard->host, 0);
++		guard->host->pm_flags &= ~MMC_PM_KEEP_POWER;
++		mmc_release_host(guard->host);
++	}
++	spin_lock_irqsave(&compas_sdio_off_lock, flags);
++	if (compas_sdio_off_host && (compas_sdio_off_host != guard->host ||
++							   compas_sdio_off_parent != guard->parent)) {
++		ret = -EBUSY;
++	} else {
++		if (!compas_sdio_off_host) {
++			get_device(&guard->host->class_dev);
++			get_device(guard->parent);
++			compas_sdio_off_host = guard->host;
++			compas_sdio_off_parent = guard->parent;
++		}
++		compas_sdio_off = off;
++		/* Adopt the exact host atomically with removing the namespace latch. */
++		compas_sdio_bootstrap_latched = false;
++	}
++	spin_unlock_irqrestore(&compas_sdio_off_lock, flags);
++	return ret;
++}
++EXPORT_SYMBOL_GPL(mmc_compas_sdio_set_off);
++
++void mmc_compas_sdio_end(struct mmc_compas_sdio_guard *guard,
++		 enum mmc_compas_sdio_end_policy policy)
++{
++	if (!guard)
++		return;
++	if (policy < MMC_COMPAS_SDIO_PRESERVE ||
++	    policy > MMC_COMPAS_SDIO_DISCARD)
++		policy = MMC_COMPAS_SDIO_PRESERVE;
++	mmc_compas_sdio_finish(guard, policy);
++}
++EXPORT_SYMBOL_GPL(mmc_compas_sdio_end);
++
+ /*
+  * Flush the cache to the non-volatile storage.
+  */
+--- a/drivers/mmc/core/core.h
++++ b/drivers/mmc/core/core.h
+@@ -65,6 +65,9 @@
+ }
+ 
+ void mmc_rescan(struct work_struct *work);
++/* Permanent R1 provider state; queries never acquire PM or radio locks. */
++bool mmc_compas_sdio_board_off(struct mmc_host *host);
++bool mmc_compas_sdio_pm_off(struct mmc_host *host);
+ void mmc_start_host(struct mmc_host *host);
+ void mmc_stop_host(struct mmc_host *host);
+ 
+--- a/drivers/mmc/core/sdio.c
++++ b/drivers/mmc/core/sdio.c
+@@ -899,6 +899,9 @@
+  */
+ static int mmc_sdio_suspend(struct mmc_host *host)
+ {
++	if (mmc_compas_sdio_pm_off(host))
++		return 0;
++
+ 	mmc_claim_host(host);
+ 
+ 	if (mmc_card_keep_power(host) && mmc_card_wake_sdio_irq(host))
+@@ -922,6 +925,9 @@
+ 
+ 	BUG_ON(!host);
+ 	BUG_ON(!host->card);
++
++	if (mmc_compas_sdio_pm_off(host))
++		return 0;
+ 
+ 	/* Basic card reinitialization. */
+ 	mmc_claim_host(host);
+--- /dev/null
++++ b/include/linux/mmc/compas_sdio.h
+@@ -0,0 +1,39 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++#ifndef _LINUX_MMC_COMPAS_SDIO_H
++#define _LINUX_MMC_COMPAS_SDIO_H
++
++#include <linux/types.h>
++
++struct device;
++struct mmc_host;
++struct mmc_compas_sdio_guard;
++
++struct mmc_compas_sdio_identity {
++	u16 function2_vendor;
++	u16 function2_device;
++	bool valid;
++	bool maker_tuple_present;
++	bool azurewave;
++	u8 maker_tuple_value;
++};
++
++enum mmc_compas_sdio_end_policy {
++	MMC_COMPAS_SDIO_PRESERVE,
++	MMC_COMPAS_SDIO_FORCE,
++	MMC_COMPAS_SDIO_DISCARD,
++};
++
++int mmc_compas_sdio_begin(struct mmc_host *host,
++			  struct device *expected_parent,
++			  struct mmc_compas_sdio_guard **guard);
++int mmc_compas_sdio_identity(struct mmc_compas_sdio_guard *guard,
++			     struct mmc_compas_sdio_identity *identity);
++int mmc_compas_sdio_power(struct mmc_compas_sdio_guard *guard, bool restore);
++/* Register physical-off bootstrap protection after successful provider init. */
++int mmc_compas_sdio_bootstrap_off(void);
++/* Permanent provider physical-off state; publication requires its live guard. */
++int mmc_compas_sdio_set_off(struct mmc_compas_sdio_guard *guard, bool off);
++void mmc_compas_sdio_end(struct mmc_compas_sdio_guard *guard,
++		 enum mmc_compas_sdio_end_policy policy);
++
++#endif /* _LINUX_MMC_COMPAS_SDIO_H */

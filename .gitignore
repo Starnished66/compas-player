@@ -380,6 +380,7 @@ compas_player_power_r3ii_2025
 # Development harnesses and scratch output stay local.
 *_test.c
 !src/core/theme_file_test.c
+!src/core/boot_trace_test.c
 !src/ui/gui_themes_test.c
 !src/network/plugin_store_theme_test.c
 !src/library/image_thumb_test.c
@@ -424,6 +425,12 @@ __pycache__/
 
 # Local instrumented performance binary.
 /compas_player_perf
+
+# Process-group timeout regression harness for radio integration.
+!src/core/subprocess_timeout_test.c
+
+# Experimental framebuffer state regression harness.
+!scripts/kernel/compas_fb_core_test.c
 
 # Opus stability regressions stay with the decoder fixes.
 !src/audio/opus_decoder_test.c

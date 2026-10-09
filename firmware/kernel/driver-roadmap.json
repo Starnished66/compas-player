@@ -1,0 +1,752 @@
+{
+  "date": "2026-10-09",
+  "status": "irq_concurrent_pan_flashed_median_stock_matched_shipping_gates_pending",
+  "default_stack": "vendor",
+  "device_changes": true,
+  "candidates": [
+    {
+      "driver": "cywdhd",
+      "priority": 1,
+      "approach": "Port kernel brcmfmac plus board power control; retain firmware and vendor MSC host.",
+      "expected_benefit": "Maintainable source and potential on-demand Wi-Fi memory/power reduction; no measured gain yet.",
+      "deployment_gates": [
+        "Hardware verification of reviewed C and integration candidate",
+        "On-device repeated Wi-Fi and Bluetooth toggles, independent radio coexistence",
+        "On-device startup, suspend/resume and failure recovery",
+        "Firmware packaging validation and recovery path",
+        "On-device memory, power and latency measurements",
+        "Measure suspend-prepare with both radios active against the five-second UI budget; timeout safely cancels suspend and may require asynchronous preparation"
+      ]
+    },
+    {
+      "driver": "soc_pwm",
+      "priority": 2,
+      "approach": "Reconstruct exported PWM ABI and channel/timing ownership before replacing driver.",
+      "expected_benefit": "Control of backlight/LED timing and DMA polling; performance benefit unmeasured.",
+      "deployment_gates": [
+        "Exact register and clock mapping",
+        "Exported pwm2 API compatibility",
+        "Backlight polarity and period verification"
+      ]
+    },
+    {
+      "driver": "soc_fb",
+      "priority": 3,
+      "approach": "Keep exclusive DMA ownership and continuous TFT scanout during page changes; require target adoption and fresh read/output-end evidence before page commit.",
+      "expected_benefit": "Potential UI pacing improvement if driver stalls are confirmed.",
+      "deployment_gates": [
+        "Exact panel ABI and callback slots",
+        "mmap/DMA lifetime and scanout synchronization",
+        "On-device frame timing and tearing checks"
+      ]
+    },
+    {
+      "driver": "soc_i2c",
+      "priority": 4,
+      "approach": "Map exact controller behavior and recovery; generic SDK source is reference, not a drop-in replacement.",
+      "expected_benefit": "Potential peripheral timeout/recovery improvements, unmeasured.",
+      "deployment_gates": [
+        "PMIC and audio DAC transaction compatibility",
+        "IRQ, clock and timeout behavior"
+      ]
+    },
+    {
+      "driver": "soc_msc",
+      "priority": 5,
+      "approach": "Retain for initial Wi-Fi migration; it controls SD storage and Wi-Fi SDIO.",
+      "expected_benefit": "Potential I/O latency improvements after profiling.",
+      "deployment_gates": [
+        "Exact SD/SDIO host implementation",
+        "Storage integrity",
+        "Removal/rescan and suspend synchronization"
+      ]
+    },
+    {
+      "driver": "axp2101",
+      "priority": 6,
+      "approach": "Defer until charging, regulator, IRQ and shutdown contracts are documented.",
+      "expected_benefit": "Power-management reliability rather than established playback speed gains."
+    },
+    {
+      "driver": "sau",
+      "priority": 7,
+      "approach": "Map SmartAction consumers before considering replacement.",
+      "expected_benefit": "Small module; no established performance gain."
+    }
+  ],
+  "source_provenance": {
+    "board_kit_repository": "https://github.com/Jepl4r/hiby-custom-kernel",
+    "commit": "e1c5915290197ba01297e3f7c53f37197e0b1f9c",
+    "sdk_sha256": "3e8c101b7c12667dcfed888e2eda63cfa833c6e20f22569e2b646c40f8523641"
+  },
+  "review": {
+    "model": "gpt-6-astra",
+    "scope": "Radio lifecycle, full display replacement and combined firmware integration; controlled bring-up approval only.",
+    "initial_patch_review": {
+      "model": "claude-opus-5-5",
+      "status": "Approved for corrected host-only first phase; findings fixed and re-reviewed",
+      "reviewed_power_source_sha256": "ac0dc1cdffd955f6a4b0f43970c59419fb2c71a90330a3238c18d421f255ee1f",
+      "review_report_sha256": "d3bdc4a4f1c576d56d58e11cd134b3fac4090462d7df9fae6db749416bf2dc60",
+      "deployment_approved": false
+    },
+    "lifecycle_review": {
+      "model": "claude-opus-5-5",
+      "status": "Approved host-only C candidate by actual Opus 5.5; actionable C and shell findings resolved and re-reviewed",
+      "deployment_approved": false,
+      "host_candidate_approved": true,
+      "c_review_report_sha256": "e5fb3df43230c0a929729e665697280aa281d82b94e0d4baa1b52483f1873201",
+      "shell_fix_review_report_sha256": "925c123e1e767991fcf5a1a8c8b09f3b9372ea6b2ede8bb6cf26bebbdfe5df76",
+      "remaining_hardware_timing_gate": "Measure five-second synchronous suspend-prepare budget with active radios; timeout cancels sleep safely and queues background recovery",
+      "final_assembly_review_report_sha256": "cfd5466f70a6cefb33ab417c6f4ffc98edec09c88f8cf716fd544013f34c9d88"
+    }
+  },
+  "initial_implementation": {
+    "selector": "scripts/kernel/prepare_r1_kernel.py --wifi-stack brcmfmac",
+    "activation": "Build candidate modules only; no rootfs migration or device changes.",
+    "power_patch": "firmware/kernel/module-patches/compas-radio-input-safety.patch",
+    "scope": [
+      "Strict GPIO and R1 controller input validation",
+      "IRQ error handling",
+      "Propagate MMC detect/save errors",
+      "Preserve power after failed ordinary shutdown; balance ownership in final teardown"
+    ],
+    "remaining": "Superseded by reviewed lifecycle and combined firmware candidates; radio hardware validation remains required."
+  },
+  "host_validation": {
+    "optimized_build_passed": true,
+    "ximage_sha256": "509ad6555602aedcb08451e004be10daf032fe1f3c13fbef6cf122d4d4d13428",
+    "ximage_size": 3149888,
+    "stock_dtb_sha256": "8e99b1a2a0b18c18ba4bfd7240689c570a629e665147249ac2d2095974b33751",
+    "expected_module_count": 25,
+    "selected_mixed_module_count": 31,
+    "mixed_abi_valid": true,
+    "power_source_sha256": "4eeff488908afef806855f556cd2ba6c98c96895537108975e15b615686b7446",
+    "device_tested": false,
+    "performance_improvement_measured": false,
+    "final_power_module_sha256": "c3f658d77b531e80e1f4b0cd7cee8c069c0dfdea4aac5bcbe0026fe91ea16a3d",
+    "power_patch_sha256": "6d8ab2364bac070bc3a25f7448b35fd61b4cb70258c310904be7df3db38d9c86",
+    "unit_tests_passed": 100,
+    "source_extracted_radio_checks_passed": true,
+    "build_provenance": "Fresh isolated full optimized kernel and provider compiled from verified module patches; stock DTB unchanged; all six helper exports and 31 selected modules validated.",
+    "target_player_build_passed": true,
+    "mmc_source_extracted_c_checks_passed": true,
+    "provider_lifecycle_c_checks_passed": true,
+    "mmc_patch_sha256": "4a39a5edb5e493bbb091f33f7dd25b19f0654a3c4c67f1f1d2cf397bb55b610d",
+    "experimental_backend_tests_passed": 20,
+    "fresh_full_kernel_build_passed": true,
+    "process_group_timeout_tests_passed": true,
+    "busybox_ash_pgid_kill_host_qemu_checked": true,
+    "frozen_provenance_sha256": "f5183ddca22ce1b74a566175b290b33f69fcbb5a0ed27cfb23c31c82c9aaac3a",
+    "target_player_sha256": "a1d84b5479c234ec4a119954ed6b6cfcbf42c5144cb8bc1df839340eb355d1d2",
+    "candidate_assembly_sha256": "db52bdb0157e993b350a5d6c9c56186d0a01e4b11d8ceb930537c7bc770a06b9",
+    "runtime_script_hashes_verified": 18,
+    "payload_metadata_hashes_verified": 2
+  },
+  "lifecycle_implementation": {
+    "power_patch": "firmware/kernel/module-patches/compas-radio-lifecycle.patch",
+    "mmc_patch": "firmware/kernel/wifi-patches/compas-mmc-radio-lifetime.patch",
+    "userspace": "firmware/kernel/wifi-experimental/rootfs/usr/bin/compas-radio",
+    "stager": "scripts/kernel/stage_experimental_radio.py",
+    "scope": [
+      "Opaque MMC guard drains detect/removal and excludes PM, parent unbind and SDIO function binding without host ABI changes",
+      "Explicit pending/ready/error identity and supported 02d0:a9a6 pair; strict AzureWave tuple or explicitly pinned AP6212A profile",
+      "Independent blocked-by-default Bluetooth rfkill and shared clock ownership",
+      "Serialized startup, MAC generation invalidation, detach-before-powerdown and suspend gating",
+      "Permanent physical-off marker suppresses SDIO resume commands and rescans until guarded bring-up",
+      "Cached validated board identity survives later Wi-Fi transport faults for independent Bluetooth use",
+      "Checked process groups, read-back radio state and delayed serialized suspend recovery",
+      "Bootstrap off latch protects existing, busy and later-created MSC0 before discovery, without permitting unverified powered suspend",
+      "Five-second synchronous radio helper budget and background end-only recovery for failed gate release",
+      "Full 31-module assembly provenance includes all rebuilt payloads and retained vendor module checks"
+    ],
+    "provider_lifetime": "Permanent provider until reboot; brcmfmac may unload/reload; force-unload disabled",
+    "manual_detect_ownership": "Retain one owned manual-enable reference across normal Wi-Fi cycles; no claim of maximum off-state power savings",
+    "device_tested": false,
+    "host_candidate": "phase2-bootstrap-corrected/radio-overlay-ap6212a-host-final-v3",
+    "provider_source_verification": "--provider-source must match the source produced by the reviewed patches byte-for-byte; it cannot override it"
+  },
+  "display_implementation": {
+    "status": "final_driver_booted_pan_latency_measured_further_validation_pending",
+    "default_driver": "retained vendor soc_fb",
+    "device_replaced": true,
+    "soc": "Ingenic X1600",
+    "official_specification": "https://www.lumissil.com/assets/pdf/core/X1600_E_HN_DS.pdf",
+    "graphics_findings": [
+      "Chip-specific X1600 datasheet lists LCD output and DMA, without a GPU or blitter; no usable acceleration engine has been established",
+      "SDK four-layer V12 composition is documented for other SoCs; shared MMIO addresses do not prove X1600 support",
+      "Existing Compas uses direct-mapped RGB565 double buffering and hardware page panning"
+    ],
+    "confirmed_device_contract": {
+      "width": 480,
+      "height": 800,
+      "virtual_height": 1600,
+      "bits_per_pixel": 16,
+      "stride_bytes": 960,
+      "frame_num": 2,
+      "pan_display_sync": 1,
+      "vendor_module_sha256": "ebaabf6690df057e938c05030f48b7f9f1bf6b3389dba43893274107e356dbc9"
+    },
+    "correctness_target": "Vendor page-flip wrapper returns success after completion wait timeout logging; exact lower callback errno is not proven. New driver must preserve uncertain state and report explicit failure.",
+    "core_source": "firmware/kernel/display-experimental/compas_fb_core.c",
+    "core_header": "firmware/kernel/display-experimental/compas_fb_core.h",
+    "read_only_probe": "scripts/kernel/display_contract_probe.c",
+    "implemented_scope": [
+      "Exclusive framebuffer platform driver and 168-byte panel ABI",
+      "Permanent two-page allocation and descriptor lifetime; bounded mmap and DMA coherency",
+      "Verified clock inversion, fixed panel geometry and pin ownership",
+      "Fresh stop acknowledgement, bounded polling and quarantine on uncertain DMA state",
+      "Immutable target descriptor adoption with strict advancing pixel-fetch address",
+      "Blank/wake and suspend/resume integration; explicit rollback errno preservation"
+    ],
+    "not_yet_implemented": [
+      "Hardware GPU or layer acceleration; no usable X1600 GPU/blitter established"
+    ],
+    "architecture_review": {
+      "model": "gpt-6-astra",
+      "result": "Proceed with verified single-plane RGB565 RDMA subset; unproven hardware layers remain disabled"
+    },
+    "performance_improvement_measured": false,
+    "validation_gates": [
+      "Recover device connectivity and verify exact final module and firmware hashes",
+      "Measure final pan latency and physical cadence against vendor baseline",
+      "Check physical flicker/tearing, audio coexistence, repeated blank and suspend/resume",
+      "Validate combined radio startup/coexistence and foreground suspend budget on device"
+    ],
+    "read_only_device_probe": {
+      "passed": true,
+      "framebuffer_bytes": 1536000,
+      "complete_pages": 2,
+      "rgb565_supported": true,
+      "raw_accel_id": 0,
+      "raw_accel_flags": 0,
+      "render_performance_measured": false,
+      "binary_linkage": "Static MIPS32r2 o32 FP32; dynamic first attempt did not load",
+      "storage": "SD card vfat; temporary artifacts removed; installed player remained running",
+      "binary_sha256": "723fdcfd1fc9555e0301151275418dbe8e2635486a01c39e0331be763f47f04b"
+    },
+    "core_test_groups_passed": 6,
+    "host_undefined_behavior_sanitizer_passed": true,
+    "mips_core_host_emulation_passed": true,
+    "pure_core_mips_cross_compile_passed": true,
+    "source_sha256": {
+      "firmware/kernel/display-experimental/Makefile": "741abc187b0b9512c8818c648b1e5c6c2c93ed9d7ebaf0d7d27ae4cced229fcb",
+      "firmware/kernel/display-experimental/compas_fb_clock.c": "5d771a04401d144b3eb8745ceefe8087e9b4eec676deee051a063b1182bbe295",
+      "firmware/kernel/display-experimental/compas_fb_clock.h": "36846a9e64d51267c4a0ead888207b0c9275fb87f46c36538fd0a8be69022c38",
+      "firmware/kernel/display-experimental/compas_fb_core.c": "b09a99acb522dc3571a7e3071c6c9fa09759a5e23a0bfcc21f18d0934e3360de",
+      "firmware/kernel/display-experimental/compas_fb_core.h": "836eea7ac70d9167a0e7188202d4cc35b9008df3dd1a1b811dada4f26dec3749",
+      "firmware/kernel/display-experimental/compas_fb_driver.c": "d86b8431d989593d2f9c4094061afe5694fb0d39151dcc6e598610d17bc504c6",
+      "firmware/kernel/display-experimental/compas_fb_fops.c": "1192df13f7c4213a63f3c68ba151d55da38da7502e01ebd2953489cb60486da6",
+      "firmware/kernel/display-experimental/compas_fb_fops.h": "f18d7974ca2170e96d74d3966132bfb60edd90aa44044381f394f22ed08c3d8c",
+      "firmware/kernel/display-experimental/compas_fb_hw.c": "aba42053b9e5816d28ab65006caa921c32ccc6ef5fa8e05e10ab2740593a52ca",
+      "firmware/kernel/display-experimental/compas_fb_hw.h": "09873e1a6cc3c60e095bfe278265ef58e5337b3e7104ae75c1b808d633a69f6c",
+      "firmware/kernel/display-experimental/compas_lcdc_abi.h": "eb6a241303501eee611083695d248b8a39a1242d5b87390a9518bd9ab7aa3859",
+      "firmware/kernel/display-experimental/hiby.symvers": "cf3a3274c018528432ff6ce4479198aa8a741155ef3eddf08c96585174738b13"
+    },
+    "read_only_probe_review": {
+      "model": "claude-opus-5-5",
+      "status": "Approved; findings fixed and re-reviewed",
+      "report_sha256": "ce86a0a24b0274dfaca0795a8acec2b5bf020c44566aa49a38711917b5154a3a"
+    },
+    "wrapper_readiness": "Installed stop/start pan path has confirmed physical output-stop gaps. Continuous-pan source fix built and reviewed; not flashed or visually validated.",
+    "core_review": {
+      "model": "claude-opus-5-5",
+      "status": "Approved host-only foundation; actionable findings resolved and re-reviewed",
+      "report_sha256": "783967aa9d2769e6d1ee4793fb8209bce7f4bc0423b7a04c491ee0d54533e29b",
+      "kernel_wrapper_approved": false
+    },
+    "device_changes": "Combined radio/display/logging UPT flashed. User reports vertical jumping in both custom display versions; no subsequent flash or rollback after user instruction.",
+    "full_driver_review": {
+      "model": "gpt-6-astra",
+      "status": "source_static_review_passed",
+      "report_sha256": "f75988f0751daac56800d55c086e8b72bd5f759726b8aa6f618df035dcf5bad6",
+      "approval_scope": "Controlled experimental R1 X1600 uniprocessor bring-up only. Not production approval or proof of performance, visible cadence, or absence of flicker/tearing.",
+      "opus_final_review": "Unavailable due usage limit; failed attempt does not count as approval"
+    },
+    "conservative_device_validation": {
+      "boot_passed": true,
+      "pan_count": 600,
+      "pan_failures": 0,
+      "underruns": 0,
+      "blank_wake_cycles_passed": 5,
+      "rtc_suspend_resume_passed": true,
+      "vendor_median_pan_us": 16300,
+      "conservative_median_pan_us": 32730,
+      "median_pan_regression_percent": 100.8016,
+      "physical_tearing_verified": false,
+      "final_candidate_validation": false
+    },
+    "final_candidate": {
+      "module_sha256": "df3c6d2f4166930e1afea1f3aa69d4ed9b8890671148491361a40a51591704bb",
+      "upt_sha256": "d69dea8a3ce2ebba711693215b2e0893cc6ab735d4a9fa184cc68fc4fe144084",
+      "update_initiated": true,
+      "boot_verified": true,
+      "performance_verified": true,
+      "pan_validation": {
+        "median_pan_us": {
+          "vendor": 16300,
+          "candidate": 32730,
+          "candidate-adoption": 16684
+        },
+        "final_vs_vendor_percent": 2.355828220858891,
+        "final_vs_conservative_percent": -49.02535899786129,
+        "successful_pan_ioctls": 600,
+        "pan_failures": 0,
+        "underrun_count": 0,
+        "physical_tearing_verified": false,
+        "boot_note": "Successful boot after user reported prior update boot-logo stall; stalled boot logs not preserved."
+      }
+    },
+    "installed_source_sha256": {
+      "firmware/kernel/display-experimental/Makefile": "741abc187b0b9512c8818c648b1e5c6c2c93ed9d7ebaf0d7d27ae4cced229fcb",
+      "firmware/kernel/display-experimental/compas_fb_clock.c": "5d771a04401d144b3eb8745ceefe8087e9b4eec676deee051a063b1182bbe295",
+      "firmware/kernel/display-experimental/compas_fb_clock.h": "36846a9e64d51267c4a0ead888207b0c9275fb87f46c36538fd0a8be69022c38",
+      "firmware/kernel/display-experimental/compas_fb_core.c": "b09a99acb522dc3571a7e3071c6c9fa09759a5e23a0bfcc21f18d0934e3360de",
+      "firmware/kernel/display-experimental/compas_fb_core.h": "836eea7ac70d9167a0e7188202d4cc35b9008df3dd1a1b811dada4f26dec3749",
+      "firmware/kernel/display-experimental/compas_fb_driver.c": "d86b8431d989593d2f9c4094061afe5694fb0d39151dcc6e598610d17bc504c6",
+      "firmware/kernel/display-experimental/compas_fb_fops.c": "1192df13f7c4213a63f3c68ba151d55da38da7502e01ebd2953489cb60486da6",
+      "firmware/kernel/display-experimental/compas_fb_fops.h": "f18d7974ca2170e96d74d3966132bfb60edd90aa44044381f394f22ed08c3d8c",
+      "firmware/kernel/display-experimental/compas_fb_hw.c": "aba42053b9e5816d28ab65006caa921c32ccc6ef5fa8e05e10ab2740593a52ca",
+      "firmware/kernel/display-experimental/compas_fb_hw.h": "09873e1a6cc3c60e095bfe278265ef58e5337b3e7104ae75c1b808d633a69f6c",
+      "firmware/kernel/display-experimental/compas_lcdc_abi.h": "eb6a241303501eee611083695d248b8a39a1242d5b87390a9518bd9ab7aa3859",
+      "firmware/kernel/display-experimental/hiby.symvers": "cf3a3274c018528432ff6ce4479198aa8a741155ef3eddf08c96585174738b13"
+    },
+    "optimization_candidate": {
+      "status": "flashed_user_reported_visual_regression_shared_with_prior_driver",
+      "review_model": "gpt-6-astra",
+      "review_sha256": "2a28f3f75b360299ffda4995c8e09eccb7e7ebe1221d3f6f44bf6c6272cbd598",
+      "scope": "Maximum four 25us adoption retries before unchanged slow poll budget; exact DMA adoption fence retained",
+      "requested_busy_delay_limit_us": 100,
+      "isolated_mips_build_passed": true,
+      "module_sha256": "f294f4216a1390abf40cd68c3771adfa5c06325b7848f828240cb8393e4334e6",
+      "flashed": true,
+      "performance_verified": false,
+      "boot_hang_fixed": false
+    },
+    "transition_regression": {
+      "user_report": "screen jumps vertically on every animation in current and previous custom driver",
+      "rendered_frames": "Twelve framebuffer captures show intended horizontal motion with consistent vertical layout; they do not observe physical panel scan phase.",
+      "trace": {
+        "idle": {
+          "samples": 12000,
+          "dpu_inactive_samples": 3,
+          "tft_inactive_samples": 3,
+          "raw_underrun_samples": 0,
+          "inactive_gaps_ms": [
+            0.768
+          ],
+          "tft_states": [
+            0,
+            2
+          ],
+          "descriptor_changes": 1,
+          "median_spacing_us": 250.0
+        },
+        "settings-system": {
+          "samples": 12000,
+          "dpu_inactive_samples": 9,
+          "tft_inactive_samples": 8,
+          "raw_underrun_samples": 0,
+          "inactive_gaps_ms": [
+            0.504,
+            0.781333,
+            0.764,
+            0.259333
+          ],
+          "tft_states": [
+            0,
+            2
+          ],
+          "descriptor_changes": 4,
+          "median_spacing_us": 250.0
+        },
+        "system-settings": {
+          "samples": 12000,
+          "dpu_inactive_samples": 39,
+          "tft_inactive_samples": 38,
+          "raw_underrun_samples": 0,
+          "inactive_gaps_ms": [
+            1.007333,
+            0.290666,
+            0.268667,
+            0.258,
+            1.284666,
+            1.031334,
+            0.758666,
+            1.283333,
+            0.763333,
+            0.778,
+            0.314667,
+            1.259333,
+            0.762666
+          ],
+          "tft_states": [
+            0,
+            2
+          ],
+          "descriptor_changes": 14,
+          "median_spacing_us": 250.0
+        }
+      },
+      "cause": "Normal pan explicitly stops and restarts RDMA/TFT output; installed traces confirm repeated TFT_WORKING=0 gaps during descriptor changes. Vendor and SDK normal pan switch descriptors without GENERAL_STOP.",
+      "physical_causality_limit": "Panel motion reported by user; no camera or electrical VSYNC capture.",
+      "underrun_limit": "Current stop path clears pending underruns with CPU IRQ disabled, so zero reported counters cannot establish absence of transient underruns."
+    },
+    "continuous_pan_candidate": {
+      "status": "flashed_booted_performance_regression_measured_visual_inspection_pending",
+      "module_sha256": "aa6b57c8b8c4d3217a94836fa62c55555d875b03b70b305adc4b5ec7385ba936",
+      "source_sha256": {
+        "firmware/kernel/display-experimental/compas_fb_core.h": "836eea7ac70d9167a0e7188202d4cc35b9008df3dd1a1b811dada4f26dec3749",
+        "firmware/kernel/display-experimental/compas_fb_core.c": "b09a99acb522dc3571a7e3071c6c9fa09759a5e23a0bfcc21f18d0934e3360de",
+        "firmware/kernel/display-experimental/compas_lcdc_abi.h": "eb6a241303501eee611083695d248b8a39a1242d5b87390a9518bd9ab7aa3859",
+        "firmware/kernel/display-experimental/compas_fb_fops.h": "f18d7974ca2170e96d74d3966132bfb60edd90aa44044381f394f22ed08c3d8c",
+        "firmware/kernel/display-experimental/compas_fb_fops.c": "1192df13f7c4213a63f3c68ba151d55da38da7502e01ebd2953489cb60486da6",
+        "firmware/kernel/display-experimental/compas_fb_hw.h": "a8dbb8276541a3c2539437e0aac382bc9cc3d5d251384564b60c98cb33c75be5",
+        "firmware/kernel/display-experimental/compas_fb_hw.c": "816673f247b3707dd815ff4491416702249386e9cdfc3e2fa88eb873739d632c",
+        "firmware/kernel/display-experimental/Makefile": "741abc187b0b9512c8818c648b1e5c6c2c93ed9d7ebaf0d7d27ae4cced229fcb",
+        "firmware/kernel/display-experimental/compas_fb_driver.c": "1b76b38d4b4c49374000a00f140e88aaca1006a0d56ac733d7c7754a2d778313",
+        "firmware/kernel/display-experimental/hiby.symvers": "cf3a3274c018528432ff6ce4479198aa8a741155ef3eddf08c96585174738b13",
+        "firmware/kernel/display-experimental/compas_fb_clock.h": "36846a9e64d51267c4a0ead888207b0c9275fb87f46c36538fd0a8be69022c38",
+        "firmware/kernel/display-experimental/compas_fb_clock.c": "5d771a04401d144b3eb8745ceefe8087e9b4eec676deee051a063b1182bbe295"
+      },
+      "normal_pan": "No GENERAL_STOP; retain immutable target and require coherent adoption, sampled-low/fresh SRD_END and two separately drained/fresh EODs under a single bounded poll budget.",
+      "failure": "No yoffset advance or guessed-page restart; capture raw diagnostic, attempt safe stop, quarantine allocations on error.",
+      "review_model": "gpt-6-astra",
+      "mips_build_passed": true,
+      "abi_selected_modules": 31,
+      "host_tests_passed": 10,
+      "device_validation_complete": false,
+      "flashed": true,
+      "constraints": [
+        "SRD_END recurrence with current descriptor remains unverified on candidate",
+        "Conservative output fence may add frame latency; no measured performance gain",
+        "Hardware stop failure pins DMA allocations but cannot prevent existing mapped userspace writes",
+        "User authorized this flash; physical jumping, frame timing and tearing validation remain pending."
+      ],
+      "review_report_sha256": "a038b6c42a43cb7ba300dc5abec59f75c96c41cd844c02dac375c99f4f99d1a5",
+      "upt_sha256": "7479159838e24198756eca9f2cd492861fe227e648543042c726c0eca771a07a",
+      "boot_id": "faa8d576-19cc-455e-ae20-c5899ec61a22",
+      "boot_main_loop_verified": true,
+      "performance_trace": {
+        "report": "../compas-display-investigation-20261009/continuous-pan-performance/performance-results.json",
+        "successful_pan_calls": 600,
+        "median_pan_us": 65594,
+        "prior_adoption_median_pan_us": 16684,
+        "pan_latency_increase_percent": 293.15511867657636,
+        "continuous_scanout_sampled": true,
+        "passive_samples": 72000,
+        "output_inactive_samples": 0,
+        "raw_underrun_samples": 0,
+        "physical_jump_verified": false,
+        "interpretation": "Continuous output observed; synchronous fence introduces substantial page-switch latency and slower descriptor cadence during reverse animation."
+      },
+      "shipping_approved": false,
+      "shipping_gate": {
+        "reference": "Saved stock vendor driver 3x200 same-device FBIOPAN_DISPLAY benchmark",
+        "median_pan_us_max": 16300,
+        "p95_pan_us_max": 16308,
+        "requirements": [
+          "Stock-or-better median and p95; repeat with matching workload",
+          "No page-flip failures, underruns or output interruptions",
+          "Physical screen jumping/tearing verification",
+          "Independent C review with actionable findings resolved"
+        ],
+        "current_gate_passed": false
+      },
+      "irq_concurrent_revision": {
+        "status": "irq_concurrent_pan_flashed_median_stock_matched_shipping_gates_pending",
+        "module_sha256": "d5c8fb47b47742b183fee1113bec8fa5dd8bff4f68f645a53d31977242c800b9",
+        "upt_sha256": "2282304d1829524e22508082063b33cbb43846464f93e5180eec924086f1aee1",
+        "review_report": "../compas-display-investigation-20261009/astra-irq-pan-source-review.json",
+        "review_model": "gpt-6-astra",
+        "flashed": true,
+        "boot_id": "c772ac94-41e6-4114-b4e9-b1d006529e0d",
+        "report": "../compas-display-investigation-20261009/irq-pan-performance/performance-results.json",
+        "median_pan_us": 16300,
+        "run_p95_us": [
+          16308,
+          16309,
+          16310
+        ],
+        "median_gate_passed": true,
+        "strict_p95_gate_passed": false,
+        "shipping_approved": false,
+        "physical_visual_validation_complete": false
+      }
+    }
+  },
+  "firmware_candidates": {
+    "radio_only": {
+      "upt_sha256": "9b8ff05245c945f3e1ec88508f221ccbbfe20ab5d17cbe62a5fadf810cc22e6a",
+      "device_tested": false
+    },
+    "combined": {
+      "upt_sha256": "bb97e7c29cae3d2cec7fb3287d4805d9f86e9e1828e826a50475062c8a9a1dc5",
+      "review_model": "gpt-6-astra",
+      "review_status": "integration_review_passed_controlled_bringup",
+      "review_report_sha256": "6add6139e9d723f93cf62dd61e4aee5cadc4631f59d235df67661cd2f33ff73f",
+      "packaging_tests_passed": 11,
+      "selected_module_count": 31,
+      "independent_abi_verification_passed": true,
+      "device_tested": false,
+      "inventory_note": "Combined sidecar and ABI report describe installed modules; inherited radio manifest describes frozen input overlay."
+    },
+    "combined_logged_v2": {
+      "upt_sha256": "96f0978f69140e5d1c2adec4e1707801e44d810d30b885f250408d3a5db2afc8",
+      "kernel_sha256": "d59951e7a6eee56ad3f7f9cf32430865b41bbfc4c81f813424c0ae83b6e3a7bb",
+      "review_model": "gpt-6-astra",
+      "flashed": true,
+      "booted": true,
+      "display_module_sha256": "f294f4216a1390abf40cd68c3771adfa5c06325b7848f828240cb8393e4334e6",
+      "radio_identity_state": "error",
+      "radio_identity_errno": -122,
+      "radio_fault_cause": "Strict common CIS 0x81 length validation rejects observed nine-byte tuple; source explanation pending raw tuple/profile inspection",
+      "performance_comparison_complete": false,
+      "validation_complete": false
+    }
+  },
+  "final_host_validation": {
+    "command": "python3 -m unittest discover -s scripts/kernel -p 'test_*.py'",
+    "tests_passed": 181,
+    "result": "OK",
+    "log_sha256": "4ad1beaa24641396c610bd463f2cb0f776698f0b0d7091de24fb6d77b3f4de80",
+    "git_diff_check_passed": true,
+    "device_validation_complete": false
+  },
+  "boot_hang_investigation": {
+    "status": "past_event_cause_unproven",
+    "review_model": "gpt-6-astra",
+    "verified_update_handoff": "Recovery flag helpers and sync succeeded; intentional exit75, SD unmount succeeded, init reboot requested",
+    "lost_evidence": "Stalled boot early trace not preserved; recovered boot cannot establish previous failure stage",
+    "known_risk": "Startup and shutdown hooks execute synchronously without general deadlines; display has no reboot teardown callback, but neither is established as this hang cause",
+    "kernel_restart_path": "X1600 watchdog reset; CONFIG_HIBERNATE_RESET absent in compiled candidate",
+    "follow_up": "Persistent startup/module/shutdown stage recording and prior boot log retention needed before a diagnostic reproduction"
+  },
+  "optimization_host_validation": {
+    "tests_passed": 181,
+    "log_sha256": "0e3336091d73ae1db73470b7245965b33a9b09d5ff50db0800455fd639e98570",
+    "stale_combined_packaging_rejected": true
+  },
+  "boot_logging": {
+    "status": "flashed_and_prior_history_retained",
+    "player_sha256": "e9bc990425dca637114d38820024485adf46063185eef549d4669b55ae30afe5",
+    "bootloader_sha256": "10e152f25e98cdc747dd9742ed5148ebdf375f64a86cd75337a3274c274471da",
+    "current_plus_previous_generations": 9,
+    "max_bytes_per_launch": 65536,
+    "review_model": "gpt-6-astra",
+    "boot_hang_fixed": false
+  },
+  "frame_pacing_investigation": {
+    "date": "2026-10-09",
+    "user_visual_confirmation": "Vertical jumping is gone; user reports pacing worse than stock.",
+    "driver_module_sha256": "d5c8fb47b47742b183fee1113bec8fa5dd8bff4f68f645a53d31977242c800b9",
+    "shipping_approved": false,
+    "actual_animation_trace": {
+      "sessions": 21,
+      "frames": 863,
+      "presentation_return_interval_p50_us": 16302,
+      "presentation_return_interval_p95_us": 16351,
+      "presentation_return_interval_max_us": 17944,
+      "intervals_over_25ms": 0,
+      "limitation": "Presentation return cadence is not optical cadence or matched stock UI comparison."
+    },
+    "confirmed_app_issue": "Synchronous transition setup precedes lv_anim_start while LVGL tick is frozen; first nonzero position includes preparation time. Position trace shows first steps153\u2013193 pixels with21.7\u201328.9ms stale origin.",
+    "driver_action": "No fence relaxation; extra-EOD wait not reproduced.",
+    "fixed_navigation": {
+      "before": {
+        "sessions": 3,
+        "frames_per_session": [
+          8,
+          8,
+          8
+        ],
+        "first_moving_position_px": [
+          182,
+          153,
+          193
+        ],
+        "first_tick_age_us": [
+          26253,
+          22692,
+          29228
+        ],
+        "presentation_return_intervals_us": {
+          "p50": 16305,
+          "p95": 16336,
+          "max": 16384,
+          "count": 21,
+          "over_25000": 0
+        },
+        "first_to_final_return_us": [
+          114147,
+          114142,
+          114110
+        ]
+      },
+      "after": {
+        "sessions": 10,
+        "frames_per_session": [
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9
+        ],
+        "first_moving_position_px": [
+          102,
+          102,
+          102,
+          102,
+          102,
+          102,
+          108,
+          102,
+          102,
+          102
+        ],
+        "first_tick_age_us": [
+          437,
+          490,
+          774,
+          239,
+          801,
+          520,
+          921,
+          408,
+          608,
+          454
+        ],
+        "presentation_return_intervals_us": {
+          "p50": 16304.0,
+          "p95": 16332,
+          "max": 17292,
+          "count": 80,
+          "over_25000": 0
+        },
+        "first_to_final_return_us": [
+          130434,
+          130446,
+          130436,
+          130432,
+          130410,
+          130432,
+          130428,
+          130423,
+          130382,
+          130391
+        ]
+      },
+      "driver_module_sha256": "d5c8fb47b47742b183fee1113bec8fa5dd8bff4f68f645a53d31977242c800b9",
+      "fixed_diagnostic_binary_sha256": "32e9aa26fa82522b5a964616cfa69ea7b245c4b4e4f98c1424a89909426606aa",
+      "underrun_count_after": 0,
+      "reviewer": "Opus5.5; Astra further reasoning review",
+      "shipping_approved": false,
+      "limitations": [
+        "Same custom driver before/after app fix; no matched stock UI baseline.",
+        "Return timestamps are not optical measurements.",
+        "Logging adds I/O overhead.",
+        "Interactive settles are unchanged.",
+        "Fixed player tested from persistent SD, not flashed."
+      ],
+      "restoration": {
+        "user_state_hash_verified": true,
+        "sd_test_artifacts_removed": true,
+        "installed_player_sha256": "e9bc990425dca637114d38820024485adf46063185eef549d4669b55ae30afe5",
+        "reboot_main_loop_boottime_s": 7.506462
+      },
+      "review_report": "../compas-display-investigation-20261009/frame-pacing-investigation/opus-navigation-start-resolved-review.json"
+    }
+  },
+  "stock_baseline_provenance_correction": {
+    "date": "2026-10-09",
+    "previous_baseline_module_sha256": "ebaabf6690df057e938c05030f48b7f9f1bf6b3389dba43893274107e356dbc9",
+    "previous_baseline_class": "HiBy v1.8.b1 beta via community modified firmware; not authenticated against an official v1.8.b1 image.",
+    "correction": "Historical vendor/stock pan results measure this module, not the OEM v1.6 driver. Preserve raw measurements; prior stock shipping gates require genuine OEM comparison.",
+    "oem_v1_6_module_sha256": "e7d535c725f31675c53baeb9b6bda2a7326debd9a9c9198ac7c852588d3f13f6",
+    "oem_archive_sha256": "9aada81995d8d2b2ed80d6cf292c62bc5f0f705e51e4f69c7e766ee67536ba60",
+    "archive_source": "hiby_os_crack mirror; no independent HiBy-published checksum available",
+    "matched_comparison_status": "OEM R1 v1.6 comparison complete; warmed measurements approximately match stock; optical tearing/full-workload shipping acceptance remains unproven."
+  },
+  "matched_oem_display_benchmark": {
+    "date": "2026-10-09",
+    "comparison": "Only soc_fb module changed; same latest reviewed diagnostic player, kernel, panel, radio modules and input sequence. OEM R1 v1.6 mirror-extracted control.",
+    "report": "../compas-display-investigation-20261009/stock-latest-benchmark/matched-comparison-latest-a-vs-latest-b-vs-oem-v16.json",
+    "stock_control_module_sha256": "e7d535c725f31675c53baeb9b6bda2a7326debd9a9c9198ac7c852588d3f13f6",
+    "custom_module_sha256": "d5c8fb47b47742b183fee1113bec8fa5dd8bff4f68f645a53d31977242c800b9",
+    "workload_per_ui_run": {
+      "fixed_back_transitions": 10,
+      "horizontal_swipe_transitions": 10
+    },
+    "pan_flips_per_driver_cohort": 600,
+    "warmed_results": {
+      "fixed_back_p95_us": {
+        "stock": 16339,
+        "custom": 16340
+      },
+      "swipe_p95_us": {
+        "stock": 16348,
+        "custom": 16371
+      },
+      "fixed_back_max_us": {
+        "stock": 16421,
+        "custom": 16342
+      },
+      "swipe_max_us": {
+        "stock": 18037,
+        "custom": 17961
+      },
+      "over_25ms_intervals": {
+        "stock": 0,
+        "custom": 0
+      },
+      "workload_process_cpu_seconds": {
+        "stock": 3.8,
+        "custom": 3.81
+      }
+    },
+    "preserved_first_custom_run": {
+      "fixed_back_max_us": 32596,
+      "over_25ms_intervals": 1,
+      "cpu_confounded_by_startup_album_thumbnail_worker": true
+    },
+    "reviews": [
+      "Actual Opus 5.5 OEM compatibility/wake and CPU attribution",
+      "Actual Astra OEM compatibility/wake and CPU attribution"
+    ],
+    "device_restoration": "Original custom firmware restored; all 226 user state paths restored and hash-verified; owned SD test/update/recovery artifacts removed. Diagnostic player was not permanently flashed.",
+    "limitations": [
+      "Presentation-return timestamps do not prove optical smoothness, absence of tearing or zero missed frames.",
+      "Synthetic swipes use multiple ADB writes; resulting frame counts vary.",
+      "Warmed latest pre-run database differs only in one track playcount174->175 and lastplayed timestamp; same2416-entry header, remaining bytes and sidecar indexes match.",
+      "Small p95 differences and one isolated first-run long interval do not establish a statistically significant speed improvement."
+    ],
+    "shipping_status": "Measured warmed display workload approximately matches stock; broader shipping acceptance not asserted."
+  },
+  "r1_shipping_decision": {
+    "date": "2026-10-09",
+    "user_decision": "Commit the current driver, select it for the next R1 release, and continue optimizing.",
+    "selected_display_module_sha256": "d5c8fb47b47742b183fee1113bec8fa5dd8bff4f68f645a53d31977242c800b9",
+    "oem_comparison_module_sha256": "e7d535c725f31675c53baeb9b6bda2a7326debd9a9c9198ac7c852588d3f13f6",
+    "checkpoint_review": {
+      "model": "claude-opus-5-5",
+      "verdict": "PASS for committing staged set; exact C/header/patch hash coverage confirmed.",
+      "report_sha256": "ca33f8f850848e96e2ea6b92b8946fd242b7e12af90211f7ad2131f336236a7a"
+    },
+    "checkpoint_preserves_current_benchmarked_version": true,
+    "open_corrections_before_wider_release": [
+      "Nonfatal underrun handling while retaining complete page-ownership fencing.",
+      "One final coherent ownership sample at the pan deadline, without extending wait budget."
+    ],
+    "other_open_validation": [
+      "Combined playback, Wi-Fi download, library scan and animated UI load.",
+      "Radio suspend-prepare duration with Wi-Fi enabled.",
+      "Reboot/shutdown display teardown integration."
+    ],
+    "release_publication_performed": false,
+    "historical_shipping_approved_fields": "Preserved as historical review decisions; superseded user release selection is recorded here."
+  }
+}

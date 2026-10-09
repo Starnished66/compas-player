@@ -1400,7 +1400,15 @@ bool bt_control_init_chip(void) {
 
     char out[512];
     char * bt_resume_argv[] = { (char *) "/usr/bin/bt_resume", NULL };
-    subprocess_run_timeout(bt_resume_argv, out, sizeof(out), BT_INIT_TIMEOUT_MS);
+    if (access("/sys/devices/platform/bcm_wlbt_power/identity_state", F_OK) == 0) {
+        int status;
+        if (!subprocess_run_checked_group(bt_resume_argv, out, sizeof(out), SUBPROCESS_RADIO_TIMEOUT_MS, &status) || status != 0) {
+            pthread_mutex_unlock(&bt_chip_mutex);
+            return false;
+        }
+    } else {
+        subprocess_run_timeout(bt_resume_argv, out, sizeof(out), BT_INIT_TIMEOUT_MS);
+    }
 
     ensure_bluealsa_running(); /* belt-and-suspenders: bt_resume already starts it, but confirm rather than assume */
     bool result = bt_control_adapter_present();

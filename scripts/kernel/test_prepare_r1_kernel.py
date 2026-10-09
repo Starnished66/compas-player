@@ -45,6 +45,11 @@ class PrepareR1KernelTests(unittest.TestCase):
             (self.profile_root / f"r1-{profile}.config").write_text(
                 "CONFIG_NLS_CODEPAGE_936=y\nCONFIG_COMPAS_TEST=y\n"
             )
+        (self.profile_root / "compas-r1-brcmfmac.config").write_text(
+            "CONFIG_CFG80211=y\nCONFIG_FW_LOADER=y\nCONFIG_BRCMUTIL=m\n"
+            "CONFIG_BRCMFMAC=m\nCONFIG_BRCMFMAC_SDIO=y\n"
+            "# CONFIG_MODULE_FORCE_UNLOAD is not set\n"
+        )
         self.old_repo_root = prepare_r1_kernel.REPO_ROOT
         self.old_pin_path = prepare_r1_kernel.PIN_PATH
         prepare_r1_kernel.REPO_ROOT = self.root / "repo"
@@ -69,6 +74,8 @@ class PrepareR1KernelTests(unittest.TestCase):
             "build": False,
             "container_runtime": "auto",
             "jobs": 2,
+            "wifi_stack": "vendor",
+            "display_stack": "vendor",
         }
         values.update(overrides)
         return prepare_r1_kernel.argparse.Namespace(**values)
@@ -94,6 +101,237 @@ class PrepareR1KernelTests(unittest.TestCase):
         self.assertIn("--jobs 2", metadata["build_command_shell"])
         self.assertEqual(metadata["jobs"], 2)
         self.assertEqual(metadata["local_patches"], [])
+        self.assertEqual(metadata["wifi_stack"], "vendor")
+        self.assertEqual(metadata["display_stack"], "vendor")
+        self.assertEqual(metadata["display_sources"], [])
+        self.assertIsNone(metadata["wifi_config_fragment"])
+        self.assertNotIn("compas-r1-brcmfmac.config", metadata["build_command"])
+        self.assertEqual(metadata["wifi_kernel_patches"], [])
+
+    def test_brcmfmac_selection_copies_and_hashes_fragment_and_appends_build_flag(self) -> None:
+        patch_dir = self.profile_root / "module-patches"
+        patch_dir.mkdir()
+        radio_patch = patch_dir / "compas-radio-input-safety.patch"
+        radio_patch.write_text(
+            "--- a/modules/bcm_wlbt_power/bcm_wlbt_power.c\n"
+            "+++ b/modules/bcm_wlbt_power/bcm_wlbt_power.c\n"
+            "@@ -1 +1 @@\n"
+            "-// SPDX-License-Identifier: GPL-2.0\n"
+            "+// SPDX-License-Identifier: GPL-2.0-test\n"
+        )
+        lifecycle_patch = patch_dir / "compas-radio-lifecycle.patch"
+        lifecycle_patch.write_text(
+            "--- a/modules/bcm_wlbt_power/bcm_wlbt_power.c\n"
+            "+++ b/modules/bcm_wlbt_power/bcm_wlbt_power.c\n"
+            "@@ -2 +2 @@\n"
+            "-//\n"
+            "+// lifecycle test\n"
+        )
+        wifi_patch_dir = self.profile_root / "wifi-patches"
+        wifi_patch_dir.mkdir()
+        kernel_patch = wifi_patch_dir / "compas-mmc-radio-lifetime.patch"
+        kernel_patch.write_text(
+            "--- a/drivers/mmc/core/core.c\n"
+            "+++ b/drivers/mmc/core/core.c\n"
+            "@@ -1 +1 @@\n"
+            "-/* kernel */\n"
+            "+/* guarded */\n"
+        )
+        provider_tree = self.root / "provider-tree"
+        provider_file = provider_tree / "modules/bcm_wlbt_power/bcm_wlbt_power.c"
+        provider_file.parent.mkdir(parents=True)
+        provider_file.write_bytes((self.upstream / "modules/bcm_wlbt_power/bcm_wlbt_power.c").read_bytes())
+        for patch in (radio_patch, lifecycle_patch):
+            prepare_r1_kernel.subprocess.run(
+                ["patch", "--batch", "--forward", "--fuzz=0", "-p1", "-i", str(patch)],
+                cwd=provider_tree, check=True, capture_output=True, text=True)
+        provider = provider_file
+        result = prepare_r1_kernel.prepare(self.args(wifi_stack="brcmfmac", provider_source=provider))
+        kit = result / "hiby-custom-kernel"
+        metadata = json.loads((result / "preparation.json").read_text())
+        copied = kit / "configs/compas-r1-brcmfmac.config"
+        self.assertEqual(copied.read_text(), (self.profile_root / "compas-r1-brcmfmac.config").read_text())
+        fragment = metadata["wifi_config_fragment"]
+        self.assertEqual(fragment["sha256"], prepare_r1_kernel.sha256(copied))
+        self.assertEqual(fragment["copied_to"], "hiby-custom-kernel/configs/compas-r1-brcmfmac.config")
+        self.assertEqual(metadata["wifi_stack"], "brcmfmac")
+        self.assertEqual(metadata["provider_source"]["sha256"], prepare_r1_kernel.sha256(provider))
+        self.assertEqual(metadata["provider_source"]["prepared_sha256"], prepare_r1_kernel.sha256(
+            kit / "modules/bcm_wlbt_power/bcm_wlbt_power.c"))
+        self.assertEqual([item["original_path"] for item in metadata["module_patches"]], [
+            "firmware/kernel/module-patches/compas-radio-input-safety.patch",
+            "firmware/kernel/module-patches/compas-radio-lifecycle.patch",
+        ])
+        self.assertEqual(metadata["module_patches"][0]["sha256"], prepare_r1_kernel.sha256(radio_patch))
+        self.assertEqual(metadata["module_patches"][1]["sha256"], prepare_r1_kernel.sha256(lifecycle_patch))
+        self.assertEqual(metadata["wifi_kernel_patches"], [{
+            "original_path": "firmware/kernel/wifi-patches/compas-mmc-radio-lifetime.patch",
+            "sha256": prepare_r1_kernel.sha256(kernel_patch),
+            "copied_to": "hiby-custom-kernel/patches/compas-mmc-radio-lifetime.patch",
+        }])
+        self.assertEqual(
+            (kit / "patches/compas-mmc-radio-lifetime.patch").read_bytes(),
+            kernel_patch.read_bytes(),
+        )
+        command = metadata["build_command"]
+        self.assertEqual(command[-2:], ["--patch", "compas-mmc-radio-lifetime.patch"])
+
+    def test_brcmfmac_requires_kernel_lifetime_patch(self) -> None:
+        module_patch_dir = self.profile_root / "module-patches"
+        module_patch_dir.mkdir()
+        (module_patch_dir / "compas-radio-input-safety.patch").write_text(
+            "--- a/modules/bcm_wlbt_power/bcm_wlbt_power.c\n"
+            "+++ b/modules/bcm_wlbt_power/bcm_wlbt_power.c\n"
+            "@@ -1 +1 @@\n"
+            "-/* original */\n"
+            "+/* hardened */\n"
+        )
+        (module_patch_dir / "compas-radio-lifecycle.patch").write_text(
+            "--- a/modules/bcm_wlbt_power/bcm_wlbt_power.c\n"
+            "+++ b/modules/bcm_wlbt_power/bcm_wlbt_power.c\n"
+            "@@ -1 +1 @@\n"
+            "-/* hardened */\n"
+            "+/* lifecycle */\n"
+        )
+        provider = self.root / "provider.c"
+        provider.write_text("unused\n")
+        with self.assertRaisesRegex(prepare_r1_kernel.PreparationError, "requires a regular kernel patch directory"):
+            prepare_r1_kernel.prepare(self.args(wifi_stack="brcmfmac", provider_source=provider))
+        self.assertFalse(self.workspace.exists())
+
+    def test_vendor_wifi_does_not_select_experimental_kernel_patch(self) -> None:
+        wifi_patch_dir = self.profile_root / "wifi-patches"
+        wifi_patch_dir.mkdir()
+        (wifi_patch_dir / "compas-mmc-radio-lifetime.patch").write_text("candidate only\n")
+        self.assertEqual(prepare_r1_kernel.wifi_kernel_patches("vendor"), [])
+
+    def test_cli_wifi_stack_defaults_to_vendor_and_accepts_brcmfmac(self) -> None:
+        base = ["--upstream", str(self.upstream), "--stock-kernel", str(self.stock),
+                "--workspace", str(self.workspace), "--profile", "parity"]
+        self.assertEqual(prepare_r1_kernel.parse_args(base).wifi_stack, "vendor")
+        self.assertEqual(prepare_r1_kernel.parse_args(base + ["--wifi-stack", "brcmfmac"]).wifi_stack,
+                         "brcmfmac")
+        with self.assertRaises(SystemExit):
+            prepare_r1_kernel.parse_args(base + ["--wifi-stack", "unknown"])
+
+    def test_cli_display_stack_defaults_to_vendor_and_accepts_compas(self) -> None:
+        base = ["--upstream", str(self.upstream), "--stock-kernel", str(self.stock),
+                "--workspace", str(self.workspace), "--profile", "parity"]
+        self.assertEqual(prepare_r1_kernel.parse_args(base).display_stack, "vendor")
+        self.assertEqual(prepare_r1_kernel.parse_args(base + ["--display-stack", "compas"]).display_stack,
+                         "compas")
+        with self.assertRaises(SystemExit):
+            prepare_r1_kernel.parse_args(base + ["--display-stack", "unknown"])
+
+    def test_compas_display_sources_are_copied_and_hash_pinned(self) -> None:
+        source_dir = self.profile_root / "display-experimental"
+        source_dir.mkdir()
+        (source_dir / "soc_fb.c").write_text("int soc_fb_module;\n")
+        (source_dir / "core.c").write_text("int core_module;\n")
+        (source_dir / "core.h").write_text("int core_api(void);\n")
+        (source_dir / "hiby.symvers").write_text("0x00000000\trmem_alloc_aligned\trmem_manager\tEXPORT_SYMBOL\n0x00000000\trmem_free\trmem_manager\tEXPORT_SYMBOL\n0x00000000\tgpio_port_set_func\tutils\tEXPORT_SYMBOL\n")
+        (source_dir / "Makefile").write_text(
+            "obj-m += soc_fb.o\nsoc_fb-y := soc_fb.o core.o\n"
+            "KBUILD_EXTRA_SYMBOLS += $(src)/hiby.symvers\n")
+        fake_tools = self.root / "fake-tools"
+        fake_tools.mkdir()
+        finder = fake_tools / "kallsyms-finder"
+        finder.write_text("#!/bin/sh\nprintf '00000000 T _text\\n'\n")
+        finder.chmod(0o755)
+        with mock.patch.dict(os.environ, {"PATH": f"{fake_tools}:{os.environ['PATH']}"}):
+            result = prepare_r1_kernel.prepare(self.args(display_stack="compas"))
+        kit = result / "hiby-custom-kernel"
+        metadata = json.loads((result / "preparation.json").read_text())
+        self.assertEqual(metadata["display_stack"], "compas")
+        self.assertEqual({pathlib.Path(item["original_path"]).name
+                          for item in metadata["display_sources"]},
+                         {"soc_fb.c", "core.c", "core.h", "Makefile", "hiby.symvers"})
+        for item in metadata["display_sources"]:
+            target = result / item["copied_to"]
+            self.assertEqual(prepare_r1_kernel.sha256(target), item["sha256"])
+            self.assertEqual(item["sha256"], item["prepared_sha256"])
+        self.assertIn("soc_fb.o", (kit / "modules/soc_fb/Makefile").read_text())
+        self.assertEqual(metadata["wifi_stack"], "vendor")
+        self.assertNotIn("brcmfmac", metadata["build_command"])
+
+    def test_compas_display_rejects_missing_makefile_or_referenced_driver(self) -> None:
+        source_dir = self.profile_root / "display-experimental"
+        source_dir.mkdir()
+        (source_dir / "soc_fb.c").write_text("int soc_fb_module;\n")
+        (source_dir / "core.h").write_text("int core_api(void);\n")
+        with self.assertRaisesRegex(prepare_r1_kernel.PreparationError, "top-level Makefile"):
+            prepare_r1_kernel.display_source_files("compas")
+        (source_dir / "Makefile").write_text(
+            "obj-m := soc_fb.o\nKBUILD_EXTRA_SYMBOLS += $(src)/hiby.symvers\n")
+        with self.assertRaisesRegex(prepare_r1_kernel.PreparationError, "requires top-level hiby.symvers"):
+            prepare_r1_kernel.display_source_files("compas")
+        (source_dir / "hiby.symvers").write_text("0x00000000\trmem_alloc_aligned\trmem_manager\tEXPORT_SYMBOL\n0x00000000\trmem_free\trmem_manager\tEXPORT_SYMBOL\n0x00000000\tgpio_port_set_func\tutils\tEXPORT_SYMBOL\n")
+        (source_dir / "Makefile").write_text(
+            "obj-m := soc_fb.o\nsoc_fb-y := missing.o\n"
+            "KBUILD_EXTRA_SYMBOLS += $(src)/hiby.symvers\n")
+        with self.assertRaisesRegex(prepare_r1_kernel.PreparationError, "references missing source"):
+            prepare_r1_kernel.display_source_files("compas")
+
+    def test_compas_display_rejects_extra_files_and_symlinks(self) -> None:
+        source_dir = self.profile_root / "display-experimental"
+        source_dir.mkdir()
+        (source_dir / "driver.c").write_text("int driver;\n")
+        (source_dir / "driver.h").write_text("int driver;\n")
+        (source_dir / "hiby.symvers").write_text(
+            "0x00000000\trmem_alloc_aligned\trmem_manager\tEXPORT_SYMBOL\n"
+            "0x00000000\trmem_free\trmem_manager\tEXPORT_SYMBOL\n"
+            "0x00000000\tgpio_port_set_func\tutils\tEXPORT_SYMBOL\n")
+        (source_dir / "Makefile").write_text(
+            "obj-m := soc_fb.o\nKBUILD_EXTRA_SYMBOLS += $(src)/hiby.symvers\n")
+        unexpected = source_dir / "notes.txt"
+        unexpected.write_text("not part of the pinned module sources\n")
+        with self.assertRaisesRegex(prepare_r1_kernel.PreparationError, "Unsupported file"):
+            prepare_r1_kernel.display_source_files("compas")
+        unexpected.unlink()
+        (source_dir / "linked.h").symlink_to(source_dir / "driver.h")
+        with self.assertRaisesRegex(prepare_r1_kernel.PreparationError, "must not contain symlinks"):
+            prepare_r1_kernel.display_source_files("compas")
+
+    def test_compas_display_symvers_and_makefile_assignments_are_exact(self) -> None:
+        source_dir = self.profile_root / "display-experimental"
+        source_dir.mkdir()
+        (source_dir / "driver.c").write_text("int driver;\n")
+        (source_dir / "driver.h").write_text("int driver;\n")
+        valid_symvers = (
+            "0x00000000\trmem_alloc_aligned\trmem_manager\tEXPORT_SYMBOL\n"
+            "0x00000000\trmem_free\trmem_manager\tEXPORT_SYMBOL\n"
+            "0x00000000\tgpio_port_set_func\tutils\tEXPORT_SYMBOL\n")
+        symvers_path = source_dir / "hiby.symvers"
+        symvers_path.write_text(valid_symvers)
+        makefile_path = source_dir / "Makefile"
+        makefile_path.write_text("obj-m += soc_fb.o\nKBUILD_EXTRA_SYMBOLS += $(src)/hiby.symvers\n")
+        invalid_records = (
+            "0x00000000 rmem_alloc_aligned rmem_manager\n",
+            "0x00000000\trmem_alloc_aligned\trmem_manager\tEXPORT_SYMBOL_GPL\n",
+            "0x00000000\trmem_alloc_aligned\trmem_manager\tEXPORT_SYMBOL\textra\n",
+            "0x0000000g\trmem_alloc_aligned\trmem_manager\tEXPORT_SYMBOL\n",
+        )
+        for invalid in invalid_records:
+            with self.subTest(invalid=invalid):
+                symvers_path.write_text(valid_symvers + invalid)
+                with self.assertRaisesRegex(prepare_r1_kernel.PreparationError, "hiby.symvers"):
+                    prepare_r1_kernel.display_source_files("compas")
+        symvers_path.write_text(valid_symvers)
+        for assignment in (
+            "export KBUILD_EXTRA_SYMBOLS += $(src)/hiby.symvers\n",
+            "override KBUILD_EXTRA_SYMBOLS += $(src)/hiby.symvers\n",
+            "KBUILD_EXTRA_SYMBOLS := $(src)/hiby.symvers\n",
+            "KBUILD_EXTRA_SYMBOLS += $(src)/hiby.symvers\nKBUILD_EXTRA_SYMBOLS += extra.symvers\n",
+        ):
+            with self.subTest(assignment=assignment):
+                makefile_path.write_text("obj-m += soc_fb.o\n" + assignment)
+                with self.assertRaisesRegex(prepare_r1_kernel.PreparationError,
+                                            r"must load only \$\(src\)/hiby.symvers"):
+                    prepare_r1_kernel.display_source_files("compas")
+
+    def test_brcmfmac_requires_explicit_provider_source(self) -> None:
+        with self.assertRaisesRegex(prepare_r1_kernel.PreparationError, "requires --provider-source"):
+            prepare_r1_kernel.prepare(self.args(wifi_stack="brcmfmac"))
 
     def test_prepare_copies_and_records_local_patches_in_sorted_build_order(self) -> None:
         patch_dir = self.profile_root / "patches"
@@ -188,6 +426,44 @@ class PrepareR1KernelTests(unittest.TestCase):
         with self.assertRaisesRegex(prepare_r1_kernel.PreparationError, "outside modules"):
             prepare_r1_kernel.validate_module_patch_paths(patch_file)
 
+    def test_radio_module_patch_is_scoped_to_brcmfmac_profile(self) -> None:
+        patch_dir = self.profile_root / "module-patches"
+        patch_dir.mkdir()
+        header = "--- a/modules/example/driver.c\n+++ b/modules/example/driver.c\n"
+        (patch_dir / "compas-radio-input-safety.patch").write_text(
+            header + "@@ -1 +1 @@\n-old\n+radio\n"
+        )
+        (patch_dir / "compas-radio-lifecycle.patch").write_text(
+            header + "@@ -1 +1 @@\n-old\n+lifecycle\n"
+        )
+        (patch_dir / "compas-reconstructed-drivers-safety.patch").write_text(
+            header + "@@ -1 +1 @@\n-old\n+common\n"
+        )
+        self.assertEqual([p.name for p in prepare_r1_kernel.module_patches("vendor")],
+                         ["compas-reconstructed-drivers-safety.patch"])
+        self.assertEqual([p.name for p in prepare_r1_kernel.module_patches("brcmfmac")], [
+            "compas-reconstructed-drivers-safety.patch",
+            "compas-radio-input-safety.patch", "compas-radio-lifecycle.patch",
+        ])
+
+    def test_brcmfmac_profile_requires_radio_module_patch(self) -> None:
+        with self.assertRaisesRegex(prepare_r1_kernel.PreparationError,
+                                    "requires module source patch: compas-radio-input-safety.patch"):
+            prepare_r1_kernel.module_patches("brcmfmac")
+        patch_dir = self.profile_root / "module-patches"
+        patch_dir.mkdir()
+        with self.assertRaisesRegex(prepare_r1_kernel.PreparationError,
+                                    "requires module source patch: compas-radio-input-safety.patch"):
+            prepare_r1_kernel.module_patches("brcmfmac")
+        (patch_dir / "compas-radio-input-safety.patch").write_text(
+            "--- a/modules/example/driver.c\n+++ b/modules/example/driver.c\n"
+            "@@ -1 +1 @@\n-old\n+new\n"
+        )
+        with self.assertRaisesRegex(prepare_r1_kernel.PreparationError,
+                                    "requires module source patch: compas-radio-lifecycle.patch"):
+            prepare_r1_kernel.module_patches("brcmfmac")
+        self.assertEqual(prepare_r1_kernel.module_patches("vendor"), [])
+
     def test_rejects_changed_pin_before_creating_workspace(self) -> None:
         self.pin_path.write_text(json.dumps({
             "source_repo": prepare_r1_kernel.UPSTREAM_REPO_URL,
@@ -240,6 +516,10 @@ class PrepareR1KernelTests(unittest.TestCase):
             "CONFIG_PARITY=y\nCONFIG_NLS_CODEPAGE_936=y\nCONFIG_PROFILE=n\n"
         )
         (kit / "configs/compas-r1.config").write_text("CONFIG_PROFILE=y\n")
+        (kit / "configs/compas-r1-brcmfmac.config").write_text(
+            "CONFIG_CFG80211=y\nCONFIG_FW_LOADER=y\nCONFIG_BRCMUTIL=m\n"
+            "CONFIG_BRCMFMAC=m\nCONFIG_BRCMFMAC_SDIO=y\n"
+            "# CONFIG_MODULE_FORCE_UNLOAD is not set\n")
         out = kit / "out"
         (out / "modules-compas-r1").mkdir(parents=True)
         raw = b"kernel" + dtb
@@ -247,15 +527,19 @@ class PrepareR1KernelTests(unittest.TestCase):
         (out / "config-compas-r1").write_text(
             "CONFIG_REQUIRED=y\nCONFIG_PARITY=y\nCONFIG_NLS_CODEPAGE_936=y\nCONFIG_PROFILE=y\n"
         )
-        (out / "System.map-compas-r1").write_text(
-            "00000001 T __ksymtab_export_one\n00000002 T __ksymtab_export_two\n"
-        )
+        symbols = ["export_one", "export_two", *prepare_r1_kernel.RADIO_GUARD_EXPORTS]
+        (out / "System.map-compas-r1").write_text("".join(
+            f"{index:08x} T __ksymtab_{symbol}\n" for index, symbol in enumerate(symbols, 1)))
+        provider = kit / "modules/bcm_wlbt_power/bcm_wlbt_power.c"
+        provider.parent.mkdir(parents=True)
+        provider.write_text("/* fixture provider source */\n")
+        (out / "modules-compas-r1/bcm_wlbt_power.ko").write_text("fake provider module")
         for name in ("shared_mod", "board_mod"):
             (out / "modules-compas-r1" / f"{name}.ko").write_text("fake ELF module")
         self.stock.write_bytes(b"S" * 10000)
         modinfo = self.root / "bin/modinfo"
         modinfo.parent.mkdir(parents=True)
-        modinfo.write_text("#!/bin/sh\necho '4.4.94+ SMP preempt mod_unload MIPS32_R2 32BIT'\n")
+        modinfo.write_text("#!/bin/sh\necho '4.4.94+ preempt mod_unload MIPS32_R2 32BIT'\n")
         modinfo.chmod(0o755)
         return kit, out, modinfo
 
@@ -269,11 +553,98 @@ class PrepareR1KernelTests(unittest.TestCase):
         self.assertEqual(result["required_export_count"], 2)
         self.assertEqual(result["required_module_count"], 2)
 
+    def test_post_build_validation_checks_opt_in_wifi_fragment(self) -> None:
+        kit, out, modinfo = self.build_fixture()
+        fragment = kit / "configs/compas-r1-brcmfmac.config"
+        fragment.write_text(
+            "CONFIG_CFG80211=y\nCONFIG_FW_LOADER=y\nCONFIG_BRCMUTIL=m\n"
+            "CONFIG_BRCMFMAC=m\nCONFIG_BRCMFMAC_SDIO=y\n"
+            "# CONFIG_MODULE_FORCE_UNLOAD is not set\n"
+        )
+        config = out / "config-compas-r1"
+        config.write_text(config.read_text() +
+                          "CONFIG_CFG80211=y\nCONFIG_FW_LOADER=y\nCONFIG_BRCMUTIL=m\n"
+                          "CONFIG_BRCMFMAC=m\nCONFIG_BRCMFMAC_SDIO=y\n")
+        for name in ("brcmfmac", "brcmutil"):
+            (out / "modules-compas-r1" / f"{name}.ko").write_text("fake Broadcom module")
+        with mock.patch.object(prepare_r1_kernel.shutil, "which", return_value=str(modinfo)):
+            result = prepare_r1_kernel.validate_build(
+                kit, self.stock, "brcmfmac", prepare_r1_kernel.sha256(kit / "modules/bcm_wlbt_power/bcm_wlbt_power.c"))
+        self.assertIn("brcmfmac", result["module_vermagic"])
+        self.assertIn("brcmutil", result["module_vermagic"])
+        config.write_text(config.read_text().replace("CONFIG_BRCMFMAC_SDIO=y\n", ""))
+        with mock.patch.object(prepare_r1_kernel.shutil, "which", return_value=str(modinfo)):
+            with self.assertRaisesRegex(prepare_r1_kernel.PreparationError, "CONFIG_BRCMFMAC_SDIO"):
+                prepare_r1_kernel.validate_build(
+                    kit, self.stock, "brcmfmac", prepare_r1_kernel.sha256(kit / "modules/bcm_wlbt_power/bcm_wlbt_power.c"))
+
+    def test_brcmfmac_validation_rejects_module_force_unload(self) -> None:
+        kit, out, modinfo = self.build_fixture()
+        fragment = kit / "configs/compas-r1-brcmfmac.config"
+        fragment.write_text(
+            "CONFIG_CFG80211=y\nCONFIG_FW_LOADER=y\nCONFIG_BRCMUTIL=m\n"
+            "CONFIG_BRCMFMAC=m\nCONFIG_BRCMFMAC_SDIO=y\n"
+            "# CONFIG_MODULE_FORCE_UNLOAD is not set\n"
+        )
+        config = out / "config-compas-r1"
+        config.write_text(config.read_text() +
+                          "CONFIG_CFG80211=y\nCONFIG_FW_LOADER=y\nCONFIG_BRCMUTIL=m\n"
+                          "CONFIG_BRCMFMAC=m\nCONFIG_BRCMFMAC_SDIO=y\n"
+                          "CONFIG_MODULE_FORCE_UNLOAD=y\n")
+        for name in ("brcmfmac", "brcmutil"):
+            (out / "modules-compas-r1" / f"{name}.ko").write_text("fake Broadcom module")
+        with mock.patch.object(prepare_r1_kernel.shutil, "which", return_value=str(modinfo)):
+            with self.assertRaisesRegex(prepare_r1_kernel.PreparationError,
+                                        "must disable CONFIG_MODULE_FORCE_UNLOAD"):
+                prepare_r1_kernel.validate_build(kit, self.stock, "brcmfmac")
+
+    def test_post_build_validation_requires_brcmfmac_modules(self) -> None:
+        kit, out, modinfo = self.build_fixture()
+        (kit / "configs/compas-r1-brcmfmac.config").write_text(
+            "CONFIG_CFG80211=y\nCONFIG_FW_LOADER=y\nCONFIG_BRCMUTIL=m\n"
+            "CONFIG_BRCMFMAC=m\nCONFIG_BRCMFMAC_SDIO=y\n"
+            "# CONFIG_MODULE_FORCE_UNLOAD is not set\n"
+        )
+        config = out / "config-compas-r1"
+        config.write_text(config.read_text() +
+                          "CONFIG_CFG80211=y\nCONFIG_FW_LOADER=y\nCONFIG_BRCMUTIL=m\n"
+                          "CONFIG_BRCMFMAC=m\nCONFIG_BRCMFMAC_SDIO=y\n")
+        with self.assertRaisesRegex(prepare_r1_kernel.PreparationError,
+                                    "missing expected R1 modules: brcmfmac, brcmutil"):
+            prepare_r1_kernel.validate_build(
+                kit, self.stock, "brcmfmac", prepare_r1_kernel.sha256(kit / "modules/bcm_wlbt_power/bcm_wlbt_power.c"))
+
+    def test_post_build_validation_rejects_candidate_modules_in_vendor_build(self) -> None:
+        kit, out, modinfo = self.build_fixture()
+        (out / "modules-compas-r1/brcmfmac.ko").write_text("candidate module")
+        with mock.patch.object(prepare_r1_kernel.shutil, "which", return_value=str(modinfo)):
+            with self.assertRaisesRegex(prepare_r1_kernel.PreparationError,
+                                        "Vendor Wi-Fi build unexpectedly contains candidate modules: brcmfmac"):
+                prepare_r1_kernel.validate_build(kit, self.stock, "vendor")
+
+    def test_post_build_validation_rejects_unknown_wifi_stack(self) -> None:
+        with self.assertRaisesRegex(prepare_r1_kernel.PreparationError, "Unsupported Wi-Fi stack"):
+            prepare_r1_kernel.validate_build(self.root / "missing", self.stock, "unknown")
+
     def test_post_build_validation_rejects_missing_export(self) -> None:
         kit, out, modinfo = self.build_fixture()
         (out / "System.map-compas-r1").write_text("00000001 T __ksymtab_export_one\n")
         with self.assertRaisesRegex(prepare_r1_kernel.PreparationError, "missing 1 exported symbols"):
             self.validate_fixture(kit, modinfo)
+
+    def test_brcmfmac_validation_requires_all_six_exported_helpers(self) -> None:
+        kit, out, modinfo = self.build_fixture()
+        lines = (out / "System.map-compas-r1").read_text().splitlines()
+        lines = [line for line in lines if "__ksymtab_mmc_compas_sdio_set_off" not in line]
+        (out / "System.map-compas-r1").write_text("\n".join(lines) + "\n")
+        (out / "config-compas-r1").write_text((out / "config-compas-r1").read_text() +
+            "CONFIG_CFG80211=y\nCONFIG_FW_LOADER=y\nCONFIG_BRCMUTIL=m\n"
+            "CONFIG_BRCMFMAC=m\nCONFIG_BRCMFMAC_SDIO=y\n")
+        with mock.patch.object(prepare_r1_kernel.shutil, "which", return_value=str(modinfo)):
+            with self.assertRaisesRegex(prepare_r1_kernel.PreparationError,
+                                        "missing exported MMC lifetime helpers: mmc_compas_sdio_set_off"):
+                prepare_r1_kernel.validate_build(
+                    kit, self.stock, "brcmfmac", prepare_r1_kernel.sha256(kit / "modules/bcm_wlbt_power/bcm_wlbt_power.c"))
 
     def test_post_build_validation_rejects_mismatched_dtb(self) -> None:
         kit, out, modinfo = self.build_fixture()
@@ -308,6 +679,12 @@ class PrepareR1KernelTests(unittest.TestCase):
     def test_post_build_validation_rejects_wrong_module_vermagic(self) -> None:
         kit, _, modinfo = self.build_fixture()
         modinfo.write_text("#!/bin/sh\necho '6.1.0 SMP'\n")
+        with self.assertRaisesRegex(prepare_r1_kernel.PreparationError, "unexpected vermagic"):
+            self.validate_fixture(kit, modinfo)
+
+    def test_post_build_validation_rejects_missing_vermagic_flags(self) -> None:
+        kit, _, modinfo = self.build_fixture()
+        modinfo.write_text("#!/bin/sh\necho '4.4.94+ preempt MIPS32_R2 32BIT'\n")
         with self.assertRaisesRegex(prepare_r1_kernel.PreparationError, "unexpected vermagic"):
             self.validate_fixture(kit, modinfo)
 

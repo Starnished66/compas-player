@@ -6,6 +6,7 @@
 #include "installer.h"
 #include "fb_draw.h"
 #include "idle_shutdown.h"
+#include "boot_trace.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -28,6 +29,12 @@ extern char ** environ;
 
 #define COLOR_BG fb_rgb(0x12, 0x12, 0x12)
 
+static boot_trace_t boot_trace = BOOT_TRACE_INITIALIZER;
+
+static void bootloader_checkpoint(const char *step) {
+    (void)boot_trace_checkpoint(&boot_trace, step);
+}
+
 static void record_shutdown_phase(const char * phase, int error);
 
 /* The kernel marks a FAT volume dirty while it is mounted writable and
@@ -35,7 +42,9 @@ static void record_shutdown_phase(const char * phase, int error);
  * exited here, so its files are closed; finish pending writes and release
  * the volume cleanly before rebooting. */
 static void release_sd_card(void) {
+    bootloader_checkpoint("shutdown storage sync begin");
     sync();
+    bootloader_checkpoint("shutdown storage sync done; SD unmount begin");
     if (umount2(SD_MOUNT_POINT, 0) == 0) {
         record_shutdown_phase("sd unmounted", 0);
         return;
@@ -132,6 +141,9 @@ static void record_shutdown_phase(const char * phase, int error) {
                        (long long) now.tv_sec, phase, error);
     if (len <= 0) return;
     if (len >= (int) sizeof(line)) len = sizeof(line) - 1;
+    char trace_step[192];
+    (void)snprintf(trace_step, sizeof(trace_step), "shutdown phase=%s errno=%d", phase, error);
+    bootloader_checkpoint(trace_step);
     fprintf(stderr, "%s", line);
     rotate_player_exit_log();
     int fd = open(PLAYER_EXIT_LOG, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC | O_NOFOLLOW, 0644);
@@ -231,6 +243,10 @@ static void reboot_device(void) {
             record_shutdown_phase("init signal setup failed; direct fallback", errno);
         } else {
             record_shutdown_phase("requesting init reboot", 0);
+            /* Release writable userdata descriptors before init's unmount and
+             * read-only remount hooks. Fallback diagnostics still use the
+             * existing short-lived player_exit log writes. */
+            boot_trace_close(&boot_trace);
             if (kill(1, SIGTERM) == 0) {
                 struct timespec remaining = {20, 0};
                 while (nanosleep(&remaining, &remaining) < 0 && errno == EINTR) {}
@@ -242,6 +258,7 @@ static void reboot_device(void) {
     } else {
         record_shutdown_phase("unsupported init; direct fallback", 0);
     }
+    boot_trace_close(&boot_trace);
     reboot(RB_AUTOBOOT);
     record_shutdown_phase("direct reboot failed", errno);
     _exit(1);
@@ -249,6 +266,8 @@ static void reboot_device(void) {
 
 static void poweroff_device(void) {
     release_sd_card();
+    bootloader_checkpoint("requesting direct poweroff");
+    boot_trace_close(&boot_trace);
     reboot(RB_POWER_OFF);
     /* If poweroff syscall fails, pause indefinitely rather than rebooting. */
     record_shutdown_phase("direct poweroff failed", errno);
@@ -258,6 +277,7 @@ static void poweroff_device(void) {
 
 /* A clean player exit powers off; signals and non-zero exits reboot. */
 static void run_player_supervised(const char * player_path) {
+    bootloader_checkpoint("player fork begin");
     pid_t pid = fork();
     if (pid < 0) {
         /* If fork fails, attempt direct execve before rebooting. */
@@ -277,15 +297,28 @@ static void run_player_supervised(const char * player_path) {
         _exit(127);
     }
 
+    bootloader_checkpoint("player fork done; supervisor waitpid begin");
+
     /* Wait for child process, retrying on EINTR. */
     int status;
+    int wait_error;
     pid_t reaped;
     do {
         reaped = waitpid(pid, &status, 0);
     } while (reaped == -1 && errno == EINTR);
+    wait_error = errno;
 
+    {
+        char phase[128];
+        if (reaped == pid)
+            snprintf(phase, sizeof(phase), "supervisor waitpid done status=0x%x", (unsigned)status);
+        else
+            snprintf(phase, sizeof(phase), "supervisor waitpid failed errno=%d", wait_error);
+        bootloader_checkpoint(phase);
+    }
     if (reaped != pid) {
         /* Child wait failed unexpectedly; fall through to reboot. */
+        errno = wait_error;
         perror("compas_bootloader: waitpid failed unexpectedly");
     } else if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
         fprintf(stderr, "compas_bootloader: %s exited cleanly -- powering off\n", player_path);
@@ -299,21 +332,37 @@ static void run_player_supervised(const char * player_path) {
 }
 
 int main(void) {
+    (void)boot_trace_open(&boot_trace, "/usr/data/bootloader_boot.log");
+    bootloader_checkpoint("bootloader main entered; framebuffer open begin");
     /* Open framebuffer and paint the splash before waiting for the SD card. */
     bool fb_ready = fb_open();
+    bootloader_checkpoint(fb_ready ? "framebuffer open done" : "framebuffer open failed");
     if (fb_ready) {
+        bootloader_checkpoint("bootloader splash draw begin");
         if (!fb_draw_background_jpeg(BOOTLOADER_BG_PATH)) fb_fill(COLOR_BG);
+        bootloader_checkpoint("bootloader splash draw done; flush begin");
         fb_flush();
+        bootloader_checkpoint("bootloader splash flush done");
     }
 
     scan_result_t scan;
+    bootloader_checkpoint("SD scanner begin");
     scanner_scan(&scan);
+    bootloader_checkpoint("SD scanner done");
 
     /* Install a pending SD update before choosing the internal player copy. */
+    bootloader_checkpoint("player installer begin");
     installer_run(&scan, fb_ready);
+    bootloader_checkpoint("player installer done");
 
+    bootloader_checkpoint("internal player selection begin");
     const char * internal_path = installer_internal_player_path();
-    if (fb_ready) fb_close();
+    bootloader_checkpoint("internal player selection done");
+    if (fb_ready) {
+        bootloader_checkpoint("framebuffer close begin");
+        fb_close();
+        bootloader_checkpoint("framebuffer close done");
+    }
     run_player_supervised(internal_path);
     return 1; /* unreachable -- run_player_supervised() never returns */
 }

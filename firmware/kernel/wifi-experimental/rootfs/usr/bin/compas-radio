@@ -1,0 +1,367 @@
+#!/bin/sh
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+ROOT=${COMPAS_RADIO_ROOT:-}
+rooted() { printf '%s%s\n' "${ROOT%/}" "$1"; }
+SYSFS=$(rooted /sys)
+RADIO="$SYSFS/devices/platform/bcm_wlbt_power"
+RFKILL="$SYSFS/class/rfkill"
+NET="$SYSFS/class/net"
+MODULES="$SYSFS/module"
+PROC_MOUNTS=$(rooted /proc/mounts)
+STATE_DIR=$(rooted /var/run/compas-radio)
+LOCK_FILE="$STATE_DIR/transition.lock"
+SUSPEND_MARKER="$STATE_DIR/suspending"
+MAC_MANAGER=$(rooted /usr/bin/compas-wifi-mac)
+MAC_STATE=$(rooted /var/run/compas-wifi-mac)
+MODULE_DIR=$(rooted /usr/lib/compas-radio/modules)
+INSMOD=${COMPAS_RADIO_INSMOD:-insmod}
+RMMOD=${COMPAS_RADIO_RMMOD:-rmmod}
+WPA_CLI=${COMPAS_RADIO_WPA_CLI:-wpa_cli}
+FIRMWARE_SOURCE=$(rooted /lib/firmware/wifi_bcm)
+FIRMWARE_STORE=$(rooted /usr/data/.compas/wifi-firmware)
+FIRMWARE_HASHES=$(rooted /usr/lib/compas-radio/firmware-sha256)
+WIFI_VENDOR_ON=$(rooted /usr/libexec/compas/wifi_on.brcmfmac.vendor.sh)
+WIFI_VENDOR_OFF=$(rooted /usr/libexec/compas/wifi_off.brcmfmac.vendor.sh)
+BT_VENDOR_DIR=$(rooted /usr/libexec/compas/radio-bt)
+IDENTITY_WAIT=${COMPAS_RADIO_IDENTITY_WAIT:-5}
+IFACE_WAIT=${COMPAS_RADIO_IFACE_WAIT:-5}
+LOCK_HELD=0
+LEASE_ACTIVE=0
+LEASE_PID=
+CHILD_PID=
+mkdir -p "$STATE_DIR" 2>/dev/null || exit 1
+proc_start() {
+    proc_root=${COMPAS_RADIO_PROC_ROOT:-/proc}
+    if [ -n "${COMPAS_RADIO_PROC_ROOT:-}" ]; then
+        file="$proc_root/$1/stat"
+    else
+        file=$(rooted "/proc/$1/stat")
+    fi
+    [ -r "$file" ] || return 1
+    sed 's/^.*) //' "$file" | awk '{print $20}'
+}
+proc_parent() {
+    proc_root=${COMPAS_RADIO_PROC_ROOT:-$(rooted /proc)}
+    awk '/^PPid:/ { print $2; exit }' "$proc_root/$1/status" 2>/dev/null
+}
+caller_belongs_to_transaction() {
+    owner_pid=$(sed -n '1p' "$STATE_DIR/owner" 2>/dev/null)
+    owner_start=$(sed -n '2p' "$STATE_DIR/owner" 2>/dev/null)
+    [ -n "$owner_pid" ] && [ -n "$owner_start" ] || return 1
+    actual_owner_start=$(proc_start "$owner_pid") || return 1
+    [ "$actual_owner_start" = "$owner_start" ] || return 1
+    current=$$
+    hops=0
+    while [ "$hops" -lt 24 ] && [ "$current" -gt 1 ] 2>/dev/null; do
+        [ "$current" = "$owner_pid" ] && return 0
+        current=$(proc_parent "$current") || return 1
+        case "$current" in ''|*[!0-9]*) return 1 ;; esac
+        hops=$((hops + 1))
+    done
+    return 1
+}
+radio_release_lock() {
+    if [ "$LOCK_HELD" -eq 1 ]; then flock -u 9 2>/dev/null || :; exec 9>&-; LOCK_HELD=0; fi
+}
+stop_child_tree() {
+    [ -n "$CHILD_PID" ] || return 0
+    # run_bounded starts each command with setsid, so the leader PID is also
+    # its process-group ID. Signal the entire group before releasing the lock.
+    kill -TERM "-$CHILD_PID" 2>/dev/null || :
+    usleep 100000 2>/dev/null || sleep 0.1
+    kill -KILL "-$CHILD_PID" 2>/dev/null || :
+    wait "$CHILD_PID" 2>/dev/null || :
+    CHILD_PID=
+}
+radio_exit() {
+    status=$?
+    stop_child_tree
+    if [ "$LEASE_ACTIVE" -eq 1 ]; then
+        "$MAC_MANAGER" connection-end "$LEASE_PID" "$status" >/dev/null 2>&1 || { [ "$status" -ne 0 ] || status=1; }
+        LEASE_ACTIVE=0
+    fi
+    owner_pid=$(sed -n '1p' "$STATE_DIR/owner" 2>/dev/null)
+    owner_start=$(sed -n '2p' "$STATE_DIR/owner" 2>/dev/null)
+    current_start=$(proc_start $$) || current_start=unknown
+    [ "$owner_pid" = "$$" ] && [ "$owner_start" = "$current_start" ] && rm -f "$STATE_DIR/owner"
+    radio_release_lock
+    exit "$status"
+}
+trap radio_exit 0
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+acquire_lock() {
+    exec 9>"$LOCK_FILE" || return 1
+    attempts=0
+    while ! flock -n 9 2>/dev/null; do
+        attempts=$((attempts + 1))
+        if [ "$attempts" -ge 200 ]; then
+            echo "compas-radio: transition lock timed out" >&2
+            exec 9>&-
+            return 1
+        fi
+        usleep 50000 2>/dev/null || sleep 0.05
+    done
+    LOCK_HELD=1
+    transaction_tmp="$STATE_DIR/owner.$$"
+    transaction_start=$(proc_start $$) || transaction_start=unknown
+    if ! { printf '%s\n' "$$" > "$transaction_tmp" && printf '%s\n' "$transaction_start" >> "$transaction_tmp"; } ||
+        ! mv -f "$transaction_tmp" "$STATE_DIR/owner"; then
+        rm -f "$transaction_tmp"; radio_release_lock; return 1
+    fi
+}
+run_bounded() {
+    timeout_seconds=$1; shift
+    command -v setsid >/dev/null 2>&1 || return 127
+    case "$timeout_seconds" in ''|*[!0-9]*) return 2 ;; esac
+    donefile="$STATE_DIR/child-done.$$"
+    tmpfile="$donefile.tmp"
+    rm -f "$donefile"
+    ( exec 9>&-; COMPAS_RADIO_DONE_TMP="$tmpfile"; COMPAS_RADIO_DONE="$donefile"; export COMPAS_RADIO_DONE_TMP COMPAS_RADIO_DONE; exec setsid /bin/sh -c '
+        "$@"; child_status=$?
+        printf "%s\n" "$child_status" > "$COMPAS_RADIO_DONE_TMP" && mv -f "$COMPAS_RADIO_DONE_TMP" "$COMPAS_RADIO_DONE" || exit 125
+        exit "$child_status"
+    ' compas-radio-child "$@" ) &
+    CHILD_PID=$!
+    ticks=0; limit=$((timeout_seconds * 20))
+    while [ ! -f "$donefile" ]; do
+        if [ "$ticks" -ge "$limit" ]; then
+            stop_child_tree
+            rm -f "$donefile" "$tmpfile"
+            return 124
+        fi
+        usleep 50000 2>/dev/null || sleep 0.05
+        ticks=$((ticks + 1))
+    done
+    child_status=$(cat "$donefile" 2>/dev/null)
+    wait "$CHILD_PID" 2>/dev/null || :
+    CHILD_PID=
+    rm -f "$donefile" "$tmpfile"
+    case "$child_status" in ''|*[!0-9]*) return 1 ;; esac
+    return "$child_status"
+}
+wait_identity() {
+    elapsed=0; limit=$((IDENTITY_WAIT * 20))
+    while [ "$elapsed" -lt "$limit" ]; do
+        state=$(cat "$RADIO/identity_state" 2>/dev/null) || state=missing
+        case "$state" in ready) break ;; pending) ;; *) echo "compas-radio: board identity is $state" >&2; return 1 ;; esac
+        usleep 50000 2>/dev/null || sleep 0.05
+        elapsed=$((elapsed + 1))
+    done
+    [ "$(cat "$RADIO/identity_state" 2>/dev/null)" = ready ] || { echo "compas-radio: identity is not ready" >&2; return 1; }
+    sdio_vendor=$(cat "$RADIO/sdio_vendor" 2>/dev/null) || return 1
+    sdio_device=$(cat "$RADIO/sdio_device" 2>/dev/null) || return 1
+    radio_profile=$(cat "$RADIO/profile" 2>/dev/null) || return 1
+    chipvendor=$(cat "$RADIO/chipvendor" 2>/dev/null) || return 1
+    [ "$sdio_vendor" = 0x02d0 ] && [ "$sdio_device" = 0xa9a6 ] || return 1
+    case "$radio_profile:$chipvendor" in azurewave:0x81|ap6212a:0x00) ;; *) return 1 ;; esac
+    export radio_profile chipvendor sdio_vendor sdio_device
+}
+rfkill_path() {
+    requested=$1; found=; count=0
+    for entry in "$RFKILL"/rfkill*; do
+        [ -d "$entry" ] || continue
+        name=$(cat "$entry/name" 2>/dev/null) || continue
+        type=$(cat "$entry/type" 2>/dev/null) || continue
+        case "$requested:$name:$type" in
+            board-bluetooth:compas-bluetooth:bluetooth|hci0:hci0:bluetooth) found=$entry; count=$((count + 1)) ;;
+        esac
+    done
+    [ "$count" -eq 1 ] && [ -w "$found/state" ] || return 1
+    printf '%s\n' "$found"
+}
+rfkill_set() {
+    [ "${COMPAS_RADIO_LOCK_HELD:-}" = 1 ] || return 1
+    case "$2" in 0|1) ;; *) return 2 ;; esac
+    path=$(rfkill_path "$1") || return 1
+    printf '%s\n' "$2" > "$path/state" || return 1
+    [ "$(cat "$path/state" 2>/dev/null)" = "$2" ]
+}
+wifi_power_set() {
+    [ -e "$RADIO/wifi_power" ] || return 1
+    printf '%s\n' "$1" > "$RADIO/wifi_power" || return 1
+    [ "$(cat "$RADIO/wifi_power" 2>/dev/null)" = "$1" ]
+}
+wifi_fault_clear() {
+    [ -r "$RADIO/wifi_fault" ] && [ "$(cat "$RADIO/wifi_fault" 2>/dev/null)" = 0 ]
+}
+prepare_firmware() {
+    awk '$2 == "/usr/data" { found=1 } ($2 == "/usr/data" || index($2, "/usr/data/") == 1) && ($3 == "tmpfs" || $3 == "ramfs") { ram=1 } END { exit !(found && !ram) }' \
+        "$PROC_MOUNTS" 2>/dev/null || {
+        echo "compas-radio: /usr/data is not on persistent storage; refusing firmware setup" >&2
+        return 1
+    }
+    mkdir -p "$FIRMWARE_STORE" || return 1
+    case "$radio_profile:$chipvendor" in
+        azurewave:0x81) fw=cyw43438-7.46.58.35.bin; nv=nvram_azw372.txt ;;
+        ap6212a:0x00) fw=fw_bcm43438a1.bin; nv=nvram_ap6212a.txt ;;
+        *) return 1 ;;
+    esac
+    for name in "$fw" "$nv"; do
+        expected=$(awk -v name="$name" '$2 == name { print $1; exit }' "$FIRMWARE_HASHES" 2>/dev/null)
+        actual=$(sha256sum "$FIRMWARE_SOURCE/$name" 2>/dev/null | awk '{ print $1 }')
+        [ -n "$expected" ] && [ "$actual" = "$expected" ] || {
+            echo "compas-radio: firmware hash check failed for $name" >&2
+            return 1
+        }
+    done
+    for pair in "selected.bin:$fw" "selected.txt:$nv"; do
+        alias=${pair%%:*}; target=${pair#*:}
+        link="$FIRMWARE_STORE/$alias"; wanted="$FIRMWARE_SOURCE/$target"
+        if [ -L "$link" ]; then
+            old=$(readlink "$link") || return 1
+            case "$old" in /lib/firmware/wifi_bcm/*|"$ROOT"/lib/firmware/wifi_bcm/*) ;; *) return 1 ;; esac
+        elif [ -e "$link" ]; then return 1
+        fi
+        ln -sfn "$wanted" "$link.tmp.$$" || return 1
+        mv -f "$link.tmp.$$" "$link" || { rm -f "$link.tmp.$$"; return 1; }
+    done
+}
+module_loaded() { [ -d "$MODULES/$1" ]; }
+stop_bt_helpers() {
+    command -v killall >/dev/null 2>&1 && command -v pidof >/dev/null 2>&1 || return 1
+    killall brcm_patchram_plus hciattach >/dev/null 2>&1 || :
+    elapsed=0
+    while { pidof brcm_patchram_plus >/dev/null 2>&1 || pidof hciattach >/dev/null 2>&1; } && [ "$elapsed" -lt 40 ]; do
+        usleep 50000 2>/dev/null || sleep 0.05
+        elapsed=$((elapsed + 1))
+    done
+    if pidof brcm_patchram_plus >/dev/null 2>&1 || pidof hciattach >/dev/null 2>&1; then
+        killall -s KILL brcm_patchram_plus hciattach >/dev/null 2>&1 || :
+        usleep 100000 2>/dev/null || sleep 0.1
+    fi
+    if pidof brcm_patchram_plus >/dev/null 2>&1 || pidof hciattach >/dev/null 2>&1; then return 1; fi
+    hciconfig hci0 down >/dev/null 2>&1 || :
+    COMPAS_RADIO_LOCK_HELD=1
+    export COMPAS_RADIO_LOCK_HELD
+    rfkill_set board-bluetooth 0
+}
+wifi_stop_vendor() {
+    [ -x "$WIFI_VENDOR_OFF" ] || return 1
+    run_bounded 6 "$WIFI_VENDOR_OFF"
+}
+wifi_down_locked() {
+    if ! module_loaded brcmfmac && [ "$(cat "$RADIO/wifi_power" 2>/dev/null)" != 1 ] && [ ! -e "$NET/wlan0" ]; then
+        wifi_power_set 0 || return 1
+        "$MAC_MANAGER" invalidate wlan0
+        return $?
+    fi
+    wifi_stop_vendor || return 1
+    "$MAC_MANAGER" invalidate wlan0 || return 1
+    if module_loaded brcmfmac; then "$RMMOD" brcmfmac || { echo "compas-radio: brcmfmac refused unload; retaining power" >&2; return 1; }; fi
+    wifi_power_set 0
+}
+wifi_rollback_locked() {
+    wifi_stop_vendor || :
+    if module_loaded brcmfmac; then "$RMMOD" brcmfmac || return 1; fi
+    wifi_power_set 0
+}
+wifi_is_healthy() {
+    module_loaded brcmfmac && [ -d "$NET/wlan0" ] && [ "$(cat "$RADIO/wifi_power" 2>/dev/null)" = 1 ] || return 1
+    if [ -r "$NET/wlan0/flags" ]; then
+        flags=$(cat "$NET/wlan0/flags" 2>/dev/null) || return 1
+        case "$flags" in 0x*) flags=${flags#0x} ;; 0X*) flags=${flags#0X} ;; *) return 1 ;; esac
+        case "$flags" in ''|*[!0123456789abcdefABCDEF]*) return 1 ;; esac
+        [ $((0x$flags & 1)) -ne 0 ] || return 1
+    else
+        [ "$(cat "$NET/wlan0/operstate" 2>/dev/null)" = up ] || return 1
+    fi
+    "$MAC_MANAGER" wait 0 >/dev/null 2>&1 || return 1
+    manager_mac=$(cat "$MAC_STATE/mac" 2>/dev/null) || return 1
+    iface_mac=$(cat "$NET/wlan0/address" 2>/dev/null) || return 1
+    [ -n "$manager_mac" ] && [ "$iface_mac" = "$manager_mac" ] || return 1
+    wpa_reply=$("$WPA_CLI" -i wlan0 ping 2>/dev/null) || return 1
+    [ "$wpa_reply" = PONG ]
+}
+wifi_up_locked() {
+    wait_identity || return 1
+    wifi_fault_clear || { echo "compas-radio: provider reports a Wi-Fi fault" >&2; return 1; }
+    prepare_firmware || return 1
+    [ -s "$MODULE_DIR/brcmutil.ko" ] && [ -s "$MODULE_DIR/brcmfmac.ko" ] || return 1
+    if wifi_is_healthy; then return 0; fi
+    if module_loaded brcmfmac || [ -e "$NET/wlan0" ] || [ "$(cat "$RADIO/wifi_power" 2>/dev/null)" = 1 ]; then
+        wifi_down_locked || return 1
+    fi
+    if ! module_loaded brcmutil; then "$INSMOD" "$MODULE_DIR/brcmutil.ko" || return 1; fi
+    wifi_power_set 1 || return 1
+    wifi_fault_clear || { echo "compas-radio: provider reported a Wi-Fi fault during power-up" >&2; wifi_rollback_locked || :; return 1; }
+    if ! module_loaded brcmfmac; then "$INSMOD" "$MODULE_DIR/brcmfmac.ko" || { wifi_rollback_locked || :; return 1; }; fi
+    elapsed=0; limit=$((IFACE_WAIT * 20))
+    while [ ! -e "$NET/wlan0" ] && [ "$elapsed" -lt "$limit" ]; do
+        usleep 50000 2>/dev/null || sleep 0.05; elapsed=$((elapsed + 1))
+    done
+    [ -e "$NET/wlan0" ] || { wifi_rollback_locked || :; return 1; }
+    "$MAC_MANAGER" invalidate wlan0 && "$MAC_MANAGER" wait 5 || { wifi_rollback_locked || :; return 1; }
+    "$MAC_MANAGER" connection-begin "$$" || { wifi_rollback_locked || :; return 1; }
+    LEASE_PID=$$; LEASE_ACTIVE=1
+    export COMPAS_WIFI_CONNECTION_PID=$$
+    export COMPAS_WIFI_MAC_MANAGER="$MAC_MANAGER"
+    export COMPAS_WIFI_MAC_OFF_SCRIPT="$WIFI_VENDOR_OFF"
+    export COMPAS_WIFI_MAC_DOWN_SCRIPT="$WIFI_VENDOR_OFF"
+    if run_bounded 20 /bin/sh -c '. "$1"' compas-radio-vendor "$WIFI_VENDOR_ON"; then
+        connection_status=0
+    else
+        connection_status=$?
+    fi
+    "$MAC_MANAGER" connection-end "$LEASE_PID" "$connection_status" || return 1
+    LEASE_ACTIVE=0
+    [ "$connection_status" -eq 0 ] || { wifi_rollback_locked || :; return 1; }
+    return 0
+}
+run_bt_locked() {
+    action=$1
+    case "$action" in init|resume|suspend) ;; *) return 2 ;; esac
+    if [ "$action" != suspend ]; then wait_identity || return 1; fi
+    script="$BT_VENDOR_DIR/bt_$action.vendor.sh"
+    [ -x "$script" ] || return 1
+    if ! run_bounded 20 /bin/sh -c 'COMPAS_RADIO_LOCK_HELD=1; export COMPAS_RADIO_LOCK_HELD; exec "$1"' compas-radio-bt "$script"; then
+        stop_bt_helpers || :
+        return 1
+    fi
+    if [ "$action" != suspend ]; then
+        elapsed=0; limit=$((IDENTITY_WAIT * 20))
+        while ! rfkill_path hci0 >/dev/null 2>&1 && [ "$elapsed" -lt "$limit" ]; do
+            usleep 50000 2>/dev/null || sleep 0.05; elapsed=$((elapsed + 1))
+        done
+        if ! rfkill_path hci0 >/dev/null 2>&1; then stop_bt_helpers || :; return 1; fi
+        COMPAS_RADIO_LOCK_HELD=1 rfkill_set hci0 1 || { stop_bt_helpers || :; return 1; }
+    fi
+}
+suspend_prepare_locked() {
+    : > "$SUSPEND_MARKER.tmp.$$" && mv -f "$SUSPEND_MARKER.tmp.$$" "$SUSPEND_MARKER" || return 1
+    first_error=0
+    wifi_down_locked || first_error=1
+    run_bt_locked suspend || first_error=1
+    return "$first_error"
+}
+suspend_end_locked() {
+    [ -f "$SUSPEND_MARKER" ] || return 0
+    rm -f "$SUSPEND_MARKER"
+}
+run_locked() {
+    case "$1" in
+        wifi-up) [ ! -e "$SUSPEND_MARKER" ] || return 1; wifi_up_locked ;;
+        wifi-down) [ ! -e "$SUSPEND_MARKER" ] || return 1; wifi_down_locked ;;
+        run-bt) [ ! -e "$SUSPEND_MARKER" ] || return 1; run_bt_locked "$2" ;;
+        suspend-prepare) suspend_prepare_locked ;;
+        suspend-end) suspend_end_locked ;;
+        *) return 2 ;;
+    esac
+}
+case "${1:-}" in
+    _rfkill)
+        [ "${COMPAS_RADIO_LOCK_HELD:-}" = 1 ] && caller_belongs_to_transaction || exit 1
+        rfkill_set "${2:-}" "${3:-}" ;;
+    wifi-up|wifi-down|suspend-prepare|suspend-end)
+        [ "$#" -eq 1 ] || exit 2
+        acquire_lock || exit 1
+        run_locked "$1"; result=$?; exit "$result" ;;
+    run-bt)
+        [ "$#" -eq 2 ] || exit 2
+        case "$2" in init|resume|suspend) ;; *) exit 2 ;; esac
+        acquire_lock || exit 1
+        run_locked "$1" "$2"; result=$?; exit "$result" ;;
+    *) echo "Usage: $0 {wifi-up|wifi-down|run-bt init|resume|suspend|suspend-prepare|suspend-end}" >&2; exit 2 ;;
+esac

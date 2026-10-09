@@ -1,0 +1,3 @@
+0x00000000	rmem_alloc_aligned	rmem_manager	EXPORT_SYMBOL
+0x00000000	rmem_free	rmem_manager	EXPORT_SYMBOL
+0x00000000	gpio_port_set_func	utils	EXPORT_SYMBOL

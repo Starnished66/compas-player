@@ -78,7 +78,7 @@ int subprocess_close_inherited_fds_action(posix_spawn_file_actions_t * fa) {
  * copy the 20 MiB player address space, which on this 56 MiB no-swap device
  * both spikes memory and costs page-table copying on a slow CPU. Returns 0
  * or an errno value; on failure *pid is not valid. */
-static int subprocess_spawn(char * const argv[], int stdin_fd, int stdout_fd, pid_t * pid) {
+static int subprocess_spawn(char * const argv[], int stdin_fd, int stdout_fd, pid_t * pid, bool process_group) {
     posix_spawn_file_actions_t fa;
     int rc = posix_spawn_file_actions_init(&fa);
     if (rc != 0) return rc;
@@ -92,7 +92,16 @@ static int subprocess_spawn(char * const argv[], int stdin_fd, int stdout_fd, pi
     }
     if (rc == 0) rc = posix_spawn_file_actions_addopen(&fa, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
     if (rc == 0) rc = subprocess_close_inherited_fds_action(&fa);
-    if (rc == 0) rc = posix_spawnp(pid, argv[0], &fa, NULL, argv, environ);
+    posix_spawnattr_t attrs;
+    bool attrs_ready = false;
+    if (rc == 0 && process_group) {
+        rc = posix_spawnattr_init(&attrs);
+        attrs_ready = rc == 0;
+        if (rc == 0) rc = posix_spawnattr_setpgroup(&attrs, 0);
+        if (rc == 0) rc = posix_spawnattr_setflags(&attrs, POSIX_SPAWN_SETPGROUP);
+    }
+    if (rc == 0) rc = posix_spawnp(pid, argv[0], &fa, attrs_ready ? &attrs : NULL, argv, environ);
+    if (attrs_ready) posix_spawnattr_destroy(&attrs);
     posix_spawn_file_actions_destroy(&fa);
     return rc;
 }
@@ -110,7 +119,7 @@ static int subprocess_spawn(char * const argv[], int stdin_fd, int stdout_fd, pi
 #define SUBPROCESS_BACKGROUND_NICE 10
 
 static bool subprocess_run_impl(char * const argv[], char * out_buf, size_t out_buf_size, int timeout_ms,
-                                 int * out_exit_code, int child_nice);
+                                 int * out_exit_code, int child_nice, bool process_group);
 
 bool subprocess_run(char * const argv[], char * out_buf, size_t out_buf_size) {
     return subprocess_run_timeout(argv, out_buf, out_buf_size, SUBPROCESS_TIMEOUT_MS);
@@ -118,7 +127,7 @@ bool subprocess_run(char * const argv[], char * out_buf, size_t out_buf_size) {
 
 bool subprocess_run_low_priority(char * const argv[], char * out_buf, size_t out_buf_size) {
     return subprocess_run_impl(argv, out_buf, out_buf_size, SUBPROCESS_TIMEOUT_MS, NULL,
-                               SUBPROCESS_BACKGROUND_NICE);
+                               SUBPROCESS_BACKGROUND_NICE, false);
 }
 
 bool subprocess_run_timeout(char * const argv[], char * out_buf, size_t out_buf_size, int timeout_ms) {
@@ -127,7 +136,12 @@ bool subprocess_run_timeout(char * const argv[], char * out_buf, size_t out_buf_
 
 bool subprocess_run_checked(char * const argv[], char * out_buf, size_t out_buf_size, int timeout_ms,
                              int * out_exit_code) {
-    return subprocess_run_impl(argv, out_buf, out_buf_size, timeout_ms, out_exit_code, 0);
+    return subprocess_run_impl(argv, out_buf, out_buf_size, timeout_ms, out_exit_code, 0, false);
+}
+
+bool subprocess_run_checked_group(char * const argv[], char * out_buf, size_t out_buf_size,
+                                  int timeout_ms, int * out_exit_code) {
+    return subprocess_run_impl(argv, out_buf, out_buf_size, timeout_ms, out_exit_code, 0, true);
 }
 
 static int64_t subprocess_monotonic_ms(void) {
@@ -136,11 +150,26 @@ static int64_t subprocess_monotonic_ms(void) {
     return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
+/* Keep the group leader unreaped during the grace period so its PID/PGID
+ * cannot be recycled. TERM lets shell EXIT traps stop their own sessions;
+ * KILL then removes remaining members of this group. */
+static void subprocess_cancel(pid_t pid, bool process_group) {
+    if (process_group) {
+        (void) kill(-pid, SIGTERM);
+        int64_t grace_end = subprocess_monotonic_ms() + 1500;
+        while (subprocess_monotonic_ms() < grace_end) usleep(10000);
+        (void) kill(-pid, SIGKILL);
+    } else {
+        (void) kill(pid, SIGKILL);
+    }
+    while (waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}
+}
+
 /* child_nice is applied to the child right after it is spawned. 0 leaves
  * scheduling alone, which is what every caller except the explicitly
  * low-priority ones gets. */
 static bool subprocess_run_impl(char * const argv[], char * out_buf, size_t out_buf_size, int timeout_ms,
-                                 int * out_exit_code, int child_nice) {
+                                 int * out_exit_code, int child_nice, bool process_group) {
     if (out_exit_code) *out_exit_code = -1;
     if (timeout_ms < 0) return false;
     /* One deadline covers stdout and child exit. Repeated output must not
@@ -154,7 +183,7 @@ static bool subprocess_run_impl(char * const argv[], char * out_buf, size_t out_
     }
 
     pid_t pid;
-    int spawn_rc = subprocess_spawn(argv, SUBPROCESS_STDIN_INHERIT, pipefd[1], &pid);
+    int spawn_rc = subprocess_spawn(argv, SUBPROCESS_STDIN_INHERIT, pipefd[1], &pid, process_group);
     if (spawn_rc != 0) {
         if (pipefd[0] >= 0) close(pipefd[0]);
         if (pipefd[1] >= 0) close(pipefd[1]);
@@ -196,8 +225,7 @@ static bool subprocess_run_impl(char * const argv[], char * out_buf, size_t out_
     }
 
     if (timed_out) {
-        kill(pid, SIGKILL);
-        waitpid(pid, NULL, 0);
+        subprocess_cancel(pid, process_group);
         return false;
     }
 
@@ -218,8 +246,7 @@ static bool subprocess_run_impl(char * const argv[], char * out_buf, size_t out_
         if (remaining <= 0) break;
         usleep((useconds_t)(remaining < 50 ? remaining : 50) * 1000);
     }
-    kill(pid, SIGKILL);
-    waitpid(pid, NULL, 0);
+    subprocess_cancel(pid, process_group);
     return false;
 }
 
@@ -277,7 +304,7 @@ bool subprocess_popen(char * const argv[], pid_t * out_pid, int * out_read_fd) {
     if (pipe2(pipefd, O_CLOEXEC) != 0) return false;
 
     pid_t pid;
-    int spawn_rc = subprocess_spawn(argv, SUBPROCESS_STDIN_DEVNULL, pipefd[1], &pid);
+    int spawn_rc = subprocess_spawn(argv, SUBPROCESS_STDIN_DEVNULL, pipefd[1], &pid, false);
     if (spawn_rc != 0) {
         close(pipefd[0]);
         close(pipefd[1]);
@@ -295,7 +322,7 @@ bool subprocess_popen_stdin(char * const argv[], pid_t * out_pid, int * out_writ
     if (pipe2(pipefd, O_CLOEXEC) != 0) return false;
 
     pid_t pid;
-    int spawn_rc = subprocess_spawn(argv, pipefd[0], -1, &pid);
+    int spawn_rc = subprocess_spawn(argv, pipefd[0], -1, &pid, false);
     if (spawn_rc != 0) {
         close(pipefd[0]);
         close(pipefd[1]);

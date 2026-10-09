@@ -539,7 +539,7 @@ FAAD2_CFLAGS = -O3 -g -Wall -I$(FAAD2_DIR)/include -I$(FAAD2_DIR)/libfaad $(FAAD
 ALAC_DEFINES = -DTARGET_RT_LITTLE_ENDIAN=1
 ALAC_CFLAGS = -O3 -g -Wall -I$(ALAC_DIR)/codec $(ALAC_DEFINES)
 ALAC_CXXFLAGS = -O3 -g -I$(ALAC_DIR)/codec -std=c++11 $(ALAC_DEFINES)
-# The device uses libopus fixed-point decoding, matching Sonix. Keep the
+# The device uses libopus fixed-point decoding. Keep the
 # float API available for libopusfile; host simulation uses floating point.
 # VAR_ARRAYS selects thread-safe C99 scratch allocation without RTCD/SIMD.
 OPUS_DEFINES = -DOPUS_BUILD -DVAR_ARRAYS -DHAVE_LRINTF=1 -DHAVE_LRINT=1
@@ -619,6 +619,7 @@ APP_SRCS += src/ui/gui_setup.c src/ui/gui_setup_plugins.c src/core/timezone_loca
 APP_SRCS += src/ui/lyrics_layout.c src/ui/transition_compositor.c src/ui/frosted_glass.c src/ui/hw_volume_coalesce.c
 APP_SRCS += src/core/ui_wake.c src/library/cover_raster_cache.c src/library/track_metadata_worker.c
 APP_SRCS += src/core/firmware_image.c
+APP_SRCS += src/core/boot_trace.c
 APP_SRCS += src/core/storage_migration.c src/core/sd_fsck.c src/core/sd_fsck_run.c
 APP_SRCS += src/plugins/plugin_json.c src/plugins/plugin_storage.c src/plugins/plugin_disabled_list.c
 APP_SRCS += src/ui/gui_plugin_manage.c src/ui/gui_plugin_store.c src/ui/gui_lock_screen.c
@@ -964,7 +965,7 @@ endif
 BOOTLOADER_SRCS = src/bootloader/main.c src/bootloader/fb_draw.c \
                   src/bootloader/scanner.c src/bootloader/installer.c src/bootloader/sd_ready.c \
                   src/bootloader/sd_ready_real.c \
-                  src/core/subprocess.c \
+                  src/core/subprocess.c src/core/boot_trace.c \
                   lvgl/src/libs/tjpgd/tjpgd.c
 # -ffunction-sections/-fdata-sections + -Wl,--gc-sections: standard, safe
 # combination that lets the linker drop unused functions/data at the

@@ -9,11 +9,42 @@ player_settings_t current_settings;
 static bool test_screen_on = true;
 static bool test_input_pressed;
 static unsigned snapshot_calls;
+static slide_transition_ctx_t * scheduled_test_ctx;
+static bool fail_next_timer_create;
+static bool fail_next_anim_start;
 
 bool backlight_screen_is_on(void) { return test_screen_on; }
 uint32_t gui_anim_ms(uint32_t ms) { return ms; }
 lv_obj_t * gui_player_get_screen(void) { return NULL; }
 lv_obj_t * gui_player_get_dismiss_btn(void) { return NULL; }
+lv_obj_t * gui_shell_get_home_screen(void) { return NULL; }
+lv_obj_t * gui_lyrics_get_screen(void) { return NULL; }
+lv_obj_t * gui_lock_screen_get_screen(void) { return NULL; }
+lv_obj_t * gui_shell_get_home_indicator_band(void) { return NULL; }
+void gui_shell_set_home_indicator_visible(bool visible) { (void)visible; }
+void gui_shell_player_swipe_recover(void *ctx) { (void)ctx; }
+void gui_lock_screen_swipe_recover(void *ctx) { (void)ctx; }
+void sync_player_topbar_visibility(lv_obj_t *screen) { (void)screen; }
+bool transition_compositor_is_active(void) { return false; }
+bool transition_compositor_frame(int32_t value) { (void)value; return true; }
+void transition_compositor_end(void) {}
+
+lv_timer_t *__real_lv_timer_create(lv_timer_cb_t callback, uint32_t period, void *user_data);
+lv_timer_t *__wrap_lv_timer_create(lv_timer_cb_t callback, uint32_t period, void *user_data) {
+    if (fail_next_timer_create) {
+        fail_next_timer_create = false;
+        return NULL;
+    }
+    return __real_lv_timer_create(callback, period, user_data);
+}
+lv_anim_t *__real_lv_anim_start(const lv_anim_t *anim);
+lv_anim_t *__wrap_lv_anim_start(const lv_anim_t *anim) {
+    if (fail_next_anim_start) {
+        fail_next_anim_start = false;
+        return NULL;
+    }
+    return __real_lv_anim_start(anim);
+}
 
 lv_draw_buf_t * __real_lv_snapshot_take(lv_obj_t *obj, lv_color_format_t format);
 lv_draw_buf_t * __wrap_lv_snapshot_take(lv_obj_t *obj, lv_color_format_t format) {
@@ -37,6 +68,119 @@ static void read_input(lv_indev_t *indev, lv_indev_data_t *data) {
 static void pass_ms(uint32_t ms) {
     lv_tick_inc(ms);
     (void) lv_timer_handler();
+}
+
+static void schedule_test_transition_cb(lv_timer_t *timer) {
+    (void)timer;
+    fixed_transition_schedule_start(scheduled_test_ctx);
+    scheduled_test_ctx = NULL;
+}
+
+static slide_transition_ctx_t *make_test_transition(lv_obj_t *from, lv_obj_t *to,
+                                                     lv_obj_t *moving_image,
+                                                     lv_obj_t *destination_image) {
+    slide_transition_ctx_t *ctx = lv_malloc(sizeof(*ctx));
+    assert(ctx);
+    memset(ctx, 0, sizeof(*ctx));
+    ctx->from_scr = from;
+    ctx->to_scr = to;
+    ctx->img_from = moving_image;
+    ctx->img_to = destination_image;
+    ctx->to_offset = 100;
+    ctx->commit = true;
+    slide_transition_active = true;
+    return ctx;
+}
+
+static void test_fixed_transition_start_uses_fresh_tick(lv_obj_t *from, lv_obj_t *to) {
+    lv_obj_t *moving = lv_obj_create(lv_layer_top());
+    lv_obj_t *destination = lv_obj_create(lv_layer_top());
+    assert(moving && destination);
+    lv_obj_set_pos(moving, 7, 0);
+    scheduled_test_ctx = make_test_transition(from, to, moving, destination);
+    slide_transition_ctx_t *active = scheduled_test_ctx;
+    lv_timer_t *launcher = lv_timer_create(schedule_test_transition_cb, 1, NULL);
+    assert(launcher);
+    lv_timer_set_repeat_count(launcher, 1);
+
+    /* The launcher creates the one-shot while lv_timer_handler is already
+     * running. The restarted timer-list traversal sees the same frozen tick,
+     * so the transition cannot start in that stale handler. */
+    pass_ms(1);
+    assert(fixed_transition_start_timer);
+    assert(lv_anim_get(active, slide_transition_anim_x_cb) == NULL);
+    pass_ms(1);
+    assert(fixed_transition_start_timer == NULL);
+    lv_anim_t *started = lv_anim_get(active, slide_transition_anim_x_cb);
+    assert(started);
+    assert(started->last_timer_run == lv_tick_get());
+    assert(started->start_value == 0 && started->end_value == -100);
+    assert(started->duration == NAV_ANIM_TIME_MS);
+    pass_ms(16);
+    started = lv_anim_get(active, slide_transition_anim_x_cb);
+    assert(started);
+    assert(started->act_time > 0 && started->act_time < started->duration);
+    slide_transition_cancel(&active);
+
+    /* Cancellation while a second fixed start is pending deletes its timer
+     * before freeing the context; later handlers must not invoke it. */
+    slide_transition_ctx_t *pending = make_test_transition(from, to, moving, destination);
+    fixed_transition_schedule_start(pending);
+    assert(fixed_transition_start_timer);
+    slide_transition_cancel(&pending);
+    assert(fixed_transition_start_timer == NULL);
+    assert(fixed_transition_start_ctx == NULL);
+    assert(!slide_transition_active);
+    pass_ms(10);
+    lv_obj_delete(moving);
+    lv_obj_delete(destination);
+}
+
+static void test_fixed_transition_teardown_cancels_pending(void) {
+    lv_obj_t *from = lv_obj_create(NULL);
+    lv_obj_t *to = lv_obj_create(NULL);
+    lv_obj_t *moving = lv_obj_create(lv_layer_top());
+    lv_obj_t *destination = lv_obj_create(lv_layer_top());
+    assert(from && to && moving && destination);
+    slide_transition_ctx_t *pending = make_test_transition(from, to, moving, destination);
+    fixed_transition_schedule_start(pending);
+    assert(fixed_transition_start_timer);
+    gui_navigation_teardown();
+    assert(fixed_transition_start_timer == NULL);
+    assert(fixed_transition_start_ctx == NULL);
+    assert(!slide_transition_active);
+    pass_ms(10);
+    lv_obj_delete(moving);
+    lv_obj_delete(destination);
+    lv_obj_delete(from);
+    lv_obj_delete(to);
+}
+
+static void test_fixed_transition_oom_paths(lv_obj_t *from, lv_obj_t *to) {
+    lv_obj_t *moving = lv_obj_create(lv_layer_top());
+    lv_obj_t *destination = lv_obj_create(lv_layer_top());
+    assert(moving && destination);
+
+    /* Timer OOM falls back to starting the animation immediately. */
+    slide_transition_ctx_t *ctx = make_test_transition(from, to, moving, destination);
+    fail_next_timer_create = true;
+    fixed_transition_schedule_start(ctx);
+    assert(!fixed_transition_start_timer);
+    assert(lv_anim_get(ctx, slide_transition_anim_x_cb));
+    slide_transition_cancel(&ctx);
+
+    /* Animation OOM commits the destination and releases the transition. */
+    ctx = make_test_transition(from, to, moving, destination);
+    fail_next_anim_start = true;
+    fixed_transition_schedule_start(ctx);
+    assert(fixed_transition_start_timer);
+    pass_ms(1);
+    assert(!fixed_transition_start_timer);
+    assert(!slide_transition_active);
+    assert(lv_screen_active() == to);
+    assert(lv_anim_count_running() == 0);
+    lv_obj_delete(moving);
+    lv_obj_delete(destination);
 }
 
 static uint16_t expected_565(uint32_t color) {
@@ -163,7 +307,10 @@ int main(void) {
 
     test_coalescing_slicing_and_latest_pixels(screens);
     test_input_and_transition_defer();
+    test_fixed_transition_start_uses_fresh_tick(screens[0], screens[1]);
+    test_fixed_transition_oom_paths(screens[0], screens[1]);
     test_screen_off_resume_and_teardown(screens, indev);
+    test_fixed_transition_teardown_cancels_pending();
     puts("gui_navigation snapshot scheduler runtime spec passed");
     return 0;
 }

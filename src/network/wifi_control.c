@@ -21,7 +21,13 @@ bool wifi_control_is_enabled(void) {
  * terminates existing udhcpc instances and triggers udhcpc to obtain a lease. */
 void wifi_control_enable(void) {
     char * argv[] = { (char *) "/usr/bin/wifi_on.sh", NULL };
-    subprocess_run(argv, NULL, 0);
+    if (access("/sys/devices/platform/bcm_wlbt_power/identity_state", F_OK) == 0) {
+        int status;
+        if (!subprocess_run_checked_group(argv, NULL, 0, SUBPROCESS_RADIO_TIMEOUT_MS, &status) || status != 0)
+            return;
+    } else {
+        subprocess_run(argv, NULL, 0);
+    }
 
     bool associated = false, got_ip = false;
     for (int i = 0; i < 20 && !got_ip; i++) {
@@ -43,7 +49,12 @@ void wifi_control_enable(void) {
 
 void wifi_control_disable(void) {
     char * argv[] = { (char *) "/usr/bin/wifi_off.sh", NULL };
-    subprocess_run(argv, NULL, 0);
+    if (access("/sys/devices/platform/bcm_wlbt_power/identity_state", F_OK) == 0) {
+        int status;
+        (void) subprocess_run_checked_group(argv, NULL, 0, SUBPROCESS_RADIO_TIMEOUT_MS, &status);
+    } else {
+        subprocess_run(argv, NULL, 0);
+    }
 }
 
 void wifi_control_scan_start(void) {
