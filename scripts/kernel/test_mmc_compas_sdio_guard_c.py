@@ -110,7 +110,7 @@ class ActualMmcGuardCHarness(unittest.TestCase):
                                         capture_output=True, check=False)
             self.assertEqual(run_result.returncode, 0,
                              run_result.stdout + run_result.stderr)
-            self.assertIn("PASS (7 scenarios)", run_result.stdout)
+            self.assertIn("PASS (8 scenarios)", run_result.stdout)
 
 
 if __name__ == "__main__":

@@ -9,6 +9,8 @@ test_mmc_compas_sdio_guard_c.py; this small model remains only for policy cases.
 from __future__ import annotations
 
 import pathlib
+import shutil
+import subprocess
 import unittest
 
 
@@ -103,16 +105,29 @@ class GuardModel:
         for code, size, data in tuples:
             if code != 0x81:
                 continue
-            present = True
+            if size <= 0:
+                return "EOPNOTSUPP", present, None, False
             if size != 1:
+                continue
+            present = True
+            if not data:
                 return "EOPNOTSUPP", present, None, False
-            if value is not None and value != data:
+            maker = data[0]
+            if value is not None and value != maker:
                 return "EOPNOTSUPP", present, None, False
-            value = data
+            value = maker
         return None, present, value, present and value == 1
 
 
 class MmcCompasSdioGuardTests(unittest.TestCase):
+    def test_patch_is_well_formed_unified_diff(self):
+        git = shutil.which("git")
+        if not git:
+            self.skipTest("git is unavailable for patch syntax validation")
+        result = subprocess.run([git, "apply", "--numstat", str(PATCH)],
+                                text=True, capture_output=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_begin_acquires_and_checks_in_required_order(self):
         # The pinned SDK stores function N in sdio_func[N - 1].
         guard = GuardModel(functions=[{"slot": 1, "num": 2}, {"slot": 0, "num": 1}])
@@ -190,11 +205,26 @@ class MmcCompasSdioGuardTests(unittest.TestCase):
             self.assertEqual(guard.events.count("queue_detect"), 1)
 
     def test_identity_marker_is_exact_and_contradictory_values_fail_closed(self):
-        self.assertEqual(GuardModel.maker_identity([(0x81, 1, 1)]), (None, True, 1, True))
+        for maker in (0, 1, 2, 25):
+            payload = bytes([maker, 2, 3, 4, 5, 6, 7, 8, 9])
+            self.assertEqual(GuardModel.maker_identity([(0x81, 9, payload)]),
+                             (None, False, None, False))
         self.assertEqual(GuardModel.maker_identity([]), (None, False, None, False))
-        self.assertEqual(GuardModel.maker_identity([(0x81, 2, 1)]),
-                         ("EOPNOTSUPP", True, None, False))
-        self.assertEqual(GuardModel.maker_identity([(0x81, 1, 1), (0x81, 1, 0)]),
+        self.assertEqual(GuardModel.maker_identity([(0x81, 0, b"")]),
+                         ("EOPNOTSUPP", False, None, False))
+        self.assertEqual(GuardModel.maker_identity([(0x81, 9, bytes([0] * 9)),
+                                                    (0x81, 9, bytes([0, 9, 8, 7, 6, 5, 4, 3, 2]))]),
+                         (None, False, None, False))
+        self.assertEqual(GuardModel.maker_identity([(0x81, 1, b"\x01"),
+                                                    (0x81, 9, bytes([25] * 9))]),
+                         (None, True, 1, True))
+        self.assertEqual(GuardModel.maker_identity([(0x81, 1, b"\x00"),
+                                                    (0x81, 9, bytes([1] * 9))]),
+                         (None, True, 0, False))
+        self.assertEqual(GuardModel.maker_identity([(0x81, 1, b"\x02")]),
+                         (None, True, 2, False))
+        self.assertEqual(GuardModel.maker_identity([(0x81, 1, b"\x01"),
+                                                    (0x81, 1, b"\x00")]),
                          ("EOPNOTSUPP", True, None, False))
 
     def test_patch_source_keeps_rescan_entered_and_struct_layout_untouched(self):
@@ -220,7 +250,10 @@ class MmcCompasSdioGuardTests(unittest.TestCase):
                          patch.index("EXPORT_SYMBOL_GPL(mmc_compas_sdio_identity)")]
         self.assertIn("guard->funcs[i]", identity)
         self.assertIn("func->num != 2", identity)
-        self.assertIn("tuple->size != 1", identity)
+        self.assertIn("if (!tuple->size)", identity)
+        self.assertIn("if (tuple->size != 1)", identity)
+        self.assertLess(identity.index("if (tuple->size != 1)"),
+                        identity.index("identity->maker_tuple_present = true"))
         self.assertIn("identity->maker_tuple_value != tuple->data[0]", identity)
 
 

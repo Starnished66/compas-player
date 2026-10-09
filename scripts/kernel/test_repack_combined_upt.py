@@ -79,6 +79,13 @@ class CombinedPackerTests(unittest.TestCase):
             review_path = (repo / combined.DISPLAY_REVIEW_PATH).resolve()
             self.assertEqual(combined.sha(review_path), combined.DISPLAY_REVIEW_SHA)
             reviewed_sources = json.loads(review_path.read_text())["source_sha256"]
+            lifetime_patch = repo / "firmware/kernel/wifi-patches/compas-mmc-radio-lifetime.patch"
+            if combined.sha(lifetime_patch) != combined.RADIO_LIFETIME_PATCH_SHA:
+                # A new kernel fix must obtain fresh clearance instead of
+                # silently reusing the historical radio candidate's review.
+                with self.assertRaisesRegex(combined.PackError, "MMC lifetime patch bytes changed"):
+                    combined.validate_preparation(workspace.resolve(), repo, assembly)
+                return
             if any(combined.sha(pathlib.Path(path)) != digest
                    for path, digest in reviewed_sources.items()):
                 # A later optimization must not silently reuse the older build's

@@ -31,9 +31,13 @@ struct sdio_func {
 	u16 vendor, device;
 };
 struct sdio_func_tuple {
-	u8 code, size;
-	u8 *data;
 	struct sdio_func_tuple *next;
+	u8 code, size;
+	u8 data[0];
+};
+union tuple_fixture_storage {
+	void *alignment;
+	u8 bytes[sizeof(struct sdio_func_tuple) + 9];
 };
 struct mmc_card {
 	struct device dev;
@@ -207,13 +211,15 @@ struct fixture {
 	struct mmc_host host;
 	struct mmc_card card;
 	struct sdio_func funcs[2];
-	struct sdio_func_tuple tuples[2];
-	u8 tuple_data[2];
+	union tuple_fixture_storage tuple_storage[2];
+	struct sdio_func_tuple *tuples[2];
 };
 
 static void fixture_init(struct fixture *f, bool with_card)
 {
 	memset(f, 0, sizeof(*f));
+	f->tuples[0] = (struct sdio_func_tuple *)(void *)f->tuple_storage[0].bytes;
+	f->tuples[1] = (struct sdio_func_tuple *)(void *)f->tuple_storage[1].bytes;
 	f->parent.name = "md_ingenic,mmc.0";
 	f->parent.registered = true;
 	f->parent.driver = (void *)1;
@@ -305,15 +311,19 @@ static int test_valid_identity_uses_slot_one_for_function_two(void)
 	struct fixture f; struct mmc_compas_sdio_guard *g = NULL;
 	struct mmc_compas_sdio_identity id;
 	reset_observation(); fixture_init(&f, true);
-	f.tuple_data[0] = 1;
-	f.tuples[0].code = 0x81; f.tuples[0].size = 1;
-	f.tuples[0].data = &f.tuple_data[0]; f.card.tuples = &f.tuples[0];
+	f.tuples[0]->data[0] = 1;
+	f.tuples[0]->data[1] = 0x02; f.tuples[0]->data[2] = 0xd0;
+	f.tuples[0]->data[3] = 0xa9; f.tuples[0]->data[4] = 0xa6;
+	f.tuples[0]->data[5] = 0x11; f.tuples[0]->data[6] = 0x22;
+	f.tuples[0]->data[7] = 0x33; f.tuples[0]->data[8] = 0x44;
+	f.tuples[0]->code = 0x81; f.tuples[0]->size = 9;
+	f.card.tuples = f.tuples[0];
 	CHECK(mmc_compas_sdio_begin(&f.host, &f.parent, &g) == 0);
 	CHECK(g && f.funcs[0].dev.locked && f.funcs[1].dev.locked);
 	CHECK(mmc_compas_sdio_identity(g, &id) == 0);
 	CHECK(id.valid && id.function2_vendor == 0x02d0 && id.function2_device == 0xa9a6);
-	CHECK(id.maker_tuple_present && id.azurewave && id.maker_tuple_value == 1);
-	CHECK(f.tuples[0].data == &f.tuple_data[0] && f.tuple_data[0] == 1);
+	CHECK(!id.maker_tuple_present && !id.azurewave && id.maker_tuple_value == 0);
+	CHECK(f.tuples[0]->data[0] == 1);
 	CHECK(mmc_compas_sdio_power(g, true) == 0 && power_restores == 1);
 	CHECK(mmc_compas_sdio_power(g, false) == 0 && power_saves == 1);
 	mmc_compas_sdio_end(g, MMC_COMPAS_SDIO_DISCARD);
@@ -328,11 +338,10 @@ static int test_bad_tuple_and_function_count_unwind(void)
 	struct fixture f; struct mmc_compas_sdio_guard *g = NULL;
 	struct mmc_compas_sdio_identity id;
 	reset_observation(); fixture_init(&f, true);
-	f.tuple_data[0] = 1; f.tuple_data[1] = 0;
-	f.tuples[0].code = f.tuples[1].code = 0x81;
-	f.tuples[0].size = f.tuples[1].size = 1;
-	f.tuples[0].data = &f.tuple_data[0]; f.tuples[0].next = &f.tuples[1];
-	f.tuples[1].data = &f.tuple_data[1]; f.card.tuples = &f.tuples[0];
+	f.tuples[0]->data[0] = 1; f.tuples[1]->data[0] = 0;
+	f.tuples[0]->code = f.tuples[1]->code = 0x81;
+	f.tuples[0]->size = f.tuples[1]->size = 1;
+	f.tuples[0]->next = f.tuples[1]; f.card.tuples = f.tuples[0];
 	CHECK(mmc_compas_sdio_begin(&f.host, &f.parent, &g) == 0);
 	CHECK(mmc_compas_sdio_identity(g, &id) == -EOPNOTSUPP);
 	CHECK(id.maker_tuple_present && !id.azurewave);
@@ -340,12 +349,12 @@ static int test_bad_tuple_and_function_count_unwind(void)
 	CHECK(scans_queued == 1 && !sleep_locked && !f.parent.locked);
 
 	reset_observation(); fixture_init(&f, true); g = NULL;
-	f.tuple_data[0] = 1; f.tuples[0].code = 0x81;
-	f.tuples[0].size = 2; f.tuples[0].data = &f.tuple_data[0];
-	f.card.tuples = &f.tuples[0];
+	f.tuples[0]->code = 0x81;
+	f.tuples[0]->size = 0;
+	f.card.tuples = f.tuples[0];
 	CHECK(mmc_compas_sdio_begin(&f.host, &f.parent, &g) == 0);
 	CHECK(mmc_compas_sdio_identity(g, &id) == -EOPNOTSUPP);
-	CHECK(id.maker_tuple_present);
+	CHECK(!id.maker_tuple_present && !id.azurewave);
 	mmc_compas_sdio_end(g, MMC_COMPAS_SDIO_DISCARD);
 	CHECK(!sleep_locked && !f.parent.locked && scans_queued == 0);
 
@@ -353,6 +362,60 @@ static int test_bad_tuple_and_function_count_unwind(void)
 	CHECK(mmc_compas_sdio_begin(&f.host, &f.parent, &g) == -EOVERFLOW);
 	CHECK(!sleep_locked && !f.parent.locked && !f.host.rescan_disable);
 	CHECK(scans_queued == 1 && detect_cancels == 2);
+	return 0;
+}
+
+static int test_maker_tuple_trailing_bytes_do_not_change_identity(void)
+{
+	struct fixture f; struct mmc_compas_sdio_guard *g = NULL;
+	struct mmc_compas_sdio_identity id;
+	static const u8 long_makers[] = { 0, 1, 2, 25 };
+	unsigned int i;
+	for (i = 0; i < sizeof(long_makers) / sizeof(long_makers[0]); i++) {
+		reset_observation(); fixture_init(&f, true); g = NULL;
+		memset(f.tuples[0]->data, 0xa5, 9);
+		f.tuples[0]->data[0] = long_makers[i];
+		f.tuples[0]->code = 0x81; f.tuples[0]->size = 9;
+		f.card.tuples = f.tuples[0];
+		CHECK(mmc_compas_sdio_begin(&f.host, &f.parent, &g) == 0);
+		CHECK(mmc_compas_sdio_identity(g, &id) == 0 &&
+		      !id.maker_tuple_present && !id.azurewave &&
+		      id.maker_tuple_value == 0);
+		mmc_compas_sdio_end(g, MMC_COMPAS_SDIO_DISCARD);
+	}
+
+	reset_observation(); fixture_init(&f, true);
+	f.tuples[0]->data[0] = 1; f.tuples[0]->size = 1;
+	f.tuples[0]->code = 0x81;
+	f.tuples[1]->data[0] = 25; memset(&f.tuples[1]->data[1], 0x7b, 8);
+	f.tuples[1]->code = 0x81; f.tuples[1]->size = 9;
+	f.tuples[0]->next = f.tuples[1]; f.card.tuples = f.tuples[0];
+	CHECK(mmc_compas_sdio_begin(&f.host, &f.parent, &g) == 0);
+	CHECK(mmc_compas_sdio_identity(g, &id) == 0 && id.azurewave &&
+	      id.maker_tuple_value == 1);
+	mmc_compas_sdio_end(g, MMC_COMPAS_SDIO_DISCARD);
+
+	reset_observation(); fixture_init(&f, true); g = NULL;
+	f.tuples[0]->data[0] = 0; f.tuples[0]->size = 1;
+	f.tuples[0]->code = 0x81;
+	f.tuples[1]->data[0] = 1; memset(&f.tuples[1]->data[1], 0xff, 8);
+	f.tuples[1]->code = 0x81; f.tuples[1]->size = 9;
+	f.tuples[0]->next = f.tuples[1]; f.card.tuples = f.tuples[0];
+	CHECK(mmc_compas_sdio_begin(&f.host, &f.parent, &g) == 0);
+	CHECK(mmc_compas_sdio_identity(g, &id) == 0 && id.maker_tuple_present &&
+	      !id.azurewave && id.maker_tuple_value == 0);
+	mmc_compas_sdio_end(g, MMC_COMPAS_SDIO_DISCARD);
+
+	reset_observation(); fixture_init(&f, true); g = NULL;
+	f.tuples[0]->data[0] = 0; f.tuples[0]->code = 0x81;
+	f.tuples[0]->size = 1; f.tuples[0]->next = f.tuples[1];
+	f.tuples[1]->data[0] = 1; memset(&f.tuples[1]->data[1], 0xff, 8);
+	f.tuples[1]->code = 0x81; f.tuples[1]->size = 9;
+	f.card.tuples = f.tuples[0];
+	CHECK(mmc_compas_sdio_begin(&f.host, &f.parent, &g) == 0);
+	CHECK(mmc_compas_sdio_identity(g, &id) == 0 && id.maker_tuple_present &&
+	      !id.azurewave && id.maker_tuple_value == 0);
+	mmc_compas_sdio_end(g, MMC_COMPAS_SDIO_DISCARD);
 	return 0;
 }
 
@@ -535,10 +598,11 @@ int main(void)
 	    test_bound_func1_fails_and_unwinds() ||
 	    test_valid_identity_uses_slot_one_for_function_two() ||
 	    test_bad_tuple_and_function_count_unwind() ||
+	    test_maker_tuple_trailing_bytes_do_not_change_identity() ||
 	    test_no_card_rescan_policy_and_discard_drain() ||
 	    test_power_errors_are_returned() ||
 	    test_off_registry_rescan_pm_and_host_identity())
 		return 1;
-	puts("actual extracted MMC helper C harness: PASS (7 scenarios)");
+	puts("actual extracted MMC helper C harness: PASS (8 scenarios)");
 	return 0;
 }

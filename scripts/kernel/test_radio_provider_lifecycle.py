@@ -86,6 +86,14 @@ static void identity_and_bt(void) {
  suspending=true; assert(bt_set_block(NULL,false)==-EBUSY); assert(!bt_set_block(NULL,true) && !lpo_refs);
  reset(); assert(!publish_identity(&mock_id)); mock_id.azurewave=false; mock_id.maker_tuple_value=2;
  assert(publish_identity(&mock_id)==-ENODEV);
+ reset(); profile="ap6212a"; mock_id.azurewave=false; mock_id.maker_tuple_value=0;
+ assert(mock_id.maker_tuple_present && !publish_identity(&mock_id));
+ assert(identity_state==ID_READY && chipvendor==0 && !strcmp(identity_source,"profile"));
+ reset(); profile="ap6212a"; mock_id.azurewave=false; mock_id.maker_tuple_present=false;
+ mock_id.maker_tuple_value=0; assert(!publish_identity(&mock_id));
+ assert(identity_state==ID_READY && chipvendor==0 && !strcmp(identity_source,"profile"));
+ reset(); profile="ap6212a"; mock_id.azurewave=false; mock_id.maker_tuple_value=2;
+ assert(publish_identity(&mock_id)==-ENODEV);
  reset(); profile="ap6212a"; assert(publish_identity(&mock_id)==-ENODEV);
 }
 static void cycles_and_coexistence(void) {
