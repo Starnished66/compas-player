@@ -337,7 +337,15 @@ static bool usb_mode_control_apply_locked(usb_mode_t mode) {
     int exit_code = -1;
     switch (mode) {
         case USB_MODE_STORAGE: {
-            char * argv[] = { (char *) "/usr/bin/usb_dev_mass_storage.sh", (char *) "start", (char *) "/dev/mmcblk0", NULL };
+            /* Exporting the disk instead of the partition relies on the MBR
+             * being parsed by the host machine, which could lead to issues
+             * on macOS in particular when the MBR type byte claims a different
+             * filesystem from what's actually on the SD card. This leads to the
+             * the file system not being mounted successfully. Exporting the 
+             * partition bypasses this possibility. Kept the full disk export as
+             * a fallback. */
+            const char * sd_device = access("/dev/mmcblk0p1", F_OK) == 0 ? "/dev/mmcblk0p1" : "/dev/mmcblk0";
+            char * argv[] = { (char *) "/usr/bin/usb_dev_mass_storage.sh", (char *) "start", (char *) sd_device, NULL };
             subprocess_run_checked(argv, NULL, 0, SCRIPT_TIMEOUT_MS, &exit_code);
             bool ok = exit_code == 0 && udc_becomes_bound(ANDROID0_UDC_PATH) && function_linked(ANDROID0_DIR, "mass_storage.");
             fprintf(stderr, "usb_mode_control: Storage start exit=%d -> %s\n", exit_code, ok ? "ok" : "FAILED");
