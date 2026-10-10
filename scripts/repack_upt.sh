@@ -633,9 +633,21 @@ copy_tracked_assets assets/fonts  "$work/root/usr/resource/fonts"
 # relative paths under firmware/overlay/ (e.g. usr/share/udhcpc/
 # default.script.d/ntpdate). cp -a keeps mode bits and relative symlinks
 # (sync_ntp.sh).
+# Preserve the reviewed radio startup before the shared vendor overlay lands.
+radio_startup=
+if [[ -e "$work/root/usr/bin/compas-radio" ]]; then
+    [[ $board == r1 ]] || { echo "Compas radio backend is R1-only" >&2; exit 1; }
+    python3 "$repo/scripts/kernel/verify_radio_boot.py" "$work/root"
+    radio_startup="$work/radio-S43"
+    cp -p "$work/root/etc/init.d/S43wifi_bcm_init_config" "$radio_startup"
+fi
 overlay="$repo/firmware/overlay"
 if [[ -d "$overlay" ]]; then
     cp -a "$overlay"/. "$work/root/"
+fi
+
+if [[ -n $radio_startup ]]; then
+    cp -p "$radio_startup" "$work/root/etc/init.d/S43wifi_bcm_init_config"
 fi
 
 # A local R3 runtime overlay is opt-in. CI supplies an already-upgraded base

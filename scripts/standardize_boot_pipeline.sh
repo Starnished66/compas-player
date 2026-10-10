@@ -59,6 +59,15 @@ done
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 
+# The guarded radio backend owns its Wi-Fi entry points and S43 lifecycle.
+radio_backend=0
+if [[ -e $root/usr/bin/compas-radio ]]; then
+    [[ ${board:-r1} == r1 ]] || { echo "Compas radio backend is R1-only" >&2; exit 1; }
+    python3 "$repo/scripts/kernel/verify_radio_boot.py" "$root"
+    radio_backend=1
+fi
+
+if [[ $radio_backend == 0 ]]; then
 # Resolve the vendor source without ever mistaking a Compás wrapper for stock.
 if [[ -e $vendor ]]; then
     [[ -f $vendor ]] || { echo "Saved Wi-Fi vendor implementation is not a file: $vendor" >&2; exit 1; }
@@ -155,6 +164,8 @@ sh -n "$scratch/wifi_on.vendor.sh" || {
     exit 1
 }
 
+fi
+
 # Prepare and syntax-check the launcher transformation in scratch storage.
 # This keeps unknown wrappers from causing any partial root mutation.
 python3 - "$wrapper" "$scratch/hiby_player.sh" <<'PY'
@@ -207,12 +218,15 @@ sh -n "$scratch/hiby_player.sh"
 
 # All checks have passed; apply the prepared files, including the idempotently
 # guarded vendor script staged above.
-install -D -m 0755 "$scratch/wifi_on.vendor.sh" "$vendor"
-for rel in "${shared_paths[@]:0:2}" etc/init.d/S43wifi_bcm_init_config; do
+for rel in "${shared_paths[@]:0:2}"; do
     install -D -m 0755 "$overlay/$rel" "$root/$rel"
 done
-install -D -m 0755 "$canonical_wifi" "$root/usr/libexec/compas/wifi_on.sh"
-install -D -m 0755 "$canonical_wifi" "$wifi"
+if [[ $radio_backend == 0 ]]; then
+    install -D -m 0755 "$scratch/wifi_on.vendor.sh" "$vendor"
+    install -D -m 0755 "$overlay/etc/init.d/S43wifi_bcm_init_config" "$root/etc/init.d/S43wifi_bcm_init_config"
+    install -D -m 0755 "$canonical_wifi" "$root/usr/libexec/compas/wifi_on.sh"
+    install -D -m 0755 "$canonical_wifi" "$wifi"
+fi
 install -m 0755 "$scratch/hiby_player.sh" "$wrapper"
 
 # Sanity-check the installed payload as a final packaging guard.
