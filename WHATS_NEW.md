@@ -10,7 +10,3 @@ Compas v1.1 brings a faster, more capable player experience across the R1, R3 Pr
 - **Bluetooth and memory:** smoother Bluetooth volume control and reconnects, plus memory use reductions across long-running playback and browsing.
 - **Setup and power:** new installations default to QWERTY and suspend-to-RAM after 10 minutes idle. Updates preserve saved preferences. The selected idle action now has a visible indicator.
 - **Fixes:** improvements to the player, library, plugin store, setup, and connection behavior.
-
-Download the firmware update for your device and verify it against `SHA256SUMS`.
-
-R1 has been tested on hardware, including Bluetooth playback, volume control and reconnects. The R3 images have passed build and package checks; their new kernel and driver combinations still need hardware validation.
