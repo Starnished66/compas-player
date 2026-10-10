@@ -53,7 +53,7 @@
  * appends these after its own built-in rows. One of five list_ids covering
  * Music Settings' submenus -- see PLUGIN_MAX_MUSIC_AUDIO_LIST_ITEMS below for
  * the other four. */
-#define PLUGIN_MAX_PLAYBACK_LIST_ITEMS 8
+#define PLUGIN_MAX_PLAYBACK_LIST_ITEMS 16
 
 /* Same shape and reasoning as PLUGIN_MAX_PLAYBACK_LIST_ITEMS above, for
  * plugin.register_list_item("music_audio", ...) -- gui_settings.c's
@@ -61,7 +61,7 @@
  * these after its own built-in rows (Equalizer, Startup Volume). The natural
  * home for a plugin doing EQ/DSP/volume-curve work (e.g. an MSEB-style tone
  * tuner, a sound-profile switcher, a gain-mode toggle). */
-#define PLUGIN_MAX_MUSIC_AUDIO_LIST_ITEMS 8
+#define PLUGIN_MAX_MUSIC_AUDIO_LIST_ITEMS 16
 
 /* Same shape and reasoning as PLUGIN_MAX_PLAYBACK_LIST_ITEMS above, for
  * plugin.register_list_item("music_controls", ...) -- gui_settings.c's
@@ -170,7 +170,7 @@
  * cap-and-fail-loudly convention as PLUGIN_MAX_STREAM_TILES. Each playback,
  * device, volume, and battery event gets its own array sized off this in
  * plugin_manager.c. */
-#define PLUGIN_MAX_EVENT_SUBSCRIBERS 8
+#define PLUGIN_MAX_EVENT_SUBSCRIBERS 16
 
 /* ---- plugin.set_interval(seconds, callback) / plugin.clear_interval(handle)
  * -- a generic repeating timer, needed so a plugin can periodically poll
@@ -183,7 +183,7 @@
  * combined -- luaL_error()s a set_interval() call past this rather than
  * silently overwriting or refusing quietly. Sizes gui.c's own
  * plugin_interval_timers[] array too. */
-#define PLUGIN_MAX_INTERVALS 8
+#define PLUGIN_MAX_INTERVALS 16
 
 /* Minimum enforced period for plugin.set_interval() -- a request for less
  * than this is silently clamped up to it (not an error: asking for 100ms

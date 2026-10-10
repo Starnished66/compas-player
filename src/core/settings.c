@@ -239,7 +239,7 @@ static void set_defaults(player_settings_t * out) {
     out->idle_shutdown_enabled = true;
     out->idle_shutdown_minutes = 10;
     out->idle_suspend_enabled = true;
-    out->idle_suspend_default_migrated = false; /* settings_load()'s own one-time migration sets this true */
+    out->idle_suspend_default_migrated = true; /* prevent older releases from re-migrating saved preferences */
     out->usb_mode = 0; /* USB_MODE_STORAGE -- see settings.h's own comment on why this is a plain int */
     out->play_mode = 0; /* PLAY_MODE_SEQUENTIAL */
     out->swipe_up_home_enabled = true;
@@ -251,7 +251,7 @@ static void set_defaults(player_settings_t * out) {
     out->timezone[0] = '\0';
     out->hostname[0] = '\0'; /* empty -- stock's own /usr/resource/hostname stays in effect */
     out->font_size_tier = 1;
-    out->keyboard_layout = KEYBOARD_LAYOUT_T9;
+    out->keyboard_layout = KEYBOARD_LAYOUT_QWERTY;
     out->lyrics_font_size_tier = 1; /* Medium -- see settings.h's own comment */
     out->brightness_percent = 80;
     out->clock_24h = true; /* matches the app's original, only-ever clock format -- existing installs see no change */
@@ -669,7 +669,7 @@ bool settings_load(player_settings_t * out) {
     if (out->usb_mode < 0 || out->usb_mode > 2) out->usb_mode = 0; /* defensive re-clamp, same reasoning as screen_timeout_seconds -- the settings file is plaintext and could be hand-edited out of range */
     if (out->play_mode < 0 || out->play_mode > 3) out->play_mode = 0;
     if (out->font_size_tier < 0 || out->font_size_tier > 2) out->font_size_tier = 1;
-    if (out->keyboard_layout != KEYBOARD_LAYOUT_T9 && out->keyboard_layout != KEYBOARD_LAYOUT_QWERTY) out->keyboard_layout = KEYBOARD_LAYOUT_T9;
+    if (out->keyboard_layout != KEYBOARD_LAYOUT_T9 && out->keyboard_layout != KEYBOARD_LAYOUT_QWERTY) out->keyboard_layout = KEYBOARD_LAYOUT_QWERTY;
     if (out->lyrics_font_size_tier != 1 && out->lyrics_font_size_tier != 2) out->lyrics_font_size_tier = 1; /* Medium/Large only, see settings.h */
     if (out->replaygain_mode < 0 || out->replaygain_mode > 2) out->replaygain_mode = 1; /* Off/Per Track/Per Album only, see settings.h */
     if (out->animation_scale != 0 && out->animation_scale != 25 && out->animation_scale != 50 &&
@@ -694,26 +694,10 @@ bool settings_load(player_settings_t * out) {
         }
     }
 
-    /* One-time forced migration for installs that already have a
-     * settings.txt predating idle_suspend_enabled's default flip (see
-     * set_defaults() above) -- settings_save() always writes every field,
-     * so an existing file already pins idle_shutdown_enabled/
-     * idle_suspend_enabled/idle_shutdown_minutes back to their old
-     * false/false/30 values, silently defeating the new default for every
-     * existing user rather than just new installs. Same
-     * marker-key-in-the-file idiom as playlist_files.c's own
-     * PLAYLIST_MIGRATION_MARKER_NAME, just inline here instead of a
-     * separate marker file since settings.txt is already a single
-     * key=value blob rewritten in full on every save. Runs once: after
-     * this, idle_suspend_default_migrated=1 is itself persisted on the next
-     * settings_save(), so a user who deliberately turns any of these back
-     * off afterward stays off. */
-    if (!out->idle_suspend_default_migrated) {
-        out->idle_shutdown_enabled = true;
-        out->idle_shutdown_minutes = 10;
-        out->idle_suspend_enabled = true;
-        out->idle_suspend_default_migrated = true;
-    }
+    /* Keep the marker key readable/writable for compatibility, but never
+     * rewrite a saved idle action. New installs get the suspend default from
+     * set_defaults(); existing files retain their explicit values whether or
+     * not they predate this marker. */
 
     out->screen_timeout_seconds = nearest_step(out->screen_timeout_seconds, SCREEN_TIMEOUT_STEPS, SCREEN_TIMEOUT_STEP_COUNT);
     out->screen_dim_delay_seconds = nearest_step(out->screen_dim_delay_seconds, SCREEN_DIM_DELAY_STEPS, SCREEN_DIM_DELAY_STEP_COUNT);

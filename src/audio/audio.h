@@ -45,6 +45,11 @@ typedef struct {
     bool dsd_native; /* DSD sent to the DAC as DoP rather than converted to PCM */
     bool replaygain_applied;
     double replaygain_applied_db;
+    /* Live playback state, captured with the format snapshot. software_volume_gain
+     * is the linear PCM multiplier actually used by the audio worker. */
+    double software_volume_gain;
+    double playback_speed;
+    bool crossfade_enabled;
     uint64_t generation;
 } audio_current_format_info_t;
 
@@ -74,7 +79,7 @@ typedef struct {
  * what lets gapless/crossfade transitions avoid tearing down the output
  * device between tracks. Safe to call more than once; only the first call
  * does anything. */
-/* Same-position comparison of finite, matching local 16-bit PCM sources.
+/* Same-position comparison of finite, matching local 16-bit PCM or MP3 sources.
  * Preparation is asynchronous; adoption may seek once. Selection never seeks.
  * Both sources use the primary track's shared ReplayGain, EQ and volume.
  * Pause/seek/stop/track/speed/crossfade changes invalidate the comparison. */

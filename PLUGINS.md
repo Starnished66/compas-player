@@ -116,7 +116,7 @@ loop is stopped. File reads through Lua's own file handles do count.
 
 | Entry point | Function | Limit |
 | --- | --- | --- |
-| A row in a native list | `register_list_item` | 8 rows per list, all plugins together |
+| A row in a native list | `register_list_item` | 16 in Playback & Controls or Sound; 8 in other lists, all plugins together |
 | A tile in Stream Media | `register_stream_media_tile` | 5 tiles |
 | A tile on Home | `register_home_tile` | 6 tiles, shown only when a Home layout lists them |
 | An on/off tile in the quick drawer | `register_quick_toggle` | 4 tiles |
@@ -136,7 +136,8 @@ The lists that accept rows:
 | `"power"` | Settings > Power | Battery and power tools |
 | `"system"` | Settings > System | Device and maintenance tools |
 
-Rows from different plugins share a list, up to 8 per list, and the list
+Rows from different plugins share a list, up to 16 in `playback` or
+`music_audio` and 8 in other lists, and the list
 scrolls. Any other `list_id` is an error.
 
 ## Identity and compatibility
@@ -168,13 +169,13 @@ plugin.define({
 
   | Area | Tokens |
   | --- | --- |
-  | UI | `ui.list`, `ui.settings`, `ui.row_width`, `ui.text_input`, `ui.toast`, `ui.screenshot`, `ui.theme`, `ui.theme_refresh`, `ui.reload`, `ui.home_layout`, `ui.home_tiles`, `ui.launcher_layout`, `ui.home_background`, `ui.lock_screen`, `ui.quick_toggle`, `ui.text_view`, `ui.text_view_images`, `ui.list_grid`, `ui.list_showing`, `ui.list_wrap`, `ui.settings_list_wrap`, `ui.player_layout_xml` |
-  | Playback and audio | `playback.control`, `playback.state`, `playback.events`, `playback.progress`, `playback.remote`, `playback.transport_skip`, `playback.speed`, `playback.format`, `playback.output_info`, `playback.silent_volume`, `playback.output_events`, `playback.settings`, `playback.ab_loop`, `playback.ab_switch`, `playback.http_seek`, `audio.peq`, `audio.peq.transient`, `audio.stereo_width`, `audio.hw_volume_curve` |
-  | Files | `filesystem.sd`, `filesystem.mkdir`, `filesystem.playlists` |
+  | UI | `ui.list`, `ui.settings`, `ui.row_width`, `ui.text_input`, `ui.toast`, `ui.progress`, `ui.screenshot`, `ui.theme`, `ui.theme_refresh`, `ui.reload`, `ui.home_layout`, `ui.home_tiles`, `ui.launcher_layout`, `ui.home_background`, `ui.lock_screen`, `ui.quick_toggle`, `ui.text_view`, `ui.text_view_images`, `ui.list_grid`, `ui.list_showing`, `ui.list_update`, `ui.list_wrap`, `ui.settings_list_wrap`, `ui.player_layout_xml`, `ui.file_manager` |
+  | Playback and audio | `playback.control`, `playback.state`, `playback.events`, `playback.progress`, `playback.remote`, `playback.transport_skip`, `playback.speed`, `playback.format`, `playback.output_info`, `playback.silent_volume`, `playback.transient_volume`, `playback.output_events`, `playback.settings`, `playback.ab_loop`, `playback.ab_switch`, `playback.http_seek`, `audio.peq`, `audio.peq.transient`, `audio.peq.state`, `audio.stereo_width`, `audio.hw_volume_curve` |
+  | Files | `filesystem.sd`, `filesystem.mkdir`, `filesystem.playlists`, `filesystem.file_ops` |
   | Storage | `storage.namespaced`, `storage.secrets`, `storage.secrets_get` |
-  | Network | `network.http.sync`, `network.http.async`, `network.http.download` |
+  | Network | `network.http.sync`, `network.http.async`, `network.http.download`, `network.http.download_progress` |
   | Data | `data.json`, `crypto.md5`, `data.zip`, `data.zip_image`, `data.image_thumbnail`, `data.html` |
-  | Library | `library.artist_albums`, `library.paged`, `library.refresh` |
+  | Library | `library.artist_albums`, `library.paged`, `library.refresh`, `library.track_metadata` |
 
 - LEDs depend on the model: check `plugin.led_available()` instead.
 - `plugin.get_app_info()` returns `{ version, build, platform, plugin_api }`.
@@ -196,7 +197,7 @@ plugin.define({
 | 13 | LED control, `get_volume`, `get_battery`, and the `volume_changed`, `battery_changed`, `suspending` and `system_resumed` events |
 | 14 | `zip_read`, `zip_list`, `zip_image_async`, `html_to_blocks`, `show_text_view` with pictures, grid lists, `is_list_showing`, and one long (4095-byte) HTTP header per request |
 | 15 | Full XML Player-layout support (`ui.player_layout_xml`), including plugin-bundle discovery, current named-widget features, companion PNG previews, and resolution-specific XML variants using `@WIDTHxHEIGHT` or `_WIDTHxHEIGHT` filenames |
-| 16 | Playback speed/stereo width/progress plus format/output snapshots, silent volume, transient EQ, output events, playback settings, native A–B loops/comparison, and finite HTTP seeking. API 16 remains the unreleased v1.1 API. |
+| 16 | Playback speed/stereo width/progress plus format/output snapshots, silent volume, transient EQ, output events, playback settings, native A–B loops/comparison, and finite HTTP seeking. Modeless progress bars and download byte snapshots are also available, as is the File Manager (`open_file_manager`, `file_copy`, `file_move`, `file_delete`). API 16 remains the unreleased v1.1 API. |
 
 All of these are additions; older plugins keep working.
 
@@ -218,8 +219,9 @@ submenu:
 - Other values leave the row directly in its list. Older players ignore
   `group`.
 
-A plugin may register several rows. More than 8 rows in one list (all plugins
-together) is an error.
+A plugin may register several rows. In API 16, Playback and Music Audio accept
+16 rows each; other lists accept 8. The limit includes all plugins together.
+Exceeding it is an error.
 
 ### `plugin.register_stream_media_tile(label, on_open [, icon])`
 
@@ -287,6 +289,11 @@ Opens a list screen and returns a handle (`nil` on players older than API
   called if the user goes back.
 - `options`:
   - `height`, `width`: size of every row (see [row options](#row-options)).
+  - `replace = handle`: API 16, `ui.list_update`. Replaces this plugin's
+    currently visible list in place without pushing navigation. Returns a new
+    handle; the old handle expires. Returns `nil` without changing the screen
+    for a closed, covered, foreign, or superseded handle. Keep the returned
+    handle for later pages and guard asynchronous completions with it.
   - `selected`: 1-based row drawn with an accent outline. The outline follows
     later taps.
   - `layout = "grid"`: shows cards instead of rows. Each card shows its `icon`
@@ -392,6 +399,53 @@ swipe right for the previous page. Swiping right on the first page, or the
 Back button, closes the view. The footer shows `page / pages`. Pagination runs
 in the background, so very long texts open immediately; past 8192 pages the
 rest isn't shown.
+
+### API 16 progress UI
+
+Check `ui.progress` before using these functions. They run on the UI thread
+and leave navigation and playback available while work continues.
+
+| Function | Result |
+| --- | --- |
+| `plugin.show_progress(title, message [, fraction])` | A new opaque handle, or `nil, error` if the UI is unavailable. |
+| `plugin.update_progress(handle, message [, fraction])` | `true` if that plugin still owns the visible card; otherwise `false`. |
+| `plugin.close_progress(handle)` | Closes the owned card; returns whether it was visible. |
+
+Omit `fraction` (or pass `nil`) for an animated indeterminate bar during
+searches, connection setup, or transfers with unknown size. A finite fraction
+from `0` to `1` displays a percentage. Title and message are bounded to 128
+and 512 bytes respectively; NUL bytes are rejected. Do not invent percentages
+for work without a measured total.
+
+There is one modeless card. A new `show_progress` replaces it and invalidates
+its previous handle, even if another plugin owned it. The user can dismiss
+the card without cancelling the task. Updates never reopen a dismissed card;
+only a fresh user action should call `show_progress` again. Handles belong to
+the calling plugin, including its coroutines, and are invalidated on plugin
+unload, failed loading, or UI reload. Close the card on every completion and
+failure path; use a toast for the result. Keep automatic background work quiet.
+
+```lua
+local progress = plugin.show_progress("Cover Art Fetcher", "Searching for cover…")
+-- Later, on the UI thread:
+if progress then plugin.update_progress(progress, "Downloading cover…", 0.4) end
+if progress then plugin.close_progress(progress) end
+plugin.show_toast("Cover saved")
+```
+
+The native regressions use real Lua and LVGL:
+
+```sh
+python3 scripts/test_plugin_progress_api.py
+make host
+python3 scripts/test_plugin_progress_ui.py
+```
+
+For a reproducible device transfer, `scripts/tests/progress_http_fixture.c`
+is a loopback-only fixture serving `/known` (Content-Length) and `/unknown`
+(chunked), each with 262144 payload bytes over roughly 32 seconds. Compile
+for the device, stage and run it only from persistent SD storage, then stop
+its listener and child handlers and remove all fixture files after testing.
 
 ### `plugin.show_toast(message [, duration_ms])`
 
@@ -679,7 +733,9 @@ plugin.play_remote({
   so they add up even when the URL changes on every play. They don't appear
   in the Favorites and Most Played screens yet.
 - Remote tracks are not resumed after a restart.
-- Playback works like a stream URL above: no seeking, no reconnect.
+- Playback follows the stream rules above: finite sources can seek when
+  `get_playback_format().seekable` is true; live sources remain forward-only.
+  There is no reconnect.
 
 ### Controls
 
@@ -689,7 +745,7 @@ plugin.play_remote({
 | `plugin.stop()` | Stops playback. |
 | `plugin.next_track()`, `plugin.prev_track()` | Next and previous, respecting shuffle. |
 | `plugin.seek(seconds)` | Requests a position in the current track. Finite HTTP sources can seek when `get_playback_format().seekable` is true; live streams remain forward-only. |
-| `plugin.set_volume(percent, opts)` | Sets volume clamped to 0–100. Shows the popup by default; `{ silent = true }` suppresses it (`playback.silent_volume`). |
+| `plugin.set_volume(percent, opts)` | Sets volume clamped to 0–100. Shows the popup by default; `{ silent = true }` suppresses it (`playback.silent_volume`). `{ persist = false }` updates live audio/UI without changing remembered volume or saving settings (`playback.transient_volume`); persistence defaults to true. |
 | `plugin.set_playback_speed(dir, speed)` | API 16, `playback.speed`: requests pitch-preserving speed from 0.5 to 2.0 for local tracks beneath an absolute directory. Returns acceptance, not completion of the asynchronous transition. `nil, 1.0` resets the scope. Scoped to path components; last call wins, cleared on plugin shutdown. |
 | `plugin.get_playback_speed()` | Returns the actual committed speed; 1.0 while idle or for unsupported formats. |
 | `plugin.set_transport_skip(dir, seconds)` | Makes Next and Previous skip `seconds` (1 to 300) within files under `dir` instead of changing track; 0 turns it off. Applies to every Next/Previous control, not to automatic track changes. Not saved; the last call wins. Check `playback.transport_skip`. |
@@ -722,15 +778,18 @@ These additions keep API version **16**. Check each capability with
 
 | Functions | Capability and behavior |
 | --- | --- |
-| `get_playback_format()` | `playback.format`: `nil` while idle, otherwise a snapshot with `path`, `codec`, source `sample_rate`/`bit_depth`, `output_sample_rate`/`output_bit_depth`, `channels`, `bitrate_kbps`, `duration_seconds`, `is_stream`, `seekable`, `is_dsd`, `dop`, `replaygain_applied`/`replaygain_applied_db`, and `generation`. Unknown source depth is 0. |
+| `get_playback_format()` | `playback.format`: `nil` while idle, otherwise a snapshot with `path`, `codec`, source `sample_rate`/`bit_depth`, `output_sample_rate`/`output_bit_depth`, `channels`, `bitrate_kbps`, `duration_seconds`, `is_stream`, `seekable`, `is_dsd`, `dop`, `replaygain_applied`/`replaygain_applied_db`, `generation`, and live `software_volume_gain`, `playback_speed`, `crossfade_enabled`. Unknown source depth/bitrate is 0; MP3 has no encoded PCM bit depth. Software gain is a linear PCM multiplier, distinct from hardware/UI volume. Crossfade reports the setting, not whether two tracks are currently mixing. |
 | `get_output_info()` | `playback.output_info`: `route` (`wired`, `bluetooth`, or `usb_dac`), `active`, PCM `sample_rate`/`bit_depth`, `hardware_sample_rate`/`hardware_bit_depth` when known, cached `bluetooth_codec` when available, `resampling`, `resampling_known`, and `dop`. Bluetooth and USB conversion/final hardware formats are unknown; matching PCM fields alone cannot prove bit-perfect output. |
 | `eq_apply_profile(path, { persist = false })` | `audio.peq.transient`: applies an SD profile to runtime EQ without saving it. Default persistence remains enabled. Later explicit EQ save/edit operations may save the active profile. |
+| `get_eq_state()` | `audio.peq.state`: detached runtime snapshot with `bypass`, `preamp_db`, `stereo_width`, and ten ordered `bands` (`index`, `freq_hz`, `gain_db`, `q`, `type`, `enabled`). This observes active settings, including transient profiles, rather than reading a possibly stale saved profile. |
+| `eq_apply_state(state, { persist = false })` | `audio.peq.state`: validates the complete snapshot before applying it. Persistence defaults to true. Plugins can restore a saved runtime snapshot without writing flash; compare the current state with the last state they applied before restoring, to preserve subsequent user changes. Numerical limits: preamp/gain −300 to 300 dB, frequency 1–24000 Hz, Q 0.01–100, width 0–2; all must be finite. |
+| `get_track_metadata(path)` | `library.track_metadata`: exact local SD-path lookup in the scanned database, returning `id`, `path`, `title`, `artist`, `album`, `album_artist`, and `genre`. Returns `nil` for unindexed/remote/invalid paths; absent tags are empty strings. Does not parse files or iterate the library on each track. |
 | `get_crossfade()`, `set_crossfade(enabled)` | `playback.settings`: boolean; retains native coupling with gapless. |
 | `get_gapless()`, `set_gapless(enabled)` | `playback.settings`: boolean; disabling gapless also disables crossfade. |
 | `get_replaygain_mode()`, `set_replaygain_mode(mode)` | `playback.settings`: `off`, `track`, or `album`. Applies at the next track transition; it does not recompute current decoder gain. |
 | `get_play_mode()`, `set_play_mode(mode)` | `playback.settings`: `sequential`, `repeat_all`, `repeat_one`, or `shuffle`. Setters follow native settings persistence. |
 | `set_ab_loop(start, finish)`, `get_ab_loop()`, `clear_ab_loop()` | `playback.ab_loop`: seconds converted to decoder frames; end is exclusive. Setter returns acceptance. Getter returns `{ start, finish }` or `nil`. Supports finite local FLAC/WAV/AIFF/CAF at up to 16-bit PCM; unsupported sources, pause, speed changes, crossfade, seek, stop, and track changes clear/reject loops. Wrap runs in the audio thread without reopening/flushing output. |
-| `prepare_ab_switch(path)` | `playback.ab_switch`: asynchronously prepares an alternate SD file against the currently playing primary. Returns acceptance, not readiness. Both must be finite local FLAC/WAV/AIFF/CAF with identical rate, channels, frame count and 16-bit PCM. Preparation/adoption can involve I/O and one alignment seek. |
+| `prepare_ab_switch(path)` | `playback.ab_switch`: asynchronously prepares an alternate SD file against the currently playing primary. Returns acceptance, not readiness. Both must be finite local 16-bit FLAC/WAV/AIFF/CAF or MP3 with identical rate, channels and playable frame count. MP3 delay/padding follows the native decoder's trimming; unmatched lengths are rejected. Preparation/adoption can involve I/O and one alignment seek; long MP3 preparation builds its seek index off-thread. The practice looper retains its lossless-only restriction. |
 | `get_ab_switch()`, `select_ab_source(source)`, `clear_ab_switch()` | `playback.ab_switch`: snapshot `{ preparing, ready, source }`; source is `a` or `b`. Select returns false until ready. Both decoders advance together; selection switches raw PCM at a chunk boundary before one shared DSP pass, with the primary's ReplayGain, EQ and volume. Selection does not seek, reopen, or flush output. Pause, seek, stop, track/speed/crossfade changes or decode/output errors clear it. Loops and comparison are mutually exclusive. |
 
 `plugin.on("output_changed", function(current, previous) ... end)`
@@ -818,6 +877,57 @@ plugin). Check `library.refresh`.
   sorted, and a missing folder gives an empty table.
 - `plugin.mkdir(path)`: creates a folder and any missing parents. Returns
   `true`, or `nil, error`. An existing folder is fine.
+
+### File Manager (API 16)
+
+Check `plugin.has_capability("filesystem.file_ops")` before the file
+operations, and `"ui.file_manager"` before `open_file_manager`.
+
+- `plugin.open_file_manager([folder])`: opens More > File Manager, at `folder`
+  when given (an existing folder on the SD card; a path elsewhere raises a
+  Lua error). Returns `true`, or `nil, error` when the folder does not exist
+  or the File Manager is already open under another screen.
+- `plugin.file_copy(paths, dest_dir [, callback])`,
+  `plugin.file_move(paths, dest_dir [, callback])`,
+  `plugin.file_delete(paths [, callback])`: copy, move or delete files and
+  whole folders in the background, with the File Manager's own engine.
+  `paths` is one absolute path or a list of them (up to 4096). Returns `true`
+  once the operation starts, or `nil, error`.
+  - Every path, and `dest_dir`, must be on the SD card (under
+    `plugin.sd_root()`), written plainly: no trailing `/` and no `.`, `..`
+    or empty parts. Any other path raises a Lua error.
+  - Nothing is overwritten: a name already taken in `dest_dir` gets a
+    " (2)" style suffix. A folder cannot be copied or moved into itself, and
+    moving an item into the folder it is already in does nothing.
+  - The player's own folders, `sd_root() .. "/.compas"` and
+    `sd_root() .. "/.plugins"`, cannot be deleted or moved this way: the
+    call returns `nil, "the player's own folders cannot be deleted or moved"`.
+  - Only one operation runs at a time, shared with the File Manager:
+    starting another gives `nil, "another file operation is running"`.
+    While a computer has the card mounted over USB storage it gives
+    `nil, "USB storage is connected"`.
+  - `callback(result)` runs when the operation ends, with
+    `{ done, total, failed, stopped, running, current }`: `failed` counts
+    items not fully done, and `stopped` is true when
+    `cancel_file_operation()` left items undone. It gets `nil` in the rare
+    case a newer operation replaced the result first. If the plugin is
+    unloaded the operation still finishes, without the callback.
+- `plugin.file_operation_status()`: the running or last operation, whoever
+  started it, as the same table as `callback`'s.
+- `plugin.cancel_file_operation()`: stops this plugin's operation after its
+  current file (a partly copied file is removed). Returns whether there was
+  one; an operation the user started is left alone.
+
+```lua
+local music = plugin.sd_root() .. "/Music"
+plugin.file_copy({ music .. "/a.flac", music .. "/Album" }, plugin.sd_root() .. "/Backup",
+    function(result)
+        if result and result.failed == 0 then plugin.show_toast("Backup done") end
+    end)
+```
+
+File changes do not update the music library by themselves; call
+`plugin.refresh_library()` afterwards when music moved.
 
 ### Playlists
 
@@ -964,6 +1074,18 @@ can compare against them.
 was still running. Its callback is then not called. The connection closes at
 once, except while the host name is being looked up, which finishes first.
 
+### `plugin.get_download_progress(handle)` — API 16
+
+Check `network.http.download_progress`. Poll the handle returned by
+`download_file_async` from an existing interval while the request is active.
+Returns `{ downloaded = bytes, total = bytes }`, or `nil, error` for a stale,
+cancelled, foreign, or non-download handle. `total = 0` means unknown size (for example a chunked transfer);
+keep the bar indeterminate. For a positive total, clamp `downloaded / total`
+to `0..1`. Bytes describe the network transfer, not completion of the final
+rename, validation, or plugin storage work. The completion callback remains
+the authority for success. Snapshots are coherent and no Lua or UI code runs
+on the download worker. API 15 download signatures and callbacks are unchanged.
+
 ### `plugin.download_file_async(url, dest_path [, verify_tls], callback)`
 
 Downloads a file straight to disk in the background, without loading it into
@@ -1103,7 +1225,7 @@ Returns a list of `{ kind, level, text }` with a `truncated` flag, or
 ### `plugin.on(event, callback)`
 
 Runs `callback` whenever something happens. Every subscribed plugin is
-called. Up to 8 subscribers per event; an unknown event name is an error.
+called. Up to 16 subscribers per event; an unknown event name is an error.
 
 | Event | Arguments | When |
 | --- | --- | --- |
@@ -1122,7 +1244,7 @@ called. Up to 8 subscribers per event; an unknown event name is an error.
 ### `plugin.set_interval(seconds, callback)` / `plugin.clear_interval(handle)`
 
 Runs `callback` every `seconds` (at least 1) until cleared. Returns a handle;
-clearing an unknown or already cleared handle does nothing. Up to 8 timers
+clearing an unknown or already cleared handle does nothing. Up to 16 timers
 from all plugins together. Callbacks run on the interface thread, so keep
 them quick.
 
@@ -1148,6 +1270,45 @@ Files in this table are in `plugins_examples/`, except ListenBrainz Scrobbler an
 | `PluginApiInfo.lua` | Version and capability checks |
 | `NestedLists.lua` | Stacked lists and busy text input |
 | `EpubReader.lua` | ZIP and HTML helpers, paged reading, saved position |
+| `LyricsFetcher.lua` | LRCLIB synced `.lrc` sidecar for the current local track |
+| `CoverArtFetcher.lua` | MusicBrainz + Cover Art Archive `cover.jpg` for the current album folder |
+| `AlbumShuffle.lua` | Random albums with in-album track order, continued on `queue_exhausted` |
+| `ListenBrainzScrobbler.lua` | ListenBrainz user-token scrobble and offline queue (plugin store) |
+| `RadioBrowser.lua` | Radio Browser search and `Radio.txt` favorites (plugin store) |
+
+## Example plugins: lyrics, covers, album shuffle
+
+Copy any of these from `plugins_examples/` to `<SD card>/.plugins/`, then **Refresh Plugins**.
+
+### Lyrics Fetcher
+
+Settings > Library > **Lyrics Fetcher**.
+
+- **Fetch lyrics for current track** looks up [LRCLIB](https://lrclib.net/docs) with the playing title, artist, album and duration (no API key) and, if `syncedLyrics` is present, writes a sidecar next to the file. Requires plugin API 15.
+- The sidecar name matches native `lyrics_load_sidecar()`: the audio filename's extension is replaced with `.lrc` (a file with no extension gets `.lrc` appended). An existing `.lrc` is never replaced. The API JSON is never saved as lyrics.
+- **Automatic fetch** is off until you turn it on. It runs on `track_started` only for absolute local files (`/…`). `http://` / `https://` streams, `remote://` tracks, and relative paths are skipped.
+- No match, instrumental, unsynced-only, or a network error does not create a `.lrc`. Embedded tag lyrics are not visible to plugins, so a track that already has USLT/Vorbis lyrics may still get a sidecar.
+
+### Cover Art Fetcher
+
+Settings > Library > **Cover Art Fetcher**.
+
+- **Fetch cover for current album** searches MusicBrainz for that artist + album, then downloads a **500px (or 250px) front JPEG** from the Cover Art Archive into `cover.jpg` in the album folder. Requires plugin API 15.
+- An existing `cover.jpg` is never overwritten. Lookups require both artist and album tags and refuse an ambiguous or unrelated release (for example two different artists' albums that share a title). Album artist is taken from the library row whose path is the current file, not the first song that merely shares the title.
+- **Automatic fetch** is off until you turn it on. Failures are quiet in automatic mode and are not retried for several hours, so a missing cover or an offline network does not toast every track.
+- MusicBrainz is called at most once per second with a contactable User-Agent. Image URLs are probed with `HEAD` (no automatic redirect follow); `Location` is followed for up to five hops, including relative URLs, then `plugin.download_file_async` fetches the resolved URL. Images larger than 2 MiB are rejected.
+- Only a `front` image with a 500px or 250px thumbnail is used. Back or unsized originals are not saved. The Lua API has no field for embedded pictures inside files. Folders that already show art from tags may still get a `cover.jpg`. After a successful save the plugin calls `plugin.refresh_library()`.
+- Only absolute local files are used; `remote://` tracks and streams are skipped.
+
+### Album Shuffle
+
+Settings > Playback & Controls > **Album Shuffle**.
+
+- **Start album shuffle** picks a random album through paged `plugin.library_get_albums`, resolves identity with `plugin.library_get_song(first_song_id)` (preferring `album_artist` so compilations keep every track), loads `plugin.get_album_tracks(artist, album)` in album order, and plays them with `plugin.play_list(paths, 1)`. Requires plugin API 15.
+- When the queue is exhausted forward (`queue_exhausted` with `direction == 1`), or the last track ends naturally, another album is chosen. Immediate repeats are avoided when more than one album exists. An empty library is reported with a toast.
+- Native shuffle would reorder tracks inside the album, so start this while the player is already in **sequential** mode (or select it with `plugin.set_play_mode("sequential")` on builds advertising `playback.settings`). Explicit Stop, picking a different track/queue, or **Stop album shuffle** ends the session so the plugin does not take over playback.
+
+Host-side mocked tests for these three live in `plugins_examples/tests/` (`lua plugins_examples/tests/run.lua`).
 
 ## Testing and debugging
 

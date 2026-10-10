@@ -71,7 +71,8 @@ static void install_current(const char *path, decoder_t *primary) {
     current_sample_rate = primary->sample_rate;
     memset(&current_format_info, 0, sizeof(current_format_info));
     current_format_info.valid = true;
-    current_format_info.codec = AUDIO_CODEC_PCM;
+    current_format_info.codec = primary->type == DECODER_MP3 ? AUDIO_CODEC_MP3 :
+                                primary->type == DECODER_FLAC ? AUDIO_CODEC_FLAC : AUDIO_CODEC_PCM;
     current_format_info.source_bit_depth = primary->source_bit_depth;
     current_format_info.source_sample_rate = primary->source_sample_rate;
     current_format_info.channels = primary->channels;
@@ -84,7 +85,68 @@ static void install_current(const char *path, decoder_t *primary) {
     ab_switch_result = NULL;
     ab_switch_generation = playback_generation;
     ab_switch_epoch = 100;
+    atomic_store_explicit(&ab_switch_cancel_token, 0u, memory_order_relaxed);
     pthread_mutex_unlock(&audio_mutex);
+}
+
+static void wait_for_result_or_reject(void);
+
+static uint64_t mp3_cursor(decoder_t *d) {
+    assert(d->type == DECODER_MP3);
+    return d->as.mp3->currentPCMFrame;
+}
+
+static uint64_t lossless_cursor(decoder_t *d) {
+    if (d->type == DECODER_WAV) return wav_cursor(d);
+    assert(d->type == DECODER_FLAC);
+    return d->as.flac->currentPCMFrame;
+}
+
+static void test_mp3_switch(const char *lossless_path, const char *mp3_path) {
+    decoder_t primary = {0};
+    install_current(lossless_path, &primary);
+    decoder_t probe = {0}; assert(decoder_open(&probe, mp3_path));
+    assert(probe.type == DECODER_MP3 && probe.source_bit_depth == 0);
+    assert(probe.sample_rate == primary.sample_rate && probe.channels == primary.channels);
+    assert(probe.total_frames == primary.total_frames);
+    uint64_t encoder_delay = probe.as.mp3->delayInPCMFrames;
+    decoder_close(&probe);
+    assert(audio_prepare_ab_switch(mp3_path));
+    wait_for_result_or_reject();
+    ab_switch_job_t *active = NULL;
+    assert(decoder_read_s16(&primary, 1234, (int16_t[2468]){0}).frames == 1234);
+    ab_switch_adopt(&active, &primary, 1234, playback_generation);
+    assert(active && active->decoder.type == DECODER_MP3);
+    assert(mp3_cursor(&active->decoder) == 1234 + encoder_delay);
+    assert(lossless_cursor(&primary) == 1234);
+    assert(audio_select_ab_source(true));
+    assert(mp3_cursor(&active->decoder) == 1234 + encoder_delay && lossless_cursor(&primary) == 1234);
+    int16_t a[512] = {0}, b[512] = {0};
+    assert(decoder_read_s16(&primary, 256, a).frames == 256);
+    ab_switch_mix_source(&active, a, b, 256, primary.channels);
+    assert(active && mp3_cursor(&active->decoder) == 1490 + encoder_delay);
+    assert(audio_select_ab_source(false));
+    assert(mp3_cursor(&active->decoder) == 1490 + encoder_delay); /* selection did not move either decoder */
+    assert(lossless_cursor(&primary) == 1490);
+    audio_clear_ab_switch();
+    ab_switch_free_job(active);
+    decoder_close(&primary);
+    pthread_mutex_lock(&audio_mutex); have_current = false; free(active_path); active_path = NULL; pthread_mutex_unlock(&audio_mutex);
+}
+
+static void test_mp3_index_cancels_with_ab_epoch(const char *mp3_path) {
+    drmp3 scan = {0};
+    assert(drmp3_init_file(&scan, mp3_path, NULL));
+    drmp3_seek_point points[2] = {{0}};
+    unsigned token = atomic_load_explicit(&ab_switch_cancel_token, memory_order_relaxed);
+    audio_clear_ab_switch();
+    bool cancelled = false;
+    uint64_t generation = atomic_load_explicit(&mp3_index_active_generation, memory_order_relaxed);
+    drmp3_uint32 count = mp3_build_seek_points_cancellable(&scan,
+        drmp3_get_pcm_frame_count(&scan), 2, generation, points, &cancelled,
+        &ab_switch_cancel_token, token);
+    assert(cancelled && count == 0);
+    drmp3_uninit(&scan);
 }
 
 static void wait_for_result_or_reject(void) {
@@ -310,7 +372,7 @@ static void test_seek_invalidates_prepared_switch(const char *a_path, const char
 }
 
 int main(int argc, char **argv) {
-    assert(argc == 2);
+    assert(argc == 2 || argc == 4);
     char a[PATH_MAX], b[PATH_MAX], rate[PATH_MAX], count[PATH_MAX], depth[PATH_MAX], loop[PATH_MAX];
     snprintf(a, sizeof(a), "%s/a.wav", argv[1]); snprintf(b, sizeof(b), "%s/b.wav", argv[1]);
     snprintf(rate, sizeof(rate), "%s/rate.wav", argv[1]); snprintf(count, sizeof(count), "%s/count.wav", argv[1]);
@@ -329,6 +391,14 @@ int main(int argc, char **argv) {
     test_seek_invalidates_prepared_switch(a, b);
     test_read_error_falls_back_to_a(a, b);
     test_sample_accurate_loop(loop);
+    if (argc == 4) {
+        char wav[PATH_MAX], flac[PATH_MAX];
+        snprintf(wav, sizeof(wav), "%s/source.wav", argv[1]);
+        snprintf(flac, sizeof(flac), "%s/source.flac", argv[1]);
+        test_mp3_switch(wav, argv[2]);
+        test_mp3_switch(flac, argv[3]);
+        test_mp3_index_cancels_with_ab_epoch(argv[2]);
+    }
     puts("Native A/B switch and sample-accurate loop decoder paths: PASS");
     return 0;
 }

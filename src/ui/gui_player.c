@@ -6017,7 +6017,7 @@ void set_player_source_file_browser(const char * dir, int row) {
     current_settings.last_source_name[0] = '\0';
 }
 
-/* Wraps on_file_selected() as file_browser_init()'s select_cb, rather than
+/* Wraps on_file_selected() as file_browser_create()'s on_select, rather than
  * passing on_file_selected directly, so the source snapshot above only
  * ever gets set for an actual folder-browse tap -- on_file_selected()
  * itself is shared by every play-launch path (All Songs, group songs,

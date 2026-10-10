@@ -38,6 +38,9 @@ typedef enum {
 
 static atomic_int bt_codec_preference = BT_CODEC_AUTO;
 static atomic_bool modern_soft_volume_requested = false;
+/* Effective outgoing gain owner: unknown AVRCP capability uses software. */
+static atomic_bool bt_source_soft_volume = true;
+static atomic_int bt_source_vol_pending_percent = -1;
 static pthread_mutex_t bt_soft_volume_mutex = PTHREAD_MUTEX_INITIALIZER;
 static char bt_soft_volume_applied_path[256];
 #define BT_SOURCE_VOLUME_MAX 127
@@ -304,19 +307,121 @@ static bool bluealsa_read_soft_volume(const char * path, bool * out) {
     return strncmp(v, "true", 4) == 0 || strncmp(v, "false", 5) == 0;
 }
 
+static const char * dbus_prop_value(const char * out, const char * prop);
+static bool dbus_prop_string_equals(const char * out, const char * prop, const char * expected);
+static uint32_t bt_control_monotonic_ms(void);
+
+/* BlueZ exposes Volume only after AVRCP absolute-volume negotiation. Inspect
+ * transport objects for this exact device, including dev/sepN/fdN paths.
+ * Missing, malformed or truncated replies keep software attenuation enabled. */
+static bool bluealsa_source_has_absolute_volume(const char * pcm_path) {
+    const char * adapter = strstr(pcm_path, "/hci");
+    const char * role = strstr(pcm_path, "/a2dpsrc/sink");
+    if (!adapter || !role || role <= adapter) return false;
+    char device[192];
+    int len = snprintf(device, sizeof(device), "/org/bluez%.*s", (int)(role - adapter), adapter);
+    if (len <= 0 || (size_t)len >= sizeof(device)) return false;
+    enum { REPLY_SIZE = 65536 };
+    char * reply = malloc(REPLY_SIZE);
+    if (!reply) return false;
+    char * argv[] = { "dbus-send", "--system", "--print-reply", "--dest=org.bluez", "/",
+                     "org.freedesktop.DBus.ObjectManager.GetManagedObjects", NULL };
+    int status = -1;
+    bool supported = false;
+    if (!subprocess_run_checked(argv, reply, REPLY_SIZE, 1500, &status) || status != 0 ||
+        strlen(reply) >= REPLY_SIZE - 1) goto done;
+    const char * scan = reply;
+    unsigned probes = 0;
+    while ((scan = strstr(scan, "object path \"")) != NULL && probes < 4) {
+        scan += strlen("object path \"");
+        const char * end = strchr(scan, '"');
+        if (!end) break;
+        const char * path = scan;
+        scan = end + 1;
+        size_t n = (size_t)(end - path);
+        if (n <= (size_t)len || strncmp(path, device, (size_t)len) != 0 || path[len] != '/') continue;
+        char transport[256];
+        if (n >= sizeof(transport)) continue;
+        memcpy(transport, path, n);
+        transport[n] = '\0';
+        const char * fd = strrchr(transport, '/');
+        if (!fd || strncmp(fd, "/fd", 3) != 0 || !isdigit((unsigned char)fd[3]) ||
+            strspn(fd + 3, "0123456789") != strlen(fd + 3)) continue;
+        probes++;
+        char props[4096];
+        char * prop_argv[] = { "dbus-send", "--system", "--print-reply", "--dest=org.bluez",
+            transport, "org.freedesktop.DBus.Properties.GetAll", "string:org.bluez.MediaTransport1", NULL };
+        status = -1;
+        if (!subprocess_run_checked(prop_argv, props, sizeof(props), 1000, &status) || status != 0 ||
+            strlen(props) >= sizeof(props) - 1 ||
+            !dbus_prop_string_equals(props, "UUID", "0000110a-0000-1000-8000-00805f9b34fb")) continue;
+        const char * value = dbus_prop_value(props, "Volume");
+        unsigned raw;
+        int consumed = 0;
+        if (value && sscanf(value, "uint16 %u%n", &raw, &consumed) == 1 && raw <= BT_SOURCE_VOLUME_MAX &&
+            (value[consumed] == '\0' || isspace((unsigned char)value[consumed]))) {
+            supported = true;
+            break;
+        }
+    }
+done:
+    free(reply);
+    return supported;
+}
+
+/* Enabling SoftVolume resets the PCM level. Seed it before playback opens,
+ * under the same serial lock as policy application; don't latch failed writes. */
+static bool bluealsa_seed_source_volume(const char * path) {
+    float percent = audio_get_volume();
+    int raw = (int)(percent * BT_SOURCE_VOLUME_MAX + 0.5f);
+    if (raw < 0) raw = 0;
+    if (raw > BT_SOURCE_VOLUME_MAX) raw = BT_SOURCE_VOLUME_MAX;
+    char text[8];
+    snprintf(text, sizeof(text), "%d", raw);
+    char * argv[] = { (char *)bluealsa_ctl_name(), "volume", (char *)path, text, text, NULL };
+    int status = -1;
+    return subprocess_run_checked(argv, NULL, 0, 1000, &status) && status == 0;
+}
+
+/* Negative capability is retried, but a live software-controlled PCM is
+ * never switched to hardware gain across two subprocess calls mid-playback. */
+static uint32_t bt_source_volume_probe_ms;
+
 static void bluealsa_apply_soft_volume_cancellable(const char * path, const atomic_bool * cancel) {
     bluealsa_backend_t backend = bluealsa_backend();
     if (!bluealsa_is_audio_pcm_path(path)) return;
     pthread_mutex_lock(&bt_soft_volume_serial);
     pthread_mutex_lock(&bt_soft_volume_mutex);
-    bool done = strcmp(bt_soft_volume_applied_path, path) == 0 || (cancel && atomic_load(cancel));
+    bool source = strstr(path, "/a2dpsrc/sink") != NULL;
+    uint32_t now = bt_control_monotonic_ms();
+    bool retry = source && !atomic_load(&modern_soft_volume_requested) &&
+                 atomic_load(&bt_source_soft_volume) &&
+                 (uint32_t)(now - bt_source_volume_probe_ms) >= 5000;
+    bool done = (strcmp(bt_soft_volume_applied_path, path) == 0 && !retry) ||
+                (cancel && atomic_load(cancel));
     unsigned int clears = bt_soft_volume_clears;
+    /* A failed retry must not leave an old readiness latch authorizing audio
+     * after SoftVolume has reset the level to maximum. */
+    if (!done && strcmp(bt_soft_volume_applied_path, path) == 0)
+        bt_soft_volume_applied_path[0] = '\0';
     pthread_mutex_unlock(&bt_soft_volume_mutex);
     if (!done) {
         bool want = atomic_load(&modern_soft_volume_requested);
-        /* Write only a change: BlueALSA resets the volume level on every
-         * SoftVolume write (to the transport's value, 127 on a fresh one),
-         * which volume sync then copied into the player as a jump to 100%. */
+        if (source && !want) {
+            bt_source_volume_probe_ms = now;
+            want = !bluealsa_source_has_absolute_volume(path);
+            if (!want && atomic_load(&bt_source_soft_volume)) {
+                char info[2048];
+                char * argv[] = { (char *)bluealsa_ctl_name(), "info", (char *)path, NULL };
+                /* Unknown running state is treated as live. */
+                if (!subprocess_run(argv, info, sizeof(info)) || !strstr(info, "Running: false")) want = true;
+            }
+        }
+        /* Ignore stale monitor events while selecting/reseeding a mode. */
+        if (source) {
+            atomic_store(&bt_source_soft_volume, true);
+            atomic_store(&bt_source_vol_pending_percent, -1);
+        }
         bool current;
         bool ok;
         if (bluealsa_read_soft_volume(path, &current) && current == want) {
@@ -327,9 +432,12 @@ static void bluealsa_apply_soft_volume_cancellable(const char * path, const atom
             int exit_code = -1;
             ok = subprocess_run_checked(argv, NULL, 0, 5000, &exit_code) && exit_code == 0;
         }
+        if (source && ok) ok = bluealsa_seed_source_volume(path);
         pthread_mutex_lock(&bt_soft_volume_mutex);
-        if (ok && bt_soft_volume_clears == clears)
+        if (ok && bt_soft_volume_clears == clears) {
             snprintf(bt_soft_volume_applied_path, sizeof(bt_soft_volume_applied_path), "%s", path);
+            if (source) atomic_store(&bt_source_soft_volume, want);
+        }
         pthread_mutex_unlock(&bt_soft_volume_mutex);
     }
     pthread_mutex_unlock(&bt_soft_volume_serial);
@@ -344,9 +452,17 @@ static void bluealsa_apply_soft_volume(const char * path) {
  * a spurious invalidation is one idempotent soft-volume command later. */
 static void bluealsa_clear_soft_volume_path(const char * path) {
     pthread_mutex_lock(&bt_soft_volume_mutex);
-    if (!path || strcmp(bt_soft_volume_applied_path, path) == 0)
+    bool clear = !path || strcmp(bt_soft_volume_applied_path, path) == 0;
+    if (clear)
         bt_soft_volume_applied_path[0] = '\0';
     bt_soft_volume_clears++;
+    bool invalidate_source = !path ||
+        (strstr(path, "/a2dpsrc/sink") != NULL &&
+         (!bt_soft_volume_applied_path[0] || clear));
+    if (invalidate_source) {
+        atomic_store(&bt_source_soft_volume, true);
+        atomic_store(&bt_source_vol_pending_percent, -1);
+    }
     pthread_mutex_unlock(&bt_soft_volume_mutex);
 }
 
@@ -776,6 +892,70 @@ static bool parse_monitor_volume(const char * text, int * out) {
             value < 0 || value > BT_SOURCE_VOLUME_MAX) return false;
     *out = (int) value; /* v5 prints one value per channel */
     return true;
+}
+
+static bool bluealsa_parse_source_volume_reply(const char * reply, int * out) {
+    if (!reply || !out) return false;
+    const char * value = strstr(reply, "variant");
+    if (!value) return false;
+    value += strlen("variant");
+    if (!isspace((unsigned char)*value)) return false;
+    while (isspace((unsigned char)*value)) value++;
+
+    if (strncmp(value, "uint16", 6) == 0 && isspace((unsigned char)value[6])) {
+        value += 6;
+        while (isspace((unsigned char)*value)) value++;
+        if (!isdigit((unsigned char)*value)) return false;
+        char * end;
+        unsigned long packed = strtoul(value, &end, 10);
+        if (end == value || (packed & ~0x7f7fUL) != 0) return false;
+        while (isspace((unsigned char)*end)) end++;
+        if (*end != '\0') return false;
+        unsigned left = (unsigned) packed & 0x7f;
+        unsigned right = ((unsigned) packed >> 8) & 0x7f;
+        *out = (int) ((left + right + 1) / 2);
+        return true;
+    }
+
+    static const char array_type[] = "array of bytes";
+    if (strncmp(value, array_type, sizeof(array_type) - 1) != 0) return false;
+    value += sizeof(array_type) - 1;
+    while (isspace((unsigned char)*value)) value++;
+    if (*value++ != '[') return false;
+    uint8_t channels[2];
+    for (size_t i = 0; i < 2; i++) {
+        while (isspace((unsigned char)*value)) value++;
+        unsigned byte = 0;
+        int digits = 0;
+        while (isxdigit((unsigned char)*value) && digits < 2) {
+            unsigned char c = (unsigned char)*value++;
+            byte = (byte << 4) | (unsigned) (isdigit(c) ? c - '0' : tolower(c) - 'a' + 10);
+            digits++;
+        }
+        if (digits != 2 || isxdigit((unsigned char)*value) || byte > BT_SOURCE_VOLUME_MAX)
+            return false;
+        channels[i] = (uint8_t) byte;
+    }
+    while (isspace((unsigned char)*value)) value++;
+    if (*value++ != ']') return false;
+    while (isspace((unsigned char)*value)) value++;
+    if (*value != '\0') return false;
+    *out = (int) ((channels[0] + channels[1] + 1) / 2);
+    return true;
+}
+
+/* Read the live PCM property before adopting a monitor event. A queued event
+ * from a removed/recreated PCM can have the same path as the new PCM; its
+ * reported value must still match the current BlueALSA state. */
+static bool bluealsa_read_source_volume(const char * path, int * out) {
+    char reply[256];
+    char * argv[] = { "dbus-send", "--system", "--print-reply", "--dest=org.bluealsa",
+        (char *) path, "org.freedesktop.DBus.Properties.Get",
+        "string:org.bluealsa.PCM1", "string:Volume", NULL };
+    int status = -1;
+    if (!subprocess_run_checked(argv, reply, sizeof(reply), 1000, &status) || status != 0)
+        return false;
+    return bluealsa_parse_source_volume_reply(reply, out);
 }
 
 static pthread_mutex_t bt_dac_info_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -2030,6 +2210,17 @@ static bool find_source_pcm_path(char * out, size_t out_size) {
     return find_source_pcm_path_ex(out, out_size, true);
 }
 
+/* Require a successfully selected and seeded gain mode before opening audio.
+ * Discovery used for connection status may succeed even when control writes fail. */
+bool bt_control_prepare_source_volume(void) {
+    char path[256];
+    if (!find_source_pcm_path(path, sizeof(path))) return false;
+    pthread_mutex_lock(&bt_soft_volume_mutex);
+    bool ready = strcmp(bt_soft_volume_applied_path, path) == 0;
+    pthread_mutex_unlock(&bt_soft_volume_mutex);
+    return ready;
+}
+
 /* Public wrapper around the same check find_source_pcm_path() above already
  * does for the AVRCP volume-sync feature -- a "/a2dpsrc/sink" PCM only
  * exists in bluealsa's own list once a real audio-capable accessory has
@@ -2532,38 +2723,55 @@ bool bt_control_prepare_playback_pcm(char * out, size_t out_size) {
 static pthread_t bt_source_vol_sync_thread;
 static atomic_bool bt_source_vol_sync_active = false;
 static bool bt_source_vol_sync_joinable;
-static atomic_int bt_source_vol_pending_percent = -1;
-
 /* Set by whichever direction writes/observes a value most recently, so the
  * other direction recognizes it as already in sync instead of re-writing
  * it right back, just shared between two directions here instead of one
  * direction echoing itself. */
 static int bt_source_vol_last_synced_raw = -1;
+/* Owned by the source monitor worker, like last_synced_raw. */
+static char bt_source_vol_pcm_path[256];
 
 static void bt_source_push_app_volume_if_changed(float * last_synced_app_percent) {
-    float current_percent = audio_get_volume();
-    if (current_percent == *last_synced_app_percent) return;
+    char path[256];
+    if (!find_source_pcm_path(path, sizeof(path))) {
+        bt_source_vol_pcm_path[0] = '\0';
+        return;
+    }
+    bool changed_path = strcmp(bt_source_vol_pcm_path, path) != 0;
+    snprintf(bt_source_vol_pcm_path, sizeof(bt_source_vol_pcm_path), "%s", path);
+    if (changed_path) {
+        *last_synced_app_percent = -1.0f;
+        bt_source_vol_last_synced_raw = -1;
+    }
 
+    /* Discovery reseeds a recreated PCM even at the same percentage. All
+     * writes share the mode-change lock; read app volume after slow discovery. */
+    pthread_mutex_lock(&bt_soft_volume_serial);
+    pthread_mutex_lock(&bt_soft_volume_mutex);
+    bool ready = strcmp(bt_soft_volume_applied_path, path) == 0;
+    pthread_mutex_unlock(&bt_soft_volume_mutex);
+    if (!ready) goto done;
+    float current_percent = audio_get_volume();
+    if (current_percent == *last_synced_app_percent) goto done;
     int raw = (int) (current_percent * (float) BT_SOURCE_VOLUME_MAX + 0.5f);
     if (raw < 0) raw = 0;
     if (raw > BT_SOURCE_VOLUME_MAX) raw = BT_SOURCE_VOLUME_MAX;
-
     if (raw == bt_source_vol_last_synced_raw) {
         *last_synced_app_percent = current_percent;
-        return;
+        goto done;
     }
-
-    char path[256];
-    if (!find_source_pcm_path(path, sizeof(path))) return;
 
     char raw_str[8];
     snprintf(raw_str, sizeof(raw_str), "%d", raw);
     char * vol_argv[] = { (char *) bluealsa_ctl_name(), (char *) "volume", path, raw_str, raw_str, NULL };
-    if (!subprocess_run(vol_argv, NULL, 0)) return;
+    int exit_code = -1;
+    if (!subprocess_run_checked(vol_argv, NULL, 0, 1000, &exit_code) || exit_code != 0) goto done;
 
     bt_source_vol_last_synced_raw = raw;
     *last_synced_app_percent = current_percent;
     hiby_sys_server_report_volume((int) (current_percent * 100.0f + 0.5f));
+done:
+    pthread_mutex_unlock(&bt_soft_volume_serial);
 }
 
 static void * bt_source_vol_sync_thread_func(void * arg) {
@@ -2628,7 +2836,7 @@ static void * bt_source_vol_sync_thread_func(void * arg) {
                 char volume_text[64];
                 char soft_text[16];
                 if (sscanf(line_start, "PropertyChanged %255s SoftVolume %15s", path, soft_text) == 2 &&
-                    strstr(path, "/a2dpsrc/sink") != NULL) {
+                    strcmp(path, bt_source_vol_pcm_path) == 0) {
                     /* BlueALSA resets the level on every SoftVolume write and
                      * reports it right after (max, or the transport's value,
                      * 127 on a fresh one). That is not a user change: skip it
@@ -2637,18 +2845,40 @@ static void * bt_source_vol_sync_thread_func(void * arg) {
                     last_synced_app_percent = -1.0f;
                     bt_source_vol_last_synced_raw = -1;
                 } else if (sscanf(line_start, "PropertyChanged %255s Volume %63s", path, volume_text) == 2 &&
-                    strstr(path, "/a2dpsrc/sink") != NULL &&
+                    strcmp(path, bt_source_vol_pcm_path) == 0 &&
                     parse_monitor_volume(volume_text, &raw)) {
                     if (reset_path[0] && strcmp(reset_path, path) == 0) {
                         reset_path[0] = '\0';
-                    } else if (raw != bt_source_vol_last_synced_raw) {
-                        bt_source_vol_last_synced_raw = raw;
-                        last_synced_app_percent = (float) raw / (float) BT_SOURCE_VOLUME_MAX;
-                        audio_set_volume(last_synced_app_percent);
-                        int percent = (raw * 100 + BT_SOURCE_VOLUME_MAX / 2) /
-                                      BT_SOURCE_VOLUME_MAX;
-                        atomic_store_explicit(&bt_source_vol_pending_percent, percent,
-                                              memory_order_release);
+                    } else {
+                        /* Serialize the gate and adoption with policy changes
+                         * so a queued hardware event cannot restore old volume. */
+                        pthread_mutex_lock(&bt_soft_volume_serial);
+                        pthread_mutex_lock(&bt_soft_volume_mutex);
+                        unsigned int generation = bt_soft_volume_clears;
+                        bool ready = strcmp(bt_soft_volume_applied_path, path) == 0;
+                        bool hardware_volume = !atomic_load(&bt_source_soft_volume) &&
+                                               !atomic_load(&modern_soft_volume_requested);
+                        pthread_mutex_unlock(&bt_soft_volume_mutex);
+                        int live_raw = -1;
+                        bool live_match = ready && hardware_volume &&
+                                          bluealsa_read_source_volume(path, &live_raw) &&
+                                          live_raw == raw;
+                        pthread_mutex_lock(&bt_soft_volume_mutex);
+                        bool still_ready = generation == bt_soft_volume_clears &&
+                                           strcmp(bt_soft_volume_applied_path, path) == 0 &&
+                                           !atomic_load(&bt_source_soft_volume) &&
+                                           !atomic_load(&modern_soft_volume_requested);
+                        if (live_match && still_ready && raw != bt_source_vol_last_synced_raw) {
+                            bt_source_vol_last_synced_raw = raw;
+                            last_synced_app_percent = (float) raw / (float) BT_SOURCE_VOLUME_MAX;
+                            audio_set_volume(last_synced_app_percent);
+                            int percent = (raw * 100 + BT_SOURCE_VOLUME_MAX / 2) /
+                                          BT_SOURCE_VOLUME_MAX;
+                            atomic_store_explicit(&bt_source_vol_pending_percent, percent,
+                                                  memory_order_release);
+                        }
+                        pthread_mutex_unlock(&bt_soft_volume_mutex);
+                        pthread_mutex_unlock(&bt_soft_volume_serial);
                     }
                 }
                 line_start = newline + 1;
@@ -2678,6 +2908,7 @@ void bt_control_source_volume_sync_start(void) {
     }
     bt_source_vol_sync_active = true;
     bt_source_vol_last_synced_raw = -1;
+    bt_source_vol_pcm_path[0] = '\0';
     atomic_store_explicit(&bt_source_vol_pending_percent, -1, memory_order_relaxed);
     if (pthread_create(&bt_source_vol_sync_thread, NULL, bt_source_vol_sync_thread_func, NULL) == 0)
         bt_source_vol_sync_joinable = true;
@@ -3177,7 +3408,12 @@ bool bt_control_apply_output_settings(bool dac_mode_enabled, bool volume_sync_en
     /* DAC mode always uses BlueALSA's software volume: bluealsa-aplay would
      * otherwise apply the phone's AVRCP volume to an ALSA "Master" control,
      * which this hardware does not have, so phone volume changes were lost. */
+    pthread_mutex_lock(&bt_soft_volume_serial);
     atomic_store(&modern_soft_volume_requested, dac_mode_enabled || !volume_sync_enabled);
+    atomic_store(&bt_source_soft_volume, true);
+    atomic_store(&bt_source_vol_pending_percent, -1);
+    bluealsa_clear_soft_volume_path(NULL);
+    pthread_mutex_unlock(&bt_soft_volume_serial);
 
     /* Single profile mode: runs a2dp-sink or a2dp-source. */
     /* Clean up existing instances before respawning daemons. The cache is

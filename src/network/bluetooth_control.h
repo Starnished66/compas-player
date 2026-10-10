@@ -216,18 +216,16 @@ const char * bt_control_get_playback_pcm(void);
  * when the transport cannot be read; open bt_control_get_playback_pcm()
  * directly in that case. */
 bool bt_control_prepare_playback_pcm(char * out, size_t out_size);
+/* Select and seed the source gain mode before opening playback. Worker only. */
+bool bt_control_prepare_source_volume(void);
 
-/* Keeps this app's own playback volume and a connected a2dp-source
- * accessory's (headphones/speaker this device streams TO) AVRCP volume in
- * sync, in both directions -- the headphones' own volume buttons update
- * this app's volume, and this app's own volume slider/hardware buttons
- * update whatever level the headphones show. See the .c file's own comment
- * above bt_control_source_volume_sync_start() for why this doesn't
- * introduce a second, compounding gain stage. Call start whenever
- * Bluetooth output is actually in use (mirror audio_set_bt_output()'s own
- * gating -- gui.c calls both together) and stop when it isn't; both are
- * idempotent. Serialize start/stop calls on one lifecycle worker; stop can
- * wait for child cleanup and must not run on the LVGL thread. */
+/* Keeps this app's volume applied to a connected a2dp-source PCM, including
+ * when local BlueALSA software gain is active. In effective hardware-volume
+ * mode, accessory AVRCP changes also update the app; in software-gain mode
+ * inbound AVRCP values are ignored. Call start whenever Bluetooth output is
+ * actually in use and stop when it isn't; both are idempotent. Serialize
+ * start/stop calls on one lifecycle worker; stop can wait for child cleanup
+ * and must not run on the LVGL thread. */
 void bt_control_source_volume_sync_start(void);
 void bt_control_source_volume_sync_stop(void);
 /* Nonblocking status snapshots, safe from the UI thread. */

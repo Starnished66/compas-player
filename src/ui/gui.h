@@ -74,7 +74,7 @@ void gui_reset_interactive_timeout_baseline(void);
  * the selected screen-pool slot so callbacks can be stored per slot. */
 int gui_plugin_show_list(const char * title, const char * const * labels, const char * const * icon_paths,
                           const char * const * text_sizes, const bool * wrap_labels, int32_t height, int32_t width,
-                          int selected_index, int count, int columns);
+                          int selected_index, int count, int columns, int replace_slot);
 /* True while pool slot's list screen is the top of the navigation stack. */
 bool gui_plugin_list_is_top(int slot);
 
@@ -192,6 +192,9 @@ void gui_plugin_seek(double seconds);
 void gui_plugin_set_volume(int percent);
 /* Same volume update without opening the transient volume popup. */
 void gui_plugin_set_volume_silent(int percent);
+/* Updates live audio/UI only; leaves remembered normal/car-mode volume and
+ * persisted settings untouched, even when another setting is saved later. */
+void gui_plugin_set_volume_transient(int percent, bool show_popup);
 
 /* Pure state reads -- trivial wraps of audio_is_playing()/audio_is_paused()/
  * audio_get_position_seconds()/audio_get_duration_seconds(), routed through
@@ -291,6 +294,11 @@ int gui_plugin_library_get_albums(int offset, int limit, const char * artist_fil
  * under plugin.sd_root() make them show up in library_* queries without
  * the user finding the native menu item themselves. */
 bool gui_plugin_refresh_library(void);
+
+/* plugin.open_file_manager([folder]): the native More > File Manager. */
+bool gui_plugin_open_file_manager(const char * folder);
+/* After a plugin's file operation, so every file browser shows the change. */
+void gui_plugin_refresh_file_browsers(void);
 
 /* ---- Bridges for plugin.get_now_playing()/set_interval()/clear_interval()/
  * show_text_input() -- see plugin_manager.h's own comments on the Lua-facing

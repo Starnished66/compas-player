@@ -600,24 +600,7 @@ static void add_picker_popup_row(int index) {
         lv_obj_remove_flag(status_label, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
     }
 
-    lv_obj_t * box = lv_obj_create(row_obj);
-    lv_obj_set_size(box, BOARD_SCALE_PX(24), BOARD_SCALE_PX(24));
-    lv_obj_set_style_radius(box, BOARD_SCALE_PX(4), 0);
-    lv_obj_set_style_pad_all(box, 0, 0);
-    lv_obj_set_style_border_width(box, BOARD_SCALE_PX(2), 0);
-    lv_obj_set_style_border_color(box, accent_lv_color(), 0);
-    lv_obj_set_style_bg_opa(box, selected ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
-    lv_obj_set_style_bg_color(box, accent_lv_color(), 0);
-    lv_obj_remove_flag(box, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-    if (selected) {
-        lv_obj_t * check = lv_label_create(box);
-        lv_label_set_text(check, LV_SYMBOL_OK);
-        lv_color_t check_color = lv_color_brightness(accent_lv_color()) > 160
-            ? lv_color_hex(0x14170B) : lv_color_white();
-        lv_obj_set_style_text_color(check, check_color, 0);
-        lv_obj_center(check);
-        lv_obj_remove_flag(check, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-    }
+    build_check_box(row_obj, selected);
     if (disabled) {
         lv_obj_set_style_opa(row_obj, LV_OPA_50, 0);
         lv_obj_add_state(row_obj, LV_STATE_DISABLED);

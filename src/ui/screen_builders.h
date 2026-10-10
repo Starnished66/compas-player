@@ -669,6 +669,8 @@ lv_obj_t * add_pill_chevron_row(lv_obj_t * parent, const char * label_text, lv_e
 lv_obj_t * add_pill_option_row(lv_obj_t * parent, const char * label_text, bool selected,
                               lv_event_cb_t on_click, void * user_data);
 lv_obj_t * add_section_header(lv_obj_t * parent, const char * text);
+/* Accent-bordered 24 px square, filled with a check mark when checked; not clickable. */
+lv_obj_t * build_check_box(lv_obj_t * parent, bool checked);
 
 /* Radial accent glow behind an icon -- same technique the Home screen's
  * tiles use (add_icon_glow's own doc comment there has the full mechanics):

@@ -47,6 +47,7 @@
 #include <string.h>
 #include <unistd.h>
 #include "backlight.h"
+#include "gui_file_manager.h"
 #ifdef HOST_BUILD
   #define MUSIC_ROOT_DIR "./music"
 #else
@@ -240,6 +241,8 @@ static lv_obj_t * idle_shutdown_slider;
 static lv_obj_t * idle_action_section;
 static lv_obj_t * idle_action_poweroff_row;
 static lv_obj_t * idle_action_suspend_row;
+static lv_obj_t * idle_action_poweroff_check;
+static lv_obj_t * idle_action_suspend_check;
 static lv_obj_t * eq_bypass_switch;
 static lv_obj_t * eq_band_enabled_switch;
 static lv_obj_t * eq_preamp_slider;
@@ -888,17 +891,15 @@ static lv_obj_t * build_buy_me_a_coffee_screen(void) {
 }
 
 static lv_obj_t * build_about_screen(void) {
-    static pill_list_item_t items[4];
+    static pill_list_item_t items[3];
     lv_obj_t * version_row = NULL;
     items[0] = (pill_list_item_t){ TR("Compás Player"), PILL_ACCESSORY_NONE, false, NULL, NULL, NULL };
     items[0].out_row = &version_row;
-    items[1] = (pill_list_item_t){ TR("Firmware Update"), PILL_ACCESSORY_CHEVRON, false,
-                                    firmware_update_row_cb, NULL, NULL };
-    items[2] = (pill_list_item_t){ TR("Buy Me a Coffee"), PILL_ACCESSORY_CHEVRON, false,
+    items[1] = (pill_list_item_t){ TR("Buy Me a Coffee"), PILL_ACCESSORY_CHEVRON, false,
                                     buy_me_a_coffee_row_cb, NULL, NULL };
-    items[3] = (pill_list_item_t){ TR("Developer Options"), PILL_ACCESSORY_CHEVRON, false,
+    items[2] = (pill_list_item_t){ TR("Developer Options"), PILL_ACCESSORY_CHEVRON, false,
                                     dev_options_row_cb, NULL, NULL };
-    lv_obj_t * scr = build_pill_list_screen(TR("About"), generic_back_cb, items, 4, gui_theme_accent_style(), GUI_ROW_GAP, 100);
+    lv_obj_t * scr = build_pill_list_screen(TR("About"), generic_back_cb, items, 3, gui_theme_accent_style(), GUI_ROW_GAP, 100);
     lv_label_set_text(settings_add_summary(version_row), app_version_label());
     finalize_screen_navigation(scr);
     return scr;
@@ -2178,6 +2179,13 @@ static void idle_action_choice_cb(lv_event_t * e) {
     settings_save(&current_settings);
     lv_obj_set_style_border_width(idle_action_poweroff_row, suspend ? 0 : 3, 0);
     lv_obj_set_style_border_width(idle_action_suspend_row, suspend ? 3 : 0, 0);
+    if (suspend) {
+        lv_obj_add_flag(idle_action_poweroff_check, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(idle_action_suspend_check, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_remove_flag(idle_action_poweroff_check, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(idle_action_suspend_check, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 static void idle_shutdown_slider_event_cb(lv_event_t * e) {
@@ -2268,19 +2276,38 @@ static lv_obj_t * build_idle_shutdown_screen(void) {
 
     idle_action_poweroff_row = add_pill_row_base(idle_action_section, TR("Power Off"));
     lv_obj_align(idle_action_poweroff_row, LV_ALIGN_TOP_MID, 0, idle_action_row1_y);
-    lv_obj_add_style(idle_action_poweroff_row, gui_theme_accent_outline_style(), 0);
     lv_obj_add_style(idle_action_poweroff_row, &style_theme_card_bg, 0);
+    /* Keep the accent outline last: style_theme_card_bg also defines a
+     * border color and otherwise hides the selection accent. The shared
+     * outline style is transparent, so restore the card fill explicitly. */
+    lv_obj_add_style(idle_action_poweroff_row, gui_theme_accent_outline_style(), 0);
+    lv_obj_set_style_bg_opa(idle_action_poweroff_row, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(idle_action_poweroff_row, current_settings.idle_suspend_enabled ? 0 : 3, 0);
     lv_obj_add_flag(idle_action_poweroff_row, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(idle_action_poweroff_row, idle_action_choice_cb, LV_EVENT_CLICKED, (void *) (intptr_t) false);
+    idle_action_poweroff_check = lv_label_create(idle_action_poweroff_row);
+    lv_label_set_text(idle_action_poweroff_check, LV_SYMBOL_OK);
+    lv_obj_add_style(idle_action_poweroff_check, gui_theme_accent_style(), 0);
+    lv_obj_set_style_text_font(idle_action_poweroff_check, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+    lv_obj_align(idle_action_poweroff_check, LV_ALIGN_RIGHT_MID, BOARD_SCALE_PX(-20), 0);
+    lv_obj_remove_flag(idle_action_poweroff_check, LV_OBJ_FLAG_CLICKABLE);
+    if (current_settings.idle_suspend_enabled) lv_obj_add_flag(idle_action_poweroff_check, LV_OBJ_FLAG_HIDDEN);
 
     idle_action_suspend_row = add_pill_row_base(idle_action_section, TR("Suspend to RAM"));
     lv_obj_align(idle_action_suspend_row, LV_ALIGN_TOP_MID, 0, idle_action_row2_y);
-    lv_obj_add_style(idle_action_suspend_row, gui_theme_accent_outline_style(), 0);
     lv_obj_add_style(idle_action_suspend_row, &style_theme_card_bg, 0);
+    lv_obj_add_style(idle_action_suspend_row, gui_theme_accent_outline_style(), 0);
+    lv_obj_set_style_bg_opa(idle_action_suspend_row, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(idle_action_suspend_row, current_settings.idle_suspend_enabled ? 3 : 0, 0);
     lv_obj_add_flag(idle_action_suspend_row, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(idle_action_suspend_row, idle_action_choice_cb, LV_EVENT_CLICKED, (void *) (intptr_t) true);
+    idle_action_suspend_check = lv_label_create(idle_action_suspend_row);
+    lv_label_set_text(idle_action_suspend_check, LV_SYMBOL_OK);
+    lv_obj_add_style(idle_action_suspend_check, gui_theme_accent_style(), 0);
+    lv_obj_set_style_text_font(idle_action_suspend_check, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+    lv_obj_align(idle_action_suspend_check, LV_ALIGN_RIGHT_MID, BOARD_SCALE_PX(-20), 0);
+    lv_obj_remove_flag(idle_action_suspend_check, LV_OBJ_FLAG_CLICKABLE);
+    if (!current_settings.idle_suspend_enabled) lv_obj_add_flag(idle_action_suspend_check, LV_OBJ_FLAG_HIDDEN);
 
     /* Slider card positioned below idle_action_section. Sized at 200px height
      * to accommodate the explanatory caption above the slider. */
@@ -3674,15 +3701,14 @@ static lv_obj_t * build_language_choice_screen(void) {
 }
 
 static lv_obj_t * build_settings_system_screen(void) {
-    static pill_list_item_t items[8 + PLUGIN_MAX_SYSTEM_LIST_ITEMS];
+    static pill_list_item_t items[7 + PLUGIN_MAX_SYSTEM_LIST_ITEMS];
     items[0] = (pill_list_item_t){ TR("USB Mode"), PILL_ACCESSORY_CHEVRON, false, usb_mode_settings_row_cb, NULL, NULL };
     items[1] = (pill_list_item_t){ TR("Clock"), PILL_ACCESSORY_CHEVRON, false, clock_settings_row_cb, NULL, NULL };
     items[2] = (pill_list_item_t){ TR("Language"), PILL_ACCESSORY_CHEVRON, false, language_settings_row_cb, NULL, NULL };
     items[3] = (pill_list_item_t){ TR("Plugin Manager"), PILL_ACCESSORY_CHEVRON, false, gui_plugin_manage_row_cb, NULL, NULL };
-    items[4] = (pill_list_item_t){ TR("Updates"), PILL_ACCESSORY_CHEVRON, false, settings_updates_row_cb, NULL, NULL };
-    items[5] = (pill_list_item_t){ TR("Maintenance"), PILL_ACCESSORY_CHEVRON, false, settings_maintenance_row_cb, NULL, NULL };
-    items[6] = (pill_list_item_t){ TR("About"), PILL_ACCESSORY_CHEVRON, false, settings_about_row_cb, NULL, NULL };
-    int count = 7;
+    items[4] = (pill_list_item_t){ TR("Maintenance"), PILL_ACCESSORY_CHEVRON, false, settings_maintenance_row_cb, NULL, NULL };
+    items[5] = (pill_list_item_t){ TR("About"), PILL_ACCESSORY_CHEVRON, false, settings_about_row_cb, NULL, NULL };
+    int count = 6;
     if (plugin_manager_get_settings_list_item_count() > 0) {
         items[count++] = (pill_list_item_t){ TR("Additional Tools"), PILL_ACCESSORY_CHEVRON, false,
                                              settings_tools_row_cb, NULL, NULL };
@@ -3757,24 +3783,27 @@ static void plugin_settings_list_item_click_cb(lv_event_t * e) {
 }
 
 static lv_obj_t * build_settings_screen(void) {
-    static pill_list_item_t items[6];
-    lv_obj_t * category_rows[6] = { NULL };
+    static pill_list_item_t items[7];
+    lv_obj_t * category_rows[7] = { NULL };
     items[0] = (pill_list_item_t){ TR("Sound"), PILL_ACCESSORY_CHEVRON, false, settings_category_music_cb, NULL, NULL };
     items[1] = (pill_list_item_t){ TR("Playback & Controls"), PILL_ACCESSORY_CHEVRON, false, settings_category_playback_cb, NULL, NULL };
     items[2] = (pill_list_item_t){ TR("Display"), PILL_ACCESSORY_CHEVRON, false, settings_category_display_cb, NULL, NULL };
     items[3] = (pill_list_item_t){ TR("Power"), PILL_ACCESSORY_CHEVRON, false, settings_category_power_cb, NULL, NULL };
     items[4] = (pill_list_item_t){ TR("Library"), PILL_ACCESSORY_CHEVRON, false, settings_category_library_cb, NULL, NULL };
     items[5] = (pill_list_item_t){ TR("System"), PILL_ACCESSORY_CHEVRON, false, settings_category_system_cb, NULL, NULL };
-    for (unsigned i = 0; i < 6; ++i) {
+    items[6] = (pill_list_item_t){ TR("Updates"), PILL_ACCESSORY_CHEVRON, false, settings_updates_row_cb, NULL, NULL };
+    for (unsigned i = 0; i < 7; ++i) {
         items[i].out_row = &category_rows[i];
     }
 
-    lv_obj_t * scr = build_pill_list_screen(TR("Settings"), generic_back_cb, items, 6, gui_theme_accent_style(), GUI_ROW_GAP, 100);
-    static const char * names[] = { "sound", "playback", "display", "power", "library", "system" };
-    for (unsigned i = 0; i < 6; ++i) {
-        char icon[64];
-        snprintf(icon, sizeof(icon), "settings/%s.png", names[i]);
-        if (category_rows[i]) decorate_category_row(category_rows[i], icon, NULL);
+    lv_obj_t * scr = build_pill_list_screen(TR("Settings"), generic_back_cb, items, 7, gui_theme_accent_style(), GUI_ROW_GAP, 100);
+    static const char * icons[] = {
+        "settings/sound.png", "settings/playback.png", "settings/display.png",
+        "settings/power.png", "settings/library.png", "settings/system.png",
+        "submenu/update_database.png",
+    };
+    for (unsigned i = 0; i < 7; ++i) {
+        if (category_rows[i]) decorate_category_row(category_rows[i], icons[i], NULL);
         items[i].out_row = NULL;
     }
     finalize_screen_navigation(scr);
@@ -3837,6 +3866,7 @@ static void more_themes_row_cb(lv_event_t * e) {
 lv_obj_t * build_dac_home_screen(void) {
     const icon_grid_item_t items[] = {
         { "submenu/plugins.png", NULL, TR("Plugins"), gui_plugin_manage_row_cb, NULL },
+        { "submenu/files.png", NULL, TR("File Manager"), gui_file_manager_tile_cb, NULL },
         { "submenu/themes.png", NULL, TR("Themes"), more_themes_row_cb, NULL },
         { "submenu/layouts.png", NULL, TR("Now Playing layouts"), player_layout_choice_settings_row_cb, NULL },
         { "submenu/usb.png", NULL, TR("USB DAC"), dac_home_usb_row_cb, NULL },

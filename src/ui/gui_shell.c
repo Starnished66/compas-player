@@ -6,6 +6,7 @@
 #include "gui_theme.h"
 #include "gui_notifications.h"
 #include "gui_library.h"
+#include "file_browser.h"
 #include "gui_queue.h"
 #include "gui_player.h"
 #include "gui_plugins.h"
@@ -1312,6 +1313,12 @@ void refresh_volume_topbar(int32_t percent) {
         if (quick_drawer_volume_label) lv_label_set_text_fmt(quick_drawer_volume_label, "%d", percent);
     }
 
+    /* Plugins can set startup volume before the shell is constructed. Leave
+     * the digit cache untouched so shell initialization renders that volume. */
+    for (int i = 0; i < 3; i++) {
+        if (!volume_topbar_digit[i]) return;
+    }
+
     char digits[4];
     snprintf(digits, sizeof(digits), "%d", (int) percent);
     int len = (int) strlen(digits);
@@ -2326,7 +2333,9 @@ static void poll_refresh_bt_icon(void) {
     audio_set_bt_output(use_bt_output);
 
     /* Volume synchronization with Bluetooth audio output devices. */
-    bt_monitor_want_volume = use_bt_output && current_settings.bt_volume_sync_enabled;
+    /* Keep the BlueALSA source monitor alive for local software gain too;
+     * only its inbound AVRCP-to-player direction is mode-gated. */
+    bt_monitor_want_volume = use_bt_output;
     bt_monitor_want_output = use_bt_output;
     /* Retry missing monitors, without creating a thread on every healthy
      * radio poll. Failed starts and unexpected EOF are both retried here. */
@@ -3463,7 +3472,7 @@ static void poll_quick_drawer_drag(lv_timer_t * timer) {
                  * screen_gesture_event_cb's leftover fallback (which
                  * would then nav_pop after search already closed). */
                 bool consumed_in_place = search_close_if_active_for_screen(active) ||
-                                         file_browser_back_if_not_root_for_screen(active);
+                                         file_browser_go_up_for_screen(active);
                 DB_LOG("GESTURE", "back_swipe confirm screen=%s in_place=%d",
                        active == gui_library_get_files_screen() ? "files" : "other", consumed_in_place);
                 if (consumed_in_place) {
@@ -5221,6 +5230,7 @@ void gui_shell_teardown(void) {
         lv_obj_delete(status_bar_band);
         status_bar_band = NULL;
     }
+    for (int i = 0; i < 3; i++) volume_topbar_digit[i] = NULL;
     if (home_indicator_band) {
         lv_obj_delete(home_indicator_band);
         home_indicator_band = NULL;

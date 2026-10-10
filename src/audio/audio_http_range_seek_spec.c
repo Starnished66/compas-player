@@ -242,8 +242,41 @@ static void verify_mislabeled_mpeg_fails_fast(server_t *server) {
     free(bytes); server->sndbuf=0;
 }
 
+/* Compact tables behind a moov too large to cache: steady playback must not
+ * go back to the tables per sample, and a far seek costs a few requests. */
+static void verify_long_m4a_reads_tables_in_windows(server_t *server, const char *path) {
+    size_t length; unsigned char *bytes=read_file(path,&length);
+    atomic_store(&server->ranges,0);atomic_store(&server->saw_if_range,false);atomic_store(&server->body_bytes,0);
+    server->bytes=bytes;server->length=length;server->content_type="audio/mp4";server->ignore_ranges=false;server->sndbuf=0;
+    pthread_t server_id; unsigned short port; start_listener(server,&server_id,&port);
+    char url[256]; snprintf(url,sizeof(url),"http://127.0.0.1:%u/audiobook.m4b",port);
+    audio_play_file_at(url,0.0,false,0.0,false,0.0);
+    audio_current_format_info_t info; assert(wait_format(&info));
+    assert(info.is_stream&&info.seekable&&info.codec==AUDIO_CODEC_AAC&&info.duration_seconds>700.0);
+    unsigned open_ranges=atomic_load(&server->ranges);
+    struct timespec pause={.tv_sec=0,.tv_nsec=20000000};
+    double start=audio_get_position_seconds();
+    for(unsigned i=0;i<250&&audio_get_position_seconds()<start+3.0;i++) nanosleep(&pause,NULL);
+    assert(audio_get_position_seconds()>=start+3.0);
+    unsigned play_ranges=atomic_load(&server->ranges)-open_ranges;
+    unsigned before_seek=atomic_load(&server->ranges);
+    audio_seek(700.0);
+    for(unsigned i=0;i<500&&(audio_get_position_seconds()<700.0||audio_get_position_seconds()>705.0);i++) nanosleep(&pause,NULL);
+    double landed=audio_get_position_seconds();
+    unsigned seek_ranges=atomic_load(&server->ranges)-before_seek;
+    printf("long m4a (moov %s cache cap): open %u, 3 s playback %u, seek to 700 s %u range requests, landed %.1f s\n",
+           "past",open_ranges,play_ranges,seek_ranges,landed);
+    assert(landed>=700.0&&landed<=705.0);
+    /* First request, moov, the skip past stsz while copying moov's small
+     * boxes, the first stsz window, and mdat. */
+    assert(open_ranges>=1&&open_ranges<=5);
+    assert(play_ranges==0);
+    assert(seek_ranges>=1&&seek_ranges<=3);
+    stop_playback(); stop_listener(server,server_id); free(bytes);
+}
+
 int main(int argc,char **argv) {
-    assert(argc==5);
+    assert(argc==6);
     audio_init();
     server_t server={0};
     play_and_seek(&server,argv[1],"audio/flac",".flac",AUDIO_CODEC_FLAC);
@@ -264,5 +297,6 @@ int main(int argc,char **argv) {
     assert(late_ranges>=1 && late_ranges<=3);
     free(fast); free(late);
     verify_mislabeled_mpeg_fails_fast(&server);
+    verify_long_m4a_reads_tables_in_windows(&server,argv[5]);
     puts("audio HTTP range decoder seeks passed");return 0;
 }

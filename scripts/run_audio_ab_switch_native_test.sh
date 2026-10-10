@@ -41,4 +41,11 @@ cmd = ["g++", "-pthread", "-Wl,--gc-sections", str(obj), *objects, *(str(x) for 
 subprocess.run(cmd, cwd=repo, check=True)
 PY
 
-"$build_dir/audio_ab_switch_native_test" "$build_dir"
+command -v ffmpeg >/dev/null || { echo "ffmpeg is required for the MP3 A/B fixture" >&2; exit 2; }
+ffmpeg -v error -y -f lavfi -i 'sine=frequency=997:sample_rate=44100:duration=5.5' \
+    -c:a pcm_s16le "$build_dir/source.wav"
+ffmpeg -v error -y -i "$build_dir/source.wav" -c:a flac "$build_dir/source.flac"
+# libmp3lame writes Xing/LAME delay and padding metadata used by dr_mp3's
+# trimmed PCM count; exact count parity is a prerequisite for A/B eligibility.
+ffmpeg -v error -y -i "$build_dir/source.wav" -c:a libmp3lame -q:a 3 "$build_dir/source.mp3"
+"$build_dir/audio_ab_switch_native_test" "$build_dir" "$build_dir/source.mp3" "$build_dir/source.mp3"

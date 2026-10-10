@@ -20,9 +20,9 @@ weekday=$(date -u -d "$release_date" +%u) || {
   exit 2
 }
 week_monday=$(date -u -d "$release_date -$((weekday - 1)) days" +%F)
-# v1.0.1 is the final manual release with a dated OTA companion.
-# Scheduled version-only releases start with v1.1 the following Monday.
-anchor_epoch=$(date -u -d '2026-10-12' +%s)
+# v1.1 ships on 2026-10-10. Weekly version-only releases use the Monday
+# of that release week as their anchor, so the next Monday is v1.2.
+anchor_epoch=$(date -u -d '2026-10-05' +%s)
 week_epoch=$(date -u -d "$week_monday" +%s)
 week_delta=$((week_epoch - anchor_epoch))
 if (( week_delta < 0 || week_delta % 604800 != 0 )); then

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: compas-player\n"
 "Report-Msgid-Bugs-To: none\n"
-"POT-Creation-Date: 2026-10-07 23:49-0600\n"
+"POT-Creation-Date: 2026-10-10 08:54-0600\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -166,6 +166,9 @@ msgid "Back"
 msgstr ""
 
 msgid "Previous"
+msgstr ""
+
+msgid "This folder is empty"
 msgstr ""
 
 msgid "No playable files here"
@@ -390,34 +393,6 @@ msgstr ""
 msgid "Off"
 msgstr ""
 
-msgid "Screenshot saved"
-msgstr ""
-
-#, c-format
-msgid "Screenshot failed (%s)"
-msgstr ""
-
-msgid "unknown"
-msgstr ""
-
-msgid "Cannot play folder"
-msgstr ""
-
-msgid "Paused: headphones disconnected"
-msgstr ""
-
-msgid "Queue checkpoint failed; storage may be read-only"
-msgstr ""
-
-msgid "Playback history could not be saved"
-msgstr ""
-
-msgid "Subsonic"
-msgstr ""
-
-msgid "Stream Media"
-msgstr ""
-
 msgid "Could not open this file."
 msgstr ""
 
@@ -453,6 +428,160 @@ msgid "Open a book and tap the bookmark icon to save it here."
 msgstr ""
 
 msgid "Add .txt files to the Books folder, then refresh the library."
+msgstr ""
+
+msgid "Screenshot saved"
+msgstr ""
+
+#, c-format
+msgid "Screenshot failed (%s)"
+msgstr ""
+
+msgid "unknown"
+msgstr ""
+
+msgid "Cannot play folder"
+msgstr ""
+
+msgid "Paused: headphones disconnected"
+msgstr ""
+
+msgid "Queue checkpoint failed; storage may be read-only"
+msgstr ""
+
+msgid "Playback history could not be saved"
+msgstr ""
+
+msgid "Subsonic"
+msgstr ""
+
+msgid "Stream Media"
+msgstr ""
+
+msgid "Disconnect USB storage from the computer before changing files."
+msgstr ""
+
+msgid "File Manager"
+msgstr ""
+
+#, c-format
+msgid "%d selected"
+msgid_plural "%d selected"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "Could not open this file"
+msgstr ""
+
+msgid "This type of file cannot be opened"
+msgstr ""
+
+#, c-format
+msgid ""
+"%u of %u\n"
+"%s"
+msgstr ""
+
+msgid "Stopped"
+msgstr ""
+
+#, c-format
+msgid "%u item could not be completed"
+msgid_plural "%u items could not be completed"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "Done. Update the music database to see the changes in your library."
+msgstr ""
+
+msgid "Done"
+msgstr ""
+
+msgid "Stopping..."
+msgstr ""
+
+msgid "Working..."
+msgstr ""
+
+msgid "Stop"
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
+
+msgid "Another file operation is still running"
+msgstr ""
+
+msgid "Open the destination folder, then choose Paste here from the menu."
+msgstr ""
+
+#, c-format
+msgid "Move %d item?"
+msgid_plural "Move %d items?"
+msgstr[0] ""
+msgstr[1] ""
+
+#, c-format
+msgid "Delete %d item?"
+msgid_plural "Delete %d items?"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "Move"
+msgstr ""
+
+msgid "Delete"
+msgstr ""
+
+msgid ""
+"This includes the player's own data (.compas or .plugins). Deleting or "
+"moving it can break features, lose data such as settings and installed "
+"plugins, and may require a restart."
+msgstr ""
+
+msgid "This cannot be undone."
+msgstr ""
+
+msgid "That name cannot be used"
+msgstr ""
+
+msgid "Could not rename"
+msgstr ""
+
+msgid "An item with that name already exists"
+msgstr ""
+
+msgid "Rename"
+msgstr ""
+
+msgid "Could not create the folder"
+msgstr ""
+
+msgid "Nothing to select here"
+msgstr ""
+
+msgid "New folder"
+msgstr ""
+
+msgid "Copy"
+msgstr ""
+
+msgid "Select all"
+msgstr ""
+
+#, c-format
+msgid "Paste %d item here"
+msgid_plural "Paste %d items here"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "Select"
+msgstr ""
+
+msgid "Hide hidden files"
+msgstr ""
+
+msgid "Show hidden files"
 msgstr ""
 
 msgid "Playlist created"
@@ -516,12 +645,6 @@ msgid "Start sequentially"
 msgstr ""
 
 msgid "Shuffle from a random song"
-msgstr ""
-
-msgid "Cancel"
-msgstr ""
-
-msgid "Done"
 msgstr ""
 
 msgid "Edit"
@@ -624,9 +747,6 @@ msgid "Delete playlist?"
 msgstr ""
 
 msgid "The playlist file will be deleted. Music files are kept."
-msgstr ""
-
-msgid "Delete"
 msgstr ""
 
 msgid "Delete Playlist"
@@ -1604,6 +1724,18 @@ msgstr ""
 msgid "Plugin Manager"
 msgstr ""
 
+msgid "No entries to display"
+msgstr ""
+
+msgid "No plugin settings available"
+msgstr ""
+
+msgid "Plugin"
+msgstr ""
+
+msgid "Plugin Settings"
+msgstr ""
+
 msgid "Download layouts"
 msgstr ""
 
@@ -1758,18 +1890,6 @@ msgid "Some plugin files were changed on the card. Replace them?"
 msgstr ""
 
 msgid "Plugin operation failed"
-msgstr ""
-
-msgid "No entries to display"
-msgstr ""
-
-msgid "No plugin settings available"
-msgstr ""
-
-msgid "Plugin"
-msgstr ""
-
-msgid "Plugin Settings"
 msgstr ""
 
 msgid "Played"
@@ -1962,9 +2082,6 @@ msgid "Scan with your phone to support Compás Player on PayPal"
 msgstr ""
 
 msgid "Compás Player"
-msgstr ""
-
-msgid "Firmware Update"
 msgstr ""
 
 msgid "Developer Options"
@@ -2408,6 +2525,9 @@ msgid "Factory Reset"
 msgstr ""
 
 msgid "Maintenance"
+msgstr ""
+
+msgid "Firmware Update"
 msgstr ""
 
 msgid "Plugins & Layouts"

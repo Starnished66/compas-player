@@ -20,11 +20,34 @@ typedef struct {
 
 typedef struct { uint32_t count, delta; uint64_t first_sample; } stts_entry_t;
 
+/* Raw big-endian entries [first, first + count) of an on-disk table. */
+typedef struct {
+    uint8_t * bytes;
+    uint32_t first;
+    uint32_t count;
+} table_window_t;
+
 /* Expanded per-sample tables are ~12 bytes each. A 25h AAC audiobook is
  * millions of access units -- tens of MB, enough to OOM this 56 MiB
  * device on open (Linux overcommit makes malloc succeed, then the first
  * write is SIGKILL). Keep ISO-BMFF stsz/stco/stsc compact past this. */
+#ifndef MP4_EXPAND_MAX_SAMPLES
 #define MP4_EXPAND_MAX_SAMPLES 65536
+#endif
+/* Compact mode reads stsz/stco through one bounded window each instead of
+ * one entry per sample. Over HTTP every jump between the tables and mdat is
+ * a new connection, so per-entry reads never got a long audiobook started.
+ * 64Ki sizes cover about 25 min of 44.1 kHz AAC per refill (256 KiB);
+ * 32Ki chunk offsets are 128-256 KiB. */
+#ifndef MP4_STSZ_WINDOW
+#define MP4_STSZ_WINDOW 65536
+#endif
+#ifndef MP4_STCO_WINDOW
+#define MP4_STCO_WINDOW 32768
+#endif
+/* Entries kept before a refill's target, so a seek's small step back
+ * (decoder preroll) does not refetch the window it just loaded. */
+#define MP4_WINDOW_BACK_MARGIN 64
 #define MP4_MAX_STSC_ENTRIES 4096
 #define MP4_MAX_STTS_ENTRIES 4096
 #define MP4_MAX_STSD_ENTRY_BYTES (1024U * 1024U)
@@ -48,9 +71,19 @@ struct mp4_demux {
     uint32_t stsc_count;
     stsc_entry_t * stsc;
     uint64_t * sample_offsets; /* NULL in compact mode */
+    table_window_t size_window;
+    table_window_t chunk_window;
 
+    /* Compact-mode position: sample cursor_index starts at cursor_offset in
+     * 0-based chunk cursor_chunk (stsc entry cursor_stsc), followed by
+     * cursor_chunk_left more samples of that chunk. Chunks need not be
+     * adjacent (another track can be interleaved), so stepping past a
+     * chunk's last sample reads the next chunk's offset. */
     uint32_t cursor_index;
     uint64_t cursor_offset;
+    uint32_t cursor_chunk;
+    uint32_t cursor_stsc;
+    uint32_t cursor_chunk_left;
 
     uint32_t frames_per_sample;
     uint32_t first_sample_delta;
@@ -258,6 +291,25 @@ static bool read_u32be_file(FILE * f, uint32_t * out) {
     return true;
 }
 
+/* Entry i of an on-disk table, refilling the window with up to cap entries
+ * from just before i when it is outside. One seek and one read per refill. */
+static const uint8_t * table_entry(mp4_demux_t * d, table_window_t * w, long table_offset,
+                                   uint32_t stride, uint32_t total, uint32_t cap, uint32_t i) {
+    if (w->bytes && i >= w->first && i - w->first < w->count)
+        return w->bytes + (size_t) (i - w->first) * stride;
+    if (cap > total) cap = total;
+    if (!w->bytes && !(w->bytes = malloc((size_t) cap * stride))) return NULL;
+    uint32_t back = cap / 4 < MP4_WINDOW_BACK_MARGIN ? cap / 4 : MP4_WINDOW_BACK_MARGIN;
+    uint32_t first = i > back ? i - back : 0;
+    uint32_t count = total - first < cap ? total - first : cap;
+    w->count = 0;
+    if (fseek(d->f, table_offset + (long) first * (long) stride, SEEK_SET) != 0 ||
+        fread(w->bytes, stride, count, d->f) != count) return NULL;
+    w->first = first;
+    w->count = count;
+    return w->bytes + (size_t) (i - first) * stride;
+}
+
 static bool sample_size_at(mp4_demux_t * d, uint32_t i, uint32_t * out) {
     if (i >= d->sample_count) return false;
     if (d->sample_sizes) {
@@ -268,19 +320,26 @@ static bool sample_size_at(mp4_demux_t * d, uint32_t i, uint32_t * out) {
         *out = d->uniform_size;
         return true;
     }
-    if (fseek(d->f, d->stsz_table_offset + (long) i * 4, SEEK_SET) != 0) return false;
-    return read_u32be_file(d->f, out);
+    const uint8_t * entry = table_entry(d, &d->size_window, d->stsz_table_offset, 4,
+                                        d->sample_count, MP4_STSZ_WINDOW, i);
+    if (!entry) return false;
+    *out = audio_read_u32be(entry);
+    return true;
 }
 
 static bool chunk_offset_at(mp4_demux_t * d, uint32_t chunk_index0, uint64_t * out) {
     if (chunk_index0 >= d->chunk_count) return false;
-    long stride = d->stco_is64 ? 8L : 4L;
-    if (fseek(d->f, d->stco_table_offset + (long) chunk_index0 * stride, SEEK_SET) != 0) return false;
-    uint8_t buf[8];
-    size_t n = d->stco_is64 ? 8 : 4;
-    if (fread(buf, 1, n, d->f) != n) return false;
-    *out = d->stco_is64 ? audio_read_u64be(buf) : (uint64_t) audio_read_u32be(buf);
+    uint32_t stride = d->stco_is64 ? 8 : 4;
+    const uint8_t * entry = table_entry(d, &d->chunk_window, d->stco_table_offset, stride,
+                                        d->chunk_count, MP4_STCO_WINDOW, chunk_index0);
+    if (!entry) return false;
+    *out = d->stco_is64 ? audio_read_u64be(entry) : (uint64_t) audio_read_u32be(entry);
     return true;
+}
+
+/* Last 0-based chunk of stsc entry e. */
+static uint32_t stsc_last_chunk(const mp4_demux_t * d, uint32_t e) {
+    return (e + 1 < d->stsc_count ? d->stsc[e + 1].first_chunk : d->chunk_count + 1) - 2;
 }
 
 static bool sample_offset_at(mp4_demux_t * d, uint32_t i, uint64_t * out) {
@@ -294,17 +353,31 @@ static bool sample_offset_at(mp4_demux_t * d, uint32_t i, uint64_t * out) {
         return true;
     }
     if (i == d->cursor_index + 1) {
-        uint32_t sz;
-        if (!sample_size_at(d, d->cursor_index, &sz)) return false;
+        uint64_t off;
+        if (d->cursor_chunk_left) {
+            uint32_t sz;
+            if (!sample_size_at(d, d->cursor_index, &sz)) return false;
+            off = d->cursor_offset + sz;
+            d->cursor_chunk_left--;
+        } else {
+            uint32_t chunk = d->cursor_chunk + 1;
+            uint32_t e = d->cursor_stsc;
+            if (chunk > stsc_last_chunk(d, e)) e++;
+            if (e >= d->stsc_count || !chunk_offset_at(d, chunk, &off)) return false;
+            d->cursor_chunk = chunk;
+            d->cursor_stsc = e;
+            d->cursor_chunk_left = d->stsc[e].samples_per_chunk - 1;
+        }
         d->cursor_index = i;
-        d->cursor_offset += sz;
-        *out = d->cursor_offset;
+        d->cursor_offset = off;
+        *out = off;
         return true;
     }
 
     uint32_t remaining = i;
     uint32_t chunk_1based = 1;
     uint32_t index_in_chunk = 0;
+    uint32_t entry = 0;
     bool found = false;
     for (uint32_t e = 0; e < d->stsc_count; e++) {
         uint32_t first = d->stsc[e].first_chunk;
@@ -316,6 +389,7 @@ static bool sample_offset_at(mp4_demux_t * d, uint32_t i, uint64_t * out) {
         if ((uint64_t) remaining < nsamples) {
             chunk_1based = first + remaining / spc;
             index_in_chunk = remaining % spc;
+            entry = e;
             found = true;
             break;
         }
@@ -333,6 +407,9 @@ static bool sample_offset_at(mp4_demux_t * d, uint32_t i, uint64_t * out) {
     }
     d->cursor_index = i;
     d->cursor_offset = off;
+    d->cursor_chunk = chunk_1based - 1;
+    d->cursor_stsc = entry;
+    d->cursor_chunk_left = d->stsc[entry].samples_per_chunk - 1 - index_in_chunk;
     *out = off;
     return true;
 }
@@ -405,8 +482,12 @@ static bool parse_sample_offsets(mp4_demux_t * d, box_header_t stbl) {
     }
 
     if (d->sample_count > MP4_EXPAND_MAX_SAMPLES) {
+        if (d->stsc[0].first_chunk != 1) return false;
         if (!chunk_offset_at(d, 0, &d->cursor_offset)) return false;
         d->cursor_index = 0;
+        d->cursor_chunk = 0;
+        d->cursor_stsc = 0;
+        d->cursor_chunk_left = d->stsc[0].samples_per_chunk - 1;
         return true;
     }
 
@@ -657,92 +738,166 @@ static void parse_itunsmpb(mp4_demux_t *d, box_header_t moov) {
 }
 
 /* A 20-minute AAC moov is a couple of hundred KB. 4 MiB still covers a long
- * audiobook's sample tables and stays small next to 56 MiB of RAM. Larger
- * moov keeps the caller's ordinary IO. Leading boxes (ftyp, free, uuid) are
- * copied only while each one is small, so an mdat before moov is seeked
- * over instead of downloaded into the prefix. */
+ * audiobook's sample tables and stays small next to 56 MiB of RAM, and also
+ * bounds what a larger moov's sparse copy may hold. Boxes before moov (ftyp,
+ * free, uuid) are copied only while small, so an mdat before moov is seeked
+ * over instead of downloaded. */
 #define MP4_MOOV_CACHE_MAX (4u * 1024u * 1024u)
 #define MP4_PREFIX_BOX_MAX (64u * 1024u)
+#define MP4_CACHE_MAX_SPANS 256
+/* Kept from a large leaf box: covers the stsz (12) and stco/co64 (8) headers
+ * the demuxer reads before it windows their entries. */
+#define MP4_LARGE_BOX_HEAD 16u
 
-bool mp4_cache_moov_prefix(FILE * file, uint8_t ** out_bytes, uint64_t * out_offset,
-                           uint64_t * out_length) {
+typedef struct {
+    FILE * file;
+    uint64_t file_size;
+    uint64_t pos; /* the FILE's position; reads elsewhere seek first */
+    uint8_t * bytes;
+    size_t used, capacity;
+    mp4_span_t * spans;
+    size_t count;
+    bool full; /* stop copying; what is already cached stays valid */
+    bool failed; /* read error */
+} moov_cache_t;
+
+/* Reads length bytes at offset into the cache, or only moves past them once
+ * the cache is full. Copies stay in file order, merged when adjacent. */
+static void cache_read(moov_cache_t * c, uint64_t offset, uint64_t length) {
+    if (c->failed || !length) return;
+    if (offset + length > c->file_size) { c->failed = true; return; }
+    bool keep = !c->full && length <= MP4_MOOV_CACHE_MAX - c->used;
+    bool merge = keep && c->count && c->spans[c->count - 1].offset + c->spans[c->count - 1].length == offset;
+    if (keep && !merge && c->count == MP4_CACHE_MAX_SPANS) keep = false;
+    if (keep && c->used + length > c->capacity) {
+        size_t want = c->capacity ? c->capacity : 64u * 1024u;
+        while (want < c->used + length) want *= 2;
+        if (want > MP4_MOOV_CACHE_MAX) want = MP4_MOOV_CACHE_MAX;
+        uint8_t * grown = realloc(c->bytes, want);
+        if (grown) { c->bytes = grown; c->capacity = want; } else keep = false;
+    }
+    if (keep && !c->spans && !(c->spans = malloc(sizeof(*c->spans) * MP4_CACHE_MAX_SPANS))) keep = false;
+    if (!keep) {
+        c->full = true;
+        return;
+    }
+    if (c->pos != offset && fseek(c->file, (long) offset, SEEK_SET) != 0) { c->failed = true; return; }
+    if (fread(c->bytes + c->used, 1, (size_t) length, c->file) != length) { c->failed = true; return; }
+    c->pos = offset + length;
+    c->used += (size_t) length;
+    if (merge) c->spans[c->count - 1].length += length;
+    else c->spans[c->count++] = (mp4_span_t) { offset, length };
+}
+
+static const uint8_t * cache_tail(const moov_cache_t * c, size_t length) {
+    return c->bytes + c->used - length;
+}
+
+/* Box header at offset: copies it and returns the box and header sizes, or
+ * false at a malformed box. The header must be cached to be parsed, so a
+ * full cache still reads it into a scratch buffer. */
+static bool cache_box_header(moov_cache_t * c, uint64_t offset, uint64_t end, uint8_t type[4],
+                             uint64_t * box_size, unsigned * header_size) {
+    if (offset + 8 > end) return false;
+    uint8_t hdr[16];
+    size_t before = c->used;
+    cache_read(c, offset, 8);
+    if (c->failed) return false;
+    if (c->used == before + 8) memcpy(hdr, cache_tail(c, 8), 8);
+    else {
+        if (fseek(c->file, (long) offset, SEEK_SET) != 0 || fread(hdr, 1, 8, c->file) != 8) { c->failed = true; return false; }
+        c->pos = offset + 8;
+    }
+    uint32_t size32 = audio_read_u32be(hdr);
+    *header_size = 8;
+    if (size32 == 1) {
+        if (offset + 16 > end) return false;
+        before = c->used;
+        cache_read(c, offset + 8, 8);
+        if (c->failed) return false;
+        if (c->used == before + 8) memcpy(hdr + 8, cache_tail(c, 8), 8);
+        else {
+            if (fseek(c->file, (long) (offset + 8), SEEK_SET) != 0 || fread(hdr + 8, 1, 8, c->file) != 8) { c->failed = true; return false; }
+            c->pos = offset + 16;
+        }
+        *box_size = audio_read_u64be(hdr + 8);
+        *header_size = 16;
+    } else {
+        *box_size = size32 ? size32 : end - offset;
+    }
+    memcpy(type, hdr + 4, 4);
+    return *box_size >= *header_size && *box_size <= end - offset;
+}
+
+/* Sparse copy of a moov too large to cache whole: every box header, every
+ * small box, and the first bytes of large leaves (sample tables, cover
+ * art, padding). The demuxer's parse then stays in RAM and only its table
+ * windows and iTunes metadata inside large boxes touch the network. */
+static void cache_moov_sparse(moov_cache_t * c, uint64_t start, uint64_t end, int depth) {
+    uint64_t at = start;
+    while (!c->failed && at + 8 <= end) {
+        uint8_t type[4];
+        uint64_t size;
+        unsigned header;
+        /* A box that does not parse (a guessed layout, such as QuickTime's
+         * meta without version bytes) ends this level only: what is cached
+         * is still file bytes, and the rest stays on the network. */
+        if (!cache_box_header(c, at, end, type, &size, &header)) return;
+        uint64_t payload = at + header, next = at + size;
+        bool container = !memcmp(type, "trak", 4) || !memcmp(type, "mdia", 4) || !memcmp(type, "minf", 4) ||
+                         !memcmp(type, "stbl", 4) || !memcmp(type, "edts", 4) || !memcmp(type, "dinf", 4) ||
+                         !memcmp(type, "udta", 4) || !memcmp(type, "ilst", 4) || !memcmp(type, "meta", 4);
+        if (container && depth < 8 && size > MP4_PREFIX_BOX_MAX) {
+            /* meta is a full box: version and flags precede its children. */
+            uint64_t children = payload + (!memcmp(type, "meta", 4) ? 4 : 0);
+            if (children > next) return;
+            cache_read(c, payload, children - payload);
+            cache_moov_sparse(c, children, next, depth + 1);
+        } else if (size <= MP4_PREFIX_BOX_MAX) {
+            cache_read(c, payload, next - payload);
+        } else {
+            cache_read(c, payload, next - payload < MP4_LARGE_BOX_HEAD ? next - payload : MP4_LARGE_BOX_HEAD);
+        }
+        at = next;
+    }
+}
+
+bool mp4_cache_moov(FILE * file, uint8_t ** out_bytes, mp4_span_t ** out_spans, size_t * out_count) {
     if (out_bytes) *out_bytes = NULL;
-    if (out_offset) *out_offset = 0;
-    if (out_length) *out_length = 0;
-    if (!file || !out_bytes || !out_offset || !out_length) return false;
+    if (out_spans) *out_spans = NULL;
+    if (out_count) *out_count = 0;
+    if (!file || !out_bytes || !out_spans || !out_count) return false;
     if (fseek(file, 0, SEEK_END) != 0) return false;
     long file_size = ftell(file);
     if (file_size <= 0 || fseek(file, 0, SEEK_SET) != 0) return false;
 
-    /* Bytes kept only while every box so far was read in full, so the buffer
-     * stays a contiguous prefix and the stream never seeks backwards. */
-    uint8_t * prefix = NULL;
-    size_t prefix_len = 0;
-    uint64_t pos = 0;
-    bool skipping = false;
-
-    while (pos + 8 <= (uint64_t) file_size) {
-        if (skipping && fseek(file, (long) pos, SEEK_SET) != 0) { free(prefix); return false; }
-        uint8_t hdr[16];
-        if (fread(hdr, 1, 8, file) != 8) { free(prefix); return false; }
-        uint32_t size32 = audio_read_u32be(hdr);
-        unsigned header_size = 8;
-        uint64_t box_size;
-        if (size32 == 1) {
-            if (pos + 16 > (uint64_t) file_size || fread(hdr + 8, 1, 8, file) != 8) { free(prefix); return false; }
-            box_size = audio_read_u64be(hdr + 8);
-            header_size = 16;
-        } else if (size32 == 0) {
-            box_size = (uint64_t) file_size - pos;
-        } else {
-            box_size = size32;
+    moov_cache_t c = { .file = file, .file_size = (uint64_t) file_size };
+    bool found = false;
+    uint64_t at = 0;
+    while (!c.failed && !found && at + 8 <= c.file_size) {
+        uint8_t type[4];
+        uint64_t size;
+        unsigned header;
+        if (!cache_box_header(&c, at, c.file_size, type, &size, &header)) break;
+        uint64_t payload = at + header, next = at + size;
+        if (!memcmp(type, "moov", 4)) {
+            found = true;
+            if (size <= MP4_MOOV_CACHE_MAX - c.used) cache_read(&c, payload, next - payload);
+            else cache_moov_sparse(&c, payload, next, 0);
+        } else if (size <= MP4_PREFIX_BOX_MAX) {
+            cache_read(&c, payload, next - payload);
         }
-        if (box_size < header_size || box_size > (uint64_t) file_size - pos) { free(prefix); return false; }
-
-        size_t rest = (size_t) box_size - header_size;
-        if (memcmp(hdr + 4, "moov", 4) == 0) {
-            if (box_size > MP4_MOOV_CACHE_MAX) { free(prefix); return true; }
-            int contiguous = !skipping && pos == (uint64_t) prefix_len &&
-                             pos + box_size <= MP4_MOOV_CACHE_MAX;
-            if (contiguous) {
-                uint8_t * buf = realloc(prefix, (size_t) (pos + box_size));
-                if (!buf) { free(prefix); return false; }
-                memcpy(buf + (size_t) pos, hdr, header_size);
-                if (rest && fread(buf + (size_t) pos + header_size, 1, rest, file) != rest) { free(buf); return false; }
-                *out_bytes = buf;
-                *out_offset = 0;
-                *out_length = pos + box_size;
-                return true;
-            }
-            free(prefix);
-            uint8_t * buf = malloc((size_t) box_size);
-            if (!buf) return false;
-            memcpy(buf, hdr, header_size);
-            if (rest && fread(buf + header_size, 1, rest, file) != rest) { free(buf); return false; }
-            *out_bytes = buf;
-            *out_offset = pos;
-            *out_length = box_size;
-            return true;
-        }
-
-        uint64_t next = pos + box_size;
-        if (!skipping && box_size <= MP4_PREFIX_BOX_MAX && next <= MP4_MOOV_CACHE_MAX) {
-            uint8_t * grown = realloc(prefix, (size_t) next);
-            if (!grown) { free(prefix); return false; }
-            memcpy(grown + (size_t) pos, hdr, header_size);
-            if (rest && fread(grown + (size_t) pos + header_size, 1, rest, file) != rest) { free(grown); return false; }
-            prefix = grown;
-            prefix_len = (size_t) next;
-        } else {
-            free(prefix);
-            prefix = NULL;
-            prefix_len = 0;
-            skipping = true;
-        }
-        pos = next;
+        at = next; /* a large box (mdat) is skipped; the next read seeks */
     }
-    free(prefix);
-    return false;
+    if (!found || c.failed || !c.count) {
+        free(c.bytes);
+        free(c.spans);
+        return found && !c.failed;
+    }
+    *out_bytes = c.bytes;
+    *out_spans = c.spans;
+    *out_count = c.count;
+    return true;
 }
 
 mp4_demux_t * mp4_demux_open(const char * path) {
@@ -946,8 +1101,6 @@ bool mp4_demux_read_sample(mp4_demux_t * d, uint32_t sample_index, uint8_t * buf
     if (fseek(d->f, (long) offset, SEEK_SET) != 0) return false;
     if (fread(buf, 1, size, d->f) != size) return false;
 
-    d->cursor_index = sample_index + 1;
-    d->cursor_offset = offset + size;
     *out_size = size;
     return true;
 }
@@ -958,6 +1111,8 @@ void mp4_demux_close(mp4_demux_t * d) {
     free(d->codec_config);
     free(d->sample_sizes);
     free(d->sample_offsets);
+    free(d->size_window.bytes);
+    free(d->chunk_window.bytes);
     free(d->stsc);
     free(d->stts);
     free(d);

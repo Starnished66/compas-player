@@ -79,7 +79,7 @@ bool gui_shell_get_bt_audio_codec(char *buf, size_t n) { snprintf(buf,n,"%s",cod
 '''
 ui_source = (root / 'src/ui/gui_plugins.c').read_text()
 ui_functions = []
-for declaration in ['static void plugin_set_volume', 'void gui_plugin_set_volume', 'void gui_plugin_set_volume_silent']:
+for declaration in ['static void plugin_set_volume', 'void gui_plugin_set_volume', 'void gui_plugin_set_volume_silent', 'void gui_plugin_set_volume_transient']:
     match = re.search(r'^' + declaration + r'\([^\n]*\) \{.*?^\}', ui_source, re.M | re.S)
     if not match:
         raise RuntimeError(f'missing production volume function: {declaration}')
@@ -91,6 +91,12 @@ tests = r'''
     assert(volume == 20 && popups == 2 && volume_saves == 3 && topbar == 20 && remembered == 20 && applied_volume == 0.2f);
     assert(luaL_dostring(L, "set_volume(math.maxinteger,{silent=true})") == LUA_OK && volume == 100);
     assert(luaL_dostring(L, "set_volume(math.mininteger,{silent=true})") == LUA_OK && volume == 0);
+    assert(luaL_dostring(L, "set_volume(18,{silent=true,persist=false}); set_volume(19,{silent=true,persist=false})") == LUA_OK);
+    assert(volume == 19 && popups == 2 && volume_saves == 5 && remembered == 0 && topbar == 19 && applied_volume == 0.19f);
+    assert(luaL_dostring(L, "set_volume(22,{persist=false})") == LUA_OK);
+    assert(volume == 22 && popups == 3 && volume_saves == 5 && remembered == 0);
+    assert(luaL_dostring(L, "set_volume(25,{silent=true,persist=true})") == LUA_OK);
+    assert(volume == 25 && volume_saves == 6 && remembered == 25);
     assert(luaL_dostring(L, "assert(not pcall(set_volume,1,'bad'))") == LUA_OK);
     assert(luaL_dostring(L, "assert(eq_apply_profile('/sd/profile',{persist=false}))") == LUA_OK);
     assert(loads == 1 && saves == 0);
@@ -105,8 +111,9 @@ tests = r'''
     format_ok = true; format.valid = true; format.codec = AUDIO_CODEC_FLAC;
     format.source_sample_rate = 96000; format.source_bit_depth = 24;
     format.output_sample_rate = 96000; format.output_bit_depth = 24;
-    format.seekable = true; format.replaygain_applied = true; format.replaygain_applied_db = -3.0; strcpy(format.path,"/sd/track.flac");
-    assert(luaL_dostring(L,"local f=get_playback_format(); assert(f.sample_rate==96000 and f.bit_depth==24 and f.seekable and f.codec=='flac' and f.replaygain_applied and f.replaygain_applied_db==-3.0)") == LUA_OK);
+    format.seekable = true; format.replaygain_applied = true; format.replaygain_applied_db = -3.0;
+    format.software_volume_gain = 0.42; format.playback_speed = 1.25; format.crossfade_enabled = true; strcpy(format.path,"/sd/track.flac");
+    assert(luaL_dostring(L,"local f=get_playback_format(); assert(f.sample_rate==96000 and f.bit_depth==24 and f.seekable and f.codec=='flac' and f.replaygain_applied and f.replaygain_applied_db==-3.0 and f.software_volume_gain==0.42 and f.playback_speed==1.25 and f.crossfade_enabled)") == LUA_OK);
     output.active = true; output.route = AUDIO_OUTPUT_ROUTE_WIRED;
     output.sample_rate = 48000; output.bit_depth = 16; output.hardware_format_known = true;
     assert(luaL_dostring(L,"local o=get_output_info(); assert(o.route=='wired' and o.hardware_sample_rate==48000 and o.resampling_known and o.resampling)") == LUA_OK);

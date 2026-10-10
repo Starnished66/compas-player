@@ -55,8 +55,7 @@ jobs:
           make bootloader
           make -j2 target BOARD=r3proii RELEASE_LABEL="$RELEASE_LABEL"
           make bootloader BOARD=r3proii
-          make -j2 target BOARD=r3ii_2025 \
-            RELEASE_LABEL="$RELEASE_LABEL (R3II 2025 Early Alpha)"
+          make -j2 target BOARD=r3ii_2025 RELEASE_LABEL="$RELEASE_LABEL"
           make bootloader BOARD=r3ii_2025
           file compas_player_target compas_bootloader \
             compas_player_target_r3proii compas_bootloader_r3proii \
@@ -208,14 +207,13 @@ jobs:
             echo
             echo "- **r1.upt** — complete R1 firmware update; use only on the HiBy R1."
             echo "- **r3proii.upt** — complete R3 Pro II firmware update; use only on the HiBy R3 Pro II."
-            echo "- **r3ii_2025.upt** — **early alpha**, complete R3II 2025 firmware update; use only on the HiBy R3II (2025)."
+            echo "- **r3ii_2025.upt** — complete R3II 2025 firmware update; use only on the HiBy R3II (2025)."
             echo "- **compas_player** — standalone Compás Player update for the R1."
             echo "- **compas_player_r3proii** — standalone Compás Player update for the R3 Pro II."
-            echo "- **compas_player_r3ii_2025** — **early alpha**, standalone Compás Player update for the R3II 2025."
+            echo "- **compas_player_r3ii_2025** — standalone Compás Player update for the R3II 2025."
             echo
             echo "R3 Pro II packaging uses the approved staging image and matching board binaries. This weekly release has not been tested on an R3 Pro II device; validate it on hardware before broader deployment."
             echo
-            echo "> **R3II 2025 is an early alpha.** It has not been tested on an R3II (2025) yet and still requires on-device testing. Install it only if you are comfortable recovering the player with the stock HiBy firmware (hold Play/Pause and Power while turning it on, with the stock .upt on the SD card), and please report what works and what does not."
             echo
             echo "### Update only Compás Player"
             echo

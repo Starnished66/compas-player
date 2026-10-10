@@ -6,6 +6,7 @@
 #include "playlist_files.h" /* playlist_files_resolve_path() -- shared M3U line resolution */
 #include "library_endian.h"
 #include "fallback_font.h"
+#include "file_ops.h" /* file_op_path_in_root() */
 
 #include <dirent.h>
 #include <sys/stat.h>
@@ -25,6 +26,7 @@ typedef struct {
     bool is_dir;
     bool is_playlist;
     bool is_cue;
+    bool is_other; /* not media; listed only with LIST_ALL_FILES */
     int64_t mtime;
     bool mtime_known;
     int32_t playable_ordinal;
@@ -48,35 +50,64 @@ struct file_browser_index {
 #define INDEX_MEMORY_MAX_ROWS 4096
 
 
-static char root_dir[PATH_MAX];
-static char current_dir[PATH_MAX];
 #define FILE_BROWSER_PAGE_SIZE 64
-static dir_entry_t visible_entries[FILE_BROWSER_PAGE_SIZE];
-static dir_entry_t * entries = visible_entries;
-static int entry_count = 0;
-/* `entries` is only the visible page. The full directory stays in current_index. */
-static int page_start = 0;
-static file_browser_index_t * current_index;
-static pthread_mutex_t index_worker_mu = PTHREAD_MUTEX_INITIALIZER;
-static pthread_t index_worker_thread;
-static atomic_bool index_worker_running;
-static atomic_bool index_worker_cancel;
-static atomic_bool index_worker_error;
-static atomic_bool index_worker_oversized;
-static unsigned index_request_generation;
-static file_browser_index_t * index_worker_result;
-static unsigned index_worker_result_generation;
-static atomic_int current_sort_mode;
-static unsigned index_error_generation;
-static unsigned index_error_rendered_generation;
-static lv_timer_t * index_poll_timer;
-static void browser_delete_cb(lv_event_t *event);
+/* Where each ancestor's list was when a folder was opened from it, so going
+ * back up returns to the same page and scroll offset instead of the top.
+ * Deeper than the stack, back simply starts at the top. The listing loads
+ * asynchronously, so the offset is applied once the parent's index arrives
+ * (restore_generation ties it to that exact request). */
+#define FILE_BROWSER_POSITION_STACK 32
+typedef struct {
+    int page_start;
+    int32_t scroll_y;
+} browser_position_t;
 
-static lv_obj_t * path_label;
-static lv_obj_t * list;
-static file_browser_select_cb_t select_cb;
-static file_browser_cue_select_cb_t cue_select_cb;
-static file_browser_index_select_cb_t index_select_cb;
+struct file_browser {
+    file_browser_t * next; /* in the live `browsers` list */
+    lv_obj_t * screen;
+    lv_obj_t * path_label;
+    lv_obj_t * list;
+    lv_timer_t * index_poll_timer;
+    char root_dir[PATH_MAX];
+    char current_dir[PATH_MAX];
+    unsigned list_flags;
+    file_browser_options_t callbacks;
+
+    /* The full directory stays in current_index; entries is the visible page. */
+    file_browser_index_t * current_index;
+    dir_entry_t entries[FILE_BROWSER_PAGE_SIZE];
+    int entry_count; /* -1 when the folder could not be read */
+    int page_start;
+
+    /* Index worker state. The worker writes under index_worker_mu. */
+    atomic_bool index_worker_running;
+    atomic_bool index_worker_cancel;
+    atomic_bool index_worker_error;
+    atomic_bool index_worker_oversized;
+    bool deleted; /* freed by the worker when it finishes after the screen went */
+    unsigned index_request_generation;
+    file_browser_index_t * index_worker_result;
+    unsigned index_worker_result_generation;
+    unsigned index_error_generation;
+    unsigned index_error_rendered_generation;
+
+    browser_position_t position_stack[FILE_BROWSER_POSITION_STACK];
+    int position_depth;
+    int position_overflow;
+    bool restore_pending;
+    int32_t restore_scroll_y;
+    unsigned restore_generation;
+
+    /* Selection mode: one bit per current_index ordinal. */
+    bool selecting;
+    uint8_t * selected;
+    unsigned selected_count;
+};
+
+static file_browser_t * browsers;
+static pthread_mutex_t index_worker_mu = PTHREAD_MUTEX_INITIALIZER;
+static atomic_int current_sort_mode;
+
 static bool is_cue_file(const char * name);
 static bool index_entry_at(const file_browser_index_t *index, unsigned ordinal, dir_entry_t *out);
 static bool index_row_playable(const dir_entry_t *row);
@@ -89,25 +120,8 @@ static bool index_row_playable(const dir_entry_t *row);
 static char last_selected_dir[PATH_MAX];
 static int last_selected_row = -1;
 
-static void rebuild_list(void);
-static void scan_current_dir(void);
-
-/* Where each ancestor's list was when a folder was opened from it, so going
- * back up returns to the same page and scroll offset instead of the top.
- * Deeper than the stack, back simply starts at the top. The listing loads
- * asynchronously, so the offset is applied once the parent's index arrives
- * (restore_generation ties it to that exact request). */
-#define FILE_BROWSER_POSITION_STACK 32
-typedef struct {
-    int page_start;
-    int32_t scroll_y;
-} browser_position_t;
-static browser_position_t position_stack[FILE_BROWSER_POSITION_STACK];
-static int position_depth;
-static int position_overflow;
-static bool restore_pending;
-static int32_t restore_scroll_y;
-static unsigned restore_generation;
+static void rebuild_list(file_browser_t * fb);
+static void scan_current_dir(file_browser_t * fb);
 
 /* Kept in sync with audio.c's decoder dispatch. */
 static const char * const PLAYABLE_EXTENSIONS[] = {
@@ -123,6 +137,19 @@ bool file_browser_is_playable_name(const char * name) {
     return false;
 }
 
+
+/* What a listing includes besides folders, playlists and playable files. */
+enum {
+    LIST_CUE = 1u << 0,       /* .cue sheets */
+    LIST_ALL_FILES = 1u << 1, /* every other regular file */
+    LIST_HIDDEN = 1u << 2,    /* names starting with a dot */
+};
+
+static bool skip_name(const char * name, unsigned flags) {
+    if (name[0] != '.') return false;
+    if (!(flags & LIST_HIDDEN)) return true;
+    return strcmp(name, ".") == 0 || strcmp(name, "..") == 0;
+}
 
 static bool is_cue_file(const char * name) {
     const char * ext = strrchr(name, '.');
@@ -158,7 +185,7 @@ static int (*sort_comparator(file_browser_sort_mode_t mode))(const void *, const
 }
 
 static int index_make_entry(int directory_fd, const char *name, unsigned char type,
-                            dir_entry_t *out, bool include_cue) {
+                            dir_entry_t *out, unsigned flags) {
     struct stat st;
     bool mtime_known = fstatat(directory_fd, name, &st, AT_SYMLINK_NOFOLLOW) == 0;
     if (!mtime_known && errno == ENOENT) return 0;
@@ -171,11 +198,12 @@ static int index_make_entry(int directory_fd, const char *name, unsigned char ty
     else if (type == DT_REG) dir = false;
     else return -1;
     bool playlist = !dir && library_is_m3u_file(name);
-    bool cue = !dir && include_cue && is_cue_file(name);
-    if (!dir && !playlist && !cue && !file_browser_is_playable_name(name)) return 0;
+    bool cue = !dir && (flags & LIST_CUE) && is_cue_file(name);
+    bool other = !dir && !playlist && !cue && !file_browser_is_playable_name(name);
+    if (other && !(flags & LIST_ALL_FILES)) return 0;
     memset(out, 0, sizeof(*out));
     utf8_truncate_safe(out->name, name, sizeof(out->name));
-    out->is_dir = dir; out->is_playlist = playlist; out->is_cue = cue;
+    out->is_dir = dir; out->is_playlist = playlist; out->is_cue = cue; out->is_other = other;
     out->mtime_known = mtime_known;
     if (mtime_known) out->mtime = (int64_t)st.st_mtime;
     return 1;
@@ -248,7 +276,7 @@ static bool index_cancelled(atomic_bool *cancel) {
 
 static bool index_open_memory(const char *directory, DIR *dir, int dfd,
                               file_browser_index_t **out,
-                              unsigned *out_count, bool include_cue,
+                              unsigned *out_count, unsigned flags,
                               atomic_bool *cancel, file_browser_sort_mode_t mode) {
     dir_entry_t *rows = malloc(sizeof(*rows) * INDEX_MEMORY_MAX_ROWS);
     if (!rows) { close(dfd); closedir(dir); return false; }
@@ -259,9 +287,9 @@ static bool index_open_memory(const char *directory, DIR *dir, int dfd,
         struct dirent *de = readdir(dir);
         if (!de) { if (errno) ok = false; break; }
         if (index_cancelled(cancel)) { ok = false; break; }
-        if (de->d_name[0] == '.') continue;
+        if (skip_name(de->d_name, flags)) continue;
         dir_entry_t candidate;
-        int status = index_make_entry(dfd, de->d_name, de->d_type, &candidate, include_cue);
+        int status = index_make_entry(dfd, de->d_name, de->d_type, &candidate, flags);
         if (status < 0) { ok = false; break; }
         if (status > 0) {
             if (count >= INDEX_MEMORY_MAX_ROWS) { errno = EFBIG; ok = false; break; }
@@ -295,7 +323,7 @@ static bool index_open_memory(const char *directory, DIR *dir, int dfd,
 }
 
 static bool file_browser_index_open_ex(const char *directory, file_browser_index_t **out,
-                                       unsigned *out_count, bool include_cue,
+                                       unsigned *out_count, unsigned flags,
                                        atomic_bool *cancel, file_browser_sort_mode_t mode) {
     if (!directory || !out) return false;
     *out = NULL; if (out_count) *out_count = 0;
@@ -303,13 +331,13 @@ static bool file_browser_index_open_ex(const char *directory, file_browser_index
     int dfd = dup(dirfd(dir)), levels[32];
     if (dfd < 0) { closedir(dir); return false; }
 #ifdef FILE_BROWSER_TEST_FORCE_MEMORY_INDEX
-    return index_open_memory(directory, dir, dfd, out, out_count, include_cue, cancel, mode);
+    return index_open_memory(directory, dir, dfd, out, out_count, flags, cancel, mode);
 #endif
     memset(levels, -1, sizeof(levels));
     errno = 0;
     int probe = index_temp_fd(dfd);
     if (probe < 0 && (errno == EROFS || errno == EACCES || errno == EPERM)) {
-        return index_open_memory(directory, dir, dfd, out, out_count, include_cue, cancel, mode);
+        return index_open_memory(directory, dir, dfd, out, out_count, flags, cancel, mode);
     }
     if (probe < 0) goto fail;
     close(probe);
@@ -320,8 +348,8 @@ static bool file_browser_index_open_ex(const char *directory, file_browser_index
         de = readdir(dir);
         if (!de) { if (errno) goto fail; break; }
         if (cancel && atomic_load(cancel)) goto fail;
-        if (de->d_name[0] == '.') continue;
-        int entry_status = index_make_entry(dfd, de->d_name, de->d_type, &rows[row_count], include_cue);
+        if (skip_name(de->d_name, flags)) continue;
+        int entry_status = index_make_entry(dfd, de->d_name, de->d_type, &rows[row_count], flags);
         if (entry_status < 0) goto fail;
         if (entry_status == 0) continue;
         if (++row_count == INDEX_RUN_SIZE) {
@@ -357,7 +385,7 @@ fail_closed:
 }
 
 bool file_browser_index_open(const char *directory, file_browser_index_t **out, unsigned *out_count) {
-    return file_browser_index_open_ex(directory, out, out_count, false, NULL, sort_mode_snapshot());
+    return file_browser_index_open_ex(directory, out, out_count, 0, NULL, sort_mode_snapshot());
 }
 
 bool file_browser_index_retain(const file_browser_index_t *source, file_browser_index_t **out) {
@@ -394,7 +422,7 @@ bool file_browser_index_path_at(const file_browser_index_t *index, unsigned ordi
 }
 
 static bool index_row_playable(const dir_entry_t *row) {
-    return row && !row->is_dir && !row->is_playlist && !row->is_cue;
+    return row && !row->is_dir && !row->is_playlist && !row->is_cue && !row->is_other;
 }
 
 unsigned file_browser_index_playable_count(const file_browser_index_t *index) {
@@ -445,25 +473,39 @@ bool file_browser_index_entry_name(const file_browser_index_t *index, unsigned o
 }
 
 /* Copy one screen of an already-open index. Does not rescan or allocate. */
-static bool load_visible_entries(void) {
-    if (entry_count < 0) return false;
-    if (page_start < 0) page_start = 0;
-    if (page_start >= entry_count)
-        page_start = entry_count > 0 ? ((entry_count - 1) / FILE_BROWSER_PAGE_SIZE) * FILE_BROWSER_PAGE_SIZE : 0;
-    if (!current_index) return entry_count == 0;
-    int end = page_start + FILE_BROWSER_PAGE_SIZE;
-    if (end > entry_count) end = entry_count;
-    for (int i = page_start; i < end; i++) {
-        if (!index_entry_at(current_index, (unsigned) i, &visible_entries[i - page_start])) return false;
+static bool load_visible_entries(file_browser_t * fb) {
+    if (fb->entry_count < 0) return false;
+    if (fb->page_start < 0) fb->page_start = 0;
+    if (fb->page_start >= fb->entry_count)
+        fb->page_start = fb->entry_count > 0 ? ((fb->entry_count - 1) / FILE_BROWSER_PAGE_SIZE) * FILE_BROWSER_PAGE_SIZE : 0;
+    if (!fb->current_index) return fb->entry_count == 0;
+    int end = fb->page_start + FILE_BROWSER_PAGE_SIZE;
+    if (end > fb->entry_count) end = fb->entry_count;
+    for (int i = fb->page_start; i < end; i++) {
+        if (!index_entry_at(fb->current_index, (unsigned) i, &fb->entries[i - fb->page_start])) return false;
     }
     return true;
 }
 
-static void free_entries(void) {
-    if (current_index) { file_browser_index_close(current_index); current_index = NULL; }
-    memset(visible_entries, 0, sizeof(visible_entries));
-    entries = visible_entries;
-    entry_count = 0;
+static void notify_selection(file_browser_t * fb) {
+    if (fb->callbacks.on_selection) fb->callbacks.on_selection(fb);
+}
+
+/* The selection names ordinals of current_index, so it ends with it. */
+static void drop_selection(file_browser_t * fb) {
+    bool had = fb->selecting || fb->selected_count;
+    free(fb->selected);
+    fb->selected = NULL;
+    fb->selected_count = 0;
+    fb->selecting = false;
+    if (had) notify_selection(fb);
+}
+
+static void free_entries(file_browser_t * fb) {
+    if (fb->current_index) { file_browser_index_close(fb->current_index); fb->current_index = NULL; }
+    memset(fb->entries, 0, sizeof(fb->entries));
+    fb->entry_count = 0;
+    drop_selection(fb);
 }
 
 /* Scans dir_path into a freshly malloc'd, sorted (dirs-first, then alpha)
@@ -484,7 +526,7 @@ static int scan_entry_limit(void) {
  * when memory cannot hold the whole directory. A short list is never
  * reported as success. */
 static int scan_directory(const char * dir_path, dir_entry_t ** out_entries,
-                          file_browser_sort_mode_t mode, bool include_cue) {
+                          file_browser_sort_mode_t mode, unsigned flags) {
     DIR * dir = opendir(dir_path);
     if (!dir) {
         fprintf(stderr, "file_browser: failed to open '%s'\n", dir_path);
@@ -504,11 +546,11 @@ static int scan_directory(const char * dir_path, dir_entry_t ** out_entries,
 
     struct dirent * de;
     while ((de = readdir(dir)) != NULL) {
-        if (de->d_name[0] == '.') continue; /* skips ".", "..", and hidden files/dirs */
+        if (skip_name(de->d_name, flags)) continue;
 
         dir_entry_t candidate;
         int status = index_make_entry(dirfd(dir), de->d_name, de->d_type,
-                                      &candidate, include_cue);
+                                      &candidate, flags);
         if (status < 0) {
             free(result);
             closedir(dir);
@@ -547,144 +589,168 @@ static int scan_directory(const char * dir_path, dir_entry_t ** out_entries,
 }
 
 typedef struct {
+    file_browser_t * fb;
     unsigned generation;
     char directory[PATH_MAX];
-    bool include_cue;
+    unsigned list_flags;
     file_browser_sort_mode_t sort_mode;
 } index_worker_request_t;
 
 static void *index_worker_main(void *arg) {
     index_worker_request_t request = *(index_worker_request_t *)arg;
     free(arg);
+    file_browser_t * fb = request.fb;
     unsigned generation = request.generation;
     file_browser_index_t *built = NULL; unsigned count = 0;
-    bool ok = file_browser_index_open_ex(request.directory, &built, &count, request.include_cue, &index_worker_cancel, request.sort_mode);
+    bool ok = file_browser_index_open_ex(request.directory, &built, &count, request.list_flags,
+                                         &fb->index_worker_cancel, request.sort_mode);
+    bool oversized = !ok && errno == EFBIG;
     pthread_mutex_lock(&index_worker_mu);
-    if (ok && !atomic_load(&index_worker_cancel) && generation == index_request_generation) {
-        if (index_worker_result) file_browser_index_close(index_worker_result);
-        index_worker_result = built; index_worker_result_generation = generation;
+    if (fb->deleted) {
+        pthread_mutex_unlock(&index_worker_mu);
+        if (built) file_browser_index_close(built);
+        free(fb);
+        return NULL;
+    }
+    if (ok && !atomic_load(&fb->index_worker_cancel) && generation == fb->index_request_generation) {
+        if (fb->index_worker_result) file_browser_index_close(fb->index_worker_result);
+        fb->index_worker_result = built; fb->index_worker_result_generation = generation;
     } else {
         if (built) file_browser_index_close(built);
-        if (!ok && generation == index_request_generation) {
-            atomic_store(&index_worker_error, true);
-            atomic_store(&index_worker_oversized, errno == EFBIG);
-            index_error_generation = generation;
+        if (!ok && generation == fb->index_request_generation) {
+            atomic_store(&fb->index_worker_error, true);
+            atomic_store(&fb->index_worker_oversized, oversized);
+            fb->index_error_generation = generation;
         }
     }
-    atomic_store(&index_worker_running, false);
+    atomic_store(&fb->index_worker_running, false);
     pthread_mutex_unlock(&index_worker_mu);
     return NULL;
 }
 
 /* Called with index_worker_mu held; all mutable inputs are copied into this
  * request before the worker starts, so a newer scan cannot change its order. */
-static bool index_worker_launch_locked(unsigned generation) {
+static bool index_worker_launch_locked(file_browser_t * fb, unsigned generation) {
     index_worker_request_t *request = calloc(1, sizeof(*request));
     if (!request) return false;
+    request->fb = fb;
     request->generation = generation;
-    snprintf(request->directory, sizeof(request->directory), "%s", current_dir);
-    request->include_cue = cue_select_cb != NULL;
+    snprintf(request->directory, sizeof(request->directory), "%s", fb->current_dir);
+    request->list_flags = fb->list_flags;
     request->sort_mode = sort_mode_snapshot();
-    atomic_store(&index_worker_cancel, false);
-    atomic_store(&index_worker_running, true);
-    if (pthread_create(&index_worker_thread, NULL, index_worker_main, request) != 0) {
+    atomic_store(&fb->index_worker_cancel, false);
+    atomic_store(&fb->index_worker_running, true);
+    pthread_t thread;
+    if (pthread_create(&thread, NULL, index_worker_main, request) != 0) {
         free(request);
-        atomic_store(&index_worker_running, false);
+        atomic_store(&fb->index_worker_running, false);
         return false;
     }
-    pthread_detach(index_worker_thread);
+    pthread_detach(thread);
     return true;
 }
 
 static void index_poll_cb(lv_timer_t *timer) {
-    (void)timer;
+    file_browser_t * fb = lv_timer_get_user_data(timer);
     pthread_mutex_lock(&index_worker_mu);
-    file_browser_index_t *ready = index_worker_result;
-    unsigned generation = index_worker_result_generation;
-    index_worker_result = NULL;
-    bool running = atomic_load(&index_worker_running);
+    file_browser_index_t *ready = fb->index_worker_result;
+    unsigned generation = fb->index_worker_result_generation;
+    fb->index_worker_result = NULL;
+    bool running = atomic_load(&fb->index_worker_running);
     pthread_mutex_unlock(&index_worker_mu);
-    if (!ready || generation != index_request_generation) {
+    if (!ready || generation != fb->index_request_generation) {
         if (ready) file_browser_index_close(ready);
-        if (!running && atomic_load(&index_worker_error) &&
-            index_error_generation == index_request_generation &&
-            index_error_rendered_generation != index_request_generation) {
-            index_error_rendered_generation = index_request_generation;
-            free_entries();
-            entry_count = -1;
-            rebuild_list();
+        if (!running && atomic_load(&fb->index_worker_error) &&
+            fb->index_error_generation == fb->index_request_generation &&
+            fb->index_error_rendered_generation != fb->index_request_generation) {
+            fb->index_error_rendered_generation = fb->index_request_generation;
+            free_entries(fb);
+            fb->entry_count = -1;
+            rebuild_list(fb);
         }
-        else if (!running && !atomic_load(&index_worker_error) && !current_index && entry_count == 0) {
+        else if (!running && !atomic_load(&fb->index_worker_error) && !fb->current_index && fb->entry_count == 0) {
             pthread_mutex_lock(&index_worker_mu);
-            if (!index_worker_launch_locked(index_request_generation)) {
-                atomic_store(&index_worker_error, true);
-                index_error_generation = index_request_generation;
+            if (!index_worker_launch_locked(fb, fb->index_request_generation)) {
+                atomic_store(&fb->index_worker_error, true);
+                fb->index_error_generation = fb->index_request_generation;
             }
             pthread_mutex_unlock(&index_worker_mu);
         }
         return;
     }
-    if (current_index) file_browser_index_close(current_index);
-    current_index = ready; entry_count = (int)ready->count;
-    if (!load_visible_entries()) {
-        atomic_store(&index_worker_error, true);
-        entry_count = -1;
+    if (fb->current_index) file_browser_index_close(fb->current_index);
+    fb->current_index = ready; fb->entry_count = (int)ready->count;
+    free(fb->selected);
+    fb->selected = NULL;
+    fb->selected_count = 0;
+    if (fb->callbacks.on_selection && ready->count)
+        fb->selected = calloc((ready->count + 7) / 8, 1); /* NULL: selection unavailable */
+    if (!load_visible_entries(fb)) {
+        atomic_store(&fb->index_worker_error, true);
+        fb->entry_count = -1;
     }
-    rebuild_list();
-    if (restore_pending && restore_generation == generation) {
-        restore_pending = false;
-        if (entry_count > 0) {
+    rebuild_list(fb);
+    if (fb->restore_pending && fb->restore_generation == generation) {
+        fb->restore_pending = false;
+        if (fb->entry_count > 0) {
             /* Clamped by LVGL if the folder shrank since. */
-            lv_obj_update_layout(list);
-            lv_obj_scroll_to_y(list, restore_scroll_y, LV_ANIM_OFF);
+            lv_obj_update_layout(fb->list);
+            lv_obj_scroll_to_y(fb->list, fb->restore_scroll_y, LV_ANIM_OFF);
         }
     }
-    (void)running;
 }
 
-static void scan_current_dir(void) {
-    free_entries();
+static void scan_current_dir(file_browser_t * fb) {
+    free_entries(fb);
     pthread_mutex_lock(&index_worker_mu);
-    unsigned generation = ++index_request_generation;
-    atomic_store(&index_worker_error, false);
-    atomic_store(&index_worker_oversized, false);
-    atomic_store(&index_worker_cancel, true);
-    if (index_worker_result) { file_browser_index_close(index_worker_result); index_worker_result = NULL; }
-    if (!atomic_load(&index_worker_running) && !index_worker_launch_locked(generation)) {
-        atomic_store(&index_worker_error, true);
-        index_error_generation = generation;
+    unsigned generation = ++fb->index_request_generation;
+    atomic_store(&fb->index_worker_error, false);
+    atomic_store(&fb->index_worker_oversized, false);
+    atomic_store(&fb->index_worker_cancel, true);
+    if (fb->index_worker_result) { file_browser_index_close(fb->index_worker_result); fb->index_worker_result = NULL; }
+    if (!atomic_load(&fb->index_worker_running) && !index_worker_launch_locked(fb, generation)) {
+        atomic_store(&fb->index_worker_error, true);
+        fb->index_error_generation = generation;
     }
     pthread_mutex_unlock(&index_worker_mu);
-    entry_count = 0;
+    fb->entry_count = 0;
 }
 
+/* A running worker still uses fb (its cancel flag), so it frees fb itself. */
 static void browser_delete_cb(lv_event_t *event) {
-    (void)event;
+    file_browser_t * fb = lv_event_get_user_data(event);
+    for (file_browser_t ** link = &browsers; *link; link = &(*link)->next) {
+        if (*link == fb) { *link = fb->next; break; }
+    }
+    if (fb->index_poll_timer) lv_timer_delete(fb->index_poll_timer);
+    free(fb->selected);
     pthread_mutex_lock(&index_worker_mu);
-    ++index_request_generation;
-    atomic_store(&index_worker_cancel, true);
-    if (index_worker_result) { file_browser_index_close(index_worker_result); index_worker_result = NULL; }
-    if (current_index) { file_browser_index_close(current_index); current_index = NULL; }
-    if (index_poll_timer) { lv_timer_del(index_poll_timer); index_poll_timer = NULL; }
-    list = NULL; path_label = NULL;
+    ++fb->index_request_generation;
+    atomic_store(&fb->index_worker_cancel, true);
+    if (fb->index_worker_result) { file_browser_index_close(fb->index_worker_result); fb->index_worker_result = NULL; }
+    if (fb->current_index) { file_browser_index_close(fb->current_index); fb->current_index = NULL; }
+    bool worker_frees = atomic_load(&fb->index_worker_running);
+    fb->deleted = worker_frees;
     pthread_mutex_unlock(&index_worker_mu);
+    if (!worker_frees) free(fb);
 }
 
 /* Builds the playlist from every playable file in the current directory
  * (in the same sorted order they're displayed) and reports which position
  * within that file-only list corresponds to `file_display_index`. */
-static void build_playlist_and_select(int file_display_index) {
+static void build_playlist_and_select(file_browser_t * fb, int file_display_index) {
     dir_entry_t selected_entry;
-    if (!index_entry_at(current_index, (unsigned)file_display_index, &selected_entry)) return;
-    if (index_select_cb) {
-        unsigned playable = current_index->playable_count;
+    if (!index_entry_at(fb->current_index, (unsigned)file_display_index, &selected_entry)) return;
+    if (fb->callbacks.on_index_select) {
+        unsigned playable = fb->current_index->playable_count;
         unsigned selected = selected_entry.playable_ordinal >= 0 ? (unsigned)selected_entry.playable_ordinal : 0;
         file_browser_index_t *retained = NULL;
-        if (file_browser_index_retain(current_index, &retained)) index_select_cb(retained, playable, selected);
+        if (file_browser_index_retain(fb->current_index, &retained))
+            fb->callbacks.on_index_select(retained, playable, selected);
         return;
     }
     dir_entry_t *all = NULL;
-    int all_count = scan_directory(current_dir, &all, sort_mode_snapshot(), cue_select_cb != NULL);
+    int all_count = scan_directory(fb->current_dir, &all, sort_mode_snapshot(), fb->list_flags & LIST_CUE);
     if (all_count <= 0) { free(all); return; }
     char ** playlist = malloc(sizeof(char *) * (size_t) all_count);
     if (!playlist) { free(all); return; }
@@ -696,7 +762,7 @@ static void build_playlist_and_select(int file_display_index) {
         if (strcmp(all[i].name, selected_entry.name) == 0) selected = count;
 
         char full_path[PATH_MAX];
-        snprintf(full_path, sizeof(full_path), "%s/%s", current_dir, all[i].name);
+        snprintf(full_path, sizeof(full_path), "%s/%s", fb->current_dir, all[i].name);
         playlist[count] = strdup(full_path);
         if (!playlist[count]) { for (int j = 0; j < count; j++) free(playlist[j]); free(playlist); free(all); return; }
         count++;
@@ -709,11 +775,7 @@ static void build_playlist_and_select(int file_display_index) {
         return;
     }
 
-    select_cb(playlist, count, selected);
-}
-
-void file_browser_set_index_select_cb(file_browser_index_select_cb_t callback) {
-    index_select_cb = callback;
+    fb->callbacks.on_select(playlist, count, selected);
 }
 
 file_browser_sort_mode_t file_browser_get_sort_mode(void) {
@@ -725,17 +787,18 @@ void file_browser_set_sort_mode(file_browser_sort_mode_t mode) {
     file_browser_sort_mode_t previous = sort_mode_snapshot();
     if (previous == mode) return;
     atomic_store_explicit(&current_sort_mode, mode, memory_order_release);
-    if (!list) return;
+    last_selected_row = -1;
     /* Ordering changed, so previously saved row and scroll offsets no longer
      * identify the same entries. Keep the current path and restart there. */
-    page_start = 0;
-    position_depth = 0;
-    position_overflow = 0;
-    restore_pending = false;
-    restore_scroll_y = 0;
-    last_selected_row = -1;
-    scan_current_dir();
-    rebuild_list();
+    for (file_browser_t * fb = browsers; fb; fb = fb->next) {
+        fb->page_start = 0;
+        fb->position_depth = 0;
+        fb->position_overflow = 0;
+        fb->restore_pending = false;
+        fb->restore_scroll_y = 0;
+        scan_current_dir(fb);
+        rebuild_list(fb);
+    }
 }
 
 bool file_browser_build_playlist_from_m3u(const char * m3u_path, char *** out_playlist, int * out_count) {
@@ -755,106 +818,171 @@ bool file_browser_build_playlist_from_m3u(const char * m3u_path, char *** out_pl
     return true;
 }
 
-bool file_browser_at_root(void) {
-    return strlen(current_dir) <= strlen(root_dir);
+static bool at_root(const file_browser_t * fb) {
+    return strlen(fb->current_dir) <= strlen(fb->root_dir);
 }
 
-void file_browser_go_up(void) {
-    char * last_slash = strrchr(current_dir, '/');
-    if (last_slash && strlen(current_dir) > strlen(root_dir)) {
+/* Steps current_dir up one level toward root_dir and rebuilds the list.
+ * No-op if already at root. */
+static void go_up(file_browser_t * fb) {
+    char * last_slash = strrchr(fb->current_dir, '/');
+    if (last_slash && !at_root(fb)) {
         *last_slash = '\0';
-        if (strlen(current_dir) < strlen(root_dir)) {
-            snprintf(current_dir, sizeof(current_dir), "%s", root_dir);
+        if (strlen(fb->current_dir) < strlen(fb->root_dir)) {
+            memcpy(fb->current_dir, fb->root_dir, sizeof(fb->current_dir));
         }
         bool restore = false;
-        if (position_overflow > 0) {
-            position_overflow--;
-            page_start = 0;
-        } else if (position_depth > 0) {
-            position_depth--;
-            page_start = position_stack[position_depth].page_start;
-            restore_scroll_y = position_stack[position_depth].scroll_y;
+        if (fb->position_overflow > 0) {
+            fb->position_overflow--;
+            fb->page_start = 0;
+        } else if (fb->position_depth > 0) {
+            fb->position_depth--;
+            fb->page_start = fb->position_stack[fb->position_depth].page_start;
+            fb->restore_scroll_y = fb->position_stack[fb->position_depth].scroll_y;
             restore = true;
         } else {
-            page_start = 0;
+            fb->page_start = 0;
         }
-        scan_current_dir();
-        restore_pending = restore;
-        restore_generation = index_request_generation;
-        rebuild_list();
+        scan_current_dir(fb);
+        fb->restore_pending = restore;
+        fb->restore_generation = fb->index_request_generation;
+        rebuild_list(fb);
     }
+}
+
+bool file_browser_go_up_for_screen(lv_obj_t * screen) {
+    for (file_browser_t * fb = browsers; fb; fb = fb->next) {
+        if (fb->screen != screen) continue;
+        if (fb->selecting) { file_browser_set_selecting(fb, false); return true; }
+        if (at_root(fb)) return false;
+        go_up(fb);
+        return true;
+    }
+    return false;
+}
+
+/* Rows are children of the list, whose user data is its browser. */
+static file_browser_t * browser_of(lv_event_t * e) {
+    return lv_obj_get_user_data(lv_obj_get_parent(lv_event_get_current_target_obj(e)));
 }
 
 static void up_click_cb(lv_event_t * e) {
-    (void) e;
-    file_browser_go_up();
+    go_up(browser_of(e));
 }
 
 static void page_click_cb(lv_event_t * e) {
+    file_browser_t * fb = browser_of(e);
     int delta = (int) (intptr_t) lv_event_get_user_data(e);
-    int next = page_start + delta;
+    int next = fb->page_start + delta;
     if (next < 0) next = 0;
-    if (next >= entry_count) next = entry_count > 0
-        ? ((entry_count - 1) / FILE_BROWSER_PAGE_SIZE) * FILE_BROWSER_PAGE_SIZE : 0;
-    if (next == page_start) return;
-    page_start = next;
-    if (!load_visible_entries()) {
-        atomic_store(&index_worker_error, true);
-        entry_count = -1;
+    if (next >= fb->entry_count) next = fb->entry_count > 0
+        ? ((fb->entry_count - 1) / FILE_BROWSER_PAGE_SIZE) * FILE_BROWSER_PAGE_SIZE : 0;
+    if (next == fb->page_start) return;
+    fb->page_start = next;
+    if (!load_visible_entries(fb)) {
+        atomic_store(&fb->index_worker_error, true);
+        fb->entry_count = -1;
     }
-    rebuild_list();
+    rebuild_list(fb);
+}
+
+/* Entries in the folder's index; entry_count is -1 after a read error. */
+static unsigned listed_count(const file_browser_t * fb) {
+    return fb->current_index ? fb->current_index->count : 0;
+}
+
+static bool is_selected(const file_browser_t * fb, unsigned ordinal) {
+    return fb->selected && (fb->selected[ordinal / 8] >> (ordinal % 8)) & 1u;
+}
+
+static void set_selected(file_browser_t * fb, unsigned ordinal, bool on) {
+    if (!fb->selected || is_selected(fb, ordinal) == on) return;
+    fb->selected[ordinal / 8] ^= (uint8_t) (1u << (ordinal % 8));
+    if (on) fb->selected_count++;
+    else fb->selected_count--;
+}
+
+/* Full rebuild for a mode change, at the same scroll offset. */
+static void rebuild_list_in_place(file_browser_t * fb) {
+    int32_t scroll_y = lv_obj_get_scroll_y(fb->list);
+    rebuild_list(fb);
+    lv_obj_update_layout(fb->list);
+    lv_obj_scroll_to_y(fb->list, scroll_y, LV_ANIM_OFF);
 }
 
 static void entry_click_cb(lv_event_t * e) {
+    file_browser_t * fb = browser_of(e);
     int index = (int) (intptr_t) lv_event_get_user_data(e);
     dir_entry_t clicked;
-    if (!index_entry_at(current_index, (unsigned)index, &clicked)) return;
+    if (!index_entry_at(fb->current_index, (unsigned)index, &clicked)) return;
 
+    if (fb->selecting) {
+        set_selected(fb, (unsigned) index, !is_selected(fb, (unsigned) index));
+        /* The check box is the row's last child. */
+        lv_obj_t * row = lv_event_get_current_target_obj(e);
+        lv_obj_delete(lv_obj_get_child(row, -1));
+        lv_obj_align(build_check_box(row, is_selected(fb, (unsigned) index)), LV_ALIGN_RIGHT_MID,
+                     -LIST_ROW_LABEL_INSET, 0);
+        notify_selection(fb);
+        return;
+    }
+
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/%s", fb->current_dir, clicked.name);
     if (clicked.is_dir) {
-        char new_dir[PATH_MAX];
-        snprintf(new_dir, sizeof(new_dir), "%s/%s", current_dir, clicked.name);
-        snprintf(current_dir, sizeof(current_dir), "%s", new_dir);
-        if (position_depth < FILE_BROWSER_POSITION_STACK) {
-            position_stack[position_depth].page_start = page_start;
-            position_stack[position_depth].scroll_y = list ? lv_obj_get_scroll_y(list) : 0;
-            position_depth++;
+        snprintf(fb->current_dir, sizeof(fb->current_dir), "%s", path);
+        if (fb->position_depth < FILE_BROWSER_POSITION_STACK) {
+            fb->position_stack[fb->position_depth].page_start = fb->page_start;
+            fb->position_stack[fb->position_depth].scroll_y = lv_obj_get_scroll_y(fb->list);
+            fb->position_depth++;
         } else {
-            position_overflow++;
+            fb->position_overflow++;
         }
-        restore_pending = false;
-        page_start = 0;
-        scan_current_dir();
-        rebuild_list();
+        fb->restore_pending = false;
+        fb->page_start = 0;
+        scan_current_dir(fb);
+        rebuild_list(fb);
     } else if (clicked.is_playlist) {
-        char m3u_path[PATH_MAX];
-        snprintf(m3u_path, sizeof(m3u_path), "%s/%s", current_dir, clicked.name);
-
         char ** playlist;
         int count;
-        if (file_browser_build_playlist_from_m3u(m3u_path, &playlist, &count)) {
-            snprintf(last_selected_dir, sizeof(last_selected_dir), "%s", current_dir);
+        if (file_browser_build_playlist_from_m3u(path, &playlist, &count)) {
+            snprintf(last_selected_dir, sizeof(last_selected_dir), "%s", fb->current_dir);
             last_selected_row = index;
-            select_cb(playlist, count, 0);
+            fb->callbacks.on_select(playlist, count, 0);
         }
     } else if (clicked.is_cue) {
-        char cue_path[PATH_MAX];
-        snprintf(cue_path, sizeof(cue_path), "%s/%s", current_dir, clicked.name);
-        snprintf(last_selected_dir, sizeof(last_selected_dir), "%s", current_dir);
+        snprintf(last_selected_dir, sizeof(last_selected_dir), "%s", fb->current_dir);
         last_selected_row = index;
-        cue_select_cb(cue_path);
+        fb->callbacks.on_cue_select(path);
+    } else if (clicked.is_other) {
+        fb->callbacks.on_open_other(path);
     } else {
-        snprintf(last_selected_dir, sizeof(last_selected_dir), "%s", current_dir);
+        snprintf(last_selected_dir, sizeof(last_selected_dir), "%s", fb->current_dir);
         last_selected_row = index;
-        build_playlist_and_select(index);
+        build_playlist_and_select(fb, index);
     }
+}
+
+/* A long press starts selection mode with the pressed row selected. */
+static void entry_long_press_cb(lv_event_t * e) {
+    file_browser_t * fb = browser_of(e);
+    if (fb->selecting || !fb->selected) return;
+    set_selected(fb, (unsigned) (intptr_t) lv_event_get_user_data(e), true);
+    fb->selecting = true;
+    /* The rebuild deletes the pressed row; its release must not click
+     * whatever row takes its place. */
+    lv_indev_wait_release(lv_indev_active());
+    rebuild_list_in_place(fb);
+    notify_selection(fb);
 }
 
 /* A single touch-list row, shared geometry/style with every other row list
  * in the app (LIST_ROW_* in screen_builders.h). `icon_asset` is NULL for a
  * plain file (just an indented label); directories and playlists each get
- * their own real icon. */
-static lv_obj_t * add_file_row(const char * label_text, const char * icon_asset, lv_event_cb_t cb, void * user_data) {
-    lv_obj_t * row = lv_obj_create(list);
+ * their own real icon. In selection mode entry rows end in a check box. */
+static lv_obj_t * add_file_row(file_browser_t * fb, const char * label_text, const char * icon_asset,
+                               lv_event_cb_t cb, void * user_data, bool check_box, bool checked) {
+    lv_obj_t * row = lv_obj_create(fb->list);
     /* Files uses the same font-aware ordinary row height as other native
      * lists, including the music browser. */
     lv_obj_set_size(row, LIST_ROW_WIDTH_WIDE, ui_list_row_height());
@@ -869,16 +997,19 @@ static lv_obj_t * add_file_row(const char * label_text, const char * icon_asset,
     lv_obj_set_style_text_font(label, &LIST_ROW_FONT, 0);
     lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
 
+    int32_t check_space = check_box ? BOARD_SCALE_PX(40) : 0;
     if (icon_asset) {
         lv_obj_t * icon = lv_image_create(row);
         lv_image_set_src(icon, asset_path(icon_asset));
         lv_obj_align(icon, LV_ALIGN_LEFT_MID, 16, 0);
         lv_obj_align(label, LV_ALIGN_LEFT_MID, 72, 0);
-        lv_obj_set_width(label, LIST_ROW_WIDTH_WIDE - BOARD_SCALE_PX(88));
+        lv_obj_set_width(label, LIST_ROW_WIDTH_WIDE - BOARD_SCALE_PX(88) - check_space);
     } else {
         lv_obj_align(label, LV_ALIGN_LEFT_MID, LIST_ROW_LABEL_INSET, 0);
-        lv_obj_set_width(label, LIST_ROW_WIDTH_WIDE - 2 * LIST_ROW_LABEL_INSET);
+        lv_obj_set_width(label, LIST_ROW_WIDTH_WIDE - 2 * LIST_ROW_LABEL_INSET - check_space);
     }
+    if (check_box)
+        lv_obj_align(build_check_box(row, checked), LV_ALIGN_RIGHT_MID, -LIST_ROW_LABEL_INSET, 0);
 
     if (cb) {
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
@@ -887,51 +1018,57 @@ static lv_obj_t * add_file_row(const char * label_text, const char * icon_asset,
     return row;
 }
 
-static void rebuild_list(void) {
-    lv_obj_clean(list);
-    lv_label_set_text(path_label, current_dir);
-    if (entry_count < 0) {
-            add_file_row(atomic_load(&index_worker_oversized)
-                         ? TR("Folder too large to index (tap Back)")
-                         : TR("Unable to read folder (tap Back and retry)"), NULL, NULL, NULL);
+static void rebuild_list(file_browser_t * fb) {
+    lv_obj_clean(fb->list);
+    lv_label_set_text(fb->path_label, fb->current_dir);
+    if (fb->entry_count < 0) {
+        add_file_row(fb, atomic_load(&fb->index_worker_oversized)
+                     ? TR("Folder too large to index (tap Back)")
+                     : TR("Unable to read folder (tap Back and retry)"), NULL, NULL, NULL, false, false);
         return;
     }
 
-    if (strlen(current_dir) > strlen(root_dir)) {
-        add_file_row(TR("Back"), "sub_back/btn_back.png", up_click_cb, NULL);
+    if (!at_root(fb)) {
+        add_file_row(fb, TR("Back"), "sub_back/btn_back.png", up_click_cb, NULL, false, false);
     }
 
-    if (page_start > 0) {
-        add_file_row(TR("Previous"), "sub_back/btn_back.png", page_click_cb,
-                     (void *) (intptr_t) -FILE_BROWSER_PAGE_SIZE);
+    if (fb->page_start > 0) {
+        add_file_row(fb, TR("Previous"), "sub_back/btn_back.png", page_click_cb,
+                     (void *) (intptr_t) -FILE_BROWSER_PAGE_SIZE, false, false);
     }
 
-    if (entry_count == 0) {
-        build_list_message(list,
-                           strlen(current_dir) > strlen(root_dir)
-                               ? TR("No playable files here")
-                               : TR("No playable audio files found"),
-                           TR("Open a folder containing supported audio files."));
+    if (fb->entry_count == 0) {
+        if (fb->list_flags & LIST_ALL_FILES)
+            build_list_message(fb->list, TR("This folder is empty"), NULL);
+        else
+            build_list_message(fb->list,
+                               !at_root(fb)
+                                   ? TR("No playable files here")
+                                   : TR("No playable audio files found"),
+                               TR("Open a folder containing supported audio files."));
         return;
     }
 
-    int page_end = page_start + FILE_BROWSER_PAGE_SIZE;
-    if (page_end > entry_count) page_end = entry_count;
-    for (int i = page_start; i < page_end; i++) {
+    int page_end = fb->page_start + FILE_BROWSER_PAGE_SIZE;
+    if (page_end > fb->entry_count) page_end = fb->entry_count;
+    for (int i = fb->page_start; i < page_end; i++) {
         const char * icon_asset = NULL;
-        dir_entry_t *entry = &entries[i - page_start];
+        dir_entry_t *entry = &fb->entries[i - fb->page_start];
         if (entry->is_dir) icon_asset = "touch_list/list_folder.png";
         else if (entry->is_playlist) icon_asset = "sub_back/btn_playlist.png";
         /* No dedicated cue-sheet icon asset exists in this theme -- reuses
          * the playlist one, the closest existing match semantically (both
          * represent "tap to see a list of tracks", not a single song). */
         else if (entry->is_cue) icon_asset = "sub_back/btn_playlist.png";
-        add_file_row(entry->name, icon_asset, entry_click_cb, (void *) (intptr_t) i);
+        lv_obj_t * row = add_file_row(fb, entry->name, icon_asset, entry_click_cb, (void *) (intptr_t) i,
+                                      fb->selecting, is_selected(fb, (unsigned) i));
+        if (fb->callbacks.on_selection)
+            lv_obj_add_event_cb(row, entry_long_press_cb, LV_EVENT_LONG_PRESSED, (void *) (intptr_t) i);
     }
 
-    if (page_end < entry_count) {
-        add_file_row(TR("Next"), "playing_plane/btn_next.png", page_click_cb,
-                     (void *) (intptr_t) FILE_BROWSER_PAGE_SIZE);
+    if (page_end < fb->entry_count) {
+        add_file_row(fb, TR("Next"), "playing_plane/btn_next.png", page_click_cb,
+                     (void *) (intptr_t) FILE_BROWSER_PAGE_SIZE, false, false);
     }
 }
 
@@ -1035,29 +1172,33 @@ bool file_browser_walk_all_songs_excluding_top_level(const char * root, const ch
     return completed;
 }
 
-void file_browser_init(lv_obj_t * parent, const char * root, file_browser_select_cb_t on_select,
-                        file_browser_cue_select_cb_t on_cue_select) {
-    lv_obj_add_event_cb(parent, browser_delete_cb, LV_EVENT_DELETE, NULL);
-    select_cb = on_select;
-    cue_select_cb = on_cue_select;
-    snprintf(root_dir, sizeof(root_dir), "%s", root);
-    snprintf(current_dir, sizeof(current_dir), "%s", root);
-    page_start = 0;
-    position_depth = position_overflow = 0;
-    restore_pending = false;
+file_browser_t * file_browser_create(lv_obj_t * parent, const char * root,
+                                     const file_browser_options_t * options) {
+    file_browser_t * fb = calloc(1, sizeof(*fb));
+    if (!fb) return NULL;
+    fb->screen = parent;
+    fb->callbacks = *options;
+    fb->list_flags = (options->on_cue_select ? LIST_CUE : 0u) | (options->on_open_other ? LIST_ALL_FILES : 0u);
+    snprintf(fb->root_dir, sizeof(fb->root_dir), "%s", root);
+    snprintf(fb->current_dir, sizeof(fb->current_dir), "%s", root);
+    fb->next = browsers;
+    browsers = fb;
+    lv_obj_add_event_cb(parent, browser_delete_cb, LV_EVENT_DELETE, fb);
 
-    path_label = lv_label_create(parent);
-    lv_obj_set_style_text_color(path_label, lv_color_make(180, 180, 180), 0);
-    lv_obj_set_width(path_label, lv_display_get_horizontal_resolution(lv_display_get_default()) -
-                                 BOARD_SCALE_PX(20));
-    lv_label_set_long_mode(path_label, LV_LABEL_LONG_DOT);
-    lv_obj_set_style_text_font(path_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
-    lv_obj_align(path_label, LV_ALIGN_TOP_LEFT, 10, STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT + 4);
-    lv_label_set_text(path_label, current_dir);
+    fb->path_label = lv_label_create(parent);
+    lv_obj_set_style_text_color(fb->path_label, lv_color_make(180, 180, 180), 0);
+    lv_obj_set_width(fb->path_label, lv_display_get_horizontal_resolution(lv_display_get_default()) -
+                                     BOARD_SCALE_PX(20));
+    lv_label_set_long_mode(fb->path_label, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_font(fb->path_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+    lv_obj_align(fb->path_label, LV_ALIGN_TOP_LEFT, 10, STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT + 4);
+    lv_label_set_text(fb->path_label, fb->current_dir);
 
     /* Plain flex-column container, not lv_list -- rows are hand-built pill
      * shapes (add_file_row), not lv_list's own button/text item API. */
-    list = lv_obj_create(parent);
+    lv_obj_t * list = lv_obj_create(parent);
+    fb->list = list;
+    lv_obj_set_user_data(list, fb);
     lv_obj_set_size(list, lv_pct(100),
                     lv_display_get_vertical_resolution(lv_display_get_default()) - STATUS_BAR_CLEARANCE -
                         TITLE_ROW_HEIGHT - (lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT)) +
@@ -1083,21 +1224,123 @@ void file_browser_init(lv_obj_t * parent, const char * root, file_browser_select
      * keeps this correct if a future parent is narrower than the display. */
     lv_obj_set_flex_align(list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
 
-    if (!index_poll_timer) index_poll_timer = lv_timer_create(index_poll_cb, 100, NULL);
-    scan_current_dir();
-    rebuild_list();
+    fb->index_poll_timer = lv_timer_create(index_poll_cb, 100, fb);
+    scan_current_dir(fb);
+    rebuild_list(fb);
+    return fb;
 }
 
-/* Resets the browser to root and refreshes the directory listing on SD card
+/* Resets each browser to root and refreshes the directory listing on SD card
  * hotplug events (mount/unmount) to avoid displaying stale or removed files. */
 void file_browser_reset_to_root(void) {
-    if (!list) return; /* gui_library_get_files_screen() not built yet -- nothing to refresh */
-    snprintf(current_dir, sizeof(current_dir), "%s", root_dir);
-    page_start = 0;
-    position_depth = position_overflow = 0;
-    restore_pending = false;
-    scan_current_dir();
-    rebuild_list();
+    for (file_browser_t * fb = browsers; fb; fb = fb->next) {
+        snprintf(fb->current_dir, sizeof(fb->current_dir), "%s", fb->root_dir);
+        fb->page_start = 0;
+        fb->position_depth = fb->position_overflow = 0;
+        fb->restore_pending = false;
+        scan_current_dir(fb);
+        rebuild_list(fb);
+    }
+}
+
+void file_browser_refresh(file_browser_t * fb) {
+    int page_start = fb->page_start;
+    int32_t scroll_y = lv_obj_get_scroll_y(fb->list);
+    scan_current_dir(fb);
+    fb->page_start = page_start;
+    fb->restore_pending = true;
+    fb->restore_scroll_y = scroll_y;
+    fb->restore_generation = fb->index_request_generation;
+    rebuild_list(fb);
+}
+
+bool file_browser_open_dir(file_browser_t * fb, const char * dir) {
+    size_t root_len = strlen(fb->root_dir);
+    size_t len = strlen(dir);
+    while (len > root_len && dir[len - 1] == '/') len--;
+    struct stat st;
+    char path[PATH_MAX];
+    if (len >= sizeof(path)) return false;
+    memcpy(path, dir, len);
+    path[len] = '\0';
+    if (!file_op_path_in_root(path, fb->root_dir) || stat(path, &st) != 0 || !S_ISDIR(st.st_mode))
+        return false;
+    memcpy(fb->current_dir, path, len + 1);
+    fb->page_start = 0;
+    fb->position_depth = fb->position_overflow = 0;
+    fb->restore_pending = false;
+    scan_current_dir(fb);
+    rebuild_list(fb);
+    return true;
+}
+
+void file_browser_refresh_all(void) {
+    for (file_browser_t * fb = browsers; fb; fb = fb->next) file_browser_refresh(fb);
+}
+
+const char * file_browser_current_dir(const file_browser_t * fb) {
+    return fb->current_dir;
+}
+
+void file_browser_set_show_hidden(file_browser_t * fb, bool show) {
+    if (show == file_browser_shows_hidden(fb)) return;
+    fb->list_flags ^= LIST_HIDDEN;
+    file_browser_refresh(fb);
+}
+
+bool file_browser_shows_hidden(const file_browser_t * fb) {
+    return fb->list_flags & LIST_HIDDEN;
+}
+
+bool file_browser_is_selecting(const file_browser_t * fb) {
+    return fb->selecting;
+}
+
+void file_browser_set_selecting(file_browser_t * fb, bool selecting) {
+    if (!fb->selected) selecting = false;
+    if (!selecting && fb->selected) {
+        memset(fb->selected, 0, ((size_t) listed_count(fb) + 7) / 8);
+        fb->selected_count = 0;
+    }
+    if (fb->selecting == selecting) return;
+    fb->selecting = selecting;
+    rebuild_list_in_place(fb);
+    notify_selection(fb);
+}
+
+void file_browser_select_all(file_browser_t * fb) {
+    if (!fb->selected) return;
+    for (unsigned i = 0; i < listed_count(fb); i++) set_selected(fb, i, true);
+    fb->selecting = true;
+    rebuild_list_in_place(fb);
+    notify_selection(fb);
+}
+
+unsigned file_browser_selected_count(const file_browser_t * fb) {
+    return fb->selected_count;
+}
+
+bool file_browser_selected_paths(const file_browser_t * fb, char *** out_paths, int * out_count) {
+    *out_paths = NULL;
+    *out_count = 0;
+    if (!fb->selected_count) return false;
+    char ** paths = calloc(fb->selected_count, sizeof(*paths));
+    if (!paths) return false;
+    int count = 0;
+    for (unsigned i = 0; i < listed_count(fb) && count < (int) fb->selected_count; i++) {
+        if (!is_selected(fb, i)) continue;
+        char path[PATH_MAX];
+        if (!file_browser_index_path_at(fb->current_index, i, path, sizeof(path)) ||
+            !(paths[count] = strdup(path))) {
+            for (int j = 0; j < count; j++) free(paths[j]);
+            free(paths);
+            return false;
+        }
+        count++;
+    }
+    *out_paths = paths;
+    *out_count = count;
+    return true;
 }
 
 const char * file_browser_get_last_selected_dir(void) {
@@ -1120,7 +1363,7 @@ bool file_browser_build_playlist_for_path(const char * path, char *** out_playli
     dir_path[dir_len] = '\0';
 
     dir_entry_t * scanned = NULL;
-    int scanned_count = scan_directory(dir_path, &scanned, sort_mode_snapshot(), true);
+    int scanned_count = scan_directory(dir_path, &scanned, sort_mode_snapshot(), LIST_CUE);
     if (scanned_count < 0) return false;
 
     char ** playlist = malloc(sizeof(char *) * (size_t) (scanned_count > 0 ? scanned_count : 1));

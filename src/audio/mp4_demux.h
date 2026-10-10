@@ -23,14 +23,17 @@ bool mp4_demux_peek_codec(const char * path, char out_fourcc[5]);
  * and restores its original position without taking ownership. */
 bool mp4_demux_peek_codec_stream(FILE * stream, char out_fourcc[5]);
 
-/* Forward-only top-level scan. Does not take ownership of file. On success
- * *out_bytes is NULL when moov is larger than 4 MiB (the caller keeps
- * ordinary IO) or a malloc'd span of moov, extended back to offset 0 when
- * that prefix was already read without a backward seek. *out_offset is the
- * file offset of the first byte. False means no moov or a read failed, and
- * *out_bytes is NULL. */
-bool mp4_cache_moov_prefix(FILE * file, uint8_t ** out_bytes, uint64_t * out_offset,
-                           uint64_t * out_length);
+/* A file range copied by mp4_cache_moov(); copies are concatenated in the
+ * returned buffer in this (file) order. */
+typedef struct { uint64_t offset; uint64_t length; } mp4_span_t;
+
+/* Forward-only top-level scan that copies what the demuxer will parse:
+ * small boxes before moov, and moov whole when it fits 4 MiB, else a sparse
+ * copy (box headers, small boxes, first bytes of large ones). Does not take
+ * ownership of file. On success *out_bytes and *out_spans are malloc'd (or
+ * NULL with *out_count 0 when nothing was copied). False means no moov or a
+ * read failed, with nothing returned. */
+bool mp4_cache_moov(FILE * file, uint8_t ** out_bytes, mp4_span_t ** out_spans, size_t * out_count);
 
 /* 4-character codec identifier from the sample description, e.g. "alac" or
  * "mp4a" (AAC). Not null-terminated by convention, so this returns exactly

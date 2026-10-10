@@ -1,6 +1,8 @@
 #include "gui_plugins.h"
 #include "i18n.h"
 #include "gui.h"
+#include "gui_file_manager.h"
+#include "file_browser.h"
 #include "gui_theme.h"
 #include "gui_notifications.h"
 #include "gui_library.h"
@@ -16,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 
 extern lv_style_t list_row_style;
@@ -60,6 +63,189 @@ static lv_obj_t * plugin_list_lists[PLUGIN_LIST_SCREEN_POOL_SIZE];
 static int plugin_list_pool_next = 0;
 static int plugin_list_selected_indices[PLUGIN_LIST_SCREEN_POOL_SIZE];
 
+/* A plugin progress overlay is deliberately independent of navigation: a
+ * download can continue while the user dismisses this small status card. */
+static lv_obj_t * plugin_progress_card;
+static lv_obj_t * plugin_progress_title;
+static lv_obj_t * plugin_progress_message;
+static lv_obj_t * plugin_progress_bar;
+static lv_obj_t * plugin_progress_percent;
+static int plugin_progress_percent_value = INT_MIN;
+
+static bool plugin_progress_percent_valid(int percent) {
+    return percent == -1 || (percent >= 0 && percent <= 100);
+}
+
+static void plugin_progress_bar_anim(void * object, int32_t start) {
+    if (!object) return;
+    lv_bar_set_start_value(object, start, LV_ANIM_OFF);
+    lv_bar_set_value(object, start + 20, LV_ANIM_OFF);
+}
+
+static void plugin_progress_card_delete_cb(lv_event_t * event) {
+    if (lv_event_get_code(event) != LV_EVENT_DELETE || plugin_progress_card != lv_event_get_target(event)) return;
+    lv_obj_t * bar = plugin_progress_bar;
+    if (bar) lv_anim_delete(bar, plugin_progress_bar_anim);
+    plugin_progress_card = NULL;
+    plugin_progress_title = NULL;
+    plugin_progress_message = NULL;
+    plugin_progress_bar = NULL;
+    plugin_progress_percent = NULL;
+    plugin_progress_percent_value = INT_MIN;
+}
+
+void gui_plugin_close_progress(void) {
+    lv_obj_t * card = plugin_progress_card;
+    lv_obj_t * bar = plugin_progress_bar;
+    if (bar) lv_anim_delete(bar, plugin_progress_bar_anim);
+    plugin_progress_card = NULL;
+    plugin_progress_title = NULL;
+    plugin_progress_message = NULL;
+    plugin_progress_bar = NULL;
+    plugin_progress_percent = NULL;
+    plugin_progress_percent_value = INT_MIN;
+    if (card) lv_obj_delete(card);
+}
+
+bool gui_plugin_progress_is_visible(void) {
+    return plugin_progress_card != NULL;
+}
+
+static void plugin_progress_dismiss_cb(lv_event_t * event) {
+    if (lv_event_get_code(event) == LV_EVENT_CLICKED) gui_plugin_close_progress();
+}
+
+static void plugin_progress_set_percent(int percent) {
+    if (plugin_progress_percent_value == percent) return;
+    plugin_progress_percent_value = percent;
+    lv_anim_delete(plugin_progress_bar, plugin_progress_bar_anim);
+    if (percent < 0) {
+        lv_obj_add_flag(plugin_progress_percent, LV_OBJ_FLAG_HIDDEN);
+        lv_bar_set_mode(plugin_progress_bar, LV_BAR_MODE_RANGE);
+        lv_bar_set_start_value(plugin_progress_bar, 0, LV_ANIM_OFF);
+        lv_bar_set_value(plugin_progress_bar, 20, LV_ANIM_OFF);
+        lv_anim_t anim;
+        lv_anim_init(&anim);
+        lv_anim_set_var(&anim, plugin_progress_bar);
+        lv_anim_set_exec_cb(&anim, plugin_progress_bar_anim);
+        lv_anim_set_values(&anim, 0, 80);
+        lv_anim_set_duration(&anim, 1100);
+        lv_anim_set_playback_duration(&anim, 1100);
+        lv_anim_set_repeat_count(&anim, LV_ANIM_REPEAT_INFINITE);
+        lv_anim_set_path_cb(&anim, lv_anim_path_ease_in_out);
+        lv_anim_start(&anim);
+    } else {
+        lv_bar_set_mode(plugin_progress_bar, LV_BAR_MODE_NORMAL);
+        char text[16];
+        snprintf(text, sizeof(text), "%d%%", percent);
+        lv_label_set_text(plugin_progress_percent, text);
+        lv_obj_remove_flag(plugin_progress_percent, LV_OBJ_FLAG_HIDDEN);
+        lv_bar_set_value(plugin_progress_bar, percent, LV_ANIM_OFF);
+    }
+}
+
+static void plugin_progress_set_message(const char * message) {
+    char bounded[768];
+    snprintf(bounded, sizeof(bounded), "%s", message ? message : "");
+    lv_label_set_text(plugin_progress_message, bounded);
+}
+
+bool gui_plugin_show_progress(const char * title, const char * message, int percent) {
+    if (!plugin_progress_percent_valid(percent)) return false;
+    lv_display_t * display = lv_display_get_default();
+    if (!display || !lv_layer_top()) return false;
+    int32_t screen_w = lv_display_get_horizontal_resolution(display);
+    if (screen_w <= 0 || lv_display_get_vertical_resolution(display) <= 0) return false;
+    gui_plugin_close_progress();
+
+    int32_t margin = BOARD_SCALE_PX(16);
+    int32_t card_w = screen_w - margin * 2;
+    int32_t preferred_w = BOARD_SCALE_PX(420);
+    if (card_w > preferred_w) card_w = preferred_w;
+    if (card_w < BOARD_SCALE_PX(180)) card_w = screen_w;
+
+    lv_obj_t * card = lv_obj_create(lv_layer_top());
+    if (!card) return false;
+    plugin_progress_card = card;
+    lv_obj_add_event_cb(card, plugin_progress_card_delete_cb, LV_EVENT_DELETE, NULL);
+    lv_obj_add_style(card, &style_theme_card_bg, 0);
+    lv_obj_set_width(card, card_w);
+    lv_obj_set_height(card, LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_all(card, BOARD_SCALE_PX(16), 0);
+    lv_obj_set_style_pad_row(card, BOARD_SCALE_PX(8), 0);
+    lv_obj_set_style_radius(card, BOARD_SCALE_PX(14), 0);
+    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
+    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(card, LV_ALIGN_BOTTOM_MID, 0, -HOME_INDICATOR_CONTENT_INSET);
+
+    lv_obj_t * header = lv_obj_create(card);
+    lv_obj_set_width(header, LV_PCT(100));
+    lv_obj_set_height(header, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(header, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(header, 0, 0);
+    lv_obj_set_style_pad_all(header, 0, 0);
+    lv_obj_set_flex_flow(header, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(header, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(header, LV_OBJ_FLAG_SCROLLABLE);
+
+    plugin_progress_title = lv_label_create(header);
+    lv_obj_add_style(plugin_progress_title, &style_theme_text_primary, 0);
+    const lv_font_t * title_font = gui_theme_font(GUI_FONT_ROLE_TITLE);
+    lv_obj_set_style_text_font(plugin_progress_title, title_font, 0);
+    lv_obj_set_height(plugin_progress_title, title_font->line_height + BOARD_SCALE_PX(2));
+    lv_obj_set_width(plugin_progress_title, 0);
+    lv_obj_set_flex_grow(plugin_progress_title, 1);
+    lv_label_set_long_mode(plugin_progress_title, LV_LABEL_LONG_DOT);
+    char bounded_title[256];
+    snprintf(bounded_title, sizeof(bounded_title), "%s", title ? title : "");
+    lv_label_set_text(plugin_progress_title, bounded_title);
+
+    lv_obj_t * close = lv_button_create(header);
+    lv_obj_set_size(close, BOARD_SCALE_PX(36), BOARD_SCALE_PX(36));
+    lv_obj_set_style_bg_opa(close, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(close, 0, 0);
+    lv_obj_add_event_cb(close, plugin_progress_dismiss_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t * close_label = lv_label_create(close);
+    lv_obj_add_style(close_label, &style_theme_text_muted, 0);
+    lv_obj_set_style_text_font(close_label, gui_theme_font(GUI_FONT_ROLE_TITLE), 0);
+    lv_label_set_text(close_label, "×");
+    lv_obj_center(close_label);
+
+    plugin_progress_message = lv_label_create(card);
+    lv_obj_add_style(plugin_progress_message, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(plugin_progress_message, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    lv_obj_set_width(plugin_progress_message, LV_PCT(100));
+    lv_obj_set_style_max_height(plugin_progress_message, BOARD_SCALE_PX(84), 0);
+    lv_label_set_long_mode(plugin_progress_message, LV_LABEL_LONG_WRAP);
+    plugin_progress_set_message(message);
+
+    plugin_progress_bar = lv_bar_create(card);
+    lv_obj_set_width(plugin_progress_bar, LV_PCT(100));
+    lv_obj_set_height(plugin_progress_bar, BOARD_SCALE_PX(12));
+    lv_bar_set_range(plugin_progress_bar, 0, 100);
+    lv_obj_add_style(plugin_progress_bar, &style_theme_card_bg, LV_PART_MAIN);
+    lv_obj_add_style(plugin_progress_bar, gui_theme_accent_style(), LV_PART_INDICATOR);
+
+    plugin_progress_percent = lv_label_create(card);
+    lv_obj_add_style(plugin_progress_percent, &style_theme_text_muted, 0);
+    lv_obj_set_style_text_font(plugin_progress_percent, gui_theme_font(GUI_FONT_ROLE_STATUS), 0);
+    lv_obj_set_width(plugin_progress_percent, LV_PCT(100));
+    lv_obj_set_style_text_align(plugin_progress_percent, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_style_bg_color(plugin_progress_bar,
+                              lv_obj_get_style_text_color(plugin_progress_percent, LV_PART_MAIN), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(plugin_progress_bar, LV_OPA_20, LV_PART_MAIN);
+    plugin_progress_set_percent(percent);
+    return true;
+}
+
+bool gui_plugin_update_progress(const char * message, int percent) {
+    if (!gui_plugin_progress_is_visible() || !plugin_progress_percent_valid(percent)) return false;
+    plugin_progress_set_message(message);
+    plugin_progress_set_percent(percent);
+    return true;
+}
+
 static void plugin_list_apply_selection(int slot, int selected_index) {
     lv_obj_t * list = plugin_list_lists[slot];
     uint32_t count = lv_obj_get_child_count(list);
@@ -80,9 +266,11 @@ static void plugin_list_row_click_cb(lv_event_t * e) {
     intptr_t packed = (intptr_t) lv_event_get_user_data(e);
     int slot = (int) (packed >> 16);
     int index = (int) (packed & 0xFFFF);
-    plugin_manager_list_item_selected(slot, index);
+    /* Lua may replace this screen in place. Apply the click highlight to
+     * the old rows before dispatch so a new page keeps its own selection. */
     if (plugin_list_selected_indices[slot] >= 0)
         plugin_list_apply_selection(slot, index);
+    plugin_manager_list_item_selected(slot, index);
 }
 
 /* A fixed single-line box is what makes LVGL's circular long mode a marquee
@@ -170,30 +358,35 @@ static void configure_plugin_row_label(lv_obj_t * row, lv_obj_t * label, int32_t
 
 int gui_plugin_show_list(const char * title, const char * const * labels, const char * const * icon_paths,
                           const char * const * text_sizes, const bool * wrap_labels, int32_t height, int32_t width,
-                          int selected_index, int count, int columns) {
+                          int selected_index, int count, int columns, int replace_slot) {
     /* Same liveness rule as the settings pool: plain round-robin reused a
      * slot still on the navigation stack after a few open/Back visits to a
      * submenu, replacing an ancestor's rows and callback. Only when every
      * slot is stacked (nesting deeper than the pool) is one overwritten. */
-    int slot = plugin_list_pool_next;
-    for (int i = 0; i < PLUGIN_LIST_SCREEN_POOL_SIZE; i++) {
-        int candidate = (plugin_list_pool_next + i) % PLUGIN_LIST_SCREEN_POOL_SIZE;
-        if (!gui_navigation_contains(plugin_list_screens[candidate])) {
-            slot = candidate;
-            break;
+    int slot = replace_slot;
+    if (replace_slot >= 0 && !gui_plugin_list_is_top(replace_slot)) return -1;
+    if (replace_slot < 0) {
+        slot = plugin_list_pool_next;
+        for (int i = 0; i < PLUGIN_LIST_SCREEN_POOL_SIZE; i++) {
+            int candidate = (plugin_list_pool_next + i) % PLUGIN_LIST_SCREEN_POOL_SIZE;
+            if (!gui_navigation_contains(plugin_list_screens[candidate])) {
+                slot = candidate;
+                break;
+            }
         }
+        plugin_list_pool_next = (slot + 1) % PLUGIN_LIST_SCREEN_POOL_SIZE;
     }
-    plugin_list_pool_next = (slot + 1) % PLUGIN_LIST_SCREEN_POOL_SIZE;
 
     lv_label_set_text(plugin_list_title_labels[slot], title);
     configure_plugin_screen_title(plugin_list_title_labels[slot]);
     lv_obj_t * list = plugin_list_lists[slot];
     lv_obj_clean(list);
+    lv_obj_scroll_to_y(list, 0, LV_ANIM_OFF);
 
     if (columns > 0 && count > 0) {
         plugin_grid_build(slot, list, labels, icon_paths, columns, count);
         plugin_list_apply_selection(slot, selected_index);
-        nav_push(plugin_list_screens[slot]);
+        if (replace_slot < 0) nav_push(plugin_list_screens[slot]);
         return slot;
     }
     /* A pooled screen may have been a grid last time. */
@@ -334,7 +527,7 @@ int gui_plugin_show_list(const char * title, const char * const * labels, const 
     }
 
     plugin_list_apply_selection(slot, selected_index);
-    nav_push(plugin_list_screens[slot]);
+    if (replace_slot < 0) nav_push(plugin_list_screens[slot]);
     return slot;
 }
 
@@ -534,24 +727,30 @@ void gui_plugin_seek(double seconds) {
     audio_seek(seconds);
 }
 
-static void plugin_set_volume(int percent, bool show_popup) {
+static void plugin_set_volume(int percent, bool show_popup, bool persist) {
     if (percent < 0) percent = 0;
     if (percent > 100) percent = 100;
 
     gui_player_set_volume_percent(percent);
     audio_set_volume((float) percent / 100.0f);
-    gui_player_remember_volume_percent(percent);
-    settings_save(&current_settings);
+    if (persist) {
+        gui_player_remember_volume_percent(percent);
+        settings_save(&current_settings);
+    }
     if (show_popup) show_volume_popup(percent);
     refresh_volume_topbar(percent);
 }
 
 void gui_plugin_set_volume(int percent) {
-    plugin_set_volume(percent, true);
+    plugin_set_volume(percent, true, true);
 }
 
 void gui_plugin_set_volume_silent(int percent) {
-    plugin_set_volume(percent, false);
+    plugin_set_volume(percent, false, true);
+}
+
+void gui_plugin_set_volume_transient(int percent, bool show_popup) {
+    plugin_set_volume(percent, show_popup, false);
 }
 
 bool gui_plugin_is_playing(void) {
@@ -1001,6 +1200,7 @@ void gui_plugins_init(void) {
  * doesn't iterate stale counts and call unregister_swipe_dead_zone() on
  * already-freed pointers. */
 void gui_plugins_teardown(void) {
+    gui_plugin_close_progress();
     for (int i = 0; i < PLUGIN_LIST_SCREEN_POOL_SIZE; i++) {
         if (plugin_list_screens[i]) { lv_obj_delete(plugin_list_screens[i]); plugin_list_screens[i] = NULL; }
     }
@@ -1070,4 +1270,12 @@ bool gui_plugin_refresh_library(void) {
     if (gui_library_has_background_work()) return false;
     start_library_rescan();
     return true;
+}
+
+bool gui_plugin_open_file_manager(const char * folder) {
+    return gui_file_manager_open(folder);
+}
+
+void gui_plugin_refresh_file_browsers(void) {
+    file_browser_refresh_all();
 }

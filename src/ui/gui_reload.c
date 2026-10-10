@@ -101,6 +101,7 @@
 #include "gui_network.h"
 #include "gui_settings.h"
 #include "gui_books.h"
+#include "gui_file_manager.h"
 #include "gui_queue.h"
 #include "gui_plugins.h"
 #include "plugin_manager.h"
@@ -184,6 +185,8 @@ static void gui_soft_reload_with_artwork(bool preserve_artwork) {
     gui_plugin_store_teardown();
     reload_diag("gui_lock_screen_teardown: before");
     gui_lock_screen_teardown();
+    reload_diag("gui_file_manager_teardown: before");
+    gui_file_manager_teardown();
     reload_diag("gui_books_teardown: before");
     gui_books_teardown();
     reload_diag("gui_queue_teardown: before");

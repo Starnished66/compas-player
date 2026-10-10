@@ -304,16 +304,8 @@ typedef struct {
      * for. */
     bool idle_suspend_enabled;
 
-    /* Internal bookkeeping, not exposed in any UI: whether this install has
-     * already gone through settings_load()'s one-time forced migration of
-     * the three fields above to their new (on) defaults. Lets an existing
-     * settings.txt saved by a version predating that default flip -- which
-     * would otherwise keep pinning idle_shutdown_enabled/idle_suspend_enabled/
-     * idle_shutdown_minutes back to their old off/off/30 values forever,
-     * since settings_save() always writes every field -- get force-migrated
-     * exactly once, the same way a brand new install already gets the new
-     * defaults from set_defaults(). A user who deliberately turns any of
-     * the three back off afterward is not touched again. */
+    /* Legacy on-disk marker retained for compatibility. It no longer causes
+     * settings_load() to rewrite saved idle-action choices. */
     bool idle_suspend_default_migrated;
 
     /* USB gadget mode (Storage/USB DAC/ADB): see usb_mode_control.h for
@@ -391,7 +383,7 @@ typedef struct {
     int font_size_tier;
 
     /* Settings -> Display -> Appearance -> Keyboard. Layout used by every text
-     * field and inline search: 0 = T9 keypad (default), 1 = QWERTY. Numeric
+     * field and inline search: 0 = T9 keypad, 1 = QWERTY (default). Numeric
      * fields always use the T9 numeric keypad. */
     int keyboard_layout;
 

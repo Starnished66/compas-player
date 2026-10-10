@@ -398,6 +398,8 @@ test_*.c
 !/scripts/test_theme_file.sh
 !/scripts/test_gui_themes.sh
 !/scripts/test_theme_store.sh
+!/scripts/test_mp4_compact.sh
+!/scripts/test_file_ops.sh
 !/scripts/test_image_thumb.sh
 /scripts/base_image/*smoke*
 /scripts/base_image/*harness.c
@@ -449,3 +451,22 @@ __pycache__/
 !/scripts/ape_parity_decode.c
 !/scripts/test_wavpack_caf_decoders.sh
 !/scripts/test_music_format_parity.sh
+
+# API 16 native Lua binding regression harness.
+!/scripts/test_plugin_observability_api.py
+
+!scripts/test_plugin_failed_load_rollback.py
+!scripts/test_plugin_file_manager_api.py
+
+# API 16 modeless progress and download snapshot regressions.
+!/scripts/test_plugin_progress_api.py
+!/scripts/test_plugin_progress_ui.py
+!/scripts/tests/
+/scripts/tests/*
+!/scripts/tests/progress_http_fixture.c
+
+# Local release assembly and settings regression harnesses.
+/hostonlybuild_test/
+!/scripts/test_weekly_release_identity.sh
+!/scripts/test_settings_defaults.sh
+!/src/core/settings_defaults_test.c

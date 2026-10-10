@@ -43,6 +43,7 @@ void refresh_artist_albums_now_playing_indicator(void);
 #include "tagcache.h"
 #include "ui_wake.h"
 #include "file_browser.h"
+#include "file_ops.h"
 #include "sd_card_identity.h"
 #include "playlist_files.h"
 #include "cue_parser.h"
@@ -549,8 +550,12 @@ static lv_obj_t * build_files_screen(void) {
     build_screen_header(scr, TR("Files"), generic_back_cb, NULL, NULL);
 
     file_browser_set_sort_mode((file_browser_sort_mode_t) current_settings.file_sort_mode);
-    file_browser_init(scr, MUSIC_ROOT_DIR, on_file_browser_selected, on_cue_file_selected);
-    file_browser_set_index_select_cb(on_file_browser_index_selected);
+    const file_browser_options_t options = {
+        .on_select = on_file_browser_selected,
+        .on_cue_select = on_cue_file_selected,
+        .on_index_select = on_file_browser_index_selected,
+    };
+    file_browser_create(scr, MUSIC_ROOT_DIR, &options);
 
     finalize_screen_navigation(scr);
     return scr;
@@ -5748,14 +5753,6 @@ static void invalidate_library_search_bindings(void) {
     }
 }
 
-/* screen_gesture_event_cb()'s back-swipe hook for the Files screen: steps up
- * one directory instead of popping the screen, unless already at root. */
-bool file_browser_back_if_not_root_for_screen(lv_obj_t * screen) {
-    if (screen != files_screen || file_browser_at_root()) return false;
-    file_browser_go_up();
-    return true;
-}
-
 static void search_btn_click_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     search_binding_id_t id = (search_binding_id_t) (intptr_t) lv_event_get_user_data(e);
@@ -6558,7 +6555,7 @@ static lv_obj_t * build_cue_tracks_screen(void) {
     return scr;
 }
 
-/* file_browser.h's on_cue_select callback -- see file_browser_init()'s own
+/* file_browser.h's on_cue_select callback -- see file_browser_create()'s own
  * comment. Parses fresh on every tap (a .cue sheet is tiny, no reason to
  * cache) and replaces whatever sheet this screen was last showing. */
 void on_cue_file_selected(const char * cue_path) {
@@ -7921,6 +7918,7 @@ static void library_prompt_prepare_cache_load_card(void) {
 }
 
 static void clear_removed_sd_library(void) {
+    file_op_cancel(); /* a File Manager copy must not continue on a new card */
     quiesce_album_artwork_workers();
     gui_player_handle_sd_unmount();
     metadata_db_close();
@@ -8307,6 +8305,10 @@ static void * sd_format_thread_func(void * arg) {
 static void start_sd_format(void) {
     if (sd_repair_in_progress()) {
         show_error_toast(TR("SD card repair is still running"));
+        return;
+    }
+    if (file_op_running()) {
+        show_error_toast(TR("Another file operation is still running"));
         return;
     }
     gui_library_invalidate_boot_prompt();

@@ -24,6 +24,32 @@ ffmpeg -v error -f lavfi -i 'anoisesrc=sample_rate=48000:duration=120:amplitude=
     -c:a aac -movflags +faststart -y "$build_dir/range-seek.m4a"
 ffmpeg -v error -f lavfi -i 'anoisesrc=sample_rate=48000:duration=120:amplitude=0.3' \
     -c:a aac -y "$build_dir/range-seek-moov-end.m4a"
+# Long audiobook shape: more than 65536 AAC frames (compact sample tables)
+# and a moov past the 4 MiB cache cap, so tables are read from the network.
+# The padding goes at the end of a trailing moov, leaving offsets valid.
+ffmpeg -v error -f lavfi -i 'sine=frequency=440:sample_rate=96000:duration=780' \
+    -ac 1 -c:a aac -b:a 32k -y "$build_dir/range-seek-long.m4a"
+python3 - "$build_dir/range-seek-long.m4a" <<'PY'
+import struct
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+data = bytearray(path.read_bytes())
+pos = 0
+while pos + 8 <= len(data):
+    size = struct.unpack_from(">I", data, pos)[0]
+    if data[pos + 4:pos + 8] == b"moov":
+        assert size > 8 and pos + size == len(data), "expected a trailing 32-bit moov"
+        pad = 5 * 1024 * 1024
+        struct.pack_into(">I", data, pos, size + pad)
+        data += struct.pack(">I4s", pad, b"free") + bytes(pad - 8)
+        break
+    pos += size
+else:
+    raise SystemExit("no moov")
+path.write_bytes(data)
+PY
 SDL_AUDIODRIVER=dummy "$build_dir/audio_http_range_seek_spec" \
     "$build_dir/range-seek.flac" "$build_dir/range-seek.mp3" "$build_dir/range-seek.m4a" \
-    "$build_dir/range-seek-moov-end.m4a"
+    "$build_dir/range-seek-moov-end.m4a" "$build_dir/range-seek-long.m4a"

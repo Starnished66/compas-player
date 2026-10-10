@@ -510,6 +510,22 @@ for bt_script in bt_init bt_resume; do
         echo "Base OTA is missing /usr/bin/$bt_script" >&2
         exit 1
     }
+    # The custom R1 radio backend serializes these entry points and invokes
+    # the preserved Bluetooth startup script. Check and tune that script.
+    bt_action=${bt_script#bt_}
+    if grep -Fxq "exec /usr/bin/compas-radio run-bt $bt_action \"\$@\"" "$bt_script_path"; then
+        cmp -s "$work/root/usr/bin/compas-radio" \
+            "$repo/firmware/kernel/wifi-experimental/rootfs/usr/bin/compas-radio" || {
+            echo "Base OTA has an unrecognized Compas radio backend" >&2
+            exit 1
+        }
+        sh -n "$bt_script_path"
+        bt_script_path="$work/root/usr/libexec/compas/radio-bt/$bt_script.vendor.sh"
+        [[ -f "$bt_script_path" ]] || {
+            echo "Base OTA is missing the delegated $bt_script startup script" >&2
+            exit 1
+        }
+    fi
     grep -q 'bluealsad -p a2dp-source' "$bt_script_path" || {
         echo "Base OTA /usr/bin/$bt_script does not start bluealsad as an A2DP source" >&2
         exit 1

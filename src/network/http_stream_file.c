@@ -3,6 +3,7 @@
 #endif
 #include "http_stream_file.h"
 #include <errno.h>
+#include <stdbool.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -10,12 +11,26 @@
 
 typedef struct {
     http_stream_t * stream;
-    uint8_t * span;
-    uint64_t span_off;
-    uint64_t span_len;
+    uint8_t * bytes;          /* spans' copies, concatenated in span order */
+    http_span_t * spans;
+    size_t span_count;
     int64_t pos;
     int64_t file_size;
 } span_cookie_t;
+
+/* First span ending after pos, and where its copy starts in bytes. */
+static const http_span_t * span_from(const span_cookie_t * cookie, uint64_t pos, size_t * at) {
+    size_t base = 0;
+    for (size_t i = 0; i < cookie->span_count; i++) {
+        const http_span_t * span = &cookie->spans[i];
+        if (pos < span->offset + span->length) {
+            *at = base;
+            return span;
+        }
+        base += (size_t) span->length;
+    }
+    return NULL;
+}
 
 static ssize_t span_read(void * opaque, char * buf, size_t bytes) {
     span_cookie_t * cookie = opaque;
@@ -23,18 +38,20 @@ static ssize_t span_read(void * opaque, char * buf, size_t bytes) {
     size_t total = 0;
     while (total < bytes && cookie->pos < cookie->file_size) {
         uint64_t pos = (uint64_t) cookie->pos;
-        if (cookie->span && pos >= cookie->span_off && pos < cookie->span_off + cookie->span_len) {
-            size_t into = (size_t) (pos - cookie->span_off);
-            size_t avail = (size_t) (cookie->span_len - into);
+        size_t at = 0;
+        const http_span_t * span = span_from(cookie, pos, &at);
+        if (span && pos >= span->offset) {
+            size_t into = (size_t) (pos - span->offset);
+            size_t avail = (size_t) (span->length - into);
             size_t take = bytes - total < avail ? bytes - total : avail;
-            memcpy(buf + total, cookie->span + into, take);
+            memcpy(buf + total, cookie->bytes + at + into, take);
             cookie->pos += (int64_t) take;
             total += take;
             continue;
         }
         size_t want = bytes - total;
-        if (cookie->span && pos < cookie->span_off) {
-            uint64_t gap = cookie->span_off - pos;
+        if (span) {
+            uint64_t gap = span->offset - pos;
             if (gap < want) want = (size_t) gap;
         }
         uint64_t tail = (uint64_t) cookie->file_size - pos;
@@ -77,35 +94,41 @@ static int span_seek(void * opaque, off64_t * offset, int origin) {
 
 static int span_close(void * opaque) {
     span_cookie_t * cookie = opaque;
-    free(cookie->span);
+    free(cookie->bytes);
+    free(cookie->spans);
     free(cookie);
     return 0;
 }
 
-FILE * http_stream_open_span_file(http_stream_t * stream, uint8_t * span,
-                                  uint64_t span_offset, uint64_t span_length) {
+FILE * http_stream_open_spans_file(http_stream_t * stream, uint8_t * bytes,
+                                   http_span_t * spans, size_t span_count) {
     int64_t length = stream ? http_stream_length(stream) : -1;
-    int bad_span = span_length && (length < 0 || span_offset > (uint64_t) length ||
-                                   span_length > (uint64_t) length - span_offset);
-    if (!span_length) { free(span); span = NULL; }
+    bool bad_span = span_count && (!bytes || !spans);
+    uint64_t end = 0;
+    for (size_t i = 0; i < span_count && !bad_span; i++) {
+        bad_span = !spans[i].length || spans[i].offset < end || length < 0 ||
+                   spans[i].offset > (uint64_t) length || spans[i].length > (uint64_t) length - spans[i].offset;
+        end = spans[i].offset + spans[i].length;
+    }
     if (!stream || !http_stream_can_seek(stream) || length < 0 || length > LONG_MAX || bad_span) {
-        free(span);
+        free(bytes);
+        free(spans);
         return NULL;
     }
     span_cookie_t * cookie = calloc(1, sizeof(*cookie));
-    if (!cookie) { free(span); return NULL; }
+    if (!cookie) { free(bytes); free(spans); return NULL; }
     cookie->stream = stream;
-    cookie->span = span;
-    cookie->span_off = span_offset;
-    cookie->span_len = span_length;
+    cookie->bytes = bytes;
+    cookie->spans = spans;
+    cookie->span_count = span_count;
     cookie->file_size = length;
     cookie_io_functions_t io = { .read = span_read, .seek = span_seek, .close = span_close };
     FILE * file = fopencookie(cookie, "rb", io);
-    if (!file) { free(span); free(cookie); return NULL; }
+    if (!file) { span_close(cookie); return NULL; }
     if (setvbuf(file, NULL, _IONBF, 0) != 0) { fclose(file); return NULL; }
     return file;
 }
 
 FILE * http_stream_open_file(http_stream_t * stream) {
-    return http_stream_open_span_file(stream, NULL, 0, 0);
+    return http_stream_open_spans_file(stream, NULL, NULL, 0);
 }

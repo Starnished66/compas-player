@@ -4,6 +4,7 @@
 #include "gui_theme.h"
 #include "gui_notifications.h"
 #include "gui_library.h"
+#include "file_browser.h"
 #include "gui_queue.h"
 #include "gui_player.h"
 #include "gui_plugins.h"
@@ -1307,7 +1308,7 @@ static void screen_gesture_event_cb(lv_event_t * e) {
         DB_LOG("GESTURE", "screen_gesture_event_cb RIGHT fired screen=%s",
                active_screen == gui_library_get_files_screen() ? "files" : "other");
         if (!search_close_if_active_for_screen(active_screen) &&
-            !file_browser_back_if_not_root_for_screen(active_screen)) {
+            !file_browser_go_up_for_screen(active_screen)) {
             nav_pop();
         }
         /* The finger is still down mid-gesture when the screen swaps out

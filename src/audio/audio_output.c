@@ -219,6 +219,7 @@ static bool open_device(unsigned int channels, unsigned int sample_rate, bool lo
         active_format = format;
         pthread_mutex_unlock(&state_mutex);
     } else if (target == OUTPUT_TARGET_BT) {
+        if (!bt_control_prepare_source_volume()) return false;
         /* Prefer the rate-pinned PCM so ALSA converts this track to whatever
          * the transport negotiated. Opening BlueALSA at the track's own rate
          * makes it recreate the A2DP transport, dropping the accessory. */

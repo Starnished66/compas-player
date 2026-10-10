@@ -29,7 +29,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: compas-player\n"
 "Report-Msgid-Bugs-To: none\n"
-"POT-Creation-Date: 2026-10-07 23:49-0600\n"
+"POT-Creation-Date: 2026-10-10 08:54-0600\n"
 "PO-Revision-Date: 2026-10-01 00:00+0000\n"
 "Last-Translator: Machine draft\n"
 "Language-Team: French\n"
@@ -194,6 +194,9 @@ msgstr "Retour"
 
 msgid "Previous"
 msgstr "Précédent"
+
+msgid "This folder is empty"
+msgstr "Ce dossier est vide"
 
 msgid "No playable files here"
 msgstr "Aucun fichier lisible ici"
@@ -411,34 +414,6 @@ msgstr "Activé"
 msgid "Off"
 msgstr "Désactivé"
 
-msgid "Screenshot saved"
-msgstr "Capture d'écran enregistrée"
-
-#, c-format
-msgid "Screenshot failed (%s)"
-msgstr "Échec de la capture (%s)"
-
-msgid "unknown"
-msgstr "inconnu"
-
-msgid "Cannot play folder"
-msgstr "Impossible de lire le dossier"
-
-msgid "Paused: headphones disconnected"
-msgstr "En pause : casque débranché"
-
-msgid "Queue checkpoint failed; storage may be read-only"
-msgstr "Échec de la sauvegarde de la file ; le stockage est peut-être en lecture seule"
-
-msgid "Playback history could not be saved"
-msgstr "Impossible d'enregistrer l'historique de lecture"
-
-msgid "Subsonic"
-msgstr "Subsonic"
-
-msgid "Stream Media"
-msgstr "Streaming"
-
 msgid "Could not open this file."
 msgstr "Impossible d'ouvrir ce fichier."
 
@@ -478,6 +453,171 @@ msgstr "Ouvrez un livre et touchez l'icône de signet pour l'enregistrer ici."
 
 msgid "Add .txt files to the Books folder, then refresh the library."
 msgstr "Ajoutez des fichiers .txt au dossier Livres, puis actualisez la bibliothèque."
+
+msgid "Screenshot saved"
+msgstr "Capture d'écran enregistrée"
+
+#, c-format
+msgid "Screenshot failed (%s)"
+msgstr "Échec de la capture (%s)"
+
+msgid "unknown"
+msgstr "inconnu"
+
+msgid "Cannot play folder"
+msgstr "Impossible de lire le dossier"
+
+msgid "Paused: headphones disconnected"
+msgstr "En pause : casque débranché"
+
+msgid "Queue checkpoint failed; storage may be read-only"
+msgstr "Échec de la sauvegarde de la file ; le stockage est peut-être en lecture seule"
+
+msgid "Playback history could not be saved"
+msgstr "Impossible d'enregistrer l'historique de lecture"
+
+msgid "Subsonic"
+msgstr "Subsonic"
+
+msgid "Stream Media"
+msgstr "Streaming"
+
+#
+msgid "Disconnect USB storage from the computer before changing files."
+msgstr "Déconnectez le stockage USB de l’ordinateur avant de modifier des fichiers."
+
+#
+msgid "File Manager"
+msgstr "Gestionnaire de fichiers"
+
+#, c-format
+msgid "%d selected"
+msgid_plural "%d selected"
+msgstr[0] "%d sélectionné"
+msgstr[1] "%d sélectionnés"
+
+#
+msgid "Could not open this file"
+msgstr "Impossible d’ouvrir ce fichier"
+
+msgid "This type of file cannot be opened"
+msgstr "Ce type de fichier ne peut pas être ouvert"
+
+#, c-format
+msgid ""
+"%u of %u\n"
+"%s"
+msgstr ""
+"%u sur %u\n"
+"%s"
+
+#
+msgid "Stopped"
+msgstr "Arrêté"
+
+#, c-format
+msgid "%u item could not be completed"
+msgid_plural "%u items could not be completed"
+msgstr[0] "%u élément n’a pas pu être traité"
+msgstr[1] "%u éléments n’ont pas pu être traités"
+
+msgid "Done. Update the music database to see the changes in your library."
+msgstr "Terminé. Mettez à jour la base de données musicale pour voir les changements dans votre bibliothèque."
+
+msgid "Done"
+msgstr "Terminé"
+
+#
+msgid "Stopping..."
+msgstr "Arrêt..."
+
+#
+msgid "Working..."
+msgstr "Traitement..."
+
+msgid "Stop"
+msgstr "Arrêter"
+
+msgid "Cancel"
+msgstr "Annuler"
+
+#
+msgid "Another file operation is still running"
+msgstr "Une autre opération sur les fichiers est en cours"
+
+msgid "Open the destination folder, then choose Paste here from the menu."
+msgstr "Ouvrez le dossier de destination, puis choisissez Coller ici dans le menu."
+
+#, c-format
+msgid "Move %d item?"
+msgid_plural "Move %d items?"
+msgstr[0] "Déplacer %d élément ?"
+msgstr[1] "Déplacer %d éléments ?"
+
+#, c-format
+msgid "Delete %d item?"
+msgid_plural "Delete %d items?"
+msgstr[0] "Supprimer %d élément ?"
+msgstr[1] "Supprimer %d éléments ?"
+
+msgid "Move"
+msgstr "Déplacer"
+
+msgid "Delete"
+msgstr "Supprimer"
+
+msgid "This includes the player's own data (.compas or .plugins). Deleting or moving it can break features, lose data such as settings and installed plugins, and may require a restart."
+msgstr "Cela inclut les données du lecteur (.compas ou .plugins). Les supprimer ou les déplacer peut casser des fonctions, faire perdre des données comme les réglages et les plugins installés, et nécessiter un redémarrage."
+
+#
+msgid "This cannot be undone."
+msgstr "Cette action est irréversible."
+
+msgid "That name cannot be used"
+msgstr "Ce nom ne peut pas être utilisé"
+
+#
+msgid "Could not rename"
+msgstr "Impossible de renommer"
+
+msgid "An item with that name already exists"
+msgstr "Un élément porte déjà ce nom"
+
+#
+msgid "Rename"
+msgstr "Renommer"
+
+#
+msgid "Could not create the folder"
+msgstr "Impossible de créer le dossier"
+
+msgid "Nothing to select here"
+msgstr "Rien à sélectionner ici"
+
+#
+msgid "New folder"
+msgstr "Nouveau dossier"
+
+msgid "Copy"
+msgstr "Copier"
+
+msgid "Select all"
+msgstr "Tout sélectionner"
+
+#, c-format
+msgid "Paste %d item here"
+msgid_plural "Paste %d items here"
+msgstr[0] "Coller %d élément ici"
+msgstr[1] "Coller %d éléments ici"
+
+msgid "Select"
+msgstr "Sélectionner"
+
+msgid "Hide hidden files"
+msgstr "Masquer les fichiers cachés"
+
+msgid "Show hidden files"
+msgstr "Afficher les fichiers cachés"
 
 msgid "Playlist created"
 msgstr "Playlist créée"
@@ -541,12 +681,6 @@ msgstr "Lire dans l'ordre"
 
 msgid "Shuffle from a random song"
 msgstr "Aléatoire depuis un morceau au hasard"
-
-msgid "Cancel"
-msgstr "Annuler"
-
-msgid "Done"
-msgstr "Terminé"
 
 msgid "Edit"
 msgstr "Modifier"
@@ -649,9 +783,6 @@ msgstr "Supprimer la playlist ?"
 
 msgid "The playlist file will be deleted. Music files are kept."
 msgstr "Le fichier de la playlist sera supprimé. Les fichiers musicaux sont conservés."
-
-msgid "Delete"
-msgstr "Supprimer"
 
 msgid "Delete Playlist"
 msgstr "Supprimer la playlist"
@@ -1644,6 +1775,18 @@ msgstr "Actualiser les plugins"
 msgid "Plugin Manager"
 msgstr "Gestionnaire de plugins"
 
+msgid "No entries to display"
+msgstr "Aucun élément à afficher"
+
+msgid "No plugin settings available"
+msgstr "Aucun réglage de plugin disponible"
+
+msgid "Plugin"
+msgstr "Plugin"
+
+msgid "Plugin Settings"
+msgstr "Réglages du plugin"
+
 #, fuzzy
 msgid "Download layouts"
 msgstr "Chargement des dispositions"
@@ -1803,18 +1946,6 @@ msgstr "Certains fichiers de plugin ont été modifiés sur la carte. Les rempla
 
 msgid "Plugin operation failed"
 msgstr "Échec de l'opération sur le plugin"
-
-msgid "No entries to display"
-msgstr "Aucun élément à afficher"
-
-msgid "No plugin settings available"
-msgstr "Aucun réglage de plugin disponible"
-
-msgid "Plugin"
-msgstr "Plugin"
-
-msgid "Plugin Settings"
-msgstr "Réglages du plugin"
 
 msgid "Played"
 msgstr "Lu"
@@ -2016,9 +2147,6 @@ msgstr "Scannez avec votre téléphone pour soutenir Compás Player sur PayPal"
 
 msgid "Compás Player"
 msgstr "Compás Player"
-
-msgid "Firmware Update"
-msgstr "Mise à jour du firmware"
 
 msgid "Developer Options"
 msgstr "Options pour développeurs"
@@ -2462,6 +2590,9 @@ msgstr "Réinitialisation d'usine"
 
 msgid "Maintenance"
 msgstr "Maintenance"
+
+msgid "Firmware Update"
+msgstr "Mise à jour du firmware"
 
 msgid "Plugins & Layouts"
 msgstr "Plugins et dispositions"

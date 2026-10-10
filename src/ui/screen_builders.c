@@ -2774,6 +2774,28 @@ lv_obj_t * add_pill_option_row(lv_obj_t * parent, const char * label_text, bool 
     return row;
 }
 
+lv_obj_t * build_check_box(lv_obj_t * parent, bool checked) {
+    lv_obj_t * box = lv_obj_create(parent);
+    lv_obj_set_size(box, BOARD_SCALE_PX(24), BOARD_SCALE_PX(24));
+    lv_obj_set_style_radius(box, BOARD_SCALE_PX(4), 0);
+    lv_obj_set_style_pad_all(box, 0, 0);
+    lv_obj_set_style_border_width(box, BOARD_SCALE_PX(2), 0);
+    lv_obj_set_style_border_color(box, accent_lv_color(), 0);
+    lv_obj_set_style_bg_opa(box, checked ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_color(box, accent_lv_color(), 0);
+    lv_obj_remove_flag(box, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    if (checked) {
+        lv_obj_t * check = lv_label_create(box);
+        lv_label_set_text(check, LV_SYMBOL_OK);
+        lv_color_t check_color = lv_color_brightness(accent_lv_color()) > 160
+            ? lv_color_hex(0x14170B) : lv_color_white();
+        lv_obj_set_style_text_color(check, check_color, 0);
+        lv_obj_center(check);
+        lv_obj_remove_flag(check, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    }
+    return box;
+}
+
 lv_obj_t * add_section_header(lv_obj_t * parent, const char * text) {
     lv_obj_t * label = lv_label_create(parent);
     lv_label_set_text(label, text);

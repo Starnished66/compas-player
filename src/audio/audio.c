@@ -455,11 +455,20 @@ static bool decoder_open_internal(decoder_t * dec, const char * path) {
                 return false;
             }
             FILE * probe = http_stream_open_file(dec->net_stream);
-            uint8_t * span = NULL;
-            uint64_t span_off = 0, span_len = 0;
-            bool have_moov = probe && mp4_cache_moov_prefix(probe, &span, &span_off, &span_len);
+            uint8_t * cached = NULL;
+            mp4_span_t * mp4_spans = NULL;
+            size_t span_count = 0;
+            bool have_moov = probe && mp4_cache_moov(probe, &cached, &mp4_spans, &span_count);
             if (probe) fclose(probe);
-            FILE * file = have_moov ? http_stream_open_span_file(dec->net_stream, span, span_off, span_len) : NULL;
+            http_span_t * spans = span_count ? malloc(span_count * sizeof(*spans)) : NULL;
+            for (size_t i = 0; spans && i < span_count; i++)
+                spans[i] = (http_span_t) { mp4_spans[i].offset, mp4_spans[i].length };
+            free(mp4_spans);
+            if (span_count && !spans) {
+                free(cached);
+                have_moov = false;
+            }
+            FILE * file = have_moov ? http_stream_open_spans_file(dec->net_stream, cached, spans, span_count) : NULL;
             if (!file) {
                 http_stream_close(dec->net_stream);
                 dec->net_stream = NULL;
@@ -1274,6 +1283,9 @@ static uint64_t mp3_seek_retry_after_ms = 0;
  * on mp3_index_result) still happens correctly under the mutex regardless. */
 static atomic_uint mp3_index_active_generation = 0;
 static atomic_bool mp3_index_stop_flag = false;
+/* A/B MP3 seek-table scans also stop when their comparison epoch is cleared;
+ * this independent token must not affect the primary playback index worker. */
+static atomic_uint ab_switch_cancel_token = 0;
 
 static bool mp3_index_should_cancel(uint64_t job_generation) {
     if (atomic_load_explicit(&mp3_index_stop_flag, memory_order_relaxed)) return true;
@@ -1478,7 +1490,9 @@ static void mp3_seek_cache_save(const char * source_path, const mp3_index_job_t 
  * decoder started, even on failure. */
 static drmp3_uint32 mp3_build_seek_points_cancellable(drmp3 * scan, uint64_t total_pcm_frames,
                                                        drmp3_uint32 desired_count, uint64_t job_generation,
-                                                       drmp3_seek_point * points, bool * out_cancelled) {
+                                                       drmp3_seek_point * points, bool * out_cancelled,
+                                                       const atomic_uint * cancel_token,
+                                                       unsigned expected_token) {
     *out_cancelled = false;
     if (desired_count == 0 || total_pcm_frames == 0) return 0;
 
@@ -1501,7 +1515,10 @@ static drmp3_uint32 mp3_build_seek_points_cancellable(drmp3 * scan, uint64_t tot
     uint64_t next_target = 0;
     drmp3_uint32 placed = 0;
     while (placed < desired_count) {
-        if (mp3_index_should_cancel(job_generation)) { *out_cancelled = true; return placed; }
+        if (mp3_index_should_cancel(job_generation) ||
+            (cancel_token && atomic_load_explicit(cancel_token, memory_order_relaxed) != expected_token)) {
+            *out_cancelled = true; return placed;
+        }
         next_target += pcm_frames_between_points;
 
         for (;;) {
@@ -1517,7 +1534,10 @@ static drmp3_uint32 mp3_build_seek_points_cancellable(drmp3 * scan, uint64_t tot
             frame_info[DRMP3_SEEK_LEADING_MP3_FRAMES].bytePos = scan->streamCursor - scan->dataSize;
             frame_info[DRMP3_SEEK_LEADING_MP3_FRAMES].pcmFrameIndex = running_pcm_frame_count;
 
-            if (mp3_index_should_cancel(job_generation)) { *out_cancelled = true; return placed; }
+            if (mp3_index_should_cancel(job_generation) ||
+                (cancel_token && atomic_load_explicit(cancel_token, memory_order_relaxed) != expected_token)) {
+                *out_cancelled = true; return placed;
+            }
 
             drmp3_uint32 pcm_in_frame = drmp3_decode_next_frame_ex(scan, NULL, NULL, NULL);
             if (pcm_in_frame == 0) {
@@ -1580,7 +1600,8 @@ static void * mp3_index_worker(void * arg) {
             } else {
                 bool cancelled = false;
                 drmp3_uint32 placed = mp3_build_seek_points_cancellable(
-                    scan, job->total_pcm_frames, job->count, job->generation, job->points, &cancelled);
+                    scan, job->total_pcm_frames, job->count, job->generation, job->points, &cancelled,
+                    NULL, 0);
                 job->count = placed;
                 if (placed > 0 && !cancelled) {
                     job->outcome = MP3_INDEX_READY;
@@ -2686,6 +2707,7 @@ typedef struct {
     decoder_t decoder;
     char * path;
     uint64_t epoch, generation;
+    unsigned cancel_token;
     unsigned rate, channels;
     uint64_t frames;
     bool opened;
@@ -2699,16 +2721,22 @@ static ab_switch_job_t * ab_switch_result;
 
 static void ab_switch_clear_locked(void) {
     ab_switch_epoch++;
+    atomic_fetch_add_explicit(&ab_switch_cancel_token, 1u, memory_order_relaxed);
     ab_switch_requested = false;
     ab_switch_ready = false;
     ab_switch_select_b = false;
 }
 static bool ab_switch_decoder_supported(const decoder_t * d) {
-    return d && !d->net_stream && d->total_frames && d->sample_rate &&
-           d->channels > 0 && d->channels <= MAX_CHANNELS &&
-           d->source_bit_depth == 16 &&
+    bool supported_pcm = d && d->source_bit_depth == 16 &&
            (d->type == DECODER_FLAC || d->type == DECODER_WAV ||
             d->type == DECODER_AIFF || d->type == DECODER_CAF);
+    /* MP3 has no meaningful encoded sample bit depth. Keep it eligible by
+     * codec and its actual finite local PCM frame count instead of assigning
+     * a fictitious 16-bit source depth. */
+    bool supported_mp3 = d && d->type == DECODER_MP3 && d->source_bit_depth == 0;
+    return d && !d->net_stream && d->total_frames && d->sample_rate &&
+           d->channels > 0 && d->channels <= MAX_CHANNELS &&
+           (supported_pcm || supported_mp3);
 }
 static void ab_switch_free_job(ab_switch_job_t * job) {
     if (!job)
@@ -2723,7 +2751,37 @@ static void * ab_switch_prepare_worker(void * opaque) {
     set_worker_thread_name("audio-ab-prepare");
     install_thread_crash_altstack();
     job->opened = decoder_open(&job->decoder, job->path);
-    bool valid = job->opened && ab_switch_decoder_supported(&job->decoder) &&
+    bool index_ready = true;
+    /* A long MP3 needs its reservoir-aware seek table before adoption so
+     * the playback thread never has to build an index or brute-force seek. */
+    if (job->opened && job->decoder.type == DECODER_MP3 &&
+        mp3_needs_seek_index(&job->decoder)) {
+        uint64_t interval = (uint64_t) job->decoder.sample_rate * MP3_SEEK_INDEX_INTERVAL_SECONDS;
+        uint64_t desired = job->decoder.total_frames / interval;
+        if (desired > MP3_SEEK_INDEX_MAX_POINTS) desired = MP3_SEEK_INDEX_MAX_POINTS;
+        drmp3_seek_point * points = desired ? calloc((size_t) desired, sizeof(*points)) : NULL;
+        drmp3 * scan = malloc(sizeof(*scan));
+        bool indexed = false;
+        if (points && scan && drmp3_init_file(scan, job->path, NULL)) {
+            bool cancelled = false;
+            uint64_t index_generation = atomic_load_explicit(&mp3_index_active_generation, memory_order_relaxed);
+            drmp3_uint32 count = mp3_build_seek_points_cancellable(scan, job->decoder.total_frames,
+                                        (drmp3_uint32) desired, index_generation, points, &cancelled,
+                                        &ab_switch_cancel_token, job->cancel_token);
+            if (count && !cancelled && drmp3_bind_seek_table(job->decoder.as.mp3, count, points)) {
+                job->decoder.mp3_seek_points = points;
+                job->decoder.mp3_seek_point_count = count;
+                job->decoder.mp3_seek_index_attempted = true;
+                points = NULL;
+                indexed = true;
+            }
+            drmp3_uninit(scan);
+        }
+        free(scan);
+        free(points);
+        if (!indexed) index_ready = false;
+    }
+    bool valid = job->opened && index_ready && ab_switch_decoder_supported(&job->decoder) &&
                  job->decoder.sample_rate == job->rate &&
                  job->decoder.channels == job->channels &&
                  job->decoder.total_frames == job->frames;
@@ -2751,9 +2809,11 @@ bool audio_prepare_ab_switch(const char * path) {
     bool allowed =
         have_current && current_format_info.valid &&
         !current_format_info.is_stream && !current_format_info.is_dsd &&
-        current_format_info.source_bit_depth == 16 &&
-        (current_format_info.codec == AUDIO_CODEC_PCM ||
-         current_format_info.codec == AUDIO_CODEC_FLAC) &&
+        ((current_format_info.source_bit_depth == 16 &&
+          (current_format_info.codec == AUDIO_CODEC_PCM ||
+           current_format_info.codec == AUDIO_CODEC_FLAC)) ||
+         (current_format_info.codec == AUDIO_CODEC_MP3 &&
+          current_format_info.source_bit_depth == 0)) &&
         current_total_frames && current_sample_rate && !crossfade_enabled &&
         !ab_loop_enabled && !paused && applied_playback_speed == 1.0 &&
         speed_for_path_locked(active_path) == 1.0 && !ab_switch_worker_active &&
@@ -2775,6 +2835,7 @@ bool audio_prepare_ab_switch(const char * path) {
     }
     ab_switch_clear_locked();
     job->epoch = ab_switch_epoch;
+    job->cancel_token = atomic_load_explicit(&ab_switch_cancel_token, memory_order_relaxed);
     job->generation = playback_generation;
     job->rate = current_sample_rate;
     job->channels = current_format_info.channels;
@@ -5384,7 +5445,12 @@ bool audio_get_current_format_info(audio_current_format_info_t * out) {
     if (!out) return false;
     pthread_mutex_lock(&audio_mutex);
     bool valid = have_current && current_format_info.valid;
-    if (valid) *out = current_format_info;
+    if (valid) {
+        *out = current_format_info;
+        out->software_volume_gain = (double) volume_gain;
+        out->playback_speed = applied_playback_speed;
+        out->crossfade_enabled = crossfade_enabled;
+    }
     else memset(out, 0, sizeof(*out));
     pthread_mutex_unlock(&audio_mutex);
     return valid;

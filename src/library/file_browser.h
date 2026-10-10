@@ -23,21 +23,68 @@ typedef void (*file_browser_select_cb_t)(char ** playlist, int count, int select
  * this call). */
 typedef void (*file_browser_cue_select_cb_t)(const char * cue_path);
 
-/* Builds the file browser UI (current-path label + scrollable list) as a
- * child of `parent`, starting at `root_dir`. The user can descend into
- * subdirectories and back up, but never above `root_dir`. on_cue_select may
- * be NULL (a caller that doesn't care about .cue sheets at all -- they're
- * then just hidden from the listing entirely, same as any other
- * unrecognized file, rather than shown with nothing wired up to tap). */
-void file_browser_init(lv_obj_t * parent, const char * root_dir, file_browser_select_cb_t on_select,
-                        file_browser_cue_select_cb_t on_cue_select);
+typedef struct file_browser file_browser_t;
+typedef struct file_browser_index file_browser_index_t;
 
-/* Resets the browser back to its root directory and re-scans it from disk,
- * discarding whatever subdirectory the user was previously browsing. For
+/* Called when the user taps a playable file, with a retained index of the
+ * folder: the callee owns index and closes it. selected_playable is the
+ * tapped file's position among the folder's playable files. */
+typedef void (*file_browser_index_select_cb_t)(file_browser_index_t *index,
+                                               unsigned playable_count,
+                                               unsigned selected_playable);
+/* Called when the user taps a file that is not media (only listed with
+ * on_open_other). path is valid only during the call. */
+typedef void (*file_browser_open_cb_t)(const char * path);
+/* Called when selection mode starts or ends or the selection changes. */
+typedef void (*file_browser_selection_cb_t)(file_browser_t * browser);
+
+typedef struct {
+    file_browser_select_cb_t on_select;             /* playable files and .m3u playlists */
+    file_browser_cue_select_cb_t on_cue_select;     /* NULL hides .cue sheets */
+    file_browser_index_select_cb_t on_index_select; /* NULL: playable taps go to on_select */
+    file_browser_open_cb_t on_open_other;           /* non-NULL lists every file */
+    file_browser_selection_cb_t on_selection;       /* non-NULL: long press selects */
+} file_browser_options_t;
+
+/* Builds a file browser (current-path label + scrollable list) as a child of
+ * `parent`, starting at `root_dir`. The user can descend into
+ * subdirectories and back up, but never above `root_dir`. The browser is
+ * freed with parent. Several browsers can be alive at once. */
+file_browser_t * file_browser_create(lv_obj_t * parent, const char * root_dir,
+                                     const file_browser_options_t * options);
+
+/* Resets every browser back to its root directory and re-scans it from
+ * disk, discarding whatever subdirectory the user was browsing. For
  * refreshing after the underlying storage changes out from under the UI
- * (SD card removed/reinserted) rather than in response to user navigation.
- * No-op if file_browser_init() hasn't run yet. */
+ * (SD card removed/reinserted) rather than in response to user navigation. */
 void file_browser_reset_to_root(void);
+
+/* Rescans the current folder (after files changed), keeping the position.
+ * Ends selection mode. */
+void file_browser_refresh(file_browser_t * browser);
+/* Refreshes every browser, after files changed on the card. */
+void file_browser_refresh_all(void);
+const char * file_browser_current_dir(const file_browser_t * browser);
+/* Shows dir, which must be an existing folder at or under the browser's
+ * root. False leaves the browser where it was. */
+bool file_browser_open_dir(file_browser_t * browser, const char * dir);
+void file_browser_set_show_hidden(file_browser_t * browser, bool show);
+bool file_browser_shows_hidden(const file_browser_t * browser);
+
+/* Selection mode (browsers created with on_selection): taps toggle rows
+ * instead of opening them. Leaving the folder or refreshing ends it. */
+bool file_browser_is_selecting(const file_browser_t * browser);
+void file_browser_set_selecting(file_browser_t * browser, bool selecting);
+void file_browser_select_all(file_browser_t * browser);
+unsigned file_browser_selected_count(const file_browser_t * browser);
+/* Absolute paths of the selected entries in list order. The caller frees
+ * each path and the array. False when nothing is selected or on error. */
+bool file_browser_selected_paths(const file_browser_t * browser, char *** out_paths, int * out_count);
+
+/* In-screen back for the browser on `screen`: ends selection mode, else
+ * steps up one folder. False when there is no browser on screen or it is
+ * already at its root (the caller pops the screen). */
+bool file_browser_go_up_for_screen(lv_obj_t * screen);
 
 /* One-shot lookup that doesn't touch (or require) any browser UI state:
  * scans path's containing directory and builds the same kind of playlist
@@ -72,17 +119,9 @@ bool file_browser_walk_all_songs_excluding_top_level(const char * root, const ch
  * track was played from. The getters are only meaningful right after a tap
  * (same convention as e.g. lv_event_get_user_data() being valid only
  * within its own callback), so gui.c must read them synchronously from its
- * own select_cb before returning. Both return defaults if file_browser_init()
- * hasn't run yet. */
+ * own select_cb before returning. Both return defaults before any tap. */
 const char * file_browser_get_last_selected_dir(void);
 int file_browser_get_last_selected_row(void);
-
-/* True when the browser is showing root_dir itself. */
-bool file_browser_at_root(void);
-
-/* Steps current_dir up one level toward root_dir and rebuilds the list.
- * No-op if already at root. */
-void file_browser_go_up(void);
 
 /* True when name has an extension the decoders accept (the Files filter). */
 bool file_browser_is_playable_name(const char * name);
@@ -102,7 +141,6 @@ bool file_browser_build_playlist_from_m3u(const char * m3u_path, char *** out_pl
  * folders use a bounded 4096-entry in-memory index and fail explicitly when
  * that bound is exceeded. The index pins its source directory FD. Handles
  * may be duplicated for the queue worker; each owner closes its own handle. */
-typedef struct file_browser_index file_browser_index_t;
 typedef enum {
     FILE_BROWSER_SORT_NAME = 0,
     FILE_BROWSER_SORT_NEWEST = 1,
@@ -111,10 +149,6 @@ typedef enum {
  * rebuilds the visible directory while preserving its path. */
 void file_browser_set_sort_mode(file_browser_sort_mode_t mode);
 file_browser_sort_mode_t file_browser_get_sort_mode(void);
-typedef void (*file_browser_index_select_cb_t)(file_browser_index_t *index,
-                                               unsigned playable_count,
-                                               unsigned selected_playable);
-void file_browser_set_index_select_cb(file_browser_index_select_cb_t callback);
 bool file_browser_index_open(const char * directory, file_browser_index_t ** out, unsigned * out_count);
 bool file_browser_index_retain(const file_browser_index_t * source, file_browser_index_t ** out);
 bool file_browser_index_path_at(const file_browser_index_t * index, unsigned ordinal,
