@@ -1,0 +1,109 @@
+#!/bin/sh
+# Best-effort 24 MiB LZ4 swap for HiBy firmware devices.
+# The firmware BusyBox swapon lacks a priority option; with no other swap
+# configured, the kernel default priority is sufficient.
+# Swappiness 100 encourages the kernel to use compressed swap when needed.
+# Swap stays enabled through shutdown;
+# the device is reset naturally by reboot, avoiding swapoff under memory pressure.
+
+sys_block=${COMPAS_ZRAM_SYS_BLOCK:-/sys/block}
+proc_swaps=${COMPAS_ZRAM_PROC_SWAPS:-/proc/swaps}
+proc_swappiness=${COMPAS_ZRAM_SWAPPINESS:-/proc/sys/vm/swappiness}
+device=${COMPAS_ZRAM_DEVICE:-/dev/zram0}
+zram_sysfs=$sys_block/zram0
+
+log() {
+    if command -v logger >/dev/null 2>&1; then
+        logger -t compas-zram "$*" 2>/dev/null || :
+    fi
+}
+
+is_active() {
+    [ -r "$proc_swaps" ] || return 1
+    awk -v dev="$device" 'NR > 1 && $1 == dev { found = 1 } END { exit !found }' "$proc_swaps"
+}
+
+set_swappiness() {
+    if [ -w "$proc_swappiness" ]; then
+        printf '%s\n' 100 > "$proc_swappiness" 2>/dev/null || \
+            log 'could not set vm.swappiness to 100'
+    else
+        log 'vm.swappiness control unavailable'
+    fi
+}
+
+start() {
+    if is_active; then
+        log 'zram0 swap already active'
+        set_swappiness
+        return 0
+    fi
+    if [ ! -d "$zram_sysfs" ] || [ ! -e "$device" ]; then
+        log 'zram0 unavailable; continuing without compressed swap'
+        return 1
+    fi
+    disksize=$zram_sysfs/disksize
+    reset=$zram_sysfs/reset
+    algorithm=$zram_sysfs/comp_algorithm
+    if [ ! -w "$disksize" ] || [ ! -w "$algorithm" ] || [ ! -w "$reset" ]; then
+        log 'zram0 sysfs controls unavailable'
+        return 1
+    fi
+
+    old_size=$(cat "$disksize" 2>/dev/null) || old_size=
+    if [ -z "$old_size" ] || [ "$old_size" != 0 ]; then
+        log 'zram0 is already initialized; leaving it untouched'
+        return 1
+    fi
+
+    # comp_algorithm lists available compressors and brackets the selected one.
+    # Require LZ4 to be advertised, choose it before setting disksize, then
+    # confirm the kernel reports it as selected.
+    if ! grep -Eq '(^|[[:space:]])\[?lz4\]?( |$)' "$algorithm" 2>/dev/null; then
+        log 'zram0 does not advertise LZ4; continuing without compressed swap'
+        return 1
+    fi
+    if ! printf '%s\n' lz4 > "$algorithm"; then
+        log 'could not select LZ4 for zram0'
+        return 1
+    fi
+    selected=$(cat "$algorithm" 2>/dev/null) || selected=
+    case " $selected " in
+        *' [lz4] '*) ;;
+        *) log 'LZ4 selection was not confirmed'; return 1 ;;
+    esac
+
+    if ! printf '%s\n' 25165824 > "$disksize"; then
+        log 'could not size zram0'
+        return 1
+    fi
+    if ! mkswap "$device" >/dev/null 2>&1; then
+        log 'mkswap failed; resetting newly initialized zram0'
+        if ! is_active; then printf '%s\n' 1 > "$reset" 2>/dev/null || :; fi
+        return 1
+    fi
+    if ! swapon "$device" >/dev/null 2>&1; then
+        if is_active; then
+            log 'swapon reported failure but zram0 is active; leaving it intact'
+            return 1
+        fi
+        log 'swapon failed; resetting newly initialized zram0'
+        if ! is_active; then printf '%s\n' 1 > "$reset" 2>/dev/null || :; fi
+        return 1
+    fi
+    if ! is_active; then
+        log 'swapon returned success but zram0 is not listed in /proc/swaps'
+        return 1
+    fi
+    set_swappiness
+    log 'enabled 24 MiB LZ4 zram swap with vm.swappiness 100'
+    return 0
+}
+
+case ${1:-start} in
+    start) start ;;
+    stop) # Keep active until reboot; swapoff can fail under memory pressure.
+        exit 0
+        ;;
+    *) echo "Usage: $0 {start|stop}" >&2; exit 2 ;;
+esac

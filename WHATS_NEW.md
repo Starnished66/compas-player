@@ -3,6 +3,7 @@
 Compas v1.1 brings a faster, more capable player experience across the R1, R3 Pro II, and R3II (2025).
 
 - **Custom kernels and drivers:** all three models include custom kernels and rebuilt drivers. R1 includes the custom display and radio drivers; R3 Pro II and R3II (2025) include rebuilt utility drivers and retain their vendor display and radio drivers.
+- **Kernel memory support:** all three models enable 24 MiB of LZ4-compressed ZRAM swap at boot and set `vm.swappiness` to 100 to help relieve memory pressure. RAM is allocated as pages are swapped, rather than reserving the entire capacity upfront.
 - **Interface and controls:** a refreshed More menu, theme improvements, expanded button controls, asynchronous screen opening, waveform improvements, and previews in the Plugin Store.
 - **Audio and playback:** more reliable Opus playback and seeking, improvements to AAC, ALAC and APE, new WavPack and CAF support, and seeking for remote files, including M4A.
 - **Library and books:** a new File Manager; audiobook author, series, and podcast browsing; and more reliable resume positions.

@@ -28,7 +28,7 @@ import verify_module_abi  # noqa: E402
 BOARD_NAMES = ("r3proii", "r3ii_2025")
 REGISTRY_PATH = REPO / "firmware/kernel/r3-boards.json"
 # Filled with the repository-owned immutable registry digest.
-REGISTRY_SHA256 = "3ecae49bd405fbe91386b3ed68c83cc45a338effa8cb3f6b6e775aae2c952297"
+REGISTRY_SHA256 = "4189225cf459f94c5d77b7a331f9be699aece34eec854133c570934d4b6223ee"
 SDK_SHA256 = "3e8c101b7c12667dcfed888e2eda63cfa833c6e20f22569e2b646c40f8523641"
 EXPECTED_VERMAGIC = "4.4.94+ preempt mod_unload MIPS32_R2 32BIT"
 R3II_KALLSYMS_LAYOUT = {

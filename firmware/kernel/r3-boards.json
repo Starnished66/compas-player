@@ -61,7 +61,7 @@
       "parity_config": "firmware/kernel/r3proii-parity.config",
       "parity_config_sha256": "ce0e48539d4e9d9dcce13a645624cfd82cb37352acf9bb532fef8e5e2c117ddd",
       "profile_config": "firmware/kernel/compas-r3proii.config",
-      "profile_config_sha256": "462926bb0c907edc5359f1e3eb637ff79bf355dc569af0eff9739132d0c18e02",
+      "profile_config_sha256": "ee145a22e56f166574da2b3ecd98239e8a0ab0158a4fd1a2b8840098d79673cd",
       "stock_vmlinux_sha256": "a554e2abef23ffe674b9be8f00e3fd122db6fe21e80d2d0eb6b7fe39de8008cd"
     },
     "r3ii_2025": {
@@ -121,7 +121,7 @@
       "parity_config": "firmware/kernel/r3ii_2025-parity.config",
       "parity_config_sha256": "92708b381c13c8143425c020e4d96122b13ea4eb50c6d14302804c85ce521130",
       "profile_config": "firmware/kernel/compas-r3ii_2025.config",
-      "profile_config_sha256": "462926bb0c907edc5359f1e3eb637ff79bf355dc569af0eff9739132d0c18e02",
+      "profile_config_sha256": "ee145a22e56f166574da2b3ecd98239e8a0ab0158a4fd1a2b8840098d79673cd",
       "stock_vmlinux_sha256": "48e9aff81ae6eb8c23fca255044cfd6a92955bbea53e1ef7e01f31b90df4e02b",
       "stock_symbol_evidence": {
         "decoder_sha256": "df4d5d269901c9412a4aca5ae8133ab7ef678f50ab2d16eeb2c975c0889a64d0",

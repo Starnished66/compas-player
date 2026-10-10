@@ -469,4 +469,5 @@ __pycache__/
 /hostonlybuild_test/
 !/scripts/test_weekly_release_identity.sh
 !/scripts/test_settings_defaults.sh
+!/scripts/test_compas_zram.sh
 !/src/core/settings_defaults_test.c

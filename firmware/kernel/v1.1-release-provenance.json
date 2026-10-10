@@ -6,12 +6,13 @@
   "review": {
     "player": "Astra: final C/H review and finding corrections cleared",
     "r1_display": "Opus 5.5: reviewed underrun and coherent fence follow-up",
-    "r3_utility": "Astra: corrected sources match the previously reviewed R1 safety patch"
+    "r3_utility": "Astra: corrected sources match the previously reviewed R1 safety patch",
+    "zram_boot_diagnostics": "Astra: filesystem and recovery evidence reviewed; known intermittent reboot stall remains unresolved."
   },
   "boards": {
     "r1": {
-      "image_sha256": "fd19e0abe5cbcac149fbe3510627f7ab2624eccd7f7947bf8af2aed88eb0e200",
-      "image_bytes": 39434240,
+      "image_sha256": "ceb10f5a3c6dfc37291006689cfd7af7a1edff95d93882c5b1961b79e87e2186",
+      "image_bytes": 39438336,
       "kernel_sha256": "d43e6f2a41a920d9cc9538bf2d4dd5873b0d59110ea20f4b90f81d58ef446bf7",
       "module_count": 31,
       "player_sha256": "bacb828a68e37cbcc5642112dbd6241b4760daf1019b1247fcd11beaf9878d89",
@@ -53,12 +54,54 @@
         "usr/lib/compas-radio/modules/brcmfmac.ko": "732ad06d6aa543fe70d2c336a4fd185e78ccc446d9402db61cc8496bf3baa708",
         "usr/lib/compas-radio/modules/brcmutil.ko": "5190d23dc8585f271b69b36e6cf982809fe86d50a0c959f6ed32affb6f8f9f5f"
       },
-      "hardware_validation": "Kernel and all modules match the tested R1 device. File Manager, Bluetooth playback/volume/reconnect, Wi-Fi lease and connectivity verified."
+      "hardware_validation": "Flashed and tested on R1: automatic 24 MiB LZ4 swap activation, swappiness 100, complete 4120-file rootfs verification, AAC Bluetooth playback under a 20 MiB anonymous-memory pressure test with content verification, unchanged crash log and saved preferences. Suspend/resume not tested; user requested completing without the unplugged test.",
+      "kernel_bytes": 3149888,
+      "compiled_config_sha256": "02f4645490ba261c903ea19057507eef36389a9b17e644825ba5f5122642c572",
+      "zram_options": {
+        "CONFIG_SWAP": "y",
+        "CONFIG_ZSMALLOC": "y",
+        "CONFIG_ZRAM": "y",
+        "CONFIG_ZRAM_LZ4_COMPRESS": "y"
+      },
+      "zram_runtime": {
+        "startup_path": "/etc/init.d/S31compas_zram",
+        "helper_path": "/usr/bin/compas-zram",
+        "size_bytes": 25165824,
+        "compressor": "lz4",
+        "swappiness": 100,
+        "startup_sha256": "6be98752bf1047b8ba3859148f159853b3dadc711402ab99900d3c6d39e64629",
+        "helper_sha256": "2bb0197658b1cb6d2d970402800dc82115a1524d284bb97d34027087937f0d60",
+        "files_executable": true
+      },
+      "rootfs_sha256": "b0138e5af7599983ff7d3d4690516e8e7d9578f8be917aba0a44e56df7517166",
+      "rootfs_changes_vs_previous_v1_1": [
+        {
+          "change": "added",
+          "path": "etc/init.d/S31compas_zram"
+        },
+        {
+          "change": "added",
+          "path": "usr/bin/compas-zram"
+        }
+      ],
+      "system_map_sha256": "4e3bf573b28603350d11fcce7e15586f18491bcf7db2ed3c13304477b5d82d15",
+      "module_abi_valid": true,
+      "package_integrity_valid": true,
+      "runtime_observations": {
+        "final_boot_healthy": true,
+        "rootfs_regular_files_verified": 4120,
+        "pressure_memory_contents_preserved": true,
+        "bluetooth_codec": "AAC",
+        "bluetooth_pcm_running_during_pressure": true,
+        "crash_log_bytes_before_and_after": 650,
+        "initial_post_update_squashfs_read_failure": "Transient failure reading a D-Bus library block; translated NAND bytes matched image, library subsequently verified, and complete verification passed on later boots. No recurrence in final manual-update boot; root cause unproven.",
+        "known_intermittent_boot_logo_stall": "Observed on an update reboot; user confirmed this predates ZRAM changes. Recovered with power-button reset and manual update. Root cause remains unresolved."
+      }
     },
     "r3proii": {
-      "image_sha256": "283d70795afc8958efc6ffbcbc27ab34959e53e265cb5bc77dc1f7566d862b73",
-      "image_bytes": 39704576,
-      "kernel_sha256": "33d801a85b2bee6fb9e5452881c43d952ae820f118e57df9bb615340e9d8554b",
+      "image_sha256": "e2543df8de0a7c84b84810462f927c97383d5d1b026b994545280f202183d318",
+      "image_bytes": 39733248,
+      "kernel_sha256": "ea31d8b49ecdb9667b0983ffa710de31edafbcd34d9c7c448d240de99590aafc",
       "module_count": 32,
       "player_sha256": "a0a25ff93698afdb3bf318b5429d497cd58cfeb1e271903023ef80dce71f587f",
       "bootloader_sha256": "78939d07a3c7fcf22307bfbcf9dbd811f49416676ffcad5d9c68f54090406b8d",
@@ -100,12 +143,44 @@
         "module_driver/utils.ko": "613036e4aa28585cb52a601ba0cf4611c847e6d74878271d0a71338cc851bdba",
         "module_driver/x1600_hiby_r3proii_sound_card.ko": "14a53774145466a3a91cbb5689aac9b40f5e9764fff2362b4bb5942755b9c78e"
       },
-      "hardware_validation": "Not tested on hardware. Build, board identity, module ABI and package integrity verified."
+      "hardware_validation": "Static verification only; kernel build, board identity, 32-module ABI, OTA checksums and package integrity passed. Not tested on hardware.",
+      "kernel_bytes": 3510336,
+      "compiled_config_sha256": "9bb45e736c084d1629649217b2980aa9e7449d8cea3bcb9082453a9dc090edfe",
+      "zram_options": {
+        "CONFIG_SWAP": "y",
+        "CONFIG_ZSMALLOC": "y",
+        "CONFIG_ZRAM": "y",
+        "CONFIG_ZRAM_LZ4_COMPRESS": "y"
+      },
+      "zram_runtime": {
+        "startup_path": "/etc/init.d/S31compas_zram",
+        "helper_path": "/usr/bin/compas-zram",
+        "size_bytes": 25165824,
+        "compressor": "lz4",
+        "swappiness": 100,
+        "startup_sha256": "6be98752bf1047b8ba3859148f159853b3dadc711402ab99900d3c6d39e64629",
+        "helper_sha256": "2bb0197658b1cb6d2d970402800dc82115a1524d284bb97d34027087937f0d60",
+        "files_executable": true
+      },
+      "rootfs_sha256": "cd94b78762608ed2339d8c74e92d99b77825cc9a571b4f04c052b1b61a067785",
+      "rootfs_changes_vs_previous_v1_1": [
+        {
+          "change": "added",
+          "path": "etc/init.d/S31compas_zram"
+        },
+        {
+          "change": "added",
+          "path": "usr/bin/compas-zram"
+        }
+      ],
+      "system_map_sha256": "108a0007693c61e490e37ee316da16b9a23769e9088dd93f2e777ba8b0a8f70f",
+      "module_abi_valid": true,
+      "package_integrity_valid": true
     },
     "r3ii_2025": {
-      "image_sha256": "2ef0afed51c3530abfcdf9e191b52a0817d21467236e8e0985e95f52eb21f2c8",
-      "image_bytes": 39524352,
-      "kernel_sha256": "b87957a3ad085e999221fdca698704fe4e49381b68b7d957dbdb28c723b4b418",
+      "image_sha256": "f78d25075b7081791b7b1fdf38b1712a8e9adaaec964d700baa0a37ec0eda3a9",
+      "image_bytes": 39557120,
+      "kernel_sha256": "9a05ad42b134c4cb26a573e18d8b1ca09844e3d6454a817f767496e41e0c2ddb",
       "module_count": 31,
       "player_sha256": "f97f647b6abe4934f182311852207b3192f469d2311bd78c2b24b19e9c7b9e44",
       "bootloader_sha256": "8aae9bc759156ffb900cdd5be03a283f10cec75476b50cb78795380b29e1f72a",
@@ -146,7 +221,60 @@
         "module_driver/utils.ko": "e82203a2fe2309186f8ae52a2af3cc8d85a1a5c7d0af220b9a418cb21e18b805",
         "module_driver/x1600_hiby_r3ii_sound_card.ko": "bfb8cba7289024ded6dfc89cbd1d3097f627572f1c83b24139d7fbc96c797c10"
       },
-      "hardware_validation": "Not tested on hardware. Build, board identity, module ABI and package integrity verified."
+      "hardware_validation": "Static verification only; kernel build, board identity, 31-module ABI, OTA checksums and package integrity passed. Not tested on hardware.",
+      "kernel_bytes": 3477568,
+      "compiled_config_sha256": "0fab5106065d4b1e14a80c6d1c4d1f537136468d5f09f08e6bd8469660b9f64b",
+      "zram_options": {
+        "CONFIG_SWAP": "y",
+        "CONFIG_ZSMALLOC": "y",
+        "CONFIG_ZRAM": "y",
+        "CONFIG_ZRAM_LZ4_COMPRESS": "y"
+      },
+      "zram_runtime": {
+        "startup_path": "/etc/init.d/S31compas_zram",
+        "helper_path": "/usr/bin/compas-zram",
+        "size_bytes": 25165824,
+        "compressor": "lz4",
+        "swappiness": 100,
+        "startup_sha256": "6be98752bf1047b8ba3859148f159853b3dadc711402ab99900d3c6d39e64629",
+        "helper_sha256": "2bb0197658b1cb6d2d970402800dc82115a1524d284bb97d34027087937f0d60",
+        "files_executable": true
+      },
+      "rootfs_sha256": "03aad87960f45ca4c242c4019be137e0a79987a1cb54c3a2d60551b81c35c57d",
+      "rootfs_changes_vs_previous_v1_1": [
+        {
+          "change": "added",
+          "path": "etc/init.d/S31compas_zram"
+        },
+        {
+          "change": "added",
+          "path": "usr/bin/compas-zram"
+        }
+      ],
+      "system_map_sha256": "b54c61f2aaa09161efbc977ad5f72e36a3f99c81a65aa9ccaaf4bf4a147edb34",
+      "module_abi_valid": true,
+      "package_integrity_valid": true
     }
+  },
+  "zram_reference": {
+    "repository": "https://github.com/Jepl4r/hiby-custom-kernel",
+    "compared_commit": "c0bf3580937723bcf939fa928cbbfa79ded4b227",
+    "boot_script": "rootfs/etc/init.d/S12zram.sh",
+    "matched_settings": {
+      "size_bytes": 25165824,
+      "compressor": "lz4",
+      "swappiness": 100,
+      "compression_streams": 1
+    },
+    "configuration_fragments_unchanged_since_kernel_source_pin": true,
+    "retained_compas_requirements": [
+      "NLS_CODEPAGE_936 for SD mounts",
+      "NETFILTER_INGRESS and DEBUG_FS for shipped module ABI"
+    ],
+    "additional_trims_not_adopted": [
+      "scheduler default change",
+      "crypto algorithm and self-test removals",
+      "additional R3 dead-code removals"
+    ]
   }
 }

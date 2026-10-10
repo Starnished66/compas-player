@@ -1,0 +1,9 @@
+#!/bin/sh
+
+case "$1" in
+    start) /usr/bin/compas-zram start || : ;;
+    stop) /usr/bin/compas-zram stop || : ;;
+    *) echo "Usage: $0 {start|stop}" >&2; exit 1 ;;
+esac
+
+exit 0
