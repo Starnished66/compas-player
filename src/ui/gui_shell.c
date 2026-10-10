@@ -1937,6 +1937,11 @@ void gui_shell_cancel_bt_reconnect(void) {
 static void clear_bt_audio_route_now(void);
 
 bool gui_shell_is_bt_audio_connected(void) { return bt_is_a2dp_connected_ui; }
+bool gui_shell_get_bt_audio_codec(char * out, size_t out_size) {
+    if (!out || out_size == 0 || !bt_is_a2dp_connected_ui || !bt_connected_codec_cached[0]) return false;
+    snprintf(out, out_size, "%s", bt_connected_codec_cached);
+    return out[0] != '\0';
+}
 
 static bool last_codec_eligible = false;
 static bt_codec_type_t last_codec_type = BT_CODEC_TYPE_NONE;

@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 
 /* AAC (AAC-LC/HE-AAC) decoding via FAAD2 (github.com/knik0/faad2),
  * statically linked -- vendored like dr_libs/tinyalsa. FAAD2 is GPLv2 (see
@@ -31,6 +32,10 @@ typedef size_t (*aac_stream_read_cb_t)(void * user_data, void * buf, size_t byte
 
 aac_decoder_t * aac_open_file(const char * path);
 aac_decoder_t * aac_open_file_mp4(const char * path);
+/* Take ownership of a seekable FILE, also on failure. ADTS scans frame
+ * headers to build its bounded index; MP4 reads only container metadata. */
+aac_decoder_t * aac_open_adts_file_stream(FILE * stream);
+aac_decoder_t * aac_open_mp4_file_stream(FILE * stream);
 /* Opens an unbounded ADTS-framed AAC source. The callback follows fread's
  * contract: return fewer than requested bytes only at true end/error. Live
  * streams have no duration and cannot seek. */

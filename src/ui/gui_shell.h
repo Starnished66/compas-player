@@ -2,6 +2,7 @@
 #include <lvgl/lvgl.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 lv_obj_t * gui_shell_get_home_screen(void);
 lv_obj_t * gui_shell_get_dac_home_screen(void);
@@ -63,6 +64,9 @@ void open_quick_drawer(void);
 void close_quick_drawer(void);
 
 bool gui_shell_is_bt_audio_connected(void);
+/* Copies the UI-thread Bluetooth codec snapshot populated by the existing
+ * asynchronous status refresh; does not query BlueALSA or spawn a process. */
+bool gui_shell_get_bt_audio_codec(char * out, size_t out_size);
 void gui_shell_notify_bt_audio_disconnected(void);
 /* Cancels persisted-device auto-reconnect and suppresses it for the current
  * powered Bluetooth cycle. Manual connect/forget actions use this so an

@@ -534,7 +534,7 @@ void gui_plugin_seek(double seconds) {
     audio_seek(seconds);
 }
 
-void gui_plugin_set_volume(int percent) {
+static void plugin_set_volume(int percent, bool show_popup) {
     if (percent < 0) percent = 0;
     if (percent > 100) percent = 100;
 
@@ -542,8 +542,16 @@ void gui_plugin_set_volume(int percent) {
     audio_set_volume((float) percent / 100.0f);
     gui_player_remember_volume_percent(percent);
     settings_save(&current_settings);
-    show_volume_popup(percent);
+    if (show_popup) show_volume_popup(percent);
     refresh_volume_topbar(percent);
+}
+
+void gui_plugin_set_volume(int percent) {
+    plugin_set_volume(percent, true);
+}
+
+void gui_plugin_set_volume_silent(int percent) {
+    plugin_set_volume(percent, false);
 }
 
 bool gui_plugin_is_playing(void) {

@@ -40,6 +40,7 @@ typedef struct {
     unsigned int bitrate_kbps;
     double duration_seconds;
     bool is_stream;
+    bool seekable;
     bool is_dsd;
     bool dsd_native; /* DSD sent to the DAC as DoP rather than converted to PCM */
     bool replaygain_applied;
@@ -73,6 +74,15 @@ typedef struct {
  * what lets gapless/crossfade transitions avoid tearing down the output
  * device between tracks. Safe to call more than once; only the first call
  * does anything. */
+/* Same-position comparison of finite, matching local 16-bit PCM sources.
+ * Preparation is asynchronous; adoption may seek once. Selection never seeks.
+ * Both sources use the primary track's shared ReplayGain, EQ and volume.
+ * Pause/seek/stop/track/speed/crossfade changes invalidate the comparison. */
+bool audio_prepare_ab_switch(const char *path);
+bool audio_select_ab_source(bool source_b);
+void audio_clear_ab_switch(void);
+void audio_get_ab_switch(bool *preparing, bool *ready, bool *source_b);
+
 void audio_init(void);
 
 /* Interrupts whatever's currently playing (if anything) and immediately
@@ -82,9 +92,8 @@ void audio_init(void);
  * track (see audio_set_next_track()), which can gapless-handoff or
  * crossfade instead. Format is picked from the file extension -- except a
  * path starting with "http://" or "https://", which is instead opened as a
- * live network stream (internet radio) and always decoded as MP3
- * regardless of what the URL looks like, the only decoder with a
- * callback-based streaming API wired up so far (see decoder_open() in
+ * network stream. Format comes from a #.ext fragment, then the URL path
+ * extension, then Content-Type, and otherwise MP3 (see decoder_open() in
  * audio.c). A live stream reports a duration of 0 (see
  * audio_get_duration_seconds()), can't be seeked, and never reaches true
  * EOF, so auto-advance and gapless/crossfade into/out of it never engage --
@@ -186,6 +195,15 @@ void audio_seek(double seconds);
  * naturally a percentage of the track (e.g. a progress slider) rather than
  * an absolute time offset the caller computed itself. */
 void audio_seek_percent(double percent);
+
+/* Repeats the exact PCM frame interval [start_seconds, end_seconds) on the
+ * audio worker. Supported for finite local 16-bit FLAC/WAV/AIFF/CAF tracks
+ * at normal speed with crossfade disabled. Returns false for unsupported
+ * formats or invalid intervals. A manual seek, stop, track change, speed
+ * change, or enabling crossfade clears the loop. */
+bool audio_set_ab_loop(double start_seconds, double end_seconds);
+void audio_clear_ab_loop(void);
+bool audio_get_ab_loop(double * start_seconds, double * end_seconds);
 
 double audio_get_position_seconds(void);
 /* Pending-aware position for durable pause/power-loss checkpoints. Unlike

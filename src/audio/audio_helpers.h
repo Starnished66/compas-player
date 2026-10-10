@@ -2,6 +2,7 @@
 #define AUDIO_HELPERS_H
 
 #include <inttypes.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -35,6 +36,37 @@ static inline uint64_t audio_read_u64be(const uint8_t * b) {
  * 8192 frames is ~0.18s at 44.1kHz. Any termination with more than 8192
  * unread frames is clearly premature and must be retried. */
 #define MAX_EOF_TOLERANCE_FRAMES 8192ULL
+
+/* Convert a public A-B interval to a non-empty, bounded PCM frame interval.
+ * The playback worker uses this before capping a decoder read at loop end. */
+static inline bool audio_ab_loop_frames(double start_seconds, double end_seconds,
+                                        unsigned int sample_rate, uint64_t total_frames,
+                                        uint64_t * start_frame, uint64_t * end_frame) {
+    if (!isfinite(start_seconds) || !isfinite(end_seconds) || sample_rate == 0 ||
+        total_frames == 0 || !start_frame || !end_frame || start_seconds < 0.0 ||
+        end_seconds <= start_seconds) return false;
+    double start = start_seconds * (double) sample_rate;
+    double end = end_seconds * (double) sample_rate;
+    if (!isfinite(start) || !isfinite(end) || start >= 0x1p64 || end >= 0x1p64 ||
+        start >= (double) total_frames || end > (double) total_frames) return false;
+    uint64_t first = (uint64_t) start;
+    uint64_t last = (uint64_t) end;
+    if (last > total_frames) last = total_frames;
+    if (first >= last) return false;
+    *start_frame = first;
+    *end_frame = last;
+    return true;
+}
+
+/* Number of frames that may be decoded before reaching the exclusive loop
+ * end. A zero result means the caller must seek to loop_start first. */
+static inline uint64_t audio_ab_loop_read_frames(uint64_t position,
+                                                  uint64_t loop_end,
+                                                  uint64_t requested) {
+    if (position >= loop_end) return 0;
+    uint64_t remaining = loop_end - position;
+    return requested < remaining ? requested : remaining;
+}
 
 /* Returns a safe, bounded sanitized filename/leaf for diagnostic logs.
  * Strips directory prefixes, remote URLs, HTTP credentials, query parameters,

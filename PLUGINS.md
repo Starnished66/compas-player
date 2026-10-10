@@ -169,7 +169,7 @@ plugin.define({
   | Area | Tokens |
   | --- | --- |
   | UI | `ui.list`, `ui.settings`, `ui.row_width`, `ui.text_input`, `ui.toast`, `ui.screenshot`, `ui.theme`, `ui.theme_refresh`, `ui.reload`, `ui.home_layout`, `ui.home_tiles`, `ui.launcher_layout`, `ui.home_background`, `ui.lock_screen`, `ui.quick_toggle`, `ui.text_view`, `ui.text_view_images`, `ui.list_grid`, `ui.list_showing`, `ui.list_wrap`, `ui.settings_list_wrap`, `ui.player_layout_xml` |
-  | Playback and audio | `playback.control`, `playback.state`, `playback.events`, `playback.progress`, `playback.remote`, `playback.transport_skip`, `playback.speed`, `audio.peq`, `audio.stereo_width`, `audio.hw_volume_curve` |
+  | Playback and audio | `playback.control`, `playback.state`, `playback.events`, `playback.progress`, `playback.remote`, `playback.transport_skip`, `playback.speed`, `playback.format`, `playback.output_info`, `playback.silent_volume`, `playback.output_events`, `playback.settings`, `playback.ab_loop`, `playback.ab_switch`, `playback.http_seek`, `audio.peq`, `audio.peq.transient`, `audio.stereo_width`, `audio.hw_volume_curve` |
   | Files | `filesystem.sd`, `filesystem.mkdir`, `filesystem.playlists` |
   | Storage | `storage.namespaced`, `storage.secrets`, `storage.secrets_get` |
   | Network | `network.http.sync`, `network.http.async`, `network.http.download` |
@@ -196,7 +196,7 @@ plugin.define({
 | 13 | LED control, `get_volume`, `get_battery`, and the `volume_changed`, `battery_changed`, `suspending` and `system_resumed` events |
 | 14 | `zip_read`, `zip_list`, `zip_image_async`, `html_to_blocks`, `show_text_view` with pictures, grid lists, `is_list_showing`, and one long (4095-byte) HTTP header per request |
 | 15 | Full XML Player-layout support (`ui.player_layout_xml`), including plugin-bundle discovery, current named-widget features, companion PNG previews, and resolution-specific XML variants using `@WIDTHxHEIGHT` or `_WIDTHxHEIGHT` filenames |
-| 16 | Scoped pitch-preserving playback speed (`playback.speed`), stereo-width DSP and `audio.stereo_width`, plus coherent `plugin.get_playback_progress(expected_path)` snapshots (`playback.progress`) |
+| 16 | Playback speed/stereo width/progress plus format/output snapshots, silent volume, transient EQ, output events, playback settings, native A–B loops/comparison, and finite HTTP seeking. API 16 remains the unreleased v1.1 API. |
 
 All of these are additions; older plugins keep working.
 
@@ -636,13 +636,23 @@ end)
   a new queue, starting at the 1-based `start_index` (default 1, out-of-range
   values are clamped). Up to 500 entries.
 
-**Stream URLs** (`http://` or `https://`) play as live streams:
+**Stream URLs** (`http://` or `https://`) support live streams and finite files:
 
-- MP3 by default. Add `#.flac` to the URL for FLAC (the fragment is never sent
-  to the server). Other formats fail to open.
-- No seeking. FLAC streams show their duration; MP3 streams don't.
+- Format is chosen in this order. A `#.ext` fragment is first (`#.flac`,
+  `#.aac`, `#.aacp`, `#.m4a`, `#.m4b`, `#.mp4`; the fragment is never sent
+  to the server). Then the URL path's extension, ignoring the query string
+  and fragment, for those same extensions. Then the response `Content-Type`:
+  `audio/flac` or `audio/x-flac` for FLAC, `audio/aac` or `audio/aacp` for
+  ADTS AAC/AAC+, and `audio/mp4`, `video/mp4` or `application/mp4` for AAC
+  in MP4. Anything else stays MP3, including a `.mp3` URL and playlist URLs
+  such as `.m3u`, so an unrecognized or ambiguous type does not change
+  today's default. Other formats fail to open.
+- Live streams remain forward-only. Finite FLAC, MP3 and AAC-in-MP4 sources
+  can seek when the server supports validated byte ranges; check
+  `get_playback_format().seekable`. Raw ADTS AAC remains forward-only.
+  Duration is shown when the decoder or remote-track metadata provides it.
 - No reconnect: if the connection drops, playback stops.
-- An endless stream (radio) never auto-advances. A finite FLAC file does.
+- An endless stream (radio) never auto-advances. Finite tracks can.
 - Stream titles (ID3 or ICY metadata) are not shown.
 
 ### `plugin.play_remote(track)` / `plugin.queue_remote_list(tracks [, start_index])`
@@ -678,8 +688,8 @@ plugin.play_remote({
 | `plugin.toggle_pause()` | Play/pause, like the button (blocked in Bluetooth DAC and AirPlay modes, like the button). |
 | `plugin.stop()` | Stops playback. |
 | `plugin.next_track()`, `plugin.prev_track()` | Next and previous, respecting shuffle. |
-| `plugin.seek(seconds)` | Jumps to a position in the current track. |
-| `plugin.set_volume(percent)` | Sets the volume, 0 to 100, and shows the volume popup. |
+| `plugin.seek(seconds)` | Requests a position in the current track. Finite HTTP sources can seek when `get_playback_format().seekable` is true; live streams remain forward-only. |
+| `plugin.set_volume(percent, opts)` | Sets volume clamped to 0–100. Shows the popup by default; `{ silent = true }` suppresses it (`playback.silent_volume`). |
 | `plugin.set_playback_speed(dir, speed)` | API 16, `playback.speed`: requests pitch-preserving speed from 0.5 to 2.0 for local tracks beneath an absolute directory. Returns acceptance, not completion of the asynchronous transition. `nil, 1.0` resets the scope. Scoped to path components; last call wins, cleared on plugin shutdown. |
 | `plugin.get_playback_speed()` | Returns the actual committed speed; 1.0 while idle or for unsupported formats. |
 | `plugin.set_transport_skip(dir, seconds)` | Makes Next and Previous skip `seconds` (1 to 300) within files under `dir` instead of changing track; 0 turns it off. Applies to every Next/Previous control, not to automatic track changes. Not saved; the last call wins. Check `playback.transport_skip`. |
@@ -704,6 +714,37 @@ should be saved by the plugin, and scoped to its content directory.
 | `plugin.get_now_playing()` | `title, artist, album, duration_seconds`, or `nil` if nothing has played yet |
 | `plugin.get_current_track_path()` | absolute path, or `nil` when nothing is loaded |
 | `plugin.get_play_mode()` | `"sequential"`, `"repeat_all"`, `"repeat_one"` or `"shuffle"` |
+
+### API 16 audio additions
+
+These additions keep API version **16**. Check each capability with
+`plugin.has_capability(token)` when supporting older builds.
+
+| Functions | Capability and behavior |
+| --- | --- |
+| `get_playback_format()` | `playback.format`: `nil` while idle, otherwise a snapshot with `path`, `codec`, source `sample_rate`/`bit_depth`, `output_sample_rate`/`output_bit_depth`, `channels`, `bitrate_kbps`, `duration_seconds`, `is_stream`, `seekable`, `is_dsd`, `dop`, `replaygain_applied`/`replaygain_applied_db`, and `generation`. Unknown source depth is 0. |
+| `get_output_info()` | `playback.output_info`: `route` (`wired`, `bluetooth`, or `usb_dac`), `active`, PCM `sample_rate`/`bit_depth`, `hardware_sample_rate`/`hardware_bit_depth` when known, cached `bluetooth_codec` when available, `resampling`, `resampling_known`, and `dop`. Bluetooth and USB conversion/final hardware formats are unknown; matching PCM fields alone cannot prove bit-perfect output. |
+| `eq_apply_profile(path, { persist = false })` | `audio.peq.transient`: applies an SD profile to runtime EQ without saving it. Default persistence remains enabled. Later explicit EQ save/edit operations may save the active profile. |
+| `get_crossfade()`, `set_crossfade(enabled)` | `playback.settings`: boolean; retains native coupling with gapless. |
+| `get_gapless()`, `set_gapless(enabled)` | `playback.settings`: boolean; disabling gapless also disables crossfade. |
+| `get_replaygain_mode()`, `set_replaygain_mode(mode)` | `playback.settings`: `off`, `track`, or `album`. Applies at the next track transition; it does not recompute current decoder gain. |
+| `get_play_mode()`, `set_play_mode(mode)` | `playback.settings`: `sequential`, `repeat_all`, `repeat_one`, or `shuffle`. Setters follow native settings persistence. |
+| `set_ab_loop(start, finish)`, `get_ab_loop()`, `clear_ab_loop()` | `playback.ab_loop`: seconds converted to decoder frames; end is exclusive. Setter returns acceptance. Getter returns `{ start, finish }` or `nil`. Supports finite local FLAC/WAV/AIFF/CAF at up to 16-bit PCM; unsupported sources, pause, speed changes, crossfade, seek, stop, and track changes clear/reject loops. Wrap runs in the audio thread without reopening/flushing output. |
+| `prepare_ab_switch(path)` | `playback.ab_switch`: asynchronously prepares an alternate SD file against the currently playing primary. Returns acceptance, not readiness. Both must be finite local FLAC/WAV/AIFF/CAF with identical rate, channels, frame count and 16-bit PCM. Preparation/adoption can involve I/O and one alignment seek. |
+| `get_ab_switch()`, `select_ab_source(source)`, `clear_ab_switch()` | `playback.ab_switch`: snapshot `{ preparing, ready, source }`; source is `a` or `b`. Select returns false until ready. Both decoders advance together; selection switches raw PCM at a chunk boundary before one shared DSP pass, with the primary's ReplayGain, EQ and volume. Selection does not seek, reopen, or flush output. Pause, seek, stop, track/speed/crossfade changes or decode/output errors clear it. Loops and comparison are mutually exclusive. |
+
+`plugin.on("output_changed", function(current, previous) ... end)`
+(`playback.output_events`) reports deduplicated output snapshots on the UI thread.
+Each contains `route`, `requested_route`, `active`, `bluetooth_connected`, `bluetooth_codec`, and
+`headphone_state` (native jack state). The first observed state establishes a baseline.
+Bluetooth information comes from the player's cached/debounced radio state.
+
+`playback.http_seek` indicates finite HTTP Range support. Servers must honor
+validated byte ranges. FLAC, MP3 and AAC in MP4/M4A use byte seeking; raw ADTS AAC
+and live/chunked radio remain forward-only. MP3 without a seek table can decode
+forward from an earlier byte position during a seek, so acceptance is not a
+promise of instantaneous seeking. Provider URL expiry, server policy and
+container format can still make an individual source non-seekable.
 
 ### `plugin.media_capabilities()`
 
@@ -1087,7 +1128,7 @@ them quick.
 
 ## Examples
 
-All in `plugins_examples/`:
+Files in this table are in `plugins_examples/`, except ListenBrainz Scrobbler and Radio Browser, which are installed from the plugin store.
 
 | Example | Shows |
 | --- | --- |

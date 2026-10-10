@@ -310,7 +310,10 @@ static bool finish_open(aac_decoder_t * dec, uint64_t total_frame_count) {
 }
 
 aac_decoder_t * aac_open_file(const char * path) {
-    FILE * f = fopen(path, "rb");
+    return aac_open_adts_file_stream(fopen(path, "rb"));
+}
+
+aac_decoder_t * aac_open_adts_file_stream(FILE * f) {
     if (!f) return NULL;
 
     uint64_t * offsets;
@@ -385,8 +388,7 @@ aac_decoder_t * aac_open_file(const char * path) {
     return dec;
 }
 
-aac_decoder_t * aac_open_file_mp4(const char * path) {
-    mp4_demux_t * demux = mp4_demux_open(path);
+static aac_decoder_t * aac_open_demux(mp4_demux_t * demux) {
     if (!demux) return NULL;
 
     char fourcc[5];
@@ -442,6 +444,14 @@ aac_decoder_t * aac_open_file_mp4(const char * path) {
         return NULL;
     }
     return dec;
+}
+
+aac_decoder_t * aac_open_file_mp4(const char * path) {
+    return aac_open_demux(mp4_demux_open(path));
+}
+
+aac_decoder_t * aac_open_mp4_file_stream(FILE * stream) {
+    return aac_open_demux(mp4_demux_open_stream(stream));
 }
 
 aac_decoder_t * aac_open_stream(aac_stream_read_cb_t read_cb, void * user_data) {

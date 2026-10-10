@@ -6243,6 +6243,15 @@ void gui_player_set_gapless_enabled(bool enabled) {
     gui_shell_refresh_quick_drawer_expansion_toggles();
 }
 
+void gui_player_set_replaygain_mode(int mode) {
+    if (mode < 0 || mode > 2 || current_settings.replaygain_mode == mode) return;
+    current_settings.replaygain_mode = mode;
+    settings_save_async(&current_settings);
+    /* The already prepared successor captured the old gain mode. Rebuild it
+     * now so the new setting takes effect at the next transition. */
+    if (playlist_index >= 0) arm_next_track_for_audio(playlist_index);
+}
+
 void gapless_switch_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
     gui_player_set_gapless_enabled(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));

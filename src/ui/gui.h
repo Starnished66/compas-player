@@ -190,6 +190,8 @@ void gui_plugin_seek(double seconds);
  * settings_save() + show_volume_popup()/refresh_volume_topbar(), so a
  * plugin-driven volume change looks identical to a hardware/remote one. */
 void gui_plugin_set_volume(int percent);
+/* Same volume update without opening the transient volume popup. */
+void gui_plugin_set_volume_silent(int percent);
 
 /* Pure state reads -- trivial wraps of audio_is_playing()/audio_is_paused()/
  * audio_get_position_seconds()/audio_get_duration_seconds(), routed through

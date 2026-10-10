@@ -19,6 +19,27 @@
  *
  * Target build only; host simulator uses SDL. */
 
+/* Coherent application-side output snapshot. Bluetooth/USB use ALSA plug
+ * conversion: their final transport/DAC rate and depth are not measured here. */
+typedef enum {
+    AUDIO_OUTPUT_ROUTE_WIRED = 0,
+    AUDIO_OUTPUT_ROUTE_BLUETOOTH,
+    AUDIO_OUTPUT_ROUTE_USB,
+} audio_output_route_t;
+
+typedef struct {
+    bool active;
+    audio_output_route_t route;
+    audio_output_route_t requested_route;
+    unsigned int sample_rate;
+    unsigned int bit_depth;
+    unsigned int channels;
+    bool dop;
+    bool hardware_format_known;
+} audio_output_info_t;
+
+void audio_output_get_info(audio_output_info_t * out);
+
 /* Opens (or reopens) the output device for the given format, target, and latency mode.
  * Returns false if opening failed.
  * If another thread currently owns the output, returns false immediately.

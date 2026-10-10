@@ -142,6 +142,7 @@ void gui_player_set_crossfade_enabled(bool enabled);
  * switch or the quick drawer tile). Disabling it also disables crossfade,
  * which depends on it -- see the definition's own comment. */
 void gui_player_set_gapless_enabled(bool enabled);
+void gui_player_set_replaygain_mode(int mode);
 void commit_auto_advance(void);
 
 void queue_add_song(const char * path);

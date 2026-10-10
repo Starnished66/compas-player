@@ -656,13 +656,104 @@ static void parse_itunsmpb(mp4_demux_t *d, box_header_t moov) {
     }
 }
 
-mp4_demux_t * mp4_demux_open(const char * path) {
-    FILE * f = fopen(path, "rb");
-    if (!f) return NULL;
+/* A 20-minute AAC moov is a couple of hundred KB. 4 MiB still covers a long
+ * audiobook's sample tables and stays small next to 56 MiB of RAM. Larger
+ * moov keeps the caller's ordinary IO. Leading boxes (ftyp, free, uuid) are
+ * copied only while each one is small, so an mdat before moov is seeked
+ * over instead of downloaded into the prefix. */
+#define MP4_MOOV_CACHE_MAX (4u * 1024u * 1024u)
+#define MP4_PREFIX_BOX_MAX (64u * 1024u)
 
-    fseek(f, 0, SEEK_END);
+bool mp4_cache_moov_prefix(FILE * file, uint8_t ** out_bytes, uint64_t * out_offset,
+                           uint64_t * out_length) {
+    if (out_bytes) *out_bytes = NULL;
+    if (out_offset) *out_offset = 0;
+    if (out_length) *out_length = 0;
+    if (!file || !out_bytes || !out_offset || !out_length) return false;
+    if (fseek(file, 0, SEEK_END) != 0) return false;
+    long file_size = ftell(file);
+    if (file_size <= 0 || fseek(file, 0, SEEK_SET) != 0) return false;
+
+    /* Bytes kept only while every box so far was read in full, so the buffer
+     * stays a contiguous prefix and the stream never seeks backwards. */
+    uint8_t * prefix = NULL;
+    size_t prefix_len = 0;
+    uint64_t pos = 0;
+    bool skipping = false;
+
+    while (pos + 8 <= (uint64_t) file_size) {
+        if (skipping && fseek(file, (long) pos, SEEK_SET) != 0) { free(prefix); return false; }
+        uint8_t hdr[16];
+        if (fread(hdr, 1, 8, file) != 8) { free(prefix); return false; }
+        uint32_t size32 = audio_read_u32be(hdr);
+        unsigned header_size = 8;
+        uint64_t box_size;
+        if (size32 == 1) {
+            if (pos + 16 > (uint64_t) file_size || fread(hdr + 8, 1, 8, file) != 8) { free(prefix); return false; }
+            box_size = audio_read_u64be(hdr + 8);
+            header_size = 16;
+        } else if (size32 == 0) {
+            box_size = (uint64_t) file_size - pos;
+        } else {
+            box_size = size32;
+        }
+        if (box_size < header_size || box_size > (uint64_t) file_size - pos) { free(prefix); return false; }
+
+        size_t rest = (size_t) box_size - header_size;
+        if (memcmp(hdr + 4, "moov", 4) == 0) {
+            if (box_size > MP4_MOOV_CACHE_MAX) { free(prefix); return true; }
+            int contiguous = !skipping && pos == (uint64_t) prefix_len &&
+                             pos + box_size <= MP4_MOOV_CACHE_MAX;
+            if (contiguous) {
+                uint8_t * buf = realloc(prefix, (size_t) (pos + box_size));
+                if (!buf) { free(prefix); return false; }
+                memcpy(buf + (size_t) pos, hdr, header_size);
+                if (rest && fread(buf + (size_t) pos + header_size, 1, rest, file) != rest) { free(buf); return false; }
+                *out_bytes = buf;
+                *out_offset = 0;
+                *out_length = pos + box_size;
+                return true;
+            }
+            free(prefix);
+            uint8_t * buf = malloc((size_t) box_size);
+            if (!buf) return false;
+            memcpy(buf, hdr, header_size);
+            if (rest && fread(buf + header_size, 1, rest, file) != rest) { free(buf); return false; }
+            *out_bytes = buf;
+            *out_offset = pos;
+            *out_length = box_size;
+            return true;
+        }
+
+        uint64_t next = pos + box_size;
+        if (!skipping && box_size <= MP4_PREFIX_BOX_MAX && next <= MP4_MOOV_CACHE_MAX) {
+            uint8_t * grown = realloc(prefix, (size_t) next);
+            if (!grown) { free(prefix); return false; }
+            memcpy(grown + (size_t) pos, hdr, header_size);
+            if (rest && fread(grown + (size_t) pos + header_size, 1, rest, file) != rest) { free(grown); return false; }
+            prefix = grown;
+            prefix_len = (size_t) next;
+        } else {
+            free(prefix);
+            prefix = NULL;
+            prefix_len = 0;
+            skipping = true;
+        }
+        pos = next;
+    }
+    free(prefix);
+    return false;
+}
+
+mp4_demux_t * mp4_demux_open(const char * path) {
+    return mp4_demux_open_stream(fopen(path, "rb"));
+}
+
+mp4_demux_t * mp4_demux_open_stream(FILE * f) {
+    if (!f) return NULL;
+    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return NULL; }
     long file_size = ftell(f);
-    fseek(f, 0, SEEK_SET);
+    if (file_size <= 0 || fseek(f, 0, SEEK_SET) != 0) { fclose(f); return NULL; }
 
     box_header_t moov;
     bool found_moov = false;
@@ -723,12 +814,12 @@ mp4_demux_t * mp4_demux_open(const char * path) {
     return d;
 }
 
-bool mp4_demux_peek_codec(const char * path, char out_fourcc[5]) {
-    FILE * f = fopen(path, "rb");
-    if (!f) return false;
-    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return false; }
+bool mp4_demux_peek_codec_stream(FILE *f, char out_fourcc[5]) {
+    if (!f || !out_fourcc) return false;
+    long original = ftell(f);
+    if (original < 0 || fseek(f, 0, SEEK_END) != 0) return false;
     long file_size = ftell(f);
-    if (file_size <= 0 || fseek(f, 0, SEEK_SET) != 0) { fclose(f); return false; }
+    if (file_size <= 0 || fseek(f, 0, SEEK_SET) != 0) { (void)fseek(f, original, SEEK_SET); return false; }
     box_header_t moov = {0};
     bool found = false;
     while (ftell(f) < file_size) {
@@ -749,6 +840,14 @@ bool mp4_demux_peek_codec(const char * path, char out_fourcc[5]) {
               box_payload_has(stsd, 0, 20) && fseek(f, stsd.data_start + 8, SEEK_SET) == 0 &&
               fread(entry, 1, sizeof(entry), f) == sizeof(entry) && audio_read_u32be(entry) >= 36;
     if (ok) { memcpy(out_fourcc, entry + 4, 4); out_fourcc[4] = '\0'; }
+    if (fseek(f, original, SEEK_SET) != 0) return false;
+    return ok;
+}
+
+bool mp4_demux_peek_codec(const char * path, char out_fourcc[5]) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return false;
+    bool ok = mp4_demux_peek_codec_stream(f, out_fourcc);
     fclose(f);
     return ok;
 }

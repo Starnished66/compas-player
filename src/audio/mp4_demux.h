@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 
 /* Minimal MP4/ISO-BMFF demuxer: locates one audio track's codec config,
  * compact sample offsets/sizes and stts timeline, with validated single-edit
@@ -12,10 +13,24 @@
 typedef struct mp4_demux mp4_demux_t;
 
 mp4_demux_t * mp4_demux_open(const char * path);
+/* Takes ownership of a seekable FILE on success and failure. */
+mp4_demux_t * mp4_demux_open_stream(FILE * stream);
 
 /* Codec fourcc only ("alac"/"mp4a"). Opens and closes a demux; long files
  * stay compact so this is safe as an extension-dispatch peek. */
 bool mp4_demux_peek_codec(const char * path, char out_fourcc[5]);
+/* Like mp4_demux_peek_codec(), but reads from an already-open seekable FILE
+ * and restores its original position without taking ownership. */
+bool mp4_demux_peek_codec_stream(FILE * stream, char out_fourcc[5]);
+
+/* Forward-only top-level scan. Does not take ownership of file. On success
+ * *out_bytes is NULL when moov is larger than 4 MiB (the caller keeps
+ * ordinary IO) or a malloc'd span of moov, extended back to offset 0 when
+ * that prefix was already read without a backward seek. *out_offset is the
+ * file offset of the first byte. False means no moov or a read failed, and
+ * *out_bytes is NULL. */
+bool mp4_cache_moov_prefix(FILE * file, uint8_t ** out_bytes, uint64_t * out_offset,
+                           uint64_t * out_length);
 
 /* 4-character codec identifier from the sample description, e.g. "alac" or
  * "mp4a" (AAC). Not null-terminated by convention, so this returns exactly

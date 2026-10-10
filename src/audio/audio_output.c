@@ -699,6 +699,27 @@ bool audio_output_supports_wide_path(void) {
     return supports;
 }
 
+void audio_output_get_info(audio_output_info_t * out) {
+    if (!out) return;
+    memset(out, 0, sizeof(*out));
+    pthread_mutex_lock(&config_mutex);
+    out->requested_route = requested_target == OUTPUT_TARGET_BT ? AUDIO_OUTPUT_ROUTE_BLUETOOTH :
+                           requested_target == OUTPUT_TARGET_USB ? AUDIO_OUTPUT_ROUTE_USB : AUDIO_OUTPUT_ROUTE_WIRED;
+    pthread_mutex_unlock(&config_mutex);
+    pthread_mutex_lock(&state_mutex);
+    out->active = device_sample_rate != 0 && device_channels != 0;
+    out->route = active_target == OUTPUT_TARGET_BT ? AUDIO_OUTPUT_ROUTE_BLUETOOTH :
+                 active_target == OUTPUT_TARGET_USB ? AUDIO_OUTPUT_ROUTE_USB : AUDIO_OUTPUT_ROUTE_WIRED;
+    if (out->active) {
+        out->sample_rate = device_sample_rate;
+        out->channels = device_channels;
+        out->bit_depth = active_format == PCM_FORMAT_S24_LE ? 24 : 16;
+        out->dop = active_dop;
+        out->hardware_format_known = active_target == OUTPUT_TARGET_LOCAL;
+    }
+    pthread_mutex_unlock(&state_mutex);
+}
+
 bool audio_output_is_s24_active(void) {
     pthread_mutex_lock(&state_mutex);
     bool active = (active_target == OUTPUT_TARGET_LOCAL || active_target == OUTPUT_TARGET_USB) && active_format == PCM_FORMAT_S24_LE;

@@ -2,6 +2,7 @@
 #include "i18n.h"
 #include "gui.h"
 #include "gui_player.h"
+#include "gui_shell.h"
 #include "gui_reload.h"
 #include "player_layouts.h"
 #include "gui_lock_screen.h"
@@ -10,6 +11,11 @@
 #include "battery.h"
 #include "charge_limiter.h"
 #include "audio.h"
+#include "audio_output.h"
+#include "settings.h"
+#include "bluetooth_control.h"
+#include "usb_mode_control.h"
+#include "headphone_status.h"
 #include "http_client.h"
 #include "playlist_files.h"
 #include "plugin_json.h"
@@ -53,6 +59,8 @@
 #include <math.h>
 #include <unistd.h>
 #include <setjmp.h>
+
+extern player_settings_t current_settings;
 
 #ifdef HOST_BUILD
   #define MUSIC_ROOT_DIR "./music"
@@ -2438,6 +2446,21 @@ static int l_plugin_eq_load_profile(lua_State * L) {
     return 1;
 }
 
+static int l_plugin_eq_apply_profile(lua_State * L) {
+    const char * path = check_plugin_external_path(L, 1, "plugin.eq_apply_profile");
+    bool persist = true;
+    if (!lua_isnoneornil(L, 2)) {
+        luaL_checktype(L, 2, LUA_TTABLE);
+        lua_getfield(L, 2, "persist");
+        if (!lua_isnil(L, -1)) persist = lua_toboolean(L, -1);
+        lua_pop(L, 1);
+    }
+    bool ok = peq_load_from_path(path);
+    if (ok && persist) peq_save();
+    lua_pushboolean(L, ok);
+    return 1;
+}
+
 static int l_plugin_eq_save_profile(lua_State * L) {
     const char * path = check_plugin_external_path(L, 1, "plugin.eq_save_profile");
     lua_pushboolean(L, peq_save_to_path(path));
@@ -2644,6 +2667,119 @@ static int l_plugin_get_playback_speed(lua_State * L) {
     return 1;
 }
 
+static int l_plugin_set_ab_loop(lua_State * L) {
+    lua_pushboolean(L, audio_set_ab_loop(luaL_checknumber(L, 1), luaL_checknumber(L, 2)));
+    return 1;
+}
+static int l_plugin_get_ab_loop(lua_State * L) {
+    double start, end;
+    if (!audio_get_ab_loop(&start, &end)) { lua_pushnil(L); return 1; }
+    lua_newtable(L);
+    lua_pushnumber(L, start); lua_setfield(L, -2, "start");
+    lua_pushnumber(L, end); lua_setfield(L, -2, "finish");
+    return 1;
+}
+static int l_plugin_clear_ab_loop(lua_State * L) {
+    (void)L;
+    audio_clear_ab_loop();
+    return 0;
+}
+static int l_plugin_prepare_ab_switch(lua_State * L) {
+    const char *path = check_plugin_external_path(L, 1, "plugin.prepare_ab_switch");
+    lua_pushboolean(L, audio_prepare_ab_switch(path));
+    return 1;
+}
+static int l_plugin_select_ab_source(lua_State * L) {
+    const char *source = luaL_checkstring(L, 1);
+    if (strcmp(source, "a") != 0 && strcmp(source, "b") != 0)
+        return luaL_error(L, "source must be 'a' or 'b'");
+    lua_pushboolean(L, audio_select_ab_source(strcmp(source, "b") == 0));
+    return 1;
+}
+static int l_plugin_clear_ab_switch(lua_State * L) {
+    (void)L;
+    audio_clear_ab_switch();
+    return 0;
+}
+static int l_plugin_get_ab_switch(lua_State * L) {
+    bool preparing, ready, source_b;
+    audio_get_ab_switch(&preparing, &ready, &source_b);
+    lua_newtable(L);
+    lua_pushboolean(L, preparing); lua_setfield(L, -2, "preparing");
+    lua_pushboolean(L, ready); lua_setfield(L, -2, "ready");
+    lua_pushstring(L, source_b ? "b" : "a"); lua_setfield(L, -2, "source");
+    return 1;
+}
+
+static int l_plugin_get_playback_format(lua_State * L) {
+    audio_current_format_info_t f;
+    if (!audio_get_current_format_info(&f) || !f.valid) { lua_pushnil(L); return 1; }
+    static const char * const codecs[] = { "unknown", "flac", "mp3", "pcm", "dsd", "aac", "alac", "ape", "wma", "opus", "vorbis", "wavpack" };
+    lua_newtable(L);
+#define FMT_NUM(name, val) do { lua_pushinteger(L, (lua_Integer)(val)); lua_setfield(L, -2, name); } while (0)
+    lua_pushstring(L, f.path); lua_setfield(L, -2, "path");
+    int codec = (int)f.codec;
+    lua_pushstring(L, codec >= 0 && (size_t)codec < sizeof(codecs) / sizeof(codecs[0]) ? codecs[codec] : "unknown"); lua_setfield(L, -2, "codec");
+    FMT_NUM("sample_rate", f.source_sample_rate);
+    FMT_NUM("bit_depth", f.source_bit_depth);
+    FMT_NUM("output_sample_rate", f.output_sample_rate);
+    FMT_NUM("output_bit_depth", f.output_bit_depth);
+    FMT_NUM("channels", f.channels);
+    FMT_NUM("bitrate_kbps", f.bitrate_kbps);
+    lua_pushnumber(L, f.duration_seconds); lua_setfield(L, -2, "duration_seconds");
+    lua_pushboolean(L, f.is_stream); lua_setfield(L, -2, "is_stream");
+    lua_pushboolean(L, f.seekable); lua_setfield(L, -2, "seekable");
+    lua_pushboolean(L, f.is_dsd); lua_setfield(L, -2, "is_dsd");
+    lua_pushboolean(L, f.dsd_native); lua_setfield(L, -2, "dop");
+    lua_pushboolean(L, f.replaygain_applied); lua_setfield(L, -2, "replaygain_applied");
+    lua_pushnumber(L, f.replaygain_applied_db); lua_setfield(L, -2, "replaygain_applied_db");
+    FMT_NUM("generation", f.generation);
+#undef FMT_NUM
+    return 1;
+}
+
+static int l_plugin_get_output_info(lua_State * L) {
+    audio_current_format_info_t f = {0};
+    bool have_format = audio_get_current_format_info(&f) && f.valid;
+    audio_output_info_t out = {0};
+#ifndef HOST_BUILD
+    audio_output_get_info(&out);
+#else
+    out.active = have_format;
+    out.route = AUDIO_OUTPUT_ROUTE_WIRED;
+    out.requested_route = AUDIO_OUTPUT_ROUTE_WIRED;
+    out.sample_rate = have_format ? f.output_sample_rate : 0;
+    out.bit_depth = have_format ? f.output_bit_depth : 0;
+    out.hardware_format_known = false;
+#endif
+    static const char * const route_names[] = { "wired", "bluetooth", "usb_dac" };
+    const char * route = route_names[out.active ? out.route : out.requested_route];
+    lua_newtable(L);
+    lua_pushstring(L, route); lua_setfield(L, -2, "route");
+    lua_pushboolean(L, out.active); lua_setfield(L, -2, "active");
+    lua_pushboolean(L, out.dop); lua_setfield(L, -2, "dop");
+    bool resampling_known = have_format && out.active && out.hardware_format_known;
+    lua_pushboolean(L, resampling_known && (out.sample_rate != f.output_sample_rate)); lua_setfield(L, -2, "resampling");
+    lua_pushboolean(L, resampling_known); lua_setfield(L, -2, "resampling_known");
+    if (have_format) {
+        lua_pushinteger(L, out.active ? out.sample_rate : f.output_sample_rate); lua_setfield(L, -2, "sample_rate");
+        lua_pushinteger(L, out.active ? out.bit_depth : f.output_bit_depth); lua_setfield(L, -2, "bit_depth");
+    } else { lua_pushnil(L); lua_setfield(L, -2, "sample_rate"); lua_pushnil(L); lua_setfield(L, -2, "bit_depth"); }
+    if (out.hardware_format_known) {
+        lua_pushinteger(L, out.sample_rate); lua_setfield(L, -2, "hardware_sample_rate");
+        lua_pushinteger(L, out.bit_depth); lua_setfield(L, -2, "hardware_bit_depth");
+    } else { lua_pushnil(L); lua_setfield(L, -2, "hardware_sample_rate"); lua_pushnil(L); lua_setfield(L, -2, "hardware_bit_depth"); }
+#ifndef HOST_BUILD
+    char codec[32] = {0};
+    if ((out.active ? out.route : out.requested_route) == AUDIO_OUTPUT_ROUTE_BLUETOOTH && gui_shell_get_bt_audio_codec(codec, sizeof(codec))) {
+        lua_pushstring(L, codec); lua_setfield(L, -2, "bluetooth_codec");
+    } else { lua_pushnil(L); lua_setfield(L, -2, "bluetooth_codec"); }
+#else
+    lua_pushnil(L); lua_setfield(L, -2, "bluetooth_codec");
+#endif
+    return 1;
+}
+
 static int l_plugin_set_transport_skip(lua_State * L) {
     const char * directory = check_plugin_external_path(L, 1, "plugin.set_transport_skip");
     lua_Integer seconds = luaL_checkinteger(L, 2);
@@ -2655,7 +2791,17 @@ static int l_plugin_set_transport_skip(lua_State * L) {
 
 static int l_plugin_set_volume(lua_State * L) {
     lua_Integer percent = luaL_checkinteger(L, 1);
-    gui_plugin_set_volume((int) percent);
+    if (percent < 0) percent = 0;
+    if (percent > 100) percent = 100;
+    bool silent = false;
+    if (!lua_isnoneornil(L, 2)) {
+        luaL_checktype(L, 2, LUA_TTABLE);
+        lua_getfield(L, 2, "silent");
+        silent = lua_toboolean(L, -1);
+        lua_pop(L, 1);
+    }
+    if (silent) gui_plugin_set_volume_silent((int) percent);
+    else gui_plugin_set_volume((int) percent);
     return 0;
 }
 
@@ -3421,6 +3567,45 @@ static int l_plugin_get_play_mode(lua_State * L) {
     return 1;
 }
 
+static int l_plugin_set_play_mode(lua_State * L) {
+    const char * mode = luaL_checkstring(L, 1);
+    int value;
+    if (!strcmp(mode, "sequential")) value = 0;
+    else if (!strcmp(mode, "repeat_all")) value = 1;
+    else if (!strcmp(mode, "repeat_one")) value = 2;
+    else if (!strcmp(mode, "shuffle")) value = 3;
+    else return luaL_error(L, "plugin.set_play_mode: expected sequential, repeat_all, repeat_one, or shuffle");
+    gui_player_set_play_mode(value);
+    return 0;
+}
+
+static int l_plugin_get_crossfade(lua_State * L) { lua_pushboolean(L, current_settings.crossfade_enabled); return 1; }
+static int l_plugin_get_gapless(lua_State * L) { lua_pushboolean(L, current_settings.gapless_enabled); return 1; }
+static int l_plugin_get_replaygain_mode(lua_State * L) {
+    static const char * const modes[] = { "off", "track", "album" };
+    int mode = current_settings.replaygain_mode;
+    if (mode < 0 || mode > 2) mode = 0;
+    lua_pushstring(L, modes[mode]); return 1;
+}
+static int l_plugin_set_crossfade(lua_State * L) {
+    gui_player_set_crossfade_enabled(lua_toboolean(L, 1));
+    return 0;
+}
+static int l_plugin_set_gapless(lua_State * L) {
+    gui_player_set_gapless_enabled(lua_toboolean(L, 1));
+    return 0;
+}
+static int l_plugin_set_replaygain_mode(lua_State * L) {
+    const char * mode = luaL_checkstring(L, 1);
+    int value;
+    if (!strcmp(mode, "off")) value = 0;
+    else if (!strcmp(mode, "track")) value = 1;
+    else if (!strcmp(mode, "album")) value = 2;
+    else return luaL_error(L, "plugin.set_replaygain_mode: expected off, track, or album");
+    gui_player_set_replaygain_mode(value);
+    return 0;
+}
+
 /* plugin.get_current_track_path() -> path | nil, if nothing is loaded. */
 static int l_plugin_get_current_track_path(lua_State * L) {
     const char * path = gui_plugin_get_current_track_path();
@@ -3789,6 +3974,7 @@ typedef enum {
     PLUGIN_EVENT_SYSTEM_RESUMED,
     PLUGIN_EVENT_SCREENSHOT_SAVED,
     PLUGIN_EVENT_SCREENSHOT_FAILED,
+    PLUGIN_EVENT_OUTPUT_CHANGED,
     PLUGIN_EVENT_COUNT,
 } plugin_event_t;
 
@@ -3802,6 +3988,82 @@ static int plugin_event_subscriber_count[PLUGIN_EVENT_COUNT];
 static int plugin_last_volume_percent = -1;
 static bool plugin_battery_snapshot_valid = false;
 static plugin_battery_info_t plugin_last_battery_info;
+static bool plugin_output_snapshot_valid;
+typedef struct {
+    int route, requested_route, headphones;
+    bool active, bluetooth;
+    char bluetooth_codec[32];
+} plugin_output_snapshot_t;
+static plugin_output_snapshot_t plugin_last_output_snapshot;
+
+static bool plugin_output_snapshot(plugin_output_snapshot_t * s) {
+    audio_output_info_t out = {0};
+#ifndef HOST_BUILD
+    audio_output_get_info(&out);
+#else
+    out.route = AUDIO_OUTPUT_ROUTE_WIRED;
+    out.requested_route = AUDIO_OUTPUT_ROUTE_WIRED;
+#endif
+    s->route = out.active ? (int)out.route : -1;
+    s->requested_route = (int)out.requested_route;
+    s->active = out.active;
+    s->bluetooth = gui_shell_is_bt_audio_connected();
+    (void)gui_shell_get_bt_audio_codec(s->bluetooth_codec, sizeof(s->bluetooth_codec));
+    s->headphones = (int)get_headphone_state();
+    return true;
+}
+
+static void push_output_snapshot(lua_State * L, const plugin_output_snapshot_t * s) {
+    static const char * const routes[] = { "wired", "bluetooth", "usb_dac" };
+    lua_newtable(L);
+    lua_pushstring(L, s->route >= 0 && s->route < 3 ? routes[s->route] : "inactive"); lua_setfield(L, -2, "route");
+    lua_pushstring(L, s->requested_route >= 0 && s->requested_route < 3 ? routes[s->requested_route] : "unknown"); lua_setfield(L, -2, "requested_route");
+    lua_pushboolean(L, s->active); lua_setfield(L, -2, "active");
+    lua_pushboolean(L, s->bluetooth); lua_setfield(L, -2, "bluetooth_connected");
+    if (s->bluetooth_codec[0]) lua_pushstring(L, s->bluetooth_codec);
+    else lua_pushnil(L);
+    lua_setfield(L, -2, "bluetooth_codec");
+    lua_pushinteger(L, s->headphones); lua_setfield(L, -2, "headphone_state");
+}
+
+/* Field by field: struct assignment need not copy padding, so memcmp could
+ * report a change that never happened. */
+static bool plugin_output_snapshot_equal(const plugin_output_snapshot_t * a,
+                                         const plugin_output_snapshot_t * b) {
+    return a->route == b->route && a->requested_route == b->requested_route &&
+           a->headphones == b->headphones && a->active == b->active &&
+           a->bluetooth == b->bluetooth &&
+           strcmp(a->bluetooth_codec, b->bluetooth_codec) == 0;
+}
+
+/* Defined further down; handlers need its time budget and aborted-plugin
+ * check like every other event. */
+static int plugin_call(lua_State * L, int nargs, int nresults, int errfunc);
+
+static void plugin_output_poll(void) {
+    if (plugin_event_subscriber_count[PLUGIN_EVENT_OUTPUT_CHANGED] == 0) return;
+    plugin_output_snapshot_t now = {0};
+    if (!plugin_output_snapshot(&now)) return;
+    if (!plugin_output_snapshot_valid) {
+        plugin_last_output_snapshot = now;
+        plugin_output_snapshot_valid = true;
+        return;
+    }
+    if (plugin_output_snapshot_equal(&now, &plugin_last_output_snapshot)) return;
+    plugin_output_snapshot_t previous = plugin_last_output_snapshot;
+    plugin_last_output_snapshot = now;
+    for (int i = 0; i < plugin_event_subscriber_count[PLUGIN_EVENT_OUTPUT_CHANGED]; i++) {
+        plugin_event_subscriber_t * sub = &plugin_event_subscribers[PLUGIN_EVENT_OUTPUT_CHANGED][i];
+        lua_rawgeti(sub->L, LUA_REGISTRYINDEX, sub->ref);
+        push_output_snapshot(sub->L, &now);
+        push_output_snapshot(sub->L, &previous);
+        if (plugin_call(sub->L, 2, 0, 0) != LUA_OK) {
+            const char * err = lua_tostring(sub->L, -1);
+            fprintf(stderr, "[plugins] output_changed handler error: %s\n", err ? err : "unknown error");
+            lua_pop(sub->L, 1);
+        }
+    }
+}
 
 static int l_plugin_on(lua_State * L) {
     const char * event = luaL_checkstring(L, 1);
@@ -3820,6 +4082,7 @@ static int l_plugin_on(lua_State * L) {
     else if (strcmp(event, "system_resumed") == 0) idx = PLUGIN_EVENT_SYSTEM_RESUMED;
     else if (strcmp(event, "screenshot_saved") == 0) idx = PLUGIN_EVENT_SCREENSHOT_SAVED;
     else if (strcmp(event, "screenshot_failed") == 0) idx = PLUGIN_EVENT_SCREENSHOT_FAILED;
+    else if (strcmp(event, "output_changed") == 0) idx = PLUGIN_EVENT_OUTPUT_CHANGED;
     else return luaL_error(L, "plugin.on: unknown event '%s'", event);
 
     if (plugin_event_subscriber_count[idx] >= PLUGIN_MAX_EVENT_SUBSCRIBERS) {
@@ -4092,7 +4355,9 @@ static const char * const plugin_capabilities[] = {
     "audio.stereo_width", "playback.speed", "ui.home_background", "audio.hw_volume_curve", "ui.lock_screen", "ui.quick_toggle",
     "data.zip", "data.html", "ui.text_view", "data.zip_image", "data.image_thumbnail", "ui.list_grid", "ui.list_showing",
     "ui.text_view_images", "ui.list_wrap", "ui.settings_list_wrap", "playback.transport_skip",
-    "ui.player_layout_xml", "storage.secrets_get", "playback.progress"
+    "ui.player_layout_xml", "storage.secrets_get", "playback.progress",
+    "playback.format", "playback.output_info", "playback.silent_volume", "audio.peq.transient",
+    "playback.output_events", "playback.settings", "playback.ab_loop", "playback.ab_switch", "playback.http_seek"
 };
 
 static int l_plugin_has_capability(lua_State * L) {
@@ -4943,6 +5208,7 @@ static const luaL_Reg plugin_funcs[] = {
     { "refresh_theme",             l_plugin_refresh_theme },
     { "reload_ui",                 l_plugin_reload_ui },
     { "eq_load_profile",           l_plugin_eq_load_profile },
+    { "eq_apply_profile",          l_plugin_eq_apply_profile },
     { "eq_save_profile",           l_plugin_eq_save_profile },
     { "eq_reset",                  l_plugin_eq_reset },
     { "eq_set_bypass",             l_plugin_eq_set_bypass },
@@ -4962,6 +5228,15 @@ static const luaL_Reg plugin_funcs[] = {
     { "get_playback_speed",        l_plugin_get_playback_speed },
     { "set_transport_skip",        l_plugin_set_transport_skip },
     { "set_volume",                l_plugin_set_volume },
+    { "set_ab_loop",               l_plugin_set_ab_loop },
+    { "clear_ab_loop",             l_plugin_clear_ab_loop },
+    { "get_ab_loop",               l_plugin_get_ab_loop },
+    { "prepare_ab_switch",         l_plugin_prepare_ab_switch },
+    { "select_ab_source",          l_plugin_select_ab_source },
+    { "get_ab_switch",             l_plugin_get_ab_switch },
+    { "clear_ab_switch",           l_plugin_clear_ab_switch },
+    { "get_playback_format",       l_plugin_get_playback_format },
+    { "get_output_info",           l_plugin_get_output_info },
     { "get_volume",                l_plugin_get_volume },
     { "get_battery",               l_plugin_get_battery },
     { "is_playing",                l_plugin_is_playing },
@@ -4981,6 +5256,13 @@ static const luaL_Reg plugin_funcs[] = {
     { "show_text_input",           l_plugin_show_text_input },
     { "get_now_playing",           l_plugin_get_now_playing },
     { "get_play_mode",             l_plugin_get_play_mode },
+    { "set_play_mode",             l_plugin_set_play_mode },
+    { "get_crossfade",             l_plugin_get_crossfade },
+    { "set_crossfade",             l_plugin_set_crossfade },
+    { "get_gapless",               l_plugin_get_gapless },
+    { "set_gapless",               l_plugin_set_gapless },
+    { "get_replaygain_mode",       l_plugin_get_replaygain_mode },
+    { "set_replaygain_mode",       l_plugin_set_replaygain_mode },
     { "get_current_track_path",    l_plugin_get_current_track_path },
     { "get_artist_albums",         l_plugin_get_artist_albums },
     { "get_album_tracks",          l_plugin_get_album_tracks },
@@ -5691,6 +5973,8 @@ void plugin_manager_deinit(void) {
     player_layouts_session_reset(); /* a plugin's XML layout must not outlive the plugin */
     gui_player_set_transport_skip(NULL, 0);
     audio_set_playback_speed(NULL, 1.0);
+    audio_clear_ab_loop();
+    audio_clear_ab_switch();
     plugin_led_override_owner = NULL;
     led_control_clear_override();
     led_control_apply(current_settings.led_indicator_enabled);
@@ -5761,9 +6045,11 @@ void plugin_manager_deinit(void) {
     memset(plugin_settings_list_rows, 0, sizeof(plugin_settings_list_rows));
     memset(plugin_settings_list_row_counts, 0, sizeof(plugin_settings_list_row_counts));
     memset(plugin_event_subscriber_count, 0, sizeof(plugin_event_subscriber_count));
+    plugin_output_snapshot_valid = false;
 }
 
 void plugin_manager_poll(void) {
+    plugin_output_poll();
     plugin_zip_image_poll();
     for (int i = 0; i < PLUGIN_MAX_ASYNC_HTTP; i++) {
         plugin_async_http_t * req = &plugin_async_http[i];
