@@ -1907,6 +1907,9 @@ static int l_plugin_play_list(lua_State * L) {
     if (start < 0) start = 0;
     if (start >= n) start = n - 1;
 
+    // need to check here, otherwise lua_newuserdata pushes to the lua stack and places it on idx 3,
+    // which confuses play_opens_player
+    bool opens_player = play_opens_player(L, 3);
     char (*path_bufs)[512] = lua_newuserdata(L, (size_t) n * sizeof(*path_bufs));
     const char ** paths = lua_newuserdata(L, (size_t) n * sizeof(*paths));
     for (int i = 0; i < n; i++) {
@@ -1921,7 +1924,7 @@ static int l_plugin_play_list(lua_State * L) {
         lua_pop(L, 1);
     }
 
-    gui_plugin_play_paths(paths, n, start, play_opens_player(L, 3));
+    gui_plugin_play_paths(paths, n, start, opens_player);
     return 0;
 }
 
