@@ -420,12 +420,17 @@ int gui_plugin_show_list(const char * title, const char * const * labels, const 
     lv_label_set_text(plugin_list_title_labels[slot], title);
     configure_plugin_screen_title(plugin_list_title_labels[slot]);
     lv_obj_t * list = plugin_list_lists[slot];
+    int32_t keep_scroll_y = replace_slot >= 0 ? lv_obj_get_scroll_y(list) : 0;
     lv_obj_clean(list);
-    lv_obj_scroll_to_y(list, 0, LV_ANIM_OFF);
+    if (replace_slot < 0) lv_obj_scroll_to_y(list, 0, LV_ANIM_OFF);
 
     if (columns > 0 && count > 0) {
         plugin_grid_build(slot, list, labels, icon_paths, columns, count);
         plugin_list_apply_selection(slot, selected_index);
+        if (keep_scroll_y > 0) {
+            lv_obj_update_layout(list);
+            lv_obj_scroll_to_y(list, keep_scroll_y, LV_ANIM_OFF);
+        }
         if (replace_slot < 0) nav_push(plugin_list_screens[slot]);
         return slot;
     }
@@ -567,6 +572,10 @@ int gui_plugin_show_list(const char * title, const char * const * labels, const 
     }
 
     plugin_list_apply_selection(slot, selected_index);
+    if (keep_scroll_y > 0) {
+        lv_obj_update_layout(list);
+        lv_obj_scroll_to_y(list, keep_scroll_y, LV_ANIM_OFF);
+    }
     if (replace_slot < 0) nav_push(plugin_list_screens[slot]);
     return slot;
 }
