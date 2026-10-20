@@ -11,6 +11,7 @@
 #include "backlight.h"
 #include "usb_mode_control.h"
 #include "gui_player.h"
+#include "remote_control.h"
 #include "frosted_glass.h"
 #include "transition_compositor.h"
 #include "src/draw/lv_draw_buf.h"
@@ -25,6 +26,7 @@ extern void nav_remove_stack_slot(int depth);
 extern void mount_sd_card_if_needed(void);
 extern void library_scan_once(void);
 extern void library_load_from_cache_only(void);
+extern void remote_control_finish_collection(bool success, const char *error);
 void refresh_artist_albums_now_playing_indicator(void);
 #include "gui.h"
 #include "gui_theme.h"
@@ -1675,7 +1677,8 @@ static int playlist_start_source;
 
 /* Starting a collection sequentially should keep an active repeat mode. */
 static play_mode_t collection_play_mode(play_mode_t requested_mode) {
-    if (requested_mode == PLAY_MODE_SHUFFLE) return PLAY_MODE_SHUFFLE;
+    if (requested_mode == PLAY_MODE_SHUFFLE || requested_mode == PLAY_MODE_SHUFFLE_ONCE)
+        return requested_mode;
     if (requested_mode == PLAY_MODE_SEQUENTIAL &&
         (current_settings.play_mode == PLAY_MODE_REPEAT_ALL ||
          current_settings.play_mode == PLAY_MODE_REPEAT_ONE)) {
@@ -6559,6 +6562,229 @@ static group_song_entry_t * build_group_song_entries_from_paths(char ** paths, i
     return entries;
 }
 
+typedef struct {
+    remote_collection_play_request_t request;
+    pthread_t thread;
+    atomic_bool cancel;
+    atomic_bool done;
+    bool ok;
+    bool lazy;
+    char error[96];
+    metadata_db_snapshot_t *snapshot;
+    int *title_ranks;
+    char **paths;
+    int count;
+    uint64_t playback_epoch;
+    int initial_play_mode;
+    lv_timer_t *timer;
+} remote_collection_job_t;
+
+static remote_collection_job_t *remote_collection_job;
+
+static bool remote_collection_cancelled(void *userdata) {
+    remote_collection_job_t *job = userdata;
+    return !job || atomic_load_explicit(&job->cancel, memory_order_acquire);
+}
+
+static void remote_collection_free_paths(char **paths, int count) {
+    if (!paths) return;
+    for (int i = 0; i < count; i++) free(paths[i]);
+    free(paths);
+}
+
+static bool remote_collection_load_paths(remote_collection_job_t *job) {
+    const remote_collection_play_request_t *request = &job->request;
+    switch (request->scope) {
+        case REMOTE_COLLECTION_FAVORITES:
+            metadata_db_load_favorite_songs(&job->paths, &job->count);
+            break;
+        case REMOTE_COLLECTION_RECENTLY_ADDED:
+            metadata_db_load_recently_added_songs(RECENTLY_ADDED_LIMIT, &job->paths, &job->count);
+            break;
+        case REMOTE_COLLECTION_RECENTLY_PLAYED:
+            metadata_db_load_recently_played_songs(METADATA_DB_RECENTLY_PLAYED_MAX,
+                                                   &job->paths, &job->count);
+            break;
+        case REMOTE_COLLECTION_PLAYLIST: {
+            if (!request->name[0] || strchr(request->name, '/') || strstr(request->name, "..")) {
+                snprintf(job->error, sizeof(job->error), "%s", "Playlist could not be loaded");
+                return false;
+            }
+            char path[PATH_MAX];
+            int n = snprintf(path, sizeof(path), "%s/%s.m3u", PLAYLISTS_DIR, request->name);
+            if (n < 0 || (size_t)n >= sizeof(path) ||
+                !file_browser_build_playlist_from_m3u(path, &job->paths, &job->count))
+                return false;
+            break;
+        }
+        default:
+            return false;
+    }
+    if (remote_collection_cancelled(job)) return false;
+    if (job->count <= 0 || !job->paths) {
+        snprintf(job->error, sizeof(job->error), "%s", "Collection is empty or unavailable");
+        return false;
+    }
+    return true;
+}
+
+static void *remote_collection_worker(void *userdata) {
+    remote_collection_job_t *job = userdata;
+    const remote_collection_play_request_t *request = &job->request;
+    const char *artist = NULL, *album_artist = NULL, *album = NULL, *genre = NULL;
+    switch (request->scope) {
+        case REMOTE_COLLECTION_ALL:
+            break;
+        case REMOTE_COLLECTION_ALBUM:
+            album = request->album[0] ? request->album : request->name;
+            if (request->artist[0]) artist = request->artist;
+            else album_artist = request->album_artist;
+            if (!album[0]) {
+                snprintf(job->error, sizeof(job->error), "%s", "Album identity is incomplete");
+                goto done;
+            }
+            break;
+        case REMOTE_COLLECTION_ARTIST:
+            artist = request->artist[0] ? request->artist : request->name;
+            break;
+        case REMOTE_COLLECTION_ALBUM_ARTIST:
+            album_artist = request->album_artist[0] ? request->album_artist : request->name;
+            break;
+        case REMOTE_COLLECTION_GENRE:
+            genre = request->genre[0] ? request->genre : request->name;
+            break;
+        case REMOTE_COLLECTION_PLAYLIST:
+        case REMOTE_COLLECTION_FAVORITES:
+        case REMOTE_COLLECTION_RECENTLY_ADDED:
+        case REMOTE_COLLECTION_RECENTLY_PLAYED:
+            job->ok = remote_collection_load_paths(job);
+            goto done;
+        default:
+            snprintf(job->error, sizeof(job->error), "%s", "Unsupported collection scope");
+            goto done;
+    }
+
+    metadata_db_catalog_result_t result = metadata_db_filtered_snapshot_open(
+        request->expected_revision, artist, album_artist,
+        request->scope == REMOTE_COLLECTION_ALBUM && !artist, album, genre,
+        &job->snapshot, &job->title_ranks, &job->count,
+        remote_collection_cancelled, job);
+    if (result == METADATA_DB_CATALOG_STALE)
+        snprintf(job->error, sizeof(job->error), "%s", "Catalog changed before playback");
+    else if (remote_collection_cancelled(job))
+        snprintf(job->error, sizeof(job->error), "%s", "Playback request was cancelled");
+    else if (result != METADATA_DB_CATALOG_OK)
+        snprintf(job->error, sizeof(job->error), "%s", "Unable to prepare collection playback");
+    else if (job->count <= 0)
+        snprintf(job->error, sizeof(job->error), "%s", "Collection is empty or unavailable");
+    else
+        job->ok = true;
+done:
+    atomic_store_explicit(&job->done, true, memory_order_release);
+    return NULL;
+}
+
+static void remote_collection_job_destroy(remote_collection_job_t *job) {
+    if (!job) return;
+    if (job->snapshot) metadata_db_snapshot_close(job->snapshot);
+    free(job->title_ranks);
+    remote_collection_free_paths(job->paths, job->count);
+    free(job);
+}
+
+static void remote_collection_cancel_and_finish(void) {
+    remote_collection_job_t *job = remote_collection_job;
+    if (!job) return;
+    atomic_store_explicit(&job->cancel, true, memory_order_release);
+}
+
+static void remote_collection_poll(lv_timer_t *timer) {
+    remote_collection_job_t *job = remote_collection_job;
+    if (!job || job->timer != timer) return;
+    if (gui_player_playback_intent_epoch() != job->playback_epoch ||
+        current_settings.play_mode != job->initial_play_mode)
+        atomic_store_explicit(&job->cancel, true, memory_order_release);
+    if (!atomic_load_explicit(&job->done, memory_order_acquire)) return;
+
+    bool context_current = !atomic_load_explicit(&job->cancel, memory_order_acquire) &&
+        gui_player_playback_intent_epoch() == job->playback_epoch &&
+        current_settings.play_mode == job->initial_play_mode;
+    if (context_current && job->ok) {
+        metadata_db_catalog_result_t check = metadata_db_try_catalog_revision_check(
+            job->request.expected_revision);
+        if (check == METADATA_DB_CATALOG_BUSY) return;
+        context_current = check == METADATA_DB_CATALOG_OK;
+        if (!context_current && check == METADATA_DB_CATALOG_STALE)
+            snprintf(job->error, sizeof(job->error), "%s", "Catalog changed before playback");
+        else if (!context_current)
+            snprintf(job->error, sizeof(job->error), "%s", "Catalog is unavailable");
+    }
+    lv_timer_delete(timer);
+    job->timer = NULL;
+    pthread_join(job->thread, NULL);
+    bool ok = job->ok && context_current;
+    if (ok) {
+        if (job->lazy) {
+            ok = gui_player_play_lazy_collection(job->snapshot, job->title_ranks,
+                                                  job->count, job->request.play_mode);
+            if (ok) { job->snapshot = NULL; job->title_ranks = NULL; }
+        } else {
+            ok = gui_player_play_collection_paths(job->paths, job->count,
+                                                  job->request.play_mode);
+            if (ok) job->paths = NULL;
+        }
+    }
+    if (!ok && !job->error[0]) {
+        snprintf(job->error, sizeof(job->error), "%s",
+                 context_current ? "Unable to start collection playback"
+                                 : "Playback request was cancelled");
+    }
+    remote_collection_job = NULL;
+    remote_control_finish_collection(ok, ok ? "" : job->error);
+    remote_collection_job_destroy(job);
+}
+
+bool gui_library_play_remote_collection(const remote_collection_play_request_t *request) {
+    bool catalog_scope = request && request->scope <= REMOTE_COLLECTION_GENRE;
+    if (!request || remote_collection_job || request->play_mode < PLAY_MODE_SEQUENTIAL ||
+        request->play_mode > PLAY_MODE_SHUFFLE_ONCE ||
+        (catalog_scope && !request->expected_revision[0]) ||
+        !memchr(request->expected_revision, '\0', sizeof(request->expected_revision)) ||
+        !memchr(request->name, '\0', sizeof(request->name)) ||
+        !memchr(request->artist, '\0', sizeof(request->artist)) ||
+        !memchr(request->album_artist, '\0', sizeof(request->album_artist)) ||
+        !memchr(request->album, '\0', sizeof(request->album)) ||
+        !memchr(request->genre, '\0', sizeof(request->genre))) return false;
+    remote_collection_job_t *job = calloc(1, sizeof(*job));
+    if (!job) return false;
+    job->request = *request;
+    job->lazy = request->scope <= REMOTE_COLLECTION_GENRE;
+    job->playback_epoch = gui_player_playback_intent_epoch();
+    job->initial_play_mode = current_settings.play_mode;
+    atomic_init(&job->cancel, false);
+    atomic_init(&job->done, false);
+    remote_collection_job = job;
+    job->timer = lv_timer_create(remote_collection_poll, 50, NULL);
+    if (!job->timer) {
+        remote_collection_job = NULL;
+        remote_collection_job_destroy(job);
+        return false;
+    }
+    if (pthread_create(&job->thread, NULL, remote_collection_worker, job) != 0) {
+        lv_timer_delete(job->timer);
+        job->timer = NULL;
+        remote_collection_job = NULL;
+        remote_collection_job_destroy(job);
+        return false;
+    }
+    return true;
+}
+
+void gui_library_cancel_remote_collection(void) {
+    if (remote_collection_job)
+        atomic_store_explicit(&remote_collection_job->cancel, true, memory_order_release);
+}
+
 /* Plays a song selected via the remote-control web UI within its intended
  * scope (album, playlist, or artist). Falls back to full-library queue if
  * no scope is provided or resolved. */
@@ -6652,6 +6878,14 @@ void play_remote_control_song(const char * song_path, const char * playlist_name
         }
     }
     free_group_song_entries(scoped_entries, scoped_count);
+
+    /* A caller that supplied a collection context asked for that exact
+     * source. If it no longer resolves (for example after a rescan), do not
+     * surprise them by replacing it with the entire library. */
+    if ((playlist_name && playlist_name[0]) ||
+        (artist_filter && artist_filter[0]) ||
+        (album_artist_filter && album_artist_filter[0]) ||
+        (album_filter && album_filter[0])) return;
 
     int64_t offset = metadata_db_get_song_title_offset(song_path);
     if (offset >= 0 && offset <= INT_MAX) {
@@ -9832,7 +10066,8 @@ static bool play_current_group(play_mode_t mode) {
         }
     }
     mode = collection_play_mode(mode);
-    int start = mode == PLAY_MODE_SHUFFLE ? rand() % group_songs_count : 0;
+    int start = (mode == PLAY_MODE_SHUFFLE || mode == PLAY_MODE_SHUFFLE_ONCE)
+        ? rand() % group_songs_count : 0;
     gui_player_set_play_mode(mode);
     set_player_source_group_songs(start);
     on_file_selected(paths, group_songs_count, start);
@@ -11663,7 +11898,7 @@ bool gui_library_has_background_work(void) {
     return file_folder_job || library_rescan_active || library_rescan_success_pending ||
            album_load_job || album_load_pending || atomic_load(&album_thumbnail_active) ||
            atomic_load(&album_thumb_gen_active) || sd_format_active || search_job_active ||
-           (group_probe_job && !track_probe_job_done(group_probe_job));
+           remote_collection_job || (group_probe_job && !track_probe_job_done(group_probe_job));
 }
 
 bool gui_library_navigation_blocked(void) {
@@ -11674,6 +11909,7 @@ bool gui_library_navigation_blocked(void) {
 }
 
 void gui_library_prepare_for_ui_reload(bool preserve_artwork) {
+    gui_library_cancel_remote_collection();
 #ifdef UI_PERF_TRACE
     unsigned decoded_before = 0;
     for (int i = 0; i < ALBUM_THUMBNAIL_CACHE_SIZE; ++i)
@@ -11732,6 +11968,7 @@ void gui_library_release_memory_for_external_session(void) {
 }
 
 void gui_library_cancel_background_work(void) {
+    remote_collection_cancel_and_finish();
     cancel_album_load();
     cancel_group_song_probes();
     if (group_probe_job) {

@@ -13,6 +13,8 @@ const char * app_board_marker(void) {
     return "COMPAS_PLAYER_BOARD:r3proii";
 #elif defined(BOARD_R3II_2025)
     return "COMPAS_PLAYER_BOARD:r3ii_2025";
+#elif defined(BOARD_TEMPOTEC_V1)
+    return "COMPAS_PLAYER_BOARD:tempotec_v1";
 #else
     return "COMPAS_PLAYER_BOARD:r1";
 #endif

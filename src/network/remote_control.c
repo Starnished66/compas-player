@@ -1,6 +1,8 @@
 #include "remote_control.h"
 #include "remote_control_mdns.h"
+#include "remote_control_discovery.h"
 #include "remote_control_webapp.h"
+#include "remote_import_files.h"
 #include "metadata.h"
 #include "metadata_db.h"
 #include "tagcache.h"
@@ -13,6 +15,7 @@
 #include "favorite_writer.h"
 #include "gui_library.h" /* sd_card_root_is_mounted() */
 #include "settings.h"
+#include "app_version.h"
 #include "audio.h"
 #ifndef HOST_BUILD
 #include "audio_output.h" /* target-only, like audio.c's own audio_output_* calls */
@@ -37,8 +40,7 @@
 #include <time.h>
 #include <unistd.h>
 
-/* Port 8899 -- verified free on a real device; 4399 is already used by
- * Import via Wi-Fi's thttpd. */
+/* Port 8899 -- shared by the PIN-protected remote and native file API. */
 #define REMOTE_CONTROL_PORT 8899
 
 /* Same definition as gui.c's own MUSIC_ROOT_DIR/PLAYLISTS_DIR, duplicated
@@ -62,6 +64,78 @@ static int status_duration_seconds = 0;
 static float status_volume = 0;
 static int status_play_mode = 0;
 static bool status_favorite = false;
+static bool status_accent_valid = false;
+static uint32_t status_accent_rgb = 0;
+static int status_library_sorting[3] = {0, 0, 0};
+static bool request_has_library_sorting;
+static int request_sort_scope, request_sort_mode;
+static remote_collection_play_request_t request_collection;
+static bool request_has_collection;
+static unsigned collection_job_id;
+static bool collection_job_busy;
+static bool collection_job_failed;
+static char collection_job_error[128];
+static remote_import_state_t remote_import_state = REMOTE_IMPORT_STOPPED;
+static char remote_import_error[128] = "";
+static bool request_has_import;
+static bool request_import_start;
+
+bool remote_control_consume_import_request(bool *out_start) {
+    pthread_mutex_lock(&status_mutex);
+    bool pending = request_has_import;
+    if (pending) {
+        if (out_start) *out_start = request_import_start;
+        request_has_import = false;
+    }
+    pthread_mutex_unlock(&status_mutex);
+    return pending;
+}
+
+void remote_control_set_import_state(remote_import_state_t state, const char *error) {
+    pthread_mutex_lock(&status_mutex);
+    remote_import_state = state;
+    snprintf(remote_import_error, sizeof(remote_import_error), "%s", error ? error : "");
+    pthread_mutex_unlock(&status_mutex);
+}
+
+void remote_control_get_import_state(remote_import_state_t *state, char *error, size_t error_size) {
+    pthread_mutex_lock(&status_mutex);
+    if (state) *state = remote_import_state;
+    if (error && error_size) snprintf(error, error_size, "%s", remote_import_error);
+    pthread_mutex_unlock(&status_mutex);
+}
+
+void remote_control_notify_library_sorting(int albums, int artists, int album_artists) {
+    pthread_mutex_lock(&status_mutex);
+    status_library_sorting[0] = albums;
+    status_library_sorting[1] = artists;
+    status_library_sorting[2] = album_artists;
+    pthread_mutex_unlock(&status_mutex);
+}
+
+bool remote_control_consume_library_sorting(int *scope, int *mode) {
+    pthread_mutex_lock(&status_mutex);
+    bool pending = request_has_library_sorting;
+    if (pending) { *scope = request_sort_scope; *mode = request_sort_mode; request_has_library_sorting = false; }
+    pthread_mutex_unlock(&status_mutex);
+    return pending;
+}
+
+bool remote_control_consume_collection(remote_collection_play_request_t *request) {
+    pthread_mutex_lock(&status_mutex);
+    bool pending = request_has_collection;
+    if (pending) { *request = request_collection; request_has_collection = false; }
+    pthread_mutex_unlock(&status_mutex);
+    return pending;
+}
+
+void remote_control_finish_collection(bool success, const char *error) {
+    pthread_mutex_lock(&status_mutex);
+    collection_job_busy = false;
+    collection_job_failed = !success;
+    snprintf(collection_job_error, sizeof(collection_job_error), "%s", success ? "" : (error ? error : "Could not play collection"));
+    pthread_mutex_unlock(&status_mutex);
+}
 /* Source format is copied into this API snapshot before status_mutex is
  * acquired. Never call into audio.c while holding status_mutex: audio and UI
  * paths may acquire their own locks in the opposite order. */
@@ -137,7 +211,12 @@ static atomic_bool running = false;
 static int listen_fd = -1;
 static pthread_t listener_thread;
 static pthread_mutex_t listener_mutex = PTHREAD_MUTEX_INITIALIZER;
-static int active_client_fd = -1;
+#define REMOTE_CLIENT_WORKERS 2
+#define REMOTE_CLIENT_STACK_SIZE (256u * 1024u)
+static int active_client_fds[REMOTE_CLIENT_WORKERS] = {-1, -1};
+static pthread_t client_threads[REMOTE_CLIENT_WORKERS];
+static bool client_thread_active[REMOTE_CLIENT_WORKERS];
+static bool client_thread_done[REMOTE_CLIENT_WORKERS];
 
 /* The PIN is shared by Wi-Fi and RFCOMM because both transports carry the
  * same HTTP request format. Keep reads and UI writes serialized. */
@@ -303,7 +382,8 @@ static remote_control_pin_result_t remote_control_pin_check(const char * candida
 
 void remote_control_notify_status(bool playing, bool paused, const char * title, const char * artist,
                                    const char * album, const char * path, int position_seconds,
-                                   int duration_seconds, float volume, int play_mode, bool favorite) {
+                                   int duration_seconds, float volume, int play_mode, bool favorite,
+                                   uint32_t accent_rgb) {
     /* Take the audio snapshot before status_mutex. Match its copied path
      * against this now-playing snapshot so a track transition cannot publish
      * the previous decoder's format beside the new track's metadata. */
@@ -324,6 +404,8 @@ void remote_control_notify_status(bool playing, bool paused, const char * title,
     status_volume = volume;
     status_play_mode = play_mode;
     status_favorite = favorite;
+    status_accent_rgb = accent_rgb & 0xFFFFFF;
+    status_accent_valid = true;
     snprintf(status_codec, sizeof(status_codec), "%s",
              format_matches_track ? remote_codec_name(format.codec) : "");
     status_source_bit_depth = format_matches_track ? format.source_bit_depth : 0;
@@ -778,6 +860,20 @@ static void build_albums_json(const char * artist_filter, const char * album_art
 
 static void build_status_json(char * out, size_t out_size) {
     char title_esc[512] = {0}, artist_esc[512] = {0}, album_esc[512] = {0};
+    char model_esc[128] = {0}, version_esc[128] = {0};
+    char accent_color[12] = {0};
+    char job_error[768] = {0};
+    const char * accent_json = "null";
+    const char * device_model = "HiBy R1";
+#if defined(BOARD_R3PROII)
+    device_model = "HiBy R3 Pro II";
+#elif defined(BOARD_R3II_2025)
+    device_model = "HiBy R3 II 2025";
+#elif defined(BOARD_TEMPOTEC_V1)
+    device_model = "TempoTec Variations V1";
+#endif
+    json_escape_append(model_esc, sizeof(model_esc), device_model);
+    json_escape_append(version_esc, sizeof(version_esc), app_version_label());
     /* Query the route before taking status_mutex. Route selection has its own
      * lock and must not be nested with the playback-status snapshot lock. */
 #ifndef HOST_BUILD
@@ -789,15 +885,24 @@ static void build_status_json(char * out, size_t out_size) {
     json_escape_append(title_esc, sizeof(title_esc), status_title);
     json_escape_append(artist_esc, sizeof(artist_esc), status_artist);
     json_escape_append(album_esc, sizeof(album_esc), status_album);
+    json_escape_append(job_error, sizeof(job_error), collection_job_error);
+    if (status_accent_valid) {
+        snprintf(accent_color, sizeof(accent_color), "\"#%06lX\"", (unsigned long) (status_accent_rgb & 0xFFFFFF));
+        accent_json = accent_color;
+    }
     snprintf(out, out_size,
              "{\"playing\":%s,\"paused\":%s,\"title\":\"%s\",\"artist\":\"%s\",\"album\":\"%s\","
              "\"position_seconds\":%d,\"duration_seconds\":%d,\"volume\":%.2f,\"play_mode\":%d,"
              "\"codec\":\"%s\",\"source_bit_depth\":%u,\"source_sample_rate\":%u,"
-             "\"bluetooth_audio_output\":%s,\"favorite\":%s}",
+             "\"bluetooth_audio_output\":%s,\"favorite\":%s,\"accent_color\":%s,"
+             "\"device_model\":\"%s\",\"player_version\":\"%s\","
+             "\"sort_modes\":[%d,%d,%d],\"collection_job\":{\"id\":%u,\"state\":\"%s\",\"error\":\"%s\"}}",
              status_playing ? "true" : "false", status_paused ? "true" : "false", title_esc, artist_esc, album_esc,
              status_position_seconds, status_duration_seconds, (double) status_volume, status_play_mode,
              status_codec, status_source_bit_depth, status_source_sample_rate,
-             bluetooth_audio_output ? "true" : "false", status_favorite ? "true" : "false");
+             bluetooth_audio_output ? "true" : "false", status_favorite ? "true" : "false", accent_json,
+             model_esc, version_esc, status_library_sorting[0], status_library_sorting[1], status_library_sorting[2],
+             collection_job_id, collection_job_busy ? "pending" : collection_job_failed ? "error" : collection_job_id ? "done" : "idle", job_error);
     pthread_mutex_unlock(&status_mutex);
 }
 
@@ -1055,10 +1160,10 @@ static const char * sniff_image_content_type(const uint8_t * data, uint32_t size
                                      3u * TAGCACHE_ARTIST_SPLIT_MAX + 256u)
 #define CATALOG_COVER_ROW_WORST_CASE 256u
 #define CATALOG_JSON_ENVELOPE_MAX 512u
-/* Worst status JSON is 1,891 bytes: three 511-byte escaped strings, a
- * 43-byte formatted float, bounded integer/codec/boolean fields, and fixed syntax.
- * The extra byte count for NUL still fits comfortably in this 2 KiB buffer. */
-#define STATUS_JSON_CAPACITY 2048u
+/* Status JSON includes three 511-byte escaped metadata strings and bounded
+ * player, accent, model, release, sorting and collection-job fields. The error
+ * has at most 127 bytes (762 escaped); 4 KiB covers all bounded fields. */
+#define STATUS_JSON_CAPACITY 4096u
 #define CATALOG_ART_MAX_BYTES (8u * 1024u * 1024u)
 #define CATALOG_ART_STREAM_CHUNK (16u * 1024u)
 
@@ -2593,6 +2698,166 @@ static bool handle_extension_route(int cfd, const char * method, const char * pa
     return true;
 }
 
+/* Scoped album ordering stays on the player so cached phone catalogs need no
+ * timestamp/schema migration. UI-owned settings reach this worker by snapshot. */
+static int remote_sort_scope(const char *name) {
+    if (strcmp(name, "albums") == 0) return 0;
+    if (strcmp(name, "artists") == 0) return 1;
+    if (strcmp(name, "album_artists") == 0) return 2;
+    return -1;
+}
+
+static void build_library_sorting_json(char *out, size_t size) {
+    int configured[3];
+    pthread_mutex_lock(&status_mutex);
+    memcpy(configured, status_library_sorting, sizeof(configured));
+    pthread_mutex_unlock(&status_mutex);
+    bool recent = metadata_db_album_sort_available(METADATA_DB_ALBUM_SORT_RECENT);
+    bool year = metadata_db_album_sort_available(METADATA_DB_ALBUM_SORT_YEAR);
+    const char *names[] = {"albums", "artists", "album_artists"};
+    json_builder_t json;
+    json_builder_init(&json, out, size);
+    json_builder_appendf(&json, "{");
+    for (int i = 0; i < 3; ++i) {
+        int mode = configured[i];
+        if (mode < 0 || mode > 2) mode = 0;
+        int effective = (mode == 1 && !recent) || (mode == 2 && !year) ? 0 : mode;
+        json_builder_appendf(&json, "%s\"%s\":{\"configured\":%d,\"effective\":%d,\"available\":[true,%s,%s]}",
+                             i ? "," : "", names[i], mode, effective, recent ? "true" : "false", year ? "true" : "false");
+    }
+    json_builder_appendf(&json, "}");
+}
+
+static bool handle_collection_sort_route(int fd, const char *method, const char *route, const char *path) {
+    if (strcmp(route, "/api/library/sorting") == 0) {
+        if (strcmp(method, "GET") == 0) {
+            char json[512]; build_library_sorting_json(json, sizeof(json));
+            send_response(fd, "200 OK", "application/json", json);
+        } else if (strcmp(method, "POST") == 0) {
+            char scope_name[32]; uint64_t mode;
+            int scope = query_decoded(path, "scope", scope_name, sizeof(scope_name)) == 1 ? remote_sort_scope(scope_name) : -1;
+            if (scope < 0 || !query_required_number(path, "mode", 2, &mode)) {
+                catalog_send_error(fd, "400 Bad Request", "invalid_sorting"); return true;
+            }
+            if (mode != 0 && !metadata_db_album_sort_available((metadata_db_album_sort_t) mode)) {
+                catalog_send_error(fd, "409 Conflict", "sort_unavailable"); return true;
+            }
+            pthread_mutex_lock(&status_mutex);
+            bool busy = request_has_library_sorting;
+            if (!busy) { request_sort_scope = scope; request_sort_mode = (int) mode; request_has_library_sorting = true; }
+            pthread_mutex_unlock(&status_mutex);
+            send_response(fd, busy ? "409 Conflict" : "202 Accepted", "application/json", busy ? "{\"error\":\"sorting_busy\"}" : "{\"accepted\":true}");
+        } else send_response(fd, "405 Method Not Allowed", "text/plain", "Method not allowed");
+        return true;
+    }
+    if (strcmp(route, "/api/library/albums") == 0 && query_param_present(path, "scope")) {
+        if (strcmp(method, "GET") != 0) { send_response(fd, "405 Method Not Allowed", "text/plain", "Method not allowed"); return true; }
+        char scope_name[32], artist[128], album_artist[128];
+        int scope = query_decoded(path, "scope", scope_name, sizeof(scope_name)) == 1 ? remote_sort_scope(scope_name) : -1;
+        int artist_present = query_decoded(path, "artist", artist, sizeof(artist));
+        int album_artist_present = query_decoded(path, "album_artist", album_artist, sizeof(album_artist));
+        uint64_t offset = 0, limit = 25;
+        if (scope < 0 || artist_present < 0 || album_artist_present < 0 ||
+            (scope == 0 && (artist_present || album_artist_present)) ||
+            (scope == 1 && (artist_present != 1 || !artist[0] || album_artist_present)) ||
+            (scope == 2 && (album_artist_present != 1 || !album_artist[0] || artist_present)) ||
+            (query_param_present(path, "offset") && !query_required_number(path, "offset", INT_MAX, &offset)) ||
+            (query_param_present(path, "limit") && (!query_required_number(path, "limit", 100, &limit) || !limit))) {
+            catalog_send_error(fd, "400 Bad Request", "invalid_album_query"); return true;
+        }
+        if (limit > 25) limit = 25;
+        pthread_mutex_lock(&status_mutex);
+        int configured = status_library_sorting[scope];
+        pthread_mutex_unlock(&status_mutex);
+        if (configured < 0 || configured > 2) configured = 0;
+        int mode = configured && !metadata_db_album_sort_available((metadata_db_album_sort_t) configured) ? 0 : configured;
+        metadata_db_catalog_page_t identity = {0};
+        metadata_db_catalog_song_t sample;
+        if (metadata_db_catalog_songs_page(NULL, 0, 1, &identity, &sample) != METADATA_DB_CATALOG_OK) {
+            catalog_send_error(fd, "503 Service Unavailable", "library_unavailable"); return true;
+        }
+        group_row_t *groups = calloc((size_t) limit, sizeof(*groups));
+        size_t capacity = (size_t) limit * 2048 + 512;
+        char *out = malloc(capacity);
+        if (!groups || !out) { free(groups); free(out); catalog_send_error(fd, "503 Service Unavailable", "allocation_failed"); return true; }
+        int64_t total;
+        int count;
+        if (scope == 0) {
+            int artists = 0, album_artists = 0, albums = 0;
+            metadata_db_get_group_counts(&artists, &album_artists, &albums);
+            total = albums;
+            count = metadata_db_get_albums_page_sorted(NULL, (metadata_db_album_sort_t) mode, (int) offset, (int) limit, groups);
+        } else {
+            metadata_db_group_kind_t kind = scope == 1 ? METADATA_DB_GROUP_ARTIST : METADATA_DB_GROUP_ALBUM_ARTIST;
+            const char *name = scope == 1 ? artist : album_artist;
+            total = metadata_db_count_albums_for_group(kind, name);
+            count = metadata_db_get_albums_for_group_sorted(kind, name, (metadata_db_album_sort_t) mode, (int) offset, (int) limit, groups);
+        }
+        if (!metadata_db_catalog_revision_matches(identity.revision) || count < 0 || total < 0) {
+            free(groups); free(out); catalog_send_error(fd, "409 Conflict", "library_changed"); return true;
+        }
+        if (offset > (uint64_t) total) {
+            free(groups); free(out); catalog_send_error(fd, "400 Bad Request", "invalid_offset"); return true;
+        }
+        json_builder_t json; json_builder_init(&json, out, capacity);
+        json_builder_appendf(&json, "{\"total\":%lld,\"offset\":%llu,\"next_offset\":%llu,\"revision\":\"%s:%d:%d:%d\",\"groups\":[",
+                             (long long) total, (unsigned long long) offset, (unsigned long long) (offset + (unsigned) count), identity.revision, scope, configured, mode);
+        for (int i = 0; i < count; ++i) {
+            char name[768] = {0}, aa[768] = {0};
+            json_escape_append(name, sizeof(name), groups[i].name);
+            json_escape_append(aa, sizeof(aa), groups[i].album_artist);
+            json_builder_appendf(&json, "%s{\"name\":\"%s\",\"count\":%d,\"index\":%lld,\"album_artist\":\"%s\"}",
+                                 i ? "," : "", name, groups[i].song_count, (long long) groups[i].first_song_id, aa);
+        }
+        json_builder_appendf(&json, "]}");
+        if (json.truncated) catalog_send_error(fd, "503 Service Unavailable", "response_too_large");
+        else send_response(fd, "200 OK", "application/json", out);
+        free(groups); free(out); return true;
+    }
+    if (strcmp(route, "/api/playback/collection") != 0) return false;
+    if (strcmp(method, "POST") != 0) { send_response(fd, "405 Method Not Allowed", "text/plain", "Method not allowed"); return true; }
+    remote_collection_play_request_t request = {0};
+    const char *scopes[] = {"all", "album", "artist", "album_artist", "genre", "playlist", "favorites", "recently_added", "recently_played"};
+    char scope_name[32]; uint64_t mode; int scope = -1;
+    if (query_decoded(path, "scope", scope_name, sizeof(scope_name)) == 1) {
+        for (unsigned i = 0; i < sizeof(scopes) / sizeof(scopes[0]); ++i) if (strcmp(scopes[i], scope_name) == 0) scope = (int) i;
+    }
+    if (scope < 0 || !query_required_number(path, "mode", 4, &mode) ||
+        query_decoded(path, "name", request.name, sizeof(request.name)) < 0 ||
+        query_decoded(path, "artist", request.artist, sizeof(request.artist)) < 0 ||
+        query_decoded(path, "album_artist", request.album_artist, sizeof(request.album_artist)) < 0 ||
+        !catalog_query_revision_named(path, "catalog_revision", true, request.expected_revision) ||
+        (scope >= 1 && scope <= 5 && !request.name[0]) ||
+        (scope == REMOTE_COLLECTION_ALBUM && !request.artist[0] && !query_param_present(path, "album_artist")) ||
+        (request.artist[0] && query_param_present(path, "album_artist")) ||
+        (scope == 5 && (!playlist_name_is_safe(request.name) || strlen(request.name) > PLAYLIST_NAME_MAX_BYTES))) {
+        catalog_send_error(fd, "400 Bad Request", "invalid_collection"); return true;
+    }
+    request.scope = (remote_collection_scope_t) scope; request.play_mode = (int) mode;
+    if (scope == REMOTE_COLLECTION_ALBUM) {
+        if (strlen(request.name) >= sizeof(request.album)) { catalog_send_error(fd, "400 Bad Request", "invalid_collection"); return true; }
+        memcpy(request.album, request.name, strlen(request.name) + 1);
+    } else if (scope == REMOTE_COLLECTION_ARTIST) {
+        if (strlen(request.name) >= sizeof(request.artist)) { catalog_send_error(fd, "400 Bad Request", "invalid_collection"); return true; }
+        memcpy(request.artist, request.name, strlen(request.name) + 1);
+    } else if (scope == REMOTE_COLLECTION_ALBUM_ARTIST) {
+        if (strlen(request.name) >= sizeof(request.album_artist)) { catalog_send_error(fd, "400 Bad Request", "invalid_collection"); return true; }
+        memcpy(request.album_artist, request.name, strlen(request.name) + 1);
+    } else if (scope == REMOTE_COLLECTION_GENRE) memcpy(request.genre, request.name, strlen(request.name) + 1);
+    if (request.artist[0] && request.album_artist[0]) { catalog_send_error(fd, "400 Bad Request", "conflicting_filters"); return true; }
+    pthread_mutex_lock(&status_mutex);
+    bool busy = collection_job_busy;
+    if (!busy) {
+        request_collection = request; request_has_collection = true; collection_job_busy = true; collection_job_failed = false; collection_job_error[0] = '\0';
+        collection_job_id = collection_job_id >= INT_MAX ? 1 : collection_job_id + 1;
+    }
+    unsigned id = collection_job_id;
+    pthread_mutex_unlock(&status_mutex);
+    char body[64]; snprintf(body, sizeof(body), "{\"id\":%u}", id);
+    send_response(fd, busy ? "409 Conflict" : "202 Accepted", "application/json", busy ? "{\"error\":\"collection_busy\"}" : body);
+    return true;
+}
+
 static void handle_connection(int cfd) {
     if (!remote_control_ensure_pin()) {
         send_response(cfd, "503 Service Unavailable", "text/plain", "PIN generation unavailable");
@@ -2638,6 +2903,7 @@ static void handle_connection(int cfd) {
     bool pin_header_invalid = false;
     long long content_length = -1; /* only POST /playlists/import reads a body */
     bool content_length_invalid = false;
+    bool transfer_encoding_seen = false;
     char header_line[512];
     size_t header_line_len = 0;
     while (header_bytes < REQUEST_HEADERS_MAX) {
@@ -2689,6 +2955,10 @@ static void handle_connection(int cfd) {
                 else
                     content_length = parsed;
             }
+            static const char transfer_encoding_name[] = "Transfer-Encoding:";
+            if (header_line_len >= sizeof(transfer_encoding_name) - 1 &&
+                strncasecmp(header_line, transfer_encoding_name, sizeof(transfer_encoding_name) - 1) == 0)
+                transfer_encoding_seen = true;
             header_line_len = 0;
         } else if (header_line_len + 1 < sizeof(header_line)) {
             header_line[header_line_len++] = c;
@@ -2723,13 +2993,24 @@ static void handle_connection(int cfd) {
     bool api_v1 = strncmp(path_only, "/api/v1/", sizeof("/api/v1/") - 1) == 0;
     if (api_v1) {
         if (strcmp(path_only, "/api/v1/capabilities") == 0 && strcmp(method, "GET") == 0) {
-            static const char capabilities[] =
-                "{\"version\":1,\"authRequired\":true,\"authHeader\":\"X-Compas-PIN\","
+            char capabilities[1024] = {0};
+            char library_id[METADATA_DB_CATALOG_LIBRARY_ID_SIZE] = {0};
+            char escaped_library_id[METADATA_DB_CATALOG_LIBRARY_ID_SIZE * 2] = {0};
+            char library_id_field[METADATA_DB_CATALOG_LIBRARY_ID_SIZE * 2 + 24] = {0};
+            if (metadata_db_try_get_catalog_library_id(library_id, sizeof(library_id))) {
+                json_escape_append(escaped_library_id, sizeof(escaped_library_id), library_id);
+                snprintf(library_id_field, sizeof(library_id_field), "\"libraryId\":\"%s\",",
+                         escaped_library_id);
+            }
+            snprintf(capabilities, sizeof(capabilities),
+                "{%s\"version\":1,\"authRequired\":true,\"authHeader\":\"X-Compas-PIN\","
                 "\"transports\":[\"wifi\",\"bluetooth_classic_rfcomm\"],\"features\":["
                 "\"status\",\"playback_controls\",\"queue\",\"library_browse\","
                 "\"playlists\",\"album_art\",\"screenshots\",\"catalog_sync_v1\","
                 "\"folder_browse\",\"recently_played\",\"favorites_edit\",\"queue_edit\","
-                "\"playlist_edit\",\"playlist_import\"]}";
+                "\"playlist_edit\",\"playlist_import\",\"player_accent\",\"device_info\","
+                "\"collection_playback\",\"shuffle_modes\",\"library_sorting\","
+                "\"wifi_import\",\"wifi_import_files\"]}", library_id_field);
             send_response(cfd, "200 OK", "application/json", capabilities);
             return;
         }
@@ -2764,12 +3045,85 @@ static void handle_connection(int cfd) {
         send_response(cfd, "400 Bad Request", "text/plain", "Bad Content-Length");
         return;
     }
+    if (transfer_encoding_seen) {
+        send_response(cfd, "400 Bad Request", "application/json", "{\"error\":\"transfer_encoding_unsupported\"}");
+        return;
+    }
+    if (strncmp(path_only, "/api/import/files", sizeof("/api/import/files") - 1) == 0) {
+        char normalized_path[REQUEST_LINE_MAX];
+        const char *query = strchr(path, '?');
+        int written = snprintf(normalized_path, sizeof(normalized_path), "%s%s", path_only, query ? query : "");
+        if (written < 0 || (size_t)written >= sizeof(normalized_path)) {
+            send_response(cfd, "414 URI Too Long", "application/json", "{\"error\":\"uri_too_long\"}");
+            return;
+        }
+        remote_import_state_t import_state;
+        remote_control_get_import_state(&import_state, NULL, 0);
+        if (import_state != REMOTE_IMPORT_READY || !remote_import_files_is_ready()) {
+            send_response(cfd, "409 Conflict", "application/json",
+                          "{\"error\":\"import_not_ready\",\"code\":\"import_not_ready\"}");
+            return;
+        }
+        struct sockaddr_storage local_address;
+        socklen_t local_length = sizeof(local_address);
+        bool wifi_transport = getsockname(cfd, (struct sockaddr *)&local_address, &local_length) == 0 &&
+                              local_address.ss_family == AF_INET;
+        if (remote_import_files_handle(cfd, method, normalized_path, content_length, wifi_transport)) return;
+    }
+    /* Handle import lifecycle routes before the generic POST command
+     * dispatcher below, which otherwise owns all non-GET methods. */
+    if (strcmp(method, "POST") == 0 &&
+        (strcmp(path_only, "/api/import/start") == 0 || strcmp(path_only, "/api/import/stop") == 0)) {
+        bool start = strcmp(path_only, "/api/import/start") == 0;
+        bool conflict = false;
+        pthread_mutex_lock(&status_mutex);
+        if (request_has_import || remote_import_state == REMOTE_IMPORT_STARTING ||
+            remote_import_state == REMOTE_IMPORT_STOPPING) {
+            conflict = true;
+        } else if ((start && remote_import_state == REMOTE_IMPORT_READY) ||
+                   (!start && remote_import_state == REMOTE_IMPORT_STOPPED)) {
+            /* Repeated requests for the already-achieved state are safe. */
+        } else {
+            request_has_import = true;
+            request_import_start = start;
+            remote_import_state = start ? REMOTE_IMPORT_STARTING : REMOTE_IMPORT_STOPPING;
+            remote_import_error[0] = '\0';
+        }
+        pthread_mutex_unlock(&status_mutex);
+        if (conflict) {
+            send_response(cfd, "409 Conflict", "application/json",
+                          "{\"error\":\"import_service_busy\",\"code\":\"busy\"}");
+        } else {
+            send_response(cfd, "202 Accepted", "application/json", "{\"accepted\":true}");
+        }
+        return;
+    }
     if (handle_extension_route(cfd, method, path_only, path, content_length)) return;
+    if (handle_collection_sort_route(cfd, method, path_only, path)) return;
 
     if (strcmp(method, "GET") == 0) {
         if (strcmp(path_only, "/api/status") == 0) {
             char json[STATUS_JSON_CAPACITY];
             build_status_json(json, sizeof(json));
+            send_response(cfd, "200 OK", "application/json", json);
+        } else if (strcmp(path_only, "/api/import") == 0) {
+            remote_import_state_t state;
+            char error[sizeof(remote_import_error)];
+            remote_control_get_import_state(&state, error, sizeof(error));
+            const char *state_name = "stopped";
+            switch (state) {
+                case REMOTE_IMPORT_STARTING: state_name = "starting"; break;
+                case REMOTE_IMPORT_READY: state_name = "ready"; break;
+                case REMOTE_IMPORT_STOPPING: state_name = "stopping"; break;
+                case REMOTE_IMPORT_ERROR: state_name = "error"; break;
+                case REMOTE_IMPORT_STOPPED: break;
+            }
+            char error_escaped[sizeof(error) * 6] = {0};
+            json_escape_append(error_escaped, sizeof(error_escaped), error);
+            char json[sizeof(error_escaped) + 128];
+            snprintf(json, sizeof(json), "{\"state\":\"%s\",\"error\":%s%s%s,\"port\":8899}",
+                     state_name, error[0] ? "\"" : "null", error[0] ? error_escaped : "",
+                     error[0] ? "\"" : "");
             send_response(cfd, "200 OK", "application/json", json);
         } else if (strcmp(path_only, "/api/catalog") == 0) {
             handle_catalog_page_request(cfd, path, false);
@@ -3019,7 +3373,7 @@ static void handle_connection(int cfd) {
                     char * end = NULL;
                     errno = 0;
                     long mode = strtol(mode_raw, &end, 10);
-                    if (errno == 0 && end != mode_raw && *end == '\0' && mode >= 0 && mode <= 3) {
+                    if (errno == 0 && end != mode_raw && *end == '\0' && mode >= 0 && mode <= 4) {
                         request_has_play_mode = true;
                         request_play_mode = (int) mode;
                     } else {
@@ -3134,6 +3488,23 @@ void remote_control_handle_stream(int fd) {
  * running and terminates cleanly on stop. */
 #define ACCEPT_POLL_TIMEOUT_MS 200
 
+typedef struct { int slot; int fd; } remote_client_start_t;
+
+static void * client_worker_func(void *arg) {
+    remote_client_start_t *start = arg;
+    int slot = start->slot, fd = start->fd;
+    free(start);
+    handle_connection(fd);
+    pthread_mutex_lock(&listener_mutex);
+    if (slot >= 0 && slot < REMOTE_CLIENT_WORKERS && active_client_fds[slot] == fd) {
+        active_client_fds[slot] = -1;
+        close(fd);
+        client_thread_done[slot] = true;
+    }
+    pthread_mutex_unlock(&listener_mutex);
+    return NULL;
+}
+
 static void * listener_thread_func(void * arg) {
     (void) arg;
     while (atomic_load_explicit(&running, memory_order_acquire)) {
@@ -3150,21 +3521,71 @@ static void * listener_thread_func(void * arg) {
         if (cfd < 0) continue;
         struct timeval timeout = { .tv_sec = 1, .tv_usec = 0 };
         setsockopt(cfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+        struct timeval send_timeout = { .tv_sec = 5, .tv_usec = 0 };
+        setsockopt(cfd, SOL_SOCKET, SO_SNDTIMEO, &send_timeout, sizeof(send_timeout));
         pthread_mutex_lock(&listener_mutex);
         if (!atomic_load_explicit(&running, memory_order_acquire)) {
             pthread_mutex_unlock(&listener_mutex);
             close(cfd);
             break;
         }
-        active_client_fd = cfd;
-        pthread_mutex_unlock(&listener_mutex);
-        handle_connection(cfd);
-        pthread_mutex_lock(&listener_mutex);
-        if (active_client_fd == cfd) {
-            active_client_fd = -1;
+        int slot = -1;
+        for (int i = 0; i < REMOTE_CLIENT_WORKERS; i++) {
+            if (client_thread_active[i] && client_thread_done[i]) {
+                pthread_t old = client_threads[i];
+                client_thread_active[i] = false;
+                client_thread_done[i] = false;
+                pthread_mutex_unlock(&listener_mutex);
+                pthread_join(old, NULL);
+                pthread_mutex_lock(&listener_mutex);
+                i = -1;
+                continue;
+            }
+            if (!client_thread_active[i]) { slot = i; break; }
+        }
+        if (slot < 0) {
+            pthread_mutex_unlock(&listener_mutex);
+            static const char busy[] = "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+            (void)send(cfd, busy, sizeof(busy) - 1, MSG_NOSIGNAL);
             close(cfd);
+            continue;
+        }
+        active_client_fds[slot] = cfd;
+        client_thread_active[slot] = true;
+        client_thread_done[slot] = false;
+        remote_client_start_t *start = malloc(sizeof(*start));
+        if (!start) {
+            active_client_fds[slot] = -1;
+            client_thread_active[slot] = false;
+            pthread_mutex_unlock(&listener_mutex);
+            close(cfd);
+            continue;
+        }
+        *start = (remote_client_start_t){slot, cfd};
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        (void)pthread_attr_setstacksize(&attr, REMOTE_CLIENT_STACK_SIZE);
+        int create_result = pthread_create(&client_threads[slot], &attr, client_worker_func, start);
+        pthread_attr_destroy(&attr);
+        if (create_result != 0) {
+            free(start);
+            active_client_fds[slot] = -1;
+            client_thread_active[slot] = false;
+            pthread_mutex_unlock(&listener_mutex);
+            close(cfd);
+            continue;
         }
         pthread_mutex_unlock(&listener_mutex);
+    }
+    pthread_mutex_lock(&listener_mutex);
+    for (int i = 0; i < REMOTE_CLIENT_WORKERS; i++)
+        if (active_client_fds[i] >= 0) shutdown(active_client_fds[i], SHUT_RDWR);
+    pthread_mutex_unlock(&listener_mutex);
+    for (int i = 0; i < REMOTE_CLIENT_WORKERS; i++) {
+        pthread_mutex_lock(&listener_mutex);
+        bool active = client_thread_active[i]; pthread_t thread = client_threads[i];
+        pthread_mutex_unlock(&listener_mutex);
+        if (active) pthread_join(thread, NULL);
     }
     return NULL;
 }
@@ -3214,12 +3635,18 @@ void remote_control_start(void) {
         /* DNS-SD runs on its own best-effort worker. A missing Wi-Fi link or
          * occupied multicast socket never affects the HTTP listener. */
         remote_control_mdns_start();
+        remote_control_discovery_start();
     }
     pthread_mutex_unlock(&listener_mutex);
 }
 
+bool remote_control_is_running(void) {
+    return atomic_load_explicit(&running, memory_order_acquire);
+}
+
 void remote_control_stop(void) {
     remote_control_mdns_stop();
+    remote_control_discovery_stop();
     pthread_mutex_lock(&listener_mutex);
     if (!atomic_load_explicit(&running, memory_order_acquire)) {
         pthread_mutex_unlock(&listener_mutex);
@@ -3230,7 +3657,8 @@ void remote_control_stop(void) {
      * client handler owns close(); shutdown only wakes a concurrent read. */
     int stopped_listen_fd = listen_fd;
     if (stopped_listen_fd >= 0) shutdown(stopped_listen_fd, SHUT_RDWR);
-    if (active_client_fd >= 0) shutdown(active_client_fd, SHUT_RDWR);
+    for (int i = 0; i < REMOTE_CLIENT_WORKERS; i++)
+        if (active_client_fds[i] >= 0) shutdown(active_client_fds[i], SHUT_RDWR);
     pthread_mutex_unlock(&listener_mutex);
 
     pthread_join(listener_thread, NULL);
@@ -3238,6 +3666,11 @@ void remote_control_stop(void) {
     if (listen_fd == stopped_listen_fd && listen_fd >= 0) {
         close(listen_fd);
         listen_fd = -1;
+    }
+    for (int i = 0; i < REMOTE_CLIENT_WORKERS; i++) {
+        active_client_fds[i] = -1;
+        client_thread_active[i] = false;
+        client_thread_done[i] = false;
     }
     pthread_mutex_unlock(&listener_mutex);
 }

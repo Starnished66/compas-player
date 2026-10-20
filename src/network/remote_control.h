@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "remote_collection.h"
 
 /* Phone remote-control server: serves a static Now Playing web page and a JSON
  * API (status polling, playback control, library browsing, playlist creation/addition).
@@ -16,6 +17,7 @@
 
 /* Starts the HTTP listener thread on REMOTE_CONTROL_PORT. Idempotent. */
 void remote_control_start(void);
+bool remote_control_is_running(void);
 
 /* Stops the listener thread and its socket. Idempotent. */
 void remote_control_stop(void);
@@ -36,13 +38,35 @@ void remote_control_handle_stream(int fd);
 /* Longest file path the remote folder and favorite requests hand to the UI. */
 #define REMOTE_CONTROL_PATH_MAX 1024
 
+typedef enum {
+    REMOTE_IMPORT_STOPPED = 0,
+    REMOTE_IMPORT_STARTING,
+    REMOTE_IMPORT_READY,
+    REMOTE_IMPORT_STOPPING,
+    REMOTE_IMPORT_ERROR,
+} remote_import_state_t;
+
+/* Import-server lifecycle requests are consumed on the UI thread. The
+ * network thread only publishes the request and reads/writes its snapshot. */
+bool remote_control_consume_import_request(bool *out_start);
+void remote_control_set_import_state(remote_import_state_t state, const char *error);
+void remote_control_get_import_state(remote_import_state_t *state, char *error, size_t error_size);
+
 /* Push a fresh now-playing snapshot for /api/status. Thread-safe snapshot copy.
  * path is the currently-playing file on disk. play_mode is gui.c's play_mode_t
- * cast to int (0=Sequential, 1=Repeat All, 2=Repeat One, 3=Shuffle).
- * favorite is the player's cached heart state for that track. */
+ * cast to int (0=Sequential, 1=Repeat All, 2=Repeat One,
+ * 3=Shuffle with repeat, 4=Shuffle once).
+ * favorite is the player's cached heart state for that track. accent_rgb is
+ * the effective UI accent copied by the UI-thread caller; the network thread
+ * only reads its published snapshot. */
 void remote_control_notify_status(bool playing, bool paused, const char * title, const char * artist,
                                    const char * album, const char * path, int position_seconds,
-                                   int duration_seconds, float volume, int play_mode, bool favorite);
+                                   int duration_seconds, float volume, int play_mode, bool favorite,
+                                   uint32_t accent_rgb);
+void remote_control_notify_library_sorting(int albums, int artists, int album_artists);
+bool remote_control_consume_library_sorting(int *scope, int *mode);
+bool remote_control_consume_collection(remote_collection_play_request_t *request);
+void remote_control_finish_collection(bool success, const char *error);
 
 /* Poll from update_timer_cb only. Edge-triggered (cleared once consumed). */
 bool remote_control_consume_play_pause(void);

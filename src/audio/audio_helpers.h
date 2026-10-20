@@ -219,7 +219,8 @@ typedef bool (*is_failed_index_fn)(int index, void * userdata);
 /* Pure algorithm to compute next playlist index upon fatal decoder failure with full
  * queue/shuffle step tracking and physical file deduplication.
  *
- * play_mode: 0 = PLAY_MODE_SEQUENTIAL, 1 = PLAY_MODE_REPEAT_ALL, 2 = PLAY_MODE_REPEAT_ONE, 3 = PLAY_MODE_SHUFFLE
+ * play_mode: 0 = sequential, 1 = repeat all, 2 = repeat one,
+ * 3 = looping shuffle, 4 = finite shuffle
  */
 static inline failure_advance_plan_t compute_decoder_failure_advance_plan(
     int failed_index,
@@ -301,6 +302,22 @@ static inline failure_advance_plan_t compute_decoder_failure_advance_plan(
                 }
             }
             plan.target_index = -1;
+            return plan;
+        }
+        case 4: /* PLAY_MODE_SHUFFLE_ONCE: consume the current bag, never wrap. */ {
+            if (!shuffle_order) return plan;
+            int remaining = (playlist_count - 1 >= shuffle_pos)
+                ? (playlist_count - 1 - shuffle_pos) : 0;
+            for (int step = 1; step <= remaining; step++) {
+                int pos = shuffle_pos + step;
+                int cand = shuffle_order[pos];
+                if (cand >= 0 && cand < playlist_count && cand != orig_failed_index &&
+                    cand != failed_index && (!is_failed_fn || !is_failed_fn(cand, userdata))) {
+                    plan.target_index = cand;
+                    plan.shuffle_steps = step;
+                    return plan;
+                }
+            }
             return plan;
         }
         case 2: /* PLAY_MODE_REPEAT_ONE: override repeat one for failure recovery */

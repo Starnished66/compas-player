@@ -434,6 +434,13 @@ void open_song_context_menu(const char * path);
 const char * playlist_path_at(int index);
 void on_file_selected_lazy_all_songs(int selected_index);
 void on_file_selected_lazy_recently_added(int selected_index);
+/* Takes ownership of snapshot/title_ranks on success. `title_ranks` maps
+ * collection order into the pinned full-catalog snapshot. */
+bool gui_player_play_lazy_collection(metadata_db_snapshot_t *snapshot,
+                                     int *title_ranks, int count, int play_mode);
+/* Takes ownership of `paths` on success; array/strings use the standard
+ * metadata_db_load_* caller-owned convention. */
+bool gui_player_play_collection_paths(char **paths, int count, int play_mode);
 
 void nav_reset_to_home(void);
 void open_queue_screen(void);
@@ -458,6 +465,7 @@ typedef enum {
     PLAY_MODE_REPEAT_ALL,
     PLAY_MODE_REPEAT_ONE,
     PLAY_MODE_SHUFFLE,
+    PLAY_MODE_SHUFFLE_ONCE,
 } play_mode_t;
 
 const char * play_mode_icon_asset(play_mode_t mode);

@@ -178,7 +178,7 @@ static lv_obj_t * settings_gestures_screen;
 static lv_obj_t * settings_charging_screen;
 static lv_obj_t * settings_usb_dac_charging_switch;
 static lv_obj_t * settings_usb_dac_charging_row;
-#if !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if BOARD_R1_HARDWARE
 static void usb_dac_charging_switch_event_cb(lv_event_t * e);
 #endif
 static lv_obj_t * settings_maintenance_screen;
@@ -1388,6 +1388,8 @@ static void reboot_to_boot_selector_row_cb(lv_event_t * e) {
 
 #if defined(BOARD_R3II_2025)
   #define SCREENSHOT_ROW_LABEL TR("Screenshots (Power + Previous)")
+#elif defined(BOARD_TEMPOTEC_V1)
+  #define SCREENSHOT_ROW_LABEL TR("Screenshots (Power + Vol Up)")
 #else
   #define SCREENSHOT_ROW_LABEL TR("Screenshots (Power + Vol Down)")
 #endif
@@ -4673,7 +4675,7 @@ static lv_obj_t * build_settings_charging_screen(void) {
           current_settings.safe_charging_enabled, NULL, safe_charging_switch_event_cb, NULL },
         { TR("LED charge indicator"), PILL_ACCESSORY_TOGGLE,
           current_settings.led_indicator_enabled, NULL, led_indicator_switch_event_cb, NULL },
-#if !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if BOARD_R1_HARDWARE
         {
             .label = TR("Disable charging\nin USB DAC mode"),
             .accessory = PILL_ACCESSORY_TOGGLE,
@@ -4688,7 +4690,7 @@ static lv_obj_t * build_settings_charging_screen(void) {
     lv_obj_t * scr = build_pill_list_screen(TR("Charging"), generic_back_cb, items,
                                             (int) (sizeof(items) / sizeof(items[0])),
                                             gui_theme_accent_style(), GUI_ROW_GAP, 100);
-#if !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if BOARD_R1_HARDWARE
     if (settings_usb_dac_charging_row && settings_usb_dac_charging_switch) {
         lv_obj_t * label = lv_obj_get_child(settings_usb_dac_charging_row, 0);
         /* This two-line setting must stay wrapped during font refreshes. */
@@ -4703,7 +4705,7 @@ static lv_obj_t * build_settings_charging_screen(void) {
     return scr;
 }
 
-#if !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if BOARD_R1_HARDWARE
 static void usb_dac_charging_switch_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
     gui_network_set_usb_dac_charging_disabled(
@@ -5610,7 +5612,13 @@ lv_obj_t * build_home_screen(void) {
      * comment for why this only ever reflects whatever was configured at
      * THIS boot's plugin-load time (or the most recent plugin.refresh_
      * theme()/reload_ui()), never a live mid-session change outside that. */
-    if (home_layout_config.configured && home_layout_config.list_mode) {
+    /* The V1 home is a list unless a plugin explicitly asked for tiles.
+     * Six tiles do not fit a 240px panel. */
+    bool home_list = home_layout_config.configured && home_layout_config.list_mode;
+#if defined(BOARD_TEMPOTEC_V1)
+    if (!home_layout_config.configured) home_list = true;
+#endif
+    if (home_list) {
         static icon_grid_item_t items[HOME_LAYOUT_MAX_TILES];
         lv_display_t * display = lv_display_get_default();
         int32_t display_width = display ? lv_display_get_horizontal_resolution(display) : BOARD_SCREEN_WIDTH;

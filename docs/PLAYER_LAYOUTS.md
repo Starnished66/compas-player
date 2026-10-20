@@ -104,9 +104,73 @@ built once). Things to know:
 - Use LVGL's own widgets (`lv_obj`, `lv_label`, `lv_image`, `lv_slider`,
   `lv_button`, `lv_bar`, `lv_arc` and so on). A layout cannot use other
   components or other XML files.
-- XML cannot call app code. Interactive widgets work through the names below.
+- Interactive widgets use the named roles below. Custom plugin actions use
+  the registered `compas_action` callback described under interaction options.
 - Sizes are in pixels. Use `#screen_w`, `#screen_h`, percentages and flex
   layouts to adapt to the screen.
+
+### Interaction options and plugin menus
+
+Optional constants in the component's `<consts>` section control only that
+layout. Existing layouts retain their normal behavior:
+
+```xml
+<consts>
+    <bool name="compas_lyrics_enabled" value="false" />
+    <str name="compas_artist_action" value="none" />
+    <str name="compas_album_action" value="album_menu" />
+</consts>
+```
+
+`compas_lyrics_enabled` defaults to `true`. Setting it to `false` disables
+this layout's lyrics view without changing the user's global Lyrics setting.
+`compas_artist_action` and `compas_album_action` default to `library`; `none`
+disables their built-in click behavior. Any other value names an action
+registered by the plugin that registered this layout. Action names contain
+1–63 ASCII letters, digits, `_`, `-` or `.`; `library` and `none` are reserved.
+Invalid constants reject the layout and use the normal fallback.
+
+A custom button can call the same registered actions through LVGL's existing
+event syntax. Set `clickable="true"` on widgets that need it:
+
+```xml
+<lv_button name="custom_menu" width="80" height="48">
+    <event_cb trigger="clicked" callback="compas_action" user_data="album_menu" />
+    <lv_label text="Menu" align="center" />
+</lv_button>
+```
+
+Only `clicked` events dispatch actions. If adding an explicit event to an
+artist or album role, set that role's action constant to `none` to avoid also
+running its automatic action. The callback does nothing when its owning plugin
+is absent, disabled or unloaded, or when the widget belongs to an old layout.
+
+The plugin must call `plugin.define`, register its callbacks, and register the
+XML with `plugin.set_player_layout`. Top-level registration offers it in the
+layout picker; it does not select it automatically:
+
+```lua
+plugin.define({ id = "example.player", name = "Example Player" })
+if plugin.has_capability("ui.player_actions") then
+    plugin.register_player_action("album_menu", function(action)
+        plugin.show_list("Album", {"Information", "Close"}, function(index)
+            if index == 1 then plugin.show_toast("Custom album action") end
+        end)
+    end)
+end
+plugin.set_player_layout({
+    id = "example.player.layout",
+    name = "Example Player",
+    xml = "ExamplePlayer/player_layouts/example.xml"
+})
+```
+
+Callbacks run through the normal plugin error/time-budget handling and receive
+the action name. They can use existing plugin UI APIs such as `show_list`;
+they do not receive raw LVGL objects. Action registrations are local to their
+plugin, so different plugins can use the same action names. Re-registering a
+name replaces that plugin's callback. At most 32 actions may be registered
+across loaded plugins. Unloading or a failed plugin load removes its actions.
 
 ### Ready-made fonts, images and sizes
 
@@ -536,3 +600,28 @@ function like `lv_obj_t * my_player_create(lv_obj_t * parent);`.
 - The app sizes `background_img` to the full screen and places it at the
   top-left of its parent, so put it in a full-screen container at the
   top-left of the screen (as `overlay_panel` is in the example).
+
+## Context-specific plugin layouts
+
+A plugin can register its own complete XML layout with `plugin.set_player_layout`
+and select it from a menu or event callback. For example, an audiobook plugin can
+select a reading layout when a book starts, hide lyrics, disable the artist link,
+and add rewind, speed, and chapter-menu actions. Registration during plugin load
+only makes the layout available; it does not select it.
+
+On firmware with capability `ui.player_layout_restore`, call
+`plugin.restore_player_layout()` when leaving that context. This clears only the
+calling plugin's session selection and restores the layout saved in Settings.
+It leaves another plugin's selection alone. It does not maintain a stack of
+previous plugin selections. The return value reports whether the effective
+layout ID changed; `false` can also mean the override was cleared but the saved
+layout has the same ID.
+
+There is no API to insert arbitrary widgets into the currently selected layout.
+Use a complete XML layout with the usual widget roles, and customize only the
+parts you need in that XML. Background options are global appearance settings,
+not an owner-scoped partial layout override.
+
+Two installable examples live in the companion plugins repository:
+`examples/ActionDeckPlayer` (Stage, custom metadata menus) and
+`examples/ReadingRoomPlayer` (Paper, audiobook controls and opt-in folder switching).

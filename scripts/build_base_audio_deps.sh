@@ -54,7 +54,10 @@ build_autoconf alsa-lib-1.2.16 --disable-python --without-versioned
 # renegotiate, which would recreate the transport and drop the accessory.
 fetch speexdsp-1.2.1 https://downloads.xiph.org/releases/speex/speexdsp-1.2.1.tar.gz \
     8c777343e4a6399569c72abc38a95b24db56882c83dbdb6c6424a5f4aeb54d3d
-build_autoconf speexdsp-1.2.1 --disable-examples
+# The full sinc table keeps Q3 quality while avoiding coefficient interpolation
+# on the R1's slow CPU; isolated device timing showed materially lower
+# resampling CPU use than the default interpolated table.
+build_autoconf speexdsp-1.2.1 --disable-examples --enable-resample-full-sinc-table
 fetch alsa-plugins-1.2.12 https://www.alsa-project.org/files/pub/plugins/alsa-plugins-1.2.12.tar.bz2 \
     7bd8a83d304e8e2d86a25895d8dcb0ef0245a8df32e271959cdbdc6af39b66f2
 # Only the speexdsp rate converter is wanted; every other plugin here pulls

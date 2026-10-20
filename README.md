@@ -96,6 +96,7 @@ Plugin implementations, plugin examples and their assets belong in `compas-plugi
 | HiBy R1 | `r1` (default) | 480×800 | Supported and actively tested on real hardware, including display, touch, audio, buttons, Bluetooth and Wi-Fi. |
 | HiBy R3 Pro II | `r3proii` | 480×720 | Board-specific build exists; not tested on R3 Pro II hardware. Not an R1 binary. |
 | HiBy R3 II 2025 | `r3ii_2025` | 320×480 | Board-specific build exists; not tested on R3 II 2025 hardware. Not an R1 binary. |
+| TempoTec Variations V1 | `tempotec_v1` | 240×320 | Board profile and the 240×320 Home and Now Playing layouts. No firmware package yet. See [docs/TEMPOTEC_V1.md](docs/TEMPOTEC_V1.md). |
 
 Other HiBy models are not supported unless explicitly listed and tested. Build output names for R3 models have a board suffix so they do not overwrite R1 binaries.
 

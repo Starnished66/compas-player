@@ -22,7 +22,7 @@ void queue_resume_free(queue_resume_t * s) {
 
 static bool valid(const queue_resume_t * s) {
     return s->count > 0 && s->count <= MAX_ENTRIES && s->current >= 0 && s->current < s->count &&
-        s->pending >= 0 && s->pending < s->count - s->current && s->mode >= 0 && s->mode <= 3 &&
+        s->pending >= 0 && s->pending < s->count - s->current && s->mode >= 0 && s->mode <= 4 &&
         isfinite(s->position) && s->position >= 0 &&
         (!s->order || (s->shuffle_pos >= 0 && s->shuffle_pos < s->count));
 }

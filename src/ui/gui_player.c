@@ -659,8 +659,8 @@ static inline int32_t player_s(int32_t px) {
 }
 
 static void player_fit_small_screen_icon(lv_obj_t * icon, int32_t reference_px) {
-#if defined(BOARD_R3II_2025)
-    /* R3 stock transport PNGs still have the reference board's dimensions.
+#if BOARD_COMPACT_UI
+    /* Stock transport PNGs still have the reference board's dimensions.
      * Contain scales their paint AND layout box, including later source swaps
      * for pressed/play/pause states. XML layouts retain their own sizing. */
     int32_t size = player_s(reference_px);
@@ -1914,17 +1914,24 @@ void arm_next_track_for_audio(int index);
 
 /* Shared by the player screen's own order_icon tap and the Remote Control
  * web UI's mode-cycle button (remote_control_consume_mode_cycle()) -- same
- * single 4-state cycle either way, so both surfaces stay in sync and
+ * single 5-state cycle either way, so both surfaces stay in sync and
  * neither reimplements the mode-advance/persist/re-arm logic. */
 void cycle_play_mode(void) {
     play_mode_t mode = (play_mode_t) current_settings.play_mode;
-    mode = (play_mode_t) ((mode + 1) % 4);
+    mode = (play_mode_t) ((mode + 1) % 5);
     gui_player_set_play_mode(mode);
+    switch (mode) {
+        case PLAY_MODE_REPEAT_ALL: show_info_toast(TR("Repeat all")); break;
+        case PLAY_MODE_REPEAT_ONE: show_info_toast(TR("Repeat one")); break;
+        case PLAY_MODE_SHUFFLE: show_info_toast(TR("Shuffle + repeat")); break;
+        case PLAY_MODE_SHUFFLE_ONCE: show_info_toast(TR("Shuffle once")); break;
+        default: show_info_toast(TR("Sequential")); break;
+    }
 }
 
 void gui_player_set_play_mode(int mode_value) {
     play_mode_t mode = (play_mode_t) mode_value;
-    if (mode < PLAY_MODE_SEQUENTIAL || mode > PLAY_MODE_SHUFFLE) return;
+    if (mode < PLAY_MODE_SEQUENTIAL || mode > PLAY_MODE_SHUFFLE_ONCE) return;
     current_settings.play_mode = (int) mode;
     settings_save_async(&current_settings);
 
@@ -3885,6 +3892,7 @@ static void player_lyrics_generated_endpoint(bool open) {
 }
 
 static void player_lyrics_set_open(bool open, bool animate) {
+    if (open && !player_layouts_get_interactions()->lyrics_enabled) return;
     if (!player_screen || (animate && player_lyrics_animating)) return;
     if (gui_anims_off()) animate = false;
 #ifdef UI_PERF_TRACE
@@ -3918,6 +3926,7 @@ static void player_lyrics_set_open(bool open, bool animate) {
 
 static void cover_img_tap_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (lv_obj_get_screen(lv_event_get_target(e)) != player_screen) return;
     if (player_lyrics_open)
         player_lyrics_set_open(false, true);
     else if (current_settings.lyrics_enabled)
@@ -4179,6 +4188,22 @@ static void player_secondary_label_enable_marquee(lv_obj_t * label) {
 static void player_layout_metadata_stack(void) {
     if (!song_title_label || !album_label || !artist_label) return;
 
+#if defined(BOARD_TEMPOTEC_V1)
+    /* Poster: title and artist sit under the 188px cover. The album line
+     * does not fit the remaining deck, so it stays in the tree and hidden. */
+    const lv_font_t * v1_title_font = lv_obj_get_style_text_font(song_title_label, 0);
+    const lv_font_t * v1_artist_font = lv_obj_get_style_text_font(artist_label, 0);
+    int32_t v1_title_h = v1_title_font ? lv_font_get_line_height(v1_title_font) : 16;
+    int32_t v1_artist_h = v1_artist_font ? lv_font_get_line_height(v1_artist_font) : 14;
+    lv_obj_set_y(song_title_label, 192);
+    lv_obj_set_height(song_title_label, v1_title_h);
+    lv_obj_set_y(artist_label, 192 + v1_title_h);
+    lv_obj_set_height(artist_label, v1_artist_h);
+    lv_obj_add_flag(album_label, LV_OBJ_FLAG_HIDDEN);
+    player_transition_mark_dirty();
+    return;
+#endif
+
     const lv_font_t * title_font = lv_obj_get_style_text_font(song_title_label, 0);
     const lv_font_t * artist_font = lv_obj_get_style_text_font(artist_label, 0);
     const lv_font_t * album_font = lv_obj_get_style_text_font(album_label, 0);
@@ -4277,9 +4302,17 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
      * player_x and player_s agree, which is true on R1 but not on the other
      * boards. 350x350 matches COVER_ART_WIDTH/HEIGHT (gui.h) exactly, so the
      * reference board needs no runtime scale at all in fit_cover_img_to_card(). */
+#if defined(BOARD_TEMPOTEC_V1)
+    /* Poster: cover bleeds to the top and side bezels. 188 + the deck
+     * below fills 320. See docs/TEMPOTEC_V1.md. */
+    lv_obj_set_pos(card, 0, 0);
+    lv_obj_set_size(card, BOARD_SCREEN_WIDTH, BOARD_PLAYER_COVER_HEIGHT);
+    lv_obj_set_style_radius(card, 0, 0);
+#else
     lv_obj_set_pos(card, (BOARD_SCREEN_WIDTH - player_s(350)) / 2, player_y(152));
     lv_obj_set_size(card, player_s(350), player_s(350));
     lv_obj_set_style_radius(card, player_s(10), 0);
+#endif
     lv_obj_set_style_clip_corner(card, true, 0);
     lv_obj_set_style_bg_opa(card, 0, 0);
     lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
@@ -4291,8 +4324,13 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
     lv_obj_t * fav_circle = lv_obj_create(card);
     lv_obj_set_name_static(fav_circle, "favorite_circle");
     lv_obj_remove_style_all(fav_circle);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(fav_circle, 32, 32);
+    lv_obj_set_pos(fav_circle, BOARD_SCREEN_WIDTH - 40, BOARD_PLAYER_COVER_HEIGHT - 40);
+#else
     lv_obj_set_pos(fav_circle, player_s(296), player_s(296)); /* 352-44-12=296 from each edge */
     lv_obj_set_size(fav_circle, player_s(44), player_s(44));
+#endif
     lv_obj_set_style_radius(fav_circle, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(fav_circle, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(fav_circle, LV_OPA_40, 0);
@@ -4351,8 +4389,13 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
      * needlessly widening this corner's overlap with the metadata block. */
     lv_obj_t * dismiss = build_header_back_button(scr, NULL);
     lv_obj_set_name_static(dismiss, "dismiss_btn");
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(dismiss, 36, 36);
+    lv_obj_set_pos(dismiss, 0, 0);
+#else
     lv_obj_set_size(dismiss, player_s(44), player_s(44));
     lv_obj_set_pos(dismiss, player_x(22), player_y(62));
+#endif
     /* The reference keeps the status bar unobstructed and has no visible
      * back arrow on the Player. Retain the transparent hit target so the
      * established tap-to-dismiss behavior remains available. */
@@ -4360,10 +4403,16 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
     if (dismiss_arrow) {
         /* The Now Playing dismiss target intentionally retains its original
          * hidden stock back asset; the visible navigation back glyph is for
-         * standard screen headers only. */
+         * standard screen headers only. The V1 poster has no other back
+         * affordance, so the glyph stays visible over the cover. */
         lv_image_set_src(dismiss_arrow, asset_path("sub_back/btn_back.png"));
+#if defined(BOARD_TEMPOTEC_V1)
+        lv_obj_set_style_image_recolor_opa(dismiss_arrow, LV_OPA_COVER, 0);
+        lv_obj_set_style_image_recolor(dismiss_arrow, lv_color_white(), 0);
+#else
         lv_obj_set_style_image_recolor_opa(dismiss_arrow, LV_OPA_TRANSP, 0);
         lv_obj_add_flag(dismiss_arrow, LV_OBJ_FLAG_HIDDEN);
+#endif
     }
 
     /* Quality pill */
@@ -4375,7 +4424,11 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
      * bit-depth, or sample-rate information. */
     lv_obj_set_size(pill, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_style_min_height(pill, player_s(36), 0);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_align(pill, LV_ALIGN_TOP_MID, 0, 226);
+#else
     lv_obj_align(pill, LV_ALIGN_TOP_MID, 0, player_y(518));
+#endif
     lv_obj_set_style_pad_hor(pill, player_s(14), 0);
     lv_obj_set_style_pad_ver(pill, player_s(6), 0);
     lv_obj_set_style_pad_column(pill, player_s(10), 0);
@@ -4404,8 +4457,13 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
     /* Progress bar (native rail, not the old fixed PNG sprites) */
     lv_obj_t * slider = lv_slider_create(scr);
     lv_obj_set_name_static(slider, "progress_slider");
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_pos(slider, 12, 250);
+    lv_obj_set_size(slider, BOARD_SCREEN_WIDTH - 24, SLIDER_TRACK_HEIGHT);
+#else
     lv_obj_set_pos(slider, player_x(30), player_y(575));
     lv_obj_set_size(slider, player_x(420), SLIDER_TRACK_HEIGHT);
+#endif
     configure_native_slider_rail(slider);
     lv_obj_add_style(slider, gui_theme_accent_style(), LV_PART_INDICATOR);
     lv_obj_add_style(slider, gui_theme_accent_knob_style(), LV_PART_KNOB);
@@ -4414,8 +4472,13 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
 
     /* Time row */
     lv_obj_t * time_row = lv_obj_create(scr);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_pos(time_row, 12, 264);
+    lv_obj_set_size(time_row, BOARD_SCREEN_WIDTH - 24, LV_SIZE_CONTENT);
+#else
     lv_obj_set_pos(time_row, player_x(30), player_y(610));
     lv_obj_set_size(time_row, player_x(420), LV_SIZE_CONTENT);
+#endif
     lv_obj_set_style_bg_opa(time_row, 0, 0);
     lv_obj_set_style_border_width(time_row, 0, 0);
     lv_obj_set_style_pad_all(time_row, 0, 0);
@@ -4454,9 +4517,15 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
      * the sole lyrics actuator, leaving the final slot for song actions. */
     lv_obj_t * controls_row = lv_obj_create(scr);
     lv_obj_remove_style_all(controls_row);
+#if defined(BOARD_TEMPOTEC_V1)
+    const int32_t transport_top = 284;
+    lv_obj_set_pos(controls_row, 0, transport_top);
+    lv_obj_set_size(controls_row, BOARD_SCREEN_WIDTH, 36);
+#else
     const int32_t transport_top = player_y(645);
     lv_obj_set_pos(controls_row, 0, transport_top);
     lv_obj_set_size(controls_row, BOARD_SCREEN_WIDTH, player_y(94));
+#endif
     lv_obj_remove_flag(controls_row, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t * order = lv_image_create(controls_row);
@@ -4676,12 +4745,12 @@ static bool player_bind_widgets(lv_obj_t * scr) {
      * player_bind_widgets() runs once for each newly built player tree; role
      * rebinding after a UI reload therefore gets fresh callbacks without
      * accumulating duplicate event handlers on reused labels. */
-    if (r_artist) {
+    if (r_artist && strcmp(player_layouts_get_interactions()->artist_action, "none") != 0) {
         lv_obj_add_flag(r_artist, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(r_artist, player_now_playing_group_click_cb,
                             LV_EVENT_CLICKED, (void *) (intptr_t) 0);
     }
-    if (r_album) {
+    if (r_album && strcmp(player_layouts_get_interactions()->album_action, "none") != 0) {
         lv_obj_add_flag(r_album, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(r_album, player_now_playing_group_click_cb,
                             LV_EVENT_CLICKED, (void *) (intptr_t) 1);
@@ -5104,7 +5173,12 @@ static lv_obj_t * build_player_screen(uint32_t screen_width, uint32_t screen_hei
     if (!built) {
         player_layout_builtin = true;
         player_layout_root = NULL;
-        player_layout_create_builtin(scr);
+        /* Use the registry for Default too, so interaction options and the
+         * previous XML tree's action owner cannot survive a layout switch. */
+        if (!player_layouts_create(PLAYER_LAYOUT_ID_DEFAULT, scr, NULL)) {
+            lv_obj_delete(scr);
+            return NULL;
+        }
         if (!player_bind_widgets(scr)) {
             lv_obj_delete(scr);
             return NULL;
@@ -5241,16 +5315,24 @@ char now_playing_path[600] = "";
 
 static void player_now_playing_group_click_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    if (playlist_count <= 0 || playlist_index < 0 || playlist_index >= playlist_count ||
-        !now_playing_path[0]) return;
+    if (lv_obj_get_screen(lv_event_get_target(e)) != player_screen) return;
     /* Metadata remains visible in the lyrics view, but its cover/metadata
      * area belongs to lyrics navigation while that view is open or moving. */
     if (player_lyrics_open || player_lyrics_animating ||
         gui_navigation_transition_in_progress()) return;
+    bool album = (intptr_t) lv_event_get_user_data(e) != 0;
+    const player_layout_interactions_t * interactions = player_layouts_get_interactions();
+    const char * action = album ? interactions->album_action : interactions->artist_action;
+    if (strcmp(action, "none") == 0) return;
+    if (strcmp(action, "library") != 0) {
+        (void) player_layouts_dispatch_action_from(lv_event_get_target(e), action);
+        return;
+    }
+    if (playlist_count <= 0 || playlist_index < 0 || playlist_index >= playlist_count ||
+        !now_playing_path[0]) return;
     /* Resolve against the current path at tap time. The library helper first
      * confirms that path is a local indexed song, so remote display metadata
      * cannot accidentally match a similarly named local group. */
-    bool album = (intptr_t) lv_event_get_user_data(e) != 0;
     (void) gui_library_open_now_playing_group(now_playing_path, album);
 }
 
@@ -5445,6 +5527,7 @@ const char * play_mode_icon_asset(play_mode_t mode) {
         case PLAY_MODE_REPEAT_ALL: return "playing_plane/loop.png";
         case PLAY_MODE_REPEAT_ONE: return "playing_plane/single.png";
         case PLAY_MODE_SHUFFLE:    return "playing_plane/random.png";
+        case PLAY_MODE_SHUFFLE_ONCE: return "playing_plane/random_s.png";
         default:                   return "playing_plane/order.png";
     }
 }
@@ -5518,6 +5601,10 @@ static void ensure_shuffle_order_current(void) {
     }
 }
 
+static bool play_mode_uses_shuffle_bag(play_mode_t mode) {
+    return mode == PLAY_MODE_SHUFFLE || mode == PLAY_MODE_SHUFFLE_ONCE;
+}
+
 static void queue_shuffle_insert(int physical, int added) {
     int old_count = playlist_count - added;
     if (shuffle_order && shuffle_order_count == old_count) {
@@ -5589,6 +5676,12 @@ int compute_auto_advance_index(int index) {
             }
             return pending_shuffle_order[0];
         }
+        case PLAY_MODE_SHUFFLE_ONCE: {
+            ensure_shuffle_order_current();
+            if (!shuffle_order) return -1;
+            int peek_pos = shuffle_pos + 1;
+            return peek_pos < playlist_count ? shuffle_order[peek_pos] : -1;
+        }
         case PLAY_MODE_SEQUENTIAL:
         default:
             return (index + 1 < playlist_count) ? index + 1 : -1;
@@ -5613,7 +5706,7 @@ static void commit_decoder_failure_advance_plan(const failure_advance_plan_t * p
         }
     }
 
-    if ((play_mode_t) current_settings.play_mode == PLAY_MODE_SHUFFLE && plan->shuffle_steps > 0) {
+    if (play_mode_uses_shuffle_bag((play_mode_t) current_settings.play_mode) && plan->shuffle_steps > 0) {
         if (plan->shuffle_wrapped && pending_shuffle_order) {
             free(shuffle_order);
             shuffle_order = pending_shuffle_order;
@@ -5645,14 +5738,15 @@ void commit_auto_advance(void) {
         return;
     }
 
-    if ((play_mode_t) current_settings.play_mode != PLAY_MODE_SHUFFLE) return;
+    play_mode_t mode = (play_mode_t) current_settings.play_mode;
+    if (!play_mode_uses_shuffle_bag(mode)) return;
 
     int peek_pos = shuffle_pos + 1;
     if (peek_pos < playlist_count) {
         shuffle_pos = peek_pos;
         return;
     }
-    if (pending_shuffle_order) {
+    if (mode == PLAY_MODE_SHUFFLE && pending_shuffle_order) {
         free(shuffle_order);
         shuffle_order = pending_shuffle_order;
         pending_shuffle_order = NULL;
@@ -5685,15 +5779,16 @@ int compute_manual_step_index(int index, int direction) {
         return index + 1;
     }
 
-    if ((play_mode_t) current_settings.play_mode == PLAY_MODE_SHUFFLE) {
+    if (play_mode_uses_shuffle_bag((play_mode_t) current_settings.play_mode)) {
         ensure_shuffle_order_current();
         if (!shuffle_order) return -1;
         int new_pos = shuffle_pos + direction;
         if (new_pos < 0) return -1; /* no history to go back past */
-        if (new_pos >= playlist_count) {
+        if (new_pos >= playlist_count && (play_mode_t) current_settings.play_mode == PLAY_MODE_SHUFFLE) {
             fisher_yates_shuffle(shuffle_order, playlist_count);
             new_pos = 0;
         }
+        if (new_pos >= playlist_count) return -1;
         shuffle_pos = new_pos;
         return shuffle_order[shuffle_pos];
     }
@@ -5872,7 +5967,7 @@ void gui_player_release_memory_for_external_session(void) {
 void arm_next_track_for_audio(int index) {
     ++metadata_next_token;
     queue_revision++;
-    if (current_settings.play_mode == PLAY_MODE_SHUFFLE) {
+    if (play_mode_uses_shuffle_bag((play_mode_t) current_settings.play_mode)) {
         ensure_shuffle_order_current();
         if (shuffle_order) {
             for (int i = 0; i < playlist_count; i++) if (shuffle_order[i] == index) { shuffle_pos = i; break; }
@@ -6062,6 +6157,7 @@ bool gui_player_queue_try_add_many(const char * const * paths, int count) {
         current_settings.last_source_name[0] = '\0';
         settings_save_async(&current_settings);
         show_info_toast(TR("Queue ready. Press Play to start."));
+        playback_intent_epoch++;
         return true;
     }
     int pos = (queue_next_insert_index >= 0 && queue_next_insert_index <= playlist_count)
@@ -6104,6 +6200,7 @@ bool gui_player_queue_try_add_many(const char * const * paths, int count) {
     char msg[128];
     snprintf(msg, sizeof(msg), TR_N("Added %d song to queue", "Added %d songs to queue", count), count);
     show_info_toast(msg);
+    playback_intent_epoch++;
     return true;
 }
 
@@ -6127,6 +6224,7 @@ void queue_remove_song_at_offset(int offset) {
     player_set_song_count(playlist_index, playlist_count);
     arm_next_track_for_audio(playlist_index);
     show_info_toast(TR("Removed from queue"));
+    playback_intent_epoch++;
 }
 
 void queue_clear_pending(void) {
@@ -6467,12 +6565,13 @@ bool gui_player_play_folder_track(const char * track_path) {
 
 bool gui_player_play_folder_index(file_browser_index_t *index, unsigned playable_count,
                                   int play_mode) {
-    if (play_mode != PLAY_MODE_SEQUENTIAL && play_mode != PLAY_MODE_SHUFFLE) {
+    if (play_mode != PLAY_MODE_SEQUENTIAL && play_mode != PLAY_MODE_SHUFFLE &&
+        play_mode != PLAY_MODE_SHUFFLE_ONCE) {
         if (index) file_browser_index_close(index);
         return false;
     }
     unsigned initial = 0;
-    if (play_mode == PLAY_MODE_SHUFFLE && playable_count > 1) {
+    if (play_mode_uses_shuffle_bag((play_mode_t) play_mode) && playable_count > 1) {
         ensure_shuffle_rng_seeded();
         initial = (unsigned)(rand() % playable_count);
     }
@@ -7069,6 +7168,83 @@ void on_file_selected_lazy_recently_added(int selected_index) {
     play_track_at(selected_index);
 }
 
+bool gui_player_play_lazy_collection(metadata_db_snapshot_t *snapshot,
+                                     int *title_ranks, int count, int play_mode) {
+    if (!snapshot || !title_ranks || count <= 0 || count > INT_MAX ||
+        play_mode < PLAY_MODE_SEQUENTIAL || play_mode > PLAY_MODE_SHUFFLE_ONCE)
+        return false;
+    int snapshot_count = metadata_db_snapshot_count(snapshot);
+    if (snapshot_count <= 0) return false;
+    if ((size_t)snapshot_count > SIZE_MAX - 7u) return false;
+    size_t seen_size = ((size_t)snapshot_count + 7u) / 8u;
+    uint8_t *seen_ranks = calloc(seen_size, 1);
+    if (!seen_ranks) return false;
+    for (int i = 0; i < count; i++) {
+        int rank = title_ranks[i];
+        if (rank < 0 || rank >= snapshot_count) { free(seen_ranks); return false; }
+        size_t byte = (size_t)rank >> 3;
+        uint8_t mask = (uint8_t)(1u << ((unsigned)rank & 7u));
+        if (seen_ranks[byte] & mask) { free(seen_ranks); return false; }
+        seen_ranks[byte] |= mask;
+    }
+    free(seen_ranks);
+
+    char **new_playlist = calloc((size_t)count, sizeof(*new_playlist));
+    int *new_shuffle_order = NULL;
+    if (!new_playlist) return false;
+    if (play_mode == PLAY_MODE_SHUFFLE || play_mode == PLAY_MODE_SHUFFLE_ONCE) {
+        new_shuffle_order = malloc((size_t)count * sizeof(*new_shuffle_order));
+        if (!new_shuffle_order) { free(new_playlist); return false; }
+        for (int i = 0; i < count; i++) new_shuffle_order[i] = i;
+        ensure_shuffle_rng_seeded();
+        fisher_yates_shuffle(new_shuffle_order, count);
+    }
+
+    int start = new_shuffle_order ? new_shuffle_order[0] : 0;
+    clear_player_source();
+    current_settings.last_source_kind = 0;
+    current_settings.last_source_name[0] = '\0';
+    free_playlist();
+    gui_player_set_play_mode(play_mode);
+    playlist = new_playlist;
+    playlist_count = count;
+    playlist_lazy_snapshot = snapshot;
+    playlist_lazy_sort_order = title_ranks;
+    playlist_lazy_order_is_recency = false;
+    queue_sd_dirfd = open_queue_dir_from_snapshot(snapshot);
+    shuffle_order = new_shuffle_order;
+    shuffle_order_count = new_shuffle_order ? count : 0;
+    shuffle_pos = new_shuffle_order ? 0 : -1;
+    queued_pending_count = 0;
+    queue_next_insert_index = -1;
+    play_track_at(start);
+    return true;
+}
+
+bool gui_player_play_collection_paths(char **paths, int count, int play_mode) {
+    if (!paths || count <= 0 || count > INT_MAX ||
+        play_mode < PLAY_MODE_SEQUENTIAL || play_mode > PLAY_MODE_SHUFFLE_ONCE)
+        return false;
+    for (int i = 0; i < count; i++) if (!paths[i] || !paths[i][0]) return false;
+    clear_player_source();
+    current_settings.last_source_kind = 0;
+    current_settings.last_source_name[0] = '\0';
+    free_playlist();
+    gui_player_set_play_mode(play_mode);
+    playlist = paths;
+    playlist_count = count;
+    queue_pin_sd_dir_if_needed();
+    queued_pending_count = 0;
+    queue_next_insert_index = -1;
+    int start = 0;
+    if (play_mode_uses_shuffle_bag((play_mode_t)play_mode) && count > 1) {
+        ensure_shuffle_rng_seeded();
+        start = rand() % count;
+    }
+    play_track_at(start);
+    return true;
+}
+
 static bool resume_playlist_needs_lazy_order = false;
 static file_browser_index_t *resume_file_index = NULL;
 #ifdef HOST_BUILD
@@ -7329,13 +7505,13 @@ void gui_player_queue_checkpoint(void) {
         s.paths[i] = strdup(path);
         if (!s.paths[i]) { ok = false; break; }
     }
-    if (ok && current_settings.play_mode == PLAY_MODE_SHUFFLE) {
+    if (ok && play_mode_uses_shuffle_bag((play_mode_t) current_settings.play_mode)) {
         ensure_shuffle_order_current();
         s.shuffle_pos = shuffle_pos;
         s.order = malloc((size_t) s.count * sizeof(int));
         ok = s.order && shuffle_order;
         if (ok) memcpy(s.order, shuffle_order, (size_t) s.count * sizeof(int));
-        if (ok && pending_shuffle_order) {
+        if (ok && current_settings.play_mode == PLAY_MODE_SHUFFLE && pending_shuffle_order) {
             s.continuation = malloc((size_t) s.count * sizeof(int));
             ok = s.continuation != NULL;
             if (ok) memcpy(s.continuation, pending_shuffle_order, (size_t) s.count * sizeof(int));
@@ -7818,7 +7994,7 @@ bool gui_player_queue_snapshot(int ** order, int * count, int * current, uint64_
     if (!playlist_count) return true;
     int * result = malloc((size_t) playlist_count * sizeof(int));
     if (!result) return false;
-    if (current_settings.play_mode == PLAY_MODE_SHUFFLE) {
+    if (play_mode_uses_shuffle_bag((play_mode_t) current_settings.play_mode)) {
         ensure_shuffle_order_current();
         if (!shuffle_order) { free(result); return false; }
         memcpy(result, shuffle_order, (size_t) playlist_count * sizeof(int));
@@ -7978,6 +8154,7 @@ bool gui_player_queue_edit(uint64_t revision, int from, int to) {
         }
         queue_next_insert_index = queued_pending_count ? playlist_index + 1 + queued_pending_count : -1;
         arm_next_track_for_audio(playlist_index);
+        playback_intent_epoch++;
         return true;
     }
     char * path = playlist[from];
@@ -7997,6 +8174,7 @@ bool gui_player_queue_edit(uint64_t revision, int from, int to) {
     }
     queue_next_insert_index = queued_pending_count ? playlist_index + 1 + queued_pending_count : -1;
     arm_next_track_for_audio(playlist_index);
+    playback_intent_epoch++;
     return true;
 }
 
@@ -8047,6 +8225,7 @@ void gui_player_queue_clear_all(void) {
         free(pending_shuffle_order); pending_shuffle_order = NULL;
         queued_pending_count = 0; queue_next_insert_index = -1;
         arm_next_track_for_audio(playlist_index);
+        playback_intent_epoch++;
         return;
     }
     if (!queue_materialize_order()) return;
@@ -8063,6 +8242,7 @@ void gui_player_queue_clear_all(void) {
     }
     queued_pending_count = 0; queue_next_insert_index = -1;
     arm_next_track_for_audio(playlist_index);
+    playback_intent_epoch++;
 }
 
 void gui_player_queue_play_next(const char * path) {

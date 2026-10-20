@@ -44,6 +44,7 @@ typedef struct {
     char path[MAX_LAYOUT_PATH];
     bool session;       /* registered by a plugin for this session */
     bool from_callback; /* ... from a callback rather than while loading, so it outlives plugin resets */
+    char plugin_owner[PLAYER_LAYOUT_ACTION_MAX];
 } layout_entry_t;
 
 static layout_entry_t entries[MAX_LAYOUTS];
@@ -53,6 +54,14 @@ static bool xml_engine_ready;
 static bool xml_globals_ready;
 static bool xml_component_registered;
 static bool active_xml_layout;
+static player_layout_interactions_t active_interactions = {
+    .lyrics_enabled = true,
+    .artist_action = "library",
+    .album_action = "library",
+};
+static player_layout_action_handler_t action_handler;
+static lv_obj_t * active_root;
+static char active_owner[PLAYER_LAYOUT_ACTION_MAX];
 typedef struct prepared_xml_timeline_t {
     struct prepared_xml_timeline_t * next;
     lv_anim_timeline_t * timeline;
@@ -333,6 +342,93 @@ static layout_entry_t * upsert_entry(const char * id, const char * name, player_
     return e;
 }
 
+static void reset_interactions(void) {
+    active_interactions = (player_layout_interactions_t){
+        .lyrics_enabled = true,
+        .artist_action = "library",
+        .album_action = "library",
+    };
+}
+
+static void invalidate_active_layout(void) {
+    active_root = NULL;
+    active_owner[0] = '\0';
+    reset_interactions();
+}
+
+static bool action_name_is_valid(const char * action, bool allow_builtin) {
+    if (!action || !action[0] || strlen(action) >= PLAYER_LAYOUT_ACTION_MAX) return false;
+    if (allow_builtin && (strcmp(action, "library") == 0 || strcmp(action, "none") == 0)) return true;
+    if (!allow_builtin && (strcmp(action, "library") == 0 || strcmp(action, "none") == 0)) return false;
+    for (const char * p = action; *p; ++p) {
+        unsigned char c = (unsigned char)*p;
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '_' || c == '.' || c == '-')) return false;
+    }
+    return true;
+}
+
+const player_layout_interactions_t * player_layouts_get_interactions(void) {
+    return &active_interactions;
+}
+
+void player_layouts_set_action_handler(player_layout_action_handler_t handler) {
+    action_handler = handler;
+}
+
+bool player_layouts_set_plugin_owner(const char * layout_id, const char * owner) {
+    if (!layout_id || !owner || !id_is_valid(layout_id) || !owner[0] ||
+        strlen(owner) >= PLAYER_LAYOUT_ACTION_MAX) return false;
+    for (const char * p = owner; *p; ++p) {
+        unsigned char c = (unsigned char)*p;
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '_' || c == '.' || c == '-')) return false;
+    }
+    int index = player_layouts_find(layout_id);
+    if (index < 0 || !entries[index].session || entries[index].info.kind != PLAYER_LAYOUT_XML_FILE) return false;
+    snprintf(entries[index].plugin_owner, sizeof(entries[index].plugin_owner), "%s", owner);
+    return true;
+}
+
+void player_layouts_clear_plugin_owner(const char * owner) {
+    if (!owner || !owner[0]) return;
+    bool active_match = strcmp(active_owner, owner) == 0;
+    for (int i = 0; i < entry_count; ++i) {
+        if (strcmp(entries[i].plugin_owner, owner) == 0) entries[i].plugin_owner[0] = '\0';
+    }
+    if (active_match) active_owner[0] = '\0';
+}
+
+bool player_layouts_dispatch_action(const char * action) {
+    return player_layouts_dispatch_action_from(active_root, action);
+}
+
+bool player_layouts_dispatch_action_from(lv_obj_t * target, const char * action) {
+    if (!active_root || !target || !active_owner[0] || !action_handler ||
+        !action_name_is_valid(action, false)) return false;
+    bool belongs_to_active = false;
+    for (lv_obj_t * obj = target; obj; obj = lv_obj_get_parent(obj)) {
+        if (obj == active_root) {
+            belongs_to_active = true;
+            break;
+        }
+    }
+    if (!belongs_to_active) return false;
+    action_handler(active_owner, action);
+    return true;
+}
+
+static void layout_action_event_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    lv_obj_t * target = lv_event_get_target(e);
+    const char * action = lv_event_get_user_data(e);
+    if (target && action) player_layouts_dispatch_action_from(target, action);
+}
+
+static void active_root_delete_cb(lv_event_t * e) {
+    if (lv_event_get_target(e) == active_root) invalidate_active_layout();
+}
+
 bool player_layouts_register_c_ex(const char * id, const char * display_name, player_layout_create_fn create,
                                   player_layout_timeline_fn timeline) {
     ensure_builtin_entry();
@@ -402,6 +498,7 @@ bool player_layouts_session_select_xml(const char * id, const char * display_nam
 }
 
 void player_layouts_session_reset(void) {
+    invalidate_active_layout();
     for (int i = entry_count - 1; i >= 1; --i) {
         if (entries[i].session && !entries[i].from_callback) remove_entry(i);
     }
@@ -414,6 +511,14 @@ bool player_layouts_session_clear_selection(void) {
     snprintf(before, sizeof(before), "%s", player_layouts_effective_id());
     session_selected[0] = '\0';
     return !same_id(before, player_layouts_effective_id());
+}
+
+bool player_layouts_session_clear_plugin_selection(const char * owner) {
+    if (!owner || !owner[0] || !session_selected[0]) return false;
+    int index = player_layouts_find(session_selected);
+    if (index < 0 || !entries[index].plugin_owner[0] || strcmp(entries[index].plugin_owner, owner) != 0)
+        return false;
+    return player_layouts_session_clear_selection();
 }
 
 /* ---- XML file discovery ---- */
@@ -638,6 +743,38 @@ static void resolve_board_variant(const char * path, char * out, size_t size) {
     }
 }
 
+/* A discovered file ID and a plugin's session ID can point to the same XML.
+ * Resolve an owner only from an explicitly owned session entry for that exact
+ * canonical file; conflicting owners leave the discovered alias unowned. */
+static void resolve_plugin_owner(const layout_entry_t * entry, char * out, size_t size) {
+    if (!out || !size) return;
+    out[0] = '\0';
+    if (!entry || entry->info.kind != PLAYER_LAYOUT_XML_FILE) return;
+    if (entry->plugin_owner[0]) {
+        snprintf(out, size, "%s", entry->plugin_owner);
+        return;
+    }
+
+    char selected_path[MAX_LAYOUT_PATH];
+    char selected_real[PATH_MAX];
+    resolve_board_variant(entry->path, selected_path, sizeof(selected_path));
+    if (!realpath(selected_path, selected_real)) return;
+
+    const char * owner = NULL;
+    for (int i = 0; i < entry_count; ++i) {
+        const layout_entry_t * candidate = &entries[i];
+        if (!candidate->session || candidate->info.kind != PLAYER_LAYOUT_XML_FILE ||
+            !candidate->plugin_owner[0] || !candidate->path[0]) continue;
+        char candidate_path[MAX_LAYOUT_PATH];
+        char candidate_real[PATH_MAX];
+        resolve_board_variant(candidate->path, candidate_path, sizeof(candidate_path));
+        if (!realpath(candidate_path, candidate_real) || strcmp(selected_real, candidate_real) != 0) continue;
+        if (owner && strcmp(owner, candidate->plugin_owner) != 0) return;
+        owner = candidate->plugin_owner;
+    }
+    if (owner) snprintf(out, size, "%s", owner);
+}
+
 /* Fonts and constants are global in the XML engine and first registration
  * wins, so they are registered once. The font handles are the app's stable
  * lv_font_t objects, whose contents are replaced in place on a font change,
@@ -655,10 +792,15 @@ static void register_xml_globals_once(void) {
     lv_xml_register_const(NULL, "screen_w", value);
     snprintf(value, sizeof(value), "%d", BOARD_SCREEN_HEIGHT);
     lv_xml_register_const(NULL, "screen_h", value);
+    lv_xml_register_const(NULL, "compas_lyrics_enabled", "true");
+    lv_xml_register_const(NULL, "compas_artist_action", "library");
+    lv_xml_register_const(NULL, "compas_album_action", "library");
+    lv_xml_register_event_cb(NULL, "compas_action", layout_action_event_cb);
     xml_globals_ready = true;
 }
 
 void player_layouts_release(void) {
+    invalidate_active_layout();
     prepared_xml_timeline_t * prepared = prepared_xml_timelines;
     while (prepared) {
         prepared_xml_timeline_t * next = prepared->next;
@@ -1041,6 +1183,19 @@ static lv_obj_t * create_xml_layout(const char * entry_path, lv_obj_t * parent) 
      * itself keeps precedence, then the layout's own image folder, then the
      * built-in names. */
     lv_xml_component_scope_t * scope = lv_xml_component_get_scope(XML_COMPONENT_NAME);
+    reset_interactions();
+    const char * lyrics = scope ? lv_xml_get_const(scope, "compas_lyrics_enabled") : NULL;
+    const char * artist = scope ? lv_xml_get_const(scope, "compas_artist_action") : NULL;
+    const char * album = scope ? lv_xml_get_const(scope, "compas_album_action") : NULL;
+    if (lyrics) {
+        if (strcmp(lyrics, "true") == 0) active_interactions.lyrics_enabled = true;
+        else if (strcmp(lyrics, "false") == 0) active_interactions.lyrics_enabled = false;
+        else goto invalid_interactions;
+    }
+    if ((artist && !action_name_is_valid(artist, true)) || (album && !action_name_is_valid(album, true)))
+        goto invalid_interactions;
+    if (artist) snprintf(active_interactions.artist_action, sizeof(active_interactions.artist_action), "%s", artist);
+    if (album) snprintf(active_interactions.album_action, sizeof(active_interactions.album_action), "%s", album);
     register_layout_folder_images(scope, entry_path);
     for (size_t i = 0; scope && i < sizeof(layout_images) / sizeof(layout_images[0]); ++i)
         lv_xml_register_image(scope, layout_images[i].name, asset_path(layout_images[i].relative_path));
@@ -1054,9 +1209,15 @@ static lv_obj_t * create_xml_layout(const char * entry_path, lv_obj_t * parent) 
         return NULL;
     }
     return root;
+
+invalid_interactions:
+    fprintf(stderr, "Warning: player layout: %s has invalid interaction constants\n", path);
+    player_layouts_release();
+    return NULL;
 }
 
 lv_obj_t * player_layouts_create(const char * id, lv_obj_t * parent, player_layout_kind_t * kind_out) {
+    invalidate_active_layout();
     ensure_builtin_entry();
     int index = player_layouts_find(id);
     if (index < 0 || !parent) return NULL;
@@ -1073,7 +1234,16 @@ lv_obj_t * player_layouts_create(const char * id, lv_obj_t * parent, player_layo
         uint32_t children_before = lv_obj_get_child_count(parent);
         root = e->create(parent);
         if (!root) delete_children_from(parent, children_before);
-        else active_timeline_fn = e->timeline;
+        else {
+            active_timeline_fn = e->timeline;
+            reset_interactions();
+        }
+    }
+    if (root) {
+        active_root = root;
+        if (e->info.kind == PLAYER_LAYOUT_XML_FILE)
+            resolve_plugin_owner(e, active_owner, sizeof(active_owner));
+        lv_obj_add_event_cb(root, active_root_delete_cb, LV_EVENT_DELETE, NULL);
     }
     return root;
 }

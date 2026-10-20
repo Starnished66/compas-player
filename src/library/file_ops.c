@@ -39,6 +39,7 @@ typedef struct {
 static pthread_mutex_t status_mu = PTHREAD_MUTEX_INITIALIZER;
 static file_op_status_t status;
 static atomic_bool cancel_requested;
+static bool external_file_op_active;
 
 static bool cancelled(void) {
     return atomic_load(&cancel_requested);
@@ -292,7 +293,7 @@ bool file_op_start(file_op_kind_t kind, char * const * paths, int count, const c
         job->count++;
     }
     pthread_mutex_lock(&status_mu);
-    bool busy = status.running;
+    bool busy = status.running || external_file_op_active;
     if (!busy && job->count == count) {
         unsigned id = status.id + 1;
         memset(&status, 0, sizeof(status));
@@ -336,6 +337,20 @@ bool file_op_running(void) {
     bool running = status.running;
     pthread_mutex_unlock(&status_mu);
     return running;
+}
+
+bool file_op_external_begin(void) {
+    pthread_mutex_lock(&status_mu);
+    bool ok = !status.running && !external_file_op_active;
+    if (ok) external_file_op_active = true;
+    pthread_mutex_unlock(&status_mu);
+    return ok;
+}
+
+void file_op_external_end(void) {
+    pthread_mutex_lock(&status_mu);
+    external_file_op_active = false;
+    pthread_mutex_unlock(&status_mu);
 }
 
 void file_op_cancel(void) {

@@ -693,7 +693,7 @@ bool settings_load(player_settings_t * out) {
 
     if (out->setup_step < 0 || out->setup_step > 7) out->setup_step = 0;
     if (out->usb_mode < 0 || out->usb_mode > 2) out->usb_mode = 0; /* defensive re-clamp, same reasoning as screen_timeout_seconds -- the settings file is plaintext and could be hand-edited out of range */
-    if (out->play_mode < 0 || out->play_mode > 3) out->play_mode = 0;
+    if (out->play_mode < 0 || out->play_mode > 4) out->play_mode = 0;
     if (out->font_size_tier < 0 || out->font_size_tier > 2) out->font_size_tier = 1;
     out->keyboard_layout = normalize_keyboard_layout(out->keyboard_layout);
     if (out->lyrics_font_size_tier != 1 && out->lyrics_font_size_tier != 2) out->lyrics_font_size_tier = 1; /* Medium/Large only, see settings.h */

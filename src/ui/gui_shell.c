@@ -930,7 +930,7 @@ static void style_topbar_text(lv_obj_t * label, const lv_font_t * font) {
  * using a 28/18px treatment on the 480px boards. These
  * faces deliberately ignore the accessibility font tier. */
 static const lv_font_t * topbar_digit_font(void) {
-#if defined(BOARD_R3II_2025)
+#if BOARD_COMPACT_UI
     return &lv_font_montserrat_16;
 #else
     return &lv_font_montserrat_28;
@@ -938,7 +938,7 @@ static const lv_font_t * topbar_digit_font(void) {
 }
 
 static const lv_font_t * topbar_ampm_font(void) {
-#if defined(BOARD_R3II_2025)
+#if BOARD_COMPACT_UI
     return &lv_font_montserrat_12;
 #else
     return &lv_font_montserrat_18;
@@ -5273,7 +5273,7 @@ static void build_quick_drawer(void) {
 
     quick_drawer_play_btn = lv_image_create(controls_row);
     lv_image_set_src(quick_drawer_play_btn, gui_player_play_btn_image_src(audio_is_playing()));
-#if defined(BOARD_R3II_2025)
+#if BOARD_COMPACT_UI
     /* Size the layout box as well as the image so its center and touch
      * target follow the smaller panel, including after play/pause changes. */
     int32_t play_size = BOARD_SCALE_PY(84);

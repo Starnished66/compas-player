@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <lvgl/lvgl.h>
 #include "metadata_db.h"
+#include "remote_collection.h"
 #include "artwork_coordinator.h"
 
 typedef struct group_song_entry_s {
@@ -117,6 +118,10 @@ void gui_library_format_song_identity(const song_row_t * row,
 void poll_search_job(void);
 void play_remote_control_song(const char * song_path, const char * playlist_name, const char * artist_filter,
                               const char * album_artist_filter, const char * album_filter);
+/* Starts background preparation for a catalog-wide collection play request.
+ * Completion is published through remote_control_finish_collection(). */
+bool gui_library_play_remote_collection(const remote_collection_play_request_t *request);
+void gui_library_cancel_remote_collection(void);
 void start_power_off_countdown(void);
 void build_power_off_countdown_popup(void);
 void poll_sd_card_hotplug(void);

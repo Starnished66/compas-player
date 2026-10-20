@@ -57,7 +57,7 @@ static unsigned storage_write_lease_count;
 static atomic_uint storage_write_active_count;
 static bool storage_write_restore_needed;
 static char storage_write_saved_controller[256];
-#if !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if BOARD_R1_HARDWARE
 static bool dac_usb_policy_owned;
 static char dac_saved_usb_role[24];
 static bool dac_saved_charger_enabled;
@@ -69,7 +69,7 @@ static bool dac_charging_disabled = true;
 /* The TCS1421 add-on driver accepts these four exact role words and exposes
  * them on the R1 sysfs node. Save the live value instead of assuming the
  * usual NormalDRP boot role, so leaving DAC returns to the actual prior role. */
-#if !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if BOARD_R1_HARDWARE
 static bool r1_usb_role_valid(const char *role) {
     return strcmp(role, "Sink") == 0 || strcmp(role, "Source") == 0 ||
            strcmp(role, "StrongDRP") == 0 || strcmp(role, "NormalDRP") == 0;
@@ -184,7 +184,7 @@ static dac_journal_result_t load_dac_session_journal(char *role, size_t role_siz
 #endif
 
 static bool restore_dac_usb_policy(void) {
-#if !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if BOARD_R1_HARDWARE
     if (!dac_usb_policy_owned) return true;
     /* A previous restore may have released the in-memory charger claim but
      * failed to remove the durable record. Reclaim it from the saved snapshot
@@ -217,7 +217,7 @@ static bool restore_dac_usb_policy(void) {
 }
 
 static bool prepare_dac_usb_policy(void) {
-#if !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if BOARD_R1_HARDWARE
     dac_last_prepare_captured_baseline = false;
     bool already_owned = dac_usb_policy_owned;
     if (!dac_usb_policy_owned) {
@@ -400,7 +400,7 @@ static bool function_linked(const char * gadget_dir, const char * name_prefix) {
     return found;
 }
 
-#if !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if BOARD_R1_HARDWARE
 static bool dac_gadget_may_be_bound(void) {
     FILE *udc = fopen(ANDROID0_UDC_PATH, "r");
     if (!udc) return errno != ENOENT;
@@ -701,7 +701,7 @@ static bool finish_dac_usb_policy_apply(usb_mode_t mode, bool applied, bool dac_
         return applied;
     }
 
-#if !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if BOARD_R1_HARDWARE
     /* Keep the R1 charger inhibited until teardown has proved the UAC gadget
      * is gone. A failed target switch may have left the old DAC bound, in
      * which case restoring DRP/charging would recreate the reported failure. */
@@ -725,7 +725,7 @@ static bool usb_mode_control_apply_locked(usb_mode_t mode) {
 
     bool applied = usb_mode_control_apply_gadget_locked(mode);
     bool dac_still_bound = false;
-#if !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if BOARD_R1_HARDWARE
     if (dac_usb_policy_owned || (mode == USB_MODE_DAC && !applied))
         dac_still_bound = dac_gadget_may_be_bound();
 #endif
@@ -733,7 +733,7 @@ static bool usb_mode_control_apply_locked(usb_mode_t mode) {
 }
 
 bool usb_mode_control_reconcile_dac_session(void) {
-#if !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if BOARD_R1_HARDWARE
     pthread_mutex_lock(&usb_mode_mutex);
     if (storage_write_lease_count != 0) {
         pthread_mutex_unlock(&usb_mode_mutex);
@@ -849,7 +849,7 @@ bool usb_mode_control_reconcile_dac_session(void) {
 }
 
 bool usb_mode_control_set_dac_charging_disabled(bool disabled) {
-#if !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if BOARD_R1_HARDWARE
     pthread_mutex_lock(&usb_mode_mutex);
     if (disabled == dac_charging_disabled && !dac_usb_policy_owned) {
         pthread_mutex_unlock(&usb_mode_mutex);

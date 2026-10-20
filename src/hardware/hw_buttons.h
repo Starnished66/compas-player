@@ -38,6 +38,8 @@ bool hw_buttons_consume_event(hw_button_event_t *event);
 bool hw_buttons_consume_screenshot(void);
 #if defined(BOARD_R3II_2025)
   #define HW_BUTTONS_SCREENSHOT_CHORD_NAME "Power + Previous"
+#elif defined(BOARD_TEMPOTEC_V1)
+  #define HW_BUTTONS_SCREENSHOT_CHORD_NAME "Power + Vol Up"
 #else
   #define HW_BUTTONS_SCREENSHOT_CHORD_NAME "Power + Vol Down"
 #endif

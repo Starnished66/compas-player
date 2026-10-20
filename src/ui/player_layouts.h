@@ -22,6 +22,15 @@
 #define PLAYER_LAYOUT_ID_DEFAULT "default"
 #define PLAYER_LAYOUT_ID_MAX 64
 #define PLAYER_LAYOUT_NAME_MAX 64
+#define PLAYER_LAYOUT_ACTION_MAX 64
+
+typedef struct {
+    bool lyrics_enabled;
+    char artist_action[PLAYER_LAYOUT_ACTION_MAX];
+    char album_action[PLAYER_LAYOUT_ACTION_MAX];
+} player_layout_interactions_t;
+
+typedef void (*player_layout_action_handler_t)(const char * owner, const char * action);
 
 typedef enum {
     PLAYER_LAYOUT_BUILTIN_C,
@@ -97,6 +106,9 @@ void player_layouts_session_reset(void);
 /* Forgets a session selection so the persisted Settings choice applies
  * again. Returns true when the effective layout changed. */
 bool player_layouts_session_clear_selection(void);
+/* Clears the session override only when its selected XML entry is explicitly
+ * owned by `owner`; saved user preferences and other plugins are untouched. */
+bool player_layouts_session_clear_plugin_selection(const char * owner);
 
 int player_layouts_count(void);
 const player_layout_info_t * player_layouts_get(int index);
@@ -108,6 +120,16 @@ int player_layouts_find(const char * id);
  * resolve to themselves. Returns false for invalid, unknown, or undersized
  * output arguments. */
 bool player_layouts_canonical_id(const char * id, char * out, size_t size);
+
+/* Interaction metadata for the currently created layout. Defaults are
+ * lyrics enabled and library navigation for artist/album. */
+const player_layout_interactions_t * player_layouts_get_interactions(void);
+void player_layouts_set_action_handler(player_layout_action_handler_t handler);
+/* Associates a plugin owner with a session XML layout. */
+bool player_layouts_set_plugin_owner(const char * layout_id, const char * owner);
+void player_layouts_clear_plugin_owner(const char * owner);
+bool player_layouts_dispatch_action(const char * action);
+bool player_layouts_dispatch_action_from(lv_obj_t * target, const char * action);
 
 /* Session selection if any and still registered, else
  * current_settings.player_layout if registered, else the default id. */

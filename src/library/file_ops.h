@@ -33,6 +33,10 @@ typedef struct {
 bool file_op_start(file_op_kind_t kind, char * const * paths, int count, const char * dest_dir);
 void file_op_get_status(file_op_status_t * out);
 bool file_op_running(void);
+/* Excludes an external bounded file mutation (for example remote import)
+ * from player file-manager jobs. This is a try-acquire and never waits. */
+bool file_op_external_begin(void);
+void file_op_external_end(void);
 /* Stops after the current file; a partly copied file is removed. */
 void file_op_cancel(void);
 

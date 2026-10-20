@@ -42,6 +42,8 @@ static const char * board_image(void) {
     return "r3proii.upt";
 #elif defined(BOARD_R3II_2025)
     return "r3ii_2025.upt";
+#elif defined(BOARD_TEMPOTEC_V1)
+    return "v1.upt";
 #else
     return "r1.upt";
 #endif

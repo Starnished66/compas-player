@@ -78,6 +78,10 @@ metadata_db_load_outcome_t metadata_db_get_load_outcome(void);
  * when a rebuild owns the lock. */
 int32_t metadata_db_get_generation(void);
 bool metadata_db_try_get_generation(int32_t * out_generation);
+/* Copies the already-loaded persistent catalog identity without waiting for a
+ * database operation or performing storage I/O. Returns false with an empty
+ * output when the database/identity is unavailable or busy. */
+bool metadata_db_try_get_catalog_library_id(char * out_id, size_t out_size);
 
 /* Resolves the Artists row a track belongs to in one lock scope. Returns false
  * without waiting when the database is busy (a split rebuild holds the lock for
@@ -131,8 +135,26 @@ typedef struct {
 typedef enum {
     METADATA_DB_CATALOG_OK,
     METADATA_DB_CATALOG_STALE,
-    METADATA_DB_CATALOG_UNAVAILABLE
+    METADATA_DB_CATALOG_UNAVAILABLE,
+    METADATA_DB_CATALOG_BUSY
 } metadata_db_catalog_result_t;
+typedef bool (*metadata_db_cancel_fn)(void *user_data);
+bool metadata_db_catalog_revision_matches(const char *expected_revision);
+/* Nonblocking revision validation for UI polling. Returns BUSY if another
+ * metadata operation currently owns the lock. */
+metadata_db_catalog_result_t metadata_db_try_catalog_revision_check(const char *expected_revision);
+bool metadata_db_try_catalog_revision_matches(const char *expected_revision);
+
+/* Opens a pinned catalog snapshot and resolves a full collection into title
+ * ranks. Album results are ordered by disc, track (unknown last), then path,
+ * matching native album playback. Metadata is read in cancellable 64-candidate
+ * lock windows; ranks may be in any order but are unique. */
+metadata_db_catalog_result_t metadata_db_filtered_snapshot_open(
+    const char *expected_revision, const char *artist, const char *album_artist,
+    bool exact_album_artist, const char *album, const char *genre,
+    metadata_db_snapshot_t **out_snapshot,
+    int **out_title_ranks, int *out_count, metadata_db_cancel_fn is_cancelled,
+    void *cancel_userdata);
 
 typedef struct {
     char library_id[METADATA_DB_CATALOG_LIBRARY_ID_SIZE];

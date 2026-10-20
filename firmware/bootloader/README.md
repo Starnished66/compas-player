@@ -34,8 +34,9 @@ shutdown and logging behavior. It does not invoke a separate
 Player Update action.
 
 Rockbox payloads use the standard SD `/.rockbox/rockbox.r1` or
-`/.rockbox/rockbox.r3proii` location and matching `rockbox-info.txt`. Dynamic
-R1 payloads also require their companion `libasound.so.2`. Executables are
+`/.rockbox/rockbox.r3proii` location and matching `rockbox-info.txt`. R1
+payloads can use the firmware’s system `libasound.so.2`; no SD-local copy is
+required. Executables are
 validated and staged atomically under persistent `/usr/data/.compas/rockbox/`,
 rather than RAM-backed storage. A missing, invalid or unstaged payload falls
 back to Compás. The source on the SD card is retained. A successful exec

@@ -131,19 +131,23 @@ static unsigned int s24_unsupported_rate = 0;
  * rate/channels/format from. `-D <device>` resolves through the real ALSA
  * library's plugin system (see requested_target's own doc comment above)
  * rather than tinyalsa, which is what makes either of these reachable at
- * all. Shared by both the Bluetooth and USB targets -- only the device
- * string and which pid/fd pair get filled in differ. */
+ * all. Shared by Bluetooth and USB targets, with a Bluetooth-specific
+ * period duration to keep resampling ratios simple. */
 static bool spawn_aplay(const char * device, unsigned int channels, unsigned int sample_rate,
-                         enum pcm_format format, pid_t * out_pid, int * out_fd) {
+                         enum pcm_format format, bool bluetooth, pid_t * out_pid, int * out_fd) {
     char rate_str[16], channels_str[8];
     snprintf(rate_str, sizeof(rate_str), "%u", sample_rate);
     snprintf(channels_str, sizeof(channels_str), "%u", channels);
 
     const char * format_str = (format == PCM_FORMAT_S24_LE) ? "S24_LE" : "S16_LE";
 
+    /* 100 ms gives integral periods at 44.1/48 kHz and their multiples.
+     * The default 125 ms rounds 44.1 kHz to 5512 frames; Speex derives its
+     * ratio from those period sizes, inflating the full coefficient table. */
     char * argv[] = { (char *) "aplay", (char *) "-q", (char *) "-D", (char *) device,
                        (char *) "-t", (char *) "raw", (char *) "-f", (char *) format_str,
-                       (char *) "-r", rate_str, (char *) "-c", channels_str, NULL };
+                       (char *) "-r", rate_str, (char *) "-c", channels_str,
+                       bluetooth ? (char *) "--period-time=100000" : NULL, NULL };
     if (!subprocess_popen_stdin(argv, out_pid, out_fd)) {
         DBG_LOG("audio_output: failed to spawn aplay for '%s' output\n", device);
         return false;
@@ -213,7 +217,7 @@ static bool open_device(unsigned int channels, unsigned int sample_rate, bool lo
                         bool dop, output_target_t target, const char * usb_device) {
     if (target == OUTPUT_TARGET_USB) {
         enum pcm_format format = want_s24 ? PCM_FORMAT_S24_LE : PCM_FORMAT_S16_LE;
-        if (!spawn_aplay(usb_device, channels, sample_rate, format, &usb_aplay_pid, &usb_aplay_fd)) return false;
+        if (!spawn_aplay(usb_device, channels, sample_rate, format, false, &usb_aplay_pid, &usb_aplay_fd)) return false;
         pthread_mutex_lock(&state_mutex);
         active_target = OUTPUT_TARGET_USB;
         active_format = format;
@@ -229,7 +233,7 @@ static bool open_device(unsigned int channels, unsigned int sample_rate, bool lo
         /* A stable wide pipe avoids reopening BlueALSA at mixed-depth track
          * boundaries; narrow writes are widened below before reaching it. */
         enum pcm_format format = PCM_FORMAT_S24_LE;
-        if (!spawn_aplay(bt_device, channels, sample_rate, format, &bt_aplay_pid, &bt_aplay_fd)) return false;
+        if (!spawn_aplay(bt_device, channels, sample_rate, format, true, &bt_aplay_pid, &bt_aplay_fd)) return false;
         pthread_mutex_lock(&state_mutex);
         active_target = OUTPUT_TARGET_BT;
         active_format = format;

@@ -71,7 +71,7 @@ static bool same_source_snapshot(const struct stat *a, const struct stat *b) {
  * ET_EXEC and ET_DYN are accepted because Rockbox builds can be PIE. This
  * descriptor-based validator keeps the Rockbox source pinned across card
  * removal; player updates are handled separately by the running player. */
-static bool rockbox_elf_fd_valid(int fd, off_t size, bool *out_dynamic) {
+static bool rockbox_elf_fd_valid(int fd, off_t size) {
     enum { EHDR = 52, PHDR = 32 };
     unsigned char h[EHDR];
     if (size < EHDR || pread(fd, h, sizeof(h), 0) != (ssize_t)sizeof(h)) return false;
@@ -93,7 +93,6 @@ static bool rockbox_elf_fd_valid(int fd, off_t size, bool *out_dynamic) {
     if (phnum == 0 || phentsize < PHDR || (uint64_t)phoff + (uint64_t)phentsize * phnum > (uint64_t)size)
         return false;
     bool load = false;
-    bool dynamic = false;
     unsigned char p[PHDR];
     for (uint16_t i = 0; i < phnum; i++) {
         uint64_t off = (uint64_t)phoff + (uint64_t)i * phentsize;
@@ -102,18 +101,16 @@ static bool rockbox_elf_fd_valid(int fd, off_t size, bool *out_dynamic) {
             load = true;
             if ((uint64_t)u32le(p + 4) + u32le(p + 16) > (uint64_t)size) return false;
         } else if (u32le(p) == 2 || u32le(p) == 3) {
-            dynamic = true; /* PT_DYNAMIC or PT_INTERP */
             if ((uint64_t)u32le(p + 4) + u32le(p + 16) > (uint64_t)size) return false;
         }
     }
-    if (out_dynamic) *out_dynamic = dynamic;
     return load;
 }
 
-static bool fd_regular_readable_executable(int fd, struct stat *st, bool *out_dynamic) {
+static bool fd_regular_readable_executable(int fd, struct stat *st) {
     return fstat(fd, st) == 0 && S_ISREG(st->st_mode) && st->st_size > 0 &&
            (st->st_mode & 0444) != 0 && (st->st_mode & 0111) != 0 &&
-           st->st_size <= ROCKBOX_MAX_BYTES && rockbox_elf_fd_valid(fd, st->st_size, out_dynamic);
+           st->st_size <= ROCKBOX_MAX_BYTES && rockbox_elf_fd_valid(fd, st->st_size);
 }
 
 static bool rockbox_info_matches(int dirfd) {
@@ -152,28 +149,8 @@ static bool rockbox_info_matches(int dirfd) {
     return target && (!has_target_id || target_id);
 }
 
-static bool required_r1_audio_library(int dirfd, dev_t source_device, bool dynamic_rockbox) {
-#if defined(BOARD_R1)
-    if (!dynamic_rockbox) return true;
-    int fd = openat(dirfd, "libasound.so.2", O_RDONLY | O_CLOEXEC);
-    if (fd < 0) return false;
-    struct stat st;
-    bool valid = fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && (st.st_mode & 0444) != 0 &&
-                 st.st_size > 0 && st.st_size <= ROCKBOX_MAX_BYTES && st.st_dev == source_device &&
-                 rockbox_elf_fd_valid(fd, st.st_size, NULL);
-    close(fd);
-    return valid;
-#else
-    (void)dirfd;
-    (void)source_device;
-    (void)dynamic_rockbox;
-    return true;
-#endif
-}
-
 static bool open_rockbox_source(int *dirfd_out, int *execfd_out, struct stat *execst_out) {
     struct stat rootst, dirst;
-    bool dynamic_rockbox = false;
     int rootfd = open(COMPAS_RB_SD_ROOT, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
     if (rootfd < 0) return false;
     if (fstat(rootfd, &rootst) != 0) { close(rootfd); return false; }
@@ -185,14 +162,9 @@ static bool open_rockbox_source(int *dirfd_out, int *execfd_out, struct stat *ex
     }
     if (!rockbox_info_matches(dirfd)) { close(dirfd); return false; }
     int fd = openat(dirfd, RB_SD_EXEC_NAME, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
-    if (fd < 0 || !fd_regular_readable_executable(fd, execst_out, &dynamic_rockbox) ||
+    if (fd < 0 || !fd_regular_readable_executable(fd, execst_out) ||
         execst_out->st_dev != dirst.st_dev) {
         if (fd >= 0) close(fd);
-        close(dirfd);
-        return false;
-    }
-    if (!required_r1_audio_library(dirfd, dirst.st_dev, dynamic_rockbox)) {
-        close(fd);
         close(dirfd);
         return false;
     }
@@ -352,7 +324,7 @@ const char *compas_rockbox_stage(void) {
         uint32_t existing_crc;
         bool reusable = fstat(existing, &existing_st) == 0 && S_ISREG(existing_st.st_mode) &&
                         (existing_st.st_mode & 0111) != 0 && existing_st.st_size == before.st_size &&
-                        rockbox_elf_fd_valid(existing, existing_st.st_size, NULL) &&
+                        rockbox_elf_fd_valid(existing, existing_st.st_size) &&
                         fd_crc32(existing, existing_st.st_size, &existing_crc) && existing_crc == source_crc &&
                         fstat(srcfd, &source_after) == 0 && same_source_snapshot(&before, &source_after) &&
                         source_path_still_current(dirfd, srcfd, &before);
@@ -406,7 +378,7 @@ const char *compas_rockbox_stage(void) {
         checked != copied || copy_crc != copied_crc || copied_crc != source_crc ||
         fstat(tmpfd, &tmpst) != 0 || tmpst.st_size != before.st_size ||
         fchmod(tmpfd, 0755) != 0 || fsync(tmpfd) != 0 ||
-        !rockbox_elf_fd_valid(tmpfd, tmpst.st_size, NULL) ||
+        !rockbox_elf_fd_valid(tmpfd, tmpst.st_size) ||
         !source_path_still_current(dirfd, srcfd, &before))
         goto stage_done;
     if (close(tmpfd) != 0) { tmpfd = -1; goto stage_done; }

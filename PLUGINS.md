@@ -721,6 +721,30 @@ plugin.set_launcher_layout({
 })
 ```
 
+### `plugin.register_player_action(name, callback)`
+
+Requires `plugin.define` and capability `ui.player_actions`. Registers a named
+click action for XML Player layouts registered by this plugin with
+`plugin.set_player_layout`. Names are 1–63 ASCII letters, digits, `_`, `-` or
+`.`; `library` and `none` are reserved. The callback receives the action name
+and can use the normal UI APIs to open custom menus. Re-registering the same
+name replaces the callback; the shared registry holds at most 32 actions.
+Callbacks are removed when their plugin unloads or fails to load.
+
+Use `compas_artist_action`/`compas_album_action` XML constants or
+`<event_cb trigger="clicked" callback="compas_action" user_data="name" />`.
+Layout-local lyrics and click options, complete XML and Lua examples, and the
+lifetime rules are documented in [Player layouts](docs/PLAYER_LAYOUTS.md#interaction-options-and-plugin-menus).
+No LVGL patches, Lua evaluation from XML, or custom widget types are required.
+
+### `plugin.restore_player_layout()`
+
+Requires `plugin.define` and capability `ui.player_layout_restore`. Clears only
+this plugin's session layout selection and returns to the layout saved in
+Settings. Another plugin's selection is preserved. Returns whether the effective
+layout ID changed, not whether an override existed. This does not restore global
+background options or maintain a stack of plugin selections.
+
 ### `plugin.set_player_layout(options)`
 
 Changes the look of the Player (Now Playing) screen. Every field is optional.

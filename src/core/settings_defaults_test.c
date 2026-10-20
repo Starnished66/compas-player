@@ -69,6 +69,16 @@ int main(void) {
     assert(!settings.idle_shutdown_enabled && !settings.idle_suspend_enabled);
     assert(settings.idle_shutdown_minutes == 15);
 
+    write_settings("play_mode=4\n");
+    assert(settings_load(&settings));
+    assert(settings.play_mode == 4);
+    settings_save(&settings);
+    assert(settings_load(&settings));
+    assert(settings.play_mode == 4);
+    write_settings("play_mode=5\n");
+    assert(settings_load(&settings));
+    assert(settings.play_mode == 0);
+
     write_settings("keyboard_layout=99\n");
     assert(settings_load(&settings));
     assert(settings.keyboard_layout == KEYBOARD_LAYOUT_QWERTY);

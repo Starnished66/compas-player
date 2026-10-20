@@ -11,6 +11,8 @@ extern int subprocess_run(char * const argv[], char ** out_output, int timeout_s
 #include "import_web.h"
 #include "gui_settings.h"
 #include "gui_navigation.h"
+#include "gui_lock_screen.h"
+#include "gui_library.h"
 #include "gui_shell.h"
 #include "screen_builders.h"
 #include "fallback_font.h"
@@ -42,6 +44,11 @@ extern int subprocess_run(char * const argv[], char ** out_output, int timeout_s
 #include <pthread.h>
 #include <unistd.h>
 #include <fcntl.h>
+#ifndef HOST_BUILD
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#endif
 #include <sys/stat.h>
 
 typedef enum {
@@ -52,6 +59,9 @@ typedef enum {
 } network_service_t;
 
 static bool network_service_enqueue(network_service_t service, bool start, bool force_stop);
+#ifndef HOST_BUILD
+static void handle_remote_import_request(bool start);
+#endif
 
 #ifdef TEST_BOOT_RC
 static atomic_bool test_boot_services_started = false;
@@ -3082,7 +3092,7 @@ static void usb_dac_overlay_back_cb(lv_event_t * e) {
     gui_popup_show(&usb_dac_leave_popup);
 }
 
-#if !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if BOARD_R1_HARDWARE
 static void * usb_dac_charging_thread_func(void * arg) {
     (void) arg;
     usb_dac_charging_succeeded =
@@ -3106,7 +3116,7 @@ static void finish_usb_dac_charging_update(bool show_failure, bool thread_alread
         show_error_toast(TR("Failed to update USB charging"));
 }
 
-#if !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if BOARD_R1_HARDWARE
 void gui_network_set_usb_dac_charging_disabled(bool disabled) {
     if (usb_dac_charging_active) {
         show_info_toast(TR("USB charging setting is busy"));
@@ -3342,12 +3352,12 @@ static void bt_tile_cb(lv_event_t * e) {
     open_bluetooth_screen();
 }
 
-/* ---- Import via Wi-Fi screen -- this is just the on-device "here's the
- * address to open" front end; the actual file-manager webapp is the stock
- * firmware's own thttpd + CGI binaries, managed via import_web.h. ---- */
+/* ---- Import via Wi-Fi screen: points to the PIN-protected native remote
+ * control and file API. ---- */
 
 static lv_obj_t * import_wifi_status_label;
 static lv_obj_t * import_wifi_url_label;
+static lv_obj_t * import_wifi_pin_label;
 #if LV_USE_QRCODE
 static lv_obj_t * import_wifi_qrcode;
 #endif
@@ -3357,16 +3367,20 @@ static void populate_import_wifi_screen(void) {
     if (!wifi_cached_info_is_current() || !wifi_cached_info_connected || wifi_cached_info.ip[0] == '\0') {
         lv_label_set_text(import_wifi_status_label, TR("Connect to Wi-Fi first"));
         lv_label_set_text(import_wifi_url_label, "");
+        lv_label_set_text(import_wifi_pin_label, "");
 #if LV_USE_QRCODE
         lv_obj_add_flag(import_wifi_qrcode, LV_OBJ_FLAG_HIDDEN);
 #endif
         return;
     }
 
-    char url[64];
-    snprintf(url, sizeof(url), "http://%s:4399", wifi_cached_info.ip);
-    lv_label_set_text(import_wifi_status_label, TR("Open this address on your phone or computer:"));
+    char url[64], pin[REMOTE_CONTROL_PIN_MAX_LENGTH + 1], pin_text[96];
+    snprintf(url, sizeof(url), "http://%s:8899", wifi_cached_info.ip);
+    remote_control_get_pin(pin, sizeof(pin));
+    snprintf(pin_text, sizeof(pin_text), "%s: %s", TR("Remote Control PIN"), pin);
+    lv_label_set_text(import_wifi_status_label, TR("Open Remote Control to manage files:"));
     lv_label_set_text(import_wifi_url_label, url);
+    lv_label_set_text(import_wifi_pin_label, pin_text);
 #if LV_USE_QRCODE
     lv_obj_remove_flag(import_wifi_qrcode, LV_OBJ_FLAG_HIDDEN);
     lv_qrcode_update(import_wifi_qrcode, url, strlen(url));
@@ -3375,8 +3389,8 @@ static void populate_import_wifi_screen(void) {
 
 /* Shared N-row action-menu popup shape is built by build_menu_popup in gui.c. */
 
-/* Background worker and polling state for stopping the Wi-Fi web import server
- * asynchronously without blocking the UI thread during process teardown. */
+/* Background worker and polling state for cancelling active native imports
+ * asynchronously without blocking the UI thread during file cleanup. */
 static pthread_t import_web_stop_thread;
 static bool import_web_stop_active = false;
 static bool import_web_stop_via_service_worker = false;
@@ -3386,13 +3400,13 @@ static atomic_bool import_web_stop_done_flag = false;
  * once teardown finishes (same pattern text_entry_commit()/
  * poll_subsonic_download() already use), so backing out later lands on
  * whatever was open before Import via Wi-Fi, not on this now-defunct
- * "Closing Web Server..." screen or a stale extra copy of the screen
+ * "Closing File Import..." screen or a stale extra copy of the screen
  * underneath it. */
 static int import_web_stop_nav_slot = -1;
 
 /* True from a successful open_import_wifi_screen() until teardown (either
  * the back button or gui_network_handle_wifi_disabled()) is INITIATED --
- * i.e. "the web server is running or a stop for it hasn't been kicked off
+ * i.e. "the import API is running or a stop for it hasn't been kicked off
  * yet". Distinct from import_web_stop_active (which only covers the actual
  * background-thread window): this is what lets gui_network_handle_wifi_
  * disabled() tell "nothing to do" apart from "need to tear down", and
@@ -3400,6 +3414,17 @@ static int import_web_stop_nav_slot = -1;
  * racing the wifi-disabled path, or vice versa) sees it as already handled
  * rather than starting a second worker. */
 static bool import_web_active = false;
+/* Remote-started imports share the session but do not navigate the local UI. */
+static bool import_web_remote_owned = false;
+static bool import_web_remote_stop_pending = false;
+static bool import_web_remote_stop_suppress_rescan = false;
+/* Worker completions must not be inferred from the public state snapshot:
+ * an authenticated request can replace that snapshot before the UI polls. */
+enum {
+    IMPORT_WEB_WORKER_START_FAILED = 1u << 0,
+    IMPORT_WEB_WORKER_STOP_DONE = 1u << 1,
+};
+static atomic_uint import_web_worker_events = 0;
 
 /* Set by gui_network_handle_wifi_disabled() right before it kicks off the
  * same async stop worker/busy-overlay import_wifi_back_cb() below uses --
@@ -3447,8 +3472,21 @@ static void * network_service_worker_func(void * arg) {
         pthread_mutex_unlock(&network_service_mutex);
 
         if (job.service == NETWORK_SERVICE_IMPORT) {
-            if (job.start) import_web_start();
-            else import_web_stop();
+            if (job.start) {
+                bool control_ready = remote_control_is_running();
+                bool ready = control_ready && import_web_start();
+                if (!ready) import_web_stop();
+                remote_control_set_import_state(ready ? REMOTE_IMPORT_READY : REMOTE_IMPORT_ERROR,
+                                                ready ? NULL : control_ready ? "import_start_failed" : "remote_control_unavailable");
+                if (!ready)
+                    atomic_fetch_or_explicit(&import_web_worker_events, IMPORT_WEB_WORKER_START_FAILED,
+                                             memory_order_release);
+            } else {
+                import_web_stop();
+                remote_control_set_import_state(REMOTE_IMPORT_STOPPED, NULL);
+                atomic_fetch_or_explicit(&import_web_worker_events, IMPORT_WEB_WORKER_STOP_DONE,
+                                         memory_order_release);
+            }
         } else if (job.service == NETWORK_SERVICE_REMOTE) {
             if (job.start) {
                 remote_control_start();
@@ -3554,12 +3592,34 @@ static void poll_network_service_ops(void) {
 static void * import_web_stop_thread_func(void * arg) {
     (void) arg;
     import_web_stop();
+    remote_control_set_import_state(REMOTE_IMPORT_STOPPED, NULL);
     atomic_store_explicit(&import_web_stop_done_flag, true, memory_order_release); /* written last -- poll_import_web_stop() only checks this flag */
     return NULL;
 }
 
 void poll_import_web_stop(void) {
     poll_network_service_ops();
+    if (!network_service_is_busy(NETWORK_SERVICE_IMPORT)) {
+        unsigned worker_events = atomic_exchange_explicit(&import_web_worker_events, 0, memory_order_acquire);
+        if (worker_events & IMPORT_WEB_WORKER_START_FAILED) {
+            import_web_active = false;
+            import_web_remote_owned = false;
+        }
+        if ((worker_events & IMPORT_WEB_WORKER_STOP_DONE) && import_web_remote_stop_pending) {
+            bool suppress_rescan = import_web_remote_stop_suppress_rescan;
+            import_web_remote_stop_pending = false;
+            import_web_remote_stop_suppress_rescan = false;
+            import_web_active = false;
+            import_web_remote_owned = false;
+            if (!suppress_rescan && gui_library_auto_rescan_enabled()) start_library_auto_rescan();
+        }
+    }
+#ifndef HOST_BUILD
+    bool remote_start = false;
+    if (remote_control_consume_import_request(&remote_start)) {
+        handle_remote_import_request(remote_start);
+    }
+#endif
     if (!import_web_stop_active) return;
     if (import_web_stop_via_service_worker) {
         if (network_service_is_busy(NETWORK_SERVICE_IMPORT)) return;
@@ -3591,23 +3651,23 @@ void poll_import_web_stop(void) {
  * same async stop-worker/busy-overlay sequence, just with a different
  * suppress_rescan value. import_web_active is deliberately only cleared
  * AFTER pthread_create() actually succeeds, not optimistically beforehand:
- * if thread launch fails, import_web_stop() never runs and thttpd/
- * udp_server stay up, so leaving import_web_active true keeps that
+ * if thread launch fails, import_web_stop() never runs and the API session stays open, so leaving import_web_active true keeps that
  * reflected -- a retry (another back-button tap, or a later Wi-Fi-disabled
  * confirmation) still sees a stop as needed instead of wrongly treating
- * this as already handled and silently leaving the servers running
- * forever. */
+ * this as already handled while file requests remain active. */
 static void import_web_stop_start(bool suppress_rescan) {
     import_web_stop_suppress_rescan = suppress_rescan;
     import_web_stop_nav_slot = gui_navigation_get_depth() - 1; /* this screen's own slot, before pushing the busy screen on top of it */
-    import_web_stop_token = gui_busy_show(TR("Closing\nWeb Server..."), "");
+    import_web_stop_token = gui_busy_show(TR("Closing\nFile Import..."), "");
 
     import_web_stop_active = true;
     import_web_stop_via_service_worker = false;
+    remote_control_set_import_state(REMOTE_IMPORT_STOPPING, NULL);
     if (network_service_is_busy(NETWORK_SERVICE_IMPORT)) {
         if (!network_service_enqueue(NETWORK_SERVICE_IMPORT, false, true)) {
             import_web_stop_active = false;
             import_web_stop_suppress_rescan = false;
+            remote_control_set_import_state(REMOTE_IMPORT_ERROR, "file_import_stop_failed");
             gui_busy_hide(import_web_stop_token);
             show_error_toast(TR("Thread launch failed"));
             return;
@@ -3620,6 +3680,7 @@ static void import_web_stop_start(bool suppress_rescan) {
     if (pthread_create(&import_web_stop_thread, NULL, import_web_stop_thread_func, NULL) != 0) {
         import_web_stop_active = false;
         import_web_stop_suppress_rescan = false;
+        remote_control_set_import_state(REMOTE_IMPORT_ERROR, "file_import_stop_failed");
         gui_busy_hide(import_web_stop_token);
         show_error_toast(TR("Thread launch failed"));
         return; /* import_web_active stays true -- nothing was actually stopped */
@@ -3644,7 +3705,26 @@ static void import_wifi_back_cb(lv_event_t * e) {
  * (from either caller) is left alone rather than racing a second worker
  * against it. */
 static void import_wifi_handle_wifi_disabled(void) {
-    if (!import_web_active || import_web_stop_active) return; /* not running, or already tearing down */
+    if (import_web_stop_active) return; /* already tearing down */
+    if (import_web_remote_owned) {
+        if (import_web_remote_stop_pending) {
+            import_web_remote_stop_suppress_rescan = true;
+            return;
+        }
+        atomic_fetch_and_explicit(&import_web_worker_events, ~IMPORT_WEB_WORKER_STOP_DONE, memory_order_acq_rel);
+        import_web_remote_stop_pending = true;
+        import_web_remote_stop_suppress_rescan = true;
+        remote_control_set_import_state(REMOTE_IMPORT_STOPPING, NULL);
+        if (!network_service_enqueue(NETWORK_SERVICE_IMPORT, false, true)) {
+            import_web_remote_stop_pending = false;
+            import_web_remote_stop_suppress_rescan = false;
+            remote_control_set_import_state(REMOTE_IMPORT_ERROR, "file_import_stop_failed");
+            return;
+        }
+        import_web_active = false;
+        return;
+    }
+    if (!import_web_active) return; /* not running */
     import_web_stop_start(true);
 }
 
@@ -3677,8 +3757,13 @@ static lv_obj_t * build_import_wifi_screen(void) {
     lv_obj_set_style_text_font(import_wifi_url_label, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
     lv_obj_align(import_wifi_url_label, LV_ALIGN_TOP_MID, 0, STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT + BOARD_SCALE_PX(350));
 
+    import_wifi_pin_label = lv_label_create(scr);
+    lv_obj_add_style(import_wifi_pin_label, gui_theme_accent_style(), 0);
+    lv_obj_set_style_text_font(import_wifi_pin_label, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
+    lv_obj_align(import_wifi_pin_label, LV_ALIGN_TOP_MID, 0, STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT + BOARD_SCALE_PX(390));
+
     /* Deliberately skips finalize_screen_navigation()'s swipe-to-back --
-     * an accidental swipe here would leave thttpd/udp_server running with
+     * an accidental swipe here would leave an import session running with
      * nothing to tear them down, same reasoning as text_entry_screen
      * skipping it for its keyboard. The back button above is the only way
      * out, and always runs import_web_stop(). */
@@ -3703,13 +3788,38 @@ static bool wifi_feature_guard(void) {
 
 static void open_import_wifi_screen(void) {
     if (!wifi_feature_guard()) return;
+    if (import_web_remote_stop_pending) {
+        show_info_toast(TR("File import is busy"));
+        return;
+    }
+    if (import_web_remote_owned && import_web_active && !import_web_stop_active) {
+        /* Let the player take over a headless remote session so its normal
+         * Back control can stop the service and perform the library rescan. */
+        populate_import_wifi_screen();
+        nav_push(import_wifi_screen);
+        import_web_remote_owned = false;
+        return;
+    }
     if (import_web_active || import_web_stop_active || network_service_is_busy(NETWORK_SERVICE_IMPORT)) {
-        show_info_toast(TR("Web Server is busy"));
+        show_info_toast(TR("File import is busy"));
         return;
     }
     wifi_settings_snapshot_invalidate();
     wifi_settings_snapshot_enabled = true;
+    import_web_remote_owned = false;
+    if (!current_settings.remote_control_enabled || !remote_control_is_running()) {
+        if (network_service_is_busy(NETWORK_SERVICE_REMOTE) ||
+            !network_service_enqueue(NETWORK_SERVICE_REMOTE, true, false)) {
+            remote_control_set_import_state(REMOTE_IMPORT_ERROR, "remote_control_start_failed");
+            show_error_toast(TR("Thread launch failed"));
+            return;
+        }
+    }
+    current_settings.remote_control_enabled = true;
+    settings_save_async(&current_settings);
+    remote_control_set_import_state(REMOTE_IMPORT_STARTING, NULL);
     if (!network_service_enqueue(NETWORK_SERVICE_IMPORT, true, false)) {
+        remote_control_set_import_state(REMOTE_IMPORT_ERROR, "file_import_busy");
         show_error_toast(TR("Thread launch failed"));
         return;
     }
@@ -3717,6 +3827,71 @@ static void open_import_wifi_screen(void) {
     nav_push(import_wifi_screen);
     import_web_active = true;
 }
+
+#ifndef HOST_BUILD
+/* Called only by poll_import_web_stop() on the LVGL thread. Remote starts
+ * share the daemon without pushing or replacing a screen. */
+static void handle_remote_import_request(bool start) {
+    if (start) {
+        if (import_web_active || import_web_stop_active || network_service_is_busy(NETWORK_SERVICE_IMPORT)) {
+            remote_control_set_import_state(REMOTE_IMPORT_ERROR, "file_import_busy");
+            return;
+        }
+        if (!gui_shell_wifi_effective_enabled()) {
+            remote_control_set_import_state(REMOTE_IMPORT_ERROR, "wifi_disabled");
+            return;
+        }
+        if (!sd_card_root_is_mounted()) {
+            remote_control_set_import_state(REMOTE_IMPORT_ERROR, "sd_card_unavailable");
+            return;
+        }
+        if (gui_network_usb_storage_session_active() || gui_library_navigation_blocked()) {
+            remote_control_set_import_state(REMOTE_IMPORT_ERROR, "player_storage_busy");
+            return;
+        }
+        remote_control_set_import_state(REMOTE_IMPORT_STARTING, NULL);
+        if (!network_service_enqueue(NETWORK_SERVICE_IMPORT, true, false)) {
+            remote_control_set_import_state(REMOTE_IMPORT_ERROR, "file_import_busy");
+            return;
+        }
+        import_web_active = true;
+        import_web_remote_owned = true;
+        return;
+    }
+
+    remote_import_state_t current_state;
+    remote_control_get_import_state(&current_state, NULL, 0);
+    if (current_state == REMOTE_IMPORT_STOPPED) return;
+
+    if (import_web_remote_owned) {
+        if (import_web_remote_stop_pending) {
+            import_web_remote_stop_suppress_rescan = false;
+            return;
+        }
+        atomic_fetch_and_explicit(&import_web_worker_events, ~IMPORT_WEB_WORKER_STOP_DONE, memory_order_acq_rel);
+        import_web_remote_stop_pending = true;
+        import_web_remote_stop_suppress_rescan = false;
+        if (!network_service_enqueue(NETWORK_SERVICE_IMPORT, false, true)) {
+            import_web_remote_stop_pending = false;
+            remote_control_set_import_state(REMOTE_IMPORT_ERROR, "file_import_stop_failed");
+            return;
+        }
+        import_web_active = false;
+        return;
+    }
+
+    /* A remote stop may close a locally opened Import session only while
+     * that exact screen is still visible. Otherwise leave navigation and the
+     * shared service untouched and report why the request could not run. */
+    if (!import_web_active || !import_wifi_screen ||
+        !gui_navigation_is_top(import_wifi_screen) || lv_screen_active() != import_wifi_screen ||
+        gui_lock_screen_is_showing()) {
+        remote_control_set_import_state(REMOTE_IMPORT_ERROR, "import_screen_not_foreground");
+        return;
+    }
+    import_web_stop_start(false);
+}
+#endif
 
 static void import_wifi_tile_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;

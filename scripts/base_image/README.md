@@ -36,6 +36,16 @@ Keep libc/loader, OpenSSL, curl, Wi-Fi drivers/firmware and the working player
 mbedTLS version unchanged in this batch. Shared-library SONAME filenames do
 not establish upstream source versions.
 
+The SpeexDSP build keeps the `-Os` target optimization and enables its full
+sinc table. This preserves Q3 resampling quality while reducing measured R1
+resampling CPU use, at the cost of a larger per-stream coefficient table.
+Bluetooth playback requests 100 ms periods so 44.1/48 kHz families use simple
+conversion ratios. In isolated ALSA plug-to-null tests, resampling 10 seconds
+of stereo S24 audio to 44.1 kHz used 2.67/4.65/9.01 CPU-seconds at
+48/96/192 kHz before these changes and 0.95/1.59/3.16 afterward. Peak RSS
+increased by at most 624 KiB in those cases. These measurements exclude
+decoding, DSP and Bluetooth encoding; they do not verify LDAC playback.
+
 ## Sources and build order
 
 Host tools: GCC/C++, make, autoconf, automake, libtool, gettext development

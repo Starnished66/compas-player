@@ -516,7 +516,7 @@ static bool add_device(selector_input_t * input, const char * path) {
     device->kind = kind;
     snprintf(device->path, sizeof(device->path), "%s", path);
     snprintf(device->name, sizeof(device->name), "%s", name);
-#if !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if BOARD_R1_HARDWARE
     /* The built-in R1 Hynitron driver exposes ABS ranges of 720x1280, while
      * its actual ABS_MT_POSITION values are already panel-pixel coordinates.
      * Keep this exception tied to that exact board/device pair. */

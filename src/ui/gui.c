@@ -959,6 +959,23 @@ static void update_timer_cb(lv_timer_t * timer) {
     if (remote_control_consume_play_mode(&remote_play_mode)) {
         gui_player_set_play_mode(remote_play_mode);
     }
+    int remote_sort_scope, remote_sort_mode;
+    if (remote_control_consume_library_sorting(&remote_sort_scope, &remote_sort_mode)) {
+        int *modes[] = { &current_settings.album_sort_mode, &current_settings.artist_albums_sort_mode,
+                        &current_settings.album_artist_albums_sort_mode };
+        const gui_library_sort_scope_t scopes[] = { GUI_LIBRARY_SORT_ALBUMS, GUI_LIBRARY_SORT_ARTIST_ALBUMS,
+                                                    GUI_LIBRARY_SORT_ALBUM_ARTIST_ALBUMS };
+        if (remote_sort_scope >= 0 && remote_sort_scope < 3 && remote_sort_mode >= 0 && remote_sort_mode <= 2) {
+            *modes[remote_sort_scope] = remote_sort_mode;
+            gui_library_apply_sorting(scopes[remote_sort_scope]);
+            settings_save_async(&current_settings);
+        }
+    }
+    remote_collection_play_request_t remote_collection;
+    if (remote_control_consume_collection(&remote_collection) &&
+        !gui_library_play_remote_collection(&remote_collection)) {
+        remote_control_finish_collection(false, "Cannot prepare collection");
+    }
     int remote_seek_seconds;
     if (remote_control_consume_seek(&remote_seek_seconds)) {
         audio_seek((double) remote_seek_seconds);
@@ -1412,7 +1429,10 @@ static void update_timer_cb(lv_timer_t * timer) {
                                       gui_player_get_now_playing_folder(), gui_player_get_now_playing_album(), now_playing_path,
                                       (int) audio_get_position_seconds(), (int) audio_get_duration_seconds(),
                                       audio_get_volume(), current_settings.play_mode,
-                                      now_playing_path && favorite_is_set);
+                                      now_playing_path && favorite_is_set, gui_theme_accent_rgb());
+        remote_control_notify_library_sorting(current_settings.album_sort_mode,
+                                              current_settings.artist_albums_sort_mode,
+                                              current_settings.album_artist_albums_sort_mode);
     }
 
     /* Polling for in-flight async operations (wifi/bt connect, library scan,
@@ -1566,6 +1586,7 @@ const char * gui_plugin_get_play_mode(void) {
         case PLAY_MODE_REPEAT_ALL: return "repeat_all";
         case PLAY_MODE_REPEAT_ONE: return "repeat_one";
         case PLAY_MODE_SHUFFLE:    return "shuffle";
+        case PLAY_MODE_SHUFFLE_ONCE: return "shuffle_once";
         case PLAY_MODE_SEQUENTIAL:
         default:                   return "sequential";
     }

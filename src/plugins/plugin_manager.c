@@ -95,6 +95,7 @@ extern player_settings_t current_settings;
 #define PLUGIN_MAX_FILES 32
 #define PLUGIN_MAX_LIST_ITEMS 500
 #define PLUGIN_MAX_ASYNC_HTTP 4
+#define PLUGIN_MAX_PLAYER_ACTIONS 32
 #define PLUGIN_ASYNC_HTTP_DEFAULT_MAX (512U * 1024U)
 #define PLUGIN_ASYNC_HTTP_MAX_RESPONSE (2U * 1024U * 1024U)
 #define PLUGIN_ASYNC_HTTP_MAX_REQUEST (1024U * 1024U)
@@ -177,6 +178,140 @@ static uint64_t plugin_filename_hash(const char * name) {
 static int loading_plugin_slot = -1;
 static lua_State * plugin_led_override_owner = NULL;
 static uint64_t ui_layout_sequence;
+
+typedef struct {
+    lua_State * L;
+    int callback_ref;
+    char owner[64];
+    char action[PLAYER_LAYOUT_ACTION_MAX];
+} plugin_player_action_t;
+
+static plugin_player_action_t plugin_player_actions[PLUGIN_MAX_PLAYER_ACTIONS];
+static plugin_instance_t * plugin_instance_for_state(lua_State * L);
+static lua_State * plugin_main_state(lua_State * L);
+static int plugin_call(lua_State * L, int nargs, int nresults, int errfunc);
+static void plugin_player_actions_clear_owner(lua_State * L, const char * owner, bool aborted);
+
+static void plugin_player_action_dispatch(const char * owner, const char * action) {
+    if (!owner || !action) return;
+    for (int i = 0; i < PLUGIN_MAX_PLAYER_ACTIONS; i++) {
+        plugin_player_action_t * entry = &plugin_player_actions[i];
+        if (!entry->L || strcmp(entry->owner, owner) != 0 || strcmp(entry->action, action) != 0) continue;
+        plugin_instance_t * inst = plugin_instance_for_state(entry->L);
+        if (!inst || !inst->defined || inst->disposing) return;
+        if (inst->aborted) {
+            plugin_player_actions_clear_owner(entry->L, inst->id, true);
+            return;
+        }
+        lua_State * L = entry->L;
+        char action_copy[PLAYER_LAYOUT_ACTION_MAX];
+        snprintf(action_copy, sizeof(action_copy), "%s", entry->action);
+        int top = lua_gettop(L);
+        lua_rawgeti(L, LUA_REGISTRYINDEX, entry->callback_ref);
+        lua_pushstring(L, action_copy);
+        int result = plugin_call(L, 1, 0, 0);
+        if (inst->aborted) {
+            /* Hard-aborted states are frozen, so do not inspect their stack. */
+            plugin_player_actions_clear_owner(L, inst->id, true);
+        } else {
+            if (result != LUA_OK) {
+                const char * error = lua_tostring(L, -1);
+                fprintf(stderr, "[plugins] player action '%s' callback error: %s\n",
+                        action_copy, error ? error : "unknown error");
+            }
+            lua_settop(L, top);
+        }
+        return;
+    }
+}
+
+static bool plugin_player_action_name_valid(const char * action) {
+    size_t len = action ? strlen(action) : 0;
+    if (len == 0 || len >= PLAYER_LAYOUT_ACTION_MAX ||
+        strcmp(action, "library") == 0 || strcmp(action, "none") == 0) return false;
+    for (const unsigned char * p = (const unsigned char *) action; *p; p++)
+        if (!((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') ||
+              (*p >= '0' && *p <= '9') || *p == '_' || *p == '.' || *p == '-')) return false;
+    return true;
+}
+
+static void plugin_player_actions_clear_owner(lua_State * L, const char * owner, bool aborted) {
+    if (owner && owner[0]) player_layouts_clear_plugin_owner(owner);
+    for (int i = 0; i < PLUGIN_MAX_PLAYER_ACTIONS; i++) {
+        plugin_player_action_t * entry = &plugin_player_actions[i];
+        if (entry->L != L) continue;
+        if (!aborted && entry->callback_ref != LUA_NOREF)
+            luaL_unref(L, LUA_REGISTRYINDEX, entry->callback_ref);
+        memset(entry, 0, sizeof(*entry));
+        entry->callback_ref = LUA_NOREF;
+    }
+}
+
+static void plugin_player_actions_clear_all(void) {
+    player_layouts_set_action_handler(NULL);
+    for (int i = 0; i < PLUGIN_MAX_PLAYER_ACTIONS; i++) {
+        plugin_player_action_t * entry = &plugin_player_actions[i];
+        plugin_instance_t * inst = entry->L ? plugin_instance_for_state(entry->L) : NULL;
+        if (entry->L && entry->callback_ref != LUA_NOREF && (!inst || !inst->aborted))
+            luaL_unref(entry->L, LUA_REGISTRYINDEX, entry->callback_ref);
+        memset(entry, 0, sizeof(*entry));
+        entry->callback_ref = LUA_NOREF;
+    }
+}
+
+/* Registers or selects the XML layout requested by plugin.set_player_layout.
+ * Select performs an upsert too, which clears per-entry owner metadata; save
+ * the owner only after that final upsert succeeds, including when selection
+ * leaves the already-effective ID unchanged. */
+static bool plugin_set_player_layout_xml(lua_State * L, const char * id, const char * name,
+                                         const char * path, bool loading, bool * layout_changed) {
+    bool registered = player_layouts_session_register_xml(id, name, path, !loading);
+    if (!registered) return false;
+    bool changed = false;
+    if (!loading) changed = player_layouts_session_select_xml(id, name, path, true);
+    plugin_instance_t * owner_inst = plugin_instance_for_state(plugin_main_state(L));
+    if (owner_inst && owner_inst->defined && !owner_inst->disposing && !owner_inst->aborted)
+        (void) player_layouts_set_plugin_owner(id, owner_inst->id);
+    if (layout_changed) *layout_changed = changed;
+    return true;
+}
+
+static int l_plugin_register_player_action(lua_State * L) {
+    const char * action = luaL_checkstring(L, 1);
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    if (!plugin_player_action_name_valid(action))
+        return luaL_error(L, "plugin.register_player_action: action must be 1-63 letters, digits, '_', '.' or '-', and not 'library' or 'none'");
+    lua_State * main_L = plugin_main_state(L);
+    plugin_instance_t * inst = plugin_instance_for_state(main_L);
+    if (!inst || !inst->defined || !inst->id[0])
+        return luaL_error(L, "plugin.register_player_action requires plugin.define({id=...}) to run first");
+    if (inst->disposing || inst->aborted)
+        return luaL_error(L, "plugin.register_player_action: plugin is no longer active");
+
+    int slot = -1;
+    for (int i = 0; i < PLUGIN_MAX_PLAYER_ACTIONS; i++) {
+        plugin_player_action_t * entry = &plugin_player_actions[i];
+        if (entry->L && strcmp(entry->owner, inst->id) == 0 && strcmp(entry->action, action) == 0) {
+            slot = i;
+            break;
+        }
+        if (!entry->L && slot < 0) slot = i;
+    }
+    if (slot < 0) return luaL_error(L, "plugin.register_player_action: action registry is full");
+
+    plugin_player_action_t * entry = &plugin_player_actions[slot];
+    if (entry->L && entry->callback_ref != LUA_NOREF && !inst->aborted)
+        luaL_unref(main_L, LUA_REGISTRYINDEX, entry->callback_ref);
+    lua_pushvalue(L, 2);
+    int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    memset(entry, 0, sizeof(*entry));
+    entry->L = main_L;
+    entry->callback_ref = ref;
+    snprintf(entry->owner, sizeof(entry->owner), "%s", inst->id);
+    snprintf(entry->action, sizeof(entry->action), "%s", action);
+    player_layouts_set_action_handler(plugin_player_action_dispatch);
+    return 0;
+}
 
 /* plugin.storage and plugin.secrets need to know WHICH plugin is calling
  * at arbitrary runtime (not just at plugin.define() time, unlike
@@ -3077,10 +3212,8 @@ static int l_plugin_set_player_layout(lua_State * L) {
         /* While the plugin loads the layout is only offered in Settings: the
          * user's pick (the saved id) wins, and the plugin registers it again
          * on every load. A callback selects it for the session right away. */
-        if (loading_plugin_slot >= 0)
-            player_layouts_session_register_xml(id_buf, name_arg ? name_arg : stem, full_real, false);
-        else
-            layout_changed = player_layouts_session_select_xml(id_buf, name_arg ? name_arg : stem, full_real, true);
+        (void) plugin_set_player_layout_xml(L, id_buf, name_arg ? name_arg : stem, full_real,
+                                            loading_plugin_slot >= 0, &layout_changed);
         lua_pop(L, 2);
     }
     lua_pop(L, 1);
@@ -3092,6 +3225,18 @@ static int l_plugin_set_player_layout(lua_State * L) {
      * anyway; a call from a callback needs the rebuild. */
     if (layout_changed && gui_player_get_screen()) gui_player_layout_reload_request();
     return 0;
+}
+
+static int l_plugin_restore_player_layout(lua_State * L) {
+    plugin_instance_t * inst = plugin_instance_for_state(plugin_main_state(L));
+    if (!inst || !inst->defined || !inst->id[0])
+        return luaL_error(L, "plugin.restore_player_layout requires plugin.define({id=...}) to run first");
+    if (inst->disposing || inst->aborted)
+        return luaL_error(L, "plugin.restore_player_layout: plugin is no longer active");
+    bool changed = player_layouts_session_clear_plugin_selection(inst->id);
+    if (changed && gui_player_get_screen()) gui_player_layout_reload_request();
+    lua_pushboolean(L, changed);
+    return 1;
 }
 
 /* plugin.reload_ui() -- rebuilds every screen/style in the same process
@@ -4477,7 +4622,7 @@ static int l_plugin_get_now_playing(lua_State * L) {
 }
 
 /* plugin.get_play_mode() -> "sequential" | "repeat_all" | "repeat_one" |
- * "shuffle" -- thin wrap of gui_plugin_get_play_mode(), same "no gui-state
+ * "shuffle" | "shuffle_once" -- thin wrap of gui_plugin_get_play_mode(), same "no gui-state
  * code in this file" boundary as is_playing()/get_position() above. */
 static int l_plugin_get_play_mode(lua_State * L) {
     lua_pushstring(L, gui_plugin_get_play_mode());
@@ -4490,8 +4635,9 @@ static int l_plugin_set_play_mode(lua_State * L) {
     if (!strcmp(mode, "sequential")) value = 0;
     else if (!strcmp(mode, "repeat_all")) value = 1;
     else if (!strcmp(mode, "repeat_one")) value = 2;
-    else if (!strcmp(mode, "shuffle")) value = 3;
-    else return luaL_error(L, "plugin.set_play_mode: expected sequential, repeat_all, repeat_one, or shuffle");
+    else if (!strcmp(mode, "shuffle")) value = PLAY_MODE_SHUFFLE;
+    else if (!strcmp(mode, "shuffle_once")) value = PLAY_MODE_SHUFFLE_ONCE;
+    else return luaL_error(L, "plugin.set_play_mode: expected sequential, repeat_all, repeat_one, shuffle, or shuffle_once");
     gui_player_set_play_mode(value);
     return 0;
 }
@@ -5363,6 +5509,7 @@ static const char * const plugin_capabilities[] = {
     "playback.format", "playback.output_info", "playback.silent_volume", "audio.peq.transient",
     "playback.output_events", "playback.settings", "playback.ab_loop", "playback.ab_switch", "playback.http_seek",
     "audio.peq.state", "library.track_metadata", "playback.transient_volume",
+    "ui.player_actions", "ui.player_layout_restore",
     "filesystem.file_ops", "ui.file_manager", "ui.player_menu", "ui.more_menu", "ui.file_picker",
     "ui.startup_image", "audio.mseb.stock", "playback.stay_on_screen",
     "ui.settings_list_10_sliders"
@@ -6302,6 +6449,8 @@ static const luaL_Reg plugin_funcs[] = {
     { "set_home_layout",           l_plugin_set_home_layout },
     { "set_launcher_layout",       l_plugin_set_launcher_layout },
     { "set_player_layout",         l_plugin_set_player_layout },
+    { "restore_player_layout",     l_plugin_restore_player_layout },
+    { "register_player_action",    l_plugin_register_player_action },
     { "refresh_theme",             l_plugin_refresh_theme },
     { "reload_ui",                 l_plugin_reload_ui },
     { "eq_load_profile",           l_plugin_eq_load_profile },
@@ -6729,6 +6878,8 @@ static void discard_failed_plugin_intervals(lua_State * L, bool aborted) {
 }
 
 static void discard_failed_plugin_resources(lua_State * L, bool aborted) {
+    plugin_instance_t * failed_inst = plugin_instance_for_state(L);
+    plugin_player_actions_clear_owner(L, failed_inst && failed_inst->defined ? failed_inst->id : NULL, aborted);
     if (failed_load_owner_matches(plugin_order_editor_callback.L, L, aborted)) {
         if (!aborted && plugin_order_editor_callback.callback_ref != LUA_NOREF)
             luaL_unref(L, LUA_REGISTRYINDEX, plugin_order_editor_callback.callback_ref);
@@ -7288,6 +7439,10 @@ static void plugin_manager_mark_disposing(void) {
 void plugin_manager_deinit(void) {
     advance_list_registry_generation();
     plugin_manager_mark_disposing();
+    /* Layout events can be queued while plugin Lua states are being closed. */
+    for (int i = 0; i < plugin_instance_count; i++)
+        if (plugin_instances[i].defined) player_layouts_clear_plugin_owner(plugin_instances[i].id);
+    plugin_player_actions_clear_all();
     if (plugin_order_editor_callback.L && plugin_order_editor_callback.callback_ref != LUA_NOREF)
         luaL_unref(plugin_order_editor_callback.L, LUA_REGISTRYINDEX,
                    plugin_order_editor_callback.callback_ref);
