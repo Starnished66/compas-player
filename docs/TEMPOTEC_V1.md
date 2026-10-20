@@ -8,7 +8,7 @@ The button map and the jack note below are taken from the Sonix V1 fork (`mr-f0x
 
 - Board `tempotec_v1`: 240×320, a Previous key, update filename `v1.upt`, install marker `COMPAS_PLAYER_BOARD:tempotec_v1`.
 - Home is a scrolling list unless a plugin asks for tiles.
-- Now Playing is the poster layout: a 240×188 cover at the top, then title, artist, format, progress, and the transport row. The album line is hidden because the deck has no room for it.
+- Now Playing uses a centered 120×120 square cover at the top with the Now Playing status bar hidden, resizing square artwork to fit, followed by the title, artist, format, progress, and a full-width transport row. The album line is hidden because the deck has no room for it.
 - Compact font sizes and transport icons, shared with the R3 II 2025 path.
 - Onboard skip keys are swapped, and the screenshot chord is Power + Volume Up.
 - The R1 charger-register writes and the R1 USB-role node stay off. Their V1 equivalents are not confirmed.

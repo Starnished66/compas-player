@@ -1509,6 +1509,15 @@ static void fit_cover_img_to_card(void) {
     int32_t scale_w = (card_w * LV_SCALE_NONE + source_w - 1) / source_w;
     int32_t scale_h = (card_h * LV_SCALE_NONE + source_h - 1) / source_h;
     int32_t scale = scale_w > scale_h ? scale_w : scale_h;
+#if defined(BOARD_TEMPOTEC_V1)
+    if (player_layout_builtin) {
+        /* Contain the decoded cover inside the square V1 card. */
+        scale_w = card_w * LV_SCALE_NONE / source_w;
+        scale_h = card_h * LV_SCALE_NONE / source_h;
+        scale = scale_w < scale_h ? scale_w : scale_h;
+        if (scale < 1) scale = 1;
+    }
+#endif
     lv_image_set_scale(cover_img, scale);
     lv_obj_align(cover_img, LV_ALIGN_CENTER, 0, 0);
 }
@@ -4189,15 +4198,15 @@ static void player_layout_metadata_stack(void) {
     if (!song_title_label || !album_label || !artist_label) return;
 
 #if defined(BOARD_TEMPOTEC_V1)
-    /* Poster: title and artist sit under the 188px cover. The album line
+    /* Title and artist sit under the compact cover. The album line
      * does not fit the remaining deck, so it stays in the tree and hidden. */
     const lv_font_t * v1_title_font = lv_obj_get_style_text_font(song_title_label, 0);
     const lv_font_t * v1_artist_font = lv_obj_get_style_text_font(artist_label, 0);
     int32_t v1_title_h = v1_title_font ? lv_font_get_line_height(v1_title_font) : 16;
     int32_t v1_artist_h = v1_artist_font ? lv_font_get_line_height(v1_artist_font) : 14;
-    lv_obj_set_y(song_title_label, 192);
+    lv_obj_set_y(song_title_label, 136);
     lv_obj_set_height(song_title_label, v1_title_h);
-    lv_obj_set_y(artist_label, 192 + v1_title_h);
+    lv_obj_set_y(artist_label, 136 + v1_title_h + 4);
     lv_obj_set_height(artist_label, v1_artist_h);
     lv_obj_add_flag(album_label, LV_OBJ_FLAG_HIDDEN);
     player_transition_mark_dirty();
@@ -4303,10 +4312,9 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
      * boards. 350x350 matches COVER_ART_WIDTH/HEIGHT (gui.h) exactly, so the
      * reference board needs no runtime scale at all in fit_cover_img_to_card(). */
 #if defined(BOARD_TEMPOTEC_V1)
-    /* Poster: cover bleeds to the top and side bezels. 188 + the deck
-     * below fills 320. See docs/TEMPOTEC_V1.md. */
-    lv_obj_set_pos(card, 0, 0);
-    lv_obj_set_size(card, BOARD_SCREEN_WIDTH, BOARD_PLAYER_COVER_HEIGHT);
+    /* Now Playing hides the V1 status bar, leaving room for square artwork. */
+    lv_obj_set_pos(card, (BOARD_SCREEN_WIDTH - BOARD_PLAYER_COVER_HEIGHT) / 2, 8);
+    lv_obj_set_size(card, BOARD_PLAYER_COVER_HEIGHT, BOARD_PLAYER_COVER_HEIGHT);
     lv_obj_set_style_radius(card, 0, 0);
 #else
     lv_obj_set_pos(card, (BOARD_SCREEN_WIDTH - player_s(350)) / 2, player_y(152));
@@ -4326,7 +4334,7 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
     lv_obj_remove_style_all(fav_circle);
 #if defined(BOARD_TEMPOTEC_V1)
     lv_obj_set_size(fav_circle, 32, 32);
-    lv_obj_set_pos(fav_circle, BOARD_SCREEN_WIDTH - 40, BOARD_PLAYER_COVER_HEIGHT - 40);
+    lv_obj_align(fav_circle, LV_ALIGN_BOTTOM_RIGHT, -8, -8);
 #else
     lv_obj_set_pos(fav_circle, player_s(296), player_s(296)); /* 352-44-12=296 from each edge */
     lv_obj_set_size(fav_circle, player_s(44), player_s(44));
@@ -4340,7 +4348,12 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
     lv_obj_t * fav_icon = lv_image_create(fav_circle);
     lv_obj_set_name_static(fav_icon, "favorite_icon");
     lv_image_set_src(fav_icon, asset_path("playing_plane/collect_out.png"));
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(fav_icon, 24, 24);
+    lv_image_set_inner_align(fav_icon, LV_IMAGE_ALIGN_CONTAIN);
+#else
     player_fit_small_screen_icon(fav_icon, 40);
+#endif
     lv_obj_add_style(fav_icon, &icon_press_style, LV_STATE_PRESSED);
     lv_obj_center(fav_icon);
 
@@ -4390,8 +4403,8 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
     lv_obj_t * dismiss = build_header_back_button(scr, NULL);
     lv_obj_set_name_static(dismiss, "dismiss_btn");
 #if defined(BOARD_TEMPOTEC_V1)
-    lv_obj_set_size(dismiss, 36, 36);
-    lv_obj_set_pos(dismiss, 0, 0);
+    lv_obj_set_size(dismiss, 32, 32);
+    lv_obj_set_pos(dismiss, 0, 8);
 #else
     lv_obj_set_size(dismiss, player_s(44), player_s(44));
     lv_obj_set_pos(dismiss, player_x(22), player_y(62));
@@ -4401,15 +4414,10 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
      * established tap-to-dismiss behavior remains available. */
     lv_obj_t * dismiss_arrow = lv_obj_get_child(dismiss, 0);
     if (dismiss_arrow) {
-        /* The Now Playing dismiss target intentionally retains its original
-         * hidden stock back asset; the visible navigation back glyph is for
-         * standard screen headers only. The V1 poster has no other back
-         * affordance, so the glyph stays visible over the cover. */
+        /* V1 keeps the standard navigation/back.png header asset. Other
+         * builtin players retain their hidden stock dismiss artwork. */
+#if !defined(BOARD_TEMPOTEC_V1)
         lv_image_set_src(dismiss_arrow, asset_path("sub_back/btn_back.png"));
-#if defined(BOARD_TEMPOTEC_V1)
-        lv_obj_set_style_image_recolor_opa(dismiss_arrow, LV_OPA_COVER, 0);
-        lv_obj_set_style_image_recolor(dismiss_arrow, lv_color_white(), 0);
-#else
         lv_obj_set_style_image_recolor_opa(dismiss_arrow, LV_OPA_TRANSP, 0);
         lv_obj_add_flag(dismiss_arrow, LV_OBJ_FLAG_HIDDEN);
 #endif
@@ -4419,13 +4427,12 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
     lv_obj_t * pill = lv_obj_create(scr);
     lv_obj_set_name_static(pill, "quality_pill");
     lv_obj_remove_style_all(pill);
-    /* This label is intentionally not marquee-animated: the pill grows to
-     * the complete, short format string and therefore never clips codec,
-     * bit-depth, or sample-rate information. */
+    /* This label is intentionally not marquee-animated: the pill fits the
+     * complete format string without clipping codec, bit-depth, or rate. */
     lv_obj_set_size(pill, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_style_min_height(pill, player_s(36), 0);
 #if defined(BOARD_TEMPOTEC_V1)
-    lv_obj_align(pill, LV_ALIGN_TOP_MID, 0, 226);
+    lv_obj_align(pill, LV_ALIGN_TOP_MID, 0, 188);
 #else
     lv_obj_align(pill, LV_ALIGN_TOP_MID, 0, player_y(518));
 #endif
@@ -4458,7 +4465,7 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
     lv_obj_t * slider = lv_slider_create(scr);
     lv_obj_set_name_static(slider, "progress_slider");
 #if defined(BOARD_TEMPOTEC_V1)
-    lv_obj_set_pos(slider, 12, 250);
+    lv_obj_set_pos(slider, 12, 220);
     lv_obj_set_size(slider, BOARD_SCREEN_WIDTH - 24, SLIDER_TRACK_HEIGHT);
 #else
     lv_obj_set_pos(slider, player_x(30), player_y(575));
@@ -4473,7 +4480,7 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
     /* Time row */
     lv_obj_t * time_row = lv_obj_create(scr);
 #if defined(BOARD_TEMPOTEC_V1)
-    lv_obj_set_pos(time_row, 12, 264);
+    lv_obj_set_pos(time_row, 12, 234);
     lv_obj_set_size(time_row, BOARD_SCREEN_WIDTH - 24, LV_SIZE_CONTENT);
 #else
     lv_obj_set_pos(time_row, player_x(30), player_y(610));
@@ -4518,9 +4525,9 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
     lv_obj_t * controls_row = lv_obj_create(scr);
     lv_obj_remove_style_all(controls_row);
 #if defined(BOARD_TEMPOTEC_V1)
-    const int32_t transport_top = 284;
+    const int32_t transport_top = 258;
     lv_obj_set_pos(controls_row, 0, transport_top);
-    lv_obj_set_size(controls_row, BOARD_SCREEN_WIDTH, 36);
+    lv_obj_set_size(controls_row, BOARD_SCREEN_WIDTH, 44);
 #else
     const int32_t transport_top = player_y(645);
     lv_obj_set_pos(controls_row, 0, transport_top);
@@ -4531,13 +4538,23 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
     lv_obj_t * order = lv_image_create(controls_row);
     lv_obj_set_name_static(order, "order_btn");
     lv_image_set_src(order, asset_path(play_mode_icon_asset((play_mode_t) current_settings.play_mode)));
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(order, 32, 32);
+    lv_image_set_inner_align(order, LV_IMAGE_ALIGN_CONTAIN);
+#else
     player_fit_small_screen_icon(order, 40);
+#endif
     lv_obj_add_style(order, &icon_press_style, LV_STATE_PRESSED);
 
     lv_obj_t * prev = lv_image_create(controls_row);
     lv_obj_set_name_static(prev, "prev_btn");
     lv_image_set_src(prev, asset_path("playing_plane/btn_prev.png"));
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(prev, 32, 32);
+    lv_image_set_inner_align(prev, LV_IMAGE_ALIGN_CONTAIN);
+#else
     player_fit_small_screen_icon(prev, 40);
+#endif
 
     /* btn_play.png/btn_pause.png already contain their own filled accent
      * circle -- no separate outline ring needed here, unlike favorite_circle/
@@ -4546,19 +4563,34 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
     lv_obj_set_name_static(play, "play_btn");
     load_play_btn_images();
     lv_image_set_src(play, gui_player_play_btn_image_src(audio_is_playing()));
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(play, 44, 44);
+    lv_image_set_inner_align(play, LV_IMAGE_ALIGN_CONTAIN);
+#else
     player_fit_small_screen_icon(play, 84);
+#endif
     lv_obj_add_style(play, &icon_press_style, LV_STATE_PRESSED);
 
     lv_obj_t * more = lv_image_create(controls_row);
     lv_obj_set_name_static(more, "more_btn");
     lv_image_set_src(more, asset_path("playing_plane/ic_more.png"));
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(more, 32, 32);
+    lv_image_set_inner_align(more, LV_IMAGE_ALIGN_CONTAIN);
+#else
     player_fit_small_screen_icon(more, 40);
+#endif
     lv_obj_add_style(more, &icon_press_style, LV_STATE_PRESSED);
 
     lv_obj_t * next = lv_image_create(controls_row);
     lv_obj_set_name_static(next, "next_btn");
     lv_image_set_src(next, asset_path("playing_plane/btn_next.png"));
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(next, 32, 32);
+    lv_image_set_inner_align(next, LV_IMAGE_ALIGN_CONTAIN);
+#else
     player_fit_small_screen_icon(next, 40);
+#endif
 
     lv_obj_update_layout(controls_row);
     int32_t row_h = lv_obj_get_height(controls_row);
@@ -4944,7 +4976,14 @@ static bool player_bind_widgets(lv_obj_t * scr) {
     player_hit_target_count = 0;
 
     int32_t transport_center_y = 0;
-    if (builtin) transport_center_y = player_y(645) + lv_obj_get_height(lv_obj_get_parent(r_play)) / 2;
+    if (builtin) {
+#if defined(BOARD_TEMPOTEC_V1)
+        lv_obj_t * transport_row = lv_obj_get_parent(r_play);
+        transport_center_y = lv_obj_get_y(transport_row) + lv_obj_get_height(transport_row) / 2;
+#else
+        transport_center_y = player_y(645) + lv_obj_get_height(lv_obj_get_parent(r_play)) / 2;
+#endif
+    }
 
     lv_obj_t * order_hit = NULL, * prev_hit = NULL, * next_hit = NULL, * more_hit = NULL;
     if (r_order) {

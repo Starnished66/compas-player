@@ -79,10 +79,9 @@
   #define BOARD_PLAYER_COVER_HEIGHT 310
   #define BOARD_PLAYER_OVERLAY_HEIGHT 170
 #elif defined(BOARD_TEMPOTEC_V1)
-  /* Poster Now Playing: the cover is the full panel width and the deck
-   * under it is the rest of the 320px panel. */
-  #define BOARD_PLAYER_COVER_HEIGHT 188
-  #define BOARD_PLAYER_OVERLAY_HEIGHT 132
+  /* Compact centered cover; metadata and controls use the rest of the panel. */
+  #define BOARD_PLAYER_COVER_HEIGHT 120
+  #define BOARD_PLAYER_OVERLAY_HEIGHT 200
 #else
   #define BOARD_PLAYER_COVER_HEIGHT 480
   #define BOARD_PLAYER_OVERLAY_HEIGHT 320

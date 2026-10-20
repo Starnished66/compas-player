@@ -870,6 +870,17 @@ void gui_shell_set_status_bar_screen_context(lv_obj_t * screen) {
                             LV_PART_MAIN);
 }
 
+bool gui_shell_player_topbar_hidden(lv_obj_t * screen) {
+    if (!screen) return false;
+
+    bool player_or_lyrics = screen == gui_player_get_screen() || screen == gui_lyrics_get_screen();
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_t * player_screen = gui_player_get_screen();
+    if (player_screen && screen == player_screen) return true;
+#endif
+    return current_settings.hide_player_topbar && player_or_lyrics;
+}
+
 void sync_player_topbar_visibility(lv_obj_t * screen) {
     /* Settings > Display > "Hide Player/Lyrics Top Bar" -- hides the global
      * status bar while the Player or its fullscreen Lyrics view is active;
@@ -885,8 +896,7 @@ void sync_player_topbar_visibility(lv_obj_t * screen) {
      * can't be trusted for it) is handled independently by
      * build_flattened_transition_frame()'s own temporary-flag-then-restore
      * approach, not by this function. */
-    bool hide = (current_settings.hide_player_topbar && (screen == gui_player_get_screen() || screen == gui_lyrics_get_screen())) ||
-                screen == gui_lock_screen_get_screen();
+    bool hide = gui_shell_player_topbar_hidden(screen) || screen == gui_lock_screen_get_screen();
     /* The quick drawer wins while it is open. It deliberately keeps the
      * status bar above itself (see open_quick_drawer()), which does nothing
      * when the Player has hidden it outright -- the drawer would slide down
