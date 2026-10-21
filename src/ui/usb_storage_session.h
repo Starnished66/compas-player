@@ -22,4 +22,14 @@ static inline bool usb_storage_session_poll(usb_storage_session_t * session,
     return ended;
 }
 
+/* Keep the historical host latch for unplug-time cache/rescan handling, but
+ * release local-operation guards once ADB is positively identified on the
+ * still-connected cable. Callers must pass false during a mode transition or
+ * whenever the live gadget state is unknown. */
+static inline bool usb_storage_session_blocks_local_work(
+        const usb_storage_session_t * session, bool connected,
+        bool adb_confirmed) {
+    return session->host_seen && connected && !adb_confirmed;
+}
+
 #endif

@@ -389,6 +389,7 @@ compas_player_power_r3ii_2025
 !src/ui/gui_themes_test.c
 !src/network/plugin_store_theme_test.c
 !src/library/image_thumb_test.c
+!src/library/file_browser_natural_sort_test.c
 *_test.h
 *_check.c
 *_check.h
@@ -469,6 +470,7 @@ __pycache__/
 !/scripts/tests/run_peq_crossfeed_test.sh
 !/scripts/tests/wifi_ssid_escape_test.c
 !/scripts/tests/run_wifi_ssid_escape_test.sh
+!/scripts/tests/file_browser_natural_sort_test.sh
 !src/audio/peq_crossfeed_selftest.c
 
 # Local release assembly and settings regression harnesses.
@@ -489,3 +491,26 @@ __pycache__/
 !/scripts/test_player_layout_interactions.sh
 !/src/ui/player_layouts_test.c
 !/src/ui/player_layout_bind_test.c
+
+# Playback display metadata and cover performance regressions.
+!src/library/metadata_db_display_cache_test.c
+!/scripts/test_metadata_db_display_cache.sh
+!/scripts/tests/frosted_glass_lut_test.c
+!/scripts/tests/run_frosted_glass_lut_test.sh
+!src/library/player_cover_prefetch_test.c
+
+# Manual-selection metadata snapshot regression.
+!/src/ui/library_selection_snapshot_spec.c
+!/scripts/run_library_selection_snapshot_spec.sh
+
+# Plugin playback Lua stack regression.
+!/scripts/test_plugin_play_list.py
+
+# Background player-layout replacement regressions.
+!/scripts/test_gui_navigation_player_replace.py
+!/scripts/test_gui_player_layout_reload.py
+!/scripts/test_gui_player_layout_rebuild.py
+!/scripts/test_gui_player_layout_reuse.py
+!/scripts/test_player_layout_xml_cache.sh
+!/src/ui/player_layout_xml_cache_test.c
+!/scripts/test_gui_player_swipe_lifetime.py

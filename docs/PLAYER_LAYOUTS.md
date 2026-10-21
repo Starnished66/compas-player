@@ -36,7 +36,8 @@ variants. Tap the cover for lyrics and seek directly on the waveform.
    the XML.
 3. On the player, open **Settings > Display > Player Layout > Layout**. If the
    picker is already open, close and reopen it to rescan, then select `Clean`.
-   The interface reloads and remembers the choice across restarts.
+   Player rebuilds with the selected layout and remembers the choice across
+   restarts.
 
 To go back, pick **Default** in the same list.
 
@@ -594,7 +595,13 @@ function like `lv_obj_t * my_player_create(lv_obj_t * parent);`.
 
 ## Notes
 
-- Only one XML layout is loaded at a time. Switching reloads the interface.
+- Only one XML layout is loaded at a time. Selecting a layout in Settings or
+  through a plugin schedules a Player-only rebuild on the UI loop. It preserves
+  plugin Lua state, audio/DSP, queue, navigation history, and any other screen
+  currently in front; when Player is visible, a retained frame covers it while
+  its widgets are replaced. A rebuild delayed by an interaction
+  stays queued and uses the latest request. This does not restart
+  plugins or recreate the rest of the interface.
 - The XML engine adds about 220 KB to the app. It only starts when an XML
   layout is used.
 - The app sizes `background_img` to the full screen and places it at the
@@ -615,7 +622,9 @@ calling plugin's session selection and restores the layout saved in Settings.
 It leaves another plugin's selection alone. It does not maintain a stack of
 previous plugin selections. The return value reports whether the effective
 layout ID changed; `false` can also mean the override was cleared but the saved
-layout has the same ID.
+layout has the same ID. Selection and restoration use the same deferred
+Player-only rebuild as the native picker and retain a pending request through a
+active interaction.
 
 There is no API to insert arbitrary widgets into the currently selected layout.
 Use a complete XML layout with the usual widget roles, and customize only the

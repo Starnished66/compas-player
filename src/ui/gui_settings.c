@@ -4503,7 +4503,7 @@ static lv_obj_t * build_settings_appearance_screen(void) {
 
 /* Player layout choice: the built-in layout plus every registered one (XML
  * files, exported C layouts, a plugin's session layout). Applying a choice
- * rebuilds the UI, the same soft reload plugins use. */
+ * replaces the Player in the background without rebuilding this picker. */
 static void player_layout_choice_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     const player_layout_info_t * info = player_layouts_get((int) (intptr_t) lv_event_get_user_data(e));
@@ -4514,7 +4514,14 @@ static void player_layout_choice_row_cb(lv_event_t * e) {
     snprintf(current_settings.player_layout, sizeof(current_settings.player_layout), "%s",
              strcmp(info->id, PLAYER_LAYOUT_ID_DEFAULT) == 0 ? "" : info->id);
     settings_save(&current_settings);
-    show_info_toast(TR("Applying layout, this may take a while"));
+    /* The picker stays alive now. Update its selection ring in place so
+     * the current scroll position and event targets remain unchanged. */
+    lv_obj_t * selected_card = lv_event_get_current_target(e);
+    lv_obj_t * grid = lv_obj_get_parent(selected_card);
+    for (uint32_t i = 0; grid && i < lv_obj_get_child_count(grid); ++i) {
+        lv_obj_t * card = lv_obj_get_child(grid, (int32_t) i);
+        lv_obj_set_style_outline_width(card, card == selected_card ? BOARD_SCALE_PX(2) : 0, 0);
+    }
     gui_player_layout_reload_request();
 }
 

@@ -237,6 +237,10 @@ int metadata_db_get_album_songs(const char * album, const char * album_artist, i
 
 bool metadata_db_get_song_by_id(int64_t id, song_row_t * out_row);
 bool metadata_db_get_song_by_path(const char * path, song_row_t * out_row);
+/* Nonblocking display hint backed only by rows already copied from the
+ * database. Returns false on a miss or when the small cache is busy. This is
+ * not authoritative for fresh ReplayGain or other playback metadata. */
+bool metadata_db_try_get_cached_song_by_path(const char * path, song_row_t * out_row);
 
 /* Batched equivalents of the two functions above. out_rows must have room
  * for `count` entries; out_rows[i].id is set to -1 for any ids[i]/paths[i]

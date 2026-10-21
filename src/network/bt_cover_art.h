@@ -16,6 +16,11 @@ uint64_t bt_cover_art_begin_track(const char * track_key);
 bool bt_cover_art_publish_rgb565(uint64_t token, const uint16_t * pixels,
                                  int width, int height, uint64_t image_key);
 
+/* Copies a bounded 200x200 RGB565 preview and queues its publication on a
+ * persistent worker. A queued request may be replaced by a newer request. */
+bool bt_cover_art_publish_rgb565_async(uint64_t token, const uint16_t * pixels,
+                                       int width, int height, uint64_t image_key);
+
 void bt_cover_art_clear(uint64_t token);
 
 /* Reuses a retained JPEG only when the worker confirms the same source file

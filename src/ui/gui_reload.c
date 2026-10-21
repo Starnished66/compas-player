@@ -311,6 +311,22 @@ static uint32_t last_reload_tick = 0;
 
 static void reload_trigger_cb(lv_timer_t * timer) {
     if (gui_navigation_transition_in_progress()) return;
+    if (reload_preserve_artwork) {
+        /* Layout changes replace only the Player tree. Leave navigation,
+         * plugin Lua states, audio/DSP and every other screen alive. Keep
+         * the latest request queued while Player owns an interaction or
+         * an artwork worker; dropping it would leave the old layout shown. */
+        reload_in_progress = true;
+        bool rebuilt = gui_player_rebuild_layout((uint32_t) reload_display_width(),
+                                                 (uint32_t) reload_display_height());
+        reload_in_progress = false;
+        if (!rebuilt) return;
+        lv_timer_del(timer);
+        reload_scheduled = false;
+        reload_preserve_artwork = false;
+        last_reload_tick = lv_tick_get();
+        return;
+    }
     if (gui_library_navigation_blocked()) {
         /* A database scan can last minutes; polling it at the transition
          * cadence would waste UI-thread time throughout the scan. */
@@ -352,7 +368,8 @@ static bool gui_reload_schedule(bool preserve_artwork) {
         reload_preserve_artwork = reload_preserve_artwork && preserve_artwork;
         return true;
     } /* coalesce -- one pending/running reload covers any others requested meanwhile */
-    if (last_reload_tick != 0 && lv_tick_elaps(last_reload_tick) < RELOAD_COOLDOWN_MS) {
+    if (!preserve_artwork && last_reload_tick != 0 &&
+        lv_tick_elaps(last_reload_tick) < RELOAD_COOLDOWN_MS) {
         LV_LOG_WARN("gui_reload_request: ignored -- another reload finished under %dms ago "
                      "(a plugin calling plugin.reload_ui() unconditionally from its own top-level "
                      "code would look exactly like this, since that code re-runs on every reload)",

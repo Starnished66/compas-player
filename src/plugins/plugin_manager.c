@@ -2035,6 +2035,10 @@ static int l_plugin_play_file(lua_State * L) {
 static int l_plugin_play_list(lua_State * L) {
     luaL_checktype(L, 1, LUA_TTABLE);
     int start = (int) luaL_optinteger(L, 2, 1) - 1;
+    /* Read optional arguments before pushing userdata: Lua C API arguments
+     * are stack indices, and the path buffers below would otherwise occupy
+     * index 3 for the common two-argument plugin.play_list(paths, start) call. */
+    bool open_player = play_opens_player(L, 3);
 
     lua_Unsigned raw_n = lua_rawlen(L, 1);
     int n = (raw_n > (lua_Unsigned) PLUGIN_MAX_LIST_ITEMS) ? PLUGIN_MAX_LIST_ITEMS : (int) raw_n;
@@ -2056,7 +2060,7 @@ static int l_plugin_play_list(lua_State * L) {
         lua_pop(L, 1);
     }
 
-    gui_plugin_play_paths(paths, n, start, play_opens_player(L, 3));
+    gui_plugin_play_paths(paths, n, start, open_player);
     return 0;
 }
 

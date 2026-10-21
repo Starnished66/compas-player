@@ -180,7 +180,7 @@ plugin.define({
 
 ### Checking what the player supports
 
-- `plugin.api_version()` returns the API version, currently `16`.
+- `plugin.api_version()` returns the API version, currently `17`.
 - `plugin.has_capability(name)` returns whether one feature exists. Prefer it
   over `api_min` when you only need one feature. Tokens:
 
@@ -214,7 +214,8 @@ plugin.define({
 | 13 | LED control, `get_volume`, `get_battery`, and the `volume_changed`, `battery_changed`, `suspending` and `system_resumed` events |
 | 14 | `zip_read`, `zip_list`, `zip_image_async`, `html_to_blocks`, `show_text_view` with pictures, grid lists, `is_list_showing`, and one long (4095-byte) HTTP header per request |
 | 15 | Full XML Player-layout support (`ui.player_layout_xml`), including plugin-bundle discovery, current named-widget features, companion PNG previews, and resolution-specific XML variants using `@WIDTHxHEIGHT` or `_WIDTHxHEIGHT` filenames |
-| 16 | Playback speed/stereo width/progress plus format/output snapshots, silent volume, transient EQ, output events, playback settings, native A–B loops/comparison, and finite HTTP seeking. Modeless progress bars and download byte snapshots are also available, as are File Manager operations and the native file picker. API 16 is the standard for new plugins. |
+| 16 | Playback speed/stereo width/progress plus format/output snapshots, silent volume, transient EQ, output events, playback settings, native A–B loops/comparison, and finite HTTP seeking. Modeless progress bars and download byte snapshots are also available, as are File Manager operations and the native file picker. |
+| 17 | Player-layout actions and owner-scoped layout restoration, including background layout replacement. Bundled Audiobooks and Podcasts Reading Room players require API 17; the store rejects installation on older firmware. |
 
 All of these are additions; older plugins keep working.
 
@@ -784,9 +785,16 @@ in [docs/PLAYER_LAYOUTS.md](docs/PLAYER_LAYOUTS.md).
   the choice is remembered while the plugin stays installed and enabled. If
   the plugin is disabled or removed, the default layout is shown instead.
 - Called from a callback (a button, for example), the layout is selected right
-  away for this session, and the interface reloads to apply it if that changes
-  the active layout. It stays until the player restarts or the user picks
-  another layout in Settings.
+  away for this session. If that changes the active layout, the app queues a
+  Player-only rebuild on the UI loop. It preserves plugin Lua state, audio/DSP,
+  queue, navigation history, and any other screen currently in front. When
+  Player is visible, a retained frame covers it while its widgets are
+  replaced. A rebuild delayed by an interaction stays queued
+  and uses the latest request. The selection stays until the player restarts
+  or the user picks another layout in Settings.
+- The native layout picker and `plugin.restore_player_layout()` use this same
+  deferred Player-only rebuild path. They do not restart plugins or recreate
+  other screens.
 - Check `ui.player_layout_xml` first if the plugin should also run on older
   firmware.
 

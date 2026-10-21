@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "track_metadata_worker.h"
+#include "metadata_db.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -18,6 +19,11 @@ static bool slow_old_entered, release_slow_old;
 static bool barrier_entered, release_barrier;
 static bool audio_cancel_entered, release_audio_cancel;
 static bool audio_replace_entered, release_audio_replace;
+static bool enrichment_entered, release_enrichment;
+static bool catalog_gate_entered, release_catalog_gate;
+static bool audio_hint_entered, release_audio_hint;
+static char catalog_miss_path[PATH_MAX];
+static char catalog_alias_path[PATH_MAX];
 static size_t audio_wait_calls;
 static uint64_t audio_generations[EVENT_CAPACITY];
 static size_t fairness_audio_calls, fairness_release_calls;
@@ -31,6 +37,11 @@ static size_t count_event_count;
 static size_t favorite_calls, favorite_event_count, probe_calls, wake_calls;
 static pthread_t caller_thread;
 static bool metadata_on_worker, favorite_on_worker, probe_on_worker, wake_on_worker;
+
+static void wait_flag(bool *flag, const char *name);
+static void wait_count(size_t *value, size_t target, const char *name);
+static track_metadata_request_t request(uint64_t token, const char *path, bool read_file);
+static void release_flag(bool *flag);
 
 void metadata_read_without_artwork(const char *path, track_metadata_t *out) {
     pthread_mutex_lock(&spec_mutex);
@@ -63,6 +74,11 @@ audio_track_metadata_wait_result_t audio_wait_track_metadata(uint64_t generation
     size_t call = ++audio_wait_calls;
     assert(call <= EVENT_CAPACITY);
     audio_generations[call - 1] = generation;
+    if (generation == 9005) {
+        audio_hint_entered = true;
+        pthread_cond_broadcast(&spec_cond);
+        while (!release_audio_hint) pthread_cond_wait(&spec_cond, &spec_mutex);
+    }
     if (generation == 9001) {
         audio_cancel_entered = true;
         pthread_cond_broadcast(&spec_cond);
@@ -98,14 +114,201 @@ audio_track_metadata_wait_result_t audio_wait_track_metadata(uint64_t generation
     return AUDIO_TRACK_METADATA_READY;
 }
 
+bool metadata_db_get_song_by_path(const char *path, song_row_t *out) {
+    pthread_mutex_lock(&spec_mutex);
+    if (strcmp(path, "hint-stale") == 0) {
+        catalog_gate_entered = true;
+        pthread_cond_broadcast(&spec_cond);
+        while (!release_catalog_gate) pthread_cond_wait(&spec_cond, &spec_mutex);
+    }
+    bool hit = strcmp(path, catalog_miss_path) != 0;
+    pthread_mutex_unlock(&spec_mutex);
+    if (!hit) return false;
+    memset(out, 0, sizeof(*out));
+    snprintf(out->path, sizeof(out->path), "%s", strcmp(path, catalog_alias_path) == 0 ? "alias-target" : path);
+    snprintf(out->tags.title, sizeof(out->tags.title), "catalog:%s", path);
+    snprintf(out->tags.artist, sizeof(out->tags.artist), "catalog-artist");
+    snprintf(out->tags.album, sizeof(out->tags.album), "catalog-album");
+    snprintf(out->tags.album_artist, sizeof(out->tags.album_artist), "catalog-album-artist");
+    snprintf(out->tags.genre, sizeof(out->tags.genre), "catalog-genre");
+    out->tags.track_number = 7;
+    out->tags.disc_number = 2;
+    out->tags.release_year = 2001;
+    return true;
+}
+
+void metadata_normalize_text_tags(track_metadata_t *meta) {
+    (void)meta;
+}
+
 bool favorite_writer_is_set(const char *path) {
     pthread_mutex_lock(&spec_mutex);
     favorite_calls++;
     assert(favorite_event_count < EVENT_CAPACITY);
     snprintf(favorite_events[favorite_event_count++], PATH_MAX, "%s", path);
+    if (strcmp(path, "early-current") == 0 || strcmp(path, "stale-enrichment") == 0) {
+        enrichment_entered = true;
+        pthread_cond_broadcast(&spec_cond);
+        while (!release_enrichment) pthread_cond_wait(&spec_cond, &spec_mutex);
+    }
     favorite_on_worker = !pthread_equal(pthread_self(), caller_thread);
     pthread_mutex_unlock(&spec_mutex);
     return true;
+}
+
+static void test_current_provisional_enrichment(void) {
+    size_t initial_wakes, initial_favorites;
+    pthread_mutex_lock(&spec_mutex);
+    initial_wakes = wake_calls;
+    initial_favorites = favorite_event_count;
+    enrichment_entered = false;
+    release_enrichment = false;
+    pthread_mutex_unlock(&spec_mutex);
+
+    track_metadata_request_t req = request(80, "early-current", true);
+    assert(track_metadata_submit(TRACK_METADATA_CURRENT, &req));
+    wait_flag(&enrichment_entered, "CURRENT favorite enrichment gate");
+    track_metadata_result_t result;
+    assert(track_metadata_take(TRACK_METADATA_CURRENT, &result));
+    assert(result.request.token == 80 && result.enrichment_pending);
+    assert(strcmp(result.request.metadata.title, "read:early-current") == 0);
+    wait_count(&wake_calls, initial_wakes + 1, "provisional CURRENT wake");
+
+    release_flag(&release_enrichment);
+    wait_count(&wake_calls, initial_wakes + 2, "final CURRENT wake");
+    assert(track_metadata_take(TRACK_METADATA_CURRENT, &result));
+    assert(result.request.token == 80 && !result.enrichment_pending && result.favorite);
+
+    pthread_mutex_lock(&spec_mutex);
+    initial_wakes = wake_calls;
+    initial_favorites = favorite_event_count;
+    enrichment_entered = false;
+    release_enrichment = false;
+    pthread_mutex_unlock(&spec_mutex);
+    req = request(81, "stale-enrichment", true);
+    assert(track_metadata_submit(TRACK_METADATA_CURRENT, &req));
+    wait_flag(&enrichment_entered, "stale CURRENT enrichment gate");
+    req = request(82, "replacement-current", false);
+    assert(track_metadata_submit(TRACK_METADATA_CURRENT, &req));
+    release_flag(&release_enrichment);
+    wait_count(&favorite_event_count, initial_favorites + 2, "replacement CURRENT enrichment");
+    wait_count(&wake_calls, initial_wakes + 3, "stale and replacement CURRENT wakes");
+    assert(track_metadata_take(TRACK_METADATA_CURRENT, &result));
+    assert(result.request.token == 82 && !result.enrichment_pending);
+    assert(!track_metadata_take(TRACK_METADATA_CURRENT, &result));
+}
+
+static void test_catalog_display_hint(void) {
+    track_metadata_result_t result;
+    pthread_mutex_lock(&spec_mutex);
+    snprintf(catalog_miss_path, sizeof(catalog_miss_path), "%s", "hint-miss");
+    snprintf(catalog_alias_path, sizeof(catalog_alias_path), "%s", "hint-alias");
+    catalog_gate_entered = false;
+    release_catalog_gate = false;
+    audio_hint_entered = false;
+    release_audio_hint = false;
+    pthread_mutex_unlock(&spec_mutex);
+
+    track_metadata_request_t req = request(90, "hint-hit", false);
+    req.read_audio = true;
+    req.audio_generation = 9005;
+    req.metadata.has_title = false;
+    assert(track_metadata_submit(TRACK_METADATA_CURRENT, &req));
+    wait_flag(&audio_hint_entered, "hinted CURRENT audio wait");
+    assert(track_metadata_take(TRACK_METADATA_CURRENT, &result));
+    assert(result.request.token == 90 && result.display_hint && result.enrichment_pending);
+    assert(strcmp(result.request.metadata.title, "catalog:hint-hit") == 0);
+    assert(result.request.metadata.track_number == 7 && result.request.metadata.has_track_number);
+    release_flag(&release_audio_hint);
+    wait_count(&wake_calls, 1, "hint completion wake");
+    /* The fresh audio metadata wins after the catalog hint. */
+    while (!track_metadata_take(TRACK_METADATA_CURRENT, &result)) {
+        struct timespec pause = { .tv_nsec = 1000000 };
+        nanosleep(&pause, NULL);
+    }
+    assert(result.request.token == 90 && !result.display_hint && !result.enrichment_pending);
+    assert(strcmp(result.request.metadata.title, "audio-generation-9005") == 0);
+
+    /* A catalog hit whose returned path differs is an alias and cannot hint. */
+    req = request(91, "hint-alias", false);
+    req.read_audio = true;
+    req.audio_generation = 9005;
+    req.metadata.has_title = false;
+    pthread_mutex_lock(&spec_mutex);
+    audio_hint_entered = false;
+    release_audio_hint = false;
+    pthread_mutex_unlock(&spec_mutex);
+    assert(track_metadata_submit(TRACK_METADATA_CURRENT, &req));
+    wait_flag(&audio_hint_entered, "alias CURRENT audio wait");
+    assert(!track_metadata_take(TRACK_METADATA_CURRENT, &result));
+    release_flag(&release_audio_hint);
+    while (!track_metadata_take(TRACK_METADATA_CURRENT, &result)) {
+        struct timespec pause = { .tv_nsec = 1000000 };
+        nanosleep(&pause, NULL);
+    }
+    assert(result.request.token == 91 && !result.display_hint);
+
+    /* Misses likewise wait for fresh metadata, without a provisional hint. */
+    req = request(92, "hint-miss", false);
+    req.read_audio = true;
+    req.audio_generation = 9005;
+    req.metadata.has_title = false;
+    pthread_mutex_lock(&spec_mutex);
+    audio_hint_entered = false;
+    release_audio_hint = false;
+    pthread_mutex_unlock(&spec_mutex);
+    assert(track_metadata_submit(TRACK_METADATA_CURRENT, &req));
+    wait_flag(&audio_hint_entered, "miss CURRENT audio wait");
+    assert(!track_metadata_take(TRACK_METADATA_CURRENT, &result));
+    release_flag(&release_audio_hint);
+    while (!track_metadata_take(TRACK_METADATA_CURRENT, &result)) {
+        struct timespec pause = { .tv_nsec = 1000000 };
+        nanosleep(&pause, NULL);
+    }
+    assert(result.request.token == 92 && !result.display_hint);
+
+    char long_path[PATH_MAX];
+    memset(long_path, 'x', sizeof(long_path));
+    snprintf(long_path, sizeof(long_path), "hint-overlong/");
+    memset(long_path + strlen(long_path), 'x', sizeof(long_path) - strlen(long_path) - 1);
+    long_path[sizeof(long_path) - 1] = '\0';
+    req = request(95, long_path, false);
+    req.read_audio = true;
+    req.audio_generation = 9005;
+    req.metadata.has_title = false;
+    pthread_mutex_lock(&spec_mutex);
+    audio_hint_entered = false;
+    release_audio_hint = false;
+    pthread_mutex_unlock(&spec_mutex);
+    assert(track_metadata_submit(TRACK_METADATA_CURRENT, &req));
+    wait_flag(&audio_hint_entered, "overlong CURRENT audio wait");
+    assert(!track_metadata_take(TRACK_METADATA_CURRENT, &result));
+    release_flag(&release_audio_hint);
+    while (!track_metadata_take(TRACK_METADATA_CURRENT, &result)) {
+        struct timespec pause = { .tv_nsec = 1000000 };
+        nanosleep(&pause, NULL);
+    }
+    assert(result.request.token == 95 && !result.display_hint);
+
+    /* Superseding a blocked catalog lookup prevents its stale hint publish. */
+    pthread_mutex_lock(&spec_mutex);
+    catalog_gate_entered = false;
+    release_catalog_gate = false;
+    pthread_mutex_unlock(&spec_mutex);
+    req = request(93, "hint-stale", false);
+    req.read_audio = true;
+    req.audio_generation = 9005;
+    req.metadata.has_title = false;
+    assert(track_metadata_submit(TRACK_METADATA_CURRENT, &req));
+    wait_flag(&catalog_gate_entered, "stale catalog lookup");
+    req = request(94, "hint-replacement", false);
+    assert(track_metadata_submit(TRACK_METADATA_CURRENT, &req));
+    release_flag(&release_catalog_gate);
+    while (!track_metadata_take(TRACK_METADATA_CURRENT, &result)) {
+        struct timespec pause = { .tv_nsec = 1000000 };
+        nanosleep(&pause, NULL);
+    }
+    assert(result.request.token == 94 && !result.display_hint);
 }
 
 bool audio_probe_file_format(const char *path, audio_current_format_info_t *out) {
@@ -213,9 +416,9 @@ static void test_stale_result_and_lane_priority(void) {
     wait_count(&read_event_count, 3, "CURRENT/NEXT reads");
 
     assert(strcmp(read_events[0], "slow-old") == 0);
-    assert(strcmp(read_events[1], "next-lane") == 0);
-    assert(strcmp(read_events[2], "current-latest") == 0);
-    wait_count(&wake_calls, 3, "all metadata completions");
+    assert(strcmp(read_events[1], "current-latest") == 0);
+    assert(strcmp(read_events[2], "next-lane") == 0);
+    wait_count(&wake_calls, 4, "all metadata completions");
 
     track_metadata_result_t result;
     assert(track_metadata_take(TRACK_METADATA_NEXT, &result));
@@ -233,7 +436,7 @@ static void test_stale_result_and_lane_priority(void) {
 
     pthread_mutex_lock(&spec_mutex);
     assert(metadata_on_worker && favorite_on_worker && probe_on_worker && wake_on_worker);
-    assert(favorite_calls == 2 && probe_calls == 1 && wake_calls == 3);
+    assert(favorite_calls == 2 && probe_calls == 1 && wake_calls == 4);
     pthread_mutex_unlock(&spec_mutex);
 }
 
@@ -442,6 +645,8 @@ static void test_count_fairness_while_metadata_continues(void) {
 int main(void) {
     caller_thread = pthread_self();
     test_stale_result_and_lane_priority();
+    test_current_provisional_enrichment();
+    test_catalog_display_hint();
     test_favorite_lane_audio_metadata_cancel();
     test_scalar_admission_async_and_count_capacity();
     test_count_fairness_while_metadata_continues();

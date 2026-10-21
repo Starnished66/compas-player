@@ -11,6 +11,10 @@ typedef struct file_browser_index file_browser_index_t;
 
 
 void gui_player_init(uint32_t screen_width, uint32_t screen_height);
+/* Rebuilds only the player's widgets for a layout/size change. Returns false
+ * without changing the UI while playback work, a popup, or an animation is
+ * active; callers may retry the latest requested dimensions later. */
+bool gui_player_rebuild_layout(uint32_t screen_width, uint32_t screen_height);
 /* Deletes every screen/popup this module owns (including gui_track_info's,
  * via gui_track_info_teardown()) so gui_reload.c's in-process UI reload can
  * call gui_player_init() again from a clean slate. */
@@ -28,6 +32,9 @@ void gui_player_refresh_static_assets(void);
 void gui_player_refresh_frosted_background(void);
 void sync_player_topbar_visibility(lv_obj_t * screen);
 void gui_player_poll_track_metadata(void);
+/* Supplies the exact visible list row for the next matching manual track
+ * selection. The player copies display fields only; audio tags stay fresh. */
+void gui_player_seed_selection_song(const char * path, const track_metadata_t * metadata);
 /* Run optional artwork-cache pressure checks and idle maintenance from the
  * slower system housekeeping timer. */
 void gui_player_service_artwork_cache(void);

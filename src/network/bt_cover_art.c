@@ -16,6 +16,18 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+extern void install_thread_crash_altstack(void) __attribute__((weak));
+
+#ifdef BT_COVER_ART_TESTING
+extern void bt_cover_art_test_hook(int stage);
+extern bool bt_cover_art_test_fail_fsync(void);
+#define COVER_ART_TEST_HOOK(stage) bt_cover_art_test_hook(stage)
+#define COVER_ART_TEST_FAIL_FSYNC() bt_cover_art_test_fail_fsync()
+#else
+#define COVER_ART_TEST_HOOK(stage) ((void) (stage))
+#define COVER_ART_TEST_FAIL_FSYNC() false
+#endif
+
 #ifndef BT_COVER_ART_DIR
 #define BT_COVER_ART_DIR "/tmp/compas-bt-art"
 #endif
@@ -24,6 +36,7 @@
 #define BT_COVER_ART_MAX_BYTES (1024U * 1024U)
 #define BT_COVER_ART_MAX_JPEG_BYTES (128U * 1024U)
 #define BT_COVER_ART_JPEG_BUFFER_SIZE 4096
+#define BT_COVER_ART_ASYNC_STACK (256U * 1024U)
 
 typedef struct {
     char name[64];
@@ -54,6 +67,20 @@ static int cover_dir_fd = -1;
 static published_file_t published_files[BT_COVER_ART_MAX_FILES];
 static size_t published_file_count;
 static size_t published_file_bytes;
+static pthread_cond_t async_cond = PTHREAD_COND_INITIALIZER;
+static bool async_worker_started;
+static bool async_pending;
+static uint64_t publication_revision;
+static struct {
+    uint64_t token, image_key, revision;
+    uint16_t * pixels;
+} async_request;
+
+static void cancel_pending_locked(void) {
+    free(async_request.pixels);
+    memset(&async_request, 0, sizeof(async_request));
+    async_pending = false;
+}
 
 static void cover_jpeg_error_exit(j_common_ptr cinfo) {
     cover_jpeg_error_t * error = (cover_jpeg_error_t *) cinfo->err;
@@ -281,6 +308,8 @@ uint64_t bt_cover_art_begin_track(const char * track_key) {
         current_track_key = key_copy;
         current_key_is_null = is_null;
         current_serial++;
+        publication_revision++;
+        cancel_pending_locked();
         published_url[0] = '\0';
     }
     uint64_t serial = current_serial;
@@ -364,14 +393,23 @@ static bool remove_oldest_locked(void) {
     return true;
 }
 
-bool bt_cover_art_publish_rgb565(uint64_t token, const uint16_t * pixels,
-                                 int width, int height, uint64_t image_key) {
+static bool publish_rgb565(uint64_t token, const uint16_t * pixels,
+                           int width, int height, uint64_t image_key,
+                           bool guarded, uint64_t revision) {
+    pthread_mutex_lock(&cover_mutex);
+    bool current = !current_key_is_null && token == current_serial &&
+                   (!guarded || revision == publication_revision);
+    pthread_mutex_unlock(&cover_mutex);
+    if (!current) return false;
+
+    COVER_ART_TEST_HOOK(1);
     uint8_t * jpeg = NULL;
     size_t jpeg_size = 0;
     if (!encode_rgb565(pixels, width, height, &jpeg, &jpeg_size)) return false;
 
     pthread_mutex_lock(&cover_mutex);
-    if (current_key_is_null || token != current_serial || !ensure_directory_locked()) {
+    if (current_key_is_null || token != current_serial ||
+        (guarded && revision != publication_revision) || !ensure_directory_locked()) {
         pthread_mutex_unlock(&cover_mutex);
         free(jpeg);
         return false;
@@ -393,7 +431,11 @@ bool bt_cover_art_publish_rgb565(uint64_t token, const uint16_t * pixels,
     }
 
     int fd = openat(dir_fd, temp_name, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
-    bool written = fd >= 0 && write_all(fd, jpeg, jpeg_size) && fsync(fd) == 0;
+    bool written = fd >= 0 && write_all(fd, jpeg, jpeg_size);
+    if (written) {
+        COVER_ART_TEST_HOOK(2);
+        written = !COVER_ART_TEST_FAIL_FSYNC() && fsync(fd) == 0;
+    }
     if (fd >= 0 && close(fd) != 0) written = false;
     free(jpeg);
     if (!written) {
@@ -402,7 +444,8 @@ bool bt_cover_art_publish_rgb565(uint64_t token, const uint16_t * pixels,
     }
 
     pthread_mutex_lock(&cover_mutex);
-    if (current_key_is_null || token != current_serial || dir_fd != cover_dir_fd) {
+    if (current_key_is_null || token != current_serial || dir_fd != cover_dir_fd ||
+        (guarded && revision != publication_revision)) {
         (void) unlinkat(dir_fd, temp_name, 0);
         pthread_mutex_unlock(&cover_mutex);
         return false;
@@ -442,9 +485,130 @@ bool bt_cover_art_publish_rgb565(uint64_t token, const uint16_t * pixels,
     return true;
 }
 
+bool bt_cover_art_publish_rgb565(uint64_t token, const uint16_t * pixels,
+                                 int width, int height, uint64_t image_key) {
+    if (!pixels || width <= 0 || height <= 0 ||
+        (size_t) width > SIZE_MAX / (size_t) height / sizeof(*pixels)) return false;
+    pthread_mutex_lock(&cover_mutex);
+    if (current_key_is_null || token != current_serial) {
+        pthread_mutex_unlock(&cover_mutex);
+        return false;
+    }
+    uint64_t revision = ++publication_revision;
+    cancel_pending_locked();
+    pthread_mutex_unlock(&cover_mutex);
+    return publish_rgb565(token, pixels, width, height, image_key, true, revision);
+}
+
+static void * async_worker(void * unused) {
+    (void) unused;
+    if (install_thread_crash_altstack) install_thread_crash_altstack();
+    for (;;) {
+        pthread_mutex_lock(&cover_mutex);
+        while (!async_pending) pthread_cond_wait(&async_cond, &cover_mutex);
+        uint16_t * pixels = async_request.pixels;
+        uint64_t token = async_request.token;
+        uint64_t image_key = async_request.image_key;
+        uint64_t revision = async_request.revision;
+        memset(&async_request, 0, sizeof(async_request));
+        async_pending = false;
+        pthread_mutex_unlock(&cover_mutex);
+        if (pixels) {
+            (void) publish_rgb565(token, pixels, BT_COVER_ART_SIDE,
+                                  BT_COVER_ART_SIDE, image_key, true, revision);
+            free(pixels);
+            COVER_ART_TEST_HOOK(3);
+        }
+    }
+    return NULL;
+}
+
+bool bt_cover_art_publish_rgb565_async(uint64_t token, const uint16_t * pixels,
+                                       int width, int height, uint64_t image_key) {
+    if (!pixels || width <= 0 || height <= 0 || width > 16384 || height > 16384 ||
+        (size_t) width > SIZE_MAX / (size_t) height / sizeof(*pixels)) return false;
+
+    pthread_mutex_lock(&cover_mutex);
+    if (current_key_is_null || token != current_serial) {
+        pthread_mutex_unlock(&cover_mutex);
+        return false;
+    }
+    if (image_key != 0) {
+        for (size_t i = 0; i < published_file_count; i++) {
+            if (published_files[i].image_key != image_key) continue;
+            /* A cache hit is still the newest request: discard pending work
+             * and prevent an older in-flight encode from replacing this URL. */
+            publication_revision++;
+            cancel_pending_locked();
+            snprintf(published_url, sizeof(published_url), "file://%s/%s",
+                     BT_COVER_ART_DIR, published_files[i].name);
+            published_files[i].last_used = ++use_clock;
+            pthread_mutex_unlock(&cover_mutex);
+            return true;
+        }
+    }
+    uint64_t revision = publication_revision;
+    pthread_mutex_unlock(&cover_mutex);
+
+    /* The only owned copy is the exact-size preview consumed by the encoder. */
+    uint16_t * copy = malloc((size_t) BT_COVER_ART_SIDE * BT_COVER_ART_SIDE * sizeof(*copy));
+    if (!copy) return false;
+    for (int y = 0; y < BT_COVER_ART_SIDE; y++) {
+        size_t source_y = (size_t) ((int64_t) y * height / BT_COVER_ART_SIDE);
+        for (int x = 0; x < BT_COVER_ART_SIDE; x++) {
+            size_t source_x = (size_t) ((int64_t) x * width / BT_COVER_ART_SIDE);
+            copy[(size_t) y * BT_COVER_ART_SIDE + x] =
+                pixels[source_y * (size_t) width + source_x];
+        }
+    }
+
+    pthread_mutex_lock(&cover_mutex);
+    if (current_key_is_null || token != current_serial || revision != publication_revision) {
+        pthread_mutex_unlock(&cover_mutex);
+        free(copy);
+        return false;
+    }
+    pthread_t thread;
+    if (!async_worker_started) {
+        pthread_attr_t attr;
+        int rc = pthread_attr_init(&attr);
+        if (rc == 0) {
+            size_t stack_size = BT_COVER_ART_ASYNC_STACK;
+#ifdef PTHREAD_STACK_MIN
+            if (stack_size < (size_t) PTHREAD_STACK_MIN)
+                stack_size = (size_t) PTHREAD_STACK_MIN;
+#endif
+            rc = pthread_attr_setstacksize(&attr, stack_size);
+            if (rc == 0) rc = pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+            if (rc == 0) rc = pthread_create(&thread, &attr, async_worker, NULL);
+            pthread_attr_destroy(&attr);
+        }
+        if (rc != 0) {
+            pthread_mutex_unlock(&cover_mutex);
+            free(copy);
+            return false;
+        }
+        async_worker_started = true;
+    }
+    free(async_request.pixels);
+    async_request.token = token;
+    async_request.image_key = image_key;
+    revision = ++publication_revision;
+    async_request.revision = revision;
+    async_request.pixels = copy;
+    async_pending = true;
+    pthread_cond_signal(&async_cond);
+    pthread_mutex_unlock(&cover_mutex);
+    return true;
+}
+
 void bt_cover_art_clear(uint64_t token) {
     pthread_mutex_lock(&cover_mutex);
-    if (token == current_serial) published_url[0] = '\0';
+    if (token == current_serial) {
+        published_url[0] = '\0';
+        publication_revision++;
+        cancel_pending_locked();
+    }
     pthread_mutex_unlock(&cover_mutex);
 }
 
@@ -455,6 +619,8 @@ bool bt_cover_art_reuse(uint64_t token, uint64_t image_key) {
     if (!current_key_is_null && token == current_serial) {
         for (size_t i = 0; i < published_file_count; i++) {
             if (published_files[i].image_key != image_key) continue;
+            publication_revision++;
+            cancel_pending_locked();
             snprintf(published_url, sizeof(published_url), "file://%s/%s",
                      BT_COVER_ART_DIR, published_files[i].name);
             published_files[i].last_used = ++use_clock;

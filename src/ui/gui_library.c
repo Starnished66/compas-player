@@ -96,6 +96,118 @@ void refresh_artist_albums_now_playing_indicator(void);
 #define EXTERNAL_COVER_MAX_BYTES (4U * 1024U * 1024U)
 #define ALBUM_THUMB_GEN_BATCH 16
 #define ALBUM_THUMB_GEN_INTER_ALBUM_US 100000 /* 100 ms yield between albums */
+#define SELECTION_SNAPSHOT_CAPACITY 256
+
+typedef enum {
+    SELECTION_SNAPSHOT_ALL_SONGS,
+    SELECTION_SNAPSHOT_RECENTLY_ADDED,
+    SELECTION_SNAPSHOT_GROUP
+} selection_snapshot_source_t;
+
+typedef struct {
+    bool valid;
+    selection_snapshot_source_t source;
+    int rank;
+    int64_t song_id;
+    int32_t generation;
+    char path[sizeof(((song_row_t *) 0)->path)];
+    track_metadata_t metadata;
+    uint64_t age;
+} selection_snapshot_t;
+
+static pthread_mutex_t selection_snapshot_mutex = PTHREAD_MUTEX_INITIALIZER;
+static selection_snapshot_t selection_snapshots[SELECTION_SNAPSHOT_CAPACITY];
+static uint64_t selection_snapshot_age;
+
+static void selection_snapshot_store(const song_row_t * row,
+                                     selection_snapshot_source_t source, int rank,
+                                     int32_t generation) {
+    if (!row || row->id <= 0 || !row->path[0]) return;
+    track_metadata_t metadata = {0};
+#define COPY_SELECTION_TAG(field) do { \
+    if (row->tags.field[0]) { \
+        snprintf(metadata.field, sizeof(metadata.field), "%s", row->tags.field); \
+        metadata.has_##field = metadata.field[0] != '\0'; \
+    } \
+} while (0)
+    COPY_SELECTION_TAG(title);
+    COPY_SELECTION_TAG(artist);
+    COPY_SELECTION_TAG(album);
+    COPY_SELECTION_TAG(album_artist);
+    COPY_SELECTION_TAG(genre);
+#undef COPY_SELECTION_TAG
+    if (row->tags.track_number > 0) {
+        metadata.track_number = row->tags.track_number;
+        metadata.has_track_number = true;
+    }
+    if (row->tags.disc_number > 0) {
+        metadata.disc_number = row->tags.disc_number;
+        metadata.has_disc_number = true;
+    }
+    if (row->tags.release_year > 0) {
+        metadata.release_year = row->tags.release_year;
+        metadata.has_release_year = true;
+    }
+
+    pthread_mutex_lock(&selection_snapshot_mutex);
+    size_t slot = 0;
+    uint64_t oldest = UINT64_MAX;
+    for (size_t i = 0; i < SELECTION_SNAPSHOT_CAPACITY; ++i) {
+        selection_snapshot_t * entry = &selection_snapshots[i];
+        if (entry->valid && entry->source == source && entry->rank == rank &&
+            entry->song_id == row->id && entry->generation == generation &&
+            strcmp(entry->path, row->path) == 0) {
+            slot = i;
+            oldest = 0;
+            break;
+        }
+        if (!entry->valid) {
+            slot = i;
+            oldest = 0;
+            break;
+        }
+        if (entry->age < oldest) { oldest = entry->age; slot = i; }
+    }
+    selection_snapshot_t * entry = &selection_snapshots[slot];
+    *entry = (selection_snapshot_t){
+        .valid = true, .source = source, .rank = rank, .song_id = row->id,
+        .generation = generation, .metadata = metadata, .age = ++selection_snapshot_age
+    };
+    snprintf(entry->path, sizeof(entry->path), "%s", row->path);
+    pthread_mutex_unlock(&selection_snapshot_mutex);
+}
+
+static void selection_snapshot_seed(selection_snapshot_source_t source, int rank,
+                                    int64_t song_id, const char * path) {
+    int32_t generation;
+    if (!metadata_db_try_get_generation(&generation)) {
+        gui_player_seed_selection_song(NULL, NULL);
+        return;
+    }
+    track_metadata_t metadata = {0};
+    char cached_path[sizeof(((song_row_t *) 0)->path)] = {0};
+    bool found = false;
+    if (pthread_mutex_trylock(&selection_snapshot_mutex) != 0) {
+        gui_player_seed_selection_song(NULL, NULL);
+        return;
+    }
+    for (size_t i = 0; i < SELECTION_SNAPSHOT_CAPACITY; ++i) {
+        selection_snapshot_t * entry = &selection_snapshots[i];
+        if (!entry->valid || entry->source != source || entry->generation != generation ||
+            (source != SELECTION_SNAPSHOT_GROUP && entry->rank != rank) ||
+            (source == SELECTION_SNAPSHOT_GROUP &&
+             (entry->song_id != song_id || !path || strcmp(entry->path, path) != 0))) continue;
+        if (entry->song_id <= 0 || (song_id > 0 && entry->song_id != song_id)) continue;
+        snprintf(cached_path, sizeof(cached_path), "%s", entry->path);
+        metadata = entry->metadata;
+        entry->age = ++selection_snapshot_age;
+        found = true;
+        break;
+    }
+    pthread_mutex_unlock(&selection_snapshot_mutex);
+    if (found && path && path[0] && strcmp(path, cached_path) != 0) found = false;
+    gui_player_seed_selection_song(found ? cached_path : NULL, found ? &metadata : NULL);
+}
 
 typedef enum {
     THUMBNAIL_KEY_ALBUM,
@@ -1321,9 +1433,18 @@ static int all_songs_fetch_page(void * ctx, int offset, int count, compact_list_
         offset++;
     }
     if (count <= 0) return prefix;
+    int32_t generation_before = 0, generation_after = 0;
+    bool cacheable = metadata_db_try_get_generation(&generation_before);
     song_row_t * rows = malloc(sizeof(song_row_t) * (size_t) count);
     int n = rows ? metadata_db_get_songs_filtered_page(NULL, NULL, NULL, NULL, NULL, offset - 1, count, rows) : 0;
-    for (int i = 0; i < n; i++) fill_song_page_visual(&out_rows[prefix + i], &rows[i]);
+    if (cacheable)
+        cacheable = metadata_db_try_get_generation(&generation_after) && generation_before == generation_after;
+    for (int i = 0; i < n; i++) {
+        fill_song_page_visual(&out_rows[prefix + i], &rows[i]);
+        if (cacheable)
+            selection_snapshot_store(&rows[i], SELECTION_SNAPSHOT_ALL_SONGS,
+                                     offset - 1 + i, generation_before);
+    }
     free(rows);
     return n + prefix;
 }
@@ -1354,12 +1475,17 @@ static void playlist_start_options(int source);
 static void all_songs_row_click_cb(int display_index) {
     if (library_rescan_active) return;
     display_index = all_songs_song_index(display_index);
-    if (display_index < 0) { playlist_start_options(PLAY_ALL_SOURCE_ALL_SONGS); return; }
+    if (display_index < 0) {
+        gui_player_seed_selection_song(NULL, NULL);
+        playlist_start_options(PLAY_ALL_SOURCE_ALL_SONGS);
+        return;
+    }
     /* on_file_selected_lazy_all_songs() builds the queue lazily, identity-
      * mapped into the DB's own title-sorted order (the same display order
      * this screen's paged provider uses) instead of eagerly strdup'ing
      * every one of the library's paths on every tap -- see its own
      * comment. Tap-to-play from All Songs is DB-driven end to end now. */
+    selection_snapshot_seed(SELECTION_SNAPSHOT_ALL_SONGS, display_index, 0, NULL);
     set_player_source_all_songs(display_index);
     on_file_selected_lazy_all_songs(display_index);
 }
@@ -1417,10 +1543,17 @@ static int recently_added_fetch_page(void * ctx, int offset, int count, compact_
         prefix = 1; count--; offset++;
     }
     if (count <= 0) return prefix;
+    int32_t generation_before = 0, generation_after = 0;
+    bool cacheable = metadata_db_try_get_generation(&generation_before);
     song_row_t * rows = malloc(sizeof(song_row_t) * (size_t) count);
     int n = rows ? metadata_db_get_songs_page_by_recency(offset - 1, count, rows) : 0;
+    if (cacheable)
+        cacheable = metadata_db_try_get_generation(&generation_after) && generation_before == generation_after;
     for (int i = 0; i < n; i++) {
         fill_song_page_visual(&out_rows[prefix + i], &rows[i]);
+        if (cacheable)
+            selection_snapshot_store(&rows[i], SELECTION_SNAPSHOT_RECENTLY_ADDED,
+                                     offset - 1 + i, generation_before);
     }
     free(rows);
     return n + prefix;
@@ -1445,11 +1578,16 @@ static int recently_added_song_index(int display_index) {
 static void recently_added_row_click_cb(int display_index) {
     if (library_rescan_active) return;
     display_index = recently_added_song_index(display_index);
-    if (display_index < 0) { playlist_start_options(PLAY_ALL_SOURCE_RECENTLY_ADDED); return; }
+    if (display_index < 0) {
+        gui_player_seed_selection_song(NULL, NULL);
+        playlist_start_options(PLAY_ALL_SOURCE_RECENTLY_ADDED);
+        return;
+    }
     /* on_file_selected_lazy_recently_added() builds the queue lazily,
      * identity-mapped into the DB's own first_seen-DESC order (the same
      * display order this screen's paged provider uses) -- see its own
      * comment. Tap-to-play here is DB-driven end to end, same as All Songs. */
+    selection_snapshot_seed(SELECTION_SNAPSHOT_RECENTLY_ADDED, display_index, 0, NULL);
     set_player_source_recently_added(display_index);
     on_file_selected_lazy_recently_added(display_index);
 }
@@ -1642,6 +1780,7 @@ static bool group_song_row_long_press_fired = false;
 static void group_play_at(int pos) {
     if (library_rescan_active) return;
     if (pos < 0 || pos >= group_songs_count) return;
+    gui_player_seed_selection_song(NULL, NULL);
     if (group_songs_edit_m3u_path && !group_playlist_unchanged()) {
         reload_edited_playlist(); show_info_toast(TR("Playlist changed. Select a song again.")); return;
     }
@@ -1662,6 +1801,9 @@ static void group_play_at(int pos) {
         free(playlist_copy);
         return;
     }
+    selection_snapshot_seed(SELECTION_SNAPSHOT_GROUP, -1,
+                           group_songs_entries[pos].song_id,
+                           group_songs_entries[pos].path);
     set_player_source_group_songs(pos);
     on_file_selected(playlist_copy, group_songs_count, pos);
 }
@@ -5020,6 +5162,8 @@ static group_song_entry_t * load_album_entries_filtered(const char * name, const
                                                          int song_count, const char * artist_filter,
                                                          int * out_count, const atomic_bool * cancel) {
     *out_count = 0;
+    int32_t generation_before = 0;
+    bool snapshot_generation_valid = metadata_db_try_get_generation(&generation_before);
     if (artist_filter && artist_filter[0]) {
         int64_t filtered = metadata_db_count_songs_filtered(NULL, artist_filter, album_artist, name, NULL);
         song_count = filtered > 0 && filtered <= INT_MAX ? (int) filtered : 0;
@@ -5046,7 +5190,16 @@ static group_song_entry_t * load_album_entries_filtered(const char * name, const
         free_group_song_entries(entries, song_count);
         return NULL;
     }
+    int32_t generation_after = 0;
+    if (!snapshot_generation_valid || !metadata_db_try_get_generation(&generation_after) ||
+        generation_before != generation_after)
+        snapshot_generation_valid = false;
     qsort(songs, (size_t)n, sizeof(*songs), cmp_song_disc_track);
+    if (snapshot_generation_valid) {
+        int snapshot_count = n < GROUP_SONGS_PAGE_SIZE ? n : GROUP_SONGS_PAGE_SIZE;
+        for (int i = 0; i < snapshot_count; i++)
+            selection_snapshot_store(&songs[i], SELECTION_SNAPSHOT_GROUP, -1, generation_before);
+    }
     bool multi_disc = album_songs_are_multi_disc(songs, n);
     for (int i = 0; i < n; i++) {
         char title[384];
@@ -6453,6 +6606,7 @@ void register_search(search_binding_id_t id, lv_obj_t * screen, lv_obj_t * list,
  * straight through" shape), so display_index never needs remapping here. */
 static void files_search_row_click_cb(int display_index) {
     if (library_rescan_active) return;
+    gui_player_seed_selection_song(NULL, NULL);
     search_binding_t * b = &search_bindings[SEARCH_BINDING_FILES];
     int all_songs_display_index = b->filtered_indices ? b->filtered_indices[display_index] : display_index;
     set_player_source_all_songs(all_songs_display_index);

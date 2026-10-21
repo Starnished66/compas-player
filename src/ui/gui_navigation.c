@@ -1584,3 +1584,26 @@ void gui_navigation_replace_static_screen(int snapshot_index, lv_obj_t * old_scr
     back_target_cache_note_replaced(old_screen, new_screen);
     if (lv_screen_active() == old_screen) lv_screen_load(new_screen);
 }
+
+void gui_navigation_replace_player_screen(lv_obj_t * old_screen, lv_obj_t * new_screen, bool was_active) {
+    if (!old_screen || !new_screen) return;
+
+    /* A layout rebuild can happen while Player is covered by another screen.
+     * Keep every occurrence in place so back navigation returns to the new
+     * object while retaining the rest of the user's existing path. */
+    for (int i = 0; i < nav_depth; i++) {
+        if (nav_stack[i] == old_screen) nav_stack[i] = new_screen;
+    }
+
+    /* The one dynamic Player frame is independent of the screen pointer, but
+     * it was rendered from the old widget tree. Discard it and queue a rebuild
+     * against gui_player_get_screen(), which the caller updates to `new_screen`
+     * before invoking this helper. */
+    player_transition_discard_cache();
+    back_target_cache_note_replaced(old_screen, new_screen);
+
+    /* The caller may have temporarily shown a frozen frame while rebuilding
+     * the visible Player. Only restore the rebuilt screen in that case; when
+     * Player was covered, the current screen and its scroll/history stay put. */
+    if (was_active) lv_screen_load(new_screen);
+}

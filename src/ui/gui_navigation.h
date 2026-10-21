@@ -65,6 +65,11 @@ bool gui_navigation_contains(lv_obj_t * screen);
 void gui_navigation_remove_screen_instances(lv_obj_t ** screens, int count);
 void gui_navigation_replace_home(lv_obj_t * old_screen, lv_obj_t * new_screen);
 void gui_navigation_replace_static_screen(int snapshot_index, lv_obj_t * old_screen, lv_obj_t * new_screen);
+/* Replace a rebuilt Player object in navigation state without resetting the
+ * surrounding path. `old_screen` may already be deleted; it is compared only
+ * by pointer identity. `was_active` tells navigation whether to hand the
+ * visible screen back to the replacement after a temporary cover frame. */
+void gui_navigation_replace_player_screen(lv_obj_t * old_screen, lv_obj_t * new_screen, bool was_active);
 bool player_transition_cache_is_dirty(void);
 
 void gui_navigation_init(void);

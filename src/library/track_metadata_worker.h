@@ -14,16 +14,18 @@ typedef struct {
     bool read_audio;
     uint64_t audio_generation;
     bool probe;
-    track_metadata_t metadata; /* Scalar-only seed for remote catalogs. */
+    track_metadata_t metadata; /* Scalar-only display seed; fresh audio/file tags replace it. */
 } track_metadata_request_t;
 typedef struct {
     track_metadata_request_t request;
+    bool display_hint;       /* Catalog preview only; fresh tags still follow. */
+    bool enrichment_pending; /* Favorite/probe are not available yet. */
     bool favorite;
     bool has_probe;
     audio_current_format_info_t probe;
 } track_metadata_result_t;
-/* Copies scalar values; latest request wins in each lane. CURRENT and NEXT
- * have separate slots so display work cannot replace gapless preparation. */
+/* Copies scalar values; latest request wins in each lane. CURRENT is selected
+ * ahead of queued NEXT work; separate slots preserve gapless preparation. */
 bool track_metadata_worker_start(void);
 bool track_metadata_history_failed(void);
 bool track_metadata_submit(int lane, const track_metadata_request_t * request);

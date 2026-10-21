@@ -3014,7 +3014,17 @@ void poll_usb_storage_hotplug(void) {
 }
 
 bool gui_network_usb_storage_session_active(void) {
-    return usb_storage_session.host_seen && usb_cable_was_connected;
+    if (!usb_storage_session.host_seen || !usb_cable_was_connected) return false;
+
+    bool adb_confirmed = false;
+    if (!usb_mode_switch_active) {
+        usb_mode_t live_mode;
+        adb_confirmed = usb_mode_control_detect_current(&live_mode) &&
+                        live_mode == USB_MODE_ADB;
+    }
+    return usb_storage_session_blocks_local_work(&usb_storage_session,
+                                                  usb_cable_was_connected,
+                                                  adb_confirmed);
 }
 
 static void usb_mode_option_row_cb(lv_event_t * e) {

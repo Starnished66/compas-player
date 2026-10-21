@@ -44,6 +44,45 @@ static pthread_mutex_t metadata_db_mutex;
 static pthread_mutex_t metadata_update_mutex;
 static _Thread_local unsigned metadata_query_depth;
 
+#define DISPLAY_SONG_CACHE_SIZE 32
+typedef struct {
+    bool valid;
+    song_row_t row;
+} display_song_cache_entry_t;
+static display_song_cache_entry_t display_song_cache[DISPLAY_SONG_CACHE_SIZE];
+static size_t display_song_cache_next;
+static pthread_mutex_t display_song_cache_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+/* Caller holds the database guard. Cache readers never acquire the database
+ * mutex, so mutation may safely invalidate in DB -> cache lock order. */
+static void display_song_cache_invalidate(void) {
+    pthread_mutex_lock(&display_song_cache_mutex);
+    memset(display_song_cache, 0, sizeof(display_song_cache));
+    display_song_cache_next = 0;
+    pthread_mutex_unlock(&display_song_cache_mutex);
+}
+
+static void display_song_cache_store(const song_row_t *row) {
+    size_t path_len = strnlen(row->path, sizeof(row->path));
+    if (path_len == 0 || path_len >= sizeof(row->path)) return;
+    pthread_mutex_lock(&display_song_cache_mutex);
+    size_t slot = DISPLAY_SONG_CACHE_SIZE;
+    for (size_t i = 0; i < DISPLAY_SONG_CACHE_SIZE; i++) {
+        if (display_song_cache[i].valid &&
+            strcmp(display_song_cache[i].row.path, row->path) == 0) {
+            slot = i;
+            break;
+        }
+    }
+    if (slot == DISPLAY_SONG_CACHE_SIZE) {
+        slot = display_song_cache_next;
+        display_song_cache_next = (display_song_cache_next + 1) % DISPLAY_SONG_CACHE_SIZE;
+    }
+    display_song_cache[slot].row = *row;
+    display_song_cache[slot].valid = true;
+    pthread_mutex_unlock(&display_song_cache_mutex);
+}
+
 static void metadata_db_mutex_init(void) {
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
@@ -257,6 +296,9 @@ static void copy_song(const tagcache_song_t * src, song_row_t * dst) {
     dst->tags.track_number = src->track_number;
     dst->tags.disc_number = src->disc_number;
     dst->tags.release_year = src->release_year;
+    /* Do not let a truncated path become a cache key for another song. */
+    if (strnlen(src->path, sizeof(dst->path)) < sizeof(dst->path))
+        display_song_cache_store(dst);
 }
 
 static void copy_group(const tagcache_group_t * src, group_row_t * dst) {
@@ -407,6 +449,7 @@ static metadata_db_load_outcome_t capture_tagcache_outcome(bool update_ready) {
 metadata_db_load_outcome_t metadata_db_open(void) {
     METADATA_UPDATE_GUARD;
     METADATA_DB_GUARD;
+    display_song_cache_invalidate();
     if (db_ready) {
         return last_outcome;
     }
@@ -604,6 +647,7 @@ bool metadata_db_try_artist_row(const char * raw_artist, int64_t * out_offset) {
 void metadata_db_close(void) {
     METADATA_UPDATE_GUARD;
     METADATA_DB_GUARD;
+    display_song_cache_invalidate();
     tagcache_close();
     catalog_unpin_directory();
     db_ready = false;
@@ -620,6 +664,7 @@ void metadata_db_begin_update(void) {
     METADATA_UPDATE_GUARD;
     METADATA_DB_GUARD;
     if (!db_ready) return;
+    display_song_cache_invalidate();
     tagcache_begin_update_with_lock(metadata_query_unlock, metadata_query_lock);
 }
 
@@ -627,13 +672,17 @@ void metadata_db_begin_targeted_update(void) {
     METADATA_UPDATE_GUARD;
     METADATA_DB_GUARD;
     if (!db_ready) return;
+    display_song_cache_invalidate();
     tagcache_begin_targeted_update_with_lock(metadata_query_unlock, metadata_query_lock);
 }
 
 bool metadata_db_delete_target_path(const char *path) {
     METADATA_UPDATE_GUARD;
     METADATA_DB_GUARD;
-    return db_ready && tagcache_delete_target_path(path);
+    if (!db_ready) return false;
+    bool deleted = tagcache_delete_target_path(path);
+    if (deleted) display_song_cache_invalidate();
+    return deleted;
 }
 
 bool metadata_db_get(const char * path, int64_t mtime, int64_t size, cached_tags_t * out) {
@@ -661,6 +710,7 @@ bool metadata_db_put(const char * path, int64_t mtime, int64_t size, const cache
     METADATA_UPDATE_GUARD;
     METADATA_DB_GUARD;
     if (!db_ready || !tags) return true;
+    display_song_cache_invalidate();
     bool tags_changed = true;
     tagcache_upsert_year_changed(path, clamp_i32(mtime), clamp_i32(size), tags->title, tags->artist, tags->album,
                                  tags->album_artist, tags->genre, tags->track_number, tags->disc_number,
@@ -676,6 +726,7 @@ bool metadata_db_end_update(void) {
     METADATA_DB_GUARD;
     if (!db_ready) return false;
     bool ok = tagcache_end_update_with_lock(metadata_query_unlock, metadata_query_lock);
+    display_song_cache_invalidate();
     capture_tagcache_outcome(true);
     if (ok && catalog_library_id_force_rotation && catalog_identity_prepare())
         catalog_rebuild_pending = false;
@@ -687,6 +738,7 @@ void metadata_db_abort_update(void) {
     METADATA_DB_GUARD;
     if (!db_ready) return;
     tagcache_abort_update();
+    display_song_cache_invalidate();
     capture_tagcache_outcome(true);
 }
 
@@ -869,6 +921,23 @@ bool metadata_db_get_song_by_path(const char * path, song_row_t * out_row) {
     if (!tagcache_song_by_path(path, &song)) return false;
     copy_song(&song, out_row);
     return true;
+}
+
+bool metadata_db_try_get_cached_song_by_path(const char *path, song_row_t *out_row) {
+    if (!path || !out_row) return false;
+    size_t path_len = strnlen(path, sizeof(out_row->path));
+    if (path_len == 0 || path_len >= sizeof(out_row->path)) return false;
+    if (pthread_mutex_trylock(&display_song_cache_mutex) != 0) return false;
+    bool found = false;
+    for (size_t i = 0; i < DISPLAY_SONG_CACHE_SIZE; i++) {
+        if (display_song_cache[i].valid && strcmp(display_song_cache[i].row.path, path) == 0) {
+            *out_row = display_song_cache[i].row;
+            found = true;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&display_song_cache_mutex);
+    return found;
 }
 
 void metadata_db_get_songs_by_ids(const int64_t * ids, int count, song_row_t * out_rows) {

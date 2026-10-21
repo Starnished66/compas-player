@@ -209,6 +209,39 @@ static bool is_cue_file(const char * name) {
     return strcasecmp(ext, ".cue") == 0;
 }
 
+static unsigned char filename_ascii_fold(unsigned char c) {
+    return c >= 'A' && c <= 'Z' ? (unsigned char)(c + ('a' - 'A')) : c;
+}
+
+/* Compare digit runs by value without converting them to a fixed-width
+ * integer. If the natural keys tie (including zero padding or ASCII case),
+ * compare_entries_mode's bytewise fallback keeps distinct names ordered. */
+static int compare_filename_natural(const char *a, const char *b) {
+    while (*a && *b) {
+        if (*a >= '0' && *a <= '9' && *b >= '0' && *b <= '9') {
+            const char *a_digits = a, *b_digits = b;
+            while (*a_digits == '0') a_digits++;
+            while (*b_digits == '0') b_digits++;
+            const char *a_end = a_digits, *b_end = b_digits;
+            while (*a_end >= '0' && *a_end <= '9') a_end++;
+            while (*b_end >= '0' && *b_end <= '9') b_end++;
+            size_t a_length = (size_t)(a_end - a_digits);
+            size_t b_length = (size_t)(b_end - b_digits);
+            if (a_length != b_length) return a_length < b_length ? -1 : 1;
+            int digits = a_length ? memcmp(a_digits, b_digits, a_length) : 0;
+            if (digits) return digits;
+            while (*a >= '0' && *a <= '9') a++;
+            while (*b >= '0' && *b <= '9') b++;
+            continue;
+        }
+        unsigned char ca = filename_ascii_fold((unsigned char)*a++);
+        unsigned char cb = filename_ascii_fold((unsigned char)*b++);
+        if (ca != cb) return (int)ca - (int)cb;
+    }
+    if (*a || *b) return *a ? 1 : -1;
+    return 0;
+}
+
 static int compare_entries_mode(const void * a, const void * b, file_browser_sort_mode_t mode) {
     const dir_entry_t * ea = (const dir_entry_t *) a;
     const dir_entry_t * eb = (const dir_entry_t *) b;
@@ -217,7 +250,7 @@ static int compare_entries_mode(const void * a, const void * b, file_browser_sor
         if (ea->mtime_known != eb->mtime_known) return ea->mtime_known ? -1 : 1;
         if (ea->mtime_known && ea->mtime != eb->mtime) return ea->mtime > eb->mtime ? -1 : 1;
     }
-    int by_name = strcasecmp(ea->name, eb->name);
+    int by_name = compare_filename_natural(ea->name, eb->name);
     return by_name ? by_name : strcmp(ea->name, eb->name);
 }
 

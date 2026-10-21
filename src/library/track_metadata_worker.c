@@ -3,6 +3,7 @@
 #include "favorite_writer.h"
 #include "ui_wake.h"
 #include <pthread.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdatomic.h>
@@ -21,15 +22,54 @@ static char * play_events[PLAY_EVENT_CAPACITY];
 static unsigned play_head, play_count;
 static bool serviced_metadata;
 
+static bool make_display_hint(track_metadata_result_t * result) {
+    track_metadata_request_t * request = &result->request;
+    if ((!request->read_audio && !request->read_file) || request->metadata.has_title ||
+        request->metadata.has_artist || request->metadata.has_album) return false;
+    song_row_t row = {0};
+    if (!metadata_db_get_song_by_path(request->path, &row) || strcmp(row.path, request->path) != 0)
+        return false;
+    track_metadata_t hint = {0};
+#define COPY_HINT(field) do { \
+    if (row.tags.field[0]) { \
+        snprintf(hint.field, sizeof(hint.field), "%s", row.tags.field); \
+        hint.has_##field = true; \
+    } \
+} while (0)
+    COPY_HINT(title);
+    COPY_HINT(artist);
+    COPY_HINT(album);
+    COPY_HINT(album_artist);
+    COPY_HINT(genre);
+#undef COPY_HINT
+    if (row.tags.track_number > 0) {
+        hint.track_number = row.tags.track_number;
+        hint.has_track_number = true;
+    }
+    if (row.tags.disc_number > 0) {
+        hint.disc_number = row.tags.disc_number;
+        hint.has_disc_number = true;
+    }
+    if (row.tags.release_year > 0) {
+        hint.release_year = row.tags.release_year;
+        hint.has_release_year = true;
+    }
+    metadata_normalize_text_tags(&hint);
+    request->metadata = hint;
+    result->display_hint = true;
+    result->enrichment_pending = true;
+    return true;
+}
+
 static void * worker(void * unused) {
     (void) unused;
     for (;;) {
         pthread_mutex_lock(&mutex);
         while (!pending_valid[0] && !pending_valid[1] && !pending_valid[2] && !play_count)
             pthread_cond_wait(&cond, &mutex);
-        /* Prepare gapless gain before the slower cosmetic DB work. */
-        int lane = pending_valid[TRACK_METADATA_NEXT] ? TRACK_METADATA_NEXT :
-                   pending_valid[TRACK_METADATA_CURRENT] ? TRACK_METADATA_CURRENT :
+        /* Manual CURRENT display work goes first; NEXT remains independently queued. */
+        int lane = pending_valid[TRACK_METADATA_CURRENT] ? TRACK_METADATA_CURRENT :
+                   pending_valid[TRACK_METADATA_NEXT] ? TRACK_METADATA_NEXT :
                    pending_valid[TRACK_METADATA_FAVORITE] ? TRACK_METADATA_FAVORITE : -1;
         if (play_count && (lane < 0 || (serviced_metadata && lane != TRACK_METADATA_NEXT))) {
             serviced_metadata = false;
@@ -46,6 +86,21 @@ static void * worker(void * unused) {
         pending_valid[lane] = false;
         pthread_mutex_unlock(&mutex);
         bool obsolete = false;
+        if (lane == TRACK_METADATA_CURRENT &&
+            (result.request.read_audio || result.request.read_file)) {
+            make_display_hint(&result);
+            if (result.display_hint) {
+                bool published = false;
+                pthread_mutex_lock(&mutex);
+                if (latest[lane] == result.request.token) {
+                    completed[lane] = result;
+                    completed_valid[lane] = true;
+                    published = true;
+                }
+                pthread_mutex_unlock(&mutex);
+                if (published) ui_wake_notify();
+            }
+        }
         if (result.request.read_audio) {
             audio_track_metadata_wait_result_t wait_result =
                 audio_wait_track_metadata(result.request.audio_generation, &result.request.metadata);
@@ -61,11 +116,25 @@ static void * worker(void * unused) {
         result.request.metadata.picture_data = NULL;
         result.request.metadata.picture_size = 0;
         result.request.metadata.lyrics = NULL;
+        result.display_hint = false;
+        bool provisional_published = false;
+        if (!obsolete && lane == TRACK_METADATA_CURRENT) {
+            result.enrichment_pending = true;
+            pthread_mutex_lock(&mutex);
+            if (latest[lane] == result.request.token) {
+                completed[lane] = result;
+                completed_valid[lane] = true;
+                provisional_published = true;
+            }
+            pthread_mutex_unlock(&mutex);
+            if (provisional_published) ui_wake_notify();
+        }
         if (!obsolete && lane != TRACK_METADATA_NEXT) {
             result.favorite = favorite_writer_is_set(result.request.path);
             if (result.request.probe)
                 result.has_probe = audio_probe_file_format(result.request.path, &result.probe);
         }
+        result.enrichment_pending = false;
         pthread_mutex_lock(&mutex);
         if (!obsolete && latest[lane] == result.request.token) {
             completed[lane] = result;

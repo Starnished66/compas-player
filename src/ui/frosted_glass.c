@@ -90,21 +90,36 @@ static uint8_t frosted_glass_bilerp_plane(const uint8_t * plane, int width, int 
     return (uint8_t) ((top * (65536u - fy) + bottom * fy) >> 16);
 }
 
-static void frosted_glass_blur_passes(uint8_t * plane, uint8_t * tmp, int width, int height, int radius, int passes) {
-    for (int pass = 0; pass < passes; pass++) {
-        for (int y = 0; y < height; y++) box_blur_1d(plane + y * width, tmp + y * width, width, 1, radius);
-        memcpy(plane, tmp, (size_t) width * height);
-        for (int x = 0; x < width; x++) box_blur_1d(plane + x, tmp + x, height, width, radius);
-        memcpy(plane, tmp, (size_t) width * height);
-    }
+static bool frosted_glass_cancelled(frosted_glass_cancel_fn cancel_cb, void * user_data) {
+    return cancel_cb && cancel_cb(user_data);
 }
 
-uint8_t * frosted_glass_blur_rgb565(const uint16_t * source,
-                                    int source_width, int source_height,
-                                    int out_width, int out_height,
-                                    int blur_radius, int blur_passes,
-                                    int darken_num, int darken_den,
-                                    bool mirror_y) {
+static bool frosted_glass_blur_passes(uint8_t * plane, uint8_t * tmp, int width, int height,
+                                      int radius, int passes,
+                                      frosted_glass_cancel_fn cancel_cb, void * user_data) {
+    for (int pass = 0; pass < passes; pass++) {
+        for (int y = 0; y < height; y++) {
+            if (frosted_glass_cancelled(cancel_cb, user_data)) return false;
+            box_blur_1d(plane + y * width, tmp + y * width, width, 1, radius);
+        }
+        memcpy(plane, tmp, (size_t) width * height);
+        for (int x = 0; x < width; x++) {
+            if (frosted_glass_cancelled(cancel_cb, user_data)) return false;
+            box_blur_1d(plane + x, tmp + x, height, width, radius);
+        }
+        memcpy(plane, tmp, (size_t) width * height);
+    }
+    return !frosted_glass_cancelled(cancel_cb, user_data);
+}
+
+uint8_t * frosted_glass_blur_rgb565_cancelable(const uint16_t * source,
+                                              int source_width, int source_height,
+                                              int out_width, int out_height,
+                                              int blur_radius, int blur_passes,
+                                              int darken_num, int darken_den,
+                                              bool mirror_y,
+                                              frosted_glass_cancel_fn cancel_cb,
+                                              void * user_data) {
     if (!source || source_width <= 0 || source_height <= 0 ||
         out_width <= 0 || out_height <= 0 ||
         source_width > FROSTED_MAX_IMAGE_DIMENSION || source_height > FROSTED_MAX_IMAGE_DIMENSION ||
@@ -113,6 +128,7 @@ uint8_t * frosted_glass_blur_rgb565(const uint16_t * source,
         (size_t) out_width > FROSTED_MAX_OUTPUT_PIXELS / (size_t) out_height) {
         return NULL;
     }
+    if (frosted_glass_cancelled(cancel_cb, user_data)) return NULL;
 
     if (blur_radius < 0) blur_radius = 0;
     if (blur_radius > 64) blur_radius = 64;
@@ -159,6 +175,10 @@ uint8_t * frosted_glass_blur_rgb565(const uint16_t * source,
         uint32_t acc_b[FROSTED_RGB565_WORK_WIDTH];
 
         for (int y = 0; y < h; y++) {
+            if (frosted_glass_cancelled(cancel_cb, user_data)) {
+                free(r); free(g); free(b); free(tmp);
+                return NULL;
+            }
             int dst_y = mirror_y ? (h - 1 - y) : y;
             int y0, y1;
             if (!mirror_y) {
@@ -175,6 +195,10 @@ uint8_t * frosted_glass_blur_rgb565(const uint16_t * source,
             memset(acc_b, 0, sizeof(acc_b));
 
             for (int sy = y0; sy < y1; sy++) {
+                if (frosted_glass_cancelled(cancel_cb, user_data)) {
+                    free(r); free(g); free(b); free(tmp);
+                    return NULL;
+                }
                 const uint16_t * src_row = source + (size_t) sy * source_width;
                 for (int x = 0; x < w; x++) {
                     uint32_t r_sum = 0, g_sum = 0, b_sum = 0;
@@ -208,6 +232,10 @@ uint8_t * frosted_glass_blur_rgb565(const uint16_t * source,
         }
     } else {
         for (int y = 0; y < h; y++) {
+            if (frosted_glass_cancelled(cancel_cb, user_data)) {
+                free(r); free(g); free(b); free(tmp);
+                return NULL;
+            }
             uint32_t crop_y_fp = h > 1
                 ? (uint32_t) (((uint64_t) y * (uint32_t) (crop_h - 1) << 16) / (h - 1)) : 0;
             if (mirror_y) crop_y_fp = ((uint32_t) (crop_h - 1) << 16) - crop_y_fp;
@@ -241,36 +269,80 @@ uint8_t * frosted_glass_blur_rgb565(const uint16_t * source,
         }
     }
 
-    frosted_glass_blur_passes(r, tmp, w, h, blur_radius, blur_passes);
-    frosted_glass_blur_passes(g, tmp, w, h, blur_radius, blur_passes);
-    frosted_glass_blur_passes(b, tmp, w, h, blur_radius, blur_passes);
-
-    size_t output_pixels = (size_t) out_width * (size_t) out_height;
-    uint8_t * out_bytes = malloc(output_pixels * 2);
-    if (!out_bytes) {
+    if (!frosted_glass_blur_passes(r, tmp, w, h, blur_radius, blur_passes, cancel_cb, user_data) ||
+        !frosted_glass_blur_passes(g, tmp, w, h, blur_radius, blur_passes, cancel_cb, user_data) ||
+        !frosted_glass_blur_passes(b, tmp, w, h, blur_radius, blur_passes, cancel_cb, user_data)) {
         free(r); free(g); free(b); free(tmp);
         return NULL;
     }
+
+    size_t output_pixels = (size_t) out_width * (size_t) out_height;
+    uint8_t * out_bytes = malloc(output_pixels * 2);
+    uint32_t * x_fp_table = malloc((size_t) out_width * sizeof(*x_fp_table));
+    if (!out_bytes || !x_fp_table) {
+        free(out_bytes);
+        free(x_fp_table);
+        free(r); free(g); free(b); free(tmp);
+        return NULL;
+    }
+    /* x_fp is identical for every output row. Keep the existing fixed-point
+     * mapping exactly, but calculate its 64-bit division once per column. */
+    for (int x = 0; x < out_width; x++) {
+        if (frosted_glass_cancelled(cancel_cb, user_data)) {
+            free(out_bytes); free(x_fp_table);
+            free(r); free(g); free(b); free(tmp);
+            return NULL;
+        }
+        x_fp_table[x] = out_width > 1
+            ? (uint32_t) (((uint64_t) x * (w - 1) << 16) / (out_width - 1)) : 0;
+    }
+    /* Keep the existing narrowing and upper clamp semantics in one lookup.
+     * In particular, preserve the platform's int conversion for extreme
+     * ratios instead of changing overflow behavior as part of this speedup. */
+    int darken_lut[256];
+    for (int i = 0; i < 256; i++) {
+        int value = (int) ((int64_t) i * darken_num / darken_den);
+        if (value > 255) value = 255;
+        darken_lut[i] = value;
+    }
     uint16_t * out = (uint16_t *) out_bytes;
     for (int y = 0; y < out_height; y++) {
+        if (frosted_glass_cancelled(cancel_cb, user_data)) {
+            free(out_bytes); free(x_fp_table);
+            free(r); free(g); free(b); free(tmp);
+            return NULL;
+        }
         if (y > 0 && y % 40 == 0) usleep(1000);
         uint32_t y_fp = out_height > 1
             ? (uint32_t) (((uint64_t) y * (h - 1) << 16) / (out_height - 1)) : 0;
         uint16_t * row = out + (size_t) y * out_width;
         for (int x = 0; x < out_width; x++) {
-            uint32_t x_fp = out_width > 1
-                ? (uint32_t) (((uint64_t) x * (w - 1) << 16) / (out_width - 1)) : 0;
-            int rv = (int) ((int64_t) frosted_glass_bilerp_plane(r, w, h, x_fp, y_fp) * darken_num / darken_den);
-            int gv = (int) ((int64_t) frosted_glass_bilerp_plane(g, w, h, x_fp, y_fp) * darken_num / darken_den);
-            int bv = (int) ((int64_t) frosted_glass_bilerp_plane(b, w, h, x_fp, y_fp) * darken_num / darken_den);
-            if (rv > 255) rv = 255;
-            if (gv > 255) gv = 255;
-            if (bv > 255) bv = 255;
+            uint32_t x_fp = x_fp_table[x];
+            int rv = darken_lut[frosted_glass_bilerp_plane(r, w, h, x_fp, y_fp)];
+            int gv = darken_lut[frosted_glass_bilerp_plane(g, w, h, x_fp, y_fp)];
+            int bv = darken_lut[frosted_glass_bilerp_plane(b, w, h, x_fp, y_fp)];
             row[x] = rgb888_to_565_spatial_dithered(rv, gv, bv, x, y);
         }
     }
+    if (frosted_glass_cancelled(cancel_cb, user_data)) {
+        free(out_bytes); free(x_fp_table);
+        free(r); free(g); free(b); free(tmp);
+        return NULL;
+    }
+    free(x_fp_table);
     free(r); free(g); free(b); free(tmp);
     return out_bytes;
+}
+
+uint8_t * frosted_glass_blur_rgb565(const uint16_t * source,
+                                    int source_width, int source_height,
+                                    int out_width, int out_height,
+                                    int blur_radius, int blur_passes,
+                                    int darken_num, int darken_den,
+                                    bool mirror_y) {
+    return frosted_glass_blur_rgb565_cancelable(source, source_width, source_height,
+        out_width, out_height, blur_radius, blur_passes, darken_num, darken_den,
+        mirror_y, NULL, NULL);
 }
 
 uint8_t * frosted_glass_blur_screen_rgb565(lv_obj_t * source_screen,
@@ -323,9 +395,9 @@ uint8_t * frosted_glass_blur_screen_rgb565(lv_obj_t * source_screen,
     }
     lv_draw_buf_destroy(snapshot);
 
-    frosted_glass_blur_passes(r, tmp, w, h, blur_radius, blur_passes);
-    frosted_glass_blur_passes(g, tmp, w, h, blur_radius, blur_passes);
-    frosted_glass_blur_passes(b, tmp, w, h, blur_radius, blur_passes);
+    frosted_glass_blur_passes(r, tmp, w, h, blur_radius, blur_passes, NULL, NULL);
+    frosted_glass_blur_passes(g, tmp, w, h, blur_radius, blur_passes, NULL, NULL);
+    frosted_glass_blur_passes(b, tmp, w, h, blur_radius, blur_passes, NULL, NULL);
 
     uint8_t * out_bytes = malloc((size_t) out_width * out_height * 2);
     if (!out_bytes) {

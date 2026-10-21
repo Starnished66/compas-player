@@ -140,7 +140,7 @@ static void capture_metadata_action(const char * owner, const char * action) {
 }
 
 static void build(void) {
-    player_screen = build_player_screen(BOARD_SCREEN_WIDTH, BOARD_SCREEN_HEIGHT);
+    player_screen = build_player_screen(BOARD_SCREEN_WIDTH, BOARD_SCREEN_HEIGHT, true);
     assert(player_screen);
     lv_screen_load(player_screen);
     lv_obj_update_layout(player_screen);

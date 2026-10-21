@@ -49,6 +49,19 @@ uint8_t * frosted_glass_blur_rgb565(const uint16_t * source,
                                     int darken_num, int darken_den,
                                     bool mirror_y);
 
+/* Cancelable variant for background work that may become obsolete while
+ * downsampling, blurring, or upscaling. Returns NULL when cancelled or on
+ * failure; uninterrupted output is byte-identical to the legacy function. */
+typedef bool (*frosted_glass_cancel_fn)(void * user_data);
+uint8_t * frosted_glass_blur_rgb565_cancelable(const uint16_t * source,
+                                               int source_width, int source_height,
+                                               int out_width, int out_height,
+                                               int blur_radius, int blur_passes,
+                                               int darken_num, int darken_den,
+                                               bool mirror_y,
+                                               frosted_glass_cancel_fn cancel_cb,
+                                               void * user_data);
+
 #ifdef __cplusplus
 }
 #endif

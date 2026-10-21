@@ -33,6 +33,7 @@
 #define MAX_LAYOUTS 64
 #define MAX_LAYOUT_PATH 512
 #define MAX_XML_BYTES (256 * 1024)
+#define XML_CACHE_ENTRIES 2
 /* The one XML component name in use. Only one XML layout exists at a time:
  * the previous one is unregistered before the next is registered. */
 #define XML_COMPONENT_NAME "compas_player_layout"
@@ -54,6 +55,28 @@ static bool xml_engine_ready;
 static bool xml_globals_ready;
 static bool xml_component_registered;
 static bool active_xml_layout;
+typedef struct {
+    char path[PATH_MAX];
+    char * data;
+    size_t size;
+    dev_t device;
+    ino_t inode;
+    time_t mtime_sec;
+    long mtime_nsec;
+    uint64_t last_use;
+} xml_cache_entry_t;
+static xml_cache_entry_t xml_cache[XML_CACHE_ENTRIES];
+static uint64_t xml_cache_clock;
+#ifdef PLAYER_LAYOUTS_CACHE_TEST
+static unsigned int xml_cache_test_disk_reads;
+#endif
+
+static void xml_cache_clear(void) {
+    for (size_t i = 0; i < XML_CACHE_ENTRIES; ++i) {
+        free(xml_cache[i].data);
+        memset(&xml_cache[i], 0, sizeof(xml_cache[i]));
+    }
+}
 static player_layout_interactions_t active_interactions = {
     .lyrics_enabled = true,
     .artist_action = "library",
@@ -692,11 +715,13 @@ static void rescan_xml_layouts(void) {
 }
 
 void player_layouts_rescan(void) {
+    xml_cache_clear();
     ensure_builtin_entry();
     rescan_xml_layouts();
 }
 
 void player_layouts_init(player_layout_create_fn builtin_create) {
+    xml_cache_clear();
     ensure_builtin_entry();
     entries[0].create = builtin_create;
     rescan_xml_layouts();
@@ -704,25 +729,95 @@ void player_layouts_init(player_layout_create_fn builtin_create) {
 
 /* ---- XML creation ---- */
 
+static bool xml_stat_matches(const xml_cache_entry_t * entry, const char * key,
+                             const struct stat * st) {
+    return entry->data && strcmp(entry->path, key) == 0 &&
+           entry->device == st->st_dev && entry->inode == st->st_ino &&
+           entry->size == (size_t) st->st_size && entry->mtime_sec == st->st_mtime &&
+           entry->mtime_nsec == st->st_mtim.tv_nsec;
+}
+
 static char * read_text_file(const char * path) {
-    FILE * f = fopen(path, "rb");
-    if (!f) return NULL;
-    char * buffer = NULL;
-    if (fseek(f, 0, SEEK_END) == 0) {
-        long size = ftell(f);
-        if (size > 0 && size <= MAX_XML_BYTES && fseek(f, 0, SEEK_SET) == 0) {
-            buffer = malloc((size_t) size + 1);
-            if (buffer && fread(buffer, 1, (size_t) size, f) == (size_t) size) {
-                buffer[size] = '\0';
-            } else {
-                free(buffer);
-                buffer = NULL;
-            }
+    struct stat before;
+    if (stat(path, &before) != 0 || !S_ISREG(before.st_mode) || before.st_size <= 0 ||
+        before.st_size > MAX_XML_BYTES) return NULL;
+    char resolved[PATH_MAX];
+    const char * key = realpath(path, resolved) ? resolved : NULL;
+    for (size_t i = 0; key && i < XML_CACHE_ENTRIES; ++i) {
+        if (xml_stat_matches(&xml_cache[i], key, &before)) {
+            char * copy = malloc(xml_cache[i].size + 1);
+            if (!copy) return NULL;
+            memcpy(copy, xml_cache[i].data, xml_cache[i].size + 1);
+            xml_cache[i].last_use = ++xml_cache_clock;
+            return copy;
         }
     }
+    FILE * f = fopen(path, "rb");
+    if (!f) return NULL;
+#ifdef PLAYER_LAYOUTS_CACHE_TEST
+    xml_cache_test_disk_reads++;
+#endif
+    char * buffer = NULL;
+    size_t size = (size_t) before.st_size;
+    buffer = malloc(size + 1);
+    if (buffer && fread(buffer, 1, size, f) == size) {
+        buffer[size] = '\0';
+    } else {
+        free(buffer);
+        buffer = NULL;
+    }
     fclose(f);
+    struct stat after;
+    if (!buffer || stat(path, &after) != 0 || before.st_dev != after.st_dev ||
+        before.st_ino != after.st_ino || before.st_size != after.st_size ||
+        before.st_mtime != after.st_mtime || before.st_mtim.tv_nsec != after.st_mtim.tv_nsec) {
+        free(buffer);
+        return NULL;
+    }
+
+    /* Keep at most two raw files (each bounded by MAX_XML_BYTES). The returned
+     * allocation remains caller-owned; LVGL component state is never cached. */
+    char * cached = key ? malloc(size + 1) : NULL;
+    if (cached) {
+        memcpy(cached, buffer, size + 1);
+        size_t victim = 0;
+        for (size_t i = 1; i < XML_CACHE_ENTRIES; ++i)
+            if (!xml_cache[i].data || (xml_cache[victim].data &&
+                                      xml_cache[i].last_use < xml_cache[victim].last_use)) victim = i;
+        free(xml_cache[victim].data);
+        memset(&xml_cache[victim], 0, sizeof(xml_cache[victim]));
+        memcpy(xml_cache[victim].path, key, strlen(key) + 1);
+        xml_cache[victim].data = cached;
+        xml_cache[victim].size = size;
+        xml_cache[victim].device = before.st_dev;
+        xml_cache[victim].inode = before.st_ino;
+        xml_cache[victim].mtime_sec = before.st_mtime;
+        xml_cache[victim].mtime_nsec = before.st_mtim.tv_nsec;
+        xml_cache[victim].last_use = ++xml_cache_clock;
+    }
     return buffer;
 }
+
+#ifdef PLAYER_LAYOUTS_CACHE_TEST
+char * player_layouts_cache_test_read(const char * path) {
+    return read_text_file(path);
+}
+
+unsigned int player_layouts_cache_test_disk_reads(void) {
+    return xml_cache_test_disk_reads;
+}
+
+size_t player_layouts_cache_test_entry_count(void) {
+    size_t count = 0;
+    for (size_t i = 0; i < XML_CACHE_ENTRIES; ++i)
+        if (xml_cache[i].data) count++;
+    return count;
+}
+
+void player_layouts_cache_test_clear(void) {
+    xml_cache_clear();
+}
+#endif
 
 /* `foo.xml` -> `foo@<W>x<H>.xml` if that file exists. */
 static void resolve_board_variant(const char * path, char * out, size_t size) {

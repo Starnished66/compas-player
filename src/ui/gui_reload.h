@@ -32,8 +32,10 @@ void gui_reload_request(void);
  * supported native navigation path and scroll position from semantic IDs. */
 bool gui_reload_request_preserving_plugin_manager_page(void);
 
-/* Layout-only reload: preserve reusable decoded library artwork while
- * replacing widgets. Coalesced full reload requests still invalidate it. */
+/* Replace only Player widgets after the current callback returns. Preserve
+ * navigation, other screens, plugin state and playback; keep a visible
+ * Player's old frame until its replacement is ready. Latest layout wins.
+ * A coalesced full asset/plugin reload still takes precedence. */
 void gui_player_layout_reload_request(void);
 
 /* Applies already-written theme assets/config after the caller returns.
