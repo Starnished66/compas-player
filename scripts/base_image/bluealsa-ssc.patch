@@ -1,6 +1,6 @@
 diff -ruN a/configure.ac b/configure.ac
 --- a/configure.ac	2026-08-26 22:46:51.000000000 -0600
-+++ b/configure.ac	2026-10-17 21:56:23.613113004 -0600
++++ b/configure.ac	2026-10-22 07:45:28.135628097 -0600
 @@ -229,6 +229,14 @@
  	AC_DEFINE([ENABLE_LDAC], [1], [Define to 1 if LDAC is enabled.])
  ])
@@ -18,7 +18,7 @@ diff -ruN a/configure.ac b/configure.ac
  AM_CONDITIONAL([ENABLE_LHDC], [test "x$enable_lhdc" = "xyes"])
 diff -ruN a/doc/bluealsad.8.rst b/doc/bluealsad.8.rst
 --- a/doc/bluealsad.8.rst	2026-08-26 22:46:51.000000000 -0600
-+++ b/doc/bluealsad.8.rst	2026-10-17 21:57:19.677175964 -0600
++++ b/doc/bluealsad.8.rst	2026-10-22 07:45:28.135692382 -0600
 @@ -160,6 +160,10 @@
      With this option, **bluealsad** will request such a device uses only 44.1
      kHz sample rate.
@@ -32,7 +32,7 @@ diff -ruN a/doc/bluealsad.8.rst b/doc/bluealsad.8.rst
      Default value is **high**.
 diff -ruN a/src/Makefile.am b/src/Makefile.am
 --- a/src/Makefile.am	2026-08-26 22:46:51.000000000 -0600
-+++ b/src/Makefile.am	2026-10-17 21:56:23.613886919 -0600
++++ b/src/Makefile.am	2026-10-22 07:45:28.135868469 -0600
 @@ -112,6 +112,11 @@
  	a2dp-ldac.c
  endif
@@ -65,8 +65,8 @@ diff -ruN a/src/Makefile.am b/src/Makefile.am
  
 diff -ruN a/src/a2dp-ssc.c b/src/a2dp-ssc.c
 --- a/src/a2dp-ssc.c	1969-12-31 18:00:00.000000000 -0600
-+++ b/src/a2dp-ssc.c	2026-10-17 22:05:55.107171213 -0600
-@@ -0,0 +1,450 @@
++++ b/src/a2dp-ssc.c	2026-10-22 07:50:51.730280081 -0600
+@@ -0,0 +1,449 @@
 +/*
 + * BlueALSA - a2dp-ssc.c
 + * SPDX-FileCopyrightText: 2026 BlueALSA developers
@@ -147,9 +147,7 @@ diff -ruN a/src/a2dp-ssc.c b/src/a2dp-ssc.c
 +			.bit_value = SSC_FLAG_44100, .value = 44100 };
 +
 +	const uint8_t flags = caps->flags;
-+	const bool hifi48 = (flags & SSC_FLAG_HIFI48) &&
-+		(flags & SSC_FLAG_RATE_MASK);
-+	if (hifi48)
++	if (flags & SSC_FLAG_HIFI48)
 +		mappings[count++] = (struct a2dp_bit_mapping){
 +			.bit_value = SSC_FLAG_HIFI48, .value = 48000 };
 +	else if (flags & SSC_FLAG_48000)
@@ -189,15 +187,8 @@ diff -ruN a/src/a2dp-ssc.c b/src/a2dp-ssc.c
 +		return;
 +	if (rate == 96000)
 +		caps->flags &= SSC_FLAG_UNCAPPED | SSC_FLAG_UHQ1 | SSC_FLAG_UHQ2;
-+	else if (rate == 48000 && (caps->flags & SSC_FLAG_HIFI48)) {
-+		const uint8_t base_rate = (caps->flags & SSC_FLAG_44100) ? SSC_FLAG_44100 :
-+			((caps->flags & SSC_FLAG_48000) ? SSC_FLAG_48000 : 0);
-+		if (base_rate == 0) {
-+			caps->flags = 0;
-+			return;
-+		}
-+		caps->flags &= SSC_FLAG_UNCAPPED | SSC_FLAG_HIFI48 | base_rate;
-+	}
++	else if (rate == 48000 && (caps->flags & SSC_FLAG_HIFI48))
++		caps->flags &= SSC_FLAG_UNCAPPED | SSC_FLAG_HIFI48;
 +	else if (rate == 48000)
 +		caps->flags &= SSC_FLAG_UNCAPPED | SSC_FLAG_48000;
 +	else if (rate == 44100)
@@ -222,7 +213,11 @@ diff -ruN a/src/a2dp-ssc.c b/src/a2dp-ssc.c
 +	a2dp_ssc_t *caps = capabilities;
 +	a2dp_ssc_caps_intersect(caps, &sep->config.capabilities);
 +
-+	/* This adapter only negotiates validated, uncapped encoder modes. */
++	/* This adapter only negotiates validated, uncapped encoder modes. The
++	 * mode comes from the peer's capabilities, ranked as Samsung's stack
++	 * ranks them: UHQ v2 (Buds3 Pro and later), UHQ v1, Hi-Fi (Buds2 Pro),
++	 * then 16-bit 48 and 44.1 kHz. Each configuration carries one mode bit,
++	 * as a Galaxy phone sends it: 0x0A, 0x88, 0x0C. */
 +	if (!(caps->flags & SSC_FLAG_UNCAPPED))
 +		return ERROR_CODE_A2DP_UNSUPPORTED_SAMPLE_RATE;
 +
@@ -231,14 +226,16 @@ diff -ruN a/src/a2dp-ssc.c b/src/a2dp-ssc.c
 +		caps->flags = SSC_FLAG_UNCAPPED | SSC_FLAG_UHQ2;
 +	else if (modes & SSC_FLAG_UHQ1)
 +		caps->flags = SSC_FLAG_UNCAPPED | SSC_FLAG_UHQ1;
-+	else if ((modes & SSC_FLAG_HIFI48) != 0 &&
-+			(caps->flags & SSC_FLAG_RATE_MASK) != 0)
-+		caps->flags = SSC_FLAG_UNCAPPED | SSC_FLAG_HIFI48 |
-+			((caps->flags & SSC_FLAG_44100) ? SSC_FLAG_44100 : SSC_FLAG_48000);
-+	else if (caps->flags & SSC_FLAG_44100)
++	else if (modes & SSC_FLAG_HIFI48)
++		caps->flags = SSC_FLAG_UNCAPPED | SSC_FLAG_HIFI48;
++	/* --ssc-auto-profile lifts --a2dp-force-audio-cd for the 24-bit modes
++	 * only; a 16-bit peer still gets 44.1 kHz. */
++	else if (config.a2dp.force_44100 && (caps->flags & SSC_FLAG_44100))
 +		caps->flags = SSC_FLAG_UNCAPPED | SSC_FLAG_44100;
 +	else if (caps->flags & SSC_FLAG_48000)
 +		caps->flags = SSC_FLAG_UNCAPPED | SSC_FLAG_48000;
++	else if (caps->flags & SSC_FLAG_44100)
++		caps->flags = SSC_FLAG_UNCAPPED | SSC_FLAG_44100;
 +	else
 +		return ERROR_CODE_A2DP_UNSUPPORTED_SAMPLE_RATE;
 +
@@ -258,8 +255,10 @@ diff -ruN a/src/a2dp-ssc.c b/src/a2dp-ssc.c
 +
 +	const uint8_t mode = conf->flags & SSC_FLAG_MODE_MASK;
 +	const uint8_t rate = conf->flags & SSC_FLAG_RATE_MASK;
++	/* Hi-Fi is 48 kHz whatever rate bit accompanies it. Samsung sends none;
++	 * accept one as well, from peers that copy their own capabilities. */
 +	if ((mode != 0 && (mode & (mode - 1)) != 0) ||
-+			(mode == SSC_FLAG_HIFI48 && rate != SSC_FLAG_44100 && rate != SSC_FLAG_48000) ||
++			(mode == SSC_FLAG_HIFI48 && rate == SSC_FLAG_RATE_MASK) ||
 +			((mode == SSC_FLAG_UHQ1 || mode == SSC_FLAG_UHQ2) && rate != 0) ||
 +			(mode == 0 && rate != SSC_FLAG_44100 && rate != SSC_FLAG_48000))
 +		return ERROR_CODE_A2DP_INVALID_SAMPLE_RATE;
@@ -271,12 +270,12 @@ diff -ruN a/src/a2dp-ssc.c b/src/a2dp-ssc.c
 +	const uint8_t flags = t->media.a2dp.configuration.ssc.flags;
 +
 +	if (flags == (SSC_FLAG_UNCAPPED | SSC_FLAG_48000) ||
-+			flags == (SSC_FLAG_UNCAPPED | SSC_FLAG_HIFI48 | SSC_FLAG_48000))
++			flags == (SSC_FLAG_UNCAPPED | SSC_FLAG_HIFI48) ||
++			flags == (SSC_FLAG_UNCAPPED | SSC_FLAG_HIFI48 | SSC_FLAG_48000) ||
++			flags == (SSC_FLAG_UNCAPPED | SSC_FLAG_HIFI48 | SSC_FLAG_44100))
 +		t->media.pcm.rate = 48000;
 +	else if (flags == (SSC_FLAG_UNCAPPED | SSC_FLAG_44100))
 +		t->media.pcm.rate = 44100;
-+	else if (flags == (SSC_FLAG_UNCAPPED | SSC_FLAG_HIFI48 | SSC_FLAG_44100))
-+		t->media.pcm.rate = 48000;
 +	else if (flags == (SSC_FLAG_UNCAPPED | SSC_FLAG_UHQ1) ||
 +			flags == (SSC_FLAG_UNCAPPED | SSC_FLAG_UHQ2))
 +		t->media.pcm.rate = 96000;
@@ -330,7 +329,7 @@ diff -ruN a/src/a2dp-ssc.c b/src/a2dp-ssc.c
 +			  (flags & SSC_FLAG_RATE_MASK) == SSC_FLAG_44100))) {
 +		if ((flags & SSC_FLAG_MODE_MASK) == SSC_FLAG_HIFI48) {
 +			static const struct { unsigned int bitrate; size_t bytes; } tiers[] = {
-+				{ 192000, 484 }, { 128000, 324 }, { 96000, 244 }, { 88000, 224 },
++				{ 192000, 484 }, { 128000, 324 }, { 88000, 224 },
 +			};
 +			for (size_t i = 0; i < sizeof(tiers) / sizeof(tiers[0]); i++)
 +				if (mtu >= RTP_HEADER_LEN + tiers[i].bytes) {
@@ -519,7 +518,7 @@ diff -ruN a/src/a2dp-ssc.c b/src/a2dp-ssc.c
 +};
 diff -ruN a/src/a2dp-ssc.h b/src/a2dp-ssc.h
 --- a/src/a2dp-ssc.h	1969-12-31 18:00:00.000000000 -0600
-+++ b/src/a2dp-ssc.h	2026-10-17 21:56:23.614182264 -0600
++++ b/src/a2dp-ssc.h	2026-10-22 07:45:28.136066641 -0600
 @@ -0,0 +1,19 @@
 +/*
 + * BlueALSA - a2dp-ssc.h
@@ -542,7 +541,7 @@ diff -ruN a/src/a2dp-ssc.h b/src/a2dp-ssc.h
 +#endif
 diff -ruN a/src/a2dp.c b/src/a2dp.c
 --- a/src/a2dp.c	2026-08-26 22:46:51.000000000 -0600
-+++ b/src/a2dp.c	2026-10-17 21:56:23.614290838 -0600
++++ b/src/a2dp.c	2026-10-22 07:45:28.136129880 -0600
 @@ -31,6 +31,9 @@
  #if ENABLE_LDAC
  # include "a2dp-ldac.h"
@@ -565,7 +564,7 @@ diff -ruN a/src/a2dp.c b/src/a2dp.c
  # if HAVE_APTX_HD_DECODE
 diff -ruN a/src/ba-config.c b/src/ba-config.c
 --- a/src/ba-config.c	2026-08-26 22:46:51.000000000 -0600
-+++ b/src/ba-config.c	2026-10-17 21:56:47.865176257 -0600
++++ b/src/ba-config.c	2026-10-22 07:45:28.136217544 -0600
 @@ -74,6 +74,7 @@
  
  	.a2dp.force_mono = false,
@@ -576,7 +575,7 @@ diff -ruN a/src/ba-config.c b/src/ba-config.c
  	.asha.id = ASHA_HI_SYNC_ID_INIT(
 diff -ruN a/src/ba-config.h b/src/ba-config.h
 --- a/src/ba-config.h	2026-08-26 22:46:51.000000000 -0600
-+++ b/src/ba-config.h	2026-10-17 21:56:47.864176257 -0600
++++ b/src/ba-config.h	2026-10-22 07:45:28.136295922 -0600
 @@ -120,6 +120,9 @@
  		 * for sink endpoint and semi-mandatory for source. It is then possible
  		 * to force lower sampling in order to save Bluetooth bandwidth. */
@@ -589,7 +588,7 @@ diff -ruN a/src/ba-config.h b/src/ba-config.h
  
 diff -ruN a/src/main.c b/src/main.c
 --- a/src/main.c	2026-08-26 22:46:51.000000000 -0600
-+++ b/src/main.c	2026-10-17 21:56:47.866176257 -0600
++++ b/src/main.c	2026-10-22 07:45:28.136395889 -0600
 @@ -184,6 +184,7 @@
  		{ "disable-realtek-usb-fix", no_argument, NULL, 21 },
  		{ "a2dp-force-mono", no_argument, NULL, 6 },
@@ -618,7 +617,7 @@ diff -ruN a/src/main.c b/src/main.c
  			const nv_entry_t * entry;
 diff -ruN a/src/shared/bluetooth-a2dp.c b/src/shared/bluetooth-a2dp.c
 --- a/src/shared/bluetooth-a2dp.c	2026-08-26 22:46:51.000000000 -0600
-+++ b/src/shared/bluetooth-a2dp.c	2026-10-17 21:56:23.614538904 -0600
++++ b/src/shared/bluetooth-a2dp.c	2026-10-22 07:45:28.136503622 -0600
 @@ -37,7 +37,7 @@
  	{ A2DP_CODEC_VENDOR_ID(OPUS_VENDOR_ID, OPUS_CODEC_ID), { "Opus"} },
  	{ A2DP_CODEC_VENDOR_ID(OPUS_PW_VENDOR_ID, OPUS_PW_CODEC_ID), { "Opus-PW"} },
@@ -630,7 +629,7 @@ diff -ruN a/src/shared/bluetooth-a2dp.c b/src/shared/bluetooth-a2dp.c
  uint32_t a2dp_codec_from_string(const char * alias) {
 diff -ruN a/src/shared/bluetooth-a2dp.h b/src/shared/bluetooth-a2dp.h
 --- a/src/shared/bluetooth-a2dp.h	2026-08-26 22:46:51.000000000 -0600
-+++ b/src/shared/bluetooth-a2dp.h	2026-10-17 21:56:23.614715617 -0600
++++ b/src/shared/bluetooth-a2dp.h	2026-10-22 07:45:28.136592018 -0600
 @@ -786,6 +786,21 @@
  #define SAMSUNG_SC_VENDOR_ID            BT_COMPID_SAMSUNG_ELEC
  #define SAMSUNG_SC_CODEC_ID             0x0103
