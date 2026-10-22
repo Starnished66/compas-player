@@ -139,8 +139,8 @@ static bool wifi_toggle_queued = false;
 static bool wifi_toggle_queued_target = false;
 
 /* Read-only effective-Wi-Fi-state accessor for callers outside this file
- * (gui_network.c's Wi-Fi dependency guard for AirPlay/DLNA/Remote Control/
- * Import via Wi-Fi) that need the same "in-flight toggle counts as its
+ * (gui_network.c's Wi-Fi dependency guard for AirPlay/DLNA/Remote Control
+ * and remote file import) that need the same "in-flight toggle counts as its
  * target state" logic refresh_wifi_icon() below already uses -- plain
  * wifi_control_is_enabled() can briefly still report the OLD hardware state
  * while wifi_toggle_active is true (see wifi_toggle_thread_func()'s own
@@ -3528,10 +3528,9 @@ static void poll_quick_drawer_drag(lv_timer_t * timer) {
         /* gesture_home_config_t's fields are shared with gui_lock_screen.c's
          * own independent use of gesture_home_state_is_eligible(), which
          * doesn't need these -- same reasoning as back-swipe's own
-         * exclusions just above: text-entry, Import via Wi-Fi, and the busy
-         * overlay all skip finalize_screen_navigation() because leaving
-         * them needs teardown (in-progress input, import_web_stop(),
-         * modal ownership) that a stack-only reset to Home would bypass.
+         * exclusions just above: text-entry and the busy overlay
+         * skip finalize_screen_navigation() because leaving
+         * them needs teardown (in-progress input, modal ownership) that a stack-only reset to Home would bypass.
          *
          * Deliberately NOT gated on drag_adjust_press_owned (unlike player-
          * swipe/back-swipe below): home_indicator_band already sits on
@@ -3547,7 +3546,6 @@ static void poll_quick_drawer_drag(lv_timer_t * timer) {
         home_swipe_candidate = gesture_home_state_is_eligible(&home_cfg, p.y) &&
                                 lv_screen_active() != gui_shell_get_home_screen() &&
                                 lv_screen_active() != gui_text_input_get_screen() &&
-                                lv_screen_active() != gui_network_get_import_wifi_screen() &&
                                 lv_screen_active() != gui_busy_get_screen();
         home_swipe_touch_start_x = p.x;
         home_swipe_touch_start_y = p.y;
@@ -3582,7 +3580,7 @@ static void poll_quick_drawer_drag(lv_timer_t * timer) {
 
         /* Depth > 1 is the stack-pop precondition. Lyrics owns its own
          * right-swipe (lyrics_gesture_event_cb -> close_lyrics_screen).
-         * Lock, text-entry, both DAC overlays, Import via Wi-Fi, and the
+         * Lock, text-entry, both DAC overlays, and the
          * busy overlay skip finalize_screen_navigation() -- a live pop
          * here would bypass their leave-confirmation, teardown, or
          * modal-ownership. Same drawer/dead-zone/drag-adjust exclusions
@@ -3600,7 +3598,6 @@ static void poll_quick_drawer_drag(lv_timer_t * timer) {
                                 lv_screen_active() != gui_text_view_get_screen() &&
                                 lv_screen_active() != gui_network_get_usb_dac_overlay() &&
                                 lv_screen_active() != gui_network_get_bt_dac_overlay() &&
-                                lv_screen_active() != gui_network_get_import_wifi_screen() &&
                                 lv_screen_active() != gui_busy_get_screen() &&
                                 !gui_library_navigation_blocked() &&
                                 !player_swipe_press_excluded(p);

@@ -19,7 +19,6 @@ bool gui_network_usb_prompt_invalidated(void);
  * Storage host was seen earlier on the same cable session. */
 bool gui_network_firmware_update_usb_blocked(void);
 bool gui_network_boot_prompt_blocked(void);
-lv_obj_t * gui_network_get_import_wifi_screen(void);
 
 void gui_network_init(void);
 #ifdef TEST_BOOT_RC
@@ -38,11 +37,10 @@ void poll_wifi_scan(void);
 void poll_bt_action(void);
 void poll_bt_dac(void);
 void poll_usb_dac_overlay(void);
-void poll_import_web(void);
 void get_device_name(char * out, size_t out_size);
 
 void populate_bt_dac_screen(void);
-void poll_import_web_stop(void);
+void poll_remote_import(void);
 void poll_usb_mode_switch(void);
 /* Request a live USB DAC charger policy change from Settings. This starts the
  * existing background worker; completion updates persistent settings only on
@@ -83,7 +81,7 @@ bool gui_network_bt_user_operation_active(void);
 void gui_network_cancel_background_work(void);
 
 /* Called once Wi-Fi disable is authoritatively confirmed (gui_shell.c's
- * poll_wifi_toggle()) -- stops AirPlay/DLNA/Remote Control/Import via Wi-Fi
+ * poll_wifi_toggle()) -- stops AirPlay/DLNA/Remote Control/remote file import
  * and clears their persisted enabled flags, since all four require Wi-Fi.
  * Cheap no-op for whichever of them wasn't running. */
 void gui_network_handle_wifi_disabled(void);

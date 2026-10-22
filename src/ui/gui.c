@@ -28,7 +28,6 @@
 #include "assets.h"
 #include "backlight.h"
 #include "debug_log.h"
-#include "import_web.h"
 #include "airplay_control.h"
 #include "dlna_control.h"
 #include "remote_control.h"
@@ -97,7 +96,6 @@ void gui_busy_hide(gui_busy_handle_t handle);
 
 gui_busy_handle_t wifi_connect_token = 0;
 gui_busy_handle_t wifi_connect_saved_token = 0;
-gui_busy_handle_t import_web_stop_token = 0;
 
 #include "src/core/lv_obj.h"
 #include "src/core/lv_obj_pos.h"
@@ -1536,7 +1534,7 @@ static void update_timer_cb(lv_timer_t * timer) {
     poll_bt_forget();
     poll_library_rescan();
     poll_sd_format();
-    poll_import_web_stop();
+    poll_remote_import();
 #ifdef UI_PERF_TRACE
     update_perf_mark("network_jobs");
 #endif

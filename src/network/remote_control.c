@@ -42,6 +42,9 @@
 
 /* Port 8899 -- shared by the PIN-protected remote and native file API. */
 #define REMOTE_CONTROL_PORT 8899
+/* Same server on the default HTTP port, so http://r1.compas.local needs no
+ * port number. Best-effort: 8899 keeps working if this cannot be bound. */
+#define REMOTE_CONTROL_WEB_PORT 80
 
 /* Same definition as gui.c's own MUSIC_ROOT_DIR/PLAYLISTS_DIR, duplicated
  * since gui.c doesn't expose either publicly. Must stay in sync. */
@@ -209,6 +212,7 @@ static uint64_t queue_snapshot_revision = 0;
 
 static atomic_bool running = false;
 static int listen_fd = -1;
+static int web_listen_fd = -1;
 static pthread_t listener_thread;
 static pthread_mutex_t listener_mutex = PTHREAD_MUTEX_INITIALIZER;
 #define REMOTE_CLIENT_WORKERS 2
@@ -1061,6 +1065,41 @@ static void send_pin_rate_limited_response(int fd) {
                               sizeof(body) - 1);
     send_all(fd, header, (size_t) header_len);
     send_all(fd, body, sizeof(body) - 1);
+}
+
+/* Browser session for the web app: after one request carrying the PIN header,
+ * the PIN rides in an HttpOnly, SameSite=Strict cookie so refreshes and the
+ * :80/:8899 ports of the same host never ask again. pin == NULL clears it. */
+#define REMOTE_CONTROL_PIN_COOKIE "compas_pin"
+
+static void send_session_cookie(int fd, const char * pin) {
+    char header[384];
+    int header_len = snprintf(header, sizeof(header),
+                              "HTTP/1.1 204 No Content\r\nSet-Cookie: " REMOTE_CONTROL_PIN_COOKIE "=%s; Path=/; Max-Age=%d; "
+                              "HttpOnly; SameSite=Strict\r\nCache-Control: no-store\r\nContent-Length: 0\r\n"
+                              "Connection: close\r\n\r\n",
+                              pin ? pin : "", pin ? 31536000 : 0);
+    send_all(fd, header, (size_t) header_len);
+}
+
+/* Copies the compas_pin value from a "Cookie:" header value; false if absent
+ * or not a plausible PIN (digits only, bounded). */
+static bool cookie_pin_value(const char * cookies, char * out, size_t out_size) {
+    static const char name[] = REMOTE_CONTROL_PIN_COOKIE "=";
+    for (const char * p = cookies; p && *p;) {
+        while (*p == ' ' || *p == '\t' || *p == ';') p++;
+        if (strncmp(p, name, sizeof(name) - 1) == 0) {
+            const char * value = p + sizeof(name) - 1;
+            size_t len = 0;
+            while (value[len] >= '0' && value[len] <= '9') len++;
+            if (!len || len >= out_size || (value[len] && value[len] != ';' && value[len] != ' ')) return false;
+            memcpy(out, value, len);
+            out[len] = '\0';
+            return true;
+        }
+        p = strchr(p, ';');
+    }
+    return false;
 }
 
 /* Pulls an integer query parameter from the request path. Returns false if
@@ -2899,6 +2938,8 @@ static void handle_connection(int cfd) {
     char pin_header[REMOTE_CONTROL_PIN_MAX_LENGTH + 1] = {0};
     bool pin_header_seen = false;
     bool pin_header_invalid = false;
+    char cookie_pin[REMOTE_CONTROL_PIN_MAX_LENGTH + 1] = {0};
+    bool cookie_pin_seen = false;
     long long content_length = -1; /* only POST /playlists/import reads a body */
     bool content_length_invalid = false;
     bool transfer_encoding_seen = false;
@@ -2939,6 +2980,10 @@ static void handle_connection(int cfd) {
                     pin_header_seen = true;
                 }
             }
+            static const char cookie_name[] = "Cookie:";
+            if (!cookie_pin_seen && header_line_len >= sizeof(cookie_name) - 1 &&
+                strncasecmp(header_line, cookie_name, sizeof(cookie_name) - 1) == 0)
+                cookie_pin_seen = cookie_pin_value(header_line + sizeof(cookie_name) - 1, cookie_pin, sizeof(cookie_pin));
             static const char length_name[] = "Content-Length:";
             if (header_line_len >= sizeof(length_name) - 1 &&
                 strncasecmp(header_line, length_name, sizeof(length_name) - 1) == 0) {
@@ -3025,9 +3070,16 @@ static void handle_connection(int cfd) {
                           (strcmp(path_only, "/") == 0 ||
                            strcmp(path, "/api/v1/capabilities") == 0 ||
                            strcmp(path, "/api/capabilities") == 0);
+    if (strcmp(method, "POST") == 0 && strcmp(path_only, "/api/session/clear") == 0) {
+        send_session_cookie(cfd, NULL);
+        return;
+    }
     if (!public_request) {
         remote_control_pin_result_t pin_result = REMOTE_CONTROL_PIN_INVALID;
-        if (!pin_header_invalid && pin_header_seen) pin_result = remote_control_pin_check(pin_header);
+        /* An explicit header wins; the cookie only stands in when it is absent. */
+        const char * candidate = pin_header_seen ? (pin_header_invalid ? NULL : pin_header)
+                                                 : (cookie_pin_seen ? cookie_pin : NULL);
+        if (candidate) pin_result = remote_control_pin_check(candidate);
         if (pin_result == REMOTE_CONTROL_PIN_RATE_LIMITED) {
             send_pin_rate_limited_response(cfd);
             return;
@@ -3035,6 +3087,10 @@ static void handle_connection(int cfd) {
         if (pin_result != REMOTE_CONTROL_PIN_VALID) {
             send_response(cfd, "401 Unauthorized", "application/json",
                           "{\"error\":\"unauthorized\",\"code\":\"pin_required\"}");
+            return;
+        }
+        if (strcmp(method, "POST") == 0 && strcmp(path_only, "/api/session") == 0) {
+            send_session_cookie(cfd, candidate);
             return;
         }
     }
@@ -3507,14 +3563,18 @@ static void * listener_thread_func(void * arg) {
     (void) arg;
     while (atomic_load_explicit(&running, memory_order_acquire)) {
         pthread_mutex_lock(&listener_mutex);
-        int fd = listen_fd;
+        struct pollfd pfds[2] = {
+            { .fd = listen_fd, .events = POLLIN, .revents = 0 },
+            { .fd = web_listen_fd, .events = POLLIN, .revents = 0 },
+        };
         pthread_mutex_unlock(&listener_mutex);
-        if (fd < 0) break;
-        struct pollfd pfd = { .fd = fd, .events = POLLIN, .revents = 0 };
-        int pr = poll(&pfd, 1, ACCEPT_POLL_TIMEOUT_MS);
+        if (pfds[0].fd < 0) break;
+        nfds_t count = pfds[1].fd >= 0 ? 2 : 1;
+        int pr = poll(pfds, count, ACCEPT_POLL_TIMEOUT_MS);
         if (pr <= 0) continue; /* Timeout or interrupted -- re-check running */
         if (!atomic_load_explicit(&running, memory_order_acquire)) break;
 
+        int fd = (pfds[0].revents & POLLIN) ? pfds[0].fd : pfds[1].fd;
         int cfd = accept(fd, NULL, NULL);
         if (cfd < 0) continue;
         struct timeval timeout = { .tv_sec = 1, .tv_usec = 0 };
@@ -3588,6 +3648,23 @@ static void * listener_thread_func(void * arg) {
     return NULL;
 }
 
+static int open_listener(uint16_t port) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    int reuse = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons(port);
+    if (bind(fd, (struct sockaddr *) &addr, sizeof(addr)) < 0 || listen(fd, 4) < 0) {
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
+
 void remote_control_start(void) {
     if (!remote_control_ensure_pin()) return;
     pthread_mutex_lock(&listener_mutex);
@@ -3596,39 +3673,20 @@ void remote_control_start(void) {
         return;
     }
 
-    listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+    listen_fd = open_listener(REMOTE_CONTROL_PORT);
     if (listen_fd < 0) {
         pthread_mutex_unlock(&listener_mutex);
         return;
     }
-
-    int reuse = 1;
-    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = INADDR_ANY;
-    addr.sin_port = htons(REMOTE_CONTROL_PORT);
-
-    if (bind(listen_fd, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
-        close(listen_fd);
-        listen_fd = -1;
-        pthread_mutex_unlock(&listener_mutex);
-        return;
-    }
-    if (listen(listen_fd, 4) < 0) {
-        close(listen_fd);
-        listen_fd = -1;
-        pthread_mutex_unlock(&listener_mutex);
-        return;
-    }
+    web_listen_fd = open_listener(REMOTE_CONTROL_WEB_PORT);
 
     atomic_store_explicit(&running, true, memory_order_release);
     if (pthread_create(&listener_thread, NULL, listener_thread_func, NULL) != 0) {
         atomic_store_explicit(&running, false, memory_order_release);
         close(listen_fd);
         listen_fd = -1;
+        if (web_listen_fd >= 0) close(web_listen_fd);
+        web_listen_fd = -1;
     } else {
         /* DNS-SD runs on its own best-effort worker. A missing Wi-Fi link or
          * occupied multicast socket never affects the HTTP listener. */
@@ -3640,6 +3698,13 @@ void remote_control_start(void) {
 
 bool remote_control_is_running(void) {
     return atomic_load_explicit(&running, memory_order_acquire);
+}
+
+bool remote_control_serves_default_port(void) {
+    pthread_mutex_lock(&listener_mutex);
+    bool serving = atomic_load_explicit(&running, memory_order_acquire) && web_listen_fd >= 0;
+    pthread_mutex_unlock(&listener_mutex);
+    return serving;
 }
 
 void remote_control_stop(void) {
@@ -3654,7 +3719,9 @@ void remote_control_stop(void) {
     /* Interrupt poll(), accept(), and a client read before joining. The
      * client handler owns close(); shutdown only wakes a concurrent read. */
     int stopped_listen_fd = listen_fd;
+    int stopped_web_listen_fd = web_listen_fd;
     if (stopped_listen_fd >= 0) shutdown(stopped_listen_fd, SHUT_RDWR);
+    if (stopped_web_listen_fd >= 0) shutdown(stopped_web_listen_fd, SHUT_RDWR);
     for (int i = 0; i < REMOTE_CLIENT_WORKERS; i++)
         if (active_client_fds[i] >= 0) shutdown(active_client_fds[i], SHUT_RDWR);
     pthread_mutex_unlock(&listener_mutex);
@@ -3664,6 +3731,10 @@ void remote_control_stop(void) {
     if (listen_fd == stopped_listen_fd && listen_fd >= 0) {
         close(listen_fd);
         listen_fd = -1;
+    }
+    if (web_listen_fd == stopped_web_listen_fd && web_listen_fd >= 0) {
+        close(web_listen_fd);
+        web_listen_fd = -1;
     }
     for (int i = 0; i < REMOTE_CLIENT_WORKERS; i++) {
         active_client_fds[i] = -1;

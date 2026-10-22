@@ -8399,8 +8399,7 @@ static bool library_prompt_environment_idle(void) {
 
     lv_obj_t * active = lv_screen_active();
     if (t9_keypad_is_inline_active() ||
-        (gui_text_input_get_screen() && active == gui_text_input_get_screen()) ||
-        (gui_network_get_import_wifi_screen() && active == gui_network_get_import_wifi_screen())) return false;
+        (gui_text_input_get_screen() && active == gui_text_input_get_screen())) return false;
 
     return gui_popup_visible_count() == 0;
 }

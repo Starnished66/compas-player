@@ -149,9 +149,8 @@ uint32_t gui_anim_ms(uint32_t base_ms); /* src/ui/gui_theme.c */
 #define LV_FS_POSIX_PATH ""
 #define LV_FS_POSIX_CACHE_SIZE 0
 
-/* Import via Wi-Fi screen (gui.c): renders the device's own IP as a QR
- * code so a phone can jump straight to the upload page without typing an
- * address. */
+/* Remote Control screen (gui_network.c): renders the device's own address
+ * as a QR code so a phone can connect without typing it. */
 #define LV_USE_QRCODE 1
 
 /* LVGL's general-purpose image cache (decoded bitmaps, keyed by source

@@ -18,6 +18,8 @@
 /* Starts the HTTP listener thread on REMOTE_CONTROL_PORT. Idempotent. */
 void remote_control_start(void);
 bool remote_control_is_running(void);
+/* True when the server also answers on port 80, so URLs can omit ":8899". */
+bool remote_control_serves_default_port(void);
 
 /* Stops the listener thread and its socket. Idempotent. */
 void remote_control_stop(void);

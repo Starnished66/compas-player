@@ -1,4 +1,5 @@
 #include "remote_control_mdns.h"
+#include "board_config.h"
 
 #include <arpa/inet.h>
 #include <stdbool.h>
@@ -19,10 +20,25 @@
 #define RC_PORT 8899
 #define SERVICE_NAME "_compas-remote._tcp.local"
 #define INSTANCE_NAME "Compas Remote Control._compas-remote._tcp.local"
+/* Stable per-model address, e.g. http://r1.compas.local:8899. Both R3
+ * variants share "r3"; probing moves to r3-2, r3-3... when another player
+ * on the network already owns the name. */
+#if defined(BOARD_R3PROII) || defined(BOARD_R3II_2025)
+#define DEVICE_LABEL "r3"
+#else
+#define DEVICE_LABEL "r1"
+#endif
+#define DEVICE_DOMAIN "compas.local"
+#define MAX_NAME_SUFFIX 9
+#define PROBE_COUNT 3
+#define PROBE_INTERVAL_MS 250
+#define LEGACY_UNICAST_TTL 10
 
 static atomic_bool active;
 static pthread_t worker;
 static pthread_mutex_t lifecycle_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t name_mutex = PTHREAD_MUTEX_INITIALIZER;
+static char published_name[64];
 
 static uint16_t put16(uint8_t *p, uint16_t v) {
     v = htons(v); memcpy(p, &v, 2); return 2;
@@ -30,6 +46,10 @@ static uint16_t put16(uint8_t *p, uint16_t v) {
 
 static uint16_t put32(uint8_t *p, uint32_t v) {
     v = htonl(v); memcpy(p, &v, 4); return 4;
+}
+
+static uint16_t read16(const uint8_t *p) {
+    return (uint16_t)(((uint16_t)p[0] << 8) | p[1]);
 }
 
 static size_t put_name(uint8_t *out, size_t capacity, const char *name) {
@@ -96,8 +116,11 @@ static bool append_record(uint8_t *packet, size_t *offset, const char *owner,
     return true;
 }
 
-static size_t make_answer(uint8_t *packet, const char *host, struct in_addr ip, uint32_t ttl,
-                          const char *qname, uint16_t qtype, unsigned *answers, unsigned *additional) {
+/* host is the probed <model>.compas.local name the SRV record targets;
+ * alias is the legacy <hostname>.local, still answered for A queries. */
+static size_t make_answer(uint8_t *packet, const char *host, const char *alias, struct in_addr ip,
+                          uint32_t ttl, const char *qname, uint16_t qtype,
+                          unsigned *answers, unsigned *additional) {
     memset(packet, 0, 1400);
     put16(packet, 0); put16(packet + 2, 0x8400); /* response, authoritative */
     *answers = *additional = 0;
@@ -106,11 +129,12 @@ static size_t make_answer(uint8_t *packet, const char *host, struct in_addr ip, 
     bool announce = !qname;
     bool service = announce || strcasecmp(qname, SERVICE_NAME) == 0;
     bool instance = announce || strcasecmp(qname, INSTANCE_NAME) == 0;
-    bool host_query = announce || strcasecmp(qname, host) == 0;
+    bool host_query = !announce && strcasecmp(qname, host) == 0;
+    bool alias_query = !announce && alias && strcasecmp(qname, alias) == 0;
     bool ptr = service && (announce || qtype == 12 || qtype == 255);
     bool srv = instance && (announce || qtype == 33 || qtype == 255);
     bool txt = instance && (announce || qtype == 16 || qtype == 255);
-    bool address = host_query && (announce || qtype == 1 || qtype == 255);
+    bool address = (host_query || alias_query) && (qtype == 1 || qtype == 255);
     size_t len = put_name(data, sizeof(data), INSTANCE_NAME);
     if (ptr && append_record(packet, &n, SERVICE_NAME, 12, ttl, false, data, len)) (*answers)++;
     len = put16(data, 0); len += put16(data + len, 0); len += put16(data + len, RC_PORT);
@@ -119,7 +143,12 @@ static size_t make_answer(uint8_t *packet, const char *host, struct in_addr ip, 
     data[0] = 5; memcpy(data + 1, "api=1", 5);
     if (txt && append_record(packet, &n, INSTANCE_NAME, 16, ttl, true, data, 6)) (*answers)++;
     memcpy(data, &ip.s_addr, 4);
-    if (address && append_record(packet, &n, host, 1, ttl, true, data, 4)) (*answers)++;
+    if (announce) {
+        if (append_record(packet, &n, host, 1, ttl, true, data, 4)) (*answers)++;
+        if (alias && append_record(packet, &n, alias, 1, ttl, true, data, 4)) (*answers)++;
+    } else if (address && append_record(packet, &n, host_query ? host : alias, 1, ttl, true, data, 4)) {
+        (*answers)++;
+    }
     /* Browse answers carry the SRV/TXT/A records as additional data. */
     if (!announce && ptr) {
         len = put16(data, 0); len += put16(data + len, 0); len += put16(data + len, RC_PORT);
@@ -136,6 +165,97 @@ static size_t make_answer(uint8_t *packet, const char *host, struct in_addr ip, 
     put16(packet + 6, (uint16_t)*answers);
     put16(packet + 10, (uint16_t)*additional);
     return n;
+}
+
+static void device_host_name(char *out, size_t size, unsigned suffix) {
+    if (suffix <= 1) snprintf(out, size, "%s.%s", DEVICE_LABEL, DEVICE_DOMAIN);
+    else snprintf(out, size, "%s-%u.%s", DEVICE_LABEL, suffix, DEVICE_DOMAIN);
+}
+
+/* RFC 6762 8.1 probe: an ANY question for host, with the proposed A record
+ * in the authority section so simultaneous probers can tie-break. */
+static size_t make_probe(uint8_t *packet, const char *host, struct in_addr ip) {
+    memset(packet, 0, 1400);
+    put16(packet + 4, 1);
+    put16(packet + 8, 1);
+    size_t n = 12;
+    size_t name_len = put_name(packet + n, 1400 - n, host);
+    if (!name_len) return 0;
+    n += name_len;
+    n += put16(packet + n, 255);
+    n += put16(packet + n, 0x8001); /* IN, unicast response requested */
+    if (!append_record(packet, &n, host, 1, 120, false, (const uint8_t *)&ip.s_addr, 4)) return 0;
+    return n;
+}
+
+/* True when another device owns host: any response giving it a different
+ * address, or a simultaneous probe whose address wins the RFC 6762 8.2
+ * tie-break (lexicographically greater rdata). */
+static bool packet_claims_host(const uint8_t *packet, size_t len, const char *host, struct in_addr ip) {
+    if (len < 12) return false;
+    bool response = (packet[2] & 0x80) != 0;
+    unsigned questions = read16(packet + 4);
+    unsigned answer_count = read16(packet + 6);
+    unsigned authority_count = read16(packet + 8);
+    unsigned records = answer_count + authority_count + read16(packet + 10);
+    size_t offset = 12;
+    char owner[256];
+    for (unsigned i = 0; i < questions; i++) {
+        if (!decode_name(packet, len, &offset, owner, sizeof(owner)) || offset + 4 > len) return false;
+        offset += 4;
+    }
+    for (unsigned i = 0; i < records; i++) {
+        if (!decode_name(packet, len, &offset, owner, sizeof(owner)) || offset + 10 > len) return false;
+        uint16_t type = read16(packet + offset);
+        uint16_t rrclass = read16(packet + offset + 2);
+        uint16_t rdlength = read16(packet + offset + 8);
+        offset += 10;
+        if (offset + rdlength > len) return false;
+        const uint8_t *rdata = packet + offset;
+        bool authority = i >= answer_count && i < answer_count + authority_count;
+        if (type == 1 && (rrclass & 0x7fff) == 1 && rdlength == 4 && strcasecmp(owner, host) == 0) {
+            int order = memcmp(rdata, &ip.s_addr, 4);
+            if (order != 0 && (response || (authority && order > 0))) return true;
+        }
+        offset += rdlength;
+    }
+    return false;
+}
+
+/* Sends the probes and listens between them; true when host is taken. */
+static bool name_in_use(int fd, const struct sockaddr_in *group, const char *host, struct in_addr ip) {
+    uint8_t packet[1500];
+    for (int probe = 0; probe < PROBE_COUNT && atomic_load(&active); probe++) {
+        size_t len = make_probe(packet, host, ip);
+        if (len) (void)sendto(fd, packet, len, 0, (const struct sockaddr *)group, sizeof(*group));
+        struct timespec start;
+        clock_gettime(CLOCK_MONOTONIC, &start);
+        for (;;) {
+            struct timespec now;
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            long elapsed = (now.tv_sec - start.tv_sec) * 1000 + (now.tv_nsec - start.tv_nsec) / 1000000;
+            if (elapsed >= PROBE_INTERVAL_MS) break;
+            struct pollfd pfd = { .fd = fd, .events = POLLIN };
+            if (poll(&pfd, 1, (int)(PROBE_INTERVAL_MS - elapsed)) <= 0 || !(pfd.revents & POLLIN)) continue;
+            ssize_t got = recv(fd, packet, sizeof(packet), 0);
+            if (got > 0 && packet_claims_host(packet, (size_t)got, host, ip)) return true;
+        }
+    }
+    return false;
+}
+
+static void set_published_name(const char *name) {
+    pthread_mutex_lock(&name_mutex);
+    snprintf(published_name, sizeof(published_name), "%s", name ? name : "");
+    pthread_mutex_unlock(&name_mutex);
+}
+
+bool remote_control_mdns_hostname(char *out, size_t size) {
+    pthread_mutex_lock(&name_mutex);
+    bool published = published_name[0] != '\0';
+    if (published && out && size) snprintf(out, size, "%s", published_name);
+    pthread_mutex_unlock(&name_mutex);
+    return published;
 }
 
 static bool wifi_address(struct in_addr *out) {
@@ -160,11 +280,50 @@ static bool wifi_address(struct in_addr *out) {
     return ok;
 }
 
-static void send_records(int fd, const struct sockaddr_in *to, const char *host,
+/* RFC 6762 6.7: a query from a port other than 5353 comes from a one-shot
+ * resolver (Android's, dig, ...), which only reads a direct reply carrying
+ * its query ID and question. Such replies use a short TTL and never set the
+ * cache-flush bit. Rewrites the multicast-style answer in place. */
+static size_t make_legacy_answer(uint8_t *packet, size_t len, const uint8_t *query, size_t query_len) {
+    size_t question_end = 12;
+    char name[256];
+    if (query_len < 12 || !decode_name(query, query_len, &question_end, name, sizeof(name)) ||
+        question_end + 4 > query_len) return 0;
+    question_end += 4;
+    size_t question_len = question_end - 12;
+    if (len + question_len > 1400) return 0;
+    unsigned records = (unsigned)read16(packet + 6) + read16(packet + 8) + read16(packet + 10);
+    size_t offset = 12;
+    for (unsigned i = 0; i < records; i++) {
+        if (!decode_name(packet, len, &offset, name, sizeof(name)) || offset + 10 > len) return 0;
+        put16(packet + offset + 2, (uint16_t)(read16(packet + offset + 2) & 0x7fff));
+        uint32_t ttl = ((uint32_t)read16(packet + offset + 4) << 16) | read16(packet + offset + 6);
+        if (ttl > LEGACY_UNICAST_TTL) put32(packet + offset + 4, LEGACY_UNICAST_TTL);
+        offset += 10 + read16(packet + offset + 8);
+    }
+    memmove(packet + 12 + question_len, packet + 12, len - 12);
+    memcpy(packet + 12, query + 12, question_len);
+    memcpy(packet, query, 2); /* query ID */
+    put16(packet + 4, 1);
+    return len + question_len;
+}
+
+static void send_legacy_records(int fd, const struct sockaddr_in *to, const char *host, const char *alias,
+                                struct in_addr ip, const char *qname, uint16_t qtype,
+                                const uint8_t *query, size_t query_len) {
+    uint8_t packet[1400];
+    unsigned answers, additional;
+    size_t len = make_answer(packet, host, alias, ip, LEGACY_UNICAST_TTL, qname, qtype, &answers, &additional);
+    if (len <= 12 || !answers) return;
+    len = make_legacy_answer(packet, len, query, query_len);
+    if (len) (void)sendto(fd, packet, len, 0, (const struct sockaddr *)to, sizeof(*to));
+}
+
+static void send_records(int fd, const struct sockaddr_in *to, const char *host, const char *alias,
                          struct in_addr ip, uint32_t ttl, const char *qname, uint16_t qtype) {
     uint8_t packet[1400];
     unsigned answers, additional;
-    size_t len = make_answer(packet, host, ip, ttl, qname, qtype, &answers, &additional);
+    size_t len = make_answer(packet, host, alias, ip, ttl, qname, qtype, &answers, &additional);
     if (len > 12 && answers) (void)sendto(fd, packet, len, 0, (const struct sockaddr *)to, sizeof(*to));
 }
 
@@ -189,7 +348,9 @@ static void *mdns_worker(void *unused) {
         if (!( (*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
                (*p >= '0' && *p <= '9') || *p == '-')) *p = '-';
     }
-    char host[256]; snprintf(host, sizeof(host), "%s.local", hostname);
+    char alias[256]; snprintf(alias, sizeof(alias), "%s.local", hostname);
+    unsigned suffix = 1;
+    char host[64]; device_host_name(host, sizeof(host), suffix);
     struct sockaddr_in group = { .sin_family = AF_INET, .sin_port = htons(MDNS_PORT) };
     inet_pton(AF_INET, MDNS_GROUP, &group.sin_addr);
     int fd = -1;
@@ -199,16 +360,18 @@ static void *mdns_worker(void *unused) {
         struct in_addr ip;
         if (!wifi_address(&ip)) {
             if (fd >= 0) {
-                send_records(fd, &group, host, last_ip, 0, NULL, 255);
+                send_records(fd, &group, host, alias, last_ip, 0, NULL, 255);
                 close(fd); fd = -1; last_ip.s_addr = 0;
+                set_published_name(NULL);
             }
             poll(NULL, 0, 2000);
             continue;
         }
         if (fd < 0 || ip.s_addr != last_ip.s_addr) {
             if (fd >= 0) {
-                send_records(fd, &group, host, last_ip, 0, NULL, 255);
+                send_records(fd, &group, host, alias, last_ip, 0, NULL, 255);
                 close(fd);
+                set_published_name(NULL);
             }
             fd = socket(AF_INET, SOCK_DGRAM, 0);
             if (fd < 0) { poll(NULL, 0, 2000); continue; }
@@ -226,7 +389,11 @@ static void *mdns_worker(void *unused) {
             setsockopt(fd, IPPROTO_IP, IP_MULTICAST_LOOP, &loop, sizeof(loop));
             setsockopt(fd, IPPROTO_IP, IP_MULTICAST_IF, &ip, sizeof(ip));
             last_ip = ip;
-            send_records(fd, &group, host, ip, 120, NULL, 255);
+            while (atomic_load(&active) && name_in_use(fd, &group, host, ip) && suffix < MAX_NAME_SUFFIX)
+                device_host_name(host, sizeof(host), ++suffix);
+            if (!atomic_load(&active)) break;
+            send_records(fd, &group, host, alias, ip, 120, NULL, 255);
+            set_published_name(host);
             last_announce = time(NULL);
         }
         struct pollfd pfd = { .fd = fd, .events = POLLIN };
@@ -237,16 +404,29 @@ static void *mdns_worker(void *unused) {
             socklen_t source_len = sizeof(source);
             ssize_t got = recvfrom(fd, query, sizeof(query), 0, (struct sockaddr *)&source, &source_len);
             char qname[256]; uint16_t qtype; bool unicast;
-            if (got > 0 && parse_question(query, (size_t)got, qname, sizeof(qname), &qtype, &unicast))
-                send_records(fd, unicast ? &source : &group, host, ip, 120, qname, qtype);
+            if (got > 0 && (query[2] & 0x80) && suffix < MAX_NAME_SUFFIX &&
+                packet_claims_host(query, (size_t)got, host, ip)) {
+                /* Another device answered for our name: re-probe under the next one. */
+                device_host_name(host, sizeof(host), ++suffix);
+                close(fd); fd = -1;
+                set_published_name(NULL);
+                continue;
+            }
+            if (got > 0 && parse_question(query, (size_t)got, qname, sizeof(qname), &qtype, &unicast)) {
+                if (ntohs(source.sin_port) != MDNS_PORT)
+                    send_legacy_records(fd, &source, host, alias, ip, qname, qtype, query, (size_t)got);
+                else
+                    send_records(fd, unicast ? &source : &group, host, alias, ip, 120, qname, qtype);
+            }
         }
         time_t now = time(NULL);
         if (now - last_announce >= 60) {
-            send_records(fd, &group, host, ip, 120, NULL, 255);
+            send_records(fd, &group, host, alias, ip, 120, NULL, 255);
             last_announce = now;
         }
     }
-    if (fd >= 0) { send_records(fd, &group, host, last_ip, 0, NULL, 255); close(fd); }
+    if (fd >= 0) { send_records(fd, &group, host, alias, last_ip, 0, NULL, 255); close(fd); }
+    set_published_name(NULL);
     return NULL;
 }
 
