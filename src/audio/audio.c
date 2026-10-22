@@ -38,6 +38,7 @@
 #include "http_stream_file.h"
 #include "remote_track.h"
 #include "metadata.h"
+#include "../library/cue_parser.h"
 
 #include <math.h>
 #include <pthread.h>
@@ -155,6 +156,13 @@ typedef struct {
     /* Local FLAC callback stream. dr_flac has no relaxed file convenience
      * wrapper, so keep the FILE alive for the decoder lifetime. */
     FILE * flac_file;
+
+    /* CUE tracks expose a bounded, track-relative timeline over the source
+     * decoder. The underlying codec always stays positioned in source frames. */
+    bool segmented;
+    uint64_t segment_start_frame;
+    uint64_t segment_frame_count;
+    uint64_t segment_read_cursor;
 } decoder_t;
 
 /* Most internet-radio URLs have no usable extension (an opaque mount point,
@@ -809,7 +817,7 @@ static bool decoder_open_internal(decoder_t * dec, const char * path) {
     return false;
 }
 
-static decoder_read_result_t decoder_read_s16(decoder_t * dec, uint64_t frames, int16_t * buf) {
+static decoder_read_result_t decoder_read_s16_raw(decoder_t * dec, uint64_t frames, int16_t * buf) {
     decoder_read_result_t res = { .frames = 0, .status = DECODER_READ_OK };
     if (!dec || !buf) {
         res.status = DECODER_READ_FATAL_ERROR;
@@ -846,7 +854,8 @@ static decoder_read_result_t decoder_read_s16(decoder_t * dec, uint64_t frames, 
             /* The decoder takes a truncated file's real length at open; this
              * keeps the loop in step if the file shrinks during playback, so
              * that end is not treated as a premature EOF. */
-            dec->total_frames = dsd_get_total_pcm_frame_count(dec->as.dsd);
+            if (!dec->segmented)
+                dec->total_frames = dsd_get_total_pcm_frame_count(dec->as.dsd);
             return r;
         }
         case DECODER_AAC:
@@ -866,8 +875,19 @@ static decoder_read_result_t decoder_read_s16(decoder_t * dec, uint64_t frames, 
     return res;
 }
 
+static decoder_read_result_t decoder_read_s16(decoder_t * dec, uint64_t frames, int16_t * buf) {
+    if (!dec || !dec->segmented) return decoder_read_s16_raw(dec, frames, buf);
+    uint64_t remaining = dec->segment_frame_count > dec->segment_read_cursor
+                       ? dec->segment_frame_count - dec->segment_read_cursor : 0;
+    if (!remaining) return (decoder_read_result_t) { .frames = 0, .status = DECODER_READ_EOF };
+    if (frames > remaining) frames = remaining;
+    decoder_read_result_t result = decoder_read_s16_raw(dec, frames, buf);
+    dec->segment_read_cursor += result.frames;
+    return result;
+}
+
 #ifndef HOST_BUILD
-static decoder_read_result_t decoder_read_s32(decoder_t * dec, uint64_t frames, int32_t * buf) {
+static decoder_read_result_t decoder_read_s32_raw(decoder_t * dec, uint64_t frames, int32_t * buf) {
     decoder_read_result_t res = { .frames = 0, .status = DECODER_READ_OK };
     if (!dec || !buf) {
         res.status = DECODER_READ_FATAL_ERROR;
@@ -923,7 +943,8 @@ static decoder_read_result_t decoder_read_s32(decoder_t * dec, uint64_t frames, 
              * right-justified 24-bit: already in S24_LE layout. */
         {
             decoder_read_result_t r = dsd_read_pcm_frames_s32(dec->as.dsd, frames, buf);
-            dec->total_frames = dsd_get_total_pcm_frame_count(dec->as.dsd); /* see decoder_read_s16() */
+            if (!dec->segmented)
+                dec->total_frames = dsd_get_total_pcm_frame_count(dec->as.dsd); /* see decoder_read_s16() */
             return r;
         }
         default:
@@ -932,6 +953,17 @@ static decoder_read_result_t decoder_read_s32(decoder_t * dec, uint64_t frames, 
             res.status = DECODER_READ_FATAL_ERROR;
             return res;
     }
+}
+
+static decoder_read_result_t decoder_read_s32(decoder_t * dec, uint64_t frames, int32_t * buf) {
+    if (!dec || !dec->segmented) return decoder_read_s32_raw(dec, frames, buf);
+    uint64_t remaining = dec->segment_frame_count > dec->segment_read_cursor
+                       ? dec->segment_frame_count - dec->segment_read_cursor : 0;
+    if (!remaining) return (decoder_read_result_t) { .frames = 0, .status = DECODER_READ_EOF };
+    if (frames > remaining) frames = remaining;
+    decoder_read_result_t result = decoder_read_s32_raw(dec, frames, buf);
+    dec->segment_read_cursor += result.frames;
+    return result;
 }
 #endif
 
@@ -951,11 +983,11 @@ static decoder_read_result_t decoder_read_s32(decoder_t * dec, uint64_t frames, 
 #define MP3_SEEK_INDEX_MAX_POINTS 8192u
 
 static bool mp3_needs_seek_index(const decoder_t * dec) {
-    return dec && !dec->net_stream && dec->type == DECODER_MP3 && dec->sample_rate > 0 &&
+    return dec && !dec->segmented && !dec->net_stream && dec->type == DECODER_MP3 && dec->sample_rate > 0 &&
            dec->total_frames >= (uint64_t) dec->sample_rate * MP3_SEEK_INDEX_INTERVAL_SECONDS * 2;
 }
 
-static bool decoder_seek(decoder_t * dec, uint64_t frame) {
+static bool decoder_seek_raw(decoder_t * dec, uint64_t frame) {
     if (!dec || !dec->seekable)
         return false;
     switch (dec->type) {
@@ -985,6 +1017,16 @@ static bool decoder_seek(decoder_t * dec, uint64_t frame) {
         case DECODER_VORBIS: return vorbis_seek_to_pcm_frame(dec->as.vorbis, frame);
     }
     return false;
+}
+
+static bool decoder_seek(decoder_t * dec, uint64_t frame) {
+    if (!dec || !dec->seekable) return false;
+    if (!dec->segmented) return decoder_seek_raw(dec, frame);
+    if (frame > dec->segment_frame_count) frame = dec->segment_frame_count;
+    if (dec->segment_start_frame > UINT64_MAX - frame) return false;
+    if (!decoder_seek_raw(dec, dec->segment_start_frame + frame)) return false;
+    dec->segment_read_cursor = frame;
+    return true;
 }
 
 /* Only these local PCM-capable decoders have a frame-addressable seek
@@ -1096,14 +1138,56 @@ static bool decoder_format_is_safe(decoder_t * dec) {
     return true;
 }
 
+static bool cue_seconds_to_frame(double seconds, unsigned int sample_rate, uint64_t * frame_out) {
+    if (!isfinite(seconds) || seconds < 0.0 || sample_rate == 0 || !frame_out) return false;
+    double frames = seconds * (double) sample_rate;
+    /* UINT64_MAX rounds to 2^64 as a double; reject that boundary before
+     * the cast so out-of-range floating-to-integer conversion is avoided. */
+    if (!isfinite(frames) || frames >= 0x1p64) return false;
+    *frame_out = (uint64_t) floor(frames + 0.5);
+    return true;
+}
+
 static bool decoder_open(decoder_t * dec, const char * path) {
     if (!path || !path[0]) {
         memset(dec, 0, sizeof(*dec));
         dec->open_error = AUDIO_ERROR_FILE_UNAVAILABLE;
         return false;
     }
+    const char * open_path = path;
+    char cue_audio_path[600];
+    bool cue_reference = cue_reference_is(path);
+    uint64_t cue_start_frame = 0;
+    uint64_t cue_end_frame = 0;
+    double cue_start_seconds = 0.0;
+    double cue_end_seconds = -1.0;
+    if (cue_reference) {
+        cue_sheet_t sheet = {0};
+        unsigned ordinal = 0;
+        if (!cue_reference_resolve(path, &sheet, &ordinal) ||
+            ordinal == 0 || ordinal > (unsigned) sheet.track_count) {
+            cue_sheet_free(&sheet);
+            memset(dec, 0, sizeof(*dec));
+            dec->open_error = AUDIO_ERROR_DECODER_FAILED;
+            return false;
+        }
+        const cue_track_t * track = &sheet.tracks[ordinal - 1];
+        memcpy(cue_audio_path, track->audio_path, sizeof(cue_audio_path));
+        cue_audio_path[sizeof(cue_audio_path) - 1] = '\0';
+        cue_start_seconds = track->start_seconds;
+        cue_end_seconds = track->end_seconds;
+        cue_sheet_free(&sheet);
+        open_path = cue_audio_path;
+        if (!isfinite(cue_start_seconds) || cue_start_seconds < 0.0 ||
+            (cue_end_seconds != -1.0 &&
+             (!isfinite(cue_end_seconds) || cue_end_seconds <= cue_start_seconds))) {
+            memset(dec, 0, sizeof(*dec));
+            dec->open_error = AUDIO_ERROR_DECODER_FAILED;
+            return false;
+        }
+    }
     errno = 0;
-    if (!decoder_open_internal(dec, path)) {
+    if (!decoder_open_internal(dec, open_path)) {
         int saved_errno = errno;
         if (!is_stream_url(path) && !remote_track_path_is_remote(path) &&
             (saved_errno == ENOENT || saved_errno == ENOTDIR || saved_errno == EACCES))
@@ -1120,6 +1204,33 @@ static bool decoder_open(decoder_t * dec, const char * path) {
     }
     if (!dec->net_stream)
         dec->seekable = true;
+    if (cue_reference) {
+        if (!dec->seekable || dec->total_frames == 0 ||
+            !cue_seconds_to_frame(cue_start_seconds, dec->sample_rate, &cue_start_frame) ||
+            (cue_end_seconds != -1.0 && !cue_seconds_to_frame(cue_end_seconds, dec->sample_rate, &cue_end_frame)) ||
+            cue_start_frame >= dec->total_frames) {
+            decoder_close(dec);
+            dec->open_error = AUDIO_ERROR_DECODER_FAILED;
+            return false;
+        }
+        if (cue_end_seconds == -1.0 || cue_end_frame > dec->total_frames)
+            cue_end_frame = dec->total_frames;
+        if (cue_end_frame <= cue_start_frame) {
+            decoder_close(dec);
+            dec->open_error = AUDIO_ERROR_DECODER_FAILED;
+            return false;
+        }
+        dec->segmented = true;
+        dec->segment_start_frame = cue_start_frame;
+        dec->segment_frame_count = cue_end_frame - cue_start_frame;
+        dec->segment_read_cursor = 0;
+        dec->total_frames = dec->segment_frame_count;
+        if (!decoder_seek_raw(dec, cue_start_frame)) {
+            decoder_close(dec);
+            dec->open_error = AUDIO_ERROR_DECODER_FAILED;
+            return false;
+        }
+    }
     dec->open_error = AUDIO_ERROR_NONE;
     return true;
 }
@@ -2099,8 +2210,14 @@ bool audio_extract_waveform_progress(const char * path, uint8_t * bins, size_t c
         (cancel && cancel(user))) return false;
 
     struct stat st;
-    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) return false;
-    const char * ext = strrchr(path, '.');
+    char waveform_source[600];
+    const char * stat_path = path;
+    if (cue_reference_is(path)) {
+        if (!cue_reference_audio_path(path, waveform_source, sizeof(waveform_source))) return false;
+        stat_path = waveform_source;
+    }
+    if (stat(stat_path, &st) != 0 || !S_ISREG(st.st_mode)) return false;
+    const char * ext = strrchr(stat_path, '.');
     if (ext && (strcasecmp(ext, ".dsf") == 0 || strcasecmp(ext, ".dff") == 0 ||
                 strcasecmp(ext, ".ape") == 0)) return false;
     (void) clock_gettime(CLOCK_MONOTONIC, &started);
@@ -2132,7 +2249,7 @@ bool audio_extract_waveform_progress(const char * path, uint8_t * bins, size_t c
     uint64_t window_frames = ((uint64_t)dec.sample_rate * WAVEFORM_WINDOW_MS) / 1000;
     if (window_frames == 0) window_frames = 1;
     bool sparse_seek = can_sparse_seek && dec.total_frames > (uint64_t)count * window_frames;
-    if (sparse_seek && dec.type == DECODER_MP3) {
+    if (sparse_seek && dec.type == DECODER_MP3 && !dec.segmented) {
         bool index_cancelled = false;
         if (!waveform_prepare_mp3_seek_table(&dec, path, &cancel_context, &index_cancelled)) {
             if (index_cancelled || waveform_cancel_or_expired(&cancel_context)) goto done;
@@ -2165,7 +2282,7 @@ bool audio_extract_waveform_progress(const char * path, uint8_t * bins, size_t c
         if (sparse_seek) {
             bool seek_ok = false;
             if (!(cancel && cancel(user))) {
-                seek_ok = dec.type == DECODER_FLAC
+                seek_ok = dec.type == DECODER_FLAC && !dec.segmented
                     ? waveform_flac_seeded_seek(&dec, read_start,
                                                 local_flac_file_size,
                                                 waveform_cancel_or_expired,
@@ -2317,7 +2434,7 @@ static bool can_use_wide_crossfade(const decoder_t * cur, const decoder_t * next
 /* A DSD decoder passing its bits through as DoP. Its frames must reach the
  * DAC untouched: no ReplayGain, EQ, volume, fade or crossfade. */
 static bool decoder_is_dop(const decoder_t * dec) {
-    return dec->type == DECODER_DSD && dsd_is_dop(dec->as.dsd);
+    return dec && !dec->segmented && dec->type == DECODER_DSD && dsd_is_dop(dec->as.dsd);
 }
 
 #ifndef HOST_BUILD
@@ -2333,7 +2450,8 @@ static void refresh_dsd_format(decoder_t * dec) {
 /* Switches a freshly opened DSD decoder (still at frame 0) to native DoP
  * when the local DAC can play it. */
 static void maybe_enable_dop(decoder_t * dec) {
-    if (dec->type != DECODER_DSD || dec->net_stream || dsd_is_dop(dec->as.dsd) || !buf_cur_s32) return;
+    if (dec->type != DECODER_DSD || dec->segmented || dec->net_stream ||
+        dsd_is_dop(dec->as.dsd) || !buf_cur_s32) return;
     unsigned int rate = dsd_get_dop_sample_rate(dec->as.dsd);
     if (dec->channels != 2 || rate > DOP_MAX_SAMPLE_RATE || audio_output_dop_rate_refused(rate)) return;
     if (!audio_output_is_local_requested() || !audio_output_dop_supported()) return;
@@ -2555,7 +2673,7 @@ static bool reopen_decoder_at(decoder_t * dec, const char * path,
          * track (i.e. saved_mp3_points is NULL and attempted was never set)
          * would be refused outright, since mp3_needs_seek_index() covers
          * ordinary track lengths. */
-        bool seek_ok = dec->type == DECODER_MP3
+        bool seek_ok = dec->type == DECODER_MP3 && !dec->segmented
             ? drmp3_seek_to_pcm_frame(dec->as.mp3, last_confirmed_frame) != 0
             : decoder_seek(dec, last_confirmed_frame);
         if (!seek_ok) {

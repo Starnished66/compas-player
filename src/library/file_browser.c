@@ -6,6 +6,7 @@
 #include "gui_navigation.h" /* enable_gesture_bubble_recursive() for rebuilt pager controls */
 #include "playlist_files.h" /* playlist_files_resolve_path() -- shared M3U line resolution */
 #include "library_endian.h"
+#include "cue_parser.h"
 #include "fallback_font.h"
 #include "file_ops.h" /* file_op_path_in_root() */
 
@@ -181,6 +182,11 @@ static const char * const PLAYABLE_EXTENSIONS[] = {
 };
 
 bool file_browser_is_playable_name(const char * name) {
+    if (cue_reference_is(name)) {
+        char source[PATH_MAX];
+        unsigned ordinal;
+        return cue_reference_parse(name, source, sizeof(source), &ordinal);
+    }
     const char * ext = strrchr(name, '.');
     if (!ext) return false;
     for (size_t i = 0; i < sizeof(PLAYABLE_EXTENSIONS) / sizeof(PLAYABLE_EXTENSIONS[0]); i++) {
@@ -1282,6 +1288,15 @@ static void entry_click_cb(lv_event_t * e) {
     } else {
         snprintf(last_selected_dir, sizeof(last_selected_dir), "%s", fb->current_dir);
         last_selected_row = index;
+        if (fb->callbacks.on_cue_select) {
+            cue_sheet_t sheet = {0};
+            bool embedded = cue_parse_embedded(path, &sheet);
+            cue_sheet_free(&sheet);
+            if (embedded) {
+                fb->callbacks.on_cue_select(path);
+                return;
+            }
+        }
         build_playlist_and_select(fb, index);
     }
 }

@@ -1,5 +1,6 @@
 #include <limits.h>
 #include "metadata.h"
+#include "cue_parser.h"
 #include "board_config.h"
 #include "i18n.h"
 #include "usb_mode_control.h"
@@ -1255,6 +1256,8 @@ static void albumart_info_from_path_tags(const char * track_path, const char * a
                                           const char * album_artist, albumart_info_t * info) {
     memset(info, 0, sizeof(*info));
     snprintf(info->path, sizeof(info->path), "%s", track_path ? track_path : "");
+    if (track_path && cue_reference_is(track_path))
+        (void) cue_reference_audio_path(track_path, info->path, sizeof(info->path));
     snprintf(info->artist, sizeof(info->artist), "%s", artist ? artist : "");
     snprintf(info->album, sizeof(info->album), "%s", album ? album : "");
     snprintf(info->albumartist, sizeof(info->albumartist), "%s", album_artist ? album_artist : "");
@@ -5709,7 +5712,10 @@ void refresh_format_badge(void) {
 
     char ext[16] = "";
     const char * hint = info_path_hint(path);
-    if (is_http_url(path) || is_remote_track) {
+    if (cue_reference_is(path)) {
+        /* The reference identifies a CUE entry, not its audio container. */
+        snprintf(ext, sizeof(ext), "%s", format_codec_name(codec));
+    } else if (is_http_url(path) || is_remote_track) {
         const char * name = format_codec_name(codec);
         if (!name[0] && is_remote_track) name = stream_format_hint_name(remote_meta.codec);
         if (!name[0]) name = stream_format_hint_name(hint);
@@ -6252,6 +6258,21 @@ int compute_manual_step_index(int index, int direction) {
  * filename is the best "song title" available. */
 void get_display_names(const char * path, char * title_out, size_t title_size,
                                char * folder_out, size_t folder_size) {
+    if (path && cue_reference_is(path)) {
+        cue_sheet_t sheet = {0};
+        unsigned ordinal = 0;
+        if (cue_reference_resolve(path, &sheet, &ordinal)) {
+            const cue_track_t * track = &sheet.tracks[ordinal - 1];
+            get_display_names(track->audio_path, title_out, title_size, folder_out, folder_size);
+            if (title_out && title_size) {
+                if (track->title[0]) utf8_truncate_safe(title_out, track->title, title_size);
+                else snprintf(title_out, title_size, TR("Track %d"), track->number);
+            }
+            cue_sheet_free(&sheet);
+            return;
+        }
+        cue_sheet_free(&sheet);
+    }
     if (!path) {
         if (title_out && title_size > 0) title_out[0] = '\0';
         if (folder_out && folder_size > 0) folder_out[0] = '\0';
@@ -6916,11 +6937,7 @@ void on_file_selected_stay(char ** new_playlist, int count, int selected_index) 
     stay_on_screen_once = false;
 }
 
-/* Same as on_file_selected() above, but for a tap that needs to start
- * partway into the track rather than at 0:00 -- currently only CUE track
- * playback (see cue_track_row_click_cb()): each of new_playlist's entries
- * is the SAME physical audio file repeated once per CUE track, and
- * start_seconds is the tapped track's own INDEX 01 offset within it. */
+/* Same as on_file_selected(), starting at a track-relative resume offset. */
 void on_file_selected_at(char ** new_playlist, int count, int selected_index, double start_seconds) {
     free_playlist();
     playlist = new_playlist;

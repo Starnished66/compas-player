@@ -3192,6 +3192,8 @@ bool gui_library_generate_player_cover(const char * track_path, const char * art
 
     albumart_info_t info = {0};
     snprintf(info.path, sizeof(info.path), "%s", track_path);
+    if (cue_reference_is(track_path) &&
+        !cue_reference_audio_path(track_path, info.path, sizeof(info.path))) return false;
     snprintf(info.artist, sizeof(info.artist), "%s", artist ? artist : "");
     snprintf(info.album, sizeof(info.album), "%s", album ? album : "");
     snprintf(info.albumartist, sizeof(info.albumartist), "%s", album_artist ? album_artist : "");
@@ -7509,12 +7511,11 @@ static lv_obj_t * build_playlists_screen(void) {
 }
 
 /* ---- CUE sheet track list (File Browser -> tap a .cue) ----
- * Allows browsing and jumping straight to any track within a single
- * audio rip (e.g. album.flac + album.cue). Tapping a track seeks the
- * shared audio file to that track's INDEX 01 offset (on_file_selected_at())
- * and begins playback from there. */
+ * External and embedded sheets produce stable virtual queue entries.
+ * Each entry keeps its own metadata and bounded playback timeline. */
 static cue_sheet_t current_cue_sheet;
 static bool current_cue_sheet_valid = false;
+static char current_cue_source_path[PATH_MAX];
 static char current_cue_source_dir[PATH_MAX];
 static int current_cue_source_row = -1;
 
@@ -7528,7 +7529,10 @@ static void cue_track_row_click_cb(lv_event_t * e) {
     if (!paths) return;
     int copied = 0;
     for (; copied < count; copied++) {
-        paths[copied] = strdup(current_cue_sheet.audio_path);
+        char reference[PATH_MAX];
+        if (!cue_reference_format(current_cue_source_path, (unsigned) copied + 1,
+                                  reference, sizeof(reference))) break;
+        paths[copied] = strdup(reference);
         if (!paths[copied]) break;
     }
     if (copied != count) {
@@ -7538,7 +7542,7 @@ static void cue_track_row_click_cb(lv_event_t * e) {
         return;
     }
     set_player_source_file_browser(current_cue_source_dir, current_cue_source_row);
-    on_file_selected_at(paths, count, index, current_cue_sheet.tracks[index].start_seconds);
+    on_file_selected(paths, count, index);
 }
 
 static void populate_cue_tracks_screen(void) {
@@ -7571,14 +7575,19 @@ static lv_obj_t * build_cue_tracks_screen(void) {
  * cache) and replaces whatever sheet this screen was last showing. */
 void on_cue_file_selected(const char * cue_path) {
     cue_sheet_free(&current_cue_sheet);
-    current_cue_sheet_valid = cue_parse_file(cue_path, &current_cue_sheet);
+    const char * ext = strrchr(cue_path, '.');
+    current_cue_sheet_valid = ext && strcasecmp(ext, ".cue") == 0
+        ? cue_parse_file(cue_path, &current_cue_sheet)
+        : cue_parse_embedded(cue_path, &current_cue_sheet);
     if (!current_cue_sheet_valid) {
         show_error_toast(TR("Couldn't read this .cue file"));
         return;
     }
+    snprintf(current_cue_source_path, sizeof(current_cue_source_path), "%s", cue_path);
     snprintf(current_cue_source_dir, sizeof(current_cue_source_dir), "%s", file_browser_get_last_selected_dir());
     current_cue_source_row = file_browser_get_last_selected_row();
-    lv_label_set_text(cue_tracks_title_label, basename_of(current_cue_sheet.audio_path));
+    lv_label_set_text(cue_tracks_title_label, current_cue_sheet.title[0]
+                      ? current_cue_sheet.title : basename_of(current_cue_sheet.audio_path));
     populate_cue_tracks_screen();
     nav_push(cue_tracks_screen);
 }

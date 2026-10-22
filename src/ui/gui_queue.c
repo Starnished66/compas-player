@@ -8,6 +8,7 @@
 #include "gui_text_input.h"
 #include "screen_builders.h"
 #include "metadata.h"
+#include "cue_parser.h"
 #include "assets.h"
 #include "fallback_font.h"
 #include "src/misc/lv_text_private.h"
@@ -138,6 +139,26 @@ void populate_queue_screen(void) {
                 snprintf(subtitle, sizeof(subtitle), "%s · %s",
                          display_artist, display_album);
             } else subtitle[0] = '\0';
+        } else if (cue_reference_is(path)) {
+            cue_sheet_t sheet = {0};
+            unsigned ordinal = 0;
+            if (cue_reference_resolve(path, &sheet, &ordinal) && ordinal <= (unsigned) sheet.track_count) {
+                const cue_track_t * track = &sheet.tracks[ordinal - 1];
+                if (track->title[0]) snprintf(title, sizeof(title), "%s", track->title);
+                else snprintf(title, sizeof(title), TR("Track %d"), track->number);
+                const char * performer = track->performer[0] ? track->performer : sheet.performer;
+                if (performer[0] || sheet.title[0]) {
+                    char display_artist[121], display_album[121];
+                    utf8_truncate_safe(display_artist, performer[0] ? performer : TR("Unknown artist"), sizeof(display_artist));
+                    utf8_truncate_safe(display_album, sheet.title[0] ? sheet.title : TR("Unknown album"), sizeof(display_album));
+                    snprintf(subtitle, sizeof(subtitle), "%s · %s", display_artist, display_album);
+                } else subtitle[0] = '\0';
+            } else {
+                char folder[128];
+                get_display_names(path, title, sizeof(title), folder, sizeof(folder));
+                subtitle[0] = '\0';
+            }
+            cue_sheet_free(&sheet);
         } else if (metadata_db_get_song_by_path(path, &song)) {
             gui_library_format_song_identity(&song, title, sizeof(title),
                                               subtitle, sizeof(subtitle));

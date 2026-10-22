@@ -1,4 +1,5 @@
 #include "metadata.h"
+#include "cue_parser.h"
 #include "library_endian.h"
 #include "lyrics.h"
 
@@ -2285,6 +2286,43 @@ static void metadata_read_internal(const char * path, track_metadata_t * out, bo
 
 static void metadata_read_dispatch(const char * path, track_metadata_t * out, bool include_blobs) {
     memset(out, 0, sizeof(*out));
+
+    /* CUE virtual tracks keep the physical source as their storage identity.
+     * Read its tags and artwork once, then replace only the fields supplied by
+     * the selected CUE entry/sheet. */
+    if (cue_reference_is(path)) {
+        unsigned ordinal = 0;
+        cue_sheet_t sheet = {0};
+        if (!cue_reference_resolve(path, &sheet, &ordinal) || ordinal == 0 ||
+            ordinal > (unsigned) sheet.track_count) {
+            cue_sheet_free(&sheet);
+            return;
+        }
+        const cue_track_t * track = &sheet.tracks[ordinal - 1];
+        metadata_read_dispatch(track->audio_path, out, include_blobs);
+        if (track->title[0]) {
+            copy_bounded(out->title, sizeof(out->title), track->title, strlen(track->title));
+            out->has_title = true;
+        } else {
+            snprintf(out->title, sizeof(out->title), "Track %d", track->number);
+            out->has_title = true;
+        }
+        const char * performer = track->performer[0] ? track->performer : sheet.performer;
+        if (performer[0]) {
+            copy_bounded(out->artist, sizeof(out->artist), performer, strlen(performer));
+            out->has_artist = true;
+        }
+        if (sheet.title[0]) {
+            copy_bounded(out->album, sizeof(out->album), sheet.title, strlen(sheet.title));
+            out->has_album = true;
+        }
+        if (track->number > 0) {
+            out->track_number = track->number;
+            out->has_track_number = true;
+        }
+        cue_sheet_free(&sheet);
+        return;
+    }
 
     const char * ext = strrchr(path, '.');
     if (!ext) return;
