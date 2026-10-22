@@ -434,12 +434,17 @@ static bool force_screen_just_woke = false;
 static bool screen_wake_pending = false;
 static bool screen_wake_unlock_requested = false;
 static bool screen_wake_scanout_pending = false;
+static bool screen_wake_notified = false;
 static lv_timer_t *power_input_timer, *media_input_timer;
 static lv_timer_t *player_ui_timer;
 static uint32_t player_ui_timer_period_ms;
 static bool screen_wake_frame_pending = false;
 static bool screen_wake_flush_seen;
 static bool screen_wake_reveal_pending;
+static bool screen_wake_retained_fast;
+static bool screen_wake_ram_staged;
+static lv_obj_t *last_presented_screen;
+static lv_obj_t *screen_wake_retained_screen;
 static uint32_t screen_wake_phase_tick;
 static uint32_t screen_wake_retry_tick;
 #define SCREEN_WAKE_RETRY_MS 100
@@ -449,7 +454,7 @@ static void request_screen_power(bool on);
 
 bool gui_display_refresh_allowed(void) {
     /* A prepared wake frame is drawn before the backlight is enabled. */
-    return backlight_screen_is_on() || screen_wake_frame_pending;
+    return (backlight_screen_is_on() && !screen_wake_retained_fast) || screen_wake_frame_pending || screen_wake_ram_staged;
 }
 
 /* Keeps the three pieces of screen runtime state inseparable. Merely
@@ -493,6 +498,8 @@ static void apply_screen_runtime_state(bool screen_on) {
 /* Restores backlight, input devices, and inactivity timer state immediately
  * after waking from suspend. Shared between idle-shutdown and Car Mode suspend paths. */
 static void resume_from_suspend_fixups(void) {
+    /* Full suspend may reset framebuffer/PWM outside the player. */
+    last_presented_screen = NULL;
     request_screen_power(true);
     lv_display_trigger_activity(NULL);
     resumed_from_suspend_tick = lv_tick_get();
@@ -575,7 +582,12 @@ void gui_apply_button_bindings(void) {
 }
 
 static void finish_screen_wake_reveal(void) {
+    if (screen_wake_retained_fast) {
+        lv_display_enable_invalidation(lv_display_get_default(), true);
+        apply_screen_runtime_state(true);
+    }
     screen_wake_pending = screen_wake_reveal_pending = false;
+    screen_wake_retained_fast = false;
     screen_wake_power_menu = false;
     screen_wake_unlock_requested = false;
     screen_wake_scanout_pending = false;
@@ -592,22 +604,26 @@ static void begin_screen_wake_reveal(void) {
     backlight_set_screen_on(true);
 }
 
-/* Lua handlers select their wake surface once dark panel preparation finishes.
+/* Lua handlers select their wake surface before choosing the wake path.
  * Reveal it only after a successful last flush, without nested lv_refr_now(). */
 static void screen_wake_frame_ready_cb(lv_event_t * event) {
-    if (!screen_wake_frame_pending) return;
     lv_event_code_t code = lv_event_get_code(event);
     if (code == LV_EVENT_FLUSH_FINISH) {
         lv_display_t * display = lv_event_get_target(event);
         if (lv_display_flush_is_last(display)) {
 #ifdef HOST_BUILD
-            screen_wake_flush_seen = true;
+            bool presented = true;
 #else
-            screen_wake_flush_seen = lv_linux_fbdev_last_present_succeeded(display);
+            bool presented = lv_linux_fbdev_last_present_succeeded(display);
 #endif
+            last_presented_screen = presented && !gui_navigation_transition_in_progress() ?
+                lv_screen_active() : NULL;
+            if (screen_wake_frame_pending) screen_wake_flush_seen = presented;
         }
         return;
     }
+    if (!screen_wake_frame_pending) return;
+    if (screen_wake_ram_staged) return; /* RAM flush is not physical presentation. */
     if (code != LV_EVENT_REFR_READY || !screen_wake_flush_seen) return;
     /* Wait for the short in-memory album blur. File-backed photos can take
      * longer; show the prepared clock/gesture surface while they load. */
@@ -618,11 +634,6 @@ static void screen_wake_frame_ready_cb(lv_event_t * event) {
 
 static void prepare_screen_wake_frame(void) {
     if (!screen_wake_pending || gui_lock_screen_unlock_pending()) return;
-    /* An explicit unlock still notifies every plugin, but must not let the
-     * lock-screen handler immediately lock this same wake again. */
-    gui_lock_screen_set_wake_unlock_override(screen_wake_unlock_requested);
-    plugin_manager_notify_screen_woke();
-    gui_lock_screen_set_wake_unlock_override(false);
     apply_screen_runtime_state(true);
     lv_indev_enable(NULL, false);
     if (screen_wake_power_menu) {
@@ -641,11 +652,51 @@ static void prepare_screen_wake_frame(void) {
  * owning scanout must finish before we can safely power up the panel. */
 static bool prepare_screen_wake_scanout(void) {
 #ifndef HOST_BUILD
-    if (!lv_linux_fbdev_clear_scanout(lv_display_get_default())) return false;
+    lv_display_t *display = lv_display_get_default();
+    bool reusable_before = screen_wake_retained_screen &&
+        lv_screen_active() == screen_wake_retained_screen &&
+        !gui_navigation_transition_in_progress() &&
+        !gui_lock_screen_is_showing() && !gui_lock_screen_unlock_pending() &&
+        !screen_wake_unlock_requested && !screen_wake_power_menu &&
+        lv_linux_fbdev_last_frame_reusable(display);
+#endif
+    if (!screen_wake_notified) {
+        screen_wake_notified = true;
+        gui_lock_screen_set_wake_unlock_override(screen_wake_unlock_requested);
+        plugin_manager_notify_screen_woke();
+        gui_lock_screen_set_wake_unlock_override(false);
+    }
+#ifndef HOST_BUILD
+    if (reusable_before && lv_screen_active() == screen_wake_retained_screen &&
+        !gui_navigation_transition_in_progress() &&
+        !gui_lock_screen_is_showing() && !gui_lock_screen_unlock_pending() &&
+        !screen_wake_unlock_requested && !screen_wake_power_menu &&
+        lv_linux_fbdev_last_frame_reusable(display)) {
+        /* Keep the exact pre-sleep normal frame on scanout while hardware
+         * unblanks; ordinary refresh resumes after the visible acknowledgement. */
+        screen_wake_retained_fast = true;
+        /* Invalidating a widget resumes LVGL refresh even when its timer is
+         * paused. Hold invalidation too; the reveal requests a full redraw. */
+        lv_display_enable_invalidation(display, false);
+        screen_wake_scanout_pending = false;
+        screen_wake_reveal_pending = true;
+        screen_wake_phase_tick = screen_wake_retry_tick = lv_tick_get();
+        backlight_set_screen_on(true);
+        return true;
+    }
+    if (!lv_linux_fbdev_clear_scanout(display)) return false;
 #endif
     screen_wake_scanout_pending = false;
     screen_wake_phase_tick = screen_wake_retry_tick = lv_tick_get();
     backlight_prepare_screen_on();
+#ifndef HOST_BUILD
+    /* Render the complete LVGL composition into RAM during panel startup.
+     * The driver leaves both physical pages black until the explicit commit. */
+    if (lv_linux_fbdev_begin_ram_stage(display)) {
+        screen_wake_ram_staged = true;
+        prepare_screen_wake_frame();
+    }
+#endif
     return true;
 }
 
@@ -658,7 +709,17 @@ static void request_screen_power(bool on) {
         /* Discard stale scanout before panel power-up. PWM zero is also
          * forced by backlight_prepare_screen_on(), but OEM unblank must
          * never expose the previous screen even if it restores brightness. */
+        screen_wake_retained_screen = NULL;
+#ifndef HOST_BUILD
+        lv_display_t *display = lv_display_get_default();
+        if (!gui_navigation_transition_in_progress() && !gui_lock_screen_is_showing() &&
+            !gui_lock_screen_unlock_pending() && lv_screen_active() == last_presented_screen &&
+            lv_linux_fbdev_last_frame_reusable(display))
+            screen_wake_retained_screen = lv_screen_active();
+#endif
         apply_screen_runtime_state(false);
+        screen_wake_notified = false;
+        screen_wake_retained_fast = false;
         screen_wake_scanout_pending = true;
         screen_wake_pending = true;
         if (power_input_timer) lv_timer_resume(power_input_timer);
@@ -666,16 +727,26 @@ static void request_screen_power(bool on) {
         if (!prepare_screen_wake_scanout())
             fprintf(stderr, "Screen wake: waiting to clear stale scanout\n");
     } else {
+#ifndef HOST_BUILD
+        if (screen_wake_ram_staged &&
+            !lv_linux_fbdev_end_ram_stage(lv_display_get_default())) return;
+#endif
+        screen_wake_ram_staged = false;
         for (unsigned i = 0; i < BUTTON_MAPPING_BUTTON_COUNT; ++i)
             button_mapping_set(&physical_button_mapping, (button_mapping_button_t)i,
                                &physical_button_mapping.bindings[i]);
         screen_wake_pending = false;
         screen_wake_unlock_requested = false;
         screen_wake_scanout_pending = false;
+        screen_wake_notified = false;
         gui_lock_screen_set_wake_unlock_override(false);
         screen_wake_frame_pending = false;
         screen_wake_flush_seen = false;
         screen_wake_reveal_pending = false;
+        if (screen_wake_retained_fast)
+            lv_display_enable_invalidation(lv_display_get_default(), true);
+        screen_wake_retained_fast = false;
+        screen_wake_retained_screen = NULL;
         screen_wake_power_menu = false;
         backlight_set_screen_on(false);
         apply_screen_runtime_state(false);
@@ -854,8 +925,54 @@ static void power_button_timer_cb(lv_timer_t * timer) {
         }
         return;
     }
+#ifndef HOST_BUILD
+    if (screen_wake_ram_staged) {
+        lv_display_t *display = lv_display_get_default();
+        if (!lv_linux_fbdev_ram_stage_valid(display)) {
+            /* Finish a rotation/resolution cancellation while rendering is idle. */
+            apply_screen_runtime_state(false);
+            if (!lv_linux_fbdev_end_ram_stage(display)) return;
+            screen_wake_ram_staged = false;
+            screen_wake_frame_pending = false;
+            screen_wake_phase_tick = screen_wake_retry_tick = lv_tick_get();
+        } else {
+            if (!screen_wake_frame_pending && !gui_lock_screen_unlock_pending())
+                prepare_screen_wake_frame();
+            if (backlight_screen_is_prepared() &&
+                !gui_lock_screen_unlock_pending() &&
+                (!gui_lock_screen_is_showing() || !gui_lock_screen_has_background_work(false)) &&
+                lv_linux_fbdev_ram_stage_ready(display) &&
+                lv_linux_fbdev_present_ram_stage(display)) {
+                if (!lv_linux_fbdev_end_ram_stage(display)) return;
+                screen_wake_ram_staged = false;
+                last_presented_screen = lv_screen_active();
+                full_redraw_async_cb(NULL);
+                begin_screen_wake_reveal();
+            } else if (age >= SCREEN_WAKE_TIMEOUT_MS) {
+                /* Allocation/format failures already use the ordinary path;
+                 * abandon a stalled render/present without revealing black. */
+                if (!lv_linux_fbdev_end_ram_stage(display)) return;
+                screen_wake_ram_staged = false;
+                screen_wake_frame_pending = false;
+                apply_screen_runtime_state(false);
+                screen_wake_phase_tick = screen_wake_retry_tick = lv_tick_get();
+            } else if (!backlight_screen_is_prepared() && retry_due) {
+                screen_wake_retry_tick = lv_tick_get();
+                backlight_prepare_screen_on();
+            }
+            return;
+        }
+    }
+#endif
     if (screen_wake_reveal_pending) {
         if (backlight_screen_is_visible()) finish_screen_wake_reveal();
+        else if (screen_wake_retained_fast) {
+            /* Retained scanout must stay gated until hardware confirms visible. */
+            if (retry_due) {
+                screen_wake_retry_tick = lv_tick_get();
+                backlight_set_screen_on(true);
+            }
+        }
         else if (age >= SCREEN_WAKE_TIMEOUT_MS) {
             fprintf(stderr, "Screen wake: brightness restore timed out\n");
             backlight_set_screen_on(true);
@@ -2297,10 +2414,21 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
 
 
 void gui_deinit(void) {
+#ifndef HOST_BUILD
+    if (screen_wake_ram_staged)
+        lv_linux_fbdev_end_ram_stage(lv_display_get_default());
+#endif
+    screen_wake_ram_staged = false;
     lv_display_remove_event_cb_with_user_data(lv_display_get_default(), screen_wake_frame_ready_cb, NULL);
     screen_wake_pending = screen_wake_frame_pending = screen_wake_power_menu = screen_wake_flush_seen = screen_wake_reveal_pending = false;
     screen_wake_unlock_requested = false;
     screen_wake_scanout_pending = false;
+    screen_wake_notified = false;
+    if (screen_wake_retained_fast)
+        lv_display_enable_invalidation(lv_display_get_default(), true);
+    screen_wake_retained_fast = false;
+    last_presented_screen = NULL;
+    screen_wake_retained_screen = NULL;
     gui_lock_screen_set_wake_unlock_override(false);
     if (player_ui_timer) {
         lv_timer_delete(player_ui_timer);
