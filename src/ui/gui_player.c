@@ -723,12 +723,13 @@ static void player_fit_small_screen_icon(lv_obj_t * icon, int32_t reference_px) 
 #define REFLECTION_DARKEN_NUM 1
 #define REFLECTION_DARKEN_DEN 2
 
-/* "Match album art": the cover's most prominent vivid hue. Samples a grid,
- * weights each colorful pixel by saturation x value into 15-degree hue
+/* One accent pass: samples a grid, weights each pixel at least min_s
+ * saturated and min_v bright by saturation x value into 15-degree hue
  * buckets, takes the strongest three-bucket window, and lifts its average
- * so it still reads as an accent on dark and light surfaces. False for a
- * gray or near-black cover. Runs on the cover worker. */
-static bool cover_accent_from_rgb565(const uint16_t * px, uint32_t * out_rgb) {
+ * so it still reads as an accent on dark and light surfaces. False unless
+ * that window averages min_weight per sample. */
+static bool cover_accent_pass(const uint16_t * px, uint8_t min_s, uint8_t min_v, uint32_t min_weight,
+                              uint32_t * out_rgb) {
     enum { BUCKETS = 24, BUCKET_DEG = 15, STEP = 7 };
     uint64_t weight[BUCKETS] = {0}, hue_off[BUCKETS] = {0}, sat[BUCKETS] = {0}, val[BUCKETS] = {0};
     uint32_t samples = 0;
@@ -740,7 +741,7 @@ static bool cover_accent_from_rgb565(const uint16_t * px, uint32_t * out_rgb) {
             uint8_t b = (uint8_t) (((c & 0x1F) << 3) | ((c >> 2) & 0x07));
             lv_color_hsv_t hsv = lv_color_rgb_to_hsv(r, g, b);
             samples++;
-            if (hsv.s < 25 || hsv.v < 25) continue;
+            if (hsv.s < min_s || hsv.v < min_v) continue;
             uint32_t w = (uint32_t) hsv.s * hsv.v;
             int k = (hsv.h % 360) / BUCKET_DEG;
             weight[k] += w;
@@ -755,8 +756,7 @@ static bool cover_accent_from_rgb565(const uint16_t * px, uint32_t * out_rgb) {
         uint64_t w = weight[(k + BUCKETS - 1) % BUCKETS] + weight[k] + weight[(k + 1) % BUCKETS];
         if (w > best_w) { best_w = w; best = k; }
     }
-    /* At least a tenth of the cover moderately colorful (s x v of 4000). */
-    if (best_w == 0 || best_w < (uint64_t) samples * 400) return false;
+    if (best_w == 0 || best_w < (uint64_t) samples * min_weight) return false;
 
     uint64_t hue_acc = 0, sat_acc = 0, val_acc = 0;
     for (int d = 0; d < 3; d++) {
@@ -775,6 +775,17 @@ static bool cover_accent_from_rgb565(const uint16_t * px, uint32_t * out_rgb) {
     lv_color_t rgb = lv_color_hsv_to_rgb((uint16_t) h, (uint8_t) sv, (uint8_t) vv);
     *out_rgb = ((uint32_t) rgb.red << 16) | ((uint32_t) rgb.green << 8) | rgb.blue;
     return true;
+}
+
+/* "Match album art": the cover's most prominent vivid hue, where at least a
+ * tenth of the cover is moderately colorful (s x v of 4000). Muted covers --
+ * sepia, pastel, washed-out photos -- fall back to their dominant tint
+ * (a tenth of the cover at s x v of 400), lifted like a vivid one, so they
+ * still get their own accent instead of the fixed one; the app's artwork
+ * accent does the same. False only for a gray or near-black cover. Runs on
+ * the cover worker. */
+static bool cover_accent_from_rgb565(const uint16_t * px, uint32_t * out_rgb) {
+    return cover_accent_pass(px, 25, 25, 400, out_rgb) || cover_accent_pass(px, 10, 10, 40, out_rgb);
 }
 
 static uint8_t * compute_reflection_bytes_cancelable(const uint8_t * cover_bytes,
