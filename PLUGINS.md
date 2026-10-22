@@ -131,6 +131,7 @@ The lists that accept rows:
 | `"player"` | Now Playing > three-dot menu, after Information | Track tools and playback actions |
 | `"more"` | More, after the built-in entries (limit 4) | Standalone tools and launchers |
 | `"books"` | Books | Readers, audiobooks, reference tools |
+| `"music"` | Music | Music services, libraries and tools |
 | `"settings"` | Settings > System > Additional Tools | General plugin settings |
 | `"display"` | Settings > Display | Themes and visual tools |
 | `"playback"` | Settings > Playback & Controls | Resume and playback tools |
@@ -180,13 +181,13 @@ plugin.define({
 
 ### Checking what the player supports
 
-- `plugin.api_version()` returns the API version, currently `18`.
+- `plugin.api_version()` returns the API version, currently `19`.
 - `plugin.has_capability(name)` returns whether one feature exists. Prefer it
   over `api_min` when you only need one feature. Tokens:
 
   | Area | Tokens |
   | --- | --- |
-  | UI | `ui.list`, `ui.settings`, `ui.row_width`, `ui.text_input`, `ui.toast`, `ui.progress`, `ui.screenshot`, `ui.theme`, `ui.theme_refresh`, `ui.reload`, `ui.home_layout`, `ui.home_tiles`, `ui.launcher_layout`, `ui.home_background`, `ui.lock_screen`, `ui.button_lock`, `ui.quick_toggle`, `ui.text_view`, `ui.text_view_images`, `ui.list_grid`, `ui.list_showing`, `ui.list_update`, `ui.list_wrap`, `ui.settings_list_wrap`, `ui.settings_list_10_sliders`, `ui.order_editor`, `ui.player_layout_xml`, `ui.file_manager`, `ui.file_picker`, `ui.startup_image` |
+  | UI | `ui.list`, `ui.settings`, `ui.row_width`, `ui.text_input`, `ui.confirmation`, `ui.toast`, `ui.progress`, `ui.screenshot`, `ui.theme`, `ui.theme_refresh`, `ui.reload`, `ui.home_layout`, `ui.home_tiles`, `ui.launcher_layout`, `ui.home_background`, `ui.lock_screen`, `ui.button_lock`, `ui.quick_toggle`, `ui.text_view`, `ui.text_view_images`, `ui.list_grid`, `ui.list_showing`, `ui.list_update`, `ui.list_wrap`, `ui.settings_list_wrap`, `ui.settings_list_10_sliders`, `ui.order_editor`, `ui.player_layout_xml`, `ui.file_manager`, `ui.file_picker`, `ui.startup_image` |
   | Playback and audio | `playback.control`, `playback.state`, `playback.events`, `playback.progress`, `playback.remote`, `playback.transport_skip`, `playback.speed`, `playback.format`, `playback.output_info`, `playback.silent_volume`, `playback.transient_volume`, `playback.output_events`, `playback.settings`, `playback.ab_loop`, `playback.ab_switch`, `playback.http_seek`, `audio.peq`, `audio.peq.transient`, `audio.peq.state`, `audio.stereo_width`, `audio.crossfeed`, `audio.crossfeed.angle`, `audio.hw_volume_curve` |
   | Files | `filesystem.sd`, `filesystem.mkdir`, `filesystem.playlists`, `filesystem.file_ops` |
   | Storage | `storage.namespaced`, `storage.secrets`, `storage.secrets_get` |
@@ -217,6 +218,7 @@ plugin.define({
 | 16 | Playback speed/stereo width/progress plus format/output snapshots, silent volume, transient EQ, output events, playback settings, native A–B loops/comparison, and finite HTTP seeking. Modeless progress bars and download byte snapshots are also available, as are File Manager operations and the native file picker. |
 | 17 | Player-layout actions and owner-scoped layout restoration, including background layout replacement. Bundled Audiobooks and Podcasts Reading Room players require API 17; the store rejects installation on older firmware. |
 | 18 | Native hardware button lock through `plugin.configure_button_lock`, capability `ui.button_lock`, and the `button_lock_changed` event. The Lock Screen plugin requires API 18 so older firmware cannot install it. |
+| 19 | `register_list_item("music", ...)` adds rows to the top-level Music submenu. The row icon is optional and defaults to the native category menu icon when omitted. |
 
 All of these are additions; older plugins keep working.
 
@@ -253,8 +255,8 @@ submenu:
 - Other values leave the row directly in its list. Older players ignore
   `group`.
 
-A plugin may register several rows. In API 16, Playback and Music Audio accept
-16 rows each; other lists accept 8. The limit includes all plugins together.
+A plugin may register several rows. Playback and Music Audio accept 16 rows
+each; other lists, including Music, accept 8. The limit includes all plugins together.
 Exceeding it is an error.
 
 ### `plugin.register_stream_media_tile(label, on_open [, icon])`
@@ -425,6 +427,11 @@ in the call's `options` so every row matches.
 | `width` | Row width in px, clamped to 240 to 464, kept centered. |
 | `text_size` | `"small"`, `"medium"`, `"large"` (with fallback fonts for Cyrillic, CJK, Korean and Thai) or `"mono"` (an ASCII-only pixel font). Any other value is an error. |
 
+When `text_size` is omitted on `show_list` items and `show_settings_list`
+rows, text uses the native body font at the current user font tier, including
+any selected custom font. An explicit size uses its fixed built-in font
+instead.
+
 ### `plugin.show_text_input(title, initial_text, is_password, on_submit)`
 
 Opens the app's keypad text entry (the one used for Wi-Fi passwords).
@@ -432,6 +439,16 @@ Opens the app's keypad text entry (the one used for Wi-Fi passwords).
 back. Returns `true`, or `false, "text input busy"` if another request is
 open. You can open the next input from inside `on_submit` (for example a
 username, then a password).
+
+### `plugin.show_confirmation(title, confirm_label, on_confirm)`
+
+Opens a native confirmation popup with the given title, a confirm action, and
+a Cancel action. `on_confirm()` runs only after the confirm action is tapped;
+Cancel, the backdrop, and plugin reload dismiss the popup without calling it.
+Returns `true`, `false, "confirmation busy"` if another confirmation is open,
+or `false, "unable to show confirmation"` if the popup cannot be created.
+Only one confirmation can be open at a time. The pending callback is released
+when the popup is cancelled or its plugin unloads.
 
 ### `plugin.show_text_view(title, text [, options])`
 

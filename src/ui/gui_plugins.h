@@ -12,4 +12,6 @@ bool gui_plugin_show_progress(const char * title, const char * message, int perc
 bool gui_plugin_update_progress(const char * message, int percent);
 bool gui_plugin_progress_is_visible(void);
 void gui_plugin_close_progress(void);
+bool gui_plugin_show_confirmation(const char * title, const char * confirm_label);
+void gui_plugin_close_confirmation(void);
 void configure_scrolling_row_label(lv_obj_t * label, int32_t width);

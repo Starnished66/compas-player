@@ -112,6 +112,63 @@ static lv_obj_t * plugin_progress_bar;
 static lv_obj_t * plugin_progress_percent;
 static int plugin_progress_percent_value = INT_MIN;
 
+/* One plugin confirmation at a time. The modal owns only LVGL objects; its
+ * callback ref and Lua owner stay in plugin_manager.c. */
+static gui_popup_t plugin_confirmation_popup;
+
+static void plugin_confirmation_object_deleted(lv_event_t * event) {
+    if (lv_event_get_code(event) != LV_EVENT_DELETE) return;
+    lv_obj_t * target = lv_event_get_target(event);
+    if (plugin_confirmation_popup.popup == target || plugin_confirmation_popup.backdrop == target) {
+        gui_popup_hide(&plugin_confirmation_popup);
+        if (plugin_confirmation_popup.popup == target) plugin_confirmation_popup.popup = NULL;
+        if (plugin_confirmation_popup.backdrop == target) plugin_confirmation_popup.backdrop = NULL;
+    }
+}
+
+void gui_plugin_close_confirmation(void) {
+    gui_popup_teardown(&plugin_confirmation_popup);
+}
+
+static void plugin_confirmation_dismiss_cb(lv_event_t * event) {
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
+    gui_plugin_close_confirmation();
+    plugin_manager_confirmation_cancelled();
+}
+
+static void plugin_confirmation_confirm_cb(lv_event_t * event) {
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
+    /* Destroy both objects before dispatching Lua: the callback may
+     * synchronously open another confirmation. */
+    gui_plugin_close_confirmation();
+    plugin_manager_confirmation_confirmed();
+}
+
+bool gui_plugin_show_confirmation(const char * title, const char * confirm_label) {
+    lv_display_t * display = lv_display_get_default();
+    if (!display || !lv_layer_top() || plugin_confirmation_popup.popup || plugin_confirmation_popup.backdrop)
+        return false;
+    lv_obj_t * cancel_row = NULL;
+    lv_color_t neutral = lv_color_make(160, 160, 160);
+    plugin_confirmation_popup.popup = build_confirm_popup(title, LV_LABEL_LONG_WRAP,
+        NULL, NULL, confirm_label, accent_lv_color(),
+        plugin_confirmation_confirm_cb, NULL, TR("Cancel"), neutral, plugin_confirmation_dismiss_cb,
+        &cancel_row,
+        plugin_confirmation_dismiss_cb, &plugin_confirmation_popup.backdrop);
+    if (!plugin_confirmation_popup.popup || !plugin_confirmation_popup.backdrop) {
+        gui_popup_teardown(&plugin_confirmation_popup);
+        return false;
+    }
+    lv_obj_add_event_cb(plugin_confirmation_popup.popup, plugin_confirmation_object_deleted, LV_EVENT_DELETE, NULL);
+    lv_obj_add_event_cb(plugin_confirmation_popup.backdrop, plugin_confirmation_object_deleted, LV_EVENT_DELETE, NULL);
+    if (cancel_row) {
+        lv_obj_t * cancel_label = lv_obj_get_child(cancel_row, 0);
+        if (cancel_label) lv_obj_set_style_text_color(cancel_label, neutral, 0);
+    }
+    gui_popup_show(&plugin_confirmation_popup);
+    return true;
+}
+
 static bool plugin_progress_percent_valid(int percent) {
     return percent == -1 || (percent >= 0 && percent <= 100);
 }
@@ -485,11 +542,7 @@ int gui_plugin_show_list(const char * title, const char * const * labels, const 
             if (height <= 0) lv_obj_add_style(row, &native_row_min_style, 0);
             lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
             lv_label_set_text(row, labels[i]);
-            /* NULL text_size leaves list_row_style's own default font
-             * (LIST_ROW_FONT, already fallback-capable) untouched -- see
-             * pill_row_resolve_text_size()'s own comment on why a genuine
-             * NULL only ever reaches it from a truly-unset call like this. */
-            if (text_size) lv_obj_set_style_text_font(row, pill_row_resolve_text_size(text_size), 0);
+            lv_obj_set_style_text_font(row, pill_row_resolve_text_size(text_size), 0);
             row_label_enable_marquee(row);
             if (row_w != LIST_ROW_WIDTH) lv_obj_set_style_width(row, row_w, 0);
             lv_obj_set_height(row, row_h);
@@ -523,7 +576,7 @@ int gui_plugin_show_list(const char * title, const char * const * labels, const 
             lv_obj_t * title = lv_label_create(row);
             lv_label_set_text_fmt(title, "%.*s", (int) (newline - source), source);
             lv_obj_add_style(title, &style_theme_text_primary, 0);
-            lv_obj_set_style_text_font(title, pill_row_resolve_text_size(text_size ? text_size : "medium"), 0);
+            lv_obj_set_style_text_font(title, pill_row_resolve_text_size(text_size), 0);
             lv_obj_set_width(title, label_width);
             lv_label_set_long_mode(title, LV_LABEL_LONG_WRAP);
             lv_obj_align(title, LV_ALIGN_TOP_LEFT, label_left, BOARD_SCALE_PX(10));
@@ -548,10 +601,9 @@ int gui_plugin_show_list(const char * title, const char * const * labels, const 
             lv_obj_t * label = lv_label_create(row);
             lv_label_set_text(label, source);
             lv_obj_add_style(label, &style_theme_text_primary, 0);
-            /* "medium" default -- matches LIST_ROW_FONT (app_font_22), today's
-             * existing show_list() row font, so a row without an explicit
-             * text_size still renders at its previous size. */
-            lv_obj_set_style_text_font(label, pill_row_resolve_text_size(text_size ? text_size : "medium"), 0);
+            /* Unspecified plugin text follows the native themed body font,
+             * including the user's font tier and custom font. */
+            lv_obj_set_style_text_font(label, pill_row_resolve_text_size(text_size), 0);
             lv_obj_align(label, LV_ALIGN_LEFT_MID, label_left, 0);
             pill_row_apply_icon(row, label, icon, BOARD_SCALE_PX(44), LV_ALIGN_LEFT_MID, BOARD_SCALE_PX(28), 0);
             /* The icon helper sets a compact default inset; match the native
@@ -920,9 +972,8 @@ static lv_obj_t * add_pill_slider_row(lv_obj_t * parent, const char * label_text
     lv_obj_t * label = lv_label_create(card); /* child 0 */
     lv_label_set_text(label, label_text);
     lv_obj_add_style(label, &style_theme_text_primary, 0);
-    /* text_size is never NULL here -- populate_plugin_settings_list_screen()
-     * already defaults it to "small" (matching this row's own previous
-     * hardcoded gui_theme_font(GUI_FONT_ROLE_SUBTEXT)) before calling in. */
+    /* NULL follows native body typography; explicit plugin sizes remain
+     * available for intentionally compact controls. */
     lv_obj_align(label, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(20), BOARD_SCALE_PX(12));
     lv_obj_set_style_text_font(label, pill_row_resolve_text_size(text_size), 0);
     pill_row_apply_icon(card, label, icon_path, PILL_ROW_ICON_PX_DEFAULT, LV_ALIGN_TOP_LEFT, 20, 12);
@@ -1064,10 +1115,7 @@ static void populate_plugin_settings_list_screen(int slot) {
         plugin_settings_list_row_state_t * st = &plugin_settings_list_row_state[slot][row];
         void * packed = pack_plugin_settings_slot_row(slot, row);
         const char * icon = st->icon_path[0] ? st->icon_path : NULL;
-        /* Default "small" -- matches this whole screen's own previous
-         * hardcoded gui_theme_font(GUI_FONT_ROLE_SUBTEXT), so a row that doesn't set text_size renders
-         * exactly as it did before this field existed. */
-        const char * text_size = st->text_size[0] ? st->text_size : "small";
+        const char * text_size = st->text_size[0] ? st->text_size : NULL;
 
         if (st->type == PLUGIN_SETTINGS_ROW_TOGGLE) {
             lv_obj_t * row_obj = add_pill_toggle_row(list, st->label, st->toggle_value, NULL);
@@ -1243,6 +1291,8 @@ void gui_plugins_init(void) {
  * already-freed pointers. */
 void gui_plugins_teardown(void) {
     gui_plugin_close_progress();
+    gui_plugin_close_confirmation();
+    plugin_manager_confirmation_cancelled();
     plugin_picker_active = false;
     plugin_picker_finishing = true;
     plugin_picker_result[0] = '\0';

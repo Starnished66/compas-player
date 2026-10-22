@@ -7,7 +7,7 @@
 /* Plugin API version definition.
  * Plugins can declare api_min to require specific API features.
  * Sandboxed Lua states restrict filesystem and OS execution access. */
-#define PLUGIN_API_VERSION 18
+#define PLUGIN_API_VERSION 19
 #define PLUGIN_LIST_SCREEN_POOL_SIZE 4
 
 /* Third-party Lua plugin support. Every *.lua file under
@@ -24,6 +24,9 @@
 /* Upper bound on how many rows all plugins combined may register into the
  * Books screen list via plugin.register_list_item("books", ...). */
 #define PLUGIN_MAX_BOOKS_LIST_ITEMS 8
+
+/* Top-level Music submenu rows, appended after the native Music entries. */
+#define PLUGIN_MAX_MUSIC_LIST_ITEMS 8
 
 /* Same shape and same reasoning as PLUGIN_MAX_BOOKS_LIST_ITEMS above, for
  * plugin.register_list_item("settings", ...) -- sizes this target's own
@@ -287,6 +290,14 @@ void plugin_manager_books_list_item_clicked(int index);
 void plugin_manager_get_books_list_item_options(int index, const char ** out_icon, int32_t * out_height,
                                                  int32_t * out_width, const char ** out_text_size);
 
+/* Same shape as the books accessors, for plugin.register_list_item("music", ...)
+ * -- gui_library.c's build_music_screen() appends these after its built-in rows. */
+int plugin_manager_get_music_list_item_count(void);
+const char * plugin_manager_get_music_list_item_label(int index);
+void plugin_manager_music_list_item_clicked(int index);
+void plugin_manager_get_music_list_item_options(int index, const char ** out_icon, int32_t * out_height,
+                                                 int32_t * out_width, const char ** out_text_size);
+
 /* Same shape as the plugin_manager_*_books_list_item_* family above, for
  * plugin.register_list_item("settings", ...) -- gui.c's build_settings_
  * screen() appends these after its own 5 built-in category rows. */
@@ -510,6 +521,9 @@ void plugin_manager_interval_fired(int slot);
  * inherits from the native singleton screen). */
 void plugin_manager_text_input_submitted(const char * text);
 void plugin_manager_text_input_cancelled(void);
+/* Dispatch or discard the one pending plugin.show_confirmation() callback. */
+void plugin_manager_confirmation_confirmed(void);
+void plugin_manager_confirmation_cancelled(void);
 /* GUI bridge for the one pending plugin.pick_file() request. */
 void plugin_manager_file_picker_complete(const char * path);
 

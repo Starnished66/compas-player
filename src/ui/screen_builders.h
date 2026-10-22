@@ -191,6 +191,9 @@ typedef struct {
     /* Optional compact, transparent glow centered on the icon (0 = none).
      * Unlike bg_image this has no card surface or visible tile boundary. */
     uint32_t icon_glow_color;
+    /* Category menus only: plugin icon path (absolute or relative to .plugins),
+     * resolved with the same rules as register_list_item options.icon. */
+    const char * plugin_icon;
 } icon_grid_item_t;
 
 /* Titled screen: real back-arrow button (top-left, invokes back_btn_cb) and

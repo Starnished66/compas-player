@@ -9854,6 +9854,11 @@ static void music_screen_library_settings_cb(lv_event_t * e) {
     gui_settings_open_library();
 }
 
+static void music_plugin_item_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    plugin_manager_music_list_item_clicked((int) (intptr_t) lv_event_get_user_data(e));
+}
+
 static lv_obj_t * build_music_screen(void) {
     const icon_grid_item_t items[UI_MUSIC_COUNT] = {
         { "submenu/files.png", NULL, TR("Files"), music_files_tile_cb, NULL },
@@ -9865,7 +9870,7 @@ static lv_obj_t * build_music_screen(void) {
         { "submenu/playlists.png", NULL, TR("Playlists"), playlists_tile_cb, NULL },
     };
     const ui_customization_t customization = ui_customization_effective();
-    icon_grid_item_t ordered_items[UI_MUSIC_COUNT];
+    icon_grid_item_t ordered_items[UI_MUSIC_COUNT + PLUGIN_MAX_MUSIC_LIST_ITEMS];
     int ordered_count = 0;
     bool music_seen[UI_MUSIC_COUNT] = { false };
     int configured_music_count = customization.music.count;
@@ -9877,9 +9882,26 @@ static lv_obj_t * build_music_screen(void) {
         ordered_items[ordered_count++] = items[id];
     }
 
+    /* Plugin actions live alongside library categories. Native order and
+     * visibility preferences continue to apply to the built-in entries. */
+    int plugin_count = plugin_manager_get_music_list_item_count();
+    for (int i = 0; i < plugin_count && i < PLUGIN_MAX_MUSIC_LIST_ITEMS; ++i) {
+        const char * icon, * text_size;
+        int32_t height, width;
+        plugin_manager_get_music_list_item_options(i, &icon, &height, &width, &text_size);
+        icon_grid_item_t * item = &ordered_items[ordered_count++];
+        *item = (icon_grid_item_t){ "submenu/albums.png", NULL,
+            plugin_manager_get_music_list_item_label(i), music_plugin_item_cb,
+            (void *) (intptr_t) i };
+        if (height > 0) { item->has_row_height = true; item->row_height = height; }
+        if (width > 0) { item->has_row_width = true; item->row_width = width; }
+        item->text_size = text_size;
+        item->plugin_icon = icon;
+    }
+
     /* Native Music remains a category list, with launcher theme styling
-     * applied by the same builder as before. A zero-count order is an
-     * intentional empty menu; build_pill_list_screen keeps its title and
+     * applied by the same builder as before. With no native or plugin
+     * entries, build_pill_list_screen keeps its title and
      * native scroll area without inventing a placeholder row. */
     lv_obj_t * scr = ordered_count > 0
         ? build_category_menu_screen(TR("Music"), generic_back_cb, ordered_items, ordered_count,

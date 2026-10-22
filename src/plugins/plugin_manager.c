@@ -387,12 +387,13 @@ static const char * check_plugin_external_path(lua_State * L, int index, const c
 }
 
 /* Registries for plugin.register_list_item(list_id, ...) -- native screens
- * (books, settings, display, playback, music_audio, music_controls,
+ * (books, music, settings, display, playback, music_audio, music_controls,
  * music_timers, music_library, power, system, player) append their plugin rows
  * after built-in items. Storage is organized into a shared 2D array indexed
  * by target descriptor, while enforcing each target's individual max_items. */
 typedef enum {
     PLUGIN_LIST_TARGET_BOOKS = 0,
+    PLUGIN_LIST_TARGET_MUSIC,
     PLUGIN_LIST_TARGET_SETTINGS,
     PLUGIN_LIST_TARGET_DISPLAY,
     PLUGIN_LIST_TARGET_PLAYBACK,
@@ -415,6 +416,7 @@ typedef struct {
 
 static const plugin_list_target_desc_t plugin_list_targets[PLUGIN_LIST_TARGET_COUNT] = {
     [PLUGIN_LIST_TARGET_BOOKS] = { "books", "books list item", PLUGIN_MAX_BOOKS_LIST_ITEMS },
+    [PLUGIN_LIST_TARGET_MUSIC] = { "music", "music list item", PLUGIN_MAX_MUSIC_LIST_ITEMS },
     [PLUGIN_LIST_TARGET_SETTINGS] = { "settings", "settings list item", PLUGIN_MAX_SETTINGS_LIST_ITEMS },
     [PLUGIN_LIST_TARGET_DISPLAY] = { "display", "display list item", PLUGIN_MAX_DISPLAY_LIST_ITEMS },
     [PLUGIN_LIST_TARGET_PLAYBACK] = { "playback", "playback list item", PLUGIN_MAX_PLAYBACK_LIST_ITEMS },
@@ -433,6 +435,7 @@ static const plugin_list_target_desc_t plugin_list_targets[PLUGIN_LIST_TARGET_CO
  * beyond a target's row. */
 #define PLUGIN_LIST_REGISTRY_CAPACITY 16
 _Static_assert(PLUGIN_MAX_BOOKS_LIST_ITEMS <= PLUGIN_LIST_REGISTRY_CAPACITY, "books registry capacity");
+_Static_assert(PLUGIN_MAX_MUSIC_LIST_ITEMS <= PLUGIN_LIST_REGISTRY_CAPACITY, "music registry capacity");
 _Static_assert(PLUGIN_MAX_SETTINGS_LIST_ITEMS <= PLUGIN_LIST_REGISTRY_CAPACITY, "settings registry capacity");
 _Static_assert(PLUGIN_MAX_DISPLAY_LIST_ITEMS <= PLUGIN_LIST_REGISTRY_CAPACITY, "display registry capacity");
 _Static_assert(PLUGIN_MAX_PLAYBACK_LIST_ITEMS <= PLUGIN_LIST_REGISTRY_CAPACITY, "playback registry capacity");
@@ -958,7 +961,7 @@ static int l_plugin_register_list_item(lua_State * L) {
         }
     }
 
-    return luaL_error(L, "plugin.register_list_item: unknown list_id '%s' (expected \"books\", \"settings\", \"display\", \"playback\", \"music_audio\", \"music_controls\", \"music_timers\", \"music_library\", \"power\", \"system\", or \"player\")", list_id);
+    return luaL_error(L, "plugin.register_list_item: unknown list_id '%s' (expected \"books\", \"music\", \"settings\", \"display\", \"playback\", \"music_audio\", \"music_controls\", \"music_timers\", \"music_library\", \"power\", \"system\", or \"player\")", list_id);
 }
 
 /* Registers a Stream Media tile, appended after the built-in Subsonic tile.
@@ -4586,6 +4589,11 @@ static int l_plugin_md5(lua_State * L) {
 static lua_State * pending_text_input_L = NULL;
 static int pending_text_input_ref = LUA_NOREF;
 
+/* A confirmation callback is rooted in its owner's main state, even when
+ * show_confirmation() was called from a coroutine. */
+static lua_State * pending_confirmation_L = NULL;
+static int pending_confirmation_ref = LUA_NOREF;
+
 static int l_plugin_show_text_input(lua_State * L) {
     const char * title = luaL_checkstring(L, 1);
     const char * initial_text = (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) ? luaL_checkstring(L, 2) : NULL;
@@ -4602,6 +4610,30 @@ static int l_plugin_show_text_input(lua_State * L) {
     pending_text_input_L = plugin_main_state(L);
 
     gui_plugin_show_text_input(title, initial_text, is_password);
+    lua_pushboolean(L, true);
+    return 1;
+}
+
+static int l_plugin_show_confirmation(lua_State * L) {
+    const char * title = luaL_checkstring(L, 1);
+    const char * confirm_label = luaL_checkstring(L, 2);
+    luaL_checktype(L, 3, LUA_TFUNCTION);
+    if (pending_confirmation_L && pending_confirmation_ref != LUA_NOREF) {
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "confirmation busy");
+        return 2;
+    }
+    lua_pushvalue(L, 3);
+    int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    lua_State * owner = plugin_main_state(L);
+    if (!gui_plugin_show_confirmation(title, confirm_label)) {
+        luaL_unref(owner, LUA_REGISTRYINDEX, ref);
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "unable to show confirmation");
+        return 2;
+    }
+    pending_confirmation_ref = ref;
+    pending_confirmation_L = owner;
     lua_pushboolean(L, true);
     return 1;
 }
@@ -5525,7 +5557,7 @@ static int l_plugin_led_release(lua_State * L) {
 
 static const char * const plugin_capabilities[] = {
     "ui.music_layout", "ui.quick_drawer_layout",
-    "ui.progress", "network.http.download_progress", "ui.list", "ui.settings", "ui.row_width", "ui.text_input", "ui.toast", "ui.screenshot", "ui.theme",
+    "ui.progress", "network.http.download_progress", "ui.list", "ui.settings", "ui.row_width", "ui.text_input", "ui.confirmation", "ui.toast", "ui.screenshot", "ui.theme",
     "filesystem.sd", "playback.control", "playback.state", "playback.events",
     "library.artist_albums", "library.paged", "library.album_cover", "network.http.sync", "network.http.async",
     "network.http.download", "filesystem.mkdir", "crypto.md5", "audio.peq", "data.json",
@@ -6537,6 +6569,7 @@ static const luaL_Reg plugin_funcs[] = {
     { "json_encode",               l_plugin_json_encode },
     { "media_capabilities",        l_plugin_media_capabilities },
     { "show_text_input",           l_plugin_show_text_input },
+    { "show_confirmation",         l_plugin_show_confirmation },
     { "get_now_playing",           l_plugin_get_now_playing },
     { "get_play_mode",             l_plugin_get_play_mode },
     { "set_play_mode",             l_plugin_set_play_mode },
@@ -6907,6 +6940,15 @@ static void discard_failed_plugin_intervals(lua_State * L, bool aborted) {
     }
 }
 
+static void discard_pending_confirmation(lua_State * L, bool aborted) {
+    if (!failed_load_owner_matches(pending_confirmation_L, L, aborted)) return;
+    gui_plugin_close_confirmation();
+    if (!aborted && pending_confirmation_ref != LUA_NOREF)
+        luaL_unref(L, LUA_REGISTRYINDEX, pending_confirmation_ref);
+    pending_confirmation_L = NULL;
+    pending_confirmation_ref = LUA_NOREF;
+}
+
 static void discard_failed_plugin_resources(lua_State * L, bool aborted) {
     if (failed_load_owner_matches(button_lock_owner, L, aborted)) {
         button_lock_owner = NULL;
@@ -7012,6 +7054,7 @@ static void discard_failed_plugin_resources(lua_State * L, bool aborted) {
         pending_text_input_L = NULL;
         pending_text_input_ref = LUA_NOREF;
     }
+    discard_pending_confirmation(L, aborted);
     for (int i = 0; i < TEXT_VIEW_CTX_MAX; i++) {
         text_view_ctx_t * ctx = &text_view_ctxs[i];
         if (ctx->live && failed_load_owner_matches(ctx->L, L, aborted)) {
@@ -7536,6 +7579,8 @@ void plugin_manager_deinit(void) {
 
     deinit_diag("plugin_manager_deinit: text_input_cancelled before");
     plugin_manager_text_input_cancelled();
+    gui_plugin_close_confirmation();
+    plugin_manager_confirmation_cancelled();
 
     /* Deinit drops Lua refs without calling Lua callbacks; UI teardown
      * already ran and discarded any pending on_close. */
@@ -7733,6 +7778,11 @@ int plugin_manager_get_books_list_item_count(void) { return generic_list_item_co
 const char * plugin_manager_get_books_list_item_label(int index) { return generic_list_item_label(PLUGIN_LIST_TARGET_BOOKS, index); }
 void plugin_manager_books_list_item_clicked(int index) { generic_list_item_clicked(PLUGIN_LIST_TARGET_BOOKS, index); }
 void plugin_manager_get_books_list_item_options(int index, const char ** out_icon, int32_t * out_height, int32_t * out_width, const char ** out_text_size) { generic_list_item_options(PLUGIN_LIST_TARGET_BOOKS, index, out_icon, out_height, out_width, out_text_size); }
+
+int plugin_manager_get_music_list_item_count(void) { return generic_list_item_count(PLUGIN_LIST_TARGET_MUSIC); }
+const char * plugin_manager_get_music_list_item_label(int index) { return generic_list_item_label(PLUGIN_LIST_TARGET_MUSIC, index); }
+void plugin_manager_music_list_item_clicked(int index) { generic_list_item_clicked(PLUGIN_LIST_TARGET_MUSIC, index); }
+void plugin_manager_get_music_list_item_options(int index, const char ** out_icon, int32_t * out_height, int32_t * out_width, const char ** out_text_size) { generic_list_item_options(PLUGIN_LIST_TARGET_MUSIC, index, out_icon, out_height, out_width, out_text_size); }
 
 int plugin_manager_get_settings_list_item_count(void) { return generic_list_item_count(PLUGIN_LIST_TARGET_SETTINGS); }
 const char * plugin_manager_get_settings_list_item_label(int index) { return generic_list_item_label(PLUGIN_LIST_TARGET_SETTINGS, index); }
@@ -8210,4 +8260,27 @@ void plugin_manager_text_input_cancelled(void) {
     luaL_unref(pending_text_input_L, LUA_REGISTRYINDEX, pending_text_input_ref);
     pending_text_input_L = NULL;
     pending_text_input_ref = LUA_NOREF;
+}
+
+void plugin_manager_confirmation_confirmed(void) {
+    if (!pending_confirmation_L || pending_confirmation_ref == LUA_NOREF) return;
+    lua_State * L = pending_confirmation_L;
+    int ref = pending_confirmation_ref;
+    /* Clear first so a callback can safely open another confirmation. */
+    pending_confirmation_L = NULL;
+    pending_confirmation_ref = LUA_NOREF;
+    lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
+    if (plugin_call(L, 0, 0, 0) != LUA_OK) {
+        const char * err = lua_tostring(L, -1);
+        fprintf(stderr, "[plugins] show_confirmation callback error: %s\n", err ? err : "unknown error");
+        lua_pop(L, 1);
+    }
+    luaL_unref(L, LUA_REGISTRYINDEX, ref);
+}
+
+void plugin_manager_confirmation_cancelled(void) {
+    if (!pending_confirmation_L || pending_confirmation_ref == LUA_NOREF) return;
+    luaL_unref(pending_confirmation_L, LUA_REGISTRYINDEX, pending_confirmation_ref);
+    pending_confirmation_L = NULL;
+    pending_confirmation_ref = LUA_NOREF;
 }

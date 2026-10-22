@@ -1656,9 +1656,13 @@ lv_obj_t * build_category_menu_screen(const char * title, lv_event_cb_t back_btn
         bool show_icon = items[i].has_icon ? items[i].icon
                        : !(layout && layout->has_icon && !layout->icon);
         bool custom_background = items[i].has_bg_color || (layout && layout->has_bg_color);
-        if (row_objects[i])
-            decorate_category_row(row_objects[i], show_icon ? items[i].icon_asset : NULL,
-                                  custom_background ? NULL : items[i].bg_image);
+        if (row_objects[i]) {
+            if (show_icon && items[i].plugin_icon)
+                decorate_category_row_plugin_icon(row_objects[i], items[i].plugin_icon);
+            else
+                decorate_category_row(row_objects[i], show_icon ? items[i].icon_asset : NULL,
+                                      custom_background ? NULL : items[i].bg_image);
+        }
     }
     return scr;
 }
