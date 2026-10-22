@@ -989,6 +989,12 @@ $(LVGL_PATCH_STAMP): $(LVGL_FBDEV_C) $(LVGL_FBDEV_H) $(LVGL_PATCH) \
 	done; \
 	touch $@
 
+# The Remote Control web app is edited under src/network/webapp/; the header
+# that embeds it is regenerated whenever one of those sources changes.
+src/network/remote_control_webapp.h: src/network/webapp/index.html src/network/webapp/app.css \
+		src/network/webapp/app.js scripts/generate_remote_webapp.py
+	python3 scripts/generate_remote_webapp.py
+
 $(BUILD_HOST_DIR)/%.o: src/%.c $(LVGL_PATCH_STAMP)
 	@mkdir -p $(dir $@)
 	$(CC) $(HOST_CFLAGS) -c $< -o $@

@@ -256,6 +256,7 @@
 # `compile_commands.json` target invokes -- this one ships with the repo.
 !/generate_compile_commands.py
 !/scripts/offline_library_scan.py
+!/scripts/generate_remote_webapp.py
 !/scripts/install_startup_trace.py
 !/scripts/kernel/*.py
 

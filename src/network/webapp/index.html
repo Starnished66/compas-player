@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0a0b0e">
+<title>Compás Remote</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='18 18 72 72'><rect x='18' y='18' width='72' height='72' rx='16' fill='%230B0C10'/><g id='foreground' transform='translate(29.044 75.002) scale(0.07679)'><path d='M524 -161C467 -85 415 -55 336 -55C214 -55 117 -151 117 -273C117 -396 212 -492 334 -492C415 -492 482 -453 524 -381H607C563 -491 458 -560 335 -560C171 -560 42 -434 42 -275C42 -112 172 13 340 13C408 13 471 -8 522 -49C557 -77 578 -104 608 -161Z' fill='%23F3F4F6'/><path d='M474.4 -273.5 L273.0 -157.3 L273.0 -389.7 Z' fill='%23F3F4F6'/></g></svg>">
+<style>/*@CSS@*/</style>
+</head>
+<body data-theme="dark">
+<div id="backdrop" aria-hidden="true"></div>
+<div class="app">
+  <header class="topbar">
+    <div class="brand"><span class="wordmark" data-wordmark role="img" aria-label="Compás"></span></div>
+    <button class="icon-btn" id="themeTop" data-icon="theme" aria-label="Switch color theme"></button>
+  </header>
+
+  <aside class="sidebar" aria-label="Main navigation">
+    <div class="brand"><span class="wordmark" data-wordmark role="img" aria-label="Compás"></span></div>
+    <button class="nav-item" data-route="home"><span data-icon="home"></span>Now playing</button>
+    <button class="nav-item" data-route="queue"><span data-icon="queue"></span>Queue</button>
+    <div class="nav-label">Library</div>
+    <button class="nav-item" data-route="songs"><span data-icon="music"></span>Songs</button>
+    <button class="nav-item" data-route="artists"><span data-icon="artist"></span>Artists</button>
+    <button class="nav-item" data-route="album-artists"><span data-icon="artists"></span>Album artists</button>
+    <button class="nav-item" data-route="playlists"><span data-icon="playlist"></span>Playlists</button>
+    <div class="nav-label">Player</div>
+    <button class="nav-item feature" data-route="transfer"><span data-icon="upload"></span>Transfer files</button>
+    <div class="sidebar-foot">
+      <div class="device"><span class="dot" id="connDot"></span><div><b id="deviceName">Compás player</b><span id="connText">Connecting…</span></div></div>
+      <button class="nav-item" id="themeSide"><span data-icon="theme"></span><span id="themeLabel">Light mode</span></button>
+    </div>
+  </aside>
+
+  <main class="main" id="main" tabindex="-1"></main>
+
+  <footer class="player" aria-label="Player">
+    <button class="np" data-route="home" aria-label="Open now playing">
+      <span class="thumb" id="npThumb"><span data-icon="disc"></span></span>
+      <span class="meta"><span class="title" id="npTitle">Not playing</span><span class="subtitle" id="npArtist"></span></span>
+    </button>
+    <div class="transport">
+      <div class="buttons">
+        <button class="icon-btn" id="modeBtn" aria-label="Playback mode"></button>
+        <button class="icon-btn" data-cmd="prev" data-icon="prev" aria-label="Previous track"></button>
+        <button class="play" data-cmd="toggle" aria-label="Play or pause" data-play></button>
+        <button class="icon-btn" data-cmd="next" data-icon="next" aria-label="Next track"></button>
+        <button class="icon-btn" data-route="queue" data-icon="queue" aria-label="Queue"></button>
+      </div>
+      <div class="seek-row"><span data-pos>0:00</span><div class="track" data-seek role="slider" tabindex="0" aria-label="Seek"><div class="fill"></div><div class="knob"></div></div><span data-dur>0:00</span></div>
+    </div>
+    <div class="side-controls">
+      <span data-icon="volume" style="color:var(--muted)"></span>
+      <div class="track volume" id="volume" role="slider" tabindex="0" aria-label="Volume"><div class="fill"></div><div class="knob"></div></div>
+    </div>
+  </footer>
+
+  <nav class="tabs" aria-label="Sections">
+    <button data-route="home"><span data-icon="home"></span>Playing</button>
+    <button data-route="songs"><span data-icon="music"></span>Songs</button>
+    <button data-route="artists"><span data-icon="artist"></span>Artists</button>
+    <button data-route="playlists"><span data-icon="playlist"></span>Playlists</button>
+    <button data-route="transfer"><span data-icon="upload"></span>Transfer</button>
+  </nav>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script>/*@JS@*/</script>
+</body>
+</html>
