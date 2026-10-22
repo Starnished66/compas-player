@@ -26,6 +26,7 @@
 #include "plugin_internal.h"
 #include "plugin_disabled_list.h"
 #include "plugin_store.h"
+#include "hw_buttons.h"
 #include "gui_themes.h"
 #include "../core/screenshot.h"
 #include "db_log.h"
@@ -808,6 +809,8 @@ static plugin_order_editor_callback_t plugin_order_editor_callback = { NULL, LUA
  *       "screenshot_saved" -- callback(path), after a PNG is saved.
  *       "screenshot_failed" -- callback(reason), if the asynchronous
  *         capture or save fails.
+ *       "button_lock_changed" -- callback(locked), after the native
+ *         Power + Volume Up chord toggles hardware button lock.
  *       "suspending" / "system_resumed" -- callback(), around suspend-to-RAM.
  *         system_resumed is separate from playback's existing "resumed".
  *       "stopped" -- callback(), no arguments, fires when playback stops
@@ -5132,6 +5135,7 @@ typedef enum {
     PLUGIN_EVENT_SCREENSHOT_SAVED,
     PLUGIN_EVENT_SCREENSHOT_FAILED,
     PLUGIN_EVENT_OUTPUT_CHANGED,
+    PLUGIN_EVENT_BUTTON_LOCK_CHANGED,
     PLUGIN_EVENT_COUNT,
 } plugin_event_t;
 
@@ -5236,6 +5240,7 @@ static int l_plugin_on(lua_State * L) {
     else if (strcmp(event, "screenshot_saved") == 0) idx = PLUGIN_EVENT_SCREENSHOT_SAVED;
     else if (strcmp(event, "screenshot_failed") == 0) idx = PLUGIN_EVENT_SCREENSHOT_FAILED;
     else if (strcmp(event, "output_changed") == 0) idx = PLUGIN_EVENT_OUTPUT_CHANGED;
+    else if (strcmp(event, "button_lock_changed") == 0) idx = PLUGIN_EVENT_BUTTON_LOCK_CHANGED;
     else return luaL_error(L, "plugin.on: unknown event '%s'", event);
 
     if (plugin_event_subscriber_count[idx] >= PLUGIN_MAX_EVENT_SUBSCRIBERS) {
@@ -5317,6 +5322,26 @@ static int l_plugin_show_lock_screen(lua_State * L) {
         lua_pushliteral(L, "failed to show lock screen");
         return 2;
     }
+    return 1;
+}
+
+static lua_State * button_lock_owner = NULL;
+
+/* Native recognition remains available independently of Lua callbacks. */
+static int l_plugin_configure_button_lock(lua_State * L) {
+    luaL_checktype(L, 1, LUA_TBOOLEAN);
+    lua_State * owner = plugin_main_state(L);
+    plugin_instance_t * inst = plugin_instance_for_state(owner);
+    if (!inst || !inst->defined || inst->disposing || inst->aborted)
+        return luaL_error(L, "plugin.configure_button_lock: plugin is not active");
+    bool enabled = lua_toboolean(L, 1);
+    if (enabled && button_lock_owner && button_lock_owner != owner)
+        return luaL_error(L, "plugin.configure_button_lock: another plugin owns button lock");
+    if (enabled || button_lock_owner == owner) {
+        button_lock_owner = enabled ? owner : NULL;
+        hw_buttons_set_button_lock_enabled(enabled);
+    }
+    lua_pushliteral(L, HW_BUTTONS_LOCK_CHORD_NAME);
     return 1;
 }
 
@@ -5516,7 +5541,7 @@ static const char * const plugin_capabilities[] = {
     "ui.player_actions", "ui.player_layout_restore",
     "filesystem.file_ops", "ui.file_manager", "ui.player_menu", "ui.more_menu", "ui.file_picker",
     "ui.startup_image", "audio.mseb.stock", "playback.stay_on_screen",
-    "ui.settings_list_10_sliders"
+    "ui.settings_list_10_sliders", "ui.button_lock"
 };
 
 static int l_plugin_has_capability(lua_State * L) {
@@ -6537,6 +6562,7 @@ static const luaL_Reg plugin_funcs[] = {
     { "set_interval",              l_plugin_set_interval },
     { "clear_interval",            l_plugin_clear_interval },
     { "show_lock_screen",          l_plugin_show_lock_screen },
+    { "configure_button_lock",     l_plugin_configure_button_lock },
     { "set_startup_image_async",   l_plugin_set_startup_image_async },
     { "has_startup_image",         l_plugin_has_startup_image },
     { "zip_read",                  l_plugin_zip_read },
@@ -6882,6 +6908,10 @@ static void discard_failed_plugin_intervals(lua_State * L, bool aborted) {
 }
 
 static void discard_failed_plugin_resources(lua_State * L, bool aborted) {
+    if (failed_load_owner_matches(button_lock_owner, L, aborted)) {
+        button_lock_owner = NULL;
+        hw_buttons_set_button_lock_enabled(false);
+    }
     plugin_instance_t * failed_inst = plugin_instance_for_state(L);
     plugin_player_actions_clear_owner(L, failed_inst && failed_inst->defined ? failed_inst->id : NULL, aborted);
     if (failed_load_owner_matches(plugin_order_editor_callback.L, L, aborted)) {
@@ -7454,6 +7484,8 @@ void plugin_manager_deinit(void) {
     plugin_order_editor_callback.callback_ref = LUA_NOREF;
     mseb_reset();
     mseb_owner = NULL;
+    button_lock_owner = NULL;
+    hw_buttons_set_button_lock_enabled(false);
     ui_customization_set_override(NULL);
     ui_layout_sequence = 0;
     plugin_progress_reset();
@@ -8041,6 +8073,19 @@ void plugin_manager_notify_stopped(void) {
 
 void plugin_manager_notify_screen_woke(void) {
     notify_event_no_args(PLUGIN_EVENT_SCREEN_WOKE, "screen_woke");
+}
+
+void plugin_manager_notify_button_lock_changed(bool locked) {
+    for (int i = 0; i < plugin_event_subscriber_count[PLUGIN_EVENT_BUTTON_LOCK_CHANGED]; i++) {
+        plugin_event_subscriber_t * sub = &plugin_event_subscribers[PLUGIN_EVENT_BUTTON_LOCK_CHANGED][i];
+        lua_rawgeti(sub->L, LUA_REGISTRYINDEX, sub->ref);
+        lua_pushboolean(sub->L, locked);
+        if (plugin_call(sub->L, 1, 0, 0) != LUA_OK) {
+            const char * err = lua_tostring(sub->L, -1);
+            fprintf(stderr, "[plugins] button_lock_changed handler error: %s\n", err ? err : "unknown error");
+            lua_pop(sub->L, 1);
+        }
+    }
 }
 
 void plugin_manager_notify_queue_exhausted(int direction) {

@@ -688,7 +688,15 @@ static void physical_button_action(button_mapping_action_t action,
     (void)userdata;
     if (gesture != BUTTON_MAPPING_GESTURE_HOLD_REPEAT) count = 1;
     if (count > 100) count = 100;
-    if (action == BUTTON_MAPPING_ACTION_DEFAULT)
+    if (hw_buttons_button_lock_is_locked()) {
+        if (button != BUTTON_MAPPING_POWER) return;
+        if (gesture == BUTTON_MAPPING_GESTURE_TAP || gesture == BUTTON_MAPPING_GESTURE_DOUBLE)
+            action = BUTTON_MAPPING_ACTION_SCREEN_TOGGLE;
+        else if (gesture == BUTTON_MAPPING_GESTURE_HOLD_FIRST)
+            action = BUTTON_MAPPING_ACTION_POWER_MENU;
+        else
+            return;
+    } else if (action == BUTTON_MAPPING_ACTION_DEFAULT)
         action = physical_button_default_action(button, gesture);
     if (action == BUTTON_MAPPING_ACTION_NONE) return;
     /* The wake key can be replayed by evdev after suspend. Consume that
@@ -765,10 +773,23 @@ static void process_physical_button_events(void) {
     if (resumed_from_suspend_pending &&
         lv_tick_elaps(resumed_from_suspend_tick) >= RESUME_POWER_DRAIN_WINDOW_MS)
         resumed_from_suspend_pending = false;
+    if (hw_buttons_consume_button_lock_changed()) {
+        for (unsigned i = 0; i < BUTTON_MAPPING_BUTTON_COUNT; ++i)
+            button_mapping_set(&physical_button_mapping, (button_mapping_button_t)i,
+                               &physical_button_mapping.bindings[i]);
+        bool locked = hw_buttons_button_lock_is_locked();
+        show_info_toast(locked ? TR("Buttons locked") : TR("Buttons unlocked"));
+        plugin_manager_notify_button_lock_changed(locked);
+    }
     hw_button_event_t event;
-    while (hw_buttons_consume_event(&event))
-        button_mapping_event(&physical_button_mapping, event.button, event.gesture,
-                             event.count, event.timestamp_ms, physical_button_action, NULL);
+    while (hw_buttons_consume_event(&event)) {
+        if (hw_buttons_button_lock_is_locked() && event.button == BUTTON_MAPPING_POWER)
+            physical_button_action(BUTTON_MAPPING_ACTION_DEFAULT, event.button, event.gesture,
+                                   event.count, true, event.timestamp_ms, NULL);
+        else
+            button_mapping_event(&physical_button_mapping, event.button, event.gesture,
+                                 event.count, event.timestamp_ms, physical_button_action, NULL);
+    }
     /* Drain source events before expiring singles: a busy GUI must still
      * recognize two rapid hardware presses using their original times. */
     button_mapping_poll(&physical_button_mapping, physical_button_now_ms(),

@@ -1,5 +1,7 @@
 # What's New: Next Release
 
+- **Hardware button lock:** the Lock Screen plugin can enable a Power + Volume Up chord that locks the physical buttons. The lock is native, so the same chord still unlocks if the plugin is stuck. Short Power still sleeps and wakes; a long Power press still opens the power menu. The option is independent of the visual lock screen.
+
 Development notes accumulated for v1.2.0. See WHATS_NEW.md for the release announcement.
 
 - **All Songs:** a Play All row at the top plays the whole library, in order or shuffled.

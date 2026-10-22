@@ -51,4 +51,26 @@ void hw_buttons_set_screenshot_combo_enabled(bool enabled);
  * volume actions, and never resumes a blocked hold after wake. */
 void hw_buttons_set_volume_lock_screen_off(bool enabled);
 
+/* Arm the native Power + Volume Up button-lock chord. Recognition and
+ * enforcement live in this reader: Lua only enables the chord. The locked
+ * flag is transient and starts unlocked. Disabling the chord (plugin unload
+ * or configure(false)) also unlocks and drops queued/deferred actions so
+ * controls cannot stay stranded. */
+void hw_buttons_set_button_lock_enabled(bool enabled);
+bool hw_buttons_button_lock_is_enabled(void);
+bool hw_buttons_button_lock_is_locked(void);
+
+/* True once when the lock flag toggles, then reset. The GUI thread drains
+ * this to cancel deferred mapping state, toast, and notify plugins. */
+bool hw_buttons_consume_button_lock_changed(void);
+
+/* Short Power remains wake/sleep (native SCREEN_TOGGLE) while locked.
+ * Long Power remains the emergency power-off menu. Other mapped actions,
+ * including repeats, are suppressed until the same chord unlocks. */
+#if defined(BOARD_R3II_2025)
+#define HW_BUTTONS_LOCK_CHORD_NAME "Hold Power + turn volume up"
+#else
+#define HW_BUTTONS_LOCK_CHORD_NAME "Power + Volume Up"
+#endif
+
 #endif /* HW_BUTTONS_H */

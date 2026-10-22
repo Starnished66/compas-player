@@ -7,7 +7,7 @@
 /* Plugin API version definition.
  * Plugins can declare api_min to require specific API features.
  * Sandboxed Lua states restrict filesystem and OS execution access. */
-#define PLUGIN_API_VERSION 17
+#define PLUGIN_API_VERSION 18
 #define PLUGIN_LIST_SCREEN_POOL_SIZE 4
 
 /* Third-party Lua plugin support. Every *.lua file under
@@ -459,6 +459,7 @@ void plugin_manager_notify_suspending(void);
 void plugin_manager_notify_system_resumed(void);
 void plugin_manager_notify_screenshot_saved(const char * path);
 void plugin_manager_notify_screenshot_failed(const char * reason);
+void plugin_manager_notify_button_lock_changed(bool locked);
 
 /* ---- plugin.register_quick_toggle() -- a toggle in the quick drawer's
  * expanded area (gui_shell.c's build_quick_drawer(), third toggle row),

@@ -180,13 +180,13 @@ plugin.define({
 
 ### Checking what the player supports
 
-- `plugin.api_version()` returns the API version, currently `17`.
+- `plugin.api_version()` returns the API version, currently `18`.
 - `plugin.has_capability(name)` returns whether one feature exists. Prefer it
   over `api_min` when you only need one feature. Tokens:
 
   | Area | Tokens |
   | --- | --- |
-  | UI | `ui.list`, `ui.settings`, `ui.row_width`, `ui.text_input`, `ui.toast`, `ui.progress`, `ui.screenshot`, `ui.theme`, `ui.theme_refresh`, `ui.reload`, `ui.home_layout`, `ui.home_tiles`, `ui.launcher_layout`, `ui.home_background`, `ui.lock_screen`, `ui.quick_toggle`, `ui.text_view`, `ui.text_view_images`, `ui.list_grid`, `ui.list_showing`, `ui.list_update`, `ui.list_wrap`, `ui.settings_list_wrap`, `ui.settings_list_10_sliders`, `ui.order_editor`, `ui.player_layout_xml`, `ui.file_manager`, `ui.file_picker`, `ui.startup_image` |
+  | UI | `ui.list`, `ui.settings`, `ui.row_width`, `ui.text_input`, `ui.toast`, `ui.progress`, `ui.screenshot`, `ui.theme`, `ui.theme_refresh`, `ui.reload`, `ui.home_layout`, `ui.home_tiles`, `ui.launcher_layout`, `ui.home_background`, `ui.lock_screen`, `ui.button_lock`, `ui.quick_toggle`, `ui.text_view`, `ui.text_view_images`, `ui.list_grid`, `ui.list_showing`, `ui.list_update`, `ui.list_wrap`, `ui.settings_list_wrap`, `ui.settings_list_10_sliders`, `ui.order_editor`, `ui.player_layout_xml`, `ui.file_manager`, `ui.file_picker`, `ui.startup_image` |
   | Playback and audio | `playback.control`, `playback.state`, `playback.events`, `playback.progress`, `playback.remote`, `playback.transport_skip`, `playback.speed`, `playback.format`, `playback.output_info`, `playback.silent_volume`, `playback.transient_volume`, `playback.output_events`, `playback.settings`, `playback.ab_loop`, `playback.ab_switch`, `playback.http_seek`, `audio.peq`, `audio.peq.transient`, `audio.peq.state`, `audio.stereo_width`, `audio.crossfeed`, `audio.crossfeed.angle`, `audio.hw_volume_curve` |
   | Files | `filesystem.sd`, `filesystem.mkdir`, `filesystem.playlists`, `filesystem.file_ops` |
   | Storage | `storage.namespaced`, `storage.secrets`, `storage.secrets_get` |
@@ -216,6 +216,7 @@ plugin.define({
 | 15 | Full XML Player-layout support (`ui.player_layout_xml`), including plugin-bundle discovery, current named-widget features, companion PNG previews, and resolution-specific XML variants using `@WIDTHxHEIGHT` or `_WIDTHxHEIGHT` filenames |
 | 16 | Playback speed/stereo width/progress plus format/output snapshots, silent volume, transient EQ, output events, playback settings, native A–B loops/comparison, and finite HTTP seeking. Modeless progress bars and download byte snapshots are also available, as are File Manager operations and the native file picker. |
 | 17 | Player-layout actions and owner-scoped layout restoration, including background layout replacement. Bundled Audiobooks and Podcasts Reading Room players require API 17; the store rejects installation on older firmware. |
+| 18 | Native hardware button lock through `plugin.configure_button_lock`, capability `ui.button_lock`, and the `button_lock_changed` event. The Lock Screen plugin requires API 18 so older firmware cannot install it. |
 
 All of these are additions; older plugins keep working.
 
@@ -537,6 +538,26 @@ Returns `true`, or `false, message`.
 The `screen_woke` event runs while the panel is still dark, allowing this call
 to prepare the lock screen before the first visible frame. Artwork decoding
 and blur generation run in the background.
+
+### `plugin.configure_button_lock(enabled)`
+
+Arms the native Power + Volume Up chord that toggles hardware button lock
+(API 18, capability `ui.button_lock`). Pass `true` to enable the chord, `false`
+to disarm it. Returns the board-specific shortcut text for use in settings.
+On R3II 2025, hold Power first and turn the volume knob up; knob-first
+remains an ordinary volume adjustment. The enabled preference is the plugin's to persist; the locked
+flag itself is transient and starts unlocked.
+
+Recognition and enforcement are native. Unlock still works if Lua fails.
+While locked, mapped actions including repeats are blocked. Short Power still
+wakes and sleeps the display. Long Power still opens the emergency power-off
+menu. The chord waits until both keys are released, suppresses the incidental
+Power and Volume Up actions in either press order on button-based boards, and does not use the
+screenshot chord (Power + Volume Down, or Power + Previous on R3II 2025).
+Disabling the plugin or calling `configure_button_lock(false)` unlocks and
+clears queued gestures. Configuration belongs to the calling plugin; a failed
+load or plugin teardown releases it, and a different plugin cannot disarm or
+take over an existing owner.
 
 ## Theming
 
@@ -1572,6 +1593,7 @@ called. Up to 16 subscribers per event; an unknown event name is an error.
 | `battery_changed` | same table as `get_battery()` | A battery value changes. |
 | `screenshot_saved` | `path` | A screenshot was saved. |
 | `screenshot_failed` | `reason` | A screenshot couldn't be saved. |
+| `button_lock_changed` | `locked` | Native hardware button lock toggled. |
 | `suspending` | none | The player is about to sleep (it can't be stopped). |
 | `system_resumed` | none | The player woke from sleep. |
 
