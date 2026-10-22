@@ -1382,6 +1382,34 @@ static uint64_t preview_now_ms(void) {
     return (uint64_t) now.tv_sec * 1000 + (uint64_t) now.tv_nsec / 1000000;
 }
 
+/* Failed previews are retried only when a later viewport request arrives.
+ * Keep network/validation failures slower than decoder contention, and cap
+ * both paths at the existing three attempts per catalog epoch. */
+static uint64_t preview_retry_delay_ms(unsigned attempts, bool decoder_busy) {
+    return (decoder_busy ? 1000u : 2000u) * (uint64_t) attempts;
+}
+
+static bool preview_retry_blocked(const preview_cache_entry_t * cached, uint64_t epoch, uint64_t now) {
+    if (cached->attempted_epoch != epoch || !cached->attempts) return false;
+    return cached->attempts >= 3 || !cached->retry_after_ms || now < cached->retry_after_ms;
+}
+
+/* Called under store_mutex after a worker item finishes. Keep the retry state
+ * transition here so ordinary transfer failures and decoder contention both
+ * remain eligible for a later viewport-triggered attempt. */
+static void preview_complete_entry(preview_cache_entry_t * cached, const char * sha,
+                                   uint64_t current_epoch, uint64_t job_epoch,
+                                   bool ready, bool decoder_busy, uint64_t now) {
+    if (current_epoch != job_epoch || strcmp(cached->sha, sha) != 0) return;
+    if (ready) {
+        cached->ready = true;
+        cached->retry_after_ms = 0;
+        preview_generation++;
+    } else if (cached->attempts < 3) {
+        cached->retry_after_ms = now + preview_retry_delay_ms(cached->attempts, decoder_busy);
+    }
+}
+
 static bool preview_cache_open(void) {
     if (preview_dir_fd >= 0) return true;
     if (mkdir(STORE_PREVIEW_ROOT, 0700) != 0 && errno != EEXIST) return false;
@@ -1569,14 +1597,8 @@ static void * preview_worker(void * context) {
         }
         pthread_mutex_lock(&store_mutex);
         preview_cache_entry_t * cached = &preview_cache[item->slot];
-        if (preview_epoch == job->epoch && strcmp(cached->sha, item->preview.sha256) == 0) {
-            if (ready) {
-                cached->ready = true;
-                preview_generation++;
-            } else if (retryable && cached->attempts < 3) {
-                cached->retry_after_ms = preview_now_ms() + 1000 * cached->attempts;
-            }
-        }
+        preview_complete_entry(cached, item->preview.sha256, preview_epoch, job->epoch,
+                               ready, retryable, preview_now_ms());
         pthread_mutex_unlock(&store_mutex);
     }
     pthread_mutex_lock(&store_mutex);
@@ -1629,8 +1651,7 @@ bool plugin_store_prepare_previews(const char * const * ids, size_t count) {
             preview_cache_entry_t * cached = &preview_cache[slot];
             cached->last_used = ++preview_use_counter;
             if (cached->ready) continue;
-            if (cached->attempted_epoch == preview_epoch && cached->attempts &&
-                (!cached->retry_after_ms || now < cached->retry_after_ms || cached->attempts >= 3)) continue;
+            if (preview_retry_blocked(cached, preview_epoch, now)) continue;
         } else {
             /* Visible/nearby cards are pinned for this request. Replace only
              * an offscreen slot, preferring an empty then the oldest slot. */

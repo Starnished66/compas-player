@@ -100,6 +100,45 @@ static void test_preview_metadata(void) {
         "{\"asset\":\"v.jpg\",\"sha256\":\"" TEST_SHA "\",\"size\":1,\"width\":241,\"height\":1}]}");
 }
 
+static void test_preview_retry_backoff(void) {
+    preview_cache_entry_t cached = {0};
+    snprintf(cached.sha, sizeof(cached.sha), "%s", TEST_SHA);
+    cached.attempted_epoch = 7;
+    cached.attempts = 1;
+    preview_complete_entry(&cached, TEST_SHA, 7, 7, false, false, 5000);
+    assert(cached.retry_after_ms == 7000); /* Ordinary download/hash failure schedules retry. */
+    assert(preview_retry_blocked(&cached, 7, 6999));
+    assert(!preview_retry_blocked(&cached, 7, 7000)); /* A later prepare can now schedule it. */
+    cached.attempts = 2;
+    preview_complete_entry(&cached, TEST_SHA, 7, 7, false, true, 10000);
+    assert(cached.retry_after_ms == 12000); /* Busy decode retains its shorter backoff. */
+    assert(preview_retry_delay_ms(1, false) == 2000);
+    assert(preview_retry_delay_ms(2, false) == 4000);
+    assert(preview_retry_delay_ms(1, true) == 1000); /* Decoder busy stays quicker. */
+    cached.attempts = 3;
+    cached.retry_after_ms = 12000;
+    preview_complete_entry(&cached, TEST_SHA, 7, 7, false, false, 13000);
+    assert(cached.retry_after_ms == 12000);
+    assert(preview_retry_blocked(&cached, 7, 12000)); /* Bounded to three attempts. */
+    assert(!preview_retry_blocked(&cached, 8, 1000)); /* New catalog epoch. */
+
+    uint64_t generation_before = preview_generation;
+    preview_complete_entry(&cached, TEST_SHA, 7, 7, true, false, 14000);
+    assert(cached.ready && cached.retry_after_ms == 0);
+    assert(preview_generation == generation_before + 1);
+    cached.ready = false;
+    cached.attempts = 1;
+    cached.retry_after_ms = 15000;
+    preview_complete_entry(&cached, TEST_SHA, 8, 7, false, false, 14000);
+    assert(cached.retry_after_ms == 15000); /* Cancelled/stale worker cannot mutate cache. */
+    preview_complete_entry(&cached, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                           7, 7, false, false, 14000);
+    assert(cached.retry_after_ms == 15000); /* A replaced slot is untouched. */
+    cached.attempts = 1;
+    cached.retry_after_ms = 0;
+    assert(preview_retry_blocked(&cached, 7, 10000)); /* No retry without a scheduled backoff. */
+}
+
 static void set_payload(plugin_store_plugin_t *pack, const char *dest) {
     memset(pack, 0, sizeof(*pack));
     pack->file_count = 1;
@@ -131,6 +170,7 @@ int main(void) {
     assert(!plugin_contains_theme_pack(&pack));
     assert(plugin_contains_player_layout(&pack));
     test_preview_metadata();
+    test_preview_retry_backoff();
     char boundary[80] = "Themes/";
     memset(boundary + 7, 'a', 57);
     strcpy(boundary + 64, ".theme"); /* 63-byte native identifier. */
