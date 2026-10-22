@@ -2,6 +2,7 @@
 #include "i18n.h"
 #include "gui.h"
 #include "gui_player.h"
+#include "gui_lyrics.h"
 #include "gui_shell.h"
 #include "gui_reload.h"
 #include "player_layouts.h"
@@ -4719,6 +4720,27 @@ static int l_plugin_get_current_track_path(lua_State * L) {
     return 1;
 }
 
+/* A fetch completion must only refresh the exact track it saved for. The
+ * native loader schedules disk/tag work asynchronously and rejects stale jobs. */
+static int l_plugin_refresh_lyrics(lua_State * L) {
+    plugin_instance_t * inst = plugin_instance_for_state(L);
+    if (!inst || !inst->defined)
+        return luaL_error(L, "plugin.refresh_lyrics requires plugin.define first");
+    size_t len = 0;
+    const char * expected = luaL_checklstring(L, 1, &len);
+    if (!len || len >= PATH_MAX || memchr(expected, '\0', len))
+        return luaL_error(L, "plugin.refresh_lyrics: invalid track path");
+    const char * current = gui_plugin_get_current_track_path();
+    if (!current || strcmp(expected, current) != 0) {
+        lua_pushboolean(L, false);
+        lua_pushliteral(L, "track_changed");
+        return 2;
+    }
+    gui_lyrics_load_track(gui_player_get_playlist_index(), current);
+    lua_pushboolean(L, true);
+    return 1;
+}
+
 /* Shared tail for get_artist_albums()/get_album_tracks()/
  * get_next_album_tracks() below -- pushes a malloc'd gui_plugin_* string
  * array as a 1-indexed Lua table (or nil if it came back empty/NULL) and
@@ -5573,7 +5595,7 @@ static const char * const plugin_capabilities[] = {
     "ui.player_actions", "ui.player_layout_restore",
     "filesystem.file_ops", "ui.file_manager", "ui.player_menu", "ui.more_menu", "ui.file_picker",
     "ui.startup_image", "audio.mseb.stock", "playback.stay_on_screen",
-    "ui.settings_list_10_sliders", "ui.button_lock"
+    "ui.settings_list_10_sliders", "ui.button_lock", "playback.lyrics_refresh"
 };
 
 static int l_plugin_has_capability(lua_State * L) {
@@ -6580,6 +6602,7 @@ static const luaL_Reg plugin_funcs[] = {
     { "get_replaygain_mode",       l_plugin_get_replaygain_mode },
     { "set_replaygain_mode",       l_plugin_set_replaygain_mode },
     { "get_current_track_path",    l_plugin_get_current_track_path },
+    { "refresh_lyrics",            l_plugin_refresh_lyrics },
     { "get_artist_albums",         l_plugin_get_artist_albums },
     { "get_album_tracks",          l_plugin_get_album_tracks },
     { "get_next_album_tracks",     l_plugin_get_next_album_tracks },
