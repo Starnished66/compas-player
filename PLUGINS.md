@@ -565,6 +565,11 @@ On R3II 2025, hold Power first and turn the volume knob up; knob-first
 remains an ordinary volume adjustment. The enabled preference is the plugin's to persist; the locked
 flag itself is transient and starts unlocked.
 
+When a visual lock screen is shown with this option enabled, it arms the
+hardware lock automatically and replaces swipe unlock with the button shortcut.
+The shortcut dismisses the visual lock screen; from a dark display it wakes
+directly to the unlocked page. Disarming restores swipe dismissal.
+
 Recognition and enforcement are native. Unlock still works if Lua fails.
 While locked, mapped actions including repeats are blocked. Short Power still
 wakes and sleeps the display. Long Power still opens the emergency power-off

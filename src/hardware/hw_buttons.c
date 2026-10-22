@@ -1049,6 +1049,13 @@ void hw_buttons_set_button_lock_enabled(bool enabled) {
     pthread_mutex_unlock(&state_mutex);
 }
 
+void hw_buttons_set_button_locked(bool locked) {
+    pthread_mutex_lock(&state_mutex);
+    if (!locked || button_lock_enabled)
+        apply_button_lock_state_locked(locked);
+    pthread_mutex_unlock(&state_mutex);
+}
+
 bool hw_buttons_button_lock_is_enabled(void) {
     pthread_mutex_lock(&state_mutex);
     bool enabled = button_lock_enabled;

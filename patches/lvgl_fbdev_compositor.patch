@@ -1,5 +1,5 @@
 diff --git a/src/drivers/display/fb/lv_linux_fbdev.c b/src/drivers/display/fb/lv_linux_fbdev.c
-index c78b881..b957046 100644
+index c78b881..6bb05e5 100644
 --- a/src/drivers/display/fb/lv_linux_fbdev.c
 +++ b/src/drivers/display/fb/lv_linux_fbdev.c
 @@ -71,6 +71,26 @@ typedef struct {
@@ -238,7 +238,7 @@ index c78b881..b957046 100644
  #endif
  }
  
-@@ -297,17 +470,63 @@ static void del_event_cb(lv_event_t * e)
+@@ -297,17 +470,85 @@ static void del_event_cb(lv_event_t * e)
          dsc->fbfd = -1;
      }
      if(dsc->rotated_buf) lv_free(dsc->rotated_buf);
@@ -297,6 +297,28 @@ index c78b881..b957046 100644
 +    return dsc && dsc->last_present_successful;
 +}
 +
++bool lv_linux_fbdev_clear_scanout(lv_display_t * disp)
++{
++#if LV_LINUX_FBDEV_MMAP && !LV_LINUX_FBDEV_BSD
++    if(!disp) return false;
++    lv_linux_fb_t * dsc = lv_display_get_driver_data(disp);
++    if(!dsc || dsc->fbfd < 0 || !dsc->fbp || dsc->fbp == MAP_FAILED ||
++       dsc->screensize <= 0 || dsc->finfo.smem_len <= 0 ||
++       dsc->external_composition_active || disp->flushing || disp->rendering_in_progress)
++        return false;
++
++    /* The mmap spans the complete framebuffer allocation, including every
++     * physical page and its stride padding. Clear all of it so a later
++     * unblank cannot expose a retained pre-wake page. */
++    lv_memzero(dsc->fbp, (size_t)dsc->screensize);
++    dsc->last_present_successful = false;
++    return true;
++#else
++    (void)disp;
++    return false;
++#endif
++}
++
  static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * color_p)
  {
      lv_linux_fb_t * dsc = lv_display_get_driver_data(disp);
@@ -304,7 +326,7 @@ index c78b881..b957046 100644
  
  #if LV_LINUX_FBDEV_MMAP
      if(dsc->fbp == NULL) {
-@@ -316,6 +535,70 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
+@@ -316,6 +557,70 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
      }
  #endif
  
@@ -375,7 +397,7 @@ index c78b881..b957046 100644
      const bool wait_for_last_flush = LV_LINUX_FBDEV_RENDER_MODE == LV_DISPLAY_RENDER_MODE_FULL;
      const bool is_last_flush = lv_display_flush_is_last(disp);
      const bool skip_flush = wait_for_last_flush && !is_last_flush;
-@@ -390,6 +673,7 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
+@@ -390,6 +695,7 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
          return;
      }
  
@@ -383,7 +405,7 @@ index c78b881..b957046 100644
      uint32_t fb_pos =
          (clipped_area.x1 + dsc->vinfo.xoffset) * px_size +
          (clipped_area.y1 + dsc->vinfo.yoffset) * dsc->finfo.line_length;
-@@ -400,7 +684,7 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
+@@ -400,7 +706,7 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
              (clipped_area.x1 - disp->offset_x) * px_size +
              (clipped_area.y1 - disp->offset_y) * disp->hor_res * px_size;
          for(int32_t y = clipped_area.y1; y <= clipped_area.y2; y++) {
@@ -392,7 +414,7 @@ index c78b881..b957046 100644
              fb_pos += dsc->finfo.line_length;
              color_pos += disp->hor_res * px_size;
          }
-@@ -414,7 +698,7 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
+@@ -414,7 +720,7 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
          color_p += y_offset * stride + x_offset * px_size;
  
          for(int32_t y = clipped_area.y1; y <= clipped_area.y2; y++) {
@@ -401,7 +423,7 @@ index c78b881..b957046 100644
              fb_pos += dsc->finfo.line_length;
              color_p += stride;
          }
-@@ -424,9 +708,11 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
+@@ -424,9 +730,11 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
          dsc->vinfo.activate |= FB_ACTIVATE_NOW | FB_ACTIVATE_FORCE;
          if(ioctl(dsc->fbfd, FBIOPUT_VSCREENINFO, &(dsc->vinfo)) == -1) {
              perror("Error setting var screen info");
@@ -414,10 +436,10 @@ index c78b881..b957046 100644
  }
  
 diff --git a/src/drivers/display/fb/lv_linux_fbdev.h b/src/drivers/display/fb/lv_linux_fbdev.h
-index a9b7be0..81be93a 100644
+index a9b7be0..60dfad9 100644
 --- a/src/drivers/display/fb/lv_linux_fbdev.h
 +++ b/src/drivers/display/fb/lv_linux_fbdev.h
-@@ -39,6 +39,81 @@ lv_result_t lv_linux_fbdev_set_file(lv_display_t * disp, const char * file);
+@@ -39,6 +39,88 @@ lv_result_t lv_linux_fbdev_set_file(lv_display_t * disp, const char * file);
   */
  void lv_linux_fbdev_set_force_refresh(lv_display_t * disp, bool enabled);
  
@@ -495,6 +517,13 @@ index a9b7be0..81be93a 100644
 +/** True only if the most recent native last flush presented successfully.
 + * Read from the display's FLUSH_FINISH event, not from a no-damage refresh. */
 +bool lv_linux_fbdev_last_present_succeeded(lv_display_t * disp);
++
++/** Clear every byte in the mapped framebuffer scanout while it is safe to
++ * write (GUI thread, no refresh/flush in progress, and no external
++ * composition owner). Returns false when this backend cannot safely clear
++ * the mapped scanout. The caller should invalidate and render a full frame
++ * afterward. */
++bool lv_linux_fbdev_clear_scanout(lv_display_t * disp);
 +
  /**********************
   *      MACROS

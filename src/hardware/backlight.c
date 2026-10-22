@@ -321,6 +321,12 @@ void backlight_prepare_screen_on(void) {
         pthread_mutex_unlock(&screen_power_mutex);
         return;
     }
+    /* The kernel can change the PWM independently while suspended. Force
+     * the zero-brightness write even if our process cache says it is already
+     * zero, so the preparation acknowledgement reflects the hardware. */
+    pthread_mutex_lock(&backlight_io_mutex);
+    last_written_raw = -1;
+    pthread_mutex_unlock(&backlight_io_mutex);
     screen_preparing = true;
     screen_visible = false;
     screen_prepared = false;

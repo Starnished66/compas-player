@@ -166,6 +166,80 @@ static bool spawn_aplay(const char * device, unsigned int channels, unsigned int
 
 static struct mixer * get_alsa_mixer(void);
 
+/* Preferences never change a running codec. Supported Cirrus drivers cache
+ * these controls while powered down and restore them in their next prepare. */
+static int requested_dac_filter;
+static bool requested_dac_nos;
+static bool requested_dac_dre = true;
+/* The module replays its cached table on every prepare. Avoid repeating
+ * unchanged controls: the R3 Pro II NOS callback busy-waits for 150 ms. */
+static bool dac_preferences_written;
+static int written_dac_filter;
+static bool written_dac_nos;
+static bool written_dac_dre;
+
+void audio_output_set_dac_preferences(int filter, bool nos, bool dre) {
+    pthread_mutex_lock(&config_mutex);
+    requested_dac_filter = filter >= 0 && filter <= 3 ? filter : 0;
+    requested_dac_nos = nos;
+    requested_dac_dre = dre;
+    pthread_mutex_unlock(&config_mutex);
+}
+
+static bool dac_controls_present(void) {
+#if (defined(BOARD_R1) || defined(BOARD_R3PROII)) && !defined(HOST_BUILD)
+    struct mixer * mixer = get_alsa_mixer();
+    return mixer && mixer_get_ctl_by_name(mixer, "Digital Filter") &&
+           mixer_get_ctl_by_name(mixer, "NOS_EN");
+#else
+    return false;
+#endif
+}
+
+bool audio_output_dac_dre_supported(void) {
+#if defined(BOARD_R3PROII) && !defined(HOST_BUILD)
+    struct mixer * mixer = get_alsa_mixer();
+    return dac_controls_present() && mixer && mixer_get_ctl_by_name(mixer, "DRE_EN");
+#else
+    return false;
+#endif
+}
+
+bool audio_output_dac_controls_supported(void) {
+    /* Hardware capability, independent of the currently selected route.
+     * These preferences are applied only by the local open branch. */
+    return dac_controls_present();
+}
+
+static void apply_dac_preferences(bool dop) {
+    if (!dac_controls_present()) return;
+    pthread_mutex_lock(&config_mutex);
+    int filter = requested_dac_filter;
+    bool nos = requested_dac_nos && !dop;
+    bool dre = requested_dac_dre;
+    pthread_mutex_unlock(&config_mutex);
+    if (dac_preferences_written && filter == written_dac_filter &&
+        nos == written_dac_nos && dre == written_dac_dre) return;
+    struct mixer * mixer = get_alsa_mixer();
+    /* Ordering preserves the stored filter when leaving NOS. Do not trust
+     * the driver's dummy getters. Its saved table survives power cycles. */
+    int filter_result = mixer_ctl_set_value(mixer_get_ctl_by_name(mixer, "Digital Filter"), 0, filter);
+    int nos_result = mixer_ctl_set_value(mixer_get_ctl_by_name(mixer, "NOS_EN"), 0, nos ? 1 : 0);
+    /* R3 Pro II's dual codec applies this to both chips and replays the
+     * cached DRE setting during prepare for PCM and DSD alike. */
+    int dre_result = 0;
+    if (audio_output_dac_dre_supported())
+        dre_result = mixer_ctl_set_value(mixer_get_ctl_by_name(mixer, "DRE_EN"), 0, dre ? 1 : 0);
+    dac_preferences_written = filter_result == 0 && nos_result == 0 && dre_result == 0;
+    if (dac_preferences_written) {
+        written_dac_filter = filter;
+        written_dac_nos = nos;
+        written_dac_dre = dre;
+    } else {
+        DBG_LOG("audio_output: failed to apply DAC preferences; retry on next open\n");
+    }
+}
+
 /* The codec's DoP switch. It must be set while no stream is running: on for
  * a DoP stream before its first write, off again before any PCM stream is
  * prepared, or the DAC reads PCM as DSD (noise). The control reads back 0
@@ -239,6 +313,7 @@ static bool open_device(unsigned int channels, unsigned int sample_rate, bool lo
         active_format = format;
         pthread_mutex_unlock(&state_mutex);
     } else {
+        apply_dac_preferences(dop);
         /* A PCM stream must never start with the DAC still in DoP mode; a
          * failed clear is retried by the caller's next open. */
         if (!dop && !set_dop_switch(false)) return false;

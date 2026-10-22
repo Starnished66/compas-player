@@ -9,6 +9,7 @@
 #include "screen_builders.h"
 #include "backlight.h"
 #include "gui.h"
+#include "hw_buttons.h"
 #include "fallback_font.h"
 #include "battery.h"
 #include "frosted_glass.h"
@@ -28,6 +29,7 @@ static lv_obj_t * lock_screen = NULL;
 static lv_obj_t * lock_image_obj = NULL;
 static lv_obj_t * lock_clock_label = NULL;
 static lv_obj_t * lock_swipe_hint = NULL;
+static int lock_hint_button_mode = -1;
 static lv_obj_t * lock_date_label, * lock_battery_label;
 static lv_obj_t * lock_backdrop, * lock_metadata, * lock_metadata_image;
 static lv_obj_t * lock_title, * lock_artist;
@@ -68,11 +70,15 @@ static void refresh_lock_preview(void);
 static void refresh_lock_preview_async_cb(void * unused);
 static lv_timer_t * lock_clock_timer = NULL;
 static lv_timer_t * lock_touch_timer = NULL;
+static lv_timer_t * lock_unlock_timer = NULL;
+static bool wake_unlock_override = false;
 
 static gui_lock_screen_mode_t current_mode = LOCK_SCREEN_MODE_OFF;
 static bool current_clock_24h = true;
 
 static void stop_timers(void);
+static void update_lock_swipe_hint(void);
+static void lock_unlock_after_hardware_chord_cb(lv_timer_t * timer);
 
 static bool lock_swipe_was_pressed = false;
 static bool lock_swipe_candidate = false;
@@ -93,6 +99,68 @@ lv_obj_t * gui_lock_screen_get_screen(void) {
 
 bool gui_lock_screen_is_showing(void) {
     return lock_screen != NULL && lv_screen_active() == lock_screen;
+}
+
+void gui_lock_screen_set_wake_unlock_override(bool bypass) {
+    wake_unlock_override = bypass;
+}
+
+bool gui_lock_screen_unlock_pending(void) {
+    return lock_unlock_timer != NULL;
+}
+
+static void update_lock_swipe_hint(void) {
+    if (!lock_swipe_hint) return;
+    bool buttons = hw_buttons_button_lock_is_enabled();
+    if (lock_hint_button_mode == (int) buttons) return;
+    lock_hint_button_mode = (int) buttons;
+    if (buttons)
+        lv_label_set_text_fmt(lock_swipe_hint, TR("%s to unlock"), HW_BUTTONS_LOCK_CHORD_NAME);
+    else
+        lv_label_set_text(lock_swipe_hint, TR("Swipe up to unlock"));
+}
+
+static void lock_unlock_after_hardware_chord_cb(lv_timer_t * timer) {
+    if (timer != lock_unlock_timer) return;
+    if (!gui_lock_screen_is_showing() || hw_buttons_button_lock_is_locked() ||
+        !hw_buttons_button_lock_is_enabled()) {
+        lv_timer_delete(timer);
+        lock_unlock_timer = NULL;
+        update_lock_swipe_hint();
+        return;
+    }
+    if (gui_navigation_transition_in_progress()) return;
+    lv_timer_delete(timer);
+    lock_unlock_timer = NULL;
+    gui_lock_screen_reset_drag_state();
+    nav_pop_immediate();
+}
+
+void gui_lock_screen_button_lock_changed(bool locked) {
+    if (locked) {
+        update_lock_swipe_hint();
+        return;
+    }
+
+    /* Disarming the plugin unlocks hardware controls but leaves a visible
+     * lock screen available to dismiss with its normal swipe. */
+    if (!hw_buttons_button_lock_is_enabled()) {
+        if (lock_unlock_timer) {
+            lv_timer_delete(lock_unlock_timer);
+            lock_unlock_timer = NULL;
+        }
+        gui_lock_screen_reset_drag_state();
+        update_lock_swipe_hint();
+        return;
+    }
+
+    if (!gui_lock_screen_is_showing() || lock_unlock_timer) return;
+    gui_lock_screen_reset_drag_state();
+    if (!gui_navigation_transition_in_progress()) {
+        nav_pop_immediate();
+        return;
+    }
+    lock_unlock_timer = lv_timer_create(lock_unlock_after_hardware_chord_cb, 20, NULL);
 }
 
 static void update_clock_display(void) {
@@ -391,6 +459,11 @@ static void lock_touch_timer_cb(lv_timer_t * timer) {
     (void) timer;
     if (!gui_lock_screen_is_showing()) return;
     if (!backlight_screen_is_on()) { lv_timer_pause(timer); return; }
+    if (hw_buttons_button_lock_is_enabled()) {
+        update_lock_swipe_hint();
+        gui_lock_screen_reset_drag_state();
+        return;
+    }
 
     lv_indev_t * indev = find_pointer_indev();
     if (!indev) return;
@@ -613,6 +686,7 @@ static void build_lock_screen_if_needed(void) {
     lv_obj_add_flag(lock_clock_label, LV_OBJ_FLAG_HIDDEN);
 
     lock_swipe_hint = lv_label_create(lock_screen);
+    lock_hint_button_mode = -1;
     lv_label_set_text(lock_swipe_hint, TR("Swipe up to unlock"));
     lv_obj_add_style(lock_swipe_hint, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(lock_swipe_hint, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
@@ -703,7 +777,11 @@ static bool prepare_lock_screen(const gui_lock_screen_options_t * options) {
 }
 
 bool gui_lock_screen_show(const gui_lock_screen_options_t * options) {
+    if (wake_unlock_override) return true;
     if (!prepare_lock_screen(options)) return false;
+    update_lock_swipe_hint();
+    if (hw_buttons_button_lock_is_enabled())
+        hw_buttons_set_button_locked(true);
     start_timers();
     if (lv_screen_active() != lock_screen) nav_push(lock_screen);
     return true;
@@ -796,6 +874,7 @@ void gui_lock_screen_init(void) {
     lock_image_obj = NULL;
     lock_clock_label = NULL;
     lock_swipe_hint = NULL;
+    lock_hint_button_mode = -1;
     lock_date_label = lock_battery_label = NULL;
     lock_backdrop = lock_metadata = lock_metadata_image = NULL;
     lock_title = lock_artist = NULL;
@@ -841,6 +920,11 @@ void gui_lock_screen_release_memory_for_external_session(void) {
  * out -- it only needs to release its own owned resources. */
 void gui_lock_screen_teardown(void) {
     stop_timers();
+    wake_unlock_override = false;
+    if (lock_unlock_timer) {
+        lv_timer_delete(lock_unlock_timer);
+        lock_unlock_timer = NULL;
+    }
     stop_lock_art();
     lv_async_call_cancel(refresh_lock_preview_async_cb, NULL);
     lock_preview = NULL;

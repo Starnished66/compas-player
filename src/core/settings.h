@@ -172,6 +172,12 @@ typedef struct {
     } subsonic_saved[SETTINGS_SUBSONIC_SAVED_MAX];
     int subsonic_saved_count;
 
+    /* Local Cirrus DAC controls. Filter enum 0..3; NOS disables the
+     * interpolation filter. DRE defaults on to match the R3 Pro II codec. */
+    int dac_filter;
+    bool dac_nos;
+    bool dac_dre;
+
     /* Bluetooth output settings -- see bluetooth_control.h for the BlueALSA
      * 5 service behavior. */
     bool bt_volume_sync_enabled; /* Mirror hardware volume changes to the paired device. */

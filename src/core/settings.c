@@ -230,6 +230,9 @@ static void set_defaults(player_settings_t * out) {
     memset(out->subsonic_saved, 0, sizeof(out->subsonic_saved));
     out->subsonic_saved_count = 0;
     out->bt_volume_sync_enabled = true;
+    out->dac_filter = 0;
+    out->dac_nos = false;
+    out->dac_dre = true;
     out->bt_dac_mode_enabled = false;
     out->bt_speexrate_enabled = true;
     out->bt_sample_rate = 0;
@@ -517,6 +520,15 @@ bool settings_load(player_settings_t * out) {
             }
         } else if (strcmp(key, "bt_volume_sync") == 0) {
             out->bt_volume_sync_enabled = (strcmp(value, "1") == 0);
+        } else if (strcmp(key, "dac_filter") == 0) {
+            out->dac_filter = value[0] >= '0' && value[0] <= '3' && value[1] == '\0'
+                ? value[0] - '0' : 0;
+        } else if (strcmp(key, "dac_nos") == 0) {
+            out->dac_nos = strcmp(value, "1") == 0;
+        } else if (strcmp(key, "dac_dre") == 0) {
+            out->dac_dre = true;
+            if (strcmp(value, "0") == 0) out->dac_dre = false;
+            else if (strcmp(value, "1") == 0) out->dac_dre = true;
         } else if (strcmp(key, "bt_device_rate") == 0) {
             /* "AA:BB:CC:DD:EE:FF,44100" */
             const char * comma = strchr(value, ',');
@@ -831,6 +843,9 @@ static void settings_write_file(const player_settings_t * settings) {
         fprintf(f, "subsonic_saved_%d_verify_tls=%d\n", i, settings->subsonic_saved[i].verify_tls ? 1 : 0);
     }
     fprintf(f, "bt_volume_sync=%d\n", settings->bt_volume_sync_enabled ? 1 : 0);
+    fprintf(f, "dac_filter=%d\n", settings->dac_filter >= 0 && settings->dac_filter <= 3 ? settings->dac_filter : 0);
+    fprintf(f, "dac_nos=%d\n", settings->dac_nos ? 1 : 0);
+    fprintf(f, "dac_dre=%d\n", settings->dac_dre ? 1 : 0);
     fprintf(f, "bt_speexrate=%d\n", settings->bt_speexrate_enabled ? 1 : 0);
     fprintf(f, "bt_sample_rate=%u\n", settings->bt_sample_rate);
     for (int i = 0; i < settings->bt_device_rate_count && i < BT_DEVICE_RATE_MAX; i++)

@@ -57,6 +57,9 @@ void hw_buttons_set_volume_lock_screen_off(bool enabled);
  * or configure(false)) also unlocks and drops queued/deferred actions so
  * controls cannot stay stranded. */
 void hw_buttons_set_button_lock_enabled(bool enabled);
+/* Apply the transient locked state from the UI thread. Locking is ignored
+ * unless a plugin has armed button lock. */
+void hw_buttons_set_button_locked(bool locked);
 bool hw_buttons_button_lock_is_enabled(void);
 bool hw_buttons_button_lock_is_locked(void);
 

@@ -40,6 +40,7 @@ int main(void) {
     assert(settings.idle_shutdown_enabled);
     assert(settings.idle_suspend_enabled);
     assert(settings.idle_shutdown_minutes == 10);
+    assert(settings.dac_filter == 0 && !settings.dac_nos && settings.dac_dre);
 
     write_settings("keyboard_layout=0\nidle_shutdown_enabled=1\n"
                    "idle_suspend_enabled=0\nidle_shutdown_minutes=30\n");
@@ -55,6 +56,17 @@ int main(void) {
     assert(settings.keyboard_layout == KEYBOARD_LAYOUT_QWERTY);
     assert(settings.idle_shutdown_enabled && settings.idle_suspend_enabled);
     assert(settings.idle_shutdown_minutes == 10);
+    assert(settings.dac_filter == 0 && !settings.dac_nos && settings.dac_dre);
+
+    write_settings("dac_filter=3\ndac_nos=1\ndac_dre=0\n");
+    assert(settings_load(&settings));
+    assert(settings.dac_filter == 3 && settings.dac_nos && !settings.dac_dre);
+    settings_save(&settings);
+    assert(settings_load(&settings));
+    assert(settings.dac_filter == 3 && settings.dac_nos && !settings.dac_dre);
+    write_settings("dac_filter=4\ndac_nos=invalid\ndac_dre=invalid\n");
+    assert(settings_load(&settings));
+    assert(settings.dac_filter == 0 && !settings.dac_nos && settings.dac_dre);
 
     /* Legacy files without the migration marker keep explicit idle choices. */
     write_settings("keyboard_layout=1\nidle_shutdown_enabled=0\n"

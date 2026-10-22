@@ -33,6 +33,13 @@ bool gui_lock_screen_is_showing(void);
 
 /* Shows the lock screen with the specified options. Returns true on success. */
 bool gui_lock_screen_show(const gui_lock_screen_options_t * options);
+/* Apply a hardware button-lock transition on the UI thread. */
+void gui_lock_screen_button_lock_changed(bool locked);
+/* Temporarily suppress showing the visual lock during an explicit chord
+ * unlock wake transaction. Set and clear around screen_woke dispatch. */
+void gui_lock_screen_set_wake_unlock_override(bool bypass);
+/* True while a chord unlock is waiting for a navigation transition to settle. */
+bool gui_lock_screen_unlock_pending(void);
 /* Uses the same renderer without navigating; the parent owns the preview. */
 lv_obj_t * gui_lock_screen_create_preview(lv_obj_t * parent, const gui_lock_screen_options_t * options);
 /* Refresh metadata, and optionally artwork, on the UI thread. */

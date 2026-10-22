@@ -434,6 +434,8 @@ static bool resumed_from_suspend_pending = false;
 static bool force_screen_just_woke = false;
 /* A wake is prepared and painted with the backlight still off. */
 static bool screen_wake_pending = false;
+static bool screen_wake_unlock_requested = false;
+static bool screen_wake_scanout_pending = false;
 static lv_timer_t *power_input_timer, *media_input_timer;
 static lv_timer_t *player_ui_timer;
 static uint32_t player_ui_timer_period_ms;
@@ -577,6 +579,8 @@ void gui_apply_button_bindings(void) {
 static void finish_screen_wake_reveal(void) {
     screen_wake_pending = screen_wake_reveal_pending = false;
     screen_wake_power_menu = false;
+    screen_wake_unlock_requested = false;
+    screen_wake_scanout_pending = false;
     lv_indev_enable(NULL, true);
     gui_lock_screen_refresh(false);
     if (player_ui_timer) lv_timer_ready(player_ui_timer);
@@ -609,13 +613,18 @@ static void screen_wake_frame_ready_cb(lv_event_t * event) {
     if (code != LV_EVENT_REFR_READY || !screen_wake_flush_seen) return;
     /* Wait for the short in-memory album blur. File-backed photos can take
      * longer; show the prepared clock/gesture surface while they load. */
+    if (gui_lock_screen_unlock_pending()) return;
     if (gui_lock_screen_is_showing() && gui_lock_screen_has_background_work(false)) return;
     begin_screen_wake_reveal();
 }
 
 static void prepare_screen_wake_frame(void) {
-    if (!screen_wake_pending) return;
+    if (!screen_wake_pending || gui_lock_screen_unlock_pending()) return;
+    /* An explicit unlock still notifies every plugin, but must not let the
+     * lock-screen handler immediately lock this same wake again. */
+    gui_lock_screen_set_wake_unlock_override(screen_wake_unlock_requested);
     plugin_manager_notify_screen_woke();
+    gui_lock_screen_set_wake_unlock_override(false);
     apply_screen_runtime_state(true);
     lv_indev_enable(NULL, false);
     if (screen_wake_power_menu) {
@@ -630,21 +639,42 @@ static void prepare_screen_wake_frame(void) {
     if (refresh) lv_timer_ready(refresh);
 }
 
+/* Called only while input/display refresh are stopped. A compositor still
+ * owning scanout must finish before we can safely power up the panel. */
+static bool prepare_screen_wake_scanout(void) {
+#ifndef HOST_BUILD
+    if (!lv_linux_fbdev_clear_scanout(lv_display_get_default())) return false;
+#endif
+    screen_wake_scanout_pending = false;
+    screen_wake_phase_tick = screen_wake_retry_tick = lv_tick_get();
+    backlight_prepare_screen_on();
+    return true;
+}
+
 static void request_screen_power(bool on) {
     if (on) {
         if (backlight_screen_is_on() || screen_wake_pending) return;
         for (unsigned i = 0; i < BUTTON_MAPPING_BUTTON_COUNT; ++i)
             button_mapping_set(&physical_button_mapping, (button_mapping_button_t)i,
                                &physical_button_mapping.bindings[i]);
+        /* Discard stale scanout before panel power-up. PWM zero is also
+         * forced by backlight_prepare_screen_on(), but OEM unblank must
+         * never expose the previous screen even if it restores brightness. */
+        apply_screen_runtime_state(false);
+        screen_wake_scanout_pending = true;
         screen_wake_pending = true;
         if (power_input_timer) lv_timer_resume(power_input_timer);
         screen_wake_phase_tick = screen_wake_retry_tick = lv_tick_get();
-        backlight_prepare_screen_on();
+        if (!prepare_screen_wake_scanout())
+            fprintf(stderr, "Screen wake: waiting to clear stale scanout\n");
     } else {
         for (unsigned i = 0; i < BUTTON_MAPPING_BUTTON_COUNT; ++i)
             button_mapping_set(&physical_button_mapping, (button_mapping_button_t)i,
                                &physical_button_mapping.bindings[i]);
         screen_wake_pending = false;
+        screen_wake_unlock_requested = false;
+        screen_wake_scanout_pending = false;
+        gui_lock_screen_set_wake_unlock_override(false);
         screen_wake_frame_pending = false;
         screen_wake_flush_seen = false;
         screen_wake_reveal_pending = false;
@@ -778,7 +808,22 @@ static void process_physical_button_events(void) {
             button_mapping_set(&physical_button_mapping, (button_mapping_button_t)i,
                                &physical_button_mapping.bindings[i]);
         bool locked = hw_buttons_button_lock_is_locked();
-        show_info_toast(locked ? TR("Buttons locked") : TR("Buttons unlocked"));
+        bool visual_lock = gui_lock_screen_is_showing();
+        bool unlock = !locked && hw_buttons_button_lock_is_enabled();
+        if (unlock && (!backlight_screen_is_on() || screen_wake_pending))
+            screen_wake_unlock_requested = true;
+        gui_lock_screen_button_lock_changed(locked);
+        if (unlock && (!backlight_screen_is_on() || screen_wake_pending)) {
+            request_screen_power(true);
+            /* If this wake already selected a frame, require a new frame
+             * after the visual unlock before the reveal gate can finish. */
+            screen_wake_flush_seen = false;
+            full_redraw_async_cb(NULL);
+            lv_timer_t * refresh = lv_display_get_refr_timer(lv_display_get_default());
+            if (refresh) lv_timer_ready(refresh);
+        }
+        if (!visual_lock)
+            show_info_toast(locked ? TR("Buttons locked") : TR("Buttons unlocked"));
         plugin_manager_notify_button_lock_changed(locked);
     }
     hw_button_event_t event;
@@ -804,6 +849,13 @@ static void power_button_timer_cb(lv_timer_t * timer) {
     }
     uint32_t age = lv_tick_elaps(screen_wake_phase_tick);
     bool retry_due = lv_tick_elaps(screen_wake_retry_tick) >= SCREEN_WAKE_RETRY_MS;
+    if (screen_wake_scanout_pending) {
+        if (retry_due) {
+            screen_wake_retry_tick = lv_tick_get();
+            (void) prepare_screen_wake_scanout();
+        }
+        return;
+    }
     if (screen_wake_reveal_pending) {
         if (backlight_screen_is_visible()) finish_screen_wake_reveal();
         else if (age >= SCREEN_WAKE_TIMEOUT_MS) {
@@ -1866,6 +1918,10 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
 #endif
     settings_load(&current_settings);
 #ifndef HOST_BUILD
+    audio_output_set_dac_preferences(current_settings.dac_filter, current_settings.dac_nos,
+                                     current_settings.dac_dre);
+#endif
+#ifndef HOST_BUILD
     boot_checkpoint("settings_load done; settings application begin");
 #endif
     i18n_set_language(current_settings.language);
@@ -2245,6 +2301,9 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
 void gui_deinit(void) {
     lv_display_remove_event_cb_with_user_data(lv_display_get_default(), screen_wake_frame_ready_cb, NULL);
     screen_wake_pending = screen_wake_frame_pending = screen_wake_power_menu = screen_wake_flush_seen = screen_wake_reveal_pending = false;
+    screen_wake_unlock_requested = false;
+    screen_wake_scanout_pending = false;
+    gui_lock_screen_set_wake_unlock_override(false);
     if (player_ui_timer) {
         lv_timer_delete(player_ui_timer);
         player_ui_timer = NULL;

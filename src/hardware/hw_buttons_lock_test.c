@@ -358,9 +358,27 @@ static void test_knob_shortcut_and_input_loss(void) {
     expect_empty();
 }
 
+static void test_visual_lock_arming(void) {
+    reset_state();
+    hw_buttons_set_button_lock_enabled(false);
+    hw_buttons_set_button_locked(true);
+    assert(!hw_buttons_button_lock_is_locked());
+    hw_buttons_set_button_lock_enabled(true);
+    hw_buttons_set_button_locked(true);
+    assert(hw_buttons_button_lock_is_locked());
+    assert(hw_buttons_consume_button_lock_changed());
+    hw_buttons_set_button_locked(false);
+    assert(!hw_buttons_button_lock_is_locked());
+    assert(hw_buttons_consume_button_lock_changed());
+    hw_buttons_set_button_locked(true);
+    hw_buttons_set_button_lock_enabled(false);
+    assert(!hw_buttons_button_lock_is_locked());
+}
+
 int main(void) {
     setvbuf(stderr, NULL, _IONBF, 0);
     fprintf(stderr, "both_chord_orders\n");
+    test_visual_lock_arming();
     test_both_chord_orders();
     fprintf(stderr, "single_keys\n");
     test_single_keys();

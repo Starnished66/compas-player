@@ -40,6 +40,11 @@ typedef struct {
 
 void audio_output_get_info(audio_output_info_t * out);
 
+/* Local Cirrus DAC controls; changes take effect on the next stream open. */
+bool audio_output_dac_controls_supported(void);
+bool audio_output_dac_dre_supported(void);
+void audio_output_set_dac_preferences(int filter, bool nos, bool dre);
+
 /* Opens (or reopens) the output device for the given format, target, and latency mode.
  * Returns false if opening failed.
  * If another thread currently owns the output, returns false immediately.

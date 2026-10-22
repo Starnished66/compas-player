@@ -28,6 +28,7 @@
 #include "assets.h"
 #include "metadata.h"
 #include "audio.h"
+#include "audio_output.h"
 #include "peq.h"
 #include "device_config.h"
 #include "usb_mode_control.h"
@@ -77,6 +78,8 @@ enum { SORTING_FILE_OPTION_COUNT = 2, SORTING_ALBUM_CONTEXT_COUNT = 3,
            SORTING_ALBUM_CONTEXT_COUNT * SORTING_ALBUM_MODE_COUNT };
 static lv_obj_t * settings_sorting_options[SORTING_OPTION_COUNT];
 static lv_obj_t * settings_sound_effects_screen;
+static lv_obj_t * dac_settings_screen;
+static lv_obj_t * dac_settings_list;
 static lv_obj_t * settings_eq_profiles_menu_screen;
 static lv_obj_t * settings_crossfeed_screen;
 static lv_obj_t * settings_appearance_screen;
@@ -3178,8 +3181,119 @@ static lv_obj_t * build_music_playback_screen(void) {
     return scr;
 }
 
+static bool native_dac_controls_supported(void) {
+#ifdef HOST_BUILD
+    return false;
+#else
+    return audio_output_dac_controls_supported();
+#endif
+}
+
+static bool native_dac_dre_supported(void) {
+#ifdef HOST_BUILD
+    return false;
+#else
+    return audio_output_dac_dre_supported();
+#endif
+}
+
+static void apply_dac_preferences(void) {
+#ifndef HOST_BUILD
+    audio_output_set_dac_preferences(current_settings.dac_filter, current_settings.dac_nos,
+                                     current_settings.dac_dre);
+#endif
+}
+
+static void populate_dac_settings_screen(void);
+
+static void dac_filter_event_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    int filter = (int) (intptr_t) lv_event_get_user_data(e);
+    if (filter < 0 || filter > 3) return;
+    current_settings.dac_filter = filter;
+    apply_dac_preferences();
+    settings_save_async(&current_settings);
+    if (dac_settings_list) {
+        populate_dac_settings_screen();
+    }
+}
+
+static void dac_nos_event_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    current_settings.dac_nos = !current_settings.dac_nos;
+    apply_dac_preferences();
+    settings_save_async(&current_settings);
+    if (dac_settings_list) populate_dac_settings_screen();
+}
+
+static void dac_dre_event_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    current_settings.dac_dre = !current_settings.dac_dre;
+    apply_dac_preferences();
+    settings_save_async(&current_settings);
+    if (dac_settings_list) populate_dac_settings_screen();
+}
+
+static const char * const dac_filter_labels[4] = {
+    N_("Fast roll-off, low latency"),
+    N_("Fast roll-off, phase compensated"),
+    N_("Slow roll-off, low latency"),
+    N_("Slow roll-off, phase compensated")
+};
+
+static void populate_dac_settings_screen(void) {
+    if (!dac_settings_list) return;
+    lv_obj_clean(dac_settings_list);
+    for (int i = 0; i < 4; ++i) {
+        lv_obj_t * row = add_pill_option_row(dac_settings_list, TR(dac_filter_labels[i]),
+            current_settings.dac_filter == i, dac_filter_event_cb, (void *) (intptr_t) i);
+        lv_obj_t * label = lv_obj_get_child(row, 0);
+        lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(label, lv_pct(78));
+    }
+    lv_obj_t * nos_row = add_pill_toggle_row(dac_settings_list, TR("NOS Mode"),
+        current_settings.dac_nos, dac_nos_event_cb);
+    lv_obj_t * nos_label = lv_obj_get_child(nos_row, 0);
+    lv_label_set_long_mode(nos_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(nos_label, lv_pct(78));
+    if (native_dac_dre_supported()) {
+        lv_obj_t * dre_row = add_pill_toggle_row(dac_settings_list, TR("DRE"),
+            current_settings.dac_dre, dac_dre_event_cb);
+        lv_obj_t * dre_label = lv_obj_get_child(dre_row, 0);
+        lv_label_set_long_mode(dre_label, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(dre_label, lv_pct(78));
+    }
+    lv_obj_t * detail = add_section_header(dac_settings_list,
+        TR("Filters and NOS affect local PCM playback. NOS bypasses interpolation and ignores the selected filter. Changes apply when playback restarts."));
+    lv_obj_set_width(detail, lv_pct(100));
+    lv_obj_set_style_pad_right(detail, BOARD_SCALE_PX(24), 0);
+    lv_label_set_long_mode(detail, LV_LABEL_LONG_WRAP);
+    if (native_dac_dre_supported()) {
+        lv_obj_t * dre_detail = add_section_header(dac_settings_list,
+            TR("DRE (Dynamic Range Enhancement) affects local PCM and DSD playback."));
+        lv_obj_set_width(dre_detail, lv_pct(100));
+        lv_obj_set_style_pad_right(dre_detail, BOARD_SCALE_PX(24), 0);
+        lv_label_set_long_mode(dre_detail, LV_LABEL_LONG_WRAP);
+    }
+}
+
+static lv_obj_t * build_dac_settings_screen(void) {
+    lv_obj_t * title = NULL;
+    lv_obj_t * scr = build_subsonic_list_screen(TR("Local DAC Settings"), &title, &dac_settings_list);
+    (void) title;
+    populate_dac_settings_screen();
+    finalize_screen_navigation(scr);
+    return scr;
+}
+
+static void dac_settings_row_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED || !dac_settings_screen) return;
+    populate_dac_settings_screen();
+    nav_push(dac_settings_screen);
+}
+
 static lv_obj_t * build_music_audio_screen(void) {
-    static pill_list_item_t items[6 + PLUGIN_MAX_MUSIC_AUDIO_LIST_ITEMS];
+    static pill_list_item_t items[7 + PLUGIN_MAX_MUSIC_AUDIO_LIST_ITEMS];
     lv_obj_t * eq_row = NULL;
     items[0] = (pill_list_item_t){ TR("Equalizer"), PILL_ACCESSORY_CHEVRON, false, eq_screen_btn_event_cb, NULL, NULL };
     items[1] = (pill_list_item_t){ TR("Crossfeed"), PILL_ACCESSORY_CHEVRON, false, crossfeed_screen_btn_event_cb, NULL, NULL };
@@ -3193,6 +3307,8 @@ static lv_obj_t * build_music_audio_screen(void) {
     items[count++] = (pill_list_item_t){ TR("Startup Volume"), PILL_ACCESSORY_CHEVRON, false, startup_volume_row_cb, NULL, NULL };
     items[count++] = (pill_list_item_t){ TR("Max Volume"), PILL_ACCESSORY_CHEVRON, false, max_volume_row_cb, NULL, NULL };
     items[count++] = (pill_list_item_t){ TR("ReplayGain"), PILL_ACCESSORY_CHEVRON, false, replaygain_mode_settings_row_cb, NULL, NULL };
+    if (native_dac_controls_supported())
+        items[count++] = (pill_list_item_t){ TR("Local DAC Settings"), PILL_ACCESSORY_CHEVRON, false, dac_settings_row_cb, NULL, NULL };
     if (count_plugin_rows_in_group("music_audio", plugin_manager_get_music_audio_list_item_count(), "effects") > 0)
         items[count++] = (pill_list_item_t){ TR("Sound Effects"), PILL_ACCESSORY_CHEVRON, false, music_effects_menu_cb, NULL, NULL };
 
@@ -6936,6 +7052,7 @@ void gui_settings_init(void) {
     clock_set_time_screen = build_clock_set_time_screen();
     clock_screen = build_clock_screen();
     music_playback_screen = build_music_playback_screen();
+    if (native_dac_controls_supported()) dac_settings_screen = build_dac_settings_screen();
     music_audio_screen = build_music_audio_screen();
     music_controls_screen = NULL; /* built on first open of Playback & Controls > Buttons & Remote */
     car_mode_screen = build_car_mode_screen();
@@ -7069,6 +7186,8 @@ void gui_settings_teardown(void) {
     if (settings_tools_screen) { lv_obj_delete(settings_tools_screen); settings_tools_screen = NULL; }
     if (music_playback_screen) { lv_obj_delete(music_playback_screen); music_playback_screen = NULL; }
     if (music_audio_screen) { lv_obj_delete(music_audio_screen); music_audio_screen = NULL; }
+    if (dac_settings_screen) { lv_obj_delete(dac_settings_screen); dac_settings_screen = NULL; }
+    dac_settings_list = NULL;
     settings_eq_summary = settings_car_summary = settings_sleep_summary = NULL;
     settings_button_mapping_summary = NULL;
     for (int button = 0; button < BUTTON_MAPPING_BUTTON_COUNT; ++button) {
