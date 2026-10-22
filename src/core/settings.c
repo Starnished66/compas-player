@@ -621,6 +621,9 @@ bool settings_load(player_settings_t * out) {
         } else if (strcmp(key, "quick_drawer_order") == 0) {
             ui_item_order_t order;
             if (ui_order_parse(UI_ORDER_DRAWER, value, &order)) out->ui_customization.drawer = order;
+        } else if (strcmp(key, "music_order") == 0) {
+            ui_item_order_t order;
+            if (ui_order_parse(UI_ORDER_MUSIC, value, &order)) out->ui_customization.music = order;
         } else if (strcmp(key, "quick_drawer_enabled") == 0) {
             out->ui_customization.drawer_enabled = strcmp(value, "1") == 0;
         } else if (strcmp(key, "quick_drawer_eq_visible") == 0) {
@@ -872,6 +875,8 @@ static void settings_write_file(const player_settings_t * settings) {
     fprintf(f, "swipe_up_home_enabled=%d\n", settings->swipe_up_home_enabled ? 1 : 0);
     fprintf(f, "quick_drawer_volume_visible=%d\n", settings->quick_drawer_volume_visible ? 1 : 0);
     char ui_order_text[UI_ORDER_MAX * 24];
+    ui_order_format(UI_ORDER_MUSIC, &settings->ui_customization.music, ui_order_text, sizeof(ui_order_text));
+    fprintf(f, "music_order=%s\n", ui_order_text);
     if (!ui_drawer_order_matches_default(&settings->ui_customization.drawer, &ui_defaults)) {
         ui_order_format(UI_ORDER_DRAWER, &settings->ui_customization.drawer, ui_order_text, sizeof(ui_order_text));
         fprintf(f, "quick_drawer_order=%s\n", ui_order_text);

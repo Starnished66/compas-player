@@ -609,6 +609,8 @@ if plugin.has_capability("ui.quick_drawer_layout") then
 end
 ```
 
+Native Music menu choices are saved under Settings → Display → Appearance. Plugin declarations remain session overrides: disabling Kids Mode restores the saved native choices. Music toolbar customization remains available to plugins and themes. Quick Drawer preferences remain independent.
+
 `plugin.set_music_layout(options)` accepts `order` and `toolbar` arrays.
 Music keys are `files`, `artists`, `albums`, `album_artist`, `genres`,
 `all_songs`, and `playlists`. Toolbar keys are `sound`, `playback`, and
@@ -638,9 +640,8 @@ combine: an item hidden by any plugin stays hidden, and a `false` request for
 drawer enablement, EQ visibility, or volume visibility wins over `true`.
 This keeps a later theme from undoing Kids Mode restrictions. Failed or unloaded plugins lose their
 declarations, restoring another plugin's declaration or the saved preferences.
-Music menu and toolbar customization is available only to plugins and themes.
-Users can configure the Quick Drawer under Settings > Display > Appearance >
-Quick Drawer. Plugin overrides can take precedence over these choices. These
+Users can configure Music menu and Quick Drawer under Settings > Display >
+Appearance. Music toolbar customization is available to plugins and themes. Plugin overrides can take precedence over these choices. These
 controls simplify navigation; they are not a device security boundary.
 Customized saved Drawer orders are explicit selections:
 new entries added in future releases remain hidden until selected. Unchanged

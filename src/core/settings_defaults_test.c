@@ -75,6 +75,54 @@ int main(void) {
     settings_save(&settings);
     assert(settings_load(&settings));
     assert(settings.play_mode == 4);
+
+    /* Saved Music menu preferences preserve explicit hiding, including an
+     * empty list. Plugin declarations continue to mask the native order in RAM. */
+    ui_customization_defaults(&settings.ui_customization);
+    settings.ui_customization.music.count = 3;
+    settings.ui_customization.music.ids[0] = 6;
+    settings.ui_customization.music.ids[1] = 0;
+    settings.ui_customization.music.ids[2] = 4;
+    settings_save(&settings);
+    assert(settings_load(&settings));
+    assert(settings.ui_customization.music.count == 3);
+    assert(settings.ui_customization.music.ids[0] == 6);
+    assert(settings.ui_customization.music.ids[1] == 0);
+    assert(settings.ui_customization.music.ids[2] == 4);
+    settings.ui_customization.music.count = 0;
+    settings_save(&settings);
+    assert(settings_load(&settings));
+    assert(settings.ui_customization.music.count == 0);
+
+    /* RAM-only plugin declarations mask saved Music orders while active and
+     * leave the saved native baseline and Drawer state untouched. */
+    current_settings = settings;
+    current_settings.ui_customization.music.count = 2;
+    current_settings.ui_customization.music.ids[0] = 5;
+    current_settings.ui_customization.music.ids[1] = 1;
+    current_settings.ui_customization.drawer.count = 2;
+    current_settings.ui_customization.drawer.ids[0] = 9;
+    current_settings.ui_customization.drawer.ids[1] = 0;
+    ui_customization_set_override(NULL);
+    ui_customization_t effective = ui_customization_effective();
+    assert(effective.music.count == 2 && effective.music.ids[0] == 5 && effective.music.ids[1] == 1);
+
+    ui_customization_override_t plugin_override = {0};
+    plugin_override.has_music = true;
+    plugin_override.value.music.count = 1;
+    plugin_override.value.music.ids[0] = 3;
+    ui_customization_set_override(&plugin_override);
+    effective = ui_customization_effective();
+    assert(effective.music.count == 1 && effective.music.ids[0] == 3);
+    assert(current_settings.ui_customization.music.count == 2);
+    assert(current_settings.ui_customization.music.ids[0] == 5);
+    assert(effective.drawer.count == 2 && effective.drawer.ids[0] == 9 && effective.drawer.ids[1] == 0);
+
+    ui_customization_set_override(NULL);
+    effective = ui_customization_effective();
+    assert(effective.music.count == 2 && effective.music.ids[0] == 5);
+    assert(effective.drawer.count == 2 && effective.drawer.ids[0] == 9);
+
     write_settings("play_mode=5\n");
     assert(settings_load(&settings));
     assert(settings.play_mode == 0);

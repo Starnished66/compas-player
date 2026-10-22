@@ -1,5 +1,7 @@
 # What's New: Next Release
 
+- **Menu customization:** Appearance now includes a Music menu editor with the same drag handles and visibility switches as Quick Drawer. Choices persist independently of Kids Mode and other plugin overrides.
+
 - **Hardware button lock:** the Lock Screen plugin can enable a Power + Volume Up chord that locks the physical buttons. The lock is native, so the same chord still unlocks if the plugin is stuck. Short Power still sleeps and wakes; a long Power press still opens the power menu. The option is independent of the visual lock screen.
 
 Development notes accumulated for v1.2.0. See WHATS_NEW.md for the release announcement.

@@ -18,7 +18,7 @@ typedef struct {
 } ui_customization_t;
 
 /* Plugin declarations override native Music defaults and saved Drawer
- * preferences in RAM only. */
+ * preferences in RAM only. The persisted native orders remain the base. */
 typedef struct {
     bool has_music, has_music_toolbar, has_drawer;
     bool has_drawer_enabled, has_drawer_eq_visible, has_drawer_volume_visible;

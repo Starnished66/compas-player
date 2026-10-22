@@ -82,9 +82,11 @@ static lv_obj_t * settings_crossfeed_screen;
 static lv_obj_t * settings_appearance_screen;
 static lv_obj_t * ui_order_screen;
 static lv_obj_t * ui_order_list;
-static lv_obj_t * ui_order_rows[UI_DRAWER_COUNT];
-static lv_obj_t * ui_order_drag_handles[UI_DRAWER_COUNT];
-static lv_obj_t * ui_order_visible_buttons[UI_DRAWER_COUNT];
+static lv_obj_t * ui_order_title;
+static lv_obj_t * ui_order_rows[UI_ORDER_MAX];
+static lv_obj_t * ui_order_drag_handles[UI_ORDER_MAX];
+static lv_obj_t * ui_order_visible_buttons[UI_ORDER_MAX];
+static ui_order_kind_t ui_order_kind = UI_ORDER_DRAWER;
 
 typedef struct ui_order_drag_state ui_order_drag_state_t;
 struct ui_order_drag_state {
@@ -3772,17 +3774,23 @@ static void upside_down_screen_switch_event_cb(lv_event_t * e) {
 }
 
 static ui_item_order_t * ui_saved_order(void) {
-    return &current_settings.ui_customization.drawer;
+    switch (ui_order_kind) {
+        case UI_ORDER_MUSIC: return &current_settings.ui_customization.music;
+        default: return &current_settings.ui_customization.drawer;
+    }
 }
 static void populate_ui_order_screen(void);
+static void ui_order_open_kind(ui_order_kind_t kind, const char * title);
 static void ui_order_control_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
     if (ui_order_drag_state.active) ui_order_drag_finish(&ui_order_drag_state, false);
     int id = (int)(intptr_t)lv_event_get_user_data(e);
-    if (id < 0 || id >= UI_DRAWER_COUNT) return;
+    int item_count = ui_order_size(ui_order_kind);
+    if (id < 0 || id >= item_count) return;
     ui_item_order_t * order = ui_saved_order();
+    unsigned saved_count = order->count > UI_ORDER_MAX ? UI_ORDER_MAX : order->count;
     int at = -1;
-    for (unsigned i = 0; i < order->count; ++i)
+    for (unsigned i = 0; i < saved_count; ++i)
         if (order->ids[i] == id) { at = (int)i; break; }
     if (at < 0 && order->count < UI_ORDER_MAX) order->ids[order->count++] = (uint8_t)id;
     else if (at >= 0) {
@@ -3791,7 +3799,8 @@ static void ui_order_control_cb(lv_event_t * e) {
     } else return;
     settings_save_async(&current_settings);
     populate_ui_order_screen();
-    gui_shell_apply_customization();
+    if (ui_order_kind == UI_ORDER_DRAWER) gui_shell_apply_customization();
+    else gui_theme_refresh_request();
 }
 static bool ui_order_reorder_rows(lv_obj_t * list, lv_obj_t ** rows, int * order,
                                   int count, int id, int32_t pointer_y) {
@@ -3854,20 +3863,23 @@ static void ui_order_drag_prepare_drawer(ui_order_drag_state_t * state, int id) 
     state->count = 0;
     unsigned saved_count = saved->count > UI_ORDER_MAX ? UI_ORDER_MAX : saved->count;
     for (unsigned i = 0; i < saved_count && state->count < UI_ORDER_MAX; ++i)
-        if (saved->ids[i] < UI_DRAWER_COUNT) state->ids[state->count++] = saved->ids[i];
+        if (saved->ids[i] < ui_order_size(ui_order_kind)) state->ids[state->count++] = saved->ids[i];
 }
 static void ui_order_drag_commit_drawer(ui_order_drag_state_t * state) {
-    if (state->drag_count < 0 || state->drag_count > UI_ORDER_MAX ||
-        state->drag_count > UI_DRAWER_COUNT) return;
+    if (state->drag_count < 0) return;
+    int drag_count = state->drag_count;
+    if (drag_count > UI_ORDER_MAX) drag_count = UI_ORDER_MAX;
+    if (drag_count > ui_order_size(ui_order_kind)) return;
     ui_item_order_t * saved = ui_saved_order();
-    bool changed = saved->count != (unsigned)state->drag_count;
-    for (int i = 0; !changed && i < state->drag_count; ++i)
+    bool changed = saved->count != (unsigned)drag_count;
+    for (int i = 0; !changed && i < drag_count; ++i)
         if (saved->ids[i] != (uint8_t)state->ids[i]) changed = true;
     if (!changed) return;
-    saved->count = (uint8_t)state->drag_count;
-    for (int i = 0; i < state->drag_count; ++i) saved->ids[i] = (uint8_t)state->ids[i];
+    saved->count = (uint8_t)drag_count;
+    for (int i = 0; i < drag_count; ++i) saved->ids[i] = (uint8_t)state->ids[i];
     settings_save_async(&current_settings);
-    gui_shell_apply_customization();
+    if (ui_order_kind == UI_ORDER_DRAWER) gui_shell_apply_customization();
+    else gui_theme_refresh_request();
 }
 static void ui_order_drag_restore_drawer(ui_order_drag_state_t * state) {
     (void)state;
@@ -3987,27 +3999,34 @@ static void add_customization_help(lv_obj_t *list) {
 
 static void populate_ui_order_screen(void) {
     if (!ui_order_list) return;
-    for (int id = 0; id < UI_DRAWER_COUNT; ++id)
+    int item_count = ui_order_size(ui_order_kind);
+    for (int id = 0; id < UI_ORDER_MAX; ++id)
         ui_order_row_stop_translate(ui_order_rows[id]);
+    for (int id = 0; id < UI_ORDER_MAX; ++id) {
+        if (!ui_order_rows[id]) continue;
+        if (id < item_count) lv_obj_remove_flag(ui_order_rows[id], LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(ui_order_rows[id], LV_OBJ_FLAG_HIDDEN);
+    }
     ui_item_order_t * order = ui_saved_order();
-    bool listed[UI_DRAWER_COUNT] = { false };
+    bool listed[UI_ORDER_MAX] = { false };
     int visual_index = 0;
     for (unsigned pos = 0; pos < order->count; ++pos) {
         int id = order->ids[pos];
-        if (id >= UI_DRAWER_COUNT || listed[id] || !ui_order_rows[id]) continue;
+        if (id >= item_count || listed[id] || !ui_order_rows[id]) continue;
         listed[id] = true;
         lv_obj_move_to_index(ui_order_rows[id], visual_index++);
     }
-    for (int id = 0; id < UI_DRAWER_COUNT; ++id) {
+    for (int id = 0; id < item_count; ++id) {
         if (listed[id] || !ui_order_rows[id]) continue;
         listed[id] = true;
         lv_obj_move_to_index(ui_order_rows[id], visual_index++);
     }
     lv_obj_update_layout(ui_order_list);
-    for (int id = 0; id < UI_DRAWER_COUNT; ++id) {
+    for (int id = 0; id < item_count; ++id) {
         lv_obj_t * row = ui_order_rows[id];
         if (!row) continue;
         lv_obj_t * text = lv_obj_get_child(row, 0);
+        lv_label_set_text(text, TR(ui_order_label(ui_order_kind, id)));
         int32_t height = lv_obj_get_height(text) + BOARD_SCALE_PX(18);
         if (height < ui_list_row_height()) height = ui_list_row_height();
         lv_obj_set_height(row, height);
@@ -4022,18 +4041,17 @@ static void populate_ui_order_screen(void) {
     }
 }
 static lv_obj_t * build_ui_order_screen(void) {
-    lv_obj_t * title_label;
-    ui_order_screen = build_subsonic_list_screen(TR("Quick Drawer"), &title_label, &ui_order_list);
+    ui_order_screen = build_subsonic_list_screen(TR("Quick Drawer"), &ui_order_title, &ui_order_list);
     ui_order_drag_state.list = ui_order_list;
     ui_order_drag_state.rows = ui_order_rows;
-    ui_order_drag_state.row_capacity = UI_DRAWER_COUNT;
+    ui_order_drag_state.row_capacity = UI_ORDER_MAX;
     ui_order_drag_state.prepare = ui_order_drag_prepare_drawer;
     ui_order_drag_state.commit = ui_order_drag_commit_drawer;
     ui_order_drag_state.restore = ui_order_drag_restore_drawer;
     memset(ui_order_rows, 0, sizeof(ui_order_rows));
     memset(ui_order_drag_handles, 0, sizeof(ui_order_drag_handles));
     memset(ui_order_visible_buttons, 0, sizeof(ui_order_visible_buttons));
-    for (int id = 0; id < UI_DRAWER_COUNT; ++id) {
+    for (int id = 0; id < UI_ORDER_MAX; ++id) {
         const char * label = ui_order_label(UI_ORDER_DRAWER, id);
         if (!label) continue;
         lv_obj_t * row = add_pill_row_base(ui_order_list, TR(label));
@@ -4092,9 +4110,19 @@ static lv_obj_t * build_ui_order_screen(void) {
 }
 static void ui_order_settings_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    ui_order_open_kind(UI_ORDER_DRAWER, "Quick Drawer");
+}
+static void ui_order_open_kind(ui_order_kind_t kind, const char * title) {
+    ui_order_kind = kind;
     if (!ui_order_screen) build_ui_order_screen();
-    else populate_ui_order_screen();
+    if (ui_order_title) lv_label_set_text(ui_order_title, TR(title));
+    if (ui_order_list) populate_ui_order_screen();
     nav_push(ui_order_screen);
+}
+static void ui_order_kind_row_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    ui_order_kind_t kind = (ui_order_kind_t)(intptr_t)lv_event_get_user_data(e);
+    ui_order_open_kind(kind, "Music menu");
 }
 
 static void plugin_order_editor_emit_change(void) {
@@ -4479,19 +4507,21 @@ static void topbar_settings_row_cb(lv_event_t * e) {
 }
 
 static lv_obj_t * build_settings_appearance_screen(void) {
-    static pill_list_item_t items[8 + PLUGIN_MAX_DISPLAY_LIST_ITEMS];
+    static pill_list_item_t items[9 + PLUGIN_MAX_DISPLAY_LIST_ITEMS];
     items[0] = (pill_list_item_t){ TR("Accent Color"), PILL_ACCESSORY_CHEVRON, false, accent_color_row_cb, NULL, NULL };
     items[1] = (pill_list_item_t){ TR("Font"), PILL_ACCESSORY_CHEVRON, false, custom_font_row_cb, NULL, NULL };
     items[2] = (pill_list_item_t){ TR("Font Size"), PILL_ACCESSORY_CHEVRON, false, font_size_settings_row_cb, NULL, NULL };
     items[3] = (pill_list_item_t){ TR("Keyboard"), PILL_ACCESSORY_CHEVRON, false, keyboard_layout_settings_row_cb, NULL, NULL };
     items[4] = (pill_list_item_t){ TR("Quick Drawer"), PILL_ACCESSORY_CHEVRON, false, quick_drawer_settings_row_cb, NULL, NULL };
-    items[5] = (pill_list_item_t){ TR("Top Bar"), PILL_ACCESSORY_CHEVRON, false,
+    items[5] = (pill_list_item_t){ TR("Music menu"), PILL_ACCESSORY_CHEVRON, false,
+                                    ui_order_kind_row_cb, NULL, (void *)(intptr_t)UI_ORDER_MUSIC };
+    items[6] = (pill_list_item_t){ TR("Top Bar"), PILL_ACCESSORY_CHEVRON, false,
                                     topbar_settings_row_cb, NULL, NULL };
-    items[6] = (pill_list_item_t){ TR("Artist Images"), PILL_ACCESSORY_TOGGLE,
+    items[7] = (pill_list_item_t){ TR("Artist Images"), PILL_ACCESSORY_TOGGLE,
                                     current_settings.show_artist_images, NULL,
                                     artist_images_switch_event_cb, NULL };
-    items[7] = (pill_list_item_t){ TR("Themes"), PILL_ACCESSORY_CHEVRON, false, themes_row_cb, NULL, NULL };
-    int count = append_grouped_plugin_rows(items, 8, PLUGIN_MAX_DISPLAY_LIST_ITEMS,
+    items[8] = (pill_list_item_t){ TR("Themes"), PILL_ACCESSORY_CHEVRON, false, themes_row_cb, NULL, NULL };
+    int count = append_grouped_plugin_rows(items, 9, PLUGIN_MAX_DISPLAY_LIST_ITEMS,
         "display", "appearance", plugin_manager_get_display_list_item_count,
         plugin_manager_get_display_list_item_label, plugin_manager_get_display_list_item_options,
         plugin_display_list_item_click_cb);
@@ -7003,6 +7033,7 @@ void gui_settings_teardown(void) {
         if (ui_order_drag_handles[id]) unregister_swipe_dead_zone(ui_order_drag_handles[id]);
     if (ui_order_screen) { lv_obj_delete(ui_order_screen); ui_order_screen = NULL; }
     ui_order_list = NULL;
+    ui_order_title = NULL;
     memset(ui_order_rows, 0, sizeof(ui_order_rows));
     memset(ui_order_drag_handles, 0, sizeof(ui_order_drag_handles));
     memset(ui_order_visible_buttons, 0, sizeof(ui_order_visible_buttons));
