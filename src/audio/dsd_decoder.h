@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* DSF (Sony DSD Stream File) and DFF (Philips DSDIFF) container reader,
+/* DSF (Sony DSD Stream File), DFF (Philips DSDIFF) and native DSD WavPack container reader,
  * converting the raw 1-bit DSD bitstream to PCM with dsd_filter.h's
  * lookup-table decimator. DSD64, DSD128 and DSD256 in the 44.1 kHz and 48 kHz
  * families are supported; output is twice the base rate (88.2 or 96 kHz)

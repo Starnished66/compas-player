@@ -658,16 +658,22 @@ static bool decoder_open_internal(decoder_t * dec, const char * path) {
         return true;
     }
 
-    if (strcasecmp(ext, ".dsf") == 0 || strcasecmp(ext, ".dff") == 0) {
+    /* Compressed DSD must use the same DoP/fallback pipeline as DSF/DFF.
+     * Ordinary PCM WavPack falls through to its existing decoder below. */
+    if (strcasecmp(ext, ".dsf") == 0 || strcasecmp(ext, ".dff") == 0 ||
+        strcasecmp(ext, ".wv") == 0) {
         dec->type = DECODER_DSD;
         dec->as.dsd = dsd_open_file(path);
-        if (!dec->as.dsd) return false;
-        dec->channels = dsd_get_channels(dec->as.dsd);
-        dec->sample_rate = dsd_get_pcm_sample_rate(dec->as.dsd); /* decimated PCM rate, not the raw DSD rate */
-        dec->source_sample_rate = dsd_get_source_sample_rate(dec->as.dsd);
-        dec->source_bit_depth = 1;
-        dec->total_frames = dsd_get_total_pcm_frame_count(dec->as.dsd);
-        return true;
+        if (!dec->as.dsd) {
+            if (strcasecmp(ext, ".wv") != 0) return false;
+        } else {
+            dec->channels = dsd_get_channels(dec->as.dsd);
+            dec->sample_rate = dsd_get_pcm_sample_rate(dec->as.dsd); /* decimated PCM rate, not the raw DSD rate */
+            dec->source_sample_rate = dsd_get_source_sample_rate(dec->as.dsd);
+            dec->source_bit_depth = 1;
+            dec->total_frames = dsd_get_total_pcm_frame_count(dec->as.dsd);
+            return true;
+        }
     }
 
     if (strcasecmp(ext, ".aac") == 0) {

@@ -8,6 +8,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <wavpack.h>
 
 #define DSD_MAX_CHANNELS 8
 #define DSD_MAX_BYTES_PER_FRAME 16 /* DSD256 */
@@ -19,14 +20,17 @@
 /* DSF blocks are 4096 bytes per channel by specification; accept any sane
  * size rather than rejecting an unusual writer, but bound the allocation. */
 #define DSF_MAX_BLOCK_SIZE (1u << 20)
+#define WAVPACK_DSD_BUFFER_FRAMES 2048
 
 typedef enum {
     DSD_CONTAINER_DSF,
-    DSD_CONTAINER_DFF
+    DSD_CONTAINER_DFF,
+    DSD_CONTAINER_WAVPACK
 } dsd_container_t;
 
 struct dsd_decoder {
     FILE * f;
+    WavpackContext * wavpack;
     dsd_container_t container;
 
     unsigned int channels;
@@ -40,6 +44,7 @@ struct dsd_decoder {
     bool dop;
     uint8_t dop_marker;
     bool lsb_first; /* DSF "bits per sample" 1; DFF and DSF value 8 are MSB first */
+    bool read_error;
 
     off_t data_start_offset;
     off_t data_end_offset; /* DSF: end of the declared data chunk */
@@ -56,6 +61,13 @@ struct dsd_decoder {
     uint8_t dff_buffer[DFF_BUFFER_SIZE];
     size_t dff_buffer_len;
     size_t dff_buffer_pos;
+
+    /* Native WavPack DSD stores each returned byte in the low byte of an
+     * int32_t; data is already MSB first. */
+    int32_t * wavpack_buffer;
+    uint32_t wavpack_buffer_len;
+    uint32_t wavpack_buffer_pos;
+    int wavpack_errors;
 
     const dsd_filter_design_t * filter_design; /* shared; see dsd_filter_design_acquire() */
     dsd_channel_state_t channel_states[DSD_MAX_CHANNELS];
@@ -105,7 +117,44 @@ static uint64_t bytes_present_from(FILE * f, off_t start) {
 static void free_decoder(dsd_decoder_t * dec) {
     dsd_filter_design_release(dec->filter_design);
     free(dec->dsf_block_buffer);
+    free(dec->wavpack_buffer);
+    if (dec->wavpack) WavpackCloseFile(dec->wavpack);
     free(dec);
+}
+
+static dsd_decoder_t * open_wavpack(const char * path) {
+    char error[128] = {0};
+    WavpackContext * wpc = WavpackOpenFileInput(path, error, OPEN_WVC | OPEN_DSD_NATIVE, 0);
+    if (!wpc) return NULL;
+    int channels = WavpackGetNumChannels(wpc);
+    uint32_t rate = WavpackGetNativeSampleRate(wpc);
+    int64_t byte_frames = WavpackGetNumSamples64(wpc);
+    if (!(WavpackGetQualifyMode(wpc) & QMODE_DSD_AUDIO) || channels < 1 ||
+        channels > DSD_MAX_CHANNELS || !rate || byte_frames < 0 ||
+        (uint64_t) byte_frames > UINT64_MAX / 8u) {
+        WavpackCloseFile(wpc);
+        return NULL;
+    }
+    dsd_decoder_t * dec = calloc(1, sizeof(*dec));
+    if (!dec) {
+        WavpackCloseFile(wpc);
+        return NULL;
+    }
+    dec->container = DSD_CONTAINER_WAVPACK;
+    dec->wavpack = wpc;
+    dec->channels = (unsigned int) channels;
+    dec->dsd_sample_rate = rate;
+    dec->wavpack_buffer = malloc((size_t) WAVPACK_DSD_BUFFER_FRAMES * dec->channels * sizeof(*dec->wavpack_buffer));
+    if (!dec->wavpack_buffer) {
+        free_decoder(dec);
+        return NULL;
+    }
+    dec->wavpack_errors = WavpackGetNumErrors(wpc);
+    if (!finish_setup(dec, (uint64_t) byte_frames * 8u)) {
+        free_decoder(dec);
+        return NULL;
+    }
+    return dec;
 }
 
 static dsd_decoder_t * open_dsf(FILE * f) {
@@ -292,6 +341,9 @@ dsd_decoder_t * dsd_open_file(const char * path) {
         dec = open_dsf(f);
     } else if (memcmp(magic, "FRM8", 4) == 0) {
         dec = open_dff(f);
+    } else if (memcmp(magic, "wvpk", 4) == 0) {
+        fclose(f);
+        return open_wavpack(path);
     }
 
     if (!dec) {
@@ -351,7 +403,7 @@ static bool next_byte_row(dsd_decoder_t * dec, uint8_t row[DSD_MAX_CHANNELS]) {
         for (unsigned int ch = 0; ch < dec->channels; ch++)
             row[ch] = dec->dsf_block_buffer[ch * dec->dsf_block_size + dec->dsf_block_pos];
         dec->dsf_block_pos++;
-    } else {
+    } else if (dec->container == DSD_CONTAINER_DFF) {
         if (dec->dff_buffer_len - dec->dff_buffer_pos < dec->channels) {
             size_t whole_rows = (sizeof(dec->dff_buffer) / dec->channels) * dec->channels;
             dec->dff_buffer_len = fread(dec->dff_buffer, 1, whole_rows, dec->f);
@@ -360,6 +412,27 @@ static bool next_byte_row(dsd_decoder_t * dec, uint8_t row[DSD_MAX_CHANNELS]) {
         }
         memcpy(row, dec->dff_buffer + dec->dff_buffer_pos, dec->channels);
         dec->dff_buffer_pos += dec->channels;
+    } else {
+        if (dec->wavpack_buffer_pos >= dec->wavpack_buffer_len) {
+            if (dec->read_error) return false;
+            uint32_t got = WavpackUnpackSamples(dec->wavpack, dec->wavpack_buffer,
+                                                WAVPACK_DSD_BUFFER_FRAMES);
+            if (WavpackGetNumErrors(dec->wavpack) != dec->wavpack_errors) {
+                dec->read_error = true;
+                dec->wavpack_buffer_len = 0;
+                return false;
+            }
+            dec->wavpack_buffer_len = got;
+            dec->wavpack_buffer_pos = 0;
+            int64_t sample_index = WavpackGetSampleIndex64(dec->wavpack);
+            if (got < WAVPACK_DSD_BUFFER_FRAMES && sample_index >= 0 &&
+                sample_index < WavpackGetNumSamples64(dec->wavpack))
+                dec->read_error = true;
+            if (!got) return false;
+        }
+        const int32_t * samples = dec->wavpack_buffer + (size_t) dec->wavpack_buffer_pos * dec->channels;
+        for (unsigned int ch = 0; ch < dec->channels; ch++) row[ch] = (uint8_t) samples[ch];
+        dec->wavpack_buffer_pos++;
     }
     if (dec->lsb_first)
         for (unsigned int ch = 0; ch < dec->channels; ch++) row[ch] = bit_reverse[row[ch]];
@@ -387,7 +460,7 @@ static bool read_frame_bytes(dsd_decoder_t * dec, uint8_t out[DSD_MAX_CHANNELS][
             dec->dsf_block_pos += count;
             return true;
         }
-    } else if (dec->dff_buffer_len - dec->dff_buffer_pos >= (size_t) count * channels) {
+    } else if (dec->container == DSD_CONTAINER_DFF && dec->dff_buffer_len - dec->dff_buffer_pos >= (size_t) count * channels) {
         const uint8_t * src = dec->dff_buffer + dec->dff_buffer_pos;
         for (unsigned int i = 0; i < count; i++, src += channels)
             for (unsigned int ch = 0; ch < channels; ch++) out[ch][i] = src[ch];
@@ -405,6 +478,12 @@ static bool read_frame_bytes(dsd_decoder_t * dec, uint8_t out[DSD_MAX_CHANNELS][
 /* The data ended before its declared length (a truncated file): the track
  * ends here in either mode. Only a read error is fatal. */
 static void end_at_current_frame(dsd_decoder_t * dec) {
+    /* WavPack's declared byte-frame count is authoritative. A short/corrupt
+     * unpack is fatal and must not silently shorten the track. */
+    if (dec->container == DSD_CONTAINER_WAVPACK) {
+        dec->read_error = true;
+        return;
+    }
     if (ferror(dec->f)) return;
     dec->total_pcm_frames = dec->current_pcm_frame;
     dec->total_bytes = dec->current_pcm_frame * dec->bytes_per_frame;
@@ -470,13 +549,13 @@ static decoder_read_result_t decode_frames(dsd_decoder_t * dec, uint64_t frames_
 
 decoder_read_result_t dsd_read_pcm_frames_s16(dsd_decoder_t * dec, uint64_t frames_to_read, int16_t * buffer_out) {
     /* DoP words carry DSD bits; narrowing them to 16 bits would destroy them. */
-    if (!dec || !dec->f || !buffer_out || dec->dop)
+    if (!dec || (!dec->f && !dec->wavpack) || !buffer_out || dec->dop)
         return (decoder_read_result_t) { .frames = 0, .status = DECODER_READ_FATAL_ERROR };
     return decode_frames(dec, frames_to_read, buffer_out, NULL);
 }
 
 decoder_read_result_t dsd_read_pcm_frames_s32(dsd_decoder_t * dec, uint64_t frames_to_read, int32_t * buffer_out) {
-    if (!dec || !dec->f || !buffer_out) return (decoder_read_result_t) { .frames = 0, .status = DECODER_READ_FATAL_ERROR };
+    if (!dec || (!dec->f && !dec->wavpack) || !buffer_out) return (decoder_read_result_t) { .frames = 0, .status = DECODER_READ_FATAL_ERROR };
     if (dec->dop) return decode_dop(dec, frames_to_read, buffer_out);
     return decode_frames(dec, frames_to_read, NULL, buffer_out);
 }
@@ -485,6 +564,24 @@ decoder_read_result_t dsd_read_pcm_frames_s32(dsd_decoder_t * dec, uint64_t fram
  * filter state. */
 static bool position_at_frame(dsd_decoder_t * dec, uint64_t frame_index) {
     uint64_t byte_index = frame_index * dec->bytes_per_frame; /* per channel */
+    if (dec->container == DSD_CONTAINER_WAVPACK) {
+        /* libwavpack treats a failed seek as fatal. Once decoding has
+         * failed, the caller must close this context rather than reuse it. */
+        if (dec->read_error || byte_index > INT64_MAX) return false;
+        dec->wavpack_buffer_len = dec->wavpack_buffer_pos = 0;
+        if (byte_index == (uint64_t) WavpackGetNumSamples64(dec->wavpack)) return true;
+        int errors_before_seek = WavpackGetNumErrors(dec->wavpack);
+        if (!WavpackSeekSample64(dec->wavpack, (int64_t) byte_index)) {
+            dec->read_error = true;
+            return false;
+        }
+        int errors_after_seek = WavpackGetNumErrors(dec->wavpack);
+        if (errors_after_seek != errors_before_seek) {
+            dec->read_error = true;
+            return false;
+        }
+        return true;
+    }
     clearerr(dec->f); /* a past read error must not fail every later seek */
     if (dec->container == DSD_CONTAINER_DSF) {
         uint64_t block_index = byte_index / dec->dsf_block_size;
@@ -503,7 +600,7 @@ static bool position_at_frame(dsd_decoder_t * dec, uint64_t frame_index) {
 }
 
 bool dsd_seek_to_pcm_frame(dsd_decoder_t * dec, uint64_t frame_index) {
-    if (!dec || !dec->f) return false;
+    if (!dec || (!dec->f && !dec->wavpack)) return false;
     if (frame_index > dec->total_pcm_frames) frame_index = dec->total_pcm_frames;
     if (dec->dop) {
         /* No filter to refill: DoP frames are the raw bits. */
@@ -523,11 +620,11 @@ bool dsd_seek_to_pcm_frame(dsd_decoder_t * dec, uint64_t frame_index) {
     if (frame_index > start) (void) decode_frames(dec, frame_index - start, NULL, NULL);
     /* Short only when the data ended first (later reads report EOF) or on a
      * read error, which fails the seek. */
-    return dec->current_pcm_frame == frame_index || !ferror(dec->f);
+    return dec->current_pcm_frame == frame_index || (dec->f && !ferror(dec->f));
 }
 
 bool dsd_set_dop(dsd_decoder_t * dec, bool dop, uint64_t frame_index, uint64_t * out_frame_index) {
-    if (!dec || !dec->f) return false;
+    if (!dec || (!dec->f && !dec->wavpack)) return false;
     uint64_t byte_index = frame_index * dec->bytes_per_frame;
     dec->dop = dop;
     dec->bytes_per_frame = dop ? DOP_BYTES_PER_FRAME : dec->pcm_bytes_per_frame;
@@ -544,6 +641,6 @@ void dsd_continue_dop_markers(dsd_decoder_t * next, const dsd_decoder_t * prev) 
 
 void dsd_close(dsd_decoder_t * dec) {
     if (!dec) return;
-    fclose(dec->f);
+    if (dec->f) fclose(dec->f);
     free_decoder(dec);
 }
