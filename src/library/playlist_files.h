@@ -40,6 +40,12 @@ typedef bool (*playlist_files_entries_check)(void * context, char * const * path
 typedef enum { PLAYLIST_EDIT_OK, PLAYLIST_EDIT_REFUSED, PLAYLIST_EDIT_FAILED } playlist_edit_status_t;
 playlist_edit_status_t playlist_files_edit_entry_checked(const char * path, int from, int to,
                                                          playlist_files_entries_check check, void * context);
+/* Removes selected entry positions in one locked rewrite. Positions must be
+ * strictly ascending and unique. An empty selection is a checked no-op. */
+playlist_edit_status_t playlist_files_delete_entries_checked(const char * path,
+                                                              const int * indexes, int index_count,
+                                                              playlist_files_entries_check check,
+                                                              void * context);
 bool playlist_files_write_new(const char * dir, const char * name,
                               const char * const * paths, int count, char * out, size_t size);
 bool playlist_files_write_new_stream(const char * dir, const char * name,

@@ -768,6 +768,102 @@ playlist_edit_status_t playlist_files_edit_entry_checked(const char * path, int 
     return status;
 }
 
+/* Caller holds playlist_files_mutex. Each index identifies an entry position,
+ * so repeated paths remain distinct. Keep each entry's preceding directives
+ * in its block, matching edit_entry_locked(). */
+static bool delete_entries_locked(const char * path, const int * indexes, int index_count,
+                                  int entry_count) {
+    if (index_count == 0) return true;
+    if (!indexes || index_count < 0 || index_count > entry_count) return false;
+    for (int i = 0; i < index_count; i++) {
+        if (indexes[i] < 0 || indexes[i] >= entry_count ||
+            (i > 0 && indexes[i] <= indexes[i - 1])) return false;
+    }
+
+    FILE * f = fopen(path, "r");
+    char ** blocks = NULL, * pending = NULL, * line = NULL;
+    size_t cap = 0, used = 0;
+    int count = 0, selected = 0;
+    bool ok = f != NULL, bom = false;
+    while (ok && getline(&line, &cap, f) >= 0) {
+        char * text = line;
+        if (count == 0 && used == 0 && library_utf8_bom_skip(text) == 3) { text += 3; bom = true; }
+        if (strncmp(text, "#EXTM3U", 7) == 0) continue;
+        size_t n = strlen(text);
+        char * grown = realloc(pending, used + n + 1);
+        if (!grown) { ok = false; break; }
+        pending = grown;
+        memcpy(pending + used, text, n + 1);
+        used += n;
+        if (!text[0] || text[0] == '#' || text[0] == '\r' || text[0] == '\n') continue;
+        char ** entries = realloc(blocks, (size_t) (count + 1) * sizeof(*blocks));
+        if (!entries) { ok = false; break; }
+        blocks = entries;
+        blocks[count++] = pending;
+        pending = NULL; used = 0;
+    }
+    if (f) { if (ferror(f)) ok = false; fclose(f); }
+    free(line);
+    if (count != entry_count) ok = false;
+    if (ok) {
+        int kept = 0;
+        for (int i = 0; i < count; i++) {
+            if (selected < index_count && indexes[selected] == i) {
+                free(blocks[i]);
+                selected++;
+            } else {
+                blocks[kept++] = blocks[i];
+            }
+        }
+        count = kept;
+        char temp[PATH_MAX], dir[PATH_MAX];
+        int fd = -1;
+        if (dir_of(path, dir, sizeof(dir)) &&
+            snprintf(temp, sizeof(temp), "%s/.playlist-XXXXXX", dir) < (int) sizeof(temp))
+            fd = mkstemp(temp);
+        f = fd >= 0 ? fdopen(fd, "w") : NULL;
+        if (!f) { if (fd >= 0) close(fd); ok = false; }
+        if (f) {
+            ok = fprintf(f, "%s#EXTM3U\n", bom ? "\357\273\277" : "") >= 0;
+            for (int i = 0; ok && i < count; i++) {
+                ok = fputs(blocks[i], f) >= 0;
+                size_t n = strlen(blocks[i]);
+                if (ok && n && blocks[i][n - 1] != '\n') ok = fputc('\n', f) != EOF;
+            }
+            if (ok && pending) ok = fputs(pending, f) >= 0;
+            if (ok) ok = fflush(f) == 0 && fsync(fileno(f)) == 0;
+            if (fclose(f) != 0) ok = false;
+        }
+        if (ok) ok = rename(temp, path) == 0;
+        if (!ok && fd >= 0) unlink(temp);
+        if (ok) fsync_dir(dir);
+    }
+    for (int i = 0; i < count; i++) free(blocks[i]);
+    free(blocks); free(pending);
+    return ok;
+}
+
+playlist_edit_status_t playlist_files_delete_entries_checked(const char * path,
+                                                              const int * indexes, int index_count,
+                                                              playlist_files_entries_check check,
+                                                              void * context) {
+    if (!check || index_count < 0 || (index_count > 0 && !indexes)) return PLAYLIST_EDIT_FAILED;
+    pthread_mutex_lock(&playlist_files_mutex);
+    char ** paths = NULL;
+    int count = 0;
+    playlist_read_status_t read = playlist_files_read_ex(path, &paths, &count);
+    playlist_edit_status_t status = PLAYLIST_EDIT_FAILED;
+    if (read == PLAYLIST_READ_OK || read == PLAYLIST_READ_EMPTY) {
+        bool accepted = check(context, paths, count);
+        for (int i = 0; i < count; i++) free(paths[i]);
+        free(paths);
+        if (!accepted) status = PLAYLIST_EDIT_REFUSED;
+        else if (delete_entries_locked(path, indexes, index_count, count)) status = PLAYLIST_EDIT_OK;
+    }
+    pthread_mutex_unlock(&playlist_files_mutex);
+    return status;
+}
+
 bool playlist_files_delete(const char * m3u_path) {
     pthread_mutex_lock(&playlist_files_mutex);
     bool ok = remove(m3u_path) == 0;

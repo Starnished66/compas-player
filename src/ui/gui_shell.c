@@ -3317,8 +3317,9 @@ bool active_press_is_over_drag_adjust_widget(void) {
 /* 13 native slider cards, up to 20 plugin settings sliders
  * (PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE x PLUGIN_SETTINGS_LIST_MAX_SLIDERS),
  * the accent color picker, ten Quick Drawer reorder handles and up to 24
- * plugin item editor handles: 68 entries total, with four slots of headroom. */
-#define SWIPE_DEAD_ZONE_MAX 72
+ * plugin item editor handles, plus one bounded 200-row playlist edit page.
+ * Reserve 320 slots for these 268 controls and future native controls. */
+#define SWIPE_DEAD_ZONE_MAX 320
 static lv_obj_t * swipe_dead_zones[SWIPE_DEAD_ZONE_MAX];
 static int swipe_dead_zone_count = 0;
 

@@ -121,6 +121,11 @@
 # Phosphor source attribution in navigation/SOURCES.txt.
 !/assets/theme2/navigation/
 
+# Playlist multiselect icons are project Phosphor artwork with source and MIT
+# attribution in playlist_actions/.
+!/assets/theme2/playlist_actions/
+!/assets/theme2/playlist_actions/*
+
 # Home launcher tiles. Mixed directory: the six tile glyphs and their _s
 # duplicates are Phosphor/Material redraws swapped in place (SOURCES.txt),
 # each byte-different from the stock file of the same name. The rest of the
@@ -277,6 +282,8 @@
 !/scripts/assets/settings_category_icons/*.svg
 !/scripts/assets/submenu_icons/
 !/scripts/assets/submenu_icons/*.svg
+!/scripts/assets/playlist_action_icons/
+!/scripts/assets/playlist_action_icons/*
 
 # Local-only known-issues tracker (not part of the public docs)
 /ISSUES.md
@@ -514,3 +521,6 @@ __pycache__/
 !/scripts/test_player_layout_xml_cache.sh
 !/src/ui/player_layout_xml_cache_test.c
 !/scripts/test_gui_player_swipe_lifetime.py
+
+# Playlist bulk-edit regression source
+!src/library/playlist_bulk_delete_test.c

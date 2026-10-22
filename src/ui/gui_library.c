@@ -1,6 +1,7 @@
 #include "gui_navigation.h"
 #include "i18n.h"
 #include "gui_library.h"
+#include "gui_list_reorder.h"
 #include "firmware_update.h"
 #include "gui_network.h"
 #include "gui_shell.h"
@@ -1661,6 +1662,21 @@ static void set_group_songs_entries_owned(group_song_entry_t * entries, int coun
  * only one bounded page of rows at a time. */
 #define GROUP_SONGS_PAGE_SIZE 200
 static int group_songs_page_start;
+static bool * group_songs_selected;
+static int group_songs_selected_count;
+static lv_obj_t * group_songs_selection_checks[GROUP_SONGS_PAGE_SIZE];
+static lv_obj_t * group_songs_reorder_handles[GROUP_SONGS_PAGE_SIZE];
+static lv_obj_t * group_songs_delete_btn;
+static lv_obj_t * group_songs_select_all_row;
+static lv_obj_t * group_songs_select_all_checkbox;
+static lv_obj_t * group_songs_select_all_label;
+static lv_obj_t * group_songs_select_all_done_btn;
+static int group_songs_populated_page_start = -1;
+static bool group_songs_anchor_pending;
+static bool group_songs_rebuild_on_load;
+static bool group_songs_rows_rebuilding;
+static int group_songs_anchor_index;
+static int32_t group_songs_anchor_offset;
 
 /* One bounded job at a time. The worker owns path copies and never sees
  * LVGL objects or group_songs_entries. Page generations invalidate late
@@ -1687,6 +1703,10 @@ static void cancel_group_song_probes(void) {
  * one -- see refresh_group_songs_now_playing_indicator()'s own comment. */
 static lv_obj_t * group_songs_now_playing_bar;
 static lv_obj_t * group_songs_visible_rows[GROUP_SONGS_PAGE_SIZE];
+static gui_list_reorder_state_t group_songs_reorder_state = { .drag_id = -1 };
+static lv_obj_t * group_songs_drag_original_children[GROUP_SONGS_PAGE_SIZE * 2 + 8];
+static int group_songs_drag_original_child_count;
+static int group_songs_drag_source_id = -1;
 static lv_obj_t * group_songs_thumbnail_images[GROUP_SONGS_PAGE_SIZE];
 static bool group_songs_music_submenu;
 
@@ -1712,7 +1732,6 @@ static void set_player_source_group_songs(int pos) {
  * group_songs_edit_mode is reset to false on every fresh entry. */
 static const char * group_songs_edit_m3u_path = NULL;
 static char group_songs_owned_m3u_path[PATH_MAX];
-static void group_song_move_row_cb(lv_event_t * e);
 static void reload_edited_playlist(void);
 static struct stat group_songs_file_stat;
 static bool group_songs_file_stat_valid;
@@ -1726,12 +1745,171 @@ static bool group_playlist_unchanged(void) {
 }
 static bool group_songs_edit_mode = false;
 
-/* Defined near show_m3u_playlist() further down, where the playlist file
- * helpers are in scope -- forward-declared here since
- * populate_group_songs_rows() needs to wire it up as the remove icon's
- * click handler. */
-static void group_song_remove_row_cb(lv_event_t * e);
+static int32_t group_songs_reorder_handle_width(void) {
+    int32_t width = BOARD_SCALE_PX(44);
+    return width < 48 ? 48 : width;
+}
+
+static void group_songs_delete_selected_cb(lv_event_t * e);
+static void group_song_selection_row_cb(lv_event_t * e);
+static void group_songs_select_all_row_cb(lv_event_t * e);
+static void group_songs_edit_btn_cb(lv_event_t * e);
+static void group_songs_capture_scroll_anchor(const int * deleted_indexes, int deleted_count);
 static void populate_group_songs_rows(void);
+static void group_songs_reorder_handle_cb(lv_event_t * e);
+static void group_songs_reorder_prepare(gui_list_reorder_state_t * state, int id);
+static void group_songs_reorder_commit(gui_list_reorder_state_t * state);
+static void group_songs_reorder_restore(gui_list_reorder_state_t * state);
+static bool group_songs_playlist_check(void * context, char * const * paths, int count);
+
+static void group_songs_restore_drag_child_order(void) {
+    if (!group_songs_list) return;
+    for (int i = 0; i < GROUP_SONGS_PAGE_SIZE; ++i)
+        gui_list_reorder_row_stop_translate(group_songs_visible_rows[i]);
+    for (int i = 0; i < group_songs_drag_original_child_count; ++i) {
+        lv_obj_t * child = group_songs_drag_original_children[i];
+        if (child && lv_obj_get_parent(child) == group_songs_list)
+            lv_obj_move_to_index(child, i);
+    }
+    group_songs_drag_original_child_count = 0;
+    group_songs_drag_source_id = -1;
+}
+
+static void group_songs_unregister_reorder_handles(void) {
+    for (int i = 0; i < GROUP_SONGS_PAGE_SIZE; ++i) {
+        if (group_songs_reorder_handles[i]) {
+            unregister_swipe_dead_zone(group_songs_reorder_handles[i]);
+            group_songs_reorder_handles[i] = NULL;
+        }
+    }
+}
+
+static void group_songs_reorder_prepare(gui_list_reorder_state_t * state, int id) {
+    if (!state) return;
+    state->count = 0;
+    group_songs_drag_source_id = -1;
+    group_songs_drag_original_child_count = 0;
+    if (!group_songs_edit_mode || !group_songs_edit_m3u_path ||
+        !group_playlist_unchanged() || id < 0 || id >= GROUP_SONGS_PAGE_SIZE) {
+        show_info_toast(TR("Playlist changed. Try again."));
+        return;
+    }
+    int visible_count = group_songs_count - group_songs_page_start;
+    if (visible_count > GROUP_SONGS_PAGE_SIZE) visible_count = GROUP_SONGS_PAGE_SIZE;
+    if (visible_count < 2 || id >= visible_count) return;
+    uint32_t child_count = lv_obj_get_child_count(group_songs_list);
+    if (child_count > sizeof(group_songs_drag_original_children) /
+                      sizeof(group_songs_drag_original_children[0])) {
+        show_error_toast(TR("Cannot reorder playlist"));
+        return;
+    }
+    for (uint32_t i = 0; i < child_count; ++i)
+        group_songs_drag_original_children[i] = lv_obj_get_child(group_songs_list, i);
+    group_songs_drag_original_child_count = (int) child_count;
+    group_songs_drag_source_id = id;
+    for (int i = 0; i < visible_count; ++i) {
+        if (!group_songs_visible_rows[i]) {
+            group_songs_drag_original_child_count = 0;
+            group_songs_drag_source_id = -1;
+            return;
+        }
+        state->ids[i] = i;
+    }
+    state->count = visible_count;
+}
+
+static void group_songs_reorder_restore(gui_list_reorder_state_t * state) {
+    (void) state;
+    group_songs_restore_drag_child_order();
+    group_songs_drag_source_id = -1;
+}
+
+static void group_songs_reorder_commit(gui_list_reorder_state_t * state) {
+    int source_id = group_songs_drag_source_id;
+    int destination_id = -1;
+    if (state && source_id >= 0) {
+        for (int i = 0; i < state->drag_count; ++i) {
+            if (state->ids[i] == source_id) { destination_id = i; break; }
+        }
+    }
+    if (source_id < 0 || destination_id < 0 || source_id == destination_id) {
+        group_songs_restore_drag_child_order();
+        group_songs_drag_source_id = -1;
+        return;
+    }
+    int from = group_songs_page_start + source_id;
+    int to = group_songs_page_start + destination_id;
+    group_songs_restore_drag_child_order();
+    playlist_edit_status_t status = playlist_files_edit_entry_checked(
+        group_songs_edit_m3u_path, from, to, group_songs_playlist_check, NULL);
+    group_songs_drag_source_id = -1;
+    if (status == PLAYLIST_EDIT_OK) {
+        reload_edited_playlist();
+    } else if (status == PLAYLIST_EDIT_REFUSED) {
+        reload_edited_playlist();
+        show_info_toast(TR("Playlist changed. Try again."));
+    } else {
+        populate_group_songs_rows();
+        show_error_toast(TR("Cannot reorder playlist"));
+    }
+}
+
+static void group_songs_reorder_handle_cb(lv_event_t * e) {
+    int id = (int) (intptr_t) lv_event_get_user_data(e);
+    gui_list_reorder_event(&group_songs_reorder_state, id, e);
+}
+
+static void group_songs_clear_selection(void) {
+    free(group_songs_selected);
+    group_songs_selected = NULL;
+    group_songs_selected_count = 0;
+}
+
+static bool group_songs_reset_selection(void) {
+    group_songs_clear_selection();
+    if (group_songs_edit_mode && group_songs_count > 0) {
+        group_songs_selected = calloc((size_t) group_songs_count, sizeof(*group_songs_selected));
+        return group_songs_selected != NULL;
+    }
+    return true;
+}
+
+static void group_songs_update_edit_header(void) {
+    if (!group_songs_edit_btn) return;
+    lv_label_set_text(group_songs_edit_btn, TR("Edit"));
+    if (group_songs_edit_mode) lv_obj_add_flag(group_songs_edit_btn, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_clear_flag(group_songs_edit_btn, LV_OBJ_FLAG_HIDDEN);
+    if (group_songs_delete_btn) {
+        if (group_songs_edit_mode) lv_obj_clear_flag(group_songs_delete_btn, LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(group_songs_delete_btn, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_opa(group_songs_delete_btn,
+            group_songs_selected_count > 0 ? LV_OPA_COVER : LV_OPA_40, 0);
+        lv_obj_set_style_image_opa(group_songs_delete_btn,
+            group_songs_selected_count > 0 ? LV_OPA_COVER : LV_OPA_40, 0);
+    }
+    if (group_songs_select_all_checkbox) {
+        if (group_songs_count > 0 && group_songs_selected_count == group_songs_count)
+            lv_obj_add_state(group_songs_select_all_checkbox, LV_STATE_CHECKED);
+        else lv_obj_remove_state(group_songs_select_all_checkbox, LV_STATE_CHECKED);
+        if (group_songs_count == 0) lv_obj_add_state(group_songs_select_all_checkbox, LV_STATE_DISABLED);
+        else lv_obj_remove_state(group_songs_select_all_checkbox, LV_STATE_DISABLED);
+    }
+    if (group_songs_select_all_label) {
+        char text[64];
+        if (group_songs_selected_count > 0)
+            snprintf(text, sizeof(text), TR("Select all (%d)"), group_songs_selected_count);
+        else snprintf(text, sizeof(text), "%s", TR("Select all"));
+        lv_label_set_text(group_songs_select_all_label, text);
+    }
+    if (group_songs_select_all_row) {
+        if (group_songs_count == 0) lv_obj_clear_flag(group_songs_select_all_row, LV_OBJ_FLAG_CLICKABLE);
+        else lv_obj_add_flag(group_songs_select_all_row, LV_OBJ_FLAG_CLICKABLE);
+    }
+    if (group_songs_edit_m3u_path && group_songs_title_label) {
+        lv_obj_t * action = group_songs_edit_mode ? group_songs_delete_btn : group_songs_edit_btn;
+        if (action) reserve_title_width_before(group_songs_title_label, action);
+    }
+}
 
 static void group_songs_prev_page_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED || group_songs_page_start <= 0) return;
@@ -1764,6 +1942,59 @@ static lv_obj_t * add_group_songs_page_row(const char * text, lv_event_cb_t cb) 
     lv_label_set_text(row, text);
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(row, cb, LV_EVENT_CLICKED, NULL);
+    return row;
+}
+
+static lv_obj_t * add_group_songs_select_all_row(void) {
+    lv_obj_t * row = add_pill_row_base(group_songs_list, TR("Select all"));
+    group_songs_select_all_row = row;
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_style(row, &list_row_pressed_style, LV_STATE_PRESSED);
+    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(row, group_songs_select_all_row_cb, LV_EVENT_CLICKED, NULL);
+
+    group_songs_select_all_checkbox = lv_checkbox_create(row);
+    lv_checkbox_set_text(group_songs_select_all_checkbox, "");
+    lv_obj_set_size(group_songs_select_all_checkbox, BOARD_SCALE_PX(28), BOARD_SCALE_PX(28));
+    lv_obj_align(group_songs_select_all_checkbox, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(18), 0);
+    lv_obj_set_style_border_color(group_songs_select_all_checkbox, accent_lv_color(), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(group_songs_select_all_checkbox, accent_lv_color(),
+                              LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_image_src(group_songs_select_all_checkbox, LV_SYMBOL_OK,
+                                  LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_set_style_text_color(group_songs_select_all_checkbox,
+        lv_color_brightness(accent_lv_color()) > 160 ? lv_color_hex(0x14170B) : lv_color_white(),
+        LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_remove_flag(group_songs_select_all_checkbox,
+                       LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICK_FOCUSABLE |
+                       LV_OBJ_FLAG_EVENT_BUBBLE);
+
+    group_songs_select_all_label = lv_obj_get_child(row, 0);
+    if (group_songs_select_all_label) {
+        lv_obj_update_layout(row);
+        int32_t text_width = lv_obj_get_width(row) - BOARD_SCALE_PX(100 + 18 + 28 + 8);
+        if (text_width < BOARD_SCALE_PX(40)) text_width = BOARD_SCALE_PX(40);
+        lv_obj_set_width(group_songs_select_all_label, text_width);
+        lv_obj_align(group_songs_select_all_label, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(18 + 28 + 8), 0);
+        lv_obj_set_style_text_align(group_songs_select_all_label, LV_TEXT_ALIGN_RIGHT, 0);
+    }
+
+    group_songs_select_all_done_btn = lv_button_create(row);
+    lv_obj_remove_style_all(group_songs_select_all_done_btn);
+    lv_obj_set_size(group_songs_select_all_done_btn, BOARD_SCALE_PX(72), BOARD_SCALE_PX(48));
+    lv_obj_align(group_songs_select_all_done_btn, LV_ALIGN_LEFT_MID, BOARD_SCALE_PX(12), 0);
+    lv_obj_add_style(group_songs_select_all_done_btn, &list_row_pressed_style, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(group_songs_select_all_done_btn, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(group_songs_select_all_done_btn, 0, 0);
+    lv_obj_remove_flag(group_songs_select_all_done_btn,
+                       LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_add_event_cb(group_songs_select_all_done_btn, group_songs_edit_btn_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t * done_label = lv_label_create(group_songs_select_all_done_btn);
+    lv_label_set_text(done_label, TR("Done"));
+    lv_obj_add_style(done_label, gui_theme_accent_style(), 0);
+    lv_obj_set_style_text_font(done_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    lv_obj_center(done_label);
+    lv_obj_remove_flag(done_label, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
     return row;
 }
 
@@ -2023,30 +2254,54 @@ static void refresh_group_songs_now_playing_indicator(void) {
  * currently hold, in either of two shapes: a plain tappable-to-play label
  * (list_row_style, same as every other group -- Artists/Albums/Favorites/
  * Most Played always use this one) when not actively editing a playlist, or
- * a row with a trailing remove icon (no play-on-tap -- see
- * group_song_remove_row_cb() below) when group_songs_edit_mode is on for an
+ * rows with selection and reorder controls (no play-on-tap) when
+ * group_songs_edit_mode is on for an
  * editable .m3u playlist. Split out from show_group_songs_editable() so the
- * remove callback and the Edit/Done toggle can both redraw in place without
+ * selection, reorder, and Edit/Done actions can redraw in place without
  * re-deriving the group or nav_push()ing a second copy of this screen. */
 static void populate_group_songs_rows(void) {
+    group_songs_rows_rebuilding = true;
+    int32_t restore_scroll_y = 0;
+    bool restore_scroll = group_songs_list && group_songs_populated_page_start == group_songs_page_start;
+    if (restore_scroll) restore_scroll_y = lv_obj_get_scroll_y(group_songs_list);
+    if (group_songs_reorder_state.active)
+        gui_list_reorder_finish(&group_songs_reorder_state, false);
+    group_songs_unregister_reorder_handles();
+    group_songs_reorder_state.list = group_songs_list;
+    group_songs_reorder_state.rows = group_songs_visible_rows;
+    group_songs_reorder_state.row_capacity = GROUP_SONGS_PAGE_SIZE;
+    group_songs_reorder_state.prepare = group_songs_reorder_prepare;
+    group_songs_reorder_state.commit = group_songs_reorder_commit;
+    group_songs_reorder_state.restore = group_songs_reorder_restore;
     if (album_thumbnail_active_list == group_songs_list) {
         album_thumbnail_view_generation++;
         album_thumbnail_queue_count = 0;
     }
     cancel_group_song_probes();
-    lv_obj_clean(group_songs_list);
+    memset(group_songs_reorder_handles, 0, sizeof(group_songs_reorder_handles));
+    memset(group_songs_selection_checks, 0, sizeof(group_songs_selection_checks));
+    group_songs_select_all_row = NULL;
+    group_songs_select_all_checkbox = NULL;
+    group_songs_select_all_label = NULL;
+    group_songs_select_all_done_btn = NULL;
+    /* Cleaning a scrolled list can synchronously emit SCROLL_END. Detach
+     * borrowed row pointers before deletion, and suppress decoration until
+     * the replacement rows are complete. */
     memset(group_songs_visible_rows, 0, sizeof(group_songs_visible_rows));
     memset(group_songs_thumbnail_images, 0, sizeof(group_songs_thumbnail_images));
+    lv_obj_clean(group_songs_list);
 
     bool editable = group_songs_edit_m3u_path != NULL;
+    bool editing = editable && group_songs_edit_mode;
     if (editable) {
-        lv_obj_clear_flag(group_songs_edit_btn, LV_OBJ_FLAG_HIDDEN);
-        lv_label_set_text(group_songs_edit_btn, group_songs_edit_mode ? TR("Done") : TR("Edit"));
+        if (editing) lv_obj_add_flag(group_songs_edit_btn, LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_clear_flag(group_songs_edit_btn, LV_OBJ_FLAG_HIDDEN);
+        group_songs_update_edit_header();
     } else {
         lv_obj_add_flag(group_songs_edit_btn, LV_OBJ_FLAG_HIDDEN);
+        if (group_songs_delete_btn) lv_obj_add_flag(group_songs_delete_btn, LV_OBJ_FLAG_HIDDEN);
     }
 
-    bool editing = editable && group_songs_edit_mode;
     update_group_songs_search_button(editing || group_songs_loading);
     if (!editing && !group_songs_loading) {
         lv_obj_t * start = add_group_songs_page_row(TR("Play All"), group_start_options_cb);
@@ -2060,6 +2315,11 @@ static void populate_group_songs_rows(void) {
         row_label_set_identity(start, subtitle, TR("Play All"), count_text, ui_music_row_height());
         decorate_play_all_row(start);
     }
+    if (editing) {
+        add_group_songs_select_all_row();
+        group_songs_update_edit_header();
+    }
+
     if (group_songs_count == 0) {
         if (group_songs_loading)
             build_list_message(group_songs_list, TR("Loading tracks…"), NULL);
@@ -2073,6 +2333,7 @@ static void populate_group_songs_rows(void) {
     if (group_songs_page_start >= group_songs_count && group_songs_count > 0) {
         group_songs_page_start = ((group_songs_count - 1) / GROUP_SONGS_PAGE_SIZE) * GROUP_SONGS_PAGE_SIZE;
     }
+    if (group_songs_page_start != group_songs_populated_page_start) restore_scroll = false;
     int page_end = group_songs_page_start + GROUP_SONGS_PAGE_SIZE;
     if (page_end > group_songs_count) page_end = group_songs_count;
 
@@ -2090,25 +2351,56 @@ static void populate_group_songs_rows(void) {
             add_section_header(group_songs_list, header);
         }
         if (editing) {
-            lv_obj_t * row = build_music_list_row(group_songs_list, group_songs_entries[i].title, NULL, BOARD_SCALE_PX(190));
+            /* Keep dragging on the left and selection on the right. The
+             * cover and text share a left inset beyond the handle. */
+            int32_t handle_width = group_songs_reorder_handle_width();
+            int32_t text_reserve = BOARD_SCALE_PX(18 + 28 + 8);
+            lv_obj_t * row = build_music_list_row(group_songs_list, group_songs_entries[i].title, NULL,
+                                                  text_reserve);
             if (group_songs_music_submenu) lv_obj_set_width(row, lv_pct(100));
             group_songs_visible_rows[i - group_songs_page_start] = row;
             if (group_songs_music_submenu) layout_music_submenu_row_text(row);
-            if (group_song_has_cover(i)) group_song_row_text_offset(row, true); /* see below */
-            for (int direction = 0; direction < 2; direction++) {
-                lv_obj_t * move = lv_label_create(row);
-                lv_label_set_text(move, direction ? LV_SYMBOL_DOWN : LV_SYMBOL_UP);
-                lv_obj_align(move, LV_ALIGN_RIGHT_MID, direction ? BOARD_SCALE_PX(-80) : BOARD_SCALE_PX(-130), 0);
-                lv_obj_set_ext_click_area(move, BOARD_SCALE_PX(12));
-                lv_obj_add_flag(move, LV_OBJ_FLAG_CLICKABLE);
-                lv_obj_add_event_cb(move, group_song_move_row_cb, LV_EVENT_CLICKED, (void *) (intptr_t) (i * 2 + direction));
-            }
-
-            lv_obj_t * remove_icon = lv_image_create(row);
-            lv_image_set_src(remove_icon, asset_path("touch_list/del.png"));
-            lv_obj_align(remove_icon, LV_ALIGN_RIGHT_MID, BOARD_SCALE_PX(-20), 0);
-            lv_obj_add_flag(remove_icon, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_add_event_cb(remove_icon, group_song_remove_row_cb, LV_EVENT_CLICKED, (void *) (intptr_t) i);
+            group_song_row_text_offset(row, group_song_has_cover(i)); /* see below */
+            int slot = i - group_songs_page_start;
+            lv_obj_t * handle = lv_button_create(row);
+            group_songs_reorder_handles[slot] = handle;
+            lv_obj_set_size(handle, handle_width, ui_music_row_height());
+            lv_obj_align(handle, LV_ALIGN_LEFT_MID, 0, 0);
+            lv_obj_add_flag(handle, LV_OBJ_FLAG_PRESS_LOCK);
+            lv_obj_remove_flag(handle, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_EVENT_BUBBLE);
+            lv_obj_add_style(handle, &list_row_pressed_style, LV_STATE_PRESSED);
+            lv_obj_add_style(handle, &list_row_pressed_style, LV_STATE_USER_1);
+            lv_obj_set_style_radius(handle, BOARD_SCALE_PX(8), 0);
+            lv_obj_set_style_bg_opa(handle, LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(handle, 0, 0);
+            lv_obj_set_style_shadow_width(handle, 0, 0);
+            lv_obj_set_style_pad_all(handle, 0, 0);
+            lv_obj_t * grip = lv_image_create(handle);
+            lv_obj_set_size(grip, BOARD_SCALE_PX(32), BOARD_SCALE_PX(32));
+            lv_image_set_src(grip, asset_path("navigation/reorder.png"));
+            lv_image_set_inner_align(grip, LV_IMAGE_ALIGN_CONTAIN);
+            lv_obj_add_style(grip, &style_theme_text_primary, 0);
+            lv_obj_center(grip);
+            lv_obj_remove_flag(grip, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_add_event_cb(handle, group_songs_reorder_handle_cb, LV_EVENT_ALL,
+                                (void *) (intptr_t) slot);
+            register_swipe_dead_zone(handle);
+            lv_obj_t * checkbox = lv_checkbox_create(row);
+            lv_checkbox_set_text(checkbox, "");
+            if (group_songs_selected && group_songs_selected[i]) lv_obj_add_state(checkbox, LV_STATE_CHECKED);
+            group_songs_selection_checks[i - group_songs_page_start] = checkbox;
+            lv_obj_set_style_border_color(checkbox, accent_lv_color(), LV_PART_INDICATOR);
+            lv_obj_set_style_bg_color(checkbox, accent_lv_color(), LV_PART_INDICATOR | LV_STATE_CHECKED);
+            lv_obj_set_style_bg_image_src(checkbox, LV_SYMBOL_OK, LV_PART_INDICATOR | LV_STATE_CHECKED);
+            lv_obj_set_style_text_color(checkbox,
+                lv_color_brightness(accent_lv_color()) > 160 ? lv_color_hex(0x14170B) : lv_color_white(),
+                LV_PART_INDICATOR | LV_STATE_CHECKED);
+            lv_obj_set_size(checkbox, BOARD_SCALE_PX(28), BOARD_SCALE_PX(28));
+            lv_obj_align(checkbox, LV_ALIGN_RIGHT_MID, BOARD_SCALE_PX(-18), 0);
+            lv_obj_remove_flag(checkbox, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE |
+                                        LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_EVENT_BUBBLE);
+            lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(row, group_song_selection_row_cb, LV_EVENT_CLICKED, (void *) (intptr_t) i);
         } else {
             /* One lv_label via the shared list_row_style, not a container +
              * child label each with their own local style properties -- see
@@ -2165,7 +2457,28 @@ static void populate_group_songs_rows(void) {
     lv_obj_remove_flag(group_songs_now_playing_bar, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(group_songs_now_playing_bar, LV_OBJ_FLAG_HIDDEN);
     refresh_group_songs_now_playing_indicator();
+    group_songs_rows_rebuilding = false;
     refresh_group_song_thumbnails();
+    lv_obj_update_layout(group_songs_list);
+    if (restore_scroll) lv_obj_scroll_to_y(group_songs_list, restore_scroll_y, LV_ANIM_OFF);
+    if (group_songs_anchor_pending) {
+        lv_area_t list_area;
+        lv_obj_get_coords(group_songs_list, &list_area);
+        int anchor_index = group_songs_anchor_index;
+        if (anchor_index >= group_songs_count) anchor_index = group_songs_count - 1;
+        if (anchor_index >= group_songs_page_start && anchor_index < page_end) {
+            lv_obj_t * row = group_songs_visible_rows[anchor_index - group_songs_page_start];
+            if (row) {
+                lv_area_t row_area;
+                lv_obj_get_coords(row, &row_area);
+                int32_t scroll_y = lv_obj_get_scroll_y(group_songs_list) +
+                    row_area.y1 - list_area.y1 - group_songs_anchor_offset;
+                lv_obj_scroll_to_y(group_songs_list, scroll_y, LV_ANIM_OFF);
+            }
+        }
+        group_songs_anchor_pending = false;
+    }
+    group_songs_populated_page_start = group_songs_page_start;
 }
 
 /* Every screen's back button is a fixed 64x64 at the screen's own left
@@ -2211,8 +2524,204 @@ void reserve_title_width_before(lv_obj_t * title, lv_obj_t * right_icon) {
 static void group_songs_edit_btn_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     if (group_songs_screen) search_close_if_active_for_screen(group_songs_screen);
-    group_songs_edit_mode = !group_songs_edit_mode;
+    bool entering_edit_at_top = !group_songs_edit_mode && group_songs_list &&
+        lv_obj_get_scroll_y(group_songs_list) == 0;
+    if (entering_edit_at_top) group_songs_anchor_pending = false;
+    else group_songs_capture_scroll_anchor(NULL, 0);
+    if (group_songs_edit_mode) {
+        group_songs_edit_mode = false;
+        group_songs_clear_selection();
+    } else {
+        group_songs_edit_mode = true;
+        if (!group_songs_reset_selection()) {
+            group_songs_edit_mode = false;
+            group_songs_anchor_pending = false;
+            group_songs_update_edit_header();
+            show_error_toast(TR("Cannot select playlist entries"));
+            return;
+        }
+    }
     populate_group_songs_rows();
+}
+
+static void group_songs_screen_event_cb(lv_event_t * e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_DELETE) {
+        gui_list_reorder_finish(&group_songs_reorder_state, false);
+        group_songs_unregister_reorder_handles();
+        group_songs_reorder_state.rows = NULL;
+        group_songs_reorder_state.list = NULL;
+        group_songs_clear_selection();
+        group_songs_edit_mode = false;
+        group_songs_edit_btn = NULL;
+        group_songs_delete_btn = NULL;
+        group_songs_select_all_row = NULL;
+        group_songs_select_all_checkbox = NULL;
+        group_songs_select_all_label = NULL;
+        group_songs_select_all_done_btn = NULL;
+        group_songs_title_label = NULL;
+        group_songs_list = NULL;
+        group_songs_populated_page_start = -1;
+        group_songs_anchor_pending = false;
+        group_songs_rebuild_on_load = false;
+        memset(group_songs_visible_rows, 0, sizeof(group_songs_visible_rows));
+        memset(group_songs_thumbnail_images, 0, sizeof(group_songs_thumbnail_images));
+        memset(group_songs_selection_checks, 0, sizeof(group_songs_selection_checks));
+    } else if (code == LV_EVENT_SCREEN_UNLOADED) {
+        gui_list_reorder_finish(&group_songs_reorder_state, false);
+        group_songs_unregister_reorder_handles();
+        group_songs_reorder_state.rows = NULL;
+        group_songs_reorder_state.list = NULL;
+        if (group_songs_edit_mode) {
+            group_songs_capture_scroll_anchor(NULL, 0);
+            group_songs_clear_selection();
+            memset(group_songs_selection_checks, 0, sizeof(group_songs_selection_checks));
+            group_songs_edit_mode = false;
+            group_songs_rebuild_on_load = true;
+        }
+    } else if (code == LV_EVENT_SCREEN_LOADED && group_songs_rebuild_on_load) {
+        group_songs_rebuild_on_load = false;
+        populate_group_songs_rows();
+    }
+}
+
+static void group_song_selection_row_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED || !group_songs_edit_mode ||
+        group_songs_reorder_state.active) return;
+    int pos = (int) (intptr_t) lv_event_get_user_data(e);
+    if (!group_songs_edit_m3u_path || pos < 0 || pos >= group_songs_count || !group_songs_selected) return;
+    if (!group_playlist_unchanged()) {
+        reload_edited_playlist();
+        show_info_toast(TR("Playlist changed. Select a song again."));
+        return;
+    }
+    group_songs_selected[pos] = !group_songs_selected[pos];
+    group_songs_selected_count += group_songs_selected[pos] ? 1 : -1;
+    int slot = pos - group_songs_page_start;
+    lv_obj_t * checkbox = slot >= 0 && slot < GROUP_SONGS_PAGE_SIZE
+        ? group_songs_selection_checks[slot] : NULL;
+    if (checkbox) {
+        if (group_songs_selected[pos]) lv_obj_add_state(checkbox, LV_STATE_CHECKED);
+        else lv_obj_remove_state(checkbox, LV_STATE_CHECKED);
+    }
+    group_songs_update_edit_header();
+}
+
+static void group_songs_select_all_row_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED || !group_songs_edit_mode ||
+        group_songs_reorder_state.active || group_songs_count <= 0 || !group_songs_selected) return;
+    if (!group_playlist_unchanged()) {
+        reload_edited_playlist();
+        show_info_toast(TR("Playlist changed. Select a song again."));
+        return;
+    }
+    bool select_all = group_songs_selected_count != group_songs_count;
+    for (int i = 0; i < group_songs_count; ++i) group_songs_selected[i] = select_all;
+    group_songs_selected_count = select_all ? group_songs_count : 0;
+    int visible_count = group_songs_count - group_songs_page_start;
+    if (visible_count > GROUP_SONGS_PAGE_SIZE) visible_count = GROUP_SONGS_PAGE_SIZE;
+    for (int slot = 0; slot < visible_count; ++slot) {
+        lv_obj_t * checkbox = group_songs_selection_checks[slot];
+        if (!checkbox) continue;
+        if (select_all) lv_obj_add_state(checkbox, LV_STATE_CHECKED);
+        else lv_obj_remove_state(checkbox, LV_STATE_CHECKED);
+    }
+    group_songs_update_edit_header();
+}
+
+static bool group_songs_playlist_check(void * context, char * const * paths, int count) {
+    (void) context;
+    if (!group_playlist_unchanged() || count != group_songs_count) return false;
+    for (int i = 0; i < count; ++i) {
+        if (strcmp(paths[i], group_songs_entries[i].path) != 0) return false;
+    }
+    return true;
+}
+
+/* Map a visible old playlist position to its new position after deleting a
+ * set of ordered entry offsets. When the old top row is deleted, retain the
+ * next surviving row, or the previous one when the deletion reaches EOF. */
+static int group_songs_anchor_index_after_delete(int top_index, int song_count,
+                                                 const int * deleted_indexes, int deleted_count) {
+    if (top_index < 0 || top_index >= song_count) return -1;
+    /* The delete UI builds unique ascending offsets, matching the backend's
+     * ordering contract. One forward pass handles a playlist-wide selection
+     * without quadratic scans. */
+    int deleted_before_top = 0;
+    while (deleted_before_top < deleted_count && deleted_indexes[deleted_before_top] < top_index)
+        ++deleted_before_top;
+    if (deleted_before_top == deleted_count || deleted_indexes[deleted_before_top] != top_index)
+        return top_index - deleted_before_top;
+
+    int next = top_index + 1;
+    int deleted_cursor = deleted_before_top + 1;
+    while (next < song_count && deleted_cursor < deleted_count && deleted_indexes[deleted_cursor] == next) {
+        ++next;
+        ++deleted_cursor;
+    }
+    if (next < song_count) return top_index - deleted_before_top;
+
+    int previous = top_index - 1;
+    int deleted_before_previous = deleted_before_top;
+    while (previous >= 0 && deleted_before_previous > 0 &&
+           deleted_indexes[deleted_before_previous - 1] == previous) {
+        --previous;
+        --deleted_before_previous;
+    }
+    return previous < 0 ? -1 : previous - deleted_before_previous;
+}
+
+static void group_songs_capture_scroll_anchor(const int * deleted_indexes, int deleted_count) {
+    group_songs_anchor_pending = false;
+    if (!group_songs_list) return;
+    lv_obj_update_layout(group_songs_list);
+    lv_area_t list_area;
+    lv_obj_get_coords(group_songs_list, &list_area);
+    int best_index = -1;
+    int32_t best_y = INT32_MAX;
+    for (int slot = 0; slot < GROUP_SONGS_PAGE_SIZE; ++slot) {
+        lv_obj_t * row = group_songs_visible_rows[slot];
+        if (!row) continue;
+        lv_area_t row_area;
+        lv_obj_get_coords(row, &row_area);
+        if (row_area.y2 < list_area.y1 || row_area.y1 > list_area.y2 || row_area.y1 >= best_y) continue;
+        best_index = group_songs_page_start + slot;
+        best_y = row_area.y1;
+    }
+    if (best_index < 0 || best_index >= group_songs_count) return;
+    int anchor_index = group_songs_anchor_index_after_delete(
+        best_index, group_songs_count, deleted_indexes, deleted_count);
+    if (anchor_index < 0) return;
+    group_songs_anchor_index = anchor_index;
+    group_songs_anchor_offset = best_y - list_area.y1;
+    group_songs_anchor_pending = true;
+}
+
+static void group_songs_delete_selected_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED || group_songs_selected_count <= 0 ||
+        !group_songs_selected || !group_songs_edit_m3u_path) return;
+    int * indexes = malloc((size_t) group_songs_selected_count * sizeof(*indexes));
+    if (!indexes) { show_error_toast(TR("Cannot remove entries")); return; }
+    int count = 0;
+    for (int i = 0; i < group_songs_count; ++i)
+        if (group_songs_selected[i]) indexes[count++] = i;
+    group_songs_capture_scroll_anchor(indexes, count);
+    playlist_edit_status_t status = playlist_files_delete_entries_checked(
+        group_songs_edit_m3u_path, indexes, count, group_songs_playlist_check, NULL);
+    free(indexes);
+    if (status == PLAYLIST_EDIT_REFUSED) {
+        group_songs_anchor_pending = false;
+        reload_edited_playlist();
+        show_info_toast(TR("Playlist changed. Select a song again."));
+        return;
+    }
+    if (status != PLAYLIST_EDIT_OK) {
+        group_songs_anchor_pending = false;
+        show_error_toast(TR("Cannot remove entries"));
+        return;
+    }
+    reload_edited_playlist();
+    show_info_toast(TR("Removed from playlist"));
 }
 
 /* entries[0..count) is copied into group_songs_entries (see set_group_songs_
@@ -2228,8 +2737,12 @@ static void show_group_songs_editable(const char * name, const group_song_entry_
     group_songs_edit_m3u_path = editable_m3u_path ? group_songs_owned_m3u_path : NULL;
     group_songs_file_stat_valid = editable_m3u_path && stat(editable_m3u_path, &group_songs_file_stat) == 0;
     group_songs_edit_mode = false;
+    group_songs_anchor_pending = false;
+    group_songs_rebuild_on_load = false;
     set_group_songs_entries(entries, count);
+    group_songs_clear_selection();
     group_songs_page_start = 0;
+    group_songs_populated_page_start = -1;
 
     lv_label_set_text(group_songs_title_label, name);
     populate_group_songs_rows();
@@ -2268,8 +2781,12 @@ static void show_group_songs_take_ownership(const char * name, group_song_entry_
     group_songs_music_submenu = true;
     group_songs_edit_m3u_path = NULL;
     group_songs_edit_mode = false;
+    group_songs_anchor_pending = false;
+    group_songs_rebuild_on_load = false;
     set_group_songs_entries_owned(entries, count);
+    group_songs_clear_selection();
     group_songs_page_start = 0;
+    group_songs_populated_page_start = -1;
 
     lv_label_set_text(group_songs_title_label, name);
     populate_group_songs_rows();
@@ -2292,10 +2809,24 @@ static lv_obj_t * build_group_songs_screen(void) {
     lv_label_set_text(group_songs_edit_btn, TR("Edit"));
     lv_obj_add_style(group_songs_edit_btn, gui_theme_accent_style(), 0);
     lv_obj_set_style_text_font(group_songs_edit_btn, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-    align_screen_header_action(group_songs_edit_btn, BOARD_SCALE_PX(87));
+    align_screen_header_action(group_songs_edit_btn, BOARD_SCALE_PX(100));
     lv_obj_add_flag(group_songs_edit_btn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(group_songs_edit_btn, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_event_cb(group_songs_edit_btn, group_songs_edit_btn_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(scr, group_songs_screen_event_cb, LV_EVENT_SCREEN_UNLOADED, NULL);
+    lv_obj_add_event_cb(scr, group_songs_screen_event_cb, LV_EVENT_SCREEN_LOADED, NULL);
+    lv_obj_add_event_cb(scr, group_songs_screen_event_cb, LV_EVENT_DELETE, NULL);
+
+    group_songs_delete_btn = build_top_right_icon_button(scr, asset_path("playlist_actions/trash.png"),
+                                                          group_songs_delete_selected_cb);
+    align_screen_header_action(group_songs_delete_btn, BOARD_SCALE_PX(20));
+    lv_obj_t * delete_image = lv_obj_get_child(group_songs_delete_btn, 0);
+    if (delete_image) {
+        lv_obj_set_size(delete_image, BOARD_SCALE_PX(44), BOARD_SCALE_PX(44));
+        lv_image_set_inner_align(delete_image, LV_IMAGE_ALIGN_CONTAIN);
+        lv_obj_add_style(delete_image, gui_theme_accent_style(), 0);
+    }
+    lv_obj_add_flag(group_songs_delete_btn, LV_OBJ_FLAG_HIDDEN);
 
     group_songs_list = lv_obj_create(scr);
     lv_obj_set_size(group_songs_list, lv_pct(100),
@@ -4990,7 +5521,8 @@ static bool group_song_has_cover(int index) {
 
 static void group_song_row_text_offset(lv_obj_t * row, bool with_thumbnail) {
     if (!row || lv_obj_get_child_count(row) < 2) return;
-    int32_t target_x = with_thumbnail ? 100 : GUI_TEXT_INSET;
+    int32_t target_x = (with_thumbnail ? BOARD_SCALE_PX(100) : GUI_TEXT_INSET) +
+        (group_songs_edit_mode ? group_songs_reorder_handle_width() : 0);
     /* New rows have explicit label geometry but no computed coordinates
      * until LVGL lays them out. Reading those coordinates here can turn a
      * full-width label into the 40px minimum permanently. Use the configured
@@ -5007,7 +5539,7 @@ static void group_song_row_text_offset(lv_obj_t * row, bool with_thumbnail) {
 }
 
 static void refresh_group_song_thumbnails(void) {
-    if (!group_songs_list) return;
+    if (!group_songs_list || group_songs_rows_rebuilding) return;
     lv_obj_update_layout(group_songs_list);
     int page_end = group_songs_page_start + GROUP_SONGS_PAGE_SIZE;
     if (page_end > group_songs_count) page_end = group_songs_count;
@@ -5047,8 +5579,13 @@ static void refresh_group_song_thumbnails(void) {
         int32_t pad_left = lv_obj_get_style_pad_left(row, LV_PART_MAIN);
         int32_t pad_top = lv_obj_get_style_pad_top(row, LV_PART_MAIN);
         int32_t pad_bottom = lv_obj_get_style_pad_bottom(row, LV_PART_MAIN);
+        lv_obj_set_size(group_songs_thumbnail_images[slot],
+                        BOARD_SCALE_PX(72), BOARD_SCALE_PX(72));
+        lv_image_set_inner_align(group_songs_thumbnail_images[slot], LV_IMAGE_ALIGN_CONTAIN);
         lv_obj_align(group_songs_thumbnail_images[slot], LV_ALIGN_LEFT_MID,
-                     14 - pad_left, (pad_top - pad_bottom) / -2);
+                     BOARD_SCALE_PX(14) +
+                         (group_songs_edit_mode ? group_songs_reorder_handle_width() : 0) - pad_left,
+                     (pad_top - pad_bottom) / -2);
     }
 }
 
@@ -5902,6 +6439,25 @@ void poll_az_index_drag(lv_timer_t * timer) {
 
 #define SEARCH_BAR_Y STATUS_BAR_CLEARANCE
 #define SEARCH_BAR_HEIGHT 80
+#define SEARCH_BAR_EDGE_INSET BOARD_SCALE_PX(8)
+#define SEARCH_BAR_CLOSE_SIZE BOARD_SCALE_PX(51)
+#define SEARCH_BAR_TEXT_GAP BOARD_SCALE_PX(8)
+
+static void search_bar_textarea_geometry(lv_obj_t * bar, int32_t * x, int32_t * y, int32_t * width) {
+    int32_t bar_width = BOARD_SCREEN_WIDTH;
+    if (bar) {
+        lv_obj_update_layout(bar);
+        bar_width = lv_obj_get_width(bar);
+    }
+    int32_t left = SEARCH_BAR_EDGE_INSET;
+    int32_t close_left = bar_width - SEARCH_BAR_EDGE_INSET - SEARCH_BAR_CLOSE_SIZE;
+    if (x) *x = left;
+    if (y) *y = BOARD_SCALE_PX(14);
+    if (width) {
+        int32_t available = close_left - SEARCH_BAR_TEXT_GAP - left;
+        *width = available > BOARD_SCALE_PX(40) ? available : BOARD_SCALE_PX(40);
+    }
+}
 
 typedef struct {
     lv_obj_t * screen;
@@ -6342,7 +6898,9 @@ void search_textarea_clicked_cb(lv_event_t * e) {
 
     lv_obj_set_size(b->list, lv_pct(100), t9_keypad_get_grid_y() - (SEARCH_BAR_Y + SEARCH_BAR_HEIGHT));
     lv_obj_align(b->list, LV_ALIGN_TOP_MID, 0, SEARCH_BAR_Y + SEARCH_BAR_HEIGHT);
-    t9_keypad_attach(b->screen, b->search_bar, 8, 14, 365, false);
+    int32_t textarea_x, textarea_y, textarea_width;
+    search_bar_textarea_geometry(b->search_bar, &textarea_x, &textarea_y, &textarea_width);
+    t9_keypad_attach(b->screen, b->search_bar, textarea_x, textarea_y, textarea_width, false);
 }
 
 /* Enter's meaning while a search binding owns the keypad: hide just the
@@ -6375,9 +6933,10 @@ static void search_open(search_binding_t * b) {
     lv_obj_set_size(b->list, lv_pct(100), t9_keypad_get_grid_y() - (SEARCH_BAR_Y + SEARCH_BAR_HEIGHT));
     lv_obj_align(b->list, LV_ALIGN_TOP_MID, 0, SEARCH_BAR_Y + SEARCH_BAR_HEIGHT);
 
-    /* Spans from near the bar's left edge to just before close_btn (at
-     * 440-51-8=381). */
-    t9_keypad_attach(b->screen, b->search_bar, 8, 14, 365, true);
+    /* The text field ends immediately before the right-aligned close button. */
+    int32_t textarea_x, textarea_y, textarea_width;
+    search_bar_textarea_geometry(b->search_bar, &textarea_x, &textarea_y, &textarea_width);
+    t9_keypad_attach(b->screen, b->search_bar, textarea_x, textarea_y, textarea_width, true);
 
     b->active = true;
     if (b->is_overlay_list && (b->list == files_search_list || b->list == group_songs_search_list)) thumbnail_begin_screen(b->list);
@@ -6561,12 +7120,13 @@ void register_search(search_binding_id_t id, lv_obj_t * screen, lv_obj_t * list,
         if (files_title_label) reserve_title_width_before(files_title_label, search_btn);
     }
 
-    /* Sized to bg_search.png native dimensions (440x80) and aligned to
-     * cover the title row. Includes close button and text input. */
+    /* Cover the full title row at the active display width, including any
+     * title or action beneath it. */
     lv_obj_t * bar = lv_obj_create(screen);
-    lv_obj_set_size(bar, 440, SEARCH_BAR_HEIGHT);
+    lv_obj_set_size(bar, lv_pct(100), SEARCH_BAR_HEIGHT);
     lv_obj_set_pos(bar, 0, SEARCH_BAR_Y);
-    lv_obj_set_style_bg_opa(bar, LV_OPA_TRANSP, 0);
+    lv_obj_add_style(bar, &style_theme_screen_bg, 0);
+    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
     lv_obj_set_style_bg_image_src(bar, asset_path("sub_back/bg_search.png"), 0);
     lv_obj_set_style_border_width(bar, 0, 0);
     /* lv_obj_create() pulls in the default theme's "card" style, which sets
@@ -6582,8 +7142,11 @@ void register_search(search_binding_id_t id, lv_obj_t * screen, lv_obj_t * list,
 
     lv_obj_t * close_btn = lv_image_create(bar);
     lv_image_set_src(close_btn, asset_path("sub_back/close.png"));
-    lv_obj_set_pos(close_btn, 440 - 51 - 8, 14);
+    lv_obj_set_size(close_btn, SEARCH_BAR_CLOSE_SIZE, SEARCH_BAR_CLOSE_SIZE);
+    lv_image_set_inner_align(close_btn, LV_IMAGE_ALIGN_CONTAIN);
+    lv_obj_align(close_btn, LV_ALIGN_RIGHT_MID, -SEARCH_BAR_EDGE_INSET, 0);
     lv_obj_add_flag(close_btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_ext_click_area(close_btn, BOARD_SCALE_PX(6));
     lv_obj_add_event_cb(close_btn, search_close_btn_click_cb, LV_EVENT_CLICKED, (void *) (intptr_t) id);
 
     /* Same reasoning as search_btn above -- bar and its children were all
@@ -6638,9 +7201,12 @@ static void update_group_songs_search_button(bool editing) {
     search_binding_t * b = &search_bindings[SEARCH_BINDING_GROUP_SONGS];
     if (!b->search_btn) return;
     /* Album views have no Edit action; give their title the space up to
-     * Search. Editable playlists still reserve the leftmost header action. */
-    lv_obj_t * title_action = lv_obj_has_flag(group_songs_edit_btn, LV_OBJ_FLAG_HIDDEN)
-        ? b->search_btn : group_songs_edit_btn;
+     * Search. Editable playlists reserve whichever action remains visible:
+     * Edit in normal mode, trash while editing. */
+    lv_obj_t * title_action = group_songs_edit_m3u_path
+        ? (group_songs_edit_mode ? group_songs_delete_btn : group_songs_edit_btn)
+        : b->search_btn;
+    if (!title_action) title_action = b->search_btn;
     reserve_title_width_before(group_songs_title_label, title_action);
     if (editing) {
         lv_obj_add_flag(b->search_btn, LV_OBJ_FLAG_HIDDEN);
@@ -7219,7 +7785,7 @@ static char playlist_m3u_name[128];
  * the moment the playlist row itself was tapped, matching every other entry
  * point into a group of songs elsewhere in this screen (Artists/Albums/
  * Album Artist all list first too). m3u_path is passed through as the
- * editable-playlist marker so the Edit/remove UI (group_songs_edit_m3u_path,
+ * editable-playlist marker so the Edit UI (group_songs_edit_m3u_path,
  * see its own comment) only ever shows up here, not for Favorites/Most
  * Played/Artists/Albums. */
 static void show_m3u_playlist(const char * name, const char * m3u_path, char ** paths, int count) {
@@ -7232,9 +7798,8 @@ static void show_m3u_playlist(const char * name, const char * m3u_path, char ** 
     free_group_song_entries(entries, count);
 }
 
-/* Remove-icon handler for an editable playlist's rows (see
- * populate_group_songs_rows() -- forward-declared near
- * group_songs_edit_m3u_path). Rewrites the underlying .m3u file, then
+/* Reload an editable playlist after a checked edit. Re-reads the underlying
+ * .m3u file, then
  * re-reads it back and redraws in place (no nav_push -- this stays on the
  * same group_songs_screen instance, just with the file's new contents)
  * rather than trusting the in-memory indices array to still match the file
@@ -7243,40 +7808,29 @@ static void reload_edited_playlist(void) {
     char ** songs = NULL;
     int count = 0;
     if (!playlist_files_read(group_songs_edit_m3u_path, &songs, &count)) {
+        group_songs_anchor_pending = false;
         show_error_toast(TR("Cannot read playlist")); return;
     }
     group_song_entry_t * entries = count ? build_group_song_entries_from_paths(songs, count) : NULL;
     for (int i = 0; i < count; i++) free(songs[i]);
     free(songs);
-    if (count && !entries) return;
+    if (count && !entries) { group_songs_anchor_pending = false; return; }
     group_songs_file_stat_valid = stat(group_songs_edit_m3u_path, &group_songs_file_stat) == 0;
     set_group_songs_entries(entries, count);
+    group_songs_drag_original_child_count = 0;
+    group_songs_drag_source_id = -1;
+    if (!group_songs_reset_selection()) {
+        group_songs_edit_mode = false;
+        group_songs_clear_selection();
+        show_error_toast(TR("Cannot select playlist entries"));
+    }
+    if (group_songs_anchor_pending) {
+        if (count > 0 && group_songs_anchor_index >= count) group_songs_anchor_index = count - 1;
+        if (count > 0 && group_songs_anchor_index >= 0)
+            group_songs_page_start = (group_songs_anchor_index / GROUP_SONGS_PAGE_SIZE) * GROUP_SONGS_PAGE_SIZE;
+    }
     free_group_song_entries(entries, count);
     populate_group_songs_rows();
-}
-
-static void group_song_move_row_cb(lv_event_t * e) {
-    int value = (int) (intptr_t) lv_event_get_user_data(e);
-    int pos = value / 2;
-    int to = pos + (value % 2 ? 1 : -1);
-    if (!group_songs_edit_m3u_path || to < 0 || to >= group_songs_count) return;
-    if (!group_playlist_unchanged()) { reload_edited_playlist(); show_info_toast(TR("Playlist changed. Try again.")); return; }
-    if (!playlist_files_edit_entry(group_songs_edit_m3u_path, pos, to)) {
-        show_error_toast(TR("Cannot reorder playlist")); return;
-    }
-    reload_edited_playlist();
-}
-
-static void group_song_remove_row_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    int pos = (int) (intptr_t) lv_event_get_user_data(e);
-    if (!group_songs_edit_m3u_path || pos < 0 || pos >= group_songs_count) return;
-    if (!group_playlist_unchanged()) { reload_edited_playlist(); show_info_toast(TR("Playlist changed. Try again.")); return; }
-    if (!playlist_files_edit_entry(group_songs_edit_m3u_path, pos, -1)) {
-        show_error_toast(TR("Cannot remove entry")); return;
-    }
-    reload_edited_playlist();
-    show_info_toast(TR("Removed from playlist"));
 }
 
 /* Suppresses the follow-up LV_EVENT_CLICKED event when a long press has
