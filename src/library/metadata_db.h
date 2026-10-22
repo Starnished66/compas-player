@@ -34,7 +34,8 @@ typedef struct {
 typedef enum {
     METADATA_DB_ALBUM_SORT_NAME = 0,
     METADATA_DB_ALBUM_SORT_RECENT = 1,
-    METADATA_DB_ALBUM_SORT_YEAR = 2
+    METADATA_DB_ALBUM_SORT_YEAR = 2,
+    METADATA_DB_ALBUM_SORT_ALBUM_ARTIST_YEAR = 3
 } metadata_db_album_sort_t;
 
 typedef enum {

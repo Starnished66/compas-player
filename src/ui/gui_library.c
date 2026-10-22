@@ -312,7 +312,7 @@ static metadata_db_album_sort_t effective_album_sort(void) {
  * this does not ask the database whether an optional sort is available. */
 static metadata_db_album_sort_t requested_album_sort(void) {
     metadata_db_album_sort_t sort = (metadata_db_album_sort_t) current_settings.album_sort_mode;
-    return sort >= METADATA_DB_ALBUM_SORT_NAME && sort <= METADATA_DB_ALBUM_SORT_YEAR
+    return sort >= METADATA_DB_ALBUM_SORT_NAME && sort <= METADATA_DB_ALBUM_SORT_ALBUM_ARTIST_YEAR
         ? sort : METADATA_DB_ALBUM_SORT_NAME;
 }
 
@@ -325,6 +325,9 @@ static int configured_group_album_sort(metadata_db_group_kind_t kind) {
 static metadata_db_album_sort_t effective_group_album_sort(metadata_db_group_kind_t kind) {
     int value = configured_group_album_sort(kind);
     metadata_db_album_sort_t sort = (metadata_db_album_sort_t) value;
+    metadata_db_album_sort_t max_sort = METADATA_DB_ALBUM_SORT_YEAR;
+    if (sort < METADATA_DB_ALBUM_SORT_NAME || sort > max_sort)
+        return METADATA_DB_ALBUM_SORT_NAME;
     return metadata_db_album_sort_available(sort) ? sort : METADATA_DB_ALBUM_SORT_NAME;
 }
 
@@ -11834,6 +11837,7 @@ static bool library_scan_unchanged_fast_path(int spool_fd, int root_fd, int disc
                                               bool force_metadata) {
     if (force_metadata || !metadata_db_album_sort_available(METADATA_DB_ALBUM_SORT_RECENT) ||
         !metadata_db_album_sort_available(METADATA_DB_ALBUM_SORT_YEAR) ||
+        !metadata_db_album_sort_available(METADATA_DB_ALBUM_SORT_ALBUM_ARTIST_YEAR) ||
         lseek(spool_fd, 0, SEEK_SET) < 0) return false;
     int read_fd = dup(spool_fd);
     FILE * spool = read_fd >= 0 ? fdopen(read_fd, "rb") : NULL;

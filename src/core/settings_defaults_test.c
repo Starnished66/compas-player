@@ -58,6 +58,25 @@ int main(void) {
     assert(settings.idle_shutdown_minutes == 10);
     assert(settings.dac_filter == 0 && !settings.dac_nos && settings.dac_dre);
 
+    /* The new global Albums order persists as mode 3, while the two nested
+     * collections stay within their existing three sorting choices. */
+    write_settings("album_sort_mode=3\n");
+    assert(settings_load(&settings));
+    assert(settings.album_sort_mode == 3);
+    assert(settings.artist_albums_sort_mode == 0);
+    assert(settings.album_artist_albums_sort_mode == 0);
+    settings_save(&settings);
+    assert(settings_load(&settings));
+    assert(settings.album_sort_mode == 3);
+    assert(settings.artist_albums_sort_mode == 0);
+    assert(settings.album_artist_albums_sort_mode == 0);
+    write_settings("album_sort_mode=3\nartist_albums_sort_mode=3\n"
+                   "album_artist_albums_sort_mode=3\n");
+    assert(settings_load(&settings));
+    assert(settings.album_sort_mode == 3);
+    assert(settings.artist_albums_sort_mode == 0);
+    assert(settings.album_artist_albums_sort_mode == 0);
+
     write_settings("dac_filter=3\ndac_nos=1\ndac_dre=0\n");
     assert(settings_load(&settings));
     assert(settings.dac_filter == 3 && settings.dac_nos && !settings.dac_dre);

@@ -127,7 +127,7 @@ typedef struct {
     size_t tag_size[TAG_COUNT];
     bool fds_ready, requires_indexes, legacy_active, compact_sort, compact_order, sort_failed;
     int query_fd, artist_names_fd, title_fd, recency_fd, path_fd, rank_fd[2], group_fd[3], members_fd[3], group_n[3], sort_kind;
-    int album_order_fd[2], album_inverse_fd[2];
+    int album_order_fd[3], album_inverse_fd[3];
     bool query_cache_valid;
     uint64_t query_cache_block;
     uint32_t query_cache_values[TC_QUERY_BLOCK_VALUES];
@@ -175,7 +175,7 @@ static void reader_context_init(reader_context_t *context) {
     for (int i = 0; i < TAG_COUNT; i++) context->tag_fd[i] = -1;
     for (int i = 0; i < 3; i++) context->group_fd[i] = context->members_fd[i] = -1;
     for (int i = 0; i < 2; i++) context->rank_fd[i] = -1;
-    for (int i = 0; i < 2; i++) context->album_order_fd[i] = context->album_inverse_fd[i] = -1;
+    for (int i = 0; i < 3; i++) context->album_order_fd[i] = context->album_inverse_fd[i] = -1;
     context->fds_ready = true;
     context->serial = 1;
     context->query_cache_valid = false;
@@ -1504,7 +1504,8 @@ static void tagcache_begin_update_mode_with_lock(void (*unlock)(void), void (*lo
     scan_lock_cb = lock;
     scan_force_publication = !disk_ready || rebuild_preserve_generations ||
                              last_load_outcome == TAGCACHE_LOAD_SUCCESS_RECOVERED ||
-                             !tagcache_album_sort_available(1) || !tagcache_album_sort_available(2);
+                             !tagcache_album_sort_available(1) || !tagcache_album_sort_available(2) ||
+                             !tagcache_album_sort_available(3);
     size_t bytes = ((size_t)ent_count + 7u) / 8u;
     if (bytes) scan_seen_bitmap = calloc(1, bytes);
     if (bytes && !scan_seen_bitmap) {
@@ -2231,7 +2232,7 @@ bool tagcache_group_at(int kind, int index, tagcache_group_t *out) { return db_o
 bool tagcache_album_sort_available(int sort) {
     if (!db_open) return false;
     if (sort == 0) return true;
-    if (sort < 1 || sort > 2 || reader_legacy_active) return false;
+    if (sort < 1 || sort > 3 || reader_legacy_active) return false;
     int index = sort - 1;
     return reader_album_order_fd[index] >= 0 && reader_album_inverse_fd[index] >= 0;
 }
@@ -2263,7 +2264,7 @@ int tagcache_album_group_sorted_offset(int sort, const char *album, const char *
 }
 
 bool tagcache_album_group_sorted_rank(int sort, int canonical_rank, int *sorted_rank_out) {
-    if (!db_open || !sorted_rank_out || sort < 1 || sort > 2 ||
+    if (!db_open || !sorted_rank_out || sort < 1 || sort > 3 ||
         canonical_rank < 0 || canonical_rank >= tagcache_group_count(TAGCACHE_GROUP_ALBUM) ||
         !tagcache_album_sort_available(sort)) return false;
     int32_t sorted;

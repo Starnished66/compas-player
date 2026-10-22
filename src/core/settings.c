@@ -603,7 +603,9 @@ bool settings_load(player_settings_t * out) {
         } else if (strcmp(key, "file_sort_mode") == 0) {
             out->file_sort_mode = strcmp(value, "1") == 0 ? 1 : 0;
         } else if (strcmp(key, "album_sort_mode") == 0) {
-            out->album_sort_mode = strcmp(value, "1") == 0 ? 1 : (strcmp(value, "2") == 0 ? 2 : 0);
+            out->album_sort_mode = strcmp(value, "1") == 0 ? 1 :
+                                   (strcmp(value, "2") == 0 ? 2 :
+                                    (strcmp(value, "3") == 0 ? 3 : 0));
         } else if (strcmp(key, "artist_albums_sort_mode") == 0) {
             out->artist_albums_sort_mode = strcmp(value, "1") == 0 ? 1 : (strcmp(value, "2") == 0 ? 2 : 0);
             artist_albums_sort_seen = true;
@@ -753,8 +755,10 @@ bool settings_load(player_settings_t * out) {
 
     /* Existing installs inherit their previous global album order in each
      * nested collection until the user chooses a context-specific order. */
-    if (!artist_albums_sort_seen) out->artist_albums_sort_mode = out->album_sort_mode;
-    if (!album_artist_albums_sort_seen) out->album_artist_albums_sort_mode = out->album_sort_mode;
+    if (!artist_albums_sort_seen)
+        out->artist_albums_sort_mode = out->album_sort_mode <= 2 ? out->album_sort_mode : 0;
+    if (!album_artist_albums_sort_seen)
+        out->album_artist_albums_sort_mode = out->album_sort_mode <= 2 ? out->album_sort_mode : 0;
     return true;
 }
 
@@ -877,7 +881,7 @@ static void settings_write_file(const player_settings_t * settings) {
     fprintf(f, "show_battery_percent=%d\n", settings->show_battery_percent ? 1 : 0);
     fprintf(f, "show_artist_images=%d\n", settings->show_artist_images ? 1 : 0);
     fprintf(f, "file_sort_mode=%d\n", settings->file_sort_mode == 1 ? 1 : 0);
-    fprintf(f, "album_sort_mode=%d\n", settings->album_sort_mode >= 0 && settings->album_sort_mode <= 2 ? settings->album_sort_mode : 0);
+    fprintf(f, "album_sort_mode=%d\n", settings->album_sort_mode >= 0 && settings->album_sort_mode <= 3 ? settings->album_sort_mode : 0);
     fprintf(f, "artist_albums_sort_mode=%d\n", settings->artist_albums_sort_mode >= 0 && settings->artist_albums_sort_mode <= 2 ? settings->artist_albums_sort_mode : 0);
     fprintf(f, "album_artist_albums_sort_mode=%d\n", settings->album_artist_albums_sort_mode >= 0 && settings->album_artist_albums_sort_mode <= 2 ? settings->album_artist_albums_sort_mode : 0);
     fprintf(f, "idle_shutdown_enabled=%d\n", settings->idle_shutdown_enabled ? 1 : 0);
