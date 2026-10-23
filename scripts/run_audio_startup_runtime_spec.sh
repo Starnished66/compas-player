@@ -11,7 +11,8 @@ mkdir -p "$build_dir"
 make -s -C "$repo_root" host BOARD=r1
 mapfile -t objects < <(find "$repo_root/build_host" -mindepth 2 -name '*.o' \
     ! -path "$repo_root/build_host/libwavpack/*" \
-    ! -path "$repo_root/build_host/libsndfile/*" -print)
+    ! -path "$repo_root/build_host/libsndfile/*" \
+    ! -name ogg_demux.o -print)
 if ((${#objects[@]} == 0)); then
     echo "No host object files found under build_host" >&2
     exit 1

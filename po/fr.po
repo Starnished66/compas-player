@@ -2565,6 +2565,9 @@ msgstr "Selon la pochette (sans pochette, couleur perso)"
 msgid "Accent Color"
 msgstr "Couleur d'accent"
 
+msgid "Accent Options"
+msgstr "Options de la couleur d'accent"
+
 msgid "Match album art"
 msgstr "Selon la pochette"
 
@@ -2576,6 +2579,12 @@ msgstr "Teinter l’image de démarrage"
 
 msgid "Uses the accent color for the default splash."
 msgstr "Utilise la couleur d’accent pour l’image de démarrage par défaut."
+
+msgid "Tint title bar icons"
+msgstr "Teinter les icônes de la barre de titre"
+
+msgid "Uses the accent color for the icons next to screen titles."
+msgstr "Utilise la couleur d’accentuation pour les icônes à côté des titres d’écran."
 
 msgid "Presets"
 msgstr "Préréglages"
@@ -3818,3 +3827,33 @@ msgstr "Actions de lecture et de l'appareil"
 
 #~ msgid "Finish setup"
 #~ msgstr "Terminer la configuration"
+
+msgid "Not available in your subscription"
+msgstr "Non disponible dans votre abonnement"
+
+msgid "This track is unavailable"
+msgstr "Ce titre n'est pas disponible"
+
+msgid "This quality is unavailable for this track"
+msgstr "Cette qualité n'est pas disponible pour ce titre"
+
+msgid "This track is copy-protected"
+msgstr "Ce titre est protégé contre la copie"
+
+msgid "Could not reach the streaming service"
+msgstr "Impossible de joindre le service de streaming"
+
+msgid "Sign in to the streaming service again"
+msgstr "Reconnectez-vous au service de streaming"
+
+msgid "Could not get a stream link"
+msgstr "Impossible d'obtenir le lien de streaming"
+
+msgid "The streaming service did not answer"
+msgstr "Le service de streaming n'a pas répondu"
+
+msgid "The streaming plugin is not available"
+msgstr "Le plugin de streaming n'est pas disponible"
+
+msgid "TXT Reader"
+msgstr "Lecteur TXT"

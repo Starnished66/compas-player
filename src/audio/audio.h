@@ -211,6 +211,15 @@ bool audio_set_ab_loop(double start_seconds, double end_seconds);
 void audio_clear_ab_loop(void);
 bool audio_get_ab_loop(double * start_seconds, double * end_seconds);
 
+/* Repeats a short local clip (decoded to memory, at most 4 MiB of 16-bit
+ * PCM, mono or stereo) while no track is producing audio: the clip plays
+ * only while playback is paused or stopped, and resuming or starting a track
+ * ends it. It never becomes the current track, so the queue and Now Playing
+ * are untouched. Starting again replaces the clip from its first frame. */
+bool audio_loop_start(const char * path);
+void audio_loop_stop(void);
+bool audio_loop_is_active(void);
+
 double audio_get_position_seconds(void);
 /* Pending-aware position for durable pause/power-loss checkpoints. Unlike
  * audio_get_position_seconds(), this returns the latest deferred MP3 seek

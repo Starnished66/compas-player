@@ -2471,6 +2471,9 @@ msgstr ""
 msgid "Accent Color"
 msgstr ""
 
+msgid "Accent Options"
+msgstr ""
+
 msgid "Match album art"
 msgstr ""
 
@@ -2481,6 +2484,12 @@ msgid "Tint startup image"
 msgstr ""
 
 msgid "Uses the accent color for the default splash."
+msgstr ""
+
+msgid "Tint title bar icons"
+msgstr ""
+
+msgid "Uses the accent color for the icons next to screen titles."
 msgstr ""
 
 msgid "Presets"
@@ -3569,4 +3578,34 @@ msgid "Power controls"
 msgstr ""
 
 msgid "Playback and device actions"
+msgstr ""
+
+msgid "Not available in your subscription"
+msgstr ""
+
+msgid "This track is unavailable"
+msgstr ""
+
+msgid "This quality is unavailable for this track"
+msgstr ""
+
+msgid "This track is copy-protected"
+msgstr ""
+
+msgid "Could not reach the streaming service"
+msgstr ""
+
+msgid "Sign in to the streaming service again"
+msgstr ""
+
+msgid "Could not get a stream link"
+msgstr ""
+
+msgid "The streaming service did not answer"
+msgstr ""
+
+msgid "The streaming plugin is not available"
+msgstr ""
+
+msgid "TXT Reader"
 msgstr ""

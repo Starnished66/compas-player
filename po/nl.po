@@ -2485,6 +2485,9 @@ msgstr "Van albumhoes (geen cover, aangepaste kleur gebruiken)"
 msgid "Accent Color"
 msgstr "Accentkleur"
 
+msgid "Accent Options"
+msgstr "Accentkleuropties"
+
 msgid "Match album art"
 msgstr "Albumhoes volgen"
 
@@ -2496,6 +2499,12 @@ msgstr "Opstartafbeelding kleuren"
 
 msgid "Uses the accent color for the default splash."
 msgstr "Gebruikt de accentkleur voor de standaard opstartafbeelding."
+
+msgid "Tint title bar icons"
+msgstr "Titelbalkpictogrammen kleuren"
+
+msgid "Uses the accent color for the icons next to screen titles."
+msgstr "Gebruikt de accentkleur voor de pictogrammen naast schermtitels."
 
 msgid "Presets"
 msgstr "Voorinstellingen"
@@ -3632,3 +3641,33 @@ msgstr "Afspelen en apparaatacties"
 
 #~ msgid "Back"
 #~ msgstr "Terug"
+
+msgid "Not available in your subscription"
+msgstr "Niet beschikbaar in je abonnement"
+
+msgid "This track is unavailable"
+msgstr "Dit nummer is niet beschikbaar"
+
+msgid "This quality is unavailable for this track"
+msgstr "Deze kwaliteit is niet beschikbaar voor dit nummer"
+
+msgid "This track is copy-protected"
+msgstr "Dit nummer is tegen kopiëren beveiligd"
+
+msgid "Could not reach the streaming service"
+msgstr "Kan de streamingdienst niet bereiken"
+
+msgid "Sign in to the streaming service again"
+msgstr "Meld je opnieuw aan bij de streamingdienst"
+
+msgid "Could not get a stream link"
+msgstr "Kan geen streamlink ophalen"
+
+msgid "The streaming service did not answer"
+msgstr "De streamingdienst reageerde niet"
+
+msgid "The streaming plugin is not available"
+msgstr "De streamingplug-in is niet beschikbaar"
+
+msgid "TXT Reader"
+msgstr "TXT-lezer"

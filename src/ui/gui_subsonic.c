@@ -1786,6 +1786,19 @@ void subsonic_tile_cb(lv_event_t * e) {
     nav_push(subsonic_entry_screen);
 }
 
+/* Breeze download glyph where available; the stock art keeps its accent. */
+static void subsonic_set_download_icon(lv_obj_t * image) {
+    const char * asset = asset_path("stream_media/download.png");
+    const char * breeze = titlebar_breeze_icon(asset);
+    lv_image_set_src(image, breeze ? breeze : asset);
+    if (breeze) {
+        style_titlebar_breeze_icon(image);
+        return;
+    }
+    lv_obj_set_style_image_recolor(image, accent_lv_color(), 0);
+    lv_obj_set_style_image_recolor_opa(image, LV_OPA_COVER, 0);
+}
+
 void gui_subsonic_init(void) {
     subsonic_entry_screen = build_subsonic_entry_screen();
     subsonic_saved_servers_screen = build_subsonic_saved_servers_screen();
@@ -1839,9 +1852,7 @@ void gui_subsonic_init(void) {
     subsonic_playlists_screen = build_subsonic_list_screen(TR("Playlists"), &subsonic_playlists_title_label, &subsonic_playlists_list);
 
     subsonic_albums_download_btn = lv_image_create(subsonic_albums_screen);
-    lv_image_set_src(subsonic_albums_download_btn, asset_path("stream_media/download.png"));
-    lv_obj_set_style_image_recolor(subsonic_albums_download_btn, accent_lv_color(), 0);
-    lv_obj_set_style_image_recolor_opa(subsonic_albums_download_btn, LV_OPA_COVER, 0);
+    subsonic_set_download_icon(subsonic_albums_download_btn);
     align_screen_header_action(subsonic_albums_download_btn, BOARD_SCALE_PX(87));
     lv_obj_set_ext_click_area(subsonic_albums_download_btn, BOARD_SCALE_PX(16));
     lv_obj_add_flag(subsonic_albums_download_btn, LV_OBJ_FLAG_CLICKABLE);
@@ -1850,9 +1861,7 @@ void gui_subsonic_init(void) {
     reserve_title_width_before(subsonic_albums_title_label, subsonic_albums_download_btn);
 
     subsonic_songs_download_btn = lv_image_create(subsonic_songs_screen);
-    lv_image_set_src(subsonic_songs_download_btn, asset_path("stream_media/download.png"));
-    lv_obj_set_style_image_recolor(subsonic_songs_download_btn, accent_lv_color(), 0);
-    lv_obj_set_style_image_recolor_opa(subsonic_songs_download_btn, LV_OPA_COVER, 0);
+    subsonic_set_download_icon(subsonic_songs_download_btn);
     align_screen_header_action(subsonic_songs_download_btn, BOARD_SCALE_PX(20));
     lv_obj_set_ext_click_area(subsonic_songs_download_btn, BOARD_SCALE_PX(16));
     lv_obj_add_flag(subsonic_songs_download_btn, LV_OBJ_FLAG_CLICKABLE);

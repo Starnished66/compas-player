@@ -2377,9 +2377,8 @@ static void populate_group_songs_rows(void) {
             lv_obj_set_style_pad_all(handle, 0, 0);
             lv_obj_t * grip = lv_image_create(handle);
             lv_obj_set_size(grip, BOARD_SCALE_PX(32), BOARD_SCALE_PX(32));
-            lv_image_set_src(grip, asset_path("navigation/reorder.png"));
+            set_reorder_handle_icon(grip);
             lv_image_set_inner_align(grip, LV_IMAGE_ALIGN_CONTAIN);
-            lv_obj_add_style(grip, &style_theme_text_primary, 0);
             lv_obj_center(grip);
             lv_obj_remove_flag(grip, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_add_event_cb(handle, group_songs_reorder_handle_cb, LV_EVENT_ALL,
@@ -8073,7 +8072,7 @@ static lv_obj_t * build_playlists_screen(void) {
 
     /* Explicit cross-axis centering scoped to this screen also keeps rows
      * correct if it is ever hosted in a parent narrower than the display. */
-    lv_obj_set_flex_align(playlists_list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
+    lv_obj_set_flex_align(playlists_list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
     return scr;
 }
@@ -8134,7 +8133,7 @@ static void populate_cue_tracks_screen(void) {
 
 static lv_obj_t * build_cue_tracks_screen(void) {
     lv_obj_t * scr = build_subsonic_list_screen(TR("Tracks"), &cue_tracks_title_label, &cue_tracks_list);
-    lv_obj_set_flex_align(cue_tracks_list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
+    lv_obj_set_flex_align(cue_tracks_list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     return scr;
 }
 

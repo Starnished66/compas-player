@@ -212,6 +212,7 @@ static void set_defaults(player_settings_t * out) {
     out->accent_color = DEFAULT_ACCENT_COLOR;
     out->accent_dynamic = false;
     out->startup_splash_tint = false;
+    out->titlebar_icon_tint = false;
     out->crossfade_enabled = false;
     out->gapless_enabled = true; /* on by default -- see settings.h */
     out->replaygain_mode = 1; /* Per Track -- preserves the old replaygain_enabled=true default */
@@ -461,6 +462,8 @@ bool settings_load(player_settings_t * out) {
             out->accent_dynamic = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "startup_splash_tint") == 0) {
             out->startup_splash_tint = (strcmp(value, "1") == 0);
+        } else if (strcmp(key, "titlebar_icon_tint") == 0) {
+            out->titlebar_icon_tint = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "crossfade") == 0) {
             out->crossfade_enabled = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "gapless") == 0) {
@@ -825,6 +828,7 @@ static void settings_write_file(const player_settings_t * settings) {
     fprintf(f, "accent_color=%06X\n", (unsigned int) (settings->accent_color & 0xFFFFFF));
     fprintf(f, "accent_dynamic=%d\n", settings->accent_dynamic ? 1 : 0);
     fprintf(f, "startup_splash_tint=%d\n", settings->startup_splash_tint ? 1 : 0);
+    fprintf(f, "titlebar_icon_tint=%d\n", settings->titlebar_icon_tint ? 1 : 0);
     fprintf(f, "crossfade=%d\n", settings->crossfade_enabled ? 1 : 0);
     fprintf(f, "gapless=%d\n", settings->gapless_enabled ? 1 : 0);
     fprintf(f, "replaygain_mode=%d\n", settings->replaygain_mode);

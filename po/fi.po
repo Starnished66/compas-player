@@ -2487,6 +2487,9 @@ msgstr "Albumin kansikuvasta (ei kantta, käytä mukautettua väriä)"
 msgid "Accent Color"
 msgstr "Korostusväri"
 
+msgid "Accent Options"
+msgstr "Korostusvärin asetukset"
+
 msgid "Match album art"
 msgstr "Mukaudu albumin kansikuvaan"
 
@@ -2498,6 +2501,12 @@ msgstr "Sävytä käynnistyskuva"
 
 msgid "Uses the accent color for the default splash."
 msgstr "Käyttää korostusväriä oletuskäynnistyskuvassa."
+
+msgid "Tint title bar icons"
+msgstr "Sävytä otsikkopalkin kuvakkeet"
+
+msgid "Uses the accent color for the icons next to screen titles."
+msgstr "Käyttää korostusväriä näkymien otsikoiden vieressä oleviin kuvakkeisiin."
 
 msgid "Presets"
 msgstr "Esiasetukset"
@@ -3634,3 +3643,33 @@ msgstr "Toisto- ja laitetoiminnot"
 
 #~ msgid "Back"
 #~ msgstr "Takaisin"
+
+msgid "Not available in your subscription"
+msgstr "Ei sisälly tilaukseesi"
+
+msgid "This track is unavailable"
+msgstr "Tämä kappale ei ole saatavilla"
+
+msgid "This quality is unavailable for this track"
+msgstr "Tätä laatua ei ole saatavilla tälle kappaleelle"
+
+msgid "This track is copy-protected"
+msgstr "Tämä kappale on kopiosuojattu"
+
+msgid "Could not reach the streaming service"
+msgstr "Suoratoistopalveluun ei saatu yhteyttä"
+
+msgid "Sign in to the streaming service again"
+msgstr "Kirjaudu suoratoistopalveluun uudelleen"
+
+msgid "Could not get a stream link"
+msgstr "Suoratoistolinkkiä ei saatu"
+
+msgid "The streaming service did not answer"
+msgstr "Suoratoistopalvelu ei vastannut"
+
+msgid "The streaming plugin is not available"
+msgstr "Suoratoistolaajennus ei ole käytettävissä"
+
+msgid "TXT Reader"
+msgstr "TXT-lukija"

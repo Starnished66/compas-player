@@ -9,6 +9,7 @@
 #include "cue_parser.h"
 #include "fallback_font.h"
 #include "file_ops.h" /* file_op_path_in_root() */
+#include "ui_frame_trace.h"
 
 #include <dirent.h>
 #include <sys/stat.h>
@@ -1333,7 +1334,21 @@ static void entry_long_press_cb(lv_event_t * e) {
  * in the app (LIST_ROW_* in screen_builders.h). `icon_asset` is NULL for a
  * plain file (just an indented label); directories and playlists each get
  * their own real icon. In selection mode entry rows end in a check box. */
-static lv_obj_t * add_file_row(file_browser_t * fb, const char * label_text, const char * icon_asset,
+/* A row icon resolved once per page rather than once per row: resolving
+ * costs several file-system lookups. Breeze replacements come pre-tinted in
+ * the text color; only the stock fallback is recolored. */
+typedef struct {
+    const char * src;
+    bool text_color;
+} file_row_icon_t;
+
+static file_row_icon_t resolve_file_row_icon(const char * stock) {
+    char breeze[96];
+    bool use_breeze = breeze_row_icon(stock, breeze, sizeof(breeze));
+    return (file_row_icon_t){ use_breeze ? text_glyph_asset(breeze) : asset_path(stock), false };
+}
+
+static lv_obj_t * add_file_row(file_browser_t * fb, const char * label_text, const file_row_icon_t * icon_asset,
                                lv_event_cb_t cb, void * user_data, bool check_box, bool checked) {
     lv_obj_t * row = lv_obj_create(fb->list);
     /* Files uses the same font-aware ordinary row height as other native
@@ -1351,10 +1366,12 @@ static lv_obj_t * add_file_row(file_browser_t * fb, const char * label_text, con
     lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
 
     int32_t check_space = check_box ? BOARD_SCALE_PX(40) : 0;
-    if (icon_asset) {
+    if (icon_asset && icon_asset->src) {
         lv_obj_t * icon = lv_image_create(row);
-        lv_image_set_src(icon, asset_path(icon_asset));
-        lv_obj_align(icon, LV_ALIGN_LEFT_MID, 16, 0);
+        lv_image_set_src(icon, icon_asset->src);
+        if (icon_asset->text_color) lv_obj_add_style(icon, &style_theme_text_primary, 0);
+        /* Glyph lines up with the category menus' row icons. */
+        lv_obj_align(icon, LV_ALIGN_LEFT_MID, 7, 0);
         lv_obj_align(label, LV_ALIGN_LEFT_MID, 72, 0);
         lv_obj_set_width(label, LIST_ROW_WIDTH_WIDE - BOARD_SCALE_PX(88) - check_space);
     } else {
@@ -1399,21 +1416,33 @@ static void rebuild_list(file_browser_t * fb) {
 
     int page_end = fb->page_start + FILE_BROWSER_PAGE_SIZE;
     if (page_end > fb->entry_count) page_end = fb->entry_count;
+    UI_TRACE_SPAN_BEGIN(perf_rows);
+#ifdef FILE_BROWSER_NO_ROW_ICONS
+    const file_row_icon_t folder_icon = { NULL, false }, list_icon = { NULL, false }, song_icon = { NULL, false };
+#else
+    const file_row_icon_t folder_icon = resolve_file_row_icon("touch_list/list_folder.png");
+    const file_row_icon_t list_icon = resolve_file_row_icon("sub_back/btn_playlist.png");
+    char song_breeze[96];
+    /* Songs have no stock art: without the Breeze file they stay text rows. */
+    const file_row_icon_t song_icon = breeze_row_icon("touch_list/list_song.png", song_breeze, sizeof(song_breeze))
+        ? (file_row_icon_t){ text_glyph_asset(song_breeze), false } : (file_row_icon_t){ NULL, false };
+#endif
     for (int i = fb->page_start; i < page_end; i++) {
-        const char * icon_asset = NULL;
+        const file_row_icon_t * icon_asset = NULL;
         dir_entry_t *entry = &fb->entries[i - fb->page_start];
-        if (entry->is_dir) icon_asset = "touch_list/list_folder.png";
-        else if (entry->is_playlist) icon_asset = "sub_back/btn_playlist.png";
+        if (entry->is_dir) icon_asset = &folder_icon;
+        else if (entry->is_playlist) icon_asset = &list_icon;
         /* No dedicated cue-sheet icon asset exists in this theme -- reuses
          * the playlist one, the closest existing match semantically (both
          * represent "tap to see a list of tracks", not a single song). */
-        else if (entry->is_cue) icon_asset = "sub_back/btn_playlist.png";
+        else if (entry->is_cue) icon_asset = &list_icon;
+        else if (!entry->is_other) icon_asset = &song_icon;
         lv_obj_t * row = add_file_row(fb, entry->name, icon_asset, entry_click_cb, (void *) (intptr_t) i,
                                       fb->selecting, is_selected(fb, (unsigned) i));
         if (fb->callbacks.on_selection || fb->callbacks.on_long_press)
             lv_obj_add_event_cb(row, entry_long_press_cb, LV_EVENT_LONG_PRESSED, (void *) (intptr_t) i);
     }
-
+    UI_TRACE_SPAN_END(UI_TRACE_SPAN_FILE_ROWS, perf_rows);
 }
 
 /* Maximum directory recursion depth when walking song directories. */
@@ -1567,9 +1596,10 @@ file_browser_t * file_browser_create(lv_obj_t * parent, const char * root,
     lv_obj_set_style_pad_gap(list, GUI_ROW_GAP, 0);
     lv_obj_set_style_pad_top(list, GUI_ROW_GAP, 0);
     lv_obj_set_style_pad_bottom(list, BOARD_SCALE_PX(8), 0);
-    /* Rows follow the live display width. Explicit cross-axis centering also
-     * keeps this correct if a future parent is narrower than the display. */
-    lv_obj_set_flex_align(list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
+    /* Rows follow the live display width. The single column track is centered
+     * too: with START it sat at the left edge, leaving both side margins on
+     * the right. */
+    lv_obj_set_flex_align(list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
     fb->index_poll_timer = lv_timer_create(index_poll_cb, 100, fb);
     scan_current_dir(fb);

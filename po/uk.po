@@ -2494,6 +2494,9 @@ msgstr "З обкладинки (немає обкладинки, викорис
 msgid "Accent Color"
 msgstr "Акцентний колір"
 
+msgid "Accent Options"
+msgstr "Параметри акцентного кольору"
+
 msgid "Match album art"
 msgstr "Підібрати до обкладинки альбому"
 
@@ -2505,6 +2508,12 @@ msgstr "Забарвити заставку"
 
 msgid "Uses the accent color for the default splash."
 msgstr "Використовує колір акценту для стандартної заставки."
+
+msgid "Tint title bar icons"
+msgstr "Фарбувати значки заголовка"
+
+msgid "Uses the accent color for the icons next to screen titles."
+msgstr "Використовує акцентний колір для значків поруч із заголовками екранів."
 
 msgid "Presets"
 msgstr "Попередні налаштування"
@@ -3641,3 +3650,33 @@ msgstr "Відтворення та дії пристрою"
 
 #~ msgid "Back"
 #~ msgstr "Назад"
+
+msgid "Not available in your subscription"
+msgstr "Недоступно у вашій підписці"
+
+msgid "This track is unavailable"
+msgstr "Цей трек недоступний"
+
+msgid "This quality is unavailable for this track"
+msgstr "Ця якість недоступна для цього треку"
+
+msgid "This track is copy-protected"
+msgstr "Цей трек захищено від копіювання"
+
+msgid "Could not reach the streaming service"
+msgstr "Не вдалося підключитися до стримінгового сервісу"
+
+msgid "Sign in to the streaming service again"
+msgstr "Увійдіть у стримінговий сервіс знову"
+
+msgid "Could not get a stream link"
+msgstr "Не вдалося отримати посилання на потік"
+
+msgid "The streaming service did not answer"
+msgstr "Стримінговий сервіс не відповів"
+
+msgid "The streaming plugin is not available"
+msgstr "Плагін стримінгу недоступний"
+
+msgid "TXT Reader"
+msgstr "Перегляд TXT"

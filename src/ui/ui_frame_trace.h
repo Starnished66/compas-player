@@ -47,7 +47,8 @@ typedef enum {
     UI_TRACE_SPAN_BLEND_HOME_BAR,
     UI_TRACE_SPAN_NAV_PUSH,
     UI_TRACE_SPAN_STATIC_LOOKUP,
-    UI_TRACE_SPAN_TARGET_DUP
+    UI_TRACE_SPAN_TARGET_DUP,
+    UI_TRACE_SPAN_FILE_ROWS
 } ui_trace_span_t;
 
 uint64_t ui_perf_now_us(void);

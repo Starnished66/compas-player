@@ -1,3 +1,5 @@
+Superseded (2026-10-23): list_wifi.png, list_bt.png, list_airplay.png, list_dlna.png and list_remote.png were replaced by pre-tinted Breeze art in ../breeze_rows/ and ../titlebar/ and removed. The entries below describe the removed files.
+
 Wireless list assets (2026-09-13)
 Runtime path: /usr/resource/litegui/theme2/wireless/list_*.png
 Icons: 44x44 RGBA. Backgrounds: 480x96 RGB, decoded once per screen.

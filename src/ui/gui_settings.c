@@ -168,6 +168,7 @@ static lv_obj_t * creator_theme_help_screen;
 static lv_obj_t * buy_me_a_coffee_screen;
 static lv_obj_t * dev_options_screen;
 static lv_obj_t * accent_color_screen;
+static lv_obj_t * accent_options_screen;
 static lv_obj_t * custom_font_screen;
 static lv_obj_t * screen_timeout_screen;
 static lv_obj_t * screen_dimming_screen;
@@ -1433,9 +1434,11 @@ static void accent_screen_sync(void) {
                         : TR("From album art (no cover, using custom)");
     accent_show_color(gui_theme_accent_rgb(), source);
 
-    if (dynamic) lv_obj_add_state(accent_dynamic_switch, LV_STATE_CHECKED);
-    else lv_obj_remove_state(accent_dynamic_switch, LV_STATE_CHECKED);
-    lv_obj_set_style_opa(accent_picker_card, dynamic ? LV_OPA_50 : LV_OPA_COVER, 0);
+    if (accent_dynamic_switch) {
+        if (dynamic) lv_obj_add_state(accent_dynamic_switch, LV_STATE_CHECKED);
+        else lv_obj_remove_state(accent_dynamic_switch, LV_STATE_CHECKED);
+    }
+    if (accent_picker_card) lv_obj_set_style_opa(accent_picker_card, dynamic ? LV_OPA_50 : LV_OPA_COVER, 0);
 
     for (int i = 0; i < ACCENT_PALETTE_COUNT; i++) {
         bool selected = !dynamic && accent_palette[i] == current_settings.accent_color;
@@ -1523,6 +1526,11 @@ static void accent_startup_tint_event_cb(lv_event_t * e) {
     settings_save_async(&current_settings);
 }
 
+static void accent_titlebar_tint_event_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+    gui_theme_set_titlebar_tint(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
+}
+
 static lv_obj_t * accent_card(lv_obj_t * parent, int32_t width) {
     lv_obj_t * card = lv_obj_create(parent);
     lv_obj_set_size(card, width, LV_SIZE_CONTENT);
@@ -1571,16 +1579,17 @@ static lv_obj_t * accent_cursor(lv_obj_t * parent) {
     return c;
 }
 
-static lv_obj_t * build_accent_color_screen(void) {
+/* The accent's on/off choices, opened from the Accent Color title bar so the
+ * color itself keeps the main screen. */
+static lv_obj_t * build_accent_options_screen(void) {
     lv_obj_t * scr = lv_obj_create(NULL);
     lv_obj_add_style(scr, &style_theme_screen_bg, 0);
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
-    build_screen_header(scr, TR("Accent Color"), generic_back_cb, NULL, NULL);
+    build_screen_header(scr, TR("Accent Options"), generic_back_cb, NULL, NULL);
 
     int32_t top = STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT;
     int32_t card_w = BOARD_SCREEN_WIDTH - 2 * BOARD_SCALE_PX(20);
-    accent_sv_width = card_w - 2 * ACCENT_CARD_PAD;
 
     lv_obj_t * body = lv_obj_create(scr);
     lv_obj_remove_style_all(body);
@@ -1593,27 +1602,6 @@ static lv_obj_t * build_accent_color_screen(void) {
     lv_obj_set_style_pad_row(body, BOARD_SCALE_PX(14), 0);
     lv_obj_set_scroll_dir(body, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(body, LV_SCROLLBAR_MODE_OFF);
-
-    /* Preview: the accent as a large swatch with its hex value and source.
-     * No sample switch here: a switch that cannot be turned off read as a
-     * broken setting. */
-    lv_obj_t * preview = accent_card(body, card_w);
-    lv_obj_set_flex_flow(preview, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(preview, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(preview, BOARD_SCALE_PX(16), 0);
-    accent_preview_swatch = accent_plain_obj(preview);
-    lv_obj_set_size(accent_preview_swatch, BOARD_SCALE_PX(76), BOARD_SCALE_PX(76));
-    lv_obj_set_style_radius(accent_preview_swatch, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_opa(accent_preview_swatch, LV_OPA_COVER, 0);
-    lv_obj_t * info = accent_plain_obj(preview);
-    lv_obj_set_flex_grow(info, 1);
-    lv_obj_set_height(info, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(info, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(info, BOARD_SCALE_PX(6), 0);
-    accent_hex_label = accent_text(info, "", GUI_FONT_ROLE_TITLE, false);
-    accent_source_label = accent_text(info, "", GUI_FONT_ROLE_SUBTEXT, true);
-    lv_obj_set_width(accent_source_label, lv_pct(100));
-    lv_label_set_long_mode(accent_source_label, LV_LABEL_LONG_WRAP);
 
     /* Match album art */
     lv_obj_t * dyn = accent_card(body, card_w);
@@ -1655,6 +1643,82 @@ static lv_obj_t * build_accent_color_screen(void) {
     lv_obj_add_event_cb(startup_tint_switch, accent_startup_tint_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
     if (current_settings.startup_splash_tint)
         lv_obj_add_state(startup_tint_switch, LV_STATE_CHECKED);
+
+    /* Breeze title-bar icons follow the text color unless tinted here. */
+    lv_obj_t * titlebar_tint = accent_card(body, card_w);
+    lv_obj_set_flex_flow(titlebar_tint, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(titlebar_tint, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(titlebar_tint, BOARD_SCALE_PX(12), 0);
+    lv_obj_t * titlebar_tint_text = accent_plain_obj(titlebar_tint);
+    lv_obj_set_flex_grow(titlebar_tint_text, 1);
+    lv_obj_set_height(titlebar_tint_text, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(titlebar_tint_text, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(titlebar_tint_text, BOARD_SCALE_PX(4), 0);
+    accent_text(titlebar_tint_text, TR("Tint title bar icons"), GUI_FONT_ROLE_ROW, false);
+    lv_obj_t * titlebar_tint_hint = accent_text(titlebar_tint_text,
+        TR("Uses the accent color for the icons next to screen titles."), GUI_FONT_ROLE_SUBTEXT, true);
+    lv_obj_set_width(titlebar_tint_hint, lv_pct(100));
+    lv_label_set_long_mode(titlebar_tint_hint, LV_LABEL_LONG_WRAP);
+    lv_obj_t * titlebar_tint_switch = lv_switch_create(titlebar_tint);
+    lv_obj_add_style(titlebar_tint_switch, gui_theme_accent_style(), LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_add_event_cb(titlebar_tint_switch, accent_titlebar_tint_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    if (current_settings.titlebar_icon_tint)
+        lv_obj_add_state(titlebar_tint_switch, LV_STATE_CHECKED);
+
+    accent_screen_sync();
+    finalize_screen_navigation(scr);
+    return scr;
+}
+
+static void accent_options_open_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED || !accent_options_screen) return;
+    nav_push(accent_options_screen);
+}
+
+static lv_obj_t * build_accent_color_screen(void) {
+    lv_obj_t * scr = lv_obj_create(NULL);
+    lv_obj_add_style(scr, &style_theme_screen_bg, 0);
+    lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+
+    build_screen_header(scr, TR("Accent Color"), generic_back_cb, asset_path("settings/playback.png"),
+                        accent_options_open_cb);
+
+    int32_t top = STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT;
+    int32_t card_w = BOARD_SCREEN_WIDTH - 2 * BOARD_SCALE_PX(20);
+    accent_sv_width = card_w - 2 * ACCENT_CARD_PAD;
+
+    lv_obj_t * body = lv_obj_create(scr);
+    lv_obj_remove_style_all(body);
+    lv_obj_set_size(body, BOARD_SCREEN_WIDTH, BOARD_SCREEN_HEIGHT - top);
+    lv_obj_set_pos(body, 0, top);
+    lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(body, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_top(body, BOARD_SCALE_PX(8), 0);
+    lv_obj_set_style_pad_bottom(body, BOARD_SCALE_PX(32), 0);
+    lv_obj_set_style_pad_row(body, BOARD_SCALE_PX(14), 0);
+    lv_obj_set_scroll_dir(body, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(body, LV_SCROLLBAR_MODE_OFF);
+
+    /* Preview: the accent as a large swatch with its hex value and source.
+     * No sample switch here: a switch that cannot be turned off read as a
+     * broken setting. */
+    lv_obj_t * preview = accent_card(body, card_w);
+    lv_obj_set_flex_flow(preview, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(preview, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(preview, BOARD_SCALE_PX(16), 0);
+    accent_preview_swatch = accent_plain_obj(preview);
+    lv_obj_set_size(accent_preview_swatch, BOARD_SCALE_PX(76), BOARD_SCALE_PX(76));
+    lv_obj_set_style_radius(accent_preview_swatch, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(accent_preview_swatch, LV_OPA_COVER, 0);
+    lv_obj_t * info = accent_plain_obj(preview);
+    lv_obj_set_flex_grow(info, 1);
+    lv_obj_set_height(info, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(info, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(info, BOARD_SCALE_PX(6), 0);
+    accent_hex_label = accent_text(info, "", GUI_FONT_ROLE_TITLE, false);
+    accent_source_label = accent_text(info, "", GUI_FONT_ROLE_SUBTEXT, true);
+    lv_obj_set_width(accent_source_label, lv_pct(100));
+    lv_label_set_long_mode(accent_source_label, LV_LABEL_LONG_WRAP);
 
     /* Custom color picker */
     accent_picker_card = accent_card(body, card_w);
@@ -3748,7 +3812,10 @@ static lv_obj_t * build_library_category_screen(void) {
     decorate_category_row(native_rows[0], "submenu/update_database.png", NULL);
     decorate_category_row(native_rows[1], "submenu/refresh_metadata.png", NULL);
     decorate_category_row(native_rows[2], "submenu/refresh_covers.png", NULL);
-    decorate_category_row(native_rows[3], "settings/library.png", NULL);
+    /* Sorting has its own Breeze art; without it, it shares Library's icon. */
+    const char * sorting_breeze = asset_path_plain("breeze_rows/library_sorting.png");
+    decorate_category_row(native_rows[3], sorting_breeze && access(sorting_breeze, R_OK) == 0
+                                              ? "breeze_rows/library_sorting.png" : "settings/library.png", NULL);
     finalize_screen_navigation(scr);
     return scr;
 }
@@ -4030,9 +4097,8 @@ static lv_obj_t * build_ui_order_screen(void) {
         lv_obj_set_style_pad_all(handle, 0, 0);
         lv_obj_t * grip = lv_image_create(handle);
         lv_obj_set_size(grip, BOARD_SCALE_PX(32), BOARD_SCALE_PX(32));
-        lv_image_set_src(grip, asset_path("navigation/reorder.png"));
+        set_reorder_handle_icon(grip);
         lv_image_set_inner_align(grip, LV_IMAGE_ALIGN_CONTAIN);
-        lv_obj_add_style(grip, &style_theme_text_primary, 0);
         lv_obj_center(grip);
         lv_obj_remove_flag(grip, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(handle, ui_order_drag_handle_cb, LV_EVENT_ALL, (void *)(intptr_t)id);
@@ -4180,9 +4246,8 @@ static void plugin_order_editor_build_rows(void) {
         lv_obj_set_style_pad_all(handle, 0, 0);
         lv_obj_t * grip = lv_image_create(handle);
         lv_obj_set_size(grip, BOARD_SCALE_PX(32), BOARD_SCALE_PX(32));
-        lv_image_set_src(grip, asset_path("navigation/reorder.png"));
+        set_reorder_handle_icon(grip);
         lv_image_set_inner_align(grip, LV_IMAGE_ALIGN_CONTAIN);
-        lv_obj_add_style(grip, &style_theme_text_primary, 0);
         lv_obj_center(grip);
         lv_obj_remove_flag(grip, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(handle, plugin_order_editor_drag_handle_cb, LV_EVENT_ALL,
@@ -6814,6 +6879,7 @@ void gui_settings_init(void) {
     buy_me_a_coffee_screen = build_buy_me_a_coffee_screen();
     about_screen = build_about_screen();
     dev_options_screen = build_dev_options_screen();
+    accent_options_screen = build_accent_options_screen();
     accent_color_screen = build_accent_color_screen();
     custom_font_screen = build_custom_font_screen();
     screen_timeout_screen = build_screen_timeout_screen();
@@ -6893,6 +6959,9 @@ void gui_settings_teardown(void) {
     if (dev_options_screen) { lv_obj_delete(dev_options_screen); dev_options_screen = NULL; }
     adb_switch = NULL; /* owned by the screen just deleted; sync runs off the USB poll, not this screen's lifetime */
     if (accent_color_screen) { lv_obj_delete(accent_color_screen); accent_color_screen = NULL; }
+    if (accent_options_screen) { lv_obj_delete(accent_options_screen); accent_options_screen = NULL; }
+    accent_dynamic_switch = NULL;
+    accent_picker_card = NULL;
     accent_preview_swatch = NULL; /* accent_screen_sync() is a no-op until the screen is rebuilt */
     accent_sv_area = NULL;
     if (custom_font_screen) { lv_obj_delete(custom_font_screen); custom_font_screen = NULL; }

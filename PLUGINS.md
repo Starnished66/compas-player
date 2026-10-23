@@ -188,7 +188,7 @@ plugin.define({
   | Area | Tokens |
   | --- | --- |
   | UI | `ui.list`, `ui.settings`, `ui.row_width`, `ui.text_input`, `ui.confirmation`, `ui.toast`, `ui.progress`, `ui.screenshot`, `ui.theme`, `ui.theme_refresh`, `ui.reload`, `ui.home_layout`, `ui.home_tiles`, `ui.launcher_layout`, `ui.home_background`, `ui.lock_screen`, `ui.button_lock`, `ui.quick_toggle`, `ui.text_view`, `ui.text_view_images`, `ui.list_grid`, `ui.list_showing`, `ui.list_update`, `ui.list_wrap`, `ui.settings_list_wrap`, `ui.settings_list_10_sliders`, `ui.order_editor`, `ui.player_layout_xml`, `ui.file_manager`, `ui.file_picker`, `ui.startup_image` |
-  | Playback and audio | `playback.control`, `playback.state`, `playback.events`, `playback.lyrics_refresh`, `playback.progress`, `playback.remote`, `playback.transport_skip`, `playback.speed`, `playback.format`, `playback.output_info`, `playback.silent_volume`, `playback.transient_volume`, `playback.output_events`, `playback.settings`, `playback.ab_loop`, `playback.ab_switch`, `playback.http_seek`, `audio.peq`, `audio.peq.transient`, `audio.peq.state`, `audio.stereo_width`, `audio.crossfeed`, `audio.crossfeed.angle`, `audio.hw_volume_curve` |
+  | Playback and audio | `playback.control`, `playback.state`, `playback.events`, `playback.lyrics_refresh`, `playback.progress`, `playback.remote`, `playback.remote_resolve`, `playback.transport_skip`, `playback.speed`, `playback.format`, `playback.output_info`, `playback.silent_volume`, `playback.transient_volume`, `playback.output_events`, `playback.settings`, `playback.ab_loop`, `playback.ab_switch`, `playback.http_seek`, `audio.loop`, `audio.peq`, `audio.peq.transient`, `audio.peq.state`, `audio.stereo_width`, `audio.crossfeed`, `audio.crossfeed.angle`, `audio.hw_volume_curve` |
   | Files | `filesystem.sd`, `filesystem.mkdir`, `filesystem.playlists`, `filesystem.file_ops` |
   | Storage | `storage.namespaced`, `storage.secrets`, `storage.secrets_get` |
   | Network | `network.http.sync`, `network.http.async`, `network.http.download`, `network.http.download_progress` |
@@ -262,6 +262,11 @@ Exceeding it is an error.
 Adds a tile to Stream Media, after Subsonic. Good for streaming and radio
 plugins. `icon` is a theme image path, default `"stream_media/radio.png"`. Up
 to 5 plugin tiles; the grid doesn't scroll.
+
+Builds with `ui.breeze_stream_icons` (additive within API 17) also ship
+`"stream_media/jellyfin_row.png"`, a Breeze server icon in Jellyfin colors, and
+show Breeze art in place of `"stream_media/podcasts_row.png"` and
+`"stream_media/radio_row.png"` unless the active theme supplies that image.
 
 ### `plugin.register_home_tile(id, label, on_open, icon)`
 
@@ -999,7 +1004,7 @@ or a new queue of up to 500, with full metadata.
 plugin.play_remote({
     provider = "qobuz",           -- required
     track_id = "12345",           -- required, stable for this track
-    stream_url = "https://...",   -- required
+    stream_url = "https://...",   -- optional with playback.remote_resolve
     verify_tls = true,            -- default true
     title = "Song", artist = "Artist", album = "Album",
     duration_ms = 214000,
@@ -1017,6 +1022,77 @@ plugin.play_remote({
 - Playback follows the stream rules above: finite sources can seek when
   `get_playback_format().seekable` is true; live sources remain forward-only.
   There is no reconnect.
+
+### On-demand stream links (API 17, `playback.remote_resolve`)
+
+Queue **up to 500 metadata entries** without fetching every signed link up
+front. Require API 17 in `plugin.define` and check `playback.remote_resolve`
+before registering the resolver: older API 17 players reject the event name.
+Without it, resolve a short queue up front as before (Qobuz and Tidal use 12
+tracks). Register one resolver before queueing, then omit `stream_url`:
+
+```lua
+if plugin.has_capability("playback.remote_resolve") then
+    plugin.on("remote_stream_needed", function(provider, track_id, request_id)
+        if provider ~= "my_service" then return end
+        -- Your service-specific asynchronous helper, not a built-in API:
+        get_stream_link_async(track_id, function(link, err)
+            if not link then
+                plugin.provide_remote_stream(request_id, {error=err, reason="unavailable"})
+                return
+            end
+            plugin.provide_remote_stream(request_id, {
+                stream_url=link.url, codec=link.codec,
+                sample_rate=link.sample_rate, bit_depth=link.bit_depth,
+                url_ttl_s=60,
+            })
+        end)
+    end)
+    plugin.queue_remote_list({
+        {provider="my_service", track_id="123", title="First song", duration_ms=180000},
+        {provider="my_service", track_id="456", title="Second song", duration_ms=210000},
+    }, 1)
+end
+```
+
+- The event receives `(provider, track_id, request_id)` on the UI/Lua thread,
+  **only in the plugin that submitted the entry**. Register at most one handler
+  per plugin. Return promptly and resolve with asynchronous HTTP.
+- `plugin.provide_remote_stream(request_id, result)` accepts `stream_url` and
+  optional `codec` (`mp3`, `flac`, `aac`), `sample_rate`, `bit_depth`, `channels`,
+  `bitrate_kbps` and `url_ttl_s`. Omitted format fields retain queue values.
+  All descriptive metadata and ReplayGain remain; `verify_tls` is the queue
+  entry's value (default true). The native table updates under its lock and
+  decoders receive owned copies.
+- Return `{error="English detail", reason="..."}` on failure. A known
+  `reason` shows the player's translated message: `subscription`,
+  `unavailable`, `quality`, `protected`, `network` or `auth`. Without one, the
+  English `error` is shown only when the player language is English, and a
+  generic translated message otherwise. Errors and timeouts use the existing
+  unplayable-track skip policy and error toast, including the
+  consecutive-failure stop limit. A missing resolver is also a failure.
+- The call returns `true` if accepted, or `false` for stale, timed-out,
+  cancelled, already-answered or other-plugin IDs. A response cannot redirect
+  the request to another provider/track. Do not save request IDs across reloads.
+- `url_ttl_s` can also be supplied on a queue entry: an integer from 1 to 86400
+  seconds, default **60 seconds**. Age starts when the URL is submitted to the
+  player; a safety margin of up to 2 seconds avoids opening a nearly expired
+  link. Supply the remaining usable lifetime, not the service's maximum.
+- Qobuz and Tidal require **API 17**. With `playback.remote_resolve` they queue
+  up to 500 tracks on demand; without it they resolve a 12-track queue up
+  front. The capability check distinguishes API 17 builds that include this
+  additive feature; no new API version is needed.
+- Current-track startup waits off the UI thread for at most **15 seconds**.
+  Stop, another selection, queue replacement and plugin unloading cancel
+  obsolete requests. Late answers never start an old track. After a plugin
+  reload, the queue it built passes to the reloaded instance (matched by
+  `plugin.define` id) once it registers its resolver, so the resolver must
+  handle track ids it did not queue in this session.
+- During active playback with known duration, the next link is requested at
+  about **30 seconds remaining**. Gapless preparation uses only fresh links.
+  If the matching answer is still pending at the transition, normal startup
+  waits for it; a failed prefetch can be retried on selection. Unknown-duration
+  tracks resolve at startup. None of this changes stable queue identities.
 
 ### Controls
 
@@ -1078,6 +1154,7 @@ These additions keep API version **16**. Check each capability with
 | `get_replaygain_mode()`, `set_replaygain_mode(mode)` | `playback.settings`: `off`, `track`, or `album`. Applies at the next track transition; it does not recompute current decoder gain. |
 | `get_play_mode()`, `set_play_mode(mode)` | `playback.settings`: `sequential`, `repeat_all`, `repeat_one`, or `shuffle`. Setters follow native settings persistence. |
 | `set_ab_loop(start, finish)`, `get_ab_loop()`, `clear_ab_loop()` | `playback.ab_loop`: seconds converted to decoder frames; end is exclusive. Setter returns acceptance. Getter returns `{ start, finish }` or `nil`. Supports finite local FLAC/WAV/AIFF/CAF at up to 16-bit PCM; unsupported sources, pause, speed changes, crossfade, seek, stop, and track changes clear/reject loops. Wrap runs in the audio thread without reopening/flushing output. |
+| `audio_loop_start(path)`, `audio_loop_stop()`, `audio_loop_active()` | `audio.loop`: repeats a short local clip (decoded to memory, up to 4 MiB of 16-bit mono or stereo PCM) from its first frame, sample exact, while no track produces audio. Start pauses a playing track and returns acceptance; calling it again replaces the clip. The clip never becomes the current track, so the queue, Now Playing and track events are untouched. Resuming or starting a track, or a plugin reload, ends the loop; `audio_loop_active()` then returns false. Additive within API 17. |
 | `prepare_ab_switch(path)` | `playback.ab_switch`: asynchronously prepares an alternate SD file against the currently playing primary. Returns acceptance, not readiness. Both must be finite local 16-bit FLAC/WAV/AIFF/CAF or MP3 with identical rate, channels and playable frame count. MP3 delay/padding follows the native decoder's trimming; unmatched lengths are rejected. Preparation/adoption can involve I/O and one alignment seek; long MP3 preparation builds its seek index off-thread. The practice looper retains its lossless-only restriction. |
 | `get_ab_switch()`, `select_ab_source(source)`, `clear_ab_switch()` | `playback.ab_switch`: snapshot `{ preparing, ready, source }`; source is `a` or `b`. Select returns false until ready. Both decoders advance together; selection switches raw PCM at a chunk boundary before one shared DSP pass, with the primary's ReplayGain, EQ and volume. Selection does not seek, reopen, or flush output. Pause, seek, stop, track/speed/crossfade changes or decode/output errors clear it. Loops and comparison are mutually exclusive. |
 

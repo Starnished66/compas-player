@@ -1,3 +1,5 @@
+Superseded (2026-10-23): trash.png were replaced by pre-tinted Breeze art in ../breeze_rows/ and ../titlebar/ and removed. The entries below describe the removed files.
+
 Playlist multiselect actions (2026-10-22)
 Runtime path: /usr/resource/litegui/theme2/playlist_actions/
 44x44 RGBA transparent PNGs, rendered as white monochrome glyphs from the

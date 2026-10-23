@@ -2473,6 +2473,9 @@ msgstr "Aus dem Albumcover (kein Cover, benutzerdefinierte Farbe)"
 msgid "Accent Color"
 msgstr "Akzentfarbe"
 
+msgid "Accent Options"
+msgstr "Akzentfarben-Optionen"
+
 msgid "Match album art"
 msgstr "An Albumcover anpassen"
 
@@ -2484,6 +2487,12 @@ msgstr "Startbild einfärben"
 
 msgid "Uses the accent color for the default splash."
 msgstr "Verwendet die Akzentfarbe für das Standardstartbild."
+
+msgid "Tint title bar icons"
+msgstr "Titelleisten-Symbole einfärben"
+
+msgid "Uses the accent color for the icons next to screen titles."
+msgstr "Verwendet die Akzentfarbe für die Symbole neben Bildschirmtiteln."
 
 msgid "Presets"
 msgstr "Voreinstellungen"
@@ -3618,3 +3627,33 @@ msgstr "Wiedergabe- und Geräteaktionen"
 
 #~ msgid "Back"
 #~ msgstr "Zurück"
+
+msgid "Not available in your subscription"
+msgstr "Nicht in deinem Abo enthalten"
+
+msgid "This track is unavailable"
+msgstr "Dieser Titel ist nicht verfügbar"
+
+msgid "This quality is unavailable for this track"
+msgstr "Diese Qualität ist für diesen Titel nicht verfügbar"
+
+msgid "This track is copy-protected"
+msgstr "Dieser Titel ist kopiergeschützt"
+
+msgid "Could not reach the streaming service"
+msgstr "Der Streamingdienst ist nicht erreichbar"
+
+msgid "Sign in to the streaming service again"
+msgstr "Melde dich erneut beim Streamingdienst an"
+
+msgid "Could not get a stream link"
+msgstr "Stream-Link konnte nicht abgerufen werden"
+
+msgid "The streaming service did not answer"
+msgstr "Der Streamingdienst hat nicht geantwortet"
+
+msgid "The streaming plugin is not available"
+msgstr "Das Streaming-Plugin ist nicht verfügbar"
+
+msgid "TXT Reader"
+msgstr "TXT-Reader"

@@ -1022,6 +1022,9 @@ void gui_process_input_wake(void) {
 static void player_ui_timer_cb(lv_timer_t * timer) {
     (void) timer;
     uint32_t period_ms = backlight_screen_is_on() ? 50 : 500;
+    /* A stream link is on a track's start path: dispatch at this cadence,
+     * not the 500 ms housekeeping one. */
+    plugin_manager_dispatch_remote_streams();
     if (player_ui_timer_period_ms != period_ms) {
         player_ui_timer_period_ms = period_ms;
         lv_timer_set_period(player_ui_timer, period_ms);
@@ -2358,6 +2361,7 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
         lv_timer_pause(media_input_timer);
     }
     lv_timer_create(update_timer_cb, 500, NULL);
+    remote_track_stream_set_request_notify(ui_wake_notify);
     player_ui_timer_period_ms = backlight_screen_is_on() ? 50 : 500;
     player_ui_timer = lv_timer_create(player_ui_timer_cb, player_ui_timer_period_ms, NULL);
     lv_indev_t * gesture_indev = find_pointer_indev();

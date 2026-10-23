@@ -1751,16 +1751,16 @@ static void handle_art_request(int cfd, const char * path) {
 #define THEME_ROOT "/usr/resource/litegui/theme2/"
 #endif
 
-/* Fixed whitelist, not an arbitrary caller-supplied filename. Use the same bundled submenu icons
- * as build_music_screen() in gui_library.c. */
+/* Fixed whitelist, not an arbitrary caller-supplied filename. Use the same pre-tinted Breeze
+ * row icons build_music_screen() in gui_library.c shows (breeze_rows/). */
 static const struct {
     const char * name;
     const char * relative_path;
 } CATEGORY_ICONS[] = {
-    { "all", "submenu/all_songs.png" },
-    { "artist", "submenu/artists.png" },
-    { "album_artist", "submenu/album_artist.png" },
-    { "genre", "submenu/playlists.png" },
+    { "all", "breeze_rows/submenu_all_songs.png" },
+    { "artist", "breeze_rows/submenu_artists.png" },
+    { "album_artist", "breeze_rows/submenu_album_artist.png" },
+    { "genre", "breeze_rows/submenu_playlists.png" },
 };
 
 static uint8_t * read_whole_file(const char * path, size_t * out_size) {

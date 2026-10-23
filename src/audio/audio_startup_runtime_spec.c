@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "audio.h"
 #include "metadata.h"
+#include "../library/remote_track.h"
 #include <SDL.h>
 
 #include <assert.h>
@@ -29,6 +30,7 @@ static bool output_close_armed, output_close_entered, output_close_release;
 /* The production definition lives in main.c, which is excluded to provide
  * this spec's entry point. */
 void install_thread_crash_altstack(void) {}
+void main_loop_discard_elapsed_time(void) {}
 
 extern SDL_AudioDeviceID __real_SDL_OpenAudioDevice(const char *device, int iscapture,
     const SDL_AudioSpec *desired, SDL_AudioSpec *obtained, int allowed_changes);
@@ -316,6 +318,38 @@ static void test_stop_cancels_startup(const char *wav) {
     assert(!late_stopped_tags.has_title && !late_stopped_tags.picture_data && !late_stopped_tags.lyrics);
 }
 
+static void test_stop_pending_remote_then_start_local(const char *wav) {
+    remote_track_meta_t remote = {0};
+    snprintf(remote.provider, sizeof(remote.provider), "spec");
+    snprintf(remote.track_id, sizeof(remote.track_id), "pending");
+    remote.resolve_stream = true;
+    remote.resolver_owner = 1;
+    remote.verify_tls = true;
+    assert(remote_track_meta_set_all(&remote, 1));
+
+    const char *remote_path = "remote://spec/pending";
+    audio_play_file_at(remote_path, 0.0, false, 0.0, false, 0.0);
+    uint64_t pending_generation = audio_get_playback_generation();
+    remote_stream_request_t pending_request = {0};
+    long long request_deadline = monotonic_ms() + 2000;
+    while (!remote_track_stream_take_request(&pending_request) && monotonic_ms() < request_deadline) {
+        struct timespec pause = { .tv_sec = 0, .tv_nsec = 5000000 };
+        nanosleep(&pause, NULL);
+    }
+    assert(pending_request.request_id > 0 && pending_request.owner == 1);
+    audio_stop();
+
+    audio_play_file_at(wav, 0.0, false, 0.0, false, 0.0);
+    uint64_t local_generation = audio_get_playback_generation();
+    assert(local_generation > pending_generation);
+    audio_current_format_info_t info;
+    assert(wait_format(wav, &info, 5000));
+    uint64_t error_generation = 0;
+    assert(audio_consume_error_ex(&error_generation) == AUDIO_ERROR_NONE);
+    stop_and_wait();
+    assert(remote_track_meta_set_all(NULL, 0));
+}
+
 static void test_new_startup_resume_checkpoint(const char * wav, const char * next_wav) {
     audio_play_file_at(wav, 18.0, false, 0.0, false, 0.0);
     audio_current_format_info_t info;
@@ -523,6 +557,7 @@ int main(int argc, char **argv) {
     test_mode_and_pause_before_output(wav);
     stop_and_wait();
     test_stop_cancels_startup(wav);
+    test_stop_pending_remote_then_start_local(wav);
     test_new_startup_resume_checkpoint(wav, latest_wav);
     test_pause_intent_during_restart(wav, latest_wav);
     test_stop_old_playback_with_queued_startup(wav, latest_wav);

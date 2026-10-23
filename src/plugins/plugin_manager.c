@@ -193,6 +193,7 @@ static plugin_player_action_t plugin_player_actions[PLUGIN_MAX_PLAYER_ACTIONS];
 static plugin_instance_t * plugin_instance_for_state(lua_State * L);
 static lua_State * plugin_main_state(lua_State * L);
 static int plugin_call(lua_State * L, int nargs, int nresults, int errfunc);
+static bool plugin_remote_resolver_registered(lua_State * L);
 static void plugin_player_actions_clear_owner(lua_State * L, const char * owner, bool aborted);
 
 static void plugin_player_action_dispatch(const char * owner, const char * action) {
@@ -2157,11 +2158,41 @@ static lua_Number check_bounded_number(lua_State * L, int table_index, const cha
 /* Reads one remote_track_meta_t out of the Lua table at stack index
  * table_index (a plain {provider=..., track_id=..., stream_url=..., ...}
  * value, not a class/metatable of any kind). provider/track_id/stream_url
- * are required; everything else defaults to empty/zero/true(verify_tls),
+ * identify the track; stream_url may be omitted for on-demand resolution.
+ * Other fields default to empty/zero/true(verify_tls),
  * matching plugin.http_request()'s own required-vs-optional-field style
  * above. Raises a Lua error (via luaL_error, which never returns) on any
  * oversized or missing-required field rather than silently truncating --
  * same reasoning as l_plugin_http_request()'s own header-length fix. */
+/* Shared link fields for queue descriptors and asynchronous resolver answers. */
+static void parse_remote_stream_fields(lua_State * L, int index, remote_track_meta_t * out,
+                                      const char * fn, bool require_url) {
+    lua_getfield(L, index, "stream_url");
+    const char * url = luaL_optstring(L, -1, "");
+    if (require_url && !url[0]) luaL_error(L, "%s: stream_url must not be empty", fn);
+    if (strlen(url) >= sizeof(out->stream_url)) luaL_error(L, "%s: stream_url is too long", fn);
+    snprintf(out->stream_url, sizeof(out->stream_url), "%s", url);
+    lua_pop(L, 1);
+    lua_getfield(L, index, "codec");
+    const char * codec = luaL_optstring(L, -1, "");
+    if (codec[0] && strcasecmp(codec, "mp3") && strcasecmp(codec, "flac") && strcasecmp(codec, "aac"))
+        luaL_error(L, "%s: unknown codec '%s' -- must be mp3, flac, aac, or omitted", fn, codec);
+    if (strlen(codec) >= sizeof(out->codec)) luaL_error(L, "%s: codec is too long", fn);
+    snprintf(out->codec, sizeof(out->codec), "%s", codec);
+    lua_pop(L, 1);
+    out->sample_rate = (unsigned int) check_bounded_number(L, index, "sample_rate", fn, 1000000.0);
+    out->bit_depth = (unsigned int) check_bounded_number(L, index, "bit_depth", fn, 64.0);
+    out->channels = (unsigned int) check_bounded_number(L, index, "channels", fn, 64.0);
+    out->bitrate_kbps = (unsigned int) check_bounded_number(L, index, "bitrate_kbps", fn, 100000.0);
+    lua_getfield(L, index, "url_ttl_s");
+    if (!lua_isnil(L, -1)) {
+        lua_Integer ttl = luaL_checkinteger(L, -1);
+        if (ttl < 1 || ttl > 86400) luaL_error(L, "%s: url_ttl_s must be between 1 and 86400", fn);
+        out->url_ttl_s = (uint32_t) ttl;
+    }
+    lua_pop(L, 1);
+}
+
 static void parse_remote_track_table(lua_State * L, int table_index, remote_track_meta_t * out, const char * fn_name) {
     memset(out, 0, sizeof(*out));
 
@@ -2193,12 +2224,7 @@ static void parse_remote_track_table(lua_State * L, int table_index, remote_trac
         }
     }
 
-    lua_getfield(L, table_index, "stream_url");
-    const char * stream_url = luaL_checkstring(L, -1);
-    if (stream_url[0] == '\0') luaL_error(L, "%s: stream_url must not be empty", fn_name);
-    if (strlen(stream_url) >= sizeof(out->stream_url)) luaL_error(L, "%s: stream_url is too long", fn_name);
-    snprintf(out->stream_url, sizeof(out->stream_url), "%s", stream_url);
-    lua_pop(L, 1);
+    parse_remote_stream_fields(L, table_index, out, fn_name, false);
 
 #define OPT_STR_FIELD(field, name) \
     lua_getfield(L, table_index, name); \
@@ -2213,22 +2239,6 @@ static void parse_remote_track_table(lua_State * L, int table_index, remote_trac
     OPT_STR_FIELD(artwork_url, "artwork_url")
 #undef OPT_STR_FIELD
 
-    lua_getfield(L, table_index, "codec");
-    const char * codec_val = luaL_optstring(L, -1, "");
-    /* Empty defaults to "mp3" (see remote_track.h's own comment) -- but an
-     * unrecognized NON-empty value is rejected outright rather than
-     * silently falling back to mp3, which would otherwise mean a typo'd
-     * codec ("flc", "opus") looks like it worked at queue time and only
-     * fails much later, confusingly, when decoder_open() actually tries
-     * to open a stream using the wrong decoder. */
-    if (codec_val[0] != '\0' && strcasecmp(codec_val, "mp3") != 0 && strcasecmp(codec_val, "flac") != 0 &&
-        strcasecmp(codec_val, "aac") != 0) {
-        luaL_error(L, "%s: unknown codec '%s' -- must be \"mp3\", \"flac\", \"aac\", or omitted", fn_name, codec_val);
-    }
-    if (strlen(codec_val) >= sizeof(out->codec)) luaL_error(L, "%s: codec is too long", fn_name);
-    snprintf(out->codec, sizeof(out->codec), "%s", codec_val);
-    lua_pop(L, 1);
-
     /* Bounds are generous (well past anything a real audio stream would
      * ever declare) -- these are display-only fields (format badge,
      * quality metadata) except duration_ms, which also seeds the decoder's
@@ -2236,10 +2246,6 @@ static void parse_remote_track_table(lua_State * L, int table_index, remote_trac
      * the point is rejecting garbage (negative/NaN/absurdly large) before
      * it's cast to an unsigned type below, not modeling real codec limits. */
     out->duration_ms = (uint32_t) check_bounded_number(L, table_index, "duration_ms", fn_name, 24.0 * 3600.0 * 1000.0);
-    out->sample_rate = (unsigned int) check_bounded_number(L, table_index, "sample_rate", fn_name, 1000000.0);
-    out->bit_depth = (unsigned int) check_bounded_number(L, table_index, "bit_depth", fn_name, 64.0);
-    out->channels = (unsigned int) check_bounded_number(L, table_index, "channels", fn_name, 64.0);
-    out->bitrate_kbps = (unsigned int) check_bounded_number(L, table_index, "bitrate_kbps", fn_name, 100000.0);
 
     lua_getfield(L, table_index, "replaygain_db");
     if (!lua_isnil(L, -1)) {
@@ -2257,6 +2263,13 @@ static void parse_remote_track_table(lua_State * L, int table_index, remote_trac
     lua_getfield(L, table_index, "verify_tls");
     out->verify_tls = lua_isnil(L, -1) ? true : lua_toboolean(L, -1);
     lua_pop(L, 1);
+    lua_State * owner = plugin_main_state(L);
+    plugin_instance_t * inst = plugin_instance_for_state(owner);
+    if (!inst || inst->disposing || inst->aborted)
+        luaL_error(L, "%s: plugin is no longer active", fn_name);
+    out->resolver_owner = (uintptr_t) owner;
+    snprintf(out->resolver_plugin, sizeof(out->resolver_plugin), "%s", inst->id);
+    out->resolve_stream = plugin_remote_resolver_registered(owner);
 }
 
 static int l_plugin_play_remote(lua_State * L) {
@@ -2298,6 +2311,50 @@ static int l_plugin_queue_remote_list(lua_State * L) {
 
     gui_plugin_play_remote_tracks(tracks, n, start);
     return 0;
+}
+
+/* Plugin errors are English. A known reason becomes the player's own
+ * translated message; otherwise the plugin text is kept only for English. */
+static const char * remote_stream_error_text(const char * reason, const char * error) {
+    static const struct { const char * reason; const char * text; } reasons[] = {
+        { "subscription", N_("Not available in your subscription") },
+        { "unavailable", N_("This track is unavailable") },
+        { "quality", N_("This quality is unavailable for this track") },
+        { "protected", N_("This track is copy-protected") },
+        { "network", N_("Could not reach the streaming service") },
+        { "auth", N_("Sign in to the streaming service again") },
+    };
+    if (reason)
+        for (size_t i = 0; i < sizeof(reasons) / sizeof(reasons[0]); i++)
+            if (!strcmp(reason, reasons[i].reason)) return reasons[i].text;
+    const char * language = i18n_get_language();
+    bool english = !language || !language[0] || !strncmp(language, "en", 2);
+    return english && error && error[0] ? error : N_("Could not get a stream link");
+}
+
+static int l_plugin_provide_remote_stream(lua_State * L) {
+    lua_Integer id = luaL_checkinteger(L, 1);
+    if (id <= 0) return luaL_error(L, "plugin.provide_remote_stream: invalid request id");
+    luaL_checktype(L, 2, LUA_TTABLE);
+    lua_State * owner = plugin_main_state(L);
+    plugin_instance_t * inst = plugin_instance_for_state(owner);
+    if (!inst || inst->disposing || inst->aborted) {
+        lua_pushboolean(L, false);
+        return 1;
+    }
+    lua_getfield(L, 2, "error");
+    const char * error = luaL_optstring(L, -1, NULL);
+    lua_getfield(L, 2, "reason");
+    const char * reason = luaL_optstring(L, -1, NULL);
+    if ((error && error[0]) || (reason && reason[0])) {
+        lua_pushboolean(L, remote_track_stream_provide((uintptr_t) owner, (uint64_t) id, NULL,
+                                                       remote_stream_error_text(reason, error)));
+    } else {
+        remote_track_meta_t stream = {0};
+        parse_remote_stream_fields(L, 2, &stream, "plugin.provide_remote_stream", true);
+        lua_pushboolean(L, remote_track_stream_provide((uintptr_t) owner, (uint64_t) id, &stream, NULL));
+    }
+    return 1;
 }
 
 static int l_plugin_show_toast(lua_State * L) {
@@ -3781,6 +3838,24 @@ static int l_plugin_clear_ab_loop(lua_State * L) {
     audio_clear_ab_loop();
     return 0;
 }
+/* plugin.audio_loop_start(path) -> true | false. Pauses a playing track
+ * first; the clip then repeats until audio_loop_stop() or until a track
+ * resumes or starts. See audio_loop_start(). */
+static int l_plugin_audio_loop_start(lua_State * L) {
+    const char * path = check_plugin_external_path(L, 1, "plugin.audio_loop_start");
+    if (audio_is_playing()) gui_plugin_toggle_pause();
+    lua_pushboolean(L, audio_loop_start(path));
+    return 1;
+}
+static int l_plugin_audio_loop_stop(lua_State * L) {
+    (void)L;
+    audio_loop_stop();
+    return 0;
+}
+static int l_plugin_audio_loop_active(lua_State * L) {
+    lua_pushboolean(L, audio_loop_is_active());
+    return 1;
+}
 static int l_plugin_prepare_ab_switch(lua_State * L) {
     const char *path = check_plugin_external_path(L, 1, "plugin.prepare_ab_switch");
     lua_pushboolean(L, audio_prepare_ab_switch(path));
@@ -5256,6 +5331,7 @@ typedef enum {
     PLUGIN_EVENT_SCREENSHOT_FAILED,
     PLUGIN_EVENT_OUTPUT_CHANGED,
     PLUGIN_EVENT_BUTTON_LOCK_CHANGED,
+    PLUGIN_EVENT_REMOTE_STREAM_NEEDED,
     PLUGIN_EVENT_COUNT,
 } plugin_event_t;
 
@@ -5266,6 +5342,44 @@ typedef struct {
 
 static plugin_event_subscriber_t plugin_event_subscribers[PLUGIN_EVENT_COUNT][PLUGIN_MAX_EVENT_SUBSCRIBERS];
 static int plugin_event_subscriber_count[PLUGIN_EVENT_COUNT];
+static bool plugin_remote_resolver_registered(lua_State * L) {
+    for (int i = 0; i < plugin_event_subscriber_count[PLUGIN_EVENT_REMOTE_STREAM_NEEDED]; i++)
+        if (plugin_event_subscribers[PLUGIN_EVENT_REMOTE_STREAM_NEEDED][i].L == L) return true;
+    return false;
+}
+
+/* UI/Lua-thread dispatch only. The audio thread queues ids, never Lua pointers
+ * or callbacks; reload invalidates all ids before any state is closed. */
+static void plugin_remote_stream_poll(void) {
+    remote_stream_request_t request;
+    for (int budget = 0; budget < 4 && remote_track_stream_take_request(&request); budget++) {
+        lua_State * L = (lua_State *) request.owner;
+        plugin_instance_t * inst = plugin_instance_for_state(L);
+        if (!inst || inst->disposing || inst->aborted) {
+            remote_track_stream_provide(request.owner, request.request_id, NULL, N_("The streaming plugin is not available"));
+            continue;
+        }
+        int ref = LUA_NOREF;
+        for (int i = 0; i < plugin_event_subscriber_count[PLUGIN_EVENT_REMOTE_STREAM_NEEDED]; i++) {
+            plugin_event_subscriber_t * sub = &plugin_event_subscribers[PLUGIN_EVENT_REMOTE_STREAM_NEEDED][i];
+            if (sub->L == L) { ref = sub->ref; break; }
+        }
+        if (ref == LUA_NOREF) {
+            remote_track_stream_provide(request.owner, request.request_id, NULL, N_("The streaming plugin is not available"));
+            continue;
+        }
+        int top = lua_gettop(L);
+        lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
+        lua_pushstring(L, request.provider);
+        lua_pushstring(L, request.track_id);
+        lua_pushinteger(L, (lua_Integer) request.request_id);
+        if (plugin_call(L, 3, 0, 0) != LUA_OK) {
+            remote_track_stream_provide(request.owner, request.request_id, NULL, N_("Could not get a stream link"));
+        }
+        if (!inst->aborted) lua_settop(L, top);
+    }
+}
+
 static int plugin_last_volume_percent = -1;
 static bool plugin_battery_snapshot_valid = false;
 static plugin_battery_info_t plugin_last_battery_info;
@@ -5361,7 +5475,11 @@ static int l_plugin_on(lua_State * L) {
     else if (strcmp(event, "screenshot_failed") == 0) idx = PLUGIN_EVENT_SCREENSHOT_FAILED;
     else if (strcmp(event, "output_changed") == 0) idx = PLUGIN_EVENT_OUTPUT_CHANGED;
     else if (strcmp(event, "button_lock_changed") == 0) idx = PLUGIN_EVENT_BUTTON_LOCK_CHANGED;
+    else if (strcmp(event, "remote_stream_needed") == 0) idx = PLUGIN_EVENT_REMOTE_STREAM_NEEDED;
     else return luaL_error(L, "plugin.on: unknown event '%s'", event);
+
+    if (idx == PLUGIN_EVENT_REMOTE_STREAM_NEEDED && plugin_remote_resolver_registered(plugin_main_state(L)))
+        return luaL_error(L, "plugin.on: only one remote_stream_needed resolver per plugin is allowed");
 
     if (plugin_event_subscriber_count[idx] >= PLUGIN_MAX_EVENT_SUBSCRIBERS) {
         return luaL_error(L, "plugin.on: too many subscribers registered for \"%s\" (max %d)", event,
@@ -5373,6 +5491,11 @@ static int l_plugin_on(lua_State * L) {
     plugin_event_subscriber_t * sub = &plugin_event_subscribers[idx][plugin_event_subscriber_count[idx]++];
     sub->L = plugin_main_state(L);
     sub->ref = ref;
+    if (idx == PLUGIN_EVENT_REMOTE_STREAM_NEEDED) {
+        /* A reloaded plugin takes over the queue its previous instance built. */
+        plugin_instance_t * inst = plugin_instance_for_state(sub->L);
+        if (inst && inst->defined) remote_track_stream_adopt_owner(inst->id, (uintptr_t) sub->L);
+    }
     return 0;
 }
 
@@ -5650,7 +5773,7 @@ static const char * const plugin_capabilities[] = {
     "filesystem.sd", "playback.control", "playback.state", "playback.events",
     "library.artist_albums", "library.paged", "library.album_cover", "network.http.sync", "network.http.async",
     "network.http.download", "filesystem.mkdir", "crypto.md5", "audio.peq", "data.json",
-    "storage.namespaced", "storage.secrets", "playback.remote", "filesystem.playlists", "library.refresh",
+    "storage.namespaced", "storage.secrets", "playback.remote", "playback.remote_resolve", "filesystem.playlists", "library.refresh",
     "ui.home_layout", "ui.theme_refresh", "ui.reload", "ui.home_tiles", "ui.launcher_layout",
     "audio.stereo_width", "audio.crossfeed", "audio.crossfeed.angle", "playback.speed", "ui.home_background", "audio.hw_volume_curve", "ui.lock_screen", "ui.quick_toggle",
     "data.zip", "data.html", "ui.text_view", "data.zip_image", "data.image_thumbnail", "data.wallpaper", "ui.list_grid", "ui.list_showing",
@@ -5662,7 +5785,8 @@ static const char * const plugin_capabilities[] = {
     "ui.player_actions", "ui.player_layout_restore",
     "filesystem.file_ops", "ui.file_manager", "ui.player_menu", "ui.more_menu", "ui.file_picker",
     "ui.startup_image", "audio.mseb.stock", "playback.stay_on_screen",
-    "ui.settings_list_10_sliders", "ui.button_lock", "playback.lyrics_refresh"
+    "ui.settings_list_10_sliders", "ui.button_lock", "playback.lyrics_refresh",
+    "audio.loop", "ui.breeze_stream_icons"
 };
 
 static int l_plugin_has_capability(lua_State * L) {
@@ -6588,6 +6712,7 @@ static const luaL_Reg plugin_funcs[] = {
     { "play_list",                 l_plugin_play_list },
     { "play_remote",               l_plugin_play_remote },
     { "queue_remote_list",         l_plugin_queue_remote_list },
+    { "provide_remote_stream",     l_plugin_provide_remote_stream },
     { "show_toast",                l_plugin_show_toast },
     { "show_progress",             l_plugin_show_progress },
     { "update_progress",           l_plugin_update_progress },
@@ -6634,6 +6759,9 @@ static const luaL_Reg plugin_funcs[] = {
     { "set_ab_loop",               l_plugin_set_ab_loop },
     { "clear_ab_loop",             l_plugin_clear_ab_loop },
     { "get_ab_loop",               l_plugin_get_ab_loop },
+    { "audio_loop_start",          l_plugin_audio_loop_start },
+    { "audio_loop_stop",           l_plugin_audio_loop_stop },
+    { "audio_loop_active",         l_plugin_audio_loop_active },
     { "prepare_ab_switch",         l_plugin_prepare_ab_switch },
     { "select_ab_source",          l_plugin_select_ab_source },
     { "get_ab_switch",             l_plugin_get_ab_switch },
@@ -6978,7 +7106,10 @@ static int plugin_call(lua_State * L, int nargs, int nresults, int errfunc) {
          * plugin dead and never call back into this state -- it is deliberately
          * not lua_close()d (a half-unwound VM), just frozen and leaked, the
          * same lifetime every other plugin state already has in this file. */
-        if (inst) inst->aborted = true;
+        if (inst) {
+            inst->aborted = true;
+            remote_track_stream_cancel_owner((uintptr_t) L);
+        }
         lua_settop(L, 0);
         lua_pushliteral(L, "plugin call hard-aborted after exceeding its time budget");
         result = LUA_ERRRUN;
@@ -7003,6 +7134,7 @@ static bool failed_load_owner_matches(lua_State * owner, lua_State * L, bool abo
 }
 
 static void discard_failed_plugin_events(lua_State * L, bool aborted) {
+    remote_track_stream_cancel_owner((uintptr_t) L);
     for (int event = 0; event < PLUGIN_EVENT_COUNT; event++) {
         int out = 0;
         for (int i = 0; i < plugin_event_subscriber_count[event]; i++) {
@@ -7604,6 +7736,9 @@ static void plugin_manager_mark_disposing(void) {
 }
 
 void plugin_manager_deinit(void) {
+    remote_track_stream_cancel_all();
+    for (int i = 0; i < PLUGIN_MAX_FILES; i++)
+        if (plugin_instances[i].L) remote_track_stream_cancel_owner((uintptr_t) plugin_instances[i].L);
     advance_list_registry_generation();
     plugin_manager_mark_disposing();
     /* Layout events can be queued while plugin Lua states are being closed. */
@@ -7631,6 +7766,7 @@ void plugin_manager_deinit(void) {
     audio_set_playback_speed(NULL, 1.0);
     audio_clear_ab_loop();
     audio_clear_ab_switch();
+    audio_loop_stop();
     plugin_led_override_owner = NULL;
     led_control_clear_override();
     led_control_apply(current_settings.led_indicator_enabled);
@@ -7709,7 +7845,12 @@ void plugin_manager_deinit(void) {
     plugin_output_snapshot_valid = false;
 }
 
+void plugin_manager_dispatch_remote_streams(void) {
+    plugin_remote_stream_poll();
+}
+
 void plugin_manager_poll(void) {
+    plugin_remote_stream_poll();
     plugin_output_poll();
     plugin_zip_image_poll();
     plugin_album_cover_poll();

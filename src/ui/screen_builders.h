@@ -239,6 +239,20 @@ lv_obj_t * build_icon_grid_screen(const char * title, lv_event_cb_t back_btn_cb,
  * asset_path()/asset_path_plain() first, same as every other icon in this
  * codebase). click_cb may be NULL for a purely decorative icon. */
 lv_obj_t * build_top_right_icon_button(lv_obj_t * scr, const char * icon_asset, lv_event_cb_t click_cb);
+/* For title-bar images built by hand: the Breeze replacement for a resolved
+ * asset path, or NULL when there is none (keep the asset and its styling). */
+const char * titlebar_breeze_icon(const char * asset);
+/* Text color, or the accent while "Tint title bar icons" is on. */
+void style_titlebar_breeze_icon(lv_obj_t * image);
+/* Drag handle art for reorder rows: pre-tinted Breeze handle-sort, else the
+ * stock grip in the text color. */
+void set_reorder_handle_icon(lv_obj_t * grip);
+/* Resolved path of a white Breeze glyph's pre-tinted variant matching the
+ * theme text color (<name>.png or <name>_dark.png). */
+const char * text_glyph_asset(const char * relative);
+/* breeze_rows/<folder>_<name>.png for a stock row icon, when present and the
+ * active theme does not supply the stock image itself. */
+bool breeze_row_icon(const char * stock, char * out, size_t out_size);
 /* Shared back control for screens that retain its handle to toggle visibility. */
 lv_obj_t * build_header_back_button(lv_obj_t * scr, lv_event_cb_t cb);
 /* Align existing text actions/switches by their actual height, not an

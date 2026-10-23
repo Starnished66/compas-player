@@ -1,3 +1,5 @@
+Superseded (2026-10-23): back.png, search.png, more.png and reorder.png were replaced by pre-tinted Breeze art in ../breeze_rows/ and ../titlebar/ and removed. The entries below describe the removed files.
+
 Navigation icons (2026-10-14)
 Runtime path: /usr/resource/litegui/theme2/navigation/
 Icons: 44x44 RGBA PNGs, rendered from @phosphor-icons/core@2.1.1 regular SVG

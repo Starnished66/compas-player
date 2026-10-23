@@ -70,6 +70,8 @@
 !/assets/theme2/topbar/wifi_connect_1.png
 !/assets/theme2/topbar/wifi_connect_2.png
 !/assets/theme2/topbar/wifi_connect_3.png
+!/assets/theme2/titlebar/
+!/assets/theme2/breeze_rows/
 !/assets/theme2/boot_animation/
 /assets/theme2/boot_animation/*
 !/assets/theme2/boot_animation/en/
@@ -88,6 +90,8 @@
 !/assets/theme2/stream_media/radio_row.png
 !/assets/theme2/stream_media/radio_row_s.png
 !/assets/theme2/stream_media/podcasts_row.png
+!/assets/theme2/stream_media/jellyfin_row.png
+!/assets/theme2/stream_media/jellyfin_row_s.png
 !/assets/theme2/stream_media/podcasts_row_s.png
 !/assets/theme2/stream_media/qobuz_row.png
 !/assets/theme2/stream_media/qobuz_row_s.png

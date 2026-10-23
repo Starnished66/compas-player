@@ -2565,6 +2565,9 @@ msgstr "Dalla copertina (nessuna copertina, uso il personalizzato)"
 msgid "Accent Color"
 msgstr "Colore principale"
 
+msgid "Accent Options"
+msgstr "Opzioni del colore principale"
+
 msgid "Match album art"
 msgstr "Segui la copertina"
 
@@ -2576,6 +2579,12 @@ msgstr "Colora immagine di avvio"
 
 msgid "Uses the accent color for the default splash."
 msgstr "Usa il colore di accento per l’immagine di avvio predefinita."
+
+msgid "Tint title bar icons"
+msgstr "Colora le icone della barra del titolo"
+
+msgid "Uses the accent color for the icons next to screen titles."
+msgstr "Usa il colore di risalto per le icone accanto ai titoli delle schermate."
 
 msgid "Presets"
 msgstr "Preset"
@@ -3818,3 +3827,33 @@ msgstr "Azioni di riproduzione e dispositivo"
 
 #~ msgid "Finish setup"
 #~ msgstr "Completa configurazione"
+
+msgid "Not available in your subscription"
+msgstr "Non disponibile nel tuo abbonamento"
+
+msgid "This track is unavailable"
+msgstr "Questo brano non è disponibile"
+
+msgid "This quality is unavailable for this track"
+msgstr "Questa qualità non è disponibile per questo brano"
+
+msgid "This track is copy-protected"
+msgstr "Questo brano è protetto da copia"
+
+msgid "Could not reach the streaming service"
+msgstr "Impossibile raggiungere il servizio di streaming"
+
+msgid "Sign in to the streaming service again"
+msgstr "Accedi di nuovo al servizio di streaming"
+
+msgid "Could not get a stream link"
+msgstr "Impossibile ottenere il link di streaming"
+
+msgid "The streaming service did not answer"
+msgstr "Il servizio di streaming non ha risposto"
+
+msgid "The streaming plugin is not available"
+msgstr "Il plugin di streaming non è disponibile"
+
+msgid "TXT Reader"
+msgstr "Lettore TXT"

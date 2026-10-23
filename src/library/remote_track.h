@@ -40,7 +40,22 @@ typedef struct {
      * playlist[]/last_track key (see remote_track_make_key()'s comment). */
     char stream_url[2048];
     bool verify_tls;
+    /* Resolver bookkeeping. owner is an opaque Lua main-state token and is
+     * never dereferenced by this module. */
+    uintptr_t resolver_owner;
+    /* plugin.define id of the submitting plugin; a reloaded instance of the
+     * same plugin adopts its queue (remote_track_stream_adopt_owner()). */
+    char resolver_plugin[64];
+    bool resolve_stream;
+    uint32_t url_ttl_s;
+    uint64_t stream_fetched_ms;
 } remote_track_meta_t;
+
+typedef struct {
+    uint64_t request_id;
+    uintptr_t owner;
+    char provider[64], track_id[128];
+} remote_stream_request_t;
 
 /* "remote://<provider>/<track_id>" -- the stable synthetic playlist[] key
  * for a remote track. Never the actual stream_url (which may be a single-use
@@ -93,5 +108,34 @@ bool remote_track_meta_set_all(const remote_track_meta_t * entries, int count);
  * replaced -- a borrowed pointer handed out here could otherwise be read
  * out from under a concurrent free(). */
 bool remote_track_meta_copy_for_path(const char * path, remote_track_meta_t * out);
+bool remote_track_meta_copy_fresh_for_path(const char *path, remote_track_meta_t *out);
+
+/* Selects a new active path/generation and wakes canceled waiters. A queued
+ * or dispatched prefetch for the newly selected different path is promoted
+ * into the generation; same-path restarts clear old IDs and failures so they
+ * can retry. */
+void remote_track_stream_begin_playback(const char *path, uint64_t generation);
+bool remote_track_stream_is_fresh(const char *path);
+bool remote_track_stream_prefetch(const char *path, uint64_t generation);
+bool remote_track_stream_wait(const char *path, uint64_t generation, remote_track_meta_t *out);
+bool remote_track_stream_take_request(remote_stream_request_t *out);
+bool remote_track_stream_provide(uintptr_t owner, uint64_t request_id,
+                                 const remote_track_meta_t *stream, const char *error);
+void remote_track_stream_cancel_owner(uintptr_t owner);
+/* Hands entries submitted by plugin_id to its new owner token. */
+void remote_track_stream_adopt_owner(const char *plugin_id, uintptr_t owner);
+/* Called whenever a request becomes ready to dispatch, from any thread. */
+void remote_track_stream_set_request_notify(void (*notify)(void));
+void remote_track_stream_cancel_all(void);
+bool remote_track_stream_error_for_path(const char *path, uint64_t generation,
+                                        char *out, size_t out_size);
+#ifdef REMOTE_TRACK_TESTING
+void remote_track_test_set_clock(uint64_t now_ms);
+void remote_track_test_use_real_clock(void);
+void remote_track_test_set_wait_timeout_ms(unsigned int timeout_ms);
+unsigned int remote_track_test_waiter_count(void);
+unsigned int remote_track_test_pending_count(void);
+bool remote_track_test_wait_for_waiters(unsigned int count);
+#endif
 
 #endif

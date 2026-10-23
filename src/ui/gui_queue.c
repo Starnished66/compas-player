@@ -9,6 +9,7 @@
 #include "screen_builders.h"
 #include "metadata.h"
 #include "cue_parser.h"
+#include "remote_track.h"
 #include "assets.h"
 #include "fallback_font.h"
 #include "src/misc/lv_text_private.h"
@@ -119,6 +120,7 @@ void populate_queue_screen(void) {
         char title[128], subtitle[256], numbered_title[160];
         song_row_t song;
         char stream_title[128], stream_artist[128], stream_album[128];
+        static remote_track_meta_t remote;
         if (gui_player_get_subsonic_track_identity(order[i], path,
                                                    stream_title, sizeof(stream_title),
                                                    stream_artist, sizeof(stream_artist),
@@ -138,6 +140,23 @@ void populate_queue_screen(void) {
                                    sizeof(display_album));
                 snprintf(subtitle, sizeof(subtitle), "%s · %s",
                          display_artist, display_album);
+            } else subtitle[0] = '\0';
+        } else if (remote_track_path_is_remote(path) &&
+                   remote_track_meta_copy_for_path(path, &remote)) {
+            /* Streaming plugins pass the catalog identity with the queue;
+             * the synthetic remote:// key would only show the track id. */
+            if (remote.title[0]) snprintf(title, sizeof(title), "%s", remote.title);
+            else {
+                char folder[128];
+                get_display_names(path, title, sizeof(title), folder, sizeof(folder));
+            }
+            if (remote.artist[0] || remote.album[0]) {
+                char display_artist[121], display_album[121];
+                utf8_truncate_safe(display_artist, remote.artist[0] ? remote.artist : TR("Unknown artist"),
+                                   sizeof(display_artist));
+                utf8_truncate_safe(display_album, remote.album[0] ? remote.album : TR("Unknown album"),
+                                   sizeof(display_album));
+                snprintf(subtitle, sizeof(subtitle), "%s · %s", display_artist, display_album);
             } else subtitle[0] = '\0';
         } else if (cue_reference_is(path)) {
             cue_sheet_t sheet = {0};

@@ -2559,6 +2559,9 @@ msgstr "De la carátula (sin carátula, se usa el personalizado)"
 msgid "Accent Color"
 msgstr "Color de acento"
 
+msgid "Accent Options"
+msgstr "Opciones del color de acento"
+
 msgid "Match album art"
 msgstr "Igualar la carátula"
 
@@ -2570,6 +2573,12 @@ msgstr "Teñir imagen de inicio"
 
 msgid "Uses the accent color for the default splash."
 msgstr "Usa el color de acento para la imagen de inicio predeterminada."
+
+msgid "Tint title bar icons"
+msgstr "Teñir iconos de la barra de título"
+
+msgid "Uses the accent color for the icons next to screen titles."
+msgstr "Usa el color de acento para los iconos junto a los títulos de pantalla."
 
 msgid "Presets"
 msgstr "Predefinidos"
@@ -3812,3 +3821,33 @@ msgstr "Reproducción y acciones del equipo"
 
 #~ msgid "Finish setup"
 #~ msgstr "Finalizar configuración"
+
+msgid "Not available in your subscription"
+msgstr "No disponible en tu suscripción"
+
+msgid "This track is unavailable"
+msgstr "Esta pista no está disponible"
+
+msgid "This quality is unavailable for this track"
+msgstr "Esta calidad no está disponible para esta pista"
+
+msgid "This track is copy-protected"
+msgstr "Esta pista está protegida contra copia"
+
+msgid "Could not reach the streaming service"
+msgstr "No se pudo conectar con el servicio de streaming"
+
+msgid "Sign in to the streaming service again"
+msgstr "Vuelve a iniciar sesión en el servicio de streaming"
+
+msgid "Could not get a stream link"
+msgstr "No se pudo obtener el enlace de streaming"
+
+msgid "The streaming service did not answer"
+msgstr "El servicio de streaming no respondió"
+
+msgid "The streaming plugin is not available"
+msgstr "El plugin de streaming no está disponible"
+
+msgid "TXT Reader"
+msgstr "Lector TXT"

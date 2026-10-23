@@ -1,3 +1,5 @@
+Superseded (2026-10-23): download.png, podcasts_row, radio_row and subsonic_row (with their _s variants) were replaced by pre-tinted Breeze art in ../breeze_rows/ and ../titlebar/ and removed. The entries below describe the removed files.
+
 Stream Media row icon generation
 
 Row icons: 192x192 RGBA.
@@ -29,3 +31,12 @@ podcasts_row.png and podcasts_row_s.png
 
 Qobuz and Tidal marks are normalized from the supplied stock image files;
 this file does not claim a third-party icon-library source.
+
+Breeze stream tile icons (2026-10-23)
+Source: https://invent.kde.org/frameworks/breeze-icons (tag v6.31.0),
+LGPL-3.0-or-later (see ../titlebar/BREEZE_COPYING-ICONS.txt). Rendered from
+the 22px SVGs at 44x44 (192 DPI) with ImageMagick and tinted as listed.
+  Row replacements for podcasts_row, radio_row and subsonic_row live in
+  ../breeze_rows/.
+  jellyfin_row.png       <- places/22/network-server.svg (network-workgroup.svg),
+  jellyfin_row_s.png        Jellyfin #aa5cc3 to #00a4dc

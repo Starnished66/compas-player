@@ -1,3 +1,5 @@
+Superseded (2026-10-23): the category icons (sound, playback, display, power, library, system, about, music) were replaced by pre-tinted Breeze art in ../breeze_rows/ and ../titlebar/ and removed. The entries below describe the removed files.
+
 Settings assets, 2026-09-13
 
 Runtime destination: /usr/resource/litegui/theme2/settings/

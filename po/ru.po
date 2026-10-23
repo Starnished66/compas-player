@@ -2511,6 +2511,9 @@ msgstr "Из обложки альбома (без обложки, исполь�
 msgid "Accent Color"
 msgstr "Акцентный цвет"
 
+msgid "Accent Options"
+msgstr "Параметры акцентного цвета"
+
 msgid "Match album art"
 msgstr "Сопоставить обложку альбома"
 
@@ -2522,6 +2525,12 @@ msgstr "Окрасить заставку"
 
 msgid "Uses the accent color for the default splash."
 msgstr "Использует цвет акцента для стандартной заставки."
+
+msgid "Tint title bar icons"
+msgstr "Окрашивать значки заголовка"
+
+msgid "Uses the accent color for the icons next to screen titles."
+msgstr "Использует акцентный цвет для значков рядом с заголовками экранов."
 
 msgid "Presets"
 msgstr "Пресеты"
@@ -3658,3 +3667,33 @@ msgstr "Воспроизведение и действия устройства"
 
 #~ msgid "Back"
 #~ msgstr "Назад"
+
+msgid "Not available in your subscription"
+msgstr "Недоступно в вашей подписке"
+
+msgid "This track is unavailable"
+msgstr "Этот трек недоступен"
+
+msgid "This quality is unavailable for this track"
+msgstr "Это качество недоступно для этого трека"
+
+msgid "This track is copy-protected"
+msgstr "Этот трек защищён от копирования"
+
+msgid "Could not reach the streaming service"
+msgstr "Не удалось подключиться к стриминговому сервису"
+
+msgid "Sign in to the streaming service again"
+msgstr "Войдите в стриминговый сервис снова"
+
+msgid "Could not get a stream link"
+msgstr "Не удалось получить ссылку на поток"
+
+msgid "The streaming service did not answer"
+msgstr "Стриминговый сервис не ответил"
+
+msgid "The streaming plugin is not available"
+msgstr "Плагин стриминга недоступен"
+
+msgid "TXT Reader"
+msgstr "Просмотр TXT"

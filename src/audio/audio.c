@@ -348,6 +348,12 @@ static size_t flac_file_read_cb(void * user_data, void * buffer_out, size_t byte
     return fread(buffer_out, 1, bytes_to_read, (FILE *) user_data);
 }
 
+/* Remote current-open policy needs a generation/path snapshot; definitions
+ * live with the rest of playback state below. */
+static pthread_mutex_t audio_mutex;
+static uint64_t playback_generation;
+static char * active_path;
+
 static drflac_bool32 flac_file_seek_cb(void * user_data, int offset, drflac_seek_origin origin) {
     int whence = origin == DRFLAC_SEEK_SET ? SEEK_SET
                : origin == DRFLAC_SEEK_END ? SEEK_END : SEEK_CUR;
@@ -365,7 +371,8 @@ static bool file_is_caf(const char * path) {
     return matches;
 }
 
-static bool decoder_open_internal(decoder_t * dec, const char * path) {
+static bool decoder_open_internal(decoder_t * dec, const char * path,
+                                  const remote_track_meta_t * remote_snapshot) {
     memset(dec, 0, sizeof(*dec));
     dec->open_error = AUDIO_ERROR_DECODER_FAILED;
 
@@ -379,7 +386,15 @@ static bool decoder_open_internal(decoder_t * dec, const char * path) {
      * sniffing below entirely -- that sniffing stays exactly as it was for
      * radio/Subsonic streams, which don't have a declared codec. */
     remote_track_meta_t remote_meta;
-    bool remote = remote_track_path_is_remote(path) && remote_track_meta_copy_for_path(path, &remote_meta);
+    bool remote = false;
+    if (remote_track_path_is_remote(path)) {
+        if (remote_snapshot) {
+            remote_meta = *remote_snapshot;
+            remote = true;
+        } else {
+            remote = remote_track_meta_copy_for_path(path, &remote_meta);
+        }
+    }
     if (remote_track_path_is_remote(path) && !remote) return false; /* stale/replaced queue entry */
 
     if (remote || is_stream_url(path)) {
@@ -1148,13 +1163,49 @@ static bool cue_seconds_to_frame(double seconds, unsigned int sample_rate, uint6
     return true;
 }
 
-static bool decoder_open(decoder_t * dec, const char * path) {
+static bool decoder_open_policy(decoder_t * dec, const char * path, bool wait_for_remote,
+                                uint64_t generation, bool generation_is_explicit) {
     if (!path || !path[0]) {
         memset(dec, 0, sizeof(*dec));
         dec->open_error = AUDIO_ERROR_FILE_UNAVAILABLE;
         return false;
     }
     const char * open_path = path;
+    remote_track_meta_t remote_snapshot;
+    remote_track_meta_t * snapshot = NULL;
+    if (remote_track_path_is_remote(path)) {
+        uint64_t remote_generation = generation;
+        bool active = false;
+        pthread_mutex_lock(&audio_mutex);
+        if (!generation_is_explicit) remote_generation = playback_generation;
+        active = playback_generation == remote_generation && active_path && strcmp(active_path, path) == 0;
+        pthread_mutex_unlock(&audio_mutex);
+        if (wait_for_remote) {
+            if (!active) {
+                memset(dec, 0, sizeof(*dec));
+                dec->open_error = AUDIO_ERROR_FILE_UNAVAILABLE;
+                return false;
+            }
+            if (!remote_track_stream_wait(path, remote_generation, &remote_snapshot)) {
+                memset(dec, 0, sizeof(*dec));
+                dec->open_error = AUDIO_ERROR_FILE_UNAVAILABLE;
+                return false;
+            }
+            pthread_mutex_lock(&audio_mutex);
+            active = playback_generation == remote_generation && active_path && strcmp(active_path, path) == 0;
+            pthread_mutex_unlock(&audio_mutex);
+            if (!active) {
+                memset(dec, 0, sizeof(*dec));
+                dec->open_error = AUDIO_ERROR_FILE_UNAVAILABLE;
+                return false;
+            }
+        } else if (!remote_track_meta_copy_fresh_for_path(path, &remote_snapshot)) {
+            memset(dec, 0, sizeof(*dec));
+            dec->open_error = AUDIO_ERROR_FILE_UNAVAILABLE;
+            return false;
+        }
+        snapshot = &remote_snapshot;
+    }
     char cue_audio_path[600];
     bool cue_reference = cue_reference_is(path);
     uint64_t cue_start_frame = 0;
@@ -1187,7 +1238,7 @@ static bool decoder_open(decoder_t * dec, const char * path) {
         }
     }
     errno = 0;
-    if (!decoder_open_internal(dec, open_path)) {
+    if (!decoder_open_internal(dec, open_path, snapshot)) {
         int saved_errno = errno;
         if (!is_stream_url(path) && !remote_track_path_is_remote(path) &&
             (saved_errno == ENOENT || saved_errno == ENOTDIR || saved_errno == EACCES))
@@ -1233,6 +1284,20 @@ static bool decoder_open(decoder_t * dec, const char * path) {
     }
     dec->open_error = AUDIO_ERROR_NONE;
     return true;
+}
+
+static bool decoder_open(decoder_t * dec, const char * path) {
+    return decoder_open_policy(dec, path, true, 0, false);
+}
+
+static bool decoder_open_for_generation(decoder_t * dec, const char * path, uint64_t generation) {
+    return decoder_open_policy(dec, path, true, generation, true);
+}
+
+/* NEXT decoders are opened on the output thread while the current track is
+ * playing. They may only consume a fresh URL; resolving here would stall audio. */
+static bool decoder_open_next(decoder_t * dec, const char * path) {
+    return decoder_open_policy(dec, path, false, 0, false);
 }
 
 /* --- Playback state ---
@@ -3143,6 +3208,108 @@ static void finish_startup_without_restart(void) {
     pthread_mutex_unlock(&audio_mutex);
 }
 
+/* Loop clip (audio_loop_start()). The playback thread copies each chunk out
+ * under audio_mutex, so start/stop may free a clip at any time. */
+#define LOOP_CLIP_MAX_BYTES (4u * 1024u * 1024u)
+#define LOOP_CLIP_CHUNK_FRAMES 1024u
+#define LOOP_CLIP_RETRY_US 100000
+
+typedef struct {
+    int16_t * pcm;
+    uint64_t frames;
+    unsigned channels;
+    unsigned rate;
+} loop_clip_t;
+
+static loop_clip_t * loop_clip = NULL;
+static uint64_t loop_clip_serial = 0;
+
+static void loop_clip_free(loop_clip_t * clip) {
+    if (!clip) return;
+    free(clip->pcm);
+    free(clip);
+}
+
+static void loop_clip_clear_locked(void) {
+    loop_clip_free(loop_clip);
+    loop_clip = NULL;
+    loop_clip_serial++;
+    pthread_cond_broadcast(&audio_cond);
+}
+
+/* From a pause the loop yields to anything the paused wait must handle; the
+ * caller's wait loop re-enters it afterwards. */
+static bool loop_clip_may_run_locked(bool from_pause, unsigned tempo_seen) {
+    if (!loop_clip || restart_requested || stop_requested) return false;
+    if (!from_pause) return true;
+    return paused && !seek_pending && !mp3_index_result &&
+           tempo_seen == speed_setting_serial;
+}
+
+static bool loop_clip_write(const int16_t * buf, uint64_t frames, unsigned channels) {
+#ifdef HOST_BUILD
+    if (sdl_dev == 0) return false;
+    SDL_QueueAudio(sdl_dev, buf, (Uint32) (frames * channels * sizeof(int16_t)));
+    Uint32 max_queued_bytes = device_sample_rate * channels * sizeof(int16_t) / 4;
+    while (SDL_GetQueuedAudioSize(sdl_dev) > max_queued_bytes) usleep(5000);
+    return true;
+#else
+    uint64_t written = 0;
+    return audio_output_write(buf, frames, channels, &written) && written == frames;
+#endif
+}
+
+/* Playback thread only, from its idle and paused waits: plays the loop clip
+ * until it is stopped or the wait has other work. Called and returns with
+ * audio_mutex held. A track restart or resume ends the loop. */
+static void run_loop_clip_locked(bool from_pause, unsigned tempo_seen) {
+    int16_t * chunk = malloc((size_t) LOOP_CLIP_CHUNK_FRAMES * 2 * sizeof(int16_t));
+    if (!chunk) {
+        loop_clip_clear_locked();
+        return;
+    }
+    uint64_t serial = loop_clip_serial - 1;
+    uint64_t pos = 0;
+    bool device_ready = false;
+    while (loop_clip_may_run_locked(from_pause, tempo_seen)) {
+        if (serial != loop_clip_serial) {
+            serial = loop_clip_serial;
+            pos = 0;
+            device_ready = false;
+        }
+        unsigned channels = loop_clip->channels;
+        unsigned rate = loop_clip->rate;
+        uint64_t frames = 0;
+        while (frames < LOOP_CLIP_CHUNK_FRAMES) {
+            uint64_t n = loop_clip->frames - pos;
+            if (n > LOOP_CLIP_CHUNK_FRAMES - frames) n = LOOP_CLIP_CHUNK_FRAMES - frames;
+            memcpy(chunk + frames * channels, loop_clip->pcm + pos * channels,
+                   (size_t) n * channels * sizeof(int16_t));
+            frames += n;
+            pos += n;
+            if (pos == loop_clip->frames) pos = 0;
+        }
+        float gain = volume_gain;
+        pthread_mutex_unlock(&audio_mutex);
+
+        apply_gain(chunk, (size_t) frames * channels, gain);
+        if (!device_ready) device_ready = ensure_device(channels, rate);
+        if (!device_ready || !loop_clip_write(chunk, frames, channels)) {
+            /* Another producer owns the output, or it failed: retry later. */
+            close_device();
+            device_ready = false;
+            usleep(LOOP_CLIP_RETRY_US);
+        }
+        pthread_mutex_lock(&audio_mutex);
+    }
+    pthread_mutex_unlock(&audio_mutex);
+    close_device();
+    free(chunk);
+    pthread_mutex_lock(&audio_mutex);
+    if (restart_requested || (from_pause && !paused && !stop_requested))
+        loop_clip_clear_locked();
+}
+
 /* A comparison keeps the primary track identity and DSP/gain. Preparation
  * owns a second decoder off-thread; only the playback thread adopts/reads it.
  * Selection changes the raw buffer, never the output device or decoder cursor.
@@ -3194,7 +3361,7 @@ static void * ab_switch_prepare_worker(void * opaque) {
     ab_switch_job_t * job = opaque;
     set_worker_thread_name("audio-ab-prepare");
     install_thread_crash_altstack();
-    job->opened = decoder_open(&job->decoder, job->path);
+    job->opened = decoder_open_for_generation(&job->decoder, job->path, job->generation);
     bool index_ready = true;
     /* A long MP3 needs its reservoir-aware seek table before adoption so
      * the playback thread never has to build an index or brute-force seek. */
@@ -3502,6 +3669,8 @@ static void * audio_thread_func(void * arg) {
                 pthread_mutex_unlock(&audio_mutex);
                 finish_startup_without_restart();
                 pthread_mutex_lock(&audio_mutex);
+            } else if (loop_clip) {
+                run_loop_clip_locked(false, 0);
             } else pthread_cond_wait(&audio_cond, &audio_mutex);
         }
         restart_requested = false;
@@ -3554,7 +3723,7 @@ static void * audio_thread_func(void * arg) {
         pthread_mutex_unlock(&audio_mutex);
         if (startup_cancelled) { finish_startup_without_restart(); continue; }
 
-        if (!cur_path_local || !decoder_open(&cur_dec, cur_path_local)) {
+        if (!cur_path_local || !decoder_open_for_generation(&cur_dec, cur_path_local, cur_generation)) {
             if (cur_path_local)
                 fprintf(stderr, "audio: playback open rejected (%s): %s\n",
                         safe_path_tail(cur_path_local), audio_error_description(cur_dec.open_error));
@@ -3787,7 +3956,8 @@ static void * audio_thread_func(void * arg) {
 #endif
             while (paused && !stop_requested && !restart_requested && !seek_pending &&
                    !mp3_index_result && tempo_setting_seen == speed_setting_serial) {
-                pthread_cond_wait(&audio_cond, &audio_mutex);
+                if (loop_clip) run_loop_clip_locked(true, tempo_setting_seen);
+                else pthread_cond_wait(&audio_cond, &audio_mutex);
             }
             bool do_stop = stop_requested;
             bool do_restart = restart_requested;
@@ -4260,7 +4430,7 @@ static void * audio_thread_func(void * arg) {
                                    frames_remaining > 0 && frames_remaining <= crossfade_frames;
 
             if (in_blend_window && !nxt_open) {
-                if (decoder_open(&nxt_dec, staged_next_path)) {
+                if (decoder_open_next(&nxt_dec, staged_next_path)) {
                     nxt_open = true;
                     nxt_frames_consumed = 0;
                     nxt_replaygain_linear_local = staged_next_replaygain;
@@ -4794,6 +4964,7 @@ static void * audio_thread_func(void * arg) {
                     finish_mp3_deferred_seek_locked();
                     seek_pending = false;
                     cur_generation = playback_generation;
+                    remote_track_stream_begin_playback(cur_path_local, cur_generation);
                     current_total_frames = cur_dec.total_frames;
                     current_sample_rate = cur_dec.sample_rate;
                     frames_played = cur_frames_played_local;
@@ -4924,7 +5095,7 @@ static void * audio_thread_func(void * arg) {
                          * off to it -- seamlessly if the format matches (device stays open),
                          * or with a brief reopen if it doesn't. */
                         if (!nxt_open && staged_next_path != NULL) {
-                            if (decoder_open(&nxt_dec, staged_next_path)) {
+                            if (decoder_open_next(&nxt_dec, staged_next_path)) {
                                 nxt_open = true;
                                 nxt_frames_consumed = 0;
                                 nxt_replaygain_linear_local = staged_next_replaygain;
@@ -4999,6 +5170,7 @@ static void * audio_thread_func(void * arg) {
                             finish_mp3_deferred_seek_locked();
                             seek_pending = false;
                             cur_generation = playback_generation;
+                            remote_track_stream_begin_playback(cur_path_local, cur_generation);
                             current_total_frames = cur_dec.total_frames;
                             current_sample_rate = cur_dec.sample_rate;
                             frames_played = cur_frames_played_local;
@@ -5241,7 +5413,7 @@ static void * audio_thread_func(void * arg) {
                      * off to it -- seamlessly if the format matches (device stays open),
                      * or with a brief reopen if it doesn't. */
                     if (!nxt_open && staged_next_path != NULL) {
-                        if (decoder_open(&nxt_dec, staged_next_path)) {
+                        if (decoder_open_next(&nxt_dec, staged_next_path)) {
                             nxt_open = true;
                             nxt_frames_consumed = 0;
                             nxt_replaygain_linear_local = staged_next_replaygain;
@@ -5317,6 +5489,7 @@ static void * audio_thread_func(void * arg) {
                         finish_mp3_deferred_seek_locked();
                         seek_pending = false;
                         cur_generation = playback_generation;
+                        remote_track_stream_begin_playback(cur_path_local, cur_generation);
                         current_total_frames = cur_dec.total_frames;
                         current_sample_rate = cur_dec.sample_rate;
                         frames_played = cur_frames_played_local;
@@ -5511,6 +5684,7 @@ static void play_file_request(const char * path, double start_seconds,
     last_playback_error_generation = 0;
     ab_loop_enabled = false;
     playback_generation++;
+    remote_track_stream_begin_playback(path, playback_generation);
     atomic_store_explicit(&mp3_index_active_generation, (unsigned int) playback_generation, memory_order_relaxed);
     atomic_store_explicit(&mp3_index_stop_flag, false, memory_order_relaxed);
     finish_mp3_deferred_seek_locked();
@@ -5677,6 +5851,58 @@ void audio_clear_ab_loop(void) {
     pthread_mutex_unlock(&audio_mutex);
 }
 
+bool audio_loop_start(const char * path) {
+    if (!path || !path[0] || is_stream_url(path)) return false;
+    decoder_t dec;
+    if (!decoder_open(&dec, path)) return false;
+    loop_clip_t * clip = NULL;
+    bool ok = dec.channels >= 1 && dec.channels <= 2 &&
+              dec.sample_rate >= 8000 && dec.sample_rate <= 384000 &&
+              dec.total_frames > 0 &&
+              dec.total_frames <= LOOP_CLIP_MAX_BYTES / (dec.channels * sizeof(int16_t));
+    if (ok) {
+        clip = calloc(1, sizeof(*clip));
+        ok = clip != NULL;
+    }
+    if (ok) {
+        clip->pcm = malloc((size_t) dec.total_frames * dec.channels * sizeof(int16_t));
+        clip->channels = dec.channels;
+        clip->rate = dec.sample_rate;
+        ok = clip->pcm != NULL;
+    }
+    while (ok && clip->frames < dec.total_frames) {
+        decoder_read_result_t r = decoder_read_s16(&dec, dec.total_frames - clip->frames,
+                                                   clip->pcm + clip->frames * clip->channels);
+        clip->frames += r.frames;
+        if (r.status != DECODER_READ_OK || r.frames == 0) break;
+    }
+    decoder_close(&dec);
+    if (!ok || clip->frames == 0) {
+        loop_clip_free(clip);
+        return false;
+    }
+    pthread_mutex_lock(&audio_mutex);
+    loop_clip_free(loop_clip);
+    loop_clip = clip;
+    loop_clip_serial++;
+    pthread_cond_broadcast(&audio_cond);
+    pthread_mutex_unlock(&audio_mutex);
+    return true;
+}
+
+void audio_loop_stop(void) {
+    pthread_mutex_lock(&audio_mutex);
+    if (loop_clip) loop_clip_clear_locked();
+    pthread_mutex_unlock(&audio_mutex);
+}
+
+bool audio_loop_is_active(void) {
+    pthread_mutex_lock(&audio_mutex);
+    bool active = loop_clip != NULL;
+    pthread_mutex_unlock(&audio_mutex);
+    return active;
+}
+
 bool audio_get_ab_loop(double * start_seconds, double * end_seconds) {
     if (!start_seconds || !end_seconds)
         return false;
@@ -5769,6 +5995,7 @@ void audio_stop(void) {
     startup_pending = false;
     atomic_store_explicit(&mp3_index_stop_flag, true, memory_order_relaxed);
     pthread_cond_broadcast(&audio_cond);
+    remote_track_stream_cancel_all();
     pthread_mutex_unlock(&audio_mutex);
 }
 

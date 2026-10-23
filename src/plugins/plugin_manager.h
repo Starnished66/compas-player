@@ -217,6 +217,8 @@
  * load/run is skipped (logged to stderr) without aborting the others. */
 void plugin_manager_init(void);
 void plugin_manager_poll(void);
+/* Hands queued remote stream-link requests to their plugins; cheap when idle. */
+void plugin_manager_dispatch_remote_streams(void);
 bool plugin_manager_has_background_work(void);
 
 /* One entry per *.lua file found directly under <SD card>/.plugins/,

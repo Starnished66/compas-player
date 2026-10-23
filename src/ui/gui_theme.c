@@ -10,11 +10,32 @@
 static lv_style_t style_accent;
 static lv_style_t style_accent_knob;
 static lv_style_t style_accent_outline;
+/* Added after style_theme_text_primary on Breeze title-bar icons: empty
+ * unless "Tint title bar icons" is on, so they follow the text color. */
+static lv_style_t style_titlebar_tint;
 
 lv_style_t * gui_theme_accent_style(void) { return &style_accent; }
 lv_style_t * gui_theme_accent_knob_style(void) { return &style_accent_knob; }
 lv_style_t * gui_theme_accent_outline_style(void) { return &style_accent_outline; }
 lv_style_t * gui_theme_muted_text_style(void) { return &style_theme_text_muted; }
+lv_style_t * gui_theme_titlebar_tint_style(void) { return &style_titlebar_tint; }
+
+static void update_titlebar_tint(void) {
+    lv_style_reset(&style_titlebar_tint);
+    if (current_settings.titlebar_icon_tint) {
+        lv_style_set_image_recolor(&style_titlebar_tint, accent_lv_color());
+        lv_style_set_image_recolor_opa(&style_titlebar_tint, LV_OPA_COVER);
+    }
+    lv_obj_report_style_change(&style_titlebar_tint);
+}
+
+void gui_theme_set_titlebar_tint(bool on) {
+    current_settings.titlebar_icon_tint = on;
+    settings_save_async(&current_settings);
+    update_titlebar_tint();
+    /* Cached transition frames hold the previous icon color. */
+    gui_navigation_invalidate_theme_snapshots();
+}
 
 const uint32_t accent_palette[ACCENT_PALETTE_COUNT] = {
     0x2196F3, /* blue */
@@ -173,6 +194,8 @@ static void refresh_accent(void) {
         lv_style_set_border_color(&style_accent_outline, c);
         lv_obj_report_style_change(&style_accent_outline);
 
+        update_titlebar_tint();
+
         player_transition_mark_dirty();
         /* Play/pause art is a white disc with a baked-in cyan glyph -- LVGL
          * image_recolor would tint the disc too, so the glyph is rewritten in
@@ -227,6 +250,7 @@ static void init_style_objects(void) {
         lv_style_reset(&style_accent);
         lv_style_reset(&style_accent_knob);
         lv_style_reset(&style_accent_outline);
+        lv_style_reset(&style_titlebar_tint);
     }
     already_initialized = true;
     accent_rgb = resolve_accent();
@@ -254,6 +278,9 @@ static void init_style_objects(void) {
     lv_style_set_border_width(&style_accent_outline, 2);
     lv_style_set_border_opa(&style_accent_outline, LV_OPA_COVER);
     lv_style_set_bg_opa(&style_accent_outline, 0); /* outline only, no fill -- callers that want a fill set their own bg_color/bg_opa separately */
+
+    lv_style_init(&style_titlebar_tint);
+    update_titlebar_tint();
 
     screen_builders_init_list_row_style();
 }

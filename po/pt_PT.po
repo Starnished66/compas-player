@@ -2488,6 +2488,9 @@ msgstr "Da capa do álbum (sem capa, utilizar cor personalizada)"
 msgid "Accent Color"
 msgstr "Cor de destaque"
 
+msgid "Accent Options"
+msgstr "Opções da cor de destaque"
+
 msgid "Match album art"
 msgstr "Acompanhar a capa do álbum"
 
@@ -2499,6 +2502,12 @@ msgstr "Colorir imagem de arranque"
 
 msgid "Uses the accent color for the default splash."
 msgstr "Usa a cor de destaque na imagem de arranque predefinida."
+
+msgid "Tint title bar icons"
+msgstr "Colorir ícones da barra de título"
+
+msgid "Uses the accent color for the icons next to screen titles."
+msgstr "Usa a cor de destaque nos ícones junto aos títulos dos ecrãs."
 
 msgid "Presets"
 msgstr "Predefinições"
@@ -3635,3 +3644,33 @@ msgstr "Ações de reprodução e do dispositivo"
 
 #~ msgid "Back"
 #~ msgstr "Voltar"
+
+msgid "Not available in your subscription"
+msgstr "Não disponível na sua subscrição"
+
+msgid "This track is unavailable"
+msgstr "Esta faixa não está disponível"
+
+msgid "This quality is unavailable for this track"
+msgstr "Esta qualidade não está disponível para esta faixa"
+
+msgid "This track is copy-protected"
+msgstr "Esta faixa está protegida contra cópia"
+
+msgid "Could not reach the streaming service"
+msgstr "Não foi possível contactar o serviço de streaming"
+
+msgid "Sign in to the streaming service again"
+msgstr "Inicie sessão novamente no serviço de streaming"
+
+msgid "Could not get a stream link"
+msgstr "Não foi possível obter a ligação de streaming"
+
+msgid "The streaming service did not answer"
+msgstr "O serviço de streaming não respondeu"
+
+msgid "The streaming plugin is not available"
+msgstr "O plugin de streaming não está disponível"
+
+msgid "TXT Reader"
+msgstr "Leitor TXT"

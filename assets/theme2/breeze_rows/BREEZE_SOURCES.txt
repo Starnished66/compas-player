@@ -1,0 +1,62 @@
+Breeze category-row icons
+
+Source: https://invent.kde.org/frameworks/breeze-icons (tag v6.31.0)
+License: LGPL-3.0-or-later (see ../titlebar/BREEZE_COPYING-ICONS.txt)
+Copyright (C) 2014 Uri Herrera <uri_herrera@nitrux.in> and others
+
+Rendered from the 22px SVGs (after following the repository's symlinks) to
+44x44 RGBA PNG (192 DPI) with ImageMagick, every color replaced by one flat
+tint: the average color of the stock icon each file replaces, so rows keep
+their colors.
+
+A file here named <folder>_<name>.png replaces <folder>/<name>.png on
+category rows (decorate_category_row()) unless the active theme supplies
+that image; the stock icon stays the fallback.
+
+  submenu_files.png                  <- places/22/folder-open.svg, #f9ca6f
+  submenu_artists.png                <- actions/22/view-media-artist.svg, #6fcef4
+  submenu_albums.png                 <- actions/22/view-media-album-cover.svg, #63dbb3
+  submenu_album_artist.png           <- actions/22/similarartists-amarok.svg, #b5c0d2
+  submenu_genres.png                 <- actions/22/tag.svg, #fba099
+  submenu_all_songs.png              <- actions/22/view-media-track.svg, #c08cf2
+  submenu_playlists.png              <- actions/22/view-media-playlist.svg, #fca4a1
+  submenu_plugins.png                <- actions/22/plugins.svg, #c08bf4
+  submenu_themes.png                 <- preferences/22/preferences-desktop-theme-global-symbolic.svg, #fab389
+  submenu_layouts.png                <- actions/22/view-media-visualization.svg (waveform.svg), #6fd2cc
+  submenu_usb.png                    <- devices/22/drive-removable-media-usb.svg, #fccd71
+  submenu_bluetooth.png              <- preferences/22/preferences-system-bluetooth-symbolic.svg, #71cff3
+  submenu_emulators.png              <- devices/22/input-gamepad.svg, #cb75b5
+  submenu_books.png                  <- apps/22/accessories-text-editor.svg (kwrite.svg), #fdd175 (TXT Reader)
+  submenu_favorites.png              <- emblems/22/emblem-favorite.svg, #72d3f7
+  submenu_update_database.png        <- actions/22/view-refresh.svg, #6cd2f1
+  submenu_refresh_metadata.png       <- actions/22/tag-edit.svg, #f5a5a2
+  submenu_refresh_covers.png         <- actions/22/view-preview.svg, #b498e8
+  settings_sound.png                 <- status/22/audio-volume-high.svg, #72dabe
+  settings_playback.png              <- actions/22/view-media-equalizer.svg, #c28df2
+  settings_display.png               <- actions/22/brightness-high.svg, #71d0f5
+  settings_power.png                 <- status/22/battery-060.svg, #68ddb6
+  settings_library.png               <- places/22/server-database.svg (network-server-database.svg), #f9cd71
+  settings_system.png                <- categories/22/applications-system-symbolic.svg, #b2bdcf
+  settings_about.png                 <- actions/22/help-about.svg, #c38ef5
+  settings_music.png                 <- places/22/library-music.svg, #faca6f
+  wireless_list_wifi.png             <- devices/22/network-wireless.svg, #fcd379
+  wireless_list_bt.png               <- preferences/22/preferences-system-bluetooth-symbolic.svg, #71cff3
+  wireless_list_airplay.png          <- devices/22/audio-speakers.svg, #62dcb3
+  wireless_list_dlna.png             <- places/22/folder-network.svg, #b6c0d3
+  wireless_list_remote.png           <- devices/22/smartphone.svg, #c692f7
+  stream_media_podcasts_row.png      <- actions/22/podcast-amarok.svg, #d7a9fa to #a36be4 gradient
+  stream_media_radio_row.png         <- devices/22/audio-radio.svg, #ff7343 (Net Radio, Radio Browser)
+  stream_media_subsonic_row.png      <- devices/22/media-optical-audio.svg, #0082ff
+  library_sorting.png                <- actions/22/playlist-sort.svg (view-sort-ascending.svg), #f9cd71
+                                        (Library > Sorting; without it, Sorting shares settings/library.png)
+  touch_list_list_folder.png         <- places/22/folder-open.svg, 48x48, pre-tinted #fcfcfc and _dark #232629
+                                        (Files and File Manager folder rows)
+  power_action_power.png             <- actions/22/system-shutdown.svg, white, accent-recolored (Power controls)
+  power_action_reboot.png            <- actions/22/system-reboot.svg (view-refresh.svg), white, accent-recolored
+  power_action_screen_off.png        <- actions/22/system-suspend.svg, white, accent-recolored
+  power_action_sleep_timer.png       <- actions/22/chronometer.svg, white, accent-recolored
+  sub_back_btn_playlist.png          <- actions/22/view-media-playlist.svg, pre-tinted #fcfcfc and _dark #232629
+                                        (Files playlist and CUE rows)
+  touch_list_list_song.png           <- actions/22/music-note-16th.svg, padding trimmed to
+                                        30 px in a 48x48 box, pre-tinted #fcfcfc and _dark #232629
+                                        (Files rows for recognised song formats; no stock art)

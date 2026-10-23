@@ -60,6 +60,10 @@ lv_style_t * gui_theme_accent_style(void);
 lv_style_t * gui_theme_accent_knob_style(void);
 lv_style_t * gui_theme_accent_outline_style(void);
 lv_style_t * gui_theme_muted_text_style(void);
+/* Accent recolor for Breeze title-bar icons while "Tint title bar icons" is
+ * on; an empty style otherwise. Saves and applies the setting. */
+lv_style_t * gui_theme_titlebar_tint_style(void);
+void gui_theme_set_titlebar_tint(bool on);
 const lv_font_t * gui_theme_font(gui_font_role_t role);
 /* The accent in use: the saved pick, or the playing cover's color while
  * "Match album art" is on and a cover is showing. */

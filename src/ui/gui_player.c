@@ -91,6 +91,7 @@ static bool is_sd_card_path(const char *path);
 #include "player_cover_prefetch.h"
 #include "ui_wake.h"
 #include "track_metadata_worker.h"
+#include "remote_track.h"
 #include "playback_order.h"
 #include "queue_resume.h"
 #ifdef HOST_BUILD
@@ -6738,6 +6739,27 @@ static void poll_track_started_notification(void) {
     metadata_notify_ready = false;
 }
 
+static bool arm_cached_next_track(const char * path, const track_metadata_t * tags,
+                                  uint64_t generation, int gain_mode) {
+    if (!path || !tags || generation != audio_get_playback_generation() ||
+        !current_settings.gapless_enabled) return false;
+    if (remote_track_path_is_remote(path) && !remote_track_stream_is_fresh(path)) return false;
+    if (armed_next_generation == generation && armed_next_gain_mode == gain_mode &&
+        strcmp(armed_next_path, path) == 0) return true;
+
+    bool album = gain_mode == 2 && tags->has_replaygain_album;
+    bool gain = gain_mode != 0 && (album || tags->has_replaygain);
+    bool album_peak = album && tags->has_replaygain_album_peak;
+    bool peak = gain_mode != 0 && (album_peak || tags->has_replaygain_peak);
+    if (!audio_set_next_track_for_generation(path, gain,
+        album ? tags->replaygain_album_gain_db : tags->replaygain_gain_db, peak,
+        album_peak ? tags->replaygain_album_peak : tags->replaygain_peak, generation)) return false;
+    snprintf(armed_next_path, sizeof(armed_next_path), "%s", path);
+    armed_next_generation = generation;
+    armed_next_gain_mode = gain_mode;
+    return true;
+}
+
 void gui_player_poll_track_metadata(void) {
     poll_track_started_notification();
     track_metadata_result_t result;
@@ -6755,20 +6777,38 @@ void gui_player_poll_track_metadata(void) {
         next_metadata_cached = true;
         snprintf(next_metadata_cached_path, sizeof(next_metadata_cached_path), "%s", result.request.path);
         next_metadata_cache = result.request.metadata;
-        if (metadata_next_gapless_enabled && current_settings.gapless_enabled) {
-            /* Resolve with the mode captured when this NEXT request was queued. */
-            track_metadata_t * tags = &result.request.metadata;
-            bool album = metadata_next_gain_mode == 2 && tags->has_replaygain_album;
-            bool gain = metadata_next_gain_mode != 0 && (album || tags->has_replaygain);
-            bool album_peak = album && tags->has_replaygain_album_peak;
-            bool peak = metadata_next_gain_mode != 0 && (album_peak || tags->has_replaygain_peak);
-            if (audio_set_next_track_for_generation(result.request.path, gain,
-                album ? tags->replaygain_album_gain_db : tags->replaygain_gain_db, peak,
-                album_peak ? tags->replaygain_album_peak : tags->replaygain_peak, metadata_next_audio_generation)) {
-                snprintf(armed_next_path, sizeof(armed_next_path), "%s", result.request.path);
-                armed_next_generation = metadata_next_audio_generation;
-                armed_next_gain_mode = metadata_next_gain_mode;
-            }
+        if (metadata_next_gapless_enabled && current_settings.gapless_enabled)
+            arm_cached_next_track(result.request.path, &result.request.metadata,
+                                  metadata_next_audio_generation, metadata_next_gain_mode);
+    }
+    /* Resolve a signed provider URL in the background shortly before the
+     * current track ends. This runs from the existing UI poll, and never
+     * waits for the plugin response. */
+    if (playlist_index >= 0 && playlist_index < playlist_count &&
+        audio_get_playback_generation() == metadata_next_audio_generation &&
+        queue_revision == metadata_next_queue_revision &&
+        strcmp(playlist_path_at(playlist_index), metadata_next_current_path) == 0 &&
+        next_metadata_cached) {
+        int next_index = compute_auto_advance_index(playlist_index);
+        if (next_index < 0 || strcmp(next_metadata_cached_path, playlist_path_at(next_index)) != 0)
+            next_metadata_cached = false;
+    }
+    if (playlist_index >= 0 && playlist_index < playlist_count &&
+        audio_get_playback_generation() == metadata_next_audio_generation &&
+        queue_revision == metadata_next_queue_revision &&
+        strcmp(playlist_path_at(playlist_index), metadata_next_current_path) == 0 &&
+        next_metadata_cached) {
+        audio_playback_progress_t progress;
+        if (audio_get_playback_progress(metadata_ui_path, &progress) &&
+            progress.generation == metadata_next_audio_generation &&
+            progress.state == AUDIO_PLAYBACK_PROGRESS_ACTIVE && progress.is_playing &&
+            progress.duration_seconds > 0.0 &&
+            progress.duration_seconds - progress.position_seconds <= 30.0) {
+            if (remote_track_path_is_remote(next_metadata_cached_path))
+                remote_track_stream_prefetch(next_metadata_cached_path, metadata_next_audio_generation);
+            if (metadata_next_gapless_enabled && current_settings.gapless_enabled)
+                arm_cached_next_track(next_metadata_cached_path, &next_metadata_cache,
+                                      metadata_next_audio_generation, metadata_next_gain_mode);
         }
     }
     if (!track_metadata_take(TRACK_METADATA_CURRENT, &result)) return;
@@ -9488,10 +9528,16 @@ void gui_player_handle_playback_error_ex(audio_error_t err, uint64_t err_generat
 
     if (err == AUDIO_ERROR_DECODER_FAILED || err == AUDIO_ERROR_FILE_UNAVAILABLE ||
         err == AUDIO_ERROR_UNSUPPORTED_FORMAT || err == AUDIO_ERROR_UNSUPPORTED_CHANNELS) {
-        char failure_message[96];
+        char failure_message[384];
         /* Record the failed track's physical path */
         const char * failed_path = playlist_path_at(playlist_index);
         if (failed_path) record_failed_physical_path(failed_path);
+        char remote_error[256] = {0};
+        const char * error_text = TR(audio_error_description(err));
+        if (failed_path && remote_track_path_is_remote(failed_path) &&
+            remote_track_stream_error_for_path(failed_path, err_generation,
+                                                remote_error, sizeof(remote_error)) &&
+            remote_error[0]) error_text = TR(remote_error);
 
         consecutive_decoder_failure_skips++;
         int max_skips = (playlist_count < 5) ? playlist_count : 5;
@@ -9500,8 +9546,7 @@ void gui_player_handle_playback_error_ex(audio_error_t err, uint64_t err_generat
             deferred_resume_pending = false;
             deferred_resume_position = 0.0;
             reset_decoder_failure_tracking();
-            snprintf(failure_message, sizeof(failure_message), TR("Playback stopped: %s"),
-                     TR(audio_error_description(err)));
+            snprintf(failure_message, sizeof(failure_message), TR("Playback stopped: %s"), error_text);
             show_error_toast(failure_message);
             return;
         }
@@ -9534,8 +9579,7 @@ void gui_player_handle_playback_error_ex(audio_error_t err, uint64_t err_generat
             deferred_resume_pending = false;
             deferred_resume_position = 0.0;
             reset_decoder_failure_tracking();
-            snprintf(failure_message, sizeof(failure_message), TR("Playback stopped: %s"),
-                     TR(audio_error_description(err)));
+            snprintf(failure_message, sizeof(failure_message), TR("Playback stopped: %s"), error_text);
             show_error_toast(failure_message);
             return;
         }
@@ -9543,7 +9587,7 @@ void gui_player_handle_playback_error_ex(audio_error_t err, uint64_t err_generat
         commit_decoder_failure_advance_plan(&plan);
         deferred_resume_pending = false;
         deferred_resume_position = 0.0;
-        snprintf(failure_message, sizeof(failure_message), TR("Skipped: %s"), TR(audio_error_description(err)));
+        snprintf(failure_message, sizeof(failure_message), TR("Skipped: %s"), error_text);
         show_error_toast(failure_message);
         play_track_at_from_internal(plan.target_index, 0.0, false, false);
     }
