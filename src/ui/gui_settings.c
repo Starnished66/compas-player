@@ -188,7 +188,6 @@ static lv_obj_t * clock_set_time_row;
 static lv_obj_t * clock_timezone_row;
 static lv_obj_t * clock_timezone_value_label;
 static lv_obj_t * eq_screen;
-static lv_obj_t * eq_reset_row;
 static lv_obj_t * eq_profiles_screen;
 static char eq_current_profile_name[256];
 static void eq_profile_display_name(const char * name, char * out, size_t size) {
@@ -566,7 +565,7 @@ static void eq_band_step_cb(lv_event_t * e) {
     if (stop > PEQ_NUM_BANDS) stop = 0;
     eq_graph_visible = (stop == PEQ_NUM_BANDS);
     if (!eq_graph_visible) current_eq_band = stop;
-    lv_obj_t * band_widgets[] = {eq_band_options_row, eq_preamp_card, eq_reset_row, eq_freq_card, eq_gain_card, eq_q_card};
+    lv_obj_t * band_widgets[] = {eq_band_options_row, eq_preamp_card, eq_freq_card, eq_gain_card, eq_q_card};
     for (size_t i = 0; i < sizeof(band_widgets) / sizeof(band_widgets[0]); ++i) {
         if (!band_widgets[i]) continue;
         if (eq_graph_visible) lv_obj_add_flag(band_widgets[i], LV_OBJ_FLAG_HIDDEN);
@@ -2981,8 +2980,7 @@ static void timezone_settings_row_cb(lv_event_t * e) {
 }
 
 /* Defined later, alongside its confirmation popup (build_factory_reset_popup(),
- * right after build_eq_reset_popup() -- same hand-built top-layer overlay
- * shape). */
+ * a hand-built top-layer overlay). */
 static void factory_reset_btn_cb(lv_event_t * e);
 
 /* ---- Settings category sub-screens -- grouped into category screens
@@ -5833,46 +5831,8 @@ static void eq_refresh_graph(void) {
  * LVGL's lv_msgbox anywhere), since a factory reset of every band's
  * freq/gain/Q/type plus the preamp is not something a stray tap should be
  * able to trigger by accident. ---- */
-static gui_popup_t eq_reset_popup;
-
-static void hide_eq_reset_popup(void) {
-    gui_popup_hide(&eq_reset_popup);
-}
-
-static void eq_reset_popup_backdrop_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    hide_eq_reset_popup();
-}
-
-static void eq_reset_cancel_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    hide_eq_reset_popup();
-}
-
-static void eq_reset_confirm_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    hide_eq_reset_popup();
-    peq_reset_equalizer();
-    eq_current_profile_name[0] = '\0';
-    refresh_all_eq_widgets();
-    peq_save();
-    show_error_toast(TR("PEQ reset to defaults"));
-}
-
-static void eq_reset_btn_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    gui_popup_show(&eq_reset_popup);
-}
-
-static void build_eq_reset_popup(void) {
-    eq_reset_popup.popup = build_confirm_popup(TR("Reset PEQ to defaults?"), LV_LABEL_LONG_WRAP, NULL, NULL, TR("Reset"),
-                                                lv_color_make(255, 120, 120), eq_reset_confirm_cb, NULL, TR("Cancel"),
-                                                accent_lv_color(), eq_reset_cancel_cb, NULL, eq_reset_popup_backdrop_cb,
-                                                &eq_reset_popup.backdrop);
-}
-
 /* ---- Factory Reset, with a confirmation popup -- same hand-built
- * top-layer overlay shape as eq_reset_popup right above (this codebase
+ * top-layer overlay shape as the other confirmation popups (this codebase
  * doesn't use LVGL's lv_msgbox anywhere). Wiping every app setting is
  * exactly the kind of thing a stray tap must never be able to trigger.
  * Confirmation deletes configuration and reboots; the device path does not
@@ -6392,11 +6352,10 @@ static lv_obj_t * eq_make_slider_card(lv_obj_t * parent, eq_field_t field, const
                                        lv_obj_t ** value_out, lv_obj_t ** slider_out,
                                        int32_t minimum, int32_t maximum) {
     lv_obj_t * card = lv_obj_create(parent);
-    lv_obj_set_width(card, lv_pct(96));
+    lv_obj_set_width(card, ui_list_row_width());
     lv_obj_set_height(card, LV_SIZE_CONTENT);
-    lv_obj_add_style(card, &style_theme_card_bg, 0);
-    lv_obj_set_style_border_width(card, BOARD_SCALE_PX(1), 0);
-    lv_obj_set_style_radius(card, BOARD_SCALE_PX(14), 0);
+    /* Same Breeze frame as the menu rows. */
+    lv_obj_add_style(card, &pill_row_bg_style, 0);
     lv_obj_set_style_pad_hor(card, BOARD_SCALE_PX(14), 0);
     lv_obj_set_style_pad_ver(card, BOARD_SCALE_PX(3), 0);
     lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
@@ -6433,14 +6392,14 @@ static lv_obj_t * eq_make_slider_card(lv_obj_t * parent, eq_field_t field, const
     lv_obj_set_width(slider, lv_pct(96));
     lv_obj_set_height(slider, BOARD_SCALE_PX(6));
     lv_slider_set_range(slider, minimum, maximum);
-    lv_obj_set_style_bg_color(slider, lv_color_make(75, 83, 91), LV_PART_MAIN);
+    /* Breeze groove and handle: the switches' neutral track and knob, with
+     * the accent only on the filled part. */
+    lv_obj_add_style(slider, &style_theme_switch_track, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_radius(slider, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_PART_INDICATOR);
     lv_obj_add_style(slider, gui_theme_accent_style(), LV_PART_INDICATOR);
-    lv_obj_add_style(slider, gui_theme_accent_outline_style(), LV_PART_KNOB);
-    lv_obj_set_style_bg_color(slider, lv_color_white(), LV_PART_KNOB);
+    lv_obj_add_style(slider, &style_theme_switch_knob, LV_PART_KNOB);
     lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_KNOB);
-    lv_obj_set_style_border_width(slider, BOARD_SCALE_PX(2), LV_PART_KNOB);
     lv_obj_set_style_pad_all(slider, BOARD_SCALE_PX(9), LV_PART_KNOB);
     lv_obj_set_style_radius(slider, LV_RADIUS_CIRCLE, LV_PART_KNOB);
     /* Keep the thin rail while accepting touches above and below it.
@@ -6605,7 +6564,7 @@ static lv_obj_t * build_eq_screen(void) {
     lv_obj_add_style(eq_bypass_switch, gui_theme_accent_style(), LV_PART_INDICATOR | LV_STATE_CHECKED);
     eq_bypass_state_label = lv_label_create(scr);
     lv_label_set_text(eq_bypass_state_label, peq_get_bypass() ? TR("OFF") : TR("ON"));
-    lv_obj_add_style(eq_bypass_state_label, gui_theme_accent_style(), 0);
+    lv_obj_add_style(eq_bypass_state_label, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(eq_bypass_state_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     lv_obj_set_width(eq_bypass_state_label, BOARD_SCALE_PX(64));
     lv_label_set_long_mode(eq_bypass_state_label, LV_LABEL_LONG_CLIP);
@@ -6613,8 +6572,6 @@ static lv_obj_t * build_eq_screen(void) {
     lv_obj_align_to(eq_bypass_state_label, eq_bypass_switch, LV_ALIGN_OUT_LEFT_MID, -12, 0);
     eq_title_label = title;
     reserve_title_width_before(title, eq_bypass_state_label);
-    lv_obj_set_style_text_font(title, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
-    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_t * content = lv_obj_create(scr);
     eq_main_content = content;
     int32_t screen_h = lv_display_get_vertical_resolution(lv_display_get_default());
@@ -6628,9 +6585,9 @@ static lv_obj_t * build_eq_screen(void) {
     lv_obj_set_scroll_dir(content, LV_DIR_VER);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_gap(content, BOARD_SCALE_PX(4), 0);
+    lv_obj_set_style_pad_gap(content, GUI_ROW_GAP, 0);
     lv_obj_t * bandnav = lv_obj_create(content);
-    lv_obj_set_size(bandnav, lv_pct(96), BOARD_SCALE_PX(50));
+    lv_obj_set_size(bandnav, ui_list_row_width(), BOARD_SCALE_PX(50));
     lv_obj_set_style_bg_opa(bandnav, LV_OPA_TRANSP, 0);
     lv_obj_set_style_radius(bandnav, BOARD_SCALE_PX(14), 0);
     lv_obj_set_style_border_width(bandnav, 0, 0);
@@ -6675,32 +6632,11 @@ static lv_obj_t * build_eq_screen(void) {
     lv_obj_set_style_border_width(below_q_spacer, 0, 0);
     lv_obj_remove_flag(below_q_spacer, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     eq_preamp_card = eq_make_slider_card(content, EQ_FIELD_PREAMP, TR("Pre-Amp"), &eq_preamp_value_label, &eq_preamp_slider, -120, 120);
-    lv_obj_set_flex_grow(eq_preamp_card, 0);
-    eq_reset_row = lv_obj_create(content);
-    lv_obj_set_width(eq_reset_row, lv_pct(96));
-    lv_obj_set_height(eq_reset_row, LV_SIZE_CONTENT);
-    lv_obj_add_style(eq_reset_row, &style_theme_card_bg, 0);
-    lv_obj_add_style(eq_reset_row, &list_row_pressed_style, LV_STATE_PRESSED);
-    lv_obj_set_style_border_width(eq_reset_row, 0, 0);
-    lv_obj_set_style_radius(eq_reset_row, BOARD_SCALE_PX(14), 0);
-    lv_obj_set_style_pad_hor(eq_reset_row, BOARD_SCALE_PX(16), 0);
-    lv_obj_set_style_pad_ver(eq_reset_row, BOARD_SCALE_PY(14), 0);
-    lv_obj_add_flag(eq_reset_row, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_remove_flag(eq_reset_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_t * reset_label = lv_label_create(eq_reset_row);
-    lv_label_set_text(reset_label, TR("Reset to defaults"));
-    lv_obj_set_width(reset_label, lv_pct(100));
-    lv_label_set_long_mode(reset_label, LV_LABEL_LONG_WRAP);
-    lv_obj_add_style(reset_label, &style_theme_text_primary, 0);
-    lv_obj_set_style_text_font(reset_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-    lv_obj_set_style_text_color(reset_label, lv_color_make(255, 120, 120), 0);
-    lv_obj_add_event_cb(eq_reset_row, eq_reset_btn_cb, LV_EVENT_CLICKED, NULL);
     eq_graph_panel = lv_obj_create(content);
-    lv_obj_set_width(eq_graph_panel, lv_pct(96));
+    lv_obj_set_width(eq_graph_panel, ui_list_row_width());
     lv_obj_set_flex_grow(eq_graph_panel, 1);
     lv_obj_set_style_min_height(eq_graph_panel, BOARD_SCALE_PX(240), 0);
-    lv_obj_add_style(eq_graph_panel, &style_theme_card_bg, 0);
-    lv_obj_set_style_radius(eq_graph_panel, BOARD_SCALE_PX(16), 0);
+    lv_obj_add_style(eq_graph_panel, &pill_row_bg_style, 0);
     lv_obj_set_style_pad_all(eq_graph_panel, BOARD_SCALE_PX(12), 0);
     lv_obj_set_flex_flow(eq_graph_panel, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_gap(eq_graph_panel, BOARD_SCALE_PX(4), 0);
@@ -6798,33 +6734,30 @@ static lv_obj_t * build_eq_screen(void) {
     lv_obj_align(eq_footer, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_set_style_bg_opa(eq_footer, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(eq_footer, 0, 0);
-    lv_obj_set_style_pad_hor(eq_footer, BOARD_SCALE_PX(12), 0);
+    lv_obj_set_style_pad_hor(eq_footer, GUI_LIST_SIDE_MARGIN, 0);
     lv_obj_set_style_pad_ver(eq_footer, BOARD_SCALE_PX(12), 0);
-    lv_obj_set_style_pad_column(eq_footer, BOARD_SCALE_PX(8), 0);
+    lv_obj_set_style_pad_column(eq_footer, GUI_ROW_GAP, 0);
     lv_obj_set_flex_flow(eq_footer, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(eq_footer, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_remove_flag(eq_footer, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_t * flat = lv_btn_create(eq_footer);
     lv_obj_set_flex_grow(flat, 1);
     lv_obj_set_height(flat, BOARD_SCALE_PX(66));
-    lv_obj_add_style(flat, &style_theme_card_bg, 0);
-    lv_obj_set_style_bg_opa(flat, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(flat, BOARD_SCALE_PX(1), 0);
-    lv_obj_set_style_radius(flat, BOARD_SCALE_PX(12), 0);
+    lv_obj_add_style(flat, &pill_row_bg_style, 0);
+    lv_obj_add_style(flat, &list_row_pressed_style, LV_STATE_PRESSED);
     lv_obj_set_style_shadow_width(flat, 0, 0);
     lv_obj_add_event_cb(flat, eq_flat_btn_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t * fl = lv_label_create(flat);
     lv_label_set_text(fl, TR("Flat"));
+    lv_obj_add_style(fl, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(fl, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     lv_obj_center(fl);
     lv_obj_t * profiles = lv_btn_create(eq_footer);
     lv_obj_set_flex_grow(profiles, 2);
     lv_obj_set_height(profiles, BOARD_SCALE_PX(66));
-    lv_obj_add_style(profiles, &style_theme_card_bg, 0);
-    lv_obj_add_style(profiles, gui_theme_accent_outline_style(), 0);
-    lv_obj_set_style_bg_opa(profiles, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(profiles, BOARD_SCALE_PX(2), 0);
-    lv_obj_set_style_radius(profiles, BOARD_SCALE_PX(12), 0);
+    /* A Breeze combo box: a plain framed button, not an accent one. */
+    lv_obj_add_style(profiles, &pill_row_bg_style, 0);
+    lv_obj_add_style(profiles, &list_row_pressed_style, LV_STATE_PRESSED);
     lv_obj_set_style_shadow_width(profiles, 0, 0);
     lv_obj_add_event_cb(profiles, eq_load_profile_btn_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t * profile_inner = lv_obj_create(profiles);
@@ -6838,26 +6771,25 @@ static lv_obj_t * build_eq_screen(void) {
     lv_obj_remove_flag(profile_inner, LV_OBJ_FLAG_SCROLLABLE);
     eq_profile_button_label = lv_label_create(profile_inner);
     lv_obj_set_style_text_font(eq_profile_button_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-    lv_obj_add_style(eq_profile_button_label, gui_theme_accent_style(), 0);
+    lv_obj_add_style(eq_profile_button_label, &style_theme_text_primary, 0);
     lv_label_set_long_mode(eq_profile_button_label, LV_LABEL_LONG_DOT);
     lv_obj_set_width(eq_profile_button_label, lv_pct(82));
     lv_obj_set_height(eq_profile_button_label, lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_BODY)));
     lv_obj_set_style_text_align(eq_profile_button_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_t * profile_chevron = lv_label_create(profile_inner);
     lv_label_set_text(profile_chevron, LV_SYMBOL_DOWN);
-    lv_obj_add_style(profile_chevron, gui_theme_accent_style(), 0);
+    lv_obj_add_style(profile_chevron, &style_theme_text_primary, 0);
     lv_obj_t * save = lv_btn_create(eq_footer);
     lv_obj_set_flex_grow(save, 1);
     lv_obj_set_height(save, BOARD_SCALE_PX(66));
-    lv_obj_add_style(save, &style_theme_card_bg, 0);
-    lv_obj_set_style_bg_opa(save, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(save, BOARD_SCALE_PX(1), 0);
-    lv_obj_set_style_radius(save, BOARD_SCALE_PX(12), 0);
+    lv_obj_add_style(save, &pill_row_bg_style, 0);
+    lv_obj_add_style(save, &list_row_pressed_style, LV_STATE_PRESSED);
     lv_obj_set_style_shadow_width(save, 0, 0);
     lv_obj_add_event_cb(save, eq_save_profile_pressed_cb, LV_EVENT_PRESSED, NULL);
     lv_obj_add_event_cb(save, eq_save_profile_btn_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t * sl = lv_label_create(save);
     lv_label_set_text(sl, TR("Save"));
+    lv_obj_add_style(sl, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(sl, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     lv_obj_center(sl);
     refresh_all_eq_widgets();
@@ -6916,7 +6848,6 @@ void gui_settings_init(void) {
     build_firmware_update_popup();
     build_firmware_ota_popups();
     build_player_update_popups();
-    build_eq_reset_popup();
     build_button_mapping_reset_popup();
     build_eq_profile_delete_popup();
     build_eq_save_choice_popup();
@@ -6950,7 +6881,6 @@ void gui_settings_teardown(void) {
     ota_offer_title = ota_install_title = NULL;
     if (firmware_source_menu) { lv_obj_delete(firmware_source_menu); firmware_source_menu = NULL; }
     if (firmware_source_backdrop) { lv_obj_delete(firmware_source_backdrop); firmware_source_backdrop = NULL; }
-    gui_popup_teardown(&eq_reset_popup);
     gui_popup_teardown(&button_mapping_reset_popup);
     gui_popup_teardown(&eq_profile_delete_popup);
     gui_popup_teardown(&eq_save_choice_popup);
@@ -7079,7 +7009,6 @@ void gui_settings_teardown(void) {
     eq_freq_slider = eq_gain_slider = eq_q_slider = NULL;
     eq_type_dropdown = eq_freq_value_label = eq_gain_value_label = eq_q_value_label = NULL;
     eq_band_number_label = eq_profile_button_label = eq_main_content = eq_footer = eq_bypass_state_label = NULL;
-    eq_reset_row = NULL;
     eq_graph_panel = eq_graph_chart = eq_graph_caption = NULL;
     eq_graph_series = NULL;
     eq_graph_min_label = eq_graph_low_label = eq_graph_zero_label = NULL;
