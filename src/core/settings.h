@@ -144,6 +144,8 @@ typedef struct {
 
     /* Lyrics: enable the player's lyrics icon/view. On by default. */
     bool lyrics_enabled;
+    /* Keep visible lyrics awake during playback; paused uses normal timeout. */
+    bool lyrics_keep_screen_on;
 
     /* Subsonic-compatible (Subsonic/Navidrome/Airsonic/...) server config.
      * Stored in plaintext like every other setting here -- this project has

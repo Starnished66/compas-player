@@ -221,6 +221,7 @@ static void set_defaults(player_settings_t * out) {
     out->car_mode_autoresume_enabled = true;
     out->inline_remote_enabled = true;
     out->lyrics_enabled = true;
+    out->lyrics_keep_screen_on = true;
     out->subsonic_url[0] = '\0';
     out->subsonic_username[0] = '\0';
     out->subsonic_password[0] = '\0';
@@ -488,6 +489,8 @@ bool settings_load(player_settings_t * out) {
             out->inline_remote_enabled = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "lyrics_enabled") == 0) {
             out->lyrics_enabled = (strcmp(value, "1") == 0);
+        } else if (strcmp(key, "lyrics_keep_screen_on") == 0) {
+            out->lyrics_keep_screen_on = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "subsonic_url") == 0) {
             snprintf(out->subsonic_url, sizeof(out->subsonic_url), "%s", value);
         } else if (strcmp(key, "subsonic_username") == 0) {
@@ -837,6 +840,7 @@ static void settings_write_file(const player_settings_t * settings) {
     fprintf(f, "car_mode_autoresume_enabled=%d\n", settings->car_mode_autoresume_enabled ? 1 : 0);
     fprintf(f, "inline_remote_enabled=%d\n", settings->inline_remote_enabled ? 1 : 0);
     fprintf(f, "lyrics_enabled=%d\n", settings->lyrics_enabled ? 1 : 0);
+    fprintf(f, "lyrics_keep_screen_on=%d\n", settings->lyrics_keep_screen_on ? 1 : 0);
     fprintf(f, "subsonic_url=%s\n", settings->subsonic_url);
     fprintf(f, "subsonic_username=%s\n", settings->subsonic_username);
     fprintf(f, "subsonic_password=%s\n", settings->subsonic_password);

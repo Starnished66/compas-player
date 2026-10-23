@@ -41,6 +41,7 @@ int main(void) {
     assert(settings.idle_suspend_enabled);
     assert(settings.idle_shutdown_minutes == 10);
     assert(settings.dac_filter == 0 && !settings.dac_nos && settings.dac_dre);
+    assert(settings.lyrics_keep_screen_on);
 
     write_settings("keyboard_layout=0\nidle_shutdown_enabled=1\n"
                    "idle_suspend_enabled=0\nidle_shutdown_minutes=30\n");
@@ -57,6 +58,18 @@ int main(void) {
     assert(settings.idle_shutdown_enabled && settings.idle_suspend_enabled);
     assert(settings.idle_shutdown_minutes == 10);
     assert(settings.dac_filter == 0 && !settings.dac_nos && settings.dac_dre);
+    assert(settings.lyrics_keep_screen_on);
+
+    write_settings("volume=0.5\nlyrics_keep_screen_on=0\n");
+    assert(settings_load(&settings));
+    assert(!settings.lyrics_keep_screen_on);
+    settings_save(&settings);
+    assert(settings_load(&settings));
+    assert(!settings.lyrics_keep_screen_on);
+    settings.lyrics_keep_screen_on = true;
+    settings_save(&settings);
+    assert(settings_load(&settings));
+    assert(settings.lyrics_keep_screen_on);
 
     /* The new global Albums order persists as mode 3, while the two nested
      * collections stay within their existing three sorting choices. */

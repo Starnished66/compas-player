@@ -3831,6 +3831,13 @@ static void plugin_display_list_item_click_cb(lv_event_t * e) {
     plugin_manager_display_list_item_clicked(index);
 }
 
+static void lyrics_keep_screen_on_switch_event_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+    current_settings.lyrics_keep_screen_on =
+        lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
+    settings_save(&current_settings);
+}
+
 typedef struct {
     int scale;
     const char * label;
@@ -4631,7 +4638,7 @@ static lv_obj_t * build_player_layout_choice_screen(void) {
 }
 
 static lv_obj_t * build_settings_player_layout_screen(void) {
-    static pill_list_item_t items[4 + PLUGIN_MAX_DISPLAY_LIST_ITEMS];
+    static pill_list_item_t items[5 + PLUGIN_MAX_DISPLAY_LIST_ITEMS];
     items[0] = (pill_list_item_t){ TR("Layout"), PILL_ACCESSORY_CHEVRON, false,
                                     player_layout_choice_settings_row_cb, NULL, NULL };
     items[1] = (pill_list_item_t){ TR("Lyrics"), PILL_ACCESSORY_TOGGLE,
@@ -4641,7 +4648,10 @@ static lv_obj_t * build_settings_player_layout_screen(void) {
     items[3] = (pill_list_item_t){ TR("Hide Player/Lyrics Top Bar"), PILL_ACCESSORY_TOGGLE,
                                     current_settings.hide_player_topbar, NULL,
                                     hide_player_topbar_switch_event_cb, NULL };
-    int count = append_grouped_plugin_rows(items, 4, PLUGIN_MAX_DISPLAY_LIST_ITEMS,
+    items[4] = (pill_list_item_t){ TR("Keep Lyrics Screen On"), PILL_ACCESSORY_TOGGLE,
+                                    current_settings.lyrics_keep_screen_on, NULL,
+                                    lyrics_keep_screen_on_switch_event_cb, NULL };
+    int count = append_grouped_plugin_rows(items, 5, PLUGIN_MAX_DISPLAY_LIST_ITEMS,
         "display", "player_layout", plugin_manager_get_display_list_item_count,
         plugin_manager_get_display_list_item_label, plugin_manager_get_display_list_item_options,
         plugin_display_list_item_click_cb);

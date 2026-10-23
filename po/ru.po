@@ -3697,3 +3697,7 @@ msgstr "Плагин стриминга недоступен"
 
 msgid "TXT Reader"
 msgstr "Просмотр TXT"
+
+#: src/ui/gui_settings.c
+msgid "Keep Lyrics Screen On"
+msgstr ""

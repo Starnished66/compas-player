@@ -279,6 +279,7 @@ void poll_bt_forget(void);
 #define RADIO_SUSPEND_DELAY_MS (10 * 60 * 1000)
 static uint32_t screen_off_since_tick = 0;
 static bool inactivity_dimmed = false;
+static bool lyrics_timeout_held = false;
 
 /* Earliest possible inactivity age for the interactive UI. LVGL's display
  * inactivity timestamp can predate gui_init()'s splash -> Home transition
@@ -1399,10 +1400,17 @@ static void update_timer_cb(lv_timer_t * timer) {
         if (screen_inactive_ms > interactive_age_ms) screen_inactive_ms = interactive_age_ms;
     }
     bool screen_on_before_timeout = backlight_screen_is_on();
-    /* Exempt lyrics view from dimming and timeout while audio is playing so lyrics
-     * remain readable without requiring continuous touch input. When paused, normal
-     * timeout applies. */
-    bool lyrics_screen_active = lv_screen_active() == gui_lyrics_get_screen() && audio_is_playing();
+    /* Keep the visible lyrics readable during playback only. A pause, page
+     * exit or disabled option restores a full normal inactivity countdown.
+     * Never wake a screen the user explicitly turned off. */
+    lv_obj_t * lyrics_screen = gui_lyrics_get_screen();
+    bool lyrics_screen_active = current_settings.lyrics_keep_screen_on && lyrics_screen &&
+        lv_screen_active() == lyrics_screen && audio_is_playing();
+    if (lyrics_timeout_held && !lyrics_screen_active && screen_on_before_timeout) {
+        gui_reset_interactive_timeout_baseline();
+        screen_inactive_ms = 0;
+    }
+    lyrics_timeout_held = lyrics_screen_active && screen_on_before_timeout;
     uint32_t active_dim_delay_ms = (uint32_t) current_settings.screen_dim_delay_seconds * 1000;
     if (current_settings.screen_timeout_enabled && active_dim_delay_ms >= (uint32_t) current_settings.screen_timeout_seconds * 1000) {
         active_dim_delay_ms = UINT32_MAX; /* Prevent dimming if delay exceeds or equals timeout */

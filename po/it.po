@@ -3857,3 +3857,7 @@ msgstr "Il plugin di streaming non è disponibile"
 
 msgid "TXT Reader"
 msgstr "Lettore TXT"
+
+#: src/ui/gui_settings.c
+msgid "Keep Lyrics Screen On"
+msgstr ""

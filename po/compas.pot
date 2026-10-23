@@ -3609,3 +3609,7 @@ msgstr ""
 
 msgid "TXT Reader"
 msgstr ""
+
+#: src/ui/gui_settings.c
+msgid "Keep Lyrics Screen On"
+msgstr ""

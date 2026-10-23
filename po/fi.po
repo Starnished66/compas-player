@@ -3673,3 +3673,7 @@ msgstr "Suoratoistolaajennus ei ole käytettävissä"
 
 msgid "TXT Reader"
 msgstr "TXT-lukija"
+
+#: src/ui/gui_settings.c
+msgid "Keep Lyrics Screen On"
+msgstr ""
