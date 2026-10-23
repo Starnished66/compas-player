@@ -5593,6 +5593,15 @@ static void home_tiles_drop_cards(lv_obj_t * parent) {
         if (lv_obj_has_flag(child, LV_OBJ_FLAG_USER_1)) {
             lv_obj_remove_style(child, &style_theme_tile, 0);
             lv_obj_remove_style(child, &style_theme_tile_pressed, LV_STATE_PRESSED);
+            /* Native tiles cleared their local transparency for the card;
+             * restore it so LVGL's default white card doesn't show. */
+            lv_style_value_t v;
+            if (lv_obj_get_local_style_prop(child, LV_STYLE_BG_OPA, &v, 0) != LV_STYLE_RES_FOUND) {
+                lv_obj_set_style_bg_opa(child, LV_OPA_TRANSP, 0);
+                lv_obj_set_style_border_width(child, 0, 0);
+                lv_obj_set_style_bg_opa(child, 64, LV_STATE_PRESSED);
+                lv_obj_set_style_bg_color(child, lv_color_hex(GUI_COLOR_PRESSED), LV_STATE_PRESSED);
+            }
         } else {
             home_tiles_drop_cards(child);
         }
