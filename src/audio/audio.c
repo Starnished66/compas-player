@@ -683,7 +683,7 @@ static bool decoder_open_internal(decoder_t * dec, const char * path,
 
     /* Compressed DSD must use the same DoP/fallback pipeline as DSF/DFF.
      * Ordinary PCM WavPack falls through to its existing decoder below. */
-    if (strcasecmp(ext, ".dsf") == 0 || strcasecmp(ext, ".dff") == 0 ||
+    if (strcasecmp(ext, ".dsf") == 0 || strcasecmp(ext, ".dff") == 0 || strcasecmp(ext, ".iso") == 0 ||
         strcasecmp(ext, ".wv") == 0) {
         dec->type = DECODER_DSD;
         dec->as.dsd = dsd_open_file(path);
@@ -2283,7 +2283,7 @@ bool audio_extract_waveform_progress(const char * path, uint8_t * bins, size_t c
     }
     if (stat(stat_path, &st) != 0 || !S_ISREG(st.st_mode)) return false;
     const char * ext = strrchr(stat_path, '.');
-    if (ext && (strcasecmp(ext, ".dsf") == 0 || strcasecmp(ext, ".dff") == 0 ||
+    if (ext && (strcasecmp(ext, ".dsf") == 0 || strcasecmp(ext, ".dff") == 0 || strcasecmp(ext, ".iso") == 0 ||
                 strcasecmp(ext, ".ape") == 0)) return false;
     (void) clock_gettime(CLOCK_MONOTONIC, &started);
     last_yield = started;

@@ -1,5 +1,6 @@
 #include "metadata.h"
 #include "cue_parser.h"
+#include "sacd_iso.h"
 #include "library_endian.h"
 #include "lyrics.h"
 
@@ -2367,6 +2368,24 @@ static void metadata_read_dispatch(const char * path, track_metadata_t * out, bo
         read_ape_metadata(path, out);
     } else if (strcasecmp(ext, ".dff") == 0) {
         read_dff_metadata(path, out, include_blobs);
+    } else if (strcasecmp(ext, ".iso") == 0) {
+        FILE *file = fopen(path, "rb");
+        sacd_toc_t *toc = calloc(1, sizeof(*toc));
+        bool ok = file && toc && sacd_read_toc(file, toc);
+        if (file) fclose(file);
+        if (ok) {
+            if (toc->title[0]) {
+                copy_bounded(out->title, sizeof(out->title), toc->title, strlen(toc->title));
+                copy_bounded(out->album, sizeof(out->album), toc->title, strlen(toc->title));
+                out->has_title = out->has_album = true;
+            }
+            if (toc->artist[0]) {
+                copy_bounded(out->artist, sizeof(out->artist), toc->artist, strlen(toc->artist));
+                copy_bounded(out->album_artist, sizeof(out->album_artist), toc->artist, strlen(toc->artist));
+                out->has_artist = out->has_album_artist = true;
+            }
+        }
+        free(toc);
     } else if (strcasecmp(ext, ".wma") == 0) {
         read_wma_metadata(path, out);
     }

@@ -1,6 +1,7 @@
 #define _FILE_OFFSET_BITS 64
 
 #include "cue_parser.h"
+#include "sacd_iso.h"
 #include <ctype.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -484,6 +485,34 @@ bool cue_parse_embedded(const char *path, cue_sheet_t *out) {
     const char *ext = strrchr(path, '.');
     if (!ext)
         return false;
+    if (!strcasecmp(ext, ".iso")) {
+        FILE *file = fopen(path, "rb");
+        sacd_toc_t *toc = calloc(1, sizeof(*toc));
+        bool ok = file && toc && sacd_read_toc(file, toc);
+        if (file) fclose(file);
+        if (!ok) { free(toc); return false; }
+        out->tracks = calloc(toc->track_count, sizeof(*out->tracks));
+        if (!out->tracks) { free(toc); return false; }
+        out->track_count = (int)toc->track_count;
+        snprintf(out->audio_path, sizeof(out->audio_path), "%s", path);
+        snprintf(out->title, sizeof(out->title), "%s", toc->title);
+        snprintf(out->performer, sizeof(out->performer), "%s", toc->artist);
+        for (unsigned i = 0; i < toc->track_count; ++i) {
+            cue_track_t *track = &out->tracks[i];
+            track->number = (int)i + 1;
+            snprintf(track->title, sizeof(track->title), "%s", toc->tracks[i].title);
+            snprintf(track->performer, sizeof(track->performer), "%s", toc->tracks[i].artist);
+            snprintf(track->audio_path, sizeof(track->audio_path), "%s", path);
+            track->start_seconds = (double)toc->tracks[i].start_frame / 75.0;
+            uint32_t end_frame = i + 1 < toc->track_count
+                ? toc->tracks[i + 1].start_frame
+                : toc->tracks[i].start_frame + toc->tracks[i].frame_count;
+            track->end_seconds = (double)end_frame / 75.0;
+            track->has_index_01 = true;
+        }
+        free(toc);
+        return true;
+    }
     if (!strcasecmp(ext, ".wv")) {
         WavpackContext *w = WavpackOpenFileInput(path, NULL, OPEN_TAGS, 0);
         if (!w)

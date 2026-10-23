@@ -1,5 +1,6 @@
 #include "dsd_decoder.h"
 #include "dsd_filter.h"
+#include "sacd_reader.h"
 #include "audio_helpers.h"
 
 #include <math.h>
@@ -25,12 +26,14 @@
 typedef enum {
     DSD_CONTAINER_DSF,
     DSD_CONTAINER_DFF,
-    DSD_CONTAINER_WAVPACK
+    DSD_CONTAINER_WAVPACK,
+    DSD_CONTAINER_SACD
 } dsd_container_t;
 
 struct dsd_decoder {
     FILE * f;
     WavpackContext * wavpack;
+    sacd_reader_t * sacd;
     dsd_container_t container;
 
     unsigned int channels;
@@ -118,6 +121,7 @@ static void free_decoder(dsd_decoder_t * dec) {
     dsd_filter_design_release(dec->filter_design);
     free(dec->dsf_block_buffer);
     free(dec->wavpack_buffer);
+    sacd_reader_close(dec->sacd);
     if (dec->wavpack) WavpackCloseFile(dec->wavpack);
     free(dec);
 }
@@ -326,6 +330,22 @@ static dsd_decoder_t * open_dff(FILE * f) {
     return dec;
 }
 
+static dsd_decoder_t * open_sacd(FILE *f) {
+    dsd_decoder_t *dec = calloc(1, sizeof(*dec));
+    if (!dec) return NULL;
+    uint64_t samples;
+    dec->f = f;
+    dec->container = DSD_CONTAINER_SACD;
+    dec->channels = 2;
+    dec->dsd_sample_rate = 2822400;
+    dec->sacd = sacd_reader_open(f, &samples);
+    if (!dec->sacd || !finish_setup(dec, samples)) {
+        free_decoder(dec);
+        return NULL;
+    }
+    return dec;
+}
+
 dsd_decoder_t * dsd_open_file(const char * path) {
     FILE * f = fopen(path, "rb");
     if (!f) return NULL;
@@ -344,6 +364,8 @@ dsd_decoder_t * dsd_open_file(const char * path) {
     } else if (memcmp(magic, "wvpk", 4) == 0) {
         fclose(f);
         return open_wavpack(path);
+    } else {
+        dec = open_sacd(f);
     }
 
     if (!dec) {
@@ -444,6 +466,8 @@ static bool next_byte_row(dsd_decoder_t * dec, uint8_t row[DSD_MAX_CHANNELS]) {
  * a frame that straddles a buffer edge goes byte row by byte row. */
 static bool read_frame_bytes(dsd_decoder_t * dec, uint8_t out[DSD_MAX_CHANNELS][DSD_MAX_BYTES_PER_FRAME]) {
     unsigned int channels = dec->channels, count = dec->bytes_per_frame;
+    if (dec->container == DSD_CONTAINER_SACD)
+        return sacd_reader_bytes(dec->sacd, out[0], out[1], count);
     if (dec->container == DSD_CONTAINER_DSF) {
         if (dec->dsf_block_pos >= dec->dsf_block_size) {
             dsf_load_block(dec);
@@ -478,9 +502,10 @@ static bool read_frame_bytes(dsd_decoder_t * dec, uint8_t out[DSD_MAX_CHANNELS][
 /* The data ended before its declared length (a truncated file): the track
  * ends here in either mode. Only a read error is fatal. */
 static void end_at_current_frame(dsd_decoder_t * dec) {
-    /* WavPack's declared byte-frame count is authoritative. A short/corrupt
-     * unpack is fatal and must not silently shorten the track. */
-    if (dec->container == DSD_CONTAINER_WAVPACK) {
+    /* Corrupt compressed data is fatal. A clean SACD area end can be
+     * earlier than the TOC duration, and follows the normal EOF path. */
+    if (dec->container == DSD_CONTAINER_WAVPACK ||
+        (dec->container == DSD_CONTAINER_SACD && !sacd_reader_eof(dec->sacd))) {
         dec->read_error = true;
         return;
     }
@@ -564,6 +589,8 @@ decoder_read_result_t dsd_read_pcm_frames_s32(dsd_decoder_t * dec, uint64_t fram
  * filter state. */
 static bool position_at_frame(dsd_decoder_t * dec, uint64_t frame_index) {
     uint64_t byte_index = frame_index * dec->bytes_per_frame; /* per channel */
+    if (dec->container == DSD_CONTAINER_SACD)
+        return sacd_reader_seek(dec->sacd, byte_index);
     if (dec->container == DSD_CONTAINER_WAVPACK) {
         /* libwavpack treats a failed seek as fatal. Once decoding has
          * failed, the caller must close this context rather than reuse it. */
@@ -620,7 +647,7 @@ bool dsd_seek_to_pcm_frame(dsd_decoder_t * dec, uint64_t frame_index) {
     if (frame_index > start) (void) decode_frames(dec, frame_index - start, NULL, NULL);
     /* Short only when the data ended first (later reads report EOF) or on a
      * read error, which fails the seek. */
-    return dec->current_pcm_frame == frame_index || (dec->f && !ferror(dec->f));
+    return dec->current_pcm_frame == frame_index || (dec->f && !ferror(dec->f) && !dec->read_error);
 }
 
 bool dsd_set_dop(dsd_decoder_t * dec, bool dop, uint64_t frame_index, uint64_t * out_frame_index) {

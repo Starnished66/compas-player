@@ -7,6 +7,7 @@
 #include "playlist_files.h" /* playlist_files_resolve_path() -- shared M3U line resolution */
 #include "library_endian.h"
 #include "cue_parser.h"
+#include "sacd_iso.h"
 #include "fallback_font.h"
 #include "file_ops.h" /* file_op_path_in_root() */
 #include "ui_frame_trace.h"
@@ -179,7 +180,7 @@ static void set_path_label(file_browser_t *fb) {
 
 /* Kept in sync with audio.c's decoder dispatch. */
 static const char * const PLAYABLE_EXTENSIONS[] = {
-    ".flac", ".mp3", ".wav", ".rf64", ".w64", ".aiff", ".aif", ".aifc", ".dsf", ".dff", ".aac", ".m4a", ".m4b", ".mp4", ".alac", ".wv", ".caf", ".ape", ".wma", ".opus", ".ogg", ".oga",
+    ".flac", ".mp3", ".wav", ".rf64", ".w64", ".aiff", ".aif", ".aifc", ".dsf", ".dff", ".iso", ".aac", ".m4a", ".m4b", ".mp4", ".alac", ".wv", ".caf", ".ape", ".wma", ".opus", ".ogg", ".oga",
 };
 
 bool file_browser_is_playable_name(const char * name) {
@@ -214,6 +215,17 @@ static bool is_cue_file(const char * name) {
     const char * ext = strrchr(name, '.');
     if (!ext) return false;
     return strcasecmp(ext, ".cue") == 0;
+}
+
+/* ISO is a generic container extension; the library walk admits only SACD
+ * images. Keep this check out of the pure filename classifier and UI index. */
+static bool is_sacd_iso_path(const char * path) {
+    FILE *file = fopen(path, "rb");
+    if (!file) return false;
+    sacd_area_t area;
+    bool ok = sacd_read_area(file, &area);
+    fclose(file);
+    return ok;
 }
 
 static unsigned char filename_ascii_fold(unsigned char c) {
@@ -1514,6 +1526,8 @@ static bool walk_all_songs_recursive(const char * dir_path, file_browser_song_vi
             continue;
         }
         if (!file_browser_is_playable_name(de->d_name)) continue;
+        const char *ext = strrchr(de->d_name, '.');
+        if (ext && strcasecmp(ext, ".iso") == 0 && !is_sacd_iso_path(path_buf)) continue;
 
         if (add_files) {
             (*count)++;

@@ -103,6 +103,8 @@ cc -D_GNU_SOURCE -std=c11 -O2 -Wall -Wextra -Werror "${sanitizers[@]}" \
     -I"${repo_dir}/src/audio" -I"${repo_dir}/third_party/libwavpack/include" \
     "${repo_dir}/src/audio/dsd_wavpack_test.c" \
     "${repo_dir}/src/audio/dsd_decoder.c" "${repo_dir}/src/audio/dsd_filter.c" \
+    "${repo_dir}/src/audio/sacd_reader.c" "${repo_dir}/src/audio/dst_decoder.c" \
+    "${repo_dir}/src/library/sacd_iso.c" \
     "${build_dir}/libwavpack/libwavpack.a" -lm -lpthread -o "${test_bin}"
 
 args=("${fixture_dir}/pcm.wv" "${fixture_dir}/truncated.wv" "${fixture_dir}/corrupt.wv")
