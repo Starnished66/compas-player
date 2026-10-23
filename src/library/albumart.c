@@ -336,7 +336,12 @@ static bool albumart_search_files_internal(const albumart_info_t * id3, const ch
     disc_name[0] = '\0';
 
     for (int pass = 0; pass < 2 - track_first; pass++) {
-        if (track_first || pass) {
+        /* Folder-level art wins over per-track sidecars: <track><size>.* is
+         * only tried when the album/cover/folder names beside the track
+         * all miss. */
+        if (!found) found = try_art_in_dir(dir, dirlen, id3, size_string, albumlen, path);
+
+        if ((track_first || pass) && !found) {
             strip_extension(path, sizeof(path) - strlen(size_string) - 5, id3->path);
             strcat(path, size_string);
             strcat(path, ".");
@@ -344,8 +349,6 @@ static bool albumart_search_files_internal(const albumart_info_t * id3, const ch
             found = try_exts(path, pathlen);
         }
         if (pass) break;
-
-        if (!found) found = try_art_in_dir(dir, dirlen, id3, size_string, albumlen, path);
 
         if (include_generated_cache) {
             if (!found) found = try_albumart_cache(ALBUMART_DIR, id3, size_string, path);
