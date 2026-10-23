@@ -19,10 +19,21 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <limits.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <errno.h>
 
 #define ALBUMART_DIR SD_COMPAS_ROOT "/albumart"
+
+/* v4 caches were generated with folder art taking priority over track
+ * sidecars. A v3 cache can contain a different source with a newer mtime,
+ * so timestamp freshness alone cannot migrate that selection policy.
+ * Keep the album key stable for grouping and artist aliases. */
+#define ALBUMART_CACHE_PREFIX "v4-"
+_Static_assert(sizeof(ALBUMART_CACHE_PREFIX) == 4, "cache parser requires a three-byte prefix");
+
+static pthread_once_t old_album_cache_cleanup_once = PTHREAD_ONCE_INIT;
+static void remove_old_album_caches(void);
 
 #ifndef MIN
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -105,7 +116,7 @@ static bool try_albumart_cache(const char * dir, const albumart_info_t * id3, co
     const char * artist = id3->albumartist[0] ? id3->albumartist : id3->artist;
     if (!artist[0] || !id3->album[0]) return false;
     if (size_string[0]) {
-        int pathlen = snprintf(path, PATH_MAX, "%s/v3-%016llx%s.", dir,
+        int pathlen = snprintf(path, PATH_MAX, "%s/" ALBUMART_CACHE_PREFIX "%016llx%s.", dir,
                                (unsigned long long) albumart_thumbnail_key(id3), size_string);
         if (pathlen < 0 || pathlen >= PATH_MAX) return false;
         fix_path_part(path, (int) strlen(dir) + 1, PATH_MAX);
@@ -339,7 +350,7 @@ static bool albumart_search_files_internal(const albumart_info_t * id3, const ch
         /* Folder-level art wins over per-track sidecars: <track><size>.* is
          * only tried when the album/cover/folder names beside the track
          * all miss. */
-        if (!found) found = try_art_in_dir(dir, dirlen, id3, size_string, albumlen, path);
+        if (pass == 0 && !found) found = try_art_in_dir(dir, dirlen, id3, size_string, albumlen, path);
 
         if ((track_first || pass) && !found) {
             strip_extension(path, sizeof(path) - strlen(size_string) - 5, id3->path);
@@ -502,7 +513,7 @@ bool albumart_sized_thumb_fresh(const albumart_info_t * info, int width, int hei
 
 static bool generated_cache_file(const char * dir, const albumart_info_t * info, int width, int height,
                                  char * path, size_t path_size) {
-    int pathlen = snprintf(path, path_size, "%s/v3-%016llx.%dx%d.bmp", dir,
+    int pathlen = snprintf(path, path_size, "%s/" ALBUMART_CACHE_PREFIX "%016llx.%dx%d.bmp", dir,
                            (unsigned long long) albumart_thumbnail_key(info), width, height);
     return pathlen > 0 && (size_t) pathlen < path_size && file_exists(path);
 }
@@ -612,8 +623,13 @@ bool albumart_store_rgb565(const albumart_info_t * info, int width, int height, 
 
     mkdir(SD_COMPAS_ROOT, 0755);
     mkdir(ALBUMART_DIR, 0755);
+    /* Cache writers run in artwork workers. Retire the old policy once,
+     * before allocating SD space for replacements, not on the UI/read path.
+     * Concurrent writers wait for this pass; failed removals remain eligible
+     * for explicit cache clearing or retry on the next process start. */
+    pthread_once(&old_album_cache_cleanup_once, remove_old_album_caches);
     char path[PATH_MAX];
-    int pathlen = snprintf(path, sizeof(path), "%s/v3-%016llx.%dx%d.bmp", ALBUMART_DIR,
+    int pathlen = snprintf(path, sizeof(path), "%s/" ALBUMART_CACHE_PREFIX "%016llx.%dx%d.bmp", ALBUMART_DIR,
                            (unsigned long long) albumart_thumbnail_key(info), width, height);
     if (pathlen < 0 || (size_t) pathlen >= sizeof(path)) return false;
     fix_path_part(path, (int) strlen(ALBUMART_DIR) + 1, PATH_MAX);
@@ -809,7 +825,10 @@ static bool valid_generated_tail(const char * tail, bool allow_noart) {
 }
 
 static bool parse_album_cache_filename(const char * name, uint64_t * out_key) {
-    if (!name || !out_key || strncmp(name, "v3-", 3) != 0 ||
+    /* Old policy caches are never loaded, but Reload cover and Clear cache
+     * must still remove them along with current generated files. */
+    if (!name || !out_key ||
+        (strncmp(name, ALBUMART_CACHE_PREFIX, 3) != 0 && strncmp(name, "v3-", 3) != 0) ||
         !has_hex_key(name + 3) || name[19] != '.' || !valid_generated_tail(name + 20, true))
         return false;
     uint64_t key = 0;
@@ -915,6 +934,18 @@ static bool remove_cache_files_matching(const char * root, cache_name_match_fn m
 }
 
 static const char * const cache_roots[] = { SD_COMPAS_ROOT };
+
+static bool match_old_album_cache(int dir_fd, const char * name, void * context) {
+    (void) dir_fd;
+    (void) context;
+    uint64_t key;
+    return strncmp(name, "v3-", 3) == 0 && parse_album_cache_filename(name, &key);
+}
+
+static void remove_old_album_caches(void) {
+    for (size_t r = 0; r < sizeof(cache_roots) / sizeof(cache_roots[0]); r++)
+        (void) remove_cache_files_matching(cache_roots[r], match_old_album_cache, NULL);
+}
 
 static bool match_any_generated_cache(int dir_fd, const char * name, void * context) {
     (void) dir_fd;

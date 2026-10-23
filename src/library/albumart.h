@@ -14,13 +14,12 @@
 
 /* POSIX port of Rockbox apps/recorder/albumart.c (GPLv2+), extended with a
  * multi-disc fallback (own repo addition, not present in upstream Rockbox).
- * Search order matches find_albumart()/search_albumart_files(), plus that
- * extension:
- *   ./<track><size>.{jpeg,jpg,png,bmp}
+ * Folder art takes priority over track sidecars. Search order:
  *   ./<album><size>.{jpeg,jpg,png,bmp}
  *   ./cover<size>.{jpeg,jpg,png,bmp}
  *   ./folder.{jpg,jpeg,png}  (unsized pass only)
- *   <musicroot>/.compas/albumart/v3-<album-key><size>.{jpeg,jpg,png,bmp}
+ *   ./<track><size>.{jpeg,jpg,png,bmp}
+ *   <musicroot>/.compas/albumart/v4-<album-key><size>.{jpeg,jpg,png,bmp}
  *   same album/cover/folder names in the parent directory
  *   (unsized only) if this directory's name looks like a disc marker
  *   ("CD1", "Disc 2", "disk_03", ...), the same album/cover/folder names
@@ -43,7 +42,7 @@ bool albumart_search_files(const albumart_info_t * info, const char * size_strin
 bool albumart_search_source_files(const albumart_info_t * info, const char * size_string,
                                   char * buf, size_t buflen);
 
-/* Writes <musicroot>/.compas/albumart/<artist>-<album>.WxH.bmp from RGB565.
+/* Writes <musicroot>/.compas/albumart/v4-<album-key>.WxH.bmp from RGB565.
  * Source cover/audio mtime is stored in the BMP reserved field so a later
  * load can detect a replaced cover. */
 bool albumart_store_rgb565(const albumart_info_t * info, int width, int height, const uint16_t * pixels);
