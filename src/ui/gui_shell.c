@@ -1083,10 +1083,10 @@ static const lv_font_t * topbar_ampm_font(void) {
 #endif
 }
 
-/* Normalize Lucide art by its visible source bounds so icon ink shares the
+/* Normalize Breeze art by its visible source bounds so icon ink shares the
  * text's centerline and target height. Two pixels of padding around the
  * visible bounds keeps neighboring status items legible without crowding. */
-static void layout_lucide_topbar_image_sized(lv_obj_t * image, int left, int top,
+static void layout_glyph_topbar_image_sized(lv_obj_t * image, int left, int top,
                                              int width, int height,
                                              int target_px) {
     int target = BOARD_SCALE_PX(target_px);
@@ -1103,42 +1103,91 @@ static void layout_lucide_topbar_image_sized(lv_obj_t * image, int left, int top
                                            - (top * scale + LV_SCALE_NONE / 2) / LV_SCALE_NONE));
 }
 
-static void layout_lucide_topbar_image(lv_obj_t * image, int left, int top,
-                                       int width, int height) {
-    layout_lucide_topbar_image_sized(image, left, top, width, height, 20);
+/* Status glyphs are Breeze. Firmware images that predate it only ship the
+ * Lucide set, so fall back to those names and their measured bounds when
+ * the Breeze art cannot be found. */
+typedef struct {
+    int left, top, width, height, target_px;
+} topbar_bounds_t;
+
+#define BOUNDS_SIZED(l, t, w, h, px) ((topbar_bounds_t){ (l), (t), (w), (h), (px) })
+#define BOUNDS(l, t, w, h) BOUNDS_SIZED(l, t, w, h, 20)
+/* Breeze art is rasterized from its 22 px SVGs straight to the 28 px it is
+ * shown at, so it is drawn unscaled and only needs its horizontal ink span
+ * for the slot width. */
+#define NATIVE_SIZED(l, w, px) BOUNDS_SIZED(l, 0, w, px, 0)
+#define NATIVE(l, w) NATIVE_SIZED(l, w, BREEZE_ICON_PX)
+#define BREEZE_ICON_PX 28
+
+static bool topbar_breeze_icons(void) {
+    static int available = -1;
+    if (available < 0) {
+        const char * probe = asset_path_plain("topbar/breeze_play.png");
+        available = probe && access(probe, R_OK) == 0;
+    }
+    return available;
+}
+
+static const char * topbar_icon(const char * name) {
+    char relative[64];
+    snprintf(relative, sizeof(relative), "topbar/%s_%s.png",
+             topbar_breeze_icons() ? "breeze" : "lucide", name);
+    return asset_path(relative);
+}
+
+static void layout_native_topbar_image(lv_obj_t * image, int left, int width,
+                                       int canvas_px) {
+    int padding = BOARD_SCALE_PX(2);
+    lv_image_set_inner_align(image, LV_IMAGE_ALIGN_TOP_LEFT);
+    lv_image_set_pivot(image, 0, 0);
+    lv_image_set_scale(image, LV_SCALE_NONE);
+    lv_obj_set_size(image, width + 2 * padding, STATUS_BAR_CLEARANCE);
+    lv_obj_set_style_translate_y(image, 0, 0);
+    lv_image_set_offset_x(image, (int16_t)(padding - left));
+    lv_image_set_offset_y(image, (int16_t)((STATUS_BAR_CLEARANCE - canvas_px) / 2));
+}
+
+static void layout_topbar_glyph(lv_obj_t * image, topbar_bounds_t breeze,
+                                topbar_bounds_t lucide) {
+    if (topbar_breeze_icons()) {
+        layout_native_topbar_image(image, breeze.left, breeze.width, breeze.height);
+        return;
+    }
+    layout_glyph_topbar_image_sized(image, lucide.left, lucide.top, lucide.width,
+                                    lucide.height, lucide.target_px);
 }
 
 /* All battery states use the same measured family envelope. The resulting
  * fixed-width slot keeps the percentage group anchored through state swaps. */
 static void layout_battery_topbar_image(lv_obj_t * image) {
-    layout_lucide_topbar_image(image, 1, 5, 22, 14);
+    /* The Breeze battery is short and wide, so it is rasterized at 35 px to
+     * give its body the same ink height as the other glyphs. */
+    layout_topbar_glyph(image, NATIVE_SIZED(1, 33, 35), BOUNDS(1, 5, 22, 14));
 }
 
 static void layout_radio_topbar_image(lv_obj_t * image) {
-    /* All Wi-Fi strengths/off states share these family canvas bounds.
-     * Keeping them identical preserves partial-state art. */
-    layout_lucide_topbar_image(image, 1, 1, 22, 22);
+    /* All Wi-Fi strengths/off states share these family bounds. Keeping
+     * them identical preserves partial-state art. */
+    layout_topbar_glyph(image, NATIVE(0, 28), BOUNDS(1, 1, 22, 22));
 }
 
 static void layout_bluetooth_topbar_image(lv_obj_t * image) {
-    /* Bluetooth's connected glyph is much narrower than the shared radio
-     * envelope. Enlarge both states together so they remain optically balanced
-     * without changing the slot or shifting when the state changes. */
-    layout_lucide_topbar_image_sized(image, 1, 1, 22, 22, 24);
+    /* Both states share one envelope so the slot does not shift. Lucide's
+     * connected glyph is much narrower, so that set is enlarged to 24 px. */
+    layout_topbar_glyph(image, NATIVE(0, 28), BOUNDS_SIZED(1, 1, 22, 22, 24));
 }
 
-/* Connected strengths share the full-signal arcs' bounds, which leave the
- * top of the canvas empty; sizing them by the off glyph's square made the
- * arcs visibly smaller than the neighboring icons. */
+/* Breeze strengths share the off glyph's bounds; Lucide's connected arcs
+ * leave the top of the canvas empty, so they use the full-signal bounds. */
 static void layout_wifi_connected_topbar_image(lv_obj_t * image) {
-    layout_lucide_topbar_image(image, 1, 4, 22, 17);
+    layout_topbar_glyph(image, NATIVE(0, 28), BOUNDS(1, 4, 22, 17));
 }
 
 /* Codec badges share these measured solid alpha bounds (alpha >= 128) on a
  * 48x30 canvas. Scaling the 40x24 mark directly gives a clear, consistent
  * 24 px badge height while preserving two pixels of horizontal slot padding. */
 static void layout_codec_topbar_image(lv_obj_t * image) {
-    layout_lucide_topbar_image_sized(image, 4, 3, 40, 24, 24);
+    layout_glyph_topbar_image_sized(image, 4, 3, 40, 24, 24);
 }
 
 static void build_status_bar(void) {
@@ -1232,8 +1281,8 @@ static void build_status_bar(void) {
 
     /* Normalize against the sprite's measured visible glyph bounds. */
     volume_topbar_icon = lv_image_create(volume_topbar_group);
-    lv_image_set_src(volume_topbar_icon, asset_path("topbar/lucide_volume_2.png"));
-    layout_lucide_topbar_image(volume_topbar_icon, 1, 3, 22, 18);
+    lv_image_set_src(volume_topbar_icon, topbar_icon("volume_2"));
+    layout_topbar_glyph(volume_topbar_icon, NATIVE(3, 22), BOUNDS(1, 3, 22, 18));
 
     /* White by default (the sprite's own native color, no recolor style
      * applied at creation); refresh_volume_topbar() below switches each
@@ -1251,8 +1300,8 @@ static void build_status_bar(void) {
      * by refresh_headphone_icon() when a headphone/dongle is plugged in
      * (see headphone_status.h). */
     volume_topbar_headphone = lv_image_create(volume_topbar_group);
-    lv_image_set_src(volume_topbar_headphone, asset_path("topbar/lucide_headphones.png"));
-    layout_lucide_topbar_image(volume_topbar_headphone, 2, 2, 20, 20);
+    lv_image_set_src(volume_topbar_headphone, topbar_icon("headphones"));
+    layout_topbar_glyph(volume_topbar_headphone, NATIVE(3, 22), BOUNDS(2, 2, 20, 20));
     lv_obj_add_flag(volume_topbar_headphone, LV_OBJ_FLAG_HIDDEN);
 
     /* Same flex row as the headphone-jack glyph above, not a separate fixed
@@ -1264,8 +1313,8 @@ static void build_status_bar(void) {
      * by the volume digit slots above, does this for free -- no manual
      * "replace" logic needed). */
     a2dp_status_icon = lv_image_create(volume_topbar_group);
-    lv_image_set_src(a2dp_status_icon, asset_path("topbar/lucide_audio_lines.png"));
-    layout_lucide_topbar_image(a2dp_status_icon, 1, 2, 22, 20);
+    lv_image_set_src(a2dp_status_icon, topbar_icon("audio_lines"));
+    layout_topbar_glyph(a2dp_status_icon, NATIVE(2, 22), BOUNDS(1, 2, 22, 20));
     lv_obj_add_flag(a2dp_status_icon, LV_OBJ_FLAG_HIDDEN); /* shown by poll_refresh_bt_icon() once an A2DP source PCM exists */
 
     /* Same flex-collapse shape as the headphone/A2DP glyphs above -- shown/
@@ -1277,8 +1326,8 @@ static void build_status_bar(void) {
     usb_audio_status_icon = lv_image_create(volume_topbar_group);
     /* Uses topbar/usb.png for the topbar status row (distinct from
      * usb/usb.png used by the full-screen USB DAC mode overlay). */
-    lv_image_set_src(usb_audio_status_icon, asset_path("topbar/lucide_usb.png"));
-    layout_lucide_topbar_image(usb_audio_status_icon, 2, 2, 20, 20);
+    lv_image_set_src(usb_audio_status_icon, topbar_icon("usb"));
+    layout_topbar_glyph(usb_audio_status_icon, NATIVE(7, 14), BOUNDS(2, 2, 20, 20));
     lv_obj_add_flag(usb_audio_status_icon, LV_OBJ_FLAG_HIDDEN);
 
     /* Rightmost in this row -- always after whichever headphone-output
@@ -1287,8 +1336,8 @@ static void build_status_bar(void) {
      * hidden entirely when stopped/nothing loaded --
      * refresh_play_pause_topbar(). */
     play_pause_status_icon = lv_image_create(volume_topbar_group);
-    lv_image_set_src(play_pause_status_icon, asset_path("topbar/lucide_play.png"));
-    layout_lucide_topbar_image(play_pause_status_icon, 2, 2, 20, 20);
+    lv_image_set_src(play_pause_status_icon, topbar_icon("play"));
+    layout_topbar_glyph(play_pause_status_icon, NATIVE(3, 22), BOUNDS(2, 2, 20, 20));
     lv_obj_add_flag(play_pause_status_icon, LV_OBJ_FLAG_HIDDEN);
 
     /* Negotiated Bluetooth codec indicator (e.g. sbc.png, aac.png, aptx.png,
@@ -1306,7 +1355,7 @@ static void build_status_bar(void) {
     /* One Lucide image owns the complete battery silhouette. Swapping whole
      * states avoids the old independently-rounded frame/fill/terminal seams. */
     battery_icon_frame = lv_image_create(band);
-    lv_image_set_src(battery_icon_frame, asset_path("topbar/lucide_battery.png"));
+    lv_image_set_src(battery_icon_frame, topbar_icon("battery"));
     layout_battery_topbar_image(battery_icon_frame);
     lv_obj_align(battery_icon_frame, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(4), 0);
 
@@ -1341,13 +1390,13 @@ static void build_status_bar(void) {
     lv_obj_align_to(battery_topbar_group, battery_icon_frame, LV_ALIGN_OUT_LEFT_MID, -BOARD_SCALE_PX(2), 0);
 
     wifi_icon = lv_image_create(band);
-    lv_image_set_src(wifi_icon, asset_path("topbar/lucide_wifi_off.png"));
+    lv_image_set_src(wifi_icon, topbar_icon("wifi_off"));
     layout_radio_topbar_image(wifi_icon);
     lv_obj_align(wifi_icon, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(105), 0);
     lv_obj_add_flag(wifi_icon, LV_OBJ_FLAG_HIDDEN); /* shown by refresh_wifi_icon() once wifi_control_is_enabled() */
 
     bt_status_icon = lv_image_create(band);
-    lv_image_set_src(bt_status_icon, asset_path("topbar/lucide_bluetooth.png"));
+    lv_image_set_src(bt_status_icon, topbar_icon("bluetooth"));
     layout_bluetooth_topbar_image(bt_status_icon);
     lv_obj_align(bt_status_icon, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(145), 0);
     lv_obj_add_flag(bt_status_icon, LV_OBJ_FLAG_HIDDEN); /* shown by refresh_bt_icon() once bt_control_is_powered() */
@@ -1374,11 +1423,10 @@ static void refresh_play_pause_topbar(void) {
     bool should_hide = !playing && !paused;
 
     if (!should_hide) {
-        const char * source = asset_path(playing ? "topbar/lucide_play.png"
-                                                : "topbar/lucide_pause.png");
+        const char * source = topbar_icon(playing ? "play" : "pause");
         if (!image_file_source_matches(lv_image_get_src(play_pause_status_icon), source)) {
             lv_image_set_src(play_pause_status_icon, source);
-            layout_lucide_topbar_image(play_pause_status_icon, 2, 2, 20, 20);
+            layout_topbar_glyph(play_pause_status_icon, NATIVE(3, 22), BOUNDS(2, 2, 20, 20));
         }
         if (was_hidden) lv_obj_remove_flag(play_pause_status_icon, LV_OBJ_FLAG_HIDDEN);
     } else if (!was_hidden) {
@@ -1432,7 +1480,7 @@ void refresh_battery_topbar(void) {
 
     if (percent < 0) {
         if (percent_should_show != percent_was_shown) refresh_battery_topbar_anchor(true);
-        lv_image_set_src(battery_icon_frame, asset_path("topbar/lucide_battery.png"));
+        lv_image_set_src(battery_icon_frame, topbar_icon("battery"));
         lv_obj_remove_local_style_prop(battery_icon_frame, LV_STYLE_IMAGE_RECOLOR, 0);
         lv_obj_remove_local_style_prop(battery_icon_frame, LV_STYLE_IMAGE_RECOLOR_OPA, 0);
         return;
@@ -1451,12 +1499,12 @@ void refresh_battery_topbar(void) {
     bool charging = !limiter_capped_now && battery_is_charging();
     bool low = !charging && percent < 5;
 
-    const char * battery_asset = charging ? "topbar/lucide_battery_charging.png" :
-                                 percent >= 85 ? "topbar/lucide_battery_full.png" :
-                                 percent >= 40 ? "topbar/lucide_battery_medium.png" :
-                                 percent >= 10 ? "topbar/lucide_battery_low.png" :
-                                                 "topbar/lucide_battery.png";
-    lv_image_set_src(battery_icon_frame, asset_path(battery_asset));
+    const char * battery_asset = charging ? "battery_charging" :
+                                 percent >= 85 ? "battery_full" :
+                                 percent >= 40 ? "battery_medium" :
+                                 percent >= 10 ? "battery_low" :
+                                                 "battery";
+    lv_image_set_src(battery_icon_frame, topbar_icon(battery_asset));
     layout_battery_topbar_image(battery_icon_frame);
     if (low) {
         lv_obj_set_style_image_recolor(battery_icon_frame, lv_color_make(255, 64, 64), 0);
@@ -2138,15 +2186,15 @@ static void render_wifi_icon(void) {
     int level = wifi_status_level;
     if (wifi_status_connected) {
         static const char * const assets[] = {
-            "topbar/lucide_wifi_zero.png", "topbar/lucide_wifi_low.png",
-            "topbar/lucide_wifi_high.png", "topbar/lucide_wifi.png",
+            "wifi_zero", "wifi_low",
+            "wifi_high", "wifi",
         };
         if (level < 0) level = 0;
         if (level > 3) level = 3;
-        lv_image_set_src(wifi_icon, asset_path(assets[level]));
+        lv_image_set_src(wifi_icon, topbar_icon(assets[level]));
         layout_wifi_connected_topbar_image(wifi_icon);
     } else {
-        lv_image_set_src(wifi_icon, asset_path("topbar/lucide_wifi_off.png"));
+        lv_image_set_src(wifi_icon, topbar_icon("wifi_off"));
         layout_radio_topbar_image(wifi_icon);
     }
 }
@@ -2692,8 +2740,8 @@ static void poll_refresh_bt_icon(void) {
         return;
     }
     lv_obj_remove_flag(bt_status_icon, LV_OBJ_FLAG_HIDDEN);
-    lv_image_set_src(bt_status_icon, asset_path(refresh_bt_icon_result_connected ?
-                     "topbar/lucide_bluetooth.png" : "topbar/lucide_bluetooth_off.png"));
+    lv_image_set_src(bt_status_icon, topbar_icon(refresh_bt_icon_result_connected ?
+                     "bluetooth" : "bluetooth_off"));
     layout_bluetooth_topbar_image(bt_status_icon);
     sync_topbar_status_icon_positions();
     if (a2dp_connected) {
@@ -4359,7 +4407,7 @@ static void wifi_toggle_apply_optimistic_ui(bool will_be_enabled) {
 
     if (will_be_enabled) {
         lv_obj_remove_flag(wifi_icon, LV_OBJ_FLAG_HIDDEN);
-        lv_image_set_src(wifi_icon, asset_path("topbar/lucide_wifi_off.png"));
+        lv_image_set_src(wifi_icon, topbar_icon("wifi_off"));
         layout_radio_topbar_image(wifi_icon);
     } else {
         lv_obj_add_flag(wifi_icon, LV_OBJ_FLAG_HIDDEN);
@@ -4617,7 +4665,7 @@ static void show_optimistic_bt_state(bool powered) {
     bt_connected_codec_cached[0] = '\0';
     if (powered) {
         lv_obj_remove_flag(bt_status_icon, LV_OBJ_FLAG_HIDDEN);
-        lv_image_set_src(bt_status_icon, asset_path("topbar/lucide_bluetooth_off.png"));
+        lv_image_set_src(bt_status_icon, topbar_icon("bluetooth_off"));
         layout_bluetooth_topbar_image(bt_status_icon);
     } else {
         lv_obj_add_flag(bt_status_icon, LV_OBJ_FLAG_HIDDEN);

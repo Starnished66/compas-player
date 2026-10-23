@@ -41,7 +41,7 @@ static void ttf_stream_seek(FILE * stream, long offset);
 #define PRIMARY_RGB 0xF1F3F5u
 #define SECONDARY_RGB 0xA8B0BCu
 #define BORDER_RGB 0x343B46u
-#define DEFAULT_ACCENT_RGB 0xF4E58Cu
+#define DEFAULT_ACCENT_RGB 0xB0142Bu /* DEFAULT_ACCENT_COLOR */
 
 typedef struct { int r, g, b; } rgb_t;
 

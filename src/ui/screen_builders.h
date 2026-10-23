@@ -149,6 +149,11 @@ extern lv_style_t style_theme_text_muted;
  * by gui_theme_update_surface_contrast(). */
 extern lv_style_t style_theme_tile;
 extern lv_style_t style_theme_tile_pressed;
+/* List scrollbars and every lv_switch (track and knob), in Breeze's neutral
+ * colors; see gui_theme_update_surface_contrast(). */
+extern lv_style_t style_theme_scrollbar;
+extern lv_style_t style_theme_switch_track;
+extern lv_style_t style_theme_switch_knob;
 void screen_builders_init_list_row_style(void);
 
 typedef struct {

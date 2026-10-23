@@ -194,7 +194,7 @@ bool startup_splash_install(const char *source, int width, int height, const cha
 
 void startup_splash_get_tint(bool *enabled, uint32_t *accent) {
     if (enabled) *enabled = false;
-    if (accent) *accent = 0xF4E58C;
+    if (accent) *accent = 0xB0142B; /* DEFAULT_ACCENT_COLOR */
     int dir = open_data_dir(false);
     if (dir < 0) return;
     const char *settings_name = strrchr(SETTINGS_FILE_PATH, '/');
@@ -218,7 +218,7 @@ void startup_splash_get_tint(bool *enabled, uint32_t *accent) {
     close(fd);
 
     bool tint = false;
-    uint32_t color = 0xF4E58C;
+    uint32_t color = 0xB0142B; /* DEFAULT_ACCENT_COLOR */
     size_t start = 0;
     while (start < used) {
         size_t end = start;

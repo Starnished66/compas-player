@@ -8,7 +8,7 @@
 #include "button_mapping.h"
 #include "ui_customization.h"
 
-#define DEFAULT_ACCENT_COLOR 0xF4E58C /* soft light yellow */
+#define DEFAULT_ACCENT_COLOR 0xB0142B /* deep red; keep startup_splash.c and the bootloader in sync */
 
 /* Discrete screen-timeout presets. The original useful coarse progression
  * is preserved, with a new 15-second choice added at the beginning. */

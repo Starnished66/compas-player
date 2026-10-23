@@ -1,4 +1,5 @@
 #include "screen_builders.h"
+#include "lvgl/src/themes/lv_theme_private.h"
 #include "cover_card_preview.h"
 #include "i18n.h"
 #include "gui_theme.h"
@@ -61,6 +62,9 @@ lv_style_t style_theme_screen_bg;
 lv_style_t style_theme_card_bg;
 lv_style_t style_theme_tile;
 lv_style_t style_theme_tile_pressed;
+lv_style_t style_theme_scrollbar;
+lv_style_t style_theme_switch_track;
+lv_style_t style_theme_switch_knob;
 
 /* Same mechanism, for text color -- see screen_builders.h's own comment on
  * style_theme_text_primary/style_theme_text_muted for why destructive-red
@@ -69,9 +73,8 @@ lv_style_t style_theme_text_primary;
 lv_style_t style_theme_text_muted;
 
 /* Runtime geometry replaces the original panel-specific 448/464/476px
- * constants. Rows span the active display: parent lists already own their
- * scrolling/clipping bounds, so subtracting a second gutter here produced
- * asymmetric empty space whenever a flex list left-aligned its children. */
+ * constants. Rows are Breeze cards inset from both screen edges, the same
+ * edge spacing as the Home cards; lists centre them. */
 static int32_t active_display_width(void) {
     lv_display_t * display = lv_display_get_default();
     int32_t width = display ? lv_display_get_horizontal_resolution(display) : 480;
@@ -79,24 +82,48 @@ static int32_t active_display_width(void) {
 }
 
 /* Keep the scrollbar easy to follow while it is moving, then let LVGL hide
- * it again. The live accent style keeps it in step with the selected theme. */
+ * it again. Breeze draws it neutral, in the theme's secondary text color. */
 static void configure_content_scrollbar(lv_obj_t * list) {
     lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_AUTO);
     lv_obj_set_style_width(list, BOARD_SCALE_PX(3), LV_PART_SCROLLBAR);
     lv_obj_set_style_radius(list, BOARD_SCALE_PX(2), LV_PART_SCROLLBAR);
-    lv_obj_set_style_bg_opa(list, LV_OPA_50, LV_PART_SCROLLBAR);
-    lv_obj_add_style(list, gui_theme_accent_style(), LV_PART_SCROLLBAR);
+    lv_obj_add_style(list, &style_theme_scrollbar, LV_PART_SCROLLBAR);
 }
 
 static void compact_list_refresh_font_layout(lv_obj_t * list);
 static void row_label_layout_identity(lv_obj_t * row, lv_obj_t * secondary, int32_t height);
 
 int32_t ui_list_row_width(void) {
-    return active_display_width();
+    return active_display_width() - 2 * GUI_LIST_SIDE_MARGIN;
 }
 
 int32_t ui_list_row_width_wide(void) {
-    return active_display_width();
+    return active_display_width() - 2 * GUI_LIST_SIDE_MARGIN;
+}
+
+/* Every switch, app-wide, in Breeze's form: a frame-grey track, the accent
+ * when on (the accent style the switches already carry), and a knob in the
+ * text color. A theme layer over LVGL's default reaches each lv_switch as it
+ * is created, so no call site has to remember it. */
+static lv_theme_t breeze_theme;
+static void breeze_theme_apply(lv_theme_t * theme, lv_obj_t * obj) {
+    (void)theme;
+    if (lv_obj_check_type(obj, &lv_switch_class)) {
+        lv_obj_add_style(obj, &style_theme_switch_track, LV_PART_MAIN);
+        lv_obj_add_style(obj, &style_theme_switch_knob, LV_PART_KNOB);
+    }
+}
+static void install_breeze_theme(void) {
+    static bool installed;
+    lv_display_t * display = lv_display_get_default();
+    if (installed || !display) return;
+    lv_theme_t * base = lv_display_get_theme(display);
+    if (!base) return;
+    breeze_theme = *base;
+    lv_theme_set_parent(&breeze_theme, base);
+    lv_theme_set_apply_cb(&breeze_theme, breeze_theme_apply);
+    lv_display_set_theme(display, &breeze_theme);
+    installed = true;
 }
 
 void screen_builders_init_list_row_style(void) {
@@ -123,6 +150,9 @@ void screen_builders_init_list_row_style(void) {
         lv_style_reset(&style_theme_text_muted);
         lv_style_reset(&style_theme_tile);
         lv_style_reset(&style_theme_tile_pressed);
+        lv_style_reset(&style_theme_scrollbar);
+        lv_style_reset(&style_theme_switch_track);
+        lv_style_reset(&style_theme_switch_knob);
     }
     already_initialized = true;
 
@@ -199,6 +229,20 @@ void screen_builders_init_list_row_style(void) {
     lv_style_set_radius(&style_theme_tile, ICON_GRID_TILE_RADIUS);
     lv_style_init(&style_theme_tile_pressed);
     lv_style_set_bg_opa(&style_theme_tile_pressed, LV_OPA_COVER);
+
+    /* Rows carry the same Breeze frame as the tiles. */
+    lv_style_set_border_width(&list_row_style, ICON_GRID_TILE_BORDER);
+    lv_style_set_border_opa(&list_row_style, LV_OPA_COVER);
+    lv_style_set_border_width(&pill_row_bg_style, ICON_GRID_TILE_BORDER);
+    lv_style_set_border_opa(&pill_row_bg_style, LV_OPA_COVER);
+    lv_style_init(&style_theme_scrollbar);
+    lv_style_set_bg_opa(&style_theme_scrollbar, LV_OPA_COVER);
+    lv_style_init(&style_theme_switch_track);
+    lv_style_set_bg_opa(&style_theme_switch_track, LV_OPA_COVER);
+    lv_style_init(&style_theme_switch_knob);
+    lv_style_set_bg_opa(&style_theme_switch_knob, LV_OPA_COVER);
+    lv_style_set_shadow_width(&style_theme_switch_knob, 0);
+    install_breeze_theme();
     gui_theme_update_surface_contrast();
 }
 
@@ -1270,7 +1314,6 @@ lv_obj_t * build_pill_list_screen(const char * title, lv_event_cb_t back_btn_cb,
         if (item->has_radius) lv_obj_set_style_radius(row, item->radius, 0);
         if (item->has_bg_color) lv_obj_set_style_bg_color(row, lv_color_hex(item->bg_color), 0);
         lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(row, 0, 0);
         lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
         lv_obj_t * label = lv_label_create(row);
@@ -2797,7 +2840,6 @@ lv_obj_t * add_pill_row_base(lv_obj_t * parent, const char * label_text) {
     lv_obj_add_style(row, &pill_row_bg_style, 0);
     lv_obj_add_style(row, &list_row_pressed_style, LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(row, 0, 0);
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t * label = lv_label_create(row);
@@ -3244,7 +3286,6 @@ static lv_obj_t * power_hub_card(lv_obj_t * parent, const char * title,
     lv_obj_set_style_radius(card, BOARD_SCALE_PX(16), 0);
     lv_obj_add_style(card, &pill_row_bg_style, 0);
     lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(card, 0, 0);
     lv_obj_set_style_pad_all(card, BOARD_SCALE_PX(8), 0);
     lv_obj_add_style(card, &list_row_pressed_style, LV_STATE_PRESSED);
     lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);

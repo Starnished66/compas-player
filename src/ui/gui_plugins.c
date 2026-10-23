@@ -559,7 +559,6 @@ int gui_plugin_show_list(const char * title, const char * const * labels, const 
         lv_obj_set_style_radius(row, LIST_ROW_RADIUS, 0);
         lv_obj_add_style(row, &pill_row_bg_style, 0);
         lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(row, 0, 0);
         lv_obj_set_style_pad_all(row, 0, 0);
         lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_style(row, &list_row_pressed_style, LV_STATE_PRESSED);

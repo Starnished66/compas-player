@@ -507,7 +507,6 @@ static void add_picker_popup_row(int index) {
     lv_obj_set_style_radius(row_obj, BOARD_SCALE_PX(10), 0);
     lv_obj_add_style(row_obj, &pill_row_bg_style, 0);
     lv_obj_set_style_bg_opa(row_obj, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(row_obj, 0, 0);
     lv_obj_set_style_pad_hor(row_obj, BOARD_SCALE_PX(12), 0);
     lv_obj_set_style_pad_ver(row_obj, BOARD_SCALE_PX(6), 0);
     lv_obj_set_style_pad_column(row_obj, BOARD_SCALE_PX(10), 0);

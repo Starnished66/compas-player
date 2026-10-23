@@ -3822,6 +3822,14 @@ static const keyboard_layout_option_t keyboard_layout_options[] = {
 };
 #define KEYBOARD_LAYOUT_OPTION_COUNT (sizeof(keyboard_layout_options) / sizeof(keyboard_layout_options[0]))
 
+size_t gui_settings_keyboard_layout_count(void) { return KEYBOARD_LAYOUT_OPTION_COUNT; }
+
+int gui_settings_keyboard_layout_at(size_t index, const char ** label) {
+    if (index >= KEYBOARD_LAYOUT_OPTION_COUNT) return -1;
+    if (label) *label = keyboard_layout_options[index].label;
+    return keyboard_layout_options[index].layout;
+}
+
 static void keyboard_layout_option_row_cb(lv_event_t * e);
 
 static void populate_keyboard_layout_screen(void) {

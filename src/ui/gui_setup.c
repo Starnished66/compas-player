@@ -1,4 +1,5 @@
 #include "gui_setup.h"
+#include "brand_marks.h"
 
 #include "gui.h"
 #include "gui_navigation.h"
@@ -56,7 +57,7 @@ static lv_obj_t * content;
 static lv_obj_t * setup_body;
 static lv_obj_t * scan_switch;
 static gui_popup_t language_popup;
-static lv_obj_t * language_list;
+static gui_popup_t keyboard_popup;
 static int step;
 static char staged_language[8];
 static bool staged_scan;
@@ -94,19 +95,18 @@ static bool plugin_catalog_request_started;
 static void style_plugin_selection(lv_obj_t * row, const char * id);
 
 /* Cache the welcome page while the intro paints: the fade only redraws one
- * opaque image, the title and a small number of notes, not the whole widget tree. */
-#define INTRO_NOTE_COUNT 18
+ * opaque image and the wordmark, not the whole widget tree. */
 static lv_obj_t * intro_overlay;
 static lv_obj_t * intro_background;
-static lv_obj_t * intro_title;
-static lv_obj_t * intro_notes[INTRO_NOTE_COUNT];
+static lv_obj_t * intro_wordmark;
+/* The welcome page's own wordmark, so the intro can land on it. */
+static lv_obj_t * welcome_wordmark;
 static lv_draw_buf_t * intro_frame;
 static void intro_cleanup(void);
 static void intro_exec(void * obj, int32_t progress);
 
 static void render_async(void * unused);
 static void finish_async(void * unused);
-static lv_color_t style_color(lv_style_t * style, lv_style_prop_t prop, uint32_t fallback);
 
 static void no_scrollbar(lv_obj_t * obj) {
     lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
@@ -133,38 +133,70 @@ static lv_obj_t * label(lv_obj_t * parent, const char * text, gui_font_role_t ro
     return obj;
 }
 
+/* Quick Setup is always KDE Breeze Dark, whatever theme is active: the
+ * native palette, one grouped surface per step with a Breeze frame outline,
+ * and the accent kept for the primary action, progress and selection. */
+#define SETUP_BG      lv_color_hex(GUI_COLOR_SCREEN)
+#define SETUP_SURFACE lv_color_hex(GUI_COLOR_ROW)
+#define SETUP_TEXT    lv_color_hex(GUI_COLOR_PRIMARY)
+#define SETUP_MUTED   lv_color_hex(GUI_COLOR_SECONDARY)
+#define SETUP_RADIUS  BOARD_SCALE_PX(12)
+#define SETUP_FRAME_W BOARD_SCALE_PX(2)
+static lv_color_t setup_frame(void) { return lv_color_mix(SETUP_TEXT, SETUP_SURFACE, 51); }
+static lv_color_t setup_pressed(void) { return lv_color_mix(SETUP_TEXT, SETUP_SURFACE, 32); }
+/* The accent as text on a setup surface: lightened toward the text color
+ * just until it reaches WCAG's 4.5:1, so a dark accent still reads. */
+static lv_color_t setup_accent_text(void) {
+    lv_color_t accent = accent_lv_color();
+    for (int mix = 0; mix <= 255; mix += 15) {
+        lv_color_t c = lv_color_mix(SETUP_TEXT, accent, (uint8_t) mix);
+        if (gui_theme_contrast_ratio(c, SETUP_SURFACE) >= GUI_CONTRAST_TEXT) return c;
+    }
+    return SETUP_TEXT;
+}
+static lv_color_t setup_on_accent(void) {
+    return lv_color_hex(gui_theme_prefers_light_text(accent_lv_color())
+                        ? GUI_BREEZE_TEXT_ON_DARK : GUI_BREEZE_TEXT_ON_LIGHT);
+}
+
 static lv_obj_t * button(lv_obj_t * parent, const char * text, bool primary, lv_event_cb_t cb) {
     lv_obj_t * obj = lv_button_create(parent);
     lv_obj_set_width(obj, LV_PCT(100));
     lv_obj_set_height(obj, BOARD_SCALE_PX(primary ? 64 : 56));
-    lv_obj_set_style_radius(obj, BOARD_SCALE_PX(18), 0);
+    lv_obj_set_style_radius(obj, SETUP_RADIUS, 0);
     lv_obj_set_style_shadow_width(obj, 0, 0);
-    lv_obj_set_style_bg_color(obj, primary ? accent_lv_color() : lv_color_hex(GUI_COLOR_PANEL), 0);
+    lv_obj_set_style_bg_color(obj, primary ? accent_lv_color() : SETUP_SURFACE, 0);
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
-    if (!primary) {
-        lv_obj_set_style_border_width(obj, BOARD_SCALE_PX(1), 0);
-        lv_obj_set_style_border_color(obj, lv_color_mix(accent_lv_color(), lv_color_hex(GUI_COLOR_PANEL), 40), 0);
-    }
+    lv_obj_set_style_border_width(obj, primary ? 0 : SETUP_FRAME_W, 0);
+    lv_obj_set_style_border_color(obj, setup_frame(), 0);
+    lv_obj_set_style_bg_color(obj, primary ? lv_color_mix(SETUP_TEXT, accent_lv_color(), 40) : setup_pressed(),
+                              LV_STATE_PRESSED);
     lv_obj_add_event_cb(obj, cb, LV_EVENT_CLICKED, NULL);
-    lv_color_t primary_text = lv_color_brightness(accent_lv_color()) > 160
-        ? lv_color_hex(0x14170B) : lv_color_white();
     lv_obj_t * caption = lv_label_create(obj);
     lv_label_set_text(caption, text);
     lv_obj_set_style_text_font(caption, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
-    lv_obj_set_style_text_color(caption, primary ? primary_text :
-        style_color(&style_theme_text_primary, LV_STYLE_TEXT_COLOR, 0xDDE1E7), 0);
+    lv_obj_set_style_text_color(caption, primary ? setup_on_accent() : SETUP_TEXT, 0);
     lv_obj_align(caption, LV_ALIGN_CENTER, 0, 0);
     lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(caption, LV_OBJ_FLAG_SCROLLABLE);
-    if (primary) {
-        lv_obj_t * arrow = lv_label_create(obj);
-        lv_label_set_text(arrow, LV_SYMBOL_RIGHT);
-        lv_obj_set_style_text_font(arrow, gui_theme_font(GUI_FONT_ROLE_STATUS), 0);
-        lv_obj_set_style_text_color(arrow, primary_text, 0);
-        lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(20), 0);
-        lv_obj_remove_flag(arrow, LV_OBJ_FLAG_SCROLLABLE);
-    }
     return obj;
+}
+
+/* A framed surface holding rows, like a Settings list. */
+static lv_obj_t * setup_group(lv_obj_t * parent) {
+    lv_obj_t * group = lv_obj_create(parent);
+    lv_obj_set_size(group, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_color(group, SETUP_SURFACE, 0);
+    lv_obj_set_style_bg_opa(group, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(group, SETUP_RADIUS, 0);
+    lv_obj_set_style_clip_corner(group, true, 0);
+    lv_obj_set_style_border_width(group, SETUP_FRAME_W, 0);
+    lv_obj_set_style_border_color(group, setup_frame(), 0);
+    lv_obj_set_style_pad_all(group, 0, 0);
+    lv_obj_set_style_pad_row(group, 0, 0);
+    lv_obj_set_flex_flow(group, LV_FLEX_FLOW_COLUMN);
+    no_scrollbar(group);
+    return group;
 }
 
 static void schedule_render(void) {
@@ -401,6 +433,14 @@ static void complete_cb(lv_event_t * e) {
     (void)e;
     lv_async_call(finish_async, NULL);
 }
+/* The layout a language's speakers usually type on; QWERTY otherwise. */
+static int keyboard_layout_for_language(const char * code) {
+    if (strcmp(code, "fr") == 0) return KEYBOARD_LAYOUT_AZERTY;
+    if (strcmp(code, "de") == 0) return KEYBOARD_LAYOUT_QWERTZ;
+    if (strcmp(code, "ru") == 0) return KEYBOARD_LAYOUT_RUSSIAN;
+    if (strcmp(code, "uk") == 0) return KEYBOARD_LAYOUT_UKRAINIAN;
+    return KEYBOARD_LAYOUT_QWERTY;
+}
 static void language_popup_close(lv_event_t * e) {
     (void)e;
     gui_popup_hide(&language_popup);
@@ -412,6 +452,9 @@ static void language_select_cb(lv_event_t * e) {
     if (!code) return;
     gui_popup_hide(&language_popup);
     if (strcmp(code, current_settings.language) == 0) return;
+    /* Follow the language's usual keyboard unless one was picked by hand. */
+    if (current_settings.keyboard_layout == keyboard_layout_for_language(current_settings.language))
+        current_settings.keyboard_layout = keyboard_layout_for_language(code);
     snprintf(staged_language, sizeof(staged_language), "%s", code);
     snprintf(current_settings.language, sizeof(current_settings.language), "%s", code);
     current_settings.setup_step = step;
@@ -427,75 +470,121 @@ static const char * selected_language_name(void) {
         if (strcmp(i18n_language_code(i), staged_language) == 0) return i18n_language_name(i);
     return i18n_language_name(0);
 }
+
+/* A titled list of choices with Cancel, for the language and keyboard
+ * pickers. label_at(i) gives each row's text; the selected row is tinted. */
+static void build_choice_popup(gui_popup_t * popup, lv_event_cb_t close_cb, const char * title_text,
+                               size_t count, const char * (*label_at)(size_t), size_t selected,
+                               lv_event_cb_t select_cb) {
+    popup->popup = build_popup_surface(close_cb, &popup->backdrop);
+    lv_obj_set_style_bg_color(popup->popup, lv_color_hex(GUI_COLOR_PANEL), 0);
+    lv_obj_set_style_border_color(popup->popup, setup_frame(), 0);
+    lv_obj_t * title = lv_label_create(popup->popup);
+    lv_label_set_text(title, title_text);
+    lv_obj_set_width(title, LV_PCT(100));
+    lv_obj_set_style_text_font(title, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
+    lv_obj_set_style_text_color(title, SETUP_TEXT, 0);
+    lv_obj_t * list = lv_obj_create(popup->popup);
+    lv_obj_set_width(list, LV_PCT(100));
+    int32_t screen_h = lv_display_get_vertical_resolution(lv_display_get_default());
+    int32_t row_h = BOARD_SCALE_PX(64);
+    if (row_h < 44) row_h = 44;
+    int32_t list_h = (int32_t)count * row_h + (int32_t)(count - 1) * BOARD_SCALE_PX(6);
+    int32_t available_h = screen_h - BOARD_SCALE_PX(184) - 2 * STATUS_BAR_CLEARANCE;
+    if (list_h > available_h) list_h = available_h;
+    if (list_h < BOARD_SCALE_PX(128)) list_h = BOARD_SCALE_PX(128);
+    lv_obj_set_height(list, list_h);
+    lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(list, 0, 0);
+    lv_obj_set_style_pad_all(list, 0, 0);
+    lv_obj_set_style_pad_row(list, BOARD_SCALE_PX(6), 0);
+    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_scroll_dir(list, LV_DIR_VER);
+    lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_OFF);
+    for (size_t i = 0; i < count; ++i) {
+        lv_obj_t * row = lv_button_create(list);
+        lv_obj_set_width(row, LV_PCT(100));
+        lv_obj_set_height(row, row_h);
+        lv_obj_set_style_radius(row, SETUP_RADIUS, 0);
+        lv_obj_set_style_shadow_width(row, 0, 0);
+        lv_obj_set_style_bg_color(row, SETUP_SURFACE, 0);
+        lv_obj_set_style_bg_color(row, setup_pressed(), LV_STATE_PRESSED);
+        lv_obj_set_style_border_width(row, SETUP_FRAME_W, 0);
+        lv_obj_set_style_border_color(row, i == selected ? accent_lv_color() : setup_frame(), 0);
+        lv_obj_add_event_cb(row, select_cb, LV_EVENT_CLICKED, (void *)(uintptr_t)i);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_t * name = lv_label_create(row);
+        lv_label_set_text(name, label_at(i));
+        lv_obj_set_size(name, 0, LV_SIZE_CONTENT);
+        lv_obj_set_flex_grow(name, 1);
+        lv_obj_set_style_text_font(name, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+        lv_obj_set_style_text_color(name, SETUP_TEXT, 0);
+        lv_obj_remove_flag(name, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+        if (i == selected) {
+            lv_obj_t * mark = lv_label_create(row);
+            lv_label_set_text(mark, LV_SYMBOL_OK);
+            lv_obj_set_style_text_font(mark, gui_theme_font(GUI_FONT_ROLE_STATUS), 0);
+            lv_obj_set_style_text_color(mark, accent_lv_color(), 0);
+            lv_obj_remove_flag(mark, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+        }
+        lv_obj_set_style_pad_left(row, BOARD_SCALE_PX(16), 0);
+        lv_obj_set_style_pad_right(row, BOARD_SCALE_PX(16), 0);
+    }
+    lv_obj_t * cancel = button(popup->popup, TR("Cancel"), false, close_cb);
+    (void)cancel;
+}
+
+static size_t staged_language_index(void) {
+    for (size_t i = 0; i < i18n_language_count(); ++i)
+        if (strcmp(i18n_language_code(i), staged_language) == 0) return i;
+    return 0;
+}
 static void language_open_cb(lv_event_t * e) {
     (void)e;
-    if (!language_popup.popup) {
-        language_popup.popup = build_popup_surface(language_popup_close, &language_popup.backdrop);
-        lv_obj_t * title = lv_label_create(language_popup.popup);
-        lv_label_set_text(title, TR("Choose a language"));
-        lv_obj_set_width(title, LV_PCT(100));
-        lv_obj_set_style_text_font(title, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
-        lv_obj_add_style(title, &style_theme_text_primary, 0);
-        language_list = lv_obj_create(language_popup.popup);
-        lv_obj_set_width(language_list, LV_PCT(100));
-        int32_t screen_h = lv_display_get_vertical_resolution(lv_display_get_default());
-        int32_t row_h = BOARD_SCALE_PX(64);
-        if (row_h < 44) row_h = 44;
-        int32_t list_h = (int32_t)i18n_language_count() * row_h +
-                          (int32_t)(i18n_language_count() - 1) * BOARD_SCALE_PX(6);
-        int32_t available_h = screen_h - BOARD_SCALE_PX(184) - 2 * STATUS_BAR_CLEARANCE;
-        if (list_h > available_h) list_h = available_h;
-        if (list_h < BOARD_SCALE_PX(128)) list_h = BOARD_SCALE_PX(128);
-        lv_obj_set_height(language_list, list_h);
-        lv_obj_set_style_bg_opa(language_list, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(language_list, 0, 0);
-        lv_obj_set_style_pad_all(language_list, 0, 0);
-        lv_obj_set_style_pad_row(language_list, BOARD_SCALE_PX(6), 0);
-        lv_obj_set_flex_flow(language_list, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_scroll_dir(language_list, LV_DIR_VER);
-        lv_obj_add_flag(language_list, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_set_scrollbar_mode(language_list, LV_SCROLLBAR_MODE_OFF);
-        for (size_t i = 0; i < i18n_language_count(); ++i) {
-            lv_obj_t * row = lv_button_create(language_list);
-            lv_obj_set_width(row, LV_PCT(100));
-            lv_obj_set_height(row, row_h);
-            lv_obj_set_style_radius(row, BOARD_SCALE_PX(14), 0);
-            lv_obj_set_style_shadow_width(row, 0, 0);
-            lv_obj_set_style_bg_color(row, strcmp(i18n_language_code(i), staged_language) == 0
-                ? lv_color_mix(accent_lv_color(), lv_color_hex(GUI_COLOR_PANEL), 36)
-                : style_color(&style_theme_screen_bg, LV_STYLE_BG_COLOR, GUI_COLOR_ROW), 0);
-            lv_obj_set_style_border_width(row, BOARD_SCALE_PX(1), 0);
-            lv_obj_set_style_border_color(row, strcmp(i18n_language_code(i), staged_language) == 0
-                ? accent_lv_color() : style_color(&style_theme_card_bg, LV_STYLE_BG_COLOR, GUI_COLOR_BORDER), 0);
-            lv_obj_add_event_cb(row, language_select_cb, LV_EVENT_CLICKED, (void *)(uintptr_t)i);
-            lv_obj_t * name = lv_label_create(row);
-            lv_label_set_text(name, i18n_language_name(i));
-            lv_obj_set_width(name, LV_PCT(100));
-            lv_obj_set_style_text_font(name, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-            lv_obj_set_style_text_color(name, style_color(&style_theme_text_primary,
-                LV_STYLE_TEXT_COLOR, 0xFFFFFF), 0);
-            lv_obj_remove_flag(name, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-            lv_obj_set_style_pad_left(row, BOARD_SCALE_PX(16), 0);
-            lv_obj_set_style_pad_right(row, BOARD_SCALE_PX(16), 0);
-        }
-        lv_obj_t * cancel = lv_button_create(language_popup.popup);
-        lv_obj_set_width(cancel, LV_PCT(100));
-        int32_t cancel_h = BOARD_SCALE_PX(64);
-        if (cancel_h < 44) cancel_h = 44;
-        lv_obj_set_height(cancel, cancel_h);
-        lv_obj_set_style_radius(cancel, BOARD_SCALE_PX(14), 0);
-        lv_obj_set_style_shadow_width(cancel, 0, 0);
-        lv_obj_set_style_bg_color(cancel, lv_color_hex(0x8B3030), 0);
-        lv_obj_add_event_cb(cancel, language_popup_close, LV_EVENT_CLICKED, NULL);
-        lv_obj_t * cancel_text = lv_label_create(cancel);
-        lv_label_set_text(cancel_text, TR("Cancel"));
-        lv_obj_set_style_text_font(cancel_text, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
-        lv_obj_set_style_text_color(cancel_text, lv_color_white(), 0);
-        lv_obj_center(cancel_text);
-        no_scrollbar(cancel_text);
-    }
+    /* Built once: choosing a language reloads the whole UI anyway. */
+    if (!language_popup.popup)
+        build_choice_popup(&language_popup, language_popup_close, TR("Choose a language"),
+                           i18n_language_count(), i18n_language_name, staged_language_index(),
+                           language_select_cb);
     gui_popup_show(&language_popup);
 }
+
+/* ---- Keyboard: the same layouts as Settings -> Keyboard. ---- */
+static const char * keyboard_label_at(size_t index) {
+    const char * label = "";
+    gui_settings_keyboard_layout_at(index, &label);
+    return TR(label);
+}
+static size_t selected_keyboard_index(void) {
+    for (size_t i = 0; i < gui_settings_keyboard_layout_count(); ++i)
+        if (gui_settings_keyboard_layout_at(i, NULL) == current_settings.keyboard_layout) return i;
+    return 1; /* QWERTY */
+}
+static void keyboard_popup_close(lv_event_t * e) {
+    (void)e;
+    gui_popup_hide(&keyboard_popup);
+}
+static void keyboard_select_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    int layout = gui_settings_keyboard_layout_at((size_t)(uintptr_t)lv_event_get_user_data(e), NULL);
+    gui_popup_hide(&keyboard_popup);
+    if (layout < 0 || layout == current_settings.keyboard_layout) return;
+    current_settings.keyboard_layout = layout;
+    settings_save(&current_settings);
+    schedule_render();
+}
+static void keyboard_open_cb(lv_event_t * e) {
+    (void)e;
+    /* Rebuilt on every open so the current layout is the highlighted row. */
+    gui_popup_teardown(&keyboard_popup);
+    build_choice_popup(&keyboard_popup, keyboard_popup_close, TR("Keyboard"),
+                       gui_settings_keyboard_layout_count(), keyboard_label_at,
+                       selected_keyboard_index(), keyboard_select_cb);
+    gui_popup_show(&keyboard_popup);
+}
+
 static void open_timezone_cb(lv_event_t * e) { (void)e; gui_setup_open_timezone(); }
 static void wifi_hidden_cb(lv_event_t * e) { (void)e; gui_network_setup_wifi_add_hidden(); }
 static void wifi_rescan_cb(lv_event_t * e) { (void)e; gui_network_setup_wifi_rescan(); }
@@ -604,8 +693,7 @@ static void open_player_layouts_cb(lv_event_t * e) {
 }
 static void style_plugin_selection(lv_obj_t * row, const char * id) {
     bool selected = gui_setup_plugins_is_selected(id);
-    lv_obj_set_style_border_width(row, selected ? BOARD_SCALE_PX(2) : 0, 0);
-    lv_obj_set_style_border_color(row, accent_lv_color(), 0);
+    lv_obj_set_style_border_color(row, selected ? accent_lv_color() : setup_frame(), 0);
     lv_obj_t * mark = lv_obj_get_child(row, lv_obj_get_child_count(row) - 1);
     lv_obj_set_state(mark, LV_STATE_CHECKED, selected);
 }
@@ -660,306 +748,6 @@ static void scan_switch_cb(lv_event_t * e) {
     settings_save(&current_settings);
 }
 
-static lv_obj_t * new_card(lv_obj_t * parent) {
-    lv_obj_t * card = lv_obj_create(parent);
-    lv_obj_set_height(card, LV_SIZE_CONTENT);
-    lv_obj_set_width(card, LV_PCT(100));
-    lv_obj_add_style(card, &style_theme_card_bg, 0);
-    lv_obj_set_style_bg_color(card, lv_color_mix(accent_lv_color(),
-                            style_color(&style_theme_card_bg, LV_STYLE_BG_COLOR, GUI_COLOR_PANEL), 20), 0);
-    lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(card, BOARD_SCALE_PX(20), 0);
-    lv_obj_set_style_border_width(card, BOARD_SCALE_PX(1), 0);
-    lv_obj_set_style_border_color(card, lv_color_mix(accent_lv_color(), lv_color_hex(GUI_COLOR_SCREEN), 45), 0);
-    lv_obj_set_style_pad_all(card, BOARD_SCALE_PX(16), 0);
-    lv_obj_set_style_pad_row(card, BOARD_SCALE_PX(10), 0);
-    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    no_scrollbar(card);
-    return card;
-}
-
-static void add_page_title(lv_obj_t * parent, const char * title, const char * detail) {
-    label(parent, title, GUI_FONT_ROLE_TITLE,
-          style_color(&style_theme_text_primary, LV_STYLE_TEXT_COLOR, 0xFFFFFF), LV_PCT(100));
-    if (detail) {
-        lv_obj_t * sub = label(parent, detail, GUI_FONT_ROLE_BODY,
-                               style_color(&style_theme_text_muted, LV_STYLE_TEXT_COLOR, GUI_COLOR_SECONDARY), LV_PCT(100));
-        lv_obj_set_style_text_line_space(sub, BOARD_SCALE_PX(3), 0);
-    }
-}
-
-static const char * const journey_icons[] = {
-    LV_SYMBOL_SETTINGS, LV_SYMBOL_GPS, LV_SYMBOL_WIFI, LV_SYMBOL_LIST,
-    LV_SYMBOL_IMAGE, LV_SYMBOL_AUDIO
-};
-static const char * const journey_names[] = {
-    N_("Language"), N_("Time zone"), N_("Wi-Fi"), N_("Plugins"),
-    N_("Layout"), N_("Music")
-};
-
-static void add_header(void) {
-    lv_obj_t * header = lv_obj_create(content);
-    lv_obj_set_width(header, LV_PCT(100));
-    lv_obj_set_height(header, BOARD_SCALE_PX(60));
-    lv_obj_set_style_bg_opa(header, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(header, 0, 0);
-    lv_obj_set_style_pad_all(header, 0, 0);
-    lv_obj_set_flex_flow(header, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(header, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    no_scrollbar(header);
-    if (step > STEP_WELCOME) {
-        lv_obj_t * back = lv_button_create(header);
-        lv_obj_set_size(back, BOARD_SCALE_PX(64), BOARD_SCALE_PX(56));
-        lv_obj_set_style_bg_opa(back, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_radius(back, BOARD_SCALE_PX(16), 0);
-        lv_obj_set_style_border_width(back, 0, 0);
-        lv_obj_set_style_shadow_width(back, 0, 0);
-        lv_obj_set_style_pad_all(back, 0, 0);
-        no_scrollbar(back);
-        lv_obj_add_event_cb(back, back_cb, LV_EVENT_CLICKED, NULL);
-        lv_obj_t * arrow = lv_label_create(back);
-        lv_label_set_text(arrow, LV_SYMBOL_LEFT);
-        lv_obj_set_style_text_font(arrow, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
-        lv_obj_set_style_text_color(arrow, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_center(arrow);
-        no_scrollbar(arrow);
-    } else {
-        lv_obj_t * spacer = lv_obj_create(header);
-        lv_obj_set_size(spacer, BOARD_SCALE_PX(64), BOARD_SCALE_PX(56));
-        lv_obj_set_style_bg_opa(spacer, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(spacer, 0, 0);
-        no_scrollbar(spacer);
-    }
-    lv_obj_t * kicker = lv_label_create(header);
-    lv_label_set_text(kicker, TR("Quick setup"));
-    lv_obj_set_style_text_font(kicker, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
-    lv_obj_set_style_text_color(kicker, style_color(&style_theme_text_primary, LV_STYLE_TEXT_COLOR, 0xFFFFFF), 0);
-
-    lv_obj_set_width(kicker, LV_SIZE_CONTENT);
-    no_scrollbar(kicker);
-    if (step == STEP_WIFI || step == STEP_PLUGINS) {
-        lv_obj_set_style_text_font(kicker, gui_theme_font(GUI_FONT_ROLE_STATUS), 0);
-        lv_obj_set_width(kicker, 0);
-        lv_obj_set_flex_grow(kicker, 1);
-        lv_label_set_long_mode(kicker, LV_LABEL_LONG_WRAP);
-        lv_obj_t * skip = button(header, TR("Skip for now"), false, skip_cb);
-        lv_point_t skip_text_size;
-        lv_text_get_size(&skip_text_size, TR("Skip for now"), gui_theme_font(GUI_FONT_ROLE_STATUS),
-                         0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-        int32_t skip_width = skip_text_size.x + BOARD_SCALE_PX(28);
-        int32_t skip_min = BOARD_SCALE_PX(120);
-        if (skip_width < skip_min) skip_width = skip_min;
-        int32_t skip_max = BOARD_SCALE_PX(160);
-        if (skip_width > skip_max) skip_width = skip_max;
-        lv_obj_set_size(skip, skip_width, BOARD_SCALE_PX(56));
-        lv_obj_set_style_pad_top(skip, 0, 0);
-        lv_obj_set_style_pad_bottom(skip, 0, 0);
-        lv_obj_set_style_pad_left(skip, BOARD_SCALE_PX(8), 0);
-        lv_obj_set_style_pad_right(skip, BOARD_SCALE_PX(8), 0);
-        lv_obj_t * skip_caption = lv_obj_get_child(skip, 0);
-        lv_obj_set_width(skip_caption, LV_PCT(100));
-        lv_label_set_long_mode(skip_caption, LV_LABEL_LONG_WRAP);
-        lv_obj_set_style_text_align(skip_caption, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_ext_click_area(skip, BOARD_SCALE_PX(6));
-        lv_obj_set_style_radius(skip, BOARD_SCALE_PX(12), 0);
-        lv_obj_set_style_text_font(skip_caption, gui_theme_font(GUI_FONT_ROLE_STATUS), 0);
-    }
-}
-
-static void add_progress(void) {
-    lv_obj_t * strip = lv_obj_create(content);
-    lv_obj_set_width(strip, LV_PCT(100));
-    lv_obj_set_height(strip, BOARD_SCALE_PX(10));
-    lv_obj_set_style_bg_opa(strip, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(strip, 0, 0);
-    lv_obj_set_style_pad_all(strip, 0, 0);
-    lv_obj_set_style_pad_column(strip, BOARD_SCALE_PX(5), 0);
-    lv_obj_set_flex_flow(strip, LV_FLEX_FLOW_ROW);
-    no_scrollbar(strip);
-    for (int i = 0; i < 6; ++i) {
-        lv_obj_t * segment = lv_obj_create(strip);
-        lv_obj_set_height(segment, BOARD_SCALE_PX(6));
-        lv_obj_set_flex_grow(segment, 1);
-        lv_obj_set_style_radius(segment, LV_RADIUS_CIRCLE, 0);
-        lv_obj_set_style_border_width(segment, 0, 0);
-        lv_obj_set_style_bg_color(segment, i + 1 <= setup_step_position(step)
-            ? accent_lv_color() : lv_color_hex(GUI_COLOR_PANEL), 0);
-        lv_obj_set_style_bg_opa(segment, LV_OPA_COVER, 0);
-        no_scrollbar(segment);
-    }
-}
-
-static void journey_chip_size_cb(lv_event_t * event) {
-    if (lv_event_get_code(event) != LV_EVENT_SIZE_CHANGED) return;
-    lv_obj_t * chip = lv_event_get_current_target(event);
-    lv_obj_t * icon = lv_obj_get_child(chip, 0);
-    lv_obj_t * name = lv_obj_get_child(chip, 1);
-    if (!icon || !name) return;
-
-    int32_t available = lv_obj_get_width(chip) -
-        lv_obj_get_style_pad_left(chip, 0) - lv_obj_get_style_pad_right(chip, 0) -
-        lv_obj_get_width(icon) - lv_obj_get_style_pad_column(chip, 0);
-    if (available < 1) available = 1;
-    lv_point_t text_size;
-    lv_text_get_size(&text_size, lv_label_get_text(name), lv_obj_get_style_text_font(name, 0),
-                     0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-    int32_t name_width = text_size.x < available ? text_size.x : available;
-    if (name_width < 1) name_width = 1;
-    if (lv_obj_get_width(name) != name_width) lv_obj_set_width(name, name_width);
-}
-
-static void add_journey(void) {
-    const lv_font_t * icon_font = gui_theme_font(GUI_FONT_ROLE_ROW);
-    int32_t icon_column_width = BOARD_SCALE_PX(32);
-    for (size_t i = 0; i < sizeof(journey_icons) / sizeof(journey_icons[0]); ++i) {
-        lv_point_t icon_size;
-        lv_text_get_size(&icon_size, journey_icons[i], icon_font, 0, 0,
-                         LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-        if (icon_size.x > icon_column_width) icon_column_width = icon_size.x;
-    }
-    lv_obj_t * panel = new_card(setup_body);
-    /* The welcome overview absorbs the remaining body height so its entries
-     * are spaced through the card and the action remains anchored below. */
-    lv_obj_set_height(panel, 0);
-    lv_obj_set_flex_grow(panel, 1);
-    lv_obj_set_style_pad_all(panel, BOARD_SCALE_PX(12), 0);
-    lv_obj_set_style_pad_row(panel, BOARD_SCALE_PX(8), 0);
-    lv_obj_set_flex_align(panel, LV_FLEX_ALIGN_SPACE_BETWEEN,
-                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    no_scrollbar(panel);
-    lv_obj_t * heading = lv_label_create(panel);
-    lv_label_set_text(heading, TR("Your setup journey"));
-    lv_obj_set_width(heading, LV_PCT(100));
-    lv_label_set_long_mode(heading, LV_LABEL_LONG_WRAP);
-    lv_obj_set_style_text_font(heading, gui_theme_font(GUI_FONT_ROLE_STATUS), 0);
-    lv_obj_set_style_text_color(heading, lv_color_hex(GUI_COLOR_SECONDARY), 0);
-    lv_obj_set_style_text_align(heading, LV_TEXT_ALIGN_CENTER, 0);
-    const int position = setup_step_position(step);
-    for (int row_index = 0; row_index < 3; ++row_index) {
-        lv_obj_t * row = lv_obj_create(panel);
-        lv_obj_set_width(row, LV_PCT(100));
-        lv_obj_set_height(row, 0);
-        lv_obj_set_flex_grow(row, 1);
-        lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(row, 0, 0);
-        lv_obj_set_style_pad_all(row, 0, 0);
-        lv_obj_set_style_pad_column(row, BOARD_SCALE_PX(6), 0);
-        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-        lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        no_scrollbar(row);
-        int start = row_index * 2;
-        int end = start + 2;
-        if (end > 6) end = 6;
-        for (int i = start; i < end; ++i) {
-            lv_obj_t * chip = lv_obj_create(row);
-            lv_obj_set_height(chip, LV_PCT(100));
-            lv_obj_set_flex_grow(chip, 1);
-            lv_obj_set_style_bg_color(chip, lv_color_hex(GUI_COLOR_PANEL), 0);
-            lv_obj_set_style_bg_opa(chip, LV_OPA_COVER, 0);
-            lv_obj_set_style_radius(chip, LV_RADIUS_CIRCLE, 0);
-            lv_obj_set_style_border_width(chip, i + 1 == position ? BOARD_SCALE_PX(1) : 0, 0);
-            lv_obj_set_style_border_color(chip, accent_lv_color(), 0);
-            no_scrollbar(chip);
-            lv_obj_set_style_pad_top(chip, 0, 0);
-            lv_obj_set_style_pad_bottom(chip, 0, 0);
-            lv_obj_set_style_pad_left(chip, BOARD_SCALE_PX(9), 0);
-            lv_obj_set_style_pad_right(chip, BOARD_SCALE_PX(9), 0);
-            lv_obj_set_flex_flow(chip, LV_FLEX_FLOW_ROW);
-            lv_obj_set_style_pad_column(chip, BOARD_SCALE_PX(10), 0);
-            lv_obj_set_flex_align(chip, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-            lv_obj_add_event_cb(chip, journey_chip_size_cb, LV_EVENT_SIZE_CHANGED, NULL);
-            lv_obj_t * icon = lv_label_create(chip);
-            lv_label_set_text(icon, journey_icons[i]);
-            lv_obj_set_width(icon, icon_column_width);
-            lv_obj_set_style_text_color(icon, i + 1 <= position ? accent_lv_color() : lv_color_hex(GUI_COLOR_SECONDARY), 0);
-            lv_obj_set_style_text_font(icon, icon_font, 0);
-            lv_obj_set_style_text_align(icon, LV_TEXT_ALIGN_CENTER, 0);
-            lv_obj_t * name = lv_label_create(chip);
-            lv_label_set_text(name, TR(journey_names[i]));
-            lv_obj_set_style_text_color(name,
-                                        style_color(&style_theme_text_primary, LV_STYLE_TEXT_COLOR, 0xE5E8ED), 0);
-            lv_obj_set_style_text_font(name, gui_theme_font(
-                BOARD_SCREEN_WIDTH < BOARD_REFERENCE_WIDTH ? GUI_FONT_ROLE_BODY : GUI_FONT_ROLE_ROW), 0);
-            lv_obj_set_width(name, LV_SIZE_CONTENT);
-            lv_label_set_long_mode(name, LV_LABEL_LONG_WRAP);
-            no_scrollbar(icon);
-            no_scrollbar(name);
-        }
-    }
-}
-
-static void add_vinyl_hero(lv_obj_t * parent) {
-    lv_obj_t * hero = new_card(parent);
-    lv_obj_set_height(hero, BOARD_SCALE_PX(150));
-    lv_obj_set_style_bg_color(hero, lv_color_mix(accent_lv_color(),
-                            style_color(&style_theme_screen_bg, LV_STYLE_BG_COLOR, GUI_COLOR_SCREEN), 34), 0);
-    lv_obj_set_style_pad_all(hero, BOARD_SCALE_PX(12), 0);
-    lv_obj_set_flex_flow(hero, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(hero, LV_FLEX_ALIGN_SPACE_AROUND, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-
-    int32_t disc = BOARD_SCALE_PX(118);
-    lv_obj_t * record = lv_obj_create(hero);
-    no_scrollbar(record);
-    lv_obj_set_size(record, disc, disc);
-    lv_obj_set_style_radius(record, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(record, lv_color_hex(0x080A0D), 0);
-    lv_obj_set_style_bg_opa(record, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(record, BOARD_SCALE_PX(1), 0);
-    lv_obj_set_style_border_color(record, lv_color_mix(accent_lv_color(), lv_color_hex(0xFFFFFF), 45), 0);
-    lv_obj_t * groove1 = lv_obj_create(record);
-    no_scrollbar(groove1);
-    lv_obj_set_size(groove1, disc - BOARD_SCALE_PX(18), disc - BOARD_SCALE_PX(18));
-    lv_obj_center(groove1);
-    lv_obj_set_style_radius(groove1, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_opa(groove1, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(groove1, BOARD_SCALE_PX(1), 0);
-    lv_obj_set_style_border_color(groove1, lv_color_hex(0x282C33), 0);
-    lv_obj_t * groove2 = lv_obj_create(record);
-    no_scrollbar(groove2);
-    lv_obj_set_size(groove2, disc - BOARD_SCALE_PX(38), disc - BOARD_SCALE_PX(38));
-    lv_obj_center(groove2);
-    lv_obj_set_style_radius(groove2, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_opa(groove2, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(groove2, BOARD_SCALE_PX(1), 0);
-    lv_obj_set_style_border_color(groove2, lv_color_hex(0x282C33), 0);
-    lv_obj_t * label_disc = lv_obj_create(record);
-    no_scrollbar(label_disc);
-    lv_obj_set_size(label_disc, BOARD_SCALE_PX(42), BOARD_SCALE_PX(42));
-    lv_obj_center(label_disc);
-    lv_obj_set_style_radius(label_disc, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(label_disc, accent_lv_color(), 0);
-    lv_obj_set_style_bg_opa(label_disc, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(label_disc, 0, 0);
-    lv_obj_t * spindle = lv_obj_create(record);
-    no_scrollbar(spindle);
-    lv_obj_set_size(spindle, BOARD_SCALE_PX(7), BOARD_SCALE_PX(7));
-    lv_obj_center(spindle);
-    lv_obj_set_style_radius(spindle, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(spindle, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_border_width(spindle, 0, 0);
-
-    lv_obj_t * bars = lv_obj_create(hero);
-    no_scrollbar(bars);
-    lv_obj_set_size(bars, BOARD_SCALE_PX(112), BOARD_SCALE_PX(92));
-    lv_obj_set_style_bg_opa(bars, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(bars, 0, 0);
-    lv_obj_set_style_pad_all(bars, 0, 0);
-    lv_obj_set_style_pad_column(bars, BOARD_SCALE_PX(5), 0);
-    lv_obj_set_flex_flow(bars, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(bars, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    static const int heights[] = { 22, 45, 72, 38, 88, 54, 30, 66, 40 };
-    for (size_t i = 0; i < sizeof(heights) / sizeof(heights[0]); ++i) {
-        lv_obj_t * bar = lv_obj_create(bars);
-        no_scrollbar(bar);
-        lv_obj_set_size(bar, BOARD_SCALE_PX(5), BOARD_SCALE_PX(heights[i]));
-        lv_obj_set_style_radius(bar, LV_RADIUS_CIRCLE, 0);
-        lv_obj_set_style_bg_color(bar, lv_color_mix(accent_lv_color(), lv_color_hex(0xFFFFFF), i == 4 ? 250 : 120), 0);
-        lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(bar, 0, 0);
-    }
-}
-
 /* Draw embedded land spans directly: no transient line points or image buffers. */
 static void timezone_map_draw(lv_event_t * e) {
     lv_obj_t * map = lv_event_get_target(e);
@@ -970,8 +758,7 @@ static void timezone_map_draw(lv_event_t * e) {
     lv_layer_t * layer = lv_event_get_layer(e);
     lv_draw_line_dsc_t line;
     lv_draw_line_dsc_init(&line);
-    line.color = lv_color_mix(accent_lv_color(),
-        style_color(&style_theme_text_muted, LV_STYLE_TEXT_COLOR, GUI_COLOR_SECONDARY), 65);
+    line.color = lv_color_mix(SETUP_MUTED, SETUP_SURFACE, 110);
     line.opa = LV_OPA_COVER;
     line.width = (h + 179) / 180;
     for (size_t i = 0; i < sizeof(setup_land_spans) / sizeof(setup_land_spans[0]); ++i) {
@@ -997,60 +784,70 @@ static void timezone_map_draw(lv_event_t * e) {
     lv_area_t pin = { x - r, y - r, x + r, y + r };
     dot.bg_opa = LV_OPA_COVER;
     dot.border_width = BOARD_SCALE_PX(2);
-    dot.border_color = style_color(&style_theme_screen_bg, LV_STYLE_BG_COLOR, GUI_COLOR_SCREEN);
+    dot.border_color = SETUP_SURFACE;
     dot.border_opa = LV_OPA_COVER;
     lv_draw_rect(layer, &dot, &pin);
 }
 
-static void add_step_illustration(void) {
-    lv_obj_t * visual = lv_obj_create(setup_body);
-    lv_obj_set_size(visual, LV_PCT(100), BOARD_SCALE_PX(112));
-    lv_obj_set_style_bg_opa(visual, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(visual, 0, 0);
-    lv_obj_set_style_pad_all(visual, 0, 0);
-    lv_obj_set_layout(visual, LV_LAYOUT_NONE);
-    no_scrollbar(visual);
-    if (step == STEP_TIMEZONE) {
-        lv_obj_set_height(visual, BOARD_SCALE_PX(210));
-        lv_obj_set_style_radius(visual, BOARD_SCALE_PX(20), 0);
-        lv_obj_set_style_bg_color(visual, lv_color_mix(accent_lv_color(),
-            style_color(&style_theme_screen_bg, LV_STYLE_BG_COLOR, GUI_COLOR_SCREEN), 12), 0);
-        lv_obj_set_style_bg_opa(visual, LV_OPA_COVER, 0);
-        lv_obj_set_style_pad_all(visual, BOARD_SCALE_PX(16), 0);
-        lv_obj_add_event_cb(visual, timezone_map_draw, LV_EVENT_DRAW_MAIN, NULL);
+/* The time zone map on the group surface; shorter panels get a shorter map
+ * so "Choose time zone" stays on screen. */
+static void add_timezone_map(lv_obj_t * parent) {
+    lv_obj_t * map = setup_group(parent);
+    lv_obj_set_height(map, BOARD_SCALE_PX(BOARD_SCREEN_HEIGHT < 800 ? 130 : 210));
+    lv_obj_set_layout(map, LV_LAYOUT_NONE);
+    lv_obj_set_style_pad_all(map, BOARD_SCALE_PX(16), 0);
+    lv_obj_add_event_cb(map, timezone_map_draw, LV_EVENT_DRAW_MAIN, NULL);
+}
+
+/* A step heading with its badge: a Breeze button-like square holding a
+ * monochrome glyph, the title beside it. */
+typedef enum { BADGE_GLYPH, BADGE_TILES, BADGE_DISC } setup_badge_t;
+
+static void add_badge_title(lv_obj_t * parent, setup_badge_t kind, const char * glyph, const char * title) {
+    bool round = kind == BADGE_DISC || (glyph && strcmp(glyph, LV_SYMBOL_WIFI) == 0);
+    lv_obj_t * line = lv_obj_create(parent);
+    lv_obj_set_size(line, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(line, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(line, 0, 0);
+    lv_obj_set_style_pad_all(line, 0, 0);
+    lv_obj_set_style_pad_column(line, BOARD_SCALE_PX(14), 0);
+    lv_obj_set_flex_flow(line, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(line, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    no_scrollbar(line);
+    lv_obj_t * badge = lv_obj_create(line);
+    lv_obj_set_size(badge, BOARD_SCALE_PX(56), BOARD_SCALE_PX(56));
+    lv_obj_set_style_radius(badge, round ? LV_RADIUS_CIRCLE : SETUP_RADIUS, 0);
+    lv_obj_set_style_bg_color(badge, lv_color_hex(GUI_COLOR_PANEL), 0);
+    lv_obj_set_style_bg_opa(badge, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(badge, LV_MAX(1, SETUP_FRAME_W / 2), 0);
+    lv_obj_set_style_border_color(badge, lv_color_mix(SETUP_TEXT, lv_color_hex(GUI_COLOR_PANEL), 51), 0);
+    lv_obj_set_style_pad_all(badge, 0, 0);
+    no_scrollbar(badge);
+    if (kind == BADGE_DISC) {
+        /* Your music: a small record, darker than the badge, outlined. */
+        lv_obj_t * disc = lv_obj_create(badge);
+        lv_obj_set_size(disc, BOARD_SCALE_PX(38), BOARD_SCALE_PX(38));
+        lv_obj_center(disc);
+        lv_obj_set_style_radius(disc, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_color(disc, SETUP_BG, 0);
+        lv_obj_set_style_bg_opa(disc, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(disc, LV_MAX(1, SETUP_FRAME_W / 2), 0);
+        lv_obj_set_style_border_color(disc, SETUP_MUTED, 0);
+        no_scrollbar(disc);
+        lv_obj_t * center = lv_obj_create(disc);
+        lv_obj_set_size(center, BOARD_SCALE_PX(14), BOARD_SCALE_PX(14));
+        lv_obj_center(center);
+        lv_obj_set_style_radius(center, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_color(center, SETUP_TEXT, 0);
+        lv_obj_set_style_bg_opa(center, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(center, 0, 0);
+        no_scrollbar(center);
+        lv_obj_t * heading = label(line, title, GUI_FONT_ROLE_TITLE, SETUP_TEXT, 0);
+        lv_obj_set_flex_grow(heading, 1);
         return;
     }
-    const bool compact_badge = step == STEP_WIFI || step == STEP_PLUGINS;
-    const int32_t size = BOARD_SCALE_PX(compact_badge ? 56 : 92);
-    if (step == STEP_WIFI) lv_obj_set_height(visual, BOARD_SCALE_PX(64));
-    else if (compact_badge) lv_obj_set_height(visual, BOARD_SCALE_PX(56));
-    lv_obj_t * badge = lv_obj_create(visual);
-    lv_obj_set_size(badge, size, size);
-    lv_obj_align(badge, LV_ALIGN_LEFT_MID, BOARD_SCALE_PX(2), 0);
-    lv_obj_set_style_radius(badge, step == STEP_LANGUAGE || step == STEP_PLUGINS
-                                    ? BOARD_SCALE_PX(22) : LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(badge, lv_color_mix(accent_lv_color(),
-                            style_color(&style_theme_screen_bg, LV_STYLE_BG_COLOR, GUI_COLOR_SCREEN), 30), 0);
-    lv_obj_set_style_bg_opa(badge, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(badge, BOARD_SCALE_PX(2), 0);
-    lv_obj_set_style_border_color(badge, accent_lv_color(), 0);
-    no_scrollbar(badge);
-
-    if (step == STEP_LANGUAGE) {
-        lv_obj_t * letters = lv_label_create(badge);
-        lv_label_set_text(letters, "Aa");
-        lv_obj_set_style_text_color(letters, accent_lv_color(), 0);
-        lv_obj_set_style_text_font(letters, gui_theme_font(GUI_FONT_ROLE_TITLE), 0);
-        lv_obj_center(letters);
-        no_scrollbar(letters);
-    } else if (step == STEP_WIFI) {
-        lv_obj_t * glyph = lv_label_create(badge);
-        lv_label_set_text(glyph, LV_SYMBOL_WIFI);
-        lv_obj_set_style_text_color(glyph, accent_lv_color(), 0);
-        lv_obj_set_style_text_font(glyph, gui_theme_font(GUI_FONT_ROLE_TITLE), 0);
-        lv_obj_center(glyph);
-        no_scrollbar(glyph);
-    } else if (step == STEP_PLUGINS) {
+    if (kind == BADGE_TILES) {
+        /* Plugins: a 2x2 grid of tiles, the first one brighter. */
         lv_obj_t * grid = lv_obj_create(badge);
         lv_obj_set_size(grid, BOARD_SCALE_PX(44), BOARD_SCALE_PX(44));
         lv_obj_center(grid);
@@ -1065,47 +862,300 @@ static void add_step_illustration(void) {
         for (int i = 0; i < 4; ++i) {
             lv_obj_t * tile = lv_obj_create(grid);
             lv_obj_set_size(tile, BOARD_SCALE_PX(18), BOARD_SCALE_PX(18));
-            lv_obj_set_style_radius(tile, BOARD_SCALE_PX(6), 0);
-            lv_obj_set_style_bg_color(tile, lv_color_mix(accent_lv_color(), lv_color_hex(0xFFFFFF), i == 0 ? 210 : 120), 0);
+            lv_obj_set_style_radius(tile, BOARD_SCALE_PX(5), 0);
+            lv_obj_set_style_bg_color(tile, i == 0 ? SETUP_TEXT : SETUP_MUTED, 0);
             lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
             lv_obj_set_style_border_width(tile, 0, 0);
             no_scrollbar(tile);
         }
-    } else {
-        lv_obj_t * disc = lv_obj_create(badge);
-        lv_obj_set_size(disc, BOARD_SCALE_PX(58), BOARD_SCALE_PX(58));
-        lv_obj_center(disc);
-        lv_obj_set_style_radius(disc, LV_RADIUS_CIRCLE, 0);
-        lv_obj_set_style_bg_color(disc, lv_color_hex(0x090B0E), 0);
-        lv_obj_set_style_border_width(disc, BOARD_SCALE_PX(1), 0);
-        lv_obj_set_style_border_color(disc, lv_color_hex(0x626A75), 0);
-        no_scrollbar(disc);
-        lv_obj_t * center = lv_obj_create(disc);
-        lv_obj_set_size(center, BOARD_SCALE_PX(26), BOARD_SCALE_PX(26));
-        lv_obj_center(center);
-        lv_obj_set_style_radius(center, LV_RADIUS_CIRCLE, 0);
-        lv_obj_set_style_bg_color(center, accent_lv_color(), 0);
-        lv_obj_set_style_border_width(center, 0, 0);
-        no_scrollbar(center);
+        lv_obj_t * heading = label(line, title, GUI_FONT_ROLE_TITLE, SETUP_TEXT, 0);
+        lv_obj_set_flex_grow(heading, 1);
+        return;
+    }
+    lv_obj_t * mark = lv_label_create(badge);
+    lv_label_set_text(mark, glyph);
+    lv_obj_set_style_text_font(mark, gui_theme_font(GUI_FONT_ROLE_TITLE), 0);
+    lv_obj_set_style_text_color(mark, SETUP_TEXT, 0);
+    lv_obj_center(mark);
+    /* The Wi-Fi glyph's box is centred, but its weight sits in the wide top
+     * arcs; nudge it down so it reads as centred in the circle. */
+    if (strcmp(glyph, LV_SYMBOL_WIFI) == 0) lv_obj_set_style_translate_y(mark, BOARD_SCALE_PX(3), 0);
+    no_scrollbar(mark);
+    lv_obj_t * heading = label(line, title, GUI_FONT_ROLE_TITLE, SETUP_TEXT, 0);
+    lv_obj_set_flex_grow(heading, 1);
+}
+
+/* A padded card on the group surface, for buttons and captions. */
+static lv_obj_t * setup_card(lv_obj_t * parent) {
+    lv_obj_t * card = setup_group(parent);
+    lv_obj_set_style_pad_all(card, BOARD_SCALE_PX(16), 0);
+    lv_obj_set_style_pad_row(card, BOARD_SCALE_PX(10), 0);
+    return card;
+}
+
+static void add_page_title(lv_obj_t * parent, const char * title, const char * detail) {
+    if (title) label(parent, title, GUI_FONT_ROLE_TITLE, SETUP_TEXT, LV_PCT(100));
+    if (detail) {
+        lv_obj_t * sub = label(parent, detail, GUI_FONT_ROLE_BODY, SETUP_MUTED, LV_PCT(100));
+        lv_obj_set_style_text_line_space(sub, BOARD_SCALE_PX(3), 0);
     }
 }
 
-static lv_color_t style_color(lv_style_t * style, lv_style_prop_t prop, uint32_t fallback) {
-    lv_style_value_t value;
-    if (lv_style_get_prop(style, prop, &value) == LV_STYLE_RES_FOUND) return value.color;
-    return lv_color_hex(fallback);
+/* Back, the "Quick setup" title, and Skip where a step may be skipped. */
+static void add_header(void) {
+    lv_obj_t * header = lv_obj_create(content);
+    lv_obj_set_width(header, LV_PCT(100));
+    lv_obj_set_height(header, BOARD_SCALE_PX(60));
+    lv_obj_set_style_bg_opa(header, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(header, 0, 0);
+    lv_obj_set_style_pad_all(header, 0, 0);
+    lv_obj_set_flex_flow(header, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(header, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    no_scrollbar(header);
+    lv_obj_t * back = lv_button_create(header);
+    lv_obj_set_size(back, BOARD_SCALE_PX(56), BOARD_SCALE_PX(56));
+    lv_obj_set_style_bg_opa(back, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_color(back, setup_pressed(), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(back, LV_OPA_COVER, LV_STATE_PRESSED);
+    lv_obj_set_style_radius(back, SETUP_RADIUS, 0);
+    lv_obj_set_style_border_width(back, 0, 0);
+    lv_obj_set_style_shadow_width(back, 0, 0);
+    lv_obj_set_style_pad_all(back, 0, 0);
+    no_scrollbar(back);
+    if (step > STEP_WELCOME) {
+        lv_obj_add_event_cb(back, back_cb, LV_EVENT_CLICKED, NULL);
+        lv_obj_t * arrow = lv_label_create(back);
+        lv_label_set_text(arrow, LV_SYMBOL_LEFT);
+        lv_obj_set_style_text_font(arrow, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
+        lv_obj_set_style_text_color(arrow, SETUP_TEXT, 0);
+        lv_obj_center(arrow);
+        no_scrollbar(arrow);
+    } else {
+        lv_obj_remove_flag(back, LV_OBJ_FLAG_CLICKABLE);
+    }
+    lv_obj_t * kicker = lv_label_create(header);
+    lv_label_set_text(kicker, TR("Quick setup"));
+    lv_obj_set_style_text_font(kicker, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
+    lv_obj_set_style_text_color(kicker, SETUP_TEXT, 0);
+    lv_label_set_long_mode(kicker, LV_LABEL_LONG_DOT);
+    lv_obj_set_size(kicker, 0, lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_ROW)));
+    lv_obj_set_flex_grow(kicker, 1);
+    no_scrollbar(kicker);
+    if (step == STEP_WIFI || step == STEP_PLUGINS) {
+        lv_obj_t * skip = button(header, TR("Skip for now"), false, skip_cb);
+        lv_point_t skip_text_size;
+        lv_text_get_size(&skip_text_size, TR("Skip for now"), gui_theme_font(GUI_FONT_ROLE_STATUS),
+                         0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        int32_t skip_width = skip_text_size.x + BOARD_SCALE_PX(28);
+        if (skip_width < BOARD_SCALE_PX(120)) skip_width = BOARD_SCALE_PX(120);
+        if (skip_width > BOARD_SCALE_PX(160)) skip_width = BOARD_SCALE_PX(160);
+        /* Keep the step title's normal size beside Skip; only a translation
+         * too long for the remaining space drops to the smaller font. */
+        lv_point_t title_size;
+        lv_text_get_size(&title_size, TR("Quick setup"), gui_theme_font(GUI_FONT_ROLE_ROW),
+                         0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        int32_t room = lv_display_get_horizontal_resolution(NULL) - 2 * BOARD_SCALE_PX(20) -
+                       BOARD_SCALE_PX(56) - skip_width - 2 * lv_obj_get_style_pad_column(header, 0);
+        if (title_size.x > room) {
+            lv_obj_set_style_text_font(kicker, gui_theme_font(GUI_FONT_ROLE_STATUS), 0);
+            lv_obj_set_height(kicker, lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_STATUS)));
+        }
+        lv_obj_set_size(skip, skip_width, BOARD_SCALE_PX(56));
+        lv_obj_set_style_pad_ver(skip, 0, 0);
+        lv_obj_set_style_pad_hor(skip, BOARD_SCALE_PX(8), 0);
+        lv_obj_t * skip_caption = lv_obj_get_child(skip, 0);
+        lv_obj_set_width(skip_caption, LV_PCT(100));
+        lv_label_set_long_mode(skip_caption, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_align(skip_caption, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_font(skip_caption, gui_theme_font(GUI_FONT_ROLE_STATUS), 0);
+        lv_obj_set_ext_click_area(skip, BOARD_SCALE_PX(6));
+    }
 }
 
+/* One thin bar: how far through the steps this page is. */
+static void add_progress(void) {
+    const int total = setup_step_position(STEP_SCAN);
+    int done = setup_step_position(step);
+    if (done > total) done = total;
+    lv_obj_t * track = lv_obj_create(content);
+    lv_obj_set_size(track, LV_PCT(100), BOARD_SCALE_PX(4));
+    lv_obj_set_style_bg_color(track, setup_frame(), 0);
+    lv_obj_set_style_bg_opa(track, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(track, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_border_width(track, 0, 0);
+    lv_obj_set_style_pad_all(track, 0, 0);
+    no_scrollbar(track);
+    lv_obj_t * fill = lv_obj_create(track);
+    lv_obj_set_size(fill, LV_PCT(total > 0 ? done * 100 / total : 0), LV_PCT(100));
+    lv_obj_set_style_bg_color(fill, accent_lv_color(), 0);
+    lv_obj_set_style_bg_opa(fill, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(fill, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_border_width(fill, 0, 0);
+    no_scrollbar(fill);
+}
+
+static void welcome_wordmark_deleted_cb(lv_event_t * e) {
+    (void)e;
+    welcome_wordmark = NULL;
+}
+
+/* One alpha-only brand image tinted with color and scaled for the panel. */
+static lv_obj_t * brand_image(lv_obj_t * parent, const lv_image_dsc_t * src, lv_color_t color) {
+    lv_obj_t * image = lv_image_create(parent);
+    lv_image_set_src(image, src);
+    lv_obj_set_style_image_recolor(image, color, 0);
+    lv_obj_set_style_image_recolor_opa(image, LV_OPA_COVER, 0);
+    if (BOARD_SCREEN_WIDTH != BOARD_REFERENCE_WIDTH) {
+        lv_image_set_scale(image, LV_SCALE_NONE * BOARD_SCREEN_WIDTH / BOARD_REFERENCE_WIDTH);
+        lv_obj_set_size(image, BOARD_SCALE_PX(src->header.w), BOARD_SCALE_PX(src->header.h));
+    }
+    lv_obj_remove_flag(image, LV_OBJ_FLAG_CLICKABLE);
+    no_scrollbar(image);
+    return image;
+}
+
+/* The "compás" wordmark above the setup overview. */
+static void add_brand_wordmark(lv_obj_t * parent) {
+    lv_obj_t * holder = lv_obj_create(parent);
+    lv_obj_set_size(holder, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(holder, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(holder, 0, 0);
+    lv_obj_set_style_pad_all(holder, 0, 0);
+    lv_obj_set_style_pad_top(holder, BOARD_SCALE_PX(44), 0);
+    lv_obj_set_style_pad_bottom(holder, BOARD_SCALE_PX(36), 0);
+    lv_obj_set_flex_flow(holder, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(holder, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    no_scrollbar(holder);
+    welcome_wordmark = brand_image(holder, &brand_wordmark, SETUP_TEXT);
+    lv_obj_add_event_cb(holder, welcome_wordmark_deleted_cb, LV_EVENT_DELETE, NULL);
+}
+
+
+static const char * const journey_icons[] = {
+    LV_SYMBOL_SETTINGS, LV_SYMBOL_GPS, LV_SYMBOL_WIFI, LV_SYMBOL_LIST,
+    LV_SYMBOL_IMAGE, LV_SYMBOL_AUDIO
+};
+static const char * const journey_names[] = {
+    N_("Language"), N_("Time zone"), N_("Wi-Fi"), N_("Plugins"),
+    N_("Layout"), N_("Music")
+};
+
+static void journey_chip_size_cb(lv_event_t * event) {
+    if (lv_event_get_code(event) != LV_EVENT_SIZE_CHANGED) return;
+    lv_obj_t * chip = lv_event_get_current_target(event);
+    lv_obj_t * icon = lv_obj_get_child(chip, 0);
+    lv_obj_t * name = lv_obj_get_child(chip, 1);
+    if (!icon || !name) return;
+
+    int32_t available = lv_obj_get_width(chip) -
+        lv_obj_get_style_pad_left(chip, 0) - lv_obj_get_style_pad_right(chip, 0) -
+        lv_obj_get_width(icon) - lv_obj_get_style_pad_column(chip, 0);
+    if (available < 1) available = 1;
+    lv_point_t text_size;
+    lv_text_get_size(&text_size, lv_label_get_text(name), lv_obj_get_style_text_font(name, 0),
+                     0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    int32_t name_width = text_size.x < available ? text_size.x : available;
+    if (name_width < 1) name_width = 1;
+    if (lv_obj_get_width(name) != name_width) lv_obj_set_width(name, name_width);
+}
+
+/* The steps ahead, on the welcome page; the current one is outlined. */
+static void add_journey(void) {
+    const lv_font_t * icon_font = gui_theme_font(GUI_FONT_ROLE_ROW);
+    int32_t icon_column_width = BOARD_SCALE_PX(32);
+    for (size_t i = 0; i < sizeof(journey_icons) / sizeof(journey_icons[0]); ++i) {
+        lv_point_t icon_size;
+        lv_text_get_size(&icon_size, journey_icons[i], icon_font, 0, 0,
+                         LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        if (icon_size.x > icon_column_width) icon_column_width = icon_size.x;
+    }
+    lv_obj_t * panel = setup_group(setup_body);
+    /* The welcome overview absorbs the remaining body height so its entries
+     * are spaced through the card and the action remains anchored below. */
+    lv_obj_set_height(panel, 0);
+    lv_obj_set_flex_grow(panel, 1);
+    lv_obj_set_style_pad_all(panel, BOARD_SCALE_PX(12), 0);
+    lv_obj_set_style_pad_row(panel, BOARD_SCALE_PX(8), 0);
+    lv_obj_set_flex_align(panel, LV_FLEX_ALIGN_SPACE_BETWEEN,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    no_scrollbar(panel);
+    lv_obj_t * heading = lv_label_create(panel);
+    lv_label_set_text(heading, TR("Your setup journey"));
+    lv_obj_set_width(heading, LV_PCT(100));
+    lv_label_set_long_mode(heading, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_font(heading, gui_theme_font(GUI_FONT_ROLE_STATUS), 0);
+    lv_obj_set_style_text_color(heading, SETUP_MUTED, 0);
+    lv_obj_set_style_text_align(heading, LV_TEXT_ALIGN_CENTER, 0);
+    const int position = setup_step_position(step);
+    for (int row_index = 0; row_index < 3; ++row_index) {
+        lv_obj_t * row = lv_obj_create(panel);
+        lv_obj_set_width(row, LV_PCT(100));
+        lv_obj_set_height(row, 0);
+        lv_obj_set_flex_grow(row, 1);
+        lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(row, 0, 0);
+        lv_obj_set_style_pad_all(row, 0, 0);
+        lv_obj_set_style_pad_column(row, BOARD_SCALE_PX(6), 0);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        no_scrollbar(row);
+        int start = row_index * 2;
+        int end = start + 2;
+        if (end > 6) end = 6;
+        for (int i = start; i < end; ++i) {
+            lv_obj_t * chip = lv_obj_create(row);
+            lv_obj_set_height(chip, LV_PCT(100));
+            lv_obj_set_flex_grow(chip, 1);
+            /* Breeze buttons: Button background, rounded rectangle, frame
+             * outline; the accent outlines only the current step. */
+            lv_obj_set_style_bg_color(chip, lv_color_hex(GUI_COLOR_PANEL), 0);
+            lv_obj_set_style_bg_opa(chip, LV_OPA_COVER, 0);
+            lv_obj_set_style_radius(chip, SETUP_RADIUS, 0);
+            lv_obj_set_style_border_width(chip, LV_MAX(1, SETUP_FRAME_W / 2), 0);
+            lv_obj_set_style_border_color(chip, i + 1 == position ? accent_lv_color()
+                : lv_color_mix(SETUP_TEXT, lv_color_hex(GUI_COLOR_PANEL), 51), 0);
+            no_scrollbar(chip);
+            lv_obj_set_style_pad_top(chip, 0, 0);
+            lv_obj_set_style_pad_bottom(chip, 0, 0);
+            lv_obj_set_style_pad_left(chip, BOARD_SCALE_PX(9), 0);
+            lv_obj_set_style_pad_right(chip, BOARD_SCALE_PX(9), 0);
+            lv_obj_set_flex_flow(chip, LV_FLEX_FLOW_ROW);
+            lv_obj_set_style_pad_column(chip, BOARD_SCALE_PX(10), 0);
+            lv_obj_set_flex_align(chip, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+            lv_obj_add_event_cb(chip, journey_chip_size_cb, LV_EVENT_SIZE_CHANGED, NULL);
+            lv_obj_t * icon = lv_label_create(chip);
+            lv_label_set_text(icon, journey_icons[i]);
+            lv_obj_set_width(icon, icon_column_width);
+            lv_obj_set_style_text_color(icon, i + 1 <= position ? accent_lv_color() : SETUP_MUTED, 0);
+            lv_obj_set_style_text_font(icon, icon_font, 0);
+            lv_obj_set_style_text_align(icon, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_t * name = lv_label_create(chip);
+            lv_label_set_text(name, TR(journey_names[i]));
+            lv_obj_set_style_text_color(name, SETUP_TEXT, 0);
+            lv_obj_set_style_text_font(name, gui_theme_font(
+                BOARD_SCREEN_WIDTH < BOARD_REFERENCE_WIDTH ? GUI_FONT_ROLE_BODY : GUI_FONT_ROLE_ROW), 0);
+            lv_obj_set_width(name, LV_SIZE_CONTENT);
+            lv_label_set_long_mode(name, LV_LABEL_LONG_WRAP);
+            no_scrollbar(icon);
+            no_scrollbar(name);
+        }
+    }
+}
+
+/* A suggested plugin card: icon, name and description, and its checkbox as
+ * the last child (plugin_network_refresh() and style_plugin_selection()
+ * rely on that). A selected card is outlined in the accent. */
 static lv_obj_t * suggested_plugin(lv_obj_t * parent, const char * name, const char * description,
-                             const char * id, bool equalizer) {
+                                   const char * id, bool equalizer) {
     lv_obj_t * row = lv_obj_create(parent);
     lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_style_min_height(row, BOARD_SCALE_PX(88), 0);
-    lv_obj_set_style_radius(row, BOARD_SCALE_PX(18), 0);
-    lv_obj_add_style(row, &style_theme_card_bg, 0);
-    lv_obj_set_style_bg_color(row, lv_color_mix(accent_lv_color(),
-        style_color(&style_theme_card_bg, LV_STYLE_BG_COLOR, GUI_COLOR_PANEL), 35), LV_STATE_PRESSED);
-    lv_obj_set_style_border_width(row, 0, 0);
+    lv_obj_set_style_radius(row, SETUP_RADIUS, 0);
+    lv_obj_set_style_bg_color(row, SETUP_SURFACE, 0);
+    lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(row, setup_pressed(), LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(row, SETUP_FRAME_W, 0);
+    lv_obj_set_style_border_color(row, setup_frame(), 0);
     lv_obj_set_style_pad_all(row, BOARD_SCALE_PX(16), 0);
     lv_obj_set_style_pad_column(row, BOARD_SCALE_PX(14), 0);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
@@ -1115,10 +1165,11 @@ static lv_obj_t * suggested_plugin(lv_obj_t * parent, const char * name, const c
     lv_obj_add_event_cb(row, suggested_plugin_cb, LV_EVENT_CLICKED, (void *)id);
     lv_obj_t * badge = lv_obj_create(row);
     lv_obj_set_size(badge, BOARD_SCALE_PX(56), BOARD_SCALE_PX(56));
-    lv_obj_set_style_radius(badge, BOARD_SCALE_PX(14), 0);
-    lv_obj_set_style_bg_color(badge, accent_lv_color(), 0);
-    lv_obj_set_style_bg_opa(badge, LV_OPA_10, 0);
-    lv_obj_set_style_border_width(badge, 0, 0);
+    lv_obj_set_style_radius(badge, SETUP_RADIUS, 0);
+    lv_obj_set_style_bg_color(badge, lv_color_hex(GUI_COLOR_PANEL), 0);
+    lv_obj_set_style_bg_opa(badge, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(badge, LV_MAX(1, SETUP_FRAME_W / 2), 0);
+    lv_obj_set_style_border_color(badge, lv_color_mix(SETUP_TEXT, lv_color_hex(GUI_COLOR_PANEL), 51), 0);
     lv_obj_set_style_pad_all(badge, 0, 0);
     no_scrollbar(badge);
     lv_obj_remove_flag(badge, LV_OBJ_FLAG_CLICKABLE);
@@ -1129,14 +1180,14 @@ static lv_obj_t * suggested_plugin(lv_obj_t * parent, const char * name, const c
             lv_obj_set_size(bar, BOARD_SCALE_PX(5), BOARD_SCALE_PX(heights[i]));
             lv_obj_align(bar, LV_ALIGN_CENTER, BOARD_SCALE_PX((i - 1) * 11), 0);
             lv_obj_set_style_radius(bar, LV_RADIUS_CIRCLE, 0);
-            lv_obj_set_style_bg_color(bar, accent_lv_color(), 0);
-            lv_obj_set_style_border_width(bar, 0, 0);
+            lv_obj_set_style_bg_color(bar, SETUP_TEXT, 0);
             lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
+            lv_obj_set_style_border_width(bar, 0, 0);
             no_scrollbar(bar);
             lv_obj_remove_flag(bar, LV_OBJ_FLAG_CLICKABLE);
         }
     } else {
-        lv_obj_t * glyph = label(badge, LV_SYMBOL_VOLUME_MAX, GUI_FONT_ROLE_ROW, accent_lv_color(), LV_SIZE_CONTENT);
+        lv_obj_t * glyph = label(badge, LV_SYMBOL_VOLUME_MAX, GUI_FONT_ROLE_ROW, SETUP_TEXT, LV_SIZE_CONTENT);
         lv_obj_center(glyph);
     }
     lv_obj_t * text = lv_obj_create(row);
@@ -1149,21 +1200,23 @@ static lv_obj_t * suggested_plugin(lv_obj_t * parent, const char * name, const c
     lv_obj_set_flex_flow(text, LV_FLEX_FLOW_COLUMN);
     no_scrollbar(text);
     lv_obj_remove_flag(text, LV_OBJ_FLAG_CLICKABLE);
-    label(text, name, GUI_FONT_ROLE_BODY,
-          style_color(&style_theme_text_primary, LV_STYLE_TEXT_COLOR, 0xFFFFFF), LV_PCT(100));
-    lv_obj_t * desc = label(text, description, GUI_FONT_ROLE_SUBTEXT,
-          style_color(&style_theme_text_muted, LV_STYLE_TEXT_COLOR, GUI_COLOR_SECONDARY), LV_PCT(100));
+    label(text, name, GUI_FONT_ROLE_BODY, SETUP_TEXT, LV_PCT(100));
+    lv_obj_t * desc = label(text, description, GUI_FONT_ROLE_SUBTEXT, SETUP_MUTED, LV_PCT(100));
     lv_label_set_long_mode(desc, LV_LABEL_LONG_DOT);
     lv_obj_set_height(desc, 2 * lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT)));
     lv_obj_t * check = lv_checkbox_create(row);
     lv_checkbox_set_text(check, "");
     lv_obj_set_style_text_font(check, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
-    lv_obj_set_style_border_color(check, accent_lv_color(), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(check, LV_OPA_TRANSP, LV_PART_INDICATOR);
+    lv_obj_set_style_border_color(check, setup_frame(), LV_PART_INDICATOR);
+    lv_obj_set_style_border_width(check, SETUP_FRAME_W, LV_PART_INDICATOR);
+    lv_obj_set_style_radius(check, BOARD_SCALE_PX(6), LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(check, accent_lv_color(), LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_opa(check, LV_OPA_COVER, LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_set_style_border_color(check, accent_lv_color(), LV_PART_INDICATOR | LV_STATE_CHECKED);
     lv_obj_set_style_bg_image_src(check, LV_SYMBOL_OK, LV_PART_INDICATOR | LV_STATE_CHECKED);
     lv_obj_set_style_text_font(check, gui_theme_font(GUI_FONT_ROLE_ROW), LV_PART_INDICATOR);
-    lv_obj_set_style_text_color(check, lv_color_brightness(accent_lv_color()) > 160
-        ? lv_color_hex(0x14170B) : lv_color_white(), LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_set_style_text_color(check, setup_on_accent(), LV_PART_INDICATOR | LV_STATE_CHECKED);
     lv_obj_remove_flag(check, LV_OBJ_FLAG_EVENT_BUBBLE | LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_ext_click_area(check, BOARD_SCALE_PX(8));
     lv_obj_add_event_cb(check, suggested_checkbox_cb, LV_EVENT_VALUE_CHANGED, (void *)id);
@@ -1188,7 +1241,7 @@ static void render_async(void * unused) {
     setup_body = NULL;
 
     add_header();
-    add_progress();
+    if (step != STEP_WELCOME && step != STEP_COMPLETE) add_progress();
     setup_body = lv_obj_create(content);
     lv_obj_set_width(setup_body, LV_PCT(100));
     lv_obj_set_height(setup_body, 0);
@@ -1196,11 +1249,14 @@ static void render_async(void * unused) {
     lv_obj_set_style_bg_opa(setup_body, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(setup_body, 0, 0);
     lv_obj_set_style_pad_all(setup_body, 0, 0);
+    lv_obj_set_style_pad_top(setup_body, BOARD_SCALE_PX(8), 0);
+    lv_obj_set_style_pad_bottom(setup_body, BOARD_SCALE_PX(12), 0);
     lv_obj_set_style_pad_row(setup_body, BOARD_SCALE_PX(12), 0);
     lv_obj_set_flex_flow(setup_body, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(setup_body, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_add_flag(setup_body, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scroll_dir(setup_body, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(setup_body, LV_SCROLLBAR_MODE_OFF);
 
     lv_obj_t * footer = lv_obj_create(content);
     lv_obj_set_width(footer, LV_PCT(100));
@@ -1208,71 +1264,78 @@ static void render_async(void * unused) {
     lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(footer, 0, 0);
     lv_obj_set_style_pad_all(footer, 0, 0);
-    lv_obj_set_style_pad_row(footer, BOARD_SCALE_PX(6), 0);
     lv_obj_set_flex_flow(footer, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(footer, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     no_scrollbar(footer);
 
     if (step == STEP_WELCOME) {
-        add_vinyl_hero(setup_body);
-        lv_obj_t * title = label(setup_body, TR("Welcome to Compás"), GUI_FONT_ROLE_TITLE,
-                                 style_color(&style_theme_text_primary, LV_STYLE_TEXT_COLOR, 0xFFFFFF), LV_PCT(100));
-        lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_LEFT, 0);
+        add_brand_wordmark(setup_body);
         add_journey();
         button(footer, TR("Get started"), true, next_cb);
         return;
     }
-
     if (step == STEP_COMPLETE) {
-        add_vinyl_hero(setup_body);
-        add_page_title(setup_body, TR("Quick Setup Complete"), "");
+        /* The wordmark on the card, as the welcome page shows it. */
+        lv_obj_t * hero = setup_card(setup_body);
+        lv_obj_set_height(hero, BOARD_SCALE_PX(150));
+        lv_obj_set_flex_align(hero, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        brand_image(hero, &brand_wordmark, SETUP_TEXT);
+        add_page_title(setup_body, TR("Quick Setup Complete"), NULL);
         button(footer, TR("Continue"), true, complete_cb);
         return;
     }
 
-    lv_obj_t * step_count = label(setup_body, "", GUI_FONT_ROLE_STATUS,
-                                  style_color(&style_theme_text_muted, LV_STYLE_TEXT_COLOR, GUI_COLOR_SECONDARY), LV_PCT(100));
-    int position = setup_step_position(step);
-    lv_label_set_text_fmt(step_count, TR("Step %d of %d"), position,
-                          setup_step_position(STEP_SCAN));
-    if (step == STEP_TIMEZONE) gui_network_setup_wifi_prepare();
-    if (step != STEP_LAYOUT) add_step_illustration();
-
+    if (step == STEP_TIMEZONE || step == STEP_WIFI || step == STEP_PLUGINS) gui_network_setup_wifi_prepare();
     const char * title = step == STEP_LANGUAGE ? TR("Language") :
                          step == STEP_TIMEZONE ? TR("Time zone") :
                          step == STEP_WIFI ? TR("Wi-Fi") :
                          step == STEP_PLUGINS ? TR("Plugins") :
                          step == STEP_LAYOUT ? TR("Player Layout") : TR("Your music");
-    char timezone_detail[192];
     const char * detail = step == STEP_LANGUAGE ? TR("Choose the language for your player.") :
                           step == STEP_TIMEZONE ? TR("Set your local time zone so the clock is right.") :
                           step == STEP_WIFI ? TR("Connect to Wi-Fi for streaming, updates, and online services.") :
                           step == STEP_PLUGINS ? TR("Start with these suggestions, or explore more plugins.") :
                           step == STEP_LAYOUT ? NULL :
                           TR("Insert your SD card with music files. Compas Player can scan it and build your library.");
-    if (step == STEP_TIMEZONE) {
-        const char * selected_timezone = current_settings.timezone[0] ? current_settings.timezone : TR("Not selected (UTC)");
-        snprintf(timezone_detail, sizeof(timezone_detail), "%s\n%s", detail, selected_timezone);
-        detail = timezone_detail;
-    }
-    add_page_title(setup_body, title, detail);
-    lv_obj_t * card = new_card(setup_body);
     if (step == STEP_LANGUAGE) {
+        add_badge_title(setup_body, BADGE_GLYPH, "Aa", title);
+        add_page_title(setup_body, NULL, detail);
+        lv_obj_t * card = setup_card(setup_body);
         button(card, selected_language_name(), false, language_open_cb);
+        lv_obj_t * keyboard_title = label(card, TR("Keyboard"), GUI_FONT_ROLE_STATUS, SETUP_MUTED, LV_PCT(100));
+        lv_obj_set_style_pad_top(keyboard_title, BOARD_SCALE_PX(4), 0);
+        lv_obj_t * keyboard_button = button(card, keyboard_label_at(selected_keyboard_index()), false,
+                                            keyboard_open_cb);
+        /* A layout name too long for a small panel ends in an ellipsis; the
+         * ellipsis needs a fixed height, so hold the caption to one line. */
+        lv_obj_t * keyboard_caption = lv_obj_get_child(keyboard_button, 0);
+        lv_obj_set_width(keyboard_caption, LV_PCT(100));
+        lv_obj_set_height(keyboard_caption,
+                          lv_font_get_line_height(lv_obj_get_style_text_font(keyboard_caption, 0)));
+        lv_label_set_long_mode(keyboard_caption, LV_LABEL_LONG_DOT);
+        lv_obj_set_style_text_align(keyboard_caption, LV_TEXT_ALIGN_CENTER, 0);
         button(footer, TR("Continue"), true, next_cb);
         return;
     }
+    /* The time zone page puts its title under the map. */
+    if (step == STEP_WIFI || step == STEP_PLUGINS || step == STEP_SCAN) {
+        add_badge_title(setup_body, step == STEP_WIFI ? BADGE_GLYPH : step == STEP_PLUGINS ? BADGE_TILES : BADGE_DISC,
+                        LV_SYMBOL_WIFI, title);
+        add_page_title(setup_body, NULL, detail);
+    } else if (step != STEP_TIMEZONE) {
+        add_page_title(setup_body, title, detail);
+    }
     if (step == STEP_TIMEZONE) {
-        button(card, TR("Choose time zone"), false, open_timezone_cb);
+        char timezone_detail[192];
+        snprintf(timezone_detail, sizeof(timezone_detail), "%s\n%s", detail,
+                 current_settings.timezone[0] ? current_settings.timezone : TR("Not selected (UTC)"));
+        add_timezone_map(setup_body);
+        add_page_title(setup_body, title, timezone_detail);
+        button(setup_card(setup_body), TR("Choose time zone"), false, open_timezone_cb);
         button(footer, TR("Continue"), true, next_cb);
         return;
     }
     if (step == STEP_WIFI) {
-        gui_network_setup_wifi_prepare();
-        lv_obj_set_style_bg_opa(card, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_pad_all(card, 0, 0);
-        lv_obj_set_style_border_width(card, 0, 0);
-        lv_obj_t * actions = lv_obj_create(card);
+        lv_obj_t * actions = lv_obj_create(setup_body);
         lv_obj_set_size(actions, LV_PCT(100), LV_SIZE_CONTENT);
         lv_obj_set_style_bg_opa(actions, LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_width(actions, 0, 0);
@@ -1281,16 +1344,13 @@ static void render_async(void * unused) {
         lv_obj_set_flex_flow(actions, LV_FLEX_FLOW_ROW);
         no_scrollbar(actions);
         lv_obj_t * hidden = button(actions, TR("Add hidden network"), false, wifi_hidden_cb);
-        lv_obj_set_width(hidden, 0);
-        lv_obj_set_flex_grow(hidden, 1);
         lv_obj_t * rescan = button(actions, TR("Rescan"), false, wifi_rescan_cb);
-        lv_obj_set_width(rescan, 0);
-        lv_obj_set_flex_grow(rescan, 1);
-        /* Equal action widths leave room for translated refresh captions.
-         * Wrap the longer hidden-network caption inside the button. */
+        /* Equal widths leave room for translated captions, which wrap. */
         lv_obj_t * wifi_actions[] = { hidden, rescan };
         for (unsigned i = 0; i < sizeof(wifi_actions) / sizeof(wifi_actions[0]); ++i) {
             lv_obj_t * action = wifi_actions[i];
+            lv_obj_set_width(action, 0);
+            lv_obj_set_flex_grow(action, 1);
             lv_obj_set_height(action, ui_list_row_height());
             lv_obj_set_style_pad_all(action, BOARD_SCALE_PX(8), 0);
             lv_obj_t * caption = lv_obj_get_child(action, 0);
@@ -1298,7 +1358,7 @@ static void render_async(void * unused) {
             lv_label_set_long_mode(caption, LV_LABEL_LONG_WRAP);
             lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
         }
-        lv_obj_t * networks = lv_obj_create(card);
+        lv_obj_t * networks = lv_obj_create(setup_body);
         lv_obj_set_size(networks, LV_PCT(100), LV_SIZE_CONTENT);
         lv_obj_set_style_bg_opa(networks, LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_width(networks, 0, 0);
@@ -1311,25 +1371,22 @@ static void render_async(void * unused) {
         return;
     }
     if (step == STEP_PLUGINS) {
-        memset(plugin_download_rows, 0, sizeof(plugin_download_rows));
-        memset(plugin_download_available, 0, sizeof(plugin_download_available));
-        gui_network_setup_wifi_prepare();
-        lv_obj_set_style_bg_opa(card, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_pad_all(card, 0, 0);
-        lv_obj_set_style_border_width(card, 0, 0);
-        plugin_network_notice = new_card(card);
+        /* Offline notice, one tappable card that leads to the Wi-Fi step;
+         * plugin_network_refresh() hides it whole once a network is up. */
+        plugin_network_notice = setup_card(setup_body);
         lv_obj_add_flag(plugin_network_notice, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_bg_color(plugin_network_notice, setup_pressed(), LV_STATE_PRESSED);
         lv_obj_add_event_cb(plugin_network_notice, connect_plugins_wifi_cb, LV_EVENT_CLICKED, NULL);
-        label(plugin_network_notice, TR("No network detected"), GUI_FONT_ROLE_BODY, accent_lv_color(), LV_PCT(100));
+        label(plugin_network_notice, TR("No network detected"), GUI_FONT_ROLE_BODY, SETUP_TEXT, LV_PCT(100));
         label(plugin_network_notice, TR("Connect to a network to download plugins."), GUI_FONT_ROLE_SUBTEXT,
-              style_color(&style_theme_text_muted, LV_STYLE_TEXT_COLOR, GUI_COLOR_SECONDARY), LV_PCT(100));
-        label(plugin_network_notice, TR("Connect to Wi-Fi"), GUI_FONT_ROLE_SUBTEXT, accent_lv_color(), LV_PCT(100));
+              SETUP_MUTED, LV_PCT(100));
+        label(plugin_network_notice, TR("Connect to Wi-Fi"), GUI_FONT_ROLE_SUBTEXT, setup_accent_text(), LV_PCT(100));
         if (!plugin_catalog_request_started && gui_network_setup_wifi_connected())
             plugin_catalog_request_started = gui_plugin_store_setup_catalog_prepare();
         plugin_catalog_rendered = gui_plugin_store_setup_catalog_ready();
         if (!plugin_catalog_rendered && gui_network_setup_wifi_connected())
-            plugin_catalog_notice = label(card, TR("Loading plugin catalog..."), GUI_FONT_ROLE_SUBTEXT,
-                  style_color(&style_theme_text_muted, LV_STYLE_TEXT_COLOR, GUI_COLOR_SECONDARY), LV_PCT(100));
+            plugin_catalog_notice = label(setup_body, TR("Loading plugin catalog..."), GUI_FONT_ROLE_SUBTEXT,
+                                          SETUP_MUTED, LV_PCT(100));
         for (size_t i = 0; i < 2; ++i) {
             const char * id = suggested_plugin_ids[i];
             bool is_eq = (i == 1);
@@ -1337,26 +1394,17 @@ static void render_async(void * unused) {
             plugin_store_result_t plugin;
             plugin_store_details_t details;
             bool found = gui_plugin_store_setup_get_plugin(id, &plugin, &details);
-            if (!found) {
-                plugin_download_rows[i] = suggested_plugin(card, fallback_name,
-                    suggested_plugin_unavailable_state(), id, is_eq);
+            const char * name = found && plugin.name[0] ? plugin.name : fallback_name;
+            if (!found || plugin.incompatible || plugin.state == PLUGIN_STORE_PLUGIN_INCOMPATIBLE) {
+                plugin_download_rows[i] = suggested_plugin(setup_body, name,
+                    found ? TR("Needs newer firmware") : suggested_plugin_unavailable_state(), id, is_eq);
                 set_suggested_plugin_available(i, plugin_download_rows[i], false);
                 continue;
             }
-            if (plugin.incompatible || plugin.state == PLUGIN_STORE_PLUGIN_INCOMPATIBLE) {
-                plugin_download_rows[i] = suggested_plugin(card,
-                    plugin.name[0] ? plugin.name : fallback_name,
-                    TR("Needs newer firmware"),
-                    id, is_eq);
-                set_suggested_plugin_available(i, plugin_download_rows[i], false);
-                continue;
-            }
-            plugin_download_rows[i] = suggested_plugin(card,
-                plugin.name[0] ? plugin.name : fallback_name,
-                details.description, id, is_eq);
+            plugin_download_rows[i] = suggested_plugin(setup_body, name, details.description, id, is_eq);
             plugin_download_available[i] = true;
         }
-        plugin_download_rows[2] = button(card, TR("More"), false, open_plugins_cb);
+        plugin_download_rows[2] = button(setup_body, TR("More"), false, open_plugins_cb);
         plugin_network_connected = !gui_network_setup_wifi_connected();
         plugin_network_refresh();
         if (!plugin_network_timer) plugin_network_timer = lv_timer_create(plugin_network_poll, 500, NULL);
@@ -1364,10 +1412,7 @@ static void render_async(void * unused) {
         return;
     }
     if (step == STEP_LAYOUT) {
-        lv_obj_set_style_bg_opa(card, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_pad_all(card, 0, 0);
-        lv_obj_set_style_border_width(card, 0, 0);
-        lv_obj_t * grid = lv_obj_create(card);
+        lv_obj_t * grid = lv_obj_create(setup_body);
         lv_obj_remove_style_all(grid);
         lv_obj_set_size(grid, LV_PCT(100), LV_SIZE_CONTENT);
         lv_obj_remove_flag(grid, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
@@ -1395,16 +1440,16 @@ static void render_async(void * unused) {
                                      sizeof(layout_suggestion_preview));
         (void)gui_plugin_store_setup_populate_layout_suggestions(grid, setup_layout_is_selected, setup_layout_selected);
         if (!layout_catalog_ready && gui_network_setup_wifi_connected()) {
-            label(card, TR("Loading layouts"), GUI_FONT_ROLE_SUBTEXT,
-                  style_color(&style_theme_text_muted, LV_STYLE_TEXT_COLOR, GUI_COLOR_SECONDARY), LV_PCT(100));
+            label(setup_body, TR("Loading layouts"), GUI_FONT_ROLE_SUBTEXT, SETUP_MUTED, LV_PCT(100));
             if (!plugin_catalog_request_started)
                 plugin_catalog_request_started = gui_plugin_store_setup_catalog_prepare();
         }
         if (!layout_catalog_timer) layout_catalog_timer = lv_timer_create(setup_layout_catalog_poll, 500, NULL);
-        button(card, TR("More"), false, open_player_layouts_cb);
+        button(setup_body, TR("More"), false, open_player_layouts_cb);
         button(footer, TR("Continue"), true, next_cb);
         return;
     }
+    lv_obj_t * card = setup_card(setup_body);
     lv_obj_t * row = lv_obj_create(card);
     lv_obj_set_width(row, LV_PCT(100));
     lv_obj_set_height(row, BOARD_SCALE_PX(72));
@@ -1416,17 +1461,18 @@ static void render_async(void * unused) {
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
     no_scrollbar(row);
     lv_obj_add_event_cb(row, scan_row_cb, LV_EVENT_CLICKED, NULL);
-    label(row, TR("Scan for music"), GUI_FONT_ROLE_ROW, lv_color_hex(0xFFFFFF), LV_PCT(72));
+    label(row, TR("Scan for music"), GUI_FONT_ROLE_ROW, SETUP_TEXT, LV_PCT(72));
     scan_switch = lv_switch_create(row);
     lv_obj_set_size(scan_switch, BOARD_SCALE_PX(64), BOARD_SCALE_PX(40));
     no_scrollbar(scan_switch);
+    lv_obj_set_style_bg_color(scan_switch, setup_frame(), LV_PART_MAIN);
     lv_obj_add_style(scan_switch, gui_theme_accent_style(), LV_PART_INDICATOR | LV_STATE_CHECKED);
     lv_obj_remove_flag(scan_switch, LV_OBJ_FLAG_EVENT_BUBBLE);
     lv_obj_add_event_cb(scan_switch, scan_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
     if (staged_scan) lv_obj_add_state(scan_switch, LV_STATE_CHECKED);
     if (!sd_card_root_is_mounted())
         label(card, TR("No SD card detected. You can scan later from Library settings."),
-              GUI_FONT_ROLE_SUBTEXT, style_color(&style_theme_text_muted, LV_STYLE_TEXT_COLOR, GUI_COLOR_SECONDARY), LV_PCT(100));
+              GUI_FONT_ROLE_SUBTEXT, SETUP_MUTED, LV_PCT(100));
     button(footer, TR("Continue"), true, finish_cb);
 }
 
@@ -1459,8 +1505,7 @@ static void intro_cleanup(void) {
         lv_obj_delete(intro_overlay);
         intro_overlay = NULL;
     }
-    intro_title = NULL;
-    memset(intro_notes, 0, sizeof(intro_notes));
+    intro_wordmark = NULL;
     if (intro_background) {
         lv_image_cache_drop(intro_frame);
         lv_obj_delete(intro_background);
@@ -1473,32 +1518,23 @@ static void intro_cleanup(void) {
     if (content) lv_obj_remove_flag(content, LV_OBJ_FLAG_HIDDEN);
 }
 
+static int32_t intro_ramp(int32_t progress, int32_t from, int32_t to) {
+    if (progress <= from) return 0;
+    if (progress >= to) return 255;
+    return (progress - from) * 255 / (to - from);
+}
+
+/* The wordmark rises into place -- the boot logo's white-on-black moment --
+ * then the cached welcome page is revealed around it. */
 static void intro_exec(void * obj, int32_t progress) {
     (void)obj;
     if (!intro_overlay) return;
-    int32_t width = lv_obj_get_width(setup_screen);
-    int32_t height = lv_obj_get_height(setup_screen);
-    /* Leave the title readable while the notes fall, then reveal the page. */
-    int32_t reveal = progress > 720 ? (progress - 720) * 255 / 280 : 0;
-    if (reveal > 255) reveal = 255;
+    int32_t reveal = intro_ramp(progress, 720, 1000);
+    int32_t word_in = intro_ramp(progress, 0, 420);
     lv_obj_set_style_bg_opa(intro_overlay, 255 - reveal, 0);
-    int32_t title_in = progress < 100 ? progress * 255 / 100 : 255;
-    lv_obj_set_style_opa(intro_title, title_in * (255 - reveal) / 255, 0);
-    for (int i = 0; i < INTRO_NOTE_COUNT; ++i) {
-        int32_t delay = (i * 43) % 300;
-        int32_t local = progress - delay;
-        if (local < 0) local = 0;
-        int32_t x = (int32_t)((uint32_t)(i * 137 + 19) % (uint32_t)(width - BOARD_SCALE_PX(32)));
-        int32_t start_y = -BOARD_SCALE_PX(36) - (i % 4) * BOARD_SCALE_PX(36);
-        int32_t y = start_y + local * (height + BOARD_SCALE_PX(180)) / 1050;
-        lv_obj_set_pos(intro_notes[i], x, y);
-        int32_t fade_in = local < 130 ? local * 180 / 130 : 180;
-        int32_t fade_out = local > 280 ? (local - 280) * 180 / 570 : 0;
-        int32_t opacity = fade_in - fade_out;
-        if (opacity < 0) opacity = 0;
-        opacity = opacity * (255 - reveal) / 255;
-        lv_obj_set_style_opa(intro_notes[i], opacity, 0);
-    }
+    /* The wordmark stays put through the reveal: the page's own copy sits under it. */
+    lv_obj_set_style_opa(intro_wordmark, word_in, 0);
+    lv_obj_set_style_translate_y(intro_wordmark, BOARD_SCALE_PX(14) * (255 - word_in) / 255, 0);
 }
 
 static void intro_start(void) {
@@ -1517,26 +1553,22 @@ static void intro_start(void) {
     intro_overlay = lv_obj_create(setup_screen);
     lv_obj_remove_style_all(intro_overlay);
     lv_obj_set_size(intro_overlay, LV_PCT(100), LV_PCT(100));
-    lv_obj_add_style(intro_overlay, &style_theme_screen_bg, 0);
+    lv_obj_set_style_bg_color(intro_overlay, SETUP_BG, 0);
     lv_obj_set_style_bg_opa(intro_overlay, LV_OPA_COVER, 0);
     no_scrollbar(intro_overlay);
     lv_obj_add_flag(intro_overlay, LV_OBJ_FLAG_CLICKABLE);
-    /* Consume taps without advancing setup until the intro completes. */
-    for (int i = 0; i < INTRO_NOTE_COUNT; ++i) {
-        intro_notes[i] = lv_label_create(intro_overlay);
-        lv_label_set_text(intro_notes[i], LV_SYMBOL_AUDIO);
-        lv_obj_set_style_text_font(intro_notes[i],
-            gui_theme_font(i % 3 == 0 ? GUI_FONT_ROLE_TITLE : GUI_FONT_ROLE_ROW), 0);
-        lv_obj_set_style_text_color(intro_notes[i], i % 3 == 0 ? accent_lv_color() :
-            style_color(&style_theme_text_muted, LV_STYLE_TEXT_COLOR, GUI_COLOR_SECONDARY), 0);
-        no_scrollbar(intro_notes[i]);
-        lv_obj_remove_flag(intro_notes[i], LV_OBJ_FLAG_CLICKABLE);
+    /* Consume taps without advancing setup until the intro completes. The
+     * wordmark is placed exactly over the welcome page's own, so the reveal
+     * brings the page in around it instead of crossfading two copies. */
+    intro_wordmark = brand_image(intro_overlay, &brand_wordmark, SETUP_TEXT);
+    if (welcome_wordmark) {
+        lv_area_t word_area;
+        lv_obj_get_coords(welcome_wordmark, &word_area);
+        lv_obj_set_pos(intro_wordmark, word_area.x1, word_area.y1);
+    } else {
+        lv_obj_center(intro_wordmark);
     }
-    intro_title = label(intro_overlay, TR("Welcome to Compás"), GUI_FONT_ROLE_TITLE,
-        style_color(&style_theme_text_primary, LV_STYLE_TEXT_COLOR, 0xFFFFFF), LV_PCT(90));
-    lv_obj_set_style_text_align(intro_title, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(intro_title, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_remove_flag(intro_title, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_opa(intro_wordmark, LV_OPA_TRANSP, 0);
 
     lv_anim_t anim;
     lv_anim_init(&anim);
@@ -1572,7 +1604,7 @@ bool gui_setup_show_if_needed(void) {
     }
     setup_screen = lv_obj_create(NULL);
     lv_obj_add_event_cb(setup_screen, loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
-    lv_obj_add_style(setup_screen, &style_theme_screen_bg, 0);
+    lv_obj_set_style_bg_color(setup_screen, SETUP_BG, 0);
     lv_obj_set_style_bg_opa(setup_screen, LV_OPA_COVER, 0);
     content = lv_obj_create(setup_screen);
     lv_obj_set_size(content, LV_PCT(100),
@@ -1621,7 +1653,7 @@ void gui_setup_teardown(void) {
     setup_scan_running = false;
     gui_setup_plugins_teardown();
     gui_popup_teardown(&language_popup);
-    language_list = NULL;
+    gui_popup_teardown(&keyboard_popup);
     plugin_network_notice = NULL;
     plugin_catalog_notice = NULL;
     memset(plugin_download_rows, 0, sizeof(plugin_download_rows));

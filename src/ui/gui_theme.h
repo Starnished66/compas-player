@@ -8,16 +8,18 @@
 /* Native defaults only: live surfaces/text continue to use mutable styles
  * so plugin palettes (including light themes) remain authoritative.
  * KDE Breeze Dark (Plasma 6): View background and alternate, Button
- * background, Normal and Inactive text. Pressed and border are the text
- * mixed over a row and a card, as gui_theme_update_surface_contrast() does. */
+ * background, Normal and Inactive text. Pressed is the text mixed 12.5% over
+ * a row; border is Breeze's frame, the text mixed 20% over a card. */
 #define GUI_COLOR_SCREEN 0x141618
 #define GUI_COLOR_ROW 0x1D1F22
 #define GUI_COLOR_PANEL 0x292C30
 #define GUI_COLOR_PRESSED 0x393B3D
 #define GUI_COLOR_PRIMARY 0xFCFCFC
 #define GUI_COLOR_SECONDARY 0xA1A9B1
-#define GUI_COLOR_BORDER 0x3D4043
+#define GUI_COLOR_BORDER 0x535659
 #define GUI_ROW_GAP BOARD_SCALE_PX(8)
+/* List rows are cards inset this far from each screen edge (as Home's). */
+#define GUI_LIST_SIDE_MARGIN BOARD_SCALE_PX(16)
 #define GUI_TEXT_INSET BOARD_SCALE_PX(24)
 #define GUI_ROW_HEIGHT BOARD_SCALE_PX(96)
 /* Compatibility names for call sites that need to express row content, not

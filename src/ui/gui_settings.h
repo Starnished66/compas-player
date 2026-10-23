@@ -12,6 +12,11 @@ lv_obj_t * gui_settings_get_about_screen(void);
 lv_obj_t * gui_settings_get_accent_screen(void);
 /* Refreshes the Accent Color screen after any accent change (gui_theme.c). */
 void gui_settings_accent_changed(void);
+/* The keyboard layouts offered in Settings -> Keyboard, in display order.
+ * _at() returns the KEYBOARD_LAYOUT_* value and its untranslated label (pass
+ * it through TR()), or -1 past the end. */
+size_t gui_settings_keyboard_layout_count(void);
+int gui_settings_keyboard_layout_at(size_t index, const char ** label);
 lv_obj_t * gui_settings_get_custom_font_screen(void);
 lv_obj_t * gui_settings_get_eq_screen(void);
 /* Direct drawer/navigation entry points. */

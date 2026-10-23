@@ -52,8 +52,9 @@
 /assets/theme2/pull_down/bg.png
 !/assets/theme2/topbar/
 /assets/theme2/topbar/*
-!/assets/theme2/topbar/lucide_*.png
-!/assets/theme2/topbar/LUCIDE_SOURCES.txt
+!/assets/theme2/topbar/breeze_*.png
+!/assets/theme2/topbar/BREEZE_SOURCES.txt
+!/assets/theme2/topbar/BREEZE_COPYING-ICONS.txt
 !/assets/theme2/topbar/SOURCES.txt
 !/assets/theme2/topbar/aac.png
 !/assets/theme2/topbar/sbc.png
@@ -259,6 +260,7 @@
 !/generate_compile_commands.py
 !/scripts/offline_library_scan.py
 !/scripts/generate_remote_webapp.py
+!/scripts/generate_brand_marks.py
 !/scripts/install_startup_trace.py
 !/scripts/kernel/*.py
 

@@ -19,13 +19,13 @@ lv_style_t * gui_theme_muted_text_style(void) { return &style_theme_text_muted; 
 const uint32_t accent_palette[ACCENT_PALETTE_COUNT] = {
     0x2196F3, /* blue */
     0x4CAF50, /* green */
-    0xF44336, /* red */
+    DEFAULT_ACCENT_COLOR, /* deep red (default) */
     0xFF9800, /* orange */
     0x9C27B0, /* purple */
     0x009688, /* teal */
     0xE91E63, /* pink */
     0xE0E0E0, /* light gray */
-    DEFAULT_ACCENT_COLOR, /* light yellow (default) */
+    0xF4E58C, /* light yellow */
     0x00BCD4, /* cyan */
     0x3F51B5, /* indigo */
     0xFFC107, /* amber */
@@ -118,13 +118,34 @@ void gui_theme_update_surface_contrast(void) {
     /* Contrast follows the plugin's own foreground, so a light palette
      * darkens on press instead of flashing a hardcoded charcoal surface. */
     lv_style_set_bg_color(&list_row_pressed_style, lv_color_mix(text.color, row.color, 32));
-    lv_style_set_border_color(&style_theme_card_bg, lv_color_mix(text.color, card.color, 24));
+    /* Breeze's frame contrast: the text mixed 20% over the surface. */
+    lv_style_set_border_color(&style_theme_card_bg, lv_color_mix(text.color, card.color, 51));
     /* Icon-grid tiles: Breeze's frame outline is the text mixed 20% over
      * the surface (KDE's default frame contrast). */
     lv_style_set_bg_color(&style_theme_tile, card.color);
     lv_style_set_border_color(&style_theme_tile, lv_color_mix(text.color, card.color, 51));
     lv_style_set_bg_color(&style_theme_tile_pressed, lv_color_mix(text.color, card.color, 32));
+    /* Rows take the same frame over their own surface. */
+    lv_color_t frame = lv_color_mix(text.color, row.color, 51);
+    lv_style_set_border_color(&list_row_style, frame);
+    lv_style_set_border_color(&pill_row_bg_style, frame);
+    lv_style_value_t muted;
+    lv_color_t secondary = lv_style_get_prop(&style_theme_text_muted, LV_STYLE_TEXT_COLOR, &muted) ==
+                           LV_STYLE_RES_FOUND ? muted.color : text.color;
+    lv_style_set_bg_color(&style_theme_scrollbar, secondary);
+    lv_style_set_bg_color(&style_theme_switch_track, lv_color_mix(text.color, row.color, 64));
+    /* The knob is the lighter of text and surface: light on a dark theme,
+     * a framed white knob on a light one. */
+    bool light_surface = !gui_theme_prefers_light_text(row.color);
+    lv_style_set_bg_color(&style_theme_switch_knob, light_surface ? row.color : text.color);
+    lv_style_set_border_width(&style_theme_switch_knob, light_surface ? BOARD_SCALE_PX(2) : 0);
+    lv_style_set_border_color(&style_theme_switch_knob, frame);
     lv_obj_report_style_change(&list_row_pressed_style);
+    lv_obj_report_style_change(&list_row_style);
+    lv_obj_report_style_change(&pill_row_bg_style);
+    lv_obj_report_style_change(&style_theme_scrollbar);
+    lv_obj_report_style_change(&style_theme_switch_track);
+    lv_obj_report_style_change(&style_theme_switch_knob);
     lv_obj_report_style_change(&style_theme_card_bg);
     lv_obj_report_style_change(&style_theme_tile);
     lv_obj_report_style_change(&style_theme_tile_pressed);

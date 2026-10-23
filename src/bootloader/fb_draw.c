@@ -371,7 +371,7 @@ bool fb_draw_background_jpeg(const char * path) {
 
     if (ok) {
         bool tint = false;
-        uint32_t accent = 0xF4E58C;
+        uint32_t accent = 0xB0142B; /* DEFAULT_ACCENT_COLOR */
         startup_splash_get_tint(&tint, &accent);
         if (tint) {
             uint8_t accent_red = (uint8_t)(accent >> 16);
