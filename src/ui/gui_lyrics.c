@@ -1,4 +1,5 @@
 #include "gui_lyrics.h"
+#include "gui_theme.h"
 #include "i18n.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -848,8 +849,8 @@ static void lyrics_apply_embedded_geometry(lv_obj_t * parent, int32_t x, int32_t
         lyrics_apply_row_geometry(w, lyrics_embedded_row_width,
                                   area_mode && lyrics_look.has_align ? lyrics_look.align : LV_TEXT_ALIGN_CENTER);
         /* Empty and plain lyrics need the same contrast as synchronized lines. */
-        lv_obj_set_style_text_color(lyrics_empty_label, lyrics_look.has_normal ? lyrics_look.normal : lv_color_hex(0xc8c8c8), 0);
-        lv_obj_set_style_text_color(lyrics_plain_label, lyrics_look.has_normal ? lyrics_look.normal : lv_color_hex(0xe6e6e6), 0);
+        lv_obj_set_style_text_color(lyrics_empty_label, lyrics_look.has_normal ? lyrics_look.normal : lv_color_hex(GUI_BREEZE_MUTED_ON_DARK), 0);
+        lv_obj_set_style_text_color(lyrics_plain_label, lyrics_look.has_normal ? lyrics_look.normal : lv_color_hex(GUI_BREEZE_TEXT_ON_DARK), 0);
         lyrics_backdrop_discard_active = lyrics_backdrop_active;
         lyrics_backdrop_regenerate_pending = false;
         lv_obj_add_flag(lyrics_backdrop_img, LV_OBJ_FLAG_HIDDEN);
@@ -969,8 +970,8 @@ void gui_lyrics_hide_embedded(void) {
     lv_obj_center(lyrics_empty_label);
     lyrics_embedded = false;
     lyrics_area_mode = false;
-    lv_obj_set_style_text_color(lyrics_empty_label, lv_color_hex(0xc8c8c8), 0);
-    lv_obj_set_style_text_color(lyrics_plain_label, lv_color_hex(0xe6e6e6), 0);
+    lv_obj_set_style_text_color(lyrics_empty_label, lv_color_hex(GUI_BREEZE_MUTED_ON_DARK), 0);
+    lv_obj_set_style_text_color(lyrics_plain_label, lv_color_hex(GUI_BREEZE_TEXT_ON_DARK), 0);
     if (lyrics_active_marker) lv_obj_add_flag(lyrics_active_marker, LV_OBJ_FLAG_HIDDEN);
     lyrics_embedded_row_width = LYRICS_ROW_WIDTH;
     lyrics_apply_row_geometry(LYRICS_BACKDROP_WIDTH, LYRICS_ROW_WIDTH, LV_TEXT_ALIGN_CENTER);

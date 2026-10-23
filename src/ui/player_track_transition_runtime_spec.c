@@ -163,6 +163,15 @@ uint8_t * frosted_glass_blur_rgb565_cancelable(const uint16_t * source, int sour
     return frosted_glass_blur_rgb565(source, source_width, source_height, out_width, out_height,
                                      blur_radius, blur_passes, darken_num, darken_den, mirror_y);
 }
+uint8_t * frosted_glass_blur_rgb565_tinted_cancelable(const uint16_t * source, int source_width, int source_height,
+                                                      int out_width, int out_height, int blur_radius, int blur_passes,
+                                                      int darken_num, int darken_den, uint32_t tint_rgb, int tint_weight,
+                                                      bool mirror_y, frosted_glass_cancel_fn cancel_cb, void * user_data) {
+    (void)tint_rgb; (void)tint_weight;
+    return frosted_glass_blur_rgb565_cancelable(source, source_width, source_height, out_width, out_height,
+                                                blur_radius, blur_passes, darken_num, darken_den, mirror_y,
+                                                cancel_cb, user_data);
+}
 size_t artwork_reserve_bytes_for_priority(artwork_priority_t priority) { (void)priority; return 0; }
 bool albumart_generated_cache_fresh(const albumart_info_t * info, int width, int height,
                                     char * found, size_t found_size) {

@@ -144,6 +144,11 @@ extern lv_style_t style_theme_card_bg;
  * text_color too when slot is "primary" so rows stay in sync. */
 extern lv_style_t style_theme_text_primary;
 extern lv_style_t style_theme_text_muted;
+/* Icon-grid tiles (Home, More): a card in the theme's card color with a
+ * Breeze frame outline, and its pressed state. Kept in step with the theme
+ * by gui_theme_update_surface_contrast(). */
+extern lv_style_t style_theme_tile;
+extern lv_style_t style_theme_tile_pressed;
 void screen_builders_init_list_row_style(void);
 
 typedef struct {

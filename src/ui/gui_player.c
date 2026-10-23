@@ -500,6 +500,8 @@ static struct {
     const uint8_t * cover_bytes;
     uint64_t cover_generation;
     int blur_radius, blur_passes, darken_num, darken_den;
+    uint32_t tint_rgb;
+    int tint_weight;
 } current_reflection_key;
 
 /* Keep a small number of completed backgrounds across same-cover changes.
@@ -511,6 +513,8 @@ typedef struct {
     cover_file_id_t file;
     int width, height;
     int blur_radius, blur_passes, darken_num, darken_den;
+    uint32_t tint_rgb;
+    int tint_weight;
     uint8_t * pixels;
 } player_reflection_cache_entry_t;
 static player_reflection_cache_entry_t player_reflection_cache[PLAYER_REFLECTION_CACHE_ENTRIES];
@@ -635,8 +639,7 @@ static void build_volume_popup(void) {
     lv_obj_remove_style_all(volume_popup);
     lv_obj_set_size(volume_popup, BOARD_SCALE_PX(413), BOARD_SCALE_PY(73));
     lv_obj_align(volume_popup, LV_ALIGN_TOP_MID, 0, STATUS_BAR_CLEARANCE + BOARD_SCALE_PX(12));
-    lv_obj_set_style_bg_color(volume_popup, lv_color_hex(0x151b17), 0);
-    lv_obj_set_style_bg_opa(volume_popup, LV_OPA_COVER, 0);
+    lv_obj_add_style(volume_popup, gui_shell_drawer_row_style(), 0);
     lv_obj_set_style_radius(volume_popup, BOARD_SCALE_PX(23), 0);
     lv_obj_remove_flag(volume_popup, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(volume_popup, LV_OBJ_FLAG_HIDDEN);
@@ -645,6 +648,7 @@ static void build_volume_popup(void) {
     const void * speaker = asset_decoded_image_open(&volume_popup_speaker_image, "volume/vol.png")
                          ? asset_decoded_image_source(&volume_popup_speaker_image) : NULL;
     lv_image_set_src(volume_popup_speaker_icon, speaker ? speaker : asset_path("volume/vol.png"));
+    lv_obj_add_style(volume_popup_speaker_icon, &style_theme_text_primary, 0);
     player_fit_small_screen_icon(volume_popup_speaker_icon, 30);
     lv_obj_align(volume_popup_speaker_icon, LV_ALIGN_LEFT_MID, BOARD_SCALE_PX(21), 0);
 
@@ -722,6 +726,8 @@ static void player_fit_small_screen_icon(lv_obj_t * icon, int32_t reference_px) 
  * float. */
 #define REFLECTION_DARKEN_NUM 1
 #define REFLECTION_DARKEN_DEN 2
+/* A light theme's frost is 80% its screen color over the blurred artwork. */
+#define REFLECTION_LIGHT_TINT_WEIGHT 205
 
 /* One accent pass: samples a grid, weights each pixel at least min_s
  * saturated and min_v bright by saturation x value into 15-degree hue
@@ -791,17 +797,19 @@ static bool cover_accent_from_rgb565(const uint16_t * px, uint32_t * out_rgb) {
 static uint8_t * compute_reflection_bytes_cancelable(const uint8_t * cover_bytes,
                                                        int blur_radius, int blur_passes,
                                                        int darken_num, int darken_den,
+                                                       uint32_t tint_rgb, int tint_weight,
                                                        frosted_glass_cancel_fn cancel_cb,
                                                        void * user_data);
 
 uint8_t * compute_reflection_bytes(const uint8_t * cover_bytes, int blur_radius, int blur_passes, int darken_num, int darken_den) {
     return compute_reflection_bytes_cancelable(cover_bytes, blur_radius, blur_passes,
-                                                darken_num, darken_den, NULL, NULL);
+                                                darken_num, darken_den, 0, 0, NULL, NULL);
 }
 
 static uint8_t * compute_reflection_bytes_cancelable(const uint8_t * cover_bytes,
                                                        int blur_radius, int blur_passes,
                                                        int darken_num, int darken_den,
+                                                       uint32_t tint_rgb, int tint_weight,
                                                        frosted_glass_cancel_fn cancel_cb,
                                                        void * user_data) {
     if (darken_den <= 0) darken_den = 1;
@@ -811,12 +819,13 @@ static uint8_t * compute_reflection_bytes_cancelable(const uint8_t * cover_bytes
 
     /* Preserve the historical reflection dimensions, center crop, blur,
      * darkening, spatial dither, and unmirrored source pixel orientation. */
-    return frosted_glass_blur_rgb565_cancelable((const uint16_t *) cover_bytes,
-                                                COVER_ART_WIDTH, COVER_ART_HEIGHT,
-                                                REFLECTION_WIDTH, BOARD_SCREEN_HEIGHT,
-                                                blur_radius, blur_passes,
-                                                darken_num, darken_den, false,
-                                                cancel_cb, user_data);
+    return frosted_glass_blur_rgb565_tinted_cancelable((const uint16_t *) cover_bytes,
+                                                       COVER_ART_WIDTH, COVER_ART_HEIGHT,
+                                                       REFLECTION_WIDTH, BOARD_SCREEN_HEIGHT,
+                                                       blur_radius, blur_passes,
+                                                       darken_num, darken_den,
+                                                       tint_rgb, tint_weight, false,
+                                                       cancel_cb, user_data);
 }
 
 typedef struct {
@@ -827,6 +836,8 @@ typedef struct {
     int blur_passes;
     int darken_num;
     int darken_den;
+    uint32_t tint_rgb;
+    int tint_weight;
 } player_frost_params_t;
 
 /* Resolves effective frosted-glass layout parameters from player_layout_config,
@@ -871,6 +882,17 @@ static player_frost_params_t resolve_player_frost_params(void) {
         }
     }
 
+    /* Like the stock player, the frost follows the theme's lightness: a dark
+     * theme keeps the darkened artwork, a light theme washes it out toward
+     * its own screen color instead. */
+    lv_style_value_t screen;
+    if (lv_style_get_prop(&style_theme_screen_bg, LV_STYLE_BG_COLOR, &screen) == LV_STYLE_RES_FOUND &&
+        !gui_theme_prefers_light_text(screen.color)) {
+        params.darken_num = 1;
+        params.darken_den = 1;
+        params.tint_rgb = lv_color_to_u32(screen.color) & 0xFFFFFF;
+        params.tint_weight = REFLECTION_LIGHT_TINT_WEIGHT;
+    }
     return params;
 }
 
@@ -881,7 +903,9 @@ static bool reflection_matches(const player_frost_params_t * params) {
            current_reflection_key.blur_radius == params->blur_radius &&
            current_reflection_key.blur_passes == params->blur_passes &&
            current_reflection_key.darken_num == params->darken_num &&
-           current_reflection_key.darken_den == params->darken_den;
+           current_reflection_key.darken_den == params->darken_den &&
+           current_reflection_key.tint_rgb == params->tint_rgb &&
+           current_reflection_key.tint_weight == params->tint_weight;
 }
 
 /* Clear all LVGL references before releasing reflection storage. The quick
@@ -910,6 +934,8 @@ static void set_current_reflection_key(const player_frost_params_t * params) {
     current_reflection_key.blur_passes = params->blur_passes;
     current_reflection_key.darken_num = params->darken_num;
     current_reflection_key.darken_den = params->darken_den;
+    current_reflection_key.tint_rgb = params->tint_rgb;
+    current_reflection_key.tint_weight = params->tint_weight;
 }
 
 static void attach_current_reflection(void) {
@@ -929,6 +955,112 @@ static void attach_current_reflection(void) {
     lv_image_set_scale_x(player_background_img, LV_SCALE_NONE);
     lv_image_set_scale_y(player_background_img, LV_SCALE_NONE);
     lv_obj_remove_flag(player_background_img, LV_OBJ_FLAG_HIDDEN);
+    gui_player_update_backdrop_contrast();
+}
+
+/* Text on the Now Playing backdrop follows what is behind it, not the theme:
+ * the backdrop is cover artwork (blurred and darkened by default) or a
+ * layout's flat color, either of which a light theme's text can vanish on. */
+static bool play_btn_glyph_on_light;
+static lv_style_t backdrop_text_primary_style;
+static lv_style_t backdrop_text_muted_style;
+static lv_style_t backdrop_icon_style;
+static bool backdrop_styles_ready;
+
+static void backdrop_styles_init(void) {
+    if (backdrop_styles_ready) return;
+    lv_style_init(&backdrop_text_primary_style);
+    lv_style_init(&backdrop_text_muted_style);
+    lv_style_init(&backdrop_icon_style);
+    lv_style_set_text_color(&backdrop_text_primary_style, lv_color_hex(GUI_COLOR_PRIMARY));
+    lv_style_set_text_color(&backdrop_text_muted_style, lv_color_hex(GUI_COLOR_SECONDARY));
+    lv_style_set_image_recolor_opa(&backdrop_icon_style, LV_OPA_TRANSP);
+    backdrop_styles_ready = true;
+}
+
+lv_style_t * gui_player_backdrop_text_style(bool muted) {
+    backdrop_styles_init();
+    return muted ? &backdrop_text_muted_style : &backdrop_text_primary_style;
+}
+
+lv_style_t * gui_player_backdrop_icon_style(void) {
+    backdrop_styles_init();
+    return &backdrop_icon_style;
+}
+
+/* Mean color of what is visible behind the player's text. */
+static lv_color_t player_backdrop_color(void) {
+    if (current_reflection_bytes && player_background_img &&
+        !lv_obj_has_flag(player_background_img, LV_OBJ_FLAG_HIDDEN)) {
+        const uint16_t * px = (const uint16_t *) current_reflection_bytes;
+        uint32_t r = 0, g = 0, b = 0, n = 0;
+        for (int32_t y = 0; y < BOARD_SCREEN_HEIGHT; y += 8) {
+            for (int32_t x = 0; x < REFLECTION_WIDTH; x += 8) {
+                uint16_t p = px[(size_t) y * REFLECTION_WIDTH + x];
+                r += (p >> 11) << 3;
+                g += ((p >> 5) & 63) << 2;
+                b += (p & 31) << 3;
+                n++;
+            }
+        }
+        if (n) return lv_color_make((uint8_t) (r / n), (uint8_t) (g / n), (uint8_t) (b / n));
+    }
+    if (player_overlay_panel && lv_obj_get_style_bg_opa(player_overlay_panel, 0) > LV_OPA_50)
+        return lv_obj_get_style_bg_color(player_overlay_panel, 0);
+    lv_style_value_t screen;
+    if (lv_style_get_prop(&style_theme_screen_bg, LV_STYLE_BG_COLOR, &screen) == LV_STYLE_RES_FOUND)
+        return screen.color;
+    return lv_color_hex(GUI_COLOR_SCREEN);
+}
+
+void gui_player_update_backdrop_contrast(void) {
+    backdrop_styles_init();
+    lv_style_value_t primary, muted;
+    if (lv_style_get_prop(&style_theme_text_primary, LV_STYLE_TEXT_COLOR, &primary) != LV_STYLE_RES_FOUND ||
+        lv_style_get_prop(&style_theme_text_muted, LV_STYLE_TEXT_COLOR, &muted) != LV_STYLE_RES_FOUND)
+        return;
+    lv_color_t bg = player_backdrop_color();
+    lv_color_t text = primary.color, secondary = muted.color;
+    /* The theme's own colors stay wherever they read cleanly (the player's
+     * title and metadata are large text, so WCAG's 3:1); otherwise the
+     * matching Breeze pair. A dark theme's text on its darkened frost always
+     * passes, so it keeps today's look. */
+    bool neutral = gui_theme_contrast_ratio(text, bg) < GUI_CONTRAST_MUTED;
+    if (neutral) {
+        bool light = gui_theme_prefers_light_text(bg);
+        text = lv_color_hex(light ? GUI_BREEZE_TEXT_ON_DARK : GUI_BREEZE_TEXT_ON_LIGHT);
+        secondary = lv_color_hex(light ? GUI_BREEZE_MUTED_ON_DARK : GUI_BREEZE_MUTED_ON_LIGHT);
+    }
+    /* Transport glyphs come in a white set (theme2) and a dark one (theme1),
+     * whichever the theme picked. Tint them with the text when the text is
+     * dark, or when the theme's text was replaced: either way the stock
+     * glyph color is not known to read on this backdrop. */
+    bool tint_icons = neutral || gui_theme_color_is_dark(text);
+    lv_style_value_t current;
+    bool same = lv_style_get_prop(&backdrop_text_primary_style, LV_STYLE_TEXT_COLOR, &current) == LV_STYLE_RES_FOUND &&
+                lv_color_eq(current.color, text) &&
+                lv_style_get_prop(&backdrop_text_muted_style, LV_STYLE_TEXT_COLOR, &current) == LV_STYLE_RES_FOUND &&
+                lv_color_eq(current.color, secondary) &&
+                lv_style_get_prop(&backdrop_icon_style, LV_STYLE_IMAGE_RECOLOR_OPA, &current) == LV_STYLE_RES_FOUND &&
+                (current.num == LV_OPA_COVER) == tint_icons;
+    if (same) return;
+    lv_style_set_text_color(&backdrop_text_primary_style, text);
+    lv_style_set_text_color(&backdrop_text_muted_style, secondary);
+    lv_style_set_image_recolor(&backdrop_icon_style, text);
+    lv_style_set_image_recolor_opa(&backdrop_icon_style, tint_icons ? LV_OPA_COVER : LV_OPA_TRANSP);
+    lv_obj_report_style_change(&backdrop_text_primary_style);
+    lv_obj_report_style_change(&backdrop_text_muted_style);
+    lv_obj_report_style_change(&backdrop_icon_style);
+    bool glyph_on_light = gui_theme_contrast_ratio(lv_color_white(), bg) < GUI_CONTRAST_MUTED;
+    if (glyph_on_light != play_btn_glyph_on_light) {
+        play_btn_glyph_on_light = glyph_on_light;
+        refresh_play_btn_icon();
+    }
+    gui_shell_refresh_quick_drawer_cover();
+    /* The status bar over the player follows the same choice. */
+    if (player_screen && lv_screen_active() == player_screen)
+        gui_shell_set_status_bar_screen_context(player_screen);
+    player_transition_mark_dirty();
 }
 
 static size_t player_reflection_bytes(void) {
@@ -955,7 +1087,8 @@ static uint8_t * player_reflection_cache_get(const cover_file_id_t * file,
         if (!entry->valid || !entry->pixels || !cover_file_id_same(&entry->file, file) ||
             entry->width != REFLECTION_WIDTH || entry->height != BOARD_SCREEN_HEIGHT ||
             entry->blur_radius != params->blur_radius || entry->blur_passes != params->blur_passes ||
-            entry->darken_num != params->darken_num || entry->darken_den != params->darken_den)
+            entry->darken_num != params->darken_num || entry->darken_den != params->darken_den ||
+            entry->tint_rgb != params->tint_rgb || entry->tint_weight != params->tint_weight)
             continue;
         size_t bytes = player_reflection_bytes();
         if (system_get_mem_available_bytes() < bytes + player_raster_cache_memory_floor()) {
@@ -995,7 +1128,8 @@ static void player_reflection_cache_put(const cover_file_id_t * file,
     player_reflection_cache[i] = (player_reflection_cache_entry_t) {
         .valid = true, .file = *file, .width = REFLECTION_WIDTH, .height = BOARD_SCREEN_HEIGHT,
         .blur_radius = params->blur_radius, .blur_passes = params->blur_passes,
-        .darken_num = params->darken_num, .darken_den = params->darken_den, .pixels = copy
+        .darken_num = params->darken_num, .darken_den = params->darken_den,
+        .tint_rgb = params->tint_rgb, .tint_weight = params->tint_weight, .pixels = copy
     };
     pthread_mutex_unlock(&player_reflection_cache_mutex);
 }
@@ -1011,6 +1145,7 @@ static void apply_player_flat_background(bool has_bg_color, uint32_t bg_color) {
         lv_obj_remove_local_style_prop(player_overlay_panel, LV_STYLE_BG_COLOR, 0);
     }
     lv_obj_set_style_bg_opa(player_overlay_panel, LV_OPA_COVER, 0);
+    gui_player_update_backdrop_contrast();
     player_transition_mark_dirty();
 }
 
@@ -1033,6 +1168,7 @@ void gui_player_refresh_frosted_background(void) {
          * behind the frosted image once a cover does decode. */
         drop_current_reflection();
         lv_obj_remove_local_style_prop(player_overlay_panel, LV_STYLE_BG_COLOR, 0);
+        gui_player_update_backdrop_contrast();
         return;
     }
 
@@ -1056,9 +1192,14 @@ void gui_player_refresh_frosted_background(void) {
     drop_current_reflection();
     current_reflection_bytes = player_reflection_cache_get(&current_cover_file, &params);
     if (!current_reflection_bytes)
-        current_reflection_bytes = compute_reflection_bytes(current_cover_bytes, params.blur_radius,
-                                                              params.blur_passes, params.darken_num,
-                                                              params.darken_den);
+        current_reflection_bytes = compute_reflection_bytes_cancelable(current_cover_bytes,
+                                                                       params.blur_radius,
+                                                                       params.blur_passes,
+                                                                       params.darken_num,
+                                                                       params.darken_den,
+                                                                       params.tint_rgb,
+                                                                       params.tint_weight,
+                                                                       NULL, NULL);
     set_current_reflection_key(&params);
 
     /* TRANSP, not COVER -- player_background_img (the frosted image, about
@@ -1127,6 +1268,8 @@ typedef struct {
     int blur_passes;
     int darken_num;
     int darken_den;
+    uint32_t tint_rgb;
+    int tint_weight;
 } cover_decode_request_t;
 
 static pthread_t cover_decode_thread;
@@ -1176,6 +1319,8 @@ static int cover_decode_result_blur_radius;
 static int cover_decode_result_blur_passes;
 static int cover_decode_result_darken_num;
 static int cover_decode_result_darken_den;
+static uint32_t cover_decode_result_tint_rgb;
+static int cover_decode_result_tint_weight;
 static bool cover_decode_result_accent_valid;
 static uint32_t cover_decode_result_accent;
 /* The file the result came from, and whether it is the one already shown
@@ -1243,6 +1388,8 @@ static void cover_decode_request_snapshot_frost(cover_decode_request_t * req) {
     req->blur_passes = p.blur_passes;
     req->darken_num = p.darken_num;
     req->darken_den = p.darken_den;
+    req->tint_rgb = p.tint_rgb;
+    req->tint_weight = p.tint_weight;
 }
 
 
@@ -1599,7 +1746,8 @@ static void * cover_decode_thread_func(void * arg) {
     if (ok && pixels && !req->flat) {
         player_frost_params_t params = {
             .flat = false, .blur_radius = req->blur_radius, .blur_passes = req->blur_passes,
-            .darken_num = req->darken_num, .darken_den = req->darken_den
+            .darken_num = req->darken_num, .darken_den = req->darken_den,
+            .tint_rgb = req->tint_rgb, .tint_weight = req->tint_weight
         };
         reflection = player_reflection_cache_get(&file_id, &params);
         bool reflection_cache_hit = reflection != NULL;
@@ -1613,6 +1761,8 @@ static void * cover_decode_thread_func(void * arg) {
                                                               req->blur_passes,
                                                               req->darken_num,
                                                               req->darken_den,
+                                                              req->tint_rgb,
+                                                              req->tint_weight,
                                                               player_cover_decode_cancelled,
                                                               (void *) (uintptr_t) req->generation);
         if (reflection && !reflection_cache_hit && reflection_cache_epoch ==
@@ -1650,6 +1800,8 @@ static void * cover_decode_thread_func(void * arg) {
     cover_decode_result_blur_passes = req->blur_passes;
     cover_decode_result_darken_num = req->darken_num;
     cover_decode_result_darken_den = req->darken_den;
+    cover_decode_result_tint_rgb = req->tint_rgb;
+    cover_decode_result_tint_weight = req->tint_weight;
     cover_decode_result_accent_valid = accent_valid;
     cover_decode_result_accent = accent;
     cover_decode_result_file = file_id;
@@ -2025,6 +2177,7 @@ void poll_cover_decode(void) {
              * refresh_frosted_background()'s own no-cover-yet branch. */
             if (player_overlay_panel)
                 lv_obj_remove_local_style_prop(player_overlay_panel, LV_STYLE_BG_COLOR, 0);
+            gui_player_update_backdrop_contrast();
         }
         free(old_cover_bytes);
         gui_lock_screen_refresh(true);
@@ -2059,7 +2212,9 @@ void poll_cover_decode(void) {
                 : (live_params.blur_radius != cover_decode_result_blur_radius ||
                    live_params.blur_passes != cover_decode_result_blur_passes ||
                    live_params.darken_num != cover_decode_result_darken_num ||
-                   live_params.darken_den != cover_decode_result_darken_den));
+                   live_params.darken_den != cover_decode_result_darken_den ||
+                   live_params.tint_rgb != cover_decode_result_tint_rgb ||
+                   live_params.tint_weight != cover_decode_result_tint_weight));
 
         if (snapshot_is_stale) {
             /* Discard the worker's now-outdated result and recompute
@@ -4838,7 +4993,7 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
     lv_obj_t * title = lv_label_create(scr);
     lv_obj_set_name_static(title, "title");
     lv_label_set_text(title, TR("No track loaded"));
-    lv_obj_add_style(title, &style_theme_text_primary, 0);
+    lv_obj_add_style(title, gui_player_backdrop_text_style(false), 0);
     lv_obj_set_style_text_font(title, player_title_font, 0);
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_x(title, player_x(22));
@@ -4847,7 +5002,7 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
     lv_obj_t * album = lv_label_create(scr);
     lv_obj_set_name_static(album, "album");
     lv_label_set_text(album, "");
-    lv_obj_add_style(album, &style_theme_text_muted, 0);
+    lv_obj_add_style(album, gui_player_backdrop_text_style(true), 0);
     lv_obj_set_style_text_font(album, player_meta_font, 0);
     lv_obj_set_style_text_align(album, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_x(album, player_x(22));
@@ -4858,7 +5013,7 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
     lv_obj_t * artist = lv_label_create(scr);
     lv_obj_set_name_static(artist, "artist");
     lv_label_set_text(artist, "");
-    lv_obj_add_style(artist, &style_theme_text_muted, 0);
+    lv_obj_add_style(artist, gui_player_backdrop_text_style(true), 0);
     lv_obj_set_style_text_font(artist, player_meta_font, 0);
     lv_obj_set_style_text_align(artist, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_x(artist, player_x(22));
@@ -4921,7 +5076,7 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
     lv_obj_t * format_badge = lv_label_create(pill);
     lv_obj_set_name_static(format_badge, "format_badge");
     lv_label_set_text(format_badge, "");
-    lv_obj_add_style(format_badge, &style_theme_text_muted, 0);
+    lv_obj_add_style(format_badge, gui_player_backdrop_text_style(true), 0);
     lv_obj_set_style_text_font(format_badge, &app_font_16, 0);
     lv_obj_set_width(format_badge, LV_SIZE_CONTENT);
 
@@ -4950,20 +5105,20 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
     lv_obj_t * pos = lv_label_create(time_row);
     lv_obj_set_name_static(pos, "pos_label");
     lv_label_set_text(pos, "0:00");
-    lv_obj_add_style(pos, &style_theme_text_muted, 0);
+    lv_obj_add_style(pos, gui_player_backdrop_text_style(true), 0);
     lv_obj_set_style_text_font(pos, player_meta_font, 0);
 
     lv_obj_t * dur = lv_label_create(time_row);
     lv_obj_set_name_static(dur, "dur_label");
     lv_label_set_text(dur, "--:--");
-    lv_obj_add_style(dur, &style_theme_text_muted, 0);
+    lv_obj_add_style(dur, gui_player_backdrop_text_style(true), 0);
     lv_obj_set_style_text_font(dur, player_meta_font, 0);
 
     /* Current position in the active queue, overlaid on the cover. */
     lv_obj_t * count = lv_label_create(card);
     lv_obj_set_name_static(count, "song_count");
     lv_label_set_text(count, "--/--");
-    lv_obj_add_style(count, &style_theme_text_primary, 0);
+    lv_obj_add_style(count, gui_player_backdrop_text_style(false), 0);
     lv_obj_set_style_text_font(count, &app_font_16, 0);
     lv_obj_set_style_bg_color(count, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(count, LV_OPA_50, 0);
@@ -4987,12 +5142,14 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
     lv_obj_set_name_static(order, "order_btn");
     lv_image_set_src(order, asset_path(play_mode_icon_asset((play_mode_t) current_settings.play_mode)));
     player_fit_small_screen_icon(order, 40);
+    lv_obj_add_style(order, gui_player_backdrop_icon_style(), 0);
     lv_obj_add_style(order, &icon_press_style, LV_STATE_PRESSED);
 
     lv_obj_t * prev = lv_image_create(controls_row);
     lv_obj_set_name_static(prev, "prev_btn");
     lv_image_set_src(prev, asset_path("playing_plane/btn_prev.png"));
     player_fit_small_screen_icon(prev, 40);
+    lv_obj_add_style(prev, gui_player_backdrop_icon_style(), 0);
 
     /* btn_play.png/btn_pause.png already contain their own filled accent
      * circle -- no separate outline ring needed here, unlike favorite_circle/
@@ -5008,12 +5165,14 @@ lv_obj_t * player_layout_create_builtin(lv_obj_t * scr) {
     lv_obj_set_name_static(more, "more_btn");
     lv_image_set_src(more, asset_path("playing_plane/ic_more.png"));
     player_fit_small_screen_icon(more, 40);
+    lv_obj_add_style(more, gui_player_backdrop_icon_style(), 0);
     lv_obj_add_style(more, &icon_press_style, LV_STATE_PRESSED);
 
     lv_obj_t * next = lv_image_create(controls_row);
     lv_obj_set_name_static(next, "next_btn");
     lv_image_set_src(next, asset_path("playing_plane/btn_next.png"));
     player_fit_small_screen_icon(next, 40);
+    lv_obj_add_style(next, gui_player_backdrop_icon_style(), 0);
 
     lv_obj_update_layout(controls_row);
     int32_t row_h = lv_obj_get_height(controls_row);
@@ -5280,9 +5439,13 @@ static bool player_bind_widgets(lv_obj_t * scr) {
         lv_obj_t * primary[] = { r_title, r_count };
         lv_obj_t * muted[] = { r_artist, r_album, r_badge, r_pos, r_dur };
         for (unsigned i = 0; i < sizeof(primary) / sizeof(primary[0]); ++i)
-            if (primary[i]) lv_obj_add_style(primary[i], &style_theme_text_primary, 0);
+            if (primary[i]) lv_obj_add_style(primary[i], gui_player_backdrop_text_style(false), 0);
         for (unsigned i = 0; i < sizeof(muted) / sizeof(muted[0]); ++i)
-            if (muted[i]) lv_obj_add_style(muted[i], &style_theme_text_muted, 0);
+            if (muted[i]) lv_obj_add_style(muted[i], gui_player_backdrop_text_style(true), 0);
+        /* Local recolors (transport_color above) outrank this style. */
+        lv_obj_t * glyphs[] = { r_order, r_prev, r_next, r_more };
+        for (unsigned i = 0; i < sizeof(glyphs) / sizeof(glyphs[0]); ++i)
+            if (glyphs[i]) lv_obj_add_style(glyphs[i], gui_player_backdrop_icon_style(), 0);
         lv_obj_add_style(r_progress, gui_theme_accent_style(), LV_PART_INDICATOR);
         lv_obj_add_style(r_progress, gui_theme_accent_knob_style(), LV_PART_KNOB);
         if (r_fav_circle) lv_obj_add_style(r_fav_circle, gui_theme_accent_outline_style(), 0);
@@ -6334,8 +6497,17 @@ void get_display_names(const char * path, char * title_out, size_t title_size,
  * on.png). Rewrite only pixels that aren't white / near-white, keeping the
  * disc and the anti-aliased circle edge, and mixing the glyph toward the
  * current accent. */
+/* play_btn_glyph_on_light: the backdrop is too light for the stock white
+ * glyph, which then takes the backdrop's text color. */
+
 static void recolor_play_btn_accent(lv_draw_buf_t * buf, lv_color_t accent)
 {
+    lv_color_t glyph = lv_color_hex(GUI_BREEZE_TEXT_ON_LIGHT);
+    if (play_btn_glyph_on_light) {
+        lv_style_value_t value;
+        if (lv_style_get_prop(gui_player_backdrop_text_style(false), LV_STYLE_TEXT_COLOR, &value) == LV_STYLE_RES_FOUND)
+            glyph = value.color;
+    }
     if (!buf || !buf->data || !buf->header.w || !buf->header.h ||
         buf->header.cf != LV_COLOR_FORMAT_ARGB8888) return;
     uint32_t w = buf->header.w;
@@ -6364,8 +6536,17 @@ static void recolor_play_btn_accent(lv_draw_buf_t * buf, lv_color_t accent)
             if (row[x].blue < minc) minc = row[x].blue;
             uint8_t t = (uint8_t) (255 - minc);
             /* Disc interior is white / near-white; the glyph is the stock
-             * cyan. Skip the disc so only the mark is retinted. */
-            if (t < 16) continue;
+             * cyan. Skip the disc so only the mark is retinted. The ring-only
+             * art has a white glyph here instead, which a light backdrop
+             * would swallow. */
+            if (t < 16) {
+                if (play_btn_glyph_on_light) {
+                    row[x].red = glyph.red;
+                    row[x].green = glyph.green;
+                    row[x].blue = glyph.blue;
+                }
+                continue;
+            }
             row[x].red   = (uint8_t) (255 - ((uint16_t) (255 - ar) * t) / 255);
             row[x].green = (uint8_t) (255 - ((uint16_t) (255 - ag) * t) / 255);
             row[x].blue  = (uint8_t) (255 - ((uint16_t) (255 - ab) * t) / 255);

@@ -112,14 +112,15 @@ static bool frosted_glass_blur_passes(uint8_t * plane, uint8_t * tmp, int width,
     return !frosted_glass_cancelled(cancel_cb, user_data);
 }
 
-uint8_t * frosted_glass_blur_rgb565_cancelable(const uint16_t * source,
-                                              int source_width, int source_height,
-                                              int out_width, int out_height,
-                                              int blur_radius, int blur_passes,
-                                              int darken_num, int darken_den,
-                                              bool mirror_y,
-                                              frosted_glass_cancel_fn cancel_cb,
-                                              void * user_data) {
+uint8_t * frosted_glass_blur_rgb565_tinted_cancelable(const uint16_t * source,
+                                                     int source_width, int source_height,
+                                                     int out_width, int out_height,
+                                                     int blur_radius, int blur_passes,
+                                                     int darken_num, int darken_den,
+                                                     uint32_t tint_rgb, int tint_weight,
+                                                     bool mirror_y,
+                                                     frosted_glass_cancel_fn cancel_cb,
+                                                     void * user_data) {
     if (!source || source_width <= 0 || source_height <= 0 ||
         out_width <= 0 || out_height <= 0 ||
         source_width > FROSTED_MAX_IMAGE_DIMENSION || source_height > FROSTED_MAX_IMAGE_DIMENSION ||
@@ -136,6 +137,8 @@ uint8_t * frosted_glass_blur_rgb565_cancelable(const uint16_t * source,
     if (blur_passes > 16) blur_passes = 16;
     if (darken_num < 0) darken_num = 0;
     if (darken_den <= 0) darken_den = 1;
+    if (tint_weight < 0) tint_weight = 0;
+    if (tint_weight > 256) tint_weight = 256;
 
     const int w = FROSTED_RGB565_WORK_WIDTH;
     const int h = FROSTED_RGB565_WORK_HEIGHT;
@@ -299,11 +302,15 @@ uint8_t * frosted_glass_blur_rgb565_cancelable(const uint16_t * source,
     /* Keep the existing narrowing and upper clamp semantics in one lookup.
      * In particular, preserve the platform's int conversion for extreme
      * ratios instead of changing overflow behavior as part of this speedup. */
-    int darken_lut[256];
+    /* One table per channel: darken, then blend toward the tint before the
+     * dither, so a tinted backdrop is quantized once like an untinted one. */
+    int lut[3][256];
+    const int tint[3] = { (int) (tint_rgb >> 16) & 0xFF, (int) (tint_rgb >> 8) & 0xFF, (int) tint_rgb & 0xFF };
     for (int i = 0; i < 256; i++) {
         int value = (int) ((int64_t) i * darken_num / darken_den);
         if (value > 255) value = 255;
-        darken_lut[i] = value;
+        for (int c = 0; c < 3; c++)
+            lut[c][i] = tint_weight ? (value * (256 - tint_weight) + tint[c] * tint_weight) >> 8 : value;
     }
     uint16_t * out = (uint16_t *) out_bytes;
     for (int y = 0; y < out_height; y++) {
@@ -318,9 +325,9 @@ uint8_t * frosted_glass_blur_rgb565_cancelable(const uint16_t * source,
         uint16_t * row = out + (size_t) y * out_width;
         for (int x = 0; x < out_width; x++) {
             uint32_t x_fp = x_fp_table[x];
-            int rv = darken_lut[frosted_glass_bilerp_plane(r, w, h, x_fp, y_fp)];
-            int gv = darken_lut[frosted_glass_bilerp_plane(g, w, h, x_fp, y_fp)];
-            int bv = darken_lut[frosted_glass_bilerp_plane(b, w, h, x_fp, y_fp)];
+            int rv = lut[0][frosted_glass_bilerp_plane(r, w, h, x_fp, y_fp)];
+            int gv = lut[1][frosted_glass_bilerp_plane(g, w, h, x_fp, y_fp)];
+            int bv = lut[2][frosted_glass_bilerp_plane(b, w, h, x_fp, y_fp)];
             row[x] = rgb888_to_565_spatial_dithered(rv, gv, bv, x, y);
         }
     }
@@ -332,6 +339,19 @@ uint8_t * frosted_glass_blur_rgb565_cancelable(const uint16_t * source,
     free(x_fp_table);
     free(r); free(g); free(b); free(tmp);
     return out_bytes;
+}
+
+uint8_t * frosted_glass_blur_rgb565_cancelable(const uint16_t * source,
+                                              int source_width, int source_height,
+                                              int out_width, int out_height,
+                                              int blur_radius, int blur_passes,
+                                              int darken_num, int darken_den,
+                                              bool mirror_y,
+                                              frosted_glass_cancel_fn cancel_cb,
+                                              void * user_data) {
+    return frosted_glass_blur_rgb565_tinted_cancelable(source, source_width, source_height,
+        out_width, out_height, blur_radius, blur_passes, darken_num, darken_den, 0, 0,
+        mirror_y, cancel_cb, user_data);
 }
 
 uint8_t * frosted_glass_blur_rgb565(const uint16_t * source,

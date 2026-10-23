@@ -68,6 +68,8 @@ bool gui_plugin_store_operation_active(void) {
 /* Mock screen builders & navigation */
 lv_color_t accent_lv_color(void) { return lv_color_hex(0x00FF00); }
 void configure_cover_card_grid(lv_obj_t * list, int columns) { (void)list; (void)columns; }
+const char * asset_path(const char * relative_path) { (void)relative_path; return NULL; }
+const char * asset_path_plain(const char * relative_path) { (void)relative_path; return NULL; }
 lv_obj_t * add_cover_card(lv_obj_t * list, const char * label, const char * resolved_image_src, int columns, lv_event_cb_t on_click, void * user_data) {
     (void)list; (void)label; (void)resolved_image_src; (void)columns; (void)on_click; (void)user_data;
     return (lv_obj_t *)(intptr_t)1;
@@ -157,7 +159,7 @@ int main(void) {
     size_t count = gui_themes_scan(entries, 16);
     assert(count == 2);
     assert(entries[0].is_default);
-    assert(strcmp(entries[0].name, TR("Default")) == 0);
+    assert(strcmp(entries[0].name, "Breeze Dark") == 0);
     assert(strcmp(entries[1].filename, "Test.theme") == 0);
     assert(strcmp(entries[1].name, "TestTheme") == 0);
     assert(entries[1].preview_color == 0x222222);

@@ -262,6 +262,9 @@ static void gui_soft_reload_with_artwork(bool preserve_artwork,
     gui_plugins_init();
     reload_diag("gui_shell_build_screens: before");
     gui_shell_build_screens((uint32_t) screen_width, (uint32_t) screen_height);
+    /* Theme setters ran mid-rebuild and skipped these (see gui_plugins.c). */
+    gui_shell_refresh_theme_colors();
+    gui_player_update_backdrop_contrast();
 
     reload_diag("gui_navigation_init: before");
     gui_navigation_init();
@@ -380,6 +383,10 @@ static bool gui_reload_schedule(bool preserve_artwork) {
     reload_preserve_artwork = preserve_artwork;
     reload_scheduled = true;
     return true;
+}
+
+bool gui_reload_in_progress(void) {
+    return reload_in_progress;
 }
 
 void gui_reload_request(void) {

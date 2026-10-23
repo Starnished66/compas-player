@@ -46,6 +46,8 @@
 !/assets/theme2/power_action/
 # Player layout XML files (src/ui/player_layouts.c scans this directory).
 !/assets/theme2/player_layouts/
+# Picker preview of the built-in Breeze Dark theme (src/ui/gui_themes.c).
+!/assets/theme2/themes/
 !/assets/theme2/pull_down/
 /assets/theme2/pull_down/bg.png
 !/assets/theme2/topbar/

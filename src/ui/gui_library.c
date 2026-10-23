@@ -1966,7 +1966,7 @@ static lv_obj_t * add_group_songs_select_all_row(void) {
     lv_obj_set_style_bg_image_src(group_songs_select_all_checkbox, LV_SYMBOL_OK,
                                   LV_PART_INDICATOR | LV_STATE_CHECKED);
     lv_obj_set_style_text_color(group_songs_select_all_checkbox,
-        lv_color_brightness(accent_lv_color()) > 160 ? lv_color_hex(0x14170B) : lv_color_white(),
+        lv_color_brightness(accent_lv_color()) > 160 ? lv_color_hex(GUI_BREEZE_TEXT_ON_LIGHT) : lv_color_white(),
         LV_PART_INDICATOR | LV_STATE_CHECKED);
     lv_obj_remove_flag(group_songs_select_all_checkbox,
                        LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICK_FOCUSABLE |
@@ -2396,7 +2396,7 @@ static void populate_group_songs_rows(void) {
             lv_obj_set_style_bg_color(checkbox, accent_lv_color(), LV_PART_INDICATOR | LV_STATE_CHECKED);
             lv_obj_set_style_bg_image_src(checkbox, LV_SYMBOL_OK, LV_PART_INDICATOR | LV_STATE_CHECKED);
             lv_obj_set_style_text_color(checkbox,
-                lv_color_brightness(accent_lv_color()) > 160 ? lv_color_hex(0x14170B) : lv_color_white(),
+                lv_color_brightness(accent_lv_color()) > 160 ? lv_color_hex(GUI_BREEZE_TEXT_ON_LIGHT) : lv_color_white(),
                 LV_PART_INDICATOR | LV_STATE_CHECKED);
             lv_obj_set_size(checkbox, BOARD_SCALE_PX(28), BOARD_SCALE_PX(28));
             lv_obj_align(checkbox, LV_ALIGN_RIGHT_MID, BOARD_SCALE_PX(-18), 0);

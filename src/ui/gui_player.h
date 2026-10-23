@@ -30,6 +30,12 @@ void gui_player_cancel_cover_reload(void);
 bool gui_player_cover_decode_idle(void);
 void gui_player_refresh_static_assets(void);
 void gui_player_refresh_frosted_background(void);
+/* Text and icon styles for everything drawn on the Now Playing backdrop (the
+ * player and the quick drawer's player card). They keep the theme's text
+ * colors while those contrast with the backdrop, else take Breeze's. */
+lv_style_t * gui_player_backdrop_text_style(bool muted);
+lv_style_t * gui_player_backdrop_icon_style(void);
+void gui_player_update_backdrop_contrast(void);
 void sync_player_topbar_visibility(lv_obj_t * screen);
 void gui_player_poll_track_metadata(void);
 /* Supplies the exact visible list row for the next matching manual track

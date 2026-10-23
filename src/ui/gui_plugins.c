@@ -8,6 +8,7 @@
 #include "gui_library.h"
 #include "gui_queue.h"
 #include "gui_player.h"
+#include "gui_reload.h"
 #include "gui_text_input.h"
 #include "screen_builders.h"
 #include "gui_navigation.h"
@@ -724,6 +725,11 @@ void gui_plugin_set_background_color(const char * slot, uint32_t rgb) {
      * error before ever reaching here, so this is unreachable in practice;
      * silently ignored rather than asserting, matching this file's own
      * "degraded but working" tolerance elsewhere. */
+    /* A reload rebuilds these widgets and refreshes them once it is done. */
+    if (!gui_reload_in_progress()) {
+        gui_shell_refresh_theme_colors();
+        gui_player_update_backdrop_contrast();
+    }
 }
 
 /* Same shape as gui_plugin_set_background_color() above, for text color --
@@ -750,6 +756,11 @@ void gui_plugin_set_text_color(const char * slot, uint32_t rgb) {
     }
     /* Else: unreachable -- see gui_plugin_set_background_color()'s own
      * comment on l_plugin_set_text_color() validating first. */
+    /* A reload rebuilds these widgets and refreshes them once it is done. */
+    if (!gui_reload_in_progress()) {
+        gui_shell_refresh_theme_colors();
+        gui_player_update_backdrop_contrast();
+    }
 }
 
 /* Backing storage for plugin.set_home_layout() -- gui_settings.c's

@@ -4,6 +4,7 @@
 #include "settings.h"
 #include "screen_builders.h"
 #include "fallback_font.h"
+#include <math.h>
 #include <stdio.h>
 
 static lv_style_t style_accent;
@@ -85,6 +86,30 @@ static uint32_t resolve_accent(void) {
     return current_settings.accent_color & 0xFFFFFF;
 }
 
+static float srgb_channel_linear(uint8_t v) {
+    float c = v / 255.0f;
+    return c <= 0.04045f ? c / 12.92f : powf((c + 0.055f) / 1.055f, 2.4f);
+}
+
+static float relative_luminance(lv_color_t c) {
+    return 0.2126f * srgb_channel_linear(c.red) + 0.7152f * srgb_channel_linear(c.green) +
+           0.0722f * srgb_channel_linear(c.blue);
+}
+
+float gui_theme_contrast_ratio(lv_color_t a, lv_color_t b) {
+    float la = relative_luminance(a), lb = relative_luminance(b);
+    return la > lb ? (la + 0.05f) / (lb + 0.05f) : (lb + 0.05f) / (la + 0.05f);
+}
+
+bool gui_theme_prefers_light_text(lv_color_t bg) {
+    return gui_theme_contrast_ratio(bg, lv_color_hex(GUI_BREEZE_TEXT_ON_DARK)) >=
+           gui_theme_contrast_ratio(bg, lv_color_hex(GUI_BREEZE_TEXT_ON_LIGHT));
+}
+
+bool gui_theme_color_is_dark(lv_color_t color) {
+    return gui_theme_prefers_light_text(color);
+}
+
 void gui_theme_update_surface_contrast(void) {
     lv_style_value_t text, row, card;
     if (lv_style_get_prop(&style_theme_text_primary, LV_STYLE_TEXT_COLOR, &text) != LV_STYLE_RES_FOUND ||
@@ -94,8 +119,15 @@ void gui_theme_update_surface_contrast(void) {
      * darkens on press instead of flashing a hardcoded charcoal surface. */
     lv_style_set_bg_color(&list_row_pressed_style, lv_color_mix(text.color, row.color, 32));
     lv_style_set_border_color(&style_theme_card_bg, lv_color_mix(text.color, card.color, 24));
+    /* Icon-grid tiles: Breeze's frame outline is the text mixed 20% over
+     * the surface (KDE's default frame contrast). */
+    lv_style_set_bg_color(&style_theme_tile, card.color);
+    lv_style_set_border_color(&style_theme_tile, lv_color_mix(text.color, card.color, 51));
+    lv_style_set_bg_color(&style_theme_tile_pressed, lv_color_mix(text.color, card.color, 32));
     lv_obj_report_style_change(&list_row_pressed_style);
     lv_obj_report_style_change(&style_theme_card_bg);
+    lv_obj_report_style_change(&style_theme_tile);
+    lv_obj_report_style_change(&style_theme_tile_pressed);
 }
 
 /* Recolors the shared styles and the decoded accent art. Skipped when the

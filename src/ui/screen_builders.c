@@ -35,6 +35,11 @@ lv_style_t icon_press_style;
 static lv_style_t row_marquee_style;
 static lv_anim_t row_marquee_anim;
 #define ICON_GRID_ICON_LABEL_GAP 4
+/* Card tiles: a rounded card with a hairline Breeze outline, and at least
+ * this much space around and between cards so they read as separate. */
+#define ICON_GRID_TILE_RADIUS BOARD_SCALE_PX(20)
+#define ICON_GRID_TILE_BORDER BOARD_SCALE_PX(2)
+#define ICON_GRID_CARD_GAP BOARD_SCALE_PX(16)
 
 /* Theming: three shared, mutable-in-place bg_color styles, one per
  * "background category" the app has -- every screen root
@@ -54,6 +59,8 @@ static lv_anim_t row_marquee_anim;
  * every screen's background to whatever accent color is picked. */
 lv_style_t style_theme_screen_bg;
 lv_style_t style_theme_card_bg;
+lv_style_t style_theme_tile;
+lv_style_t style_theme_tile_pressed;
 
 /* Same mechanism, for text color -- see screen_builders.h's own comment on
  * style_theme_text_primary/style_theme_text_muted for why destructive-red
@@ -114,6 +121,8 @@ void screen_builders_init_list_row_style(void) {
         lv_style_reset(&style_theme_card_bg);
         lv_style_reset(&style_theme_text_primary);
         lv_style_reset(&style_theme_text_muted);
+        lv_style_reset(&style_theme_tile);
+        lv_style_reset(&style_theme_tile_pressed);
     }
     already_initialized = true;
 
@@ -182,6 +191,15 @@ void screen_builders_init_list_row_style(void) {
     lv_style_set_text_color(&style_theme_text_muted, lv_color_hex(GUI_COLOR_SECONDARY));
     lv_style_set_image_recolor(&style_theme_text_muted, lv_color_hex(GUI_COLOR_SECONDARY));
     lv_style_set_image_recolor_opa(&style_theme_text_muted, LV_OPA_COVER);
+
+    lv_style_init(&style_theme_tile);
+    lv_style_set_bg_opa(&style_theme_tile, LV_OPA_COVER);
+    lv_style_set_border_width(&style_theme_tile, ICON_GRID_TILE_BORDER);
+    lv_style_set_border_opa(&style_theme_tile, LV_OPA_COVER);
+    lv_style_set_radius(&style_theme_tile, ICON_GRID_TILE_RADIUS);
+    lv_style_init(&style_theme_tile_pressed);
+    lv_style_set_bg_opa(&style_theme_tile_pressed, LV_OPA_COVER);
+    gui_theme_update_surface_contrast();
 }
 
 /* The height row_label_apply_bounded_height() will set for this font, for
@@ -822,6 +840,7 @@ lv_obj_t * build_icon_grid_screen(const char * title, lv_event_cb_t back_btn_cb,
      * real ceiling rather than a cosmetic one. */
     if (tile_gap < 0) tile_gap = 0;
     if (tile_gap > BOARD_SCALE_PX(64)) tile_gap = BOARD_SCALE_PX(64);
+    if (tile_gap < ICON_GRID_CARD_GAP) tile_gap = ICON_GRID_CARD_GAP;
 
     int32_t target_icon_px = (BOARD_SCALE_PX(ICON_GRID_TARGET_ICON_PX) * icon_scale_percent) / 100;
 
@@ -869,6 +888,9 @@ lv_obj_t * build_icon_grid_screen(const char * title, lv_event_cb_t back_btn_cb,
     lv_obj_set_style_bg_opa(grid, 0, 0);
     lv_obj_set_style_border_width(grid, 0, 0);
     lv_obj_set_style_pad_all(grid, 0, 0);
+    /* Half a gap at the screen edges, completing the other half each tile's
+     * margin adds, so outer and inner spacing match. */
+    lv_obj_set_style_pad_hor(grid, tile_gap / 2, 0);
     /* Zero row/column pad gaps so the grid height precisely matches row_count * row_h. */
     lv_obj_set_style_pad_row(grid, 0, 0);
     lv_obj_set_style_pad_column(grid, 0, 0);
@@ -893,6 +915,9 @@ lv_obj_t * build_icon_grid_screen(const char * title, lv_event_cb_t back_btn_cb,
          * with tile_gap / 2 per side so adjacent tiles have a total gap of tile_gap. */
         if (tile_gap > 0) lv_obj_set_style_margin_all(tile, tile_gap / 2, 0);
         lv_obj_set_style_bg_opa(tile, 0, 0);
+        /* Native tiles are theme cards; a tile a theme paints itself keeps
+         * its own color or image. */
+        bool card = !item->has_bg_color && !item->bg_image;
         /* Per-tile style overrides (plugin.set_home_layout()'s per-tile
          * config) -- every native tile leaves these unset, so this changes
          * nothing about today's transparent-background tiles. */
@@ -909,15 +934,22 @@ lv_obj_t * build_icon_grid_screen(const char * title, lv_event_cb_t back_btn_cb,
             lv_obj_set_style_bg_image_src(tile, asset_path(item->bg_image), 0);
             lv_obj_set_style_bg_image_opa(tile, LV_OPA_COVER, 0);
         }
-        /* Apply a 25% press tint, preserving opaque custom tile backgrounds. */
-        const lv_opa_t press_opa = 64; /* 25% of 255 */
-        lv_color_t press_color = lv_color_hex(GUI_COLOR_PRESSED);
-        if (item->has_bg_color)
-            press_color = lv_color_mix(press_color, lv_color_hex(item->bg_color), press_opa);
-        lv_obj_set_style_bg_opa(tile, item->has_bg_color ? LV_OPA_COVER : press_opa, LV_STATE_PRESSED);
-        lv_obj_set_style_bg_color(tile, press_color, LV_STATE_PRESSED);
         /* Zero default card border so only grid-level divider lines are drawn. */
         lv_obj_set_style_border_width(tile, 0, 0);
+        if (card) {
+            lv_obj_remove_local_style_prop(tile, LV_STYLE_BG_OPA, 0);
+            lv_obj_remove_local_style_prop(tile, LV_STYLE_BORDER_WIDTH, 0);
+            lv_obj_add_style(tile, &style_theme_tile, 0);
+            lv_obj_add_style(tile, &style_theme_tile_pressed, LV_STATE_PRESSED);
+        } else {
+            /* Apply a 25% press tint, preserving opaque custom tile backgrounds. */
+            const lv_opa_t press_opa = 64; /* 25% of 255 */
+            lv_color_t press_color = lv_color_hex(GUI_COLOR_PRESSED);
+            if (item->has_bg_color)
+                press_color = lv_color_mix(press_color, lv_color_hex(item->bg_color), press_opa);
+            lv_obj_set_style_bg_opa(tile, item->has_bg_color ? LV_OPA_COVER : press_opa, LV_STATE_PRESSED);
+            lv_obj_set_style_bg_color(tile, press_color, LV_STATE_PRESSED);
+        }
         lv_obj_set_style_pad_all(tile, ICON_GRID_TILE_PAD, 0);
         lv_obj_remove_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_flag(tile, LV_OBJ_FLAG_CLICKABLE);
@@ -1005,7 +1037,8 @@ lv_obj_t * build_icon_grid_screen(const char * title, lv_event_cb_t back_btn_cb,
             lv_obj_align(label, LV_ALIGN_TOP_MID, 0, top_offset + target_icon_h + ICON_GRID_ICON_LABEL_GAP);
         }
 
-        if (item->icon_glow_color && !item->has_bg_color) {
+        /* A card already sets its icon apart; the glow only muddies it. */
+        if (item->icon_glow_color && !item->has_bg_color && !card) {
             int32_t diameter = target_icon_px * 4 / 3;
             int32_t max_diameter = active_display_width() / col_count - tile_gap - 2 * ICON_GRID_TILE_PAD;
             if (diameter > max_diameter) diameter = max_diameter;
@@ -2835,7 +2868,7 @@ lv_obj_t * build_check_box(lv_obj_t * parent, bool checked) {
         lv_obj_t * check = lv_label_create(box);
         lv_label_set_text(check, LV_SYMBOL_OK);
         lv_color_t check_color = lv_color_brightness(accent_lv_color()) > 160
-            ? lv_color_hex(0x14170B) : lv_color_white();
+            ? lv_color_hex(GUI_BREEZE_TEXT_ON_LIGHT) : lv_color_white();
         lv_obj_set_style_text_color(check, check_color, 0);
         lv_obj_center(check);
         lv_obj_remove_flag(check, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);

@@ -5505,8 +5505,22 @@ static void home_background_rgb565_delete_cb(lv_event_t * event) {
  * cleanly behind them with no other change needed. Called from both
  * build_home_screen() branches below, right after each builds its own scr,
  * so a plugin-set background applies whether Home is tile or list mode. */
+/* A wallpaper shows through Home's tiles, so they drop their card surface. */
+static void home_tiles_drop_cards(lv_obj_t * parent) {
+    for (uint32_t i = 0; i < lv_obj_get_child_count(parent); i++) {
+        lv_obj_t * child = lv_obj_get_child(parent, (int32_t) i);
+        if (lv_obj_has_flag(child, LV_OBJ_FLAG_USER_1)) {
+            lv_obj_remove_style(child, &style_theme_tile, 0);
+            lv_obj_remove_style(child, &style_theme_tile_pressed, LV_STATE_PRESSED);
+        } else {
+            home_tiles_drop_cards(child);
+        }
+    }
+}
+
 static void apply_home_background_image(lv_obj_t * scr) {
     if (!home_layout_config.configured || !home_layout_config.has_background_image) return;
+    home_tiles_drop_cards(scr);
     const char * ext = strrchr(home_layout_config.background_image, '.');
     home_background_rgb565_t * cache = NULL;
     if (ext && strcasecmp(ext, ".bin") == 0)

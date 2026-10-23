@@ -20,6 +20,7 @@
 #include "src/ui/gui_navigation.h"
 #include "src/ui/gui_reload.h"
 #include "src/ui/screen_builders.h"
+#include "src/ui/assets.h"
 #include "src/ui/home_layout.h"
 #include "src/ui/launcher_layout.h"
 #include "src/ui/i18n.h"
@@ -914,6 +915,8 @@ static void scan_dir_recursive(const char *base_dir, const char *sub_prefix,
     closedir(d);
 }
 
+#define BREEZE_DARK_PREVIEW "themes/breeze_dark.png"
+
 size_t gui_themes_scan(gui_theme_entry_t *out_entries, size_t max_entries) {
     if (!out_entries || max_entries == 0) return 0;
 
@@ -922,7 +925,8 @@ size_t gui_themes_scan(gui_theme_entry_t *out_entries, size_t max_entries) {
     /* Entry 0 is ALWAYS Default */
     gui_theme_entry_t *def = &out_entries[count++];
     def->filename[0] = '\0';
-    snprintf(def->name, sizeof(def->name), "%s", TR("Default"));
+    /* The native palette is KDE Breeze Dark; a proper name, not translated. */
+    snprintf(def->name, sizeof(def->name), "%s", "Breeze Dark");
     def->fullpath[0] = '\0';
     def->is_default = true;
     def->preview_color = GUI_COLOR_PANEL;
@@ -1300,7 +1304,11 @@ static void populate_theme_picker_grid(lv_obj_t * list) {
         char preview_resolved[GUI_THEMES_MAX_PATH + 8];
         const char *img_src = NULL;
 
-        if (!entry->is_default && entry->fullpath[0]) {
+        if (entry->is_default) {
+            /* The built-in theme's preview ships with the firmware. */
+            const char *plain = asset_path_plain(BREEZE_DARK_PREVIEW);
+            if (plain && access(plain, R_OK) == 0) img_src = asset_path(BREEZE_DARK_PREVIEW);
+        } else if (entry->fullpath[0]) {
             char preview_path[GUI_THEMES_MAX_PATH];
             snprintf(preview_path, sizeof(preview_path), "%s", entry->fullpath);
             char *dot = strrchr(preview_path, '.');

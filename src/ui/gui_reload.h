@@ -27,6 +27,8 @@ void gui_soft_reload(void);
  * pass, strictly after the triggering call has fully returned and control
  * is back in gui.c's lv_timer_handler() loop. */
 void gui_reload_request(void);
+/* True while a soft reload is tearing down and rebuilding the UI. */
+bool gui_reload_in_progress(void);
 
 /* Explicit Plugin Manager refresh: rebuilds plugin UI, then restores its
  * supported native navigation path and scroll position from semantic IDs. */

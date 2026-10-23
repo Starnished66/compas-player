@@ -6,14 +6,17 @@
 
 #define ACCENT_PALETTE_COUNT 16
 /* Native defaults only: live surfaces/text continue to use mutable styles
- * so plugin palettes (including light themes) remain authoritative. */
-#define GUI_COLOR_SCREEN 0x000000
-#define GUI_COLOR_ROW 0x1C2026
-#define GUI_COLOR_PANEL 0x252A32
-#define GUI_COLOR_PRESSED 0x303743
-#define GUI_COLOR_PRIMARY 0xF1F3F5
-#define GUI_COLOR_SECONDARY 0xA8B0BC
-#define GUI_COLOR_BORDER 0x343B46
+ * so plugin palettes (including light themes) remain authoritative.
+ * KDE Breeze Dark (Plasma 6): View background and alternate, Button
+ * background, Normal and Inactive text. Pressed and border are the text
+ * mixed over a row and a card, as gui_theme_update_surface_contrast() does. */
+#define GUI_COLOR_SCREEN 0x141618
+#define GUI_COLOR_ROW 0x1D1F22
+#define GUI_COLOR_PANEL 0x292C30
+#define GUI_COLOR_PRESSED 0x393B3D
+#define GUI_COLOR_PRIMARY 0xFCFCFC
+#define GUI_COLOR_SECONDARY 0xA1A9B1
+#define GUI_COLOR_BORDER 0x3D4043
 #define GUI_ROW_GAP BOARD_SCALE_PX(8)
 #define GUI_TEXT_INSET BOARD_SCALE_PX(24)
 #define GUI_ROW_HEIGHT BOARD_SCALE_PX(96)
@@ -73,3 +76,20 @@ void gui_theme_set_accent_dynamic(bool on);
 void gui_theme_set_cover_accent(bool valid, uint32_t rgb);
 bool gui_theme_cover_accent(uint32_t * out_rgb);
 void gui_theme_update_surface_contrast(void);
+
+/* KDE Breeze foregrounds (Breeze Dark and Breeze Light "Normal" and
+ * "Inactive" text) for surfaces whose background the theme does not paint,
+ * such as the Now Playing artwork backdrop. */
+#define GUI_BREEZE_TEXT_ON_DARK   0xFCFCFC
+#define GUI_BREEZE_MUTED_ON_DARK  0xA1A9B1
+#define GUI_BREEZE_TEXT_ON_LIGHT  0x232629
+#define GUI_BREEZE_MUTED_ON_LIGHT 0x707D8A
+/* WCAG 2 thresholds: body text, and secondary or large text. */
+#define GUI_CONTRAST_TEXT  4.5f
+#define GUI_CONTRAST_MUTED 3.0f
+/* WCAG 2 contrast ratio between two colors, 1.0 to 21.0. */
+float gui_theme_contrast_ratio(lv_color_t a, lv_color_t b);
+/* True when light text reads better than dark text on bg. */
+bool gui_theme_prefers_light_text(lv_color_t bg);
+/* True for a color closer to black than white, e.g. dark text. */
+bool gui_theme_color_is_dark(lv_color_t color);

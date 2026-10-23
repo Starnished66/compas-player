@@ -62,6 +62,18 @@ uint8_t * frosted_glass_blur_rgb565_cancelable(const uint16_t * source,
                                                frosted_glass_cancel_fn cancel_cb,
                                                void * user_data);
 
+/* As above, then blends every output pixel toward tint_rgb by
+ * tint_weight/256 before dithering. A zero weight is the plain variant. */
+uint8_t * frosted_glass_blur_rgb565_tinted_cancelable(const uint16_t * source,
+                                                     int source_width, int source_height,
+                                                     int out_width, int out_height,
+                                                     int blur_radius, int blur_passes,
+                                                     int darken_num, int darken_den,
+                                                     uint32_t tint_rgb, int tint_weight,
+                                                     bool mirror_y,
+                                                     frosted_glass_cancel_fn cancel_cb,
+                                                     void * user_data);
+
 #ifdef __cplusplus
 }
 #endif
