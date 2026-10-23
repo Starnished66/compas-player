@@ -18,7 +18,7 @@ def function(name):
 
 
 production = '\n'.join(function(name) for name in (
-    'player_transition_discard_cache', 'back_target_cache_discard',
+    'destroy_prefetchable_snapshot', 'player_transition_discard_cache', 'back_target_cache_discard',
     'back_target_cache_note_replaced', 'gui_navigation_replace_player_screen'))
 
 body = r'''
@@ -47,6 +47,10 @@ static lv_obj_t *player_async_target;
 static lv_obj_t *gui_player_get_screen(void) { return player_screen; }
 static void lv_screen_load(lv_obj_t *screen) { loaded_screen = screen; active_screen = screen; }
 static void lv_draw_buf_destroy(lv_draw_buf_t *buf) { (void)buf; }
+static void ui_snapshot_prefetch_forget(const void *buf) { (void)buf; }
+static void back_target_cache_schedule(void) {
+    if (back_target_cache_screen) back_async_count++;
+}
 static void player_transition_cache_async_cb(void *unused) { (void)unused; }
 static void back_target_cache_rebuild_cb(void *unused) { (void)unused; }
 static void lv_async_call(lv_async_cb_t callback, void *data) {

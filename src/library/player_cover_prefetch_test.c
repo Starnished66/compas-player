@@ -161,11 +161,15 @@ int main(void) {
     assert(submit()); await_decode(1); release_decode(); settle();
     assert(cover_raster_cache_bytes() == 0);
 
-    /* A raster cache hit is freed and does not decode again. */
+    /* A raster cache touch skips both pixel copying and redundant decoding. */
     reset_decode(); struct stat st; assert(stat(fixture, &st) == 0);
     cover_raster_key_t key = { .file = st, .width = 16, .height = 16 };
     uint16_t pixels[16 * 16] = { 0 }; cover_raster_cache_put(&key, pixels);
+    cover_raster_cache_test_stats_reset();
     assert(submit()); settle(); assert(decode_count == 0);
+    cover_raster_cache_test_stats_t warm_stats = cover_raster_cache_test_stats();
+    assert(warm_stats.malloc_calls == 0 && warm_stats.malloc_bytes == 0);
+    assert(warm_stats.memcpy_calls == 0 && warm_stats.memcpy_bytes == 0);
     player_cover_prefetch_cancel(); cover_raster_cache_clear(); unlink(fixture);
 
     /* Real coordinator contention: hold PLAYER while the decoder requests a
@@ -183,6 +187,14 @@ int main(void) {
      * into the requested 350px raster-cache entry. */
     reset_decode(); assert(submit_dims(350, 350)); settle();
     assert(cover_raster_cache_bytes() == 350u * 350u * 2u);
+    cover_raster_cache_test_stats_reset();
+    assert(submit_dims(350, 350)); settle();
+    assert(decode_count == 1 && cover_raster_cache_bytes() == 350u * 350u * 2u);
+    cover_raster_cache_test_stats_t warm_350_stats = cover_raster_cache_test_stats();
+    assert(warm_350_stats.malloc_calls == 0 && warm_350_stats.malloc_bytes == 0);
+    assert(warm_350_stats.memcpy_calls == 0 && warm_350_stats.memcpy_bytes == 0);
+    printf("350x350 warm prefetch: decode=%u cache_malloc=%zuB cache_memcpy=%zuB\n",
+           decode_count, warm_350_stats.malloc_bytes, warm_350_stats.memcpy_bytes);
     player_cover_prefetch_cancel(); cover_raster_cache_clear(); unlink(fixture);
     puts("Player cover prefetch queue tests passed");
     return 0;

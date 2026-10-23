@@ -7,6 +7,7 @@
 #include "gui_reload.h"
 #include "player_layouts.h"
 #include "gui_lock_screen.h"
+#include "plugin_control_dashboard.h"
 #include "peq.h"
 #include "mseb.h"
 #include "led_control.h"
@@ -1453,6 +1454,9 @@ static int l_plugin_show_settings_list(lua_State * L) {
 
     bool update_existing = false;
     bool has_preview = false;
+    bool has_dashboard = false;
+    plugin_control_dashboard_options_t dashboard = {0};
+    dashboard.accent_first = true;
     gui_lock_screen_options_t preview_options;
     if (!lua_isnoneornil(L, 3)) {
         luaL_checktype(L, 3, LUA_TTABLE);
@@ -1462,6 +1466,38 @@ static int l_plugin_show_settings_list(lua_State * L) {
             update_existing = lua_toboolean(L, -1);
         }
         lua_pop(L, 1);
+
+        lua_getfield(L, 3, "layout");
+        if (!lua_isnil(L, -1)) {
+            const char * layout = luaL_checkstring(L, -1);
+            if (strcmp(layout, "dashboard") == 0) has_dashboard = true;
+            else if (strcmp(layout, "list") != 0)
+                return luaL_error(L, "plugin.show_settings_list: unknown layout");
+        }
+        lua_pop(L, 1);
+        if (has_dashboard) {
+            lua_getfield(L, 3, "markers");
+            lua_Integer markers = luaL_optinteger(L, -1, 0);
+            if (markers < 0 || markers > 12)
+                return luaL_error(L, "plugin.show_settings_list: markers must be between 0 and 12");
+            dashboard.markers = (int) markers;
+            lua_pop(L, 1);
+            lua_getfield(L, 3, "accent_first");
+            if (!lua_isnil(L, -1)) {
+                luaL_checktype(L, -1, LUA_TBOOLEAN);
+                dashboard.accent_first = lua_toboolean(L, -1);
+            }
+            lua_pop(L, 1);
+            lua_getfield(L, 3, "active");
+            if (!lua_isnil(L, -1)) luaL_checktype(L, -1, LUA_TBOOLEAN);
+            dashboard.active = lua_toboolean(L, -1);
+            lua_pop(L, 1);
+            lua_getfield(L, 3, "detail");
+            const char * detail = luaL_optstring(L, -1, "");
+            utf8_truncate_safe(dashboard.detail, detail, sizeof(dashboard.detail));
+            utf8_sanitize(dashboard.detail);
+            lua_pop(L, 1);
+        }
 
         lua_getfield(L, 3, "preview");
         if (!lua_isnil(L, -1)) {
@@ -1476,6 +1512,35 @@ static int l_plugin_show_settings_list(lua_State * L) {
     }
 
     lua_Unsigned raw_n = lua_rawlen(L, 2);
+    /* Validate the bounded dashboard shape before taking any Lua callback
+     * references, so rejected input cannot leak registry ownership. */
+    if (has_dashboard) {
+        if (has_preview || raw_n != 7)
+            return luaL_error(L, "plugin.show_settings_list: dashboard requires seven rows and no preview");
+        for (int i = 1; i <= 7; i++) {
+            lua_rawgeti(L, 2, i);
+            luaL_checktype(L, -1, LUA_TTABLE);
+            lua_getfield(L, -1, "type");
+            const char * type = luaL_checkstring(L, -1);
+            if (strcmp(type, i == 2 ? "slider" : "row") != 0)
+                return luaL_error(L, "plugin.show_settings_list: dashboard row 2 must be a slider; other rows must be actions");
+            lua_pop(L, 1);
+            if (i == 2) {
+                lua_getfield(L, -1, "min");
+                lua_Integer min = luaL_checkinteger(L, -1);
+                lua_pop(L, 1);
+                lua_getfield(L, -1, "max");
+                lua_Integer max = luaL_checkinteger(L, -1);
+                lua_pop(L, 1);
+                lua_getfield(L, -1, "value");
+                lua_Integer value = luaL_checkinteger(L, -1);
+                lua_pop(L, 1);
+                if (min < INT16_MIN || max > INT16_MAX || min >= max || value < min || value > max)
+                    return luaL_error(L, "plugin.show_settings_list: dashboard slider requires an ordered int16 range and an in-range value");
+            }
+            lua_pop(L, 1);
+        }
+    }
     int n = (raw_n > (lua_Unsigned) PLUGIN_SETTINGS_LIST_MAX_ROWS) ? PLUGIN_SETTINGS_LIST_MAX_ROWS : (int) raw_n;
 
     static char label_bufs[PLUGIN_SETTINGS_LIST_MAX_ROWS][512];
@@ -1601,7 +1666,8 @@ static int l_plugin_show_settings_list(lua_State * L) {
 
     int slot = gui_plugin_show_settings_list(title, row_types, labels, toggle_initial, slider_min, slider_max,
                                               slider_value, icon_paths, heights, widths, text_sizes, wrap_labels, count,
-                                              update_existing, has_preview ? &preview_options : NULL);
+                                              update_existing, has_preview ? &preview_options : NULL,
+                                              has_dashboard ? &dashboard : NULL);
     if (slot < 0 || slot >= PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE) {
         /* A failed native allocation did not take ownership of callbacks. */
         for (int i = 0; i < count; i++) luaL_unref(L, LUA_REGISTRYINDEX, new_refs[i]);
@@ -5578,6 +5644,7 @@ static int l_plugin_led_release(lua_State * L) {
 }
 
 static const char * const plugin_capabilities[] = {
+    "ui.settings_dashboard",
     "ui.music_layout", "ui.quick_drawer_layout",
     "ui.progress", "network.http.download_progress", "ui.list", "ui.settings", "ui.row_width", "ui.text_input", "ui.confirmation", "ui.toast", "ui.screenshot", "ui.theme",
     "filesystem.sd", "playback.control", "playback.state", "playback.events",

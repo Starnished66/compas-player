@@ -10,6 +10,7 @@
 #include "lvgl/src/core/lv_obj_draw.h"
 #include "lvgl/src/widgets/label/lv_label.h"
 #include "lvgl/src/misc/lv_text.h"
+#include "lvgl/src/misc/lv_bidi.h"
 #include "lvgl/src/misc/lv_event_private.h"
 
 #include <stdlib.h>
@@ -261,6 +262,7 @@ static lv_draw_buf_t * snapshot_private_label(lv_obj_t * source, int32_t width, 
         LV_STYLE_SHADOW_WIDTH, LV_STYLE_SHADOW_OPA, LV_STYLE_SHADOW_COLOR,
         LV_STYLE_SHADOW_OFFSET_X, LV_STYLE_SHADOW_OFFSET_Y, LV_STYLE_SHADOW_SPREAD,
         LV_STYLE_TEXT_FONT, LV_STYLE_TEXT_OPA, LV_STYLE_TEXT_COLOR, LV_STYLE_TEXT_ALIGN,
+        LV_STYLE_BASE_DIR,
         LV_STYLE_TEXT_LETTER_SPACE, LV_STYLE_TEXT_LINE_SPACE,
         LV_STYLE_TEXT_OUTLINE_STROKE_WIDTH, LV_STYLE_TEXT_OUTLINE_STROKE_OPA,
         LV_STYLE_TEXT_OUTLINE_STROKE_COLOR, LV_STYLE_TEXT_DECOR,
@@ -317,11 +319,14 @@ static bool make_proxy(label_proxy_t * proxy) {
     /* A moving parent can reflow a child while the original label is hidden. */
     for (lv_obj_t * ancestor = parent; ancestor; ancestor = lv_obj_get_parent(ancestor))
         if (player_layouts_timeline_animation_count_for_obj(active_timeline, ancestor) != 0) return false;
+    lv_base_dir_t base_dir = lv_obj_get_style_base_dir(label, LV_PART_MAIN);
+    lv_text_align_t text_align = lv_obj_get_style_text_align(label, LV_PART_MAIN);
+    lv_bidi_calculate_align(&text_align, &base_dir, lv_label_get_text(label));
     if (lv_obj_get_style_bg_opa(label, LV_PART_MAIN) != LV_OPA_TRANSP ||
         lv_obj_get_style_border_width(label, LV_PART_MAIN) != 0 ||
         lv_obj_get_style_outline_width(label, LV_PART_MAIN) != 0 ||
         lv_obj_get_style_shadow_width(label, LV_PART_MAIN) != 0 ||
-        lv_obj_get_style_base_dir(label, LV_PART_MAIN) != LV_BASE_DIR_LTR ||
+        base_dir != LV_BASE_DIR_LTR ||
         lv_obj_get_style_transform_rotation(label, LV_PART_MAIN) != 0 ||
         lv_obj_get_style_transform_scale_x(label, LV_PART_MAIN) != LV_SCALE_NONE ||
         lv_obj_get_style_transform_scale_y(label, LV_PART_MAIN) != LV_SCALE_NONE ||

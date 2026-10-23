@@ -1,3 +1,4 @@
+#include "ui_frame_trace.h"
 #include "app_version.h"
 #include "lvgl/lvgl.h"
 #include "audio.h"
@@ -83,14 +84,6 @@ static uint32_t custom_tick_get(void) {
     }
     return (uint32_t)ts.tv_sec * 1000U + (uint32_t)ts.tv_nsec / 1000000U;
 }
-
-#ifdef UI_PERF_TRACE
-static uint64_t perf_now_us(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t) ts.tv_sec * 1000000ULL + (uint64_t) ts.tv_nsec / 1000ULL;
-}
-#endif
 
 #ifdef HOST_BUILD
 /* gui.h isn't included in the HOST_BUILD branch above (it pulls in
@@ -737,6 +730,7 @@ int main(int argc, char ** argv) {
         return 1;
     }
     boot_checkpoint("lv_linux_fbdev_set_file done");
+    ui_frame_trace_install(disp);
 
     boot_checkpoint("display settings_load begin");
     settings_load(&current_settings);
@@ -848,13 +842,6 @@ int main(int argc, char ** argv) {
      * runtime clock that update_timer_cb will read, not the boot clock. */
     gui_reset_interactive_timeout_baseline();
 #endif
-#ifdef UI_PERF_TRACE
-    uint32_t perf_report_tick = last_real_tick;
-    uint64_t perf_handler_total_us = 0;
-    uint64_t perf_handler_max_us = 0;
-    unsigned perf_handler_calls = 0;
-    unsigned perf_handler_over_16ms = 0;
-#endif
 #ifndef HOST_BUILD
     bool first_mainloop_handler = true;
 #endif
@@ -876,13 +863,16 @@ int main(int argc, char ** argv) {
         lv_tick_inc(main_loop_tick_gap(real_tick, last_real_tick));
         last_real_tick = real_tick;
 #ifdef UI_PERF_TRACE
-        uint64_t perf_handler_start_us = perf_now_us();
+        ui_frame_trace_event(UI_FRAME_TRACE_EVENT_HANDLER_BEGIN, 0, 0);
 #endif
 #ifndef HOST_BUILD
         if (first_mainloop_handler)
             boot_checkpoint("first mainloop handler begin");
 #endif
         uint32_t time_till_next = lv_timer_handler();
+#ifdef UI_PERF_TRACE
+        ui_frame_trace_event(UI_FRAME_TRACE_EVENT_HANDLER_END, time_till_next, 0);
+#endif
 #ifndef HOST_BUILD
         if (first_mainloop_handler) {
             boot_checkpoint("first mainloop handler end");
@@ -910,25 +900,6 @@ int main(int argc, char ** argv) {
         uint32_t handler_elapsed_ms = custom_tick_get() - real_tick;
         if (time_till_next > handler_elapsed_ms) time_till_next -= handler_elapsed_ms;
         else time_till_next = 0;
-#ifdef UI_PERF_TRACE
-        uint64_t perf_handler_us = perf_now_us() - perf_handler_start_us;
-        perf_handler_total_us += perf_handler_us;
-        if (perf_handler_us > perf_handler_max_us) perf_handler_max_us = perf_handler_us;
-        perf_handler_calls++;
-        if (perf_handler_us >= 16000) perf_handler_over_16ms++;
-        if ((uint32_t) (real_tick - perf_report_tick) >= 1000) {
-            printf("PERF main handler calls=%u avg_us=%llu max_us=%llu over16=%u next_ms=%u screen_on=%d\n",
-                   perf_handler_calls,
-                   (unsigned long long) (perf_handler_calls ? perf_handler_total_us / perf_handler_calls : 0),
-                   (unsigned long long) perf_handler_max_us, perf_handler_over_16ms, time_till_next,
-                   backlight_screen_is_on());
-            perf_report_tick = real_tick;
-            perf_handler_total_us = 0;
-            perf_handler_max_us = 0;
-            perf_handler_calls = 0;
-            perf_handler_over_16ms = 0;
-        }
-#endif
         /* Cap idle sleep duration: lv_timer_handler() returns LV_NO_TIMER_READY
          * (0xFFFFFFFF) when no unpaused timers are ready, which would overflow
          * microsecond conversion. */
@@ -946,13 +917,22 @@ int main(int argc, char ** argv) {
          * paused/resumed state of the refresh timer. */
         uint32_t idle_cap_ms = backlight_screen_is_on() ? 100 : 500;
         if (time_till_next > idle_cap_ms) time_till_next = idle_cap_ms;
+#ifdef UI_PERF_TRACE
+        ui_frame_trace_event(UI_FRAME_TRACE_EVENT_SLEEP_BEGIN, time_till_next, 0);
+#endif
 #ifndef HOST_BUILD
         if (ui_wake_enabled()) {
             /* LVGL has no public enabled/transition getter. Mirror its read
              * preconditions here: a disabled reader cannot drain a ready fd. */
             bool can_read_touch = ui_event_input_can_read(event_touch);
             unsigned ready = ui_wake_wait(can_read_touch ? event_touch_fd : -1, time_till_next);
+#ifdef UI_PERF_TRACE
+            ui_frame_trace_event(UI_FRAME_TRACE_EVENT_SLEEP_END, time_till_next, 0);
+#endif
             if (ready) {
+#ifdef UI_PERF_TRACE
+                ui_frame_trace_event(UI_FRAME_TRACE_EVENT_HANDLER_BEGIN, ready, 1);
+#endif
                 /* Advance ticks before dispatch: gestures must see real event
                  * time even after an idle wait. The handler accounts the rest. */
                 uint32_t input_tick = custom_tick_get();
@@ -969,10 +949,18 @@ int main(int argc, char ** argv) {
                     ui_input_set_runtime_timer(event_touch, true);
                 }
                 if (ready & UI_WAKE_WORKER) gui_process_input_wake();
+#ifdef UI_PERF_TRACE
+                ui_frame_trace_event(UI_FRAME_TRACE_EVENT_HANDLER_END, ready, 1);
+#endif
             }
         } else
 #endif
+        {
         usleep(time_till_next * 1000);
+#ifdef UI_PERF_TRACE
+        ui_frame_trace_event(UI_FRAME_TRACE_EVENT_SLEEP_END, time_till_next, 0);
+#endif
+        }
     }
 
     waveform_shutdown();

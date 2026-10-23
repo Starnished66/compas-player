@@ -12,6 +12,24 @@ static struct {
     uint64_t used;
 } entries[2];
 static uint64_t serial;
+#ifdef COVER_RASTER_CACHE_TEST
+static cover_raster_cache_test_stats_t test_stats;
+#endif
+
+static void *cache_malloc(size_t bytes) {
+#ifdef COVER_RASTER_CACHE_TEST
+    test_stats.malloc_calls++;
+    test_stats.malloc_bytes += bytes;
+#endif
+    return malloc(bytes);
+}
+static void cache_memcpy(void *dst, const void *src, size_t bytes) {
+#ifdef COVER_RASTER_CACHE_TEST
+    test_stats.memcpy_calls++;
+    test_stats.memcpy_bytes += bytes;
+#endif
+    memcpy(dst, src, bytes);
+}
 
 static size_t raster_bytes(const cover_raster_key_t *key) {
     if (!key || key->width <= 0 || key->height <= 0 ||
@@ -37,9 +55,9 @@ uint16_t *cover_raster_cache_get(const cover_raster_key_t *key) {
     pthread_mutex_lock(&lock);
     for (unsigned i = 0; i < 2; ++i) {
         if (entries[i].pixels && equal(key, &entries[i].key)) {
-            copy = malloc(entries[i].bytes);
+            copy = cache_malloc(entries[i].bytes);
             if (copy) {
-                memcpy(copy, entries[i].pixels, entries[i].bytes);
+                cache_memcpy(copy, entries[i].pixels, entries[i].bytes);
                 entries[i].used = ++serial;
             }
             break;
@@ -47,6 +65,20 @@ uint16_t *cover_raster_cache_get(const cover_raster_key_t *key) {
     }
     pthread_mutex_unlock(&lock);
     return copy;
+}
+bool cover_raster_cache_touch(const cover_raster_key_t *key) {
+    if (!raster_bytes(key)) return false;
+    bool hit = false;
+    pthread_mutex_lock(&lock);
+    for (unsigned i = 0; i < 2; ++i) {
+        if (entries[i].pixels && equal(key, &entries[i].key)) {
+            entries[i].used = ++serial;
+            hit = true;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&lock);
+    return hit;
 }
 void cover_raster_cache_put(const cover_raster_key_t *key, const uint16_t *pixels) {
     size_t bytes = raster_bytes(key);
@@ -58,9 +90,9 @@ void cover_raster_cache_put(const cover_raster_key_t *key, const uint16_t *pixel
     /* Free before allocation so retained cache storage never exceeds budget. */
     drop(victim);
     if (entries[1 - victim].bytes > CACHE_BUDGET - bytes) drop(1 - victim);
-    uint16_t *copy = malloc(bytes);
+    uint16_t *copy = cache_malloc(bytes);
     if (copy) {
-        memcpy(copy, pixels, bytes);
+        cache_memcpy(copy, pixels, bytes);
         entries[victim].key = *key;
         entries[victim].pixels = copy;
         entries[victim].bytes = bytes;
@@ -79,3 +111,17 @@ size_t cover_raster_cache_bytes(void) {
     pthread_mutex_unlock(&lock);
     return bytes;
 }
+
+#ifdef COVER_RASTER_CACHE_TEST
+void cover_raster_cache_test_stats_reset(void) {
+    pthread_mutex_lock(&lock);
+    memset(&test_stats, 0, sizeof(test_stats));
+    pthread_mutex_unlock(&lock);
+}
+cover_raster_cache_test_stats_t cover_raster_cache_test_stats(void) {
+    pthread_mutex_lock(&lock);
+    cover_raster_cache_test_stats_t result = test_stats;
+    pthread_mutex_unlock(&lock);
+    return result;
+}
+#endif

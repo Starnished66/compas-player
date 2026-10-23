@@ -57,6 +57,10 @@ typedef struct {
     bool reveal;
 } slide_transition_ctx_t;
 
+/* UI-thread touch-down hint; only existing reachable cache payloads are paged. */
+void gui_navigation_prefetch_targets(bool player, bool back, bool home,
+                                     lv_draw_buf_t *drawer);
+
 int gui_navigation_get_depth(void);
 lv_obj_t * gui_navigation_get_screen_at(int index);
 bool gui_navigation_is_top(lv_obj_t * screen);

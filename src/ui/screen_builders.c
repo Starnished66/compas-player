@@ -3116,11 +3116,11 @@ lv_obj_t * build_popup_surface(lv_event_cb_t backdrop_cb, lv_obj_t ** out_backdr
     lv_obj_set_style_max_height(popup,
         lv_display_get_vertical_resolution(lv_display_get_default()) - 2 * STATUS_BAR_CLEARANCE, 0);
     lv_obj_align(popup, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_style_radius(popup, BOARD_SCALE_PX(20), 0);
+    lv_obj_set_style_radius(popup, LIST_ROW_RADIUS, 0);
+    /* The card's Breeze frame (its border color follows the theme). */
     lv_obj_add_style(popup, &style_theme_card_bg, 0);
     lv_obj_set_style_bg_opa(popup, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(popup, 1, 0);
-    lv_obj_set_style_border_color(popup, lv_color_hex(GUI_COLOR_BORDER), 0);
+    lv_obj_set_style_border_width(popup, ICON_GRID_TILE_BORDER, 0);
     lv_obj_set_style_pad_all(popup, BOARD_SCALE_PX(12), 0);
     lv_obj_set_style_pad_row(popup, GUI_ROW_GAP, 0);
     lv_obj_set_scroll_dir(popup, LV_DIR_VER);
@@ -3148,6 +3148,10 @@ void style_popup_action_row(lv_obj_t * row) {
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 }
 
+static bool popup_text_is_cancel(const char * text) {
+    return text && (strcmp(text, "Cancel") == 0 || strcmp(text, TR("Cancel")) == 0);
+}
+
 lv_obj_t * add_popup_action_row(lv_obj_t * popup, const char * text, lv_color_t color,
                                 lv_event_cb_t cb, void * user_data) {
     lv_obj_t * row = lv_obj_create(popup);
@@ -3157,7 +3161,9 @@ lv_obj_t * add_popup_action_row(lv_obj_t * popup, const char * text, lv_color_t 
     lv_obj_set_width(label, lv_pct(100));
     lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
     lv_label_set_text(label, text);
-    lv_obj_set_style_text_color(label, color, 0);
+    /* Breeze keeps Cancel a plain button, whatever the other actions are. */
+    if (popup_text_is_cancel(text)) lv_obj_add_style(label, &style_theme_text_primary, 0);
+    else lv_obj_set_style_text_color(label, color, 0);
     lv_obj_set_style_text_font(label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_remove_flag(label, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
@@ -3253,8 +3259,8 @@ lv_obj_t * build_confirm_popup_with_labels(const char * title_text, lv_label_lon
     lv_obj_add_event_cb(cancel_row, cancel_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t * cancel_label = lv_label_create(cancel_row);
     lv_label_set_text(cancel_label, cancel_text);
-    lv_obj_set_style_text_color(cancel_label, strcmp(cancel_text, "Cancel") == 0
-        ? lv_color_make(255, 120, 120) : cancel_color, 0);
+    if (popup_text_is_cancel(cancel_text)) lv_obj_add_style(cancel_label, &style_theme_text_primary, 0);
+    else lv_obj_set_style_text_color(cancel_label, cancel_color, 0);
     lv_obj_set_style_text_font(cancel_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     lv_obj_set_width(cancel_label, lv_pct(100));
     lv_label_set_long_mode(cancel_label, LV_LABEL_LONG_WRAP);
@@ -3406,7 +3412,7 @@ lv_obj_t * build_power_hub_panel(lv_obj_t * parent, lv_event_cb_t action_cb,
     lv_label_set_text(cancel_label, TR("Cancel"));
     lv_obj_set_width(cancel_label, lv_pct(100));
     lv_obj_set_style_text_align(cancel_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_color(cancel_label, lv_color_make(255, 120, 120), 0);
+    lv_obj_add_style(cancel_label, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(cancel_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     lv_obj_remove_flag(cancel_label, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
     if (out_actions) out_actions[4] = cancel;

@@ -1,3 +1,4 @@
+#include "ui_label_text.h"
 #include <limits.h>
 #include "metadata.h"
 #include "cue_parser.h"
@@ -199,14 +200,14 @@ static void player_set_song_count(int index, int total) {
     if (!song_count_label) return;
     char text[48];
     snprintf(text, sizeof(text), "%d/%d", index + 1, total);
-    if (strcmp(lv_label_get_text(song_count_label), text) == 0) return;
+    if (ui_label_text_matches(song_count_label, text)) return;
     lv_label_set_text(song_count_label, text);
     player_count_row_refresh();
 }
 
 static void player_set_format_badge_text(const char * text) {
     if (!format_badge_label) return;
-    if (strcmp(lv_label_get_text(format_badge_label), text) == 0) return;
+    if (ui_label_text_matches(format_badge_label, text)) return;
     lv_label_set_text(format_badge_label, text);
     player_count_row_refresh();
 }
@@ -965,6 +966,13 @@ static bool play_btn_glyph_on_light;
 static lv_style_t backdrop_text_primary_style;
 static lv_style_t backdrop_text_muted_style;
 static lv_style_t backdrop_icon_style;
+/* Custom layouts' panels and chips take the theme's window color, and their
+ * progress groove the backdrop text at low opacity, as Breeze draws them.
+ * Both carry only colors, so a layout's own opacity still decides whether a
+ * panel shows at all. */
+static lv_style_t backdrop_surface_style;
+static lv_style_t backdrop_track_style;
+static lv_style_t backdrop_arc_style;
 static bool backdrop_styles_ready;
 
 static void backdrop_styles_init(void) {
@@ -972,6 +980,14 @@ static void backdrop_styles_init(void) {
     lv_style_init(&backdrop_text_primary_style);
     lv_style_init(&backdrop_text_muted_style);
     lv_style_init(&backdrop_icon_style);
+    lv_style_init(&backdrop_surface_style);
+    lv_style_init(&backdrop_track_style);
+    lv_style_set_bg_color(&backdrop_surface_style, lv_color_hex(GUI_COLOR_SCREEN));
+    lv_style_set_bg_color(&backdrop_track_style, lv_color_hex(GUI_COLOR_PRIMARY));
+    lv_style_set_bg_opa(&backdrop_track_style, LV_OPA_40);
+    lv_style_init(&backdrop_arc_style);
+    lv_style_set_arc_color(&backdrop_arc_style, lv_color_hex(GUI_COLOR_PRIMARY));
+    lv_style_set_arc_opa(&backdrop_arc_style, LV_OPA_40);
     lv_style_set_text_color(&backdrop_text_primary_style, lv_color_hex(GUI_COLOR_PRIMARY));
     lv_style_set_text_color(&backdrop_text_muted_style, lv_color_hex(GUI_COLOR_SECONDARY));
     lv_style_set_image_recolor_opa(&backdrop_icon_style, LV_OPA_TRANSP);
@@ -1019,6 +1035,15 @@ void gui_player_update_backdrop_contrast(void) {
     if (lv_style_get_prop(&style_theme_text_primary, LV_STYLE_TEXT_COLOR, &primary) != LV_STYLE_RES_FOUND ||
         lv_style_get_prop(&style_theme_text_muted, LV_STYLE_TEXT_COLOR, &muted) != LV_STYLE_RES_FOUND)
         return;
+    lv_style_value_t screen;
+    lv_color_t surface = lv_style_get_prop(&style_theme_screen_bg, LV_STYLE_BG_COLOR, &screen) ==
+                         LV_STYLE_RES_FOUND ? screen.color : lv_color_hex(GUI_COLOR_SCREEN);
+    lv_style_value_t current_surface;
+    if (lv_style_get_prop(&backdrop_surface_style, LV_STYLE_BG_COLOR, &current_surface) != LV_STYLE_RES_FOUND ||
+        !lv_color_eq(current_surface.color, surface)) {
+        lv_style_set_bg_color(&backdrop_surface_style, surface);
+        lv_obj_report_style_change(&backdrop_surface_style);
+    }
     lv_color_t bg = player_backdrop_color();
     lv_color_t text = primary.color, secondary = muted.color;
     /* The theme's own colors stay wherever they read cleanly (the player's
@@ -1044,6 +1069,10 @@ void gui_player_update_backdrop_contrast(void) {
                 lv_style_get_prop(&backdrop_icon_style, LV_STYLE_IMAGE_RECOLOR_OPA, &current) == LV_STYLE_RES_FOUND &&
                 (current.num == LV_OPA_COVER) == tint_icons;
     if (same) return;
+    lv_style_set_bg_color(&backdrop_track_style, text);
+    lv_style_set_arc_color(&backdrop_arc_style, text);
+    lv_obj_report_style_change(&backdrop_track_style);
+    lv_obj_report_style_change(&backdrop_arc_style);
     lv_style_set_text_color(&backdrop_text_primary_style, text);
     lv_style_set_text_color(&backdrop_text_muted_style, secondary);
     lv_style_set_image_recolor(&backdrop_icon_style, text);
@@ -3080,7 +3109,7 @@ static void build_delete_song_popup(void) {
      * an arbitrary-length real filename spliced in, so it needs to
      * truncate rather than potentially wrap across several lines. */
     delete_song_popup.popup = build_confirm_popup("", LV_LABEL_LONG_DOT, &delete_song_popup_title, NULL, TR("Delete"),
-                                             lv_color_make(255, 120, 120), delete_song_confirm_cb, NULL, TR("Cancel"),
+                                             lv_color_hex(GUI_BREEZE_NEGATIVE), delete_song_confirm_cb, NULL, TR("Cancel"),
                                              accent_lv_color(), delete_song_cancel_cb, NULL,
                                              delete_song_popup_backdrop_cb, &delete_song_popup.backdrop);
 }
@@ -5258,6 +5287,22 @@ static void player_screen_loaded_cb(lv_event_t * e) {
  * docs/PLAYER_LAYOUTS.md. Returns false, with no global assigned and nothing
  * attached, when a required role is missing or of the wrong type, so the
  * caller can discard the tree and fall back to the built-in layout. */
+/* A layout's own glyphs and captions, outside the fixed roles, follow the
+ * backdrop too when named for it: images "glyph_*" take the transport tint
+ * and labels "caption_*" the muted text color. */
+static void player_style_named_extras(lv_obj_t * obj) {
+    uint32_t count = lv_obj_get_child_count(obj);
+    for (uint32_t i = 0; i < count; i++) {
+        lv_obj_t * child = lv_obj_get_child(obj, (int32_t) i);
+        const char * name = lv_obj_get_name(child);
+        if (name && strncmp(name, "glyph_", 6) == 0 && lv_obj_check_type(child, &lv_image_class))
+            lv_obj_add_style(child, gui_player_backdrop_icon_style(), 0);
+        else if (name && strncmp(name, "caption_", 8) == 0 && lv_obj_check_type(child, &lv_label_class))
+            lv_obj_add_style(child, gui_player_backdrop_text_style(true), 0);
+        player_style_named_extras(child);
+    }
+}
+
 static bool player_bind_widgets(lv_obj_t * scr) {
     const bool builtin = player_layout_builtin;
     player_count_row_geometry = (player_count_row_geometry_t){0};
@@ -5446,6 +5491,14 @@ static bool player_bind_widgets(lv_obj_t * scr) {
         lv_obj_t * glyphs[] = { r_order, r_prev, r_next, r_more };
         for (unsigned i = 0; i < sizeof(glyphs) / sizeof(glyphs[0]); ++i)
             if (glyphs[i]) lv_obj_add_style(glyphs[i], gui_player_backdrop_icon_style(), 0);
+        backdrop_styles_init();
+        lv_obj_add_style(r_progress, lv_obj_check_type(r_progress, &lv_arc_class) ? &backdrop_arc_style
+                                                                                  : &backdrop_track_style, LV_PART_MAIN);
+        lv_obj_t * surfaces[] = { player_layout_root, r_cover_card, r_overlay, r_lyrics_backdrop, r_lyrics_dim, r_lyrics_area,
+                                  r_fav_circle, r_pill, r_count };
+        for (unsigned i = 0; i < sizeof(surfaces) / sizeof(surfaces[0]); ++i)
+            if (surfaces[i]) lv_obj_add_style(surfaces[i], &backdrop_surface_style, 0);
+        player_style_named_extras(scr);
         lv_obj_add_style(r_progress, gui_theme_accent_style(), LV_PART_INDICATOR);
         lv_obj_add_style(r_progress, gui_theme_accent_knob_style(), LV_PART_KNOB);
         if (r_fav_circle) lv_obj_add_style(r_fav_circle, gui_theme_accent_outline_style(), 0);

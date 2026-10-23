@@ -1,6 +1,7 @@
 #include "gui_setup.h"
 extern int subprocess_run(char * const argv[], char ** out_output, int timeout_sec);
 #include "gui.h"
+#include "ui_label_text.h"
 #include "i18n.h"
 #include "gui_theme.h"
 #include "gui_network.h"
@@ -1166,7 +1167,7 @@ void build_wifi_action_popup(void) {
                                                    "", LV_LABEL_LONG_DOT, &wifi_action_popup_title,
                                                    NULL, NULL, TR("Connect"), &wifi_action_primary_label,
                                                    accent_lv_color(), wifi_action_primary_cb, NULL, TR("Forget"),
-                                                   lv_color_make(255, 120, 120), wifi_action_forget_cb, NULL,
+                                                   lv_color_hex(GUI_BREEZE_NEGATIVE), wifi_action_forget_cb, NULL,
                                                    wifi_action_popup_backdrop_cb, &wifi_action_popup.backdrop);
 }
 
@@ -1410,9 +1411,7 @@ void populate_wifi_screen(bool enabled) {
         lv_obj_set_style_pad_all(row, 0, 0);
         lv_obj_add_style(row, &native_row_min_style, 0);
         lv_obj_set_style_radius(row, LIST_ROW_RADIUS, 0);
-        lv_obj_set_style_bg_color(row, LIST_ROW_BG_COLOR, 0);
-        lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(row, 0, 0);
+        lv_obj_add_style(row, &pill_row_bg_style, 0);
         lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
         bool is_connected = wifi_saved_profile_is_connected(i);
@@ -1464,9 +1463,7 @@ void populate_wifi_screen(bool enabled) {
         lv_obj_set_style_pad_all(row, 0, 0);
         lv_obj_add_style(row, &native_row_min_style, 0);
         lv_obj_set_style_radius(row, LIST_ROW_RADIUS, 0);
-        lv_obj_set_style_bg_color(row, LIST_ROW_BG_COLOR, 0);
-        lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(row, 0, 0);
+        lv_obj_add_style(row, &pill_row_bg_style, 0);
         lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
         lv_obj_t * icon = lv_image_create(row);
@@ -1742,7 +1739,7 @@ static void bt_action_forget_cb(lv_event_t * e) {
 void build_bt_action_popup(void) {
     bt_action_popup.popup = build_confirm_popup("", LV_LABEL_LONG_DOT, &bt_action_popup_title, NULL, TR("Connect"),
                                                  accent_lv_color(), bt_action_connect_cb, &bt_action_connect_row, TR("Forget"),
-                                                 lv_color_make(255, 120, 120), bt_action_forget_cb, &bt_action_forget_row,
+                                                 lv_color_hex(GUI_BREEZE_NEGATIVE), bt_action_forget_cb, &bt_action_forget_row,
                                                  bt_action_popup_backdrop_cb, &bt_action_popup.backdrop);
 }
 
@@ -1888,9 +1885,7 @@ static void add_bt_device_row(lv_obj_t * parent, int index) {
     lv_obj_set_style_pad_all(row, 0, 0);
     lv_obj_add_style(row, &native_row_min_style, 0);
     lv_obj_set_style_radius(row, LIST_ROW_RADIUS, 0);
-    lv_obj_set_style_bg_color(row, LIST_ROW_BG_COLOR, 0);
-    lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(row, 0, 0);
+    lv_obj_add_style(row, &pill_row_bg_style, 0);
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t * label = lv_label_create(row);
@@ -2133,7 +2128,7 @@ static void bt_dac_overlay_back_cb(lv_event_t * e) {
 
 void build_bt_dac_leave_popup(void) {
     bt_dac_leave_popup.popup = build_confirm_popup(TR("Leave Bluetooth DAC mode?"), LV_LABEL_LONG_WRAP, NULL, NULL, TR("Leave"),
-                                                    lv_color_make(255, 120, 120), bt_dac_leave_confirm_cb, NULL, TR("Cancel"),
+                                                    lv_color_hex(GUI_BREEZE_NEGATIVE), bt_dac_leave_confirm_cb, NULL, TR("Cancel"),
                                                     accent_lv_color(), bt_dac_leave_cancel_cb, NULL,
                                                     bt_dac_leave_popup_backdrop_cb, &bt_dac_leave_popup.backdrop);
 }
@@ -3148,7 +3143,7 @@ void gui_network_set_usb_dac_charging_disabled(bool disabled) {
 
 void build_usb_dac_leave_popup(void) {
     usb_dac_leave_popup.popup = build_confirm_popup(TR("Leave USB DAC mode?"), LV_LABEL_LONG_WRAP, NULL, NULL, TR("Leave"),
-                                                     lv_color_make(255, 120, 120), usb_dac_leave_confirm_cb, NULL, TR("Cancel"),
+                                                     lv_color_hex(GUI_BREEZE_NEGATIVE), usb_dac_leave_confirm_cb, NULL, TR("Cancel"),
                                                      accent_lv_color(), usb_dac_leave_cancel_cb, NULL,
                                                      usb_dac_leave_popup_backdrop_cb, &usb_dac_leave_popup.backdrop);
 }
@@ -3197,7 +3192,7 @@ static lv_obj_t * build_usb_dac_overlay_screen(void) {
 }
 
 static void set_label_if_changed(lv_obj_t * label, const char * text) {
-    if (label && strcmp(lv_label_get_text(label), text) != 0) lv_label_set_text(label, text);
+    if (label && !ui_label_text_matches(label, text)) lv_label_set_text(label, text);
 }
 
 static void format_rate(char * out, size_t size, unsigned int rate) {
@@ -4202,7 +4197,7 @@ static void build_remote_control_new_pin_popup(void) {
     remote_control_new_pin_popup.popup = build_confirm_popup(
         TR("Generate a new PIN?"), LV_LABEL_LONG_WRAP, NULL,
         TR("Apps and browsers using the current PIN will need the new one to reconnect."), TR("Generate"),
-        lv_color_make(255, 120, 120), remote_control_new_pin_confirm_cb, NULL, TR("Cancel"), accent_lv_color(),
+        lv_color_hex(GUI_BREEZE_NEGATIVE), remote_control_new_pin_confirm_cb, NULL, TR("Cancel"), accent_lv_color(),
         remote_control_new_pin_popup_dismiss_cb, NULL, remote_control_new_pin_popup_dismiss_cb,
         &remote_control_new_pin_popup.backdrop);
 }

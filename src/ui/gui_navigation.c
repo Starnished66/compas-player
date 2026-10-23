@@ -24,6 +24,8 @@
 #include "assets.h"
 #include "device_config.h"
 #include "transition_compositor.h"
+#include "ui_frame_trace.h"
+#include "ui_snapshot_prefetch.h"
 #include "db_log.h"
 #include "backlight.h"
 
@@ -77,6 +79,14 @@ extern bool active_press_is_over_drag_adjust_widget(void);
 /* Forward declarations so build_flattened_transition_frame() (below) can
  * reference these, which is defined before the actual variable definitions
  * further down the file. */
+
+/* UI-thread cache ownership barrier. The worker borrows only payload pages;
+ * forget waits for at most its current page read before destruction. */
+static void destroy_prefetchable_snapshot(lv_draw_buf_t *buffer) {
+    if (!buffer) return;
+    ui_snapshot_prefetch_forget(buffer);
+    lv_draw_buf_destroy(buffer);
+}
 
 /* Alpha-blends one row of an ARGB8888 source over an RGB565 destination
  * row, `count` pixels wide -- shared by build_flattened_transition_frame()
@@ -152,6 +162,9 @@ static void blend_overlay_onto_base(lv_draw_buf_t * base, lv_obj_t * overlay_obj
  * content -- see blend_persistent_bars() below for why that's kept
  * separate rather than baked in here. Caller owns the returned buffer;
  * returns NULL on snapshot failure. */
+#ifdef UI_PERF_TRACE
+static lv_obj_t * back_target_cache_screen;
+#endif
 static lv_draw_buf_t * snapshot_screen_base(lv_obj_t * target_screen) {
     if (!target_screen) return NULL;
 
@@ -165,7 +178,11 @@ static lv_draw_buf_t * snapshot_screen_base(lv_obj_t * target_screen) {
         else lv_obj_remove_flag(dismiss_btn, LV_OBJ_FLAG_HIDDEN);
     }
 
+    UI_TRACE_SPAN_BEGIN(perf_span);
     lv_draw_buf_t * base = lv_snapshot_take(target_screen, LV_COLOR_FORMAT_RGB565);
+    UI_TRACE_SPAN_END(target_screen == gui_player_get_screen() ? UI_TRACE_SPAN_PLAYER_CACHE :
+                      target_screen == back_target_cache_screen ? UI_TRACE_SPAN_BACK_TARGET :
+                      UI_TRACE_SPAN_STATIC_SNAPSHOT, perf_span);
 
     if (dismiss_touched) {
         if (dismiss_was_hidden) lv_obj_add_flag(dismiss_btn, LV_OBJ_FLAG_HIDDEN);
@@ -193,6 +210,7 @@ static void blend_persistent_bars(lv_draw_buf_t * base, lv_obj_t * target_screen
     lv_obj_t * hb = gui_shell_get_home_indicator_band();
     if (sb) {
         bool status_was_hidden = lv_obj_has_flag(sb, LV_OBJ_FLAG_HIDDEN);
+        UI_TRACE_SPAN_BEGIN(perf_span);
         if (!topbar_target_hidden) {
             if (status_was_hidden) lv_obj_remove_flag(sb, LV_OBJ_FLAG_HIDDEN);
             gui_shell_set_status_bar_screen_context(target_screen);
@@ -201,6 +219,7 @@ static void blend_persistent_bars(lv_draw_buf_t * base, lv_obj_t * target_screen
         gui_shell_set_status_bar_screen_context(lv_screen_active());
         if (status_was_hidden) lv_obj_add_flag(sb, LV_OBJ_FLAG_HIDDEN);
         else lv_obj_remove_flag(sb, LV_OBJ_FLAG_HIDDEN);
+        UI_TRACE_SPAN_END(UI_TRACE_SPAN_BLEND_STATUS_BAR, perf_span);
     }
     /* Home is already the gesture's destination, so showing its pill there
      * adds a dead-looking bottom bar with no navigation value. Lyrics also
@@ -212,7 +231,9 @@ static void blend_persistent_bars(lv_draw_buf_t * base, lv_obj_t * target_screen
     if (hb && home_indicator_target_visible) {
         bool home_was_hidden = lv_obj_has_flag(hb, LV_OBJ_FLAG_HIDDEN);
         if (home_was_hidden) lv_obj_remove_flag(hb, LV_OBJ_FLAG_HIDDEN);
+        UI_TRACE_SPAN_BEGIN(perf_span);
         blend_overlay_onto_base(base, hb);
+        UI_TRACE_SPAN_END(UI_TRACE_SPAN_BLEND_HOME_BAR, perf_span);
         if (home_was_hidden) lv_obj_add_flag(hb, LV_OBJ_FLAG_HIDDEN);
     }
 }
@@ -304,7 +325,7 @@ static lv_draw_buf_t * get_static_snapshot(lv_obj_t * scr) {
             static_snapshot_scroll_state[i] != static_snapshot_scroll_state_for(scr)) {
             /* Transitions always dup a cached base before using it, so this
              * cache-owned buffer is not aliased by an in-flight transition. */
-            lv_draw_buf_destroy(static_snapshot_buf[i]);
+            destroy_prefetchable_snapshot(static_snapshot_buf[i]);
             static_snapshot_buf[i] = NULL;
         }
         return static_snapshot_buf[i];
@@ -328,7 +349,7 @@ static void static_scroll_snapshot_async(void * data) {
     if (static_snapshot_buf[index] && static_snapshot_scroll_state[index] == scroll) return;
     lv_draw_buf_t * fresh = snapshot_screen_base(screen);
     if (!fresh) return;
-    if (static_snapshot_buf[index]) lv_draw_buf_destroy(static_snapshot_buf[index]);
+    if (static_snapshot_buf[index]) destroy_prefetchable_snapshot(static_snapshot_buf[index]);
     static_snapshot_buf[index] = fresh;
     static_snapshot_scroll_state[index] = scroll;
 }
@@ -354,7 +375,7 @@ void register_static_snapshot(int index, lv_obj_t * scr) {
      * overwrite pattern just below. Without this, re-registering the same
      * slot (e.g. gui_navigation_init() running again after a UI reload)
      * leaks the previous lv_draw_buf_t. */
-    if (static_snapshot_buf[index]) lv_draw_buf_destroy(static_snapshot_buf[index]);
+    if (static_snapshot_buf[index]) destroy_prefetchable_snapshot(static_snapshot_buf[index]);
     static_snapshot_screen[index] = scr;
     static_snapshot_buf[index] = snapshot_screen_base(scr);
     static_snapshot_scroll_state[index] = static_snapshot_scroll_state_for(scr);
@@ -368,7 +389,7 @@ static void rebuild_font_snapshots_async_cb(void * unused) {
     for (int i = 0; i < STATIC_SNAPSHOT_SCREEN_COUNT; i++) {
         if (!static_snapshot_screen[i]) continue;
         screen_builders_refresh_font_geometry(static_snapshot_screen[i]);
-        if (static_snapshot_buf[i]) lv_draw_buf_destroy(static_snapshot_buf[i]);
+        if (static_snapshot_buf[i]) destroy_prefetchable_snapshot(static_snapshot_buf[i]);
         static_snapshot_buf[i] = snapshot_screen_base(static_snapshot_screen[i]);
         static_snapshot_scroll_state[i] = static_snapshot_scroll_state_for(static_snapshot_screen[i]);
     }
@@ -380,7 +401,7 @@ void gui_navigation_invalidate_font_snapshots(void) {
      * font bitmap.  The rebuild is one-shot, restoring the normal cached
      * transition cost before the user can navigate after the black mask. */
     for (int i = 0; i < STATIC_SNAPSHOT_SCREEN_COUNT; i++) {
-        if (static_snapshot_buf[i]) lv_draw_buf_destroy(static_snapshot_buf[i]);
+        if (static_snapshot_buf[i]) destroy_prefetchable_snapshot(static_snapshot_buf[i]);
         static_snapshot_buf[i] = NULL;
     }
     player_transition_discard_cache();
@@ -429,7 +450,7 @@ void gui_navigation_poll_snapshot_rebuild(void) {
 
 void gui_navigation_invalidate_theme_snapshots(void) {
     for (int i = 0; i < STATIC_SNAPSHOT_SCREEN_COUNT; i++) {
-        if (static_snapshot_buf[i]) lv_draw_buf_destroy(static_snapshot_buf[i]);
+        if (static_snapshot_buf[i]) destroy_prefetchable_snapshot(static_snapshot_buf[i]);
         static_snapshot_buf[i] = NULL;
     }
     player_transition_discard_cache();
@@ -459,7 +480,7 @@ static lv_draw_buf_t * player_transition_cache_buf = NULL;
 static bool player_transition_cache_dirty = true;
 
 static void player_transition_discard_cache(void) {
-    if (player_transition_cache_buf) lv_draw_buf_destroy(player_transition_cache_buf);
+    if (player_transition_cache_buf) destroy_prefetchable_snapshot(player_transition_cache_buf);
     player_transition_cache_buf = NULL;
     player_transition_cache_dirty = true;
     if (gui_player_get_screen()) lv_async_call(player_transition_cache_async_cb, NULL);
@@ -483,7 +504,7 @@ static void player_transition_rebuild_cache(void) {
 #endif
     lv_draw_buf_t * fresh = snapshot_screen_base(gui_player_get_screen());
     if (!fresh) return; /* OOM -- keep whatever's cached (stale beats nothing); still tried again on the next dirty notification */
-    if (player_transition_cache_buf) lv_draw_buf_destroy(player_transition_cache_buf);
+    if (player_transition_cache_buf) destroy_prefetchable_snapshot(player_transition_cache_buf);
     player_transition_cache_buf = fresh;
     player_transition_cache_dirty = false;
 #ifdef UI_PERF_TRACE
@@ -535,9 +556,17 @@ void player_transition_mark_dirty(void) {
  * the added complexity of exposing that path's own from_scr here too. */
 static lv_obj_t * back_target_cache_screen = NULL;
 static lv_draw_buf_t * back_target_cache_buf = NULL;
+/* The rebuild runs from a delayed timer rather than lv_async_call(): an async
+ * queued by nav_push() ran before the new screen's first frame, adding a full
+ * off-screen render to every push, and each discard queued another one.
+ * One pending timer with a dirty flag coalesces those, and retries while a
+ * finger is down or a slide is running. A back gesture before it fires uses
+ * the uncached transition path, as it did before the first rebuild. */
+#define BACK_TARGET_REBUILD_DELAY_MS 150
+static lv_timer_t * back_target_cache_timer = NULL;
+static bool back_target_cache_dirty = false;
 
-static void back_target_cache_rebuild_cb(void * unused) {
-    (void) unused;
+static void back_target_cache_rebuild(void) {
     if (!back_target_cache_screen) return;
     /* The screen we meant to cache may no longer be the thing a back-swipe
      * would target by the time this async callback actually runs (another
@@ -552,8 +581,71 @@ static void back_target_cache_rebuild_cb(void * unused) {
     if (back_target_cache_screen == gui_player_get_screen()) return;
     lv_draw_buf_t * fresh = snapshot_screen_base(back_target_cache_screen);
     if (!fresh) return; /* OOM -- keep whatever's cached (stale beats nothing) */
-    if (back_target_cache_buf) lv_draw_buf_destroy(back_target_cache_buf);
+    if (back_target_cache_buf) destroy_prefetchable_snapshot(back_target_cache_buf);
     back_target_cache_buf = fresh;
+}
+
+static void back_target_cache_timer_cb(lv_timer_t * timer) {
+    if (back_target_cache_dirty && back_target_cache_screen &&
+        (gui_navigation_transition_in_progress() || static_snapshot_rebuild_input_active()))
+        return; /* try again next period */
+    if (back_target_cache_dirty) {
+        back_target_cache_dirty = false;
+        back_target_cache_rebuild();
+    }
+    lv_timer_delete(timer);
+    back_target_cache_timer = NULL;
+}
+
+static void back_target_cache_schedule(void) {
+    back_target_cache_dirty = back_target_cache_screen != NULL;
+    if (!back_target_cache_dirty) return;
+    if (back_target_cache_timer) {
+        lv_timer_reset(back_target_cache_timer);
+        return;
+    }
+    back_target_cache_timer = lv_timer_create(back_target_cache_timer_cb,
+                                              BACK_TARGET_REBUILD_DELAY_MS, NULL);
+}
+
+/* Peek, never validate/rebuild: walking a screen's scroll-key tree on touch
+ * down could itself page in code/objects. Normal transition lookup still
+ * validates freshness; a stale borrowed base is merely harmless wasted I/O. */
+static lv_draw_buf_t *peek_transition_snapshot(lv_obj_t *screen) {
+    if (!screen) return NULL;
+    for (int i = 0; i < STATIC_SNAPSHOT_SCREEN_COUNT; ++i)
+        if (static_snapshot_screen[i] == screen && static_snapshot_buf[i])
+            return static_snapshot_buf[i];
+    if (screen == gui_player_get_screen()) return player_transition_cache_buf;
+    if (screen == back_target_cache_screen) return back_target_cache_buf;
+    return NULL;
+}
+
+void gui_navigation_prefetch_targets(bool player, bool back, bool home,
+                                     lv_draw_buf_t *drawer) {
+    ui_snapshot_prefetch_span_t spans[2];
+    size_t count = 0;
+    lv_obj_t *targets[2] = { NULL, NULL };
+    if (home) {
+        targets[0] = gui_shell_get_home_screen();
+        if (back && nav_depth > 1) targets[1] = nav_stack[nav_depth - 2];
+    } else {
+        if (back && nav_depth > 1) targets[0] = nav_stack[nav_depth - 2];
+        if (player) targets[1] = gui_player_get_screen();
+    }
+    if (drawer && drawer->data && drawer->data_size)
+        spans[count++] = (ui_snapshot_prefetch_span_t) {
+            .identity = drawer, .data = drawer->data, .size = drawer->data_size
+        };
+    for (unsigned i = 0; i < 2 && count < 2; ++i) {
+        lv_draw_buf_t *buffer = peek_transition_snapshot(targets[i]);
+        if (!buffer || !buffer->data || !buffer->data_size ||
+            (count && spans[0].identity == buffer)) continue;
+        spans[count++] = (ui_snapshot_prefetch_span_t) {
+            .identity = buffer, .data = buffer->data, .size = buffer->data_size
+        };
+    }
+    if (count) (void)ui_snapshot_prefetch_request(spans, count);
 }
 
 /* Destroys any cached buffer and, if the target screen is still valid,
@@ -562,9 +654,9 @@ static void back_target_cache_rebuild_cb(void * unused) {
  * cleared (the screen is about to be freed) must do so BEFORE calling this,
  * so there's nothing left to reschedule a rebuild against. */
 static void back_target_cache_discard(void) {
-    if (back_target_cache_buf) lv_draw_buf_destroy(back_target_cache_buf);
+    if (back_target_cache_buf) destroy_prefetchable_snapshot(back_target_cache_buf);
     back_target_cache_buf = NULL;
-    if (back_target_cache_screen) lv_async_call(back_target_cache_rebuild_cb, NULL);
+    back_target_cache_schedule();
 }
 
 /* Frees every cached screen snapshot (about 0.75 MiB each) while an external
@@ -573,14 +665,15 @@ static void back_target_cache_discard(void) {
  * transitions fall back to a fresh render, as after any other invalidation. */
 void gui_navigation_release_snapshots(void) {
     for (int i = 0; i < STATIC_SNAPSHOT_SCREEN_COUNT; i++) {
-        if (static_snapshot_buf[i]) lv_draw_buf_destroy(static_snapshot_buf[i]);
+        if (static_snapshot_buf[i]) destroy_prefetchable_snapshot(static_snapshot_buf[i]);
         static_snapshot_buf[i] = NULL;
     }
-    if (player_transition_cache_buf) lv_draw_buf_destroy(player_transition_cache_buf);
+    if (player_transition_cache_buf) destroy_prefetchable_snapshot(player_transition_cache_buf);
     player_transition_cache_buf = NULL;
     player_transition_cache_dirty = true;
-    if (back_target_cache_buf) lv_draw_buf_destroy(back_target_cache_buf);
+    if (back_target_cache_buf) destroy_prefetchable_snapshot(back_target_cache_buf);
     back_target_cache_buf = NULL;
+    back_target_cache_dirty = false;
 }
 
 void gui_navigation_invalidate_back_snapshot(lv_obj_t * screen) {
@@ -592,7 +685,7 @@ void gui_navigation_invalidate_back_snapshot(lv_obj_t * screen) {
  * back-action from the new top of the stack would target. */
 static void back_target_cache_note_covered(lv_obj_t * scr) {
     /* Skip static/player screens entirely -- get_static_snapshot()/player
-     * checks in back_target_cache_rebuild_cb() above already decline to
+     * checks in back_target_cache_rebuild() above already decline to
      * snapshot them, so caching the pointer here would only ever sit idle
      * while still needing the exact same replace-time fixup real dynamic
      * screens do (see back_target_cache_note_replaced()'s own comment) --
@@ -605,7 +698,7 @@ static void back_target_cache_note_covered(lv_obj_t * scr) {
 /* Real use-after-free caught in review: nav_push() sets this cache's screen
  * pointer even for static/player screens the rebuild callback itself
  * declines to snapshot (get_static_snapshot()/gui_player_get_screen()
- * checks inside back_target_cache_rebuild_cb() above) -- e.g. leaving Home
+ * checks inside back_target_cache_rebuild() above) -- e.g. leaving Home
  * still sets back_target_cache_screen to the OLD Home object. A theme/font
  * refresh then rebuilds Home as a brand-new lv_obj_t and deletes the old
  * one, but gui_navigation_replace_home()/gui_navigation_replace_static_
@@ -858,13 +951,24 @@ slide_transition_ctx_t * begin_slide_transition_ex(lv_obj_t * to_scr, bool forwa
      * before any self-inflicted dirtying exists, so the common case (no
      * unrelated timer mid-flight) is cheap; only a genuinely-external
      * pending redraw costs anything here. */
+#ifdef UI_PERF_TRACE
+    ui_frame_trace_event(UI_FRAME_TRACE_EVENT_DRAIN_BEGIN, 0, 0);
+#endif
     lv_refr_now(disp);
 #ifdef UI_PERF_TRACE
     perf_drain_done_us = ui_perf_now_us();
+    ui_frame_trace_event(UI_FRAME_TRACE_EVENT_DRAIN_END, 0,
+                         (uint32_t) (perf_drain_done_us - perf_begin_us));
+    ui_frame_trace_event(UI_FRAME_TRACE_EVENT_PREPARE_BEGIN, 0, 0);
 #endif
 
     slide_transition_ctx_t * ctx = lv_malloc(sizeof(*ctx));
-    if (!ctx) return NULL;
+    if (!ctx) {
+#ifdef UI_PERF_TRACE
+        ui_frame_trace_event(UI_FRAME_TRACE_EVENT_PREPARE_END, 0, 0);
+#endif
+        return NULL;
+    }
     /* Nothing this function's own snapshot-prep code does (hiding the
      * dismiss button, toggling the status bar / home indicator bands,
      * restyling via gui_shell_set_status_bar_screen_context()) should be
@@ -909,26 +1013,39 @@ slide_transition_ctx_t * begin_slide_transition_ex(lv_obj_t * to_scr, bool forwa
      * rebuilt asynchronously, while persistent bars are blended fresh. */
     lv_draw_buf_t * buf_to;
 #ifdef UI_PERF_TRACE
-    bool used_player_cache = false;
+    unsigned perf_cache_source = 0;
 #endif
+    UI_TRACE_SPAN_BEGIN(perf_lookup);
     lv_draw_buf_t * cached_base = get_static_snapshot(to_scr);
+    UI_TRACE_SPAN_END(UI_TRACE_SPAN_STATIC_LOOKUP, perf_lookup);
+#ifdef UI_PERF_TRACE
+    if (cached_base) perf_cache_source = 1;
+#endif
     if (!cached_base && to_scr == gui_player_get_screen() && player_transition_cache_buf) {
         cached_base = player_transition_cache_buf;
 #ifdef UI_PERF_TRACE
-        used_player_cache = true;
+        perf_cache_source = 2;
 #endif
     }
     if (!cached_base && to_scr == back_target_cache_screen && back_target_cache_buf) {
         cached_base = back_target_cache_buf;
+#ifdef UI_PERF_TRACE
+        perf_cache_source = 4;
+#endif
     }
     if (cached_base) {
+        UI_TRACE_SPAN_BEGIN(perf_dup);
         buf_to = lv_draw_buf_dup(cached_base);
+        UI_TRACE_SPAN_END(UI_TRACE_SPAN_TARGET_DUP, perf_dup);
         if (buf_to) blend_persistent_bars(buf_to, to_scr);
     } else {
         buf_to = build_flattened_transition_frame(to_scr);
     }
 #ifdef UI_PERF_TRACE
     perf_to_done_us = ui_perf_now_us();
+    ui_frame_trace_event(UI_FRAME_TRACE_EVENT_CACHE,
+                         perf_cache_source,
+                         (uint32_t) (perf_to_done_us - perf_drain_done_us));
 #endif
 
     /* Outgoing source: an owned copy of the physical scanout page.
@@ -962,6 +1079,8 @@ slide_transition_ctx_t * begin_slide_transition_ex(lv_obj_t * to_scr, bool forwa
     }
 #ifdef UI_PERF_TRACE
     perf_from_done_us = ui_perf_now_us();
+    ui_frame_trace_event(UI_FRAME_TRACE_EVENT_CACHE, 3,
+                         (uint32_t) (perf_from_done_us - perf_to_done_us));
 #endif
     /* Re-enable now that both snapshots are safely captured -- see the
      * disable's own comment above for why this window is deliberately
@@ -973,6 +1092,9 @@ slide_transition_ctx_t * begin_slide_transition_ex(lv_obj_t * to_scr, bool forwa
         if (buf_from && ctx->buf_from_owned) lv_draw_buf_destroy(buf_from);
         if (buf_to && ctx->buf_to_owned) lv_draw_buf_destroy(buf_to);
         lv_free(ctx);
+#ifdef UI_PERF_TRACE
+        ui_frame_trace_event(UI_FRAME_TRACE_EVENT_PREPARE_END, 0, 0);
+#endif
         return NULL;
     }
 
@@ -1049,14 +1171,9 @@ slide_transition_ctx_t * begin_slide_transition_ex(lv_obj_t * to_scr, bool forwa
     }
 #ifdef UI_PERF_TRACE
     uint64_t perf_end_us = ui_perf_now_us();
-    printf("PERF transition begin_us=%llu drain_us=%llu to_us=%llu from_us=%llu setup_us=%llu from_owned=%d to_owned=%d player_cache=%d cache_dirty=%d compositor=%d\n",
-           (unsigned long long) (perf_end_us - perf_begin_us),
-           (unsigned long long) (perf_drain_done_us - perf_begin_us),
-           (unsigned long long) (perf_to_done_us - perf_drain_done_us),
-           (unsigned long long) (perf_from_done_us - perf_to_done_us),
-           (unsigned long long) (perf_end_us - perf_from_done_us),
-           ctx->buf_from_owned, ctx->buf_to_owned,
-           used_player_cache, player_transition_cache_dirty, transition_compositor_is_active());
+    ui_frame_trace_event(UI_FRAME_TRACE_EVENT_PREPARE_END,
+                         transition_compositor_is_active() ? 2u : 1u,
+                         (uint32_t) (perf_end_us - perf_drain_done_us));
 #endif
     return ctx;
 }
@@ -1127,6 +1244,7 @@ void nav_push(lv_obj_t * scr) {
         lv_screen_load(scr); /* already the active screen -- nothing to push */
         sync_player_topbar_visibility(scr);
         sync_home_indicator_visibility(scr);
+        UI_TRACE_SPAN_END(UI_TRACE_SPAN_NAV_PUSH, perf_start_us);
         return;
     }
     if (nav_depth > 0) back_target_cache_note_covered(nav_stack[nav_depth - 1]);
@@ -1138,8 +1256,7 @@ void nav_push(lv_obj_t * scr) {
     sync_player_topbar_visibility(scr);
     sync_home_indicator_visibility(scr);
 #ifdef UI_PERF_TRACE
-    printf("PERF nav_push load_us=%llu depth=%d\n",
-           (unsigned long long) (ui_perf_now_us() - perf_start_us), nav_depth);
+    UI_TRACE_SPAN_END(UI_TRACE_SPAN_NAV_PUSH, perf_start_us);
 #endif
 }
 
@@ -1489,6 +1606,7 @@ bool gui_navigation_restore_path(const gui_nav_reload_state_t * state) {
  * rebuilt) re-registers the snapshots and restores nav_stack/nav_depth to
  * Home on its own -- no separate "restore navigation" step is needed. */
 void gui_navigation_teardown(void) {
+    ui_snapshot_prefetch_cancel_all();
     if (fixed_transition_start_ctx) {
         slide_transition_ctx_t *pending = fixed_transition_start_ctx;
         slide_transition_cancel(&pending);
@@ -1502,7 +1620,7 @@ void gui_navigation_teardown(void) {
     for (int i = 0; i < NAV_STACK_MAX; i++) nav_stack[i] = NULL;
     nav_depth = 0;
     for (int i = 0; i < STATIC_SNAPSHOT_SCREEN_COUNT; i++) {
-        if (static_snapshot_buf[i]) lv_draw_buf_destroy(static_snapshot_buf[i]);
+        if (static_snapshot_buf[i]) destroy_prefetchable_snapshot(static_snapshot_buf[i]);
         static_snapshot_buf[i] = NULL;
         static_snapshot_screen[i] = NULL;
         static_snapshot_scroll_state[i] = 0;

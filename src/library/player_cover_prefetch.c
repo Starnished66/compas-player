@@ -138,8 +138,9 @@ static void process_request(const request_t *r) {
     if (!estimate_generated_bmp(cache_path, &before, r, &decode_bytes, &raster_copy_bytes) ||
         !memory_budget_ok(decode_bytes + raster_copy_bytes) ||
         request_cancelled(r->generation)) return;
-    uint16_t *hit = cover_raster_cache_get(&key);
-    if (hit) { free(hit); return; }
+    /* Preserve admission/cancellation ordering while probing without taking
+     * ownership of a full-size raster that this worker would only free. */
+    if (cover_raster_cache_touch(&key)) return;
 
     uint8_t *encoded = NULL;
     uint32_t encoded_size = 0;

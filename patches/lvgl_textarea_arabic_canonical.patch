@@ -1,0 +1,717 @@
+diff --git a/src/misc/lv_bidi.c b/src/misc/lv_bidi.c
+index 44f014e..c7ad729 100644
+--- a/src/misc/lv_bidi.c
++++ b/src/misc/lv_bidi.c
+@@ -316,9 +316,9 @@ static uint32_t lv_bidi_get_next_paragraph(const char * txt)
+  */
+ static lv_base_dir_t lv_bidi_get_letter_dir(uint32_t letter)
+ {
++    if(lv_bidi_letter_is_weak(letter)) return LV_BASE_DIR_WEAK;
+     if(lv_bidi_letter_is_rtl(letter)) return LV_BASE_DIR_RTL;
+     if(lv_bidi_letter_is_neutral(letter)) return LV_BASE_DIR_NEUTRAL;
+-    if(lv_bidi_letter_is_weak(letter)) return LV_BASE_DIR_WEAK;
+ 
+     return LV_BASE_DIR_LTR;
+ }
+@@ -329,6 +329,9 @@ static lv_base_dir_t lv_bidi_get_letter_dir(uint32_t letter)
+  */
+ static bool lv_bidi_letter_is_weak(uint32_t letter)
+ {
++    /* Arabic-Indic and extended Arabic-Indic digits retain numeric order. */
++    if((letter >= 0x0660 && letter <= 0x0669) ||
++       (letter >= 0x06F0 && letter <= 0x06F9)) return true;
+     uint32_t i = 0;
+     static const char weaks[] = "0123456789";
+ 
+@@ -512,7 +515,7 @@ static void rtl_reverse(char * dest, const char * src, uint32_t len, uint16_t *
+ 
+         /*Keep weak letters (numbers) as LTR*/
+         if(lv_bidi_letter_is_weak(letter)) {
+-            uint32_t last_weak = i;
++            uint32_t last_weak_end = i + lv_text_encoded_size(&src[i]);
+             uint32_t first_weak = i;
+             uint16_t pos_conv_last_weak = pos_conv_i;
+             uint16_t pos_conv_first_weak = pos_conv_i;
+@@ -537,10 +540,11 @@ static void rtl_reverse(char * dest, const char * src, uint32_t len, uint16_t *
+                 pos_conv_first_weak = 0;
+             }
+ 
+-            if(dest) lv_memcpy(&dest[wr], &src[first_weak], last_weak - first_weak + 1);
++            uint32_t weak_bytes = last_weak_end - first_weak;
++            if(dest) lv_memcpy(&dest[wr], &src[first_weak], weak_bytes);
+             if(pos_conv_out) fill_pos_conv(&pos_conv_out[pos_conv_wr], pos_conv_last_weak - pos_conv_first_weak + 1,
+                                                pos_conv_rd_base + pos_conv_first_weak);
+-            wr += last_weak - first_weak + 1;
++            wr += weak_bytes;
+             pos_conv_wr += pos_conv_last_weak - pos_conv_first_weak + 1;
+         }
+ 
+diff --git a/src/misc/lv_style.c b/src/misc/lv_style.c
+index 834761d..c2fccb3 100644
+--- a/src/misc/lv_style.c
++++ b/src/misc/lv_style.c
+@@ -467,6 +467,12 @@ lv_style_value_t lv_style_prop_get_default(lv_style_prop_t prop)
+             return (lv_style_value_t) {
+                 .ptr = LV_FONT_DEFAULT
+             };
++#if LV_USE_BIDI
++        case LV_STYLE_BASE_DIR:
++            return (lv_style_value_t) {
++                .num = LV_BIDI_BASE_DIR_DEF
++            };
++#endif
+         case LV_STYLE_MAX_WIDTH:
+         case LV_STYLE_MAX_HEIGHT:
+             return (lv_style_value_t) {
+diff --git a/src/misc/lv_text_ap.c b/src/misc/lv_text_ap.c
+index e6dcb4d..49bce7e 100644
+--- a/src/misc/lv_text_ap.c
++++ b/src/misc/lv_text_ap.c
+@@ -11,6 +11,7 @@
+ #include "lv_text_ap.h"
+ #include "lv_types.h"
+ #include "../stdlib/lv_mem.h"
++#include "../stdlib/lv_string.h"
+ #include "../draw/lv_draw.h"
+ 
+ /*********************
+@@ -39,6 +40,7 @@ typedef struct {
+ static uint32_t lv_ap_get_char_index(uint16_t c);
+ static uint32_t lv_text_lam_alef(uint32_t ch_curr, uint32_t ch_next);
+ static bool lv_text_is_arabic_vowel(uint16_t c);
++static bool lv_text_ap_may_shape(const char * txt);
+ 
+ /**********************
+  *  STATIC VARIABLES
+@@ -88,7 +90,7 @@ const ap_chars_map_t ap_chars_map[] = {
+     {40, 0xFEF2, 1, 2, -1,  {1, 1}},   // ي
+     {170, 0xFBFD, 1, 2, -1,  {1, 1}},   // ی
+     {7, 0xFE94, -1, 2, -1,  {1, 0}},   // ة
+-    {206, 0x06F0, -1, 2, 0,  {0, 0}},  // ۰
++    {206, 0x06F0, 0, 0, 0,  {0, 0}},   // ۰
+     {207, 0x06F1, 0, 0, 0,  {0, 0}},  // ۱
+     {208, 0x06F2, 0, 0, 0,  {0, 0}},  // ۲
+     {209, 0x06F3, 0, 0, 0,  {0, 0}},  // ۳
+@@ -115,6 +117,10 @@ uint32_t lv_text_ap_calc_bytes_count(const char * txt)
+     uint32_t i, j;
+     uint32_t ch_enc;
+ 
++    /* Nothing is replaced, so the output is the input. Never less than the
++     * plain copy the no-shaping path below makes. */
++    if(!lv_text_ap_may_shape(txt)) return lv_strlen(txt) + 1;
++
+     txt_length = lv_text_get_encoded_length(txt);
+ 
+     i = 0;
+@@ -141,8 +147,15 @@ uint32_t lv_text_ap_calc_bytes_count(const char * txt)
+     return chars_cnt + 1;
+ }
+ 
+-void lv_text_ap_proc(const char * txt, char * txt_out)
++static bool lv_text_ap_proc_internal(const char * txt, char * txt_out, bool ligatures)
+ {
++    if(txt == NULL || txt_out == NULL) return false;
++
++    if(!lv_text_ap_may_shape(txt)) {
++        lv_memmove(txt_out, txt, lv_strlen(txt) + 1);
++        return true;
++    }
++
+     uint32_t txt_length = 0;
+     uint32_t index_current, idx_next, idx_previous, i, j;
+     uint32_t * ch_enc;
+@@ -151,8 +164,29 @@ void lv_text_ap_proc(const char * txt, char * txt_out)
+ 
+     txt_length = lv_text_get_encoded_length(txt);
+ 
++    /* Common Latin labels need no shaping scratch space. Keep this safe for
++     * the label's in-place processing path as well as separate buffers. */
++    bool needs_shaping = false;
++    uint32_t scan_pos = 0;
++    for(uint32_t n = 0; n < txt_length; n++) {
++        uint32_t codepoint = lv_text_encoded_next(txt, &scan_pos);
++        if(lv_ap_get_char_index(codepoint) != LV_UNDEF_ARABIC_PERSIAN_CHARS) {
++            needs_shaping = true;
++            break;
++        }
++    }
++    if(!needs_shaping) {
++        lv_memmove(txt_out, txt, lv_strlen(txt) + 1);
++        return true;
++    }
++
+     ch_enc = (uint32_t *)lv_malloc(sizeof(uint32_t) * (txt_length + 1));
+     ch_fin = (uint32_t *)lv_malloc(sizeof(uint32_t) * (txt_length + 1));
++    if(ch_enc == NULL || ch_fin == NULL) {
++        lv_free(ch_enc);
++        lv_free(ch_fin);
++        return false;
++    }
+ 
+     i = 0;
+     j = 0;
+@@ -191,7 +225,7 @@ void lv_text_ap_proc(const char * txt, char * txt_out)
+         uint8_t conjunction_to_next = ((i == txt_length - 1) ||
+                                        idx_next == LV_UNDEF_ARABIC_PERSIAN_CHARS) ? 0 : ap_chars_map[idx_next].ap_chars_conjunction.conj_to_previous;
+ 
+-        uint32_t lam_alef = lv_text_lam_alef(index_current, idx_next);
++        uint32_t lam_alef = ligatures ? lv_text_lam_alef(index_current, idx_next) : 0;
+         if(lam_alef) {
+             if(conjunction_to_previous) {
+                 lam_alef ++;
+@@ -249,11 +283,37 @@ void lv_text_ap_proc(const char * txt, char * txt_out)
+     }
+     *(txt_out_temp) = '\0';
+     lv_free(ch_enc);
++    return true;
++}
++
++void lv_text_ap_proc(const char * txt, char * txt_out)
++{
++    if(!lv_text_ap_proc_internal(txt, txt_out, true) && txt != NULL && txt_out != NULL) {
++        /* Legacy API cannot report OOM; preserve a usable unshaped string. */
++        lv_memmove(txt_out, txt, lv_strlen(txt) + 1);
++    }
++}
++
++bool lv_text_ap_proc_noligatures(const char * txt, char * txt_out)
++{
++    return lv_text_ap_proc_internal(txt, txt_out, false);
+ }
+ /**********************
+ *   STATIC FUNCTIONS
+ **********************/
+ 
++/* Every character in ap_chars_map is U+0600..U+06FF (UTF-8 lead bytes
++ * 0xD8..0xDB) or a presentation form in U+FB50..U+FEFF (lead byte 0xEF).
++ * Text without those bytes cannot need shaping, which a byte scan decides
++ * without the per-character table search. */
++static bool lv_text_ap_may_shape(const char * txt)
++{
++    for(const unsigned char * p = (const unsigned char *)txt; *p; p++) {
++        if((*p >= 0xD8 && *p <= 0xDB) || *p == 0xEF) return true;
++    }
++    return false;
++}
++
+ static uint32_t lv_ap_get_char_index(uint16_t c)
+ {
+     for(uint8_t i = 0; ap_chars_map[i].char_end_form; i++) {
+diff --git a/src/misc/lv_text_ap.h b/src/misc/lv_text_ap.h
+index cac7c71..4265371 100644
+--- a/src/misc/lv_text_ap.h
++++ b/src/misc/lv_text_ap.h
+@@ -35,6 +35,7 @@ extern "C" {
+  **********************/
+ uint32_t lv_text_ap_calc_bytes_count(const char * txt);
+ void lv_text_ap_proc(const char * txt, char * txt_out);
++bool lv_text_ap_proc_noligatures(const char * txt, char * txt_out);
+ 
+ /**********************
+  *      MACROS
+diff --git a/src/widgets/label/lv_label.c b/src/widgets/label/lv_label.c
+index d550043..c8317e4 100644
+--- a/src/widgets/label/lv_label.c
++++ b/src/widgets/label/lv_label.c
+@@ -284,6 +284,43 @@ char * lv_label_get_text(const lv_obj_t * obj)
+     return label->text;
+ }
+ 
++void lv_label_set_textarea_arabic(lv_obj_t * obj, bool en)
++{
++    LV_ASSERT_OBJ(obj, MY_CLASS);
++    lv_label_t * label = (lv_label_t *)obj;
++    label->ap_no_lam_alef = en ? 1U : 0U;
++}
++
++bool lv_label_set_textarea_text(lv_obj_t * obj, const char * text)
++{
++    LV_ASSERT_OBJ(obj, MY_CLASS);
++    LV_ASSERT_NULL(text);
++
++    lv_label_t * label = (lv_label_t *)obj;
++    size_t text_len = get_text_length(text);
++    char * candidate = lv_malloc(text_len);
++    if(candidate == NULL) return false;
++
++#if LV_USE_ARABIC_PERSIAN_CHARS
++    bool ok = label->ap_no_lam_alef ? lv_text_ap_proc_noligatures(text, candidate) :
++                                      (lv_text_ap_proc(text, candidate), true);
++    if(!ok) {
++        lv_free(candidate);
++        return false;
++    }
++#else
++    lv_strcpy(candidate, text);
++#endif
++
++    /* Prepare the entire replacement before changing the live label text. */
++    lv_label_revert_dots(obj);
++    if(label->text != NULL && label->static_txt == 0) lv_free(label->text);
++    label->text = candidate;
++    label->static_txt = 0;
++    lv_label_mark_need_refr_text(obj);
++    return true;
++}
++
+ lv_label_long_mode_t lv_label_get_long_mode(const lv_obj_t * obj)
+ {
+     LV_ASSERT_OBJ(obj, MY_CLASS);
+@@ -995,7 +1032,12 @@ static void set_text_internal(lv_obj_t * obj, const char * text)
+         if(label->text == NULL) return;
+ 
+ #if LV_USE_ARABIC_PERSIAN_CHARS
+-        lv_text_ap_proc(label->text, label->text);
++        if(label->ap_no_lam_alef) {
++            (void)lv_text_ap_proc_noligatures(label->text, label->text);
++        }
++        else {
++            lv_text_ap_proc(label->text, label->text);
++        }
+ #endif
+ 
+     }
+@@ -1418,7 +1460,14 @@ static size_t get_text_length(const char * text)
+ static void copy_text_to_label(lv_label_t * label, const char * text)
+ {
+ #if LV_USE_ARABIC_PERSIAN_CHARS
+-    lv_text_ap_proc(text, label->text);
++    if(label->ap_no_lam_alef) {
++        if(!lv_text_ap_proc_noligatures(text, label->text)) {
++            lv_memmove(label->text, text, lv_strlen(text) + 1);
++        }
++    }
++    else {
++        lv_text_ap_proc(text, label->text);
++    }
+ #else
+     lv_strcpy(label->text, text);
+ #endif
+diff --git a/src/widgets/label/lv_label_private.h b/src/widgets/label/lv_label_private.h
+index 8681a22..ed037a2 100644
+--- a/src/widgets/label/lv_label_private.h
++++ b/src/widgets/label/lv_label_private.h
+@@ -54,10 +54,17 @@ struct _lv_label_t {
+     uint8_t expand : 1;                 /**< Ignore real width (used by the library with LV_LABEL_LONG_MODE_SCROLL) */
+     uint8_t invalid_size_cache : 1;     /**< 1: Recalculate size and update cache */
+     uint8_t need_refr_text : 1;         /**< 1: Refresh text after layout update completion */
++    uint8_t ap_no_lam_alef : 1;         /**< Keep textarea glyph indices 1:1 while shaping Arabic */
+ 
+     lv_point_t text_size;
+ };
+ 
++/** Mark a label as textarea-owned and render text without lam–alef contraction. */
++void lv_label_set_textarea_arabic(lv_obj_t * obj, bool en);
++
++/** Set textarea text and report allocation/shaping failure without replacing old text. */
++bool lv_label_set_textarea_text(lv_obj_t * obj, const char * text);
++
+ 
+ /**********************
+  * GLOBAL PROTOTYPES
+diff --git a/src/widgets/textarea/lv_textarea.c b/src/widgets/textarea/lv_textarea.c
+index 2b6416d..b9f96e7 100644
+--- a/src/widgets/textarea/lv_textarea.c
++++ b/src/widgets/textarea/lv_textarea.c
+@@ -21,6 +21,7 @@
+ #include "../../misc/lv_text_private.h"
+ #include "../../misc/lv_math.h"
+ #include "../../stdlib/lv_string.h"
++#include <stdint.h>
+ 
+ /*********************
+  *      DEFINES
+@@ -59,6 +60,12 @@ static void start_cursor_blink(lv_obj_t * obj);
+ static void refr_cursor_area(lv_obj_t * obj);
+ static void update_cursor_position_on_click(lv_event_t * e);
+ static lv_result_t insert_handler(lv_obj_t * obj, const char * txt);
++static const char * textarea_canonical_text(const lv_textarea_t * ta);
++static bool textarea_text_contains_pointer(const lv_textarea_t * ta, const char * text);
++static bool textarea_commit_owned_text(lv_textarea_t * ta, char * candidate);
++static bool textarea_replace_canonical_text(lv_textarea_t * ta, const char * text);
++static bool textarea_insert_canonical_text(lv_textarea_t * ta, uint32_t pos, const char * text);
++static bool textarea_cut_canonical_text(lv_textarea_t * ta, uint32_t pos, uint32_t count);
+ static void draw_placeholder(lv_event_t * e);
+ static void draw_cursor(lv_event_t * e);
+ static void auto_hide_characters(lv_obj_t * obj);
+@@ -160,6 +167,80 @@ const lv_obj_class_t lv_textarea_class = {
+ 
+ static const char * ta_insert_replace;
+ 
++static const char * textarea_canonical_text(const lv_textarea_t * ta)
++{
++    if(ta->pwd_mode) return ta->pwd_tmp ? ta->pwd_tmp : "";
++    return ta->text ? ta->text : "";
++}
++
++static bool textarea_text_contains_pointer(const lv_textarea_t * ta, const char * text)
++{
++    const char * source = textarea_canonical_text(ta);
++    uintptr_t ptr = (uintptr_t)text;
++    uintptr_t begin = (uintptr_t)source;
++    uintptr_t end = begin + lv_strlen(source);
++    return ptr >= begin && ptr <= end;
++}
++
++/* The label update and canonical-buffer swap form one transaction: a failed
++ * allocation/shaping step leaves both the old label and old text available. */
++static bool textarea_commit_owned_text(lv_textarea_t * ta, char * candidate)
++{
++    if(candidate == NULL) return false;
++    if(!lv_label_set_textarea_text(ta->label, candidate)) {
++        lv_free(candidate);
++        return false;
++    }
++
++    char * old = ta->text;
++    ta->text = candidate;
++    lv_free(old);
++    return true;
++}
++
++static bool textarea_replace_canonical_text(lv_textarea_t * ta, const char * text)
++{
++    if(text == NULL) return false;
++    size_t len = lv_strlen(text);
++    char * candidate = lv_malloc(len + 1);
++    if(candidate == NULL) return false;
++    lv_memcpy(candidate, text, len + 1);
++    return textarea_commit_owned_text(ta, candidate);
++}
++
++static bool textarea_insert_canonical_text(lv_textarea_t * ta, uint32_t pos, const char * text)
++{
++    if(text == NULL) return false;
++    const char * old = textarea_canonical_text(ta);
++    size_t old_len = lv_strlen(old);
++    size_t ins_len = lv_strlen(text);
++    size_t byte_pos = lv_text_encoded_get_byte_id(old, pos);
++    if(byte_pos > old_len) return false;
++
++    char * candidate = lv_malloc(old_len + ins_len + 1);
++    if(candidate == NULL) return false;
++    lv_memcpy(candidate, old, byte_pos);
++    lv_memcpy(candidate + byte_pos, text, ins_len);
++    lv_memcpy(candidate + byte_pos + ins_len, old + byte_pos, old_len - byte_pos + 1);
++    return textarea_commit_owned_text(ta, candidate);
++}
++
++static bool textarea_cut_canonical_text(lv_textarea_t * ta, uint32_t pos, uint32_t count)
++{
++    const char * old = textarea_canonical_text(ta);
++    size_t old_len = lv_strlen(old);
++    size_t start = lv_text_encoded_get_byte_id(old, pos);
++    size_t end = lv_text_encoded_get_byte_id(old, pos + count);
++    if(start > end || end > old_len) return false;
++
++    size_t new_len = old_len - (end - start);
++    char * candidate = lv_malloc(new_len + 1);
++    if(candidate == NULL) return false;
++    lv_memcpy(candidate, old, start);
++    lv_memcpy(candidate + start, old + end, old_len - end + 1);
++    return textarea_commit_owned_text(ta, candidate);
++}
++
+ /**********************
+  *      MACROS
+  **********************/
+@@ -230,7 +311,12 @@ void lv_textarea_add_char(lv_obj_t * obj, uint32_t c)
+         if(txt[0] == '\0') lv_obj_invalidate(obj);
+     }
+ 
+-    lv_label_ins_text(ta->label, ta->cursor.pos, letter_buf); /*Insert the character*/
++    if(ta->pwd_mode) {
++        lv_label_ins_text(ta->label, ta->cursor.pos, letter_buf);
++    }
++    else if(!textarea_insert_canonical_text(ta, ta->cursor.pos, letter_buf)) {
++        return;
++    }
+     lv_textarea_clear_selection(obj); /*Clear selection*/
+ 
+     if(ta->pwd_mode) {
+@@ -261,6 +347,13 @@ void lv_textarea_add_text(lv_obj_t * obj, const char * txt)
+ 
+     if(ta->pwd_mode) pwd_char_hider(obj); /*Make sure all the current text contains only '*'*/
+ 
++    char * source_copy = NULL;
++    if(textarea_text_contains_pointer(ta, txt)) {
++        source_copy = lv_strdup(txt);
++        LV_ASSERT_MALLOC(source_copy);
++        if(source_copy == NULL) return;
++        txt = source_copy;
++    }
+     /*Add the character one-by-one if not all characters are accepted or there is character limit.*/
+     if(lv_textarea_get_accepted_chars(obj) || lv_textarea_get_max_length(obj)) {
+         uint32_t i = 0;
+@@ -268,11 +361,16 @@ void lv_textarea_add_text(lv_obj_t * obj, const char * txt)
+             uint32_t c = lv_text_encoded_next(txt, &i);
+             lv_textarea_add_char(obj, lv_text_unicode_to_encoded(c));
+         }
++        lv_free(source_copy);
+         return;
+     }
+ 
+     lv_result_t res = insert_handler(obj, txt);
+-    if(res != LV_RESULT_OK) return;
++    if(res != LV_RESULT_OK) {
++        lv_free(source_copy);
++        return;
++    }
++    uint32_t insert_count = lv_text_get_encoded_length(txt);
+ 
+     /*If the textarea is empty, invalidate it to hide the placeholder*/
+     if(ta->placeholder_txt) {
+@@ -281,14 +379,23 @@ void lv_textarea_add_text(lv_obj_t * obj, const char * txt)
+     }
+ 
+     /*Insert the text*/
+-    lv_label_ins_text(ta->label, ta->cursor.pos, txt);
++    if(ta->pwd_mode) {
++        lv_label_ins_text(ta->label, ta->cursor.pos, txt);
++    }
++    else if(!textarea_insert_canonical_text(ta, ta->cursor.pos, txt)) {
++        lv_free(source_copy);
++        return;
++    }
+     lv_textarea_clear_selection(obj);
+ 
+     if(ta->pwd_mode) {
+         size_t realloc_size = lv_strlen(ta->pwd_tmp) + lv_strlen(txt) + 1;
+         ta->pwd_tmp = lv_realloc(ta->pwd_tmp, realloc_size);
+         LV_ASSERT_MALLOC(ta->pwd_tmp);
+-        if(ta->pwd_tmp == NULL) return;
++        if(ta->pwd_tmp == NULL) {
++            lv_free(source_copy);
++            return;
++        }
+ 
+         lv_text_ins(ta->pwd_tmp, ta->cursor.pos, txt);
+ 
+@@ -297,9 +404,10 @@ void lv_textarea_add_text(lv_obj_t * obj, const char * txt)
+     }
+ 
+     /*Move the cursor after the new text*/
+-    lv_textarea_set_cursor_pos(obj, lv_textarea_get_cursor_pos(obj) + lv_text_get_encoded_length(txt));
++    lv_textarea_set_cursor_pos(obj, lv_textarea_get_cursor_pos(obj) + insert_count);
+ 
+     lv_obj_send_event(obj, LV_EVENT_VALUE_CHANGED, NULL);
++    lv_free(source_copy);
+ }
+ 
+ void lv_textarea_delete_char(lv_obj_t * obj)
+@@ -316,13 +424,14 @@ void lv_textarea_delete_char(lv_obj_t * obj)
+     lv_result_t res = insert_handler(obj, del_buf);
+     if(res != LV_RESULT_OK) return;
+ 
+-    char * label_txt = lv_label_get_text(ta->label);
+-
+-    /*Delete a character*/
+-    lv_text_cut(label_txt, ta->cursor.pos - 1, 1);
+-
+-    /*Refresh the label*/
+-    lv_label_set_text(ta->label, label_txt);
++    if(ta->pwd_mode) {
++        char * label_txt = lv_label_get_text(ta->label);
++        lv_text_cut(label_txt, ta->cursor.pos - 1, 1);
++        lv_label_set_text(ta->label, label_txt);
++    }
++    else if(!textarea_cut_canonical_text(ta, ta->cursor.pos - 1, 1)) {
++        return;
++    }
+     lv_textarea_clear_selection(obj);
+ 
+     /*If the textarea became empty, invalidate it to hide the placeholder*/
+@@ -366,16 +475,42 @@ void lv_textarea_set_text(lv_obj_t * obj, const char * txt)
+ 
+     lv_textarea_t * ta = (lv_textarea_t *)obj;
+ 
++    bool text_filtered = lv_textarea_get_accepted_chars(obj) || lv_textarea_get_max_length(obj);
++    char * password_candidate = NULL;
++    if(ta->pwd_mode) {
++        password_candidate = lv_strdup(txt);
++        LV_ASSERT_MALLOC(password_candidate);
++        if(password_candidate == NULL) return;
++        txt = password_candidate;
++    }
++    char * source_copy = NULL;
++    if(!ta->pwd_mode && textarea_text_contains_pointer(ta, txt)) {
++        source_copy = lv_strdup(txt);
++        LV_ASSERT_MALLOC(source_copy);
++        if(source_copy == NULL) return;
++        txt = source_copy;
++    }
++
+     /*Clear the existing selection*/
+     lv_textarea_clear_selection(obj);
+ 
+     /*Add the character one-by-one if not all characters are accepted or there is character limit.*/
+-    if(lv_textarea_get_accepted_chars(obj) || lv_textarea_get_max_length(obj)) {
+-        lv_label_set_text(ta->label, "");
+-        lv_textarea_set_cursor_pos(obj, LV_TEXTAREA_CURSOR_LAST);
++    if(text_filtered) {
++        if(ta->pwd_mode) {
++            if(!lv_label_set_textarea_text(ta->label, "")) {
++                lv_free(password_candidate);
++                lv_free(source_copy);
++                return;
++            }
++        }
++        else if(!textarea_replace_canonical_text(ta, "")) {
++            lv_free(source_copy);
++            return;
++        }
+         if(ta->pwd_mode) {
+             ta->pwd_tmp[0] = '\0'; /*Clear the password too*/
+         }
++        lv_textarea_set_cursor_pos(obj, LV_TEXTAREA_CURSOR_LAST);
+         uint32_t i = 0;
+         while(txt[i] != '\0') {
+             uint32_t c = lv_text_encoded_next(txt, &i);
+@@ -383,8 +518,18 @@ void lv_textarea_set_text(lv_obj_t * obj, const char * txt)
+         }
+     }
+     else {
+-        lv_label_set_text(ta->label, txt);
+-        lv_textarea_set_cursor_pos(obj, LV_TEXTAREA_CURSOR_LAST);
++        if(ta->pwd_mode) {
++            if(!lv_label_set_textarea_text(ta->label, txt)) {
++                lv_free(password_candidate);
++                lv_free(source_copy);
++                return;
++            }
++        }
++        else if(!textarea_replace_canonical_text(ta, txt)) {
++            lv_free(source_copy);
++            return;
++        }
++        if(!ta->pwd_mode) lv_textarea_set_cursor_pos(obj, LV_TEXTAREA_CURSOR_LAST);
+     }
+ 
+     /*If the textarea is empty, invalidate it to hide the placeholder*/
+@@ -394,15 +539,22 @@ void lv_textarea_set_text(lv_obj_t * obj, const char * txt)
+     }
+ 
+     if(ta->pwd_mode) {
+-        lv_free(ta->pwd_tmp);
+-        ta->pwd_tmp = lv_strdup(txt);
+-        LV_ASSERT_MALLOC(ta->pwd_tmp);
+-        if(ta->pwd_tmp == NULL) return;
++        if(text_filtered) {
++            lv_free(password_candidate);
++            password_candidate = NULL;
++        }
++        else {
++            lv_free(ta->pwd_tmp);
++            ta->pwd_tmp = password_candidate;
++            password_candidate = NULL;
++        }
+ 
+         pwd_char_hider(obj);
++        if(!text_filtered) lv_textarea_set_cursor_pos(obj, LV_TEXTAREA_CURSOR_LAST);
+     }
+ 
+     lv_obj_send_event(obj, LV_EVENT_VALUE_CHANGED, NULL);
++    lv_free(source_copy);
+ }
+ 
+ void lv_textarea_set_placeholder_text(lv_obj_t * obj, const char * txt)
+@@ -441,7 +593,7 @@ void lv_textarea_set_cursor_pos(lv_obj_t * obj, int32_t pos)
+     lv_textarea_t * ta = (lv_textarea_t *)obj;
+     if((uint32_t)ta->cursor.pos == (uint32_t)pos) return;
+ 
+-    uint32_t len = lv_text_get_encoded_length(lv_label_get_text(ta->label));
++    uint32_t len = lv_text_get_encoded_length(textarea_canonical_text(ta));
+ 
+     if(pos < 0) pos = len + pos;
+ 
+@@ -470,14 +622,13 @@ void lv_textarea_set_password_mode(lv_obj_t * obj, bool en)
+     lv_textarea_t * ta = (lv_textarea_t *)obj;
+     if(ta->pwd_mode == en) return;
+ 
+-    ta->pwd_mode = en ? 1U : 0U;
+-    /*Pwd mode is now enabled*/
+     if(en) {
+-        char * txt = lv_label_get_text(ta->label);
++        char * candidate = lv_strdup(ta->text ? ta->text : "");
++        LV_ASSERT_MALLOC(candidate);
++        if(candidate == NULL) return;
+         lv_free(ta->pwd_tmp);
+-        ta->pwd_tmp = lv_strdup(txt);
+-        LV_ASSERT_MALLOC(ta->pwd_tmp);
+-        if(ta->pwd_tmp == NULL) return;
++        ta->pwd_tmp = candidate;
++        ta->pwd_mode = 1U;
+ 
+         pwd_char_hider(obj);
+ 
+@@ -485,8 +636,18 @@ void lv_textarea_set_password_mode(lv_obj_t * obj, bool en)
+     }
+     /*Pwd mode is now disabled*/
+     else {
++        char * candidate = lv_strdup(ta->pwd_tmp ? ta->pwd_tmp : "");
++        LV_ASSERT_MALLOC(candidate);
++        if(candidate == NULL) return;
++        if(!lv_label_set_textarea_text(ta->label, candidate)) {
++            lv_free(candidate);
++            return;
++        }
++        char * old_text = ta->text;
++        ta->text = candidate;
++        lv_free(old_text);
++        ta->pwd_mode = 0U;
+         lv_textarea_clear_selection(obj);
+-        lv_label_set_text(ta->label, ta->pwd_tmp);
+         lv_free(ta->pwd_tmp);
+         ta->pwd_tmp = NULL;
+     }
+@@ -650,7 +811,7 @@ const char * lv_textarea_get_text(const lv_obj_t * obj)
+ 
+     const char * txt;
+     if(ta->pwd_mode == 0) {
+-        txt = lv_label_get_text(ta->label);
++        txt = ta->text ? ta->text : "";
+     }
+     else {
+         txt = ta->pwd_tmp;
+@@ -904,6 +1065,7 @@ static void lv_textarea_constructor(const lv_obj_class_t * class_p, lv_obj_t * o
+     lv_textarea_t * ta = (lv_textarea_t *)obj;
+ 
+     ta->pwd_mode          = 0;
++    ta->text              = NULL;
+     ta->pwd_tmp           = NULL;
+     ta->pwd_bullet        = NULL;
+     ta->pwd_show_time     = LV_TEXTAREA_DEF_PWD_SHOW_TIME;
+@@ -923,8 +1085,9 @@ static void lv_textarea_constructor(const lv_obj_class_t * class_p, lv_obj_t * o
+     ta->placeholder_txt = NULL;
+ 
+     ta->label = lv_label_create(obj);
++    lv_label_set_textarea_arabic(ta->label, true);
+     lv_obj_set_width(ta->label, lv_pct(100));
+-    lv_label_set_text(ta->label, "");
++    if(!textarea_replace_canonical_text(ta, "")) LV_LOG_WARN("Text area: failed to allocate initial text");
+     lv_obj_add_event_cb(ta->label, label_event_cb, LV_EVENT_STYLE_CHANGED, NULL);
+     lv_obj_add_event_cb(ta->label, label_event_cb, LV_EVENT_SIZE_CHANGED, NULL);
+     lv_obj_add_flag(obj, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+@@ -942,6 +1105,10 @@ static void lv_textarea_destructor(const lv_obj_class_t * class_p, lv_obj_t * ob
+     LV_UNUSED(class_p);
+ 
+     lv_textarea_t * ta = (lv_textarea_t *)obj;
++    if(ta->text != NULL) {
++        lv_free(ta->text);
++        ta->text = NULL;
++    }
+     if(ta->pwd_tmp != NULL) {
+         lv_free(ta->pwd_tmp);
+         ta->pwd_tmp = NULL;
+diff --git a/src/widgets/textarea/lv_textarea_private.h b/src/widgets/textarea/lv_textarea_private.h
+index 40a50cd..d051ca8 100644
+--- a/src/widgets/textarea/lv_textarea_private.h
++++ b/src/widgets/textarea/lv_textarea_private.h
+@@ -31,6 +31,7 @@ extern "C" {
+ struct _lv_textarea_t {
+     lv_obj_t obj;
+     lv_obj_t * label;            /**< Label of the text area */
++    char * text;                 /**< Canonical text outside password mode; label stores shaped glyphs */
+     char * placeholder_txt;      /**< Place holder label. only visible if text is an empty string */
+     char * pwd_tmp;              /**< Used to store the original text in password mode */
+     char * pwd_bullet;           /**< Replacement characters displayed in password mode */

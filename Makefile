@@ -234,6 +234,9 @@ endif
 # tracked golden copy) than a plain clone does.
 LVGL_PATCH := patches/lvgl_fbdev_compositor.patch
 LVGL_RUNTIME_FIXES_PATCH := patches/lvgl_runtime_fixes.patch
+LVGL_UI_PERF_TRACE_PATCH := patches/lvgl_ui_perf_trace.patch
+LVGL_TEXTAREA_ARABIC_PATCH := patches/lvgl_textarea_arabic_canonical.patch
+LVGL_BIDI_LTR_FASTPATH_PATCH := patches/lvgl_bidi_ltr_fastpath.patch
 LVGL_BINFONT_SAFETY_PATCH := patches/lvgl_binfont_safety.patch
 LVGL_BINFONT_LOADER := $(LVGL_DIR)/src/font/binfont_loader/lv_binfont_loader.c
 LVGL_FS_CORE := $(LVGL_DIR)/src/misc/lv_fs.c
@@ -481,8 +484,8 @@ endif
 CFLAGS = -O3 -g -Wall -fwrapv -MMD -MP -I. -Isrc/audio -Isrc/network -Isrc/library -Isrc/hardware -Isrc/ui -Isrc/core -Isrc/plugins -I$(LVGL_DIR) -I$(DR_LIBS_DIR) -I$(FAAD2_DIR)/include -I$(ALAC_DIR)/codec -I$(MBEDTLS_DIR)/include -I$(CJSON_DIR) -I$(OPUS_DIR)/include -I$(OPUSFILE_DIR)/include -Ilibogg_vendor_config -I$(OGG_DIR)/include -I$(LUA_DIR)/src -I$(STB_VORBIS_DIR) -Ijpeg_vendor_config -I$(JPEG_DIR) -DLV_CONF_INCLUDE_SIMPLE=1
 CFLAGS += -I$(WAVPACK_DIR)/include -I$(SNDFILE_DIR)/include
 CXXFLAGS = $(filter-out -Wall,$(CFLAGS)) -std=c++11
-HOST_CFLAGS = $(CFLAGS) -DHOST_BUILD=1 $(BOARD_DEFINE) $(shell sdl2-config --cflags) -I$(TINFL_DIR) -DMINIZ_NO_DEFLATE_APIS -DMINIZ_NO_ARCHIVE_APIS
-HOST_CXXFLAGS = $(CXXFLAGS) -DHOST_BUILD=1 $(BOARD_DEFINE) $(shell sdl2-config --cflags) -I$(TINFL_DIR) -DMINIZ_NO_DEFLATE_APIS -DMINIZ_NO_ARCHIVE_APIS
+HOST_CFLAGS = $(CFLAGS) -DHOST_BUILD=1 $(BOARD_DEFINE) $(UI_PERF_TRACE_DEFINE) $(shell sdl2-config --cflags) -I$(TINFL_DIR) -DMINIZ_NO_DEFLATE_APIS -DMINIZ_NO_ARCHIVE_APIS
+HOST_CXXFLAGS = $(CXXFLAGS) -DHOST_BUILD=1 $(BOARD_DEFINE) $(UI_PERF_TRACE_DEFINE) $(shell sdl2-config --cflags) -I$(TINFL_DIR) -DMINIZ_NO_DEFLATE_APIS -DMINIZ_NO_ARCHIVE_APIS
 # Optional: `make target TEST_BUILD_TAG=test25_avrcp` -- replaces the release
 # label in About with a conspicuous test-build identity, so a binary running
 # on the device can be identified without checking timestamps or hashes.
@@ -688,6 +691,8 @@ APP_SRCS = src/main.c src/ui/gui.c src/ui/gui_subsonic.c src/ui/gui_settings.c s
 src/core/subprocess.c src/network/wifi_control.c src/network/bluetooth_control.c src/network/hiby_sys_server.c src/hardware/backlight.c src/network/remote_import_files.c src/network/airplay_control.c src/network/airplay_bridge.c src/network/airplay_metadata.c src/hardware/headphone_status.c src/hardware/device_config.c src/hardware/led_control.c src/hardware/charge_limiter.c src/core/idle_shutdown.c src/hardware/power_suspend.c src/core/text_reader.c src/hardware/usb_mode_control.c src/hardware/usb_dac_bridge.c src/hardware/usb_audio_output.c src/core/firmware_update.c src/core/player_update.c src/core/reboot_handoff.c src/library/playlist_files.c src/library/favorite_writer.c src/network/firmware_ota.c src/network/plugin_store.c src/network/store_common.c src/network/emulator_store.c src/core/emulator_registry.c src/core/timezone_data.c src/core/timezone_apply.c src/core/hostname_apply.c src/network/dlna_control.c src/network/remote_control.c src/network/remote_control_discovery.c src/network/catalog_source_cache.c src/network/remote_control_mdns.c src/plugins/plugin_manager.c
 APP_SRCS += src/ui/gui_setup.c src/ui/gui_setup_plugins.c src/ui/brand_marks.c src/core/timezone_location.c
 APP_SRCS += src/ui/lyrics_layout.c src/ui/transition_compositor.c src/ui/frosted_glass.c src/ui/hw_volume_coalesce.c src/ui/gui_list_reorder.c
+APP_SRCS += src/ui/plugin_control_dashboard.c
+APP_SRCS += src/ui/ui_frame_trace.c src/ui/ui_snapshot_prefetch.c
 APP_SRCS += src/core/ui_wake.c src/core/ui_customization.c src/library/cover_raster_cache.c src/library/track_metadata_worker.c src/library/player_cover_prefetch.c
 APP_SRCS += src/core/firmware_image.c
 APP_SRCS += src/core/boot_trace.c
@@ -900,8 +905,8 @@ $(HOST_BIN): $(HOST_OBJS) $(HOST_AUDIO_LIBS)
 # on the tracked patch file (so a future change to the patch itself also
 # invalidates it), not just on $(LVGL_DIR) existing.
 $(LVGL_PATCH_STAMP): $(LVGL_FBDEV_C) $(LVGL_FBDEV_H) $(LVGL_PATCH) \
-                     $(LVGL_TINY_TTF) $(LVGL_TJPGDCNF) $(LVGL_LRU_RB) $(LVGL_LODEPNG) $(LVGL_OBJ_POS) $(LVGL_DRAW_IMAGE) $(LVGL_SW_TRANSFORM) $(LVGL_RUNTIME_FIXES_PATCH) \
-                     $(LVGL_EVDEV_C) $(LVGL_EVDEV_FRAMES_PATCH) \
+                     $(LVGL_TINY_TTF) $(LVGL_TJPGDCNF) $(LVGL_LRU_RB) $(LVGL_LODEPNG) $(LVGL_OBJ_POS) $(LVGL_DRAW_IMAGE) $(LVGL_SW_TRANSFORM) $(LVGL_RUNTIME_FIXES_PATCH) $(LVGL_UI_PERF_TRACE_PATCH) \
+                     $(LVGL_EVDEV_C) $(LVGL_EVDEV_FRAMES_PATCH) $(LVGL_TEXTAREA_ARABIC_PATCH) $(LVGL_BIDI_LTR_FASTPATH_PATCH) \
                      $(LVGL_BINFONT_LOADER) $(LVGL_FS_CORE) $(LVGL_BINFONT_SAFETY_PATCH) scripts/apply-tracked-patch.sh \
                      $(LVGL_FONT_TARGETS) $(LVGL_FONT_GOLDEN)
 	@set -e; \
@@ -973,6 +978,9 @@ $(LVGL_PATCH_STAMP): $(LVGL_FBDEV_C) $(LVGL_FBDEV_H) $(LVGL_PATCH) \
 	  exit 1; \
 	fi; \
 	scripts/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_BINFONT_SAFETY_PATCH); \
+	scripts/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_TEXTAREA_ARABIC_PATCH); \
+	scripts/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_BIDI_LTR_FASTPATH_PATCH); \
+	scripts/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_UI_PERF_TRACE_PATCH); \
 	for f in $(LVGL_GENERATED_FONTS); do \
 	  target=$(LVGL_DIR)/src/font/$$f; golden=$(LVGL_GENERATED_FONTS_DIR)/$$f; \
 	  if cmp -s "$$target" "$$golden"; then \
@@ -1263,6 +1271,11 @@ i18n-check:
 .PHONY: test-wifi-ssid
 test-wifi-ssid:
 	sh scripts/tests/run_wifi_ssid_escape_test.sh
+
+.PHONY: test-rtl-text
+# Arabic/Hebrew shaping, direction and label comparison on the host build.
+test-rtl-text:
+	bash scripts/run_rtl_text_spec.sh
 
 .PHONY: test-file-browser-natural-sort
 test-file-browser-natural-sort:

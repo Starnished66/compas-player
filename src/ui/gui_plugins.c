@@ -1,4 +1,5 @@
 #include "gui_plugins.h"
+#include "plugin_control_dashboard.h"
 #include "i18n.h"
 #include "gui.h"
 #include "gui_file_manager.h"
@@ -149,12 +150,10 @@ bool gui_plugin_show_confirmation(const char * title, const char * confirm_label
     lv_display_t * display = lv_display_get_default();
     if (!display || !lv_layer_top() || plugin_confirmation_popup.popup || plugin_confirmation_popup.backdrop)
         return false;
-    lv_obj_t * cancel_row = NULL;
-    lv_color_t neutral = lv_color_make(160, 160, 160);
     plugin_confirmation_popup.popup = build_confirm_popup(title, LV_LABEL_LONG_WRAP,
         NULL, NULL, confirm_label, accent_lv_color(),
-        plugin_confirmation_confirm_cb, NULL, TR("Cancel"), neutral, plugin_confirmation_dismiss_cb,
-        &cancel_row,
+        plugin_confirmation_confirm_cb, NULL, TR("Cancel"), accent_lv_color(), plugin_confirmation_dismiss_cb,
+        NULL,
         plugin_confirmation_dismiss_cb, &plugin_confirmation_popup.backdrop);
     if (!plugin_confirmation_popup.popup || !plugin_confirmation_popup.backdrop) {
         gui_popup_teardown(&plugin_confirmation_popup);
@@ -162,10 +161,6 @@ bool gui_plugin_show_confirmation(const char * title, const char * confirm_label
     }
     lv_obj_add_event_cb(plugin_confirmation_popup.popup, plugin_confirmation_object_deleted, LV_EVENT_DELETE, NULL);
     lv_obj_add_event_cb(plugin_confirmation_popup.backdrop, plugin_confirmation_object_deleted, LV_EVENT_DELETE, NULL);
-    if (cancel_row) {
-        lv_obj_t * cancel_label = lv_obj_get_child(cancel_row, 0);
-        if (cancel_label) lv_obj_set_style_text_color(cancel_label, neutral, 0);
-    }
     gui_popup_show(&plugin_confirmation_popup);
     return true;
 }
@@ -344,6 +339,11 @@ bool gui_plugin_update_progress(const char * message, int percent) {
     return true;
 }
 
+/* Tags the check mark a selected row carries, so it can be found again. */
+static const char plugin_list_check_tag = 0;
+
+/* Marks the selected row as native option rows do (add_pill_option_row()):
+ * an accent outline and a check mark at the end of the row. */
 static void plugin_list_apply_selection(int slot, int selected_index) {
     lv_obj_t * list = plugin_list_lists[slot];
     uint32_t count = lv_obj_get_child_count(list);
@@ -351,9 +351,25 @@ static void plugin_list_apply_selection(int slot, int selected_index) {
         lv_obj_t * row = lv_obj_get_child(list, (int32_t) i);
         bool selected = (int) i == selected_index;
         lv_obj_set_style_outline_width(row, selected ? 3 : 0, 0);
+        lv_obj_t * check = NULL;
+        for (uint32_t c = 0; c < lv_obj_get_child_count(row); c++) {
+            lv_obj_t * child = lv_obj_get_child(row, (int32_t) c);
+            if (lv_obj_get_user_data(child) == &plugin_list_check_tag) check = child;
+        }
         if (selected) {
             lv_obj_set_style_outline_color(row, accent_lv_color(), 0);
             lv_obj_set_style_outline_pad(row, -3, 0);
+            if (!check) {
+                check = lv_label_create(row);
+                lv_obj_set_user_data(check, (void *) &plugin_list_check_tag);
+                lv_label_set_text(check, LV_SYMBOL_OK);
+                lv_obj_add_style(check, gui_theme_accent_style(), 0);
+                lv_obj_set_style_text_font(check, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+                lv_obj_align(check, LV_ALIGN_RIGHT_MID, BOARD_SCALE_PX(-20), 0);
+                lv_obj_remove_flag(check, LV_OBJ_FLAG_CLICKABLE);
+            }
+        } else if (check) {
+            lv_obj_delete(check);
         }
     }
     plugin_list_selected_indices[slot] = selected_index;
@@ -950,6 +966,8 @@ static char * plugin_settings_list_titles[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE]
 static int plugin_settings_list_pool_next = 0;
 static bool plugin_settings_list_preview_enabled[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE];
 static gui_lock_screen_options_t plugin_settings_list_previews[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE];
+static bool plugin_settings_list_dashboard_enabled[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE];
+static plugin_control_dashboard_options_t plugin_settings_list_dashboard_options[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE];
 
 /* Which slider cards THIS slot registered as swipe dead zones on its last
  * populate -- unregistered (see unregister_swipe_dead_zone()'s own comment)
@@ -1099,6 +1117,16 @@ static void plugin_settings_slider_event_cb(lv_event_t * e) {
     }
 }
 
+/* Dashboard tempo changes use the same existing Lua on_change bridge as the
+ * list slider. Store the copied row value first because Lua may redraw this
+ * pool slot while its event callback is still dispatching. */
+static void plugin_settings_dashboard_value_cb(int slot, int row, int value) {
+    if (slot < 0 || slot >= PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE || row < 0 ||
+        row >= plugin_settings_list_row_state_count[slot]) return;
+    plugin_settings_list_row_state[slot][row].slider_value = value;
+    plugin_manager_settings_list_slid(slot, row, value);
+}
+
 /* Rebuilds pool slot `slot` from plugin_settings_list_row_state[slot][] --
  * shared by gui_plugin_show_settings_list() (initial build) and
  * plugin_settings_toggle_row_click_cb() (rebuild after a toggle flips). */
@@ -1114,6 +1142,28 @@ static void populate_plugin_settings_list_screen(int slot) {
 
     if (plugin_settings_list_preview_enabled[slot])
         gui_lock_screen_create_preview(list, &plugin_settings_list_previews[slot]);
+
+    if (plugin_settings_list_dashboard_enabled[slot]) {
+        plugin_control_dashboard_row_t rows[PLUGIN_SETTINGS_LIST_MAX_ROWS];
+        int count = plugin_settings_list_row_state_count[slot];
+        for (int i = 0; i < count; i++) {
+            plugin_settings_list_row_state_t * st = &plugin_settings_list_row_state[slot][i];
+            rows[i].type = st->type;
+            rows[i].label = st->label;
+            rows[i].toggle_value = st->toggle_value;
+            rows[i].slider_min = st->slider_min;
+            rows[i].slider_max = st->slider_max;
+            rows[i].slider_value = st->slider_value;
+            rows[i].icon_path = st->icon_path[0] ? st->icon_path : NULL;
+            rows[i].detail = NULL;
+        }
+        plugin_control_dashboard_callbacks_t callbacks = {
+            .tap = plugin_manager_settings_list_row_selected,
+            .value = plugin_settings_dashboard_value_cb
+        };
+        if (plugin_control_dashboard_build(list, rows, count, slot,
+                &plugin_settings_list_dashboard_options[slot], &callbacks)) goto restore_scroll;
+    }
 
     int count = plugin_settings_list_row_state_count[slot];
     if (count <= 0) {
@@ -1185,7 +1235,8 @@ int gui_plugin_show_settings_list(const char * title, const int * row_types, con
                                    const int * slider_value, const char * const * icon_paths, const int32_t * heights,
                                    const int32_t * widths, const char * const * text_sizes,
                                    const bool * wrap_labels, int count, bool update_existing,
-                                   const gui_lock_screen_options_t * preview) {
+                                   const gui_lock_screen_options_t * preview,
+                                   const struct plugin_control_dashboard_options * dashboard) {
     const char * raw_title = title ? title : "";
     int slot = -1;
     bool updating_existing = false;
@@ -1270,6 +1321,9 @@ int gui_plugin_show_settings_list(const char * title, const int * row_types, con
     plugin_settings_list_preview_enabled[slot] = preview != NULL;
     if (preview) plugin_settings_list_previews[slot] = *preview;
     else memset(&plugin_settings_list_previews[slot], 0, sizeof(plugin_settings_list_previews[slot]));
+    plugin_settings_list_dashboard_enabled[slot] = dashboard != NULL;
+    if (dashboard) plugin_settings_list_dashboard_options[slot] = *dashboard;
+    else memset(&plugin_settings_list_dashboard_options[slot], 0, sizeof(plugin_settings_list_dashboard_options[slot]));
 
     if (!updating_existing)
         lv_obj_scroll_to_y(plugin_settings_list_lists[slot], 0, LV_ANIM_OFF);
@@ -1288,6 +1342,8 @@ void gui_plugins_init(void) {
         plugin_settings_list_screens[i] = build_subsonic_list_screen(TR("Plugin Settings"), &plugin_settings_list_title_labels[i], &plugin_settings_list_lists[i]);
         plugin_settings_list_preview_enabled[i] = false;
         memset(&plugin_settings_list_previews[i], 0, sizeof(plugin_settings_list_previews[i]));
+        plugin_settings_list_dashboard_enabled[i] = false;
+        memset(&plugin_settings_list_dashboard_options[i], 0, sizeof(plugin_settings_list_dashboard_options[i]));
     }
 }
 
@@ -1323,6 +1379,8 @@ void gui_plugins_teardown(void) {
         plugin_settings_list_slider_card_count[i] = 0;
         plugin_settings_list_preview_enabled[i] = false;
         memset(&plugin_settings_list_previews[i], 0, sizeof(plugin_settings_list_previews[i]));
+        plugin_settings_list_dashboard_enabled[i] = false;
+        memset(&plugin_settings_list_dashboard_options[i], 0, sizeof(plugin_settings_list_dashboard_options[i]));
     }
 }
 

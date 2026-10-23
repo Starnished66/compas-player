@@ -229,8 +229,8 @@ static void build_popups(void) {
     add_action_row(detail_popup.popup, TR("Install"), accent_lv_color(), ACTION_PRIMARY);
     add_action_row(detail_popup.popup, TR("Update"), accent_lv_color(), ACTION_UPDATE);
     add_action_row(detail_popup.popup, TR("Replace"), accent_lv_color(), ACTION_REPLACE);
-    add_action_row(detail_popup.popup, TR("Remove"), lv_color_make(255, 120, 120), ACTION_REMOVE);
-    add_action_row(detail_popup.popup, TR("Cancel"), lv_color_make(255, 120, 120), ACTION_CANCEL);
+    add_action_row(detail_popup.popup, TR("Remove"), lv_color_hex(GUI_BREEZE_NEGATIVE), ACTION_REMOVE);
+    add_action_row(detail_popup.popup, TR("Cancel"), lv_color_hex(GUI_BREEZE_NEGATIVE), ACTION_CANCEL);
 
     create_popup(&remove_popup, &remove_title, NULL, false);
     lv_obj_t * body = lv_label_create(remove_popup.popup);
@@ -240,13 +240,13 @@ static void build_popups(void) {
     lv_obj_set_style_text_align(body, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_add_style(body, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(body, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
-    add_action_row(remove_popup.popup, TR("Remove"), lv_color_make(255, 120, 120), ACTION_REMOVE);
-    add_action_row(remove_popup.popup, TR("Cancel"), lv_color_make(255, 120, 120), ACTION_CANCEL);
+    add_action_row(remove_popup.popup, TR("Remove"), lv_color_hex(GUI_BREEZE_NEGATIVE), ACTION_REMOVE);
+    add_action_row(remove_popup.popup, TR("Cancel"), lv_color_hex(GUI_BREEZE_NEGATIVE), ACTION_CANCEL);
 
     create_popup(&confirm_popup, &confirm_title, NULL, false);
     add_action_row(confirm_popup.popup, TR("Replace"), accent_lv_color(), ACTION_REPLACE);
     add_action_row(confirm_popup.popup, TR("Update individually"), accent_lv_color(), ACTION_CLOSE);
-    add_action_row(confirm_popup.popup, TR("Cancel"), lv_color_make(255, 120, 120), ACTION_CANCEL);
+    add_action_row(confirm_popup.popup, TR("Cancel"), lv_color_hex(GUI_BREEZE_NEGATIVE), ACTION_CANCEL);
 
     create_popup(&picker_popup, &picker_title, NULL, false);
     lv_label_set_text(picker_title, TR("Choose plugins"));
@@ -268,7 +268,7 @@ static void build_popups(void) {
     int32_t popup_list_max = popup_height - picker_fixed_height;
     lv_obj_set_style_max_height(picker_list, LV_MAX(BOARD_SCALE_PX(48), popup_list_max), 0);
     add_action_row(picker_popup.popup, TR("Done"), accent_lv_color(), ACTION_PICKER_DONE);
-    add_action_row(picker_popup.popup, TR("Cancel"), lv_color_make(255, 120, 120), ACTION_PICKER_CANCEL);
+    add_action_row(picker_popup.popup, TR("Cancel"), lv_color_hex(GUI_BREEZE_NEGATIVE), ACTION_PICKER_CANCEL);
     lv_obj_remove_flag(picker_popup.popup, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scroll_dir(picker_popup.popup, LV_DIR_NONE);
 }

@@ -28,6 +28,7 @@ gcc -std=gnu11 -Wall -Wextra -Werror -pthread -DHOST_BUILD=1 -DBOARD_R1 \
     -I"$repo_root/src/plugins" -I"$repo_root/mbedtls/include" \
     "$repo_root/src/ui/gui_navigation_snapshot_runtime_spec.c" \
     "$repo_root/src/ui/ui_fonts.c" \
+    "$repo_root/src/ui/ui_snapshot_prefetch.c" \
     "${lvgl_objects[@]}" \
     "${mbedtls_objects[@]}" \
     -Wl,--gc-sections -Wl,--wrap=lv_snapshot_take -Wl,--wrap=lv_timer_create \

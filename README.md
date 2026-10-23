@@ -13,6 +13,7 @@
 
 <p align="center">
   <a href="#see-the-player">Screenshots</a> ·
+  <a href="docs/manual/README.md">User manual</a> ·
   <a href="#quick-setup">Quick setup</a> ·
   <a href="#plugins">Plugins</a> ·
   <a href="#install-and-update">Installation</a> ·

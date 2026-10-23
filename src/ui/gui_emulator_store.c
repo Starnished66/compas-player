@@ -70,9 +70,9 @@ static void build_popups(void) {
     build_titled_popup(&detail_popup, popup_backdrop_cb, &detail_title, &detail_body);
     add_popup_action_row(detail_popup.popup, TR("Install"), accent_lv_color(), store_action_cb,
                          (void *) (intptr_t) ACTION_PRIMARY);
-    add_popup_action_row(detail_popup.popup, TR("Remove"), lv_color_make(255, 120, 120), store_action_cb,
+    add_popup_action_row(detail_popup.popup, TR("Remove"), lv_color_hex(GUI_BREEZE_NEGATIVE), store_action_cb,
                          (void *) (intptr_t) ACTION_REMOVE);
-    add_popup_action_row(detail_popup.popup, TR("Cancel"), lv_color_make(255, 120, 120), store_action_cb,
+    add_popup_action_row(detail_popup.popup, TR("Cancel"), lv_color_hex(GUI_BREEZE_NEGATIVE), store_action_cb,
                          (void *) (intptr_t) ACTION_CANCEL);
 
     build_titled_popup(&remove_popup, popup_backdrop_cb, &remove_title, NULL);
@@ -83,9 +83,9 @@ static void build_popups(void) {
     lv_obj_set_style_text_align(body, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_add_style(body, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(body, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
-    add_popup_action_row(remove_popup.popup, TR("Remove"), lv_color_make(255, 120, 120), store_action_cb,
+    add_popup_action_row(remove_popup.popup, TR("Remove"), lv_color_hex(GUI_BREEZE_NEGATIVE), store_action_cb,
                          (void *) (intptr_t) ACTION_REMOVE);
-    add_popup_action_row(remove_popup.popup, TR("Cancel"), lv_color_make(255, 120, 120), store_action_cb,
+    add_popup_action_row(remove_popup.popup, TR("Cancel"), lv_color_hex(GUI_BREEZE_NEGATIVE), store_action_cb,
                          (void *) (intptr_t) ACTION_CANCEL);
 }
 

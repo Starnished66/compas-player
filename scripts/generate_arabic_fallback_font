@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""Build the checked-in LVGL Arabic fallback from a pinned Noto Sans Arabic VF.
+
+Requires fontTools (fonttools). Supply the unmodified upstream source with
+--source; its SHA-256 is pinned below so a different font cannot be substituted.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+from pathlib import Path
+import re
+import sys
+
+from fontTools import subset
+from fontTools.ttLib import TTFont
+from fontTools.varLib.instancer import instantiateVariableFont
+
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE_SHA256 = "3fae4d7239d1faa55b234bda8091019a5251ff79df40d5e29367d84bed2a8138"
+DEFAULT_SOURCE = Path("/usr/share/fonts/google-noto-vf/NotoSansArabic[wght].ttf")
+OUTPUT = ROOT / "assets/fonts/arabic.ttf"
+RANGES = ((0x0600, 0x06FF), (0x0750, 0x077F), (0x08A0, 0x08FF),
+          (0xFB50, 0xFDFF), (0xFE70, 0xFEFF))
+REQUIRED = (0x0627, 0x0644, 0x0645, 0x0629, 0x067E, 0x0686, 0x0698,
+            0x06AF, 0x06CC, 0xFE8D, 0xFEDF, 0xFEE0, 0xFE94, 0xFEF5,
+            0xFEF7, 0xFEF9, 0xFEFB, 0xFB57, 0xFB7B, 0xFB8B, 0xFB8F,
+            0xFB93, 0xFBFD)
+
+
+def lvgl_arabic_outputs() -> set[int]:
+    """Derive every base/form codepoint emitted by this LVGL shaping table."""
+    source = ROOT / "lvgl/src/misc/lv_text_ap.c"
+    try:
+        table = source.read_text(encoding="utf-8").split(
+            "const ap_chars_map_t ap_chars_map[] = {", 1
+        )[1].split("LV_AP_END_CHARS_LIST", 1)[0]
+    except (OSError, IndexError) as error:
+        fail(f"cannot read LVGL Arabic shaping table: {error}")
+
+    outputs = {0x0640, *range(0x064B, 0x0653), *range(0x06F0, 0x06FA)}
+    row = re.compile(
+        r"\{\s*(-?\d+)\s*,\s*(0x[0-9A-Fa-f]+)\s*,\s*"
+        r"(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,"
+    )
+    rows = list(row.finditer(table))
+    if not rows:
+        fail("could not parse LVGL Arabic shaping table")
+    for match in rows:
+        key, end, beginning, middle, isolated = match.groups()
+        end_code = int(end, 16)
+        outputs.add(0x0622 + int(key))
+        outputs.add(end_code)
+        for offset in (int(beginning), int(middle), int(isolated)):
+            if offset:
+                outputs.add(end_code + offset)
+    outputs.update((0xFEF5, 0xFEF6, 0xFEF7, 0xFEF8, 0xFEF9,
+                    0xFEFA, 0xFEFB, 0xFEFC))
+    return outputs
+
+
+def fail(message: str) -> None:
+    raise SystemExit(message)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE,
+                        help="pinned upstream variable TTF (default: system Noto path)")
+    parser.add_argument("--output", type=Path, default=OUTPUT)
+    args = parser.parse_args()
+
+    try:
+        source_bytes = args.source.read_bytes()
+    except OSError as error:
+        fail(f"cannot read source font {args.source}: {error}")
+    actual_hash = hashlib.sha256(source_bytes).hexdigest()
+    if actual_hash != SOURCE_SHA256:
+        fail(f"source SHA-256 mismatch: expected {SOURCE_SHA256}, got {actual_hash}")
+
+    font = TTFont(args.source)
+    if "fvar" not in font or "wght" not in {axis.axisTag for axis in font["fvar"].axes}:
+        fail("source font has no expected wght variable axis")
+    instantiateVariableFont(font, {"wght": 400}, inplace=True, optimize=True)
+
+    options = subset.Options()
+    options.recalc_timestamp = False
+    options.name_IDs = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25]
+    subsetter = subset.Subsetter(options=options)
+    subsetter.populate(unicodes={cp for lo, hi in RANGES for cp in range(lo, hi + 1)})
+    subsetter.subset(font)
+
+    cmap = {cp for table in font["cmap"].tables if table.isUnicode() for cp in table.cmap}
+    required = set(REQUIRED) | lvgl_arabic_outputs()
+    missing = sorted(required - cmap)
+    if missing:
+        fail("source subset lacks LVGL Arabic shaping output(s): " +
+             ", ".join(f"U+{cp:04X}" for cp in missing))
+
+    # Use a new family name to honor the OFL Reserved Font Name conditions.
+    names = {1: "Compas Arabic", 2: "Regular", 4: "Compas Arabic Regular",
+             6: "CompasArabic-Regular", 16: "Compas Arabic", 17: "Regular"}
+    for record in font["name"].names:
+        if record.nameID in names:
+            record.string = names[record.nameID].encode(record.getEncoding(), errors="replace")
+    font["OS/2"].usWeightClass = 400
+    font["head"].created = 2082844800
+    font["head"].modified = 2082844800
+    font.recalcTimestamp = False
+    if "fvar" in font or "gvar" in font or "glyf" not in font or "CFF " in font:
+        fail("output is not a static TrueType-outline font")
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    font.save(args.output, reorderTables=True)
+    print(f"Wrote {args.output} ({args.output.stat().st_size} bytes)")
+    print(f"Pinned source SHA-256: {actual_hash}")
+    print(f"Unicode coverage: {len(cmap)} mapped code points")
+
+
+if __name__ == "__main__":
+    main()

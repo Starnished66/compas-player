@@ -124,17 +124,17 @@ gui_busy_handle_t wifi_connect_saved_token = 0;
 #include <unistd.h>
 
 #ifdef UI_PERF_TRACE
+#include "ui_frame_trace.h"
 uint64_t ui_perf_now_us(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t) ts.tv_sec * 1000000ULL + (uint64_t) ts.tv_nsec / 1000ULL;
 }
 
-/* Buffer polling measurements until motion ends, avoiding SD writes mid-slide. */
-static struct { const char * section; uint64_t wall_us; uint64_t cpu_us; } update_perf_records[64];
-static size_t update_perf_count;
-static bool update_perf_capture;
+/* Numeric control sections share the bounded tracer, including ordinary ticks
+ * so idle invalidation and transition drains can be correlated. */
 static uint64_t update_perf_wall_start, update_perf_cpu_start;
+static unsigned update_perf_section;
 
 static uint64_t update_perf_cpu_us(void) {
     struct timespec ts = {0};
@@ -143,28 +143,24 @@ static uint64_t update_perf_cpu_us(void) {
 }
 
 static void update_perf_begin(void) {
-    update_perf_capture = gui_navigation_transition_in_progress();
-    if (!update_perf_capture && !gui_player_lyrics_animation_in_progress()) {
-        for (size_t i = 0; i < update_perf_count; ++i)
-            printf("PERF control_poll section=%s wall_us=%llu cpu_us=%llu\n",
-                   update_perf_records[i].section,
-                   (unsigned long long) update_perf_records[i].wall_us,
-                   (unsigned long long) update_perf_records[i].cpu_us);
-        update_perf_count = 0;
-    }
-    if (update_perf_capture) {
-        update_perf_wall_start = ui_perf_now_us();
-        update_perf_cpu_start = update_perf_cpu_us();
-    }
+    update_perf_section = 0;
+    update_perf_wall_start = ui_perf_now_us();
+    update_perf_cpu_start = update_perf_cpu_us();
 }
 
 static void update_perf_mark(const char * section) {
-    if (!update_perf_capture) return;
+    (void) section; /* IDs follow call order, documented by the host decoder. */
     uint64_t wall = ui_perf_now_us(), cpu = update_perf_cpu_us();
-    if (update_perf_count < sizeof(update_perf_records) / sizeof(update_perf_records[0])) {
-        update_perf_records[update_perf_count].section = section;
-        update_perf_records[update_perf_count].wall_us = wall - update_perf_wall_start;
-        update_perf_records[update_perf_count++].cpu_us = cpu - update_perf_cpu_start;
+    uint32_t id = ++update_perf_section;
+    uint64_t wall_delta = wall - update_perf_wall_start;
+    uint64_t cpu_delta = cpu - update_perf_cpu_start;
+    /* Always retain the topbar tick; other sections are sparse long-work
+     * attribution rather than dozens of records per unchanged status tick. */
+    if (id == 2 || wall_delta >= 1000 || cpu_delta >= 1000) {
+        ui_frame_trace_event(UI_FRAME_TRACE_EVENT_CONTROL_POLL, id,
+                             wall_delta > UINT32_MAX ? UINT32_MAX : (uint32_t) wall_delta);
+        ui_frame_trace_event(UI_FRAME_TRACE_EVENT_CONTROL_POLL, id | 0x80000000u,
+                             cpu_delta > UINT32_MAX ? UINT32_MAX : (uint32_t) cpu_delta);
     }
     update_perf_wall_start = wall;
     update_perf_cpu_start = cpu;

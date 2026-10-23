@@ -1,0 +1,103 @@
+diff --git a/src/draw/lv_draw_label.c b/src/draw/lv_draw_label.c
+index 5276eb7..89819fe 100644
+--- a/src/draw/lv_draw_label.c
++++ b/src/draw/lv_draw_label.c
+@@ -43,6 +43,9 @@ typedef unsigned char cmd_state_t;
+  *  STATIC PROTOTYPES
+  **********************/
+ static uint8_t hex_char_to_num(char hex);
++#if LV_USE_BIDI
++static bool draw_label_line_has_rtl(const char * txt, size_t len);
++#endif
+ 
+ /**********************
+  *  STATIC VARIABLES
+@@ -358,6 +361,16 @@ void lv_draw_label_iterate_characters(lv_draw_task_t * t, const lv_draw_label_ds
+     lv_color_t recolor = lv_color_black(); /* Holds the selected color inside the recolor command */
+     uint8_t is_first_space_after_cmd = 0;
+ 
++#if LV_USE_BIDI
++    /* Text without right-to-left letters or bidi controls comes out of the
++     * bidi pass unchanged under an LTR or AUTO base direction (AUTO then
++     * resolves to LTR), so its lines are drawn in place without the per-line
++     * copy and pass. The whole text is checked once, because AUTO resolves
++     * from the first strong letter of everything that follows a line. */
++    bool text_needs_bidi = dsc->has_bided || base_dir == LV_BASE_DIR_RTL ||
++                           draw_label_line_has_rtl(dsc->text, lv_strlen(dsc->text));
++#endif
++
+     /*Write out all lines*/
+     while(remaining_len && dsc->text[line_start] != '\0') {
+         pos.x += x_ofs;
+@@ -367,17 +380,21 @@ void lv_draw_label_iterate_characters(lv_draw_task_t * t, const lv_draw_label_ds
+         next_char_offset = 0;
+ #if LV_USE_BIDI
+         size_t bidi_size = line_end - line_start;
+-        char * bidi_txt = lv_malloc(bidi_size + 1);
+-        LV_ASSERT_MALLOC(bidi_txt);
+-
+-        /**
+-          * has_bided = 1: already executed lv_bidi_process_paragraph.
+-          * has_bided = 0: has not been executed lv_bidi_process_paragraph.*/
+-        if(dsc->has_bided) {
+-            lv_memcpy(bidi_txt, &dsc->text[line_start], bidi_size);
+-        }
+-        else {
+-            lv_bidi_process_paragraph(dsc->text + line_start, bidi_txt, bidi_size, base_dir, NULL, 0);
++        bool bidi_needed = text_needs_bidi;
++        char * bidi_txt = (char *)dsc->text + line_start;
++        if(bidi_needed) {
++            bidi_txt = lv_malloc(bidi_size + 1);
++            LV_ASSERT_MALLOC(bidi_txt);
++
++            /**
++              * has_bided = 1: already executed lv_bidi_process_paragraph.
++              * has_bided = 0: has not been executed lv_bidi_process_paragraph.*/
++            if(dsc->has_bided) {
++                lv_memcpy(bidi_txt, &dsc->text[line_start], bidi_size);
++            }
++            else {
++                lv_bidi_process_paragraph(dsc->text + line_start, bidi_txt, bidi_size, base_dir, NULL, 0);
++            }
+         }
+ #else
+         const char * bidi_txt = dsc->text + line_start;
+@@ -534,7 +551,7 @@ void lv_draw_label_iterate_characters(lv_draw_task_t * t, const lv_draw_label_ds
+         }
+ 
+ #if LV_USE_BIDI
+-        lv_free(bidi_txt);
++        if(bidi_needed) lv_free(bidi_txt);
+         bidi_txt = NULL;
+ #endif
+ 
+@@ -675,3 +692,29 @@ exit:
+     }
+     LV_PROFILER_DRAW_END;
+ }
++
++#if LV_USE_BIDI
++/* True when the UTF-8 text may need bidi reordering: a letter from a
++ * right-to-left block (Hebrew through the Arabic extensions, the Hebrew and
++ * Arabic presentation forms, or the SMP right-to-left scripts) or an explicit
++ * direction mark, embedding or isolate. Errs towards true. */
++static bool draw_label_line_has_rtl(const char * txt, size_t len)
++{
++    const uint8_t * s = (const uint8_t *)txt;
++    for(size_t i = 0; i < len; i++) {
++        uint8_t c = s[i];
++        if(c < 0xD6) continue;
++        if(c <= 0xDF) return true;                               /* U+0590..U+07FF */
++        uint8_t c1 = i + 1 < len ? s[i + 1] : 0;
++        uint8_t c2 = i + 2 < len ? s[i + 2] : 0;
++        if(c == 0xE0 && c1 >= 0xA0 && c1 <= 0xA3) return true;  /* U+0800..U+08FF */
++        if(c == 0xE2 && c1 == 0x80 && (c2 == 0x8E || c2 == 0x8F || (c2 >= 0xAA && c2 <= 0xAE)))
++            return true;                                         /* LRM RLM, embeddings */
++        if(c == 0xE2 && c1 == 0x81 && c2 >= 0xA6 && c2 <= 0xA9) return true; /* isolates */
++        if(c == 0xEF && ((c1 >= 0xAC && c1 <= 0xB7) || (c1 >= 0xB9 && c1 <= 0xBB)))
++            return true;                                         /* U+FB00..U+FDFF, U+FE70..U+FEFF */
++        if(c == 0xF0 && ((c1 == 0x90 && c2 >= 0xA0) || c1 == 0x9E)) return true; /* SMP RTL */
++    }
++    return false;
++}
++#endif

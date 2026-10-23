@@ -1,6 +1,9 @@
 #include "gui_shell.h"
+#include "ui_label_text.h"
 #include "i18n.h"
 #include "app_clock.h"
+#include "ui_frame_trace.h"
+#include "ui_snapshot_prefetch.h"
 #include "gui.h"
 #include "gui_theme.h"
 #include "gui_notifications.h"
@@ -708,7 +711,7 @@ static void quick_drawer_set_toggle_state_text(int index, bool enabled, const ch
     if (!quick_drawer_toggle_state[index]) return;
     const char * caption = text ? text : (enabled ? TR("On") : TR("Off"));
     lv_color_t color = enabled ? shell_drawer_on_color() : shell_drawer_off_color;
-    if (strcmp(lv_label_get_text(quick_drawer_toggle_state[index]), caption) == 0 &&
+    if (ui_label_text_matches(quick_drawer_toggle_state[index], caption) &&
         lv_color_eq(lv_obj_get_style_text_color(quick_drawer_toggle_state[index], 0), color)) return;
     lv_label_set_text(quick_drawer_toggle_state[index], caption);
     lv_obj_set_style_text_color(quick_drawer_toggle_state[index], color, 0);
@@ -1416,6 +1419,28 @@ static bool image_file_source_matches(const void * current, const void * request
     return strcmp((const char *) current, (const char *) requested) == 0;
 }
 
+/* LVGL's local style setters invalidate even when the value is unchanged,
+ * and the status tick reapplies these on every pass. Writing only on change
+ * keeps an unchanged tick from dirtying the top bar. A missing local value
+ * still gets written, so overrides behave as before. */
+static bool topbar_local_style_is(lv_obj_t * obj, lv_style_prop_t prop, int32_t value) {
+    lv_style_value_t current;
+    return lv_obj_get_local_style_prop(obj, prop, &current, 0) == LV_STYLE_RES_FOUND &&
+           current.num == value;
+}
+
+/* lv_image_set_src() invalidates and re-reads the header even for the same
+ * file, so status refreshes go through this. Returns whether it changed. */
+static bool topbar_set_image(lv_obj_t * image, const char * src) {
+    if (image_file_source_matches(lv_image_get_src(image), src)) return false;
+    lv_image_set_src(image, src);
+    return true;
+}
+
+static void topbar_set_label(lv_obj_t * label, const char * text) {
+    if (!ui_label_text_matches(label, text)) lv_label_set_text(label, text);
+}
+
 static void refresh_play_pause_topbar(void) {
     bool playing = audio_is_playing();
     bool paused = !playing && audio_is_paused();
@@ -1480,7 +1505,7 @@ void refresh_battery_topbar(void) {
 
     if (percent < 0) {
         if (percent_should_show != percent_was_shown) refresh_battery_topbar_anchor(true);
-        lv_image_set_src(battery_icon_frame, topbar_icon("battery"));
+        topbar_set_image(battery_icon_frame, topbar_icon("battery"));
         lv_obj_remove_local_style_prop(battery_icon_frame, LV_STYLE_IMAGE_RECOLOR, 0);
         lv_obj_remove_local_style_prop(battery_icon_frame, LV_STYLE_IMAGE_RECOLOR_OPA, 0);
         return;
@@ -1504,12 +1529,12 @@ void refresh_battery_topbar(void) {
                                  percent >= 40 ? "battery_medium" :
                                  percent >= 10 ? "battery_low" :
                                                  "battery";
-    lv_image_set_src(battery_icon_frame, topbar_icon(battery_asset));
-    layout_battery_topbar_image(battery_icon_frame);
-    if (low) {
+    if (topbar_set_image(battery_icon_frame, topbar_icon(battery_asset)))
+        layout_battery_topbar_image(battery_icon_frame);
+    if (low && !topbar_local_style_is(battery_icon_frame, LV_STYLE_IMAGE_RECOLOR_OPA, LV_OPA_COVER)) {
         lv_obj_set_style_image_recolor(battery_icon_frame, lv_color_make(255, 64, 64), 0);
         lv_obj_set_style_image_recolor_opa(battery_icon_frame, LV_OPA_COVER, 0);
-    } else {
+    } else if (!low) {
         lv_obj_remove_local_style_prop(battery_icon_frame, LV_STYLE_IMAGE_RECOLOR, 0);
         lv_obj_remove_local_style_prop(battery_icon_frame, LV_STYLE_IMAGE_RECOLOR_OPA, 0);
     }
@@ -1525,7 +1550,7 @@ void refresh_battery_topbar(void) {
             lv_obj_add_flag(battery_topbar_digit[i], LV_OBJ_FLAG_HIDDEN);
         } else {
             char digit[2] = { digits[digit_index], '\0' };
-            lv_label_set_text(battery_topbar_digit[i], digit);
+            topbar_set_label(battery_topbar_digit[i], digit);
             lv_obj_remove_flag(battery_topbar_digit[i], LV_OBJ_FLAG_HIDDEN);
         }
     }
@@ -1627,10 +1652,45 @@ static bool topbar_element_hidden(uint32_t bit) {
     return (current_settings.topbar_hidden_elements & bit) != 0;
 }
 
+static void topbar_set_opa(lv_obj_t * obj, lv_opa_t opa) {
+    if (!topbar_local_style_is(obj, LV_STYLE_OPA, opa)) lv_obj_set_style_opa(obj, opa, 0);
+}
+
+static void topbar_set_align(lv_obj_t * obj, lv_align_t align) {
+    if (!topbar_local_style_is(obj, LV_STYLE_ALIGN, align)) lv_obj_set_style_align(obj, align, 0);
+}
+
+/* lv_obj_align() with the guarded align write; lv_obj_set_pos() already
+ * skips unchanged coordinates. */
+static void topbar_align(lv_obj_t * obj, lv_align_t align, int32_t x_ofs, int32_t y_ofs) {
+    topbar_set_align(obj, align);
+    lv_obj_set_pos(obj, x_ofs, y_ofs);
+}
+
+/* lv_obj_align_to() for LV_ALIGN_OUT_LEFT_MID / LV_ALIGN_OUT_RIGHT_MID, with
+ * the same coordinate and RTL arithmetic but the guarded align write. */
+static void topbar_align_beside(lv_obj_t * obj, lv_obj_t * base, bool left_of, int32_t x_ofs) {
+    lv_obj_update_layout(obj);
+    lv_obj_t * parent = lv_obj_get_parent(obj);
+    int32_t pleft = lv_obj_get_style_space_left(parent, LV_PART_MAIN);
+    int32_t ptop = lv_obj_get_style_space_top(parent, LV_PART_MAIN);
+    int32_t x = left_of ? -lv_obj_get_width(obj) : lv_obj_get_width(base);
+    int32_t y = lv_obj_get_height(base) / 2 - lv_obj_get_height(obj) / 2;
+    int32_t scroll_x = lv_obj_get_style_base_dir(parent, LV_PART_MAIN) == LV_BASE_DIR_RTL
+                           ? lv_obj_get_scroll_right(parent) : lv_obj_get_scroll_left(parent);
+    lv_area_t base_area, parent_area;
+    lv_obj_get_coords(base, &base_area);
+    lv_obj_get_coords(parent, &parent_area);
+    x += x_ofs + base_area.x1 - parent_area.x1 + scroll_x - pleft;
+    y += base_area.y1 - parent_area.y1 + lv_obj_get_scroll_top(parent) - ptop;
+    topbar_set_align(obj, LV_ALIGN_TOP_LEFT);
+    lv_obj_set_pos(obj, x, y);
+}
+
 static void apply_topbar_element_visibility(lv_obj_t * obj, uint32_t bit, bool flex_child) {
     if (!obj) return;
     bool hidden = topbar_element_hidden(bit);
-    lv_obj_set_style_opa(obj, hidden ? LV_OPA_TRANSP : LV_OPA_COVER, 0);
+    topbar_set_opa(obj, hidden ? LV_OPA_TRANSP : LV_OPA_COVER);
     if (flex_child) {
         if (hidden) lv_obj_add_flag(obj, LV_OBJ_FLAG_IGNORE_LAYOUT);
         else lv_obj_remove_flag(obj, LV_OBJ_FLAG_IGNORE_LAYOUT);
@@ -1661,7 +1721,7 @@ static bool topbar_object_naturally_visible(lv_obj_t * obj, uint32_t bit) {
 
 static void topbar_align_left_of(lv_obj_t * obj, lv_obj_t * anchor, int gap_px) {
     if (!obj || !anchor) return;
-    lv_obj_align_to(obj, anchor, LV_ALIGN_OUT_LEFT_MID, -BOARD_SCALE_PX(gap_px), 0);
+    topbar_align_beside(obj, anchor, true, -BOARD_SCALE_PX(gap_px));
 }
 
 static void reflow_topbar_layout(void) {
@@ -1679,7 +1739,7 @@ static void reflow_topbar_layout(void) {
     if (clock_position < TOPBAR_CLOCK_CENTER || clock_position > TOPBAR_CLOCK_RIGHT)
         clock_position = TOPBAR_CLOCK_CENTER;
     if (clock_visible) {
-        lv_obj_align(clock_topbar_group,
+        topbar_align(clock_topbar_group,
                      clock_position == TOPBAR_CLOCK_LEFT ? LV_ALIGN_LEFT_MID :
                      clock_position == TOPBAR_CLOCK_RIGHT ? LV_ALIGN_RIGHT_MID : LV_ALIGN_CENTER,
                      clock_position == TOPBAR_CLOCK_LEFT ? BOARD_SCALE_PX(4) :
@@ -1687,16 +1747,16 @@ static void reflow_topbar_layout(void) {
     }
 
     if (clock_visible && clock_position == TOPBAR_CLOCK_LEFT)
-        lv_obj_align_to(volume_topbar_group, clock_topbar_group, LV_ALIGN_OUT_RIGHT_MID, BOARD_SCALE_PX(2), 0);
+        topbar_align_beside(volume_topbar_group, clock_topbar_group, false, BOARD_SCALE_PX(2));
     else
-        lv_obj_align(volume_topbar_group, LV_ALIGN_LEFT_MID, BOARD_SCALE_PX(4), 0);
+        topbar_align(volume_topbar_group, LV_ALIGN_LEFT_MID, BOARD_SCALE_PX(4), 0);
 
     lv_obj_t * right_anchor = clock_visible && clock_position == TOPBAR_CLOCK_RIGHT
                                   ? clock_topbar_group : NULL;
     bool battery_visible = !topbar_element_hidden(TOPBAR_HIDE_BATTERY);
     if (battery_visible) {
         if (right_anchor) topbar_align_left_of(battery_icon_frame, right_anchor, 2);
-        else lv_obj_align(battery_icon_frame, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(4), 0);
+        else topbar_align(battery_icon_frame, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(4), 0);
         right_anchor = battery_icon_frame;
     }
 
@@ -1704,7 +1764,7 @@ static void reflow_topbar_layout(void) {
                            !lv_obj_has_flag(battery_topbar_group, LV_OBJ_FLAG_HIDDEN);
     if (percent_visible) {
         if (right_anchor) topbar_align_left_of(battery_topbar_group, right_anchor, 2);
-        else lv_obj_align(battery_topbar_group, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(4), 0);
+        else topbar_align(battery_topbar_group, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(4), 0);
         right_anchor = battery_topbar_group;
     }
 
@@ -1716,7 +1776,7 @@ static void reflow_topbar_layout(void) {
         bool visible = widget == wifi_icon ? wifi_visible : widget == bt_status_icon ? bt_visible : false;
         if (!widget || !visible) continue;
         if (right_anchor) topbar_align_left_of(widget, right_anchor, 2);
-        else lv_obj_align(widget, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(4), 0);
+        else topbar_align(widget, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(4), 0);
         right_anchor = widget;
     }
 }
@@ -2191,10 +2251,9 @@ static void render_wifi_icon(void) {
         };
         if (level < 0) level = 0;
         if (level > 3) level = 3;
-        lv_image_set_src(wifi_icon, topbar_icon(assets[level]));
-        layout_wifi_connected_topbar_image(wifi_icon);
-    } else {
-        lv_image_set_src(wifi_icon, topbar_icon("wifi_off"));
+        if (topbar_set_image(wifi_icon, topbar_icon(assets[level])))
+            layout_wifi_connected_topbar_image(wifi_icon);
+    } else if (topbar_set_image(wifi_icon, topbar_icon("wifi_off"))) {
         layout_radio_topbar_image(wifi_icon);
     }
 }
@@ -3023,7 +3082,12 @@ static void poll_sleep_timer(void) {
      * sub-minute stretch -- counts down 15,14,...,1 then disarms above
      * rather than ever displaying a misleading zero. */
     int remaining_min = (int) ((total_ms - elapsed_ms + 59999) / 60000);
-    lv_label_set_text_fmt(quick_drawer_sleep_label, TR("%dm"), remaining_min);
+    /* Polled every 500 ms, but the caption only changes once a minute; each
+     * rewrite would also re-snapshot the whole drawer. */
+    char caption[16];
+    snprintf(caption, sizeof(caption), TR("%dm"), remaining_min);
+    if (ui_label_text_matches(quick_drawer_sleep_label, caption)) return;
+    lv_label_set_text(quick_drawer_sleep_label, caption);
     quick_drawer_mark_snapshot_dirty();
 }
 
@@ -3060,6 +3124,7 @@ static void quick_drawer_rebuild_snapshot(void) {
             lv_obj_add_flag(quick_drawer_motion_image, LV_OBJ_FLAG_HIDDEN);
         }
         if (quick_drawer_motion_buf) {
+            ui_snapshot_prefetch_forget(quick_drawer_motion_buf);
             lv_draw_buf_destroy(quick_drawer_motion_buf);
             quick_drawer_motion_buf = NULL;
         }
@@ -3068,6 +3133,7 @@ static void quick_drawer_rebuild_snapshot(void) {
         if (quick_drawer_snapshot_retry_timer) lv_timer_pause(quick_drawer_snapshot_retry_timer);
         return;
     }
+    UI_TRACE_SPAN_BEGIN(perf_span);
     if (quick_drawer_open && quick_drawer_expansion_art_dirty && !gui_anims_off()) {
         quick_drawer_expansion_cache_warming = true;
         refresh_quick_drawer_expansion_toggles();
@@ -3075,25 +3141,55 @@ static void quick_drawer_rebuild_snapshot(void) {
         quick_drawer_release_motion_cache();
         quick_drawer_expansion_cache_warming = false;
     }
+    /* A warm-only pass keeps the existing drawer snapshot. */
+    if (!quick_drawer_snapshot_dirty && quick_drawer_motion_buf) {
+        UI_TRACE_SPAN_END(UI_TRACE_SPAN_DRAWER_SNAPSHOT, perf_span);
+        return;
+    }
     lv_draw_buf_t * fresh = lv_snapshot_take(quick_drawer, LV_COLOR_FORMAT_RGB565);
-    if (!fresh) return;
+    if (!fresh) {
+        UI_TRACE_SPAN_END(UI_TRACE_SPAN_DRAWER_SNAPSHOT, perf_span);
+        return;
+    }
     if (!quick_drawer_motion_image) {
         quick_drawer_motion_image = lv_image_create(lv_layer_top());
         lv_obj_add_flag(quick_drawer_motion_image, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_image_set_src(quick_drawer_motion_image, NULL);
     }
-    if (quick_drawer_motion_buf) lv_draw_buf_destroy(quick_drawer_motion_buf);
+    if (quick_drawer_motion_buf) {
+        ui_snapshot_prefetch_forget(quick_drawer_motion_buf);
+        lv_draw_buf_destroy(quick_drawer_motion_buf);
+    }
     quick_drawer_motion_buf = fresh;
     lv_image_set_src(quick_drawer_motion_image, quick_drawer_motion_buf);
+    UI_TRACE_SPAN_END(UI_TRACE_SPAN_DRAWER_SNAPSHOT, perf_span);
     quick_drawer_snapshot_dirty = false;
     if (quick_drawer_snapshot_retry_timer) lv_timer_pause(quick_drawer_snapshot_retry_timer);
 }
 
 static void quick_drawer_snapshot_retry_cb(lv_timer_t * timer);
 
+/* Closing discards the expansion art, so each open has to warm it again;
+ * otherwise the first expand tap takes both of its snapshots synchronously. */
+static bool quick_drawer_expansion_warm_pending(void) {
+    return quick_drawer_open && quick_drawer_expansion_art_dirty && !gui_anims_off();
+}
+
+static bool quick_drawer_snapshot_work_pending(void) {
+    return quick_drawer_snapshot_dirty || quick_drawer_expansion_warm_pending();
+}
+
+static bool quick_drawer_pointer_pressed(void) {
+    for (lv_indev_t * indev = lv_indev_get_next(NULL); indev; indev = lv_indev_get_next(indev)) {
+        if (lv_indev_get_type(indev) == LV_INDEV_TYPE_POINTER &&
+            lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED) return true;
+    }
+    return false;
+}
+
 static void quick_drawer_schedule_snapshot_retry(void) {
-    if (!quick_drawer || !quick_drawer_snapshot_dirty || !backlight_screen_is_on()) return;
+    if (!quick_drawer || !quick_drawer_snapshot_work_pending() || !backlight_screen_is_on()) return;
     if (!quick_drawer_snapshot_retry_timer) {
         quick_drawer_snapshot_retry_timer = lv_timer_create(quick_drawer_snapshot_retry_cb, 16, NULL);
         if (!quick_drawer_snapshot_retry_timer) return;
@@ -3105,14 +3201,17 @@ static void quick_drawer_schedule_snapshot_retry(void) {
 
 static void quick_drawer_snapshot_async_cb(void * unused) {
     (void) unused;
-    if (!quick_drawer_snapshot_dirty || !quick_drawer) return;
+    if (!quick_drawer || !quick_drawer_snapshot_work_pending()) return;
     if (!backlight_screen_is_on()) {
         quick_drawer_snapshot_wait_for_wake = true;
         return;
     }
     quick_drawer_snapshot_wait_for_wake = false;
     if (quick_drawer_bitmap_motion || quick_drawer_expansion_motion) return;
-    if (gui_navigation_transition_in_progress() || gui_player_lyrics_animation_in_progress()) {
+    /* A finger on the glass may be starting a drag; a full snapshot now
+     * would land on its first frames. */
+    if (gui_navigation_transition_in_progress() || gui_player_lyrics_animation_in_progress() ||
+        quick_drawer_pointer_pressed()) {
         quick_drawer_schedule_snapshot_retry();
         return;
     }
@@ -3122,6 +3221,26 @@ static void quick_drawer_snapshot_async_cb(void * unused) {
 static void quick_drawer_snapshot_retry_cb(lv_timer_t * timer) {
     lv_timer_pause(timer);
     quick_drawer_snapshot_async_cb(NULL);
+}
+
+/* Delayed past the open animation's last frames, which would otherwise
+ * absorb the two expansion snapshots. */
+#define QUICK_DRAWER_EXPANSION_WARM_DELAY_MS 250
+static lv_timer_t * quick_drawer_expansion_warm_timer;
+
+static void quick_drawer_expansion_warm_cb(lv_timer_t * timer) {
+    lv_timer_delete(timer);
+    quick_drawer_expansion_warm_timer = NULL;
+    quick_drawer_snapshot_async_cb(NULL);
+}
+
+static void quick_drawer_schedule_expansion_warm(void) {
+    if (quick_drawer_expansion_warm_timer) {
+        lv_timer_reset(quick_drawer_expansion_warm_timer);
+        return;
+    }
+    quick_drawer_expansion_warm_timer = lv_timer_create(quick_drawer_expansion_warm_cb,
+                                                        QUICK_DRAWER_EXPANSION_WARM_DELAY_MS, NULL);
 }
 
 static void quick_drawer_mark_geometry_dirty(void) {
@@ -3148,6 +3267,7 @@ void gui_shell_release_memory_for_external_session(void) {
     }
     if (quick_drawer_motion_buf) {
         lv_image_cache_drop(quick_drawer_motion_buf);
+        ui_snapshot_prefetch_forget(quick_drawer_motion_buf);
         lv_draw_buf_destroy(quick_drawer_motion_buf);
         quick_drawer_motion_buf = NULL;
     }
@@ -3239,8 +3359,8 @@ static void quick_drawer_finish_bitmap_motion(void) {
             quick_drawer_reflow_customization();
         }
     }
-    if (quick_drawer_snapshot_dirty || quick_drawer_open)
-        lv_async_call(quick_drawer_snapshot_async_cb, NULL);
+    if (quick_drawer_snapshot_dirty) lv_async_call(quick_drawer_snapshot_async_cb, NULL);
+    else if (quick_drawer_expansion_warm_pending()) quick_drawer_schedule_expansion_warm();
 }
 
 static void quick_drawer_anim_done_cb(lv_anim_t * a) {
@@ -3342,6 +3462,7 @@ void close_quick_drawer(void) {
 static lv_timer_t * quick_drawer_drag_timer = NULL;
 static bool quick_drawer_drag_tracking = false;
 static bool quick_drawer_drag_claimed = false;
+static bool quick_drawer_expansion_dragging = false;
 static bool quick_drawer_was_pressed = false;
 static bool drag_adjust_press_owned = false;
 static int32_t quick_drawer_drag_touch_start_y = 0;
@@ -3373,7 +3494,6 @@ static int32_t home_swipe_touch_start_y = 0;
 static int32_t home_swipe_last_v = 0;
 static int32_t home_swipe_last_velocity = 0;
 static slide_transition_ctx_t * home_swipe_ctx = NULL;
-#define HOME_SWIPE_DEADZONE 20 /* same scale/reasoning as PLAYER_SWIPE_DEADZONE/BACK_SWIPE_DEADZONE */
 
 /* Swipe-left-to-player tracking -- same "raw indev polling, own dedicated
  * fast timer" reasoning as poll_quick_drawer_drag()'s own doc comment,
@@ -3400,10 +3520,9 @@ static int32_t player_swipe_touch_start_y = 0;
 static int32_t player_swipe_last_v = 0; /* last sampled x (not necessarily presented -- see player_swipe_just_confirmed's deferred tick), for per-tick velocity -- same idea as quick_drawer_last_velocity */
 static int32_t player_swipe_last_velocity = 0;
 static slide_transition_ctx_t * player_swipe_ctx = NULL;
-#define PLAYER_SWIPE_DEADZONE 20 /* px before judging direction -- comfortably under LVGL's own ~50px built-in gesture threshold (LV_INDEV_DEF_GESTURE_LIMIT) so this always claims a genuine left-swipe before LVGL's own dormant gesture recognition would have */
 
 /* Swipe-right-to-go-back -- same live per-tick overlay as player_swipe_*
- * above, mirrored in sign. Provisional until BACK_SWIPE_DEADZONE so a
+ * above, mirrored in sign. Provisional until NAV_SWIPE_DEADZONE_PX so a
  * leftward player-swipe or a vertical scroll can still claim the press.
  * screen_gesture_event_cb()'s LV_DIR_RIGHT -> nav_pop() path stays as
  * the fallback for presses this candidate rejects (excluded screens,
@@ -3412,7 +3531,7 @@ static slide_transition_ctx_t * player_swipe_ctx = NULL;
  * LV_DIR_RIGHT), this candidate genuinely races LVGL's own native gesture
  * recognition for the exact same direction: on real hardware, a fast swipe
  * can cross LVGL's own internal gesture threshold and dispatch
- * LV_EVENT_GESTURE before this poll-based BACK_SWIPE_DEADZONE confirms on
+ * LV_EVENT_GESTURE before this poll-based NAV_SWIPE_DEADZONE_PX confirms on
  * its own next tick, so wait_release() alone does not reliably win that
  * race (confirmed via on-device logging -- both fired for the same
  * continued drag, each independently acting on directory depth). back_swipe_
@@ -3432,7 +3551,6 @@ static int32_t back_swipe_last_v = 0;
 static int32_t back_swipe_last_velocity = 0;
 static slide_transition_ctx_t * back_swipe_ctx = NULL;
 static lv_obj_t * back_swipe_target_scr = NULL;
-#define BACK_SWIPE_DEADZONE 20 /* same scale/reasoning as PLAYER_SWIPE_DEADZONE */
 
 bool gui_shell_back_swipe_owns_press(void) {
     return back_swipe_owns_press;
@@ -3464,10 +3582,44 @@ lv_indev_t * find_pointer_indev(void) {
     return NULL;
 }
 
+static void prefetch_press_targets(lv_point_t point);
+
 static lv_indev_read_cb_t s_orig_pointer_read_cb = NULL;
 static lv_indev_t * s_hooked_indev = NULL;
 static lv_indev_state_t s_last_raw_pointer_state = LV_INDEV_STATE_RELEASED;
 static bool s_require_release_after_wake = true;
+
+static lv_point_t s_last_raw_pointer_point;
+static bool s_last_raw_pointer_point_valid;
+
+/* The read callback precedes LVGL's state publication. Only mark the existing
+ * timer ready here: its callback cannot run until this read has returned to
+ * the handler. Never recognize gestures or refresh a display from this path.
+ * Once tracking owns the press, leave presentation on its normal 16 ms tick. */
+static void gesture_note_pointer_sample(const lv_indev_data_t * data) {
+    bool pressed = data->state == LV_INDEV_STATE_PRESSED;
+    bool was_pressed = s_last_raw_pointer_state == LV_INDEV_STATE_PRESSED;
+    bool changed = pressed != was_pressed || !s_last_raw_pointer_point_valid ||
+                   data->point.x != s_last_raw_pointer_point.x ||
+                   data->point.y != s_last_raw_pointer_point.y;
+    s_last_raw_pointer_point = data->point;
+    s_last_raw_pointer_point_valid = true;
+    if (!changed || (!pressed && !was_pressed)) return;
+#ifdef UI_PERF_TRACE
+    ui_frame_trace_event(UI_FRAME_TRACE_EVENT_POINTER_SAMPLE,
+                         ((uint32_t)(uint16_t)data->point.x << 16) |
+                         (uint16_t)data->point.y, pressed ? 1u : 0u);
+#endif
+#ifndef UI_SWIPE_SAMPLE_READY_DISABLE
+    bool tracking = home_swipe_tracking || player_swipe_tracking || back_swipe_tracking ||
+                    quick_drawer_drag_claimed || quick_drawer_expansion_dragging;
+    bool candidate = home_swipe_candidate || player_swipe_candidate || back_swipe_candidate ||
+                     quick_drawer_drag_tracking;
+    if (quick_drawer_drag_timer && !lv_timer_get_paused(quick_drawer_drag_timer) &&
+        (!pressed || (!tracking && candidate)))
+        lv_timer_ready(quick_drawer_drag_timer);
+#endif
+}
 
 static void wrapped_pointer_read_cb(lv_indev_t * indev, lv_indev_data_t * data) {
     if (s_orig_pointer_read_cb) {
@@ -3478,6 +3630,7 @@ static void wrapped_pointer_read_cb(lv_indev_t * indev, lv_indev_data_t * data) 
         data->state = LV_INDEV_STATE_RELEASED;
         s_last_raw_pointer_state = LV_INDEV_STATE_RELEASED;
         s_require_release_after_wake = true;
+        s_last_raw_pointer_point_valid = false;
         return;
     }
 
@@ -3502,12 +3655,15 @@ static void wrapped_pointer_read_cb(lv_indev_t * indev, lv_indev_data_t * data) 
         }
     }
 
+    gesture_note_pointer_sample(data);
+
     if (data->state == LV_INDEV_STATE_PRESSED &&
         s_last_raw_pointer_state != LV_INDEV_STATE_PRESSED) {
 #ifdef UI_GESTURE_TRACE
         printf("[GESTURE_TRACE] raw pointer press edge detected at (%d, %d)\n",
                (int)data->point.x, (int)data->point.y);
 #endif
+        prefetch_press_targets(data->point);
         gui_shell_resume_fast_timers();
         gui_library_resume_fast_timers();
     }
@@ -3653,6 +3809,37 @@ static bool player_swipe_press_excluded(lv_point_t p) {
     return active_press_is_over_drag_adjust_widget() || point_in_swipe_dead_zone(p);
 }
 
+/* Only hints for gestures eligible at this touch origin. No cache creation,
+ * layout, locks that wait for the worker, or image copies on this path. */
+static void prefetch_press_targets(lv_point_t point) {
+    lv_obj_t *screen = lv_screen_active();
+    if (gui_navigation_transition_in_progress() || gui_library_navigation_blocked() ||
+        screen == gui_lock_screen_get_screen() || screen == gui_text_input_get_screen() ||
+        screen == gui_text_view_get_screen() || screen == gui_busy_get_screen() ||
+        screen == gui_network_get_usb_dac_overlay() ||
+        screen == gui_network_get_bt_dac_overlay()) return;
+    bool drawer_origin = quick_drawer_open ||
+                         (point.y <= QUICK_DRAWER_TRIGGER_ZONE &&
+                          quick_drawer_customization_enabled());
+    lv_draw_buf_t *drawer = drawer_origin && !quick_drawer_snapshot_dirty
+                               ? quick_drawer_motion_buf : NULL;
+    if (quick_drawer_open) {
+        gui_navigation_prefetch_targets(false, false, false, drawer);
+        return;
+    }
+    /* Raw read precedes LVGL hit-testing; use this press's coordinates,
+     * not the active object retained from the previous press. */
+    if (point_in_swipe_dead_zone(point)) return;
+    int32_t height = lv_display_get_vertical_resolution(lv_display_get_default());
+    bool home = current_settings.swipe_up_home_enabled &&
+                screen != gui_shell_get_home_screen() && screen != gui_lyrics_get_screen() &&
+                point.y >= height - HOME_INDICATOR_BAND_HEIGHT - HOME_SWIPE_HIT_EXTRA_PX;
+    gui_navigation_prefetch_targets(screen != gui_player_get_screen() &&
+                                   screen != gui_lyrics_get_screen() &&
+                                   screen != gui_track_info_get_screen(),
+                                   gui_navigation_get_depth() > 1, home, drawer);
+}
+
 static bool quick_drawer_brightness_hit_test(lv_point_t point) {
     if (!quick_drawer_open || !quick_drawer_brightness_track) return false;
     lv_area_t area;
@@ -3701,7 +3888,6 @@ static bool quick_drawer_expansion_region_hit_test(lv_point_t point) {
 }
 
 
-static bool quick_drawer_expansion_dragging = false;
 static bool quick_drawer_expansion_moved = false;
 static int32_t quick_drawer_expansion_drag_start_y = 0;
 static int32_t quick_drawer_expansion_drag_start_value = 0;
@@ -3765,8 +3951,9 @@ static void poll_quick_drawer_drag(lv_timer_t * timer) {
             quick_drawer_drag_tracking = true;
             quick_drawer_drag_panel_start_y = quick_drawer_motion_y();
             quick_drawer_last_velocity = 0; /* fresh drag -- see the other branch's own comment */
-            lv_obj_move_foreground(quick_drawer); /* above regular screens/volume popup while dragging into view */
-            lv_obj_move_foreground(status_bar_band); /* but the status bar stays above THAT -- see open_quick_drawer()'s comment */
+            /* This is only a candidate: a header Back tap also starts here.
+             * Reordering siblings invalidates the full top layer twice;
+             * defer z-order changes until a real drawer drag is claimed. */
         } else {
             quick_drawer_drag_tracking = false;
         }
@@ -3870,6 +4057,14 @@ static void poll_quick_drawer_drag(lv_timer_t * timer) {
                back_swipe_candidate,
                lv_screen_active() == gui_library_get_files_screen() ? "files" : "other",
                gui_navigation_get_depth());
+#ifdef UI_PERF_TRACE
+        ui_frame_trace_event(UI_FRAME_TRACE_EVENT_GESTURE_ORIGIN,
+                             ((uint32_t)(uint16_t)p.x << 16) | (uint16_t)p.y,
+                             (player_swipe_candidate ? 1u : 0u) |
+                             (back_swipe_candidate ? 2u : 0u) |
+                             (home_swipe_candidate ? 4u : 0u) |
+                             (quick_drawer_drag_tracking ? 8u : 0u));
+#endif
     }
 
     if (pressed && home_swipe_candidate && !home_swipe_tracking && !player_swipe_tracking && !back_swipe_tracking &&
@@ -3878,7 +4073,7 @@ static void poll_quick_drawer_drag(lv_timer_t * timer) {
         int32_t dy = p.y - home_swipe_touch_start_y;
         int32_t adx = dx < 0 ? -dx : dx;
         int32_t ady = dy < 0 ? -dy : dy;
-        if (adx >= HOME_SWIPE_DEADZONE || ady >= HOME_SWIPE_DEADZONE) {
+        if (adx >= NAV_SWIPE_DEADZONE_PX || ady >= NAV_SWIPE_DEADZONE_PX) {
             if (dy < 0 && ady > adx) {
                 /* EXPERIMENTAL reveal=true (see gui_navigation.h's own
                  * comment on slide_transition_ctx_t's reveal field): Home
@@ -3917,7 +4112,7 @@ static void poll_quick_drawer_drag(lv_timer_t * timer) {
         int32_t dy = p.y - player_swipe_touch_start_y;
         int32_t adx = dx < 0 ? -dx : dx;
         int32_t ady = dy < 0 ? -dy : dy;
-        if (adx >= PLAYER_SWIPE_DEADZONE || ady >= PLAYER_SWIPE_DEADZONE) {
+        if (adx >= NAV_SWIPE_DEADZONE_PX || ady >= NAV_SWIPE_DEADZONE_PX) {
             /* Enough movement to judge direction. Horizontal-left-dominant
              * confirms it; anything else (vertical, or rightward) rules it
              * out for good -- either way, stop re-checking every tick. */
@@ -3956,7 +4151,7 @@ static void poll_quick_drawer_drag(lv_timer_t * timer) {
         int32_t dy = p.y - back_swipe_touch_start_y;
         int32_t adx = dx < 0 ? -dx : dx;
         int32_t ady = dy < 0 ? -dy : dy;
-        if (adx >= BACK_SWIPE_DEADZONE || ady >= BACK_SWIPE_DEADZONE) {
+        if (adx >= NAV_SWIPE_DEADZONE_PX || ady >= NAV_SWIPE_DEADZONE_PX) {
             if (dx > 0 && adx > ady) {
                 lv_obj_t * active = lv_screen_active();
                 /* Search-open and Files-not-at-root consume a right-swipe
@@ -4145,7 +4340,12 @@ static void poll_quick_drawer_drag(lv_timer_t * timer) {
              * finger onto whatever row is now underneath and fires CLICKED
              * on release. Same tool as the player-swipe path above. */
             if (!quick_drawer_drag_claimed) {
+#ifdef UI_PERF_TRACE
+                ui_frame_trace_event(UI_FRAME_TRACE_EVENT_DRAWER_CLAIM, 0, 0);
+#endif
                 quick_drawer_drag_claimed = true;
+                lv_obj_move_foreground(quick_drawer);
+                lv_obj_move_foreground(status_bar_band);
                 lv_indev_wait_release(indev);
             }
             /* Per-tick velocity, in case the finger lifts mid-flick (see the
@@ -5728,13 +5928,13 @@ void refresh_clock_label(void) {
 
     for (int i = 0; i < 5; i++) {
         char glyph[2] = { buf[i], '\0' };
-        lv_label_set_text(clock_topbar_digit[i], glyph);
+        topbar_set_label(clock_topbar_digit[i], glyph);
     }
 
     if (current_settings.clock_24h) {
         lv_obj_add_flag(clock_topbar_ampm, LV_OBJ_FLAG_HIDDEN);
     } else {
-        lv_label_set_text(clock_topbar_ampm, tm_info.tm_hour < 12 ? TR("AM") : TR("PM"));
+        topbar_set_label(clock_topbar_ampm, tm_info.tm_hour < 12 ? TR("AM") : TR("PM"));
         lv_obj_remove_flag(clock_topbar_ampm, LV_OBJ_FLAG_HIDDEN);
     }
     /* Widths can change with AM/PM and localized glyph metrics. */
@@ -5830,6 +6030,7 @@ void gui_shell_teardown(void) {
         quick_drawer_motion_image = NULL;
     }
     if (quick_drawer_motion_buf) {
+        ui_snapshot_prefetch_forget(quick_drawer_motion_buf);
         lv_draw_buf_destroy(quick_drawer_motion_buf);
         quick_drawer_motion_buf = NULL;
     }
@@ -6161,6 +6362,7 @@ void gui_shell_reset_drag_state(void) {
     }
     s_last_raw_pointer_state = LV_INDEV_STATE_RELEASED;
     s_require_release_after_wake = true;
+    s_last_raw_pointer_point_valid = false;
     if (quick_drawer_drag_timer) {
         lv_timer_pause(quick_drawer_drag_timer);
     }
@@ -6277,26 +6479,22 @@ void gui_shell_update_quick_drawer_track(const char * title, const char * artist
     if (quick_drawer_title_label) {
         const char * want_title = title ? title : TR("No track loaded");
         const char * want_artist = artist ? artist : "";
-        const char * cur_title = lv_label_get_text(quick_drawer_title_label);
         const char * want_album = album ? album : "";
-        const char * cur_artist = lv_label_get_text(quick_drawer_artist_label);
-        const char * cur_album = quick_drawer_album_label
-                               ? lv_label_get_text(quick_drawer_album_label) : NULL;
         /* Only touch a label whose text actually changed: lv_label_set_text()
          * restarts LV_LABEL_LONG_SCROLL_CIRCULAR from the beginning, so
          * re-setting identical text would keep resetting the marquee (and
          * its 2s wait) instead of letting it scroll. Same guard gui_player.c
          * already applies to its own now-playing labels. */
         bool changed = false;
-        if (!cur_title || strcmp(cur_title, want_title) != 0) {
+        if (!ui_label_text_matches(quick_drawer_title_label, want_title)) {
             lv_label_set_text(quick_drawer_title_label, want_title);
             changed = true;
         }
-        if (!cur_artist || strcmp(cur_artist, want_artist) != 0) {
+        if (!ui_label_text_matches(quick_drawer_artist_label, want_artist)) {
             lv_label_set_text(quick_drawer_artist_label, want_artist);
             changed = true;
         }
-        if (quick_drawer_album_label && (!cur_album || strcmp(cur_album, want_album) != 0)) {
+        if (quick_drawer_album_label && !ui_label_text_matches(quick_drawer_album_label, want_album)) {
             lv_label_set_text(quick_drawer_album_label, want_album);
             changed = true;
         }
@@ -6308,8 +6506,7 @@ void gui_shell_update_quick_drawer_track(const char * title, const char * artist
 void gui_shell_update_quick_drawer_format(const char * text) {
     if (!quick_drawer_format_label) return;
     const char * want = text ? text : "";
-    const char * cur = lv_label_get_text(quick_drawer_format_label);
-    if (cur && strcmp(cur, want) == 0) return;
+    if (ui_label_text_matches(quick_drawer_format_label, want)) return;
     lv_label_set_text(quick_drawer_format_label, want);
     quick_drawer_mark_snapshot_dirty();
 }

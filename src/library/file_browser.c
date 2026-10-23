@@ -1074,11 +1074,11 @@ static void page_jump_create(file_browser_t * fb) {
     lv_obj_set_style_max_height(popup,
         lv_display_get_vertical_resolution(lv_display_get_default()) - 2 * STATUS_BAR_CLEARANCE, 0);
     lv_obj_center(popup);
-    lv_obj_set_style_radius(popup, BOARD_SCALE_PX(20), 0);
+    /* Same Breeze frame as build_popup_surface(). */
+    lv_obj_set_style_radius(popup, LIST_ROW_RADIUS, 0);
     lv_obj_add_style(popup, &style_theme_card_bg, 0);
     lv_obj_set_style_bg_opa(popup, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(popup, 1, 0);
-    lv_obj_set_style_border_color(popup, lv_color_hex(GUI_COLOR_BORDER), 0);
+    lv_obj_set_style_border_width(popup, BOARD_SCALE_PX(2), 0);
     lv_obj_set_style_pad_all(popup, BOARD_SCALE_PX(12), 0);
     lv_obj_set_style_pad_row(popup, GUI_ROW_GAP, 0);
     lv_obj_set_flex_flow(popup, LV_FLEX_FLOW_COLUMN);

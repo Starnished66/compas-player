@@ -131,6 +131,7 @@ static const char * const s_legacy_asset_inventory[] = {
     "pull_down/dlna.png", "pull_down/dlna_s.png",
     "pull_down/gapless_play.png", "pull_down/gapless_play_s.png",
     "pull_down/hibylink.png", "pull_down/hibylink_s.png",
+    "pull_down/car_mode.png", "pull_down/car_mode_s.png",
     "navigation/search.png", "navigation/more.png",
     "navigation/chevron-right.png", "navigation/back.png",
     "sub_back/bg_search.png", "sub_back/btn_back.png", "sub_back/btn_search.png", "sub_back/close.png",
@@ -850,6 +851,41 @@ static void perform_legacy_migration_if_needed(void) {
     }
 }
 
+/* An inventory override that is only a copy of stock artwork (the legacy
+ * Themes plugin writes theme2's into the override root) would pin that one
+ * icon to the dark set under every theme. Migration excludes the copies it
+ * finds once; this also catches copies written after it, and assets added to
+ * the inventory later. */
+static void exclude_stock_override_copies(void) {
+    if (!s_has_imported_legacy) return;
+    size_t added = 0;
+    size_t inventory_count = sizeof(s_legacy_asset_inventory) / sizeof(s_legacy_asset_inventory[0]);
+    for (size_t i = 0; i < inventory_count && s_exclusion_count < GUI_THEMES_MAX_EXCLUSIONS; i++) {
+        const char *rel = s_legacy_asset_inventory[i];
+        bool known = false;
+        for (size_t k = 0; k < s_exclusion_count && !known; k++)
+            known = strcmp(s_exclusions[k].relpath, rel) == 0;
+        if (known) continue;
+        char override_file[GUI_THEMES_MAX_PATH], stock[GUI_THEMES_MAX_PATH];
+        struct stat st;
+        if (!copy_path2(override_file, sizeof(override_file), s_override_root, rel, false) ||
+            stat(override_file, &st) != 0 || !S_ISREG(st.st_mode)) continue;
+        bool stock_copy =
+            (copy_path2(stock, sizeof(stock), s_theme2_root, rel, false) && files_are_identical(override_file, stock)) ||
+            (copy_path2(stock, sizeof(stock), s_theme1_root, rel, false) && files_are_identical(override_file, stock));
+        if (!stock_copy) continue;
+        gui_theme_legacy_exclusion_t *e = &s_exclusions[s_exclusion_count];
+        uint64_t fsize = 0;
+        if (!compute_file_sha256(override_file, e->sha256, &fsize)) continue;
+        snprintf(e->relpath, sizeof(e->relpath), "%s", rel);
+        e->size = fsize;
+        e->mtime = (int64_t)st.st_mtime;
+        s_exclusion_count++;
+        added++;
+    }
+    if (added) save_state_atomic_candidate(s_selected_filename, true, s_exclusions, s_exclusion_count);
+}
+
 /* --------------------------------------------------------------------------
  * Directory Scanning
  * -------------------------------------------------------------------------- */
@@ -1235,6 +1271,7 @@ void gui_themes_init(void) {
     }
     /* Attempt legacy migration if not yet imported (e.g. SD mounted now) */
     perform_legacy_migration_if_needed();
+    exclude_stock_override_copies();
 }
 
 /* --------------------------------------------------------------------------

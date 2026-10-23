@@ -4,6 +4,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+/* Interactive Player, Back and Home swipes share this recognition threshold.
+ * Drawer/widget drag jitter thresholds remain separate and unchanged. */
+#define NAV_SWIPE_DEADZONE_PX 12
+
 lv_obj_t * gui_shell_get_home_screen(void);
 lv_obj_t * gui_shell_get_dac_home_screen(void);
 void gui_shell_refresh_home(void);

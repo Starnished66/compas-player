@@ -13,7 +13,7 @@ void main_loop_discard_elapsed_time(void) {}
 static void write_plugin(const char *body) {
     FILE *f = fopen("music/.plugins/Test.lua", "w");
     assert(f);
-    assert(fputs("plugin.define({id='test.button_lock', name='Test', version='1', api_min=18})\n", f) >= 0);
+    assert(fputs("plugin.define({id='test.button_lock', name='Test', version='1', api_min=17})\n", f) >= 0);
     assert(fputs(body, f) >= 0);
     assert(fclose(f) == 0);
 }
@@ -38,7 +38,7 @@ int main(void) {
     for (int attempt = 0; attempt < 2; attempt++) {
         FILE *other = fopen("music/.plugins/ZZOther.lua", "w");
         assert(other);
-        assert(fputs("plugin.define({id='test.other', name='Other', version='1', api_min=18})\n", other) >= 0);
+        assert(fputs("plugin.define({id='test.other', name='Other', version='1', api_min=17})\n", other) >= 0);
         assert(fputs(attempt ? "plugin.configure_button_lock(true)\n" :
                                "plugin.configure_button_lock(false)\n", other) >= 0);
         assert(fclose(other) == 0);

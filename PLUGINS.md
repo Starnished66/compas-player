@@ -181,7 +181,7 @@ plugin.define({
 
 ### Checking what the player supports
 
-- `plugin.api_version()` returns the API version, currently `19`.
+- `plugin.api_version()` returns the API version, currently `17`.
 - `plugin.has_capability(name)` returns whether one feature exists. Prefer it
   over `api_min` when you only need one feature. Tokens:
 
@@ -216,9 +216,7 @@ plugin.define({
 | 14 | `zip_read`, `zip_list`, `zip_image_async`, `html_to_blocks`, `show_text_view` with pictures, grid lists, `is_list_showing`, and one long (4095-byte) HTTP header per request |
 | 15 | Full XML Player-layout support (`ui.player_layout_xml`), including plugin-bundle discovery, current named-widget features, companion PNG previews, and resolution-specific XML variants using `@WIDTHxHEIGHT` or `_WIDTHxHEIGHT` filenames |
 | 16 | Playback speed/stereo width/progress plus format/output snapshots, silent volume, transient EQ, output events, playback settings, native A–B loops/comparison, and finite HTTP seeking. Modeless progress bars and download byte snapshots are also available, as are File Manager operations and the native file picker. |
-| 17 | Player-layout actions and owner-scoped layout restoration, including background layout replacement. Bundled Audiobooks and Podcasts Reading Room players require API 17; the store rejects installation on older firmware. |
-| 18 | Native hardware button lock through `plugin.configure_button_lock`, capability `ui.button_lock`, and the `button_lock_changed` event. The Lock Screen plugin requires API 18 so older firmware cannot install it. |
-| 19 | `register_list_item("music", ...)` adds rows to the top-level Music submenu. The row icon is optional and defaults to the native category menu icon when omitted. |
+| 17 | Consolidated additions after API 16: player-layout actions and owner-scoped background layout restoration; native hardware button lock and its event; top-level Music submenu plugin actions and native confirmation dialogs; current-track lyrics refresh; and the instrument dashboard layout. Plugins using these features require API 17, and the store rejects installation on older firmware. |
 
 All of these are additions; older plugins keep working.
 
@@ -364,6 +362,23 @@ plugin.show_settings_list("My Plugin", {
       on_change = function(v) ... end },
 })
 ```
+
+API 17 adds `options.layout = "dashboard"` (`ui.settings_dashboard`) for an
+instrument-style control panel. Supply exactly seven items: a primary action,
+an integer slider, a secondary action, and four settings actions. The slider
+becomes a large numeric dial with direct −/+ controls; actions retain their
+existing callbacks. Its range must fit signed 16-bit integers and its value
+must be inside that range. Native surfaces and fonts follow the player theme;
+dashboard accents use the player's accent color and icons follow the
+foreground color. The six action buttons share one equal-cell grid;
+per-row sizes are reserved for the ordinary list layout.
+
+Dashboard options also accept `markers` (0–12 static rhythm markers),
+`accent_first` (boolean, default true), `active` (boolean), and `detail` (a short
+caption on the second settings tile). Markers describe the configured pattern;
+they are not an audio-synchronized beat animation. `update = true` uses the
+same stable-title update behavior as lists. A dashboard cannot include a lock
+screen preview. Require `api_min = 17` when using this layout.
 
 - `row`: `on_select()` runs on tap. Open another `show_settings_list` from it
   for a nested submenu.
@@ -559,7 +574,7 @@ and blur generation run in the background.
 ### `plugin.configure_button_lock(enabled)`
 
 Arms the native Power + Volume Up chord that toggles hardware button lock
-(API 18, capability `ui.button_lock`). Pass `true` to enable the chord, `false`
+(API 17, capability `ui.button_lock`). Pass `true` to enable the chord, `false`
 to disarm it. Returns the board-specific shortcut text for use in settings.
 On R3II 2025, hold Power first and turn the volume knob up; knob-first
 remains an ordinary volume adjustment. The enabled preference is the plugin's to persist; the locked
@@ -1039,11 +1054,11 @@ should be saved by the plugin, and scoped to its content directory.
 
 ### `plugin.refresh_lyrics(track_path)`
 
-API 19, capability `playback.lyrics_refresh`. After saving lyrics, pass the exact path
+API 17, capability `playback.lyrics_refresh`. After saving lyrics, pass the exact path
 returned by `get_current_track_path()`. Returns `true` when an asynchronous
 lyrics reload is requested, or `false, "track_changed"` if another track is
 current. Playback and position are preserved; a UI reload or track restart is
-unnecessary. Plugins requiring this behavior should set `api_min = 19`.
+unnecessary. Plugins requiring this behavior should set `api_min = 17`.
 
 ### API 16 audio additions
 

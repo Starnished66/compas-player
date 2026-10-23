@@ -86,6 +86,8 @@ void gui_theme_update_surface_contrast(void);
 #define GUI_BREEZE_MUTED_ON_DARK  0xA1A9B1
 #define GUI_BREEZE_TEXT_ON_LIGHT  0x232629
 #define GUI_BREEZE_MUTED_ON_LIGHT 0x707D8A
+/* Breeze "Negative" text, for destructive actions on either theme. */
+#define GUI_BREEZE_NEGATIVE       0xDA4453
 /* WCAG 2 thresholds: body text, and secondary or large text. */
 #define GUI_CONTRAST_TEXT  4.5f
 #define GUI_CONTRAST_MUTED 3.0f

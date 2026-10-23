@@ -712,7 +712,7 @@ static void firmware_update_confirm_cb(lv_event_t * e) {
 
 static void build_firmware_update_popup(void) {
     firmware_update_popup.popup = build_confirm_popup(
-        "", LV_LABEL_LONG_WRAP, &firmware_update_popup_title, NULL, TR("Update & Reboot"), lv_color_make(255, 120, 120),
+        "", LV_LABEL_LONG_WRAP, &firmware_update_popup_title, NULL, TR("Update & Reboot"), lv_color_hex(GUI_BREEZE_NEGATIVE),
         firmware_update_confirm_cb, NULL, TR("Cancel"), accent_lv_color(), firmware_update_cancel_cb, NULL,
         firmware_update_popup_backdrop_cb, &firmware_update_popup.backdrop);
 }
@@ -884,7 +884,7 @@ static void build_player_update_popups(void) {
         player_update_cancel_cb, &player_update_offer_popup.backdrop);
     player_update_confirm_popup.popup = build_confirm_popup(
         "", LV_LABEL_LONG_WRAP, &player_update_confirm_title, NULL, TR("Install & Restart"),
-        lv_color_make(255, 120, 120), player_update_install_confirm_cb, NULL,
+        lv_color_hex(GUI_BREEZE_NEGATIVE), player_update_install_confirm_cb, NULL,
         TR("Cancel"), accent_lv_color(), player_update_cancel_cb, NULL,
         player_update_cancel_cb, &player_update_confirm_popup.backdrop);
 }
@@ -1060,7 +1060,7 @@ static void build_firmware_ota_popups(void) {
         "", LV_LABEL_LONG_WRAP, &ota_offer_title, NULL, TR("Download"), accent_lv_color(), ota_offer_download_cb, NULL,
         TR("Cancel"), accent_lv_color(), ota_offer_cancel_cb, NULL, ota_offer_cancel_cb, &ota_offer_popup.backdrop);
     ota_install_popup.popup = build_confirm_popup(
-        "", LV_LABEL_LONG_WRAP, &ota_install_title, NULL, TR("Install & Reboot"), lv_color_make(255, 120, 120),
+        "", LV_LABEL_LONG_WRAP, &ota_install_title, NULL, TR("Install & Reboot"), lv_color_hex(GUI_BREEZE_NEGATIVE),
         ota_install_now_cb, NULL, TR("Later"), accent_lv_color(), ota_install_later_cb, NULL, ota_install_later_cb,
         &ota_install_popup.backdrop);
 }
@@ -3562,7 +3562,7 @@ static void build_button_mapping_reset_popup(void) {
     button_mapping_reset_popup.popup = build_confirm_popup(
         TR("Reset all button mappings?"), LV_LABEL_LONG_WRAP, NULL, NULL,
         TR("Reset"), accent_lv_color(), button_mapping_reset_confirm_cb, NULL,
-        TR("Cancel"), lv_color_make(255, 120, 120), button_mapping_reset_cancel_cb, NULL,
+        TR("Cancel"), lv_color_hex(GUI_BREEZE_NEGATIVE), button_mapping_reset_cancel_cb, NULL,
         button_mapping_reset_backdrop_cb, &button_mapping_reset_popup.backdrop);
 }
 
@@ -5870,7 +5870,7 @@ static void factory_reset_btn_cb(lv_event_t * e) {
 
 static void build_factory_reset_popup(void) {
     factory_reset_popup.popup = build_confirm_popup(
-        TR("Reset all settings and reboot?"), LV_LABEL_LONG_WRAP, NULL, NULL, TR("Reset"), lv_color_make(255, 120, 120),
+        TR("Reset all settings and reboot?"), LV_LABEL_LONG_WRAP, NULL, NULL, TR("Reset"), lv_color_hex(GUI_BREEZE_NEGATIVE),
         factory_reset_confirm_cb, NULL, TR("Cancel"), accent_lv_color(), factory_reset_cancel_cb, NULL,
         factory_reset_popup_backdrop_cb, &factory_reset_popup.backdrop);
 }
@@ -6150,9 +6150,7 @@ static void populate_eq_profiles_screen(void) {
         lv_obj_set_size(row, LIST_ROW_WIDTH, ui_list_row_height());
         lv_obj_add_style(row, &native_row_min_style, 0);
         lv_obj_set_style_radius(row, LIST_ROW_RADIUS, 0);
-        lv_obj_set_style_bg_color(row, LIST_ROW_BG_COLOR, 0);
-        lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(row, 0, 0);
+        lv_obj_add_style(row, &pill_row_bg_style, 0);
         lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
         char display[256], stem[256];
@@ -6212,7 +6210,7 @@ static void eq_profiles_edit_btn_cb(lv_event_t * e) {
 
 static void build_eq_profile_delete_popup(void) {
     eq_profile_delete_popup.popup = build_confirm_popup(TR("Delete this profile?"), LV_LABEL_LONG_WRAP, NULL, NULL, TR("Delete"),
-                                                         lv_color_make(255, 120, 120), eq_profile_delete_confirm_cb, NULL,
+                                                         lv_color_hex(GUI_BREEZE_NEGATIVE), eq_profile_delete_confirm_cb, NULL,
                                                          TR("Cancel"), accent_lv_color(), eq_profile_delete_cancel_cb, NULL,
                                                          eq_profile_delete_popup_backdrop_cb, &eq_profile_delete_popup.backdrop);
 }
@@ -6292,7 +6290,7 @@ static void build_eq_save_choice_popup(void) {
     eq_save_choice_popup.popup = build_confirm_popup(
         TR("Save Profile"), LV_LABEL_LONG_WRAP, NULL,
         TR("Save as a new profile, or replace one that already exists?"),
-        TR("Replace Existing"), lv_color_make(255, 120, 120), eq_save_choice_replace_cb, NULL,
+        TR("Replace Existing"), lv_color_hex(GUI_BREEZE_NEGATIVE), eq_save_choice_replace_cb, NULL,
         TR("New Profile"), accent_lv_color(), eq_save_choice_new_cb, NULL,
         eq_save_choice_backdrop_cb, &eq_save_choice_popup.backdrop);
 }

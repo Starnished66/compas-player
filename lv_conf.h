@@ -9,6 +9,12 @@
 /* Color depth: 16-bit (RGB565) is standard for many MIPS LCD screens */
 #define LV_COLOR_DEPTH 16
 
+/* Shape Arabic/Persian letters and detect each label's reading direction.
+ * AUTO keeps Latin text left-to-right without mirroring container layouts. */
+#define LV_USE_BIDI 1
+#define LV_BIDI_BASE_DIR_DEF LV_BASE_DIR_AUTO
+#define LV_USE_ARABIC_PERSIAN_CHARS 1
+
 /* LVGL's own built-in default is 33ms (~30fps) -- a software-imposed cap
  * unrelated to any real panel/hardware limit (the fbdev double-buffer pan
  * mechanism this device uses has no inherent 30fps ceiling). Real-hardware

@@ -1,4 +1,5 @@
 #include "gui_notifications.h"
+#include "ui_label_text.h"
 #include "gui_navigation.h"
 #include "gui_theme.h"
 #include "gui.h"
@@ -171,7 +172,7 @@ void gui_busy_set_detail(gui_busy_handle_t handle, const char * text) {
         lv_obj_add_flag(gui_busy_detail_label, LV_OBJ_FLAG_HIDDEN);
         return;
     }
-    if (strcmp(lv_label_get_text(gui_busy_detail_label), text) != 0) lv_label_set_text(gui_busy_detail_label, text);
+    if (!ui_label_text_matches(gui_busy_detail_label, text)) lv_label_set_text(gui_busy_detail_label, text);
     lv_obj_remove_flag(gui_busy_detail_label, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -223,7 +224,7 @@ lv_obj_t * build_menu_popup(const menu_popup_row_t * rows, int row_count, lv_eve
         lv_label_set_text(label, rows[i].label);
         lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
         lv_obj_add_style(label, &style_theme_text_primary, 0);
-        if (rows[i].destructive || rows[i].cancel) lv_obj_set_style_text_color(label, lv_color_make(255, 120, 120), 0);
+        if (rows[i].destructive) lv_obj_set_style_text_color(label, lv_color_hex(GUI_BREEZE_NEGATIVE), 0);
         lv_obj_set_style_text_font(label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
         lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_LEFT, 0);
         lv_obj_remove_flag(label, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);

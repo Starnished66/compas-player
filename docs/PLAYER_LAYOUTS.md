@@ -299,6 +299,16 @@ Generating a waveform never changes the playing decoder, volume, or effects.
   outline and play button get the accent color. These are applied after the
   layout's `<styles>`, so to use your own color set it directly on the widget,
   for example `style_text_color="0xFFFFFF"`.
+- **Theme surfaces.** The layout's root, `cover_card`, `overlay_panel`,
+  `lyrics_backdrop`, `lyrics_dim`, `lyrics_area`, `favorite_circle`,
+  `quality_pill` and `song_count` get the theme's window color as their
+  background color, and `progress_slider`'s groove gets the text color at low
+  opacity. Only the color is set: give a widget a `style_bg_opa` to show its
+  background at all. Leave `style_bg_color` off to follow light and dark
+  themes.
+- **Extra glyphs and captions.** An image named `glyph_<anything>` gets the
+  same tint as the transport icons, and a label named `caption_<anything>` the
+  muted text color, so a layout's own icons and captions follow the theme too.
 - **Bigger touch areas.** Small buttons get an invisible touch area of at
   least 44x44 pixels around them. It is placed once, when the screen is built,
   so a timeline that moves a button doesn't move its touch area.

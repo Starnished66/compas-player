@@ -1,4 +1,5 @@
 #include "gui_lock_screen.h"
+#include "ui_label_text.h"
 #include "i18n.h"
 #include "gui_navigation.h"
 #include "gui_shell.h"
@@ -169,27 +170,27 @@ static void update_clock_display(void) {
     app_clock_localtime(&tm_info);
     char buf[16];
     strftime(buf, sizeof(buf), current_clock_24h ? "%H:%M" : "%I:%M", &tm_info);
-    if (strcmp(lv_label_get_text(lock_clock_label), buf) != 0)
+    if (!ui_label_text_matches(lock_clock_label, buf))
         lv_label_set_text(lock_clock_label, buf);
     const char * days[] = { TR("Sunday"), TR("Monday"), TR("Tuesday"), TR("Wednesday"), TR("Thursday"), TR("Friday"), TR("Saturday") };
     const char * months[] = { TR("January"), TR("February"), TR("March"), TR("April"), TR("May"), TR("June"), TR("July"), TR("August"), TR("September"), TR("October"), TR("November"), TR("December") };
     snprintf(buf, sizeof(buf), "%d", tm_info.tm_mday);
     char date[96];
     snprintf(date, sizeof(date), "%s, %s %s", days[tm_info.tm_wday], buf, months[tm_info.tm_mon]);
-    if (strcmp(lv_label_get_text(lock_date_label), date) != 0)
+    if (!ui_label_text_matches(lock_date_label, date))
         lv_label_set_text(lock_date_label, date);
     int percent = battery_get_display_percent();
     if (percent >= 0) snprintf(buf, sizeof(buf), "%d%%", percent);
     else buf[0] = '\0';
-    if (strcmp(lv_label_get_text(lock_battery_label), buf) != 0)
+    if (!ui_label_text_matches(lock_battery_label, buf))
         lv_label_set_text(lock_battery_label, buf);
     if (lock_metadata) {
         char title[256], artist[256], album[256];
         double duration;
         bool loaded = gui_plugin_get_now_playing(title, sizeof(title), artist, sizeof(artist), album, sizeof(album), &duration);
         if (loaded) {
-            if (strcmp(lv_label_get_text(lock_title), title) != 0) lv_label_set_text(lock_title, title);
-            if (strcmp(lv_label_get_text(lock_artist), artist) != 0) lv_label_set_text(lock_artist, artist);
+            if (!ui_label_text_matches(lock_title, title)) lv_label_set_text(lock_title, title);
+            if (!ui_label_text_matches(lock_artist, artist)) lv_label_set_text(lock_artist, artist);
             lv_obj_remove_flag(lock_metadata, LV_OBJ_FLAG_HIDDEN);
         } else lv_obj_add_flag(lock_metadata, LV_OBJ_FLAG_HIDDEN);
     }

@@ -4,6 +4,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 OUT="${TMPDIR:-/tmp}/player_cover_prefetch_test.$$"
 trap 'rm -f "$OUT"' EXIT HUP INT TERM
 ${CC:-cc} -std=c11 -D_POSIX_C_SOURCE=200809L -DPLAYER_COVER_PREFETCH_TEST \
+  -DCOVER_RASTER_CACHE_TEST \
   -Wall -Wextra -Werror -pthread \
   -I"$ROOT/src/library" \
   -I"$ROOT/src/audio" -I"$ROOT/src/core" \

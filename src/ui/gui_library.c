@@ -521,6 +521,7 @@ static lv_obj_t * group_songs_screen = NULL;
 static lv_obj_t * group_songs_list = NULL;
 static lv_obj_t * group_songs_search_list = NULL;
 static lv_obj_t * group_songs_title_label = NULL;
+static char * group_songs_source_title;
 static void update_group_songs_search_button(bool editing);
 static void group_song_row_text_offset(lv_obj_t * row, bool with_thumbnail);
 static bool group_song_has_cover(int index);
@@ -1160,9 +1161,7 @@ static void populate_add_to_playlist_screen(void) {
     lv_obj_set_size(new_row, LIST_ROW_WIDTH, ui_list_row_height());
     lv_obj_add_style(new_row, &native_row_min_style, 0);
     lv_obj_set_style_radius(new_row, LIST_ROW_RADIUS, 0);
-    lv_obj_set_style_bg_color(new_row, LIST_ROW_BG_COLOR, 0);
-    lv_obj_set_style_bg_opa(new_row, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(new_row, 0, 0);
+    lv_obj_add_style(new_row, &pill_row_bg_style, 0);
     lv_obj_remove_flag(new_row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(new_row, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(new_row, new_playlist_row_cb, LV_EVENT_CLICKED, NULL);
@@ -1186,9 +1185,7 @@ static void populate_add_to_playlist_screen(void) {
         lv_obj_set_size(row, LIST_ROW_WIDTH, ui_list_row_height());
         lv_obj_add_style(row, &native_row_min_style, 0);
         lv_obj_set_style_radius(row, LIST_ROW_RADIUS, 0);
-        lv_obj_set_style_bg_color(row, LIST_ROW_BG_COLOR, 0);
-        lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(row, 0, 0);
+        lv_obj_add_style(row, &pill_row_bg_style, 0);
         lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(row, existing_playlist_row_cb, LV_EVENT_CLICKED, paths[i]);
@@ -1721,10 +1718,10 @@ static bool group_songs_music_submenu;
 
 static void set_player_source_group_songs(int pos) {
     set_player_source_group_songs_direct(group_songs_entries, group_songs_count,
-                                          lv_label_get_text(group_songs_title_label), pos);
+                                          group_songs_source_title ? group_songs_source_title : "", pos);
     current_settings.last_source_kind = group_songs_source_is_album ? 2 : 0;
     snprintf(current_settings.last_source_name, sizeof(current_settings.last_source_name), "%s",
-             group_songs_source_is_album ? lv_label_get_text(group_songs_title_label) : "");
+             group_songs_source_is_album && group_songs_source_title ? group_songs_source_title : "");
 }
 
 /* Non-NULL only when the currently shown group is a user-created .m3u
@@ -2563,6 +2560,8 @@ static void group_songs_screen_event_cb(lv_event_t * e) {
         group_songs_select_all_label = NULL;
         group_songs_select_all_done_btn = NULL;
         group_songs_title_label = NULL;
+        free(group_songs_source_title);
+        group_songs_source_title = NULL;
         group_songs_list = NULL;
         group_songs_populated_page_start = -1;
         group_songs_anchor_pending = false;
@@ -2733,6 +2732,8 @@ static void group_songs_delete_selected_cb(lv_event_t * e) {
  * .indices had to stay valid for as long as this screen kept showing it. */
 static void show_group_songs_editable(const char * name, const group_song_entry_t * entries, int count,
                                        const char * editable_m3u_path, bool music_submenu) {
+    char * source_title = strdup(name ? name : "");
+    if (!source_title) { show_error_toast(TR("Out of memory")); return; }
     ++album_load_generation;
     group_songs_source_is_album = group_songs_refresh_source == GROUP_SONGS_REFRESH_ALBUM;
     group_songs_music_submenu = music_submenu;
@@ -2747,7 +2748,9 @@ static void show_group_songs_editable(const char * name, const group_song_entry_
     group_songs_page_start = 0;
     group_songs_populated_page_start = -1;
 
-    lv_label_set_text(group_songs_title_label, name);
+    free(group_songs_source_title);
+    group_songs_source_title = source_title;
+    lv_label_set_text(group_songs_title_label, source_title);
     populate_group_songs_rows();
 
     nav_push(group_songs_screen);
@@ -2779,6 +2782,12 @@ static void show_music_group_songs(const char * name, const char * album_artist,
  * after this call -- ownership has moved to group_songs_entries. */
 static void show_group_songs_take_ownership(const char * name, group_song_entry_t * entries, int count,
                                             bool push_screen) {
+    char * source_title = strdup(name ? name : "");
+    if (!source_title) {
+        free_group_song_entries(entries, count);
+        show_error_toast(TR("Out of memory"));
+        return;
+    }
     ++album_load_generation;
     group_songs_source_is_album = false;
     group_songs_music_submenu = true;
@@ -2791,7 +2800,9 @@ static void show_group_songs_take_ownership(const char * name, group_song_entry_
     group_songs_page_start = 0;
     group_songs_populated_page_start = -1;
 
-    lv_label_set_text(group_songs_title_label, name);
+    free(group_songs_source_title);
+    group_songs_source_title = source_title;
+    lv_label_set_text(group_songs_title_label, source_title);
     populate_group_songs_rows();
 
     if (push_screen) nav_push(group_songs_screen);
@@ -9972,7 +9983,7 @@ static void build_sd_mount_failed_popup(void) {
         TR("SD card couldn't be read"), LV_LABEL_LONG_WRAP, NULL,
         TR("It may have no partition table or a file system this player can't use. "
         "Formatting will erase it and set it up for this player."),
-        TR("Format SD Card"), lv_color_make(255, 120, 120), sd_mount_failed_format_btn_cb, NULL, TR("Dismiss"),
+        TR("Format SD Card"), lv_color_hex(GUI_BREEZE_NEGATIVE), sd_mount_failed_format_btn_cb, NULL, TR("Dismiss"),
         accent_lv_color(), sd_mount_failed_dismiss_cb, NULL, sd_mount_failed_popup_backdrop_cb,
         &sd_mount_failed_popup.backdrop);
 }
@@ -9981,7 +9992,7 @@ static void build_sd_format_confirm_popup(void) {
     sd_format_confirm_popup.popup = build_confirm_popup(
         TR("Erase and format SD card?"), LV_LABEL_LONG_WRAP, NULL,
         TR("This permanently deletes everything on the card. This cannot be undone."), TR("Format"),
-        lv_color_make(255, 120, 120), sd_format_confirm_cb, NULL, TR("Cancel"), accent_lv_color(), sd_format_cancel_cb,
+        lv_color_hex(GUI_BREEZE_NEGATIVE), sd_format_confirm_cb, NULL, TR("Cancel"), accent_lv_color(), sd_format_cancel_cb,
         NULL, sd_format_confirm_popup_backdrop_cb, &sd_format_confirm_popup.backdrop);
 }
 

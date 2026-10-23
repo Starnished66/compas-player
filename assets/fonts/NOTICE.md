@@ -182,3 +182,25 @@ This is an unchanged copy of LVGL's `scripts/built_in_font/Montserrat-Medium.ttf
 the source face for the player's compiled Montserrat UI fonts. It supplies
 reusable large display text through the existing runtime font registry.
 The accompanying license is in `Montserrat-OFL.txt`.
+
+# arabic.ttf -- Noto Sans Arabic
+
+This subset is derived from **Noto Sans Arabic** by The Noto Project Authors
+(https://github.com/notofonts/arabic), distributed under the SIL Open Font
+License 1.1. The unmodified source is the Google Fonts file
+`NotoSansArabic[wght].ttf` in `ofl/notosansarabic`; the source used here has
+SHA-256 `3fae4d7239d1faa55b234bda8091019a5251ff79df40d5e29367d84bed2a8138`.
+The full license text is in `Noto-Sans-Arabic-OFL.txt`.
+
+## Modifications made for this project
+
+`scripts/generate_arabic_fallback_font` reproducibly instantiates the
+variable source at Regular weight (`wght=400`) and subsets it to Arabic,
+Arabic Supplement, Arabic Extended-A, Arabic Presentation Forms-A, and Arabic
+Presentation Forms-B (U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF,
+and U+FE70-FEFF). The script requires the pinned source SHA-256 and checks
+that LVGL's Arabic shaping outputs, including Persian presentation forms,
+are present. It renames the derivative **Compas Arabic** to comply with the
+OFL reserved-name terms. The result uses static TrueType outlines supported
+by LVGL's `tiny_ttf` fallback renderer. Arabic shaping and bidirectional
+layout remain the responsibility of LVGL; this font only supplies glyphs.

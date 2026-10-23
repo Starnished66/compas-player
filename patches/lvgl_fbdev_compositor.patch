@@ -1,11 +1,10 @@
-diff --git a/src/drivers/display/fb/lv_linux_fbdev.c b/src/drivers/display/fb/lv_linux_fbdev.c
-index c78b881..9e736ba 100644
 --- a/src/drivers/display/fb/lv_linux_fbdev.c
 +++ b/src/drivers/display/fb/lv_linux_fbdev.c
-@@ -71,6 +71,39 @@ typedef struct {
-     bool force_refresh;
-     uint8_t * draw_buf_1;
-     uint8_t * draw_buf_2;
+@@ -9,0 +10,3 @@
++#ifdef UI_PERF_TRACE
++#include "../../../../../src/ui/ui_frame_trace.h"
++#endif
+@@ -73,0 +77,33 @@
 +
 +    /* True when /dev/fb0 is double-buffered via panning (yres_virtual >=
 +     * 2*yres) and we've handed LVGL the two real physical halves as its
@@ -39,34 +38,16 @@ index c78b881..9e736ba 100644
 +    uint32_t ram_stage_saved_size;
 +    lv_display_render_mode_t ram_stage_saved_mode;
 +    uint8_t ram_stage_saved_active;
- } lv_linux_fb_t;
- 
- /**********************
-@@ -79,7 +112,10 @@ typedef struct {
- 
- static void del_event_cb(lv_event_t * e);
- static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * color_p);
+@@ -81,0 +118 @@
 +static void res_changed_event_cb(lv_event_t * e);
- static uint32_t tick_get_cb(void);
+@@ -82,0 +120,2 @@
 +static void configure_pan_buffers(lv_display_t * disp, lv_linux_fb_t * dsc);
 +static bool ram_stage_matches_display(lv_display_t * disp, const lv_linux_fb_t * dsc);
- 
- /**********************
-  *  STATIC VARIABLES
-@@ -118,6 +154,7 @@ lv_display_t * lv_linux_fbdev_create(void)
-     lv_display_set_driver_data(disp, dsc);
-     lv_display_set_flush_cb(disp, flush_cb);
-     lv_display_add_event_cb(disp, del_event_cb, LV_EVENT_DELETE, NULL);
+@@ -120,0 +160 @@
 +    lv_display_add_event_cb(disp, res_changed_event_cb, LV_EVENT_RESOLUTION_CHANGED, NULL);
- 
-     return disp;
- }
-@@ -234,14 +271,53 @@ lv_result_t lv_linux_fbdev_set_file(lv_display_t * disp, const char * file)
- 
-     uint8_t * draw_buf = NULL;
-     uint8_t * draw_buf_2 = NULL;
+@@ -237 +276,0 @@
 -    draw_buf = lv_malloc(draw_buf_size);
- 
+@@ -239,2 +278,33 @@
 -    if(LV_LINUX_FBDEV_BUFFER_COUNT == 2) {
 -        draw_buf_2 = lv_malloc(draw_buf_size);
 +#if LV_LINUX_FBDEV_MMAP && !LV_LINUX_FBDEV_BSD
@@ -102,9 +83,9 @@ index c78b881..9e736ba 100644
 +        }
 +        /* Do not store these in draw_buf_1/draw_buf_2 when unrotated -- del_event_cb()
 +         * lv_free()s those, and these are mmap'd framebuffer pages. */
-     }
+@@ -241,0 +312 @@
 +#endif /* LV_LINUX_FBDEV_MMAP && !LV_LINUX_FBDEV_BSD */
- 
+@@ -243,2 +314,10 @@
 -    dsc->draw_buf_1 = draw_buf;
 -    dsc->draw_buf_2 = draw_buf_2;
 +    if(!dsc->pan_double_buffer) {
@@ -117,13 +98,7 @@ index c78b881..9e736ba 100644
 +        dsc->draw_buf_1 = draw_buf;
 +        dsc->draw_buf_2 = draw_buf_2;
 +    }
- 
-     lv_display_set_resolution(disp, hor_res, ver_res);
-     lv_display_set_buffers(disp, draw_buf, draw_buf_2, draw_buf_size, LV_LINUX_FBDEV_RENDER_MODE);
-@@ -262,18 +338,133 @@ void lv_linux_fbdev_set_force_refresh(lv_display_t * disp, bool enabled)
-     dsc->force_refresh = enabled;
- }
- 
+@@ -264,0 +344,119 @@
 +const void * lv_linux_fbdev_get_active_page(lv_display_t * disp)
 +{
 +    if(!disp) return NULL;
@@ -202,11 +177,20 @@ index c78b881..9e736ba 100644
 +     * real hardware state. */
 +    struct fb_var_screeninfo tmp = dsc->vinfo;
 +    tmp.yoffset = target_yoffset;
++#ifdef UI_PERF_TRACE
++    ui_frame_trace_event(UI_FRAME_TRACE_EVENT_PAN_BEGIN, 1, target_yoffset);
++#endif
 +    if(ioctl(dsc->fbfd, FBIOPAN_DISPLAY, &tmp) == -1) {
++#ifdef UI_PERF_TRACE
++        ui_frame_trace_event(UI_FRAME_TRACE_EVENT_PAN_END, 0, target_yoffset);
++#endif
 +        perror("Error panning display");
 +        return false;
 +    }
 +    dsc->vinfo.yoffset = target_yoffset;
++#ifdef UI_PERF_TRACE
++    ui_frame_trace_event(UI_FRAME_TRACE_EVENT_PAN_END, 1, target_yoffset);
++#endif
 +    return true;
 +#endif /* LV_LINUX_FBDEV_BSD */
 +}
@@ -234,18 +218,12 @@ index c78b881..9e736ba 100644
 +    return true;
 +}
 +
- /**********************
-  *   STATIC FUNCTIONS
-  **********************/
- 
+@@ -269 +467 @@
 -static void write_to_fb(lv_linux_fb_t * dsc, uint32_t fb_pos, const void * data, size_t sz)
 +static bool write_to_fb(lv_linux_fb_t * dsc, uint32_t fb_pos, const void * data, size_t sz)
- {
- #if LV_LINUX_FBDEV_MMAP
-     uint8_t * fbp = (uint8_t *)dsc->fbp;
-     lv_memcpy(&fbp[fb_pos], data, sz);
+@@ -273,0 +472 @@
 +    return true;
- #else
+@@ -275,2 +474,6 @@
 -    if(pwrite(dsc->fbfd, data, sz, fb_pos) < 0)
 -        LV_LOG_ERROR("write failed: %d", errno);
 +    ssize_t written = pwrite(dsc->fbfd, data, sz, fb_pos);
@@ -254,13 +232,7 @@ index c78b881..9e736ba 100644
 +        return false;
 +    }
 +    return true;
- #endif
- }
- 
-@@ -297,17 +488,317 @@ static void del_event_cb(lv_event_t * e)
-         dsc->fbfd = -1;
-     }
-     if(dsc->rotated_buf) lv_free(dsc->rotated_buf);
+@@ -300,2 +503,14 @@
 -    if(dsc->draw_buf_1) lv_free(dsc->draw_buf_1);
 -    if(dsc->draw_buf_2) lv_free(dsc->draw_buf_2);
 +    if(dsc->ram_stage_buf) {
@@ -277,12 +249,7 @@ index c78b881..9e736ba 100644
 +        lv_free(dsc->draw_buf_2);
 +        dsc->draw_buf_2 = NULL;
 +    }
-     if(dsc->devname) lv_free((void *)dsc->devname);
- 
-     lv_free(dsc);
-     lv_display_set_driver_data(disp, NULL);
- }
- 
+@@ -307,0 +523,287 @@
 +static void res_changed_event_cb(lv_event_t * e)
 +{
 +    lv_display_t * disp = lv_event_get_target(e);
@@ -570,17 +537,9 @@ index c78b881..9e736ba 100644
 +#endif
 +}
 +
- static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * color_p)
- {
-     lv_linux_fb_t * dsc = lv_display_get_driver_data(disp);
+@@ -310,0 +813 @@
 +    if(lv_display_flush_is_last(disp)) dsc->last_present_successful = false;
- 
- #if LV_LINUX_FBDEV_MMAP
-     if(dsc->fbp == NULL) {
-@@ -316,6 +807,91 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
-     }
- #endif
- 
+@@ -318,0 +822,103 @@
 +#if LV_LINUX_FBDEV_MMAP && !LV_LINUX_FBDEV_BSD
 +    if(dsc->ram_stage_buf) {
 +        if(!ram_stage_matches_display(disp, dsc)) {
@@ -637,12 +596,21 @@ index c78b881..9e736ba 100644
 +
 +                struct fb_var_screeninfo tmp = dsc->vinfo;
 +                tmp.yoffset = target_yoffset;
++#ifdef UI_PERF_TRACE
++                ui_frame_trace_event(UI_FRAME_TRACE_EVENT_PAN_BEGIN, 0, target_yoffset);
++#endif
 +                if(ioctl(dsc->fbfd, FBIOPAN_DISPLAY, &tmp) == -1) {
++#ifdef UI_PERF_TRACE
++                    ui_frame_trace_event(UI_FRAME_TRACE_EVENT_PAN_END, 0, target_yoffset);
++#endif
 +                    perror("Error panning display");
 +                }
 +                else {
 +                    dsc->vinfo.yoffset = target_yoffset;
 +                    dsc->last_present_successful = true;
++#ifdef UI_PERF_TRACE
++                    ui_frame_trace_event(UI_FRAME_TRACE_EVENT_PAN_END, 1, target_yoffset);
++#endif
 +                }
 +            }
 +            else if(rotation == LV_DISPLAY_ROTATION_0) {
@@ -651,12 +619,21 @@ index c78b881..9e736ba 100644
 +                else {
 +                    struct fb_var_screeninfo tmp = dsc->vinfo;
 +                    tmp.yoffset = target_yoffset;
++#ifdef UI_PERF_TRACE
++                    ui_frame_trace_event(UI_FRAME_TRACE_EVENT_PAN_BEGIN, 0, target_yoffset);
++#endif
 +                    if(ioctl(dsc->fbfd, FBIOPAN_DISPLAY, &tmp) == -1) {
++#ifdef UI_PERF_TRACE
++                        ui_frame_trace_event(UI_FRAME_TRACE_EVENT_PAN_END, 0, target_yoffset);
++#endif
 +                        perror("Error panning display");
 +                    }
 +                    else {
 +                        dsc->vinfo.yoffset = target_yoffset;
 +                        dsc->last_present_successful = true;
++#ifdef UI_PERF_TRACE
++                        ui_frame_trace_event(UI_FRAME_TRACE_EVENT_PAN_END, 1, target_yoffset);
++#endif
 +                    }
 +                }
 +            }
@@ -666,55 +643,21 @@ index c78b881..9e736ba 100644
 +    }
 +#endif /* LV_LINUX_FBDEV_MMAP && !LV_LINUX_FBDEV_BSD */
 +
-     const bool wait_for_last_flush = LV_LINUX_FBDEV_RENDER_MODE == LV_DISPLAY_RENDER_MODE_FULL;
-     const bool is_last_flush = lv_display_flush_is_last(disp);
-     const bool skip_flush = wait_for_last_flush && !is_last_flush;
-@@ -390,6 +966,7 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
-         return;
-     }
- 
+@@ -392,0 +999 @@
 +    bool presented = true;
-     uint32_t fb_pos =
-         (clipped_area.x1 + dsc->vinfo.xoffset) * px_size +
-         (clipped_area.y1 + dsc->vinfo.yoffset) * dsc->finfo.line_length;
-@@ -400,7 +977,7 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
-             (clipped_area.x1 - disp->offset_x) * px_size +
-             (clipped_area.y1 - disp->offset_y) * disp->hor_res * px_size;
-         for(int32_t y = clipped_area.y1; y <= clipped_area.y2; y++) {
+@@ -403 +1010 @@
 -            write_to_fb(dsc, fb_pos, &color_p[color_pos], w * px_size);
 +            if(!write_to_fb(dsc, fb_pos, &color_p[color_pos], w * px_size)) presented = false;
-             fb_pos += dsc->finfo.line_length;
-             color_pos += disp->hor_res * px_size;
-         }
-@@ -414,7 +991,7 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
-         color_p += y_offset * stride + x_offset * px_size;
- 
-         for(int32_t y = clipped_area.y1; y <= clipped_area.y2; y++) {
+@@ -417 +1024 @@
 -            write_to_fb(dsc, fb_pos, color_p, w * px_size);
 +            if(!write_to_fb(dsc, fb_pos, color_p, w * px_size)) presented = false;
-             fb_pos += dsc->finfo.line_length;
-             color_p += stride;
-         }
-@@ -424,9 +1001,11 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
-         dsc->vinfo.activate |= FB_ACTIVATE_NOW | FB_ACTIVATE_FORCE;
-         if(ioctl(dsc->fbfd, FBIOPUT_VSCREENINFO, &(dsc->vinfo)) == -1) {
-             perror("Error setting var screen info");
+@@ -426,0 +1034 @@
 +            presented = false;
-         }
-     }
- 
+@@ -429,0 +1038 @@
 +    if(is_last_flush) dsc->last_present_successful = presented;
-     lv_display_flush_ready(disp);
- }
- 
-diff --git a/src/drivers/display/fb/lv_linux_fbdev.h b/src/drivers/display/fb/lv_linux_fbdev.h
-index a9b7be0..6680af0 100644
 --- a/src/drivers/display/fb/lv_linux_fbdev.h
 +++ b/src/drivers/display/fb/lv_linux_fbdev.h
-@@ -39,6 +39,116 @@ lv_result_t lv_linux_fbdev_set_file(lv_display_t * disp, const char * file);
-  */
- void lv_linux_fbdev_set_force_refresh(lv_display_t * disp, bool enabled);
- 
+@@ -41,0 +42,110 @@
 +/**
 + * When double buffering via panning is active (see lv_linux_fbdev.c's
 + * pan_double_buffer), returns a pointer to whichever physical half is
@@ -825,6 +768,3 @@ index a9b7be0..6680af0 100644
 + * afterward. */
 +bool lv_linux_fbdev_clear_scanout(lv_display_t * disp);
 +
- /**********************
-  *      MACROS
-  **********************/

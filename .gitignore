@@ -529,3 +529,7 @@ __pycache__/
 
 # Playlist bulk-edit regression source
 !src/library/playlist_bulk_delete_test.c
+
+# Website-ready user manual and its editorial handoff.
+!/docs/manual/**/*.md
+!/docs/manual/*.md
