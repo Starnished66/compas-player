@@ -3291,9 +3291,7 @@ lv_obj_t * add_popup_action_row(lv_obj_t * popup, const char * text, lv_color_t 
     lv_obj_set_width(label, lv_pct(100));
     lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
     lv_label_set_text(label, text);
-    /* Breeze keeps Cancel a plain button, whatever the other actions are. */
-    if (popup_text_is_cancel(text)) lv_obj_add_style(label, &style_theme_text_primary, 0);
-    else lv_obj_set_style_text_color(label, color, 0);
+    lv_obj_set_style_text_color(label, color, 0);
     lv_obj_set_style_text_font(label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_remove_flag(label, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
@@ -3389,8 +3387,8 @@ lv_obj_t * build_confirm_popup_with_labels(const char * title_text, lv_label_lon
     lv_obj_add_event_cb(cancel_row, cancel_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t * cancel_label = lv_label_create(cancel_row);
     lv_label_set_text(cancel_label, cancel_text);
-    if (popup_text_is_cancel(cancel_text)) lv_obj_add_style(cancel_label, &style_theme_text_primary, 0);
-    else lv_obj_set_style_text_color(cancel_label, cancel_color, 0);
+    lv_obj_set_style_text_color(cancel_label, popup_text_is_cancel(cancel_text)
+        ? lv_color_make(255, 120, 120) : cancel_color, 0);
     lv_obj_set_style_text_font(cancel_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     lv_obj_set_width(cancel_label, lv_pct(100));
     lv_label_set_long_mode(cancel_label, LV_LABEL_LONG_WRAP);
@@ -3543,7 +3541,7 @@ lv_obj_t * build_power_hub_panel(lv_obj_t * parent, lv_event_cb_t action_cb,
     lv_label_set_text(cancel_label, TR("Cancel"));
     lv_obj_set_width(cancel_label, lv_pct(100));
     lv_obj_set_style_text_align(cancel_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_add_style(cancel_label, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_color(cancel_label, lv_color_make(255, 120, 120), 0);
     lv_obj_set_style_text_font(cancel_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     lv_obj_remove_flag(cancel_label, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
     if (out_actions) out_actions[4] = cancel;

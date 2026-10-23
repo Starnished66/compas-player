@@ -225,6 +225,7 @@ lv_obj_t * build_menu_popup(const menu_popup_row_t * rows, int row_count, lv_eve
         lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
         lv_obj_add_style(label, &style_theme_text_primary, 0);
         if (rows[i].destructive) lv_obj_set_style_text_color(label, lv_color_hex(GUI_BREEZE_NEGATIVE), 0);
+        else if (rows[i].cancel) lv_obj_set_style_text_color(label, lv_color_make(255, 120, 120), 0);
         lv_obj_set_style_text_font(label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
         lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_LEFT, 0);
         lv_obj_remove_flag(label, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
