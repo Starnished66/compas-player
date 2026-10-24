@@ -319,6 +319,7 @@ typedef struct {
     int album_sort_mode; /* 0 Name, 1 Recently Added, 2 Release Year, 3 Album Artist then Year (oldest first). */
     int artist_albums_sort_mode; /* Ordering within an Artist's Albums view. */
     int album_artist_albums_sort_mode; /* Ordering within an Album Artist's Albums view. */
+    int genre_view_mode; /* Inside a genre: 0 All Songs, 1 Artists, 2 Album Artist, 3 Albums. */
 
     /* Idle action after a long stretch idle (screen off, not playing, not
      * charging) -- either power_suspend_now() (suspend-to-RAM, see

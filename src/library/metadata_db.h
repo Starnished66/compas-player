@@ -371,6 +371,17 @@ int64_t metadata_db_get_album_for_group_sorted_offset(metadata_db_group_kind_t k
                                                       metadata_db_album_sort_t sort,
                                                       const char *album, const char *album_artist);
 int64_t metadata_db_count_albums_for_group(metadata_db_group_kind_t kind, const char * name);
+
+/* One genre's distinct artists (ARTIST), album artists (ALBUM_ARTIST, the
+ * artist when a song has none) or albums (ALBUM, keyed by album and album
+ * artist), alphabetical, for browsing a genre by album (issue #191). For
+ * ALBUM, artist_filter keeps albums credited to that artist (artist_kind
+ * ARTIST) or album artist (artist_kind ALBUM_ARTIST). Like the GENRE groups it
+ * streams every song and keeps at most 2000 groups; song_count counts the
+ * genre's songs only. *out_total, when given, receives the group count. */
+int metadata_db_get_genre_groups_page(metadata_db_group_kind_t kind, const char * genre,
+                                      metadata_db_group_kind_t artist_kind, const char * artist_filter,
+                                      int offset, int max_rows, group_row_t * out_rows, int * out_total);
 int metadata_db_get_albums_for_group(metadata_db_group_kind_t kind, const char * name, int offset, int max_rows,
                                       group_row_t * out_rows);
 int metadata_db_get_albums_for_group_sorted(metadata_db_group_kind_t kind, const char * name,
