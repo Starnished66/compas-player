@@ -1432,7 +1432,11 @@ static void rebuild_list(file_browser_t * fb) {
     }
 
     if (fb->entry_count == 0) {
-        if (fb->list_flags & LIST_ALL_FILES)
+        /* No index yet: the worker is still reading the folder, so don't
+         * claim it is empty (issue #190). index_poll_cb rebuilds on arrival. */
+        if (!fb->current_index)
+            build_list_message(fb->list, TR("Loading..."), NULL);
+        else if (fb->list_flags & LIST_ALL_FILES)
             build_list_message(fb->list, TR("This folder is empty"), NULL);
         else
             build_list_message(fb->list,
