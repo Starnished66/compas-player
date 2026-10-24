@@ -71,6 +71,11 @@ struct file_browser {
     lv_obj_t * screen;
     lv_obj_t * path_label;
     lv_obj_t * list;
+    lv_obj_t * pager;
+    lv_obj_t * pager_previous;
+    lv_obj_t * pager_next;
+    lv_obj_t * pager_label;
+    int32_t list_full_height;
     gui_popup_t page_jump_popup;
     lv_obj_t * page_jump_slider;
     lv_obj_t * page_jump_label;
@@ -1007,6 +1012,8 @@ static file_browser_t * browser_of(lv_event_t * e) {
     return lv_obj_get_user_data(lv_obj_get_parent(lv_event_get_current_target_obj(e)));
 }
 
+static void page_move_to(file_browser_t * fb, int next);
+
 static int browser_page_count(const file_browser_t * fb) {
     return fb->entry_count > 0 ? 1 + (fb->entry_count - 1) / FILE_BROWSER_PAGE_SIZE : 1;
 }
@@ -1045,14 +1052,7 @@ static void page_jump_apply_cb(lv_event_t * e) {
     if (page < 1) page = 1;
     if (page > page_count) page = page_count;
     page_jump_hide(fb);
-    int next = (page - 1) * FILE_BROWSER_PAGE_SIZE;
-    if (next == fb->page_start) return;
-    fb->page_start = next;
-    if (!load_visible_entries(fb)) {
-        atomic_store(&fb->index_worker_error, true);
-        fb->entry_count = -1;
-    }
-    rebuild_list(fb);
+    page_move_to(fb, (page - 1) * FILE_BROWSER_PAGE_SIZE);
 }
 
 static lv_obj_t * page_jump_action_row(lv_obj_t * parent, const char * text,
@@ -1164,23 +1164,21 @@ static void page_pager_next_cb(lv_event_t * e) {
     if (fb) page_move_to(fb, fb->page_start + FILE_BROWSER_PAGE_SIZE);
 }
 
-static lv_obj_t * page_pager_button(lv_obj_t * pager, const char * label_text,
-                                    lv_event_cb_t callback, bool enabled, int32_t height) {
+/* Previous/Next are pinned under the path, outside the scrolling list, so
+ * they stay in reach on long pages (issue #189). */
+static int32_t page_pager_height(void) {
+    int32_t height = lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT)) + BOARD_SCALE_PX(24);
+    return height < BOARD_SCALE_PX(64) ? BOARD_SCALE_PX(64) : height;
+}
+
+static lv_obj_t * page_pager_button(lv_obj_t * pager, const char * label_text, lv_event_cb_t callback) {
     lv_obj_t * button = lv_obj_create(pager);
-    lv_obj_set_size(button, lv_pct(30), height);
+    lv_obj_set_size(button, lv_pct(30), lv_pct(100));
     lv_obj_add_style(button, &pill_row_bg_style, 0);
     lv_obj_add_style(button, &list_row_pressed_style, LV_STATE_PRESSED);
     lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_pad_all(button, 0, 0);
-    lv_obj_set_style_border_width(button, 0, 0);
-    if (enabled) {
-        lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, NULL);
-    } else {
-        lv_obj_remove_flag(button, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_state(button, LV_STATE_DISABLED);
-        lv_obj_set_style_opa(button, LV_OPA_50, 0);
-    }
+    lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t * label = lv_label_create(button);
     lv_label_set_text(label, label_text);
@@ -1194,36 +1192,58 @@ static lv_obj_t * page_pager_button(lv_obj_t * pager, const char * label_text,
     return button;
 }
 
-static void add_page_pager(file_browser_t * fb) {
-    lv_obj_t * pager = lv_obj_create(fb->list);
-    int32_t height = lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT)) + BOARD_SCALE_PX(24);
-    if (height < BOARD_SCALE_PX(64)) height = BOARD_SCALE_PX(64);
-    lv_obj_set_size(pager, LIST_ROW_WIDTH_WIDE, height);
+static void set_pager_button_enabled(lv_obj_t * button, bool enabled) {
+    if (enabled) {
+        lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_remove_state(button, LV_STATE_DISABLED);
+        lv_obj_set_style_opa(button, LV_OPA_COVER, 0);
+    } else {
+        lv_obj_remove_flag(button, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_state(button, LV_STATE_DISABLED);
+        lv_obj_set_style_opa(button, LV_OPA_50, 0);
+    }
+}
+
+/* The bar takes the top of the list's area; the list shrinks below it. */
+static void create_page_pager(file_browser_t * fb, lv_obj_t * parent, int32_t list_top) {
+    lv_obj_t * pager = lv_obj_create(parent);
+    fb->pager = pager;
+    lv_obj_set_size(pager, LIST_ROW_WIDTH_WIDE, page_pager_height());
     lv_obj_set_style_bg_opa(pager, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(pager, 0, 0);
     lv_obj_set_style_pad_all(pager, 0, 0);
-    lv_obj_set_style_pad_gap(pager, 0, 0);
     lv_obj_set_flex_flow(pager, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(pager, LV_FLEX_ALIGN_SPACE_BETWEEN,
-                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(pager, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_remove_flag(pager, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_user_data(pager, fb);
+    lv_obj_align(pager, LV_ALIGN_TOP_MID, 0, list_top + GUI_ROW_GAP);
 
-    bool has_previous = fb->page_start > 0;
-    bool has_next = fb->page_start + FILE_BROWSER_PAGE_SIZE < fb->entry_count;
-    page_pager_button(pager, TR("Previous"), page_pager_previous_cb, has_previous, height);
-
-    lv_obj_t * page_label = lv_label_create(pager);
-    lv_label_set_text_fmt(page_label, "%d / %d", fb->page_start / FILE_BROWSER_PAGE_SIZE + 1,
-                          browser_page_count(fb));
-    lv_obj_add_style(page_label, &style_theme_text_primary, 0);
-    lv_obj_set_style_text_font(page_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
-    lv_obj_set_width(page_label, lv_pct(40));
-    lv_obj_set_style_text_align(page_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_remove_flag(page_label, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-
-    page_pager_button(pager, TR("Next"), page_pager_next_cb, has_next, height);
+    fb->pager_previous = page_pager_button(pager, TR("Previous"), page_pager_previous_cb);
+    fb->pager_label = lv_label_create(pager);
+    lv_obj_add_style(fb->pager_label, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(fb->pager_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+    lv_obj_set_width(fb->pager_label, lv_pct(40));
+    lv_obj_set_style_text_align(fb->pager_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_remove_flag(fb->pager_label, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    fb->pager_next = page_pager_button(pager, TR("Next"), page_pager_next_cb);
     enable_gesture_bubble_recursive(pager);
+    lv_obj_add_flag(pager, LV_OBJ_FLAG_HIDDEN);
+}
+
+/* Shows the bar only for folders with more than one page. */
+static void update_page_pager(file_browser_t * fb) {
+    if (!fb->pager) return;
+    if (!file_browser_can_jump_pages(fb)) {
+        lv_obj_add_flag(fb->pager, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_height(fb->list, fb->list_full_height);
+        return;
+    }
+    lv_label_set_text_fmt(fb->pager_label, "%d / %d", fb->page_start / FILE_BROWSER_PAGE_SIZE + 1,
+                          browser_page_count(fb));
+    set_pager_button_enabled(fb->pager_previous, fb->page_start > 0);
+    set_pager_button_enabled(fb->pager_next, fb->page_start + FILE_BROWSER_PAGE_SIZE < fb->entry_count);
+    lv_obj_remove_flag(fb->pager, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_height(fb->list, fb->list_full_height - page_pager_height() - GUI_ROW_GAP);
 }
 
 /* Entries in the folder's index; entry_count is -1 after a read error. */
@@ -1403,15 +1423,12 @@ static lv_obj_t * add_file_row(file_browser_t * fb, const char * label_text, con
 static void rebuild_list(file_browser_t * fb) {
     lv_obj_clean(fb->list);
     set_path_label(fb);
+    update_page_pager(fb);
     if (fb->entry_count < 0) {
         add_file_row(fb, atomic_load(&fb->index_worker_oversized)
                      ? TR("Folder too large to index (tap Back)")
                      : TR("Unable to read folder (tap Back and retry)"), NULL, NULL, NULL, false, false);
         return;
-    }
-
-    if (file_browser_can_jump_pages(fb)) {
-        add_page_pager(fb);
     }
 
     if (fb->entry_count == 0) {
@@ -1614,6 +1631,9 @@ file_browser_t * file_browser_create(lv_obj_t * parent, const char * root,
      * too: with START it sat at the left edge, leaving both side margins on
      * the right. */
     lv_obj_set_flex_align(list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_update_layout(list);
+    fb->list_full_height = lv_obj_get_height(list);
+    create_page_pager(fb, parent, lv_obj_get_y(list));
 
     fb->index_poll_timer = lv_timer_create(index_poll_cb, 100, fb);
     scan_current_dir(fb);
