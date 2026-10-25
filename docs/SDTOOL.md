@@ -160,7 +160,7 @@ identity marker and migrates no index.
 Tags are read in a separate `compas-sdtool parse-worker` process, started by
 the scan on every system without a shell (`posix_spawn`, or `CreateProcess` on
 Windows). File names go to it length-prefixed, so any name is exact, and it
-returns each result with the file's index, which the scan checks. A file whose parser crashes or runs past 5 seconds
+returns each result with the file's index, which the scan checks. A file whose parser crashes or runs past 30 seconds (`SDTOOL_PARSE_TIMEOUT` overrides)
 is reported in the `failed` count and gets no row (an older row survives), as
 in the player. One bad file never blocks the scan. If the worker cannot be started, or at
 least three files needed reading and none could be, the scan stops with `worker_failed` and writes nothing.

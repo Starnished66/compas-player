@@ -6,7 +6,10 @@
 #include <time.h>
 #include <unistd.h>
 
-#define PARSE_TIMEOUT_SECONDS 5
+/* Wall-clock limit per file. Generous because tags are read from slow card
+ * readers and busy machines; a stalled read still ends. SDTOOL_PARSE_TIMEOUT
+ * (seconds) overrides it, so the tests need not wait. */
+#define PARSE_TIMEOUT_SECONDS 30
 
 static const char *temp_directory(void) {
     const char *dir = getenv("TMPDIR");
@@ -86,11 +89,13 @@ sdtool_parse_result_t sdtool_parse_files(const char *const *paths, size_t count,
 static volatile time_t started_at; /* 0 while idle */
 
 static void *watchdog(void *unused) {
-    (void) unused;
+    const char *override = getenv("SDTOOL_PARSE_TIMEOUT");
+    long limit = override ? atol(override) : 0;
+    if (limit <= 0) limit = PARSE_TIMEOUT_SECONDS;
     for (;;) {
         usleep(200000);
         time_t started = started_at;
-        if (started && time(NULL) - started > PARSE_TIMEOUT_SECONDS) _exit(3);
+        if (started && time(NULL) - started > limit) _exit(3);
     }
     return NULL;
 }

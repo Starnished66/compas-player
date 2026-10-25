@@ -171,16 +171,16 @@ fi
 # a tag parser that crashes or hangs fails that file only: no placeholder row,
 # even when it is the only file to read; the scan still commits.
 cp "$card/Artist Three/Album Three/01 Fourth.mp3" "$card/Artist Three/Album Three/03 Crash.mp3"
-for fault in crash:03 hang:03; do
-  r=$(SDTOOL_TEST_FAULT=$fault; export SDTOOL_TEST_FAULT; run scan "$card") || fail "lone bad file ($fault) blocked the scan"
+for fault in "crash:/03 Crash" "hang:/03 Crash"; do
+  r=$(SDTOOL_TEST_FAULT=$fault; SDTOOL_PARSE_TIMEOUT=2; export SDTOOL_TEST_FAULT SDTOOL_PARSE_TIMEOUT; run scan "$card") || fail "lone bad file ($fault) blocked the scan"
   [ "$(field "$r" failed)" = 1 ] && [ "$(field "$r" songs)" = 5 ] && [ "$(field "$r" written)" = True ] ||
     fail "lone bad file ($fault): $r"
 done
 cp "$card/Artist Three/Album Three/01 Fourth.mp3" "$card/Artist Three/Album Three/04 Hang.mp3"
-r=$(SDTOOL_TEST_FAULT=crash:03; export SDTOOL_TEST_FAULT; run scan "$card") || fail "scan with crashing parser"
+r=$(SDTOOL_TEST_FAULT="crash:/03 Crash"; export SDTOOL_TEST_FAULT; run scan "$card") || fail "scan with crashing parser"
 [ "$(field "$r" failed)" = 1 ] && [ "$(field "$r" songs)" = 6 ] || fail "crash handling: $r"
 cp "$card/Artist Three/Album Three/01 Fourth.mp3" "$card/Artist Three/Album Three/07 Fine.mp3"
-r=$(SDTOOL_TEST_FAULT=hang:03; export SDTOOL_TEST_FAULT; run scan "$card") || fail "scan with hanging parser"
+r=$(SDTOOL_TEST_FAULT="hang:/03 Crash"; SDTOOL_PARSE_TIMEOUT=2; export SDTOOL_TEST_FAULT SDTOOL_PARSE_TIMEOUT; run scan "$card") || fail "scan with hanging parser"
 [ "$(field "$r" failed)" = 1 ] && [ "$(field "$r" songs)" = 7 ] || fail "hang handling: $r"
 rm "$card/Artist Three/Album Three/03 Crash.mp3" "$card/Artist Three/Album Three/04 Hang.mp3" "$card/Artist Three/Album Three/07 Fine.mp3"
 r=$(run scan "$card") || fail "scan after removing test files"
@@ -188,14 +188,14 @@ r=$(run scan "$card") || fail "scan after removing test files"
 
 # a worker that exits cleanly mid-batch is retried once, in a fresh worker.
 for n in a b c; do cp "$card/Artist Three/Album Three/01 Fourth.mp3" "$card/Artist Three/Album Three/08$n.mp3"; done
-r=$(SDTOOL_TEST_FAULT=exit:08; export SDTOOL_TEST_FAULT; run scan "$card") || fail "scan with an exiting worker"
+r=$(SDTOOL_TEST_FAULT="exit:/08"; export SDTOOL_TEST_FAULT; run scan "$card") || fail "scan with an exiting worker"
 [ "$(field "$r" failed)" = 0 ] && [ "$(field "$r" songs)" = 8 ] || fail "retry after a clean exit: $r"
 rm "$card/Artist Three/Album Three/"08?.mp3
 run scan "$card" >/dev/null || fail "scan after removing the retry files"
 
 # three corrupt files are three failed files, not a broken worker: it commits.
 for n in a b c; do cp "$card/Artist Three/Album Three/01 Fourth.mp3" "$card/Artist Three/Album Three/09$n.mp3"; done
-r=$(SDTOOL_TEST_FAULT=crash:09; export SDTOOL_TEST_FAULT; run scan "$card") || fail "scan with three corrupt files"
+r=$(SDTOOL_TEST_FAULT="crash:/09"; export SDTOOL_TEST_FAULT; run scan "$card") || fail "scan with three corrupt files"
 [ "$(field "$r" failed)" = 3 ] && [ "$(field "$r" songs)" = 5 ] && [ "$(field "$r" written)" = True ] || fail "three corrupt files: $r"
 rm "$card/Artist Three/Album Three/"09?.mp3
 run scan "$card" >/dev/null || fail "scan after removing the corrupt files"
