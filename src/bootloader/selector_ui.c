@@ -2,8 +2,6 @@
 
 #include "selector_ui.h"
 
-#include <ctype.h>
-#include <errno.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,11 +9,14 @@
 #include <sys/stat.h>
 
 #include "board_config.h"
+#include "selector_font_pin.h"
+#include "selector_internal.h"
+#include "selector_logos.h"
+#include "selector_style.h"
 
 /* Reuse LVGL's vendored tiny_ttf rasterizer without initializing LVGL. The
  * font is opened once and stb's streaming callbacks seek/read that FILE for
  * each glyph; the target asset is local and capped below 6 MiB. */
-static size_t ttf_stream_limit;
 static void ttf_stream_read(FILE * stream, void * destination, size_t count);
 static void ttf_stream_seek(FILE * stream, long offset);
 #define STBTT_STREAM_TYPE FILE*
@@ -31,61 +32,89 @@ static void ttf_stream_seek(FILE * stream, long offset);
 #include "../../lvgl/src/libs/tiny_ttf/stb_rect_pack.h"
 #include "../../lvgl/src/libs/tiny_ttf/stb_truetype_htcw.h"
 
-#define DEFAULT_FONT_PATH "/usr/resource/fonts/Montserrat-Medium.ttf"
-#define DEFAULT_SETTINGS_PATH "/usr/data/.compas/settings.txt"
+#define DEFAULT_FONT_PATH "/usr/resource/fonts/NotoSans-Regular.ttf"
+#define DEFAULT_MEDIUM_FONT_PATH "/usr/resource/fonts/NotoSans-Medium.ttf"
+#define FALLBACK_FONT_PATH "/usr/resource/fonts/Montserrat-Medium.ttf"
 #define MAX_FONT_BYTES (6u * 1024u * 1024u)
 #define MONTSERRAT_MEDIUM_BYTES 243180u
 #define MONTSERRAT_MEDIUM_CRC32 0xE84615C2u
-#define BG_RGB 0x100810u
-#define CARD_RGB 0x201018u
-#define PRIMARY_RGB 0xF1F3F5u
-#define SECONDARY_RGB 0xA8B0BCu
-#define BORDER_RGB 0x343B46u
-#define DEFAULT_ACCENT_RGB 0xB0142Bu /* DEFAULT_ACCENT_COLOR */
 
 typedef struct { int r, g, b; } rgb_t;
 
-static uint16_t * canvas;
-static int canvas_width;
-static int canvas_height;
-static size_t canvas_stride;
-static int clip_top;
-static int clip_bottom;
-static uint32_t accent_rgb = DEFAULT_ACCENT_RGB;
-static uint32_t selected_rgb;
+uint16_t * sel_canvas;
+int sel_canvas_width;
+int sel_canvas_height;
+size_t sel_canvas_stride;
+int sel_clip_top;
+int sel_clip_bottom;
 static FILE * font_file;
+static FILE * font_medium_file;
 static stbtt_fontinfo font_info;
+static stbtt_fontinfo font_medium_info;
 static int font_ready;
+static int font_medium_ready;
 static int font_ascent;
 static int font_descent;
 static int font_line_gap;
+static int font_medium_ascent;
+static int font_medium_descent;
+static int font_medium_line_gap;
+
+typedef struct { FILE * file; size_t limit; } ttf_file_slot_t;
+static ttf_file_slot_t ttf_slots[2];
+
+static void ttf_register(FILE * stream, size_t size) {
+    if (!stream) return;
+    size_t limit = size > MAX_FONT_BYTES ? MAX_FONT_BYTES : size;
+    for (int i = 0; i < 2; i++) {
+        if (ttf_slots[i].file == stream || ttf_slots[i].file == NULL) {
+            ttf_slots[i].file = stream;
+            ttf_slots[i].limit = limit;
+            return;
+        }
+    }
+}
+
+static void ttf_unregister(FILE * stream) {
+    for (int i = 0; i < 2; i++) {
+        if (ttf_slots[i].file == stream) {
+            ttf_slots[i].file = NULL;
+            ttf_slots[i].limit = 0;
+        }
+    }
+}
+
+static void ttf_clear_slots(void) {
+    ttf_slots[0].file = ttf_slots[1].file = NULL;
+    ttf_slots[0].limit = ttf_slots[1].limit = 0;
+}
+
+static size_t ttf_file_limit(FILE * stream) {
+    for (int i = 0; i < 2; i++)
+        if (ttf_slots[i].file == stream) return ttf_slots[i].limit;
+    return 0;
+}
 
 static void ttf_stream_seek(FILE * stream, long offset) {
     /* stb's parser trusts offsets inside the TTF. Clamp malformed offsets to
-     * EOF so its stream callbacks can never read outside the validated file. */
-    if (offset < 0 || (uintmax_t)offset > ttf_stream_limit)
-        offset = (long)ttf_stream_limit;
+     * EOF so its stream callbacks can never read outside the validated file.
+     * Limit is taken from the FILE so Regular and Medium can be open together. */
+    size_t limit = ttf_file_limit(stream);
+    if (offset < 0 || (uintmax_t)offset > limit)
+        offset = (long)limit;
     clearerr(stream);
     (void)fseek(stream, offset, SEEK_SET);
 }
 
 static void ttf_stream_read(FILE * stream, void * destination, size_t count) {
     memset(destination, 0, count);
+    size_t limit = ttf_file_limit(stream);
     long position = ftell(stream);
-    if (position < 0 || (uintmax_t)position >= ttf_stream_limit) return;
-    size_t remaining = ttf_stream_limit - (size_t)position;
+    if (position < 0 || (uintmax_t)position >= limit) return;
+    size_t remaining = limit - (size_t)position;
     if (count > remaining) count = remaining;
     (void)fread(destination, 1, count, stream);
 }
-
-static const char * const selector_title[] = { "Compás", "Rockbox", "Tools" };
-static const char * const selector_detail[] = {
-    "Compás player", "Rockbox player", "ADB, scripts and system options"
-};
-static const char * const tool_titles[] = {
-    "ADB", "Run script", "Remount SD", "Repair SD card",
-    "Restart", "Shutdown", "Recovery"
-};
 
 static rgb_t rgb(uint32_t value) {
     rgb_t c = { (int)((value >> 16) & 255), (int)((value >> 8) & 255), (int)(value & 255) };
@@ -97,14 +126,14 @@ static uint16_t pack565(uint32_t value) {
     return (uint16_t)(((unsigned)c.r >> 3 << 11) | ((unsigned)c.g >> 2 << 5) | ((unsigned)c.b >> 3));
 }
 
-static void put_pixel(int x, int y, uint32_t color, unsigned alpha) {
-    if (!canvas || x < 0 || y < clip_top || x >= canvas_width || y >= canvas_height ||
-        y >= clip_bottom || alpha == 0) return;
+void sel_put_pixel(int x, int y, uint32_t color, unsigned alpha) {
+    if (!sel_canvas || x < 0 || y < sel_clip_top || x >= sel_canvas_width || y >= sel_canvas_height ||
+        y >= sel_clip_bottom || alpha == 0) return;
     if (alpha >= 255) {
-        canvas[(size_t)y * canvas_stride + (size_t)x] = pack565(color);
+        sel_canvas[(size_t)y * sel_canvas_stride + (size_t)x] = pack565(color);
         return;
     }
-    uint16_t old = canvas[(size_t)y * canvas_stride + (size_t)x];
+    uint16_t old = sel_canvas[(size_t)y * sel_canvas_stride + (size_t)x];
     rgb_t bg = { (int)(((old >> 11) & 31) * 255 / 31),
                  (int)(((old >> 5) & 63) * 255 / 63),
                  (int)((old & 31) * 255 / 31) };
@@ -113,19 +142,40 @@ static void put_pixel(int x, int y, uint32_t color, unsigned alpha) {
     uint32_t blended = (uint32_t)((fg.r * alpha + bg.r * inv + 127) / 255) << 16 |
                        (uint32_t)((fg.g * alpha + bg.g * inv + 127) / 255) << 8 |
                        (uint32_t)((fg.b * alpha + bg.b * inv + 127) / 255);
-    canvas[(size_t)y * canvas_stride + (size_t)x] = pack565(blended);
+    sel_canvas[(size_t)y * sel_canvas_stride + (size_t)x] = pack565(blended);
 }
 
-static void fill_rect(int x, int y, int w, int h, uint32_t color) {
+void sel_blit_a8(int x, int y, const uint8_t * pixels, int width, int height, uint32_t color) {
+    if (!pixels || width <= 0 || height <= 0) return;
+    for (int row = 0; row < height; row++) {
+        const uint8_t * src = pixels + (size_t)row * (size_t)width;
+        for (int col = 0; col < width; col++)
+            sel_put_pixel(x + col, y + row, color, src[col]);
+    }
+}
+
+void sel_blit_rgba(int x, int y, const uint8_t * pixels, int width, int height) {
+    if (!pixels || width <= 0 || height <= 0) return;
+    for (int row = 0; row < height; row++) {
+        const uint8_t * src = pixels + (size_t)row * (size_t)width * 4u;
+        for (int col = 0; col < width; col++) {
+            const uint8_t * p = src + (size_t)col * 4u;
+            uint32_t color = ((uint32_t)p[0] << 16) | ((uint32_t)p[1] << 8) | p[2];
+            sel_put_pixel(x + col, y + row, color, p[3]);
+        }
+    }
+}
+
+void sel_fill_rect(int x, int y, int w, int h, uint32_t color) {
     if (w <= 0 || h <= 0) return;
     int x0 = x < 0 ? 0 : x;
-    int y0 = y < clip_top ? clip_top : y;
-    int x1 = x > canvas_width - w ? canvas_width : x + w;
-    int y1 = y > canvas_height - h ? canvas_height : y + h;
-    if (y1 > clip_bottom) y1 = clip_bottom;
+    int y0 = y < sel_clip_top ? sel_clip_top : y;
+    int x1 = x > sel_canvas_width - w ? sel_canvas_width : x + w;
+    int y1 = y > sel_canvas_height - h ? sel_canvas_height : y + h;
+    if (y1 > sel_clip_bottom) y1 = sel_clip_bottom;
     for (int py = y0; py < y1; py++)
         for (int px = x0; px < x1; px++)
-            canvas[(size_t)py * canvas_stride + (size_t)px] = pack565(color);
+            sel_canvas[(size_t)py * sel_canvas_stride + (size_t)px] = pack565(color);
 }
 
 static int integer_sqrt(int value) {
@@ -134,13 +184,13 @@ static int integer_sqrt(int value) {
     return root;
 }
 
-static void line(int x0, int y0, int x1, int y1, uint32_t color, int thickness) {
+void sel_line(int x0, int y0, int x1, int y1, uint32_t color, int thickness) {
     int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
     int dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
     int err = dx + dy;
     int radius = thickness / 2;
     for (;;) {
-        fill_rect(x0 - radius, y0 - radius, thickness, thickness, color);
+        sel_fill_rect(x0 - radius, y0 - radius, thickness, thickness, color);
         if (x0 == x1 && y0 == y1) break;
         int e2 = 2 * err;
         if (e2 >= dy) { err += dy; x0 += sx; }
@@ -148,7 +198,7 @@ static void line(int x0, int y0, int x1, int y1, uint32_t color, int thickness) 
     }
 }
 
-static void rounded_fill(int x, int y, int w, int h, int radius, uint32_t color) {
+void sel_rounded_fill(int x, int y, int w, int h, int radius, uint32_t color) {
     if (w <= 0 || h <= 0) return;
     if (radius < 0) radius = 0;
     if (radius > w / 2) radius = w / 2;
@@ -162,15 +212,8 @@ static void rounded_fill(int x, int y, int w, int h, int radius, uint32_t color)
             int dy = row - (h - radius);
             inset = radius - integer_sqrt(radius * radius - dy * dy);
         }
-        fill_rect(x + inset, y + row, w - 2 * inset, 1, color);
+        sel_fill_rect(x + inset, y + row, w - 2 * inset, 1, color);
     }
-}
-
-static void rounded_card(int x, int y, int w, int h, bool selected) {
-    uint32_t outer = selected ? accent_rgb : BORDER_RGB;
-    uint32_t inner = selected ? selected_rgb : CARD_RGB;
-    rounded_fill(x, y, w, h, canvas_width >= 400 ? 16 : 13, outer);
-    rounded_fill(x + 1, y + 1, w - 2, h - 2, canvas_width >= 400 ? 15 : 12, inner);
 }
 
 /* Built-in 5x7 fallback, rendered at a size derived from the requested text
@@ -204,6 +247,7 @@ static uint8_t fallback_glyph(uint32_t cp, int row) {
         case '-': return row == 3 ? 14 : 0;
         case ':': return row == 2 || row == 5 ? 4 : 0;
         case '.': return row == 6 ? 4 : 0;
+        case ',': return row == 5 ? 4 : row == 6 ? 2 : 0;
         case '/': return (uint8_t)(1u << (row < 5 ? 4 - row : 0));
         case '+': return row == 3 ? 14 : row == 1 || row == 2 || row == 4 || row == 5 ? 4 : 0;
         default: return row == 0 || row == 6 ? 14 : row == 1 || row == 5 ? 17 : 2;
@@ -227,64 +271,81 @@ static uint32_t decode_utf8(const unsigned char ** p) {
     return '?';
 }
 
-static int text_width(const char * text, int px) {
-    if (!font_ready) {
+static int text_width_face(const stbtt_fontinfo * info, const char * text, int px) {
+    if (!font_ready || !info) {
         int scale = px / 7;
         if (scale < 1) scale = 1;
         int count = 0;
-        for (const unsigned char *p = (const unsigned char *)text; *p; ) { (void)decode_utf8(&p); count++; }
+        for (const unsigned char *p = (const unsigned char *)text; *p; ) {
+            uint32_t cp = decode_utf8(&p);
+            count += cp == 0x2026 ? 3 : 1;
+        }
         return count * 6 * scale;
     }
-    float scale = stbtt_ScaleForPixelHeight(&font_info, (float)px);
+    float scale = stbtt_ScaleForPixelHeight(info, (float)px);
     float advance = 0.0f;
     int previous = 0;
     for (const unsigned char *p = (const unsigned char *)text; *p; ) {
         uint32_t cp = decode_utf8(&p);
-        int glyph = stbtt_FindGlyphIndex(&font_info, (int)cp);
+        int glyph = stbtt_FindGlyphIndex(info, (int)cp);
         int adv, lsb;
-        if (previous) advance += stbtt_GetGlyphKernAdvance(&font_info, previous, glyph) * scale;
-        stbtt_GetGlyphHMetrics(&font_info, glyph, &adv, &lsb);
+        if (previous) advance += stbtt_GetGlyphKernAdvance(info, previous, glyph) * scale;
+        stbtt_GetGlyphHMetrics(info, glyph, &adv, &lsb);
         advance += adv * scale;
         previous = glyph;
     }
     return (int)(advance + 0.5f);
 }
 
-static void draw_text(int x, int top, const char * text, int px, uint32_t color) {
-    if (!font_ready) {
+int sel_text_width(const char * text, int px) {
+    return text_width_face(&font_info, text, px);
+}
+
+int sel_text_width_medium(const char * text, int px) {
+    return text_width_face(font_medium_ready ? &font_medium_info : &font_info, text, px);
+}
+
+static void draw_text_face(const stbtt_fontinfo * info, int ascent, int x, int top,
+                          const char * text, int px, uint32_t color) {
+    if (!font_ready || !info) {
         int scale = px / 7;
         if (scale < 1) scale = 1;
         int cursor = x;
         for (const unsigned char *p = (const unsigned char *)text; *p; ) {
             uint32_t cp = decode_utf8(&p);
-            for (int row = 0; row < 7; row++) {
-                uint8_t bits = fallback_glyph(cp, row);
-                for (int col = 0; col < 5; col++)
-                    if (bits & (1u << (4 - col))) fill_rect(cursor + col * scale, top + row * scale, scale, scale, color);
+            int repeats = cp == 0x2026 ? 3 : 1;
+            if (cp == 0x2026) cp = '.';
+            for (int n = 0; n < repeats; n++) {
+                for (int row = 0; row < 7; row++) {
+                    uint8_t bits = fallback_glyph(cp, row);
+                    for (int col = 0; col < 5; col++)
+                        if (bits & (1u << (4 - col)))
+                            sel_fill_rect(cursor + col * scale, top + row * scale, scale, scale, color);
+                }
+                cursor += 6 * scale;
             }
-            cursor += 6 * scale;
         }
         return;
     }
 
-    float scale = stbtt_ScaleForPixelHeight(&font_info, (float)px);
-    int baseline = top + (int)(font_ascent * scale + 0.5f);
+    float scale = stbtt_ScaleForPixelHeight(info, (float)px);
+    int baseline = top + (int)(ascent * scale + 0.5f);
     int cursor = x;
     int previous = 0;
     for (const unsigned char *p = (const unsigned char *)text; *p; ) {
         uint32_t cp = decode_utf8(&p);
-        int glyph = stbtt_FindGlyphIndex(&font_info, (int)cp);
+        int glyph = stbtt_FindGlyphIndex(info, (int)cp);
         int advance, lsb, x0, y0, x1, y1;
-        if (previous) cursor += (int)(stbtt_GetGlyphKernAdvance(&font_info, previous, glyph) * scale + 0.5f);
-        stbtt_GetGlyphHMetrics(&font_info, glyph, &advance, &lsb);
-        stbtt_GetCodepointBitmapBox(&font_info, (int)cp, scale, scale, &x0, &y0, &x1, &y1);
+        if (previous) cursor += (int)(stbtt_GetGlyphKernAdvance(info, previous, glyph) * scale + 0.5f);
+        stbtt_GetGlyphHMetrics(info, glyph, &advance, &lsb);
+        stbtt_GetCodepointBitmapBox(info, (int)cp, scale, scale, &x0, &y0, &x1, &y1);
         int w = x1 - x0, h = y1 - y0;
         if (w > 0 && h > 0) {
-            unsigned char * bitmap = stbtt_GetCodepointBitmap(&font_info, scale, scale, (int)cp, NULL, NULL, NULL, NULL);
+            unsigned char * bitmap = stbtt_GetCodepointBitmap(info, scale, scale, (int)cp, NULL, NULL, NULL, NULL);
             if (bitmap) {
                 for (int gy = 0; gy < h; gy++)
                     for (int gx = 0; gx < w; gx++)
-                        put_pixel(cursor + x0 + gx, baseline + y0 + gy, color, bitmap[(size_t)gy * (size_t)w + (size_t)gx]);
+                        sel_put_pixel(cursor + x0 + gx, baseline + y0 + gy, color, bitmap[(size_t)gy * (size_t)w + (size_t)gx]);
                 stbtt_FreeBitmap(bitmap, NULL);
             }
         }
@@ -293,95 +354,111 @@ static void draw_text(int x, int top, const char * text, int px, uint32_t color)
     }
 }
 
-static void draw_text_centered(int center_x, int top, const char * text, int px, uint32_t color) {
-    draw_text(center_x - text_width(text, px) / 2, top, text, px, color);
+void sel_draw_text(int x, int top, const char * text, int px, uint32_t color) {
+    draw_text_face(&font_info, font_ascent, x, top, text, px, color);
 }
 
-static int scaled_width(int ref) {
-    return (ref * canvas_width + 240) / 480;
+void sel_draw_text_medium(int x, int top, const char * text, int px, uint32_t color) {
+    if (font_medium_ready)
+        draw_text_face(&font_medium_info, font_medium_ascent, x, top, text, px, color);
+    else
+        draw_text_face(&font_info, font_ascent, x, top, text, px, color);
 }
 
-static int margin(void) { return canvas_width >= 400 ? 24 : 16; }
-static int selector_list_top(void) { return canvas_width >= 400 ? 142 : 120; }
-static int selector_card_h(void) { return canvas_width >= 400 ? 112 : 90; }
-static int selector_gap(void) { return canvas_width >= 400 ? 14 : 10; }
-static int tool_list_top(void) { return canvas_width >= 400 ? 128 : 104; }
-static int tool_row_h(void) { return canvas_width >= 400 ? 76 : 64; }
-static int tool_gap(void) { return canvas_width >= 400 ? 10 : 8; }
-static int footer_top(void) { return canvas_height - scaled_width(64); }
-
-static void draw_music_note(int x, int y, int size, uint32_t color) {
-    int sw = size >= 36 ? 3 : 2;
-    line(x + size * 34 / 100, y + size * 72 / 100, x + size * 34 / 100, y + size * 25 / 100, color, sw);
-    line(x + size * 34 / 100, y + size * 25 / 100, x + size * 78 / 100, y + size * 16 / 100, color, sw);
-    line(x + size * 78 / 100, y + size * 16 / 100, x + size * 78 / 100, y + size * 61 / 100, color, sw);
-    rounded_fill(x + size * 10 / 100, y + size * 64 / 100, size * 25 / 100, size * 17 / 100, size / 12, color);
-    rounded_fill(x + size * 54 / 100, y + size * 53 / 100, size * 25 / 100, size * 17 / 100, size / 12, color);
+void sel_draw_text_centered(int center_x, int top, const char * text, int px, uint32_t color) {
+    sel_draw_text(center_x - sel_text_width(text, px) / 2, top, text, px, color);
 }
 
-static void draw_mountain(int x, int y, int size, uint32_t color) {
-    int sw = size >= 36 ? 3 : 2;
-    line(x + 3, y + size - 5, x + size * 37 / 100, y + size * 35 / 100, color, sw);
-    line(x + size * 37 / 100, y + size * 35 / 100, x + size * 52 / 100, y + size * 55 / 100, color, sw);
-    line(x + size * 52 / 100, y + size * 55 / 100, x + size * 70 / 100, y + size * 28 / 100, color, sw);
-    line(x + size * 70 / 100, y + size * 28 / 100, x + size - 3, y + size - 5, color, sw);
-    line(x + 3, y + size - 5, x + size - 3, y + size - 5, color, sw);
-    line(x + size * 22 / 100, y + size * 68 / 100, x + size * 34 / 100, y + size * 55 / 100, color, sw);
-    line(x + size * 34 / 100, y + size * 55 / 100, x + size * 45 / 100, y + size * 68 / 100, color, sw);
-}
+void sel_fit_text(char out[128], const char * input, int max_width, int px, bool medium) {
+    if (!input) input = "";
+    const char * ell = font_ready ? "\xE2\x80\xA6" : "...";
+    const stbtt_fontinfo * info = (medium && font_medium_ready) ? &font_medium_info : &font_info;
+    int ell_w = text_width_face(info, ell, px);
+    size_t last_fit = 0, used = 0;
+    int full_width = 0;
+    int finished = 1;
+    const unsigned char * p = (const unsigned char *)input;
 
-static void draw_tools_icon(int x, int y, int size, uint32_t color) {
-    int sw = size >= 36 ? 3 : 2;
-    line(x + 8, y + 8, x + size - 8, y + size - 8, color, sw);
-    line(x + size - 8, y + 8, x + 8, y + size - 8, color, sw);
-    line(x + 4, y + 11, x + 12, y + 4, color, sw);
-    line(x + size - 12, y + size - 4, x + size - 4, y + size - 12, color, sw);
-}
-
-static uint32_t mix_accent(uint32_t base, unsigned amount) {
-    rgb_t a = rgb(accent_rgb), b = rgb(base);
-    unsigned inv = 100 - amount;
-    return (uint32_t)((a.r * amount + b.r * inv) / 100) << 16 |
-           (uint32_t)((a.g * amount + b.g * inv) / 100) << 8 |
-           (uint32_t)((a.b * amount + b.b * inv) / 100);
-}
-
-static bool parse_hex6(const char * p, uint32_t * out) {
-    char digits[7];
-    size_t n = 0;
-    while (isspace((unsigned char)*p)) p++;
-    if (*p == '#') p++;
-    while (isxdigit((unsigned char)*p) && n < 6) digits[n++] = *p++;
-    while (isspace((unsigned char)*p)) p++;
-    if (n != 6 || *p != '\0') return false;
-    digits[6] = '\0';
-    char * end = NULL;
-    unsigned long value = strtoul(digits, &end, 16);
-    if (!end || *end || value > 0xFFFFFFul) return false;
-    *out = (uint32_t)value;
-    return true;
-}
-
-static void load_accent(const char * path) {
-    accent_rgb = DEFAULT_ACCENT_RGB;
-    FILE *f = fopen(path ? path : DEFAULT_SETTINGS_PATH, "r");
-    if (!f) return;
-    char linebuf[256];
-    while (fgets(linebuf, sizeof(linebuf), f)) {
-        char * eq = strchr(linebuf, '=');
-        if (!eq) continue;
-        *eq++ = '\0';
-        char * key = linebuf;
-        while (isspace((unsigned char)*key)) key++;
-        char * end = key + strlen(key);
-        while (end > key && isspace((unsigned char)end[-1])) *--end = '\0';
-        if (strcmp(key, "accent_color") == 0) {
-            uint32_t parsed;
-            if (parse_hex6(eq, &parsed)) accent_rgb = parsed;
-            break;
+    if (font_ready && info) {
+        float scale = stbtt_ScaleForPixelHeight(info, (float)px);
+        float advance = 0.0f;
+        int previous = 0;
+        while (*p) {
+            const unsigned char * before = p;
+            uint32_t cp = decode_utf8(&p);
+            size_t nbytes = (size_t)(p - before);
+            if (used + nbytes > 124) { finished = 0; break; }
+            int glyph = stbtt_FindGlyphIndex(info, (int)cp);
+            int adv, lsb;
+            if (previous) advance += stbtt_GetGlyphKernAdvance(info, previous, glyph) * scale;
+            stbtt_GetGlyphHMetrics(info, glyph, &adv, &lsb);
+            advance += adv * scale;
+            int w = (int)(advance + 0.5f);
+            memcpy(out + used, before, nbytes);
+            used += nbytes;
+            previous = glyph;
+            full_width = w;
+            if (w + ell_w <= max_width) last_fit = used;
+            if (w > max_width) { finished = 0; break; }
         }
+        if (*p) finished = 0;
+    } else {
+        int scale = px / 7;
+        if (scale < 1) scale = 1;
+        int cell = 6 * scale;
+        while (*p) {
+            const unsigned char * before = p;
+            uint32_t cp = decode_utf8(&p);
+            size_t nbytes = (size_t)(p - before);
+            if (used + nbytes > 124) { finished = 0; break; }
+            memcpy(out + used, before, nbytes);
+            used += nbytes;
+            full_width += cp == 0x2026 ? 3 * cell : cell;
+            if (full_width + ell_w <= max_width) last_fit = used;
+            if (full_width > max_width) { finished = 0; break; }
+        }
+        if (*p) finished = 0;
     }
-    fclose(f);
+    out[used] = '\0';
+    if (finished && full_width <= max_width) return;
+    out[last_fit] = '\0';
+    size_t ell_len = strlen(ell);
+    if (max_width >= ell_w && last_fit + ell_len <= 127)
+        memcpy(out + last_fit, ell, ell_len + 1);
+}
+
+static int margin(void) { return selector_margin(sel_canvas_width); }
+static int tool_list_top(void) { return selector_tool_list_top(sel_canvas_width); }
+static int tool_row_h(void) { return selector_tool_row_h(sel_canvas_width); }
+static int tool_gap(void) { return selector_tool_gap(sel_canvas_width); }
+int sel_list_viewport_bottom(void) { return sel_canvas_height - BREEZE_LIST_NOTICE_BAND; }
+
+void sel_draw_music_note(int x, int y, int size, uint32_t color) {
+    int sw = size >= 36 ? 3 : 2;
+    sel_line(x + size * 34 / 100, y + size * 72 / 100, x + size * 34 / 100, y + size * 25 / 100, color, sw);
+    sel_line(x + size * 34 / 100, y + size * 25 / 100, x + size * 78 / 100, y + size * 16 / 100, color, sw);
+    sel_line(x + size * 78 / 100, y + size * 16 / 100, x + size * 78 / 100, y + size * 61 / 100, color, sw);
+    sel_rounded_fill(x + size * 10 / 100, y + size * 64 / 100, size * 25 / 100, size * 17 / 100, size / 12, color);
+    sel_rounded_fill(x + size * 54 / 100, y + size * 53 / 100, size * 25 / 100, size * 17 / 100, size / 12, color);
+}
+
+void sel_draw_mountain(int x, int y, int size, uint32_t color) {
+    int sw = size >= 36 ? 3 : 2;
+    sel_line(x + 3, y + size - 5, x + size * 37 / 100, y + size * 35 / 100, color, sw);
+    sel_line(x + size * 37 / 100, y + size * 35 / 100, x + size * 52 / 100, y + size * 55 / 100, color, sw);
+    sel_line(x + size * 52 / 100, y + size * 55 / 100, x + size * 70 / 100, y + size * 28 / 100, color, sw);
+    sel_line(x + size * 70 / 100, y + size * 28 / 100, x + size - 3, y + size - 5, color, sw);
+    sel_line(x + 3, y + size - 5, x + size - 3, y + size - 5, color, sw);
+    sel_line(x + size * 22 / 100, y + size * 68 / 100, x + size * 34 / 100, y + size * 55 / 100, color, sw);
+    sel_line(x + size * 34 / 100, y + size * 55 / 100, x + size * 45 / 100, y + size * 68 / 100, color, sw);
+}
+
+void sel_draw_tools_icon(int x, int y, int size, uint32_t color) {
+    int sw = size >= 36 ? 3 : 2;
+    sel_line(x + 8, y + 8, x + size - 8, y + size - 8, color, sw);
+    sel_line(x + size - 8, y + 8, x + 8, y + size - 8, color, sw);
+    sel_line(x + 4, y + 11, x + 12, y + 4, color, sw);
+    sel_line(x + size - 12, y + size - 4, x + size - 4, y + size - 12, color, sw);
 }
 
 typedef struct {
@@ -404,12 +481,13 @@ static void ttf_read_at(FILE * f, size_t offset, void * data, size_t length) {
     ttf_stream_read(f, data, length);
 }
 
-/* The renderer uses one shipped font asset. Pinning its content avoids
- * sending malformed composite-glyph graphs into stb_truetype, whose public
- * API does not expose a recursion/cycle limit. Any changed or damaged font
- * simply falls back to the small builtin face. */
-static bool is_shipped_montserrat(FILE * f, size_t size) {
-    if (size != MONTSERRAT_MEDIUM_BYTES) return false;
+/* The renderer uses shipped font assets. Pinning content avoids sending
+ * malformed composite-glyph graphs into stb_truetype, whose public API does
+ * not expose a recursion/cycle limit. Noto Sans Regular is tried first,
+ * then Noto Sans Medium for headings, then Montserrat-Medium. A changed or
+ * damaged file falls back to the next pin and finally the builtin face. */
+static bool matches_font_pin(FILE * f, size_t size, size_t expected_size, uint32_t expected_crc) {
+    if (size != expected_size) return false;
     uint32_t crc = 0xFFFFFFFFu;
     unsigned char chunk[1024];
     for (size_t offset = 0; offset < size;) {
@@ -423,7 +501,17 @@ static bool is_shipped_montserrat(FILE * f, size_t size) {
         }
         offset += count;
     }
-    return (crc ^ 0xFFFFFFFFu) == MONTSERRAT_MEDIUM_CRC32;
+    return (crc ^ 0xFFFFFFFFu) == expected_crc;
+}
+
+static bool is_shipped_font(FILE * f, size_t size) {
+    return matches_font_pin(f, size, NOTO_SANS_REGULAR_BYTES, NOTO_SANS_REGULAR_CRC32) ||
+           matches_font_pin(f, size, NOTO_SANS_MEDIUM_BYTES, NOTO_SANS_MEDIUM_CRC32) ||
+           matches_font_pin(f, size, MONTSERRAT_MEDIUM_BYTES, MONTSERRAT_MEDIUM_CRC32);
+}
+
+static bool is_shipped_noto_regular(FILE * f, size_t size) {
+    return matches_font_pin(f, size, NOTO_SANS_REGULAR_BYTES, NOTO_SANS_REGULAR_CRC32);
 }
 
 static bool validate_cmap(FILE * f, const validated_table_t * cmap) {
@@ -535,158 +623,152 @@ static bool validate_font(FILE * f, size_t size) {
     return true;
 }
 
-static void load_font(const char * path) {
-    font_ready = 0;
-    font_file = fopen(path ? path : DEFAULT_FONT_PATH, "rb");
-    if (!font_file) return;
+static FILE * open_font_file(const char * path, size_t * size_out) {
+    FILE * f = fopen(path, "rb");
+    if (!f) return NULL;
     struct stat st;
-    if (fstat(fileno(font_file), &st) != 0 || !S_ISREG(st.st_mode) ||
+    if (fstat(fileno(f), &st) != 0 || !S_ISREG(st.st_mode) ||
         st.st_size < 12 || (uintmax_t)st.st_size > MAX_FONT_BYTES) {
-        fclose(font_file);
-        font_file = NULL;
-        ttf_stream_limit = 0;
-        return;
+        fclose(f);
+        return NULL;
     }
-    ttf_stream_limit = (size_t)st.st_size;
-    if (!is_shipped_montserrat(font_file, ttf_stream_limit) ||
-        !validate_font(font_file, ttf_stream_limit) || !stbtt_InitFont(&font_info, font_file, 0)) {
-        fclose(font_file);
-        font_file = NULL;
-        ttf_stream_limit = 0;
-        return;
-    }
-    stbtt_GetFontVMetrics(&font_info, &font_ascent, &font_descent, &font_line_gap);
-    if (font_ascent <= 0 || font_descent >= 0 ||
-        (int64_t)font_ascent - font_descent > 10000) {
-        fclose(font_file);
-        font_file = NULL;
-        ttf_stream_limit = 0;
-        return;
-    }
+    *size_out = (size_t)st.st_size;
+    return f;
+}
+
+static bool init_face(FILE * f, size_t size, stbtt_fontinfo * info,
+                      int * ascent, int * descent, int * line_gap) {
+    if (!is_shipped_font(f, size) || !validate_font(f, size) ||
+        !stbtt_InitFont(info, f, 0)) return false;
+    stbtt_GetFontVMetrics(info, ascent, descent, line_gap);
+    if (*ascent <= 0 || *descent >= 0 ||
+        (int64_t)*ascent - *descent > 10000) return false;
     /* The optional tables need separate complex offset validation. Skipping
      * kerning avoids parsing those tables on this compact fixed menu face. */
-    font_info.kern = 0;
-    font_info.gpos = 0;
-    font_info.svg = 0;
+    info->kern = 0;
+    info->gpos = 0;
+    info->svg = 0;
+    return true;
+}
+
+static void sibling_medium_path(const char * regular, char * out, size_t out_size) {
+    const char * slash = strrchr(regular, '/');
+    const char * name = slash ? slash + 1 : regular;
+    size_t dir_len = (size_t)(name - regular);
+    if (strcmp(name, "NotoSans-Regular.ttf") == 0 && dir_len + 21 < out_size) {
+        memcpy(out, regular, dir_len);
+        memcpy(out + dir_len, "NotoSans-Medium.ttf", 20);
+        return;
+    }
+    snprintf(out, out_size, "%s", DEFAULT_MEDIUM_FONT_PATH);
+}
+
+static int try_load_face(const char * path, FILE ** slot, stbtt_fontinfo * info,
+                         int * ascent, int * descent, int * line_gap) {
+    size_t size = 0;
+    FILE * f = open_font_file(path, &size);
+    if (!f) return 0;
+    ttf_register(f, size);
+    if (!init_face(f, size, info, ascent, descent, line_gap)) {
+        ttf_unregister(f);
+        fclose(f);
+        return 0;
+    }
+    *slot = f;
+    return is_shipped_noto_regular(f, size) ? 2 : 1;
+}
+
+static void load_font(const char * path) {
+    font_ready = 0;
+    font_medium_ready = 0;
+    const char * primary = path && path[0] ? path : DEFAULT_FONT_PATH;
+    int kind = try_load_face(primary, &font_file, &font_info,
+                             &font_ascent, &font_descent, &font_line_gap);
+    if (!kind && strcmp(primary, DEFAULT_FONT_PATH) != 0)
+        kind = try_load_face(DEFAULT_FONT_PATH, &font_file, &font_info,
+                             &font_ascent, &font_descent, &font_line_gap);
+    if (!kind)
+        kind = try_load_face(FALLBACK_FONT_PATH, &font_file, &font_info,
+                             &font_ascent, &font_descent, &font_line_gap);
+    if (!kind) return;
     font_ready = 1;
+    if (kind != 2) return;
+    char medium_path[512];
+    sibling_medium_path(primary, medium_path, sizeof(medium_path));
+    if (try_load_face(medium_path, &font_medium_file, &font_medium_info,
+                      &font_medium_ascent, &font_medium_descent,
+                      &font_medium_line_gap))
+        font_medium_ready = 1;
+    else if (try_load_face(DEFAULT_MEDIUM_FONT_PATH, &font_medium_file, &font_medium_info,
+                          &font_medium_ascent, &font_medium_descent,
+                          &font_medium_line_gap))
+        font_medium_ready = 1;
 }
 
 bool selector_ui_init(int width, int height, const char * font_path, const char * settings_path) {
+    (void)settings_path;
     if (width <= 0 || height <= 0 || (size_t)width > SIZE_MAX / (size_t)height ||
         (size_t)width * (size_t)height > SIZE_MAX / sizeof(uint16_t)) return false;
     selector_ui_shutdown();
-    canvas = calloc((size_t)width * (size_t)height, sizeof(*canvas));
-    if (!canvas) return false;
-    canvas_width = width;
-    canvas_height = height;
-    canvas_stride = (size_t)width;
-    clip_top = 0;
-    clip_bottom = height;
-    load_accent(settings_path);
-    selected_rgb = mix_accent(BG_RGB, 22);
+    sel_canvas = calloc((size_t)width * (size_t)height, sizeof(*sel_canvas));
+    if (!sel_canvas) return false;
+    sel_canvas_width = width;
+    sel_canvas_height = height;
+    sel_canvas_stride = (size_t)width;
+    sel_clip_top = 0;
+    sel_clip_bottom = height;
     load_font(font_path);
     return true;
 }
 
 void selector_ui_shutdown(void) {
     if (font_file) fclose(font_file);
+    if (font_medium_file) fclose(font_medium_file);
     font_file = NULL;
+    font_medium_file = NULL;
+    ttf_clear_slots();
     font_ready = 0;
-    ttf_stream_limit = 0;
-    free(canvas);
-    canvas = NULL;
-    canvas_width = canvas_height = 0;
-    canvas_stride = 0;
-    clip_top = clip_bottom = 0;
+    font_medium_ready = 0;
+    free(sel_canvas);
+    sel_canvas = NULL;
+    sel_canvas_width = sel_canvas_height = 0;
+    sel_canvas_stride = 0;
+    sel_clip_top = sel_clip_bottom = 0;
 }
 
 const uint16_t * selector_ui_pixels(size_t * stride_pixels) {
-    if (stride_pixels) *stride_pixels = canvas_stride;
-    return canvas;
+    if (stride_pixels) *stride_pixels = sel_canvas_stride;
+    return sel_canvas;
 }
-int selector_ui_width(void) { return canvas_width; }
-int selector_ui_height(void) { return canvas_height; }
+int selector_ui_width(void) { return sel_canvas_width; }
+int selector_ui_height(void) { return sel_canvas_height; }
 
 void selector_ui_draw_selector(int selected, bool rockbox_available,
                                unsigned countdown_seconds,
                                bool countdown_cancelled, bool adb_enabled) {
-    (void)adb_enabled; /* Selector painter does not own the Tools toggle. */
-    if (!canvas) return;
-    int row_count = rockbox_available ? 3 : 2;
-    if (selected < 0 || selected >= row_count) selected = 0;
-    fill_rect(0, 0, canvas_width, canvas_height, BG_RGB);
-    int m = margin();
-    int compact = canvas_width < 400;
-    draw_text(m, compact ? 24 : 38, "Choose a player", compact ? 24 : 28, PRIMARY_RGB);
-    draw_text(m, compact ? 64 : 80, "Select what to start", 16, SECONDARY_RGB);
-
-    int list_top = selector_list_top(), card_h = selector_card_h(), gap = selector_gap();
-    int x = m, w = canvas_width - 2 * m;
-    for (int row = 0; row < row_count; row++) {
-        int i = rockbox_available || row == 0 ? row : 2;
-        int y = list_top + row * (card_h + gap);
-        bool is_selected = row == selected;
-        rounded_card(x, y, w, card_h, is_selected);
-        if (is_selected) rounded_fill(x + 1, y + 17, 4, card_h - 34, 2, accent_rgb);
-        int icon_size = compact ? 32 : 40;
-        int icon_x = x + (compact ? 12 : 18);
-        int icon_y = y + (card_h - icon_size) / 2;
-        uint32_t icon_color = is_selected ? accent_rgb : SECONDARY_RGB;
-        if (i == 0) draw_music_note(icon_x, icon_y, icon_size, icon_color);
-        else if (i == 1) draw_mountain(icon_x, icon_y, icon_size, icon_color);
-        else draw_tools_icon(icon_x, icon_y, icon_size, icon_color);
-        int tx = icon_x + icon_size + (compact ? 11 : 16);
-        draw_text(tx, y + (card_h - 45) / 2, selector_title[i], 22, PRIMARY_RGB);
-        draw_text(tx, y + (card_h - 45) / 2 + 27, selector_detail[i], 16, SECONDARY_RGB);
-        if (is_selected) {
-            int cx = x + w - 20, cy = y + card_h / 2;
-            line(cx - 4, cy - 6, cx + 2, cy, accent_rgb, 2);
-            line(cx + 2, cy, cx - 4, cy + 6, accent_rgb, 2);
-        }
-    }
-
-    if (!countdown_cancelled && selected == 0) {
-        char label[48];
-        snprintf(label, sizeof(label), "Auto-start in %u sec", countdown_seconds);
-        draw_text_centered(canvas_width / 2, canvas_height - 34, label, 14, SECONDARY_RGB);
-    }
+    (void)adb_enabled;
+    selector_paint_selector(selected, rockbox_available, countdown_seconds,
+                            countdown_cancelled);
 }
 
 void selector_ui_draw_starting(bool rockbox) {
-    if (!canvas) return;
-    fill_rect(0, 0, canvas_width, canvas_height, BG_RGB);
-
-    int compact = canvas_width < 400;
-    int icon_size = compact ? 48 : 56;
-    int font_px = compact ? 20 : 24;
-    const char * label = rockbox ? "Starting Rockbox…" : "Starting Compás…";
-    int group_height = icon_size + 26 + font_px + 8;
-    int top = (canvas_height - group_height) / 2;
-    int icon_x = (canvas_width - icon_size) / 2;
-    int icon_y = top;
-
-    if (rockbox) draw_mountain(icon_x, icon_y, icon_size, accent_rgb);
-    else draw_music_note(icon_x, icon_y, icon_size, accent_rgb);
-    draw_text_centered(canvas_width / 2, icon_y + icon_size + 26,
-                       label, font_px, PRIMARY_RGB);
+    selector_paint_starting(rockbox);
 }
 
 int selector_ui_tools_max_scroll(void) {
-    if (!canvas) return 0;
+    if (!sel_canvas) return 0;
     int total = 7 * tool_row_h() + 6 * tool_gap();
-    int viewport = footer_top() - tool_list_top();
+    int viewport = sel_canvas_height - tool_list_top();
     return total > viewport ? total - viewport : 0;
 }
 
 static int ensure_visible(int count, int selected, int scroll_pixels,
-                          int list_top, int row_height, int gap) {
-    int max_scroll;
-    int viewport = footer_top() - list_top;
+                          int list_top, int row_height, int gap, int viewport_bottom) {
+    int viewport = viewport_bottom - list_top;
     int content = count > 0 ? count * (row_height + gap) - gap : 0;
-    max_scroll = content > viewport ? content - viewport : 0;
+    int max_scroll = content > viewport ? content - viewport : 0;
     if (scroll_pixels < 0) scroll_pixels = 0;
     if (scroll_pixels > max_scroll) scroll_pixels = max_scroll;
-    /* Back is a focusable header target, not a row. */
     if (selected >= 0 && selected < count && viewport > 0) {
         int row_top = selected * (row_height + gap);
         int row_bottom = row_top + row_height;
@@ -700,68 +782,23 @@ static int ensure_visible(int count, int selected, int scroll_pixels,
 }
 
 int selector_ui_ensure_visible_tools(int selected, int scroll_pixels) {
-    if (!canvas) return 0;
+    if (!sel_canvas) return 0;
     return ensure_visible(7, selected, scroll_pixels, tool_list_top(),
-                          tool_row_h(), tool_gap());
+                          tool_row_h(), tool_gap(), sel_canvas_height);
 }
 
-static void draw_back_header(const char * title, bool selected);
-
 void selector_ui_draw_tools(int selected, int scroll_pixels, bool adb_enabled) {
-    if (!canvas) return;
-    if (selected != SELECTOR_UI_HIT_BACK && (selected < 0 || selected > 6)) selected = 0;
+    if (!sel_canvas) return;
     int max_scroll = selector_ui_tools_max_scroll();
     if (scroll_pixels < 0) scroll_pixels = 0;
     if (scroll_pixels > max_scroll) scroll_pixels = max_scroll;
-    fill_rect(0, 0, canvas_width, canvas_height, BG_RGB);
-    int m = margin(), compact = canvas_width < 400;
-    draw_back_header("Tools", selected == SELECTOR_UI_HIT_BACK);
-
-    int list_top = tool_list_top(), row_h = tool_row_h(), gap = tool_gap();
-    int viewport_bottom = footer_top();
-    int x = m, w = canvas_width - 2 * m;
-    int previous_clip_top = clip_top, previous_clip_bottom = clip_bottom;
-    clip_top = list_top;
-    clip_bottom = viewport_bottom;
-    /* Clip each card to the actual scrolling viewport; one or more may be
-     * partial at the top/bottom on smaller panels. */
-    for (int i = 0; i < 7; i++) {
-        int content_y = i * (row_h + gap) - scroll_pixels;
-        int y = list_top + content_y;
-        if (y + row_h <= list_top || y >= viewport_bottom) continue;
-        bool is_selected = i == selected;
-        rounded_card(x, y, w, row_h, is_selected);
-        if (is_selected) rounded_fill(x + 1, y + (row_h > 24 ? 12 : 8), 4,
-                                      row_h - (row_h > 24 ? 24 : 16), 2, accent_rgb);
-        draw_text(x + (compact ? 14 : 20), y + (row_h - 22) / 2, tool_titles[i], compact ? 20 : 22, PRIMARY_RGB);
-        if (i == 0) {
-            int track_w = compact ? 40 : 46, track_h = compact ? 22 : 24;
-            int track_x = x + w - (compact ? 14 : 20) - track_w;
-            int track_y = y + (row_h - track_h) / 2;
-            rounded_fill(track_x, track_y, track_w, track_h, track_h / 2,
-                         adb_enabled ? accent_rgb : 0x4A454Du);
-            int knob = compact ? 14 : 16, pad = 4;
-            int knob_x = adb_enabled ? track_x + track_w - knob - pad : track_x + pad;
-            rounded_fill(knob_x, track_y + (track_h - knob) / 2, knob, knob, knob / 2,
-                         adb_enabled ? 0xFFFFFFu : 0xD7D4D9u);
-        } else if (is_selected) {
-            int cx = x + w - 20, cy = y + row_h / 2;
-            line(cx - 4, cy - 6, cx + 2, cy, accent_rgb, 2);
-            line(cx + 2, cy, cx - 4, cy + 6, accent_rgb, 2);
-        }
-    }
-    clip_top = previous_clip_top;
-    clip_bottom = previous_clip_bottom;
-    if (selector_ui_tools_max_scroll() > 0) {
-        fill_rect(m, list_top, w, 1, BORDER_RGB);
-        fill_rect(m, viewport_bottom - 1, w, 1, BORDER_RGB);
-    }
+    selector_paint_tools(selected, scroll_pixels, adb_enabled);
 }
 
 static int hit_row(int x, int y, int list_top, int row_height, int gap,
                    int count, int scroll, int viewport_bottom) {
     int m = margin();
-    if (x < m || x >= canvas_width - m || y < list_top || y >= viewport_bottom) return SELECTOR_UI_HIT_NONE;
+    if (x < m || x >= sel_canvas_width - m || y < list_top || y >= viewport_bottom) return SELECTOR_UI_HIT_NONE;
     int local_y = y - list_top + scroll;
     int row = local_y / (row_height + gap);
     int within = local_y % (row_height + gap);
@@ -774,187 +811,72 @@ int selector_ui_hit_test_selector(int x, int y) {
 }
 
 int selector_ui_hit_test_selector_available(int x, int y, bool rockbox_available) {
-    if (!canvas) return SELECTOR_UI_HIT_NONE;
+    if (!sel_canvas) return SELECTOR_UI_HIT_NONE;
     int count = rockbox_available ? 3 : 2;
-    return hit_row(x, y, selector_list_top(), selector_card_h(), selector_gap(), count, 0,
-                   footer_top());
+    return hit_row(x, y, selector_list_top(sel_canvas_width), selector_card_h(sel_canvas_width),
+                   selector_gap(sel_canvas_width), count, 0, sel_canvas_height);
+}
+
+static int hit_test_back(int x, int y) {
+    int m = margin();
+    int header_y = selector_header_title_y(sel_canvas_width);
+    int back_size = selector_back_icon(sel_canvas_width);
+    if (x >= m && x <= m + back_size + 8 && y >= header_y - 8 && y <= header_y + back_size + 8)
+        return SELECTOR_UI_HIT_BACK;
+    return SELECTOR_UI_HIT_NONE;
 }
 
 int selector_ui_hit_test_tools(int x, int y, int scroll_pixels) {
-    if (!canvas) return SELECTOR_UI_HIT_NONE;
-    int m = margin(), header_y = canvas_width < 400 ? 24 : 38;
-    int back_size = canvas_width < 400 ? 32 : 44;
-    if (x >= m && x <= m + back_size + 8 && y >= header_y - 8 && y <= header_y + back_size + 8)
-        return SELECTOR_UI_HIT_BACK;
+    if (!sel_canvas) return SELECTOR_UI_HIT_NONE;
+    if (hit_test_back(x, y) == SELECTOR_UI_HIT_BACK) return SELECTOR_UI_HIT_BACK;
     int max_scroll = selector_ui_tools_max_scroll();
     if (scroll_pixels < 0) scroll_pixels = 0;
     if (scroll_pixels > max_scroll) scroll_pixels = max_scroll;
-    return hit_row(x, y, tool_list_top(), tool_row_h(), tool_gap(), 7, scroll_pixels, footer_top());
-}
-
-static bool bounded_text(char out[128], const char * input) {
-    if (!input) input = "";
-    size_t n = 0;
-    while (n < 124 && input[n]) { out[n] = input[n]; n++; }
-    bool truncated = input[n] != '\0';
-    if (truncated) {
-        out[n++] = '.'; out[n++] = '.'; out[n++] = '.';
-    }
-    out[n] = '\0';
-    return truncated;
-}
-
-static void remove_last_codepoint(char text[128]) {
-    size_t n = strlen(text);
-    if (!n) return;
-    size_t start = n - 1;
-    while (start > 0 && (((unsigned char)text[start] & 0xC0u) == 0x80u)) start--;
-    text[start] = '\0';
-}
-
-static void fit_list_text(char out[128], const char * input, int max_width, int px) {
-    bool truncated = bounded_text(out, input);
-    if (!truncated && text_width(out, px) <= max_width) return;
-    truncated = true;
-    size_t length = strlen(out);
-    if (length >= 3 && memcmp(out + length - 3, "...", 3) == 0)
-        out[length - 3] = '\0';
-    while (*out && text_width(out, px) + text_width("...", px) > max_width)
-        remove_last_codepoint(out);
-    if (max_width >= text_width("...", px)) {
-        length = strlen(out);
-        if (length <= 124) memcpy(out + length, "...", 4);
-    }
-}
-
-static void draw_back_header(const char * title, bool selected) {
-    int m = margin(), compact = canvas_width < 400;
-    int header_y = compact ? 24 : 38;
-    int back_size = compact ? 32 : 44;
-    char safe_title[128];
-    bounded_text(safe_title, title ? title : "Tools");
-    int title_px = compact ? 24 : 28;
-    int card_h = compact ? 48 : 56;
-    int card_w = back_size + 8 + text_width(safe_title, title_px) + 20;
-    if (selected) rounded_card(m, header_y - (card_h - back_size) / 2,
-                               card_w, card_h, true);
-    uint32_t color = selected ? accent_rgb : SECONDARY_RGB;
-    line(m + back_size - 10, header_y - 2, m + back_size - 20,
-         header_y + back_size / 2 - 2, color, 3);
-    line(m + back_size - 20, header_y + back_size / 2 - 2,
-         m + back_size - 10, header_y + back_size - 2, color, 3);
-    draw_text(m + back_size + 8, header_y, safe_title, title_px, selected ? accent_rgb : PRIMARY_RGB);
+    return hit_row(x, y, tool_list_top(), tool_row_h(), tool_gap(), 7, scroll_pixels,
+                   sel_canvas_height);
 }
 
 int selector_ui_list_max_scroll(size_t count) {
-    if (!canvas) return 0;
+    if (!sel_canvas) return 0;
     if (count > SELECTOR_UI_MAX_LIST_ITEMS) count = SELECTOR_UI_MAX_LIST_ITEMS;
     int total = (int)count * (tool_row_h() + tool_gap());
     if (count > 0) total -= tool_gap();
-    int viewport = footer_top() - tool_list_top();
+    int viewport = sel_list_viewport_bottom() - tool_list_top();
     return total > viewport ? total - viewport : 0;
 }
 
 int selector_ui_ensure_visible_list(size_t count, int selected, int scroll_pixels) {
-    if (!canvas) return 0;
+    if (!sel_canvas) return 0;
     if (count > SELECTOR_UI_MAX_LIST_ITEMS) count = SELECTOR_UI_MAX_LIST_ITEMS;
     return ensure_visible((int)count, selected, scroll_pixels, tool_list_top(),
-                          tool_row_h(), tool_gap());
+                          tool_row_h(), tool_gap(), sel_list_viewport_bottom());
 }
 
 void selector_ui_draw_list(const char * title, const char * const * items,
                            size_t count, int selected, int scroll_pixels,
                            const char * notice) {
-    if (!canvas) return;
-    if (count > SELECTOR_UI_MAX_LIST_ITEMS) count = SELECTOR_UI_MAX_LIST_ITEMS;
-    if (selected != SELECTOR_UI_HIT_BACK) {
-        if (count == 0) selected = -1;
-        else if (selected < 0 || (size_t)selected >= count) selected = 0;
-    }
+    if (!sel_canvas) return;
     int max_scroll = selector_ui_list_max_scroll(count);
     if (scroll_pixels < 0) scroll_pixels = 0;
     if (scroll_pixels > max_scroll) scroll_pixels = max_scroll;
-    fill_rect(0, 0, canvas_width, canvas_height, BG_RGB);
-    draw_back_header(title ? title : "Select a file", selected == SELECTOR_UI_HIT_BACK);
-    int list_top = tool_list_top(), row_h = tool_row_h(), gap = tool_gap();
-    int bottom = footer_top(), m = margin(), w = canvas_width - 2 * m;
-    int previous_clip_top = clip_top, previous_clip_bottom = clip_bottom;
-    clip_top = list_top;
-    clip_bottom = bottom;
-    for (size_t i = 0; i < count; i++) {
-        int y = list_top + (int)i * (row_h + gap) - scroll_pixels;
-        if (y + row_h <= list_top || y >= bottom) continue;
-        bool is_selected = (int)i == selected;
-        rounded_card(m, y, w, row_h, is_selected);
-        if (is_selected)
-            rounded_fill(m + 1, y + (row_h > 24 ? 12 : 8), 4,
-                         row_h - (row_h > 24 ? 24 : 16), 2, accent_rgb);
-        char safe_item[128];
-        int item_px = canvas_width < 400 ? 20 : 22;
-        int item_x = m + (canvas_width < 400 ? 14 : 20);
-        int max_text_width = w - (item_x - m) - 34;
-        fit_list_text(safe_item, items ? items[i] : "", max_text_width, item_px);
-        draw_text(item_x, y + (row_h - 22) / 2, safe_item, item_px, PRIMARY_RGB);
-        if (is_selected) {
-            int cx = m + w - 20, cy = y + row_h / 2;
-            line(cx - 4, cy - 6, cx + 2, cy, accent_rgb, 2);
-            line(cx + 2, cy, cx - 4, cy + 6, accent_rgb, 2);
-        }
-    }
-    clip_top = previous_clip_top;
-    clip_bottom = previous_clip_bottom;
-    if (max_scroll > 0) {
-        fill_rect(m, list_top, w, 1, BORDER_RGB);
-        fill_rect(m, bottom - 1, w, 1, BORDER_RGB);
-    }
-    if (notice && *notice) {
-        char safe_notice[128];
-        bounded_text(safe_notice, notice);
-        draw_text_centered(canvas_width / 2, canvas_height - 30, safe_notice, 14, SECONDARY_RGB);
-    }
+    selector_paint_list(title, items, count, selected, scroll_pixels, notice);
 }
 
 int selector_ui_hit_test_list(int x, int y, size_t count, int scroll_pixels) {
-    if (!canvas) return SELECTOR_UI_HIT_NONE;
+    if (!sel_canvas) return SELECTOR_UI_HIT_NONE;
     if (count > SELECTOR_UI_MAX_LIST_ITEMS) count = SELECTOR_UI_MAX_LIST_ITEMS;
-    int m = margin(), header_y = canvas_width < 400 ? 24 : 38;
-    int back_size = canvas_width < 400 ? 32 : 44;
-    if (x >= m && x <= m + back_size + 8 && y >= header_y - 8 && y <= header_y + back_size + 8)
-        return SELECTOR_UI_HIT_BACK;
+    if (hit_test_back(x, y) == SELECTOR_UI_HIT_BACK) return SELECTOR_UI_HIT_BACK;
     int max_scroll = selector_ui_list_max_scroll(count);
     if (scroll_pixels < 0) scroll_pixels = 0;
     if (scroll_pixels > max_scroll) scroll_pixels = max_scroll;
     return hit_row(x, y, tool_list_top(), tool_row_h(), tool_gap(), (int)count,
-                   scroll_pixels, footer_top());
+                   scroll_pixels, sel_list_viewport_bottom());
 }
 
 void selector_ui_draw_notice(const char * title, const char * message) {
-    if (!canvas) return;
-    fill_rect(0, 0, canvas_width, canvas_height, BG_RGB);
-    draw_back_header(title ? title : "Notice", false);
-    char safe_message[128];
-    bounded_text(safe_message, message ? message : "");
-    draw_text_centered(canvas_width / 2, canvas_height / 2 - 14,
-                       safe_message, 18, PRIMARY_RGB);
+    selector_paint_notice(title, message);
 }
 
 void selector_ui_draw_progress(const char * title, const char * message, int percent) {
-    if (!canvas) return;
-    if (percent < 0) percent = 0;
-    if (percent > 100) percent = 100;
-    fill_rect(0, 0, canvas_width, canvas_height, BG_RGB);
-    draw_back_header(title ? title : "Working", false);
-    char safe_message[128];
-    bounded_text(safe_message, message ? message : "");
-    draw_text_centered(canvas_width / 2, canvas_height / 2 - 54,
-                       safe_message, 18, PRIMARY_RGB);
-    int m = margin(), bar_w = canvas_width - 2 * m, bar_h = 20;
-    int bar_x = m, bar_y = canvas_height / 2 - bar_h / 2;
-    rounded_fill(bar_x, bar_y, bar_w, bar_h, bar_h / 2, BORDER_RGB);
-    if (percent > 0) {
-        int fill_w = (bar_w - 4) * percent / 100;
-        if (fill_w < bar_h - 4 && percent > 0) fill_w = bar_h - 4;
-        rounded_fill(bar_x + 2, bar_y + 2, fill_w, bar_h - 4,
-                     (bar_h - 4) / 2, accent_rgb);
-    }
+    selector_paint_progress(title, message, percent);
 }

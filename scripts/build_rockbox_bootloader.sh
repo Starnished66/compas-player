@@ -53,7 +53,11 @@ native_sources=(
     src/core/startup_splash.c src/core/glyph5x7.c
     src/bootloader/scanner.c src/bootloader/installer.c src/bootloader/internal_storage.c
     src/bootloader/selector_controller.c src/bootloader/selector_input.c
-    src/bootloader/selector_ui.c src/bootloader/selector_request.c
+    src/bootloader/selector_ui.c src/bootloader/selector_paint.c src/bootloader/selector_request.c
+    src/bootloader/selector_logos.c src/bootloader/selector_logos_wordmark_480.c
+    src/bootloader/selector_logos_rockbox_480.c
+    src/bootloader/selector_icons.c src/bootloader/selector_icons_utilities_480.c
+    src/bootloader/selector_icons_nav.c src/bootloader/selector_icons_tools.c
     src/core/sd_fsck.c src/core/sd_fsck_run.c
     src/core/player_install.c src/core/reboot_handoff.c
     mbedtls/library/sha256.c mbedtls/library/platform_util.c

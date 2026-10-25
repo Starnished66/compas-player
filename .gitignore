@@ -230,6 +230,8 @@
 /compas_bootloader_*
 /compas_loader
 /compas_loader_*
+/selector_sim
+/selector_sim_*
 /open_hiby_bootloader
 /open_hiby_bootloader_*
 /compile_commands.json
@@ -266,6 +268,7 @@
 !/scripts/offline_library_scan.py
 !/scripts/generate_remote_webapp.py
 !/scripts/generate_brand_marks.py
+!/scripts/generate_selector_logos.py
 !/scripts/install_startup_trace.py
 !/scripts/kernel/*.py
 
