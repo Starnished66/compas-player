@@ -14,6 +14,10 @@ and [standalone examples](https://github.com/Starnished66/compas-plugins/tree/ma
 This guide describes the API in `src/plugins/plugin_manager.c`. If the two
 ever disagree, the code is right.
 
+Tools that install plugins on a card from a computer should also write the
+store record and the disabled list; their formats are in
+[docs/SDTOOL.md](docs/SDTOOL.md#pluginsstore_installed).
+
 **Contents**
 
 - [Quick start](#quick-start)

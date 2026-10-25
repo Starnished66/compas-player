@@ -381,6 +381,7 @@ docs/INCREMENTAL_DATABASE.md
 
 # Player-layout documentation is deliberately kept in the public source.
 !/docs/PLAYER_LAYOUTS.md
+!/docs/SDTOOL.md
 !/docs/BLUETOOTH_METADATA.md
 !/third_party/lv_xml/README.md
 
