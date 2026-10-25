@@ -16254,16 +16254,16 @@ static const char * const f8118[] = {"%u из %u\n%s"};
 static const char * const f8119[] = {"+ Новый плейлист"};
 static const char * const f8120[] = {"0 дБ"};
 static const char * const f8121[] = {"24-часовой формат"};
-static const char * const f8122[] = {"опорная частота 48 кГц"};
+static const char * const f8122[] = {"Опорная частота 48 кГц"};
 static const char * const f8123[] = {"Обновление прошивки уже выполняется."};
 static const char * const f8124[] = {"Локальный файл плагина будет заменен. Подтвердите, чтобы продолжить."};
 static const char * const f8125[] = {"Доступна более новая или измененная версия. Перед загрузкой еще раз проверьте наличие обновлений."};
 static const char * const f8126[] = {"Загрузка плагина не прошла проверку. Попробуйте еще раз."};
 static const char * const f8127[] = {"Операция плагина уже выполняется"};
 static const char * const f8128[] = {"Отсутствует необходимый помощник восстановления. Подготовка обновления остановлена."};
-static const char * const f8129[] = {"АБР"};
+static const char * const f8129[] = {"ADB"};
 static const char * const f8130[] = {"AM"};
-static const char * const f8131[] = {"О"};
+static const char * const f8131[] = {"О проекте"};
 static const char * const f8132[] = {"Акцентный цвет"};
 static const char * const f8133[] = {"Параметры акцентного цвета"};
 static const char * const f8134[] = {"Добавьте файлы .txt в папку «Книги», затем обновите библиотеку."};
@@ -16279,12 +16279,12 @@ static const char * const f8143[] = {"Добавлено в плейлист"};
 static const char * const f8144[] = {"Добавление папки в плейлист…"};
 static const char * const f8145[] = {"Добавление папки в очередь…"};
 static const char * const f8146[] = {"Дополнительные инструменты"};
-static const char * const f8147[] = {"Расширенный"};
+static const char * const f8147[] = {"Продвинутые"};
 static const char * const f8148[] = {"Африка"};
 static const char * const f8149[] = {"AirPlay"};
 static const char * const f8150[] = {"AirPlay неожиданно остановился"};
 static const char * const f8151[] = {"Альбом %+.1f дБ"};
-static const char * const f8152[] = {"Художник альбома"};
+static const char * const f8152[] = {"Исполнитель альбома"};
 static const char * const f8153[] = {"Исполнитель альбома - Альбом"};
 static const char * const f8154[] = {"Исполнитель альбома / Альбом"};
 static const char * const f8155[] = {"Альбом недоступен"};
@@ -16305,992 +16305,1022 @@ static const char * const f8169[] = {"Внешний вид"};
 static const char * const f8170[] = {"Применено %+.1f дБ"};
 static const char * const f8171[] = {"Применяется при следующем запуске приложения"};
 static const char * const f8172[] = {"Применяется к новым очередям потоковой передачи."};
-static const char * const f8173[] = {"Говоря языком, это может занять некоторое время."};
+static const char * const f8173[] = {"Применение языка, это может занять некоторое время."};
 static const char * const f8174[] = {"Применение макета. Это может занять некоторое время."};
 static const char * const f8175[] = {"Приложениям и браузерам, использующим текущий PIN-код, для повторного подключения потребуется новый."};
-static const char * const f8176[] = {"апрель"};
+static const char * const f8176[] = {"Апрель"};
 static const char * const f8177[] = {"Арктика"};
 static const char * const f8178[] = {"Изображения исполнителей"};
-static const char * const f8179[] = {"Художники"};
+static const char * const f8179[] = {"Исполнители"};
 static const char * const f8180[] = {"Азия"};
 static const char * const f8181[] = {"Атлантический"};
 static const char * const f8182[] = {"Аудио"};
 static const char * const f8183[] = {"Звук не удалось декодировать"};
 static const char * const f8184[] = {"Звук всё ещё воспроизводится; не удаётся запустить игру."};
 static const char * const f8185[] = {"Не удалось вывести звук"};
-static const char * const f8186[] = {"август"};
+static const char * const f8186[] = {"Август"};
 static const char * const f8187[] = {"Австралия"};
 static const char * const f8188[] = {"Авто"};
 static const char * const f8189[] = {"Автовозобновление"};
 static const char * const f8190[] = {"Автоэквалайзер"};
-static const char * const f8191[] = {"Автоматический"};
+static const char * const f8191[] = {"Автонастройка"};
 static const char * const f8192[] = {"Автоматический (44,1 кГц)"};
 static const char * const f8193[] = {"Автоматически переходить в режим ожидания"};
 static const char * const f8194[] = {"Доступно"};
 static const char * const f8195[] = {"Доступные устройства"};
 static const char * const f8196[] = {"Доступные сети"};
-static const char * const f8197[] = {"Доступно · %s"};
-static const char * const f8198[] = {"Диапазон %d / %d"};
-static const char * const f8199[] = {"Варианты ремешков"};
-static const char * const f8200[] = {"Процент заряда батареи"};
-static const char * const f8201[] = {"Битрейт"};
-static const char * const f8202[] = {"Bluetooth"};
-static const char * const f8203[] = {"Bluetooth ЦАП"};
-static const char * const f8204[] = {"Режим Bluetooth-ЦАП"};
-static const char * const f8205[] = {"Синхронизация громкости Bluetooth"};
-static const char * const f8206[] = {"Bluetooth выключен"};
-static const char * const f8207[] = {"Удаленная служба Bluetooth запускается…"};
-static const char * const f8208[] = {"Удаленная служба Bluetooth недоступна; повторная попытка."};
-static const char * const f8209[] = {"Bluetooth: Дистанционное управление Compas"};
-static const char * const f8210[] = {"Bluetooth: регистрация не удалась; повторная попытка"};
-static const char * const f8211[] = {"Bluetooth: ожидание регистрации услуги"};
-static const char * const f8212[] = {"Книги"};
-static const char * const f8213[] = {"Книги обновлены"};
-static const char * const f8214[] = {"Построить"};
-static const char * const f8215[] = {"Построить сейчас? Большие библиотеки могут занять несколько минут."};
-static const char * const f8216[] = {"Кнопка"};
-static const char * const f8217[] = {"Сопоставление кнопок"};
-static const char * const f8218[] = {"Кнопки и пульт"};
-static const char * const f8219[] = {"Купи мне кофе"};
-static const char * const f8220[] = {"%s"};
-static const char * const f8221[] = {"Отмена"};
-static const char * const f8222[] = {"Не удалось добавить папку: будет превышен лимит памяти очереди."};
-static const char * const f8223[] = {"Невозможно проверить доступ на запись в хранилище плагинов."};
-static const char * const f8224[] = {"Не удалось создать папку эмуляторов."};
-static const char * const f8225[] = {"Невозможно создать каталог журнала обновлений."};
-static const char * const f8226[] = {"Не удается удалить плейлист"};
-static const char * const f8227[] = {"Не могу загрузить треки альбома"};
-static const char * const f8228[] = {"Невозможно переместить эту запись"};
-static const char * const f8229[] = {"Не могу воспроизвести папку"};
-static const char * const f8230[] = {"Не удаётся воспроизвести эту папку."};
-static const char * const f8231[] = {"Невозможно получить доступ к GitHub. Проверьте соединение Wi-Fi."};
-static const char * const f8232[] = {"Не удается прочитать плейлист"};
-static const char * const f8233[] = {"Невозможно прочитать SD-карту."};
-static const char * const f8234[] = {"Невозможно прочитать выбранный файл обновления."};
-static const char * const f8235[] = {"Невозможно прочитать файл обновления на SD-карте. Проверьте карту и повторите попытку."};
-static const char * const f8236[] = {"Невозможно прочитать запись обновления на SD-карте. Проверьте карту и повторите попытку."};
-static const char * const f8237[] = {"Невозможно прочитать статус помощника обновления: %s"};
-static const char * const f8238[] = {"Не удается удалить элемент"};
-static const char * const f8239[] = {"Невозможно переименовать: существует неверное имя или файл."};
-static const char * const f8240[] = {"Не удается изменить порядок песен в плейлисте"};
-static const char * const f8241[] = {"Невозможно безопасно получить доступ к блоку флагов восстановления."};
-static const char * const f8242[] = {"Не удается сохранить плейлист"};
-static const char * const f8243[] = {"Не удается сохранить диагностические данные обновления на SD-карту."};
-static const char * const f8244[] = {"Не удалось сохранить диагностические данные. Подготовка обновления остановлена."};
-static const char * const f8245[] = {"Невозможно сохранить: недействительные или потоковые записи."};
-static const char * const f8246[] = {"Не удалось запустить операцию с папкой."};
-static const char * const f8247[] = {"Невозможно запустить очередь"};
-static const char * const f8248[] = {"Режим автомобиля"};
-static const char * const f8249[] = {"Громкость режима автомобиля"};
-static const char * const f8250[] = {"Режим автомобиля отключен."};
-static const char * const f8251[] = {"Каналы"};
-static const char * const f8252[] = {"Лимит заряда (85%)"};
-static const char * const f8253[] = {"Перед обновлением зарядите минимум до %d%% или подключите питание."};
-static const char * const f8254[] = {"Перед обновлением зарядите минимум до 30%% или подключите питание."};
-static const char * const f8255[] = {"Зарядка"};
-static const char * const f8256[] = {"Проверьте наличие онлайн-обновлений"};
-static const char * const f8257[] = {"Убедитесь, что Wi-Fi включен, затем повторите сканирование."};
-static const char * const f8258[] = {"Проверьте SD-карту и отключите USB-накопитель перед игрой."};
-static const char * const f8259[] = {"Проверьте переключатель беспроводной сети и повторите попытку."};
-static const char * const f8260[] = {"Проверка обновлений"};
-static const char * const f8261[] = {"Проверка SD-карты. Это может занять некоторое время"};
-static const char * const f8262[] = {"Проверка файла на SD-карте"};
-static const char * const f8263[] = {"Выберите язык"};
-static const char * const f8264[] = {"Выберите плагины"};
-static const char * const f8265[] = {"Выберите язык вашего плеера."};
-static const char * const f8266[] = {"Выберите часовой пояс"};
-static const char * const f8267[] = {"Выберите, что происходит во время простоя:"};
-static const char * const f8268[] = {"Очистить очередь"};
-static const char * const f8269[] = {"Часы"};
-static const char * const f8270[] = {"по часовой стрелке"};
-static const char * const f8271[] = {"Закрыть"};
-static const char * const f8272[] = {"Закрытие веб-сервера\n..."};
-static const char * const f8273[] = {"Кодек"};
-static const char * const f8274[] = {"Комбинированный отклик (дБ)"};
-static const char * const f8275[] = {"Комбинированный отклик (дБ) · Эквалайзер выключен"};
-static const char * const f8276[] = {"Компас Игрок"};
-static const char * const f8277[] = {"Подключиться"};
-static const char * const f8278[] = {"Подключайтесь и просматривайте"};
-static const char * const f8279[] = {"Подключите устройство, чтобы увидеть поддерживаемые тарифы"};
-static const char * const f8280[] = {"Подключитесь через Wi-Fi или Bluetooth, чтобы видеть, что воспроизводится, управлять воспроизведением и просматривать свою библиотеку. Введите этот PIN-код, когда приложение или браузер запросит его; Bluetooth также требует сопряжения."};
-static const char * const f8281[] = {"Подключитесь к Wi-Fi"};
-static const char * const f8282[] = {"Сначала подключитесь к Wi-Fi"};
-static const char * const f8283[] = {"Подключитесь к Wi-Fi для потоковой передачи, обновлений и онлайн-сервисов."};
-static const char * const f8284[] = {"Прежде чем продолжить, подключитесь к сети Wi-Fi."};
-static const char * const f8285[] = {"Подключитесь к сети, чтобы загрузить плагины."};
-static const char * const f8286[] = {"Подключитесь, используя любой доступный маршрут:"};
-static const char * const f8287[] = {"Подключено"};
-static const char * const f8288[] = {"Подключение"};
-static const char * const f8289[] = {"Подключение к"};
-static const char * const f8290[] = {"Подключение к серверу..."};
-static const char * const f8291[] = {"ПИН-код подключения"};
-static const char * const f8292[] = {"Соединение не удалось"};
-static const char * const f8293[] = {"Время соединения истекло через 30 секунд."};
-static const char * const f8294[] = {"Контейнер"};
-static const char * const f8295[] = {"Продолжить"};
-static const char * const f8296[] = {"Продолжить настройку"};
-static const char * const f8297[] = {"Копировать"};
-static const char * const f8298[] = {"Скопируйте игры в папку %s на SD-карте."};
-static const char * const f8299[] = {"Не удалось применить размер шрифта"};
-static const char * const f8300[] = {"Не удалось применить размер текста текста песни."};
-static const char * const f8301[] = {"Не удалось применить тему"};
-static const char * const f8302[] = {"Не удалось создать папку"};
-static const char * const f8303[] = {"Не удалось загрузить контрольные суммы выпуска."};
-static const char * const f8304[] = {"Не удалось перейти в режим восстановления."};
-static const char * const f8305[] = {"Не удалось создать новый PIN-код."};
-static const char * const f8306[] = {"Не удалось получить ссылку на поток"};
-static const char * const f8307[] = {"Не удалось установить плагин на SD-карту."};
-static const char * const f8308[] = {"Не удалось установить эмулятор."};
-static const char * const f8309[] = {"Не удалось установить плагин на SD-карту."};
-static const char * const f8310[] = {"Не удалось загрузить фотографию экрана блокировки."};
-static const char * const f8311[] = {"Не удалось загрузить каталог плагинов."};
-static const char * const f8312[] = {"Не удалось загрузить каталог плагинов. Нажмите «Еще», чтобы повторить попытку."};
-static const char * const f8313[] = {"Не удалось переместить другие файлы .upt на SD-карту."};
-static const char * const f8314[] = {"Не удалось открыть этот файл"};
-static const char * const f8315[] = {"Не удалось открыть этот файл."};
-static const char * const f8316[] = {"Не удалось разместить обновление на SD-карте."};
-static const char * const f8317[] = {"Не удалось подготовить удаление плагина."};
-static const char * const f8318[] = {"Не удалось подготовить помощник обновления: %s"};
-static const char * const f8319[] = {"Не удалось подключиться к стриминговому сервису"};
-static const char * const f8320[] = {"Не удалось прочитать установленные плагины."};
-static const char * const f8321[] = {"Не удалось прочитать папку «Книги»"};
-static const char * const f8322[] = {"Не удалось прочитать список эмуляторов с GitHub."};
-static const char * const f8323[] = {"Не удалось прочитать список плагинов с GitHub."};
-static const char * const f8324[] = {"Не удалось прочитать список выпусков на GitHub."};
-static const char * const f8325[] = {"Не удалось сохранить сведения о проверенном обновлении на SD-карте."};
-static const char * const f8326[] = {"Не удалось обновить книги"};
-static const char * const f8327[] = {"Не удалось перезагрузить обложку"};
-static const char * const f8328[] = {"Не удалось удалить файл плагина."};
-static const char * const f8329[] = {"Не удалось удалить эмулятор."};
-static const char * const f8330[] = {"Не удалось переименовать"};
-static const char * const f8331[] = {"Не удалось восстановить SD-карту"};
-static const char * const f8332[] = {"Не удалось заменить файлы плагина."};
-static const char * const f8333[] = {"Не удалось сохранить кодек Bluetooth."};
-static const char * const f8334[] = {"Не удалось запустить переключатель режима USB"};
-static const char * const f8335[] = {"Не удалось начать обновление каталога плагинов."};
-static const char * const f8336[] = {"Не удалось начать загрузку"};
-static const char * const f8337[] = {"Не удалось начать загрузку."};
-static const char * const f8338[] = {"Не удалось запустить операцию с эмулятором"};
-static const char * const f8339[] = {"Не удалось запустить игру."};
-static const char * const f8340[] = {"Не удалось начать установку."};
-static const char * const f8341[] = {"Не удалось запустить сканирование библиотеки. Пожалуйста, попробуйте еще раз."};
-static const char * const f8342[] = {"Не удалось запустить работу плагина"};
-static const char * const f8343[] = {"Не удалось запустить работу плагина."};
-static const char * const f8344[] = {"Не удалось запустить обновление плагина"};
-static const char * const f8345[] = {"Не удалось запустить обновление плагина."};
-static const char * const f8346[] = {"Не удалось запустить обновление плагина."};
-static const char * const f8347[] = {"Не удалось запустить проверку обновлений."};
-static const char * const f8348[] = {"Не удалось запустить обновление."};
-static const char * const f8349[] = {"Не удалось запустить помощник обновления: %s"};
-static const char * const f8350[] = {"Не удалось обновить запись установленного плагина."};
-static const char * const f8351[] = {"Не удалось проверить контрольные суммы последней версии."};
-static const char * const f8352[] = {"Не удалось подключиться к сети Wi-Fi"};
-static const char * const f8353[] = {"Не удалось прочитать этот файл .cue"};
-static const char * const f8354[] = {"Не удалось сохранить — изменение плагина не было применено."};
-static const char * const f8355[] = {"Против часовой стрелки"};
-static const char * const f8356[] = {"Обложка перезагружена"};
-static const char * const f8357[] = {"Обновлены обложки"};
-static const char * const f8358[] = {"Создайте список воспроизведения выше или скопируйте его в папку «Плейлисты» на SD-карте."};
-static const char * const f8359[] = {"Создать плагин"};
-static const char * const f8360[] = {"Создать тему"};
-static const char * const f8361[] = {"Создание плагинов и тем"};
-static const char * const f8362[] = {"Руководства для создателей"};
-static const char * const f8363[] = {"Кроссфейд"};
-static const char * const f8364[] = {"Кроссфид (от 0 до 100)"};
-static const char * const f8365[] = {"Кроссфид: %d%%"};
-static const char * const f8366[] = {"Кроссфид: выкл."};
-static const char * const f8367[] = {"Пользовательский"};
-static const char * const f8368[] = {"Пользовательский цвет"};
-static const char * const f8369[] = {"Пользовательские шрифты влияют только на латинский текст."};
-static const char * const f8370[] = {"Путь ЦАП: %s · %u-бит"};
-static const char * const f8371[] = {"DLNA"};
-static const char * const f8372[] = {"DLNA-рендерер"};
-static const char * const f8373[] = {"Настройки DNS"};
-static const char * const f8374[] = {"декабрь"};
-static const char * const f8375[] = {"По умолчанию"};
-static const char * const f8376[] = {"По умолчанию (встроенный)"};
-static const char * const f8377[] = {"По умолчанию (собственное поведение)"};
-static const char * const f8378[] = {"Удалить"};
-static const char * const f8379[] = {"Удалить %d элемент?", "Удалить %d элемента?", "Удалить %d элементов?"};
-static const char * const f8380[] = {"Удалить %s?\nЭто действие нельзя отменить."};
-static const char * const f8381[] = {"Удалить плейлист"};
-static const char * const f8382[] = {"Удалить плейлист?"};
-static const char * const f8383[] = {"Удалить этот профиль?"};
-static const char * const f8384[] = {"Параметры разработчика"};
-static const char * const f8385[] = {"Затемнение экрана до истечения времени ожидания"};
-static const char * const f8386[] = {"Отключено"};
-static const char * const f8387[] = {"Диск %d"};
-static const char * const f8388[] = {"Диск %d/дорожка %d"};
-static const char * const f8389[] = {"Отключить"};
-static const char * const f8390[] = {"Сначала отключите USB-накопитель"};
-static const char * const f8391[] = {"Перед изменением файлов отключите USB-накопитель от компьютера."};
-static const char * const f8392[] = {"Отключите USB-накопитель от компьютера, прежде чем изменять эмуляторы."};
-static const char * const f8393[] = {"Прежде чем менять плагины, отключите USB-накопитель от хоста."};
-static const char * const f8394[] = {"Уволить"};
-static const char * const f8395[] = {"Дисплей"};
-static const char * const f8396[] = {"Ничего не делать"};
-static const char * const f8397[] = {"Готово"};
-static const char * const f8398[] = {"Готово. Обновите музыкальную базу данных, чтобы увидеть изменения в вашей библиотеке."};
-static const char * const f8399[] = {"Двухместный"};
-static const char * const f8400[] = {"Двойное нажатие"};
-static const char * const f8401[] = {"Скачать"};
-static const char * const f8402[] = {"Загрузить \"%s\"?"};
-static const char * const f8403[] = {"Скачать профили"};
-static const char * const f8404[] = {"Загрузить настройки"};
-static const char * const f8405[] = {"Скачайте эмулятор, чтобы играть."};
-static const char * const f8406[] = {"Скачать эмуляторы"};
-static const char * const f8407[] = {"Загрузить все альбомы \"%s\"?"};
-static const char * const f8408[] = {"Загрузка не удалась"};
-static const char * const f8409[] = {"Папка загрузки: %s"};
-static const char * const f8410[] = {"Папка загрузки: корень SD"};
-static const char * const f8411[] = {"Скачать макеты"};
-static const char * const f8412[] = {"Скачать профили"};
-static const char * const f8413[] = {"Загрузить настройки"};
-static const char * const f8414[] = {"Скачать подпапку"};
-static const char * const f8415[] = {"Скачать темы"};
-static const char * const f8416[] = {"Загрузка"};
-static const char * const f8417[] = {"Загрузка\n%s..."};
-static const char * const f8418[] = {"Загрузка и установка плагинов %zu/%zu"};
-static const char * const f8419[] = {"Загрузка обновления"};
-static const char * const f8420[] = {"Продолжительность"};
-static const char * const f8421[] = {"эквалайзер"};
-static const char * const f8422[] = {"Кривая эквалайзера"};
-static const char * const f8423[] = {"Редактировать"};
-static const char * const f8424[] = {"Редактировать/Готово"};
-static const char * const f8425[] = {"Отредактируйте текстовый файл .theme на компьютере. Скопируйте его в папку Themes на SD-карте, затем выберите его в меню Ещё > Темы."};
-static const char * const f8426[] = {"Операция с эмулятором не удалась"};
-static const char * const f8427[] = {"Магазин эмуляторов занят."};
-static const char * const f8428[] = {"Эмуляторы"};
-static const char * const f8429[] = {"Включить ЦАП Bluetooth"};
-static const char * const f8430[] = {"Включите Bluetooth в настройках, чтобы использовать режим BT DAC."};
-static const char * const f8431[] = {"Включить таймер сна"};
-static const char * const f8432[] = {"Включите Wi-Fi или Bluetooth для подключения."};
-static const char * const f8433[] = {"Включите Wi-Fi для доступа"};
-static const char * const f8434[] = {"Включить группу"};
-static const char * const f8435[] = {"Включить ведение журнала отладки"};
-static const char * const f8436[] = {"Включено"};
-static const char * const f8437[] = {"Эквалайзер"};
-static const char * const f8438[] = {"Стереть и отформатировать SD-карту?"};
-static const char * const f8439[] = {"Европа"};
-static const char * const f8440[] = {"Отлично"};
-static const char * const f8441[] = {"Выйдите из режима USB DAC для воспроизведения музыки на этом устройстве."};
-static const char * const f8442[] = {"Обновления расширений"};
-static const char * const f8443[] = {"Сброс к заводским настройкам"};
-static const char * const f8444[] = {"Неудачные плагины:\n"};
-static const char * const f8445[] = {"Не удалось добавить папку в плейлист."};
-static const char * const f8446[] = {"Не удалось добавить в плейлист"};
-static const char * const f8447[] = {"Не удалось применить часовой пояс"};
-static const char * const f8448[] = {"Не удалось подключиться к серверу"};
-static const char * const f8449[] = {"Не удалось создать плейлист"};
-static const char * const f8450[] = {"Не удалось удалить профиль"};
-static const char * const f8451[] = {"Не удалось включить AirPlay."};
-static const char * const f8452[] = {"Не удалось загрузить исполнителей."};
-static const char * const f8453[] = {"Не удалось загрузить исполнителей: %s."};
-static const char * const f8454[] = {"Не удалось загрузить шрифт. Проверьте формат и память."};
-static const char * const f8455[] = {"Не удалось загрузить с сервера"};
-static const char * const f8456[] = {"Не удалось загрузить профиль"};
-static const char * const f8457[] = {"Не удалось переименовать профиль"};
-static const char * const f8458[] = {"Не удалось сохранить профиль"};
-static const char * const f8459[] = {"Не удалось начать соединение"};
-static const char * const f8460[] = {"Не удалось переключиться на %s"};
-static const char * const f8461[] = {"Не удалось переключить Bluetooth."};
-static const char * const f8462[] = {"Ярмарка"};
-static const char * const f8463[] = {"Избранное"};
-static const char * const f8464[] = {"февраль"};
-static const char * const f8465[] = {"Файловый менеджер"};
-static const char * const f8466[] = {"Путь к файлу слишком длинный."};
-static const char * const f8467[] = {"Размер файла"};
-static const char * const f8468[] = {"Файл недоступен"};
-static const char * const f8469[] = {"Файлы"};
-static const char * const f8470[] = {"Файлы (папки остаются первыми)"};
-static const char * const f8471[] = {"Возможно, файлы на карте изменились."};
-static const char * const f8472[] = {"В файлах используются даты изменения. В альбомах используется самая новая добавленная дорожка; недостающие годы выпуска сортируются последними. Обновите музыкальную базу данных один раз, чтобы считать годы из существующих файлов."};
-static const char * const f8473[] = {"Тип фильтра"};
-static const char * const f8474[] = {"Обновление прошивки"};
-static const char * const f8475[] = {"Доступна прошивка %s.\nУстановлена: %s\n\nЗагрузить ее сейчас? Это может занять некоторое время."};
-static const char * const f8476[] = {"Выпуск прошивки %s загружен и проверен.\n\nУстановить сейчас? Устройство перезагрузится в режим восстановления для установки прошивки. Не выключайте его до завершения перезапуска."};
-static const char * const f8477[] = {"Квартира"};
-static const char * const f8478[] = {"Операция с папкой уже выполняется."};
-static const char * const f8479[] = {"Папка слишком велика для добавления в очередь."};
-static const char * const f8480[] = {"Расположение папок для загруженных альбомов"};
-static const char * const f8481[] = {"Папка слишком велика для индексации (нажмите «Назад»)"};
-static const char * const f8482[] = {"Шрифт"};
-static const char * const f8483[] = {"Размер шрифта"};
-static const char * const f8484[] = {"Выбор шрифта больше недоступен"};
-static const char * const f8485[] = {"Забудь"};
-static const char * const f8486[] = {"Формат"};
-static const char * const f8487[] = {"Отформатировать SD-карту"};
-static const char * const f8488[] = {"Форматирование SD-карты\n..."};
-static const char * const f8489[] = {"Частота"};
-static const char * const f8490[] = {"Частота (Гц, от 20 до 20 000)"};
-static const char * const f8491[] = {"пятница"};
-static const char * const f8492[] = {"Из обложки альбома"};
-static const char * const f8493[] = {"Из обложки альбома (без обложки, используется пользовательская)"};
-static const char * const f8494[] = {"Выигрыш"};
-static const char * const f8495[] = {"Усиление (дБ, от -12 до 12)"};
-static const char * const f8496[] = {"Режим усиления"};
-static const char * const f8497[] = {"Игры работают только на плеере."};
-static const char * const f8498[] = {"без пробелов"};
-static const char * const f8499[] = {"Шлюз: %s"};
-static const char * const f8500[] = {"Генерировать"};
-static const char * const f8501[] = {"Создать новый PIN-код?"};
-static const char * const f8502[] = {"Жанры"};
-static const char * const f8503[] = {"Жесты и ориентация"};
-static const char * const f8504[] = {"Начать"};
-static const char * const f8505[] = {"GitHub не ответил вовремя. Попробуйте еще раз."};
-static const char * const f8506[] = {"GitHub ограничивает запросы. Повторите попытку позже."};
-static const char * const f8507[] = {"GitHub вернул HTTP %d."};
-static const char * const f8508[] = {"В последней версии GitHub нет действительного изображения %s и контрольной суммы."};
-static const char * const f8509[] = {"Последняя версия GitHub не является поддерживаемой версией прошивки."};
-static const char * const f8510[] = {"Вернитесь назад и выберите «Новое соединение», чтобы добавить его."};
-static const char * const f8511[] = {"Перейти к странице"};
-static const char * const f8512[] = {"Хорошо"};
-static const char * const f8513[] = {"Руководство: docs/CREATING.md"};
-static const char * const f8514[] = {"Гарнитура может отключиться, может потребоваться повторное подключение вручную"};
-static const char * const f8515[] = {"Скрыть верхнюю панель проигрывателя/текста песен"};
-static const char * const f8516[] = {"Скрыть безымянные устройства"};
-static const char * const f8517[] = {"Скрыть скрытые файлы"};
-static const char * const f8518[] = {"Высокий"};
-static const char * const f8519[] = {"Высокий (320 кбит/с)"};
-static const char * const f8520[] = {"Имя хоста"};
-static const char * const f8521[] = {"В имени хоста можно использовать только буквы, цифры и дефисы."};
-static const char * const f8522[] = {"IP-адрес: %s"};
-static const char * const f8523[] = {"Выключение на холостом ходу"};
-static const char * const f8524[] = {"Тайм-аут простоя:"};
-static const char * const f8525[] = {"Импорт"};
-static const char * const f8526[] = {"Импорт через Wi-Fi"};
-static const char * const f8527[] = {"Встроенный пульт дистанционного управления"};
-static const char * const f8528[] = {"Индийский"};
-static const char * const f8529[] = {"Информация"};
-static const char * const f8530[] = {"Вставьте SD-карту, чтобы изменить эмуляторы."};
-static const char * const f8531[] = {"Вставьте SD-карту, чтобы изменить плагины."};
-static const char * const f8532[] = {"Вставьте SD-карту, чтобы загрузить обновление."};
-static const char * const f8533[] = {"Вставьте SD-карту для установки плагинов."};
-static const char * const f8534[] = {"Вставьте SD-карту, чтобы удалить плагины."};
-static const char * const f8535[] = {"Вставьте SD-карту для поиска музыки или отключите параметр «Поиск музыки»."};
-static const char * const f8536[] = {"Вставьте SD-карту, чтобы обновить плагины."};
-static const char * const f8537[] = {"Вставьте SD-карту с музыкальными файлами. Compas Player может отсканировать его и создать свою библиотеку."};
-static const char * const f8538[] = {"Установить"};
-static const char * const f8539[] = {"Установить и перезагрузить"};
-static const char * const f8540[] = {"Установить с SD-карты"};
-static const char * const f8541[] = {"Установлено"};
-static const char * const f8542[] = {"Устанавливается вручную"};
-static const char * const f8543[] = {"Установленная версия: %s\nДоступная версия: %s\n\nВсе равно загрузить и переустановить? Это может занять некоторое время."};
-static const char * const f8544[] = {"Установлено · %s"};
-static const char * const f8545[] = {"Установка эмулятора"};
-static const char * const f8546[] = {"Установка плагина"};
-static const char * const f8547[] = {"Неверная папка загрузки"};
-static const char * const f8548[] = {"Неверное имя папки загрузки"};
-static const char * const f8549[] = {"Неверное имя профиля"};
-static const char * const f8550[] = {"Неверный путь обновления."};
-static const char * const f8551[] = {"Его не удалось загрузить. Восстановить его сейчас?"};
-static const char * const f8552[] = {"Возможно, на карте нет таблицы разделов или она отформатирована в файловую систему, которую плеер не поддерживает. Форматирование удалит все данные и подготовит карту для использования с плеером."};
-static const char * const f8553[] = {"Его настройки остаются на карте."};
-static const char * const f8554[] = {"январь"};
-static const char * const f8555[] = {"июль"};
-static const char * const f8556[] = {"июнь"};
-static const char * const f8557[] = {"Оставьте кнопку назначенной для переключения экрана или меню питания."};
-static const char * const f8558[] = {"Клавиатура"};
-static const char * const f8559[] = {"Качество LDAC"};
-static const char * const f8560[] = {"Стандарт ЛДАК"};
-static const char * const f8561[] = {"Светодиодный индикатор заряда"};
-static const char * const f8562[] = {"Язык"};
-static const char * const f8563[] = {"Большой"};
-static const char * const f8564[] = {"Позже"};
-static const char * const f8565[] = {"Запуск на фиксированной громкости"};
-static const char * const f8566[] = {"Макет"};
-static const char * const f8567[] = {"Уйти"};
-static const char * const f8568[] = {"Выйти из режима Bluetooth DAC?"};
-static const char * const f8569[] = {"Выйти из режима USB DAC?"};
-static const char * const f8570[] = {"Покиньте этот вид и повторите попытку."};
-static const char * const f8571[] = {"Библиотека"};
-static const char * const f8572[] = {"Библиотека изменилась. Откройте альбом еще раз."};
-static const char * const f8573[] = {"Библиотека занята"};
-static const char * const f8574[] = {"Библиотека загружена"};
-static const char * const f8575[] = {"Библиотека восстановлена и сохранена"};
-static const char * const f8576[] = {"Библиотека восстановлена и сохранена, некоторые папки не читаются"};
-static const char * const f8577[] = {"Библиотека восстановлена. Используйте «Настройки» > «Обновить музыкальную базу данных», чтобы сохранить."};
-static const char * const f8578[] = {"Библиотека недоступна. Используйте «Настройки» > «Обновить музыкальную базу данных» для восстановления."};
-static const char * const f8579[] = {"Обновление библиотеки не удалось. Проверьте SD-карту и повторите попытку."};
-static const char * const f8580[] = {"Библиотека обновлена"};
-static const char * const f8581[] = {"Библиотека обновлена, некоторые папки не читаются"};
-static const char * const f8582[] = {"Лицензия: %s"};
-static const char * const f8583[] = {"Ограничивает громкость плеера, включая кнопки, пульты дистанционного управления и плагины."};
-static const char * const f8584[] = {"Загрузка настроек Wi-Fi"};
-static const char * const f8585[] = {"Загрузка эмуляторов"};
-static const char * const f8586[] = {"Загрузка с сервера..."};
-static const char * const f8587[] = {"Загрузка макетов"};
-static const char * const f8588[] = {"Загрузка каталога плагинов..."};
-static const char * const f8589[] = {"Загрузка плагинов"};
-static const char * const f8590[] = {"Загрузка тем"};
-static const char * const f8591[] = {"Загрузка треков…"};
-static const char * const f8592[] = {"Загрузка обновлений"};
-static const char * const f8593[] = {"Загрузка..."};
-static const char * const f8594[] = {"Расположение"};
-static const char * const f8595[] = {"Длинный"};
-static const char * const f8596[] = {"Длительное нажатие"};
-static const char * const f8597[] = {"Ищу музыкальные файлы"};
-static const char * const f8598[] = {"Ищем музыкальные файлы\nОтмечено %d элементов"};
-static const char * const f8599[] = {"Низкий"};
-static const char * const f8600[] = {"Низкий\nВысокий"};
-static const char * const f8601[] = {"Низкий (96 кбит/с)"};
-static const char * const f8602[] = {"Тексты песен"};
-static const char * const f8603[] = {"Размер текста текста"};
-static const char * const f8604[] = {"MAC-адрес: %s"};
-static const char * const f8605[] = {"Техническое обслуживание"};
-static const char * const f8606[] = {"Сделайте аксессуар доступным для обнаружения, затем коснитесь «Повторно сканировать»."};
-static const char * const f8607[] = {"Управляйте плагинами позже в «Настройки» > «Система» > «Диспетчер плагинов», чтобы найти, обновить или удалить их."};
-static const char * const f8608[] = {"Ручной ввод SSID"};
-static const char * const f8609[] = {"март"};
-static const char * const f8610[] = {"Сопоставить обложку альбома"};
-static const char * const f8611[] = {"Макс. громкость"};
-static const char * const f8612[] = {"май"};
-static const char * const f8613[] = {"Средний"};
-static const char * const f8614[] = {"Средний (192 кбит/с)"};
-static const char * const f8615[] = {"Запомненные сети"};
-static const char * const f8616[] = {"Метаданные обновлены."};
-static const char * const f8617[] = {"понедельник"};
-static const char * const f8618[] = {"Моно (1 канал)"};
-static const char * const f8619[] = {"Ещё"};
-static const char * const f8620[] = {"Часто воспроизводимые"};
-static const char * const f8621[] = {"Переместить"};
-static const char * const f8622[] = {"Переместить %d элемент?", "Переместить %d элемента?", "Переместить %d элементов?"};
-static const char * const f8623[] = {"Музыка"};
-static const char * const f8624[] = {"Музыкальная база данных недоступна."};
-static const char * const f8625[] = {"Имя (А–Я)"};
-static const char * const f8626[] = {"Собственный DSD (DoP) / %.4g МГц"};
-static const char * const f8627[] = {"Здесь появятся ближайшие сети Wi-Fi."};
-static const char * const f8628[] = {"Сети поблизости появятся, когда Wi-Fi будет готов."};
-static const char * const f8629[] = {"Нужна более новая прошивка"};
-static const char * const f8630[] = {"Имя сети (SSID)"};
-static const char * const f8631[] = {"Сетевой поток"};
-static const char * const f8632[] = {"Здесь появятся сети, к которым вы подключаетесь."};
-static const char * const f8633[] = {"Новое соединение"};
-static const char * const f8634[] = {"Создан новый PIN-код"};
-static const char * const f8635[] = {"Новый профиль"};
-static const char * const f8636[] = {"Новая папка"};
-static const char * const f8637[] = {"Новейшие изменения"};
-static const char * const f8638[] = {"Далее"};
-static const char * const f8639[] = {"Далее • %d–%d из %d"};
-static const char * const f8640[] = {"Следующая композиция"};
-static const char * const f8641[] = {"Следующая страница"};
-static const char * const f8642[] = {"Шрифты .ttf не найдены в папке /Fonts."};
-static const char * const f8643[] = {"Нет SD-карты"};
-static const char * const f8644[] = {"SD-карта не обнаружена. Вы можете выполнить сканирование позже в настройках библиотеки."};
-static const char * const f8645[] = {"SD-карта не вставлена."};
-static const char * const f8646[] = {"Книги не найдены"};
-static const char * const f8647[] = {"Нет описания"};
-static const char * const f8648[] = {"В каталоге нет доступных эмуляторов."};
-static const char * const f8649[] = {"Эмуляторы не установлены"};
-static const char * const f8650[] = {"Нет записей для отображения"};
-static const char * const f8651[] = {"Пока нет избранных"};
-static const char * const f8652[] = {"Игры не найдены"};
-static const char * const f8653[] = {"Нет товаров"};
-static const char * const f8654[] = {"В каталоге макетов нет."};
-static const char * const f8655[] = {"Больше нет в каталоге"};
-static const char * const f8656[] = {"Нет запомненных сетей"};
-static const char * const f8657[] = {"Нет музыкальной базы данных"};
-static const char * const f8658[] = {"Нет устройств поблизости"};
-static const char * const f8659[] = {"Сеть не обнаружена"};
-static const char * const f8660[] = {"Сеть не обнаружена. Подключитесь к сети, чтобы скачать эмуляторы."};
-static const char * const f8661[] = {"Сеть не обнаружена. Подключитесь к сети, чтобы загрузить плагины."};
-static const char * const f8662[] = {"Сети не найдены"};
-static const char * const f8663[] = {"Других сетей не найдено"};
-static const char * const f8664[] = {"Нет сопряженных устройств"};
-static const char * const f8665[] = {"Воспроизводимые аудиофайлы не найдены"};
-static const char * const f8666[] = {"Здесь нет воспроизводимых файлов"};
-static const char * const f8667[] = {"Нет доступных настроек плагина"};
-static const char * const f8668[] = {"В каталоге нет доступных плагинов."};
-static const char * const f8669[] = {"Нет сохраненных профилей"};
-static const char * const f8670[] = {"Нет сохраненных серверов"};
-static const char * const f8671[] = {"Нет песен для обновления."};
-static const char * const f8672[] = {"Синхронизированные тексты песен не найдены"};
-static const char * const f8673[] = {"В каталоге нет доступных тем."};
-static const char * const f8674[] = {"Ни один трек не загружен"};
-static const char * const f8675[] = {"Треков не найдено"};
-static const char * const f8676[] = {"Нет доступных обновлений."};
-static const char * const f8677[] = {"Нет пользовательских плейлистов"};
-static const char * const f8678[] = {"На этой SD-карте нет проверенного файла обновления. Загрузите его снова."};
-static const char * const f8679[] = {"Недоступно в вашей подписке"};
-static const char * const f8680[] = {"Не подключено"};
-static const char * const f8681[] = {"Недостаточно свободного места на SD-карте для обновления."};
-static const char * const f8682[] = {"Недостаточно свободного места на SD-карте."};
-static const char * const f8683[] = {"Недостаточно свободного места на плеере."};
-static const char * const f8684[] = {"Недостаточно памяти для подключения"};
-static const char * const f8685[] = {"Недостаточно памяти для загрузки дорожек CUE"};
-static const char * const f8686[] = {"Недостаточно памяти для загрузки исполнителей"};
-static const char * const f8687[] = {"Недостаточно памяти для загрузки с сервера"};
-static const char * const f8688[] = {"Недостаточно памяти для загрузки магазина плагинов"};
-static const char * const f8689[] = {"Недостаточно памяти для начала загрузки"};
-static const char * const f8690[] = {"Не выбрано (UTC)"};
-static const char * const f8691[] = {"Не установлено"};
-static const char * const f8692[] = {"Здесь нечего выбирать"};
-static const char * const f8693[] = {"ноябрь"};
-static const char * const f8694[] = {"Сейчас воспроизводятся макеты"};
-static const char * const f8695[] = {"ВЫКЛ."};
-static const char * const f8696[] = {"ВКЛ."};
-static const char * const f8697[] = {"Октябрь"};
-static const char * const f8698[] = {"Выкл."};
-static const char * const f8699[] = {"Вкл."};
-static const char * const f8700[] = {"Откройте Ещё > Плагины > Обновить плагины. Отсканируйте QR-код, чтобы найти рабочий пример и полное описание API."};
-static const char * const f8701[] = {"Откройте книгу и коснитесь значка закладки, чтобы сохранить ее здесь."};
-static const char * const f8702[] = {"Откройте папку, содержащую поддерживаемые аудиофайлы."};
-static const char * const f8703[] = {"Открытая сеть"};
-static const char * const f8704[] = {"Откройте папку назначения, затем выберите в меню «Вставить сюда»."};
-static const char * const f8705[] = {"Откройте этот адрес на своем телефоне или компьютере:"};
-static const char * const f8706[] = {"Открыт · Подключен"};
-static const char * const f8707[] = {"Оригинал"};
-static const char * const f8708[] = {"Выход"};
-static const char * const f8709[] = {"PEQ"};
-static const char * const f8710[] = {"Сброс PEQ к настройкам по умолчанию"};
-static const char * const f8711[] = {"ПМ"};
-static const char * const f8712[] = {"Тихий океан"};
-static const char * const f8713[] = {"Страница %d из %d"};
-static const char * const f8714[] = {"Парный"};
-static const char * const f8715[] = {"Сопряженные устройства"};
-static const char * const f8716[] = {"Пароль"};
-static const char * const f8717[] = {"Пароль: Не установлен"};
-static const char * const f8718[] = {"Пароль: Установить"};
-static const char * const f8719[] = {"Вставить сюда %d элемент", "Вставить сюда %d элемента", "Вставить сюда %d элементов"};
-static const char * const f8720[] = {"Приостановлено: наушники отключены."};
-static const char * const f8721[] = {"Выступ\nНизкая полка\nВысокая полка"};
-static const char * const f8722[] = {"За альбом"};
-static const char * const f8723[] = {"За трек"};
-static const char * const f8724[] = {"Поместите шрифты .ttf в папку SD/Fonts."};
-static const char * const f8725[] = {"Воспроизвести все"};
-static const char * const f8726[] = {"Воспроизвести всё по порядку"};
-static const char * const f8727[] = {"Воспроизвести всё вперемешку"};
-static const char * const f8728[] = {"Играть дальше"};
-static const char * const f8729[] = {"Воспроизвести все в случайном порядке"};
-static const char * const f8730[] = {"Включите альбом или плейлист, чтобы увидеть здесь песни из него."};
-static const char * const f8731[] = {"Играть последовательно"};
-static const char * const f8732[] = {"Воспроизведение/Пауза"};
-static const char * const f8733[] = {"Воспроизведение"};
-static const char * const f8734[] = {"Воспроизведение и управление"};
-static const char * const f8735[] = {"Воспроизведение и действия устройства"};
-static const char * const f8736[] = {"Воспроизведение изменилось до того, как папка была готова."};
-static const char * const f8737[] = {"Ошибка воспроизведения"};
-static const char * const f8738[] = {"Ошибка воспроизведения: сбой вывода звука"};
-static const char * const f8739[] = {"Не удалось сохранить историю воспроизведения."};
-static const char * const f8740[] = {"Воспроизведение остановлено: %s"};
-static const char * const f8741[] = {"Играл"};
-static const char * const f8742[] = {"Расположение проигрывателя"};
-static const char * const f8743[] = {"Играя"};
-static const char * const f8744[] = {"Название плейлиста"};
-static const char * const f8745[] = {"Плейлист изменен. Выберите песню еще раз."};
-static const char * const f8746[] = {"Плейлист изменен. Попробуйте еще раз."};
-static const char * const f8747[] = {"Плейлист создан"};
-static const char * const f8748[] = {"Плейлист удален."};
-static const char * const f8749[] = {"Плейлист пуст"};
-static const char * const f8750[] = {"Название плейлиста слишком длинное."};
-static const char * const f8751[] = {"Плейлист переименован"};
-static const char * const f8752[] = {"Плейлист сохранен."};
-static const char * const f8753[] = {"Выбор плейлиста больше недоступен."};
-static const char * const f8754[] = {"Плейлист недоступен или не читается"};
-static const char * const f8755[] = {"Плейлисты"};
-static const char * const f8756[] = {"Плейлисты обновлены."};
-static const char * const f8757[] = {"Пожалуйста, дождитесь завершения установки плагина"};
-static const char * const f8758[] = {"Пожалуйста, дождитесь завершения сканирования библиотеки."};
-static const char * const f8759[] = {"Плагин"};
-static const char * const f8760[] = {"Менеджер плагинов"};
-static const char * const f8761[] = {"Порядок плагинов"};
-static const char * const f8762[] = {"Настройки плагина"};
-static const char * const f8763[] = {"Магазин плагинов"};
-static const char * const f8764[] = {"Плагин недоступен в каталоге"};
-static const char * const f8765[] = {"Операция плагина не удалась"};
-static const char * const f8766[] = {"Настройка плагина завершена"};
-static const char * const f8767[] = {"Настройка плагина требует внимания"};
-static const char * const f8768[] = {"Хранилище плагинов недоступно."};
-static const char * const f8769[] = {"Плагины"};
-static const char * const f8770[] = {"Плагины и макеты"};
-static const char * const f8771[] = {"Плагины могут переопределить сохранённые настройки."};
-static const char * const f8772[] = {"Позиция"};
-static const char * const f8773[] = {"Питание"};
-static const char * const f8774[] = {"Меню питания"};
-static const char * const f8775[] = {"Выключить питание"};
-static const char * const f8776[] = {"Управление питанием"};
-static const char * const f8777[] = {"Выключить питание"};
-static const char * const f8778[] = {"Предварительный усилитель"};
-static const char * const f8779[] = {"Предварительный усилитель (дБ, от -12 до 12)"};
-static const char * const f8780[] = {"Подготовка и проверка режима восстановления"};
-static const char * const f8781[] = {"Готовлю обновление обложки..."};
-static const char * const f8782[] = {"Подготовка папки к воспроизведению…"};
-static const char * const f8783[] = {"Подготовка обновления метаданных"};
-static const char * const f8784[] = {"Подготовка обновления метаданных..."};
-static const char * const f8785[] = {"Подготовка музыкальной библиотеки..."};
-static const char * const f8786[] = {"Подготовка обновления"};
-static const char * const f8787[] = {"Пресеты"};
-static const char * const f8788[] = {"Предварительный просмотр"};
-static const char * const f8789[] = {"Предыдущий"};
-static const char * const f8790[] = {"Предыдущий • %d–%d из %d"};
-static const char * const f8791[] = {"Предыдущая композиция"};
-static const char * const f8792[] = {"Предыдущая страница"};
-static const char * const f8793[] = {"Предыдущий запрос все еще завершается"};
-static const char * const f8794[] = {"Здесь появятся ранее подключенные аксессуары."};
-static const char * const f8795[] = {"Первичный DNS"};
-static const char * const f8796[] = {"Имя профиля"};
-static const char * const f8797[] = {"Профиль удален"};
-static const char * const f8798[] = {"Профиль загружен"};
-static const char * const f8799[] = {"Профиль переименован"};
-static const char * const f8800[] = {"Профиль сохранен."};
-static const char * const f8801[] = {"Профили"};
-static const char * const f8802[] = {"Поставщик"};
-static const char * const f8803[] = {"QWERTY"};
-static const char * const f8804[] = {"Очередь"};
-static const char * const f8805[] = {"Очередь изменилась. Попробуйте еще раз."};
-static const char * const f8806[] = {"Контрольная точка очереди не удалась; хранилище может быть доступно только для чтения"};
-static const char * const f8807[] = {"Очередь очищена"};
-static const char * const f8808[] = {"Очередь пуста"};
-static const char * const f8809[] = {"Очередь готова. Нажмите «Воспроизвести», чтобы начать."};
-static const char * const f8810[] = {"В очереди"};
-static const char * const f8811[] = {"Быстрая панель"};
-static const char * const f8812[] = {"Быстрая настройка завершена"};
-static const char * const f8813[] = {"Быстрая настройка"};
-static const char * const f8814[] = {"ЖК"};
-static const char * const f8815[] = {"Радио"};
-static const char * const f8816[] = {"Радио / %s"};
-static const char * const f8817[] = {"Чтение поддерживаемых тарифов..."};
-static const char * const f8818[] = {"Чтение тегов\n%d из %d песен (%d%%)"};
-static const char * const f8819[] = {"Снова считывает теги каждой песни. Это может занять некоторое время."};
-static const char * const f8820[] = {"Восстановить"};
-static const char * const f8821[] = {"Недавно добавлено"};
-static const char * const f8822[] = {"Недавно играл"};
-static const char * const f8823[] = {"Не удалось установить флаг загрузки в режиме восстановления."};
-static const char * const f8824[] = {"Не удалось стереть флаг восстановления. Не перезагружайте устройство; проверьте журнал .compas/ota/update.log."};
-static const char * const f8825[] = {"Раздел с флагом восстановления не соответствует этой прошивке."};
-static const char * const f8826[] = {"Не удалось проверить флаг восстановления. Не перезагружайте устройство; проверьте журнал обновления."};
-static const char * const f8827[] = {"Не удалось записать флаг восстановления. Не перезагружайте устройство; проверьте журнал .compas/ota/update.log."};
-static const char * const f8828[] = {"Режим восстановления остается выбранным, но перезагрузка не удалась: %s. Не удаляйте файл обновления."};
-static const char * const f8829[] = {"Режим восстановления остается выбранным. Не удаляйте файл обновления: не удалось сохранить диагностические данные."};
-static const char * const f8830[] = {"Обновить"};
-static const char * const f8831[] = {"Обновить все обложки"};
-static const char * const f8832[] = {"Обновить все метаданные"};
-static const char * const f8833[] = {"Обновить плагины"};
-static const char * const f8834[] = {"Обновить все обложки?"};
-static const char * const f8835[] = {"Обновить все метаданные?"};
-static const char * const f8836[] = {"Обновить каталог эмуляторов"};
-static const char * const f8837[] = {"Обновить метаданные"};
-static const char * const f8838[] = {"Обновить каталог плагинов"};
-static const char * const f8839[] = {"Обновите музыкальную базу данных, чтобы обновить этот список."};
-static const char * const f8840[] = {"Обновление всех обложек\n..."};
-static const char * const f8841[] = {"Обновление всех метаданных\n..."};
-static const char * const f8842[] = {"Обновление метаданных\n..."};
-static const char * const f8843[] = {"Обновление обложек"};
-static const char * const f8844[] = {"Обновление обложек\n%d из %d (%d%%)"};
-static const char * const f8845[] = {"Обновление плагинов..."};
-static const char * const f8846[] = {"Год выпуска (сначала самый старый)"};
-static const char * const f8847[] = {"Перезагрузить обложку"};
-static const char * const f8848[] = {"Перезагрузка обложки\n..."};
-static const char * const f8849[] = {"Перезагрузочная крышка"};
-static const char * const f8850[] = {"Крышка перезарядки\n%d из %d (%d%%)"};
-static const char * const f8851[] = {"Удаленный"};
-static const char * const f8852[] = {"Пульт дистанционного управления"};
-static const char * const f8853[] = {"Удалить"};
-static const char * const f8854[] = {"Удалить %s?"};
-static const char * const f8855[] = {"Удален"};
-static const char * const f8856[] = {"Удалено из плейлиста"};
-static const char * const f8857[] = {"Удален из очереди"};
-static const char * const f8858[] = {"Удаляет сохраненные обложки и извлекает их заново. Это может занять некоторое время."};
-static const char * const f8859[] = {"Удаление эмулятора"};
-static const char * const f8860[] = {"Удаление плагина"};
-static const char * const f8861[] = {"Переименовать"};
-static const char * const f8862[] = {"Переименовать плейлист"};
-static const char * const f8863[] = {"Переименовать профиль"};
-static const char * const f8864[] = {"Изменить порядок"};
-static const char * const f8865[] = {"Заменить"};
-static const char * const f8866[] = {"Заменить существующий"};
-static const char * const f8867[] = {"Заменить профиль"};
-static const char * const f8868[] = {"ReplayGain"};
-static const char * const f8869[] = {"Повторное сканирование"};
-static const char * const f8870[] = {"Сброс"};
-static const char * const f8871[] = {"Сбросить все"};
-static const char * const f8872[] = {"Сбросить PEQ к настройкам по умолчанию?"};
-static const char * const f8873[] = {"Сбросить все назначения кнопок?"};
-static const char * const f8874[] = {"Сбросить все настройки и перезагрузиться?"};
-static const char * const f8875[] = {"Сбросить настройки по умолчанию"};
-static const char * const f8876[] = {"Перезапустить"};
-static const char * const f8877[] = {"Перезагрузить сейчас"};
-static const char * const f8878[] = {"Перезапустить сейчас, чтобы применить новое имя хоста?"};
-static const char * const f8879[] = {"Перезапуск в режиме восстановления. Не выключайте плеер."};
-static const char * const f8880[] = {"Возобновить последний трек"};
-static const char * const f8881[] = {"Возобновить и играть"};
-static const char * const f8882[] = {"Возобновите воспроизведение, когда внешнее питание включит плеер."};
-static const char * const f8883[] = {"Возобновить, но приостановить"};
-static const char * const f8884[] = {"Повторная попытка плагинов %zu/%zu"};
-static const char * const f8885[] = {"Обзор обновлений"};
-static const char * const f8886[] = {"SD-карта не читается"};
-static const char * const f8887[] = {"Не удалось отформатировать SD-карту"};
-static const char * const f8888[] = {"SD-карта отформатирована"};
-static const char * const f8889[] = {"SD-карта доступна только для чтения. Проверьте это на компьютере"};
-static const char * const f8890[] = {"SD-карта по-прежнему доступна только для чтения"};
-static const char * const f8891[] = {"SD-карта может иметь ошибки. Проверьте это на компьютере"};
-static const char * const f8892[] = {"SD-карта недоступна"};
-static const char * const f8893[] = {"Восстановление SD-карты все еще продолжается"};
-static const char * const f8894[] = {"SD-карта отремонтирована"};
-static const char * const f8895[] = {"SSID должен иметь длину от 1 до 32 байт."};
-static const char * const f8896[] = {"SSID: %s"};
-static const char * const f8897[] = {"Безопасная зарядка (500 мА)"};
-static const char * const f8898[] = {"Частота дискретизации"};
-static const char * const f8899[] = {"Суббота"};
-static const char * const f8900[] = {"Сохранить"};
-static const char * const f8901[] = {"Сохранить профиль"};
-static const char * const f8902[] = {"Сохранить профиль как"};
-static const char * const f8903[] = {"Сохранить очередь как список воспроизведения"};
-static const char * const f8904[] = {"Сохранить как плейлист"};
-static const char * const f8905[] = {"Сохранить как новый профиль или заменить уже существующий?"};
-static const char * const f8906[] = {"Сохраненные серверы"};
-static const char * const f8907[] = {"Сохраненная сеть"};
-static const char * const f8908[] = {"Сохраненные сведения о сети проверяются."};
-static const char * const f8909[] = {"Сохранение данных перед перезагрузкой"};
-static const char * const f8910[] = {"Не удалось сохранить данные. Режим восстановления остается выбранным. Не удаляйте файл обновления; проверьте журнал .compas/ota/update.log."};
-static const char * const f8911[] = {"Сохранение музыкальной базы данных"};
-static const char * const f8912[] = {"Сохранение музыкальной базы данных\nВ больших библиотеках это может занять некоторое время."};
-static const char * const f8913[] = {"Сохранение плейлиста…"};
-static const char * const f8914[] = {"Отсканируйте QR-код, чтобы открыть тему для начала работы и инструкции. Руководство по макетам XML поможет изменить экран плеера."};
-static const char * const f8915[] = {"Сканировать музыку"};
-static const char * const f8916[] = {"Отсканируйте QR-код, чтобы открыть полное руководство."};
-static const char * const f8917[] = {"Сканируйте с помощью телефона, чтобы поддержать Compás Player на PayPal."};
-static const char * const f8918[] = {"Сканирование сетей"};
-static const char * const f8919[] = {"Поиск файлов для воспроизведения…"};
-static const char * const f8920[] = {"Затемнение экрана"};
-static const char * const f8921[] = {"Тайм-аут экрана"};
-static const char * const f8922[] = {"Экран выключен"};
-static const char * const f8923[] = {"Не удалось сделать снимок экрана (%s)"};
-static const char * const f8924[] = {"Не удалось сделать снимок экрана (кадровый буфер)"};
-static const char * const f8925[] = {"Не удалось сделать снимок экрана: сбой фонового процесса."};
-static const char * const f8926[] = {"Для снимка экрана требуется SD-карта"};
-static const char * const f8927[] = {"Скриншот сохранен."};
-static const char * const f8928[] = {"Снимок экрана (Питание + Предыдущая композиция)"};
-static const char * const f8929[] = {"Скриншоты (Питание + Громкость вниз)"};
-static const char * const f8930[] = {"Скриншоты недоступны"};
-static const char * const f8931[] = {"Поиск сетей"};
-static const char * const f8932[] = {"Вторичный DNS"};
-static const char * const f8933[] = {"Безопасное соединение не удалось. Проверьте Wi-Fi, а также дату и время."};
-static const char * const f8934[] = {"Защищенная сеть"};
-static const char * const f8935[] = {"Защищено · Подключено"};
-static const char * const f8936[] = {"Перемотать назад"};
-static const char * const f8937[] = {"Перемотать вперед"};
-static const char * const f8938[] = {"Выбрать"};
-static const char * const f8939[] = {"Выберите файл"};
-static const char * const f8940[] = {"Выбрать все"};
-static const char * const f8941[] = {"Выберите хотя бы один плагин, чтобы продолжить."};
-static const char * const f8942[] = {"Выбранные плагины готовы.\n"};
-static const char * const f8943[] = {"сентябрь"};
-static const char * const f8944[] = {"URL-адрес сервера (например, %s)"};
-static const char * const f8945[] = {"URL-адрес сервера: %s"};
-static const char * const f8946[] = {"Тайм-аут запроса к серверу истек через 30 секунд."};
-static const char * const f8947[] = {"Служба занята"};
-static const char * const f8948[] = {"Установить время"};
-static const char * const f8949[] = {"Установите местный часовой пояс, чтобы часы показывали правильно."};
-static const char * const f8950[] = {"Настройки"};
-static const char * const f8951[] = {"Показать оставшееся время"};
-static const char * const f8952[] = {"Показать скрытые файлы"};
-static const char * const f8953[] = {"Показаны первые %d из %d песен"};
-static const char * const f8954[] = {"Начать воспроизведение со случайной песни"};
-static const char * const f8955[] = {"Войдите в стриминговый сервис снова"};
-static const char * const f8956[] = {"Сигнал: %s"};
-static const char * const f8957[] = {"Одинокий"};
-static const char * const f8958[] = {"Одиночное нажатие"};
-static const char * const f8959[] = {"Размер: %s"};
-static const char * const f8960[] = {"Пропустить сейчас"};
-static const char * const f8961[] = {"Пропущено: %s"};
-static const char * const f8962[] = {"Режим сна"};
-static const char * const f8963[] = {"Таймер сна"};
-static const char * const f8964[] = {"Таймер сна"};
-static const char * const f8965[] = {"Таймер сна: осталось %d мин."};
-static const char * const f8966[] = {"Таймер сна: Выкл."};
-static const char * const f8967[] = {"Маленький"};
-static const char * const f8968[] = {"Некоторые обложки не удалось обновить."};
-static const char * const f8969[] = {"Некоторые плейлисты не удалось прочитать"};
-static const char * const f8970[] = {"На карте были изменены некоторые файлы плагина. Заменить их?"};
-static const char * const f8971[] = {"Некоторые песни невозможно прочитать"};
-static const char * const f8972[] = {"Некоторые обновления требуют подтверждения перед заменой локальных файлов."};
-static const char * const f8973[] = {"Песня уже добавлена"};
-static const char * const f8974[] = {"Песня удалена"};
-static const char * const f8975[] = {"Песни"};
-static const char * const f8976[] = {"Сортировка"};
-static const char * const f8977[] = {"Звук"};
-static const char * const f8978[] = {"Звуковые эффекты"};
-static const char * const f8979[] = {"Источник"};
-static const char * const f8980[] = {"Ресемплинг Speex"};
-static const char * const f8981[] = {"Начать последовательно"};
-static const char * const f8982[] = {"Начните с этих предложений или изучите другие плагины."};
-static const char * const f8983[] = {"Начальный том"};
-static const char * const f8984[] = {"Шаг %d из %d"};
-static const char * const f8985[] = {"Стерео (2 канала)"};
-static const char * const f8986[] = {"Все еще применяя предыдущий выбор"};
-static const char * const f8987[] = {"Операция еще выполняется. Не выключайте плеер и не повторяйте попытку."};
-static const char * const f8988[] = {"Стоп"};
-static const char * const f8989[] = {"Остановлено"};
-static const char * const f8990[] = {"Остановка..."};
-static const char * const f8991[] = {"Хранение"};
-static const char * const f8992[] = {"Стрим Медиа"};
-static const char * const f8993[] = {"Качество потока"};
-static const char * const f8994[] = {"Качество потока: %s"};
-static const char * const f8995[] = {"Подпапка указывается относительно корня SD (пример: Музыка/Офлайн); пусто, используется корень SD"};
-static const char * const f8996[] = {"Подпапка: корень SD"};
-static const char * const f8997[] = {"Дозвуковой"};
-static const char * const f8998[] = {"воскресенье"};
-static const char * const f8999[] = {"Сон с сохранением в ОЗУ"};
-static const char * const f9000[] = {"Проведите пальцем вверх, чтобы перейти на «Домой»"};
-static const char * const f9001[] = {"Проведите пальцем вверх, чтобы разблокировать"};
-static const char * const f9002[] = {"Система"};
-static const char * const f9003[] = {"Системные плейлисты"};
-static const char * const f9004[] = {"Т9"};
-static const char * const f9005[] = {"Просмотр TXT"};
-static const char * const f9006[] = {"Берет цвет обложки воспроизводимого трека"};
-static const char * const f9007[] = {"Нажмите «Выключить» еще раз для подтверждения."};
-static const char * const f9008[] = {"Нажмите «Перезагрузить» еще раз для подтверждения."};
-static const char * const f9009[] = {"Это имя нельзя использовать"};
-static const char * const f9010[] = {"SD-карта менялась во время загрузки."};
-static const char * const f9011[] = {"SD-карта менялась в ходе операции."};
-static const char * const f9012[] = {"SD-карта доступна только для чтения. Проверьте его защиту от записи."};
-static const char * const f9013[] = {"Загрузка не завершилась. Проверьте Wi-Fi и повторите попытку."};
-static const char * const f9014[] = {"Проверка загруженного образа не пройдена; файл удален."};
-static const char * const f9015[] = {"Загруженная запись обновления недействительна. Загрузите обновление еще раз."};
-static const char * const f9016[] = {"Загрузка эмулятора не прошла проверку. Попробуйте ещё раз."};
-static const char * const f9017[] = {"Папка эмуляторов недоступна для записи."};
-static const char * const f9018[] = {"Путь прошивки слишком длинный."};
-static const char * const f9019[] = {"Игра неожиданно закрылась."};
-static const char * const f9020[] = {"Файл плейлиста будет удален. Музыкальные файлы останутся."};
-static const char * const f9021[] = {"Загрузка плагина не прошла проверку. Попробуйте еще раз."};
-static const char * const f9022[] = {"Быстрая бурая лисица прыгает 123"};
-static const char * const f9023[] = {"В релизе нет контрольной суммы для образа этого устройства."};
-static const char * const f9024[] = {"Выбранный файл обновления изменился. Выберите его снова."};
-static const char * const f9025[] = {"Плагин стриминга недоступен"};
-static const char * const f9026[] = {"Стриминговый сервис не ответил"};
-static const char * const f9027[] = {"Файл обновления изменился во время проверки. Выберите его снова."};
-static const char * const f9028[] = {"Файл обновления на SD-карте изменился. Загрузите его еще раз."};
-static const char * const f9029[] = {"Темы"};
-static const char * const f9030[] = {"В этом представлении нет записей."};
-static const char * const f9031[] = {"Это может занять несколько секунд."};
-static const char * const f9032[] = {"Это невозможно отменить."};
-static const char * const f9033[] = {"Это устройство теперь является звуковой картой USB."};
-static const char * const f9034[] = {"Это устройство теперь принимает аудио по Bluetooth"};
-static const char * const f9035[] = {"Для этого эмулятора требуется более новая версия плеера."};
-static const char * const f9036[] = {"Эта папка пуста"};
-static const char * const f9037[] = {"Сюда входят собственные данные плеера (.compas или .plugins). Их удаление или перемещение может нарушить работу функций, привести к потере настроек и установленных плагинов и потребовать перезапуска."};
-static const char * const f9038[] = {"Это может занять некоторое время"};
-static const char * const f9039[] = {"Это безвозвратно удалит все на карте. Это невозможно отменить."};
-static const char * const f9040[] = {"Для этого плагина нет доступных обновлений."};
-static const char * const f9041[] = {"Этот плагин уже установлен в магазине."};
-static const char * const f9042[] = {"Этот плагин не устанавливается магазином."};
-static const char * const f9043[] = {"Для этого плагина требуется более новая версия плеера."};
-static const char * const f9044[] = {"Это качество недоступно для этого трека"};
-static const char * const f9045[] = {"Образ этого выпуска не соответствует его контрольным суммам. Повторите попытку после следующего еженедельного выпуска."};
-static const char * const f9046[] = {"Этот трек защищён от копирования"};
-static const char * const f9047[] = {"Этот трек недоступен"};
-static const char * const f9048[] = {"Этот тип файла невозможно открыть"};
-static const char * const f9049[] = {"Этот файл больше не соответствует последнему выпуску. Проверьте обновления и загрузите актуальный образ."};
-static const char * const f9050[] = {"Этот файл обновления больше не соответствует последнему выпуску. Загрузите актуальный образ."};
-static const char * const f9051[] = {"Запуск темы не удался"};
-static const char * const f9052[] = {"Четверг"};
-static const char * const f9053[] = {"Часовой пояс"};
-static const char * const f9054[] = {"Оставшееся время: %d:%02d"};
-static const char * const f9055[] = {"Оставшееся время: %d:%02d:%02d"};
-static const char * const f9056[] = {"Часовой пояс"};
-static const char * const f9057[] = {"Окрасить заставку"};
-static const char * const f9058[] = {"Окрашивать значки заголовка"};
-static const char * const f9059[] = {"Переключить экран"};
-static const char * const f9060[] = {"Слишком много аудиоканалов"};
-static const char * const f9061[] = {"Установлено слишком много плагинов. Удалите один и попробуйте еще раз."};
-static const char * const f9062[] = {"Трек"};
-static const char * const f9063[] = {"Трек %+.1f дБ"};
-static const char * const f9064[] = {"Отследить %d"};
-static const char * const f9065[] = {"Детали трека пока недоступны. Оставьте воспроизведение открытым и проверьте еще раз."};
-static const char * const f9066[] = {"Треки"};
-static const char * const f9067[] = {"Попробуйте выполнить сканирование еще раз или добавьте скрытую сеть."};
-static const char * const f9068[] = {"вторник"};
-static const char * const f9069[] = {"Выключите и включите Bluetooth, чтобы применить"};
-static const char * const f9070[] = {"Сначала отключите ADB («Настройки» > «Система» > «Режим USB»), затем включите USB DAC отсюда."};
-static const char * const f9071[] = {"Выключите «Автоматически», чтобы настроить часы."};
-static const char * const f9072[] = {"Отключите ЦАП Bluetooth для воспроизведения музыки на этом устройстве."};
-static const char * const f9073[] = {"Отключите режим DAC, чтобы играть."};
-static const char * const f9074[] = {"Автоматическое выключение экрана"};
-static const char * const f9075[] = {"Включите Bluetooth, чтобы увидеть подключенные и находящиеся поблизости устройства."};
-static const char * const f9076[] = {"Включите Wi-Fi и сначала подключитесь"};
-static const char * const f9077[] = {"Включите эту опцию, чтобы увидеть здесь адрес."};
-static const char * const f9078[] = {"Включение Wi-Fi"};
-static const char * const f9079[] = {"USB-ЦАП"};
-static const char * const f9080[] = {"Режим USB-ЦАП"};
-static const char * const f9081[] = {"USB-режим"};
-static const char * const f9082[] = {"Обнаружено аудиоустройство USB"};
-static const char * const f9083[] = {"USB-вход: %s · %u-бит"};
-static const char * const f9084[] = {"USB-режим"};
-static const char * const f9085[] = {"USB-накопитель занят."};
-static const char * const f9086[] = {"Невозможно загрузить элементы"};
-static const char * const f9087[] = {"Невозможно прочитать папку (нажмите «Назад» и повторите попытку)."};
-static const char * const f9088[] = {"Недоступно"};
-static const char * const f9089[] = {"Неожиданный ответ библиотеки"};
-static const char * const f9090[] = {"Неожиданный ответ от GitHub"};
-static const char * const f9091[] = {"Неожиданный ответ от GitHub."};
-static const char * const f9092[] = {"Неизвестный альбом"};
-static const char * const f9093[] = {"Неизвестный художник"};
-static const char * const f9094[] = {"Неизвестный кодек"};
-static const char * const f9095[] = {"Неизвестный формат"};
-static const char * const f9096[] = {"Неизвестный курс"};
-static const char * const f9097[] = {"Неподдерживаемый аудиоформат"};
-static const char * const f9098[] = {"Обновить"};
-static const char * const f9099[] = {"Обновить и перезагрузить"};
-static const char * const f9100[] = {"Обновить все"};
-static const char * const f9101[] = {"Обновить музыкальную базу данных"};
-static const char * const f9102[] = {"Обновите музыкальную базу данных, чтобы включить этот порядок альбомов."};
-static const char * const f9103[] = {"Доступно обновление"};
-static const char * const f9104[] = {"Доступно обновление · %s"};
-static const char * const f9105[] = {"Диагностические данные обновления нужно сохранить на SD-карту."};
-static const char * const f9106[] = {"Сбой программы обновления (%s, код %d). См. журнал .compas/ota/update.log."};
-static const char * const f9107[] = {"Обновить индивидуально"};
-static const char * const f9108[] = {"Обновить музыкальную базу данных?"};
-static const char * const f9109[] = {"Обновление сохранено. Подключитесь к Wi-Fi, затем установите его через «Обновление прошивки» > «Установить с SD-карты»."};
-static const char * const f9110[] = {"Обновляет только плеер, сохраняя текущие драйверы, ядро и загрузчик."};
-static const char * const f9111[] = {"Обновляет всю CompásOS. Прошивка содержит загрузчик, плеер, ядро и драйверы."};
-static const char * const f9112[] = {"Обновите эти плагины по отдельности"};
-static const char * const f9113[] = {"Установить обновление %s?\nУстройство перезагрузится в режим восстановления."};
-static const char * const f9114[] = {"Обновления"};
-static const char * const f9115[] = {"Обновление музыкальной базы данных\n..."};
-static const char * const f9116[] = {"Обновление эмулятора"};
-static const char * const f9117[] = {"Обновление плагинов"};
-static const char * const f9118[] = {"Перевернутый экран"};
-static const char * const f9119[] = {"Используйте «Настройки» > «Обновить музыкальную базу данных»."};
-static const char * const f9120[] = {"Используйте обычный файл %s в корне SD-карты."};
-static const char * const f9121[] = {"Пользовательские плейлисты"};
-static const char * const f9122[] = {"Имя пользователя"};
-static const char * const f9123[] = {"Имя пользователя: %s"};
-static const char * const f9124[] = {"Использует цвет акцента для стандартной заставки."};
-static const char * const f9125[] = {"Использует акцентный цвет для значков рядом с заголовками экранов."};
-static const char * const f9126[] = {"Проверка сертификата сервера"};
-static const char * const f9127[] = {"Версия %s · %s"};
-static const char * const f9128[] = {"Уменьшить громкость"};
-static const char * const f9129[] = {"Блокировка громкости (экран выключен)"};
-static const char * const f9130[] = {"Ползунок громкости"};
-static const char * const f9131[] = {"Увеличение громкости"};
-static const char * const f9132[] = {"Дождитесь завершения переключения режима USB и отключите USB-накопитель перед обновлением."};
-static const char * const f9133[] = {"Ожидание потока Bluetooth…"};
-static const char * const f9134[] = {"Ожидание USB-аудио…"};
-static const char * const f9135[] = {"Слабый"};
-static const char * const f9136[] = {"Веб-сервер занят"};
-static const char * const f9137[] = {"среда"};
-static const char * const f9138[] = {"Добро пожаловать в Compás"};
-static const char * const f9139[] = {"Когда это устройство включено, оно становится видимым отправителям AirPlay в вашей сети Wi-Fi — транслируйте аудио с iPhone, iPad или Mac для воспроизведения через собственный выход этого устройства."};
-static const char * const f9140[] = {"Когда это устройство включено, оно доступно приложениям-контроллерам DLNA/UPnP в вашей сети Wi-Fi. Чтобы воспроизвести дорожку с одного из них, запустите ее здесь. Пауза, отключение звука, громкость и поиск в приложении контроллера не поддерживаются; вместо этого используйте собственные элементы управления этого устройства после запуска трека."};
-static const char * const f9141[] = {"Когда это устройство включено, оно остается видимым и может быть сопряжено с другими устройствами Bluetooth, поэтому телефон или компьютер могут передавать на него звук и воспроизводить его через собственный выход этого устройства, используя его в качестве внешнего ЦАП."};
-static const char * const f9142[] = {"Wi-Fi"};
-static const char * const f9143[] = {"Информация о Wi-Fi"};
-static const char * const f9144[] = {"Пароль Wi-Fi"};
-static const char * const f9145[] = {"Не удалось включить Wi-Fi"};
-static const char * const f9146[] = {"Wi-Fi не смог изменить состояние"};
-static const char * const f9147[] = {"Wi-Fi занят"};
-static const char * const f9148[] = {"Wi-Fi все еще запускается"};
-static const char * const f9149[] = {"Беспроводная связь"};
-static const char * const f9150[] = {"Работаю..."};
-static const char * const f9151[] = {"Создайте плагин на Lua на компьютере. Скопируйте файл .lua в папку .plugins на SD-карте."};
-static const char * const f9152[] = {"Вы можете выбрать до 32 плагинов"};
-static const char * const f9153[] = {"Ваша библиотека загружается."};
-static const char * const f9154[] = {"Ваша музыка"};
-static const char * const f9155[] = {"Этапы настройки"};
-static const char * const f9156[] = {"[Файл усечен до %d КБ — показана только первая часть]\n\n%s"};
-static const char * const f9157[] = {"github.com/Starnished66/compas-player"};
-static const char * const f9158[] = {"неизвестно"};
+static const char * const f8197[] = {"Доступный плеер: %s.\nУстановленый: %s\n\nСкачать и установить? Обновляет плеер и перезагружает его. Прошивка, шрифты и альбом-арты не удаляются."};
+static const char * const f8198[] = {"Доступно · %s"};
+static const char * const f8199[] = {"Диапазон %d / %d"};
+static const char * const f8200[] = {"Варианты ремешков"};
+static const char * const f8201[] = {"Иконка батареи"};
+static const char * const f8202[] = {"Процент заряда батареи"};
+static const char * const f8203[] = {"Битрейт"};
+static const char * const f8204[] = {"Bluetooth"};
+static const char * const f8205[] = {"Bluetooth Аудио (A2DP)"};
+static const char * const f8206[] = {"Кодек Bluetooth"};
+static const char * const f8207[] = {"Bluetooth ЦАП"};
+static const char * const f8208[] = {"Режим Bluetooth-ЦАП"};
+static const char * const f8209[] = {"Синхронизация громкости Bluetooth"};
+static const char * const f8210[] = {"Bluetooth выключен"};
+static const char * const f8211[] = {"Удаленная служба Bluetooth запускается…"};
+static const char * const f8212[] = {"Удаленная служба Bluetooth недоступна; повторная попытка."};
+static const char * const f8213[] = {"Bluetooth: Дистанционное управление Compas"};
+static const char * const f8214[] = {"Bluetooth: регистрация не удалась; повторная попытка"};
+static const char * const f8215[] = {"Bluetooth: ожидание регистрации услуги"};
+static const char * const f8216[] = {"Книги"};
+static const char * const f8217[] = {"Книги обновлены"};
+static const char * const f8218[] = {"Пересобрать БД"};
+static const char * const f8219[] = {"Пересобрать БД сейчас? Большие библиотеки могут занять несколько минут."};
+static const char * const f8220[] = {"Комплектные игры и их сохранения будут удалены. Игры в SD/Games останутся."};
+static const char * const f8221[] = {"Кнопка"};
+static const char * const f8222[] = {"Маппинг кнопок"};
+static const char * const f8223[] = {"Кнопки и пульт"};
+static const char * const f8224[] = {"Купи мне кофе"};
+static const char * const f8225[] = {"%s"};
+static const char * const f8226[] = {"Отмена"};
+static const char * const f8227[] = {"Не удалось добавить папку: будет превышен лимит памяти очереди."};
+static const char * const f8228[] = {"Невозможно проверить доступ на запись в хранилище плагинов."};
+static const char * const f8229[] = {"Не удалось создать папку эмуляторов."};
+static const char * const f8230[] = {"Невозможно создать каталог журнала обновлений."};
+static const char * const f8231[] = {"Не удается удалить плейлист"};
+static const char * const f8232[] = {"Не могу загрузить треки альбома"};
+static const char * const f8233[] = {"Невозможно переместить эту запись"};
+static const char * const f8234[] = {"Не могу воспроизвести папку"};
+static const char * const f8235[] = {"Не удаётся воспроизвести эту папку."};
+static const char * const f8236[] = {"Невозможно получить доступ к GitHub. Проверьте соединение Wi-Fi."};
+static const char * const f8237[] = {"Не удается прочитать плейлист"};
+static const char * const f8238[] = {"Невозможно прочитать SD-карту."};
+static const char * const f8239[] = {"Невозможно прочитать выбранный файл обновления."};
+static const char * const f8240[] = {"Невозможно прочитать файл обновления на SD-карте. Проверьте карту и повторите попытку."};
+static const char * const f8241[] = {"Невозможно прочитать запись обновления на SD-карте. Проверьте карту и повторите попытку."};
+static const char * const f8242[] = {"Невозможно прочитать статус помощника обновления: %s"};
+static const char * const f8243[] = {"Не удается удалить элемент"};
+static const char * const f8244[] = {"Невозможно переименовать: существует неверное имя или файл."};
+static const char * const f8245[] = {"Не удается изменить порядок песен в плейлисте"};
+static const char * const f8246[] = {"Невозможно безопасно получить доступ к блоку флагов восстановления."};
+static const char * const f8247[] = {"Не удается сохранить плейлист"};
+static const char * const f8248[] = {"Не удается сохранить диагностические данные обновления на SD-карту."};
+static const char * const f8249[] = {"Не удалось сохранить диагностические данные. Подготовка обновления остановлена."};
+static const char * const f8250[] = {"Невозможно сохранить: недействительные или потоковые записи."};
+static const char * const f8251[] = {"Не удалось запустить операцию с папкой."};
+static const char * const f8252[] = {"Невозможно запустить очередь"};
+static const char * const f8253[] = {"Режим автомобиля"};
+static const char * const f8254[] = {"Громкость режима автомобиля"};
+static const char * const f8255[] = {"Режим автомобиля отключен."};
+static const char * const f8256[] = {"Центр"};
+static const char * const f8257[] = {"Каналы"};
+static const char * const f8258[] = {"Лимит заряда (85%)"};
+static const char * const f8259[] = {"Перед обновлением зарядите минимум до %d%% или подключите питание."};
+static const char * const f8260[] = {"Перед обновлением зарядите минимум до 30%% или подключите питание."};
+static const char * const f8261[] = {"Зарядка"};
+static const char * const f8262[] = {"Проверьте наличие онлайн-обновлений"};
+static const char * const f8263[] = {"Убедитесь, что Wi-Fi включен, затем повторите сканирование."};
+static const char * const f8264[] = {"Проверьте SD-карту и отключите USB-накопитель перед игрой."};
+static const char * const f8265[] = {"Проверьте переключатель беспроводной сети и повторите попытку."};
+static const char * const f8266[] = {"Проверка обновлений"};
+static const char * const f8267[] = {"Проверка SD-карты. Это может занять некоторое время"};
+static const char * const f8268[] = {"Проверка файла на SD-карте"};
+static const char * const f8269[] = {"Выберите язык"};
+static const char * const f8270[] = {"Выберите плагины"};
+static const char * const f8271[] = {"Выберите язык вашего плеера."};
+static const char * const f8272[] = {"Выберите часовой пояс"};
+static const char * const f8273[] = {"Выберите, что происходит во время простоя:"};
+static const char * const f8274[] = {"Очистить очередь"};
+static const char * const f8275[] = {"Часы"};
+static const char * const f8276[] = {"Позиция часов"};
+static const char * const f8277[] = {"По часовой стрелке"};
+static const char * const f8278[] = {"Закрыть"};
+static const char * const f8279[] = {"Закрытие веб-сервера\n..."};
+static const char * const f8280[] = {"Кодек"};
+static const char * const f8281[] = {"Комбинированный отклик (дБ)"};
+static const char * const f8282[] = {"Комбинированный отклик (дБ) · Эквалайзер выключен"};
+static const char * const f8283[] = {"Компас Игрок"};
+static const char * const f8284[] = {"Подключиться"};
+static const char * const f8285[] = {"Подключайтесь и просматривайте"};
+static const char * const f8286[] = {"Подключите устройство, чтобы увидеть поддерживаемые битрейты"};
+static const char * const f8287[] = {"Подключитесь через Wi-Fi или Bluetooth, чтобы видеть, что воспроизводится, управлять воспроизведением и просматривать свою библиотеку. Введите этот PIN-код, когда приложение или браузер запросит его; Bluetooth также требует сопряжения."};
+static const char * const f8288[] = {"Подключитесь к Wi-Fi"};
+static const char * const f8289[] = {"Подключитесь к Wi-Fi перед скачиванием обновления"};
+static const char * const f8290[] = {"Сначала подключитесь к Wi-Fi"};
+static const char * const f8291[] = {"Подключитесь к Wi-Fi для потоковой передачи, обновлений и онлайн-сервисов."};
+static const char * const f8292[] = {"Прежде чем продолжить, подключитесь к сети Wi-Fi."};
+static const char * const f8293[] = {"Подключитесь к сети, чтобы загрузить плагины."};
+static const char * const f8294[] = {"Подключитесь, используя любой доступный маршрут:"};
+static const char * const f8295[] = {"Подключено"};
+static const char * const f8296[] = {"Подключение"};
+static const char * const f8297[] = {"Подключение к"};
+static const char * const f8298[] = {"Подключение к серверу..."};
+static const char * const f8299[] = {"ПИН-код подключения"};
+static const char * const f8300[] = {"Соединение не удалось"};
+static const char * const f8301[] = {"Тайм-аут соединения 30 секунд."};
+static const char * const f8302[] = {"Контейнер"};
+static const char * const f8303[] = {"Продолжить"};
+static const char * const f8304[] = {"Продолжить настройку"};
+static const char * const f8305[] = {"Копировать"};
+static const char * const f8306[] = {"Скопируйте игры в папку %s на SD-карте."};
+static const char * const f8307[] = {"Не удалось применить размер шрифта"};
+static const char * const f8308[] = {"Не удалось применить размер текста песни."};
+static const char * const f8309[] = {"Не удалось применить тему"};
+static const char * const f8310[] = {"Не удалось создать папку"};
+static const char * const f8311[] = {"Не удалось загрузить контрольные суммы выпуска."};
+static const char * const f8312[] = {"Не удалось перейти в режим восстановления."};
+static const char * const f8313[] = {"Не удалось создать новый PIN-код."};
+static const char * const f8314[] = {"Не удалось получить ссылку на поток"};
+static const char * const f8315[] = {"Не удалось установить плагин на SD-карту."};
+static const char * const f8316[] = {"Не удалось установить эмулятор."};
+static const char * const f8317[] = {"Не удалось установить плагин на SD-карту."};
+static const char * const f8318[] = {"Не удалось загрузить фотографию экрана блокировки."};
+static const char * const f8319[] = {"Не удалось загрузить каталог плагинов."};
+static const char * const f8320[] = {"Не удалось загрузить каталог плагинов. Нажмите «Еще», чтобы повторить попытку."};
+static const char * const f8321[] = {"Не удалось переместить другие файлы .upt на SD-карту."};
+static const char * const f8322[] = {"Не удалось открыть этот файл"};
+static const char * const f8323[] = {"Не удалось открыть этот файл."};
+static const char * const f8324[] = {"Не удалось разместить обновление на SD-карте."};
+static const char * const f8325[] = {"Не удалось подготовить удаление плагина."};
+static const char * const f8326[] = {"Не удалось подготовить помощник обновления: %s"};
+static const char * const f8327[] = {"Не удалось подключиться к стриминговому сервису"};
+static const char * const f8328[] = {"Не удалось прочитать установленные плагины."};
+static const char * const f8329[] = {"Не удалось прочитать папку «Книги»"};
+static const char * const f8330[] = {"Не удалось прочитать список эмуляторов с GitHub."};
+static const char * const f8331[] = {"Не удалось прочитать список плагинов с GitHub."};
+static const char * const f8332[] = {"Не удалось прочитать список выпусков на GitHub."};
+static const char * const f8333[] = {"Не удалось сохранить сведения о проверенном обновлении на SD-карте."};
+static const char * const f8334[] = {"Не удалось обновить книги"};
+static const char * const f8335[] = {"Не удалось перезагрузить обложку"};
+static const char * const f8336[] = {"Не удалось удалить файл плагина."};
+static const char * const f8337[] = {"Не удалось удалить эмулятор."};
+static const char * const f8338[] = {"Не удалось переименовать"};
+static const char * const f8339[] = {"Не удалось восстановить SD-карту"};
+static const char * const f8340[] = {"Не удалось заменить файлы плагина."};
+static const char * const f8341[] = {"Не удалось перезагрузиться в селектор загрузки"};
+static const char * const f8342[] = {"Не удалось сохранить кодек Bluetooth."};
+static const char * const f8343[] = {"Не удалось запустить обновление профиля USB зарядки."};
+static const char * const f8344[] = {"Не удалось переключить режим USB"};
+static const char * const f8345[] = {"Не удалось начать обновление каталога плагинов."};
+static const char * const f8346[] = {"Не удалось начать загрузку"};
+static const char * const f8347[] = {"Не удалось начать загрузку."};
+static const char * const f8348[] = {"Не удалось запустить операцию с эмулятором"};
+static const char * const f8349[] = {"Не удалось запустить игру."};
+static const char * const f8350[] = {"Не удалось начать установку."};
+static const char * const f8351[] = {"Не удалось запустить сканирование библиотеки. Пожалуйста, попробуйте еще раз."};
+static const char * const f8352[] = {"Не удалось запустить работу плагина"};
+static const char * const f8353[] = {"Не удалось запустить работу плагина."};
+static const char * const f8354[] = {"Не удалось запустить обновление плагина"};
+static const char * const f8355[] = {"Не удалось запустить обновление плагина."};
+static const char * const f8356[] = {"Не удалось запустить обновление плагина."};
+static const char * const f8357[] = {"Не удалось запустить проверку обновлений."};
+static const char * const f8358[] = {"Не удалось запустить обновление."};
+static const char * const f8359[] = {"Не удалось запустить помощник обновления: %s"};
+static const char * const f8360[] = {"Не удалось обновить запись установленного плагина."};
+static const char * const f8361[] = {"Не удалось проверить контрольные суммы последней версии."};
+static const char * const f8362[] = {"Не удалось подключиться к сети Wi-Fi"};
+static const char * const f8363[] = {"Не удалось прочитать этот файл .cue"};
+static const char * const f8364[] = {"Не удалось сохранить — изменения настроек плагина не были применены."};
+static const char * const f8365[] = {"Против часовой стрелки"};
+static const char * const f8366[] = {"Обложка перезагружена"};
+static const char * const f8367[] = {"Обновлены обложки"};
+static const char * const f8368[] = {"Создайте список воспроизведения выше или скопируйте его в папку «Плейлисты» на SD-карте."};
+static const char * const f8369[] = {"Создать плагин"};
+static const char * const f8370[] = {"Создать тему"};
+static const char * const f8371[] = {"Создание плагинов и тем"};
+static const char * const f8372[] = {"Руководства для создателей"};
+static const char * const f8373[] = {"Кроссфейд"};
+static const char * const f8374[] = {"Кроссфид"};
+static const char * const f8375[] = {"Кроссфид (от 0 до 100)"};
+static const char * const f8376[] = {"Угол кросфида"};
+static const char * const f8377[] = {"Кросфид смешивает отфильтрованый сигнал другого канала и работает независимо от PEQ. Без задержки - идентичные левый и правый каналы затронуты очень слабо."};
+static const char * const f8378[] = {"Кроссфид: %d%%"};
+static const char * const f8379[] = {"Кроссфид: выкл."};
+static const char * const f8380[] = {"Пользовательский"};
+static const char * const f8381[] = {"Пользовательский цвет"};
+static const char * const f8382[] = {"Пользовательские шрифты влияют только на латинский текст."};
+static const char * const f8383[] = {"Путь ЦАП: %s · %u-бит"};
+static const char * const f8384[] = {"DLNA"};
+static const char * const f8385[] = {"DLNA-рендерер"};
+static const char * const f8386[] = {"Настройки DNS"};
+static const char * const f8387[] = {"Декабрь"};
+static const char * const f8388[] = {"По умолчанию"};
+static const char * const f8389[] = {"По умолчанию (встроенный)"};
+static const char * const f8390[] = {"По умолчанию"};
+static const char * const f8391[] = {"Удалить"};
+static const char * const f8392[] = {"Удалить %d элемент?", "Удалить %d элемента?", "Удалить %d элементов?"};
+static const char * const f8393[] = {"Удалить %s?\nЭто действие нельзя отменить."};
+static const char * const f8394[] = {"Удалить плейлист"};
+static const char * const f8395[] = {"Удалить плейлист?"};
+static const char * const f8396[] = {"Удалить этот профиль?"};
+static const char * const f8397[] = {"Параметры разработчика"};
+static const char * const f8398[] = {"Затемнение экрана до истечения времени ожидания"};
+static const char * const f8399[] = {"Отключить зарядку\nв режиме USB-ЦАП"};
+static const char * const f8400[] = {"Отключено"};
+static const char * const f8401[] = {"Диск %d"};
+static const char * const f8402[] = {"Диск %d/дорожка %d"};
+static const char * const f8403[] = {"Отключиться"};
+static const char * const f8404[] = {"Сначала отключите USB-накопитель"};
+static const char * const f8405[] = {"Перед изменением файлов отключите USB-накопитель от компьютера."};
+static const char * const f8406[] = {"Отключите USB-накопитель от компьютера, прежде чем изменять эмуляторы."};
+static const char * const f8407[] = {"Прежде чем менять плагины, отключите USB-накопитель от хоста."};
+static const char * const f8408[] = {"Отменить"};
+static const char * const f8409[] = {"Дисплей"};
+static const char * const f8410[] = {"Ничего не делать"};
+static const char * const f8411[] = {"Готово"};
+static const char * const f8412[] = {"Готово. Обновите музыкальную базу данных, чтобы увидеть изменения в вашей библиотеке."};
+static const char * const f8413[] = {"Двойной"};
+static const char * const f8414[] = {"Двойное нажатие"};
+static const char * const f8415[] = {"Скачать"};
+static const char * const f8416[] = {"Загрузить \"%s\"?"};
+static const char * const f8417[] = {"Скачать профили"};
+static const char * const f8418[] = {"Загрузить настройки"};
+static const char * const f8419[] = {"Скачайте эмулятор, чтобы играть."};
+static const char * const f8420[] = {"Скачать эмуляторы"};
+static const char * const f8421[] = {"Загрузить все альбомы из \"%s\"?"};
+static const char * const f8422[] = {"Загрузка не удалась"};
+static const char * const f8423[] = {"Папка загрузки: %s"};
+static const char * const f8424[] = {"Папка загрузки: корень SD"};
+static const char * const f8425[] = {"Скачать макеты"};
+static const char * const f8426[] = {"Скачать профили"};
+static const char * const f8427[] = {"Загрузить настройки"};
+static const char * const f8428[] = {"Скачать подпапку"};
+static const char * const f8429[] = {"Скачать темы"};
+static const char * const f8430[] = {"Загрузка"};
+static const char * const f8431[] = {"Загрузка\n%s..."};
+static const char * const f8432[] = {"Загрузка и установка плагинов %zu/%zu"};
+static const char * const f8433[] = {"Загрузка обновления"};
+static const char * const f8434[] = {"Продолжительность"};
+static const char * const f8435[] = {"Эквалайзер"};
+static const char * const f8436[] = {"Кривая эквалайзера"};
+static const char * const f8437[] = {"Редактировать"};
+static const char * const f8438[] = {"Редактировать/Готово"};
+static const char * const f8439[] = {"Отредактируйте текстовый файл .theme на компьютере. Скопируйте его в папку Themes на SD-карте, затем выберите его в меню Ещё > Темы."};
+static const char * const f8440[] = {"Операция с эмулятором не удалась"};
+static const char * const f8441[] = {"Магазин эмуляторов занят."};
+static const char * const f8442[] = {"Эмуляторы"};
+static const char * const f8443[] = {"Включить Bluetooth-ЦАП"};
+static const char * const f8444[] = {"Включите Bluetooth в настройках, чтобы использовать режим BT-ЦАП."};
+static const char * const f8445[] = {"Включить таймер сна"};
+static const char * const f8446[] = {"Включите Wi-Fi или Bluetooth для подключения."};
+static const char * const f8447[] = {"Включите Wi-Fi для доступа"};
+static const char * const f8448[] = {"Включить полосу частот"};
+static const char * const f8449[] = {"Включить ведение журнала отладки"};
+static const char * const f8450[] = {"Включено"};
+static const char * const f8451[] = {"Эквалайзер"};
+static const char * const f8452[] = {"Стереть и отформатировать SD-карту?"};
+static const char * const f8453[] = {"Европа"};
+static const char * const f8454[] = {"Отличный"};
+static const char * const f8455[] = {"Выйдите из режима USB-ЦАП для воспроизведения музыки на этом устройстве."};
+static const char * const f8456[] = {"Обновления расширений"};
+static const char * const f8457[] = {"Сброс к заводским настройкам"};
+static const char * const f8458[] = {"Неудачные плагины:\n"};
+static const char * const f8459[] = {"Не удалось добавить папку в плейлист."};
+static const char * const f8460[] = {"Не удалось добавить в плейлист"};
+static const char * const f8461[] = {"Не удалось применить часовой пояс"};
+static const char * const f8462[] = {"Не удалось подключиться к серверу"};
+static const char * const f8463[] = {"Не удалось создать плейлист"};
+static const char * const f8464[] = {"Не удалось удалить профиль"};
+static const char * const f8465[] = {"Не удалось включить AirPlay."};
+static const char * const f8466[] = {"Не удалось загрузить исполнителей."};
+static const char * const f8467[] = {"Не удалось загрузить исполнителей: %s."};
+static const char * const f8468[] = {"Не удалось загрузить шрифт. Проверьте формат и память."};
+static const char * const f8469[] = {"Не удалось загрузить с сервера"};
+static const char * const f8470[] = {"Не удалось загрузить профиль"};
+static const char * const f8471[] = {"Не удалось переименовать профиль"};
+static const char * const f8472[] = {"Не удалось сохранить профиль"};
+static const char * const f8473[] = {"Не удалось начать соединение"};
+static const char * const f8474[] = {"Не удалось переключиться на %s"};
+static const char * const f8475[] = {"Не удалось переключить Bluetooth."};
+static const char * const f8476[] = {"Не удалось обновить профиль USB зарядки"};
+static const char * const f8477[] = {"Средний"};
+static const char * const f8478[] = {"Избранное"};
+static const char * const f8479[] = {"Февраль"};
+static const char * const f8480[] = {"Файловый менеджер"};
+static const char * const f8481[] = {"Путь к файлу слишком длинный."};
+static const char * const f8482[] = {"Размер файла"};
+static const char * const f8483[] = {"Файл недоступен"};
+static const char * const f8484[] = {"Файлы"};
+static const char * const f8485[] = {"Файлы (папки остаются первыми)"};
+static const char * const f8486[] = {"Возможно, файлы на карте изменились."};
+static const char * const f8487[] = {"В файлах используются даты изменения. В альбомах используется самая новая добавленная дорожка; недостающие годы выпуска сортируются последними. Обновите музыкальную базу данных один раз, чтобы считать годы из существующих файлов."};
+static const char * const f8488[] = {"Тип фильтра"};
+static const char * const f8489[] = {"Обновление прошивки"};
+static const char * const f8490[] = {"Доступна прошивка %s.\nУстановлена: %s\n\nЗагрузить ее сейчас? Это может занять некоторое время."};
+static const char * const f8491[] = {"Выпуск прошивки %s загружен и проверен.\n\nУстановить сейчас? Устройство перезагрузится в режим восстановления для установки прошивки. Не выключайте его до завершения перезапуска."};
+static const char * const f8492[] = {"Плоский"};
+static const char * const f8493[] = {"Операция с папкой уже выполняется."};
+static const char * const f8494[] = {"Папка слишком велика для добавления в очередь."};
+static const char * const f8495[] = {"Расположение папок для загруженных альбомов"};
+static const char * const f8496[] = {"Папка слишком велика для индексации (нажмите «Назад»)"};
+static const char * const f8497[] = {"Шрифт"};
+static const char * const f8498[] = {"Размер шрифта"};
+static const char * const f8499[] = {"Выбор шрифта больше недоступен"};
+static const char * const f8500[] = {"Забыть сеть"};
+static const char * const f8501[] = {"Форматировать"};
+static const char * const f8502[] = {"Отформатировать SD-карту"};
+static const char * const f8503[] = {"Форматирование SD-карты\n..."};
+static const char * const f8504[] = {"Частота"};
+static const char * const f8505[] = {"Частота (Гц, от 20 до 20 000)"};
+static const char * const f8506[] = {"Пятница"};
+static const char * const f8507[] = {"Из обложки альбома"};
+static const char * const f8508[] = {"Из обложки альбома (без обложки, используется пользовательская)"};
+static const char * const f8509[] = {"Усиление"};
+static const char * const f8510[] = {"Усиление (дБ, от -12 до 12)"};
+static const char * const f8511[] = {"Режим усиления"};
+static const char * const f8512[] = {"Игры работают только на плеере."};
+static const char * const f8513[] = {"без пауз"};
+static const char * const f8514[] = {"Шлюз: %s"};
+static const char * const f8515[] = {"Генерировать"};
+static const char * const f8516[] = {"Создать новый PIN-код?"};
+static const char * const f8517[] = {"Жанры"};
+static const char * const f8518[] = {"Жесты и ориентация"};
+static const char * const f8519[] = {"Начать"};
+static const char * const f8520[] = {"GitHub не ответил вовремя. Попробуйте еще раз."};
+static const char * const f8521[] = {"GitHub ограничивает запросы. Повторите попытку позже."};
+static const char * const f8522[] = {"GitHub вернул HTTP %d."};
+static const char * const f8523[] = {"В последней версии GitHub нет действительного изображения %s и контрольной суммы."};
+static const char * const f8524[] = {"Последняя версия GitHub не является поддерживаемой версией прошивки."};
+static const char * const f8525[] = {"Вернитесь назад и выберите «Новое соединение», чтобы добавить его."};
+static const char * const f8526[] = {"Перейти к странице"};
+static const char * const f8527[] = {"Хороший"};
+static const char * const f8528[] = {"Руководство: docs/CREATING.md"};
+static const char * const f8529[] = {"Гарнитура может отключиться, может потребоваться повторное подключение вручную"};
+static const char * const f8530[] = {"Скрыть верхнюю панель проигрывателя/текста песен"};
+static const char * const f8531[] = {"Скрыть безымянные устройства"};
+static const char * const f8532[] = {"Скрыть скрытые файлы"};
+static const char * const f8533[] = {"Высокий"};
+static const char * const f8534[] = {"Высокий (320 кбит/с)"};
+static const char * const f8535[] = {"Имя хоста"};
+static const char * const f8536[] = {"В имени хоста можно использовать только буквы, цифры и дефисы."};
+static const char * const f8537[] = {"IP-адрес: %s"};
+static const char * const f8538[] = {"Выключение при простое"};
+static const char * const f8539[] = {"Тайм-аут простоя:"};
+static const char * const f8540[] = {"Импорт"};
+static const char * const f8541[] = {"Импорт через Wi-Fi"};
+static const char * const f8542[] = {"ПДУ на проводе наушников"};
+static const char * const f8543[] = {"Индийский"};
+static const char * const f8544[] = {"Информация"};
+static const char * const f8545[] = {"Вставьте SD-карту, чтобы изменить эмуляторы."};
+static const char * const f8546[] = {"Вставьте SD-карту, чтобы изменить плагины."};
+static const char * const f8547[] = {"Вставьте SD-карту, чтобы загрузить обновление."};
+static const char * const f8548[] = {"Вставьте SD-карту для установки плагинов."};
+static const char * const f8549[] = {"Вставьте SD-карту, чтобы удалить плагины."};
+static const char * const f8550[] = {"Вставьте SD-карту для поиска музыки или отключите параметр «Поиск музыки»."};
+static const char * const f8551[] = {"Вставьте SD-карту, чтобы обновить плагины."};
+static const char * const f8552[] = {"Вставьте SD-карту с музыкальными файлами. Compas Player может отсканировать её и создать Вашу музыкальную библиотеку."};
+static const char * const f8553[] = {"Установить"};
+static const char * const f8554[] = {"Установить и перезагрузить"};
+static const char * const f8555[] = {"Установить с SD-карты"};
+static const char * const f8556[] = {"Установить обновление с SD карты?\n\nОбновляет плеер и перезагружает его. Прошивка, шрифты и альбом-арты не удаляются."};
+static const char * const f8557[] = {"Установлено"};
+static const char * const f8558[] = {"Устанавливается вручную"};
+static const char * const f8559[] = {"Установленная версия: %s\nДоступная версия: %s\n\nВсе равно загрузить и переустановить? Это может занять некоторое время."};
+static const char * const f8560[] = {"Установлено · %s"};
+static const char * const f8561[] = {"Установка эмулятора"};
+static const char * const f8562[] = {"Установка плагина"};
+static const char * const f8563[] = {"Неверная папка загрузки"};
+static const char * const f8564[] = {"Неверное имя папки загрузки"};
+static const char * const f8565[] = {"Неверное имя профиля"};
+static const char * const f8566[] = {"Неверный путь обновления."};
+static const char * const f8567[] = {"Не удалось загрузить. Обновить сейчас?"};
+static const char * const f8568[] = {"Возможно, на карте нет таблицы разделов или она отформатирована в файловую систему, которую плеер не поддерживает. Форматирование удалит все данные и подготовит карту для использования с плеером."};
+static const char * const f8569[] = {"Его настройки остаются на карте."};
+static const char * const f8570[] = {"Январь"};
+static const char * const f8571[] = {"Июль"};
+static const char * const f8572[] = {"Июнь"};
+static const char * const f8573[] = {"Держать экран текста песен включеным"};
+static const char * const f8574[] = {"Оставьте кнопку назначенной для переключения экрана или меню питания."};
+static const char * const f8575[] = {"Клавиатура"};
+static const char * const f8576[] = {"Качество LDAC"};
+static const char * const f8577[] = {"Стандарт LDAC"};
+static const char * const f8578[] = {"Светодиодный индикатор заряда"};
+static const char * const f8579[] = {"Язык"};
+static const char * const f8580[] = {"Большой"};
+static const char * const f8581[] = {"Позже"};
+static const char * const f8582[] = {"Запуск на фиксированной громкости"};
+static const char * const f8583[] = {"Макет"};
+static const char * const f8584[] = {"Уйти"};
+static const char * const f8585[] = {"Выйти из режима Bluetooth ЦАП?"};
+static const char * const f8586[] = {"Выйти из режима USB-ЦАП?"};
+static const char * const f8587[] = {"Покиньте этот вид и повторите попытку."};
+static const char * const f8588[] = {"Лево"};
+static const char * const f8589[] = {"Библиотека"};
+static const char * const f8590[] = {"Библиотека изменилась. Откройте альбом еще раз."};
+static const char * const f8591[] = {"Библиотека занята"};
+static const char * const f8592[] = {"Библиотека загружена"};
+static const char * const f8593[] = {"Библиотека восстановлена и сохранена"};
+static const char * const f8594[] = {"Библиотека восстановлена и сохранена, некоторые папки не читаются"};
+static const char * const f8595[] = {"Библиотека восстановлена. Используйте «Настройки» > «Обновить музыкальную базу данных», чтобы сохранить."};
+static const char * const f8596[] = {"Библиотека недоступна. Используйте «Настройки» > «Обновить музыкальную базу данных» для восстановления."};
+static const char * const f8597[] = {"Обновление библиотеки не удалось. Проверьте SD-карту и повторите попытку."};
+static const char * const f8598[] = {"Библиотека обновлена"};
+static const char * const f8599[] = {"Библиотека обновлена, некоторые папки не читаются"};
+static const char * const f8600[] = {"Лицензия: %s"};
+static const char * const f8601[] = {"Ограничивает громкость плеера, включая кнопки, пульты дистанционного управления и плагины."};
+static const char * const f8602[] = {"Загрузка настроек Wi-Fi"};
+static const char * const f8603[] = {"Загрузка эмуляторов"};
+static const char * const f8604[] = {"Загрузка с сервера..."};
+static const char * const f8605[] = {"Загрузка макетов"};
+static const char * const f8606[] = {"Загрузка каталога плагинов..."};
+static const char * const f8607[] = {"Загрузка плагинов"};
+static const char * const f8608[] = {"Загрузка тем"};
+static const char * const f8609[] = {"Загрузка треков…"};
+static const char * const f8610[] = {"Загрузка обновлений"};
+static const char * const f8611[] = {"Загрузка..."};
+static const char * const f8612[] = {"Расположение"};
+static const char * const f8613[] = {"Длинный"};
+static const char * const f8614[] = {"Длительное нажатие"};
+static const char * const f8615[] = {"Ищу музыкальные файлы"};
+static const char * const f8616[] = {"Ищем музыкальные файлы\nОтмечено %d элементов"};
+static const char * const f8617[] = {"Низкий"};
+static const char * const f8618[] = {"Низкое\nВысокое"};
+static const char * const f8619[] = {"Низкий (96 кбит/с)"};
+static const char * const f8620[] = {"Тексты песен"};
+static const char * const f8621[] = {"Размер текста песни"};
+static const char * const f8622[] = {"MAC-адрес: %s"};
+static const char * const f8623[] = {"Техническое обслуживание"};
+static const char * const f8624[] = {"Сделайте аксессуар доступным для обнаружения, затем повторите сканирование."};
+static const char * const f8625[] = {"Управляйте плагинами позже в «Настройки» > «Система» > «Диспетчер плагинов», чтобы найти, обновить или удалить их."};
+static const char * const f8626[] = {"Ручной ввод SSID"};
+static const char * const f8627[] = {"Март"};
+static const char * const f8628[] = {"Сопоставить обложку альбома"};
+static const char * const f8629[] = {"Макс. громкость"};
+static const char * const f8630[] = {"Май"};
+static const char * const f8631[] = {"Средний"};
+static const char * const f8632[] = {"Средний (192 кбит/с)"};
+static const char * const f8633[] = {"Сохраненные сети"};
+static const char * const f8634[] = {"Метаданные обновлены."};
+static const char * const f8635[] = {"Понедельник"};
+static const char * const f8636[] = {"Моно (1 канал)"};
+static const char * const f8637[] = {"Ещё"};
+static const char * const f8638[] = {"Часто воспроизводимые"};
+static const char * const f8639[] = {"Переместить"};
+static const char * const f8640[] = {"Переместить %d элемент?", "Переместить %d элемента?", "Переместить %d элементов?"};
+static const char * const f8641[] = {"Музыка"};
+static const char * const f8642[] = {"Музыкальная база данных недоступна."};
+static const char * const f8643[] = {"Имя (А–Я)"};
+static const char * const f8644[] = {"Нативный DSD (DoP) / %.4g МГц"};
+static const char * const f8645[] = {"Здесь появятся ближайшие сети Wi-Fi."};
+static const char * const f8646[] = {"Сети поблизости появятся, когда Wi-Fi будет готов."};
+static const char * const f8647[] = {"Нужна более новая прошивка"};
+static const char * const f8648[] = {"Имя сети (SSID)"};
+static const char * const f8649[] = {"Сетевой поток"};
+static const char * const f8650[] = {"Здесь появятся сети, доступные для подключения."};
+static const char * const f8651[] = {"Новое соединение"};
+static const char * const f8652[] = {"Создан новый PIN-код"};
+static const char * const f8653[] = {"Новый профиль"};
+static const char * const f8654[] = {"Новая папка"};
+static const char * const f8655[] = {"Новейшие изменения"};
+static const char * const f8656[] = {"Далее"};
+static const char * const f8657[] = {"Далее • %d–%d из %d"};
+static const char * const f8658[] = {"Следующая композиция"};
+static const char * const f8659[] = {"Следующая страница"};
+static const char * const f8660[] = {"Шрифты .ttf не найдены в папке /Fonts."};
+static const char * const f8661[] = {"Нет SD-карты"};
+static const char * const f8662[] = {"SD-карта не обнаружена. Вы можете выполнить сканирование позже в настройках библиотеки."};
+static const char * const f8663[] = {"SD-карта не вставлена."};
+static const char * const f8664[] = {"Книги не найдены"};
+static const char * const f8665[] = {"Без задержки\n30°\n45°\n60°\n90°"};
+static const char * const f8666[] = {"Нет описания"};
+static const char * const f8667[] = {"В каталоге нет доступных эмуляторов."};
+static const char * const f8668[] = {"Эмуляторы не установлены"};
+static const char * const f8669[] = {"Нет записей для отображения"};
+static const char * const f8670[] = {"Пока нет избранных"};
+static const char * const f8671[] = {"Игры не найдены"};
+static const char * const f8672[] = {"Нет элементов"};
+static const char * const f8673[] = {"В каталоге макетов нет."};
+static const char * const f8674[] = {"Больше нет в каталоге"};
+static const char * const f8675[] = {"Нет сохраненных сетей"};
+static const char * const f8676[] = {"Нет музыкальной базы данных"};
+static const char * const f8677[] = {"Нет устройств поблизости"};
+static const char * const f8678[] = {"Сеть не обнаружена"};
+static const char * const f8679[] = {"Сеть не обнаружена. Подключитесь к сети, чтобы скачать эмуляторы."};
+static const char * const f8680[] = {"Сеть не обнаружена. Подключитесь к сети, чтобы загрузить плагины."};
+static const char * const f8681[] = {"Сети не найдены"};
+static const char * const f8682[] = {"Других сетей не найдено"};
+static const char * const f8683[] = {"Нет сопряженных устройств"};
+static const char * const f8684[] = {"Воспроизводимые аудиофайлы не найдены"};
+static const char * const f8685[] = {"Здесь нет воспроизводимых файлов"};
+static const char * const f8686[] = {"Нет доступных настроек плагина"};
+static const char * const f8687[] = {"В каталоге нет доступных плагинов."};
+static const char * const f8688[] = {"Нет сохраненных профилей"};
+static const char * const f8689[] = {"Нет сохраненных серверов"};
+static const char * const f8690[] = {"Нет песен для обновления."};
+static const char * const f8691[] = {"Синхронизированные тексты песен не найдены"};
+static const char * const f8692[] = {"В каталоге нет доступных тем."};
+static const char * const f8693[] = {"Ни один трек не загружен"};
+static const char * const f8694[] = {"Треков не найдено"};
+static const char * const f8695[] = {"Нет доступных обновлений."};
+static const char * const f8696[] = {"Нет пользовательских плейлистов"};
+static const char * const f8697[] = {"На этой SD-карте нет проверенного файла обновления. Загрузите его снова."};
+static const char * const f8698[] = {"Недоступно в вашей подписке"};
+static const char * const f8699[] = {"Не подключено"};
+static const char * const f8700[] = {"Недостаточно свободного места на SD-карте для обновления."};
+static const char * const f8701[] = {"Недостаточно свободного места на SD-карте."};
+static const char * const f8702[] = {"Недостаточно свободного места на плеере."};
+static const char * const f8703[] = {"Недостаточно памяти для подключения"};
+static const char * const f8704[] = {"Недостаточно памяти для загрузки дорожек CUE"};
+static const char * const f8705[] = {"Недостаточно памяти для загрузки исполнителей"};
+static const char * const f8706[] = {"Недостаточно памяти для загрузки с сервера"};
+static const char * const f8707[] = {"Недостаточно памяти для загрузки магазина плагинов"};
+static const char * const f8708[] = {"Недостаточно памяти для начала загрузки"};
+static const char * const f8709[] = {"Не выбрано (UTC)"};
+static const char * const f8710[] = {"Не установлено"};
+static const char * const f8711[] = {"Здесь нечего выбирать"};
+static const char * const f8712[] = {"Ноябрь"};
+static const char * const f8713[] = {"Макеты экрана «Воспроизведения»"};
+static const char * const f8714[] = {"ВЫКЛ."};
+static const char * const f8715[] = {"ВКЛ."};
+static const char * const f8716[] = {"Октябрь"};
+static const char * const f8717[] = {"Выкл."};
+static const char * const f8718[] = {"Вкл."};
+static const char * const f8719[] = {"Откройте Ещё > Плагины > Обновить плагины. Отсканируйте QR-код, чтобы найти рабочий пример и полное описание API."};
+static const char * const f8720[] = {"Откройте книгу и коснитесь значка закладки, чтобы сохранить ее здесь."};
+static const char * const f8721[] = {"Откройте папку, содержащую поддерживаемые аудиофайлы."};
+static const char * const f8722[] = {"Открытая сеть"};
+static const char * const f8723[] = {"Откройте папку назначения, затем выберите в меню «Вставить сюда»."};
+static const char * const f8724[] = {"Откройте этот адрес на своем телефоне или компьютере:"};
+static const char * const f8725[] = {"Открыт · Подключен"};
+static const char * const f8726[] = {"Оригинал"};
+static const char * const f8727[] = {"Вывод"};
+static const char * const f8728[] = {"PEQ"};
+static const char * const f8729[] = {"Сброс PEQ к настройкам по умолчанию"};
+static const char * const f8730[] = {"PM"};
+static const char * const f8731[] = {"Тихий океан"};
+static const char * const f8732[] = {"Страница %d из %d"};
+static const char * const f8733[] = {"Сопряженый"};
+static const char * const f8734[] = {"Сопряженные устройства"};
+static const char * const f8735[] = {"Пароль"};
+static const char * const f8736[] = {"Пароль: Не установлен"};
+static const char * const f8737[] = {"Пароль: Установлен"};
+static const char * const f8738[] = {"Вставить сюда %d элемент", "Вставить сюда %d элемента", "Вставить сюда %d элементов"};
+static const char * const f8739[] = {"Приостановлено: наушники отключены."};
+static const char * const f8740[] = {"Выступ\nНизкая полка\nВысокая полка"};
+static const char * const f8741[] = {"По альбому"};
+static const char * const f8742[] = {"По треку"};
+static const char * const f8743[] = {"Поместите шрифты .ttf в папку SD/Fonts."};
+static const char * const f8744[] = {"Воспроизвести все"};
+static const char * const f8745[] = {"Воспроизвести всё по порядку"};
+static const char * const f8746[] = {"Воспроизвести всё вперемешку"};
+static const char * const f8747[] = {"Играть следующий"};
+static const char * const f8748[] = {"Воспроизвести все в случайном порядке"};
+static const char * const f8749[] = {"Включите альбом или плейлист, чтобы увидеть здесь песни из него."};
+static const char * const f8750[] = {"Играть последовательно"};
+static const char * const f8751[] = {"Воспроизведение/Пауза"};
+static const char * const f8752[] = {"Воспроизведение"};
+static const char * const f8753[] = {"Воспроизведение и управление"};
+static const char * const f8754[] = {"Статус воспроизведения"};
+static const char * const f8755[] = {"Воспроизведение и действия устройства"};
+static const char * const f8756[] = {"Воспроизведение изменилось до того, как папка была готова."};
+static const char * const f8757[] = {"Ошибка воспроизведения"};
+static const char * const f8758[] = {"Ошибка воспроизведения: сбой вывода звука"};
+static const char * const f8759[] = {"Не удалось сохранить историю воспроизведения."};
+static const char * const f8760[] = {"Воспроизведение остановлено: %s"};
+static const char * const f8761[] = {"Проигран"};
+static const char * const f8762[] = {"Расположение проигрывателя"};
+static const char * const f8763[] = {"Плеер успешно обновлен"};
+static const char * const f8764[] = {"Воспроизведение"};
+static const char * const f8765[] = {"Название плейлиста"};
+static const char * const f8766[] = {"Плейлист изменен. Выберите песню еще раз."};
+static const char * const f8767[] = {"Плейлист изменен. Попробуйте еще раз."};
+static const char * const f8768[] = {"Плейлист создан"};
+static const char * const f8769[] = {"Плейлист удален."};
+static const char * const f8770[] = {"Плейлист пуст"};
+static const char * const f8771[] = {"Название плейлиста слишком длинное."};
+static const char * const f8772[] = {"Плейлист переименован"};
+static const char * const f8773[] = {"Плейлист сохранен."};
+static const char * const f8774[] = {"Выбор плейлиста больше недоступен."};
+static const char * const f8775[] = {"Плейлист недоступен или не читается"};
+static const char * const f8776[] = {"Плейлисты"};
+static const char * const f8777[] = {"Плейлисты обновлены."};
+static const char * const f8778[] = {"Пожалуйста, дождитесь завершения установки плагина"};
+static const char * const f8779[] = {"Пожалуйста, дождитесь завершения сканирования библиотеки."};
+static const char * const f8780[] = {"Плагин"};
+static const char * const f8781[] = {"Менеджер плагинов"};
+static const char * const f8782[] = {"Порядок плагинов"};
+static const char * const f8783[] = {"Настройки плагина"};
+static const char * const f8784[] = {"Магазин плагинов"};
+static const char * const f8785[] = {"Плагин недоступен в каталоге"};
+static const char * const f8786[] = {"Операция плагина не удалась"};
+static const char * const f8787[] = {"Настройка плагина завершена"};
+static const char * const f8788[] = {"Настройка плагина требует внимания"};
+static const char * const f8789[] = {"Хранилище плагинов недоступно."};
+static const char * const f8790[] = {"Плагины"};
+static const char * const f8791[] = {"Плагины и макеты"};
+static const char * const f8792[] = {"Плагины могут переопределить сохранённые настройки."};
+static const char * const f8793[] = {"Позиция"};
+static const char * const f8794[] = {"Питание"};
+static const char * const f8795[] = {"Меню питания"};
+static const char * const f8796[] = {"Выключить питание"};
+static const char * const f8797[] = {"Управление питанием"};
+static const char * const f8798[] = {"Выключить питание"};
+static const char * const f8799[] = {"Предусилитель"};
+static const char * const f8800[] = {"Предусилитель (дБ, от -12 до 12)"};
+static const char * const f8801[] = {"Подготовка и проверка режима восстановления"};
+static const char * const f8802[] = {"Готовлю обновление обложки..."};
+static const char * const f8803[] = {"Подготовка папки к воспроизведению…"};
+static const char * const f8804[] = {"Подготовка обновления метаданных"};
+static const char * const f8805[] = {"Подготовка обновления метаданных..."};
+static const char * const f8806[] = {"Подготовка музыкальной библиотеки..."};
+static const char * const f8807[] = {"Подготовка обновления"};
+static const char * const f8808[] = {"Пресеты"};
+static const char * const f8809[] = {"Предварительный просмотр"};
+static const char * const f8810[] = {"Предыдущий"};
+static const char * const f8811[] = {"Предыдущий • %d–%d из %d"};
+static const char * const f8812[] = {"Предыдущая композиция"};
+static const char * const f8813[] = {"Предыдущая страница"};
+static const char * const f8814[] = {"Предыдущий запрос все еще завершается"};
+static const char * const f8815[] = {"Здесь появятся ранее подключенные аксессуары."};
+static const char * const f8816[] = {"Первичный DNS"};
+static const char * const f8817[] = {"Имя профиля"};
+static const char * const f8818[] = {"Профиль удален"};
+static const char * const f8819[] = {"Профиль загружен"};
+static const char * const f8820[] = {"Профиль переименован"};
+static const char * const f8821[] = {"Профиль сохранен."};
+static const char * const f8822[] = {"Профили"};
+static const char * const f8823[] = {"Поставщик"};
+static const char * const f8824[] = {"QWERTY"};
+static const char * const f8825[] = {"Очередь"};
+static const char * const f8826[] = {"Очередь изменилась. Попробуйте еще раз."};
+static const char * const f8827[] = {"Контрольная точка очереди не удалась; хранилище может быть доступно только для чтения"};
+static const char * const f8828[] = {"Очередь очищена"};
+static const char * const f8829[] = {"Очередь пуста"};
+static const char * const f8830[] = {"Очередь готова. Нажмите «Воспроизвести», чтобы начать."};
+static const char * const f8831[] = {"В очереди"};
+static const char * const f8832[] = {"Шторка"};
+static const char * const f8833[] = {"Быстрая настройка завершена"};
+static const char * const f8834[] = {"Быстрая настройка"};
+static const char * const f8835[] = {"RC"};
+static const char * const f8836[] = {"Радио"};
+static const char * const f8837[] = {"Радио / %s"};
+static const char * const f8838[] = {"Чтение поддерживаемых битрейтов..."};
+static const char * const f8839[] = {"Чтение тегов\n%d из %d песен (%d%%)"};
+static const char * const f8840[] = {"Снова считывает теги каждой песни. Это может занять некоторое время."};
+static const char * const f8841[] = {"Перезагрузиться в загрузчик"};
+static const char * const f8842[] = {"Обновить"};
+static const char * const f8843[] = {"Недавно добавлено"};
+static const char * const f8844[] = {"Недавно прослушаные"};
+static const char * const f8845[] = {"Не удалось установить флаг загрузки в режиме восстановления."};
+static const char * const f8846[] = {"Не удалось стереть флаг восстановления. Не перезагружайте устройство; проверьте журнал .compas/ota/update.log."};
+static const char * const f8847[] = {"Раздел с флагом восстановления не соответствует этой прошивке."};
+static const char * const f8848[] = {"Не удалось проверить флаг восстановления. Не перезагружайте устройство; проверьте журнал обновления."};
+static const char * const f8849[] = {"Не удалось записать флаг восстановления. Не перезагружайте устройство; проверьте журнал .compas/ota/update.log."};
+static const char * const f8850[] = {"Режим восстановления остается выбранным, но перезагрузка не удалась: %s. Не удаляйте файл обновления."};
+static const char * const f8851[] = {"Режим восстановления остается выбранным. Не удаляйте файл обновления: не удалось сохранить диагностические данные."};
+static const char * const f8852[] = {"Обновить"};
+static const char * const f8853[] = {"Обновить все обложки"};
+static const char * const f8854[] = {"Обновить все метаданные"};
+static const char * const f8855[] = {"Обновить плагины"};
+static const char * const f8856[] = {"Обновить все обложки?"};
+static const char * const f8857[] = {"Обновить все метаданные?"};
+static const char * const f8858[] = {"Обновить каталог эмуляторов"};
+static const char * const f8859[] = {"Обновить метаданные"};
+static const char * const f8860[] = {"Обновить каталог плагинов"};
+static const char * const f8861[] = {"Обновите музыкальную базу данных, чтобы обновить этот список."};
+static const char * const f8862[] = {"Обновление всех обложек\n..."};
+static const char * const f8863[] = {"Обновление всех метаданных\n..."};
+static const char * const f8864[] = {"Обновление метаданных\n..."};
+static const char * const f8865[] = {"Обновление обложек"};
+static const char * const f8866[] = {"Обновление обложек\n%d из %d (%d%%)"};
+static const char * const f8867[] = {"Обновление плагинов..."};
+static const char * const f8868[] = {"Год выпуска (сначала самый старый)"};
+static const char * const f8869[] = {"Перезагрузить обложку"};
+static const char * const f8870[] = {"Перезагрузка обложки\n..."};
+static const char * const f8871[] = {"Перезагрузочная крышка"};
+static const char * const f8872[] = {"Крышка перезарядки\n%d из %d (%d%%)"};
+static const char * const f8873[] = {"Удаленный"};
+static const char * const f8874[] = {"Пульт дистанционного управления"};
+static const char * const f8875[] = {"Удалить"};
+static const char * const f8876[] = {"Удалить %s?"};
+static const char * const f8877[] = {"Удален"};
+static const char * const f8878[] = {"Удалено из плейлиста"};
+static const char * const f8879[] = {"Удален из очереди"};
+static const char * const f8880[] = {"Удаляет сохраненные обложки и извлекает их заново. Это может занять некоторое время."};
+static const char * const f8881[] = {"Удаление эмулятора"};
+static const char * const f8882[] = {"Удаление плагина"};
+static const char * const f8883[] = {"Переименовать"};
+static const char * const f8884[] = {"Переименовать плейлист"};
+static const char * const f8885[] = {"Переименовать профиль"};
+static const char * const f8886[] = {"Изменить порядок"};
+static const char * const f8887[] = {"Заменить"};
+static const char * const f8888[] = {"Заменить существующий"};
+static const char * const f8889[] = {"Заменить профиль"};
+static const char * const f8890[] = {"Заменяю плеер и готовлюсь к рестарту"};
+static const char * const f8891[] = {"ReplayGain"};
+static const char * const f8892[] = {"Повторное сканирование"};
+static const char * const f8893[] = {"Сброс"};
+static const char * const f8894[] = {"Сбросить все"};
+static const char * const f8895[] = {"Сбросить PEQ к настройкам по умолчанию?"};
+static const char * const f8896[] = {"Сбросить все назначения кнопок?"};
+static const char * const f8897[] = {"Сбросить все настройки и перезагрузиться?"};
+static const char * const f8898[] = {"Сбросить настройки по умолчанию"};
+static const char * const f8899[] = {"Перезапустить"};
+static const char * const f8900[] = {"Перезагрузить сейчас"};
+static const char * const f8901[] = {"Перезапустить сейчас, чтобы применить новое имя хоста?"};
+static const char * const f8902[] = {"Перезапуск в режиме восстановления. Не выключайте плеер."};
+static const char * const f8903[] = {"Возобновить последний трек"};
+static const char * const f8904[] = {"Возобновить и играть"};
+static const char * const f8905[] = {"Возобновить воспроизведение, когда подключено питание."};
+static const char * const f8906[] = {"Возобновить, но не играть"};
+static const char * const f8907[] = {"Повторная попытка плагинов %zu/%zu"};
+static const char * const f8908[] = {"Обзор обновлений"};
+static const char * const f8909[] = {"Право"};
+static const char * const f8910[] = {"SD-карта не читается"};
+static const char * const f8911[] = {"Не удалось отформатировать SD-карту"};
+static const char * const f8912[] = {"SD-карта отформатирована"};
+static const char * const f8913[] = {"SD-карта доступна только для чтения. Проверьте её на компьютере"};
+static const char * const f8914[] = {"SD-карта по-прежнему доступна только для чтения"};
+static const char * const f8915[] = {"SD-карта может быть неисправна. Проверьте её на компьютере"};
+static const char * const f8916[] = {"SD-карта недоступна"};
+static const char * const f8917[] = {"Восстановление SD-карты все еще продолжается"};
+static const char * const f8918[] = {"SD-карта отремонтирована"};
+static const char * const f8919[] = {"SSID должен иметь длину от 1 до 32 байт."};
+static const char * const f8920[] = {"SSID: %s"};
+static const char * const f8921[] = {"Безопасная зарядка (500 мА)"};
+static const char * const f8922[] = {"Частота дискретизации"};
+static const char * const f8923[] = {"Суббота"};
+static const char * const f8924[] = {"Сохранить"};
+static const char * const f8925[] = {"Сохранить профиль"};
+static const char * const f8926[] = {"Сохранить профиль как"};
+static const char * const f8927[] = {"Сохранить очередь как список воспроизведения"};
+static const char * const f8928[] = {"Сохранить как плейлист"};
+static const char * const f8929[] = {"Сохранить как новый профиль или заменить уже существующий?"};
+static const char * const f8930[] = {"Сохраненные серверы"};
+static const char * const f8931[] = {"Сохраненная сеть"};
+static const char * const f8932[] = {"Сохраненные сведения о сети проверяются."};
+static const char * const f8933[] = {"Сохранение данных перед перезагрузкой"};
+static const char * const f8934[] = {"Не удалось сохранить данные. Режим восстановления остается выбранным. Не удаляйте файл обновления; проверьте журнал .compas/ota/update.log."};
+static const char * const f8935[] = {"Сохранение музыкальной базы данных"};
+static const char * const f8936[] = {"Сохранение музыкальной базы данных\nВ больших библиотеках это может занять некоторое время."};
+static const char * const f8937[] = {"Сохранение плейлиста…"};
+static const char * const f8938[] = {"Отсканируйте QR-код, чтобы открыть тему для начала работы и инструкции. Руководство по макетам XML поможет изменить экран плеера."};
+static const char * const f8939[] = {"Сканировать музыку"};
+static const char * const f8940[] = {"Отсканируйте QR-код, чтобы открыть полное руководство."};
+static const char * const f8941[] = {"Сканируйте с помощью телефона, чтобы поддержать Compás Player на PayPal."};
+static const char * const f8942[] = {"Сканирование сетей"};
+static const char * const f8943[] = {"Поиск файлов для воспроизведения…"};
+static const char * const f8944[] = {"Затемнение экрана"};
+static const char * const f8945[] = {"Тайм-аут экрана"};
+static const char * const f8946[] = {"Выключить экран"};
+static const char * const f8947[] = {"Не удалось сделать снимок экрана (%s)"};
+static const char * const f8948[] = {"Не удалось сделать снимок экрана (кадровый буфер)"};
+static const char * const f8949[] = {"Не удалось сделать снимок экрана: сбой фонового процесса."};
+static const char * const f8950[] = {"Для снимка экрана требуется SD-карта"};
+static const char * const f8951[] = {"Скриншот сохранен."};
+static const char * const f8952[] = {"Снимок экрана (Питание + Предыдущая композиция)"};
+static const char * const f8953[] = {"Скриншоты (Питание + Громкость вниз)"};
+static const char * const f8954[] = {"Скриншоты недоступны"};
+static const char * const f8955[] = {"Поиск сетей"};
+static const char * const f8956[] = {"Вторичный DNS"};
+static const char * const f8957[] = {"Безопасное соединение не удалось. Проверьте Wi-Fi, а также дату и время."};
+static const char * const f8958[] = {"Защищенная сеть"};
+static const char * const f8959[] = {"Защищено · Подключено"};
+static const char * const f8960[] = {"Перемотать назад"};
+static const char * const f8961[] = {"Перемотать вперед"};
+static const char * const f8962[] = {"Выбрать"};
+static const char * const f8963[] = {"Выберите файл"};
+static const char * const f8964[] = {"Выбрать все"};
+static const char * const f8965[] = {"Выберите хотя бы один плагин, чтобы продолжить."};
+static const char * const f8966[] = {"Выбранные плагины готовы.\n"};
+static const char * const f8967[] = {"Сентябрь"};
+static const char * const f8968[] = {"URL-адрес сервера (например, %s)"};
+static const char * const f8969[] = {"URL-адрес сервера: %s"};
+static const char * const f8970[] = {"Тайм-аут запроса к серверу истек через 30 секунд."};
+static const char * const f8971[] = {"Служба занята"};
+static const char * const f8972[] = {"Установить время"};
+static const char * const f8973[] = {"Установите местный часовой пояс, чтобы часы показывали правильно."};
+static const char * const f8974[] = {"Настройки"};
+static const char * const f8975[] = {"Показать оставшееся время"};
+static const char * const f8976[] = {"Показать скрытые файлы"};
+static const char * const f8977[] = {"Показаны первые %d из %d песен"};
+static const char * const f8978[] = {"Начать воспроизведение со случайной песни"};
+static const char * const f8979[] = {"Войдите в стриминговый сервис снова"};
+static const char * const f8980[] = {"Сигнал: %s"};
+static const char * const f8981[] = {"Одиночный"};
+static const char * const f8982[] = {"Одиночное нажатие"};
+static const char * const f8983[] = {"Размер: %s"};
+static const char * const f8984[] = {"Пропустить сейчас"};
+static const char * const f8985[] = {"Пропущено: %s"};
+static const char * const f8986[] = {"Режим сна"};
+static const char * const f8987[] = {"Таймер сна"};
+static const char * const f8988[] = {"Таймер сна"};
+static const char * const f8989[] = {"Таймер сна: осталось %d мин."};
+static const char * const f8990[] = {"Таймер сна: Выкл."};
+static const char * const f8991[] = {"Маленький"};
+static const char * const f8992[] = {"Некоторые обложки не удалось обновить."};
+static const char * const f8993[] = {"Некоторые плейлисты не удалось прочитать"};
+static const char * const f8994[] = {"На карте были изменены некоторые файлы плагина. Заменить их?"};
+static const char * const f8995[] = {"Некоторые песни невозможно прочитать"};
+static const char * const f8996[] = {"Некоторые обновления требуют подтверждения перед заменой локальных файлов."};
+static const char * const f8997[] = {"Песня уже добавлена"};
+static const char * const f8998[] = {"Песня удалена"};
+static const char * const f8999[] = {"Песни"};
+static const char * const f9000[] = {"Сортировка"};
+static const char * const f9001[] = {"Звук"};
+static const char * const f9002[] = {"Звуковые эффекты"};
+static const char * const f9003[] = {"Источник"};
+static const char * const f9004[] = {"Ресемплинг Speex"};
+static const char * const f9005[] = {"Начать последовательно"};
+static const char * const f9006[] = {"Начните с этих предложений или изучите другие плагины."};
+static const char * const f9007[] = {"Начинаю загрузку"};
+static const char * const f9008[] = {"Громкость при запуске"};
+static const char * const f9009[] = {"Шаг %d из %d"};
+static const char * const f9010[] = {"Стерео (2 канала)"};
+static const char * const f9011[] = {"Все еще применяю предыдущий выбор"};
+static const char * const f9012[] = {"Операция еще выполняется. Не выключайте плеер и не повторяйте попытку."};
+static const char * const f9013[] = {"Стоп"};
+static const char * const f9014[] = {"Остановлено"};
+static const char * const f9015[] = {"Остановка..."};
+static const char * const f9016[] = {"Хранилище"};
+static const char * const f9017[] = {"Стриминг Сервисы"};
+static const char * const f9018[] = {"Качество потока"};
+static const char * const f9019[] = {"Качество потока: %s"};
+static const char * const f9020[] = {"Подпапка указывается относительно корня SD (пример: Музыка/Офлайн); если пусто - используется корень SD"};
+static const char * const f9021[] = {"Подпапка: корень SD"};
+static const char * const f9022[] = {"Subsonic"};
+static const char * const f9023[] = {"Воскресенье"};
+static const char * const f9024[] = {"Сон с сохранением в ОЗУ"};
+static const char * const f9025[] = {"Свайп вверх, чтобы перейти домой"};
+static const char * const f9026[] = {"Проведите вверх, чтобы разблокировать"};
+static const char * const f9027[] = {"Система"};
+static const char * const f9028[] = {"Системные плейлисты"};
+static const char * const f9029[] = {"Т9"};
+static const char * const f9030[] = {"Просмотр TXT"};
+static const char * const f9031[] = {"Берет цвет обложки воспроизводимого трека"};
+static const char * const f9032[] = {"Нажмите «Выключить» еще раз для подтверждения."};
+static const char * const f9033[] = {"Нажмите «Перезагрузить» еще раз для подтверждения."};
+static const char * const f9034[] = {"Это имя нельзя использовать"};
+static const char * const f9035[] = {"SD-карта менялась во время загрузки."};
+static const char * const f9036[] = {"SD-карта менялась в ходе операции."};
+static const char * const f9037[] = {"SD-карта доступна только для чтения. Проверьте его защиту от записи."};
+static const char * const f9038[] = {"Загрузка не завершилась. Проверьте Wi-Fi и повторите попытку."};
+static const char * const f9039[] = {"Проверка загруженного образа не пройдена; файл удален."};
+static const char * const f9040[] = {"Загруженная запись обновления недействительна. Загрузите обновление еще раз."};
+static const char * const f9041[] = {"Загрузка эмулятора не прошла проверку. Попробуйте ещё раз."};
+static const char * const f9042[] = {"Папка эмуляторов недоступна для записи."};
+static const char * const f9043[] = {"Путь прошивки слишком длинный."};
+static const char * const f9044[] = {"Игра неожиданно закрылась."};
+static const char * const f9045[] = {"Файл плейлиста будет удален. Музыкальные файлы останутся."};
+static const char * const f9046[] = {"Загрузка плагина не прошла проверку. Попробуйте еще раз."};
+static const char * const f9047[] = {"Съешь ещё этих мягких французских 123"};
+static const char * const f9048[] = {"В релизе нет контрольной суммы для образа этого устройства."};
+static const char * const f9049[] = {"Выбранный файл обновления изменился. Выберите его снова."};
+static const char * const f9050[] = {"Плагин стриминга недоступен"};
+static const char * const f9051[] = {"Стриминговый сервис не ответил"};
+static const char * const f9052[] = {"Файл обновления изменился во время проверки. Выберите его снова."};
+static const char * const f9053[] = {"Файл обновления на SD-карте изменился. Загрузите его еще раз."};
+static const char * const f9054[] = {"Темы"};
+static const char * const f9055[] = {"В этом представлении нет записей."};
+static const char * const f9056[] = {"Это может занять несколько секунд."};
+static const char * const f9057[] = {"Это невозможно отменить."};
+static const char * const f9058[] = {"Это устройство теперь является звуковой картой USB."};
+static const char * const f9059[] = {"Это устройство теперь принимает аудио по Bluetooth"};
+static const char * const f9060[] = {"Для этого эмулятора требуется более новая версия плеера."};
+static const char * const f9061[] = {"Эта папка пуста"};
+static const char * const f9062[] = {"Сюда входят собственные данные плеера (.compas или .plugins). Их удаление или перемещение может нарушить работу функций, привести к потере настроек и установленных плагинов и потребовать перезапуска."};
+static const char * const f9063[] = {"Это может занять некоторое время"};
+static const char * const f9064[] = {"Это безвозвратно удалит всё на карте. Это невозможно отменить."};
+static const char * const f9065[] = {"Для этого плагина нет доступных обновлений."};
+static const char * const f9066[] = {"Этот плагин уже установлен в магазине."};
+static const char * const f9067[] = {"Этот плагин не устанавливается магазином."};
+static const char * const f9068[] = {"Для этого плагина требуется более новая версия плеера."};
+static const char * const f9069[] = {"Это качество недоступно для этого трека"};
+static const char * const f9070[] = {"Образ этого выпуска не соответствует его контрольным суммам. Повторите попытку после следующего еженедельного выпуска."};
+static const char * const f9071[] = {"Этот трек защищён от копирования"};
+static const char * const f9072[] = {"Этот трек недоступен"};
+static const char * const f9073[] = {"Этот тип файла невозможно открыть"};
+static const char * const f9074[] = {"Этот файл больше не соответствует последнему выпуску. Проверьте обновления и загрузите актуальный образ."};
+static const char * const f9075[] = {"Этот файл обновления больше не соответствует последнему выпуску. Загрузите актуальный образ."};
+static const char * const f9076[] = {"Запуск темы не удался"};
+static const char * const f9077[] = {"Четверг"};
+static const char * const f9078[] = {"Часовой пояс"};
+static const char * const f9079[] = {"Оставшееся время: %d:%02d"};
+static const char * const f9080[] = {"Оставшееся время: %d:%02d:%02d"};
+static const char * const f9081[] = {"Часовой пояс"};
+static const char * const f9082[] = {"Окрасить заставку"};
+static const char * const f9083[] = {"Окрашивать значки заголовка"};
+static const char * const f9084[] = {"Переключить экран"};
+static const char * const f9085[] = {"Слишком много аудиоканалов"};
+static const char * const f9086[] = {"Установлено слишком много плагинов. Удалите один и попробуйте еще раз."};
+static const char * const f9087[] = {"Верхняя панель"};
+static const char * const f9088[] = {"Трек"};
+static const char * const f9089[] = {"Трек %+.1f дБ"};
+static const char * const f9090[] = {"Отследить %d"};
+static const char * const f9091[] = {"Детали трека пока недоступны. Продолжайте воспроизведение и проверьте еще раз."};
+static const char * const f9092[] = {"Треки"};
+static const char * const f9093[] = {"Попробуйте выполнить сканирование еще раз или добавьте скрытую сеть вручную."};
+static const char * const f9094[] = {"Вторник"};
+static const char * const f9095[] = {"Выключите и включите Bluetooth, чтобы применить"};
+static const char * const f9096[] = {"Сначала отключите ADB («Настройки» > «Система» > «Режим USB»), затем включите USB-ЦАП здесь."};
+static const char * const f9097[] = {"Выключите «Автонастройку», чтобы настроить часы."};
+static const char * const f9098[] = {"Отключите Bluetooth-ЦАП для воспроизведения музыки на этом устройстве."};
+static const char * const f9099[] = {"Отключите режим DAC, чтобы играть."};
+static const char * const f9100[] = {"Автоматическое выключение экрана"};
+static const char * const f9101[] = {"Включите Bluetooth, чтобы увидеть сопряженные и находящиеся поблизости устройства."};
+static const char * const f9102[] = {"Включите Wi-Fi и сначала подключитесь"};
+static const char * const f9103[] = {"Включите эту опцию, чтобы увидеть здесь адрес."};
+static const char * const f9104[] = {"Включение Wi-Fi"};
+static const char * const f9105[] = {"USB Аудио"};
+static const char * const f9106[] = {"USB-ЦАП"};
+static const char * const f9107[] = {"Режим USB-ЦАП"};
+static const char * const f9108[] = {"USB-режим"};
+static const char * const f9109[] = {"Обнаружено аудиоустройство USB"};
+static const char * const f9110[] = {"Настройка зарядки USB занята"};
+static const char * const f9111[] = {"USB-вход: %s · %u-бит"};
+static const char * const f9112[] = {"USB-режим"};
+static const char * const f9113[] = {"USB-накопитель занят."};
+static const char * const f9114[] = {"Невозможно загрузить элементы"};
+static const char * const f9115[] = {"Невозможно прочитать папку (нажмите «Назад» и повторите попытку)."};
+static const char * const f9116[] = {"Недоступно"};
+static const char * const f9117[] = {"Неожиданный ответ библиотеки"};
+static const char * const f9118[] = {"Неожиданный ответ от GitHub"};
+static const char * const f9119[] = {"Неожиданный ответ от GitHub."};
+static const char * const f9120[] = {"Неизвестный альбом"};
+static const char * const f9121[] = {"Неизвестный исполнитель"};
+static const char * const f9122[] = {"Неизвестный кодек"};
+static const char * const f9123[] = {"Неизвестный формат"};
+static const char * const f9124[] = {"Неизвестный битрейт"};
+static const char * const f9125[] = {"Неподдерживаемый аудиоформат"};
+static const char * const f9126[] = {"Обновить"};
+static const char * const f9127[] = {"Обновить и перезагрузить"};
+static const char * const f9128[] = {"Обновить все"};
+static const char * const f9129[] = {"Обновить музыкальную базу данных"};
+static const char * const f9130[] = {"Обновите музыкальную базу данных, чтобы включить этот порядок альбомов."};
+static const char * const f9131[] = {"Доступно обновление"};
+static const char * const f9132[] = {"Доступно обновление · %s"};
+static const char * const f9133[] = {"Диагностические данные обновления нужно сохранить на SD-карту."};
+static const char * const f9134[] = {"Сбой программы обновления (%s, код %d). См. журнал .compas/ota/update.log."};
+static const char * const f9135[] = {"Обновить индивидуально"};
+static const char * const f9136[] = {"Обновить музыкальную базу данных?"};
+static const char * const f9137[] = {"Обновление сохранено. Подключитесь к Wi-Fi, затем установите его через «Обновление прошивки» > «Установить с SD-карты»."};
+static const char * const f9138[] = {"Обновляет только плеер, сохраняя текущие драйверы, ядро и загрузчик."};
+static const char * const f9139[] = {"Обновляет всю CompásOS. Прошивка содержит загрузчик, плеер, ядро и драйверы."};
+static const char * const f9140[] = {"Обновите эти плагины по отдельности"};
+static const char * const f9141[] = {"Установить обновление %s?\nУстройство перезагрузится в режим восстановления."};
+static const char * const f9142[] = {"Обновления"};
+static const char * const f9143[] = {"Обновление музыкальной базы данных\n..."};
+static const char * const f9144[] = {"Обновление эмулятора"};
+static const char * const f9145[] = {"Обновление плагинов"};
+static const char * const f9146[] = {"Обновление заменит комплектные игры и их сохранения. Игры в SD/Games останутся."};
+static const char * const f9147[] = {"Перевернутый экран"};
+static const char * const f9148[] = {"Используйте «Настройки» > «Обновить музыкальную базу данных»."};
+static const char * const f9149[] = {"Используйте обычный файл %s в корне SD-карты."};
+static const char * const f9150[] = {"Пользовательские плейлисты"};
+static const char * const f9151[] = {"Имя пользователя"};
+static const char * const f9152[] = {"Имя пользователя: %s"};
+static const char * const f9153[] = {"Использует цвет акцента для стандартной заставки."};
+static const char * const f9154[] = {"Использует акцентный цвет для значков рядом с заголовками экранов."};
+static const char * const f9155[] = {"Проверка сертификата сервера"};
+static const char * const f9156[] = {"Версия %s · %s"};
+static const char * const f9157[] = {"Уменьшить громкость"};
+static const char * const f9158[] = {"Блокировка громкости (экран выключен)"};
+static const char * const f9159[] = {"Ползунок громкости"};
+static const char * const f9160[] = {"Увеличение громкости"};
+static const char * const f9161[] = {"Дождитесь завершения переключения режима USB и отключите USB-накопитель перед обновлением."};
+static const char * const f9162[] = {"Ожидание потока Bluetooth…"};
+static const char * const f9163[] = {"Ожидание USB-аудио…"};
+static const char * const f9164[] = {"Слабый"};
+static const char * const f9165[] = {"Веб-сервер занят"};
+static const char * const f9166[] = {"Среда"};
+static const char * const f9167[] = {"Добро пожаловать в Compás"};
+static const char * const f9168[] = {"Когда эта опция включена, плеер становится видимым отправителям AirPlay в вашей сети Wi-Fi — транслируйте аудио с iPhone, iPad или Mac для воспроизведения через собственный выход этого устройства."};
+static const char * const f9169[] = {"Когда эта опция включена, плеер доступен приложениям-контроллерам DLNA/UPnP в вашей сети Wi-Fi. Чтобы воспроизвести дорожку с одного из них, запустите ее здесь. Пауза, отключение звука, громкость и поиск в приложении контроллера не поддерживаются; вместо этого используйте собственные элементы управления этого устройства после запуска трека."};
+static const char * const f9170[] = {"Когда это устройство включено, оно остается видимым и может быть сопряжено с другими устройствами Bluetooth, поэтому телефон или компьютер могут передавать на него звук и воспроизводить его через собственный выход этого устройства, используя его в качестве внешнего ЦАП."};
+static const char * const f9171[] = {"Wi-Fi"};
+static const char * const f9172[] = {"Информация о Wi-Fi"};
+static const char * const f9173[] = {"Пароль Wi-Fi"};
+static const char * const f9174[] = {"Не удалось включить Wi-Fi"};
+static const char * const f9175[] = {"Wi-Fi не смог изменить состояние"};
+static const char * const f9176[] = {"Wi-Fi занят"};
+static const char * const f9177[] = {"Wi-Fi все еще запускается"};
+static const char * const f9178[] = {"Проводные наушники"};
+static const char * const f9179[] = {"Беспроводная связь"};
+static const char * const f9180[] = {"Работаю..."};
+static const char * const f9181[] = {"Создайте плагин на Lua на компьютере. Скопируйте файл .lua в папку .plugins на SD-карте."};
+static const char * const f9182[] = {"Вы можете выбрать до 32 плагинов"};
+static const char * const f9183[] = {"Ваша библиотека загружается."};
+static const char * const f9184[] = {"Ваша музыка"};
+static const char * const f9185[] = {"Этапы настройки"};
+static const char * const f9186[] = {"[Файл усечен до %d КБ — показана только первая часть]\n\n%s"};
+static const char * const f9187[] = {"github.com/Starnished66/compas-player"};
+static const char * const f9188[] = {"неизвестно"};
 
 static const i18n_entry_t entries_ru[] = {
     {"%+.2f dB", f8101, 1},
@@ -17389,3088 +17419,3118 @@ static const i18n_entry_t entries_ru[] = {
     {"Available", f8194, 1},
     {"Available Devices", f8195, 1},
     {"Available Networks", f8196, 1},
-    {"Available · %s", f8197, 1},
-    {"Band %d / %d", f8198, 1},
-    {"Band options", f8199, 1},
-    {"Battery Percentage", f8200, 1},
-    {"Bitrate", f8201, 1},
-    {"Bluetooth", f8202, 1},
-    {"Bluetooth DAC", f8203, 1},
-    {"Bluetooth DAC mode", f8204, 1},
-    {"Bluetooth Volume Sync", f8205, 1},
-    {"Bluetooth is off", f8206, 1},
-    {"Bluetooth remote service is starting…", f8207, 1},
-    {"Bluetooth remote service is unavailable; retrying.", f8208, 1},
-    {"Bluetooth: Compas Remote Control", f8209, 1},
-    {"Bluetooth: registration failed; retrying", f8210, 1},
-    {"Bluetooth: waiting for service registration", f8211, 1},
-    {"Books", f8212, 1},
-    {"Books refreshed", f8213, 1},
-    {"Build", f8214, 1},
-    {"Build it now? Large libraries can take several minutes.", f8215, 1},
-    {"Button", f8216, 1},
-    {"Button Mapping", f8217, 1},
-    {"Buttons & Remote", f8218, 1},
-    {"Buy Me a Coffee", f8219, 1},
-    {"By %s", f8220, 1},
-    {"Cancel", f8221, 1},
-    {"Cannot add folder within queue memory limit", f8222, 1},
-    {"Cannot check plugin storage write access.", f8223, 1},
-    {"Cannot create the emulator folder.", f8224, 1},
-    {"Cannot create the update log directory.", f8225, 1},
-    {"Cannot delete playlist", f8226, 1},
-    {"Cannot load album tracks", f8227, 1},
-    {"Cannot move this entry", f8228, 1},
-    {"Cannot play folder", f8229, 1},
-    {"Cannot play this folder", f8230, 1},
-    {"Cannot reach GitHub. Check the Wi-Fi connection.", f8231, 1},
-    {"Cannot read playlist", f8232, 1},
-    {"Cannot read the SD card.", f8233, 1},
-    {"Cannot read the selected update file.", f8234, 1},
-    {"Cannot read the update file on the SD card. Check the card and try again.", f8235, 1},
-    {"Cannot read the update record on the SD card. Check the card and try again.", f8236, 1},
-    {"Cannot read update helper status: %s", f8237, 1},
-    {"Cannot remove entry", f8238, 1},
-    {"Cannot rename: invalid name or file exists", f8239, 1},
-    {"Cannot reorder playlist", f8240, 1},
-    {"Cannot safely access the recovery flag block.", f8241, 1},
-    {"Cannot save playlist", f8242, 1},
-    {"Cannot save update diagnostics on the SD card.", f8243, 1},
-    {"Cannot save update diagnostics. Update preparation stopped.", f8244, 1},
-    {"Cannot save: invalid or streaming entries", f8245, 1},
-    {"Cannot start folder action", f8246, 1},
-    {"Cannot start queue", f8247, 1},
-    {"Car Mode", f8248, 1},
-    {"Car Mode Volume", f8249, 1},
-    {"Car Mode is disabled.", f8250, 1},
-    {"Channels", f8251, 1},
-    {"Charge Limit (85%)", f8252, 1},
-    {"Charge to at least %d%% or connect power before updating.", f8253, 1},
-    {"Charge to at least 30%% or connect power before updating.", f8254, 1},
-    {"Charging", f8255, 1},
-    {"Check for online update", f8256, 1},
-    {"Check that Wi-Fi is enabled, then rescan.", f8257, 1},
-    {"Check the SD card and disconnect USB storage before playing.", f8258, 1},
-    {"Check the wireless switch and try again.", f8259, 1},
-    {"Checking for updates", f8260, 1},
-    {"Checking the SD card. This may take a while", f8261, 1},
-    {"Checking the file on the SD card", f8262, 1},
-    {"Choose a language", f8263, 1},
-    {"Choose plugins", f8264, 1},
-    {"Choose the language for your player.", f8265, 1},
-    {"Choose time zone", f8266, 1},
-    {"Choose what happens when idle:", f8267, 1},
-    {"Clear Queue", f8268, 1},
-    {"Clock", f8269, 1},
-    {"Clockwise", f8270, 1},
-    {"Close", f8271, 1},
-    {"Closing\nWeb Server...", f8272, 1},
-    {"Codec", f8273, 1},
-    {"Combined response (dB)", f8274, 1},
-    {"Combined response (dB) · EQ off", f8275, 1},
-    {"Compás Player", f8276, 1},
-    {"Connect", f8277, 1},
-    {"Connect & Browse", f8278, 1},
-    {"Connect a device to see its supported rates", f8279, 1},
-    {"Connect over Wi-Fi or Bluetooth to see what's playing, control playback, and browse your library. Enter this PIN when the app or browser asks for it; Bluetooth also requires pairing.", f8280, 1},
-    {"Connect to Wi-Fi", f8281, 1},
-    {"Connect to Wi-Fi first", f8282, 1},
-    {"Connect to Wi-Fi for streaming, updates, and online services.", f8283, 1},
-    {"Connect to a Wi-Fi network before continuing.", f8284, 1},
-    {"Connect to a network to download plugins.", f8285, 1},
-    {"Connect using either available route:", f8286, 1},
-    {"Connected", f8287, 1},
-    {"Connecting", f8288, 1},
-    {"Connecting to", f8289, 1},
-    {"Connecting to server...", f8290, 1},
-    {"Connection PIN", f8291, 1},
-    {"Connection failed", f8292, 1},
-    {"Connection timed out after 30 seconds", f8293, 1},
-    {"Container", f8294, 1},
-    {"Continue", f8295, 1},
-    {"Continue setup", f8296, 1},
-    {"Copy", f8297, 1},
-    {"Copy games to the %s folder on the SD card.", f8298, 1},
-    {"Could not apply font size", f8299, 1},
-    {"Could not apply lyrics text size", f8300, 1},
-    {"Could not apply theme", f8301, 1},
-    {"Could not create the folder", f8302, 1},
-    {"Could not download the release checksums.", f8303, 1},
-    {"Could not enter recovery mode.", f8304, 1},
-    {"Could not generate a new PIN", f8305, 1},
-    {"Could not get a stream link", f8306, 1},
-    {"Could not install a plugin on the SD card.", f8307, 1},
-    {"Could not install the emulator.", f8308, 1},
-    {"Could not install the plugin on the SD card.", f8309, 1},
-    {"Could not load lock screen photo", f8310, 1},
-    {"Could not load the plugin catalog.", f8311, 1},
-    {"Could not load the plugin catalog. Tap More to retry.", f8312, 1},
-    {"Could not move other .upt files aside on the SD card.", f8313, 1},
-    {"Could not open this file", f8314, 1},
-    {"Could not open this file.", f8315, 1},
-    {"Could not place the update on the SD card.", f8316, 1},
-    {"Could not prepare plugin removal.", f8317, 1},
-    {"Could not prepare update helper: %s", f8318, 1},
-    {"Could not reach the streaming service", f8319, 1},
-    {"Could not read installed plugins.", f8320, 1},
-    {"Could not read the Books folder", f8321, 1},
-    {"Could not read the emulator list from GitHub.", f8322, 1},
-    {"Could not read the plugin list from GitHub.", f8323, 1},
-    {"Could not read the release list from GitHub.", f8324, 1},
-    {"Could not record the verified update on the SD card.", f8325, 1},
-    {"Could not refresh books", f8326, 1},
-    {"Could not reload cover", f8327, 1},
-    {"Could not remove a plugin file.", f8328, 1},
-    {"Could not remove the emulator.", f8329, 1},
-    {"Could not rename", f8330, 1},
-    {"Could not repair the SD card", f8331, 1},
-    {"Could not replace plugin files.", f8332, 1},
-    {"Could not save Bluetooth codec", f8333, 1},
-    {"Could not start USB mode switch", f8334, 1},
-    {"Could not start refreshing the plugin catalog.", f8335, 1},
-    {"Could not start the download", f8336, 1},
-    {"Could not start the download.", f8337, 1},
-    {"Could not start the emulator operation", f8338, 1},
-    {"Could not start the game.", f8339, 1},
-    {"Could not start the installation.", f8340, 1},
-    {"Could not start the library scan. Please try again.", f8341, 1},
-    {"Could not start the plugin operation", f8342, 1},
-    {"Could not start the plugin operation.", f8343, 1},
-    {"Could not start the plugin refresh", f8344, 1},
-    {"Could not start the plugin refresh.", f8345, 1},
-    {"Could not start the plugin update.", f8346, 1},
-    {"Could not start the update check.", f8347, 1},
-    {"Could not start the update.", f8348, 1},
-    {"Could not start update helper: %s", f8349, 1},
-    {"Could not update the installed plugin record.", f8350, 1},
-    {"Could not verify the latest release checksums.", f8351, 1},
-    {"Couldn't connect to Wi-Fi network", f8352, 1},
-    {"Couldn't read this .cue file", f8353, 1},
-    {"Couldn't save -- plugin change was not applied", f8354, 1},
-    {"Counterclockwise", f8355, 1},
-    {"Cover reloaded", f8356, 1},
-    {"Covers refreshed", f8357, 1},
-    {"Create a playlist above or copy one to the SD card's Playlists folder.", f8358, 1},
-    {"Create a plugin", f8359, 1},
-    {"Create a theme", f8360, 1},
-    {"Create plugins & themes", f8361, 1},
-    {"Creator guides", f8362, 1},
-    {"Crossfade", f8363, 1},
-    {"Crossfeed (0 to 100)", f8364, 1},
-    {"Crossfeed: %d%%", f8365, 1},
-    {"Crossfeed: Off", f8366, 1},
-    {"Custom", f8367, 1},
-    {"Custom color", f8368, 1},
-    {"Custom fonts affect Latin text only.", f8369, 1},
-    {"DAC path: %s · %u-bit", f8370, 1},
-    {"DLNA", f8371, 1},
-    {"DLNA Renderer", f8372, 1},
-    {"DNS Settings", f8373, 1},
-    {"December", f8374, 1},
-    {"Default", f8375, 1},
-    {"Default (Built-in)", f8376, 1},
-    {"Default (native behavior)", f8377, 1},
-    {"Delete", f8378, 1},
-    {"Delete %d item?", f8379, 3},
-    {"Delete %s?\nThis cannot be undone.", f8380, 1},
-    {"Delete Playlist", f8381, 1},
-    {"Delete playlist?", f8382, 1},
-    {"Delete this profile?", f8383, 1},
-    {"Developer Options", f8384, 1},
-    {"Dim screen before timeout", f8385, 1},
-    {"Disabled", f8386, 1},
-    {"Disc %d", f8387, 1},
-    {"Disc %d / Track %d", f8388, 1},
-    {"Disconnect", f8389, 1},
-    {"Disconnect USB storage first", f8390, 1},
-    {"Disconnect USB storage from the computer before changing files.", f8391, 1},
-    {"Disconnect USB storage from the host before changing emulators.", f8392, 1},
-    {"Disconnect USB storage from the host before changing plugins.", f8393, 1},
-    {"Dismiss", f8394, 1},
-    {"Display", f8395, 1},
-    {"Do Nothing", f8396, 1},
-    {"Done", f8397, 1},
-    {"Done. Update the music database to see the changes in your library.", f8398, 1},
-    {"Double", f8399, 1},
-    {"Double press", f8400, 1},
-    {"Download", f8401, 1},
-    {"Download \"%s\"?", f8402, 1},
-    {"Download Profiles", f8403, 1},
-    {"Download Settings", f8404, 1},
-    {"Download an emulator to play games.", f8405, 1},
-    {"Download emulators", f8406, 1},
-    {"Download every album from \"%s\"?", f8407, 1},
-    {"Download failed", f8408, 1},
-    {"Download folder: %s", f8409, 1},
-    {"Download folder: SD root", f8410, 1},
-    {"Download layouts", f8411, 1},
-    {"Download profiles", f8412, 1},
-    {"Download settings", f8413, 1},
-    {"Download subfolder", f8414, 1},
-    {"Download themes", f8415, 1},
-    {"Downloading", f8416, 1},
-    {"Downloading\n%s...", f8417, 1},
-    {"Downloading and installing plugins %zu/%zu", f8418, 1},
-    {"Downloading update", f8419, 1},
-    {"Duration", f8420, 1},
-    {"EQ", f8421, 1},
-    {"EQ curve", f8422, 1},
-    {"Edit", f8423, 1},
-    {"Edit / Done", f8424, 1},
-    {"Edit a .theme text file on your computer. Copy it to the Themes folder on your SD card, then select it in More > Themes.", f8425, 1},
-    {"Emulator operation failed", f8426, 1},
-    {"Emulator store is busy.", f8427, 1},
-    {"Emulators", f8428, 1},
-    {"Enable Bluetooth DAC", f8429, 1},
-    {"Enable Bluetooth in settings to use BT DAC mode", f8430, 1},
-    {"Enable Sleep Timer", f8431, 1},
-    {"Enable Wi-Fi or Bluetooth to connect.", f8432, 1},
-    {"Enable WiFi to access", f8433, 1},
-    {"Enable band", f8434, 1},
-    {"Enable debug logging", f8435, 1},
-    {"Enabled", f8436, 1},
-    {"Equalizer", f8437, 1},
-    {"Erase and format SD card?", f8438, 1},
-    {"Europe", f8439, 1},
-    {"Excellent", f8440, 1},
-    {"Exit USB DAC mode to play music on this device", f8441, 1},
-    {"Extension updates", f8442, 1},
-    {"Factory Reset", f8443, 1},
-    {"Failed plugins:\n", f8444, 1},
-    {"Failed to add folder to playlist", f8445, 1},
-    {"Failed to add to playlist", f8446, 1},
-    {"Failed to apply time zone", f8447, 1},
-    {"Failed to connect to server", f8448, 1},
-    {"Failed to create playlist", f8449, 1},
-    {"Failed to delete profile", f8450, 1},
-    {"Failed to enable AirPlay", f8451, 1},
-    {"Failed to load artists", f8452, 1},
-    {"Failed to load artists: %s", f8453, 1},
-    {"Failed to load font. Check format & memory.", f8454, 1},
-    {"Failed to load from server", f8455, 1},
-    {"Failed to load profile", f8456, 1},
-    {"Failed to rename profile", f8457, 1},
-    {"Failed to save profile", f8458, 1},
-    {"Failed to start connection", f8459, 1},
-    {"Failed to switch to %s", f8460, 1},
-    {"Failed to toggle Bluetooth", f8461, 1},
-    {"Fair", f8462, 1},
-    {"Favorites", f8463, 1},
-    {"February", f8464, 1},
-    {"File Manager", f8465, 1},
-    {"File path is too long", f8466, 1},
-    {"File size", f8467, 1},
-    {"File unavailable", f8468, 1},
-    {"Files", f8469, 1},
-    {"Files (folders stay first)", f8470, 1},
-    {"Files on the card may have changed.", f8471, 1},
-    {"Files use modification dates. Albums use the newest track added; missing release years sort last. Update Music Database once to read years from existing files.", f8472, 1},
-    {"Filter type", f8473, 1},
-    {"Firmware Update", f8474, 1},
-    {"Firmware release %s is available.\nInstalled: %s\n\nDownload it now? This may take a while.", f8475, 1},
-    {"Firmware release %s is downloaded and verified.\n\nInstall now? The device reboots into recovery to flash it. Do not turn it off until it restarts.", f8476, 1},
-    {"Flat", f8477, 1},
-    {"Folder action is still running", f8478, 1},
-    {"Folder is too large to add to queue", f8479, 1},
-    {"Folder layout for downloaded albums", f8480, 1},
-    {"Folder too large to index (tap Back)", f8481, 1},
-    {"Font", f8482, 1},
-    {"Font Size", f8483, 1},
-    {"Font selection is no longer available", f8484, 1},
-    {"Forget", f8485, 1},
-    {"Format", f8486, 1},
-    {"Format SD Card", f8487, 1},
-    {"Formatting\nSD Card...", f8488, 1},
-    {"Frequency", f8489, 1},
-    {"Frequency (Hz, 20 to 20000)", f8490, 1},
-    {"Friday", f8491, 1},
-    {"From album art", f8492, 1},
-    {"From album art (no cover, using custom)", f8493, 1},
-    {"Gain", f8494, 1},
-    {"Gain (dB, -12 to 12)", f8495, 1},
-    {"Gain Mode", f8496, 1},
-    {"Games run on the player only.", f8497, 1},
-    {"Gapless", f8498, 1},
-    {"Gateway: %s", f8499, 1},
-    {"Generate", f8500, 1},
-    {"Generate a new PIN?", f8501, 1},
-    {"Genres", f8502, 1},
-    {"Gestures & Orientation", f8503, 1},
-    {"Get started", f8504, 1},
-    {"GitHub did not respond in time. Try again.", f8505, 1},
-    {"GitHub is limiting requests. Try again later.", f8506, 1},
-    {"GitHub returned HTTP %d.", f8507, 1},
-    {"GitHub's latest release has no valid %s image and checksum.", f8508, 1},
-    {"GitHub's latest release is not a supported firmware release.", f8509, 1},
-    {"Go back and choose New Connection to add one.", f8510, 1},
-    {"Go to page", f8511, 1},
-    {"Good", f8512, 1},
-    {"Guide: docs/CREATING.md", f8513, 1},
-    {"Headset may disconnect, manual reconnection might be required", f8514, 1},
-    {"Hide Player/Lyrics Top Bar", f8515, 1},
-    {"Hide Unnamed Devices", f8516, 1},
-    {"Hide hidden files", f8517, 1},
-    {"High", f8518, 1},
-    {"High (320 kbps)", f8519, 1},
-    {"Hostname", f8520, 1},
-    {"Hostname can only use letters, numbers, and hyphens", f8521, 1},
-    {"IP Address: %s", f8522, 1},
-    {"Idle Shutdown", f8523, 1},
-    {"Idle timeout:", f8524, 1},
-    {"Import", f8525, 1},
-    {"Import via Wi-Fi", f8526, 1},
-    {"In-line Remote", f8527, 1},
-    {"Indian", f8528, 1},
-    {"Information", f8529, 1},
-    {"Insert an SD card to change emulators.", f8530, 1},
-    {"Insert an SD card to change plugins.", f8531, 1},
-    {"Insert an SD card to download the update.", f8532, 1},
-    {"Insert an SD card to install plugins.", f8533, 1},
-    {"Insert an SD card to remove plugins.", f8534, 1},
-    {"Insert an SD card to scan for music, or turn off Scan for music.", f8535, 1},
-    {"Insert an SD card to update plugins.", f8536, 1},
-    {"Insert your SD card with music files. Compas Player can scan it and build your library.", f8537, 1},
-    {"Install", f8538, 1},
-    {"Install & Reboot", f8539, 1},
-    {"Install from SD card", f8540, 1},
-    {"Installed", f8541, 1},
-    {"Installed manually", f8542, 1},
-    {"Installed version: %s\nAvailable release: %s\n\nDownload and reinstall it anyway? This may take a while.", f8543, 1},
-    {"Installed · %s", f8544, 1},
-    {"Installing emulator", f8545, 1},
-    {"Installing plugin", f8546, 1},
-    {"Invalid download folder", f8547, 1},
-    {"Invalid download folder name", f8548, 1},
-    {"Invalid profile name", f8549, 1},
-    {"Invalid update path.", f8550, 1},
-    {"It could not be loaded. Rebuild it now?", f8551, 1},
-    {"It may have no partition table or a file system this player can't use. Formatting will erase it and set it up for this player.", f8552, 1},
-    {"Its settings stay on the card.", f8553, 1},
-    {"January", f8554, 1},
-    {"July", f8555, 1},
-    {"June", f8556, 1},
-    {"Keep a button assigned to Toggle Screen or Power Menu", f8557, 1},
-    {"Keyboard", f8558, 1},
-    {"LDAC Quality", f8559, 1},
-    {"LDAC Standard", f8560, 1},
-    {"LED charge indicator", f8561, 1},
-    {"Language", f8562, 1},
-    {"Large", f8563, 1},
-    {"Later", f8564, 1},
-    {"Launch at a fixed volume", f8565, 1},
-    {"Layout", f8566, 1},
-    {"Leave", f8567, 1},
-    {"Leave Bluetooth DAC mode?", f8568, 1},
-    {"Leave USB DAC mode?", f8569, 1},
-    {"Leave this view and try again.", f8570, 1},
-    {"Library", f8571, 1},
-    {"Library changed. Open the album again.", f8572, 1},
-    {"Library is busy", f8573, 1},
-    {"Library loaded", f8574, 1},
-    {"Library recovered and saved", f8575, 1},
-    {"Library recovered and saved, some folders could not be read", f8576, 1},
-    {"Library recovered. Use Settings > Update Music Database to save", f8577, 1},
-    {"Library unavailable. Use Settings > Update Music Database to rebuild", f8578, 1},
-    {"Library update failed. Check SD card and retry", f8579, 1},
-    {"Library updated", f8580, 1},
-    {"Library updated, some folders could not be read", f8581, 1},
-    {"License: %s", f8582, 1},
-    {"Limits the player volume, including buttons, remote controls and plugins.", f8583, 1},
-    {"Loading Wi-Fi settings", f8584, 1},
-    {"Loading emulators", f8585, 1},
-    {"Loading from server...", f8586, 1},
-    {"Loading layouts", f8587, 1},
-    {"Loading plugin catalog...", f8588, 1},
-    {"Loading plugins", f8589, 1},
-    {"Loading themes", f8590, 1},
-    {"Loading tracks…", f8591, 1},
-    {"Loading updates", f8592, 1},
-    {"Loading...", f8593, 1},
-    {"Location", f8594, 1},
-    {"Long", f8595, 1},
-    {"Long press", f8596, 1},
-    {"Looking for music files", f8597, 1},
-    {"Looking for music files\n%d items checked", f8598, 1},
-    {"Low", f8599, 1},
-    {"Low\nHigh", f8600, 1},
-    {"Low (96 kbps)", f8601, 1},
-    {"Lyrics", f8602, 1},
-    {"Lyrics Text Size", f8603, 1},
-    {"MAC Address: %s", f8604, 1},
-    {"Maintenance", f8605, 1},
-    {"Make an accessory discoverable, then tap Rescan.", f8606, 1},
-    {"Manage plugins later in Settings > System > Plugin Manager to search, update, or remove them.", f8607, 1},
-    {"Manual SSID Entry", f8608, 1},
-    {"March", f8609, 1},
-    {"Match album art", f8610, 1},
-    {"Max Volume", f8611, 1},
-    {"May", f8612, 1},
-    {"Medium", f8613, 1},
-    {"Medium (192 kbps)", f8614, 1},
-    {"Memorized Networks", f8615, 1},
-    {"Metadata refreshed", f8616, 1},
-    {"Monday", f8617, 1},
-    {"Mono (1 channel)", f8618, 1},
-    {"More", f8619, 1},
-    {"Most Played", f8620, 1},
-    {"Move", f8621, 1},
-    {"Move %d item?", f8622, 3},
-    {"Music", f8623, 1},
-    {"Music database unavailable", f8624, 1},
-    {"Name (A–Z)", f8625, 1},
-    {"Native DSD (DoP) / %.4g MHz", f8626, 1},
-    {"Nearby Wi-Fi networks will appear here.", f8627, 1},
-    {"Nearby networks will appear when Wi-Fi is ready.", f8628, 1},
-    {"Needs newer firmware", f8629, 1},
-    {"Network Name (SSID)", f8630, 1},
-    {"Network stream", f8631, 1},
-    {"Networks you connect to will appear here.", f8632, 1},
-    {"New Connection", f8633, 1},
-    {"New PIN generated", f8634, 1},
-    {"New Profile", f8635, 1},
-    {"New folder", f8636, 1},
-    {"Newest Modified", f8637, 1},
-    {"Next", f8638, 1},
-    {"Next  •  %d–%d of %d", f8639, 1},
-    {"Next Track", f8640, 1},
-    {"Next page", f8641, 1},
-    {"No .ttf fonts found in /Fonts", f8642, 1},
-    {"No SD card", f8643, 1},
-    {"No SD card detected. You can scan later from Library settings.", f8644, 1},
-    {"No SD card is mounted.", f8645, 1},
-    {"No books found", f8646, 1},
-    {"No description", f8647, 1},
-    {"No emulators are available in the catalog.", f8648, 1},
-    {"No emulators installed", f8649, 1},
-    {"No entries to display", f8650, 1},
-    {"No favorites yet", f8651, 1},
-    {"No games found", f8652, 1},
-    {"No items", f8653, 1},
-    {"No layouts are available in the catalog.", f8654, 1},
-    {"No longer in the catalog", f8655, 1},
-    {"No memorized networks", f8656, 1},
-    {"No music database", f8657, 1},
-    {"No nearby devices", f8658, 1},
-    {"No network detected", f8659, 1},
-    {"No network detected. Connect to a network to download emulators.", f8660, 1},
-    {"No network detected. Connect to a network to download plugins.", f8661, 1},
-    {"No networks found", f8662, 1},
-    {"No other networks found", f8663, 1},
-    {"No paired devices", f8664, 1},
-    {"No playable audio files found", f8665, 1},
-    {"No playable files here", f8666, 1},
-    {"No plugin settings available", f8667, 1},
-    {"No plugins are available in the catalog.", f8668, 1},
-    {"No saved profiles", f8669, 1},
-    {"No saved servers", f8670, 1},
-    {"No songs to refresh", f8671, 1},
-    {"No synchronized lyrics found", f8672, 1},
-    {"No themes are available in the catalog.", f8673, 1},
-    {"No track loaded", f8674, 1},
-    {"No tracks found", f8675, 1},
-    {"No updates available.", f8676, 1},
-    {"No user playlists", f8677, 1},
-    {"No verified update is on this SD card. Download it again.", f8678, 1},
-    {"Not available in your subscription", f8679, 1},
-    {"Not connected", f8680, 1},
-    {"Not enough free space on the SD card for the update.", f8681, 1},
-    {"Not enough free space on the SD card.", f8682, 1},
-    {"Not enough free space on the player.", f8683, 1},
-    {"Not enough memory to connect", f8684, 1},
-    {"Not enough memory to load CUE tracks", f8685, 1},
-    {"Not enough memory to load artists", f8686, 1},
-    {"Not enough memory to load from server", f8687, 1},
-    {"Not enough memory to load the plugin store", f8688, 1},
-    {"Not enough memory to start download", f8689, 1},
-    {"Not selected (UTC)", f8690, 1},
-    {"Not set", f8691, 1},
-    {"Nothing to select here", f8692, 1},
-    {"November", f8693, 1},
-    {"Now Playing layouts", f8694, 1},
-    {"OFF", f8695, 1},
-    {"ON", f8696, 1},
-    {"October", f8697, 1},
-    {"Off", f8698, 1},
-    {"On", f8699, 1},
-    {"Open More > Plugins > Refresh Plugins. Scan for a working example and the full API guide.", f8700, 1},
-    {"Open a book and tap the bookmark icon to save it here.", f8701, 1},
-    {"Open a folder containing supported audio files.", f8702, 1},
-    {"Open network", f8703, 1},
-    {"Open the destination folder, then choose Paste here from the menu.", f8704, 1},
-    {"Open this address on your phone or computer:", f8705, 1},
-    {"Open · Connected", f8706, 1},
-    {"Original", f8707, 1},
-    {"Output", f8708, 1},
-    {"PEQ", f8709, 1},
-    {"PEQ reset to defaults", f8710, 1},
-    {"PM", f8711, 1},
-    {"Pacific", f8712, 1},
-    {"Page %d of %d", f8713, 1},
-    {"Paired", f8714, 1},
-    {"Paired Devices", f8715, 1},
-    {"Password", f8716, 1},
-    {"Password: Not set", f8717, 1},
-    {"Password: Set", f8718, 1},
-    {"Paste %d item here", f8719, 3},
-    {"Paused: headphones disconnected", f8720, 1},
-    {"Peaking\nLow Shelf\nHigh Shelf", f8721, 1},
-    {"Per Album", f8722, 1},
-    {"Per Track", f8723, 1},
-    {"Place .ttf fonts in SD /Fonts folder.", f8724, 1},
-    {"Play All", f8725, 1},
-    {"Play All (Sequential)", f8726, 1},
-    {"Play All (Shuffle)", f8727, 1},
-    {"Play Next", f8728, 1},
-    {"Play all shuffled", f8729, 1},
-    {"Play an album or playlist to see its songs here.", f8730, 1},
-    {"Play sequentially", f8731, 1},
-    {"Play/Pause", f8732, 1},
-    {"Playback", f8733, 1},
-    {"Playback & Controls", f8734, 1},
-    {"Playback and device actions", f8735, 1},
-    {"Playback changed before folder was ready", f8736, 1},
-    {"Playback error", f8737, 1},
-    {"Playback error: audio output failed", f8738, 1},
-    {"Playback history could not be saved", f8739, 1},
-    {"Playback stopped: %s", f8740, 1},
-    {"Played", f8741, 1},
-    {"Player Layout", f8742, 1},
-    {"Playing", f8743, 1},
-    {"Playlist Name", f8744, 1},
-    {"Playlist changed. Select a song again.", f8745, 1},
-    {"Playlist changed. Try again.", f8746, 1},
-    {"Playlist created", f8747, 1},
-    {"Playlist deleted", f8748, 1},
-    {"Playlist is empty", f8749, 1},
-    {"Playlist name is too long", f8750, 1},
-    {"Playlist renamed", f8751, 1},
-    {"Playlist saved", f8752, 1},
-    {"Playlist selection expired", f8753, 1},
-    {"Playlist unavailable or unreadable", f8754, 1},
-    {"Playlists", f8755, 1},
-    {"Playlists refreshed", f8756, 1},
-    {"Please wait for plugin installation to finish", f8757, 1},
-    {"Please wait for the library scan to finish", f8758, 1},
-    {"Plugin", f8759, 1},
-    {"Plugin Manager", f8760, 1},
-    {"Plugin Order", f8761, 1},
-    {"Plugin Settings", f8762, 1},
-    {"Plugin Store", f8763, 1},
-    {"Plugin is unavailable in the catalog", f8764, 1},
-    {"Plugin operation failed", f8765, 1},
-    {"Plugin setup complete", f8766, 1},
-    {"Plugin setup needs attention", f8767, 1},
-    {"Plugin storage is unavailable.", f8768, 1},
-    {"Plugins", f8769, 1},
-    {"Plugins & Layouts", f8770, 1},
-    {"Plugins can override these saved preferences.", f8771, 1},
-    {"Position", f8772, 1},
-    {"Power", f8773, 1},
-    {"Power Menu", f8774, 1},
-    {"Power Off", f8775, 1},
-    {"Power controls", f8776, 1},
-    {"Power off", f8777, 1},
-    {"Pre-Amp", f8778, 1},
-    {"Pre-Amp (dB, -12 to 12)", f8779, 1},
-    {"Preparing and verifying recovery mode", f8780, 1},
-    {"Preparing cover refresh...", f8781, 1},
-    {"Preparing folder playback", f8782, 1},
-    {"Preparing metadata refresh", f8783, 1},
-    {"Preparing metadata refresh...", f8784, 1},
-    {"Preparing music library...", f8785, 1},
-    {"Preparing update", f8786, 1},
-    {"Presets", f8787, 1},
-    {"Preview", f8788, 1},
-    {"Previous", f8789, 1},
-    {"Previous  •  %d–%d of %d", f8790, 1},
-    {"Previous Track", f8791, 1},
-    {"Previous page", f8792, 1},
-    {"Previous request still finishing", f8793, 1},
-    {"Previously connected accessories will appear here.", f8794, 1},
-    {"Primary DNS", f8795, 1},
-    {"Profile Name", f8796, 1},
-    {"Profile deleted", f8797, 1},
-    {"Profile loaded", f8798, 1},
-    {"Profile renamed", f8799, 1},
-    {"Profile saved", f8800, 1},
-    {"Profiles", f8801, 1},
-    {"Provider", f8802, 1},
-    {"QWERTY", f8803, 1},
-    {"Queue", f8804, 1},
-    {"Queue changed. Try again.", f8805, 1},
-    {"Queue checkpoint failed; storage may be read-only", f8806, 1},
-    {"Queue cleared", f8807, 1},
-    {"Queue is empty", f8808, 1},
-    {"Queue ready. Press Play to start.", f8809, 1},
-    {"Queued", f8810, 1},
-    {"Quick Drawer", f8811, 1},
-    {"Quick Setup Complete", f8812, 1},
-    {"Quick setup", f8813, 1},
-    {"RC", f8814, 1},
-    {"Radio", f8815, 1},
-    {"Radio / %s", f8816, 1},
-    {"Reading supported rates...", f8817, 1},
-    {"Reading tags\n%d of %d songs (%d%%)", f8818, 1},
-    {"Reads the tags of every song again. This may take a while.", f8819, 1},
-    {"Rebuild", f8820, 1},
-    {"Recently Added", f8821, 1},
-    {"Recently Played", f8822, 1},
-    {"Recovery boot flag failed.", f8823, 1},
-    {"Recovery flag erase failed. Do not reboot; check .compas/ota/update.log.", f8824, 1},
-    {"Recovery flag partition does not match this firmware.", f8825, 1},
-    {"Recovery flag verification failed. Do not reboot; check the update log.", f8826, 1},
-    {"Recovery flag write failed. Do not reboot; check .compas/ota/update.log.", f8827, 1},
-    {"Recovery remains selected but reboot failed: %s. Keep the update file.", f8828, 1},
-    {"Recovery remains selected. Keep the update file; saving diagnostics failed.", f8829, 1},
-    {"Refresh", f8830, 1},
-    {"Refresh All Covers", f8831, 1},
-    {"Refresh All Metadata", f8832, 1},
-    {"Refresh Plugins", f8833, 1},
-    {"Refresh all covers?", f8834, 1},
-    {"Refresh all metadata?", f8835, 1},
-    {"Refresh emulator catalog", f8836, 1},
-    {"Refresh metadata", f8837, 1},
-    {"Refresh plugin catalog", f8838, 1},
-    {"Refresh the music database to update this list.", f8839, 1},
-    {"Refreshing\nall covers...", f8840, 1},
-    {"Refreshing\nall metadata...", f8841, 1},
-    {"Refreshing\nmetadata...", f8842, 1},
-    {"Refreshing covers", f8843, 1},
-    {"Refreshing covers\n%d of %d (%d%%)", f8844, 1},
-    {"Refreshing plugins...", f8845, 1},
-    {"Release Year (oldest first)", f8846, 1},
-    {"Reload cover", f8847, 1},
-    {"Reloading\ncover...", f8848, 1},
-    {"Reloading cover", f8849, 1},
-    {"Reloading cover\n%d of %d (%d%%)", f8850, 1},
-    {"Remote", f8851, 1},
-    {"Remote Control", f8852, 1},
-    {"Remove", f8853, 1},
-    {"Remove %s?", f8854, 1},
-    {"Removed", f8855, 1},
-    {"Removed from playlist", f8856, 1},
-    {"Removed from queue", f8857, 1},
-    {"Removes saved covers and extracts them again. This may take a while.", f8858, 1},
-    {"Removing emulator", f8859, 1},
-    {"Removing plugin", f8860, 1},
-    {"Rename", f8861, 1},
-    {"Rename Playlist", f8862, 1},
-    {"Rename Profile", f8863, 1},
-    {"Reorder Items", f8864, 1},
-    {"Replace", f8865, 1},
-    {"Replace Existing", f8866, 1},
-    {"Replace Profile", f8867, 1},
-    {"ReplayGain", f8868, 1},
-    {"Rescan", f8869, 1},
-    {"Reset", f8870, 1},
-    {"Reset All", f8871, 1},
-    {"Reset PEQ to defaults?", f8872, 1},
-    {"Reset all button mappings?", f8873, 1},
-    {"Reset all settings and reboot?", f8874, 1},
-    {"Reset to defaults", f8875, 1},
-    {"Restart", f8876, 1},
-    {"Restart Now", f8877, 1},
-    {"Restart now to apply the new hostname?", f8878, 1},
-    {"Restarting into recovery. Do not turn off the player.", f8879, 1},
-    {"Resume Last Track", f8880, 1},
-    {"Resume and Play", f8881, 1},
-    {"Resume playback when external power turns the player on.", f8882, 1},
-    {"Resume, but Paused", f8883, 1},
-    {"Retrying plugins %zu/%zu", f8884, 1},
-    {"Review updates", f8885, 1},
-    {"SD card couldn't be read", f8886, 1},
-    {"SD card format failed", f8887, 1},
-    {"SD card formatted", f8888, 1},
-    {"SD card is read-only. Check it on a computer", f8889, 1},
-    {"SD card is still read-only", f8890, 1},
-    {"SD card may have errors. Check it on a computer", f8891, 1},
-    {"SD card not available", f8892, 1},
-    {"SD card repair is still running", f8893, 1},
-    {"SD card repaired", f8894, 1},
-    {"SSID must be 1 to 32 bytes", f8895, 1},
-    {"SSID: %s", f8896, 1},
-    {"Safe Charging (500mA)", f8897, 1},
-    {"Sample Rate", f8898, 1},
-    {"Saturday", f8899, 1},
-    {"Save", f8900, 1},
-    {"Save Profile", f8901, 1},
-    {"Save Profile As", f8902, 1},
-    {"Save Queue as Playlist", f8903, 1},
-    {"Save as Playlist", f8904, 1},
-    {"Save as a new profile, or replace one that already exists?", f8905, 1},
-    {"Saved Servers", f8906, 1},
-    {"Saved network", f8907, 1},
-    {"Saved network details are being checked.", f8908, 1},
-    {"Saving data before reboot", f8909, 1},
-    {"Saving data failed. Recovery remains selected; keep the update file and check .compas/ota/update.log.", f8910, 1},
-    {"Saving music database", f8911, 1},
-    {"Saving music database\nThis can take a while on large libraries", f8912, 1},
-    {"Saving playlist…", f8913, 1},
-    {"Scan for a starter theme and instructions. To redesign the player screen, see the XML layout guide linked there.", f8914, 1},
-    {"Scan for music", f8915, 1},
-    {"Scan for the full guide", f8916, 1},
-    {"Scan with your phone to support Compás Player on PayPal", f8917, 1},
-    {"Scanning for networks", f8918, 1},
-    {"Scanning playable files", f8919, 1},
-    {"Screen Dimming", f8920, 1},
-    {"Screen Timeout", f8921, 1},
-    {"Screen off", f8922, 1},
-    {"Screenshot failed (%s)", f8923, 1},
-    {"Screenshot failed (framebuffer)", f8924, 1},
-    {"Screenshot failed (worker)", f8925, 1},
-    {"Screenshot needs an SD card", f8926, 1},
-    {"Screenshot saved", f8927, 1},
-    {"Screenshots (Power + Previous)", f8928, 1},
-    {"Screenshots (Power + Vol Down)", f8929, 1},
-    {"Screenshots unavailable", f8930, 1},
-    {"Searching for networks", f8931, 1},
-    {"Secondary DNS", f8932, 1},
-    {"Secure connection failed. Check Wi-Fi and the date and time.", f8933, 1},
-    {"Secured network", f8934, 1},
-    {"Secured · Connected", f8935, 1},
-    {"Seek Backward", f8936, 1},
-    {"Seek Forward", f8937, 1},
-    {"Select", f8938, 1},
-    {"Select a file", f8939, 1},
-    {"Select all", f8940, 1},
-    {"Select at least one plugin to continue.", f8941, 1},
-    {"Selected plugins are ready.\n", f8942, 1},
-    {"September", f8943, 1},
-    {"Server URL (e.g. %s)", f8944, 1},
-    {"Server URL: %s", f8945, 1},
-    {"Server request timed out after 30 seconds", f8946, 1},
-    {"Service is busy", f8947, 1},
-    {"Set Time", f8948, 1},
-    {"Set your local time zone so the clock is right.", f8949, 1},
-    {"Settings", f8950, 1},
-    {"Show Time Remaining", f8951, 1},
-    {"Show hidden files", f8952, 1},
-    {"Showing first %d of %d songs", f8953, 1},
-    {"Shuffle from a random song", f8954, 1},
-    {"Sign in to the streaming service again", f8955, 1},
-    {"Signal: %s", f8956, 1},
-    {"Single", f8957, 1},
-    {"Single press", f8958, 1},
-    {"Size: %s", f8959, 1},
-    {"Skip for now", f8960, 1},
-    {"Skipped: %s", f8961, 1},
-    {"Sleep", f8962, 1},
-    {"Sleep Timer", f8963, 1},
-    {"Sleep timer", f8964, 1},
-    {"Sleep timer: %d min remaining", f8965, 1},
-    {"Sleep timer: Off", f8966, 1},
-    {"Small", f8967, 1},
-    {"Some covers could not be refreshed", f8968, 1},
-    {"Some playlists could not be read", f8969, 1},
-    {"Some plugin files were changed on the card. Replace them?", f8970, 1},
-    {"Some songs could not be read", f8971, 1},
-    {"Some updates need confirmation before replacing local files.", f8972, 1},
-    {"Song already added", f8973, 1},
-    {"Song deleted", f8974, 1},
-    {"Songs", f8975, 1},
-    {"Sorting", f8976, 1},
-    {"Sound", f8977, 1},
-    {"Sound Effects", f8978, 1},
-    {"Source", f8979, 1},
-    {"Speex Resampling", f8980, 1},
-    {"Start sequentially", f8981, 1},
-    {"Start with these suggestions, or explore more plugins.", f8982, 1},
-    {"Startup Volume", f8983, 1},
-    {"Step %d of %d", f8984, 1},
-    {"Stereo (2 channels)", f8985, 1},
-    {"Still applying the previous choice", f8986, 1},
-    {"Still working. Do not turn off the player or retry.", f8987, 1},
-    {"Stop", f8988, 1},
-    {"Stopped", f8989, 1},
-    {"Stopping...", f8990, 1},
-    {"Storage", f8991, 1},
-    {"Stream Media", f8992, 1},
-    {"Stream Quality", f8993, 1},
-    {"Stream quality: %s", f8994, 1},
-    {"Subfolder is relative to SD root (example: Music/Offline); empty uses SD root", f8995, 1},
-    {"Subfolder: SD root", f8996, 1},
-    {"Subsonic", f8997, 1},
-    {"Sunday", f8998, 1},
-    {"Suspend to RAM", f8999, 1},
-    {"Swipe Up for Home", f9000, 1},
-    {"Swipe up to unlock", f9001, 1},
-    {"System", f9002, 1},
-    {"System playlists", f9003, 1},
-    {"T9", f9004, 1},
-    {"TXT Reader", f9005, 1},
-    {"Takes its color from the cover of the playing track", f9006, 1},
-    {"Tap Power off again to confirm", f9007, 1},
-    {"Tap Restart again to confirm", f9008, 1},
-    {"That name cannot be used", f9009, 1},
-    {"The SD card changed during the download.", f9010, 1},
-    {"The SD card changed during the operation.", f9011, 1},
-    {"The SD card is read-only. Check its write protection.", f9012, 1},
-    {"The download did not complete. Check Wi-Fi and try again.", f9013, 1},
-    {"The downloaded image failed verification and was deleted.", f9014, 1},
-    {"The downloaded update record is invalid. Download the update again.", f9015, 1},
-    {"The emulator download failed verification. Try again.", f9016, 1},
-    {"The emulator folder is not writable.", f9017, 1},
-    {"The firmware path is too long.", f9018, 1},
-    {"The game closed unexpectedly.", f9019, 1},
-    {"The playlist file will be deleted. Music files are kept.", f9020, 1},
-    {"The plugin download failed verification. Try again.", f9021, 1},
-    {"The quick brown fox jumps 123", f9022, 1},
-    {"The release has no checksum for this device's image.", f9023, 1},
-    {"The selected update file changed. Select it again.", f9024, 1},
-    {"The streaming plugin is not available", f9025, 1},
-    {"The streaming service did not answer", f9026, 1},
-    {"The update file changed during verification. Select it again.", f9027, 1},
-    {"The update file on the SD card changed. Download it again.", f9028, 1},
-    {"Themes", f9029, 1},
-    {"There are no entries in this view.", f9030, 1},
-    {"This can take a few seconds.", f9031, 1},
-    {"This cannot be undone.", f9032, 1},
-    {"This device is now a USB sound card", f9033, 1},
-    {"This device is now receiving Bluetooth audio", f9034, 1},
-    {"This emulator needs a newer player version.", f9035, 1},
-    {"This folder is empty", f9036, 1},
-    {"This includes the player's own data (.compas or .plugins). Deleting or moving it can break features, lose data such as settings and installed plugins, and may require a restart.", f9037, 1},
-    {"This may take a while", f9038, 1},
-    {"This permanently deletes everything on the card. This cannot be undone.", f9039, 1},
-    {"This plugin has no update available.", f9040, 1},
-    {"This plugin is already installed by the store.", f9041, 1},
-    {"This plugin is not installed by the store.", f9042, 1},
-    {"This plugin needs a newer player version.", f9043, 1},
-    {"This quality is unavailable for this track", f9044, 1},
-    {"This release's image does not match its checksums. Try again after the next weekly release.", f9045, 1},
-    {"This track is copy-protected", f9046, 1},
-    {"This track is unavailable", f9047, 1},
-    {"This type of file cannot be opened", f9048, 1},
-    {"This update is no longer the latest release. Check for updates and download the latest image.", f9049, 1},
-    {"This update no longer matches the latest release. Download the latest image again.", f9050, 1},
-    {"Thread launch failed", f9051, 1},
-    {"Thursday", f9052, 1},
-    {"Time Zone", f9053, 1},
-    {"Time remaining: %d:%02d", f9054, 1},
-    {"Time remaining: %d:%02d:%02d", f9055, 1},
-    {"Time zone", f9056, 1},
-    {"Tint startup image", f9057, 1},
-    {"Tint title bar icons", f9058, 1},
-    {"Toggle Screen", f9059, 1},
-    {"Too many audio channels", f9060, 1},
-    {"Too many plugins are installed. Remove one and try again.", f9061, 1},
-    {"Track", f9062, 1},
-    {"Track %+.1f dB", f9063, 1},
-    {"Track %d", f9064, 1},
-    {"Track details are not available yet. Keep playback open and check again.", f9065, 1},
-    {"Tracks", f9066, 1},
-    {"Try scanning again or add a hidden network.", f9067, 1},
-    {"Tuesday", f9068, 1},
-    {"Turn Bluetooth off and on to apply", f9069, 1},
-    {"Turn off ADB first (Settings > System > USB Mode), then enable USB DAC from here.", f9070, 1},
-    {"Turn off Automatic to set the clock", f9071, 1},
-    {"Turn off Bluetooth DAC to play music on this device", f9072, 1},
-    {"Turn off DAC mode to play games.", f9073, 1},
-    {"Turn off screen automatically", f9074, 1},
-    {"Turn on Bluetooth to see paired and nearby devices.", f9075, 1},
-    {"Turn on Wi-Fi and connect first", f9076, 1},
-    {"Turn this on to see the address here.", f9077, 1},
-    {"Turning Wi-Fi on", f9078, 1},
-    {"USB DAC", f9079, 1},
-    {"USB DAC mode", f9080, 1},
-    {"USB Mode", f9081, 1},
-    {"USB audio device detected", f9082, 1},
-    {"USB input: %s · %u-bit", f9083, 1},
-    {"USB mode", f9084, 1},
-    {"USB storage is busy.", f9085, 1},
-    {"Unable to load items", f9086, 1},
-    {"Unable to read folder (tap Back and retry)", f9087, 1},
-    {"Unavailable", f9088, 1},
-    {"Unexpected library response", f9089, 1},
-    {"Unexpected reply from GitHub", f9090, 1},
-    {"Unexpected reply from GitHub.", f9091, 1},
-    {"Unknown album", f9092, 1},
-    {"Unknown artist", f9093, 1},
-    {"Unknown codec", f9094, 1},
-    {"Unknown format", f9095, 1},
-    {"Unknown rate", f9096, 1},
-    {"Unsupported audio format", f9097, 1},
-    {"Update", f9098, 1},
-    {"Update & Reboot", f9099, 1},
-    {"Update All", f9100, 1},
-    {"Update Music Database", f9101, 1},
-    {"Update Music Database to enable this album order", f9102, 1},
-    {"Update available", f9103, 1},
-    {"Update available · %s", f9104, 1},
-    {"Update diagnostics must be stored on the SD card.", f9105, 1},
-    {"Update helper failed (%s, status %d). See .compas/ota/update.log.", f9106, 1},
-    {"Update individually", f9107, 1},
-    {"Update music database?", f9108, 1},
-    {"Update saved. Connect to Wi-Fi, then install from Firmware Update > Install from SD card.", f9109, 1},
-    {"Update the Player only, retaining current drivers, kernel and bootloader.", f9110, 1},
-    {"Update the entire CompásOS. Flashing firmware contains Bootloader, Player, Kernel and Drivers.", f9111, 1},
-    {"Update these plugins individually", f9112, 1},
-    {"Update using %s?\nDevice will reboot into recovery mode.", f9113, 1},
-    {"Updates", f9114, 1},
-    {"Updating\nmusic database...", f9115, 1},
-    {"Updating emulator", f9116, 1},
-    {"Updating plugins", f9117, 1},
-    {"Upside Down Screen", f9118, 1},
-    {"Use Settings > Update Music Database", f9119, 1},
-    {"Use a regular %s file in the SD card root.", f9120, 1},
-    {"User playlists", f9121, 1},
-    {"Username", f9122, 1},
-    {"Username: %s", f9123, 1},
-    {"Uses the accent color for the default splash.", f9124, 1},
-    {"Uses the accent color for the icons next to screen titles.", f9125, 1},
-    {"Verify server certificate", f9126, 1},
-    {"Version %s · %s", f9127, 1},
-    {"Volume Down", f9128, 1},
-    {"Volume Lock (Screen Off)", f9129, 1},
-    {"Volume Slider", f9130, 1},
-    {"Volume Up", f9131, 1},
-    {"Wait for USB mode switching to finish and disconnect USB storage before updating.", f9132, 1},
-    {"Waiting for Bluetooth stream…", f9133, 1},
-    {"Waiting for USB audio…", f9134, 1},
-    {"Weak", f9135, 1},
-    {"Web Server is busy", f9136, 1},
-    {"Wednesday", f9137, 1},
-    {"Welcome to Compás", f9138, 1},
-    {"When on, this device is visible to AirPlay senders on your Wi-Fi network -- stream audio from an iPhone, iPad, or Mac to be played through this device's own output.", f9139, 1},
-    {"When on, this device is visible to DLNA/UPnP controller apps on your Wi-Fi network -- cast a track from one to play it here. Pause, mute, volume, and seek from the controller app aren't supported; use this device's own controls instead once a track starts.", f9140, 1},
-    {"When on, this device stays visible and pairable to other Bluetooth devices, so a phone or computer can stream audio TO it and play through this device's own output -- using it as an external DAC.", f9141, 1},
-    {"Wi-Fi", f9142, 1},
-    {"Wi-Fi Info", f9143, 1},
-    {"Wi-Fi Password", f9144, 1},
-    {"Wi-Fi could not be enabled", f9145, 1},
-    {"Wi-Fi failed to change state", f9146, 1},
-    {"Wi-Fi is busy", f9147, 1},
-    {"Wi-Fi is still starting", f9148, 1},
-    {"Wireless", f9149, 1},
-    {"Working...", f9150, 1},
-    {"Write a Lua plugin on your computer. Copy its .lua file to the .plugins folder on your SD card.", f9151, 1},
-    {"You can select up to 32 plugins", f9152, 1},
-    {"Your library is being loaded.", f9153, 1},
-    {"Your music", f9154, 1},
-    {"Your setup journey", f9155, 1},
-    {"[File truncated at %d KB -- showing the first part only]\n\n%s", f9156, 1},
-    {"github.com/Starnished66/compas-player", f9157, 1},
-    {"unknown", f9158, 1},
+    {"Available player release: %s.\nInstalled: %s\n\nDownload and install? This updates the player and restarts the device. Firmware, fonts, and artwork are unchanged.", f8197, 1},
+    {"Available · %s", f8198, 1},
+    {"Band %d / %d", f8199, 1},
+    {"Band options", f8200, 1},
+    {"Battery Icon", f8201, 1},
+    {"Battery Percentage", f8202, 1},
+    {"Bitrate", f8203, 1},
+    {"Bluetooth", f8204, 1},
+    {"Bluetooth Audio (A2DP)", f8205, 1},
+    {"Bluetooth Codec", f8206, 1},
+    {"Bluetooth DAC", f8207, 1},
+    {"Bluetooth DAC mode", f8208, 1},
+    {"Bluetooth Volume Sync", f8209, 1},
+    {"Bluetooth is off", f8210, 1},
+    {"Bluetooth remote service is starting…", f8211, 1},
+    {"Bluetooth remote service is unavailable; retrying.", f8212, 1},
+    {"Bluetooth: Compas Remote Control", f8213, 1},
+    {"Bluetooth: registration failed; retrying", f8214, 1},
+    {"Bluetooth: waiting for service registration", f8215, 1},
+    {"Books", f8216, 1},
+    {"Books refreshed", f8217, 1},
+    {"Build", f8218, 1},
+    {"Build it now? Large libraries can take several minutes.", f8219, 1},
+    {"Bundled games and their saves will be removed. Games in SD/Games are kept.", f8220, 1},
+    {"Button", f8221, 1},
+    {"Button Mapping", f8222, 1},
+    {"Buttons & Remote", f8223, 1},
+    {"Buy Me a Coffee", f8224, 1},
+    {"By %s", f8225, 1},
+    {"Cancel", f8226, 1},
+    {"Cannot add folder within queue memory limit", f8227, 1},
+    {"Cannot check plugin storage write access.", f8228, 1},
+    {"Cannot create the emulator folder.", f8229, 1},
+    {"Cannot create the update log directory.", f8230, 1},
+    {"Cannot delete playlist", f8231, 1},
+    {"Cannot load album tracks", f8232, 1},
+    {"Cannot move this entry", f8233, 1},
+    {"Cannot play folder", f8234, 1},
+    {"Cannot play this folder", f8235, 1},
+    {"Cannot reach GitHub. Check the Wi-Fi connection.", f8236, 1},
+    {"Cannot read playlist", f8237, 1},
+    {"Cannot read the SD card.", f8238, 1},
+    {"Cannot read the selected update file.", f8239, 1},
+    {"Cannot read the update file on the SD card. Check the card and try again.", f8240, 1},
+    {"Cannot read the update record on the SD card. Check the card and try again.", f8241, 1},
+    {"Cannot read update helper status: %s", f8242, 1},
+    {"Cannot remove entry", f8243, 1},
+    {"Cannot rename: invalid name or file exists", f8244, 1},
+    {"Cannot reorder playlist", f8245, 1},
+    {"Cannot safely access the recovery flag block.", f8246, 1},
+    {"Cannot save playlist", f8247, 1},
+    {"Cannot save update diagnostics on the SD card.", f8248, 1},
+    {"Cannot save update diagnostics. Update preparation stopped.", f8249, 1},
+    {"Cannot save: invalid or streaming entries", f8250, 1},
+    {"Cannot start folder action", f8251, 1},
+    {"Cannot start queue", f8252, 1},
+    {"Car Mode", f8253, 1},
+    {"Car Mode Volume", f8254, 1},
+    {"Car Mode is disabled.", f8255, 1},
+    {"Center", f8256, 1},
+    {"Channels", f8257, 1},
+    {"Charge Limit (85%)", f8258, 1},
+    {"Charge to at least %d%% or connect power before updating.", f8259, 1},
+    {"Charge to at least 30%% or connect power before updating.", f8260, 1},
+    {"Charging", f8261, 1},
+    {"Check for online update", f8262, 1},
+    {"Check that Wi-Fi is enabled, then rescan.", f8263, 1},
+    {"Check the SD card and disconnect USB storage before playing.", f8264, 1},
+    {"Check the wireless switch and try again.", f8265, 1},
+    {"Checking for updates", f8266, 1},
+    {"Checking the SD card. This may take a while", f8267, 1},
+    {"Checking the file on the SD card", f8268, 1},
+    {"Choose a language", f8269, 1},
+    {"Choose plugins", f8270, 1},
+    {"Choose the language for your player.", f8271, 1},
+    {"Choose time zone", f8272, 1},
+    {"Choose what happens when idle:", f8273, 1},
+    {"Clear Queue", f8274, 1},
+    {"Clock", f8275, 1},
+    {"Clock Position", f8276, 1},
+    {"Clockwise", f8277, 1},
+    {"Close", f8278, 1},
+    {"Closing\nWeb Server...", f8279, 1},
+    {"Codec", f8280, 1},
+    {"Combined response (dB)", f8281, 1},
+    {"Combined response (dB) · EQ off", f8282, 1},
+    {"Compás Player", f8283, 1},
+    {"Connect", f8284, 1},
+    {"Connect & Browse", f8285, 1},
+    {"Connect a device to see its supported rates", f8286, 1},
+    {"Connect over Wi-Fi or Bluetooth to see what's playing, control playback, and browse your library. Enter this PIN when the app or browser asks for it; Bluetooth also requires pairing.", f8287, 1},
+    {"Connect to Wi-Fi", f8288, 1},
+    {"Connect to Wi-Fi before downloading the player update", f8289, 1},
+    {"Connect to Wi-Fi first", f8290, 1},
+    {"Connect to Wi-Fi for streaming, updates, and online services.", f8291, 1},
+    {"Connect to a Wi-Fi network before continuing.", f8292, 1},
+    {"Connect to a network to download plugins.", f8293, 1},
+    {"Connect using either available route:", f8294, 1},
+    {"Connected", f8295, 1},
+    {"Connecting", f8296, 1},
+    {"Connecting to", f8297, 1},
+    {"Connecting to server...", f8298, 1},
+    {"Connection PIN", f8299, 1},
+    {"Connection failed", f8300, 1},
+    {"Connection timed out after 30 seconds", f8301, 1},
+    {"Container", f8302, 1},
+    {"Continue", f8303, 1},
+    {"Continue setup", f8304, 1},
+    {"Copy", f8305, 1},
+    {"Copy games to the %s folder on the SD card.", f8306, 1},
+    {"Could not apply font size", f8307, 1},
+    {"Could not apply lyrics text size", f8308, 1},
+    {"Could not apply theme", f8309, 1},
+    {"Could not create the folder", f8310, 1},
+    {"Could not download the release checksums.", f8311, 1},
+    {"Could not enter recovery mode.", f8312, 1},
+    {"Could not generate a new PIN", f8313, 1},
+    {"Could not get a stream link", f8314, 1},
+    {"Could not install a plugin on the SD card.", f8315, 1},
+    {"Could not install the emulator.", f8316, 1},
+    {"Could not install the plugin on the SD card.", f8317, 1},
+    {"Could not load lock screen photo", f8318, 1},
+    {"Could not load the plugin catalog.", f8319, 1},
+    {"Could not load the plugin catalog. Tap More to retry.", f8320, 1},
+    {"Could not move other .upt files aside on the SD card.", f8321, 1},
+    {"Could not open this file", f8322, 1},
+    {"Could not open this file.", f8323, 1},
+    {"Could not place the update on the SD card.", f8324, 1},
+    {"Could not prepare plugin removal.", f8325, 1},
+    {"Could not prepare update helper: %s", f8326, 1},
+    {"Could not reach the streaming service", f8327, 1},
+    {"Could not read installed plugins.", f8328, 1},
+    {"Could not read the Books folder", f8329, 1},
+    {"Could not read the emulator list from GitHub.", f8330, 1},
+    {"Could not read the plugin list from GitHub.", f8331, 1},
+    {"Could not read the release list from GitHub.", f8332, 1},
+    {"Could not record the verified update on the SD card.", f8333, 1},
+    {"Could not refresh books", f8334, 1},
+    {"Could not reload cover", f8335, 1},
+    {"Could not remove a plugin file.", f8336, 1},
+    {"Could not remove the emulator.", f8337, 1},
+    {"Could not rename", f8338, 1},
+    {"Could not repair the SD card", f8339, 1},
+    {"Could not replace plugin files.", f8340, 1},
+    {"Could not restart into the boot selector", f8341, 1},
+    {"Could not save Bluetooth codec", f8342, 1},
+    {"Could not start USB charging update", f8343, 1},
+    {"Could not start USB mode switch", f8344, 1},
+    {"Could not start refreshing the plugin catalog.", f8345, 1},
+    {"Could not start the download", f8346, 1},
+    {"Could not start the download.", f8347, 1},
+    {"Could not start the emulator operation", f8348, 1},
+    {"Could not start the game.", f8349, 1},
+    {"Could not start the installation.", f8350, 1},
+    {"Could not start the library scan. Please try again.", f8351, 1},
+    {"Could not start the plugin operation", f8352, 1},
+    {"Could not start the plugin operation.", f8353, 1},
+    {"Could not start the plugin refresh", f8354, 1},
+    {"Could not start the plugin refresh.", f8355, 1},
+    {"Could not start the plugin update.", f8356, 1},
+    {"Could not start the update check.", f8357, 1},
+    {"Could not start the update.", f8358, 1},
+    {"Could not start update helper: %s", f8359, 1},
+    {"Could not update the installed plugin record.", f8360, 1},
+    {"Could not verify the latest release checksums.", f8361, 1},
+    {"Couldn't connect to Wi-Fi network", f8362, 1},
+    {"Couldn't read this .cue file", f8363, 1},
+    {"Couldn't save -- plugin change was not applied", f8364, 1},
+    {"Counterclockwise", f8365, 1},
+    {"Cover reloaded", f8366, 1},
+    {"Covers refreshed", f8367, 1},
+    {"Create a playlist above or copy one to the SD card's Playlists folder.", f8368, 1},
+    {"Create a plugin", f8369, 1},
+    {"Create a theme", f8370, 1},
+    {"Create plugins & themes", f8371, 1},
+    {"Creator guides", f8372, 1},
+    {"Crossfade", f8373, 1},
+    {"Crossfeed", f8374, 1},
+    {"Crossfeed (0 to 100)", f8375, 1},
+    {"Crossfeed angle", f8376, 1},
+    {"Crossfeed blends a filtered signal from the opposite channel and works independently of PEQ. With No delay, identical left and right signals are affected very little.", f8377, 1},
+    {"Crossfeed: %d%%", f8378, 1},
+    {"Crossfeed: Off", f8379, 1},
+    {"Custom", f8380, 1},
+    {"Custom color", f8381, 1},
+    {"Custom fonts affect Latin text only.", f8382, 1},
+    {"DAC path: %s · %u-bit", f8383, 1},
+    {"DLNA", f8384, 1},
+    {"DLNA Renderer", f8385, 1},
+    {"DNS Settings", f8386, 1},
+    {"December", f8387, 1},
+    {"Default", f8388, 1},
+    {"Default (Built-in)", f8389, 1},
+    {"Default (native behavior)", f8390, 1},
+    {"Delete", f8391, 1},
+    {"Delete %d item?", f8392, 3},
+    {"Delete %s?\nThis cannot be undone.", f8393, 1},
+    {"Delete Playlist", f8394, 1},
+    {"Delete playlist?", f8395, 1},
+    {"Delete this profile?", f8396, 1},
+    {"Developer Options", f8397, 1},
+    {"Dim screen before timeout", f8398, 1},
+    {"Disable charging\nin USB DAC mode", f8399, 1},
+    {"Disabled", f8400, 1},
+    {"Disc %d", f8401, 1},
+    {"Disc %d / Track %d", f8402, 1},
+    {"Disconnect", f8403, 1},
+    {"Disconnect USB storage first", f8404, 1},
+    {"Disconnect USB storage from the computer before changing files.", f8405, 1},
+    {"Disconnect USB storage from the host before changing emulators.", f8406, 1},
+    {"Disconnect USB storage from the host before changing plugins.", f8407, 1},
+    {"Dismiss", f8408, 1},
+    {"Display", f8409, 1},
+    {"Do Nothing", f8410, 1},
+    {"Done", f8411, 1},
+    {"Done. Update the music database to see the changes in your library.", f8412, 1},
+    {"Double", f8413, 1},
+    {"Double press", f8414, 1},
+    {"Download", f8415, 1},
+    {"Download \"%s\"?", f8416, 1},
+    {"Download Profiles", f8417, 1},
+    {"Download Settings", f8418, 1},
+    {"Download an emulator to play games.", f8419, 1},
+    {"Download emulators", f8420, 1},
+    {"Download every album from \"%s\"?", f8421, 1},
+    {"Download failed", f8422, 1},
+    {"Download folder: %s", f8423, 1},
+    {"Download folder: SD root", f8424, 1},
+    {"Download layouts", f8425, 1},
+    {"Download profiles", f8426, 1},
+    {"Download settings", f8427, 1},
+    {"Download subfolder", f8428, 1},
+    {"Download themes", f8429, 1},
+    {"Downloading", f8430, 1},
+    {"Downloading\n%s...", f8431, 1},
+    {"Downloading and installing plugins %zu/%zu", f8432, 1},
+    {"Downloading update", f8433, 1},
+    {"Duration", f8434, 1},
+    {"EQ", f8435, 1},
+    {"EQ curve", f8436, 1},
+    {"Edit", f8437, 1},
+    {"Edit / Done", f8438, 1},
+    {"Edit a .theme text file on your computer. Copy it to the Themes folder on your SD card, then select it in More > Themes.", f8439, 1},
+    {"Emulator operation failed", f8440, 1},
+    {"Emulator store is busy.", f8441, 1},
+    {"Emulators", f8442, 1},
+    {"Enable Bluetooth DAC", f8443, 1},
+    {"Enable Bluetooth in settings to use BT DAC mode", f8444, 1},
+    {"Enable Sleep Timer", f8445, 1},
+    {"Enable Wi-Fi or Bluetooth to connect.", f8446, 1},
+    {"Enable WiFi to access", f8447, 1},
+    {"Enable band", f8448, 1},
+    {"Enable debug logging", f8449, 1},
+    {"Enabled", f8450, 1},
+    {"Equalizer", f8451, 1},
+    {"Erase and format SD card?", f8452, 1},
+    {"Europe", f8453, 1},
+    {"Excellent", f8454, 1},
+    {"Exit USB DAC mode to play music on this device", f8455, 1},
+    {"Extension updates", f8456, 1},
+    {"Factory Reset", f8457, 1},
+    {"Failed plugins:\n", f8458, 1},
+    {"Failed to add folder to playlist", f8459, 1},
+    {"Failed to add to playlist", f8460, 1},
+    {"Failed to apply time zone", f8461, 1},
+    {"Failed to connect to server", f8462, 1},
+    {"Failed to create playlist", f8463, 1},
+    {"Failed to delete profile", f8464, 1},
+    {"Failed to enable AirPlay", f8465, 1},
+    {"Failed to load artists", f8466, 1},
+    {"Failed to load artists: %s", f8467, 1},
+    {"Failed to load font. Check format & memory.", f8468, 1},
+    {"Failed to load from server", f8469, 1},
+    {"Failed to load profile", f8470, 1},
+    {"Failed to rename profile", f8471, 1},
+    {"Failed to save profile", f8472, 1},
+    {"Failed to start connection", f8473, 1},
+    {"Failed to switch to %s", f8474, 1},
+    {"Failed to toggle Bluetooth", f8475, 1},
+    {"Failed to update USB charging", f8476, 1},
+    {"Fair", f8477, 1},
+    {"Favorites", f8478, 1},
+    {"February", f8479, 1},
+    {"File Manager", f8480, 1},
+    {"File path is too long", f8481, 1},
+    {"File size", f8482, 1},
+    {"File unavailable", f8483, 1},
+    {"Files", f8484, 1},
+    {"Files (folders stay first)", f8485, 1},
+    {"Files on the card may have changed.", f8486, 1},
+    {"Files use modification dates. Albums use the newest track added; missing release years sort last. Update Music Database once to read years from existing files.", f8487, 1},
+    {"Filter type", f8488, 1},
+    {"Firmware Update", f8489, 1},
+    {"Firmware release %s is available.\nInstalled: %s\n\nDownload it now? This may take a while.", f8490, 1},
+    {"Firmware release %s is downloaded and verified.\n\nInstall now? The device reboots into recovery to flash it. Do not turn it off until it restarts.", f8491, 1},
+    {"Flat", f8492, 1},
+    {"Folder action is still running", f8493, 1},
+    {"Folder is too large to add to queue", f8494, 1},
+    {"Folder layout for downloaded albums", f8495, 1},
+    {"Folder too large to index (tap Back)", f8496, 1},
+    {"Font", f8497, 1},
+    {"Font Size", f8498, 1},
+    {"Font selection is no longer available", f8499, 1},
+    {"Forget", f8500, 1},
+    {"Format", f8501, 1},
+    {"Format SD Card", f8502, 1},
+    {"Formatting\nSD Card...", f8503, 1},
+    {"Frequency", f8504, 1},
+    {"Frequency (Hz, 20 to 20000)", f8505, 1},
+    {"Friday", f8506, 1},
+    {"From album art", f8507, 1},
+    {"From album art (no cover, using custom)", f8508, 1},
+    {"Gain", f8509, 1},
+    {"Gain (dB, -12 to 12)", f8510, 1},
+    {"Gain Mode", f8511, 1},
+    {"Games run on the player only.", f8512, 1},
+    {"Gapless", f8513, 1},
+    {"Gateway: %s", f8514, 1},
+    {"Generate", f8515, 1},
+    {"Generate a new PIN?", f8516, 1},
+    {"Genres", f8517, 1},
+    {"Gestures & Orientation", f8518, 1},
+    {"Get started", f8519, 1},
+    {"GitHub did not respond in time. Try again.", f8520, 1},
+    {"GitHub is limiting requests. Try again later.", f8521, 1},
+    {"GitHub returned HTTP %d.", f8522, 1},
+    {"GitHub's latest release has no valid %s image and checksum.", f8523, 1},
+    {"GitHub's latest release is not a supported firmware release.", f8524, 1},
+    {"Go back and choose New Connection to add one.", f8525, 1},
+    {"Go to page", f8526, 1},
+    {"Good", f8527, 1},
+    {"Guide: docs/CREATING.md", f8528, 1},
+    {"Headset may disconnect, manual reconnection might be required", f8529, 1},
+    {"Hide Player/Lyrics Top Bar", f8530, 1},
+    {"Hide Unnamed Devices", f8531, 1},
+    {"Hide hidden files", f8532, 1},
+    {"High", f8533, 1},
+    {"High (320 kbps)", f8534, 1},
+    {"Hostname", f8535, 1},
+    {"Hostname can only use letters, numbers, and hyphens", f8536, 1},
+    {"IP Address: %s", f8537, 1},
+    {"Idle Shutdown", f8538, 1},
+    {"Idle timeout:", f8539, 1},
+    {"Import", f8540, 1},
+    {"Import via Wi-Fi", f8541, 1},
+    {"In-line Remote", f8542, 1},
+    {"Indian", f8543, 1},
+    {"Information", f8544, 1},
+    {"Insert an SD card to change emulators.", f8545, 1},
+    {"Insert an SD card to change plugins.", f8546, 1},
+    {"Insert an SD card to download the update.", f8547, 1},
+    {"Insert an SD card to install plugins.", f8548, 1},
+    {"Insert an SD card to remove plugins.", f8549, 1},
+    {"Insert an SD card to scan for music, or turn off Scan for music.", f8550, 1},
+    {"Insert an SD card to update plugins.", f8551, 1},
+    {"Insert your SD card with music files. Compas Player can scan it and build your library.", f8552, 1},
+    {"Install", f8553, 1},
+    {"Install & Reboot", f8554, 1},
+    {"Install from SD card", f8555, 1},
+    {"Install the player update from the SD card?\n\nUpdates the player and restarts the device. Firmware, fonts, and artwork are unchanged.", f8556, 1},
+    {"Installed", f8557, 1},
+    {"Installed manually", f8558, 1},
+    {"Installed version: %s\nAvailable release: %s\n\nDownload and reinstall it anyway? This may take a while.", f8559, 1},
+    {"Installed · %s", f8560, 1},
+    {"Installing emulator", f8561, 1},
+    {"Installing plugin", f8562, 1},
+    {"Invalid download folder", f8563, 1},
+    {"Invalid download folder name", f8564, 1},
+    {"Invalid profile name", f8565, 1},
+    {"Invalid update path.", f8566, 1},
+    {"It could not be loaded. Rebuild it now?", f8567, 1},
+    {"It may have no partition table or a file system this player can't use. Formatting will erase it and set it up for this player.", f8568, 1},
+    {"Its settings stay on the card.", f8569, 1},
+    {"January", f8570, 1},
+    {"July", f8571, 1},
+    {"June", f8572, 1},
+    {"Keep Lyrics Screen On", f8573, 1},
+    {"Keep a button assigned to Toggle Screen or Power Menu", f8574, 1},
+    {"Keyboard", f8575, 1},
+    {"LDAC Quality", f8576, 1},
+    {"LDAC Standard", f8577, 1},
+    {"LED charge indicator", f8578, 1},
+    {"Language", f8579, 1},
+    {"Large", f8580, 1},
+    {"Later", f8581, 1},
+    {"Launch at a fixed volume", f8582, 1},
+    {"Layout", f8583, 1},
+    {"Leave", f8584, 1},
+    {"Leave Bluetooth DAC mode?", f8585, 1},
+    {"Leave USB DAC mode?", f8586, 1},
+    {"Leave this view and try again.", f8587, 1},
+    {"Left", f8588, 1},
+    {"Library", f8589, 1},
+    {"Library changed. Open the album again.", f8590, 1},
+    {"Library is busy", f8591, 1},
+    {"Library loaded", f8592, 1},
+    {"Library recovered and saved", f8593, 1},
+    {"Library recovered and saved, some folders could not be read", f8594, 1},
+    {"Library recovered. Use Settings > Update Music Database to save", f8595, 1},
+    {"Library unavailable. Use Settings > Update Music Database to rebuild", f8596, 1},
+    {"Library update failed. Check SD card and retry", f8597, 1},
+    {"Library updated", f8598, 1},
+    {"Library updated, some folders could not be read", f8599, 1},
+    {"License: %s", f8600, 1},
+    {"Limits the player volume, including buttons, remote controls and plugins.", f8601, 1},
+    {"Loading Wi-Fi settings", f8602, 1},
+    {"Loading emulators", f8603, 1},
+    {"Loading from server...", f8604, 1},
+    {"Loading layouts", f8605, 1},
+    {"Loading plugin catalog...", f8606, 1},
+    {"Loading plugins", f8607, 1},
+    {"Loading themes", f8608, 1},
+    {"Loading tracks…", f8609, 1},
+    {"Loading updates", f8610, 1},
+    {"Loading...", f8611, 1},
+    {"Location", f8612, 1},
+    {"Long", f8613, 1},
+    {"Long press", f8614, 1},
+    {"Looking for music files", f8615, 1},
+    {"Looking for music files\n%d items checked", f8616, 1},
+    {"Low", f8617, 1},
+    {"Low\nHigh", f8618, 1},
+    {"Low (96 kbps)", f8619, 1},
+    {"Lyrics", f8620, 1},
+    {"Lyrics Text Size", f8621, 1},
+    {"MAC Address: %s", f8622, 1},
+    {"Maintenance", f8623, 1},
+    {"Make an accessory discoverable, then tap Rescan.", f8624, 1},
+    {"Manage plugins later in Settings > System > Plugin Manager to search, update, or remove them.", f8625, 1},
+    {"Manual SSID Entry", f8626, 1},
+    {"March", f8627, 1},
+    {"Match album art", f8628, 1},
+    {"Max Volume", f8629, 1},
+    {"May", f8630, 1},
+    {"Medium", f8631, 1},
+    {"Medium (192 kbps)", f8632, 1},
+    {"Memorized Networks", f8633, 1},
+    {"Metadata refreshed", f8634, 1},
+    {"Monday", f8635, 1},
+    {"Mono (1 channel)", f8636, 1},
+    {"More", f8637, 1},
+    {"Most Played", f8638, 1},
+    {"Move", f8639, 1},
+    {"Move %d item?", f8640, 3},
+    {"Music", f8641, 1},
+    {"Music database unavailable", f8642, 1},
+    {"Name (A–Z)", f8643, 1},
+    {"Native DSD (DoP) / %.4g MHz", f8644, 1},
+    {"Nearby Wi-Fi networks will appear here.", f8645, 1},
+    {"Nearby networks will appear when Wi-Fi is ready.", f8646, 1},
+    {"Needs newer firmware", f8647, 1},
+    {"Network Name (SSID)", f8648, 1},
+    {"Network stream", f8649, 1},
+    {"Networks you connect to will appear here.", f8650, 1},
+    {"New Connection", f8651, 1},
+    {"New PIN generated", f8652, 1},
+    {"New Profile", f8653, 1},
+    {"New folder", f8654, 1},
+    {"Newest Modified", f8655, 1},
+    {"Next", f8656, 1},
+    {"Next  •  %d–%d of %d", f8657, 1},
+    {"Next Track", f8658, 1},
+    {"Next page", f8659, 1},
+    {"No .ttf fonts found in /Fonts", f8660, 1},
+    {"No SD card", f8661, 1},
+    {"No SD card detected. You can scan later from Library settings.", f8662, 1},
+    {"No SD card is mounted.", f8663, 1},
+    {"No books found", f8664, 1},
+    {"No delay\n30°\n45°\n60°\n90°", f8665, 1},
+    {"No description", f8666, 1},
+    {"No emulators are available in the catalog.", f8667, 1},
+    {"No emulators installed", f8668, 1},
+    {"No entries to display", f8669, 1},
+    {"No favorites yet", f8670, 1},
+    {"No games found", f8671, 1},
+    {"No items", f8672, 1},
+    {"No layouts are available in the catalog.", f8673, 1},
+    {"No longer in the catalog", f8674, 1},
+    {"No memorized networks", f8675, 1},
+    {"No music database", f8676, 1},
+    {"No nearby devices", f8677, 1},
+    {"No network detected", f8678, 1},
+    {"No network detected. Connect to a network to download emulators.", f8679, 1},
+    {"No network detected. Connect to a network to download plugins.", f8680, 1},
+    {"No networks found", f8681, 1},
+    {"No other networks found", f8682, 1},
+    {"No paired devices", f8683, 1},
+    {"No playable audio files found", f8684, 1},
+    {"No playable files here", f8685, 1},
+    {"No plugin settings available", f8686, 1},
+    {"No plugins are available in the catalog.", f8687, 1},
+    {"No saved profiles", f8688, 1},
+    {"No saved servers", f8689, 1},
+    {"No songs to refresh", f8690, 1},
+    {"No synchronized lyrics found", f8691, 1},
+    {"No themes are available in the catalog.", f8692, 1},
+    {"No track loaded", f8693, 1},
+    {"No tracks found", f8694, 1},
+    {"No updates available.", f8695, 1},
+    {"No user playlists", f8696, 1},
+    {"No verified update is on this SD card. Download it again.", f8697, 1},
+    {"Not available in your subscription", f8698, 1},
+    {"Not connected", f8699, 1},
+    {"Not enough free space on the SD card for the update.", f8700, 1},
+    {"Not enough free space on the SD card.", f8701, 1},
+    {"Not enough free space on the player.", f8702, 1},
+    {"Not enough memory to connect", f8703, 1},
+    {"Not enough memory to load CUE tracks", f8704, 1},
+    {"Not enough memory to load artists", f8705, 1},
+    {"Not enough memory to load from server", f8706, 1},
+    {"Not enough memory to load the plugin store", f8707, 1},
+    {"Not enough memory to start download", f8708, 1},
+    {"Not selected (UTC)", f8709, 1},
+    {"Not set", f8710, 1},
+    {"Nothing to select here", f8711, 1},
+    {"November", f8712, 1},
+    {"Now Playing layouts", f8713, 1},
+    {"OFF", f8714, 1},
+    {"ON", f8715, 1},
+    {"October", f8716, 1},
+    {"Off", f8717, 1},
+    {"On", f8718, 1},
+    {"Open More > Plugins > Refresh Plugins. Scan for a working example and the full API guide.", f8719, 1},
+    {"Open a book and tap the bookmark icon to save it here.", f8720, 1},
+    {"Open a folder containing supported audio files.", f8721, 1},
+    {"Open network", f8722, 1},
+    {"Open the destination folder, then choose Paste here from the menu.", f8723, 1},
+    {"Open this address on your phone or computer:", f8724, 1},
+    {"Open · Connected", f8725, 1},
+    {"Original", f8726, 1},
+    {"Output", f8727, 1},
+    {"PEQ", f8728, 1},
+    {"PEQ reset to defaults", f8729, 1},
+    {"PM", f8730, 1},
+    {"Pacific", f8731, 1},
+    {"Page %d of %d", f8732, 1},
+    {"Paired", f8733, 1},
+    {"Paired Devices", f8734, 1},
+    {"Password", f8735, 1},
+    {"Password: Not set", f8736, 1},
+    {"Password: Set", f8737, 1},
+    {"Paste %d item here", f8738, 3},
+    {"Paused: headphones disconnected", f8739, 1},
+    {"Peaking\nLow Shelf\nHigh Shelf", f8740, 1},
+    {"Per Album", f8741, 1},
+    {"Per Track", f8742, 1},
+    {"Place .ttf fonts in SD /Fonts folder.", f8743, 1},
+    {"Play All", f8744, 1},
+    {"Play All (Sequential)", f8745, 1},
+    {"Play All (Shuffle)", f8746, 1},
+    {"Play Next", f8747, 1},
+    {"Play all shuffled", f8748, 1},
+    {"Play an album or playlist to see its songs here.", f8749, 1},
+    {"Play sequentially", f8750, 1},
+    {"Play/Pause", f8751, 1},
+    {"Playback", f8752, 1},
+    {"Playback & Controls", f8753, 1},
+    {"Playback Status", f8754, 1},
+    {"Playback and device actions", f8755, 1},
+    {"Playback changed before folder was ready", f8756, 1},
+    {"Playback error", f8757, 1},
+    {"Playback error: audio output failed", f8758, 1},
+    {"Playback history could not be saved", f8759, 1},
+    {"Playback stopped: %s", f8760, 1},
+    {"Played", f8761, 1},
+    {"Player Layout", f8762, 1},
+    {"Player updated successfully", f8763, 1},
+    {"Playing", f8764, 1},
+    {"Playlist Name", f8765, 1},
+    {"Playlist changed. Select a song again.", f8766, 1},
+    {"Playlist changed. Try again.", f8767, 1},
+    {"Playlist created", f8768, 1},
+    {"Playlist deleted", f8769, 1},
+    {"Playlist is empty", f8770, 1},
+    {"Playlist name is too long", f8771, 1},
+    {"Playlist renamed", f8772, 1},
+    {"Playlist saved", f8773, 1},
+    {"Playlist selection expired", f8774, 1},
+    {"Playlist unavailable or unreadable", f8775, 1},
+    {"Playlists", f8776, 1},
+    {"Playlists refreshed", f8777, 1},
+    {"Please wait for plugin installation to finish", f8778, 1},
+    {"Please wait for the library scan to finish", f8779, 1},
+    {"Plugin", f8780, 1},
+    {"Plugin Manager", f8781, 1},
+    {"Plugin Order", f8782, 1},
+    {"Plugin Settings", f8783, 1},
+    {"Plugin Store", f8784, 1},
+    {"Plugin is unavailable in the catalog", f8785, 1},
+    {"Plugin operation failed", f8786, 1},
+    {"Plugin setup complete", f8787, 1},
+    {"Plugin setup needs attention", f8788, 1},
+    {"Plugin storage is unavailable.", f8789, 1},
+    {"Plugins", f8790, 1},
+    {"Plugins & Layouts", f8791, 1},
+    {"Plugins can override these saved preferences.", f8792, 1},
+    {"Position", f8793, 1},
+    {"Power", f8794, 1},
+    {"Power Menu", f8795, 1},
+    {"Power Off", f8796, 1},
+    {"Power controls", f8797, 1},
+    {"Power off", f8798, 1},
+    {"Pre-Amp", f8799, 1},
+    {"Pre-Amp (dB, -12 to 12)", f8800, 1},
+    {"Preparing and verifying recovery mode", f8801, 1},
+    {"Preparing cover refresh...", f8802, 1},
+    {"Preparing folder playback", f8803, 1},
+    {"Preparing metadata refresh", f8804, 1},
+    {"Preparing metadata refresh...", f8805, 1},
+    {"Preparing music library...", f8806, 1},
+    {"Preparing update", f8807, 1},
+    {"Presets", f8808, 1},
+    {"Preview", f8809, 1},
+    {"Previous", f8810, 1},
+    {"Previous  •  %d–%d of %d", f8811, 1},
+    {"Previous Track", f8812, 1},
+    {"Previous page", f8813, 1},
+    {"Previous request still finishing", f8814, 1},
+    {"Previously connected accessories will appear here.", f8815, 1},
+    {"Primary DNS", f8816, 1},
+    {"Profile Name", f8817, 1},
+    {"Profile deleted", f8818, 1},
+    {"Profile loaded", f8819, 1},
+    {"Profile renamed", f8820, 1},
+    {"Profile saved", f8821, 1},
+    {"Profiles", f8822, 1},
+    {"Provider", f8823, 1},
+    {"QWERTY", f8824, 1},
+    {"Queue", f8825, 1},
+    {"Queue changed. Try again.", f8826, 1},
+    {"Queue checkpoint failed; storage may be read-only", f8827, 1},
+    {"Queue cleared", f8828, 1},
+    {"Queue is empty", f8829, 1},
+    {"Queue ready. Press Play to start.", f8830, 1},
+    {"Queued", f8831, 1},
+    {"Quick Drawer", f8832, 1},
+    {"Quick Setup Complete", f8833, 1},
+    {"Quick setup", f8834, 1},
+    {"RC", f8835, 1},
+    {"Radio", f8836, 1},
+    {"Radio / %s", f8837, 1},
+    {"Reading supported rates...", f8838, 1},
+    {"Reading tags\n%d of %d songs (%d%%)", f8839, 1},
+    {"Reads the tags of every song again. This may take a while.", f8840, 1},
+    {"Reboot to bootloader", f8841, 1},
+    {"Rebuild", f8842, 1},
+    {"Recently Added", f8843, 1},
+    {"Recently Played", f8844, 1},
+    {"Recovery boot flag failed.", f8845, 1},
+    {"Recovery flag erase failed. Do not reboot; check .compas/ota/update.log.", f8846, 1},
+    {"Recovery flag partition does not match this firmware.", f8847, 1},
+    {"Recovery flag verification failed. Do not reboot; check the update log.", f8848, 1},
+    {"Recovery flag write failed. Do not reboot; check .compas/ota/update.log.", f8849, 1},
+    {"Recovery remains selected but reboot failed: %s. Keep the update file.", f8850, 1},
+    {"Recovery remains selected. Keep the update file; saving diagnostics failed.", f8851, 1},
+    {"Refresh", f8852, 1},
+    {"Refresh All Covers", f8853, 1},
+    {"Refresh All Metadata", f8854, 1},
+    {"Refresh Plugins", f8855, 1},
+    {"Refresh all covers?", f8856, 1},
+    {"Refresh all metadata?", f8857, 1},
+    {"Refresh emulator catalog", f8858, 1},
+    {"Refresh metadata", f8859, 1},
+    {"Refresh plugin catalog", f8860, 1},
+    {"Refresh the music database to update this list.", f8861, 1},
+    {"Refreshing\nall covers...", f8862, 1},
+    {"Refreshing\nall metadata...", f8863, 1},
+    {"Refreshing\nmetadata...", f8864, 1},
+    {"Refreshing covers", f8865, 1},
+    {"Refreshing covers\n%d of %d (%d%%)", f8866, 1},
+    {"Refreshing plugins...", f8867, 1},
+    {"Release Year (oldest first)", f8868, 1},
+    {"Reload cover", f8869, 1},
+    {"Reloading\ncover...", f8870, 1},
+    {"Reloading cover", f8871, 1},
+    {"Reloading cover\n%d of %d (%d%%)", f8872, 1},
+    {"Remote", f8873, 1},
+    {"Remote Control", f8874, 1},
+    {"Remove", f8875, 1},
+    {"Remove %s?", f8876, 1},
+    {"Removed", f8877, 1},
+    {"Removed from playlist", f8878, 1},
+    {"Removed from queue", f8879, 1},
+    {"Removes saved covers and extracts them again. This may take a while.", f8880, 1},
+    {"Removing emulator", f8881, 1},
+    {"Removing plugin", f8882, 1},
+    {"Rename", f8883, 1},
+    {"Rename Playlist", f8884, 1},
+    {"Rename Profile", f8885, 1},
+    {"Reorder Items", f8886, 1},
+    {"Replace", f8887, 1},
+    {"Replace Existing", f8888, 1},
+    {"Replace Profile", f8889, 1},
+    {"Replacing the player and preparing to restart", f8890, 1},
+    {"ReplayGain", f8891, 1},
+    {"Rescan", f8892, 1},
+    {"Reset", f8893, 1},
+    {"Reset All", f8894, 1},
+    {"Reset PEQ to defaults?", f8895, 1},
+    {"Reset all button mappings?", f8896, 1},
+    {"Reset all settings and reboot?", f8897, 1},
+    {"Reset to defaults", f8898, 1},
+    {"Restart", f8899, 1},
+    {"Restart Now", f8900, 1},
+    {"Restart now to apply the new hostname?", f8901, 1},
+    {"Restarting into recovery. Do not turn off the player.", f8902, 1},
+    {"Resume Last Track", f8903, 1},
+    {"Resume and Play", f8904, 1},
+    {"Resume playback when external power turns the player on.", f8905, 1},
+    {"Resume, but Paused", f8906, 1},
+    {"Retrying plugins %zu/%zu", f8907, 1},
+    {"Review updates", f8908, 1},
+    {"Right", f8909, 1},
+    {"SD card couldn't be read", f8910, 1},
+    {"SD card format failed", f8911, 1},
+    {"SD card formatted", f8912, 1},
+    {"SD card is read-only. Check it on a computer", f8913, 1},
+    {"SD card is still read-only", f8914, 1},
+    {"SD card may have errors. Check it on a computer", f8915, 1},
+    {"SD card not available", f8916, 1},
+    {"SD card repair is still running", f8917, 1},
+    {"SD card repaired", f8918, 1},
+    {"SSID must be 1 to 32 bytes", f8919, 1},
+    {"SSID: %s", f8920, 1},
+    {"Safe Charging (500mA)", f8921, 1},
+    {"Sample Rate", f8922, 1},
+    {"Saturday", f8923, 1},
+    {"Save", f8924, 1},
+    {"Save Profile", f8925, 1},
+    {"Save Profile As", f8926, 1},
+    {"Save Queue as Playlist", f8927, 1},
+    {"Save as Playlist", f8928, 1},
+    {"Save as a new profile, or replace one that already exists?", f8929, 1},
+    {"Saved Servers", f8930, 1},
+    {"Saved network", f8931, 1},
+    {"Saved network details are being checked.", f8932, 1},
+    {"Saving data before reboot", f8933, 1},
+    {"Saving data failed. Recovery remains selected; keep the update file and check .compas/ota/update.log.", f8934, 1},
+    {"Saving music database", f8935, 1},
+    {"Saving music database\nThis can take a while on large libraries", f8936, 1},
+    {"Saving playlist…", f8937, 1},
+    {"Scan for a starter theme and instructions. To redesign the player screen, see the XML layout guide linked there.", f8938, 1},
+    {"Scan for music", f8939, 1},
+    {"Scan for the full guide", f8940, 1},
+    {"Scan with your phone to support Compás Player on PayPal", f8941, 1},
+    {"Scanning for networks", f8942, 1},
+    {"Scanning playable files", f8943, 1},
+    {"Screen Dimming", f8944, 1},
+    {"Screen Timeout", f8945, 1},
+    {"Screen off", f8946, 1},
+    {"Screenshot failed (%s)", f8947, 1},
+    {"Screenshot failed (framebuffer)", f8948, 1},
+    {"Screenshot failed (worker)", f8949, 1},
+    {"Screenshot needs an SD card", f8950, 1},
+    {"Screenshot saved", f8951, 1},
+    {"Screenshots (Power + Previous)", f8952, 1},
+    {"Screenshots (Power + Vol Down)", f8953, 1},
+    {"Screenshots unavailable", f8954, 1},
+    {"Searching for networks", f8955, 1},
+    {"Secondary DNS", f8956, 1},
+    {"Secure connection failed. Check Wi-Fi and the date and time.", f8957, 1},
+    {"Secured network", f8958, 1},
+    {"Secured · Connected", f8959, 1},
+    {"Seek Backward", f8960, 1},
+    {"Seek Forward", f8961, 1},
+    {"Select", f8962, 1},
+    {"Select a file", f8963, 1},
+    {"Select all", f8964, 1},
+    {"Select at least one plugin to continue.", f8965, 1},
+    {"Selected plugins are ready.\n", f8966, 1},
+    {"September", f8967, 1},
+    {"Server URL (e.g. %s)", f8968, 1},
+    {"Server URL: %s", f8969, 1},
+    {"Server request timed out after 30 seconds", f8970, 1},
+    {"Service is busy", f8971, 1},
+    {"Set Time", f8972, 1},
+    {"Set your local time zone so the clock is right.", f8973, 1},
+    {"Settings", f8974, 1},
+    {"Show Time Remaining", f8975, 1},
+    {"Show hidden files", f8976, 1},
+    {"Showing first %d of %d songs", f8977, 1},
+    {"Shuffle from a random song", f8978, 1},
+    {"Sign in to the streaming service again", f8979, 1},
+    {"Signal: %s", f8980, 1},
+    {"Single", f8981, 1},
+    {"Single press", f8982, 1},
+    {"Size: %s", f8983, 1},
+    {"Skip for now", f8984, 1},
+    {"Skipped: %s", f8985, 1},
+    {"Sleep", f8986, 1},
+    {"Sleep Timer", f8987, 1},
+    {"Sleep timer", f8988, 1},
+    {"Sleep timer: %d min remaining", f8989, 1},
+    {"Sleep timer: Off", f8990, 1},
+    {"Small", f8991, 1},
+    {"Some covers could not be refreshed", f8992, 1},
+    {"Some playlists could not be read", f8993, 1},
+    {"Some plugin files were changed on the card. Replace them?", f8994, 1},
+    {"Some songs could not be read", f8995, 1},
+    {"Some updates need confirmation before replacing local files.", f8996, 1},
+    {"Song already added", f8997, 1},
+    {"Song deleted", f8998, 1},
+    {"Songs", f8999, 1},
+    {"Sorting", f9000, 1},
+    {"Sound", f9001, 1},
+    {"Sound Effects", f9002, 1},
+    {"Source", f9003, 1},
+    {"Speex Resampling", f9004, 1},
+    {"Start sequentially", f9005, 1},
+    {"Start with these suggestions, or explore more plugins.", f9006, 1},
+    {"Starting download", f9007, 1},
+    {"Startup Volume", f9008, 1},
+    {"Step %d of %d", f9009, 1},
+    {"Stereo (2 channels)", f9010, 1},
+    {"Still applying the previous choice", f9011, 1},
+    {"Still working. Do not turn off the player or retry.", f9012, 1},
+    {"Stop", f9013, 1},
+    {"Stopped", f9014, 1},
+    {"Stopping...", f9015, 1},
+    {"Storage", f9016, 1},
+    {"Stream Media", f9017, 1},
+    {"Stream Quality", f9018, 1},
+    {"Stream quality: %s", f9019, 1},
+    {"Subfolder is relative to SD root (example: Music/Offline); empty uses SD root", f9020, 1},
+    {"Subfolder: SD root", f9021, 1},
+    {"Subsonic", f9022, 1},
+    {"Sunday", f9023, 1},
+    {"Suspend to RAM", f9024, 1},
+    {"Swipe Up for Home", f9025, 1},
+    {"Swipe up to unlock", f9026, 1},
+    {"System", f9027, 1},
+    {"System playlists", f9028, 1},
+    {"T9", f9029, 1},
+    {"TXT Reader", f9030, 1},
+    {"Takes its color from the cover of the playing track", f9031, 1},
+    {"Tap Power off again to confirm", f9032, 1},
+    {"Tap Restart again to confirm", f9033, 1},
+    {"That name cannot be used", f9034, 1},
+    {"The SD card changed during the download.", f9035, 1},
+    {"The SD card changed during the operation.", f9036, 1},
+    {"The SD card is read-only. Check its write protection.", f9037, 1},
+    {"The download did not complete. Check Wi-Fi and try again.", f9038, 1},
+    {"The downloaded image failed verification and was deleted.", f9039, 1},
+    {"The downloaded update record is invalid. Download the update again.", f9040, 1},
+    {"The emulator download failed verification. Try again.", f9041, 1},
+    {"The emulator folder is not writable.", f9042, 1},
+    {"The firmware path is too long.", f9043, 1},
+    {"The game closed unexpectedly.", f9044, 1},
+    {"The playlist file will be deleted. Music files are kept.", f9045, 1},
+    {"The plugin download failed verification. Try again.", f9046, 1},
+    {"The quick brown fox jumps 123", f9047, 1},
+    {"The release has no checksum for this device's image.", f9048, 1},
+    {"The selected update file changed. Select it again.", f9049, 1},
+    {"The streaming plugin is not available", f9050, 1},
+    {"The streaming service did not answer", f9051, 1},
+    {"The update file changed during verification. Select it again.", f9052, 1},
+    {"The update file on the SD card changed. Download it again.", f9053, 1},
+    {"Themes", f9054, 1},
+    {"There are no entries in this view.", f9055, 1},
+    {"This can take a few seconds.", f9056, 1},
+    {"This cannot be undone.", f9057, 1},
+    {"This device is now a USB sound card", f9058, 1},
+    {"This device is now receiving Bluetooth audio", f9059, 1},
+    {"This emulator needs a newer player version.", f9060, 1},
+    {"This folder is empty", f9061, 1},
+    {"This includes the player's own data (.compas or .plugins). Deleting or moving it can break features, lose data such as settings and installed plugins, and may require a restart.", f9062, 1},
+    {"This may take a while", f9063, 1},
+    {"This permanently deletes everything on the card. This cannot be undone.", f9064, 1},
+    {"This plugin has no update available.", f9065, 1},
+    {"This plugin is already installed by the store.", f9066, 1},
+    {"This plugin is not installed by the store.", f9067, 1},
+    {"This plugin needs a newer player version.", f9068, 1},
+    {"This quality is unavailable for this track", f9069, 1},
+    {"This release's image does not match its checksums. Try again after the next weekly release.", f9070, 1},
+    {"This track is copy-protected", f9071, 1},
+    {"This track is unavailable", f9072, 1},
+    {"This type of file cannot be opened", f9073, 1},
+    {"This update is no longer the latest release. Check for updates and download the latest image.", f9074, 1},
+    {"This update no longer matches the latest release. Download the latest image again.", f9075, 1},
+    {"Thread launch failed", f9076, 1},
+    {"Thursday", f9077, 1},
+    {"Time Zone", f9078, 1},
+    {"Time remaining: %d:%02d", f9079, 1},
+    {"Time remaining: %d:%02d:%02d", f9080, 1},
+    {"Time zone", f9081, 1},
+    {"Tint startup image", f9082, 1},
+    {"Tint title bar icons", f9083, 1},
+    {"Toggle Screen", f9084, 1},
+    {"Too many audio channels", f9085, 1},
+    {"Too many plugins are installed. Remove one and try again.", f9086, 1},
+    {"Top Bar", f9087, 1},
+    {"Track", f9088, 1},
+    {"Track %+.1f dB", f9089, 1},
+    {"Track %d", f9090, 1},
+    {"Track details are not available yet. Keep playback open and check again.", f9091, 1},
+    {"Tracks", f9092, 1},
+    {"Try scanning again or add a hidden network.", f9093, 1},
+    {"Tuesday", f9094, 1},
+    {"Turn Bluetooth off and on to apply", f9095, 1},
+    {"Turn off ADB first (Settings > System > USB Mode), then enable USB DAC from here.", f9096, 1},
+    {"Turn off Automatic to set the clock", f9097, 1},
+    {"Turn off Bluetooth DAC to play music on this device", f9098, 1},
+    {"Turn off DAC mode to play games.", f9099, 1},
+    {"Turn off screen automatically", f9100, 1},
+    {"Turn on Bluetooth to see paired and nearby devices.", f9101, 1},
+    {"Turn on Wi-Fi and connect first", f9102, 1},
+    {"Turn this on to see the address here.", f9103, 1},
+    {"Turning Wi-Fi on", f9104, 1},
+    {"USB Audio", f9105, 1},
+    {"USB DAC", f9106, 1},
+    {"USB DAC mode", f9107, 1},
+    {"USB Mode", f9108, 1},
+    {"USB audio device detected", f9109, 1},
+    {"USB charging setting is busy", f9110, 1},
+    {"USB input: %s · %u-bit", f9111, 1},
+    {"USB mode", f9112, 1},
+    {"USB storage is busy.", f9113, 1},
+    {"Unable to load items", f9114, 1},
+    {"Unable to read folder (tap Back and retry)", f9115, 1},
+    {"Unavailable", f9116, 1},
+    {"Unexpected library response", f9117, 1},
+    {"Unexpected reply from GitHub", f9118, 1},
+    {"Unexpected reply from GitHub.", f9119, 1},
+    {"Unknown album", f9120, 1},
+    {"Unknown artist", f9121, 1},
+    {"Unknown codec", f9122, 1},
+    {"Unknown format", f9123, 1},
+    {"Unknown rate", f9124, 1},
+    {"Unsupported audio format", f9125, 1},
+    {"Update", f9126, 1},
+    {"Update & Reboot", f9127, 1},
+    {"Update All", f9128, 1},
+    {"Update Music Database", f9129, 1},
+    {"Update Music Database to enable this album order", f9130, 1},
+    {"Update available", f9131, 1},
+    {"Update available · %s", f9132, 1},
+    {"Update diagnostics must be stored on the SD card.", f9133, 1},
+    {"Update helper failed (%s, status %d). See .compas/ota/update.log.", f9134, 1},
+    {"Update individually", f9135, 1},
+    {"Update music database?", f9136, 1},
+    {"Update saved. Connect to Wi-Fi, then install from Firmware Update > Install from SD card.", f9137, 1},
+    {"Update the Player only, retaining current drivers, kernel and bootloader.", f9138, 1},
+    {"Update the entire CompásOS. Flashing firmware contains Bootloader, Player, Kernel and Drivers.", f9139, 1},
+    {"Update these plugins individually", f9140, 1},
+    {"Update using %s?\nDevice will reboot into recovery mode.", f9141, 1},
+    {"Updates", f9142, 1},
+    {"Updating\nmusic database...", f9143, 1},
+    {"Updating emulator", f9144, 1},
+    {"Updating plugins", f9145, 1},
+    {"Updating replaces bundled games and their saves. Games in SD/Games are kept.", f9146, 1},
+    {"Upside Down Screen", f9147, 1},
+    {"Use Settings > Update Music Database", f9148, 1},
+    {"Use a regular %s file in the SD card root.", f9149, 1},
+    {"User playlists", f9150, 1},
+    {"Username", f9151, 1},
+    {"Username: %s", f9152, 1},
+    {"Uses the accent color for the default splash.", f9153, 1},
+    {"Uses the accent color for the icons next to screen titles.", f9154, 1},
+    {"Verify server certificate", f9155, 1},
+    {"Version %s · %s", f9156, 1},
+    {"Volume Down", f9157, 1},
+    {"Volume Lock (Screen Off)", f9158, 1},
+    {"Volume Slider", f9159, 1},
+    {"Volume Up", f9160, 1},
+    {"Wait for USB mode switching to finish and disconnect USB storage before updating.", f9161, 1},
+    {"Waiting for Bluetooth stream…", f9162, 1},
+    {"Waiting for USB audio…", f9163, 1},
+    {"Weak", f9164, 1},
+    {"Web Server is busy", f9165, 1},
+    {"Wednesday", f9166, 1},
+    {"Welcome to Compás", f9167, 1},
+    {"When on, this device is visible to AirPlay senders on your Wi-Fi network -- stream audio from an iPhone, iPad, or Mac to be played through this device's own output.", f9168, 1},
+    {"When on, this device is visible to DLNA/UPnP controller apps on your Wi-Fi network -- cast a track from one to play it here. Pause, mute, volume, and seek from the controller app aren't supported; use this device's own controls instead once a track starts.", f9169, 1},
+    {"When on, this device stays visible and pairable to other Bluetooth devices, so a phone or computer can stream audio TO it and play through this device's own output -- using it as an external DAC.", f9170, 1},
+    {"Wi-Fi", f9171, 1},
+    {"Wi-Fi Info", f9172, 1},
+    {"Wi-Fi Password", f9173, 1},
+    {"Wi-Fi could not be enabled", f9174, 1},
+    {"Wi-Fi failed to change state", f9175, 1},
+    {"Wi-Fi is busy", f9176, 1},
+    {"Wi-Fi is still starting", f9177, 1},
+    {"Wired Headphones", f9178, 1},
+    {"Wireless", f9179, 1},
+    {"Working...", f9180, 1},
+    {"Write a Lua plugin on your computer. Copy its .lua file to the .plugins folder on your SD card.", f9181, 1},
+    {"You can select up to 32 plugins", f9182, 1},
+    {"Your library is being loaded.", f9183, 1},
+    {"Your music", f9184, 1},
+    {"Your setup journey", f9185, 1},
+    {"[File truncated at %d KB -- showing the first part only]\n\n%s", f9186, 1},
+    {"github.com/Starnished66/compas-player", f9187, 1},
+    {"unknown", f9188, 1},
 };
 
-static const char * const f9159[] = {"%+.2f дБ"};
-static const char * const f9160[] = {"%.0f Гц"};
-static const char * const f9161[] = {"%d год"};
-static const char * const f9162[] = {"%d год %d хв"};
-static const char * const f9163[] = {"%d хв"};
-static const char * const f9164[] = {"Залишилося %d хв"};
-static const char * const f9165[] = {"Вибрано %d елемент", "Вибрано %d елементи", "Вибрано %d елементів"};
-static const char * const f9166[] = {"%d композиція", "%d композиції", "%d композицій"};
-static const char * const f9167[] = {"%d композиція", "%d композиції", "%d композицій"};
-static const char * const f9168[] = {"%dм"};
-static const char * const f9169[] = {"%lld композиція", "%lld композиції", "%lld композицій"};
-static const char * const f9170[] = {"%llu байт"};
-static const char * const f9171[] = {"%s (поточний)"};
-static const char * const f9172[] = {"%s · Не завантажено"};
-static const char * const f9173[] = {"%s · Не завантажено: досягнуто ліміту"};
-static const char * const f9174[] = {"%u каналів"};
-static const char * const f9175[] = {"Не вдалося виконати %u елемент", "Не вдалося виконати %u елементи", "Не вдалося виконати %u елементів"};
-static const char * const f9176[] = {"%u з %u\n%s"};
-static const char * const f9177[] = {"+ Новий список"};
-static const char * const f9178[] = {"0 дБ"};
-static const char * const f9179[] = {"24-годинний формат"};
-static const char * const f9180[] = {"Еталон 48 кГц"};
-static const char * const f9181[] = {"Оновлення прошивки вже виконується."};
-static const char * const f9182[] = {"Локальний файл плагіна буде замінено. Підтвердьте дію."};
-static const char * const f9183[] = {"Доступний новіший випуск або випуск змінився. Перед завантаженням перевірте наявність оновлень ще раз."};
-static const char * const f9184[] = {"Завантаження плагіна не пройшло перевірку. Спробуйте ще раз."};
-static const char * const f9185[] = {"Операція з плагіном уже виконується"};
-static const char * const f9186[] = {"Немає потрібного помічника режиму відновлення. Підготовку оновлення зупинено."};
-static const char * const f9187[] = {"ADB"};
-static const char * const f9188[] = {"ДП"};
-static const char * const f9189[] = {"Про програму"};
-static const char * const f9190[] = {"Акцентний колір"};
-static const char * const f9191[] = {"Параметри акцентного кольору"};
-static const char * const f9192[] = {"Додайте файли .txt до папки Books, а потім оновіть бібліотеку."};
-static const char * const f9193[] = {"Додати випадкову композицію до черги"};
-static const char * const f9194[] = {"Додати альбом до черги"};
-static const char * const f9195[] = {"Додати приховану мережу"};
-static const char * const f9196[] = {"Додавайте композиції через їхнє меню."};
-static const char * const f9197[] = {"Додати до списку"};
-static const char * const f9198[] = {"Додати до черги"};
-static const char * const f9199[] = {"До черги додано %d композицію", "До черги додано %d композиції", "До черги додано %d композицій"};
-static const char * const f9200[] = {"Папку додано до списку відтворення."};
-static const char * const f9201[] = {"Додано до списку відтворення"};
-static const char * const f9202[] = {"Додавання папки до списку відтворення…"};
-static const char * const f9203[] = {"Додавання папки до черги…"};
-static const char * const f9204[] = {"Додаткові інструменти"};
-static const char * const f9205[] = {"Додатково"};
-static const char * const f9206[] = {"Африка"};
-static const char * const f9207[] = {"AirPlay"};
-static const char * const f9208[] = {"AirPlay несподівано зупинився"};
-static const char * const f9209[] = {"Альбом: %+.1f дБ"};
-static const char * const f9210[] = {"Виконавець альбому"};
-static const char * const f9211[] = {"Виконавець альбому — Альбом"};
-static const char * const f9212[] = {"Виконавець альбому / Альбом"};
-static const char * const f9213[] = {"Альбом недоступний"};
-static const char * const f9214[] = {"Альбоми"};
-static const char * const f9215[] = {"Усі композиції"};
-static const char * const f9216[] = {"Усі видимі мережі вже збережено."};
-static const char * const f9217[] = {"Уже встановлено"};
-static const char * const f9218[] = {"Америка"};
-static const char * const f9219[] = {"Операція з емулятором уже виконується"};
-static const char * const f9220[] = {"Елемент із такою назвою вже існує"};
-static const char * const f9221[] = {"Оновлення вже виконується"};
-static const char * const f9222[] = {"Оновлення вже виконується."};
-static const char * const f9223[] = {"Виконується оновлення. Зачекайте."};
-static const char * const f9224[] = {"Швидкість анімації"};
-static const char * const f9225[] = {"Інша операція з файлами ще виконується"};
-static const char * const f9226[] = {"Антарктида"};
-static const char * const f9227[] = {"Вигляд"};
-static const char * const f9228[] = {"Застосовано %+.1f дБ"};
-static const char * const f9229[] = {"Застосовується під час наступного запуску програми"};
-static const char * const f9230[] = {"Застосовується до нових черг потокового відтворення"};
-static const char * const f9231[] = {"Застосування мови. Це може тривати певний час"};
-static const char * const f9232[] = {"Застосування макета. Це може тривати певний час"};
-static const char * const f9233[] = {"Для повторного з’єднання програмам і браузерам, що використовують поточний PIN-код, знадобиться новий."};
-static const char * const f9234[] = {"Квітень"};
-static const char * const f9235[] = {"Арктика"};
-static const char * const f9236[] = {"Зображення виконавців"};
-static const char * const f9237[] = {"Виконавці"};
-static const char * const f9238[] = {"Азія"};
-static const char * const f9239[] = {"Атлантика"};
-static const char * const f9240[] = {"Аудіо"};
-static const char * const f9241[] = {"Не вдалося декодувати аудіо"};
-static const char * const f9242[] = {"Звук досі відтворюється; не вдається запустити гру."};
-static const char * const f9243[] = {"Помилка виведення звуку"};
-static const char * const f9244[] = {"Серпень"};
-static const char * const f9245[] = {"Австралія"};
-static const char * const f9246[] = {"Автоматично"};
-static const char * const f9247[] = {"Автовідновлення"};
-static const char * const f9248[] = {"AutoEQ"};
-static const char * const f9249[] = {"Автоматично"};
-static const char * const f9250[] = {"Автоматично (44,1 кГц)"};
-static const char * const f9251[] = {"Автоматично переходити в режим очікування"};
-static const char * const f9252[] = {"Доступно"};
-static const char * const f9253[] = {"Доступні пристрої"};
-static const char * const f9254[] = {"Доступні мережі"};
-static const char * const f9255[] = {"Доступно · %s"};
-static const char * const f9256[] = {"Смуга %d / %d"};
-static const char * const f9257[] = {"Параметри смуги"};
-static const char * const f9258[] = {"Відсоток заряду"};
-static const char * const f9259[] = {"Бітрейт"};
-static const char * const f9260[] = {"Bluetooth"};
-static const char * const f9261[] = {"Bluetooth DAC"};
-static const char * const f9262[] = {"Режим Bluetooth DAC"};
-static const char * const f9263[] = {"Синхронізація гучності Bluetooth"};
-static const char * const f9264[] = {"Bluetooth вимкнено"};
-static const char * const f9265[] = {"Запуск служби дистанційного керування Bluetooth…"};
-static const char * const f9266[] = {"Служба дистанційного керування Bluetooth недоступна; повторна спроба."};
-static const char * const f9267[] = {"Bluetooth: дистанційне керування Compas"};
-static const char * const f9268[] = {"Bluetooth: не вдалося зареєструвати; повторна спроба"};
-static const char * const f9269[] = {"Bluetooth: очікування реєстрації служби"};
-static const char * const f9270[] = {"Книги"};
-static const char * const f9271[] = {"Книги оновлено"};
-static const char * const f9272[] = {"Створити"};
-static const char * const f9273[] = {"Створити її зараз? Для великих бібліотек це може тривати кілька хвилин."};
-static const char * const f9274[] = {"Кнопка"};
-static const char * const f9275[] = {"Призначення кнопок"};
-static const char * const f9276[] = {"Кнопки та пульт"};
-static const char * const f9277[] = {"Buy Me a Coffee"};
-static const char * const f9278[] = {"Автор: %s"};
-static const char * const f9279[] = {"Скасувати"};
-static const char * const f9280[] = {"Не вдалося додати папку: буде перевищено ліміт пам’яті черги."};
-static const char * const f9281[] = {"Не вдалося перевірити можливість запису до сховища плагінів."};
-static const char * const f9282[] = {"Не вдалося створити теку емуляторів."};
-static const char * const f9283[] = {"Не вдалося створити каталог журналу оновлення."};
-static const char * const f9284[] = {"Не вдалося видалити список відтворення"};
-static const char * const f9285[] = {"Не вдалося завантажити композиції альбому"};
-static const char * const f9286[] = {"Не вдалося перемістити цей запис"};
-static const char * const f9287[] = {"Не вдалося відтворити папку"};
-static const char * const f9288[] = {"Не вдалося відтворити цю папку."};
-static const char * const f9289[] = {"Не вдалося з’єднатися з GitHub. Перевірте Wi-Fi."};
-static const char * const f9290[] = {"Не вдалося прочитати список відтворення"};
-static const char * const f9291[] = {"Не вдалося прочитати SD-картку."};
-static const char * const f9292[] = {"Не вдалося прочитати вибраний файл оновлення."};
-static const char * const f9293[] = {"Не вдалося прочитати файл оновлення на SD-картці. Перевірте картку та спробуйте ще раз."};
-static const char * const f9294[] = {"Не вдалося прочитати запис оновлення на SD-картці. Перевірте картку та спробуйте ще раз."};
-static const char * const f9295[] = {"Не вдалося прочитати стан помічника оновлення: %s"};
-static const char * const f9296[] = {"Не вдалося видалити запис"};
-static const char * const f9297[] = {"Не вдалося перейменувати: назва недійсна або файл уже існує"};
-static const char * const f9298[] = {"Не вдалося змінити порядок у списку відтворення"};
-static const char * const f9299[] = {"Не вдалося безпечно отримати доступ до блока прапорця відновлення."};
-static const char * const f9300[] = {"Не вдалося зберегти список відтворення"};
-static const char * const f9301[] = {"Не вдалося зберегти діагностичні дані оновлення на SD-картці."};
-static const char * const f9302[] = {"Не вдалося зберегти діагностичні дані. Підготовку оновлення зупинено."};
-static const char * const f9303[] = {"Не вдалося зберегти: є недійсні елементи або потоки"};
-static const char * const f9304[] = {"Не вдалося розпочати операцію з папкою."};
-static const char * const f9305[] = {"Не вдалося запустити чергу"};
-static const char * const f9306[] = {"Режим автомобіля"};
-static const char * const f9307[] = {"Гучність у режимі автомобіля"};
-static const char * const f9308[] = {"Режим автомобіля вимкнено."};
-static const char * const f9309[] = {"Канали"};
-static const char * const f9310[] = {"Обмеження заряду (85%)"};
-static const char * const f9311[] = {"Перед оновленням зарядіть пристрій щонайменше до %d%% або під’єднайте живлення."};
-static const char * const f9312[] = {"Перед оновленням зарядіть пристрій щонайменше до 30%% або під’єднайте живлення."};
-static const char * const f9313[] = {"Заряджання"};
-static const char * const f9314[] = {"Перевірити оновлення онлайн"};
-static const char * const f9315[] = {"Переконайтеся, що Wi-Fi увімкнено, і проскануйте ще раз."};
-static const char * const f9316[] = {"Перевірте SD-картку та від’єднайте USB-накопичувач перед грою."};
-static const char * const f9317[] = {"Перевірте перемикач бездротового зв’язку та спробуйте ще раз."};
-static const char * const f9318[] = {"Перевірка оновлень"};
-static const char * const f9319[] = {"Перевірка SD-картки. Це може тривати певний час"};
-static const char * const f9320[] = {"Перевірка файла на SD-картці"};
-static const char * const f9321[] = {"Виберіть мову"};
-static const char * const f9322[] = {"Вибрати плагіни"};
-static const char * const f9323[] = {"Виберіть мову плеєра."};
-static const char * const f9324[] = {"Виберіть часовий пояс"};
-static const char * const f9325[] = {"Виберіть дію в режимі очікування:"};
-static const char * const f9326[] = {"Очистити чергу"};
-static const char * const f9327[] = {"Годинник"};
-static const char * const f9328[] = {"За годинниковою стрілкою"};
-static const char * const f9329[] = {"Закрити"};
-static const char * const f9330[] = {"Зупинення\nвебсервера..."};
-static const char * const f9331[] = {"Кодек"};
-static const char * const f9332[] = {"Сумарна характеристика (дБ)"};
-static const char * const f9333[] = {"Сумарна характеристика (дБ) · еквалайзер вимкнено"};
-static const char * const f9334[] = {"Compás Player"};
-static const char * const f9335[] = {"Під’єднатися"};
-static const char * const f9336[] = {"Під’єднатися й переглянути"};
-static const char * const f9337[] = {"Під’єднайте пристрій, щоб побачити підтримувані частоти"};
-static const char * const f9338[] = {"Під’єднайтеся через Wi-Fi або Bluetooth, щоб бачити поточне відтворення, керувати ним і переглядати бібліотеку. Введіть цей PIN-код у програмі чи браузері на запит; для Bluetooth також потрібне сполучення."};
-static const char * const f9339[] = {"Під’єднатися до Wi-Fi"};
-static const char * const f9340[] = {"Спочатку під’єднайтеся до Wi-Fi"};
-static const char * const f9341[] = {"Під’єднайтеся до Wi-Fi для потокового відтворення, оновлень і онлайн-служб."};
-static const char * const f9342[] = {"Перш ніж продовжити, під’єднайтеся до мережі Wi-Fi."};
-static const char * const f9343[] = {"Під’єднайтеся до мережі, щоб завантажити плагіни."};
-static const char * const f9344[] = {"Під’єднайтеся будь-яким доступним способом:"};
-static const char * const f9345[] = {"Під’єднано"};
-static const char * const f9346[] = {"З’єднання"};
-static const char * const f9347[] = {"З’єднання з"};
-static const char * const f9348[] = {"З’єднання із сервером..."};
-static const char * const f9349[] = {"PIN-код з’єднання"};
-static const char * const f9350[] = {"Не вдалося під’єднатися"};
-static const char * const f9351[] = {"Час очікування з’єднання минув (30 с)"};
-static const char * const f9352[] = {"Контейнер"};
-static const char * const f9353[] = {"Продовжити"};
-static const char * const f9354[] = {"Продовжити налаштування"};
-static const char * const f9355[] = {"Копіювати"};
-static const char * const f9356[] = {"Скопіюйте ігри до теки %s на SD-картці."};
-static const char * const f9357[] = {"Не вдалося застосувати розмір шрифту"};
-static const char * const f9358[] = {"Не вдалося застосувати розмір тексту пісень"};
-static const char * const f9359[] = {"Не вдалося застосувати тему"};
-static const char * const f9360[] = {"Не вдалося створити папку"};
-static const char * const f9361[] = {"Не вдалося завантажити контрольні суми випуску."};
-static const char * const f9362[] = {"Не вдалося перейти в режим відновлення."};
-static const char * const f9363[] = {"Не вдалося створити новий PIN-код"};
-static const char * const f9364[] = {"Не вдалося отримати посилання на потік"};
-static const char * const f9365[] = {"Не вдалося встановити плагін на SD-картку."};
-static const char * const f9366[] = {"Не вдалося встановити емулятор."};
-static const char * const f9367[] = {"Не вдалося встановити плагін на SD-картку."};
-static const char * const f9368[] = {"Не вдалося завантажити фото екрана блокування"};
-static const char * const f9369[] = {"Не вдалося завантажити каталог плагінів."};
-static const char * const f9370[] = {"Не вдалося завантажити каталог плагінів. Натисніть «Більше», щоб повторити спробу."};
-static const char * const f9371[] = {"Не вдалося перемістити інші файли .upt убік на SD-картці."};
-static const char * const f9372[] = {"Не вдалося відкрити цей файл"};
-static const char * const f9373[] = {"Не вдалося відкрити цей файл."};
-static const char * const f9374[] = {"Не вдалося записати оновлення на SD-картку."};
-static const char * const f9375[] = {"Не вдалося підготувати видалення плагіна."};
-static const char * const f9376[] = {"Не вдалося підготувати помічник оновлення: %s"};
-static const char * const f9377[] = {"Не вдалося підключитися до стримінгового сервісу"};
-static const char * const f9378[] = {"Не вдалося прочитати список установлених плагінів."};
-static const char * const f9379[] = {"Не вдалося прочитати папку Books"};
-static const char * const f9380[] = {"Не вдалося прочитати список емуляторів із GitHub."};
-static const char * const f9381[] = {"Не вдалося прочитати список плагінів із GitHub."};
-static const char * const f9382[] = {"Не вдалося прочитати список випусків із GitHub."};
-static const char * const f9383[] = {"Не вдалося зберегти відомості про перевірене оновлення на SD-картці."};
-static const char * const f9384[] = {"Не вдалося оновити список книг"};
-static const char * const f9385[] = {"Не вдалося перезавантажити обкладинку"};
-static const char * const f9386[] = {"Не вдалося видалити файл плагіна."};
-static const char * const f9387[] = {"Не вдалося видалити емулятор."};
-static const char * const f9388[] = {"Не вдалося перейменувати"};
-static const char * const f9389[] = {"Не вдалося відновити SD-картку"};
-static const char * const f9390[] = {"Не вдалося замінити файли плагіна."};
-static const char * const f9391[] = {"Не вдалося зберегти кодек Bluetooth"};
-static const char * const f9392[] = {"Не вдалося перемкнути режим USB"};
-static const char * const f9393[] = {"Не вдалося розпочати оновлення каталогу плагінів."};
-static const char * const f9394[] = {"Не вдалося розпочати завантаження"};
-static const char * const f9395[] = {"Не вдалося розпочати завантаження."};
-static const char * const f9396[] = {"Не вдалося розпочати операцію з емулятором"};
-static const char * const f9397[] = {"Не вдалося запустити гру."};
-static const char * const f9398[] = {"Не вдалося розпочати встановлення."};
-static const char * const f9399[] = {"Не вдалося розпочати сканування бібліотеки. Спробуйте ще раз."};
-static const char * const f9400[] = {"Не вдалося розпочати операцію з плагіном"};
-static const char * const f9401[] = {"Не вдалося розпочати операцію з плагіном."};
-static const char * const f9402[] = {"Не вдалося розпочати оновлення списку плагінів"};
-static const char * const f9403[] = {"Не вдалося розпочати оновлення списку плагінів."};
-static const char * const f9404[] = {"Не вдалося розпочати оновлення плагіна."};
-static const char * const f9405[] = {"Не вдалося розпочати перевірку оновлень."};
-static const char * const f9406[] = {"Не вдалося розпочати оновлення."};
-static const char * const f9407[] = {"Не вдалося запустити помічник оновлення: %s"};
-static const char * const f9408[] = {"Не вдалося оновити запис про встановлений плагін."};
-static const char * const f9409[] = {"Не вдалося перевірити контрольні суми останнього випуску."};
-static const char * const f9410[] = {"Не вдалося під’єднатися до мережі Wi-Fi"};
-static const char * const f9411[] = {"Не вдалося прочитати цей файл .cue"};
-static const char * const f9412[] = {"Не вдалося зберегти — зміни плагіна не застосовано"};
-static const char * const f9413[] = {"Проти годинникової стрілки"};
-static const char * const f9414[] = {"Обкладинку перезавантажено"};
-static const char * const f9415[] = {"Обкладинки оновлено"};
-static const char * const f9416[] = {"Створіть список вище або скопіюйте його до папки Playlists на SD-картці."};
-static const char * const f9417[] = {"Створити плагін"};
-static const char * const f9418[] = {"Створити тему"};
-static const char * const f9419[] = {"Створення плагінів і тем"};
-static const char * const f9420[] = {"Посібники для розробників"};
-static const char * const f9421[] = {"Плавний перехід"};
-static const char * const f9422[] = {"Кросфід (від 0 до 100)"};
-static const char * const f9423[] = {"Кросфід: %d%%"};
-static const char * const f9424[] = {"Кросфід: вимкнено"};
-static const char * const f9425[] = {"Власний"};
-static const char * const f9426[] = {"Власний колір"};
-static const char * const f9427[] = {"Власні шрифти впливають лише на латиницю."};
-static const char * const f9428[] = {"Шлях ЦАП: %s · %u біт"};
-static const char * const f9429[] = {"DLNA"};
-static const char * const f9430[] = {"Рендерер DLNA"};
-static const char * const f9431[] = {"Налаштування DNS"};
-static const char * const f9432[] = {"Грудень"};
-static const char * const f9433[] = {"Типово"};
-static const char * const f9434[] = {"Типовий (вбудований)"};
-static const char * const f9435[] = {"Типова дія"};
-static const char * const f9436[] = {"Видалити"};
-static const char * const f9437[] = {"Видалити %d елемент?", "Видалити %d елементи?", "Видалити %d елементів?"};
-static const char * const f9438[] = {"Видалити %s?\nЦю дію неможливо скасувати."};
-static const char * const f9439[] = {"Видалити список"};
-static const char * const f9440[] = {"Видалити список відтворення?"};
-static const char * const f9441[] = {"Видалити цей профіль?"};
-static const char * const f9442[] = {"Для розробників"};
-static const char * const f9443[] = {"Затемнювати екран перед вимкненням"};
-static const char * const f9444[] = {"Вимкнено"};
-static const char * const f9445[] = {"Диск %d"};
-static const char * const f9446[] = {"Диск %d / композиція %d"};
-static const char * const f9447[] = {"Від’єднатися"};
-static const char * const f9448[] = {"Спочатку від’єднайте USB-накопичувач"};
-static const char * const f9449[] = {"Перед зміною файлів від’єднайте USB-накопичувач від комп’ютера."};
-static const char * const f9450[] = {"Від’єднайте USB-накопичувач від комп’ютера, перш ніж змінювати емулятори."};
-static const char * const f9451[] = {"Перед зміною плагінів від’єднайте USB-накопичувач від комп’ютера."};
-static const char * const f9452[] = {"Закрити"};
-static const char * const f9453[] = {"Дисплей"};
-static const char * const f9454[] = {"Нічого не робити"};
-static const char * const f9455[] = {"Готово"};
-static const char * const f9456[] = {"Готово. Оновіть музичну базу даних, щоб побачити зміни в бібліотеці."};
-static const char * const f9457[] = {"Подвійне"};
-static const char * const f9458[] = {"Подвійне натискання"};
-static const char * const f9459[] = {"Завантажити"};
-static const char * const f9460[] = {"Завантажити «%s»?"};
-static const char * const f9461[] = {"Завантажити профілі"};
-static const char * const f9462[] = {"Налаштування завантаження"};
-static const char * const f9463[] = {"Завантажте емулятор, щоб грати."};
-static const char * const f9464[] = {"Завантажити емулятори"};
-static const char * const f9465[] = {"Завантажити всі альбоми виконавця «%s»?"};
-static const char * const f9466[] = {"Помилка завантаження"};
-static const char * const f9467[] = {"Папка завантаження: %s"};
-static const char * const f9468[] = {"Папка завантаження: корінь SD-картки"};
-static const char * const f9469[] = {"Завантажити макети"};
-static const char * const f9470[] = {"Завантажити профілі"};
-static const char * const f9471[] = {"Налаштування завантаження"};
-static const char * const f9472[] = {"Підпапка завантаження"};
-static const char * const f9473[] = {"Завантажити теми"};
-static const char * const f9474[] = {"Завантаження"};
-static const char * const f9475[] = {"Завантаження\n%s..."};
-static const char * const f9476[] = {"Завантаження та встановлення плагінів %zu/%zu"};
-static const char * const f9477[] = {"Завантаження оновлення"};
-static const char * const f9478[] = {"Тривалість"};
-static const char * const f9479[] = {"Еквалайзер"};
-static const char * const f9480[] = {"Крива еквалайзера"};
-static const char * const f9481[] = {"Змінити"};
-static const char * const f9482[] = {"Змінити / Готово"};
-static const char * const f9483[] = {"Відредагуйте текстовий файл .theme на комп’ютері. Скопіюйте його до папки Themes на SD-картці, а потім виберіть у меню Більше > Теми."};
-static const char * const f9484[] = {"Не вдалося виконати операцію з емулятором"};
-static const char * const f9485[] = {"Магазин емуляторів зайнятий."};
-static const char * const f9486[] = {"Емулятори"};
-static const char * const f9487[] = {"Увімкнути Bluetooth DAC"};
-static const char * const f9488[] = {"Щоб увімкнути режим BT DAC, активуйте Bluetooth у налаштуваннях"};
-static const char * const f9489[] = {"Увімкнути таймер сну"};
-static const char * const f9490[] = {"Увімкніть Wi-Fi або Bluetooth, щоб під’єднатися."};
-static const char * const f9491[] = {"Увімкніть Wi-Fi для доступу"};
-static const char * const f9492[] = {"Увімкнути смугу"};
-static const char * const f9493[] = {"Увімкнути журнал налагодження"};
-static const char * const f9494[] = {"Увімкнено"};
-static const char * const f9495[] = {"Еквалайзер"};
-static const char * const f9496[] = {"Стерти й відформатувати SD-картку?"};
-static const char * const f9497[] = {"Європа"};
-static const char * const f9498[] = {"Чудовий"};
-static const char * const f9499[] = {"Вийдіть із режиму USB DAC, щоб відтворювати музику на цьому пристрої"};
-static const char * const f9500[] = {"Оновлення розширень"};
-static const char * const f9501[] = {"Скидання до заводських налаштувань"};
-static const char * const f9502[] = {"Не вдалося встановити плагіни:\n"};
-static const char * const f9503[] = {"Не вдалося додати папку до списку відтворення."};
-static const char * const f9504[] = {"Не вдалося додати до списку відтворення"};
-static const char * const f9505[] = {"Не вдалося застосувати часовий пояс"};
-static const char * const f9506[] = {"Не вдалося під’єднатися до сервера"};
-static const char * const f9507[] = {"Не вдалося створити список відтворення"};
-static const char * const f9508[] = {"Не вдалося видалити профіль"};
-static const char * const f9509[] = {"Не вдалося ввімкнути AirPlay"};
-static const char * const f9510[] = {"Не вдалося завантажити виконавців"};
-static const char * const f9511[] = {"Не вдалося завантажити виконавців: %s"};
-static const char * const f9512[] = {"Не вдалося завантажити шрифт. Перевірте формат і доступну пам’ять."};
-static const char * const f9513[] = {"Не вдалося завантажити із сервера"};
-static const char * const f9514[] = {"Не вдалося завантажити профіль"};
-static const char * const f9515[] = {"Не вдалося перейменувати профіль"};
-static const char * const f9516[] = {"Не вдалося зберегти профіль"};
-static const char * const f9517[] = {"Не вдалося розпочати з’єднання"};
-static const char * const f9518[] = {"Не вдалося перемкнутися на %s"};
-static const char * const f9519[] = {"Не вдалося перемкнути Bluetooth"};
-static const char * const f9520[] = {"Посередній"};
-static const char * const f9521[] = {"Обране"};
-static const char * const f9522[] = {"Лютий"};
-static const char * const f9523[] = {"Файловий менеджер"};
-static const char * const f9524[] = {"Шлях до файла задовгий."};
-static const char * const f9525[] = {"Розмір файла"};
-static const char * const f9526[] = {"Файл недоступний"};
-static const char * const f9527[] = {"Файли"};
-static const char * const f9528[] = {"Файли (папки спочатку)"};
-static const char * const f9529[] = {"Файли на картці могли змінитися."};
-static const char * const f9530[] = {"Для файлів використовується дата зміни. Для альбомів — дата додавання найновішої композиції; альбоми без року випуску виводяться останніми. Оновіть музичну базу даних, щоб зчитати роки з наявних файлів."};
-static const char * const f9531[] = {"Тип фільтра"};
-static const char * const f9532[] = {"Оновлення прошивки"};
-static const char * const f9533[] = {"Доступний випуск прошивки %s.\nУстановлено: %s\n\nЗавантажити зараз? Це може тривати певний час."};
-static const char * const f9534[] = {"Випуск прошивки %s завантажено й перевірено.\n\nУстановити зараз? Пристрій перезавантажиться в режим відновлення для прошивання. Не вимикайте його до перезапуску."};
-static const char * const f9535[] = {"Рівна"};
-static const char * const f9536[] = {"Операція з папкою ще виконується."};
-static const char * const f9537[] = {"Папка завелика, щоб додати її до черги."};
-static const char * const f9538[] = {"Структура папок завантажених альбомів"};
-static const char * const f9539[] = {"Папка завелика для індексації (натисніть «Назад»)"};
-static const char * const f9540[] = {"Шрифт"};
-static const char * const f9541[] = {"Розмір шрифту"};
-static const char * const f9542[] = {"Вибір шрифту більше недоступний"};
-static const char * const f9543[] = {"Забути"};
-static const char * const f9544[] = {"Форматувати"};
-static const char * const f9545[] = {"Форматувати SD-картку"};
-static const char * const f9546[] = {"Форматування\nSD-картки..."};
-static const char * const f9547[] = {"Частота"};
-static const char * const f9548[] = {"Частота (Гц, від 20 до 20000)"};
-static const char * const f9549[] = {"П’ятниця"};
-static const char * const f9550[] = {"З обкладинки альбому"};
-static const char * const f9551[] = {"З обкладинки (немає обкладинки, використовується власний колір)"};
-static const char * const f9552[] = {"Підсилення"};
-static const char * const f9553[] = {"Підсилення (дБ, від -12 до 12)"};
-static const char * const f9554[] = {"Режим підсилення"};
-static const char * const f9555[] = {"Ігри працюють лише на програвачі."};
-static const char * const f9556[] = {"Без пауз"};
-static const char * const f9557[] = {"Шлюз: %s"};
-static const char * const f9558[] = {"Створити"};
-static const char * const f9559[] = {"Створити новий PIN-код?"};
-static const char * const f9560[] = {"Жанри"};
-static const char * const f9561[] = {"Жести та орієнтація"};
-static const char * const f9562[] = {"Почати"};
-static const char * const f9563[] = {"GitHub не відповів вчасно. Спробуйте ще раз."};
-static const char * const f9564[] = {"GitHub обмежує кількість запитів. Спробуйте пізніше."};
-static const char * const f9565[] = {"GitHub повернув HTTP %d."};
-static const char * const f9566[] = {"В останньому випуску GitHub немає справного образу %s та контрольної суми."};
-static const char * const f9567[] = {"Останній випуск GitHub не є підтримуваною прошивкою."};
-static const char * const f9568[] = {"Поверніться назад і виберіть «Нове з’єднання», щоб додати сервер."};
-static const char * const f9569[] = {"Перейти до сторінки"};
-static const char * const f9570[] = {"Добрий"};
-static const char * const f9571[] = {"Посібник: docs/CREATING.md"};
-static const char * const f9572[] = {"Гарнітура може від’єднатися; можливо, доведеться під’єднати її вручну"};
-static const char * const f9573[] = {"Приховати верхню панель плеєра/текстів пісень"};
-static const char * const f9574[] = {"Приховати пристрої без назви"};
-static const char * const f9575[] = {"Приховати приховані файли"};
-static const char * const f9576[] = {"Висока"};
-static const char * const f9577[] = {"Висока (320 кбіт/с)"};
-static const char * const f9578[] = {"Ім’я вузла"};
-static const char * const f9579[] = {"Ім’я вузла може містити лише літери, цифри й дефіси"};
-static const char * const f9580[] = {"IP-адреса: %s"};
-static const char * const f9581[] = {"Вимкнення в режимі очікування"};
-static const char * const f9582[] = {"Час до очікування:"};
-static const char * const f9583[] = {"Імпорт"};
-static const char * const f9584[] = {"Імпорт через Wi-Fi"};
-static const char * const f9585[] = {"Пульт на кабелі"};
-static const char * const f9586[] = {"Індійський океан"};
-static const char * const f9587[] = {"Інформація"};
-static const char * const f9588[] = {"Вставте SD-картку, щоб змінити емулятори."};
-static const char * const f9589[] = {"Вставте SD-картку, щоб змінити плагіни."};
-static const char * const f9590[] = {"Вставте SD-картку, щоб завантажити оновлення."};
-static const char * const f9591[] = {"Вставте SD-картку, щоб установити плагіни."};
-static const char * const f9592[] = {"Вставте SD-картку, щоб видалити плагіни."};
-static const char * const f9593[] = {"Вставте SD-картку, щоб сканувати музику, або вимкніть «Сканувати музику»."};
-static const char * const f9594[] = {"Вставте SD-картку, щоб оновити плагіни."};
-static const char * const f9595[] = {"Вставте SD-картку з музичними файлами. Compás Player просканує її та створить бібліотеку."};
-static const char * const f9596[] = {"Установити"};
-static const char * const f9597[] = {"Установити й перезавантажити"};
-static const char * const f9598[] = {"Установити із SD-картки"};
-static const char * const f9599[] = {"Установлено"};
-static const char * const f9600[] = {"Установлено вручну"};
-static const char * const f9601[] = {"Установлена версія: %s\nДоступний випуск: %s\n\nУсе одно завантажити й установити повторно? Це може тривати певний час."};
-static const char * const f9602[] = {"Установлено · %s"};
-static const char * const f9603[] = {"Встановлення емулятора"};
-static const char * const f9604[] = {"Встановлення плагіна"};
-static const char * const f9605[] = {"Недійсна папка завантаження"};
-static const char * const f9606[] = {"Недійсна назва папки завантаження"};
-static const char * const f9607[] = {"Недійсна назва профілю"};
-static const char * const f9608[] = {"Неприпустимий шлях до оновлення."};
-static const char * const f9609[] = {"Не вдалося її завантажити. Створити заново?"};
-static const char * const f9610[] = {"Можливо, на картці немає таблиці розділів або використано файлову систему, яку плеєр не підтримує. Форматування видалить усі дані й підготує картку для плеєра."};
-static const char * const f9611[] = {"Його налаштування залишаться на картці."};
-static const char * const f9612[] = {"Січень"};
-static const char * const f9613[] = {"Липень"};
-static const char * const f9614[] = {"Червень"};
-static const char * const f9615[] = {"Призначте кнопці дію «Перемкнути екран» або «Меню живлення»"};
-static const char * const f9616[] = {"Клавіатура"};
-static const char * const f9617[] = {"Якість LDAC"};
-static const char * const f9618[] = {"Стандарт LDAC"};
-static const char * const f9619[] = {"Світлодіод заряджання"};
-static const char * const f9620[] = {"Мова"};
-static const char * const f9621[] = {"Великий"};
-static const char * const f9622[] = {"Пізніше"};
-static const char * const f9623[] = {"Запускати з фіксованою гучністю"};
-static const char * const f9624[] = {"Макет"};
-static const char * const f9625[] = {"Вийти"};
-static const char * const f9626[] = {"Вийти з режиму Bluetooth DAC?"};
-static const char * const f9627[] = {"Вийти з режиму USB DAC?"};
-static const char * const f9628[] = {"Вийдіть із цього подання й спробуйте ще раз."};
-static const char * const f9629[] = {"Бібліотека"};
-static const char * const f9630[] = {"Бібліотека змінилася. Відкрийте альбом ще раз."};
-static const char * const f9631[] = {"Бібліотека зайнята"};
-static const char * const f9632[] = {"Бібліотеку завантажено"};
-static const char * const f9633[] = {"Бібліотеку відновлено й збережено"};
-static const char * const f9634[] = {"Бібліотеку відновлено й збережено, але деякі папки не вдалося прочитати"};
-static const char * const f9635[] = {"Бібліотеку відновлено. Щоб зберегти зміни, виберіть Налаштування > Оновити музичну базу даних"};
-static const char * const f9636[] = {"Бібліотека недоступна. Виберіть Налаштування > Оновити музичну базу даних, щоб створити її заново"};
-static const char * const f9637[] = {"Не вдалося оновити бібліотеку. Перевірте SD-картку та повторіть спробу"};
-static const char * const f9638[] = {"Бібліотеку оновлено"};
-static const char * const f9639[] = {"Бібліотеку оновлено, але деякі папки не вдалося прочитати"};
-static const char * const f9640[] = {"Ліцензія: %s"};
-static const char * const f9641[] = {"Обмежує гучність плеєра, зокрема під час керування кнопками, пультом і плагінами."};
-static const char * const f9642[] = {"Завантаження налаштувань Wi-Fi"};
-static const char * const f9643[] = {"Завантаження емуляторів"};
-static const char * const f9644[] = {"Завантаження із сервера..."};
-static const char * const f9645[] = {"Завантаження макетів"};
-static const char * const f9646[] = {"Завантаження каталогу плагінів..."};
-static const char * const f9647[] = {"Завантаження плагінів"};
-static const char * const f9648[] = {"Завантаження тем"};
-static const char * const f9649[] = {"Завантаження композицій…"};
-static const char * const f9650[] = {"Завантаження оновлень"};
-static const char * const f9651[] = {"Завантаження..."};
-static const char * const f9652[] = {"Розташування"};
-static const char * const f9653[] = {"Тривале"};
-static const char * const f9654[] = {"Тривале натискання"};
-static const char * const f9655[] = {"Пошук музичних файлів"};
-static const char * const f9656[] = {"Пошук музичних файлів\nперевірено елементів: %d"};
-static const char * const f9657[] = {"Низька"};
-static const char * const f9658[] = {"Низькі\nВисокі"};
-static const char * const f9659[] = {"Низька (96 кбіт/с)"};
-static const char * const f9660[] = {"Тексти пісень"};
-static const char * const f9661[] = {"Розмір тексту пісень"};
-static const char * const f9662[] = {"MAC-адреса: %s"};
-static const char * const f9663[] = {"Обслуговування"};
-static const char * const f9664[] = {"Зробіть аксесуар видимим і натисніть «Сканувати знову»."};
-static const char * const f9665[] = {"Пізніше керуйте плагінами в Налаштування > Система > Менеджер плагінів: шукайте, оновлюйте або видаляйте їх."};
-static const char * const f9666[] = {"Введення SSID вручну"};
-static const char * const f9667[] = {"Березень"};
-static const char * const f9668[] = {"Підібрати до обкладинки альбому"};
-static const char * const f9669[] = {"Максимальна гучність"};
-static const char * const f9670[] = {"Травень"};
-static const char * const f9671[] = {"Середній"};
-static const char * const f9672[] = {"Середня (192 кбіт/с)"};
-static const char * const f9673[] = {"Збережені мережі"};
-static const char * const f9674[] = {"Метадані оновлено"};
-static const char * const f9675[] = {"Понеділок"};
-static const char * const f9676[] = {"Моно (1 канал)"};
-static const char * const f9677[] = {"Більше"};
-static const char * const f9678[] = {"Найчастіше відтворювані"};
-static const char * const f9679[] = {"Перемістити"};
-static const char * const f9680[] = {"Перемістити %d елемент?", "Перемістити %d елементи?", "Перемістити %d елементів?"};
-static const char * const f9681[] = {"Музика"};
-static const char * const f9682[] = {"Музична база даних недоступна"};
-static const char * const f9683[] = {"Назва (А–Я)"};
-static const char * const f9684[] = {"Нативний DSD (DoP) / %.4g МГц"};
-static const char * const f9685[] = {"Мережі Wi-Fi поблизу з’являтимуться тут."};
-static const char * const f9686[] = {"Мережі поблизу з’являться, коли Wi-Fi буде готовий."};
-static const char * const f9687[] = {"Потрібна новіша прошивка"};
-static const char * const f9688[] = {"Назва мережі (SSID)"};
-static const char * const f9689[] = {"Мережевий потік"};
-static const char * const f9690[] = {"Мережі, до яких ви під’єднувалися, з’являтимуться тут."};
-static const char * const f9691[] = {"Нове з’єднання"};
-static const char * const f9692[] = {"Новий PIN-код створено"};
-static const char * const f9693[] = {"Новий профіль"};
-static const char * const f9694[] = {"Нова папка"};
-static const char * const f9695[] = {"Найновіші за датою зміни"};
-static const char * const f9696[] = {"Далі"};
-static const char * const f9697[] = {"Далі  •  %d–%d з %d"};
-static const char * const f9698[] = {"Наступна композиція"};
-static const char * const f9699[] = {"Наступна сторінка"};
-static const char * const f9700[] = {"У /Fonts не знайдено шрифтів .ttf"};
-static const char * const f9701[] = {"Немає SD-картки"};
-static const char * const f9702[] = {"SD-картку не знайдено. Ви зможете просканувати її пізніше в налаштуваннях бібліотеки."};
-static const char * const f9703[] = {"SD-картку не змонтовано."};
-static const char * const f9704[] = {"Книг не знайдено"};
-static const char * const f9705[] = {"Немає опису"};
-static const char * const f9706[] = {"У каталозі немає доступних емуляторів."};
-static const char * const f9707[] = {"Емулятори не встановлено"};
-static const char * const f9708[] = {"Немає елементів для показу"};
-static const char * const f9709[] = {"Поки що немає обраного"};
-static const char * const f9710[] = {"Ігор не знайдено"};
-static const char * const f9711[] = {"Немає елементів"};
-static const char * const f9712[] = {"У каталозі немає доступних макетів."};
-static const char * const f9713[] = {"Більше немає в каталозі"};
-static const char * const f9714[] = {"Немає збережених мереж"};
-static const char * const f9715[] = {"Немає музичної бази даних"};
-static const char * const f9716[] = {"Поблизу немає пристроїв"};
-static const char * const f9717[] = {"Мережу не знайдено"};
-static const char * const f9718[] = {"Мережу не знайдено. Під’єднайтеся до мережі, щоб завантажити емулятори."};
-static const char * const f9719[] = {"Мережу не знайдено. Під’єднайтеся до мережі, щоб завантажити плагіни."};
-static const char * const f9720[] = {"Мереж не знайдено"};
-static const char * const f9721[] = {"Інших мереж не знайдено"};
-static const char * const f9722[] = {"Немає сполучених пристроїв"};
-static const char * const f9723[] = {"Аудіофайлів для відтворення не знайдено"};
-static const char * const f9724[] = {"Тут немає файлів для відтворення"};
-static const char * const f9725[] = {"Налаштування плагіна недоступні"};
-static const char * const f9726[] = {"У каталозі немає доступних плагінів."};
-static const char * const f9727[] = {"Немає збережених профілів"};
-static const char * const f9728[] = {"Немає збережених серверів"};
-static const char * const f9729[] = {"Немає композицій для оновлення"};
-static const char * const f9730[] = {"Синхронізованих текстів пісень не знайдено"};
-static const char * const f9731[] = {"У каталозі немає доступних тем."};
-static const char * const f9732[] = {"Композицію не завантажено"};
-static const char * const f9733[] = {"Композицій не знайдено"};
-static const char * const f9734[] = {"Оновлень немає."};
-static const char * const f9735[] = {"Немає списків користувача"};
-static const char * const f9736[] = {"На цій SD-картці немає перевіреного оновлення. Завантажте його ще раз."};
-static const char * const f9737[] = {"Недоступно у вашій підписці"};
-static const char * const f9738[] = {"Не під’єднано"};
-static const char * const f9739[] = {"На SD-картці недостатньо вільного місця для оновлення."};
-static const char * const f9740[] = {"На SD-картці недостатньо вільного місця."};
-static const char * const f9741[] = {"На програвачі недостатньо вільного місця."};
-static const char * const f9742[] = {"Недостатньо пам’яті для з’єднання"};
-static const char * const f9743[] = {"Недостатньо пам’яті для завантаження композицій CUE"};
-static const char * const f9744[] = {"Недостатньо пам’яті для завантаження виконавців"};
-static const char * const f9745[] = {"Недостатньо пам’яті для завантаження із сервера"};
-static const char * const f9746[] = {"Недостатньо пам’яті для завантаження магазину плагінів"};
-static const char * const f9747[] = {"Недостатньо пам’яті для початку завантаження"};
-static const char * const f9748[] = {"Не вибрано (UTC)"};
-static const char * const f9749[] = {"Не задано"};
-static const char * const f9750[] = {"Тут немає елементів для вибору"};
-static const char * const f9751[] = {"Листопад"};
-static const char * const f9752[] = {"Макети екрана відтворення"};
-static const char * const f9753[] = {"ВИМКНЕНО"};
-static const char * const f9754[] = {"УВІМКНЕНО"};
-static const char * const f9755[] = {"Жовтень"};
-static const char * const f9756[] = {"Вимкнено"};
-static const char * const f9757[] = {"Увімкнено"};
-static const char * const f9758[] = {"Відкрийте Більше > Плагіни > Оновити список плагінів. Відскануйте QR-код, щоб знайти робочий приклад і повний опис API."};
-static const char * const f9759[] = {"Відкрийте книгу й натисніть значок закладки, щоб зберегти її тут."};
-static const char * const f9760[] = {"Відкрийте папку з аудіофайлами підтримуваних форматів."};
-static const char * const f9761[] = {"Відкрита мережа"};
-static const char * const f9762[] = {"Відкрийте папку призначення й виберіть у меню «Вставити сюди»."};
-static const char * const f9763[] = {"Відкрийте цю адресу на телефоні або комп’ютері:"};
-static const char * const f9764[] = {"Відкрита · під’єднано"};
-static const char * const f9765[] = {"Оригінальна"};
-static const char * const f9766[] = {"Вихід"};
-static const char * const f9767[] = {"PEQ"};
-static const char * const f9768[] = {"Параметричний еквалайзер скинуто до типових налаштувань"};
-static const char * const f9769[] = {"ПП"};
-static const char * const f9770[] = {"Тихий океан"};
-static const char * const f9771[] = {"Сторінка %d з %d"};
-static const char * const f9772[] = {"Сполучено"};
-static const char * const f9773[] = {"Сполучені пристрої"};
-static const char * const f9774[] = {"Пароль"};
-static const char * const f9775[] = {"Пароль: не задано"};
-static const char * const f9776[] = {"Пароль: задано"};
-static const char * const f9777[] = {"Вставити сюди %d елемент", "Вставити сюди %d елементи", "Вставити сюди %d елементів"};
-static const char * const f9778[] = {"Пауза: навушники від’єднано"};
-static const char * const f9779[] = {"Піковий\nНизька полиця\nВисока полиця"};
-static const char * const f9780[] = {"Для альбому"};
-static const char * const f9781[] = {"Для композиції"};
-static const char * const f9782[] = {"Розмістіть шрифти .ttf у папці /Fonts на SD-картці."};
-static const char * const f9783[] = {"Відтворити все"};
-static const char * const f9784[] = {"Відтворити все послідовно"};
-static const char * const f9785[] = {"Відтворити все у випадковому порядку"};
-static const char * const f9786[] = {"Відтворити наступною"};
-static const char * const f9787[] = {"Відтворити все у випадковому порядку"};
-static const char * const f9788[] = {"Відтворіть альбом або список, щоб побачити тут його композиції."};
-static const char * const f9789[] = {"Відтворити послідовно"};
-static const char * const f9790[] = {"Відтворити/пауза"};
-static const char * const f9791[] = {"Відтворення"};
-static const char * const f9792[] = {"Відтворення та керування"};
-static const char * const f9793[] = {"Відтворення та дії пристрою"};
-static const char * const f9794[] = {"Відтворення змінилося до того, як папка була готова."};
-static const char * const f9795[] = {"Помилка відтворення"};
-static const char * const f9796[] = {"Помилка відтворення: не вдалося вивести звук"};
-static const char * const f9797[] = {"Не вдалося зберегти історію відтворення"};
-static const char * const f9798[] = {"Відтворення зупинено: %s"};
-static const char * const f9799[] = {"Відтворено"};
-static const char * const f9800[] = {"Макет плеєра"};
-static const char * const f9801[] = {"Відтворюється"};
-static const char * const f9802[] = {"Назва списку відтворення"};
-static const char * const f9803[] = {"Список відтворення змінився. Виберіть композицію ще раз."};
-static const char * const f9804[] = {"Список відтворення змінився. Спробуйте ще раз."};
-static const char * const f9805[] = {"Список відтворення створено"};
-static const char * const f9806[] = {"Список відтворення видалено"};
-static const char * const f9807[] = {"Список відтворення порожній"};
-static const char * const f9808[] = {"Назва списку відтворення задовга."};
-static const char * const f9809[] = {"Список відтворення перейменовано"};
-static const char * const f9810[] = {"Список відтворення збережено"};
-static const char * const f9811[] = {"Вибір списку відтворення більше не дійсний."};
-static const char * const f9812[] = {"Список відтворення недоступний або не читається"};
-static const char * const f9813[] = {"Списки"};
-static const char * const f9814[] = {"Списки відтворення оновлено"};
-static const char * const f9815[] = {"Зачекайте, поки завершиться встановлення плагіна"};
-static const char * const f9816[] = {"Зачекайте, поки завершиться сканування бібліотеки"};
-static const char * const f9817[] = {"Плагін"};
-static const char * const f9818[] = {"Менеджер плагінів"};
-static const char * const f9819[] = {"Порядок плагінів"};
-static const char * const f9820[] = {"Налаштування плагіна"};
-static const char * const f9821[] = {"Магазин плагінів"};
-static const char * const f9822[] = {"Плагін недоступний у каталозі"};
-static const char * const f9823[] = {"Не вдалося виконати операцію з плагіном"};
-static const char * const f9824[] = {"Налаштування плагінів завершено"};
-static const char * const f9825[] = {"Потрібно перевірити налаштування плагінів"};
-static const char * const f9826[] = {"Сховище плагінів недоступне."};
-static const char * const f9827[] = {"Плагіни"};
-static const char * const f9828[] = {"Плагіни та макети"};
-static const char * const f9829[] = {"Плагіни можуть перевизначити ці збережені налаштування."};
-static const char * const f9830[] = {"Позиція"};
-static const char * const f9831[] = {"Живлення"};
-static const char * const f9832[] = {"Меню живлення"};
-static const char * const f9833[] = {"Вимкнути"};
-static const char * const f9834[] = {"Керування живленням"};
-static const char * const f9835[] = {"Вимкнути"};
-static const char * const f9836[] = {"Передпідсилення"};
-static const char * const f9837[] = {"Передпідсилення (дБ, від -12 до 12)"};
-static const char * const f9838[] = {"Підготовка та перевірка режиму відновлення"};
-static const char * const f9839[] = {"Підготовка до оновлення обкладинок..."};
-static const char * const f9840[] = {"Підготовка папки до відтворення…"};
-static const char * const f9841[] = {"Підготовка до оновлення метаданих"};
-static const char * const f9842[] = {"Підготовка до оновлення метаданих..."};
-static const char * const f9843[] = {"Підготовка музичної бібліотеки..."};
-static const char * const f9844[] = {"Підготовка оновлення"};
-static const char * const f9845[] = {"Попередні налаштування"};
-static const char * const f9846[] = {"Попередній перегляд"};
-static const char * const f9847[] = {"Попередній"};
-static const char * const f9848[] = {"Назад  •  %d–%d з %d"};
-static const char * const f9849[] = {"Попередня композиція"};
-static const char * const f9850[] = {"Попередня сторінка"};
-static const char * const f9851[] = {"Попередній запит ще завершується"};
-static const char * const f9852[] = {"Раніше під’єднані аксесуари з’являтимуться тут."};
-static const char * const f9853[] = {"Основний DNS"};
-static const char * const f9854[] = {"Назва профілю"};
-static const char * const f9855[] = {"Профіль видалено"};
-static const char * const f9856[] = {"Профіль завантажено"};
-static const char * const f9857[] = {"Профіль перейменовано"};
-static const char * const f9858[] = {"Профіль збережено"};
-static const char * const f9859[] = {"Профілі"};
-static const char * const f9860[] = {"Постачальник"};
-static const char * const f9861[] = {"QWERTY"};
-static const char * const f9862[] = {"Черга"};
-static const char * const f9863[] = {"Черга змінилася. Спробуйте ще раз."};
-static const char * const f9864[] = {"Не вдалося зберегти стан черги; можливо, сховище доступне лише для читання"};
-static const char * const f9865[] = {"Чергу очищено"};
-static const char * const f9866[] = {"Черга порожня"};
-static const char * const f9867[] = {"Черга готова. Натисніть «Відтворити», щоб почати."};
-static const char * const f9868[] = {"У черзі"};
-static const char * const f9869[] = {"Швидка панель"};
-static const char * const f9870[] = {"Швидке налаштування завершено"};
-static const char * const f9871[] = {"Швидке налаштування"};
-static const char * const f9872[] = {"Пульт"};
-static const char * const f9873[] = {"Радіо"};
-static const char * const f9874[] = {"Радіо / %s"};
-static const char * const f9875[] = {"Читання підтримуваних частот..."};
-static const char * const f9876[] = {"Читання тегів\n%d з %d композицій (%d%%)"};
-static const char * const f9877[] = {"Теги всіх композицій буде прочитано знову. Це може тривати певний час."};
-static const char * const f9878[] = {"Створити заново"};
-static const char * const f9879[] = {"Нещодавно додані"};
-static const char * const f9880[] = {"Нещодавно відтворені"};
-static const char * const f9881[] = {"Не вдалося встановити прапорець завантаження в режим відновлення."};
-static const char * const f9882[] = {"Не вдалося стерти прапорець відновлення. Не перезавантажуйте пристрій; перевірте .compas/ota/update.log."};
-static const char * const f9883[] = {"Розділ прапорця відновлення не відповідає цій прошивці."};
-static const char * const f9884[] = {"Не вдалося перевірити прапорець відновлення. Не перезавантажуйте пристрій; перевірте журнал оновлення."};
-static const char * const f9885[] = {"Не вдалося записати прапорець відновлення. Не перезавантажуйте пристрій; перевірте .compas/ota/update.log."};
-static const char * const f9886[] = {"Режим відновлення вибрано, але перезавантаження не вдалося: %s. Не видаляйте файл оновлення."};
-static const char * const f9887[] = {"Режим відновлення залишається вибраним. Не видаляйте файл оновлення; не вдалося зберегти діагностичні дані."};
-static const char * const f9888[] = {"Оновити"};
-static const char * const f9889[] = {"Оновити всі обкладинки"};
-static const char * const f9890[] = {"Оновити всі метадані"};
-static const char * const f9891[] = {"Оновити список плагінів"};
-static const char * const f9892[] = {"Оновити всі обкладинки?"};
-static const char * const f9893[] = {"Оновити всі метадані?"};
-static const char * const f9894[] = {"Оновити каталог емуляторів"};
-static const char * const f9895[] = {"Оновити метадані"};
-static const char * const f9896[] = {"Оновити каталог плагінів"};
-static const char * const f9897[] = {"Оновіть музичну базу даних, щоб оновити цей список."};
-static const char * const f9898[] = {"Оновлення\nвсіх обкладинок..."};
-static const char * const f9899[] = {"Оновлення\nвсіх метаданих..."};
-static const char * const f9900[] = {"Оновлення\nметаданих..."};
-static const char * const f9901[] = {"Оновлення обкладинок"};
-static const char * const f9902[] = {"Оновлення обкладинок\n%d з %d (%d%%)"};
-static const char * const f9903[] = {"Оновлення списку плагінів..."};
-static const char * const f9904[] = {"Рік випуску (від найстарішого)"};
-static const char * const f9905[] = {"Перезавантажити обкладинку"};
-static const char * const f9906[] = {"Перезавантаження\nобкладинки..."};
-static const char * const f9907[] = {"Перезавантаження обкладинки"};
-static const char * const f9908[] = {"Перезавантаження обкладинки\n%d з %d (%d%%)"};
-static const char * const f9909[] = {"Пульт"};
-static const char * const f9910[] = {"Дистанційне керування"};
-static const char * const f9911[] = {"Видалити"};
-static const char * const f9912[] = {"Видалити %s?"};
-static const char * const f9913[] = {"Видалено"};
-static const char * const f9914[] = {"Видалено зі списку відтворення"};
-static const char * const f9915[] = {"Видалено з черги"};
-static const char * const f9916[] = {"Збережені обкладинки буде видалено й створено заново. Це може тривати певний час."};
-static const char * const f9917[] = {"Видалення емулятора"};
-static const char * const f9918[] = {"Видалення плагіна"};
-static const char * const f9919[] = {"Перейменувати"};
-static const char * const f9920[] = {"Перейменувати список відтворення"};
-static const char * const f9921[] = {"Перейменувати профіль"};
-static const char * const f9922[] = {"Змінити порядок"};
-static const char * const f9923[] = {"Замінити"};
-static const char * const f9924[] = {"Замінити наявний"};
-static const char * const f9925[] = {"Замінити профіль"};
-static const char * const f9926[] = {"ReplayGain"};
-static const char * const f9927[] = {"Сканувати знову"};
-static const char * const f9928[] = {"Скинути"};
-static const char * const f9929[] = {"Скинути все"};
-static const char * const f9930[] = {"Скинути параметричний еквалайзер до типових налаштувань?"};
-static const char * const f9931[] = {"Скинути всі призначення кнопок?"};
-static const char * const f9932[] = {"Скинути всі налаштування й перезавантажити?"};
-static const char * const f9933[] = {"Скинути до типових налаштувань"};
-static const char * const f9934[] = {"Перезавантажити"};
-static const char * const f9935[] = {"Перезавантажити зараз"};
-static const char * const f9936[] = {"Перезавантажити зараз, щоб застосувати нове ім’я вузла?"};
-static const char * const f9937[] = {"Перезавантаження в режим відновлення. Не вимикайте плеєр."};
-static const char * const f9938[] = {"Відновити останню композицію"};
-static const char * const f9939[] = {"Відновити й відтворити"};
-static const char * const f9940[] = {"Відновлювати відтворення, коли зовнішнє живлення вмикає плеєр."};
-static const char * const f9941[] = {"Відновити, але призупинити"};
-static const char * const f9942[] = {"Повторна спроба для плагінів %zu/%zu"};
-static const char * const f9943[] = {"Переглянути оновлення"};
-static const char * const f9944[] = {"Не вдалося прочитати SD-картку"};
-static const char * const f9945[] = {"Не вдалося відформатувати SD-картку"};
-static const char * const f9946[] = {"SD-картку відформатовано"};
-static const char * const f9947[] = {"SD-картка доступна лише для читання. Перевірте її на комп’ютері"};
-static const char * const f9948[] = {"SD-картка досі доступна лише для читання"};
-static const char * const f9949[] = {"На SD-картці можуть бути помилки. Перевірте її на комп’ютері"};
-static const char * const f9950[] = {"SD-картка недоступна"};
-static const char * const f9951[] = {"Відновлення SD-картки ще виконується"};
-static const char * const f9952[] = {"SD-картку відновлено"};
-static const char * const f9953[] = {"SSID має містити від 1 до 32 байтів"};
-static const char * const f9954[] = {"SSID: %s"};
-static const char * const f9955[] = {"Безпечне заряджання (500 мА)"};
-static const char * const f9956[] = {"Частота дискретизації"};
-static const char * const f9957[] = {"Субота"};
-static const char * const f9958[] = {"Зберегти"};
-static const char * const f9959[] = {"Зберегти профіль"};
-static const char * const f9960[] = {"Зберегти профіль як"};
-static const char * const f9961[] = {"Зберегти чергу як список відтворення"};
-static const char * const f9962[] = {"Зберегти як список відтворення"};
-static const char * const f9963[] = {"Зберегти як новий профіль чи замінити наявний?"};
-static const char * const f9964[] = {"Збережені сервери"};
-static const char * const f9965[] = {"Збережена мережа"};
-static const char * const f9966[] = {"Перевіряються дані збереженої мережі."};
-static const char * const f9967[] = {"Збереження даних перед перезавантаженням"};
-static const char * const f9968[] = {"Не вдалося зберегти дані. Режим відновлення залишається вибраним; не видаляйте файл оновлення та перевірте .compas/ota/update.log."};
-static const char * const f9969[] = {"Збереження музичної бази даних"};
-static const char * const f9970[] = {"Збереження музичної бази даних\nУ великих бібліотеках це може тривати довго"};
-static const char * const f9971[] = {"Збереження списку відтворення…"};
-static const char * const f9972[] = {"Відскануйте QR-код, щоб відкрити стартову тему й інструкції. Посібник із макетів XML допоможе змінити вигляд екрана плеєра."};
-static const char * const f9973[] = {"Сканувати музику"};
-static const char * const f9974[] = {"Скануйте QR-код, щоб відкрити повний посібник."};
-static const char * const f9975[] = {"Відскануйте телефоном, щоб підтримати Compás Player через PayPal"};
-static const char * const f9976[] = {"Пошук мереж"};
-static const char * const f9977[] = {"Пошук файлів для відтворення…"};
-static const char * const f9978[] = {"Затемнення екрана"};
-static const char * const f9979[] = {"Час очікування екрана"};
-static const char * const f9980[] = {"Вимкнути екран"};
-static const char * const f9981[] = {"Не вдалося зробити знімок екрана (%s)"};
-static const char * const f9982[] = {"Не вдалося зробити знімок екрана (буфер кадру)"};
-static const char * const f9983[] = {"Не вдалося зробити знімок екрана (службовий процес)"};
-static const char * const f9984[] = {"Для знімка екрана потрібна SD-картка"};
-static const char * const f9985[] = {"Знімок екрана збережено"};
-static const char * const f9986[] = {"Знімок екрана (Живлення + Назад)"};
-static const char * const f9987[] = {"Знімок екрана (Живлення + зменшення гучності)"};
-static const char * const f9988[] = {"Знімки екрана недоступні"};
-static const char * const f9989[] = {"Пошук мереж"};
-static const char * const f9990[] = {"Додатковий DNS"};
-static const char * const f9991[] = {"Не вдалося встановити захищене з’єднання. Перевірте Wi-Fi, дату й час."};
-static const char * const f9992[] = {"Захищена мережа"};
-static const char * const f9993[] = {"Захищено · під’єднано"};
-static const char * const f9994[] = {"Перемотати назад"};
-static const char * const f9995[] = {"Перемотати вперед"};
-static const char * const f9996[] = {"Вибрати"};
-static const char * const f9997[] = {"Виберіть файл"};
-static const char * const f9998[] = {"Вибрати все"};
-static const char * const f9999[] = {"Виберіть принаймні один плагін, щоб продовжити."};
-static const char * const f10000[] = {"Вибрані плагіни готові.\n"};
-static const char * const f10001[] = {"Вересень"};
-static const char * const f10002[] = {"Адреса сервера (наприклад, %s)"};
-static const char * const f10003[] = {"Адреса сервера: %s"};
-static const char * const f10004[] = {"Час очікування відповіді сервера минув (30 с)"};
-static const char * const f10005[] = {"Служба зайнята"};
-static const char * const f10006[] = {"Установити час"};
-static const char * const f10007[] = {"Виберіть свій часовий пояс, щоб годинник показував правильний час."};
-static const char * const f10008[] = {"Налаштування"};
-static const char * const f10009[] = {"Показувати час до завершення"};
-static const char * const f10010[] = {"Показати приховані файли"};
-static const char * const f10011[] = {"Показано перші %d із %d композицій"};
-static const char * const f10012[] = {"Перемішати, починаючи з випадкової композиції"};
-static const char * const f10013[] = {"Увійдіть у стримінговий сервіс знову"};
-static const char * const f10014[] = {"Сигнал: %s"};
-static const char * const f10015[] = {"Одне"};
-static const char * const f10016[] = {"Одне натискання"};
-static const char * const f10017[] = {"Розмір: %s"};
-static const char * const f10018[] = {"Поки що пропустити"};
-static const char * const f10019[] = {"Пропущено: %s"};
-static const char * const f10020[] = {"Сон"};
-static const char * const f10021[] = {"Таймер сну"};
-static const char * const f10022[] = {"Таймер сну"};
-static const char * const f10023[] = {"Таймер сну: залишилося %d хв"};
-static const char * const f10024[] = {"Таймер сну: вимкнено"};
-static const char * const f10025[] = {"Малий"};
-static const char * const f10026[] = {"Не вдалося оновити деякі обкладинки"};
-static const char * const f10027[] = {"Не вдалося прочитати деякі списки відтворення"};
-static const char * const f10028[] = {"Деякі файли плагінів на картці змінено. Замінити їх?"};
-static const char * const f10029[] = {"Не вдалося прочитати деякі композиції"};
-static const char * const f10030[] = {"Для деяких оновлень потрібно підтвердити заміну локальних файлів."};
-static const char * const f10031[] = {"Композицію вже додано"};
-static const char * const f10032[] = {"Композицію видалено"};
-static const char * const f10033[] = {"Композиції"};
-static const char * const f10034[] = {"Сортування"};
-static const char * const f10035[] = {"Звук"};
-static const char * const f10036[] = {"Звукові ефекти"};
-static const char * const f10037[] = {"Джерело"};
-static const char * const f10038[] = {"Перетворення частоти дискретизації Speex"};
-static const char * const f10039[] = {"Відтворити послідовно"};
-static const char * const f10040[] = {"Виберіть із цих рекомендацій або перегляньте інші плагіни."};
-static const char * const f10041[] = {"Гучність під час запуску"};
-static const char * const f10042[] = {"Крок %d з %d"};
-static const char * const f10043[] = {"Стерео (2 канали)"};
-static const char * const f10044[] = {"Застосовується попередній вибір"};
-static const char * const f10045[] = {"Операція триває. Не вимикайте плеєр і не повторюйте спробу."};
-static const char * const f10046[] = {"Зупинити"};
-static const char * const f10047[] = {"Зупинено"};
-static const char * const f10048[] = {"Зупинення..."};
-static const char * const f10049[] = {"Сховище"};
-static const char * const f10050[] = {"Потокове медіа"};
-static const char * const f10051[] = {"Якість потоку"};
-static const char * const f10052[] = {"Якість потоку: %s"};
-static const char * const f10053[] = {"Шлях підпапки задається від кореня SD-картки (наприклад, Music/Offline); порожнє значення означає корінь картки"};
-static const char * const f10054[] = {"Підпапка: корінь SD-картки"};
-static const char * const f10055[] = {"Subsonic"};
-static const char * const f10056[] = {"Неділя"};
-static const char * const f10057[] = {"Сон зі збереженням в ОЗП"};
-static const char * const f10058[] = {"Проведіть угору, щоб перейти на головний екран"};
-static const char * const f10059[] = {"Проведіть угору, щоб розблокувати"};
-static const char * const f10060[] = {"Система"};
-static const char * const f10061[] = {"Системні списки"};
-static const char * const f10062[] = {"T9"};
-static const char * const f10063[] = {"Перегляд TXT"};
-static const char * const f10064[] = {"Колір береться з обкладинки композиції, що відтворюється"};
-static const char * const f10065[] = {"Натисніть «Вимкнути» ще раз для підтвердження"};
-static const char * const f10066[] = {"Натисніть «Перезавантажити» ще раз для підтвердження"};
-static const char * const f10067[] = {"Цю назву не можна використовувати"};
-static const char * const f10068[] = {"SD-картка змінилася під час завантаження."};
-static const char * const f10069[] = {"SD-картка змінилася під час операції."};
-static const char * const f10070[] = {"SD-картка доступна лише для читання. Перевірте захист від запису."};
-static const char * const f10071[] = {"Завантаження не завершено. Перевірте Wi-Fi та спробуйте ще раз."};
-static const char * const f10072[] = {"Завантажений образ не пройшов перевірку й був видалений."};
-static const char * const f10073[] = {"Запис завантаженого оновлення недійсний. Завантажте оновлення ще раз."};
-static const char * const f10074[] = {"Завантажений емулятор не пройшов перевірку. Спробуйте ще раз."};
-static const char * const f10075[] = {"Тека емуляторів недоступна для запису."};
-static const char * const f10076[] = {"Шлях до прошивки задовгий."};
-static const char * const f10077[] = {"Гра неочікувано закрилася."};
-static const char * const f10078[] = {"Файл списку відтворення буде видалено. Музичні файли залишаться."};
-static const char * const f10079[] = {"Завантажений плагін не пройшов перевірку. Спробуйте ще раз."};
-static const char * const f10080[] = {"Швидка бура лисиця перестрибує 123"};
-static const char * const f10081[] = {"Для образу цього пристрою у випуску немає контрольної суми."};
-static const char * const f10082[] = {"Вибраний файл оновлення змінився. Виберіть його ще раз."};
-static const char * const f10083[] = {"Плагін стримінгу недоступний"};
-static const char * const f10084[] = {"Стримінговий сервіс не відповів"};
-static const char * const f10085[] = {"Файл оновлення змінився під час перевірки. Виберіть його ще раз."};
-static const char * const f10086[] = {"Файл оновлення на SD-картці змінився. Завантажте його ще раз."};
-static const char * const f10087[] = {"Теми"};
-static const char * const f10088[] = {"У цьому поданні немає елементів."};
-static const char * const f10089[] = {"Це може тривати кілька секунд."};
-static const char * const f10090[] = {"Цю дію неможливо скасувати."};
-static const char * const f10091[] = {"Цей пристрій тепер є звуковою картою USB"};
-static const char * const f10092[] = {"Пристрій приймає аудіо через Bluetooth"};
-static const char * const f10093[] = {"Для цього емулятора потрібна новіша версія плеєра."};
-static const char * const f10094[] = {"Ця папка порожня"};
-static const char * const f10095[] = {"Сюди входять власні дані плеєра (.compas або .plugins). Їх видалення чи переміщення може порушити роботу функцій, призвести до втрати налаштувань і встановлених плагінів та вимагати перезапуску."};
-static const char * const f10096[] = {"Це може тривати певний час"};
-static const char * const f10097[] = {"Усі дані на картці буде видалено без можливості відновлення."};
-static const char * const f10098[] = {"Для цього плагіна немає оновлень."};
-static const char * const f10099[] = {"Цей плагін уже встановлено з магазину."};
-static const char * const f10100[] = {"Цей плагін установлено не з магазину."};
-static const char * const f10101[] = {"Для цього плагіна потрібна новіша версія плеєра."};
-static const char * const f10102[] = {"Ця якість недоступна для цього треку"};
-static const char * const f10103[] = {"Образ цього випуску не відповідає контрольним сумам. Спробуйте ще раз після наступного щотижневого випуску."};
-static const char * const f10104[] = {"Цей трек захищено від копіювання"};
-static const char * const f10105[] = {"Цей трек недоступний"};
-static const char * const f10106[] = {"Цей тип файлу неможливо відкрити"};
-static const char * const f10107[] = {"Це оновлення вже не є найновішим випуском. Перевірте оновлення та завантажте найновіший образ."};
-static const char * const f10108[] = {"Це оновлення більше не відповідає найновішому випуску. Завантажте найновіший образ ще раз."};
-static const char * const f10109[] = {"Не вдалося запустити потік виконання"};
-static const char * const f10110[] = {"Четвер"};
-static const char * const f10111[] = {"Часовий пояс"};
-static const char * const f10112[] = {"Залишилося: %d:%02d"};
-static const char * const f10113[] = {"Залишилося: %d:%02d:%02d"};
-static const char * const f10114[] = {"Часовий пояс"};
-static const char * const f10115[] = {"Забарвити заставку"};
-static const char * const f10116[] = {"Фарбувати значки заголовка"};
-static const char * const f10117[] = {"Перемкнути екран"};
-static const char * const f10118[] = {"Забагато аудіоканалів"};
-static const char * const f10119[] = {"Установлено забагато плагінів. Видаліть один і спробуйте ще раз."};
-static const char * const f10120[] = {"Композиція"};
-static const char * const f10121[] = {"Композиція: %+.1f дБ"};
-static const char * const f10122[] = {"Композиція %d"};
-static const char * const f10123[] = {"Відомості про композицію ще недоступні. Не закривайте відтворення та перевірте ще раз."};
-static const char * const f10124[] = {"Композиції"};
-static const char * const f10125[] = {"Спробуйте просканувати ще раз або додайте приховану мережу."};
-static const char * const f10126[] = {"Вівторок"};
-static const char * const f10127[] = {"Вимкніть і знову ввімкніть Bluetooth, щоб застосувати зміни"};
-static const char * const f10128[] = {"Спочатку вимкніть ADB (Налаштування > Система > Режим USB), а потім увімкніть тут USB DAC."};
-static const char * const f10129[] = {"Вимкніть автоматичний режим, щоб налаштувати годинник"};
-static const char * const f10130[] = {"Вимкніть Bluetooth DAC, щоб відтворювати музику на цьому пристрої"};
-static const char * const f10131[] = {"Вимкніть режим DAC, щоб грати."};
-static const char * const f10132[] = {"Автоматично вимикати екран"};
-static const char * const f10133[] = {"Увімкніть Bluetooth, щоб побачити сполучені пристрої та пристрої поблизу."};
-static const char * const f10134[] = {"Спочатку ввімкніть Wi-Fi та під’єднайтеся"};
-static const char * const f10135[] = {"Увімкніть це, щоб побачити тут адресу."};
-static const char * const f10136[] = {"Увімкнення Wi-Fi"};
-static const char * const f10137[] = {"USB DAC"};
-static const char * const f10138[] = {"Режим USB DAC"};
-static const char * const f10139[] = {"Режим USB"};
-static const char * const f10140[] = {"Виявлено аудіопристрій USB"};
-static const char * const f10141[] = {"Вхід USB: %s · %u біт"};
-static const char * const f10142[] = {"Режим USB"};
-static const char * const f10143[] = {"USB-накопичувач зайнятий."};
-static const char * const f10144[] = {"Не вдалося завантажити елементи"};
-static const char * const f10145[] = {"Не вдалося прочитати папку (натисніть «Назад» і повторіть)"};
-static const char * const f10146[] = {"Недоступно"};
-static const char * const f10147[] = {"Неочікувана відповідь бібліотеки"};
-static const char * const f10148[] = {"Неочікувана відповідь GitHub"};
-static const char * const f10149[] = {"Неочікувана відповідь GitHub."};
-static const char * const f10150[] = {"Невідомий альбом"};
-static const char * const f10151[] = {"Невідомий виконавець"};
-static const char * const f10152[] = {"Невідомий кодек"};
-static const char * const f10153[] = {"Невідомий формат"};
-static const char * const f10154[] = {"Невідома частота"};
-static const char * const f10155[] = {"Непідтримуваний аудіоформат"};
-static const char * const f10156[] = {"Оновити"};
-static const char * const f10157[] = {"Оновити й перезавантажити"};
-static const char * const f10158[] = {"Оновити все"};
-static const char * const f10159[] = {"Оновити музичну базу даних"};
-static const char * const f10160[] = {"Оновіть музичну базу даних, щоб увімкнути це сортування альбомів"};
-static const char * const f10161[] = {"Доступне оновлення"};
-static const char * const f10162[] = {"Доступне оновлення · %s"};
-static const char * const f10163[] = {"Діагностичні дані оновлення потрібно зберігати на SD-картці."};
-static const char * const f10164[] = {"Помічник оновлення завершився з помилкою (%s, код %d). Див. .compas/ota/update.log."};
-static const char * const f10165[] = {"Оновити окремо"};
-static const char * const f10166[] = {"Оновити музичну базу даних?"};
-static const char * const f10167[] = {"Оновлення збережено. Під’єднайтеся до Wi-Fi, а потім виберіть Оновлення прошивки > Установити із SD-картки."};
-static const char * const f10168[] = {"Оновлює лише плеєр, зберігаючи поточні драйвери, ядро та завантажувач."};
-static const char * const f10169[] = {"Оновлює всю CompásOS. Прошивка містить завантажувач, плеєр, ядро та драйвери."};
-static const char * const f10170[] = {"Оновлюйте ці плагіни окремо"};
-static const char * const f10171[] = {"Оновити за допомогою %s?\nПристрій перезавантажиться в режим відновлення."};
-static const char * const f10172[] = {"Оновлення"};
-static const char * const f10173[] = {"Оновлення\nмузичної бази даних..."};
-static const char * const f10174[] = {"Оновлення емулятора"};
-static const char * const f10175[] = {"Оновлення плагінів"};
-static const char * const f10176[] = {"Перевернутий екран"};
-static const char * const f10177[] = {"Виберіть Налаштування > Оновити музичну базу даних"};
-static const char * const f10178[] = {"У корені SD-картки має бути звичайний файл %s."};
-static const char * const f10179[] = {"Списки користувача"};
-static const char * const f10180[] = {"Ім’я користувача"};
-static const char * const f10181[] = {"Ім’я користувача: %s"};
-static const char * const f10182[] = {"Використовує колір акценту для стандартної заставки."};
-static const char * const f10183[] = {"Використовує акцентний колір для значків поруч із заголовками екранів."};
-static const char * const f10184[] = {"Перевіряти сертифікат сервера"};
-static const char * const f10185[] = {"Версія %s · %s"};
-static const char * const f10186[] = {"Зменшити гучність"};
-static const char * const f10187[] = {"Блокування гучності (екран вимкнено)"};
-static const char * const f10188[] = {"Повзунок гучності"};
-static const char * const f10189[] = {"Збільшити гучність"};
-static const char * const f10190[] = {"Дочекайтеся завершення перемикання режиму USB та від’єднайте USB-накопичувач перед оновленням."};
-static const char * const f10191[] = {"Очікування потоку Bluetooth…"};
-static const char * const f10192[] = {"Очікування аудіо через USB…"};
-static const char * const f10193[] = {"Слабкий"};
-static const char * const f10194[] = {"Вебсервер зайнятий"};
-static const char * const f10195[] = {"Середа"};
-static const char * const f10196[] = {"Вітаємо у Compás"};
-static const char * const f10197[] = {"Коли цю функцію ввімкнено, пристрій видимий відправникам AirPlay у вашій мережі Wi-Fi. Передавайте аудіо з iPhone, iPad або Mac для відтворення через вихід цього пристрою."};
-static const char * const f10198[] = {"Коли цю функцію ввімкнено, пристрій видимий програмам-контролерам DLNA/UPnP у вашій мережі Wi-Fi. Надішліть композицію з такої програми для відтворення тут. Керування паузою, вимкненням звуку, гучністю та перемотуванням із програми не підтримується; після початку відтворення користуйтеся кнопками пристрою."};
-static const char * const f10199[] = {"Коли цю функцію ввімкнено, пристрій видимий для інших пристроїв Bluetooth і доступний для сполучення. Телефон або комп’ютер зможе передавати на нього аудіо для відтворення через його власний вихід — як на зовнішній ЦАП."};
-static const char * const f10200[] = {"Wi-Fi"};
-static const char * const f10201[] = {"Відомості про Wi-Fi"};
-static const char * const f10202[] = {"Пароль Wi-Fi"};
-static const char * const f10203[] = {"Не вдалося ввімкнути Wi-Fi"};
-static const char * const f10204[] = {"Не вдалося змінити стан Wi-Fi"};
-static const char * const f10205[] = {"Wi-Fi зайнятий"};
-static const char * const f10206[] = {"Wi-Fi ще запускається"};
-static const char * const f10207[] = {"Бездротовий зв’язок"};
-static const char * const f10208[] = {"Виконується..."};
-static const char * const f10209[] = {"Створіть плагін Lua на комп’ютері. Скопіюйте файл .lua до папки .plugins на SD-картці."};
-static const char * const f10210[] = {"Можна вибрати до 32 плагінів"};
-static const char * const f10211[] = {"Завантажується ваша бібліотека."};
-static const char * const f10212[] = {"Ваша музика"};
-static const char * const f10213[] = {"Налаштування плеєра"};
-static const char * const f10214[] = {"[Файл обрізано до %d КБ — показано лише початок]\n\n%s"};
-static const char * const f10215[] = {"github.com/Starnished66/compas-player"};
-static const char * const f10216[] = {"невідомо"};
+static const char * const f9189[] = {"%+.2f дБ"};
+static const char * const f9190[] = {"%.0f Гц"};
+static const char * const f9191[] = {"%d год"};
+static const char * const f9192[] = {"%d год %d хв"};
+static const char * const f9193[] = {"%d хв"};
+static const char * const f9194[] = {"Залишилося %d хв"};
+static const char * const f9195[] = {"Вибрано %d елемент", "Вибрано %d елементи", "Вибрано %d елементів"};
+static const char * const f9196[] = {"%d композиція", "%d композиції", "%d композицій"};
+static const char * const f9197[] = {"%d композиція", "%d композиції", "%d композицій"};
+static const char * const f9198[] = {"%dм"};
+static const char * const f9199[] = {"%lld композиція", "%lld композиції", "%lld композицій"};
+static const char * const f9200[] = {"%llu байт"};
+static const char * const f9201[] = {"%s (поточний)"};
+static const char * const f9202[] = {"%s · Не завантажено"};
+static const char * const f9203[] = {"%s · Не завантажено: досягнуто ліміту"};
+static const char * const f9204[] = {"%u каналів"};
+static const char * const f9205[] = {"Не вдалося виконати %u елемент", "Не вдалося виконати %u елементи", "Не вдалося виконати %u елементів"};
+static const char * const f9206[] = {"%u з %u\n%s"};
+static const char * const f9207[] = {"+ Новий список"};
+static const char * const f9208[] = {"0 дБ"};
+static const char * const f9209[] = {"24-годинний формат"};
+static const char * const f9210[] = {"Еталон 48 кГц"};
+static const char * const f9211[] = {"Оновлення прошивки вже виконується."};
+static const char * const f9212[] = {"Локальний файл плагіна буде замінено. Підтвердьте дію."};
+static const char * const f9213[] = {"Доступний новіший випуск або випуск змінився. Перед завантаженням перевірте наявність оновлень ще раз."};
+static const char * const f9214[] = {"Завантаження плагіна не пройшло перевірку. Спробуйте ще раз."};
+static const char * const f9215[] = {"Операція з плагіном уже виконується"};
+static const char * const f9216[] = {"Немає потрібного помічника режиму відновлення. Підготовку оновлення зупинено."};
+static const char * const f9217[] = {"ADB"};
+static const char * const f9218[] = {"ДП"};
+static const char * const f9219[] = {"Про програму"};
+static const char * const f9220[] = {"Акцентний колір"};
+static const char * const f9221[] = {"Параметри акцентного кольору"};
+static const char * const f9222[] = {"Додайте файли .txt до папки Books, а потім оновіть бібліотеку."};
+static const char * const f9223[] = {"Додати випадкову композицію до черги"};
+static const char * const f9224[] = {"Додати альбом до черги"};
+static const char * const f9225[] = {"Додати приховану мережу"};
+static const char * const f9226[] = {"Додавайте композиції через їхнє меню."};
+static const char * const f9227[] = {"Додати до списку"};
+static const char * const f9228[] = {"Додати до черги"};
+static const char * const f9229[] = {"До черги додано %d композицію", "До черги додано %d композиції", "До черги додано %d композицій"};
+static const char * const f9230[] = {"Папку додано до списку відтворення."};
+static const char * const f9231[] = {"Додано до списку відтворення"};
+static const char * const f9232[] = {"Додавання папки до списку відтворення…"};
+static const char * const f9233[] = {"Додавання папки до черги…"};
+static const char * const f9234[] = {"Додаткові інструменти"};
+static const char * const f9235[] = {"Додатково"};
+static const char * const f9236[] = {"Африка"};
+static const char * const f9237[] = {"AirPlay"};
+static const char * const f9238[] = {"AirPlay несподівано зупинився"};
+static const char * const f9239[] = {"Альбом: %+.1f дБ"};
+static const char * const f9240[] = {"Виконавець альбому"};
+static const char * const f9241[] = {"Виконавець альбому — Альбом"};
+static const char * const f9242[] = {"Виконавець альбому / Альбом"};
+static const char * const f9243[] = {"Альбом недоступний"};
+static const char * const f9244[] = {"Альбоми"};
+static const char * const f9245[] = {"Усі композиції"};
+static const char * const f9246[] = {"Усі видимі мережі вже збережено."};
+static const char * const f9247[] = {"Уже встановлено"};
+static const char * const f9248[] = {"Америка"};
+static const char * const f9249[] = {"Операція з емулятором уже виконується"};
+static const char * const f9250[] = {"Елемент із такою назвою вже існує"};
+static const char * const f9251[] = {"Оновлення вже виконується"};
+static const char * const f9252[] = {"Оновлення вже виконується."};
+static const char * const f9253[] = {"Виконується оновлення. Зачекайте."};
+static const char * const f9254[] = {"Швидкість анімації"};
+static const char * const f9255[] = {"Інша операція з файлами ще виконується"};
+static const char * const f9256[] = {"Антарктида"};
+static const char * const f9257[] = {"Вигляд"};
+static const char * const f9258[] = {"Застосовано %+.1f дБ"};
+static const char * const f9259[] = {"Застосовується під час наступного запуску програми"};
+static const char * const f9260[] = {"Застосовується до нових черг потокового відтворення"};
+static const char * const f9261[] = {"Застосування мови. Це може тривати певний час"};
+static const char * const f9262[] = {"Застосування макета. Це може тривати певний час"};
+static const char * const f9263[] = {"Для повторного з’єднання програмам і браузерам, що використовують поточний PIN-код, знадобиться новий."};
+static const char * const f9264[] = {"Квітень"};
+static const char * const f9265[] = {"Арктика"};
+static const char * const f9266[] = {"Зображення виконавців"};
+static const char * const f9267[] = {"Виконавці"};
+static const char * const f9268[] = {"Азія"};
+static const char * const f9269[] = {"Атлантика"};
+static const char * const f9270[] = {"Аудіо"};
+static const char * const f9271[] = {"Не вдалося декодувати аудіо"};
+static const char * const f9272[] = {"Звук досі відтворюється; не вдається запустити гру."};
+static const char * const f9273[] = {"Помилка виведення звуку"};
+static const char * const f9274[] = {"Серпень"};
+static const char * const f9275[] = {"Австралія"};
+static const char * const f9276[] = {"Автоматично"};
+static const char * const f9277[] = {"Автовідновлення"};
+static const char * const f9278[] = {"AutoEQ"};
+static const char * const f9279[] = {"Автоматично"};
+static const char * const f9280[] = {"Автоматично (44,1 кГц)"};
+static const char * const f9281[] = {"Автоматично переходити в режим очікування"};
+static const char * const f9282[] = {"Доступно"};
+static const char * const f9283[] = {"Доступні пристрої"};
+static const char * const f9284[] = {"Доступні мережі"};
+static const char * const f9285[] = {"Доступно · %s"};
+static const char * const f9286[] = {"Смуга %d / %d"};
+static const char * const f9287[] = {"Параметри смуги"};
+static const char * const f9288[] = {"Відсоток заряду"};
+static const char * const f9289[] = {"Бітрейт"};
+static const char * const f9290[] = {"Bluetooth"};
+static const char * const f9291[] = {"Bluetooth DAC"};
+static const char * const f9292[] = {"Режим Bluetooth DAC"};
+static const char * const f9293[] = {"Синхронізація гучності Bluetooth"};
+static const char * const f9294[] = {"Bluetooth вимкнено"};
+static const char * const f9295[] = {"Запуск служби дистанційного керування Bluetooth…"};
+static const char * const f9296[] = {"Служба дистанційного керування Bluetooth недоступна; повторна спроба."};
+static const char * const f9297[] = {"Bluetooth: дистанційне керування Compas"};
+static const char * const f9298[] = {"Bluetooth: не вдалося зареєструвати; повторна спроба"};
+static const char * const f9299[] = {"Bluetooth: очікування реєстрації служби"};
+static const char * const f9300[] = {"Книги"};
+static const char * const f9301[] = {"Книги оновлено"};
+static const char * const f9302[] = {"Створити"};
+static const char * const f9303[] = {"Створити її зараз? Для великих бібліотек це може тривати кілька хвилин."};
+static const char * const f9304[] = {"Кнопка"};
+static const char * const f9305[] = {"Призначення кнопок"};
+static const char * const f9306[] = {"Кнопки та пульт"};
+static const char * const f9307[] = {"Buy Me a Coffee"};
+static const char * const f9308[] = {"Автор: %s"};
+static const char * const f9309[] = {"Скасувати"};
+static const char * const f9310[] = {"Не вдалося додати папку: буде перевищено ліміт пам’яті черги."};
+static const char * const f9311[] = {"Не вдалося перевірити можливість запису до сховища плагінів."};
+static const char * const f9312[] = {"Не вдалося створити теку емуляторів."};
+static const char * const f9313[] = {"Не вдалося створити каталог журналу оновлення."};
+static const char * const f9314[] = {"Не вдалося видалити список відтворення"};
+static const char * const f9315[] = {"Не вдалося завантажити композиції альбому"};
+static const char * const f9316[] = {"Не вдалося перемістити цей запис"};
+static const char * const f9317[] = {"Не вдалося відтворити папку"};
+static const char * const f9318[] = {"Не вдалося відтворити цю папку."};
+static const char * const f9319[] = {"Не вдалося з’єднатися з GitHub. Перевірте Wi-Fi."};
+static const char * const f9320[] = {"Не вдалося прочитати список відтворення"};
+static const char * const f9321[] = {"Не вдалося прочитати SD-картку."};
+static const char * const f9322[] = {"Не вдалося прочитати вибраний файл оновлення."};
+static const char * const f9323[] = {"Не вдалося прочитати файл оновлення на SD-картці. Перевірте картку та спробуйте ще раз."};
+static const char * const f9324[] = {"Не вдалося прочитати запис оновлення на SD-картці. Перевірте картку та спробуйте ще раз."};
+static const char * const f9325[] = {"Не вдалося прочитати стан помічника оновлення: %s"};
+static const char * const f9326[] = {"Не вдалося видалити запис"};
+static const char * const f9327[] = {"Не вдалося перейменувати: назва недійсна або файл уже існує"};
+static const char * const f9328[] = {"Не вдалося змінити порядок у списку відтворення"};
+static const char * const f9329[] = {"Не вдалося безпечно отримати доступ до блока прапорця відновлення."};
+static const char * const f9330[] = {"Не вдалося зберегти список відтворення"};
+static const char * const f9331[] = {"Не вдалося зберегти діагностичні дані оновлення на SD-картці."};
+static const char * const f9332[] = {"Не вдалося зберегти діагностичні дані. Підготовку оновлення зупинено."};
+static const char * const f9333[] = {"Не вдалося зберегти: є недійсні елементи або потоки"};
+static const char * const f9334[] = {"Не вдалося розпочати операцію з папкою."};
+static const char * const f9335[] = {"Не вдалося запустити чергу"};
+static const char * const f9336[] = {"Режим автомобіля"};
+static const char * const f9337[] = {"Гучність у режимі автомобіля"};
+static const char * const f9338[] = {"Режим автомобіля вимкнено."};
+static const char * const f9339[] = {"Канали"};
+static const char * const f9340[] = {"Обмеження заряду (85%)"};
+static const char * const f9341[] = {"Перед оновленням зарядіть пристрій щонайменше до %d%% або під’єднайте живлення."};
+static const char * const f9342[] = {"Перед оновленням зарядіть пристрій щонайменше до 30%% або під’єднайте живлення."};
+static const char * const f9343[] = {"Заряджання"};
+static const char * const f9344[] = {"Перевірити оновлення онлайн"};
+static const char * const f9345[] = {"Переконайтеся, що Wi-Fi увімкнено, і проскануйте ще раз."};
+static const char * const f9346[] = {"Перевірте SD-картку та від’єднайте USB-накопичувач перед грою."};
+static const char * const f9347[] = {"Перевірте перемикач бездротового зв’язку та спробуйте ще раз."};
+static const char * const f9348[] = {"Перевірка оновлень"};
+static const char * const f9349[] = {"Перевірка SD-картки. Це може тривати певний час"};
+static const char * const f9350[] = {"Перевірка файла на SD-картці"};
+static const char * const f9351[] = {"Виберіть мову"};
+static const char * const f9352[] = {"Вибрати плагіни"};
+static const char * const f9353[] = {"Виберіть мову плеєра."};
+static const char * const f9354[] = {"Виберіть часовий пояс"};
+static const char * const f9355[] = {"Виберіть дію в режимі очікування:"};
+static const char * const f9356[] = {"Очистити чергу"};
+static const char * const f9357[] = {"Годинник"};
+static const char * const f9358[] = {"За годинниковою стрілкою"};
+static const char * const f9359[] = {"Закрити"};
+static const char * const f9360[] = {"Зупинення\nвебсервера..."};
+static const char * const f9361[] = {"Кодек"};
+static const char * const f9362[] = {"Сумарна характеристика (дБ)"};
+static const char * const f9363[] = {"Сумарна характеристика (дБ) · еквалайзер вимкнено"};
+static const char * const f9364[] = {"Compás Player"};
+static const char * const f9365[] = {"Під’єднатися"};
+static const char * const f9366[] = {"Під’єднатися й переглянути"};
+static const char * const f9367[] = {"Під’єднайте пристрій, щоб побачити підтримувані частоти"};
+static const char * const f9368[] = {"Під’єднайтеся через Wi-Fi або Bluetooth, щоб бачити поточне відтворення, керувати ним і переглядати бібліотеку. Введіть цей PIN-код у програмі чи браузері на запит; для Bluetooth також потрібне сполучення."};
+static const char * const f9369[] = {"Під’єднатися до Wi-Fi"};
+static const char * const f9370[] = {"Спочатку під’єднайтеся до Wi-Fi"};
+static const char * const f9371[] = {"Під’єднайтеся до Wi-Fi для потокового відтворення, оновлень і онлайн-служб."};
+static const char * const f9372[] = {"Перш ніж продовжити, під’єднайтеся до мережі Wi-Fi."};
+static const char * const f9373[] = {"Під’єднайтеся до мережі, щоб завантажити плагіни."};
+static const char * const f9374[] = {"Під’єднайтеся будь-яким доступним способом:"};
+static const char * const f9375[] = {"Під’єднано"};
+static const char * const f9376[] = {"З’єднання"};
+static const char * const f9377[] = {"З’єднання з"};
+static const char * const f9378[] = {"З’єднання із сервером..."};
+static const char * const f9379[] = {"PIN-код з’єднання"};
+static const char * const f9380[] = {"Не вдалося під’єднатися"};
+static const char * const f9381[] = {"Час очікування з’єднання минув (30 с)"};
+static const char * const f9382[] = {"Контейнер"};
+static const char * const f9383[] = {"Продовжити"};
+static const char * const f9384[] = {"Продовжити налаштування"};
+static const char * const f9385[] = {"Копіювати"};
+static const char * const f9386[] = {"Скопіюйте ігри до теки %s на SD-картці."};
+static const char * const f9387[] = {"Не вдалося застосувати розмір шрифту"};
+static const char * const f9388[] = {"Не вдалося застосувати розмір тексту пісень"};
+static const char * const f9389[] = {"Не вдалося застосувати тему"};
+static const char * const f9390[] = {"Не вдалося створити папку"};
+static const char * const f9391[] = {"Не вдалося завантажити контрольні суми випуску."};
+static const char * const f9392[] = {"Не вдалося перейти в режим відновлення."};
+static const char * const f9393[] = {"Не вдалося створити новий PIN-код"};
+static const char * const f9394[] = {"Не вдалося отримати посилання на потік"};
+static const char * const f9395[] = {"Не вдалося встановити плагін на SD-картку."};
+static const char * const f9396[] = {"Не вдалося встановити емулятор."};
+static const char * const f9397[] = {"Не вдалося встановити плагін на SD-картку."};
+static const char * const f9398[] = {"Не вдалося завантажити фото екрана блокування"};
+static const char * const f9399[] = {"Не вдалося завантажити каталог плагінів."};
+static const char * const f9400[] = {"Не вдалося завантажити каталог плагінів. Натисніть «Більше», щоб повторити спробу."};
+static const char * const f9401[] = {"Не вдалося перемістити інші файли .upt убік на SD-картці."};
+static const char * const f9402[] = {"Не вдалося відкрити цей файл"};
+static const char * const f9403[] = {"Не вдалося відкрити цей файл."};
+static const char * const f9404[] = {"Не вдалося записати оновлення на SD-картку."};
+static const char * const f9405[] = {"Не вдалося підготувати видалення плагіна."};
+static const char * const f9406[] = {"Не вдалося підготувати помічник оновлення: %s"};
+static const char * const f9407[] = {"Не вдалося підключитися до стримінгового сервісу"};
+static const char * const f9408[] = {"Не вдалося прочитати список установлених плагінів."};
+static const char * const f9409[] = {"Не вдалося прочитати папку Books"};
+static const char * const f9410[] = {"Не вдалося прочитати список емуляторів із GitHub."};
+static const char * const f9411[] = {"Не вдалося прочитати список плагінів із GitHub."};
+static const char * const f9412[] = {"Не вдалося прочитати список випусків із GitHub."};
+static const char * const f9413[] = {"Не вдалося зберегти відомості про перевірене оновлення на SD-картці."};
+static const char * const f9414[] = {"Не вдалося оновити список книг"};
+static const char * const f9415[] = {"Не вдалося перезавантажити обкладинку"};
+static const char * const f9416[] = {"Не вдалося видалити файл плагіна."};
+static const char * const f9417[] = {"Не вдалося видалити емулятор."};
+static const char * const f9418[] = {"Не вдалося перейменувати"};
+static const char * const f9419[] = {"Не вдалося відновити SD-картку"};
+static const char * const f9420[] = {"Не вдалося замінити файли плагіна."};
+static const char * const f9421[] = {"Не вдалося зберегти кодек Bluetooth"};
+static const char * const f9422[] = {"Не вдалося перемкнути режим USB"};
+static const char * const f9423[] = {"Не вдалося розпочати оновлення каталогу плагінів."};
+static const char * const f9424[] = {"Не вдалося розпочати завантаження"};
+static const char * const f9425[] = {"Не вдалося розпочати завантаження."};
+static const char * const f9426[] = {"Не вдалося розпочати операцію з емулятором"};
+static const char * const f9427[] = {"Не вдалося запустити гру."};
+static const char * const f9428[] = {"Не вдалося розпочати встановлення."};
+static const char * const f9429[] = {"Не вдалося розпочати сканування бібліотеки. Спробуйте ще раз."};
+static const char * const f9430[] = {"Не вдалося розпочати операцію з плагіном"};
+static const char * const f9431[] = {"Не вдалося розпочати операцію з плагіном."};
+static const char * const f9432[] = {"Не вдалося розпочати оновлення списку плагінів"};
+static const char * const f9433[] = {"Не вдалося розпочати оновлення списку плагінів."};
+static const char * const f9434[] = {"Не вдалося розпочати оновлення плагіна."};
+static const char * const f9435[] = {"Не вдалося розпочати перевірку оновлень."};
+static const char * const f9436[] = {"Не вдалося розпочати оновлення."};
+static const char * const f9437[] = {"Не вдалося запустити помічник оновлення: %s"};
+static const char * const f9438[] = {"Не вдалося оновити запис про встановлений плагін."};
+static const char * const f9439[] = {"Не вдалося перевірити контрольні суми останнього випуску."};
+static const char * const f9440[] = {"Не вдалося під’єднатися до мережі Wi-Fi"};
+static const char * const f9441[] = {"Не вдалося прочитати цей файл .cue"};
+static const char * const f9442[] = {"Не вдалося зберегти — зміни плагіна не застосовано"};
+static const char * const f9443[] = {"Проти годинникової стрілки"};
+static const char * const f9444[] = {"Обкладинку перезавантажено"};
+static const char * const f9445[] = {"Обкладинки оновлено"};
+static const char * const f9446[] = {"Створіть список вище або скопіюйте його до папки Playlists на SD-картці."};
+static const char * const f9447[] = {"Створити плагін"};
+static const char * const f9448[] = {"Створити тему"};
+static const char * const f9449[] = {"Створення плагінів і тем"};
+static const char * const f9450[] = {"Посібники для розробників"};
+static const char * const f9451[] = {"Плавний перехід"};
+static const char * const f9452[] = {"Кросфід (від 0 до 100)"};
+static const char * const f9453[] = {"Кросфід: %d%%"};
+static const char * const f9454[] = {"Кросфід: вимкнено"};
+static const char * const f9455[] = {"Власний"};
+static const char * const f9456[] = {"Власний колір"};
+static const char * const f9457[] = {"Власні шрифти впливають лише на латиницю."};
+static const char * const f9458[] = {"Шлях ЦАП: %s · %u біт"};
+static const char * const f9459[] = {"DLNA"};
+static const char * const f9460[] = {"Рендерер DLNA"};
+static const char * const f9461[] = {"Налаштування DNS"};
+static const char * const f9462[] = {"Грудень"};
+static const char * const f9463[] = {"Типово"};
+static const char * const f9464[] = {"Типовий (вбудований)"};
+static const char * const f9465[] = {"Типова дія"};
+static const char * const f9466[] = {"Видалити"};
+static const char * const f9467[] = {"Видалити %d елемент?", "Видалити %d елементи?", "Видалити %d елементів?"};
+static const char * const f9468[] = {"Видалити %s?\nЦю дію неможливо скасувати."};
+static const char * const f9469[] = {"Видалити список"};
+static const char * const f9470[] = {"Видалити список відтворення?"};
+static const char * const f9471[] = {"Видалити цей профіль?"};
+static const char * const f9472[] = {"Для розробників"};
+static const char * const f9473[] = {"Затемнювати екран перед вимкненням"};
+static const char * const f9474[] = {"Вимкнено"};
+static const char * const f9475[] = {"Диск %d"};
+static const char * const f9476[] = {"Диск %d / композиція %d"};
+static const char * const f9477[] = {"Від’єднатися"};
+static const char * const f9478[] = {"Спочатку від’єднайте USB-накопичувач"};
+static const char * const f9479[] = {"Перед зміною файлів від’єднайте USB-накопичувач від комп’ютера."};
+static const char * const f9480[] = {"Від’єднайте USB-накопичувач від комп’ютера, перш ніж змінювати емулятори."};
+static const char * const f9481[] = {"Перед зміною плагінів від’єднайте USB-накопичувач від комп’ютера."};
+static const char * const f9482[] = {"Закрити"};
+static const char * const f9483[] = {"Дисплей"};
+static const char * const f9484[] = {"Нічого не робити"};
+static const char * const f9485[] = {"Готово"};
+static const char * const f9486[] = {"Готово. Оновіть музичну базу даних, щоб побачити зміни в бібліотеці."};
+static const char * const f9487[] = {"Подвійне"};
+static const char * const f9488[] = {"Подвійне натискання"};
+static const char * const f9489[] = {"Завантажити"};
+static const char * const f9490[] = {"Завантажити «%s»?"};
+static const char * const f9491[] = {"Завантажити профілі"};
+static const char * const f9492[] = {"Налаштування завантаження"};
+static const char * const f9493[] = {"Завантажте емулятор, щоб грати."};
+static const char * const f9494[] = {"Завантажити емулятори"};
+static const char * const f9495[] = {"Завантажити всі альбоми виконавця «%s»?"};
+static const char * const f9496[] = {"Помилка завантаження"};
+static const char * const f9497[] = {"Папка завантаження: %s"};
+static const char * const f9498[] = {"Папка завантаження: корінь SD-картки"};
+static const char * const f9499[] = {"Завантажити макети"};
+static const char * const f9500[] = {"Завантажити профілі"};
+static const char * const f9501[] = {"Налаштування завантаження"};
+static const char * const f9502[] = {"Підпапка завантаження"};
+static const char * const f9503[] = {"Завантажити теми"};
+static const char * const f9504[] = {"Завантаження"};
+static const char * const f9505[] = {"Завантаження\n%s..."};
+static const char * const f9506[] = {"Завантаження та встановлення плагінів %zu/%zu"};
+static const char * const f9507[] = {"Завантаження оновлення"};
+static const char * const f9508[] = {"Тривалість"};
+static const char * const f9509[] = {"Еквалайзер"};
+static const char * const f9510[] = {"Крива еквалайзера"};
+static const char * const f9511[] = {"Змінити"};
+static const char * const f9512[] = {"Змінити / Готово"};
+static const char * const f9513[] = {"Відредагуйте текстовий файл .theme на комп’ютері. Скопіюйте його до папки Themes на SD-картці, а потім виберіть у меню Більше > Теми."};
+static const char * const f9514[] = {"Не вдалося виконати операцію з емулятором"};
+static const char * const f9515[] = {"Магазин емуляторів зайнятий."};
+static const char * const f9516[] = {"Емулятори"};
+static const char * const f9517[] = {"Увімкнути Bluetooth DAC"};
+static const char * const f9518[] = {"Щоб увімкнути режим BT DAC, активуйте Bluetooth у налаштуваннях"};
+static const char * const f9519[] = {"Увімкнути таймер сну"};
+static const char * const f9520[] = {"Увімкніть Wi-Fi або Bluetooth, щоб під’єднатися."};
+static const char * const f9521[] = {"Увімкніть Wi-Fi для доступу"};
+static const char * const f9522[] = {"Увімкнути смугу"};
+static const char * const f9523[] = {"Увімкнути журнал налагодження"};
+static const char * const f9524[] = {"Увімкнено"};
+static const char * const f9525[] = {"Еквалайзер"};
+static const char * const f9526[] = {"Стерти й відформатувати SD-картку?"};
+static const char * const f9527[] = {"Європа"};
+static const char * const f9528[] = {"Чудовий"};
+static const char * const f9529[] = {"Вийдіть із режиму USB DAC, щоб відтворювати музику на цьому пристрої"};
+static const char * const f9530[] = {"Оновлення розширень"};
+static const char * const f9531[] = {"Скидання до заводських налаштувань"};
+static const char * const f9532[] = {"Не вдалося встановити плагіни:\n"};
+static const char * const f9533[] = {"Не вдалося додати папку до списку відтворення."};
+static const char * const f9534[] = {"Не вдалося додати до списку відтворення"};
+static const char * const f9535[] = {"Не вдалося застосувати часовий пояс"};
+static const char * const f9536[] = {"Не вдалося під’єднатися до сервера"};
+static const char * const f9537[] = {"Не вдалося створити список відтворення"};
+static const char * const f9538[] = {"Не вдалося видалити профіль"};
+static const char * const f9539[] = {"Не вдалося ввімкнути AirPlay"};
+static const char * const f9540[] = {"Не вдалося завантажити виконавців"};
+static const char * const f9541[] = {"Не вдалося завантажити виконавців: %s"};
+static const char * const f9542[] = {"Не вдалося завантажити шрифт. Перевірте формат і доступну пам’ять."};
+static const char * const f9543[] = {"Не вдалося завантажити із сервера"};
+static const char * const f9544[] = {"Не вдалося завантажити профіль"};
+static const char * const f9545[] = {"Не вдалося перейменувати профіль"};
+static const char * const f9546[] = {"Не вдалося зберегти профіль"};
+static const char * const f9547[] = {"Не вдалося розпочати з’єднання"};
+static const char * const f9548[] = {"Не вдалося перемкнутися на %s"};
+static const char * const f9549[] = {"Не вдалося перемкнути Bluetooth"};
+static const char * const f9550[] = {"Посередній"};
+static const char * const f9551[] = {"Обране"};
+static const char * const f9552[] = {"Лютий"};
+static const char * const f9553[] = {"Файловий менеджер"};
+static const char * const f9554[] = {"Шлях до файла задовгий."};
+static const char * const f9555[] = {"Розмір файла"};
+static const char * const f9556[] = {"Файл недоступний"};
+static const char * const f9557[] = {"Файли"};
+static const char * const f9558[] = {"Файли (папки спочатку)"};
+static const char * const f9559[] = {"Файли на картці могли змінитися."};
+static const char * const f9560[] = {"Для файлів використовується дата зміни. Для альбомів — дата додавання найновішої композиції; альбоми без року випуску виводяться останніми. Оновіть музичну базу даних, щоб зчитати роки з наявних файлів."};
+static const char * const f9561[] = {"Тип фільтра"};
+static const char * const f9562[] = {"Оновлення прошивки"};
+static const char * const f9563[] = {"Доступний випуск прошивки %s.\nУстановлено: %s\n\nЗавантажити зараз? Це може тривати певний час."};
+static const char * const f9564[] = {"Випуск прошивки %s завантажено й перевірено.\n\nУстановити зараз? Пристрій перезавантажиться в режим відновлення для прошивання. Не вимикайте його до перезапуску."};
+static const char * const f9565[] = {"Рівна"};
+static const char * const f9566[] = {"Операція з папкою ще виконується."};
+static const char * const f9567[] = {"Папка завелика, щоб додати її до черги."};
+static const char * const f9568[] = {"Структура папок завантажених альбомів"};
+static const char * const f9569[] = {"Папка завелика для індексації (натисніть «Назад»)"};
+static const char * const f9570[] = {"Шрифт"};
+static const char * const f9571[] = {"Розмір шрифту"};
+static const char * const f9572[] = {"Вибір шрифту більше недоступний"};
+static const char * const f9573[] = {"Забути"};
+static const char * const f9574[] = {"Форматувати"};
+static const char * const f9575[] = {"Форматувати SD-картку"};
+static const char * const f9576[] = {"Форматування\nSD-картки..."};
+static const char * const f9577[] = {"Частота"};
+static const char * const f9578[] = {"Частота (Гц, від 20 до 20000)"};
+static const char * const f9579[] = {"П’ятниця"};
+static const char * const f9580[] = {"З обкладинки альбому"};
+static const char * const f9581[] = {"З обкладинки (немає обкладинки, використовується власний колір)"};
+static const char * const f9582[] = {"Підсилення"};
+static const char * const f9583[] = {"Підсилення (дБ, від -12 до 12)"};
+static const char * const f9584[] = {"Режим підсилення"};
+static const char * const f9585[] = {"Ігри працюють лише на програвачі."};
+static const char * const f9586[] = {"Без пауз"};
+static const char * const f9587[] = {"Шлюз: %s"};
+static const char * const f9588[] = {"Створити"};
+static const char * const f9589[] = {"Створити новий PIN-код?"};
+static const char * const f9590[] = {"Жанри"};
+static const char * const f9591[] = {"Жести та орієнтація"};
+static const char * const f9592[] = {"Почати"};
+static const char * const f9593[] = {"GitHub не відповів вчасно. Спробуйте ще раз."};
+static const char * const f9594[] = {"GitHub обмежує кількість запитів. Спробуйте пізніше."};
+static const char * const f9595[] = {"GitHub повернув HTTP %d."};
+static const char * const f9596[] = {"В останньому випуску GitHub немає справного образу %s та контрольної суми."};
+static const char * const f9597[] = {"Останній випуск GitHub не є підтримуваною прошивкою."};
+static const char * const f9598[] = {"Поверніться назад і виберіть «Нове з’єднання», щоб додати сервер."};
+static const char * const f9599[] = {"Перейти до сторінки"};
+static const char * const f9600[] = {"Добрий"};
+static const char * const f9601[] = {"Посібник: docs/CREATING.md"};
+static const char * const f9602[] = {"Гарнітура може від’єднатися; можливо, доведеться під’єднати її вручну"};
+static const char * const f9603[] = {"Приховати верхню панель плеєра/текстів пісень"};
+static const char * const f9604[] = {"Приховати пристрої без назви"};
+static const char * const f9605[] = {"Приховати приховані файли"};
+static const char * const f9606[] = {"Висока"};
+static const char * const f9607[] = {"Висока (320 кбіт/с)"};
+static const char * const f9608[] = {"Ім’я вузла"};
+static const char * const f9609[] = {"Ім’я вузла може містити лише літери, цифри й дефіси"};
+static const char * const f9610[] = {"IP-адреса: %s"};
+static const char * const f9611[] = {"Вимкнення в режимі очікування"};
+static const char * const f9612[] = {"Час до очікування:"};
+static const char * const f9613[] = {"Імпорт"};
+static const char * const f9614[] = {"Імпорт через Wi-Fi"};
+static const char * const f9615[] = {"Пульт на кабелі"};
+static const char * const f9616[] = {"Індійський океан"};
+static const char * const f9617[] = {"Інформація"};
+static const char * const f9618[] = {"Вставте SD-картку, щоб змінити емулятори."};
+static const char * const f9619[] = {"Вставте SD-картку, щоб змінити плагіни."};
+static const char * const f9620[] = {"Вставте SD-картку, щоб завантажити оновлення."};
+static const char * const f9621[] = {"Вставте SD-картку, щоб установити плагіни."};
+static const char * const f9622[] = {"Вставте SD-картку, щоб видалити плагіни."};
+static const char * const f9623[] = {"Вставте SD-картку, щоб сканувати музику, або вимкніть «Сканувати музику»."};
+static const char * const f9624[] = {"Вставте SD-картку, щоб оновити плагіни."};
+static const char * const f9625[] = {"Вставте SD-картку з музичними файлами. Compás Player просканує її та створить бібліотеку."};
+static const char * const f9626[] = {"Установити"};
+static const char * const f9627[] = {"Установити й перезавантажити"};
+static const char * const f9628[] = {"Установити із SD-картки"};
+static const char * const f9629[] = {"Установлено"};
+static const char * const f9630[] = {"Установлено вручну"};
+static const char * const f9631[] = {"Установлена версія: %s\nДоступний випуск: %s\n\nУсе одно завантажити й установити повторно? Це може тривати певний час."};
+static const char * const f9632[] = {"Установлено · %s"};
+static const char * const f9633[] = {"Встановлення емулятора"};
+static const char * const f9634[] = {"Встановлення плагіна"};
+static const char * const f9635[] = {"Недійсна папка завантаження"};
+static const char * const f9636[] = {"Недійсна назва папки завантаження"};
+static const char * const f9637[] = {"Недійсна назва профілю"};
+static const char * const f9638[] = {"Неприпустимий шлях до оновлення."};
+static const char * const f9639[] = {"Не вдалося її завантажити. Створити заново?"};
+static const char * const f9640[] = {"Можливо, на картці немає таблиці розділів або використано файлову систему, яку плеєр не підтримує. Форматування видалить усі дані й підготує картку для плеєра."};
+static const char * const f9641[] = {"Його налаштування залишаться на картці."};
+static const char * const f9642[] = {"Січень"};
+static const char * const f9643[] = {"Липень"};
+static const char * const f9644[] = {"Червень"};
+static const char * const f9645[] = {"Призначте кнопці дію «Перемкнути екран» або «Меню живлення»"};
+static const char * const f9646[] = {"Клавіатура"};
+static const char * const f9647[] = {"Якість LDAC"};
+static const char * const f9648[] = {"Стандарт LDAC"};
+static const char * const f9649[] = {"Світлодіод заряджання"};
+static const char * const f9650[] = {"Мова"};
+static const char * const f9651[] = {"Великий"};
+static const char * const f9652[] = {"Пізніше"};
+static const char * const f9653[] = {"Запускати з фіксованою гучністю"};
+static const char * const f9654[] = {"Макет"};
+static const char * const f9655[] = {"Вийти"};
+static const char * const f9656[] = {"Вийти з режиму Bluetooth DAC?"};
+static const char * const f9657[] = {"Вийти з режиму USB DAC?"};
+static const char * const f9658[] = {"Вийдіть із цього подання й спробуйте ще раз."};
+static const char * const f9659[] = {"Бібліотека"};
+static const char * const f9660[] = {"Бібліотека змінилася. Відкрийте альбом ще раз."};
+static const char * const f9661[] = {"Бібліотека зайнята"};
+static const char * const f9662[] = {"Бібліотеку завантажено"};
+static const char * const f9663[] = {"Бібліотеку відновлено й збережено"};
+static const char * const f9664[] = {"Бібліотеку відновлено й збережено, але деякі папки не вдалося прочитати"};
+static const char * const f9665[] = {"Бібліотеку відновлено. Щоб зберегти зміни, виберіть Налаштування > Оновити музичну базу даних"};
+static const char * const f9666[] = {"Бібліотека недоступна. Виберіть Налаштування > Оновити музичну базу даних, щоб створити її заново"};
+static const char * const f9667[] = {"Не вдалося оновити бібліотеку. Перевірте SD-картку та повторіть спробу"};
+static const char * const f9668[] = {"Бібліотеку оновлено"};
+static const char * const f9669[] = {"Бібліотеку оновлено, але деякі папки не вдалося прочитати"};
+static const char * const f9670[] = {"Ліцензія: %s"};
+static const char * const f9671[] = {"Обмежує гучність плеєра, зокрема під час керування кнопками, пультом і плагінами."};
+static const char * const f9672[] = {"Завантаження налаштувань Wi-Fi"};
+static const char * const f9673[] = {"Завантаження емуляторів"};
+static const char * const f9674[] = {"Завантаження із сервера..."};
+static const char * const f9675[] = {"Завантаження макетів"};
+static const char * const f9676[] = {"Завантаження каталогу плагінів..."};
+static const char * const f9677[] = {"Завантаження плагінів"};
+static const char * const f9678[] = {"Завантаження тем"};
+static const char * const f9679[] = {"Завантаження композицій…"};
+static const char * const f9680[] = {"Завантаження оновлень"};
+static const char * const f9681[] = {"Завантаження..."};
+static const char * const f9682[] = {"Розташування"};
+static const char * const f9683[] = {"Тривале"};
+static const char * const f9684[] = {"Тривале натискання"};
+static const char * const f9685[] = {"Пошук музичних файлів"};
+static const char * const f9686[] = {"Пошук музичних файлів\nперевірено елементів: %d"};
+static const char * const f9687[] = {"Низька"};
+static const char * const f9688[] = {"Низькі\nВисокі"};
+static const char * const f9689[] = {"Низька (96 кбіт/с)"};
+static const char * const f9690[] = {"Тексти пісень"};
+static const char * const f9691[] = {"Розмір тексту пісень"};
+static const char * const f9692[] = {"MAC-адреса: %s"};
+static const char * const f9693[] = {"Обслуговування"};
+static const char * const f9694[] = {"Зробіть аксесуар видимим і натисніть «Сканувати знову»."};
+static const char * const f9695[] = {"Пізніше керуйте плагінами в Налаштування > Система > Менеджер плагінів: шукайте, оновлюйте або видаляйте їх."};
+static const char * const f9696[] = {"Введення SSID вручну"};
+static const char * const f9697[] = {"Березень"};
+static const char * const f9698[] = {"Підібрати до обкладинки альбому"};
+static const char * const f9699[] = {"Максимальна гучність"};
+static const char * const f9700[] = {"Травень"};
+static const char * const f9701[] = {"Середній"};
+static const char * const f9702[] = {"Середня (192 кбіт/с)"};
+static const char * const f9703[] = {"Збережені мережі"};
+static const char * const f9704[] = {"Метадані оновлено"};
+static const char * const f9705[] = {"Понеділок"};
+static const char * const f9706[] = {"Моно (1 канал)"};
+static const char * const f9707[] = {"Більше"};
+static const char * const f9708[] = {"Найчастіше відтворювані"};
+static const char * const f9709[] = {"Перемістити"};
+static const char * const f9710[] = {"Перемістити %d елемент?", "Перемістити %d елементи?", "Перемістити %d елементів?"};
+static const char * const f9711[] = {"Музика"};
+static const char * const f9712[] = {"Музична база даних недоступна"};
+static const char * const f9713[] = {"Назва (А–Я)"};
+static const char * const f9714[] = {"Нативний DSD (DoP) / %.4g МГц"};
+static const char * const f9715[] = {"Мережі Wi-Fi поблизу з’являтимуться тут."};
+static const char * const f9716[] = {"Мережі поблизу з’являться, коли Wi-Fi буде готовий."};
+static const char * const f9717[] = {"Потрібна новіша прошивка"};
+static const char * const f9718[] = {"Назва мережі (SSID)"};
+static const char * const f9719[] = {"Мережевий потік"};
+static const char * const f9720[] = {"Мережі, до яких ви під’єднувалися, з’являтимуться тут."};
+static const char * const f9721[] = {"Нове з’єднання"};
+static const char * const f9722[] = {"Новий PIN-код створено"};
+static const char * const f9723[] = {"Новий профіль"};
+static const char * const f9724[] = {"Нова папка"};
+static const char * const f9725[] = {"Найновіші за датою зміни"};
+static const char * const f9726[] = {"Далі"};
+static const char * const f9727[] = {"Далі  •  %d–%d з %d"};
+static const char * const f9728[] = {"Наступна композиція"};
+static const char * const f9729[] = {"Наступна сторінка"};
+static const char * const f9730[] = {"У /Fonts не знайдено шрифтів .ttf"};
+static const char * const f9731[] = {"Немає SD-картки"};
+static const char * const f9732[] = {"SD-картку не знайдено. Ви зможете просканувати її пізніше в налаштуваннях бібліотеки."};
+static const char * const f9733[] = {"SD-картку не змонтовано."};
+static const char * const f9734[] = {"Книг не знайдено"};
+static const char * const f9735[] = {"Немає опису"};
+static const char * const f9736[] = {"У каталозі немає доступних емуляторів."};
+static const char * const f9737[] = {"Емулятори не встановлено"};
+static const char * const f9738[] = {"Немає елементів для показу"};
+static const char * const f9739[] = {"Поки що немає обраного"};
+static const char * const f9740[] = {"Ігор не знайдено"};
+static const char * const f9741[] = {"Немає елементів"};
+static const char * const f9742[] = {"У каталозі немає доступних макетів."};
+static const char * const f9743[] = {"Більше немає в каталозі"};
+static const char * const f9744[] = {"Немає збережених мереж"};
+static const char * const f9745[] = {"Немає музичної бази даних"};
+static const char * const f9746[] = {"Поблизу немає пристроїв"};
+static const char * const f9747[] = {"Мережу не знайдено"};
+static const char * const f9748[] = {"Мережу не знайдено. Під’єднайтеся до мережі, щоб завантажити емулятори."};
+static const char * const f9749[] = {"Мережу не знайдено. Під’єднайтеся до мережі, щоб завантажити плагіни."};
+static const char * const f9750[] = {"Мереж не знайдено"};
+static const char * const f9751[] = {"Інших мереж не знайдено"};
+static const char * const f9752[] = {"Немає сполучених пристроїв"};
+static const char * const f9753[] = {"Аудіофайлів для відтворення не знайдено"};
+static const char * const f9754[] = {"Тут немає файлів для відтворення"};
+static const char * const f9755[] = {"Налаштування плагіна недоступні"};
+static const char * const f9756[] = {"У каталозі немає доступних плагінів."};
+static const char * const f9757[] = {"Немає збережених профілів"};
+static const char * const f9758[] = {"Немає збережених серверів"};
+static const char * const f9759[] = {"Немає композицій для оновлення"};
+static const char * const f9760[] = {"Синхронізованих текстів пісень не знайдено"};
+static const char * const f9761[] = {"У каталозі немає доступних тем."};
+static const char * const f9762[] = {"Композицію не завантажено"};
+static const char * const f9763[] = {"Композицій не знайдено"};
+static const char * const f9764[] = {"Оновлень немає."};
+static const char * const f9765[] = {"Немає списків користувача"};
+static const char * const f9766[] = {"На цій SD-картці немає перевіреного оновлення. Завантажте його ще раз."};
+static const char * const f9767[] = {"Недоступно у вашій підписці"};
+static const char * const f9768[] = {"Не під’єднано"};
+static const char * const f9769[] = {"На SD-картці недостатньо вільного місця для оновлення."};
+static const char * const f9770[] = {"На SD-картці недостатньо вільного місця."};
+static const char * const f9771[] = {"На програвачі недостатньо вільного місця."};
+static const char * const f9772[] = {"Недостатньо пам’яті для з’єднання"};
+static const char * const f9773[] = {"Недостатньо пам’яті для завантаження композицій CUE"};
+static const char * const f9774[] = {"Недостатньо пам’яті для завантаження виконавців"};
+static const char * const f9775[] = {"Недостатньо пам’яті для завантаження із сервера"};
+static const char * const f9776[] = {"Недостатньо пам’яті для завантаження магазину плагінів"};
+static const char * const f9777[] = {"Недостатньо пам’яті для початку завантаження"};
+static const char * const f9778[] = {"Не вибрано (UTC)"};
+static const char * const f9779[] = {"Не задано"};
+static const char * const f9780[] = {"Тут немає елементів для вибору"};
+static const char * const f9781[] = {"Листопад"};
+static const char * const f9782[] = {"Макети екрана відтворення"};
+static const char * const f9783[] = {"ВИМКНЕНО"};
+static const char * const f9784[] = {"УВІМКНЕНО"};
+static const char * const f9785[] = {"Жовтень"};
+static const char * const f9786[] = {"Вимкнено"};
+static const char * const f9787[] = {"Увімкнено"};
+static const char * const f9788[] = {"Відкрийте Більше > Плагіни > Оновити список плагінів. Відскануйте QR-код, щоб знайти робочий приклад і повний опис API."};
+static const char * const f9789[] = {"Відкрийте книгу й натисніть значок закладки, щоб зберегти її тут."};
+static const char * const f9790[] = {"Відкрийте папку з аудіофайлами підтримуваних форматів."};
+static const char * const f9791[] = {"Відкрита мережа"};
+static const char * const f9792[] = {"Відкрийте папку призначення й виберіть у меню «Вставити сюди»."};
+static const char * const f9793[] = {"Відкрийте цю адресу на телефоні або комп’ютері:"};
+static const char * const f9794[] = {"Відкрита · під’єднано"};
+static const char * const f9795[] = {"Оригінальна"};
+static const char * const f9796[] = {"Вихід"};
+static const char * const f9797[] = {"PEQ"};
+static const char * const f9798[] = {"Параметричний еквалайзер скинуто до типових налаштувань"};
+static const char * const f9799[] = {"ПП"};
+static const char * const f9800[] = {"Тихий океан"};
+static const char * const f9801[] = {"Сторінка %d з %d"};
+static const char * const f9802[] = {"Сполучено"};
+static const char * const f9803[] = {"Сполучені пристрої"};
+static const char * const f9804[] = {"Пароль"};
+static const char * const f9805[] = {"Пароль: не задано"};
+static const char * const f9806[] = {"Пароль: задано"};
+static const char * const f9807[] = {"Вставити сюди %d елемент", "Вставити сюди %d елементи", "Вставити сюди %d елементів"};
+static const char * const f9808[] = {"Пауза: навушники від’єднано"};
+static const char * const f9809[] = {"Піковий\nНизька полиця\nВисока полиця"};
+static const char * const f9810[] = {"Для альбому"};
+static const char * const f9811[] = {"Для композиції"};
+static const char * const f9812[] = {"Розмістіть шрифти .ttf у папці /Fonts на SD-картці."};
+static const char * const f9813[] = {"Відтворити все"};
+static const char * const f9814[] = {"Відтворити все послідовно"};
+static const char * const f9815[] = {"Відтворити все у випадковому порядку"};
+static const char * const f9816[] = {"Відтворити наступною"};
+static const char * const f9817[] = {"Відтворити все у випадковому порядку"};
+static const char * const f9818[] = {"Відтворіть альбом або список, щоб побачити тут його композиції."};
+static const char * const f9819[] = {"Відтворити послідовно"};
+static const char * const f9820[] = {"Відтворити/пауза"};
+static const char * const f9821[] = {"Відтворення"};
+static const char * const f9822[] = {"Відтворення та керування"};
+static const char * const f9823[] = {"Відтворення та дії пристрою"};
+static const char * const f9824[] = {"Відтворення змінилося до того, як папка була готова."};
+static const char * const f9825[] = {"Помилка відтворення"};
+static const char * const f9826[] = {"Помилка відтворення: не вдалося вивести звук"};
+static const char * const f9827[] = {"Не вдалося зберегти історію відтворення"};
+static const char * const f9828[] = {"Відтворення зупинено: %s"};
+static const char * const f9829[] = {"Відтворено"};
+static const char * const f9830[] = {"Макет плеєра"};
+static const char * const f9831[] = {"Відтворюється"};
+static const char * const f9832[] = {"Назва списку відтворення"};
+static const char * const f9833[] = {"Список відтворення змінився. Виберіть композицію ще раз."};
+static const char * const f9834[] = {"Список відтворення змінився. Спробуйте ще раз."};
+static const char * const f9835[] = {"Список відтворення створено"};
+static const char * const f9836[] = {"Список відтворення видалено"};
+static const char * const f9837[] = {"Список відтворення порожній"};
+static const char * const f9838[] = {"Назва списку відтворення задовга."};
+static const char * const f9839[] = {"Список відтворення перейменовано"};
+static const char * const f9840[] = {"Список відтворення збережено"};
+static const char * const f9841[] = {"Вибір списку відтворення більше не дійсний."};
+static const char * const f9842[] = {"Список відтворення недоступний або не читається"};
+static const char * const f9843[] = {"Списки"};
+static const char * const f9844[] = {"Списки відтворення оновлено"};
+static const char * const f9845[] = {"Зачекайте, поки завершиться встановлення плагіна"};
+static const char * const f9846[] = {"Зачекайте, поки завершиться сканування бібліотеки"};
+static const char * const f9847[] = {"Плагін"};
+static const char * const f9848[] = {"Менеджер плагінів"};
+static const char * const f9849[] = {"Порядок плагінів"};
+static const char * const f9850[] = {"Налаштування плагіна"};
+static const char * const f9851[] = {"Магазин плагінів"};
+static const char * const f9852[] = {"Плагін недоступний у каталозі"};
+static const char * const f9853[] = {"Не вдалося виконати операцію з плагіном"};
+static const char * const f9854[] = {"Налаштування плагінів завершено"};
+static const char * const f9855[] = {"Потрібно перевірити налаштування плагінів"};
+static const char * const f9856[] = {"Сховище плагінів недоступне."};
+static const char * const f9857[] = {"Плагіни"};
+static const char * const f9858[] = {"Плагіни та макети"};
+static const char * const f9859[] = {"Плагіни можуть перевизначити ці збережені налаштування."};
+static const char * const f9860[] = {"Позиція"};
+static const char * const f9861[] = {"Живлення"};
+static const char * const f9862[] = {"Меню живлення"};
+static const char * const f9863[] = {"Вимкнути"};
+static const char * const f9864[] = {"Керування живленням"};
+static const char * const f9865[] = {"Вимкнути"};
+static const char * const f9866[] = {"Передпідсилення"};
+static const char * const f9867[] = {"Передпідсилення (дБ, від -12 до 12)"};
+static const char * const f9868[] = {"Підготовка та перевірка режиму відновлення"};
+static const char * const f9869[] = {"Підготовка до оновлення обкладинок..."};
+static const char * const f9870[] = {"Підготовка папки до відтворення…"};
+static const char * const f9871[] = {"Підготовка до оновлення метаданих"};
+static const char * const f9872[] = {"Підготовка до оновлення метаданих..."};
+static const char * const f9873[] = {"Підготовка музичної бібліотеки..."};
+static const char * const f9874[] = {"Підготовка оновлення"};
+static const char * const f9875[] = {"Попередні налаштування"};
+static const char * const f9876[] = {"Попередній перегляд"};
+static const char * const f9877[] = {"Попередній"};
+static const char * const f9878[] = {"Назад  •  %d–%d з %d"};
+static const char * const f9879[] = {"Попередня композиція"};
+static const char * const f9880[] = {"Попередня сторінка"};
+static const char * const f9881[] = {"Попередній запит ще завершується"};
+static const char * const f9882[] = {"Раніше під’єднані аксесуари з’являтимуться тут."};
+static const char * const f9883[] = {"Основний DNS"};
+static const char * const f9884[] = {"Назва профілю"};
+static const char * const f9885[] = {"Профіль видалено"};
+static const char * const f9886[] = {"Профіль завантажено"};
+static const char * const f9887[] = {"Профіль перейменовано"};
+static const char * const f9888[] = {"Профіль збережено"};
+static const char * const f9889[] = {"Профілі"};
+static const char * const f9890[] = {"Постачальник"};
+static const char * const f9891[] = {"QWERTY"};
+static const char * const f9892[] = {"Черга"};
+static const char * const f9893[] = {"Черга змінилася. Спробуйте ще раз."};
+static const char * const f9894[] = {"Не вдалося зберегти стан черги; можливо, сховище доступне лише для читання"};
+static const char * const f9895[] = {"Чергу очищено"};
+static const char * const f9896[] = {"Черга порожня"};
+static const char * const f9897[] = {"Черга готова. Натисніть «Відтворити», щоб почати."};
+static const char * const f9898[] = {"У черзі"};
+static const char * const f9899[] = {"Швидка панель"};
+static const char * const f9900[] = {"Швидке налаштування завершено"};
+static const char * const f9901[] = {"Швидке налаштування"};
+static const char * const f9902[] = {"Пульт"};
+static const char * const f9903[] = {"Радіо"};
+static const char * const f9904[] = {"Радіо / %s"};
+static const char * const f9905[] = {"Читання підтримуваних частот..."};
+static const char * const f9906[] = {"Читання тегів\n%d з %d композицій (%d%%)"};
+static const char * const f9907[] = {"Теги всіх композицій буде прочитано знову. Це може тривати певний час."};
+static const char * const f9908[] = {"Створити заново"};
+static const char * const f9909[] = {"Нещодавно додані"};
+static const char * const f9910[] = {"Нещодавно відтворені"};
+static const char * const f9911[] = {"Не вдалося встановити прапорець завантаження в режим відновлення."};
+static const char * const f9912[] = {"Не вдалося стерти прапорець відновлення. Не перезавантажуйте пристрій; перевірте .compas/ota/update.log."};
+static const char * const f9913[] = {"Розділ прапорця відновлення не відповідає цій прошивці."};
+static const char * const f9914[] = {"Не вдалося перевірити прапорець відновлення. Не перезавантажуйте пристрій; перевірте журнал оновлення."};
+static const char * const f9915[] = {"Не вдалося записати прапорець відновлення. Не перезавантажуйте пристрій; перевірте .compas/ota/update.log."};
+static const char * const f9916[] = {"Режим відновлення вибрано, але перезавантаження не вдалося: %s. Не видаляйте файл оновлення."};
+static const char * const f9917[] = {"Режим відновлення залишається вибраним. Не видаляйте файл оновлення; не вдалося зберегти діагностичні дані."};
+static const char * const f9918[] = {"Оновити"};
+static const char * const f9919[] = {"Оновити всі обкладинки"};
+static const char * const f9920[] = {"Оновити всі метадані"};
+static const char * const f9921[] = {"Оновити список плагінів"};
+static const char * const f9922[] = {"Оновити всі обкладинки?"};
+static const char * const f9923[] = {"Оновити всі метадані?"};
+static const char * const f9924[] = {"Оновити каталог емуляторів"};
+static const char * const f9925[] = {"Оновити метадані"};
+static const char * const f9926[] = {"Оновити каталог плагінів"};
+static const char * const f9927[] = {"Оновіть музичну базу даних, щоб оновити цей список."};
+static const char * const f9928[] = {"Оновлення\nвсіх обкладинок..."};
+static const char * const f9929[] = {"Оновлення\nвсіх метаданих..."};
+static const char * const f9930[] = {"Оновлення\nметаданих..."};
+static const char * const f9931[] = {"Оновлення обкладинок"};
+static const char * const f9932[] = {"Оновлення обкладинок\n%d з %d (%d%%)"};
+static const char * const f9933[] = {"Оновлення списку плагінів..."};
+static const char * const f9934[] = {"Рік випуску (від найстарішого)"};
+static const char * const f9935[] = {"Перезавантажити обкладинку"};
+static const char * const f9936[] = {"Перезавантаження\nобкладинки..."};
+static const char * const f9937[] = {"Перезавантаження обкладинки"};
+static const char * const f9938[] = {"Перезавантаження обкладинки\n%d з %d (%d%%)"};
+static const char * const f9939[] = {"Пульт"};
+static const char * const f9940[] = {"Дистанційне керування"};
+static const char * const f9941[] = {"Видалити"};
+static const char * const f9942[] = {"Видалити %s?"};
+static const char * const f9943[] = {"Видалено"};
+static const char * const f9944[] = {"Видалено зі списку відтворення"};
+static const char * const f9945[] = {"Видалено з черги"};
+static const char * const f9946[] = {"Збережені обкладинки буде видалено й створено заново. Це може тривати певний час."};
+static const char * const f9947[] = {"Видалення емулятора"};
+static const char * const f9948[] = {"Видалення плагіна"};
+static const char * const f9949[] = {"Перейменувати"};
+static const char * const f9950[] = {"Перейменувати список відтворення"};
+static const char * const f9951[] = {"Перейменувати профіль"};
+static const char * const f9952[] = {"Змінити порядок"};
+static const char * const f9953[] = {"Замінити"};
+static const char * const f9954[] = {"Замінити наявний"};
+static const char * const f9955[] = {"Замінити профіль"};
+static const char * const f9956[] = {"ReplayGain"};
+static const char * const f9957[] = {"Сканувати знову"};
+static const char * const f9958[] = {"Скинути"};
+static const char * const f9959[] = {"Скинути все"};
+static const char * const f9960[] = {"Скинути параметричний еквалайзер до типових налаштувань?"};
+static const char * const f9961[] = {"Скинути всі призначення кнопок?"};
+static const char * const f9962[] = {"Скинути всі налаштування й перезавантажити?"};
+static const char * const f9963[] = {"Скинути до типових налаштувань"};
+static const char * const f9964[] = {"Перезавантажити"};
+static const char * const f9965[] = {"Перезавантажити зараз"};
+static const char * const f9966[] = {"Перезавантажити зараз, щоб застосувати нове ім’я вузла?"};
+static const char * const f9967[] = {"Перезавантаження в режим відновлення. Не вимикайте плеєр."};
+static const char * const f9968[] = {"Відновити останню композицію"};
+static const char * const f9969[] = {"Відновити й відтворити"};
+static const char * const f9970[] = {"Відновлювати відтворення, коли зовнішнє живлення вмикає плеєр."};
+static const char * const f9971[] = {"Відновити, але призупинити"};
+static const char * const f9972[] = {"Повторна спроба для плагінів %zu/%zu"};
+static const char * const f9973[] = {"Переглянути оновлення"};
+static const char * const f9974[] = {"Не вдалося прочитати SD-картку"};
+static const char * const f9975[] = {"Не вдалося відформатувати SD-картку"};
+static const char * const f9976[] = {"SD-картку відформатовано"};
+static const char * const f9977[] = {"SD-картка доступна лише для читання. Перевірте її на комп’ютері"};
+static const char * const f9978[] = {"SD-картка досі доступна лише для читання"};
+static const char * const f9979[] = {"На SD-картці можуть бути помилки. Перевірте її на комп’ютері"};
+static const char * const f9980[] = {"SD-картка недоступна"};
+static const char * const f9981[] = {"Відновлення SD-картки ще виконується"};
+static const char * const f9982[] = {"SD-картку відновлено"};
+static const char * const f9983[] = {"SSID має містити від 1 до 32 байтів"};
+static const char * const f9984[] = {"SSID: %s"};
+static const char * const f9985[] = {"Безпечне заряджання (500 мА)"};
+static const char * const f9986[] = {"Частота дискретизації"};
+static const char * const f9987[] = {"Субота"};
+static const char * const f9988[] = {"Зберегти"};
+static const char * const f9989[] = {"Зберегти профіль"};
+static const char * const f9990[] = {"Зберегти профіль як"};
+static const char * const f9991[] = {"Зберегти чергу як список відтворення"};
+static const char * const f9992[] = {"Зберегти як список відтворення"};
+static const char * const f9993[] = {"Зберегти як новий профіль чи замінити наявний?"};
+static const char * const f9994[] = {"Збережені сервери"};
+static const char * const f9995[] = {"Збережена мережа"};
+static const char * const f9996[] = {"Перевіряються дані збереженої мережі."};
+static const char * const f9997[] = {"Збереження даних перед перезавантаженням"};
+static const char * const f9998[] = {"Не вдалося зберегти дані. Режим відновлення залишається вибраним; не видаляйте файл оновлення та перевірте .compas/ota/update.log."};
+static const char * const f9999[] = {"Збереження музичної бази даних"};
+static const char * const f10000[] = {"Збереження музичної бази даних\nУ великих бібліотеках це може тривати довго"};
+static const char * const f10001[] = {"Збереження списку відтворення…"};
+static const char * const f10002[] = {"Відскануйте QR-код, щоб відкрити стартову тему й інструкції. Посібник із макетів XML допоможе змінити вигляд екрана плеєра."};
+static const char * const f10003[] = {"Сканувати музику"};
+static const char * const f10004[] = {"Скануйте QR-код, щоб відкрити повний посібник."};
+static const char * const f10005[] = {"Відскануйте телефоном, щоб підтримати Compás Player через PayPal"};
+static const char * const f10006[] = {"Пошук мереж"};
+static const char * const f10007[] = {"Пошук файлів для відтворення…"};
+static const char * const f10008[] = {"Затемнення екрана"};
+static const char * const f10009[] = {"Час очікування екрана"};
+static const char * const f10010[] = {"Вимкнути екран"};
+static const char * const f10011[] = {"Не вдалося зробити знімок екрана (%s)"};
+static const char * const f10012[] = {"Не вдалося зробити знімок екрана (буфер кадру)"};
+static const char * const f10013[] = {"Не вдалося зробити знімок екрана (службовий процес)"};
+static const char * const f10014[] = {"Для знімка екрана потрібна SD-картка"};
+static const char * const f10015[] = {"Знімок екрана збережено"};
+static const char * const f10016[] = {"Знімок екрана (Живлення + Назад)"};
+static const char * const f10017[] = {"Знімок екрана (Живлення + зменшення гучності)"};
+static const char * const f10018[] = {"Знімки екрана недоступні"};
+static const char * const f10019[] = {"Пошук мереж"};
+static const char * const f10020[] = {"Додатковий DNS"};
+static const char * const f10021[] = {"Не вдалося встановити захищене з’єднання. Перевірте Wi-Fi, дату й час."};
+static const char * const f10022[] = {"Захищена мережа"};
+static const char * const f10023[] = {"Захищено · під’єднано"};
+static const char * const f10024[] = {"Перемотати назад"};
+static const char * const f10025[] = {"Перемотати вперед"};
+static const char * const f10026[] = {"Вибрати"};
+static const char * const f10027[] = {"Виберіть файл"};
+static const char * const f10028[] = {"Вибрати все"};
+static const char * const f10029[] = {"Виберіть принаймні один плагін, щоб продовжити."};
+static const char * const f10030[] = {"Вибрані плагіни готові.\n"};
+static const char * const f10031[] = {"Вересень"};
+static const char * const f10032[] = {"Адреса сервера (наприклад, %s)"};
+static const char * const f10033[] = {"Адреса сервера: %s"};
+static const char * const f10034[] = {"Час очікування відповіді сервера минув (30 с)"};
+static const char * const f10035[] = {"Служба зайнята"};
+static const char * const f10036[] = {"Установити час"};
+static const char * const f10037[] = {"Виберіть свій часовий пояс, щоб годинник показував правильний час."};
+static const char * const f10038[] = {"Налаштування"};
+static const char * const f10039[] = {"Показувати час до завершення"};
+static const char * const f10040[] = {"Показати приховані файли"};
+static const char * const f10041[] = {"Показано перші %d із %d композицій"};
+static const char * const f10042[] = {"Перемішати, починаючи з випадкової композиції"};
+static const char * const f10043[] = {"Увійдіть у стримінговий сервіс знову"};
+static const char * const f10044[] = {"Сигнал: %s"};
+static const char * const f10045[] = {"Одне"};
+static const char * const f10046[] = {"Одне натискання"};
+static const char * const f10047[] = {"Розмір: %s"};
+static const char * const f10048[] = {"Поки що пропустити"};
+static const char * const f10049[] = {"Пропущено: %s"};
+static const char * const f10050[] = {"Сон"};
+static const char * const f10051[] = {"Таймер сну"};
+static const char * const f10052[] = {"Таймер сну"};
+static const char * const f10053[] = {"Таймер сну: залишилося %d хв"};
+static const char * const f10054[] = {"Таймер сну: вимкнено"};
+static const char * const f10055[] = {"Малий"};
+static const char * const f10056[] = {"Не вдалося оновити деякі обкладинки"};
+static const char * const f10057[] = {"Не вдалося прочитати деякі списки відтворення"};
+static const char * const f10058[] = {"Деякі файли плагінів на картці змінено. Замінити їх?"};
+static const char * const f10059[] = {"Не вдалося прочитати деякі композиції"};
+static const char * const f10060[] = {"Для деяких оновлень потрібно підтвердити заміну локальних файлів."};
+static const char * const f10061[] = {"Композицію вже додано"};
+static const char * const f10062[] = {"Композицію видалено"};
+static const char * const f10063[] = {"Композиції"};
+static const char * const f10064[] = {"Сортування"};
+static const char * const f10065[] = {"Звук"};
+static const char * const f10066[] = {"Звукові ефекти"};
+static const char * const f10067[] = {"Джерело"};
+static const char * const f10068[] = {"Перетворення частоти дискретизації Speex"};
+static const char * const f10069[] = {"Відтворити послідовно"};
+static const char * const f10070[] = {"Виберіть із цих рекомендацій або перегляньте інші плагіни."};
+static const char * const f10071[] = {"Гучність під час запуску"};
+static const char * const f10072[] = {"Крок %d з %d"};
+static const char * const f10073[] = {"Стерео (2 канали)"};
+static const char * const f10074[] = {"Застосовується попередній вибір"};
+static const char * const f10075[] = {"Операція триває. Не вимикайте плеєр і не повторюйте спробу."};
+static const char * const f10076[] = {"Зупинити"};
+static const char * const f10077[] = {"Зупинено"};
+static const char * const f10078[] = {"Зупинення..."};
+static const char * const f10079[] = {"Сховище"};
+static const char * const f10080[] = {"Потокове медіа"};
+static const char * const f10081[] = {"Якість потоку"};
+static const char * const f10082[] = {"Якість потоку: %s"};
+static const char * const f10083[] = {"Шлях підпапки задається від кореня SD-картки (наприклад, Music/Offline); порожнє значення означає корінь картки"};
+static const char * const f10084[] = {"Підпапка: корінь SD-картки"};
+static const char * const f10085[] = {"Subsonic"};
+static const char * const f10086[] = {"Неділя"};
+static const char * const f10087[] = {"Сон зі збереженням в ОЗП"};
+static const char * const f10088[] = {"Проведіть угору, щоб перейти на головний екран"};
+static const char * const f10089[] = {"Проведіть угору, щоб розблокувати"};
+static const char * const f10090[] = {"Система"};
+static const char * const f10091[] = {"Системні списки"};
+static const char * const f10092[] = {"T9"};
+static const char * const f10093[] = {"Перегляд TXT"};
+static const char * const f10094[] = {"Колір береться з обкладинки композиції, що відтворюється"};
+static const char * const f10095[] = {"Натисніть «Вимкнути» ще раз для підтвердження"};
+static const char * const f10096[] = {"Натисніть «Перезавантажити» ще раз для підтвердження"};
+static const char * const f10097[] = {"Цю назву не можна використовувати"};
+static const char * const f10098[] = {"SD-картка змінилася під час завантаження."};
+static const char * const f10099[] = {"SD-картка змінилася під час операції."};
+static const char * const f10100[] = {"SD-картка доступна лише для читання. Перевірте захист від запису."};
+static const char * const f10101[] = {"Завантаження не завершено. Перевірте Wi-Fi та спробуйте ще раз."};
+static const char * const f10102[] = {"Завантажений образ не пройшов перевірку й був видалений."};
+static const char * const f10103[] = {"Запис завантаженого оновлення недійсний. Завантажте оновлення ще раз."};
+static const char * const f10104[] = {"Завантажений емулятор не пройшов перевірку. Спробуйте ще раз."};
+static const char * const f10105[] = {"Тека емуляторів недоступна для запису."};
+static const char * const f10106[] = {"Шлях до прошивки задовгий."};
+static const char * const f10107[] = {"Гра неочікувано закрилася."};
+static const char * const f10108[] = {"Файл списку відтворення буде видалено. Музичні файли залишаться."};
+static const char * const f10109[] = {"Завантажений плагін не пройшов перевірку. Спробуйте ще раз."};
+static const char * const f10110[] = {"Швидка бура лисиця перестрибує 123"};
+static const char * const f10111[] = {"Для образу цього пристрою у випуску немає контрольної суми."};
+static const char * const f10112[] = {"Вибраний файл оновлення змінився. Виберіть його ще раз."};
+static const char * const f10113[] = {"Плагін стримінгу недоступний"};
+static const char * const f10114[] = {"Стримінговий сервіс не відповів"};
+static const char * const f10115[] = {"Файл оновлення змінився під час перевірки. Виберіть його ще раз."};
+static const char * const f10116[] = {"Файл оновлення на SD-картці змінився. Завантажте його ще раз."};
+static const char * const f10117[] = {"Теми"};
+static const char * const f10118[] = {"У цьому поданні немає елементів."};
+static const char * const f10119[] = {"Це може тривати кілька секунд."};
+static const char * const f10120[] = {"Цю дію неможливо скасувати."};
+static const char * const f10121[] = {"Цей пристрій тепер є звуковою картою USB"};
+static const char * const f10122[] = {"Пристрій приймає аудіо через Bluetooth"};
+static const char * const f10123[] = {"Для цього емулятора потрібна новіша версія плеєра."};
+static const char * const f10124[] = {"Ця папка порожня"};
+static const char * const f10125[] = {"Сюди входять власні дані плеєра (.compas або .plugins). Їх видалення чи переміщення може порушити роботу функцій, призвести до втрати налаштувань і встановлених плагінів та вимагати перезапуску."};
+static const char * const f10126[] = {"Це може тривати певний час"};
+static const char * const f10127[] = {"Усі дані на картці буде видалено без можливості відновлення."};
+static const char * const f10128[] = {"Для цього плагіна немає оновлень."};
+static const char * const f10129[] = {"Цей плагін уже встановлено з магазину."};
+static const char * const f10130[] = {"Цей плагін установлено не з магазину."};
+static const char * const f10131[] = {"Для цього плагіна потрібна новіша версія плеєра."};
+static const char * const f10132[] = {"Ця якість недоступна для цього треку"};
+static const char * const f10133[] = {"Образ цього випуску не відповідає контрольним сумам. Спробуйте ще раз після наступного щотижневого випуску."};
+static const char * const f10134[] = {"Цей трек захищено від копіювання"};
+static const char * const f10135[] = {"Цей трек недоступний"};
+static const char * const f10136[] = {"Цей тип файлу неможливо відкрити"};
+static const char * const f10137[] = {"Це оновлення вже не є найновішим випуском. Перевірте оновлення та завантажте найновіший образ."};
+static const char * const f10138[] = {"Це оновлення більше не відповідає найновішому випуску. Завантажте найновіший образ ще раз."};
+static const char * const f10139[] = {"Не вдалося запустити потік виконання"};
+static const char * const f10140[] = {"Четвер"};
+static const char * const f10141[] = {"Часовий пояс"};
+static const char * const f10142[] = {"Залишилося: %d:%02d"};
+static const char * const f10143[] = {"Залишилося: %d:%02d:%02d"};
+static const char * const f10144[] = {"Часовий пояс"};
+static const char * const f10145[] = {"Забарвити заставку"};
+static const char * const f10146[] = {"Фарбувати значки заголовка"};
+static const char * const f10147[] = {"Перемкнути екран"};
+static const char * const f10148[] = {"Забагато аудіоканалів"};
+static const char * const f10149[] = {"Установлено забагато плагінів. Видаліть один і спробуйте ще раз."};
+static const char * const f10150[] = {"Композиція"};
+static const char * const f10151[] = {"Композиція: %+.1f дБ"};
+static const char * const f10152[] = {"Композиція %d"};
+static const char * const f10153[] = {"Відомості про композицію ще недоступні. Не закривайте відтворення та перевірте ще раз."};
+static const char * const f10154[] = {"Композиції"};
+static const char * const f10155[] = {"Спробуйте просканувати ще раз або додайте приховану мережу."};
+static const char * const f10156[] = {"Вівторок"};
+static const char * const f10157[] = {"Вимкніть і знову ввімкніть Bluetooth, щоб застосувати зміни"};
+static const char * const f10158[] = {"Спочатку вимкніть ADB (Налаштування > Система > Режим USB), а потім увімкніть тут USB DAC."};
+static const char * const f10159[] = {"Вимкніть автоматичний режим, щоб налаштувати годинник"};
+static const char * const f10160[] = {"Вимкніть Bluetooth DAC, щоб відтворювати музику на цьому пристрої"};
+static const char * const f10161[] = {"Вимкніть режим DAC, щоб грати."};
+static const char * const f10162[] = {"Автоматично вимикати екран"};
+static const char * const f10163[] = {"Увімкніть Bluetooth, щоб побачити сполучені пристрої та пристрої поблизу."};
+static const char * const f10164[] = {"Спочатку ввімкніть Wi-Fi та під’єднайтеся"};
+static const char * const f10165[] = {"Увімкніть це, щоб побачити тут адресу."};
+static const char * const f10166[] = {"Увімкнення Wi-Fi"};
+static const char * const f10167[] = {"USB DAC"};
+static const char * const f10168[] = {"Режим USB DAC"};
+static const char * const f10169[] = {"Режим USB"};
+static const char * const f10170[] = {"Виявлено аудіопристрій USB"};
+static const char * const f10171[] = {"Вхід USB: %s · %u біт"};
+static const char * const f10172[] = {"Режим USB"};
+static const char * const f10173[] = {"USB-накопичувач зайнятий."};
+static const char * const f10174[] = {"Не вдалося завантажити елементи"};
+static const char * const f10175[] = {"Не вдалося прочитати папку (натисніть «Назад» і повторіть)"};
+static const char * const f10176[] = {"Недоступно"};
+static const char * const f10177[] = {"Неочікувана відповідь бібліотеки"};
+static const char * const f10178[] = {"Неочікувана відповідь GitHub"};
+static const char * const f10179[] = {"Неочікувана відповідь GitHub."};
+static const char * const f10180[] = {"Невідомий альбом"};
+static const char * const f10181[] = {"Невідомий виконавець"};
+static const char * const f10182[] = {"Невідомий кодек"};
+static const char * const f10183[] = {"Невідомий формат"};
+static const char * const f10184[] = {"Невідома частота"};
+static const char * const f10185[] = {"Непідтримуваний аудіоформат"};
+static const char * const f10186[] = {"Оновити"};
+static const char * const f10187[] = {"Оновити й перезавантажити"};
+static const char * const f10188[] = {"Оновити все"};
+static const char * const f10189[] = {"Оновити музичну базу даних"};
+static const char * const f10190[] = {"Оновіть музичну базу даних, щоб увімкнути це сортування альбомів"};
+static const char * const f10191[] = {"Доступне оновлення"};
+static const char * const f10192[] = {"Доступне оновлення · %s"};
+static const char * const f10193[] = {"Діагностичні дані оновлення потрібно зберігати на SD-картці."};
+static const char * const f10194[] = {"Помічник оновлення завершився з помилкою (%s, код %d). Див. .compas/ota/update.log."};
+static const char * const f10195[] = {"Оновити окремо"};
+static const char * const f10196[] = {"Оновити музичну базу даних?"};
+static const char * const f10197[] = {"Оновлення збережено. Під’єднайтеся до Wi-Fi, а потім виберіть Оновлення прошивки > Установити із SD-картки."};
+static const char * const f10198[] = {"Оновлює лише плеєр, зберігаючи поточні драйвери, ядро та завантажувач."};
+static const char * const f10199[] = {"Оновлює всю CompásOS. Прошивка містить завантажувач, плеєр, ядро та драйвери."};
+static const char * const f10200[] = {"Оновлюйте ці плагіни окремо"};
+static const char * const f10201[] = {"Оновити за допомогою %s?\nПристрій перезавантажиться в режим відновлення."};
+static const char * const f10202[] = {"Оновлення"};
+static const char * const f10203[] = {"Оновлення\nмузичної бази даних..."};
+static const char * const f10204[] = {"Оновлення емулятора"};
+static const char * const f10205[] = {"Оновлення плагінів"};
+static const char * const f10206[] = {"Перевернутий екран"};
+static const char * const f10207[] = {"Виберіть Налаштування > Оновити музичну базу даних"};
+static const char * const f10208[] = {"У корені SD-картки має бути звичайний файл %s."};
+static const char * const f10209[] = {"Списки користувача"};
+static const char * const f10210[] = {"Ім’я користувача"};
+static const char * const f10211[] = {"Ім’я користувача: %s"};
+static const char * const f10212[] = {"Використовує колір акценту для стандартної заставки."};
+static const char * const f10213[] = {"Використовує акцентний колір для значків поруч із заголовками екранів."};
+static const char * const f10214[] = {"Перевіряти сертифікат сервера"};
+static const char * const f10215[] = {"Версія %s · %s"};
+static const char * const f10216[] = {"Зменшити гучність"};
+static const char * const f10217[] = {"Блокування гучності (екран вимкнено)"};
+static const char * const f10218[] = {"Повзунок гучності"};
+static const char * const f10219[] = {"Збільшити гучність"};
+static const char * const f10220[] = {"Дочекайтеся завершення перемикання режиму USB та від’єднайте USB-накопичувач перед оновленням."};
+static const char * const f10221[] = {"Очікування потоку Bluetooth…"};
+static const char * const f10222[] = {"Очікування аудіо через USB…"};
+static const char * const f10223[] = {"Слабкий"};
+static const char * const f10224[] = {"Вебсервер зайнятий"};
+static const char * const f10225[] = {"Середа"};
+static const char * const f10226[] = {"Вітаємо у Compás"};
+static const char * const f10227[] = {"Коли цю функцію ввімкнено, пристрій видимий відправникам AirPlay у вашій мережі Wi-Fi. Передавайте аудіо з iPhone, iPad або Mac для відтворення через вихід цього пристрою."};
+static const char * const f10228[] = {"Коли цю функцію ввімкнено, пристрій видимий програмам-контролерам DLNA/UPnP у вашій мережі Wi-Fi. Надішліть композицію з такої програми для відтворення тут. Керування паузою, вимкненням звуку, гучністю та перемотуванням із програми не підтримується; після початку відтворення користуйтеся кнопками пристрою."};
+static const char * const f10229[] = {"Коли цю функцію ввімкнено, пристрій видимий для інших пристроїв Bluetooth і доступний для сполучення. Телефон або комп’ютер зможе передавати на нього аудіо для відтворення через його власний вихід — як на зовнішній ЦАП."};
+static const char * const f10230[] = {"Wi-Fi"};
+static const char * const f10231[] = {"Відомості про Wi-Fi"};
+static const char * const f10232[] = {"Пароль Wi-Fi"};
+static const char * const f10233[] = {"Не вдалося ввімкнути Wi-Fi"};
+static const char * const f10234[] = {"Не вдалося змінити стан Wi-Fi"};
+static const char * const f10235[] = {"Wi-Fi зайнятий"};
+static const char * const f10236[] = {"Wi-Fi ще запускається"};
+static const char * const f10237[] = {"Бездротовий зв’язок"};
+static const char * const f10238[] = {"Виконується..."};
+static const char * const f10239[] = {"Створіть плагін Lua на комп’ютері. Скопіюйте файл .lua до папки .plugins на SD-картці."};
+static const char * const f10240[] = {"Можна вибрати до 32 плагінів"};
+static const char * const f10241[] = {"Завантажується ваша бібліотека."};
+static const char * const f10242[] = {"Ваша музика"};
+static const char * const f10243[] = {"Налаштування плеєра"};
+static const char * const f10244[] = {"[Файл обрізано до %d КБ — показано лише початок]\n\n%s"};
+static const char * const f10245[] = {"github.com/Starnished66/compas-player"};
+static const char * const f10246[] = {"невідомо"};
 
 static const i18n_entry_t entries_uk[] = {
-    {"%+.2f dB", f9159, 1},
-    {"%.0f Hz", f9160, 1},
-    {"%d hr", f9161, 1},
-    {"%d hr %d min", f9162, 1},
-    {"%d min", f9163, 1},
-    {"%d min remaining", f9164, 1},
-    {"%d selected", f9165, 3},
-    {"%d song", f9166, 3},
-    {"%d track", f9167, 3},
-    {"%dm", f9168, 1},
-    {"%lld track", f9169, 3},
-    {"%llu bytes", f9170, 1},
-    {"%s (current)", f9171, 1},
-    {"%s · Not loaded", f9172, 1},
-    {"%s · Not loaded: limit reached", f9173, 1},
-    {"%u channels", f9174, 1},
-    {"%u item could not be completed", f9175, 3},
-    {"%u of %u\n%s", f9176, 1},
-    {"+ New Playlist", f9177, 1},
-    {"0 dB", f9178, 1},
-    {"24-Hour Clock", f9179, 1},
-    {"48 kHz reference", f9180, 1},
-    {"A firmware update is already in progress.", f9181, 1},
-    {"A local plugin file will be replaced. Confirm to continue.", f9182, 1},
-    {"A newer or changed release is available. Check for updates again before downloading.", f9183, 1},
-    {"A plugin download failed verification. Try again.", f9184, 1},
-    {"A plugin operation is already in progress", f9185, 1},
-    {"A required recovery helper is missing. Update preparation stopped.", f9186, 1},
-    {"ADB", f9187, 1},
-    {"AM", f9188, 1},
-    {"About", f9189, 1},
-    {"Accent Color", f9190, 1},
-    {"Accent Options", f9191, 1},
-    {"Add .txt files to the Books folder, then refresh the library.", f9192, 1},
-    {"Add a random song to queue", f9193, 1},
-    {"Add album to queue", f9194, 1},
-    {"Add hidden network", f9195, 1},
-    {"Add songs from a song menu.", f9196, 1},
-    {"Add to Playlist", f9197, 1},
-    {"Add to Queue", f9198, 1},
-    {"Added %d song to queue", f9199, 3},
-    {"Added folder to playlist", f9200, 1},
-    {"Added to playlist", f9201, 1},
-    {"Adding folder to playlist", f9202, 1},
-    {"Adding folder to queue", f9203, 1},
-    {"Additional Tools", f9204, 1},
-    {"Advanced", f9205, 1},
-    {"Africa", f9206, 1},
-    {"AirPlay", f9207, 1},
-    {"AirPlay stopped unexpectedly", f9208, 1},
-    {"Album %+.1f dB", f9209, 1},
-    {"Album Artist", f9210, 1},
-    {"Album Artist - Album", f9211, 1},
-    {"Album Artist / Album", f9212, 1},
-    {"Album unavailable", f9213, 1},
-    {"Albums", f9214, 1},
-    {"All Songs", f9215, 1},
-    {"All visible networks are already saved.", f9216, 1},
-    {"Already installed", f9217, 1},
-    {"America", f9218, 1},
-    {"An emulator operation is already in progress", f9219, 1},
-    {"An item with that name already exists", f9220, 1},
-    {"An update is already in progress", f9221, 1},
-    {"An update is already in progress.", f9222, 1},
-    {"An update is in progress. Please wait.", f9223, 1},
-    {"Animation Speed", f9224, 1},
-    {"Another file operation is still running", f9225, 1},
-    {"Antarctica", f9226, 1},
-    {"Appearance", f9227, 1},
-    {"Applied %+.1f dB", f9228, 1},
-    {"Applies next time you launch the app", f9229, 1},
-    {"Applies to new streaming queues", f9230, 1},
-    {"Applying language, this may take a while", f9231, 1},
-    {"Applying layout, this may take a while", f9232, 1},
-    {"Apps and browsers using the current PIN will need the new one to reconnect.", f9233, 1},
-    {"April", f9234, 1},
-    {"Arctic", f9235, 1},
-    {"Artist Images", f9236, 1},
-    {"Artists", f9237, 1},
-    {"Asia", f9238, 1},
-    {"Atlantic", f9239, 1},
-    {"Audio", f9240, 1},
-    {"Audio could not be decoded", f9241, 1},
-    {"Audio is still active; cannot start the game.", f9242, 1},
-    {"Audio output failed", f9243, 1},
-    {"August", f9244, 1},
-    {"Australia", f9245, 1},
-    {"Auto", f9246, 1},
-    {"Auto-resume", f9247, 1},
-    {"AutoEQ", f9248, 1},
-    {"Automatic", f9249, 1},
-    {"Automatic (44.1 kHz)", f9250, 1},
-    {"Automatically go idle", f9251, 1},
-    {"Available", f9252, 1},
-    {"Available Devices", f9253, 1},
-    {"Available Networks", f9254, 1},
-    {"Available · %s", f9255, 1},
-    {"Band %d / %d", f9256, 1},
-    {"Band options", f9257, 1},
-    {"Battery Percentage", f9258, 1},
-    {"Bitrate", f9259, 1},
-    {"Bluetooth", f9260, 1},
-    {"Bluetooth DAC", f9261, 1},
-    {"Bluetooth DAC mode", f9262, 1},
-    {"Bluetooth Volume Sync", f9263, 1},
-    {"Bluetooth is off", f9264, 1},
-    {"Bluetooth remote service is starting…", f9265, 1},
-    {"Bluetooth remote service is unavailable; retrying.", f9266, 1},
-    {"Bluetooth: Compas Remote Control", f9267, 1},
-    {"Bluetooth: registration failed; retrying", f9268, 1},
-    {"Bluetooth: waiting for service registration", f9269, 1},
-    {"Books", f9270, 1},
-    {"Books refreshed", f9271, 1},
-    {"Build", f9272, 1},
-    {"Build it now? Large libraries can take several minutes.", f9273, 1},
-    {"Button", f9274, 1},
-    {"Button Mapping", f9275, 1},
-    {"Buttons & Remote", f9276, 1},
-    {"Buy Me a Coffee", f9277, 1},
-    {"By %s", f9278, 1},
-    {"Cancel", f9279, 1},
-    {"Cannot add folder within queue memory limit", f9280, 1},
-    {"Cannot check plugin storage write access.", f9281, 1},
-    {"Cannot create the emulator folder.", f9282, 1},
-    {"Cannot create the update log directory.", f9283, 1},
-    {"Cannot delete playlist", f9284, 1},
-    {"Cannot load album tracks", f9285, 1},
-    {"Cannot move this entry", f9286, 1},
-    {"Cannot play folder", f9287, 1},
-    {"Cannot play this folder", f9288, 1},
-    {"Cannot reach GitHub. Check the Wi-Fi connection.", f9289, 1},
-    {"Cannot read playlist", f9290, 1},
-    {"Cannot read the SD card.", f9291, 1},
-    {"Cannot read the selected update file.", f9292, 1},
-    {"Cannot read the update file on the SD card. Check the card and try again.", f9293, 1},
-    {"Cannot read the update record on the SD card. Check the card and try again.", f9294, 1},
-    {"Cannot read update helper status: %s", f9295, 1},
-    {"Cannot remove entry", f9296, 1},
-    {"Cannot rename: invalid name or file exists", f9297, 1},
-    {"Cannot reorder playlist", f9298, 1},
-    {"Cannot safely access the recovery flag block.", f9299, 1},
-    {"Cannot save playlist", f9300, 1},
-    {"Cannot save update diagnostics on the SD card.", f9301, 1},
-    {"Cannot save update diagnostics. Update preparation stopped.", f9302, 1},
-    {"Cannot save: invalid or streaming entries", f9303, 1},
-    {"Cannot start folder action", f9304, 1},
-    {"Cannot start queue", f9305, 1},
-    {"Car Mode", f9306, 1},
-    {"Car Mode Volume", f9307, 1},
-    {"Car Mode is disabled.", f9308, 1},
-    {"Channels", f9309, 1},
-    {"Charge Limit (85%)", f9310, 1},
-    {"Charge to at least %d%% or connect power before updating.", f9311, 1},
-    {"Charge to at least 30%% or connect power before updating.", f9312, 1},
-    {"Charging", f9313, 1},
-    {"Check for online update", f9314, 1},
-    {"Check that Wi-Fi is enabled, then rescan.", f9315, 1},
-    {"Check the SD card and disconnect USB storage before playing.", f9316, 1},
-    {"Check the wireless switch and try again.", f9317, 1},
-    {"Checking for updates", f9318, 1},
-    {"Checking the SD card. This may take a while", f9319, 1},
-    {"Checking the file on the SD card", f9320, 1},
-    {"Choose a language", f9321, 1},
-    {"Choose plugins", f9322, 1},
-    {"Choose the language for your player.", f9323, 1},
-    {"Choose time zone", f9324, 1},
-    {"Choose what happens when idle:", f9325, 1},
-    {"Clear Queue", f9326, 1},
-    {"Clock", f9327, 1},
-    {"Clockwise", f9328, 1},
-    {"Close", f9329, 1},
-    {"Closing\nWeb Server...", f9330, 1},
-    {"Codec", f9331, 1},
-    {"Combined response (dB)", f9332, 1},
-    {"Combined response (dB) · EQ off", f9333, 1},
-    {"Compás Player", f9334, 1},
-    {"Connect", f9335, 1},
-    {"Connect & Browse", f9336, 1},
-    {"Connect a device to see its supported rates", f9337, 1},
-    {"Connect over Wi-Fi or Bluetooth to see what's playing, control playback, and browse your library. Enter this PIN when the app or browser asks for it; Bluetooth also requires pairing.", f9338, 1},
-    {"Connect to Wi-Fi", f9339, 1},
-    {"Connect to Wi-Fi first", f9340, 1},
-    {"Connect to Wi-Fi for streaming, updates, and online services.", f9341, 1},
-    {"Connect to a Wi-Fi network before continuing.", f9342, 1},
-    {"Connect to a network to download plugins.", f9343, 1},
-    {"Connect using either available route:", f9344, 1},
-    {"Connected", f9345, 1},
-    {"Connecting", f9346, 1},
-    {"Connecting to", f9347, 1},
-    {"Connecting to server...", f9348, 1},
-    {"Connection PIN", f9349, 1},
-    {"Connection failed", f9350, 1},
-    {"Connection timed out after 30 seconds", f9351, 1},
-    {"Container", f9352, 1},
-    {"Continue", f9353, 1},
-    {"Continue setup", f9354, 1},
-    {"Copy", f9355, 1},
-    {"Copy games to the %s folder on the SD card.", f9356, 1},
-    {"Could not apply font size", f9357, 1},
-    {"Could not apply lyrics text size", f9358, 1},
-    {"Could not apply theme", f9359, 1},
-    {"Could not create the folder", f9360, 1},
-    {"Could not download the release checksums.", f9361, 1},
-    {"Could not enter recovery mode.", f9362, 1},
-    {"Could not generate a new PIN", f9363, 1},
-    {"Could not get a stream link", f9364, 1},
-    {"Could not install a plugin on the SD card.", f9365, 1},
-    {"Could not install the emulator.", f9366, 1},
-    {"Could not install the plugin on the SD card.", f9367, 1},
-    {"Could not load lock screen photo", f9368, 1},
-    {"Could not load the plugin catalog.", f9369, 1},
-    {"Could not load the plugin catalog. Tap More to retry.", f9370, 1},
-    {"Could not move other .upt files aside on the SD card.", f9371, 1},
-    {"Could not open this file", f9372, 1},
-    {"Could not open this file.", f9373, 1},
-    {"Could not place the update on the SD card.", f9374, 1},
-    {"Could not prepare plugin removal.", f9375, 1},
-    {"Could not prepare update helper: %s", f9376, 1},
-    {"Could not reach the streaming service", f9377, 1},
-    {"Could not read installed plugins.", f9378, 1},
-    {"Could not read the Books folder", f9379, 1},
-    {"Could not read the emulator list from GitHub.", f9380, 1},
-    {"Could not read the plugin list from GitHub.", f9381, 1},
-    {"Could not read the release list from GitHub.", f9382, 1},
-    {"Could not record the verified update on the SD card.", f9383, 1},
-    {"Could not refresh books", f9384, 1},
-    {"Could not reload cover", f9385, 1},
-    {"Could not remove a plugin file.", f9386, 1},
-    {"Could not remove the emulator.", f9387, 1},
-    {"Could not rename", f9388, 1},
-    {"Could not repair the SD card", f9389, 1},
-    {"Could not replace plugin files.", f9390, 1},
-    {"Could not save Bluetooth codec", f9391, 1},
-    {"Could not start USB mode switch", f9392, 1},
-    {"Could not start refreshing the plugin catalog.", f9393, 1},
-    {"Could not start the download", f9394, 1},
-    {"Could not start the download.", f9395, 1},
-    {"Could not start the emulator operation", f9396, 1},
-    {"Could not start the game.", f9397, 1},
-    {"Could not start the installation.", f9398, 1},
-    {"Could not start the library scan. Please try again.", f9399, 1},
-    {"Could not start the plugin operation", f9400, 1},
-    {"Could not start the plugin operation.", f9401, 1},
-    {"Could not start the plugin refresh", f9402, 1},
-    {"Could not start the plugin refresh.", f9403, 1},
-    {"Could not start the plugin update.", f9404, 1},
-    {"Could not start the update check.", f9405, 1},
-    {"Could not start the update.", f9406, 1},
-    {"Could not start update helper: %s", f9407, 1},
-    {"Could not update the installed plugin record.", f9408, 1},
-    {"Could not verify the latest release checksums.", f9409, 1},
-    {"Couldn't connect to Wi-Fi network", f9410, 1},
-    {"Couldn't read this .cue file", f9411, 1},
-    {"Couldn't save -- plugin change was not applied", f9412, 1},
-    {"Counterclockwise", f9413, 1},
-    {"Cover reloaded", f9414, 1},
-    {"Covers refreshed", f9415, 1},
-    {"Create a playlist above or copy one to the SD card's Playlists folder.", f9416, 1},
-    {"Create a plugin", f9417, 1},
-    {"Create a theme", f9418, 1},
-    {"Create plugins & themes", f9419, 1},
-    {"Creator guides", f9420, 1},
-    {"Crossfade", f9421, 1},
-    {"Crossfeed (0 to 100)", f9422, 1},
-    {"Crossfeed: %d%%", f9423, 1},
-    {"Crossfeed: Off", f9424, 1},
-    {"Custom", f9425, 1},
-    {"Custom color", f9426, 1},
-    {"Custom fonts affect Latin text only.", f9427, 1},
-    {"DAC path: %s · %u-bit", f9428, 1},
-    {"DLNA", f9429, 1},
-    {"DLNA Renderer", f9430, 1},
-    {"DNS Settings", f9431, 1},
-    {"December", f9432, 1},
-    {"Default", f9433, 1},
-    {"Default (Built-in)", f9434, 1},
-    {"Default (native behavior)", f9435, 1},
-    {"Delete", f9436, 1},
-    {"Delete %d item?", f9437, 3},
-    {"Delete %s?\nThis cannot be undone.", f9438, 1},
-    {"Delete Playlist", f9439, 1},
-    {"Delete playlist?", f9440, 1},
-    {"Delete this profile?", f9441, 1},
-    {"Developer Options", f9442, 1},
-    {"Dim screen before timeout", f9443, 1},
-    {"Disabled", f9444, 1},
-    {"Disc %d", f9445, 1},
-    {"Disc %d / Track %d", f9446, 1},
-    {"Disconnect", f9447, 1},
-    {"Disconnect USB storage first", f9448, 1},
-    {"Disconnect USB storage from the computer before changing files.", f9449, 1},
-    {"Disconnect USB storage from the host before changing emulators.", f9450, 1},
-    {"Disconnect USB storage from the host before changing plugins.", f9451, 1},
-    {"Dismiss", f9452, 1},
-    {"Display", f9453, 1},
-    {"Do Nothing", f9454, 1},
-    {"Done", f9455, 1},
-    {"Done. Update the music database to see the changes in your library.", f9456, 1},
-    {"Double", f9457, 1},
-    {"Double press", f9458, 1},
-    {"Download", f9459, 1},
-    {"Download \"%s\"?", f9460, 1},
-    {"Download Profiles", f9461, 1},
-    {"Download Settings", f9462, 1},
-    {"Download an emulator to play games.", f9463, 1},
-    {"Download emulators", f9464, 1},
-    {"Download every album from \"%s\"?", f9465, 1},
-    {"Download failed", f9466, 1},
-    {"Download folder: %s", f9467, 1},
-    {"Download folder: SD root", f9468, 1},
-    {"Download layouts", f9469, 1},
-    {"Download profiles", f9470, 1},
-    {"Download settings", f9471, 1},
-    {"Download subfolder", f9472, 1},
-    {"Download themes", f9473, 1},
-    {"Downloading", f9474, 1},
-    {"Downloading\n%s...", f9475, 1},
-    {"Downloading and installing plugins %zu/%zu", f9476, 1},
-    {"Downloading update", f9477, 1},
-    {"Duration", f9478, 1},
-    {"EQ", f9479, 1},
-    {"EQ curve", f9480, 1},
-    {"Edit", f9481, 1},
-    {"Edit / Done", f9482, 1},
-    {"Edit a .theme text file on your computer. Copy it to the Themes folder on your SD card, then select it in More > Themes.", f9483, 1},
-    {"Emulator operation failed", f9484, 1},
-    {"Emulator store is busy.", f9485, 1},
-    {"Emulators", f9486, 1},
-    {"Enable Bluetooth DAC", f9487, 1},
-    {"Enable Bluetooth in settings to use BT DAC mode", f9488, 1},
-    {"Enable Sleep Timer", f9489, 1},
-    {"Enable Wi-Fi or Bluetooth to connect.", f9490, 1},
-    {"Enable WiFi to access", f9491, 1},
-    {"Enable band", f9492, 1},
-    {"Enable debug logging", f9493, 1},
-    {"Enabled", f9494, 1},
-    {"Equalizer", f9495, 1},
-    {"Erase and format SD card?", f9496, 1},
-    {"Europe", f9497, 1},
-    {"Excellent", f9498, 1},
-    {"Exit USB DAC mode to play music on this device", f9499, 1},
-    {"Extension updates", f9500, 1},
-    {"Factory Reset", f9501, 1},
-    {"Failed plugins:\n", f9502, 1},
-    {"Failed to add folder to playlist", f9503, 1},
-    {"Failed to add to playlist", f9504, 1},
-    {"Failed to apply time zone", f9505, 1},
-    {"Failed to connect to server", f9506, 1},
-    {"Failed to create playlist", f9507, 1},
-    {"Failed to delete profile", f9508, 1},
-    {"Failed to enable AirPlay", f9509, 1},
-    {"Failed to load artists", f9510, 1},
-    {"Failed to load artists: %s", f9511, 1},
-    {"Failed to load font. Check format & memory.", f9512, 1},
-    {"Failed to load from server", f9513, 1},
-    {"Failed to load profile", f9514, 1},
-    {"Failed to rename profile", f9515, 1},
-    {"Failed to save profile", f9516, 1},
-    {"Failed to start connection", f9517, 1},
-    {"Failed to switch to %s", f9518, 1},
-    {"Failed to toggle Bluetooth", f9519, 1},
-    {"Fair", f9520, 1},
-    {"Favorites", f9521, 1},
-    {"February", f9522, 1},
-    {"File Manager", f9523, 1},
-    {"File path is too long", f9524, 1},
-    {"File size", f9525, 1},
-    {"File unavailable", f9526, 1},
-    {"Files", f9527, 1},
-    {"Files (folders stay first)", f9528, 1},
-    {"Files on the card may have changed.", f9529, 1},
-    {"Files use modification dates. Albums use the newest track added; missing release years sort last. Update Music Database once to read years from existing files.", f9530, 1},
-    {"Filter type", f9531, 1},
-    {"Firmware Update", f9532, 1},
-    {"Firmware release %s is available.\nInstalled: %s\n\nDownload it now? This may take a while.", f9533, 1},
-    {"Firmware release %s is downloaded and verified.\n\nInstall now? The device reboots into recovery to flash it. Do not turn it off until it restarts.", f9534, 1},
-    {"Flat", f9535, 1},
-    {"Folder action is still running", f9536, 1},
-    {"Folder is too large to add to queue", f9537, 1},
-    {"Folder layout for downloaded albums", f9538, 1},
-    {"Folder too large to index (tap Back)", f9539, 1},
-    {"Font", f9540, 1},
-    {"Font Size", f9541, 1},
-    {"Font selection is no longer available", f9542, 1},
-    {"Forget", f9543, 1},
-    {"Format", f9544, 1},
-    {"Format SD Card", f9545, 1},
-    {"Formatting\nSD Card...", f9546, 1},
-    {"Frequency", f9547, 1},
-    {"Frequency (Hz, 20 to 20000)", f9548, 1},
-    {"Friday", f9549, 1},
-    {"From album art", f9550, 1},
-    {"From album art (no cover, using custom)", f9551, 1},
-    {"Gain", f9552, 1},
-    {"Gain (dB, -12 to 12)", f9553, 1},
-    {"Gain Mode", f9554, 1},
-    {"Games run on the player only.", f9555, 1},
-    {"Gapless", f9556, 1},
-    {"Gateway: %s", f9557, 1},
-    {"Generate", f9558, 1},
-    {"Generate a new PIN?", f9559, 1},
-    {"Genres", f9560, 1},
-    {"Gestures & Orientation", f9561, 1},
-    {"Get started", f9562, 1},
-    {"GitHub did not respond in time. Try again.", f9563, 1},
-    {"GitHub is limiting requests. Try again later.", f9564, 1},
-    {"GitHub returned HTTP %d.", f9565, 1},
-    {"GitHub's latest release has no valid %s image and checksum.", f9566, 1},
-    {"GitHub's latest release is not a supported firmware release.", f9567, 1},
-    {"Go back and choose New Connection to add one.", f9568, 1},
-    {"Go to page", f9569, 1},
-    {"Good", f9570, 1},
-    {"Guide: docs/CREATING.md", f9571, 1},
-    {"Headset may disconnect, manual reconnection might be required", f9572, 1},
-    {"Hide Player/Lyrics Top Bar", f9573, 1},
-    {"Hide Unnamed Devices", f9574, 1},
-    {"Hide hidden files", f9575, 1},
-    {"High", f9576, 1},
-    {"High (320 kbps)", f9577, 1},
-    {"Hostname", f9578, 1},
-    {"Hostname can only use letters, numbers, and hyphens", f9579, 1},
-    {"IP Address: %s", f9580, 1},
-    {"Idle Shutdown", f9581, 1},
-    {"Idle timeout:", f9582, 1},
-    {"Import", f9583, 1},
-    {"Import via Wi-Fi", f9584, 1},
-    {"In-line Remote", f9585, 1},
-    {"Indian", f9586, 1},
-    {"Information", f9587, 1},
-    {"Insert an SD card to change emulators.", f9588, 1},
-    {"Insert an SD card to change plugins.", f9589, 1},
-    {"Insert an SD card to download the update.", f9590, 1},
-    {"Insert an SD card to install plugins.", f9591, 1},
-    {"Insert an SD card to remove plugins.", f9592, 1},
-    {"Insert an SD card to scan for music, or turn off Scan for music.", f9593, 1},
-    {"Insert an SD card to update plugins.", f9594, 1},
-    {"Insert your SD card with music files. Compas Player can scan it and build your library.", f9595, 1},
-    {"Install", f9596, 1},
-    {"Install & Reboot", f9597, 1},
-    {"Install from SD card", f9598, 1},
-    {"Installed", f9599, 1},
-    {"Installed manually", f9600, 1},
-    {"Installed version: %s\nAvailable release: %s\n\nDownload and reinstall it anyway? This may take a while.", f9601, 1},
-    {"Installed · %s", f9602, 1},
-    {"Installing emulator", f9603, 1},
-    {"Installing plugin", f9604, 1},
-    {"Invalid download folder", f9605, 1},
-    {"Invalid download folder name", f9606, 1},
-    {"Invalid profile name", f9607, 1},
-    {"Invalid update path.", f9608, 1},
-    {"It could not be loaded. Rebuild it now?", f9609, 1},
-    {"It may have no partition table or a file system this player can't use. Formatting will erase it and set it up for this player.", f9610, 1},
-    {"Its settings stay on the card.", f9611, 1},
-    {"January", f9612, 1},
-    {"July", f9613, 1},
-    {"June", f9614, 1},
-    {"Keep a button assigned to Toggle Screen or Power Menu", f9615, 1},
-    {"Keyboard", f9616, 1},
-    {"LDAC Quality", f9617, 1},
-    {"LDAC Standard", f9618, 1},
-    {"LED charge indicator", f9619, 1},
-    {"Language", f9620, 1},
-    {"Large", f9621, 1},
-    {"Later", f9622, 1},
-    {"Launch at a fixed volume", f9623, 1},
-    {"Layout", f9624, 1},
-    {"Leave", f9625, 1},
-    {"Leave Bluetooth DAC mode?", f9626, 1},
-    {"Leave USB DAC mode?", f9627, 1},
-    {"Leave this view and try again.", f9628, 1},
-    {"Library", f9629, 1},
-    {"Library changed. Open the album again.", f9630, 1},
-    {"Library is busy", f9631, 1},
-    {"Library loaded", f9632, 1},
-    {"Library recovered and saved", f9633, 1},
-    {"Library recovered and saved, some folders could not be read", f9634, 1},
-    {"Library recovered. Use Settings > Update Music Database to save", f9635, 1},
-    {"Library unavailable. Use Settings > Update Music Database to rebuild", f9636, 1},
-    {"Library update failed. Check SD card and retry", f9637, 1},
-    {"Library updated", f9638, 1},
-    {"Library updated, some folders could not be read", f9639, 1},
-    {"License: %s", f9640, 1},
-    {"Limits the player volume, including buttons, remote controls and plugins.", f9641, 1},
-    {"Loading Wi-Fi settings", f9642, 1},
-    {"Loading emulators", f9643, 1},
-    {"Loading from server...", f9644, 1},
-    {"Loading layouts", f9645, 1},
-    {"Loading plugin catalog...", f9646, 1},
-    {"Loading plugins", f9647, 1},
-    {"Loading themes", f9648, 1},
-    {"Loading tracks…", f9649, 1},
-    {"Loading updates", f9650, 1},
-    {"Loading...", f9651, 1},
-    {"Location", f9652, 1},
-    {"Long", f9653, 1},
-    {"Long press", f9654, 1},
-    {"Looking for music files", f9655, 1},
-    {"Looking for music files\n%d items checked", f9656, 1},
-    {"Low", f9657, 1},
-    {"Low\nHigh", f9658, 1},
-    {"Low (96 kbps)", f9659, 1},
-    {"Lyrics", f9660, 1},
-    {"Lyrics Text Size", f9661, 1},
-    {"MAC Address: %s", f9662, 1},
-    {"Maintenance", f9663, 1},
-    {"Make an accessory discoverable, then tap Rescan.", f9664, 1},
-    {"Manage plugins later in Settings > System > Plugin Manager to search, update, or remove them.", f9665, 1},
-    {"Manual SSID Entry", f9666, 1},
-    {"March", f9667, 1},
-    {"Match album art", f9668, 1},
-    {"Max Volume", f9669, 1},
-    {"May", f9670, 1},
-    {"Medium", f9671, 1},
-    {"Medium (192 kbps)", f9672, 1},
-    {"Memorized Networks", f9673, 1},
-    {"Metadata refreshed", f9674, 1},
-    {"Monday", f9675, 1},
-    {"Mono (1 channel)", f9676, 1},
-    {"More", f9677, 1},
-    {"Most Played", f9678, 1},
-    {"Move", f9679, 1},
-    {"Move %d item?", f9680, 3},
-    {"Music", f9681, 1},
-    {"Music database unavailable", f9682, 1},
-    {"Name (A–Z)", f9683, 1},
-    {"Native DSD (DoP) / %.4g MHz", f9684, 1},
-    {"Nearby Wi-Fi networks will appear here.", f9685, 1},
-    {"Nearby networks will appear when Wi-Fi is ready.", f9686, 1},
-    {"Needs newer firmware", f9687, 1},
-    {"Network Name (SSID)", f9688, 1},
-    {"Network stream", f9689, 1},
-    {"Networks you connect to will appear here.", f9690, 1},
-    {"New Connection", f9691, 1},
-    {"New PIN generated", f9692, 1},
-    {"New Profile", f9693, 1},
-    {"New folder", f9694, 1},
-    {"Newest Modified", f9695, 1},
-    {"Next", f9696, 1},
-    {"Next  •  %d–%d of %d", f9697, 1},
-    {"Next Track", f9698, 1},
-    {"Next page", f9699, 1},
-    {"No .ttf fonts found in /Fonts", f9700, 1},
-    {"No SD card", f9701, 1},
-    {"No SD card detected. You can scan later from Library settings.", f9702, 1},
-    {"No SD card is mounted.", f9703, 1},
-    {"No books found", f9704, 1},
-    {"No description", f9705, 1},
-    {"No emulators are available in the catalog.", f9706, 1},
-    {"No emulators installed", f9707, 1},
-    {"No entries to display", f9708, 1},
-    {"No favorites yet", f9709, 1},
-    {"No games found", f9710, 1},
-    {"No items", f9711, 1},
-    {"No layouts are available in the catalog.", f9712, 1},
-    {"No longer in the catalog", f9713, 1},
-    {"No memorized networks", f9714, 1},
-    {"No music database", f9715, 1},
-    {"No nearby devices", f9716, 1},
-    {"No network detected", f9717, 1},
-    {"No network detected. Connect to a network to download emulators.", f9718, 1},
-    {"No network detected. Connect to a network to download plugins.", f9719, 1},
-    {"No networks found", f9720, 1},
-    {"No other networks found", f9721, 1},
-    {"No paired devices", f9722, 1},
-    {"No playable audio files found", f9723, 1},
-    {"No playable files here", f9724, 1},
-    {"No plugin settings available", f9725, 1},
-    {"No plugins are available in the catalog.", f9726, 1},
-    {"No saved profiles", f9727, 1},
-    {"No saved servers", f9728, 1},
-    {"No songs to refresh", f9729, 1},
-    {"No synchronized lyrics found", f9730, 1},
-    {"No themes are available in the catalog.", f9731, 1},
-    {"No track loaded", f9732, 1},
-    {"No tracks found", f9733, 1},
-    {"No updates available.", f9734, 1},
-    {"No user playlists", f9735, 1},
-    {"No verified update is on this SD card. Download it again.", f9736, 1},
-    {"Not available in your subscription", f9737, 1},
-    {"Not connected", f9738, 1},
-    {"Not enough free space on the SD card for the update.", f9739, 1},
-    {"Not enough free space on the SD card.", f9740, 1},
-    {"Not enough free space on the player.", f9741, 1},
-    {"Not enough memory to connect", f9742, 1},
-    {"Not enough memory to load CUE tracks", f9743, 1},
-    {"Not enough memory to load artists", f9744, 1},
-    {"Not enough memory to load from server", f9745, 1},
-    {"Not enough memory to load the plugin store", f9746, 1},
-    {"Not enough memory to start download", f9747, 1},
-    {"Not selected (UTC)", f9748, 1},
-    {"Not set", f9749, 1},
-    {"Nothing to select here", f9750, 1},
-    {"November", f9751, 1},
-    {"Now Playing layouts", f9752, 1},
-    {"OFF", f9753, 1},
-    {"ON", f9754, 1},
-    {"October", f9755, 1},
-    {"Off", f9756, 1},
-    {"On", f9757, 1},
-    {"Open More > Plugins > Refresh Plugins. Scan for a working example and the full API guide.", f9758, 1},
-    {"Open a book and tap the bookmark icon to save it here.", f9759, 1},
-    {"Open a folder containing supported audio files.", f9760, 1},
-    {"Open network", f9761, 1},
-    {"Open the destination folder, then choose Paste here from the menu.", f9762, 1},
-    {"Open this address on your phone or computer:", f9763, 1},
-    {"Open · Connected", f9764, 1},
-    {"Original", f9765, 1},
-    {"Output", f9766, 1},
-    {"PEQ", f9767, 1},
-    {"PEQ reset to defaults", f9768, 1},
-    {"PM", f9769, 1},
-    {"Pacific", f9770, 1},
-    {"Page %d of %d", f9771, 1},
-    {"Paired", f9772, 1},
-    {"Paired Devices", f9773, 1},
-    {"Password", f9774, 1},
-    {"Password: Not set", f9775, 1},
-    {"Password: Set", f9776, 1},
-    {"Paste %d item here", f9777, 3},
-    {"Paused: headphones disconnected", f9778, 1},
-    {"Peaking\nLow Shelf\nHigh Shelf", f9779, 1},
-    {"Per Album", f9780, 1},
-    {"Per Track", f9781, 1},
-    {"Place .ttf fonts in SD /Fonts folder.", f9782, 1},
-    {"Play All", f9783, 1},
-    {"Play All (Sequential)", f9784, 1},
-    {"Play All (Shuffle)", f9785, 1},
-    {"Play Next", f9786, 1},
-    {"Play all shuffled", f9787, 1},
-    {"Play an album or playlist to see its songs here.", f9788, 1},
-    {"Play sequentially", f9789, 1},
-    {"Play/Pause", f9790, 1},
-    {"Playback", f9791, 1},
-    {"Playback & Controls", f9792, 1},
-    {"Playback and device actions", f9793, 1},
-    {"Playback changed before folder was ready", f9794, 1},
-    {"Playback error", f9795, 1},
-    {"Playback error: audio output failed", f9796, 1},
-    {"Playback history could not be saved", f9797, 1},
-    {"Playback stopped: %s", f9798, 1},
-    {"Played", f9799, 1},
-    {"Player Layout", f9800, 1},
-    {"Playing", f9801, 1},
-    {"Playlist Name", f9802, 1},
-    {"Playlist changed. Select a song again.", f9803, 1},
-    {"Playlist changed. Try again.", f9804, 1},
-    {"Playlist created", f9805, 1},
-    {"Playlist deleted", f9806, 1},
-    {"Playlist is empty", f9807, 1},
-    {"Playlist name is too long", f9808, 1},
-    {"Playlist renamed", f9809, 1},
-    {"Playlist saved", f9810, 1},
-    {"Playlist selection expired", f9811, 1},
-    {"Playlist unavailable or unreadable", f9812, 1},
-    {"Playlists", f9813, 1},
-    {"Playlists refreshed", f9814, 1},
-    {"Please wait for plugin installation to finish", f9815, 1},
-    {"Please wait for the library scan to finish", f9816, 1},
-    {"Plugin", f9817, 1},
-    {"Plugin Manager", f9818, 1},
-    {"Plugin Order", f9819, 1},
-    {"Plugin Settings", f9820, 1},
-    {"Plugin Store", f9821, 1},
-    {"Plugin is unavailable in the catalog", f9822, 1},
-    {"Plugin operation failed", f9823, 1},
-    {"Plugin setup complete", f9824, 1},
-    {"Plugin setup needs attention", f9825, 1},
-    {"Plugin storage is unavailable.", f9826, 1},
-    {"Plugins", f9827, 1},
-    {"Plugins & Layouts", f9828, 1},
-    {"Plugins can override these saved preferences.", f9829, 1},
-    {"Position", f9830, 1},
-    {"Power", f9831, 1},
-    {"Power Menu", f9832, 1},
-    {"Power Off", f9833, 1},
-    {"Power controls", f9834, 1},
-    {"Power off", f9835, 1},
-    {"Pre-Amp", f9836, 1},
-    {"Pre-Amp (dB, -12 to 12)", f9837, 1},
-    {"Preparing and verifying recovery mode", f9838, 1},
-    {"Preparing cover refresh...", f9839, 1},
-    {"Preparing folder playback", f9840, 1},
-    {"Preparing metadata refresh", f9841, 1},
-    {"Preparing metadata refresh...", f9842, 1},
-    {"Preparing music library...", f9843, 1},
-    {"Preparing update", f9844, 1},
-    {"Presets", f9845, 1},
-    {"Preview", f9846, 1},
-    {"Previous", f9847, 1},
-    {"Previous  •  %d–%d of %d", f9848, 1},
-    {"Previous Track", f9849, 1},
-    {"Previous page", f9850, 1},
-    {"Previous request still finishing", f9851, 1},
-    {"Previously connected accessories will appear here.", f9852, 1},
-    {"Primary DNS", f9853, 1},
-    {"Profile Name", f9854, 1},
-    {"Profile deleted", f9855, 1},
-    {"Profile loaded", f9856, 1},
-    {"Profile renamed", f9857, 1},
-    {"Profile saved", f9858, 1},
-    {"Profiles", f9859, 1},
-    {"Provider", f9860, 1},
-    {"QWERTY", f9861, 1},
-    {"Queue", f9862, 1},
-    {"Queue changed. Try again.", f9863, 1},
-    {"Queue checkpoint failed; storage may be read-only", f9864, 1},
-    {"Queue cleared", f9865, 1},
-    {"Queue is empty", f9866, 1},
-    {"Queue ready. Press Play to start.", f9867, 1},
-    {"Queued", f9868, 1},
-    {"Quick Drawer", f9869, 1},
-    {"Quick Setup Complete", f9870, 1},
-    {"Quick setup", f9871, 1},
-    {"RC", f9872, 1},
-    {"Radio", f9873, 1},
-    {"Radio / %s", f9874, 1},
-    {"Reading supported rates...", f9875, 1},
-    {"Reading tags\n%d of %d songs (%d%%)", f9876, 1},
-    {"Reads the tags of every song again. This may take a while.", f9877, 1},
-    {"Rebuild", f9878, 1},
-    {"Recently Added", f9879, 1},
-    {"Recently Played", f9880, 1},
-    {"Recovery boot flag failed.", f9881, 1},
-    {"Recovery flag erase failed. Do not reboot; check .compas/ota/update.log.", f9882, 1},
-    {"Recovery flag partition does not match this firmware.", f9883, 1},
-    {"Recovery flag verification failed. Do not reboot; check the update log.", f9884, 1},
-    {"Recovery flag write failed. Do not reboot; check .compas/ota/update.log.", f9885, 1},
-    {"Recovery remains selected but reboot failed: %s. Keep the update file.", f9886, 1},
-    {"Recovery remains selected. Keep the update file; saving diagnostics failed.", f9887, 1},
-    {"Refresh", f9888, 1},
-    {"Refresh All Covers", f9889, 1},
-    {"Refresh All Metadata", f9890, 1},
-    {"Refresh Plugins", f9891, 1},
-    {"Refresh all covers?", f9892, 1},
-    {"Refresh all metadata?", f9893, 1},
-    {"Refresh emulator catalog", f9894, 1},
-    {"Refresh metadata", f9895, 1},
-    {"Refresh plugin catalog", f9896, 1},
-    {"Refresh the music database to update this list.", f9897, 1},
-    {"Refreshing\nall covers...", f9898, 1},
-    {"Refreshing\nall metadata...", f9899, 1},
-    {"Refreshing\nmetadata...", f9900, 1},
-    {"Refreshing covers", f9901, 1},
-    {"Refreshing covers\n%d of %d (%d%%)", f9902, 1},
-    {"Refreshing plugins...", f9903, 1},
-    {"Release Year (oldest first)", f9904, 1},
-    {"Reload cover", f9905, 1},
-    {"Reloading\ncover...", f9906, 1},
-    {"Reloading cover", f9907, 1},
-    {"Reloading cover\n%d of %d (%d%%)", f9908, 1},
-    {"Remote", f9909, 1},
-    {"Remote Control", f9910, 1},
-    {"Remove", f9911, 1},
-    {"Remove %s?", f9912, 1},
-    {"Removed", f9913, 1},
-    {"Removed from playlist", f9914, 1},
-    {"Removed from queue", f9915, 1},
-    {"Removes saved covers and extracts them again. This may take a while.", f9916, 1},
-    {"Removing emulator", f9917, 1},
-    {"Removing plugin", f9918, 1},
-    {"Rename", f9919, 1},
-    {"Rename Playlist", f9920, 1},
-    {"Rename Profile", f9921, 1},
-    {"Reorder Items", f9922, 1},
-    {"Replace", f9923, 1},
-    {"Replace Existing", f9924, 1},
-    {"Replace Profile", f9925, 1},
-    {"ReplayGain", f9926, 1},
-    {"Rescan", f9927, 1},
-    {"Reset", f9928, 1},
-    {"Reset All", f9929, 1},
-    {"Reset PEQ to defaults?", f9930, 1},
-    {"Reset all button mappings?", f9931, 1},
-    {"Reset all settings and reboot?", f9932, 1},
-    {"Reset to defaults", f9933, 1},
-    {"Restart", f9934, 1},
-    {"Restart Now", f9935, 1},
-    {"Restart now to apply the new hostname?", f9936, 1},
-    {"Restarting into recovery. Do not turn off the player.", f9937, 1},
-    {"Resume Last Track", f9938, 1},
-    {"Resume and Play", f9939, 1},
-    {"Resume playback when external power turns the player on.", f9940, 1},
-    {"Resume, but Paused", f9941, 1},
-    {"Retrying plugins %zu/%zu", f9942, 1},
-    {"Review updates", f9943, 1},
-    {"SD card couldn't be read", f9944, 1},
-    {"SD card format failed", f9945, 1},
-    {"SD card formatted", f9946, 1},
-    {"SD card is read-only. Check it on a computer", f9947, 1},
-    {"SD card is still read-only", f9948, 1},
-    {"SD card may have errors. Check it on a computer", f9949, 1},
-    {"SD card not available", f9950, 1},
-    {"SD card repair is still running", f9951, 1},
-    {"SD card repaired", f9952, 1},
-    {"SSID must be 1 to 32 bytes", f9953, 1},
-    {"SSID: %s", f9954, 1},
-    {"Safe Charging (500mA)", f9955, 1},
-    {"Sample Rate", f9956, 1},
-    {"Saturday", f9957, 1},
-    {"Save", f9958, 1},
-    {"Save Profile", f9959, 1},
-    {"Save Profile As", f9960, 1},
-    {"Save Queue as Playlist", f9961, 1},
-    {"Save as Playlist", f9962, 1},
-    {"Save as a new profile, or replace one that already exists?", f9963, 1},
-    {"Saved Servers", f9964, 1},
-    {"Saved network", f9965, 1},
-    {"Saved network details are being checked.", f9966, 1},
-    {"Saving data before reboot", f9967, 1},
-    {"Saving data failed. Recovery remains selected; keep the update file and check .compas/ota/update.log.", f9968, 1},
-    {"Saving music database", f9969, 1},
-    {"Saving music database\nThis can take a while on large libraries", f9970, 1},
-    {"Saving playlist…", f9971, 1},
-    {"Scan for a starter theme and instructions. To redesign the player screen, see the XML layout guide linked there.", f9972, 1},
-    {"Scan for music", f9973, 1},
-    {"Scan for the full guide", f9974, 1},
-    {"Scan with your phone to support Compás Player on PayPal", f9975, 1},
-    {"Scanning for networks", f9976, 1},
-    {"Scanning playable files", f9977, 1},
-    {"Screen Dimming", f9978, 1},
-    {"Screen Timeout", f9979, 1},
-    {"Screen off", f9980, 1},
-    {"Screenshot failed (%s)", f9981, 1},
-    {"Screenshot failed (framebuffer)", f9982, 1},
-    {"Screenshot failed (worker)", f9983, 1},
-    {"Screenshot needs an SD card", f9984, 1},
-    {"Screenshot saved", f9985, 1},
-    {"Screenshots (Power + Previous)", f9986, 1},
-    {"Screenshots (Power + Vol Down)", f9987, 1},
-    {"Screenshots unavailable", f9988, 1},
-    {"Searching for networks", f9989, 1},
-    {"Secondary DNS", f9990, 1},
-    {"Secure connection failed. Check Wi-Fi and the date and time.", f9991, 1},
-    {"Secured network", f9992, 1},
-    {"Secured · Connected", f9993, 1},
-    {"Seek Backward", f9994, 1},
-    {"Seek Forward", f9995, 1},
-    {"Select", f9996, 1},
-    {"Select a file", f9997, 1},
-    {"Select all", f9998, 1},
-    {"Select at least one plugin to continue.", f9999, 1},
-    {"Selected plugins are ready.\n", f10000, 1},
-    {"September", f10001, 1},
-    {"Server URL (e.g. %s)", f10002, 1},
-    {"Server URL: %s", f10003, 1},
-    {"Server request timed out after 30 seconds", f10004, 1},
-    {"Service is busy", f10005, 1},
-    {"Set Time", f10006, 1},
-    {"Set your local time zone so the clock is right.", f10007, 1},
-    {"Settings", f10008, 1},
-    {"Show Time Remaining", f10009, 1},
-    {"Show hidden files", f10010, 1},
-    {"Showing first %d of %d songs", f10011, 1},
-    {"Shuffle from a random song", f10012, 1},
-    {"Sign in to the streaming service again", f10013, 1},
-    {"Signal: %s", f10014, 1},
-    {"Single", f10015, 1},
-    {"Single press", f10016, 1},
-    {"Size: %s", f10017, 1},
-    {"Skip for now", f10018, 1},
-    {"Skipped: %s", f10019, 1},
-    {"Sleep", f10020, 1},
-    {"Sleep Timer", f10021, 1},
-    {"Sleep timer", f10022, 1},
-    {"Sleep timer: %d min remaining", f10023, 1},
-    {"Sleep timer: Off", f10024, 1},
-    {"Small", f10025, 1},
-    {"Some covers could not be refreshed", f10026, 1},
-    {"Some playlists could not be read", f10027, 1},
-    {"Some plugin files were changed on the card. Replace them?", f10028, 1},
-    {"Some songs could not be read", f10029, 1},
-    {"Some updates need confirmation before replacing local files.", f10030, 1},
-    {"Song already added", f10031, 1},
-    {"Song deleted", f10032, 1},
-    {"Songs", f10033, 1},
-    {"Sorting", f10034, 1},
-    {"Sound", f10035, 1},
-    {"Sound Effects", f10036, 1},
-    {"Source", f10037, 1},
-    {"Speex Resampling", f10038, 1},
-    {"Start sequentially", f10039, 1},
-    {"Start with these suggestions, or explore more plugins.", f10040, 1},
-    {"Startup Volume", f10041, 1},
-    {"Step %d of %d", f10042, 1},
-    {"Stereo (2 channels)", f10043, 1},
-    {"Still applying the previous choice", f10044, 1},
-    {"Still working. Do not turn off the player or retry.", f10045, 1},
-    {"Stop", f10046, 1},
-    {"Stopped", f10047, 1},
-    {"Stopping...", f10048, 1},
-    {"Storage", f10049, 1},
-    {"Stream Media", f10050, 1},
-    {"Stream Quality", f10051, 1},
-    {"Stream quality: %s", f10052, 1},
-    {"Subfolder is relative to SD root (example: Music/Offline); empty uses SD root", f10053, 1},
-    {"Subfolder: SD root", f10054, 1},
-    {"Subsonic", f10055, 1},
-    {"Sunday", f10056, 1},
-    {"Suspend to RAM", f10057, 1},
-    {"Swipe Up for Home", f10058, 1},
-    {"Swipe up to unlock", f10059, 1},
-    {"System", f10060, 1},
-    {"System playlists", f10061, 1},
-    {"T9", f10062, 1},
-    {"TXT Reader", f10063, 1},
-    {"Takes its color from the cover of the playing track", f10064, 1},
-    {"Tap Power off again to confirm", f10065, 1},
-    {"Tap Restart again to confirm", f10066, 1},
-    {"That name cannot be used", f10067, 1},
-    {"The SD card changed during the download.", f10068, 1},
-    {"The SD card changed during the operation.", f10069, 1},
-    {"The SD card is read-only. Check its write protection.", f10070, 1},
-    {"The download did not complete. Check Wi-Fi and try again.", f10071, 1},
-    {"The downloaded image failed verification and was deleted.", f10072, 1},
-    {"The downloaded update record is invalid. Download the update again.", f10073, 1},
-    {"The emulator download failed verification. Try again.", f10074, 1},
-    {"The emulator folder is not writable.", f10075, 1},
-    {"The firmware path is too long.", f10076, 1},
-    {"The game closed unexpectedly.", f10077, 1},
-    {"The playlist file will be deleted. Music files are kept.", f10078, 1},
-    {"The plugin download failed verification. Try again.", f10079, 1},
-    {"The quick brown fox jumps 123", f10080, 1},
-    {"The release has no checksum for this device's image.", f10081, 1},
-    {"The selected update file changed. Select it again.", f10082, 1},
-    {"The streaming plugin is not available", f10083, 1},
-    {"The streaming service did not answer", f10084, 1},
-    {"The update file changed during verification. Select it again.", f10085, 1},
-    {"The update file on the SD card changed. Download it again.", f10086, 1},
-    {"Themes", f10087, 1},
-    {"There are no entries in this view.", f10088, 1},
-    {"This can take a few seconds.", f10089, 1},
-    {"This cannot be undone.", f10090, 1},
-    {"This device is now a USB sound card", f10091, 1},
-    {"This device is now receiving Bluetooth audio", f10092, 1},
-    {"This emulator needs a newer player version.", f10093, 1},
-    {"This folder is empty", f10094, 1},
-    {"This includes the player's own data (.compas or .plugins). Deleting or moving it can break features, lose data such as settings and installed plugins, and may require a restart.", f10095, 1},
-    {"This may take a while", f10096, 1},
-    {"This permanently deletes everything on the card. This cannot be undone.", f10097, 1},
-    {"This plugin has no update available.", f10098, 1},
-    {"This plugin is already installed by the store.", f10099, 1},
-    {"This plugin is not installed by the store.", f10100, 1},
-    {"This plugin needs a newer player version.", f10101, 1},
-    {"This quality is unavailable for this track", f10102, 1},
-    {"This release's image does not match its checksums. Try again after the next weekly release.", f10103, 1},
-    {"This track is copy-protected", f10104, 1},
-    {"This track is unavailable", f10105, 1},
-    {"This type of file cannot be opened", f10106, 1},
-    {"This update is no longer the latest release. Check for updates and download the latest image.", f10107, 1},
-    {"This update no longer matches the latest release. Download the latest image again.", f10108, 1},
-    {"Thread launch failed", f10109, 1},
-    {"Thursday", f10110, 1},
-    {"Time Zone", f10111, 1},
-    {"Time remaining: %d:%02d", f10112, 1},
-    {"Time remaining: %d:%02d:%02d", f10113, 1},
-    {"Time zone", f10114, 1},
-    {"Tint startup image", f10115, 1},
-    {"Tint title bar icons", f10116, 1},
-    {"Toggle Screen", f10117, 1},
-    {"Too many audio channels", f10118, 1},
-    {"Too many plugins are installed. Remove one and try again.", f10119, 1},
-    {"Track", f10120, 1},
-    {"Track %+.1f dB", f10121, 1},
-    {"Track %d", f10122, 1},
-    {"Track details are not available yet. Keep playback open and check again.", f10123, 1},
-    {"Tracks", f10124, 1},
-    {"Try scanning again or add a hidden network.", f10125, 1},
-    {"Tuesday", f10126, 1},
-    {"Turn Bluetooth off and on to apply", f10127, 1},
-    {"Turn off ADB first (Settings > System > USB Mode), then enable USB DAC from here.", f10128, 1},
-    {"Turn off Automatic to set the clock", f10129, 1},
-    {"Turn off Bluetooth DAC to play music on this device", f10130, 1},
-    {"Turn off DAC mode to play games.", f10131, 1},
-    {"Turn off screen automatically", f10132, 1},
-    {"Turn on Bluetooth to see paired and nearby devices.", f10133, 1},
-    {"Turn on Wi-Fi and connect first", f10134, 1},
-    {"Turn this on to see the address here.", f10135, 1},
-    {"Turning Wi-Fi on", f10136, 1},
-    {"USB DAC", f10137, 1},
-    {"USB DAC mode", f10138, 1},
-    {"USB Mode", f10139, 1},
-    {"USB audio device detected", f10140, 1},
-    {"USB input: %s · %u-bit", f10141, 1},
-    {"USB mode", f10142, 1},
-    {"USB storage is busy.", f10143, 1},
-    {"Unable to load items", f10144, 1},
-    {"Unable to read folder (tap Back and retry)", f10145, 1},
-    {"Unavailable", f10146, 1},
-    {"Unexpected library response", f10147, 1},
-    {"Unexpected reply from GitHub", f10148, 1},
-    {"Unexpected reply from GitHub.", f10149, 1},
-    {"Unknown album", f10150, 1},
-    {"Unknown artist", f10151, 1},
-    {"Unknown codec", f10152, 1},
-    {"Unknown format", f10153, 1},
-    {"Unknown rate", f10154, 1},
-    {"Unsupported audio format", f10155, 1},
-    {"Update", f10156, 1},
-    {"Update & Reboot", f10157, 1},
-    {"Update All", f10158, 1},
-    {"Update Music Database", f10159, 1},
-    {"Update Music Database to enable this album order", f10160, 1},
-    {"Update available", f10161, 1},
-    {"Update available · %s", f10162, 1},
-    {"Update diagnostics must be stored on the SD card.", f10163, 1},
-    {"Update helper failed (%s, status %d). See .compas/ota/update.log.", f10164, 1},
-    {"Update individually", f10165, 1},
-    {"Update music database?", f10166, 1},
-    {"Update saved. Connect to Wi-Fi, then install from Firmware Update > Install from SD card.", f10167, 1},
-    {"Update the Player only, retaining current drivers, kernel and bootloader.", f10168, 1},
-    {"Update the entire CompásOS. Flashing firmware contains Bootloader, Player, Kernel and Drivers.", f10169, 1},
-    {"Update these plugins individually", f10170, 1},
-    {"Update using %s?\nDevice will reboot into recovery mode.", f10171, 1},
-    {"Updates", f10172, 1},
-    {"Updating\nmusic database...", f10173, 1},
-    {"Updating emulator", f10174, 1},
-    {"Updating plugins", f10175, 1},
-    {"Upside Down Screen", f10176, 1},
-    {"Use Settings > Update Music Database", f10177, 1},
-    {"Use a regular %s file in the SD card root.", f10178, 1},
-    {"User playlists", f10179, 1},
-    {"Username", f10180, 1},
-    {"Username: %s", f10181, 1},
-    {"Uses the accent color for the default splash.", f10182, 1},
-    {"Uses the accent color for the icons next to screen titles.", f10183, 1},
-    {"Verify server certificate", f10184, 1},
-    {"Version %s · %s", f10185, 1},
-    {"Volume Down", f10186, 1},
-    {"Volume Lock (Screen Off)", f10187, 1},
-    {"Volume Slider", f10188, 1},
-    {"Volume Up", f10189, 1},
-    {"Wait for USB mode switching to finish and disconnect USB storage before updating.", f10190, 1},
-    {"Waiting for Bluetooth stream…", f10191, 1},
-    {"Waiting for USB audio…", f10192, 1},
-    {"Weak", f10193, 1},
-    {"Web Server is busy", f10194, 1},
-    {"Wednesday", f10195, 1},
-    {"Welcome to Compás", f10196, 1},
-    {"When on, this device is visible to AirPlay senders on your Wi-Fi network -- stream audio from an iPhone, iPad, or Mac to be played through this device's own output.", f10197, 1},
-    {"When on, this device is visible to DLNA/UPnP controller apps on your Wi-Fi network -- cast a track from one to play it here. Pause, mute, volume, and seek from the controller app aren't supported; use this device's own controls instead once a track starts.", f10198, 1},
-    {"When on, this device stays visible and pairable to other Bluetooth devices, so a phone or computer can stream audio TO it and play through this device's own output -- using it as an external DAC.", f10199, 1},
-    {"Wi-Fi", f10200, 1},
-    {"Wi-Fi Info", f10201, 1},
-    {"Wi-Fi Password", f10202, 1},
-    {"Wi-Fi could not be enabled", f10203, 1},
-    {"Wi-Fi failed to change state", f10204, 1},
-    {"Wi-Fi is busy", f10205, 1},
-    {"Wi-Fi is still starting", f10206, 1},
-    {"Wireless", f10207, 1},
-    {"Working...", f10208, 1},
-    {"Write a Lua plugin on your computer. Copy its .lua file to the .plugins folder on your SD card.", f10209, 1},
-    {"You can select up to 32 plugins", f10210, 1},
-    {"Your library is being loaded.", f10211, 1},
-    {"Your music", f10212, 1},
-    {"Your setup journey", f10213, 1},
-    {"[File truncated at %d KB -- showing the first part only]\n\n%s", f10214, 1},
-    {"github.com/Starnished66/compas-player", f10215, 1},
-    {"unknown", f10216, 1},
+    {"%+.2f dB", f9189, 1},
+    {"%.0f Hz", f9190, 1},
+    {"%d hr", f9191, 1},
+    {"%d hr %d min", f9192, 1},
+    {"%d min", f9193, 1},
+    {"%d min remaining", f9194, 1},
+    {"%d selected", f9195, 3},
+    {"%d song", f9196, 3},
+    {"%d track", f9197, 3},
+    {"%dm", f9198, 1},
+    {"%lld track", f9199, 3},
+    {"%llu bytes", f9200, 1},
+    {"%s (current)", f9201, 1},
+    {"%s · Not loaded", f9202, 1},
+    {"%s · Not loaded: limit reached", f9203, 1},
+    {"%u channels", f9204, 1},
+    {"%u item could not be completed", f9205, 3},
+    {"%u of %u\n%s", f9206, 1},
+    {"+ New Playlist", f9207, 1},
+    {"0 dB", f9208, 1},
+    {"24-Hour Clock", f9209, 1},
+    {"48 kHz reference", f9210, 1},
+    {"A firmware update is already in progress.", f9211, 1},
+    {"A local plugin file will be replaced. Confirm to continue.", f9212, 1},
+    {"A newer or changed release is available. Check for updates again before downloading.", f9213, 1},
+    {"A plugin download failed verification. Try again.", f9214, 1},
+    {"A plugin operation is already in progress", f9215, 1},
+    {"A required recovery helper is missing. Update preparation stopped.", f9216, 1},
+    {"ADB", f9217, 1},
+    {"AM", f9218, 1},
+    {"About", f9219, 1},
+    {"Accent Color", f9220, 1},
+    {"Accent Options", f9221, 1},
+    {"Add .txt files to the Books folder, then refresh the library.", f9222, 1},
+    {"Add a random song to queue", f9223, 1},
+    {"Add album to queue", f9224, 1},
+    {"Add hidden network", f9225, 1},
+    {"Add songs from a song menu.", f9226, 1},
+    {"Add to Playlist", f9227, 1},
+    {"Add to Queue", f9228, 1},
+    {"Added %d song to queue", f9229, 3},
+    {"Added folder to playlist", f9230, 1},
+    {"Added to playlist", f9231, 1},
+    {"Adding folder to playlist", f9232, 1},
+    {"Adding folder to queue", f9233, 1},
+    {"Additional Tools", f9234, 1},
+    {"Advanced", f9235, 1},
+    {"Africa", f9236, 1},
+    {"AirPlay", f9237, 1},
+    {"AirPlay stopped unexpectedly", f9238, 1},
+    {"Album %+.1f dB", f9239, 1},
+    {"Album Artist", f9240, 1},
+    {"Album Artist - Album", f9241, 1},
+    {"Album Artist / Album", f9242, 1},
+    {"Album unavailable", f9243, 1},
+    {"Albums", f9244, 1},
+    {"All Songs", f9245, 1},
+    {"All visible networks are already saved.", f9246, 1},
+    {"Already installed", f9247, 1},
+    {"America", f9248, 1},
+    {"An emulator operation is already in progress", f9249, 1},
+    {"An item with that name already exists", f9250, 1},
+    {"An update is already in progress", f9251, 1},
+    {"An update is already in progress.", f9252, 1},
+    {"An update is in progress. Please wait.", f9253, 1},
+    {"Animation Speed", f9254, 1},
+    {"Another file operation is still running", f9255, 1},
+    {"Antarctica", f9256, 1},
+    {"Appearance", f9257, 1},
+    {"Applied %+.1f dB", f9258, 1},
+    {"Applies next time you launch the app", f9259, 1},
+    {"Applies to new streaming queues", f9260, 1},
+    {"Applying language, this may take a while", f9261, 1},
+    {"Applying layout, this may take a while", f9262, 1},
+    {"Apps and browsers using the current PIN will need the new one to reconnect.", f9263, 1},
+    {"April", f9264, 1},
+    {"Arctic", f9265, 1},
+    {"Artist Images", f9266, 1},
+    {"Artists", f9267, 1},
+    {"Asia", f9268, 1},
+    {"Atlantic", f9269, 1},
+    {"Audio", f9270, 1},
+    {"Audio could not be decoded", f9271, 1},
+    {"Audio is still active; cannot start the game.", f9272, 1},
+    {"Audio output failed", f9273, 1},
+    {"August", f9274, 1},
+    {"Australia", f9275, 1},
+    {"Auto", f9276, 1},
+    {"Auto-resume", f9277, 1},
+    {"AutoEQ", f9278, 1},
+    {"Automatic", f9279, 1},
+    {"Automatic (44.1 kHz)", f9280, 1},
+    {"Automatically go idle", f9281, 1},
+    {"Available", f9282, 1},
+    {"Available Devices", f9283, 1},
+    {"Available Networks", f9284, 1},
+    {"Available · %s", f9285, 1},
+    {"Band %d / %d", f9286, 1},
+    {"Band options", f9287, 1},
+    {"Battery Percentage", f9288, 1},
+    {"Bitrate", f9289, 1},
+    {"Bluetooth", f9290, 1},
+    {"Bluetooth DAC", f9291, 1},
+    {"Bluetooth DAC mode", f9292, 1},
+    {"Bluetooth Volume Sync", f9293, 1},
+    {"Bluetooth is off", f9294, 1},
+    {"Bluetooth remote service is starting…", f9295, 1},
+    {"Bluetooth remote service is unavailable; retrying.", f9296, 1},
+    {"Bluetooth: Compas Remote Control", f9297, 1},
+    {"Bluetooth: registration failed; retrying", f9298, 1},
+    {"Bluetooth: waiting for service registration", f9299, 1},
+    {"Books", f9300, 1},
+    {"Books refreshed", f9301, 1},
+    {"Build", f9302, 1},
+    {"Build it now? Large libraries can take several minutes.", f9303, 1},
+    {"Button", f9304, 1},
+    {"Button Mapping", f9305, 1},
+    {"Buttons & Remote", f9306, 1},
+    {"Buy Me a Coffee", f9307, 1},
+    {"By %s", f9308, 1},
+    {"Cancel", f9309, 1},
+    {"Cannot add folder within queue memory limit", f9310, 1},
+    {"Cannot check plugin storage write access.", f9311, 1},
+    {"Cannot create the emulator folder.", f9312, 1},
+    {"Cannot create the update log directory.", f9313, 1},
+    {"Cannot delete playlist", f9314, 1},
+    {"Cannot load album tracks", f9315, 1},
+    {"Cannot move this entry", f9316, 1},
+    {"Cannot play folder", f9317, 1},
+    {"Cannot play this folder", f9318, 1},
+    {"Cannot reach GitHub. Check the Wi-Fi connection.", f9319, 1},
+    {"Cannot read playlist", f9320, 1},
+    {"Cannot read the SD card.", f9321, 1},
+    {"Cannot read the selected update file.", f9322, 1},
+    {"Cannot read the update file on the SD card. Check the card and try again.", f9323, 1},
+    {"Cannot read the update record on the SD card. Check the card and try again.", f9324, 1},
+    {"Cannot read update helper status: %s", f9325, 1},
+    {"Cannot remove entry", f9326, 1},
+    {"Cannot rename: invalid name or file exists", f9327, 1},
+    {"Cannot reorder playlist", f9328, 1},
+    {"Cannot safely access the recovery flag block.", f9329, 1},
+    {"Cannot save playlist", f9330, 1},
+    {"Cannot save update diagnostics on the SD card.", f9331, 1},
+    {"Cannot save update diagnostics. Update preparation stopped.", f9332, 1},
+    {"Cannot save: invalid or streaming entries", f9333, 1},
+    {"Cannot start folder action", f9334, 1},
+    {"Cannot start queue", f9335, 1},
+    {"Car Mode", f9336, 1},
+    {"Car Mode Volume", f9337, 1},
+    {"Car Mode is disabled.", f9338, 1},
+    {"Channels", f9339, 1},
+    {"Charge Limit (85%)", f9340, 1},
+    {"Charge to at least %d%% or connect power before updating.", f9341, 1},
+    {"Charge to at least 30%% or connect power before updating.", f9342, 1},
+    {"Charging", f9343, 1},
+    {"Check for online update", f9344, 1},
+    {"Check that Wi-Fi is enabled, then rescan.", f9345, 1},
+    {"Check the SD card and disconnect USB storage before playing.", f9346, 1},
+    {"Check the wireless switch and try again.", f9347, 1},
+    {"Checking for updates", f9348, 1},
+    {"Checking the SD card. This may take a while", f9349, 1},
+    {"Checking the file on the SD card", f9350, 1},
+    {"Choose a language", f9351, 1},
+    {"Choose plugins", f9352, 1},
+    {"Choose the language for your player.", f9353, 1},
+    {"Choose time zone", f9354, 1},
+    {"Choose what happens when idle:", f9355, 1},
+    {"Clear Queue", f9356, 1},
+    {"Clock", f9357, 1},
+    {"Clockwise", f9358, 1},
+    {"Close", f9359, 1},
+    {"Closing\nWeb Server...", f9360, 1},
+    {"Codec", f9361, 1},
+    {"Combined response (dB)", f9362, 1},
+    {"Combined response (dB) · EQ off", f9363, 1},
+    {"Compás Player", f9364, 1},
+    {"Connect", f9365, 1},
+    {"Connect & Browse", f9366, 1},
+    {"Connect a device to see its supported rates", f9367, 1},
+    {"Connect over Wi-Fi or Bluetooth to see what's playing, control playback, and browse your library. Enter this PIN when the app or browser asks for it; Bluetooth also requires pairing.", f9368, 1},
+    {"Connect to Wi-Fi", f9369, 1},
+    {"Connect to Wi-Fi first", f9370, 1},
+    {"Connect to Wi-Fi for streaming, updates, and online services.", f9371, 1},
+    {"Connect to a Wi-Fi network before continuing.", f9372, 1},
+    {"Connect to a network to download plugins.", f9373, 1},
+    {"Connect using either available route:", f9374, 1},
+    {"Connected", f9375, 1},
+    {"Connecting", f9376, 1},
+    {"Connecting to", f9377, 1},
+    {"Connecting to server...", f9378, 1},
+    {"Connection PIN", f9379, 1},
+    {"Connection failed", f9380, 1},
+    {"Connection timed out after 30 seconds", f9381, 1},
+    {"Container", f9382, 1},
+    {"Continue", f9383, 1},
+    {"Continue setup", f9384, 1},
+    {"Copy", f9385, 1},
+    {"Copy games to the %s folder on the SD card.", f9386, 1},
+    {"Could not apply font size", f9387, 1},
+    {"Could not apply lyrics text size", f9388, 1},
+    {"Could not apply theme", f9389, 1},
+    {"Could not create the folder", f9390, 1},
+    {"Could not download the release checksums.", f9391, 1},
+    {"Could not enter recovery mode.", f9392, 1},
+    {"Could not generate a new PIN", f9393, 1},
+    {"Could not get a stream link", f9394, 1},
+    {"Could not install a plugin on the SD card.", f9395, 1},
+    {"Could not install the emulator.", f9396, 1},
+    {"Could not install the plugin on the SD card.", f9397, 1},
+    {"Could not load lock screen photo", f9398, 1},
+    {"Could not load the plugin catalog.", f9399, 1},
+    {"Could not load the plugin catalog. Tap More to retry.", f9400, 1},
+    {"Could not move other .upt files aside on the SD card.", f9401, 1},
+    {"Could not open this file", f9402, 1},
+    {"Could not open this file.", f9403, 1},
+    {"Could not place the update on the SD card.", f9404, 1},
+    {"Could not prepare plugin removal.", f9405, 1},
+    {"Could not prepare update helper: %s", f9406, 1},
+    {"Could not reach the streaming service", f9407, 1},
+    {"Could not read installed plugins.", f9408, 1},
+    {"Could not read the Books folder", f9409, 1},
+    {"Could not read the emulator list from GitHub.", f9410, 1},
+    {"Could not read the plugin list from GitHub.", f9411, 1},
+    {"Could not read the release list from GitHub.", f9412, 1},
+    {"Could not record the verified update on the SD card.", f9413, 1},
+    {"Could not refresh books", f9414, 1},
+    {"Could not reload cover", f9415, 1},
+    {"Could not remove a plugin file.", f9416, 1},
+    {"Could not remove the emulator.", f9417, 1},
+    {"Could not rename", f9418, 1},
+    {"Could not repair the SD card", f9419, 1},
+    {"Could not replace plugin files.", f9420, 1},
+    {"Could not save Bluetooth codec", f9421, 1},
+    {"Could not start USB mode switch", f9422, 1},
+    {"Could not start refreshing the plugin catalog.", f9423, 1},
+    {"Could not start the download", f9424, 1},
+    {"Could not start the download.", f9425, 1},
+    {"Could not start the emulator operation", f9426, 1},
+    {"Could not start the game.", f9427, 1},
+    {"Could not start the installation.", f9428, 1},
+    {"Could not start the library scan. Please try again.", f9429, 1},
+    {"Could not start the plugin operation", f9430, 1},
+    {"Could not start the plugin operation.", f9431, 1},
+    {"Could not start the plugin refresh", f9432, 1},
+    {"Could not start the plugin refresh.", f9433, 1},
+    {"Could not start the plugin update.", f9434, 1},
+    {"Could not start the update check.", f9435, 1},
+    {"Could not start the update.", f9436, 1},
+    {"Could not start update helper: %s", f9437, 1},
+    {"Could not update the installed plugin record.", f9438, 1},
+    {"Could not verify the latest release checksums.", f9439, 1},
+    {"Couldn't connect to Wi-Fi network", f9440, 1},
+    {"Couldn't read this .cue file", f9441, 1},
+    {"Couldn't save -- plugin change was not applied", f9442, 1},
+    {"Counterclockwise", f9443, 1},
+    {"Cover reloaded", f9444, 1},
+    {"Covers refreshed", f9445, 1},
+    {"Create a playlist above or copy one to the SD card's Playlists folder.", f9446, 1},
+    {"Create a plugin", f9447, 1},
+    {"Create a theme", f9448, 1},
+    {"Create plugins & themes", f9449, 1},
+    {"Creator guides", f9450, 1},
+    {"Crossfade", f9451, 1},
+    {"Crossfeed (0 to 100)", f9452, 1},
+    {"Crossfeed: %d%%", f9453, 1},
+    {"Crossfeed: Off", f9454, 1},
+    {"Custom", f9455, 1},
+    {"Custom color", f9456, 1},
+    {"Custom fonts affect Latin text only.", f9457, 1},
+    {"DAC path: %s · %u-bit", f9458, 1},
+    {"DLNA", f9459, 1},
+    {"DLNA Renderer", f9460, 1},
+    {"DNS Settings", f9461, 1},
+    {"December", f9462, 1},
+    {"Default", f9463, 1},
+    {"Default (Built-in)", f9464, 1},
+    {"Default (native behavior)", f9465, 1},
+    {"Delete", f9466, 1},
+    {"Delete %d item?", f9467, 3},
+    {"Delete %s?\nThis cannot be undone.", f9468, 1},
+    {"Delete Playlist", f9469, 1},
+    {"Delete playlist?", f9470, 1},
+    {"Delete this profile?", f9471, 1},
+    {"Developer Options", f9472, 1},
+    {"Dim screen before timeout", f9473, 1},
+    {"Disabled", f9474, 1},
+    {"Disc %d", f9475, 1},
+    {"Disc %d / Track %d", f9476, 1},
+    {"Disconnect", f9477, 1},
+    {"Disconnect USB storage first", f9478, 1},
+    {"Disconnect USB storage from the computer before changing files.", f9479, 1},
+    {"Disconnect USB storage from the host before changing emulators.", f9480, 1},
+    {"Disconnect USB storage from the host before changing plugins.", f9481, 1},
+    {"Dismiss", f9482, 1},
+    {"Display", f9483, 1},
+    {"Do Nothing", f9484, 1},
+    {"Done", f9485, 1},
+    {"Done. Update the music database to see the changes in your library.", f9486, 1},
+    {"Double", f9487, 1},
+    {"Double press", f9488, 1},
+    {"Download", f9489, 1},
+    {"Download \"%s\"?", f9490, 1},
+    {"Download Profiles", f9491, 1},
+    {"Download Settings", f9492, 1},
+    {"Download an emulator to play games.", f9493, 1},
+    {"Download emulators", f9494, 1},
+    {"Download every album from \"%s\"?", f9495, 1},
+    {"Download failed", f9496, 1},
+    {"Download folder: %s", f9497, 1},
+    {"Download folder: SD root", f9498, 1},
+    {"Download layouts", f9499, 1},
+    {"Download profiles", f9500, 1},
+    {"Download settings", f9501, 1},
+    {"Download subfolder", f9502, 1},
+    {"Download themes", f9503, 1},
+    {"Downloading", f9504, 1},
+    {"Downloading\n%s...", f9505, 1},
+    {"Downloading and installing plugins %zu/%zu", f9506, 1},
+    {"Downloading update", f9507, 1},
+    {"Duration", f9508, 1},
+    {"EQ", f9509, 1},
+    {"EQ curve", f9510, 1},
+    {"Edit", f9511, 1},
+    {"Edit / Done", f9512, 1},
+    {"Edit a .theme text file on your computer. Copy it to the Themes folder on your SD card, then select it in More > Themes.", f9513, 1},
+    {"Emulator operation failed", f9514, 1},
+    {"Emulator store is busy.", f9515, 1},
+    {"Emulators", f9516, 1},
+    {"Enable Bluetooth DAC", f9517, 1},
+    {"Enable Bluetooth in settings to use BT DAC mode", f9518, 1},
+    {"Enable Sleep Timer", f9519, 1},
+    {"Enable Wi-Fi or Bluetooth to connect.", f9520, 1},
+    {"Enable WiFi to access", f9521, 1},
+    {"Enable band", f9522, 1},
+    {"Enable debug logging", f9523, 1},
+    {"Enabled", f9524, 1},
+    {"Equalizer", f9525, 1},
+    {"Erase and format SD card?", f9526, 1},
+    {"Europe", f9527, 1},
+    {"Excellent", f9528, 1},
+    {"Exit USB DAC mode to play music on this device", f9529, 1},
+    {"Extension updates", f9530, 1},
+    {"Factory Reset", f9531, 1},
+    {"Failed plugins:\n", f9532, 1},
+    {"Failed to add folder to playlist", f9533, 1},
+    {"Failed to add to playlist", f9534, 1},
+    {"Failed to apply time zone", f9535, 1},
+    {"Failed to connect to server", f9536, 1},
+    {"Failed to create playlist", f9537, 1},
+    {"Failed to delete profile", f9538, 1},
+    {"Failed to enable AirPlay", f9539, 1},
+    {"Failed to load artists", f9540, 1},
+    {"Failed to load artists: %s", f9541, 1},
+    {"Failed to load font. Check format & memory.", f9542, 1},
+    {"Failed to load from server", f9543, 1},
+    {"Failed to load profile", f9544, 1},
+    {"Failed to rename profile", f9545, 1},
+    {"Failed to save profile", f9546, 1},
+    {"Failed to start connection", f9547, 1},
+    {"Failed to switch to %s", f9548, 1},
+    {"Failed to toggle Bluetooth", f9549, 1},
+    {"Fair", f9550, 1},
+    {"Favorites", f9551, 1},
+    {"February", f9552, 1},
+    {"File Manager", f9553, 1},
+    {"File path is too long", f9554, 1},
+    {"File size", f9555, 1},
+    {"File unavailable", f9556, 1},
+    {"Files", f9557, 1},
+    {"Files (folders stay first)", f9558, 1},
+    {"Files on the card may have changed.", f9559, 1},
+    {"Files use modification dates. Albums use the newest track added; missing release years sort last. Update Music Database once to read years from existing files.", f9560, 1},
+    {"Filter type", f9561, 1},
+    {"Firmware Update", f9562, 1},
+    {"Firmware release %s is available.\nInstalled: %s\n\nDownload it now? This may take a while.", f9563, 1},
+    {"Firmware release %s is downloaded and verified.\n\nInstall now? The device reboots into recovery to flash it. Do not turn it off until it restarts.", f9564, 1},
+    {"Flat", f9565, 1},
+    {"Folder action is still running", f9566, 1},
+    {"Folder is too large to add to queue", f9567, 1},
+    {"Folder layout for downloaded albums", f9568, 1},
+    {"Folder too large to index (tap Back)", f9569, 1},
+    {"Font", f9570, 1},
+    {"Font Size", f9571, 1},
+    {"Font selection is no longer available", f9572, 1},
+    {"Forget", f9573, 1},
+    {"Format", f9574, 1},
+    {"Format SD Card", f9575, 1},
+    {"Formatting\nSD Card...", f9576, 1},
+    {"Frequency", f9577, 1},
+    {"Frequency (Hz, 20 to 20000)", f9578, 1},
+    {"Friday", f9579, 1},
+    {"From album art", f9580, 1},
+    {"From album art (no cover, using custom)", f9581, 1},
+    {"Gain", f9582, 1},
+    {"Gain (dB, -12 to 12)", f9583, 1},
+    {"Gain Mode", f9584, 1},
+    {"Games run on the player only.", f9585, 1},
+    {"Gapless", f9586, 1},
+    {"Gateway: %s", f9587, 1},
+    {"Generate", f9588, 1},
+    {"Generate a new PIN?", f9589, 1},
+    {"Genres", f9590, 1},
+    {"Gestures & Orientation", f9591, 1},
+    {"Get started", f9592, 1},
+    {"GitHub did not respond in time. Try again.", f9593, 1},
+    {"GitHub is limiting requests. Try again later.", f9594, 1},
+    {"GitHub returned HTTP %d.", f9595, 1},
+    {"GitHub's latest release has no valid %s image and checksum.", f9596, 1},
+    {"GitHub's latest release is not a supported firmware release.", f9597, 1},
+    {"Go back and choose New Connection to add one.", f9598, 1},
+    {"Go to page", f9599, 1},
+    {"Good", f9600, 1},
+    {"Guide: docs/CREATING.md", f9601, 1},
+    {"Headset may disconnect, manual reconnection might be required", f9602, 1},
+    {"Hide Player/Lyrics Top Bar", f9603, 1},
+    {"Hide Unnamed Devices", f9604, 1},
+    {"Hide hidden files", f9605, 1},
+    {"High", f9606, 1},
+    {"High (320 kbps)", f9607, 1},
+    {"Hostname", f9608, 1},
+    {"Hostname can only use letters, numbers, and hyphens", f9609, 1},
+    {"IP Address: %s", f9610, 1},
+    {"Idle Shutdown", f9611, 1},
+    {"Idle timeout:", f9612, 1},
+    {"Import", f9613, 1},
+    {"Import via Wi-Fi", f9614, 1},
+    {"In-line Remote", f9615, 1},
+    {"Indian", f9616, 1},
+    {"Information", f9617, 1},
+    {"Insert an SD card to change emulators.", f9618, 1},
+    {"Insert an SD card to change plugins.", f9619, 1},
+    {"Insert an SD card to download the update.", f9620, 1},
+    {"Insert an SD card to install plugins.", f9621, 1},
+    {"Insert an SD card to remove plugins.", f9622, 1},
+    {"Insert an SD card to scan for music, or turn off Scan for music.", f9623, 1},
+    {"Insert an SD card to update plugins.", f9624, 1},
+    {"Insert your SD card with music files. Compas Player can scan it and build your library.", f9625, 1},
+    {"Install", f9626, 1},
+    {"Install & Reboot", f9627, 1},
+    {"Install from SD card", f9628, 1},
+    {"Installed", f9629, 1},
+    {"Installed manually", f9630, 1},
+    {"Installed version: %s\nAvailable release: %s\n\nDownload and reinstall it anyway? This may take a while.", f9631, 1},
+    {"Installed · %s", f9632, 1},
+    {"Installing emulator", f9633, 1},
+    {"Installing plugin", f9634, 1},
+    {"Invalid download folder", f9635, 1},
+    {"Invalid download folder name", f9636, 1},
+    {"Invalid profile name", f9637, 1},
+    {"Invalid update path.", f9638, 1},
+    {"It could not be loaded. Rebuild it now?", f9639, 1},
+    {"It may have no partition table or a file system this player can't use. Formatting will erase it and set it up for this player.", f9640, 1},
+    {"Its settings stay on the card.", f9641, 1},
+    {"January", f9642, 1},
+    {"July", f9643, 1},
+    {"June", f9644, 1},
+    {"Keep a button assigned to Toggle Screen or Power Menu", f9645, 1},
+    {"Keyboard", f9646, 1},
+    {"LDAC Quality", f9647, 1},
+    {"LDAC Standard", f9648, 1},
+    {"LED charge indicator", f9649, 1},
+    {"Language", f9650, 1},
+    {"Large", f9651, 1},
+    {"Later", f9652, 1},
+    {"Launch at a fixed volume", f9653, 1},
+    {"Layout", f9654, 1},
+    {"Leave", f9655, 1},
+    {"Leave Bluetooth DAC mode?", f9656, 1},
+    {"Leave USB DAC mode?", f9657, 1},
+    {"Leave this view and try again.", f9658, 1},
+    {"Library", f9659, 1},
+    {"Library changed. Open the album again.", f9660, 1},
+    {"Library is busy", f9661, 1},
+    {"Library loaded", f9662, 1},
+    {"Library recovered and saved", f9663, 1},
+    {"Library recovered and saved, some folders could not be read", f9664, 1},
+    {"Library recovered. Use Settings > Update Music Database to save", f9665, 1},
+    {"Library unavailable. Use Settings > Update Music Database to rebuild", f9666, 1},
+    {"Library update failed. Check SD card and retry", f9667, 1},
+    {"Library updated", f9668, 1},
+    {"Library updated, some folders could not be read", f9669, 1},
+    {"License: %s", f9670, 1},
+    {"Limits the player volume, including buttons, remote controls and plugins.", f9671, 1},
+    {"Loading Wi-Fi settings", f9672, 1},
+    {"Loading emulators", f9673, 1},
+    {"Loading from server...", f9674, 1},
+    {"Loading layouts", f9675, 1},
+    {"Loading plugin catalog...", f9676, 1},
+    {"Loading plugins", f9677, 1},
+    {"Loading themes", f9678, 1},
+    {"Loading tracks…", f9679, 1},
+    {"Loading updates", f9680, 1},
+    {"Loading...", f9681, 1},
+    {"Location", f9682, 1},
+    {"Long", f9683, 1},
+    {"Long press", f9684, 1},
+    {"Looking for music files", f9685, 1},
+    {"Looking for music files\n%d items checked", f9686, 1},
+    {"Low", f9687, 1},
+    {"Low\nHigh", f9688, 1},
+    {"Low (96 kbps)", f9689, 1},
+    {"Lyrics", f9690, 1},
+    {"Lyrics Text Size", f9691, 1},
+    {"MAC Address: %s", f9692, 1},
+    {"Maintenance", f9693, 1},
+    {"Make an accessory discoverable, then tap Rescan.", f9694, 1},
+    {"Manage plugins later in Settings > System > Plugin Manager to search, update, or remove them.", f9695, 1},
+    {"Manual SSID Entry", f9696, 1},
+    {"March", f9697, 1},
+    {"Match album art", f9698, 1},
+    {"Max Volume", f9699, 1},
+    {"May", f9700, 1},
+    {"Medium", f9701, 1},
+    {"Medium (192 kbps)", f9702, 1},
+    {"Memorized Networks", f9703, 1},
+    {"Metadata refreshed", f9704, 1},
+    {"Monday", f9705, 1},
+    {"Mono (1 channel)", f9706, 1},
+    {"More", f9707, 1},
+    {"Most Played", f9708, 1},
+    {"Move", f9709, 1},
+    {"Move %d item?", f9710, 3},
+    {"Music", f9711, 1},
+    {"Music database unavailable", f9712, 1},
+    {"Name (A–Z)", f9713, 1},
+    {"Native DSD (DoP) / %.4g MHz", f9714, 1},
+    {"Nearby Wi-Fi networks will appear here.", f9715, 1},
+    {"Nearby networks will appear when Wi-Fi is ready.", f9716, 1},
+    {"Needs newer firmware", f9717, 1},
+    {"Network Name (SSID)", f9718, 1},
+    {"Network stream", f9719, 1},
+    {"Networks you connect to will appear here.", f9720, 1},
+    {"New Connection", f9721, 1},
+    {"New PIN generated", f9722, 1},
+    {"New Profile", f9723, 1},
+    {"New folder", f9724, 1},
+    {"Newest Modified", f9725, 1},
+    {"Next", f9726, 1},
+    {"Next  •  %d–%d of %d", f9727, 1},
+    {"Next Track", f9728, 1},
+    {"Next page", f9729, 1},
+    {"No .ttf fonts found in /Fonts", f9730, 1},
+    {"No SD card", f9731, 1},
+    {"No SD card detected. You can scan later from Library settings.", f9732, 1},
+    {"No SD card is mounted.", f9733, 1},
+    {"No books found", f9734, 1},
+    {"No description", f9735, 1},
+    {"No emulators are available in the catalog.", f9736, 1},
+    {"No emulators installed", f9737, 1},
+    {"No entries to display", f9738, 1},
+    {"No favorites yet", f9739, 1},
+    {"No games found", f9740, 1},
+    {"No items", f9741, 1},
+    {"No layouts are available in the catalog.", f9742, 1},
+    {"No longer in the catalog", f9743, 1},
+    {"No memorized networks", f9744, 1},
+    {"No music database", f9745, 1},
+    {"No nearby devices", f9746, 1},
+    {"No network detected", f9747, 1},
+    {"No network detected. Connect to a network to download emulators.", f9748, 1},
+    {"No network detected. Connect to a network to download plugins.", f9749, 1},
+    {"No networks found", f9750, 1},
+    {"No other networks found", f9751, 1},
+    {"No paired devices", f9752, 1},
+    {"No playable audio files found", f9753, 1},
+    {"No playable files here", f9754, 1},
+    {"No plugin settings available", f9755, 1},
+    {"No plugins are available in the catalog.", f9756, 1},
+    {"No saved profiles", f9757, 1},
+    {"No saved servers", f9758, 1},
+    {"No songs to refresh", f9759, 1},
+    {"No synchronized lyrics found", f9760, 1},
+    {"No themes are available in the catalog.", f9761, 1},
+    {"No track loaded", f9762, 1},
+    {"No tracks found", f9763, 1},
+    {"No updates available.", f9764, 1},
+    {"No user playlists", f9765, 1},
+    {"No verified update is on this SD card. Download it again.", f9766, 1},
+    {"Not available in your subscription", f9767, 1},
+    {"Not connected", f9768, 1},
+    {"Not enough free space on the SD card for the update.", f9769, 1},
+    {"Not enough free space on the SD card.", f9770, 1},
+    {"Not enough free space on the player.", f9771, 1},
+    {"Not enough memory to connect", f9772, 1},
+    {"Not enough memory to load CUE tracks", f9773, 1},
+    {"Not enough memory to load artists", f9774, 1},
+    {"Not enough memory to load from server", f9775, 1},
+    {"Not enough memory to load the plugin store", f9776, 1},
+    {"Not enough memory to start download", f9777, 1},
+    {"Not selected (UTC)", f9778, 1},
+    {"Not set", f9779, 1},
+    {"Nothing to select here", f9780, 1},
+    {"November", f9781, 1},
+    {"Now Playing layouts", f9782, 1},
+    {"OFF", f9783, 1},
+    {"ON", f9784, 1},
+    {"October", f9785, 1},
+    {"Off", f9786, 1},
+    {"On", f9787, 1},
+    {"Open More > Plugins > Refresh Plugins. Scan for a working example and the full API guide.", f9788, 1},
+    {"Open a book and tap the bookmark icon to save it here.", f9789, 1},
+    {"Open a folder containing supported audio files.", f9790, 1},
+    {"Open network", f9791, 1},
+    {"Open the destination folder, then choose Paste here from the menu.", f9792, 1},
+    {"Open this address on your phone or computer:", f9793, 1},
+    {"Open · Connected", f9794, 1},
+    {"Original", f9795, 1},
+    {"Output", f9796, 1},
+    {"PEQ", f9797, 1},
+    {"PEQ reset to defaults", f9798, 1},
+    {"PM", f9799, 1},
+    {"Pacific", f9800, 1},
+    {"Page %d of %d", f9801, 1},
+    {"Paired", f9802, 1},
+    {"Paired Devices", f9803, 1},
+    {"Password", f9804, 1},
+    {"Password: Not set", f9805, 1},
+    {"Password: Set", f9806, 1},
+    {"Paste %d item here", f9807, 3},
+    {"Paused: headphones disconnected", f9808, 1},
+    {"Peaking\nLow Shelf\nHigh Shelf", f9809, 1},
+    {"Per Album", f9810, 1},
+    {"Per Track", f9811, 1},
+    {"Place .ttf fonts in SD /Fonts folder.", f9812, 1},
+    {"Play All", f9813, 1},
+    {"Play All (Sequential)", f9814, 1},
+    {"Play All (Shuffle)", f9815, 1},
+    {"Play Next", f9816, 1},
+    {"Play all shuffled", f9817, 1},
+    {"Play an album or playlist to see its songs here.", f9818, 1},
+    {"Play sequentially", f9819, 1},
+    {"Play/Pause", f9820, 1},
+    {"Playback", f9821, 1},
+    {"Playback & Controls", f9822, 1},
+    {"Playback and device actions", f9823, 1},
+    {"Playback changed before folder was ready", f9824, 1},
+    {"Playback error", f9825, 1},
+    {"Playback error: audio output failed", f9826, 1},
+    {"Playback history could not be saved", f9827, 1},
+    {"Playback stopped: %s", f9828, 1},
+    {"Played", f9829, 1},
+    {"Player Layout", f9830, 1},
+    {"Playing", f9831, 1},
+    {"Playlist Name", f9832, 1},
+    {"Playlist changed. Select a song again.", f9833, 1},
+    {"Playlist changed. Try again.", f9834, 1},
+    {"Playlist created", f9835, 1},
+    {"Playlist deleted", f9836, 1},
+    {"Playlist is empty", f9837, 1},
+    {"Playlist name is too long", f9838, 1},
+    {"Playlist renamed", f9839, 1},
+    {"Playlist saved", f9840, 1},
+    {"Playlist selection expired", f9841, 1},
+    {"Playlist unavailable or unreadable", f9842, 1},
+    {"Playlists", f9843, 1},
+    {"Playlists refreshed", f9844, 1},
+    {"Please wait for plugin installation to finish", f9845, 1},
+    {"Please wait for the library scan to finish", f9846, 1},
+    {"Plugin", f9847, 1},
+    {"Plugin Manager", f9848, 1},
+    {"Plugin Order", f9849, 1},
+    {"Plugin Settings", f9850, 1},
+    {"Plugin Store", f9851, 1},
+    {"Plugin is unavailable in the catalog", f9852, 1},
+    {"Plugin operation failed", f9853, 1},
+    {"Plugin setup complete", f9854, 1},
+    {"Plugin setup needs attention", f9855, 1},
+    {"Plugin storage is unavailable.", f9856, 1},
+    {"Plugins", f9857, 1},
+    {"Plugins & Layouts", f9858, 1},
+    {"Plugins can override these saved preferences.", f9859, 1},
+    {"Position", f9860, 1},
+    {"Power", f9861, 1},
+    {"Power Menu", f9862, 1},
+    {"Power Off", f9863, 1},
+    {"Power controls", f9864, 1},
+    {"Power off", f9865, 1},
+    {"Pre-Amp", f9866, 1},
+    {"Pre-Amp (dB, -12 to 12)", f9867, 1},
+    {"Preparing and verifying recovery mode", f9868, 1},
+    {"Preparing cover refresh...", f9869, 1},
+    {"Preparing folder playback", f9870, 1},
+    {"Preparing metadata refresh", f9871, 1},
+    {"Preparing metadata refresh...", f9872, 1},
+    {"Preparing music library...", f9873, 1},
+    {"Preparing update", f9874, 1},
+    {"Presets", f9875, 1},
+    {"Preview", f9876, 1},
+    {"Previous", f9877, 1},
+    {"Previous  •  %d–%d of %d", f9878, 1},
+    {"Previous Track", f9879, 1},
+    {"Previous page", f9880, 1},
+    {"Previous request still finishing", f9881, 1},
+    {"Previously connected accessories will appear here.", f9882, 1},
+    {"Primary DNS", f9883, 1},
+    {"Profile Name", f9884, 1},
+    {"Profile deleted", f9885, 1},
+    {"Profile loaded", f9886, 1},
+    {"Profile renamed", f9887, 1},
+    {"Profile saved", f9888, 1},
+    {"Profiles", f9889, 1},
+    {"Provider", f9890, 1},
+    {"QWERTY", f9891, 1},
+    {"Queue", f9892, 1},
+    {"Queue changed. Try again.", f9893, 1},
+    {"Queue checkpoint failed; storage may be read-only", f9894, 1},
+    {"Queue cleared", f9895, 1},
+    {"Queue is empty", f9896, 1},
+    {"Queue ready. Press Play to start.", f9897, 1},
+    {"Queued", f9898, 1},
+    {"Quick Drawer", f9899, 1},
+    {"Quick Setup Complete", f9900, 1},
+    {"Quick setup", f9901, 1},
+    {"RC", f9902, 1},
+    {"Radio", f9903, 1},
+    {"Radio / %s", f9904, 1},
+    {"Reading supported rates...", f9905, 1},
+    {"Reading tags\n%d of %d songs (%d%%)", f9906, 1},
+    {"Reads the tags of every song again. This may take a while.", f9907, 1},
+    {"Rebuild", f9908, 1},
+    {"Recently Added", f9909, 1},
+    {"Recently Played", f9910, 1},
+    {"Recovery boot flag failed.", f9911, 1},
+    {"Recovery flag erase failed. Do not reboot; check .compas/ota/update.log.", f9912, 1},
+    {"Recovery flag partition does not match this firmware.", f9913, 1},
+    {"Recovery flag verification failed. Do not reboot; check the update log.", f9914, 1},
+    {"Recovery flag write failed. Do not reboot; check .compas/ota/update.log.", f9915, 1},
+    {"Recovery remains selected but reboot failed: %s. Keep the update file.", f9916, 1},
+    {"Recovery remains selected. Keep the update file; saving diagnostics failed.", f9917, 1},
+    {"Refresh", f9918, 1},
+    {"Refresh All Covers", f9919, 1},
+    {"Refresh All Metadata", f9920, 1},
+    {"Refresh Plugins", f9921, 1},
+    {"Refresh all covers?", f9922, 1},
+    {"Refresh all metadata?", f9923, 1},
+    {"Refresh emulator catalog", f9924, 1},
+    {"Refresh metadata", f9925, 1},
+    {"Refresh plugin catalog", f9926, 1},
+    {"Refresh the music database to update this list.", f9927, 1},
+    {"Refreshing\nall covers...", f9928, 1},
+    {"Refreshing\nall metadata...", f9929, 1},
+    {"Refreshing\nmetadata...", f9930, 1},
+    {"Refreshing covers", f9931, 1},
+    {"Refreshing covers\n%d of %d (%d%%)", f9932, 1},
+    {"Refreshing plugins...", f9933, 1},
+    {"Release Year (oldest first)", f9934, 1},
+    {"Reload cover", f9935, 1},
+    {"Reloading\ncover...", f9936, 1},
+    {"Reloading cover", f9937, 1},
+    {"Reloading cover\n%d of %d (%d%%)", f9938, 1},
+    {"Remote", f9939, 1},
+    {"Remote Control", f9940, 1},
+    {"Remove", f9941, 1},
+    {"Remove %s?", f9942, 1},
+    {"Removed", f9943, 1},
+    {"Removed from playlist", f9944, 1},
+    {"Removed from queue", f9945, 1},
+    {"Removes saved covers and extracts them again. This may take a while.", f9946, 1},
+    {"Removing emulator", f9947, 1},
+    {"Removing plugin", f9948, 1},
+    {"Rename", f9949, 1},
+    {"Rename Playlist", f9950, 1},
+    {"Rename Profile", f9951, 1},
+    {"Reorder Items", f9952, 1},
+    {"Replace", f9953, 1},
+    {"Replace Existing", f9954, 1},
+    {"Replace Profile", f9955, 1},
+    {"ReplayGain", f9956, 1},
+    {"Rescan", f9957, 1},
+    {"Reset", f9958, 1},
+    {"Reset All", f9959, 1},
+    {"Reset PEQ to defaults?", f9960, 1},
+    {"Reset all button mappings?", f9961, 1},
+    {"Reset all settings and reboot?", f9962, 1},
+    {"Reset to defaults", f9963, 1},
+    {"Restart", f9964, 1},
+    {"Restart Now", f9965, 1},
+    {"Restart now to apply the new hostname?", f9966, 1},
+    {"Restarting into recovery. Do not turn off the player.", f9967, 1},
+    {"Resume Last Track", f9968, 1},
+    {"Resume and Play", f9969, 1},
+    {"Resume playback when external power turns the player on.", f9970, 1},
+    {"Resume, but Paused", f9971, 1},
+    {"Retrying plugins %zu/%zu", f9972, 1},
+    {"Review updates", f9973, 1},
+    {"SD card couldn't be read", f9974, 1},
+    {"SD card format failed", f9975, 1},
+    {"SD card formatted", f9976, 1},
+    {"SD card is read-only. Check it on a computer", f9977, 1},
+    {"SD card is still read-only", f9978, 1},
+    {"SD card may have errors. Check it on a computer", f9979, 1},
+    {"SD card not available", f9980, 1},
+    {"SD card repair is still running", f9981, 1},
+    {"SD card repaired", f9982, 1},
+    {"SSID must be 1 to 32 bytes", f9983, 1},
+    {"SSID: %s", f9984, 1},
+    {"Safe Charging (500mA)", f9985, 1},
+    {"Sample Rate", f9986, 1},
+    {"Saturday", f9987, 1},
+    {"Save", f9988, 1},
+    {"Save Profile", f9989, 1},
+    {"Save Profile As", f9990, 1},
+    {"Save Queue as Playlist", f9991, 1},
+    {"Save as Playlist", f9992, 1},
+    {"Save as a new profile, or replace one that already exists?", f9993, 1},
+    {"Saved Servers", f9994, 1},
+    {"Saved network", f9995, 1},
+    {"Saved network details are being checked.", f9996, 1},
+    {"Saving data before reboot", f9997, 1},
+    {"Saving data failed. Recovery remains selected; keep the update file and check .compas/ota/update.log.", f9998, 1},
+    {"Saving music database", f9999, 1},
+    {"Saving music database\nThis can take a while on large libraries", f10000, 1},
+    {"Saving playlist…", f10001, 1},
+    {"Scan for a starter theme and instructions. To redesign the player screen, see the XML layout guide linked there.", f10002, 1},
+    {"Scan for music", f10003, 1},
+    {"Scan for the full guide", f10004, 1},
+    {"Scan with your phone to support Compás Player on PayPal", f10005, 1},
+    {"Scanning for networks", f10006, 1},
+    {"Scanning playable files", f10007, 1},
+    {"Screen Dimming", f10008, 1},
+    {"Screen Timeout", f10009, 1},
+    {"Screen off", f10010, 1},
+    {"Screenshot failed (%s)", f10011, 1},
+    {"Screenshot failed (framebuffer)", f10012, 1},
+    {"Screenshot failed (worker)", f10013, 1},
+    {"Screenshot needs an SD card", f10014, 1},
+    {"Screenshot saved", f10015, 1},
+    {"Screenshots (Power + Previous)", f10016, 1},
+    {"Screenshots (Power + Vol Down)", f10017, 1},
+    {"Screenshots unavailable", f10018, 1},
+    {"Searching for networks", f10019, 1},
+    {"Secondary DNS", f10020, 1},
+    {"Secure connection failed. Check Wi-Fi and the date and time.", f10021, 1},
+    {"Secured network", f10022, 1},
+    {"Secured · Connected", f10023, 1},
+    {"Seek Backward", f10024, 1},
+    {"Seek Forward", f10025, 1},
+    {"Select", f10026, 1},
+    {"Select a file", f10027, 1},
+    {"Select all", f10028, 1},
+    {"Select at least one plugin to continue.", f10029, 1},
+    {"Selected plugins are ready.\n", f10030, 1},
+    {"September", f10031, 1},
+    {"Server URL (e.g. %s)", f10032, 1},
+    {"Server URL: %s", f10033, 1},
+    {"Server request timed out after 30 seconds", f10034, 1},
+    {"Service is busy", f10035, 1},
+    {"Set Time", f10036, 1},
+    {"Set your local time zone so the clock is right.", f10037, 1},
+    {"Settings", f10038, 1},
+    {"Show Time Remaining", f10039, 1},
+    {"Show hidden files", f10040, 1},
+    {"Showing first %d of %d songs", f10041, 1},
+    {"Shuffle from a random song", f10042, 1},
+    {"Sign in to the streaming service again", f10043, 1},
+    {"Signal: %s", f10044, 1},
+    {"Single", f10045, 1},
+    {"Single press", f10046, 1},
+    {"Size: %s", f10047, 1},
+    {"Skip for now", f10048, 1},
+    {"Skipped: %s", f10049, 1},
+    {"Sleep", f10050, 1},
+    {"Sleep Timer", f10051, 1},
+    {"Sleep timer", f10052, 1},
+    {"Sleep timer: %d min remaining", f10053, 1},
+    {"Sleep timer: Off", f10054, 1},
+    {"Small", f10055, 1},
+    {"Some covers could not be refreshed", f10056, 1},
+    {"Some playlists could not be read", f10057, 1},
+    {"Some plugin files were changed on the card. Replace them?", f10058, 1},
+    {"Some songs could not be read", f10059, 1},
+    {"Some updates need confirmation before replacing local files.", f10060, 1},
+    {"Song already added", f10061, 1},
+    {"Song deleted", f10062, 1},
+    {"Songs", f10063, 1},
+    {"Sorting", f10064, 1},
+    {"Sound", f10065, 1},
+    {"Sound Effects", f10066, 1},
+    {"Source", f10067, 1},
+    {"Speex Resampling", f10068, 1},
+    {"Start sequentially", f10069, 1},
+    {"Start with these suggestions, or explore more plugins.", f10070, 1},
+    {"Startup Volume", f10071, 1},
+    {"Step %d of %d", f10072, 1},
+    {"Stereo (2 channels)", f10073, 1},
+    {"Still applying the previous choice", f10074, 1},
+    {"Still working. Do not turn off the player or retry.", f10075, 1},
+    {"Stop", f10076, 1},
+    {"Stopped", f10077, 1},
+    {"Stopping...", f10078, 1},
+    {"Storage", f10079, 1},
+    {"Stream Media", f10080, 1},
+    {"Stream Quality", f10081, 1},
+    {"Stream quality: %s", f10082, 1},
+    {"Subfolder is relative to SD root (example: Music/Offline); empty uses SD root", f10083, 1},
+    {"Subfolder: SD root", f10084, 1},
+    {"Subsonic", f10085, 1},
+    {"Sunday", f10086, 1},
+    {"Suspend to RAM", f10087, 1},
+    {"Swipe Up for Home", f10088, 1},
+    {"Swipe up to unlock", f10089, 1},
+    {"System", f10090, 1},
+    {"System playlists", f10091, 1},
+    {"T9", f10092, 1},
+    {"TXT Reader", f10093, 1},
+    {"Takes its color from the cover of the playing track", f10094, 1},
+    {"Tap Power off again to confirm", f10095, 1},
+    {"Tap Restart again to confirm", f10096, 1},
+    {"That name cannot be used", f10097, 1},
+    {"The SD card changed during the download.", f10098, 1},
+    {"The SD card changed during the operation.", f10099, 1},
+    {"The SD card is read-only. Check its write protection.", f10100, 1},
+    {"The download did not complete. Check Wi-Fi and try again.", f10101, 1},
+    {"The downloaded image failed verification and was deleted.", f10102, 1},
+    {"The downloaded update record is invalid. Download the update again.", f10103, 1},
+    {"The emulator download failed verification. Try again.", f10104, 1},
+    {"The emulator folder is not writable.", f10105, 1},
+    {"The firmware path is too long.", f10106, 1},
+    {"The game closed unexpectedly.", f10107, 1},
+    {"The playlist file will be deleted. Music files are kept.", f10108, 1},
+    {"The plugin download failed verification. Try again.", f10109, 1},
+    {"The quick brown fox jumps 123", f10110, 1},
+    {"The release has no checksum for this device's image.", f10111, 1},
+    {"The selected update file changed. Select it again.", f10112, 1},
+    {"The streaming plugin is not available", f10113, 1},
+    {"The streaming service did not answer", f10114, 1},
+    {"The update file changed during verification. Select it again.", f10115, 1},
+    {"The update file on the SD card changed. Download it again.", f10116, 1},
+    {"Themes", f10117, 1},
+    {"There are no entries in this view.", f10118, 1},
+    {"This can take a few seconds.", f10119, 1},
+    {"This cannot be undone.", f10120, 1},
+    {"This device is now a USB sound card", f10121, 1},
+    {"This device is now receiving Bluetooth audio", f10122, 1},
+    {"This emulator needs a newer player version.", f10123, 1},
+    {"This folder is empty", f10124, 1},
+    {"This includes the player's own data (.compas or .plugins). Deleting or moving it can break features, lose data such as settings and installed plugins, and may require a restart.", f10125, 1},
+    {"This may take a while", f10126, 1},
+    {"This permanently deletes everything on the card. This cannot be undone.", f10127, 1},
+    {"This plugin has no update available.", f10128, 1},
+    {"This plugin is already installed by the store.", f10129, 1},
+    {"This plugin is not installed by the store.", f10130, 1},
+    {"This plugin needs a newer player version.", f10131, 1},
+    {"This quality is unavailable for this track", f10132, 1},
+    {"This release's image does not match its checksums. Try again after the next weekly release.", f10133, 1},
+    {"This track is copy-protected", f10134, 1},
+    {"This track is unavailable", f10135, 1},
+    {"This type of file cannot be opened", f10136, 1},
+    {"This update is no longer the latest release. Check for updates and download the latest image.", f10137, 1},
+    {"This update no longer matches the latest release. Download the latest image again.", f10138, 1},
+    {"Thread launch failed", f10139, 1},
+    {"Thursday", f10140, 1},
+    {"Time Zone", f10141, 1},
+    {"Time remaining: %d:%02d", f10142, 1},
+    {"Time remaining: %d:%02d:%02d", f10143, 1},
+    {"Time zone", f10144, 1},
+    {"Tint startup image", f10145, 1},
+    {"Tint title bar icons", f10146, 1},
+    {"Toggle Screen", f10147, 1},
+    {"Too many audio channels", f10148, 1},
+    {"Too many plugins are installed. Remove one and try again.", f10149, 1},
+    {"Track", f10150, 1},
+    {"Track %+.1f dB", f10151, 1},
+    {"Track %d", f10152, 1},
+    {"Track details are not available yet. Keep playback open and check again.", f10153, 1},
+    {"Tracks", f10154, 1},
+    {"Try scanning again or add a hidden network.", f10155, 1},
+    {"Tuesday", f10156, 1},
+    {"Turn Bluetooth off and on to apply", f10157, 1},
+    {"Turn off ADB first (Settings > System > USB Mode), then enable USB DAC from here.", f10158, 1},
+    {"Turn off Automatic to set the clock", f10159, 1},
+    {"Turn off Bluetooth DAC to play music on this device", f10160, 1},
+    {"Turn off DAC mode to play games.", f10161, 1},
+    {"Turn off screen automatically", f10162, 1},
+    {"Turn on Bluetooth to see paired and nearby devices.", f10163, 1},
+    {"Turn on Wi-Fi and connect first", f10164, 1},
+    {"Turn this on to see the address here.", f10165, 1},
+    {"Turning Wi-Fi on", f10166, 1},
+    {"USB DAC", f10167, 1},
+    {"USB DAC mode", f10168, 1},
+    {"USB Mode", f10169, 1},
+    {"USB audio device detected", f10170, 1},
+    {"USB input: %s · %u-bit", f10171, 1},
+    {"USB mode", f10172, 1},
+    {"USB storage is busy.", f10173, 1},
+    {"Unable to load items", f10174, 1},
+    {"Unable to read folder (tap Back and retry)", f10175, 1},
+    {"Unavailable", f10176, 1},
+    {"Unexpected library response", f10177, 1},
+    {"Unexpected reply from GitHub", f10178, 1},
+    {"Unexpected reply from GitHub.", f10179, 1},
+    {"Unknown album", f10180, 1},
+    {"Unknown artist", f10181, 1},
+    {"Unknown codec", f10182, 1},
+    {"Unknown format", f10183, 1},
+    {"Unknown rate", f10184, 1},
+    {"Unsupported audio format", f10185, 1},
+    {"Update", f10186, 1},
+    {"Update & Reboot", f10187, 1},
+    {"Update All", f10188, 1},
+    {"Update Music Database", f10189, 1},
+    {"Update Music Database to enable this album order", f10190, 1},
+    {"Update available", f10191, 1},
+    {"Update available · %s", f10192, 1},
+    {"Update diagnostics must be stored on the SD card.", f10193, 1},
+    {"Update helper failed (%s, status %d). See .compas/ota/update.log.", f10194, 1},
+    {"Update individually", f10195, 1},
+    {"Update music database?", f10196, 1},
+    {"Update saved. Connect to Wi-Fi, then install from Firmware Update > Install from SD card.", f10197, 1},
+    {"Update the Player only, retaining current drivers, kernel and bootloader.", f10198, 1},
+    {"Update the entire CompásOS. Flashing firmware contains Bootloader, Player, Kernel and Drivers.", f10199, 1},
+    {"Update these plugins individually", f10200, 1},
+    {"Update using %s?\nDevice will reboot into recovery mode.", f10201, 1},
+    {"Updates", f10202, 1},
+    {"Updating\nmusic database...", f10203, 1},
+    {"Updating emulator", f10204, 1},
+    {"Updating plugins", f10205, 1},
+    {"Upside Down Screen", f10206, 1},
+    {"Use Settings > Update Music Database", f10207, 1},
+    {"Use a regular %s file in the SD card root.", f10208, 1},
+    {"User playlists", f10209, 1},
+    {"Username", f10210, 1},
+    {"Username: %s", f10211, 1},
+    {"Uses the accent color for the default splash.", f10212, 1},
+    {"Uses the accent color for the icons next to screen titles.", f10213, 1},
+    {"Verify server certificate", f10214, 1},
+    {"Version %s · %s", f10215, 1},
+    {"Volume Down", f10216, 1},
+    {"Volume Lock (Screen Off)", f10217, 1},
+    {"Volume Slider", f10218, 1},
+    {"Volume Up", f10219, 1},
+    {"Wait for USB mode switching to finish and disconnect USB storage before updating.", f10220, 1},
+    {"Waiting for Bluetooth stream…", f10221, 1},
+    {"Waiting for USB audio…", f10222, 1},
+    {"Weak", f10223, 1},
+    {"Web Server is busy", f10224, 1},
+    {"Wednesday", f10225, 1},
+    {"Welcome to Compás", f10226, 1},
+    {"When on, this device is visible to AirPlay senders on your Wi-Fi network -- stream audio from an iPhone, iPad, or Mac to be played through this device's own output.", f10227, 1},
+    {"When on, this device is visible to DLNA/UPnP controller apps on your Wi-Fi network -- cast a track from one to play it here. Pause, mute, volume, and seek from the controller app aren't supported; use this device's own controls instead once a track starts.", f10228, 1},
+    {"When on, this device stays visible and pairable to other Bluetooth devices, so a phone or computer can stream audio TO it and play through this device's own output -- using it as an external DAC.", f10229, 1},
+    {"Wi-Fi", f10230, 1},
+    {"Wi-Fi Info", f10231, 1},
+    {"Wi-Fi Password", f10232, 1},
+    {"Wi-Fi could not be enabled", f10233, 1},
+    {"Wi-Fi failed to change state", f10234, 1},
+    {"Wi-Fi is busy", f10235, 1},
+    {"Wi-Fi is still starting", f10236, 1},
+    {"Wireless", f10237, 1},
+    {"Working...", f10238, 1},
+    {"Write a Lua plugin on your computer. Copy its .lua file to the .plugins folder on your SD card.", f10239, 1},
+    {"You can select up to 32 plugins", f10240, 1},
+    {"Your library is being loaded.", f10241, 1},
+    {"Your music", f10242, 1},
+    {"Your setup journey", f10243, 1},
+    {"[File truncated at %d KB -- showing the first part only]\n\n%s", f10244, 1},
+    {"github.com/Starnished66/compas-player", f10245, 1},
+    {"unknown", f10246, 1},
 };
 
 const i18n_lang_t i18n_catalog_langs[] = {
@@ -20482,7 +20542,7 @@ const i18n_lang_t i18n_catalog_langs[] = {
     {"nl", "Nederlands", entries_nl, 1058},
     {"pt_BR", "Português (Brasil)", entries_pt_BR, 967},
     {"pt_PT", "Português (Portugal)", entries_pt_PT, 1058},
-    {"ru", "Русский", entries_ru, 1058},
+    {"ru", "Русский", entries_ru, 1088},
     {"uk", "Українська", entries_uk, 1058},
 };
 const size_t i18n_catalog_lang_count = 10;

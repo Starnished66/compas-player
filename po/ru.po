@@ -1375,7 +1375,6 @@ msgstr "Это безвозвратно удалит всё на карте. Э�
 msgid "Format"
 msgstr "Форматировать"
 
-#, fuzzy
 msgid "Could not restart into the boot selector"
 msgstr "Не удалось перезагрузиться в селектор загрузки"
 
@@ -1807,11 +1806,9 @@ msgstr "USB-режим"
 msgid "Failed to update USB charging"
 msgstr "Не удалось обновить профиль USB зарядки"
 
-#, fuzzy
 msgid "USB charging setting is busy"
 msgstr "Настройка зарядки USB занята"
 
-#, fuzzy
 msgid "Could not start USB charging update"
 msgstr "Не удалось запустить обновление профиля USB зарядки."
 
@@ -2719,7 +2716,6 @@ msgstr "Воспроизведение и управление"
 msgid "Equalizer"
 msgstr "Эквалайзер"
 
-#, fuzzy
 msgid "Crossfeed"
 msgstr "Кроссфид"
 
@@ -2850,7 +2846,7 @@ msgid "T9"
 msgstr "Т9"
 
 msgid "QWERTY"
-msgstr "ЙЦУКЕН"
+msgstr "QWERTY"
 
 msgid "Keyboard"
 msgstr "Клавиатура"
@@ -2883,23 +2879,18 @@ msgstr "Часы"
 msgid "Wired Headphones"
 msgstr "Проводные наушники"
 
-#, fuzzy
 msgid "Bluetooth Audio (A2DP)"
 msgstr "Bluetooth Аудио (A2DP)"
 
-#, fuzzy
 msgid "USB Audio"
 msgstr "USB Аудио"
 
-#, fuzzy
 msgid "Playback Status"
 msgstr "Статус воспроизведения"
 
-#, fuzzy
 msgid "Bluetooth Codec"
 msgstr "Кодек Bluetooth"
 
-#, fuzzy
 msgid "Battery Icon"
 msgstr "Иконка батареи"
 
@@ -2912,7 +2903,6 @@ msgstr "Центр"
 msgid "Right"
 msgstr "Право"
 
-#, fuzzy
 msgid "Clock Position"
 msgstr "Позиция часов"
 
@@ -3030,7 +3020,7 @@ msgid "Turn off ADB first (Settings > System > USB Mode), then enable USB DAC fr
 msgstr "Сначала отключите ADB («Настройки» > «Система» > «Режим USB»), затем включите USB-ЦАП здесь."
 
 msgid "Now Playing layouts"
-msgstr "Макеты экрана "Воспроизведения""
+msgstr "Макеты экрана «Воспроизведения»"
 
 msgid "More"
 msgstr "Ещё"
@@ -3143,7 +3133,6 @@ msgstr ""
 msgid "Enable band"
 msgstr "Включить полосу частот"
 
-#, fuzzy
 msgid "Crossfeed angle"
 msgstr "Угол кросфида"
 
