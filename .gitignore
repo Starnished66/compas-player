@@ -267,6 +267,7 @@
 !/scripts/offline_library_scan.py
 !/scripts/generate_remote_webapp.py
 !/scripts/generate_brand_marks.py
+!/scripts/generate_selector_logos.py
 !/scripts/install_startup_trace.py
 !/scripts/kernel/*.py
 

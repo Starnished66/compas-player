@@ -43,6 +43,15 @@ void fb_fill_rect(int x, int y, int w, int h, fb_color_t color);
  * fb_flush(). */
 bool fb_draw_blit_rgb565(const uint16_t * pixels, int width, int height, size_t stride_pixels);
 
+/* Blend an A8 image tinted with 0xRRGGBB, or an RGBA8888 image, into an
+ * RGB565 destination. dest_stride is in pixels. These write dest, not the
+ * framebuffer back_buffer. Transparent source pixels are skipped. */
+void fb_draw_blit_a8(uint16_t * dest, int dest_w, int dest_h, size_t dest_stride,
+                     int x, int y, const uint8_t * pixels, int width, int height,
+                     uint32_t rgb);
+void fb_draw_blit_rgba(uint16_t * dest, int dest_w, int dest_h, size_t dest_stride,
+                       int x, int y, const uint8_t * pixels, int width, int height);
+
 /* Uppercase letters, digits, space, ':', '-', and '_' only -- see glyph5x7.c's own
  * font table doc comment for exactly why the character set is this
  * narrow. Any other byte is drawn as a blank cell rather than skipped, so

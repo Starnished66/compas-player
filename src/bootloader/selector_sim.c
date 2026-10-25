@@ -189,6 +189,7 @@ static int present_and_save(const char * path) {
 int main(int argc, char ** argv) {
     const char * out_dir = argc > 1 ? argv[1] : DEFAULT_OUT_DIR;
     const char * font_path = argc > 2 ? argv[2] : DEFAULT_FONT_PATH;
+    const char * prefix = argc > 3 ? argv[3] : "before";
     if (mkdir_p(out_dir) != 0) {
         fprintf(stderr, "selector_sim: mkdir %s: %s\n", out_dir, strerror(errno));
         return 1;
@@ -208,8 +209,8 @@ int main(int argc, char ** argv) {
     for (int selected = 0; selected < 3; selected++) {
         selector_ui_draw_selector(selected, true, 5, false, false);
         char path[512];
-        if (snprintf(path, sizeof(path), "%s/before-%s-%s.png",
-                     out_dir, BOARD_SLUG, names[selected]) >= (int) sizeof(path)) {
+        if (snprintf(path, sizeof(path), "%s/%s-%s-%s.png",
+                     out_dir, prefix, BOARD_SLUG, names[selected]) >= (int) sizeof(path)) {
             fprintf(stderr, "selector_sim: output path too long\n");
             failed = 1;
             break;

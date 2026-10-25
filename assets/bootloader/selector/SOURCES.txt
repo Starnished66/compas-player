@@ -1,0 +1,22 @@
+Selector logo sources
+Runtime: embedded C arrays in src/bootloader/selector_logos*.c, generated
+by scripts/generate_selector_logos.py.
+
+Compás wordmark
+  Source: assets/brand/compas-wordmark.svg (URW Gothic Book outlines,
+  same path as src/ui/brand_marks.c).
+  Embedded as A8 (alpha only), tinted at draw time with the selector
+  title colour.
+
+Rockbox logo
+  File: assets/bootloader/selector/rockbox-logo.svg
+  Official artwork from the Rockbox project, not redrawn.
+  Source URL:
+    https://git.rockbox.org/cgit/rockbox.git/plain/docs/logo/rockbox-logo.svg
+  License: GNU GPL version 2, as shipped in Rockbox docs/COPYING:
+    https://git.rockbox.org/cgit/rockbox.git/plain/docs/COPYING
+  GitHub mirror of the same files:
+    https://github.com/Rockbox/rockbox/tree/master/docs/logo
+  The SVG includes a full-canvas black backing rect. The generator
+  crops the gold plate and scales it to the selector row heights
+  (50px on 480-wide panels, 34px on 320-wide).

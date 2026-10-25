@@ -891,17 +891,24 @@ endif
 SELECTOR_SIM_CFLAGS = -O2 -Wall -fwrapv -I. -Isrc/bootloader -Isrc/core \
 	-DFB_DRAW_HOST=1 -DHOST_BUILD=1 -DCOMPAS_LOADER_BUILD $(BOARD_DEFINE)
 SELECTOR_SIM_SRCS = src/bootloader/selector_sim.c src/bootloader/selector_ui.c \
-	src/bootloader/fb_draw.c src/bootloader/fb_host.c src/core/glyph5x7.c \
-	src/core/startup_splash.c lvgl/src/libs/tjpgd/tjpgd.c
+	src/bootloader/fb_draw.c src/bootloader/fb_draw_blit.c src/bootloader/fb_host.c \
+	src/bootloader/selector_logos.c src/bootloader/selector_logos_wordmark.c \
+	src/bootloader/selector_logos_rockbox_480.c src/bootloader/selector_logos_rockbox_320.c \
+	src/core/glyph5x7.c src/core/startup_splash.c lvgl/src/libs/tjpgd/tjpgd.c
+SNAPSHOT_PREFIX ?= before
 
 $(SELECTOR_SIM_BIN): $(SELECTOR_SIM_SRCS) src/bootloader/fb_draw.h src/bootloader/fb_draw_internal.h \
-		src/bootloader/selector_ui.h src/core/board_config.h src/core/glyph5x7.h $(LVGL_TINY_TTF)
+		src/bootloader/selector_ui.h src/bootloader/selector_logos.h \
+		src/core/board_config.h src/core/glyph5x7.h $(LVGL_TINY_TTF)
 	$(CC) $(SELECTOR_SIM_CFLAGS) -o $@ $(SELECTOR_SIM_SRCS) -lm
 
-.PHONY: selector-sim
+.PHONY: selector-sim check-selector-logos
 selector-sim: $(SELECTOR_SIM_BIN)
 	@mkdir -p scratch/selector-mockup
-	./$(SELECTOR_SIM_BIN) scratch/selector-mockup assets/fonts/Montserrat-Medium.ttf
+	./$(SELECTOR_SIM_BIN) scratch/selector-mockup assets/fonts/Montserrat-Medium.ttf $(SNAPSHOT_PREFIX)
+
+check-selector-logos:
+	python3 scripts/generate_selector_logos.py --verify
 
 .PHONY: all host target bootloader clean compile_commands.json FORCE_VERSION selector-sim
 
@@ -1114,6 +1121,9 @@ BOOTLOADER_BIN = compas_loader_$(BOARD)
 endif
 BOOTLOADER_SRCS = src/bootloader/selector_controller.c src/bootloader/selector_input.c \
                   src/bootloader/selector_ui.c src/bootloader/selector_request.c \
+                  src/bootloader/fb_draw_blit.c \
+                  src/bootloader/selector_logos.c src/bootloader/selector_logos_wordmark.c \
+                  src/bootloader/selector_logos_rockbox_480.c src/bootloader/selector_logos_rockbox_320.c \
                   src/core/sd_fsck.c src/core/sd_fsck_run.c \
                   src/bootloader/main.c src/bootloader/fb_draw.c src/bootloader/boot_tuning.c \
                   src/core/startup_splash.c src/core/glyph5x7.c \

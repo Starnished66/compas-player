@@ -11,6 +11,8 @@
 #include <sys/stat.h>
 
 #include "board_config.h"
+#include "fb_draw.h"
+#include "selector_logos.h"
 
 /* Reuse LVGL's vendored tiny_ttf rasterizer without initializing LVGL. The
  * font is opened once and stb's streaming callbacks seek/read that FILE for
@@ -632,12 +634,33 @@ void selector_ui_draw_selector(int selected, bool rockbox_available,
         int icon_x = x + (compact ? 12 : 18);
         int icon_y = y + (card_h - icon_size) / 2;
         uint32_t icon_color = is_selected ? accent_rgb : SECONDARY_RGB;
-        if (i == 0) draw_music_note(icon_x, icon_y, icon_size, icon_color);
-        else if (i == 1) draw_mountain(icon_x, icon_y, icon_size, icon_color);
-        else draw_tools_icon(icon_x, icon_y, icon_size, icon_color);
-        int tx = icon_x + icon_size + (compact ? 11 : 16);
-        draw_text(tx, y + (card_h - 45) / 2, selector_title[i], 22, PRIMARY_RGB);
-        draw_text(tx, y + (card_h - 45) / 2 + 27, selector_detail[i], 16, SECONDARY_RGB);
+        int logo_x = x + (compact ? 16 : 22);
+        int drew_logo = 0;
+        if (i == 0) {
+            const selector_logo_a8_t * mark = selector_logo_wordmark(canvas_width);
+            if (mark && mark->pixels && mark->width > 0 && mark->height > 0) {
+                fb_draw_blit_a8(canvas, canvas_width, canvas_height, canvas_stride,
+                                logo_x, y + (card_h - mark->height) / 2,
+                                mark->pixels, mark->width, mark->height, PRIMARY_RGB);
+                drew_logo = 1;
+            }
+        } else if (i == 1) {
+            const selector_logo_rgba_t * mark = selector_logo_rockbox(canvas_width);
+            if (mark && mark->pixels && mark->width > 0 && mark->height > 0) {
+                fb_draw_blit_rgba(canvas, canvas_width, canvas_height, canvas_stride,
+                                  logo_x, y + (card_h - mark->height) / 2,
+                                  mark->pixels, mark->width, mark->height);
+                drew_logo = 1;
+            }
+        }
+        if (!drew_logo) {
+            if (i == 0) draw_music_note(icon_x, icon_y, icon_size, icon_color);
+            else if (i == 1) draw_mountain(icon_x, icon_y, icon_size, icon_color);
+            else draw_tools_icon(icon_x, icon_y, icon_size, icon_color);
+            int tx = icon_x + icon_size + (compact ? 11 : 16);
+            draw_text(tx, y + (card_h - 45) / 2, selector_title[i], 22, PRIMARY_RGB);
+            draw_text(tx, y + (card_h - 45) / 2 + 27, selector_detail[i], 16, SECONDARY_RGB);
+        }
         if (is_selected) {
             int cx = x + w - 20, cy = y + card_h / 2;
             line(cx - 4, cy - 6, cx + 2, cy, accent_rgb, 2);
