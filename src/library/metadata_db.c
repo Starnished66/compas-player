@@ -814,7 +814,7 @@ int metadata_db_get_groups_page(metadata_db_group_kind_t kind, int offset, int m
         for (int i = 1; i < used; i++) {
             group_row_t value = groups[i].row;
             int j = i;
-            while (j > 0 && strcasecmp(groups[j - 1].row.genre_name, value.genre_name) > 0) {
+            while (j > 0 && utf8_collate_identity_compare(groups[j - 1].row.genre_name, value.genre_name) > 0) {
                 groups[j].row = groups[j - 1].row;
                 j--;
             }
@@ -841,8 +841,8 @@ int metadata_db_get_groups_page(metadata_db_group_kind_t kind, int offset, int m
     return w;
 }
 
-int metadata_db_get_artist_songs(const char * artist, int offset, song_row_t * out_rows, int max_rows) {
-    METADATA_DB_GUARD;
+static int get_group_songs(metadata_db_group_kind_t kind, const char * name, const char * album_artist,
+                            int offset, song_row_t * out_rows, int max_rows) {
     if (!db_ready || max_rows <= 0) return 0;
     if (offset < 0) offset = 0;
     int32_t stack_ids[64];
@@ -851,7 +851,21 @@ int metadata_db_get_artist_songs(const char * artist, int offset, song_row_t * o
         ids = malloc(sizeof(*ids) * (size_t) max_rows);
         if (!ids) return 0;
     }
-    int n = tagcache_artist_song_ids(artist, offset, ids, max_rows);
+    int n;
+    switch (kind) {
+        case METADATA_DB_GROUP_ARTIST:
+            n = tagcache_artist_song_ids(name, offset, ids, max_rows);
+            break;
+        case METADATA_DB_GROUP_ALBUM_ARTIST:
+            n = tagcache_album_artist_song_ids(name, offset, ids, max_rows);
+            break;
+        case METADATA_DB_GROUP_ALBUM:
+            n = tagcache_album_song_ids(name, album_artist, offset, ids, max_rows);
+            break;
+        default:
+            n = 0;
+            break;
+    }
     int w = 0;
     for (int i = 0; i < n && w < max_rows; i++) {
         tagcache_song_t song;
@@ -860,51 +874,24 @@ int metadata_db_get_artist_songs(const char * artist, int offset, song_row_t * o
     }
     if (ids != stack_ids) free(ids);
     return w;
+}
+
+int metadata_db_get_artist_songs(const char * artist, int offset, song_row_t * out_rows, int max_rows) {
+    METADATA_DB_GUARD;
+    return get_group_songs(METADATA_DB_GROUP_ARTIST, artist, NULL, offset, out_rows, max_rows);
 }
 
 /* Mirrors metadata_db_get_artist_songs() above, against the ALBUM_ARTIST
  * group instead -- see tagcache_album_artist_song_ids()'s own comment. */
 int metadata_db_get_album_artist_songs(const char * album_artist, int offset, song_row_t * out_rows, int max_rows) {
     METADATA_DB_GUARD;
-    if (!db_ready || max_rows <= 0) return 0;
-    if (offset < 0) offset = 0;
-    int32_t stack_ids[64];
-    int32_t * ids = stack_ids;
-    if (max_rows > 64) {
-        ids = malloc(sizeof(*ids) * (size_t) max_rows);
-        if (!ids) return 0;
-    }
-    int n = tagcache_album_artist_song_ids(album_artist, offset, ids, max_rows);
-    int w = 0;
-    for (int i = 0; i < n && w < max_rows; i++) {
-        tagcache_song_t song;
-        if (!tagcache_song_by_id(ids[i], &song)) continue;
-        copy_song(&song, &out_rows[w++]);
-    }
-    if (ids != stack_ids) free(ids);
-    return w;
+    return get_group_songs(METADATA_DB_GROUP_ALBUM_ARTIST, album_artist, NULL, offset, out_rows, max_rows);
 }
 
 int metadata_db_get_album_songs(const char * album, const char * album_artist, int offset, song_row_t * out_rows,
                                  int max_rows) {
     METADATA_DB_GUARD;
-    if (!db_ready || max_rows <= 0) return 0;
-    if (offset < 0) offset = 0;
-    int32_t stack_ids[64];
-    int32_t * ids = stack_ids;
-    if (max_rows > 64) {
-        ids = malloc(sizeof(*ids) * (size_t) max_rows);
-        if (!ids) return 0;
-    }
-    int n = tagcache_album_song_ids(album, album_artist, offset, ids, max_rows);
-    int w = 0;
-    for (int i = 0; i < n && w < max_rows; i++) {
-        tagcache_song_t song;
-        if (!tagcache_song_by_id(ids[i], &song)) continue;
-        copy_song(&song, &out_rows[w++]);
-    }
-    if (ids != stack_ids) free(ids);
-    return w;
+    return get_group_songs(METADATA_DB_GROUP_ALBUM, album, album_artist, offset, out_rows, max_rows);
 }
 
 bool metadata_db_get_song_by_id(int64_t id, song_row_t * out_row) {
@@ -1098,7 +1085,7 @@ static metadata_db_catalog_result_t catalog_page_begin_locked(
     int32_t generation = tagcache_generation();
     if (generation < 0) return METADATA_DB_CATALOG_UNAVAILABLE;
     int title_order_version = tagcache_title_order_version();
-    if (title_order_version < 1 || title_order_version > 2)
+    if (title_order_version < 1 || title_order_version > 4)
         return METADATA_DB_CATALOG_UNAVAILABLE;
     snprintf(out_page->library_id, sizeof(out_page->library_id), "%s", catalog_library_id);
     /* The trailing format version invalidates clients that cached the older
@@ -1108,6 +1095,19 @@ static metadata_db_catalog_result_t catalog_page_begin_locked(
     if (expected_revision && strcmp(expected_revision, out_page->revision) != 0)
         return METADATA_DB_CATALOG_STALE;
     return METADATA_DB_CATALOG_OK;
+}
+
+bool metadata_db_catalog_get_revision(char *out_revision, size_t out_size) {
+    if (out_revision && out_size) out_revision[0] = '\0';
+    if (!out_revision || out_size == 0) return false;
+
+    metadata_db_catalog_page_t page = {0};
+    METADATA_DB_GUARD;
+    if (catalog_page_begin_locked(NULL, &page) != METADATA_DB_CATALOG_OK) return false;
+    size_t length = strlen(page.revision);
+    if (length >= out_size) return false;
+    memcpy(out_revision, page.revision, length + 1);
+    return true;
 }
 
 bool metadata_db_catalog_revision_matches(const char *expected_revision) {
@@ -1690,8 +1690,8 @@ int metadata_db_get_albums_page_sorted(const char *artist_filter, metadata_db_al
 
 static int genre_group_cmp(const void *a, const void *b) {
     const group_row_t *x = a, *y = b;
-    int c = strcasecmp(x->name, y->name);
-    return c ? c : strcasecmp(x->album_artist, y->album_artist);
+    int c = utf8_collate_identity_compare(x->name, y->name);
+    return c ? c : utf8_collate_identity_compare(x->album_artist, y->album_artist);
 }
 
 int metadata_db_get_genre_groups_page(metadata_db_group_kind_t kind, const char *genre,

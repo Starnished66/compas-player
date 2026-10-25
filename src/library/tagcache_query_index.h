@@ -146,7 +146,7 @@ static int query_build_album_key(const char *name) {
         int mid = lo + (hi - lo) / 2;
         tagcache_group_t group;
         if (!reader_group_at(TAGCACHE_GROUP_ALBUM, mid, &group)) return -1;
-        if (ascii_casecmp(group.name, name) < 0) lo = mid + 1; else hi = mid;
+        if (reader_group_name_compare(group.name, name) < 0) lo = mid + 1; else hi = mid;
     }
     return lo;
 }

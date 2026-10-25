@@ -109,6 +109,9 @@ void gui_shell_update_topbar(bool screen_just_woke);
 bool point_in_swipe_dead_zone(lv_point_t p);
 void gui_shell_resume_fast_timers(void);
 void gui_shell_reset_drag_state(void);
+/* Set the raw-touch guard after an external session reset. Held contacts stay
+ * suppressed until their release; when no contact is held, the next tap works. */
+void gui_shell_set_external_touch_held(bool held);
 /* Narrow counterpart to gui_shell_reset_drag_state() above -- resets only
  * the interactive slide-swipe tracking state (player_swipe_* and
  * back_swipe_*) without touching quick-drawer or home-gesture state,

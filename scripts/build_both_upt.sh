@@ -45,14 +45,18 @@ done
 
 echo "Building R1 binaries..."
 make -C "$repo" target bootloader BOARD=r1
+make -C "$repo" early-splash BOARD=r1
 echo "Building R3 Pro II binaries..."
 make -C "$repo" target bootloader BOARD=r3proii
+make -C "$repo" early-splash BOARD=r3proii
 
 for binary in \
     "$repo/compas_player_target" \
     "$repo/compas_loader" \
+    "$repo/compas_early_splash" \
     "$repo/compas_player_target_r3proii" \
-    "$repo/compas_loader_r3proii"; do
+    "$repo/compas_loader_r3proii" \
+    "$repo/compas_early_splash_r3proii"; do
     [[ -s "$binary" ]] || { echo "Build did not produce: $binary" >&2; exit 1; }
 done
 
@@ -60,11 +64,13 @@ temp_dir=$(mktemp -d)
 trap 'rm -rf "$temp_dir"' EXIT
 
 echo "Repacking R1 image..."
-"$repo/scripts/repack_upt.sh" --board r1 "$r1_base" \
+"$repo/scripts/repack_upt.sh" --board r1 \
+    --early-splash "$repo/compas_early_splash" "$r1_base" \
     "$repo/compas_player_target" "$repo/compas_loader" \
     "$temp_dir/r1.upt"
 echo "Repacking R3 Pro II image..."
-"$repo/scripts/repack_upt.sh" --board r3proii "$r3_base" \
+"$repo/scripts/repack_upt.sh" --board r3proii \
+    --early-splash "$repo/compas_early_splash_r3proii" "$r3_base" \
     "$repo/compas_player_target_r3proii" "$repo/compas_loader_r3proii" \
     "$temp_dir/r3proii.upt"
 

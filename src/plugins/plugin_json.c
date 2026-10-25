@@ -1,4 +1,5 @@
 #include "plugin_json.h"
+#include "utf8_util.h"
 
 #include "lauxlib.h"
 #include "cJSON.h"
@@ -58,44 +59,6 @@ static void parse_limits(lua_State * L, int index, json_limits_t * lim) {
     lua_pop(L, 1);
 }
 
-static bool utf8_ok(const char * s, size_t n) {
-    size_t i = 0;
-    while (i < n) {
-        unsigned char c = (unsigned char) s[i];
-        uint32_t cp;
-        int more;
-        if (c <= 0x7F) {
-            i++;
-            continue;
-        }
-        if ((c & 0xE0) == 0xC0) {
-            more = 1;
-            cp = c & 0x1F;
-            if (c < 0xC2) return false;
-        } else if ((c & 0xF0) == 0xE0) {
-            more = 2;
-            cp = c & 0x0F;
-        } else if ((c & 0xF8) == 0xF0) {
-            more = 3;
-            cp = c & 0x07;
-            if (c > 0xF4) return false;
-        } else {
-            return false;
-        }
-        if (i + 1 + (size_t) more > n) return false;
-        for (int k = 1; k <= more; k++) {
-            unsigned char cc = (unsigned char) s[i + k];
-            if ((cc & 0xC0) != 0x80) return false;
-            cp = (cp << 6) | (cc & 0x3F);
-        }
-        if (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) return false;
-        if (more == 2 && cp < 0x800) return false;
-        if (more == 3 && cp < 0x10000) return false;
-        i += 1 + (size_t) more;
-    }
-    return true;
-}
-
 static bool json_nesting_ok(const char * s, size_t n, int max_nest) {
     int depth = 0;
     bool in_string = false, escape = false;
@@ -145,7 +108,7 @@ static bool push_cjson(lua_State * L, const cJSON * node, int depth, const json_
     if (cJSON_IsString(node)) {
         const char * s = node->valuestring ? node->valuestring : "";
         size_t n = strlen(s);
-        if (!utf8_ok(s, n)) {
+        if (!utf8_is_valid(s, n)) {
             *err = "invalid utf-8";
             return false;
         }
@@ -164,7 +127,7 @@ static bool push_cjson(lua_State * L, const cJSON * node, int depth, const json_
             }
             (*entries)++;
             if (cJSON_IsObject(node)) {
-                if (!child->string || !utf8_ok(child->string, strlen(child->string))) {
+                if (!child->string || !utf8_is_valid(child->string, strlen(child->string))) {
                     lua_pop(L, 1);
                     *err = "invalid utf-8";
                     return false;
@@ -200,7 +163,7 @@ static cJSON * lua_to_cjson(lua_State * L, int index, int depth, const json_limi
         case LUA_TSTRING: {
             size_t n = 0;
             const char * s = lua_tolstring(L, index, &n);
-            if (!utf8_ok(s, n)) {
+            if (!utf8_is_valid(s, n)) {
                 *err = "invalid utf-8";
                 return NULL;
             }
@@ -260,7 +223,7 @@ static cJSON * lua_to_cjson(lua_State * L, int index, int depth, const json_limi
                 }
                 size_t kn = 0;
                 const char * key = lua_tolstring(L, -2, &kn);
-                if (!utf8_ok(key, kn)) {
+                if (!utf8_is_valid(key, kn)) {
                     lua_pop(L, 2);
                     cJSON_Delete(obj);
                     *err = "invalid utf-8";
@@ -296,7 +259,7 @@ int l_plugin_json_decode(lua_State * L) {
     json_limits_t lim;
     parse_limits(L, 2, &lim);
     if (len > lim.max_input_bytes) return fail(L, "input too large");
-    if (!utf8_ok(s, len)) return fail(L, "invalid utf-8");
+    if (!utf8_is_valid(s, len)) return fail(L, "invalid utf-8");
     if (!json_nesting_ok(s, len, lim.max_nesting)) return fail(L, "json too deeply nested");
 
     cJSON * json = cJSON_ParseWithLength(s, len);
@@ -329,7 +292,7 @@ int l_plugin_json_encode(lua_State * L) {
         cJSON_free(printed);
         return fail(L, "output too large");
     }
-    if (!utf8_ok(printed, n)) {
+    if (!utf8_is_valid(printed, n)) {
         cJSON_free(printed);
         return fail(L, "invalid utf-8");
     }

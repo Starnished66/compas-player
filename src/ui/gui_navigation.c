@@ -752,7 +752,7 @@ void full_redraw_async_cb(void * unused) {
 
 void slide_transition_anim_x_cb(void * var, int32_t v) {
     slide_transition_ctx_t * ctx = (slide_transition_ctx_t *) var;
-    /* TRANSITION_PERFORMANCE_PLAN.md Phase 3 -- when begin_slide_transition()
+    /* local/notes/performance/TRANSITION_PERFORMANCE_PLAN.md Phase 3 -- when begin_slide_transition()
      * below handed this transition off to the direct-framebuffer compositor,
      * img_from/img_to are never drawn at all (LVGL invalidation is disabled
      * for the whole session), so driving them with lv_obj_set_x() here would

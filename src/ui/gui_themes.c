@@ -189,6 +189,11 @@ static theme_file_t s_active_theme;
 /* Bounded legacy exclusions */
 static gui_theme_legacy_exclusion_t s_exclusions[GUI_THEMES_MAX_EXCLUSIONS];
 static size_t s_exclusion_count = 0;
+/* Once a plugin explicitly replaces an inventory path, do not infer legacy
+ * ownership again for that path during this process. The bounded mask keeps
+ * that user intent even when its exclusion record could not be persisted. */
+static bool s_cleared_inventory_exclusions[
+    sizeof(s_legacy_asset_inventory) / sizeof(s_legacy_asset_inventory[0])];
 
 /* UI Picker state */
 static lv_obj_t * s_picker_screen = NULL;
@@ -207,6 +212,7 @@ void gui_themes_reset_state(void) {
     s_has_imported_legacy = false;
     s_active_parsed = false;
     s_exclusion_count = 0;
+    memset(s_cleared_inventory_exclusions, 0, sizeof(s_cleared_inventory_exclusions));
     gui_themes_teardown();
 }
 #endif
@@ -862,6 +868,7 @@ static void exclude_stock_override_copies(void) {
     size_t inventory_count = sizeof(s_legacy_asset_inventory) / sizeof(s_legacy_asset_inventory[0]);
     for (size_t i = 0; i < inventory_count && s_exclusion_count < GUI_THEMES_MAX_EXCLUSIONS; i++) {
         const char *rel = s_legacy_asset_inventory[i];
+        if (s_cleared_inventory_exclusions[i]) continue;
         bool known = false;
         for (size_t k = 0; k < s_exclusion_count && !known; k++)
             known = strcmp(s_exclusions[k].relpath, rel) == 0;
@@ -1071,7 +1078,19 @@ bool gui_themes_is_legacy_excluded(const char *relpath) {
 }
 
 void gui_themes_clear_legacy_exclusion(const char *relpath) {
-    if (!relpath || !relpath[0] || s_exclusion_count == 0) return;
+    if (!relpath || !relpath[0]) return;
+
+    /* Record the explicit replacement intent independently of the persisted
+     * exclusion list. A later inventory scan must not reinterpret a stock
+     * byte-for-byte plugin icon as a legacy Themes copy in this process. */
+    size_t inventory_count = sizeof(s_legacy_asset_inventory) / sizeof(s_legacy_asset_inventory[0]);
+    for (size_t i = 0; i < inventory_count; ++i) {
+        if (strcmp(s_legacy_asset_inventory[i], relpath) == 0) {
+            s_cleared_inventory_exclusions[i] = true;
+            break;
+        }
+    }
+    if (s_exclusion_count == 0) return;
 
     /* Find all matching exclusion records and filter them out in memory immediately */
     gui_theme_legacy_exclusion_t remaining[GUI_THEMES_MAX_EXCLUSIONS];

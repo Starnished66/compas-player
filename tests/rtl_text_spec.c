@@ -23,6 +23,7 @@
 #endif
 
 #include "../src/ui/screen_builders.c"
+#include "../src/ui/compact_list.c"
 
 extern player_settings_t current_settings;
 extern void lv_bidi_process(const char * input, char * output, lv_base_dir_t base_dir);

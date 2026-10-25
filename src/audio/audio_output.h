@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 /* Shared PCM output device for the target build -- local hardware (via tinyalsa),
- * a connected Bluetooth accessory, or USB DAC (via piped aplay). Used by both
+ * a connected Bluetooth accessory, or USB DAC (PCM via aplay, DSD via tinyalsa). Used by both
  * audio.c's playback thread and usb_dac_bridge.c's USB DAC bridge thread.
  *
  * The implementation enforces one owner thread from a successful ensure() until
@@ -19,8 +19,8 @@
  *
  * Target build only; host simulator uses SDL. */
 
-/* Coherent application-side output snapshot. Bluetooth/USB use ALSA plug
- * conversion: their final transport/DAC rate and depth are not measured here. */
+/* Coherent output snapshot. Bluetooth and USB PCM use ALSA plug conversion;
+ * only local output and direct USB DSD report the negotiated hardware format. */
 typedef enum {
     AUDIO_OUTPUT_ROUTE_WIRED = 0,
     AUDIO_OUTPUT_ROUTE_BLUETOOTH,
@@ -35,6 +35,7 @@ typedef struct {
     unsigned int bit_depth;
     unsigned int channels;
     bool dop;
+    bool native_dsd; /* Native ALSA DSD words, distinct from DoP framing. */
     bool hardware_format_known;
 } audio_output_info_t;
 
@@ -53,16 +54,23 @@ void audio_output_set_dac_preferences(int filter, bool nos, bool dre);
  * (e.g. for real-time sources like AirPlay). */
 bool audio_output_ensure(unsigned int channels, unsigned int sample_rate, bool low_latency, bool want_s24);
 
-/* Opens the local DAC for native DSD: DoP frames (see dsd_decoder.h) in
+/* Opens a bit-exact DSD stream. USB uses the selected native/DoP mode
+ * directly on hardware; the local DAC receives DoP frames (dsd_decoder.h) in
  * S24_LE at sample_rate, with the codec's DOP_EN switch on before the first
- * write. False when the local output is not the requested route, the DAC
+ * write. False for Bluetooth or USB PCM mode, when the DAC
  * refuses the rate (the R1 takes up to 384 kHz, so DSD64 and DSD128), or the
  * switch cannot be set; the caller then converts to PCM instead. Any later
  * PCM ensure() or close() turns the switch off again. Write the frames with
  * audio_output_write_s24(). */
 bool audio_output_ensure_dop(unsigned int channels, unsigned int sample_rate);
 
-/* True while the open device is a DoP stream (ground truth, like
+/* USB preference: 0=PCM, 1=native DSD, 2=DoP. Safe from any thread. */
+void audio_output_set_usb_dsd_mode(int mode);
+/* Route/setting permits a bit-exact DSD attempt; ensure performs the hardware test. */
+bool audio_output_dsd_passthrough_requested(unsigned int dop_rate);
+
+/* True while the open device accepts unmodified DSD carrier words
+ * (local/USB DoP or USB native DSD; ground truth, like
  * audio_output_is_s24_active()). */
 bool audio_output_is_dop_active(void);
 
@@ -92,7 +100,7 @@ bool audio_output_dop_rate_refused(unsigned int sample_rate);
  * returns false with *out_frames_written = 0. */
 bool audio_output_write(const int16_t * buf, uint64_t frames, unsigned int channels, uint64_t * out_frames_written);
 
-/* Writes 32-bit frames (right-justified in low 24-bits, PCM_FORMAT_S24_LE) to local hardware or a Bluetooth/USB ALSA pipe.
+/* Writes 32-bit frames (right-justified in low 24-bits, PCM_FORMAT_S24_LE) to local hardware, a Bluetooth/USB PCM pipe, or direct USB DSD.
  * Only valid when the device was successfully opened in S24_LE.
  * Returns false immediately if called while audio_output_is_s24_active() is false. */
 bool audio_output_write_s24(const int32_t * buf, uint64_t frames, unsigned int channels, uint64_t * out_frames_written);

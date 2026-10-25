@@ -40,11 +40,11 @@ library_args[library_args.index("build_host/ui/gui_library.o")] = str(test_dir /
 subprocess.run(library_args, cwd=root, check=True)
 
 timeline_entry = next(e for e in json.loads((root / "compile_commands.json").read_text())
-                      if e["file"] == "src/ui/player_timeline_labels.c")
+                      if e["file"] == "src/ui/player/player_timeline_labels.c")
 timeline_args = list(timeline_entry["arguments"])
 timeline_source = root / "tests/rtl_text_timeline_tu.c"
-timeline_args[timeline_args.index("src/ui/player_timeline_labels.c")] = str(timeline_source)
-timeline_args[timeline_args.index("build_host/ui/player_timeline_labels.o")] = str(test_dir / "rtl_text_timeline_tu.o")
+timeline_args[timeline_args.index("src/ui/player/player_timeline_labels.c")] = str(timeline_source)
+timeline_args[timeline_args.index("build_host/ui/player/player_timeline_labels.o")] = str(test_dir / "rtl_text_timeline_tu.o")
 subprocess.run(timeline_args, cwd=root, check=True)
 
 make_output = subprocess.run(["make", "-Bn", "-C", str(root),
@@ -57,8 +57,8 @@ renamed_main = test_dir / "main_without_entry.o"
 subprocess.run(["objcopy", "--redefine-sym", "main=compas_player_main",
                 str(root / "build_host/main.o"), str(renamed_main)], check=True)
 host_objects = [arg for arg in link_args[3:] if arg not in {
-    "build_host/main.o", "build_host/ui/screen_builders.o", "build_host/ui/gui_library.o",
-    "build_host/ui/player_timeline_labels.o"
+    "build_host/main.o", "build_host/ui/screen_builders.o", "build_host/ui/compact_list.o", "build_host/ui/gui_library.o",
+    "build_host/ui/player/player_timeline_labels.o"
 }]
 binary = test_dir / "rtl_text_spec"
 subprocess.run(["g++", "-Wl,--gc-sections", "-o", str(binary),

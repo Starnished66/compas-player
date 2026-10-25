@@ -7,9 +7,10 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 source = (ROOT / "src/ui/gui.c").read_text()
-start = source.index("    uint32_t screen_inactive_ms = lv_display_get_inactive_time(NULL);")
-end = source.index("    /* Battery:", start)
-timeout_block = source[start:end]
+start = source.index("static void poll_screen_inactivity_timeout(void) {")
+body_start = source.index("\n", start) + 1
+end = source.index("\n}", body_start)
+timeout_block = source[body_start:end]
 
 test_source = r'''
 #include <assert.h>

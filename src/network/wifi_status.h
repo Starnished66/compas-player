@@ -16,4 +16,12 @@
  * thread, never directly from the UI thread. */
 bool wifi_get_status(int * out_signal_level);
 
+/* Maps RSSI (dBm) to 0 (weakest) - 3 (strongest) signal level. */
+static inline int wifi_signal_level_from_rssi(int rssi_dbm) {
+    if (rssi_dbm >= -50) return 3;
+    if (rssi_dbm >= -60) return 2;
+    if (rssi_dbm >= -70) return 1;
+    return 0;
+}
+
 #endif /* WIFI_STATUS_H */

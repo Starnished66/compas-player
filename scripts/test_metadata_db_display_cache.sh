@@ -13,6 +13,7 @@ cc -std=gnu11 -Wall -Wextra -Werror -pthread -DHOST_BUILD=1 \
     -I"$repo/src/ui" -I"$repo/lvgl" \
     "$repo/src/library/metadata_db_display_cache_test.c" \
     "$repo/src/library/tagcache.c" "$repo/src/core/db_log.c" \
+    "$repo/src/core/utf8_util.c" \
     -Wl,--gc-sections -o "$test_root/metadata_db_display_cache_test"
 
 (cd "$test_root" && ./metadata_db_display_cache_test)

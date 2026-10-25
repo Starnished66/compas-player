@@ -7,6 +7,7 @@ import tempfile
 
 root = pathlib.Path(__file__).resolve().parents[1]
 source = (root / "src/ui/gui_player.c").read_text()
+volume_source = (root / "src/ui/player/player_volume_popup.c").read_text()
 
 
 def function(name):
@@ -19,6 +20,10 @@ def function(name):
 
 production = "\n".join(function(name) for name in (
     "gui_player_init_internal", "gui_player_teardown_internal"))
+volume_teardown = re.search(r"(?m)^void player_volume_popup_teardown\([^;]*?\) \{.*?^\}", volume_source, re.S)
+if not volume_teardown:
+    raise RuntimeError("missing production function player_volume_popup_teardown")
+volume_teardown = volume_teardown.group()
 
 body = r'''
 #include <assert.h>
@@ -65,6 +70,8 @@ static unsigned stable_track_info_generation;
 #define current_cover_dsc ((struct { void *data; }){current_cover_dsc_present ? (void *)1 : NULL})
 static lv_obj_t *build_player_screen(uint32_t w, uint32_t h, bool refresh_registry) { assert(w==480&&h==800); calls[0]++;last_refresh_registry=refresh_registry; return stable_player; }
 static void player_restore_reload_label_text(void) { calls[1]++; }
+static int player_queue_model_current(void) { return (int)playlist_index; }
+static int player_queue_model_count(void) { return (int)playlist_count; }
 static bool gui_player_has_active_track(void) { return active_track; }
 static void lv_label_set_text(lv_obj_t *o, const char *s) { (void)o;(void)s; }
 static void player_set_song_count(unsigned i, unsigned n) { (void)i;(void)n; }
@@ -79,21 +86,24 @@ static void refresh_format_badge(void) { calls[3]++; }
 static void gui_player_refresh_frosted_background(void) { calls[4]++; }
 static void track_metadata_worker_start(void) { calls[5]++; }
 static void favorite_writer_start(void) { calls[6]++; }
-static void build_volume_popup(void) { calls[7]++; volume_popup=stable_popup;volume_popup_hide_timer=stable_hide_timer; }
+static void player_volume_popup_init(void) { calls[7]++; volume_popup=stable_popup;volume_popup_hide_timer=stable_hide_timer; }
 static void build_delete_song_popup(void) { calls[8]++; }
 static void build_more_menu_popup(void) { calls[9]++;more_menu_popup=stable_menu;more_menu_popup_backdrop=stable_backdrop; }
 static void gui_track_info_init(void) { calls[10]++;stable_track_info_generation++; }
 static void player_cover_prefetch_cancel(void) { calls[11]++; }
 static void player_reflection_cache_clear(void) { calls[12]++; }
-static void cover_decode_partial_clear(void) { calls[13]++; }
-static void player_lyrics_timeline_cancel_timer(void) { calls[14]++; }
+static void player_artwork_jobs_partial_clear(void) { calls[13]++; }
+static unsigned player_artwork_jobs_advance_generation(void) {
+    return atomic_fetch_add(&cover_decode_generation, 1u) + 1u;
+}
+static void player_inline_lyrics_cancel_timer(void) { calls[14]++; }
 static void lv_timer_delete(lv_timer_t *t) { (void)t;calls[15]++; }
 static void lv_draw_sw_image_cache_set_transition_active(bool b) { (void)b; }
 static void lv_draw_sw_image_cache_set_intermediate_source(void *p) { (void)p; }
-static void player_lyrics_set_open(bool b, bool a) { (void)b;(void)a; }
+static void player_inline_lyrics_set_open(bool b, bool a) { (void)b;(void)a; }
 static void player_timeline_labels_teardown(void) { calls[16]++; }
 static void player_lyrics_backdrop_teardown(void) { }
-static void player_lyrics_generated_release(bool b) { (void)b; }
+static void player_inline_lyrics_generated_release(bool b) { (void)b; }
 static int lv_slider_get_value(lv_obj_t *o) { (void)o;return 50; }
 static void hw_volume_coalesce_drag_update(volume_state_t *s, int v) { (void)s;(void)v; }
 static void hw_volume_coalesce_teardown(volume_state_t *s) { (void)s;calls[17]++; }
@@ -106,11 +116,12 @@ static void asset_decoded_image_close(image_t *i) { (void)i;calls[20]++; }
 static void gui_popup_teardown(void *p) { (void)p;calls[21]++; }
 static void gui_track_info_teardown(void) { calls[22]++;stable_track_info_generation=0; }
 static void player_capture_reload_label_text(void) { calls[23]++; }
-static void player_timeline_cover_cache_invalidate(void) { calls[24]++; }
+static void player_inline_lyrics_invalidate_cover_source(void) { calls[24]++; }
 static void player_reset_widget_globals(void) { calls[25]++;cover_img=NULL;song_title_label=NULL;song_count_label=NULL; }
 static void player_layouts_release(void) { calls[26]++; }
+void player_volume_popup_teardown(void);
 
-''' + production + r'''
+''' + production + '\n' + volume_teardown + r'''
 
 static void reset_state(void) {
     memset(calls,0,sizeof(calls));

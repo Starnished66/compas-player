@@ -272,6 +272,11 @@ static const char * text_entry_key_image(int key_index) {
     return buf;
 }
 
+static void text_entry_set_key_available(lv_obj_t * key, bool available) {
+    lv_obj_set_flag(key, LV_OBJ_FLAG_HIDDEN, !available);
+    lv_obj_set_flag(key, LV_OBJ_FLAG_CLICKABLE, available);
+}
+
 /* Re-syncs every key's image and (for the mode buttons/numeric decimal and
  * minus keys) visibility with the current mode/shift/numeric-lock state -- called
  * once from show_text_entry() and again on every mode/Shift/digit-0 tap. */
@@ -290,30 +295,20 @@ static void text_entry_refresh_keys(void) {
     }
 
     if (text_entry_numeric_only) {
-        lv_obj_add_flag(text_entry_num_mode_key, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(text_entry_num_mode_key, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_flag(text_entry_abc_mode_key, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(text_entry_abc_mode_key, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_flag(text_entry_sym_mode_key, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(text_entry_sym_mode_key, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_remove_flag(text_entry_dotneg_key, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(text_entry_dotneg_key, LV_OBJ_FLAG_CLICKABLE);
+        text_entry_set_key_available(text_entry_num_mode_key, false);
+        text_entry_set_key_available(text_entry_abc_mode_key, false);
+        text_entry_set_key_available(text_entry_sym_mode_key, false);
+        text_entry_set_key_available(text_entry_dotneg_key, true);
         lv_obj_move_foreground(text_entry_dotneg_key);
-        lv_obj_remove_flag(text_entry_neg_key, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(text_entry_neg_key, LV_OBJ_FLAG_CLICKABLE);
+        text_entry_set_key_available(text_entry_neg_key, true);
         lv_obj_move_foreground(text_entry_neg_key);
         return;
     }
-    lv_obj_add_flag(text_entry_dotneg_key, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_remove_flag(text_entry_dotneg_key, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(text_entry_neg_key, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_remove_flag(text_entry_neg_key, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_remove_flag(text_entry_num_mode_key, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(text_entry_num_mode_key, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_remove_flag(text_entry_abc_mode_key, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(text_entry_abc_mode_key, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_remove_flag(text_entry_sym_mode_key, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(text_entry_sym_mode_key, LV_OBJ_FLAG_CLICKABLE);
+    text_entry_set_key_available(text_entry_dotneg_key, false);
+    text_entry_set_key_available(text_entry_neg_key, false);
+    text_entry_set_key_available(text_entry_num_mode_key, true);
+    text_entry_set_key_available(text_entry_abc_mode_key, true);
+    text_entry_set_key_available(text_entry_sym_mode_key, true);
 }
 
 /* Shared by every cycling key (the 9 digit-slot keys, the key-0/digit-0

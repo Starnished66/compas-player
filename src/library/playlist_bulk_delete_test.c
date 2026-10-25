@@ -2,6 +2,7 @@
 #include "playlist_files.h"
 
 #include <assert.h>
+#include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,6 +45,14 @@ static char * read_text(const char * path) {
     value[n] = '\0';
     fclose(f);
     return value;
+}
+
+static void assert_no_playlist_temps(const char * dir) {
+    DIR * d = opendir(dir);
+    assert(d);
+    struct dirent * ent;
+    while ((ent = readdir(d))) assert(strncmp(ent->d_name, ".playlist-", 10) != 0);
+    assert(closedir(d) == 0);
 }
 
 int main(void) {
@@ -99,6 +108,47 @@ int main(void) {
     actual = read_text(path);
     assert(strcmp(actual, original) == 0);
     free(actual);
+
+    const char * bytes = "\357\273\277#EXTM3U\r\n#EXTINF:1,first\r\n/a\r\n"
+                        "#EXTINF:2,unavailable\r\n/missing\r\n"
+                        "#EXTINF:3,duplicate\r\n/a\r\n# trailing comment";
+    const char * reordered = "\357\273\277#EXTM3U\n#EXTINF:3,duplicate\r\n/a\r\n"
+                            "#EXTINF:1,first\r\n/a\r\n#EXTINF:2,unavailable\r\n/missing\r\n"
+                            "# trailing comment";
+    const char * deleted = "\357\273\277#EXTM3U\n#EXTINF:1,first\r\n/a\r\n"
+                           "#EXTINF:3,duplicate\r\n/a\r\n# trailing comment";
+    write_text(path, bytes);
+    const int byte_case_count = 3;
+    assert(playlist_files_delete_entries_checked(path, NULL, 0, accept_check,
+                                                  (void *) &byte_case_count) == PLAYLIST_EDIT_OK);
+    actual = read_text(path);
+    assert(strcmp(actual, bytes) == 0);
+    free(actual);
+    const int invalid_byte_indexes[] = { 2, 1 };
+    assert(playlist_files_delete_entries_checked(path, invalid_byte_indexes, 2, accept_check,
+                                                  (void *) &byte_case_count) == PLAYLIST_EDIT_FAILED);
+    actual = read_text(path);
+    assert(strcmp(actual, bytes) == 0);
+    free(actual);
+    assert(playlist_files_edit_entry(path, 2, 0));
+    actual = read_text(path);
+    assert(strcmp(actual, reordered) == 0);
+    free(actual);
+    write_text(path, bytes);
+    const int remove_unavailable[] = { 1 };
+    assert(playlist_files_delete_entries_checked(path, remove_unavailable, 1,
+                                                  accept_check, (void *) &byte_case_count) == PLAYLIST_EDIT_OK);
+    actual = read_text(path);
+    assert(strcmp(actual, deleted) == 0);
+    free(actual);
+    write_text(path, bytes);
+    fail_rename = 1;
+    assert(!playlist_files_edit_entry(path, 2, 0));
+    fail_rename = 0;
+    actual = read_text(path);
+    assert(strcmp(actual, bytes) == 0);
+    free(actual);
+    assert_no_playlist_temps(dir);
 
     unlink(path);
     rmdir(dir);

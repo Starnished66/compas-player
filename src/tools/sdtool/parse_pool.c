@@ -127,7 +127,11 @@ int sdtool_parse_worker(void) {
         record->index = index++;
         started_at = time(NULL);
         test_fault(path, record->index);
-        metadata_read_scan_tags(path, &record->meta);
+        metadata_read_without_artwork(path, &record->meta);
+        free(record->meta.picture_data);
+        free(record->meta.lyrics);
+        record->meta.picture_data = NULL;
+        record->meta.lyrics = NULL;
         started_at = 0;
         bool written = fwrite(record, sizeof(*record), 1, stdout) == 1 && fflush(stdout) == 0;
         free(record);

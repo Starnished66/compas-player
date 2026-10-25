@@ -699,23 +699,16 @@ bool albumart_artist_negative_exists(const char * artist) {
            stat(path, &st) == 0 && S_ISREG(st.st_mode);
 }
 
-bool albumart_artist_store_negative(const char * artist, uint64_t source_signature) {
-    if (!artist || !artist[0]) return false;
-    mkdir(ALBUMART_COMPAS_DIR, 0755);
-    mkdir(ALBUMART_DIR, 0755);
-    char path[PATH_MAX], tmp[PATH_MAX + 16];
-    if (!artist_thumbnail_path(artist, ALBUMART_THUMBNAIL_SIZE, ALBUMART_THUMBNAIL_SIZE,
-                               "noart", path, sizeof(path)) ||
-        snprintf(tmp, sizeof(tmp), "%s.tmp.XXXXXX", path) >= (int) sizeof(tmp))
+static bool store_small_atomic_file(const char * path, const unsigned char * bytes, size_t size) {
+    char tmp[PATH_MAX + 16];
+    if (snprintf(tmp, sizeof(tmp), "%s.tmp.XXXXXX", path) >= (int) sizeof(tmp))
         return false;
     int fd = mkstemp(tmp);
     if (fd < 0) return false;
-    unsigned char bytes[8];
-    for (int i = 0; i < 8; i++) bytes[i] = (unsigned char) (source_signature >> (i * 8));
     size_t written = 0;
     bool ok = true;
-    while (written < sizeof(bytes)) {
-        ssize_t n = write(fd, bytes + written, sizeof(bytes) - written);
+    while (written < size) {
+        ssize_t n = write(fd, bytes + written, size - written);
         if (n <= 0) {
             ok = false;
             break;
@@ -728,6 +721,19 @@ bool albumart_artist_store_negative(const char * artist, uint64_t source_signatu
     if (ok) (void) library_fsync_dir(ALBUMART_DIR);
     if (!ok) unlink(tmp);
     return ok;
+}
+
+bool albumart_artist_store_negative(const char * artist, uint64_t source_signature) {
+    if (!artist || !artist[0]) return false;
+    mkdir(ALBUMART_COMPAS_DIR, 0755);
+    mkdir(ALBUMART_DIR, 0755);
+    char path[PATH_MAX];
+    if (!artist_thumbnail_path(artist, ALBUMART_THUMBNAIL_SIZE, ALBUMART_THUMBNAIL_SIZE,
+                               "noart", path, sizeof(path)))
+        return false;
+    unsigned char bytes[8];
+    for (int i = 0; i < 8; i++) bytes[i] = (unsigned char) (source_signature >> (i * 8));
+    return store_small_atomic_file(path, bytes, sizeof(bytes));
 }
 
 bool albumart_artist_alias_load(const char * artist, unsigned int scope, uint64_t * album_key,
@@ -757,31 +763,16 @@ bool albumart_artist_alias_store(const char * artist, unsigned int scope, uint64
     if (!artist || !artist[0] || album_key == 0 || representative_song_id <= 0) return false;
     mkdir(ALBUMART_COMPAS_DIR, 0755);
     mkdir(ALBUMART_DIR, 0755);
-    char path[PATH_MAX], tmp[PATH_MAX + 16];
-    if (!artist_alias_path(artist, scope, path, sizeof(path)) ||
-        snprintf(tmp, sizeof(tmp), "%s.tmp.XXXXXX", path) >= (int) sizeof(tmp))
+    char path[PATH_MAX];
+    if (!artist_alias_path(artist, scope, path, sizeof(path)))
         return false;
-    int fd = mkstemp(tmp);
-    if (fd < 0) return false;
     unsigned char bytes[24] = { 'A', 'A', 'L', 'I', 'A', 'S', '1', 0 };
     uint64_t song_id = (uint64_t) representative_song_id;
     for (int i = 0; i < 8; i++) {
         bytes[8 + i] = (unsigned char) (album_key >> (i * 8));
         bytes[16 + i] = (unsigned char) (song_id >> (i * 8));
     }
-    size_t written = 0;
-    bool ok = true;
-    while (written < sizeof(bytes)) {
-        ssize_t n = write(fd, bytes + written, sizeof(bytes) - written);
-        if (n <= 0) { ok = false; break; }
-        written += (size_t) n;
-    }
-    if (ok && fsync(fd) != 0) ok = false;
-    if (close(fd) != 0) ok = false;
-    if (ok && rename(tmp, path) != 0) ok = false;
-    if (ok) (void) library_fsync_dir(ALBUMART_DIR);
-    if (!ok) unlink(tmp);
-    return ok;
+    return store_small_atomic_file(path, bytes, sizeof(bytes));
 }
 
 void albumart_artist_alias_remove(const char * artist, unsigned int scope) {

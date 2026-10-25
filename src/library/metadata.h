@@ -99,16 +99,6 @@ typedef struct {
     double replaygain_album_peak;
 } track_metadata_t;
 
-/* Same compressed-byte cap as m4a_read_cover_art() / gui.c's sidecar load.
- * Decode also rejects sources with post-scale RGB888 above 1200x1200 (JPEG
- * allows native up to 4096 if scaled <= 1200; PNG/BMP reject native > 1200);
- * this stops the malloc of a 10 MiB APIC before that decoder runs. Also used
- * as the buffered ID3 tag limit and the base64 METADATA_BLOCK_PICTURE
- * decode cap. Larger ID3 tags are streamed; lyrics use the smaller
- * LYRICS_MAX_FILE_BYTES limit. */
-#define METADATA_BLOB_MAX_BYTES (4U * 1024U * 1024U)
-#define EMBEDDED_COVER_MAX_BYTES METADATA_BLOB_MAX_BYTES
-
 /* Reads title/artist/album/album_artist/genre tags, embedded cover art,
  * embedded lyrics, and ReplayGain track/album gain (if present) from a FLAC
  * (VORBIS_COMMENT + METADATA_BLOCK_PICTURE), MP3 (ID3v2 APIC/USLT/TXXX/TPE2/
@@ -132,15 +122,6 @@ void metadata_read_without_artwork(const char * path, track_metadata_t * out);
 
 /* Like metadata_read(), but retains embedded lyrics while omitting artwork. */
 void metadata_read_lyrics_without_artwork(const char * path, track_metadata_t * out);
-
-/* Library-scan tag read without a child process: textual tags only, picture
- * and lyrics always NULL. Used by metadata_read_isolated()'s child and by
- * tools that read files in-process. */
-void metadata_read_scan_tags(const char * path, track_metadata_t * out);
-
-/* Makes this process's metadata_read() skip embedded lyrics. Only for a
- * disposable artwork-extraction process. */
-void metadata_set_artwork_only(void);
 
 /* Library-scan tag read. MP3/AAC (our own bounded ID3 parser) run
  * in-process. Formats that feed vendored/unbounded decoders (FLAC and

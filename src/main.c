@@ -96,6 +96,10 @@ extern void gui_init(uint32_t screen_width, uint32_t screen_height);
 void install_thread_crash_altstack(void) {}
 #endif
 
+#ifdef HOST_BUILD
+bool main_loop_discard_pointer_input(void) { return false; }
+#endif
+
 #ifndef HOST_BUILD
 #include <ucontext.h>
 #include <sys/prctl.h>
@@ -122,18 +126,29 @@ static void event_touch_deleted(lv_event_t *event) {
     event_touch_fd = -1;
 }
 static lv_indev_t *create_touch(const char *path) {
-    if (!ui_wake_enabled()) return lv_evdev_create(LV_INDEV_TYPE_POINTER, path);
-    int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-    if (fd < 0) return NULL;
-    /* lv_evdev_create_fd owns fd, including failure paths. */
-    lv_indev_t *indev = lv_evdev_create_fd(LV_INDEV_TYPE_POINTER, fd);
+    bool event_mode = ui_wake_enabled();
+    int fd = -1;
+    lv_indev_t *indev;
+    if (event_mode) {
+        fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+        if (fd < 0) return NULL;
+        /* lv_evdev_create_fd owns fd, including failure paths. */
+        indev = lv_evdev_create_fd(LV_INDEV_TYPE_POINTER, fd);
+    } else {
+        indev = lv_evdev_create(LV_INDEV_TYPE_POINTER, path);
+    }
     if (indev) {
         event_touch = indev;
-        event_touch_fd = fd;
-        lv_indev_set_mode(indev, LV_INDEV_MODE_EVENT);
+        event_touch_fd = event_mode ? fd : -1;
+        if (event_mode) lv_indev_set_mode(indev, LV_INDEV_MODE_EVENT);
         lv_indev_add_event_cb(indev, event_touch_deleted, LV_EVENT_DELETE, NULL);
     }
     return indev;
+}
+bool main_loop_discard_pointer_input(void) {
+    /* event_touch is the one lv_evdev indev created by main for the panel.
+     * Keep the driver as the sole owner of its descriptor and parser state. */
+    return event_touch ? lv_evdev_discard_pending(event_touch) : false;
 }
 #endif
 

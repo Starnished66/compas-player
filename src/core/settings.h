@@ -39,6 +39,12 @@ extern const int SLEEP_TIMER_STEPS[];
 #define BT_DEVICE_RATE_MAX 8
 
 typedef enum {
+    USB_DSD_OUTPUT_PCM = 0,
+    USB_DSD_OUTPUT_NATIVE = 1,
+    USB_DSD_OUTPUT_DOP = 2
+} usb_dsd_mode_t;
+
+typedef enum {
     TOPBAR_HIDE_VOLUME = 1u << 0,
     TOPBAR_HIDE_WIFI = 1u << 1,
     TOPBAR_HIDE_BLUETOOTH = 1u << 2,
@@ -180,6 +186,7 @@ typedef struct {
     int dac_filter;
     bool dac_nos;
     bool dac_dre;
+    usb_dsd_mode_t usb_dsd_output; /* Exact DSD pass-through bypasses software volume/DSP. */
 
     /* Bluetooth output settings -- see bluetooth_control.h for the BlueALSA
      * 5 service behavior. */
@@ -458,7 +465,7 @@ typedef struct {
     char custom_font[64];
 
     /* Settings -> Display -> Player layout. Registry id of the layout the
-     * Player screen is built from (src/ui/player_layouts.h). Empty means the
+     * Player screen is built from (src/ui/player/player_layouts.h). Empty means the
      * built-in layout. An id that is no longer registered (a deleted XML
      * file) also falls back to the built-in one at build time. */
     char player_layout[64];

@@ -23,6 +23,26 @@ typedef enum {
     AUDIO_CODEC_WAVPACK,
 } audio_codec_t;
 
+/* Pure display mapping from audio codec to short uppercase/mixed label.
+ * Returns empty string for unknown or unmapped codecs. */
+static inline const char *audio_codec_name(audio_codec_t codec) {
+    switch (codec) {
+        case AUDIO_CODEC_FLAC: return "FLAC";
+        case AUDIO_CODEC_MP3: return "MP3";
+        case AUDIO_CODEC_PCM: return "PCM";
+        case AUDIO_CODEC_DSD: return "DSD";
+        case AUDIO_CODEC_AAC: return "AAC";
+        case AUDIO_CODEC_ALAC: return "ALAC";
+        case AUDIO_CODEC_APE: return "APE";
+        case AUDIO_CODEC_WMA: return "WMA";
+        case AUDIO_CODEC_OPUS: return "Opus";
+        case AUDIO_CODEC_VORBIS: return "Vorbis";
+        case AUDIO_CODEC_WAVPACK: return "WavPack";
+        case AUDIO_CODEC_UNKNOWN: break;
+    }
+    return "";
+}
+
 /* Immutable snapshot of the decoder currently feeding playback. The source
  * fields describe the encoded media; the output fields describe what this
  * player actually hands to ALSA/SDL after decoding. source_bit_depth is 0

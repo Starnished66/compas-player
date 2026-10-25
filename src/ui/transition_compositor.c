@@ -20,7 +20,7 @@
 #include "src/drivers/display/fb/lv_linux_fbdev.h"
 #endif
 
-/* TRANSITION_PERFORMANCE_PLAN.md Phase 3. Was disabled during the rewrite
+/* local/notes/performance/TRANSITION_PERFORMANCE_PLAN.md Phase 3. Was disabled during the rewrite
  * that fixed the issues found in an earlier design (a leftover LVGL
  * overlay flashing on top of the composited frame, a NULL-pointer crash on
  * swipe release, a stationary top/bottom band that either blanked or
@@ -181,6 +181,29 @@ static unsigned compositor_perf_frame_count;
 static unsigned compositor_perf_present_failures;
 static uint64_t compositor_perf_last_frame_start_us;
 static uint64_t compositor_perf_gap_max_us;
+
+static void compositor_perf_reset(void) {
+    compositor_perf_frame_total_us = 0;
+    compositor_perf_frame_max_us = 0;
+    compositor_perf_compose_total_us = 0;
+    compositor_perf_compose_max_us = 0;
+    compositor_perf_present_total_us = 0;
+    compositor_perf_present_max_us = 0;
+    compositor_perf_frame_count = 0;
+    compositor_perf_present_failures = 0;
+    compositor_perf_last_frame_start_us = 0;
+    compositor_perf_gap_max_us = 0;
+}
+
+static void compositor_perf_record(uint64_t compose_us, uint64_t present_us, uint64_t frame_us) {
+    compositor_perf_compose_total_us += compose_us;
+    if (compose_us > compositor_perf_compose_max_us) compositor_perf_compose_max_us = compose_us;
+    compositor_perf_present_total_us += present_us;
+    if (present_us > compositor_perf_present_max_us) compositor_perf_present_max_us = present_us;
+    compositor_perf_frame_total_us += frame_us;
+    if (frame_us > compositor_perf_frame_max_us) compositor_perf_frame_max_us = frame_us;
+    compositor_perf_frame_count++;
+}
 #endif
 static uint64_t compositor_trace_frame_start_us;
 static bool compositor_trace_suppress_begin;
@@ -287,16 +310,7 @@ bool transition_compositor_begin_ex(const lv_draw_buf_t * from, const lv_draw_bu
     compositor_fb_stride = fb_stride;
     compositor_mode = vertical ? COMPOSITOR_MODE_VERTICAL : COMPOSITOR_MODE_HORIZONTAL;
 #ifdef UI_PERF_TRACE
-    compositor_perf_frame_total_us = 0;
-    compositor_perf_frame_max_us = 0;
-    compositor_perf_compose_total_us = 0;
-    compositor_perf_compose_max_us = 0;
-    compositor_perf_present_total_us = 0;
-    compositor_perf_present_max_us = 0;
-    compositor_perf_frame_count = 0;
-    compositor_perf_present_failures = 0;
-    compositor_perf_last_frame_start_us = 0;
-    compositor_perf_gap_max_us = 0;
+    compositor_perf_reset();
 #endif
 
     /* Nothing may touch buf_1/buf_2 (the two physical framebuffer pages)
@@ -475,13 +489,7 @@ bool transition_compositor_frame(int32_t v) {
     uint64_t perf_compose_us = perf_compose_end_us - perf_frame_start_us;
     uint64_t perf_present_us = perf_present_end_us - perf_compose_end_us;
     uint64_t perf_frame_us = perf_present_end_us - perf_frame_start_us;
-    compositor_perf_compose_total_us += perf_compose_us;
-    if (perf_compose_us > compositor_perf_compose_max_us) compositor_perf_compose_max_us = perf_compose_us;
-    compositor_perf_present_total_us += perf_present_us;
-    if (perf_present_us > compositor_perf_present_max_us) compositor_perf_present_max_us = perf_present_us;
-    compositor_perf_frame_total_us += perf_frame_us;
-    if (perf_frame_us > compositor_perf_frame_max_us) compositor_perf_frame_max_us = perf_frame_us;
-    compositor_perf_frame_count++;
+    compositor_perf_record(perf_compose_us, perf_present_us, perf_frame_us);
 #endif
     return true;
 #endif /* COMPOSITOR_DISABLED || !LV_USE_LINUX_FBDEV */
@@ -675,13 +683,7 @@ bool transition_compositor_vertical_reveal_frame(int32_t revealed) {
     uint64_t perf_compose_us = perf_compose_end_us - perf_frame_start_us;
     uint64_t perf_present_us = perf_present_end_us - perf_compose_end_us;
     uint64_t perf_frame_us = perf_present_end_us - perf_frame_start_us;
-    compositor_perf_compose_total_us += perf_compose_us;
-    if (perf_compose_us > compositor_perf_compose_max_us) compositor_perf_compose_max_us = perf_compose_us;
-    compositor_perf_present_total_us += perf_present_us;
-    if (perf_present_us > compositor_perf_present_max_us) compositor_perf_present_max_us = perf_present_us;
-    compositor_perf_frame_total_us += perf_frame_us;
-    if (perf_frame_us > compositor_perf_frame_max_us) compositor_perf_frame_max_us = perf_frame_us;
-    compositor_perf_frame_count++;
+    compositor_perf_record(perf_compose_us, perf_present_us, perf_frame_us);
 #endif
     return true;
 #endif
@@ -770,16 +772,7 @@ bool transition_compositor_begin_vertical_overlay(const lv_draw_buf_t * overlay,
 #ifdef UI_PERF_TRACE
     ui_frame_trace_event(UI_FRAME_TRACE_EVENT_COMPOSITOR_BEGIN,
                          3U, (uint32_t) fixed_top_rows);
-    compositor_perf_frame_total_us = 0;
-    compositor_perf_frame_max_us = 0;
-    compositor_perf_compose_total_us = 0;
-    compositor_perf_compose_max_us = 0;
-    compositor_perf_present_total_us = 0;
-    compositor_perf_present_max_us = 0;
-    compositor_perf_frame_count = 0;
-    compositor_perf_present_failures = 0;
-    compositor_perf_last_frame_start_us = 0;
-    compositor_perf_gap_max_us = 0;
+    compositor_perf_reset();
 #endif
     return true;
 #endif
@@ -901,13 +894,7 @@ bool transition_compositor_vertical_overlay_frame(int32_t y) {
     uint64_t perf_compose_us = perf_compose_end_us - perf_frame_start_us;
     uint64_t perf_present_us = perf_present_end_us - perf_compose_end_us;
     uint64_t frame_us = perf_present_end_us - perf_frame_start_us;
-    compositor_perf_compose_total_us += perf_compose_us;
-    if (perf_compose_us > compositor_perf_compose_max_us) compositor_perf_compose_max_us = perf_compose_us;
-    compositor_perf_present_total_us += perf_present_us;
-    if (perf_present_us > compositor_perf_present_max_us) compositor_perf_present_max_us = perf_present_us;
-    compositor_perf_frame_total_us += frame_us;
-    if (frame_us > compositor_perf_frame_max_us) compositor_perf_frame_max_us = frame_us;
-    compositor_perf_frame_count++;
+    compositor_perf_record(perf_compose_us, perf_present_us, frame_us);
 #endif
     return true;
 #endif
@@ -1043,11 +1030,7 @@ bool transition_compositor_begin_bottom_sheet(const lv_draw_buf_t * sheet) {
 #ifdef UI_PERF_TRACE
     ui_frame_trace_event(UI_FRAME_TRACE_EVENT_COMPOSITOR_BEGIN,
                          4U, (uint32_t) compositor_bottom_height);
-    compositor_perf_frame_total_us = compositor_perf_frame_max_us = 0;
-    compositor_perf_compose_total_us = compositor_perf_compose_max_us = 0;
-    compositor_perf_present_total_us = compositor_perf_present_max_us = 0;
-    compositor_perf_frame_count = compositor_perf_present_failures = 0;
-    compositor_perf_last_frame_start_us = compositor_perf_gap_max_us = 0;
+    compositor_perf_reset();
 #endif
     return true;
 #endif
@@ -1098,13 +1081,7 @@ bool transition_compositor_bottom_sheet_frame(int32_t y) {
     uint64_t compose_us = perf_compose_end_us - perf_frame_start_us;
     uint64_t present_us = perf_present_end_us - perf_compose_end_us;
     uint64_t frame_us = perf_present_end_us - perf_frame_start_us;
-    compositor_perf_compose_total_us += compose_us;
-    if (compose_us > compositor_perf_compose_max_us) compositor_perf_compose_max_us = compose_us;
-    compositor_perf_present_total_us += present_us;
-    if (present_us > compositor_perf_present_max_us) compositor_perf_present_max_us = present_us;
-    compositor_perf_frame_total_us += frame_us;
-    if (frame_us > compositor_perf_frame_max_us) compositor_perf_frame_max_us = frame_us;
-    compositor_perf_frame_count++;
+    compositor_perf_record(compose_us, present_us, frame_us);
 #endif
     return true;
 #endif

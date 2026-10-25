@@ -560,7 +560,7 @@ function like `lv_obj_t * my_player_create(lv_obj_t * parent);`.
    `APP_SRCS` in the `Makefile`. The code must build against LVGL 9.5 in
    `lvgl/`. Fonts and icons are app objects there: use the C names, for
    example `app_font_player_title` and `asset_path("playing_plane/btn_play.png")`
-   (`src/ui/player_layouts.c` lists them all).
+   (`src/ui/player/player_layouts.c` lists them all).
 3. Register the layout once, early in `gui_init()` and before
    `gui_player_init()`:
 

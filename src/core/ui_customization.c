@@ -28,39 +28,38 @@ static const char * const drawer_labels[UI_DRAWER_COUNT] = {
     N_("Gapless"), N_("Remote Control"), N_("Car Mode"), N_("Plugins")
 };
 
-static const char * const * keys_for(ui_order_kind_t kind) {
-    switch (kind) {
-        case UI_ORDER_MUSIC: return music_keys;
-        case UI_ORDER_MUSIC_TOOLBAR: return toolbar_keys;
-        case UI_ORDER_DRAWER: return drawer_keys;
-        default: return NULL;
+typedef struct {
+    const char * const * keys;
+    const char * const * labels;
+    int count;
+} ui_order_desc_t;
+
+static const ui_order_desc_t order_descs[] = {
+    [UI_ORDER_MUSIC]         = { music_keys, music_labels, UI_MUSIC_COUNT },
+    [UI_ORDER_MUSIC_TOOLBAR] = { toolbar_keys, toolbar_labels, UI_MUSIC_TOOLBAR_COUNT },
+    [UI_ORDER_DRAWER]        = { drawer_keys, drawer_labels, UI_DRAWER_COUNT },
+};
+
+static const ui_order_desc_t * order_desc_for(ui_order_kind_t kind) {
+    if ((unsigned)kind >= sizeof(order_descs) / sizeof(order_descs[0])) {
+        return NULL;
     }
+    return &order_descs[kind];
 }
-static const char * const * labels_for(ui_order_kind_t kind) {
-    switch (kind) {
-        case UI_ORDER_MUSIC: return music_labels;
-        case UI_ORDER_MUSIC_TOOLBAR: return toolbar_labels;
-        case UI_ORDER_DRAWER: return drawer_labels;
-        default: return NULL;
-    }
-}
+
 int ui_order_size(ui_order_kind_t kind) {
-    switch (kind) {
-        case UI_ORDER_MUSIC: return UI_MUSIC_COUNT;
-        case UI_ORDER_MUSIC_TOOLBAR: return UI_MUSIC_TOOLBAR_COUNT;
-        case UI_ORDER_DRAWER: return UI_DRAWER_COUNT;
-        default: return 0;
-    }
+    const ui_order_desc_t * desc = order_desc_for(kind);
+    return desc ? desc->count : 0;
 }
+
 const char * ui_order_key(ui_order_kind_t kind, int id) {
-    const char * const * keys = keys_for(kind);
-    int count = ui_order_size(kind);
-    return keys && id >= 0 && id < count ? keys[id] : NULL;
+    const ui_order_desc_t * desc = order_desc_for(kind);
+    return desc && id >= 0 && id < desc->count ? desc->keys[id] : NULL;
 }
+
 const char * ui_order_label(ui_order_kind_t kind, int id) {
-    const char * const * labels = labels_for(kind);
-    int count = ui_order_size(kind);
-    return labels && id >= 0 && id < count ? labels[id] : NULL;
+    const ui_order_desc_t * desc = order_desc_for(kind);
+    return desc && id >= 0 && id < desc->count ? desc->labels[id] : NULL;
 }
 int ui_order_find_key(ui_order_kind_t kind, const char *key) {
     if (!key) return -1;

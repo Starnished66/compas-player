@@ -9,6 +9,7 @@
 #include "tagcache_generation_refs.h"
 #include "library_endian.h"
 #include "db_log.h"
+#include "utf8_util.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -792,6 +793,16 @@ static void scan_seen_set(int32_t slot) {
     if (slot >= 0 && (size_t)slot < scan_seen_bitmap_bytes * 8u && scan_seen_bitmap)
         scan_seen_bitmap[(size_t)slot >> 3] |= (unsigned char)(1u << ((unsigned)slot & 7u));
 }
+/* Persisted pre-v6 groups retain their byte ordering when storage prevents
+ * migration. Equality always remains the original ASCII identity relation. */
+static int reader_group_name_compare(const char *a, const char *b) {
+    if (reader_legacy_active || reader_loaded_index_version >= 7u)
+        return utf8_collate_identity_compare(a, b);
+    if (reader_loaded_index_version == 6u)
+        return utf8_collate_identity_compare_v6(a, b);
+    return ascii_casecmp(a, b);
+}
+
 static bool query_build(int output_fd);
 static bool query_validate(int fd, uint64_t file_size);
 #include "tagcache_reader_index.h"
@@ -1945,15 +1956,16 @@ static bool load_generation(int32_t gen) {
     reader_close_indexes();
     bool ok = reader_open(gen);
     int indexed = ok ? reader_open_indexes(gen) : -1;
-    if (ok && indexed == 1 && reader_loaded_index_version < 5u && !open_read_only &&
-        !reader_migrate_title_index(gen)) {
+    if (ok && indexed == 1 && reader_loaded_index_version < TC_INDEX_VERSION && !open_read_only) {
         uint32_t old_index_version = reader_loaded_index_version;
-        /* Keep the previously valid persisted generation usable if rebuilding
-         * derived indexes fails (for example, while storage is read-only). */
-        reader_close_indexes();
-        indexed = reader_open_indexes(gen);
-        DB_LOG("DB", "title_index_migration_failed gen=%d; retaining valid v%u persisted index",
-               gen, old_index_version);
+        if (!reader_migrate_indexes(gen)) {
+            /* Keep the previously valid persisted generation usable if rebuilding
+             * derived indexes fails (for example, while storage is read-only). */
+            reader_close_indexes();
+            indexed = reader_open_indexes(gen);
+            DB_LOG("DB", "index_migration_failed gen=%d; retaining valid v%u persisted index",
+                   gen, old_index_version);
+        }
     }
     if (ok && indexed == 0 && reader_requires_indexes) ok = false;
     if (ok && indexed == 0) ok = reader_legacy_init();
@@ -1979,7 +1991,7 @@ static bool load_all(void) {
     if (!saved) {
         free(generations);
         reader_compact_order = !choose_intern_strings(0);
-        reader_title_order_version = 2;
+        reader_title_order_version = 4;
         reader_loaded_index_version = TC_INDEX_VERSION;
         last_load_outcome = TAGCACHE_LOAD_SUCCESS_FRESH;
         return true;
@@ -2516,7 +2528,7 @@ int tagcache_snapshot_dup_directory_fd(const tagcache_snapshot_t *snapshot) {
  * needs a new value, so a tool built for an older one refuses the card. This
  * fails the build until the number has been considered. */
 _Static_assert(TAGCACHE_MAGIC == 0x54434810 && TAGCACHE_INDEXED_MAGIC == 0x54434811 &&
-               TAGCACHE_REFS_VERSION == 1u && TC_QUERY_VERSION == 2u && TC_ALBUM_ORDER_VERSION == 2u &&
-               TC_INDEX_VERSION == 5u,
+               TAGCACHE_REFS_VERSION == 1u && TC_QUERY_VERSION == 2u && TC_ALBUM_ORDER_VERSION == 4u &&
+               TC_INDEX_VERSION == 7u,
                "bump TAGCACHE_DATABASE_FORMAT (tagcache.h) when a database layout version changes");
 

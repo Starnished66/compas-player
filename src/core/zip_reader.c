@@ -125,6 +125,11 @@ static void close_archive(zip_archive * arch) {
     }
 }
 
+static zip_status close_with_status(zip_archive * arch, zip_status status) {
+    close_archive(arch);
+    return status;
+}
+
 static zip_status open_and_read_cd(const char * path, zip_archive * arch) {
     arch->fd = -1;
     arch->file_size = 0;
@@ -139,26 +144,22 @@ static zip_status open_and_read_cd(const char * path, zip_archive * arch) {
 
     struct stat st;
     if (fstat(arch->fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size < 0) {
-        close_archive(arch);
-        return ZIP_ERR_IO;
+        return close_with_status(arch, ZIP_ERR_IO);
     }
     arch->file_size = (uint64_t) st.st_size;
     if (arch->file_size < 22ULL) {
-        close_archive(arch);
-        return ZIP_ERR_CORRUPT;
+        return close_with_status(arch, ZIP_ERR_CORRUPT);
     }
 
     uint64_t search_len = arch->file_size < (65536ULL + 22ULL) ? arch->file_size : (65536ULL + 22ULL);
     uint64_t search_start = arch->file_size - search_len;
     unsigned char * search_buf = malloc((size_t) search_len);
     if (!search_buf) {
-        close_archive(arch);
-        return ZIP_ERR_NOMEM;
+        return close_with_status(arch, ZIP_ERR_NOMEM);
     }
     if (!read_all(arch->fd, search_buf, (size_t) search_len, search_start)) {
         free(search_buf);
-        close_archive(arch);
-        return ZIP_ERR_IO;
+        return close_with_status(arch, ZIP_ERR_IO);
     }
 
     int64_t eocd_idx = -1;
@@ -175,8 +176,7 @@ static zip_status open_and_read_cd(const char * path, zip_archive * arch) {
     }
     if (eocd_idx < 0) {
         free(search_buf);
-        close_archive(arch);
-        return ZIP_ERR_CORRUPT;
+        return close_with_status(arch, ZIP_ERR_CORRUPT);
     }
 
     uint64_t eocd_off = search_start + (uint64_t) eocd_idx;
@@ -188,15 +188,13 @@ static zip_status open_and_read_cd(const char * path, zip_archive * arch) {
             unsigned char loc_bytes[4];
             if (!read_all(arch->fd, loc_bytes, 4, eocd_off - 20ULL)) {
                 free(search_buf);
-                close_archive(arch);
-                return ZIP_ERR_IO;
+                return close_with_status(arch, ZIP_ERR_IO);
             }
             loc_sig = read_le32(loc_bytes);
         }
         if (loc_sig == 0x07064b50u) {
             free(search_buf);
-            close_archive(arch);
-            return ZIP_ERR_ZIP64;
+            return close_with_status(arch, ZIP_ERR_ZIP64);
         }
     }
 
@@ -212,32 +210,26 @@ static zip_status open_and_read_cd(const char * path, zip_archive * arch) {
     if (disk == 0xFFFFu || disk_with_cd == 0xFFFFu ||
         disk_entries == 0xFFFFu || total_entries == 0xFFFFu ||
         cd_size == 0xFFFFFFFFu || cd_offset == 0xFFFFFFFFu) {
-        close_archive(arch);
-        return ZIP_ERR_ZIP64;
+        return close_with_status(arch, ZIP_ERR_ZIP64);
     }
 
     if (disk != 0 || disk_with_cd != 0) {
-        close_archive(arch);
-        return ZIP_ERR_CORRUPT;
+        return close_with_status(arch, ZIP_ERR_CORRUPT);
     }
     if (disk_entries != total_entries) {
-        close_archive(arch);
-        return ZIP_ERR_CORRUPT;
+        return close_with_status(arch, ZIP_ERR_CORRUPT);
     }
 
     uint64_t cd_off = (uint64_t) cd_offset;
     uint64_t cd_sz = (uint64_t) cd_size;
     if (total_entries > ZIP_MAX_ENTRIES || cd_sz > (uint64_t) ZIP_MAX_CD_BYTES) {
-        close_archive(arch);
-        return ZIP_ERR_CORRUPT;
+        return close_with_status(arch, ZIP_ERR_CORRUPT);
     }
     if (cd_off > arch->file_size || cd_sz > arch->file_size - cd_off) {
-        close_archive(arch);
-        return ZIP_ERR_CORRUPT;
+        return close_with_status(arch, ZIP_ERR_CORRUPT);
     }
     if ((cd_size == 0 && total_entries > 0) || (total_entries == 0 && cd_size > 0)) {
-        close_archive(arch);
-        return ZIP_ERR_CORRUPT;
+        return close_with_status(arch, ZIP_ERR_CORRUPT);
     }
 
     arch->total_entries = total_entries;
@@ -245,12 +237,10 @@ static zip_status open_and_read_cd(const char * path, zip_archive * arch) {
     if (cd_size > 0) {
         arch->cd_buf = malloc(cd_size);
         if (!arch->cd_buf) {
-            close_archive(arch);
-            return ZIP_ERR_NOMEM;
+            return close_with_status(arch, ZIP_ERR_NOMEM);
         }
         if (!read_all(arch->fd, arch->cd_buf, cd_size, cd_off)) {
-            close_archive(arch);
-            return ZIP_ERR_IO;
+            return close_with_status(arch, ZIP_ERR_IO);
         }
     }
 
@@ -275,8 +265,7 @@ zip_status zip_list_entries(const char * path, char *** names, size_t * count) {
 
     char ** name_list = malloc(sizeof(char *) * arch.total_entries);
     if (!name_list) {
-        close_archive(&arch);
-        return ZIP_ERR_NOMEM;
+        return close_with_status(&arch, ZIP_ERR_NOMEM);
     }
 
     uint64_t cd_pos = 0;
@@ -284,14 +273,12 @@ zip_status zip_list_entries(const char * path, char *** names, size_t * count) {
     for (size_t i = 0; i < arch.total_entries; i++) {
         if (cd_sz - cd_pos < 46ULL) {
             zip_free_names(name_list, i);
-            close_archive(&arch);
-            return ZIP_ERR_CORRUPT;
+            return close_with_status(&arch, ZIP_ERR_CORRUPT);
         }
         const unsigned char * h = &arch.cd_buf[cd_pos];
         if (read_le32(h) != 0x02014b50u) {
             zip_free_names(name_list, i);
-            close_archive(&arch);
-            return ZIP_ERR_CORRUPT;
+            return close_with_status(&arch, ZIP_ERR_CORRUPT);
         }
         uint16_t name_len = read_le16(h + 28);
         uint16_t extra_len = read_le16(h + 30);
@@ -299,8 +286,7 @@ zip_status zip_list_entries(const char * path, char *** names, size_t * count) {
         uint64_t rec_len = 46ULL + (uint64_t) name_len + (uint64_t) extra_len + (uint64_t) comm_len;
         if (rec_len > cd_sz - cd_pos) {
             zip_free_names(name_list, i);
-            close_archive(&arch);
-            return ZIP_ERR_CORRUPT;
+            return close_with_status(&arch, ZIP_ERR_CORRUPT);
         }
 
         const unsigned char * extra_ptr = h + 46 + name_len;
@@ -308,15 +294,13 @@ zip_status zip_list_entries(const char * path, char *** names, size_t * count) {
         while (extra_idx < extra_len) {
             if (extra_len - extra_idx < 4) {
                 zip_free_names(name_list, i);
-                close_archive(&arch);
-                return ZIP_ERR_CORRUPT;
+                return close_with_status(&arch, ZIP_ERR_CORRUPT);
             }
             uint16_t extra_sz = read_le16(extra_ptr + extra_idx + 2);
             extra_idx += 4;
             if ((size_t) extra_sz > extra_len - extra_idx) {
                 zip_free_names(name_list, i);
-                close_archive(&arch);
-                return ZIP_ERR_CORRUPT;
+                return close_with_status(&arch, ZIP_ERR_CORRUPT);
             }
             extra_idx += extra_sz;
         }
@@ -324,8 +308,7 @@ zip_status zip_list_entries(const char * path, char *** names, size_t * count) {
         char * name = malloc((size_t) name_len + 1);
         if (!name) {
             zip_free_names(name_list, i);
-            close_archive(&arch);
-            return ZIP_ERR_NOMEM;
+            return close_with_status(&arch, ZIP_ERR_NOMEM);
         }
         memcpy(name, h + 46, name_len);
         name[name_len] = '\0';
@@ -336,8 +319,7 @@ zip_status zip_list_entries(const char * path, char *** names, size_t * count) {
 
     if (cd_pos != cd_sz) {
         zip_free_names(name_list, arch.total_entries);
-        close_archive(&arch);
-        return ZIP_ERR_CORRUPT;
+        return close_with_status(&arch, ZIP_ERR_CORRUPT);
     }
 
     close_archive(&arch);
@@ -383,13 +365,11 @@ zip_status zip_read_entry_limited(const char * path, const char * entry_name,
 
     for (size_t i = 0; i < arch.total_entries; i++) {
         if (cd_sz - cd_pos < 46ULL) {
-            close_archive(&arch);
-            return ZIP_ERR_CORRUPT;
+            return close_with_status(&arch, ZIP_ERR_CORRUPT);
         }
         const unsigned char * h = &arch.cd_buf[cd_pos];
         if (read_le32(h) != 0x02014b50u) {
-            close_archive(&arch);
-            return ZIP_ERR_CORRUPT;
+            return close_with_status(&arch, ZIP_ERR_CORRUPT);
         }
         uint16_t flags = read_le16(h + 8);
         uint16_t method = read_le16(h + 10);
@@ -403,8 +383,7 @@ zip_status zip_read_entry_limited(const char * path, const char * entry_name,
 
         uint64_t rec_len = 46ULL + (uint64_t) name_len + (uint64_t) extra_len + (uint64_t) comm_len;
         if (rec_len > cd_sz - cd_pos) {
-            close_archive(&arch);
-            return ZIP_ERR_CORRUPT;
+            return close_with_status(&arch, ZIP_ERR_CORRUPT);
         }
 
         bool is_zip64 = (comp_size == 0xFFFFFFFFu || uncomp_size == 0xFFFFFFFFu ||
@@ -414,15 +393,13 @@ zip_status zip_read_entry_limited(const char * path, const char * entry_name,
         size_t extra_idx = 0;
         while (extra_idx < extra_len) {
             if (extra_len - extra_idx < 4) {
-                close_archive(&arch);
-                return ZIP_ERR_CORRUPT;
+                return close_with_status(&arch, ZIP_ERR_CORRUPT);
             }
             uint16_t extra_id = read_le16(extra_ptr + extra_idx);
             uint16_t extra_sz = read_le16(extra_ptr + extra_idx + 2);
             extra_idx += 4;
             if ((size_t) extra_sz > extra_len - extra_idx) {
-                close_archive(&arch);
-                return ZIP_ERR_CORRUPT;
+                return close_with_status(&arch, ZIP_ERR_CORRUPT);
             }
             if (extra_id == 0x0001u) {
                 is_zip64 = true;
@@ -447,49 +424,39 @@ zip_status zip_read_entry_limited(const char * path, const char * entry_name,
     }
 
     if (cd_pos != cd_sz) {
-        close_archive(&arch);
-        return ZIP_ERR_CORRUPT;
+        return close_with_status(&arch, ZIP_ERR_CORRUPT);
     }
 
     if (!found) {
-        close_archive(&arch);
-        return ZIP_ERR_NOT_FOUND;
+        return close_with_status(&arch, ZIP_ERR_NOT_FOUND);
     }
 
     if ((match_flags & 0x0001u) || (match_flags & 0x0040u)) {
-        close_archive(&arch);
-        return ZIP_ERR_ENCRYPTED;
+        return close_with_status(&arch, ZIP_ERR_ENCRYPTED);
     }
     if (match_zip64) {
-        close_archive(&arch);
-        return ZIP_ERR_ZIP64;
+        return close_with_status(&arch, ZIP_ERR_ZIP64);
     }
     if (match_method != 0 && match_method != 8) {
-        close_archive(&arch);
-        return ZIP_ERR_UNSUPPORTED_METHOD;
+        return close_with_status(&arch, ZIP_ERR_UNSUPPORTED_METHOD);
     }
     if (match_uncomp > max_uncompressed) {
-        close_archive(&arch);
-        return ZIP_ERR_TOO_LARGE;
+        return close_with_status(&arch, ZIP_ERR_TOO_LARGE);
     }
     if (match_comp > max_compressed) {
-        close_archive(&arch);
-        return ZIP_ERR_TOO_LARGE;
+        return close_with_status(&arch, ZIP_ERR_TOO_LARGE);
     }
 
     uint64_t loc_off = (uint64_t) match_local_off;
     if (loc_off > arch.file_size || 30ULL > arch.file_size - loc_off) {
-        close_archive(&arch);
-        return ZIP_ERR_CORRUPT;
+        return close_with_status(&arch, ZIP_ERR_CORRUPT);
     }
     unsigned char loc_hdr[30];
     if (!read_all(arch.fd, loc_hdr, 30, loc_off)) {
-        close_archive(&arch);
-        return ZIP_ERR_IO;
+        return close_with_status(&arch, ZIP_ERR_IO);
     }
     if (read_le32(loc_hdr) != 0x04034b50u) {
-        close_archive(&arch);
-        return ZIP_ERR_CORRUPT;
+        return close_with_status(&arch, ZIP_ERR_CORRUPT);
     }
 
     uint16_t loc_flags = read_le16(loc_hdr + 6);
@@ -501,45 +468,38 @@ zip_status zip_read_entry_limited(const char * path, const char * entry_name,
     uint16_t loc_extra_len = read_le16(loc_hdr + 28);
 
     if (loc_name_len != match_name_len || loc_method != match_method) {
-        close_archive(&arch);
-        return ZIP_ERR_CORRUPT;
+        return close_with_status(&arch, ZIP_ERR_CORRUPT);
     }
     /* Bit 3 sets data descriptor; otherwise local sizes and CRC must equal CD values. */
     if ((loc_flags & 0x0008u) == 0) {
         if (loc_crc != match_crc || loc_comp != match_comp || loc_uncomp != match_uncomp) {
-            close_archive(&arch);
-            return ZIP_ERR_CORRUPT;
+            return close_with_status(&arch, ZIP_ERR_CORRUPT);
         }
     }
 
     uint64_t loc_name_off = loc_off + 30ULL;
     if (loc_name_off > arch.file_size || (uint64_t) loc_name_len > arch.file_size - loc_name_off) {
-        close_archive(&arch);
-        return ZIP_ERR_CORRUPT;
+        return close_with_status(&arch, ZIP_ERR_CORRUPT);
     }
     if (loc_name_len > 0) {
         unsigned char * loc_name = malloc(loc_name_len);
         if (!loc_name) {
-            close_archive(&arch);
-            return ZIP_ERR_NOMEM;
+            return close_with_status(&arch, ZIP_ERR_NOMEM);
         }
         if (!read_all(arch.fd, loc_name, loc_name_len, loc_name_off)) {
             free(loc_name);
-            close_archive(&arch);
-            return ZIP_ERR_IO;
+            return close_with_status(&arch, ZIP_ERR_IO);
         }
         if (memcmp(loc_name, arch.cd_buf + match_cd_pos + 46, loc_name_len) != 0) {
             free(loc_name);
-            close_archive(&arch);
-            return ZIP_ERR_CORRUPT;
+            return close_with_status(&arch, ZIP_ERR_CORRUPT);
         }
         free(loc_name);
     }
 
     uint64_t data_off = loc_off + 30ULL + (uint64_t) loc_name_len + (uint64_t) loc_extra_len;
     if (data_off > arch.file_size || (uint64_t) match_comp > arch.file_size - data_off) {
-        close_archive(&arch);
-        return ZIP_ERR_CORRUPT;
+        return close_with_status(&arch, ZIP_ERR_CORRUPT);
     }
 
     int fd = arch.fd;

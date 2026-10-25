@@ -8,7 +8,7 @@ mkdir -p "$build_dir"
 mapfile -t tls_sources < <(find mbedtls/library -maxdepth 1 -name '*.c' -print | sort)
 gcc -O0 -g -pthread -DHTTP_STREAM_TESTING -I. -Isrc/network -Isrc/core -Imbedtls/include \
     src/network/http_stream_range_test.c src/network/http_stream.c \
-    src/network/http_conn.c src/network/ca_bundle.c "${tls_sources[@]}" \
+    src/network/http_conn.c src/network/http_url.c src/network/ca_bundle.c "${tls_sources[@]}" \
     -o "$build_dir/test"
 "$build_dir/test"
 

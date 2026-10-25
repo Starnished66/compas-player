@@ -72,9 +72,15 @@ static lv_obj_t *player_nav_entry;
 static bool active, snapshot_ok, screen_alloc_ok, image_alloc_ok;
 static bool cover_decode_active, cover_decode_pending_valid;
 static atomic_bool cover_reload_active;
+static bool player_artwork_jobs_active(void) { return cover_decode_active; }
+static bool player_artwork_jobs_pending(void) { return cover_decode_pending_valid; }
+static bool player_artwork_jobs_reload_active(void) { return atomic_load(&cover_reload_active); }
 static bool queue_write_busy, queue_save_busy, nav_transition, lyrics_animating;
 static bool user_seeking, progress_awaiting_seek;
 static lv_timer_t *pending_progress_seek_timer;
+static bool player_seek_input_progress_busy(void) {
+    return user_seeking || progress_awaiting_seek || pending_progress_seek_timer != NULL;
+}
 static lv_obj_t *volume_popup, *more_menu_popup, *more_menu_popup_backdrop;
 static bool player_lyrics_open, deferred_resume_pending, favorite_is_set, play_state;
 static int displayed_progress_percent;
@@ -84,7 +90,7 @@ static lv_obj_t *lv_display_get_screen_active(lv_display_t *d) { return d->activ
 static lv_indev_t *lv_indev_get_next(lv_indev_t *i) { return i ? i->next : (indev.state ? &indev : NULL); }
 static int lv_indev_get_state(lv_indev_t *i) { return i->state; }
 static bool gui_player_queue_write_busy(void) { return queue_write_busy; }
-static bool queue_save_active(void) { return queue_save_busy; }
+static bool player_queue_storage_save_active(void) { return queue_save_busy; }
 static bool gui_navigation_transition_in_progress(void) { return nav_transition; }
 static bool gui_player_lyrics_animation_in_progress(void) { return lyrics_animating; }
 static bool gui_popup_is_visible(gui_popup_t *p) { return p->visible; }
@@ -128,7 +134,8 @@ static bool audio_is_playing(void) { return true; }
 static void set_play_button_state(bool b) { play_state=b;event(E_PLAY); }
 static void show_favorite_state(bool b) { favorite_is_set=b;event(E_FAVORITE); }
 static void gui_player_update_progress(void) { event(E_PROGRESS); }
-static void player_lyrics_set_open(bool b, bool animate) {
+static bool player_inline_lyrics_is_open(void) { return player_lyrics_open; }
+static void player_inline_lyrics_set_open(bool b, bool animate) {
     assert(!animate);player_lyrics_open=b;event(E_LYRICS);
 }
 static void gui_player_teardown_internal(bool preserve) {

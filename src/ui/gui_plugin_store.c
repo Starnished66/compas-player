@@ -65,6 +65,18 @@ static void review_updates_cb(lv_event_t * e);
 static void store_updates_refresh_cb(lv_event_t * e);
 static void theme_store_refresh_cb(lv_event_t * e);
 
+static bool store_refresh_allowed(void) {
+    if (!gui_shell_wifi_connected()) {
+        show_error_toast(TR("No network detected. Connect to a network to download plugins."));
+        return false;
+    }
+    if (gui_plugin_store_operation_active()) {
+        show_error_toast(TR("A plugin operation is already in progress"));
+        return false;
+    }
+    return true;
+}
+
 static void set_store_title(void) {
     if (!store_title) return;
     if (store_view == STORE_VIEW_LAYOUTS)
@@ -614,14 +626,7 @@ static void review_updates_cb(lv_event_t * e) {
 
 static void store_updates_refresh_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    if (!gui_shell_wifi_connected()) {
-        show_error_toast(TR("No network detected. Connect to a network to download plugins."));
-        return;
-    }
-    if (gui_plugin_store_operation_active()) {
-        show_error_toast(TR("A plugin operation is already in progress"));
-        return;
-    }
+    if (!store_refresh_allowed()) return;
     (void) start_catalog_refresh(STORE_VIEW_UPDATES);
 }
 
@@ -922,67 +927,32 @@ static bool start_catalog_refresh(gui_plugin_store_view_t view) {
 }
 
 bool gui_plugin_store_open_player_layouts(void) {
-    if (!gui_shell_wifi_connected()) {
-        show_error_toast(TR("No network detected. Connect to a network to download plugins."));
-        return false;
-    }
-    if (gui_plugin_store_operation_active()) {
-        show_error_toast(TR("A plugin operation is already in progress"));
-        return false;
-    }
+    if (!store_refresh_allowed()) return false;
     clear_layout_picker_request();
     return start_catalog_refresh(STORE_VIEW_LAYOUTS);
 }
 
 bool gui_plugin_store_open_themes(void) {
-    if (!gui_shell_wifi_connected()) {
-        show_error_toast(TR("No network detected. Connect to a network to download plugins."));
-        return false;
-    }
-    if (gui_plugin_store_operation_active()) {
-        show_error_toast(TR("A plugin operation is already in progress"));
-        return false;
-    }
+    if (!store_refresh_allowed()) return false;
     clear_layout_picker_request();
     return start_catalog_refresh(STORE_VIEW_THEMES);
 }
 
 static void theme_store_refresh_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    if (!gui_shell_wifi_connected()) {
-        show_error_toast(TR("No network detected. Connect to a network to download plugins."));
-        return;
-    }
-    if (gui_plugin_store_operation_active()) {
-        show_error_toast(TR("A plugin operation is already in progress"));
-        return;
-    }
+    if (!store_refresh_allowed()) return;
     (void) start_catalog_refresh(STORE_VIEW_THEMES);
 }
 
 bool gui_plugin_store_open_updates(void) {
-    if (!gui_shell_wifi_connected()) {
-        show_error_toast(TR("No network detected. Connect to a network to download plugins."));
-        return false;
-    }
-    if (gui_plugin_store_operation_active()) {
-        show_error_toast(TR("A plugin operation is already in progress"));
-        return false;
-    }
+    if (!store_refresh_allowed()) return false;
     clear_layout_picker_request();
     return start_catalog_refresh(STORE_VIEW_UPDATES);
 }
 
 static void player_layout_refresh_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    if (!gui_shell_wifi_connected()) {
-        show_error_toast(TR("No network detected. Connect to a network to download plugins."));
-        return;
-    }
-    if (gui_plugin_store_operation_active()) {
-        show_error_toast(TR("A plugin operation is already in progress"));
-        return;
-    }
+    if (!store_refresh_allowed()) return;
     (void) start_catalog_refresh(STORE_VIEW_LAYOUTS);
 }
 
@@ -1179,14 +1149,7 @@ bool gui_plugin_store_open_picker(bool (*is_selected)(const char * id),
 
 void gui_plugin_store_row_cb(lv_event_t * e) {
     if (e && lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    if (!gui_shell_wifi_connected()) {
-        show_error_toast(TR("No network detected. Connect to a network to download plugins."));
-        return;
-    }
-    if (gui_plugin_store_operation_active()) {
-        show_error_toast(TR("A plugin operation is already in progress"));
-        return;
-    }
+    if (!store_refresh_allowed()) return;
     clear_layout_picker_request();
     (void) start_catalog_refresh(STORE_VIEW_PLUGINS);
 }

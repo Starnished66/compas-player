@@ -29,7 +29,7 @@ static bool reader_legacy_init(void) {
         live_count++;
     }
     reader_legacy_active = true;
-    reader_title_order_version = 2u;
+    reader_title_order_version = 4u;
     return true;
 }
 
@@ -124,8 +124,8 @@ static int32_t legacy_rank_of(int32_t slot, bool recency) {
 }
 
 static int legacy_group_compare(const legacy_group_t *a, const legacy_group_t *b) {
-    int c = ascii_casecmp(a->name, b->name);
-    return c ? c : ascii_casecmp(a->aa, b->aa);
+    int c = utf8_collate_identity_compare(a->name, b->name);
+    return c ? c : utf8_collate_identity_compare(a->aa, b->aa);
 }
 
 static bool legacy_group_page(int kind, bool restart) {
@@ -196,8 +196,8 @@ static bool legacy_group_at(int kind, int index, tagcache_group_t *out) {
 static int legacy_group_index(int kind, const char *name, const char *aa) {
     tagcache_group_t g;
     for (int i = 0; legacy_group_at(kind, i, &g); i++) {
-        int c = ascii_casecmp(g.name, name ? name : "");
-        if (!c && kind == TAGCACHE_GROUP_ALBUM) c = ascii_casecmp(g.album_artist, aa ? aa : "");
+        int c = utf8_collate_identity_compare(g.name, name ? name : "");
+        if (!c && kind == TAGCACHE_GROUP_ALBUM) c = utf8_collate_identity_compare(g.album_artist, aa ? aa : "");
         if (!c) return i;
         if (c > 0) break;
     }

@@ -3,9 +3,27 @@
 
 #include "mbedtls/sha256.h"
 
+#include <pthread.h>
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
+
+void store_error_text(char * out, size_t size, const char * text) {
+    if (out && size) {
+        snprintf(out, size, "%s", text);
+    }
+}
+
+bool store_start_thread(void * (*fn)(void *), void * arg) {
+    pthread_attr_t a;
+    pthread_t t;
+    pthread_attr_init(&a);
+    pthread_attr_setdetachstate(&a, PTHREAD_CREATE_DETACHED);
+    pthread_attr_setstacksize(&a, 256 * 1024);
+    bool ok = pthread_create(&t, &a, fn, arg) == 0;
+    pthread_attr_destroy(&a);
+    return ok;
+}
 
 bool store_ascii_digit(char c) {
     return c >= '0' && c <= '9';

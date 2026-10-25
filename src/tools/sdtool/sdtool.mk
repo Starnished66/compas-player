@@ -42,7 +42,7 @@ SDTOOL_OWN_SRCS = $(addprefix $(SDTOOL_SRC_DIR)/,main.c json_out.c root.c databa
 # database, albumart and cover_decode for the covers, metadata for the tags.
 SDTOOL_PLAYER_SRCS = $(addprefix src/library/,tagcache.c metadata_db.c metadata.c albumart.c path_cache.c \
                        remote_state.c subsonic_saved_servers.c cue_parser.c sacd_iso.c lyrics.c cover_decode.c \
-                       artwork_coordinator.c library_walk.c library_scan_tags.c) \
+                       artwork_coordinator.c artwork_memory.c library_walk.c library_scan_tags.c) \
                      src/core/db_log.c src/core/utf8_util.c \
                      $(addprefix src/audio/,ogg_probe.c opusfile_alloc.c wavpack_decoder.c caf_decoder.c)
 SDTOOL_LVGL_SRCS = $(LVGL_DIR)/src/libs/lodepng/lodepng.c $(LVGL_DIR)/src/libs/tjpgd/tjpgd.c

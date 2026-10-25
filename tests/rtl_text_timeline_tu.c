@@ -1,6 +1,6 @@
 /* White-box wrapper around the real timeline-label proxy eligibility path. */
 #include "../src/ui/fallback_font.h"
-#include "../src/ui/player_timeline_labels.c"
+#include "../src/ui/player/player_timeline_labels.c"
 
 #include <assert.h>
 

@@ -5,7 +5,7 @@
 set -euo pipefail
 
 usage() {
-    echo "Usage: $0 [--board r1|r3proii|r3ii_2025] [--vendor-drivers VENDOR_UPT] BASE_UPT PLAYER_BINARY BOOTLOADER_BINARY OUTPUT_UPT" >&2
+    echo "Usage: $0 [--board r1|r3proii|r3ii_2025] [--vendor-drivers VENDOR_UPT] [--early-splash EARLY_SPLASH_BINARY] BASE_UPT PLAYER_BINARY BOOTLOADER_BINARY OUTPUT_UPT" >&2
     echo "       BOARD=r3proii $0 BASE_UPT PLAYER_BINARY BOOTLOADER_BINARY OUTPUT_UPT" >&2
     exit 2
 }
@@ -125,6 +125,46 @@ for parent, dirs, files in os.walk(root, followlinks=False):
 PY
 }
 
+# R1 runtime replacements are opt-in and must not replace binaries selected
+# explicitly by the repack command. The ordinary release path still consumes
+# only the tracked firmware/overlay tree.
+validate_r1_runtime_overlay() {
+    r1_runtime_overlay=
+    [[ -n ${R1_RUNTIME_OVERLAY:-} ]] || return 0
+    [[ $board == r1 ]] || {
+        echo 'R1_RUNTIME_OVERLAY is only supported with --board r1' >&2
+        return 1
+    }
+    [[ -d $R1_RUNTIME_OVERLAY && ! -L $R1_RUNTIME_OVERLAY ]] || {
+        echo "R1_RUNTIME_OVERLAY must be a real directory: $R1_RUNTIME_OVERLAY" >&2
+        return 1
+    }
+    r1_runtime_overlay=$(realpath "$R1_RUNTIME_OVERLAY")
+    for rel in usr usr/bin; do
+        if [[ -L $r1_runtime_overlay/$rel ]]; then
+            echo "R1_RUNTIME_OVERLAY may not symlink the selected binary parent /$rel" >&2
+            return 1
+        fi
+    done
+    for rel in \
+        usr/bin/compas_player \
+        usr/bin/open_hiby_player \
+        usr/bin/compas_loader \
+        usr/bin/open_hiby_bootloader \
+        usr/bin/compas_bootloader; do
+        if [[ -e $r1_runtime_overlay/$rel || -L $r1_runtime_overlay/$rel ]]; then
+            echo "R1_RUNTIME_OVERLAY may not provide the selected binary /$rel" >&2
+            return 1
+        fi
+    done
+}
+
+apply_r1_runtime_overlay() {
+    local root=$1
+    [[ $board == r1 && -n ${r1_runtime_overlay:-} ]] || return 0
+    cp -a "$r1_runtime_overlay"/. "$root/"
+}
+
 # R3 Pro II: install the open gt9xx_touch.ko (five contacts) in place of the
 # OEM one, which drops multi-contact frames, and load it with
 # gtp_max_touch_number=5. Everything is pinned in
@@ -230,8 +270,9 @@ PY
 
 board=${BOARD:-r1}
 vendor_drivers=""
+early_splash=""
 board_seen=0
-while [[ ${1:-} == --board || ${1:-} == --vendor-drivers ]]; do
+while [[ ${1:-} == --board || ${1:-} == --vendor-drivers || ${1:-} == --early-splash ]]; do
     case $1 in
         --board)
             [[ $# -ge 2 && -n $2 && $board_seen == 0 ]] || usage
@@ -243,6 +284,11 @@ while [[ ${1:-} == --board || ${1:-} == --vendor-drivers ]]; do
             [[ $# -ge 2 && -n $2 ]] || usage
             [[ -z $vendor_drivers ]] || { echo "--vendor-drivers may be specified only once" >&2; exit 2; }
             vendor_drivers=$2
+            shift 2
+            ;;
+        --early-splash)
+            [[ $# -ge 2 && -n $2 && -z $early_splash ]] || usage
+            early_splash=$2
             shift 2
             ;;
     esac
@@ -258,7 +304,15 @@ case $board in
 esac
 [[ $# -eq 4 ]] || usage
 
+validate_r1_runtime_overlay || exit 1
+
 repo="$(cd "$(dirname "$0")/.." && pwd)"
+
+case $board in
+    r1) [[ -n $early_splash ]] || early_splash="$repo/compas_early_splash" ;;
+    r3proii) [[ -n $early_splash ]] || early_splash="$repo/compas_early_splash_r3proii" ;;
+    r3ii_2025) [[ -n $early_splash ]] || early_splash="$repo/compas_early_splash_r3ii_2025" ;;
+esac
 
 base_upt=$(realpath "$1")
 player=$(realpath "$2")
@@ -268,9 +322,48 @@ if [[ -n $vendor_drivers ]]; then
     vendor_drivers=$(realpath "$vendor_drivers")
 fi
 
-for file in "$base_upt" "$player" "$bootloader"; do
+for file in "$base_upt" "$player" "$bootloader" "$early_splash"; do
     [[ -s "$file" ]] || { echo "Missing or empty input: $file" >&2; exit 1; }
 done
+
+# The helper executes directly from init. Require a little-endian, 32-bit,
+# statically linked MIPS executable; never package a host or dynamic binary.
+python3 - "$early_splash" <<'PY'
+import pathlib, struct, sys
+data = pathlib.Path(sys.argv[1]).read_bytes()
+if len(data) < 52 or data[:4] != b"\x7fELF":
+    raise SystemExit("Early splash helper is not an ELF executable")
+if data[4:7] != bytes((1, 1, 1)):
+    raise SystemExit("Early splash helper must be ELF32, little-endian, current version")
+etype, machine = struct.unpack_from("<HH", data, 16)
+version = struct.unpack_from("<I", data, 20)[0]
+flags = struct.unpack_from("<I", data, 36)[0]
+phoff = struct.unpack_from("<I", data, 28)[0]
+phentsize, phnum = struct.unpack_from("<HH", data, 42)
+abi = flags & 0x0000F000
+arch = flags & 0xF0000000
+if (etype != 2 or machine != 8 or version != 1 or
+        (flags & 0x00000020) != 0 or (abi not in (0, 0x00001000)) or
+        (arch not in (0, 0x10000000, 0x50000000, 0x70000000)) or
+        (flags & 0x0F000000) != 0):
+    raise SystemExit("Early splash helper must use the supported MIPS O32 ABI and ISA")
+if phnum == 0 or phentsize != 32 or phoff + phentsize * phnum > len(data):
+    raise SystemExit("Early splash helper must be a valid MIPS ET_EXEC executable")
+has_load = False
+for index in range(phnum):
+    start = phoff + index * phentsize
+    p_type, p_offset, _, _, p_filesz, p_memsz = struct.unpack_from("<6I", data, start)
+    if p_offset + p_filesz > len(data):
+        raise SystemExit("Early splash helper has an out-of-bounds program segment")
+    if p_type == 1:
+        has_load = True
+        if p_filesz > p_memsz:
+            raise SystemExit("Early splash helper has an invalid PT_LOAD size")
+    if p_type in (2, 3):  # PT_DYNAMIC or PT_INTERP
+        raise SystemExit("Early splash helper must be statically linked")
+if not has_load:
+    raise SystemExit("Early splash helper has no PT_LOAD segment")
+PY
 
 for command in 7z unsquashfs mksquashfs genisoimage md5sum sha256sum split file; do
     command -v "$command" >/dev/null || {
@@ -845,6 +938,15 @@ python3 "$repo/scripts/generate_ui_fonts.py" --verify --font-directory "$work/ro
 # relative paths under firmware/overlay/ (e.g. usr/share/udhcpc/
 # default.script.d/ntpdate). cp -a keeps mode bits and relative symlinks
 # (sync_ntp.sh).
+# Preserve the vendor splash for validation before the shared overlay lands.
+stock_splash="$work/root/etc/init.d/S11jpeg_display_shell"
+[[ -f "$stock_splash" && ! -L "$stock_splash" ]] || {
+    echo "Base OTA is missing a regular /etc/init.d/S11jpeg_display_shell" >&2
+    exit 1
+}
+stock_splash_snapshot="$work/original-S11jpeg_display_shell"
+cp -p "$stock_splash" "$stock_splash_snapshot"
+
 # Preserve the reviewed radio startup before the shared vendor overlay lands.
 radio_startup=
 if [[ -e "$work/root/usr/bin/compas-radio" ]]; then
@@ -874,6 +976,12 @@ if [[ $board != r1 && -n ${R3_RUNTIME_OVERLAY:-} ]]; then
     runtime_overlay=$(realpath "$R3_RUNTIME_OVERLAY")
     cp -a "$runtime_overlay"/. "$work/root/"
 fi
+
+apply_r1_runtime_overlay "$work/root"
+
+# Restore the actual vendor launcher before standardization. This prevents an
+# overlay copy from becoming the input to the stock-script fail-closed check.
+cp -p "$stock_splash_snapshot" "$stock_splash"
 
 # Apply the same portable startup changes to every board after optional local
 # runtime overlays, so those overlays cannot restore an unstandardized wrapper.
@@ -1043,6 +1151,7 @@ fi
 # Remove a stale base or overlay copy so the wrapper has one bootloader path.
 rm -f "$work/root/usr/bin/open_hiby_bootloader" "$work/root/usr/bin/compas_bootloader"
 install -m 0755 "$bootloader" "$work/root/usr/bin/compas_loader"
+install -m 0755 "$early_splash" "$work/root/usr/bin/compas-early-splash"
 
 # The player promises the Speex rate converter, which is built from the
 # pinned, redistributable SpeexDSP/alsa-plugins sources by the base-image

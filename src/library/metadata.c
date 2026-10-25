@@ -1,4 +1,6 @@
 #include "metadata.h"
+#include "metadata_parser_internal.h"
+#include "utf8_util.h"
 #include "cue_parser.h"
 #include "sacd_iso.h"
 #include "library_endian.h"
@@ -41,6 +43,13 @@ static bool safe_chunk_advance(long chunk_start, uint64_t size, long pad, long *
     return true;
 }
 
+/* Same compressed-byte cap as m4a_read_cover_art() / gui.c's sidecar load.
+ * Decode also rejects sources with post-scale RGB888 above 1200x1200 (JPEG
+ * allows native up to 4096 if scaled <= 1200; PNG/BMP reject native > 1200);
+ * this stops the malloc of a 10 MiB APIC before that decoder runs. Also used
+ * as the buffered ID3 tag limit and the base64 METADATA_BLOCK_PICTURE
+ * decode cap. Larger ID3 tags are streamed; lyrics use the smaller
+ * LYRICS_MAX_FILE_BYTES limit. */
 #define ID3_TEXT_FRAME_MAX_BYTES (64U * 1024U)
 #define ID3_FRAME_COUNT_MAX 4096U
 #define ID3_STREAM_WORK_BUDGET_BYTES (METADATA_BLOB_MAX_BYTES + ID3_TEXT_FRAME_MAX_BYTES + \
@@ -48,6 +57,10 @@ static bool safe_chunk_advance(long chunk_start, uint64_t size, long pad, long *
 
 /* Enabled only in the disposable artwork helper, never in playback readers. */
 static bool artwork_only;
+
+void metadata_parser_enable_artwork_only(void) {
+    artwork_only = true;
+}
 /* Per-thread mode used by the lyrics worker: retain lyrics while skipping
  * caller-visible artwork extraction.  TLS keeps concurrent readers isolated. */
 static _Thread_local bool lyrics_only;
@@ -74,26 +87,7 @@ static void copy_bounded(char * dst, size_t dst_size, const char * src, size_t s
  * but record when a title needed sanitizing so an embedded ID3 title
  * can recover it. This does not try to guess a legacy code page. */
 static bool is_valid_utf8(const char * text, size_t size) {
-    if (!text) return size == 0;
-    size_t i = 0;
-    while (i < size) {
-        unsigned char c = (unsigned char) text[i++];
-        if (c == 0) break; /* LIST/INFO text is NUL-terminated; ignore padding after it. */
-        if (c < 0x80) continue;
-        unsigned need;
-        if (c >= 0xC2 && c <= 0xDF) need = 1;
-        else if (c >= 0xE0 && c <= 0xEF) need = 2;
-        else if (c >= 0xF0 && c <= 0xF4) need = 3;
-        else return false;
-        if (i + need > size) return false;
-        unsigned char first = (unsigned char) text[i];
-        if ((c == 0xE0 && first < 0xA0) || (c == 0xED && first >= 0xA0) ||
-            (c == 0xF0 && first < 0x90) || (c == 0xF4 && first >= 0x90)) return false;
-        for (unsigned j = 0; j < need; j++) {
-            if (((unsigned char) text[i++] & 0xC0) != 0x80) return false;
-        }
-    }
-    return true;
+    return utf8_is_valid(text, text ? strnlen(text, size) : size);
 }
 
 static void decode_id3v2_text_frame(const uint8_t * data, uint32_t size, char * out, size_t out_size);
@@ -2391,17 +2385,4 @@ void metadata_read_lyrics_without_artwork(const char * path, track_metadata_t * 
     lyrics_only = true;
     metadata_read_internal(path, out, true);
     lyrics_only = previous;
-}
-
-void metadata_read_scan_tags(const char * path, track_metadata_t * out) {
-    metadata_read_internal(path, out, false);
-    free(out->picture_data);
-    out->picture_data = NULL;
-    out->picture_size = 0;
-    free(out->lyrics);
-    out->lyrics = NULL;
-}
-
-void metadata_set_artwork_only(void) {
-    artwork_only = true;
 }

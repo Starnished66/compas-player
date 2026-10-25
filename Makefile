@@ -55,6 +55,11 @@ TARGET_CPU_FLAGS ?= -march=mips32r2 -mabi=32 -mfp32 -mno-odd-spreg -ffp-contract
 LVGL_DIR = lvgl
 DR_LIBS_DIR = dr_libs
 TINYALSA_DIR = tinyalsa
+TINYALSA_NATIVE_DSD_PATCH = patches/tinyalsa_native_dsd.patch
+TINYALSA_NATIVE_DSD_STAMP = $(TINYALSA_DIR)/.compas_native_dsd
+$(TINYALSA_NATIVE_DSD_STAMP): $(TINYALSA_NATIVE_DSD_PATCH) $(TINYALSA_DIR)/include/tinyalsa/pcm.h $(TINYALSA_DIR)/src/pcm.c scripts/apply-tracked-patch.sh
+	$(VENDOR_PATCH_APPLY) $(TINYALSA_DIR) $(TINYALSA_NATIVE_DSD_PATCH)
+	@touch $@
 FAAD2_DIR = faad2
 ALAC_DIR = alac
 OPUS_DIR = opus
@@ -113,7 +118,7 @@ endif
 # not ours to redistribute) carries four categories of local
 # customization that upstream v9.5.0 does not have, all needed for a
 # clean GitHub clone to both LINK and BEHAVE like this developer's tree
-# (see ISSUES.md's "clean GitHub clones cannot link the transition
+# (see local/notes/development/ISSUES.md's "clean GitHub clones cannot link the transition
 # compositor" entry -- fixing only the first category still leaves a
 # clean-cloned build behaviorally different, which is exactly the mistake
 # that entry warns against):
@@ -150,7 +155,7 @@ endif
 #      disabling TJpgDec's own output downscaling that this app's album-art
 #      path uses to decode cover JPEGs at the largest 2^n that still covers
 #      the target, then cover-fit, instead of full-size-then-software-resize
-#      (see ISSUES.md's Albums-screen overheat/OOM entry); tjpgd.c's
+#      (see local/notes/development/ISSUES.md's Albums-screen overheat/OOM entry); tjpgd.c's
 #      jd_mcu_output is also still missing ChaN's 1/2 and 1/4 MCU averaging
 #      and 1/8 DC RGB path, so scale!=0 was unusable until restored here
 #      (BGR order, matching this copy's full-MCU loop); lodepng.c's
@@ -168,10 +173,11 @@ endif
 #      Opaque RGB565 nearest scaling copies a proven interior without an
 #      alpha tile; the original renderer preserves edge blending and every
 #      unsupported descriptor. This shares the existing centered sampler.
-#   3. evdev pointer frames (patches/lvgl_evdev_frames.patch): return at
-#      each complete pointer SYN_REPORT with continue_reading set, so a
-#      queued press and release remain separate samples while keypad reads
-#      keep their existing key-event behavior.
+#   3. evdev pointer frames and external-session input discard
+#      (patches/lvgl_evdev_frames.patch): return at each complete pointer
+#      SYN_REPORT with continue_reading set, so queued press and release stay
+#      separate samples; expose the driver's parser-owned queue discard for
+#      the emulator handoff while keypad reads keep their existing behavior.
 #   4. generated fonts (patches/lvgl_generated_fonts/, copied in whole
 #      rather than diffed): ten Montserrat .c files regenerated with an
 #      expanded lv_font_conv codepoint range (Latin-1 Supplement +
@@ -481,7 +487,7 @@ endif
 # the target but are UB by the letter of the standard, which a future optimizer
 # could exploit. This makes that whole class defined for every file we build,
 # at negligible cost, rather than patching each vendored decoder.
-CFLAGS = -O3 -g -Wall -fwrapv -MMD -MP -I. -Isrc/audio -Isrc/network -Isrc/library -Isrc/hardware -Isrc/ui -Isrc/core -Isrc/plugins -I$(LVGL_DIR) -I$(DR_LIBS_DIR) -I$(FAAD2_DIR)/include -I$(ALAC_DIR)/codec -I$(MBEDTLS_DIR)/include -I$(CJSON_DIR) -I$(OPUS_DIR)/include -I$(OPUSFILE_DIR)/include -Ilibogg_vendor_config -I$(OGG_DIR)/include -I$(LUA_DIR)/src -I$(STB_VORBIS_DIR) -Ijpeg_vendor_config -I$(JPEG_DIR) -DLV_CONF_INCLUDE_SIMPLE=1
+CFLAGS = -O3 -g -Wall -fwrapv -MMD -MP -I. -Isrc/audio -Isrc/network -Isrc/library -Isrc/hardware -Isrc/ui -Isrc/ui/player -Isrc/ui/library -Isrc/core -Isrc/plugins -Isrc/plugins/bindings -I$(LVGL_DIR) -I$(DR_LIBS_DIR) -I$(FAAD2_DIR)/include -I$(ALAC_DIR)/codec -I$(MBEDTLS_DIR)/include -I$(CJSON_DIR) -I$(OPUS_DIR)/include -I$(OPUSFILE_DIR)/include -Ilibogg_vendor_config -I$(OGG_DIR)/include -I$(LUA_DIR)/src -I$(STB_VORBIS_DIR) -Ijpeg_vendor_config -I$(JPEG_DIR) -DLV_CONF_INCLUDE_SIMPLE=1
 CFLAGS += -I$(WAVPACK_DIR)/include -I$(SNDFILE_DIR)/include
 CXXFLAGS = $(filter-out -Wall,$(CFLAGS)) -std=c++11
 HOST_CFLAGS = $(CFLAGS) -DHOST_BUILD=1 $(BOARD_DEFINE) $(UI_PERF_TRACE_DEFINE) $(shell sdl2-config --cflags) -I$(TINFL_DIR) -DMINIZ_NO_DEFLATE_APIS -DMINIZ_NO_ARCHIVE_APIS
@@ -687,9 +693,30 @@ $(TARGET_CODE_SECTION_FLAGS_STAMP): FORCE_TARGET_CODE_SECTION_FLAGS
 # misc). main.c stays at src/ root as the entry point.
 CFLAGS += -Isonic
 
-APP_SRCS = src/main.c src/ui/gui.c src/ui/gui_subsonic.c src/ui/gui_settings.c src/ui/gui_network.c src/ui/gui_theme.c src/ui/gui_notifications.c src/ui/gui_library.c src/ui/gui_queue.c src/ui/gui_player.c src/ui/gui_track_info.c src/ui/gui_plugins.c src/ui/gui_shell.c src/ui/gui_navigation.c src/ui/gui_books.c src/ui/gui_file_manager.c src/ui/gui_text_input.c src/ui/gui_lyrics.c src/ui/gui_reload.c src/audio/audio.c src/library/file_browser.c src/library/file_ops.c src/hardware/hw_buttons.c src/hardware/button_mapping.c src/hardware/input_device_utils.c src/library/metadata.c src/library/metadata_isolated.c src/library/library_walk.c src/library/metadata_db.c src/core/settings.c src/core/startup_splash.c src/core/screenshot.c src/core/app_version.c src/audio/aiff_decoder.c src/audio/dsd_filter.c src/audio/dsd_decoder.c src/audio/sacd_reader.c src/audio/dst_decoder.c src/library/sacd_iso.c src/audio/aac_decoder.c src/audio/mp4_demux.c src/audio/ape_demux.c src/audio/ape_decoder.c src/audio/ape_ffmpeg_core.c src/audio/peq.c src/audio/mseb.c src/audio/audio_tempo.c src/ui/assets.c src/ui/screen_builders.c src/ui/cover_card_preview.c src/hardware/battery.c src/network/wifi_status.c src/network/ca_bundle.c src/network/http_conn.c src/network/http_client.c src/network/http_stream.c src/network/http_stream_file.c src/network/subsonic_client.c src/library/cover_decode.c src/library/image_thumb.c src/library/lyrics.c src/audio/asf_demux.c src/audio/wma_decoder.c src/audio/ogg_probe.c src/audio/opus_decoder.c src/audio/opusfile_alloc.c src/audio/wavpack_decoder.c src/audio/caf_decoder.c src/audio/vorbis_decoder.c src/library/cue_parser.c src/ui/fallback_font.c src/ui/gui_text_view.c \
+APP_SRCS = src/main.c src/ui/gui.c src/ui/library_selection_snapshot.c src/ui/library/library_az_index.c src/ui/gui_subsonic.c src/ui/gui_settings.c src/ui/gui_network.c src/ui/gui_theme.c src/ui/gui_notifications.c src/ui/gui_library.c src/ui/gui_queue.c src/ui/gui_player.c src/ui/gui_track_info.c src/ui/gui_plugins.c src/ui/gui_shell.c src/ui/gui_navigation.c src/ui/gui_books.c src/ui/gui_file_manager.c src/ui/gui_text_input.c src/ui/gui_lyrics.c src/ui/gui_reload.c src/audio/audio.c src/library/file_browser.c src/library/file_ops.c src/hardware/hw_buttons.c src/hardware/button_mapping.c src/hardware/input_device_utils.c src/library/metadata.c src/library/library_walk.c src/library/metadata_db.c src/core/settings.c src/core/startup_splash.c src/core/screenshot.c src/core/app_version.c src/audio/aiff_decoder.c src/audio/dsd_filter.c src/audio/dsd_decoder.c src/audio/sacd_reader.c src/audio/dst_decoder.c src/library/sacd_iso.c src/audio/aac_decoder.c src/audio/mp4_demux.c src/audio/ape_demux.c src/audio/ape_decoder.c src/audio/ape_ffmpeg_core.c src/audio/peq.c src/audio/mseb.c src/audio/audio_tempo.c src/ui/assets.c src/ui/screen_builders.c src/ui/cover_card_preview.c src/hardware/battery.c src/network/wifi_status.c src/network/ca_bundle.c src/network/http_conn.c src/network/http_client.c src/network/http_stream.c src/network/http_stream_file.c src/network/subsonic_client.c src/library/cover_decode.c src/library/image_thumb.c src/library/lyrics.c src/audio/asf_demux.c src/audio/wma_decoder.c src/audio/ogg_probe.c src/audio/opus_decoder.c src/audio/opusfile_alloc.c src/audio/wavpack_decoder.c src/audio/caf_decoder.c src/audio/vorbis_decoder.c src/library/cue_parser.c src/ui/fallback_font.c src/ui/gui_text_view.c \
 src/core/subprocess.c src/network/wifi_control.c src/network/bluetooth_control.c src/network/hiby_sys_server.c src/hardware/backlight.c src/network/remote_import_files.c src/network/airplay_control.c src/network/airplay_bridge.c src/network/airplay_metadata.c src/hardware/headphone_status.c src/hardware/device_config.c src/hardware/led_control.c src/hardware/charge_limiter.c src/core/idle_shutdown.c src/hardware/power_suspend.c src/core/text_reader.c src/hardware/usb_mode_control.c src/hardware/usb_dac_bridge.c src/hardware/usb_audio_output.c src/core/firmware_update.c src/core/player_update.c src/core/reboot_handoff.c src/library/playlist_files.c src/library/favorite_writer.c src/network/firmware_ota.c src/network/plugin_store.c src/network/store_common.c src/network/emulator_store.c src/core/emulator_registry.c src/core/timezone_data.c src/core/timezone_apply.c src/core/hostname_apply.c src/network/dlna_control.c src/network/remote_control.c src/network/remote_control_discovery.c src/network/catalog_source_cache.c src/network/remote_control_mdns.c src/plugins/plugin_manager.c
 APP_SRCS += src/ui/gui_setup.c src/ui/gui_setup_plugins.c src/ui/brand_marks.c src/core/timezone_location.c
+APP_SRCS += src/ui/gui_plugin_library.c
+APP_SRCS += src/ui/gui_external_controls.c
+APP_SRCS += src/ui/gui_plugin_order_editor.c
+APP_SRCS += src/ui/gui_equalizer.c
+APP_SRCS += src/ui/gui_home.c src/ui/home_background.c
+APP_SRCS += src/ui/gui_updates.c
+APP_SRCS += src/ui/gui_accent.c
+APP_SRCS += src/ui/gui_custom_font.c src/ui/compact_list.c
+APP_SRCS += src/ui/gui_display_timing_settings.c src/ui/gui_time_settings.c src/library/metadata_isolation.c
+APP_SRCS += src/ui/gui_button_mapping.c src/ui/gui_volume_settings.c src/ui/gui_shell_settings.c
+APP_SRCS += src/ui/player/player_inline_lyrics.c src/library/library_album_art_decode.c src/library/library_artist_art.c src/plugins/bindings/plugin_info_bindings.c src/plugins/bindings/plugin_library_bindings.c
+APP_SRCS += src/library/albumart_info.c
+APP_SRCS += src/ui/gui_power_hub.c src/ui/player/player_seek_input.c src/plugins/bindings/plugin_equalizer_bindings.c
+APP_SRCS += src/plugins/bindings/plugin_http_bindings.c src/plugins/plugin_lua_runtime.c
+APP_SRCS += src/library/library_scan.c src/ui/player/player_artwork_jobs.c src/ui/player/player_artwork_cache.c
+APP_SRCS += src/plugins/bindings/plugin_text_view_bindings.c src/ui/player/player_queue_storage.c
+APP_SRCS += src/plugins/bindings/plugin_archive_bindings.c
+APP_SRCS += src/ui/library/library_thumbnails.c
+APP_SRCS += src/ui/library/library_search.c
+APP_SRCS += src/ui/player/player_queue_model.c
+APP_SRCS += src/ui/gui_folder_actions.c src/ui/gui_playlists.c src/ui/gui_playlist_target.c
 APP_SRCS += src/ui/lyrics_layout.c src/ui/transition_compositor.c src/ui/frosted_glass.c src/ui/hw_volume_coalesce.c src/ui/gui_list_reorder.c
 APP_SRCS += src/ui/plugin_control_dashboard.c
 APP_SRCS += src/ui/ui_frame_trace.c src/ui/ui_snapshot_prefetch.c
@@ -702,16 +729,19 @@ APP_SRCS += src/core/sd_fsck.c src/core/sd_fsck_run.c
 APP_SRCS += src/plugins/plugin_json.c src/plugins/plugin_storage.c src/plugins/plugin_disabled_list.c
 APP_SRCS += src/ui/gui_plugin_manage.c src/ui/gui_plugin_store.c src/ui/gui_emulators.c src/ui/gui_emulator_store.c src/ui/gui_lock_screen.c
 APP_SRCS += src/core/theme_file.c src/ui/gui_themes.c
+APP_SRCS += src/core/theme_file_values.c src/network/http_url.c
 APP_SRCS += src/library/remote_track.c
 APP_SRCS += src/library/queue_resume.c
 APP_SRCS += src/audio/track_probe.c
 APP_SRCS += src/library/library_scan_tags.c src/library/albumart.c src/library/tagcache.c src/library/path_cache.c src/library/remote_state.c src/library/subsonic_saved_servers.c src/library/artwork_coordinator.c
+APP_SRCS += src/library/artwork_memory.c src/library/artwork_failure_cache.c
 APP_SRCS += src/core/device_info.c src/core/utf8_util.c src/core/app_clock.c src/core/db_log.c src/core/zip_reader.c src/core/html_blocks.c
 APP_SRCS += src/ui/gesture_detector.c
 APP_SRCS += src/ui/i18n.c src/ui/i18n_catalog.c
-APP_SRCS += src/ui/player_layouts.c
-APP_SRCS += src/ui/player_seekbar.c src/audio/waveform.c
-APP_SRCS += src/ui/player_cover_fade.c src/ui/player_lyrics_backdrop.c src/ui/player_timeline_labels.c
+APP_SRCS += src/ui/player/player_layouts.c src/ui/player/player_layout_builtin.c
+APP_SRCS += src/ui/player/player_volume_popup.c src/ui/player/player_transport_images.c src/ui/player/player_artwork_pixels.c
+APP_SRCS += src/ui/player/player_seekbar.c src/audio/waveform.c
+APP_SRCS += src/ui/player/player_cover_fade.c src/ui/player/player_lyrics_backdrop.c src/ui/player/player_timeline_labels.c
 APP_SRCS += src/network/bluetooth_reconnect.c src/network/bt_cover_art.c
 APP_CXX_SRCS = src/audio/alac_decoder.cpp
 LVGL_SRCS = $(sort $(shell find $(LVGL_DIR)/src -type f -name '*.c'))
@@ -731,8 +761,8 @@ LV_XML_INC = -I$(LVGL_DIR)/src/others/translation
 LV_XML_CFLAGS = -Os $(LV_XML_INC)
 # The one application file that includes the vendored XML headers needs the
 # same include directory.
-$(BUILD_HOST_DIR)/ui/player_layouts.o: HOST_CFLAGS += $(LV_XML_INC)
-$(BUILD_TARGET_DIR)/ui/player_layouts.o: TARGET_CFLAGS += $(LV_XML_INC)
+$(BUILD_HOST_DIR)/ui/player/player_layouts.o: HOST_CFLAGS += $(LV_XML_INC)
+$(BUILD_TARGET_DIR)/ui/player/player_layouts.o: TARGET_CFLAGS += $(LV_XML_INC)
 TINYALSA_SRCS = $(sort $(shell find $(TINYALSA_DIR)/src -type f -name '*.c'))
 FAAD2_SRCS = $(sort $(shell find $(FAAD2_DIR)/libfaad -type f -name '*.c'))
 # Decoder-only ALAC sources (the repo also ships an encoder we don't need)
@@ -813,7 +843,7 @@ DBUS_SRCS = $(filter-out %-win.c %-win32.c %wince-glue.c $(DBUS_DIR)/dbus/dbus-s
 # stack to talk to anyway). Its call sites in gui.c/bluetooth_control.c
 # are guarded with #ifndef HOST_BUILD for the same reason audio.c's own
 # Bluetooth-output code is.
-TARGET_ONLY_APP_SRCS = src/network/bt_media_player.c src/network/bt_remote_control.c src/audio/audio_output.c
+TARGET_ONLY_APP_SRCS = src/network/bt_media_player.c src/network/bt_remote_control.c src/audio/audio_output.c src/audio/usb_dsd_output.c
 # Target-only (see TARGET_CFLAGS's own comment on why): provides
 # backtrace()/backtrace_symbols_fd() for main.c's SIGSEGV handler on musl,
 # which has no execinfo.h/backtrace() of its own.
@@ -947,6 +977,12 @@ host: check-ui-fonts $(HOST_BIN) compile_commands.json
 .PHONY: check-ui-fonts
 check-ui-fonts:
 	python3 scripts/generate_ui_fonts.py --verify
+
+# Test harnesses need link inputs without dry-running recursive vendor recipes.
+.PHONY: print-host-link
+print-host-link:
+	$(info $(HOST_OBJS) $(HOST_AUDIO_LIBS) $(HOST_LDFLAGS))
+	@:
 
 $(HOST_BIN): $(HOST_OBJS) $(HOST_AUDIO_LIBS)
 	$(CXX) -o $@ $(HOST_OBJS) $(HOST_AUDIO_LIBS) $(HOST_LDFLAGS)
@@ -1179,6 +1215,30 @@ bootloader: $(TARGET_CPU_FLAGS_STAMP)
 	@echo "Standalone Compás bootloader ready: $(BOOTLOADER_BIN)"
 endif
 
+# One-shot early Linux splash; reuse the loader renderer without SD/selector work.
+ifeq ($(BOARD),r1)
+EARLY_SPLASH_BIN = compas_early_splash
+else
+EARLY_SPLASH_BIN = compas_early_splash_$(BOARD)
+endif
+EARLY_SPLASH_SRCS = src/bootloader/early_splash.c src/bootloader/fb_draw.c \
+                   src/bootloader/internal_storage.c src/core/startup_splash.c \
+                   src/core/glyph5x7.c lvgl/src/libs/tjpgd/tjpgd.c
+.PHONY: early-splash test-early-splash
+early-splash: $(EARLY_SPLASH_BIN)
+$(EARLY_SPLASH_BIN): $(EARLY_SPLASH_SRCS) src/bootloader/fb_draw.h \
+                     src/core/startup_splash.h src/bootloader/internal_storage.h \
+                     src/core/storage_paths.h src/core/board_config.h src/core/glyph5x7.h lv_conf.h $(LVGL_PATCH_STAMP) $(TARGET_CPU_FLAGS_STAMP)
+	$(CROSS_CC) $(TARGET_CPU_FLAGS) $(BOOTLOADER_CFLAGS) -static -no-pie \
+	    $(EARLY_SPLASH_SRCS) -Wl,--gc-sections -lm -o $@.tmp
+	$(CROSS_STRIP) -s -o $@ $@.tmp
+	rm -f $@.tmp
+
+test-early-splash:
+	bash scripts/run_early_splash_spec.sh
+	bash scripts/run_early_splash_boot_test.sh
+	python3 scripts/test_repack_early_splash_elf.py
+
 # Explicit alias for rebuilding the combined R1/R3 Pro II selector.
 .PHONY: rockbox-bootloader
 rockbox-bootloader:
@@ -1210,9 +1270,13 @@ $(BUILD_TARGET_DIR)/lv_xml/%.o: $(LV_XML_DIR)/%.c $(LVGL_PATCH_STAMP) $(TARGET_C
 	@mkdir -p $(dir $@)
 	$(CROSS_CC) $(TARGET_CFLAGS) $(LV_XML_CFLAGS) -c $< -o $@
 
-$(BUILD_TARGET_DIR)/tinyalsa/%.o: $(TINYALSA_DIR)/%.c $(TARGET_CPU_FLAGS_STAMP)
+$(BUILD_TARGET_DIR)/tinyalsa/%.o: $(TINYALSA_DIR)/%.c $(TINYALSA_NATIVE_DSD_STAMP) $(TARGET_CPU_FLAGS_STAMP)
 	@mkdir -p $(dir $@)
 	$(CROSS_CC) $(TINYALSA_CFLAGS) $(TARGET_CPU_FLAGS) $(TARGET_CODE_SECTION_FLAGS) -c $< -o $@
+
+$(BUILD_TARGET_DIR)/audio/usb_dsd_output.o: src/audio/usb_dsd_output.c $(TINYALSA_NATIVE_DSD_STAMP) $(TARGET_CPU_FLAGS_STAMP)
+	@mkdir -p $(dir $@)
+	$(CROSS_CC) $(TARGET_CFLAGS) -c $< -o $@
 
 $(BUILD_TARGET_DIR)/faad2/%.o: $(FAAD2_DIR)/libfaad/%.c $(FAAD2_WARNING_STAMP) $(TARGET_CPU_FLAGS_STAMP)
 	@mkdir -p $(dir $@)
@@ -1272,13 +1336,14 @@ $(BUILD_TARGET_DIR)/libexecinfo/%.o: $(LIBEXECINFO_DIR)/%.c $(TARGET_CPU_FLAGS_S
 
 # Generate compile_commands.json for Zed/clangd LSP autofill and hover popups
 compile_commands.json:
-	@python3 generate_compile_commands.py
+	@python3 scripts/build/generate_compile_commands.py
 
 clean:
 	rm -rf build_host build_host_* build_target build_target_* build_ui_test build_layouts_test* \
 	    compas_player_host compas_player_host_* \
 	    compas_player_target compas_player_target_* \
 	    selector_sim selector_sim_* \
+	    compas_early_splash compas_early_splash_* \
 	    compile_commands.json compile_flags.txt
 
 # UI translations (see po/README.md). `make i18n` re-extracts the template,
@@ -1344,6 +1409,13 @@ test-device-info:
 # Plugin Store destinations: no path segment may end in a dot or space.
 test-store-dest:
 	sh scripts/tests/run_store_dest_test.sh
+.PHONY: test-player-queue
+test-player-queue:
+	bash scripts/test_player_queue_model.sh
+
+.PHONY: test-library-search
+test-library-search:
+	bash scripts/test_library_search.sh
 
 .PHONY: test-file-browser-natural-sort
 test-file-browser-natural-sort:

@@ -53,24 +53,36 @@ jobs:
           set -euo pipefail
           make -j2 target RELEASE_LABEL="$RELEASE_LABEL"
           make bootloader
+          make early-splash
           make -j2 target BOARD=r3proii RELEASE_LABEL="$RELEASE_LABEL"
           make bootloader BOARD=r3proii
+          make early-splash BOARD=r3proii
           make -j2 target BOARD=r3ii_2025 RELEASE_LABEL="$RELEASE_LABEL"
           make bootloader BOARD=r3ii_2025
+          make early-splash BOARD=r3ii_2025
           file compas_player_target compas_loader \
+            compas_early_splash \
             compas_player_target_r3proii compas_loader_r3proii \
-            compas_player_target_r3ii_2025 compas_loader_r3ii_2025
+            compas_early_splash_r3proii \
+            compas_player_target_r3ii_2025 compas_loader_r3ii_2025 \
+            compas_early_splash_r3ii_2025
           mipsel-linux-musl-readelf -h compas_player_target \
             | grep 'Machine:.*MIPS' >/dev/null
           mipsel-linux-musl-readelf -h compas_loader \
+            | grep 'Machine:.*MIPS' >/dev/null
+          mipsel-linux-musl-readelf -h compas_early_splash \
             | grep 'Machine:.*MIPS' >/dev/null
           mipsel-linux-musl-readelf -h compas_player_target_r3proii \
             | grep 'Machine:.*MIPS' >/dev/null
           mipsel-linux-musl-readelf -h compas_loader_r3proii \
             | grep 'Machine:.*MIPS' >/dev/null
+          mipsel-linux-musl-readelf -h compas_early_splash_r3proii \
+            | grep 'Machine:.*MIPS' >/dev/null
           mipsel-linux-musl-readelf -h compas_player_target_r3ii_2025 \
             | grep 'Machine:.*MIPS' >/dev/null
           mipsel-linux-musl-readelf -h compas_loader_r3ii_2025 \
+            | grep 'Machine:.*MIPS' >/dev/null
+          mipsel-linux-musl-readelf -h compas_early_splash_r3ii_2025 \
             | grep 'Machine:.*MIPS' >/dev/null
           for player in compas_player_target compas_player_target_r3proii \
               compas_player_target_r3ii_2025; do
@@ -109,14 +121,17 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release
-          scripts/repack_upt.sh base/r1.upt compas_player_target \
+          scripts/repack_upt.sh --early-splash compas_early_splash \
+            base/r1.upt compas_player_target \
             compas_loader release/r1.upt
           cp compas_player_target release/compas_player
-          BOARD=r3proii scripts/repack_upt.sh base/r3proii.upt \
+          BOARD=r3proii scripts/repack_upt.sh \
+            --early-splash compas_early_splash_r3proii base/r3proii.upt \
             compas_player_target_r3proii compas_loader_r3proii \
             release/r3proii.upt
           cp compas_player_target_r3proii release/compas_player_r3proii
-          BOARD=r3ii_2025 scripts/repack_upt.sh base/r3ii_2025.upt \
+          BOARD=r3ii_2025 scripts/repack_upt.sh \
+            --early-splash compas_early_splash_r3ii_2025 base/r3ii_2025.upt \
             compas_player_target_r3ii_2025 compas_loader_r3ii_2025 \
             release/r3ii_2025.upt
           cp compas_player_target_r3ii_2025 release/compas_player_r3ii_2025

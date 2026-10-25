@@ -46,6 +46,23 @@ static void free_all(void) {
     entry_cap = 0;
 }
 
+static rs_entry_t * append_entry(const char * path, int32_t rating, int32_t playcount, int32_t last_played) {
+    if (entry_n >= REMOTE_STATE_MAX) return NULL;
+    if (entry_n >= entry_cap) {
+        int cap = entry_cap ? entry_cap * 2 : 16;
+        rs_entry_t * nent = realloc(entries, sizeof(*nent) * (size_t) cap);
+        if (!nent) return NULL;
+        entries = nent;
+        entry_cap = cap;
+    }
+    entries[entry_n].path = strdup(path);
+    if (!entries[entry_n].path) return NULL;
+    entries[entry_n].rating = rating;
+    entries[entry_n].playcount = playcount;
+    entries[entry_n].last_played = last_played;
+    return &entries[entry_n++];
+}
+
 static void load_file(void) {
     free_all();
     loaded = true;
@@ -71,20 +88,7 @@ static void load_file(void) {
         if (rest == next) continue;
         while (*rest == ' ' || *rest == '\t') rest++;
         if (!*rest || strlen(rest) >= REMOTE_STATE_PATH_MAX) continue;
-        if (entry_n >= REMOTE_STATE_MAX) break;
-        if (entry_n >= entry_cap) {
-            int cap = entry_cap ? entry_cap * 2 : 16;
-            rs_entry_t * nent = realloc(entries, sizeof(*nent) * (size_t) cap);
-            if (!nent) break;
-            entries = nent;
-            entry_cap = cap;
-        }
-        entries[entry_n].path = strdup(rest);
-        if (!entries[entry_n].path) break;
-        entries[entry_n].rating = rating;
-        entries[entry_n].playcount = playcount;
-        entries[entry_n].last_played = last_played;
-        entry_n++;
+        if (!append_entry(rest, rating, playcount, last_played)) break;
     }
     fclose(f);
 }
@@ -127,20 +131,7 @@ static rs_entry_t * ensure_entry(const char * path) {
     int i = find_index(path);
     if (i >= 0) return &entries[i];
     if (!path || !path[0] || strlen(path) >= REMOTE_STATE_PATH_MAX) return NULL;
-    if (entry_n >= REMOTE_STATE_MAX) return NULL;
-    if (entry_n >= entry_cap) {
-        int cap = entry_cap ? entry_cap * 2 : 16;
-        rs_entry_t * nent = realloc(entries, sizeof(*nent) * (size_t) cap);
-        if (!nent) return NULL;
-        entries = nent;
-        entry_cap = cap;
-    }
-    entries[entry_n].path = strdup(path);
-    if (!entries[entry_n].path) return NULL;
-    entries[entry_n].rating = 0;
-    entries[entry_n].playcount = 0;
-    entries[entry_n].last_played = 0;
-    return &entries[entry_n++];
+    return append_entry(path, 0, 0, 0);
 }
 
 void remote_state_drop(void) {

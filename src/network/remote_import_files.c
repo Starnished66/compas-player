@@ -3,6 +3,7 @@
 #endif
 #define _FILE_OFFSET_BITS 64
 #include "remote_import_files.h"
+#include "utf8_util.h"
 
 #include "usb_mode_control.h"
 #include "gui_library.h"
@@ -33,7 +34,7 @@
 #define IMPORT_LIST_WINDOW_MAX 1024u
 #define IMPORT_BODY_BUFFER (64u * 1024u)
 #define IMPORT_SYNC_BYTES (4u * 1024u * 1024u)
-#define IMPORT_IDLE_SECONDS 60
+#define IMPORT_IDLE_SECONDS 12
 #define IMPORT_TOTAL_SECONDS (6 * 60 * 60)
 
 static pthread_mutex_t import_mu = PTHREAD_MUTEX_INITIALIZER;
@@ -53,42 +54,6 @@ static const char *root_path(void) {
 #else
     return IMPORT_ROOT;
 #endif
-}
-
-static bool valid_utf8(const unsigned char *s) {
-    while (*s) {
-        if (*s < 0x80) { s++; continue; }
-        if (*s >= 0xc2 && *s <= 0xdf) {
-            if ((s[1] & 0xc0) != 0x80) return false;
-            s += 2; continue;
-        }
-        if (*s == 0xe0) {
-            if (s[1] < 0xa0 || s[1] > 0xbf || (s[2] & 0xc0) != 0x80) return false;
-            s += 3; continue;
-        }
-        if ((*s >= 0xe1 && *s <= 0xec) || (*s >= 0xee && *s <= 0xef)) {
-            if ((s[1] & 0xc0) != 0x80 || (s[2] & 0xc0) != 0x80) return false;
-            s += 3; continue;
-        }
-        if (*s == 0xed) {
-            if (s[1] < 0x80 || s[1] > 0x9f || (s[2] & 0xc0) != 0x80) return false;
-            s += 3; continue;
-        }
-        if (*s == 0xf0) {
-            if (s[1] < 0x90 || s[1] > 0xbf || (s[2] & 0xc0) != 0x80 || (s[3] & 0xc0) != 0x80) return false;
-            s += 4; continue;
-        }
-        if (*s >= 0xf1 && *s <= 0xf3) {
-            if ((s[1] & 0xc0) != 0x80 || (s[2] & 0xc0) != 0x80 || (s[3] & 0xc0) != 0x80) return false;
-            s += 4; continue;
-        }
-        if (*s == 0xf4) {
-            if (s[1] < 0x80 || s[1] > 0x8f || (s[2] & 0xc0) != 0x80 || (s[3] & 0xc0) != 0x80) return false;
-            s += 4; continue;
-        }
-        return false;
-    }
-    return true;
 }
 
 static bool mounted_root(void) {
@@ -155,7 +120,7 @@ void remote_import_files_stop(void) {
 static bool path_string_valid(const char *s, bool allow_empty) {
     size_t n = strlen(s);
     if (n > IMPORT_PATH_MAX || (!allow_empty && n == 0) || (n && s[n - 1] == '/')) return false;
-    if (!valid_utf8((const unsigned char *)s)) return false;
+    if (!utf8_is_valid(s, n)) return false;
     if (!n) return allow_empty;
     const char *part = s;
     for (const char *p = s;; p++) {
@@ -176,7 +141,7 @@ static bool path_string_valid(const char *s, bool allow_empty) {
 static bool leaf_valid(const char *s) {
     size_t n = strlen(s);
     if (!n || n > IMPORT_NAME_MAX || s[0] == '.' || s[n - 1] == '.' || s[n - 1] == ' ') return false;
-    if (!valid_utf8((const unsigned char *)s)) return false;
+    if (!utf8_is_valid(s, n)) return false;
     for (size_t i = 0; i < n; i++) {
         unsigned char c = (unsigned char)s[i];
         if (c == '/' || c == '\\' || c < 0x20 || c == 0x7f) return false;
@@ -586,15 +551,19 @@ static bool request_stopped(void) {
     return atomic_load_explicit(&import_stopping, memory_order_acquire);
 }
 
+static bool elapsed_at_least(const struct timespec *now, const struct timespec *then, time_t seconds) {
+    time_t elapsed = now->tv_sec - then->tv_sec;
+    return elapsed > seconds || (elapsed == seconds && now->tv_nsec >= then->tv_nsec);
+}
+
 static bool body_read_all(int fd, uint8_t *buf, size_t size, size_t *received,
                           const struct timespec *start, struct timespec *last) {
     *received = 0;
     while (*received < size) {
         if (request_stopped()) return false;
         struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
-        long elapsed_idle = now.tv_sec - last->tv_sec;
-        long elapsed_total = now.tv_sec - start->tv_sec;
-        if (elapsed_idle >= IMPORT_IDLE_SECONDS || elapsed_total >= IMPORT_TOTAL_SECONDS) { errno = ETIMEDOUT; return false; }
+        if (elapsed_at_least(&now, last, IMPORT_IDLE_SECONDS) ||
+            elapsed_at_least(&now, start, IMPORT_TOTAL_SECONDS)) { errno = ETIMEDOUT; return false; }
         struct pollfd pfd = {.fd=fd,.events=POLLIN};
         int wait_ms = 1000;
         int pr = poll(&pfd, 1, wait_ms);
@@ -648,9 +617,11 @@ static bool handle_upload(int fd, const char *path, long long content_length, bo
             if (n < 0 && errno == EINTR) continue;
             if (n <= 0) { ok = false; break; }
             off += (size_t)n; total += (uint64_t)n; unsynced += (size_t)n;
+            clock_gettime(CLOCK_MONOTONIC, &last_activity);
             if (unsynced >= IMPORT_SYNC_BYTES) {
                 if (fdatasync(out) != 0) { ok = false; break; }
                 unsynced = 0;
+                clock_gettime(CLOCK_MONOTONIC, &last_activity);
             }
         }
         remaining -= got;

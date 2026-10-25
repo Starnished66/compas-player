@@ -28,21 +28,9 @@ static uint64_t local_file_size;
 static int info_line_count;
 
 static const char * codec_name(audio_codec_t codec) {
-    switch (codec) {
-        case AUDIO_CODEC_FLAC: return "FLAC";
-        case AUDIO_CODEC_MP3: return "MP3";
-        case AUDIO_CODEC_PCM: return "PCM";
-        case AUDIO_CODEC_DSD: return "DSD";
-        case AUDIO_CODEC_AAC: return "AAC";
-        case AUDIO_CODEC_ALAC: return "ALAC";
-        case AUDIO_CODEC_APE: return "Monkey's Audio";
-        case AUDIO_CODEC_WMA: return "WMA";
-        case AUDIO_CODEC_OPUS: return "Opus";
-        case AUDIO_CODEC_VORBIS: return "Vorbis";
-        case AUDIO_CODEC_WAVPACK: return "WavPack";
-        case AUDIO_CODEC_UNKNOWN: break;
-    }
-    return NULL;
+    if (codec == AUDIO_CODEC_APE) return "Monkey's Audio";
+    const char * name = audio_codec_name(codec);
+    return name[0] ? name : NULL;
 }
 
 static audio_codec_t codec_from_container(const char * container) {

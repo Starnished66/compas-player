@@ -536,7 +536,8 @@ static bool bluealsa_seed_source_volume(const char * path, bool software_volume)
  * never switched to hardware gain across two subprocess calls mid-playback. */
 static uint32_t bt_source_volume_probe_ms;
 
-static void bluealsa_apply_soft_volume_cancellable(const char * path, const atomic_bool * cancel) {
+static void bluealsa_apply_soft_volume_cancellable_ex(const char * path, const atomic_bool * cancel,
+                                                       bool force_source_probe) {
     bluealsa_backend_t backend = bluealsa_backend();
     if (!bluealsa_is_audio_pcm_path(path)) return;
     pthread_mutex_lock(&bt_soft_volume_serial);
@@ -546,7 +547,7 @@ static void bluealsa_apply_soft_volume_cancellable(const char * path, const atom
     bool prior_source_soft_volume = atomic_load(&bt_source_soft_volume);
     bool retry = source && !atomic_load(&modern_soft_volume_requested) &&
                  prior_source_soft_volume &&
-                 (uint32_t)(now - bt_source_volume_probe_ms) >= 5000;
+                 (force_source_probe || (uint32_t)(now - bt_source_volume_probe_ms) >= 5000);
     bool done = (strcmp(bt_soft_volume_applied_path, path) == 0 && !retry) ||
                 (cancel && atomic_load(cancel));
     unsigned int clears = atomic_load_explicit(&bt_soft_volume_clears, memory_order_acquire);
@@ -592,6 +593,10 @@ static void bluealsa_apply_soft_volume_cancellable(const char * path, const atom
         pthread_mutex_unlock(&bt_soft_volume_mutex);
     }
     pthread_mutex_unlock(&bt_soft_volume_serial);
+}
+
+static void bluealsa_apply_soft_volume_cancellable(const char * path, const atomic_bool * cancel) {
+    bluealsa_apply_soft_volume_cancellable_ex(path, cancel, false);
 }
 
 static void bluealsa_apply_soft_volume(const char * path) {
@@ -2763,7 +2768,11 @@ reconnect_fallback:
  * Discovery used for connection status may succeed even when control writes fail. */
 bool bt_control_prepare_source_volume(void) {
     char path[256];
-    if (!find_source_pcm_path(path, sizeof(path))) return false;
+    if (!find_source_pcm_path_ex(path, sizeof(path), false)) return false;
+    /* A PCM can be opened before AVRCP finishes negotiating. Recheck once at
+     * the last safe point before audio opens so a capability that arrived
+     * since initial discovery can take hardware gain immediately. */
+    bluealsa_apply_soft_volume_cancellable_ex(path, NULL, true);
     pthread_mutex_lock(&bt_soft_volume_mutex);
     bool ready = strcmp(bt_soft_volume_applied_path, path) == 0;
     pthread_mutex_unlock(&bt_soft_volume_mutex);

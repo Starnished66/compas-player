@@ -66,7 +66,7 @@ r=$(run info "$card") || fail "info on empty card"
 [ "$(field "$r" songs)" = 0 ] || fail "empty card songs"
 [ "$(field "$r" generation)" = 0 ] || fail "empty card generation"
 [ -e "$card/.compas" ] && fail "info created .compas"
-[ "$(field "$r" database_format)" = 5 ] || fail "database_format"
+[ "$(field "$r" database_format)" = 7 ] || fail "database_format"
 [ "$(field "$r" sdtool_version)" = 1.1.0 ] && [ -n "$(field "$r" build)" ] || fail "version identity: $r"
 
 # scan builds the database: 5 songs (one with a non-ASCII path), the Audiobooks folder is excluded.

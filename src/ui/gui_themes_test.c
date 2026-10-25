@@ -7,11 +7,16 @@
 #include <utime.h>
 
 #include <lvgl.h>
+#include "lvgl/src/draw/snapshot/lv_snapshot.h"
+#include "tests/player/lv_snapshot_ppm.h"
 #include "src/ui/gui_themes.h"
 #include "src/ui/gui_theme.h"
 #include "src/core/theme_file.h"
 #include "src/core/storage_paths.h"
 #include "src/ui/i18n.h"
+#include "src/ui/ui_fonts.h"
+#include "src/core/board_config.h"
+#include <dirent.h>
 
 static uint32_t mock_bg_screen = 0;
 static uint32_t mock_bg_card = 0;
@@ -19,14 +24,40 @@ static uint32_t mock_bg_row = 0;
 static uint32_t mock_text_primary = 0;
 static uint32_t mock_text_muted = 0;
 static int mock_reload_requests = 0;
+static int mock_color_apply_calls;
+static lv_display_t * render_display;
+static unsigned rendered_theme_screens, rendered_language_labels, translated_theme_labels;
+static unsigned theme_snapshot_kind;
+static bool saved_light_sample, saved_dark_sample, saved_fallback_sample;
+
+static void render_flush(lv_display_t *display, const lv_area_t *area, uint8_t *pixels) {
+    (void) area; (void) pixels;
+    lv_display_flush_ready(display);
+}
+
+static void save_theme_snapshot(lv_obj_t *screen, const char *stem) {
+    const char *dir = getenv("THEME_RENDER_SNAPSHOT_DIR");
+    if (!dir || !dir[0]) return;
+    char path[1024];
+    assert(snprintf(path, sizeof(path), "%s/%s.ppm", dir, stem) > 0);
+    lv_draw_buf_t *snapshot = lv_snapshot_take(screen, LV_COLOR_FORMAT_RGB888);
+    assert(snapshot);
+    FILE *f = fopen(path, "wb");
+    assert(f);
+    assert(test_write_lv_snapshot_ppm(f, snapshot));
+    assert(fclose(f) == 0);
+    lv_draw_buf_destroy(snapshot);
+}
 
 void gui_plugin_set_background_color(const char * slot, uint32_t rgb) {
+    mock_color_apply_calls++;
     if (strcmp(slot, "screen") == 0) mock_bg_screen = rgb;
     else if (strcmp(slot, "card") == 0) mock_bg_card = rgb;
     else if (strcmp(slot, "list_row") == 0) mock_bg_row = rgb;
 }
 
 void gui_plugin_set_text_color(const char * slot, uint32_t rgb) {
+    mock_color_apply_calls++;
     if (strcmp(slot, "primary") == 0) mock_text_primary = rgb;
     else if (strcmp(slot, "muted") == 0) mock_text_muted = rgb;
 }
@@ -90,12 +121,153 @@ static void write_file(const char *path, const char *content) {
     fclose(f);
 }
 
-int main(void) {
-    printf("Starting comprehensive isolated gui_themes unit tests...\n");
+static void copy_file(const char *from, const char *to) {
+    FILE *in = fopen(from, "rb");
+    assert(in);
+    FILE *out = fopen(to, "wb");
+    assert(out);
+    char bytes[8192];
+    size_t n;
+    while ((n = fread(bytes, 1, sizeof(bytes), in)) > 0) assert(fwrite(bytes, 1, n, out) == n);
+    assert(!ferror(in));
+    fclose(in); fclose(out);
+}
 
-    /* 1. Setup isolated temporary directory in build_ui_test */
-    char tmpl[] = "build_ui_test/theme-test-XXXXXX";
-    mkdir("build_ui_test", 0755);
+extern lv_font_t lv_font_montserrat_16;
+static void render_default_screen_sample(void) {
+    lv_obj_t *screen = lv_obj_create(NULL);
+    lv_obj_set_size(screen, BOARD_SCREEN_WIDTH, BOARD_SCREEN_HEIGHT);
+    lv_obj_set_style_bg_color(screen, lv_color_hex(mock_bg_screen), LV_PART_MAIN);
+    lv_obj_t *card = lv_obj_create(screen);
+    lv_obj_set_pos(card, BOARD_SCALE_PX(24), BOARD_SCALE_PY(32));
+    lv_obj_set_size(card, BOARD_SCREEN_WIDTH - BOARD_SCALE_PX(48), BOARD_SCREEN_HEIGHT - BOARD_SCALE_PY(64));
+    lv_obj_set_style_bg_color(card, lv_color_hex(mock_bg_card), LV_PART_MAIN);
+    lv_obj_t *row = lv_obj_create(card);
+    lv_obj_set_pos(row, BOARD_SCALE_PX(16), BOARD_SCALE_PY(16));
+    lv_obj_set_size(row, BOARD_SCREEN_WIDTH - BOARD_SCALE_PX(80), BOARD_SCALE_PY(84));
+    lv_obj_set_style_bg_color(row, lv_color_hex(mock_bg_row), LV_PART_MAIN);
+    lv_obj_t *title = lv_label_create(row);
+    lv_obj_set_pos(title, BOARD_SCALE_PX(12), BOARD_SCALE_PY(10));
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(title, lv_color_hex(mock_text_primary), LV_PART_MAIN);
+    lv_label_set_text(title, i18n_tr("Music"));
+    lv_obj_t *sub = lv_label_create(row);
+    lv_obj_set_pos(sub, BOARD_SCALE_PX(12), BOARD_SCALE_PY(40));
+    lv_obj_set_style_text_font(sub, &lv_font_montserrat_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(sub, lv_color_hex(mock_text_muted), LV_PART_MAIN);
+    lv_label_set_text(sub, "Theme sample");
+    assert(lv_color_eq(lv_obj_get_style_bg_color(screen, LV_PART_MAIN), lv_color_hex(mock_bg_screen)));
+    assert(lv_color_eq(lv_obj_get_style_bg_color(card, LV_PART_MAIN), lv_color_hex(mock_bg_card)));
+    assert(lv_color_eq(lv_obj_get_style_bg_color(row, LV_PART_MAIN), lv_color_hex(mock_bg_row)));
+    lv_obj_update_layout(screen);
+    lv_screen_load(screen);
+    lv_refr_now(render_display);
+    assert(strcmp(lv_label_get_text(title), i18n_tr("Music")) == 0);
+    assert(strcmp(lv_label_get_text(sub), "Theme sample") == 0);
+    if (strcmp(i18n_get_language(), "en") == 0) {
+        assert(strcmp(lv_label_get_text(title), "Music") == 0);
+    } else {
+        assert(strcmp(lv_label_get_text(title), "Music") != 0);
+        translated_theme_labels++;
+    }
+    rendered_language_labels++;
+    rendered_theme_screens++;
+    if (theme_snapshot_kind == 1 && !saved_light_sample) {
+        save_theme_snapshot(screen, "theme_light_en");
+        saved_light_sample = true;
+    } else if (theme_snapshot_kind == 2 && !saved_dark_sample) {
+        save_theme_snapshot(screen, "theme_dark_ru");
+        saved_dark_sample = true;
+    } else if (theme_snapshot_kind == 3 && !saved_fallback_sample) {
+        save_theme_snapshot(screen, "theme_unknown_language_fallback");
+        saved_fallback_sample = true;
+    }
+    lv_obj_delete(screen);
+}
+
+static void walk_theme_sources(const char *dir, const char *themes_dir, unsigned *serial, unsigned *parsed) {
+    DIR *d = opendir(dir);
+    if (!d) return;
+    struct dirent *entry;
+    while ((entry = readdir(d))) {
+        if (entry->d_name[0] == '.') continue;
+        char source[1024];
+        snprintf(source, sizeof(source), "%s/%s", dir, entry->d_name);
+        struct stat st;
+        if (stat(source, &st) != 0) continue;
+        if (S_ISDIR(st.st_mode)) {
+            walk_theme_sources(source, themes_dir, serial, parsed);
+            continue;
+        }
+        size_t n = strlen(entry->d_name);
+        if (n < 6 || strcmp(entry->d_name + n - 6, ".theme") != 0) continue;
+        char target[1024];
+        snprintf(target, sizeof(target), "%s/Matrix%u.theme", themes_dir, (*serial)++);
+        copy_file(source, target);
+        theme_file_t parsed_theme;
+        char error[160] = {0};
+        if (!theme_file_parse(target, &parsed_theme, error, sizeof(error))) {
+            fprintf(stderr, "theme parse failed for %s: %s\n", source, error);
+            abort();
+        }
+        char selected[64];
+        snprintf(selected, sizeof(selected), "Matrix%u.theme", *serial - 1);
+        assert(gui_themes_select(selected));
+        assert(strcmp(gui_themes_get_selected(), selected) == 0);
+        home_layout_config = (home_layout_config_t){0};
+        launcher_layout_config = (launcher_layout_config_t){0};
+        int calls_before_apply = mock_color_apply_calls;
+        gui_themes_apply_active();
+        assert(mock_color_apply_calls == calls_before_apply + 5);
+        if (!(mock_bg_screen == parsed_theme.screen && mock_bg_card == parsed_theme.card &&
+              mock_bg_row == parsed_theme.list_row && mock_text_primary == parsed_theme.text_primary &&
+              mock_text_muted == parsed_theme.text_muted)) {
+            fprintf(stderr, "theme apply mismatch %s selected=%s: screen %06x/%06x card %06x/%06x row %06x/%06x primary %06x/%06x muted %06x/%06x\n",
+                    source, gui_themes_get_selected(), mock_bg_screen, parsed_theme.screen, mock_bg_card, parsed_theme.card,
+                    mock_bg_row, parsed_theme.list_row, mock_text_primary, parsed_theme.text_primary,
+                    mock_text_muted, parsed_theme.text_muted);
+            abort();
+        }
+        for (size_t language = 0; language < i18n_language_count(); ++language) {
+            assert(i18n_set_language(i18n_language_code(language)));
+            theme_snapshot_kind = 0;
+            if (!saved_light_sample && strcmp(parsed_theme.name, "Arctic Glass") == 0 &&
+                strcmp(i18n_get_language(), "en") == 0) theme_snapshot_kind = 1;
+            else if (!saved_dark_sample && strcmp(parsed_theme.name, "Midnight Indigo") == 0 &&
+                     strcmp(i18n_get_language(), "ru") == 0) theme_snapshot_kind = 2;
+            render_default_screen_sample();
+        }
+        unlink(target);
+        (*parsed)++;
+    }
+    closedir(d);
+}
+
+int main(void) {
+    const char *matrix_mode = getenv("THEME_RENDER_MATRIX");
+    const char *plugin_root = getenv("COMPAS_PLUGINS_ROOT");
+    if (!plugin_root || !plugin_root[0]) plugin_root = "../compas-plugins/plugins";
+    if (matrix_mode && strcmp(matrix_mode, "1") == 0) {
+        DIR *plugin_dir = opendir(plugin_root);
+        if (!plugin_dir) {
+            fprintf(stderr, "theme render matrix: plugin theme directory unavailable: %s\n", plugin_root);
+            return 2;
+        }
+        closedir(plugin_dir);
+    }
+    printf("Starting comprehensive isolated gui_themes unit tests...\n");
+    lv_init();
+    assert(ui_fonts_init());
+    render_display = lv_display_create(BOARD_SCREEN_WIDTH, BOARD_SCREEN_HEIGHT);
+    static uint8_t render_buffer[BOARD_SCREEN_WIDTH * 40 * 4];
+    lv_display_set_buffers(render_display, render_buffer, NULL, sizeof(render_buffer), LV_DISPLAY_RENDER_MODE_PARTIAL);
+    lv_display_set_flush_cb(render_display, render_flush);
+
+    /* 1. Setup isolated temporary directory in caller-owned QA scratch. */
+    const char *scratch_base = getenv("THEME_RENDER_TMPDIR");
+    if (!scratch_base || !scratch_base[0]) scratch_base = "build_ui_test";
+    char tmpl[1024];
+    assert(snprintf(tmpl, sizeof(tmpl), "%s/theme-test-XXXXXX", scratch_base) > 0);
     char *scratch_dir = mkdtemp(tmpl);
     assert(scratch_dir != NULL);
 
@@ -432,12 +604,63 @@ int main(void) {
     /* Test clear exclusion */
     gui_themes_clear_legacy_exclusion("pull_down/wifi.png");
     assert(!gui_themes_is_legacy_excluded("pull_down/wifi.png"));
+    /* Explicit plugin replacement is remembered even after the exclusion
+     * record is empty. Rewriting bytes equal to stock and rescanning in the
+     * same process must not infer legacy ownership again. */
+    gui_themes_clear_legacy_exclusion("pull_down/wifi.png");
+    write_file(ov_stock, "theme2_wifi_png_content");
+    char theme2_wifi_s[512], ov_stock_s[512], theme2_fade[512], ov_fade[512];
+    snprintf(theme2_wifi_s, sizeof(theme2_wifi_s), "%s/wifi_s.png", theme2_pd_dir);
+    snprintf(ov_stock_s, sizeof(ov_stock_s), "%s/wifi_s.png", ov_pd_dir);
+    snprintf(theme2_fade, sizeof(theme2_fade), "%s/fade.png", theme2_pd_dir);
+    snprintf(ov_fade, sizeof(ov_fade), "%s/fade.png", ov_pd_dir);
+    /* This is a different, previously unmarked inventory key while the
+     * exclusion list is empty. A stock-identical copy at that path must keep
+     * plugin ownership for this process. */
+    gui_themes_clear_legacy_exclusion("pull_down/wifi_s.png");
+    write_file(theme2_wifi_s, "theme2_wifi_s_content");
+    write_file(ov_stock_s, "theme2_wifi_s_content");
+    /* The scan must still discover unrelated stock copies. */
+    write_file(theme2_fade, "theme2_fade_content");
+    write_file(ov_fade, "theme2_fade_content");
+    gui_themes_init();
+    assert(!gui_themes_is_legacy_excluded("pull_down/wifi.png"));
+    assert(!gui_themes_is_legacy_excluded("pull_down/wifi_s.png"));
+    assert(gui_themes_is_legacy_excluded("pull_down/fade.png"));
+    gui_themes_clear_legacy_exclusion("pull_down/fade.png");
 
     /* Explicit Default remains authoritative despite an existing legacy selection. */
     assert(gui_themes_select(""));
     gui_themes_reset_state();
     gui_themes_init();
     assert(strcmp(gui_themes_get_selected(), "") == 0);
+
+    /* The package traversal is opt-in so the existing focused theme suite
+     * remains usable without the sibling plugin repository. */
+    if (matrix_mode && strcmp(matrix_mode, "1") == 0) {
+        unsigned theme_sources = 0, parsed_themes = 0;
+        walk_theme_sources(plugin_root, sd_themes, &theme_sources, &parsed_themes);
+        if (parsed_themes != theme_sources || parsed_themes == 0) {
+            fprintf(stderr, "theme render matrix: parsed %u of %u packaged .theme files under %s\n",
+                    parsed_themes, theme_sources, plugin_root);
+            return 2;
+        }
+        /* None of the shipped locale catalogs is RTL. Verify unsupported Arabic
+         * requests fall back to English and retain that state in the sample. */
+        assert(!i18n_set_language("ar"));
+        assert(strcmp(i18n_get_language(), "en") == 0);
+        mock_bg_screen = GUI_COLOR_SCREEN; mock_bg_card = GUI_COLOR_PANEL; mock_bg_row = GUI_COLOR_ROW;
+        mock_text_primary = GUI_COLOR_PRIMARY; mock_text_muted = GUI_COLOR_SECONDARY;
+        theme_snapshot_kind = 3;
+        render_default_screen_sample();
+        assert(rendered_theme_screens == parsed_themes * i18n_language_count() + 1);
+        assert(rendered_language_labels == rendered_theme_screens);
+        assert(translated_theme_labels == parsed_themes * (i18n_language_count() - 1));
+        assert(saved_light_sample && saved_dark_sample && saved_fallback_sample);
+        assert(i18n_set_language("en"));
+        printf("theme renderer: parsed/applied %u packaged .theme files; rendered %u screens across %zu languages\n",
+               parsed_themes, rendered_theme_screens, i18n_language_count());
+    }
 
     /* 10. Corrupt state file rejection */
     gui_themes_reset_state();
@@ -467,6 +690,10 @@ int main(void) {
     unlink(long_tile_theme);
     unlink(invalid_tile_order);
     unlink(theme2_wifi);
+    unlink(theme2_wifi_s);
+    unlink(ov_stock_s);
+    unlink(theme2_fade);
+    unlink(ov_fade);
     rmdir(theme2_pd_dir);
     unlink(theme1_wifi);
     rmdir(theme1_pd_dir);

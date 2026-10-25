@@ -4,7 +4,9 @@
 #include <lvgl/lvgl.h>
 #include "metadata_db.h"
 #include "remote_collection.h"
-#include "artwork_coordinator.h"
+#include "library_player_art.h"
+#include "gui_power_hub.h"
+#include "library_scan_storage.h"
 
 typedef struct group_song_entry_s {
     char * path;
@@ -66,27 +68,6 @@ void poll_library_rescan(void);
 void poll_sd_format(void);
 void album_thumbnail_generation_poll(void);
 
-/* On-demand fallback for the Playing Now page when the background warmer
- * has not produced the player-sized (ALBUMART_PLAYER_CACHE_SIZE) cache for
- * this track yet: finds the original art (external sidecar file, then
- * embedded picture via the same bounded/isolated extraction the warmer
- * uses), decodes and persists the cache exactly as the warmer would, and
- * returns COVER_ART_WIDTH x COVER_ART_HEIGHT pixels for immediate display.
- * One-time cost per track -- once the cache file exists, the caller's own
- * fast path never reaches this again for it.
- *
- * *out_no_art_confirmed (may be NULL) is set true only on a false return
- * that means "this track genuinely has no usable art anywhere", safe for
- * the caller to remember and stop retrying; left false on every transient
- * failure (coordinator busy, isolated-helper fork/pipe/timeout,
- * cancellation), which a caller must retry rather than treat as final. */
-bool gui_library_generate_player_cover(const char * track_path, const char * artist,
-                                       const char * album, const char * album_artist,
-                                       artwork_cancel_fn cancel_cb, void * user_data,
-                                       uint16_t ** out_pixels, bool * out_no_art_confirmed);
-
-bool gui_library_album_cover_cached(int64_t song_id, int size_px, char * out, size_t out_size);
-
 void open_add_to_playlist_for(const char * path);
 void gui_library_poll_playlists(void);
 /* Nonblocking duration/codec completion polling; updates only the current page. */
@@ -122,10 +103,7 @@ void play_remote_control_song(const char * song_path, const char * playlist_name
  * Completion is published through remote_control_finish_collection(). */
 bool gui_library_play_remote_collection(const remote_collection_play_request_t *request);
 void gui_library_cancel_remote_collection(void);
-void start_power_off_countdown(void);
-void build_power_off_countdown_popup(void);
 void poll_sd_card_hotplug(void);
-bool sd_card_root_is_mounted(void);
 
 void gui_library_resume_fast_timers(void);
 void gui_library_reset_drag_state(void);

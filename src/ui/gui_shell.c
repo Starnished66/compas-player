@@ -4172,7 +4172,7 @@ static void poll_quick_drawer_drag(lv_timer_t * timer) {
                     if (back_swipe_target_scr) {
                         /* Reveal-style everywhere except leaving the Player
                          * screen itself, which keeps the original two-panel
-                         * slide -- see ISSUES.md's swipe-up-to-Home to-do
+                         * slide -- see local/notes/development/ISSUES.md's swipe-up-to-Home to-do
                          * entry for the same reveal field, still an active
                          * A/B test rather than settled for every gesture. */
                         bool reveal = active != gui_player_get_screen();
@@ -6366,6 +6366,10 @@ void gui_shell_reset_drag_state(void) {
     if (quick_drawer_drag_timer) {
         lv_timer_pause(quick_drawer_drag_timer);
     }
+}
+
+void gui_shell_set_external_touch_held(bool held) {
+    s_require_release_after_wake = held;
 }
 
 void gui_shell_player_swipe_recover(void * ctx) {

@@ -180,6 +180,45 @@ static unsigned int json_positive_uint(cJSON * obj, const char * key) {
     return value > 0 ? (unsigned int) value : 0;
 }
 
+static subsonic_album_t * parse_albums(cJSON * array, int count) {
+    subsonic_album_t * albums = malloc(sizeof(subsonic_album_t) * (size_t) (count > 0 ? count : 1));
+
+    int i = 0;
+    cJSON * album_item;
+    cJSON_ArrayForEach(album_item, array) {
+        snprintf(albums[i].id, sizeof(albums[i].id), "%s", json_str(album_item, "id", ""));
+        snprintf(albums[i].name, sizeof(albums[i].name), "%s", json_str(album_item, "name", "(unknown)"));
+        snprintf(albums[i].artist, sizeof(albums[i].artist), "%s", json_str(album_item, "artist", ""));
+        i++;
+    }
+
+    return albums;
+}
+
+static void parse_song(cJSON * item, const char * container_album_artist, subsonic_song_t * song) {
+    snprintf(song->id, sizeof(song->id), "%s", json_str(item, "id", ""));
+    utf8_truncate_safe(song->title, json_str(item, "title", "(unknown)"), sizeof(song->title));
+    utf8_sanitize(song->title);
+    utf8_truncate_safe(song->artist, json_str(item, "artist", ""), sizeof(song->artist));
+    utf8_sanitize(song->artist);
+    utf8_truncate_safe(song->album_artist,
+                       json_nonempty_str(item, "albumArtist",
+                                         container_album_artist && container_album_artist[0] ? container_album_artist : song->artist),
+                       sizeof(song->album_artist));
+    utf8_sanitize(song->album_artist);
+    utf8_truncate_safe(song->album, json_str(item, "album", ""), sizeof(song->album));
+    utf8_sanitize(song->album);
+    snprintf(song->suffix, sizeof(song->suffix), "%s", json_str(item, "suffix", "mp3"));
+    snprintf(song->cover_art, sizeof(song->cover_art), "%s", json_str(item, "coverArt", ""));
+    song->track = json_int(item, "track", 0);
+    song->disc = json_int(item, "discNumber", 0);
+    song->duration_seconds = json_int(item, "duration", 0);
+    song->sample_rate = json_positive_uint(item, "samplingRate");
+    song->bit_depth = json_positive_uint(item, "bitDepth");
+    song->channels = json_positive_uint(item, "channelCount");
+    song->bitrate_kbps = json_positive_uint(item, "bitRate");
+}
+
 bool subsonic_ping(const subsonic_server_t * server, http_cancel_token_t * cancel) {
     cJSON * root = NULL;
     cJSON * resp = api_request(server, "ping.view", NULL, &root, cancel);
@@ -250,16 +289,7 @@ bool subsonic_get_artist_albums(const subsonic_server_t * server, const char * a
     if (!cJSON_IsArray(album_arr)) { cJSON_Delete(root); return false; }
 
     int count = cJSON_GetArraySize(album_arr);
-    subsonic_album_t * albums = malloc(sizeof(subsonic_album_t) * (size_t) (count > 0 ? count : 1));
-
-    int i = 0;
-    cJSON * album_item;
-    cJSON_ArrayForEach(album_item, album_arr) {
-        snprintf(albums[i].id, sizeof(albums[i].id), "%s", json_str(album_item, "id", ""));
-        snprintf(albums[i].name, sizeof(albums[i].name), "%s", json_str(album_item, "name", "(unknown)"));
-        snprintf(albums[i].artist, sizeof(albums[i].artist), "%s", json_str(album_item, "artist", ""));
-        i++;
-    }
+    subsonic_album_t * albums = parse_albums(album_arr, count);
 
     cJSON_Delete(root);
     *out_albums = albums;
@@ -292,26 +322,7 @@ bool subsonic_get_album_songs(const subsonic_server_t * server, const char * alb
     int i = 0;
     cJSON * song_item;
     cJSON_ArrayForEach(song_item, song_arr) {
-        snprintf(songs[i].id, sizeof(songs[i].id), "%s", json_str(song_item, "id", ""));
-        utf8_truncate_safe(songs[i].title, json_str(song_item, "title", "(unknown)"), sizeof(songs[i].title));
-        utf8_sanitize(songs[i].title);
-        utf8_truncate_safe(songs[i].artist, json_str(song_item, "artist", ""), sizeof(songs[i].artist));
-        utf8_sanitize(songs[i].artist);
-        utf8_truncate_safe(songs[i].album_artist,
-                           json_nonempty_str(song_item, "albumArtist", album_artist[0] ? album_artist : songs[i].artist),
-                           sizeof(songs[i].album_artist));
-        utf8_sanitize(songs[i].album_artist);
-        utf8_truncate_safe(songs[i].album, json_str(song_item, "album", ""), sizeof(songs[i].album));
-        utf8_sanitize(songs[i].album);
-        snprintf(songs[i].suffix, sizeof(songs[i].suffix), "%s", json_str(song_item, "suffix", "mp3"));
-        snprintf(songs[i].cover_art, sizeof(songs[i].cover_art), "%s", json_str(song_item, "coverArt", ""));
-        songs[i].track = json_int(song_item, "track", 0);
-        songs[i].disc = json_int(song_item, "discNumber", 0);
-        songs[i].duration_seconds = json_int(song_item, "duration", 0);
-        songs[i].sample_rate = json_positive_uint(song_item, "samplingRate");
-        songs[i].bit_depth = json_positive_uint(song_item, "bitDepth");
-        songs[i].channels = json_positive_uint(song_item, "channelCount");
-        songs[i].bitrate_kbps = json_positive_uint(song_item, "bitRate");
+        parse_song(song_item, album_artist, &songs[i]);
         i++;
     }
 
@@ -335,16 +346,7 @@ bool subsonic_get_all_albums(const subsonic_server_t * server, subsonic_album_t 
     if (!cJSON_IsArray(album_arr)) { cJSON_Delete(root); return false; }
 
     int count = cJSON_GetArraySize(album_arr);
-    subsonic_album_t * albums = malloc(sizeof(subsonic_album_t) * (size_t) (count > 0 ? count : 1));
-
-    int i = 0;
-    cJSON * album_item;
-    cJSON_ArrayForEach(album_item, album_arr) {
-        snprintf(albums[i].id, sizeof(albums[i].id), "%s", json_str(album_item, "id", ""));
-        snprintf(albums[i].name, sizeof(albums[i].name), "%s", json_str(album_item, "name", "(unknown)"));
-        snprintf(albums[i].artist, sizeof(albums[i].artist), "%s", json_str(album_item, "artist", ""));
-        i++;
-    }
+    subsonic_album_t * albums = parse_albums(album_arr, count);
 
     cJSON_Delete(root);
     *out_albums = albums;
@@ -413,25 +415,7 @@ bool subsonic_get_playlist_songs(const subsonic_server_t * server, const char * 
     int i = 0;
     cJSON * entry_item;
     cJSON_ArrayForEach(entry_item, entry_arr) {
-        snprintf(songs[i].id, sizeof(songs[i].id), "%s", json_str(entry_item, "id", ""));
-        utf8_truncate_safe(songs[i].title, json_str(entry_item, "title", "(unknown)"), sizeof(songs[i].title));
-        utf8_sanitize(songs[i].title);
-        utf8_truncate_safe(songs[i].artist, json_str(entry_item, "artist", ""), sizeof(songs[i].artist));
-        utf8_sanitize(songs[i].artist);
-        utf8_truncate_safe(songs[i].album_artist,
-                           json_nonempty_str(entry_item, "albumArtist", songs[i].artist), sizeof(songs[i].album_artist));
-        utf8_sanitize(songs[i].album_artist);
-        utf8_truncate_safe(songs[i].album, json_str(entry_item, "album", ""), sizeof(songs[i].album));
-        utf8_sanitize(songs[i].album);
-        snprintf(songs[i].suffix, sizeof(songs[i].suffix), "%s", json_str(entry_item, "suffix", "mp3"));
-        snprintf(songs[i].cover_art, sizeof(songs[i].cover_art), "%s", json_str(entry_item, "coverArt", ""));
-        songs[i].track = json_int(entry_item, "track", 0);
-        songs[i].disc = json_int(entry_item, "discNumber", 0);
-        songs[i].duration_seconds = json_int(entry_item, "duration", 0);
-        songs[i].sample_rate = json_positive_uint(entry_item, "samplingRate");
-        songs[i].bit_depth = json_positive_uint(entry_item, "bitDepth");
-        songs[i].channels = json_positive_uint(entry_item, "channelCount");
-        songs[i].bitrate_kbps = json_positive_uint(entry_item, "bitRate");
+        parse_song(entry_item, NULL, &songs[i]);
         i++;
     }
 

@@ -191,7 +191,7 @@ plugin.define({
 
   | Area | Tokens |
   | --- | --- |
-  | UI | `ui.list`, `ui.settings`, `ui.row_width`, `ui.text_input`, `ui.confirmation`, `ui.toast`, `ui.progress`, `ui.screenshot`, `ui.theme`, `ui.theme_refresh`, `ui.reload`, `ui.home_layout`, `ui.home_tiles`, `ui.launcher_layout`, `ui.home_background`, `ui.lock_screen`, `ui.button_lock`, `ui.quick_toggle`, `ui.text_view`, `ui.text_view_images`, `ui.list_grid`, `ui.list_showing`, `ui.list_update`, `ui.list_wrap`, `ui.settings_list_wrap`, `ui.settings_list_10_sliders`, `ui.order_editor`, `ui.player_layout_xml`, `ui.file_manager`, `ui.file_picker`, `ui.startup_image` |
+  | UI | `ui.list`, `ui.settings`, `ui.row_width`, `ui.text_input`, `ui.confirmation`, `ui.toast`, `ui.progress`, `ui.screenshot`, `ui.theme`, `ui.theme_refresh`, `ui.reload`, `ui.home_layout`, `ui.home_tiles`, `ui.launcher_layout`, `ui.home_background`, `ui.lock_screen`, `ui.button_lock`, `ui.quick_toggle`, `ui.text_view`, `ui.text_view_images`, `ui.list_grid`, `ui.list_showing`, `ui.list_update`, `ui.list_scroll_reset`, `ui.list_wrap`, `ui.settings_list_wrap`, `ui.settings_list_10_sliders`, `ui.order_editor`, `ui.player_layout_xml`, `ui.file_manager`, `ui.file_picker`, `ui.startup_image` |
   | Playback and audio | `playback.control`, `playback.state`, `playback.events`, `playback.lyrics_refresh`, `playback.progress`, `playback.remote`, `playback.remote_resolve`, `playback.transport_skip`, `playback.speed`, `playback.format`, `playback.output_info`, `playback.silent_volume`, `playback.transient_volume`, `playback.output_events`, `playback.settings`, `playback.ab_loop`, `playback.ab_switch`, `playback.http_seek`, `audio.loop`, `audio.peq`, `audio.peq.transient`, `audio.peq.state`, `audio.stereo_width`, `audio.crossfeed`, `audio.crossfeed.angle`, `audio.hw_volume_curve` |
   | Files | `filesystem.sd`, `filesystem.mkdir`, `filesystem.playlists`, `filesystem.file_ops` |
   | Storage | `storage.namespaced`, `storage.secrets`, `storage.secrets_get` |
@@ -337,6 +337,9 @@ Opens a list screen and returns a handle (`nil` on players older than API
     handle; the old handle expires. Returns `nil` without changing the screen
     for a closed, covered, foreign, or superseded handle. Keep the returned
     handle for later pages and guard asynchronous completions with it.
+  - `reset_scroll = true`: API 17, `ui.list_scroll_reset`. With `replace`,
+    rebuilds the current list at the top. Omit it to preserve the existing
+    scroll position during refreshes. New list screens already start at the top.
   - `selected`: 1-based row drawn with an accent outline. The outline follows
     later taps.
   - `layout = "grid"`: shows cards instead of rows. Each card shows its `icon`
@@ -1147,8 +1150,8 @@ These additions keep API version **16**. Check each capability with
 
 | Functions | Capability and behavior |
 | --- | --- |
-| `get_playback_format()` | `playback.format`: `nil` while idle, otherwise a snapshot with `path`, `codec`, source `sample_rate`/`bit_depth`, `output_sample_rate`/`output_bit_depth`, `channels`, `bitrate_kbps`, `duration_seconds`, `is_stream`, `seekable`, `is_dsd`, `dop`, `replaygain_applied`/`replaygain_applied_db`, `generation`, and live `software_volume_gain`, `playback_speed`, `crossfade_enabled`. Unknown source depth/bitrate is 0; MP3 has no encoded PCM bit depth. Software gain is a linear PCM multiplier, distinct from hardware/UI volume. Crossfade reports the setting, not whether two tracks are currently mixing. |
-| `get_output_info()` | `playback.output_info`: `route` (`wired`, `bluetooth`, or `usb_dac`), `active`, PCM `sample_rate`/`bit_depth`, `hardware_sample_rate`/`hardware_bit_depth` when known, cached `bluetooth_codec` when available, `resampling`, `resampling_known`, and `dop`. Bluetooth uses a stable 24-bit PCM pipe, widening 16-bit sources without adding precision. Bluetooth and USB conversion/final hardware formats are unknown; matching PCM fields alone cannot prove bit-perfect output. |
+| `get_playback_format()` | `playback.format`: `nil` while idle, otherwise a snapshot with `path`, `codec`, source `sample_rate`/`bit_depth`, `output_sample_rate`/`output_bit_depth`, `channels`, `bitrate_kbps`, `duration_seconds`, `is_stream`, `seekable`, `is_dsd`, `dop`, `replaygain_applied`/`replaygain_applied_db`, `generation`, and live `software_volume_gain`, `playback_speed`, `crossfade_enabled`. `dop` reports unconverted DSD passthrough (including USB native DSD); use `get_output_info()` to distinguish native from DoP transport. Unknown source depth/bitrate is 0; MP3 has no encoded PCM bit depth. Software gain is a linear PCM multiplier, distinct from hardware/UI volume. Crossfade reports the setting, not whether two tracks are currently mixing. |
+| `get_output_info()` | `playback.output_info`: `route` (`wired`, `bluetooth`, or `usb_dac`), `active`, PCM `sample_rate`/`bit_depth`, `hardware_sample_rate`/`hardware_bit_depth` when known, cached `bluetooth_codec` when available, `resampling`, `resampling_known`, `dop`, and `native_dsd`. Native DSD reports the ALSA word rate/width (for example, 88.2 kHz × 32 bits for DSD64); packing is not resampling. USB native/DoP hardware formats are known. Bluetooth uses a stable 24-bit PCM pipe, widening 16-bit sources without adding precision. Bluetooth and USB PCM conversion/final hardware formats remain unknown; matching PCM fields alone cannot prove bit-perfect output. |
 | `eq_apply_profile(path, { persist = false })` | `audio.peq.transient`: applies an SD profile to runtime EQ without saving it. Default persistence remains enabled. Later explicit EQ save/edit operations may save the active profile. |
 | `get_eq_state()` | `audio.peq.state`: detached runtime snapshot with `bypass`, `preamp_db`, `stereo_width`, `crossfeed`, `crossfeed_angle`, and ten ordered `bands` (`index`, `freq_hz`, `gain_db`, `q`, `type`, `enabled`). This observes active settings, including transient profiles, rather than reading a possibly stale saved profile. |
 | `eq_apply_state(state, { persist = false })` | `audio.peq.state`: validates the complete snapshot before applying it. Persistence defaults to true. Plugins can restore a saved runtime snapshot without writing flash; compare the current state with the last state they applied before restoring, to preserve subsequent user changes. Numerical limits: preamp/gain −300 to 300 dB, frequency 1–24000 Hz, Q 0.01–100, width 0–2, crossfeed 0–1; all must be finite. `crossfeed` may be omitted; a missing field applies as off so older snapshots still load. Optional `crossfeed_angle` is 0 (no delay), 30, 45, 60, or 90 degrees; omission applies no delay. Check `audio.crossfeed.angle` before relying on that field. |
@@ -1676,6 +1679,10 @@ the same shared worker, busy result, cancellation and failure behavior as
 Check `plugin.has_capability("ui.startup_image")` before preparing, installing
 or restoring a splash. This additive capability does not change API version 16.
 Startup image selection requires firmware whose loader supports the override.
+With the early-splash firmware support, the same selection also appears at the
+Linux boot screen, immediately after internal storage mounts. This requires a
+full firmware update; a player-only update cannot install the init scripts and
+helper. The early renderer does not mount storage itself or write a NAND marker.
 
 `set_startup_image_async` returns `true` when the job starts, or `nil, "busy"`
 if another image job is running. Its callback receives `(true, nil)` after

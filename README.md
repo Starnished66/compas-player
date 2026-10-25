@@ -162,13 +162,13 @@ base image:
 
 ```sh
 make target BOARD=r1
-make bootloader BOARD=r1
+make bootloader early-splash BOARD=r1
 
 make target BOARD=r3proii
-make bootloader BOARD=r3proii
+make bootloader early-splash BOARD=r3proii
 
 make target BOARD=r3ii_2025
-make bootloader BOARD=r3ii_2025
+make bootloader early-splash BOARD=r3ii_2025
 ```
 
 R1 and R3 Pro II use the combined Compás/Rockbox bootloader as their default
@@ -210,6 +210,19 @@ have not been validated on target hardware; use builds for the exact model
 only.
 
 </details>
+
+## Repository layout
+
+| Folder | Contents |
+| --- | --- |
+| `src/` | Application code, grouped by audio, hardware, library, network, plugins and UI. |
+| `src/ui/player/` | Player layout, artwork, lyrics, transport and queue-persistence components. |
+| `src/plugins/bindings/` | Lua bindings; plugin lifecycle and shared runtime stay in `src/plugins/`. |
+| `tests/player/` | Player characterization tests and shared fixtures. |
+| `scripts/` | Build, packaging, maintenance and test commands; build helpers live in `scripts/build/`. |
+| `docs/` | Technical guides and user documentation. |
+| `assets/` | Shipped themes, layouts, icons and fonts. |
+| `local/` | Gitignored notes, experiments and local artifacts. |
 
 ## Support the project
 

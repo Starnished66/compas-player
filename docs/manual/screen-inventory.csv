@@ -1,0 +1,84 @@
+screen,source,line,evidence,capture_status,notes
+Stream Media,src/ui/gui.c,1991,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Books,src/ui/gui_books.c,295,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Download emulators,src/ui/gui_emulator_store.c,362,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Add to Playlist,src/ui/gui_library.c,1205,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Playlists,src/ui/gui_library.c,8070,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Tracks,src/ui/gui_library.c,8136,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Music,src/ui/gui_library.c,10474,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Lyrics Text Size,src/ui/gui_lyrics.c,1187,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Wi-Fi Info,src/ui/gui_network.c,1233,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+DNS Settings,src/ui/gui_network.c,1315,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Wi-Fi,src/ui/gui_network.c,1514,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Bluetooth DAC,src/ui/gui_network.c,2058,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Sample Rate,src/ui/gui_network.c,2345,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Advanced,src/ui/gui_network.c,2428,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Codec,src/ui/gui_network.c,2439,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Resume Last Track,src/ui/gui_network.c,2492,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Font Size,src/ui/gui_network.c,2599,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+ReplayGain,src/ui/gui_network.c,2652,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+USB Mode,src/ui/gui_network.c,3030,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Bluetooth,src/ui/gui_network.c,3331,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+AirPlay,src/ui/gui_network.c,3754,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+DLNA,src/ui/gui_network.c,3987,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Remote Control,src/ui/gui_network.c,4212,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Wireless,src/ui/gui_network.c,4365,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Plugin Manager,src/ui/gui_plugin_manage.c,148,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Plugin Store,src/ui/gui_plugin_store.c,1396,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Plugin,src/ui/gui_plugins.c,1339,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Plugin Settings,src/ui/gui_plugins.c,1342,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Queue,src/ui/gui_queue.c,287,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Creator guides,src/ui/gui_settings.c,1201,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Buy Me a Coffee,src/ui/gui_settings.c,1211,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+About,src/ui/gui_settings.c,1311,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Developer Options,src/ui/gui_settings.c,1363,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Time Zone,src/ui/gui_settings.c,2968,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Sound Effects,src/ui/gui_settings.c,3074,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Download Profiles,src/ui/gui_settings.c,3089,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Playback & Controls,src/ui/gui_settings.c,3123,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Local DAC Settings,src/ui/gui_settings.c,3229,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Sound,src/ui/gui_settings.c,3262,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Button Mapping,src/ui/gui_settings.c,3424,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Buttons & Remote,src/ui/gui_settings.c,3587,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Sorting,src/ui/gui_settings.c,3678,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Library,src/ui/gui_settings.c,3746,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Animation Speed,src/ui/gui_settings.c,3799,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Keyboard,src/ui/gui_settings.c,3855,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Quick Drawer,src/ui/gui_settings.c,3988,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Clock Position,src/ui/gui_settings.c,4405,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Top Bar,src/ui/gui_settings.c,4439,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Appearance,src/ui/gui_settings.c,4472,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Layout,src/ui/gui_settings.c,4565,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Player Layout,src/ui/gui_settings.c,4583,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Gestures & Orientation,src/ui/gui_settings.c,4598,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Display,src/ui/gui_settings.c,4634,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Charging,src/ui/gui_settings.c,4669,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Power,src/ui/gui_settings.c,4736,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Additional Tools,src/ui/gui_settings.c,4769,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Clock,src/ui/gui_settings.c,4858,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Maintenance,src/ui/gui_settings.c,4929,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Updates,src/ui/gui_settings.c,4953,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Language,src/ui/gui_settings.c,4997,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+System,src/ui/gui_settings.c,5018,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Settings,src/ui/gui_settings.c,5096,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+More,src/ui/gui_settings.c,5201,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Profiles,src/ui/gui_settings.c,6219,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Stream Quality,src/ui/gui_subsonic.c,808,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Download Settings,src/ui/gui_subsonic.c,868,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Saved Servers,src/ui/gui_subsonic.c,1671,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+New Connection,src/ui/gui_subsonic.c,1757,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Subsonic,src/ui/gui_subsonic.c,1778,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Songs,src/ui/gui_subsonic.c,1838,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Playlists,src/ui/gui_subsonic.c,1839,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Themes,src/ui/gui_themes.c,1387,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Information,src/ui/gui_track_info.c,367,literal builder title,audit/retake pending,Source-discovered title; parent route and device visibility require runtime confirmation.
+Now Playing (each installed layout),src/ui/gui_player.c,,manual capture checklist,audit/retake pending,Dynamic layouts include audiobook/podcast controls.
+Lyrics: Abril — Malpaís,src/ui/gui_lyrics.c,,manual capture checklist,audit/retake pending,Confirm exact recording and synchronized lyrics.
+Playlist Edit / select all / search / deletion,src/ui/gui_library.c,,manual capture checklist,audit/retake pending,Capture current Done/checkbox/delete icon/reorder-handle layout.
+Lock Screen type previews / button unlock,src/ui/gui_lock_screen.c,,manual capture checklist,audit/retake pending,Include companion plugin and configured unlock behavior.
+Text reader with neutral sample,src/ui/gui_books.c,,manual capture checklist,audit/retake pending,Use demonstration/public-domain text; not personal documents.
+"Emulators: store, system and game picker",src/ui/gui_emulators.c,,manual capture checklist,audit/retake pending,Record board and package version; layout differs by screen size.
+Metronome,../compas-plugins/plugins/Metronome/Metronome.lua,,manual capture checklist,audit/retake pending,"Capture the redesigned current plugin, not an older menu."
+Streaming account / queue / errors,../compas-plugins/plugins,,manual capture checklist,audit/retake pending,Use demonstration state for each installed service.
+Setup: Player Layout,src/ui/gui_setup.c,,manual capture checklist,audit/retake pending,Absent from older setup gallery.
+All installed plugin screens,../compas-plugins/plugins,,manual capture checklist,audit/retake pending,Runtime inventory required; catalog/screens depend on installed versions.

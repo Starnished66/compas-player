@@ -74,9 +74,9 @@ writes board-specific outputs so builds do not overwrite each other:
 
 | Board | Build commands | Player output | Bootloader output |
 | --- | --- | --- | --- |
-| R1 | `make target BOARD=r1`<br>`make bootloader BOARD=r1` | `compas_player_target` | `compas_loader` |
-| R3 Pro II | `make target BOARD=r3proii`<br>`make bootloader BOARD=r3proii` | `compas_player_target_r3proii` | `compas_loader_r3proii` |
-| R3II 2025 | `make target BOARD=r3ii_2025`<br>`make bootloader BOARD=r3ii_2025` | `compas_player_target_r3ii_2025` | `compas_loader_r3ii_2025` |
+| R1 | `make target BOARD=r1`<br>`make bootloader early-splash BOARD=r1` | `compas_player_target` | `compas_loader` |
+| R3 Pro II | `make target BOARD=r3proii`<br>`make bootloader early-splash BOARD=r3proii` | `compas_player_target_r3proii` | `compas_loader_r3proii` |
+| R3II 2025 | `make target BOARD=r3ii_2025`<br>`make bootloader early-splash BOARD=r3ii_2025` | `compas_player_target_r3ii_2025` | `compas_loader_r3ii_2025` |
 
 Do not mix binaries between boards or use a host executable. The image installs
 them as `/usr/bin/compas_player` and `/usr/bin/compas_loader`. It also

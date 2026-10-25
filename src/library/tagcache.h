@@ -21,7 +21,7 @@
 
 /* Layout version of the on-card database this build writes (the version of its
  * index files). Anything that reads the database must carry a reader for it. */
-#define TAGCACHE_DATABASE_FORMAT 5u
+#define TAGCACHE_DATABASE_FORMAT 7u
 
 #define TAGCACHE_PATH_MAX 600
 #define TAGCACHE_TAG_MAX 128
@@ -221,7 +221,8 @@ void tagcache_add_play(const char * path, int32_t now);
 /* Staging-only overlay for statistics moved from remote-state sidecars onto a scanned row. */
 void tagcache_overlay_stats(const char * path, int32_t rating, int32_t playcount, int32_t last_played);
 int32_t tagcache_generation(void);
-/* 1 identifies persisted legacy title ranks; 2 identifies displayed-title ranks. */
+/* 1: legacy raw-title ranks; 2: displayed-title ASCII ranks; 3: Unicode
+ * collation; 4: Unicode collation with inverted Spanish punctuation ordering. */
 int tagcache_title_order_version(void);
 
 int32_t tagcache_title_rank_of_path(const char * path);

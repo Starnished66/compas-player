@@ -3613,3 +3613,20 @@ msgstr ""
 #: src/ui/gui_settings.c
 msgid "Keep Lyrics Screen On"
 msgstr ""
+
+msgid "PCM"
+msgstr ""
+
+msgid "Native DSD"
+msgstr ""
+
+msgid "DoP"
+msgstr ""
+
+msgid ""
+"Native DSD and DoP bypass software volume and DSP. Use DoP only with a "
+"compatible DAC. Unavailable formats or rates use PCM."
+msgstr ""
+
+msgid "USB DSD Output"
+msgstr ""

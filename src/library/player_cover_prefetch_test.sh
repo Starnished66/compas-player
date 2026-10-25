@@ -11,5 +11,7 @@ ${CC:-cc} -std=c11 -D_POSIX_C_SOURCE=200809L -DPLAYER_COVER_PREFETCH_TEST \
   "$ROOT/src/library/player_cover_prefetch.c" \
   "$ROOT/src/library/player_cover_prefetch_test.c" \
   "$ROOT/src/library/cover_raster_cache.c" \
-  "$ROOT/src/library/artwork_coordinator.c" -o "$OUT"
+  "$ROOT/src/library/artwork_coordinator.c" \
+  "$ROOT/src/library/artwork_memory.c" \
+  "$ROOT/src/library/artwork_failure_cache.c" -o "$OUT"
 timeout 8 "$OUT"
