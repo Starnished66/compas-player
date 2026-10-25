@@ -18,7 +18,8 @@ static int usage_error(const char *message) {
 
 int main(int argc, char **argv) {
     /* Internal: started by the scan to parse tags in a process of its own. */
-    if (argc == 2 && strcmp(argv[1], "parse-worker") == 0) return sdtool_parse_worker();
+    if (argc >= 2 && strcmp(argv[1], "parse-worker") == 0)
+        return sdtool_parse_worker(argc == 3 && strcmp(argv[2], "art") == 0);
 
     if (argc < 3) return usage_error("a command and a card root are required");
     const char *command = argv[1];

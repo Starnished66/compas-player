@@ -35,11 +35,12 @@ FILE *sdtool_worker_output(sdtool_worker_t *worker) { return worker->output; }
 
 #ifdef _WIN32
 
-sdtool_worker_t *sdtool_worker_start(const char *input_file) {
+sdtool_worker_t *sdtool_worker_start(const char *input_file, bool artwork) {
     wchar_t exe[PATH_MAX], list[PATH_MAX], command[PATH_MAX + 32];
     DWORD length = GetModuleFileNameW(NULL, exe, PATH_MAX);
     if (length == 0 || length >= PATH_MAX || !compat_path_to_wide(input_file, list, PATH_MAX) ||
-        swprintf(command, sizeof(command) / sizeof(command[0]), L"\"%ls\" parse-worker", exe) < 0)
+        swprintf(command, sizeof(command) / sizeof(command[0]), L"\"%ls\" parse-worker%ls", exe,
+                 artwork ? L" art" : L"") < 0)
         return NULL;
 
     /* The child inherits exactly its three standard handles (list file, result
@@ -121,7 +122,7 @@ static bool self_path(char *out, size_t size) {
 #endif
 }
 
-sdtool_worker_t *sdtool_worker_start(const char *input_file) {
+sdtool_worker_t *sdtool_worker_start(const char *input_file, bool artwork) {
     char exe[PATH_MAX];
     int pipe_fds[2];
     int input = open(input_file, O_RDONLY | O_CLOEXEC);
@@ -134,7 +135,8 @@ sdtool_worker_t *sdtool_worker_start(const char *input_file) {
     fcntl(pipe_fds[1], F_SETFD, FD_CLOEXEC);
 
     posix_spawn_file_actions_t actions;
-    char *argv[] = { exe, "parse-worker", NULL };
+    char *argv[] = { exe, "parse-worker", "art", NULL };
+    if (!artwork) argv[2] = NULL;
     pid_t pid = 0;
     int rc = posix_spawn_file_actions_init(&actions);
     if (rc == 0) {

@@ -123,6 +123,8 @@ static bool db_dir_identity_valid;
 static bool db_open, disk_ready, rebuild_preserve_generations;
 /* Set by tagcache_open_read_only(): loading must not write (no index migration). */
 static bool open_read_only;
+/* Set when the last open rewrote an older index layout (see tagcache_indexes_migrated()). */
+static bool indexes_migrated;
 static tagcache_load_outcome_t last_load_outcome = TAGCACHE_LOAD_FAILED;
 #define READER_SORT_CACHE_ROWS 64
 #define TC_QUERY_BLOCK_VALUES 128
@@ -1958,7 +1960,9 @@ static bool load_generation(int32_t gen) {
     int indexed = ok ? reader_open_indexes(gen) : -1;
     if (ok && indexed == 1 && reader_loaded_index_version < TC_INDEX_VERSION && !open_read_only) {
         uint32_t old_index_version = reader_loaded_index_version;
-        if (!reader_migrate_indexes(gen)) {
+        if (reader_migrate_indexes(gen)) {
+            indexes_migrated = true;
+        } else {
             /* Keep the previously valid persisted generation usable if rebuilding
              * derived indexes fails (for example, while storage is read-only). */
             reader_close_indexes();
@@ -2045,6 +2049,7 @@ static bool reload_from_disk(void) {
 static bool open_directory(const char *dir, bool read_only) {
     tagcache_close();
     open_read_only = read_only;
+    indexes_migrated = false;
     last_load_outcome = TAGCACHE_LOAD_FAILED;
     if (!db_pin_directory(dir)) return false;
     db_open = true;
@@ -2054,6 +2059,8 @@ static bool open_directory(const char *dir, bool read_only) {
 }
 
 bool tagcache_open(const char *dir) { return open_directory(dir, false); }
+
+bool tagcache_indexes_migrated(void) { return indexes_migrated; }
 
 bool tagcache_open_read_only(const char *dir) { return open_directory(dir, true); }
 

@@ -238,9 +238,21 @@ rm "$card/Artist Three/Album Three/02 Extra.mp3"
 r=$(run scan "$card") || fail "scan after removal"
 [ "$(field "$r" songs)" = 5 ] || fail "removed file kept: $r"
 
+# an embedded picture whose parser crashes or hangs fails that album only: the
+# rest are still done, and the counts come before the error.
+for fault in "crash:/01 First" "hang:/01 First"; do
+  rm -rf "$card/.compas/albumart"
+  ( SDTOOL_TEST_FAULT=$fault; SDTOOL_PARSE_TIMEOUT=2; export SDTOOL_TEST_FAULT SDTOOL_PARSE_TIMEOUT
+    "$tool" art "$card" > "$work/out" 2> "$work/err" ) && fail "art accepted a faulty parser ($fault)"
+  grep -q '"event":"done","command":"art".*"written":1,.*"failed":1' "$work/out" || fail "art counts with $fault"
+  tail -n 1 "$work/out" | grep -q '"code":"art_failed"' || fail "art_failed with $fault"
+done
+r=$(run art "$card") || fail "art after the faulty parser"
+[ "$(field "$r" written)" = 1 ] && [ "$(field "$r" failed)" = 0 ] || fail "art recovery: $r"
+
 # a cover that cannot be written fails that album only: the counts still come
 # first, then the error, and the other albums are done.
-printf 'not an image' > "$card/Artist Two/Album Two/cover.png"
+python3 -I -c 'import os,sys; t=os.stat(sys.argv[1]).st_mtime+60; open(sys.argv[1],"w").write("not an image"); os.utime(sys.argv[1], (t, t))' "$card/Artist Two/Album Two/cover.png"
 run art "$card" && fail "art accepted a corrupt cover"
 grep -q '"event":"done","command":"art".*"failed":1' "$work/out" || fail "art done line before the error"
 tail -n 1 "$work/out" | grep -q '"code":"art_failed"' || fail "art_failed error line"

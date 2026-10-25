@@ -1,4 +1,5 @@
 #include "parse_pool.h"
+#include "metadata_parser_internal.h"
 #include <limits.h>
 #include <pthread.h>
 #include <stdlib.h>
@@ -46,7 +47,7 @@ sdtool_parse_result_t sdtool_parse_files(const char *const *paths, size_t count,
     while (next < count) {
         char list[PATH_MAX];
         if (!write_list(paths, next, count, list, sizeof(list))) return SDTOOL_PARSE_WORKER_FAILED;
-        sdtool_worker_t *worker = sdtool_worker_start(list);
+        sdtool_worker_t *worker = sdtool_worker_start(list, false);
         if (!worker) {
             unlink(list);
             return SDTOOL_PARSE_WORKER_FAILED;
@@ -112,28 +113,67 @@ static void test_fault(const char *path, uint32_t worker_index) {
     if (strncmp(fault, "hang:", 5) == 0) for (;;) sleep(60);
 }
 
-int sdtool_parse_worker(void) {
+sdtool_art_result_t sdtool_parse_artwork(const char *path, uint8_t **data, uint32_t *size) {
+    char list[PATH_MAX];
+    const char *paths[1] = { path };
+    uint32_t header[2] = { 0, 0 }; /* file index, picture size */
+    sdtool_art_result_t result = SDTOOL_ART_FAILED;
+    *data = NULL;
+    *size = 0;
+    if (!write_list(paths, 0, 1, list, sizeof(list))) return result;
+    sdtool_worker_t *worker = sdtool_worker_start(list, true);
+    if (worker) {
+        FILE *answers = sdtool_worker_output(worker);
+        if (fread(header, sizeof(header), 1, answers) == 1 && header[0] == 0 && header[1] <= EMBEDDED_COVER_MAX_BYTES) {
+            if (header[1] == 0) {
+                result = SDTOOL_ART_NONE;
+            } else if ((*data = malloc(header[1])) && fread(*data, 1, header[1], answers) == header[1]) {
+                *size = header[1];
+                result = SDTOOL_ART_FOUND;
+            }
+        }
+        sdtool_worker_finish(worker);
+    }
+    unlink(list);
+    if (result != SDTOOL_ART_FOUND) {
+        free(*data);
+        *data = NULL;
+    }
+    return result;
+}
+
+int sdtool_parse_worker(bool artwork) {
     pthread_t thread;
     const char *fault = getenv("SDTOOL_TEST_FAULT");
     uint32_t length, index = 0;
     if (fault && strcmp(fault, "start") == 0) return 0;
     if (pthread_create(&thread, NULL, watchdog, NULL) != 0) return 1;
+    if (artwork) metadata_parser_enable_artwork_only();
     while (fread(&length, sizeof(length), 1, stdin) == 1) {
         char *path = length < 1u << 20 ? malloc((size_t) length + 1) : NULL;
         if (!path || fread(path, 1, length, stdin) != length) return 1;
         path[length] = '\0';
         sdtool_parse_record_t *record = calloc(1, sizeof(*record));
         if (!record) return 1;
-        record->index = index++;
+        record->index = index;
         started_at = time(NULL);
-        test_fault(path, record->index);
-        metadata_read_without_artwork(path, &record->meta);
+        test_fault(path, index++);
+        bool written;
+        if (artwork) {
+            metadata_read(path, &record->meta);
+            uint32_t size = record->meta.picture_size <= EMBEDDED_COVER_MAX_BYTES && record->meta.picture_data
+                                ? record->meta.picture_size : 0;
+            uint32_t header[2] = { record->index, size };
+            written = fwrite(header, sizeof(header), 1, stdout) == 1 &&
+                      (size == 0 || fwrite(record->meta.picture_data, 1, size, stdout) == size) &&
+                      fflush(stdout) == 0;
+        } else {
+            metadata_read_without_artwork(path, &record->meta);
+            written = fwrite(record, sizeof(*record), 1, stdout) == 1 && fflush(stdout) == 0;
+        }
+        started_at = 0;
         free(record->meta.picture_data);
         free(record->meta.lyrics);
-        record->meta.picture_data = NULL;
-        record->meta.lyrics = NULL;
-        started_at = 0;
-        bool written = fwrite(record, sizeof(*record), 1, stdout) == 1 && fflush(stdout) == 0;
         free(record);
         free(path);
         if (!written) return 1;
