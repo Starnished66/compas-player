@@ -9,7 +9,7 @@ static int legacy_group_index(int kind, const char *name, const char *aa);
 static int legacy_group_ids(int kind, int gi, int offset, int32_t *ids, int max);
 
 #define TC_INDEX_MAGIC 0x54434931u
-#define TC_INDEX_VERSION 5u
+#define TC_INDEX_VERSION TAGCACHE_DATABASE_FORMAT
 #define TC_ALBUM_ORDER_MAGIC 0x5443414fu
 #define TC_ALBUM_ORDER_VERSION 2u
 static bool reader_build_indexes(void);

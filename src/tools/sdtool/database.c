@@ -1,0 +1,53 @@
+#include "sdtool.h"
+#include "json_out.h"
+#include "metadata_db.h"
+#include "storage_paths.h"
+#include "tagcache.h"
+#include <stdio.h>
+#include <string.h>
+#include <sys/stat.h>
+
+/* Same recovery the player's scan applies: a database that cannot be loaded is
+ * replaced by an empty one that the scan then fills. */
+static bool card_present(void) {
+    struct stat st;
+    if (stat(sdtool_root(), &st) == 0 && S_ISDIR(st.st_mode)) return true;
+    json_error("card_not_found", "the card root is not a readable folder");
+    return false;
+}
+
+bool sdtool_open_database(void) {
+    if (!card_present()) return false;
+    metadata_db_load_outcome_t outcome = metadata_db_open();
+    if (outcome == METADATA_DB_LOAD_FAILED && metadata_db_prepare_rebuild())
+        outcome = METADATA_DB_LOAD_SUCCESS_NORMAL;
+    if (outcome == METADATA_DB_LOAD_FAILED || outcome == METADATA_DB_LOAD_UNMOUNTED) {
+        json_error("database_open_failed", "the music database could not be opened or rebuilt");
+        return false;
+    }
+    return true;
+}
+
+int sdtool_cmd_info(const sdtool_options_t *options) {
+    (void) options;
+    if (!card_present()) return SDTOOL_FAILED;
+    json_line_t line;
+    long long songs = 0;
+    int generation = 0;
+    struct stat st;
+    /* A card never scanned has no database: report it empty without creating
+     * one. */
+    if (stat(storage_sd_path(COMPAS_STORAGE_DIR "/tagcache.gen"), &st) == 0) {
+        if (!sdtool_open_database()) return SDTOOL_FAILED;
+        songs = metadata_db_get_song_count();
+        generation = metadata_db_get_generation();
+        metadata_db_close();
+    }
+    json_begin(&line);
+    json_string(&line, "sdtool_version", SDTOOL_VERSION);
+    json_integer(&line, "database_format", TAGCACHE_DATABASE_FORMAT);
+    json_integer(&line, "generation", generation);
+    json_integer(&line, "songs", songs);
+    json_emit(&line);
+    return SDTOOL_OK;
+}

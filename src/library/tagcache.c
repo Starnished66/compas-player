@@ -4,6 +4,9 @@
  * Generation commits preserve the previous library until pointer publication.
  */
 #include "tagcache.h"
+#include "dir_fd_path.h"
+#include "library_mtime.h"
+#include "storage_paths.h"
 #include "tagcache_generation_refs.h"
 #include "library_endian.h"
 #include "db_log.h"
@@ -328,7 +331,7 @@ static bool db_pin_directory(const char * dir) {
         return false;
     }
     if (snprintf(db_logical_dir, sizeof(db_logical_dir), "%s", dir) >= (int)sizeof(db_logical_dir) ||
-        snprintf(db_dir, sizeof(db_dir), "/proc/self/fd/%d", fd) >= (int)sizeof(db_dir)) {
+        !dir_fd_path(fd, db_dir, sizeof(db_dir))) {
         close(fd);
         db_logical_dir[0] = db_dir[0] = '\0';
         return false;
@@ -1543,7 +1546,8 @@ bool tagcache_lookup(const char *path, int32_t mtime, int32_t size, tagcache_son
     } else if (scan_lazy_active) {
         scan_seen_set(slot);
     }
-    if (idx.tag_seek[tag_mtime] != mtime || idx.tag_seek[tag_lastoffset] != size) return false;
+    if (!library_mtime_same_version(idx.tag_seek[tag_mtime], mtime) || idx.tag_seek[tag_lastoffset] != size)
+        return false;
     tagcache_song_t song;
     if (!reader_song(slot, out ? out : &song)) return false;
     if (out) {
@@ -2006,7 +2010,10 @@ static bool reload_from_disk(void) {
     tagcache_close();
     db_dir_fd = pinned_fd;
     snprintf(db_logical_dir, sizeof(db_logical_dir), "%s", logical);
-    snprintf(db_dir, sizeof(db_dir), "/proc/self/fd/%d", db_dir_fd);
+    if (!dir_fd_path(db_dir_fd, db_dir, sizeof(db_dir))) {
+        tagcache_close();
+        return false;
+    }
     db_dir_identity_valid = fstat(db_dir_fd, &db_dir_identity) == 0;
     db_open = true;
     bool ok = load_all();
@@ -2116,7 +2123,9 @@ bool tagcache_end_update_with_lock(void (*unlock)(void), void (*lock)(void)) {
             }
             struct stat st;
             if (unlock) unlock();
-            if (path[0] && stat(path, &st) != 0 && errno == ENOENT) changed = true;
+            char file[TAGCACHE_PATH_MAX + 256];
+            if (path[0] && stat(storage_stored_path(path, file, sizeof(file)), &st) != 0 &&
+                errno == ENOENT) changed = true;
             if (lock) lock();
         }
         if (update_failed) {
@@ -2151,7 +2160,9 @@ bool tagcache_end_update_with_lock(void (*unlock)(void), void (*lock)(void)) {
             if (!ok) break;
             struct stat st;
             if (unlock) unlock();
-            bool missing = path[0] && stat(path, &st) != 0 && errno == ENOENT;
+            char file[TAGCACHE_PATH_MAX + 256];
+            bool missing = path[0] && stat(storage_stored_path(path, file, sizeof(file)), &st) != 0 &&
+                           errno == ENOENT;
             if (lock) lock();
             if (!reader_index(slot, &idx)) { ok = false; break; }
             if (missing) idx.flag |= FLAG_DELETED;

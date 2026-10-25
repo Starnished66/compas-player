@@ -9,8 +9,15 @@
 /* Persistent RGB565 cache sizes shared by the library and player.  The
  * on-card representation is a 24-bit BMP, while callers receive RGB565
  * buffers from cover_decode.c. */
+/* Generation of the cache file naming and contents; a new one retires older
+ * caches. */
+#define ALBUMART_CACHE_VERSION "v4"
 #define ALBUMART_THUMBNAIL_SIZE 72
 #define ALBUMART_PLAYER_CACHE_SIZE 480
+/* Largest external cover file the library reads, and how many other tracks of
+ * an album are tried for embedded art when the representative one has none. */
+#define ALBUMART_SIDECAR_MAX_BYTES (2U * 1024U * 1024U)
+#define ALBUMART_SIBLING_FALLBACK_MAX 5
 
 /* POSIX port of Rockbox apps/recorder/albumart.c (GPLv2+), extended with a
  * multi-disc fallback (own repo addition, not present in upstream Rockbox).

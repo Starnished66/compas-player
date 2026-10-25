@@ -217,6 +217,7 @@
 /build_host_*/
 /build_target/
 /build_target_*/
+/build_sdtool*/
 /compas_player_host
 /compas_player_host_*
 /compas_player_target
@@ -402,6 +403,7 @@ compas_player_power_r3ii_2025
 *_test.c
 !src/core/theme_file_test.c
 !src/core/boot_trace_test.c
+!src/core/device_info_test.c
 !src/ui/gui_themes_test.c
 !src/network/plugin_store_theme_test.c
 !src/library/image_thumb_test.c
@@ -477,6 +479,9 @@ __pycache__/
 !scripts/test_plugin_failed_load_rollback.py
 !scripts/test_plugin_file_manager_api.py
 
+# compas-sdtool end-to-end test fixture generator.
+!/tests/sdtool/make_fixture.py
+
 # API 16 modeless progress and download snapshot regressions.
 !/scripts/test_plugin_progress_api.py
 !/scripts/test_plugin_progress_ui.py
@@ -487,6 +492,7 @@ __pycache__/
 !/scripts/tests/wifi_ssid_escape_test.c
 !/scripts/tests/run_wifi_ssid_escape_test.sh
 !/scripts/tests/file_browser_natural_sort_test.sh
+!/scripts/tests/run_device_info_test.sh
 !src/audio/peq_crossfeed_selftest.c
 
 # Local release assembly and settings regression harnesses.

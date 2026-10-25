@@ -1,6 +1,7 @@
 #ifndef GUI_H
 #define GUI_H
 
+#include "library_walk.h"
 #include "lvgl/lvgl.h"
 #include "board_config.h"
 #include "settings.h"
@@ -491,7 +492,6 @@ void boot_checkpoint(const char * msg);
  * thread's own stack being exhausted. */
 void install_thread_crash_altstack(void);
 
-#define AUDIOBOOKS_LIBRARY_DIR_NAME "Audiobooks"
 /* ---- Shared GUI and Screen Builders Helpers ---- */
 void generic_back_cb(lv_event_t * e);
 lv_obj_t * add_pill_chevron_row(lv_obj_t * list, const char * text, lv_event_cb_t cb);

@@ -8,6 +8,7 @@
 
 #include "albumart.h"
 #include "library_endian.h"
+#include "library_mtime.h"
 #include "storage_paths.h"
 
 #include <ctype.h>
@@ -23,13 +24,14 @@
 #include <stdint.h>
 #include <errno.h>
 
-#define ALBUMART_DIR SD_COMPAS_ROOT "/albumart"
+#define ALBUMART_COMPAS_DIR storage_sd_path(COMPAS_STORAGE_DIR)
+#define ALBUMART_DIR storage_sd_path(COMPAS_STORAGE_DIR "/albumart")
 
 /* v4 caches were generated with folder art taking priority over track
  * sidecars. A v3 cache can contain a different source with a newer mtime,
  * so timestamp freshness alone cannot migrate that selection policy.
  * Keep the album key stable for grouping and artist aliases. */
-#define ALBUMART_CACHE_PREFIX "v4-"
+#define ALBUMART_CACHE_PREFIX ALBUMART_CACHE_VERSION "-"
 _Static_assert(sizeof(ALBUMART_CACHE_PREFIX) == 4, "cache parser requires a three-byte prefix");
 
 static pthread_once_t old_album_cache_cleanup_once = PTHREAD_ONCE_INIT;
@@ -486,7 +488,8 @@ uint64_t albumart_artist_thumbnail_key(const char * artist) {
  * retag or a new cover file; an older file copied over the source is left to
  * Reload cover. */
 static bool generated_source_newer(uint32_t stored, uint32_t source_mtime) {
-    return stored != 0 && source_mtime != 0 && source_mtime > stored;
+    return stored != 0 && source_mtime != 0 && source_mtime > stored &&
+           !library_mtime_same_version(stored, source_mtime);
 }
 
 bool albumart_sized_thumb_fresh_with_source_mtime(const albumart_info_t * info, int width, int height,
@@ -621,7 +624,7 @@ bool albumart_store_rgb565(const albumart_info_t * info, int width, int height, 
     const char * artist = info->albumartist[0] ? info->albumartist : info->artist;
     if (!artist[0] || !info->album[0]) return false;
 
-    mkdir(SD_COMPAS_ROOT, 0755);
+    mkdir(ALBUMART_COMPAS_DIR, 0755);
     mkdir(ALBUMART_DIR, 0755);
     /* Cache writers run in artwork workers. Retire the old policy once,
      * before allocating SD space for replacements, not on the UI/read path.
@@ -668,7 +671,7 @@ bool albumart_artist_sized_thumb_fresh(const char * artist, uint32_t source_mtim
 bool albumart_artist_store_rgb565(const char * artist, uint32_t source_mtime,
                                   int width, int height, const uint16_t * pixels) {
     if (!artist || !artist[0] || !pixels || width <= 0 || height <= 0) return false;
-    mkdir(SD_COMPAS_ROOT, 0755);
+    mkdir(ALBUMART_COMPAS_DIR, 0755);
     mkdir(ALBUMART_DIR, 0755);
     char path[PATH_MAX];
     if (!artist_thumbnail_path(artist, width, height, "bmp", path, sizeof(path))) return false;
@@ -700,7 +703,7 @@ bool albumart_artist_negative_exists(const char * artist) {
 
 bool albumart_artist_store_negative(const char * artist, uint64_t source_signature) {
     if (!artist || !artist[0]) return false;
-    mkdir(SD_COMPAS_ROOT, 0755);
+    mkdir(ALBUMART_COMPAS_DIR, 0755);
     mkdir(ALBUMART_DIR, 0755);
     char path[PATH_MAX], tmp[PATH_MAX + 16];
     if (!artist_thumbnail_path(artist, ALBUMART_THUMBNAIL_SIZE, ALBUMART_THUMBNAIL_SIZE,
@@ -754,7 +757,7 @@ bool albumart_artist_alias_load(const char * artist, unsigned int scope, uint64_
 bool albumart_artist_alias_store(const char * artist, unsigned int scope, uint64_t album_key,
                                  int64_t representative_song_id) {
     if (!artist || !artist[0] || album_key == 0 || representative_song_id <= 0) return false;
-    mkdir(SD_COMPAS_ROOT, 0755);
+    mkdir(ALBUMART_COMPAS_DIR, 0755);
     mkdir(ALBUMART_DIR, 0755);
     char path[PATH_MAX], tmp[PATH_MAX + 16];
     if (!artist_alias_path(artist, scope, path, sizeof(path)) ||
@@ -933,7 +936,11 @@ static bool remove_cache_files_matching(const char * root, cache_name_match_fn m
     return ok;
 }
 
-static const char * const cache_roots[] = { SD_COMPAS_ROOT };
+#define CACHE_ROOT_COUNT 1u
+static const char * cache_root(size_t index) {
+    (void) index;
+    return ALBUMART_COMPAS_DIR;
+}
 
 static bool match_old_album_cache(int dir_fd, const char * name, void * context) {
     (void) dir_fd;
@@ -943,8 +950,8 @@ static bool match_old_album_cache(int dir_fd, const char * name, void * context)
 }
 
 static void remove_old_album_caches(void) {
-    for (size_t r = 0; r < sizeof(cache_roots) / sizeof(cache_roots[0]); r++)
-        (void) remove_cache_files_matching(cache_roots[r], match_old_album_cache, NULL);
+    for (size_t r = 0; r < CACHE_ROOT_COUNT; r++)
+        (void) remove_cache_files_matching(cache_root(r), match_old_album_cache, NULL);
 }
 
 static bool match_any_generated_cache(int dir_fd, const char * name, void * context) {
@@ -955,8 +962,8 @@ static bool match_any_generated_cache(int dir_fd, const char * name, void * cont
 
 bool albumart_delete_all_generated_caches(void) {
     bool ok = true;
-    for (size_t r = 0; r < sizeof(cache_roots) / sizeof(cache_roots[0]); r++)
-        if (!remove_cache_files_matching(cache_roots[r], match_any_generated_cache, NULL)) ok = false;
+    for (size_t r = 0; r < CACHE_ROOT_COUNT; r++)
+        if (!remove_cache_files_matching(cache_root(r), match_any_generated_cache, NULL)) ok = false;
     return ok;
 }
 
@@ -1035,10 +1042,10 @@ bool albumart_delete_generated_cache_for_album(const albumart_info_t * info,
     if (info->artist[0]) album_reload_add_artist(&scan, albumart_artist_thumbnail_key(info->artist));
     if (info->albumartist[0]) album_reload_add_artist(&scan, albumart_artist_thumbnail_key(info->albumartist));
     bool ok = true;
-    for (size_t r = 0; r < sizeof(cache_roots) / sizeof(cache_roots[0]); r++)
-        if (!remove_cache_files_matching(cache_roots[r], album_reload_first_pass, &scan)) ok = false;
-    for (size_t r = 0; r < sizeof(cache_roots) / sizeof(cache_roots[0]); r++)
-        if (!remove_cache_files_matching(cache_roots[r], album_reload_second_pass, &scan)) ok = false;
+    for (size_t r = 0; r < CACHE_ROOT_COUNT; r++)
+        if (!remove_cache_files_matching(cache_root(r), album_reload_first_pass, &scan)) ok = false;
+    for (size_t r = 0; r < CACHE_ROOT_COUNT; r++)
+        if (!remove_cache_files_matching(cache_root(r), album_reload_second_pass, &scan)) ok = false;
     free(scan.artist_keys);
     return ok && !scan.out_of_memory;
 }

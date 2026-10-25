@@ -1,6 +1,7 @@
 #include "metadata_db.h"
 
 #include "path_cache.h"
+#include "storage_paths.h"
 #include "remote_state.h"
 #include "subsonic_saved_servers.h"
 #include "tagcache.h"
@@ -21,12 +22,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#ifdef HOST_BUILD
-  #define METADATA_DB_ROOT "."
-#else
-  #define METADATA_DB_ROOT "/data/mnt/sd_0"
-#endif
-#define METADATA_DB_DIR METADATA_DB_ROOT "/.compas"
+#define METADATA_DB_DIR storage_sd_path(COMPAS_STORAGE_DIR)
 #define CATALOG_INCARNATION_NAME "catalog.incarnation"
 #define CATALOG_INCARNATION_TEMP_NAME "catalog.incarnation.tmp"
 

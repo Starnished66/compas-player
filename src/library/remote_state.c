@@ -11,7 +11,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define REMOTE_STATE_DIR SD_COMPAS_ROOT
+#define REMOTE_STATE_DIR storage_sd_path(COMPAS_STORAGE_DIR)
 
 #define REMOTE_STATE_FILE "remote_state.tsv"
 #define REMOTE_STATE_PATH_MAX 600

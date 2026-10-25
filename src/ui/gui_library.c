@@ -40,6 +40,7 @@ void refresh_artist_albums_now_playing_indicator(void);
 #include "screen_builders.h"
 #include "metadata.h"
 #include "metadata_db.h"
+#include "library_scan_tags.h"
 #include "metadata_refresh_targets.h"
 #include "sd_fsck_run.h"
 #include "tagcache.h"
@@ -3477,7 +3478,7 @@ bool gui_library_album_cover_cached(int64_t song_id, int size_px, char * out, si
     return hit;
 }
 
-#define THUMBNAIL_SIDECAR_MAX_BYTES (2U * 1024U * 1024U)
+#define THUMBNAIL_SIDECAR_MAX_BYTES ALBUMART_SIDECAR_MAX_BYTES
 #define ALBUM_ART_METADATA_TIMEOUT_MS 5000
 /* Small startup allowance; the helper has a bounded address-space budget
  * and the returned picture is admitted at its actual compressed size. */
@@ -3488,7 +3489,7 @@ bool gui_library_album_cover_cached(int64_t song_id, int size_px, char * out, si
  * and no sidecar exists either -- covers rips where only some tracks carry
  * embedded art (e.g. a short intro/interlude or bonus track).
  * Kept small: each probe is a full isolated-process extraction. */
-#define ALBUM_ART_SIBLING_FALLBACK_MAX 5
+#define ALBUM_ART_SIBLING_FALLBACK_MAX ALBUMART_SIBLING_FALLBACK_MAX
 
 /* Persistent warmer state flags */
 static pthread_t album_thumb_gen_thread;
@@ -12231,13 +12232,6 @@ fail:
     return false;
 }
 
-static bool cached_song_tags_equal(const cached_tags_t * a, const cached_tags_t * b) {
-    return strcmp(a->title, b->title) == 0 && strcmp(a->artist, b->artist) == 0 &&
-           strcmp(a->album, b->album) == 0 && strcmp(a->album_artist, b->album_artist) == 0 &&
-           strcmp(a->genre, b->genre) == 0 && a->track_number == b->track_number &&
-           a->disc_number == b->disc_number && a->release_year == b->release_year;
-}
-
 static scan_song_result_t scan_song_stat_into_db(const char * path, const char * db_path,
                                                    const struct stat * source_stat,
                                                    bool force_metadata, bool * out_changed,
@@ -12262,17 +12256,7 @@ static scan_song_result_t scan_song_stat_into_db(const char * path, const char *
     if (!metadata_read_isolated(path, &meta, LIBRARY_SCAN_FILE_TIMEOUT_MS)) return SCAN_SONG_FAILED;
 
     cached_tags_t fresh;
-    memset(&fresh, 0, sizeof(fresh));
-    fresh.track_number = meta.has_track_number ? meta.track_number : -1;
-    fresh.disc_number = meta.has_disc_number ? meta.disc_number : -1;
-    fresh.release_year = meta.has_release_year ? meta.release_year : -1;
-    snprintf(fresh.title, sizeof(fresh.title), "%s", meta.has_title ? meta.title : "");
-    snprintf(fresh.artist, sizeof(fresh.artist), "%s", meta.has_artist ? meta.artist : "Unknown Artist");
-    snprintf(fresh.album, sizeof(fresh.album), "%s", meta.has_album ? meta.album : "Unknown Album");
-    const char * album_artist_value = meta.has_album_artist ? meta.album_artist
-                                     : (meta.has_artist ? meta.artist : "Unknown Artist");
-    snprintf(fresh.album_artist, sizeof(fresh.album_artist), "%s", album_artist_value);
-    snprintf(fresh.genre, sizeof(fresh.genre), "%s", meta.has_genre ? meta.genre : "Unknown Genre");
+    library_scan_tags_from_track(&meta, &fresh);
     free(meta.picture_data);
     free(meta.lyrics); /* always NULL here (metadata_read_isolated() itself already frees/NULLs it before the pipe write), freeing defensively for symmetry */
 
@@ -12282,7 +12266,7 @@ static scan_song_result_t scan_song_stat_into_db(const char * path, const char *
      * scan misses that old cache key and reads the file once. A parse that
      * differs only in a spelling tagcache interns back to the stored one is
      * written but reported unchanged by tagcache, so it cannot force a commit. */
-    bool exact_match = force_metadata && had_previous && cached_song_tags_equal(&previous.tags, &fresh);
+    bool exact_match = force_metadata && had_previous && library_scan_tags_equal(&previous.tags, &fresh);
     bool stored_changed = !exact_match && metadata_db_put(db_path, mtime, size, &fresh);
     if (force_metadata) {
         if (out_changed) *out_changed = had_previous && stored_changed;
