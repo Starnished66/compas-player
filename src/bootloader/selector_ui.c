@@ -41,12 +41,12 @@ static void ttf_stream_seek(FILE * stream, long offset);
 
 typedef struct { int r, g, b; } rgb_t;
 
-uint16_t * canvas;
-int canvas_width;
-int canvas_height;
-size_t canvas_stride;
-int clip_top;
-int clip_bottom;
+uint16_t * sel_canvas;
+int sel_canvas_width;
+int sel_canvas_height;
+size_t sel_canvas_stride;
+int sel_clip_top;
+int sel_clip_bottom;
 static FILE * font_file;
 static FILE * font_medium_file;
 static stbtt_fontinfo font_info;
@@ -60,12 +60,39 @@ static int font_medium_ascent;
 static int font_medium_descent;
 static int font_medium_line_gap;
 
+typedef struct { FILE * file; size_t limit; } ttf_file_slot_t;
+static ttf_file_slot_t ttf_slots[2];
+
+static void ttf_register(FILE * stream, size_t size) {
+    if (!stream) return;
+    size_t limit = size > MAX_FONT_BYTES ? MAX_FONT_BYTES : size;
+    for (int i = 0; i < 2; i++) {
+        if (ttf_slots[i].file == stream || ttf_slots[i].file == NULL) {
+            ttf_slots[i].file = stream;
+            ttf_slots[i].limit = limit;
+            return;
+        }
+    }
+}
+
+static void ttf_unregister(FILE * stream) {
+    for (int i = 0; i < 2; i++) {
+        if (ttf_slots[i].file == stream) {
+            ttf_slots[i].file = NULL;
+            ttf_slots[i].limit = 0;
+        }
+    }
+}
+
+static void ttf_clear_slots(void) {
+    ttf_slots[0].file = ttf_slots[1].file = NULL;
+    ttf_slots[0].limit = ttf_slots[1].limit = 0;
+}
+
 static size_t ttf_file_limit(FILE * stream) {
-    struct stat st;
-    if (!stream || fstat(fileno(stream), &st) != 0 || !S_ISREG(st.st_mode) ||
-        st.st_size < 0) return 0;
-    if ((uintmax_t)st.st_size > MAX_FONT_BYTES) return MAX_FONT_BYTES;
-    return (size_t)st.st_size;
+    for (int i = 0; i < 2; i++)
+        if (ttf_slots[i].file == stream) return ttf_slots[i].limit;
+    return 0;
 }
 
 static void ttf_stream_seek(FILE * stream, long offset) {
@@ -99,14 +126,14 @@ static uint16_t pack565(uint32_t value) {
     return (uint16_t)(((unsigned)c.r >> 3 << 11) | ((unsigned)c.g >> 2 << 5) | ((unsigned)c.b >> 3));
 }
 
-void put_pixel(int x, int y, uint32_t color, unsigned alpha) {
-    if (!canvas || x < 0 || y < clip_top || x >= canvas_width || y >= canvas_height ||
-        y >= clip_bottom || alpha == 0) return;
+void sel_put_pixel(int x, int y, uint32_t color, unsigned alpha) {
+    if (!sel_canvas || x < 0 || y < sel_clip_top || x >= sel_canvas_width || y >= sel_canvas_height ||
+        y >= sel_clip_bottom || alpha == 0) return;
     if (alpha >= 255) {
-        canvas[(size_t)y * canvas_stride + (size_t)x] = pack565(color);
+        sel_canvas[(size_t)y * sel_canvas_stride + (size_t)x] = pack565(color);
         return;
     }
-    uint16_t old = canvas[(size_t)y * canvas_stride + (size_t)x];
+    uint16_t old = sel_canvas[(size_t)y * sel_canvas_stride + (size_t)x];
     rgb_t bg = { (int)(((old >> 11) & 31) * 255 / 31),
                  (int)(((old >> 5) & 63) * 255 / 63),
                  (int)((old & 31) * 255 / 31) };
@@ -115,40 +142,40 @@ void put_pixel(int x, int y, uint32_t color, unsigned alpha) {
     uint32_t blended = (uint32_t)((fg.r * alpha + bg.r * inv + 127) / 255) << 16 |
                        (uint32_t)((fg.g * alpha + bg.g * inv + 127) / 255) << 8 |
                        (uint32_t)((fg.b * alpha + bg.b * inv + 127) / 255);
-    canvas[(size_t)y * canvas_stride + (size_t)x] = pack565(blended);
+    sel_canvas[(size_t)y * sel_canvas_stride + (size_t)x] = pack565(blended);
 }
 
-void blit_a8(int x, int y, const uint8_t * pixels, int width, int height, uint32_t color) {
+void sel_blit_a8(int x, int y, const uint8_t * pixels, int width, int height, uint32_t color) {
     if (!pixels || width <= 0 || height <= 0) return;
     for (int row = 0; row < height; row++) {
         const uint8_t * src = pixels + (size_t)row * (size_t)width;
         for (int col = 0; col < width; col++)
-            put_pixel(x + col, y + row, color, src[col]);
+            sel_put_pixel(x + col, y + row, color, src[col]);
     }
 }
 
-void blit_rgba(int x, int y, const uint8_t * pixels, int width, int height) {
+void sel_blit_rgba(int x, int y, const uint8_t * pixels, int width, int height) {
     if (!pixels || width <= 0 || height <= 0) return;
     for (int row = 0; row < height; row++) {
         const uint8_t * src = pixels + (size_t)row * (size_t)width * 4u;
         for (int col = 0; col < width; col++) {
             const uint8_t * p = src + (size_t)col * 4u;
             uint32_t color = ((uint32_t)p[0] << 16) | ((uint32_t)p[1] << 8) | p[2];
-            put_pixel(x + col, y + row, color, p[3]);
+            sel_put_pixel(x + col, y + row, color, p[3]);
         }
     }
 }
 
-void fill_rect(int x, int y, int w, int h, uint32_t color) {
+void sel_fill_rect(int x, int y, int w, int h, uint32_t color) {
     if (w <= 0 || h <= 0) return;
     int x0 = x < 0 ? 0 : x;
-    int y0 = y < clip_top ? clip_top : y;
-    int x1 = x > canvas_width - w ? canvas_width : x + w;
-    int y1 = y > canvas_height - h ? canvas_height : y + h;
-    if (y1 > clip_bottom) y1 = clip_bottom;
+    int y0 = y < sel_clip_top ? sel_clip_top : y;
+    int x1 = x > sel_canvas_width - w ? sel_canvas_width : x + w;
+    int y1 = y > sel_canvas_height - h ? sel_canvas_height : y + h;
+    if (y1 > sel_clip_bottom) y1 = sel_clip_bottom;
     for (int py = y0; py < y1; py++)
         for (int px = x0; px < x1; px++)
-            canvas[(size_t)py * canvas_stride + (size_t)px] = pack565(color);
+            sel_canvas[(size_t)py * sel_canvas_stride + (size_t)px] = pack565(color);
 }
 
 static int integer_sqrt(int value) {
@@ -157,13 +184,13 @@ static int integer_sqrt(int value) {
     return root;
 }
 
-void line(int x0, int y0, int x1, int y1, uint32_t color, int thickness) {
+void sel_line(int x0, int y0, int x1, int y1, uint32_t color, int thickness) {
     int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
     int dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
     int err = dx + dy;
     int radius = thickness / 2;
     for (;;) {
-        fill_rect(x0 - radius, y0 - radius, thickness, thickness, color);
+        sel_fill_rect(x0 - radius, y0 - radius, thickness, thickness, color);
         if (x0 == x1 && y0 == y1) break;
         int e2 = 2 * err;
         if (e2 >= dy) { err += dy; x0 += sx; }
@@ -171,7 +198,7 @@ void line(int x0, int y0, int x1, int y1, uint32_t color, int thickness) {
     }
 }
 
-void rounded_fill(int x, int y, int w, int h, int radius, uint32_t color) {
+void sel_rounded_fill(int x, int y, int w, int h, int radius, uint32_t color) {
     if (w <= 0 || h <= 0) return;
     if (radius < 0) radius = 0;
     if (radius > w / 2) radius = w / 2;
@@ -185,7 +212,7 @@ void rounded_fill(int x, int y, int w, int h, int radius, uint32_t color) {
             int dy = row - (h - radius);
             inset = radius - integer_sqrt(radius * radius - dy * dy);
         }
-        fill_rect(x + inset, y + row, w - 2 * inset, 1, color);
+        sel_fill_rect(x + inset, y + row, w - 2 * inset, 1, color);
     }
 }
 
@@ -220,6 +247,7 @@ static uint8_t fallback_glyph(uint32_t cp, int row) {
         case '-': return row == 3 ? 14 : 0;
         case ':': return row == 2 || row == 5 ? 4 : 0;
         case '.': return row == 6 ? 4 : 0;
+        case ',': return row == 5 ? 4 : row == 6 ? 2 : 0;
         case '/': return (uint8_t)(1u << (row < 5 ? 4 - row : 0));
         case '+': return row == 3 ? 14 : row == 1 || row == 2 || row == 4 || row == 5 ? 4 : 0;
         default: return row == 0 || row == 6 ? 14 : row == 1 || row == 5 ? 17 : 2;
@@ -248,7 +276,10 @@ static int text_width_face(const stbtt_fontinfo * info, const char * text, int p
         int scale = px / 7;
         if (scale < 1) scale = 1;
         int count = 0;
-        for (const unsigned char *p = (const unsigned char *)text; *p; ) { (void)decode_utf8(&p); count++; }
+        for (const unsigned char *p = (const unsigned char *)text; *p; ) {
+            uint32_t cp = decode_utf8(&p);
+            count += cp == 0x2026 ? 3 : 1;
+        }
         return count * 6 * scale;
     }
     float scale = stbtt_ScaleForPixelHeight(info, (float)px);
@@ -266,11 +297,11 @@ static int text_width_face(const stbtt_fontinfo * info, const char * text, int p
     return (int)(advance + 0.5f);
 }
 
-int text_width(const char * text, int px) {
+int sel_text_width(const char * text, int px) {
     return text_width_face(&font_info, text, px);
 }
 
-int text_width_medium(const char * text, int px) {
+int sel_text_width_medium(const char * text, int px) {
     return text_width_face(font_medium_ready ? &font_medium_info : &font_info, text, px);
 }
 
@@ -282,12 +313,17 @@ static void draw_text_face(const stbtt_fontinfo * info, int ascent, int x, int t
         int cursor = x;
         for (const unsigned char *p = (const unsigned char *)text; *p; ) {
             uint32_t cp = decode_utf8(&p);
-            for (int row = 0; row < 7; row++) {
-                uint8_t bits = fallback_glyph(cp, row);
-                for (int col = 0; col < 5; col++)
-                    if (bits & (1u << (4 - col))) fill_rect(cursor + col * scale, top + row * scale, scale, scale, color);
+            int repeats = cp == 0x2026 ? 3 : 1;
+            if (cp == 0x2026) cp = '.';
+            for (int n = 0; n < repeats; n++) {
+                for (int row = 0; row < 7; row++) {
+                    uint8_t bits = fallback_glyph(cp, row);
+                    for (int col = 0; col < 5; col++)
+                        if (bits & (1u << (4 - col)))
+                            sel_fill_rect(cursor + col * scale, top + row * scale, scale, scale, color);
+                }
+                cursor += 6 * scale;
             }
-            cursor += 6 * scale;
         }
         return;
     }
@@ -309,7 +345,7 @@ static void draw_text_face(const stbtt_fontinfo * info, int ascent, int x, int t
             if (bitmap) {
                 for (int gy = 0; gy < h; gy++)
                     for (int gx = 0; gx < w; gx++)
-                        put_pixel(cursor + x0 + gx, baseline + y0 + gy, color, bitmap[(size_t)gy * (size_t)w + (size_t)gx]);
+                        sel_put_pixel(cursor + x0 + gx, baseline + y0 + gy, color, bitmap[(size_t)gy * (size_t)w + (size_t)gx]);
                 stbtt_FreeBitmap(bitmap, NULL);
             }
         }
@@ -318,52 +354,111 @@ static void draw_text_face(const stbtt_fontinfo * info, int ascent, int x, int t
     }
 }
 
-void draw_text(int x, int top, const char * text, int px, uint32_t color) {
+void sel_draw_text(int x, int top, const char * text, int px, uint32_t color) {
     draw_text_face(&font_info, font_ascent, x, top, text, px, color);
 }
 
-void draw_text_medium(int x, int top, const char * text, int px, uint32_t color) {
+void sel_draw_text_medium(int x, int top, const char * text, int px, uint32_t color) {
     if (font_medium_ready)
         draw_text_face(&font_medium_info, font_medium_ascent, x, top, text, px, color);
     else
         draw_text_face(&font_info, font_ascent, x, top, text, px, color);
 }
 
-void draw_text_centered(int center_x, int top, const char * text, int px, uint32_t color) {
-    draw_text(center_x - text_width(text, px) / 2, top, text, px, color);
+void sel_draw_text_centered(int center_x, int top, const char * text, int px, uint32_t color) {
+    sel_draw_text(center_x - sel_text_width(text, px) / 2, top, text, px, color);
 }
 
-static int margin(void) { return selector_margin(canvas_width); }
-static int tool_list_top(void) { return selector_tool_list_top(canvas_width); }
-static int tool_row_h(void) { return selector_tool_row_h(canvas_width); }
-static int tool_gap(void) { return selector_tool_gap(canvas_width); }
+void sel_fit_text(char out[128], const char * input, int max_width, int px, bool medium) {
+    if (!input) input = "";
+    const char * ell = font_ready ? "\xE2\x80\xA6" : "...";
+    const stbtt_fontinfo * info = (medium && font_medium_ready) ? &font_medium_info : &font_info;
+    int ell_w = text_width_face(info, ell, px);
+    size_t last_fit = 0, used = 0;
+    int full_width = 0;
+    int finished = 1;
+    const unsigned char * p = (const unsigned char *)input;
 
-void draw_music_note(int x, int y, int size, uint32_t color) {
-    int sw = size >= 36 ? 3 : 2;
-    line(x + size * 34 / 100, y + size * 72 / 100, x + size * 34 / 100, y + size * 25 / 100, color, sw);
-    line(x + size * 34 / 100, y + size * 25 / 100, x + size * 78 / 100, y + size * 16 / 100, color, sw);
-    line(x + size * 78 / 100, y + size * 16 / 100, x + size * 78 / 100, y + size * 61 / 100, color, sw);
-    rounded_fill(x + size * 10 / 100, y + size * 64 / 100, size * 25 / 100, size * 17 / 100, size / 12, color);
-    rounded_fill(x + size * 54 / 100, y + size * 53 / 100, size * 25 / 100, size * 17 / 100, size / 12, color);
+    if (font_ready && info) {
+        float scale = stbtt_ScaleForPixelHeight(info, (float)px);
+        float advance = 0.0f;
+        int previous = 0;
+        while (*p) {
+            const unsigned char * before = p;
+            uint32_t cp = decode_utf8(&p);
+            size_t nbytes = (size_t)(p - before);
+            if (used + nbytes > 124) { finished = 0; break; }
+            int glyph = stbtt_FindGlyphIndex(info, (int)cp);
+            int adv, lsb;
+            if (previous) advance += stbtt_GetGlyphKernAdvance(info, previous, glyph) * scale;
+            stbtt_GetGlyphHMetrics(info, glyph, &adv, &lsb);
+            advance += adv * scale;
+            int w = (int)(advance + 0.5f);
+            memcpy(out + used, before, nbytes);
+            used += nbytes;
+            previous = glyph;
+            full_width = w;
+            if (w + ell_w <= max_width) last_fit = used;
+            if (w > max_width) { finished = 0; break; }
+        }
+        if (*p) finished = 0;
+    } else {
+        int scale = px / 7;
+        if (scale < 1) scale = 1;
+        int cell = 6 * scale;
+        while (*p) {
+            const unsigned char * before = p;
+            uint32_t cp = decode_utf8(&p);
+            size_t nbytes = (size_t)(p - before);
+            if (used + nbytes > 124) { finished = 0; break; }
+            memcpy(out + used, before, nbytes);
+            used += nbytes;
+            full_width += cp == 0x2026 ? 3 * cell : cell;
+            if (full_width + ell_w <= max_width) last_fit = used;
+            if (full_width > max_width) { finished = 0; break; }
+        }
+        if (*p) finished = 0;
+    }
+    out[used] = '\0';
+    if (finished && full_width <= max_width) return;
+    out[last_fit] = '\0';
+    size_t ell_len = strlen(ell);
+    if (max_width >= ell_w && last_fit + ell_len <= 127)
+        memcpy(out + last_fit, ell, ell_len + 1);
 }
 
-void draw_mountain(int x, int y, int size, uint32_t color) {
+static int margin(void) { return selector_margin(sel_canvas_width); }
+static int tool_list_top(void) { return selector_tool_list_top(sel_canvas_width); }
+static int tool_row_h(void) { return selector_tool_row_h(sel_canvas_width); }
+static int tool_gap(void) { return selector_tool_gap(sel_canvas_width); }
+static int list_viewport_bottom(void) { return sel_canvas_height - BREEZE_LIST_NOTICE_BAND; }
+
+void sel_draw_music_note(int x, int y, int size, uint32_t color) {
     int sw = size >= 36 ? 3 : 2;
-    line(x + 3, y + size - 5, x + size * 37 / 100, y + size * 35 / 100, color, sw);
-    line(x + size * 37 / 100, y + size * 35 / 100, x + size * 52 / 100, y + size * 55 / 100, color, sw);
-    line(x + size * 52 / 100, y + size * 55 / 100, x + size * 70 / 100, y + size * 28 / 100, color, sw);
-    line(x + size * 70 / 100, y + size * 28 / 100, x + size - 3, y + size - 5, color, sw);
-    line(x + 3, y + size - 5, x + size - 3, y + size - 5, color, sw);
-    line(x + size * 22 / 100, y + size * 68 / 100, x + size * 34 / 100, y + size * 55 / 100, color, sw);
-    line(x + size * 34 / 100, y + size * 55 / 100, x + size * 45 / 100, y + size * 68 / 100, color, sw);
+    sel_line(x + size * 34 / 100, y + size * 72 / 100, x + size * 34 / 100, y + size * 25 / 100, color, sw);
+    sel_line(x + size * 34 / 100, y + size * 25 / 100, x + size * 78 / 100, y + size * 16 / 100, color, sw);
+    sel_line(x + size * 78 / 100, y + size * 16 / 100, x + size * 78 / 100, y + size * 61 / 100, color, sw);
+    sel_rounded_fill(x + size * 10 / 100, y + size * 64 / 100, size * 25 / 100, size * 17 / 100, size / 12, color);
+    sel_rounded_fill(x + size * 54 / 100, y + size * 53 / 100, size * 25 / 100, size * 17 / 100, size / 12, color);
 }
 
-void draw_tools_icon(int x, int y, int size, uint32_t color) {
+void sel_draw_mountain(int x, int y, int size, uint32_t color) {
     int sw = size >= 36 ? 3 : 2;
-    line(x + 8, y + 8, x + size - 8, y + size - 8, color, sw);
-    line(x + size - 8, y + 8, x + 8, y + size - 8, color, sw);
-    line(x + 4, y + 11, x + 12, y + 4, color, sw);
-    line(x + size - 12, y + size - 4, x + size - 4, y + size - 12, color, sw);
+    sel_line(x + 3, y + size - 5, x + size * 37 / 100, y + size * 35 / 100, color, sw);
+    sel_line(x + size * 37 / 100, y + size * 35 / 100, x + size * 52 / 100, y + size * 55 / 100, color, sw);
+    sel_line(x + size * 52 / 100, y + size * 55 / 100, x + size * 70 / 100, y + size * 28 / 100, color, sw);
+    sel_line(x + size * 70 / 100, y + size * 28 / 100, x + size - 3, y + size - 5, color, sw);
+    sel_line(x + 3, y + size - 5, x + size - 3, y + size - 5, color, sw);
+    sel_line(x + size * 22 / 100, y + size * 68 / 100, x + size * 34 / 100, y + size * 55 / 100, color, sw);
+    sel_line(x + size * 34 / 100, y + size * 55 / 100, x + size * 45 / 100, y + size * 68 / 100, color, sw);
+}
+
+void sel_draw_tools_icon(int x, int y, int size, uint32_t color) {
+    int sw = size >= 36 ? 3 : 2;
+    sel_line(x + 8, y + 8, x + size - 8, y + size - 8, color, sw);
+    sel_line(x + size - 8, y + 8, x + 8, y + size - 8, color, sw);
+    sel_line(x + 4, y + 11, x + 12, y + 4, color, sw);
+    sel_line(x + size - 12, y + size - 4, x + size - 4, y + size - 12, color, sw);
 }
 
 typedef struct {
@@ -573,7 +668,9 @@ static int try_load_face(const char * path, FILE ** slot, stbtt_fontinfo * info,
     size_t size = 0;
     FILE * f = open_font_file(path, &size);
     if (!f) return 0;
+    ttf_register(f, size);
     if (!init_face(f, size, info, ascent, descent, line_gap)) {
+        ttf_unregister(f);
         fclose(f);
         return 0;
     }
@@ -613,13 +710,13 @@ bool selector_ui_init(int width, int height, const char * font_path, const char 
     if (width <= 0 || height <= 0 || (size_t)width > SIZE_MAX / (size_t)height ||
         (size_t)width * (size_t)height > SIZE_MAX / sizeof(uint16_t)) return false;
     selector_ui_shutdown();
-    canvas = calloc((size_t)width * (size_t)height, sizeof(*canvas));
-    if (!canvas) return false;
-    canvas_width = width;
-    canvas_height = height;
-    canvas_stride = (size_t)width;
-    clip_top = 0;
-    clip_bottom = height;
+    sel_canvas = calloc((size_t)width * (size_t)height, sizeof(*sel_canvas));
+    if (!sel_canvas) return false;
+    sel_canvas_width = width;
+    sel_canvas_height = height;
+    sel_canvas_stride = (size_t)width;
+    sel_clip_top = 0;
+    sel_clip_bottom = height;
     load_font(font_path);
     return true;
 }
@@ -629,21 +726,22 @@ void selector_ui_shutdown(void) {
     if (font_medium_file) fclose(font_medium_file);
     font_file = NULL;
     font_medium_file = NULL;
+    ttf_clear_slots();
     font_ready = 0;
     font_medium_ready = 0;
-    free(canvas);
-    canvas = NULL;
-    canvas_width = canvas_height = 0;
-    canvas_stride = 0;
-    clip_top = clip_bottom = 0;
+    free(sel_canvas);
+    sel_canvas = NULL;
+    sel_canvas_width = sel_canvas_height = 0;
+    sel_canvas_stride = 0;
+    sel_clip_top = sel_clip_bottom = 0;
 }
 
 const uint16_t * selector_ui_pixels(size_t * stride_pixels) {
-    if (stride_pixels) *stride_pixels = canvas_stride;
-    return canvas;
+    if (stride_pixels) *stride_pixels = sel_canvas_stride;
+    return sel_canvas;
 }
-int selector_ui_width(void) { return canvas_width; }
-int selector_ui_height(void) { return canvas_height; }
+int selector_ui_width(void) { return sel_canvas_width; }
+int selector_ui_height(void) { return sel_canvas_height; }
 
 void selector_ui_draw_selector(int selected, bool rockbox_available,
                                unsigned countdown_seconds,
@@ -658,9 +756,9 @@ void selector_ui_draw_starting(bool rockbox) {
 }
 
 int selector_ui_tools_max_scroll(void) {
-    if (!canvas) return 0;
+    if (!sel_canvas) return 0;
     int total = 7 * tool_row_h() + 6 * tool_gap();
-    int viewport = canvas_height - tool_list_top();
+    int viewport = sel_canvas_height - tool_list_top();
     return total > viewport ? total - viewport : 0;
 }
 
@@ -684,13 +782,13 @@ static int ensure_visible(int count, int selected, int scroll_pixels,
 }
 
 int selector_ui_ensure_visible_tools(int selected, int scroll_pixels) {
-    if (!canvas) return 0;
+    if (!sel_canvas) return 0;
     return ensure_visible(7, selected, scroll_pixels, tool_list_top(),
-                          tool_row_h(), tool_gap(), canvas_height);
+                          tool_row_h(), tool_gap(), sel_canvas_height);
 }
 
 void selector_ui_draw_tools(int selected, int scroll_pixels, bool adb_enabled) {
-    if (!canvas) return;
+    if (!sel_canvas) return;
     int max_scroll = selector_ui_tools_max_scroll();
     if (scroll_pixels < 0) scroll_pixels = 0;
     if (scroll_pixels > max_scroll) scroll_pixels = max_scroll;
@@ -700,7 +798,7 @@ void selector_ui_draw_tools(int selected, int scroll_pixels, bool adb_enabled) {
 static int hit_row(int x, int y, int list_top, int row_height, int gap,
                    int count, int scroll, int viewport_bottom) {
     int m = margin();
-    if (x < m || x >= canvas_width - m || y < list_top || y >= viewport_bottom) return SELECTOR_UI_HIT_NONE;
+    if (x < m || x >= sel_canvas_width - m || y < list_top || y >= viewport_bottom) return SELECTOR_UI_HIT_NONE;
     int local_y = y - list_top + scroll;
     int row = local_y / (row_height + gap);
     int within = local_y % (row_height + gap);
@@ -713,51 +811,51 @@ int selector_ui_hit_test_selector(int x, int y) {
 }
 
 int selector_ui_hit_test_selector_available(int x, int y, bool rockbox_available) {
-    if (!canvas) return SELECTOR_UI_HIT_NONE;
+    if (!sel_canvas) return SELECTOR_UI_HIT_NONE;
     int count = rockbox_available ? 3 : 2;
-    return hit_row(x, y, selector_list_top(canvas_width), selector_card_h(canvas_width),
-                   selector_gap(canvas_width), count, 0, canvas_height);
+    return hit_row(x, y, selector_list_top(sel_canvas_width), selector_card_h(sel_canvas_width),
+                   selector_gap(sel_canvas_width), count, 0, sel_canvas_height);
 }
 
 static int hit_test_back(int x, int y) {
     int m = margin();
-    int header_y = selector_header_title_y(canvas_width);
-    int back_size = selector_back_icon(canvas_width);
+    int header_y = selector_header_title_y(sel_canvas_width);
+    int back_size = selector_back_icon(sel_canvas_width);
     if (x >= m && x <= m + back_size + 8 && y >= header_y - 8 && y <= header_y + back_size + 8)
         return SELECTOR_UI_HIT_BACK;
     return SELECTOR_UI_HIT_NONE;
 }
 
 int selector_ui_hit_test_tools(int x, int y, int scroll_pixels) {
-    if (!canvas) return SELECTOR_UI_HIT_NONE;
+    if (!sel_canvas) return SELECTOR_UI_HIT_NONE;
     if (hit_test_back(x, y) == SELECTOR_UI_HIT_BACK) return SELECTOR_UI_HIT_BACK;
     int max_scroll = selector_ui_tools_max_scroll();
     if (scroll_pixels < 0) scroll_pixels = 0;
     if (scroll_pixels > max_scroll) scroll_pixels = max_scroll;
     return hit_row(x, y, tool_list_top(), tool_row_h(), tool_gap(), 7, scroll_pixels,
-                   canvas_height);
+                   sel_canvas_height);
 }
 
 int selector_ui_list_max_scroll(size_t count) {
-    if (!canvas) return 0;
+    if (!sel_canvas) return 0;
     if (count > SELECTOR_UI_MAX_LIST_ITEMS) count = SELECTOR_UI_MAX_LIST_ITEMS;
     int total = (int)count * (tool_row_h() + tool_gap());
     if (count > 0) total -= tool_gap();
-    int viewport = canvas_height - tool_list_top();
+    int viewport = list_viewport_bottom() - tool_list_top();
     return total > viewport ? total - viewport : 0;
 }
 
 int selector_ui_ensure_visible_list(size_t count, int selected, int scroll_pixels) {
-    if (!canvas) return 0;
+    if (!sel_canvas) return 0;
     if (count > SELECTOR_UI_MAX_LIST_ITEMS) count = SELECTOR_UI_MAX_LIST_ITEMS;
     return ensure_visible((int)count, selected, scroll_pixels, tool_list_top(),
-                          tool_row_h(), tool_gap(), canvas_height);
+                          tool_row_h(), tool_gap(), list_viewport_bottom());
 }
 
 void selector_ui_draw_list(const char * title, const char * const * items,
                            size_t count, int selected, int scroll_pixels,
                            const char * notice) {
-    if (!canvas) return;
+    if (!sel_canvas) return;
     int max_scroll = selector_ui_list_max_scroll(count);
     if (scroll_pixels < 0) scroll_pixels = 0;
     if (scroll_pixels > max_scroll) scroll_pixels = max_scroll;
@@ -765,14 +863,14 @@ void selector_ui_draw_list(const char * title, const char * const * items,
 }
 
 int selector_ui_hit_test_list(int x, int y, size_t count, int scroll_pixels) {
-    if (!canvas) return SELECTOR_UI_HIT_NONE;
+    if (!sel_canvas) return SELECTOR_UI_HIT_NONE;
     if (count > SELECTOR_UI_MAX_LIST_ITEMS) count = SELECTOR_UI_MAX_LIST_ITEMS;
     if (hit_test_back(x, y) == SELECTOR_UI_HIT_BACK) return SELECTOR_UI_HIT_BACK;
     int max_scroll = selector_ui_list_max_scroll(count);
     if (scroll_pixels < 0) scroll_pixels = 0;
     if (scroll_pixels > max_scroll) scroll_pixels = max_scroll;
     return hit_row(x, y, tool_list_top(), tool_row_h(), tool_gap(), (int)count,
-                   scroll_pixels, canvas_height);
+                   scroll_pixels, list_viewport_bottom());
 }
 
 void selector_ui_draw_notice(const char * title, const char * message) {

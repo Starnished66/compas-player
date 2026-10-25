@@ -1,28 +1,31 @@
 #ifndef BOOTLOADER_SELECTOR_STYLE_H
 #define BOOTLOADER_SELECTOR_STYLE_H
 
-/* Classic Breeze Dark tokens matching the signed-off mockB images.
+/* Plasma 6 Breeze Dark tokens from /usr/share/color-schemes/BreezeDark.colors:
+ *   Window BackgroundNormal      32,35,38   (#202326)
+ *   Window BackgroundAlternate   41,44,48   (#292c30)
+ *   Window ForegroundNormal     252,252,252 (#fcfcfc)
+ *   Window ForegroundInactive   161,169,177 (#a1a9b1)
+ *   Selection BackgroundNormal   61,174,233 (#3daee9)
  *
- * /usr/share/color-schemes/BreezeDark.colors on Plasma 6 uses Window
- * BackgroundNormal 32,35,38 and ForegroundNormal 252,252,252. The mock and
- * the classic scheme use #232629 / #31363b / #eff0f1 / #7f8c8d. Selection
- * BackgroundNormal and DecorationFocus are 61,174,233 (#3daee9) in both.
- *
- * Card border #3b4045 and inactive switch track #4d4d4d are the mockB
- * chrome values (not a named ColorGroup role). */
+ * Card border and inactive switch track are not named ColorGroup roles.
+ * They mix Window BackgroundNormal toward ForegroundNormal at 12% and 22%.
+ * Breeze selection colour is used on purpose; the player accent setting is
+ * ignored. */
 
-#define BREEZE_WINDOW_NORMAL      0x232629u
-#define BREEZE_WINDOW_ALTERNATE   0x31363Bu
-#define BREEZE_WINDOW_FOREGROUND  0xEFF0F1u
-#define BREEZE_WINDOW_INACTIVE    0x7F8C8Du
+#define BREEZE_WINDOW_NORMAL      0x202326u
+#define BREEZE_WINDOW_ALTERNATE   0x292C30u
+#define BREEZE_WINDOW_FOREGROUND  0xFCFCFCu
+#define BREEZE_WINDOW_INACTIVE    0xA1A9B1u
 #define BREEZE_SELECTION_NORMAL   0x3DAEE9u
 #define BREEZE_DECORATION_FOCUS   0x3DAEE9u
-#define BREEZE_CARD_BORDER        0x3B4045u
-#define BREEZE_BUTTON_INACTIVE    0x4D4D4Du
+#define BREEZE_CARD_BORDER        0x3A3D40u /* 12% mix window → foreground */
+#define BREEZE_BUTTON_INACTIVE    0x505355u /* 22% mix window → foreground */
 
 #define BREEZE_CORNER_RADIUS 5
 #define BREEZE_FOCUS_WIDTH   2
 #define BREEZE_LARGE_SPACING 8
+#define BREEZE_LIST_NOTICE_BAND 40
 
 static inline int selector_is_compact(int width) { return width < 400; }
 static inline int selector_margin(int width) { return width >= 400 ? 24 : 16; }

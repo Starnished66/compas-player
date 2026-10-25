@@ -5,29 +5,31 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Shared canvas and primitives between selector_ui.c and selector_paint.c. */
+/* Shared canvas and primitives between selector_ui.c and selector_paint.c.
+ * sel_ prefix avoids clashing with Rockbox symbols of the same names. */
 
-extern uint16_t * canvas;
-extern int canvas_width;
-extern int canvas_height;
-extern size_t canvas_stride;
-extern int clip_top;
-extern int clip_bottom;
+extern uint16_t * sel_canvas;
+extern int sel_canvas_width;
+extern int sel_canvas_height;
+extern size_t sel_canvas_stride;
+extern int sel_clip_top;
+extern int sel_clip_bottom;
 
-void put_pixel(int x, int y, uint32_t color, unsigned alpha);
-void blit_a8(int x, int y, const uint8_t * pixels, int width, int height, uint32_t color);
-void blit_rgba(int x, int y, const uint8_t * pixels, int width, int height);
-void fill_rect(int x, int y, int w, int h, uint32_t color);
-void rounded_fill(int x, int y, int w, int h, int radius, uint32_t color);
-void line(int x0, int y0, int x1, int y1, uint32_t color, int thickness);
-int text_width(const char * text, int px);
-int text_width_medium(const char * text, int px);
-void draw_text(int x, int top, const char * text, int px, uint32_t color);
-void draw_text_medium(int x, int top, const char * text, int px, uint32_t color);
-void draw_text_centered(int center_x, int top, const char * text, int px, uint32_t color);
-void draw_music_note(int x, int y, int size, uint32_t color);
-void draw_mountain(int x, int y, int size, uint32_t color);
-void draw_tools_icon(int x, int y, int size, uint32_t color);
+void sel_put_pixel(int x, int y, uint32_t color, unsigned alpha);
+void sel_blit_a8(int x, int y, const uint8_t * pixels, int width, int height, uint32_t color);
+void sel_blit_rgba(int x, int y, const uint8_t * pixels, int width, int height);
+void sel_fill_rect(int x, int y, int w, int h, uint32_t color);
+void sel_rounded_fill(int x, int y, int w, int h, int radius, uint32_t color);
+void sel_line(int x0, int y0, int x1, int y1, uint32_t color, int thickness);
+int sel_text_width(const char * text, int px);
+int sel_text_width_medium(const char * text, int px);
+void sel_draw_text(int x, int top, const char * text, int px, uint32_t color);
+void sel_draw_text_medium(int x, int top, const char * text, int px, uint32_t color);
+void sel_draw_text_centered(int center_x, int top, const char * text, int px, uint32_t color);
+void sel_fit_text(char out[128], const char * input, int max_width, int px, bool medium);
+void sel_draw_music_note(int x, int y, int size, uint32_t color);
+void sel_draw_mountain(int x, int y, int size, uint32_t color);
+void sel_draw_tools_icon(int x, int y, int size, uint32_t color);
 
 void selector_paint_selector(int selected, bool rockbox_available,
                              unsigned countdown_seconds, bool countdown_cancelled);

@@ -922,7 +922,7 @@ $(SELECTOR_SIM_BIN): $(SELECTOR_SIM_SRCS) src/bootloader/fb_draw.h src/bootloade
 		src/core/board_config.h src/core/glyph5x7.h $(LVGL_TINY_TTF)
 	$(CC) $(SELECTOR_SIM_CFLAGS) -o $@ $(SELECTOR_SIM_SRCS) -lm
 
-.PHONY: check-selector-logos check-selector-icons
+.PHONY: check-selector-logos check-selector-icons check-selector-fonts
 selector-sim: $(SELECTOR_SIM_BIN)
 	@mkdir -p scratch/selector-mockup
 	./$(SELECTOR_SIM_BIN) scratch/selector-mockup assets/fonts/NotoSans-Regular.ttf $(SNAPSHOT_PREFIX)
@@ -932,6 +932,9 @@ check-selector-logos:
 
 check-selector-icons:
 	python3 scripts/generate_selector_icons.py --verify
+
+check-selector-fonts:
+	python3 scripts/generate_selector_fonts.py --verify
 
 .PHONY: all host target bootloader clean compile_commands.json FORCE_VERSION selector-sim
 

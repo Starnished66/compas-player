@@ -30,14 +30,19 @@ Rockbox logo
 Breeze symbolic icons
   Directory: assets/bootloader/selector/icons/
   Unmodified SVGs copied from the Breeze icon theme (breeze-icons).
+  Copyright: Uri Herrera and others (COPYING-ICONS).
   License: GNU LGPL version 3 or (at your option) any later version
+    COPYING-ICONS and LGPL-3.0.txt sit next to the SVGs.
     https://invent.kde.org/frameworks/breeze-icons/-/raw/master/COPYING-ICONS
   Runtime: embedded A8 arrays in src/bootloader/selector_icons*.c, generated
   by scripts/generate_selector_icons.py. Alpha is the mask; colour is applied
   at draw time.
 
   applications-utilities-symbolic.svg
-    https://invent.kde.org/frameworks/breeze-icons/-/raw/master/icons/categories/24/applications-utilities-symbolic.svg
+    Generated at breeze-icons build time (the invent.kde.org icons/categories/24
+    path 404s). Source used here:
+      Fedora breeze-icon-theme-6.31.0-1.fc44
+      /usr/share/icons/breeze/categories/24/applications-utilities-symbolic.svg
   go-previous-symbolic.svg
     https://invent.kde.org/frameworks/breeze-icons/-/raw/master/icons/actions/32/go-previous.svg
   go-next-symbolic.svg

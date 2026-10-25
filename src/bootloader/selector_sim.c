@@ -249,6 +249,14 @@ int main(int argc, char ** argv) {
 
     selector_ui_draw_notice("Remount SD", "SD card remounted");
     if (save_named(out_dir, prefix, "tools-notice") != 0) failed = 1;
+    selector_ui_draw_notice("Repair SD card",
+                           "This card needs a computer check. No repair was started.");
+    if (save_named(out_dir, prefix, "tools-notice-check") != 0) failed = 1;
+    selector_ui_draw_notice("Repair SD card",
+                           "SD card repair could not finish. Check the card on a computer.");
+    if (save_named(out_dir, prefix, "tools-notice-repair") != 0) failed = 1;
+    selector_ui_draw_notice("ADB", "ADB did not change state. Check Developer Options.");
+    if (save_named(out_dir, prefix, "tools-notice-adb") != 0) failed = 1;
 
     selector_ui_draw_progress("Repair SD card", "Checking file system", 42);
     if (save_named(out_dir, prefix, "tools-progress") != 0) failed = 1;

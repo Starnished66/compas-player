@@ -187,9 +187,10 @@ is in `NotoSans-OFL.txt`.
 `/usr/share/fonts/google-noto-vf/NotoSans[wght].ttf` (SHA-256
 `fb53504de62e767a54695416123d68d67f71c9b69722175184ad56e7dd13547b`) at
 Regular (`wght=400`) and Medium (`wght=500`) and subsets to Basic Latin,
-Latin-1 Supplement, Latin Extended-A, and U+2013/2014/2018/2019/201C/201D/2026.
-The name table uses the family **Compas UI** so the derivative does not keep
-the OFL reserved name "Noto". `scripts/repack_upt.sh` copies `assets/fonts/`
+Latin-1 Supplement, Latin Extended-A, Greek (U+0370–03FF), Cyrillic
+(U+0400–04FF), and U+2013/2014/2018/2019/201C/201D/2026. The name table uses
+the project-local family **Compas UI**; Noto Sans has no OFL Reserved Font
+Name. `scripts/repack_upt.sh` copies `assets/fonts/`
 to `/usr/resource/fonts/` on a full firmware repack, the same path the
 selector loads (`NotoSans-Regular.ttf`, then `NotoSans-Medium.ttf` for
 headings, then `Montserrat-Medium.ttf` if Noto is absent).
