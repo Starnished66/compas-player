@@ -74,10 +74,15 @@ void json_progress(const char *phase, long done, long total) {
     /* A scan can touch thousands of files a second; consumers need about one
      * update a second, plus the final one. */
     static time_t last_second;
+    static char last_phase[16];
     time_t now = time(NULL);
     bool final = total > 0 && done >= total;
-    if (!final && now == last_second) return;
+    /* The first line of each phase always goes out, so a long save or cover
+     * pass is visibly under way. */
+    bool started = strcmp(last_phase, phase) != 0;
+    if (!final && !started && now == last_second) return;
     last_second = now;
+    snprintf(last_phase, sizeof(last_phase), "%s", phase);
     json_line_t line;
     json_begin(&line);
     json_string(&line, "event", "progress");

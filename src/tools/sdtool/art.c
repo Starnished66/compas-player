@@ -177,6 +177,7 @@ int sdtool_cmd_art(const sdtool_options_t *options) {
     }
 
     art_totals_t totals = { .albums = count };
+    json_progress("art", 0, count);
     for (long i = 0; i < count; i++) {
         build_album(ids[i], &totals);
         json_progress("art", i + 1, count);
