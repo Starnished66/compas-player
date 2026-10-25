@@ -26,3 +26,35 @@ Rockbox logo
   The SVG includes a full-canvas black backing rect. The generator
   crops the gold plate and scales it to the selector row heights
   (50px on 480-wide panels, 34px on 320-wide).
+
+Breeze symbolic icons
+  Directory: assets/bootloader/selector/icons/
+  Unmodified SVGs copied from the Breeze icon theme (breeze-icons).
+  License: GNU LGPL version 3 or (at your option) any later version
+    https://invent.kde.org/frameworks/breeze-icons/-/raw/master/COPYING-ICONS
+  Runtime: embedded A8 arrays in src/bootloader/selector_icons*.c, generated
+  by scripts/generate_selector_icons.py. Alpha is the mask; colour is applied
+  at draw time.
+
+  applications-utilities-symbolic.svg
+    https://invent.kde.org/frameworks/breeze-icons/-/raw/master/icons/categories/24/applications-utilities-symbolic.svg
+  go-previous-symbolic.svg
+    https://invent.kde.org/frameworks/breeze-icons/-/raw/master/icons/actions/32/go-previous.svg
+  go-next-symbolic.svg
+    https://invent.kde.org/frameworks/breeze-icons/-/raw/master/icons/actions/32/go-next.svg
+  debug-run-symbolic.svg
+    https://invent.kde.org/frameworks/breeze-icons/-/raw/master/icons/actions/22/debug-run.svg
+  run-build-symbolic.svg
+    https://invent.kde.org/frameworks/breeze-icons/-/raw/master/icons/actions/22/run-build.svg
+  media-mount-symbolic.svg
+    https://invent.kde.org/frameworks/breeze-icons/-/raw/master/icons/actions/22/media-mount.svg
+  tools-wizard-symbolic.svg
+    https://invent.kde.org/frameworks/breeze-icons/-/raw/master/icons/actions/22/tools-wizard.svg
+  system-reboot-symbolic.svg
+    Breeze alias of actions/32/view-refresh.svg
+    https://invent.kde.org/frameworks/breeze-icons/-/raw/master/icons/actions/32/view-refresh.svg
+  system-shutdown-symbolic.svg
+    https://invent.kde.org/frameworks/breeze-icons/-/raw/master/icons/actions/32/system-shutdown.svg
+  system-upgrade-symbolic.svg
+    Breeze alias of status/22/update-none.svg
+    https://invent.kde.org/frameworks/breeze-icons/-/raw/master/icons/status/22/update-none.svg

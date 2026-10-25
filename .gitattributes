@@ -1,3 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 toolchains/*.tar.xz binary
+# Breeze symbolic SVGs must stay byte-identical, including CRLF in one file.
+assets/bootloader/selector/icons/*.svg -text

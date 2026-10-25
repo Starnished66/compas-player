@@ -896,29 +896,42 @@ SELECTOR_SIM_CFLAGS = -O2 -Wall -fwrapv -I. -Isrc/bootloader -Isrc/core \
 ifeq ($(BOARD),r3ii_2025)
 SELECTOR_LOGO_SRCS = src/bootloader/selector_logos.c \
 	src/bootloader/selector_logos_wordmark_320.c
+SELECTOR_ICON_SRCS = src/bootloader/selector_icons.c \
+	src/bootloader/selector_icons_utilities_320.c \
+	src/bootloader/selector_icons_nav.c \
+	src/bootloader/selector_icons_tools.c
 else
 SELECTOR_LOGO_SRCS = src/bootloader/selector_logos.c \
 	src/bootloader/selector_logos_wordmark_480.c \
 	src/bootloader/selector_logos_rockbox_480.c
+SELECTOR_ICON_SRCS = src/bootloader/selector_icons.c \
+	src/bootloader/selector_icons_utilities_480.c \
+	src/bootloader/selector_icons_nav.c \
+	src/bootloader/selector_icons_tools.c
 endif
 SELECTOR_SIM_SRCS = src/bootloader/selector_sim.c src/bootloader/selector_ui.c \
-	src/bootloader/fb_draw.c src/bootloader/fb_host.c \
-	$(SELECTOR_LOGO_SRCS) \
+	src/bootloader/selector_paint.c src/bootloader/fb_draw.c src/bootloader/fb_host.c \
+	$(SELECTOR_LOGO_SRCS) $(SELECTOR_ICON_SRCS) \
 	src/core/glyph5x7.c src/core/startup_splash.c lvgl/src/libs/tjpgd/tjpgd.c
 SNAPSHOT_PREFIX ?= snapshot
 
 $(SELECTOR_SIM_BIN): $(SELECTOR_SIM_SRCS) src/bootloader/fb_draw.h src/bootloader/fb_draw_internal.h \
 		src/bootloader/selector_ui.h src/bootloader/selector_logos.h \
+		src/bootloader/selector_icons.h src/bootloader/selector_style.h \
+		src/bootloader/selector_internal.h src/bootloader/selector_font_pin.h \
 		src/core/board_config.h src/core/glyph5x7.h $(LVGL_TINY_TTF)
 	$(CC) $(SELECTOR_SIM_CFLAGS) -o $@ $(SELECTOR_SIM_SRCS) -lm
 
-.PHONY: check-selector-logos
+.PHONY: check-selector-logos check-selector-icons
 selector-sim: $(SELECTOR_SIM_BIN)
 	@mkdir -p scratch/selector-mockup
-	./$(SELECTOR_SIM_BIN) scratch/selector-mockup assets/fonts/Montserrat-Medium.ttf $(SNAPSHOT_PREFIX)
+	./$(SELECTOR_SIM_BIN) scratch/selector-mockup assets/fonts/NotoSans-Regular.ttf $(SNAPSHOT_PREFIX)
 
 check-selector-logos:
 	python3 scripts/generate_selector_logos.py --verify
+
+check-selector-icons:
+	python3 scripts/generate_selector_icons.py --verify
 
 .PHONY: all host target bootloader clean compile_commands.json FORCE_VERSION selector-sim
 
@@ -1130,8 +1143,9 @@ else
 BOOTLOADER_BIN = compas_loader_$(BOARD)
 endif
 BOOTLOADER_SRCS = src/bootloader/selector_controller.c src/bootloader/selector_input.c \
-                  src/bootloader/selector_ui.c src/bootloader/selector_request.c \
-                  $(SELECTOR_LOGO_SRCS) \
+                  src/bootloader/selector_ui.c src/bootloader/selector_paint.c \
+                  src/bootloader/selector_request.c \
+                  $(SELECTOR_LOGO_SRCS) $(SELECTOR_ICON_SRCS) \
                   src/core/sd_fsck.c src/core/sd_fsck_run.c \
                   src/bootloader/main.c src/bootloader/fb_draw.c src/bootloader/boot_tuning.c \
                   src/core/startup_splash.c src/core/glyph5x7.c \

@@ -176,6 +176,24 @@ verification. The desktop simulator therefore won't render Korean text
 locally; this has no effect on the real device, where Korean.ttf is never
 copied or modified, only read from its existing on-device location.
 
+# NotoSans-Regular.ttf / NotoSans-Medium.ttf -- selector UI
+
+These files are static TrueType instances of **Noto Sans**, copyright 2022
+The Noto Project Authors (https://github.com/notofonts/latin-greek-cyrillic).
+Licensed under the **SIL Open Font License, Version 1.1**; the license text
+is in `NotoSans-OFL.txt`.
+
+`scripts/generate_selector_fonts.py` instantiates the pinned variable source
+`/usr/share/fonts/google-noto-vf/NotoSans[wght].ttf` (SHA-256
+`fb53504de62e767a54695416123d68d67f71c9b69722175184ad56e7dd13547b`) at
+Regular (`wght=400`) and Medium (`wght=500`) and subsets to Basic Latin,
+Latin-1 Supplement, Latin Extended-A, and U+2013/2014/2018/2019/201C/201D/2026.
+The name table uses the family **Compas UI** so the derivative does not keep
+the OFL reserved name "Noto". `scripts/repack_upt.sh` copies `assets/fonts/`
+to `/usr/resource/fonts/` on a full firmware repack, the same path the
+selector loads (`NotoSans-Regular.ttf`, then `NotoSans-Medium.ttf` for
+headings, then `Montserrat-Medium.ttf` if Noto is absent).
+
 # Montserrat-Medium.ttf -- large display text
 
 This is an unchanged copy of LVGL's `scripts/built_in_font/Montserrat-Medium.ttf`,

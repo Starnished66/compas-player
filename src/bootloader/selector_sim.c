@@ -22,7 +22,7 @@
 #define BOARD_SLUG "r1"
 #endif
 
-#define DEFAULT_FONT_PATH "assets/fonts/Montserrat-Medium.ttf"
+#define DEFAULT_FONT_PATH "assets/fonts/NotoSans-Regular.ttf"
 #define DEFAULT_OUT_DIR "scratch/selector-mockup"
 
 static uint32_t crc32(const unsigned char * data, size_t len) {
