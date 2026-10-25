@@ -29,9 +29,11 @@ typedef enum {
 } sdtool_parse_result_t;
 
 /* Parses paths[0..count) into out[], setting ok[i] = false for a file that
- * could not be parsed. */
+ * could not be parsed. *broken counts those whose worker left without a
+ * word (exit 0, 126 or 127) rather than crashing or timing out: a hint that
+ * the worker, not the file, is at fault. */
 sdtool_parse_result_t sdtool_parse_files(const char *const *paths, size_t count,
-                                         track_metadata_t *out, bool *ok);
+                                         track_metadata_t *out, bool *ok, size_t *broken);
 
 /* The `parse-worker` entry point. */
 int sdtool_parse_worker(void);

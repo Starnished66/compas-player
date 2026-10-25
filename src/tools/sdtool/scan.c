@@ -31,7 +31,7 @@ typedef struct {
     long parsed;
     long changed;          /* --full: rows whose tags differ */
     long failed;
-    long needed;           /* files whose tags had to be read */
+    long broken;           /* failed files whose worker left silently */
     long matched_existing; /* --full: files that already had a row */
     bool inserted;
 } scan_result_t;
@@ -121,8 +121,9 @@ static bool update_batch(const file_list_t *list, long first, long count, bool f
         todo[wanted++] = host;
     }
     if (wanted == 0) return true;
-    if (sdtool_parse_files(todo, wanted, metas, parsed) != SDTOOL_PARSE_OK) return false;
-    result->needed += (long) wanted;
+    size_t broken;
+    if (sdtool_parse_files(todo, wanted, metas, parsed, &broken) != SDTOOL_PARSE_OK) return false;
+    result->broken += (long) broken;
 
     for (size_t k = 0; k < wanted; k++) {
         cached_tags_t tags;
@@ -212,9 +213,10 @@ int sdtool_cmd_scan(const sdtool_options_t *options) {
         json_progress("tags", first + batch, list.count);
     }
 
-    /* Nothing readable among several files that needed reading: the parser is
-     * broken, not the music. (One bad file is just that file, as in the player.) */
-    if (result.needed >= 3 && result.parsed == 0) {
+    /* Several files whose worker left without a word and nothing readable: the
+     * parser is broken, not the music. Corrupt files that crash or hang it are
+     * only themselves failed, as in the player. */
+    if (result.broken >= 3 && result.parsed == 0) {
         metadata_db_abort_update();
         return fail(&list, "worker_failed", "no file could be read by the tag parser process");
     }

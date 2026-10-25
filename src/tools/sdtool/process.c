@@ -42,24 +42,42 @@ sdtool_worker_t *sdtool_worker_start(const char *input_file) {
         swprintf(command, sizeof(command) / sizeof(command[0]), L"\"%ls\" parse-worker", exe) < 0)
         return NULL;
 
-    /* Only the two handles the child is given are inheritable. */
+    /* The child inherits exactly its three standard handles (list file, result
+     * pipe, and the null device for errors) and nothing else of ours. */
     SECURITY_ATTRIBUTES inherit = { sizeof(inherit), NULL, TRUE };
     HANDLE input = CreateFileW(list, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                                &inherit, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    HANDLE null_out = CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &inherit,
+                                  OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     HANDLE read_end = NULL, write_end = NULL;
-    if (input == INVALID_HANDLE_VALUE) return NULL;
-    if (!CreatePipe(&read_end, &write_end, &inherit, 0)) {
-        CloseHandle(input);
+    if (input == INVALID_HANDLE_VALUE || null_out == INVALID_HANDLE_VALUE ||
+        !CreatePipe(&read_end, &write_end, &inherit, 0)) {
+        if (input != INVALID_HANDLE_VALUE) CloseHandle(input);
+        if (null_out != INVALID_HANDLE_VALUE) CloseHandle(null_out);
         return NULL;
     }
     SetHandleInformation(read_end, HANDLE_FLAG_INHERIT, 0);
-    HANDLE error_out = GetStdHandle(STD_ERROR_HANDLE);
-    if (error_out && error_out != INVALID_HANDLE_VALUE) SetHandleInformation(error_out, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
 
-    STARTUPINFOW startup = { .cb = sizeof(startup), .dwFlags = STARTF_USESTDHANDLES,
-                             .hStdInput = input, .hStdOutput = write_end, .hStdError = error_out };
+    HANDLE inherited[3] = { input, write_end, null_out };
+    SIZE_T attribute_size = 0;
+    InitializeProcThreadAttributeList(NULL, 1, 0, &attribute_size);
+    LPPROC_THREAD_ATTRIBUTE_LIST attributes = malloc(attribute_size);
+    bool listed = attributes && InitializeProcThreadAttributeList(attributes, 1, 0, &attribute_size) &&
+                  UpdateProcThreadAttribute(attributes, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherited,
+                                            sizeof(inherited), NULL, NULL);
+    STARTUPINFOEXW startup = { .StartupInfo = { .cb = sizeof(startup), .dwFlags = STARTF_USESTDHANDLES,
+                                                .hStdInput = input, .hStdOutput = write_end,
+                                                .hStdError = null_out },
+                               .lpAttributeList = attributes };
     PROCESS_INFORMATION info;
-    BOOL started = CreateProcessW(NULL, command, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &startup, &info);
+    BOOL started = listed && CreateProcessW(NULL, command, NULL, NULL, TRUE,
+                                            CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT, NULL, NULL,
+                                            &startup.StartupInfo, &info);
+    if (attributes) {
+        if (listed) DeleteProcThreadAttributeList(attributes);
+        free(attributes);
+    }
+    CloseHandle(null_out);
     CloseHandle(input);
     CloseHandle(write_end);
     sdtool_worker_t *worker = started ? calloc(1, sizeof(*worker)) : NULL;

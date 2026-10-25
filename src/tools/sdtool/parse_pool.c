@@ -35,8 +35,10 @@ static bool write_list(const char *const *paths, size_t from, size_t count, char
 }
 
 sdtool_parse_result_t sdtool_parse_files(const char *const *paths, size_t count,
-                                         track_metadata_t *out, bool *ok) {
-    size_t next = 0;
+                                         track_metadata_t *out, bool *ok, size_t *broken) {
+    size_t next = 0, retry = SIZE_MAX;
+    bool answered = false;
+    *broken = 0;
     for (size_t i = 0; i < count; i++) ok[i] = false;
     while (next < count) {
         char list[PATH_MAX];
@@ -50,27 +52,32 @@ sdtool_parse_result_t sdtool_parse_files(const char *const *paths, size_t count,
         size_t done = next;
         sdtool_parse_record_t *record = malloc(sizeof(*record));
         while (record && done < count && fread(record, sizeof(*record), 1, answers) == 1) {
-            if (record->index != done - next) {
-                break;
-            }
+            if (record->index != done - next) break;
             out[done] = record->meta;
             ok[done++] = true;
+            answered = true;
         }
         free(record);
         int status = sdtool_worker_finish(worker);
         unlink(list);
 
-        /* A worker that could not start (126/127), or exited cleanly without
-         * answering, is a broken setup. One that died or timed out on a file
-         * is that file's fault, handled below. */
-        if (done == next && (status == 0 || status == 126 || status == 127))
+        if (done == count) break;
+        /* The worker stopped, or answered for another file, before this one.
+         * Exit 126/127, or a clean exit from a worker that never answered
+         * anything, is a broken setup. A clean exit later is given one more
+         * try in a fresh worker. Anything else (a signal, the watchdog) is
+         * this file's fault: fail it and go on. */
+        bool quiet = status == 0 || status == 126 || status == 127;
+        if (done == next && (status == 126 || status == 127 || (status == 0 && !answered && retry == SIZE_MAX)))
             return SDTOOL_PARSE_WORKER_FAILED;
-        /* The worker stopped, or answered for another file, before this one:
-         * it crashed, overran its time or lost step. Fail it and go on. */
-        if (done < count) {
-            memset(&out[done], 0, sizeof(out[done]));
-            ok[done++] = false;
+        if (status == 0 && retry != done) {
+            retry = done;
+            next = done;
+            continue;
         }
+        if (quiet) (*broken)++;
+        memset(&out[done], 0, sizeof(out[done]));
+        ok[done++] = false;
         next = done;
     }
     return SDTOOL_PARSE_OK;
@@ -89,12 +96,14 @@ static void *watchdog(void *unused) {
 }
 
 /* For the tests: SDTOOL_TEST_FAULT=crash:<text> or hang:<text> makes the worker
- * die or stall on a file whose name contains <text>; SDTOOL_TEST_FAULT=start
+ * die or stall on a file whose name contains <text>, exit:<text> makes it exit
+ * cleanly on such a file unless it is the worker's first; SDTOOL_TEST_FAULT=start
  * makes it exit cleanly before answering anything. */
-static void test_fault(const char *path) {
+static void test_fault(const char *path, uint32_t worker_index) {
     const char *fault = getenv("SDTOOL_TEST_FAULT");
     if (!fault || !strchr(fault, ':') || !strstr(path, strchr(fault, ':') + 1)) return;
     if (strncmp(fault, "crash:", 6) == 0) abort();
+    if (strncmp(fault, "exit:", 5) == 0 && worker_index > 0) exit(0);
     if (strncmp(fault, "hang:", 5) == 0) for (;;) sleep(60);
 }
 
@@ -112,7 +121,7 @@ int sdtool_parse_worker(void) {
         if (!record) return 1;
         record->index = index++;
         started_at = time(NULL);
-        test_fault(path);
+        test_fault(path, record->index);
         metadata_read_scan_tags(path, &record->meta);
         started_at = 0;
         bool written = fwrite(record, sizeof(*record), 1, stdout) == 1 && fflush(stdout) == 0;

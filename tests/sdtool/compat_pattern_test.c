@@ -3,7 +3,7 @@
 #include <stdlib.h>
 
 /* Windows only: the folder listing pattern for a drive root, either separator,
- * and a nested folder. Run under Wine or on Windows (make test-sdtool-compat). */
+ * and a nested folder. Run under Wine or on Windows (make sdtool-compat-test SDTOOL_TARGET=windows). */
 
 static int failures;
 

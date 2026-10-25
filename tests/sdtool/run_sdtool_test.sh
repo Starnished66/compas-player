@@ -185,6 +185,20 @@ rm "$card/Artist Three/Album Three/03 Crash.mp3" "$card/Artist Three/Album Three
 r=$(run scan "$card") || fail "scan after removing test files"
 [ "$(field "$r" songs)" = 5 ] || fail "test files kept: $r"
 
+# a worker that exits cleanly mid-batch is retried once, in a fresh worker.
+for n in a b c; do cp "$card/Artist Three/Album Three/01 Fourth.mp3" "$card/Artist Three/Album Three/08$n.mp3"; done
+r=$(SDTOOL_TEST_FAULT=exit:08; export SDTOOL_TEST_FAULT; run scan "$card") || fail "scan with an exiting worker"
+[ "$(field "$r" failed)" = 0 ] && [ "$(field "$r" songs)" = 8 ] || fail "retry after a clean exit: $r"
+rm "$card/Artist Three/Album Three/"08?.mp3
+run scan "$card" >/dev/null || fail "scan after removing the retry files"
+
+# three corrupt files are three failed files, not a broken worker: it commits.
+for n in a b c; do cp "$card/Artist Three/Album Three/01 Fourth.mp3" "$card/Artist Three/Album Three/09$n.mp3"; done
+r=$(SDTOOL_TEST_FAULT=crash:09; export SDTOOL_TEST_FAULT; run scan "$card") || fail "scan with three corrupt files"
+[ "$(field "$r" failed)" = 3 ] && [ "$(field "$r" songs)" = 5 ] && [ "$(field "$r" written)" = True ] || fail "three corrupt files: $r"
+rm "$card/Artist Three/Album Three/"09?.mp3
+run scan "$card" >/dev/null || fail "scan after removing the corrupt files"
+
 # a parser process that cannot work is an error, and nothing is committed.
 cp "$card/Artist Three/Album Three/01 Fourth.mp3" "$card/Artist Three/Album Three/06 Start.mp3"
 snapshot > "$work/before"
