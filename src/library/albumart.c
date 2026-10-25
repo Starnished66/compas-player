@@ -8,7 +8,6 @@
 
 #include "albumart.h"
 #include "library_endian.h"
-#include "library_mtime.h"
 #include "storage_paths.h"
 
 #include <ctype.h>
@@ -488,8 +487,7 @@ uint64_t albumart_artist_thumbnail_key(const char * artist) {
  * retag or a new cover file; an older file copied over the source is left to
  * Reload cover. */
 static bool generated_source_newer(uint32_t stored, uint32_t source_mtime) {
-    return stored != 0 && source_mtime != 0 && source_mtime > stored &&
-           !library_mtime_same_version(stored, source_mtime);
+    return stored != 0 && source_mtime != 0 && source_mtime > stored;
 }
 
 bool albumart_sized_thumb_fresh_with_source_mtime(const albumart_info_t * info, int width, int height,

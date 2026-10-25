@@ -86,6 +86,9 @@ typedef enum {
 typedef struct tagcache_snapshot tagcache_snapshot_t;
 
 bool tagcache_open(const char * dir);
+/* tagcache_open() for inspection: an older index layout is read as it is rather
+ * than migrated, and nothing is written. The caller must not update. */
+bool tagcache_open_read_only(const char * dir);
 tagcache_snapshot_t *tagcache_snapshot_open(bool recency);
 int tagcache_snapshot_count(const tagcache_snapshot_t *snapshot);
 bool tagcache_snapshot_path_at(const tagcache_snapshot_t *snapshot, int rank, char *out, size_t out_size);

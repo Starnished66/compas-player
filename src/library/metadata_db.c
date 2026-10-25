@@ -442,7 +442,7 @@ static metadata_db_load_outcome_t capture_tagcache_outcome(bool update_ready) {
     return last_outcome;
 }
 
-metadata_db_load_outcome_t metadata_db_open(void) {
+static metadata_db_load_outcome_t open_database(bool read_only) {
     METADATA_UPDATE_GUARD;
     METADATA_DB_GUARD;
     display_song_cache_invalidate();
@@ -459,17 +459,19 @@ metadata_db_load_outcome_t metadata_db_open(void) {
 
     struct stat directory_stat;
     if (stat(METADATA_DB_DIR, &directory_stat) != 0 &&
-        (errno != ENOENT || mkdir(METADATA_DB_DIR, 0755) != 0)) {
+        (read_only || errno != ENOENT || mkdir(METADATA_DB_DIR, 0755) != 0)) {
         last_outcome = METADATA_DB_LOAD_FAILED;
         return last_outcome;
     }
-    if (!tagcache_open(METADATA_DB_DIR) || !catalog_pin_directory()) {
+    if (!(read_only ? tagcache_open_read_only(METADATA_DB_DIR) : tagcache_open(METADATA_DB_DIR)) ||
+        !catalog_pin_directory()) {
         tagcache_close();
         catalog_unpin_directory();
         last_outcome = METADATA_DB_LOAD_FAILED;
         return last_outcome;
     }
     metadata_db_load_outcome_t outcome = capture_tagcache_outcome(true);
+    if (read_only) return outcome;
     if (outcome == METADATA_DB_LOAD_SUCCESS_FRESH ||
         outcome == METADATA_DB_LOAD_SUCCESS_RECOVERED) {
         catalog_library_id_ready = false;
@@ -480,6 +482,10 @@ metadata_db_load_outcome_t metadata_db_open(void) {
     catalog_identity_prepare();
     return outcome;
 }
+
+metadata_db_load_outcome_t metadata_db_open(void) { return open_database(false); }
+
+metadata_db_load_outcome_t metadata_db_open_read_only(void) { return open_database(true); }
 
 bool metadata_db_storage_current(void) {
     METADATA_DB_GUARD;

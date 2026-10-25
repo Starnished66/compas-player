@@ -5,7 +5,6 @@
  */
 #include "tagcache.h"
 #include "dir_fd_path.h"
-#include "library_mtime.h"
 #include "storage_paths.h"
 #include "tagcache_generation_refs.h"
 #include "library_endian.h"
@@ -121,6 +120,8 @@ static int db_dir_fd = -1;
 static struct stat db_dir_identity;
 static bool db_dir_identity_valid;
 static bool db_open, disk_ready, rebuild_preserve_generations;
+/* Set by tagcache_open_read_only(): loading must not write (no index migration). */
+static bool open_read_only;
 static tagcache_load_outcome_t last_load_outcome = TAGCACHE_LOAD_FAILED;
 #define READER_SORT_CACHE_ROWS 64
 #define TC_QUERY_BLOCK_VALUES 128
@@ -1546,8 +1547,7 @@ bool tagcache_lookup(const char *path, int32_t mtime, int32_t size, tagcache_son
     } else if (scan_lazy_active) {
         scan_seen_set(slot);
     }
-    if (!library_mtime_same_version(idx.tag_seek[tag_mtime], mtime) || idx.tag_seek[tag_lastoffset] != size)
-        return false;
+    if (idx.tag_seek[tag_mtime] != mtime || idx.tag_seek[tag_lastoffset] != size) return false;
     tagcache_song_t song;
     if (!reader_song(slot, out ? out : &song)) return false;
     if (out) {
@@ -1945,7 +1945,7 @@ static bool load_generation(int32_t gen) {
     reader_close_indexes();
     bool ok = reader_open(gen);
     int indexed = ok ? reader_open_indexes(gen) : -1;
-    if (ok && indexed == 1 && reader_loaded_index_version < 5u &&
+    if (ok && indexed == 1 && reader_loaded_index_version < 5u && !open_read_only &&
         !reader_migrate_title_index(gen)) {
         uint32_t old_index_version = reader_loaded_index_version;
         /* Keep the previously valid persisted generation usable if rebuilding
@@ -2030,8 +2030,9 @@ static bool reload_from_disk(void) {
     return ok;
 }
 
-bool tagcache_open(const char *dir) {
+static bool open_directory(const char *dir, bool read_only) {
     tagcache_close();
+    open_read_only = read_only;
     last_load_outcome = TAGCACHE_LOAD_FAILED;
     if (!db_pin_directory(dir)) return false;
     db_open = true;
@@ -2039,6 +2040,10 @@ bool tagcache_open(const char *dir) {
     numeric_worker_start();
     return true;
 }
+
+bool tagcache_open(const char *dir) { return open_directory(dir, false); }
+
+bool tagcache_open_read_only(const char *dir) { return open_directory(dir, true); }
 
 bool tagcache_open_for_rebuild(const char *dir) {
     if (tagcache_open(dir)) return true;
@@ -2505,3 +2510,13 @@ void tagcache_snapshot_close(tagcache_snapshot_t *snapshot) {
 int tagcache_snapshot_dup_directory_fd(const tagcache_snapshot_t *snapshot) {
     return snapshot && snapshot->dir_fd >= 0 ? dup(snapshot->dir_fd) : -1;
 }
+
+/* TAGCACHE_DATABASE_FORMAT stands for every on-card layout below: the master
+ * file, the generation references and each index family. Changing any of them
+ * needs a new value, so a tool built for an older one refuses the card. This
+ * fails the build until the number has been considered. */
+_Static_assert(TAGCACHE_MAGIC == 0x54434810 && TAGCACHE_INDEXED_MAGIC == 0x54434811 &&
+               TAGCACHE_REFS_VERSION == 1u && TC_QUERY_VERSION == 2u && TC_ALBUM_ORDER_VERSION == 2u &&
+               TC_INDEX_VERSION == 5u,
+               "bump TAGCACHE_DATABASE_FORMAT (tagcache.h) when a database layout version changes");
+
