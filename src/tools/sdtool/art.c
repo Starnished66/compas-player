@@ -184,14 +184,6 @@ int sdtool_cmd_art(const sdtool_options_t *options) {
     }
     free(ids);
 
-    if (totals.failed) {
-        char message[96];
-        snprintf(message, sizeof(message), "%ld album covers could not be written", totals.failed);
-        json_error("art_failed", message);
-        metadata_db_close();
-        return SDTOOL_FAILED;
-    }
-
     json_line_t line;
     json_begin(&line);
     json_string(&line, "event", "done");
@@ -201,8 +193,17 @@ int sdtool_cmd_art(const sdtool_options_t *options) {
     json_integer(&line, "written", totals.written);
     json_integer(&line, "unchanged", totals.unchanged);
     json_integer(&line, "no_art", totals.no_art);
+    json_integer(&line, "failed", totals.failed);
     json_integer(&line, "mtime_offset", sdtool_mtime_extra());
     json_emit(&line);
     metadata_db_close();
+    /* The counts come first; a cover that could not be written (one bad source,
+     * a full card) is then reported without losing them. */
+    if (totals.failed) {
+        char message[96];
+        snprintf(message, sizeof(message), "%ld album covers could not be written", totals.failed);
+        json_error("art_failed", message);
+        return SDTOOL_FAILED;
+    }
     return SDTOOL_OK;
 }

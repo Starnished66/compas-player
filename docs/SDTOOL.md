@@ -48,15 +48,14 @@ standard error. A failure prints one `error` line and exits nonzero.
 
 | Command | Output |
 | --- | --- |
-| `info` | One object: `{"sdtool_version":"1.0.0","database_format":5,"generation":12,"songs":4032}`. A card with no database reports `generation` 0 and `songs` 0; that is not an error, and nothing is created. |
+| `info` | One object: `{"sdtool_version":"1.1.0","build":"<git short hash>","database_format":5,"generation":12,"songs":4032}`. A card with no database reports `generation` 0 and `songs` 0; that is not an error, and nothing is created. |
 | `scan` | `{"event":"progress","phase":"walk"\|"tags"\|"save","done":N,"total":N}` lines, then `{"event":"done","command":"scan","files":N,"parsed":N,"unchanged":N,"failed":N,"skipped":N,"songs":N,"generation":N,"written":true\|false,"mtime_offset":N}`. |
-| `art` | `{"event":"progress","phase":"art","done":N,"total":N}` lines, then `{"event":"done","command":"art","board":"r1","albums":N,"written":N,"unchanged":N,"no_art":N,"mtime_offset":N}`. |
+| `art` | `{"event":"progress","phase":"art","done":N,"total":N}` lines, then `{"event":"done","command":"art","board":"r1","albums":N,"written":N,"unchanged":N,"no_art":N,"failed":N,"mtime_offset":N}`. |
 | any failure | `{"event":"error","code":"...","message":"..."}` and exit status 1 (2 for bad arguments). |
 
 Progress lines are limited to about one a second, plus the last one. Error
 codes: `usage`, `card_not_found`, `database_open_failed`, `walk_failed`, `no_music_found`, `worker_failed`,
-`write_failed`, `bad_board`, `art_failed` (a cache file could not be written; the
-rest were), `out_of_memory`.
+`write_failed`, `bad_board`, `art_failed` (a cache file could not be written; sent after the `done` line, which carries the counts, and the other albums are still written), `out_of_memory`.
 
 ### scan
 

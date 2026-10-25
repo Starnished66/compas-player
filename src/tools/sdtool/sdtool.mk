@@ -36,7 +36,7 @@ endif
 
 SDTOOL_BIN = $(SDTOOL_DIR)/compas-sdtool$(SDTOOL_EXE)
 
-SDTOOL_OWN_SRCS = $(addprefix $(SDTOOL_SRC_DIR)/,main.c json_out.c root.c database.c scan.c art.c mtime.c mtime_calibrate.c parse_pool.c process.c stubs.c lvgl_shim.c dr_libs_impl.c) \
+SDTOOL_OWN_SRCS = $(addprefix $(SDTOOL_SRC_DIR)/,main.c json_out.c root.c database.c scan.c art.c mtime.c mtime_calibrate.c parse_pool.c process.c stubs.c version.c lvgl_shim.c dr_libs_impl.c) \
                   $(SDTOOL_PLATFORM_SRCS)
 # The player's own library code, unchanged: tagcache and metadata_db for the
 # database, albumart and cover_decode for the covers, metadata for the tags.
@@ -61,6 +61,17 @@ SDTOOL_OBJS = $(SDTOOL_OWN_SRCS:%.c=$(SDTOOL_DIR)/%.o) $(SDTOOL_PLAYER_SRCS:%.c=
               $(OGG_SRCS:%.c=$(SDTOOL_DIR)/%.o) $(OPUSFILE_SRCS:%.c=$(SDTOOL_DIR)/%.o) \
               $(JPEG_SRCS:%.c=$(SDTOOL_DIR)/%.o)
 SDTOOL_LIBS = $(SDTOOL_DIR)/libwavpack/libwavpack.a $(SDTOOL_DIR)/libsndfile/libsndfile.a
+
+# The revision reported by `info`, so a bundled tool can be checked against the
+# source it should have been built from. The object is rebuilt only when it changes.
+SDTOOL_BUILD_ID := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)$(shell git diff --quiet HEAD 2>/dev/null || echo -dirty)
+.PHONY: SDTOOL_FORCE
+$(SDTOOL_DIR)/.build_id: SDTOOL_FORCE
+	@mkdir -p $(dir $@)
+	@printf '%s\n' '$(SDTOOL_BUILD_ID)' > $@.tmp
+	@cmp -s $@.tmp $@ && rm $@.tmp || mv $@.tmp $@
+$(SDTOOL_DIR)/$(SDTOOL_SRC_DIR)/version.o: $(SDTOOL_DIR)/.build_id
+$(SDTOOL_DIR)/$(SDTOOL_SRC_DIR)/version.o: SDTOOL_CFLAGS += -DSDTOOL_BUILD=\"$(SDTOOL_BUILD_ID)\"
 
 .PHONY: sdtool
 sdtool: $(SDTOOL_BIN)

@@ -54,6 +54,7 @@ int sdtool_cmd_info(const sdtool_options_t *options) {
     }
     json_begin(&line);
     json_string(&line, "sdtool_version", SDTOOL_VERSION);
+    json_string(&line, "build", sdtool_build);
     json_integer(&line, "database_format", TAGCACHE_DATABASE_FORMAT);
     json_integer(&line, "generation", generation);
     json_integer(&line, "songs", songs);

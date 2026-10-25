@@ -5,7 +5,9 @@
 #include <stddef.h>
 #include "metadata_db.h"
 
-#define SDTOOL_VERSION "1.0.0"
+#define SDTOOL_VERSION "1.1.0"
+/* Source revision this binary was built from (version.c). */
+extern const char sdtool_build[];
 
 /* Boards the player ships for, as written in device.json. */
 #define SDTOOL_DEFAULT_BOARD "r1"

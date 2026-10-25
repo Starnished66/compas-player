@@ -67,6 +67,7 @@ r=$(run info "$card") || fail "info on empty card"
 [ "$(field "$r" generation)" = 0 ] || fail "empty card generation"
 [ -e "$card/.compas" ] && fail "info created .compas"
 [ "$(field "$r" database_format)" = 5 ] || fail "database_format"
+[ "$(field "$r" sdtool_version)" = 1.1.0 ] && [ -n "$(field "$r" build)" ] || fail "version identity: $r"
 
 # scan builds the database: 5 songs (one with a non-ASCII path), the Audiobooks folder is excluded.
 r=$(run scan "$card") || fail "first scan"
@@ -236,6 +237,13 @@ r=$(run scan "$card") || fail "scan with new file"
 rm "$card/Artist Three/Album Three/02 Extra.mp3"
 r=$(run scan "$card") || fail "scan after removal"
 [ "$(field "$r" songs)" = 5 ] || fail "removed file kept: $r"
+
+# a cover that cannot be written fails that album only: the counts still come
+# first, then the error, and the other albums are done.
+printf 'not an image' > "$card/Artist Two/Album Two/cover.png"
+run art "$card" && fail "art accepted a corrupt cover"
+grep -q '"event":"done","command":"art".*"failed":1' "$work/out" || fail "art done line before the error"
+tail -n 1 "$work/out" | grep -q '"code":"art_failed"' || fail "art_failed error line"
 
 # failures are one error line and a nonzero exit.
 "$tool" scan "$work/missing" > "$work/out" 2>/dev/null && fail "missing card accepted"
