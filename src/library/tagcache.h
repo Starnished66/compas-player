@@ -214,6 +214,8 @@ void tagcache_add_play(const char * path, int32_t now);
 /* Staging-only overlay for statistics moved from remote-state sidecars onto a scanned row. */
 void tagcache_overlay_stats(const char * path, int32_t rating, int32_t playcount, int32_t last_played);
 int32_t tagcache_generation(void);
+/* 1 identifies persisted legacy title ranks; 2 identifies displayed-title ranks. */
+int tagcache_title_order_version(void);
 
 int32_t tagcache_title_rank_of_path(const char * path);
 int32_t tagcache_recency_rank_of_path(const char * path);

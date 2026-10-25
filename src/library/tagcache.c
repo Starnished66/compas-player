@@ -123,6 +123,7 @@ static tagcache_load_outcome_t last_load_outcome = TAGCACHE_LOAD_FAILED;
 #define TC_QUERY_BLOCK_VALUES 128
 typedef struct {
     int32_t entries, live, serial, commitid, generation;
+    uint32_t loaded_index_version, title_order_version;
     int master_fd, tag_fd[TAG_COUNT];
     size_t tag_size[TAG_COUNT];
     bool fds_ready, requires_indexes, legacy_active, compact_sort, compact_order, sort_failed;
@@ -144,6 +145,8 @@ static int32_t commit_slot_map_count;
 #define master_serial (READER->serial)
 #define master_commitid (READER->commitid)
 #define disk_gen (READER->generation)
+#define reader_loaded_index_version (READER->loaded_index_version)
+#define reader_title_order_version (READER->title_order_version)
 #define reader_master_fd (READER->master_fd)
 #define reader_tag_fd (READER->tag_fd)
 #define reader_tag_size (READER->tag_size)
@@ -681,6 +684,9 @@ static int stats_read_at(int fd, void * buf, size_t size, off_t offset) {
 }
 
 int32_t tagcache_generation(void) { return db_open ? disk_gen : 0; }
+int tagcache_title_order_version(void) {
+    return db_open ? (int)committed_reader.title_order_version : 0;
+}
 
 static int compare_load_generations(const void * a, const void * b) {
     int32_t ga = *(const int32_t *) a;
@@ -1935,6 +1941,16 @@ static bool load_generation(int32_t gen) {
     reader_close_indexes();
     bool ok = reader_open(gen);
     int indexed = ok ? reader_open_indexes(gen) : -1;
+    if (ok && indexed == 1 && reader_loaded_index_version < 5u &&
+        !reader_migrate_title_index(gen)) {
+        uint32_t old_index_version = reader_loaded_index_version;
+        /* Keep the previously valid persisted generation usable if rebuilding
+         * derived indexes fails (for example, while storage is read-only). */
+        reader_close_indexes();
+        indexed = reader_open_indexes(gen);
+        DB_LOG("DB", "title_index_migration_failed gen=%d; retaining valid v%u persisted index",
+               gen, old_index_version);
+    }
     if (ok && indexed == 0 && reader_requires_indexes) ok = false;
     if (ok && indexed == 0) ok = reader_legacy_init();
     if (!ok || indexed < 0) {
@@ -1959,6 +1975,8 @@ static bool load_all(void) {
     if (!saved) {
         free(generations);
         reader_compact_order = !choose_intern_strings(0);
+        reader_title_order_version = 2;
+        reader_loaded_index_version = TC_INDEX_VERSION;
         last_load_outcome = TAGCACHE_LOAD_SUCCESS_FRESH;
         return true;
     }
@@ -2051,6 +2069,7 @@ void tagcache_close(void) {
     ent_count = live_count = 0;
     disk_gen = master_commitid = 0;
     master_serial = 1;
+    reader_loaded_index_version = reader_title_order_version = 0;
     db_open = disk_ready = rebuild_preserve_generations = updating = scan_initializing = update_failed = false;
     scan_preserve_unseen = false;
     if (db_dir_fd >= 0) close(db_dir_fd);
