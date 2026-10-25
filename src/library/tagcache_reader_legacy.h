@@ -29,6 +29,7 @@ static bool reader_legacy_init(void) {
         live_count++;
     }
     reader_legacy_active = true;
+    reader_title_order_version = 2u;
     return true;
 }
 
