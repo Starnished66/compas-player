@@ -405,6 +405,7 @@ compas_player_power_r3ii_2025
 !src/core/theme_file_test.c
 !src/core/boot_trace_test.c
 !src/core/device_info_test.c
+!/tests/sdtool/compat_pattern_test.c
 !src/network/store_common_test.c
 !src/ui/gui_themes_test.c
 !src/network/plugin_store_theme_test.c
