@@ -19,6 +19,10 @@
  * Public player code must use
  * metadata_db.h instead. */
 
+/* Layout version of the on-card database this build writes (the version of its
+ * index files). Anything that reads the database must carry a reader for it. */
+#define TAGCACHE_DATABASE_FORMAT 7u
+
 #define TAGCACHE_PATH_MAX 600
 #define TAGCACHE_TAG_MAX 128
 /* Most artists a single ARTIST tag can be filed under. Splitting stops at the
@@ -82,6 +86,9 @@ typedef enum {
 typedef struct tagcache_snapshot tagcache_snapshot_t;
 
 bool tagcache_open(const char * dir);
+/* tagcache_open() for inspection: an older index layout is read as it is rather
+ * than migrated, and nothing is written. The caller must not update. */
+bool tagcache_open_read_only(const char * dir);
 tagcache_snapshot_t *tagcache_snapshot_open(bool recency);
 int tagcache_snapshot_count(const tagcache_snapshot_t *snapshot);
 bool tagcache_snapshot_path_at(const tagcache_snapshot_t *snapshot, int rank, char *out, size_t out_size);

@@ -1,26 +1,30 @@
 #include "fb_draw.h"
+#include "fb_draw_internal.h"
 
-#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifndef FB_DRAW_HOST
+#include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <unistd.h>
 #include <linux/fb.h>
+#endif
 
 #include "lvgl/src/libs/tjpgd/tjpgd.h"
 #include "glyph5x7.h"
 #include "startup_splash.h"
 
-static int fb_fd = -1;
-static uint16_t * fb_mem = NULL;
-static size_t fb_mem_len = 0;
-static int fb_stride_pixels = 0; /* line_length in PIXELS, not bytes -- see fb_open()'s own comment */
+int fb_fd = -1;
+uint16_t * fb_mem = NULL;
+size_t fb_mem_len = 0;
+int fb_stride_pixels = 0; /* line_length in PIXELS, not bytes -- see fb_open()'s own comment */
 /* Pixel offset of the CURRENTLY DISPLAYED page's first pixel within
  * fb_mem, from vinfo.xoffset/yoffset -- see fb_open()'s own comment on why
  * this can be nonzero on this exact hardware. */
-static int fb_base_offset_pixels = 0;
+int fb_base_offset_pixels = 0;
 
 /* Compact (no stride padding) heap copy of the decoded background, for
  * fb_restore_background()'s fast blit -- see fb_draw.h's own doc comment on
@@ -33,12 +37,13 @@ static int fb_base_offset_pixels = 0;
  * framebuffer itself is done with it; that matters on this 56 MiB
  * device even though it's a supervisor process doing nothing but
  * waitpid() by that point. */
-static uint16_t * bg_cache = NULL;
+uint16_t * bg_cache = NULL;
 
 /* Off-screen back buffer used by drawing primitives to assemble frames before
  * blitting to the visible framebuffer in fb_flush(). */
-static uint16_t * back_buffer = NULL;
+uint16_t * back_buffer = NULL;
 
+#ifndef FB_DRAW_HOST
 /* RGB565 specifically, not just "some 16bpp format" -- bits_per_pixel==16
  * alone doesn't rule out RGB555/BGR565/ARGB4444, all also 16bpp. fb_rgb()
  * packs red at bits 15..11, green at 10..5, blue at 4..0; verifying the
@@ -197,6 +202,11 @@ void fb_close(void) {
     bg_cache = NULL;
     free(back_buffer);
     back_buffer = NULL;
+}
+#endif /* FB_DRAW_HOST */
+
+const uint16_t * fb_back_pixels(void) {
+    return back_buffer;
 }
 
 fb_color_t fb_rgb(uint8_t r, uint8_t g, uint8_t b) {

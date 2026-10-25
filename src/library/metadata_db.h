@@ -49,6 +49,9 @@ typedef enum {
 /* Opens the on-disk tagcache at its fixed path (the SD-card root on target,
  * ./ on host). If it is already open, returns its existing load outcome. */
 metadata_db_load_outcome_t metadata_db_open(void);
+/* For inspection: no folder, identity marker or index migration is written, and
+ * the database must not be updated. */
+metadata_db_load_outcome_t metadata_db_open_read_only(void);
 typedef struct tagcache_snapshot metadata_db_snapshot_t;
 metadata_db_snapshot_t *metadata_db_snapshot_open(bool recency);
 int metadata_db_snapshot_count(const metadata_db_snapshot_t *snapshot);

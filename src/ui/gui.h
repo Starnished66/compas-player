@@ -1,6 +1,7 @@
 #ifndef GUI_H
 #define GUI_H
 
+#include "library_walk.h"
 #include "lvgl/lvgl.h"
 #include "board_config.h"
 #include "settings.h"

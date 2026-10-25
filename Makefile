@@ -693,7 +693,7 @@ $(TARGET_CODE_SECTION_FLAGS_STAMP): FORCE_TARGET_CODE_SECTION_FLAGS
 # misc). main.c stays at src/ root as the entry point.
 CFLAGS += -Isonic
 
-APP_SRCS = src/main.c src/ui/gui.c src/ui/library_selection_snapshot.c src/ui/library/library_az_index.c src/ui/gui_subsonic.c src/ui/gui_settings.c src/ui/gui_network.c src/ui/gui_theme.c src/ui/gui_notifications.c src/ui/gui_library.c src/ui/gui_queue.c src/ui/gui_player.c src/ui/gui_track_info.c src/ui/gui_plugins.c src/ui/gui_shell.c src/ui/gui_navigation.c src/ui/gui_books.c src/ui/gui_file_manager.c src/ui/gui_text_input.c src/ui/gui_lyrics.c src/ui/gui_reload.c src/audio/audio.c src/library/file_browser.c src/library/file_ops.c src/hardware/hw_buttons.c src/hardware/button_mapping.c src/hardware/input_device_utils.c src/library/metadata.c src/library/metadata_db.c src/core/settings.c src/core/startup_splash.c src/core/screenshot.c src/core/app_version.c src/audio/aiff_decoder.c src/audio/dsd_filter.c src/audio/dsd_decoder.c src/audio/sacd_reader.c src/audio/dst_decoder.c src/library/sacd_iso.c src/audio/aac_decoder.c src/audio/mp4_demux.c src/audio/ape_demux.c src/audio/ape_decoder.c src/audio/ape_ffmpeg_core.c src/audio/peq.c src/audio/mseb.c src/audio/audio_tempo.c src/ui/assets.c src/ui/screen_builders.c src/ui/cover_card_preview.c src/hardware/battery.c src/network/wifi_status.c src/network/ca_bundle.c src/network/http_conn.c src/network/http_client.c src/network/http_stream.c src/network/http_stream_file.c src/network/subsonic_client.c src/library/cover_decode.c src/library/image_thumb.c src/library/lyrics.c src/audio/asf_demux.c src/audio/wma_decoder.c src/audio/ogg_probe.c src/audio/opus_decoder.c src/audio/opusfile_alloc.c src/audio/wavpack_decoder.c src/audio/caf_decoder.c src/audio/vorbis_decoder.c src/library/cue_parser.c src/ui/fallback_font.c src/ui/gui_text_view.c \
+APP_SRCS = src/main.c src/ui/gui.c src/ui/library_selection_snapshot.c src/ui/library/library_az_index.c src/ui/gui_subsonic.c src/ui/gui_settings.c src/ui/gui_network.c src/ui/gui_theme.c src/ui/gui_notifications.c src/ui/gui_library.c src/ui/gui_queue.c src/ui/gui_player.c src/ui/gui_track_info.c src/ui/gui_plugins.c src/ui/gui_shell.c src/ui/gui_navigation.c src/ui/gui_books.c src/ui/gui_file_manager.c src/ui/gui_text_input.c src/ui/gui_lyrics.c src/ui/gui_reload.c src/audio/audio.c src/library/file_browser.c src/library/file_ops.c src/hardware/hw_buttons.c src/hardware/button_mapping.c src/hardware/input_device_utils.c src/library/metadata.c src/library/library_walk.c src/library/metadata_db.c src/core/settings.c src/core/startup_splash.c src/core/screenshot.c src/core/app_version.c src/audio/aiff_decoder.c src/audio/dsd_filter.c src/audio/dsd_decoder.c src/audio/sacd_reader.c src/audio/dst_decoder.c src/library/sacd_iso.c src/audio/aac_decoder.c src/audio/mp4_demux.c src/audio/ape_demux.c src/audio/ape_decoder.c src/audio/ape_ffmpeg_core.c src/audio/peq.c src/audio/mseb.c src/audio/audio_tempo.c src/ui/assets.c src/ui/screen_builders.c src/ui/cover_card_preview.c src/hardware/battery.c src/network/wifi_status.c src/network/ca_bundle.c src/network/http_conn.c src/network/http_client.c src/network/http_stream.c src/network/http_stream_file.c src/network/subsonic_client.c src/library/cover_decode.c src/library/image_thumb.c src/library/lyrics.c src/audio/asf_demux.c src/audio/wma_decoder.c src/audio/ogg_probe.c src/audio/opus_decoder.c src/audio/opusfile_alloc.c src/audio/wavpack_decoder.c src/audio/caf_decoder.c src/audio/vorbis_decoder.c src/library/cue_parser.c src/ui/fallback_font.c src/ui/gui_text_view.c \
 src/core/subprocess.c src/network/wifi_control.c src/network/bluetooth_control.c src/network/hiby_sys_server.c src/hardware/backlight.c src/network/remote_import_files.c src/network/airplay_control.c src/network/airplay_bridge.c src/network/airplay_metadata.c src/hardware/headphone_status.c src/hardware/device_config.c src/hardware/led_control.c src/hardware/charge_limiter.c src/core/idle_shutdown.c src/hardware/power_suspend.c src/core/text_reader.c src/hardware/usb_mode_control.c src/hardware/usb_dac_bridge.c src/hardware/usb_audio_output.c src/core/firmware_update.c src/core/player_update.c src/core/reboot_handoff.c src/library/playlist_files.c src/library/favorite_writer.c src/network/firmware_ota.c src/network/plugin_store.c src/network/store_common.c src/network/emulator_store.c src/core/emulator_registry.c src/core/timezone_data.c src/core/timezone_apply.c src/core/hostname_apply.c src/network/dlna_control.c src/network/remote_control.c src/network/remote_control_discovery.c src/network/catalog_source_cache.c src/network/remote_control_mdns.c src/plugins/plugin_manager.c
 APP_SRCS += src/ui/gui_setup.c src/ui/gui_setup_plugins.c src/ui/brand_marks.c src/core/timezone_location.c
 APP_SRCS += src/ui/gui_plugin_library.c
@@ -733,9 +733,9 @@ APP_SRCS += src/core/theme_file_values.c src/network/http_url.c
 APP_SRCS += src/library/remote_track.c
 APP_SRCS += src/library/queue_resume.c
 APP_SRCS += src/audio/track_probe.c
-APP_SRCS += src/library/albumart.c src/library/tagcache.c src/library/path_cache.c src/library/remote_state.c src/library/subsonic_saved_servers.c src/library/artwork_coordinator.c
+APP_SRCS += src/library/library_scan_tags.c src/library/albumart.c src/library/tagcache.c src/library/path_cache.c src/library/remote_state.c src/library/subsonic_saved_servers.c src/library/artwork_coordinator.c
 APP_SRCS += src/library/artwork_memory.c src/library/artwork_failure_cache.c
-APP_SRCS += src/core/utf8_util.c src/core/app_clock.c src/core/db_log.c src/core/zip_reader.c src/core/html_blocks.c
+APP_SRCS += src/core/device_info.c src/core/utf8_util.c src/core/app_clock.c src/core/db_log.c src/core/zip_reader.c src/core/html_blocks.c
 APP_SRCS += src/ui/gesture_detector.c
 APP_SRCS += src/ui/i18n.c src/ui/i18n_catalog.c
 APP_SRCS += src/ui/player/player_layouts.c src/ui/player/player_layout_builtin.c
@@ -913,7 +913,60 @@ $(BUILD_TARGET_DIR)/libsndfile/libsndfile.a: $(BUILD_TARGET_DIR)/.audio_vendor_c
 	cmake -S $(SNDFILE_DIR) -B $(dir $@) $(SNDFILE_OPTIONS) -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=mipsel -DCMAKE_C_COMPILER=$(CROSS_CC) -DCMAKE_C_FLAGS='$(TARGET_CPU_FLAGS) $(TARGET_CODE_SECTION_FLAGS)'
 	+cmake --build $(dir $@) --target sndfile
 
-.PHONY: all host target bootloader clean compile_commands.json FORCE_VERSION
+ifeq ($(BOARD),r1)
+SELECTOR_SIM_BIN = selector_sim
+else
+SELECTOR_SIM_BIN = selector_sim_$(BOARD)
+endif
+SELECTOR_SIM_CFLAGS = -O2 -Wall -fwrapv -I. -Isrc/bootloader -Isrc/core \
+	-DFB_DRAW_HOST=1 -DHOST_BUILD=1 -DCOMPAS_LOADER_BUILD $(BOARD_DEFINE)
+# BOARD_SCREEN_WIDTH is 480 on r1/r3proii and 320 on r3ii_2025. The
+# standalone R3II 2025 loader has no Rockbox row, so it also drops that
+# banner array.
+ifeq ($(BOARD),r3ii_2025)
+SELECTOR_LOGO_SRCS = src/bootloader/selector_logos.c \
+	src/bootloader/selector_logos_wordmark_320.c
+SELECTOR_ICON_SRCS = src/bootloader/selector_icons.c \
+	src/bootloader/selector_icons_utilities_320.c \
+	src/bootloader/selector_icons_nav.c \
+	src/bootloader/selector_icons_tools.c
+else
+SELECTOR_LOGO_SRCS = src/bootloader/selector_logos.c \
+	src/bootloader/selector_logos_wordmark_480.c \
+	src/bootloader/selector_logos_rockbox_480.c
+SELECTOR_ICON_SRCS = src/bootloader/selector_icons.c \
+	src/bootloader/selector_icons_utilities_480.c \
+	src/bootloader/selector_icons_nav.c \
+	src/bootloader/selector_icons_tools.c
+endif
+SELECTOR_SIM_SRCS = src/bootloader/selector_sim.c src/bootloader/selector_ui.c \
+	src/bootloader/selector_paint.c src/bootloader/fb_draw.c src/bootloader/fb_host.c \
+	$(SELECTOR_LOGO_SRCS) $(SELECTOR_ICON_SRCS) \
+	src/core/glyph5x7.c src/core/startup_splash.c lvgl/src/libs/tjpgd/tjpgd.c
+SNAPSHOT_PREFIX ?= snapshot
+
+$(SELECTOR_SIM_BIN): $(SELECTOR_SIM_SRCS) src/bootloader/fb_draw.h src/bootloader/fb_draw_internal.h \
+		src/bootloader/selector_ui.h src/bootloader/selector_logos.h \
+		src/bootloader/selector_icons.h src/bootloader/selector_style.h \
+		src/bootloader/selector_internal.h src/bootloader/selector_font_pin.h \
+		src/core/board_config.h src/core/glyph5x7.h $(LVGL_TINY_TTF)
+	$(CC) $(SELECTOR_SIM_CFLAGS) -o $@ $(SELECTOR_SIM_SRCS) -lm
+
+.PHONY: check-selector-logos check-selector-icons check-selector-fonts
+selector-sim: $(SELECTOR_SIM_BIN)
+	@mkdir -p scratch/selector-mockup
+	./$(SELECTOR_SIM_BIN) scratch/selector-mockup assets/fonts/NotoSans-Regular.ttf $(SNAPSHOT_PREFIX)
+
+check-selector-logos:
+	python3 scripts/generate_selector_logos.py --verify
+
+check-selector-icons:
+	python3 scripts/generate_selector_icons.py --verify
+
+check-selector-fonts:
+	python3 scripts/generate_selector_fonts.py --verify
+
+.PHONY: all host target bootloader clean compile_commands.json FORCE_VERSION selector-sim
 
 # Default target builds for host simulation and generates compile commands for IDE
 all: host compile_commands.json
@@ -1129,7 +1182,9 @@ else
 BOOTLOADER_BIN = compas_loader_$(BOARD)
 endif
 BOOTLOADER_SRCS = src/bootloader/selector_controller.c src/bootloader/selector_input.c \
-                  src/bootloader/selector_ui.c src/bootloader/selector_request.c \
+                  src/bootloader/selector_ui.c src/bootloader/selector_paint.c \
+                  src/bootloader/selector_request.c \
+                  $(SELECTOR_LOGO_SRCS) $(SELECTOR_ICON_SRCS) \
                   src/core/sd_fsck.c src/core/sd_fsck_run.c \
                   src/bootloader/main.c src/bootloader/fb_draw.c src/bootloader/boot_tuning.c \
                   src/core/startup_splash.c src/core/glyph5x7.c \
@@ -1287,6 +1342,7 @@ clean:
 	rm -rf build_host build_host_* build_target build_target_* build_ui_test build_layouts_test* \
 	    compas_player_host compas_player_host_* \
 	    compas_player_target compas_player_target_* \
+	    selector_sim selector_sim_* \
 	    compas_early_splash compas_early_splash_* \
 	    compile_commands.json compile_flags.txt
 
@@ -1331,6 +1387,8 @@ i18n-check:
 # directory itself doesn't exist yet either. Must stay at the end of the
 # file: every .d this generates references targets/variables (BUILD_
 # TARGET_DIR, BUILD_HOST_DIR) that need to already be fully resolved.
+include src/tools/sdtool/sdtool.mk
+
 -include $(shell find $(BUILD_TARGET_DIR) $(BUILD_HOST_DIR) -name '*.d' 2>/dev/null)
 
 .PHONY: test-wifi-ssid
@@ -1342,6 +1400,15 @@ test-wifi-ssid:
 test-rtl-text:
 	bash scripts/run_rtl_text_spec.sh
 
+.PHONY: test-device-info
+# <SD>/.compas/device.json: contents, write-only-on-change, no-op without a writable card.
+test-device-info:
+	sh scripts/tests/run_device_info_test.sh
+
+.PHONY: test-store-dest
+# Plugin Store destinations: no path segment may end in a dot or space.
+test-store-dest:
+	sh scripts/tests/run_store_dest_test.sh
 .PHONY: test-player-queue
 test-player-queue:
 	bash scripts/test_player_queue_model.sh

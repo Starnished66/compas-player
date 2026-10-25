@@ -28,6 +28,7 @@
 #include "settings.h"
 #include "db_log.h"
 #include "storage_paths.h"
+#include "device_info.h"
 #include "ui_wake.h"
 #include "ui_fonts.h"
 #include "fallback_font.h"
@@ -763,6 +764,9 @@ int main(int argc, char ** argv) {
     boot_checkpoint("settle_sd_mount_during_splash begin");
     settle_sd_mount_during_splash();
     boot_checkpoint("settle_sd_mount_during_splash done");
+    /* Tells tools on a computer which player this card belongs to. Skipped
+     * without a card; a read-only card simply keeps its old file. */
+    if (sd_mount_point_mounted()) (void) device_info_publish(SD_COMPAS_ROOT);
 
     boot_checkpoint("ui_wake_init begin");
     ui_wake_init();

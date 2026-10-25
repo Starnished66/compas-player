@@ -4,7 +4,9 @@
 #include "file_browser.h"
 #include "library_artwork_internal.h"
 #include "library_paths.h"
+#include "library_scan_decision.h"
 #include "library_scan_storage.h"
+#include "library_scan_tags.h"
 #include "metadata.h"
 #include "metadata_refresh_targets.h"
 #include "tagcache.h"
@@ -339,13 +341,6 @@ fail:
     return false;
 }
 
-static bool cached_song_tags_equal(const cached_tags_t * a, const cached_tags_t * b) {
-    return strcmp(a->title, b->title) == 0 && strcmp(a->artist, b->artist) == 0 &&
-           strcmp(a->album, b->album) == 0 && strcmp(a->album_artist, b->album_artist) == 0 &&
-           strcmp(a->genre, b->genre) == 0 && a->track_number == b->track_number &&
-           a->disc_number == b->disc_number && a->release_year == b->release_year;
-}
-
 static scan_song_result_t scan_song_stat_into_db(const char * path, const char * db_path,
                                                    const struct stat * source_stat,
                                                    bool force_metadata, bool * out_changed,
@@ -370,17 +365,7 @@ static scan_song_result_t scan_song_stat_into_db(const char * path, const char *
     if (!metadata_read_isolated(path, &meta, LIBRARY_SCAN_FILE_TIMEOUT_MS)) return SCAN_SONG_FAILED;
 
     cached_tags_t fresh;
-    memset(&fresh, 0, sizeof(fresh));
-    fresh.track_number = meta.has_track_number ? meta.track_number : -1;
-    fresh.disc_number = meta.has_disc_number ? meta.disc_number : -1;
-    fresh.release_year = meta.has_release_year ? meta.release_year : -1;
-    snprintf(fresh.title, sizeof(fresh.title), "%s", meta.has_title ? meta.title : "");
-    snprintf(fresh.artist, sizeof(fresh.artist), "%s", meta.has_artist ? meta.artist : "Unknown Artist");
-    snprintf(fresh.album, sizeof(fresh.album), "%s", meta.has_album ? meta.album : "Unknown Album");
-    const char * album_artist_value = meta.has_album_artist ? meta.album_artist
-                                     : (meta.has_artist ? meta.artist : "Unknown Artist");
-    snprintf(fresh.album_artist, sizeof(fresh.album_artist), "%s", album_artist_value);
-    snprintf(fresh.genre, sizeof(fresh.genre), "%s", meta.has_genre ? meta.genre : "Unknown Genre");
+    library_scan_tags_from_track(&meta, &fresh);
     free(meta.picture_data);
     free(meta.lyrics); /* always NULL here (metadata_read_isolated() itself already frees/NULLs it before the pipe write), freeing defensively for symmetry */
 
@@ -390,7 +375,7 @@ static scan_song_result_t scan_song_stat_into_db(const char * path, const char *
      * scan misses that old cache key and reads the file once. A parse that
      * differs only in a spelling tagcache interns back to the stored one is
      * written but reported unchanged by tagcache, so it cannot force a commit. */
-    bool exact_match = force_metadata && had_previous && cached_song_tags_equal(&previous.tags, &fresh);
+    bool exact_match = force_metadata && had_previous && library_scan_tags_equal(&previous.tags, &fresh);
     bool stored_changed = !exact_match && metadata_db_put(db_path, mtime, size, &fresh);
     if (force_metadata) {
         if (out_changed) *out_changed = had_previous && stored_changed;
@@ -711,7 +696,7 @@ static void library_scan_once_with_options(bool force_all_metadata) {
            discovered_count, skipped_count, (unsigned long long) (db_log_now_ms() - phase_started_ms),
            "fd-backed", db_log_rss_kb());
 
-    if (preserve_rebuild && discovered_count == 0) {
+    if (library_scan_rebuild_rejected(preserve_rebuild, discovered_count)) {
         DB_LOG("DB", "rebuild_rejected reason=no_files");
         metadata_db_abort_update();
         scan_job.result.operation_outcome = combine_load_outcomes(scan_job.result.operation_outcome, METADATA_DB_LOAD_FAILED);
@@ -722,9 +707,8 @@ static void library_scan_once_with_options(bool force_all_metadata) {
     scan_progress_total = discovered_count;
     scan_progress_phase = LIBRARY_SCAN_PHASE_TAGS;
     bool force_metadata_anywhere = force_all_metadata;
-    if (open_outcome == METADATA_DB_LOAD_SUCCESS_NORMAL && !preserve_rebuild &&
-        skipped_count == 0 && discovered_count >= 0 &&
-        metadata_db_get_song_count() == (int64_t) discovered_count &&
+    if (library_scan_may_skip_update(open_outcome, preserve_rebuild, skipped_count, discovered_count,
+                                     metadata_db_get_song_count()) &&
         library_scan_unchanged_fast_path(spool_fd, spool_owner->root_fd, discovered_count,
                                          force_metadata_anywhere)) {
         scan_walk_release(spool_owner);
@@ -862,8 +846,8 @@ static void library_scan_once_with_options(bool force_all_metadata) {
     bool missing_paths = force_all_metadata &&
                          (int64_t) scan_job.result.matched_existing != metadata_db_get_song_count();
     if (missing_paths) scan_job.result.identity_changed = true;
-    if (force_all_metadata && !preserve_rebuild && skipped_count == 0 &&
-        metadata_refresh_should_skip_commit(scan_job.result.changed_count, false, row_inserted)) {
+    if (library_scan_refresh_skips_commit(force_all_metadata, preserve_rebuild, skipped_count,
+                                          scan_job.result.changed_count, row_inserted, false)) {
         if (atomic_load_explicit(&scan_cancel_requested, memory_order_acquire) ||
             !sd_card_root_is_mounted() || !metadata_db_storage_current()) {
             metadata_db_abort_update();

@@ -1,0 +1,65 @@
+Selector logo sources
+Runtime: embedded C arrays in src/bootloader/selector_logos*.c, generated
+by scripts/generate_selector_logos.py. Each bootloader links only the
+width matching BOARD_SCREEN_WIDTH. The standalone R3II 2025 loader also
+omits the Rockbox arrays.
+
+Verified with ImageMagick 7.1.2-32 (magick).
+
+Compás wordmark
+  Source: assets/brand/compas-wordmark.svg (URW Gothic Book outlines,
+  same path as src/ui/brand_marks.c).
+  Embedded as A8 (alpha only), tinted at draw time with the selector
+  title colour.
+
+Rockbox logo
+  File: assets/bootloader/selector/rockbox-logo.svg
+  Official artwork from the Rockbox project, not redrawn.
+  Copyright: the Rockbox project.
+  Source URL:
+    https://git.rockbox.org/cgit/rockbox.git/plain/docs/logo/rockbox-logo.svg
+  License: GNU GPL version 2 or (at your option) any later version, as
+  shipped in Rockbox docs/COPYING:
+    https://git.rockbox.org/cgit/rockbox.git/plain/docs/COPYING
+  GitHub mirror of the same files:
+    https://github.com/Rockbox/rockbox/tree/master/docs/logo
+  The SVG includes a full-canvas black backing rect. The generator
+  crops the gold plate and scales it to the selector row heights
+  (50px on 480-wide panels, 34px on 320-wide).
+
+Breeze symbolic icons
+  Directory: assets/bootloader/selector/icons/
+  Unmodified SVGs copied from the Breeze icon theme (breeze-icons).
+  Copyright: Uri Herrera and others (COPYING-ICONS).
+  License: GNU LGPL version 3 or (at your option) any later version
+    COPYING-ICONS and LGPL-3.0.txt sit next to the SVGs.
+    https://invent.kde.org/frameworks/breeze-icons/-/raw/master/COPYING-ICONS
+  Runtime: embedded A8 arrays in src/bootloader/selector_icons*.c, generated
+  by scripts/generate_selector_icons.py. Alpha is the mask; colour is applied
+  at draw time.
+
+  applications-utilities-symbolic.svg
+    Generated at breeze-icons build time (the invent.kde.org icons/categories/24
+    path 404s). Source used here:
+      Fedora breeze-icon-theme-6.31.0-1.fc44
+      /usr/share/icons/breeze/categories/24/applications-utilities-symbolic.svg
+  go-previous-symbolic.svg
+    https://invent.kde.org/frameworks/breeze-icons/-/raw/master/icons/actions/32/go-previous.svg
+  go-next-symbolic.svg
+    https://invent.kde.org/frameworks/breeze-icons/-/raw/master/icons/actions/32/go-next.svg
+  debug-run-symbolic.svg
+    https://invent.kde.org/frameworks/breeze-icons/-/raw/master/icons/actions/22/debug-run.svg
+  run-build-symbolic.svg
+    https://invent.kde.org/frameworks/breeze-icons/-/raw/master/icons/actions/22/run-build.svg
+  media-mount-symbolic.svg
+    https://invent.kde.org/frameworks/breeze-icons/-/raw/master/icons/actions/22/media-mount.svg
+  tools-wizard-symbolic.svg
+    https://invent.kde.org/frameworks/breeze-icons/-/raw/master/icons/actions/22/tools-wizard.svg
+  system-reboot-symbolic.svg
+    Breeze alias of actions/32/view-refresh.svg
+    https://invent.kde.org/frameworks/breeze-icons/-/raw/master/icons/actions/32/view-refresh.svg
+  system-shutdown-symbolic.svg
+    https://invent.kde.org/frameworks/breeze-icons/-/raw/master/icons/actions/32/system-shutdown.svg
+  system-upgrade-symbolic.svg
+    Breeze alias of status/22/update-none.svg
+    https://invent.kde.org/frameworks/breeze-icons/-/raw/master/icons/status/22/update-none.svg

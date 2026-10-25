@@ -13,7 +13,7 @@
 /* Shared sizing and input bounds used by artwork services and the UI cache. */
 #define ALBUM_THUMBNAIL_PX ALBUMART_THUMBNAIL_SIZE
 #define ALBUM_PLAYER_CACHE_PX ALBUMART_PLAYER_CACHE_SIZE
-#define THUMBNAIL_SIDECAR_MAX_BYTES (2U * 1024U * 1024U)
+#define THUMBNAIL_SIDECAR_MAX_BYTES ALBUMART_SIDECAR_MAX_BYTES
 /* Small startup allowance; the helper has a bounded address-space budget
  * and the returned picture is admitted at its actual compressed size. */
 #define ALBUM_ART_METADATA_START_BYTES (1024U * 1024U)

@@ -20,20 +20,14 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <math.h>
-#include <poll.h>
 #include <pthread.h>
-#include <signal.h>
-#include <spawn.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
-#include <sys/wait.h>
-#include <sys/resource.h>
 #include "artwork_coordinator.h"
-#include "subprocess.h"
 #include <time.h>
 #include <unistd.h>
 

@@ -8,14 +8,20 @@
   #define APP_RELEASE_LABEL "Development Build"
 #endif
 
-const char * app_board_marker(void) {
 #if defined(BOARD_R3PROII)
-    return "COMPAS_PLAYER_BOARD:r3proii";
+  #define BOARD_MODEL "r3proii"
 #elif defined(BOARD_R3II_2025)
-    return "COMPAS_PLAYER_BOARD:r3ii_2025";
+  #define BOARD_MODEL "r3ii_2025"
 #else
-    return "COMPAS_PLAYER_BOARD:r1";
+  #define BOARD_MODEL "r1"
 #endif
+
+const char * app_board_model(void) {
+    return BOARD_MODEL;
+}
+
+const char * app_board_marker(void) {
+    return "COMPAS_PLAYER_BOARD:" BOARD_MODEL;
 }
 
 const char * app_version_label(void) {

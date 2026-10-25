@@ -1,13 +1,13 @@
 #ifndef PLUGIN_MANAGER_H
 #define PLUGIN_MANAGER_H
 
+#include "plugin_api_version.h"
 #include <stdbool.h>
 #include <stdint.h>
 
-/* Plugin API version definition.
+/* Plugin API version: plugin_api_version.h.
  * Plugins can declare api_min to require specific API features.
  * Sandboxed Lua states restrict filesystem and OS execution access. */
-#define PLUGIN_API_VERSION 17
 #define PLUGIN_LIST_SCREEN_POOL_SIZE 4
 
 /* Third-party Lua plugin support. Every *.lua file under

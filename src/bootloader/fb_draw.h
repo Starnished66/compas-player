@@ -17,12 +17,14 @@
 
 typedef uint16_t fb_color_t;
 
-/* Opens /dev/fb0, mmaps it, and verifies its geometry/format actually
- * match FB_WIDTH/FB_HEIGHT/RGB565 via FBIOGET_VSCREENINFO -- a mismatch is
- * treated as fatal (returns false) rather than drawing garbage into a
- * differently-shaped or differently-packed buffer. Mirrors src/main.c's
- * own wait_for_fbdev_ready() retry shape (the device node can exist before
- * the underlying driver has actually settled). */
+/* Opens the display. On device this mmaps /dev/fb0 and verifies its
+ * geometry/format actually match FB_WIDTH/FB_HEIGHT/RGB565 via
+ * FBIOGET_VSCREENINFO -- a mismatch is treated as fatal (returns false)
+ * rather than drawing garbage into a differently-shaped or differently-packed
+ * buffer. Mirrors src/main.c's own wait_for_fbdev_ready() retry shape (the
+ * device node can exist before the underlying driver has actually settled).
+ * The host selector simulator (make selector-sim) links fb_host.c instead,
+ * which allocates an in-memory RGB565 buffer of the same size. */
 bool fb_open(void);
 
 /* Unmaps and closes /dev/fb0. Must be called before execve()'ing into a
@@ -54,6 +56,9 @@ int fb_text_height(void);
 /* Copies the off-screen back buffer to the visible framebuffer.
  * Call after a complete frame has been drawn. */
 void fb_flush(void);
+
+/* Compact RGB565 back buffer, stride FB_WIDTH. Valid after fb_open(). */
+const uint16_t * fb_back_pixels(void);
 
 /* Decodes a JPEG file straight into the off-screen drawing buffer at
  * (0,0), pixel for pixel, via tjpgd (already vendored for the main

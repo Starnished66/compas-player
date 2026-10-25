@@ -4,6 +4,8 @@
  * Generation commits preserve the previous library until pointer publication.
  */
 #include "tagcache.h"
+#include "dir_fd_path.h"
+#include "storage_paths.h"
 #include "tagcache_generation_refs.h"
 #include "library_endian.h"
 #include "db_log.h"
@@ -119,6 +121,8 @@ static int db_dir_fd = -1;
 static struct stat db_dir_identity;
 static bool db_dir_identity_valid;
 static bool db_open, disk_ready, rebuild_preserve_generations;
+/* Set by tagcache_open_read_only(): loading must not write (no index migration). */
+static bool open_read_only;
 static tagcache_load_outcome_t last_load_outcome = TAGCACHE_LOAD_FAILED;
 #define READER_SORT_CACHE_ROWS 64
 #define TC_QUERY_BLOCK_VALUES 128
@@ -329,7 +333,7 @@ static bool db_pin_directory(const char * dir) {
         return false;
     }
     if (snprintf(db_logical_dir, sizeof(db_logical_dir), "%s", dir) >= (int)sizeof(db_logical_dir) ||
-        snprintf(db_dir, sizeof(db_dir), "/proc/self/fd/%d", fd) >= (int)sizeof(db_dir)) {
+        !dir_fd_path(fd, db_dir, sizeof(db_dir))) {
         close(fd);
         db_logical_dir[0] = db_dir[0] = '\0';
         return false;
@@ -1952,7 +1956,7 @@ static bool load_generation(int32_t gen) {
     reader_close_indexes();
     bool ok = reader_open(gen);
     int indexed = ok ? reader_open_indexes(gen) : -1;
-    if (ok && indexed == 1 && reader_loaded_index_version < TC_INDEX_VERSION) {
+    if (ok && indexed == 1 && reader_loaded_index_version < TC_INDEX_VERSION && !open_read_only) {
         uint32_t old_index_version = reader_loaded_index_version;
         if (!reader_migrate_indexes(gen)) {
             /* Keep the previously valid persisted generation usable if rebuilding
@@ -2018,7 +2022,10 @@ static bool reload_from_disk(void) {
     tagcache_close();
     db_dir_fd = pinned_fd;
     snprintf(db_logical_dir, sizeof(db_logical_dir), "%s", logical);
-    snprintf(db_dir, sizeof(db_dir), "/proc/self/fd/%d", db_dir_fd);
+    if (!dir_fd_path(db_dir_fd, db_dir, sizeof(db_dir))) {
+        tagcache_close();
+        return false;
+    }
     db_dir_identity_valid = fstat(db_dir_fd, &db_dir_identity) == 0;
     db_open = true;
     bool ok = load_all();
@@ -2035,8 +2042,9 @@ static bool reload_from_disk(void) {
     return ok;
 }
 
-bool tagcache_open(const char *dir) {
+static bool open_directory(const char *dir, bool read_only) {
     tagcache_close();
+    open_read_only = read_only;
     last_load_outcome = TAGCACHE_LOAD_FAILED;
     if (!db_pin_directory(dir)) return false;
     db_open = true;
@@ -2044,6 +2052,10 @@ bool tagcache_open(const char *dir) {
     numeric_worker_start();
     return true;
 }
+
+bool tagcache_open(const char *dir) { return open_directory(dir, false); }
+
+bool tagcache_open_read_only(const char *dir) { return open_directory(dir, true); }
 
 bool tagcache_open_for_rebuild(const char *dir) {
     if (tagcache_open(dir)) return true;
@@ -2128,7 +2140,9 @@ bool tagcache_end_update_with_lock(void (*unlock)(void), void (*lock)(void)) {
             }
             struct stat st;
             if (unlock) unlock();
-            if (path[0] && stat(path, &st) != 0 && errno == ENOENT) changed = true;
+            char file[TAGCACHE_PATH_MAX + 256];
+            if (path[0] && stat(storage_stored_path(path, file, sizeof(file)), &st) != 0 &&
+                errno == ENOENT) changed = true;
             if (lock) lock();
         }
         if (update_failed) {
@@ -2163,7 +2177,9 @@ bool tagcache_end_update_with_lock(void (*unlock)(void), void (*lock)(void)) {
             if (!ok) break;
             struct stat st;
             if (unlock) unlock();
-            bool missing = path[0] && stat(path, &st) != 0 && errno == ENOENT;
+            char file[TAGCACHE_PATH_MAX + 256];
+            bool missing = path[0] && stat(storage_stored_path(path, file, sizeof(file)), &st) != 0 &&
+                           errno == ENOENT;
             if (lock) lock();
             if (!reader_index(slot, &idx)) { ok = false; break; }
             if (missing) idx.flag |= FLAG_DELETED;
@@ -2506,3 +2522,13 @@ void tagcache_snapshot_close(tagcache_snapshot_t *snapshot) {
 int tagcache_snapshot_dup_directory_fd(const tagcache_snapshot_t *snapshot) {
     return snapshot && snapshot->dir_fd >= 0 ? dup(snapshot->dir_fd) : -1;
 }
+
+/* TAGCACHE_DATABASE_FORMAT stands for every on-card layout below: the master
+ * file, the generation references and each index family. Changing any of them
+ * needs a new value, so a tool built for an older one refuses the card. This
+ * fails the build until the number has been considered. */
+_Static_assert(TAGCACHE_MAGIC == 0x54434810 && TAGCACHE_INDEXED_MAGIC == 0x54434811 &&
+               TAGCACHE_REFS_VERSION == 1u && TC_QUERY_VERSION == 2u && TC_ALBUM_ORDER_VERSION == 4u &&
+               TC_INDEX_VERSION == 7u,
+               "bump TAGCACHE_DATABASE_FORMAT (tagcache.h) when a database layout version changes");
+

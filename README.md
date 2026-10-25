@@ -74,6 +74,8 @@ Wi-Fi and plugins can be skipped and configured later. Failed plugin installatio
 
 Android client authors can use the [Remote Control API v1 contract](docs/REMOTE_CONTROL_API.md).
 
+Desktop tools can prepare a card with `compas-sdtool`, which builds the music database and album covers on a computer using the player's own library code; see [compas-sdtool and the card files](docs/SDTOOL.md).
+
 ## Themes
 
 Compás includes a built-in system theme picker accessible from **More → Themes**. Themes use the existing `.theme` key-value format and can be placed in `SD/Themes/` (including subfolders); no `Themes.lua` plugin is required to use them. Theme packs can also be browsed and installed through the Plugin Store catalog.

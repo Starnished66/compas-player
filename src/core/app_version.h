@@ -8,5 +8,7 @@ const char * app_version_label(void);
 const char * app_build_identifier(void);
 /* Retained in the executable for model-safe player-only updates. */
 const char * app_board_marker(void);
+/* The board as a short name: "r1", "r3proii" or "r3ii_2025". */
+const char * app_board_model(void);
 
 #endif

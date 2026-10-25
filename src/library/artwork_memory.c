@@ -18,6 +18,12 @@ void system_set_mock_mem_available(size_t bytes) {
     mock_mem_available_bytes = bytes;
 }
 
+/* compas-sdtool runs on computers with more memory and no /proc/meminfo
+ * (macOS, Windows), and builds with a larger value. */
+#ifndef ARTWORK_FALLBACK_MEM_BYTES
+#define ARTWORK_FALLBACK_MEM_BYTES (64U * 1024U * 1024U)
+#endif
+
 size_t system_get_mem_available_bytes(void) {
     if (mock_mem_available_bytes > 0) {
         return mock_mem_available_bytes;
@@ -40,7 +46,7 @@ size_t system_get_mem_available_bytes(void) {
     if (!f) {
 #ifdef HOST_BUILD
         /* On host simulator without /proc/meminfo, return a healthy default */
-        cached_mem_bytes = 64U * 1024U * 1024U;
+        cached_mem_bytes = ARTWORK_FALLBACK_MEM_BYTES;
         last_check_ms = now;
         pthread_mutex_unlock(&mem_lock);
         return cached_mem_bytes;

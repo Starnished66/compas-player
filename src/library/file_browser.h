@@ -2,6 +2,7 @@
 #ifndef FILE_BROWSER_H
 #define FILE_BROWSER_H
 
+#include "library_walk.h"
 #include "lvgl/lvgl.h"
 #include <stdbool.h>
 #include <stddef.h>
@@ -110,25 +111,6 @@ bool file_browser_go_up_for_screen(lv_obj_t * screen);
  * playable files (e.g. it was deleted/moved since). */
 bool file_browser_build_playlist_for_path(const char * path, char *** out_playlist, int * out_count, int * out_selected_index);
 
-/* Bounded-memory library walk. Each playable file is delivered immediately
- * to cb; the path is valid only for the duration of the callback. Returning
- * false from cb stops the walk. out_count receives the number of songs
- * delivered. Memory use is bounded by the recursion stack + one PATH_MAX
- * buffer per active directory, independent of library size. */
-typedef bool (*file_browser_song_visit_cb_t)(const char * path, void * user);
-
-/* Database-oriented variant which excludes one immediate child directory of
- * root, case-insensitively. Descendants with the same name elsewhere are
- * not skipped. A directory containing database.ignore excludes itself and its
- * subtree from the results, database.unignore re-includes one, and a directory
- * containing both or neither inherits from its parent.
- * False means the scan is void; a non-zero *out_skipped means it was
- * incomplete. */
-bool file_browser_walk_all_songs_excluding_top_level(const char * root, const char * excluded_dir,
-                                                     file_browser_song_visit_cb_t cb, void * user,
-                                                     int * out_count, atomic_int * progress,
-                                                     int * out_skipped);
-
 /* Snapshot of the directory + on-screen row a file/playlist was last
  * tapped from -- for the player's "List" option to reopen the folder a
  * track was played from. The getters are only meaningful right after a tap
@@ -137,9 +119,6 @@ bool file_browser_walk_all_songs_excluding_top_level(const char * root, const ch
  * own select_cb before returning. Both return defaults before any tap. */
 const char * file_browser_get_last_selected_dir(void);
 int file_browser_get_last_selected_row(void);
-
-/* True when name has an extension the decoders accept (the Files filter). */
-bool file_browser_is_playable_name(const char * name);
 
 /* Parses a M3U/M3U8 playlist file: one entry path per non-blank,
  * non-comment line, resolved relative to the playlist's own directory

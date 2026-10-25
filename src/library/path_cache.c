@@ -13,7 +13,7 @@
 #include <limits.h>
 #include <errno.h>
 
-#define PATH_CACHE_DIR SD_COMPAS_ROOT
+#define PATH_CACHE_DIR storage_sd_path(COMPAS_STORAGE_DIR)
 
 #define PATH_CACHE_PATH_MAX 600
 

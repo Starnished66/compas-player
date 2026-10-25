@@ -71,7 +71,7 @@ bool gui_library_album_cover_cached(int64_t song_id, int size_px, char * out, si
  * and no sidecar exists either -- covers rips where only some tracks carry
  * embedded art (e.g. a short intro/interlude or bonus track).
  * Kept small: each probe is a full isolated-process extraction. */
-#define ALBUM_ART_SIBLING_FALLBACK_MAX 5
+#define ALBUM_ART_SIBLING_FALLBACK_MAX ALBUMART_SIBLING_FALLBACK_MAX
 
 time_t album_source_mtime_with_art_mtime(const song_row_t * song, uint32_t art_mtime) {
     time_t max_mtime = (time_t) art_mtime;
