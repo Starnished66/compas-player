@@ -49,7 +49,7 @@ standard error. A failure prints one `error` line and exits nonzero.
 | Command | Output |
 | --- | --- |
 | `info` | One object: `{"sdtool_version":"1.1.0","build":"<git short hash>","database_format":7,"generation":12,"songs":4032}`. A card with no database reports `generation` 0 and `songs` 0; that is not an error, and nothing is created. |
-| `scan` | `{"event":"progress","phase":"walk"\|"tags"\|"save","done":N,"total":N}` lines, then `{"event":"done","command":"scan","files":N,"parsed":N,"unchanged":N,"failed":N,"skipped":N,"songs":N,"generation":N,"written":true\|false,"mtime_offset":N}`. |
+| `scan` | `{"event":"progress","phase":"walk"\|"tags"\|"save","done":N,"total":N}` lines, then `{"event":"done","command":"scan","files":N,"parsed":N,"unchanged":N,"failed":N,"skipped":N,"songs":N,"generation":N,"written":true\|false,"migrated":true\|false,"mtime_offset":N}`. |
 | `art` | `{"event":"progress","phase":"art","done":N,"total":N}` lines, then `{"event":"done","command":"art","board":"r1","albums":N,"written":N,"unchanged":N,"no_art":N,"failed":N,"mtime_offset":N}`. |
 | any failure | `{"event":"error","code":"...","message":"..."}` and exit status 1 (2 for bad arguments). |
 
@@ -66,6 +66,10 @@ over, it stops: `written` is `false` and the card is not touched. Otherwise it
 reads the files whose size or time changed, drops rows of deleted files and
 commits a new generation. `--full` re-reads every file, as the player's
 "refresh all metadata" does, and commits only if some row actually changed.
+
+`migrated` is `true` when opening the database rewrote its indexes from an older
+layout (for example v5 to v7); that writes to the card even if nothing else
+changed, so `written` is then `true` too.
 
 A file is up to date when its size and its time (as moved into the player's
 frame, see "File times") equal what was recorded.

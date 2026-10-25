@@ -4,6 +4,7 @@
 #include "metadata.h"
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 
 /* Tag parsing in a separate process, as the player does (metadata_isolated.c):
@@ -35,13 +36,20 @@ typedef enum {
 sdtool_parse_result_t sdtool_parse_files(const char *const *paths, size_t count,
                                          track_metadata_t *out, bool *ok, size_t *broken);
 
-/* The `parse-worker` entry point. */
-int sdtool_parse_worker(void);
+/* The `parse-worker` entry point; `artwork` is the `parse-worker art` mode. */
+int sdtool_parse_worker(bool artwork);
+
+/* Embedded cover art of one file, read in a worker of its own with the
+ * player's size limit. The worker answers with the picture's size and bytes.
+ * FAILED means the worker crashed, hung or could not run: no art for that file
+ * (the caller counts it), and nothing of the parser touches this process. */
+typedef enum { SDTOOL_ART_FOUND, SDTOOL_ART_NONE, SDTOOL_ART_FAILED } sdtool_art_result_t;
+sdtool_art_result_t sdtool_parse_artwork(const char *path, uint8_t **data, uint32_t *size);
 
 /* process.c: a child process of this program with a file on its standard input
  * and a pipe on its standard output. No shell is involved. */
 typedef struct sdtool_worker sdtool_worker_t;
-sdtool_worker_t *sdtool_worker_start(const char *input_file);
+sdtool_worker_t *sdtool_worker_start(const char *input_file, bool artwork);
 FILE *sdtool_worker_output(sdtool_worker_t *worker);
 /* Closes the pipe, waits for the child and frees it. Returns its exit status,
  * or -1 if it did not exit normally. */

@@ -1405,6 +1405,18 @@ test-rtl-text:
 test-device-info:
 	sh scripts/tests/run_device_info_test.sh
 
+.PHONY: test-tagcache test-tagcache-refs test-tagcache-storage test-tagcache-commit-failure test-tagcache-write-volume
+# The tagcache storage tests; each wraps the syscalls it needs to observe or fail.
+test-tagcache: test-tagcache-refs test-tagcache-storage test-tagcache-commit-failure test-tagcache-write-volume
+test-tagcache-refs:
+	sh scripts/tests/run_tagcache_test.sh refs
+test-tagcache-storage:
+	sh scripts/tests/run_tagcache_test.sh storage
+test-tagcache-commit-failure:
+	sh scripts/tests/run_tagcache_test.sh commit-failure --wrap=write,--wrap=fsync,--wrap=rename
+test-tagcache-write-volume:
+	sh scripts/tests/run_tagcache_test.sh write-volume --wrap=write,--wrap=pwrite
+
 .PHONY: test-store-dest
 # Plugin Store destinations: no path segment may end in a dot or space.
 test-store-dest:

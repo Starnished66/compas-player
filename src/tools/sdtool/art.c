@@ -3,6 +3,7 @@
 #include "cover_decode.h"
 #include "json_out.h"
 #include "metadata.h"
+#include "parse_pool.h"
 #include "metadata_db.h"
 #include "storage_paths.h"
 #include <limits.h>
@@ -46,28 +47,24 @@ static void info_for_song(const song_row_t *song, albumart_info_t *info) {
     snprintf(info->albumartist, sizeof(info->albumartist), "%s", song->tags.album_artist);
 }
 
-static bool embedded_cover(const char *host_path, cover_source_t *source) {
-    track_metadata_t meta;
-    memset(&meta, 0, sizeof(meta));
-    metadata_read(host_path, &meta);
-    free(meta.lyrics);
-    source->data = meta.picture_data;
-    source->size = meta.picture_size;
-    if (source->data && source->size > 0) return true;
-    free(source->data);
-    source->data = NULL;
-    return false;
+/* Embedded picture of one file, parsed in a worker process of its own. */
+static sdtool_art_result_t embedded_cover(const char *host_path, cover_source_t *source) {
+    return sdtool_parse_artwork(host_path, &source->data, &source->size);
 }
 
+typedef enum { COVER_FOUND, COVER_NONE, COVER_FAILED } cover_search_t;
+
 /* The player's source order: a cover file in the album folder, then the
- * representative track's picture, then a few other tracks of the album. */
-static bool find_cover(const albumart_info_t *info, const song_row_t *song, cover_source_t *source) {
+ * representative track's picture, then a few other tracks of the album. A track
+ * whose parser fails ends the search: that album is failed, the rest go on. */
+static cover_search_t find_cover(const albumart_info_t *info, const song_row_t *song, cover_source_t *source) {
     char found[PATH_MAX];
     if (albumart_search_files(info, "", found, sizeof(found)) &&
         albumart_load_file_ex(found, &source->data, &source->size, ALBUMART_SIDECAR_MAX_BYTES,
                               ARTWORK_PRIO_WARMER) == ALBUMART_LOAD_OK)
-        return true;
-    if (embedded_cover(info->path, source)) return true;
+        return COVER_FOUND;
+    sdtool_art_result_t embedded = embedded_cover(info->path, source);
+    if (embedded != SDTOOL_ART_NONE) return embedded == SDTOOL_ART_FOUND ? COVER_FOUND : COVER_FAILED;
 
     song_row_t siblings[ALBUMART_SIBLING_FALLBACK_MAX];
     int count = metadata_db_get_album_songs(info->album, info->albumartist, 0, siblings,
@@ -75,9 +72,10 @@ static bool find_cover(const albumart_info_t *info, const song_row_t *song, cove
     for (int i = 0; i < count; i++) {
         char host[PATH_MAX];
         if (siblings[i].id == song->id) continue;
-        if (embedded_cover(storage_stored_path(siblings[i].path, host, sizeof(host)), source)) return true;
+        embedded = embedded_cover(storage_stored_path(siblings[i].path, host, sizeof(host)), source);
+        if (embedded != SDTOOL_ART_NONE) return embedded == SDTOOL_ART_FOUND ? COVER_FOUND : COVER_FAILED;
     }
-    return false;
+    return COVER_NONE;
 }
 
 static bool store_caches(const albumart_info_t *info, const cover_source_t *source,
@@ -127,8 +125,14 @@ static void build_album(int64_t song_id, art_totals_t *totals) {
         return;
     }
     cover_source_t source = {0};
-    if (!find_cover(&info, &song, &source)) {
-        totals->no_art++;
+    cover_search_t search = find_cover(&info, &song, &source);
+    if (search != COVER_FOUND) {
+        if (search == COVER_FAILED) {
+            sdtool_log("could not read the embedded cover of %s", info.path);
+            totals->failed++;
+        } else {
+            totals->no_art++;
+        }
         return;
     }
     if (store_caches(&info, &source, need_thumbnail, need_player)) totals->written++;

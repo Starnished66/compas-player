@@ -144,7 +144,8 @@ static bool update_batch(const file_list_t *list, long first, long count, bool f
     return true;
 }
 
-static int finish(const file_list_t *list, const scan_result_t *result, int skipped, bool written) {
+static int finish(const file_list_t *list, const scan_result_t *result, int skipped, bool written,
+                  bool migrated) {
     json_line_t line;
     json_begin(&line);
     json_string(&line, "event", "done");
@@ -156,7 +157,9 @@ static int finish(const file_list_t *list, const scan_result_t *result, int skip
     json_integer(&line, "skipped", skipped);
     json_integer(&line, "songs", metadata_db_get_song_count());
     json_integer(&line, "generation", metadata_db_get_generation());
-    json_boolean(&line, "written", written);
+    /* An index migration at open rewrites files whatever the scan then finds. */
+    json_boolean(&line, "written", written || migrated);
+    json_boolean(&line, "migrated", migrated);
     json_integer(&line, "mtime_offset", sdtool_mtime_extra());
     json_emit(&line);
     return SDTOOL_OK;
@@ -173,6 +176,7 @@ int sdtool_cmd_scan(const sdtool_options_t *options) {
     sdtool_database_t db;
     if (!sdtool_open_database(&db)) return SDTOOL_FAILED;
     sdtool_mtime_calibrate();
+    bool migrated = tagcache_indexes_migrated();
     file_list_t list = {0};
     scan_result_t result = {0};
     int count = 0, skipped = 0;
@@ -191,13 +195,13 @@ int sdtool_cmd_scan(const sdtool_options_t *options) {
         library_scan_may_skip_update(db.outcome, db.preserve_rebuild, skipped, (int) list.count,
                                      metadata_db_get_song_count()) &&
         library_unchanged(&list)) {
-        int rc = finish(&list, &result, 0, false);
+        int rc = finish(&list, &result, 0, false, migrated);
         list_free(&list);
         metadata_db_close();
         return rc;
     }
     if (list.count == 0 && metadata_db_get_song_count() == 0) {
-        int rc = finish(&list, &result, skipped, false);
+        int rc = finish(&list, &result, skipped, false, migrated);
         list_free(&list);
         metadata_db_close();
         return rc;
@@ -225,7 +229,7 @@ int sdtool_cmd_scan(const sdtool_options_t *options) {
     if (library_scan_refresh_skips_commit(options->full, db.preserve_rebuild, skipped, (int) result.changed,
                                           result.inserted, missing)) {
         metadata_db_abort_update();
-        int rc = finish(&list, &result, skipped, false);
+        int rc = finish(&list, &result, skipped, false, migrated);
         list_free(&list);
         metadata_db_close();
         return rc;
@@ -235,7 +239,7 @@ int sdtool_cmd_scan(const sdtool_options_t *options) {
     if (!metadata_db_end_update())
         return fail(&list, "write_failed", "the music database could not be written");
     json_progress("save", 1, 1);
-    int rc = finish(&list, &result, skipped, true);
+    int rc = finish(&list, &result, skipped, true, migrated);
     list_free(&list);
     metadata_db_close();
     return rc;
