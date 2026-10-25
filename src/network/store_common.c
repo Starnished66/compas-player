@@ -94,6 +94,11 @@ bool store_dest_path_valid(const char * dest) {
             if (!n || (n == 1 && seg[0] == '.') || (n == 2 && seg[0] == '.' && seg[1] == '.')) {
                 return false;
             }
+            /* vfat and Windows drop a trailing dot or space from a name, so
+             * ".compas." would land on ".compas". */
+            if (seg[n - 1] == '.' || seg[n - 1] == ' ') {
+                return false;
+            }
             if (!*p) {
                 break;
             }

@@ -405,6 +405,7 @@ compas_player_power_r3ii_2025
 !src/core/theme_file_test.c
 !src/core/boot_trace_test.c
 !src/core/device_info_test.c
+!src/network/store_common_test.c
 !src/ui/gui_themes_test.c
 !src/network/plugin_store_theme_test.c
 !src/library/image_thumb_test.c
@@ -494,6 +495,7 @@ __pycache__/
 !/scripts/tests/run_wifi_ssid_escape_test.sh
 !/scripts/tests/file_browser_natural_sort_test.sh
 !/scripts/tests/run_device_info_test.sh
+!/scripts/tests/run_store_dest_test.sh
 !src/audio/peq_crossfeed_selftest.c
 
 # Local release assembly and settings regression harnesses.

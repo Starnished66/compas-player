@@ -1284,6 +1284,11 @@ test-rtl-text:
 test-device-info:
 	sh scripts/tests/run_device_info_test.sh
 
+.PHONY: test-store-dest
+# Plugin Store destinations: no path segment may end in a dot or space.
+test-store-dest:
+	sh scripts/tests/run_store_dest_test.sh
+
 .PHONY: test-file-browser-natural-sort
 test-file-browser-natural-sort:
 	sh scripts/tests/file_browser_natural_sort_test.sh
