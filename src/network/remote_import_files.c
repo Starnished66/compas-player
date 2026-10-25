@@ -30,6 +30,7 @@
 #define IMPORT_NAME_MAX 255
 #define IMPORT_PAGE_DEFAULT 50
 #define IMPORT_PAGE_MAX 100
+#define IMPORT_LIST_WINDOW_MAX 1024u
 #define IMPORT_BODY_BUFFER (64u * 1024u)
 #define IMPORT_SYNC_BYTES (4u * 1024u * 1024u)
 #define IMPORT_IDLE_SECONDS 60
@@ -395,6 +396,59 @@ static bool parse_uint(const char *s, unsigned long *out) {
     return true;
 }
 
+typedef struct {
+    char name[IMPORT_NAME_MAX + 1];
+    bool is_directory;
+    off_t size;
+} import_list_entry_t;
+
+/* Directories sort before files, then strcasecmp orders names. In the C
+ * locale that folds ASCII only; there is no Unicode-aware UTF-8 casefold
+ * helper here. Raw strcmp makes any folded ties deterministic. */
+static int import_list_entry_compare(const void *left, const void *right) {
+    const import_list_entry_t *a = left;
+    const import_list_entry_t *b = right;
+    if (a->is_directory != b->is_directory) return a->is_directory ? -1 : 1;
+    int by_folded_name = strcasecmp(a->name, b->name);
+    return by_folded_name ? by_folded_name : strcmp(a->name, b->name);
+}
+
+/* Keep the smallest `count` entries in a max heap. */
+static void import_list_heap_sift_down(import_list_entry_t *heap, size_t count, size_t root) {
+    for (;;) {
+        if (root >= count / 2) return;
+        size_t largest = root;
+        size_t left = root * 2 + 1;
+        size_t right = left + 1;
+        if (left < count && import_list_entry_compare(&heap[left], &heap[largest]) > 0) largest = left;
+        if (right < count && import_list_entry_compare(&heap[right], &heap[largest]) > 0) largest = right;
+        if (largest == root) return;
+        import_list_entry_t tmp = heap[root];
+        heap[root] = heap[largest];
+        heap[largest] = tmp;
+        root = largest;
+    }
+}
+
+static void import_list_heap_add(import_list_entry_t *heap, size_t *count, size_t capacity,
+                                 const import_list_entry_t *entry) {
+    if (*count < capacity) {
+        size_t i = (*count)++;
+        heap[i] = *entry;
+        while (i > 0) {
+            size_t parent = (i - 1) / 2;
+            if (import_list_entry_compare(&heap[i], &heap[parent]) <= 0) break;
+            import_list_entry_t tmp = heap[i];
+            heap[i] = heap[parent];
+            heap[parent] = tmp;
+            i = parent;
+        }
+    } else if (capacity && import_list_entry_compare(entry, &heap[0]) < 0) {
+        heap[0] = *entry;
+        import_list_heap_sift_down(heap, *count, 0);
+    }
+}
+
 static bool handle_list(int fd, const char *path) {
     const char *keys[] = {"path", "offset", "limit"};
     char values[3][IMPORT_PATH_MAX + 1]; bool have[3];
@@ -424,35 +478,78 @@ static bool handle_list(int fd, const char *path) {
         if (fstatat(dirfd, de->d_name, &st, AT_SYMLINK_NOFOLLOW) == 0 && (S_ISDIR(st.st_mode) || S_ISREG(st.st_mode))) total++;
     }
     if (request_stopped()) { closedir(dir); return true; }
-    rewinddir(dir);
+    import_list_entry_t *window = NULL;
+    import_list_entry_t *entries = NULL;
+    size_t selected = 0;
+    if (offset < total) {
+        window = malloc(IMPORT_LIST_WINDOW_MAX * sizeof(*window));
+        entries = malloc((size_t)limit * sizeof(*entries));
+        if (!window || !entries) {
+            free(window); free(entries); closedir(dir);
+            send_error(fd, "500 Internal Server Error", "directory_read_failed"); return true;
+        }
+        unsigned long skip = offset;
+        import_list_entry_t boundary;
+        bool have_boundary = false;
+        while (selected < limit) {
+            if (request_stopped()) { free(window); free(entries); closedir(dir); return true; }
+            rewinddir(dir);
+            size_t count = 0;
+            while ((de = readdir(dir))) {
+                if (request_stopped()) { free(window); free(entries); closedir(dir); return true; }
+                if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..") || de->d_name[0] == '.' || !leaf_valid(de->d_name)) continue;
+                struct stat st;
+                if (fstatat(dirfd, de->d_name, &st, AT_SYMLINK_NOFOLLOW) != 0 || (!S_ISDIR(st.st_mode) && !S_ISREG(st.st_mode))) continue;
+                import_list_entry_t candidate;
+                strcpy(candidate.name, de->d_name);
+                candidate.is_directory = S_ISDIR(st.st_mode);
+                candidate.size = S_ISREG(st.st_mode) ? st.st_size : 0;
+                if (have_boundary && import_list_entry_compare(&candidate, &boundary) <= 0) continue;
+                import_list_heap_add(window, &count, IMPORT_LIST_WINDOW_MAX, &candidate);
+            }
+            if (request_stopped()) { free(window); free(entries); closedir(dir); return true; }
+            if (!count) break;
+            if (count > 1) qsort(window, count, sizeof(*window), import_list_entry_compare);
+            if (skip >= count) {
+                skip -= (unsigned long)count;
+            } else {
+                size_t start = (size_t)skip;
+                skip = 0;
+                for (size_t i = start; i < count && selected < limit; i++)
+                    entries[selected++] = window[i];
+            }
+            if (selected == limit || count < IMPORT_LIST_WINDOW_MAX) break;
+            boundary = window[count - 1];
+            have_boundary = true;
+        }
+    }
     char hdr[256];
     int hn = snprintf(hdr, sizeof(hdr), "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n");
-    if (hn <= 0 || !send_all(fd, hdr, (size_t)hn)) { closedir(dir); return true; }
+    if (hn <= 0 || !send_all(fd, hdr, (size_t)hn)) { free(window); free(entries); closedir(dir); return true; }
     char prefix[IMPORT_PATH_MAX * 6 + 160], escpath[IMPORT_PATH_MAX * 6 + 1];
     json_escape(escpath, sizeof(escpath), rel);
     bool more = offset < total && limit < total - offset;
     unsigned long next = more ? offset + limit : total;
     hn = snprintf(prefix, sizeof(prefix), "{\"path\":\"%s\",\"entries\":[", escpath);
     if (hn > 0) (void)send_chunk(fd, prefix, (size_t)hn);
-    unsigned long seen = 0, emitted = 0;
+    unsigned long emitted = 0;
     char entry[IMPORT_PATH_MAX * 6 + IMPORT_NAME_MAX * 6 + 512];
     char escname[IMPORT_NAME_MAX * 6 + 1], full[IMPORT_PATH_MAX + 1], escfull[IMPORT_PATH_MAX * 6 + 1];
-    while ((de = readdir(dir)) && emitted < limit) {
+    for (size_t i = 0; i < (size_t)selected && emitted < limit; i++) {
         if (request_stopped()) break;
-        if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..") || de->d_name[0] == '.' || !leaf_valid(de->d_name)) continue;
-        struct stat st;
-        if (fstatat(dirfd, de->d_name, &st, AT_SYMLINK_NOFOLLOW) != 0 || (!S_ISDIR(st.st_mode) && !S_ISREG(st.st_mode))) continue;
-        if (seen++ < offset) continue;
-        int pn = snprintf(full, sizeof(full), "%s%s%s", rel, *rel ? "/" : "", de->d_name);
+        import_list_entry_t *item = &entries[i];
+        int pn = snprintf(full, sizeof(full), "%s%s%s", rel, *rel ? "/" : "", item->name);
         if (pn < 0 || (size_t)pn >= sizeof(full)) continue;
-        json_escape(escname, sizeof(escname), de->d_name);
+        json_escape(escname, sizeof(escname), item->name);
         json_escape(escfull, sizeof(escfull), full);
         int en = snprintf(entry, sizeof(entry), "%s{\"name\":\"%s\",\"path\":\"%s\",\"isDirectory\":%s,\"size\":%llu}",
-                          emitted ? "," : "", escname, escfull, S_ISDIR(st.st_mode) ? "true" : "false",
-                          S_ISREG(st.st_mode) ? (unsigned long long)st.st_size : 0ULL);
+                          emitted ? "," : "", escname, escfull, item->is_directory ? "true" : "false",
+                          (unsigned long long)item->size);
         if (en <= 0 || (size_t)en >= sizeof(entry) || !send_chunk(fd, entry, (size_t)en)) break;
         emitted++;
     }
+    free(window);
+    free(entries);
     char suffix[128];
     int sn = more ? snprintf(suffix, sizeof(suffix), "],\"offset\":%lu,\"next_offset\":%lu,\"total\":%lu}", offset, next, total)
                   : snprintf(suffix, sizeof(suffix), "],\"offset\":%lu,\"next_offset\":null,\"total\":%lu}", offset, total);

@@ -1281,6 +1281,13 @@ test-rtl-text:
 test-file-browser-natural-sort:
 	sh scripts/tests/file_browser_natural_sort_test.sh
 
+.PHONY: test-remote-import-order test-metadata-catalog-order
+test-remote-import-order:
+	sh scripts/run_remote_import_files_order_test.sh
+
+test-metadata-catalog-order:
+	bash scripts/run_metadata_catalog_test.sh
+
 $(BUILD_HOST_DIR)/sonic/%.o: sonic/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(HOST_CFLAGS) -c $< -o $@
