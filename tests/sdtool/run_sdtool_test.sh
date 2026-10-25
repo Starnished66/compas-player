@@ -111,20 +111,31 @@ r=$(run art "$card") || fail "art with device.json"
 # keeps local time, so one file reads differently per computer. sdtool corrects
 # for it (a database the player wrote calibrates the offset; --mtime-offset
 # states it), so shifting every file as another zone would changes nothing.
-for delta in 32400 -18000 20700 3600; do
+# The correction must be one this computer's own zone could explain, so each
+# shift runs with the zone it simulates.
+for step in 32400:JST-9 -18000:EST5 20700:NPT-5:45 3600:CET-1; do
+  delta=${step%%:*}
+  zone=${step#*:}
   shift_times "$delta"
   snapshot > "$work/before"
-  r=$(run scan "$card") || fail "scan after $delta s shift"
+  r=$(TZ=$zone; export TZ; run scan "$card") || fail "scan after $delta s shift"
   [ "$(field "$r" parsed)" = 0 ] && [ "$(field "$r" written)" = False ] || fail "zone shift $delta rescanned: $r"
-  r=$(run art "$card") || fail "art after $delta s shift"
+  [ "$(field "$r" mtime_offset)" = "$((-delta))" ] || fail "applied offset not reported: $r"
+  r=$(TZ=$zone; export TZ; run art "$card") || fail "art after $delta s shift"
   [ "$(field "$r" written)" = 0 ] || fail "zone shift $delta rebuilt covers: $r"
   snapshot > "$work/after"
   cmp -s "$work/before" "$work/after" || fail "zone shift $delta wrote to the card"
+  shift_times "$((-delta))"
 done
 shift_times 7200
 r=$(run scan "$card" --mtime-offset -7200) || fail "scan with --mtime-offset"
 [ "$(field "$r" parsed)" = 0 ] || fail "--mtime-offset not applied: $r"
-# a shift that is no zone offset is not corrected: everything is read again.
+# a shift this computer's zone cannot explain (here UTC) is not corrected:
+# everything is read again, and the card is left consistent.
+shift_times 32400
+r=$(TZ=UTC0; export TZ; run scan "$card") || fail "scan after implausible shift"
+[ "$(field "$r" parsed)" = 5 ] && [ "$(field "$r" mtime_offset)" = 0 ] || fail "implausible shift corrected: $r"
+# a shift that is no zone offset is not corrected either.
 shift_times 1000
 r=$(run scan "$card") || fail "scan after off-grid shift"
 [ "$(field "$r" parsed)" = 5 ] || fail "off-grid change not noticed: $r"
@@ -142,16 +153,41 @@ PY
 r=$(run scan "$card") || fail "scan after same-size edit"
 [ "$(field "$r" parsed)" = 1 ] || fail "same-size edit not noticed: $r"
 
+# file names may hold a newline (not on Windows, which rejects it); results
+# stay with the right files.
+if [ -z "${SDTOOL_TEST_NO_NEWLINE_NAMES:-}" ]; then
+python3 -I - "$card" <<'PY'
+import os, shutil, sys
+d = os.path.join(sys.argv[1], "Artist Three", "Album Three")
+shutil.copy(os.path.join(d, "01 Fourth.mp3"), os.path.join(d, "05 New\nline.mp3"))
+PY
+r=$(run scan "$card") || fail "scan with newline in a name"
+[ "$(field "$r" songs)" = 6 ] && [ "$(field "$r" parsed)" = 1 ] || fail "newline name: $r"
+rm "$card/Artist Three/Album Three/"05*
+run scan "$card" >/dev/null || fail "scan after removing the newline name"
+fi
+
 # a tag parser that crashes or hangs fails that file only: no placeholder row.
 cp "$card/Artist Three/Album Three/01 Fourth.mp3" "$card/Artist Three/Album Three/03 Crash.mp3"
 cp "$card/Artist Three/Album Three/01 Fourth.mp3" "$card/Artist Three/Album Three/04 Hang.mp3"
 r=$(SDTOOL_TEST_FAULT=crash:03; export SDTOOL_TEST_FAULT; run scan "$card") || fail "scan with crashing parser"
 [ "$(field "$r" failed)" = 1 ] && [ "$(field "$r" songs)" = 6 ] || fail "crash handling: $r"
+cp "$card/Artist Three/Album Three/01 Fourth.mp3" "$card/Artist Three/Album Three/07 Fine.mp3"
 r=$(SDTOOL_TEST_FAULT=hang:03; export SDTOOL_TEST_FAULT; run scan "$card") || fail "scan with hanging parser"
-[ "$(field "$r" failed)" = 1 ] && [ "$(field "$r" songs)" = 6 ] || fail "hang handling: $r"
-rm "$card/Artist Three/Album Three/03 Crash.mp3" "$card/Artist Three/Album Three/04 Hang.mp3"
+[ "$(field "$r" failed)" = 1 ] && [ "$(field "$r" songs)" = 7 ] || fail "hang handling: $r"
+rm "$card/Artist Three/Album Three/03 Crash.mp3" "$card/Artist Three/Album Three/04 Hang.mp3" "$card/Artist Three/Album Three/07 Fine.mp3"
 r=$(run scan "$card") || fail "scan after removing test files"
 [ "$(field "$r" songs)" = 5 ] || fail "test files kept: $r"
+
+# a parser process that cannot work is an error, and nothing is committed.
+cp "$card/Artist Three/Album Three/01 Fourth.mp3" "$card/Artist Three/Album Three/06 Start.mp3"
+snapshot > "$work/before"
+r=$(SDTOOL_TEST_FAULT=start; export SDTOOL_TEST_FAULT; run scan "$card") && fail "broken worker accepted: $r"
+grep -q '"code":"worker_failed"' "$work/out" || fail "worker_failed error line"
+snapshot > "$work/after"
+cmp -s "$work/before" "$work/after" || fail "broken worker wrote to the card"
+rm "$card/Artist Three/Album Three/06 Start.mp3"
+run scan "$card" >/dev/null || fail "scan after removing the start test file"
 
 # info reads without writing, even when the identity marker is missing.
 rm -f "$card/.compas/catalog.incarnation"

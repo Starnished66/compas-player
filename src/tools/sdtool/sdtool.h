@@ -29,6 +29,8 @@ bool sdtool_root_device_model(char *out, size_t size);
 void sdtool_mtime_set_manual(long seconds);
 void sdtool_mtime_set_calibrated(long seconds);
 long sdtool_mtime_offset(const char *path);
+/* The corrections beyond the operating system's: --mtime-offset plus calibration. */
+long sdtool_mtime_extra(void);
 /* mtime_calibrate.c: derives the offset from the open database's rows. */
 void sdtool_mtime_calibrate(void);
 

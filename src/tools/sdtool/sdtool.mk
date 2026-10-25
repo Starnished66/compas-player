@@ -98,3 +98,12 @@ $(SDTOOL_DIR)/libsndfile/libsndfile.a: $(SNDFILE_DIR)/CMakeLists.txt $(SNDFILE_C
 # End to end on a generated card: scan, art, no-write rescans, the file-time rule.
 test-sdtool: $(SDTOOL_BIN)
 	sh tests/sdtool/run_sdtool_test.sh $(SDTOOL_BIN)
+
+ifeq ($(SDTOOL_TARGET),windows)
+# Windows only: the compat layer's folder pattern for drive roots (run under Wine).
+$(SDTOOL_DIR)/compat_pattern_test.exe: tests/sdtool/compat_pattern_test.c $(SDTOOL_DIR)/$(SDTOOL_SRC_DIR)/compat.o \
+                                      $(SDTOOL_DIR)/$(SDTOOL_SRC_DIR)/compat_dirs.o $(SDTOOL_DIR)/$(SDTOOL_SRC_DIR)/mtime.o
+	$(SDTOOL_CC) $(SDTOOL_CFLAGS) -o $@ $^ -static -lbcrypt -lpthread
+.PHONY: sdtool-compat-test
+sdtool-compat-test: $(SDTOOL_DIR)/compat_pattern_test.exe
+endif

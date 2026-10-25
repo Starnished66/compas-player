@@ -29,6 +29,7 @@ static long calibrated_offset;
 
 void sdtool_mtime_set_manual(long seconds) { manual_offset = seconds; }
 void sdtool_mtime_set_calibrated(long seconds) { calibrated_offset = seconds; }
+long sdtool_mtime_extra(void) { return manual_offset + calibrated_offset; }
 
 #if defined(__APPLE__)
 
@@ -45,13 +46,21 @@ static long platform_offset(const char *path) {
 #include "compat_internal.h"
 #include <windows.h>
 
+/* The volume answer is remembered, so the many files of one card cost one
+ * lookup, not one each. */
 static long platform_offset(const char *path) {
+    static wchar_t volume[MAX_PATH + 8]; /* "\\?\E:\" of the last volume looked up */
+    static bool volume_is_fat;
     wchar_t wide[PATH_MAX], root[MAX_PATH], fs[MAX_PATH];
-    if (!compat_path_to_wide(path, wide, PATH_MAX) || !GetVolumePathNameW(wide, root, MAX_PATH) ||
-        !GetVolumeInformationW(root, NULL, 0, NULL, NULL, NULL, fs, MAX_PATH))
-        return 0;
-    /* Only FAT12/16/32: exFAT and NTFS are left alone. */
-    return wcsncmp(fs, L"FAT", 3) == 0 ? (long) compat_local_offset(time(NULL)) : 0;
+    if (!compat_path_to_wide(path, wide, PATH_MAX)) return 0;
+    size_t length = wcslen(volume);
+    if (length == 0 || _wcsnicmp(wide, volume, length) != 0) {
+        if (!GetVolumePathNameW(wide, root, MAX_PATH)) return 0;
+        volume_is_fat = GetVolumeInformationW(root, NULL, 0, NULL, NULL, NULL, fs, MAX_PATH) &&
+                        wcsncmp(fs, L"FAT", 3) == 0; /* FAT12/16/32 only: not exFAT or NTFS */
+        swprintf(volume, sizeof(volume) / sizeof(volume[0]), L"\\\\?\\%ls", root);
+    }
+    return volume_is_fat ? (long) compat_local_offset(time(NULL)) : 0;
 }
 
 #else

@@ -3,25 +3,46 @@
 
 #include "metadata.h"
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdio.h>
 
 /* Tag parsing in a separate process, as the player does (metadata_isolated.c):
  * a file whose parser crashes or hangs is reported failed and costs only the
  * worker, never a placeholder row. The same code runs on every system:
- * compas-sdtool starts itself as `parse-worker`, which reads file names from
- * standard input and writes one track_metadata_t per file to standard output
- * (the child's inputs and outputs are binary and in the same build, so the
- * struct is the protocol). */
+ * compas-sdtool starts itself as `parse-worker`.
+ *
+ * Protocol (both sides are this build, so structs are the format): standard
+ * input is a sequence of records, a uint32_t byte length followed by that many
+ * bytes of path, so any file name is carried exactly. Standard output is, for
+ * each file in order, a uint32_t file index followed by a track_metadata_t. The
+ * parent checks the index; a record that is not the file expected counts that
+ * file failed. */
+
+typedef struct {
+    uint32_t index;
+    track_metadata_t meta;
+} sdtool_parse_record_t;
+
+typedef enum {
+    SDTOOL_PARSE_OK,
+    SDTOOL_PARSE_WORKER_FAILED, /* the worker cannot be started or never answers */
+} sdtool_parse_result_t;
 
 /* Parses paths[0..count) into out[], setting ok[i] = false for a file that
- * could not be parsed. Returns false only if no worker could be started. */
-bool sdtool_parse_files(const char *const *paths, size_t count, track_metadata_t *out, bool *ok);
+ * could not be parsed. */
+sdtool_parse_result_t sdtool_parse_files(const char *const *paths, size_t count,
+                                         track_metadata_t *out, bool *ok);
 
 /* The `parse-worker` entry point. */
 int sdtool_parse_worker(void);
 
-/* process.c */
-FILE *sdtool_worker_open(const char *input_file);
-void sdtool_worker_close(FILE *worker);
+/* process.c: a child process of this program with a file on its standard input
+ * and a pipe on its standard output. No shell is involved. */
+typedef struct sdtool_worker sdtool_worker_t;
+sdtool_worker_t *sdtool_worker_start(const char *input_file);
+FILE *sdtool_worker_output(sdtool_worker_t *worker);
+/* Closes the pipe, waits for the child and frees it. Returns its exit status,
+ * or -1 if it did not exit normally. */
+int sdtool_worker_finish(sdtool_worker_t *worker);
 
 #endif

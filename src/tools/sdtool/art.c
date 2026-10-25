@@ -200,6 +200,7 @@ int sdtool_cmd_art(const sdtool_options_t *options) {
     json_integer(&line, "written", totals.written);
     json_integer(&line, "unchanged", totals.unchanged);
     json_integer(&line, "no_art", totals.no_art);
+    json_integer(&line, "mtime_offset", sdtool_mtime_extra());
     json_emit(&line);
     metadata_db_close();
     return SDTOOL_OK;

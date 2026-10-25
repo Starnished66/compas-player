@@ -7,6 +7,9 @@
 #include <unistd.h>
 
 #define PARSE_TIMEOUT_SECONDS 5
+/* Workers in a row that never answered for their first file: the program
+ * cannot start itself, rather than one bad file. */
+#define PARSE_WORKER_GIVE_UP 3
 
 static const char *temp_directory(void) {
     const char *dir = getenv("TMPDIR");
@@ -14,7 +17,8 @@ static const char *temp_directory(void) {
     return dir && *dir ? dir : "/tmp";
 }
 
-/* Writes paths[from..count) to a new temporary file; returns its name. */
+/* Writes paths[from..count) to a new temporary file as length-prefixed
+ * records; returns its name. */
 static bool write_list(const char *const *paths, size_t from, size_t count, char *name, size_t size) {
     if (snprintf(name, size, "%s/sdtool-parse-XXXXXX", temp_directory()) >= (int) size) return false;
     int fd = mkstemp(name);
@@ -24,36 +28,57 @@ static bool write_list(const char *const *paths, size_t from, size_t count, char
         return false;
     }
     bool ok = true;
-    for (size_t i = from; i < count; i++) ok = fprintf(file, "%s\n", paths[i]) > 0 && ok;
+    for (size_t i = from; i < count; i++) {
+        uint32_t length = (uint32_t) strlen(paths[i]);
+        ok = fwrite(&length, sizeof(length), 1, file) == 1 && fwrite(paths[i], 1, length, file) == length && ok;
+    }
     ok = fclose(file) == 0 && ok;
     if (!ok) unlink(name);
     return ok;
 }
 
-bool sdtool_parse_files(const char *const *paths, size_t count, track_metadata_t *out, bool *ok) {
+sdtool_parse_result_t sdtool_parse_files(const char *const *paths, size_t count,
+                                         track_metadata_t *out, bool *ok) {
     size_t next = 0;
+    int silent_workers = 0;
     for (size_t i = 0; i < count; i++) ok[i] = false;
     while (next < count) {
         char list[PATH_MAX];
-        if (!write_list(paths, next, count, list, sizeof(list))) return false;
-        FILE *worker = sdtool_worker_open(list);
+        if (!write_list(paths, next, count, list, sizeof(list))) return SDTOOL_PARSE_WORKER_FAILED;
+        sdtool_worker_t *worker = sdtool_worker_start(list);
         if (!worker) {
             unlink(list);
-            return false;
+            return SDTOOL_PARSE_WORKER_FAILED;
         }
+        FILE *answers = sdtool_worker_output(worker);
         size_t done = next;
-        while (done < count && fread(&out[done], sizeof(out[done]), 1, worker) == 1) ok[done++] = true;
-        sdtool_worker_close(worker);
+        sdtool_parse_record_t *record = malloc(sizeof(*record));
+        while (record && done < count && fread(record, sizeof(*record), 1, answers) == 1) {
+            if (record->index != done - next) {
+                break;
+            }
+            out[done] = record->meta;
+            ok[done++] = true;
+        }
+        free(record);
+        int status = sdtool_worker_finish(worker);
         unlink(list);
-        /* The worker stopped before answering for this file: it crashed or
-         * overran its time. Skip it and carry on with the rest. */
+
+        if (done == next) {
+            if (++silent_workers >= PARSE_WORKER_GIVE_UP || status == 126 || status == 127)
+                return SDTOOL_PARSE_WORKER_FAILED;
+        } else {
+            silent_workers = 0;
+        }
+        /* The worker stopped, or answered for another file, before this one:
+         * it crashed, overran its time or lost step. Fail it and go on. */
         if (done < count) {
             memset(&out[done], 0, sizeof(out[done]));
-            done++;
+            ok[done++] = false;
         }
         next = done;
     }
-    return true;
+    return SDTOOL_PARSE_OK;
 }
 
 static volatile time_t started_at; /* 0 while idle */
@@ -69,7 +94,8 @@ static void *watchdog(void *unused) {
 }
 
 /* For the tests: SDTOOL_TEST_FAULT=crash:<text> or hang:<text> makes the worker
- * die or stall on a file whose name contains <text>. */
+ * die or stall on a file whose name contains <text>; SDTOOL_TEST_FAULT=start
+ * makes it exit before answering anything. */
 static void test_fault(const char *path) {
     const char *fault = getenv("SDTOOL_TEST_FAULT");
     if (!fault || !strchr(fault, ':') || !strstr(path, strchr(fault, ':') + 1)) return;
@@ -79,18 +105,25 @@ static void test_fault(const char *path) {
 
 int sdtool_parse_worker(void) {
     pthread_t thread;
-    char line[PATH_MAX];
+    const char *fault = getenv("SDTOOL_TEST_FAULT");
+    uint32_t length, index = 0;
+    if (fault && strcmp(fault, "start") == 0) return 70;
     if (pthread_create(&thread, NULL, watchdog, NULL) != 0) return 1;
-    while (fgets(line, sizeof(line), stdin)) {
-        track_metadata_t meta;
-        size_t length = strlen(line);
-        while (length > 0 && (line[length - 1] == '\n' || line[length - 1] == '\r')) line[--length] = '\0';
-        memset(&meta, 0, sizeof(meta));
+    while (fread(&length, sizeof(length), 1, stdin) == 1) {
+        char *path = length < 1u << 20 ? malloc((size_t) length + 1) : NULL;
+        if (!path || fread(path, 1, length, stdin) != length) return 1;
+        path[length] = '\0';
+        sdtool_parse_record_t *record = calloc(1, sizeof(*record));
+        if (!record) return 1;
+        record->index = index++;
         started_at = time(NULL);
-        test_fault(line);
-        metadata_read_scan_tags(line, &meta);
+        test_fault(path);
+        metadata_read_scan_tags(path, &record->meta);
         started_at = 0;
-        if (fwrite(&meta, sizeof(meta), 1, stdout) != 1 || fflush(stdout) != 0) return 1;
+        bool written = fwrite(record, sizeof(*record), 1, stdout) == 1 && fflush(stdout) == 0;
+        free(record);
+        free(path);
+        if (!written) return 1;
     }
     return 0;
 }

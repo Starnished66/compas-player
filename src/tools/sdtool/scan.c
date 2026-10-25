@@ -31,6 +31,7 @@ typedef struct {
     long parsed;
     long changed;          /* --full: rows whose tags differ */
     long failed;
+    long needed;           /* files whose tags had to be read */
     long matched_existing; /* --full: files that already had a row */
     bool inserted;
 } scan_result_t;
@@ -120,7 +121,8 @@ static bool update_batch(const file_list_t *list, long first, long count, bool f
         todo[wanted++] = host;
     }
     if (wanted == 0) return true;
-    if (!sdtool_parse_files(todo, wanted, metas, parsed)) return false;
+    if (sdtool_parse_files(todo, wanted, metas, parsed) != SDTOOL_PARSE_OK) return false;
+    result->needed += (long) wanted;
 
     for (size_t k = 0; k < wanted; k++) {
         cached_tags_t tags;
@@ -154,6 +156,7 @@ static int finish(const file_list_t *list, const scan_result_t *result, int skip
     json_integer(&line, "songs", metadata_db_get_song_count());
     json_integer(&line, "generation", metadata_db_get_generation());
     json_boolean(&line, "written", written);
+    json_integer(&line, "mtime_offset", sdtool_mtime_extra());
     json_emit(&line);
     return SDTOOL_OK;
 }
@@ -207,6 +210,13 @@ int sdtool_cmd_scan(const sdtool_options_t *options) {
             return fail(&list, "worker_failed", "the tag parser process could not be started");
         }
         json_progress("tags", first + batch, list.count);
+    }
+
+    /* Nothing readable among the files that needed reading: the parser is
+     * broken, not the music. Writing that would only record the failure. */
+    if (result.needed > 0 && result.parsed == 0) {
+        metadata_db_abort_update();
+        return fail(&list, "worker_failed", "no file could be read by the tag parser process");
     }
 
     bool missing = options->full && result.matched_existing != metadata_db_get_song_count();

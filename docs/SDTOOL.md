@@ -49,8 +49,8 @@ standard error. A failure prints one `error` line and exits nonzero.
 | Command | Output |
 | --- | --- |
 | `info` | One object: `{"sdtool_version":"1.0.0","database_format":5,"generation":12,"songs":4032}`. A card with no database reports `generation` 0 and `songs` 0; that is not an error, and nothing is created. |
-| `scan` | `{"event":"progress","phase":"walk"\|"tags"\|"save","done":N,"total":N}` lines, then `{"event":"done","command":"scan","files":N,"parsed":N,"unchanged":N,"failed":N,"skipped":N,"songs":N,"generation":N,"written":true\|false}`. |
-| `art` | `{"event":"progress","phase":"art","done":N,"total":N}` lines, then `{"event":"done","command":"art","board":"r1","albums":N,"written":N,"unchanged":N,"no_art":N}`. |
+| `scan` | `{"event":"progress","phase":"walk"\|"tags"\|"save","done":N,"total":N}` lines, then `{"event":"done","command":"scan","files":N,"parsed":N,"unchanged":N,"failed":N,"skipped":N,"songs":N,"generation":N,"written":true\|false,"mtime_offset":N}`. |
+| `art` | `{"event":"progress","phase":"art","done":N,"total":N}` lines, then `{"event":"done","command":"art","board":"r1","albums":N,"written":N,"unchanged":N,"no_art":N,"mtime_offset":N}`. |
 | any failure | `{"event":"error","code":"...","message":"..."}` and exit status 1 (2 for bad arguments). |
 
 Progress lines are limited to about one a second, plus the last one. Error
@@ -135,16 +135,19 @@ nonzero kernel zone is likewise not corrected automatically.
 Two corrections cover what the table misses. `--mtime-offset SECONDS` (`scan`,
 `art`) adds a fixed number of seconds to every card file time. And when the card
 already has a database the player wrote, sdtool samples its rows, and if most
-files of the same size differ from the recorded time by the same whole number
-of 15 minutes (at most 26 hours) it adds that difference too. Anything less
-clear is ignored.
+files of the same size differ from the recorded time by the same amount, and
+that amount is one this computer's own zone could explain (its current UTC
+offset, give or take one daylight-saving hour), it adds the difference too.
+Anything else is ignored. The `done` event of `scan` and `art` reports the sum
+of the two as `mtime_offset`.
 
-A wrong correction costs a rescan, never stale data: file times are only ever
-compared for equality with what was recorded, so an edited file differs
-whatever offset is applied to both. A same-size edit is detected whatever step
-its time moved by (the one exception being an edit of most of the library, all
-by the same zone-sized step, in one run). Tools that write files to the card
-need no zone handling.
+A wrong conversion is not harmful to the data but can cost time: sdtool's rows
+may look out of date to the player, which then re-reads those files at boot (a
+rescan), and an edited file always differs from its recorded time whatever
+offset was applied to both. A same-size edit is therefore detected whatever step
+its time moved by; the one exception is an edit of most of the library, all by
+the same zone-sized step, in one run. Tools that write files to the card need no
+zone handling.
 
 ## Reading the database
 
@@ -156,9 +159,12 @@ leave the card untouched. `info` reads without writing: it creates no folder or
 identity marker and migrates no index.
 
 Tags are read in a separate `compas-sdtool parse-worker` process, started by
-the scan on every system. A file whose parser crashes or runs past 5 seconds
+the scan on every system without a shell (`posix_spawn`, or `CreateProcess` on
+Windows). File names go to it length-prefixed, so any name is exact, and it
+returns each result with the file's index, which the scan checks. A file whose parser crashes or runs past 5 seconds
 is reported in the `failed` count and gets no row (an older row survives), as
-in the player.
+in the player. If the worker cannot be started, or no file that needed reading
+could be read, the scan stops with `worker_failed` and writes nothing.
 
 Paths are handled as UTF-8; on Windows they use the `\\?\` form, so paths over
 260 characters work, and on macOS file names are normalised to NFC to match

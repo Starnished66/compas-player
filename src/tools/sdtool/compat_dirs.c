@@ -140,6 +140,17 @@ struct compat_dir {
     struct compat_dirent entry;
 };
 
+/* The search pattern for the entries of a folder: the folder without any
+ * trailing separator (a drive root arrives as "E:\"), then "\\*". */
+bool compat_dir_pattern(const wchar_t *folder, wchar_t *out, size_t count) {
+    size_t length = wcslen(folder);
+    while (length > 0 && (folder[length - 1] == L'\\' || folder[length - 1] == L'/')) length--;
+    if (length + 3 > count) return false;
+    wmemcpy(out, folder, length);
+    wcscpy(out + length, L"\\*");
+    return true;
+}
+
 static bool dir_start(compat_dir_t *dir) {
     dir->handle = FindFirstFileW(dir->pattern, &dir->found);
     dir->have_entry = dir->handle != INVALID_HANDLE_VALUE;
@@ -152,7 +163,7 @@ compat_dir_t *compat_opendir(const char *path) {
     if (!dir) return NULL;
     dir->fd = -1;
     if (!compat_path_to_wide(path, wide, PATH_MAX) ||
-        swprintf(dir->pattern, PATH_MAX, L"%ls\\*", wide) < 0 || !dir_start(dir)) {
+        !compat_dir_pattern(wide, dir->pattern, PATH_MAX) || !dir_start(dir)) {
         if (!errno) errno = ENOENT;
         free(dir);
         return NULL;
