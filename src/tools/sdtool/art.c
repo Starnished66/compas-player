@@ -6,6 +6,7 @@
 #include "parse_pool.h"
 #include "metadata_db.h"
 #include "storage_paths.h"
+#include "tagcache.h"
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -156,6 +157,7 @@ int sdtool_cmd_art(const sdtool_options_t *options) {
     sdtool_database_t db;
     if (!resolve_board(options, board, sizeof(board)) || !sdtool_open_database(&db)) return SDTOOL_FAILED;
     sdtool_mtime_calibrate();
+    bool migrated = tagcache_indexes_migrated();
 
     enum { PAGE = 64 };
     group_row_t rows[PAGE];
@@ -198,6 +200,7 @@ int sdtool_cmd_art(const sdtool_options_t *options) {
     json_integer(&line, "unchanged", totals.unchanged);
     json_integer(&line, "no_art", totals.no_art);
     json_integer(&line, "failed", totals.failed);
+    json_boolean(&line, "migrated", migrated);
     json_integer(&line, "mtime_offset", sdtool_mtime_extra());
     json_emit(&line);
     metadata_db_close();
