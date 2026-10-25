@@ -431,7 +431,7 @@ static int margin(void) { return selector_margin(sel_canvas_width); }
 static int tool_list_top(void) { return selector_tool_list_top(sel_canvas_width); }
 static int tool_row_h(void) { return selector_tool_row_h(sel_canvas_width); }
 static int tool_gap(void) { return selector_tool_gap(sel_canvas_width); }
-static int list_viewport_bottom(void) { return sel_canvas_height - BREEZE_LIST_NOTICE_BAND; }
+int sel_list_viewport_bottom(void) { return sel_canvas_height - BREEZE_LIST_NOTICE_BAND; }
 
 void sel_draw_music_note(int x, int y, int size, uint32_t color) {
     int sw = size >= 36 ? 3 : 2;
@@ -841,7 +841,7 @@ int selector_ui_list_max_scroll(size_t count) {
     if (count > SELECTOR_UI_MAX_LIST_ITEMS) count = SELECTOR_UI_MAX_LIST_ITEMS;
     int total = (int)count * (tool_row_h() + tool_gap());
     if (count > 0) total -= tool_gap();
-    int viewport = list_viewport_bottom() - tool_list_top();
+    int viewport = sel_list_viewport_bottom() - tool_list_top();
     return total > viewport ? total - viewport : 0;
 }
 
@@ -849,7 +849,7 @@ int selector_ui_ensure_visible_list(size_t count, int selected, int scroll_pixel
     if (!sel_canvas) return 0;
     if (count > SELECTOR_UI_MAX_LIST_ITEMS) count = SELECTOR_UI_MAX_LIST_ITEMS;
     return ensure_visible((int)count, selected, scroll_pixels, tool_list_top(),
-                          tool_row_h(), tool_gap(), list_viewport_bottom());
+                          tool_row_h(), tool_gap(), sel_list_viewport_bottom());
 }
 
 void selector_ui_draw_list(const char * title, const char * const * items,
@@ -870,7 +870,7 @@ int selector_ui_hit_test_list(int x, int y, size_t count, int scroll_pixels) {
     if (scroll_pixels < 0) scroll_pixels = 0;
     if (scroll_pixels > max_scroll) scroll_pixels = max_scroll;
     return hit_row(x, y, tool_list_top(), tool_row_h(), tool_gap(), (int)count,
-                   scroll_pixels, list_viewport_bottom());
+                   scroll_pixels, sel_list_viewport_bottom());
 }
 
 void selector_ui_draw_notice(const char * title, const char * message) {

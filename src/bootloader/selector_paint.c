@@ -306,8 +306,7 @@ void selector_paint_list(const char * title, const char * const * items,
     int row_h = selector_tool_row_h(sel_canvas_width);
     int gap = selector_tool_gap(sel_canvas_width);
     int m = selector_margin(sel_canvas_width), w = sel_canvas_width - 2 * m;
-    int bottom = notice && *notice ? sel_canvas_height - BREEZE_LIST_NOTICE_BAND
-                                   : sel_canvas_height;
+    int bottom = sel_list_viewport_bottom();
     int previous_clip_top = sel_clip_top, previous_clip_bottom = sel_clip_bottom;
     sel_clip_top = list_top;
     sel_clip_bottom = bottom;

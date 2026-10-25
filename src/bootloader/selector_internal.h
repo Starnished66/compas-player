@@ -30,6 +30,7 @@ void sel_fit_text(char out[128], const char * input, int max_width, int px, bool
 void sel_draw_music_note(int x, int y, int size, uint32_t color);
 void sel_draw_mountain(int x, int y, int size, uint32_t color);
 void sel_draw_tools_icon(int x, int y, int size, uint32_t color);
+int sel_list_viewport_bottom(void);
 
 void selector_paint_selector(int selected, bool rockbox_available,
                              unsigned countdown_seconds, bool countdown_cancelled);
