@@ -50,12 +50,12 @@ standard error. A failure prints one `error` line and exits nonzero.
 | --- | --- |
 | `info` | One object: `{"sdtool_version":"1.1.0","build":"<git short hash>","database_format":7,"generation":12,"songs":4032}`. A card with no database reports `generation` 0 and `songs` 0; that is not an error, and nothing is created. |
 | `scan` | `{"event":"progress","phase":"walk"\|"tags"\|"save","done":N,"total":N}` lines, then `{"event":"done","command":"scan","files":N,"parsed":N,"unchanged":N,"failed":N,"skipped":N,"songs":N,"generation":N,"written":true\|false,"migrated":true\|false,"mtime_offset":N}`. |
-| `art` | `{"event":"progress","phase":"art","done":N,"total":N}` lines, then `{"event":"done","command":"art","board":"r1","albums":N,"written":N,"unchanged":N,"no_art":N,"failed":N,"mtime_offset":N}`. |
+| `art` | `{"event":"progress","phase":"art","done":N,"total":N}` lines, then `{"event":"done","command":"art","board":"r1","albums":N,"written":N,"unchanged":N,"no_art":N,"failed":N,"migrated":true\|false,"mtime_offset":N}`. |
 | any failure | `{"event":"error","code":"...","message":"..."}` and exit status 1 (2 for bad arguments). |
 
 Progress lines are limited to about one a second, plus the last one. Error
 codes: `usage`, `card_not_found`, `database_open_failed`, `walk_failed`, `no_music_found`, `worker_failed`,
-`write_failed`, `bad_board`, `art_failed` (a cache file could not be written; sent after the `done` line, which carries the counts, and the other albums are still written), `out_of_memory`.
+`write_failed`, `bad_board`, `art_failed` (a cache file could not be written, or an album's embedded picture could not be read because its parser crashed or timed out; sent after the `done` line, which carries the counts, and the other albums are still written), `out_of_memory`.
 
 ### scan
 
@@ -82,7 +82,9 @@ album, a 72 px and a 480 px BMP named by the album's key
 folder, else the representative track's embedded picture, else another track's.
 The source file time (in the player's frame) is stored in each BMP and an
 existing cache is rebuilt only when its source is newer. Albums without art or without artist and album
-tags write nothing (`no_art`). Run `scan` first: `art` reads the database.
+tags write nothing (`no_art`). Run `scan` first: `art` reads the database. Like `scan`, it reports `"migrated":true` when
+opening the database rewrote its indexes from an older layout; that writes to the
+card even when `written` (the number of covers written) is 0.
 
 The cache sizes do not depend on the board, so `--board` only selects what is
 reported in `board`; without it the model in `.compas/device.json` is used,
