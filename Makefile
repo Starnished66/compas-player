@@ -706,7 +706,7 @@ APP_SRCS += src/library/remote_track.c
 APP_SRCS += src/library/queue_resume.c
 APP_SRCS += src/audio/track_probe.c
 APP_SRCS += src/library/library_scan_tags.c src/library/albumart.c src/library/tagcache.c src/library/path_cache.c src/library/remote_state.c src/library/subsonic_saved_servers.c src/library/artwork_coordinator.c
-APP_SRCS += src/core/utf8_util.c src/core/app_clock.c src/core/db_log.c src/core/zip_reader.c src/core/html_blocks.c
+APP_SRCS += src/core/device_info.c src/core/utf8_util.c src/core/app_clock.c src/core/db_log.c src/core/zip_reader.c src/core/html_blocks.c
 APP_SRCS += src/ui/gesture_detector.c
 APP_SRCS += src/ui/i18n.c src/ui/i18n_catalog.c
 APP_SRCS += src/ui/player_layouts.c
@@ -1278,6 +1278,11 @@ test-wifi-ssid:
 # Arabic/Hebrew shaping, direction and label comparison on the host build.
 test-rtl-text:
 	bash scripts/run_rtl_text_spec.sh
+
+.PHONY: test-device-info
+# <SD>/.compas/device.json: contents, write-only-on-change, no-op without a writable card.
+test-device-info:
+	sh scripts/tests/run_device_info_test.sh
 
 .PHONY: test-file-browser-natural-sort
 test-file-browser-natural-sort:
