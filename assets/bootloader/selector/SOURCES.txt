@@ -1,6 +1,10 @@
 Selector logo sources
 Runtime: embedded C arrays in src/bootloader/selector_logos*.c, generated
-by scripts/generate_selector_logos.py.
+by scripts/generate_selector_logos.py. Each bootloader links only the
+width matching BOARD_SCREEN_WIDTH. The standalone R3II 2025 loader also
+omits the Rockbox arrays.
+
+Verified with ImageMagick 7.1.2-32 (magick).
 
 Compás wordmark
   Source: assets/brand/compas-wordmark.svg (URW Gothic Book outlines,
@@ -11,9 +15,11 @@ Compás wordmark
 Rockbox logo
   File: assets/bootloader/selector/rockbox-logo.svg
   Official artwork from the Rockbox project, not redrawn.
+  Copyright: the Rockbox project.
   Source URL:
     https://git.rockbox.org/cgit/rockbox.git/plain/docs/logo/rockbox-logo.svg
-  License: GNU GPL version 2, as shipped in Rockbox docs/COPYING:
+  License: GNU GPL version 2 or (at your option) any later version, as
+  shipped in Rockbox docs/COPYING:
     https://git.rockbox.org/cgit/rockbox.git/plain/docs/COPYING
   GitHub mirror of the same files:
     https://github.com/Rockbox/rockbox/tree/master/docs/logo

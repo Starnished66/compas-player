@@ -189,7 +189,7 @@ static int present_and_save(const char * path) {
 int main(int argc, char ** argv) {
     const char * out_dir = argc > 1 ? argv[1] : DEFAULT_OUT_DIR;
     const char * font_path = argc > 2 ? argv[2] : DEFAULT_FONT_PATH;
-    const char * prefix = argc > 3 ? argv[3] : "before";
+    const char * prefix = argc > 3 ? argv[3] : "snapshot";
     if (mkdir_p(out_dir) != 0) {
         fprintf(stderr, "selector_sim: mkdir %s: %s\n", out_dir, strerror(errno));
         return 1;
@@ -204,10 +204,19 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
+#if defined(BOARD_R3II_2025)
+    /* Standalone R3II 2025 loader has no Rockbox row. */
+    static const char * names[] = { "compas", "tools" };
+    const int row_count = 2;
+    const bool rockbox_available = false;
+#else
     static const char * names[] = { "compas", "rockbox", "tools" };
+    const int row_count = 3;
+    const bool rockbox_available = true;
+#endif
     int failed = 0;
-    for (int selected = 0; selected < 3; selected++) {
-        selector_ui_draw_selector(selected, true, 5, false, false);
+    for (int selected = 0; selected < row_count; selected++) {
+        selector_ui_draw_selector(selected, rockbox_available, 5, false, false);
         char path[512];
         if (snprintf(path, sizeof(path), "%s/%s-%s-%s.png",
                      out_dir, prefix, BOARD_SLUG, names[selected]) >= (int) sizeof(path)) {

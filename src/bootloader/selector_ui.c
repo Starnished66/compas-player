@@ -11,7 +11,6 @@
 #include <sys/stat.h>
 
 #include "board_config.h"
-#include "fb_draw.h"
 #include "selector_logos.h"
 
 /* Reuse LVGL's vendored tiny_ttf rasterizer without initializing LVGL. The
@@ -116,6 +115,27 @@ static void put_pixel(int x, int y, uint32_t color, unsigned alpha) {
                        (uint32_t)((fg.g * alpha + bg.g * inv + 127) / 255) << 8 |
                        (uint32_t)((fg.b * alpha + bg.b * inv + 127) / 255);
     canvas[(size_t)y * canvas_stride + (size_t)x] = pack565(blended);
+}
+
+static void blit_a8(int x, int y, const uint8_t * pixels, int width, int height, uint32_t color) {
+    if (!pixels || width <= 0 || height <= 0) return;
+    for (int row = 0; row < height; row++) {
+        const uint8_t * src = pixels + (size_t)row * (size_t)width;
+        for (int col = 0; col < width; col++)
+            put_pixel(x + col, y + row, color, src[col]);
+    }
+}
+
+static void blit_rgba(int x, int y, const uint8_t * pixels, int width, int height) {
+    if (!pixels || width <= 0 || height <= 0) return;
+    for (int row = 0; row < height; row++) {
+        const uint8_t * src = pixels + (size_t)row * (size_t)width * 4u;
+        for (int col = 0; col < width; col++) {
+            const uint8_t * p = src + (size_t)col * 4u;
+            uint32_t color = ((uint32_t)p[0] << 16) | ((uint32_t)p[1] << 8) | p[2];
+            put_pixel(x + col, y + row, color, p[3]);
+        }
+    }
 }
 
 static void fill_rect(int x, int y, int w, int h, uint32_t color) {
@@ -637,19 +657,17 @@ void selector_ui_draw_selector(int selected, bool rockbox_available,
         int logo_x = x + (compact ? 16 : 22);
         int drew_logo = 0;
         if (i == 0) {
-            const selector_logo_a8_t * mark = selector_logo_wordmark(canvas_width);
+            const selector_logo_a8_t * mark = selector_logo_wordmark();
             if (mark && mark->pixels && mark->width > 0 && mark->height > 0) {
-                fb_draw_blit_a8(canvas, canvas_width, canvas_height, canvas_stride,
-                                logo_x, y + (card_h - mark->height) / 2,
-                                mark->pixels, mark->width, mark->height, PRIMARY_RGB);
+                blit_a8(logo_x, y + (card_h - mark->height) / 2,
+                        mark->pixels, mark->width, mark->height, PRIMARY_RGB);
                 drew_logo = 1;
             }
         } else if (i == 1) {
-            const selector_logo_rgba_t * mark = selector_logo_rockbox(canvas_width);
+            const selector_logo_rgba_t * mark = selector_logo_rockbox();
             if (mark && mark->pixels && mark->width > 0 && mark->height > 0) {
-                fb_draw_blit_rgba(canvas, canvas_width, canvas_height, canvas_stride,
-                                  logo_x, y + (card_h - mark->height) / 2,
-                                  mark->pixels, mark->width, mark->height);
+                blit_rgba(logo_x, y + (card_h - mark->height) / 2,
+                          mark->pixels, mark->width, mark->height);
                 drew_logo = 1;
             }
         }

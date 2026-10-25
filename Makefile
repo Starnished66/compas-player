@@ -890,19 +890,29 @@ SELECTOR_SIM_BIN = selector_sim_$(BOARD)
 endif
 SELECTOR_SIM_CFLAGS = -O2 -Wall -fwrapv -I. -Isrc/bootloader -Isrc/core \
 	-DFB_DRAW_HOST=1 -DHOST_BUILD=1 -DCOMPAS_LOADER_BUILD $(BOARD_DEFINE)
+# BOARD_SCREEN_WIDTH is 480 on r1/r3proii and 320 on r3ii_2025. The
+# standalone R3II 2025 loader has no Rockbox row, so it also drops that
+# banner array.
+ifeq ($(BOARD),r3ii_2025)
+SELECTOR_LOGO_SRCS = src/bootloader/selector_logos.c \
+	src/bootloader/selector_logos_wordmark_320.c
+else
+SELECTOR_LOGO_SRCS = src/bootloader/selector_logos.c \
+	src/bootloader/selector_logos_wordmark_480.c \
+	src/bootloader/selector_logos_rockbox_480.c
+endif
 SELECTOR_SIM_SRCS = src/bootloader/selector_sim.c src/bootloader/selector_ui.c \
-	src/bootloader/fb_draw.c src/bootloader/fb_draw_blit.c src/bootloader/fb_host.c \
-	src/bootloader/selector_logos.c src/bootloader/selector_logos_wordmark.c \
-	src/bootloader/selector_logos_rockbox_480.c src/bootloader/selector_logos_rockbox_320.c \
+	src/bootloader/fb_draw.c src/bootloader/fb_host.c \
+	$(SELECTOR_LOGO_SRCS) \
 	src/core/glyph5x7.c src/core/startup_splash.c lvgl/src/libs/tjpgd/tjpgd.c
-SNAPSHOT_PREFIX ?= before
+SNAPSHOT_PREFIX ?= snapshot
 
 $(SELECTOR_SIM_BIN): $(SELECTOR_SIM_SRCS) src/bootloader/fb_draw.h src/bootloader/fb_draw_internal.h \
 		src/bootloader/selector_ui.h src/bootloader/selector_logos.h \
 		src/core/board_config.h src/core/glyph5x7.h $(LVGL_TINY_TTF)
 	$(CC) $(SELECTOR_SIM_CFLAGS) -o $@ $(SELECTOR_SIM_SRCS) -lm
 
-.PHONY: selector-sim check-selector-logos
+.PHONY: check-selector-logos
 selector-sim: $(SELECTOR_SIM_BIN)
 	@mkdir -p scratch/selector-mockup
 	./$(SELECTOR_SIM_BIN) scratch/selector-mockup assets/fonts/Montserrat-Medium.ttf $(SNAPSHOT_PREFIX)
@@ -1121,9 +1131,7 @@ BOOTLOADER_BIN = compas_loader_$(BOARD)
 endif
 BOOTLOADER_SRCS = src/bootloader/selector_controller.c src/bootloader/selector_input.c \
                   src/bootloader/selector_ui.c src/bootloader/selector_request.c \
-                  src/bootloader/fb_draw_blit.c \
-                  src/bootloader/selector_logos.c src/bootloader/selector_logos_wordmark.c \
-                  src/bootloader/selector_logos_rockbox_480.c src/bootloader/selector_logos_rockbox_320.c \
+                  $(SELECTOR_LOGO_SRCS) \
                   src/core/sd_fsck.c src/core/sd_fsck_run.c \
                   src/bootloader/main.c src/bootloader/fb_draw.c src/bootloader/boot_tuning.c \
                   src/core/startup_splash.c src/core/glyph5x7.c \
