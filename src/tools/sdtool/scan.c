@@ -212,9 +212,9 @@ int sdtool_cmd_scan(const sdtool_options_t *options) {
         json_progress("tags", first + batch, list.count);
     }
 
-    /* Nothing readable among the files that needed reading: the parser is
-     * broken, not the music. Writing that would only record the failure. */
-    if (result.needed > 0 && result.parsed == 0) {
+    /* Nothing readable among several files that needed reading: the parser is
+     * broken, not the music. (One bad file is just that file, as in the player.) */
+    if (result.needed >= 3 && result.parsed == 0) {
         metadata_db_abort_update();
         return fail(&list, "worker_failed", "no file could be read by the tag parser process");
     }

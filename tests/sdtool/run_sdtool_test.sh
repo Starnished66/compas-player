@@ -167,8 +167,14 @@ rm "$card/Artist Three/Album Three/"05*
 run scan "$card" >/dev/null || fail "scan after removing the newline name"
 fi
 
-# a tag parser that crashes or hangs fails that file only: no placeholder row.
+# a tag parser that crashes or hangs fails that file only: no placeholder row,
+# even when it is the only file to read; the scan still commits.
 cp "$card/Artist Three/Album Three/01 Fourth.mp3" "$card/Artist Three/Album Three/03 Crash.mp3"
+for fault in crash:03 hang:03; do
+  r=$(SDTOOL_TEST_FAULT=$fault; export SDTOOL_TEST_FAULT; run scan "$card") || fail "lone bad file ($fault) blocked the scan"
+  [ "$(field "$r" failed)" = 1 ] && [ "$(field "$r" songs)" = 5 ] && [ "$(field "$r" written)" = True ] ||
+    fail "lone bad file ($fault): $r"
+done
 cp "$card/Artist Three/Album Three/01 Fourth.mp3" "$card/Artist Three/Album Three/04 Hang.mp3"
 r=$(SDTOOL_TEST_FAULT=crash:03; export SDTOOL_TEST_FAULT; run scan "$card") || fail "scan with crashing parser"
 [ "$(field "$r" failed)" = 1 ] && [ "$(field "$r" songs)" = 6 ] || fail "crash handling: $r"

@@ -163,8 +163,8 @@ the scan on every system without a shell (`posix_spawn`, or `CreateProcess` on
 Windows). File names go to it length-prefixed, so any name is exact, and it
 returns each result with the file's index, which the scan checks. A file whose parser crashes or runs past 5 seconds
 is reported in the `failed` count and gets no row (an older row survives), as
-in the player. If the worker cannot be started, or no file that needed reading
-could be read, the scan stops with `worker_failed` and writes nothing.
+in the player. One bad file never blocks the scan. If the worker cannot be started, or at
+least three files needed reading and none could be, the scan stops with `worker_failed` and writes nothing.
 
 Paths are handled as UTF-8; on Windows they use the `\\?\` form, so paths over
 260 characters work, and on macOS file names are normalised to NFC to match

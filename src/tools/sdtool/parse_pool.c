@@ -7,9 +7,6 @@
 #include <unistd.h>
 
 #define PARSE_TIMEOUT_SECONDS 5
-/* Workers in a row that never answered for their first file: the program
- * cannot start itself, rather than one bad file. */
-#define PARSE_WORKER_GIVE_UP 3
 
 static const char *temp_directory(void) {
     const char *dir = getenv("TMPDIR");
@@ -40,7 +37,6 @@ static bool write_list(const char *const *paths, size_t from, size_t count, char
 sdtool_parse_result_t sdtool_parse_files(const char *const *paths, size_t count,
                                          track_metadata_t *out, bool *ok) {
     size_t next = 0;
-    int silent_workers = 0;
     for (size_t i = 0; i < count; i++) ok[i] = false;
     while (next < count) {
         char list[PATH_MAX];
@@ -64,12 +60,11 @@ sdtool_parse_result_t sdtool_parse_files(const char *const *paths, size_t count,
         int status = sdtool_worker_finish(worker);
         unlink(list);
 
-        if (done == next) {
-            if (++silent_workers >= PARSE_WORKER_GIVE_UP || status == 126 || status == 127)
-                return SDTOOL_PARSE_WORKER_FAILED;
-        } else {
-            silent_workers = 0;
-        }
+        /* A worker that could not start (126/127), or exited cleanly without
+         * answering, is a broken setup. One that died or timed out on a file
+         * is that file's fault, handled below. */
+        if (done == next && (status == 0 || status == 126 || status == 127))
+            return SDTOOL_PARSE_WORKER_FAILED;
         /* The worker stopped, or answered for another file, before this one:
          * it crashed, overran its time or lost step. Fail it and go on. */
         if (done < count) {
@@ -95,7 +90,7 @@ static void *watchdog(void *unused) {
 
 /* For the tests: SDTOOL_TEST_FAULT=crash:<text> or hang:<text> makes the worker
  * die or stall on a file whose name contains <text>; SDTOOL_TEST_FAULT=start
- * makes it exit before answering anything. */
+ * makes it exit cleanly before answering anything. */
 static void test_fault(const char *path) {
     const char *fault = getenv("SDTOOL_TEST_FAULT");
     if (!fault || !strchr(fault, ':') || !strstr(path, strchr(fault, ':') + 1)) return;
@@ -107,7 +102,7 @@ int sdtool_parse_worker(void) {
     pthread_t thread;
     const char *fault = getenv("SDTOOL_TEST_FAULT");
     uint32_t length, index = 0;
-    if (fault && strcmp(fault, "start") == 0) return 70;
+    if (fault && strcmp(fault, "start") == 0) return 0;
     if (pthread_create(&thread, NULL, watchdog, NULL) != 0) return 1;
     while (fread(&length, sizeof(length), 1, stdin) == 1) {
         char *path = length < 1u << 20 ? malloc((size_t) length + 1) : NULL;
