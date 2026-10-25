@@ -17,6 +17,7 @@
 /* The application entry point is in main.c, which this runtime spec excludes. */
 void install_thread_crash_altstack(void) {}
 void main_loop_discard_elapsed_time(void) {}
+bool main_loop_discard_pointer_input(void) { return false; }
 
 extern int __real_SDL_QueueAudio(SDL_AudioDeviceID, const void *, Uint32);
 extern Uint32 __real_SDL_GetQueuedAudioSize(SDL_AudioDeviceID);

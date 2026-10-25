@@ -9,6 +9,7 @@
 
 void install_thread_crash_altstack(void) {}
 void main_loop_discard_elapsed_time(void) {}
+bool main_loop_discard_pointer_input(void) { return false; }
 
 static void write_plugin(const char *body) {
     FILE *f = fopen("music/.plugins/Test.lua", "w");

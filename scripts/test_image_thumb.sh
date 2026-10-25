@@ -18,6 +18,7 @@ gcc -std=c99 -D_GNU_SOURCE -DHOST_BUILD=1 -DBOARD_R1 -DLV_CONF_INCLUDE_SIMPLE=1 
     "$repo_root/src/library/image_thumb_test.c" "$repo_root/src/library/image_thumb.c" \
     "$repo_root/src/library/cover_decode.c" \
     "$host_build/library/artwork_coordinator.o" \
+    "$host_build/library/artwork_memory.o" \
     "$host_build/lvgl/src/libs/tjpgd/tjpgd.o" "$host_build/tinfl/miniz_tinfl.o" \
     "$host_build"/jpeg/*.o \
     -Wl,--gc-sections -lpthread -lm -o "$build_dir/image_thumb_test"

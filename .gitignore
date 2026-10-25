@@ -44,7 +44,7 @@
 
 # Wholly ours, minus the stock files that happen to share the directory.
 !/assets/theme2/power_action/
-# Player layout XML files (src/ui/player_layouts.c scans this directory).
+# Player layout XML files (src/ui/player/player_layouts.c scans this directory).
 !/assets/theme2/player_layouts/
 # Picker preview of the built-in Breeze Dark theme (src/ui/gui_themes.c).
 !/assets/theme2/themes/
@@ -261,10 +261,11 @@
 *.py
 # ...except the compile_commands.json generator the Makefile's own
 # `compile_commands.json` target invokes -- this one ships with the repo.
-!/generate_compile_commands.py
+!/scripts/build/generate_compile_commands.py
 !/scripts/offline_library_scan.py
 !/scripts/generate_remote_webapp.py
 !/scripts/generate_brand_marks.py
+!/scripts/check_module_sizes.py
 !/scripts/install_startup_trace.py
 !/scripts/kernel/*.py
 
@@ -381,6 +382,8 @@ docs/INCREMENTAL_DATABASE.md
 # Player-layout documentation is deliberately kept in the public source.
 !/docs/PLAYER_LAYOUTS.md
 !/docs/BLUETOOTH_METADATA.md
+!/docs/ARCHITECTURE.md
+!/docs/qa/RELEASE_AUDIT_2026-10-25.md
 !/third_party/lv_xml/README.md
 
 # Translations: the po/ guide and the scripts make i18n runs are part of the
@@ -482,9 +485,14 @@ __pycache__/
 !/scripts/test_plugin_progress_ui.py
 !/scripts/tests/
 /scripts/tests/*
+!/scripts/tests/test_check_module_sizes.py
 !/scripts/tests/progress_http_fixture.c
 !/scripts/tests/run_peq_crossfeed_test.sh
 !/scripts/tests/wifi_ssid_escape_test.c
+!/scripts/tests/metadata_db_top_played_regression.c
+!/scripts/tests/run_metadata_db_top_played_test.sh
+!/scripts/tests/metadata_db_concurrent_commit_test.c
+!/scripts/tests/run_metadata_db_concurrent_commit_test.sh
 !/scripts/tests/run_wifi_ssid_escape_test.sh
 !/scripts/tests/file_browser_natural_sort_test.sh
 !src/audio/peq_crossfeed_selftest.c
@@ -505,8 +513,8 @@ __pycache__/
 # XML player action binding regressions.
 !/scripts/test_plugin_player_actions.py
 !/scripts/test_player_layout_interactions.sh
-!/src/ui/player_layouts_test.c
-!/src/ui/player_layout_bind_test.c
+!/tests/player/player_layouts_test.c
+!/tests/player/player_layout_bind_test.c
 
 # Playback display metadata and cover performance regressions.
 !src/library/metadata_db_display_cache_test.c
@@ -528,7 +536,7 @@ __pycache__/
 !/scripts/test_gui_player_layout_rebuild.py
 !/scripts/test_gui_player_layout_reuse.py
 !/scripts/test_player_layout_xml_cache.sh
-!/src/ui/player_layout_xml_cache_test.c
+!/tests/player/player_layout_xml_cache_test.c
 !/scripts/test_gui_player_swipe_lifetime.py
 
 # Playlist bulk-edit regression source
@@ -537,3 +545,22 @@ __pycache__/
 # Website-ready user manual and its editorial handoff.
 !/docs/manual/**/*.md
 !/docs/manual/*.md
+!scripts/test_plugin_bindings_spec.py
+!scripts/test_plugin_http_bindings.py
+!scripts/test_plugin_text_view_bindings.py
+!scripts/test_plugin_archive_bindings.py
+
+# Local notes, experiments, captures and downloaded packages.
+/local/
+
+# Board-specific one-shot firmware splash helpers.
+/compas_early_splash*
+!/scripts/test_repack_early_splash_elf.py
+
+# Live player queue ownership and ordering regressions.
+!/tests/player/player_queue_model_spec.c
+!/scripts/test_player_queue_model.sh
+
+# Library search/T9/result-lifetime regressions.
+!/tests/library/library_search_spec.c
+!/scripts/test_library_search.sh

@@ -41,6 +41,7 @@ int main(void) {
     assert(settings.idle_suspend_enabled);
     assert(settings.idle_shutdown_minutes == 10);
     assert(settings.dac_filter == 0 && !settings.dac_nos && settings.dac_dre);
+    assert(settings.usb_dsd_output == USB_DSD_OUTPUT_PCM);
     assert(settings.lyrics_keep_screen_on);
 
     write_settings("keyboard_layout=0\nidle_shutdown_enabled=1\n"
@@ -58,6 +59,7 @@ int main(void) {
     assert(settings.idle_shutdown_enabled && settings.idle_suspend_enabled);
     assert(settings.idle_shutdown_minutes == 10);
     assert(settings.dac_filter == 0 && !settings.dac_nos && settings.dac_dre);
+    assert(settings.usb_dsd_output == USB_DSD_OUTPUT_PCM);
     assert(settings.lyrics_keep_screen_on);
 
     write_settings("volume=0.5\nlyrics_keep_screen_on=0\n");
@@ -99,6 +101,22 @@ int main(void) {
     write_settings("dac_filter=4\ndac_nos=invalid\ndac_dre=invalid\n");
     assert(settings_load(&settings));
     assert(settings.dac_filter == 0 && !settings.dac_nos && settings.dac_dre);
+
+    write_settings("usb_dsd_output=1\n");
+    assert(settings_load(&settings));
+    assert(settings.usb_dsd_output == USB_DSD_OUTPUT_NATIVE);
+    settings_save(&settings);
+    assert(settings_load(&settings));
+    assert(settings.usb_dsd_output == USB_DSD_OUTPUT_NATIVE);
+    write_settings("usb_dsd_output=2\n");
+    assert(settings_load(&settings));
+    assert(settings.usb_dsd_output == USB_DSD_OUTPUT_DOP);
+    write_settings("usb_dsd_output=3\n");
+    assert(settings_load(&settings));
+    assert(settings.usb_dsd_output == USB_DSD_OUTPUT_PCM);
+    write_settings("usb_dsd_output=1junk\n");
+    assert(settings_load(&settings));
+    assert(settings.usb_dsd_output == USB_DSD_OUTPUT_PCM);
 
     /* Legacy files without the migration marker keep explicit idle choices. */
     write_settings("keyboard_layout=1\nidle_shutdown_enabled=0\n"

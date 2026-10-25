@@ -1,4 +1,5 @@
 #include "gui.h"
+#include "gui_external_controls.h"
 #include "app_clock.h"
 #include "i18n.h"
 #include "gui_library.h"
@@ -12,7 +13,6 @@
 #include "gui_navigation.h"
 #include "gui_setup.h"
 
-#define PLAYLISTS_DIR MUSIC_ROOT_DIR "/Playlists"
 #define SUBSONIC_STREAM_CACHE_DIR "/tmp/subsonic_stream_cache"
 #include "gui_theme.h"
 #include "gui_themes.h"
@@ -82,17 +82,6 @@
 #include "timezone_apply.h"
 #include "hostname_apply.h"
 #include "../core/screenshot.h"
-
-/* --- Theme API (gui_theme.h) --- */
-
-
-
-/* --- Notification/Modal API (gui_notifications.h) --- */
-
-
-gui_busy_handle_t gui_busy_show(const char * title, const char * msg);
-void gui_busy_set_progress(gui_busy_handle_t handle, int percent);
-void gui_busy_hide(gui_busy_handle_t handle);
 
 gui_busy_handle_t wifi_connect_token = 0;
 gui_busy_handle_t wifi_connect_saved_token = 0;
@@ -185,76 +174,14 @@ static void update_perf_mark(const char * section) {
   extern void mount_sd_card_if_needed(void);
 #endif
 
-/* Books are deliberately isolated from the music-library root. A recursive
- * .txt search across an entire large SD card is both unexpectedly broad and
- * slow; only this dedicated directory participates in book discovery. */
-#define BOOKS_ROOT_DIR MUSIC_ROOT_DIR "/Books"
-#define AUDIOBOOKS_LIBRARY_DIR_NAME "Audiobooks"
-
-/* Native list rows share one font-aware base height across Music, Settings,
- * and the other list screens. */
-
-/* General UI text uses fallback_font.h's stable app_font_* handles.  Their
- * descriptors are rebuilt transactionally for live Font Size changes, so
- * every existing LVGL style keeps the same pointer while its metrics and
- * multilingual chain change together. */
-
 lv_obj_t * stream_media_screen;
-
-void sync_player_topbar_visibility(lv_obj_t * screen);
-
-
-
-
-
-
-
-/* The 480x320 panel behind the transport controls (title/artist/progress/
- * time/controls_row) -- built in build_player_screen(), but also targeted
- * by poll_cover_decode()/compute_reflection_bytes() below to swap its background
- * between the plain static buttom.png (no embedded art to reflect) and a
- * freshly generated per-track reflection, hence file-scope rather than a
- * local inside build_player_screen(). */
 bool favorite_is_set = false;
-/* Clock, top bar center: topbar/N.png digit and topbar/colon.png sprite widgets
- * in a fixed HH:MM layout with an optional AM/PM indicator when 12-hour mode is active. */
-/* Volume readout, left edge of status bar: speaker icon, up to 3 digit sprites,
- * and headphone icon (shown when headphone jack is connected). Leading unused digit
- * slots are hidden to collapse spacing. */
 
-/* Loud-volume warning color threshold, read once at startup from the stock
- * firmware's own /usr/resource/config.json (see device_config.h) -- e.g. a
- * real R1 Pro had this set to 40 via the stock Settings screen. -1 means
- * "feature disabled" (file missing/host build, or vol_warn_enable=0 in the
- * config), in which case the volume digits always stay their native white
- * and never recolor red, regardless of level. */
-
-/* Quick-access drawer mirrors of the persistent status bar / player-screen
- * widgets above -- kept in sync from the same single update sites (see
- * refresh_clock_label/refresh_battery_topbar/refresh_wifi_icon/
- * set_play_button_state/favorite_icon_event_cb/apply_track_metadata_to_ui)
- * rather than introducing a second, separately-polled source of truth.
- * NULL until build_quick_drawer() runs; every update site guards on that. */
-
-/* The quick drawer brightness slider and label are refreshed both at build time
- * and whenever the drawer opens to ensure they match the current screen brightness. */
-
-
-/* Defined with the rest of the Subsonic streaming logic further down;
- * forward-declared here since polling for a finished background download
- * belongs alongside every other per-tick "did a background thing finish"
- * check in update_timer_cb (hw_buttons, audio_consume_track_advanced, ...). */
+/* Defined with the rest of the DLNA logic further down;
+ * forward-declared here since poll_dlna_control belongs alongside
+ * every other per-tick background check in update_timer_cb. */
 static void poll_dlna_control(void);
-/* Defined alongside library_scan_once()'s own background-thread wrapper,
- * much further down -- forward-declared here since subsonic_library_
- * download_thread_func() (defined well before that point) needs to trigger
- * a rescan once its own batch download finishes. */
-void start_library_rescan(void);
-void start_library_auto_rescan(void);
-void poll_wifi_scan(void);
-void poll_wifi_connect(void);
 void poll_wifi_connect_saved(void);
-void poll_wifi_disconnect(void);
 void poll_wifi_forget(void);
 void poll_bt_scan(void);
 void poll_bt_rate_query(void);
@@ -385,6 +312,9 @@ void gui_release_memory_for_external_session(void) {
  * screenshot events queued by the evdev threads are stale; and the whole
  * screen is repainted over whatever the session left in the framebuffer. */
 void gui_resume_after_external_session(void) {
+    bool touch_held = main_loop_discard_pointer_input();
+    gui_shell_reset_drag_state();
+    gui_shell_set_external_touch_held(touch_held);
     main_loop_discard_elapsed_time();
     gui_reset_interactive_timeout_baseline();
     backlight_set_dimmed(false);
@@ -503,21 +433,6 @@ static void resume_from_suspend_fixups(void) {
     resumed_from_suspend_pending = true;
     DBG_LOG("resume: grace window armed at tick=%u\n", resumed_from_suspend_tick);
 }
-
-/* Defined with the rest of the All Songs screen, much further down --
- * forward-declared here since update_timer_cb() (just below) needs it for
- * the remote-control play-by-index consumer. */
-/* Defined with the rest of the remote-control scoped-play machinery, much
- * further down -- forward-declared here since update_timer_cb() (just
- * below) needs it for the remote-control play-by-index consumer. */
-
-/* Defined with the rest of the power-off countdown popup, much further
- * down -- forward-declared here since update_timer_cb() (just below) needs
- * them for the power-button long-press consumer. */
-
-/* Defined alongside the rest of live search's async DB query, much further
- * down -- forward-declared here since update_timer_cb() (just below) polls
- * it every tick, same as poll_cover_decode()/poll_lyrics_load(). */
 
 static button_mapping_context_t physical_button_mapping;
 static bool physical_volume_hold_cancelled[BUTTON_MAPPING_BUTTON_COUNT];
@@ -1074,188 +989,139 @@ static void player_ui_timer_cb(lv_timer_t * timer) {
     refresh_format_badge();
 }
 
-static void update_timer_cb(lv_timer_t * timer) {
-    (void) timer;
+static void poll_hardware_status(void) {
+    /* Also unconditional on screen state -- charging happens with the
+     * screen off far more often than on, so gating this the same way as the
+     * topbar refreshes above would leave it capped at whatever percent the
+     * screen happened to be on last. charge_limiter_poll() throttles its
+     * own actual sysfs work internally, so calling it every tick here is
+     * cheap. */
+    charge_limiter_poll(current_settings.charge_limiter_enabled, false);
 #ifdef UI_PERF_TRACE
-    update_perf_begin();
+    update_perf_mark("charge_limit");
 #endif
+    safe_charging_poll(current_settings.safe_charging_enabled, false);
+#ifdef UI_PERF_TRACE
+    update_perf_mark("safe_charge");
+#endif
+    led_control_poll(current_settings.led_indicator_enabled);
+#ifdef UI_PERF_TRACE
+    update_perf_mark("led_status");
+#endif
+    int volume_percent = (int) (audio_get_volume() * 100.0f + 0.5f);
+    if (volume_percent < 0) volume_percent = 0;
+    if (volume_percent > 100) volume_percent = 100;
+    plugin_manager_notify_volume_changed(volume_percent);
+    plugin_manager_poll_battery();
+#ifdef UI_PERF_TRACE
+    update_perf_mark("plugin_battery");
+#endif
+    headphone_status_refresh_earpods_adc();
+#ifdef UI_PERF_TRACE
+    update_perf_mark("hardware");
+#endif
+}
 
-    bool screenshot_request_pending = hw_buttons_consume_screenshot();
+static void poll_background_jobs(void) {
+    /* Polling for in-flight async operations (wifi/bt connect, library scan,
+     * subsonic sync, ...) keeps running regardless of screen state -- these
+     * only do real work when a request the user already made is still
+     * pending, so gating them on screen state would leave that operation
+     * stuck until the user wakes the screen back up. */
+    poll_subsonic_download();
+    poll_firmware_ota();
+    poll_plugin_store();
+    poll_emulator_store();
+    gui_plugin_manage_poll();
+    poll_subsonic_library_download();
+    poll_dlna_control();
+    poll_subsonic_connect();
+    poll_subsonic_browse();
+    poll_wifi_scan();
+    poll_wifi_connect();
+    poll_wifi_connect_saved();
+    poll_wifi_disconnect();
+    poll_wifi_forget();
+    gui_shell_poll();
+    plugin_manager_poll();
+    poll_bt_scan();
+    poll_bt_rate_query();
+    poll_bt_rate_apply();
+    poll_bt_connect();
+    poll_bt_forget();
+    poll_library_rescan();
+    poll_sd_format();
+    poll_remote_import();
+#ifdef UI_PERF_TRACE
+    update_perf_mark("network_jobs");
+#endif
+    poll_usb_mode_switch();
+#ifdef UI_PERF_TRACE
+    update_perf_mark("usb_mode");
+#endif
+    poll_usb_storage_hotplug();
+#ifdef UI_PERF_TRACE
+    update_perf_mark("usb_hotplug");
+#endif
+    poll_sd_card_hotplug();
+#ifdef UI_PERF_TRACE
+    update_perf_mark("sd_hotplug");
+#endif
+    gui_library_poll_playlists();
+    gui_library_poll_track_probes();
+#ifdef UI_PERF_TRACE
+    update_perf_mark("storage_jobs");
+#endif
+    gui_player_service_artwork_cache();
+    poll_search_job();
+    gui_navigation_poll_snapshot_rebuild();
+    gui_library_poll_now_playing_indicators();
+    static bool queue_checkpoint_failure_notified;
+    if (gui_player_queue_checkpoint_failed()) {
+        if (!queue_checkpoint_failure_notified) {
+            show_error_toast(TR("Queue checkpoint failed; storage may be read-only"));
+            queue_checkpoint_failure_notified = true;
+        }
+    } else queue_checkpoint_failure_notified = false;
+    static bool numeric_failure_notified;
+    if (metadata_db_numeric_write_failed() || track_metadata_history_failed()) {
+        if (!numeric_failure_notified) {
+            show_error_toast(TR("Playback history could not be saved"));
+            numeric_failure_notified = true;
+        }
+    } else numeric_failure_notified = false;
+    gui_queue_poll();
+    gui_network_poll_airplay_overlay();
+    gui_track_info_poll();
+    gui_library_poll_boot_prompt();
+#ifdef UI_PERF_TRACE
+    update_perf_mark("player_jobs");
+#endif
+}
 
 #ifndef HOST_BUILD
-    /* Bluetooth accessory controls dispatch to UI/player state on this thread. */
-    if (bt_media_player_consume_play_pause()) {
-        toggle_play_pause();
-    }
-    if (bt_media_player_consume_next()) {
-        gui_player_step_manual(1);
-    }
-    if (bt_media_player_consume_prev()) {
-        gui_player_step_manual(-1);
-    }
-    /* Keeps PlaybackStatus accurate for whenever BlueZ/the accessory next
-     * queries it -- cheap (no subprocess, just a mutex-protected bool),
-     * safe to do unconditionally every tick rather than hunting down every
-     * call site that can change play state. */
-    bt_media_player_notify_playback_state(audio_is_playing());
-    bool has_track = gui_player_has_active_track();
-    char bt_art_url[256] = "";
-    if (has_track) bt_cover_art_get_url(bt_art_url, sizeof(bt_art_url));
-    else bt_cover_art_begin_track(NULL);
-    bt_media_player_notify_track(has_track ? gui_player_get_now_playing_title() : "",
-                                 has_track ? gui_player_get_now_playing_folder() : "",
-                                 has_track ? gui_player_get_now_playing_album() : "",
-                                 has_track ? gui_player_get_now_playing_genre() : "",
-                                 has_track ? gui_player_get_now_playing_track_number() : 0,
-                                 audio_get_position_seconds(), audio_get_duration_seconds(), bt_art_url);
-#endif
-
-    /* Phone remote-control (Phase 2, remote_control.h): same "background
-     * thread sets a flag, this is the one thread allowed to touch LVGL/
-     * audio state" pattern as hw_buttons/bt_media_player just above --
-     * reuses the exact same shuffle-aware stepping and volume-persistence
-     * shape as those, rather than a separate implementation. */
-    screenshot_request_pending = remote_control_consume_screenshot() || screenshot_request_pending;
-    if (screenshot_request_pending) (void) screenshot_start();
-    screenshot_completion_t screenshot_result;
-    if (screenshot_poll_completion(&screenshot_result)) {
-        if (screenshot_result.saved) {
-            show_info_toast(TR("Screenshot saved"));
-            plugin_manager_notify_screenshot_saved(screenshot_result.path);
-        } else {
-            char failed_msg[128];
-            snprintf(failed_msg, sizeof(failed_msg), TR("Screenshot failed (%s)"),
-                     screenshot_result.reason[0] ? screenshot_result.reason : TR("unknown"));
-            show_error_toast(failed_msg);
-            plugin_manager_notify_screenshot_failed(screenshot_result.reason);
-        }
-    }
-
-    if (remote_control_consume_play_pause()) {
-        toggle_play_pause();
-    }
-    if (remote_control_consume_next()) {
-        gui_player_step_manual(1);
-    }
-    if (remote_control_consume_prev()) {
-        gui_player_step_manual(-1);
-    }
-    if (remote_control_consume_mode_cycle()) {
-        cycle_play_mode();
-    }
-    int remote_play_mode;
-    if (remote_control_consume_play_mode(&remote_play_mode)) {
-        gui_player_set_play_mode(remote_play_mode);
-    }
-    int remote_sort_scope, remote_sort_mode;
-    if (remote_control_consume_library_sorting(&remote_sort_scope, &remote_sort_mode)) {
-        int *modes[] = { &current_settings.album_sort_mode, &current_settings.artist_albums_sort_mode,
-                        &current_settings.album_artist_albums_sort_mode };
-        const gui_library_sort_scope_t scopes[] = { GUI_LIBRARY_SORT_ALBUMS, GUI_LIBRARY_SORT_ARTIST_ALBUMS,
-                                                    GUI_LIBRARY_SORT_ALBUM_ARTIST_ALBUMS };
-        if (remote_sort_scope >= 0 && remote_sort_scope < 3 && remote_sort_mode >= 0 && remote_sort_mode <= 2) {
-            *modes[remote_sort_scope] = remote_sort_mode;
-            gui_library_apply_sorting(scopes[remote_sort_scope]);
-            settings_save_async(&current_settings);
-        }
-    }
-    remote_collection_play_request_t remote_collection;
-    if (remote_control_consume_collection(&remote_collection) &&
-        !gui_library_play_remote_collection(&remote_collection)) {
-        remote_control_finish_collection(false, "Cannot prepare collection");
-    }
-    int remote_seek_seconds;
-    if (remote_control_consume_seek(&remote_seek_seconds)) {
-        audio_seek((double) remote_seek_seconds);
-    }
-    int remote_volume_percent;
-    if (remote_control_consume_volume(&remote_volume_percent) &&
-        !gui_player_volume_is_being_adjusted()) {
-        remote_volume_percent = audio_clamp_volume_percent(remote_volume_percent);
-        gui_player_set_volume_percent(remote_volume_percent);
-        audio_set_volume((float) remote_volume_percent / 100.0f);
-        gui_player_remember_volume_percent(remote_volume_percent);
-        settings_save_async(&current_settings);
-        show_volume_popup(remote_volume_percent);
-        refresh_volume_topbar(remote_volume_percent);
-    }
-    int64_t remote_queue_id;
-    char remote_queue_catalog_revision[METADATA_DB_CATALOG_REVISION_SIZE] = {0};
-    if (remote_control_consume_queue_index(&remote_queue_id, remote_queue_catalog_revision,
-                                            sizeof(remote_queue_catalog_revision))) {
-        song_row_t remote_queue_row;
-        bool found = remote_queue_catalog_revision[0]
-            ? metadata_db_catalog_get_song_revision(remote_queue_catalog_revision, remote_queue_id,
-                                                    &remote_queue_row) == METADATA_DB_CATALOG_OK
-            : metadata_db_get_song_by_id(remote_queue_id, &remote_queue_row);
-        if (found) queue_add_song(remote_queue_row.path);
-    }
-    int remote_queue_remove_offset;
-    uint64_t remote_queue_revision;
-    if (remote_control_consume_queue_remove(&remote_queue_remove_offset, &remote_queue_revision))
-        gui_player_remote_queue_remove(remote_queue_remove_offset, remote_queue_revision);
-    if (remote_control_consume_queue_clear(&remote_queue_revision))
-        gui_player_remote_queue_clear(remote_queue_revision);
-    int remote_queue_from, remote_queue_to;
-    if (remote_control_consume_queue_move(&remote_queue_from, &remote_queue_to, &remote_queue_revision))
-        gui_player_remote_queue_move(remote_queue_from, remote_queue_to, remote_queue_revision);
-    int remote_queue_play_offset;
-    if (remote_control_consume_queue_play(&remote_queue_play_offset, &remote_queue_revision))
-        gui_player_remote_queue_play(remote_queue_play_offset, remote_queue_revision);
-    if (remote_control_consume_favorite_changed()) gui_player_refresh_favorite();
-    char remote_folder_track[REMOTE_CONTROL_PATH_MAX];
-    if (remote_control_consume_folder_play(remote_folder_track, sizeof(remote_folder_track)) &&
-        !gui_player_play_folder_track(remote_folder_track))
-        show_error_toast(TR("Cannot play folder"));
-    int64_t remote_play_id;
-    char remote_play_playlist[128], remote_play_artist[128], remote_play_album_artist[128], remote_play_album[128];
-    char remote_play_catalog_revision[METADATA_DB_CATALOG_REVISION_SIZE] = {0};
-    if (remote_control_consume_play_index(&remote_play_id, remote_play_playlist, sizeof(remote_play_playlist),
-                                           remote_play_artist, sizeof(remote_play_artist), remote_play_album_artist,
-                                           sizeof(remote_play_album_artist), remote_play_album,
-                                           sizeof(remote_play_album), remote_play_catalog_revision,
-                                           sizeof(remote_play_catalog_revision))) {
-        /* remote_play_id is a song id (metadata_db.c's rowid-based
-         * song_row_t.id) -- resolve it to a path, then hand that straight to
-         * play_remote_control_song() (defined with the rest of the
-         * remote-control scoped-play machinery, much further down), which
-         * resolves the path plus the playlist/artist/album context into the
-         * right playlist and position via its own DB queries, falling back
-         * to the whole library (All Songs, by title offset) when no scope
-        * applies. */
-        song_row_t remote_play_row;
-        bool found = remote_play_catalog_revision[0]
-            ? metadata_db_catalog_get_song_revision(remote_play_catalog_revision, remote_play_id,
-                                                    &remote_play_row) == METADATA_DB_CATALOG_OK
-            : metadata_db_get_song_by_id(remote_play_id, &remote_play_row);
-        if (found) {
-            play_remote_control_song(remote_play_row.path, remote_play_playlist, remote_play_artist,
-                                      remote_play_album_artist, remote_play_album);
-        }
-    }
-
-    /* Auto-stop on headphone-output loss: this hardware has no built-in
-     * speaker, so a mid-playback disconnect (headphone jack pulled, or the
-     * connected Bluetooth A2DP headphone drops) leaves nowhere for the
-     * audio to go -- stop outright rather than leaving it silently playing
-     * into nothing. Checked every tick, deliberately NOT gated on
-     * screen_on_now below (background, screen-off playback needs the same
-     * protection). get_headphone_state() is a cheap sysfs read (no
-     * subprocess); the A2DP half reuses whatever poll_refresh_bt_icon()
-     * last found rather than re-querying bluealsactl here every tick --
-     * that's already throttled to its own ~5s cadence (see
-     * refresh_bt_icon_thread_func()), and a few seconds of extra latency on
-     * just the Bluetooth half is an acceptable tradeoff against forking a
-     * process every single tick.
-     *
-     * Target-only: HOST_BUILD has no real jack/BT hardware to detect at
-     * all (get_headphone_state() is unconditionally HEADPHONE_STATE_NONE there, see
-     * headphone_status.h), so this would otherwise fire a spurious "stop"
-     * on the very first tick after starting playback in the simulator --
-     * there's no real disconnect to protect against on host, since the dev
-     * machine's own speakers are the actual output regardless of this
-     * app's simulated jack/BT state. */
-#ifndef HOST_BUILD
+/* Auto-stop on headphone-output loss: this hardware has no built-in
+ * speaker, so a mid-playback disconnect (headphone jack pulled, or the
+ * connected Bluetooth A2DP headphone drops) leaves nowhere for the
+ * audio to go -- stop outright rather than leaving it silently playing
+ * into nothing. Checked every tick, deliberately NOT gated on
+ * screen_on_now below (background, screen-off playback needs the same
+ * protection). get_headphone_state() is a cheap sysfs read (no
+ * subprocess); the A2DP half reuses whatever poll_refresh_bt_icon()
+ * last found rather than re-querying bluealsactl here every tick --
+ * that's already throttled to its own ~5s cadence (see
+ * refresh_bt_icon_thread_func()), and a few seconds of extra latency on
+ * just the Bluetooth half is an acceptable tradeoff against forking a
+ * process every single tick.
+ *
+ * Target-only: HOST_BUILD has no real jack/BT hardware to detect at
+ * all (get_headphone_state() is unconditionally HEADPHONE_STATE_NONE there, see
+ * headphone_status.h), so this would otherwise fire a spurious "stop"
+ * on the very first tick after starting playback in the simulator --
+ * there's no real disconnect to protect against on host, since the dev
+ * machine's own speakers are the actual output regardless of this
+ * app's simulated jack/BT state. */
+static void poll_output_connection(void) {
     /* Bluetooth disconnect is debounced on wall-clock time (12s) to prevent
      * transient bluealsactl busy polling failures from falsely cutting playback.
      * Wired headphone disconnects remain immediate via direct sysfs reads. */
@@ -1298,21 +1164,21 @@ static void update_timer_cb(lv_timer_t * timer) {
 
     /* Synchronize balanced output routing for hardware supporting balanced jacks. */
     audio_output_sync_balanced_output();
-#endif
+}
 
-    /* Car Mode:
-     * When external power is disconnected, save current playback position and
-     * power off the device (idle_shutdown_now()). When power returns, the device
-     * boots and auto-resumes playback.
-     *
-     * External power presence is edge-triggered using physical power supply state
-     * rather than battery charging status, which is a charger-activity signal, not
-     * a cable-presence one (see battery_is_charging()'s own doc comment). Power
-     * removal must persist for three consecutive 500ms control ticks to filter
-     * transient fluctuations.
-     *
-     * Only triggers if a track is actively playing or paused. */
-#ifndef HOST_BUILD
+/* Car Mode:
+ * When external power is disconnected, save current playback position and
+ * power off the device (idle_shutdown_now()). When power returns, the device
+ * boots and auto-resumes playback.
+ *
+ * External power presence is edge-triggered using physical power supply state
+ * rather than battery charging status, which is a charger-activity signal, not
+ * a cable-presence one (see battery_is_charging()'s own doc comment). Power
+ * removal must persist for three consecutive 500ms control ticks to filter
+ * transient fluctuations.
+ *
+ * Only triggers if a track is actively playing or paused. */
+static void poll_car_mode(void) {
     {
         enum { CAR_POWER_REMOVAL_DEBOUNCE_POLLS = 3 };
         static bool power_sample_initialized = false;
@@ -1386,14 +1252,15 @@ static void update_timer_cb(lv_timer_t * timer) {
             idle_shutdown_now(); /* full poweroff -- does not return, see idle_shutdown.h */
         }
     }
+}
 #endif
 
-    bool screen_was_on = backlight_screen_is_on();
+typedef struct {
+    bool on;
+    bool just_woke;
+} screen_poll_result_t;
 
-    /* Physical button events are consumed by media_button_timer_cb(). The power
-     * action overlay itself has no timer to poll -- Power Off/Reboot fire
-     * immediately on tap. */
-
+static void poll_screen_inactivity_timeout(void) {
     uint32_t screen_inactive_ms = lv_display_get_inactive_time(NULL);
     if (interactive_ui_started) {
         uint32_t interactive_age_ms = lv_tick_elaps(interactive_ui_start_tick);
@@ -1430,6 +1297,16 @@ static void update_timer_cb(lv_timer_t * timer) {
         request_screen_power(false);
         inactivity_dimmed = false;
     }
+}
+
+static screen_poll_result_t poll_screen_power(void) {
+    bool screen_was_on = backlight_screen_is_on();
+
+    /* Physical button events are consumed by media_button_timer_cb(). The power
+     * action overlay itself has no timer to poll -- Power Off/Reboot fire
+     * immediately on tap. */
+
+    poll_screen_inactivity_timeout();
 
     /* Battery: skip every bit of UI-only refresh work below (label updates,
      * and especially the wpa_cli/bluetoothctl subprocess forks behind
@@ -1568,143 +1445,42 @@ static void update_timer_cb(lv_timer_t * timer) {
         }
     }
 
+    return (screen_poll_result_t){screen_on_now, screen_just_woke};
+}
+
+static void update_timer_cb(lv_timer_t * timer) {
+    (void) timer;
+#ifdef UI_PERF_TRACE
+    update_perf_begin();
+#endif
+
+    gui_external_controls_poll();
+
+#ifndef HOST_BUILD
+    poll_output_connection();
+    poll_car_mode();
+#endif
+
+    screen_poll_result_t screen = poll_screen_power();
+
 #ifdef UI_PERF_TRACE
     update_perf_mark("controls");
 #endif
-    if (screen_on_now) {
-        gui_shell_update_topbar(screen_just_woke);
+    if (screen.on) {
+        gui_shell_update_topbar(screen.just_woke);
     }
 #ifdef UI_PERF_TRACE
     update_perf_mark("topbar");
 #endif
 
-    /* Also unconditional on screen state -- charging happens with the
-     * screen off far more often than on, so gating this the same way as the
-     * topbar refreshes above would leave it capped at whatever percent the
-     * screen happened to be on last. charge_limiter_poll() throttles its
-     * own actual sysfs work internally, so calling it every tick here is
-     * cheap. */
-    charge_limiter_poll(current_settings.charge_limiter_enabled, false);
-#ifdef UI_PERF_TRACE
-    update_perf_mark("charge_limit");
-#endif
-    safe_charging_poll(current_settings.safe_charging_enabled, false);
-#ifdef UI_PERF_TRACE
-    update_perf_mark("safe_charge");
-#endif
-    led_control_poll(current_settings.led_indicator_enabled);
-#ifdef UI_PERF_TRACE
-    update_perf_mark("led_status");
-#endif
-    int volume_percent = (int) (audio_get_volume() * 100.0f + 0.5f);
-    if (volume_percent < 0) volume_percent = 0;
-    if (volume_percent > 100) volume_percent = 100;
-    plugin_manager_notify_volume_changed(volume_percent);
-    plugin_manager_poll_battery();
-#ifdef UI_PERF_TRACE
-    update_perf_mark("plugin_battery");
-#endif
-    headphone_status_refresh_earpods_adc();
-#ifdef UI_PERF_TRACE
-    update_perf_mark("hardware");
-#endif
+    poll_hardware_status();
 
     if (current_settings.remote_control_enabled) {
         gui_player_sync_remote_queue();
-        /* No separate now-playing metadata cache exists in this app beyond
-         * what's already on screen -- song_title_label/artist_label
-         * are this app's own single source of truth for title/artist (see
-         * apply_track_metadata_to_ui()), so read them back rather than
-         * standing up a second copy of the same state just for this.
-         * album_label is read back the same way below. */
-        const char * now_playing_path = gui_player_has_active_track()
-                ? gui_player_get_current_track_path()
-                : NULL;
-        remote_control_notify_status(audio_is_playing(), audio_is_paused(), gui_player_get_now_playing_title(),
-                                      gui_player_get_now_playing_folder(), gui_player_get_now_playing_album(), now_playing_path,
-                                      (int) audio_get_position_seconds(), (int) audio_get_duration_seconds(),
-                                      audio_get_volume(), current_settings.play_mode,
-                                      now_playing_path && favorite_is_set, gui_theme_accent_rgb());
-        remote_control_notify_library_sorting(current_settings.album_sort_mode,
-                                              current_settings.artist_albums_sort_mode,
-                                              current_settings.album_artist_albums_sort_mode);
+        gui_external_controls_publish_status(favorite_is_set);
     }
 
-    /* Polling for in-flight async operations (wifi/bt connect, library scan,
-     * subsonic sync, ...) keeps running regardless of screen state -- these
-     * only do real work when a request the user already made is still
-     * pending, so gating them on screen state would leave that operation
-     * stuck until the user wakes the screen back up. */
-    poll_subsonic_download();
-    poll_firmware_ota();
-    poll_plugin_store();
-    poll_emulator_store();
-    gui_plugin_manage_poll();
-    poll_subsonic_library_download();
-    poll_dlna_control();
-    poll_subsonic_connect();
-    poll_subsonic_browse();
-    poll_wifi_scan();
-    poll_wifi_connect();
-    poll_wifi_connect_saved();
-    poll_wifi_disconnect();
-    poll_wifi_forget();
-    gui_shell_poll();
-    plugin_manager_poll();
-    poll_bt_scan();
-    poll_bt_rate_query();
-    poll_bt_rate_apply();
-    poll_bt_connect();
-    poll_bt_forget();
-    poll_library_rescan();
-    poll_sd_format();
-    poll_remote_import();
-#ifdef UI_PERF_TRACE
-    update_perf_mark("network_jobs");
-#endif
-    poll_usb_mode_switch();
-#ifdef UI_PERF_TRACE
-    update_perf_mark("usb_mode");
-#endif
-    poll_usb_storage_hotplug();
-#ifdef UI_PERF_TRACE
-    update_perf_mark("usb_hotplug");
-#endif
-    poll_sd_card_hotplug();
-#ifdef UI_PERF_TRACE
-    update_perf_mark("sd_hotplug");
-#endif
-    gui_library_poll_playlists();
-    gui_library_poll_track_probes();
-#ifdef UI_PERF_TRACE
-    update_perf_mark("storage_jobs");
-#endif
-    gui_player_service_artwork_cache();
-    poll_search_job();
-    gui_navigation_poll_snapshot_rebuild();
-    gui_library_poll_now_playing_indicators();
-    static bool queue_checkpoint_failure_notified;
-    if (gui_player_queue_checkpoint_failed()) {
-        if (!queue_checkpoint_failure_notified) {
-            show_error_toast(TR("Queue checkpoint failed; storage may be read-only"));
-            queue_checkpoint_failure_notified = true;
-        }
-    } else queue_checkpoint_failure_notified = false;
-    static bool numeric_failure_notified;
-    if (metadata_db_numeric_write_failed() || track_metadata_history_failed()) {
-        if (!numeric_failure_notified) {
-            show_error_toast(TR("Playback history could not be saved"));
-            numeric_failure_notified = true;
-        }
-    } else numeric_failure_notified = false;
-    gui_queue_poll();
-    gui_network_poll_airplay_overlay();
-    gui_track_info_poll();
-    gui_library_poll_boot_prompt();
-#ifdef UI_PERF_TRACE
-    update_perf_mark("player_jobs");
-#endif
-
+    poll_background_jobs();
 }
 
 
@@ -1792,126 +1568,6 @@ const char * gui_plugin_get_current_track_path(void) {
     return gui_player_has_active_track() ? gui_player_get_current_track_path() : NULL;
 }
 
-char ** gui_plugin_get_artist_albums(const char * artist, int * out_count) {
-    *out_count = 0;
-    int64_t count64 = metadata_db_count_albums_for_group(METADATA_DB_GROUP_ARTIST, artist);
-    if (count64 <= 0 || count64 > INT_MAX) return NULL;
-    int album_count = (int) count64;
-    group_row_t * rows = malloc(sizeof(*rows) * (size_t) album_count);
-    char ** names = calloc((size_t) album_count, sizeof(*names));
-    if (!rows || !names) { free(rows); free(names); return NULL; }
-    int n = metadata_db_get_albums_for_group(METADATA_DB_GROUP_ARTIST, artist, 0, album_count, rows);
-    for (int i = 0; i < n; i++) {
-        names[i] = strdup(rows[i].name);
-        if (!names[i]) {
-            for (int j = 0; j < i; j++) free(names[j]);
-            free(names);
-            free(rows);
-            return NULL;
-        }
-    }
-    free(rows);
-    *out_count = n;
-    return names;
-}
-
-static char ** load_plugin_album_group_paths(const char * album, const char * album_artist, int * out_count) {
-    *out_count = 0;
-    char ** paths = NULL;
-    size_t capacity = 0;
-    int loaded = 0;
-    song_row_t rows[64];
-    for (;;) {
-        int got = metadata_db_get_album_songs(album, album_artist, loaded, rows, 64);
-        if (got <= 0) break;
-        if ((size_t) (loaded + got) > capacity) {
-            size_t new_capacity = capacity == 0 ? 64 : capacity * 2;
-            while (new_capacity < (size_t) (loaded + got)) new_capacity *= 2;
-            char ** grown = realloc(paths, new_capacity * sizeof(*paths));
-            if (!grown) {
-                for (int j = 0; j < loaded; j++) free(paths[j]);
-                free(paths);
-                return NULL;
-            }
-            paths = grown;
-            capacity = new_capacity;
-        }
-        for (int i = 0; i < got; i++) {
-            paths[loaded + i] = strdup(rows[i].path);
-            if (!paths[loaded + i]) {
-                for (int j = 0; j < loaded + i; j++) free(paths[j]);
-                free(paths);
-                return NULL;
-            }
-        }
-        loaded += got;
-        if (got < 64) break;
-    }
-    if (loaded == 0) {
-        free(paths);
-        return NULL;
-    }
-    *out_count = loaded;
-    return paths;
-}
-
-char ** gui_plugin_get_album_tracks(const char * artist, const char * album, int * out_count) {
-    *out_count = 0;
-    if (!artist || !artist[0] || !album || !album[0]) return NULL;
-
-    int64_t count64 = metadata_db_count_albums_for_group(METADATA_DB_GROUP_ARTIST, artist);
-    if (count64 <= 0 || count64 > INT_MAX) return NULL;
-    int total = (int) count64;
-
-    char matched_album_artist[128] = "";
-    int match_count = 0;
-    group_row_t rows[32];
-    int offset = 0;
-    while (offset < total) {
-        int want = total - offset;
-        if (want > 32) want = 32;
-        int got = metadata_db_get_albums_for_group(METADATA_DB_GROUP_ARTIST, artist, offset, want, rows);
-        if (got <= 0) break;
-        for (int i = 0; i < got; i++) {
-            if (strcasecmp(rows[i].name, album) != 0) continue;
-            match_count++;
-            snprintf(matched_album_artist, sizeof(matched_album_artist), "%s", rows[i].album_artist);
-        }
-        offset += got;
-        if (got < want) break;
-    }
-    if (match_count != 1) return NULL;
-
-    return load_plugin_album_group_paths(album, matched_album_artist, out_count);
-}
-
-char ** gui_plugin_get_next_album_tracks(const char * artist, const char * current_album, int * out_count) {
-    *out_count = 0;
-    int64_t count64 = metadata_db_count_albums_for_group(METADATA_DB_GROUP_ARTIST, artist);
-    if (count64 <= 1 || count64 > INT_MAX) return NULL;
-    group_row_t rows[32];
-    int offset = 0;
-    while (offset < count64) {
-        int want = (int) (count64 - offset);
-        if (want > 32) want = 32;
-        int got = metadata_db_get_albums_for_group(METADATA_DB_GROUP_ARTIST, artist, offset, want, rows);
-        if (got <= 0) break;
-        for (int i = 0; i < got; i++) {
-            if (strcasecmp(rows[i].name, current_album) != 0) continue;
-            if (i + 1 < got) return load_plugin_album_group_paths(rows[i + 1].name, rows[i + 1].album_artist, out_count);
-            group_row_t next;
-            if (metadata_db_get_albums_for_group(METADATA_DB_GROUP_ARTIST, artist, offset + got, 1, &next) == 1)
-                return load_plugin_album_group_paths(next.name, next.album_artist, out_count);
-            return NULL;
-        }
-        offset += got;
-        if (got < want) break;
-    }
-    return NULL;
-}
-
-/* Plugin library API moved to gui_plugins.c */
-
 /* A stuck read on a corrupted SD card block (confirmed on a real device via
  * /proc/<pid>/task/<tid>/status+wchan showing the main thread parked in
  * __bread_gfp, a kernel block-device read, after the card came back from an
@@ -1947,21 +1603,6 @@ char ** gui_plugin_get_next_album_tracks(const char * artist, const char * curre
  * project than this round's scope. The downloaded copy lands on the SD card
  * (SUBSONIC_STREAM_CACHE_DIR below), not /tmp -- see that macro's own
  * comment for why. */
-
-
-/* Background download thread + a "done" flag polled from update_timer_cb --
- * the same shape as audio.c's own track_finished flag, for the same reason:
- * LVGL isn't thread-safe, so the thread can't touch any screen/widget
- * state directly. */
-static volatile bool download_success_flag = false;
-
-typedef struct {
-    char url[1536];
-    char dest_path[512];
-    bool verify_tls;
-} download_request_t;
-
-
 
 
 /* DLNA/UPnP-AV cast playback:
@@ -2040,6 +1681,7 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
 #endif
     settings_load(&current_settings);
 #ifndef HOST_BUILD
+    audio_output_set_usb_dsd_mode(current_settings.usb_dsd_output);
     audio_output_set_dac_preferences(current_settings.dac_filter, current_settings.dac_nos,
                                      current_settings.dac_dre);
 #endif

@@ -9,7 +9,7 @@
 
 typedef struct {
     char ssid[WIFI_MAX_SSID_LEN];
-    int signal_level; /* 0 (weakest) - 3 (strongest), same bucketing as wifi_status.c */
+    int signal_level; /* 0 (weakest) - 3 (strongest), via wifi_signal_level_from_rssi() in wifi_status.h */
     bool secured;
     bool is_current;
 } wifi_network_t;

@@ -4,9 +4,14 @@
 #include "lvgl/lvgl.h"
 #include "board_config.h"
 #include "settings.h"
+#include "play_mode.h"
+#include "library_paths.h"
+#include "gui_button_bindings.h"
 #include "gui_theme.h"
+#include "gui_plugin_order_editor.h"
 #include "gui_notifications.h"
 #include "gui_library.h"
+#include "library/library_search.h"
 #include "gui_queue.h"
 #include "gui_player.h"
 #include "gui_lock_screen.h"
@@ -15,13 +20,15 @@
 #include "gui_shell.h"
 #include "gui_navigation.h"
 #include "metadata_db.h"
+#include "gui_plugin_library.h"
 
 
-#include "albumart.h" /* song_row_t/group_row_t, reused as-is by the gui_plugin_library_* declarations below */
+#include "albumart.h"
+#include "albumart_info.h"
 #include "remote_track.h" /* remote_track_meta_t, used by gui_plugin_play_remote_tracks() below */
 #include "home_layout.h" /* home_layout_config_t, used by gui_plugin_set_home_layout() below */
 #include "launcher_layout.h"
-#include "player_layout.h"
+#include "player/player_layout.h"
 #include <stdint.h>
 
 #ifdef UI_PERF_TRACE
@@ -53,6 +60,8 @@ void gui_reset_interactive_timeout_baseline(void);
 /* Tells the main loop (main.c) to drop the real time elapsed while the UI
  * thread was blocked on purpose, so LVGL's clock does not jump. */
 void main_loop_discard_elapsed_time(void);
+/* Clear touch frames queued while a synchronous external app owned input. */
+bool main_loop_discard_pointer_input(void);
 
 /* UI-thread cleanup after an emulator process returns; see gui.c. */
 void gui_resume_after_external_session(void);
@@ -84,6 +93,9 @@ int gui_plugin_show_list(const char * title, const char * const * labels, const 
                           int selected_index, int count, int columns, int replace_slot);
 /* True while pool slot's list screen is the top of the navigation stack. */
 bool gui_plugin_list_is_top(int slot);
+/* Resets the scroll position of an already-rendered plugin list while it is
+ * still the navigation top. Returns false for an invalid or covered slot. */
+bool gui_plugin_list_reset_scroll(int slot);
 
 /* Repopulates and pushes a shared plugin-settings-list screen -- a SEPARATE
  * pool from gui_plugin_show_list()'s own (PLUGIN_SETTINGS_LIST_SCREEN_POOL_
@@ -110,12 +122,6 @@ int gui_plugin_show_settings_list(const char * title, const int * row_types, con
                                    const bool * wrap_labels, int count, bool update_existing,
                                    const gui_lock_screen_options_t * preview,
                                    const struct plugin_control_dashboard_options * dashboard);
-
-/* Opens the single plugin order editor screen. The editor copies all input
- * strings and state. The change callback is owned by plugin_manager.c and is
- * invoked with the slot returned here after a toggle or committed drag. */
-int gui_plugin_show_order_editor(const char * title, const char * const * keys,
-                                 const char * const * labels, const bool * visible, int count);
 
 /* Starts playback of a brand-new playlist built from `paths[0..count)`,
  * starting at paths[start_index] -- same "starting something new clears
@@ -231,88 +237,6 @@ const char * gui_plugin_get_play_mode(void);
  * loaded (no active playlist yet, or playback stopped and cleared it). */
 const char * gui_plugin_get_current_track_path(void);
 
-/* ---- Library lookups for plugin.get_artist_albums()/get_album_tracks()/
- * get_next_album_tracks() -- all three match artist (and, for the latter
- * two, album) by case-insensitive name against gui.c's own whole-library
- * all_song_tags/artist_groups, the same matching build_groups_by()/
- * show_artist_albums() already use for the on-device Artists/Albums
- * screens. Each returns a malloc'd array of malloc'd strings the caller
- * must free with gui_plugin_free_string_array() -- NULL/0 if the artist (or
- * album) isn't found. get_album_tracks()/get_next_album_tracks() return
- * paths in the same order show_group_songs() would display them
- * (path-sorted); get_artist_albums() returns album names in the same
- * alphabetical order show_artist_albums()'s own drill-down screen uses.
- * get_next_album_tracks() returns NULL/0 (not a wraparound to the first
- * album) once current_album is the artist's last one. ---- */
-char ** gui_plugin_get_artist_albums(const char * artist, int * out_count);
-char ** gui_plugin_get_album_tracks(const char * artist, const char * album, int * out_count);
-char ** gui_plugin_get_next_album_tracks(const char * artist, const char * current_album, int * out_count);
-void gui_plugin_free_string_array(char ** array, int count);
-
-/* ---- Paged/cursor library access for plugin.library_* -- unlike the
- * get_artist_albums()/get_album_tracks() block above (already scoped to one
- * artist/album, never a library-wide dump), these route straight through
- * metadata_db.c's own METADATA_DB_GUARD-protected paged queries -- the same
- * functions remote_control.c's HTTP API uses -- rather than gui.c's lazily-
- * loaded, whole-library-resident all_songs_paths/all_song_tags/artist_
- * groups/album_groups/album_artist_groups arrays. A plugin asking for
- * "songs 500-600" or one artist's page of
- * albums never costs more than that page, regardless of library size, and
- * never forces ensure_library_arrays_loaded()'s one-time whole-library load
- * just because a plugin touched the library first. GUI_PLUGIN_LIBRARY_MAX_
- * PAGE caps every *_rows out-buffer a caller must provide, and every limit
- * argument below -- a plugin can't force an unbounded allocation by passing
- * a huge limit. get_songs()/get_song()/search() rows carry a stable id
- * (song_row_t.id, metadata_db.c's own rowid-based identity) a plugin can
- * hand back to get_song() or to play_list()-style paths later; get_artists()/
- * get_albums() rows carry a representative first_song_id for the same
- * reason remote_control.c's own group JSON does (e.g. cover art). ---- */
-#define GUI_PLUGIN_LIBRARY_MAX_PAGE 200
-
-int64_t gui_plugin_library_song_count(void);
-
-/* query/artist/album_artist/album each optional (NULL or "" skips that
- * filter) -- query is a title/artist substring match, the other three are
- * exact (case-insensitive). out_total, if non-NULL, receives the total
- * match count (for a plugin's own "page N of M" UI) via one extra COUNT(*)
- * query -- pass NULL to skip it if the caller doesn't need it. Returns the
- * number of rows written into out_rows (a caller-owned buffer of at least
- * min(limit, GUI_PLUGIN_LIBRARY_MAX_PAGE) entries); fewer than requested
- * (including 0) means this was the last page. */
-int gui_plugin_library_get_songs(const char * query, const char * artist, const char * album_artist,
-                                  const char * album, int offset, int limit, song_row_t * out_rows,
-                                  int64_t * out_total);
-
-/* Title/artist substring search, capped at GUI_PLUGIN_LIBRARY_MAX_PAGE --
- * no offset (see metadata_db_search_songs()'s own comment: always replace-
- * not-append the caller's previous result set, same convention this app's
- * own on-device search already follows). */
-int gui_plugin_library_search(const char * query, int limit, song_row_t * out_rows);
-
-bool gui_plugin_library_get_song(int64_t id, song_row_t * out_row);
-
-bool gui_plugin_library_album_cover(int64_t song_id, int size_px, char * out, size_t out_size);
-
-/* offset/limit here are a plain slice over metadata_db_get_groups_page()'s
- * own keyset-paginated result (fetched internally up to offset+limit,
- * capped at a much higher ceiling than the per-call page size -- see
- * GUI_PLUGIN_LIBRARY_GROUP_FETCH_CEILING in gui.c) -- simpler for a plugin
- * author than a keyset cursor, and a real library's distinct artist/album
- * count is small enough that this costs nothing extra in practice.
- * artist_filter (albums only) restricts to one artist or album_artist's
- * own albums, same as remote_control.c's GET /api/library/albums?artist=. */
-int gui_plugin_library_get_artists(int offset, int limit, group_row_t * out_rows);
-int gui_plugin_library_get_albums(int offset, int limit, const char * artist_filter, group_row_t * out_rows);
-
-/* Bridges to the same start_library_rescan() Settings > Update Music
- * Database's own row calls -- background-thread rescan of MUSIC_ROOT_DIR,
- * showing the same native "Updating music database..." progress screen.
- * A no-op if a rescan is already in flight (start_library_rescan()'s own
- * library_rescan_active guard). Lets a plugin that just wrote new files
- * under plugin.sd_root() make them show up in library_* queries without
- * the user finding the native menu item themselves. */
-bool gui_plugin_refresh_library(void);
-
 /* plugin.open_file_manager([folder]): the native More > File Manager. */
 bool gui_plugin_open_file_manager(const char * folder);
 /* plugin.pick_file([folder], callback): native indexed SD card browser. */
@@ -349,46 +273,7 @@ void gui_plugin_clear_interval(int slot);
 void gui_plugin_show_text_input(const char * title, const char * initial_text, bool is_password);
 
 
-/* The real decoded-cover render target. No longer tied to board screen
- * dimensions -- the Player screen shows this at a fixed square card size
- * (fit_cover_img_to_card() in gui_player.c reads the real decoded image
- * header and scales it to fit, so any target size here works), and
- * compute_reflection_bytes() safely center-crops/edge-extends whichever of
- * COVER_ART_WIDTH/REFLECTION_WIDTH and COVER_ART_HEIGHT/REFLECTION_HEIGHT
- * is larger against the other. Matches the on-screen card's own decode-
- * target size (see cover_card's size in build_player_screen()) so the
- * crisp card needs no runtime upscale/downscale on the reference board. */
-#define COVER_ART_WIDTH 350
-#define COVER_ART_HEIGHT 350
-
-
-typedef enum {
-    SEARCH_BINDING_ARTISTS,
-    SEARCH_BINDING_ALBUMS,
-    SEARCH_BINDING_ALBUM_ARTIST,
-    SEARCH_BINDING_ALL_SONGS,
-    SEARCH_BINDING_FILES,
-    SEARCH_BINDING_SUBSONIC_ARTISTS,
-    SEARCH_BINDING_SUBSONIC_ALBUMS,
-    SEARCH_BINDING_RECENTLY_ADDED,
-    SEARCH_BINDING_GROUP_SONGS,
-    SEARCH_BINDING_COUNT
-} search_binding_id_t;
-
-int search_remap_index(search_binding_id_t binding_id, int display_index);
-
 /* gui_font_role_t declared in gui_theme.h */
-
-
-typedef struct {
-    const char * label;
-    lv_event_cb_t cb;
-    bool destructive;
-    bool cancel;
-    void * user_data;
-} menu_popup_row_t;
-
-lv_obj_t * build_menu_popup(const menu_popup_row_t * rows, int row_count, lv_event_cb_t backdrop_cb, lv_obj_t ** out_backdrop);
 
 
 lv_obj_t * add_section_header(lv_obj_t * parent, const char * text);
@@ -428,7 +313,6 @@ void set_player_source_file_browser(const char * dir, int row);
 
 
 lv_indev_t * find_pointer_indev(void);
-void albumart_info_from_song_row(const song_row_t * song, albumart_info_t * info);
 void configure_scrolling_row_label(lv_obj_t * label, int32_t width);
 void open_song_context_menu(const char * path);
 
@@ -462,14 +346,6 @@ void player_transition_mark_dirty(void);
 void set_play_button_state(bool is_playing);
 
 
-typedef enum {
-    PLAY_MODE_SEQUENTIAL,
-    PLAY_MODE_REPEAT_ALL,
-    PLAY_MODE_REPEAT_ONE,
-    PLAY_MODE_SHUFFLE,
-    PLAY_MODE_SHUFFLE_ONCE,
-} play_mode_t;
-
 const char * play_mode_icon_asset(play_mode_t mode);
 
 
@@ -491,7 +367,6 @@ void boot_checkpoint(const char * msg);
  * thread's own stack being exhausted. */
 void install_thread_crash_altstack(void);
 
-#define AUDIOBOOKS_LIBRARY_DIR_NAME "Audiobooks"
 /* ---- Shared GUI and Screen Builders Helpers ---- */
 void generic_back_cb(lv_event_t * e);
 lv_obj_t * add_pill_chevron_row(lv_obj_t * list, const char * text, lv_event_cb_t cb);
@@ -514,10 +389,6 @@ void led_indicator_switch_event_cb(lv_event_t * e);
 void battery_percent_switch_event_cb(lv_event_t * e);
 void clock_24h_switch_event_cb(lv_event_t * e);
 void resume_mode_settings_row_cb(lv_event_t * e);
-/* Apply saved hardware bindings on the GUI thread and cancel pending gestures. */
-void gui_apply_button_bindings(void);
-/* A mapping must keep an available physical gesture that can wake the display. */
-bool gui_button_bindings_allow_wake(const button_mapping_binding_t bindings[BUTTON_MAPPING_BUTTON_COUNT]);
 void replaygain_mode_settings_row_cb(lv_event_t * e);
 void font_size_settings_row_cb(lv_event_t * e);
 void usb_mode_settings_row_cb(lv_event_t * e);

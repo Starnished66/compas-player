@@ -20,6 +20,7 @@ static unsigned proc_index, kill_calls, spawn_calls, soft_volume_calls;
 static unsigned soft_volume_checked_calls;
 static unsigned seed_volume_calls, managed_objects_calls, transport_getall_calls;
 static char seeded_path[256];
+static int seeded_raw = -1;
 static bool soft_volume_fail;
 static bool soft_volume_readback_known;
 static bool soft_volume_readback_value;
@@ -179,6 +180,7 @@ bool subprocess_run_checked(char * const argv[], char * out, size_t size,
     if (strcmp(argv[1], "volume") == 0) {
         assert(strstr(argv[2], "/a2dpsrc/sink") != NULL);
         snprintf(seeded_path, sizeof(seeded_path), "%s", argv[2]);
+        seeded_raw = atoi(argv[3]);
         seed_volume_calls++;
         *out_exit_code = seed_volume_fail ? 1 : 0;
         return true;
@@ -410,6 +412,69 @@ static void test_source_volume_seed_readiness(void) {
     assert(strcmp(bt_soft_volume_applied_path,
                   "/org/bluealsa/hci0/dev_source/a2dpsrc/sink") == 0);
     source_pcm_present = false;
+}
+
+static void test_prepare_reprobes_avrcp_before_first_audio_open(void) {
+    source_pcm_present = true;
+    source_volume_supported = false;
+    source_volume_malformed = false;
+    source_volume_no_volume = false;
+    source_volume_wrong_device = false;
+    source_running = true;
+    managed_objects_calls = transport_getall_calls = 0;
+    seed_volume_calls = 0;
+    seeded_raw = -1;
+    soft_volume_readback_known = false;
+    seed_volume_fail = false;
+    stub_audio_volume = 0.63f;
+    bt_source_volume_probe_ms = bt_control_monotonic_ms();
+    atomic_store(&modern_soft_volume_requested, false);
+    atomic_store(&bt_source_soft_volume, true);
+    bt_soft_volume_applied_path[0] = '\0';
+
+    /* Initial PCM discovery happens before AVRCP is ready, so it must choose
+     * the safe software-gain fallback and seed the current app value. */
+    assert(bt_control_prepare_source_volume());
+    assert(atomic_load(&bt_source_soft_volume));
+    assert(strcmp(soft_volume_state, "on") == 0);
+    assert(seed_volume_calls == 1);
+    assert(managed_objects_calls == 1);
+
+    /* AVRCP arrives within the negative-probe cache interval. While the PCM
+     * is still live, preparation must retain the existing software owner. */
+    source_volume_supported = true;
+    atomic_store(&modern_soft_volume_requested, true); /* explicit volume-sync off */
+    assert(bt_control_prepare_source_volume());
+    assert(atomic_load(&bt_source_soft_volume));
+    assert(seed_volume_calls == 1);
+
+    /* With sync enabled, a forced reprobe still respects the live PCM guard. */
+    atomic_store(&modern_soft_volume_requested, false);
+    assert(bt_control_prepare_source_volume());
+    assert(atomic_load(&bt_source_soft_volume));
+    assert(strcmp(soft_volume_state, "on") == 0);
+    assert(seed_volume_calls == 2);
+
+    /* Once stopped, the same real prepare-before-open path must recheck
+     * immediately, transfer gain to hardware, and seed the latest app value. */
+    source_running = false;
+    assert(bt_control_prepare_source_volume());
+    assert(!atomic_load(&bt_source_soft_volume));
+    assert(strcmp(soft_volume_state, "off") == 0);
+    assert(seed_volume_calls == 3);
+    assert(strcmp(seeded_path, "/org/bluealsa/hci0/dev_source/a2dpsrc/sink") == 0);
+    assert(seeded_raw == 80); /* latest 63% app setting, rounded on the 0-127 scale */
+    assert(bt_soft_volume_applied_path[0] != '\0');
+    unsigned objects_before_ready_check = managed_objects_calls;
+    unsigned seeds_before_ready_check = seed_volume_calls;
+    assert(bt_control_prepare_source_volume());
+    assert(managed_objects_calls == objects_before_ready_check);
+    assert(seed_volume_calls == seeds_before_ready_check);
+
+    source_pcm_present = false;
+    source_volume_supported = false;
+    source_running = false;
+    soft_volume_readback_known = false;
 }
 
 static void test_late_hardware_upgrade_seed_failure_clears_old_latch(void) {
@@ -1570,6 +1635,7 @@ int main(void) {
     test_source_absolute_volume_capability();
     test_source_software_seed_and_hardware_mode();
     test_source_volume_seed_readiness();
+    test_prepare_reprobes_avrcp_before_first_audio_open();
     test_late_hardware_upgrade_seed_failure_clears_old_latch();
     test_force_audio_cd_argv();
     test_ssc_auto_profile_daemon_flag();

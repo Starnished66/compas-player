@@ -38,10 +38,6 @@ static emulator_store_entry_t * last_index;
 static size_t last_index_count;
 static char last_tag[64];
 
-static void error_text(char * out, size_t size, const char * text) {
-    if (out && size) snprintf(out, size, "%s", text);
-}
-
 static void join_systems(char * out, size_t size, const char * name, bool first) {
     size_t len = strlen(out);
     if (len < size) snprintf(out + len, size - len, "%s%s", first ? "" : ", ", name);
@@ -52,7 +48,7 @@ bool emulator_store_parse_index(const char * json, size_t length, emulator_store
     if (out) *out = NULL;
     if (out_count) *out_count = 0;
     if (tag_out) tag_out[0] = '\0';
-    error_text(error, error_size, TR("Unexpected reply from GitHub."));
+    store_error_text(error, error_size, TR("Unexpected reply from GitHub."));
     if (!json || !out || !tag_out || length > STORE_INDEX_LIMIT) return false;
 
     cJSON * root = cJSON_ParseWithLength(json, length);
@@ -146,7 +142,7 @@ bool emulator_store_parse_index(const char * json, size_t length, emulator_store
     snprintf(tag_out, 64, "%s", tag);
     *out = parsed;
     cJSON_Delete(root);
-    error_text(error, error_size, "");
+    store_error_text(error, error_size, "");
     return true;
 fail:
     free(parsed);
@@ -252,21 +248,21 @@ bool emulator_store_sd_usable(void) {
 static bool root_ready(const char * root, uint64_t need, char * error, size_t error_size) {
     struct stat st;
     if (!emulator_store_sd_usable()) {
-        error_text(error, error_size, TR("Insert an SD card to change emulators."));
+        store_error_text(error, error_size, TR("Insert an SD card to change emulators."));
         return false;
     }
     if (!plugin_store_storage_writable(error, error_size)) return false;
     if ((mkdir(root, 0755) != 0 && errno != EEXIST) || stat(root, &st) != 0 || !S_ISDIR(st.st_mode)) {
-        error_text(error, error_size, TR("Cannot create the emulator folder."));
+        store_error_text(error, error_size, TR("Cannot create the emulator folder."));
         return false;
     }
     struct statvfs fs;
     if (statvfs(root, &fs) != 0 || (fs.f_flag & ST_RDONLY) || access(root, W_OK) != 0) {
-        error_text(error, error_size, TR("The emulator folder is not writable."));
+        store_error_text(error, error_size, TR("The emulator folder is not writable."));
         return false;
     }
     if ((uint64_t) fs.f_bavail * fs.f_frsize < need + STORE_MARGIN) {
-        error_text(error, error_size, TR("Not enough free space on the player."));
+        store_error_text(error, error_size, TR("Not enough free space on the player."));
         return false;
     }
     return true;
@@ -292,17 +288,6 @@ static bool begin(plugin_store_state_t state) {
     store_status.state = state;
     pthread_mutex_unlock(&store_mutex);
     return true;
-}
-
-static bool start_thread(void * (*fn)(void *), void * arg) {
-    pthread_attr_t a;
-    pthread_t t;
-    pthread_attr_init(&a);
-    pthread_attr_setdetachstate(&a, PTHREAD_CREATE_DETACHED);
-    pthread_attr_setstacksize(&a, 256 * 1024);
-    bool ok = pthread_create(&t, &a, fn, arg) == 0;
-    pthread_attr_destroy(&a);
-    return ok;
 }
 
 static void compute_results(void) {
@@ -500,7 +485,7 @@ static bool start_install(const char * id, plugin_store_state_t state) {
         free(job);
         return false;
     }
-    if (!start_thread(install_worker, job)) {
+    if (!store_start_thread(install_worker, job)) {
         free(job);
         finish(PLUGIN_STORE_FAILED, TR("Could not start the emulator operation"), false);
         return false;
@@ -537,7 +522,7 @@ static void * uninstall_worker(void * arg) {
 
 bool emulator_store_refresh(void) {
     if (!begin(PLUGIN_STORE_REFRESHING)) return false;
-    if (!start_thread(refresh_worker, NULL)) {
+    if (!store_start_thread(refresh_worker, NULL)) {
         finish(PLUGIN_STORE_FAILED, TR("Could not start the emulator operation"), false);
         return false;
     }
@@ -555,7 +540,7 @@ bool emulator_store_update(const char * id) {
 bool emulator_store_uninstall(const char * id) {
     if (!emulator_id_valid(id) || !begin(PLUGIN_STORE_UNINSTALLING)) return false;
     char * copy = strdup(id);
-    if (!copy || !start_thread(uninstall_worker, copy)) {
+    if (!copy || !store_start_thread(uninstall_worker, copy)) {
         free(copy);
         finish(PLUGIN_STORE_FAILED, TR("Could not start the emulator operation"), false);
         return false;

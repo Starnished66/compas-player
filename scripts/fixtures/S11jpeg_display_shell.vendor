@@ -1,0 +1,39 @@
+#!/bin/sh
+
+jpeg_display()
+{
+	echo "Starting display... "
+    while true
+    do
+        if [ -e "/dev/fb0" ]; then
+            break
+        fi
+        sleep 0.02
+    done
+
+	echo "Wait display... "
+
+    theme=$(nanddump -q -s 0x20000 -l 7 /dev/mtd5 -a)
+    if [ "$theme" == "theme:1" ]; then
+       cmd_jpeg_display /etc/logo1.jpeg
+    elif [ "$theme" == "theme:2" ]; then
+       cmd_jpeg_display /etc/logo2.jpeg
+    else
+       cmd_jpeg_display /etc/logo.jpeg
+    fi
+    # R1 lg 35583 need 100ms delay
+    sleep 0.1
+    echo 60 > /sys/class/backlight/backlight_pwm0/brightness
+	echo "Finish display... "
+}
+
+case "$1" in
+    start)
+        jpeg_display &
+
+    ;;
+    *)
+        exit 1
+esac
+
+exit 0

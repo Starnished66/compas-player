@@ -901,7 +901,7 @@ static decoder_read_result_t decoder_read_s16(decoder_t * dec, uint64_t frames, 
     return result;
 }
 
-#ifndef HOST_BUILD
+#if !defined(HOST_BUILD) || defined(AUDIO_DSD_RUNTIME_SPEC)
 static decoder_read_result_t decoder_read_s32_raw(decoder_t * dec, uint64_t frames, int32_t * buf) {
     decoder_read_result_t res = { .frames = 0, .status = DECODER_READ_OK };
     if (!dec || !buf) {
@@ -2499,29 +2499,46 @@ static bool can_use_wide_crossfade(const decoder_t * cur, const decoder_t * next
 /* A DSD decoder passing its bits through as DoP. Its frames must reach the
  * DAC untouched: no ReplayGain, EQ, volume, fade or crossfade. */
 static bool decoder_is_dop(const decoder_t * dec) {
-    return dec && !dec->segmented && dec->type == DECODER_DSD && dsd_is_dop(dec->as.dsd);
+    return dec && dec->type == DECODER_DSD && dsd_is_dop(dec->as.dsd);
 }
+
+#if !defined(HOST_BUILD) || defined(AUDIO_DSD_RUNTIME_SPEC)
+static uint64_t dsd_scale_frames(uint64_t frames, unsigned from, unsigned to) {
+    return frames / from * to + frames % from * to / from;
+}
+
+/* Segment bounds and playback position always use the decoder's current
+ * frame rate. Convert the absolute source position, then restore relative
+ * coordinates so ISO/CUE tracks cannot seek into another track on fallback. */
+static bool decoder_set_dop(decoder_t *dec, bool dop, uint64_t frame, uint64_t *out_frame) {
+    unsigned old_rate = dec->sample_rate;
+    uint64_t start = dec->segmented ? dec->segment_start_frame : 0;
+    if (!old_rate || frame > UINT64_MAX - start) return false;
+    uint64_t converted = start + frame;
+    bool ok = dsd_set_dop(dec->as.dsd, dop, start + frame, &converted);
+    dec->sample_rate = dsd_get_pcm_sample_rate(dec->as.dsd);
+    if (dec->segmented) {
+        uint64_t end = start + dec->segment_frame_count;
+        dec->segment_start_frame = dsd_scale_frames(start, old_rate, dec->sample_rate);
+        dec->segment_frame_count = dsd_scale_frames(end, old_rate, dec->sample_rate) - dec->segment_start_frame;
+        converted = converted >= dec->segment_start_frame ? converted - dec->segment_start_frame : 0;
+        dec->segment_read_cursor = converted;
+        dec->total_frames = dec->segment_frame_count;
+    } else dec->total_frames = dsd_get_total_pcm_frame_count(dec->as.dsd);
+    if (out_frame) *out_frame = converted;
+    return ok;
+}
+#endif
 
 #ifndef HOST_BUILD
-/* Highest DoP rate the local DAC takes (DSD128 at 352.8 kHz, or 384 kHz in
- * the 48 kHz family). DSD256 would need 705.6 kHz and is converted. */
-#define DOP_MAX_SAMPLE_RATE 384000
-
-static void refresh_dsd_format(decoder_t * dec) {
-    dec->sample_rate = dsd_get_pcm_sample_rate(dec->as.dsd);
-    dec->total_frames = dsd_get_total_pcm_frame_count(dec->as.dsd);
-}
-
 /* Switches a freshly opened DSD decoder (still at frame 0) to native DoP
- * when the local DAC can play it. */
+ * when the requested route permits a bit-exact DSD attempt. */
 static void maybe_enable_dop(decoder_t * dec) {
-    if (dec->type != DECODER_DSD || dec->segmented || dec->net_stream ||
+    if (dec->type != DECODER_DSD || dec->net_stream ||
         dsd_is_dop(dec->as.dsd) || !buf_cur_s32) return;
     unsigned int rate = dsd_get_dop_sample_rate(dec->as.dsd);
-    if (dec->channels != 2 || rate > DOP_MAX_SAMPLE_RATE || audio_output_dop_rate_refused(rate)) return;
-    if (!audio_output_is_local_requested() || !audio_output_dop_supported()) return;
-    if (!dsd_set_dop(dec->as.dsd, true, 0, NULL)) (void) dsd_set_dop(dec->as.dsd, false, 0, NULL);
-    refresh_dsd_format(dec);
+    if (dec->channels != 2 || !audio_output_dsd_passthrough_requested(rate)) return;
+    if (!decoder_set_dop(dec, true, 0, NULL)) (void) decoder_set_dop(dec, false, 0, NULL);
 }
 
 static void publish_current_format_locked(const decoder_t * dec, const char * path,
@@ -2538,8 +2555,7 @@ static bool dop_fall_back_to_pcm(decoder_t * dec, uint64_t * frame_io, const cha
     peq_note_pcm_discontinuity();
     uint64_t pcm_frame = 0;
     unsigned int dop_rate = dec->sample_rate;
-    bool ok = dsd_set_dop(dec->as.dsd, false, *frame_io, &pcm_frame);
-    refresh_dsd_format(dec);
+    bool ok = decoder_set_dop(dec, false, *frame_io, &pcm_frame);
     *frame_io = pcm_frame;
     pthread_mutex_lock(&audio_mutex);
     if (seek_pending && !seek_pending_is_percent && dop_rate)
@@ -2690,11 +2706,10 @@ static bool reopen_decoder_at(decoder_t * dec, const char * path,
         /* The new decoder restarts its markers at 0x05; start a new stream
          * so the DAC never sees the alternation break. */
         audio_output_close();
-        if (!dsd_set_dop(dec->as.dsd, true, 0, NULL)) {
+        if (!decoder_set_dop(dec, true, 0, NULL)) {
             decoder_close(dec);
             return false;
         }
-        refresh_dsd_format(dec);
     }
 #else
     (void) was_dop;

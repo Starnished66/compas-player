@@ -1,10 +1,8 @@
 #include "theme_file.h"
+#include "theme_file_values.h"
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
-#include <errno.h>
 
 #define THEME_MAX_LINE_LEN 512
 #define THEME_MAX_ORDER_LEN 512
@@ -15,150 +13,10 @@ static void set_err(char *error, size_t error_size, const char *msg) {
     }
 }
 
-static void trim_trailing(char *s) {
-    size_t len = strlen(s);
-    while (len > 0 && (s[len - 1] == ' ' || s[len - 1] == '\t' || s[len - 1] == '\r' || s[len - 1] == '\n')) {
-        s[--len] = '\0';
-    }
-}
-
-static const char *skip_leading(const char *s) {
-    while (*s == ' ' || *s == '\t') {
-        s++;
-    }
-    return s;
-}
-
-static bool parse_uint32_color(const char *str, uint32_t *out_val) {
-    str = skip_leading(str);
-    if (!*str) return false;
-
-    char *endptr = NULL;
-    errno = 0;
-    unsigned long val = 0;
-    if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X')) {
-        val = strtoul(str, &endptr, 16);
-    } else {
-        val = strtoul(str, &endptr, 10);
-    }
-
-    if (errno != 0 || endptr == str) return false;
-    while (*endptr == ' ' || *endptr == '\t' || *endptr == '\r' || *endptr == '\n') {
-        endptr++;
-    }
-    if (*endptr != '\0') return false;
-    if (val > 0xFFFFFF) return false;
-
-    *out_val = (uint32_t)val;
-    return true;
-}
-
-static bool parse_int32(const char *str, int32_t *out_val, bool allow_negative) {
-    str = skip_leading(str);
-    if (!*str) return false;
-
-    char *endptr = NULL;
-    errno = 0;
-    long val = 0;
-    if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X')) {
-        /* Hexadecimal integer (unsigned or positive) */
-        unsigned long uval = strtoul(str, &endptr, 16);
-        if (errno != 0 || endptr == str) return false;
-        if (uval > (unsigned long)INT32_MAX) return false;
-        val = (long)uval;
-    } else {
-        val = strtol(str, &endptr, 10);
-        if (errno != 0 || endptr == str) return false;
-    }
-
-    while (*endptr == ' ' || *endptr == '\t' || *endptr == '\r' || *endptr == '\n') {
-        endptr++;
-    }
-    if (*endptr != '\0') return false;
-    if (!allow_negative && val < 0) return false;
-    if (val < INT32_MIN || val > INT32_MAX) return false;
-
-    *out_val = (int32_t)val;
-    return true;
-}
-
-static bool parse_bool(const char *str, bool *out_val) {
-    str = skip_leading(str);
-    if (strcmp(str, "true") == 0) {
-        *out_val = true;
-        return true;
-    }
-    if (strcmp(str, "false") == 0) {
-        *out_val = false;
-        return true;
-    }
+static bool close_with_error(FILE *file, char *error, size_t error_size, const char *message) {
+    fclose(file);
+    set_err(error, error_size, message);
     return false;
-}
-
-static bool is_safe_relpath(const char *path) {
-    if (!path || !path[0]) return false;
-    if (path[0] == '/') return false;
-    if (strstr(path, "..") != NULL) return false;
-    if (strstr(path, "\\") != NULL) return false;
-
-    for (const char *p = path; *p; p++) {
-        unsigned char c = (unsigned char)*p;
-        if (c < 32 || c == 127) return false;
-    }
-    return true;
-}
-
-static bool is_safe_source_path(const char *path) {
-    if (!path || !path[0]) return false;
-    if (strstr(path, "..") != NULL) return false;
-    if (strstr(path, "\\") != NULL) return false;
-
-    for (const char *p = path; *p; p++) {
-        unsigned char c = (unsigned char)*p;
-        if (c < 32 || c == 127) return false;
-    }
-    return true;
-}
-
-static bool is_valid_ident(const char *str) {
-    if (!str || !*str) return false;
-    if (!isalpha((unsigned char)*str)) return false;
-    for (const char *p = str + 1; *p; p++) {
-        if (!isalnum((unsigned char)*p) && *p != '_') return false;
-    }
-    return true;
-}
-
-/* Plugin registration contract ID charset: [A-Za-z0-9._-]
- * Supports digits-leading, dots, hyphens, and underscores.
- * Must be non-empty and strictly < max_len (to fit destination without truncation). */
-static bool is_valid_tile_id(const char *str, size_t max_len) {
-    if (!str || !str[0]) return false;
-    size_t len = 0;
-    for (const char *p = str; *p; p++, len++) {
-        unsigned char c = (unsigned char)*p;
-        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-              (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-')) {
-            return false;
-        }
-    }
-    if (len >= max_len) {
-        return false;
-    }
-    return true;
-}
-
-static bool is_valid_align(const char *val) {
-    return (strcmp(val, "left") == 0 ||
-            strcmp(val, "center") == 0 ||
-            strcmp(val, "right") == 0);
-}
-
-static bool is_valid_text_size(const char *val) {
-    return (strcmp(val, "small") == 0 ||
-            strcmp(val, "medium") == 0 ||
-            strcmp(val, "large") == 0 ||
-            strcmp(val, "mono") == 0);
 }
 
 static int find_or_add_tile(home_layout_config_t *home, const char *key) {
@@ -211,13 +69,11 @@ bool theme_file_parse(const char *path, theme_file_t *out, char *error, size_t e
         size_t len = strlen(line_buf);
 
         if (len > 0 && line_buf[len - 1] != '\n' && !feof(f)) {
-            fclose(f);
-            set_err(error, error_size, "line exceeds buffer length");
-            return false;
+            return close_with_error(f, error, error_size, "line exceeds buffer length");
         }
 
-        trim_trailing(line_buf);
-        const char *line = skip_leading(line_buf);
+        theme_file_trim_trailing(line_buf);
+        const char *line = theme_file_skip_leading(line_buf);
 
         if (*line == '#' || *line == '\0') {
             continue;
@@ -233,13 +89,11 @@ bool theme_file_parse(const char *path, theme_file_t *out, char *error, size_t e
         size_t key_len = eq - line;
         char key[128];
         if (key_len >= sizeof(key)) {
-            fclose(f);
-            set_err(error, error_size, "key name too long");
-            return false;
+            return close_with_error(f, error, error_size, "key name too long");
         }
         memcpy(key, line, key_len);
         key[key_len] = '\0';
-        trim_trailing(key);
+        theme_file_trim_trailing(key);
 
         const char *val_str = eq + 1;
         while (*val_str == ' ' || *val_str == '\t') val_str++;
@@ -267,111 +121,82 @@ bool theme_file_parse(const char *path, theme_file_t *out, char *error, size_t e
             if (!known_property) continue;
             char tile_key[64];
             if (tile_klen >= sizeof(candidate.home.tiles[0].key)) {
-                fclose(f);
-                set_err(error, error_size, "tile key too long");
-                return false;
+                return close_with_error(f, error, error_size, "tile key too long");
             }
             memcpy(tile_key, rest, tile_klen);
             tile_key[tile_klen] = '\0';
 
             /* Validate tile ID per plugin registration contract:
              * must fit in sizeof(candidate.home.tiles[0].key) (40 bytes, so <= 39 chars) */
-            if (!is_valid_tile_id(tile_key, sizeof(candidate.home.tiles[0].key))) {
-                fclose(f);
-                set_err(error, error_size, "invalid tile key");
-                return false;
+            if (!theme_file_is_valid_tile_id(tile_key, sizeof(candidate.home.tiles[0].key))) {
+                return close_with_error(f, error, error_size, "invalid tile key");
             }
 
             char val[THEME_MAX_PATH_LEN];
-            size_t val_len = strlen(val_str);
-            if (val_len >= sizeof(val)) {
-                fclose(f);
-                set_err(error, error_size, "value too long");
-                return false;
+            if (!theme_file_copy_value(val_str, val, sizeof(val))) {
+                return close_with_error(f, error, error_size, "value too long");
             }
-            memcpy(val, val_str, val_len + 1);
-            trim_trailing(val);
 
             int tidx = find_or_add_tile(&candidate.home, tile_key);
             if (tidx < 0) {
-                fclose(f);
-                set_err(error, error_size, "too many tiles configured");
-                return false;
+                return close_with_error(f, error, error_size, "too many tiles configured");
             }
             home_tile_override_t *ov = &candidate.home.tiles[tidx].override;
 
             if (strcmp(prop, "bg_color") == 0) {
                 uint32_t c;
-                if (!parse_uint32_color(val, &c)) {
-                    fclose(f);
-                    set_err(error, error_size, "malformed tile bg_color");
-                    return false;
+                if (!theme_file_parse_uint32_color(val, &c)) {
+                    return close_with_error(f, error, error_size, "malformed tile bg_color");
                 }
                 ov->has_bg_color = true;
                 ov->bg_color = c;
             } else if (strcmp(prop, "text_color") == 0) {
                 uint32_t c;
-                if (!parse_uint32_color(val, &c)) {
-                    fclose(f);
-                    set_err(error, error_size, "malformed tile text_color");
-                    return false;
+                if (!theme_file_parse_uint32_color(val, &c)) {
+                    return close_with_error(f, error, error_size, "malformed tile text_color");
                 }
                 ov->has_text_color = true;
                 ov->text_color = c;
             } else if (strcmp(prop, "radius") == 0) {
                 int32_t r;
-                if (!parse_int32(val, &r, false)) {
-                    fclose(f);
-                    set_err(error, error_size, "malformed tile radius");
-                    return false;
+                if (!theme_file_parse_int32(val, &r, false)) {
+                    return close_with_error(f, error, error_size, "malformed tile radius");
                 }
                 ov->has_radius = true;
                 ov->radius = r;
             } else if (strcmp(prop, "height") == 0) {
                 int32_t h;
-                if (!parse_int32(val, &h, false)) {
-                    fclose(f);
-                    set_err(error, error_size, "malformed tile height");
-                    return false;
+                if (!theme_file_parse_int32(val, &h, false)) {
+                    return close_with_error(f, error, error_size, "malformed tile height");
                 }
                 ov->height = h;
             } else if (strcmp(prop, "width") == 0) {
                 int32_t w;
-                if (!parse_int32(val, &w, false)) {
-                    fclose(f);
-                    set_err(error, error_size, "malformed tile width");
-                    return false;
+                if (!theme_file_parse_int32(val, &w, false)) {
+                    return close_with_error(f, error, error_size, "malformed tile width");
                 }
                 ov->width = w;
             } else if (strcmp(prop, "align") == 0) {
-                if (!is_valid_align(val)) {
-                    fclose(f);
-                    set_err(error, error_size, "invalid tile align (must be left, center, or right)");
-                    return false;
+                if (!theme_file_is_valid_align(val)) {
+                    return close_with_error(f, error, error_size, "invalid tile align (must be left, center, or right)");
                 }
                 memcpy(ov->align, val, strlen(val) + 1);
             } else if (strcmp(prop, "text_size") == 0) {
-                if (!is_valid_text_size(val)) {
-                    fclose(f);
-                    set_err(error, error_size, "invalid tile text_size (must be small, medium, large, or mono)");
-                    return false;
+                if (!theme_file_is_valid_text_size(val)) {
+                    return close_with_error(f, error, error_size, "invalid tile text_size (must be small, medium, large, or mono)");
                 }
                 memcpy(ov->text_size, val, strlen(val) + 1);
             } else if (strcmp(prop, "accessory") == 0) {
                 bool b;
-                if (!parse_bool(val, &b)) {
-                    fclose(f);
-                    set_err(error, error_size, "malformed tile accessory boolean");
-                    return false;
+                if (!theme_file_parse_bool(val, &b)) {
+                    return close_with_error(f, error, error_size, "malformed tile accessory boolean");
                 }
                 ov->has_accessory = true;
                 ov->accessory = b;
             } else if (strcmp(prop, "icon") == 0) {
                 bool b;
-                if (!parse_bool(val, &b)) {
-                    fclose(f);
-                    set_err(error, error_size, "malformed tile icon boolean");
-                    return false;
+                if (!theme_file_parse_bool(val, &b)) {
+                    return close_with_error(f, error, error_size, "malformed tile icon boolean");
                 }
                 ov->has_icon = true;
                 ov->icon = b;
@@ -380,26 +205,17 @@ bool theme_file_parse(const char *path, theme_file_t *out, char *error, size_t e
             }
         } else if (strncmp(key, "icon.", 5) == 0) {
             const char *relpath = key + 5;
-            if (!is_safe_relpath(relpath)) {
-                fclose(f);
-                set_err(error, error_size, "unsafe or invalid icon relative path");
-                return false;
+            if (!theme_file_is_safe_relpath(relpath)) {
+                return close_with_error(f, error, error_size, "unsafe or invalid icon relative path");
             }
 
             char val[THEME_MAX_PATH_LEN];
-            size_t val_len = strlen(val_str);
-            if (val_len >= sizeof(val)) {
-                fclose(f);
-                set_err(error, error_size, "value too long");
-                return false;
+            if (!theme_file_copy_value(val_str, val, sizeof(val))) {
+                return close_with_error(f, error, error_size, "value too long");
             }
-            memcpy(val, val_str, val_len + 1);
-            trim_trailing(val);
 
-            if (!is_safe_source_path(val)) {
-                fclose(f);
-                set_err(error, error_size, "unsafe or invalid icon source path");
-                return false;
+            if (!theme_file_is_safe_source_path(val)) {
+                return close_with_error(f, error, error_size, "unsafe or invalid icon source path");
             }
 
             int existing_idx = -1;
@@ -415,9 +231,7 @@ bool theme_file_parse(const char *path, theme_file_t *out, char *error, size_t e
                          sizeof(candidate.icon_overrides[existing_idx].source), "%s", val);
             } else {
                 if (candidate.icon_override_count >= THEME_MAX_ICON_OVERRIDES) {
-                    fclose(f);
-                    set_err(error, error_size, "too many icon overrides");
-                    return false;
+                    return close_with_error(f, error, error_size, "too many icon overrides");
                 }
                 theme_icon_override_t *io = &candidate.icon_overrides[candidate.icon_override_count++];
                 snprintf(io->relpath, sizeof(io->relpath), "%s", relpath);
@@ -425,7 +239,7 @@ bool theme_file_parse(const char *path, theme_file_t *out, char *error, size_t e
             }
         } else {
             /* Standard identifier keys */
-            if (!is_valid_ident(key)) {
+            if (!theme_file_is_valid_ident(key)) {
                 /* Unknown or non-identifier top-level keys (e.g. x-author, [section])
                  * are skipped for forward compatibility and Themes.lua parity */
                 continue;
@@ -435,12 +249,10 @@ bool theme_file_parse(const char *path, theme_file_t *out, char *error, size_t e
                 char order_copy[THEME_MAX_ORDER_LEN];
                 size_t order_len = strlen(val_str);
                 if (order_len >= sizeof(order_copy)) {
-                    fclose(f);
-                    set_err(error, error_size, "home_order line too long");
-                    return false;
+                    return close_with_error(f, error, error_size, "home_order line too long");
                 }
                 memcpy(order_copy, val_str, order_len + 1);
-                trim_trailing(order_copy);
+                theme_file_trim_trailing(order_copy);
 
                 if (order_copy[0] == '\0') {
                     /* Empty definition clears previous home_order */
@@ -453,23 +265,17 @@ bool theme_file_parse(const char *path, theme_file_t *out, char *error, size_t e
                     int count = 0;
                     while (tok) {
                         while (*tok == ' ' || *tok == '\t') tok++;
-                        trim_trailing(tok);
-                        if (!is_valid_tile_id(tok, sizeof(candidate.home.order[0]))) {
-                            fclose(f);
-                            set_err(error, error_size, "invalid key in home_order");
-                            return false;
+                        theme_file_trim_trailing(tok);
+                        if (!theme_file_is_valid_tile_id(tok, sizeof(candidate.home.order[0]))) {
+                            return close_with_error(f, error, error_size, "invalid key in home_order");
                         }
                         if (count >= HOME_LAYOUT_MAX_TILES) {
-                            fclose(f);
-                            set_err(error, error_size, "home_order exceeds max tiles");
-                            return false;
+                            return close_with_error(f, error, error_size, "home_order exceeds max tiles");
                         }
                         /* Duplicate check */
                         for (int i = 0; i < count; i++) {
                             if (strcmp(candidate.home.order[i], tok) == 0) {
-                                fclose(f);
-                                set_err(error, error_size, "duplicate key in home_order");
-                                return false;
+                                return close_with_error(f, error, error_size, "duplicate key in home_order");
                             }
                         }
                         memcpy(candidate.home.order[count], tok, strlen(tok) + 1);
@@ -481,64 +287,45 @@ bool theme_file_parse(const char *path, theme_file_t *out, char *error, size_t e
                 }
             } else {
                 char val[THEME_MAX_PATH_LEN];
-                size_t val_len = strlen(val_str);
-                if (val_len >= sizeof(val)) {
-                    fclose(f);
-                    set_err(error, error_size, "value too long");
-                    return false;
+                if (!theme_file_copy_value(val_str, val, sizeof(val))) {
+                    return close_with_error(f, error, error_size, "value too long");
                 }
-                memcpy(val, val_str, val_len + 1);
-                trim_trailing(val);
 
                 if (strcmp(key, "name") == 0) {
                     if (!val[0] || strlen(val) >= sizeof(candidate.name)) {
-                        fclose(f);
-                        set_err(error, error_size, "invalid or empty name");
-                        return false;
+                        return close_with_error(f, error, error_size, "invalid or empty name");
                     }
                     memcpy(candidate.name, val, strlen(val) + 1);
                     has_name = true;
                 } else if (strcmp(key, "screen") == 0) {
-                    if (!parse_uint32_color(val, &candidate.screen)) {
-                        fclose(f);
-                        set_err(error, error_size, "invalid screen color");
-                        return false;
+                    if (!theme_file_parse_uint32_color(val, &candidate.screen)) {
+                        return close_with_error(f, error, error_size, "invalid screen color");
                     }
                     has_screen = true;
                 } else if (strcmp(key, "card") == 0) {
-                    if (!parse_uint32_color(val, &candidate.card)) {
-                        fclose(f);
-                        set_err(error, error_size, "invalid card color");
-                        return false;
+                    if (!theme_file_parse_uint32_color(val, &candidate.card)) {
+                        return close_with_error(f, error, error_size, "invalid card color");
                     }
                     has_card = true;
                 } else if (strcmp(key, "list_row") == 0) {
-                    if (!parse_uint32_color(val, &candidate.list_row)) {
-                        fclose(f);
-                        set_err(error, error_size, "invalid list_row color");
-                        return false;
+                    if (!theme_file_parse_uint32_color(val, &candidate.list_row)) {
+                        return close_with_error(f, error, error_size, "invalid list_row color");
                     }
                     has_list_row = true;
                 } else if (strcmp(key, "text_primary") == 0) {
-                    if (!parse_uint32_color(val, &candidate.text_primary)) {
-                        fclose(f);
-                        set_err(error, error_size, "invalid text_primary color");
-                        return false;
+                    if (!theme_file_parse_uint32_color(val, &candidate.text_primary)) {
+                        return close_with_error(f, error, error_size, "invalid text_primary color");
                     }
                     has_text_primary = true;
                 } else if (strcmp(key, "text_muted") == 0) {
-                    if (!parse_uint32_color(val, &candidate.text_muted)) {
-                        fclose(f);
-                        set_err(error, error_size, "invalid text_muted color");
-                        return false;
+                    if (!theme_file_parse_uint32_color(val, &candidate.text_muted)) {
+                        return close_with_error(f, error, error_size, "invalid text_muted color");
                     }
                     has_text_muted = true;
                 } else if (strcmp(key, "icon_root") == 0) {
                     if (val[0]) {
-                        if (!is_safe_source_path(val)) {
-                            fclose(f);
-                            set_err(error, error_size, "unsafe icon_root path");
-                            return false;
+                        if (!theme_file_is_safe_source_path(val)) {
+                            return close_with_error(f, error, error_size, "unsafe icon_root path");
                         }
                         snprintf(candidate.icon_root, sizeof(candidate.icon_root), "%s", val);
                     } else {
@@ -547,10 +334,8 @@ bool theme_file_parse(const char *path, theme_file_t *out, char *error, size_t e
                     }
                 } else if (strcmp(key, "drawer_root") == 0) {
                     if (val[0]) {
-                        if (!is_safe_source_path(val)) {
-                            fclose(f);
-                            set_err(error, error_size, "unsafe drawer_root path");
-                            return false;
+                        if (!theme_file_is_safe_source_path(val)) {
+                            return close_with_error(f, error, error_size, "unsafe drawer_root path");
                         }
                         snprintf(candidate.drawer_root, sizeof(candidate.drawer_root), "%s", val);
                     } else {
@@ -565,33 +350,25 @@ bool theme_file_parse(const char *path, theme_file_t *out, char *error, size_t e
                         candidate.home.list_mode = true;
                         has_home_mode = true;
                     } else {
-                        fclose(f);
-                        set_err(error, error_size, "invalid home_mode (must be tile or list)");
-                        return false;
+                        return close_with_error(f, error, error_size, "invalid home_mode (must be tile or list)");
                     }
                 } else if (strcmp(key, "home_tile_gap") == 0) {
                     int32_t gap;
-                    if (!parse_int32(val, &gap, false)) {
-                        fclose(f);
-                        set_err(error, error_size, "invalid home_tile_gap");
-                        return false;
+                    if (!theme_file_parse_int32(val, &gap, false)) {
+                        return close_with_error(f, error, error_size, "invalid home_tile_gap");
                     }
                     candidate.home.tile_gap = gap;
                     has_home_tile_gap = true;
                 } else if (strcmp(key, "home_row_gap") == 0) {
                     int32_t gap;
-                    if (!parse_int32(val, &gap, false)) {
-                        fclose(f);
-                        set_err(error, error_size, "invalid home_row_gap");
-                        return false;
+                    if (!theme_file_parse_int32(val, &gap, false)) {
+                        return close_with_error(f, error, error_size, "invalid home_row_gap");
                     }
                     candidate.home.row_gap = gap;
                     has_home_row_gap = true;
                 } else if (strcmp(key, "submenu_mode") == 0) {
                     if (strcmp(val, "tile") != 0 && strcmp(val, "list") != 0) {
-                        fclose(f);
-                        set_err(error, error_size, "invalid submenu_mode");
-                        return false;
+                        return close_with_error(f, error, error_size, "invalid submenu_mode");
                     }
                     memcpy(submenu_mode_str, val, strlen(val) + 1);
                     has_submenu_mode = true;
@@ -603,9 +380,7 @@ bool theme_file_parse(const char *path, theme_file_t *out, char *error, size_t e
     }
 
     if (ferror(f)) {
-        fclose(f);
-        set_err(error, error_size, "read error while parsing theme file");
-        return false;
+        return close_with_error(f, error, error_size, "read error while parsing theme file");
     }
 
     fclose(f);

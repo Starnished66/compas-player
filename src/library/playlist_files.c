@@ -20,6 +20,31 @@
 /* Process-wide mutex serializing mutating operations (append, remove, create, delete)
  * across threads to prevent concurrent file modifications. */
 static pthread_mutex_t playlist_files_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+/* VFAT and some older kernels reject renameat2(RENAME_NOREPLACE). Reserve the
+ * destination with O_EXCL, then replace only that reservation. The inode check
+ * ensures cleanup never removes a reservation another actor replaced. */
+static bool rename_noreplace_at(int dirfd, const char * source, const char * target) {
+#ifdef SYS_renameat2
+    if (syscall(SYS_renameat2, dirfd, source, dirfd, target, 1 /* RENAME_NOREPLACE */) == 0)
+        return true;
+    if (errno != EINVAL && errno != ENOSYS && errno != EOPNOTSUPP && errno != ENOTSUP)
+        return false;
+#endif
+    int reserve_fd = openat(dirfd, target, O_CREAT | O_EXCL | O_WRONLY | O_CLOEXEC, 0600);
+    if (reserve_fd < 0) return false;
+    struct stat reservation;
+    bool reservation_owned = fstat(reserve_fd, &reservation) == 0;
+    bool close_ok = close(reserve_fd) == 0;
+    bool renamed = reservation_owned && close_ok && renameat(dirfd, source, dirfd, target) == 0;
+    if (!renamed && reservation_owned) {
+        struct stat current;
+        if (fstatat(dirfd, target, &current, AT_SYMLINK_NOFOLLOW) == 0 &&
+            current.st_dev == reservation.st_dev && current.st_ino == reservation.st_ino)
+            (void) unlinkat(dirfd, target, 0);
+    }
+    return renamed;
+}
 static pthread_t refresh_thread;
 static bool refresh_running;
 static atomic_bool refresh_done;
@@ -565,13 +590,9 @@ bool playlist_files_write_new_stream_at(int dirfd, const char * name, int count,
         if (ok) ok = fflush(f) == 0 && fsync(fileno(f)) == 0;
         if (fclose(f) != 0) ok = false;
     }
-#ifdef SYS_renameat2
-    if (ok) ok = syscall(SYS_renameat2, dirfd, temp, dirfd, leaf, 1 /* RENAME_NOREPLACE */) == 0;
-#else
-    ok = false;
-#endif
+    if (ok) ok = rename_noreplace_at(dirfd, temp, leaf);
     if (!ok && created) unlinkat(dirfd, temp, 0);
-    else {
+    if (ok) {
         (void) fsync(dirfd);
         if (out_leaf) snprintf(out_leaf, size, "%s", leaf);
     }
@@ -677,68 +698,96 @@ bool playlist_files_rename(const char * path, const char * name, char * out, siz
     return ok;
 }
 
+typedef struct {
+    char ** blocks;
+    char * pending;
+    int count;
+    bool bom;
+} playlist_blocks_t;
+
+/* Release blocks after every read_entry_blocks() call, including failed
+ * reads that leave partially allocated blocks and pending bytes. */
+static void free_entry_blocks(playlist_blocks_t * list) {
+    for (int i = 0; i < list->count; i++) free(list->blocks[i]);
+    free(list->blocks);
+    free(list->pending);
+}
+
 /* Keep EXTINF and preceding comments with their entry. Editing never
  * filters unavailable files, and offsets identify duplicate occurrences. */
-/* Caller holds playlist_files_mutex. */
-static bool edit_entry_locked(const char * path, int from, int to) {
-    if (from < 0) return false;
+
+static bool read_entry_blocks(const char * path, playlist_blocks_t * out) {
+    *out = (playlist_blocks_t){0};
     FILE * f = fopen(path, "r");
-    char ** blocks = NULL, * pending = NULL, * line = NULL;
+    char * line = NULL;
     size_t cap = 0, used = 0;
-    int count = 0;
-    bool ok = f != NULL, bom = false;
+    bool ok = f != NULL;
     while (ok && getline(&line, &cap, f) >= 0) {
         char * text = line;
-        if (count == 0 && used == 0 && library_utf8_bom_skip(text) == 3) { text += 3; bom = true; }
+        if (out->count == 0 && used == 0 && library_utf8_bom_skip(text) == 3) { text += 3; out->bom = true; }
         if (strncmp(text, "#EXTM3U", 7) == 0) continue;
         size_t n = strlen(text);
-        char * grown = realloc(pending, used + n + 1);
+        char * grown = realloc(out->pending, used + n + 1);
         if (!grown) { ok = false; break; }
-        pending = grown;
-        memcpy(pending + used, text, n + 1);
+        out->pending = grown;
+        memcpy(out->pending + used, text, n + 1);
         used += n;
         if (!text[0] || text[0] == '#' || text[0] == '\r' || text[0] == '\n') continue;
-        char ** entries = realloc(blocks, (size_t) (count + 1) * sizeof(*blocks));
+        char ** entries = realloc(out->blocks, (size_t) (out->count + 1) * sizeof(*out->blocks));
         if (!entries) { ok = false; break; }
-        blocks = entries;
-        blocks[count++] = pending;
-        pending = NULL; used = 0;
+        out->blocks = entries;
+        out->blocks[out->count++] = out->pending;
+        out->pending = NULL;
+        used = 0;
     }
     if (f) { if (ferror(f)) ok = false; fclose(f); }
     free(line);
-    if (from >= count || to >= count) ok = false;
-    if (ok) {
-        char * entry = blocks[from];
-        memmove(blocks + from, blocks + from + 1, (size_t) (count - from - 1) * sizeof(*blocks));
-        if (to < 0) { free(entry); count--; }
-        else {
-            memmove(blocks + to + 1, blocks + to, (size_t) (count - to - 1) * sizeof(*blocks));
-            blocks[to] = entry;
+    return ok;
+}
+
+static bool write_entry_blocks(const char * path, const playlist_blocks_t * list) {
+    char temp[PATH_MAX], dir[PATH_MAX];
+    int fd = -1;
+    if (dir_of(path, dir, sizeof(dir)) &&
+        snprintf(temp, sizeof(temp), "%s/.playlist-XXXXXX", dir) < (int) sizeof(temp))
+        fd = mkstemp(temp);
+    FILE * f = fd >= 0 ? fdopen(fd, "w") : NULL;
+    bool ok = f != NULL;
+    if (!f && fd >= 0) close(fd);
+    if (f) {
+        ok = fprintf(f, "%s#EXTM3U\n", list->bom ? "\357\273\277" : "") >= 0;
+        for (int i = 0; ok && i < list->count; i++) {
+            ok = fputs(list->blocks[i], f) >= 0;
+            size_t n = strlen(list->blocks[i]);
+            if (ok && n && list->blocks[i][n - 1] != '\n') ok = fputc('\n', f) != EOF;
         }
-        char temp[PATH_MAX], dir[PATH_MAX];
-        int fd = -1;
-        if (dir_of(path, dir, sizeof(dir)) &&
-            snprintf(temp, sizeof(temp), "%s/.playlist-XXXXXX", dir) < (int) sizeof(temp))
-            fd = mkstemp(temp);
-        f = fd >= 0 ? fdopen(fd, "w") : NULL;
-        if (!f) { if (fd >= 0) close(fd); ok = false; }
-        if (f) {
-            ok = fprintf(f, "%s#EXTM3U\n", bom ? "\357\273\277" : "") >= 0;
-            for (int i = 0; ok && i < count; i++) {
-                ok = fputs(blocks[i], f) >= 0;
-                size_t n = strlen(blocks[i]);
-                if (ok && n && blocks[i][n - 1] != '\n') ok = fputc('\n', f) != EOF;
-            }
-            if (ok && pending) ok = fputs(pending, f) >= 0;
-            if (ok) ok = fflush(f) == 0 && fsync(fileno(f)) == 0;
-            if (fclose(f) != 0) ok = false;
-        }
-        if (ok) ok = rename(temp, path) == 0;
-        if (!ok && fd >= 0) unlink(temp);
-        if (ok) fsync_dir(dir);
+        if (ok && list->pending) ok = fputs(list->pending, f) >= 0;
+        if (ok) ok = fflush(f) == 0 && fsync(fileno(f)) == 0;
+        if (fclose(f) != 0) ok = false;
     }
-    for (int i = 0; i < count; i++) free(blocks[i]);
-    free(blocks); free(pending);
+    if (ok) ok = rename(temp, path) == 0;
+    if (!ok && fd >= 0) unlink(temp);
+    if (ok) fsync_dir(dir);
+    return ok;
+}
+
+/* Caller holds playlist_files_mutex. */
+static bool edit_entry_locked(const char * path, int from, int to) {
+    if (from < 0) return false;
+    playlist_blocks_t list;
+    bool ok = read_entry_blocks(path, &list);
+    if (from >= list.count || to >= list.count) ok = false;
+    if (ok) {
+        char * entry = list.blocks[from];
+        memmove(list.blocks + from, list.blocks + from + 1, (size_t) (list.count - from - 1) * sizeof(*list.blocks));
+        if (to < 0) { free(entry); list.count--; }
+        else {
+            memmove(list.blocks + to + 1, list.blocks + to, (size_t) (list.count - to - 1) * sizeof(*list.blocks));
+            list.blocks[to] = entry;
+        }
+        ok = write_entry_blocks(path, &list);
+    }
+    free_entry_blocks(&list);
     return ok;
 }
 
@@ -780,66 +829,23 @@ static bool delete_entries_locked(const char * path, const int * indexes, int in
             (i > 0 && indexes[i] <= indexes[i - 1])) return false;
     }
 
-    FILE * f = fopen(path, "r");
-    char ** blocks = NULL, * pending = NULL, * line = NULL;
-    size_t cap = 0, used = 0;
-    int count = 0, selected = 0;
-    bool ok = f != NULL, bom = false;
-    while (ok && getline(&line, &cap, f) >= 0) {
-        char * text = line;
-        if (count == 0 && used == 0 && library_utf8_bom_skip(text) == 3) { text += 3; bom = true; }
-        if (strncmp(text, "#EXTM3U", 7) == 0) continue;
-        size_t n = strlen(text);
-        char * grown = realloc(pending, used + n + 1);
-        if (!grown) { ok = false; break; }
-        pending = grown;
-        memcpy(pending + used, text, n + 1);
-        used += n;
-        if (!text[0] || text[0] == '#' || text[0] == '\r' || text[0] == '\n') continue;
-        char ** entries = realloc(blocks, (size_t) (count + 1) * sizeof(*blocks));
-        if (!entries) { ok = false; break; }
-        blocks = entries;
-        blocks[count++] = pending;
-        pending = NULL; used = 0;
-    }
-    if (f) { if (ferror(f)) ok = false; fclose(f); }
-    free(line);
-    if (count != entry_count) ok = false;
+    playlist_blocks_t list;
+    bool ok = read_entry_blocks(path, &list);
+    if (list.count != entry_count) ok = false;
     if (ok) {
-        int kept = 0;
-        for (int i = 0; i < count; i++) {
+        int kept = 0, selected = 0;
+        for (int i = 0; i < list.count; i++) {
             if (selected < index_count && indexes[selected] == i) {
-                free(blocks[i]);
+                free(list.blocks[i]);
                 selected++;
             } else {
-                blocks[kept++] = blocks[i];
+                list.blocks[kept++] = list.blocks[i];
             }
         }
-        count = kept;
-        char temp[PATH_MAX], dir[PATH_MAX];
-        int fd = -1;
-        if (dir_of(path, dir, sizeof(dir)) &&
-            snprintf(temp, sizeof(temp), "%s/.playlist-XXXXXX", dir) < (int) sizeof(temp))
-            fd = mkstemp(temp);
-        f = fd >= 0 ? fdopen(fd, "w") : NULL;
-        if (!f) { if (fd >= 0) close(fd); ok = false; }
-        if (f) {
-            ok = fprintf(f, "%s#EXTM3U\n", bom ? "\357\273\277" : "") >= 0;
-            for (int i = 0; ok && i < count; i++) {
-                ok = fputs(blocks[i], f) >= 0;
-                size_t n = strlen(blocks[i]);
-                if (ok && n && blocks[i][n - 1] != '\n') ok = fputc('\n', f) != EOF;
-            }
-            if (ok && pending) ok = fputs(pending, f) >= 0;
-            if (ok) ok = fflush(f) == 0 && fsync(fileno(f)) == 0;
-            if (fclose(f) != 0) ok = false;
-        }
-        if (ok) ok = rename(temp, path) == 0;
-        if (!ok && fd >= 0) unlink(temp);
-        if (ok) fsync_dir(dir);
+        list.count = kept;
+        ok = write_entry_blocks(path, &list);
     }
-    for (int i = 0; i < count; i++) free(blocks[i]);
-    free(blocks); free(pending);
+    free_entry_blocks(&list);
     return ok;
 }
 

@@ -547,6 +547,15 @@ static void destroy_new_candidate_faces(face_table_t * tbl) {
     }
 }
 
+static void destroy_obsolete_faces(const face_table_t * candidate) {
+    for (int j = 0; j < s_loaded_face_count; j++) {
+        lv_font_t * old_font = s_loaded_faces[j].font;
+        if (old_font && !face_table_contains_font(candidate, old_font)) {
+            lv_tiny_ttf_destroy(old_font);
+        }
+    }
+}
+
 bool fallback_font_apply_size_tier(int tier) {
     if (tier < 0 || tier > 2) return false;
     if (tier == s_font_size_tier) return true;
@@ -670,30 +679,12 @@ bool fallback_font_apply_lyrics_size_tier(int tier) {
 
     if (!ok) {
         DBG_LOG("fallback_font: lyrics tier %d build failed; keeping tier %d\n", tier, s_lyrics_font_size_tier);
-        for (int i = 0; i < candidate_table.count; i++) {
-            lv_font_t * cand_font = candidate_table.entries[i].font;
-            bool was_in_old = false;
-            for (int j = 0; j < s_loaded_face_count; j++) {
-                if (s_loaded_faces[j].font == cand_font) { was_in_old = true; break; }
-            }
-            if (!was_in_old && cand_font) {
-                lv_tiny_ttf_destroy(cand_font);
-            }
-        }
+        destroy_new_candidate_faces(&candidate_table);
         discard_custom_font_data_candidate();
         return false;
     }
 
-    for (int j = 0; j < s_loaded_face_count; j++) {
-        lv_font_t * old_font = s_loaded_faces[j].font;
-        bool in_new = false;
-        for (int i = 0; i < candidate_table.count; i++) {
-            if (candidate_table.entries[i].font == old_font) { in_new = true; break; }
-        }
-        if (!in_new && old_font) {
-            lv_tiny_ttf_destroy(old_font);
-        }
-    }
+    destroy_obsolete_faces(&candidate_table);
 
     app_font_16 = cand_16;
     app_font_20 = cand_20;
@@ -1040,32 +1031,13 @@ bool fallback_font_apply_custom(const char * custom_filename) {
 
     if (!ok) {
         DBG_LOG("fallback_font: candidate build failed; rolling back without touching active font stack\n");
-        /* Destroy newly created faces in candidate table that were not part of s_loaded_faces */
-        for (int i = 0; i < candidate_table.count; i++) {
-            lv_font_t * cand_font = candidate_table.entries[i].font;
-            bool was_in_old = false;
-            for (int j = 0; j < s_loaded_face_count; j++) {
-                if (s_loaded_faces[j].font == cand_font) { was_in_old = true; break; }
-            }
-            if (!was_in_old && cand_font) {
-                lv_tiny_ttf_destroy(cand_font);
-            }
-        }
+        destroy_new_candidate_faces(&candidate_table);
         discard_custom_font_data_candidate();
         return false;
     }
 
     /* All candidate slots built successfully. Destroy faces in s_loaded_faces that are no longer used. */
-    for (int j = 0; j < s_loaded_face_count; j++) {
-        lv_font_t * old_font = s_loaded_faces[j].font;
-        bool in_new = false;
-        for (int i = 0; i < candidate_table.count; i++) {
-            if (candidate_table.entries[i].font == old_font) { in_new = true; break; }
-        }
-        if (!in_new && old_font) {
-            lv_tiny_ttf_destroy(old_font);
-        }
-    }
+    destroy_obsolete_faces(&candidate_table);
 
     /* Atomic commit of font descriptors to global handles */
     app_font_16 = cand_16;

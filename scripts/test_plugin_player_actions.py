@@ -7,6 +7,7 @@ import tempfile
 
 root = pathlib.Path(__file__).resolve().parents[1]
 src = (root / 'src/plugins/plugin_manager.c').read_text()
+info_src = (root / 'src/plugins/bindings/plugin_info_bindings.c').read_text()
 
 def function(name):
     match = re.search(r'^(?:static )?(?:int|void|bool) ' + name + r'\([^;]*?\) \{.*?^\}', src, re.M | re.S)
@@ -35,6 +36,9 @@ body = r'''
 #include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
+#include "plugin_lua_runtime.h"
+#include <stdbool.h>
+bool plugin_storage_path_is_reserved(const char *path) { (void)path; return false; }
 #include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -47,10 +51,6 @@ typedef struct { lua_State *L; char id[64]; bool defined,disposing,aborted; } pl
 static plugin_instance_t plugin_instances[4];
 typedef void (*player_layout_action_handler_t)(const char *, const char *);
 static void plugin_player_actions_clear_owner(lua_State *, const char *, bool);
-static lua_State *plugin_main_state(lua_State *L);
-static lua_State *plugin_main_state(lua_State *L) {
-    lua_rawgeti(L,LUA_REGISTRYINDEX,LUA_RIDX_MAINTHREAD); lua_State *m=lua_tothread(L,-1); lua_pop(L,1); return m?m:L;
-}
 static int call_errors;
 static int plugin_call(lua_State *L,int nargs,int nresults,int errfunc) {
     int rc=lua_pcall(L,nargs,nresults,errfunc); if(rc!=LUA_OK) call_errors++; return rc;
@@ -113,13 +113,13 @@ int main(void){
 # Verify production registration and lifecycle wiring, including the callback API table.
 assert '{ "register_player_action",    l_plugin_register_player_action }' in src
 assert '{ "restore_player_layout",     l_plugin_restore_player_layout }' in src
-assert '"ui.player_actions"' in src
-assert '"ui.player_layout_restore"' in src
+assert '"ui.player_actions"' in info_src
+assert '"ui.player_layout_restore"' in info_src
 assert 'plugin_player_actions_clear_owner(L, failed_inst && failed_inst->defined ? failed_inst->id : NULL, aborted);' in function('discard_failed_plugin_resources')
 assert 'plugin_player_actions_clear_all();' in function('plugin_manager_deinit')
 assert src.index('plugin_player_actions_clear_all();', src.index('void plugin_manager_deinit')) < src.index('lua_close(plugin_instances[i].L)', src.index('void plugin_manager_deinit'))
 with tempfile.TemporaryDirectory(prefix='compas-player-actions-') as folder:
     folder = pathlib.Path(folder); c = folder / 'test.c'; binary = folder / 'test'; c.write_text(body)
     lua = [str(p) for p in (root / 'lua/src').glob('*.c') if p.name not in ('lua.c','luac.c')]
-    subprocess.run(['cc','-std=gnu11','-Wall','-Wextra','-Werror','-DLUA_USE_LINUX','-I'+str(root/'lua/src'),str(c),*lua,'-lm','-ldl','-o',str(binary)],check=True,cwd=root)
+    subprocess.run(['cc','-std=gnu11','-Wall','-Wextra','-Werror','-DLUA_USE_LINUX','-I'+str(root/'lua/src'),'-I'+str(root/'src/plugins'),'-I'+str(root/'src/plugins/bindings'),str(c),str(root/'src/plugins/plugin_lua_runtime.c'),*lua,'-lm','-ldl','-o',str(binary)],check=True,cwd=root)
     subprocess.run([str(binary)],check=True,cwd=root)

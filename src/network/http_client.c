@@ -115,7 +115,7 @@ static bool read_body(http_conn_reader_t * r, bool is_chunked, uint64_t content_
 
 /* Writes exactly len bytes of data (headers or a POST body -- either way,
  * just a byte buffer to the wire), retrying short writes -- shared by
- * do_get()/do_post() below. */
+ * do_request() below. */
 static bool write_all(http_conn_t * conn, const uint8_t * data, size_t len) {
     size_t sent = 0;
     while (sent < len) {
@@ -129,10 +129,16 @@ static bool write_all(http_conn_t * conn, const uint8_t * data, size_t len) {
     return true;
 }
 
-static bool read_response(http_conn_t * conn, int * out_status, body_sink_t * sink); /* defined below -- shared by do_get()/do_post() */
+static bool read_response(http_conn_t * conn, int * out_status, body_sink_t * sink); /* defined below -- shared by do_request() */
 
-static bool do_get_ex(const char * url, bool verify_tls, int * out_status, body_sink_t * sink,
-                      uint32_t connect_timeout_ms, uint32_t read_timeout_ms, http_cancel_token_t * cancel) {
+/* Headers and body are written as two separate write_all() calls rather than one
+ * combined buffer, since a POST body's own size is unbounded (unlike the
+ * fixed-size `request` header buffer GET/POST already uses) -- concatenating
+ * them into one buffer would mean either a second malloc'd copy of the
+ * whole body or an arbitrary size cap neither GET nor POST currently has. */
+static bool do_request(const char * url, bool verify_tls, int * out_status, body_sink_t * sink,
+                       uint32_t connect_timeout_ms, uint32_t read_timeout_ms, http_cancel_token_t * cancel,
+                       bool post, const char * content_type, const uint8_t * body, size_t body_size) {
     bool is_https;
     char host[256], port[16], path[2048];
     if (!http_conn_parse_url(url, &is_https, host, sizeof(host), port, sizeof(port), path, sizeof(path))) {
@@ -150,57 +156,17 @@ static bool do_get_ex(const char * url, bool verify_tls, int * out_status, body_
     }
 
     char request[2560];
-    int req_len = snprintf(request, sizeof(request),
-                            "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: Compas/compas_player\r\nConnection: close\r\n\r\n",
-                            path, host);
-    if (req_len < 0 || (size_t) req_len >= sizeof(request)) {
-        DBG_LOG("http_client: request too long for path='%s'\n", path);
-        http_conn_close(&conn);
-        return false;
+    int req_len;
+    if (post) {
+        req_len = snprintf(request, sizeof(request),
+                           "POST %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: Compas/compas_player\r\n"
+                           "Content-Type: %s\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n",
+                           path, host, content_type, body_size);
+    } else {
+        req_len = snprintf(request, sizeof(request),
+                           "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: Compas/compas_player\r\nConnection: close\r\n\r\n",
+                           path, host);
     }
-
-    if (!write_all(&conn, (const uint8_t *) request, (size_t) req_len)) {
-        http_conn_close(&conn);
-        return false;
-    }
-
-    bool ok = read_response(&conn, out_status, sink);
-    http_conn_close(&conn);
-    return ok;
-}
-
-static bool do_get(const char * url, bool verify_tls, int * out_status, body_sink_t * sink) {
-    return do_get_ex(url, verify_tls, out_status, sink, 0, 0, NULL);
-}
-
-/* Same connection-handling shape as do_get() above, with a request body --
- * see http_post_to_buffer()'s own doc comment in http_client.h. Headers and
- * body are written as two separate write_all() calls rather than one
- * combined buffer, since a POST body's own size is unbounded (unlike the
- * fixed-size `request` header buffer GET already uses) -- concatenating
- * them into one buffer would mean either a second malloc'd copy of the
- * whole body or an arbitrary size cap neither GET nor POST currently has. */
-static bool do_post(const char * url, bool verify_tls, const char * content_type, const uint8_t * body,
-                     size_t body_size, int * out_status, body_sink_t * sink) {
-    bool is_https;
-    char host[256], port[16], path[2048];
-    if (!http_conn_parse_url(url, &is_https, host, sizeof(host), port, sizeof(port), path, sizeof(path))) {
-        DBG_LOG("http_client: parse_url failed for '%s'\n", url);
-        return false;
-    }
-
-    http_conn_t conn;
-    if (!http_conn_open(&conn, host, port, is_https, verify_tls)) {
-        DBG_LOG("http_client: conn_open failed for host='%s' port='%s' https=%d\n", host, port, is_https);
-        http_conn_close(&conn);
-        return false;
-    }
-
-    char request[2560];
-    int req_len = snprintf(request, sizeof(request),
-                            "POST %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: Compas/compas_player\r\n"
-                            "Content-Type: %s\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n",
-                            path, host, content_type, body_size);
     if (req_len < 0 || (size_t) req_len >= sizeof(request)) {
         DBG_LOG("http_client: request too long for path='%s'\n", path);
         http_conn_close(&conn);
@@ -208,7 +174,7 @@ static bool do_post(const char * url, bool verify_tls, const char * content_type
     }
 
     if (!write_all(&conn, (const uint8_t *) request, (size_t) req_len) ||
-        (body_size > 0 && !write_all(&conn, body, body_size))) {
+        (post && body_size > 0 && !write_all(&conn, body, body_size))) {
         http_conn_close(&conn);
         return false;
     }
@@ -218,9 +184,25 @@ static bool do_post(const char * url, bool verify_tls, const char * content_type
     return ok;
 }
 
+static bool do_get_ex(const char * url, bool verify_tls, int * out_status, body_sink_t * sink,
+                      uint32_t connect_timeout_ms, uint32_t read_timeout_ms, http_cancel_token_t * cancel) {
+    return do_request(url, verify_tls, out_status, sink, connect_timeout_ms, read_timeout_ms, cancel,
+                      false, NULL, NULL, 0);
+}
+
+static bool do_get(const char * url, bool verify_tls, int * out_status, body_sink_t * sink) {
+    return do_get_ex(url, verify_tls, out_status, sink, 0, 0, NULL);
+}
+
+static bool do_post(const char * url, bool verify_tls, const char * content_type, const uint8_t * body,
+                    size_t body_size, int * out_status, body_sink_t * sink) {
+    return do_request(url, verify_tls, out_status, sink, 0, 0, NULL,
+                      true, content_type, body, body_size);
+}
+
 /* Reads a response (status line, headers, body) off an already-open
  * connection whose request has already been fully written -- shared tail
- * end of do_get()/do_post() below, since a GET and a POST response are read
+ * end of do_request() below, since a GET and a POST response are read
  * identically once the request itself is on the wire. */
 static bool read_response(http_conn_t * conn, int * out_status, body_sink_t * sink) {
     http_conn_reader_t reader;

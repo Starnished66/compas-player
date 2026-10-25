@@ -11,32 +11,39 @@ bindings = match.group(0)
 names = ['l_plugin_file_copy', 'l_plugin_file_move', 'l_plugin_file_delete', 'l_plugin_file_operation_status',
          'l_plugin_cancel_file_operation', 'l_plugin_open_file_manager']
 prefix = r'''
+#define _GNU_SOURCE
 #include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
 #include "file_ops.h"
+#include "plugin_lua_runtime.h"
+#include <stdbool.h>
+bool plugin_storage_path_is_reserved(const char *path) { (void)path; return false; }
 #include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <sys/stat.h>
+extern char *realpath(const char *restrict, char *restrict);
 typedef struct { bool aborted; } plugin_instance_t;
 static bool usb_blocked;
 static int refreshes;
 static char opened[512] = "unset";
 static plugin_instance_t *plugin_instance_for_state(lua_State *L) { (void)L; return NULL; }
-static lua_State *plugin_main_state(lua_State *L) { return L; }
 static int plugin_call(lua_State *L, int nargs, int nresults, int errfunc) {
     int status = lua_pcall(L, nargs, nresults, errfunc);
     if (status != LUA_OK) { fprintf(stderr, "callback failed: %s\n", lua_tostring(L, -1)); assert(!"callback failed"); }
     return status;
 }
-static int push_plugin_error(lua_State *L, const char *message) { lua_pushnil(L); lua_pushstring(L, message); return 2; }
 bool usb_mode_control_storage_write_blocked(void) { return usb_blocked; }
 bool usb_mode_control_storage_write_begin(void) { return true; }
 void usb_mode_control_storage_write_end(void) {}
 bool file_browser_is_playable_name(const char *name) { const char *e = strrchr(name, '.'); return e && !strcmp(e, ".flac"); }
 bool gui_plugin_open_file_manager(const char *folder) { snprintf(opened, sizeof(opened), "%s", folder ? folder : "(none)"); return true; }
+bool gui_plugin_pick_file(const char *folder) { (void)folder; return true; }
+void gui_plugin_cancel_file_picker(void) {}
+static bool plugin_song_path_valid(const char *path) { (void)path; return true; }
 void gui_plugin_refresh_file_browsers(void) { refreshes++; }
 '''
 helpers = r'''
@@ -122,7 +129,7 @@ def run(card_root, cwd, folder):
     c = folder / 'bindings.c'
     register = '\n'.join(f'    lua_pushcfunction(L, {n}); lua_setglobal(L, "{n.removeprefix("l_plugin_")}");' for n in names)
     lua_script = script.replace('ROOT', '"' + card_root + '"')
-    c.write_text(prefix + bindings + helpers + '\nint main(void) {\n    lua_State *L = luaL_newstate(); assert(L); luaL_openlibs(L);\n'
+    c.write_text(prefix + bindings + helpers + '\nint main(void) {\n    (void)l_plugin_pick_file;\n    lua_State *L = luaL_newstate(); assert(L); luaL_openlibs(L);\n'
                  + register + '''
     lua_register(L, "wait", l_wait);
     lua_register(L, "set_usb_blocked", l_set_usb_blocked);
@@ -139,8 +146,8 @@ def run(card_root, cwd, folder):
     lua = [str(p) for p in (root / 'lua/src').glob('*.c') if p.name not in ('lua.c', 'luac.c')]
     cmd = ['cc', '-std=gnu11', '-Wall', '-Wextra', '-Werror', '-O1', '-pthread', '-DLUA_USE_LINUX',
            '-DMUSIC_ROOT_DIR="' + card_root + '"',
-           '-I' + str(root), '-I' + str(root / 'lua/src'), '-I' + str(root / 'src/library'), '-I' + str(root / 'src/hardware'),
-           str(c), str(root / 'src/library/file_ops.c'), *lua, '-lm', '-ldl', '-o', str(folder / 'test')]
+           '-I' + str(root), '-I' + str(root / 'lua/src'), '-I' + str(root / 'src/library'), '-I' + str(root / 'src/hardware'), '-I' + str(root / 'src/plugins'),
+           str(c), str(root / 'src/library/file_ops.c'), str(root / 'src/plugins/plugin_lua_runtime.c'), *lua, '-lm', '-ldl', '-o', str(folder / 'test')]
     subprocess.run(cmd, check=True, cwd=root)
     subprocess.run([str(folder / 'test')], check=True, cwd=cwd)
 

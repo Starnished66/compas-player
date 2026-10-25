@@ -39,6 +39,7 @@ lv_display_t * lv_indev_get_display(const lv_indev_t * i) { (void)i; return &fak
 lv_indev_read_cb_t lv_indev_get_read_cb(lv_indev_t * i) { (void)i; return fake_indev.read_cb; }
 lv_indev_t * lv_indev_get_next(lv_indev_t * i) { (void)i; return NULL; }
 void lv_indev_delete(lv_indev_t * i) { (void)i; }
+void lv_indev_wait_release(lv_indev_t * i) { (void)i; }
 void lv_indev_add_event_cb(lv_indev_t * i, lv_event_cb_t cb, lv_event_code_t c, void * u) {
     (void)i; (void)cb; (void)c; (void)u;
 }

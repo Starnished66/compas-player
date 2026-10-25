@@ -8,13 +8,20 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Validation, hashing and download helpers shared by the GitHub catalog
- * installers: the Plugin Store (plugin_store.c) and the emulator store
- * (emulator_store.c). Both fetch a release index.json, check every field
- * before trusting it, and verify each downloaded file by size and SHA-256. */
+/* Validation, hashing, download and worker helpers shared by the GitHub
+ * catalog installers: the Plugin Store (plugin_store.c) and the emulator
+ * store (emulator_store.c). Both fetch a release index.json, check every
+ * field before trusting it, verify each downloaded file by size and
+ * SHA-256, and run network/disk jobs on lightweight detached threads. */
 
 #define STORE_TIMEOUT_CONNECT 10000
 #define STORE_TIMEOUT_READ 20000
+
+/* Copies text into out if out and size are non-zero, formatted with snprintf("%s"). */
+void store_error_text(char * out, size_t size, const char * text);
+
+/* Spawns fn(arg) on a detached thread with a 256 KiB stack. Returns true if created. */
+bool store_start_thread(void * (*fn)(void *), void * arg);
 
 bool store_ascii_digit(char c);
 bool store_ascii_lower(char c);

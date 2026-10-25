@@ -169,6 +169,67 @@ static bool skip_to_unquoted_gt(const unsigned char ** pptr, size_t * prem) {
     return self_closing;
 }
 
+/* Caller has consumed "<!--". Stops after "-->" or at EOF. */
+static void skip_comment_end(const unsigned char ** pptr, size_t * prem) {
+    const unsigned char * ptr = *pptr;
+    size_t rem = *prem;
+    while (rem > 0) {
+        if (rem >= 3 && ptr[0] == '-' && ptr[1] == '-' && ptr[2] == '>') {
+            ptr += 3;
+            rem -= 3;
+            break;
+        }
+        ptr++;
+        rem--;
+    }
+    *pptr = ptr;
+    *prem = rem;
+}
+
+/* Caller has consumed "<?". Stops after "?>" or at EOF. */
+static void skip_pi_end(const unsigned char ** pptr, size_t * prem) {
+    const unsigned char * ptr = *pptr;
+    size_t rem = *prem;
+    while (rem > 0) {
+        if (rem >= 2 && ptr[0] == '?' && ptr[1] == '>') {
+            ptr += 2;
+            rem -= 2;
+            break;
+        }
+        ptr++;
+        rem--;
+    }
+    *pptr = ptr;
+    *prem = rem;
+}
+
+/* Reads a tag name into name (max 16 chars + NUL).
+ * Preserves whole overlong consumption, ASCII lowercase, all delimiters and NUL termination.
+ * Returns true if the tag name was truncated / overflowed 16 chars. */
+static bool read_tag_name(const unsigned char ** pptr, size_t * prem, char name[17]) {
+    const unsigned char * ptr = *pptr;
+    size_t rem = *prem;
+    size_t name_len = 0;
+    bool name_overflow = false;
+    while (rem > 0) {
+        unsigned char c = *ptr;
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '/' || c == '>') {
+            break;
+        }
+        if (name_len < 16) {
+            name[name_len++] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : (char)c;
+        } else {
+            name_overflow = true;
+        }
+        ptr++;
+        rem--;
+    }
+    name[name_len] = '\0';
+    *pptr = ptr;
+    *prem = rem;
+    return name_overflow;
+}
+
 /* Caller has consumed "<![CDATA[". Stops after "]]>" or at EOF. */
 static void skip_until_cdata_end(const unsigned char ** pptr, size_t * prem) {
     const unsigned char * ptr = *pptr;
@@ -569,13 +630,7 @@ html_status html_to_blocks(const void * data, size_t len, html_blocks * out) {
             /* Drop region comments <!-- ... --> */
             if (rem >= 4 && memcmp(ptr, "<!--", 4) == 0) {
                 ptr += 4; rem -= 4;
-                while (rem > 0) {
-                    if (rem >= 3 && ptr[0] == '-' && ptr[1] == '-' && ptr[2] == '>') {
-                        ptr += 3; rem -= 3;
-                        break;
-                    }
-                    ptr++; rem--;
-                }
+                skip_comment_end(&ptr, &rem);
                 continue;
             }
             /* Drop region CDATA <![CDATA[ ... ]]> */
@@ -587,13 +642,7 @@ html_status html_to_blocks(const void * data, size_t len, html_blocks * out) {
             /* Drop region PI <? ... ?> */
             if (rem >= 2 && ptr[0] == '<' && ptr[1] == '?') {
                 ptr += 2; rem -= 2;
-                while (rem > 0) {
-                    if (rem >= 2 && ptr[0] == '?' && ptr[1] == '>') {
-                        ptr += 2; rem -= 2;
-                        break;
-                    }
-                    ptr++; rem--;
-                }
+                skip_pi_end(&ptr, &rem);
                 continue;
             }
             /* Drop region other <! ... > */
@@ -612,21 +661,7 @@ html_status html_to_blocks(const void * data, size_t len, html_blocks * out) {
                 if (next == '/') {
                     ptr += 2; rem -= 2;
                     char name[17];
-                    size_t name_len = 0;
-                    bool name_overflow = false;
-                    while (rem > 0) {
-                        unsigned char c = *ptr;
-                        if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '/' || c == '>') {
-                            break;
-                        }
-                        if (name_len < 16) {
-                            name[name_len++] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : (char)c;
-                        } else {
-                            name_overflow = true;
-                        }
-                        ptr++; rem--;
-                    }
-                    name[name_len] = '\0';
+                    bool name_overflow = read_tag_name(&ptr, &rem, name);
                     if (!name_overflow && drop_kind == DROP_HEAD && strcmp(name, "head") == 0) {
                         drop_depth--;
                         if (drop_depth == 0) {
@@ -638,21 +673,7 @@ html_status html_to_blocks(const void * data, size_t len, html_blocks * out) {
                 } else if ((next >= 'a' && next <= 'z') || (next >= 'A' && next <= 'Z')) {
                     ptr++; rem--;
                     char name[17];
-                    size_t name_len = 0;
-                    bool name_overflow = false;
-                    while (rem > 0) {
-                        unsigned char c = *ptr;
-                        if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '/' || c == '>') {
-                            break;
-                        }
-                        if (name_len < 16) {
-                            name[name_len++] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : (char)c;
-                        } else {
-                            name_overflow = true;
-                        }
-                        ptr++; rem--;
-                    }
-                    name[name_len] = '\0';
+                    bool name_overflow = read_tag_name(&ptr, &rem, name);
                     /* script/style inside head are still raw text. */
                     if (!name_overflow && (strcmp(name, "script") == 0 || strcmp(name, "style") == 0)) {
                         if (!skip_to_unquoted_gt(&ptr, &rem)) {
@@ -690,13 +711,7 @@ html_status html_to_blocks(const void * data, size_t len, html_blocks * out) {
         /* Comments <!-- ... --> */
         if (rem >= 4 && memcmp(ptr, "<!--", 4) == 0) {
             ptr += 4; rem -= 4;
-            while (rem > 0) {
-                if (rem >= 3 && ptr[0] == '-' && ptr[1] == '-' && ptr[2] == '>') {
-                    ptr += 3; rem -= 3;
-                    break;
-                }
-                ptr++; rem--;
-            }
+            skip_comment_end(&ptr, &rem);
             continue;
         }
 
@@ -742,13 +757,7 @@ html_status html_to_blocks(const void * data, size_t len, html_blocks * out) {
         /* PI <? ... ?> */
         if (rem >= 2 && ptr[0] == '<' && ptr[1] == '?') {
             ptr += 2; rem -= 2;
-            while (rem > 0) {
-                if (rem >= 2 && ptr[0] == '?' && ptr[1] == '>') {
-                    ptr += 2; rem -= 2;
-                    break;
-                }
-                ptr++; rem--;
-            }
+            skip_pi_end(&ptr, &rem);
             continue;
         }
 
@@ -776,21 +785,7 @@ html_status html_to_blocks(const void * data, size_t len, html_blocks * out) {
             if (next == '/') {
                 ptr += 2; rem -= 2;
                 char name[17];
-                size_t name_len = 0;
-                bool name_overflow = false;
-                while (rem > 0) {
-                    unsigned char c = *ptr;
-                    if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '/' || c == '>') {
-                        break;
-                    }
-                    if (name_len < 16) {
-                        name[name_len++] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : (char)c;
-                    } else {
-                        name_overflow = true;
-                    }
-                    ptr++; rem--;
-                }
-                name[name_len] = '\0';
+                bool name_overflow = read_tag_name(&ptr, &rem, name);
                 if (!name_overflow) {
                     if (strcmp(name, "p") == 0 || strcmp(name, "div") == 0 ||
                         strcmp(name, "li") == 0 || strcmp(name, "blockquote") == 0 ||
@@ -805,21 +800,7 @@ html_status html_to_blocks(const void * data, size_t len, html_blocks * out) {
             } else if ((next >= 'a' && next <= 'z') || (next >= 'A' && next <= 'Z')) {
                 ptr++; rem--;
                 char name[17];
-                size_t name_len = 0;
-                bool name_overflow = false;
-                while (rem > 0) {
-                    unsigned char c = *ptr;
-                    if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '/' || c == '>') {
-                        break;
-                    }
-                    if (name_len < 16) {
-                        name[name_len++] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : (char)c;
-                    } else {
-                        name_overflow = true;
-                    }
-                    ptr++; rem--;
-                }
-                name[name_len] = '\0';
+                bool name_overflow = read_tag_name(&ptr, &rem, name);
                 if (name_overflow) {
                     skip_to_unquoted_gt(&ptr, &rem);
                     continue;

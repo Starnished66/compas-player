@@ -3677,3 +3677,20 @@ msgstr "TXT-lukija"
 #: src/ui/gui_settings.c
 msgid "Keep Lyrics Screen On"
 msgstr ""
+
+msgid "PCM"
+msgstr "PCM"
+
+msgid "Native DSD"
+msgstr "Natiivi DSD"
+
+msgid "DoP"
+msgstr "DoP"
+
+msgid ""
+"Native DSD and DoP bypass software volume and DSP. Use DoP only with a "
+"compatible DAC. Unavailable formats or rates use PCM."
+msgstr "Natiivi DSD ja DoP ohittavat ohjelmiston äänenvoimakkuuden ja DSP:n. Käytä DoP:tä vain yhteensopivan DAC:n kanssa. PCM:ää käytetään, jos muoto tai näytetaajuus ei ole tuettu."
+
+msgid "USB DSD Output"
+msgstr "USB DSD -lähtö"

@@ -25,6 +25,9 @@ max_subscribers = re.search(r'^#define PLUGIN_MAX_EVENT_SUBSCRIBERS (\d+)', head
 c_source = r'''#include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
+#include "plugin_lua_runtime.h"
+#include <stdbool.h>
+bool plugin_storage_path_is_reserved(const char *path) { (void)path; return false; }
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -43,7 +46,7 @@ static int cleared_intervals;
 static int hits;
 static int finalizer_runs;
 static int gc_hit(lua_State *L) {(void)L;finalizer_runs++;return 0;}
-typedef struct {lua_State *L; bool disposing;} plugin_instance_t;
+typedef struct {lua_State *L; bool disposing, defined; char id[64];} plugin_instance_t;
 static plugin_instance_t plugin_instances[3];
 static plugin_instance_t *plugin_instance_for_state(lua_State *L) {
     for (int i=0;i<3;i++) if(plugin_instances[i].L==L) return &plugin_instances[i];
@@ -60,14 +63,13 @@ static void bind_guarded(lua_State *L,const char *name,lua_CFunction fn) {
 }
 static void gui_plugin_set_interval(int slot, uint32_t ms) {(void)slot;(void)ms;}
 static void gui_plugin_clear_interval(int slot) {(void)slot;cleared_intervals++;}
-static lua_State *plugin_main_state(lua_State *L) {
-    lua_rawgeti(L, LUA_REGISTRYINDEX, LUA_RIDX_MAINTHREAD);
-    lua_State *main = lua_tothread(L, -1); lua_pop(L, 1); return main ? main : L;
-}
 static int plugin_call(lua_State *L, int nargs, int nresults, int errfunc) {
     return lua_pcall(L, nargs, nresults, errfunc);
 }
 static int hit(lua_State *L) {(void)L;hits++;return 0;}
+static bool plugin_remote_resolver_registered(lua_State *L) {(void)L;return false;}
+static void remote_track_stream_adopt_owner(const char *id, uintptr_t owner) {(void)id;(void)owner;}
+static void remote_track_stream_cancel_owner(uintptr_t owner) {(void)owner;}
 ''' + '\n'.join(function(n) for n in ('l_plugin_on', 'l_plugin_set_interval', 'notify_event_no_args',
                                       'plugin_manager_interval_fired', 'failed_load_owner_matches',
                                       'discard_failed_plugin_events', 'discard_failed_plugin_intervals', 'l_plugin_api_guard')) + r'''
@@ -121,6 +123,7 @@ with tempfile.TemporaryDirectory(prefix='compas-failed-plugin-') as tmp:
     c_file.write_text(c_source)
     lua_sources = [str(p) for p in (root / 'lua/src').glob('*.c') if p.name not in ('lua.c', 'luac.c')]
     subprocess.run(['cc', '-std=gnu11', '-Wall', '-Wextra', '-Werror', '-DLUA_USE_LINUX',
-                    '-I' + str(root / 'lua/src'), str(c_file), *lua_sources, '-lm', '-ldl', '-o', str(binary)],
+                    '-I' + str(root / 'lua/src'), '-I' + str(root / 'src/plugins'), str(c_file),
+                    str(root / 'src/plugins/plugin_lua_runtime.c'), *lua_sources, '-lm', '-ldl', '-o', str(binary)],
                    check=True, cwd=root)
     subprocess.run([str(binary)], check=True, cwd=root)

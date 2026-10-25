@@ -1,3 +1,5 @@
+diff --git a/src/drivers/evdev/lv_evdev.c b/src/drivers/evdev/lv_evdev.c
+index 1b8319e..71b4e9c 100644
 --- a/src/drivers/evdev/lv_evdev.c
 +++ b/src/drivers/evdev/lv_evdev.c
 @@ -45,6 +45,14 @@
@@ -15,7 +17,7 @@
  
  /**********************
   *      TYPEDEFS
-@@ -68,6 +76,34 @@
+@@ -68,6 +76,34 @@ typedef struct {
      int key;
      lv_indev_state_t state;
      bool deleting;
@@ -50,7 +52,7 @@
      /* Multi-touch support */
  #if LV_USE_GESTURE_RECOGNITION
      lv_indev_touch_data_t touch_data[MAX_TOUCH_POINTS]; /* Array of touch points for gesture recognition */
-@@ -156,6 +192,108 @@
+@@ -156,6 +192,108 @@ static void _evdev_async_delete_cb(void * user_data)
      lv_indev_delete(indev);
  }
  
@@ -159,7 +161,7 @@
  static void _evdev_read(lv_indev_t * indev, lv_indev_data_t * data)
  {
      lv_evdev_t * dsc = lv_indev_get_driver_data(indev);
-@@ -165,11 +303,46 @@
+@@ -165,11 +303,46 @@ static void _evdev_read(lv_indev_t * indev, lv_indev_data_t * data)
      struct input_event in = { 0 };
      ssize_t br;
      while((br = read(dsc->fd, &in, sizeof(in))) > 0) {
@@ -206,7 +208,7 @@
  #if LV_USE_GESTURE_RECOGNITION
              if(in.code == ABS_MT_SLOT) {
                  if(in.value >= MAX_TOUCH_POINTS) {
-@@ -237,7 +410,10 @@
+@@ -237,7 +410,10 @@ static void _evdev_read(lv_indev_t * indev, lv_indev_data_t * data)
          }
          else if(in.type == EV_KEY) {
              if(in.code == BTN_MOUSE || in.code == BTN_TOUCH) {
@@ -218,7 +220,7 @@
                  else if(in.value == 1) dsc->state = LV_INDEV_STATE_PRESSED;
              }
              else {
-@@ -305,6 +481,17 @@
+@@ -305,6 +481,17 @@ static void _evdev_read(lv_indev_t * indev, lv_indev_data_t * data)
              }
          }
  #endif
@@ -236,3 +238,72 @@
      }
  
      if(!dsc->deleting && br == -1 && errno != EAGAIN) {
+@@ -344,6 +531,46 @@ static void _evdev_read(lv_indev_t * indev, lv_indev_data_t * data)
+     }
+ }
+ 
++bool lv_evdev_discard_pending(lv_indev_t * indev)
++{
++    if(indev == NULL) return false;
++
++    lv_evdev_t * dsc = lv_indev_get_driver_data(indev);
++    if(dsc == NULL || dsc->deleting) return false;
++
++    /* Reuse the driver's parser and frame boundaries, but do not dispatch the
++     * resulting samples through LVGL while a callback is still unwinding. */
++    lv_indev_data_t discarded;
++    do {
++        memset(&discarded, 0, sizeof(discarded));
++        _evdev_read(indev, &discarded);
++    } while(discarded.continue_reading);
++
++    /* A non-terminated frame can leave parser state behind after EAGAIN. It
++     * belongs to the external session too, so drop that partial frame. */
++    dsc->frame_count = 0;
++    dsc->frame_type_a = false;
++    dsc->frame_up = false;
++    dsc->slotted = false;
++    dsc->frame_lost = false;
++    dsc->pending_has_x = dsc->pending_has_y = dsc->pending_has_id = false;
++    dsc->dropping = false;
++
++    bool held = dsc->state == LV_INDEV_STATE_PRESSED;
++    unsigned long keys[(KEY_MAX + sizeof(unsigned long) * 8) / (sizeof(unsigned long) * 8)] = { 0 };
++    if(ioctl(dsc->fd, EVIOCGKEY(sizeof(keys)), keys) >= 0) {
++        const unsigned bits_per_word = (unsigned)(sizeof(unsigned long) * 8);
++        held = (keys[BTN_TOUCH / bits_per_word] & (1UL << (BTN_TOUCH % bits_per_word))) != 0;
++    }
++
++    dsc->state = held ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
++    dsc->follow_valid = false;
++    dsc->ignoring = false;
++    dsc->follow_missed = 0;
++    if(held) lv_indev_wait_release(indev);
++    return held;
++}
++
+ static void _evdev_indev_delete_cb(lv_event_t * e)
+ {
+     lv_indev_t * indev = lv_event_get_target(e);
+diff --git a/src/drivers/evdev/lv_evdev.h b/src/drivers/evdev/lv_evdev.h
+index ed00bb1..826543f 100644
+--- a/src/drivers/evdev/lv_evdev.h
++++ b/src/drivers/evdev/lv_evdev.h
+@@ -55,6 +55,17 @@ lv_indev_t * lv_evdev_create(lv_indev_type_t indev_type, const char * dev_path);
+  */
+ lv_indev_t * lv_evdev_create_fd(lv_indev_type_t indev_type, int fd);
+ 
++/**
++ * Discard input already queued for an evdev indev and return whether its
++ * touchscreen is currently held. Call only for an indev created by this
++ * driver, on the UI thread, after a read callback has returned (for example
++ * from a synchronous screen handoff); never call from the read callback.
++ * @param indev an indev created by lv_evdev_create() or lv_evdev_create_fd()
++ * @return true if BTN_TOUCH is currently down, or if the last parsed state
++ *         was pressed and the device could not report its live key state
++ */
++bool lv_evdev_discard_pending(lv_indev_t * indev);
++
+ /**
+  * Begin automatically creating evdev indevs for all new and existing
+  * evdev devices found in /dev/input/

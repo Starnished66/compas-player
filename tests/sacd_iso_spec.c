@@ -18,6 +18,7 @@
 /* The host object bundle contains the app entry-point consumers too. */
 void install_thread_crash_altstack(void) {}
 void main_loop_discard_elapsed_time(void) {}
+bool main_loop_discard_pointer_input(void) { return false; }
 
 static bool count_song(const char *path, void *user) {
     int *count = user;

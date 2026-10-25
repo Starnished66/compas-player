@@ -425,6 +425,17 @@ static uint32_t measure_text_page(char * text, uint32_t text_len, uint32_t start
     return off;
 }
 
+static void measure_next_page(void) {
+    uint32_t start_off = s_page_off[s_measured];
+    uint32_t next_off = measure_one_page(s_text, s_text_len, start_off,
+                                         s_lines_per_page, s_content_width, s_font);
+    s_measured++;
+    s_page_off[s_measured] = next_off;
+    if (next_off >= s_text_len) {
+        s_scan_done = true;
+    }
+}
+
 /* The cap stores one real page per slot. The unread suffix is not folded
  * into the last page: that page would be taller than the screen, so its
  * tail would be clipped and Next could not reach it. */
@@ -467,14 +478,7 @@ static bool handle_next_page(void) {
     }
 
     if (s_measured < GUI_TEXT_VIEW_MAX_PAGES) {
-        uint32_t start_off = s_page_off[s_measured];
-        uint32_t next_off = measure_one_page(s_text, s_text_len, start_off,
-                                             s_lines_per_page, s_content_width, s_font);
-        s_measured++;
-        s_page_off[s_measured] = next_off;
-        if (next_off >= s_text_len) {
-            s_scan_done = true;
-        }
+        measure_next_page();
     }
     note_page_cap();
 
@@ -576,15 +580,8 @@ static void scan_timer_cb(lv_timer_t * timer) {
         if (get_time_us() - tick_start_us >= 6000ULL) {
             break;
         }
-        uint32_t start_off = s_page_off[s_measured];
-        uint32_t next_off = measure_one_page(s_text, s_text_len, start_off,
-                                             s_lines_per_page, s_content_width, s_font);
-        s_measured++;
-        s_page_off[s_measured] = next_off;
-        if (next_off >= s_text_len) {
-            s_scan_done = true;
-            break;
-        }
+        measure_next_page();
+        if (s_scan_done) break;
     }
     note_page_cap();
 
@@ -960,15 +957,8 @@ bool gui_text_view_show(const char * title, const void * text, size_t text_len,
             }
         }
 
-        uint32_t start_off = s_page_off[s_measured];
-        uint32_t next_off = measure_one_page(s_text, s_text_len, start_off,
-                                             s_lines_per_page, s_content_width, s_font);
-        s_measured++;
-        s_page_off[s_measured] = next_off;
-        if (next_off >= s_text_len) {
-            s_scan_done = true;
-            break;
-        }
+        measure_next_page();
+        if (s_scan_done) break;
     }
     note_page_cap();
 

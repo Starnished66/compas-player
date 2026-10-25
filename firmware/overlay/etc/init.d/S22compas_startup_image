@@ -1,0 +1,28 @@
+#!/bin/sh
+# Render Compás' early RGB565 image before the player starts. Fall back to the
+# stock NAND-selected JPEG theme if the helper is absent or cannot draw.
+
+start_splash() {
+    if ! /usr/bin/compas-early-splash; then
+        theme=$(nanddump -q -s 0x20000 -l 7 /dev/mtd5 -a 2>/dev/null)
+        case "$theme" in
+            theme:1) cmd_jpeg_display /etc/logo1.jpeg ;;
+            theme:2) cmd_jpeg_display /etc/logo2.jpeg ;;
+            *)       cmd_jpeg_display /etc/logo.jpeg ;;
+        esac
+    fi
+
+    # Preserve the vendor panel settling delay. All supported stock scripts
+    # use this backlight node; skip the write if the node is unavailable.
+    sleep 0.1
+    if [ -w /sys/class/backlight/backlight_pwm0/brightness ]; then
+        echo 60 > /sys/class/backlight/backlight_pwm0/brightness
+    fi
+}
+
+case "${1:-}" in
+    start) start_splash ;;
+    stop) exit 0 ;;
+    *) exit 1 ;;
+esac
+exit 0

@@ -653,6 +653,13 @@ bool gui_plugin_list_is_top(int slot) {
            gui_navigation_is_top(plugin_list_screens[slot]);
 }
 
+bool gui_plugin_list_reset_scroll(int slot) {
+    if (!gui_plugin_list_is_top(slot) || !plugin_list_lists[slot]) return false;
+    lv_obj_update_layout(plugin_list_lists[slot]);
+    lv_obj_scroll_to_y(plugin_list_lists[slot], 0, LV_ANIM_OFF);
+    return true;
+}
+
 void gui_plugin_play_paths(const char * const * paths, int count, int start_index, bool open_player) {
     if (count <= 0) return;
     if (start_index < 0) start_index = 0;
@@ -1393,61 +1400,6 @@ void gui_plugins_teardown(void) {
     }
 }
 
-
-void gui_plugin_free_string_array(char ** array, int count) {
-    for (int i = 0; i < count; i++) free(array[i]);
-    free(array);
-}
-
-/* ---- plugin.library_* -- see gui.h's own comment for the design intent.
- * Every one of these goes straight to metadata_db.c (its own METADATA_DB_
- * GUARD), same as gui_plugin_get_artist_albums() and friends above -- no
- * plugin call in this file forces any whole-library load just because it
- * looked at the library first. ---- */
-
-static int gui_plugin_library_clamp_limit(int limit) {
-    if (limit <= 0 || limit > GUI_PLUGIN_LIBRARY_MAX_PAGE) return GUI_PLUGIN_LIBRARY_MAX_PAGE;
-    return limit;
-}
-
-int64_t gui_plugin_library_song_count(void) {
-    return metadata_db_get_song_count();
-}
-
-int gui_plugin_library_get_songs(const char * query, const char * artist, const char * album_artist,
-                                  const char * album, int offset, int limit, song_row_t * out_rows,
-                                  int64_t * out_total) {
-    if (offset < 0) offset = 0;
-    limit = gui_plugin_library_clamp_limit(limit);
-    if (out_total) *out_total = metadata_db_count_songs_filtered(query, artist, album_artist, album, NULL);
-    return metadata_db_get_songs_filtered_page(query, artist, album_artist, album, NULL, offset, limit, out_rows);
-}
-
-int gui_plugin_library_search(const char * query, int limit, song_row_t * out_rows) {
-    limit = gui_plugin_library_clamp_limit(limit);
-    return metadata_db_search_songs(query, out_rows, limit);
-}
-
-bool gui_plugin_library_get_song(int64_t id, song_row_t * out_row) {
-    return metadata_db_get_song_by_id(id, out_row);
-}
-
-bool gui_plugin_library_album_cover(int64_t song_id, int size_px, char * out, size_t out_size) {
-    return gui_library_album_cover_cached(song_id, size_px, out, out_size);
-}
-
-/* Fetches a page of artists with offset and clamped limit directly from the database. */
-int gui_plugin_library_get_artists(int offset, int limit, group_row_t * out_rows) {
-    if (offset < 0) offset = 0;
-    limit = gui_plugin_library_clamp_limit(limit);
-    return metadata_db_get_groups_page(METADATA_DB_GROUP_ARTIST, offset, limit, out_rows);
-}
-
-int gui_plugin_library_get_albums(int offset, int limit, const char * artist_filter, group_row_t * out_rows) {
-    if (offset < 0) offset = 0;
-    limit = gui_plugin_library_clamp_limit(limit);
-    return metadata_db_get_albums_page_filtered(artist_filter, offset, limit, out_rows);
-}
 
 bool gui_plugin_refresh_library(void) {
     if (gui_library_has_background_work()) return false;

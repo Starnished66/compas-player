@@ -11,8 +11,11 @@ src/ui/gui_subsonic.c::Unknown Artist
 src/ui/gui_subsonic.c::Unknown Album
 src/ui/gui_subsonic.c::Unknown Title
 src/ui/gui_network.c::44.1 kHz
-src/library/metadata.c::scan
-src/library/metadata.c::artwork
+src/library/metadata_isolation.c::scan
+src/library/metadata_isolation.c::artwork
 1k
 20k Hz
 src/ui/gui_setup.c::Aa
+src/ui/gui_custom_font.c::Default
+src/ui/gui_custom_font_spec.c::Default
+src/ui/gui_shell_settings_spec.c::test category entry

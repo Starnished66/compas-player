@@ -7,6 +7,7 @@ import tempfile
 
 root = pathlib.Path(__file__).resolve().parents[1]
 src = (root / 'src/plugins/plugin_manager.c').read_text()
+http_src = (root / 'src/plugins/bindings/plugin_http_bindings.c').read_text()
 
 def function(name):
     match = re.search(r'^(?:static )?(?:int|void|bool|const char \*|lua_State \*) ' + name + r'\([^\n]*\) \{.*?^\}', src, re.M | re.S)
@@ -21,12 +22,21 @@ def pointer_function(name):
         raise RuntimeError('missing production function ' + name)
     return match.group()
 
+def http_function(name):
+    match = re.search(r'^(?:static )?(?:int|void|bool|const char \*|lua_State \*) ' + name + r'\([^\n]*\) \{.*?^\}', http_src, re.M | re.S)
+    if not match:
+        raise RuntimeError('missing HTTP production function ' + name)
+    return match.group()
+
 instance_lookup = re.search(r'^static plugin_instance_t \* plugin_instance_for_state\([^\n]*\) \{.*?^\}', src, re.M | re.S).group()
 registry = re.search(r'^static lua_State \* plugin_progress_owner = NULL;.*?^static lua_Integer plugin_progress_next_handle = 1;', src, re.M | re.S).group()
 body = r'''
 #include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
+#include "plugin_lua_runtime.h"
+#include <stdbool.h>
+bool plugin_storage_path_is_reserved(const char *path) { (void)path; return false; }
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -65,12 +75,11 @@ static bool gui_plugin_update_progress(const char *m,int p) {
 }
 static bool gui_plugin_progress_is_visible(void) {return visible;}
 static void gui_plugin_close_progress(void) {visible=false;}
-static int push_plugin_error(lua_State *L,const char *msg) {lua_pushnil(L);lua_pushstring(L,msg);return 2;}
-''' + registry + '\n' + instance_lookup + '\n' + pointer_function('plugin_main_state') + '\n' + pointer_function('plugin_progress_text') + '\n' + '\n'.join(function(n) for n in (
+''' + registry + '\n' + instance_lookup + '\n' + pointer_function('plugin_progress_text') + '\n' + '\n'.join(function(n) for n in (
     'plugin_progress_percent', 'plugin_progress_reset', 'l_plugin_show_progress',
-    'l_plugin_update_progress', 'l_plugin_close_progress', 'l_plugin_get_download_progress',
-    'plugin_async_download_progress', 'failed_load_owner_matches', 'l_plugin_api_guard',
-    'plugin_manager_mark_disposing')) + r'''
+    'l_plugin_update_progress', 'l_plugin_close_progress',
+    'failed_load_owner_matches', 'l_plugin_api_guard',
+    'plugin_manager_mark_disposing')) + '\n' + http_function('l_plugin_get_download_progress') + '\n' + http_function('plugin_async_download_progress') + r'''
 static void guarded(lua_State *L,const char *name,lua_CFunction fn) {
     lua_pushcfunction(L,fn);lua_pushcclosure(L,l_plugin_api_guard,1);lua_setglobal(L,name);
 }
@@ -134,5 +143,7 @@ with tempfile.TemporaryDirectory(prefix='compas-progress-api-') as directory:
     c = directory / 'test.c'; binary = directory / 'test'; c.write_text(body)
     lua_sources = [str(p) for p in (root / 'lua/src').glob('*.c') if p.name not in ('lua.c', 'luac.c')]
     subprocess.run(['cc', '-std=gnu11', '-Wall', '-Wextra', '-Werror', '-DLUA_USE_LINUX',
-                    '-I' + str(root / 'lua/src'), str(c), *lua_sources, '-lm', '-ldl', '-pthread', '-o', str(binary)], check=True, cwd=root)
+                    '-I' + str(root / 'lua/src'), '-I' + str(root / 'src/plugins'),
+                    '-I' + str(root / 'src/plugins/bindings'), str(c),
+                    str(root / 'src/plugins/plugin_lua_runtime.c'), *lua_sources, '-lm', '-ldl', '-pthread', '-o', str(binary)], check=True, cwd=root)
     subprocess.run([str(binary)], check=True, cwd=root)

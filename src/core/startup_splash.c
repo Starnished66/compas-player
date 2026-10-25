@@ -39,6 +39,18 @@ static bool read_exact(int fd, void *buffer, size_t size) {
     return true;
 }
 
+static bool write_exact(int fd, const void *buffer, size_t size) {
+    const unsigned char *bytes = buffer;
+    size_t offset = 0;
+    while (offset < size) {
+        ssize_t n = write(fd, bytes + offset, size - offset);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) return false;
+        offset += (size_t)n;
+    }
+    return true;
+}
+
 static bool valid_header(const unsigned char h[HEADER_SIZE], int width, int height, size_t size) {
     if (width <= 0 || height <= 0 || width > BOARD_SCREEN_WIDTH || height > BOARD_SCREEN_HEIGHT) return false;
     uint16_t w = le16(h + 4), ht = le16(h + 6), stride = le16(h + 8);
@@ -72,15 +84,7 @@ static bool load_fd(int fd, int width, int height, uint16_t *pixels) {
     size_t total = (size_t)st.st_size;
     if (!read_exact(fd, h, sizeof(h))) return false;
     if (!valid_header(h, width, height, total)) return false;
-    size_t got = 0;
-    size_t bytes = total - HEADER_SIZE;
-    unsigned char *out = (unsigned char *)pixels;
-    while (got < bytes) {
-        ssize_t n = read(fd, out + got, bytes - got);
-        if (n < 0 && errno == EINTR) continue;
-        if (n <= 0) return false;
-        got += (size_t)n;
-    }
+    if (!read_exact(fd, pixels, total - HEADER_SIZE)) return false;
     unsigned char extra;
     return read(fd, &extra, 1) == 0;
 }
@@ -156,13 +160,7 @@ bool startup_splash_install(const char *source, int width, int height, const cha
     }
     int out = openat(dir, temp, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
     if (out < 0) { close(in); close(dir); return false; }
-    size_t header_written = 0;
-    while (header_written < HEADER_SIZE) {
-        ssize_t n = write(out, hdr + header_written, HEADER_SIZE - header_written);
-        if (n < 0 && errno == EINTR) continue;
-        if (n <= 0) { ok = false; break; }
-        header_written += (size_t)n;
-    }
+    ok = write_exact(out, hdr, HEADER_SIZE);
     unsigned char buf[8192];
     uint64_t remaining = (uint64_t)st.st_size - HEADER_SIZE;
     while (ok && remaining) {
@@ -170,13 +168,7 @@ bool startup_splash_install(const char *source, int width, int height, const cha
         ssize_t n = read(in, buf, want);
         if (n < 0 && errno == EINTR) continue;
         if (n <= 0) { ok = false; break; }
-        size_t off = 0;
-        while (off < (size_t)n) {
-            ssize_t m = write(out, buf + off, (size_t)n - off);
-            if (m < 0 && errno == EINTR) continue;
-            if (m <= 0) { ok = false; break; }
-            off += (size_t)m;
-        }
+        ok = write_exact(out, buf, (size_t)n);
         remaining -= (uint64_t)n;
     }
     unsigned char extra;

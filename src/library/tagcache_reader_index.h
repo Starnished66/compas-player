@@ -9,11 +9,11 @@ static int legacy_group_index(int kind, const char *name, const char *aa);
 static int legacy_group_ids(int kind, int gi, int offset, int32_t *ids, int max);
 
 #define TC_INDEX_MAGIC 0x54434931u
-#define TC_INDEX_VERSION 5u
+#define TC_INDEX_VERSION 7u
 #define TC_ALBUM_ORDER_MAGIC 0x5443414fu
-#define TC_ALBUM_ORDER_VERSION 2u
+#define TC_ALBUM_ORDER_VERSION 4u
 static bool reader_build_indexes(void);
-static bool reader_migrate_title_index(int32_t gen);
+static bool reader_migrate_indexes(int32_t gen);
 static void tc_index_name(char *out, size_t out_size, int32_t gen, const char *suffix);
 static bool tc_index_copy_fd(int from, int to, uint64_t *size_out);
 static int reader_group_index(int kind, const char *name, const char *aa);
@@ -40,10 +40,16 @@ typedef struct {
     int32_t generation, serial, commitid, count;
 } tc_album_order_meta_t;
 
-static void reader_album_order_name(char *out, size_t size, int32_t gen, int sort, bool inverse) {
+static void reader_album_order_name(char *out, size_t size, int32_t gen, int sort, bool inverse,
+                                    uint32_t version) {
     const char *name = sort == 0 ? (inverse ? ".album_recent_inverse" : ".album_recent")
                     : sort == 1 ? (inverse ? ".album_year_inverse" : ".album_year")
                                 : (inverse ? ".album_artist_year_inverse" : ".album_artist_year");
+    char versioned[64];
+    if (version >= 3u) {
+        snprintf(versioned, sizeof(versioned), "%s.v%u", name, version);
+        name = versioned;
+    }
     tc_index_name(out, size, gen, name);
 }
 
@@ -55,26 +61,31 @@ static void reader_close_album_orders(void) {
     }
 }
 
-static void reader_open_album_orders(int32_t gen) {
+static void reader_open_album_orders(int32_t gen, uint32_t index_version) {
     char path[640];
     tc_album_order_meta_t meta;
     reader_close_album_orders();
-    tc_index_name(path, sizeof(path), gen, ".album_meta");
+    const char *meta_suffix = index_version >= 7u ? ".album_meta.v4"
+                              : index_version >= 6u ? ".album_meta.v3" : ".album_meta";
+    tc_index_name(path, sizeof(path), gen, meta_suffix);
     int fd = open(path, O_RDONLY);
     if (fd < 0) return; /* Older valid generations retain alphabetical browsing. */
     struct stat st;
     bool valid = fstat(fd, &st) == 0 && st.st_size == (off_t)sizeof(meta) &&
                  reader_read_at(fd, &meta, sizeof(meta), 0) && meta.magic == TC_ALBUM_ORDER_MAGIC &&
-                 (meta.version == 1u || meta.version == TC_ALBUM_ORDER_VERSION) && meta.generation == gen &&
+                 (index_version >= 6u ?
+                  meta.version == (index_version >= 7u ? TC_ALBUM_ORDER_VERSION : 3u) :
+                  meta.version == 1u || meta.version == 2u) &&
+                 meta.generation == gen &&
                  meta.serial == master_serial && meta.commitid == master_commitid &&
                  meta.count == reader_group_n[TAGCACHE_GROUP_ALBUM];
     close(fd);
     if (!valid) return;
     int order_count = meta.version == 1u ? 2 : 3;
     for (int i = 0; i < order_count; i++) {
-        reader_album_order_name(path, sizeof(path), gen, i, false);
+        reader_album_order_name(path, sizeof(path), gen, i, false, meta.version);
         reader_album_order_fd[i] = open(path, O_RDONLY);
-        reader_album_order_name(path, sizeof(path), gen, i, true);
+        reader_album_order_name(path, sizeof(path), gen, i, true, meta.version);
         reader_album_inverse_fd[i] = open(path, O_RDONLY);
         struct stat order_stat, inverse_stat;
         off_t expected = (off_t)meta.count * (off_t)sizeof(int32_t);
@@ -104,7 +115,7 @@ static void reader_open_album_orders(int32_t gen) {
 static bool reader_write_album_orders(int32_t gen) {
     char path[640], tmp[680];
     for (int i = 0; i < 3; i++) for (int inverse = 0; inverse < 2; inverse++) {
-        reader_album_order_name(path, sizeof(path), gen, i, inverse != 0);
+        reader_album_order_name(path, sizeof(path), gen, i, inverse != 0, TC_ALBUM_ORDER_VERSION);
         snprintf(tmp, sizeof(tmp), "%s.tmp", path);
         int out = open(tmp, O_CREAT | O_TRUNC | O_WRONLY, 0644);
         int src = inverse ? reader_album_inverse_fd[i] : reader_album_order_fd[i];
@@ -120,7 +131,7 @@ static bool reader_write_album_orders(int32_t gen) {
     }
     tc_album_order_meta_t meta = { TC_ALBUM_ORDER_MAGIC, TC_ALBUM_ORDER_VERSION,
         gen, master_serial, master_commitid, reader_group_n[TAGCACHE_GROUP_ALBUM] };
-    tc_index_name(path, sizeof(path), gen, ".album_meta");
+    tc_index_name(path, sizeof(path), gen, ".album_meta.v4");
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     int fd = open(tmp, O_CREAT | O_TRUNC | O_WRONLY, 0644);
     bool ok = fd >= 0;
@@ -188,13 +199,38 @@ static const char *tc_index_suffixes[18] = {
 };
 
 static const char *reader_index_component_suffix(int component, uint32_t version) {
+    if (version >= 7u) {
+        static const char *v7_suffixes[18] = {
+            ".title.v7", ".recency.v7", ".path.v7", ".rank0.v7", ".rank1.v7",
+            ".group0.v7", ".group1.v7", ".group2.v7", ".member0.v7", ".member1.v7",
+            ".member2.v7", ".compact_recency.v7", ".compact_rank.v7", ".compact_member0.v7",
+            ".compact_member1.v7", ".compact_member2.v7", ".artist_names.v7", ".compact_artist_names.v7"
+        };
+        return component >= 0 && component < 18 ? v7_suffixes[component] : ".invalid.v7";
+    }
+    if (version >= 6u) {
+        static const char *v6_suffixes[18] = {
+            ".title.v6", ".recency.v6", ".path.v6", ".rank0.v6", ".rank1.v6",
+            ".group0.v6", ".group1.v6", ".group2.v6", ".member0.v6", ".member1.v6",
+            ".member2.v6", ".compact_recency.v6", ".compact_rank.v6", ".compact_member0.v6",
+            ".compact_member1.v6", ".compact_member2.v6", ".artist_names.v6", ".compact_artist_names.v6"
+        };
+        return component >= 0 && component < 18 ? v6_suffixes[component] : ".invalid.v6";
+    }
     if (version >= 5u && component == 0) return ".title.v5";
     if (version >= 5u && component == 3) return ".rank0.v5";
     return tc_index_suffixes[component];
 }
 
 static void reader_query_index_name(char *out, size_t size, int32_t gen, uint32_t version) {
-    tc_index_name(out, size, gen, version >= 5u ? ".query.v5" : ".query");
+    tc_index_name(out, size, gen, version >= 7u ? ".query.v7" : version >= 6u ? ".query.v6" :
+                                  version >= 5u ? ".query.v5" : ".query");
+}
+
+static const char *reader_artist_names_suffix(bool compact, uint32_t version) {
+    if (version >= 7u) return compact ? ".compact_artist_names.v7" : ".artist_names.v7";
+    if (version >= 6u) return compact ? ".compact_artist_names.v6" : ".artist_names.v6";
+    return compact ? tc_index_suffixes[17] : tc_index_suffixes[16];
 }
 
 static void tc_index_name(char *out, size_t out_size, int32_t gen, const char *suffix) {
@@ -262,7 +298,7 @@ static bool reader_write_indexes(int32_t gen) {
     }
     if (ok) {
         char name[640];
-        tc_index_name(name, sizeof(name), gen, tc_index_suffixes[16]);
+        tc_index_name(name, sizeof(name), gen, reader_artist_names_suffix(false, TC_INDEX_VERSION));
         int out = open(name, O_CREAT | O_TRUNC | O_WRONLY, 0644);
         ok = out >= 0 && tc_index_copy_fd(reader_artist_names_fd, out, &meta.size[16]);
         if (out >= 0 && !close_synced(out)) ok = false;
@@ -283,7 +319,7 @@ static bool reader_write_indexes(int32_t gen) {
         reader_members_fd[0], reader_members_fd[1], reader_members_fd[2] };
     for (int i = 0; ok && i < 5; i++) {
         char name[640];
-        tc_index_name(name, sizeof(name), gen, tc_index_suffixes[11 + i]);
+        tc_index_name(name, sizeof(name), gen, reader_index_component_suffix(11 + i, TC_INDEX_VERSION));
         int out = open(name, O_CREAT | O_TRUNC | O_WRONLY, 0644);
         if (out < 0) { ok = false; break; }
         ok = tc_index_copy_fd(compact_src[i], out, &meta.size[11 + i]);
@@ -291,16 +327,21 @@ static bool reader_write_indexes(int32_t gen) {
     }
     if (ok) {
         char name[640];
-        tc_index_name(name, sizeof(name), gen, tc_index_suffixes[17]);
+        tc_index_name(name, sizeof(name), gen, reader_artist_names_suffix(true, TC_INDEX_VERSION));
         int out = open(name, O_CREAT | O_TRUNC | O_WRONLY, 0644);
         ok = out >= 0 && tc_index_copy_fd(reader_artist_names_fd, out, &meta.size[17]);
         if (out >= 0 && !close_synced(out)) ok = false;
     }
     if (ok) ok = reader_write_album_orders(gen);
+    /* Make every newly written v7 component durable before publishing v7. */
+    if (ok) ok = library_fsync_dir(db_dir);
     if (ok) ok = write_fully(mfd, &meta, sizeof(meta));
     if (ok) ok = fsync(mfd) == 0;
     if (close(mfd) != 0) ok = false;
     if (ok) ok = rename(tmp, path) == 0;
+    /* Once the atomic pointer is renamed, keep its component set intact even
+     * if the directory fsync reports an error. */
+    if (ok) (void)library_fsync_dir(db_dir);
     if (!ok) {
         unlink(tmp);
         char query_path[640];
@@ -311,9 +352,9 @@ static bool reader_write_indexes(int32_t gen) {
             tc_index_name(name, sizeof(name), gen, reader_index_component_suffix(i, TC_INDEX_VERSION));
             unlink(name);
         }
-        const char *extra[] = {".album_recent", ".album_recent_inverse", ".album_year",
-                               ".album_year_inverse", ".album_artist_year",
-                               ".album_artist_year_inverse", ".album_meta"};
+        const char *extra[] = {".album_recent.v4", ".album_recent_inverse.v4", ".album_year.v4",
+                               ".album_year_inverse.v4", ".album_artist_year.v4",
+                               ".album_artist_year_inverse.v4", ".album_meta.v4"};
         for (size_t i = 0; i < sizeof(extra) / sizeof(extra[0]); i++) {
             tc_index_name(path, sizeof(path), gen, extra[i]);
             unlink(path);
@@ -340,7 +381,8 @@ static int reader_open_indexes(int32_t gen) {
     }
     close(mfd);
     if (meta.magic != TC_INDEX_MAGIC ||
-        (meta.version != 3u && meta.version != 4u && meta.version != TC_INDEX_VERSION) ||
+        (meta.version != 3u && meta.version != 4u && meta.version != 5u && meta.version != 6u &&
+         meta.version != TC_INDEX_VERSION) ||
         meta.generation != gen || meta.serial != master_serial || meta.commitid != master_commitid ||
         meta.entry_count != ent_count || meta.live_entries < 0 || meta.live_entries > ent_count)
         return -1;
@@ -386,7 +428,8 @@ static int reader_open_indexes(int32_t gen) {
         }
         *dst[i] = fd;
     }
-    tc_index_name(path, sizeof(path), gen, tc_index_suffixes[reader_compact_order ? 17 : 16]);
+    tc_index_name(path, sizeof(path), gen,
+                  reader_artist_names_suffix(reader_compact_order, meta.version));
     reader_artist_names_fd = open(path, O_RDONLY);
     if (reader_artist_names_fd < 0) { reader_close_indexes(); return -1; }
     live_count = meta.live_entries;
@@ -401,9 +444,10 @@ static int reader_open_indexes(int32_t gen) {
             return -1;
         }
     }
-    reader_open_album_orders(gen);
+    reader_open_album_orders(gen, meta.version);
     reader_loaded_index_version = meta.version;
-    reader_title_order_version = meta.version >= 5u ? 2u : 1u;
+    reader_title_order_version = meta.version >= 7u ? 4u : meta.version >= 6u ? 3u :
+                                 meta.version >= 5u ? 2u : 1u;
     return 1;
 }
 
@@ -427,6 +471,37 @@ static void reader_unlink_indexes(int32_t gen) {
     const char *versioned[] = {".title.v5", ".rank0.v5", ".query.v5"};
     for (size_t i = 0; i < sizeof(versioned) / sizeof(versioned[0]); i++) {
         tc_index_name(path, sizeof(path), gen, versioned[i]);
+        unlink(path);
+        snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+        unlink(tmp);
+    }
+    for (int i = 0; i < 18; i++) {
+        tc_index_name(path, sizeof(path), gen, reader_index_component_suffix(i, 6u));
+        unlink(path);
+        snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+        unlink(tmp);
+    }
+    const char *v6_extra[] = {".query.v6", ".artist_names.v6", ".compact_artist_names.v6",
+        ".album_recent.v3", ".album_recent_inverse.v3", ".album_year.v3",
+        ".album_year_inverse.v3", ".album_artist_year.v3", ".album_artist_year_inverse.v3",
+        ".album_meta.v3"};
+    for (size_t i = 0; i < sizeof(v6_extra) / sizeof(v6_extra[0]); i++) {
+        tc_index_name(path, sizeof(path), gen, v6_extra[i]);
+        unlink(path);
+        snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+        unlink(tmp);
+    }
+    for (int i = 0; i < 18; i++) {
+        tc_index_name(path, sizeof(path), gen, reader_index_component_suffix(i, 7u));
+        unlink(path);
+        snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+        unlink(tmp);
+    }
+    const char *v7_extra[] = {".query.v7", ".album_recent.v4", ".album_recent_inverse.v4",
+        ".album_year.v4", ".album_year_inverse.v4", ".album_artist_year.v4",
+        ".album_artist_year_inverse.v4", ".album_meta.v4"};
+    for (size_t i = 0; i < sizeof(v7_extra) / sizeof(v7_extra[0]); i++) {
+        tc_index_name(path, sizeof(path), gen, v7_extra[i]);
         unlink(path);
         snprintf(tmp, sizeof(tmp), "%s.tmp", path);
         unlink(tmp);
@@ -608,7 +683,7 @@ static int reader_compare_title_sort(const void *a, const void *b, void *context
             reader_sort_failed = true;
             return (ka->slot > kb->slot) - (ka->slot < kb->slot);
         }
-        c = ascii_casecmp(reader_display_title(&sa), reader_display_title(&sb));
+        c = utf8_collate_compare(reader_display_title(&sa), reader_display_title(&sb));
     }
     return c ? c : (ka->slot > kb->slot) - (ka->slot < kb->slot);
 }
@@ -656,7 +731,7 @@ static int reader_compare_order(const void *a, const void *b, void *context) {
             }
             c = ascii_casecmp(sa.path, sb.path);
         }
-    } else c = ascii_casecmp(reader_display_title(&sa), reader_display_title(&sb));
+    } else c = utf8_collate_compare(reader_display_title(&sa), reader_display_title(&sb));
     return c ? c : (ia > ib) - (ia < ib);
 }
 
@@ -699,17 +774,13 @@ static bool reader_make_member_sort(int kind, const reader_member_t *member,
     memset(key, 0, sizeof(*key));
     key->member = *member;
     reader_member_names(kind, member, song, name, aa);
-    if (!tagcache_sort_prefix(name, key->name, sizeof(key->name)) ||
-        !tagcache_sort_prefix(aa, key->aa, sizeof(key->aa))) {
-        reader_sort_failed = true;
-        return false;
-    }
+    utf8_collate_identity_prefix(name, key->name, sizeof(key->name));
+    utf8_collate_identity_prefix(aa, key->aa, sizeof(key->aa));
     if (kind == TAGCACHE_GROUP_ALBUM) {
         key->secondary.album_order.disc = song->disc_number > 0 ? song->disc_number : 1;
         key->secondary.album_order.track = song->track_number;
-    } else if (!tagcache_sort_prefix(song->album, key->secondary.album, sizeof(key->secondary.album))) {
-        reader_sort_failed = true;
-        return false;
+    } else {
+        utf8_collate_identity_prefix(song->album, key->secondary.album, sizeof(key->secondary.album));
     }
     if (!reader_compact_sort && !tagcache_sort_prefix(song->path, key->path, sizeof(key->path))) {
         reader_sort_failed = true;
@@ -730,7 +801,7 @@ static int reader_compare_member_sort(const void *a, const void *b, void *contex
             reader_sort_failed = true;
             return (ka->member.slot > kb->member.slot) - (ka->member.slot < kb->member.slot);
         }
-        c = ascii_casecmp(na, nb);
+        c = utf8_collate_identity_compare(na, nb);
     }
     if (c) return c;
 
@@ -742,7 +813,7 @@ static int reader_compare_member_sort(const void *a, const void *b, void *contex
             reader_sort_failed = true;
             return (ka->member.slot > kb->member.slot) - (ka->member.slot < kb->member.slot);
         }
-        c = ascii_casecmp(aa, ab);
+        c = utf8_collate_identity_compare(aa, ab);
     }
     if (c) return c;
 
@@ -765,7 +836,7 @@ static int reader_compare_member_sort(const void *a, const void *b, void *contex
                 reader_sort_failed = true;
                 return (ka->member.slot > kb->member.slot) - (ka->member.slot < kb->member.slot);
             }
-            c = ascii_casecmp(sa.album, sb.album);
+            c = utf8_collate_identity_compare(sa.album, sb.album);
         }
         if (c) return c;
     }
@@ -801,8 +872,8 @@ static int reader_compare_member(const void *a, const void *b, void *context) {
     char na[TAGCACHE_PATH_MAX], aa[TAGCACHE_PATH_MAX], nb[TAGCACHE_PATH_MAX], ab[TAGCACHE_PATH_MAX];
     reader_member_names(reader_sort_kind, ma, &sa, na, aa);
     reader_member_names(reader_sort_kind, mb, &sb, nb, ab);
-    int c = ascii_casecmp(na, nb);
-    if (!c) c = ascii_casecmp(aa, ab);
+    int c = utf8_collate_identity_compare(na, nb);
+    if (!c) c = utf8_collate_identity_compare(aa, ab);
     if (c) return c;
     if (reader_sort_kind == TAGCACHE_GROUP_ALBUM) {
         int da = sa.disc_number > 0 ? sa.disc_number : 1, db = sb.disc_number > 0 ? sb.disc_number : 1;
@@ -814,7 +885,7 @@ static int reader_compare_member(const void *a, const void *b, void *context) {
             if (ta != tb) return ta < tb ? -1 : 1;
         }
     } else {
-        c = ascii_casecmp(sa.album, sb.album);
+        c = utf8_collate_identity_compare(sa.album, sb.album);
         if (c) return c;
     }
     if (!reader_compact_sort) {
@@ -1049,6 +1120,8 @@ static bool reader_build_album_order(int sort, int scratch) {
 
 static bool reader_build_indexes(void) {
     reader_close_indexes();
+    /* Album-order construction already looks up the newly sorted groups. */
+    reader_loaded_index_version = TC_INDEX_VERSION;
     reader_reset_cache();
     if (!scan_intern_init(!reader_compact_sort)) return false;
     reader_artist_names_fd = reader_create_temp();
@@ -1082,8 +1155,8 @@ static bool reader_build_indexes(void) {
         recency.slot = slot;
         recency.first_seen = idx.tag_seek[tag_commitid];
         const char *display_title = reader_display_title(&song);
-        if (!tagcache_sort_prefix(display_title, title.title, sizeof(title.title)) ||
-            (!reader_compact_sort && !tagcache_sort_prefix(song.path, recency.path, sizeof(recency.path)))) {
+        utf8_collate_prefix(display_title, title.title, sizeof(title.title));
+        if (!reader_compact_sort && !tagcache_sort_prefix(song.path, recency.path, sizeof(recency.path))) {
             reader_sort_failed = true;
             ok = false;
             break;
@@ -1178,152 +1251,50 @@ static bool reader_build_indexes(void) {
     if (!ok) reader_close_indexes();
     else {
         reader_loaded_index_version = TC_INDEX_VERSION;
-        reader_title_order_version = 2u;
+        reader_title_order_version = 4u;
     }
     return ok;
 }
 
-static bool reader_write_migration_component(int32_t gen, const char *suffix, int source_fd) {
-    char path[640], tmp[680];
-    tc_index_name(path, sizeof(path), gen, suffix);
-    int n = snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    if (n < 0 || (size_t)n >= sizeof(tmp)) return false;
-    int out = open(tmp, O_CREAT | O_TRUNC | O_WRONLY, 0644);
-    if (out < 0) return false;
-    bool ok = tc_index_copy_fd(source_fd, out, NULL);
-    if (!close_synced(out)) ok = false;
-    if (ok) ok = rename(tmp, path) == 0;
-    if (!ok) unlink(tmp);
-    return ok;
-}
-
-static bool reader_build_title_order(int *out_title_fd, int *out_rank_fd) {
-    if (!out_title_fd || !out_rank_fd) return false;
-    *out_title_fd = *out_rank_fd = -1;
-    int keys = reader_create_temp();
-    int scratch = reader_create_temp();
-    int title_fd = reader_create_temp();
-    int rank_fd = reader_create_temp();
-    bool ok = keys >= 0 && scratch >= 0 && title_fd >= 0 && rank_fd >= 0;
-    int32_t dense = 0;
-    size_t record_size = sizeof(reader_title_sort_t);
-    reader_sort_failed = false;
-    for (int32_t slot = 0; ok && slot < ent_count; slot++) {
-        struct index_entry idx;
-        ok = reader_index(slot, &idx);
-        if (!ok || (idx.flag & FLAG_DELETED)) continue;
-        tagcache_song_t song;
-        ok = reader_sort_song_fields(slot, TAGCACHE_FIELD_TITLE | TAGCACHE_FIELD_PATH, &song);
-        if (!ok || !song.path[0]) { reader_sort_failed = true; ok = false; break; }
-        const char *display_title = reader_display_title(&song);
-        reader_title_sort_t key = {.slot = slot};
-        if (!tagcache_sort_prefix(display_title, key.title, sizeof(key.title)) ||
-            !tc_sort_io_write(keys, &key, sizeof(key), (off_t)dense * (off_t)record_size)) {
-            reader_sort_failed = true;
-            ok = false;
-            break;
-        }
-        dense++;
-    }
-    ok = ok && dense == live_count && !reader_sort_failed;
-    if (ok) ok = tc_sort_fd(keys, record_size, live_count,
-                            reader_compare_title_sort, NULL, scratch) && !reader_sort_failed;
-    if (ok) ok = ftruncate(title_fd, (off_t)live_count * sizeof(int32_t)) == 0 &&
-                 ftruncate(rank_fd, (off_t)ent_count * sizeof(int32_t)) == 0;
-    for (int32_t rank = 0; ok && rank < live_count; rank++) {
-        reader_title_sort_t key;
-        int32_t stored = rank + 1;
-        ok = stats_read_at(keys, &key, sizeof(key), (off_t)rank * (off_t)record_size) == STATS_READ_OK &&
-             tc_sort_io_write(title_fd, &key.slot, sizeof(key.slot), (off_t)rank * sizeof(key.slot)) &&
-             tc_sort_io_write(rank_fd, &stored, sizeof(stored), (off_t)key.slot * sizeof(stored));
-    }
-    if (keys >= 0) close(keys);
-    if (scratch >= 0) close(scratch);
-    reader_reset_cache();
-    if (!ok) {
-        if (title_fd >= 0) close(title_fd);
-        if (rank_fd >= 0) close(rank_fd);
-        return false;
-    }
-    *out_title_fd = title_fd;
-    *out_rank_fd = rank_fd;
-    return true;
-}
-
-/* V5 title ranks and query postings get separate filenames. The v4 files stay
- * intact until the metadata rename atomically selects the complete v5 set. */
-static bool reader_migrate_title_index(int32_t gen) {
+/* Rebuild every derived component into the isolated v7 filename set. The
+ * writer publishes the v7 metadata only after syncing the complete set, so
+ * any failure leaves the prior v3-v6 metadata and files usable. */
+static bool reader_migrate_indexes(int32_t gen) {
+    if (reader_loaded_index_version >= TC_INDEX_VERSION) return true;
+    struct tc_index_meta old_meta;
     char meta_path[640], meta_tmp[680];
-    struct tc_index_meta meta;
     int n = snprintf(meta_path, sizeof(meta_path), "%s/database_idx.tcd.g%d.imeta", db_dir, gen);
     if (n < 0 || (size_t)n >= sizeof(meta_path)) return false;
-    int input = open(meta_path, O_RDONLY);
-    bool ok = input >= 0 && reader_read_at(input, &meta, sizeof(meta), 0);
-    if (input >= 0) close(input);
-    if (!ok || meta.magic != TC_INDEX_MAGIC || meta.version >= 5u) return false;
-
-    int new_title_fd = -1, new_rank_fd = -1;
-    if (!reader_build_title_order(&new_title_fd, &new_rank_fd)) return false;
-    int old_title_fd = reader_title_fd;
-    int old_rank_fd = reader_rank_fd[0];
-    int old_query_fd = reader_query_fd;
-    reader_title_fd = new_title_fd;
-    reader_rank_fd[0] = new_rank_fd;
-    int query_fd = reader_create_temp();
-    if (query_fd < 0 || !query_build(query_fd)) {
-        if (query_fd >= 0) close(query_fd);
-        reader_title_fd = old_title_fd;
-        reader_rank_fd[0] = old_rank_fd;
-        reader_reset_cache();
-        close(new_title_fd);
-        close(new_rank_fd);
+    int old_fd = open(meta_path, O_RDONLY);
+    bool have_old_meta = old_fd >= 0 && reader_read_at(old_fd, &old_meta, sizeof(old_meta), 0);
+    if (old_fd >= 0) close(old_fd);
+    if (!have_old_meta || old_meta.version >= TC_INDEX_VERSION) return false;
+    reader_compact_sort = false;
+    if (!reader_build_indexes()) {
+        reader_close_indexes();
         return false;
     }
-    reader_query_fd = query_fd;
-    if (old_title_fd >= 0) close(old_title_fd);
-    if (old_rank_fd >= 0) close(old_rank_fd);
-    if (old_query_fd >= 0) close(old_query_fd);
-    reader_query_cache_valid = false;
-    reader_title_order_version = 2u;
+    if (!reader_write_indexes(gen)) {
+        reader_close_indexes();
+        return false;
+    }
+    reader_close_indexes();
+    if (reader_open_indexes(gen) == 1 && reader_loaded_index_version == TC_INDEX_VERSION) return true;
 
-    ok = reader_write_migration_component(gen, ".title.v5", reader_title_fd) &&
-         reader_write_migration_component(gen, ".rank0.v5", reader_rank_fd[0]) &&
-         reader_write_migration_component(gen, ".query.v5", reader_query_fd);
-    if (!ok || !library_fsync_dir(db_dir)) {
-        DB_LOG("DB", "title_index_migration_persist_failed gen=%d; using rebuilt order for this session", gen);
-        return true;
-    }
-
-    struct stat st;
-    if (fstat(reader_title_fd, &st) != 0 || st.st_size < 0) {
-        return true;
-    }
-    meta.size[0] = (uint64_t)st.st_size;
-    if (fstat(reader_rank_fd[0], &st) != 0 || st.st_size < 0) {
-        return true;
-    }
-    meta.size[3] = (uint64_t)st.st_size;
-    meta.version = 5u;
+    /* Defensive rollback if the just-published set fails validation when
+     * reopened. The prior-version files remain untouched. */
     n = snprintf(meta_tmp, sizeof(meta_tmp), "%s.tmp", meta_path);
-    if (n < 0 || (size_t)n >= sizeof(meta_tmp)) {
-        return true;
-    }
-    int output = open(meta_tmp, O_CREAT | O_TRUNC | O_WRONLY, 0644);
-    if (output < 0) {
-        return true;
-    }
-    ok = write_fully(output, &meta, sizeof(meta)) && fsync(output) == 0;
-    if (close(output) != 0) ok = false;
-    if (ok) ok = rename(meta_tmp, meta_path) == 0;
-    if (!ok) {
-        unlink(meta_tmp);
-        DB_LOG("DB", "title_index_migration_meta_failed gen=%d; using rebuilt order for this session", gen);
-        return true;
-    }
-    /* All v5 components were synced before the atomic metadata selection. */
-    (void)library_fsync_dir(db_dir);
-    reader_loaded_index_version = 5u;
-    return true;
+    bool restored = n >= 0 && (size_t)n < sizeof(meta_tmp);
+    int restore_fd = restored ? open(meta_tmp, O_CREAT | O_TRUNC | O_WRONLY, 0644) : -1;
+    restored = restored && restore_fd >= 0 && write_fully(restore_fd, &old_meta, sizeof(old_meta)) &&
+               fsync(restore_fd) == 0;
+    if (restore_fd >= 0 && close(restore_fd) != 0) restored = false;
+    if (restored) restored = rename(meta_tmp, meta_path) == 0;
+    if (restored) (void)library_fsync_dir(db_dir);
+    else unlink(meta_tmp);
+    reader_close_indexes();
+    (void)reader_open_indexes(gen);
+    return false;
 }
 
 static int32_t reader_find_path(const char *path) {
@@ -1394,8 +1365,8 @@ static int reader_group_index(int kind, const char *name, const char *aa) {
         int mid = lo + (hi - lo) / 2;
         tagcache_group_t group;
         if (!reader_group_at(kind, mid, &group)) return -1;
-        int c = ascii_casecmp(group.name, name ? name : "");
-        if (!c && kind == TAGCACHE_GROUP_ALBUM) c = ascii_casecmp(group.album_artist, aa ? aa : "");
+        int c = reader_group_name_compare(group.name, name ? name : "");
+        if (!c && kind == TAGCACHE_GROUP_ALBUM) c = reader_group_name_compare(group.album_artist, aa ? aa : "");
         if (!c) return mid;
         if (c < 0) lo = mid + 1; else hi = mid;
     }

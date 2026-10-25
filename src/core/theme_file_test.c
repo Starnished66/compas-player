@@ -18,6 +18,22 @@ static const char *get_scratch_dir(void) {
     return "build_ui_test/theme-parser";
 }
 
+static void assert_theme_failure(const char *path, const char *contents, const char *expected_error) {
+    FILE *fp = fopen(path, "w");
+    assert(fp != NULL);
+    fputs(contents, fp);
+    fclose(fp);
+
+    theme_file_t out;
+    memset(&out, 0xA5, sizeof(out));
+    theme_file_t sentinel;
+    memcpy(&sentinel, &out, sizeof(sentinel));
+    char err[256] = {0};
+    assert(!theme_file_parse(path, &out, err, sizeof(err)));
+    assert(strcmp(err, expected_error) == 0);
+    assert(memcmp(&out, &sentinel, sizeof(out)) == 0);
+}
+
 static void test_compas_plugins_themes(void) {
     const char *compas_plugins_dir = "../compas-plugins/plugins/Themes/Themes";
     DIR *d = opendir(compas_plugins_dir);
@@ -265,6 +281,68 @@ static void test_regression_cases(void) {
         assert(strcmp(t.home.tiles[0].key, "music") == 0);
         assert(t.home.tiles[0].override.has_bg_color);
         assert(t.home.tiles[0].override.bg_color == 0x654321);
+    }
+
+    /* Case 8: Error paths preserve output and report stable messages */
+    {
+        char buf[2048];
+        snprintf(buf, sizeof(buf), "%sname=\n", base_theme);
+        assert_theme_failure(scratch_path, buf, "invalid or empty name");
+
+        snprintf(buf, sizeof(buf), "%stile.music.bg_color=not-a-color\n", base_theme);
+        assert_theme_failure(scratch_path, buf, "malformed tile bg_color");
+
+        snprintf(buf, sizeof(buf), "%sicon./absolute=icons/x.png\n", base_theme);
+        assert_theme_failure(scratch_path, buf, "unsafe or invalid icon relative path");
+
+        snprintf(buf, sizeof(buf), "%shome_order=bad/id\n", base_theme);
+        assert_theme_failure(scratch_path, buf, "invalid key in home_order");
+
+        snprintf(buf, sizeof(buf), "%shome_mode=grid\n", base_theme);
+        assert_theme_failure(scratch_path, buf, "invalid home_mode (must be tile or list)");
+
+        snprintf(buf, sizeof(buf), "%ssubmenu_mode=grid\n", base_theme);
+        assert_theme_failure(scratch_path, buf, "invalid submenu_mode");
+    }
+
+    /* Case 9: Bounded value copies distinguish 127 bytes from 128 bytes */
+    {
+        char value[129];
+        memset(value, 'x', 128);
+        value[127] = '\0';
+        char buf[2048];
+        theme_file_t t;
+        char err[256] = {0};
+
+        snprintf(buf, sizeof(buf), "%sunknown_identifier=%s\n", base_theme, value);
+        WRITE_TMP(buf);
+        assert(theme_file_parse(scratch_path, &t, err, sizeof(err)));
+
+        memset(value, 'x', 128);
+        value[128] = '\0';
+        snprintf(buf, sizeof(buf), "%sunknown_identifier=%s\n", base_theme, value);
+        assert_theme_failure(scratch_path, buf, "value too long");
+
+        value[127] = '\0';
+        snprintf(buf, sizeof(buf), "%sicon.small.png=%s\n", base_theme, value);
+        WRITE_TMP(buf);
+        assert(theme_file_parse(scratch_path, &t, err, sizeof(err)));
+        assert(t.icon_override_count == 1);
+
+        snprintf(buf, sizeof(buf), "%stile.music.icon=%s\n", base_theme, value);
+        assert_theme_failure(scratch_path, buf, "malformed tile icon boolean");
+
+        memset(value, 'x', 128);
+        value[128] = '\0';
+        snprintf(buf, sizeof(buf), "%sicon.small.png=%s\n", base_theme, value);
+        assert_theme_failure(scratch_path, buf, "value too long");
+
+        snprintf(buf, sizeof(buf), "%stile.music.unknown=%s\n", base_theme, value);
+        WRITE_TMP(buf);
+        assert(theme_file_parse(scratch_path, &t, err, sizeof(err)));
+
+        snprintf(buf, sizeof(buf), "%stile.music.align=%s\n", base_theme, value);
+        assert_theme_failure(scratch_path, buf, "value too long");
     }
 
     /* Clean up */

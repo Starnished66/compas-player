@@ -146,24 +146,6 @@ static char status_codec[32] = {0};
 static unsigned int status_source_bit_depth = 0;
 static unsigned int status_source_sample_rate = 0;
 
-static const char * remote_codec_name(audio_codec_t codec) {
-    switch (codec) {
-        case AUDIO_CODEC_FLAC: return "FLAC";
-        case AUDIO_CODEC_MP3: return "MP3";
-        case AUDIO_CODEC_PCM: return "PCM";
-        case AUDIO_CODEC_DSD: return "DSD";
-        case AUDIO_CODEC_AAC: return "AAC";
-        case AUDIO_CODEC_ALAC: return "ALAC";
-        case AUDIO_CODEC_APE: return "APE";
-        case AUDIO_CODEC_WMA: return "WMA";
-        case AUDIO_CODEC_OPUS: return "Opus";
-        case AUDIO_CODEC_VORBIS: return "Vorbis";
-        case AUDIO_CODEC_WAVPACK: return "WavPack";
-        case AUDIO_CODEC_UNKNOWN: break;
-    }
-    return "";
-}
-
 /* Control requests -- edge-triggered flags consumed by update_timer_cb.
  * Guarded by status_mutex. */
 static bool request_play_pause = false;
@@ -411,7 +393,7 @@ void remote_control_notify_status(bool playing, bool paused, const char * title,
     status_accent_rgb = accent_rgb & 0xFFFFFF;
     status_accent_valid = true;
     snprintf(status_codec, sizeof(status_codec), "%s",
-             format_matches_track ? remote_codec_name(format.codec) : "");
+             format_matches_track ? audio_codec_name(format.codec) : "");
     status_source_bit_depth = format_matches_track ? format.source_bit_depth : 0;
     status_source_sample_rate = format_matches_track ? format.source_sample_rate : 0;
     pthread_mutex_unlock(&status_mutex);
@@ -865,6 +847,9 @@ static void build_albums_json(const char * artist_filter, const char * album_art
 static void build_status_json(char * out, size_t out_size) {
     char title_esc[512] = {0}, artist_esc[512] = {0}, album_esc[512] = {0};
     char model_esc[128] = {0}, version_esc[128] = {0};
+    char revision_esc[METADATA_DB_CATALOG_REVISION_SIZE * 6] = {0};
+    char revision_json[METADATA_DB_CATALOG_REVISION_SIZE * 6 + 3] = "null";
+    char catalog_revision[METADATA_DB_CATALOG_REVISION_SIZE] = {0};
     char accent_color[12] = {0};
     char job_error[768] = {0};
     const char * accent_json = "null";
@@ -876,6 +861,13 @@ static void build_status_json(char * out, size_t out_size) {
 #endif
     json_escape_append(model_esc, sizeof(model_esc), device_model);
     json_escape_append(version_esc, sizeof(version_esc), app_version_label());
+    /* The catalog lock must be acquired before status_mutex. Library refresh
+     * paths publish status after metadata work, so reversing this order could
+     * deadlock a status request against a rebuild. */
+    if (metadata_db_catalog_get_revision(catalog_revision, sizeof(catalog_revision))) {
+        json_escape_append(revision_esc, sizeof(revision_esc), catalog_revision);
+        snprintf(revision_json, sizeof(revision_json), "\"%s\"", revision_esc);
+    }
     /* Query the route before taking status_mutex. Route selection has its own
      * lock and must not be nested with the playback-status snapshot lock. */
 #ifndef HOST_BUILD
@@ -896,12 +888,13 @@ static void build_status_json(char * out, size_t out_size) {
              "{\"playing\":%s,\"paused\":%s,\"title\":\"%s\",\"artist\":\"%s\",\"album\":\"%s\","
              "\"position_seconds\":%d,\"duration_seconds\":%d,\"volume\":%.2f,\"play_mode\":%d,"
              "\"codec\":\"%s\",\"source_bit_depth\":%u,\"source_sample_rate\":%u,"
+             "\"catalog_revision\":%s,"
              "\"bluetooth_audio_output\":%s,\"favorite\":%s,\"accent_color\":%s,"
              "\"device_model\":\"%s\",\"player_version\":\"%s\","
              "\"sort_modes\":[%d,%d,%d],\"collection_job\":{\"id\":%u,\"state\":\"%s\",\"error\":\"%s\"}}",
              status_playing ? "true" : "false", status_paused ? "true" : "false", title_esc, artist_esc, album_esc,
              status_position_seconds, status_duration_seconds, (double) status_volume, status_play_mode,
-             status_codec, status_source_bit_depth, status_source_sample_rate,
+             status_codec, status_source_bit_depth, status_source_sample_rate, revision_json,
              bluetooth_audio_output ? "true" : "false", status_favorite ? "true" : "false", accent_json,
              model_esc, version_esc, status_library_sorting[0], status_library_sorting[1], status_library_sorting[2],
              collection_job_id, collection_job_busy ? "pending" : collection_job_failed ? "error" : collection_job_id ? "done" : "idle", job_error);
@@ -1197,10 +1190,11 @@ static const char * sniff_image_content_type(const uint8_t * data, uint32_t size
                                      3u * TAGCACHE_ARTIST_SPLIT_MAX + 256u)
 #define CATALOG_COVER_ROW_WORST_CASE 256u
 #define CATALOG_JSON_ENVELOPE_MAX 512u
-/* Status JSON includes three 511-byte escaped metadata strings and bounded
- * player, accent, model, release, sorting and collection-job fields. The error
- * has at most 127 bytes (762 escaped); 4 KiB covers all bounded fields. */
-#define STATUS_JSON_CAPACITY 4096u
+/* Status JSON includes three 511-byte escaped metadata strings, a catalog
+ * revision that can expand to 378 escaped bytes, and bounded player, accent,
+ * model, release, sorting and collection-job fields. The error has at most 127
+ * bytes (762 escaped); 5 KiB covers all bounded fields with room to spare. */
+#define STATUS_JSON_CAPACITY 5120u
 #define CATALOG_ART_MAX_BYTES (8u * 1024u * 1024u)
 #define CATALOG_ART_STREAM_CHUNK (16u * 1024u)
 

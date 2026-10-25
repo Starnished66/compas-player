@@ -14,6 +14,11 @@
 
 size_t audio_test_net_mp3_sync_bytes(void);
 
+/* gui.o is retained by the cached host graph for this decoder-focused spec.
+ * The UI event-loop time adjustment is unrelated to local range/seek tests. */
+void main_loop_discard_elapsed_time(void) {}
+bool main_loop_discard_pointer_input(void) { return false; }
+
 typedef struct { int listener; const unsigned char *bytes; size_t length; const char *content_type; bool ignore_ranges; int sndbuf; atomic_uint ranges; atomic_uint body_bytes; atomic_bool saw_if_range; atomic_uint active; } server_t;
 
 void install_thread_crash_altstack(void) {}

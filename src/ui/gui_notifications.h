@@ -22,3 +22,13 @@ void gui_busy_hide(gui_busy_handle_t handle);
 void gui_busy_hide_immediate(gui_busy_handle_t handle);
 static inline void gui_busy_dismiss(gui_busy_handle_t handle) { gui_busy_hide(handle); }
 lv_obj_t * gui_busy_get_screen(void);
+
+typedef struct {
+    const char * label;
+    lv_event_cb_t cb;
+    bool destructive;
+    bool cancel;
+    void * user_data;
+} menu_popup_row_t;
+
+lv_obj_t * build_menu_popup(const menu_popup_row_t * rows, int row_count, lv_event_cb_t backdrop_cb, lv_obj_t ** out_backdrop);

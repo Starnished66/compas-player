@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "http_url.h"
 #include "mbedtls/net_sockets.h"
 #include "mbedtls/ssl.h"
 #include "mbedtls/entropy.h"
@@ -43,12 +44,6 @@ typedef struct {
     bool last_read_timed_out;
     struct http_cancel_token * cancel_token;
 } http_conn_t;
-
-/* Splits a http(s):// URL into host/port/path. port is filled with the
- * scheme's default (80/443) if the URL didn't specify one. Returns false on
- * an unrecognized scheme or a component too long for the given buffer. */
-bool http_conn_parse_url(const char * url, bool * out_https, char * host, size_t host_size,
-                          char * port, size_t port_size, char * path, size_t path_size);
 
 /* Connects (plain TCP for !https, TLS-handshaked for https) to host:port.
  * verify_tls false skips certificate verification, for a self-signed server

@@ -141,6 +141,10 @@ typedef enum {
 } metadata_db_catalog_result_t;
 typedef bool (*metadata_db_cancel_fn)(void *user_data);
 bool metadata_db_catalog_revision_matches(const char *expected_revision);
+/* Copies the current revision without fetching any catalog rows. Returns
+ * false with an empty output when the catalog is unavailable or the buffer is
+ * too small. An available empty library still has a revision. */
+bool metadata_db_catalog_get_revision(char *out_revision, size_t out_size);
 /* Nonblocking revision validation for UI polling. Returns BUSY if another
  * metadata operation currently owns the lock. */
 metadata_db_catalog_result_t metadata_db_try_catalog_revision_check(const char *expected_revision);

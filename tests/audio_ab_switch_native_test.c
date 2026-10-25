@@ -144,7 +144,7 @@ static void test_mp3_index_cancels_with_ab_epoch(const char *mp3_path) {
     uint64_t generation = atomic_load_explicit(&mp3_index_active_generation, memory_order_relaxed);
     drmp3_uint32 count = mp3_build_seek_points_cancellable(&scan,
         drmp3_get_pcm_frame_count(&scan), 2, generation, points, &cancelled,
-        &ab_switch_cancel_token, token);
+        &ab_switch_cancel_token, token, NULL, NULL);
     assert(cancelled && count == 0);
     drmp3_uninit(&scan);
 }

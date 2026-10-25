@@ -7,15 +7,14 @@
 #include <stdio.h>
 #include <string.h>
 
-/* Error toast */
-static lv_obj_t * error_toast = NULL;
-static lv_obj_t * error_toast_label = NULL;
-static lv_timer_t * error_toast_hide_timer = NULL;
+typedef struct {
+    lv_obj_t * obj;
+    lv_obj_t * label;
+    lv_timer_t * timer;
+} toast_t;
 
-/* Info toast */
-static lv_obj_t * info_toast = NULL;
-static lv_obj_t * info_toast_label = NULL;
-static lv_timer_t * info_toast_hide_timer = NULL;
+static toast_t error_toast = { 0 };
+static toast_t info_toast = { 0 };
 
 /* Busy overlay */
 static uint32_t gui_busy_current_token = 0;
@@ -24,10 +23,11 @@ static lv_obj_t * gui_busy_label = NULL;
 static lv_obj_t * gui_busy_progress_bar = NULL;
 static lv_obj_t * gui_busy_detail_label = NULL;
 
-static void error_toast_hide_timer_cb(lv_timer_t * timer) {
-    (void) timer;
-    if (error_toast) lv_obj_add_flag(error_toast, LV_OBJ_FLAG_HIDDEN);
-    if (error_toast_hide_timer) lv_timer_pause(error_toast_hide_timer);
+static void toast_hide_timer_cb(lv_timer_t * timer) {
+    toast_t * toast = lv_timer_get_user_data(timer);
+    if (!toast) return;
+    if (toast->obj) lv_obj_add_flag(toast->obj, LV_OBJ_FLAG_HIDDEN);
+    if (toast->timer) lv_timer_pause(toast->timer);
 }
 
 /* Shared by both toasts, which differ only in colours, width, placement and
@@ -61,38 +61,37 @@ static lv_obj_t * build_toast(lv_obj_t ** out_label, int32_t width, int32_t y_of
 }
 
 static void build_error_toast(void) {
-    error_toast = build_toast(&error_toast_label, BOARD_SCALE_PX(400), -BOARD_SCALE_PX(180));
-    lv_obj_set_style_bg_color(error_toast, lv_color_make(40, 20, 20), 0);
-    lv_obj_set_style_bg_opa(error_toast, LV_OPA_80, 0);
-    lv_obj_set_style_text_color(error_toast_label, lv_color_make(255, 200, 200), 0);
+    error_toast.obj = build_toast(&error_toast.label, BOARD_SCALE_PX(400), -BOARD_SCALE_PX(180));
+    lv_obj_set_style_bg_color(error_toast.obj, lv_color_make(40, 20, 20), 0);
+    lv_obj_set_style_bg_opa(error_toast.obj, LV_OPA_80, 0);
+    lv_obj_set_style_text_color(error_toast.label, lv_color_make(255, 200, 200), 0);
 
-    error_toast_hide_timer = lv_timer_create(error_toast_hide_timer_cb, 2500, NULL);
-    lv_timer_pause(error_toast_hide_timer);
+    error_toast.timer = lv_timer_create(toast_hide_timer_cb, 2500, &error_toast);
+    lv_timer_pause(error_toast.timer);
+}
+
+static void show_toast(toast_t * toast, const char * msg, uint32_t duration_ms) {
+    if (!toast->label) return;
+    lv_label_set_text(toast->label, msg);
+    lv_obj_remove_flag(toast->obj, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(toast->obj);
+    if (duration_ms > 0) lv_timer_set_period(toast->timer, duration_ms);
+    lv_timer_reset(toast->timer);
+    lv_timer_resume(toast->timer);
 }
 
 void show_error_toast(const char * msg) {
-    if (!error_toast_label) return;
-    lv_label_set_text(error_toast_label, msg);
-    lv_obj_remove_flag(error_toast, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(error_toast);
-    lv_timer_reset(error_toast_hide_timer);
-    lv_timer_resume(error_toast_hide_timer);
-}
-
-static void info_toast_hide_timer_cb(lv_timer_t * timer) {
-    (void) timer;
-    if (info_toast) lv_obj_add_flag(info_toast, LV_OBJ_FLAG_HIDDEN);
-    if (info_toast_hide_timer) lv_timer_pause(info_toast_hide_timer);
+    show_toast(&error_toast, msg, 0);
 }
 
 static void build_info_toast(void) {
-    info_toast = build_toast(&info_toast_label, BOARD_SCALE_PX(420), -BOARD_SCALE_PX(160));
-    lv_obj_add_style(info_toast, &style_theme_card_bg, 0);
-    lv_obj_set_style_bg_opa(info_toast, LV_OPA_80, 0);
-    lv_obj_add_style(info_toast_label, &style_theme_text_primary, 0);
+    info_toast.obj = build_toast(&info_toast.label, BOARD_SCALE_PX(420), -BOARD_SCALE_PX(160));
+    lv_obj_add_style(info_toast.obj, &style_theme_card_bg, 0);
+    lv_obj_set_style_bg_opa(info_toast.obj, LV_OPA_80, 0);
+    lv_obj_add_style(info_toast.label, &style_theme_text_primary, 0);
 
-    info_toast_hide_timer = lv_timer_create(info_toast_hide_timer_cb, 5000, NULL);
-    lv_timer_pause(info_toast_hide_timer);
+    info_toast.timer = lv_timer_create(toast_hide_timer_cb, 5000, &info_toast);
+    lv_timer_pause(info_toast.timer);
 }
 
 void show_info_toast(const char * msg) {
@@ -100,20 +99,14 @@ void show_info_toast(const char * msg) {
 }
 
 void show_info_toast_for(const char * msg, uint32_t duration_ms) {
-    if (!info_toast_label) return;
     if (duration_ms < 100) duration_ms = 100;
     if (duration_ms > 30000) duration_ms = 30000;
-    lv_label_set_text(info_toast_label, msg);
-    lv_obj_remove_flag(info_toast, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(info_toast);
-    lv_timer_set_period(info_toast_hide_timer, duration_ms);
-    lv_timer_reset(info_toast_hide_timer);
-    lv_timer_resume(info_toast_hide_timer);
+    show_toast(&info_toast, msg, duration_ms);
 }
 
 bool gui_notifications_toast_visible(void) {
-    return (error_toast && !lv_obj_has_flag(error_toast, LV_OBJ_FLAG_HIDDEN)) ||
-           (info_toast && !lv_obj_has_flag(info_toast, LV_OBJ_FLAG_HIDDEN));
+    return (error_toast.obj && !lv_obj_has_flag(error_toast.obj, LV_OBJ_FLAG_HIDDEN)) ||
+           (info_toast.obj && !lv_obj_has_flag(info_toast.obj, LV_OBJ_FLAG_HIDDEN));
 }
 
 gui_busy_handle_t gui_busy_show(const char * title, const char * msg) {

@@ -5,7 +5,7 @@
  * (BOARD_DEFINE -> -DBOARD_R1 / -DBOARD_R3PROII). Screen dimensions here are
  * real, device-confirmed values, not placeholders:
  *   - R1: 480x800, this codebase's own long-standing confirmed value (see
- *     HARDWARE_DRIVERS.md and main.c's own history).
+ *     local/notes/hardware/HARDWARE_DRIVERS.md and main.c's own history).
  *   - R3PRO II: 480x720, confirmed via the extracted stock firmware dump
  *     (usr/resource/config.json's own "type":"screen","hor":480,"ver":720
  *     entry, independently corroborated by etc/logo.jpeg/logo1.jpeg/

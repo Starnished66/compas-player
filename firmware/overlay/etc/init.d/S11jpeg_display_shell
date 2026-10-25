@@ -1,0 +1,8 @@
+#!/bin/sh
+# COMPAS_STOCK_SPLASH_DEFERRED
+# The stock JPEG splash is rendered synchronously by S22compas_startup_image.
+# Keep this SysV entry point for compatibility with the vendor init ordering.
+case "${1:-}" in
+    start) exit 0 ;;
+    *) exit 1 ;;
+esac

@@ -235,6 +235,7 @@ static void set_defaults(player_settings_t * out) {
     out->dac_filter = 0;
     out->dac_nos = false;
     out->dac_dre = true;
+    out->usb_dsd_output = USB_DSD_OUTPUT_PCM;
     out->bt_dac_mode_enabled = false;
     out->bt_speexrate_enabled = true;
     out->bt_sample_rate = 0;
@@ -536,20 +537,28 @@ bool settings_load(player_settings_t * out) {
             out->dac_dre = true;
             if (strcmp(value, "0") == 0) out->dac_dre = false;
             else if (strcmp(value, "1") == 0) out->dac_dre = true;
+        } else if (strcmp(key, "usb_dsd_output") == 0) {
+            out->usb_dsd_output = value[0] >= '0' && value[0] <= '2' && value[1] == '\0'
+                ? value[0] - '0' : USB_DSD_OUTPUT_PCM;
         } else if (strcmp(key, "bt_device_rate") == 0) {
             /* "AA:BB:CC:DD:EE:FF,44100" */
             const char * comma = strchr(value, ',');
+            char mac[18] = "";
+            bool mac_length_ok = comma && (size_t) (comma - value) == 17;
+            if (mac_length_ok) {
+                memcpy(mac, value, 17);
+                mac[17] = '\0';
+            }
             char * rate_end = NULL;
             unsigned long parsed = comma ? strtoul(comma + 1, &rate_end, 10) : 0;
             /* A malformed line is dropped rather than stored: a bad rate here
              * would be pushed straight at the Bluetooth daemon. */
             if (comma && out->bt_device_rate_count < BT_DEVICE_RATE_MAX &&
-                    (size_t) (comma - value) == 17 && valid_bt_output_mac(value) &&
+                    mac_length_ok && valid_bt_output_mac(mac) &&
                     rate_end && rate_end != comma + 1 && *rate_end == '\0' &&
                     (parsed == 0 || (parsed >= 8000 && parsed <= 192000))) {
                 int i = out->bt_device_rate_count++;
-                memcpy(out->bt_device_rates[i].mac, value, 17);
-                out->bt_device_rates[i].mac[17] = '\0';
+                memcpy(out->bt_device_rates[i].mac, mac, sizeof(mac));
                 out->bt_device_rates[i].rate = (unsigned int) parsed;
             }
         } else if (strcmp(key, "bt_sample_rate") == 0) {
@@ -719,6 +728,8 @@ bool settings_load(player_settings_t * out) {
     }
 
     if (out->setup_step < 0 || out->setup_step > 7) out->setup_step = 0;
+    if (out->usb_dsd_output < USB_DSD_OUTPUT_PCM || out->usb_dsd_output > USB_DSD_OUTPUT_DOP)
+        out->usb_dsd_output = USB_DSD_OUTPUT_PCM;
     if (out->usb_mode < 0 || out->usb_mode > 2) out->usb_mode = 0; /* defensive re-clamp, same reasoning as screen_timeout_seconds -- the settings file is plaintext and could be hand-edited out of range */
     if (out->play_mode < 0 || out->play_mode > 4) out->play_mode = 0;
     if (out->font_size_tier < 0 || out->font_size_tier > 2) out->font_size_tier = 1;
@@ -862,6 +873,10 @@ static void settings_write_file(const player_settings_t * settings) {
     fprintf(f, "dac_filter=%d\n", settings->dac_filter >= 0 && settings->dac_filter <= 3 ? settings->dac_filter : 0);
     fprintf(f, "dac_nos=%d\n", settings->dac_nos ? 1 : 0);
     fprintf(f, "dac_dre=%d\n", settings->dac_dre ? 1 : 0);
+    fprintf(f, "usb_dsd_output=%d\n",
+            settings->usb_dsd_output >= USB_DSD_OUTPUT_PCM &&
+            settings->usb_dsd_output <= USB_DSD_OUTPUT_DOP
+                ? settings->usb_dsd_output : USB_DSD_OUTPUT_PCM);
     fprintf(f, "bt_speexrate=%d\n", settings->bt_speexrate_enabled ? 1 : 0);
     fprintf(f, "bt_sample_rate=%u\n", settings->bt_sample_rate);
     for (int i = 0; i < settings->bt_device_rate_count && i < BT_DEVICE_RATE_MAX; i++)
@@ -946,10 +961,18 @@ static void settings_write_file(const player_settings_t * settings) {
     fprintf(f, "setup_layout_plugin_id=%s\n", layout_id);
     fprintf(f, "setup_scan_music=%d\n", settings->setup_scan_music ? 1 : 0);
 
-    fflush(f);
-    fsync(fileno(f));
-    fclose(f);
-    if (rename(SETTINGS_TMP_FILE_PATH, SETTINGS_FILE_PATH) == 0) chmod(SETTINGS_FILE_PATH, 0600);
+    bool write_ok = !ferror(f) && fflush(f) == 0;
+    if (write_ok && fsync(fileno(f)) != 0) write_ok = false;
+    if (fclose(f) != 0) write_ok = false;
+    if (!write_ok) {
+        (void) unlink(SETTINGS_TMP_FILE_PATH);
+        return;
+    }
+    if (rename(SETTINGS_TMP_FILE_PATH, SETTINGS_FILE_PATH) != 0) {
+        (void) unlink(SETTINGS_TMP_FILE_PATH);
+        return;
+    }
+    chmod(SETTINGS_FILE_PATH, 0600);
     fsync_settings_dir();
 }
 

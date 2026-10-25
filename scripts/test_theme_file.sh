@@ -10,6 +10,7 @@ echo "Compiling theme_file standalone test runner in $BUILD_DIR..."
 gcc -std=c99 -Wall -Wextra -Werror -D_POSIX_C_SOURCE=200809L \
     -I. \
     src/core/theme_file.c \
+    src/core/theme_file_values.c \
     src/core/theme_file_test.c \
     -o "$BUILD_DIR/theme_file_test"
 

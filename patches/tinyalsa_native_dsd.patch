@@ -1,0 +1,83 @@
+--- a/include/tinyalsa/pcm.h
++++ b/include/tinyalsa/pcm.h
+@@ -182,6 +182,16 @@
+     PCM_FORMAT_FLOAT_LE,
+     /** 32-bit float, big endian */
+     PCM_FORMAT_FLOAT_BE,
++    /** Unsigned DSD, one-byte samples */
++    PCM_FORMAT_DSD_U8,
++    /** Unsigned DSD, 16-bit little endian samples */
++    PCM_FORMAT_DSD_U16_LE,
++    /** Unsigned DSD, 32-bit little endian samples */
++    PCM_FORMAT_DSD_U32_LE,
++    /** Unsigned DSD, 16-bit big endian samples */
++    PCM_FORMAT_DSD_U16_BE,
++    /** Unsigned DSD, 32-bit big endian samples */
++    PCM_FORMAT_DSD_U32_BE,
+     /** Max of the enumeration list, not an actual format. */
+     PCM_FORMAT_MAX
+ };
+--- a/src/pcm.c
++++ b/src/pcm.c
+@@ -132,15 +132,15 @@
+         "S18_3BE",
+         "U18_3LE",
+         /*[43] =*/ "U18_3BE",
+-#if 0
+-        /* recent additions, may not be present on local asound.h */
+         "G723_24",
+         "G723_24_1B",
+         "G723_40",
+         "G723_40_1B",
+         "DSD_U8",
+         "DSD_U16_LE",
+-#endif
++        "DSD_U32_LE",
++        "DSD_U16_BE",
++        "DSD_U32_BE",
+ };
+ 
+ /* refer to SNDRV_PCM_SUBFORMAT_##index in sound/asound.h. */
+@@ -283,6 +283,17 @@
+     case PCM_FORMAT_S32_BE:
+         return SNDRV_PCM_FORMAT_S32_BE;
+ 
++    case PCM_FORMAT_DSD_U8:
++        return SNDRV_PCM_FORMAT_DSD_U8;
++    case PCM_FORMAT_DSD_U16_LE:
++        return SNDRV_PCM_FORMAT_DSD_U16_LE;
++    case PCM_FORMAT_DSD_U32_LE:
++        return SNDRV_PCM_FORMAT_DSD_U32_LE;
++    case PCM_FORMAT_DSD_U16_BE:
++        return SNDRV_PCM_FORMAT_DSD_U16_BE;
++    case PCM_FORMAT_DSD_U32_BE:
++        return SNDRV_PCM_FORMAT_DSD_U32_BE;
++
+     case PCM_FORMAT_FLOAT_LE:
+         return SNDRV_PCM_FORMAT_FLOAT_LE;
+     case PCM_FORMAT_FLOAT_BE:
+@@ -591,6 +602,8 @@
+     switch (format) {
+     case PCM_FORMAT_S32_LE:
+     case PCM_FORMAT_S32_BE:
++    case PCM_FORMAT_DSD_U32_LE:
++    case PCM_FORMAT_DSD_U32_BE:
+     case PCM_FORMAT_S24_LE:
+     case PCM_FORMAT_S24_BE:
+     case PCM_FORMAT_FLOAT_LE:
+@@ -599,11 +612,15 @@
+     case PCM_FORMAT_S24_3LE:
+     case PCM_FORMAT_S24_3BE:
+         return 24;
++    case PCM_FORMAT_DSD_U16_LE:
++    case PCM_FORMAT_DSD_U16_BE:
++        return 16;
+     default:
+     case PCM_FORMAT_S16_LE:
+     case PCM_FORMAT_S16_BE:
+         return 16;
+     case PCM_FORMAT_S8:
++    case PCM_FORMAT_DSD_U8:
+         return 8;
+     };
+ }

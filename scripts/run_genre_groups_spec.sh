@@ -11,7 +11,7 @@ set -- -std=gnu11 -O0 -g -Wall -Wextra -DHOST_BUILD=1 -ffunction-sections -fdata
 cc "$@" -c "$root/src/library/tagcache.c" -o "$out/tagcache.o"
 cc "$@" -c "$root/src/library/metadata_db.c" -o "$out/metadata_db.o"
 cc "$@" "$root/tests/metadata_db_genre_groups_spec.c" \
-  "$out/metadata_db.o" "$out/tagcache.o" "$root/src/core/db_log.c" \
+  "$out/metadata_db.o" "$out/tagcache.o" "$root/src/core/db_log.c" "$root/src/core/utf8_util.c" \
   -Wl,--gc-sections -lpthread -o "$out/genre-groups-test"
 mkdir "$out/work"
 (cd "$out/work" && "$out/genre-groups-test" "$out/work")

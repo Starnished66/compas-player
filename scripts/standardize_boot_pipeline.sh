@@ -34,6 +34,8 @@ shared_paths=(
     usr/bin/compas-wifi-mac
     etc/init.d/S43wifi_bcm_init_config
     usr/libexec/compas/wifi_on.sh
+    etc/init.d/S11jpeg_display_shell
+    etc/init.d/S22compas_startup_image
 )
 for rel in "${shared_paths[@]}"; do
     [[ -f $overlay/$rel ]] || { echo "Missing shared boot file: $overlay/$rel" >&2; exit 1; }
@@ -68,6 +70,35 @@ done
 
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
+
+# Stage the stock splash deferral only for the known vendor script layout.
+# Unknown vendor init scripts may encode board-specific setup and must not be
+# silently replaced. The marker makes repeated standardization idempotent.
+stock_splash="$root/etc/init.d/S11jpeg_display_shell"
+[[ -f $stock_splash && ! -L $stock_splash ]] || {
+    echo "Missing or non-regular stock splash script: $stock_splash" >&2
+    exit 1
+}
+python3 - "$stock_splash" "$scratch/S11jpeg_display_shell" "$overlay/etc/init.d/S11jpeg_display_shell" <<'PY'
+import hashlib
+import pathlib, sys
+
+source, destination, canonical = map(pathlib.Path, sys.argv[1:])
+text = source.read_text(encoding="utf-8")
+marker = "# COMPAS_STOCK_SPLASH_DEFERRED"
+if marker in text:
+    if text != canonical.read_text(encoding="utf-8"):
+        raise SystemExit("Unrecognized Compás S11jpeg_display_shell variant")
+elif hashlib.sha256(text.encode("utf-8")).hexdigest() == "a18ed58e3c4e8a2e772988c18a66cac183406709f666ac0a96f84b778936acea":
+    # Exact known vendor script, observed identically on R1, R3 Pro II, and
+    # R3 II 2025. Do not accept extra commands or altered control flow.
+    pass
+else:
+    raise SystemExit("Unsupported S11jpeg_display_shell layout; refusing to replace unknown vendor script")
+destination.write_text(canonical.read_text(encoding="utf-8"))
+PY
+chmod --reference="$stock_splash" "$scratch/S11jpeg_display_shell"
+sh -n "$scratch/S11jpeg_display_shell"
 
 # The guarded radio backend owns its Wi-Fi entry points and S43 lifecycle.
 radio_backend=0
@@ -344,6 +375,8 @@ if [[ $radio_backend == 0 ]]; then
 fi
 install -m 0755 "$scratch/hiby_player.sh" "$wrapper"
 install -m 0755 "$scratch/mount_ubifs.sh" "$mount_ubifs"
+install -m 0755 "$scratch/S11jpeg_display_shell" "$stock_splash"
+install -D -m 0755 "$overlay/etc/init.d/S22compas_startup_image" "$root/etc/init.d/S22compas_startup_image"
 
 # Sanity-check the installed payload as a final packaging guard.
 for rel in "${shared_paths[@]}" usr/bin/wifi_on.sh usr/bin/mount_ubifs.sh; do

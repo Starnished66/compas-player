@@ -31,6 +31,7 @@ static bool output_close_armed, output_close_entered, output_close_release;
  * this spec's entry point. */
 void install_thread_crash_altstack(void) {}
 void main_loop_discard_elapsed_time(void) {}
+bool main_loop_discard_pointer_input(void) { return false; }
 
 extern SDL_AudioDeviceID __real_SDL_OpenAudioDevice(const char *device, int iscapture,
     const SDL_AudioSpec *desired, SDL_AudioSpec *obtained, int allowed_changes);

@@ -2571,22 +2571,7 @@ static void font_size_option_row_cb(lv_event_t * e) {
     int target = font_size_options[index].tier;
     if (target == current_settings.font_size_tier) return;
 
-    lv_obj_t * mask = lv_obj_create(lv_layer_sys());
-    lv_obj_set_user_data(mask, (void *)(intptr_t)(target + 1));
-    lv_display_t * display = lv_display_get_default();
-    lv_obj_set_size(mask,
-                    lv_display_get_horizontal_resolution(display),
-                    lv_display_get_vertical_resolution(display));
-    lv_obj_align(mask, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_style_bg_color(mask, lv_color_black(), 0);
-    lv_obj_set_style_bg_opa(mask, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(mask, 0, 0);
-    lv_obj_set_style_radius(mask, 0, 0);
-    lv_obj_set_style_pad_all(mask, 0, 0);
-    lv_obj_remove_flag(mask, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(mask, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_move_foreground(mask);
-    lv_obj_invalidate(mask);
+    lv_obj_t * mask = build_font_change_mask(target);
 
     /* Leave enough time for the normal refresh timer to paint the mask;
      * synchronous lv_refr_now() here would re-enter rendering from an input
@@ -4403,7 +4388,7 @@ void gui_network_init(void) {
     build_bt_dac_leave_popup();
     build_remote_control_new_pin_popup();
     dac_stream_labels_timer_cb(NULL);
-    /* Guarded like gui_library.c's az_index_drag_timer -- gui_network_init()
+    /* Guarded like library_az_index.c's drag timer -- gui_network_init()
      * can run again after a UI reload, and an unguarded lv_timer_create()
      * here would leak/duplicate a recurring timer each time. */
     if (!dac_stream_labels_timer) dac_stream_labels_timer = lv_timer_create(dac_stream_labels_timer_cb, 500, NULL);

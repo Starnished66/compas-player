@@ -79,12 +79,6 @@ static preview_cache_entry_t preview_cache[STORE_PREVIEW_COUNT];
 
 static bool read_record_alloc(plugin_store_plugin_t ** out, char (**versions)[32], size_t * count);
 
-static void error_text(char * out, size_t size, const char * text) {
-    if (out && size) {
-        snprintf(out, size, "%s", text);
-    }
-}
-
 static bool regex_id(const char * s) {
     if (!s || !*s || strlen(s) > 63 || (!store_ascii_lower(*s) && !store_ascii_digit(*s))) {
         return false;
@@ -201,7 +195,7 @@ bool plugin_store_parse_index(const char * json, size_t length, plugin_store_plu
     if (tag_out) {
         tag_out[0] = '\0';
     }
-    error_text(error, error_size, TR("Unexpected reply from GitHub."));
+    store_error_text(error, error_size, TR("Unexpected reply from GitHub."));
     if (!json || !out || !tag_out || length > STORE_INDEX_LIMIT) {
         return false;
     }
@@ -315,7 +309,7 @@ bool plugin_store_parse_index(const char * json, size_t length, plugin_store_plu
     snprintf(tag_out, 64, "%s", tag);
     *out = parsed;
     cJSON_Delete(root);
-    error_text(error, error_size, "");
+    store_error_text(error, error_size, "");
     return true;
 fail:
     free(parsed);
@@ -329,16 +323,16 @@ fail:
 static bool storage_path_writable(const char * path, char * error, size_t error_size) {
     if (error && error_size) error[0] = '\0';
     if (usb_mode_control_storage_write_blocked()) {
-        error_text(error, error_size, TR("Disconnect USB storage from the host before changing plugins."));
+        store_error_text(error, error_size, TR("Disconnect USB storage from the host before changing plugins."));
         return false;
     }
     struct statvfs fs;
     if (!path || statvfs(path, &fs) != 0) {
-        error_text(error, error_size, TR("Cannot check plugin storage write access."));
+        store_error_text(error, error_size, TR("Cannot check plugin storage write access."));
         return false;
     }
     if (fs.f_flag & ST_RDONLY) {
-        error_text(error, error_size, TR("The SD card is read-only. Check its write protection."));
+        store_error_text(error, error_size, TR("The SD card is read-only. Check its write protection."));
         return false;
     }
     return true;
@@ -1351,16 +1345,6 @@ static bool begin(plugin_store_state_t state) {
     return true;
 }
 
-static bool start_thread(void * (*fn)(void *), void * arg) {
-    pthread_attr_t a;
-    pthread_t t;
-    pthread_attr_init(&a);
-    pthread_attr_setdetachstate(&a, PTHREAD_CREATE_DETACHED);
-    pthread_attr_setstacksize(&a, 256 * 1024);
-    bool ok = pthread_create(&t, &a, fn, arg) == 0;
-    pthread_attr_destroy(&a);
-    return ok;
-}
 /* Preview I/O never runs on LVGL's thread or changes installer progress. */
 typedef struct {
     int slot;
@@ -1689,7 +1673,7 @@ bool plugin_store_prepare_previews(const char * const * ids, size_t count) {
     preview_worker_running = job != NULL;
     pthread_mutex_unlock(&store_mutex);
     if (!job) return false;
-    if (!start_thread(preview_worker, job)) {
+    if (!store_start_thread(preview_worker, job)) {
         pthread_mutex_lock(&store_mutex);
         preview_worker_running = false;
         preview_spawn_attempts++;
@@ -1991,7 +1975,7 @@ static bool start_install(const char * id, bool force, plugin_store_state_t stat
     }
     job->force = force;
     job->state = state;
-    if (!start_thread(install_worker, job)) {
+    if (!store_start_thread(install_worker, job)) {
         free(job);
         finish(PLUGIN_STORE_FAILED, TR("Could not start the plugin operation."), false);
         return false;
@@ -2002,7 +1986,7 @@ bool plugin_store_refresh(void) {
     if (!begin(PLUGIN_STORE_REFRESHING)) {
         return false;
     }
-    if (!start_thread(refresh_worker, NULL)) {
+    if (!store_start_thread(refresh_worker, NULL)) {
         finish(PLUGIN_STORE_FAILED, TR("Could not start the plugin refresh."), false);
         return false;
     }
@@ -2191,7 +2175,7 @@ bool plugin_store_uninstall(const char * id) {
         finish(PLUGIN_STORE_FAILED, TR("Could not start the plugin operation."), false);
         return false;
     }
-    if (!start_thread(uninstall_worker, copy)) {
+    if (!store_start_thread(uninstall_worker, copy)) {
         free(copy);
         finish(PLUGIN_STORE_FAILED, TR("Could not start the plugin operation."), false);
         return false;
@@ -2381,7 +2365,7 @@ bool plugin_store_update_all(void) {
     if (!begin(PLUGIN_STORE_UPDATING_ALL)) {
         return false;
     }
-    if (!start_thread(update_all_worker, NULL)) {
+    if (!store_start_thread(update_all_worker, NULL)) {
         finish(PLUGIN_STORE_FAILED, TR("Could not start the plugin update."), false);
         return false;
     }

@@ -248,7 +248,7 @@ uint32_t gui_anim_ms(uint32_t base_ms); /* src/ui/gui_theme.c */
    * a provably-correct source buffer and the screen -- most likely in
    * LVGL's own software image-decode/blit path (lv_bin_decoder.c's
    * variable-image "use directly" path and/or lv_draw_sw_img.c) -- not yet
-   * root-caused. See TESTING.md / project history for the full investigation
+   * root-caused. See local/notes/development/TESTING.md / project history for the full investigation
    * before adding a fifth theory to this list. */
   #define LV_LINUX_FBDEV_RENDER_MODE LV_DISPLAY_RENDER_MODE_DIRECT
   #define LV_LINUX_FBDEV_BUFFER_COUNT 2

@@ -35,6 +35,7 @@ gcc -DHOST_BUILD=1 \
     -ffunction-sections -fdata-sections \
     "${REPO_ROOT}/src/ui/phase2_regression_test.c" \
     "${REPO_ROOT}/build_host/ui/screen_builders.o" \
+    "${REPO_ROOT}/build_host/ui/compact_list.o" \
     "${REPO_ROOT}/build_host/ui/gui_theme.o" \
     "${REPO_ROOT}/build_host/ui/i18n.o" \
     "${REPO_ROOT}/build_host/ui/i18n_catalog.o" \

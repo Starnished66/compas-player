@@ -1,4 +1,5 @@
 #include "audio_output.h"
+#include "usb_dsd_output.h"
 #include "debug_log.h"
 #include "subprocess.h"
 #include "headphone_status.h"
@@ -77,6 +78,10 @@ static int bt_aplay_fd = -1;
 static pid_t usb_aplay_pid = -1;
 static int usb_aplay_fd = -1;
 static char usb_alsa_device[32] = "";
+static char active_usb_device[32] = "";
+static usb_dsd_output_t *usb_dsd = NULL;
+static int requested_usb_dsd_mode, active_usb_dsd_mode;
+static unsigned usb_dsd_refused_rate; /* config_mutex; reset on device/mode change */
 
 static unsigned int device_channels = 0;
 static unsigned int device_sample_rate = 0;
@@ -280,6 +285,11 @@ static void close_bt_device(void) {
 }
 
 static void close_usb_device(void) {
+    pthread_mutex_lock(&state_mutex);
+    usb_dsd_output_t *direct = usb_dsd;
+    usb_dsd = NULL;
+    pthread_mutex_unlock(&state_mutex);
+    usb_dsd_output_close(direct);
     if (usb_aplay_pid < 0) return;
     subprocess_terminate(usb_aplay_pid);
     close(usb_aplay_fd);
@@ -288,15 +298,34 @@ static void close_usb_device(void) {
 }
 
 static bool open_device(unsigned int channels, unsigned int sample_rate, bool low_latency, bool want_s24,
-                        bool dop, output_target_t target, const char * usb_device) {
+                        bool dop, output_target_t target, const char * usb_device, int usb_mode) {
     if (target == OUTPUT_TARGET_USB) {
         enum pcm_format format = want_s24 ? PCM_FORMAT_S24_LE : PCM_FORMAT_S16_LE;
-        if (!spawn_aplay(usb_device, channels, sample_rate, format, false, &usb_aplay_pid, &usb_aplay_fd)) return false;
+        usb_dsd_output_t *direct = NULL;
+        if (dop) {
+            unsigned card, device; char extra;
+            if (!usb_mode || sscanf(usb_device, "plughw:%u,%u%c", &card, &device, &extra) != 2)
+                return false;
+            direct = usb_dsd_output_open(card, device, usb_mode == 1, channels, sample_rate);
+            if (!direct) {
+                pthread_mutex_lock(&config_mutex);
+                if (requested_target == OUTPUT_TARGET_USB && requested_usb_dsd_mode == usb_mode &&
+                    !strcmp(usb_alsa_device, usb_device)) usb_dsd_refused_rate = sample_rate;
+                pthread_mutex_unlock(&config_mutex);
+                return false;
+            }
+        } else if (!spawn_aplay(usb_device, channels, sample_rate, format, false,
+                                &usb_aplay_pid, &usb_aplay_fd)) return false;
         pthread_mutex_lock(&state_mutex);
+        usb_dsd = direct;
+        active_usb_dsd_mode = usb_mode;
+        snprintf(active_usb_device, sizeof(active_usb_device), "%s", usb_device);
+        active_dop = dop;
         active_target = OUTPUT_TARGET_USB;
         active_format = format;
         pthread_mutex_unlock(&state_mutex);
     } else if (target == OUTPUT_TARGET_BT) {
+        if (dop) return false;
         if (!bt_control_prepare_source_volume()) return false;
         /* Prefer the rate-pinned PCM so ALSA converts this track to whatever
          * the transport negotiated. Opening BlueALSA at the track's own rate
@@ -313,6 +342,7 @@ static bool open_device(unsigned int channels, unsigned int sample_rate, bool lo
         active_format = format;
         pthread_mutex_unlock(&state_mutex);
     } else {
+        if (dop && sample_rate > 384000) return false;
         apply_dac_preferences(dop);
         /* A PCM stream must never start with the DAC still in DoP mode; a
          * failed clear is retried by the caller's next open. */
@@ -341,7 +371,7 @@ static bool open_device(unsigned int channels, unsigned int sample_rate, bool lo
              * buffer margin at high sample rates was the primary suspect in a
              * real user report of stutter on 24-bit/96kHz FLAC (investigated
              * with Codex/Grok/Gemini -- all three independently converged on
-             * this as the dominant cause; see ISSUES.md).
+             * this as the dominant cause; see local/notes/development/ISSUES.md).
              *
              * period_count=4 is a hardware-validated constant, not a free
              * variable: tools/s24_hw_params_probe.c swept period_count in
@@ -450,9 +480,8 @@ void audio_output_close(void) {
 
 static bool ensure_output(unsigned int channels, unsigned int sample_rate, bool low_latency, bool want_s24,
                           bool dop) {
-    /* DoP goes only to the local DAC; another route is not an ownership
-     * change, so it is refused before claiming the output. */
-    if (dop && !audio_output_is_local_requested()) return false;
+    /* Refuse before claiming output: pass-through must never reach a PCM pipe. */
+    if (dop && !audio_output_dsd_passthrough_requested(sample_rate)) return false;
 
     pthread_mutex_lock(&owner_mutex);
     if (owner_valid) {
@@ -467,6 +496,7 @@ static bool ensure_output(unsigned int channels, unsigned int sample_rate, bool 
 
     pthread_mutex_lock(&config_mutex);
     output_target_t target = requested_target;
+    int usb_mode = requested_usb_dsd_mode;
     char usb_device[sizeof(usb_alsa_device)];
     memcpy(usb_device, usb_alsa_device, sizeof(usb_device));
     pthread_mutex_unlock(&config_mutex);
@@ -509,8 +539,11 @@ static bool ensure_output(unsigned int channels, unsigned int sample_rate, bool 
         }
     }
 
-    bool device_open = (alsa_pcm != NULL || bt_aplay_pid >= 0 || usb_aplay_pid >= 0);
+    bool device_open = (alsa_pcm != NULL || usb_dsd != NULL || bt_aplay_pid >= 0 || usb_aplay_pid >= 0);
     if (device_open && active_target != target) device_open = false;
+    if (device_open && target == OUTPUT_TARGET_USB &&
+        (strcmp(active_usb_device, usb_device) || (dop && active_usb_dsd_mode != usb_mode)))
+        device_open = false;
     /* All PCM targets have format options -- a format or mode mismatch
      * must force a reopen the same as a channel/rate change. */
     enum pcm_format requested_format = (target == OUTPUT_TARGET_BT || want_s24)
@@ -520,7 +553,7 @@ static bool ensure_output(unsigned int channels, unsigned int sample_rate, bool 
     if (device_open && active_dop != dop) device_open = false;
     if (device_open && device_channels == channels && device_sample_rate == sample_rate) return true;
     close_device_state();
-    bool opened = open_device(channels, sample_rate, low_latency, want_s24, dop, target, usb_device);
+    bool opened = open_device(channels, sample_rate, low_latency, want_s24, dop, target, usb_device, usb_mode);
     if (!opened) {
         pthread_mutex_lock(&owner_mutex);
         owner_valid = false;
@@ -539,8 +572,9 @@ bool audio_output_ensure_dop(unsigned int channels, unsigned int sample_rate) {
 
 bool audio_output_is_dop_active(void) {
     pthread_mutex_lock(&state_mutex);
-    bool active = active_dop && active_target == OUTPUT_TARGET_LOCAL && alsa_pcm != NULL &&
-                  active_format == PCM_FORMAT_S24_LE;
+    bool active = active_dop && active_format == PCM_FORMAT_S24_LE &&
+                  ((active_target == OUTPUT_TARGET_LOCAL && alsa_pcm) ||
+                   (active_target == OUTPUT_TARGET_USB && usb_dsd));
     pthread_mutex_unlock(&state_mutex);
     return active;
 }
@@ -726,6 +760,9 @@ bool audio_output_write_s24(const int32_t * buf, uint64_t frames, unsigned int c
         return false;
     }
 
+    if (active_target == OUTPUT_TARGET_USB && usb_dsd)
+        return usb_dsd_output_write(usb_dsd, buf, frames, out_frames_written);
+
     if (active_target == OUTPUT_TARGET_BT || active_target == OUTPUT_TARGET_USB) {
         output_target_t target = active_target;
         int fd = target == OUTPUT_TARGET_BT ? bt_aplay_fd : usb_aplay_fd;
@@ -781,6 +818,24 @@ bool audio_output_write_s24(const int32_t * buf, uint64_t frames, unsigned int c
     return false;
 }
 
+void audio_output_set_usb_dsd_mode(int mode) {
+    pthread_mutex_lock(&config_mutex);
+    mode = mode >= 0 && mode <= 2 ? mode : 0;
+    if (requested_usb_dsd_mode != mode) usb_dsd_refused_rate = 0;
+    requested_usb_dsd_mode = mode;
+    pthread_mutex_unlock(&config_mutex);
+}
+
+bool audio_output_dsd_passthrough_requested(unsigned int rate) {
+    pthread_mutex_lock(&config_mutex);
+    output_target_t target = requested_target;
+    bool usb_allowed = requested_usb_dsd_mode != 0 && rate != usb_dsd_refused_rate;
+    pthread_mutex_unlock(&config_mutex);
+    if (target == OUTPUT_TARGET_USB) return usb_allowed;
+    return target == OUTPUT_TARGET_LOCAL && rate <= 384000 &&
+           !audio_output_dop_rate_refused(rate) && audio_output_dop_supported();
+}
+
 bool audio_output_is_local_requested(void) {
     pthread_mutex_lock(&config_mutex);
     bool local = requested_target == OUTPUT_TARGET_LOCAL;
@@ -818,8 +873,13 @@ void audio_output_get_info(audio_output_info_t * out) {
         out->sample_rate = device_sample_rate;
         out->channels = device_channels;
         out->bit_depth = active_format == PCM_FORMAT_S24_LE ? 24 : 16;
-        out->dop = active_dop;
-        out->hardware_format_known = active_target == OUTPUT_TARGET_LOCAL;
+        out->native_dsd = usb_dsd && usb_dsd_output_is_native(usb_dsd);
+        out->dop = active_dop && !out->native_dsd;
+        out->hardware_format_known = active_target == OUTPUT_TARGET_LOCAL || usb_dsd != NULL;
+        if (usb_dsd) {
+            out->sample_rate = usb_dsd_output_hardware_rate(usb_dsd);
+            out->bit_depth = usb_dsd_output_hardware_bits(usb_dsd);
+        }
     }
     pthread_mutex_unlock(&state_mutex);
 }
@@ -861,6 +921,8 @@ void audio_output_set_bt_requested(bool requested) {
 
 void audio_output_set_usb_requested(bool requested, const char * alsa_device) {
     pthread_mutex_lock(&config_mutex);
+    if (usb_requested != requested || (requested && strcmp(usb_alsa_device, alsa_device)))
+        usb_dsd_refused_rate = 0;
     usb_requested = requested;
     if (requested) snprintf(usb_alsa_device, sizeof(usb_alsa_device), "%s", alsa_device);
     recompute_requested_target();

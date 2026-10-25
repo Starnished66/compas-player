@@ -1,4 +1,5 @@
 #include "wifi_control.h"
+#include "wifi_status.h"
 #include "subprocess.h"
 
 #include <mbedtls/md.h>
@@ -116,17 +117,6 @@ void wifi_control_scan_start(void) {
     subprocess_run(argv, NULL, 0);
 }
 
-/* Conventional RSSI (dBm) buckets, matching wifi_status.c's own -- not
- * extracted from the stock binary (there's no equivalent "list networks"
- * feature in it to reverse from), just a reasonable mapping to the same
- * 4 signal icon levels. */
-static int rssi_to_level(int rssi_dbm) {
-    if (rssi_dbm >= -50) return 3;
-    if (rssi_dbm >= -60) return 2;
-    if (rssi_dbm >= -70) return 1;
-    return 0;
-}
-
 int wifi_control_get_results(wifi_network_t * out, int max_count) {
     char buf[8192];
     char * scan_argv[] = { (char *) "wpa_cli", (char *) "-i", (char *) WIFI_INTERFACE, (char *) "scan_results",
@@ -164,7 +154,7 @@ int wifi_control_get_results(wifi_network_t * out, int max_count) {
         (void) freq;
 
         if (ssid && ssid[0] != '\0' && signal && flags) {
-            int level = rssi_to_level(atoi(signal));
+            int level = wifi_signal_level_from_rssi(atoi(signal));
             bool secured = strstr(flags, "WPA") != NULL || strstr(flags, "WEP") != NULL;
             char decoded_ssid[WIFI_MAX_SSID_LEN];
             if (decode_wpa_ssid(ssid, decoded_ssid, sizeof(decoded_ssid)) < 0) {
@@ -398,7 +388,7 @@ bool wifi_control_get_info(wifi_info_t * out) {
     if (subprocess_run_checked(signal_argv, signal_buf, sizeof(signal_buf), WIFI_QUERY_TIMEOUT_MS, &exit_code) &&
         exit_code == 0) {
         const char * rssi_pos = strstr(signal_buf, "RSSI=");
-        if (rssi_pos) out->signal_level = rssi_to_level(atoi(rssi_pos + 5));
+        if (rssi_pos) out->signal_level = wifi_signal_level_from_rssi(atoi(rssi_pos + 5));
     }
 
     char route_buf[256];
