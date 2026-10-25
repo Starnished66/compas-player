@@ -11,7 +11,8 @@
 #include <sys/stat.h>
 
 /* Host selector snapshots. Draws the real selector_ui into the host
- * framebuffer backend and writes one PNG per selection row. */
+ * framebuffer backend and writes one PNG per selection row, plus the
+ * Tools sub-screens (menu, scripts list, notice, progress). */
 
 #if defined(BOARD_R3PROII)
 #define BOARD_SLUG "r3proii"
@@ -186,6 +187,16 @@ static int present_and_save(const char * path) {
     return write_png(path, frame, FB_WIDTH, FB_HEIGHT);
 }
 
+static int save_named(const char * out_dir, const char * prefix, const char * name) {
+    char path[512];
+    if (snprintf(path, sizeof(path), "%s/%s-%s-%s.png",
+                 out_dir, prefix, BOARD_SLUG, name) >= (int) sizeof(path)) {
+        fprintf(stderr, "selector_sim: output path too long\n");
+        return -1;
+    }
+    return present_and_save(path);
+}
+
 int main(int argc, char ** argv) {
     const char * out_dir = argc > 1 ? argv[1] : DEFAULT_OUT_DIR;
     const char * font_path = argc > 2 ? argv[2] : DEFAULT_FONT_PATH;
@@ -217,15 +228,30 @@ int main(int argc, char ** argv) {
     int failed = 0;
     for (int selected = 0; selected < row_count; selected++) {
         selector_ui_draw_selector(selected, rockbox_available, 5, false, false);
-        char path[512];
-        if (snprintf(path, sizeof(path), "%s/%s-%s-%s.png",
-                     out_dir, prefix, BOARD_SLUG, names[selected]) >= (int) sizeof(path)) {
-            fprintf(stderr, "selector_sim: output path too long\n");
-            failed = 1;
-            break;
-        }
-        if (present_and_save(path) != 0) failed = 1;
+        if (save_named(out_dir, prefix, names[selected]) != 0) failed = 1;
     }
+
+    selector_ui_draw_tools(0, 0, false);
+    if (save_named(out_dir, prefix, "tools-menu") != 0) failed = 1;
+    selector_ui_draw_tools(0, 0, true);
+    if (save_named(out_dir, prefix, "tools-adb") != 0) failed = 1;
+
+    static const char * scripts[] = {
+        "backup-library.sh", "export-logs.sh", "sync-playlists.sh"
+    };
+    selector_ui_draw_list("Run script", scripts, 3, 0, 0, NULL);
+    if (save_named(out_dir, prefix, "tools-scripts") != 0) failed = 1;
+
+    static const char * repair[] = { "Repair SD card" };
+    selector_ui_draw_list("Repair SD card", repair, 1, 0, 0,
+                          "Checks and repairs files. Keep power connected.");
+    if (save_named(out_dir, prefix, "tools-repair") != 0) failed = 1;
+
+    selector_ui_draw_notice("Remount SD", "SD card remounted");
+    if (save_named(out_dir, prefix, "tools-notice") != 0) failed = 1;
+
+    selector_ui_draw_progress("Repair SD card", "Checking file system", 42);
+    if (save_named(out_dir, prefix, "tools-progress") != 0) failed = 1;
 
     fb_close();
     selector_ui_shutdown();
