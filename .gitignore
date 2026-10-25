@@ -229,6 +229,8 @@
 /compas_bootloader_*
 /compas_loader
 /compas_loader_*
+/selector_sim
+/selector_sim_*
 /open_hiby_bootloader
 /open_hiby_bootloader_*
 /compile_commands.json

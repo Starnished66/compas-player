@@ -883,7 +883,27 @@ $(BUILD_TARGET_DIR)/libsndfile/libsndfile.a: $(BUILD_TARGET_DIR)/.audio_vendor_c
 	cmake -S $(SNDFILE_DIR) -B $(dir $@) $(SNDFILE_OPTIONS) -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=mipsel -DCMAKE_C_COMPILER=$(CROSS_CC) -DCMAKE_C_FLAGS='$(TARGET_CPU_FLAGS) $(TARGET_CODE_SECTION_FLAGS)'
 	+cmake --build $(dir $@) --target sndfile
 
-.PHONY: all host target bootloader clean compile_commands.json FORCE_VERSION
+ifeq ($(BOARD),r1)
+SELECTOR_SIM_BIN = selector_sim
+else
+SELECTOR_SIM_BIN = selector_sim_$(BOARD)
+endif
+SELECTOR_SIM_CFLAGS = -O2 -Wall -fwrapv -I. -Isrc/bootloader -Isrc/core \
+	-DFB_DRAW_HOST=1 -DHOST_BUILD=1 -DCOMPAS_LOADER_BUILD $(BOARD_DEFINE)
+SELECTOR_SIM_SRCS = src/bootloader/selector_sim.c src/bootloader/selector_ui.c \
+	src/bootloader/fb_draw.c src/bootloader/fb_host.c src/core/glyph5x7.c \
+	src/core/startup_splash.c lvgl/src/libs/tjpgd/tjpgd.c
+
+$(SELECTOR_SIM_BIN): $(SELECTOR_SIM_SRCS) src/bootloader/fb_draw.h src/bootloader/fb_draw_internal.h \
+		src/bootloader/selector_ui.h src/core/board_config.h src/core/glyph5x7.h $(LVGL_TINY_TTF)
+	$(CC) $(SELECTOR_SIM_CFLAGS) -o $@ $(SELECTOR_SIM_SRCS) -lm
+
+.PHONY: selector-sim
+selector-sim: $(SELECTOR_SIM_BIN)
+	@mkdir -p scratch/selector-mockup
+	./$(SELECTOR_SIM_BIN) scratch/selector-mockup assets/fonts/Montserrat-Medium.ttf
+
+.PHONY: all host target bootloader clean compile_commands.json FORCE_VERSION selector-sim
 
 # Default target builds for host simulation and generates compile commands for IDE
 all: host compile_commands.json
@@ -1223,6 +1243,7 @@ clean:
 	rm -rf build_host build_host_* build_target build_target_* build_ui_test build_layouts_test* \
 	    compas_player_host compas_player_host_* \
 	    compas_player_target compas_player_target_* \
+	    selector_sim selector_sim_* \
 	    compile_commands.json compile_flags.txt
 
 # UI translations (see po/README.md). `make i18n` re-extracts the template,
