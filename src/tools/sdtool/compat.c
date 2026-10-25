@@ -31,7 +31,46 @@ bool compat_to_wide(const char *utf8, wchar_t *out, size_t count) {
 }
 
 bool compat_from_wide(const wchar_t *wide, char *out, size_t size) {
-    return WideCharToMultiByte(CP_UTF8, 0, wide, -1, out, (int) size, NULL, NULL) > 0;
+    return WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide, -1, out, (int) size, NULL, NULL) > 0;
+}
+
+bool compat_path_to_wide(const char *utf8, wchar_t *out, size_t count) {
+    wchar_t plain[PATH_MAX], full[PATH_MAX];
+    if (!compat_to_wide(utf8, plain, PATH_MAX)) return false;
+    DWORD length = GetFullPathNameW(plain, PATH_MAX, full, NULL);
+    if (length == 0 || length >= PATH_MAX) {
+        errno = ENAMETOOLONG;
+        return false;
+    }
+    const wchar_t *prefix = L"\\\\?\\";
+    const wchar_t *tail = full;
+    if (wcsncmp(full, prefix, 4) == 0) {
+        prefix = L"";
+    } else if (wcsncmp(full, L"\\\\", 2) == 0) {
+        prefix = L"\\\\?\\UNC\\";
+        tail = full + 2;
+    }
+    if (wcslen(prefix) + wcslen(tail) >= count) {
+        errno = ENAMETOOLONG;
+        return false;
+    }
+    wcscpy(out, prefix);
+    wcscat(out, tail);
+    return true;
+}
+
+/* Seconds a Windows FAT volume adds to a stored time: the zone offset that
+ * FileTimeToLocalFileTime applies. */
+long long compat_local_offset(long long utc_seconds) {
+    ULARGE_INTEGER utc, local;
+    FILETIME in, out;
+    utc.QuadPart = (ULONGLONG) utc_seconds * 10000000ULL + 116444736000000000ULL;
+    in.dwLowDateTime = utc.LowPart;
+    in.dwHighDateTime = utc.HighPart;
+    if (!FileTimeToLocalFileTime(&in, &out)) return 0;
+    local.LowPart = out.dwLowDateTime;
+    local.HighPart = out.dwHighDateTime;
+    return ((long long) local.QuadPart - (long long) utc.QuadPart) / 10000000LL;
 }
 
 static int errno_from_windows(DWORD error) {
@@ -47,10 +86,10 @@ static int errno_from_windows(DWORD error) {
 
 int compat_open(const char *path, int flags, ...) {
     wchar_t wide[PATH_MAX];
-    if (!compat_to_wide(path, wide, PATH_MAX)) return -1;
+    if (!compat_path_to_wide(path, wide, PATH_MAX)) return -1;
     if (flags & O_DIRECTORY) {
         struct _stat64 st;
-        if (_wstat64(wide, &st) != 0) return -1;
+        if (compat_stat(path, &st) != 0) return -1;
         if (!S_ISDIR(st.st_mode)) {
             errno = ENOTDIR;
             return -1;
@@ -86,7 +125,7 @@ int compat_open(const char *path, int flags, ...) {
 
 FILE *compat_fopen(const char *path, const char *mode) {
     wchar_t wide_path[PATH_MAX], wide_mode[16];
-    if (!compat_to_wide(path, wide_path, PATH_MAX) || !compat_to_wide(mode, wide_mode, 16)) return NULL;
+    if (!compat_path_to_wide(path, wide_path, PATH_MAX) || !compat_to_wide(mode, wide_mode, 16)) return NULL;
     return _wfopen(wide_path, wide_mode);
 }
 
@@ -97,7 +136,7 @@ int compat_close(int fd) {
 
 int compat_unlink(const char *path) {
     wchar_t wide[PATH_MAX];
-    if (!compat_to_wide(path, wide, PATH_MAX)) return -1;
+    if (!compat_path_to_wide(path, wide, PATH_MAX)) return -1;
     if (DeleteFileW(wide)) return 0;
     errno = errno_from_windows(GetLastError());
     return -1;
@@ -106,7 +145,7 @@ int compat_unlink(const char *path) {
 /* Unlike the C runtime's rename(), replaces an existing target. */
 int compat_rename(const char *from, const char *to) {
     wchar_t wide_from[PATH_MAX], wide_to[PATH_MAX];
-    if (!compat_to_wide(from, wide_from, PATH_MAX) || !compat_to_wide(to, wide_to, PATH_MAX)) return -1;
+    if (!compat_path_to_wide(from, wide_from, PATH_MAX) || !compat_path_to_wide(to, wide_to, PATH_MAX)) return -1;
     if (MoveFileExW(wide_from, wide_to, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return 0;
     errno = errno_from_windows(GetLastError());
     return -1;
@@ -114,23 +153,52 @@ int compat_rename(const char *from, const char *to) {
 
 int compat_access(const char *path, int mode) {
     wchar_t wide[PATH_MAX];
-    return compat_to_wide(path, wide, PATH_MAX) ? _waccess(wide, mode & 6) : -1;
+    if (!compat_path_to_wide(path, wide, PATH_MAX)) return -1;
+    DWORD attributes = GetFileAttributesW(wide);
+    if (attributes == INVALID_FILE_ATTRIBUTES) {
+        errno = errno_from_windows(GetLastError());
+        return -1;
+    }
+    if ((mode & 2) && (attributes & FILE_ATTRIBUTE_READONLY) && !(attributes & FILE_ATTRIBUTE_DIRECTORY)) {
+        errno = EACCES;
+        return -1;
+    }
+    return 0;
 }
 
 int compat_mkdir(const char *path) {
     wchar_t wide[PATH_MAX];
-    return compat_to_wide(path, wide, PATH_MAX) ? _wmkdir(wide) : -1;
+    if (!compat_path_to_wide(path, wide, PATH_MAX)) return -1;
+    if (CreateDirectoryW(wide, NULL)) return 0;
+    errno = errno_from_windows(GetLastError());
+    return -1;
 }
 
+/* From the file's attributes rather than the C runtime's stat(), which does
+ * not take long paths. Times of regular files are moved into the player's
+ * frame (mtime.c). */
 int compat_stat(const char *path, struct _stat64 *st) {
     wchar_t wide[PATH_MAX];
-    size_t length;
-    if (!compat_to_wide(path, wide, PATH_MAX)) return -1;
-    /* The runtime refuses a folder name with a trailing separator. */
-    for (length = wcslen(wide); length > 1 && (wide[length - 1] == L'/' || wide[length - 1] == L'\\') &&
-                                !(length == 3 && wide[1] == L':'); length--)
+    WIN32_FILE_ATTRIBUTE_DATA data;
+    if (!compat_path_to_wide(path, wide, PATH_MAX)) return -1;
+    for (size_t length = wcslen(wide); length > 4 && wide[length - 1] == L'\\' && wide[length - 2] != L':'; length--)
         wide[length - 1] = L'\0';
-    return _wstat64(wide, st);
+    if (!GetFileAttributesExW(wide, GetFileExInfoStandard, &data)) {
+        errno = errno_from_windows(GetLastError());
+        return -1;
+    }
+    memset(st, 0, sizeof(*st));
+    bool directory = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    ULARGE_INTEGER written;
+    written.LowPart = data.ftLastWriteTime.dwLowDateTime;
+    written.HighPart = data.ftLastWriteTime.dwHighDateTime;
+    long long mtime = (long long) ((written.QuadPart - 116444736000000000ULL) / 10000000ULL);
+    st->st_mode = directory ? (_S_IFDIR | 0755) : (_S_IFREG | 0644);
+    st->st_nlink = 1;
+    st->st_size = directory ? 0 : (long long) (((uint64_t) data.nFileSizeHigh << 32) | data.nFileSizeLow);
+    if (!directory) mtime += sdtool_mtime_offset(path);
+    st->st_mtime = st->st_atime = st->st_ctime = mtime;
+    return 0;
 }
 
 int compat_fstat(int fd, struct _stat64 *st) {
@@ -213,7 +281,7 @@ int compat_mkstemp(char *pattern) {
 int statvfs(const char *path, struct statvfs *out) {
     wchar_t wide[PATH_MAX];
     ULARGE_INTEGER available;
-    if (!compat_to_wide(path, wide, PATH_MAX)) return -1;
+    if (!compat_path_to_wide(path, wide, PATH_MAX)) return -1;
     if (!GetDiskFreeSpaceExW(wide, &available, NULL, NULL)) {
         errno = errno_from_windows(GetLastError());
         return -1;
@@ -239,6 +307,7 @@ int main(void) {
         if (!argv[i] || !compat_from_wide(wide[i], argv[i], wcslen(wide[i]) * 4 + 1)) return 2;
     }
     _fmode = _O_BINARY;
+    _setmode(_fileno(stdin), _O_BINARY);
     _setmode(_fileno(stdout), _O_BINARY);
     _setmode(_fileno(stderr), _O_BINARY);
     return sdtool_main(argc, argv);

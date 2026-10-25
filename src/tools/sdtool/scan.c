@@ -1,10 +1,11 @@
 #include "sdtool.h"
 #include "json_out.h"
+#include "library_scan_decision.h"
 #include "library_scan_tags.h"
+#include "parse_pool.h"
 #include "library_walk.h"
 #include "metadata.h"
 #include "metadata_db.h"
-#include "metadata_refresh_targets.h"
 #include "storage_paths.h"
 #include "tagcache.h"
 #include <limits.h>
@@ -70,9 +71,8 @@ static bool file_signature(const char *host, int64_t *mtime, int64_t *size) {
 
 /* True when every file found already has an up-to-date row and no row is left
  * over: the player's unchanged fast path. */
-static bool library_unchanged(const file_list_t *list, int skipped) {
-    if (skipped != 0 || metadata_db_get_song_count() != list->count ||
-        !metadata_db_album_sort_available(METADATA_DB_ALBUM_SORT_RECENT) ||
+static bool library_unchanged(const file_list_t *list) {
+    if (!metadata_db_album_sort_available(METADATA_DB_ALBUM_SORT_RECENT) ||
         !metadata_db_album_sort_available(METADATA_DB_ALBUM_SORT_YEAR) ||
         !metadata_db_album_sort_available(METADATA_DB_ALBUM_SORT_ALBUM_ARTIST_YEAR))
         return false;
@@ -89,31 +89,56 @@ static bool library_unchanged(const file_list_t *list, int skipped) {
     return true;
 }
 
-static void update_file(const char *host, bool full, scan_result_t *result) {
-    char path[PATH_MAX];
-    int64_t mtime, size;
-    cached_tags_t tags;
-    stored_path(host, path, sizeof(path));
-    if (!file_signature(host, &mtime, &size)) {
-        result->failed++;
-        return;
-    }
-    if (!full && metadata_db_get(path, mtime, size, &tags)) return;
+enum { PARSE_BATCH = 64 };
 
-    song_row_t previous = {0};
-    bool had_previous = full && metadata_db_get_song_by_path(path, &previous);
-    if (had_previous) result->matched_existing++;
-    track_metadata_t meta;
-    memset(&meta, 0, sizeof(meta));
-    metadata_read_scan_tags(host, &meta);
-    library_scan_tags_from_track(&meta, &tags);
-    result->parsed++;
-    /* A forced refresh writes only rows whose tags differ; leaving same-tag
-     * rows alone keeps an unchanged library byte-identical. */
-    if (full && had_previous && library_scan_tags_equal(&previous.tags, &tags)) return;
-    bool stored_changed = metadata_db_put(path, mtime, size, &tags);
-    if (full && had_previous && stored_changed) result->changed++;
-    if (full && !had_previous) result->inserted = true;
+/* Reads the tags of the files that need it, a batch at a time, in worker
+ * processes. A file the worker could not parse is failed and gets no row, so
+ * an older row of it survives, as in the player. */
+static bool update_batch(const file_list_t *list, long first, long count, bool full, scan_result_t *result) {
+    const char *todo[PARSE_BATCH];
+    static char stored[PARSE_BATCH][PATH_MAX];
+    int64_t mtimes[PARSE_BATCH], sizes[PARSE_BATCH];
+    static track_metadata_t metas[PARSE_BATCH];
+    bool parsed[PARSE_BATCH];
+    static song_row_t previous[PARSE_BATCH];
+    bool had_previous[PARSE_BATCH];
+    size_t wanted = 0;
+
+    for (long i = first; i < first + count; i++) {
+        char path[PATH_MAX];
+        cached_tags_t cached;
+        const char *host = list->paths[i];
+        stored_path(host, path, sizeof(path));
+        if (!file_signature(host, &mtimes[wanted], &sizes[wanted])) {
+            result->failed++;
+            continue;
+        }
+        if (!full && metadata_db_get(path, mtimes[wanted], sizes[wanted], &cached)) continue;
+        snprintf(stored[wanted], PATH_MAX, "%s", path);
+        had_previous[wanted] = full && metadata_db_get_song_by_path(path, &previous[wanted]);
+        if (had_previous[wanted]) result->matched_existing++;
+        todo[wanted++] = host;
+    }
+    if (wanted == 0) return true;
+    if (!sdtool_parse_files(todo, wanted, metas, parsed)) return false;
+
+    for (size_t k = 0; k < wanted; k++) {
+        cached_tags_t tags;
+        if (!parsed[k]) {
+            sdtool_log("could not read tags of %s", todo[k]);
+            result->failed++;
+            continue;
+        }
+        library_scan_tags_from_track(&metas[k], &tags);
+        result->parsed++;
+        /* A forced refresh writes only rows whose tags differ; leaving same-tag
+         * rows alone keeps an unchanged library byte-identical. */
+        if (full && had_previous[k] && library_scan_tags_equal(&previous[k].tags, &tags)) continue;
+        bool stored_changed = metadata_db_put(stored[k], mtimes[k], sizes[k], &tags);
+        if (full && had_previous[k] && stored_changed) result->changed++;
+        if (full && !had_previous[k]) result->inserted = true;
+    }
+    return true;
 }
 
 static int finish(const file_list_t *list, const scan_result_t *result, int skipped, bool written) {
@@ -141,7 +166,9 @@ static int fail(file_list_t *list, const char *code, const char *message) {
 }
 
 int sdtool_cmd_scan(const sdtool_options_t *options) {
-    if (!sdtool_open_database()) return SDTOOL_FAILED;
+    sdtool_database_t db;
+    if (!sdtool_open_database(&db)) return SDTOOL_FAILED;
+    sdtool_mtime_calibrate();
     file_list_t list = {0};
     scan_result_t result = {0};
     int count = 0, skipped = 0;
@@ -153,7 +180,13 @@ int sdtool_cmd_scan(const sdtool_options_t *options) {
                                                          list_add, &list, &count, &progress, &skipped))
         return fail(&list, "walk_failed", "the card could not be read");
 
-    if (!options->full && library_unchanged(&list, skipped)) {
+    if (library_scan_rebuild_rejected(db.preserve_rebuild, (int) list.count))
+        return fail(&list, "no_music_found", "the database cannot be read and no music was found to rebuild it");
+
+    if (!options->full &&
+        library_scan_may_skip_update(db.outcome, db.preserve_rebuild, skipped, (int) list.count,
+                                     metadata_db_get_song_count()) &&
+        library_unchanged(&list)) {
         int rc = finish(&list, &result, 0, false);
         list_free(&list);
         metadata_db_close();
@@ -167,16 +200,18 @@ int sdtool_cmd_scan(const sdtool_options_t *options) {
     }
 
     metadata_db_begin_update();
-    for (long i = 0; i < list.count; i++) {
-        update_file(list.paths[i], options->full, &result);
-        json_progress("tags", i + 1, list.count);
+    for (long first = 0; first < list.count; first += PARSE_BATCH) {
+        long batch = list.count - first < PARSE_BATCH ? list.count - first : PARSE_BATCH;
+        if (!update_batch(&list, first, batch, options->full, &result)) {
+            metadata_db_abort_update();
+            return fail(&list, "worker_failed", "the tag parser process could not be started");
+        }
+        json_progress("tags", first + batch, list.count);
     }
 
-    /* As the player does for a forced refresh: with nothing changed,
-     * inserted or missing, committing would only rewrite the same library. */
     bool missing = options->full && result.matched_existing != metadata_db_get_song_count();
-    if (options->full && skipped == 0 && !missing &&
-        metadata_refresh_should_skip_commit((int) result.changed, false, result.inserted)) {
+    if (library_scan_refresh_skips_commit(options->full, db.preserve_rebuild, skipped, (int) result.changed,
+                                          result.inserted, missing)) {
         metadata_db_abort_update();
         int rc = finish(&list, &result, skipped, false);
         list_free(&list);

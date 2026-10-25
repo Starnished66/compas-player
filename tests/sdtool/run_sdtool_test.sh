@@ -107,9 +107,11 @@ printf '{"schema":1,"model":"r3ii_2025"}\n' > "$card/.compas/device.json"
 r=$(run art "$card") || fail "art with device.json"
 [ "$(field "$r" board)" = r3ii_2025 ] || fail "board from device.json"
 
-# file times written under another time zone must not trigger a rescan:
-# FAT keeps local time, so the same file reads differently per computer.
-for delta in 32400 -18000 20700 3600 -93600 93600; do
+# File times written under another time zone must not trigger a rescan: FAT
+# keeps local time, so one file reads differently per computer. sdtool corrects
+# for it (a database the player wrote calibrates the offset; --mtime-offset
+# states it), so shifting every file as another zone would changes nothing.
+for delta in 32400 -18000 20700 3600; do
   shift_times "$delta"
   snapshot > "$work/before"
   r=$(run scan "$card") || fail "scan after $delta s shift"
@@ -119,13 +121,55 @@ for delta in 32400 -18000 20700 3600 -93600 93600; do
   snapshot > "$work/after"
   cmp -s "$work/before" "$work/after" || fail "zone shift $delta wrote to the card"
 done
-# ... but a real edit still is noticed, including one off the 15-minute grid.
+shift_times 7200
+r=$(run scan "$card" --mtime-offset -7200) || fail "scan with --mtime-offset"
+[ "$(field "$r" parsed)" = 0 ] || fail "--mtime-offset not applied: $r"
+# a shift that is no zone offset is not corrected: everything is read again.
 shift_times 1000
 r=$(run scan "$card") || fail "scan after off-grid shift"
 [ "$(field "$r" parsed)" = 5 ] || fail "off-grid change not noticed: $r"
-shift_times 108000
-r=$(run scan "$card") || fail "scan after 30 h shift"
-[ "$(field "$r" parsed)" = 5 ] || fail "30 h change not noticed: $r"
+
+# a same-size edit is always noticed, whatever step its time moved by.
+python3 -I - "$card" <<'PY'
+import os, sys
+path = os.path.join(sys.argv[1], "Artist Three", "Album Three", "01 Fourth.mp3")
+data = bytearray(open(path, "rb").read())
+data[-1] ^= 0xFF
+st = os.stat(path)
+open(path, "wb").write(data)
+os.utime(path, (st.st_atime + 1800, st.st_mtime + 1800))
+PY
+r=$(run scan "$card") || fail "scan after same-size edit"
+[ "$(field "$r" parsed)" = 1 ] || fail "same-size edit not noticed: $r"
+
+# a tag parser that crashes or hangs fails that file only: no placeholder row.
+cp "$card/Artist Three/Album Three/01 Fourth.mp3" "$card/Artist Three/Album Three/03 Crash.mp3"
+cp "$card/Artist Three/Album Three/01 Fourth.mp3" "$card/Artist Three/Album Three/04 Hang.mp3"
+r=$(SDTOOL_TEST_FAULT=crash:03; export SDTOOL_TEST_FAULT; run scan "$card") || fail "scan with crashing parser"
+[ "$(field "$r" failed)" = 1 ] && [ "$(field "$r" songs)" = 6 ] || fail "crash handling: $r"
+r=$(SDTOOL_TEST_FAULT=hang:03; export SDTOOL_TEST_FAULT; run scan "$card") || fail "scan with hanging parser"
+[ "$(field "$r" failed)" = 1 ] && [ "$(field "$r" songs)" = 6 ] || fail "hang handling: $r"
+rm "$card/Artist Three/Album Three/03 Crash.mp3" "$card/Artist Three/Album Three/04 Hang.mp3"
+r=$(run scan "$card") || fail "scan after removing test files"
+[ "$(field "$r" songs)" = 5 ] || fail "test files kept: $r"
+
+# info reads without writing, even when the identity marker is missing.
+rm -f "$card/.compas/catalog.incarnation"
+snapshot > "$work/before"
+run info "$card" >/dev/null || fail "info"
+snapshot > "$work/after"
+cmp -s "$work/before" "$work/after" || fail "info wrote to the card"
+run scan "$card" >/dev/null || fail "scan after info"
+
+# a database that cannot be read is rebuilt, once: later scans leave the card alone.
+printf 'not a generation pointer' > "$card/.compas/tagcache.gen"
+r=$(run scan "$card") || fail "scan of damaged database"
+[ "$(field "$r" written)" = True ] && [ "$(field "$r" songs)" = 5 ] || fail "damaged database not rewritten: $r"
+r=$(run scan "$card") || fail "scan after repair"
+[ "$(field "$r" written)" = False ] || fail "repaired database rewritten again: $r"
+cp "$card/.compas/catalog.incarnation" "$work/incarnation"
+run scan "$card" >/dev/null || fail "third scan"
+cmp -s "$work/incarnation" "$card/.compas/catalog.incarnation" || fail "catalog identity rotated on an unchanged scan"
 
 # a changed file is re-read, a removed one dropped.
 python3 "$here/make_fixture.py" "$work/other" >/dev/null

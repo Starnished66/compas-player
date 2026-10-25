@@ -6,15 +6,19 @@
  * POSIX calls it uses that those systems lack, so the player sources carry no
  * per-platform conditionals. Linux builds do not include it.
  *
- * macOS: only two names are missing.
+ * macOS: two names are missing, and folder listings are normalised to NFC.
  * Windows (MinGW-w64): paths are UTF-8 in the program and converted for the
  * wide Windows API; file times are 64-bit; a folder opened with O_DIRECTORY
  * gets a stand-in descriptor that the *at() calls resolve (compat_dirs.c). */
 
 #if defined(__APPLE__)
 
+#include <dirent.h>
 #include <unistd.h>
 #define fdatasync fsync
+/* HFS+ lists names decomposed (NFD); the player stores them composed (NFC). */
+struct dirent *compat_readdir(DIR *dir);
+#define readdir compat_readdir
 /* Free memory is unknown here; callers then choose their smallest layouts. */
 #define _SC_AVPHYS_PAGES (-1)
 

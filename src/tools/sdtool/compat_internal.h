@@ -9,6 +9,11 @@
 
 /* UTF-8 to UTF-16; sets errno and returns false if it does not fit. */
 bool compat_to_wide(const char *utf8, wchar_t *out, size_t count);
+/* The same for a file name: absolute, with the \\?\ prefix that lifts the
+ * 260-character limit (the player allows paths of 600). */
+bool compat_path_to_wide(const char *utf8, wchar_t *out, size_t count);
+long long compat_local_offset(long long utc_seconds);
+long sdtool_mtime_offset(const char *path);
 bool compat_from_wide(const wchar_t *wide, char *out, size_t size);
 
 /* The folder a stand-in descriptor stands for, or NULL for any other fd. */

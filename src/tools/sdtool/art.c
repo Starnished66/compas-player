@@ -149,7 +149,9 @@ static bool resolve_board(const sdtool_options_t *options, char *board, size_t s
 
 int sdtool_cmd_art(const sdtool_options_t *options) {
     char board[32];
-    if (!resolve_board(options, board, sizeof(board)) || !sdtool_open_database()) return SDTOOL_FAILED;
+    sdtool_database_t db;
+    if (!resolve_board(options, board, sizeof(board)) || !sdtool_open_database(&db)) return SDTOOL_FAILED;
+    sdtool_mtime_calibrate();
 
     enum { PAGE = 64 };
     group_row_t rows[PAGE];

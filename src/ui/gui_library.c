@@ -41,6 +41,7 @@ void refresh_artist_albums_now_playing_indicator(void);
 #include "metadata.h"
 #include "metadata_db.h"
 #include "library_scan_tags.h"
+#include "library_scan_decision.h"
 #include "metadata_refresh_targets.h"
 #include "sd_fsck_run.h"
 #include "tagcache.h"
@@ -12661,7 +12662,7 @@ static void library_scan_once_with_options(bool force_all_metadata) {
            discovered_count, skipped_count, (unsigned long long) (db_log_now_ms() - phase_started_ms),
            "fd-backed", db_log_rss_kb());
 
-    if (preserve_rebuild && discovered_count == 0) {
+    if (library_scan_rebuild_rejected(preserve_rebuild, discovered_count)) {
         DB_LOG("DB", "rebuild_rejected reason=no_files");
         metadata_db_abort_update();
         library_operation_outcome = combine_load_outcomes(library_operation_outcome, METADATA_DB_LOAD_FAILED);
@@ -12672,9 +12673,8 @@ static void library_scan_once_with_options(bool force_all_metadata) {
     library_scan_progress_total = discovered_count;
     library_scan_phase = LIBRARY_SCAN_PHASE_TAGS;
     bool force_metadata_anywhere = force_all_metadata;
-    if (open_outcome == METADATA_DB_LOAD_SUCCESS_NORMAL && !preserve_rebuild &&
-        skipped_count == 0 && discovered_count >= 0 &&
-        metadata_db_get_song_count() == (int64_t) discovered_count &&
+    if (library_scan_may_skip_update(open_outcome, preserve_rebuild, skipped_count, discovered_count,
+                                     metadata_db_get_song_count()) &&
         library_scan_unchanged_fast_path(spool_fd, spool_owner->root_fd, discovered_count,
                                          force_metadata_anywhere)) {
         scan_walk_release(spool_owner);
@@ -12812,8 +12812,8 @@ static void library_scan_once_with_options(bool force_all_metadata) {
     bool missing_paths = force_all_metadata &&
                          (int64_t) library_rescan_matched_existing != metadata_db_get_song_count();
     if (missing_paths) library_rescan_identity_changed = true;
-    if (force_all_metadata && !preserve_rebuild && skipped_count == 0 &&
-        metadata_refresh_should_skip_commit(library_rescan_changed_count, false, row_inserted)) {
+    if (library_scan_refresh_skips_commit(force_all_metadata, preserve_rebuild, skipped_count,
+                                          library_rescan_changed_count, row_inserted, false)) {
         if (atomic_load_explicit(&library_scan_cancel_requested, memory_order_acquire) ||
             !sd_card_root_is_mounted() || !metadata_db_storage_current()) {
             metadata_db_abort_update();

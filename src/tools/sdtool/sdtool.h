@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include "metadata_db.h"
 
 #define SDTOOL_VERSION "1.0.0"
 
@@ -24,13 +25,27 @@ const char *sdtool_root(void);
 /* Reads "model" from <card>/.compas/device.json into out; false when absent. */
 bool sdtool_root_device_model(char *out, size_t size);
 
+/* mtime.c: card file times in the player's frame (see there). */
+void sdtool_mtime_set_manual(long seconds);
+void sdtool_mtime_set_calibrated(long seconds);
+long sdtool_mtime_offset(const char *path);
+/* mtime_calibrate.c: derives the offset from the open database's rows. */
+void sdtool_mtime_calibrate(void);
+
 /* Commands. Each prints JSON lines on stdout and returns an exit code. */
 int sdtool_cmd_info(const sdtool_options_t *options);
 int sdtool_cmd_scan(const sdtool_options_t *options);
 int sdtool_cmd_art(const sdtool_options_t *options);
 
-/* Opens the card's database the way the player does, rebuilding one that
- * fails to load. Emits the error line and returns false on failure. */
-bool sdtool_open_database(void);
+/* How the database opened: the player's load outcome, and whether it is an
+ * empty stand-in for one that could not be read (a "preserved rebuild"). */
+typedef struct {
+    metadata_db_load_outcome_t outcome;
+    bool preserve_rebuild;
+} sdtool_database_t;
+
+/* Opens the card's database the way the player's scan does. Emits the error
+ * line and returns false on failure. */
+bool sdtool_open_database(sdtool_database_t *db);
 
 #endif /* SDTOOL_H */

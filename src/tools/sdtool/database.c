@@ -16,12 +16,18 @@ static bool card_present(void) {
     return false;
 }
 
-bool sdtool_open_database(void) {
+bool sdtool_open_database(sdtool_database_t *db) {
     if (!card_present()) return false;
-    metadata_db_load_outcome_t outcome = metadata_db_open();
-    if (outcome == METADATA_DB_LOAD_FAILED && metadata_db_prepare_rebuild())
-        outcome = METADATA_DB_LOAD_SUCCESS_NORMAL;
-    if (outcome == METADATA_DB_LOAD_FAILED || outcome == METADATA_DB_LOAD_UNMOUNTED) {
+    db->outcome = metadata_db_open();
+    db->preserve_rebuild = false;
+    if (db->outcome == METADATA_DB_LOAD_FAILED && metadata_db_prepare_rebuild()) {
+        /* As the player does: an empty provisional database that the scan
+         * fills, replacing the unreadable one only if it finds music. */
+        db->outcome = metadata_db_get_load_outcome();
+        db->preserve_rebuild = db->outcome == METADATA_DB_LOAD_FAILED;
+        if (db->preserve_rebuild) db->outcome = METADATA_DB_LOAD_SUCCESS_NORMAL;
+    }
+    if (db->outcome == METADATA_DB_LOAD_FAILED || db->outcome == METADATA_DB_LOAD_UNMOUNTED) {
         json_error("database_open_failed", "the music database could not be opened or rebuilt");
         return false;
     }
@@ -38,7 +44,10 @@ int sdtool_cmd_info(const sdtool_options_t *options) {
     /* A card never scanned has no database: report it empty without creating
      * one. */
     if (stat(storage_sd_path(COMPAS_STORAGE_DIR "/tagcache.gen"), &st) == 0) {
-        if (!sdtool_open_database()) return SDTOOL_FAILED;
+        if (metadata_db_open_read_only() == METADATA_DB_LOAD_FAILED) {
+            json_error("database_open_failed", "the music database could not be read");
+            return SDTOOL_FAILED;
+        }
         songs = metadata_db_get_song_count();
         generation = metadata_db_get_generation();
         metadata_db_close();

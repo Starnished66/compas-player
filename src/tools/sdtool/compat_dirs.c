@@ -114,7 +114,7 @@ int unlinkat(int dir_fd, const char *path, int flags) {
     if (!compat_join_at(dir_fd, path, full, sizeof(full))) return -1;
     if (!(flags & AT_REMOVEDIR)) return compat_unlink(full);
     wchar_t wide[PATH_MAX];
-    return compat_to_wide(full, wide, PATH_MAX) ? _wrmdir(wide) : -1;
+    return compat_path_to_wide(full, wide, PATH_MAX) && RemoveDirectoryW(wide) ? 0 : -1;
 }
 
 int renameat(int from_fd, const char *from, int to_fd, const char *to) {
@@ -151,7 +151,7 @@ compat_dir_t *compat_opendir(const char *path) {
     wchar_t wide[PATH_MAX];
     if (!dir) return NULL;
     dir->fd = -1;
-    if (!compat_to_wide(path, wide, PATH_MAX) ||
+    if (!compat_path_to_wide(path, wide, PATH_MAX) ||
         swprintf(dir->pattern, PATH_MAX, L"%ls\\*", wide) < 0 || !dir_start(dir)) {
         if (!errno) errno = ENOENT;
         free(dir);
@@ -169,10 +169,13 @@ compat_dir_t *compat_fdopendir(int fd) {
 }
 
 struct compat_dirent *compat_readdir(compat_dir_t *dir) {
-    if (!dir->have_entry) return NULL;
-    bool converted = compat_from_wide(dir->found.cFileName, dir->entry.d_name, sizeof(dir->entry.d_name));
-    dir->have_entry = FindNextFileW(dir->handle, &dir->found) != 0;
-    return converted ? &dir->entry : NULL;
+    /* A name that is not valid text is skipped, not the end of the folder. */
+    while (dir->have_entry) {
+        bool converted = compat_from_wide(dir->found.cFileName, dir->entry.d_name, sizeof(dir->entry.d_name));
+        dir->have_entry = FindNextFileW(dir->handle, &dir->found) != 0;
+        if (converted) return &dir->entry;
+    }
+    return NULL;
 }
 
 void compat_rewinddir(compat_dir_t *dir) {

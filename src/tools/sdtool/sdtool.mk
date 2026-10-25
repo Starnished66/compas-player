@@ -18,7 +18,7 @@ SDTOOL_DIR = build_sdtool_windows
 SDTOOL_CC ?= x86_64-w64-mingw32-gcc
 SDTOOL_EXE = .exe
 SDTOOL_PLATFORM_CFLAGS = -include $(SDTOOL_SRC_DIR)/compat.h -I$(SDTOOL_SRC_DIR)/compat \
-                         -D_FILE_OFFSET_BITS=64 -D__USE_MINGW_ANSI_STDIO=1
+                         -D_FILE_OFFSET_BITS=64 -D__USE_MINGW_ANSI_STDIO=1 -D_WIN32_WINNT=0x0601
 SDTOOL_PLATFORM_SRCS = $(SDTOOL_SRC_DIR)/compat.c $(SDTOOL_SRC_DIR)/compat_dirs.c
 SDTOOL_PLATFORM_LIBS = -static -lbcrypt -lpthread
 SDTOOL_CMAKE_FLAGS = -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_C_COMPILER=$(SDTOOL_CC) $(SDTOOL_CMAKE_EXTRA)
@@ -26,16 +26,17 @@ else
 SDTOOL_DIR = build_sdtool
 SDTOOL_CC ?= $(CC)
 SDTOOL_EXE =
-# macOS lacks two names the library uses (compat.h); Linux needs no shim.
-SDTOOL_PLATFORM_CFLAGS = $(if $(filter Darwin,$(shell uname -s)),-include $(SDTOOL_SRC_DIR)/compat.h)
-SDTOOL_PLATFORM_SRCS =
-SDTOOL_PLATFORM_LIBS = -lpthread
+# Linux and macOS: stat() is routed through mtime.c; macOS also needs compat.h.
+SDTOOL_PLATFORM_CFLAGS = -include $(SDTOOL_SRC_DIR)/stat_shim.h \
+                         $(if $(filter Darwin,$(shell uname -s)),-include $(SDTOOL_SRC_DIR)/compat.h)
+SDTOOL_PLATFORM_SRCS = $(if $(filter Darwin,$(shell uname -s)),$(SDTOOL_SRC_DIR)/compat_apple.c)
+SDTOOL_PLATFORM_LIBS = -lpthread $(if $(filter Darwin,$(shell uname -s)),-framework CoreFoundation)
 SDTOOL_CMAKE_FLAGS = -DCMAKE_C_COMPILER=$(SDTOOL_CC)
 endif
 
 SDTOOL_BIN = $(SDTOOL_DIR)/compas-sdtool$(SDTOOL_EXE)
 
-SDTOOL_OWN_SRCS = $(addprefix $(SDTOOL_SRC_DIR)/,main.c json_out.c root.c database.c scan.c art.c stubs.c lvgl_shim.c dr_libs_impl.c) \
+SDTOOL_OWN_SRCS = $(addprefix $(SDTOOL_SRC_DIR)/,main.c json_out.c root.c database.c scan.c art.c mtime.c mtime_calibrate.c parse_pool.c process.c stubs.c lvgl_shim.c dr_libs_impl.c) \
                   $(SDTOOL_PLATFORM_SRCS)
 # The player's own library code, unchanged: tagcache and metadata_db for the
 # database, albumart and cover_decode for the covers, metadata for the tags.
