@@ -895,12 +895,12 @@ fit in 63 bytes. Native roles such as `cover_img`, `title`, and `play_btn`
 cannot be changed through these setters.
 
 ```xml
-<lv_image name="plugin_track_image" width="300" height="300" inner_align="contain" />
+<lv_image name="plugin_artist_image" width="300" height="300" inner_align="contain" />
 <lv_label name="plugin_caption" text="" />
 ```
 
 ```lua
-plugin.now_playing.set_image("plugin_track_image", "KidsMode/images/story.png")
+plugin.now_playing.set_image("plugin_artist_image", "/Album/Artist/artist.png")
 plugin.now_playing.set_text("plugin_caption", "Chapter 2")
 ```
 
