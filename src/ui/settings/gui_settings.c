@@ -296,8 +296,7 @@ static lv_obj_t * build_creator_help_screen(const char * title, const char * url
     lv_obj_set_style_border_color(qr, lv_color_white(), 0);
     lv_qrcode_update(qr, url, strlen(url));
     creator_help_add_text(list, TR("Scan for the full guide"), true);
-    creator_help_add_text(list, TR("github.com/Starnished66/compas-player"), true);
-    creator_help_add_text(list, TR("Guide: docs/development/CREATING.md"), true);
+    creator_help_add_text(list, url, true);
     lv_obj_set_style_pad_bottom(list, BOARD_SCALE_PX(24), 0);
     enable_gesture_bubble_recursive(scr);
     return scr;
@@ -308,7 +307,7 @@ static void creator_plugin_help_row_cb(lv_event_t * e) {
     if (!creator_plugin_help_screen) {
         creator_plugin_help_screen = build_creator_help_screen(
             TR("Create a plugin"),
-            "https://github.com/Starnished66/compas-player/blob/main/docs/development/CREATING.md#plugins",
+            "https://github.com/Starnished66/compas-page/blob/f410df626a18a17da3c0333e562e5afc81569aed/docs/CREATING.md#plugins",
             TR("Write a Lua plugin on your computer. Copy its .lua file to the .plugins folder on your SD card."),
             TR("Open More > Plugins > Refresh Plugins. Scan for a working example and the full API guide."));
     }
@@ -320,7 +319,7 @@ static void creator_theme_help_row_cb(lv_event_t * e) {
     if (!creator_theme_help_screen) {
         creator_theme_help_screen = build_creator_help_screen(
             TR("Create a theme"),
-            "https://github.com/Starnished66/compas-player/blob/main/docs/development/CREATING.md#themes",
+            "https://github.com/Starnished66/compas-page/blob/f410df626a18a17da3c0333e562e5afc81569aed/docs/CREATING.md#themes",
             TR("Edit a .theme text file on your computer. Copy it to the Themes folder on your SD card, then select it in More > Themes."),
             TR("Scan for a starter theme and instructions. To redesign the player screen, see the XML layout guide linked there."));
     }
