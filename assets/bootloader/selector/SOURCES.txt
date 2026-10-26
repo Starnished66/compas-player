@@ -1,6 +1,6 @@
 Selector logo sources
 Runtime: embedded C arrays in src/bootloader/selector_logos*.c, generated
-by scripts/generate_selector_logos.py. Each bootloader links only the
+by scripts/generators/brand_assets/generate_selector_logos.py. Each bootloader links only the
 width matching BOARD_SCREEN_WIDTH. The standalone R3II 2025 loader also
 omits the Rockbox arrays.
 
@@ -8,7 +8,7 @@ Verified with ImageMagick 7.1.2-32 (magick).
 
 Compás wordmark
   Source: assets/brand/compas-wordmark.svg (URW Gothic Book outlines,
-  same path as src/ui/brand_marks.c).
+  same path as src/ui/appearance/brand_marks.c).
   Embedded as A8 (alpha only), tinted at draw time with the selector
   title colour.
 
@@ -35,7 +35,7 @@ Breeze symbolic icons
     COPYING-ICONS and LGPL-3.0.txt sit next to the SVGs.
     https://invent.kde.org/frameworks/breeze-icons/-/raw/master/COPYING-ICONS
   Runtime: embedded A8 arrays in src/bootloader/selector_icons*.c, generated
-  by scripts/generate_selector_icons.py. Alpha is the mask; colour is applied
+  by scripts/generators/brand_assets/generate_selector_icons.py. Alpha is the mask; colour is applied
   at draw time.
 
   applications-utilities-symbolic.svg

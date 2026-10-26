@@ -2412,7 +2412,7 @@ msgstr ""
 msgid "github.com/Starnished66/compas-player"
 msgstr ""
 
-msgid "Guide: docs/CREATING.md"
+msgid "Guide: docs/development/CREATING.md"
 msgstr ""
 
 msgid ""
@@ -3610,7 +3610,7 @@ msgstr ""
 msgid "TXT Reader"
 msgstr ""
 
-#: src/ui/gui_settings.c
+#: src/ui/settings/gui_settings.c
 msgid "Keep Lyrics Screen On"
 msgstr ""
 

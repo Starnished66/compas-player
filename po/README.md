@@ -2,7 +2,7 @@
 
 UI text is translated with gettext catalogs. English text in the C source is the
 key: `TR("Text")` returns the translation for the active language, or the
-English text when there is none. The catalogs live here; `src/ui/i18n_catalog.c`
+English text when there is none. The catalogs live here; `src/ui/text/i18n/i18n_catalog.c`
 is generated from them and checked in, so a normal build needs no Python or
 gettext.
 
@@ -10,7 +10,7 @@ gettext.
 
 1. Wrap user-visible text in the source (see "Rules" below).
 2. `make i18n` extracts `po/compas.pot`, merges it into every `po/*.po` and
-   regenerates `src/ui/i18n_catalog.c`.
+   regenerates `src/ui/text/i18n/i18n_catalog.c`.
 3. Translate the new (empty or fuzzy) entries in `po/<lang>.po`.
    Fuzzy entries are skipped until you remove the `fuzzy` flag.
 4. `make i18n` again, then `make i18n-check` (stale template, bad printf
@@ -39,7 +39,7 @@ gettext.
    `X-Native-Name` (the language's own name, shown in the picker) and
    `Plural-Forms`.
 2. Add the plural rule for the code in `i18n_plural_index()` in
-   `src/ui/i18n.c` (Russian needs three forms; pt_BR and fr treat 0 as singular).
+   `src/ui/text/i18n/i18n.c` (Russian needs three forms; pt_BR and fr treat 0 as singular).
 3. `make i18n`, translate, `make i18n-check`.
 4. Check the fonts cover the language's characters (the Montserrat tiers cover
    Latin-1 and Latin Extended-A; other scripts need the fallback fonts).

@@ -24,7 +24,7 @@ The Windows build is a static MinGW-w64 executable; it needs
 `x86_64-w64-mingw32-gcc` and a cmake that targets it. For example, in a
 container: `gcc-mingw-w64-x86-64`, `make`, `cmake`, `python3` on Ubuntu, then
 `make sdtool SDTOOL_TARGET=windows`. The macOS build is written for clang and
-needs only two names the library lacks there (`src/tools/sdtool/compat.h`); it
+needs only two names the library lacks there (`src/tools/sdtool/compat/compat.h`); it
 has not been run on a Mac.
 
 The code that differs per system is confined to `src/tools/sdtool/compat*.{h,c}`,
@@ -182,7 +182,7 @@ remove files cleanly. A tool that installs or removes store plugins may write it
 in the format below; the player rejects a malformed file as a whole and then
 treats nothing as installed. It is read and written by
 `plugin_store_record_read()` and `record_write_path()` in
-`src/network/plugin_store.c`.
+`src/network/store/plugins/plugin_store.c`.
 
 ```
 P <id> <version>
@@ -215,7 +215,7 @@ record a regular file, not links. Written files use mode 0644.
 ## `.plugins/.disabled`
 
 Plugins the user switched off in **Manage Plugins**, read at every plugin start
-by `plugin_disabled_list_load()` in `src/plugins/plugin_disabled_list.c`. One
+by `plugin_disabled_list_load()` in `src/plugins/lifecycle/plugin_disabled_list.c`. One
 plugin per line: the script's file name as it appears in `.plugins` (for example
 `weather.lua`), matched case-sensitively.
 

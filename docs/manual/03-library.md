@@ -48,4 +48,4 @@ Playlist entries are stored separately from the audio files. The built-in librar
 
 ![Playlists](images/playlists.png)
 
-<!-- Sources: src/ui/gui_library.c (build_music_submenu, build_playlists_screen, group_songs_edit_btn_cb, group_songs_reorder_handle_cb, open_song_context_menu, library scan/settings actions); src/ui/gui_player.c (favorite_icon_event_cb); src/ui/gui_queue.c (queue menu). -->
+<!-- Sources: src/ui/library/browse/gui_library.c (build_music_submenu, build_playlists_screen, group_songs_edit_btn_cb, group_songs_reorder_handle_cb, open_song_context_menu, library scan/settings actions); src/ui/player/screen/gui_player.c (favorite_icon_event_cb); src/ui/player/screen/gui_queue.c (queue menu). -->

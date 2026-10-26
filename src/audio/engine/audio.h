@@ -1,0 +1,462 @@
+#ifndef AUDIO_H
+#define AUDIO_H
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdatomic.h>
+#include "decoder_result.h"
+#include "../../library/metadata/parsing/metadata.h"
+
+typedef enum {
+    AUDIO_CODEC_UNKNOWN = 0,
+    AUDIO_CODEC_FLAC,
+    AUDIO_CODEC_MP3,
+    AUDIO_CODEC_PCM,
+    AUDIO_CODEC_DSD,
+    AUDIO_CODEC_AAC,
+    AUDIO_CODEC_ALAC,
+    AUDIO_CODEC_APE,
+    AUDIO_CODEC_WMA,
+    AUDIO_CODEC_OPUS,
+    AUDIO_CODEC_VORBIS,
+    AUDIO_CODEC_WAVPACK,
+} audio_codec_t;
+
+/* Pure display mapping from audio codec to short uppercase/mixed label.
+ * Returns empty string for unknown or unmapped codecs. */
+static inline const char *audio_codec_name(audio_codec_t codec) {
+    switch (codec) {
+        case AUDIO_CODEC_FLAC: return "FLAC";
+        case AUDIO_CODEC_MP3: return "MP3";
+        case AUDIO_CODEC_PCM: return "PCM";
+        case AUDIO_CODEC_DSD: return "DSD";
+        case AUDIO_CODEC_AAC: return "AAC";
+        case AUDIO_CODEC_ALAC: return "ALAC";
+        case AUDIO_CODEC_APE: return "APE";
+        case AUDIO_CODEC_WMA: return "WMA";
+        case AUDIO_CODEC_OPUS: return "Opus";
+        case AUDIO_CODEC_VORBIS: return "Vorbis";
+        case AUDIO_CODEC_WAVPACK: return "WavPack";
+        case AUDIO_CODEC_UNKNOWN: break;
+    }
+    return "";
+}
+
+/* Immutable snapshot of the decoder currently feeding playback. The source
+ * fields describe the encoded media; the output fields describe what this
+ * player actually hands to ALSA/SDL after decoding. source_bit_depth is 0
+ * when a lossy codec has no meaningful bit depth or the provider did not
+ * declare one. path is copied under audio.c's mutex so callers never borrow
+ * active_path or a live decoder pointer. */
+typedef struct {
+    bool valid;
+    char path[2048];
+    audio_codec_t codec;
+    unsigned int source_sample_rate;
+    unsigned int source_bit_depth;
+    unsigned int output_sample_rate;
+    unsigned int output_bit_depth;
+    unsigned int channels;
+    unsigned int bitrate_kbps;
+    double duration_seconds;
+    bool is_stream;
+    bool seekable;
+    bool is_dsd;
+    bool dsd_native; /* DSD sent to the DAC as DoP rather than converted to PCM */
+    bool replaygain_applied;
+    double replaygain_applied_db;
+    /* Live playback state, captured with the format snapshot. software_volume_gain
+     * is the linear PCM multiplier actually used by the audio worker. */
+    double software_volume_gain;
+    double playback_speed;
+    bool crossfade_enabled;
+    uint64_t generation;
+} audio_current_format_info_t;
+
+typedef enum {
+    AUDIO_PLAYBACK_PROGRESS_NOT_READY = 0,
+    AUDIO_PLAYBACK_PROGRESS_ACTIVE,
+    AUDIO_PLAYBACK_PROGRESS_NATURAL_EOF,
+    AUDIO_PLAYBACK_PROGRESS_MANUAL_STOP,
+} audio_playback_progress_state_t;
+
+/* Coherent position snapshot for one exact playback path. A terminal state
+ * retains the last trusted counters after the live decoder has been closed;
+ * NOT_READY is reported by the function's false return rather than exposed
+ * as a valid snapshot. */
+typedef struct {
+    double position_seconds;
+    double duration_seconds;
+    bool is_playing;
+    bool is_paused;
+    audio_playback_progress_state_t state;
+    uint64_t generation;
+} audio_playback_progress_t;
+
+/* One-time setup of the audio backend (SDL2 audio on host, ALSA/tinyalsa on
+ * target) and the single playback thread, which lives for the app's whole
+ * lifetime (see audio.c) rather than being recreated per track -- that's
+ * what lets gapless/crossfade transitions avoid tearing down the output
+ * device between tracks. Safe to call more than once; only the first call
+ * does anything. */
+/* Same-position comparison of finite, matching local 16-bit PCM or MP3 sources.
+ * Preparation is asynchronous; adoption may seek once. Selection never seeks.
+ * Both sources use the primary track's shared ReplayGain, EQ and volume.
+ * Pause/seek/stop/track/speed/crossfade changes invalidate the comparison. */
+bool audio_prepare_ab_switch(const char *path);
+bool audio_select_ab_source(bool source_b);
+void audio_clear_ab_switch(void);
+void audio_get_ab_switch(bool *preparing, bool *ready, bool *source_b);
+
+void audio_init(void);
+
+/* Interrupts whatever's currently playing (if anything) and immediately
+ * starts decoding/playing path from start_seconds, with no fade -- this is
+ * for explicit user actions (tapping a track, prev/next, initial pick), as
+ * opposed to the audio thread's own automatic advance into a queued next
+ * track (see audio_set_next_track()), which can gapless-handoff or
+ * crossfade instead. Format is picked from the file extension -- except a
+ * path starting with "http://" or "https://", which is instead opened as a
+ * network stream. Format comes from a #.ext fragment, then the URL path
+ * extension, then Content-Type, and otherwise MP3 (see decoder_open() in
+ * audio.c). A live stream reports a duration of 0 (see
+ * audio_get_duration_seconds()), can't be seeked, and never reaches true
+ * EOF, so auto-advance and gapless/crossfade into/out of it never engage --
+ * all by construction of total_frames staying 0, not a special case
+ * elsewhere. start_seconds is ignored for a stream. Clears any
+ * previously staged next track -- the caller should call
+ * audio_set_next_track() again right after, for whatever comes after path.
+ * has_replaygain/replaygain_gain_db/has_replaygain_peak/replaygain_peak are
+ * this track's tags (see metadata.h); pass has_replaygain=false for tracks
+ * with no ReplayGain tag. */
+void audio_play_file_at(const char * path, double start_seconds,
+                         bool has_replaygain, double replaygain_gain_db,
+                         bool has_replaygain_peak, double replaygain_peak);
+
+/* Tells the playback thread what comes after the current track, so it can
+ * gapless-handoff or crossfade into it near the current track's natural
+ * end, entirely on its own (no GUI round-trip). Call this right after
+ * audio_play_file_at() (for the track after the one just started) and
+ * again whenever audio_consume_track_advanced() reports the thread moved
+ * on by itself (for the track after *that* one) -- otherwise the chain of
+ * automatic transitions stops after one hop. Pass path=NULL to mean "end
+ * of playlist, nothing queued" (a true EOF with nothing queued sets
+ * audio_consume_track_finished() instead of advancing). */
+/* Local-file startup: read ReplayGain tags on the audio worker before any
+ * output, with the request's captured Settings mode (0 off, 1 track, 2 album). */
+void audio_play_file_at_with_replaygain_mode(const char * path, double start_seconds, int mode);
+typedef enum {
+    AUDIO_TRACK_METADATA_READY,
+    AUDIO_TRACK_METADATA_STOPPED,
+    AUDIO_TRACK_METADATA_REPLACED
+} audio_track_metadata_wait_result_t;
+/* Worker-only wait for scalar tags read by local startup. Distinguishes Stop
+ * (the current UI selection still needs display tags) from a newer request
+ * replacing this one; never call on the UI thread. */
+audio_track_metadata_wait_result_t audio_wait_track_metadata(uint64_t generation,
+                                                              track_metadata_t * out);
+/* Atomic stale-result guard for asynchronous gapless preparation. */
+bool audio_set_next_track_for_generation(const char * path, bool has_replaygain, double gain,
+                           bool has_peak, double peak, uint64_t generation);
+
+void audio_set_next_track(const char * path, bool has_replaygain, double replaygain_gain_db,
+                           bool has_replaygain_peak, double replaygain_peak);
+
+/* Pitch-preserving speech tempo for files inside directory (component boundary).
+ * 0.5..2; NULL/1 resets. Other files stay at 1x. Local mono/stereo PCM at
+ * 8..96 kHz supported, non-1x uses S16 output and suspends crossfade.
+ * Changes commit on the audio thread after a source-position-preserving seek. */
+bool audio_set_playback_speed(const char * directory, double speed);
+double audio_get_playback_speed(void);
+
+/* Enables crossfading into the queued next track during the last few
+ * seconds of the current one (only when both tracks share the same
+ * channel count and sample rate -- crossfading across a format change
+ * would need a resampler this project doesn't have, so that case always
+ * falls back to a gapless handoff instead). When disabled, transitions
+ * into a queued next track are gapless (no fade, but still no gap/reopen
+ * for same-format tracks). */
+void audio_set_crossfade_enabled(bool enabled);
+
+/* Uses larger decoder/output batches while the display is off, reducing
+ * audio-thread wakeups. Normal batches are restored immediately on wake. */
+void audio_set_low_power_mode(bool enabled);
+
+/* Routes playback to a connected Bluetooth A2DP source sink instead of the
+ * local hardware output, or back to local when disabled. Reopens output only
+ * if the destination has changed. */
+void audio_set_bt_output(bool enabled);
+
+/* Same shape as audio_set_bt_output() above, for an externally connected
+ * USB audio device (DAC/amp) instead of Bluetooth -- alsa_device is the
+ * resolved ALSA target string from usb_audio_output_is_connected()
+ * (usb_audio_output.h), e.g. "plughw:1,0". The GUI calls this whenever its
+ * own USB audio hotplug poll changes (see poll_usb_audio_output() in
+ * gui.c) -- unlike Bluetooth, there is no manual toggle for this; it's
+ * meant to feel exactly like the wired headphone jack, fully automatic.
+ * ignored when enabled is false. */
+void audio_set_usb_output(bool enabled, const char * alsa_device);
+
+/* Toggle between playing and paused. No-op if nothing is loaded */
+void audio_toggle_pause(void);
+
+/* Stop playback and release the decoder/output device */
+void audio_stop(void);
+
+/* True only after the audio worker has released local output and acknowledged
+ * Stop. Output bridges must use this rather than transport status. */
+bool audio_is_idle(void);
+bool audio_is_playing(void);
+bool audio_is_paused(void);
+
+/* Seek to an absolute position in the current track. No-op if nothing is loaded */
+void audio_seek(double seconds);
+
+/* Seek to a 0-100 percent position in the current track. The request is
+ * tied to the current playback generation and conversion to a frame is
+ * deferred until that generation's decoder has published total_frames,
+ * closing the track-start race described in audio_seek_percent() in audio.c.
+ * Prefer this over audio_seek() for any UI control whose target is
+ * naturally a percentage of the track (e.g. a progress slider) rather than
+ * an absolute time offset the caller computed itself. */
+void audio_seek_percent(double percent);
+
+/* Repeats the exact PCM frame interval [start_seconds, end_seconds) on the
+ * audio worker. Supported for finite local 16-bit FLAC/WAV/AIFF/CAF tracks
+ * at normal speed with crossfade disabled. Returns false for unsupported
+ * formats or invalid intervals. A manual seek, stop, track change, speed
+ * change, or enabling crossfade clears the loop. */
+bool audio_set_ab_loop(double start_seconds, double end_seconds);
+void audio_clear_ab_loop(void);
+bool audio_get_ab_loop(double * start_seconds, double * end_seconds);
+
+/* Repeats a short local clip (decoded to memory, at most 4 MiB of 16-bit
+ * PCM, mono or stereo) while no track is producing audio: the clip plays
+ * only while playback is paused or stopped, and resuming or starting a track
+ * ends it. It never becomes the current track, so the queue and Now Playing
+ * are untouched. Starting again replaces the clip from its first frame. */
+bool audio_loop_start(const char * path);
+void audio_loop_stop(void);
+bool audio_loop_is_active(void);
+
+double audio_get_position_seconds(void);
+/* Pending-aware position for durable pause/power-loss checkpoints. Unlike
+ * audio_get_position_seconds(), this returns the latest deferred MP3 seek
+ * target while its background seek-index is still being prepared. */
+double audio_get_resume_position_seconds(void);
+double audio_get_duration_seconds(void);
+
+/* Copies position, duration, transport state, and terminal reason under one
+ * audio-state lock. Returns false and zeroes *out unless expected_path exactly
+ * matches the current playback path and the counters belong to the current
+ * generation. ACTIVE requires a live decoder; trusted natural EOF/manual stop
+ * snapshots remain available after decoder cleanup. */
+bool audio_get_playback_progress(const char * expected_path, audio_playback_progress_t * out);
+
+/* Sample rate of the currently loaded track, in Hz. 0 if nothing loaded. */
+unsigned int audio_get_sample_rate(void);
+
+/* Copies a coherent current-decoder snapshot. Returns false and zeroes *out
+ * when nothing is loaded or the requested track has not opened yet. */
+bool audio_get_current_format_info(audio_current_format_info_t * out);
+
+/* Opens a local file only long enough to read its stream/container facts,
+ * then closes it without touching playback state or the output device. */
+bool audio_probe_file_format(const char * path, audio_current_format_info_t * out);
+
+/* Optional synchronous snapshot callback for audio_extract_waveform_progress.
+ * bins is borrowed for the duration of the call and contains `count` bytes;
+ * entries at and after `completed` are zero. */
+typedef void (*audio_waveform_progress_callback_t)(const uint8_t * bins,
+                                                    size_t count,
+                                                    size_t completed,
+                                                    void * user);
+
+/* Extract per-time-bin RMS levels from a local regular audio file, normalized
+ * relative to the loudest bin (which is 255; silence stays 0).
+ * Long seekable tracks use centered 40 ms amplitude samples per bin; short
+ * tracks retain full-bin RMS. Isolated transients between windows may be missed.
+ * Uses a private decoder instance and never changes playback state. `count`
+ * must be in 1..256; `cancel`, when provided, is polled between decode reads.
+ * Requires a known complete duration, sample rate <=192kHz, and duration <=2h;
+ * DSD and APE are intentionally unsupported for this background preview. */
+bool audio_extract_waveform(const char * path, uint8_t * bins, size_t count,
+                            bool (*cancel)(void *), void * user);
+/* Progress variant. Publishes normalized prefixes after each four completed
+ * bins and once at the terminal prefix when it is not a four-bin boundary.
+ * Any progress snapshot is provisional and must not be treated as final/cacheable.
+ * The callback runs synchronously on the extraction thread and must not retain
+ * its borrowed bins pointer. */
+bool audio_extract_waveform_progress(const char * path, uint8_t * bins, size_t count,
+                                     bool (*cancel)(void *), void * user,
+                                     audio_waveform_progress_callback_t progress,
+                                     void * progress_user);
+
+/* 0.0 (silent) - 1.0 (full volume). Applied as software gain on the decoded PCM. */
+void audio_set_volume(float volume);
+/* Requested volume generation, including local commands still queued for the
+ * audio worker. UI consumers use it to detect newer local intent. */
+unsigned int audio_get_volume_generation(void);
+/* Last applied volume generation for snapshotting before slow external
+ * hardware readback. A queued request leaves this behind the requested
+ * generation, so the conditional setter will reject the stale snapshot. */
+unsigned int audio_get_applied_volume_generation(void);
+/* Generation-conditional volume adoption for external readback. Pass the
+ * applied generation captured before readback; the setter compares it to
+ * the current requested generation. The owner generation changes whenever
+ * the external source is invalidated. No Bluetooth lock may be held here. */
+bool audio_try_set_external_volume(float new_volume, unsigned int expected_generation,
+                                   const atomic_uint * owner_generation,
+                                   unsigned int expected_owner_generation,
+                                   unsigned int * committed_generation);
+/* Coalesces slider-originated volume changes on a process-lifetime worker.
+ * A later synchronous audio_set_volume() always supersedes queued work. */
+void audio_request_volume(float volume);
+float audio_get_volume(void);
+
+/* Clamp a requested integer percentage to the active application cap. */
+int audio_clamp_volume_percent(int percent);
+/* Set the maximum allowed volume percentage. Use 100 for no application cap.
+ * Lowering it immediately clamps current volume; raising it does not restore it. */
+void audio_set_max_volume_percent(int percent);
+
+/* Shared with plugin_manager.c's own array-length validation for
+ * plugin.set_hw_volume_curve() -- defined once here, rather than as a
+ * separate local #define in each .c file, so the two can't drift apart. */
+#define HW_VOLUME_CURVE_LEN 101
+
+/* Overrides the UI-volume -> hardware-DAC-register mapping used for the
+ * internal codec's own "Left"/"Right Playback Volume" ALSA controls (see
+ * audio_apply_volume()'s own comment in audio.c). curve[i], i=0..100, is
+ * the raw register value (0-255, hardware-specific meaning, not a dB
+ * value) written for UI volume i% -- including curve[0], which stands in
+ * for the native taper's own mute/silence handling. Pass NULL to fall
+ * back to the built-in calibrated_taper_db()/volume_db_to_hw_raw() taper.
+ * Reapplies immediately at the current UI volume so a switch is audible
+ * right away rather than waiting for the next slider touch. Has no effect
+ * on USB output, which never reaches this codec's own register at all and
+ * always uses its own separate digital taper -- see audio_apply_volume()'s
+ * own comment on why that path is deliberately untouched by this.
+ *
+ * For the normal "an already-loaded, running plugin changes its curve"
+ * case (e.g. a Settings-list tap) -- NOT for plugin_manager.c's own plugin
+ * (re)load transaction (covers both a full deinit/init reload AND each
+ * individual plugin's own top-level run within plugin_manager_init()'s
+ * load loop), which needs the staging functions below instead.
+ * plugin_manager.c itself decides which of the two applies (checking
+ * whether a plugin's own top-level script is currently running), not this
+ * file -- see l_plugin_set_hw_volume_curve()'s own comment. Mutates ONLY
+ * the live state audio_apply_volume() below actually reads -- never the
+ * separate staging state the functions below operate on -- so this and a
+ * plugin (re)load transaction in progress can never interfere with each
+ * other's storage (see audio_stage_custom_hw_volume_curve()'s own comment
+ * for why that separation, not just deferring the write, is required). */
+void audio_set_custom_hw_volume_curve(const uint8_t * curve);
+
+/* Mutates a SEPARATE staging copy of the curve state (curve non-NULL:
+ * staged active with that table; NULL: staged inactive/native) -- not the
+ * live state audio_apply_volume() reads, and issues no hardware write.
+ * `curve` must be non-NULL whenever `active` is true, ignored when false.
+ *
+ * This, plus audio_get_staged_hw_volume_curve_state() and
+ * audio_commit_hw_volume_curve() below, exist for plugin_manager.c's own
+ * (re)load transaction (a full deinit/init reload, or plain top-level
+ * loading of several plugin files in a row, any of which may call
+ * plugin.set_hw_volume_curve()) for two compounding reasons: (1)
+ * audio_output_request_hw_volume_raw() (audio_output.c) is a single-slot
+ * "latest wins" async handoff to a background worker thread, not a real
+ * queue, so writing hardware after every intermediate state change during
+ * a transaction risks an earlier, momentarily-active value actually
+ * reaching the DAC as a real, audible blip before the transaction's own
+ * true final value overwrites it -- or, if a later plugin in the same
+ * transaction then fails, a value that was never meant to survive at all
+ * being written anyway. (2) Mutating the SAME live state
+ * audio_apply_volume() reads is not enough on its own to prevent that,
+ * even with the write itself deferred: a plugin (re)load transaction runs
+ * synchronously on the UI thread, but audio_request_volume()'s own
+ * worker thread (a queued volume-slider drag sample, audio.c) runs
+ * independently and can call audio_apply_volume() -- which DOES write
+ * hardware immediately, unconditionally, by design -- at any moment,
+ * including mid-transaction; if that read the live state, it could send
+ * a transaction's not-yet-committed intermediate value (a temporary
+ * native reset, an intermediate plugin's curve, or a curve belonging to
+ * a plugin that goes on to fail) straight to the DAC on its own,
+ * bypassing the deferred-write discipline entirely. Keeping staged state
+ * completely separate closes this: nothing outside plugin_manager.c's own
+ * transaction functions ever reads it, so a concurrent volume request
+ * during a transaction always sees and writes only the LAST FULLY
+ * COMMITTED state, never an in-progress one. plugin_manager.c stages
+ * state changes here throughout the whole transaction, then calls
+ * audio_commit_hw_volume_curve() exactly once at the very end to install
+ * the staged result as the new live state and write hardware, atomically,
+ * in one locked step. */
+void audio_stage_custom_hw_volume_curve(bool active, const uint8_t * curve);
+
+/* Snapshots the current STAGED (not live) curve state into
+ * *active_out/curve_out (curve_out must have room for HW_VOLUME_CURVE_LEN
+ * bytes; written unconditionally, even when *active_out comes back false,
+ * so a caller can always pass curve_out straight back into
+ * audio_stage_custom_hw_volume_curve() to restore exactly this moment's
+ * staged state later) -- e.g. plugin_manager.c snapshotting before a
+ * single plugin's top-level run, so a mid-script failure can roll the
+ * transaction's own staged state back to exactly what was staged before
+ * THAT plugin started (which may be a different, still-valid plugin's own
+ * curve, staged earlier in the same transaction), not just "off"/native. */
+void audio_get_staged_hw_volume_curve_state(bool * active_out, uint8_t * curve_out);
+
+/* Installs the currently staged curve state (see
+ * audio_stage_custom_hw_volume_curve() above) as the new LIVE state and
+ * writes the hardware register once to match, atomically -- one locked
+ * critical section covers both the install and the write, so nothing,
+ * including a concurrent volume-slider request on
+ * audio_request_volume()'s own worker thread, can ever observe a live
+ * state that has changed but hasn't been written to hardware yet, or vice
+ * versa. Also correct, and a harmless no-op (staged starts zero-
+ * initialized to "inactive", same as live), to call at normal boot for
+ * the same reason. */
+void audio_commit_hw_volume_curve(void);
+
+/* Returns true (and clears the flag) exactly once when playback reached a
+ * true end-of-playlist -- current track finished with no next track queued
+ * (or the queued one failed to open). Meant to be polled from the GUI
+ * thread's timer, since the audio thread must not call into LVGL directly.
+ * When a next track WAS queued and playable, the thread moves on by itself
+ * instead -- see audio_consume_track_advanced(). Note: NOT set on errors. */
+bool audio_consume_track_finished(void);
+
+/* Returns true (and clears the flag) exactly once when the playback thread
+ * has autonomously moved on from "current" to the track staged via
+ * audio_set_next_track() (via a gapless handoff or a completed crossfade),
+ * without any audio_play_file_at() call. The GUI should treat this as "the
+ * playlist index advanced by one" -- update its own index/labels/art and
+ * call audio_set_next_track() again for whatever comes after. */
+bool audio_consume_track_advanced(void);
+
+/* Unrecoverable playback error codes, distinct from natural end-of-track.
+ * audio.c reports failures but does not decide higher-level queue policy.
+ * Decoder errors may be automatically skipped by the GUI layer (subject
+ * to consecutive-failure safety caps), while output hardware errors remain
+ * stopped and retryable at the last confirmed position.
+ * Error events carry playback generation to allow the consumer to reject
+ * stale errors from previous tracks. */
+typedef enum {
+    AUDIO_ERROR_NONE = 0,
+    AUDIO_ERROR_DECODER_FAILED,  /* unrecoverable decode/container/file failure */
+    AUDIO_ERROR_OUTPUT_FAILED,   /* output write error -- hardware recovery exhausted */
+    AUDIO_ERROR_FILE_UNAVAILABLE,
+    AUDIO_ERROR_UNSUPPORTED_FORMAT,
+    AUDIO_ERROR_UNSUPPORTED_CHANNELS,
+} audio_error_t;
+
+/* Short, static explanation suitable for logs and playback error toasts. */
+const char * audio_error_description(audio_error_t error);
+
+/* Returns the most recent unrecoverable error (and clears it) exactly once.
+ * AUDIO_ERROR_NONE means no pending error. Polled from the GUI timer. */
+audio_error_t audio_consume_error_ex(uint64_t * out_generation);
+
+/* Returns the current playback generation counter. */
+uint64_t audio_get_playback_generation(void);
+
+#endif /* AUDIO_H */

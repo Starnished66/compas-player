@@ -32,7 +32,7 @@
 #include <asm/pgtable.h>
 
 #include "compas_fb_core.h"
-#include "compas_fb_clock.h"
+#include "clock/compas_fb_clock.h"
 #include "compas_fb_fops.h"
 #include "compas_fb_hw.h"
 #include "compas_lcdc_abi.h"

@@ -107,14 +107,14 @@ Not stock-firmware content -- HiBy's own firmware has no emoji font to
 piggyback on (unlike Thai.ttf/Korean.ttf below, or Latin/CJK/Cyrillic
 coverage). This project ships its own copy for both host and target.
 `assets/fonts/emoji.ttf` (this file) is the single real copy, which
-`scripts/repack_upt.sh` copies onto the device's `/usr/resource/fonts/`
+`scripts/firmware/package/repack_upt.sh` copies onto the device's `/usr/resource/fonts/`
 directory as part of a full firmware repack -- the same mechanism this
 project already uses to ship other files it owns that aren't in stock
 (e.g. `usr/bin/sync_ntp.sh`). A standalone player-binary update (SD-card
 `.compas/compas_player` swap, or `adb push`) does not carry
 this file; on a device that never received a full repack, the emoji fallback
 face is simply absent and every other font/rendering behavior is
-unaffected -- see `src/ui/fallback_font.c`'s own comment on why loading
+unaffected -- see `src/ui/text/rendering/fallback_font.c`'s own comment on why loading
 this face is optional, not required, unlike CJK/Korean/Thai.
 
 ## Modifications made for this project
@@ -125,7 +125,7 @@ them):
 
 1. **Instantiated to a static Regular (`wght=400`) instance** via
    `fonttools varLib.instancer` -- LVGL's `tiny_ttf` renderer (used for
-   this file, see `src/ui/fallback_font.c`) does not apply `gvar` variation
+   this file, see `src/ui/text/rendering/fallback_font.c`) does not apply `gvar` variation
    deltas, so a variable font's un-instantiated glyphs would render at
    whatever the font's own default outline happens to be, not necessarily
    Regular weight.
@@ -183,14 +183,14 @@ The Noto Project Authors (https://github.com/notofonts/latin-greek-cyrillic).
 Licensed under the **SIL Open Font License, Version 1.1**; the license text
 is in `NotoSans-OFL.txt`.
 
-`scripts/generate_selector_fonts.py` instantiates the pinned variable source
+`scripts/generators/fonts/generate_selector_fonts.py` instantiates the pinned variable source
 `/usr/share/fonts/google-noto-vf/NotoSans[wght].ttf` (SHA-256
 `fb53504de62e767a54695416123d68d67f71c9b69722175184ad56e7dd13547b`) at
 Regular (`wght=400`) and Medium (`wght=500`) and subsets to Basic Latin,
 Latin-1 Supplement, Latin Extended-A, Greek (U+0370–03FF), Cyrillic
 (U+0400–04FF), and U+2013/2014/2018/2019/201C/201D/2026. The name table uses
 the project-local family **Compas UI**; Noto Sans has no OFL Reserved Font
-Name. `scripts/repack_upt.sh` copies `assets/fonts/`
+Name. `scripts/firmware/package/repack_upt.sh` copies `assets/fonts/`
 to `/usr/resource/fonts/` on a full firmware repack, the same path the
 selector loads (`NotoSans-Regular.ttf`, then `NotoSans-Medium.ttf` for
 headings, then `Montserrat-Medium.ttf` if Noto is absent).
@@ -213,7 +213,7 @@ The full license text is in `Noto-Sans-Arabic-OFL.txt`.
 
 ## Modifications made for this project
 
-`scripts/generate_arabic_fallback_font` reproducibly instantiates the
+`scripts/generators/fonts/generate_arabic_fallback_font` reproducibly instantiates the
 variable source at Regular weight (`wght=400`) and subsets it to Arabic,
 Arabic Supplement, Arabic Extended-A, Arabic Presentation Forms-A, and Arabic
 Presentation Forms-B (U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF,

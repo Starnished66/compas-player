@@ -1,0 +1,1180 @@
+#include "fallback_font.h"
+#include "../../../core/persistence/settings.h"
+#include "../../../core/system/logging/debug_log.h"
+#include "../../player/screen/gui_lyrics.h"
+#include "../../widgets/builders/screen_builders.h"
+#include "../../application/gui.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <sys/statvfs.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <utime.h>
+#include <ctype.h>
+#include <limits.h>
+
+lv_font_t app_font_16;
+lv_font_t app_font_20;
+lv_font_t app_font_22;
+lv_font_t app_font_28;
+lv_font_t app_font_lyrics;
+/* The Player's title/artist/album rows render at one fixed size per board and
+ * are not affected by the Font Size tier. */
+#if BOARD_SCREEN_HEIGHT >= 800
+  #define PLAYER_TITLE_FONT_PX 32
+  #define PLAYER_META_FONT_PX  22
+#elif BOARD_SCREEN_HEIGHT >= 720
+  #define PLAYER_TITLE_FONT_PX 24
+  #define PLAYER_META_FONT_PX  18
+#else
+  #define PLAYER_TITLE_FONT_PX 16
+  #define PLAYER_META_FONT_PX  16
+#endif
+
+lv_font_t app_font_player_title;
+lv_font_t app_font_player_meta;
+lv_font_t app_font_display;
+
+/* Fixed physical pixel sizes, independent of the UI font tier. */
+#if BOARD_SCREEN_HEIGHT >= 800
+  #define DISPLAY_FONT_PX 96
+#elif BOARD_SCREEN_HEIGHT >= 720
+  #define DISPLAY_FONT_PX 80
+#else
+  #define DISPLAY_FONT_PX 64
+#endif
+
+#ifdef HOST_BUILD
+  #define FALLBACK_FONT_ROOT "assets/fonts/"
+  #define FALLBACK_FONT_FILE FALLBACK_FONT_ROOT "cjk_cyrillic.ttf"
+  #define DISPLAY_FONT_FILE FALLBACK_FONT_ROOT "Montserrat-Medium.ttf"
+  #define KOREAN_FONT_FILE FALLBACK_FONT_ROOT "korean.ttf"
+  #define THAI_FONT_FILE FALLBACK_FONT_ROOT "thai.ttf"
+  #define EMOJI_FONT_FILE FALLBACK_FONT_ROOT "emoji.ttf"
+  #define ARABIC_FONT_FILE FALLBACK_FONT_ROOT "arabic.ttf"
+  #define CUSTOM_FONT_SD_DIR "music/Fonts"
+  #define CUSTOM_FONT_ALT_SD_DIR "Fonts"
+  #define STAGING_DIR "build_host/fonts"
+  #define STAGING_CUSTOM_FILE "build_host/fonts/custom_staged.ttf"
+  #define STAGING_TMP_FILE "build_host/fonts/custom_staged.tmp"
+#else
+  #define FALLBACK_FONT_FILE "/usr/resource/fonts/cjk_cyrillic.ttf"
+  #define DISPLAY_FONT_FILE "/usr/resource/fonts/Montserrat-Medium.ttf"
+  #define KOREAN_FONT_FILE "/usr/resource/fonts/Korean.ttf"
+  #define THAI_FONT_FILE "/usr/resource/fonts/Thai.ttf"
+  #define EMOJI_FONT_FILE "/usr/resource/fonts/emoji.ttf"
+  #define ARABIC_FONT_FILE "/usr/resource/fonts/arabic.ttf"
+  #define CUSTOM_FONT_SD_DIR "/data/mnt/sd_0/Fonts"
+  #define CUSTOM_FONT_ALT_SD_DIR "/data/mnt/sd_0/fonts"
+  #define STAGING_DIR "/data/app_data/fonts"
+  #define STAGING_CUSTOM_FILE "/data/app_data/fonts/custom_staged.ttf"
+  #define STAGING_TMP_FILE "/data/app_data/fonts/custom_staged.tmp"
+#endif
+
+extern player_settings_t current_settings;
+extern void settings_save(const player_settings_t * s);
+extern void player_transition_mark_dirty(void);
+
+static int s_font_size_tier = 1;
+static int s_lyrics_font_size_tier = 1;
+static char s_active_custom_name[64] = "";
+static bool s_custom_staged_valid = false;
+static uint32_t s_custom_font_generation = 0;
+static bool s_fallback_loaded = false;
+
+/* Custom SD-card fonts are loaded into memory and created via lv_tiny_ttf_create_data()
+ * rather than streaming from file on demand. This avoids per-glyph read/seek syscalls
+ * during list scrolling. The buffer is shared across pixel-size instances built from
+ * the same file.
+ *
+ * Fallback faces (CJK, Korean, Thai, Emoji, Arabic) stream from disk to preserve RAM given their
+ * larger file sizes and lower consultation frequency.
+ *
+ * s_custom_font_data/_size/_generation holds the committed buffer that built
+ * lv_font_t instances point to. s_candidate_font_data/_size is used mid-transaction
+ * so a failed transaction never frees an active buffer. */
+static uint8_t * s_custom_font_data = NULL;
+static size_t s_custom_font_data_size = 0;
+static uint32_t s_custom_font_data_generation = 0;
+static uint8_t * s_candidate_font_data = NULL;
+static size_t s_candidate_font_data_size = 0;
+
+typedef enum {
+    FACE_SRC_CUSTOM = 0,
+    FACE_SRC_CJK,
+    FACE_SRC_KOREAN,
+    FACE_SRC_THAI,
+    FACE_SRC_EMOJI,
+    FACE_SRC_ARABIC,
+    FACE_SRC_DISPLAY,
+    FACE_SRC_COUNT
+} face_source_type_t;
+
+typedef struct {
+    face_source_type_t type;
+    int pixel_size;
+    uint32_t custom_generation;
+    lv_font_t * font;
+} loaded_face_entry_t;
+
+/* Distinct pixel sizes (four general UI sizes and independent Lyrics,
+ * Player, and display sizes) x (1 primary + 5 fallback faces) is 48. A tier
+ * switch holds the retained sizes alongside four new ones, so leave room for
+ * one more face per size and an extra size before a switch can run out. */
+#define MAX_LOADED_FACES 64
+static loaded_face_entry_t s_loaded_faces[MAX_LOADED_FACES];
+static int s_loaded_face_count = 0;
+
+typedef struct {
+    loaded_face_entry_t entries[MAX_LOADED_FACES];
+    int count;
+} face_table_t;
+
+/* Tier and Lyrics values are design-reference pixels. R3II's 320x480
+ * geometry scales those references to its physical panel; Montserrat is
+ * compiled only at even sizes, so round upward after scaling. */
+static int board_font_px(int reference_px) {
+#if defined(BOARD_R3II_2025)
+    int scaled_px = BOARD_SCALE_PX(reference_px);
+    int compiled_px = ((scaled_px + 1) / 2) * 2;
+    return compiled_px < 12 ? 12 : compiled_px;
+#else
+    return reference_px;
+#endif
+}
+
+static int lyrics_pixel_size(int tier) {
+    return board_font_px(tier == 1 ? 32 : 40);
+}
+
+static void tier_pixel_sizes(int tier, int * out_16_slot, int * out_20_slot, int * out_22_slot, int * out_28_slot) {
+    switch (tier) {
+        case 1: /* Medium */
+            *out_16_slot = 20;
+            *out_20_slot = 24;
+            *out_22_slot = 26;
+            *out_28_slot = 32;
+            break;
+        case 2: /* Large / BlindMF */
+            *out_16_slot = 24;
+            *out_20_slot = 30;
+            *out_22_slot = 34;
+            *out_28_slot = 40;
+            break;
+        default: /* Small (0) */
+            *out_16_slot = 16;
+            *out_20_slot = 20;
+            *out_22_slot = 22;
+            *out_28_slot = 28;
+            break;
+    }
+    *out_16_slot = board_font_px(*out_16_slot);
+    *out_20_slot = board_font_px(*out_20_slot);
+    *out_22_slot = board_font_px(*out_22_slot);
+    *out_28_slot = board_font_px(*out_28_slot);
+}
+
+static const lv_font_t * get_montserrat_font_for_px(int px) {
+    switch (px) {
+        case 12: return &lv_font_montserrat_12;
+        case 14: return &lv_font_montserrat_14;
+        case 16: return &lv_font_montserrat_16;
+        case 18: return &lv_font_montserrat_18;
+        case 20: return &lv_font_montserrat_20;
+        case 22: return &lv_font_montserrat_22;
+        case 24: return &lv_font_montserrat_24;
+        case 26: return &lv_font_montserrat_26;
+        case 28: return &lv_font_montserrat_28;
+        case 30: return &lv_font_montserrat_30;
+        case 32: return &lv_font_montserrat_32;
+        case 34: return &lv_font_montserrat_34;
+        case 40: return &lv_font_montserrat_40;
+        default: return &lv_font_montserrat_20;
+    }
+}
+
+static void font_chain_append(lv_font_t ** head, lv_font_t * font) {
+    if (!font) return;
+    font->fallback = NULL;
+    if (!*head) {
+        *head = font;
+        return;
+    }
+    lv_font_t * curr = *head;
+    while (curr->fallback) {
+        if (curr == font || curr->fallback == font) return; /* prevent cycles */
+        curr = (lv_font_t *) curr->fallback;
+    }
+    if (curr != font) {
+        curr->fallback = font;
+    }
+}
+
+static const char * face_source_file_path(face_source_type_t type, bool custom_staged) {
+    switch (type) {
+        case FACE_SRC_CUSTOM:
+            return custom_staged ? STAGING_CUSTOM_FILE : NULL;
+        case FACE_SRC_CJK:
+            return FALLBACK_FONT_FILE;
+        case FACE_SRC_KOREAN:
+            return KOREAN_FONT_FILE;
+        case FACE_SRC_THAI:
+            return THAI_FONT_FILE;
+        case FACE_SRC_EMOJI:
+            return EMOJI_FONT_FILE;
+        case FACE_SRC_ARABIC:
+            return ARABIC_FONT_FILE;
+        case FACE_SRC_DISPLAY:
+            /* The same Montserrat face used by the compiled UI fonts. */
+            return DISPLAY_FONT_FILE;
+        default:
+            return NULL;
+    }
+}
+
+/* See s_custom_font_data's own comment above for why this exists. Populates
+ * s_candidate_font_data/_size for target_gen: reuses the already-committed
+ * s_custom_font_data unchanged (zero I/O) if its generation already
+ * matches, otherwise reads STAGING_CUSTOM_FILE fully into a fresh buffer.
+ * Returns false on any stat/open/read failure, leaving committed state
+ * (and any already-active custom lv_font_t instances) untouched. */
+static bool build_custom_font_data_candidate(uint32_t target_gen) {
+    if (s_custom_font_data && s_custom_font_data_generation == target_gen) {
+        s_candidate_font_data = s_custom_font_data;
+        s_candidate_font_data_size = s_custom_font_data_size;
+        return true;
+    }
+
+    struct stat st;
+    if (stat(STAGING_CUSTOM_FILE, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0) {
+        return false;
+    }
+
+    FILE * f = fopen(STAGING_CUSTOM_FILE, "rb");
+    if (!f) return false;
+
+    uint8_t * buf = lv_malloc((size_t) st.st_size);
+    if (!buf) {
+        fclose(f);
+        DBG_LOG("fallback_font: out of memory reading %s into RAM (%lld bytes)\n",
+                STAGING_CUSTOM_FILE, (long long) st.st_size);
+        return false;
+    }
+
+    size_t n = fread(buf, 1, (size_t) st.st_size, f);
+    fclose(f);
+    if (n != (size_t) st.st_size) {
+        lv_free(buf);
+        DBG_LOG("fallback_font: short read staging custom font into RAM (%zu of %lld bytes)\n",
+                n, (long long) st.st_size);
+        return false;
+    }
+
+    s_candidate_font_data = buf;
+    s_candidate_font_data_size = n;
+    return true;
+}
+
+/* Rollback: frees the candidate buffer only if it's a freshly-read one (not
+ * the same pointer as the still-committed buffer), then clears candidate
+ * state. Safe to call even if no candidate was ever built this
+ * transaction. */
+static void discard_custom_font_data_candidate(void) {
+    if (s_candidate_font_data && s_candidate_font_data != s_custom_font_data) {
+        lv_free(s_candidate_font_data);
+    }
+    s_candidate_font_data = NULL;
+    s_candidate_font_data_size = 0;
+}
+
+/* Commit: call ONLY after the transaction's existing "destroy old faces no
+ * longer used" step has already run, so no live lv_font_t still points at
+ * whatever buffer this frees. If the candidate is a different buffer than
+ * what's currently committed, frees the old one and adopts the candidate;
+ * if it's the same pointer (the common case for a Font Size tier change
+ * with the custom font unchanged), this is a no-op besides bookkeeping. */
+static void commit_custom_font_data(uint32_t generation) {
+    if (s_candidate_font_data && s_candidate_font_data != s_custom_font_data) {
+        lv_free(s_custom_font_data);
+        s_custom_font_data = s_candidate_font_data;
+        s_custom_font_data_size = s_candidate_font_data_size;
+    }
+    s_custom_font_data_generation = generation;
+    s_candidate_font_data = NULL;
+    s_candidate_font_data_size = 0;
+}
+
+/* Explicit teardown when reverting to Default -- no candidate is ever built
+ * for that case, since build_candidate_slot()/build_new_tier_slot() never
+ * call load_face_from_file(FACE_SRC_CUSTOM, ...) when custom_staged is
+ * false. Safe to call when nothing was ever loaded (no-op). */
+static void release_custom_font_data(void) {
+    lv_free(s_custom_font_data);
+    s_custom_font_data = NULL;
+    s_custom_font_data_size = 0;
+    s_custom_font_data_generation = 0;
+}
+
+static lv_font_t * load_face_from_file(face_source_type_t type, int pixel_size, bool custom_staged) {
+    /* Custom faces come from the in-memory buffer built by
+     * build_custom_font_data_candidate() -- see s_custom_font_data's own
+     * comment for why this type alone skips the disk-streaming path below. */
+    if (type == FACE_SRC_CUSTOM) {
+        if (!custom_staged || !s_candidate_font_data) return NULL;
+        lv_font_t * font = lv_tiny_ttf_create_data(s_candidate_font_data, s_candidate_font_data_size, pixel_size);
+        if (!font) {
+            DBG_LOG("fallback_font: failed loading custom face (in-memory) at %d px\n", pixel_size);
+            return NULL;
+        }
+        return font;
+    }
+
+    const char * filepath = face_source_file_path(type, custom_staged);
+    if (!filepath) return NULL;
+
+    struct stat st;
+    if (stat(filepath, &st) != 0 || !S_ISREG(st.st_mode)) {
+        return NULL;
+    }
+
+    char lv_path[PATH_MAX + 4];
+    snprintf(lv_path, sizeof(lv_path), "S:%s", filepath);
+    lv_font_t * font = lv_tiny_ttf_create_file(lv_path, pixel_size);
+    if (!font) {
+        DBG_LOG("fallback_font: failed loading face type=%d size=%d from %s\n", (int)type, pixel_size, filepath);
+        return NULL;
+    }
+    return font;
+}
+
+static lv_font_t * get_or_load_face_in_table(face_table_t * tbl, face_source_type_t type, int pixel_size, bool custom_staged, uint32_t custom_gen) {
+    if (!tbl) return NULL;
+    for (int i = 0; i < tbl->count; i++) {
+        if (tbl->entries[i].type == type && tbl->entries[i].pixel_size == pixel_size) {
+            return tbl->entries[i].font;
+        }
+    }
+    if (tbl->count >= MAX_LOADED_FACES) {
+        DBG_LOG("fallback_font: max loaded faces reached in candidate table (%d)\n", MAX_LOADED_FACES);
+        return NULL;
+    }
+
+    /* Reuse from existing s_loaded_faces if matching and unmodified */
+    lv_font_t * existing_font = NULL;
+    for (int i = 0; i < s_loaded_face_count; i++) {
+        if (s_loaded_faces[i].type == type && s_loaded_faces[i].pixel_size == pixel_size) {
+            if (type == FACE_SRC_CUSTOM) {
+                /* Only reuse if custom staging state and generation match exactly */
+                if (custom_staged && s_custom_staged_valid && s_loaded_faces[i].custom_generation == custom_gen) {
+                    existing_font = s_loaded_faces[i].font;
+                    break;
+                }
+            } else {
+                existing_font = s_loaded_faces[i].font;
+                break;
+            }
+        }
+    }
+
+    lv_font_t * font = existing_font ? existing_font : load_face_from_file(type, pixel_size, custom_staged);
+    if (!font) {
+        return NULL;
+    }
+
+    tbl->entries[tbl->count].type = type;
+    tbl->entries[tbl->count].pixel_size = pixel_size;
+    tbl->entries[tbl->count].custom_generation = (type == FACE_SRC_CUSTOM) ? custom_gen : 0;
+    tbl->entries[tbl->count].font = font;
+    tbl->count++;
+    return font;
+}
+
+static bool build_candidate_slot(face_table_t * tbl, lv_font_t * out_font, int pixel_size, bool custom_staged, uint32_t custom_gen, bool include_fallbacks) {
+    lv_font_t * primary_custom = NULL;
+    if (custom_staged) {
+        primary_custom = get_or_load_face_in_table(tbl, FACE_SRC_CUSTOM, pixel_size, custom_staged, custom_gen);
+        if (!primary_custom) {
+            DBG_LOG("fallback_font: failed loading custom face at %d px\n", pixel_size);
+            return false;
+        }
+    }
+
+    if (primary_custom) {
+        *out_font = *primary_custom;
+    } else {
+        const lv_font_t * mont = get_montserrat_font_for_px(pixel_size);
+        *out_font = *mont;
+    }
+    out_font->fallback = NULL;
+
+    if (include_fallbacks) {
+        lv_font_t * cjk = get_or_load_face_in_table(tbl, FACE_SRC_CJK, pixel_size, custom_staged, custom_gen);
+        lv_font_t * kr = get_or_load_face_in_table(tbl, FACE_SRC_KOREAN, pixel_size, custom_staged, custom_gen);
+        lv_font_t * th = get_or_load_face_in_table(tbl, FACE_SRC_THAI, pixel_size, custom_staged, custom_gen);
+        lv_font_t * emoji = get_or_load_face_in_table(tbl, FACE_SRC_EMOJI, pixel_size, custom_staged, custom_gen);
+        lv_font_t * arabic = get_or_load_face_in_table(tbl, FACE_SRC_ARABIC, pixel_size, custom_staged, custom_gen);
+
+        lv_font_t * fallback_head = NULL;
+        if (cjk) font_chain_append(&fallback_head, cjk);
+        if (kr)  font_chain_append(&fallback_head, kr);
+        if (th)  font_chain_append(&fallback_head, th);
+        if (emoji) font_chain_append(&fallback_head, emoji);
+        if (arabic) font_chain_append(&fallback_head, arabic);
+
+        out_font->fallback = fallback_head;
+    }
+    return true;
+}
+
+/* The display slot's default primary face is the bundled Montserrat TTF. When
+ * an SD font is selected it follows the same custom-primary/localized-fallback
+ * chain as the other application handles. */
+static bool build_candidate_display_slot(face_table_t * tbl, lv_font_t * out_font,
+                                         bool custom_staged, uint32_t custom_gen,
+                                         bool include_fallbacks) {
+    /* Startup/deferred loading also remain safe if the stock asset is missing. */
+    *out_font = *get_montserrat_font_for_px(40);
+    face_source_type_t primary_type = custom_staged ? FACE_SRC_CUSTOM : FACE_SRC_DISPLAY;
+    lv_font_t * primary = get_or_load_face_in_table(tbl, primary_type, DISPLAY_FONT_PX,
+                                                    custom_staged, custom_gen);
+    if (!primary) {
+        /* The bundled display TTF is optional. Keep the compiled 40 px
+         * Montserrat fallback initialized above when it is absent, while
+         * preserving failures for an explicitly selected custom face. */
+        if (custom_staged) return false;
+    } else {
+        *out_font = *primary;
+    }
+    out_font->fallback = NULL;
+
+    if (include_fallbacks) {
+        lv_font_t * cjk = get_or_load_face_in_table(tbl, FACE_SRC_CJK, DISPLAY_FONT_PX, custom_staged, custom_gen);
+        lv_font_t * kr = get_or_load_face_in_table(tbl, FACE_SRC_KOREAN, DISPLAY_FONT_PX, custom_staged, custom_gen);
+        lv_font_t * th = get_or_load_face_in_table(tbl, FACE_SRC_THAI, DISPLAY_FONT_PX, custom_staged, custom_gen);
+        lv_font_t * emoji = get_or_load_face_in_table(tbl, FACE_SRC_EMOJI, DISPLAY_FONT_PX, custom_staged, custom_gen);
+        lv_font_t * arabic = get_or_load_face_in_table(tbl, FACE_SRC_ARABIC, DISPLAY_FONT_PX, custom_staged, custom_gen);
+        lv_font_t * head = NULL;
+        if (cjk) font_chain_append(&head, cjk);
+        if (kr) font_chain_append(&head, kr);
+        if (th) font_chain_append(&head, th);
+        if (emoji) font_chain_append(&head, emoji);
+        if (arabic) font_chain_append(&head, arabic);
+        out_font->fallback = head;
+    }
+    return true;
+}
+
+/* A size-tier transaction must not reuse an active tiny-TTF face while it
+ * constructs the candidate chain: font_chain_append() necessarily rewires
+ * fallback pointers, so reusing one would mutate the live chain before the
+ * transaction had succeeded. */
+static lv_font_t * load_new_face_in_table(face_table_t * tbl, face_source_type_t type,
+                                          int pixel_size, bool custom_staged,
+                                          uint32_t custom_gen) {
+    if (!tbl || tbl->count >= MAX_LOADED_FACES) return NULL;
+    lv_font_t * font = load_face_from_file(type, pixel_size, custom_staged);
+    if (!font) return NULL;
+    tbl->entries[tbl->count++] = (loaded_face_entry_t) {
+        .type = type,
+        .pixel_size = pixel_size,
+        .custom_generation = type == FACE_SRC_CUSTOM ? custom_gen : 0,
+        .font = font,
+    };
+    return font;
+}
+
+static bool build_new_tier_slot(face_table_t * tbl, lv_font_t * out_font,
+                                int pixel_size, bool include_fallbacks) {
+    lv_font_t * custom = NULL;
+    if (s_custom_staged_valid) {
+        custom = load_new_face_in_table(tbl, FACE_SRC_CUSTOM, pixel_size, true,
+                                        s_custom_font_generation);
+        if (!custom) return false;
+        *out_font = *custom;
+    } else {
+        *out_font = *get_montserrat_font_for_px(pixel_size);
+    }
+    out_font->fallback = NULL;
+
+    if (!include_fallbacks) return true;
+
+    lv_font_t * cjk = load_new_face_in_table(tbl, FACE_SRC_CJK, pixel_size, false, 0);
+    lv_font_t * kr = load_new_face_in_table(tbl, FACE_SRC_KOREAN, pixel_size, false, 0);
+    lv_font_t * th = load_new_face_in_table(tbl, FACE_SRC_THAI, pixel_size, false, 0);
+    if (!cjk || !kr || !th) return false;
+    /* Emoji is intentionally optional, unlike cjk/kr/th above: it's a nice-to-have
+     * enhancement, not core-market localization, and its file is only present after a
+     * full firmware repack (see firmware/overlay/) -- an SD-only player-binary update,
+     * adb-pushed binary, or the R3 Pro II board (no repack step yet) never has it, and
+     * that must not break the rest of the font stack. */
+    lv_font_t * emoji = load_new_face_in_table(tbl, FACE_SRC_EMOJI, pixel_size, false, 0);
+    /* Arabic is optional like Emoji: standalone player updates may not include
+     * the asset yet, and its absence must not fail a font-size transaction. */
+    lv_font_t * arabic = load_new_face_in_table(tbl, FACE_SRC_ARABIC, pixel_size, false, 0);
+
+    lv_font_t * head = NULL;
+    font_chain_append(&head, cjk);
+    font_chain_append(&head, kr);
+    font_chain_append(&head, th);
+    if (emoji) font_chain_append(&head, emoji);
+    if (arabic) font_chain_append(&head, arabic);
+    out_font->fallback = head;
+    return true;
+}
+
+static bool face_table_contains_font(const face_table_t * tbl, const lv_font_t * font) {
+    for (int i = 0; i < tbl->count; i++) {
+        if (tbl->entries[i].font == font) return true;
+    }
+    return false;
+}
+
+static void destroy_new_candidate_faces(face_table_t * tbl) {
+    for (int i = 0; i < tbl->count; i++) {
+        lv_font_t * font = tbl->entries[i].font;
+        bool active = false;
+        for (int j = 0; j < s_loaded_face_count; j++) {
+            if (s_loaded_faces[j].font == font) {
+                active = true;
+                break;
+            }
+        }
+        if (!active && font) lv_tiny_ttf_destroy(font);
+    }
+}
+
+static void destroy_obsolete_faces(const face_table_t * candidate) {
+    for (int j = 0; j < s_loaded_face_count; j++) {
+        lv_font_t * old_font = s_loaded_faces[j].font;
+        if (old_font && !face_table_contains_font(candidate, old_font)) {
+            lv_tiny_ttf_destroy(old_font);
+        }
+    }
+}
+
+bool fallback_font_apply_size_tier(int tier) {
+    if (tier < 0 || tier > 2) return false;
+    if (tier == s_font_size_tier) return true;
+
+    int size_16, size_20, size_22, size_28;
+    tier_pixel_sizes(tier, &size_16, &size_20, &size_22, &size_28);
+
+    face_table_t candidate = {0};
+    int lyrics_px = lyrics_pixel_size(s_lyrics_font_size_tier);
+    int size_player_title = PLAYER_TITLE_FONT_PX;
+    int size_player_meta = PLAYER_META_FONT_PX;
+    /* A general slot can legitimately equal the independent lyrics slot
+     * (Medium title = 32px, BlindMF title = 40px).  Seed the candidate with
+     * that already-active chain and copy app_font_lyrics below instead of
+     * loading a duplicate set.  This keeps post-switch TTF RAM identical to
+     * startup and is safe because the chain is not rewired. */
+    for (int i = 0; i < s_loaded_face_count; i++) {
+        int px = s_loaded_faces[i].pixel_size;
+        if ((px == lyrics_px || px == size_player_title || px == size_player_meta || px == DISPLAY_FONT_PX) &&
+            candidate.count < MAX_LOADED_FACES) {
+            candidate.entries[candidate.count++] = s_loaded_faces[i];
+        }
+    }
+    /* Custom font content is unchanged by a tier switch -- this reuses the
+     * already-committed in-memory buffer at zero I/O cost in the common
+     * case (see s_custom_font_data's own comment). */
+    if (s_custom_staged_valid && !build_custom_font_data_candidate(s_custom_font_generation)) {
+        DBG_LOG("fallback_font: size tier %d build failed (custom font data); keeping tier %d\n",
+                tier, s_font_size_tier);
+        return false;
+    }
+
+    lv_font_t cand_16, cand_20, cand_22, cand_28;
+    bool ok = true;
+#define BUILD_TIER_SLOT(out, px) \
+    do { \
+        if ((px) == lyrics_px) (out) = app_font_lyrics; \
+        else if ((px) == size_player_title) (out) = app_font_player_title; \
+        else if ((px) == size_player_meta) (out) = app_font_player_meta; \
+        else if (!build_new_tier_slot(&candidate, &(out), (px), s_fallback_loaded)) ok = false; \
+    } while (0)
+    BUILD_TIER_SLOT(cand_16, size_16);
+    if (ok) BUILD_TIER_SLOT(cand_20, size_20);
+    if (ok) BUILD_TIER_SLOT(cand_22, size_22);
+    if (ok) BUILD_TIER_SLOT(cand_28, size_28);
+#undef BUILD_TIER_SLOT
+    if (!ok) {
+        DBG_LOG("fallback_font: size tier %d build failed; keeping tier %d\n",
+                tier, s_font_size_tier);
+        destroy_new_candidate_faces(&candidate);
+        discard_custom_font_data_candidate();
+        return false;
+    }
+
+    /* app_font_lyrics remains byte-for-byte unchanged.  Retain the active
+     * tiny-TTF objects backing its descriptor while replacing the general
+     * slots, even when its pixel size overlaps a newly built UI slot. */
+    for (int i = 0; i < s_loaded_face_count; i++) {
+        int px = s_loaded_faces[i].pixel_size;
+        if ((px == lyrics_px || px == size_player_title || px == size_player_meta || px == DISPLAY_FONT_PX) &&
+            !face_table_contains_font(&candidate, s_loaded_faces[i].font)) {
+            if (candidate.count >= MAX_LOADED_FACES) {
+                destroy_new_candidate_faces(&candidate);
+                discard_custom_font_data_candidate();
+                return false;
+            }
+            candidate.entries[candidate.count++] = s_loaded_faces[i];
+        }
+    }
+
+    for (int i = 0; i < s_loaded_face_count; i++) {
+        lv_font_t * old = s_loaded_faces[i].font;
+        if (old && !face_table_contains_font(&candidate, old)) lv_tiny_ttf_destroy(old);
+    }
+
+    app_font_16 = cand_16;
+    app_font_20 = cand_20;
+    app_font_22 = cand_22;
+    app_font_28 = cand_28;
+    s_loaded_face_count = candidate.count;
+    for (int i = 0; i < candidate.count; i++) s_loaded_faces[i] = candidate.entries[i];
+    s_font_size_tier = tier;
+    if (s_custom_staged_valid) commit_custom_font_data(s_custom_font_generation);
+    return true;
+}
+
+/* See this function's own declaration (fallback_font.h) for the reuse
+ * reasoning. Shape mirrors fallback_font_apply_custom()'s own five-slot
+ * rebuild (build_candidate_slot(), not build_new_tier_slot() -- this isn't
+ * rebuilding every general slot's own fallback chain the way a Font Size
+ * tier change does, so none of that function's own "must not reuse a live
+ * face mid-chain-rewire" concern applies here). */
+bool fallback_font_apply_lyrics_size_tier(int tier) {
+    if (tier < 1 || tier > 2) return false;
+    if (tier == s_lyrics_font_size_tier) return true;
+
+    int size_16, size_20, size_22, size_28;
+    tier_pixel_sizes(s_font_size_tier, &size_16, &size_20, &size_22, &size_28);
+    int size_lyrics = lyrics_pixel_size(tier);
+    int size_player_title = PLAYER_TITLE_FONT_PX;
+    int size_player_meta = PLAYER_META_FONT_PX;
+
+    if (s_custom_staged_valid && !build_custom_font_data_candidate(s_custom_font_generation)) {
+        DBG_LOG("fallback_font: lyrics tier %d build failed (custom font data); keeping tier %d\n",
+                tier, s_lyrics_font_size_tier);
+        return false;
+    }
+
+    face_table_t candidate_table = {0};
+    lv_font_t cand_16, cand_20, cand_22, cand_28, cand_lyrics, cand_player_title, cand_player_meta, cand_display;
+
+    bool ok = true;
+    ok = ok && build_candidate_slot(&candidate_table, &cand_16, size_16, s_custom_staged_valid, s_custom_font_generation, s_fallback_loaded);
+    ok = ok && build_candidate_slot(&candidate_table, &cand_20, size_20, s_custom_staged_valid, s_custom_font_generation, s_fallback_loaded);
+    ok = ok && build_candidate_slot(&candidate_table, &cand_22, size_22, s_custom_staged_valid, s_custom_font_generation, s_fallback_loaded);
+    ok = ok && build_candidate_slot(&candidate_table, &cand_28, size_28, s_custom_staged_valid, s_custom_font_generation, s_fallback_loaded);
+    ok = ok && build_candidate_slot(&candidate_table, &cand_lyrics, size_lyrics, s_custom_staged_valid, s_custom_font_generation, s_fallback_loaded);
+    ok = ok && build_candidate_slot(&candidate_table, &cand_player_title, size_player_title, s_custom_staged_valid, s_custom_font_generation, s_fallback_loaded);
+    ok = ok && build_candidate_slot(&candidate_table, &cand_player_meta, size_player_meta, s_custom_staged_valid, s_custom_font_generation, s_fallback_loaded);
+    ok = ok && build_candidate_display_slot(&candidate_table, &cand_display, s_custom_staged_valid, s_custom_font_generation, s_fallback_loaded);
+
+    if (!ok) {
+        DBG_LOG("fallback_font: lyrics tier %d build failed; keeping tier %d\n", tier, s_lyrics_font_size_tier);
+        destroy_new_candidate_faces(&candidate_table);
+        discard_custom_font_data_candidate();
+        return false;
+    }
+
+    destroy_obsolete_faces(&candidate_table);
+
+    app_font_16 = cand_16;
+    app_font_20 = cand_20;
+    app_font_22 = cand_22;
+    app_font_28 = cand_28;
+    app_font_lyrics = cand_lyrics;
+    app_font_player_title = cand_player_title;
+    app_font_player_meta = cand_player_meta;
+    app_font_display = cand_display;
+
+    s_loaded_face_count = candidate_table.count;
+    for (int i = 0; i < candidate_table.count; i++) {
+        s_loaded_faces[i] = candidate_table.entries[i];
+    }
+
+    s_lyrics_font_size_tier = tier;
+    if (s_custom_staged_valid) commit_custom_font_data(s_custom_font_generation);
+    return true;
+}
+
+bool fallback_font_validate_file(const char * path) {
+    if (!path || !path[0]) return false;
+    struct stat st;
+    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) return false;
+    if (st.st_size < 4096 || st.st_size > MAX_CUSTOM_FONT_FILE_SIZE) return false;
+
+    FILE * f = fopen(path, "rb");
+    if (!f) return false;
+
+    uint8_t hdr[4];
+    if (fread(hdr, 1, 4, f) != 4) { fclose(f); return false; }
+
+    uint32_t magic = ((uint32_t)hdr[0] << 24) | ((uint32_t)hdr[1] << 16) |
+                     ((uint32_t)hdr[2] << 8) | (uint32_t)hdr[3];
+    if (magic != 0x00010000 && magic != 0x74727565) {
+        DBG_LOG("fallback_font: invalid TTF magic 0x%08X in %s\n", (unsigned int)magic, path);
+        fclose(f);
+        return false;
+    }
+
+    /* Read the whole candidate file into RAM once (already bounded by the
+     * MAX_CUSTOM_FONT_FILE_SIZE check above) and validate against that in-memory
+     * copy via lv_tiny_ttf_create_data() instead of the disk-streamed
+     * lv_tiny_ttf_create_file() -- the streamed path routes every single glyph
+     * lookup below through real lv_fs_seek()/lv_fs_read() filesystem calls (see
+     * lv_tiny_ttf.c's own ttf_cb_stream_read()/ttf_cb_stream_seek()), and this
+     * loop does that lookup up to 950 times (10 pixel sizes x 95 ASCII
+     * characters) per newly-selected custom font -- a very large number of
+     * small, synchronous filesystem round trips entirely on the UI thread,
+     * which is what made applying certain custom fonts visibly lag the whole
+     * player. Validating against an already-resident buffer instead turns
+     * those into cheap in-memory accesses with no behavioral change to what's
+     * accepted or rejected. */
+    rewind(f);
+    uint8_t * data = lv_malloc((size_t) st.st_size);
+    if (!data) {
+        DBG_LOG("fallback_font: out of memory validating %s (%lld bytes)\n",
+                path, (long long) st.st_size);
+        fclose(f);
+        return false;
+    }
+    size_t n = fread(data, 1, (size_t) st.st_size, f);
+    fclose(f);
+    if (n != (size_t) st.st_size) {
+        DBG_LOG("fallback_font: short read validating %s (%zu of %lld bytes)\n",
+                path, n, (long long) st.st_size);
+        lv_free(data);
+        return false;
+    }
+
+    /* Validate test loads and metrics at all tier pixel sizes */
+    static const int s_test_sizes[] = { 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 40 };
+    bool valid = true;
+
+    for (size_t s = 0; s < sizeof(s_test_sizes)/sizeof(s_test_sizes[0]); s++) {
+        int px = s_test_sizes[s];
+        lv_font_t * tf = lv_tiny_ttf_create_data(data, (size_t) st.st_size, px);
+        if (!tf) {
+            DBG_LOG("fallback_font: test create failed at size %d for %s\n", px, path);
+            valid = false;
+            break;
+        }
+
+        int32_t lh = lv_font_get_line_height(tf);
+        if (lh <= 0 || lh > 150) {
+            DBG_LOG("fallback_font: invalid line height %d at size %d for %s\n", (int)lh, px, path);
+            valid = false;
+        }
+
+        /* Check full printable Latin ASCII coverage (0x20 ' ' through 0x7E '~') */
+        for (uint32_t cp = 0x20; valid && cp <= 0x7E; cp++) {
+            lv_font_glyph_dsc_t g_dsc;
+            if (!lv_font_get_glyph_dsc(tf, &g_dsc, cp, 0)) {
+                DBG_LOG("fallback_font: missing Latin glyph 0x%02X ('%c') at size %d in %s\n",
+                        (unsigned int)cp, (char)cp, px, path);
+                valid = false;
+                break;
+            }
+        }
+        /* Release each test face immediately to minimize peak memory usage. */
+        lv_tiny_ttf_destroy(tf);
+        if (!valid) break;
+    }
+
+    lv_free(data);
+    return valid;
+}
+
+static bool stage_custom_font_from_sd(const char * custom_filename, bool * out_content_changed) {
+    if (out_content_changed) *out_content_changed = false;
+    if (!custom_filename || !custom_filename[0] || strcmp(custom_filename, "Default") == 0) {
+        return true;
+    }
+
+    if (strchr(custom_filename, '/') || strchr(custom_filename, '\\') || strstr(custom_filename, "..")) {
+        DBG_LOG("fallback_font: rejected unsafe custom font filename: %s\n", custom_filename);
+        return false;
+    }
+
+    char src_path[PATH_MAX];
+    snprintf(src_path, sizeof(src_path), "%s/%s", CUSTOM_FONT_SD_DIR, custom_filename);
+    struct stat st;
+    if (stat(src_path, &st) != 0) {
+        snprintf(src_path, sizeof(src_path), "%s/%s", CUSTOM_FONT_ALT_SD_DIR, custom_filename);
+        if (stat(src_path, &st) != 0) {
+            DBG_LOG("fallback_font: custom font source not found: %s\n", custom_filename);
+            return false;
+        }
+    }
+
+    if (!S_ISREG(st.st_mode) || st.st_size < 4096 || st.st_size > MAX_CUSTOM_FONT_FILE_SIZE) {
+        DBG_LOG("fallback_font: invalid custom font size %lld for %s\n", (long long)st.st_size, src_path);
+        return false;
+    }
+
+#ifdef HOST_BUILD
+    mkdir("build_host", 0755);
+#else
+    mkdir("/data", 0755);
+    mkdir("/data/app_data", 0755);
+#endif
+    mkdir(STAGING_DIR, 0755);
+
+    struct stat st_staged;
+    if (s_custom_staged_valid &&
+        strcmp(s_active_custom_name, custom_filename) == 0 &&
+        stat(STAGING_CUSTOM_FILE, &st_staged) == 0 &&
+        st_staged.st_size == st.st_size &&
+        st_staged.st_mtime == st.st_mtime &&
+        fallback_font_validate_file(STAGING_CUSTOM_FILE)) {
+        if (out_content_changed) *out_content_changed = false;
+        return true;
+    }
+
+    struct statvfs sv;
+    if (statvfs(STAGING_DIR, &sv) == 0) {
+        uint64_t free_bytes = (uint64_t)sv.f_bavail * (uint64_t)sv.f_bsize;
+        if (free_bytes < (uint64_t)st.st_size * 2 + 65536) {
+            DBG_LOG("fallback_font: insufficient disk space for font staging (%llu free)\n", (unsigned long long)free_bytes);
+            return false;
+        }
+    }
+
+    int fd_src = open(src_path, O_RDONLY);
+    if (fd_src < 0) return false;
+
+    unlink(STAGING_TMP_FILE);
+    int fd_dst = open(STAGING_TMP_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd_dst < 0) {
+        close(fd_src);
+        return false;
+    }
+
+    char buf[65536];
+    ssize_t n;
+    bool ok = true;
+    while ((n = read(fd_src, buf, sizeof(buf))) > 0) {
+        ssize_t written = 0;
+        while (written < n) {
+            ssize_t w = write(fd_dst, buf + written, (size_t)(n - written));
+            if (w <= 0) { ok = false; break; }
+            written += w;
+        }
+        if (!ok) break;
+    }
+    if (n < 0) ok = false;
+
+    if (ok) {
+        if (fsync(fd_dst) != 0) ok = false;
+    }
+    close(fd_src);
+    if (close(fd_dst) != 0) ok = false;
+
+    if (!ok) {
+        unlink(STAGING_TMP_FILE);
+        DBG_LOG("fallback_font: copy/sync error while staging %s\n", custom_filename);
+        return false;
+    }
+
+    struct utimbuf ut = { .actime = st.st_atime, .modtime = st.st_mtime };
+    utime(STAGING_TMP_FILE, &ut);
+
+    if (!fallback_font_validate_file(STAGING_TMP_FILE)) {
+        unlink(STAGING_TMP_FILE);
+        DBG_LOG("fallback_font: validation failed for staged %s\n", custom_filename);
+        return false;
+    }
+
+    if (rename(STAGING_TMP_FILE, STAGING_CUSTOM_FILE) != 0) {
+        unlink(STAGING_TMP_FILE);
+        return false;
+    }
+
+    int dir_fd = open(STAGING_DIR, O_RDONLY);
+    if (dir_fd >= 0) {
+        fsync(dir_fd);
+        close(dir_fd);
+    }
+
+    if (out_content_changed) *out_content_changed = true;
+    return true;
+}
+
+static int compare_font_names(const void * a, const void * b) {
+    return strcasecmp((const char *)a, (const char *)b);
+}
+
+int fallback_font_discover_custom(char out_names[][64], int max_count) {
+    if (!out_names || max_count <= 0) return 0;
+    int count = 0;
+
+    const char * dirs[] = { CUSTOM_FONT_SD_DIR, CUSTOM_FONT_ALT_SD_DIR };
+    for (size_t d = 0; d < sizeof(dirs)/sizeof(dirs[0]); d++) {
+        DIR * dir = opendir(dirs[d]);
+        if (!dir) continue;
+        struct dirent * entry;
+        while ((entry = readdir(dir)) != NULL && count < max_count) {
+            if (entry->d_name[0] == '.') continue;
+            size_t len = strlen(entry->d_name);
+            if (len < 5 || len >= 64) continue; /* Reject if does not fit in 64-byte buffer */
+            if (strcasecmp(entry->d_name + len - 4, ".ttf") != 0) continue;
+
+            /* Verify filename contains only valid safe characters */
+            bool safe = true;
+            for (size_t i = 0; i < len; i++) {
+                char c = entry->d_name[i];
+                if (c < 32 || c > 126 || c == '/' || c == '\\') {
+                    safe = false;
+                    break;
+                }
+            }
+            if (!safe) continue;
+
+            bool duplicate = false;
+            for (int i = 0; i < count; i++) {
+                if (strcasecmp(out_names[i], entry->d_name) == 0) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (duplicate) continue;
+
+            char full_path[PATH_MAX];
+            snprintf(full_path, sizeof(full_path), "%s/%s", dirs[d], entry->d_name);
+            struct stat st;
+            if (stat(full_path, &st) == 0 && S_ISREG(st.st_mode) && st.st_size <= MAX_CUSTOM_FONT_FILE_SIZE) {
+                memcpy(out_names[count], entry->d_name, len);
+                out_names[count][len] = '\0';
+                count++;
+            }
+        }
+        closedir(dir);
+    }
+
+    if (count > 1) {
+        qsort(out_names, (size_t)count, 64, compare_font_names);
+    }
+    return count;
+}
+
+const char * fallback_font_get_custom_name(void) {
+    if (s_custom_staged_valid && s_active_custom_name[0]) {
+        return s_active_custom_name;
+    }
+    return "Default";
+}
+
+void fallback_font_refresh_ui(void) {
+    lv_obj_t * act = lv_screen_active();
+    if (act) lv_obj_invalidate(act);
+    lv_obj_invalidate(lv_layer_top());
+    lv_obj_invalidate(lv_layer_sys());
+
+    compact_list_refresh_all();
+    quick_drawer_mark_snapshot_dirty();
+    gui_lyrics_refresh_layout();
+    player_transition_mark_dirty();
+}
+
+bool fallback_font_apply_custom(const char * custom_filename) {
+    bool is_default = (!custom_filename || !custom_filename[0] || strcmp(custom_filename, "Default") == 0);
+    bool candidate_staged_valid = false;
+    uint32_t target_gen = s_custom_font_generation;
+
+    if (!is_default) {
+        bool content_changed = false;
+        if (!stage_custom_font_from_sd(custom_filename, &content_changed)) {
+            DBG_LOG("fallback_font: failed staging custom font %s\n", custom_filename);
+            return false;
+        }
+        candidate_staged_valid = true;
+        /* If custom font name changed OR underlying staged content changed, increment generation to construct fresh faces */
+        if (!s_custom_staged_valid || strcmp(s_active_custom_name, custom_filename) != 0 || content_changed) {
+            target_gen++;
+        }
+    } else {
+        candidate_staged_valid = false;
+    }
+
+    if (!is_default && !build_custom_font_data_candidate(target_gen)) {
+        DBG_LOG("fallback_font: failed reading staged custom font %s into RAM\n", custom_filename);
+        return false;
+    }
+
+    int size_16, size_20, size_22, size_28;
+    tier_pixel_sizes(s_font_size_tier, &size_16, &size_20, &size_22, &size_28);
+    int size_lyrics = lyrics_pixel_size(s_lyrics_font_size_tier);
+    int size_player_title = PLAYER_TITLE_FONT_PX;
+    int size_player_meta = PLAYER_META_FONT_PX;
+
+    /* Build candidate faces in separate table to ensure 100% transactional safety */
+    face_table_t candidate_table = {0};
+    lv_font_t cand_16, cand_20, cand_22, cand_28, cand_lyrics, cand_player_title, cand_player_meta, cand_display;
+
+    bool ok = true;
+    ok = ok && build_candidate_slot(&candidate_table, &cand_16, size_16, candidate_staged_valid, target_gen, s_fallback_loaded);
+    ok = ok && build_candidate_slot(&candidate_table, &cand_20, size_20, candidate_staged_valid, target_gen, s_fallback_loaded);
+    ok = ok && build_candidate_slot(&candidate_table, &cand_22, size_22, candidate_staged_valid, target_gen, s_fallback_loaded);
+    ok = ok && build_candidate_slot(&candidate_table, &cand_28, size_28, candidate_staged_valid, target_gen, s_fallback_loaded);
+    ok = ok && build_candidate_slot(&candidate_table, &cand_lyrics, size_lyrics, candidate_staged_valid, target_gen, s_fallback_loaded);
+    ok = ok && build_candidate_slot(&candidate_table, &cand_player_title, size_player_title, candidate_staged_valid, target_gen, s_fallback_loaded);
+    ok = ok && build_candidate_slot(&candidate_table, &cand_player_meta, size_player_meta, candidate_staged_valid, target_gen, s_fallback_loaded);
+    ok = ok && build_candidate_display_slot(&candidate_table, &cand_display, candidate_staged_valid, target_gen, s_fallback_loaded);
+
+    if (!ok) {
+        DBG_LOG("fallback_font: candidate build failed; rolling back without touching active font stack\n");
+        destroy_new_candidate_faces(&candidate_table);
+        discard_custom_font_data_candidate();
+        return false;
+    }
+
+    /* All candidate slots built successfully. Destroy faces in s_loaded_faces that are no longer used. */
+    destroy_obsolete_faces(&candidate_table);
+
+    /* Atomic commit of font descriptors to global handles */
+    app_font_16 = cand_16;
+    app_font_20 = cand_20;
+    app_font_22 = cand_22;
+    app_font_28 = cand_28;
+    app_font_lyrics = cand_lyrics;
+    app_font_player_title = cand_player_title;
+    app_font_player_meta = cand_player_meta;
+    app_font_display = cand_display;
+
+    s_loaded_face_count = candidate_table.count;
+    for (int i = 0; i < candidate_table.count; i++) {
+        s_loaded_faces[i] = candidate_table.entries[i];
+    }
+
+    s_custom_font_generation = target_gen;
+    s_custom_staged_valid = candidate_staged_valid;
+    if (is_default) {
+        s_active_custom_name[0] = '\0';
+        release_custom_font_data();
+    } else {
+        utf8_truncate_safe(s_active_custom_name, custom_filename, sizeof(s_active_custom_name));
+        commit_custom_font_data(target_gen);
+    }
+
+    return true;
+}
+
+void fallback_font_on_sd_mounted(void) {
+    if (current_settings.custom_font[0] == '\0' || strcmp(current_settings.custom_font, "Default") == 0) {
+        return;
+    }
+    if (s_custom_staged_valid && strcmp(s_active_custom_name, current_settings.custom_font) == 0) {
+        return;
+    }
+    DBG_LOG("fallback_font: SD card mounted, retrying configured font: %s\n", current_settings.custom_font);
+    if (fallback_font_apply_custom(current_settings.custom_font)) fallback_font_refresh_ui();
+}
+
+void fallback_font_init_early(int font_size_tier, int lyrics_font_size_tier) {
+    s_font_size_tier = font_size_tier;
+    s_lyrics_font_size_tier = lyrics_font_size_tier;
+
+    unlink(STAGING_TMP_FILE);
+
+    bool staged = false;
+    if (current_settings.custom_font[0] && strcmp(current_settings.custom_font, "Default") != 0) {
+        bool content_changed = false;
+        staged = stage_custom_font_from_sd(current_settings.custom_font, &content_changed);
+        if (staged) {
+            s_custom_staged_valid = true;
+            s_custom_font_generation++;
+            utf8_truncate_safe(s_active_custom_name, current_settings.custom_font, sizeof(s_active_custom_name));
+        }
+    }
+
+    /* This function doesn't roll back on a failed face build today (return
+     * values already ignored below) -- match that existing risk profile:
+     * on a data-load failure, just leave custom_staged_valid false so the
+     * five slots below fall back to Montserrat exactly as they would for
+     * any other custom-load failure. */
+    if (s_custom_staged_valid && !build_custom_font_data_candidate(s_custom_font_generation)) {
+        DBG_LOG("fallback_font: failed reading staged custom font into RAM at startup\n");
+        s_custom_staged_valid = false;
+    }
+
+    int size_16, size_20, size_22, size_28;
+    tier_pixel_sizes(font_size_tier, &size_16, &size_20, &size_22, &size_28);
+    int size_lyrics = lyrics_pixel_size(lyrics_font_size_tier);
+    int size_player_title = PLAYER_TITLE_FONT_PX;
+    int size_player_meta = PLAYER_META_FONT_PX;
+
+    face_table_t init_table = {0};
+    build_candidate_slot(&init_table, &app_font_16, size_16, s_custom_staged_valid, s_custom_font_generation, false);
+    build_candidate_slot(&init_table, &app_font_20, size_20, s_custom_staged_valid, s_custom_font_generation, false);
+    build_candidate_slot(&init_table, &app_font_22, size_22, s_custom_staged_valid, s_custom_font_generation, false);
+    build_candidate_slot(&init_table, &app_font_28, size_28, s_custom_staged_valid, s_custom_font_generation, false);
+    build_candidate_slot(&init_table, &app_font_lyrics, size_lyrics, s_custom_staged_valid, s_custom_font_generation, false);
+    build_candidate_slot(&init_table, &app_font_player_title, size_player_title, s_custom_staged_valid, s_custom_font_generation, false);
+    build_candidate_slot(&init_table, &app_font_player_meta, size_player_meta, s_custom_staged_valid, s_custom_font_generation, false);
+    build_candidate_display_slot(&init_table, &app_font_display, s_custom_staged_valid, s_custom_font_generation, false);
+
+    s_loaded_face_count = init_table.count;
+    for (int i = 0; i < init_table.count; i++) {
+        s_loaded_faces[i] = init_table.entries[i];
+    }
+    if (s_custom_staged_valid) commit_custom_font_data(s_custom_font_generation);
+}
+
+void fallback_font_load_now(void) {
+    s_fallback_loaded = true;
+
+    /* In practice build_candidate_slot()'s own reuse-from-s_loaded_faces
+     * path (matching generation) already satisfies the custom slot here
+     * without a fresh read, since this runs shortly after fallback_font_
+     * init_early()/fallback_font_apply_custom() committed one at the same
+     * sizes -- but guard it anyway rather than relying on that timing
+     * coincidence. Same no-rollback risk profile as this function already
+     * has for its own build_candidate_slot() calls below. */
+    if (s_custom_staged_valid && !build_custom_font_data_candidate(s_custom_font_generation)) {
+        DBG_LOG("fallback_font: failed reading staged custom font into RAM for fallback load\n");
+    }
+
+    int size_16, size_20, size_22, size_28;
+    tier_pixel_sizes(s_font_size_tier, &size_16, &size_20, &size_22, &size_28);
+    int size_lyrics = lyrics_pixel_size(s_lyrics_font_size_tier);
+    int size_player_title = PLAYER_TITLE_FONT_PX;
+    int size_player_meta = PLAYER_META_FONT_PX;
+
+    face_table_t table = {0};
+    lv_font_t cand_16, cand_20, cand_22, cand_28, cand_lyrics, cand_player_title, cand_player_meta, cand_display;
+
+    build_candidate_slot(&table, &cand_16, size_16, s_custom_staged_valid, s_custom_font_generation, true);
+    build_candidate_slot(&table, &cand_20, size_20, s_custom_staged_valid, s_custom_font_generation, true);
+    build_candidate_slot(&table, &cand_22, size_22, s_custom_staged_valid, s_custom_font_generation, true);
+    build_candidate_slot(&table, &cand_28, size_28, s_custom_staged_valid, s_custom_font_generation, true);
+    build_candidate_slot(&table, &cand_lyrics, size_lyrics, s_custom_staged_valid, s_custom_font_generation, true);
+    build_candidate_slot(&table, &cand_player_title, size_player_title, s_custom_staged_valid, s_custom_font_generation, true);
+    build_candidate_slot(&table, &cand_player_meta, size_player_meta, s_custom_staged_valid, s_custom_font_generation, true);
+    build_candidate_display_slot(&table, &cand_display, s_custom_staged_valid, s_custom_font_generation, true);
+
+    /* Atomic swap */
+    app_font_16 = cand_16;
+    app_font_20 = cand_20;
+    app_font_22 = cand_22;
+    app_font_28 = cand_28;
+    app_font_lyrics = cand_lyrics;
+    app_font_player_title = cand_player_title;
+    app_font_player_meta = cand_player_meta;
+    app_font_display = cand_display;
+
+    s_loaded_face_count = table.count;
+    for (int i = 0; i < table.count; i++) {
+        s_loaded_faces[i] = table.entries[i];
+    }
+    if (s_custom_staged_valid) commit_custom_font_data(s_custom_font_generation);
+
+    fallback_font_refresh_ui();
+}

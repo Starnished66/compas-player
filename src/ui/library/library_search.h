@@ -4,8 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <lvgl/lvgl.h>
-#include "compact_list.h"
-#include "metadata_db.h"
+#include "../widgets/lists/compact_list.h"
+#include "../../library/metadata/db/metadata_db.h"
 
 typedef enum {
     SEARCH_BINDING_ARTISTS,

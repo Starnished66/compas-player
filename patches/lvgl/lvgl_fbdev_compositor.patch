@@ -1,0 +1,770 @@
+--- a/src/drivers/display/fb/lv_linux_fbdev.c
++++ b/src/drivers/display/fb/lv_linux_fbdev.c
+@@ -9,0 +10,3 @@
++#ifdef UI_PERF_TRACE
++#include "../../../../../src/ui/diagnostics/ui_frame_trace.h"
++#endif
+@@ -73,0 +77,33 @@
++
++    /* True when /dev/fb0 is double-buffered via panning (yres_virtual >=
++     * 2*yres) and we've handed LVGL the two real physical halves as its
++     * DIRECT-mode draw buffers directly -- see lv_linux_fbdev_set_file().
++     * When true, flush_cb() skips its usual memcpy (pixels already landed
++     * in the right place) and instead pans to whichever half was just
++     * rendered once the frame is complete, tear-free. */
++    bool pan_double_buffer;
++    uint8_t * page0;
++    uint8_t * page1;
++    uint32_t page_yoffset; /* vinfo.yoffset value that selects page1 */
++
++    /* True between a successful lv_linux_fbdev_begin_external_composition()
++     * and its matching lv_linux_fbdev_end_external_composition() -- rejects
++     * a second, nested caller, and lets flush_cb() refuse to independently
++     * pan while some other caller (the transition compositor) owns page
++     * presentation, in case anything ever queues a real LVGL flush during
++     * that window despite invalidation being disabled. */
++    bool external_composition_active;
++    bool last_present_successful;
++    /* Optional full-screen RAM render target used while the panel is dark. */
++    uint8_t * ram_stage_buf;
++    size_t ram_stage_size;
++    bool ram_stage_valid;
++    bool ram_stage_ready;
++    uint32_t ram_stage_width;
++    uint32_t ram_stage_height;
++    lv_display_rotation_t ram_stage_rotation;
++    uint8_t * ram_stage_saved_buf1;
++    uint8_t * ram_stage_saved_buf2;
++    uint32_t ram_stage_saved_size;
++    lv_display_render_mode_t ram_stage_saved_mode;
++    uint8_t ram_stage_saved_active;
+@@ -81,0 +118 @@
++static void res_changed_event_cb(lv_event_t * e);
+@@ -82,0 +120,2 @@
++static void configure_pan_buffers(lv_display_t * disp, lv_linux_fb_t * dsc);
++static bool ram_stage_matches_display(lv_display_t * disp, const lv_linux_fb_t * dsc);
+@@ -120,0 +160 @@
++    lv_display_add_event_cb(disp, res_changed_event_cb, LV_EVENT_RESOLUTION_CHANGED, NULL);
+@@ -237 +276,0 @@
+-    draw_buf = lv_malloc(draw_buf_size);
+@@ -239,2 +278,33 @@
+-    if(LV_LINUX_FBDEV_BUFFER_COUNT == 2) {
+-        draw_buf_2 = lv_malloc(draw_buf_size);
++#if LV_LINUX_FBDEV_MMAP && !LV_LINUX_FBDEV_BSD
++    /* If this display is double-buffered via panning (virtual height is at
++     * least twice the visible height) and we've been asked for DIRECT mode
++     * with 2 buffers, skip malloc entirely and hand LVGL the two physical
++     * halves of the real framebuffer as its draw buffers -- LVGL then
++     * renders straight into whichever half isn't currently on screen, and
++     * flush_cb() below just pans to it once the frame's done. This is what
++     * actually eliminates tearing; DIRECT mode with malloc'd buffers alone
++     * does not (see flush_cb). */
++    long int page_bytes = (long int) dsc->finfo.line_length * dsc->vinfo.yres;
++    if(LV_LINUX_FBDEV_RENDER_MODE == LV_DISPLAY_RENDER_MODE_DIRECT && LV_LINUX_FBDEV_BUFFER_COUNT == 2 &&
++       dsc->vinfo.yres_virtual >= dsc->vinfo.yres * 2 && dsc->finfo.smem_len >= page_bytes * 2 &&
++       /* LVGL assumes tightly-packed rows (stride derived purely from
++        * resolution/color format); if the hardware pads each scanline
++        * beyond that, aliasing its real memory directly would skew the
++        * image, so only do this when there's no such padding. */
++       dsc->finfo.line_length == lv_draw_buf_width_to_stride((uint32_t) hor_res, lv_display_get_color_format(disp))) {
++        dsc->pan_double_buffer = true;
++        dsc->page0 = (uint8_t *)dsc->fbp;
++        dsc->page1 = (uint8_t *)dsc->fbp + page_bytes;
++        dsc->page_yoffset = dsc->vinfo.yres;
++        if(lv_display_get_rotation(disp) == LV_DISPLAY_ROTATION_180 && dsc->vinfo.bits_per_pixel == 16) {
++            dsc->draw_buf_1 = lv_malloc(draw_buf_size);
++            LV_ASSERT_MALLOC(dsc->draw_buf_1);
++            draw_buf = dsc->draw_buf_1;
++            draw_buf_2 = NULL;
++        }
++        else {
++            draw_buf = dsc->page0;
++            draw_buf_2 = dsc->page1;
++        }
++        /* Do not store these in draw_buf_1/draw_buf_2 when unrotated -- del_event_cb()
++         * lv_free()s those, and these are mmap'd framebuffer pages. */
+@@ -241,0 +312 @@
++#endif /* LV_LINUX_FBDEV_MMAP && !LV_LINUX_FBDEV_BSD */
+@@ -243,2 +314,10 @@
+-    dsc->draw_buf_1 = draw_buf;
+-    dsc->draw_buf_2 = draw_buf_2;
++    if(!dsc->pan_double_buffer) {
++        draw_buf = lv_malloc(draw_buf_size);
++
++        if(LV_LINUX_FBDEV_BUFFER_COUNT == 2) {
++            draw_buf_2 = lv_malloc(draw_buf_size);
++        }
++
++        dsc->draw_buf_1 = draw_buf;
++        dsc->draw_buf_2 = draw_buf_2;
++    }
+@@ -264,0 +344,119 @@
++const void * lv_linux_fbdev_get_active_page(lv_display_t * disp)
++{
++    if(!disp) return NULL;
++    lv_linux_fb_t * dsc = lv_display_get_driver_data(disp);
++    if(!dsc || !dsc->pan_double_buffer) return NULL;
++    if(lv_display_get_rotation(disp) != LV_DISPLAY_ROTATION_0) return NULL;
++    return (dsc->vinfo.yoffset == dsc->page_yoffset) ? dsc->page1 : dsc->page0;
++}
++
++void * lv_linux_fbdev_get_inactive_page(lv_display_t * disp)
++{
++    if(!disp) return NULL;
++    lv_linux_fb_t * dsc = lv_display_get_driver_data(disp);
++    if(!dsc || !dsc->pan_double_buffer) return NULL;
++    if(lv_display_get_rotation(disp) != LV_DISPLAY_ROTATION_0) return NULL;
++    /* Writable (unlike get_active_page() above) -- callers write into this
++     * one directly, which is exactly what makes it safe to write into: it's
++     * never the page currently being scanned out. */
++    return (dsc->vinfo.yoffset == dsc->page_yoffset) ? dsc->page0 : dsc->page1;
++}
++
++uint32_t lv_linux_fbdev_get_stride(lv_display_t * disp)
++{
++    if(!disp) return 0;
++    lv_linux_fb_t * dsc = lv_display_get_driver_data(disp);
++    if(!dsc || !dsc->pan_double_buffer) return 0;
++    return (uint32_t) dsc->finfo.line_length;
++}
++
++bool lv_linux_fbdev_begin_external_composition(lv_display_t * disp)
++{
++    if(!disp) return false;
++    lv_linux_fb_t * dsc = lv_display_get_driver_data(disp);
++    if(!dsc || !dsc->pan_double_buffer || dsc->ram_stage_buf) return false;
++    if(lv_display_get_rotation(disp) != LV_DISPLAY_ROTATION_0) return false;
++    if(dsc->external_composition_active) return false; /* reject nested ownership */
++
++    /* A DIRECT-mode refresh can have queued invalidation areas and buffer
++     * synchronization work before external composition takes ownership.
++     * Disabling invalidation in the caller only rejects new areas; the
++     * refresh timer will still render existing ones, directly into one of
++     * these physical pages. External composition replaces complete frames,
++     * so discard both queues at the ownership boundary. */
++    disp->inv_p = 0;
++    lv_memzero(disp->inv_areas, sizeof(disp->inv_areas));
++    lv_memzero(disp->inv_area_joined, sizeof(disp->inv_area_joined));
++    lv_ll_clear(&disp->sync_areas);
++
++    /* External composition replaces LVGL's scanout, so it cannot certify
++     * the retained framebuffer as the last successfully presented LVGL frame. */
++    dsc->last_present_successful = false;
++    dsc->external_composition_active = true;
++    return true;
++}
++
++bool lv_linux_fbdev_present_external_page(lv_display_t * disp)
++{
++    if(!disp) return false;
++    lv_linux_fb_t * dsc = lv_display_get_driver_data(disp);
++    if(!dsc || !dsc->pan_double_buffer || !dsc->external_composition_active) return false;
++#if LV_LINUX_FBDEV_BSD
++    return false; /* pan_double_buffer is never true on a BSD build (see lv_linux_fbdev_set_file()), so this is unreachable in practice -- kept explicit rather than falling through to code that assumes the Linux fb_var_screeninfo shape */
++#else
++    /* Same target-half computation flush_cb()'s own pan branch uses, just
++     * driven by our own bookkeeping instead of a just-flushed color_p
++     * pointer -- whichever half is currently INACTIVE (about to become
++     * active) is exactly the one the caller just finished writing into. */
++    uint32_t target_yoffset = (dsc->vinfo.yoffset == dsc->page_yoffset) ? 0 : dsc->page_yoffset;
++    if(dsc->vinfo.yoffset == target_yoffset) return true; /* already showing the right page -- nothing to do */
++
++    /* Pan using a TEMPORARY copy, only committing dsc->vinfo.yoffset after
++     * FBIOPAN_DISPLAY actually succeeds -- writing dsc->vinfo.yoffset
++     * before the ioctl would leave this driver's own bookkeeping claiming
++     * a page change that never physically happened, silently desyncing
++     * every later get_active_page()/get_inactive_page() call from the
++     * real hardware state. */
++    struct fb_var_screeninfo tmp = dsc->vinfo;
++    tmp.yoffset = target_yoffset;
++#ifdef UI_PERF_TRACE
++    ui_frame_trace_event(UI_FRAME_TRACE_EVENT_PAN_BEGIN, 1, target_yoffset);
++#endif
++    if(ioctl(dsc->fbfd, FBIOPAN_DISPLAY, &tmp) == -1) {
++#ifdef UI_PERF_TRACE
++        ui_frame_trace_event(UI_FRAME_TRACE_EVENT_PAN_END, 0, target_yoffset);
++#endif
++        perror("Error panning display");
++        return false;
++    }
++    dsc->vinfo.yoffset = target_yoffset;
++#ifdef UI_PERF_TRACE
++    ui_frame_trace_event(UI_FRAME_TRACE_EVENT_PAN_END, 1, target_yoffset);
++#endif
++    return true;
++#endif /* LV_LINUX_FBDEV_BSD */
++}
++
++bool lv_linux_fbdev_end_external_composition(lv_display_t * disp)
++{
++    if(!disp) return false;
++    lv_linux_fb_t * dsc = lv_display_get_driver_data(disp);
++    if(!dsc || !dsc->external_composition_active) return false;
++    dsc->external_composition_active = false;
++
++    /* LVGL's own DIRECT-mode buffer alternation (disp->buf_act, toggled only
++     * by lv_refr.c's own flush bookkeeping) has no idea this driver just
++     * panned the physical display independently of any real LVGL render --
++     * left alone, its next render could target buf_act pointing at the
++     * page CURRENTLY being scanned out (whichever one an external caller
++     * just presented), corrupting the live screen mid-redraw instead of
++     * the inactive one. Point buf_act at the real, current INACTIVE
++     * physical page directly so the very next lv_refr_now() is guaranteed
++     * to render somewhere safe to write. */
++    if(dsc->pan_double_buffer) {
++        bool page1_active = (dsc->vinfo.yoffset == dsc->page_yoffset);
++        disp->buf_act = (page1_active || !disp->buf_2) ? disp->buf_1 : disp->buf_2;
++    }
++    return true;
++}
++
+@@ -269 +467 @@
+-static void write_to_fb(lv_linux_fb_t * dsc, uint32_t fb_pos, const void * data, size_t sz)
++static bool write_to_fb(lv_linux_fb_t * dsc, uint32_t fb_pos, const void * data, size_t sz)
+@@ -273,0 +472 @@
++    return true;
+@@ -275,2 +474,6 @@
+-    if(pwrite(dsc->fbfd, data, sz, fb_pos) < 0)
+-        LV_LOG_ERROR("write failed: %d", errno);
++    ssize_t written = pwrite(dsc->fbfd, data, sz, fb_pos);
++    if(written != (ssize_t)sz) {
++        LV_LOG_ERROR("framebuffer write incomplete: %d", errno);
++        return false;
++    }
++    return true;
+@@ -300,2 +503,14 @@
+-    if(dsc->draw_buf_1) lv_free(dsc->draw_buf_1);
+-    if(dsc->draw_buf_2) lv_free(dsc->draw_buf_2);
++    if(dsc->ram_stage_buf) {
++        lv_free(dsc->ram_stage_buf);
++        dsc->ram_stage_buf = NULL;
++    }
++    /* pan_double_buffer never stores the mmap'd pages in draw_buf_1/2; when
++     * rotated, draw_buf_1 is the RAM render buffer and is freed here. */
++    if(dsc->draw_buf_1) {
++        lv_free(dsc->draw_buf_1);
++        dsc->draw_buf_1 = NULL;
++    }
++    if(!dsc->pan_double_buffer && dsc->draw_buf_2) {
++        lv_free(dsc->draw_buf_2);
++        dsc->draw_buf_2 = NULL;
++    }
+@@ -307,0 +523,287 @@
++static void res_changed_event_cb(lv_event_t * e)
++{
++    lv_display_t * disp = lv_event_get_target(e);
++    lv_linux_fb_t * dsc = lv_display_get_driver_data(disp);
++    if(!dsc || !dsc->pan_double_buffer) return;
++
++    /* Do not free stage memory or redirect rendering to scanout from this
++     * event callback. The GUI wake timer will end the stage and select the
++     * ordinary buffers once it can safely fall back. */
++    if(dsc->ram_stage_buf) {
++        dsc->ram_stage_valid = false;
++        dsc->ram_stage_ready = false;
++        lv_timer_t * refr_timer = lv_display_get_refr_timer(disp);
++        if(refr_timer) lv_timer_pause(refr_timer);
++        dsc->last_present_successful = false;
++        return;
++    }
++
++    configure_pan_buffers(disp, dsc);
++}
++
++static void configure_pan_buffers(lv_display_t * disp, lv_linux_fb_t * dsc)
++{
++    lv_display_rotation_t rot = lv_display_get_rotation(disp);
++    /* Buffer orientation/mapping changed; require a new successful LVGL flush
++     * before a later wake can retain the current scanout. */
++    dsc->last_present_successful = false;
++    uint32_t draw_buf_size = dsc->vinfo.xres * dsc->vinfo.yres * (dsc->vinfo.bits_per_pixel >> 3);
++
++    /* The flush copies a 180-degree frame by reversing 16-bit pixels, so
++     * only that case leaves the zero-copy page rendering. */
++    if(rot == LV_DISPLAY_ROTATION_180 && dsc->vinfo.bits_per_pixel == 16) {
++        if(!dsc->draw_buf_1) {
++            dsc->draw_buf_1 = lv_malloc(draw_buf_size);
++            LV_ASSERT_MALLOC(dsc->draw_buf_1);
++        }
++        lv_ll_clear(&disp->sync_areas);
++        lv_display_set_buffers(disp, dsc->draw_buf_1, NULL, draw_buf_size, LV_DISPLAY_RENDER_MODE_DIRECT);
++    }
++    else {
++        lv_ll_clear(&disp->sync_areas);
++        lv_display_set_buffers(disp, dsc->page0, dsc->page1, draw_buf_size, LV_DISPLAY_RENDER_MODE_DIRECT);
++        bool page1_active = (dsc->vinfo.yoffset == dsc->page_yoffset);
++        disp->buf_act = page1_active ? disp->buf_1 : disp->buf_2;
++        if(dsc->draw_buf_1) {
++            lv_free(dsc->draw_buf_1);
++            dsc->draw_buf_1 = NULL;
++        }
++    }
++}
++
++static bool ram_stage_matches_display(lv_display_t * disp, const lv_linux_fb_t * dsc)
++{
++    return disp && dsc && dsc->ram_stage_buf && dsc->ram_stage_valid &&
++           dsc->ram_stage_width == dsc->vinfo.xres && dsc->ram_stage_height == dsc->vinfo.yres &&
++           dsc->ram_stage_rotation == lv_display_get_rotation(disp) &&
++           dsc->ram_stage_width == (uint32_t)lv_display_get_horizontal_resolution(disp) &&
++           dsc->ram_stage_height == (uint32_t)lv_display_get_vertical_resolution(disp);
++}
++
++bool lv_linux_fbdev_last_present_succeeded(lv_display_t * disp)
++{
++    lv_linux_fb_t * dsc = lv_display_get_driver_data(disp);
++    return dsc && dsc->last_present_successful;
++}
++
++bool lv_linux_fbdev_last_frame_reusable(lv_display_t * disp)
++{
++#if LV_LINUX_FBDEV_MMAP && !LV_LINUX_FBDEV_BSD
++    if(!disp) return false;
++    lv_linux_fb_t * dsc = lv_display_get_driver_data(disp);
++    return dsc && dsc->fbfd >= 0 && dsc->fbp && dsc->fbp != MAP_FAILED &&
++           dsc->screensize > 0 && dsc->last_present_successful &&
++           !dsc->ram_stage_buf &&
++           !dsc->external_composition_active && !disp->flushing &&
++           !disp->rendering_in_progress && disp->inv_p == 0;
++#else
++    (void)disp;
++    return false;
++#endif
++}
++
++bool lv_linux_fbdev_clear_scanout(lv_display_t * disp)
++{
++#if LV_LINUX_FBDEV_MMAP && !LV_LINUX_FBDEV_BSD
++    if(!disp) return false;
++    lv_linux_fb_t * dsc = lv_display_get_driver_data(disp);
++    if(!dsc || dsc->fbfd < 0 || !dsc->fbp || dsc->fbp == MAP_FAILED ||
++       dsc->screensize <= 0 || dsc->finfo.smem_len <= 0 ||
++       dsc->external_composition_active || dsc->ram_stage_buf ||
++       disp->flushing || disp->rendering_in_progress)
++        return false;
++
++    /* The mmap spans the complete framebuffer allocation, including every
++     * physical page and its stride padding. Clear all of it so a later
++     * unblank cannot expose a retained pre-wake page. */
++    lv_memzero(dsc->fbp, (size_t)dsc->screensize);
++    dsc->last_present_successful = false;
++    return true;
++#else
++    (void)disp;
++    return false;
++#endif
++}
++
++static void rotate_rgb565_180(const uint8_t * src, uint8_t * dst, size_t bytes)
++{
++    const uint32_t * s = (const uint32_t *)src;
++    uint32_t * d = (uint32_t *)(dst + bytes);
++    size_t words = bytes / sizeof(uint32_t);
++    for(size_t i = 0; i < words; i++) {
++        uint32_t w = s[i];
++        *(--d) = (w >> 16) | (w << 16);
++    }
++}
++
++bool lv_linux_fbdev_end_ram_stage(lv_display_t * disp)
++{
++    if(!disp) return false;
++    lv_linux_fb_t * dsc = lv_display_get_driver_data(disp);
++    if(!dsc || !dsc->ram_stage_buf) return true;
++    if(disp->flushing || disp->rendering_in_progress) return false;
++
++    /* A resolution/rotation callback may already have restored the regular
++     * buffers. In that case only release the obsolete staging allocation. */
++    if(ram_stage_matches_display(disp, dsc) && dsc->pan_double_buffer) {
++        lv_display_set_buffers(disp, dsc->ram_stage_saved_buf1, dsc->ram_stage_saved_buf2,
++                               dsc->ram_stage_saved_size, dsc->ram_stage_saved_mode);
++        if(dsc->ram_stage_saved_active == 2 && disp->buf_2) disp->buf_act = disp->buf_2;
++        else if(dsc->ram_stage_saved_active == 1 && disp->buf_1) disp->buf_act = disp->buf_1;
++
++        /* DIRECT rendering must target the inactive scanout page after commit. */
++        if(dsc->ram_stage_saved_mode == LV_DISPLAY_RENDER_MODE_DIRECT &&
++           dsc->ram_stage_saved_buf1 == dsc->page0 && dsc->ram_stage_saved_buf2 == dsc->page1)
++            disp->buf_act = dsc->vinfo.yoffset == 0 ? disp->buf_2 : disp->buf_1;
++        else if(dsc->ram_stage_saved_mode == LV_DISPLAY_RENDER_MODE_DIRECT &&
++                dsc->ram_stage_saved_buf1 == dsc->page1 && dsc->ram_stage_saved_buf2 == dsc->page0)
++            disp->buf_act = dsc->vinfo.yoffset == 0 ? disp->buf_1 : disp->buf_2;
++    }
++    else if(dsc->pan_double_buffer) {
++        /* Rotation/resolution changed while staging. Rebuild the regular
++         * buffers now, outside the LVGL event callback, for current geometry. */
++        configure_pan_buffers(disp, dsc);
++    }
++    lv_ll_clear(&disp->sync_areas);
++    lv_free(dsc->ram_stage_buf);
++    dsc->ram_stage_buf = NULL;
++    dsc->ram_stage_size = 0;
++    dsc->ram_stage_valid = false;
++    dsc->ram_stage_ready = false;
++    dsc->ram_stage_saved_buf1 = NULL;
++    dsc->ram_stage_saved_buf2 = NULL;
++    dsc->ram_stage_saved_size = 0;
++    dsc->ram_stage_saved_active = 0;
++    return true;
++}
++
++bool lv_linux_fbdev_begin_ram_stage(lv_display_t * disp)
++{
++#if LV_LINUX_FBDEV_MMAP && !LV_LINUX_FBDEV_BSD
++    if(!disp || disp->flushing || disp->rendering_in_progress) return false;
++    lv_linux_fb_t * dsc = lv_display_get_driver_data(disp);
++    if(!dsc || !dsc->pan_double_buffer || dsc->external_composition_active ||
++       dsc->ram_stage_buf || !dsc->fbp || dsc->fbp == MAP_FAILED || dsc->fbfd < 0 ||
++       dsc->screensize <= 0 || !dsc->page0 || !dsc->page1 ||
++       dsc->vinfo.bits_per_pixel != 16 || lv_display_get_color_format(disp) != LV_COLOR_FORMAT_RGB565 ||
++       dsc->finfo.line_length != (long int)dsc->vinfo.xres * 2 ||
++       lv_draw_buf_width_to_stride(dsc->vinfo.xres, LV_COLOR_FORMAT_RGB565) != (uint64_t)dsc->vinfo.xres * 2 ||
++       dsc->vinfo.xres != (uint32_t)lv_display_get_horizontal_resolution(disp) ||
++       dsc->vinfo.yres != (uint32_t)lv_display_get_vertical_resolution(disp) ||
++       dsc->vinfo.xoffset != 0 ||
++       (dsc->vinfo.yoffset != 0 && dsc->vinfo.yoffset != dsc->page_yoffset) ||
++       (lv_display_get_rotation(disp) != LV_DISPLAY_ROTATION_0 &&
++        lv_display_get_rotation(disp) != LV_DISPLAY_ROTATION_180)) return false;
++
++    if(lv_display_get_rotation(disp) == LV_DISPLAY_ROTATION_180 && !dsc->draw_buf_1) return false;
++
++    if(dsc->vinfo.xres == 0 || dsc->vinfo.yres == 0 || dsc->finfo.line_length <= 0 ||
++       dsc->page_yoffset == 0 ||
++       dsc->vinfo.yres_virtual < dsc->vinfo.yres ||
++       dsc->page_yoffset > dsc->vinfo.yres_virtual - dsc->vinfo.yres ||
++       (size_t)dsc->vinfo.xres > SIZE_MAX / (size_t)dsc->vinfo.yres / 2)
++        return false;
++    size_t size = (size_t)dsc->vinfo.xres * dsc->vinfo.yres * 2;
++    size_t framebuffer_size = (size_t)dsc->screensize;
++    size_t stride = (size_t)dsc->finfo.line_length;
++    if(size == 0 || size > UINT32_MAX || (size & 3u) != 0 ||
++       size > framebuffer_size / 2 || stride > SIZE_MAX / dsc->vinfo.yres ||
++       stride > SIZE_MAX / dsc->page_yoffset)
++        return false;
++    size_t page_bytes = stride * dsc->vinfo.yres;
++    size_t page1_offset = stride * dsc->page_yoffset;
++    if(page_bytes < size || page_bytes > framebuffer_size || page1_offset > framebuffer_size ||
++       size > framebuffer_size - page1_offset) return false;
++    uint8_t * stage = lv_malloc(size);
++    if(!stage) return false;
++
++    /* Start from black so no old scanout content can survive an incomplete
++     * staged repaint. The caller must queue a full-screen redraw after begin. */
++    lv_memzero(stage, size);
++
++    if(!disp->buf_1 || !disp->buf_1->data) {
++        lv_free(stage);
++        return false;
++    }
++    dsc->ram_stage_saved_buf1 = disp->buf_1->data;
++    dsc->ram_stage_saved_buf2 = disp->buf_2 ? disp->buf_2->data : NULL;
++    dsc->ram_stage_saved_size = disp->buf_1->data_size;
++    dsc->ram_stage_saved_mode = disp->render_mode;
++    dsc->ram_stage_saved_active = disp->buf_act == disp->buf_2 ? 2 : 1;
++    dsc->ram_stage_buf = stage;
++    dsc->ram_stage_size = size;
++    dsc->ram_stage_width = dsc->vinfo.xres;
++    dsc->ram_stage_height = dsc->vinfo.yres;
++    dsc->ram_stage_rotation = lv_display_get_rotation(disp);
++    dsc->ram_stage_valid = true;
++    dsc->ram_stage_ready = false;
++    dsc->last_present_successful = false;
++    disp->inv_p = 0;
++    lv_memzero(disp->inv_areas, sizeof(disp->inv_areas));
++    lv_memzero(disp->inv_area_joined, sizeof(disp->inv_area_joined));
++    lv_ll_clear(&disp->sync_areas);
++    lv_display_set_buffers(disp, stage, NULL, (uint32_t)size, LV_DISPLAY_RENDER_MODE_DIRECT);
++    return true;
++#else
++    (void)disp;
++    return false;
++#endif
++}
++
++bool lv_linux_fbdev_ram_stage_active(lv_display_t * disp)
++{
++    lv_linux_fb_t * dsc = disp ? lv_display_get_driver_data(disp) : NULL;
++    return dsc && dsc->ram_stage_buf != NULL;
++}
++
++bool lv_linux_fbdev_ram_stage_valid(lv_display_t * disp)
++{
++    lv_linux_fb_t * dsc = disp ? lv_display_get_driver_data(disp) : NULL;
++    return ram_stage_matches_display(disp, dsc);
++}
++
++bool lv_linux_fbdev_ram_stage_ready(lv_display_t * disp)
++{
++#if LV_LINUX_FBDEV_MMAP && !LV_LINUX_FBDEV_BSD
++    lv_linux_fb_t * dsc = disp ? lv_display_get_driver_data(disp) : NULL;
++    return dsc && ram_stage_matches_display(disp, dsc) && dsc->ram_stage_ready &&
++           !dsc->external_composition_active && !disp->flushing &&
++           !disp->rendering_in_progress && disp->inv_p == 0;
++#else
++    (void)disp;
++    return false;
++#endif
++}
++
++bool lv_linux_fbdev_present_ram_stage(lv_display_t * disp)
++{
++#if LV_LINUX_FBDEV_MMAP && !LV_LINUX_FBDEV_BSD
++    if(!lv_linux_fbdev_ram_stage_ready(disp)) return false;
++    lv_linux_fb_t * dsc = lv_display_get_driver_data(disp);
++    uint32_t target_yoffset = dsc->vinfo.yoffset == dsc->page_yoffset ? 0 : dsc->page_yoffset;
++    uint8_t * target = target_yoffset == 0 ? dsc->page0 : dsc->page1;
++    uint8_t * other = target_yoffset == 0 ? dsc->page1 : dsc->page0;
++    dsc->last_present_successful = false;
++    if(dsc->ram_stage_rotation == LV_DISPLAY_ROTATION_180)
++        rotate_rgb565_180(dsc->ram_stage_buf, target, dsc->ram_stage_size);
++    else
++        lv_memcpy(target, dsc->ram_stage_buf, dsc->ram_stage_size);
++
++    struct fb_var_screeninfo tmp = dsc->vinfo;
++    tmp.yoffset = target_yoffset;
++    if(ioctl(dsc->fbfd, FBIOPAN_DISPLAY, &tmp) == -1) return false;
++    dsc->vinfo.yoffset = target_yoffset;
++    dsc->last_present_successful = true;
++
++    /* Keep both physical baselines coherent, so the next DIRECT partial
++     * refresh cannot reveal pixels from before the staged frame. */
++    lv_memcpy(other, target, dsc->ram_stage_size);
++    if(dsc->ram_stage_rotation == LV_DISPLAY_ROTATION_180 && dsc->draw_buf_1)
++        lv_memcpy(dsc->draw_buf_1, dsc->ram_stage_buf, dsc->ram_stage_size);
++    return true;
++#else
++    (void)disp;
++    return false;
++#endif
++}
++
+@@ -310,0 +813 @@
++    if(lv_display_flush_is_last(disp)) dsc->last_present_successful = false;
+@@ -318,0 +822,103 @@
++#if LV_LINUX_FBDEV_MMAP && !LV_LINUX_FBDEV_BSD
++    if(dsc->ram_stage_buf) {
++        if(!ram_stage_matches_display(disp, dsc)) {
++            dsc->ram_stage_valid = false;
++            dsc->ram_stage_ready = false;
++            lv_timer_t * refr_timer = lv_display_get_refr_timer(disp);
++            if(refr_timer) lv_timer_pause(refr_timer);
++            dsc->last_present_successful = false;
++            lv_display_flush_ready(disp);
++            return;
++        }
++        dsc->ram_stage_ready = false;
++        if(dsc->ram_stage_valid && lv_display_flush_is_last(disp)) {
++            dsc->ram_stage_ready = true;
++        }
++        dsc->last_present_successful = false;
++        lv_display_flush_ready(disp);
++        return;
++    }
++#endif
++
++#if LV_LINUX_FBDEV_MMAP && !LV_LINUX_FBDEV_BSD
++    if(dsc->pan_double_buffer) {
++        /* An external caller (the transition compositor) currently owns
++         * page presentation -- see lv_linux_fbdev_begin_external_
++         * composition(). Invalidation is disabled for that whole window so
++         * nothing should ever queue a real LVGL flush during it, but this
++         * is a deliberate defense-in-depth guard rather than an assumption:
++         * panning independently here, on top of whatever the external
++         * caller is doing, would be an immediate tear/corruption risk. Just
++         * drop the flush -- there is nothing safe to do with it. */
++        if(dsc->external_composition_active) {
++            lv_display_flush_ready(disp);
++            return;
++        }
++        /* When rotated 180 degrees, draw_buf_1 in RAM contains the unrotated rendered
++         * frame in DIRECT mode. Rotate it into whichever physical page is inactive and pan.
++         * When unrotated, LVGL rendered straight into whichever physical half (page0/page1)
++         * was active, so we just pan directly. */
++        if(lv_display_flush_is_last(disp)) {
++            lv_display_rotation_t rotation = lv_display_get_rotation(disp);
++            if(rotation == LV_DISPLAY_ROTATION_180 && dsc->draw_buf_1 && dsc->vinfo.bits_per_pixel == 16) {
++                uint32_t target_yoffset = (dsc->vinfo.yoffset == dsc->page_yoffset) ? 0 : dsc->page_yoffset;
++                uint8_t * target_page = (target_yoffset == 0) ? dsc->page0 : dsc->page1;
++                uint32_t draw_buf_size = dsc->vinfo.xres * dsc->vinfo.yres * (dsc->vinfo.bits_per_pixel >> 3);
++
++                const uint32_t * s = (const uint32_t *) dsc->draw_buf_1;
++                uint32_t * d = (uint32_t *) (target_page + draw_buf_size);
++                size_t total_words = draw_buf_size / sizeof(uint32_t);
++                for(size_t i = 0; i < total_words; i++) {
++                    uint32_t w = s[i];
++                    *(--d) = (w >> 16) | (w << 16);
++                }
++
++                struct fb_var_screeninfo tmp = dsc->vinfo;
++                tmp.yoffset = target_yoffset;
++#ifdef UI_PERF_TRACE
++                ui_frame_trace_event(UI_FRAME_TRACE_EVENT_PAN_BEGIN, 0, target_yoffset);
++#endif
++                if(ioctl(dsc->fbfd, FBIOPAN_DISPLAY, &tmp) == -1) {
++#ifdef UI_PERF_TRACE
++                    ui_frame_trace_event(UI_FRAME_TRACE_EVENT_PAN_END, 0, target_yoffset);
++#endif
++                    perror("Error panning display");
++                }
++                else {
++                    dsc->vinfo.yoffset = target_yoffset;
++                    dsc->last_present_successful = true;
++#ifdef UI_PERF_TRACE
++                    ui_frame_trace_event(UI_FRAME_TRACE_EVENT_PAN_END, 1, target_yoffset);
++#endif
++                }
++            }
++            else if(rotation == LV_DISPLAY_ROTATION_0) {
++                uint32_t target_yoffset = (color_p == dsc->page1) ? dsc->page_yoffset : 0;
++                if(dsc->vinfo.yoffset == target_yoffset) dsc->last_present_successful = true;
++                else {
++                    struct fb_var_screeninfo tmp = dsc->vinfo;
++                    tmp.yoffset = target_yoffset;
++#ifdef UI_PERF_TRACE
++                    ui_frame_trace_event(UI_FRAME_TRACE_EVENT_PAN_BEGIN, 0, target_yoffset);
++#endif
++                    if(ioctl(dsc->fbfd, FBIOPAN_DISPLAY, &tmp) == -1) {
++#ifdef UI_PERF_TRACE
++                        ui_frame_trace_event(UI_FRAME_TRACE_EVENT_PAN_END, 0, target_yoffset);
++#endif
++                        perror("Error panning display");
++                    }
++                    else {
++                        dsc->vinfo.yoffset = target_yoffset;
++                        dsc->last_present_successful = true;
++#ifdef UI_PERF_TRACE
++                        ui_frame_trace_event(UI_FRAME_TRACE_EVENT_PAN_END, 1, target_yoffset);
++#endif
++                    }
++                }
++            }
++        }
++        lv_display_flush_ready(disp);
++        return;
++    }
++#endif /* LV_LINUX_FBDEV_MMAP && !LV_LINUX_FBDEV_BSD */
++
+@@ -392,0 +999 @@
++    bool presented = true;
+@@ -403 +1010 @@
+-            write_to_fb(dsc, fb_pos, &color_p[color_pos], w * px_size);
++            if(!write_to_fb(dsc, fb_pos, &color_p[color_pos], w * px_size)) presented = false;
+@@ -417 +1024 @@
+-            write_to_fb(dsc, fb_pos, color_p, w * px_size);
++            if(!write_to_fb(dsc, fb_pos, color_p, w * px_size)) presented = false;
+@@ -426,0 +1034 @@
++            presented = false;
+@@ -429,0 +1038 @@
++    if(is_last_flush) dsc->last_present_successful = presented;
+--- a/src/drivers/display/fb/lv_linux_fbdev.h
++++ b/src/drivers/display/fb/lv_linux_fbdev.h
+@@ -41,0 +42,110 @@
++/**
++ * When double buffering via panning is active (see lv_linux_fbdev.c's
++ * pan_double_buffer), returns a pointer to whichever physical half is
++ * CURRENTLY being scanned out -- i.e. exactly what's on screen right now,
++ * with no render needed to get it. Const: callers only ever need to COPY
++ * this (e.g. into an owned transition-source buffer), never write into the
++ * page still being displayed. Returns NULL if pan-based double buffering
++ * isn't active for this display.
++ */
++const void * lv_linux_fbdev_get_active_page(lv_display_t * disp);
++
++/**
++ * The physical half NOT currently being scanned out -- i.e. safe to write
++ * into directly regardless of scanout timing, the same guarantee
++ * flush_cb()'s own pan_double_buffer branch relies on. Deliberately
++ * writable (unlike lv_linux_fbdev_get_active_page() above): this is the
++ * one page callers are expected to draw into directly. Returns NULL under
++ * the same conditions lv_linux_fbdev_get_active_page() does.
++ */
++void * lv_linux_fbdev_get_inactive_page(lv_display_t * disp);
++
++/**
++ * Bytes per scanline for the two pan_double_buffer physical pages. Only
++ * meaningful (and only ever non-zero) when pan-based double buffering is
++ * actually active -- lv_linux_fbdev_set_file() itself never enables it
++ * unless the hardware's real line_length exactly matches this same value,
++ * so callers can always treat a non-zero result as "tightly packed,
++ * hor_res * bytes-per-pixel".
++ */
++uint32_t lv_linux_fbdev_get_stride(lv_display_t * disp);
++
++/**
++ * External-composition handoff -- for a caller (the transition compositor)
++ * that wants to write directly into the physical framebuffer pages for a
++ * whole sequence of frames, bypassing LVGL's own render/flush pipeline
++ * entirely. Callers must still separately disable LVGL invalidation for
++ * the duration (lv_display_enable_invalidation()) -- this call only
++ * concerns the fbdev driver's own bookkeeping: it rejects a second, nested
++ * caller, and makes flush_cb() refuse to independently pan while active
++ * (see flush_cb()'s own comment). Returns false (no state changed) if
++ * pan-based double buffering isn't active, or a composition session is
++ * already in progress.
++ */
++bool lv_linux_fbdev_begin_external_composition(lv_display_t * disp);
++
++/**
++ * Pans the display straight to whichever physical half
++ * lv_linux_fbdev_get_inactive_page() currently returns, and updates this
++ * driver's own bookkeeping (vinfo.yoffset) to match -- only after
++ * confirming the underlying FBIOPAN_DISPLAY ioctl actually succeeded (a
++ * failed pan leaves this driver's bookkeeping exactly as it was, so
++ * get_active_page()/get_inactive_page() keep describing the real, still-
++ * physically-current page rather than one that was never actually panned
++ * to). Must be called between a successful lv_linux_fbdev_begin_external_
++ * composition() and its matching end call. Returns false (no-op) if that
++ * precondition isn't met or the underlying pan ioctl itself fails.
++ */
++bool lv_linux_fbdev_present_external_page(lv_display_t * disp);
++
++/**
++ * Ends an external-composition session started by lv_linux_fbdev_begin_
++ * external_composition() -- also re-synchronizes LVGL's own next render
++ * target (disp->buf_act, internal to LVGL's core and not otherwise exposed
++ * outside this driver) to point at the real, current INACTIVE physical
++ * page, so the very next ordinary LVGL render is guaranteed to draw
++ * somewhere safe rather than into whatever page an external caller just
++ * presented. Callers must still separately re-enable LVGL invalidation
++ * afterward. Returns false (no-op) if no composition session is active.
++ */
++bool lv_linux_fbdev_end_external_composition(lv_display_t * disp);
++
++/** True only if the most recent native last flush presented successfully.
++ * Read from the display's FLUSH_FINISH event, not from a no-damage refresh. */
++bool lv_linux_fbdev_last_present_succeeded(lv_display_t * disp);
++
++/** True if the displayed mmap page is a successful, clean LVGL frame that
++ * can be retained across a dark interval without rendering or composition. */
++bool lv_linux_fbdev_last_frame_reusable(lv_display_t * disp);
++
++/** Redirect DIRECT rendering to a full-frame RAM buffer for an off-panel
++ * wake. Supported only for the mmap pan-double-buffer RGB565 backend. */
++bool lv_linux_fbdev_begin_ram_stage(lv_display_t * disp);
++
++/** True while staging storage exists, including after a rotation change that
++ * invalidated it and requires the caller to end/cancel the stage. */
++bool lv_linux_fbdev_ram_stage_active(lv_display_t * disp);
++
++/** True while the stage remains compatible with current display geometry and
++ * rotation; false means the caller must cancel it and take the normal path. */
++bool lv_linux_fbdev_ram_stage_valid(lv_display_t * disp);
++
++/** True after a complete staged flush, with no pending LVGL work and matching
++ * display geometry/rotation. */
++bool lv_linux_fbdev_ram_stage_ready(lv_display_t * disp);
++
++/** Copy the staged frame to the inactive page and pan. Keeps staging active
++ * for retries if the pan fails. */
++bool lv_linux_fbdev_present_ram_stage(lv_display_t * disp);
++
++/** Restore normal DIRECT buffers and release stage RAM. Returns false while
++ * LVGL is rendering/flushing; safe to retry later. */
++bool lv_linux_fbdev_end_ram_stage(lv_display_t * disp);
++
++/** Clear every byte in the mapped framebuffer scanout while it is safe to
++ * write (GUI thread, no refresh/flush in progress, and no external
++ * composition owner). Returns false when this backend cannot safely clear
++ * the mapped scanout. The caller should invalidate and render a full frame
++ * afterward. */
++bool lv_linux_fbdev_clear_scanout(lv_display_t * disp);
++

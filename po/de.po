@@ -2422,8 +2422,8 @@ msgstr "Scanne den QR-Code, um die vollständige Anleitung zu öffnen."
 msgid "github.com/Starnished66/compas-player"
 msgstr "github.com/Starnished66/compas-player"
 
-msgid "Guide: docs/CREATING.md"
-msgstr "Anleitung: docs/CREATING.md"
+msgid "Guide: docs/development/CREATING.md"
+msgstr "Anleitung: docs/development/CREATING.md"
 
 msgid "Write a Lua plugin on your computer. Copy its .lua file to the .plugins folder on your SD card."
 msgstr "Schreibe ein Lua-Plugin auf deinem Computer. Kopiere die .lua-Datei in den Ordner .plugins auf deiner SD-Karte."
@@ -3658,7 +3658,7 @@ msgstr "Das Streaming-Plugin ist nicht verfügbar"
 msgid "TXT Reader"
 msgstr "TXT-Reader"
 
-#: src/ui/gui_settings.c
+#: src/ui/settings/gui_settings.c
 msgid "Keep Lyrics Screen On"
 msgstr ""
 

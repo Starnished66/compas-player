@@ -231,15 +231,15 @@ commands and corrected failures; rows here summarize representative final checks
 | --- | --- |
 | `TMPDIR=$HOME/.cache/compas-theme-review make host -j6 BOARD=r1 UI_PERF_TRACE= UI_PERF_TRACE_DEFINE=` | Pass |
 | `TMPDIR=$HOME/.cache/compas-theme-review make target -j6 UI_PERF_TRACE= UI_PERF_TRACE_DEFINE=` | Pass |
-| `bash scripts/run_remote_import_upload_timeout_test.sh` | Pass, includes precise deadline and slow local-I/O regressions |
-| `bash scripts/run_remote_control_status_spec.sh` | Pass |
-| `bash scripts/run_metadata_catalog_test.sh` | Pass |
-| `bash scripts/run_settings_roundtrip_spec.sh` | Pass |
-| `bash scripts/run_atomic_persistence_powerloss_spec.sh` | Pass, host injected failures/process termination |
-| `bash scripts/run_player_queue_storage_spec.sh` | Pass |
-| `SANITIZE=1 bash scripts/run_player_queue_storage_spec.sh` | Pass |
-| `bash scripts/test_file_ops.sh` | Pass, host sanitizers and faults |
-| `bash scripts/test_image_thumb.sh` | Pass |
+| `bash scripts/tests/network/remote/run_remote_import_upload_timeout_test.sh` | Pass, includes precise deadline and slow local-I/O regressions |
+| `bash scripts/tests/network/remote/run_remote_control_status_spec.sh` | Pass |
+| `bash scripts/tests/library/metadata/run_metadata_catalog_test.sh` | Pass |
+| `bash scripts/tests/core/settings/run_settings_roundtrip_spec.sh` | Pass |
+| `bash scripts/tests/core/settings/run_atomic_persistence_powerloss_spec.sh` | Pass, host injected failures/process termination |
+| `bash scripts/tests/ui/playlists/run_player_queue_storage_spec.sh` | Pass |
+| `SANITIZE=1 bash scripts/tests/ui/playlists/run_player_queue_storage_spec.sh` | Pass |
+| `bash scripts/tests/library/browser/test_file_ops.sh` | Pass, host sanitizers and faults |
+| `bash scripts/tests/library/artwork/test_image_thumb.sh` | Pass |
 | `python3 scripts/test_firmware_update_host.py` | Pass using cached valid fixture; no NAND operation |
 | Plugin repo: `python3 tools/test_api_requirements.py` | Pass |
 | Plugin repo: all nine `lua`/Python feature runners listed in `plugins-existing-tests.json` | Pass; ten existing checks total including API requirements |

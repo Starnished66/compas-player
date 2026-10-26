@@ -20,7 +20,7 @@
 /jpeg
 
 # theme2 UI assets. This tree mirrors the device layout: everything tracked
-# here is copied to /usr/resource/litegui/theme2/ by scripts/repack_upt.sh,
+# here is copied to /usr/resource/litegui/theme2/ by scripts/firmware/package/repack_upt.sh,
 # so a tracked file is exactly a shipped file.
 #
 # Stock HiBy graphics are proprietary and never redistributed (see README.md's
@@ -44,9 +44,9 @@
 
 # Wholly ours, minus the stock files that happen to share the directory.
 !/assets/theme2/power_action/
-# Player layout XML files (src/ui/player/player_layouts.c scans this directory).
+# Player layout XML files (src/ui/player/layout/player_layouts.c scans this directory).
 !/assets/theme2/player_layouts/
-# Picker preview of the built-in Breeze Dark theme (src/ui/gui_themes.c).
+# Picker preview of the built-in Breeze Dark theme (src/ui/appearance/gui_themes.c).
 !/assets/theme2/themes/
 !/assets/theme2/pull_down/
 /assets/theme2/pull_down/bg.png
@@ -185,7 +185,7 @@
 !/assets/theme2/settings/bg_system.png
 !/assets/theme2/settings/bg_about.png
 
-# Remote-control category icons (src/network/remote_control.c). Mixed
+# Remote-control category icons (src/network/remote/control/remote_control.c). Mixed
 # directory: the four the app resolves are Material Design Icons redraws
 # swapped in place (SOURCES.txt), byte-different from stock. item*.png are
 # byte-identical to the stock dump and stay excluded, as do the *_s and
@@ -265,13 +265,13 @@
 # ...except the compile_commands.json generator the Makefile's own
 # `compile_commands.json` target invokes -- this one ships with the repo.
 !/scripts/build/generate_compile_commands.py
-!/scripts/offline_library_scan.py
-!/scripts/generate_remote_webapp.py
-!/scripts/generate_brand_marks.py
-!/scripts/generate_selector_logos.py
-!/scripts/check_module_sizes.py
-!/scripts/install_startup_trace.py
-!/scripts/kernel/*.py
+!/scripts/tools/library_scan/offline_library_scan.py
+!/scripts/generators/webapp/generate_remote_webapp.py
+!/scripts/generators/brand_assets/generate_brand_marks.py
+!/scripts/generators/brand_assets/generate_selector_logos.py
+!/scripts/tools/build/check_module_sizes.py
+!/scripts/firmware/boot_pipeline/install_startup_trace.py
+!/scripts/kernel/**/*.py
 
 # Standalone development self-tests are local-only and are not shipped in
 # the public source/release tree. Match future files in any directory too.
@@ -350,10 +350,10 @@ plugins_examples-02.zip
 BT_DAC_LONG_SESSION.md
 docs/UI_VISUAL_REFRESH.md
 AGENTS.md
-src/hardware/usb_dac_bridge_lifecycle_regression.c
-src/audio/audio_output_ownership_regression.c
-src/audio/test_write_pipe_bounded.c
-src/audio/test_audio_output_usb.c
+src/hardware/usb/usb_dac_bridge_lifecycle_regression.c
+src/audio/output/audio_output_ownership_regression.c
+src/audio/output/tests/test_write_pipe_bounded.c
+src/audio/output/test_audio_output_usb.c
 grok-albumart.md
 claude-albumart.md
 gemini-albumart.md
@@ -365,12 +365,12 @@ png_red_1300.png
 # rule above, and same caveat: gitignore never affects files git already
 # tracks; `git rm --cached` them too if the intent is to stop tracking those
 # as well.
-src/library/png_fixtures.h
-src/library/cover_decode_jpeg_fixtures.h
+src/library/artwork/decode/png_fixtures.h
+src/library/artwork/decode/cover_decode_jpeg_fixtures.h
 repomix-output.xml
 src/library/cover_decode_scale_test.c
 inline remote follow-up fixes.diff
-src/ui/screen_builders_test.c
+src/ui/widgets/builders/screen_builders_test.c
 !/assets/theme1/power_action/
 print_heights.c
 final_diff.patch
@@ -379,15 +379,15 @@ final_diff.patch
 /docs/LIBRARY_REWORK_STATUS.md
 /scripts/tests/
 /scripts/__pycache__/
-src/library/metadata_artwork_test.c
+src/library/metadata/catalog/metadata_artwork_test.c
 docs/INCREMENTAL_DATABASE.md
 *.md
 
 # Player-layout documentation is deliberately kept in the public source.
-!/docs/PLAYER_LAYOUTS.md
+!/docs/reference/PLAYER_LAYOUTS.md
 !/docs/SDTOOL.md
-!/docs/BLUETOOTH_METADATA.md
-!/docs/ARCHITECTURE.md
+!/docs/protocols/BLUETOOTH_METADATA.md
+!/docs/development/ARCHITECTURE.md
 !/docs/qa/RELEASE_AUDIT_2026-10-25.md
 !/third_party/lv_xml/README.md
 
@@ -408,34 +408,34 @@ compas_player_power_r3ii_2025
 
 # Development harnesses and scratch output stay local.
 *_test.c
-!src/core/theme_file_test.c
-!src/core/boot_trace_test.c
-!src/core/device_info_test.c
-!src/library/tagcache_refs_test.c
-!src/library/tagcache_storage_test.c
-!src/library/tagcache_commit_failure_test.c
-!src/library/tagcache_write_volume_test.c
+!src/core/themes/theme_file_test.c
+!src/core/system/logging/boot_trace_test.c
+!src/core/device/device_info_test.c
+!src/library/tagcache/core/tagcache_refs_test.c
+!src/library/tagcache/query/tagcache_storage_test.c
+!src/library/tagcache/core/tagcache_commit_failure_test.c
+!src/library/tagcache/query/tagcache_write_volume_test.c
 !/tests/sdtool/compat_pattern_test.c
-!src/network/store_common_test.c
-!src/ui/gui_themes_test.c
-!src/network/plugin_store_theme_test.c
-!src/library/image_thumb_test.c
-!src/library/file_browser_natural_sort_test.c
+!src/network/store/plugins/store_common_test.c
+!src/ui/appearance/tests/gui_themes_test.c
+!src/network/store/plugins/plugin_store_theme_test.c
+!src/library/artwork/cache/image_thumb_test.c
+!src/library/browser/files/file_browser_natural_sort_test.c
 *_test.h
 *_check.c
 *_check.h
 *_regression.c
-!src/ui/phase2_regression_test.c
+!src/ui/tests/integration/phase2_regression_test.c
 *_regression.h
 test_*.c
 /scripts/test_*.sh
-!/scripts/test_phase2_regression.sh
-!/scripts/test_theme_file.sh
-!/scripts/test_gui_themes.sh
-!/scripts/test_theme_store.sh
-!/scripts/test_mp4_compact.sh
-!/scripts/test_file_ops.sh
-!/scripts/test_image_thumb.sh
+!/scripts/tests/core/test_phase2_regression.sh
+!/scripts/tests/core/settings/test_theme_file.sh
+!/scripts/tests/ui/settings/appearance/test_gui_themes.sh
+!/scripts/tests/core/settings/test_theme_store.sh
+!/scripts/tests/audio/decoders/test_mp4_compact.sh
+!/scripts/tests/library/browser/test_file_ops.sh
+!/scripts/tests/library/artwork/test_image_thumb.sh
 /scripts/base_image/*smoke*
 /scripts/base_image/*harness.c
 /scripts/base_image/wpa-test.conf
@@ -447,80 +447,79 @@ __pycache__/
 /assets/theme2/player_layouts/paper*.xml
 
 # Regenerate the compiled setup geographic data when needed.
-!/scripts/generate_timezone_locations.py
+!/scripts/generators/locale/generate_timezone_locations.py
 /scripts/base_image/alsa-null.conf
 
 # Keep UI experiment validation and workflow documentation reviewable.
-!/scripts/test_ui_experiments.sh
-!src/core/ui_wake_test.c
-!src/core/ui_event_input_test.c
-!src/library/cover_raster_cache_test.c
-!/docs/ui-experiments.md
-!/docs/audiobook-podcast-workflows.md
+!/scripts/tests/core/test_ui_experiments.sh
+!src/core/ui/display/ui_wake_test.c
+!src/core/ui/display/ui_event_input_test.c
+!src/library/artwork/cache/cover_raster_cache_test.c
+!/docs/design/ui-experiments.md
+!/docs/guides/audiobook-podcast-workflows.md
 
 # Keep the reproducible audio-output handoff regression with the source.
-!src/hardware/usb_dac_bridge_lifecycle_regression.c
+!src/hardware/usb/usb_dac_bridge_lifecycle_regression.c
 
 # Local instrumented performance binary.
 /compas_player_perf
 
 # Process-group timeout regression harness for radio integration.
-!src/core/subprocess_timeout_test.c
+!src/core/process/subprocess_timeout_test.c
 
 # Experimental framebuffer state regression harness.
-!scripts/kernel/compas_fb_core_test.c
+!scripts/kernel/display/framebuffer/compas_fb_core_test.c
 
 # Opus stability regressions stay with the decoder fixes.
-!src/audio/opus_decoder_test.c
-!src/audio/opus_resource_test.c
-!src/library/opus_metadata_test.c
-!/scripts/test_opus_decoder.sh
+!src/audio/decoders/ogg/opus_decoder_test.c
+!src/audio/decoders/ogg/opus_resource_test.c
+!src/library/metadata/parsing/opus_metadata_test.c
+!/scripts/tests/audio/decoders/test_opus_decoder.sh
 
 # Audio format parity regressions.
-!src/audio/mp4_timing_test.c
-!src/audio/wavpack_caf_decoder_test.c
-!src/library/extra_formats_metadata_test.c
-!/scripts/test_mp4_timing.sh
-!/scripts/ape_parity.sh
-!/scripts/ape_parity_decode.c
-!/scripts/test_wavpack_caf_decoders.sh
-!/scripts/test_music_format_parity.sh
+!src/audio/demux/mp4/mp4_timing_test.c
+!src/audio/decoders/caf/wavpack_caf_decoder_test.c
+!src/library/metadata/parsing/extra_formats_metadata_test.c
+!/scripts/tests/audio/decoders/test_mp4_timing.sh
+!/scripts/tests/audio/ape/ape_parity.sh
+!/scripts/tests/audio/ape/ape_parity_decode.c
+!/scripts/tests/audio/decoders/test_wavpack_caf_decoders.sh
+!/scripts/tests/audio/playback/test_music_format_parity.sh
 
 # API 16 native Lua binding regression harness.
-!/scripts/test_plugin_observability_api.py
+!/scripts/tests/plugins/test_plugin_observability_api.py
 
-!scripts/test_plugin_failed_load_rollback.py
-!scripts/test_plugin_file_manager_api.py
+!scripts/tests/plugins/test_plugin_failed_load_rollback.py
+!scripts/tests/plugins/test_plugin_file_manager_api.py
 
 # compas-sdtool end-to-end test fixture generator.
 !/tests/sdtool/make_fixture.py
 
 # API 16 modeless progress and download snapshot regressions.
-!/scripts/test_plugin_progress_api.py
-!/scripts/test_plugin_progress_ui.py
+!/scripts/tests/plugins/test_plugin_progress_api.py
+!/scripts/tests/plugins/test_plugin_progress_ui.py
 !/scripts/tests/
 /scripts/tests/*
-!/scripts/tests/test_check_module_sizes.py
-!/scripts/tests/progress_http_fixture.c
-!/scripts/tests/run_peq_crossfeed_test.sh
-!/scripts/tests/wifi_ssid_escape_test.c
-!/scripts/tests/metadata_db_top_played_regression.c
-!/scripts/tests/run_metadata_db_top_played_test.sh
-!/scripts/tests/metadata_db_concurrent_commit_test.c
-!/scripts/tests/run_metadata_db_concurrent_commit_test.sh
-!/scripts/tests/run_wifi_ssid_escape_test.sh
-!/scripts/tests/file_browser_natural_sort_test.sh
-!/scripts/tests/run_device_info_test.sh
-!/scripts/tests/run_store_dest_test.sh
-!/scripts/tests/run_tagcache_test.sh
-!src/audio/peq_crossfeed_selftest.c
+!/scripts/tests/core/test_check_module_sizes.py
+!/scripts/tests/network/progress_http_fixture.c
+!/scripts/tests/audio/effects/run_peq_crossfeed_test.sh
+!/scripts/tests/network/wifi_ssid_escape_test.c
+!/scripts/tests/library/metadata/metadata_db_top_played_regression.c
+!/scripts/tests/library/metadata/run_metadata_db_top_played_test.sh
+!/scripts/tests/library/metadata/metadata_db_concurrent_commit_test.c
+!/scripts/tests/library/metadata/run_metadata_db_concurrent_commit_test.sh
+!/scripts/tests/network/run_wifi_ssid_escape_test.sh
+!/scripts/tests/library/browser/file_browser_natural_sort_test.sh
+!/scripts/tests/hardware/run_device_info_test.sh
+!/scripts/tests/network/store/run_store_dest_test.sh
+!/scripts/tests/library/tagcache/run_tagcache_test.sh
+!src/audio/effects/peq_crossfeed_selftest.c
 
 # Local release assembly and settings regression harnesses.
 /hostonlybuild_test/
-!/scripts/test_weekly_release_identity.sh
-!/scripts/test_settings_defaults.sh
-!/scripts/test_compas_zram.sh
-!/src/core/settings_defaults_test.c
+!/scripts/tests/core/settings/test_settings_defaults.sh
+!/scripts/tests/system/test_compas_zram.sh
+!/src/core/persistence/settings_defaults_test.c
 
 # Plugin payloads belong in the compas-plugins repository.
 /plugins_examples/
@@ -529,56 +528,87 @@ __pycache__/
 /TESTING_LOCAL.md
 
 # XML player action binding regressions.
-!/scripts/test_plugin_player_actions.py
-!/scripts/test_player_layout_interactions.sh
+!/scripts/tests/ui/playback/test_plugin_player_actions.py
+!/scripts/tests/ui/player/layout/test_player_layout_interactions.sh
 !/tests/player/player_layouts_test.c
 !/tests/player/player_layout_bind_test.c
 
 # Playback display metadata and cover performance regressions.
-!src/library/metadata_db_display_cache_test.c
-!/scripts/test_metadata_db_display_cache.sh
-!/scripts/tests/frosted_glass_lut_test.c
-!/scripts/tests/run_frosted_glass_lut_test.sh
-!src/library/player_cover_prefetch_test.c
+!src/library/metadata/db/metadata_db_display_cache_test.c
+!/scripts/tests/library/metadata/test_metadata_db_display_cache.sh
+!/scripts/tests/ui/rendering/frosted_glass_lut_test.c
+!/scripts/tests/ui/rendering/run_frosted_glass_lut_test.sh
+!src/library/artwork/prefetch/player_cover_prefetch_test.c
 
 # Manual-selection metadata snapshot regression.
-!/src/ui/library_selection_snapshot_spec.c
-!/scripts/run_library_selection_snapshot_spec.sh
+!/src/ui/library/tests/library_selection_snapshot_spec.c
+!/scripts/tests/library/browser/run_library_selection_snapshot_spec.sh
 
 # Plugin playback Lua stack regression.
-!/scripts/test_plugin_play_list.py
+!/scripts/tests/plugins/test_plugin_play_list.py
 
 # Background player-layout replacement regressions.
-!/scripts/test_gui_navigation_player_replace.py
-!/scripts/test_gui_player_layout_reload.py
-!/scripts/test_gui_player_layout_rebuild.py
-!/scripts/test_gui_player_layout_reuse.py
-!/scripts/test_player_layout_xml_cache.sh
+!/scripts/tests/ui/player/layout/test_gui_navigation_player_replace.py
+!/scripts/tests/ui/player/layout/test_gui_player_layout_reload.py
+!/scripts/tests/ui/player/layout/test_gui_player_layout_rebuild.py
+!/scripts/tests/ui/player/layout/test_gui_player_layout_reuse.py
+!/scripts/tests/ui/player/layout/test_player_layout_xml_cache.sh
 !/tests/player/player_layout_xml_cache_test.c
-!/scripts/test_gui_player_swipe_lifetime.py
+!/scripts/tests/ui/navigation/test_gui_player_swipe_lifetime.py
 
 # Playlist bulk-edit regression source
-!src/library/playlist_bulk_delete_test.c
+!src/library/playlists/playlist_bulk_delete_test.c
 
 # Website-ready user manual and its editorial handoff.
 !/docs/manual/**/*.md
 !/docs/manual/*.md
-!scripts/test_plugin_bindings_spec.py
-!scripts/test_plugin_http_bindings.py
-!scripts/test_plugin_text_view_bindings.py
-!scripts/test_plugin_archive_bindings.py
+!scripts/tests/plugins/test_plugin_bindings_spec.py
+!scripts/tests/network/http/test_plugin_http_bindings.py
+!scripts/tests/plugins/test_plugin_text_view_bindings.py
+!scripts/tests/plugins/test_plugin_archive_bindings.py
 
 # Local notes, experiments, captures and downloaded packages.
 /local/
 
 # Board-specific one-shot firmware splash helpers.
 /compas_early_splash*
-!/scripts/test_repack_early_splash_elf.py
+!/scripts/tests/firmware/boot_pipeline/test_repack_early_splash_elf.py
 
 # Live player queue ownership and ordering regressions.
 !/tests/player/player_queue_model_spec.c
-!/scripts/test_player_queue_model.sh
+!/scripts/tests/ui/playlists/test_player_queue_model.sh
 
 # Library search/T9/result-lifetime regressions.
 !/tests/library/library_search_spec.c
-!/scripts/test_library_search.sh
+!/scripts/tests/library/browser/test_library_search.sh
+
+# Source architecture guide.
+!/docs/architecture/source-layout.md
+
+# Keep previously tracked regression tests after feature-folder moves.
+!/src/audio/engine/audio_ab_loop_test.c
+!/src/audio/decoders/dsd/dsd_wavpack_test.c
+!/src/library/parsers/cue/cue_parser_test.c
+!/src/hardware/input/hw_buttons_lock_test.c
+!/src/network/bluetooth/reconnect/bluetooth_codec_test.c
+!/src/network/bluetooth/reconnect/bluetooth_monitor_test.c
+!/src/network/store/catalog/emulator_store_test.c
+!/src/network/http/stream/http_stream_range_test.c
+!/src/plugins/lifecycle/button_lock_lifecycle_test.c
+
+# Permit organized tracked test directories; local test files remain ignored.
+!/scripts/tests/
+!/scripts/tests/**/
+
+# Retain previously tracked generator, documentation and check files.
+!/scripts/generators/fonts/generate_selector_fonts.py
+!/scripts/generators/brand_assets/generate_selector_icons.py
+!/scripts/generators/fonts/generate_ui_fonts.py
+!/scripts/tests/network/http/fixtures/http_range_tls_test_server.py
+!/scripts/tests/core/test_lyrics_screen_timeout.py
+!/scripts/tests/audio/playback/test_plugin_audio_api.py
+!/docs/development/CREATING.md
+!/docs/guides/GALLERY_PLAYER.md
+!/docs/development/HOW_TO_BUILD_A_UPT_FILE.md
+!/docs/guides/PANORAMA_PLAYER.md
+!/tests/audio/audio_ab_switch_native_test.c

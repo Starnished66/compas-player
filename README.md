@@ -88,7 +88,7 @@ Start with **AutoEQ** for downloadable headphone EQ profiles, **Gain Mode** for 
 
 For manual installation, follow the [plugins repository's installation instructions](https://github.com/Starnished66/compas-plugins#installing-by-hand): copy the `.lua` file to `SD/.plugins/` and any companion files to the destinations listed in its `store.json`. Then choose **Refresh Plugins** in **Settings → System → Plugin Manager** or restart the player. Plugins can be enabled or disabled without removing their files. No C toolchain, player rebuild or firmware reflash is needed.
 
-Developers can start with the [plugin API guide](PLUGINS.md), browse [published plugins](https://github.com/Starnished66/compas-plugins/tree/main/plugins), and browse [standalone examples](https://github.com/Starnished66/compas-plugins/tree/main/examples). The guide documents the versioned `plugin.*` API for UI extensions, playback, library access, HTTP, themes and PEQ. For Now Playing layout customization, see [Player layouts](docs/PLAYER_LAYOUTS.md).
+Developers can start with the [plugin API guide](PLUGINS.md), browse [published plugins](https://github.com/Starnished66/compas-plugins/tree/main/plugins), and browse [standalone examples](https://github.com/Starnished66/compas-plugins/tree/main/examples). The guide documents the versioned `plugin.*` API for UI extensions, playback, library access, HTTP, themes and PEQ. For Now Playing layout customization, see [Player layouts](docs/reference/PLAYER_LAYOUTS.md).
 
 Plugin implementations, plugin examples and their assets belong in `compas-plugins`; this repository keeps the player and its plugin API.
 
@@ -132,6 +132,8 @@ SD updates require a matching device-model marker in the binary and cannot be ol
 
 ## Build from source
 
+See the [source layout guide](docs/architecture/source-layout.md) for module locations and build conventions.
+
 The host simulator is the quickest way to explore the interface. On Arch Linux, install `sdl2`, `make`, `gcc`/`g++` and `git`; `make` fetches LVGL when needed:
 
 ```sh
@@ -156,7 +158,7 @@ make target BOARD=r3ii_2025 # R3 II 2025: compas_player_target_r3ii_2025
 
 The full-image guide covers the R1, R3 Pro II, and R3II 2025, including the
 exact matching binary names, base-image requirements, and repack commands:
-[How to build a `.upt` firmware image](docs/HOW_TO_BUILD_A_UPT_FILE.md).
+[How to build a `.upt` firmware image](docs/development/HOW_TO_BUILD_A_UPT_FILE.md).
 Build the player and bootloader for one board before packaging its matching
 base image:
 
@@ -186,7 +188,7 @@ to reach the device.
 
 All three images use the same asynchronous Wi-Fi MAC setup and readiness
 check, SD read-ahead tuning, and filesystem cache tuning. Packaging applies
-these through `scripts/standardize_boot_pipeline.sh`, preserving each board's
+these through `scripts/firmware/boot_pipeline/standardize_boot_pipeline.sh`, preserving each board's
 radio setup and drivers. These startup changes require a full firmware update.
 The shared init hook's `stop` operation is terminal until reboot; ordinary
 Wi-Fi toggles continue to use the board's radio scripts.
@@ -196,12 +198,11 @@ It packages each board when its approved base image and matching checksum
 secret are available: `STAGING_IMAGE_SHA256` for R1,
 `R3PROII_STAGING_IMAGE_SHA256` for R3 Pro II, and
 `R3II_2025_STAGING_IMAGE_SHA256` for R3II 2025. These are downloadable
-workflow artifacts, not public GitHub releases. The weekly release workflow
-builds and packages all three boards and publishes their packages as **Compas
-v1.1**, **v1.2**, and so on, using versioned tags from October 12, 2026.
+workflow artifacts, not public GitHub releases. Automatic weekly publishing
+is disabled; production releases are published manually after validation.
 Compas v1.0.1 is the final release with a dated OTA companion for older
 firmware; install it before using version-only OTA updates. Packaging requires
-all three checksum secrets and the matching images in the private
+the board's checksum secret and matching image in the private
 `staging-image-base` release. Secret values must stay in GitHub Actions
 settings and must never be added to the repository.
 
@@ -241,4 +242,4 @@ Thanks to everyone who has contributed to the HiBy reverse-engineering ecosystem
 
 This project is licensed under the [GNU General Public License, version 3](LICENSE). The project statically links [FAAD2](https://github.com/knik0/faad2) for AAC decoding, which is GPLv2-licensed. Other major dependencies, including `dr_libs`, LVGL and tinyalsa, use permissive licenses. A deployment that needs to avoid this copyleft combination would need to remove AAC support or replace FAAD2 with a compatible decoder; isolating the existing FAAD2 code does not change the resulting binary's license obligations.
 
-WavPack uses the BSD-licensed [libwavpack](https://github.com/dbry/WavPack), and CAF uses LGPL-licensed [libsndfile](https://github.com/libsndfile/libsndfile). The APE decoder includes an adapted [FFmpeg](https://ffmpeg.org/) decoder; its attribution is preserved in the source and its LGPL license is included in [APE_FFMPEG_CORE_LICENSE.txt](src/audio/APE_FFMPEG_CORE_LICENSE.txt).
+WavPack uses the BSD-licensed [libwavpack](https://github.com/dbry/WavPack), and CAF uses LGPL-licensed [libsndfile](https://github.com/libsndfile/libsndfile). The APE decoder includes an adapted [FFmpeg](https://ffmpeg.org/) decoder; its attribution is preserved in the source and its LGPL license is included in [APE_FFMPEG_CORE_LICENSE.txt](src/audio/decoders/ape/APE_FFMPEG_CORE_LICENSE.txt).

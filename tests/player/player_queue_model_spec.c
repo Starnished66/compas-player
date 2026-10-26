@@ -9,7 +9,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 
-#include "player_queue_model.h"
+#include "../../src/ui/player/queue/player_queue_model.h"
 
 static bool fail_next_malloc;
 static size_t wrapped_malloc_calls;

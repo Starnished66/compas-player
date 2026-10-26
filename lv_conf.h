@@ -34,7 +34,7 @@
  * snappier. Paired with lv_indev_scroll.c's own ELASTIC_SLOWNESS_FACTOR
  * (hand-tuned directly in that vendored file -- LVGL exposes no config
  * override for it) for the "way overshot" half of the same bug report. */
-uint32_t gui_anim_ms(uint32_t base_ms); /* src/ui/gui_theme.c */
+uint32_t gui_anim_ms(uint32_t base_ms); /* src/ui/appearance/gui_theme.c */
 #define SCROLL_ANIM_TIME_MIN gui_anim_ms(100) /* Settings > Display > Animation Speed */
 #define SCROLL_ANIM_TIME_MAX gui_anim_ms(200)
 
@@ -54,7 +54,7 @@ uint32_t gui_anim_ms(uint32_t base_ms); /* src/ui/gui_theme.c */
 #define LV_USE_STDLIB_STRING  LV_STDLIB_CLIB
 #define LV_USE_STDLIB_SPRINTF LV_STDLIB_CLIB
 
-/* UI bitmap fonts are loaded from assets at startup by src/ui/ui_fonts.c.
+/* UI bitmap fonts are loaded from assets at startup by src/ui/text/fonts/ui_fonts.c.
  * Keep the LVGL-generated bitmap tables out of the executable while
  * preserving their public symbol names through mutable descriptors declared
  * below. */
@@ -199,7 +199,7 @@ uint32_t gui_anim_ms(uint32_t base_ms); /* src/ui/gui_theme.c */
 /* Player layouts: named widgets (lv_obj_set_name / lv_obj_find_by_name) let
  * the C binder wire up a layout by role, and LV_USE_XML enables the XML
  * engine vendored under third_party/lv_xml (LVGL 9.5 dropped it; see
- * docs/PLAYER_LAYOUTS.md). The vendored sources read this macro themselves,
+ * docs/reference/PLAYER_LAYOUTS.md). The vendored sources read this macro themselves,
  * LVGL 9.5's own headers ignore it. The observer (subjects) is on by
  * default in 9.5; the XML engine requires it. */
 #define LV_USE_OBJ_NAME 1
@@ -253,7 +253,7 @@ uint32_t gui_anim_ms(uint32_t base_ms); /* src/ui/gui_theme.c */
   #define LV_LINUX_FBDEV_RENDER_MODE LV_DISPLAY_RENDER_MODE_DIRECT
   #define LV_LINUX_FBDEV_BUFFER_COUNT 2
   /* Pan-flip double buffering aliases the two physical /dev/fb0 pages as
-   * LVGL's DIRECT-mode draw buffers (see patches/lvgl_fbdev_compositor.patch).
+   * LVGL's DIRECT-mode draw buffers (see patches/lvgl/lvgl_fbdev_compositor.patch).
    * That path needs mmap; 9.5 made this a separate switch (default 1 without
    * Kconfig, but set it explicitly so a future Kconfig default cannot
    * silently fall back to memcpy flush and tearing). */

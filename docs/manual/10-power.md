@@ -33,4 +33,4 @@ Open **Settings > Playback & Controls > Car Mode**. Car Mode is useful with an i
 
 The **Power** menu can also be opened with a mapped hardware button where supported. The available physical buttons vary by player model; use **Settings > Playback & Controls > Buttons & Remote > Button Mapping** to see and configure the controls detected on your device.
 
-<!-- Sources: src/ui/gui_settings.c (build_settings_power_screen, build_settings_charging_screen, build_settings_display_screen, build_screen_timeout_screen, build_screen_dimming_screen, build_idle_shutdown_screen, build_car_mode_screen); src/hardware/charge_limiter.c; src/hardware/idle_shutdown.c; src/ui/gui_shell.c (poll_sleep_timer pauses playback). -->
+<!-- Sources: src/ui/settings/gui_settings.c (build_settings_power_screen, build_settings_charging_screen, build_settings_display_screen, build_screen_timeout_screen, build_screen_dimming_screen, build_idle_shutdown_screen, build_car_mode_screen); src/hardware/power/charge_limiter.c; src/hardware/idle_shutdown.c; src/ui/shell/gui_shell.c (poll_sleep_timer pauses playback). -->

@@ -3,7 +3,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
-#include "metadata_db.h"
+#include "../../library/metadata/db/metadata_db.h"
 
 #define SDTOOL_VERSION "1.1.0"
 /* Source revision this binary was built from (version.c). */

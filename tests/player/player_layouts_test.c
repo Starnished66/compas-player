@@ -1,11 +1,11 @@
 /* Headless tests for the Player layout registry and its XML loader, using the
  * real LVGL and the vendored XML engine. */
-#include "player_layouts.h"
-#include "board_config.h"
-#include "fallback_font.h"
-#include "ui_fonts.h"
-#include "assets.h"
-#include "settings.h"
+#include "../../src/ui/player/layout/player_layouts.h"
+#include "../../src/core/system/runtime/board_config.h"
+#include "../../src/ui/text/rendering/fallback_font.h"
+#include "../../src/ui/text/fonts/ui_fonts.h"
+#include "../../src/ui/assets/assets.h"
+#include "../../src/core/persistence/settings.h"
 #include "third_party/lv_xml/src/others/xml/lv_xml.h"
 #include <assert.h>
 #include <ctype.h>
@@ -35,7 +35,7 @@ uint32_t gui_anim_ms(uint32_t base_ms) { return base_ms; } /* lv_conf.h's scroll
 const char * asset_stock_root(void) { return "assets/theme2/"; }
 const char * asset_override_root(void) { return NULL; }
 
-/* Every role of docs/PLAYER_LAYOUTS.md and the widget type it must have. */
+/* Every role of docs/reference/PLAYER_LAYOUTS.md and the widget type it must have. */
 typedef struct {
     const char * name;
     const lv_obj_class_t * type; /* NULL: any widget */

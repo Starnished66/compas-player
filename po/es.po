@@ -2508,7 +2508,7 @@ msgstr ""
 msgid "github.com/Starnished66/compas-player"
 msgstr ""
 
-msgid "Guide: docs/CREATING.md"
+msgid "Guide: docs/development/CREATING.md"
 msgstr ""
 
 msgid "Write a Lua plugin on your computer. Copy its .lua file to the .plugins folder on your SD card."
@@ -3852,7 +3852,7 @@ msgstr "El plugin de streaming no está disponible"
 msgid "TXT Reader"
 msgstr "Lector TXT"
 
-#: src/ui/gui_settings.c
+#: src/ui/settings/gui_settings.c
 msgid "Keep Lyrics Screen On"
 msgstr ""
 

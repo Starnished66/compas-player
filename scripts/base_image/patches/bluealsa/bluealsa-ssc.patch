@@ -1,0 +1,662 @@
+diff -ruN a/configure.ac b/configure.ac
+--- a/configure.ac	2026-08-26 22:46:51.000000000 -0600
++++ b/configure.ac	2026-10-22 07:45:28.135628097 -0600
+@@ -229,6 +229,14 @@
+ 	AC_DEFINE([ENABLE_LDAC], [1], [Define to 1 if LDAC is enabled.])
+ ])
+ 
++AC_ARG_ENABLE([ssc],
++	[AS_HELP_STRING([--enable-ssc], [enable Samsung Scalable Codec support])])
++AM_CONDITIONAL([ENABLE_SSC], [test "x$enable_ssc" = "xyes"])
++AM_COND_IF([ENABLE_SSC], [
++	PKG_CHECK_MODULES([SSC], [ssc])
++	AC_DEFINE([ENABLE_SSC], [1], [Define to 1 if SSC is enabled.])
++])
++
+ AC_ARG_ENABLE([lhdc],
+ 	[AS_HELP_STRING([--enable-lhdc], [enable LHDC support])])
+ AM_CONDITIONAL([ENABLE_LHDC], [test "x$enable_lhdc" = "xyes"])
+diff -ruN a/doc/bluealsad.8.rst b/doc/bluealsad.8.rst
+--- a/doc/bluealsad.8.rst	2026-08-26 22:46:51.000000000 -0600
++++ b/doc/bluealsad.8.rst	2026-10-22 07:45:28.135692382 -0600
+@@ -160,6 +160,10 @@
+     With this option, **bluealsad** will request such a device uses only 44.1
+     kHz sample rate.
+ 
++--ssc-auto-profile
++    Allow the Samsung Scalable Codec to select the highest profile supported
++    by the remote device, even when ``--a2dp-force-audio-cd`` is enabled.
++
+ --sbc-quality=MODE
+     Set SBC encoder quality.
+     Default value is **high**.
+diff -ruN a/src/Makefile.am b/src/Makefile.am
+--- a/src/Makefile.am	2026-08-26 22:46:51.000000000 -0600
++++ b/src/Makefile.am	2026-10-22 07:45:28.135868469 -0600
+@@ -112,6 +112,11 @@
+ 	a2dp-ldac.c
+ endif
+ 
++if ENABLE_SSC
++libbluealsad_la_SOURCES += \
++	a2dp-ssc.c
++endif
++
+ if ENABLE_MIDI
+ CODEGEN_DEFS += --define=ENABLE_GATT
+ libbluealsad_la_SOURCES += \
+@@ -172,6 +177,7 @@
+ 	@OPUS_CFLAGS@ \
+ 	@SBC_CFLAGS@ \
+ 	@SPANDSP_CFLAGS@ \
++	@SSC_CFLAGS@ \
+ 	-static
+ 
+ libbluealsad_la_LIBADD = \
+@@ -194,7 +200,8 @@
+ 	@MPG123_LIBS@ \
+ 	@OPUS_LIBS@ \
+ 	@SBC_LIBS@ \
+-	@SPANDSP_LIBS@
++	@SPANDSP_LIBS@ \
++	@SSC_LIBS@
+ 
+ SUFFIXES = .conf.in .conf
+ 
+diff -ruN a/src/a2dp-ssc.c b/src/a2dp-ssc.c
+--- a/src/a2dp-ssc.c	1969-12-31 18:00:00.000000000 -0600
++++ b/src/a2dp-ssc.c	2026-10-22 07:50:51.730280081 -0600
+@@ -0,0 +1,449 @@
++/*
++ * BlueALSA - a2dp-ssc.c
++ * SPDX-FileCopyrightText: 2026 BlueALSA developers
++ * SPDX-License-Identifier: MIT
++ */
++
++#include "a2dp-ssc.h"
++
++#include <endian.h>
++#include <errno.h>
++#include <pthread.h>
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++
++#include <ssc_encoder.h>
++
++#include "a2dp.h"
++#include "ba-transport.h"
++#include "ba-transport-pcm.h"
++#include "ba-config.h"
++#include "bluealsa-dbus.h"
++#include "error.h"
++#include "io.h"
++#include "rtp.h"
++#include "utils.h"
++#include "shared/bluetooth-a2dp.h"
++#include "shared/defs.h"
++#include "shared/ffb.h"
++#include "shared/log.h"
++#include "shared/rt.h"
++
++#define SSC_STD_FRAME_BYTES 484
++
++static void a2dp_ssc_caps_intersect(
++		void *capabilities,
++		const void *mask) {
++	a2dp_caps_bitwise_intersect(capabilities, mask, sizeof(a2dp_ssc_t));
++}
++
++static error_code_t a2dp_ssc_caps_foreach_channel_mode(
++		const void *capabilities,
++		enum a2dp_stream stream,
++		a2dp_bit_mapping_foreach_func func,
++		void *userdata) {
++	(void)capabilities;
++	if (stream != A2DP_MAIN)
++		return ERROR_CODE_INVALID_STREAM;
++
++	/* SSC is inherently stereo; the flag byte has no channel-mode bit. */
++	const struct a2dp_bit_mapping mapping = {
++		.bit_value = 0,
++		.ch = { 2, a2dp_channel_map_stereo },
++	};
++	const error_code_t res = func(mapping, userdata);
++	return res == ERROR_CODE_CONTINUE ? ERROR_CODE_OK : res;
++}
++
++static error_code_t a2dp_ssc_caps_foreach_sample_rate(
++		const void *capabilities,
++		enum a2dp_stream stream,
++		a2dp_bit_mapping_foreach_func func,
++		void *userdata) {
++	const a2dp_ssc_t *caps = capabilities;
++	if (stream != A2DP_MAIN)
++		return ERROR_CODE_INVALID_STREAM;
++
++	if (!(caps->flags & SSC_FLAG_UNCAPPED))
++		return ERROR_CODE_NOT_FOUND;
++
++	struct a2dp_bit_mapping mappings[3] = { 0 };
++	size_t count = 0;
++	if (caps->flags & SSC_FLAG_44100)
++		mappings[count++] = (struct a2dp_bit_mapping){
++			.bit_value = SSC_FLAG_44100, .value = 44100 };
++
++	const uint8_t flags = caps->flags;
++	if (flags & SSC_FLAG_HIFI48)
++		mappings[count++] = (struct a2dp_bit_mapping){
++			.bit_value = SSC_FLAG_HIFI48, .value = 48000 };
++	else if (flags & SSC_FLAG_48000)
++		mappings[count++] = (struct a2dp_bit_mapping){
++			.bit_value = SSC_FLAG_48000, .value = 48000 };
++
++	if (flags & SSC_FLAG_UHQ2)
++		mappings[count++] = (struct a2dp_bit_mapping){
++			.bit_value = SSC_FLAG_UHQ2, .value = 96000 };
++	else if (flags & SSC_FLAG_UHQ1)
++		mappings[count++] = (struct a2dp_bit_mapping){
++			.bit_value = SSC_FLAG_UHQ1, .value = 96000 };
++
++	for (size_t i = 0; i < count; i++) {
++		const error_code_t res = func(mappings[i], userdata);
++		if (res != ERROR_CODE_CONTINUE)
++			return res;
++	}
++	return count == 0 ? ERROR_CODE_NOT_FOUND : ERROR_CODE_OK;
++}
++
++static void a2dp_ssc_caps_select_channel_mode(
++		void *capabilities,
++		enum a2dp_stream stream,
++		unsigned int channels) {
++	a2dp_ssc_t *caps = capabilities;
++	if (stream != A2DP_MAIN || channels != 2)
++		caps->flags = 0;
++}
++
++static void a2dp_ssc_caps_select_sample_rate(
++		void *capabilities,
++		enum a2dp_stream stream,
++		unsigned int rate) {
++	a2dp_ssc_t *caps = capabilities;
++	if (stream != A2DP_MAIN)
++		return;
++	if (rate == 96000)
++		caps->flags &= SSC_FLAG_UNCAPPED | SSC_FLAG_UHQ1 | SSC_FLAG_UHQ2;
++	else if (rate == 48000 && (caps->flags & SSC_FLAG_HIFI48))
++		caps->flags &= SSC_FLAG_UNCAPPED | SSC_FLAG_HIFI48;
++	else if (rate == 48000)
++		caps->flags &= SSC_FLAG_UNCAPPED | SSC_FLAG_48000;
++	else if (rate == 44100)
++		caps->flags &= SSC_FLAG_UNCAPPED | SSC_FLAG_44100;
++	else
++		caps->flags = 0;
++}
++
++static struct a2dp_caps_helpers a2dp_ssc_caps_helpers = {
++	.intersect = a2dp_ssc_caps_intersect,
++	.has_stream = a2dp_caps_has_main_stream_only,
++	.foreach_channel_mode = a2dp_ssc_caps_foreach_channel_mode,
++	.foreach_sample_rate = a2dp_ssc_caps_foreach_sample_rate,
++	.select_channel_mode = a2dp_ssc_caps_select_channel_mode,
++	.select_sample_rate = a2dp_ssc_caps_select_sample_rate,
++};
++
++static error_code_t a2dp_ssc_configuration_select(
++		const struct a2dp_sep *sep,
++		void *capabilities) {
++
++	a2dp_ssc_t *caps = capabilities;
++	a2dp_ssc_caps_intersect(caps, &sep->config.capabilities);
++
++	/* This adapter only negotiates validated, uncapped encoder modes. The
++	 * mode comes from the peer's capabilities, ranked as Samsung's stack
++	 * ranks them: UHQ v2 (Buds3 Pro and later), UHQ v1, Hi-Fi (Buds2 Pro),
++	 * then 16-bit 48 and 44.1 kHz. Each configuration carries one mode bit,
++	 * as a Galaxy phone sends it: 0x0A, 0x88, 0x0C. */
++	if (!(caps->flags & SSC_FLAG_UNCAPPED))
++		return ERROR_CODE_A2DP_UNSUPPORTED_SAMPLE_RATE;
++
++	const uint8_t modes = caps->flags & SSC_FLAG_MODE_MASK;
++	if (modes & SSC_FLAG_UHQ2)
++		caps->flags = SSC_FLAG_UNCAPPED | SSC_FLAG_UHQ2;
++	else if (modes & SSC_FLAG_UHQ1)
++		caps->flags = SSC_FLAG_UNCAPPED | SSC_FLAG_UHQ1;
++	else if (modes & SSC_FLAG_HIFI48)
++		caps->flags = SSC_FLAG_UNCAPPED | SSC_FLAG_HIFI48;
++	/* --ssc-auto-profile lifts --a2dp-force-audio-cd for the 24-bit modes
++	 * only; a 16-bit peer still gets 44.1 kHz. */
++	else if (config.a2dp.force_44100 && (caps->flags & SSC_FLAG_44100))
++		caps->flags = SSC_FLAG_UNCAPPED | SSC_FLAG_44100;
++	else if (caps->flags & SSC_FLAG_48000)
++		caps->flags = SSC_FLAG_UNCAPPED | SSC_FLAG_48000;
++	else if (caps->flags & SSC_FLAG_44100)
++		caps->flags = SSC_FLAG_UNCAPPED | SSC_FLAG_44100;
++	else
++		return ERROR_CODE_A2DP_UNSUPPORTED_SAMPLE_RATE;
++
++	return ERROR_CODE_OK;
++}
++
++static error_code_t a2dp_ssc_configuration_check(
++		const struct a2dp_sep *sep,
++		const void *configuration) {
++
++	const a2dp_ssc_t *conf = configuration;
++	a2dp_ssc_t conf_v = *conf;
++	a2dp_ssc_caps_intersect(&conf_v, &sep->config.capabilities);
++
++	if (conf->flags != conf_v.flags || !(conf->flags & SSC_FLAG_UNCAPPED))
++		return ERROR_CODE_A2DP_INVALID_SAMPLE_RATE;
++
++	const uint8_t mode = conf->flags & SSC_FLAG_MODE_MASK;
++	const uint8_t rate = conf->flags & SSC_FLAG_RATE_MASK;
++	/* Hi-Fi is 48 kHz whatever rate bit accompanies it. Samsung sends none;
++	 * accept one as well, from peers that copy their own capabilities. */
++	if ((mode != 0 && (mode & (mode - 1)) != 0) ||
++			(mode == SSC_FLAG_HIFI48 && rate == SSC_FLAG_RATE_MASK) ||
++			((mode == SSC_FLAG_UHQ1 || mode == SSC_FLAG_UHQ2) && rate != 0) ||
++			(mode == 0 && rate != SSC_FLAG_44100 && rate != SSC_FLAG_48000))
++		return ERROR_CODE_A2DP_INVALID_SAMPLE_RATE;
++
++	return ERROR_CODE_OK;
++}
++
++static error_code_t a2dp_ssc_transport_init(struct ba_transport *t) {
++	const uint8_t flags = t->media.a2dp.configuration.ssc.flags;
++
++	if (flags == (SSC_FLAG_UNCAPPED | SSC_FLAG_48000) ||
++			flags == (SSC_FLAG_UNCAPPED | SSC_FLAG_HIFI48) ||
++			flags == (SSC_FLAG_UNCAPPED | SSC_FLAG_HIFI48 | SSC_FLAG_48000) ||
++			flags == (SSC_FLAG_UNCAPPED | SSC_FLAG_HIFI48 | SSC_FLAG_44100))
++		t->media.pcm.rate = 48000;
++	else if (flags == (SSC_FLAG_UNCAPPED | SSC_FLAG_44100))
++		t->media.pcm.rate = 44100;
++	else if (flags == (SSC_FLAG_UNCAPPED | SSC_FLAG_UHQ1) ||
++			flags == (SSC_FLAG_UNCAPPED | SSC_FLAG_UHQ2))
++		t->media.pcm.rate = 96000;
++	else
++		return ERROR_CODE_A2DP_UNSUPPORTED_SAMPLE_RATE;
++
++	const bool is_24bit = (flags & (SSC_FLAG_HIFI48 | SSC_FLAG_UHQ1 | SSC_FLAG_UHQ2)) != 0;
++	t->media.pcm.format = is_24bit ? BA_TRANSPORT_PCM_FORMAT_S24_4LE : BA_TRANSPORT_PCM_FORMAT_S16_2LE;
++	t->media.pcm.channels = 2;
++	memcpy(t->media.pcm.channel_map, a2dp_channel_map_stereo,
++			t->media.pcm.channels * sizeof(*t->media.pcm.channel_map));
++
++	return ERROR_CODE_OK;
++}
++
++static error_code_t a2dp_ssc_source_init(struct a2dp_sep *sep) {
++	if (config.a2dp.force_44100 && !config.a2dp.ssc_auto_profile)
++		sep->config.capabilities.ssc.flags &= SSC_FLAG_UNCAPPED | SSC_FLAG_44100;
++	return ERROR_CODE_OK;
++}
++
++static int ssc_pick_bitrate(uint8_t flags, size_t mtu, unsigned int *bitrate,
++		size_t *frame_bytes) {
++	if (!(flags & SSC_FLAG_UNCAPPED))
++		return -1;
++
++	if ((flags & SSC_FLAG_MODE_MASK) == SSC_FLAG_UHQ2) {
++		static const struct { unsigned int bitrate; size_t bytes; } tiers[] = {
++			{ 584000, 660 }, { 291000, 330 }, { 152000, 174 },
++		};
++		for (size_t i = 0; i < sizeof(tiers) / sizeof(tiers[0]); i++)
++			if (mtu >= RTP_HEADER_LEN + tiers[i].bytes) {
++				*bitrate = tiers[i].bitrate;
++				*frame_bytes = tiers[i].bytes;
++				return 0;
++			}
++		return -1;
++	}
++
++	if ((flags & SSC_FLAG_MODE_MASK) == SSC_FLAG_UHQ1) {
++		if (mtu < RTP_HEADER_LEN + 372)
++			return -1;
++		*bitrate = 328000;
++		*frame_bytes = 372;
++		return 0;
++	}
++
++	if ((flags & SSC_FLAG_MODE_MASK) == SSC_FLAG_HIFI48 ||
++			((flags & SSC_FLAG_MODE_MASK) == 0 &&
++			 ((flags & SSC_FLAG_RATE_MASK) == SSC_FLAG_48000 ||
++			  (flags & SSC_FLAG_RATE_MASK) == SSC_FLAG_44100))) {
++		if ((flags & SSC_FLAG_MODE_MASK) == SSC_FLAG_HIFI48) {
++			static const struct { unsigned int bitrate; size_t bytes; } tiers[] = {
++				{ 192000, 484 }, { 128000, 324 }, { 88000, 224 },
++			};
++			for (size_t i = 0; i < sizeof(tiers) / sizeof(tiers[0]); i++)
++				if (mtu >= RTP_HEADER_LEN + tiers[i].bytes) {
++					*bitrate = tiers[i].bitrate;
++					*frame_bytes = tiers[i].bytes;
++					return 0;
++				}
++			return -1;
++		}
++		if (mtu < RTP_HEADER_LEN + SSC_STD_FRAME_BYTES)
++			return -1;
++		*bitrate = 192000;
++		*frame_bytes = SSC_STD_FRAME_BYTES;
++		return 0;
++	}
++	return -1;
++}
++
++static void ssc_encoder_cleanup(void *state_ptr) {
++	void **state = state_ptr;
++	if (*state != NULL) {
++		ssc_encoder_destroy(*state);
++		*state = NULL;
++	}
++}
++
++void *a2dp_ssc_enc_thread(struct ba_transport_pcm *t_pcm) {
++
++	pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
++	pthread_cleanup_push(PTHREAD_CLEANUP(ba_transport_pcm_thread_cleanup), t_pcm);
++
++	struct ba_transport *t = t_pcm->t;
++	struct io_poll io = { .timeout = -1 };
++
++	const unsigned int rate = t_pcm->rate;
++	const uint8_t flags = t->media.a2dp.configuration.ssc.flags;
++	const bool is_24bit = (flags & (SSC_FLAG_HIFI48 | SSC_FLAG_UHQ1 | SSC_FLAG_UHQ2)) != 0;
++	const unsigned int depth = is_24bit ? 24 : 16;
++	unsigned int bitrate;
++	size_t max_frame_bytes;
++	const size_t frame_pcm_samples = SSC_FRAME_SAMPLES * 2;
++	if (ssc_pick_bitrate(flags, t->mtu_write, &bitrate, &max_frame_bytes) == -1) {
++		error("SSC writing MTU too small for one frame in mode 0x%02x: %zu",
++				flags, t->mtu_write);
++		goto fail_init;
++	}
++
++	int init_error = 0;
++	void *enc = ssc_encoder_create(rate, 2, depth, &init_error);
++	if (enc == NULL) {
++		error("Couldn't create SSC encoder: %d", init_error);
++		goto fail_init;
++	}
++	pthread_cleanup_push(PTHREAD_CLEANUP(ssc_encoder_cleanup), &enc);
++
++	ffb_t bt = { 0 };
++	ffb_t pcm = { 0 };
++	pthread_cleanup_push(PTHREAD_CLEANUP(ffb_free), &bt);
++	pthread_cleanup_push(PTHREAD_CLEANUP(ffb_free), &pcm);
++
++	if ((is_24bit ? ffb_init_int32_t(&pcm, frame_pcm_samples) :
++			ffb_init_int16_t(&pcm, frame_pcm_samples)) == -1 ||
++			ffb_init_uint8_t(&bt, t->mtu_write) == -1) {
++		error("Couldn't create data buffers: %s", strerror(errno));
++		goto fail_ffb;
++	}
++
++	t_pcm->codec_delay_dms = SSC_FRAME_SAMPLES * 10000 / rate;
++	ba_transport_pcm_delay_sync(t_pcm, BA_DBUS_PCM_UPDATE_DELAY);
++
++	rtp_header_t *rtp_header;
++	uint8_t *rtp_payload = rtp_a2dp_init(bt.data, &rtp_header, NULL, 0);
++	rtp_header->ssrc = htobe32(1);
++
++	struct rtp_state rtp = { .synced = false };
++	rtp_state_init(&rtp, rate, rate);
++
++	uint8_t encoded_frame[SSC_MAX_UHQ_FRAME_BYTES];
++	int32_t pcm32[SSC_FRAME_SAMPLES * 2];
++
++	debug_transport_pcm_thread_loop(t_pcm, "START");
++	for (ba_transport_pcm_state_set_running(t_pcm);;) {
++
++		switch (io_poll_and_read_pcm(&io, t_pcm, &pcm)) {
++		case -1:
++			if (errno == ESTALE) {
++				ffb_rewind(&pcm);
++				ssc_encoder_cleanup(&enc);
++				enc = ssc_encoder_create(rate, 2, depth, &init_error);
++				if (enc == NULL) {
++					error("Couldn't recreate SSC encoder: %d", init_error);
++					goto fail;
++				}
++				continue;
++			}
++			error("PCM poll and read error: %s", strerror(errno));
++			/* fall-through */
++		case 0:
++			ba_transport_stop_if_no_clients(t);
++			continue;
++		}
++
++		while (ffb_len_out(&pcm) >= frame_pcm_samples) {
++
++			if (is_24bit) {
++				const int32_t *in24 = pcm.data;
++				for (size_t i = 0; i < frame_pcm_samples; i++)
++					pcm32[i] = (int32_t)((uint32_t)in24[i] << 8) >> 8;
++			}
++			else {
++				const int16_t *in16 = pcm.data;
++				for (size_t i = 0; i < frame_pcm_samples; i++)
++					pcm32[i] = (int32_t)in16[i];
++			}
++
++			const int encoded = ssc_encode(enc, pcm32, SSC_FRAME_SAMPLES,
++					encoded_frame, sizeof(encoded_frame), (int)bitrate);
++			if (encoded <= 0 || (size_t)encoded > max_frame_bytes) {
++				error("SSC encoding error or invalid frame size: %d", encoded);
++				goto fail;
++			}
++
++			bt.tail = rtp_payload;
++			const size_t payload_capacity = ffb_blen_in(&bt);
++			if ((size_t)encoded > payload_capacity) {
++				error("SSC frame exceeds RTP MTU: %d > %zu", encoded, payload_capacity);
++				goto fail;
++			}
++			memcpy(bt.tail, encoded_frame, (size_t)encoded);
++			ffb_seek(&bt, (size_t)encoded);
++
++			rtp_state_new_frame(&rtp, rtp_header);
++			rtp_header->ssrc = htobe32(1);
++
++			ssize_t len = ffb_blen_out(&bt);
++			if ((len = io_bt_write(t_pcm, bt.data, len)) <= 0) {
++				if (len == -1)
++					error("BT write error: %s", strerror(errno));
++				goto fail;
++			}
++
++			if (!io.initiated) {
++				t_pcm->processing_delay_dms = asrsync_get_dms_since_last_sync(&io.asrs);
++				ba_transport_pcm_delay_sync(t_pcm, BA_DBUS_PCM_UPDATE_DELAY);
++				io.initiated = true;
++			}
++
++			asrsync_sync(&io.asrs, SSC_FRAME_SAMPLES);
++			rtp_state_update(&rtp, SSC_FRAME_SAMPLES);
++			ffb_shift(&pcm, frame_pcm_samples);
++		}
++	}
++
++fail:
++	debug_transport_pcm_thread_loop(t_pcm, "EXIT");
++fail_ffb:
++	pthread_cleanup_pop(1);
++	pthread_cleanup_pop(1);
++	pthread_cleanup_pop(1);
++fail_init:
++	pthread_cleanup_pop(1);
++	return NULL;
++}
++
++static int a2dp_ssc_source_transport_start(struct ba_transport *t) {
++	return ba_transport_pcm_start(&t->media.pcm, a2dp_ssc_enc_thread, "ba-a2dp-ssc");
++}
++
++struct a2dp_sep a2dp_ssc_source = {
++	.name = "A2DP Source (SSC)",
++	.config = {
++		.type = A2DP_SOURCE,
++		.codec_id = A2DP_CODEC_VENDOR_ID(SAMSUNG_SC_VENDOR_ID, SAMSUNG_SC_CODEC_ID),
++		.caps_size = sizeof(a2dp_ssc_t),
++		.capabilities.ssc = {
++			.info = A2DP_VENDOR_INFO_INIT(SAMSUNG_SC_VENDOR_ID, SAMSUNG_SC_CODEC_ID),
++			.flags = SSC_FLAG_ALL,
++		},
++	},
++	.init = a2dp_ssc_source_init,
++	.configuration_select = a2dp_ssc_configuration_select,
++	.configuration_check = a2dp_ssc_configuration_check,
++	.transport_init = a2dp_ssc_transport_init,
++	.transport_start = a2dp_ssc_source_transport_start,
++	.caps_helpers = &a2dp_ssc_caps_helpers,
++};
+diff -ruN a/src/a2dp-ssc.h b/src/a2dp-ssc.h
+--- a/src/a2dp-ssc.h	1969-12-31 18:00:00.000000000 -0600
++++ b/src/a2dp-ssc.h	2026-10-22 07:45:28.136066641 -0600
+@@ -0,0 +1,19 @@
++/*
++ * BlueALSA - a2dp-ssc.h
++ * SPDX-FileCopyrightText: 2026 BlueALSA developers
++ * SPDX-License-Identifier: MIT
++ */
++
++#pragma once
++#ifndef BLUEALSA_A2DPSSC_H_
++#define BLUEALSA_A2DPSSC_H_
++
++#if HAVE_CONFIG_H
++# include <config.h>
++#endif
++
++#include "a2dp.h"
++
++extern struct a2dp_sep a2dp_ssc_source;
++
++#endif
+diff -ruN a/src/a2dp.c b/src/a2dp.c
+--- a/src/a2dp.c	2026-08-26 22:46:51.000000000 -0600
++++ b/src/a2dp.c	2026-10-22 07:45:28.136129880 -0600
+@@ -31,6 +31,9 @@
+ #if ENABLE_LDAC
+ # include "a2dp-ldac.h"
+ #endif
++#if ENABLE_SSC
++# include "a2dp-ssc.h"
++#endif
+ #if ENABLE_LHDC
+ # include "a2dp-lhdc.h"
+ #endif
+@@ -218,6 +221,9 @@
+ 	&a2dp_ldac_sink,
+ # endif
+ #endif
++#if ENABLE_SSC
++	&a2dp_ssc_source,
++#endif
+ #if ENABLE_APTX_HD
+ 	&a2dp_aptx_hd_source,
+ # if HAVE_APTX_HD_DECODE
+diff -ruN a/src/ba-config.c b/src/ba-config.c
+--- a/src/ba-config.c	2026-08-26 22:46:51.000000000 -0600
++++ b/src/ba-config.c	2026-10-22 07:45:28.136217544 -0600
+@@ -74,6 +74,7 @@
+ 
+ 	.a2dp.force_mono = false,
+ 	.a2dp.force_44100 = false,
++	.a2dp.ssc_auto_profile = false,
+ 
+ #if ENABLE_ASHA
+ 	.asha.id = ASHA_HI_SYNC_ID_INIT(
+diff -ruN a/src/ba-config.h b/src/ba-config.h
+--- a/src/ba-config.h	2026-08-26 22:46:51.000000000 -0600
++++ b/src/ba-config.h	2026-10-22 07:45:28.136295922 -0600
+@@ -120,6 +120,9 @@
+ 		 * for sink endpoint and semi-mandatory for source. It is then possible
+ 		 * to force lower sampling in order to save Bluetooth bandwidth. */
+ 		bool force_44100;
++		/* Allow SSC endpoints to advertise all validated high-quality modes
++		 * when force_44100 is enabled. */
++		bool ssc_auto_profile;
+ 
+ 	} a2dp;
+ 
+diff -ruN a/src/app/main.c b/src/app/main.c
+--- a/src/app/main.c	2026-08-26 22:46:51.000000000 -0600
++++ b/src/app/main.c	2026-10-22 07:45:28.136395889 -0600
+@@ -184,6 +184,7 @@
+ 		{ "disable-realtek-usb-fix", no_argument, NULL, 21 },
+ 		{ "a2dp-force-mono", no_argument, NULL, 6 },
+ 		{ "a2dp-force-audio-cd", no_argument, NULL, 7 },
++		{ "ssc-auto-profile", no_argument, NULL, 26 },
+ 		{ "sbc-quality", required_argument, NULL, 14 },
+ #if ENABLE_AAC
+ 		{ "aac-afterburner", no_argument, NULL, 4 },
+@@ -338,6 +339,7 @@
+ 					"\nA2DP options:\n"
+ 					"      --a2dp-force-mono\t\ttry to force monophonic audio for A2DP profiles\n"
+ 					"      --a2dp-force-audio-cd\ttry to force 44.1 kHz sampling for A2DP profiles\n"
++					"      --ssc-auto-profile\tallow SSC to select the highest supported profile\n"
+ 					"      --sbc-quality=MODE\tset SBC encoder quality; default: %s\n"
+ #if ENABLE_AAC
+ 					"      --aac-afterburner\t\tenable FDK AAC afterburner\n"
+@@ -614,6 +616,9 @@
+ 		case 7 /* --a2dp-force-audio-cd */ :
+ 			config.a2dp.force_44100 = true;
+ 			break;
++		case 26 /* --ssc-auto-profile */ :
++			config.a2dp.ssc_auto_profile = true;
++			break;
+ 
+ 		case 14 /* --sbc-quality=MODE */ : {
+ 			const nv_entry_t * entry;
+diff -ruN a/src/shared/bluetooth-a2dp.c b/src/shared/bluetooth-a2dp.c
+--- a/src/shared/bluetooth-a2dp.c	2026-08-26 22:46:51.000000000 -0600
++++ b/src/shared/bluetooth-a2dp.c	2026-10-22 07:45:28.136503622 -0600
+@@ -37,7 +37,7 @@
+ 	{ A2DP_CODEC_VENDOR_ID(OPUS_VENDOR_ID, OPUS_CODEC_ID), { "Opus"} },
+ 	{ A2DP_CODEC_VENDOR_ID(OPUS_PW_VENDOR_ID, OPUS_PW_CODEC_ID), { "Opus-PW"} },
+ 	{ A2DP_CODEC_VENDOR_ID(SAMSUNG_HD_VENDOR_ID, SAMSUNG_HD_CODEC_ID), { "samsung-HD" } },
+-	{ A2DP_CODEC_VENDOR_ID(SAMSUNG_SC_VENDOR_ID, SAMSUNG_SC_CODEC_ID), { "samsung-SC" } },
++	{ A2DP_CODEC_VENDOR_ID(SAMSUNG_SC_VENDOR_ID, SAMSUNG_SC_CODEC_ID), { "samsung-SC", "SSC" } },
+ };
+ 
+ uint32_t a2dp_codec_from_string(const char * alias) {
+diff -ruN a/src/shared/bluetooth-a2dp.h b/src/shared/bluetooth-a2dp.h
+--- a/src/shared/bluetooth-a2dp.h	2026-08-26 22:46:51.000000000 -0600
++++ b/src/shared/bluetooth-a2dp.h	2026-10-22 07:45:28.136592018 -0600
+@@ -786,6 +786,21 @@
+ #define SAMSUNG_SC_VENDOR_ID            BT_COMPID_SAMSUNG_ELEC
+ #define SAMSUNG_SC_CODEC_ID             0x0103
+ 
++#define SSC_FLAG_UNCAPPED               0x08
++#define SSC_FLAG_48000                  0x10
++#define SSC_FLAG_44100                  0x20
++#define SSC_FLAG_UHQ2                   0x02
++#define SSC_FLAG_HIFI48                 0x04
++#define SSC_FLAG_UHQ1                   0x80
++#define SSC_FLAG_RATE_MASK              (SSC_FLAG_48000 | SSC_FLAG_44100)
++#define SSC_FLAG_MODE_MASK              (SSC_FLAG_UHQ2 | SSC_FLAG_HIFI48 | SSC_FLAG_UHQ1)
++#define SSC_FLAG_ALL                    (SSC_FLAG_UNCAPPED | SSC_FLAG_MODE_MASK | SSC_FLAG_RATE_MASK)
++
++typedef struct a2dp_ssc {
++	a2dp_vendor_info_t info;
++	uint8_t flags;
++} __attribute__ ((packed)) a2dp_ssc_t;
++
+ /**
+  * Type big enough to hold any A2DP codec configuration. */
+ typedef union a2dp {
+@@ -802,6 +817,7 @@
+ 	a2dp_aptx_ll_new_t aptx_ll_new;
+ 	a2dp_lc3plus_t lc3plus;
+ 	a2dp_ldac_t ldac;
++	a2dp_ssc_t ssc;
+ 	a2dp_lhdc_v1_t lhdc_v1;
+ 	a2dp_lhdc_v2_t lhdc_v2;
+ 	a2dp_lhdc_v3_t lhdc_v3;

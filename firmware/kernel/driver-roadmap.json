@@ -101,7 +101,7 @@
     }
   },
   "initial_implementation": {
-    "selector": "scripts/kernel/prepare_r1_kernel.py --wifi-stack brcmfmac",
+    "selector": "scripts/kernel/prepare/prepare_r1_kernel.py --wifi-stack brcmfmac",
     "activation": "Build candidate modules only; no rootfs migration or device changes.",
     "power_patch": "firmware/kernel/module-patches/compas-radio-input-safety.patch",
     "scope": [
@@ -146,7 +146,7 @@
     "power_patch": "firmware/kernel/module-patches/compas-radio-lifecycle.patch",
     "mmc_patch": "firmware/kernel/wifi-patches/compas-mmc-radio-lifetime.patch",
     "userspace": "firmware/kernel/wifi-experimental/rootfs/usr/bin/compas-radio",
-    "stager": "scripts/kernel/stage_experimental_radio.py",
+    "stager": "scripts/kernel/radio/staging/stage_experimental_radio.py",
     "scope": [
       "Opaque MMC guard drains detect/removal and excludes PM, parent unbind and SDIO function binding without host ABI changes",
       "Explicit pending/ready/error identity and supported 02d0:a9a6 pair; strict AzureWave tuple or explicitly pinned AP6212A profile",
@@ -189,7 +189,7 @@
     "correctness_target": "Vendor page-flip wrapper returns success after completion wait timeout logging; exact lower callback errno is not proven. New driver must preserve uncertain state and report explicit failure.",
     "core_source": "firmware/kernel/display-experimental/compas_fb_core.c",
     "core_header": "firmware/kernel/display-experimental/compas_fb_core.h",
-    "read_only_probe": "scripts/kernel/display_contract_probe.c",
+    "read_only_probe": "scripts/kernel/display/contracts/display_contract_probe.c",
     "implemented_scope": [
       "Exclusive framebuffer platform driver and 168-byte panel ABI",
       "Permanent two-page allocation and descriptor lifetime; bounded mmap and DMA coherency",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate src/ui/i18n_catalog.c from po/*.po.
+"""Generate src/ui/text/i18n/i18n_catalog.c from po/*.po.
 
 Usage: po2c.py [--check] [-o OUTPUT] [PO_DIR]
 
@@ -204,7 +204,7 @@ def render(langs):
 
 def main(argv):
     check = False
-    output = os.path.join(ROOT, "src", "ui", "i18n_catalog.c")
+    output = os.path.join(ROOT, "src", "ui", "text", "i18n", "i18n_catalog.c")
     po_dir = os.path.join(ROOT, "po")
     args = argv[1:]
     while args:

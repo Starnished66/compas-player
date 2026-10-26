@@ -3,7 +3,7 @@
 LVGL 9.5 removed its XML engine (`src/others/xml`) and the bundled expat
 parser (`src/libs/expat`), see lvgl/lvgl PR 9565. This directory carries the
 v9.4.0 versions so the Player can load layouts from XML files at runtime
-(`docs/PLAYER_LAYOUTS.md`).
+(`docs/reference/PLAYER_LAYOUTS.md`).
 
 ## Origin
 
@@ -51,7 +51,7 @@ relative include paths land on the right files without editing upstream.
 - The `lv_xml_test.c` / `lv_xml_test.h` testing interface (needs `LV_USE_TEST`) is left out of the copy. The expat
   `xmltok_impl.c` / `xmltok_ns.c` are textually included by `xmltok.c`, so the
   Makefile does not compile them on their own.
-- `lv_init()` does not call `lv_xml_init()` in 9.5. `src/ui/player/player_layouts.c`
+- `lv_init()` does not call `lv_xml_init()` in 9.5. `src/ui/player/layout/player_layouts.c`
   calls it once, when the first XML layout is created (users of the built-in
   layout never pay for the engine's startup allocations). `lv_xml_deinit()` is
   never called: LVGL itself stays up across soft UI reloads.

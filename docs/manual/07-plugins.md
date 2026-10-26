@@ -64,4 +64,4 @@ After installing and turning on an add-on, start here:
 
 Audiobooks, Podcasts and EPUB Reader have a [separate guide](09-books.md).
 
-<!-- Sources: src/ui/gui_settings.c (System and Updates menus); src/ui/gui_plugin_manage.c (Plugin Manager, toggle, refresh, entries); src/ui/gui_plugin_store.c (install/update/replace/remove, compatibility); ../compas-plugins/README.md (manual installation destinations and catalog); README.md (examples of built-in and optional features). -->
+<!-- Sources: src/ui/settings/gui_settings.c (System and Updates menus); src/ui/plugins/manage/gui_plugin_manage.c (Plugin Manager, toggle, refresh, entries); src/ui/plugins/manage/gui_plugin_store.c (install/update/replace/remove, compatibility); ../compas-plugins/README.md (manual installation destinations and catalog); README.md (examples of built-in and optional features). -->

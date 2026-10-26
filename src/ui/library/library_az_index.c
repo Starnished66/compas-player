@@ -4,10 +4,10 @@
  * resumed by a fresh press-down and paused when idle, just like the drawer. */
 #include "library_az_index.h"
 
-#include "assets.h"
-#include "compact_list.h"
-#include "fallback_font.h"
-#include "screen_builders.h"
+#include "../assets/assets.h"
+#include "../widgets/lists/compact_list.h"
+#include "../text/rendering/fallback_font.h"
+#include "../widgets/builders/screen_builders.h"
 
 #define AZ_INDEX_BINDING_COUNT 4
 #define AZ_INDEX_HIDE_DELAY_MS 900

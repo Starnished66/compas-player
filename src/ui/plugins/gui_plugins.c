@@ -1,0 +1,1455 @@
+#include "gui_plugins.h"
+#include "plugin_control_dashboard.h"
+#include "../text/i18n/i18n.h"
+#include "../application/gui.h"
+#include "../library/browse/gui_file_manager.h"
+#include "../../library/browser/files/file_browser.h"
+#include "../appearance/gui_theme.h"
+#include "../shell/gui_notifications.h"
+#include "../library/browse/gui_library.h"
+#include "../player/screen/gui_queue.h"
+#include "../player/screen/gui_player.h"
+#include "../shell/gui_reload.h"
+#include "../text/rendering/gui_text_input.h"
+#include "../widgets/builders/screen_builders.h"
+#include "../shell/gui_navigation.h"
+#include "../../library/metadata/parsing/metadata.h"
+#include "../../audio/engine/audio.h"
+#include "../../core/persistence/settings.h"
+#include "../assets/assets.h"
+#include "../../hardware/device/device_config.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <limits.h>
+
+
+extern lv_style_t list_row_style;
+extern lv_style_t list_row_pressed_style;
+extern lv_style_t style_theme_text_muted;
+extern lv_style_t style_theme_screen_bg;
+extern player_settings_t current_settings;
+
+extern void nav_push(lv_obj_t * screen);
+extern void nav_pop(void);
+extern void row_label_enable_marquee(lv_obj_t * label);
+extern void register_swipe_dead_zone(lv_obj_t * obj);
+extern void unregister_swipe_dead_zone(lv_obj_t * obj);
+extern void configure_native_slider_rail(lv_obj_t * slider);
+extern void play_track_at(int target);
+extern void audio_engine_toggle_play_pause(void);
+extern void audio_engine_next_track(void);
+extern void audio_engine_prev_track(void);
+
+extern bool plugin_now_playing_loaded;
+extern char plugin_now_playing_title[256];
+extern char plugin_now_playing_artist[256];
+extern char plugin_now_playing_album[256];
+extern double plugin_now_playing_duration;
+
+
+/* ---- Plugin list screens (src/plugins/manager/plugin_manager.c's gui_plugin_show_list()
+ * bridge) ----
+ *
+ * A small pool of reusable screens, not one shared screen, because a plugin
+ * can chain plugin.show_list() calls (e.g. Audiobooks: pick a book -> pick
+ * a chapter) -- nav_push() treats pushing the screen already on top of the
+ * stack as a no-op reload rather than a real push (see its own comment), so
+ * a single shared screen would make Back skip the first list entirely once
+ * a second was opened on top of it. Four levels covers any realistic
+ * plugin nesting depth with headroom under NAV_STACK_MAX (16); reusing a
+ * still-on-the-stack slot beyond that is a known, accepted bound rather
+ * than something plugins are expected to hit. */
+static lv_obj_t * plugin_list_screens[PLUGIN_LIST_SCREEN_POOL_SIZE];
+static lv_obj_t * plugin_list_title_labels[PLUGIN_LIST_SCREEN_POOL_SIZE];
+static lv_obj_t * plugin_list_lists[PLUGIN_LIST_SCREEN_POOL_SIZE];
+static int plugin_list_pool_next = 0;
+static int plugin_list_selected_indices[PLUGIN_LIST_SCREEN_POOL_SIZE];
+
+/* A single native picker screen shares the library browser's indexed list.
+ * The browser owns no Lua state; it reports a copied result after navigation
+ * has left the screen, so plugin code never runs inside an LVGL row event. */
+static lv_obj_t * plugin_picker_screen;
+static file_browser_t * plugin_picker_browser;
+static bool plugin_picker_finishing;
+static bool plugin_picker_active;
+static lv_timer_t * plugin_picker_timer;
+static char plugin_picker_result[PATH_MAX];
+
+static void plugin_picker_dispatch(void) {
+    char result[PATH_MAX];
+    snprintf(result, sizeof(result), "%s", plugin_picker_result);
+    plugin_picker_active = false;
+    plugin_picker_result[0] = '\0';
+    plugin_manager_file_picker_complete(result[0] ? result : NULL);
+}
+
+static void plugin_picker_timer_cb(lv_timer_t * timer) {
+    if (!plugin_picker_active || gui_navigation_transition_in_progress()) return;
+    if (gui_navigation_is_top(plugin_picker_screen)) return;
+    plugin_picker_finishing = true;
+    plugin_picker_active = false;
+    /* Back/Home may leave the reusable screen below other navigation items.
+     * Remove every occurrence only after transitions have settled. */
+    for (int i = gui_navigation_get_depth() - 1; i >= 0; i--)
+        if (gui_navigation_get_screen_at(i) == plugin_picker_screen) nav_remove_stack_slot(i);
+    plugin_picker_timer = NULL;
+    lv_timer_delete(timer);
+    plugin_picker_dispatch();
+}
+
+static void plugin_picker_file_selected(const char * path) {
+    if (plugin_picker_finishing) return;
+    snprintf(plugin_picker_result, sizeof(plugin_picker_result), "%s", path ? path : "");
+    plugin_picker_finishing = true;
+    nav_pop();
+}
+
+/* A plugin progress overlay is deliberately independent of navigation: a
+ * download can continue while the user dismisses this small status card. */
+static lv_obj_t * plugin_progress_card;
+static lv_obj_t * plugin_progress_title;
+static lv_obj_t * plugin_progress_message;
+static lv_obj_t * plugin_progress_bar;
+static lv_obj_t * plugin_progress_percent;
+static int plugin_progress_percent_value = INT_MIN;
+
+/* One plugin confirmation at a time. The modal owns only LVGL objects; its
+ * callback ref and Lua owner stay in plugin_manager.c. */
+static gui_popup_t plugin_confirmation_popup;
+
+static void plugin_confirmation_object_deleted(lv_event_t * event) {
+    if (lv_event_get_code(event) != LV_EVENT_DELETE) return;
+    lv_obj_t * target = lv_event_get_target(event);
+    if (plugin_confirmation_popup.popup == target || plugin_confirmation_popup.backdrop == target) {
+        gui_popup_hide(&plugin_confirmation_popup);
+        if (plugin_confirmation_popup.popup == target) plugin_confirmation_popup.popup = NULL;
+        if (plugin_confirmation_popup.backdrop == target) plugin_confirmation_popup.backdrop = NULL;
+    }
+}
+
+void gui_plugin_close_confirmation(void) {
+    gui_popup_teardown(&plugin_confirmation_popup);
+}
+
+static void plugin_confirmation_dismiss_cb(lv_event_t * event) {
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
+    gui_plugin_close_confirmation();
+    plugin_manager_confirmation_cancelled();
+}
+
+static void plugin_confirmation_confirm_cb(lv_event_t * event) {
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
+    /* Destroy both objects before dispatching Lua: the callback may
+     * synchronously open another confirmation. */
+    gui_plugin_close_confirmation();
+    plugin_manager_confirmation_confirmed();
+}
+
+bool gui_plugin_show_confirmation(const char * title, const char * confirm_label) {
+    lv_display_t * display = lv_display_get_default();
+    if (!display || !lv_layer_top() || plugin_confirmation_popup.popup || plugin_confirmation_popup.backdrop)
+        return false;
+    plugin_confirmation_popup.popup = build_confirm_popup(title, LV_LABEL_LONG_WRAP,
+        NULL, NULL, confirm_label, accent_lv_color(),
+        plugin_confirmation_confirm_cb, NULL, TR("Cancel"), accent_lv_color(), plugin_confirmation_dismiss_cb,
+        NULL,
+        plugin_confirmation_dismiss_cb, &plugin_confirmation_popup.backdrop);
+    if (!plugin_confirmation_popup.popup || !plugin_confirmation_popup.backdrop) {
+        gui_popup_teardown(&plugin_confirmation_popup);
+        return false;
+    }
+    lv_obj_add_event_cb(plugin_confirmation_popup.popup, plugin_confirmation_object_deleted, LV_EVENT_DELETE, NULL);
+    lv_obj_add_event_cb(plugin_confirmation_popup.backdrop, plugin_confirmation_object_deleted, LV_EVENT_DELETE, NULL);
+    gui_popup_show(&plugin_confirmation_popup);
+    return true;
+}
+
+static bool plugin_progress_percent_valid(int percent) {
+    return percent == -1 || (percent >= 0 && percent <= 100);
+}
+
+static void plugin_progress_bar_anim(void * object, int32_t start) {
+    if (!object) return;
+    lv_bar_set_start_value(object, start, LV_ANIM_OFF);
+    lv_bar_set_value(object, start + 20, LV_ANIM_OFF);
+}
+
+static void plugin_progress_card_delete_cb(lv_event_t * event) {
+    if (lv_event_get_code(event) != LV_EVENT_DELETE || plugin_progress_card != lv_event_get_target(event)) return;
+    lv_obj_t * bar = plugin_progress_bar;
+    if (bar) lv_anim_delete(bar, plugin_progress_bar_anim);
+    plugin_progress_card = NULL;
+    plugin_progress_title = NULL;
+    plugin_progress_message = NULL;
+    plugin_progress_bar = NULL;
+    plugin_progress_percent = NULL;
+    plugin_progress_percent_value = INT_MIN;
+}
+
+void gui_plugin_close_progress(void) {
+    lv_obj_t * card = plugin_progress_card;
+    lv_obj_t * bar = plugin_progress_bar;
+    if (bar) lv_anim_delete(bar, plugin_progress_bar_anim);
+    plugin_progress_card = NULL;
+    plugin_progress_title = NULL;
+    plugin_progress_message = NULL;
+    plugin_progress_bar = NULL;
+    plugin_progress_percent = NULL;
+    plugin_progress_percent_value = INT_MIN;
+    if (card) lv_obj_delete(card);
+}
+
+bool gui_plugin_progress_is_visible(void) {
+    return plugin_progress_card != NULL;
+}
+
+static void plugin_progress_dismiss_cb(lv_event_t * event) {
+    if (lv_event_get_code(event) == LV_EVENT_CLICKED) gui_plugin_close_progress();
+}
+
+static void plugin_progress_set_percent(int percent) {
+    if (plugin_progress_percent_value == percent) return;
+    plugin_progress_percent_value = percent;
+    lv_anim_delete(plugin_progress_bar, plugin_progress_bar_anim);
+    if (percent < 0) {
+        lv_obj_add_flag(plugin_progress_percent, LV_OBJ_FLAG_HIDDEN);
+        lv_bar_set_mode(plugin_progress_bar, LV_BAR_MODE_RANGE);
+        lv_bar_set_start_value(plugin_progress_bar, 0, LV_ANIM_OFF);
+        lv_bar_set_value(plugin_progress_bar, 20, LV_ANIM_OFF);
+        lv_anim_t anim;
+        lv_anim_init(&anim);
+        lv_anim_set_var(&anim, plugin_progress_bar);
+        lv_anim_set_exec_cb(&anim, plugin_progress_bar_anim);
+        lv_anim_set_values(&anim, 0, 80);
+        lv_anim_set_duration(&anim, 1100);
+        lv_anim_set_playback_duration(&anim, 1100);
+        lv_anim_set_repeat_count(&anim, LV_ANIM_REPEAT_INFINITE);
+        lv_anim_set_path_cb(&anim, lv_anim_path_ease_in_out);
+        lv_anim_start(&anim);
+    } else {
+        lv_bar_set_mode(plugin_progress_bar, LV_BAR_MODE_NORMAL);
+        char text[16];
+        snprintf(text, sizeof(text), "%d%%", percent);
+        lv_label_set_text(plugin_progress_percent, text);
+        lv_obj_remove_flag(plugin_progress_percent, LV_OBJ_FLAG_HIDDEN);
+        lv_bar_set_value(plugin_progress_bar, percent, LV_ANIM_OFF);
+    }
+}
+
+static void plugin_progress_set_message(const char * message) {
+    char bounded[768];
+    snprintf(bounded, sizeof(bounded), "%s", message ? message : "");
+    lv_label_set_text(plugin_progress_message, bounded);
+}
+
+bool gui_plugin_show_progress(const char * title, const char * message, int percent) {
+    if (!plugin_progress_percent_valid(percent)) return false;
+    lv_display_t * display = lv_display_get_default();
+    if (!display || !lv_layer_top()) return false;
+    int32_t screen_w = lv_display_get_horizontal_resolution(display);
+    if (screen_w <= 0 || lv_display_get_vertical_resolution(display) <= 0) return false;
+    gui_plugin_close_progress();
+
+    int32_t margin = BOARD_SCALE_PX(16);
+    int32_t card_w = screen_w - margin * 2;
+    int32_t preferred_w = BOARD_SCALE_PX(420);
+    if (card_w > preferred_w) card_w = preferred_w;
+    if (card_w < BOARD_SCALE_PX(180)) card_w = screen_w;
+
+    lv_obj_t * card = lv_obj_create(lv_layer_top());
+    if (!card) return false;
+    plugin_progress_card = card;
+    lv_obj_add_event_cb(card, plugin_progress_card_delete_cb, LV_EVENT_DELETE, NULL);
+    lv_obj_add_style(card, &style_theme_card_bg, 0);
+    lv_obj_set_width(card, card_w);
+    lv_obj_set_height(card, LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_all(card, BOARD_SCALE_PX(16), 0);
+    lv_obj_set_style_pad_row(card, BOARD_SCALE_PX(8), 0);
+    lv_obj_set_style_radius(card, BOARD_SCALE_PX(14), 0);
+    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
+    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(card, LV_ALIGN_BOTTOM_MID, 0, -HOME_INDICATOR_CONTENT_INSET);
+
+    lv_obj_t * header = lv_obj_create(card);
+    lv_obj_set_width(header, LV_PCT(100));
+    lv_obj_set_height(header, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(header, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(header, 0, 0);
+    lv_obj_set_style_pad_all(header, 0, 0);
+    lv_obj_set_flex_flow(header, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(header, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(header, LV_OBJ_FLAG_SCROLLABLE);
+
+    plugin_progress_title = lv_label_create(header);
+    lv_obj_add_style(plugin_progress_title, &style_theme_text_primary, 0);
+    const lv_font_t * title_font = gui_theme_font(GUI_FONT_ROLE_TITLE);
+    lv_obj_set_style_text_font(plugin_progress_title, title_font, 0);
+    lv_obj_set_height(plugin_progress_title, title_font->line_height + BOARD_SCALE_PX(2));
+    lv_obj_set_width(plugin_progress_title, 0);
+    lv_obj_set_flex_grow(plugin_progress_title, 1);
+    lv_label_set_long_mode(plugin_progress_title, LV_LABEL_LONG_DOT);
+    char bounded_title[256];
+    snprintf(bounded_title, sizeof(bounded_title), "%s", title ? title : "");
+    lv_label_set_text(plugin_progress_title, bounded_title);
+
+    lv_obj_t * close = lv_button_create(header);
+    lv_obj_set_size(close, BOARD_SCALE_PX(36), BOARD_SCALE_PX(36));
+    lv_obj_set_style_bg_opa(close, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(close, 0, 0);
+    lv_obj_add_event_cb(close, plugin_progress_dismiss_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t * close_label = lv_label_create(close);
+    lv_obj_add_style(close_label, &style_theme_text_muted, 0);
+    lv_obj_set_style_text_font(close_label, gui_theme_font(GUI_FONT_ROLE_TITLE), 0);
+    lv_label_set_text(close_label, "×");
+    lv_obj_center(close_label);
+
+    plugin_progress_message = lv_label_create(card);
+    lv_obj_add_style(plugin_progress_message, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(plugin_progress_message, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    lv_obj_set_width(plugin_progress_message, LV_PCT(100));
+    lv_obj_set_style_max_height(plugin_progress_message, BOARD_SCALE_PX(84), 0);
+    lv_label_set_long_mode(plugin_progress_message, LV_LABEL_LONG_WRAP);
+    plugin_progress_set_message(message);
+
+    plugin_progress_bar = lv_bar_create(card);
+    lv_obj_set_width(plugin_progress_bar, LV_PCT(100));
+    lv_obj_set_height(plugin_progress_bar, BOARD_SCALE_PX(12));
+    lv_bar_set_range(plugin_progress_bar, 0, 100);
+    lv_obj_add_style(plugin_progress_bar, &style_theme_card_bg, LV_PART_MAIN);
+    lv_obj_add_style(plugin_progress_bar, gui_theme_accent_style(), LV_PART_INDICATOR);
+
+    plugin_progress_percent = lv_label_create(card);
+    lv_obj_add_style(plugin_progress_percent, &style_theme_text_muted, 0);
+    lv_obj_set_style_text_font(plugin_progress_percent, gui_theme_font(GUI_FONT_ROLE_STATUS), 0);
+    lv_obj_set_width(plugin_progress_percent, LV_PCT(100));
+    lv_obj_set_style_text_align(plugin_progress_percent, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_style_bg_color(plugin_progress_bar,
+                              lv_obj_get_style_text_color(plugin_progress_percent, LV_PART_MAIN), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(plugin_progress_bar, LV_OPA_20, LV_PART_MAIN);
+    plugin_progress_set_percent(percent);
+    return true;
+}
+
+bool gui_plugin_update_progress(const char * message, int percent) {
+    if (!gui_plugin_progress_is_visible() || !plugin_progress_percent_valid(percent)) return false;
+    plugin_progress_set_message(message);
+    plugin_progress_set_percent(percent);
+    return true;
+}
+
+/* Tags the check mark a selected row carries, so it can be found again. */
+static const char plugin_list_check_tag = 0;
+
+/* Marks the selected row as native option rows do (add_pill_option_row()):
+ * an accent outline and a check mark at the end of the row. */
+static void plugin_list_apply_selection(int slot, int selected_index) {
+    lv_obj_t * list = plugin_list_lists[slot];
+    uint32_t count = lv_obj_get_child_count(list);
+    for (uint32_t i = 0; i < count; i++) {
+        lv_obj_t * row = lv_obj_get_child(list, (int32_t) i);
+        bool selected = (int) i == selected_index;
+        lv_obj_set_style_outline_width(row, selected ? 3 : 0, 0);
+        lv_obj_t * check = NULL;
+        for (uint32_t c = 0; c < lv_obj_get_child_count(row); c++) {
+            lv_obj_t * child = lv_obj_get_child(row, (int32_t) c);
+            if (lv_obj_get_user_data(child) == &plugin_list_check_tag) check = child;
+        }
+        if (selected) {
+            lv_obj_set_style_outline_color(row, accent_lv_color(), 0);
+            lv_obj_set_style_outline_pad(row, -3, 0);
+            if (!check) {
+                check = lv_label_create(row);
+                lv_obj_set_user_data(check, (void *) &plugin_list_check_tag);
+                lv_label_set_text(check, LV_SYMBOL_OK);
+                lv_obj_add_style(check, gui_theme_accent_style(), 0);
+                lv_obj_set_style_text_font(check, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+                lv_obj_align(check, LV_ALIGN_RIGHT_MID, BOARD_SCALE_PX(-20), 0);
+                lv_obj_remove_flag(check, LV_OBJ_FLAG_CLICKABLE);
+            }
+        } else if (check) {
+            lv_obj_delete(check);
+        }
+    }
+    plugin_list_selected_indices[slot] = selected_index;
+}
+
+static void plugin_list_row_click_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    intptr_t packed = (intptr_t) lv_event_get_user_data(e);
+    int slot = (int) (packed >> 16);
+    int index = (int) (packed & 0xFFFF);
+    /* Lua may replace this screen in place. Apply the click highlight to
+     * the old rows before dispatch so a new page keeps its own selection. */
+    if (plugin_list_selected_indices[slot] >= 0)
+        plugin_list_apply_selection(slot, index);
+    plugin_manager_list_item_selected(slot, index);
+}
+
+/* A fixed single-line box is what makes LVGL's circular long mode a marquee
+ * rather than allowing the label itself to grow over adjacent UI. The mode
+ * has no visible effect when the text already fits. */
+void configure_scrolling_row_label(lv_obj_t * label, int32_t width) {
+    if (width < BOARD_SCALE_PX(40)) width = BOARD_SCALE_PX(40);
+    lv_obj_set_width(label, width);
+    const lv_font_t * font = lv_obj_get_style_text_font(label, LV_PART_MAIN);
+    /* Not a bare lv_obj_set_height(label, line_height) -- see that
+     * function's own comment (screen_builders.c) for why the font's line
+     * height alone still clipped descenders and misfired
+     * LV_LABEL_LONG_SCROLL_CIRCULAR's vertical scroll below. */
+    row_label_apply_bounded_height(label, font);
+    row_label_enable_marquee(label);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_LEFT, 0);
+}
+
+/* Plugin screens share the native header, but plugin supplied titles can be
+ * much longer than native labels. Keep the display bounded and show the
+ * beginning of the title without continuously scrolling it. */
+static void configure_plugin_screen_title(lv_obj_t * label) {
+    int32_t screen_w = lv_display_get_horizontal_resolution(lv_display_get_default());
+    int32_t width = screen_w - BOARD_SCALE_PX(96);
+    if (width < BOARD_SCALE_PX(80)) width = BOARD_SCALE_PX(80);
+    lv_obj_set_width(label, width);
+    lv_obj_set_style_text_font(label, gui_theme_font(GUI_FONT_ROLE_TITLE), 0);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+}
+
+static void add_plugin_empty_state(lv_obj_t * list, const char * message) {
+    lv_obj_t * label = lv_label_create(list);
+    lv_label_set_text(label, message);
+    lv_obj_add_style(label, &style_theme_text_muted, 0);
+    lv_obj_set_style_text_font(label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    lv_obj_set_width(label, lv_pct(90));
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_pad_top(label, BOARD_SCALE_PX(48), 0);
+}
+
+#ifdef HOST_BUILD
+  #define MUSIC_ROOT_DIR "./music"
+#else
+  /* SD card mount point -- each file that needs it defines its own copy,
+   * the convention screen_builders.c/plugin_manager.c use. For relative
+   * grid cover paths, resolved like pill_row_apply_icon()'s. */
+  #define MUSIC_ROOT_DIR "/data/mnt/sd_0"
+#endif
+
+/* show_list(..., { layout = "grid" }): the same items as cards in a
+ * wrapping grid, each a cover area (the row's icon, or the label when there
+ * is none) over a two-line title. Taps, selection and the screen pool are
+ * the list's own. */
+static void plugin_grid_build(int slot, lv_obj_t * list, const char * const * labels,
+                              const char * const * images, int columns, int count) {
+    configure_cover_card_grid(list, columns);
+
+    for (int i = 0; i < count; i++) {
+        char resolved[600];
+        const char * image_src = NULL;
+        if (images && images[i]) {
+            if (images[i][0] == '/') snprintf(resolved, sizeof(resolved), "S:%s", images[i]);
+            else snprintf(resolved, sizeof(resolved), "S:%s/.plugins/%s", MUSIC_ROOT_DIR, images[i]);
+            image_src = resolved;
+        }
+        intptr_t packed = ((intptr_t) slot << 16) | (intptr_t) (i & 0xFFFF);
+        add_cover_card(list, labels[i], image_src, columns, plugin_list_row_click_cb, (void *) packed);
+    }
+}
+
+/* Wrapped rows keep their minimum height and expand for the measured text. */
+static void configure_plugin_row_label(lv_obj_t * row, lv_obj_t * label, int32_t width, bool wrap) {
+    if (!wrap) {
+        configure_scrolling_row_label(label, width);
+        return;
+    }
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(label, width);
+    lv_obj_set_height(label, LV_SIZE_CONTENT);
+    lv_obj_update_layout(label);
+    int32_t needed = lv_obj_get_height(label) + BOARD_SCALE_PX(48);
+    if (needed > lv_obj_get_height(row)) lv_obj_set_height(row, needed);
+}
+
+int gui_plugin_show_list(const char * title, const char * const * labels, const char * const * icon_paths,
+                          const char * const * text_sizes, const bool * wrap_labels, int32_t height, int32_t width,
+                          int selected_index, int count, int columns, int replace_slot) {
+    /* Same liveness rule as the settings pool: plain round-robin reused a
+     * slot still on the navigation stack after a few open/Back visits to a
+     * submenu, replacing an ancestor's rows and callback. Only when every
+     * slot is stacked (nesting deeper than the pool) is one overwritten. */
+    int slot = replace_slot;
+    if (replace_slot >= 0 && !gui_plugin_list_is_top(replace_slot)) return -1;
+    if (replace_slot < 0) {
+        slot = plugin_list_pool_next;
+        for (int i = 0; i < PLUGIN_LIST_SCREEN_POOL_SIZE; i++) {
+            int candidate = (plugin_list_pool_next + i) % PLUGIN_LIST_SCREEN_POOL_SIZE;
+            if (!gui_navigation_contains(plugin_list_screens[candidate])) {
+                slot = candidate;
+                break;
+            }
+        }
+        plugin_list_pool_next = (slot + 1) % PLUGIN_LIST_SCREEN_POOL_SIZE;
+    }
+
+    lv_label_set_text(plugin_list_title_labels[slot], title);
+    configure_plugin_screen_title(plugin_list_title_labels[slot]);
+    lv_obj_t * list = plugin_list_lists[slot];
+    int32_t keep_scroll_y = replace_slot >= 0 ? lv_obj_get_scroll_y(list) : 0;
+    lv_obj_clean(list);
+    if (replace_slot < 0) lv_obj_scroll_to_y(list, 0, LV_ANIM_OFF);
+
+    if (columns > 0 && count > 0) {
+        plugin_grid_build(slot, list, labels, icon_paths, columns, count);
+        plugin_list_apply_selection(slot, selected_index);
+        if (keep_scroll_y > 0) {
+            lv_obj_update_layout(list);
+            lv_obj_scroll_to_y(list, keep_scroll_y, LV_ANIM_OFF);
+        }
+        if (replace_slot < 0) nav_push(plugin_list_screens[slot]);
+        return slot;
+    }
+    /* A pooled screen may have been a grid last time. */
+    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_left(list, 0, 0);
+    lv_obj_set_style_pad_right(list, 0, 0);
+    lv_obj_set_style_pad_gap(list, GUI_ROW_GAP, 0);
+
+    if (count <= 0) {
+        add_plugin_empty_state(list, TR("No entries to display"));
+    }
+
+    /* Any icon anywhere in this call, or an explicit height, means every row
+     * in it builds as a small icon+label container instead of the original
+     * bare list_row_style label -- a call with neither anywhere keeps
+     * today's exact fast, plain-label path untouched. */
+    bool any_icon = false;
+    for (int i = 0; i < count && icon_paths; i++) {
+        if (icon_paths[i]) { any_icon = true; break; }
+    }
+    bool any_wrap = false;
+    for (int i = 0; i < count && wrap_labels; i++) {
+        if (wrap_labels[i]) { any_wrap = true; break; }
+    }
+    bool any_text_size = false;
+    for (int i = 0; i < count && text_sizes; i++) {
+        if (text_sizes[i]) { any_text_size = true; break; }
+    }
+    /* A plain label row inherits list_row_style's font-aware shared height
+     * and padding. Per-row font overrides use a container so its label can
+     * center against that row's own font metrics. */
+    bool use_container_rows = any_icon || any_wrap || any_text_size || height > 0 || width > 0;
+
+    int32_t row_h = ui_list_row_height();
+    if (height > 0) {
+        row_h = height;
+        if (row_h < PILL_ROW_HEIGHT_MIN) row_h = PILL_ROW_HEIGHT_MIN;
+        if (row_h > PILL_ROW_HEIGHT_MAX) row_h = PILL_ROW_HEIGHT_MAX;
+    }
+    int32_t row_w = LIST_ROW_WIDTH;
+    if (width > 0) {
+        row_w = width;
+        if (row_w < PILL_ROW_WIDTH_MIN) row_w = PILL_ROW_WIDTH_MIN;
+        if (row_w > PILL_ROW_WIDTH_MAX) row_w = PILL_ROW_WIDTH_MAX;
+    }
+
+    for (int i = 0; i < count; i++) {
+        const char * icon = icon_paths ? icon_paths[i] : NULL;
+        const char * text_size = text_sizes ? text_sizes[i] : NULL;
+
+        if (!use_container_rows) {
+            lv_obj_t * row = lv_label_create(list);
+            lv_obj_add_style(row, &list_row_style, 0);
+            lv_obj_add_style(row, &list_row_pressed_style, LV_STATE_PRESSED);
+            if (height <= 0) lv_obj_add_style(row, &native_row_min_style, 0);
+            lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+            lv_label_set_text(row, labels[i]);
+            lv_obj_set_style_text_font(row, pill_row_resolve_text_size(text_size), 0);
+            row_label_enable_marquee(row);
+            if (row_w != LIST_ROW_WIDTH) lv_obj_set_style_width(row, row_w, 0);
+            lv_obj_set_height(row, row_h);
+            lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+            intptr_t packed = ((intptr_t) slot << 16) | (intptr_t) (i & 0xFFFF);
+            lv_obj_add_event_cb(row, plugin_list_row_click_cb, LV_EVENT_CLICKED, (void *) packed);
+            continue;
+        }
+
+        lv_obj_t * row = lv_obj_create(list);
+        lv_obj_set_size(row, row_w, row_h);
+        if (height <= 0) lv_obj_add_style(row, &native_row_min_style, 0);
+        lv_obj_set_style_radius(row, LIST_ROW_RADIUS, 0);
+        lv_obj_add_style(row, &pill_row_bg_style, 0);
+        lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+        lv_obj_set_style_pad_all(row, 0, 0);
+        lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_style(row, &list_row_pressed_style, LV_STATE_PRESSED);
+
+        int32_t label_left = icon ? BOARD_SCALE_PX(96) : LIST_ROW_LABEL_INSET;
+        int32_t label_width = row_w - label_left - LIST_ROW_LABEL_INSET;
+        const char * source = labels[i] ? labels[i] : "";
+        const char * newline = wrap_labels && wrap_labels[i] ? strchr(source, '\n') : NULL;
+        if (newline) {
+            /* Backward-compatible convention for wrapped plugin rows:
+             * `title\nsecondary metadata` gives the title primary styling
+             * and the remaining line a quieter metadata style. The public
+             * Lua API still passes one label string and click indexes are
+             * unchanged. */
+            lv_obj_t * title = lv_label_create(row);
+            lv_label_set_text_fmt(title, "%.*s", (int) (newline - source), source);
+            lv_obj_add_style(title, &style_theme_text_primary, 0);
+            lv_obj_set_style_text_font(title, pill_row_resolve_text_size(text_size), 0);
+            lv_obj_set_width(title, label_width);
+            lv_label_set_long_mode(title, LV_LABEL_LONG_WRAP);
+            lv_obj_align(title, LV_ALIGN_TOP_LEFT, label_left, BOARD_SCALE_PX(10));
+            lv_obj_update_layout(title);
+
+            lv_obj_t * metadata = lv_label_create(row);
+            lv_label_set_text(metadata, newline + 1);
+            lv_obj_add_style(metadata, &style_theme_text_muted, 0);
+            lv_obj_set_style_text_font(metadata, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+            lv_obj_set_width(metadata, label_width);
+            lv_label_set_long_mode(metadata, LV_LABEL_LONG_DOT);
+            int32_t metadata_y = BOARD_SCALE_PX(10) + lv_obj_get_height(title) + BOARD_SCALE_PX(3);
+            lv_obj_align(metadata, LV_ALIGN_TOP_LEFT, label_left, metadata_y);
+
+            int32_t needed = metadata_y + lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT)) +
+                             BOARD_SCALE_PX(10);
+            if (needed > lv_obj_get_height(row)) lv_obj_set_height(row, needed);
+            pill_row_apply_icon(row, title, icon, BOARD_SCALE_PX(44), LV_ALIGN_LEFT_MID, BOARD_SCALE_PX(28), 0);
+            lv_obj_align(title, LV_ALIGN_TOP_LEFT, label_left, BOARD_SCALE_PX(10));
+            lv_obj_align(metadata, LV_ALIGN_TOP_LEFT, label_left, metadata_y);
+        } else {
+            lv_obj_t * label = lv_label_create(row);
+            lv_label_set_text(label, source);
+            lv_obj_add_style(label, &style_theme_text_primary, 0);
+            /* Unspecified plugin text follows the native themed body font,
+             * including the user's font tier and custom font. */
+            lv_obj_set_style_text_font(label, pill_row_resolve_text_size(text_size), 0);
+            lv_obj_align(label, LV_ALIGN_LEFT_MID, label_left, 0);
+            pill_row_apply_icon(row, label, icon, BOARD_SCALE_PX(44), LV_ALIGN_LEFT_MID, BOARD_SCALE_PX(28), 0);
+            /* The icon helper sets a compact default inset; match the native
+             * category text column after installing the plugin's icon. */
+            lv_obj_align(label, LV_ALIGN_LEFT_MID, label_left, 0);
+            configure_plugin_row_label(row, label, label_width, wrap_labels && wrap_labels[i]);
+        }
+        if (icon) decorate_category_row(row, NULL, NULL);
+
+        lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+        intptr_t packed = ((intptr_t) slot << 16) | (intptr_t) (i & 0xFFFF);
+        lv_obj_add_event_cb(row, plugin_list_row_click_cb, LV_EVENT_CLICKED, (void *) packed);
+    }
+
+    plugin_list_apply_selection(slot, selected_index);
+    if (keep_scroll_y > 0) {
+        lv_obj_update_layout(list);
+        lv_obj_scroll_to_y(list, keep_scroll_y, LV_ANIM_OFF);
+    }
+    if (replace_slot < 0) nav_push(plugin_list_screens[slot]);
+    return slot;
+}
+
+bool gui_plugin_list_is_top(int slot) {
+    return slot >= 0 && slot < PLUGIN_LIST_SCREEN_POOL_SIZE && plugin_list_screens[slot] &&
+           gui_navigation_is_top(plugin_list_screens[slot]);
+}
+
+bool gui_plugin_list_reset_scroll(int slot) {
+    if (!gui_plugin_list_is_top(slot) || !plugin_list_lists[slot]) return false;
+    lv_obj_update_layout(plugin_list_lists[slot]);
+    lv_obj_scroll_to_y(plugin_list_lists[slot], 0, LV_ANIM_OFF);
+    return true;
+}
+
+void gui_plugin_play_paths(const char * const * paths, int count, int start_index, bool open_player) {
+    if (count <= 0) return;
+    if (start_index < 0) start_index = 0;
+    if (start_index >= count) start_index = count - 1;
+
+    char ** new_playlist = malloc(sizeof(char *) * count);
+    if (!new_playlist) return;
+    for (int i = 0; i < count; i++) {
+        new_playlist[i] = paths[i] ? strdup(paths[i]) : strdup("");
+    }
+    if (open_player) on_file_selected(new_playlist, count, start_index);
+    else on_file_selected_stay(new_playlist, count, start_index);
+}
+
+/* Same shape as gui_plugin_play_paths() above, for a remote-provider queue
+ * (plugin.play_remote()/queue_remote_list()): builds one synthetic
+ * "remote://<provider>/<track_id>" playlist[] entry per track (see
+ * remote_track.h's own comment on why this, not the real stream_url, is
+ * what playlist[]/last_track/Favorites ever see) and publishes the
+ * matching descriptor table before handing off to the same on_file_
+ * selected() every other play-launch path uses. plugin_manager.c has
+ * already validated every field (bounded lengths, non-empty provider/
+ * track_id) before calling this -- this function re-validates anyway
+ * (every remote_track_make_key() result checked, no unconditional malloc)
+ * rather than trusting a caller-supplied invariant, since a NULL/failed
+ * allocation or an unvalidated key here would otherwise reach strdup()
+ * with an uninitialized buffer.
+ *
+ * Nothing is published until the ENTIRE new queue (both the playlist[]
+ * strings and the remote_track_meta_t table) is ready to go: new_playlist
+ * is fully built (and freed again on any failure) before
+ * remote_track_meta_set_all() is even called, and that call's own
+ * all-or-nothing publish (see its own comment) means a malformed or OOM
+ * failure at either step leaves whatever was already playing completely
+ * untouched, never a playlist[] that references a since-replaced (or
+ * never-published) remote_track_meta_t table. */
+void gui_plugin_play_remote_tracks(const remote_track_meta_t * tracks, int count, int start_index) {
+    if (count <= 0) return;
+    if (start_index < 0) start_index = 0;
+    if (start_index >= count) start_index = count - 1;
+
+    char ** new_playlist = malloc(sizeof(char *) * (size_t) count);
+    if (!new_playlist) return;
+
+    int built = 0;
+    for (; built < count; built++) {
+        char key[256];
+        if (!remote_track_make_key(tracks[built].provider, tracks[built].track_id, key, sizeof(key))) break;
+        new_playlist[built] = strdup(key);
+        if (!new_playlist[built]) break;
+    }
+    if (built != count) {
+        for (int j = 0; j < built; j++) free(new_playlist[j]);
+        free(new_playlist);
+        return;
+    }
+
+    if (!remote_track_meta_set_all(tracks, count)) {
+        for (int j = 0; j < count; j++) free(new_playlist[j]);
+        free(new_playlist);
+        return;
+    }
+
+    clear_player_source(); /* a remote queue has no on-device list to go back to -- same as a Subsonic stream queue */
+    on_file_selected(new_playlist, count, start_index);
+}
+
+void gui_plugin_show_toast(const char * msg, uint32_t duration_ms) {
+    show_info_toast_for(msg, duration_ms);
+}
+
+void gui_plugin_set_background_color(const char * slot, uint32_t rgb) {
+    lv_color_t color = lv_color_hex(rgb);
+
+    if (strcmp(slot, "screen") == 0) {
+        lv_style_set_bg_color(&style_theme_screen_bg, color);
+        lv_obj_report_style_change(&style_theme_screen_bg);
+    } else if (strcmp(slot, "card") == 0) {
+        lv_style_set_bg_color(&style_theme_card_bg, color);
+        lv_obj_report_style_change(&style_theme_card_bg);
+        gui_theme_update_surface_contrast();
+    } else if (strcmp(slot, "list_row") == 0) {
+        lv_style_set_bg_color(&list_row_style, color);
+        lv_obj_report_style_change(&list_row_style);
+        /* pill_row_bg_style is the same "list_row" slot for pill rows --
+         * see its own comment in screen_builders.h for why it's a separate
+         * style object rather than reusing list_row_style directly. */
+        lv_style_set_bg_color(&pill_row_bg_style, color);
+        lv_obj_report_style_change(&pill_row_bg_style);
+        gui_theme_update_surface_contrast();
+    }
+    /* Else: unknown slot -- plugin_manager.c's l_plugin_set_background_color()
+     * already validates against the three known names and raises a Lua
+     * error before ever reaching here, so this is unreachable in practice;
+     * silently ignored rather than asserting, matching this file's own
+     * "degraded but working" tolerance elsewhere. */
+    /* A reload rebuilds these widgets and refreshes them once it is done. */
+    if (!gui_reload_in_progress()) {
+        gui_shell_refresh_theme_colors();
+        gui_player_update_backdrop_contrast();
+    }
+}
+
+/* Same shape as gui_plugin_set_background_color() above, for text color --
+ * see screen_builders.h's own comment on style_theme_text_primary/
+ * style_theme_text_muted for scope (destructive-red and accent-tinted text
+ * are deliberately not covered). "primary" also mutates list_row_style's
+ * own text_color so list rows -- which attach list_row_style directly, not
+ * style_theme_text_primary -- stay in sync with the rest of the app's
+ * primary text. */
+void gui_plugin_set_text_color(const char * slot, uint32_t rgb) {
+    lv_color_t color = lv_color_hex(rgb);
+
+    if (strcmp(slot, "primary") == 0) {
+        lv_style_set_text_color(&style_theme_text_primary, color);
+        lv_style_set_image_recolor(&style_theme_text_primary, color);
+        lv_obj_report_style_change(&style_theme_text_primary);
+        lv_style_set_text_color(&list_row_style, color);
+        lv_obj_report_style_change(&list_row_style);
+        gui_theme_update_surface_contrast();
+    } else if (strcmp(slot, "muted") == 0) {
+        lv_style_set_text_color(&style_theme_text_muted, color);
+        lv_style_set_image_recolor(&style_theme_text_muted, color);
+        lv_obj_report_style_change(&style_theme_text_muted);
+    }
+    /* Else: unreachable -- see gui_plugin_set_background_color()'s own
+     * comment on l_plugin_set_text_color() validating first. */
+    /* A reload rebuilds these widgets and refreshes them once it is done. */
+    if (!gui_reload_in_progress()) {
+        gui_shell_refresh_theme_colors();
+        gui_player_update_backdrop_contrast();
+    }
+}
+
+/* Backing storage for plugin.set_home_layout() -- gui_settings.c's
+ * build_home_screen() reads this directly (extern via home_layout.h), same
+ * "shared mutable state declared in the owning header, written here"
+ * pattern this file already uses for list_row_style/style_theme_* above.
+ * Unlike those, storing the config never touches LVGL; plugin.refresh_theme()
+ * separately rebuilds Home after the calling Lua callback returns. */
+home_layout_config_t home_layout_config = { 0 };
+launcher_layout_config_t launcher_layout_config = { 0 };
+player_layout_config_t player_layout_config = { 0 };
+
+/* plugin_manager.c's l_plugin_set_home_layout() has already validated every
+ * enum-like field (key -> array index, mode, align, text_size) before
+ * building *config, so this is a plain copy -- see home_layout.h's own
+ * comment for why a call made after boot only affects the NEXT app start. */
+void gui_plugin_set_home_layout(const home_layout_config_t * config) {
+    home_layout_config = *config;
+}
+
+/* See gui.h's own comment. */
+void gui_plugin_reset_home_layout(void) {
+    home_layout_config = (home_layout_config_t) { 0 };
+}
+
+void gui_plugin_set_launcher_layout(const launcher_layout_config_t * config) {
+    launcher_layout_config = *config;
+}
+
+void gui_plugin_reset_launcher_layout(void) {
+    launcher_layout_config = (launcher_layout_config_t) { 0 };
+}
+
+void gui_plugin_set_player_layout(const player_layout_config_t * config) {
+    player_layout_config = *config;
+}
+
+void gui_plugin_reset_player_layout(void) {
+    player_layout_config = (player_layout_config_t) { 0 };
+}
+
+/* ---- Playback control bridges -- see gui.h's own comment on why these
+ * can't just call audio_toggle_pause()/audio_stop()/audio_set_volume()
+ * directly from plugin_manager.c the way plugin.eq_*() calls peq_* directly.
+ * Each of these calls the exact same local helper the native UI itself uses
+ * for that action, so a plugin-driven change looks identical to a
+ * button/remote-control-driven one. ---- */
+
+void gui_plugin_toggle_pause(void) {
+    toggle_play_pause();
+}
+
+void gui_plugin_stop(void) {
+    if (audio_is_playing()) {
+        audio_stop();
+        set_play_button_state(false);
+        plugin_manager_notify_stopped();
+    }
+}
+
+void gui_plugin_next_track(void) {
+    gui_player_step_manual(1);
+}
+
+void gui_plugin_prev_track(void) {
+    gui_player_step_manual(-1);
+}
+
+void gui_plugin_seek(double seconds) {
+    audio_seek(seconds);
+}
+
+static void plugin_set_volume(int percent, bool show_popup, bool persist) {
+    percent = audio_clamp_volume_percent(percent);
+
+    gui_player_set_volume_percent(percent);
+    audio_set_volume((float) percent / 100.0f);
+    if (persist) {
+        gui_player_remember_volume_percent(percent);
+        settings_save(&current_settings);
+    }
+    if (show_popup) show_volume_popup(percent);
+    refresh_volume_topbar(percent);
+}
+
+void gui_plugin_set_volume(int percent) {
+    plugin_set_volume(percent, true, true);
+}
+
+void gui_plugin_set_volume_silent(int percent) {
+    plugin_set_volume(percent, false, true);
+}
+
+void gui_plugin_set_volume_transient(int percent, bool show_popup) {
+    plugin_set_volume(percent, show_popup, false);
+}
+
+bool gui_plugin_is_playing(void) {
+    return audio_is_playing();
+}
+
+bool gui_plugin_is_paused(void) {
+    return audio_is_paused();
+}
+
+double gui_plugin_get_position_seconds(void) {
+    return audio_get_position_seconds();
+}
+
+double gui_plugin_get_duration_seconds(void) {
+    return audio_get_duration_seconds();
+}
+
+bool gui_plugin_get_now_playing(char * title_out, size_t title_size, char * artist_out, size_t artist_size,
+                                 char * album_out, size_t album_size, double * out_duration_seconds) {
+    if (!plugin_now_playing_loaded) return false;
+
+    snprintf(title_out, title_size, "%s", plugin_now_playing_title);
+    snprintf(artist_out, artist_size, "%s", plugin_now_playing_artist);
+    snprintf(album_out, album_size, "%s", plugin_now_playing_album);
+    *out_duration_seconds = plugin_now_playing_duration;
+    return true;
+}
+
+/* ---- plugin.set_interval()/clear_interval() -- a small fixed pool of
+ * lv_timer_t*, same repeating-timer mechanism update_timer_cb()'s own
+ * 500ms polling loop already uses (gui_init(), near the end of this file).
+ * One shared timer callback for every slot -- its own slot index is read
+ * back out via lv_timer_get_user_data() rather than needing one distinct
+ * callback function per slot. ---- */
+static lv_timer_t * plugin_interval_timers[PLUGIN_MAX_INTERVALS];
+
+static void plugin_interval_timer_cb(lv_timer_t * timer) {
+    int slot = (int) (intptr_t) lv_timer_get_user_data(timer);
+    plugin_manager_interval_fired(slot);
+}
+
+void gui_plugin_set_interval(int slot, uint32_t period_ms) {
+    if (slot < 0 || slot >= PLUGIN_MAX_INTERVALS) return;
+    if (plugin_interval_timers[slot]) lv_timer_delete(plugin_interval_timers[slot]); /* defensive -- shouldn't happen, l_plugin_set_interval() only hands out a free slot */
+    plugin_interval_timers[slot] = lv_timer_create(plugin_interval_timer_cb, period_ms, (void *) (intptr_t) slot);
+}
+
+void gui_plugin_clear_interval(int slot) {
+    if (slot < 0 || slot >= PLUGIN_MAX_INTERVALS || !plugin_interval_timers[slot]) return;
+    lv_timer_delete(plugin_interval_timers[slot]);
+    plugin_interval_timers[slot] = NULL;
+}
+
+/* plugin.show_text_input() bridge -- wraps this file's own show_text_entry()
+ * singleton screen (forward-declared above, defined further down alongside
+ * text_entry_screen's own construction). numeric is always false here -- a
+ * plugin wanting numeric-only input can validate/convert the returned
+ * string itself, not worth a second Lua-facing parameter for. */
+void plugin_text_entry_done_cb(const char * text, void * user_data) {
+    (void) user_data;
+    plugin_manager_text_input_submitted(text);
+}
+
+void gui_plugin_show_text_input(const char * title, const char * initial_text, bool is_password) {
+    show_text_entry(title, initial_text, is_password, false, plugin_text_entry_done_cb, NULL);
+}
+
+
+
+typedef struct {
+    int type; /* PLUGIN_SETTINGS_ROW_TAP/_TOGGLE/_SLIDER, plugin_manager.h */
+    char label[512];
+    bool wrap;
+    bool toggle_value;
+    int slider_min, slider_max, slider_value;
+    char icon_path[256]; /* "" = none */
+    int32_t row_height;  /* 0 = default, ignored for a slider row */
+    int32_t row_width;   /* 0 = default; supported by all row types */
+    char text_size[8];   /* "" = this row type's own default -- see populate_plugin_settings_list_screen() */
+} plugin_settings_list_row_state_t;
+
+static plugin_settings_list_row_state_t
+    plugin_settings_list_row_state[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE][PLUGIN_SETTINGS_LIST_MAX_ROWS];
+static int plugin_settings_list_row_state_count[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE];
+
+static lv_obj_t * plugin_settings_list_screens[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE];
+static lv_obj_t * plugin_settings_list_title_labels[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE];
+static lv_obj_t * plugin_settings_list_lists[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE];
+/* Keep the source title separately from the rendered label. LV_LABEL_LONG_DOT
+ * may rewrite the label's displayed text, which must not affect update lookup. */
+static char * plugin_settings_list_titles[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE];
+static int plugin_settings_list_pool_next = 0;
+static bool plugin_settings_list_preview_enabled[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE];
+static gui_lock_screen_options_t plugin_settings_list_previews[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE];
+static bool plugin_settings_list_dashboard_enabled[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE];
+static plugin_control_dashboard_options_t plugin_settings_list_dashboard_options[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE];
+
+/* Which slider cards THIS slot registered as swipe dead zones on its last
+ * populate -- unregistered (see unregister_swipe_dead_zone()'s own comment)
+ * right before lv_obj_clean() frees them on the next populate of this same
+ * slot, so swipe_dead_zones[] never holds a dangling pointer into a card
+ * this pool slot already deleted. */
+static lv_obj_t * plugin_settings_list_slider_cards[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE][PLUGIN_SETTINGS_LIST_MAX_SLIDERS];
+static int plugin_settings_list_slider_card_count[PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE];
+
+/* Slider-row variant of add_pill_toggle_row()/add_pill_chevron_row() above --
+ * no existing helper covers this (native sliders are each their own
+ * full-screen card, screen_timeout_slider_card and neighbors, never embedded
+ * as one row inside a scrollable list). Same card-with-live-readout shape as
+ * those, sized to fit as a list row instead of its own screen: label
+ * top-left, live numeric value top-right, slider along the bottom. Caller
+ * (populate_plugin_settings_list_screen() below) handles the swipe-dead-zone
+ * registration and LV_OBJ_FLAG_GESTURE_BUBBLE removal, same split of
+ * responsibility screen_timeout_slider_card's own construction uses. */
+static lv_obj_t * add_pill_slider_row(lv_obj_t * parent, const char * label_text, int min, int max, int value,
+                                       lv_event_cb_t slider_event_cb, void * user_data, const char * icon_path,
+    const char * text_size) {
+    lv_obj_t * card = lv_obj_create(parent);
+    int32_t row_width = pill_row_default_width();
+    lv_obj_set_size(card, row_width, BOARD_SCALE_PX(130));
+    lv_obj_add_style(card, &style_theme_card_bg, 0);
+    lv_obj_set_style_border_width(card, 0, 0);
+    lv_obj_set_style_radius(card, 10, 0);
+    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t * label = lv_label_create(card); /* child 0 */
+    lv_label_set_text(label, label_text);
+    lv_obj_add_style(label, &style_theme_text_primary, 0);
+    /* NULL follows native body typography; explicit plugin sizes remain
+     * available for intentionally compact controls. */
+    lv_obj_align(label, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(20), BOARD_SCALE_PX(12));
+    lv_obj_set_style_text_font(label, pill_row_resolve_text_size(text_size), 0);
+    pill_row_apply_icon(card, label, icon_path, PILL_ROW_ICON_PX_DEFAULT, LV_ALIGN_TOP_LEFT, 20, 12);
+    configure_scrolling_row_label(label, row_width - (icon_path ? BOARD_SCALE_PX(212) : BOARD_SCALE_PX(136)));
+
+    lv_obj_t * value_label = lv_label_create(card); /* child 1 -- see plugin_settings_slider_event_cb()'s lookup */
+    lv_obj_add_style(value_label, &style_theme_text_muted, 0);
+    lv_obj_set_style_text_font(value_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+    lv_obj_align(value_label, LV_ALIGN_TOP_RIGHT, BOARD_SCALE_PX(-20), BOARD_SCALE_PX(12));
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%d", value);
+    lv_label_set_text(value_label, buf);
+
+    lv_obj_t * slider = lv_slider_create(card); /* child 2 */
+    lv_obj_set_width(slider, lv_pct(88));
+    lv_obj_set_height(slider, SLIDER_TRACK_HEIGHT);
+    lv_obj_align(slider, LV_ALIGN_BOTTOM_MID, 0, BOARD_SCALE_PX(-14));
+    if (max <= min) max = min + 1; /* lv_slider_set_range requires min < max */
+    lv_slider_set_range(slider, min, max);
+    lv_slider_set_value(slider, value, LV_ANIM_OFF);
+    lv_obj_add_style(slider, gui_theme_accent_style(), LV_PART_INDICATOR);
+    lv_obj_add_style(slider, gui_theme_accent_knob_style(), LV_PART_KNOB);
+    lv_obj_set_style_width(slider, SLIDER_KNOB_SIZE, LV_PART_KNOB);
+    lv_obj_set_style_height(slider, SLIDER_KNOB_SIZE, LV_PART_KNOB);
+    lv_obj_set_ext_click_area(slider, BOARD_SCALE_PX(20));
+    lv_obj_add_event_cb(slider, slider_event_cb, LV_EVENT_ALL, user_data);
+
+    return card;
+}
+
+/* Packs a pool slot + row index into one lv_event_cb_t user_data pointer --
+ * PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE and PLUGIN_SETTINGS_LIST_MAX_ROWS
+ * are both tiny (2 and 24), so 16 bits each leaves enormous headroom. */
+static void * pack_plugin_settings_slot_row(int slot, int row) {
+    return (void *) (intptr_t) (((intptr_t) slot << 16) | (intptr_t) (row & 0xFFFF));
+}
+static int unpack_plugin_settings_slot(void * packed) { return (int) (((intptr_t) packed) >> 16); }
+static int unpack_plugin_settings_row(void * packed) { return (int) (((intptr_t) packed) & 0xFFFF); }
+
+static void plugin_settings_tap_row_click_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    void * packed = lv_event_get_user_data(e);
+    plugin_manager_settings_list_row_selected(unpack_plugin_settings_slot(packed), unpack_plugin_settings_row(packed));
+}
+
+/* Applies a plugin row's optional `height` -- no-op if unset (<=0). Only
+ * used for toggle/tap rows (add_pill_row_base()-based, PNG pill background)
+ * -- a slider row's own card already has its own fixed 130px layout with no
+ * spare room to grow into, per plugin.show_settings_list()'s own documented
+ * "height ignored for slider" rule. Switches the PNG sprite for a plain
+ * rounded-rect fill -- see PILL_ROW_HEIGHT_MIN's own comment in
+ * screen_builders.h for why a resized row can't just keep the PNG. */
+static void apply_plugin_pill_row_resize(lv_obj_t * row_obj, int32_t row_height, int32_t row_width) {
+    if (row_height <= 0 && row_width <= 0) return;
+    if (row_height > 0) {
+        lv_obj_remove_style(row_obj, &native_row_min_style, 0);
+        int32_t height = row_height;
+        if (height < PILL_ROW_HEIGHT_MIN) height = PILL_ROW_HEIGHT_MIN;
+        if (height > PILL_ROW_HEIGHT_MAX) height = PILL_ROW_HEIGHT_MAX;
+        lv_obj_set_height(row_obj, height);
+    }
+    if (row_width > 0) {
+        int32_t width = row_width;
+        if (width < PILL_ROW_WIDTH_MIN) width = PILL_ROW_WIDTH_MIN;
+        if (width > PILL_ROW_WIDTH_MAX) width = PILL_ROW_WIDTH_MAX;
+        lv_obj_set_width(row_obj, width);
+    }
+    lv_obj_set_style_bg_image_src(row_obj, NULL, 0);
+    lv_obj_set_style_radius(row_obj, LIST_ROW_RADIUS, 0);
+    lv_obj_add_style(row_obj, &pill_row_bg_style, 0);
+}
+
+static void populate_plugin_settings_list_screen(int slot); /* forward -- toggle click rebuilds its own slot */
+
+static void plugin_settings_toggle_row_click_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    void * packed = lv_event_get_user_data(e);
+    int slot = unpack_plugin_settings_slot(packed);
+    int row = unpack_plugin_settings_row(packed);
+
+    plugin_settings_list_row_state_t * st = &plugin_settings_list_row_state[slot][row];
+    st->toggle_value = !st->toggle_value;
+    plugin_manager_settings_list_toggled(slot, row, st->toggle_value);
+    /* Full rebuild to reflect the flipped on.png/off.png sprite -- same
+     * "flip the setting, then repopulate" pattern every native dynamic pill
+     * toggle row already uses (e.g. dlna_toggle_cb() -> populate_dlna_screen()),
+     * rather than reaching into the row's own image object to swap it in
+     * place. */
+    populate_plugin_settings_list_screen(slot);
+}
+
+/* Same VALUE_CHANGED-updates-live/RELEASED-notifies-Lua split as every
+ * native settings slider (screen_timeout_slider_event_cb et al.) -- calling
+ * back into Lua on every drag tick would hammer the plugin's on_change for a
+ * value that only matters once the user lets go. */
+static void plugin_settings_slider_event_cb(lv_event_t * e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    lv_obj_t * slider = lv_event_get_target(e);
+    int32_t value = lv_slider_get_value(slider);
+    void * packed = lv_event_get_user_data(e);
+    int slot = unpack_plugin_settings_slot(packed);
+    int row = unpack_plugin_settings_row(packed);
+
+    if (code == LV_EVENT_VALUE_CHANGED) {
+        lv_obj_t * card = lv_obj_get_parent(slider);
+        lv_obj_t * value_label = lv_obj_get_child(card, 1); /* see add_pill_slider_row()'s own child-index comment */
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d", (int) value);
+        lv_label_set_text(value_label, buf);
+    } else if (code == LV_EVENT_RELEASED) {
+        plugin_settings_list_row_state[slot][row].slider_value = (int) value;
+        plugin_manager_settings_list_slid(slot, row, (int) value);
+    }
+}
+
+/* Dashboard tempo changes use the same existing Lua on_change bridge as the
+ * list slider. Store the copied row value first because Lua may redraw this
+ * pool slot while its event callback is still dispatching. */
+static void plugin_settings_dashboard_value_cb(int slot, int row, int value) {
+    if (slot < 0 || slot >= PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE || row < 0 ||
+        row >= plugin_settings_list_row_state_count[slot]) return;
+    plugin_settings_list_row_state[slot][row].slider_value = value;
+    plugin_manager_settings_list_slid(slot, row, value);
+}
+
+/* Rebuilds pool slot `slot` from plugin_settings_list_row_state[slot][] --
+ * shared by gui_plugin_show_settings_list() (initial build) and
+ * plugin_settings_toggle_row_click_cb() (rebuild after a toggle flips). */
+static void populate_plugin_settings_list_screen(int slot) {
+    for (int i = 0; i < plugin_settings_list_slider_card_count[slot]; i++) {
+        unregister_swipe_dead_zone(plugin_settings_list_slider_cards[slot][i]);
+    }
+    plugin_settings_list_slider_card_count[slot] = 0;
+
+    lv_obj_t * list = plugin_settings_list_lists[slot];
+    int32_t scroll_y = lv_obj_get_scroll_y(list);
+    lv_obj_clean(list);
+
+    if (plugin_settings_list_preview_enabled[slot])
+        gui_lock_screen_create_preview(list, &plugin_settings_list_previews[slot]);
+
+    if (plugin_settings_list_dashboard_enabled[slot]) {
+        plugin_control_dashboard_row_t rows[PLUGIN_SETTINGS_LIST_MAX_ROWS];
+        int count = plugin_settings_list_row_state_count[slot];
+        for (int i = 0; i < count; i++) {
+            plugin_settings_list_row_state_t * st = &plugin_settings_list_row_state[slot][i];
+            rows[i].type = st->type;
+            rows[i].label = st->label;
+            rows[i].toggle_value = st->toggle_value;
+            rows[i].slider_min = st->slider_min;
+            rows[i].slider_max = st->slider_max;
+            rows[i].slider_value = st->slider_value;
+            rows[i].icon_path = st->icon_path[0] ? st->icon_path : NULL;
+            rows[i].detail = NULL;
+        }
+        plugin_control_dashboard_callbacks_t callbacks = {
+            .tap = plugin_manager_settings_list_row_selected,
+            .value = plugin_settings_dashboard_value_cb
+        };
+        if (plugin_control_dashboard_build(list, rows, count, slot,
+                &plugin_settings_list_dashboard_options[slot], &callbacks)) goto restore_scroll;
+    }
+
+    int count = plugin_settings_list_row_state_count[slot];
+    if (count <= 0) {
+        add_plugin_empty_state(list, TR("No plugin settings available"));
+        goto restore_scroll;
+    }
+
+    for (int row = 0; row < count; row++) {
+        plugin_settings_list_row_state_t * st = &plugin_settings_list_row_state[slot][row];
+        void * packed = pack_plugin_settings_slot_row(slot, row);
+        const char * icon = st->icon_path[0] ? st->icon_path : NULL;
+        const char * text_size = st->text_size[0] ? st->text_size : NULL;
+
+        if (st->type == PLUGIN_SETTINGS_ROW_TOGGLE) {
+            lv_obj_t * row_obj = add_pill_toggle_row(list, st->label, st->toggle_value, NULL);
+            lv_obj_add_event_cb(row_obj, plugin_settings_toggle_row_click_cb, LV_EVENT_CLICKED, packed);
+            lv_obj_t * label = lv_obj_get_child(row_obj, 0); /* add_pill_row_base()'s own child-0-is-the-label layout */
+            lv_obj_set_style_text_font(label, pill_row_resolve_text_size(text_size), 0);
+            pill_row_apply_icon(row_obj, label, icon, BOARD_SCALE_PX(44), LV_ALIGN_LEFT_MID, BOARD_SCALE_PX(28), 0);
+            apply_plugin_pill_row_resize(row_obj, st->row_height, st->row_width);
+            int32_t row_width = st->row_width > 0 ? st->row_width : pill_row_default_width();
+            if (row_width < PILL_ROW_WIDTH_MIN) row_width = PILL_ROW_WIDTH_MIN;
+            if (row_width > PILL_ROW_WIDTH_MAX) row_width = PILL_ROW_WIDTH_MAX;
+            int32_t left = icon ? BOARD_SCALE_PX(96) : BOARD_SCALE_PX(24);
+            lv_obj_align(label, LV_ALIGN_LEFT_MID, left, 0);
+            configure_plugin_row_label(row_obj, label, row_width - left - BOARD_SCALE_PX(112), st->wrap);
+            if (icon) decorate_category_row(row_obj, NULL, NULL);
+        } else if (st->type == PLUGIN_SETTINGS_ROW_SLIDER) {
+            lv_obj_t * card = add_pill_slider_row(list, st->label, st->slider_min, st->slider_max, st->slider_value,
+                                                   plugin_settings_slider_event_cb, packed, icon, text_size);
+            apply_plugin_pill_row_resize(card, 0, st->row_width);
+            int32_t row_width = st->row_width > 0 ? st->row_width : pill_row_default_width();
+            if (row_width < PILL_ROW_WIDTH_MIN) row_width = PILL_ROW_WIDTH_MIN;
+            if (row_width > PILL_ROW_WIDTH_MAX) row_width = PILL_ROW_WIDTH_MAX;
+            lv_obj_t * label = lv_obj_get_child(card, 0);
+            configure_scrolling_row_label(label, row_width - BOARD_SCALE_PX(20) - (icon ? PILL_ROW_ICON_PX_DEFAULT + BOARD_SCALE_PX(12) : 0) - BOARD_SCALE_PX(96));
+            /* Same reasoning as every native slider card's own identical
+             * pair of calls -- see register_swipe_dead_zone()'s own
+             * top-of-block comment. */
+            lv_obj_remove_flag(card, LV_OBJ_FLAG_GESTURE_BUBBLE);
+            register_swipe_dead_zone(card);
+            if (plugin_settings_list_slider_card_count[slot] < PLUGIN_SETTINGS_LIST_MAX_SLIDERS) {
+                plugin_settings_list_slider_cards[slot][plugin_settings_list_slider_card_count[slot]++] = card;
+            }
+        } else { /* PLUGIN_SETTINGS_ROW_TAP */
+            lv_obj_t * row_obj = add_pill_chevron_row(list, st->label, NULL);
+            lv_obj_add_event_cb(row_obj, plugin_settings_tap_row_click_cb, LV_EVENT_CLICKED, packed);
+            lv_obj_t * label = lv_obj_get_child(row_obj, 0);
+            lv_obj_set_style_text_font(label, pill_row_resolve_text_size(text_size), 0);
+            pill_row_apply_icon(row_obj, label, icon, BOARD_SCALE_PX(44), LV_ALIGN_LEFT_MID, BOARD_SCALE_PX(28), 0);
+            apply_plugin_pill_row_resize(row_obj, st->row_height, st->row_width);
+            int32_t row_width = st->row_width > 0 ? st->row_width : pill_row_default_width();
+            if (row_width < PILL_ROW_WIDTH_MIN) row_width = PILL_ROW_WIDTH_MIN;
+            if (row_width > PILL_ROW_WIDTH_MAX) row_width = PILL_ROW_WIDTH_MAX;
+            int32_t left = icon ? BOARD_SCALE_PX(96) : BOARD_SCALE_PX(24);
+            lv_obj_align(label, LV_ALIGN_LEFT_MID, left, 0);
+            configure_plugin_row_label(row_obj, label, row_width - left - BOARD_SCALE_PX(60), st->wrap);
+            if (icon) decorate_category_row(row_obj, NULL, NULL);
+        }
+    }
+
+restore_scroll:
+    lv_obj_update_layout(list);
+    lv_obj_scroll_to_y(list, scroll_y, LV_ANIM_OFF);
+}
+
+int gui_plugin_show_settings_list(const char * title, const int * row_types, const char * const * labels,
+                                   const bool * toggle_initial, const int * slider_min, const int * slider_max,
+                                   const int * slider_value, const char * const * icon_paths, const int32_t * heights,
+                                   const int32_t * widths, const char * const * text_sizes,
+                                   const bool * wrap_labels, int count, bool update_existing,
+                                   const gui_lock_screen_options_t * preview,
+                                   const struct plugin_control_dashboard_options * dashboard) {
+    const char * raw_title = title ? title : "";
+    int slot = -1;
+    bool updating_existing = false;
+    if (update_existing) {
+        /* Prefer the most deeply nested live screen with this title. This
+         * lets a child settings chooser refresh its covered parent in place
+         * without adding another navigation entry. */
+        for (int depth = gui_navigation_get_depth() - 1; depth >= 0 && slot < 0; depth--) {
+            lv_obj_t * live = gui_navigation_get_screen_at(depth);
+            for (int candidate = 0; candidate < PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE; candidate++) {
+                if (plugin_settings_list_screens[candidate] == live &&
+                    plugin_settings_list_titles[candidate] &&
+                    strcmp(plugin_settings_list_titles[candidate], raw_title) == 0) {
+                    slot = candidate;
+                    updating_existing = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    /* WHY BLIND ROUND-ROBIN IS WRONG:
+     * A common pattern is: open plugin settings list (slot 0) -> tap an option
+     * to open a child list (slot 1) -> back (to slot 0) -> tap a DIFFERENT
+     * option. If we just blindly used pool_next, that second child descent
+     * would wrap to slot 0 -- overwriting the STILL-LIVE parent screen
+     * underneath it, and failing to increment the nav stack since we'd push a
+     * screen already at the top.
+     *
+     * We fix this narrow but common pattern by checking liveness across the
+     * whole nav stack. Note: the pool can still be exhausted by deep
+     * SIMULTANEOUS nesting (e.g., 3+ levels deep without popping). In that
+     * exhaustion case, we fall back to the old round-robin behavior, which
+     * IS still destructive: it silently overwrites a still-navigably-reachable
+     * ancestor screen's content AND releases its Lua callback references (unlike
+     * row truncation which just degrades gracefully).
+     */
+    if (slot < 0) {
+        slot = plugin_settings_list_pool_next;
+        for (int i = 0; i < PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE; i++) {
+            int candidate = (plugin_settings_list_pool_next + i) % PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE;
+            if (!gui_navigation_contains(plugin_settings_list_screens[candidate])) {
+                slot = candidate;
+                break;
+            }
+        }
+        plugin_settings_list_pool_next = (slot + 1) % PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE;
+    }
+
+    char * owned_title = strdup(raw_title);
+    if (!owned_title) return -1;
+    free(plugin_settings_list_titles[slot]);
+    plugin_settings_list_titles[slot] = owned_title;
+
+    /* The screen can be covered while its rows are rebuilt in place. Drop
+     * the cached Back image before mutating that covered screen's contents. */
+    if (updating_existing)
+        gui_navigation_invalidate_back_snapshot(plugin_settings_list_screens[slot]);
+
+    lv_label_set_text(plugin_settings_list_title_labels[slot], raw_title);
+    configure_plugin_screen_title(plugin_settings_list_title_labels[slot]);
+
+    int n = count;
+    if (n > PLUGIN_SETTINGS_LIST_MAX_ROWS) n = PLUGIN_SETTINGS_LIST_MAX_ROWS;
+    if (n < 0) n = 0;
+    for (int i = 0; i < n; i++) {
+        plugin_settings_list_row_state_t * st = &plugin_settings_list_row_state[slot][i];
+        st->type = row_types[i];
+        st->wrap = wrap_labels && wrap_labels[i] && row_types[i] != PLUGIN_SETTINGS_ROW_SLIDER;
+        snprintf(st->label, st->wrap ? sizeof(st->label) : 96, "%s", labels[i] ? labels[i] : "");
+        st->toggle_value = toggle_initial[i];
+        st->slider_min = slider_min[i];
+        st->slider_max = slider_max[i];
+        st->slider_value = slider_value[i];
+        snprintf(st->icon_path, sizeof(st->icon_path), "%s", icon_paths[i] ? icon_paths[i] : "");
+        st->row_height = heights[i];
+        st->row_width = widths[i];
+        snprintf(st->text_size, sizeof(st->text_size), "%s", text_sizes[i] ? text_sizes[i] : "");
+    }
+    plugin_settings_list_row_state_count[slot] = n;
+
+    plugin_settings_list_preview_enabled[slot] = preview != NULL;
+    if (preview) plugin_settings_list_previews[slot] = *preview;
+    else memset(&plugin_settings_list_previews[slot], 0, sizeof(plugin_settings_list_previews[slot]));
+    plugin_settings_list_dashboard_enabled[slot] = dashboard != NULL;
+    if (dashboard) plugin_settings_list_dashboard_options[slot] = *dashboard;
+    else memset(&plugin_settings_list_dashboard_options[slot], 0, sizeof(plugin_settings_list_dashboard_options[slot]));
+
+    if (!updating_existing)
+        lv_obj_scroll_to_y(plugin_settings_list_lists[slot], 0, LV_ANIM_OFF);
+
+    populate_plugin_settings_list_screen(slot);
+    if (!updating_existing) nav_push(plugin_settings_list_screens[slot]);
+    return slot;
+}
+
+
+void gui_plugins_init(void) {
+    for (int i = 0; i < PLUGIN_LIST_SCREEN_POOL_SIZE; i++) {
+        plugin_list_screens[i] = build_subsonic_list_screen(TR("Plugin"), &plugin_list_title_labels[i], &plugin_list_lists[i]);
+    }
+    for (int i = 0; i < PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE; i++) {
+        plugin_settings_list_screens[i] = build_subsonic_list_screen(TR("Plugin Settings"), &plugin_settings_list_title_labels[i], &plugin_settings_list_lists[i]);
+        plugin_settings_list_preview_enabled[i] = false;
+        memset(&plugin_settings_list_previews[i], 0, sizeof(plugin_settings_list_previews[i]));
+        plugin_settings_list_dashboard_enabled[i] = false;
+        memset(&plugin_settings_list_dashboard_options[i], 0, sizeof(plugin_settings_list_dashboard_options[i]));
+    }
+}
+
+/* For gui_reload.c's in-process UI reload -- deletes every pool screen this
+ * module owns so gui_plugins_init() can rebuild them from a clean slate
+ * without leaking the old objects. Also resets the slider card counts for
+ * each slot -- while the slider card objects themselves are children of their
+ * own plugin_settings_list_screens[] slot and get freed along with it, we
+ * must reset the counts so that a subsequent populate_plugin_settings_list_screen()
+ * doesn't iterate stale counts and call unregister_swipe_dead_zone() on
+ * already-freed pointers. */
+void gui_plugins_teardown(void) {
+    gui_plugin_close_progress();
+    gui_plugin_close_confirmation();
+    plugin_manager_confirmation_cancelled();
+    plugin_picker_active = false;
+    plugin_picker_finishing = true;
+    plugin_picker_result[0] = '\0';
+    if (plugin_picker_timer) { lv_timer_delete(plugin_picker_timer); plugin_picker_timer = NULL; }
+    if (plugin_picker_screen) {
+        gui_navigation_remove_screen_instances(&plugin_picker_screen, 1);
+        plugin_picker_browser = NULL;
+        lv_obj_delete(plugin_picker_screen);
+        plugin_picker_screen = NULL;
+    }
+    for (int i = 0; i < PLUGIN_LIST_SCREEN_POOL_SIZE; i++) {
+        if (plugin_list_screens[i]) { lv_obj_delete(plugin_list_screens[i]); plugin_list_screens[i] = NULL; }
+    }
+    for (int i = 0; i < PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE; i++) {
+        if (plugin_settings_list_screens[i]) { lv_obj_delete(plugin_settings_list_screens[i]); plugin_settings_list_screens[i] = NULL; }
+        free(plugin_settings_list_titles[i]);
+        plugin_settings_list_titles[i] = NULL;
+        plugin_settings_list_slider_card_count[i] = 0;
+        plugin_settings_list_preview_enabled[i] = false;
+        memset(&plugin_settings_list_previews[i], 0, sizeof(plugin_settings_list_previews[i]));
+        plugin_settings_list_dashboard_enabled[i] = false;
+        memset(&plugin_settings_list_dashboard_options[i], 0, sizeof(plugin_settings_list_dashboard_options[i]));
+    }
+}
+
+
+bool gui_plugin_refresh_library(void) {
+    if (gui_library_has_background_work()) return false;
+    start_library_rescan();
+    return true;
+}
+
+bool gui_plugin_open_file_manager(const char * folder) {
+    return gui_file_manager_open(folder);
+}
+
+static void plugin_picker_back_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (!file_browser_go_up_for_screen(plugin_picker_screen)) nav_pop();
+}
+
+bool gui_plugin_pick_file(const char * folder) {
+    if (plugin_picker_active) return false;
+    if (!plugin_picker_screen) {
+        plugin_picker_screen = lv_obj_create(NULL);
+        if (!plugin_picker_screen) return false;
+        lv_obj_add_style(plugin_picker_screen, &style_theme_screen_bg, 0);
+        build_screen_header(plugin_picker_screen, TR("Select a file"), plugin_picker_back_cb, NULL, NULL);
+    }
+    plugin_picker_finishing = false;
+    plugin_picker_result[0] = '\0';
+    if (!plugin_picker_browser) {
+        file_browser_options_t options = { .on_pick_file = plugin_picker_file_selected };
+        plugin_picker_browser = file_browser_create(plugin_picker_screen, MUSIC_ROOT_DIR, &options);
+        if (!plugin_picker_browser) return false;
+        finalize_screen_navigation(plugin_picker_screen);
+    }
+    if (!file_browser_open_dir(plugin_picker_browser, folder ? folder : MUSIC_ROOT_DIR)) return false;
+    if (plugin_picker_timer) lv_timer_delete(plugin_picker_timer);
+    plugin_picker_timer = lv_timer_create(plugin_picker_timer_cb, 25, NULL);
+    if (!plugin_picker_timer) return false;
+    nav_push(plugin_picker_screen);
+    plugin_picker_active = true;
+    return true;
+}
+
+void gui_plugin_cancel_file_picker(void) {
+    plugin_picker_finishing = true;
+    plugin_picker_active = false;
+    if (plugin_picker_timer) { lv_timer_delete(plugin_picker_timer); plugin_picker_timer = NULL; }
+    if (!plugin_picker_screen) return;
+    if (gui_navigation_is_top(plugin_picker_screen)) nav_pop();
+    else gui_navigation_remove_screen_instances(&plugin_picker_screen, 1);
+}
+
+void gui_plugin_refresh_file_browsers(void) {
+    file_browser_refresh_all();
+}

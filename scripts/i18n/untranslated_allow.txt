@@ -3,19 +3,19 @@
 # Comment lines start with "#". Literals are the text between the quotes in C
 # source, escapes included.
 AM\nPM
-src/ui/gui_settings.c::Default
-src/ui/gui_library.c::Unknown Artist
-src/ui/gui_library.c::Unknown Album
-src/ui/gui_library.c::Unknown Genre
-src/ui/gui_subsonic.c::Unknown Artist
-src/ui/gui_subsonic.c::Unknown Album
-src/ui/gui_subsonic.c::Unknown Title
-src/ui/gui_network.c::44.1 kHz
-src/library/metadata_isolation.c::scan
-src/library/metadata_isolation.c::artwork
+src/ui/settings/gui_settings.c::Default
+src/ui/library/browse/gui_library.c::Unknown Artist
+src/ui/library/browse/gui_library.c::Unknown Album
+src/ui/library/browse/gui_library.c::Unknown Genre
+src/ui/network/subsonic/gui_subsonic.c::Unknown Artist
+src/ui/network/subsonic/gui_subsonic.c::Unknown Album
+src/ui/network/subsonic/gui_subsonic.c::Unknown Title
+src/ui/network/gui_network.c::44.1 kHz
+src/library/metadata/isolation/metadata_isolation.c::scan
+src/library/metadata/isolation/metadata_isolation.c::artwork
 1k
 20k Hz
-src/ui/gui_setup.c::Aa
-src/ui/gui_custom_font.c::Default
-src/ui/gui_custom_font_spec.c::Default
-src/ui/gui_shell_settings_spec.c::test category entry
+src/ui/settings/setup/gui_setup.c::Aa
+src/ui/appearance/fonts/gui_custom_font.c::Default
+src/ui/appearance/fonts/tests/gui_custom_font_spec.c::Default
+src/ui/settings/controls/tests/gui_shell_settings_spec.c::test category entry

@@ -14,9 +14,9 @@ index f42070d..c9dfad0 100644
  #include "version.h"
  
 +#if defined(HIBY_R1) || defined(HIBY_R3PROII)
-+#include "rockbox_bridge.h"
-+#include "selector_controller.h"
-+#include "compas_loader.h"
++#include "src/bootloader/rockbox/rockbox_bridge.h"
++#include "src/bootloader/selector/ui/controller/selector_controller.h"
++#include "src/bootloader/app/compas_loader.h"
 +#endif
 +
  //#define ENABLE_LOGGING

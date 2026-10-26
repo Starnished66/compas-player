@@ -51,4 +51,4 @@ For a listening countdown, open **Settings > Power > Sleep Timer**, turn on **En
 
 For loudness adjustment, see [ReplayGain in Sound](05-sound.md#keep-playback-levels-consistent-with-replaygain). Audiobook and podcast plugins can add speed, seek and resume controls; see [Books, audiobooks and podcasts](09-books.md).
 
-<!-- Sources: src/ui/gui_player.c (play-mode cycle, lyrics and favorite controls); src/ui/gui_queue.c (Queue screen and actions); src/ui/gui_settings.c (Playback & Controls, sleep timer, Lyrics setting). -->
+<!-- Sources: src/ui/player/screen/gui_player.c (play-mode cycle, lyrics and favorite controls); src/ui/player/screen/gui_queue.c (Queue screen and actions); src/ui/settings/gui_settings.c (Playback & Controls, sleep timer, Lyrics setting). -->

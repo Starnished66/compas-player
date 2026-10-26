@@ -2,7 +2,7 @@
 #define LIBRARY_AZ_INDEX_H
 
 #include "lvgl/lvgl.h"
-#include "metadata_db.h"
+#include "../../library/metadata/db/metadata_db.h"
 #include <stdbool.h>
 
 typedef lv_indev_t * (*library_az_index_pointer_indev_getter_t)(void);

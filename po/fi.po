@@ -2436,8 +2436,8 @@ msgstr "Skannaa avataksesi koko oppaan"
 msgid "github.com/Starnished66/compas-player"
 msgstr "github.com/Starnished66/compas-player"
 
-msgid "Guide: docs/CREATING.md"
-msgstr "Opas: docs/CREATING.md"
+msgid "Guide: docs/development/CREATING.md"
+msgstr "Opas: docs/development/CREATING.md"
 
 msgid "Write a Lua plugin on your computer. Copy its .lua file to the .plugins folder on your SD card."
 msgstr "Kirjoita Lua-liitännäinen tietokoneella. Kopioi sen .lua-tiedosto SD-kortin .plugins-kansioon."
@@ -3674,7 +3674,7 @@ msgstr "Suoratoistolaajennus ei ole käytettävissä"
 msgid "TXT Reader"
 msgstr "TXT-lukija"
 
-#: src/ui/gui_settings.c
+#: src/ui/settings/gui_settings.c
 msgid "Keep Lyrics Screen On"
 msgstr ""
 

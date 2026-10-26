@@ -1,4 +1,4 @@
-#include "compat_internal.h"
+#include "../../src/tools/sdtool/compat/compat_internal.h"
 #include <stdio.h>
 #include <stdlib.h>
 

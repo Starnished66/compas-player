@@ -3,8 +3,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <lvgl/lvgl.h>
-#include "library_artwork_internal.h"
-#include "metadata_db.h"
+#include "../../library/artwork/decode/library_artwork_internal.h"
+#include "../../library/metadata/db/metadata_db.h"
 
 typedef enum {
     LIBRARY_THUMB_LIST_ALBUMS,

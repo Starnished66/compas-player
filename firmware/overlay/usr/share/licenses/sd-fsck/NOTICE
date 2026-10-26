@@ -1,7 +1,7 @@
 SD filesystem repair tools
 
-These static checkers are built by scripts/build_sd_fsck_tools.sh and copied
-into both firmware images by scripts/repack_upt.sh. The player runs one of
+These static checkers are built by scripts/build/storage/build_sd_fsck_tools.sh and copied
+into both firmware images by scripts/firmware/package/repack_upt.sh. The player runs one of
 them only after a card has mounted read-only.
 
   dosfstools 4.2 (fsck.fat, also installed as fsck.vfat)

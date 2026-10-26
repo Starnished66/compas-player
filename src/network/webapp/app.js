@@ -1,6 +1,6 @@
 /* Compás Remote web app. Plain ES2017, no dependencies: the player serves this
  * page itself and the browser may have no Internet access. Edit here, then run
- * scripts/generate_remote_webapp.py (the Makefile does it automatically). */
+ * scripts/generators/webapp/generate_remote_webapp.py (the Makefile does it automatically). */
 'use strict';
 
 /* ---------- Icons ---------- */

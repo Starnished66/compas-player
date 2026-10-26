@@ -11,7 +11,7 @@ Store) installs from it. Browse it for real examples, or contribute your own.
 Browse [published plugins](https://github.com/Starnished66/compas-plugins/tree/main/plugins)
 and [standalone examples](https://github.com/Starnished66/compas-plugins/tree/main/examples).
 
-This guide describes the API in `src/plugins/plugin_manager.c`. If the two
+This guide describes the API in `src/plugins/manager/plugin_manager.c`. If the two
 ever disagree, the code is right.
 
 Tools that install plugins on a card from a computer should also write the
@@ -542,12 +542,12 @@ plugin.show_toast("Cover saved")
 The native regressions use real Lua and LVGL:
 
 ```sh
-python3 scripts/test_plugin_progress_api.py
+python3 scripts/tests/plugins/test_plugin_progress_api.py
 make host
-python3 scripts/test_plugin_progress_ui.py
+python3 scripts/tests/plugins/test_plugin_progress_ui.py
 ```
 
-For a reproducible device transfer, `scripts/tests/progress_http_fixture.c`
+For a reproducible device transfer, `scripts/tests/network/progress_http_fixture.c`
 is a loopback-only fixture serving `/known` (Content-Length) and `/unknown`
 (chunked), each with 262144 payload bytes over roughly 32 seconds. Compile
 for the device, stage and run it only from persistent SD storage, then stop
@@ -806,7 +806,7 @@ Callbacks are removed when their plugin unloads or fails to load.
 Use `compas_artist_action`/`compas_album_action` XML constants or
 `<event_cb trigger="clicked" callback="compas_action" user_data="name" />`.
 Layout-local lyrics and click options, complete XML and Lua examples, and the
-lifetime rules are documented in [Player layouts](docs/PLAYER_LAYOUTS.md#interaction-options-and-plugin-menus).
+lifetime rules are documented in [Player layouts](docs/reference/PLAYER_LAYOUTS.md#interaction-options-and-plugin-menus).
 No LVGL patches, Lua evaluation from XML, or custom widget types are required.
 
 ### `plugin.restore_player_layout()`
@@ -845,7 +845,7 @@ only to one you ship. A layout that wants its own background should paint it
 | `id` | string | Internal id, 1 to 63 letters, digits, `_`, `-` or `.`; not `default`. Default: `plugin.<file name without .xml>`, other characters replaced by `_`. Longer ids are cut short. |
 
 How to write the XML file, and which widget names the app needs, is explained
-in [docs/PLAYER_LAYOUTS.md](docs/PLAYER_LAYOUTS.md).
+in [docs/reference/PLAYER_LAYOUTS.md](docs/reference/PLAYER_LAYOUTS.md).
 
 - The file must be inside the `.plugins` folder. Absolute paths, `..`, links
   leading outside the folder, or a missing file raise a Lua error.
@@ -1822,7 +1822,7 @@ for example, stay until changed again.
 ## Extending the API (C developers)
 
 To add a function plugins can call, follow the existing `l_plugin_*`
-functions in `src/plugins/plugin_manager.c`: read the arguments with
+functions in `src/plugins/manager/plugin_manager.c`: read the arguments with
 `luaL_check*`/`luaL_opt*`, do the work, push the results, return their
 count, and add the function to `plugin_funcs[]`.
 

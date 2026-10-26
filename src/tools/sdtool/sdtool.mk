@@ -17,9 +17,9 @@ ifeq ($(SDTOOL_TARGET),windows)
 SDTOOL_DIR = build_sdtool_windows
 SDTOOL_CC ?= x86_64-w64-mingw32-gcc
 SDTOOL_EXE = .exe
-SDTOOL_PLATFORM_CFLAGS = -include $(SDTOOL_SRC_DIR)/compat.h -I$(SDTOOL_SRC_DIR)/compat \
+SDTOOL_PLATFORM_CFLAGS = -include $(SDTOOL_SRC_DIR)/compat/compat.h -I$(SDTOOL_SRC_DIR)/compat \
                          -D_FILE_OFFSET_BITS=64 -D__USE_MINGW_ANSI_STDIO=1 -D_WIN32_WINNT=0x0601
-SDTOOL_PLATFORM_SRCS = $(SDTOOL_SRC_DIR)/compat.c $(SDTOOL_SRC_DIR)/compat_dirs.c
+SDTOOL_PLATFORM_SRCS = $(SDTOOL_SRC_DIR)/compat/compat.c $(SDTOOL_SRC_DIR)/compat/compat_dirs.c
 SDTOOL_PLATFORM_LIBS = -static -lbcrypt -lpthread
 SDTOOL_CMAKE_FLAGS = -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_C_COMPILER=$(SDTOOL_CC) $(SDTOOL_CMAKE_EXTRA)
 else
@@ -27,24 +27,26 @@ SDTOOL_DIR = build_sdtool
 SDTOOL_CC ?= $(CC)
 SDTOOL_EXE =
 # Linux and macOS: stat() is routed through mtime.c; macOS also needs compat.h.
-SDTOOL_PLATFORM_CFLAGS = -include $(SDTOOL_SRC_DIR)/stat_shim.h \
-                         $(if $(filter Darwin,$(shell uname -s)),-include $(SDTOOL_SRC_DIR)/compat.h)
-SDTOOL_PLATFORM_SRCS = $(if $(filter Darwin,$(shell uname -s)),$(SDTOOL_SRC_DIR)/compat_apple.c)
+SDTOOL_PLATFORM_CFLAGS = -include $(SDTOOL_SRC_DIR)/compat/stat_shim.h \
+                         $(if $(filter Darwin,$(shell uname -s)),-include $(SDTOOL_SRC_DIR)/compat/compat.h)
+SDTOOL_PLATFORM_SRCS = $(if $(filter Darwin,$(shell uname -s)),$(SDTOOL_SRC_DIR)/compat/compat_apple.c)
 SDTOOL_PLATFORM_LIBS = -lpthread $(if $(filter Darwin,$(shell uname -s)),-framework CoreFoundation)
 SDTOOL_CMAKE_FLAGS = -DCMAKE_C_COMPILER=$(SDTOOL_CC)
 endif
 
 SDTOOL_BIN = $(SDTOOL_DIR)/compas-sdtool$(SDTOOL_EXE)
 
-SDTOOL_OWN_SRCS = $(addprefix $(SDTOOL_SRC_DIR)/,main.c json_out.c root.c database.c scan.c art.c mtime.c mtime_calibrate.c parse_pool.c process.c stubs.c version.c lvgl_shim.c dr_libs_impl.c) \
+SDTOOL_OWN_SRCS = $(addprefix $(SDTOOL_SRC_DIR)/,cli/main.c output/json_out.c index/root.c index/database.c index/scan.c media/art.c time/mtime.c time/mtime_calibrate.c parse/parse_pool.c index/process.c cli/stubs.c cli/version.c media/lvgl_shim.c media/dr_libs_impl.c) \
                   $(SDTOOL_PLATFORM_SRCS)
 # The player's own library code, unchanged: tagcache and metadata_db for the
 # database, albumart and cover_decode for the covers, metadata for the tags.
-SDTOOL_PLAYER_SRCS = $(addprefix src/library/,tagcache.c metadata_db.c metadata.c albumart.c path_cache.c \
-                       remote_state.c subsonic_saved_servers.c cue_parser.c sacd_iso.c lyrics.c cover_decode.c \
-                       artwork_coordinator.c artwork_memory.c library_walk.c library_scan_tags.c) \
-                     src/core/db_log.c src/core/utf8_util.c \
-                     $(addprefix src/audio/,ogg_probe.c opusfile_alloc.c wavpack_decoder.c caf_decoder.c)
+SDTOOL_PLAYER_SRCS = $(addprefix src/library/,tagcache/core/tagcache.c metadata/db/metadata_db.c metadata/parsing/metadata.c \
+                       artwork/albumart/albumart.c browser/paths/path_cache.c remote/remote_state.c \
+                       remote/subsonic/subsonic_saved_servers.c parsers/cue/cue_parser.c sacd/sacd_iso.c \
+                       text/lyrics/lyrics.c artwork/decode/cover_decode.c artwork/coordinator/artwork_coordinator.c \
+                       artwork/coordinator/artwork_memory.c metadata/scan/library_walk.c metadata/scan/library_scan_tags.c) \
+                     src/core/system/logging/db_log.c src/core/text/utf8_util.c \
+                     $(addprefix src/audio/,decoders/ogg/ogg_probe.c decoders/ogg/opusfile_alloc.c decoders/wavpack/wavpack_decoder.c decoders/caf/caf_decoder.c)
 SDTOOL_LVGL_SRCS = $(LVGL_DIR)/src/libs/lodepng/lodepng.c $(LVGL_DIR)/src/libs/tjpgd/tjpgd.c
 SDTOOL_MBEDTLS_SRCS = $(MBEDTLS_DIR)/library/base64.c $(MBEDTLS_DIR)/library/platform_util.c
 
@@ -70,8 +72,8 @@ $(SDTOOL_DIR)/.build_id: SDTOOL_FORCE
 	@mkdir -p $(dir $@)
 	@printf '%s\n' '$(SDTOOL_BUILD_ID)' > $@.tmp
 	@cmp -s $@.tmp $@ && rm $@.tmp || mv $@.tmp $@
-$(SDTOOL_DIR)/$(SDTOOL_SRC_DIR)/version.o: $(SDTOOL_DIR)/.build_id
-$(SDTOOL_DIR)/$(SDTOOL_SRC_DIR)/version.o: SDTOOL_CFLAGS += -DSDTOOL_BUILD=\"$(SDTOOL_BUILD_ID)\"
+$(SDTOOL_DIR)/$(SDTOOL_SRC_DIR)/cli/version.o: $(SDTOOL_DIR)/.build_id
+$(SDTOOL_DIR)/$(SDTOOL_SRC_DIR)/cli/version.o: SDTOOL_CFLAGS += -DSDTOOL_BUILD=\"$(SDTOOL_BUILD_ID)\"
 
 .PHONY: sdtool
 sdtool: $(SDTOOL_BIN)
@@ -112,8 +114,8 @@ test-sdtool: $(SDTOOL_BIN)
 
 ifeq ($(SDTOOL_TARGET),windows)
 # Windows only: the compat layer's folder pattern for drive roots (run under Wine).
-$(SDTOOL_DIR)/compat_pattern_test.exe: tests/sdtool/compat_pattern_test.c $(SDTOOL_DIR)/$(SDTOOL_SRC_DIR)/compat.o \
-                                      $(SDTOOL_DIR)/$(SDTOOL_SRC_DIR)/compat_dirs.o $(SDTOOL_DIR)/$(SDTOOL_SRC_DIR)/mtime.o
+$(SDTOOL_DIR)/compat_pattern_test.exe: tests/sdtool/compat_pattern_test.c $(SDTOOL_DIR)/$(SDTOOL_SRC_DIR)/compat/compat.o \
+                                      $(SDTOOL_DIR)/$(SDTOOL_SRC_DIR)/compat/compat_dirs.o $(SDTOOL_DIR)/$(SDTOOL_SRC_DIR)/time/mtime.o
 	$(SDTOOL_CC) $(SDTOOL_CFLAGS) -o $@ $^ -static -lbcrypt -lpthread
 .PHONY: sdtool-compat-test
 sdtool-compat-test: $(SDTOOL_DIR)/compat_pattern_test.exe

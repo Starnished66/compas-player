@@ -8,10 +8,10 @@
  * Playback, network and database code is either discarded by section
  * garbage collection or, when only reachable through an event callback that
  * this test never fires, left unresolved at link time. */
-#include "gui_player.c"
-#include "player_artwork_cache.c"
-#include "player_artwork_jobs.c"
-#include "player_inline_lyrics.c"
+#include "../../src/ui/player/screen/gui_player.c"
+#include "../../src/ui/player/artwork/player_artwork_cache.c"
+#include "../../src/ui/player/artwork/player_artwork_jobs.c"
+#include "../../src/ui/player/lyrics/player_inline_lyrics.c"
 #define player_lyrics_set_open player_inline_lyrics_set_open
 #define player_timeline_cover_cache_invalidate player_inline_lyrics_invalidate_cover_source
 #define player_hit_targets player_inline_hit_targets
@@ -21,7 +21,7 @@
 #define player_lyrics_area player_inline_view.lyrics_area
 #define player_timeline_lyrics_open player_inline_view.lyrics_open
 #define player_timeline_lyrics_close player_inline_view.lyrics_close
-#include "ui_fonts.h"
+#include "../../src/ui/text/fonts/ui_fonts.h"
 #include "lvgl/src/draw/snapshot/lv_snapshot.h"
 #include "tests/player/lv_snapshot_ppm.h"
 #include <assert.h>

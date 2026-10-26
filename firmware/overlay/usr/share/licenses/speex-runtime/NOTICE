@@ -1,7 +1,7 @@
 Speex ALSA runtime
 
 This directory contains target libraries built from the following upstream
-sources by scripts/build_base_audio_deps.sh:
+sources by scripts/build/base/audio/build_base_audio_deps.sh:
 
   SpeexDSP 1.2.1
     https://downloads.xiph.org/releases/speex/speexdsp-1.2.1.tar.gz

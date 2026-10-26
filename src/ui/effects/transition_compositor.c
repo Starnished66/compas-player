@@ -1,0 +1,1132 @@
+#include "transition_compositor.h"
+#include "../diagnostics/ui_frame_trace.h"
+#include "src/draw/lv_draw_buf.h"
+#include <string.h>
+#include <stdlib.h>
+#ifdef UI_PERF_TRACE
+#include <stdio.h>
+#include <time.h>
+#endif
+
+/* lv_linux_fbdev_*() (the actual page/stride/pan/handoff accessors this
+ * compositor needs) are only ever DECLARED when LV_USE_LINUX_FBDEV is set
+ * (lv_conf.h -- 0 on HOST_BUILD, which uses SDL instead) -- guard the
+ * include and every call site so the host/SDL build still compiles,
+ * always taking the fbdev-unavailable path (transition_compositor_begin()
+ * returns false, gui.c's existing LVGL-object overlay is used unmodified
+ * there, same as on real hardware if this driver ever changes to not
+ * support pan-based double buffering). */
+#if LV_USE_LINUX_FBDEV
+#include "src/drivers/display/fb/lv_linux_fbdev.h"
+#endif
+
+/* local/notes/performance/TRANSITION_PERFORMANCE_PLAN.md Phase 3. Was disabled during the rewrite
+ * that fixed the issues found in an earlier design (a leftover LVGL
+ * overlay flashing on top of the composited frame, a NULL-pointer crash on
+ * swipe release, a stationary top/bottom band that either blanked or
+ * visibly flickered, and -- found in the fallback path, not this module,
+ * but from the same root cause -- the persistent bars being drawn twice).
+ * The rewrite addresses the actual root causes: full-frame sources with no
+ * "margin" concept, a real fbdev external-composition handoff that keeps
+ * LVGL's own buf_act synchronized, pan-failure-safe bookkeeping, and an
+ * owned (never aliased) incoming/outgoing source. Now enabled for on-
+ * device diagnostic testing (2026-08-22) -- set back to 1 immediately if
+ * real-hardware testing finds anything wrong; the fallback path (this file
+ * disabled) is independently confirmed correct on its own. */
+#define COMPOSITOR_DISABLED 0
+
+static bool compositor_active = false;
+#if LV_USE_LINUX_FBDEV
+typedef enum {
+    COMPOSITOR_MODE_NONE,
+    COMPOSITOR_MODE_HORIZONTAL,
+    COMPOSITOR_MODE_VERTICAL,
+    COMPOSITOR_MODE_VERTICAL_OVERLAY,
+    COMPOSITOR_MODE_VERTICAL_REVEAL,
+    COMPOSITOR_MODE_BOTTOM_SHEET,
+} compositor_mode_t;
+static compositor_mode_t compositor_mode = COMPOSITOR_MODE_NONE;
+static const lv_draw_buf_t * compositor_from;
+static const lv_draw_buf_t * compositor_to;
+static int32_t compositor_to_offset;
+static bool compositor_reveal;
+static int32_t compositor_width;
+static int32_t compositor_height;
+static uint32_t compositor_fb_stride;
+static bool compositor_vertical;
+static uint8_t * compositor_vertical_base;
+static size_t compositor_vertical_base_size;
+static int32_t compositor_vertical_base_width;
+static int32_t compositor_vertical_base_height;
+static uint32_t compositor_vertical_base_stride;
+static int32_t compositor_vertical_fixed_top;
+static uint8_t * compositor_vertical_reveal_base;
+static uint32_t compositor_vertical_reveal_base_stride;
+static int32_t compositor_reveal_rows_top;
+static int32_t compositor_reveal_rows_height;
+static int32_t compositor_reveal_controls_top;
+static int32_t compositor_reveal_controls_height;
+static const lv_draw_buf_t * compositor_bottom_sheet;
+static uint8_t * compositor_bottom_base;
+static uint8_t * compositor_bottom_rgb565;
+static int32_t * compositor_bottom_span_start;
+static int32_t * compositor_bottom_span_end;
+static int32_t compositor_bottom_height;
+#endif
+
+/* Deliberately identical to LVGL's lv_color_24_16_mix() quantization. This
+ * makes the direct framebuffer result match the ordinary software-rendered
+ * fallback at drawer endpoints, including its 5/6-bit partial-alpha math. */
+static inline uint16_t compositor_argb8888_pixel_over_rgb565(const uint8_t * src, uint16_t dst) {
+    uint32_t mix = src[3];
+    if (mix == 0U) return dst;
+    if (mix == 255U)
+        return (uint16_t) (((src[2] & 0xf8U) << 8) |
+                           ((src[1] & 0xfcU) << 3) |
+                           ((src[0] & 0xf8U) >> 3));
+
+    uint32_t inv = 255U - mix;
+    return (uint16_t) (((((src[2] >> 3) * mix + ((dst >> 11) & 0x1fU) * inv) << 3) & 0xf800U) |
+                       ((((src[1] >> 2) * mix + ((dst >> 5) & 0x3fU) * inv) >> 3) & 0x07e0U) |
+                       (((src[0] >> 3) * mix + (dst & 0x1fU) * inv) >> 8));
+}
+
+void transition_compositor_blend_argb8888_over_rgb565(uint8_t * dst, uint32_t dst_stride,
+                                                       const uint8_t * src, uint32_t src_stride,
+                                                       int32_t width, int32_t height) {
+    if (!dst || !src || width <= 0 || height <= 0) return;
+    for (int32_t y = 0; y < height; y++) {
+        uint16_t * dst_px = (uint16_t *) dst;
+        for (int32_t x = 0; x < width; x++)
+            dst_px[x] = compositor_argb8888_pixel_over_rgb565(src + (size_t) x * 4U, dst_px[x]);
+        dst += dst_stride;
+        src += src_stride;
+    }
+}
+
+bool transition_compositor_compose_rgb565(uint8_t * dst, uint32_t dst_stride,
+                                          const uint8_t * from, uint32_t from_stride,
+                                          const uint8_t * to, uint32_t to_stride,
+                                          int32_t width, int32_t height, int32_t v,
+                                          int32_t to_offset, bool vertical, bool reveal) {
+    if (!dst || !from || !to || width <= 0 || height <= 0) return false;
+    int32_t axis = vertical ? height : width;
+    if (to_offset != axis && to_offset != -axis) return false;
+    uint64_t row_bytes64 = (uint64_t) (uint32_t) width * 2U;
+    if (row_bytes64 > SIZE_MAX || dst_stride < row_bytes64 ||
+        from_stride < row_bytes64 || to_stride < row_bytes64 ||
+        (uint64_t) dst_stride * (uint32_t) height > SIZE_MAX ||
+        (uint64_t) from_stride * (uint32_t) height > SIZE_MAX ||
+        (uint64_t) to_stride * (uint32_t) height > SIZE_MAX) return false;
+    if (to_offset > 0) {
+        if (v > 0) v = 0;
+        if (v < -axis) v = -axis;
+    } else {
+        if (v < 0) v = 0;
+        if (v > axis) v = axis;
+    }
+    int32_t from_pos = v;
+    int32_t to_pos = reveal ? 0 : v + to_offset;
+    size_t row_bytes = (size_t) row_bytes64;
+    if (vertical) {
+        for (int32_t y = 0; y < height; ++y) {
+            int64_t fy = (int64_t) y - from_pos;
+            int64_t ty = (int64_t) y - to_pos;
+            uint8_t * drow = dst + (size_t) y * dst_stride;
+            if (ty >= 0 && ty < height)
+                memcpy(drow, to + (size_t) ty * to_stride, row_bytes);
+            if (fy >= 0 && fy < height)
+                memcpy(drow, from + (size_t) fy * from_stride, row_bytes);
+        }
+    } else {
+        int64_t from_start64 = from_pos < 0 ? 0 : from_pos;
+        int64_t from_end64 = (int64_t) from_pos + width > width ? width : (int64_t) from_pos + width;
+        int64_t to_start64 = to_pos < 0 ? 0 : to_pos;
+        int64_t to_end64 = (int64_t) to_pos + width > width ? width : (int64_t) to_pos + width;
+        int32_t from_start = (int32_t) from_start64;
+        int32_t from_end = (int32_t) from_end64;
+        int32_t to_start = (int32_t) to_start64;
+        int32_t to_end = (int32_t) to_end64;
+        if (from_end < from_start) from_end = from_start;
+        if (to_end < to_start) to_end = to_start;
+        size_t from_bytes = (size_t) (from_end - from_start) * 2U;
+        size_t to_bytes = (size_t) (to_end - to_start) * 2U;
+        for (int32_t y = 0; y < height; ++y) {
+            uint8_t * drow = dst + (size_t) y * dst_stride;
+            const uint8_t * frow = from + (size_t) y * from_stride;
+            const uint8_t * trow = to + (size_t) y * to_stride;
+            if (to_bytes) memcpy(drow + (size_t) to_start * 2U,
+                                 trow + (size_t) (to_start - to_pos) * 2U, to_bytes);
+            if (from_bytes) memcpy(drow + (size_t) from_start * 2U,
+                                   frow + (size_t) (from_start - from_pos) * 2U, from_bytes);
+        }
+    }
+    return true;
+}
+
+#ifdef UI_PERF_TRACE
+static uint64_t compositor_perf_now_us(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t) ts.tv_sec * 1000000ULL + (uint64_t) ts.tv_nsec / 1000ULL;
+}
+#if LV_USE_LINUX_FBDEV
+static uint64_t compositor_perf_frame_total_us;
+static uint64_t compositor_perf_frame_max_us;
+static uint64_t compositor_perf_compose_total_us;
+static uint64_t compositor_perf_compose_max_us;
+static uint64_t compositor_perf_present_total_us;
+static uint64_t compositor_perf_present_max_us;
+static unsigned compositor_perf_frame_count;
+static unsigned compositor_perf_present_failures;
+static uint64_t compositor_perf_last_frame_start_us;
+static uint64_t compositor_perf_gap_max_us;
+
+static void compositor_perf_reset(void) {
+    compositor_perf_frame_total_us = 0;
+    compositor_perf_frame_max_us = 0;
+    compositor_perf_compose_total_us = 0;
+    compositor_perf_compose_max_us = 0;
+    compositor_perf_present_total_us = 0;
+    compositor_perf_present_max_us = 0;
+    compositor_perf_frame_count = 0;
+    compositor_perf_present_failures = 0;
+    compositor_perf_last_frame_start_us = 0;
+    compositor_perf_gap_max_us = 0;
+}
+
+static void compositor_perf_record(uint64_t compose_us, uint64_t present_us, uint64_t frame_us) {
+    compositor_perf_compose_total_us += compose_us;
+    if (compose_us > compositor_perf_compose_max_us) compositor_perf_compose_max_us = compose_us;
+    compositor_perf_present_total_us += present_us;
+    if (present_us > compositor_perf_present_max_us) compositor_perf_present_max_us = present_us;
+    compositor_perf_frame_total_us += frame_us;
+    if (frame_us > compositor_perf_frame_max_us) compositor_perf_frame_max_us = frame_us;
+    compositor_perf_frame_count++;
+}
+#endif
+static uint64_t compositor_trace_frame_start_us;
+static bool compositor_trace_suppress_begin;
+#endif
+
+#if LV_USE_LINUX_FBDEV
+/* Shows the composed page; UI_PERF_TRACE builds count it as a frame. */
+static bool compositor_present_page(lv_display_t * disp) {
+#ifdef UI_PERF_TRACE
+    if (!lv_linux_fbdev_present_external_page(disp)) {
+        ui_frame_trace_event(UI_FRAME_TRACE_EVENT_COMPOSITOR_PRESENT, 0, 0);
+        return false;
+    }
+    uint64_t work_us = compositor_perf_now_us() - compositor_trace_frame_start_us;
+    ui_frame_trace_compositor_present(work_us);
+    ui_frame_trace_event(UI_FRAME_TRACE_EVENT_COMPOSITOR_PRESENT,
+                         (uint32_t) work_us, 0);
+#else
+    if (!lv_linux_fbdev_present_external_page(disp)) return false;
+#endif
+    return true;
+}
+#endif
+
+bool transition_compositor_available(void) {
+#if COMPOSITOR_DISABLED || !LV_USE_LINUX_FBDEV
+    return false; /* see COMPOSITOR_DISABLED's own comment further up this file */
+#else
+    return lv_linux_fbdev_get_stride(lv_display_get_default()) != 0;
+#endif
+}
+
+bool transition_compositor_begin(const lv_draw_buf_t * from, const lv_draw_buf_t * to, int32_t to_offset, bool reveal) {
+    return transition_compositor_begin_ex(from, to, to_offset, false, reveal);
+}
+
+bool transition_compositor_begin_ex(const lv_draw_buf_t * from, const lv_draw_buf_t * to,
+                                    int32_t to_offset, bool vertical, bool reveal) {
+#if COMPOSITOR_DISABLED || !LV_USE_LINUX_FBDEV
+    (void) from; (void) to; (void) to_offset; (void) vertical; (void) reveal;
+    return false;
+#else
+    if (compositor_active) return false; /* only one slide transition is ever in flight at once (see slide_transition_active in gui.c) -- never expected, guarded anyway */
+    if (!from || !to) return false;
+    if (from->header.cf != LV_COLOR_FORMAT_RGB565 || to->header.cf != LV_COLOR_FORMAT_RGB565) {
+        return false;
+    }
+
+    lv_display_t * disp = lv_display_get_default();
+    if (lv_display_get_rotation(disp) != LV_DISPLAY_ROTATION_0) return false;
+    uint32_t fb_stride = lv_linux_fbdev_get_stride(disp);
+    if (fb_stride == 0) {
+        return false; /* pan-based double buffering not active on this display -- caller keeps its existing LVGL-object overlay */
+    }
+
+    int32_t w = lv_display_get_horizontal_resolution(disp);
+    int32_t h = lv_display_get_vertical_resolution(disp);
+    int32_t axis = vertical ? h : w;
+    if (w <= 0 || h <= 0 || (to_offset != axis && to_offset != -axis) ||
+        (uint64_t) fb_stride < (uint64_t) (uint32_t) w * 2U) {
+        return false;
+    }
+    /* Debug-only invariants (TARGET ARCHITECTURE section D) -- never
+     * expected to fail given gui.c's own construction of these buffers,
+     * but a silent shape mismatch here would corrupt the framebuffer via
+     * out-of-bounds row math, so assert loudly in diagnostic builds rather
+     * than assume. */
+#ifdef UI_PERF_TRACE
+    LV_ASSERT(to_offset == axis || to_offset == -axis);
+    LV_ASSERT(from->header.stride > 0 && to->header.stride > 0);
+#endif
+    if ((int32_t) from->header.w != w || (int32_t) from->header.h != h ||
+        (int32_t) to->header.w != w || (int32_t) to->header.h != h) {
+        return false;
+    }
+    /* Each source must independently carry enough bytes for its own
+     * tightly-packed w*h*2 RGB565 image, and each source's own stride must
+     * be at least w*2 -- lv_draw_buf_goto_xy() below trusts each buffer's
+     * OWN header.stride for row addressing, so a buffer that's the right
+     * w/h but a smaller data_size or a too-small stride (e.g. a corrupt or
+     * truncated snapshot) would still walk off its own end.
+     * Uses 64-bit arithmetic to prevent overflow. Validates both `from` and
+     * `to` buffers against thresholds derived from their respective strides. */
+    uint64_t min_stride = (uint64_t) (uint32_t) w * 2ULL;
+    uint64_t from_need = (uint64_t) from->header.stride * (uint64_t) (uint32_t) h;
+    uint64_t to_need = (uint64_t) to->header.stride * (uint64_t) (uint32_t) h;
+    if ((uint64_t) from->header.stride < min_stride ||
+        (uint64_t) to->header.stride < min_stride ||
+        (uint64_t) from->data_size < from_need || (uint64_t) to->data_size < to_need) {
+        return false;
+    }
+
+    if (!lv_linux_fbdev_begin_external_composition(disp)) {
+        return false;
+    }
+
+    compositor_from = from;
+    compositor_to = to;
+    compositor_to_offset = to_offset;
+    compositor_reveal = reveal;
+    compositor_vertical = vertical;
+    compositor_width = w;
+    compositor_height = h;
+    compositor_fb_stride = fb_stride;
+    compositor_mode = vertical ? COMPOSITOR_MODE_VERTICAL : COMPOSITOR_MODE_HORIZONTAL;
+#ifdef UI_PERF_TRACE
+    compositor_perf_reset();
+#endif
+
+    /* Nothing may touch buf_1/buf_2 (the two physical framebuffer pages)
+     * through the normal LVGL render/flush pipeline while this compositor
+     * is writing into them directly -- lv_display_enable_invalidation(false)
+     * makes every _lv_inv_area() call (every lv_obj_invalidate*() anywhere
+     * in the app, for the rest of this compositor session) a silent no-op,
+     * so lv_timer_handler() has nothing queued to ever render or flush.
+     * lv_snapshot_take() is unaffected because it renders into its own
+     * independently-allocated buffer rather than disp->buf_act. */
+    lv_display_enable_invalidation(disp, false);
+    compositor_active = true;
+#ifdef UI_PERF_TRACE
+    if (!compositor_trace_suppress_begin)
+        ui_frame_trace_event(UI_FRAME_TRACE_EVENT_COMPOSITOR_BEGIN,
+                             (uint32_t) vertical, (uint32_t) reveal);
+#endif
+    return true;
+#endif /* COMPOSITOR_DISABLED || !LV_USE_LINUX_FBDEV */
+}
+
+bool transition_compositor_frame(int32_t v) {
+#ifdef UI_PERF_TRACE
+    compositor_trace_frame_start_us = compositor_perf_now_us();
+#endif
+    if (!compositor_active) return false; /* always false when disabled/unavailable -- begin() above never sets it */
+#if COMPOSITOR_DISABLED || !LV_USE_LINUX_FBDEV
+    (void) v;
+    return false;
+#else
+    if (compositor_mode != COMPOSITOR_MODE_HORIZONTAL &&
+        compositor_mode != COMPOSITOR_MODE_VERTICAL) return false;
+#ifdef UI_PERF_TRACE
+    uint64_t perf_frame_start_us = compositor_perf_now_us();
+    /* Gap since the PREVIOUS frame's own start -- the metric that actually
+     * shows pacing unevenness (a frame whose own compose+present took a
+     * normal ~16ms can still have been DELIVERED late if something else
+     * ran in the same lv_timer_handler() tick before this callback fired,
+     * or if the previous tick's own call overran). 0 for this session's
+     * first frame (nothing to compare against yet). */
+    uint64_t perf_gap_us = compositor_perf_frame_count ?
+                            (perf_frame_start_us - compositor_perf_last_frame_start_us) : 0;
+    compositor_perf_last_frame_start_us = perf_frame_start_us;
+    if (perf_gap_us > compositor_perf_gap_max_us) compositor_perf_gap_max_us = perf_gap_us;
+#endif
+    lv_display_t * disp = lv_display_get_default();
+    /* Re-queried every frame, not cached at begin() -- the inactive half
+     * flips every time a frame is presented below, and writing into
+     * whatever is CURRENTLY inactive (not whichever page happened to be
+     * inactive when the gesture started) is exactly what keeps this
+     * tear-free, the same guarantee the driver's own normal flush_cb() pan
+     * branch relies on for an ordinary LVGL-rendered frame. */
+    uint8_t * dest_page = (uint8_t *) lv_linux_fbdev_get_inactive_page(disp);
+    if (!dest_page) {
+        /* Shouldn't happen once begin() has already confirmed pan-based
+         * double buffering is active, but never assume mid-session --
+         * treat exactly like a present failure below (hard abort) rather
+         * than silently writing through a null pointer or leaving the
+         * session in an ambiguous state. */
+        transition_compositor_end();
+        return false;
+    }
+
+    if (compositor_vertical) {
+        if (!transition_compositor_compose_rgb565(dest_page, compositor_fb_stride,
+                compositor_from->data, compositor_from->header.stride,
+                compositor_to->data, compositor_to->header.stride,
+                compositor_width, compositor_height, v, compositor_to_offset,
+                true, compositor_reveal)) {
+            transition_compositor_end();
+            return false;
+        }
+    } else {
+        int32_t w = compositor_width;
+        int32_t from_x = v;
+        int32_t to_x = compositor_reveal ? 0 : (v + compositor_to_offset);
+
+        /* Intersect each source's current on-screen span with the visible
+         * [0, w) screen area -- handles every offset (0, -w/+w, any
+         * intermediate value, and a clamped overshoot past either end)
+         * uniformly, with no separate forward/backward special-casing. In
+         * non-reveal mode, the two spans are always exactly adjacent
+         * (to_offset is always +-w), so together they cover the full
+         * destination row with no gap or overlap. In reveal mode, the
+         * destination span stays fixed across the entire width [0, w), so the
+         * two spans intentionally overlap: writing `to` first and `from` second
+         * ensures the moving outgoing screen correctly covers the stationary
+         * incoming screen on top without being overwritten. In non-reveal mode,
+         * the spans are disjoint, so write order is completely interchangeable.
+         * At v==0, from_start=0/from_end=w and to_start=to_end (nothing) in
+         * non-reveal mode; in reveal mode, from covers the full row over to.
+         * At v==-to_offset, the incoming source is fully revealed -- the exact
+         * boundary invariants TARGET ARCHITECTURE section D calls for. */
+        int32_t from_start = from_x < 0 ? 0 : from_x;
+        int32_t from_end = (from_x + w > w) ? w : from_x + w;
+        if (from_end < from_start) from_end = from_start;
+        int32_t to_start = to_x < 0 ? 0 : to_x;
+        int32_t to_end = (to_x + w > w) ? w : to_x + w;
+        if (to_end < to_start) to_end = to_start;
+
+        /* RGB565 was validated in begin(), so every pixel is exactly two bytes
+         * and neither source has an indexed-color palette prefix. Compute each
+         * visible span's first-row address once and walk all three buffers by
+         * their independent strides. The old loop called lv_draw_buf_goto_xy()
+         * for each visible source on every scanline, repeating format-size and
+         * y*stride calculations up to twice per row even though only y changed. */
+        const size_t from_copy_bytes = (size_t) (from_end - from_start) * 2U;
+        const size_t to_copy_bytes = (size_t) (to_end - to_start) * 2U;
+        const uint8_t * from_row = (const uint8_t *) compositor_from->data;
+        const uint8_t * to_row = (const uint8_t *) compositor_to->data;
+        if (from_copy_bytes) from_row += (size_t) (from_start - from_x) * 2U;
+        if (to_copy_bytes) to_row += (size_t) (to_start - to_x) * 2U;
+        uint8_t * dest_row = dest_page;
+
+#ifdef UI_PERF_TRACE
+        /* begin() already proves stride*height is inside data_size. These
+         * tighter frame-specific checks document that the selected horizontal
+         * spans also end within every row before the raw-pointer fast path is
+         * entered. */
+        LV_ASSERT(!from_copy_bytes ||
+                  ((uint64_t) (uint32_t) (from_start - from_x) * 2ULL + from_copy_bytes <=
+                   compositor_from->header.stride));
+        LV_ASSERT(!to_copy_bytes ||
+                  ((uint64_t) (uint32_t) (to_start - to_x) * 2ULL + to_copy_bytes <=
+                   compositor_to->header.stride));
+        LV_ASSERT(!from_copy_bytes ||
+                  ((uint64_t) (uint32_t) from_start * 2ULL + from_copy_bytes <= compositor_fb_stride));
+        LV_ASSERT(!to_copy_bytes ||
+                  ((uint64_t) (uint32_t) to_start * 2ULL + to_copy_bytes <= compositor_fb_stride));
+#endif
+
+        /* Every row, y=0 through height-1 -- no top/bottom margin is ever
+         * skipped or separately re-stamped (see this module's own header
+         * comment on why: both `from` and `to` are already complete, full-
+         * screen frames with the persistent status bar/home-indicator content
+         * baked in, so compositing the whole frame uniformly is what makes
+         * those bars slide correctly instead of staying stationary). */
+        for (int32_t y = 0; y < compositor_height; y++) {
+            if (to_copy_bytes)
+                memcpy(dest_row + (size_t) to_start * 2U, to_row, to_copy_bytes);
+            if (from_copy_bytes)
+                memcpy(dest_row + (size_t) from_start * 2U, from_row, from_copy_bytes);
+            from_row += compositor_from->header.stride;
+            to_row += compositor_to->header.stride;
+            dest_row += compositor_fb_stride;
+        }
+    }
+
+#ifdef UI_PERF_TRACE
+    uint64_t perf_compose_end_us = compositor_perf_now_us();
+#endif
+
+    /* Only commit the just-composed page to the screen once every row has
+     * been written. A present failure means the just-composed frame was
+     * never actually shown -- the physical display is now in an unknown
+     * relationship to this module's own from/to sources, and continuing to
+     * composite further frames on top of that could commit GUI-level
+     * navigation state (see gui.c's slide_transition_anim_x_cb()) to a
+     * screen the display never actually finished transitioning to. Ending
+     * the session immediately (restoring LVGL invalidation and re-
+     * synchronizing buf_act) and reporting failure to the caller is the
+     * only choice that can't leave the driver/LVGL and GUI-level state
+     * disagreeing about what's on screen -- gui.c's own caller is
+     * responsible for reverting whatever navigation-stack/screen-load
+     * decision it was about to make. Never observed on this hardware in
+     * testing, but treated as a hard stop rather than a dropped frame. */
+    if (!compositor_present_page(disp)) {
+#ifdef UI_PERF_TRACE
+        compositor_perf_present_failures++;
+#endif
+        transition_compositor_end();
+        return false;
+    }
+#ifdef UI_PERF_TRACE
+    uint64_t perf_present_end_us = compositor_perf_now_us();
+    uint64_t perf_compose_us = perf_compose_end_us - perf_frame_start_us;
+    uint64_t perf_present_us = perf_present_end_us - perf_compose_end_us;
+    uint64_t perf_frame_us = perf_present_end_us - perf_frame_start_us;
+    compositor_perf_record(perf_compose_us, perf_present_us, perf_frame_us);
+#endif
+    return true;
+#endif /* COMPOSITOR_DISABLED || !LV_USE_LINUX_FBDEV */
+}
+
+static void compositor_copy_rgb565_span(uint8_t * dst, uint32_t dst_stride,
+                                        const uint8_t * src, uint32_t src_stride,
+                                        int32_t start_y, int32_t row_count, size_t row_bytes) {
+    if (row_count <= 0 || row_bytes == 0) return;
+    dst += (size_t) start_y * dst_stride;
+    src += (size_t) start_y * src_stride;
+    for (int32_t row = 0; row < row_count; row++) {
+        memcpy(dst, src, row_bytes);
+        dst += dst_stride;
+        src += src_stride;
+    }
+}
+
+bool transition_compositor_compose_vertical_reveal_rgb565(uint8_t * dst, uint32_t dst_stride,
+                                                           const uint8_t * base, uint32_t base_stride,
+                                                           const uint8_t * expanded, uint32_t expanded_stride,
+                                                           int32_t width, int32_t height,
+                                                           int32_t rows_top, int32_t rows_height,
+                                                           int32_t controls_top, int32_t controls_height,
+                                                           int32_t revealed) {
+    if (!dst || !base || !expanded || width <= 0 || height <= 0 ||
+        rows_top < 0 || rows_height <= 0 || controls_height <= 0 ||
+        (int64_t) controls_top < (int64_t) rows_top + rows_height ||
+        (int64_t) rows_top + rows_height > height ||
+        (int64_t) controls_top + controls_height > height) return false;
+    uint64_t row_bytes64 = (uint64_t) (uint32_t) width * 2U;
+    if (row_bytes64 > SIZE_MAX || dst_stride < row_bytes64 ||
+        base_stride < row_bytes64 || expanded_stride < row_bytes64 ||
+        (uint64_t) dst_stride * (uint32_t) height > SIZE_MAX ||
+        (uint64_t) base_stride * (uint32_t) height > SIZE_MAX ||
+        (uint64_t) expanded_stride * (uint32_t) height > SIZE_MAX) return false;
+
+    if (revealed < 0) revealed = 0;
+    if (revealed > rows_height) revealed = rows_height;
+    int32_t rows_end = rows_top + revealed;
+    int32_t controls_dest_top = controls_top - rows_height + revealed;
+    int32_t controls_dest_end = controls_dest_top + controls_height;
+    if (controls_dest_top < rows_end || controls_dest_end > height) return false;
+
+    size_t row_bytes = (size_t) row_bytes64;
+    compositor_copy_rgb565_span(dst, dst_stride, base, base_stride,
+                                0, rows_top, row_bytes);
+    compositor_copy_rgb565_span(dst, dst_stride, expanded, expanded_stride,
+                                rows_top, revealed, row_bytes);
+    compositor_copy_rgb565_span(dst, dst_stride, base, base_stride,
+                                rows_end, controls_dest_top - rows_end, row_bytes);
+    /* Controls move, so the destination starts above their expanded source. */
+    if (controls_height > 0) {
+        uint8_t * dst_row = dst + (size_t) controls_dest_top * dst_stride;
+        const uint8_t * src_row = expanded + (size_t) controls_top * expanded_stride;
+        for (int32_t row = 0; row < controls_height; row++) {
+            memcpy(dst_row, src_row, row_bytes);
+            dst_row += dst_stride;
+            src_row += expanded_stride;
+        }
+    }
+    compositor_copy_rgb565_span(dst, dst_stride, base, base_stride,
+                                controls_dest_end, height - controls_dest_end, row_bytes);
+    return true;
+}
+
+bool transition_compositor_begin_vertical_reveal(const lv_draw_buf_t * base,
+                                                 const lv_draw_buf_t * expanded,
+                                                 int32_t rows_top, int32_t rows_height,
+                                                 int32_t controls_top, int32_t controls_height,
+                                                 int32_t fixed_top_rows) {
+#if COMPOSITOR_DISABLED || !LV_USE_LINUX_FBDEV
+    (void) base;
+    (void) expanded;
+    (void) rows_top;
+    (void) rows_height;
+    (void) controls_top;
+    (void) controls_height;
+    (void) fixed_top_rows;
+    return false;
+#else
+    if (!base || !expanded) return false;
+    lv_display_t * disp = lv_display_get_default();
+    if (!disp) return false;
+    int32_t w = lv_display_get_horizontal_resolution(disp);
+    int32_t h = lv_display_get_vertical_resolution(disp);
+    if (rows_top < fixed_top_rows || fixed_top_rows < 0 ||
+        rows_height <= 0 || rows_top + (int64_t) rows_height > h ||
+        controls_top < rows_top + (int64_t) rows_height || controls_height <= 0 ||
+        controls_top + (int64_t) controls_height > h) return false;
+
+    /* Reuse the established full-frame shape/stride checks and fbdev handoff.
+     * A successful begin disables invalidation; all later failures end that
+     * session through the common synchronization path. */
+    if (w <= 0) return false;
+#ifdef UI_PERF_TRACE
+    compositor_trace_suppress_begin = true;
+#endif
+    bool begun = transition_compositor_begin(base, expanded, w, false);
+#ifdef UI_PERF_TRACE
+    compositor_trace_suppress_begin = false;
+#endif
+    if (!begun) return false;
+
+    uint64_t base_size64 = (uint64_t) base->header.stride * (uint32_t) h;
+    if (base_size64 > SIZE_MAX) {
+        transition_compositor_end();
+        return false;
+    }
+    size_t base_size = (size_t) base_size64;
+    uint8_t * owned_base = malloc(base_size);
+    if (!owned_base) {
+        transition_compositor_end();
+        return false;
+    }
+    memcpy(owned_base, base->data, base_size);
+
+    const uint8_t * active_page = (const uint8_t *) lv_linux_fbdev_get_active_page(disp);
+    if (!active_page) {
+        free(owned_base);
+        transition_compositor_end();
+        return false;
+    }
+    uint32_t fb_stride = lv_linux_fbdev_get_stride(disp);
+    size_t row_bytes = (size_t) (uint32_t) w * 2U;
+    for (int32_t row = 0; row < fixed_top_rows; row++) {
+        memcpy(owned_base + (size_t) row * base->header.stride,
+               active_page + (size_t) row * fb_stride, row_bytes);
+    }
+
+    compositor_vertical_reveal_base = owned_base;
+    compositor_vertical_reveal_base_stride = base->header.stride;
+    compositor_reveal_rows_top = rows_top;
+    compositor_reveal_rows_height = rows_height;
+    compositor_reveal_controls_top = controls_top;
+    compositor_reveal_controls_height = controls_height;
+    compositor_mode = COMPOSITOR_MODE_VERTICAL_REVEAL;
+#ifdef UI_PERF_TRACE
+    ui_frame_trace_event(UI_FRAME_TRACE_EVENT_COMPOSITOR_BEGIN,
+                         2U, (uint32_t) fixed_top_rows);
+#endif
+    return true;
+#endif
+}
+
+bool transition_compositor_vertical_reveal_frame(int32_t revealed) {
+#ifdef UI_PERF_TRACE
+    compositor_trace_frame_start_us = compositor_perf_now_us();
+#endif
+#if COMPOSITOR_DISABLED || !LV_USE_LINUX_FBDEV
+    (void) revealed;
+    return false;
+#else
+    if (!compositor_active || compositor_mode != COMPOSITOR_MODE_VERTICAL_REVEAL) return false;
+#ifdef UI_PERF_TRACE
+    uint64_t perf_frame_start_us = compositor_perf_now_us();
+    uint64_t perf_gap_us = compositor_perf_frame_count ?
+        perf_frame_start_us - compositor_perf_last_frame_start_us : 0;
+    compositor_perf_last_frame_start_us = perf_frame_start_us;
+    if (perf_gap_us > compositor_perf_gap_max_us) compositor_perf_gap_max_us = perf_gap_us;
+#endif
+    lv_display_t * disp = lv_display_get_default();
+    uint8_t * dest = (uint8_t *) lv_linux_fbdev_get_inactive_page(disp);
+    if (!dest) {
+        transition_compositor_end();
+        return false;
+    }
+    if (!transition_compositor_compose_vertical_reveal_rgb565(
+            dest, compositor_fb_stride,
+            compositor_vertical_reveal_base, compositor_vertical_reveal_base_stride,
+            (const uint8_t *) compositor_to->data, compositor_to->header.stride,
+            compositor_width, compositor_height,
+            compositor_reveal_rows_top, compositor_reveal_rows_height,
+            compositor_reveal_controls_top, compositor_reveal_controls_height,
+            revealed)) {
+        transition_compositor_end();
+        return false;
+    }
+#ifdef UI_PERF_TRACE
+    uint64_t perf_compose_end_us = compositor_perf_now_us();
+#endif
+    if (!compositor_present_page(disp)) {
+#ifdef UI_PERF_TRACE
+        compositor_perf_present_failures++;
+#endif
+        transition_compositor_end();
+        return false;
+    }
+#ifdef UI_PERF_TRACE
+    uint64_t perf_present_end_us = compositor_perf_now_us();
+    uint64_t perf_compose_us = perf_compose_end_us - perf_frame_start_us;
+    uint64_t perf_present_us = perf_present_end_us - perf_compose_end_us;
+    uint64_t perf_frame_us = perf_present_end_us - perf_frame_start_us;
+    compositor_perf_record(perf_compose_us, perf_present_us, perf_frame_us);
+#endif
+    return true;
+#endif
+}
+
+bool transition_compositor_begin_vertical_overlay(const lv_draw_buf_t * overlay,
+                                                  int32_t fixed_top_rows,
+                                                  bool reuse_saved_base) {
+#if COMPOSITOR_DISABLED || !LV_USE_LINUX_FBDEV
+    (void) overlay;
+    (void) fixed_top_rows;
+    (void) reuse_saved_base;
+    return false;
+#else
+    if (compositor_active || !overlay) return false;
+    bool overlay_rgb565 = overlay->header.cf == LV_COLOR_FORMAT_RGB565;
+    bool overlay_argb8888 = overlay->header.cf == LV_COLOR_FORMAT_ARGB8888;
+    if (!overlay_rgb565 && !overlay_argb8888) return false;
+
+    lv_display_t * disp = lv_display_get_default();
+    if (lv_display_get_rotation(disp) != LV_DISPLAY_ROTATION_0) return false;
+    int32_t w = lv_display_get_horizontal_resolution(disp);
+    int32_t h = lv_display_get_vertical_resolution(disp);
+    uint32_t fb_stride = lv_linux_fbdev_get_stride(disp);
+    const uint8_t * active_page = (const uint8_t *) lv_linux_fbdev_get_active_page(disp);
+    if (w <= 0 || h <= 0 || !active_page || fb_stride < (uint32_t) w * 2U) return false;
+    uint32_t overlay_bpp = overlay_argb8888 ? 4U : 2U;
+    uint64_t overlay_min_stride = (uint64_t) (uint32_t) w * overlay_bpp;
+    uint64_t overlay_need = (uint64_t) overlay->header.stride * (uint32_t) h;
+    if ((int32_t) overlay->header.w != w || (int32_t) overlay->header.h != h ||
+        (uint64_t) overlay->header.stride < overlay_min_stride ||
+        (uint64_t) overlay->data_size < overlay_need)
+        return false;
+
+    if (fixed_top_rows < 0) fixed_top_rows = 0;
+    if (fixed_top_rows > h) fixed_top_rows = h;
+
+    uint64_t base_size64 = (uint64_t) fb_stride * (uint32_t) h;
+    if (base_size64 > SIZE_MAX) return false;
+    size_t base_size = (size_t) base_size64;
+    bool saved_base_matches = compositor_vertical_base &&
+                              compositor_vertical_base_size == base_size &&
+                              compositor_vertical_base_width == w &&
+                              compositor_vertical_base_height == h &&
+                              compositor_vertical_base_stride == fb_stride;
+    uint8_t * base;
+    bool new_base = false;
+    if (reuse_saved_base) {
+        /* A missing/mismatched saved base must fall back to LVGL motion.
+         * Capturing active_page here is not a recovery: while closing it
+         * contains the open drawer and would reproduce that drawer beneath
+         * the moving copy. */
+        if (!saved_base_matches) return false;
+        base = compositor_vertical_base;
+        size_t fixed_bytes = (size_t) fixed_top_rows * fb_stride;
+        if (fixed_bytes) memcpy(base, active_page, fixed_bytes);
+    } else {
+        base = malloc(base_size);
+        if (!base) return false;
+        memcpy(base, active_page, base_size);
+        new_base = true;
+    }
+
+    if (!lv_linux_fbdev_begin_external_composition(disp)) {
+        if (new_base) free(base);
+        return false;
+    }
+
+    if (new_base) {
+        free(compositor_vertical_base);
+        compositor_vertical_base = base;
+        compositor_vertical_base_size = base_size;
+        compositor_vertical_base_width = w;
+        compositor_vertical_base_height = h;
+        compositor_vertical_base_stride = fb_stride;
+    }
+    compositor_from = overlay;
+    compositor_to = NULL;
+    compositor_width = w;
+    compositor_height = h;
+    compositor_fb_stride = fb_stride;
+    compositor_vertical_fixed_top = fixed_top_rows;
+    compositor_mode = COMPOSITOR_MODE_VERTICAL_OVERLAY;
+    lv_display_enable_invalidation(disp, false);
+    compositor_active = true;
+#ifdef UI_PERF_TRACE
+    ui_frame_trace_event(UI_FRAME_TRACE_EVENT_COMPOSITOR_BEGIN,
+                         3U, (uint32_t) fixed_top_rows);
+    compositor_perf_reset();
+#endif
+    return true;
+#endif
+}
+
+void transition_compositor_discard_vertical_base(void) {
+#if !(COMPOSITOR_DISABLED) && LV_USE_LINUX_FBDEV
+    /* The active vertical session is still reading this storage. Its owner
+     * calls discard only after transition_compositor_end(). */
+    if (compositor_active && compositor_mode == COMPOSITOR_MODE_VERTICAL_OVERLAY) return;
+    free(compositor_vertical_base);
+    compositor_vertical_base = NULL;
+    compositor_vertical_base_size = 0;
+    compositor_vertical_base_width = 0;
+    compositor_vertical_base_height = 0;
+    compositor_vertical_base_stride = 0;
+#endif
+}
+
+bool transition_compositor_vertical_overlay_frame(int32_t y) {
+#ifdef UI_PERF_TRACE
+    compositor_trace_frame_start_us = compositor_perf_now_us();
+#endif
+#if COMPOSITOR_DISABLED || !LV_USE_LINUX_FBDEV
+    (void) y;
+    return false;
+#else
+    if (!compositor_active || compositor_mode != COMPOSITOR_MODE_VERTICAL_OVERLAY) return false;
+#ifdef UI_PERF_TRACE
+    uint64_t perf_frame_start_us = compositor_perf_now_us();
+    uint64_t perf_gap_us = compositor_perf_frame_count ?
+        perf_frame_start_us - compositor_perf_last_frame_start_us : 0;
+    compositor_perf_last_frame_start_us = perf_frame_start_us;
+    if (perf_gap_us > compositor_perf_gap_max_us) compositor_perf_gap_max_us = perf_gap_us;
+#endif
+    lv_display_t * disp = lv_display_get_default();
+    uint8_t * dest = (uint8_t *) lv_linux_fbdev_get_inactive_page(disp);
+    if (!dest) {
+        transition_compositor_end();
+        return false;
+    }
+
+    int32_t h = compositor_height;
+    if (y > 0) y = 0;
+    if (y < -h) y = -h;
+    const size_t row_bytes = (size_t) compositor_width * 2U;
+    int32_t overlay_start = compositor_vertical_fixed_top;
+    int32_t overlay_end = y + h;
+    if (overlay_end < overlay_start) overlay_end = overlay_start;
+    if (overlay_end > h) overlay_end = h;
+
+    if (compositor_from->header.cf == LV_COLOR_FORMAT_RGB565 &&
+        compositor_fb_stride == row_bytes && compositor_from->header.stride == row_bytes) {
+        /* The real fbdev path and LVGL's RGB565 snapshot are normally both
+         * tightly packed. Copy the three vertical spans wholesale: fixed/
+         * revealed base, visible drawer, then any revealed base below it.
+         * This reduces an 800-row frame from 800 memcpy calls to at most 3. */
+        size_t top_bytes = (size_t) overlay_start * row_bytes;
+        if (top_bytes) memcpy(dest, compositor_vertical_base, top_bytes);
+        size_t overlay_bytes = (size_t) (overlay_end - overlay_start) * row_bytes;
+        if (overlay_bytes) {
+            const uint8_t * overlay = (const uint8_t *) compositor_from->data +
+                                      (size_t) (overlay_start - y) * row_bytes;
+            memcpy(dest + top_bytes, overlay, overlay_bytes);
+        }
+        size_t bottom_bytes = (size_t) (h - overlay_end) * row_bytes;
+        if (bottom_bytes) {
+            size_t bottom_offset = (size_t) overlay_end * row_bytes;
+            memcpy(dest + bottom_offset, compositor_vertical_base + bottom_offset, bottom_bytes);
+        }
+    } else if (compositor_from->header.cf == LV_COLOR_FORMAT_RGB565) {
+        /* Defensive path for a future driver/snapshot alignment change. */
+        const uint8_t * base_row = compositor_vertical_base;
+        for (int32_t dest_y = 0; dest_y < h; dest_y++) {
+            int32_t overlay_y = dest_y - y;
+            if (dest_y >= overlay_start && dest_y < overlay_end) {
+                const uint8_t * overlay_row = (const uint8_t *) compositor_from->data +
+                                              (size_t) overlay_y * compositor_from->header.stride;
+                memcpy(dest, overlay_row, row_bytes);
+            } else {
+                memcpy(dest, base_row, row_bytes);
+            }
+            dest += compositor_fb_stride;
+            base_row += compositor_fb_stride;
+        }
+    } else {
+        /* ARGB8888 overlay path. Start with the saved RGB565 underlay on
+         * every row, then blend only the visible drawer span. Source rows
+         * and framebuffer rows advance by their independent padded strides. */
+        const uint8_t * base_row = compositor_vertical_base;
+        for (int32_t dest_y = 0; dest_y < h; dest_y++) {
+            memcpy(dest, base_row, row_bytes);
+            if (dest_y >= overlay_start && dest_y < overlay_end) {
+                int32_t overlay_y = dest_y - y;
+                const uint8_t * src_bytes = (const uint8_t *) compositor_from->data +
+                                           (size_t) overlay_y * compositor_from->header.stride;
+                transition_compositor_blend_argb8888_over_rgb565(dest, compositor_fb_stride,
+                                                                  src_bytes, compositor_from->header.stride,
+                                                                  compositor_width, 1);
+            }
+            dest += compositor_fb_stride;
+            base_row += compositor_fb_stride;
+        }
+    }
+
+#ifdef UI_PERF_TRACE
+    uint64_t perf_compose_end_us = compositor_perf_now_us();
+#endif
+
+    if (!compositor_present_page(disp)) {
+#ifdef UI_PERF_TRACE
+        compositor_perf_present_failures++;
+#endif
+        transition_compositor_end();
+        return false;
+    }
+#ifdef UI_PERF_TRACE
+    uint64_t perf_present_end_us = compositor_perf_now_us();
+    uint64_t perf_compose_us = perf_compose_end_us - perf_frame_start_us;
+    uint64_t perf_present_us = perf_present_end_us - perf_compose_end_us;
+    uint64_t frame_us = perf_present_end_us - perf_frame_start_us;
+    compositor_perf_record(perf_compose_us, perf_present_us, frame_us);
+#endif
+    return true;
+#endif
+}
+
+bool transition_compositor_compose_bottom_sheet_rgb565(uint8_t * dst, uint32_t dst_stride,
+                                                        const uint8_t * base, uint32_t base_stride,
+                                                        const uint8_t * sheet_argb8888, uint32_t sheet_stride,
+                                                        const uint8_t * sheet_rgb565, uint32_t rgb565_stride,
+                                                        const int32_t * span_start, const int32_t * span_end,
+                                                        int32_t width, int32_t height,
+                                                        int32_t sheet_height, int32_t y) {
+    if (!dst || !base || !sheet_argb8888 || !sheet_rgb565 || !span_start || !span_end ||
+        width <= 0 || height <= 0 || sheet_height <= 0 || sheet_height > height) return false;
+    uint64_t row565 = (uint64_t) (uint32_t) width * 2U;
+    uint64_t rowargb = (uint64_t) (uint32_t) width * 4U;
+    if (dst_stride < row565 || base_stride < row565 || rgb565_stride < row565 ||
+        sheet_stride < rowargb ||
+        (uint64_t) dst_stride * (uint32_t) height > SIZE_MAX ||
+        (uint64_t) base_stride * (uint32_t) height > SIZE_MAX ||
+        (uint64_t) rgb565_stride * (uint32_t) sheet_height > SIZE_MAX ||
+        (uint64_t) sheet_stride * (uint32_t) sheet_height > SIZE_MAX) return false;
+
+    size_t row_bytes = (size_t) row565;
+    if (dst_stride == row_bytes && base_stride == row_bytes) {
+        memcpy(dst, base, row_bytes * (size_t) height);
+    } else {
+        for (int32_t row = 0; row < height; row++)
+            memcpy(dst + (size_t) row * dst_stride, base + (size_t) row * base_stride, row_bytes);
+    }
+    int64_t top = y < 0 ? 0 : y;
+    int64_t bottom = (int64_t) y + sheet_height;
+    if (bottom > height) bottom = height;
+    for (int32_t dy = (int32_t) top; dy < bottom; dy++) {
+        int32_t sy = (int32_t) ((int64_t) dy - y);
+        if (span_start[sy] < 0 || span_end[sy] < span_start[sy] || span_end[sy] > width) return false;
+        uint8_t * dst_row = dst + (size_t) dy * dst_stride;
+        const uint8_t * argb = sheet_argb8888 + (size_t) sy * sheet_stride;
+        const uint8_t * rgb565 = sheet_rgb565 + (size_t) sy * rgb565_stride;
+        int32_t opaque_start = span_start[sy];
+        int32_t opaque_end = span_end[sy];
+        if (opaque_end > opaque_start)
+            memcpy(dst_row + (size_t) opaque_start * 2U, rgb565 + (size_t) opaque_start * 2U,
+                   (size_t) (opaque_end - opaque_start) * 2U);
+        /* Byte addressing also supports odd padded strides on platforms
+         * that fault on unaligned uint16_t loads. */
+        for (int32_t x = 0; x < opaque_start; x++) {
+            uint16_t pixel;
+            memcpy(&pixel, dst_row + (size_t) x * 2U, sizeof(pixel));
+            pixel = compositor_argb8888_pixel_over_rgb565(argb + (size_t) x * 4U, pixel);
+            memcpy(dst_row + (size_t) x * 2U, &pixel, sizeof(pixel));
+        }
+        for (int32_t x = opaque_end; x < width; x++) {
+            uint16_t pixel;
+            memcpy(&pixel, dst_row + (size_t) x * 2U, sizeof(pixel));
+            pixel = compositor_argb8888_pixel_over_rgb565(argb + (size_t) x * 4U, pixel);
+            memcpy(dst_row + (size_t) x * 2U, &pixel, sizeof(pixel));
+        }
+    }
+    return true;
+}
+
+bool transition_compositor_begin_bottom_sheet(const lv_draw_buf_t * sheet) {
+#if COMPOSITOR_DISABLED || !LV_USE_LINUX_FBDEV
+    (void) sheet;
+    return false;
+#else
+    if (compositor_active || !sheet || sheet->header.cf != LV_COLOR_FORMAT_ARGB8888) return false;
+    lv_display_t * disp = lv_display_get_default();
+    if (!disp || lv_display_get_rotation(disp) != LV_DISPLAY_ROTATION_0) return false;
+    int32_t w = lv_display_get_horizontal_resolution(disp);
+    int32_t h = lv_display_get_vertical_resolution(disp);
+    uint32_t fb_stride = lv_linux_fbdev_get_stride(disp);
+    const uint8_t * active_page = (const uint8_t *) lv_linux_fbdev_get_active_page(disp);
+    uint64_t min_stride = w > 0 ? (uint64_t) (uint32_t) w * 4U : 0;
+    uint64_t source_need = (uint64_t) sheet->header.stride * sheet->header.h;
+    uint64_t base_size64 = fb_stride && h > 0 ? (uint64_t) fb_stride * (uint32_t) h : 0;
+    uint64_t rgb_size64 = w > 0 && sheet->header.h > 0 ? (uint64_t) (uint32_t) w * 2U * sheet->header.h : 0;
+    if (w <= 0 || h <= 0 || !active_page || !sheet->data || fb_stride < (uint64_t) (uint32_t) w * 2U ||
+        sheet->header.w != (uint32_t) w || sheet->header.h == 0 || sheet->header.h > (uint32_t) h ||
+        sheet->header.stride < min_stride || source_need > sheet->data_size ||
+        base_size64 > SIZE_MAX || rgb_size64 > SIZE_MAX || sheet->header.h > SIZE_MAX / sizeof(int32_t)) return false;
+
+    size_t base_size = (size_t) base_size64;
+    size_t rgb_size = (size_t) rgb_size64;
+    size_t span_size = (size_t) sheet->header.h * sizeof(int32_t);
+    uint8_t * base = malloc(base_size);
+    uint8_t * rgb565 = malloc(rgb_size);
+    int32_t * span_start = malloc(span_size);
+    int32_t * span_end = malloc(span_size);
+    if (!base || !rgb565 || !span_start || !span_end) {
+        free(base); free(rgb565); free(span_start); free(span_end);
+        return false;
+    }
+    memcpy(base, active_page, base_size);
+
+    const uint8_t * src = (const uint8_t *) sheet->data;
+    for (uint32_t row = 0; row < sheet->header.h; row++) {
+        const uint8_t * src_row = src + (size_t) row * sheet->header.stride;
+        uint16_t * out = (uint16_t *) (rgb565 + (size_t) row * (size_t) w * 2U);
+        int32_t best_start = 0, best_end = 0, run_start = -1;
+        for (int32_t x = 0; x < w; x++) {
+            const uint8_t * px = src_row + (size_t) x * 4U;
+            uint8_t opaque[4] = {px[0], px[1], px[2], 255};
+            out[x] = compositor_argb8888_pixel_over_rgb565(opaque, 0);
+            if (px[3] == 255) {
+                if (run_start < 0) run_start = x;
+                if (x + 1 - run_start > best_end - best_start) {
+                    best_start = run_start;
+                    best_end = x + 1;
+                }
+            } else run_start = -1;
+        }
+        span_start[row] = best_start;
+        span_end[row] = best_end;
+    }
+    if (!lv_linux_fbdev_begin_external_composition(disp)) {
+        free(base); free(rgb565); free(span_start); free(span_end);
+        return false;
+    }
+    compositor_bottom_base = base;
+    compositor_bottom_rgb565 = rgb565;
+    compositor_bottom_span_start = span_start;
+    compositor_bottom_span_end = span_end;
+    compositor_bottom_sheet = sheet;
+    compositor_bottom_height = (int32_t) sheet->header.h;
+    compositor_width = w;
+    compositor_height = h;
+    compositor_fb_stride = fb_stride;
+    compositor_mode = COMPOSITOR_MODE_BOTTOM_SHEET;
+    lv_display_enable_invalidation(disp, false);
+    compositor_active = true;
+#ifdef UI_PERF_TRACE
+    ui_frame_trace_event(UI_FRAME_TRACE_EVENT_COMPOSITOR_BEGIN,
+                         4U, (uint32_t) compositor_bottom_height);
+    compositor_perf_reset();
+#endif
+    return true;
+#endif
+}
+
+bool transition_compositor_bottom_sheet_frame(int32_t y) {
+#ifdef UI_PERF_TRACE
+    compositor_trace_frame_start_us = compositor_perf_now_us();
+#endif
+#if COMPOSITOR_DISABLED || !LV_USE_LINUX_FBDEV
+    (void) y;
+    return false;
+#else
+    if (!compositor_active || compositor_mode != COMPOSITOR_MODE_BOTTOM_SHEET) return false;
+#ifdef UI_PERF_TRACE
+    uint64_t perf_frame_start_us = compositor_perf_now_us();
+    uint64_t perf_gap_us = compositor_perf_frame_count ?
+        perf_frame_start_us - compositor_perf_last_frame_start_us : 0;
+    compositor_perf_last_frame_start_us = perf_frame_start_us;
+    if (perf_gap_us > compositor_perf_gap_max_us) compositor_perf_gap_max_us = perf_gap_us;
+#endif
+    lv_display_t * disp = lv_display_get_default();
+    uint8_t * dest = (uint8_t *) lv_linux_fbdev_get_inactive_page(disp);
+    if (!dest) { transition_compositor_end(); return false; }
+    size_t row_bytes = (size_t) compositor_width * 2U;
+    /* Share the pure cached compositor with host regression harnesses. */
+    if (!transition_compositor_compose_bottom_sheet_rgb565(
+            dest, compositor_fb_stride, compositor_bottom_base, compositor_fb_stride,
+            (const uint8_t *) compositor_bottom_sheet->data, compositor_bottom_sheet->header.stride,
+            compositor_bottom_rgb565, (uint32_t) row_bytes,
+            compositor_bottom_span_start, compositor_bottom_span_end,
+            compositor_width, compositor_height, compositor_bottom_height, y)) {
+        transition_compositor_end();
+        return false;
+    }
+#ifdef UI_PERF_TRACE
+    uint64_t perf_compose_end_us = compositor_perf_now_us();
+#endif
+    if (!compositor_present_page(disp)) {
+#ifdef UI_PERF_TRACE
+        compositor_perf_present_failures++;
+#endif
+        transition_compositor_end();
+        return false;
+    }
+#ifdef UI_PERF_TRACE
+    uint64_t perf_present_end_us = compositor_perf_now_us();
+    uint64_t compose_us = perf_compose_end_us - perf_frame_start_us;
+    uint64_t present_us = perf_present_end_us - perf_compose_end_us;
+    uint64_t frame_us = perf_present_end_us - perf_frame_start_us;
+    compositor_perf_record(compose_us, present_us, frame_us);
+#endif
+    return true;
+#endif
+}
+
+void transition_compositor_end(void) {
+    if (!compositor_active) return;
+    compositor_active = false;
+#if !(COMPOSITOR_DISABLED) && LV_USE_LINUX_FBDEV
+    lv_display_t * disp = lv_display_get_default();
+    /* Ends fbdev's own external-composition session FIRST -- this is what
+     * re-synchronizes LVGL's next render target (buf_act) with whichever
+     * physical page is actually inactive right now, so it must happen
+     * before invalidation comes back on and anything can render again. */
+    lv_linux_fbdev_end_external_composition(disp);
+    lv_display_enable_invalidation(disp, true);
+    compositor_mode = COMPOSITOR_MODE_NONE;
+    free(compositor_vertical_reveal_base);
+    compositor_vertical_reveal_base = NULL;
+    compositor_vertical_reveal_base_stride = 0;
+    free(compositor_bottom_base); compositor_bottom_base = NULL;
+    free(compositor_bottom_rgb565); compositor_bottom_rgb565 = NULL;
+    free(compositor_bottom_span_start); compositor_bottom_span_start = NULL;
+    free(compositor_bottom_span_end); compositor_bottom_span_end = NULL;
+    compositor_bottom_sheet = NULL;
+    compositor_bottom_height = 0;
+#ifdef UI_PERF_TRACE
+    /* Completion can run from an animation callback: export only numbers,
+     * never formatted stdout/SD writes from that callback. */
+    ui_frame_trace_event(UI_FRAME_TRACE_EVENT_COMPOSITOR_END,
+                         compositor_perf_frame_count,
+                         compositor_perf_frame_max_us > UINT32_MAX ? UINT32_MAX :
+                         (uint32_t) compositor_perf_frame_max_us);
+#endif
+    /* Catches up anything that changed elsewhere while invalidation was
+     * disabled (status bar clock, etc.) on top of the transition's own
+     * already-correct final on-screen frame -- the next lv_timer_handler()
+     * tick (moments away, same main loop) does the actual redraw; no need
+     * to force one synchronously here. */
+    lv_obj_invalidate(lv_screen_active());
+    lv_obj_invalidate(lv_layer_top());
+    lv_obj_invalidate(lv_layer_sys());
+#endif
+}
+
+bool transition_compositor_is_active(void) {
+    return compositor_active;
+}

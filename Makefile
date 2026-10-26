@@ -55,9 +55,9 @@ TARGET_CPU_FLAGS ?= -march=mips32r2 -mabi=32 -mfp32 -mno-odd-spreg -ffp-contract
 LVGL_DIR = lvgl
 DR_LIBS_DIR = dr_libs
 TINYALSA_DIR = tinyalsa
-TINYALSA_NATIVE_DSD_PATCH = patches/tinyalsa_native_dsd.patch
+TINYALSA_NATIVE_DSD_PATCH = patches/audio/tinyalsa/tinyalsa_native_dsd.patch
 TINYALSA_NATIVE_DSD_STAMP = $(TINYALSA_DIR)/.compas_native_dsd
-$(TINYALSA_NATIVE_DSD_STAMP): $(TINYALSA_NATIVE_DSD_PATCH) $(TINYALSA_DIR)/include/tinyalsa/pcm.h $(TINYALSA_DIR)/src/pcm.c scripts/apply-tracked-patch.sh
+$(TINYALSA_NATIVE_DSD_STAMP): $(TINYALSA_NATIVE_DSD_PATCH) $(TINYALSA_DIR)/include/tinyalsa/pcm.h $(TINYALSA_DIR)/src/pcm.c scripts/tools/patches/apply-tracked-patch.sh
 	$(VENDOR_PATCH_APPLY) $(TINYALSA_DIR) $(TINYALSA_NATIVE_DSD_PATCH)
 	@touch $@
 FAAD2_DIR = faad2
@@ -123,7 +123,7 @@ endif
 # clean-cloned build behaviorally different, which is exactly the mistake
 # that entry warns against):
 #
-#   1. fbdev compositor (patches/lvgl_fbdev_compositor.patch): six
+#   1. fbdev compositor (patches/lvgl/lvgl_fbdev_compositor.patch): six
 #      functions (lv_linux_fbdev_get_active_page/get_inactive_page/
 #      get_stride/begin_external_composition/present_external_page/
 #      end_external_composition) that transition_compositor.c and
@@ -132,7 +132,7 @@ endif
 #      entirely from upstream -- a clean clone fails to link with
 #      "undefined reference to `lv_linux_fbdev_get_active_page'" (and the
 #      other five) the moment either caller is linked in.
-#   2. runtime fixes (patches/lvgl_runtime_fixes.patch): a null-parent guard
+#   2. runtime fixes (patches/lvgl/lvgl_runtime_fixes.patch): a null-parent guard
 #      in layout invalidation prevents the 9.5 splash-to-UI crash when
 #      unhiding the parentless top layer; plus genuine upstream
 #      bugs/limitations and renderer costs this app hit in practice --
@@ -174,7 +174,7 @@ endif
 #      alpha tile; the original renderer preserves edge blending and every
 #      unsupported descriptor. This shares the existing centered sampler.
 #   3. evdev pointer frames and external-session input discard
-#      (patches/lvgl_evdev_frames.patch): return at each complete pointer
+#      (patches/lvgl/lvgl_evdev_frames.patch): return at each complete pointer
 #      SYN_REPORT with continue_reading set, so queued press and release stay
 #      separate samples; expose the driver's parser-owned queue discard for
 #      the emulator handoff while keypad reads keep their existing behavior.
@@ -238,15 +238,15 @@ endif
 # doesn't apply, a partially-patched tree, a patch updated since last
 # applied, a generated font file that matches neither pristine nor the
 # tracked golden copy) than a plain clone does.
-LVGL_PATCH := patches/lvgl_fbdev_compositor.patch
-LVGL_RUNTIME_FIXES_PATCH := patches/lvgl_runtime_fixes.patch
-LVGL_UI_PERF_TRACE_PATCH := patches/lvgl_ui_perf_trace.patch
-LVGL_TEXTAREA_ARABIC_PATCH := patches/lvgl_textarea_arabic_canonical.patch
-LVGL_BIDI_LTR_FASTPATH_PATCH := patches/lvgl_bidi_ltr_fastpath.patch
-LVGL_BINFONT_SAFETY_PATCH := patches/lvgl_binfont_safety.patch
+LVGL_PATCH := patches/lvgl/lvgl_fbdev_compositor.patch
+LVGL_RUNTIME_FIXES_PATCH := patches/lvgl/lvgl_runtime_fixes.patch
+LVGL_UI_PERF_TRACE_PATCH := patches/lvgl/lvgl_ui_perf_trace.patch
+LVGL_TEXTAREA_ARABIC_PATCH := patches/lvgl/lvgl_textarea_arabic_canonical.patch
+LVGL_BIDI_LTR_FASTPATH_PATCH := patches/lvgl/lvgl_bidi_ltr_fastpath.patch
+LVGL_BINFONT_SAFETY_PATCH := patches/lvgl/lvgl_binfont_safety.patch
 LVGL_BINFONT_LOADER := $(LVGL_DIR)/src/font/binfont_loader/lv_binfont_loader.c
 LVGL_FS_CORE := $(LVGL_DIR)/src/misc/lv_fs.c
-LVGL_EVDEV_FRAMES_PATCH := patches/lvgl_evdev_frames.patch
+LVGL_EVDEV_FRAMES_PATCH := patches/lvgl/lvgl_evdev_frames.patch
 LVGL_EVDEV_C := $(LVGL_DIR)/src/drivers/evdev/lv_evdev.c
 LVGL_GENERATED_FONTS_DIR := patches/lvgl_generated_fonts
 LVGL_GENERATED_FONTS := lv_font_montserrat_12.c lv_font_montserrat_14.c lv_font_montserrat_16.c lv_font_montserrat_18.c lv_font_montserrat_20.c lv_font_montserrat_22.c lv_font_montserrat_24.c lv_font_montserrat_26.c lv_font_montserrat_28.c lv_font_montserrat_30.c lv_font_montserrat_32.c lv_font_montserrat_34.c lv_font_montserrat_40.c
@@ -302,9 +302,9 @@ $(shell git clone --depth 1 https://github.com/mackron/dr_libs.git)
 # than a silent build if upstream ever drifts, since the miss is a security
 # hardening regression, not a compile error.
 $(info Hardening dr_libs metadata parser...)
-DR_LIBS_PATCH_RESULT := $(shell patch -p1 --forward --fuzz=0 -i patches/dr_libs_metadata_hardening.patch >/dev/null 2>&1 && echo ok || echo FAILED)
+DR_LIBS_PATCH_RESULT := $(shell patch -p1 --forward --fuzz=0 -i patches/audio/dr/dr_libs_metadata_hardening.patch >/dev/null 2>&1 && echo ok || echo FAILED)
 ifneq ($(DR_LIBS_PATCH_RESULT),ok)
-$(warning dr_libs metadata-hardening patch did not apply -- WAV/AIFF metadata DoS hardening is NOT in effect; check patches/dr_libs_metadata_hardening.patch against the current upstream dr_wav.h)
+$(warning dr_libs metadata-hardening patch did not apply -- WAV/AIFF metadata DoS hardening is NOT in effect; check patches/audio/dr/dr_libs_metadata_hardening.patch against the current upstream dr_wav.h)
 endif
 endif
 
@@ -425,7 +425,7 @@ $(info Generating libexecinfo/stacktraverse.c...)
 $(shell python3 $(LIBEXECINFO_DIR)/gen.py --max-depth 128 --output $(LIBEXECINFO_DIR)/stacktraverse.c >/dev/null)
 endif
 
-# Lua (MIT) -- the plugin scripting engine (src/plugins/plugin_manager.c):
+# Lua (MIT) -- the plugin scripting engine (src/plugins/manager/plugin_manager.c):
 # each file under the SD card's .plugins/ folder gets its own lua_State,
 # with a small C API table (plugin.*) exposed for registering Home-screen
 # tiles and driving playback, so third-party plugins are plain text .lua
@@ -458,10 +458,8 @@ endif
 
 # Compile flags
 # -DLV_CONF_INCLUDE_SIMPLE=1 is required to include lv_conf.h as "lv_conf.h"
-# src/*/ dirs: so a quoted #include "foo.h" in one category (e.g. src/ui/gui.c src/ui/gui_subsonic.c src/ui/gui_settings.c src/ui/gui_network.c src/ui/gui_theme.c src/ui/gui_notifications.c src/ui/gui_library.c src/ui/gui_queue.c src/ui/gui_player.c src/ui/gui_plugins.c src/ui/gui_shell.c src/ui/gui_navigation.c src/ui/gui_books.c src/ui/gui_text_input.c src/ui/gui_lyrics.c
-# including "audio.h") still resolves via the compiler's -I fallback search
-# even though foo.h now lives in a different category folder -- no #include
-# statements needed changing when src/ was reorganized into subfolders.
+# Project headers use explicit relative includes across feature directories.
+# The category include roots remain for generated fixtures and external consumers.
 # -MMD -MP: real-device/real-build bug report -- this project had NO
 # per-file #include dependency tracking at all (see LVGL_PATCH_STAMP's own
 # comment further up, which documents the one narrow case someone already
@@ -588,7 +586,7 @@ OPUSFILE_ALLOC_FLAGS = -Dmalloc=compas_opusfile_malloc -Dcalloc=compas_opusfile_
 OGG_CFLAGS = -O3 -g -Wall -MMD -MP -Ilibogg_vendor_config -I$(OGG_DIR)/include $(OPUSFILE_ALLOC_FLAGS)
 OPUSFILE_CFLAGS = -O3 -g -Wall -MMD -MP -DOP_HAVE_LRINTF=1 -I$(OPUSFILE_DIR)/include -I$(OPUS_DIR)/include -Ilibogg_vendor_config -I$(OGG_DIR)/include $(OPUSFILE_ALLOC_FLAGS)
 OPUSFILE_PATCH_STAMP = $(OPUSFILE_DIR)/.compas_allocation_safety
-$(OPUSFILE_PATCH_STAMP): patches/opusfile_allocation_safety.patch $(OPUSFILE_DIR)/src/opusfile.c
+$(OPUSFILE_PATCH_STAMP): patches/audio/opusfile/opusfile_allocation_safety.patch $(OPUSFILE_DIR)/src/opusfile.c
 	@if patch -p1 -d $(OPUSFILE_DIR) --force --fuzz=0 --dry-run --reverse < $< >/dev/null 2>&1; then \
 	  :; \
 	elif patch -p1 -d $(OPUSFILE_DIR) --force --fuzz=0 --dry-run < $< >/dev/null 2>&1; then \
@@ -602,33 +600,33 @@ $(OPUSFILE_PATCH_STAMP): patches/opusfile_allocation_safety.patch $(OPUSFILE_DIR
 # reverse-then-forward dry-run as the allocation patch above, fuzz 0, so a
 # second build does not apply twice and a drifted tree fails loudly.
 # libopusfile's warning patch is ordered after the allocation patch.
-VENDOR_PATCH_APPLY = scripts/apply-tracked-patch.sh
-ALAC_WARNING_PATCH = patches/alac_fourcc.patch
+VENDOR_PATCH_APPLY = scripts/tools/patches/apply-tracked-patch.sh
+ALAC_WARNING_PATCH = patches/audio/alac/alac_fourcc.patch
 ALAC_WARNING_STAMP = $(ALAC_DIR)/.compas_warning_fixes
 $(ALAC_WARNING_STAMP): $(ALAC_WARNING_PATCH) $(ALAC_DIR)/codec/ALACAudioTypes.h
 	$(VENDOR_PATCH_APPLY) $(ALAC_DIR) $(ALAC_WARNING_PATCH)
 	@touch $@
-FAAD2_WARNING_PATCH = patches/faad2_ps_dec_init.patch
+FAAD2_WARNING_PATCH = patches/audio/faad2/faad2_ps_dec_init.patch
 FAAD2_WARNING_STAMP = $(FAAD2_DIR)/.compas_warning_fixes
 $(FAAD2_WARNING_STAMP): $(FAAD2_WARNING_PATCH) $(FAAD2_DIR)/libfaad/ps_dec.c
 	$(VENDOR_PATCH_APPLY) $(FAAD2_DIR) $(FAAD2_WARNING_PATCH)
 	@touch $@
-OPUS_WARNING_PATCH = patches/opus_warning_fixes.patch
+OPUS_WARNING_PATCH = patches/audio/opus/opus_warning_fixes.patch
 OPUS_WARNING_STAMP = $(OPUS_DIR)/.compas_warning_fixes
 $(OPUS_WARNING_STAMP): $(OPUS_WARNING_PATCH) $(OPUS_DIR)/src/repacketizer.c $(OPUS_DIR)/silk/enc_API.c $(OPUS_DIR)/silk/HP_variable_cutoff.c $(OPUS_DIR)/silk/fixed/main_FIX.h $(OPUS_DIR)/silk/float/main_FLP.h
 	$(VENDOR_PATCH_APPLY) $(OPUS_DIR) $(OPUS_WARNING_PATCH)
 	@touch $@
-OPUSFILE_WARN_PATCH = patches/opusfile_maybe_uninitialized.patch
+OPUSFILE_WARN_PATCH = patches/audio/opusfile/opusfile_maybe_uninitialized.patch
 OPUSFILE_WARN_STAMP = $(OPUSFILE_DIR)/.compas_warning_fixes
 $(OPUSFILE_WARN_STAMP): $(OPUSFILE_WARN_PATCH) $(OPUSFILE_PATCH_STAMP) $(OPUSFILE_DIR)/src/opusfile.c
 	$(VENDOR_PATCH_APPLY) $(OPUSFILE_DIR) $(OPUSFILE_WARN_PATCH)
 	@touch $@
-WAVPACK_CMAKE_PATCH = patches/libwavpack_cmake_310.patch
+WAVPACK_CMAKE_PATCH = patches/audio/libwavpack/libwavpack_cmake_310.patch
 WAVPACK_CMAKE_STAMP = $(WAVPACK_DIR)/.compas_warning_fixes
 $(WAVPACK_CMAKE_STAMP): $(WAVPACK_CMAKE_PATCH) $(WAVPACK_DIR)/CMakeLists.txt
 	$(VENDOR_PATCH_APPLY) $(WAVPACK_DIR) $(WAVPACK_CMAKE_PATCH)
 	@touch $@
-SNDFILE_CMAKE_PATCH = patches/libsndfile_cmake_310.patch
+SNDFILE_CMAKE_PATCH = patches/audio/libsndfile/libsndfile_cmake_310.patch
 SNDFILE_CMAKE_STAMP = $(SNDFILE_DIR)/.compas_warning_fixes
 $(SNDFILE_CMAKE_STAMP): $(SNDFILE_CMAKE_PATCH) $(SNDFILE_DIR)/CMakeLists.txt
 	$(VENDOR_PATCH_APPLY) $(SNDFILE_DIR) $(SNDFILE_CMAKE_PATCH)
@@ -690,60 +688,60 @@ $(TARGET_CODE_SECTION_FLAGS_STAMP): FORCE_TARGET_CODE_SECTION_FLAGS
 # format decoders/demuxers), network/ (wifi/bluetooth/dlna/remote-control/
 # streaming), library/ (metadata/file browsing/playlists), hardware/ (device
 # control), ui/ (gui/screens/assets/fonts), core/ (settings, subprocess,
-# misc). main.c stays at src/ root as the entry point.
+# misc). app/main.c contains the application entry point.
 CFLAGS += -Isonic
 
-APP_SRCS = src/main.c src/ui/gui.c src/ui/library_selection_snapshot.c src/ui/library/library_az_index.c src/ui/gui_subsonic.c src/ui/gui_settings.c src/ui/gui_network.c src/ui/gui_theme.c src/ui/gui_notifications.c src/ui/gui_library.c src/ui/gui_queue.c src/ui/gui_player.c src/ui/gui_track_info.c src/ui/gui_plugins.c src/ui/gui_shell.c src/ui/gui_navigation.c src/ui/gui_books.c src/ui/gui_file_manager.c src/ui/gui_text_input.c src/ui/gui_lyrics.c src/ui/gui_reload.c src/audio/audio.c src/library/file_browser.c src/library/file_ops.c src/hardware/hw_buttons.c src/hardware/button_mapping.c src/hardware/input_device_utils.c src/library/metadata.c src/library/library_walk.c src/library/metadata_db.c src/core/settings.c src/core/startup_splash.c src/core/screenshot.c src/core/app_version.c src/audio/aiff_decoder.c src/audio/dsd_filter.c src/audio/dsd_decoder.c src/audio/sacd_reader.c src/audio/dst_decoder.c src/library/sacd_iso.c src/audio/aac_decoder.c src/audio/mp4_demux.c src/audio/ape_demux.c src/audio/ape_decoder.c src/audio/ape_ffmpeg_core.c src/audio/peq.c src/audio/mseb.c src/audio/audio_tempo.c src/ui/assets.c src/ui/screen_builders.c src/ui/cover_card_preview.c src/hardware/battery.c src/network/wifi_status.c src/network/ca_bundle.c src/network/http_conn.c src/network/http_client.c src/network/http_stream.c src/network/http_stream_file.c src/network/subsonic_client.c src/library/cover_decode.c src/library/image_thumb.c src/library/lyrics.c src/audio/asf_demux.c src/audio/wma_decoder.c src/audio/ogg_probe.c src/audio/opus_decoder.c src/audio/opusfile_alloc.c src/audio/wavpack_decoder.c src/audio/caf_decoder.c src/audio/vorbis_decoder.c src/library/cue_parser.c src/ui/fallback_font.c src/ui/gui_text_view.c \
-src/core/subprocess.c src/network/wifi_control.c src/network/bluetooth_control.c src/network/hiby_sys_server.c src/hardware/backlight.c src/network/remote_import_files.c src/network/airplay_control.c src/network/airplay_bridge.c src/network/airplay_metadata.c src/hardware/headphone_status.c src/hardware/device_config.c src/hardware/led_control.c src/hardware/charge_limiter.c src/core/idle_shutdown.c src/hardware/power_suspend.c src/core/text_reader.c src/hardware/usb_mode_control.c src/hardware/usb_dac_bridge.c src/hardware/usb_audio_output.c src/core/firmware_update.c src/core/player_update.c src/core/reboot_handoff.c src/library/playlist_files.c src/library/favorite_writer.c src/network/firmware_ota.c src/network/plugin_store.c src/network/store_common.c src/network/emulator_store.c src/core/emulator_registry.c src/core/timezone_data.c src/core/timezone_apply.c src/core/hostname_apply.c src/network/dlna_control.c src/network/remote_control.c src/network/remote_control_discovery.c src/network/catalog_source_cache.c src/network/remote_control_mdns.c src/plugins/plugin_manager.c
-APP_SRCS += src/ui/gui_setup.c src/ui/gui_setup_plugins.c src/ui/brand_marks.c src/core/timezone_location.c
-APP_SRCS += src/ui/gui_plugin_library.c
-APP_SRCS += src/ui/gui_external_controls.c
-APP_SRCS += src/ui/gui_plugin_order_editor.c
-APP_SRCS += src/ui/gui_equalizer.c
-APP_SRCS += src/ui/gui_home.c src/ui/home_background.c
-APP_SRCS += src/ui/gui_updates.c
-APP_SRCS += src/ui/gui_accent.c
-APP_SRCS += src/ui/gui_custom_font.c src/ui/compact_list.c
-APP_SRCS += src/ui/gui_display_timing_settings.c src/ui/gui_time_settings.c src/library/metadata_isolation.c
-APP_SRCS += src/ui/gui_button_mapping.c src/ui/gui_volume_settings.c src/ui/gui_shell_settings.c
-APP_SRCS += src/ui/player/player_inline_lyrics.c src/library/library_album_art_decode.c src/library/library_artist_art.c src/plugins/bindings/plugin_info_bindings.c src/plugins/bindings/plugin_library_bindings.c
-APP_SRCS += src/library/albumart_info.c
-APP_SRCS += src/ui/gui_power_hub.c src/ui/player/player_seek_input.c src/plugins/bindings/plugin_equalizer_bindings.c
-APP_SRCS += src/plugins/bindings/plugin_http_bindings.c src/plugins/plugin_lua_runtime.c
-APP_SRCS += src/library/library_scan.c src/ui/player/player_artwork_jobs.c src/ui/player/player_artwork_cache.c
-APP_SRCS += src/plugins/bindings/plugin_text_view_bindings.c src/ui/player/player_queue_storage.c
-APP_SRCS += src/plugins/bindings/plugin_archive_bindings.c
+APP_SRCS = src/app/main.c src/ui/application/gui.c src/ui/library/library_selection_snapshot.c src/ui/library/library_az_index.c src/ui/network/subsonic/gui_subsonic.c src/ui/settings/gui_settings.c src/ui/network/gui_network.c src/ui/appearance/gui_theme.c src/ui/shell/gui_notifications.c src/ui/library/browse/gui_library.c src/ui/player/screen/gui_queue.c src/ui/player/screen/gui_player.c src/ui/player/screen/gui_track_info.c src/ui/plugins/gui_plugins.c src/ui/shell/gui_shell.c src/ui/shell/gui_navigation.c src/ui/library/collections/gui_books.c src/ui/library/browse/gui_file_manager.c src/ui/text/rendering/gui_text_input.c src/ui/player/screen/gui_lyrics.c src/ui/shell/gui_reload.c src/audio/engine/audio.c src/library/browser/files/file_browser.c src/library/browser/files/file_ops.c src/hardware/input/hw_buttons.c src/hardware/input/button_mapping.c src/hardware/input/input_device_utils.c src/library/metadata/parsing/metadata.c src/library/metadata/scan/library_walk.c src/library/metadata/db/metadata_db.c src/core/persistence/settings.c src/core/ui/display/startup_splash.c src/core/system/lifecycle/screenshot.c src/core/system/runtime/app_version.c src/audio/decoders/aiff/aiff_decoder.c src/audio/decoders/dsd/dsd_filter.c src/audio/decoders/dsd/dsd_decoder.c src/audio/readers/sacd/sacd_reader.c src/audio/decoders/dst/dst_decoder.c src/library/sacd/sacd_iso.c src/audio/decoders/aac/aac_decoder.c src/audio/demux/mp4/mp4_demux.c src/audio/demux/ape/ape_demux.c src/audio/decoders/ape/ape_decoder.c src/audio/decoders/ape/ape_ffmpeg_core.c src/audio/effects/peq.c src/audio/effects/mseb.c src/audio/timing/audio_tempo.c src/ui/assets/assets.c src/ui/widgets/builders/screen_builders.c src/ui/assets/cover_card_preview.c src/hardware/power/battery.c src/network/wifi/wifi_status.c src/network/security/ca_bundle.c src/network/http/client/http_conn.c src/network/http/client/http_client.c src/network/http/stream/http_stream.c src/network/http/stream/http_stream_file.c src/network/services/subsonic_client.c src/library/artwork/decode/cover_decode.c src/library/artwork/cache/image_thumb.c src/library/text/lyrics/lyrics.c src/audio/decoders/asf/asf_demux.c src/audio/decoders/wma/wma_decoder.c src/audio/decoders/ogg/ogg_probe.c src/audio/decoders/ogg/opus_decoder.c src/audio/decoders/ogg/opusfile_alloc.c src/audio/decoders/wavpack/wavpack_decoder.c src/audio/decoders/caf/caf_decoder.c src/audio/decoders/vorbis/vorbis_decoder.c src/library/parsers/cue/cue_parser.c src/ui/text/rendering/fallback_font.c src/ui/text/rendering/gui_text_view.c \
+src/core/process/subprocess.c src/network/wifi/wifi_control.c src/network/bluetooth/control/bluetooth_control.c src/network/hiby/hiby_sys_server.c src/hardware/indicators/backlight.c src/network/remote/import/remote_import_files.c src/network/airplay/airplay_control.c src/network/airplay/airplay_bridge.c src/network/airplay/airplay_metadata.c src/hardware/device/headphone_status.c src/hardware/device/device_config.c src/hardware/indicators/led_control.c src/hardware/power/charge_limiter.c src/core/system/lifecycle/idle_shutdown.c src/hardware/power/power_suspend.c src/core/text/text_reader.c src/hardware/usb/usb_mode_control.c src/hardware/usb/usb_dac_bridge.c src/hardware/usb/usb_audio_output.c src/core/updates/firmware_update.c src/core/updates/player_update.c src/core/system/lifecycle/reboot_handoff.c src/library/playlists/playlist_files.c src/library/playlists/favorite_writer.c src/network/firmware/firmware_ota.c src/network/store/plugins/plugin_store.c src/network/store/plugins/store_common.c src/network/store/catalog/emulator_store.c src/core/device/emulator_registry.c src/core/time/timezone_data.c src/core/time/timezone_apply.c src/core/device/hostname_apply.c src/network/services/dlna_control.c src/network/remote/control/remote_control.c src/network/remote/discovery/remote_control_discovery.c src/network/store/catalog/catalog_source_cache.c src/network/remote/discovery/remote_control_mdns.c src/plugins/manager/plugin_manager.c
+APP_SRCS += src/ui/settings/setup/gui_setup.c src/ui/settings/setup/gui_setup_plugins.c src/ui/appearance/brand_marks.c src/core/time/timezone_location.c
+APP_SRCS += src/ui/plugins/gui_plugin_library.c
+APP_SRCS += src/ui/settings/controls/gui_external_controls.c
+APP_SRCS += src/ui/plugins/manage/gui_plugin_order_editor.c
+APP_SRCS += src/ui/player/settings/gui_equalizer.c
+APP_SRCS += src/ui/home/gui_home.c src/ui/home/home_background.c
+APP_SRCS += src/ui/updates/gui_updates.c
+APP_SRCS += src/ui/appearance/gui_accent.c
+APP_SRCS += src/ui/appearance/fonts/gui_custom_font.c src/ui/widgets/lists/compact_list.c
+APP_SRCS += src/ui/settings/display/gui_display_timing_settings.c src/ui/settings/controls/gui_time_settings.c src/library/metadata/isolation/metadata_isolation.c
+APP_SRCS += src/ui/settings/input/gui_button_mapping.c src/ui/settings/controls/gui_volume_settings.c src/ui/settings/controls/gui_shell_settings.c
+APP_SRCS += src/ui/player/lyrics/player_inline_lyrics.c src/library/artwork/decode/library_album_art_decode.c src/library/artwork/decode/library_artist_art.c src/plugins/bindings/ui/plugin_info_bindings.c src/plugins/bindings/library/plugin_library_bindings.c
+APP_SRCS += src/library/artwork/albumart/albumart_info.c
+APP_SRCS += src/ui/settings/power/gui_power_hub.c src/ui/player/transport/player_seek_input.c src/plugins/bindings/audio/plugin_equalizer_bindings.c
+APP_SRCS += src/plugins/bindings/io/plugin_http_bindings.c src/plugins/lua/plugin_lua_runtime.c
+APP_SRCS += src/library/metadata/scan/library_scan.c src/ui/player/artwork/player_artwork_jobs.c src/ui/player/artwork/player_artwork_cache.c
+APP_SRCS += src/plugins/bindings/ui/plugin_text_view_bindings.c src/ui/player/queue/player_queue_storage.c
+APP_SRCS += src/plugins/bindings/io/plugin_archive_bindings.c
 APP_SRCS += src/ui/library/library_thumbnails.c
 APP_SRCS += src/ui/library/library_search.c
-APP_SRCS += src/ui/player/player_queue_model.c
-APP_SRCS += src/ui/gui_folder_actions.c src/ui/gui_playlists.c src/ui/gui_playlist_target.c
-APP_SRCS += src/ui/lyrics_layout.c src/ui/transition_compositor.c src/ui/frosted_glass.c src/ui/hw_volume_coalesce.c src/ui/gui_list_reorder.c
-APP_SRCS += src/ui/plugin_control_dashboard.c
-APP_SRCS += src/ui/ui_frame_trace.c src/ui/ui_snapshot_prefetch.c
-APP_SRCS += src/core/ui_wake.c src/core/ui_customization.c src/library/cover_raster_cache.c src/library/track_metadata_worker.c src/library/player_cover_prefetch.c
-APP_SRCS += src/core/firmware_image.c
-APP_SRCS += src/core/boot_trace.c
-APP_SRCS += src/core/player_install.c src/bootloader/scanner.c src/bootloader/selector_request.c src/bootloader/internal_storage.c
-APP_SRCS += src/ui/ui_fonts.c
-APP_SRCS += src/core/sd_fsck.c src/core/sd_fsck_run.c
-APP_SRCS += src/plugins/plugin_json.c src/plugins/plugin_storage.c src/plugins/plugin_disabled_list.c
-APP_SRCS += src/ui/gui_plugin_manage.c src/ui/gui_plugin_store.c src/ui/gui_emulators.c src/ui/gui_emulator_store.c src/ui/gui_lock_screen.c
-APP_SRCS += src/core/theme_file.c src/ui/gui_themes.c
-APP_SRCS += src/core/theme_file_values.c src/network/http_url.c
-APP_SRCS += src/library/remote_track.c
-APP_SRCS += src/library/queue_resume.c
-APP_SRCS += src/audio/track_probe.c
-APP_SRCS += src/library/library_scan_tags.c src/library/albumart.c src/library/tagcache.c src/library/path_cache.c src/library/remote_state.c src/library/subsonic_saved_servers.c src/library/artwork_coordinator.c
-APP_SRCS += src/library/artwork_memory.c src/library/artwork_failure_cache.c
-APP_SRCS += src/core/device_info.c src/core/utf8_util.c src/core/app_clock.c src/core/db_log.c src/core/zip_reader.c src/core/html_blocks.c
-APP_SRCS += src/ui/gesture_detector.c
-APP_SRCS += src/ui/i18n.c src/ui/i18n_catalog.c
-APP_SRCS += src/ui/player/player_layouts.c src/ui/player/player_layout_builtin.c
-APP_SRCS += src/ui/player/player_volume_popup.c src/ui/player/player_transport_images.c src/ui/player/player_artwork_pixels.c
-APP_SRCS += src/ui/player/player_seekbar.c src/audio/waveform.c
-APP_SRCS += src/ui/player/player_cover_fade.c src/ui/player/player_lyrics_backdrop.c src/ui/player/player_timeline_labels.c
-APP_SRCS += src/network/bluetooth_reconnect.c src/network/bt_cover_art.c
-APP_CXX_SRCS = src/audio/alac_decoder.cpp
+APP_SRCS += src/ui/player/queue/player_queue_model.c
+APP_SRCS += src/ui/library/browse/gui_folder_actions.c src/ui/library/playlists/gui_playlists.c src/ui/library/playlists/gui_playlist_target.c
+APP_SRCS += src/ui/player/lyrics/lyrics_layout.c src/ui/effects/transition_compositor.c src/ui/effects/frosted_glass.c src/ui/input/hw_volume_coalesce.c src/ui/library/browse/gui_list_reorder.c
+APP_SRCS += src/ui/plugins/plugin_control_dashboard.c
+APP_SRCS += src/ui/diagnostics/ui_frame_trace.c src/ui/diagnostics/ui_snapshot_prefetch.c
+APP_SRCS += src/core/ui/display/ui_wake.c src/core/themes/ui_customization.c src/library/artwork/cache/cover_raster_cache.c src/library/workers/track_metadata_worker.c src/library/artwork/prefetch/player_cover_prefetch.c
+APP_SRCS += src/core/updates/firmware_image.c
+APP_SRCS += src/core/system/logging/boot_trace.c
+APP_SRCS += src/core/updates/player_install.c src/bootloader/scan/scanner.c src/bootloader/selector/ui/controller/selector_request.c src/bootloader/install/internal_storage.c
+APP_SRCS += src/ui/text/fonts/ui_fonts.c
+APP_SRCS += src/core/storage/sd_fsck.c src/core/storage/sd_fsck_run.c
+APP_SRCS += src/plugins/json/plugin_json.c src/plugins/storage/plugin_storage.c src/plugins/lifecycle/plugin_disabled_list.c
+APP_SRCS += src/ui/plugins/manage/gui_plugin_manage.c src/ui/plugins/manage/gui_plugin_store.c src/ui/plugins/emulators/gui_emulators.c src/ui/plugins/emulators/gui_emulator_store.c src/ui/settings/lock/gui_lock_screen.c
+APP_SRCS += src/core/themes/theme_file.c src/ui/appearance/gui_themes.c
+APP_SRCS += src/core/themes/theme_file_values.c src/network/http/url/http_url.c
+APP_SRCS += src/library/remote/remote_track.c
+APP_SRCS += src/library/playlists/queue_resume.c
+APP_SRCS += src/audio/probe/track_probe.c
+APP_SRCS += src/library/metadata/scan/library_scan_tags.c src/library/artwork/albumart/albumart.c src/library/tagcache/core/tagcache.c src/library/browser/paths/path_cache.c src/library/remote/remote_state.c src/library/remote/subsonic/subsonic_saved_servers.c src/library/artwork/coordinator/artwork_coordinator.c
+APP_SRCS += src/library/artwork/coordinator/artwork_memory.c src/library/artwork/coordinator/artwork_failure_cache.c
+APP_SRCS += src/core/device/device_info.c src/core/text/utf8_util.c src/core/system/runtime/app_clock.c src/core/system/logging/db_log.c src/core/text/zip_reader.c src/core/ui/web/html_blocks.c
+APP_SRCS += src/ui/input/gesture_detector.c
+APP_SRCS += src/ui/text/i18n/i18n.c src/ui/text/i18n/i18n_catalog.c
+APP_SRCS += src/ui/player/layout/player_layouts.c src/ui/player/layout/player_layout_builtin.c
+APP_SRCS += src/ui/player/transport/player_volume_popup.c src/ui/player/transport/player_transport_images.c src/ui/player/artwork/player_artwork_pixels.c
+APP_SRCS += src/ui/player/transport/player_seekbar.c src/audio/visualization/waveform.c
+APP_SRCS += src/ui/player/artwork/player_cover_fade.c src/ui/player/artwork/player_lyrics_backdrop.c src/ui/player/lyrics/player_timeline_labels.c
+APP_SRCS += src/network/bluetooth/reconnect/bluetooth_reconnect.c src/network/bluetooth/media/bt_cover_art.c
+APP_CXX_SRCS = src/audio/decoders/alac/alac_decoder.cpp
 LVGL_SRCS = $(sort $(shell find $(LVGL_DIR)/src -type f -name '*.c'))
 # LVGL 9.5 dropped the XML engine; v9.4.0's is vendored (see
 # third_party/lv_xml/README.md). The expat *_impl/*_ns files are #included by
@@ -761,8 +759,8 @@ LV_XML_INC = -I$(LVGL_DIR)/src/others/translation
 LV_XML_CFLAGS = -Os $(LV_XML_INC)
 # The one application file that includes the vendored XML headers needs the
 # same include directory.
-$(BUILD_HOST_DIR)/ui/player/player_layouts.o: HOST_CFLAGS += $(LV_XML_INC)
-$(BUILD_TARGET_DIR)/ui/player/player_layouts.o: TARGET_CFLAGS += $(LV_XML_INC)
+$(BUILD_HOST_DIR)/ui/player/layout/player_layouts.o: HOST_CFLAGS += $(LV_XML_INC)
+$(BUILD_TARGET_DIR)/ui/player/layout/player_layouts.o: TARGET_CFLAGS += $(LV_XML_INC)
 TINYALSA_SRCS = $(sort $(shell find $(TINYALSA_DIR)/src -type f -name '*.c'))
 FAAD2_SRCS = $(sort $(shell find $(FAAD2_DIR)/libfaad -type f -name '*.c'))
 # Decoder-only ALAC sources (the repo also ships an encoder we don't need)
@@ -843,7 +841,7 @@ DBUS_SRCS = $(filter-out %-win.c %-win32.c %wince-glue.c $(DBUS_DIR)/dbus/dbus-s
 # stack to talk to anyway). Its call sites in gui.c/bluetooth_control.c
 # are guarded with #ifndef HOST_BUILD for the same reason audio.c's own
 # Bluetooth-output code is.
-TARGET_ONLY_APP_SRCS = src/network/bt_media_player.c src/network/bt_remote_control.c src/audio/audio_output.c src/audio/usb_dsd_output.c
+TARGET_ONLY_APP_SRCS = src/network/bluetooth/media/bt_media_player.c src/network/bluetooth/media/bt_remote_control.c src/audio/output/audio_output.c src/audio/output/usb_dsd_output.c
 # Target-only (see TARGET_CFLAGS's own comment on why): provides
 # backtrace()/backtrace_symbols_fd() for main.c's SIGSEGV handler on musl,
 # which has no execinfo.h/backtrace() of its own.
@@ -924,32 +922,32 @@ SELECTOR_SIM_CFLAGS = -O2 -Wall -fwrapv -I. -Isrc/bootloader -Isrc/core \
 # standalone R3II 2025 loader has no Rockbox row, so it also drops that
 # banner array.
 ifeq ($(BOARD),r3ii_2025)
-SELECTOR_LOGO_SRCS = src/bootloader/selector_logos.c \
-	src/bootloader/selector_logos_wordmark_320.c
-SELECTOR_ICON_SRCS = src/bootloader/selector_icons.c \
-	src/bootloader/selector_icons_utilities_320.c \
-	src/bootloader/selector_icons_nav.c \
-	src/bootloader/selector_icons_tools.c
+SELECTOR_LOGO_SRCS = src/bootloader/selector/assets/logos/selector_logos.c \
+	src/bootloader/selector/assets/logos/selector_logos_wordmark_320.c
+SELECTOR_ICON_SRCS = src/bootloader/selector/assets/icons/selector_icons.c \
+	src/bootloader/selector/assets/icons/selector_icons_utilities_320.c \
+	src/bootloader/selector/assets/icons/selector_icons_nav.c \
+	src/bootloader/selector/assets/icons/selector_icons_tools.c
 else
-SELECTOR_LOGO_SRCS = src/bootloader/selector_logos.c \
-	src/bootloader/selector_logos_wordmark_480.c \
-	src/bootloader/selector_logos_rockbox_480.c
-SELECTOR_ICON_SRCS = src/bootloader/selector_icons.c \
-	src/bootloader/selector_icons_utilities_480.c \
-	src/bootloader/selector_icons_nav.c \
-	src/bootloader/selector_icons_tools.c
+SELECTOR_LOGO_SRCS = src/bootloader/selector/assets/logos/selector_logos.c \
+	src/bootloader/selector/assets/logos/selector_logos_wordmark_480.c \
+	src/bootloader/selector/assets/logos/selector_logos_rockbox_480.c
+SELECTOR_ICON_SRCS = src/bootloader/selector/assets/icons/selector_icons.c \
+	src/bootloader/selector/assets/icons/selector_icons_utilities_480.c \
+	src/bootloader/selector/assets/icons/selector_icons_nav.c \
+	src/bootloader/selector/assets/icons/selector_icons_tools.c
 endif
-SELECTOR_SIM_SRCS = src/bootloader/selector_sim.c src/bootloader/selector_ui.c \
-	src/bootloader/selector_paint.c src/bootloader/fb_draw.c src/bootloader/fb_host.c \
+SELECTOR_SIM_SRCS = src/bootloader/selector/ui/render/selector_sim.c src/bootloader/selector/ui/render/selector_ui.c \
+	src/bootloader/selector/ui/render/selector_paint.c src/bootloader/display/fb_draw.c src/bootloader/display/fb_host.c \
 	$(SELECTOR_LOGO_SRCS) $(SELECTOR_ICON_SRCS) \
-	src/core/glyph5x7.c src/core/startup_splash.c lvgl/src/libs/tjpgd/tjpgd.c
+	src/core/ui/web/glyph5x7.c src/core/ui/display/startup_splash.c lvgl/src/libs/tjpgd/tjpgd.c
 SNAPSHOT_PREFIX ?= snapshot
 
-$(SELECTOR_SIM_BIN): $(SELECTOR_SIM_SRCS) src/bootloader/fb_draw.h src/bootloader/fb_draw_internal.h \
-		src/bootloader/selector_ui.h src/bootloader/selector_logos.h \
-		src/bootloader/selector_icons.h src/bootloader/selector_style.h \
-		src/bootloader/selector_internal.h src/bootloader/selector_font_pin.h \
-		src/core/board_config.h src/core/glyph5x7.h $(LVGL_TINY_TTF)
+$(SELECTOR_SIM_BIN): $(SELECTOR_SIM_SRCS) src/bootloader/display/fb_draw.h src/bootloader/display/fb_draw_internal.h \
+		src/bootloader/selector/ui/render/selector_ui.h src/bootloader/selector/assets/logos/selector_logos.h \
+		src/bootloader/selector/assets/icons/selector_icons.h src/bootloader/selector/ui/render/selector_style.h \
+		src/bootloader/selector/ui/controller/selector_internal.h src/bootloader/selector/assets/fonts/selector_font_pin.h \
+		src/core/system/runtime/board_config.h src/core/ui/web/glyph5x7.h $(LVGL_TINY_TTF)
 	$(CC) $(SELECTOR_SIM_CFLAGS) -o $@ $(SELECTOR_SIM_SRCS) -lm
 
 .PHONY: check-selector-logos check-selector-icons check-selector-fonts
@@ -958,13 +956,13 @@ selector-sim: $(SELECTOR_SIM_BIN)
 	./$(SELECTOR_SIM_BIN) scratch/selector-mockup assets/fonts/NotoSans-Regular.ttf $(SNAPSHOT_PREFIX)
 
 check-selector-logos:
-	python3 scripts/generate_selector_logos.py --verify
+	python3 scripts/generators/brand_assets/generate_selector_logos.py --verify
 
 check-selector-icons:
-	python3 scripts/generate_selector_icons.py --verify
+	python3 scripts/generators/brand_assets/generate_selector_icons.py --verify
 
 check-selector-fonts:
-	python3 scripts/generate_selector_fonts.py --verify
+	python3 scripts/generators/fonts/generate_selector_fonts.py --verify
 
 .PHONY: all host target bootloader clean compile_commands.json FORCE_VERSION selector-sim
 
@@ -976,7 +974,7 @@ host: check-ui-fonts $(HOST_BIN) compile_commands.json
 
 .PHONY: check-ui-fonts
 check-ui-fonts:
-	python3 scripts/generate_ui_fonts.py --verify
+	python3 scripts/generators/fonts/generate_ui_fonts.py --verify
 
 # Test harnesses need link inputs without dry-running recursive vendor recipes.
 .PHONY: print-host-link
@@ -996,7 +994,7 @@ $(HOST_BIN): $(HOST_OBJS) $(HOST_AUDIO_LIBS)
 $(LVGL_PATCH_STAMP): $(LVGL_FBDEV_C) $(LVGL_FBDEV_H) $(LVGL_PATCH) \
                      $(LVGL_TINY_TTF) $(LVGL_TJPGDCNF) $(LVGL_LRU_RB) $(LVGL_LODEPNG) $(LVGL_OBJ_POS) $(LVGL_DRAW_IMAGE) $(LVGL_SW_TRANSFORM) $(LVGL_RUNTIME_FIXES_PATCH) $(LVGL_UI_PERF_TRACE_PATCH) \
                      $(LVGL_EVDEV_C) $(LVGL_EVDEV_FRAMES_PATCH) $(LVGL_TEXTAREA_ARABIC_PATCH) $(LVGL_BIDI_LTR_FASTPATH_PATCH) \
-                     $(LVGL_BINFONT_LOADER) $(LVGL_FS_CORE) $(LVGL_BINFONT_SAFETY_PATCH) scripts/apply-tracked-patch.sh \
+                     $(LVGL_BINFONT_LOADER) $(LVGL_FS_CORE) $(LVGL_BINFONT_SAFETY_PATCH) scripts/tools/patches/apply-tracked-patch.sh \
                      $(LVGL_FONT_TARGETS) $(LVGL_FONT_GOLDEN)
 	@set -e; \
 	actual_commit=$$(git -C $(LVGL_DIR) rev-parse HEAD 2>/dev/null || echo ""); \
@@ -1066,10 +1064,10 @@ $(LVGL_PATCH_STAMP): $(LVGL_FBDEV_C) $(LVGL_FBDEV_H) $(LVGL_PATCH) \
 	  echo "       Remove $(LVGL_DIR) and re-run make to start from a clean pinned checkout."; \
 	  exit 1; \
 	fi; \
-	scripts/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_BINFONT_SAFETY_PATCH); \
-	scripts/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_TEXTAREA_ARABIC_PATCH); \
-	scripts/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_BIDI_LTR_FASTPATH_PATCH); \
-	scripts/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_UI_PERF_TRACE_PATCH); \
+	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_BINFONT_SAFETY_PATCH); \
+	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_TEXTAREA_ARABIC_PATCH); \
+	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_BIDI_LTR_FASTPATH_PATCH); \
+	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_UI_PERF_TRACE_PATCH); \
 	for f in $(LVGL_GENERATED_FONTS); do \
 	  target=$(LVGL_DIR)/src/font/$$f; golden=$(LVGL_GENERATED_FONTS_DIR)/$$f; \
 	  if cmp -s "$$target" "$$golden"; then \
@@ -1088,9 +1086,9 @@ $(LVGL_PATCH_STAMP): $(LVGL_FBDEV_C) $(LVGL_FBDEV_H) $(LVGL_PATCH) \
 
 # The Remote Control web app is edited under src/network/webapp/; the header
 # that embeds it is regenerated whenever one of those sources changes.
-src/network/remote_control_webapp.h: src/network/webapp/index.html src/network/webapp/app.css \
-		src/network/webapp/app.js scripts/generate_remote_webapp.py
-	python3 scripts/generate_remote_webapp.py
+src/network/remote/control/remote_control_webapp.h: src/network/webapp/index.html src/network/webapp/app.css \
+		src/network/webapp/app.js scripts/generators/webapp/generate_remote_webapp.py
+	python3 scripts/generators/webapp/generate_remote_webapp.py
 
 $(BUILD_HOST_DIR)/%.o: src/%.c $(LVGL_PATCH_STAMP)
 	@mkdir -p $(dir $@)
@@ -1181,19 +1179,19 @@ BOOTLOADER_BIN = compas_loader
 else
 BOOTLOADER_BIN = compas_loader_$(BOARD)
 endif
-BOOTLOADER_SRCS = src/bootloader/selector_controller.c src/bootloader/selector_input.c \
-                  src/bootloader/selector_ui.c src/bootloader/selector_paint.c \
-                  src/bootloader/selector_request.c \
+BOOTLOADER_SRCS = src/bootloader/selector/ui/controller/selector_controller.c src/bootloader/selector/ui/controller/selector_input.c \
+                  src/bootloader/selector/ui/render/selector_ui.c src/bootloader/selector/ui/render/selector_paint.c \
+                  src/bootloader/selector/ui/controller/selector_request.c \
                   $(SELECTOR_LOGO_SRCS) $(SELECTOR_ICON_SRCS) \
-                  src/core/sd_fsck.c src/core/sd_fsck_run.c \
-                  src/bootloader/main.c src/bootloader/fb_draw.c src/bootloader/boot_tuning.c \
-                  src/core/startup_splash.c src/core/glyph5x7.c \
-                  src/bootloader/internal_storage.c \
-                  src/core/reboot_handoff.c \
-                  src/core/player_install.c $(MBEDTLS_DIR)/library/sha256.c $(MBEDTLS_DIR)/library/platform_util.c \
-                  src/bootloader/scanner.c src/bootloader/installer.c src/bootloader/sd_ready.c \
-                  src/bootloader/sd_ready_real.c \
-                  src/core/subprocess.c src/core/boot_trace.c \
+                  src/core/storage/sd_fsck.c src/core/storage/sd_fsck_run.c \
+                  src/bootloader/app/main.c src/bootloader/display/fb_draw.c src/bootloader/startup/boot_tuning.c \
+                  src/core/ui/display/startup_splash.c src/core/ui/web/glyph5x7.c \
+                  src/bootloader/install/internal_storage.c \
+                  src/core/system/lifecycle/reboot_handoff.c \
+                  src/core/updates/player_install.c $(MBEDTLS_DIR)/library/sha256.c $(MBEDTLS_DIR)/library/platform_util.c \
+                  src/bootloader/scan/scanner.c src/bootloader/install/installer.c src/bootloader/storage/sd_ready.c \
+                  src/bootloader/storage/sd_ready_real.c \
+                  src/core/process/subprocess.c src/core/system/logging/boot_trace.c \
                   lvgl/src/libs/tjpgd/tjpgd.c
 # -ffunction-sections/-fdata-sections + -Wl,--gc-sections: standard, safe
 # combination that lets the linker drop unused functions/data at the
@@ -1203,7 +1201,7 @@ BOOTLOADER_CFLAGS = -O2 -Wall -I. -Isrc/bootloader -Isrc/core -I$(MBEDTLS_DIR)/i
 
 ifeq ($(filter $(BOARD),r1 r3proii),$(BOARD))
 bootloader:
-	CROSS_CC="$(CROSS_CC)" bash scripts/build_rockbox_bootloader.sh "$(BOARD)"
+	CROSS_CC="$(CROSS_CC)" bash scripts/build/bootloader/build_rockbox_bootloader.sh "$(BOARD)"
 	@test -s "build/rockbox-bootloader/$(BOARD)/compas_rockbox_bootloader"
 	@set -e; tmp="$(BOOTLOADER_BIN).tmp"; trap 'rm -f "$$tmp"' EXIT; cp "build/rockbox-bootloader/$(BOARD)/compas_rockbox_bootloader" "$$tmp"; chmod 0755 "$$tmp"; mv -f "$$tmp" "$(BOOTLOADER_BIN)"
 	@echo "Combined Compás/Rockbox bootloader ready: $(BOOTLOADER_BIN)"
@@ -1221,28 +1219,28 @@ EARLY_SPLASH_BIN = compas_early_splash
 else
 EARLY_SPLASH_BIN = compas_early_splash_$(BOARD)
 endif
-EARLY_SPLASH_SRCS = src/bootloader/early_splash.c src/bootloader/fb_draw.c \
-                   src/bootloader/internal_storage.c src/core/startup_splash.c \
-                   src/core/glyph5x7.c lvgl/src/libs/tjpgd/tjpgd.c
+EARLY_SPLASH_SRCS = src/bootloader/startup/early_splash.c src/bootloader/display/fb_draw.c \
+                   src/bootloader/install/internal_storage.c src/core/ui/display/startup_splash.c \
+                   src/core/ui/web/glyph5x7.c lvgl/src/libs/tjpgd/tjpgd.c
 .PHONY: early-splash test-early-splash
 early-splash: $(EARLY_SPLASH_BIN)
-$(EARLY_SPLASH_BIN): $(EARLY_SPLASH_SRCS) src/bootloader/fb_draw.h \
-                     src/core/startup_splash.h src/bootloader/internal_storage.h \
-                     src/core/storage_paths.h src/core/board_config.h src/core/glyph5x7.h lv_conf.h $(LVGL_PATCH_STAMP) $(TARGET_CPU_FLAGS_STAMP)
+$(EARLY_SPLASH_BIN): $(EARLY_SPLASH_SRCS) src/bootloader/display/fb_draw.h \
+                     src/core/ui/display/startup_splash.h src/bootloader/install/internal_storage.h \
+                     src/core/persistence/storage_paths.h src/core/system/runtime/board_config.h src/core/ui/web/glyph5x7.h lv_conf.h $(LVGL_PATCH_STAMP) $(TARGET_CPU_FLAGS_STAMP)
 	$(CROSS_CC) $(TARGET_CPU_FLAGS) $(BOOTLOADER_CFLAGS) -static -no-pie \
 	    $(EARLY_SPLASH_SRCS) -Wl,--gc-sections -lm -o $@.tmp
 	$(CROSS_STRIP) -s -o $@ $@.tmp
 	rm -f $@.tmp
 
 test-early-splash:
-	bash scripts/run_early_splash_spec.sh
-	bash scripts/run_early_splash_boot_test.sh
-	python3 scripts/test_repack_early_splash_elf.py
+	bash scripts/tests/firmware/run_early_splash_spec.sh
+	bash scripts/tests/firmware/run_early_splash_boot_test.sh
+	python3 scripts/tests/firmware/boot_pipeline/test_repack_early_splash_elf.py
 
 # Explicit alias for rebuilding the combined R1/R3 Pro II selector.
 .PHONY: rockbox-bootloader
 rockbox-bootloader:
-	CROSS_CC="$(CROSS_CC)" bash scripts/build_rockbox_bootloader.sh "$(BOARD)"
+	CROSS_CC="$(CROSS_CC)" bash scripts/build/bootloader/build_rockbox_bootloader.sh "$(BOARD)"
 
 $(BUILD_TARGET_DIR)/%.o: src/%.c $(LVGL_PATCH_STAMP) $(TARGET_CPU_FLAGS_STAMP)
 	@mkdir -p $(dir $@)
@@ -1254,7 +1252,7 @@ $(BUILD_TARGET_DIR)/%.o: src/%.c $(LVGL_PATCH_STAMP) $(TARGET_CPU_FLAGS_STAMP)
 # bootloader scanner always has one current BUILD_STAMP to find.
 FORCE_VERSION:
 
-$(BUILD_TARGET_DIR)/core/app_version.o: src/core/app_version.c $(LVGL_PATCH_STAMP) $(TARGET_CPU_FLAGS_STAMP) FORCE_VERSION
+$(BUILD_TARGET_DIR)/core/system/runtime/app_version.o: src/core/system/runtime/app_version.c $(LVGL_PATCH_STAMP) $(TARGET_CPU_FLAGS_STAMP) FORCE_VERSION
 	@mkdir -p $(dir $@)
 	$(CROSS_CC) $(TARGET_CFLAGS) -c $< -o $@
 
@@ -1274,7 +1272,7 @@ $(BUILD_TARGET_DIR)/tinyalsa/%.o: $(TINYALSA_DIR)/%.c $(TINYALSA_NATIVE_DSD_STAM
 	@mkdir -p $(dir $@)
 	$(CROSS_CC) $(TINYALSA_CFLAGS) $(TARGET_CPU_FLAGS) $(TARGET_CODE_SECTION_FLAGS) -c $< -o $@
 
-$(BUILD_TARGET_DIR)/audio/usb_dsd_output.o: src/audio/usb_dsd_output.c $(TINYALSA_NATIVE_DSD_STAMP) $(TARGET_CPU_FLAGS_STAMP)
+$(BUILD_TARGET_DIR)/audio/output/usb_dsd_output.o: src/audio/output/usb_dsd_output.c $(TINYALSA_NATIVE_DSD_STAMP) $(TARGET_CPU_FLAGS_STAMP)
 	@mkdir -p $(dir $@)
 	$(CROSS_CC) $(TARGET_CFLAGS) -c $< -o $@
 
@@ -1347,7 +1345,7 @@ clean:
 	    compile_commands.json compile_flags.txt
 
 # UI translations (see po/README.md). `make i18n` re-extracts the template,
-# merges it into every po/*.po and regenerates src/ui/i18n_catalog.c (checked
+# merges it into every po/*.po and regenerates src/ui/text/i18n/i18n_catalog.c (checked
 # in, so `make target` needs no Python or gettext). `make i18n-check` runs the
 # same checks without writing anything.
 I18N_SCAN_SRCS = $(shell find src -type f \( -name '*.c' -o -name '*.h' \) \
@@ -1393,52 +1391,52 @@ include src/tools/sdtool/sdtool.mk
 
 .PHONY: test-wifi-ssid
 test-wifi-ssid:
-	sh scripts/tests/run_wifi_ssid_escape_test.sh
+	sh scripts/tests/network/run_wifi_ssid_escape_test.sh
 
 .PHONY: test-rtl-text
 # Arabic/Hebrew shaping, direction and label comparison on the host build.
 test-rtl-text:
-	bash scripts/run_rtl_text_spec.sh
+	bash scripts/tests/ui/text/run_rtl_text_spec.sh
 
 .PHONY: test-device-info
 # <SD>/.compas/device.json: contents, write-only-on-change, no-op without a writable card.
 test-device-info:
-	sh scripts/tests/run_device_info_test.sh
+	sh scripts/tests/hardware/run_device_info_test.sh
 
 .PHONY: test-tagcache test-tagcache-refs test-tagcache-storage test-tagcache-commit-failure test-tagcache-write-volume
 # The tagcache storage tests; each wraps the syscalls it needs to observe or fail.
 test-tagcache: test-tagcache-refs test-tagcache-storage test-tagcache-commit-failure test-tagcache-write-volume
 test-tagcache-refs:
-	sh scripts/tests/run_tagcache_test.sh refs
+	sh scripts/tests/library/tagcache/run_tagcache_test.sh refs
 test-tagcache-storage:
-	sh scripts/tests/run_tagcache_test.sh storage
+	sh scripts/tests/library/tagcache/run_tagcache_test.sh storage
 test-tagcache-commit-failure:
-	sh scripts/tests/run_tagcache_test.sh commit-failure --wrap=write,--wrap=fsync,--wrap=rename
+	sh scripts/tests/library/tagcache/run_tagcache_test.sh commit-failure --wrap=write,--wrap=fsync,--wrap=rename
 test-tagcache-write-volume:
-	sh scripts/tests/run_tagcache_test.sh write-volume --wrap=write,--wrap=pwrite
+	sh scripts/tests/library/tagcache/run_tagcache_test.sh write-volume --wrap=write,--wrap=pwrite
 
 .PHONY: test-store-dest
 # Plugin Store destinations: no path segment may end in a dot or space.
 test-store-dest:
-	sh scripts/tests/run_store_dest_test.sh
+	sh scripts/tests/network/store/run_store_dest_test.sh
 .PHONY: test-player-queue
 test-player-queue:
-	bash scripts/test_player_queue_model.sh
+	bash scripts/tests/ui/playlists/test_player_queue_model.sh
 
 .PHONY: test-library-search
 test-library-search:
-	bash scripts/test_library_search.sh
+	bash scripts/tests/library/browser/test_library_search.sh
 
 .PHONY: test-file-browser-natural-sort
 test-file-browser-natural-sort:
-	sh scripts/tests/file_browser_natural_sort_test.sh
+	sh scripts/tests/library/browser/file_browser_natural_sort_test.sh
 
 .PHONY: test-remote-import-order test-metadata-catalog-order
 test-remote-import-order:
-	sh scripts/run_remote_import_files_order_test.sh
+	sh scripts/tests/network/remote/run_remote_import_files_order_test.sh
 
 test-metadata-catalog-order:
-	bash scripts/run_metadata_catalog_test.sh
+	bash scripts/tests/library/metadata/run_metadata_catalog_test.sh
 
 $(BUILD_HOST_DIR)/sonic/%.o: sonic/%.c
 	@mkdir -p $(dir $@)

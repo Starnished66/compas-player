@@ -76,16 +76,16 @@ anonymix007/libldacdec `c90094b15e25aef0e47c6d775fa94aceb36cabbc` plus
 From the repository root:
 
 ```sh
-bash scripts/build_base_audio_deps.sh
-bash scripts/build_base_zlib.sh
-bash scripts/build_base_expat.sh
-bash scripts/build_base_bluez_library.sh
-bash scripts/build_base_glib.sh
-bash scripts/build_base_dbus.sh
-bash scripts/build_base_bt_codecs.sh
-bash scripts/build_base_bluealsa.sh
+bash scripts/build/base/audio/build_base_audio_deps.sh
+bash scripts/build/base/system_libraries/build_base_zlib.sh
+bash scripts/build/base/system_libraries/build_base_expat.sh
+bash scripts/build/base/bluetooth/bluez/build_base_bluez_library.sh
+bash scripts/build/base/system_libraries/build_base_glib.sh
+bash scripts/build/base/system_libraries/build_base_dbus.sh
+bash scripts/build/base/bluetooth/audio/build_base_bt_codecs.sh
+bash scripts/build/base/bluetooth/audio/build_base_bluealsa.sh
 make -j4 target
-bash scripts/prepare_base_image_overlay.sh
+bash scripts/overlays/base_image/prepare_base_image_overlay.sh
 ```
 
 Default stock tree: `/home/josegarita/Desktop/Test2/squashfs-root`.
@@ -96,12 +96,12 @@ materials. Runtime notices are included in the overlay.
 
 ## Optional R1 vendor driver refresh
 
-The ordinary four-input `scripts/repack_upt.sh` flow keeps the base kernel and
+The ordinary four-input `scripts/firmware/package/repack_upt.sh` flow keeps the base kernel and
 drivers. To opt into the pinned official R1 1.8.b2 kernel and matching
 `module_driver` and `lib/firmware` files, pass its UPT explicitly:
 
 ```sh
-bash scripts/repack_upt.sh --board r1 \
+bash scripts/firmware/package/repack_upt.sh --board r1 \
   --vendor-drivers /path/to/approved-r1-1.8.b2.upt \
   BASE_UPT PLAYER_BINARY BOOTLOADER_BINARY OUTPUT_UPT
 ```
@@ -204,7 +204,7 @@ Prepare an isolated workspace from a clean checkout at the pinned commit and
 the extracted **base firmware's** `xImage`:
 
 ```sh
-python3 scripts/kernel/prepare_r1_kernel.py \
+python3 scripts/kernel/prepare/prepare_r1_kernel.py \
   --upstream /path/to/hiby-custom-kernel \
   --stock-kernel /path/to/base/xImage \
   --workspace /path/to/fresh-compas-kernel-workspace \
@@ -243,7 +243,7 @@ After a build, verify the module set that the firmware will actually retain.
 For a kernel-only replacement that keeps the vendor drivers, use:
 
 ```sh
-python3 scripts/kernel/verify_module_abi.py \
+python3 scripts/kernel/modules/verification/verify_module_abi.py \
   --system-map /path/to/workspace/hiby-custom-kernel/out/System.map-compas-r1 \
   --built-modules /path/to/workspace/hiby-custom-kernel/out/modules-compas-r1 \
   --vendor-modules /path/to/base/root/module_driver \
@@ -269,13 +269,13 @@ path is reviewed and validated.
 The kernel-only packer keeps the root filesystem image bytes unchanged:
 
 ```sh
-python3 scripts/kernel/repack_kernel_upt.py \
+python3 scripts/kernel/repack/kernel_upt/repack_kernel_upt.py \
   --base-upt /path/to/compas-r1-kernel.upt \
   --kernel-workspace /path/to/workspace \
   --output /path/to/kernel-only.upt
 ```
 
-When replacing reviewed drivers, use `scripts/kernel/repack_driver_upt.py`;
+When replacing reviewed drivers, use `scripts/kernel/repack/driver_upt/repack_driver_upt.py`;
 it rebuilds the root filesystem and checks that only the selected 22 module
 files changed. `--driver-modules /path/to/rebuilt-modules` selects the reviewed
 module output directory and defaults to the kernel workspace's
@@ -306,7 +306,7 @@ character-device lifetime across open handles, clean failed endpoint starts,
 and bound and independently encode signed DMA gaps. Preparation records their
 hashes without changing the upstream checkout. Local patch names cannot begin
 with `0` or collide with upstream patch names, which prevents double application.
-Run `scripts/kernel/test_uac_safety.py --source /path/to/built/f_uac_sa.c
+Run `scripts/kernel/audio/tests/test_uac_safety.py --source /path/to/built/f_uac_sa.c
 --dma-source /path/to/built/ingenic_dma.c` to compile and exercise the actual
 functions with host-side mocks. These tests do not replace device testing.
 
@@ -328,15 +328,15 @@ These overlays are deliberately separate from the initial shared-library
 refresh. Build and validate them individually before combining a release:
 
 ```sh
-bash scripts/build_base_alsa_utils.sh
-bash scripts/prepare_player_base_overlay.sh alsa
+bash scripts/build/base/audio/build_base_alsa_utils.sh
+bash scripts/overlays/base_image/prepare_player_base_overlay.sh alsa
 
-bash scripts/build_base_bluez.sh
+bash scripts/build/base/bluetooth/build_base_bluez.sh
 make -j4 target
-bash scripts/prepare_player_base_overlay.sh bluetooth
+bash scripts/overlays/base_image/prepare_player_base_overlay.sh bluetooth
 
-bash scripts/build_base_wifi.sh
-bash scripts/prepare_player_base_overlay.sh wifi
+bash scripts/build/base/network/build_base_wifi.sh
+bash scripts/overlays/base_image/prepare_player_base_overlay.sh wifi
 ```
 
 Outputs: `scratch/base-upgrade/player-overlays/{alsa,bluetooth,wifi}/current`.

@@ -13,7 +13,7 @@ Development notes accumulated for v1.2.0. See WHATS_NEW.md for the release annou
 - **Subsonic:** downloaded albums now keep their cover art in the music library.
 - **Genres:** a new Genres section in Music lists your genres; tap one to play or search its songs.
 - **Settings:** add an optional, separate startup volume that applies only when the player powers on via Car Mode.
-- **Player layouts:** Settings > Display > Player Layout > Layout switches the Player screen between the standard look and layouts loaded from XML files (LVGL XML format, see docs/PLAYER_LAYOUTS.md). Plugins can supply one with `plugin.set_player_layout{xml = ...}`. The standard layout is unchanged.
+- **Player layouts:** Settings > Display > Player Layout > Layout switches the Player screen between the standard look and layouts loaded from XML files (LVGL XML format, see docs/reference/PLAYER_LAYOUTS.md). Plugins can supply one with `plugin.set_player_layout{xml = ...}`. The standard layout is unchanged.
 - **Player layouts:** layouts can place the lyrics in their own area and color them (`lyrics_area`, `lyrics_active`, `lyrics_toggle`), and load their own images from a folder next to the XML file. A new example plugin, HiByStockPlayer.lua, adds a layout in the style of the stock HiBy OS player.
 - **Plugins:** plugins can now read back their own stored secrets (such as login tokens) with `plugin.secrets.get()`.
 - **Language:** Settings > System > Language switches the interface language: English, Spanish, Portuguese (Brazil), Italian and French. The translations are machine drafts awaiting native review.

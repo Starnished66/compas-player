@@ -1,9 +1,9 @@
 #define _GNU_SOURCE
-#include "player_queue_storage.h"
-#include "playlist_files.h"
-#include "metadata_db.h"
-#include "file_browser.h"
-#include "remote_track.h"
+#include "../../src/ui/player/queue/player_queue_storage.h"
+#include "../../src/library/playlists/playlist_files.h"
+#include "../../src/library/metadata/db/metadata_db.h"
+#include "../../src/library/browser/files/file_browser.h"
+#include "../../src/library/remote/remote_track.h"
 #include <assert.h>
 #include <errno.h>
 #include <dirent.h>

@@ -85,4 +85,4 @@ Use the known-good full firmware image for your exact model and its recovery upd
 
 For stock firmware downloads and manufacturer procedures, use [HiBy's support center](https://store.hiby.com/apps/help-center). Compás's release notes and model compatibility notes take precedence for its own packages.
 
-<!-- Verified against README.md, src/core/firmware_update.h/c, src/core/player_install.c and gui_settings.c update menu. Stock and R3 hardware procedures are not newly device-tested for this edition. -->
+<!-- Verified against README.md, src/core/updates/firmware_update.h/c, src/core/updates/player_install.c and gui_settings.c update menu. Stock and R3 hardware procedures are not newly device-tested for this edition. -->

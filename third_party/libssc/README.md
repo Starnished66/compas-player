@@ -27,6 +27,6 @@ covers silence, tones, independent stereo, impulses, noise, ramps, extremes,
 and mixed sequences including swept tones at the supported modes and bitrate
 tiers. Other formats and bitrates are rejected.
 
-Build with CMake. `scripts/build_base_bt_codecs.sh` installs the MIPS shared
+Build with CMake. `scripts/build/base/bluetooth/audio/build_base_bt_codecs.sh` installs the MIPS shared
 library, public header, and `ssc.pc` in the existing codec developer stage.
 Reference verification harnesses and vectors remain outside the repository.

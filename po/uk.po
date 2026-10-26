@@ -2443,8 +2443,8 @@ msgstr "Скануйте QR-код, щоб відкрити повний пос�
 msgid "github.com/Starnished66/compas-player"
 msgstr "github.com/Starnished66/compas-player"
 
-msgid "Guide: docs/CREATING.md"
-msgstr "Посібник: docs/CREATING.md"
+msgid "Guide: docs/development/CREATING.md"
+msgstr "Посібник: docs/development/CREATING.md"
 
 msgid "Write a Lua plugin on your computer. Copy its .lua file to the .plugins folder on your SD card."
 msgstr "Створіть плагін Lua на комп’ютері. Скопіюйте файл .lua до папки .plugins на SD-картці."
@@ -3681,7 +3681,7 @@ msgstr "Плагін стримінгу недоступний"
 msgid "TXT Reader"
 msgstr "Перегляд TXT"
 
-#: src/ui/gui_settings.c
+#: src/ui/settings/gui_settings.c
 msgid "Keep Lyrics Screen On"
 msgstr ""
 

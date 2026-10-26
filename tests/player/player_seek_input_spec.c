@@ -1,10 +1,10 @@
-#include "player_seek_input.h"
+#include "../../src/ui/player/transport/player_seek_input.h"
 
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
 
-#include "audio.h"
+#include "../../src/audio/engine/audio.h"
 
 uint32_t gui_anim_ms(uint32_t base_ms) { return base_ms; }
 

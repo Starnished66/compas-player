@@ -2434,8 +2434,8 @@ msgstr "Scan voor de volledige handleiding"
 msgid "github.com/Starnished66/compas-player"
 msgstr "github.com/Starnished66/compas-player"
 
-msgid "Guide: docs/CREATING.md"
-msgstr "Handleiding: docs/CREATING.md"
+msgid "Guide: docs/development/CREATING.md"
+msgstr "Handleiding: docs/development/CREATING.md"
 
 msgid "Write a Lua plugin on your computer. Copy its .lua file to the .plugins folder on your SD card."
 msgstr "Schrijf een Lua-plugin op je computer. Kopieer het .lua-bestand naar de map .plugins op je SD-kaart."
@@ -3672,7 +3672,7 @@ msgstr "De streamingplug-in is niet beschikbaar"
 msgid "TXT Reader"
 msgstr "TXT-lezer"
 
-#: src/ui/gui_settings.c
+#: src/ui/settings/gui_settings.c
 msgid "Keep Lyrics Screen On"
 msgstr ""
 
