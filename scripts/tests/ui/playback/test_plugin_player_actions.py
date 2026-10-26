@@ -30,15 +30,19 @@ functions = '\n'.join(function(name) for name in (
     'plugin_player_action_dispatch', 'plugin_player_action_name_valid',
     'plugin_player_actions_clear_owner', 'plugin_player_actions_clear_all',
     'plugin_set_player_layout_xml', 'l_plugin_register_player_action',
-    'l_plugin_restore_player_layout'))
+    'l_plugin_restore_player_layout', 'plugin_now_playing_set_value',
+    'l_plugin_now_playing_set_image', 'l_plugin_now_playing_set_text'))
 
 body = r'''
 #include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
 #include "plugin_lua_runtime.h"
+#include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <stdbool.h>
-bool plugin_storage_path_is_reserved(const char *path) { (void)path; return false; }
+bool plugin_storage_path_is_reserved(const char *path) { return strstr(path,"reserved") != NULL; }
 #include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -69,14 +73,36 @@ static void player_layouts_set_action_handler(player_layout_action_handler_t h){
 static void player_layouts_clear_plugin_owner(const char *owner){snprintf(cleared_owners[clear_count++],64,"%s",owner);}
 static bool gui_player_get_screen(void){return player_screen;}
 static void gui_player_layout_reload_request(void){reload_requests++;}
+#define MUSIC_ROOT_DIR "./music"
+#define LV_RESULT_OK 0
+typedef struct { int unused; } lv_image_header_t;
+static int lv_image_decoder_get_info(const char *path,lv_image_header_t *header){(void)header;return strstr(path,"Makefile") ? LV_RESULT_OK : 1;}
+static const char *check_plugin_external_path(lua_State *L,int index,const char *api){return plugin_lua_check_external_path(L,index,api);}
+static char value_owner[64],value_name[64],value_text[4096];
+static bool value_image,value_nil;
+static const char *player_layouts_set_plugin_value(const char *owner,const char *name,const char *value,bool image){
+ if(strncmp(name,"plugin_",7))return "protected widget";
+ snprintf(value_owner,sizeof(value_owner),"%s",owner);snprintf(value_name,sizeof(value_name),"%s",name);
+ snprintf(value_text,sizeof(value_text),"%s",value?value:"");value_image=image;value_nil=!value;return NULL;
+}
 ''' + registry.group() + '\n' + pointer_function('plugin_instance_for_state') + '\n' + functions + r'''
-static void register_fn(lua_State *L){lua_pushcfunction(L,l_plugin_register_player_action);lua_setglobal(L,"register_action");lua_pushcfunction(L,l_plugin_restore_player_layout);lua_setglobal(L,"restore_layout");}
+static void register_fn(lua_State *L){lua_pushcfunction(L,l_plugin_register_player_action);lua_setglobal(L,"register_action");lua_pushcfunction(L,l_plugin_restore_player_layout);lua_setglobal(L,"restore_layout");lua_pushcfunction(L,l_plugin_now_playing_set_image);lua_setglobal(L,"set_image");lua_pushcfunction(L,l_plugin_now_playing_set_text);lua_setglobal(L,"set_text");}
 static void run(lua_State *L,const char *s){int rc=luaL_dostring(L,s);if(rc!=LUA_OK)fprintf(stderr,"%s\n",lua_tostring(L,-1));assert(rc==LUA_OK);}
 int main(void){
  lua_State *a=luaL_newstate(),*b=luaL_newstate(),*c=luaL_newstate();assert(a&&b&&c);luaL_openlibs(a);luaL_openlibs(b);luaL_openlibs(c);
  plugin_instances[0]=(plugin_instance_t){.L=a,.defined=true};strcpy(plugin_instances[0].id,"owner.a");
  plugin_instances[1]=(plugin_instance_t){.L=b,.defined=true};strcpy(plugin_instances[1].id,"owner.b");register_fn(a);register_fn(b);
- register_fn(c);run(c,"assert(not pcall(restore_layout))");
+ register_fn(c);run(c,"assert(not pcall(restore_layout)); assert(not pcall(set_text,'plugin_caption','No owner'))");
+ run(a,"assert(set_text('plugin_caption','Chapter 2'))");assert(!strcmp(value_owner,"owner.a")&&!strcmp(value_text,"Chapter 2")&&!value_image);
+ run(b,"assert(set_text('plugin_caption','Other owner'))");assert(!strcmp(value_owner,"owner.b"));
+ run(a,"assert(set_text('plugin_caption',nil))");assert(value_nil);
+ run(a,"assert(set_image('plugin_picture',nil))");assert(value_nil&&value_image);
+ run(a,"assert(not pcall(set_text,'title','Protected')); assert(not pcall(set_text,'plugin_caption',string.rep('a',4096))); assert(not pcall(set_text,'plugin_caption','a'..string.char(0)..'b')); assert(not pcall(set_text,'plugin_'..string.char(0),'text'))");
+ run(a,"assert(not pcall(set_image,'plugin_picture','missing.png')); assert(not pcall(set_image,'plugin_picture','reserved.png')); assert(not pcall(set_image,'plugin_picture','S:/bad.png')); assert(not pcall(set_image,'plugin_picture',''))");
+ char cwd[512],image_path[1024];assert(getcwd(cwd,sizeof(cwd)));snprintf(image_path,sizeof(image_path),"%s/Makefile",cwd);lua_pushstring(a,image_path);lua_setglobal(a,"image_path");
+ run(a,"assert(set_image('plugin_picture',image_path))");assert(value_image&&!strncmp(value_text,"S:/",3)&&strstr(value_text,"Makefile"));
+ lua_pushstring(a,__FILE__);lua_setglobal(a,"unsupported_path");run(a,"assert(not pcall(set_image,'plugin_picture',unsupported_path))");
+ plugin_instances[0].disposing=true;run(a,"assert(not pcall(set_text,'plugin_caption','Disposed'))");plugin_instances[0].disposing=false;
  bool changed=false;strcpy(selected_layout,"runtime.layout");
  assert(plugin_set_player_layout_xml(a,"runtime.layout","Runtime","/plugins/runtime.xml",false,&changed));
  assert(!changed&&!strcmp(bound_layout,"runtime.layout")&&!strcmp(bound_owner,"owner.a"));
@@ -115,11 +141,17 @@ assert '{ "register_player_action",    l_plugin_register_player_action }' in src
 assert '{ "restore_player_layout",     l_plugin_restore_player_layout }' in src
 assert '"ui.player_actions"' in info_src
 assert '"ui.player_layout_restore"' in info_src
+assert '"ui.now_playing.set_image"' in info_src
+assert '"ui.now_playing.set_text"' in info_src
+assert '{ "set_image", l_plugin_now_playing_set_image }' in src
+assert '{ "set_text", l_plugin_now_playing_set_text }' in src
+assert 'register_plugin_lib(L, plugin_now_playing_funcs);' in function('register_plugin_api')
+assert 'lua_setfield(L, -2, "now_playing");' in function('register_plugin_api')
 assert 'plugin_player_actions_clear_owner(L, failed_inst && failed_inst->defined ? failed_inst->id : NULL, aborted);' in function('discard_failed_plugin_resources')
 assert 'plugin_player_actions_clear_all();' in function('plugin_manager_deinit')
 assert src.index('plugin_player_actions_clear_all();', src.index('void plugin_manager_deinit')) < src.index('lua_close(plugin_instances[i].L)', src.index('void plugin_manager_deinit'))
 with tempfile.TemporaryDirectory(prefix='compas-player-actions-') as folder:
     folder = pathlib.Path(folder); c = folder / 'test.c'; binary = folder / 'test'; c.write_text(body)
     lua = [str(p) for p in (root / 'lua/src').glob('*.c') if p.name not in ('lua.c','luac.c')]
-    subprocess.run(['cc','-std=gnu11','-Wall','-Wextra','-Werror','-DLUA_USE_LINUX','-I'+str(root/'lua/src'),'-I'+str(root/'src/plugins'),'-I'+str(root/'src/plugins/bindings'),str(c),str(root/'src/plugins/lua/plugin_lua_runtime.c'),*lua,'-lm','-ldl','-o',str(binary)],check=True,cwd=root)
+    subprocess.run(['cc','-std=gnu11','-Wall','-Wextra','-Werror','-DLUA_USE_LINUX','-I'+str(root/'lua/src'),'-I'+str(root/'src/plugins'),'-I'+str(root/'src/plugins/bindings'),'-I'+str(root/'src/plugins/lua'),str(c),str(root/'src/plugins/lua/plugin_lua_runtime.c'),*lua,'-lm','-ldl','-o',str(binary)],check=True,cwd=root)
     subprocess.run([str(binary)],check=True,cwd=root)

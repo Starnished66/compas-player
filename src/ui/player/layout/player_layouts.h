@@ -128,6 +128,8 @@ void player_layouts_set_action_handler(player_layout_action_handler_t handler);
 /* Associates a plugin owner with a session XML layout. */
 bool player_layouts_set_plugin_owner(const char * layout_id, const char * owner);
 void player_layouts_clear_plugin_owner(const char * owner);
+const char * player_layouts_set_plugin_value(const char * owner, const char * name,
+                                            const char * value, bool image);
 bool player_layouts_dispatch_action(const char * action);
 bool player_layouts_dispatch_action_from(lv_obj_t * target, const char * action);
 

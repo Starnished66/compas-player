@@ -191,9 +191,9 @@ plugin.define({
 
   | Area | Tokens |
   | --- | --- |
-  | UI | `ui.list`, `ui.settings`, `ui.row_width`, `ui.text_input`, `ui.confirmation`, `ui.toast`, `ui.progress`, `ui.screenshot`, `ui.theme`, `ui.theme_refresh`, `ui.reload`, `ui.home_layout`, `ui.home_tiles`, `ui.launcher_layout`, `ui.home_background`, `ui.lock_screen`, `ui.button_lock`, `ui.quick_toggle`, `ui.text_view`, `ui.text_view_images`, `ui.list_grid`, `ui.list_showing`, `ui.list_update`, `ui.list_scroll_reset`, `ui.list_wrap`, `ui.settings_list_wrap`, `ui.settings_list_10_sliders`, `ui.order_editor`, `ui.player_layout_xml`, `ui.file_manager`, `ui.file_picker`, `ui.startup_image` |
+  | UI | `ui.list`, `ui.settings`, `ui.row_width`, `ui.text_input`, `ui.confirmation`, `ui.toast`, `ui.progress`, `ui.screenshot`, `ui.theme`, `ui.theme_refresh`, `ui.reload`, `ui.home_layout`, `ui.home_tiles`, `ui.launcher_layout`, `ui.home_background`, `ui.lock_screen`, `ui.button_lock`, `ui.quick_toggle`, `ui.text_view`, `ui.text_view_images`, `ui.list_grid`, `ui.list_showing`, `ui.list_update`, `ui.list_scroll_reset`, `ui.list_wrap`, `ui.settings_list_wrap`, `ui.settings_list_10_sliders`, `ui.order_editor`, `ui.player_layout_xml`, `ui.now_playing.set_image`, `ui.now_playing.set_text`, `ui.file_manager`, `ui.file_picker`, `ui.startup_image` |
   | Playback and audio | `playback.control`, `playback.state`, `playback.events`, `playback.lyrics_refresh`, `playback.progress`, `playback.remote`, `playback.remote_resolve`, `playback.transport_skip`, `playback.speed`, `playback.format`, `playback.output_info`, `playback.silent_volume`, `playback.transient_volume`, `playback.output_events`, `playback.settings`, `playback.ab_loop`, `playback.ab_switch`, `playback.http_seek`, `audio.loop`, `audio.peq`, `audio.peq.transient`, `audio.peq.state`, `audio.stereo_width`, `audio.crossfeed`, `audio.crossfeed.angle`, `audio.hw_volume_curve` |
-  | Files | `filesystem.sd`, `filesystem.mkdir`, `filesystem.playlists`, `filesystem.file_ops` |
+  | Files | `filesystem.sd`, `filesystem.realpath`, `filesystem.mkdir`, `filesystem.playlists`, `filesystem.file_ops` |
   | Storage | `storage.namespaced`, `storage.secrets`, `storage.secrets_get` |
   | Network | `network.http.sync`, `network.http.async`, `network.http.download`, `network.http.download_progress` |
   | Data | `data.json`, `crypto.md5`, `data.zip`, `data.zip_image`, `data.image_thumbnail`, `data.wallpaper`, `data.html` |
@@ -882,6 +882,52 @@ if plugin.has_capability("ui.player_layout_xml") then
 end
 ```
 
+### `plugin.now_playing.set_image(name, path)` / `plugin.now_playing.set_text(name, text)`
+
+Updates a custom named widget in an XML Now Playing layout owned by this
+plugin. Requires `plugin.define()` and a layout registered with
+`plugin.set_player_layout()`. Check capabilities `ui.now_playing.set_image`
+and `ui.now_playing.set_text`; these are additive within API 17.
+
+Use an `lv_image` for images and an `lv_label` for text. Names must start
+with `plugin_`, contain only ASCII letters, digits, `_`, `-`, or `.`, and
+fit in 63 bytes. Native roles such as `cover_img`, `title`, and `play_btn`
+cannot be changed through these setters.
+
+```xml
+<lv_image name="plugin_track_image" width="300" height="300" inner_align="contain" />
+<lv_label name="plugin_caption" text="" />
+```
+
+```lua
+plugin.now_playing.set_image("plugin_track_image", "KidsMode/images/story.png")
+plugin.now_playing.set_text("plugin_caption", "Chapter 2")
+```
+
+- Image paths are absolute filesystem paths or relative to `<SD card>/.plugins/`,
+  like list icons. Pass a local image supported by the player's LVGL decoder,
+  not a URL, XML image identifier, or an `S:`-prefixed LVGL path. Missing or
+  unsupported images raise an error without replacing the previous value.
+  The resolved filesystem path is limited to 511 bytes. Files are referenced,
+  not copied: keep them available while the image is in use.
+- Text is literal UTF-8, up to 4095 bytes. Values and names cannot contain NUL.
+- Both functions return `true` when the value is accepted. Invalid arguments,
+  a wrong widget type in the active owned layout, exhausted storage, or an
+  inactive/undefined plugin raise a Lua error.
+- Updates are retained per plugin and widget name, even if its layout is not
+  active or Now Playing has not been created. Matching widgets receive the
+  latest value when the layout is created again. Missing widgets are skipped;
+  widgets of the wrong type are skipped during creation. Different plugins'
+  values never modify each other's layouts.
+- Up to 32 named values per plugin and 128 across all plugins are retained.
+  Passing `nil` clears the current image or text and removes its retained
+  value. On the next rebuild, the XML default applies again. Unloading the
+  plugin clears its values.
+- This updates only the custom widget, not native cover art, its blurred
+  background, or quick drawer artwork. To show a custom picture instead of
+  the cover, hide the required native `cover_img` in your XML and place a
+  custom image in the desired position.
+
 ### `plugin.refresh_theme()`
 
 Applies icon changes and the Home and launcher layouts, without disturbing
@@ -1259,6 +1305,28 @@ plugin). Check `library.refresh`.
   sorted, and a missing folder gives an empty table.
 - `plugin.mkdir(path)`: creates a folder and any missing parents. Returns
   `true`, or `nil, error`. An existing folder is fine.
+
+### `plugin.realpath(path)`
+
+Returns the canonical absolute filesystem path of an existing file or directory,
+resolving `.`, `..`, and symbolic links. Relative paths resolve against the
+application's working directory, **not** `.plugins/`. The result is a plain
+filesystem path without LVGL's `S:` prefix.
+
+Check `plugin.has_capability("filesystem.realpath")` first; this is an additive
+API. Missing paths, dangling links, and other filesystem failures return
+`nil, error`. Invalid arguments, embedded NUL bytes, and paths into reserved
+plugin storage raise a Lua error. Both the input and the resolved path are
+checked against reserved storage.
+
+```lua
+local path, err = plugin.realpath(plugin.sd_root() .. "/Artist/Album/Track.png")
+if path then
+    plugin.now_playing.set_image("plugin_track_image", path)
+else
+    plugin.show_toast(err)
+end
+```
 
 ### File Manager (API 16)
 

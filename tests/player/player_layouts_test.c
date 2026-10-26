@@ -223,7 +223,8 @@ static void check_layout_interactions_and_actions(void) {
         "<str name=\"compas_album_action\" value=\"menu\"/></consts>"
         "<view extends=\"lv_obj\"><lv_obj name=\"artist_tap\">"
         "<event_cb trigger=\"clicked\" callback=\"compas_action\" user_data=\"custom_artist\"/>"
-        "</lv_obj></view></component>");
+        "</lv_obj><lv_label name=\"plugin_caption\" text=\"XML default\"/>"
+        "<lv_image name=\"plugin_picture\"/></view></component>");
     write_file(plain, "<component><view extends=\"lv_obj\"/></component>");
     write_file(invalid,
         "<component><consts><str name=\"compas_artist_action\" value=\"bad action\"/>"
@@ -238,8 +239,57 @@ static void check_layout_interactions_and_actions(void) {
 
     lv_obj_t * screen = lv_obj_create(NULL);
     player_layout_kind_t kind;
+    assert(!player_layouts_set_plugin_value("plugin.owner", "plugin_caption", "Before build", false));
+    assert(!player_layouts_set_plugin_value("other.owner", "plugin_caption", "Foreign", false));
+    assert(player_layouts_set_plugin_value("plugin.owner", "title", "Protected", false));
+    assert(player_layouts_set_plugin_value("plugin.owner", "cover_img", "S:cover.png", true));
     lv_obj_t * custom_root = player_layouts_create("interaction_custom", screen, &kind);
     assert(custom_root && kind == PLAYER_LAYOUT_XML_FILE);
+    lv_obj_t * caption = lv_obj_find_by_name(custom_root, "plugin_caption");
+    lv_obj_t * picture = lv_obj_find_by_name(custom_root, "plugin_picture");
+    assert(caption && picture);
+    assert(strcmp(lv_label_get_text(caption), "Before build") == 0);
+    assert(!player_layouts_set_plugin_value("plugin.owner", "plugin_caption", "Updated", false));
+    assert(strcmp(lv_label_get_text(caption), "Updated") == 0);
+    assert(!player_layouts_set_plugin_value("other.owner", "plugin_caption", "Still foreign", false));
+    assert(strcmp(lv_label_get_text(caption), "Updated") == 0);
+    assert(player_layouts_set_plugin_value("plugin.owner", "plugin_caption", "S:bad.png", true));
+    assert(player_layouts_set_plugin_value("plugin.owner", "plugin_picture", "Wrong type", false));
+    assert(!player_layouts_set_plugin_value("plugin.owner", "plugin_picture", LV_SYMBOL_OK, true));
+    assert(strcmp(lv_image_get_src(picture), LV_SYMBOL_OK) == 0);
+    assert(!player_layouts_set_plugin_value("plugin.owner", "plugin_picture", LV_SYMBOL_CLOSE, true));
+    assert(strcmp(lv_image_get_src(picture), LV_SYMBOL_CLOSE) == 0);
+    lv_obj_clean(screen);
+    player_layouts_release();
+    custom_root = player_layouts_create("interaction_custom", screen, &kind);
+    caption = lv_obj_find_by_name(custom_root, "plugin_caption");
+    picture = lv_obj_find_by_name(custom_root, "plugin_picture");
+    assert(strcmp(lv_label_get_text(caption), "Updated") == 0);
+    assert(strcmp(lv_image_get_src(picture), LV_SYMBOL_CLOSE) == 0);
+    assert(!player_layouts_set_plugin_value("plugin.owner", "plugin_caption", NULL, false));
+    assert(!strcmp(lv_label_get_text(caption), ""));
+    assert(!player_layouts_set_plugin_value("plugin.owner", "plugin_picture", NULL, true));
+    assert(lv_image_get_src(picture) == NULL);
+    player_layouts_clear_plugin_owner("other.owner");
+    for (int i = 0; i < 32; i++) {
+        char name[64];
+        snprintf(name, sizeof(name), "plugin_slot_%d", i);
+        assert(!player_layouts_set_plugin_value("quota.owner", name, "Pending", false));
+    }
+    assert(player_layouts_set_plugin_value("quota.owner", "plugin_overflow", "Pending", false));
+    assert(!player_layouts_set_plugin_value("quota.owner", "plugin_slot_0", "Replaced", false));
+    assert(!player_layouts_set_plugin_value("quota.owner", "plugin_slot_0", NULL, false));
+    assert(!player_layouts_set_plugin_value("quota.owner", "plugin_overflow", "Pending", false));
+    player_layouts_clear_plugin_owner("quota.owner");
+    assert(!player_layouts_set_plugin_value("plugin.owner", "plugin_caption", "Before unload", false));
+    player_layouts_clear_plugin_owner("plugin.owner");
+    assert(!strcmp(lv_label_get_text(caption), ""));
+    assert(player_layouts_set_plugin_owner("interaction_custom", "plugin.owner"));
+    lv_obj_clean(screen);
+    player_layouts_release();
+    custom_root = player_layouts_create("interaction_custom", screen, &kind);
+    caption = lv_obj_find_by_name(custom_root, "plugin_caption");
+    assert(!strcmp(lv_label_get_text(caption), "XML default"));
     const player_layout_interactions_t * options = player_layouts_get_interactions();
     assert(options && !options->lyrics_enabled);
     assert(strcmp(options->artist_action, "none") == 0);

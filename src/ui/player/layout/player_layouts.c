@@ -85,6 +85,18 @@ static player_layout_interactions_t active_interactions = {
 static player_layout_action_handler_t action_handler;
 static lv_obj_t * active_root;
 static char active_owner[PLAYER_LAYOUT_ACTION_MAX];
+// Maximum retained plugin values for each now_playing layout for all plugins
+#define MAX_PLUGIN_VALUES 128
+// Maximum retained plugin owners for each now_playing layout (e.g. a plugin can only overwrite 32 controls at max)
+#define MAX_PLUGIN_OWNER_VALUES 32
+typedef struct {
+    char owner[PLAYER_LAYOUT_ACTION_MAX];
+    char name[PLAYER_LAYOUT_ACTION_MAX];
+    char * value;
+    bool image;
+} plugin_layout_value_t;
+static plugin_layout_value_t plugin_values[MAX_PLUGIN_VALUES];
+
 typedef struct prepared_xml_timeline_t {
     struct prepared_xml_timeline_t * next;
     lv_anim_timeline_t * timeline;
@@ -164,6 +176,60 @@ static const layout_image_t layout_images[] = {
 
 #define LAYOUT_FOLDER_IMAGES_MAX 32
 #define LAYOUT_FOLDER_IMAGE_NAME_MAX 64
+
+static lv_obj_t * plugin_value_target(const char * owner, const char * name) {
+    if (!active_root || strcmp(active_owner, owner) != 0) return NULL;
+    return lv_obj_find_by_name(active_root, name);
+}
+
+static void apply_plugin_value(plugin_layout_value_t * value) {
+    lv_obj_t * obj = plugin_value_target(value->owner, value->name);
+    if (!obj) return;
+    if (value->image && lv_obj_check_type(obj, &lv_image_class))
+        lv_image_set_src(obj, value->value);
+    else if (!value->image && lv_obj_check_type(obj, &lv_label_class))
+        lv_label_set_text(obj, value->value ? value->value : "");
+}
+
+const char * player_layouts_set_plugin_value(const char * owner, const char * name,
+                                            const char * value, bool image) {
+    if (!owner || !owner[0] || strlen(owner) >= PLAYER_LAYOUT_ACTION_MAX)
+        return "invalid plugin owner";
+    if (!name || strncmp(name, "plugin_", 7) != 0 || !name[7] ||
+        strlen(name) >= PLAYER_LAYOUT_ACTION_MAX) return "widget name must start with 'plugin_' and fit in 63 bytes";
+    for (const char * p = name; *p; p++) {
+        if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+              (*p >= '0' && *p <= '9') || *p == '_' || *p == '-' || *p == '.'))
+            return "invalid widget name";
+    }
+    if (value && strlen(value) > (image ? 514u : 4095u)) return "value is too long";
+    lv_obj_t * obj = plugin_value_target(owner, name);
+    if (obj && !lv_obj_check_type(obj, image ? &lv_image_class : &lv_label_class))
+        return "widget has the wrong type";
+    plugin_layout_value_t * slot = NULL;
+    plugin_layout_value_t * empty = NULL;
+    unsigned count = 0;
+    for (unsigned i = 0; i < MAX_PLUGIN_VALUES; i++) {
+        plugin_layout_value_t * candidate = &plugin_values[i];
+        if (!candidate->owner[0]) { if (!empty) empty = candidate; continue; }
+        if (strcmp(candidate->owner, owner) != 0) continue;
+        count++;
+        if (strcmp(candidate->name, name) == 0) slot = candidate;
+    }
+    if (!slot && value && (!empty || count >= MAX_PLUGIN_OWNER_VALUES)) return "image/text slot limit reached";
+    char * copy = value ? strdup(value) : NULL;
+    if (value && !copy) return "out of memory";
+    if (!slot) slot = empty;
+    if (!slot) return NULL;
+    free(slot->value);
+    snprintf(slot->owner, sizeof(slot->owner), "%s", owner);
+    snprintf(slot->name, sizeof(slot->name), "%s", name);
+    slot->value = copy;
+    slot->image = image;
+    apply_plugin_value(slot);
+    if (!value) memset(slot, 0, sizeof(*slot));
+    return NULL;
+}
 
 static bool id_is_valid(const char * id) {
     if (!id || !id[0] || strlen(id) >= PLAYER_LAYOUT_ID_MAX) return false;
@@ -416,6 +482,14 @@ bool player_layouts_set_plugin_owner(const char * layout_id, const char * owner)
 void player_layouts_clear_plugin_owner(const char * owner) {
     if (!owner || !owner[0]) return;
     bool active_match = strcmp(active_owner, owner) == 0;
+    for (unsigned i = 0; i < MAX_PLUGIN_VALUES; i++) {
+        plugin_layout_value_t * value = &plugin_values[i];
+        if (strcmp(value->owner, owner) != 0) continue;
+        free(value->value);
+        value->value = NULL;
+        apply_plugin_value(value);
+        memset(value, 0, sizeof(*value));
+    }
     for (int i = 0; i < entry_count; ++i) {
         if (strcmp(entries[i].plugin_owner, owner) == 0) entries[i].plugin_owner[0] = '\0';
     }
@@ -1339,6 +1413,8 @@ lv_obj_t * player_layouts_create(const char * id, lv_obj_t * parent, player_layo
         if (e->info.kind == PLAYER_LAYOUT_XML_FILE)
             resolve_plugin_owner(e, active_owner, sizeof(active_owner));
         lv_obj_add_event_cb(root, active_root_delete_cb, LV_EVENT_DELETE, NULL);
+        for (unsigned i = 0; i < MAX_PLUGIN_VALUES; i++)
+            if (plugin_values[i].owner[0]) apply_plugin_value(&plugin_values[i]);
     }
     return root;
 }
