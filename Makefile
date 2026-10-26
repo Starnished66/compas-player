@@ -439,23 +439,6 @@ $(info Fetching Lua 5.5.1 source...)
 $(shell curl -fsSL -o /tmp/lua-5.5.1.tar.gz https://www.lua.org/ftp/lua-5.5.1.tar.gz && tar -xzf /tmp/lua-5.5.1.tar.gz -C /tmp && mv /tmp/lua-5.5.1 $(LUA_DIR) && rm /tmp/lua-5.5.1.tar.gz)
 endif
 
-# UI assets (theme2 -- real PNGs from the stock HiBy firmware, not ours to
-# redistribute). On target these are read straight from the firmware's own
-# /usr/resource/litegui/theme2 -- nothing to fetch. On host, best-effort
-# mirror them from wherever the firmware happens to be unpacked locally on
-# this dev machine, purely for the simulator to have something to show;
-# missing assets just mean blank images on host, not a build failure.
-ASSETS_DIR = assets
-UNPACKED_THEME2 = ../../Hiby-R1-Mod/unpack_pack/squashfs-root/usr/resource/litegui/theme2
-ifeq ($(wildcard $(ASSETS_DIR)/theme2),)
-ifneq ($(wildcard $(UNPACKED_THEME2)),)
-$(info Mirroring theme2 UI assets for the host simulator...)
-$(shell mkdir -p $(ASSETS_DIR) && cp -r $(UNPACKED_THEME2) $(ASSETS_DIR)/theme2)
-else
-$(warning theme2 assets not found at $(UNPACKED_THEME2) -- host simulator will show blank images; target build is unaffected)
-endif
-endif
-
 # Compile flags
 # -DLV_CONF_INCLUDE_SIMPLE=1 is required to include lv_conf.h as "lv_conf.h"
 # Project headers use explicit relative includes across feature directories.
@@ -744,7 +727,7 @@ APP_SRCS += src/network/bluetooth/reconnect/bluetooth_reconnect.c src/network/bl
 APP_CXX_SRCS = src/audio/decoders/alac/alac_decoder.cpp
 LVGL_SRCS = $(sort $(shell find $(LVGL_DIR)/src -type f -name '*.c'))
 # LVGL 9.5 dropped the XML engine; v9.4.0's is vendored (see
-# third_party/lv_xml/README.md). The expat *_impl/*_ns files are #included by
+# licenses/vendor/lv_xml-NOTICE.md). The expat *_impl/*_ns files are #included by
 # xmltok.c, so they are not compiled on their own (lv_xml_test.c, which needs
 # LV_USE_TEST, is not part of the vendored copy).
 LV_XML_DIR = third_party/lv_xml
@@ -911,13 +894,6 @@ $(BUILD_TARGET_DIR)/libsndfile/libsndfile.a: $(BUILD_TARGET_DIR)/.audio_vendor_c
 	cmake -S $(SNDFILE_DIR) -B $(dir $@) $(SNDFILE_OPTIONS) -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=mipsel -DCMAKE_C_COMPILER=$(CROSS_CC) -DCMAKE_C_FLAGS='$(TARGET_CPU_FLAGS) $(TARGET_CODE_SECTION_FLAGS)'
 	+cmake --build $(dir $@) --target sndfile
 
-ifeq ($(BOARD),r1)
-SELECTOR_SIM_BIN = selector_sim
-else
-SELECTOR_SIM_BIN = selector_sim_$(BOARD)
-endif
-SELECTOR_SIM_CFLAGS = -O2 -Wall -fwrapv -I. -Isrc/bootloader -Isrc/core \
-	-DFB_DRAW_HOST=1 -DHOST_BUILD=1 -DCOMPAS_LOADER_BUILD $(BOARD_DEFINE)
 # BOARD_SCREEN_WIDTH is 480 on r1/r3proii and 320 on r3ii_2025. The
 # standalone R3II 2025 loader has no Rockbox row, so it also drops that
 # banner array.
@@ -937,50 +913,13 @@ SELECTOR_ICON_SRCS = src/bootloader/selector/assets/icons/selector_icons.c \
 	src/bootloader/selector/assets/icons/selector_icons_nav.c \
 	src/bootloader/selector/assets/icons/selector_icons_tools.c
 endif
-SELECTOR_SIM_SRCS = src/bootloader/selector/ui/render/selector_sim.c src/bootloader/selector/ui/render/selector_ui.c \
-	src/bootloader/selector/ui/render/selector_paint.c src/bootloader/display/fb_draw.c src/bootloader/display/fb_host.c \
-	$(SELECTOR_LOGO_SRCS) $(SELECTOR_ICON_SRCS) \
-	src/core/ui/web/glyph5x7.c src/core/ui/display/startup_splash.c lvgl/src/libs/tjpgd/tjpgd.c
-SNAPSHOT_PREFIX ?= snapshot
+.PHONY: all host target bootloader clean FORCE_VERSION
 
-$(SELECTOR_SIM_BIN): $(SELECTOR_SIM_SRCS) src/bootloader/display/fb_draw.h src/bootloader/display/fb_draw_internal.h \
-		src/bootloader/selector/ui/render/selector_ui.h src/bootloader/selector/assets/logos/selector_logos.h \
-		src/bootloader/selector/assets/icons/selector_icons.h src/bootloader/selector/ui/render/selector_style.h \
-		src/bootloader/selector/ui/controller/selector_internal.h src/bootloader/selector/assets/fonts/selector_font_pin.h \
-		src/core/system/runtime/board_config.h src/core/ui/web/glyph5x7.h $(LVGL_TINY_TTF)
-	$(CC) $(SELECTOR_SIM_CFLAGS) -o $@ $(SELECTOR_SIM_SRCS) -lm
-
-.PHONY: check-selector-logos check-selector-icons check-selector-fonts
-selector-sim: $(SELECTOR_SIM_BIN)
-	@mkdir -p scratch/selector-mockup
-	./$(SELECTOR_SIM_BIN) scratch/selector-mockup assets/fonts/NotoSans-Regular.ttf $(SNAPSHOT_PREFIX)
-
-check-selector-logos:
-	python3 scripts/generators/brand_assets/generate_selector_logos.py --verify
-
-check-selector-icons:
-	python3 scripts/generators/brand_assets/generate_selector_icons.py --verify
-
-check-selector-fonts:
-	python3 scripts/generators/fonts/generate_selector_fonts.py --verify
-
-.PHONY: all host target bootloader clean compile_commands.json FORCE_VERSION selector-sim
-
-# Default target builds for host simulation and generates compile commands for IDE
-all: host compile_commands.json
+# Default target builds the host player.
+all: host
 
 # Build for host (Arch Linux PC)
-host: check-ui-fonts $(HOST_BIN) compile_commands.json
-
-.PHONY: check-ui-fonts
-check-ui-fonts:
-	python3 scripts/generators/fonts/generate_ui_fonts.py --verify
-
-# Test harnesses need link inputs without dry-running recursive vendor recipes.
-.PHONY: print-host-link
-print-host-link:
-	$(info $(HOST_OBJS) $(HOST_AUDIO_LIBS) $(HOST_LDFLAGS))
-	@:
+host: $(HOST_BIN)
 
 $(HOST_BIN): $(HOST_OBJS) $(HOST_AUDIO_LIBS)
 	$(CXX) -o $@ $(HOST_OBJS) $(HOST_AUDIO_LIBS) $(HOST_LDFLAGS)
@@ -1155,7 +1094,7 @@ $(BUILD_HOST_DIR)/lua/%.o: $(LUA_DIR)/src/%.c
 	$(CC) $(LUA_CFLAGS) -DHOST_BUILD=1 -c $< -o $@
 
 # Build for target (MIPS HiBy Device)
-target: check-ui-fonts $(TARGET_BIN) compile_commands.json
+target: $(TARGET_BIN)
 
 $(TARGET_BIN): $(TARGET_OBJS) $(TARGET_CPU_FLAGS_STAMP) $(TARGET_AUDIO_LIBS) Makefile
 	$(CROSS_CXX) $(TARGET_CPU_FLAGS) -o $(BUILD_TARGET_DIR)/$(TARGET_BIN)_unstripped $(TARGET_OBJS) $(TARGET_AUDIO_LIBS) $(TARGET_LDFLAGS)
@@ -1212,30 +1151,6 @@ bootloader: $(TARGET_CPU_FLAGS_STAMP)
 	$(CROSS_STRIP) -s -o $(BOOTLOADER_BIN) $(BUILD_TARGET_DIR)/$(BOOTLOADER_BIN)_unstripped
 	@echo "Standalone Compás bootloader ready: $(BOOTLOADER_BIN)"
 endif
-
-# One-shot early Linux splash; reuse the loader renderer without SD/selector work.
-ifeq ($(BOARD),r1)
-EARLY_SPLASH_BIN = compas_early_splash
-else
-EARLY_SPLASH_BIN = compas_early_splash_$(BOARD)
-endif
-EARLY_SPLASH_SRCS = src/bootloader/startup/early_splash.c src/bootloader/display/fb_draw.c \
-                   src/bootloader/install/internal_storage.c src/core/ui/display/startup_splash.c \
-                   src/core/ui/web/glyph5x7.c lvgl/src/libs/tjpgd/tjpgd.c
-.PHONY: early-splash test-early-splash
-early-splash: $(EARLY_SPLASH_BIN)
-$(EARLY_SPLASH_BIN): $(EARLY_SPLASH_SRCS) src/bootloader/display/fb_draw.h \
-                     src/core/ui/display/startup_splash.h src/bootloader/install/internal_storage.h \
-                     src/core/persistence/storage_paths.h src/core/system/runtime/board_config.h src/core/ui/web/glyph5x7.h lv_conf.h $(LVGL_PATCH_STAMP) $(TARGET_CPU_FLAGS_STAMP)
-	$(CROSS_CC) $(TARGET_CPU_FLAGS) $(BOOTLOADER_CFLAGS) -static -no-pie \
-	    $(EARLY_SPLASH_SRCS) -Wl,--gc-sections -lm -o $@.tmp
-	$(CROSS_STRIP) -s -o $@ $@.tmp
-	rm -f $@.tmp
-
-test-early-splash:
-	bash scripts/tests/firmware/run_early_splash_spec.sh
-	bash scripts/tests/firmware/run_early_splash_boot_test.sh
-	python3 scripts/tests/firmware/boot_pipeline/test_repack_early_splash_elf.py
 
 # Explicit alias for rebuilding the combined R1/R3 Pro II selector.
 .PHONY: rockbox-bootloader
@@ -1332,46 +1247,10 @@ $(BUILD_TARGET_DIR)/libexecinfo/%.o: $(LIBEXECINFO_DIR)/%.c $(TARGET_CPU_FLAGS_S
 	@mkdir -p $(dir $@)
 	$(CROSS_CC) $(TARGET_CPU_FLAGS) $(TARGET_CODE_SECTION_FLAGS) -O2 -g -Wall -Wno-frame-address -I$(LIBEXECINFO_DIR) -c $< -o $@
 
-# Generate compile_commands.json for Zed/clangd LSP autofill and hover popups
-compile_commands.json:
-	@python3 scripts/build/generate_compile_commands.py
-
 clean:
-	rm -rf build_host build_host_* build_target build_target_* build_ui_test build_layouts_test* \
-	    compas_player_host compas_player_host_* \
-	    compas_player_target compas_player_target_* \
-	    selector_sim selector_sim_* \
-	    compas_early_splash compas_early_splash_* \
-	    compile_commands.json compile_flags.txt
-
-# UI translations (see po/README.md). `make i18n` re-extracts the template,
-# merges it into every po/*.po and regenerates src/ui/text/i18n/i18n_catalog.c (checked
-# in, so `make target` needs no Python or gettext). `make i18n-check` runs the
-# same checks without writing anything.
-I18N_SCAN_SRCS = $(shell find src -type f \( -name '*.c' -o -name '*.h' \) \
-    ! -name '*_test.c' ! -name '*_check.c' ! -name '*_regression.c' ! -name i18n_catalog.c | sort)
-I18N_XGETTEXT = xgettext --language=C --from-code=UTF-8 --no-location \
-    --keyword=TR --keyword=N_ --keyword=TR_N:1,2 --keyword=TR_C:1c,2 \
-    --add-comments=TRANSLATORS --package-name=compas-player --msgid-bugs-address=none
-
-.PHONY: i18n i18n-check
-i18n:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	@$(I18N_XGETTEXT) -o $(BUILD_TARGET_DIR)/compas.pot.new $(I18N_SCAN_SRCS)
-	@if [ ! -f po/compas.pot ] || ! diff -q -I '^"POT-Creation-Date' $(BUILD_TARGET_DIR)/compas.pot.new po/compas.pot >/dev/null; then \
-	    cp $(BUILD_TARGET_DIR)/compas.pot.new po/compas.pot; echo "po/compas.pot updated"; fi
-	@for po in po/*.po; do msgmerge --update --backup=none --no-wrap -q $$po po/compas.pot; \
-	    msgfmt -c --check-format -o /dev/null $$po || exit 1; done
-	python3 scripts/i18n/po2c.py
-
-i18n-check:
-	@mkdir -p $(BUILD_TARGET_DIR)
-	@$(I18N_XGETTEXT) -o $(BUILD_TARGET_DIR)/compas.pot.new $(I18N_SCAN_SRCS)
-	@diff -q -I '^"POT-Creation-Date' $(BUILD_TARGET_DIR)/compas.pot.new po/compas.pot >/dev/null \
-	    || { echo "po/compas.pot is stale; run make i18n"; exit 1; }
-	@for po in po/*.po; do msgfmt -c --check-format --statistics -o /dev/null $$po || exit 1; done
-	python3 scripts/i18n/po2c.py --check
-	python3 scripts/i18n/find_untranslated.py
+	rm -rf build_host build_host_* build_target build_target_* build/rockbox-bootloader \
+	    compas_player_host compas_player_host_* compas_player_target compas_player_target_* \
+	    compas_loader compas_loader_*
 
 # Companion to -MMD -MP in CFLAGS above (see that comment for the real-
 # device/real-build incident this exists to prevent) -- pulls in every
@@ -1385,58 +1264,8 @@ i18n-check:
 # directory itself doesn't exist yet either. Must stay at the end of the
 # file: every .d this generates references targets/variables (BUILD_
 # TARGET_DIR, BUILD_HOST_DIR) that need to already be fully resolved.
-include src/tools/sdtool/sdtool.mk
 
 -include $(shell find $(BUILD_TARGET_DIR) $(BUILD_HOST_DIR) -name '*.d' 2>/dev/null)
-
-.PHONY: test-wifi-ssid
-test-wifi-ssid:
-	sh scripts/tests/network/run_wifi_ssid_escape_test.sh
-
-.PHONY: test-rtl-text
-# Arabic/Hebrew shaping, direction and label comparison on the host build.
-test-rtl-text:
-	bash scripts/tests/ui/text/run_rtl_text_spec.sh
-
-.PHONY: test-device-info
-# <SD>/.compas/device.json: contents, write-only-on-change, no-op without a writable card.
-test-device-info:
-	sh scripts/tests/hardware/run_device_info_test.sh
-
-.PHONY: test-tagcache test-tagcache-refs test-tagcache-storage test-tagcache-commit-failure test-tagcache-write-volume
-# The tagcache storage tests; each wraps the syscalls it needs to observe or fail.
-test-tagcache: test-tagcache-refs test-tagcache-storage test-tagcache-commit-failure test-tagcache-write-volume
-test-tagcache-refs:
-	sh scripts/tests/library/tagcache/run_tagcache_test.sh refs
-test-tagcache-storage:
-	sh scripts/tests/library/tagcache/run_tagcache_test.sh storage
-test-tagcache-commit-failure:
-	sh scripts/tests/library/tagcache/run_tagcache_test.sh commit-failure --wrap=write,--wrap=fsync,--wrap=rename
-test-tagcache-write-volume:
-	sh scripts/tests/library/tagcache/run_tagcache_test.sh write-volume --wrap=write,--wrap=pwrite
-
-.PHONY: test-store-dest
-# Plugin Store destinations: no path segment may end in a dot or space.
-test-store-dest:
-	sh scripts/tests/network/store/run_store_dest_test.sh
-.PHONY: test-player-queue
-test-player-queue:
-	bash scripts/tests/ui/playlists/test_player_queue_model.sh
-
-.PHONY: test-library-search
-test-library-search:
-	bash scripts/tests/library/browser/test_library_search.sh
-
-.PHONY: test-file-browser-natural-sort
-test-file-browser-natural-sort:
-	sh scripts/tests/library/browser/file_browser_natural_sort_test.sh
-
-.PHONY: test-remote-import-order test-metadata-catalog-order
-test-remote-import-order:
-	sh scripts/tests/network/remote/run_remote_import_files_order_test.sh
-
-test-metadata-catalog-order:
-	bash scripts/tests/library/metadata/run_metadata_catalog_test.sh
 
 $(BUILD_HOST_DIR)/sonic/%.o: sonic/%.c
 	@mkdir -p $(dir $@)

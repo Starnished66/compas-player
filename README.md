@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="#see-the-player">Screenshots</a> ·
-  <a href="docs/manual/README.md">User manual</a> ·
+  <a href="https://compasplayer.org/guide.html">User manual</a> ·
   <a href="#quick-setup">Quick setup</a> ·
   <a href="#plugins">Plugins</a> ·
   <a href="#install-and-update">Installation</a> ·
@@ -35,21 +35,21 @@ The first full firmware install replaces part of the device firmware. Keep a kno
 
 Captured on a HiBy R1 running the current development build; published releases may have a different interface.
 
-Browse the [full UI walkthrough](Screenshots/2026-10-01/README.md) for coverage and findings. Download or clone the repository and open [`Screenshots/2026-10-01/index.html`](Screenshots/2026-10-01/index.html) locally for the complete gallery, including menus, plugins and board layout previews.
+Browse the [full UI walkthrough](https://github.com/Starnished66/compas-page/blob/480680bfab5d158f0bc064316dd1f15e2fd3907e/images/screenshots/2026-10-01/README.md) for coverage and findings. For the complete gallery, clone the [documentation repository](https://github.com/Starnished66/compas-page/tree/480680bfab5d158f0bc064316dd1f15e2fd3907e), check out that commit, and open `images/screenshots/2026-10-01/index.html` locally.
 
 **Welcome & plugin selection**
 
 <p>
-  <img src="docs/images/readme/welcome.png" width="210" alt="Welcome and initial setup screen">
-  <img src="docs/images/readme/plugin-selection.png" width="210" alt="Initial plugin selection screen">
+  <img src="https://raw.githubusercontent.com/Starnished66/compas-page/480680bfab5d158f0bc064316dd1f15e2fd3907e/images/readme/welcome.png" width="210" alt="Welcome and initial setup screen">
+  <img src="https://raw.githubusercontent.com/Starnished66/compas-page/480680bfab5d158f0bc064316dd1f15e2fd3907e/images/readme/plugin-selection.png" width="210" alt="Initial plugin selection screen">
 </p>
 
 **Now Playing · Lyrics · Settings**
 
 <p>
-  <img src="docs/images/readme/now-playing.png" width="210" alt="Now Playing screen">
-  <img src="docs/images/readme/lyrics.png" width="210" alt="Synchronized lyrics screen">
-  <img src="docs/images/readme/settings.png" width="210" alt="Settings screen">
+  <img src="https://raw.githubusercontent.com/Starnished66/compas-page/480680bfab5d158f0bc064316dd1f15e2fd3907e/images/readme/now-playing.png" width="210" alt="Now Playing screen">
+  <img src="https://raw.githubusercontent.com/Starnished66/compas-page/480680bfab5d158f0bc064316dd1f15e2fd3907e/images/readme/lyrics.png" width="210" alt="Synchronized lyrics screen">
+  <img src="https://raw.githubusercontent.com/Starnished66/compas-page/480680bfab5d158f0bc064316dd1f15e2fd3907e/images/readme/settings.png" width="210" alt="Settings screen">
 </p>
 
 ## Quick setup
@@ -72,9 +72,9 @@ Wi-Fi and plugins can be skipped and configured later. Failed plugin installatio
 - **Tune the device:** charge limit and Safe Charging, suspend or idle shutdown, car mode, USB Storage/DAC/ADB selector, timezone and charge LED controls.
 - **Shape the interface:** swipe navigation, quick controls, built-in Themes picker, a customizable Home screen, a More screen (Plugins, Themes, Now Playing layouts, USB DAC, Bluetooth DAC), and non-Latin text including Cyrillic, Japanese, Korean and Thai.
 
-Android client authors can use the [Remote Control API v1 contract](docs/REMOTE_CONTROL_API.md).
+Android client authors can use the [Remote Control API v1 contract](https://github.com/Starnished66/compas-page/blob/480680bfab5d158f0bc064316dd1f15e2fd3907e/docs/REMOTE_CONTROL_API.md).
 
-Desktop tools can prepare a card with `compas-sdtool`, which builds the music database and album covers on a computer using the player's own library code; see [compas-sdtool and the card files](docs/SDTOOL.md).
+Desktop tools can prepare a card with `compas-sdtool`, which builds the music database and album covers on a computer using the player's own library code; see [compas-sdtool and the card files](https://github.com/Starnished66/compas-page/blob/480680bfab5d158f0bc064316dd1f15e2fd3907e/docs/SDTOOL.md).
 
 ## Themes
 
@@ -88,7 +88,7 @@ Start with **AutoEQ** for downloadable headphone EQ profiles, **Gain Mode** for 
 
 For manual installation, follow the [plugins repository's installation instructions](https://github.com/Starnished66/compas-plugins#installing-by-hand): copy the `.lua` file to `SD/.plugins/` and any companion files to the destinations listed in its `store.json`. Then choose **Refresh Plugins** in **Settings → System → Plugin Manager** or restart the player. Plugins can be enabled or disabled without removing their files. No C toolchain, player rebuild or firmware reflash is needed.
 
-Developers can start with the [plugin API guide](PLUGINS.md), browse [published plugins](https://github.com/Starnished66/compas-plugins/tree/main/plugins), and browse [standalone examples](https://github.com/Starnished66/compas-plugins/tree/main/examples). The guide documents the versioned `plugin.*` API for UI extensions, playback, library access, HTTP, themes and PEQ. For Now Playing layout customization, see [Player layouts](docs/reference/PLAYER_LAYOUTS.md).
+Developers can start with the [plugin API guide](https://github.com/Starnished66/compas-plugins/blob/55363c0bed723c7fb576e9ab32878d3dceef012c/PLUGINS.md), browse [published plugins](https://github.com/Starnished66/compas-plugins/tree/main/plugins), and browse [standalone examples](https://github.com/Starnished66/compas-plugins/tree/main/examples). The guide documents the versioned `plugin.*` API for UI extensions, playback, library access, HTTP, themes and PEQ. For Now Playing layout customization, see [Player layouts](https://github.com/Starnished66/compas-page/blob/480680bfab5d158f0bc064316dd1f15e2fd3907e/docs/PLAYER_LAYOUTS.md).
 
 Plugin implementations, plugin examples and their assets belong in `compas-plugins`; this repository keeps the player and its plugin API.
 
@@ -132,83 +132,47 @@ SD updates require a matching device-model marker in the binary and cannot be ol
 
 ## Build from source
 
-See the [source layout guide](docs/architecture/source-layout.md) for module locations and build conventions.
+The Makefile builds the player and bootloader for R1, R3 Pro II, and R3 II 2025. Target builds need the MIPS musl toolchain (`mipsel-linux-musl-gcc`); `make` bootstraps the pinned vendor sources and LVGL as needed.
 
-The host simulator is the quickest way to explore the interface. On Arch Linux, install `sdl2`, `make`, `gcc`/`g++` and `git`; `make` fetches LVGL when needed:
-
-```sh
-make
-./compas_player_host
-```
-
-Click and drag in the SDL2 window to simulate touch. Stock graphics are not redistributed. To populate the local simulator asset mirror, copy `theme2` assets from your own firmware dump into `assets/theme2/`; these ignored stock files are not packaged or committed.
-
-Target builds use a static MIPS musl toolchain (`mipsel-linux-musl-gcc`). On Arch Linux, install it with `yay -S mipsel-linux-musl-cross`, then build the selected board:
+Install Git, Make, a native C/C++ compiler, CMake, Python 3, patch, curl, xz and pkg-config. Put the cross-toolchain on `PATH`; the verified installer can prepare it:
 
 ```sh
-make target                 # R1: compas_player_target
-make target BOARD=r3proii   # R3 Pro II: compas_player_target_r3proii
-make target BOARD=r3ii_2025 # R3 II 2025: compas_player_target_r3ii_2025
+toolchain_dir=$(scripts/tools/toolchain/install_mips_toolchain.sh "$HOME/.cache/compas-toolchain")
+export PATH="$toolchain_dir/bin:$PATH"
 ```
 
-<details>
-<summary>Advanced firmware packaging and release workflow</summary>
-
-### Build a `.upt` for any supported board
-
-The full-image guide covers the R1, R3 Pro II, and R3II 2025, including the
-exact matching binary names, base-image requirements, and repack commands:
-[How to build a `.upt` firmware image](docs/development/HOW_TO_BUILD_A_UPT_FILE.md).
-Build the player and bootloader for one board before packaging its matching
-base image:
+Build both executables for the selected board:
 
 ```sh
 make target BOARD=r1
-make bootloader early-splash BOARD=r1
+make bootloader BOARD=r1
 
 make target BOARD=r3proii
-make bootloader early-splash BOARD=r3proii
+make bootloader BOARD=r3proii
 
 make target BOARD=r3ii_2025
-make bootloader early-splash BOARD=r3ii_2025
+make bootloader BOARD=r3ii_2025
 ```
 
-R1 and R3 Pro II use the combined Compás/Rockbox bootloader as their default
-`make bootloader` output. R3II 2025 keeps the standalone Compás loader because
-there is no verified Rockbox target for that board. The full-image guide
-documents these board-specific outputs.
+R1 and R3 Pro II use the combined Compás/Rockbox bootloader. R3 II 2025 uses the standalone Compás loader. R3 outputs include the board name in their filenames, so they do not overwrite R1 outputs.
 
-The packer requires an approved base `.upt` for the same board. Proprietary
-base images remain external and are not committed to this repository. The
-packer verifies the board identity, required runtime and font files,
-bootloader handoff, and 45 MiB package limit. It copies Git-tracked shared and
-board-specific assets, fonts, and every file under `firmware/overlay/`; local
-ignored stock files do not ship. Changes to those files require a full `.upt`
-to reach the device.
+An optional host build uses SDL2 (`libsdl2-dev` on Debian/Ubuntu) and the native C/C++ toolchain:
 
-All three images use the same asynchronous Wi-Fi MAC setup and readiness
-check, SD read-ahead tuning, and filesystem cache tuning. Packaging applies
-these through `scripts/firmware/boot_pipeline/standardize_boot_pipeline.sh`, preserving each board's
-radio setup and drivers. These startup changes require a full firmware update.
-The shared init hook's `stop` operation is terminal until reboot; ordinary
-Wi-Fi toggles continue to use the board's radio scripts.
+```sh
+make host
+./compas_player_host
+```
 
-The daily workflow builds player and bootloader binaries for all three boards.
-It packages each board when its approved base image and matching checksum
-secret are available: `STAGING_IMAGE_SHA256` for R1,
-`R3PROII_STAGING_IMAGE_SHA256` for R3 Pro II, and
-`R3II_2025_STAGING_IMAGE_SHA256` for R3II 2025. These are downloadable
-workflow artifacts, not public GitHub releases. Automatic weekly publishing
-is disabled; production releases are published manually after validation.
-Compas v1.0.1 is the final release with a dated OTA companion for older
-firmware; install it before using version-only OTA updates. Packaging requires
-the board's checksum secret and matching image in the private
-`staging-image-base` release. Secret values must stay in GitHub Actions
-settings and must never be added to the repository.
+The host executable needs runtime fonts and theme assets supplied separately from a firmware resource tree; this repository no longer contains those runtime resources. Executable builds do not create firmware packages.
 
-Keep each original base image for recovery. R3 Pro II and R3II 2025 builds
-have not been validated on target hardware; use builds for the exact model
-only.
+<details>
+<summary>Firmware images and releases</summary>
+
+Firmware image packaging and early-splash builds now live in a separate private firmware repository. It consumes the player/bootloader binaries built here, an early-splash executable, and an approved external `.upt` base image for the matching board. Proprietary base images are not included in this repository.
+
+The scheduled daily GitHub Actions workflow builds player and bootloader executables for all three boards and uploads them as workflow artifacts. It does not package firmware images or use base-image secrets. There is no scheduled weekly release workflow; production releases are published manually after validation.
+
+Keep a known-good recovery image and use binaries and firmware packages only for the exact device model. R3 Pro II and R3 II 2025 builds have not been validated on target hardware.
 
 </details>
 
@@ -216,14 +180,13 @@ only.
 
 | Folder | Contents |
 | --- | --- |
-| `src/` | Application code, grouped by audio, hardware, library, network, plugins and UI. |
-| `src/ui/player/` | Player layout, artwork, lyrics, transport and queue-persistence components. |
-| `src/plugins/bindings/` | Lua bindings; plugin lifecycle and shared runtime stay in `src/plugins/`. |
-| `tests/player/` | Player characterization tests and shared fixtures. |
-| `scripts/` | Build, packaging, maintenance and test commands; build helpers live in `scripts/build/`. |
-| `docs/` | Technical guides and user documentation. |
-| `assets/` | Shipped themes, layouts, icons and fonts. |
-| `local/` | Gitignored notes, experiments and local artifacts. |
+| `src/` | Player and bootloader executable source, including generated runtime C data. |
+| `scripts/` | Executable build helpers, toolchain setup, and source generators. |
+| `patches/` | Tracked LVGL and codec dependency patches and generated-font goldens. |
+| `firmware/bootloader/` | Rockbox integration patch used by the combined bootloader build. |
+| `licenses/` | Preserved license and attribution files for assets moved to the firmware repository. |
+| `*_vendor_config/` | Configuration headers for vendored dependencies. |
+| Vendor source directories | Third-party sources compiled into the player and bootloader. |
 
 ## Support the project
 

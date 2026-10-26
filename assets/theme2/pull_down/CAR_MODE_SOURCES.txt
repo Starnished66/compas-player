@@ -1,6 +1,0 @@
-Car Mode quick-toggle icons
-
-car_mode.png and car_mode_s.png are original Compas Player artwork. The artwork
-uses the pull-down toggle's 84 x 84 px circular format and its existing off/on
-palette. The car symbol was drawn from geometric shapes for this project; no
-third-party or stock-device artwork was copied or modified.

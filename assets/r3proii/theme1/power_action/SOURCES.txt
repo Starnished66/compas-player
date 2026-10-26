@@ -1,5 +1,0 @@
-Lucide 0.468.0 (ISC); white strokes, recolored by the live accent.
-power: https://unpkg.com/lucide-static@0.468.0/icons/power.svg
-reboot: https://unpkg.com/lucide-static@0.468.0/icons/rotate-cw.svg
-screen_off: https://unpkg.com/lucide-static@0.468.0/icons/monitor-off.svg
-sleep_timer: https://unpkg.com/lucide-static@0.468.0/icons/timer.svg
