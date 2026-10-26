@@ -12,7 +12,7 @@ typedef enum {
 
 /* Classic Bluetooth Remote Control RFCOMM service.
  * UUID: 9d2f8a7e-6b4c-4d51-8e43-38f7a2c0b719
- * SDP service name: "Compas Remote Control".
+ * SDP service name: "compás".
  * BlueZ advertises RFCOMM channel 21 in SDP. The Android client discovers this
  * UUID and channel over SDP; clients should not hardcode the channel. Each
  * connection carries one HTTP request. */

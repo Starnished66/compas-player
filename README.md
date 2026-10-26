@@ -46,6 +46,8 @@ Use the download for your exact model.
 
 ## Install and update
 
+**v1.3.0 requires the full `.upt` firmware image, including when updating an existing installation. Player-only updates are not available for this release.**
+
 Start with the [installation guide](https://compasplayer.org/guide.html#01-install-and-update). Your first installation needs the full firmware image; [Compás Tools](https://compasplayer.org/#desktop-app) can guide you through it.
 
 For later updates, use **Settings → Updates**. To update from the SD card, save the matching player binary as `SD/.compas/compas_player`. Use full firmware when the release notes require new fonts or graphics. Back up your files and keep power connected during installation.

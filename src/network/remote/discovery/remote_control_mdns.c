@@ -1,5 +1,4 @@
 #include "remote_control_mdns.h"
-#include "../../../core/system/runtime/board_config.h"
 
 #include <arpa/inet.h>
 #include <stdbool.h>
@@ -19,16 +18,10 @@
 #define MDNS_PORT 5353
 #define RC_PORT 8899
 #define SERVICE_NAME "_compas-remote._tcp.local"
-#define INSTANCE_NAME "Compas Remote Control._compas-remote._tcp.local"
-/* Stable per-model address, e.g. http://r1.compas.local:8899. Both R3
- * variants share "r3"; probing moves to r3-2, r3-3... when another player
- * on the network already owns the name. */
-#if defined(BOARD_R3PROII) || defined(BOARD_R3II_2025)
-#define DEVICE_LABEL "r3"
-#else
-#define DEVICE_LABEL "r1"
-#endif
-#define DEVICE_DOMAIN "compas.local"
+#define INSTANCE_NAME "compás." SERVICE_NAME
+/* Use the OS brand on every board; probing adds a suffix on collision. */
+#define DEVICE_LABEL "compas"
+#define DEVICE_DOMAIN "local"
 #define MAX_NAME_SUFFIX 9
 #define PROBE_COUNT 3
 #define PROBE_INTERVAL_MS 250
@@ -116,11 +109,18 @@ static bool append_record(uint8_t *packet, size_t *offset, const char *owner,
     return true;
 }
 
-/* host is the probed <model>.compas.local name the SRV record targets;
- * alias is the legacy <hostname>.local, still answered for A queries. */
-static size_t make_answer(uint8_t *packet, const char *host, const char *alias, struct in_addr ip,
+/* The SRV record and address replies use the same collision-checked name. */
+static size_t make_answer(uint8_t *packet, const char *host, struct in_addr ip,
                           uint32_t ttl, const char *qname, uint16_t qtype,
                           unsigned *answers, unsigned *additional) {
+    /* Match the probed hostname suffix so multiple players remain discoverable. */
+    char instance[sizeof(INSTANCE_NAME) + 8];
+    unsigned suffix = 1;
+    if (sscanf(host, DEVICE_LABEL "-%u." DEVICE_DOMAIN, &suffix) == 1 &&
+        suffix > 1 && suffix <= MAX_NAME_SUFFIX)
+        snprintf(instance, sizeof(instance), "compás (%u)." SERVICE_NAME, suffix);
+    else
+        snprintf(instance, sizeof(instance), "%s", INSTANCE_NAME);
     memset(packet, 0, 1400);
     put16(packet, 0); put16(packet + 2, 0x8400); /* response, authoritative */
     *answers = *additional = 0;
@@ -128,34 +128,32 @@ static size_t make_answer(uint8_t *packet, const char *host, const char *alias, 
     uint8_t data[300];
     bool announce = !qname;
     bool service = announce || strcasecmp(qname, SERVICE_NAME) == 0;
-    bool instance = announce || strcasecmp(qname, INSTANCE_NAME) == 0;
+    bool instance_query = announce || strcasecmp(qname, instance) == 0;
     bool host_query = !announce && strcasecmp(qname, host) == 0;
-    bool alias_query = !announce && alias && strcasecmp(qname, alias) == 0;
     bool ptr = service && (announce || qtype == 12 || qtype == 255);
-    bool srv = instance && (announce || qtype == 33 || qtype == 255);
-    bool txt = instance && (announce || qtype == 16 || qtype == 255);
-    bool address = (host_query || alias_query) && (qtype == 1 || qtype == 255);
-    size_t len = put_name(data, sizeof(data), INSTANCE_NAME);
+    bool srv = instance_query && (announce || qtype == 33 || qtype == 255);
+    bool txt = instance_query && (announce || qtype == 16 || qtype == 255);
+    bool address = host_query && (qtype == 1 || qtype == 255);
+    size_t len = put_name(data, sizeof(data), instance);
     if (ptr && append_record(packet, &n, SERVICE_NAME, 12, ttl, false, data, len)) (*answers)++;
     len = put16(data, 0); len += put16(data + len, 0); len += put16(data + len, RC_PORT);
     len += put_name(data + len, sizeof(data) - len, host);
-    if (srv && append_record(packet, &n, INSTANCE_NAME, 33, ttl, true, data, len)) (*answers)++;
+    if (srv && append_record(packet, &n, instance, 33, ttl, true, data, len)) (*answers)++;
     data[0] = 5; memcpy(data + 1, "api=1", 5);
-    if (txt && append_record(packet, &n, INSTANCE_NAME, 16, ttl, true, data, 6)) (*answers)++;
+    if (txt && append_record(packet, &n, instance, 16, ttl, true, data, 6)) (*answers)++;
     memcpy(data, &ip.s_addr, 4);
     if (announce) {
         if (append_record(packet, &n, host, 1, ttl, true, data, 4)) (*answers)++;
-        if (alias && append_record(packet, &n, alias, 1, ttl, true, data, 4)) (*answers)++;
-    } else if (address && append_record(packet, &n, host_query ? host : alias, 1, ttl, true, data, 4)) {
+    } else if (address && append_record(packet, &n, host, 1, ttl, true, data, 4)) {
         (*answers)++;
     }
     /* Browse answers carry the SRV/TXT/A records as additional data. */
     if (!announce && ptr) {
         len = put16(data, 0); len += put16(data + len, 0); len += put16(data + len, RC_PORT);
         len += put_name(data + len, sizeof(data) - len, host);
-        if (append_record(packet, &n, INSTANCE_NAME, 33, ttl, true, data, len)) (*additional)++;
+        if (append_record(packet, &n, instance, 33, ttl, true, data, len)) (*additional)++;
         data[0] = 5; memcpy(data + 1, "api=1", 5);
-        if (append_record(packet, &n, INSTANCE_NAME, 16, ttl, true, data, 6)) (*additional)++;
+        if (append_record(packet, &n, instance, 16, ttl, true, data, 6)) (*additional)++;
         memcpy(data, &ip.s_addr, 4);
         if (append_record(packet, &n, host, 1, ttl, true, data, 4)) (*additional)++;
     } else if (!announce && srv) {
@@ -308,22 +306,22 @@ static size_t make_legacy_answer(uint8_t *packet, size_t len, const uint8_t *que
     return len + question_len;
 }
 
-static void send_legacy_records(int fd, const struct sockaddr_in *to, const char *host, const char *alias,
+static void send_legacy_records(int fd, const struct sockaddr_in *to, const char *host,
                                 struct in_addr ip, const char *qname, uint16_t qtype,
                                 const uint8_t *query, size_t query_len) {
     uint8_t packet[1400];
     unsigned answers, additional;
-    size_t len = make_answer(packet, host, alias, ip, LEGACY_UNICAST_TTL, qname, qtype, &answers, &additional);
+    size_t len = make_answer(packet, host, ip, LEGACY_UNICAST_TTL, qname, qtype, &answers, &additional);
     if (len <= 12 || !answers) return;
     len = make_legacy_answer(packet, len, query, query_len);
     if (len) (void)sendto(fd, packet, len, 0, (const struct sockaddr *)to, sizeof(*to));
 }
 
-static void send_records(int fd, const struct sockaddr_in *to, const char *host, const char *alias,
+static void send_records(int fd, const struct sockaddr_in *to, const char *host,
                          struct in_addr ip, uint32_t ttl, const char *qname, uint16_t qtype) {
     uint8_t packet[1400];
     unsigned answers, additional;
-    size_t len = make_answer(packet, host, alias, ip, ttl, qname, qtype, &answers, &additional);
+    size_t len = make_answer(packet, host, ip, ttl, qname, qtype, &answers, &additional);
     if (len > 12 && answers) (void)sendto(fd, packet, len, 0, (const struct sockaddr *)to, sizeof(*to));
 }
 
@@ -340,15 +338,6 @@ static bool parse_question(const uint8_t *packet, size_t len, char *name, size_t
 
 static void *mdns_worker(void *unused) {
     (void)unused;
-    char hostname[64] = "compas";
-    if (gethostname(hostname, sizeof(hostname) - 1) != 0 || !hostname[0]) strcpy(hostname, "compas");
-    hostname[sizeof(hostname) - 1] = '\0';
-    for (char *p = hostname; *p; p++) {
-        if (*p == '.') { *p = '\0'; break; }
-        if (!( (*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
-               (*p >= '0' && *p <= '9') || *p == '-')) *p = '-';
-    }
-    char alias[256]; snprintf(alias, sizeof(alias), "%s.local", hostname);
     unsigned suffix = 1;
     char host[64]; device_host_name(host, sizeof(host), suffix);
     struct sockaddr_in group = { .sin_family = AF_INET, .sin_port = htons(MDNS_PORT) };
@@ -360,7 +349,7 @@ static void *mdns_worker(void *unused) {
         struct in_addr ip;
         if (!wifi_address(&ip)) {
             if (fd >= 0) {
-                send_records(fd, &group, host, alias, last_ip, 0, NULL, 255);
+                send_records(fd, &group, host, last_ip, 0, NULL, 255);
                 close(fd); fd = -1; last_ip.s_addr = 0;
                 set_published_name(NULL);
             }
@@ -369,7 +358,7 @@ static void *mdns_worker(void *unused) {
         }
         if (fd < 0 || ip.s_addr != last_ip.s_addr) {
             if (fd >= 0) {
-                send_records(fd, &group, host, alias, last_ip, 0, NULL, 255);
+                send_records(fd, &group, host, last_ip, 0, NULL, 255);
                 close(fd);
                 set_published_name(NULL);
             }
@@ -392,7 +381,7 @@ static void *mdns_worker(void *unused) {
             while (atomic_load(&active) && name_in_use(fd, &group, host, ip) && suffix < MAX_NAME_SUFFIX)
                 device_host_name(host, sizeof(host), ++suffix);
             if (!atomic_load(&active)) break;
-            send_records(fd, &group, host, alias, ip, 120, NULL, 255);
+            send_records(fd, &group, host, ip, 120, NULL, 255);
             set_published_name(host);
             last_announce = time(NULL);
         }
@@ -414,18 +403,18 @@ static void *mdns_worker(void *unused) {
             }
             if (got > 0 && parse_question(query, (size_t)got, qname, sizeof(qname), &qtype, &unicast)) {
                 if (ntohs(source.sin_port) != MDNS_PORT)
-                    send_legacy_records(fd, &source, host, alias, ip, qname, qtype, query, (size_t)got);
+                    send_legacy_records(fd, &source, host, ip, qname, qtype, query, (size_t)got);
                 else
-                    send_records(fd, unicast ? &source : &group, host, alias, ip, 120, qname, qtype);
+                    send_records(fd, unicast ? &source : &group, host, ip, 120, qname, qtype);
             }
         }
         time_t now = time(NULL);
         if (now - last_announce >= 60) {
-            send_records(fd, &group, host, alias, ip, 120, NULL, 255);
+            send_records(fd, &group, host, ip, 120, NULL, 255);
             last_announce = now;
         }
     }
-    if (fd >= 0) { send_records(fd, &group, host, alias, last_ip, 0, NULL, 255); close(fd); }
+    if (fd >= 0) { send_records(fd, &group, host, last_ip, 0, NULL, 255); close(fd); }
     set_published_name(NULL);
     return NULL;
 }
