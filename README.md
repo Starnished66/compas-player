@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="#see-the-player">Screenshots</a> ·
-  <a href="https://github.com/Starnished66/compas-page/blob/480680bfab5d158f0bc064316dd1f15e2fd3907e/manual/README.md">User manual</a> ·
+  <a href="https://compasplayer.org/guide.html">User manual</a> ·
   <a href="#quick-setup">Quick setup</a> ·
   <a href="#plugins">Plugins</a> ·
   <a href="#install-and-update">Installation</a> ·
