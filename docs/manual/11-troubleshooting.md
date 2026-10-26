@@ -32,6 +32,12 @@ The lyrics viewer and an online lyrics fetcher are separate features. See [Playb
 
 For a quiet or unusually loud startup, review **Settings > Sound > Startup Volume**, **Max Volume**, and **ReplayGain**, plus any gain/effects plugins you enabled.
 
+## Compás Tools cannot find the player
+
+For the **Device > Install and update** screen, the player must have **ADB** enabled and be connected with a data-capable USB cable. Accept any authorization prompt on the player, then choose **Scan again**. The app's **How to connect the player** section includes stock-player instructions and Windows driver help. If the app asks for adb, use **Download adb…** and wait for it to finish.
+
+The **Card**, music and add-on screens need a mounted SD card instead. Use a card reader, or turn ADB off and use USB storage. See [Install and update](01-install-and-update.md).
+
 ## The computer cannot see the SD card
 
 1. Use a data-capable USB cable and try another USB port.

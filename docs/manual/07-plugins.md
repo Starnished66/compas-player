@@ -4,6 +4,21 @@
 
 Plugins are optional add-ons that give the player extra features, such as audiobook tools, podcast downloads, streaming services, and different screen layouts. Wi-Fi, Subsonic streaming, AirPlay and DLNA receiving, plain-text books, and USB/Bluetooth audio modes are already part of the player. Tidal, Qobuz, lyrics and cover-art tools, Audiobooks, Podcasts, and EPUB Reader are examples of add-ons. The available add-ons can change over time.
 
+## Install and update from your computer
+
+[Compás Tools](https://github.com/Starnished66/compas-tools) is an easier way to browse and manage add-ons on a larger screen. Unlike its USB **Device** installer, the add-on catalog works with an SD card mounted as a drive on your computer.
+
+1. Connect the card through a card reader, or turn ADB off on the player and connect in **USB Mode > Storage**. Select the card in Compás Tools' **Card** screen.
+2. Open **Plugins**, **Layouts**, or **Themes**. Search for an add-on and open it to read its details.
+3. Choose **Install** for a new add-on or **Update** for an installed one. To apply the available updates together, choose **Update all**. The app copies the package's files, including any icons or layouts it needs.
+4. Wait for the operation to finish, safely eject the card, and return to the player. Refresh plugins or restart the player to load the changes. Choose installed themes and layouts in their respective pickers.
+
+An installed plugin's details include an enable/disable switch and **Uninstall**. Turning it off keeps its files; uninstalling removes the installed package. Themes and layouts are selected on the player rather than enabled with a plugin switch. If an add-on needs newer player software, use the [desktop update workflow](01-install-and-update.md#later-updates-with-the-desktop-app) first.
+
+![Compás Tools plugin browser](images/desktop-tools.png)
+
+The on-player Plugin Store and manual installation steps below remain available.
+
 ## Browse and install from the Plugin Store
 
 1. Connect the player to Wi-Fi with internet access.

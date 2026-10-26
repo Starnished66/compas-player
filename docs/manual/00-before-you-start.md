@@ -26,6 +26,8 @@ Back up the card and any settings you need before changing firmware. Keep the re
 
 ## Choose a download
 
+For the guided first installation, use [Compás Tools over USB](01-install-and-update.md#first-installation). It downloads the firmware for the selected model and handles the installation steps. The downloads below are for preparing a card yourself or choosing the right kind of update.
+
 Use the project's [GitHub releases](https://github.com/Starnished66/compas-player/releases/latest). Read the release notes alongside the downloads.
 
 | Download | When to use it |

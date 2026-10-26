@@ -13,8 +13,10 @@ This guide describes the development version checked on 23 October 2026. Your re
 If Compás is already installed, go straight to [First steps](02-first-steps.md).
 
 1. [Before you start](00-before-you-start.md): devices, downloads, and what you need.
-2. [Install and update](01-install-and-update.md): full firmware, player updates, and recovery.
+2. [Install and update](01-install-and-update.md): use Compás Tools on your computer, or install and update from the card or over Wi-Fi.
 3. [First steps](02-first-steps.md): setup, copy music, play a song, and learn the controls.
+
+[Compás Tools](https://github.com/Starnished66/compas-tools) makes it easier to prepare updates, copy music, and manage plugins, themes and layouts from your computer. Start with the [desktop app instructions](01-install-and-update.md#install-and-manage-with-compás-tools).
 
 ## Make it yours
 

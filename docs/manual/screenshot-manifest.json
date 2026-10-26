@@ -410,6 +410,51 @@
       "github_replacement_targets": [
         "docs/manual/images/quick-drawer.png"
       ]
+    },
+    {
+      "id": "desktop-tools",
+      "asset": "images/desktop-tools.png",
+      "source": "../compas-tools/docs/screenshots/breeze/light-4-plugins.png",
+      "sha256": "abd228cffb1fb550480a0ebbeb4a3fcfcb7d7b82e2e716918faa3adeb0bdbf87",
+      "width": 1280,
+      "height": 860,
+      "capture_kind": "existing desktop app screenshot with throwaway SD card",
+      "capture_build": "Compás Tools Breeze UI capture",
+      "status": "desktop workflow illustration",
+      "replacement_note": "Original app repository capture; not device-installation test evidence.",
+      "github_replacement_targets": [
+        "docs/manual/images/desktop-tools.png"
+      ]
+    },
+    {
+      "id": "remote-phone",
+      "asset": "images/remote-phone.png",
+      "source": "/home/josegarita/.cache/compas-theme-review/companion-captures-20261025/remote-transfer-real-phone.png",
+      "sha256": "d2900097a86f554e292a8351034344684662ab90c7261e097635e1a0db8b1879",
+      "width": 1080,
+      "height": 2340,
+      "capture_kind": "Samsung Galaxy S23 original device screenshot",
+      "capture_build": "Compás Remote 0.4.0",
+      "status": "current phone Transfer screen",
+      "replacement_note": "English app; real AURORA folders on R1 SD, no transfer performed.",
+      "github_replacement_targets": [
+        "docs/manual/images/remote-phone.png"
+      ]
+    },
+    {
+      "id": "desktop-install",
+      "asset": "images/desktop-install.png",
+      "source": "/home/josegarita/.cache/compas-theme-review/desktop-install-guide-20261025/english-install-first-install.png",
+      "sha256": "317d2e9989a263f316935aeff8536ea38d672068096ae36e3b176cc2871eb7b1",
+      "width": 1280,
+      "height": 860,
+      "capture_kind": "Compás Tools app screenshot in isolated capture container with simulated stock R1 connection",
+      "capture_build": "cached Compás Tools AppImage, English UI",
+      "status": "installation workflow illustration",
+      "replacement_note": "Authentic app UI with synthetic device identification; no real firmware installation performed for capture.",
+      "github_replacement_targets": [
+        "docs/manual/images/desktop-install.png"
+      ]
     }
   ]
 }

@@ -19,6 +19,8 @@ You can revisit these choices in Settings. Plugin installation needs an internet
 
 ## Copy music and scan it
 
+To copy from your computer with Compás Tools and build the library there, follow [Copy music and update the library from a computer](03-library.md#copy-music-and-update-the-library-from-a-computer). For ordinary file copying, use the steps below.
+
 1. Copy your music to the microSD card using a card reader, or select **Settings > System > USB Mode > Storage** before connecting a data cable to your computer.
 2. Keep albums together in folders if that is how you prefer to organize them. For example:
 

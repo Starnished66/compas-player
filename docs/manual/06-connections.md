@@ -59,11 +59,39 @@ If the player is not listed, check that both devices are on the same network. Gu
 
 ## Control Compás from a phone or browser
 
-1. Open **Wireless > Remote** and enable **Remote Control**.
-2. Use the displayed address or QR code in a compatible app or browser, and enter the **Connection PIN** when asked. Bluetooth remote control also requires pairing.
-3. To copy music over Wi-Fi, start file import from a compatible remote-control app. Keep the player connected while files transfer.
+### Use the Compás Remote app
 
-Changing the Connection PIN means connected apps will need the new PIN. File import runs for that transfer session.
+1. On the player, open **Wireless > Remote** and turn on **Remote Control**. Note the displayed **Connection PIN**. Connect the phone and player to the same Wi-Fi network; guest networks may prevent them from finding each other.
+2. In Compás Remote, choose **Connect a player**, or open **Settings > Connection and players** if a player was saved before. Choose **Wi-Fi**, select the player listed under **On this network**, then connect. If it is not listed, choose **Enter an address instead** and enter the address shown on the player. Enter the player's Connection PIN when prompted.
+3. You can also choose **Bluetooth** on Android and pair with the player from the app. This connection can control playback without Wi-Fi, but file transfer requires Wi-Fi. Pairing the phone for Bluetooth audio alone does not connect the remote.
+
+The app's four tabs are along the bottom:
+
+| Tab | What it does |
+|---|---|
+| **Library** | Browse the player's music by albums, artists, songs and other categories. |
+| **Home** | See the current track and playback controls. |
+| **Playlists** | Open, create and edit playlists on the player, or import a playlist file. Automatically maintained lists, such as Most Played, are read-only. |
+| **Transfer** | Send music from the phone to the player's SD card over Wi-Fi. |
+
+The Now Playing controls let you play or pause, skip tracks, seek, adjust volume, shuffle and change repeat mode. Open **Up next** to review the queue. Open **Settings** from the Home screen to change the app's language or appearance, or to manage the connection. If the PIN is rejected, open **Settings > Update saved PIN** and enter the PIN currently shown in the player's remote settings.
+
+### Transfer music from your phone
+
+1. Connect to the player over Wi-Fi and open **Transfer**.
+2. In **Player SD card**, open the destination folder. Use **+** to create a folder if needed.
+3. Switch to **This device**, browse to your music, and select the files or folders to send. Allow access to your files if Android asks.
+4. Check the destination named in **Send to**, then choose it to begin. Keep both devices connected until the transfer finishes.
+
+Existing files are skipped rather than overwritten. If the connection drops, wait for the app to reconnect and check the transfer result before retrying.
+
+In **Player SD card**, a row’s three-dot menu offers **Rename** and **Delete**. Deleting here removes the actual file from the SD card; it is different from removing a song from a playlist.
+
+![Compás Remote Transfer screen on a phone](images/remote-phone.png)
+
+### Use a browser
+
+For a browser remote, enable **Remote Control** in **Wireless > Remote** on the player, then scan the player's QR code with the phone camera or open the displayed address in a browser on the same network. Enter the Connection PIN if requested. If the phone cannot find the player, check that both are on the same Wi-Fi network and that the network allows devices to communicate.
 
 ## Play from a Subsonic music server
 
@@ -71,4 +99,4 @@ Subsonic is a way to browse and play music stored on a server rather than on the
 
 Open **Subsonic** from **Stream Media** and enter the connection details, or choose a saved server. A server on your home network needs a working local connection; an online server also needs internet access. Tidal and Qobuz are available through optional [plugins](07-plugins.md) with their own account requirements.
 
-<!-- Sources: gui_network.c Wireless/Wi-Fi/Bluetooth/Remote/DAC builders; gui_settings.c System/More/Developer Options; gui_subsonic.c connection screen. -->
+<!-- Sources: gui_network.c Wireless/Wi-Fi/Bluetooth/Remote/DAC builders; gui_settings.c System/More/Developer Options; gui_subsonic.c connection screen; ../compas-app/src/ui/screens/{ConnectionScreen,TransferScreen,PlaylistsScreen}.tsx and ui/sheets/SettingsSheet.tsx. -->

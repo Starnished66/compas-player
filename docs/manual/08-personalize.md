@@ -4,6 +4,8 @@
 
 Themes change the look across the interface. Now Playing layouts arrange the artwork and controls on the player screen. [Plugins](07-plugins.md) add features and tools. You can choose each separately.
 
+To manage catalog themes and layouts on a computer, [Compás Tools](https://github.com/Starnished66/compas-tools) can install them to a selected SD card from its **Themes** and **Layouts** screens. Safely eject the card, return it to the player, then choose the installed item in its picker as described below. You can also use the on-player Plugin Store.
+
 ## Change the look
 
 ### Choose a theme

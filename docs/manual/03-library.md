@@ -4,6 +4,12 @@
 
 ![All Songs library](images/library.png)
 
+## Copy music and update the library from a computer
+
+[Compás Tools](https://github.com/Starnished66/compas-tools) can copy music to a selected SD card and update its library from the computer. Connect the card, select it in **Card**, then open **Music** to add files or folders. Choose a destination folder if needed and select **Copy to card**. The app updates the library after copying. If you enable **Mirror a folder**, files on the card that are missing from the chosen source folder are removed.
+
+To refresh the library separately, open **Library** and choose **Update library**. **Re-read all tags** refreshes track details, and **Build album art** rebuilds the album-art cache. Safely eject the card when the app is finished and return it to the player.
+
 ## Scan music and refresh information
 
 1. Copy music to the player's music storage or insert the card that contains it.
