@@ -307,7 +307,7 @@ static void creator_plugin_help_row_cb(lv_event_t * e) {
     if (!creator_plugin_help_screen) {
         creator_plugin_help_screen = build_creator_help_screen(
             TR("Create a plugin"),
-            "https://github.com/Starnished66/compas-page/blob/f410df626a18a17da3c0333e562e5afc81569aed/docs/CREATING.md#plugins",
+            "https://compasplayer.org/plugins.html#quick-start",
             TR("Write a Lua plugin on your computer. Copy its .lua file to the .plugins folder on your SD card."),
             TR("Open More > Plugins > Refresh Plugins. Scan for a working example and the full API guide."));
     }
@@ -319,7 +319,7 @@ static void creator_theme_help_row_cb(lv_event_t * e) {
     if (!creator_theme_help_screen) {
         creator_theme_help_screen = build_creator_help_screen(
             TR("Create a theme"),
-            "https://github.com/Starnished66/compas-page/blob/f410df626a18a17da3c0333e562e5afc81569aed/docs/CREATING.md#themes",
+            "https://compasplayer.org/themes.html#writing-a-theme",
             TR("Edit a .theme text file on your computer. Copy it to the Themes folder on your SD card, then select it in More > Themes."),
             TR("Scan for a starter theme and instructions. To redesign the player screen, see the XML layout guide linked there."));
     }
