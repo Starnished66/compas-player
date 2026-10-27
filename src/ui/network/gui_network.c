@@ -3347,6 +3347,10 @@ static bool remote_import_active = false;
 static bool remote_import_stop_pending = false;
 /* Wi-Fi-loss stops skip the automatic rescan: nothing finished importing. */
 static bool remote_import_stop_suppress_rescan = false;
+/* UI-thread-only transient radio-sleep state. This never changes the saved RC
+ * preference; it records whether this sleep cycle accepted an RC stop. */
+static bool remote_radio_sleep_prepared = false;
+static bool remote_radio_sleep_stop_queued = false;
 /* Worker completions must not be inferred from the public state snapshot:
  * an authenticated request can replace that snapshot before the UI polls. */
 enum {
@@ -3578,6 +3582,10 @@ static bool wifi_feature_guard(void) {
  * share the daemon without pushing or replacing a screen. */
 static void handle_remote_import_request(bool start) {
     if (start) {
+        if (remote_radio_sleep_prepared) {
+            remote_control_set_import_state(REMOTE_IMPORT_ERROR, "radio_sleep");
+            return;
+        }
         if (remote_import_active || remote_import_stop_pending || network_service_is_busy(NETWORK_SERVICE_IMPORT)) {
             remote_control_set_import_state(REMOTE_IMPORT_ERROR, "file_import_busy");
             return;
@@ -3618,6 +3626,59 @@ static void handle_remote_import_request(bool start) {
     remote_import_stop(false);
 }
 #endif
+
+bool gui_network_prepare_radio_sleep(void) {
+    remote_radio_sleep_prepared = true;
+
+    /* Preserve Wi-Fi-loss import teardown semantics, including suppressing
+     * its automatic library rescan while radios are going down. */
+    remote_import_handle_wifi_disabled();
+
+    if (current_settings.remote_control_enabled && !remote_radio_sleep_stop_queued) {
+        if (network_service_enqueue(NETWORK_SERVICE_REMOTE, false, true)) {
+            remote_radio_sleep_stop_queued = true;
+        } else {
+            pthread_mutex_lock(&network_service_mutex);
+            remote_radio_sleep_stop_queued = network_service_stop_queued[NETWORK_SERVICE_REMOTE];
+            pthread_mutex_unlock(&network_service_mutex);
+        }
+    }
+
+    bool import_busy = network_service_is_busy(NETWORK_SERVICE_IMPORT) ||
+                       remote_import_active || remote_import_stop_pending;
+    bool remote_busy = network_service_is_busy(NETWORK_SERVICE_REMOTE);
+    if (import_busy || remote_busy) return false;
+    return !current_settings.remote_control_enabled || remote_radio_sleep_stop_queued;
+}
+
+void gui_network_resume_radio_services(void) {
+    if (!remote_radio_sleep_prepared) return;
+
+    /* A wake can cancel preparation before the RC stop was accepted (for
+     * example, pthread creation failed). Let any import teardown finish, then
+     * discard the transient gate without inventing a service restart. */
+    if (!remote_radio_sleep_stop_queued) {
+        if (network_service_is_busy(NETWORK_SERVICE_IMPORT) ||
+            remote_import_active || remote_import_stop_pending) return;
+        remote_radio_sleep_prepared = false;
+        return;
+    }
+
+    if (!current_settings.remote_control_enabled) {
+        remote_radio_sleep_prepared = false;
+        remote_radio_sleep_stop_queued = false;
+        return;
+    }
+    if (!remote_radio_sleep_stop_queued ||
+        network_service_is_busy(NETWORK_SERVICE_REMOTE) ||
+        network_service_is_busy(NETWORK_SERVICE_IMPORT) ||
+        remote_import_active || remote_import_stop_pending) return;
+
+    if (network_service_enqueue(NETWORK_SERVICE_REMOTE, true, false)) {
+        remote_radio_sleep_prepared = false;
+        remote_radio_sleep_stop_queued = false;
+    }
+}
 
 /* ---- AirPlay screen -- WiFi analogue of Bluetooth DAC mode, see
  * airplay_control.h for the real mechanism (stock firmware's own shairport

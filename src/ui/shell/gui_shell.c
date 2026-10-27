@@ -6206,7 +6206,10 @@ void gui_shell_poll(void) {
 
 void gui_shell_resume_connections(bool wifi_was_on, bool bt_was_on) {
 #ifndef HOST_BUILD
-    if (wifi_was_on && !wifi_control_is_enabled() && !wifi_toggle_active) {
+    if (wifi_was_on && wifi_toggle_active) {
+        wifi_toggle_queued_target = true;
+        wifi_toggle_queued = true;
+    } else if (wifi_was_on && !wifi_control_is_enabled()) {
         wifi_toggle_active = true;
         wifi_toggle_is_radio_suspend = false; /* restoring, not the suspend disable itself */
         atomic_store_explicit(&wifi_toggle_done_flag, false, memory_order_relaxed);
@@ -6214,7 +6217,13 @@ void gui_shell_resume_connections(bool wifi_was_on, bool bt_was_on) {
         if (pthread_create(&wifi_toggle_thread, NULL, wifi_toggle_thread_func, NULL) != 0)
             wifi_toggle_active = false;
     }
-    if (bt_was_on && !bt_is_powered_cached && !bt_toggle_active) {
+    if (bt_was_on && bt_toggle_active) {
+        bt_reconnect_observed_power_valid = true;
+        bt_reconnect_observed_powered = false;
+        bt_reconnect_cycle_suppressed = false;
+        bt_toggle_followup_target_enabled = true;
+        bt_toggle_followup_pending = !bt_toggle_target_enabled;
+    } else if (bt_was_on && (!bt_is_powered_cached || !bt_toggle_target_enabled)) {
         /* Resume is a new power-on cycle even if no status poll ran while
          * suspended to observe the intermediate OFF state. */
         bt_reconnect_observed_power_valid = true;

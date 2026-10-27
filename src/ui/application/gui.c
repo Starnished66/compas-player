@@ -1320,6 +1320,9 @@ static screen_poll_result_t poll_screen_power(void) {
     bool screen_just_woke = screen_on_now && (!screen_was_on || force_screen_just_woke);
     if (screen_just_woke) force_screen_just_woke = false;
     if (screen_just_woke && player_ui_timer) lv_timer_ready(player_ui_timer);
+    /* A wake can precede completion of the background RC stop. Retry its
+     * restoration without blocking input or losing the saved preference. */
+    if (screen_on_now) gui_network_resume_radio_services();
 
     /* Touch input and display refresh follow screen on/off state. Disabling indev
      * devices when screen is off prevents accidental touch events. Physical buttons
@@ -1356,6 +1359,10 @@ static screen_poll_result_t poll_screen_power(void) {
         battery_external_power_state_t external_power_state = battery_get_external_power_state();
         bool external_power_blocks_idle =
             external_power_state != BATTERY_EXTERNAL_POWER_DISCONNECTED;
+        if (!radios_suspended && (playing_now_for_idle || external_power_blocks_idle || battery_is_charging() ||
+            current_settings.wifi_dac_mode_enabled || current_settings.bt_dac_mode_enabled ||
+            current_settings.usb_mode == (int) USB_MODE_DAC))
+            gui_network_resume_radio_services();
         /* bt_is_powered_cached, not bt_control_is_powered(), deliberately --
          * the latter forks a process, and this condition is checked every
          * tick while the screen is off, not throttled like refresh_bt_icon()
@@ -1366,7 +1373,8 @@ static screen_poll_result_t poll_screen_power(void) {
             current_settings.usb_mode != (int) USB_MODE_DAC &&
             !audio_is_playing() && !external_power_blocks_idle && !battery_is_charging() &&
             !shutdown_background_work_active() &&
-            lv_tick_elaps(screen_off_since_tick) >= RADIO_SUSPEND_DELAY_MS) {
+            lv_tick_elaps(screen_off_since_tick) >= RADIO_SUSPEND_DELAY_MS &&
+            gui_network_prepare_radio_sleep()) {
             gui_shell_suspend_connections(&wifi_was_on_before_suspend, &bt_was_on_before_suspend);
             radios_suspended = true;
         }
@@ -1417,7 +1425,8 @@ static screen_poll_result_t poll_screen_power(void) {
             current_settings.usb_mode != (int) USB_MODE_DAC &&
             !audio_is_playing() && !external_power_blocks_idle && !battery_is_charging() &&
             !shutdown_background_work_active() &&
-            lv_tick_elaps(screen_off_since_tick) >= (uint32_t) current_settings.idle_shutdown_minutes * 60 * 1000) {
+            lv_tick_elaps(screen_off_since_tick) >= (uint32_t) current_settings.idle_shutdown_minutes * 60 * 1000 &&
+            gui_network_prepare_radio_sleep()) {
             if (current_settings.idle_suspend_enabled) {
                 plugin_manager_notify_suspending();
                 led_control_suspend();
