@@ -1079,7 +1079,7 @@ static const lv_font_t * topbar_digit_font(void) {
 }
 
 static const lv_font_t * topbar_ampm_font(void) {
-#if defined(BOARD_R3II_2025)
+#if defined(BOARD_R3II_2025) || defined(BOARD_R1)
     return &lv_font_montserrat_12;
 #else
     return &lv_font_montserrat_18;
@@ -5090,6 +5090,21 @@ static void poll_bt_reconnect(void) {
     bt_reconnect_poll();
     char correction_mac[18];
     unsigned int correction_rate = 0;
+    if (bt_control_ssc_discovery_recovery_peek(correction_mac, sizeof(correction_mac))) {
+        bool blocked = !bt_reconnect_observed_powered || current_settings.bt_dac_mode_enabled ||
+                       bt_toggle_active || bt_source_codec_reconcile_active ||
+                       bt_dac_startup_reapply_active || bt_apply_output_settings_active ||
+                       bt_reconnect_busy() || gui_network_bt_user_operation_active();
+        if (blocked) return;
+        if (strcmp(current_settings.bt_codec, "ssc") != 0 ||
+                (bt_connected_mac_cached[0] && strcmp(correction_mac, bt_connected_mac_cached) != 0)) {
+            bt_control_ssc_discovery_recovery_cancel();
+        } else if (bt_connected_mac_cached[0]) {
+            (void) bt_reconnect_start_ssc_discovery(correction_mac,
+                settings_bt_rate_for(&current_settings, correction_mac));
+            return;
+        }
+    }
     if (bt_control_ssc_rate_correction_peek(correction_mac, sizeof(correction_mac), &correction_rate)) {
         bool blocked = !bt_reconnect_observed_powered || current_settings.bt_dac_mode_enabled ||
                        bt_toggle_active || bt_source_codec_reconcile_active ||

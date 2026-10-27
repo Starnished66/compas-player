@@ -267,6 +267,7 @@ void bt_control_restore_codec_preference(const char * codec) {
         else if (strcmp(codec, "sbc_xq") == 0) preference = BT_CODEC_SBC_XQ;
     }
     atomic_store(&bt_codec_preference, preference);
+    bt_control_ssc_discovery_recovery_cancel();
     bt_buds_reset(NULL);
 }
 
@@ -406,6 +407,7 @@ static bool bluealsa_is_audio_pcm_path(const char * path) {
  * clear happened meanwhile (bt_soft_volume_clears). */
 static pthread_mutex_t bt_soft_volume_serial = PTHREAD_MUTEX_INITIALIZER;
 static atomic_uint bt_soft_volume_clears;
+static atomic_uint bt_source_readiness_generation;
 static unsigned int bt_source_vol_pending_audio_generation;
 
 /* bluealsactl soft-volume PATH prints "SoftVolume: true|false". */
@@ -426,27 +428,41 @@ static bool dbus_prop_string_equals(const char * out, const char * prop, const c
 static uint32_t bt_control_monotonic_ms(void);
 static bool bluealsa_read_source_volume(const char * path, int * out);
 
+typedef enum {
+    BT_SOURCE_TRANSPORT_ERROR = -1,
+    BT_SOURCE_TRANSPORT_MISSING = 0,
+    BT_SOURCE_TRANSPORT_READY = 1,
+} bt_source_transport_result_t;
+
+static uint32_t bt_source_probe_remaining_ms(uint32_t deadline_ms) {
+    int32_t remaining = (int32_t)(deadline_ms - bt_control_monotonic_ms());
+    return remaining > 0 ? (uint32_t)remaining : 0;
+}
+
 /* Locate this PCM's exact BlueZ MediaTransport1 object and read its current
  * absolute volume. Volume is only present after AVRCP negotiation succeeds. */
-static bool bluealsa_find_source_transport(const char * pcm_path,
-                                           char * out_transport, size_t transport_size,
-                                           int * out_volume) {
-    if (!pcm_path || !out_transport || transport_size == 0) return false;
+static bt_source_transport_result_t bluealsa_find_source_transport_until(
+        const char * pcm_path, char * out_transport, size_t transport_size,
+        int * out_volume, uint32_t deadline_ms) {
+    if (!pcm_path || !out_transport || transport_size == 0) return BT_SOURCE_TRANSPORT_ERROR;
     const char * adapter = strstr(pcm_path, "/hci");
     const char * role = strstr(pcm_path, "/a2dpsrc/sink");
-    if (!adapter || !role || role <= adapter) return false;
+    if (!adapter || !role || role <= adapter) return BT_SOURCE_TRANSPORT_ERROR;
     char device[192];
     int len = snprintf(device, sizeof(device), "/org/bluez%.*s", (int)(role - adapter), adapter);
-    if (len <= 0 || (size_t)len >= sizeof(device)) return false;
+    if (len <= 0 || (size_t)len >= sizeof(device)) return BT_SOURCE_TRANSPORT_ERROR;
     enum { REPLY_SIZE = 65536 };
     char * reply = malloc(REPLY_SIZE);
-    if (!reply) return false;
+    if (!reply) return BT_SOURCE_TRANSPORT_ERROR;
     char * argv[] = { "dbus-send", "--system", "--print-reply", "--dest=org.bluez", "/",
                      "org.freedesktop.DBus.ObjectManager.GetManagedObjects", NULL };
     int status = -1;
-    bool found = false;
-    if (!subprocess_run_checked(argv, reply, REPLY_SIZE, 1500, &status) || status != 0 ||
+    bt_source_transport_result_t result = BT_SOURCE_TRANSPORT_ERROR;
+    uint32_t remaining = bt_source_probe_remaining_ms(deadline_ms);
+    if (!remaining || !subprocess_run_checked(argv, reply, REPLY_SIZE,
+                                              remaining < 1500 ? remaining : 1500, &status) || status != 0 ||
         strlen(reply) >= REPLY_SIZE - 1) goto done;
+    result = BT_SOURCE_TRANSPORT_MISSING;
     const char * scan = reply;
     unsigned probes = 0;
     while ((scan = strstr(scan, "object path \"")) != NULL && probes < 4) {
@@ -468,29 +484,40 @@ static bool bluealsa_find_source_transport(const char * pcm_path,
         char props[4096];
         char * prop_argv[] = { "dbus-send", "--system", "--print-reply", "--dest=org.bluez",
             transport, "org.freedesktop.DBus.Properties.GetAll", "string:org.bluez.MediaTransport1", NULL };
+        remaining = bt_source_probe_remaining_ms(deadline_ms);
         status = -1;
-        if (!subprocess_run_checked(prop_argv, props, sizeof(props), 1000, &status) || status != 0 ||
-            strlen(props) >= sizeof(props) - 1 ||
-            !dbus_prop_string_equals(props, "UUID", "0000110a-0000-1000-8000-00805f9b34fb")) continue;
+        if (!remaining || !subprocess_run_checked(prop_argv, props, sizeof(props),
+                                                   remaining < 1000 ? remaining : 1000, &status) || status != 0 ||
+            strlen(props) >= sizeof(props) - 1) {
+            result = BT_SOURCE_TRANSPORT_ERROR;
+            goto done;
+        }
+        if (!dbus_prop_string_equals(props, "UUID", "0000110a-0000-1000-8000-00805f9b34fb")) continue;
         const char * value = dbus_prop_value(props, "Volume");
         unsigned raw;
         int consumed = 0;
-        if (value && sscanf(value, "uint16 %u%n", &raw, &consumed) == 1 && raw <= BT_SOURCE_VOLUME_MAX &&
-            (value[consumed] == '\0' || isspace((unsigned char)value[consumed]))) {
-            snprintf(out_transport, transport_size, "%s", transport);
-            if (out_volume) *out_volume = (int) raw;
-            found = true;
-            break;
+        if (value) {
+            if (sscanf(value, "uint16 %u%n", &raw, &consumed) == 1 && raw <= BT_SOURCE_VOLUME_MAX &&
+                (value[consumed] == '\0' || isspace((unsigned char)value[consumed]))) {
+                snprintf(out_transport, transport_size, "%s", transport);
+                if (out_volume) *out_volume = (int) raw;
+                result = BT_SOURCE_TRANSPORT_READY;
+                break;
+            }
+            result = BT_SOURCE_TRANSPORT_ERROR;
         }
     }
 done:
     free(reply);
-    return found;
+    return result;
 }
 
-static bool bluealsa_source_has_absolute_volume(const char * pcm_path) {
-    char transport[256];
-    return bluealsa_find_source_transport(pcm_path, transport, sizeof(transport), NULL);
+static bool bluealsa_find_source_transport(const char * pcm_path,
+                                           char * out_transport, size_t transport_size,
+                                           int * out_volume) {
+    return bluealsa_find_source_transport_until(pcm_path, out_transport, transport_size,
+                                                out_volume, bt_control_monotonic_ms() + 6500) ==
+           BT_SOURCE_TRANSPORT_READY;
 }
 
 /* BlueALSA can report success after updating its PCM cache even when BlueZ's
@@ -535,6 +562,37 @@ static bool bluealsa_seed_source_volume(const char * path, bool software_volume)
 /* Negative capability is retried, but a live software-controlled PCM is
  * never switched to hardware gain across two subprocess calls mid-playback. */
 static uint32_t bt_source_volume_probe_ms;
+static char bt_source_readiness_attempted_path[256];
+static unsigned int bt_source_readiness_attempted_generation;
+
+static bool bluealsa_source_running_state_until(const char * path, bool * out_running,
+                                                uint32_t deadline_ms) {
+    char info[2048];
+    char * argv[] = { (char *)bluealsa_ctl_name(), (char *)"info", (char *)path, NULL };
+    uint32_t remaining = bt_source_probe_remaining_ms(deadline_ms);
+    int exit_code = -1;
+    if (!remaining || !subprocess_run_checked(argv, info, sizeof(info), remaining, &exit_code) || exit_code != 0)
+        return false;
+    if (strlen(info) >= sizeof(info) - 1) return false;
+    const char * running = strstr(info, "Running:");
+    if (!running) return false;
+    running += strlen("Running:");
+    while (*running == ' ' || *running == '\t') running++;
+    if (strncmp(running, "false", 5) == 0 &&
+        (running[5] == '\0' || isspace((unsigned char)running[5]))) {
+        *out_running = false;
+        return true;
+    }
+    if (strncmp(running, "true", 4) == 0 &&
+        (running[4] == '\0' || isspace((unsigned char)running[4]))) {
+        *out_running = true;
+        return true;
+    }
+    return false;
+}
+
+#define BT_SOURCE_VOLUME_READINESS_MS 1500
+#define BT_SOURCE_VOLUME_READINESS_POLL_MS 100
 
 static void bluealsa_apply_soft_volume_cancellable_ex(const char * path, const atomic_bool * cancel,
                                                        bool force_source_probe) {
@@ -545,12 +603,15 @@ static void bluealsa_apply_soft_volume_cancellable_ex(const char * path, const a
     bool source = strstr(path, "/a2dpsrc/sink") != NULL;
     uint32_t now = bt_control_monotonic_ms();
     bool prior_source_soft_volume = atomic_load(&bt_source_soft_volume);
+    bool prior_ready = strcmp(bt_soft_volume_applied_path, path) == 0;
     bool retry = source && !atomic_load(&modern_soft_volume_requested) &&
                  prior_source_soft_volume &&
                  (force_source_probe || (uint32_t)(now - bt_source_volume_probe_ms) >= 5000);
     bool done = (strcmp(bt_soft_volume_applied_path, path) == 0 && !retry) ||
                 (cancel && atomic_load(cancel));
     unsigned int clears = atomic_load_explicit(&bt_soft_volume_clears, memory_order_acquire);
+    unsigned int readiness_generation = atomic_load_explicit(&bt_source_readiness_generation,
+                                                              memory_order_acquire);
     if (!done) {
         /* Invalidate slow incoming events before changing or reseeding policy.
          * A reapply can change effective gain ownership without a PCM removal. */
@@ -564,19 +625,77 @@ static void bluealsa_apply_soft_volume_cancellable_ex(const char * path, const a
     pthread_mutex_unlock(&bt_soft_volume_mutex);
     if (!done) {
         bool want = atomic_load(&modern_soft_volume_requested);
+        bool readiness_cancelled = false;
+        bool source_probe_failed = false;
         if (source && !want) {
             bt_source_volume_probe_ms = now;
-            want = !bluealsa_source_has_absolute_volume(path);
-            if (!want && prior_source_soft_volume) {
-                char info[2048];
-                char * argv[] = { (char *)bluealsa_ctl_name(), "info", (char *)path, NULL };
-                /* Unknown running state is treated as live. */
-                if (!subprocess_run(argv, info, sizeof(info)) || !strstr(info, "Running: false")) want = true;
+            bool may_wait = force_source_probe && prior_source_soft_volume &&
+                            (strcmp(bt_source_readiness_attempted_path, path) != 0 ||
+                             bt_source_readiness_attempted_generation != readiness_generation);
+            uint32_t readiness_deadline = now + BT_SOURCE_VOLUME_READINESS_MS;
+            bt_source_transport_result_t capability = BT_SOURCE_TRANSPORT_ERROR;
+            if (may_wait) {
+                want = true;
+                snprintf(bt_source_readiness_attempted_path, sizeof(bt_source_readiness_attempted_path), "%s", path);
+                bt_source_readiness_attempted_generation = readiness_generation;
+                do {
+                    if ((cancel && atomic_load(cancel)) ||
+                        readiness_generation != atomic_load_explicit(&bt_source_readiness_generation,
+                                                                     memory_order_acquire)) {
+                        readiness_cancelled = true;
+                        break;
+                    }
+                    char transport[256];
+                    capability = bluealsa_find_source_transport_until(path, transport, sizeof(transport), NULL,
+                                                                       readiness_deadline);
+                    if (capability == BT_SOURCE_TRANSPORT_READY) {
+                        bool running = true;
+                        if (bluealsa_source_running_state_until(path, &running, readiness_deadline) && !running) {
+                            want = false;
+                            DBG_LOG("bt_control: source volume readiness: hardware ready before open on %s\n", path);
+                        } else {
+                            want = true;
+                            DBG_LOG("bt_control: source volume readiness: transport appeared while live or state unknown on %s; keeping software gain\n", path);
+                        }
+                        break;
+                    }
+                    uint32_t remaining = bt_source_probe_remaining_ms(readiness_deadline);
+                    if (!remaining) break;
+                    uint32_t sleep_ms = remaining < BT_SOURCE_VOLUME_READINESS_POLL_MS ?
+                                        remaining : BT_SOURCE_VOLUME_READINESS_POLL_MS;
+                    usleep(sleep_ms * 1000);
+                } while (true);
+                if (capability != BT_SOURCE_TRANSPORT_READY)
+                    DBG_LOG("bt_control: source volume readiness: no hardware Volume within %ums on %s; keeping software gain\n",
+                            BT_SOURCE_VOLUME_READINESS_MS, path);
+            } else {
+                char transport[256];
+                uint32_t probe_deadline = force_source_probe ? now + 300 : now + 6500;
+                capability = bluealsa_find_source_transport_until(path, transport, sizeof(transport), NULL,
+                                                                   probe_deadline);
+                want = capability != BT_SOURCE_TRANSPORT_READY;
+                if (force_source_probe && !want)
+                    DBG_LOG("bt_control: source volume readiness: immediate hardware recheck found Volume on %s\n", path);
             }
+            source_probe_failed = want;
+            if (!want && prior_source_soft_volume && !may_wait) {
+                /* Unknown running state is treated as live. */
+                bool running = true;
+                uint32_t state_deadline = force_source_probe ? now + 300 : bt_control_monotonic_ms() + 1500;
+                if (!bluealsa_source_running_state_until(path, &running, state_deadline) || running)
+                    want = true;
+            }
+        }
+        if (readiness_cancelled || (cancel && atomic_load(cancel)) ||
+            (source && readiness_generation != atomic_load_explicit(&bt_source_readiness_generation,
+                                                                     memory_order_acquire))) {
+            pthread_mutex_unlock(&bt_soft_volume_serial);
+            return;
         }
         bool current;
         bool ok;
-        if (bluealsa_read_soft_volume(path, &current) && current == want) {
+        bool soft_volume_unchanged = bluealsa_read_soft_volume(path, &current) && current == want;
+        if (soft_volume_unchanged) {
             ok = true;
         } else {
             char * argv[] = { (char *) backend.ctl, (char *) "soft-volume",
@@ -584,7 +703,9 @@ static void bluealsa_apply_soft_volume_cancellable_ex(const char * path, const a
             int exit_code = -1;
             ok = subprocess_run_checked(argv, NULL, 0, 5000, &exit_code) && exit_code == 0;
         }
-        if (source && ok) ok = bluealsa_seed_source_volume(path, want);
+        if (source && ok && !(prior_ready && source_probe_failed && prior_source_soft_volume &&
+                              want && soft_volume_unchanged))
+            ok = bluealsa_seed_source_volume(path, want);
         pthread_mutex_lock(&bt_soft_volume_mutex);
         if (ok && atomic_load_explicit(&bt_soft_volume_clears, memory_order_acquire) == clears) {
             snprintf(bt_soft_volume_applied_path, sizeof(bt_soft_volume_applied_path), "%s", path);
@@ -615,7 +736,10 @@ static void bluealsa_clear_soft_volume_path(const char * path) {
     bool invalidate_source = !path ||
         (strstr(path, "/a2dpsrc/sink") != NULL &&
          (!bt_soft_volume_applied_path[0] || clear));
-    if (invalidate_source) atomic_store(&bt_source_soft_volume, true);
+    if (invalidate_source) {
+        atomic_store(&bt_source_soft_volume, true);
+        atomic_fetch_add_explicit(&bt_source_readiness_generation, 1, memory_order_acq_rel);
+    }
     pthread_mutex_unlock(&bt_soft_volume_mutex);
 }
 
@@ -1015,6 +1139,7 @@ static struct {
     unsigned int rejected;
     int switched;        /* ranking index of the last switch, or -1 */
     uint32_t switched_at;
+    bool ssc_discovery_attempted; /* survives reconnects for this session */
 } bt_auto_devices[BT_AUTO_REJECT_DEVICES];
 static int bt_auto_devices_next;
 static pthread_mutex_t bt_auto_devices_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -1048,7 +1173,77 @@ static int bt_auto_device_slot_locked(const char * path, bool create) {
     snprintf(bt_auto_devices[i].device, sizeof(bt_auto_devices[i].device), "%s", key);
     bt_auto_devices[i].rejected = 0;
     bt_auto_devices[i].switched = -1;
+    bt_auto_devices[i].ssc_discovery_attempted = false;
     return i;
+}
+
+static pthread_mutex_t bt_ssc_discovery_mutex = PTHREAD_MUTEX_INITIALIZER;
+static char bt_ssc_discovery_mac[18];
+static bool bt_ssc_discovery_claimed;
+
+void bt_control_ssc_discovery_recovery_cancel(void) {
+    pthread_mutex_lock(&bt_ssc_discovery_mutex);
+    bt_ssc_discovery_mac[0] = '\0';
+    bt_ssc_discovery_claimed = false;
+    pthread_mutex_unlock(&bt_ssc_discovery_mutex);
+}
+
+bool bt_control_ssc_discovery_recovery_peek(char * mac, size_t mac_size) {
+    if (!mac || mac_size < sizeof(bt_ssc_discovery_mac)) return false;
+    pthread_mutex_lock(&bt_ssc_discovery_mutex);
+    bool pending = bt_ssc_discovery_mac[0] && !bt_ssc_discovery_claimed;
+    if (pending) snprintf(mac, mac_size, "%s", bt_ssc_discovery_mac);
+    pthread_mutex_unlock(&bt_ssc_discovery_mutex);
+    return pending;
+}
+
+bool bt_control_ssc_discovery_recovery_take(const char * mac) {
+    pthread_mutex_lock(&bt_ssc_discovery_mutex);
+    bool pending = mac && bt_ssc_discovery_mac[0] && !bt_ssc_discovery_claimed &&
+                   strcmp(mac, bt_ssc_discovery_mac) == 0 &&
+                   (bt_codec_preference_t) atomic_load(&bt_codec_preference) == BT_CODEC_SSC;
+    if (pending) bt_ssc_discovery_claimed = true;
+    pthread_mutex_unlock(&bt_ssc_discovery_mutex);
+    return pending;
+}
+
+void bt_control_ssc_discovery_recovery_finish(const char * mac) {
+    pthread_mutex_lock(&bt_ssc_discovery_mutex);
+    if (mac && bt_ssc_discovery_claimed && strcmp(mac, bt_ssc_discovery_mac) == 0) {
+        bt_ssc_discovery_mac[0] = '\0';
+        bt_ssc_discovery_claimed = false;
+    }
+    pthread_mutex_unlock(&bt_ssc_discovery_mutex);
+}
+
+/* The preference worker only posts work. The GUI applies its usual manual
+ * operation/power guards before the separate reconnect worker claims it.
+ * Consume the attempt when queued, so a cancelled or failed recovery cannot
+ * re-arm itself through a PCM removal or another discovery pass. */
+static bool bt_ssc_discovery_recovery_queue(const char * path) {
+    char key[32];
+    if (!bt_auto_device_key(path, key, sizeof(key)) || strlen(key) != 21) return false;
+    char mac[18];
+    for (int j = 0; j < 17; j++) mac[j] = key[j + 4] == '_' ? ':' : key[j + 4];
+    mac[17] = '\0';
+    pthread_mutex_lock(&bt_ssc_discovery_mutex);
+    if (bt_ssc_discovery_mac[0]) {
+        bool waiting = strcmp(bt_ssc_discovery_mac, mac) == 0;
+        pthread_mutex_unlock(&bt_ssc_discovery_mutex);
+        return waiting;
+    }
+    pthread_mutex_lock(&bt_auto_devices_mutex);
+    int i = bt_auto_device_slot_locked(path, true);
+    bool queue = i >= 0 && !bt_auto_devices[i].ssc_discovery_attempted;
+    if (queue) {
+        bt_auto_devices[i].ssc_discovery_attempted = true;
+        snprintf(bt_ssc_discovery_mac, sizeof(bt_ssc_discovery_mac), "%s", mac);
+        bt_ssc_discovery_claimed = false;
+    }
+    pthread_mutex_unlock(&bt_auto_devices_mutex);
+    pthread_mutex_unlock(&bt_ssc_discovery_mutex);
+    if (queue) DBG_LOG("bt_control: queued one SSC endpoint recovery for %s\n", mac);
+    return queue;
 }
 
 static unsigned int bt_auto_rejected(const char * path) {
@@ -1200,6 +1395,11 @@ static bool bluealsa_apply_codec_preference_serial(const char * path, const atom
             if (defer_until) *defer_until = buds_wait_started + BT_BUDS_SSC_DISCOVERY_GRACE_MS;
             return false;
         }
+        if (!ssc_available && !(rejected & (1u << ssc_rank)) && galaxy_buds &&
+                bt_ssc_discovery_recovery_queue(path)) {
+            if (defer_until) *defer_until = bt_control_monotonic_ms() + 500;
+            return false;
+        }
         if (!ssc_available || (ssc_rank >= 0 && (rejected & (1u << ssc_rank)))) {
             if (!bluealsa_best_available_codec(info_out, rejected, best, sizeof(best))) {
                 DBG_LOG("bt_control: SSC unavailable for %s and no fallback codec is known yet\n", path);
@@ -1221,9 +1421,9 @@ static bool bluealsa_apply_codec_preference_serial(const char * path, const atom
     int exit_code = -1;
     if (!subprocess_run_checked(argv, NULL, 0, 5000, &exit_code) || exit_code != 0) {
         DBG_LOG("bt_control: codec select %s -> %s FAILED (exit %d)\n", path, codec, exit_code);
-        if (automatic || explicit_ssc) bt_auto_reject(path, codec);
-        if (explicit_ssc && strcasecmp(codec, "samsung-SC") == 0)
-            return bluealsa_apply_codec_preference_serial(path, cancel, defer_until);
+        /* A transient D-Bus error or disappearing PCM is not evidence that
+         * explicit SSC is unsupported. The worker owns the bounded retry. */
+        if (automatic) bt_auto_reject(path, codec);
         return false;
     }
     if (automatic || explicit_ssc) bt_auto_note_switch(path, codec);
@@ -1240,9 +1440,7 @@ static bool bluealsa_apply_codec_preference_serial(const char * path, const atom
     }
     DBG_LOG("bt_control: codec select %s -> %s, now reports %s\n", path, codec, active);
     if (strcasecmp(active, codec) != 0) {
-        if (automatic || explicit_ssc) bt_auto_reject(path, codec);
-        if (explicit_ssc && strcasecmp(codec, "samsung-SC") == 0)
-            return bluealsa_apply_codec_preference_serial(path, cancel, defer_until);
+        if (automatic) bt_auto_reject(path, codec);
         return false;
     }
     return bluealsa_codec_latch_commit(path, clears);
@@ -2661,6 +2859,93 @@ static bool find_source_pcm_path(char * out, size_t out_size) {
 
 static bool bt_correction_cancelled(bt_control_cancel_callback_t cb, void * ctx) {
     return cb && cb(ctx);
+}
+
+typedef struct {
+    bt_control_cancel_callback_t callback;
+    void * context;
+} bt_ssc_discovery_cancel_t;
+
+static bool bt_ssc_discovery_cancelled(void * opaque) {
+    bt_ssc_discovery_cancel_t * cancel = opaque;
+    return (bt_codec_preference_t) atomic_load(&bt_codec_preference) != BT_CODEC_SSC ||
+           bt_correction_cancelled(cancel->callback, cancel->context);
+}
+
+bool bt_control_reconnect_for_ssc_discovery(const char * mac, unsigned int rate,
+                                            bt_control_cancel_callback_t cancel_cb,
+                                            void * cancel_ctx) {
+    bt_ssc_discovery_cancel_t cancel = { cancel_cb, cancel_ctx };
+    if (!bt_reconnect_valid_mac(mac) || bt_ssc_discovery_cancelled(&cancel)) return false;
+    char expected[64];
+    snprintf(expected, sizeof(expected), "/dev_%s/", mac);
+    for (char * c = expected; *c; c++) if (*c == ':') *c = '_';
+
+    /* Revalidate the target and discovery result under the same lifecycle
+     * lock as manual operations. Never disturb another connected output or
+     * a peer whose SSC endpoint appeared while the GUI was busy. */
+    pthread_mutex_lock(&bt_chip_mutex);
+    char list[4096], path[256] = {0}, info[4096];
+    char * list_argv[] = { (char *) bluealsa_ctl_name(), "list-pcms", NULL };
+    int status = -1;
+    bool valid = bt_reconnect_run(list_argv, list, sizeof(list), BT_RECONNECT_QUERY_TIMEOUT_MS,
+                                  bt_ssc_discovery_cancelled, &cancel, &status);
+    if (valid) {
+        char * save = NULL;
+        for (char * line = strtok_r(list, "\r\n", &save); line;
+             line = strtok_r(NULL, "\r\n", &save)) {
+            if (!strstr(line, "/a2dpsrc/sink")) continue;
+            if (path[0] || !strstr(line, expected) || strlen(line) >= sizeof(path)) {
+                valid = false;
+                break;
+            }
+            snprintf(path, sizeof(path), "%s", line);
+        }
+    }
+    char * info_argv[] = { (char *) bluealsa_ctl_name(), "info", path, NULL };
+    valid = valid && path[0] &&
+            bt_reconnect_run(info_argv, info, sizeof(info), BT_RECONNECT_QUERY_TIMEOUT_MS,
+                              bt_ssc_discovery_cancelled, &cancel, &status);
+    if (valid && (bluealsa_available_codec_contains(info, "samsung-SC") ||
+                  bluealsa_available_codec_contains(info, "SSC"))) {
+        pthread_mutex_unlock(&bt_chip_mutex);
+        return true;
+    }
+    bool connected = false;
+    valid = valid && bluealsa_available_codecs_known(info) &&
+            !(bt_auto_rejected(path) & (1u << bt_auto_rank_index("samsung-SC"))) &&
+            bt_reconnect_info(mac, info, sizeof(info), bt_ssc_discovery_cancelled, &cancel) &&
+            bt_reconnect_info_eligible(info, &connected) && connected &&
+            !bt_ssc_discovery_cancelled(&cancel);
+    bool disconnect_issued = false;
+    bool disconnected = false;
+    if (valid) {
+        bt_auto_forget_switch(path);
+        DBG_LOG("bt_control: reconnecting %s to rediscover SSC endpoints\n", mac);
+        char * disconnect_argv[] = { "bluetoothctl", "--timeout", "5", "disconnect", (char *) mac, NULL };
+        disconnect_issued = true;
+        disconnected = subprocess_run_checked(disconnect_argv, NULL, 0,
+                                                BT_RECONNECT_CONNECT_TIMEOUT_MS, &status) && status == 0;
+    }
+    pthread_mutex_unlock(&bt_chip_mutex);
+    if (!disconnect_issued || bt_ssc_discovery_cancelled(&cancel)) return false;
+    if (!disconnected) goto reconnect_fallback;
+
+    uint32_t deadline = bt_control_monotonic_ms() + 5000;
+    while ((int32_t)(deadline - bt_control_monotonic_ms()) > 0) {
+        if (bt_ssc_discovery_cancelled(&cancel)) return false;
+        bool query_ok = false;
+        bool live = bt_reconnect_audio_output_connected(bt_ssc_discovery_cancelled, &cancel, &query_ok);
+        if (!query_ok || !live) goto reconnect_fallback;
+        usleep(100000);
+    }
+reconnect_fallback:
+    /* Disconnect may have taken effect even if its CLI timed out. Once we
+     * issued it, always offer one target-bound reconnect unless cancelled;
+     * the core independently refuses unknown state or another live output. */
+    if (bt_ssc_discovery_cancelled(&cancel)) return false;
+    return bt_control_reconnect_paired_core(mac, rate, true,
+                                             bt_ssc_discovery_cancelled, &cancel);
 }
 
 bool bt_control_reconnect_for_ssc_rate_correction(const char * mac, unsigned int rate,

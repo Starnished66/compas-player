@@ -170,6 +170,16 @@ bool bt_control_reconnect_for_ssc_rate_correction(const char * mac, unsigned int
                                                   bt_control_cancel_callback_t cancel_cb,
                                                   void * cancel_ctx);
 
+/* One recovery per accessory/session when explicit SSC on Galaxy Buds is
+ * still missing after endpoint discovery. Owned by the reconnect worker. */
+bool bt_control_ssc_discovery_recovery_peek(char * mac, size_t mac_size);
+bool bt_control_ssc_discovery_recovery_take(const char * mac);
+void bt_control_ssc_discovery_recovery_finish(const char * mac);
+void bt_control_ssc_discovery_recovery_cancel(void);
+bool bt_control_reconnect_for_ssc_discovery(const char * mac, unsigned int rate,
+                                            bt_control_cancel_callback_t cancel_cb,
+                                            void * cancel_ctx);
+
 /* Output settings use the firmware's BlueALSA 5 service, with an
  * a2dp-source profile for this device sending audio OUT to
  * headphones/speakers. Changing either setting kills and relaunches that
