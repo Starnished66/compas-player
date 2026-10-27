@@ -489,6 +489,15 @@ endif
 ifneq ($(RELEASE_LABEL),)
 RELEASE_LABEL_DEFINE = -DAPP_RELEASE_LABEL='"$(RELEASE_LABEL)"'
 endif
+# A release label must be one the player's updater compares ("vX.Y.Z", "Compas vX.Y.Z" or
+# "Weekly Beta YYYY-MM-DD") and, for versions, carry the full vX.Y.Z that Compás Tools reads.
+RELEASE_LABEL_NUMBER = (0|[1-9][0-9]*)
+RELEASE_LABEL_PATTERN = ^((Compas )?v$(RELEASE_LABEL_NUMBER)\.$(RELEASE_LABEL_NUMBER)\.$(RELEASE_LABEL_NUMBER)|Weekly Beta [0-9]{4}-[0-9]{2}-[0-9]{2})$$
+ifneq ($(RELEASE_LABEL),)
+ifneq ($(shell printf '%s' '$(RELEASE_LABEL)' | grep -Ec '$(RELEASE_LABEL_PATTERN)'),1)
+$(error RELEASE_LABEL '$(RELEASE_LABEL)' must be vX.Y.Z or "Weekly Beta YYYY-MM-DD")
+endif
+endif
 
 # Optional low-overhead timing diagnostics for real-device UI profiling.
 # Kept out of normal/release builds unless explicitly requested with
@@ -913,7 +922,7 @@ SELECTOR_ICON_SRCS = src/bootloader/selector/assets/icons/selector_icons.c \
 	src/bootloader/selector/assets/icons/selector_icons_nav.c \
 	src/bootloader/selector/assets/icons/selector_icons_tools.c
 endif
-.PHONY: all host target bootloader clean FORCE_VERSION
+.PHONY: all host target release bootloader clean FORCE_VERSION
 
 # Default target builds the host player.
 all: host
@@ -1095,6 +1104,18 @@ $(BUILD_HOST_DIR)/lua/%.o: $(LUA_DIR)/src/%.c
 
 # Build for target (MIPS HiBy Device)
 target: $(TARGET_BIN)
+
+# Release build: `make release BOARD=r1 RELEASE_LABEL=v1.3.1`. Refuses to finish unless the
+# program carries the label, so a published image can never say "Development Build".
+release:
+	@test -n '$(RELEASE_LABEL)' || { echo 'make release needs RELEASE_LABEL=vX.Y.Z' >&2; exit 1; }
+	$(MAKE) target BOARD=$(BOARD) RELEASE_LABEL='$(RELEASE_LABEL)'
+	@! grep -aq 'Development Build' $(TARGET_BIN) || { echo '$(TARGET_BIN) still says Development Build' >&2; exit 1; }
+	@case '$(RELEASE_LABEL)' in v*|'Compas v'*) \
+	    want=$$(printf '%s' '$(RELEASE_LABEL)' | sed 's/^Compas //'); \
+	    found=$$(grep -ao 'v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*' $(TARGET_BIN) | sort -u); \
+	    test "$$found" = "$$want" || { echo "$(TARGET_BIN) carries '$$found', not $$want" >&2; exit 1; };; esac
+	@echo '$(TARGET_BIN) is labelled $(RELEASE_LABEL)'
 
 $(TARGET_BIN): $(TARGET_OBJS) $(TARGET_CPU_FLAGS_STAMP) $(TARGET_AUDIO_LIBS) Makefile
 	$(CROSS_CXX) $(TARGET_CPU_FLAGS) -o $(BUILD_TARGET_DIR)/$(TARGET_BIN)_unstripped $(TARGET_OBJS) $(TARGET_AUDIO_LIBS) $(TARGET_LDFLAGS)
