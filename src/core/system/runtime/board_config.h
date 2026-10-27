@@ -13,20 +13,46 @@
  *     standard src/bootloader/display/fb_draw.h's own comment already relies on:
  *     the boot splash is authored to exactly match the real panel).
  *   - R3II 2025: extracted v1.3 firmware's gt9xx_touch.sh sets the touch
- *     limits to 320x480, corroborated by its 320x480 boot logos. */
+ *     limits to 320x480, corroborated by its 320x480 boot logos.
+ *   - TempoTec Variations V1: vendor 1.2 firmware identifies V1 and carries
+ *     the V1 sound-card module; its port documents the 240x320 panel. */
 #if defined(BOARD_R3PROII)
   #define BOARD_SCREEN_WIDTH  480
   #define BOARD_SCREEN_HEIGHT 720
 #elif defined(BOARD_R3II_2025)
   #define BOARD_SCREEN_WIDTH  320
   #define BOARD_SCREEN_HEIGHT 480
+#elif defined(BOARD_TEMPOTEC_V1)
+  #define BOARD_SCREEN_WIDTH  240
+  #define BOARD_SCREEN_HEIGHT 320
 #else // default to R1 config (though BOARD_R1 could be checked)
   #define BOARD_SCREEN_WIDTH  480
   #define BOARD_SCREEN_HEIGHT 800
 #endif
 
+/* The V1 panel leaves too little room for playable touch controls. */
+#if defined(BOARD_TEMPOTEC_V1)
+  #define BOARD_SUPPORTS_EMULATORS 0
+#else
+  #define BOARD_SUPPORTS_EMULATORS 1
+#endif
+
+/* Compact typography/layouts are needed on the 320px R3II and 240px V1. */
+#if defined(BOARD_R3II_2025) || defined(BOARD_TEMPOTEC_V1)
+  #define BOARD_COMPACT_UI 1
+#else
+  #define BOARD_COMPACT_UI 0
+#endif
+
+/* R1 has AXP/USB-role hardware behavior. V1 has different charger/USB roles. */
+#if defined(BOARD_R3PROII) || defined(BOARD_R3II_2025) || defined(BOARD_TEMPOTEC_V1)
+  #define BOARD_R1_HARDWARE 0
+#else
+  #define BOARD_R1_HARDWARE 1
+#endif
+
 /* R1 has Next and Play/Pause, but no dedicated Previous key. */
-#if defined(BOARD_R3PROII) || defined(BOARD_R3II_2025)
+#if defined(BOARD_R3PROII) || defined(BOARD_R3II_2025) || defined(BOARD_TEMPOTEC_V1)
   #define BOARD_HAS_PREVIOUS_BUTTON 1
 #else
   #define BOARD_HAS_PREVIOUS_BUTTON 0
@@ -55,6 +81,9 @@
 #elif defined(BOARD_R3II_2025)
   #define BOARD_PLAYER_COVER_HEIGHT 310
   #define BOARD_PLAYER_OVERLAY_HEIGHT 170
+#elif defined(BOARD_TEMPOTEC_V1)
+  #define BOARD_PLAYER_COVER_HEIGHT 120
+  #define BOARD_PLAYER_OVERLAY_HEIGHT 200
 #else
   #define BOARD_PLAYER_COVER_HEIGHT 480
   #define BOARD_PLAYER_OVERLAY_HEIGHT 320

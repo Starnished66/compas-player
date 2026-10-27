@@ -204,8 +204,7 @@ static lv_draw_buf_t * snapshot_screen_base(lv_obj_t * target_screen) {
  * home_indicator_band hidden flags are temporarily set to match target
  * screen expectations during blending. */
 static void blend_persistent_bars(lv_draw_buf_t * base, lv_obj_t * target_screen) {
-    bool topbar_target_hidden = current_settings.hide_player_topbar &&
-                                 (target_screen == gui_player_get_screen() || target_screen == gui_lyrics_get_screen());
+    bool topbar_target_hidden = gui_shell_player_topbar_hidden(target_screen);
     lv_obj_t * sb = gui_shell_get_status_bar_band();
     lv_obj_t * hb = gui_shell_get_home_indicator_band();
     if (sb) {

@@ -10,8 +10,8 @@
 # file-mtime tracking, so two boards sharing one build_target/ would be a
 # real, silent-corruption hazard without this.
 BOARD ?= r1
-ifeq ($(filter $(BOARD),r1 r3proii r3ii_2025),)
-$(error Unknown BOARD '$(BOARD)' -- expected r1, r3proii, or r3ii_2025)
+ifeq ($(filter $(BOARD),r1 r3proii r3ii_2025 tempotec_v1),)
+$(error Unknown BOARD '$(BOARD)' -- expected r1, r3proii, r3ii_2025, or tempotec_v1)
 endif
 BOARD_DEFINE = -DBOARD_$(shell echo $(BOARD) | tr a-z A-Z)
 
@@ -909,6 +909,14 @@ $(BUILD_TARGET_DIR)/libsndfile/libsndfile.a: $(BUILD_TARGET_DIR)/.audio_vendor_c
 ifeq ($(BOARD),r3ii_2025)
 SELECTOR_LOGO_SRCS = src/bootloader/selector/assets/logos/selector_logos.c \
 	src/bootloader/selector/assets/logos/selector_logos_wordmark_320.c
+SELECTOR_ICON_SRCS = src/bootloader/selector/assets/icons/selector_icons.c \
+	src/bootloader/selector/assets/icons/selector_icons_utilities_320.c \
+	src/bootloader/selector/assets/icons/selector_icons_nav.c \
+	src/bootloader/selector/assets/icons/selector_icons_tools.c
+else ifeq ($(BOARD),tempotec_v1)
+SELECTOR_LOGO_SRCS = src/bootloader/selector/assets/logos/selector_logos.c \
+	src/bootloader/selector/assets/logos/selector_logos_wordmark_320.c \
+	src/bootloader/selector/assets/logos/selector_logos_rockbox_320.c
 SELECTOR_ICON_SRCS = src/bootloader/selector/assets/icons/selector_icons.c \
 	src/bootloader/selector/assets/icons/selector_icons_utilities_320.c \
 	src/bootloader/selector/assets/icons/selector_icons_nav.c \

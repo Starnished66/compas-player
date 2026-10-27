@@ -12,6 +12,8 @@
   #define BOARD_MODEL "r3proii"
 #elif defined(BOARD_R3II_2025)
   #define BOARD_MODEL "r3ii_2025"
+#elif defined(BOARD_TEMPOTEC_V1)
+  #define BOARD_MODEL "tempotec_v1"
 #else
   #define BOARD_MODEL "r1"
 #endif

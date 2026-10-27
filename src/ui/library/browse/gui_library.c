@@ -1587,6 +1587,10 @@ static void populate_group_songs_rows(void) {
 
             lv_obj_t * quality = lv_image_create(row);
             lv_image_set_src(quality, asset_path(song_quality_asset_for_path(group_songs_entries[i].path)));
+#if defined(BOARD_TEMPOTEC_V1)
+            lv_obj_set_size(quality, BOARD_SCALE_PX(34), BOARD_SCALE_PX(34));
+            lv_image_set_inner_align(quality, LV_IMAGE_ALIGN_CONTAIN);
+#endif
             /* Child alignment is relative to the label's padded content
              * box. Cancel the 70px text reserve so the badge is physically
              * 14px from the card edge (same rule as compact-list rows). */

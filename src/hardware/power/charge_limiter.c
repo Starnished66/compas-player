@@ -17,7 +17,11 @@
 #include <time.h>
 #include <unistd.h>
 
+#if defined(BOARD_TEMPOTEC_V1)
+#define CHARGE_LIMITER_ACTIVE 0
+#else
 #define CHARGE_LIMITER_ACTIVE 1
+#endif
 #define CHARGE_LIMITER_REEVALUATE_SECONDS 5
 #define CHARGE_RETRY_SECONDS 1
 #define AXP_BUS "/dev/i2c-0"
@@ -60,6 +64,7 @@
  * than misparsed against the new, shorter format. */
 #define BASELINE_VERSION 2
 
+#if CHARGE_LIMITER_ACTIVE
 typedef struct { bool valid; uint8_t current; } chip_baseline_t;
 typedef struct {
     bool loaded;
@@ -70,13 +75,15 @@ typedef struct {
 } baseline_t;
 
 static baseline_t baseline;
+#endif
 static bool voltage_limited;
+#if CHARGE_LIMITER_ACTIVE
 /* REG18H is shared by the periodic charge limiter and the USB DAC session.
  * Keep the inhibit state and every REG18 read/modify/write under this lock so
  * a poll cannot undo the DAC's temporary charger disable. */
 static pthread_mutex_t axp_charger_mutex = PTHREAD_MUTEX_INITIALIZER;
 static bool dac_charger_inhibited;
-#if !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if BOARD_R1_HARDWARE
 static bool dac_saved_charger_enabled;
 #endif
 
@@ -88,6 +95,7 @@ static void retry_at(struct timespec *deadline) {
     struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
     *deadline = plus_seconds(now, CHARGE_RETRY_SECONDS);
 }
+#endif
 
 #if CHARGE_LIMITER_ACTIVE
 static bool xfer(const char *bus, uint8_t addr, uint8_t reg, uint8_t *value, bool write) {
@@ -282,7 +290,7 @@ static bool enable_axp_charger(void) {
 }
 
 bool charge_limiter_dac_session_begin(bool *originally_enabled) {
-#if CHARGE_LIMITER_ACTIVE && !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if CHARGE_LIMITER_ACTIVE && BOARD_R1_HARDWARE
     if (!originally_enabled) return false;
     pthread_mutex_lock(&axp_charger_mutex);
     if (dac_charger_inhibited) {
@@ -324,7 +332,7 @@ bool charge_limiter_dac_session_begin(bool *originally_enabled) {
 }
 
 bool charge_limiter_dac_session_capture_original_enabled(bool *originally_enabled) {
-#if CHARGE_LIMITER_ACTIVE && !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if CHARGE_LIMITER_ACTIVE && BOARD_R1_HARDWARE
     if (!originally_enabled) return false;
     pthread_mutex_lock(&axp_charger_mutex);
     if (dac_charger_inhibited) {
@@ -347,7 +355,7 @@ bool charge_limiter_dac_session_capture_original_enabled(bool *originally_enable
 }
 
 bool charge_limiter_dac_session_get_original_enabled(bool *originally_enabled) {
-#if CHARGE_LIMITER_ACTIVE && !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if CHARGE_LIMITER_ACTIVE && BOARD_R1_HARDWARE
     if (!originally_enabled) return false;
     pthread_mutex_lock(&axp_charger_mutex);
     bool active = dac_charger_inhibited;
@@ -361,7 +369,7 @@ bool charge_limiter_dac_session_get_original_enabled(bool *originally_enabled) {
 }
 
 bool charge_limiter_dac_session_resume(bool originally_enabled) {
-#if CHARGE_LIMITER_ACTIVE && !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if CHARGE_LIMITER_ACTIVE && BOARD_R1_HARDWARE
     pthread_mutex_lock(&axp_charger_mutex);
     dac_saved_charger_enabled = originally_enabled;
     dac_charger_inhibited = true;
@@ -381,7 +389,7 @@ bool charge_limiter_dac_session_resume(bool originally_enabled) {
 }
 
 bool charge_limiter_dac_session_release(bool originally_enabled) {
-#if CHARGE_LIMITER_ACTIVE && !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if CHARGE_LIMITER_ACTIVE && BOARD_R1_HARDWARE
     pthread_mutex_lock(&axp_charger_mutex);
     dac_saved_charger_enabled = originally_enabled;
     uint8_t current;
@@ -417,7 +425,7 @@ bool charge_limiter_dac_session_release(bool originally_enabled) {
 }
 
 bool charge_limiter_dac_session_end(void) {
-#if CHARGE_LIMITER_ACTIVE && !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if CHARGE_LIMITER_ACTIVE && BOARD_R1_HARDWARE
     pthread_mutex_lock(&axp_charger_mutex);
     if (!dac_charger_inhibited) {
         pthread_mutex_unlock(&axp_charger_mutex);

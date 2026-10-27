@@ -270,8 +270,20 @@ static lv_obj_t * build_clock_set_time_screen(void) {
     build_screen_header(scr, TR("Set Time"), generic_back_cb, NULL, NULL);
 
     lv_obj_t * row = lv_obj_create(scr);
+#if defined(BOARD_TEMPOTEC_V1)
+    int32_t row_top = STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT + BOARD_SCALE_PX(18);
+    int32_t save_height = BOARD_SCALE_PX(78);
+    int32_t save_gap = BOARD_SCALE_PY(8);
+    int32_t row_height = BOARD_SCREEN_HEIGHT - row_top - HOME_INDICATOR_CONTENT_INSET - save_height - save_gap;
+    lv_obj_set_size(row, lv_pct(92), row_height);
+#else
     lv_obj_set_size(row, lv_pct(92), BOARD_SCALE_PX(360));
+#endif
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_align(row, LV_ALIGN_TOP_MID, 0, row_top);
+#else
     lv_obj_align(row, LV_ALIGN_TOP_MID, 0, STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT + 18);
+#endif
     lv_obj_add_style(row, &style_theme_card_bg, 0);
     lv_obj_set_style_border_width(row, 0, 0);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
@@ -299,8 +311,13 @@ static lv_obj_t * build_clock_set_time_screen(void) {
     }
 
     lv_obj_t * save = lv_button_create(scr);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(save, BOARD_SCALE_PX(220), save_height);
+    lv_obj_align(save, LV_ALIGN_BOTTOM_MID, 0, -HOME_INDICATOR_CONTENT_INSET);
+#else
     lv_obj_set_size(save, BOARD_SCALE_PX(220), BOARD_SCALE_PX(78));
     lv_obj_align_to(save, row, LV_ALIGN_OUT_BOTTOM_MID, 0, 28);
+#endif
     lv_obj_add_style(save, gui_theme_accent_style(), 0);
     lv_obj_add_event_cb(save, clock_set_time_save_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t * save_label = lv_label_create(save);

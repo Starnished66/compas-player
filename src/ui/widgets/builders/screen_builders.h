@@ -28,9 +28,18 @@
  * The largest status glyph (battery) is rendered at 38px, leaving 1px
  * margin above/below it. Consumers derive positions algebraically from this
  * constant. */
+#if defined(BOARD_TEMPOTEC_V1)
+/* The V1 uses the same compact 30px top chrome band as its physical
+ * 240x320 stock UI. Other boards retain the established 1:1/board-scaled
+ * dimensions below. */
+#define STATUS_BAR_CLEARANCE 30
+#define TITLE_ROW_HEIGHT 30
+#define HEADER_BUTTON_WIDTH 30
+#else
 #define STATUS_BAR_CLEARANCE BOARD_SCALE_PX(40)
 #define TITLE_ROW_HEIGHT BOARD_SCALE_PX(80)
 #define HEADER_BUTTON_WIDTH BOARD_SCALE_PX(64)
+#endif
 #define HOME_INDICATOR_BAND_HEIGHT BOARD_SCALE_PX(24)
 #define HOME_INDICATOR_CONTENT_INSET (HOME_INDICATOR_BAND_HEIGHT + BOARD_SCALE_PX(8))
 

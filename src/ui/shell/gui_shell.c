@@ -96,7 +96,28 @@ static lv_timer_t * quick_drawer_snapshot_retry_timer = NULL;
 static bool quick_drawer_snapshot_wait_for_wake = false;
 
 #define QUICK_DRAWER_TRIGGER_ZONE BOARD_SCALE_PX(140)
+#if defined(BOARD_TEMPOTEC_V1)
+/* V1 uses the same four-control Compas drawer, scaled to its 240x320 panel. */
+#define QUICK_DRAWER_TOGGLE_ICON_PX BOARD_SCALE_PX(72)
+#define QUICK_DRAWER_TOGGLE_CELL_W BOARD_SCALE_PX(112)
+#define QUICK_DRAWER_TOGGLE_ROW_PITCH BOARD_SCALE_PY(245)
+#define QUICK_DRAWER_CARD_H BOARD_SCALE_PY(335)
+#define QUICK_DRAWER_ROW1_TOP BOARD_SCALE_PY(80)
+#define QUICK_DRAWER_EXPANSION_TOP BOARD_SCALE_PY(265)
+#define QUICK_DRAWER_EXPANSION_MAX_HEIGHT BOARD_SCALE_PY(490)
+#define QUICK_DRAWER_TOGGLE_STATE_GAP 20
+#define QUICK_DRAWER_TOGGLE_CAPTION_GAP BOARD_SCALE_PY(5)
+#else
 #define QUICK_DRAWER_TOGGLE_ICON_PX BOARD_SCALE_PX(84)
+#define QUICK_DRAWER_TOGGLE_CELL_W BOARD_SCALE_PX(84)
+#define QUICK_DRAWER_TOGGLE_ROW_PITCH BOARD_SCALE_PY(148)
+#define QUICK_DRAWER_CARD_H BOARD_SCALE_PY(354)
+#define QUICK_DRAWER_ROW1_TOP BOARD_SCALE_PY(71)
+#define QUICK_DRAWER_EXPANSION_TOP BOARD_SCALE_PY(211)
+#define QUICK_DRAWER_EXPANSION_MAX_HEIGHT INT32_MAX
+#define QUICK_DRAWER_TOGGLE_STATE_GAP BOARD_SCALE_PY(24)
+#define QUICK_DRAWER_TOGGLE_CAPTION_GAP BOARD_SCALE_PY(2)
+#endif
 
 static void start_bt_dac_startup_reapply_if_needed(void);
 static void start_bt_source_codec_reconcile_if_needed(void);
@@ -186,6 +207,7 @@ static lv_obj_t * quick_drawer_cover_frame = NULL;
 static lv_obj_t * quick_drawer_play_btn = NULL;
 static lv_obj_t * quick_drawer_order_icon = NULL;
 static lv_obj_t * quick_drawer_volume_container = NULL;
+static lv_obj_t * quick_drawer_brightness_container = NULL;
 static lv_obj_t * quick_drawer_volume_icon = NULL;
 static lv_obj_t * quick_drawer_eq_button = NULL;
 static lv_obj_t * quick_drawer_volume_track = NULL;
@@ -228,16 +250,136 @@ static lv_obj_t * quick_drawer_toggle_name[9 + PLUGIN_MAX_QUICK_TOGGLES];
  * a 148 pitch leaves ~25px between rows where 128 left ~5. The taller panel
  * pays for it: fully expanded, the volume rail now ends at 724 against a
  * panel bottom of 785. */
-#define QUICK_DRAWER_TOGGLE_ROW_PITCH BOARD_SCALE_PY(148)
 /* 231, not 219: row 1's state caption ends at ~219, so the old value butted
  * row 2 straight against it with no gap at all. */
 /* The now-playing card. Its cover frame fills it, so both read these. */
 #define QUICK_DRAWER_CARD_W BOARD_SCALE_PX(413)
-#define QUICK_DRAWER_CARD_H BOARD_SCALE_PY(354)
 
-/* Row 1 of the quick toggles, and the expanded rows that follow it. */
-#define QUICK_DRAWER_ROW1_TOP BOARD_SCALE_PY(71)
-#define QUICK_DRAWER_EXPANSION_TOP BOARD_SCALE_PY(211)
+/* Keep four predictable columns at every board size. V1 uses 48px cells
+ * with 16px native gutters; the wider boards retain the measured positions. */
+static int32_t quick_drawer_toggle_column_x(int column, int columns) {
+#if defined(BOARD_TEMPOTEC_V1)
+    (void) columns;
+    return BOARD_SCALE_PX(18 + 110 * column);
+#else
+    static const int label_x[] = { 39, 143, 251, 358 };
+    if (columns > 4) return BOARD_SCALE_PX(18 + 90 * column);
+    return BOARD_SCALE_PX(label_x[column]);
+#endif
+}
+
+static int32_t quick_drawer_toggle_state_y(int32_t row_y) {
+    return row_y + QUICK_DRAWER_TOGGLE_ICON_PX + QUICK_DRAWER_TOGGLE_STATE_GAP;
+}
+
+#if defined(BOARD_TEMPOTEC_V1)
+static int32_t quick_drawer_expansion_visible_height(int32_t content_height) {
+    return content_height > QUICK_DRAWER_EXPANSION_MAX_HEIGHT
+         ? QUICK_DRAWER_EXPANSION_MAX_HEIGHT : content_height;
+}
+#endif
+
+static void quick_drawer_size_toggle_caption(lv_obj_t * label) {
+#if defined(BOARD_TEMPOTEC_V1)
+    /* Keep the four primary controls on one caption line; long translations
+     * scroll within their own cell instead of colliding with the state row. */
+    lv_obj_set_style_text_letter_space(label, -1, 0);
+    lv_obj_set_height(label, lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT)));
+    lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+#else
+    (void) label;
+#endif
+}
+
+#if defined(BOARD_TEMPOTEC_V1)
+static void quick_drawer_pack_primary_captions(void) {
+    enum { MAX_LABELS = 9 + PLUGIN_MAX_QUICK_TOGGLES,
+           LEFT = 10, RIGHT = 230, GAP = 4, FALLBACK_W = 51 };
+    lv_obj_t * labels[MAX_LABELS];
+    lv_obj_t * icons[MAX_LABELS];
+    int32_t widths[MAX_LABELS];
+    int32_t xs[MAX_LABELS];
+    int count = 0;
+    int32_t total = 0;
+
+    for (int i = 0; i < MAX_LABELS; ++i) {
+        lv_obj_t * label = quick_drawer_toggle_name[i];
+        lv_obj_t * icon = quick_drawer_toggle_icon[i];
+        if (!label || !icon || lv_obj_get_parent(label) != quick_drawer ||
+            lv_obj_has_flag(label, LV_OBJ_FLAG_HIDDEN)) continue;
+        labels[count] = label;
+        icons[count] = icon;
+        count++;
+    }
+    /* Custom ordering can place a plugin, Car Mode, or Crossfade in the
+     * first row. Keep captions paired with their actual icon columns. */
+    for (int i = 1; i < count; ++i) {
+        lv_obj_t * label = labels[i];
+        lv_obj_t * icon = icons[i];
+        int32_t icon_x = lv_obj_get_x(icon);
+        int j = i;
+        while (j > 0 && lv_obj_get_x(icons[j - 1]) > icon_x) {
+            labels[j] = labels[j - 1];
+            icons[j] = icons[j - 1];
+            j--;
+        }
+        labels[j] = label;
+        icons[j] = icon;
+    }
+
+    count = count > 4 ? 4 : count;
+    for (int i = 0; i < count; ++i) {
+        lv_obj_t * label = labels[i];
+        lv_obj_t * icon = icons[i];
+        const lv_font_t * font = lv_obj_get_style_text_font(label, LV_PART_MAIN);
+        lv_point_t natural = { .x = 0, .y = 0 };
+        const char * text = lv_label_get_text(label);
+        lv_text_get_size(&natural, text, font,
+                         lv_obj_get_style_text_letter_space(label, LV_PART_MAIN),
+                         0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        int32_t width = natural.x;
+        if (width < 1) width = 1;
+        if (width > QUICK_DRAWER_TOGGLE_CELL_W) width = QUICK_DRAWER_TOGGLE_CELL_W;
+        widths[i] = width;
+        xs[i] = lv_obj_get_x(icon) + lv_obj_get_width(icon) / 2 - width / 2;
+        total += width;
+    }
+    if (count < 2) return;
+
+    if (total + GAP * (count - 1) > RIGHT - LEFT) {
+        total = count * FALLBACK_W;
+        for (int i = 0; i < count; ++i) widths[i] = FALLBACK_W;
+        int32_t gap = count > 1 ? (RIGHT - LEFT - total) / (count - 1) : 0;
+        for (int i = 0; i < count; ++i) xs[i] = LEFT + i * (FALLBACK_W + gap);
+    } else {
+        for (int i = 0; i < count; ++i) {
+            if (xs[i] < LEFT) xs[i] = LEFT;
+            if (i > 0 && xs[i] < xs[i - 1] + widths[i - 1] + GAP)
+                xs[i] = xs[i - 1] + widths[i - 1] + GAP;
+        }
+        if (xs[count - 1] + widths[count - 1] > RIGHT) {
+            xs[count - 1] = RIGHT - widths[count - 1];
+            for (int i = count - 2; i >= 0; --i) {
+                int32_t latest = xs[i + 1] - GAP - widths[i];
+                if (xs[i] > latest) xs[i] = latest;
+            }
+            if (xs[0] < LEFT) {
+                total = count * FALLBACK_W;
+                for (int i = 0; i < count; ++i) {
+                    widths[i] = FALLBACK_W;
+                    xs[i] = LEFT + i * (FALLBACK_W + GAP);
+                }
+            }
+        }
+    }
+
+    for (int i = 0; i < count; ++i) {
+        lv_obj_set_width(labels[i], widths[i]);
+        lv_obj_set_x(labels[i], xs[i]);
+        lv_label_set_long_mode(labels[i], LV_LABEL_LONG_SCROLL_CIRCULAR);
+    }
+}
+#endif
 
 static lv_obj_t * quick_drawer_expansion_box = NULL;
 static lv_obj_t * quick_drawer_expansion_handle = NULL;
@@ -306,6 +448,9 @@ static void quick_drawer_apply_expansion(int32_t y) {
     if (y < 0) y = 0;
     if (y > quick_drawer_expansion_full) y = quick_drawer_expansion_full;
     if (y == quick_drawer_expansion_y) return;
+#if defined(BOARD_TEMPOTEC_V1)
+    bool was_expanded = quick_drawer_expansion_y > 0;
+#endif
     quick_drawer_expansion_y = y;
     if (quick_drawer_expansion_box) lv_obj_set_height(quick_drawer_expansion_box, y);
     for (int i = 0; i < quick_drawer_shift_count; i++) {
@@ -321,6 +466,9 @@ static void quick_drawer_apply_expansion(int32_t y) {
         if (y > 0 && !hidden) lv_obj_add_flag(quick_drawer_card, LV_OBJ_FLAG_HIDDEN);
         else if (y == 0 && hidden) lv_obj_remove_flag(quick_drawer_card, LV_OBJ_FLAG_HIDDEN);
     }
+#if defined(BOARD_TEMPOTEC_V1)
+    if (was_expanded != (y > 0)) gui_shell_refresh_quick_drawer_volume_visibility();
+#endif
     if (quick_drawer_expansion_direct) {
         if (y == 0) {
             transition_compositor_end();
@@ -396,6 +544,12 @@ static void quick_drawer_sync_cached_eq(void) {
 static void quick_drawer_prepare_motion_cache(void) {
     if (quick_drawer_motion_cache_prepared || !quick_drawer || !quick_drawer_expansion_box ||
         quick_drawer_expansion_full <= 0 || quick_drawer_shift_count <= 0) return;
+#if defined(BOARD_TEMPOTEC_V1)
+    /* The expanded rows are a genuinely scrollable V1 viewport. Leave this
+     * subtree live so LVGL can move its children; the drawer's separate
+     * open/close compositor remains unchanged. */
+    return;
+#endif
     int32_t saved_y = quick_drawer_expansion_y;
     bool card_hidden = quick_drawer_card && lv_obj_has_flag(quick_drawer_card, LV_OBJ_FLAG_HIDDEN);
     if (quick_drawer_expansion_frame && !quick_drawer_expansion_art_dirty)
@@ -595,6 +749,10 @@ static void quick_drawer_animate_expansion(bool expand) {
     if (expand) refresh_quick_drawer_expansion_toggles();
     quick_drawer_expanded = expand;
     int32_t target = expand ? quick_drawer_expansion_full : 0;
+#if defined(BOARD_TEMPOTEC_V1)
+    if (expand && quick_drawer_expansion_y == 0)
+        lv_obj_scroll_to_y(quick_drawer_expansion_box, 0, LV_ANIM_OFF);
+#endif
     lv_anim_delete(quick_drawer_expansion_box, quick_drawer_expansion_anim_cb);
     if (quick_drawer_expansion_y == target) {
         quick_drawer_expansion_motion = false;
@@ -631,6 +789,12 @@ static void quick_drawer_reset_expansion(void) {
     quick_drawer_expansion_motion = false;
     quick_drawer_release_motion_cache();
     quick_drawer_discard_expansion_art();
+#if defined(BOARD_TEMPOTEC_V1)
+    if (quick_drawer_expansion_box) {
+        lv_obj_stop_scroll_anim(quick_drawer_expansion_box);
+        lv_obj_scroll_to_y(quick_drawer_expansion_box, 0, LV_ANIM_OFF);
+    }
+#endif
     quick_drawer_apply_expansion(0);
 }
 
@@ -1012,6 +1176,17 @@ void gui_shell_set_status_bar_screen_context(lv_obj_t * screen) {
     shell_set_topbar_glyphs(glyph, recolor);
 }
 
+bool gui_shell_player_topbar_hidden(lv_obj_t * screen) {
+    if (!screen) return false;
+
+    bool player_or_lyrics = screen == gui_player_get_screen() || screen == gui_lyrics_get_screen();
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_t * player_screen = gui_player_get_screen();
+    if (player_screen && screen == player_screen) return true;
+#endif
+    return current_settings.hide_player_topbar && player_or_lyrics;
+}
+
 void sync_player_topbar_visibility(lv_obj_t * screen) {
     /* Settings > Display > "Hide Player/Lyrics Top Bar" -- hides the global
      * status bar while the Player or its fullscreen Lyrics view is active;
@@ -1027,8 +1202,7 @@ void sync_player_topbar_visibility(lv_obj_t * screen) {
      * can't be trusted for it) is handled independently by
      * build_flattened_transition_frame()'s own temporary-flag-then-restore
      * approach, not by this function. */
-    bool hide = (current_settings.hide_player_topbar && (screen == gui_player_get_screen() || screen == gui_lyrics_get_screen())) ||
-                screen == gui_lock_screen_get_screen();
+    bool hide = gui_shell_player_topbar_hidden(screen) || screen == gui_lock_screen_get_screen();
     /* The quick drawer wins while it is open. It deliberately keeps the
      * status bar above itself (see open_quick_drawer()), which does nothing
      * when the Player has hidden it outright -- the drawer would slide down
@@ -1067,11 +1241,12 @@ static void style_topbar_text(lv_obj_t * label, const lv_font_t * font) {
     lv_obj_set_style_pad_all(label, 0, 0);
 }
 
-/* Keep the persistent status strip readable on the 320px panel while
- * using a 28/18px treatment on the 480px boards. These
- * faces deliberately ignore the accessibility font tier. */
+/* Keep the persistent status strip readable while using larger faces on
+ * the 480px boards. These faces deliberately ignore the accessibility tier. */
 static const lv_font_t * topbar_digit_font(void) {
-#if defined(BOARD_R3II_2025)
+#if defined(BOARD_TEMPOTEC_V1)
+    return &lv_font_montserrat_16;
+#elif BOARD_COMPACT_UI
     return &lv_font_montserrat_16;
 #else
     return &lv_font_montserrat_28;
@@ -1079,12 +1254,23 @@ static const lv_font_t * topbar_digit_font(void) {
 }
 
 static const lv_font_t * topbar_ampm_font(void) {
-#if defined(BOARD_R3II_2025) || defined(BOARD_R1)
+#if defined(BOARD_TEMPOTEC_V1)
+    return &lv_font_montserrat_12;
+#elif BOARD_COMPACT_UI || defined(BOARD_R1)
     return &lv_font_montserrat_12;
 #else
     return &lv_font_montserrat_18;
 #endif
 }
+
+#if defined(BOARD_TEMPOTEC_V1)
+/* Preferred V1 artwork starts at 20px (28px Breeze canvas) and may step down
+ * only when the actual content combination needs more horizontal room. */
+static int32_t topbar_v1_art_scale_percent = 100;
+static uint32_t topbar_v1_last_layout_signature;
+static bool topbar_v1_layout_signature_valid;
+static bool topbar_v1_wifi_connected_art;
+#endif
 
 /* Normalize Breeze art by its visible source bounds so icon ink shares the
  * text's centerline and target height. Two pixels of padding around the
@@ -1092,8 +1278,14 @@ static const lv_font_t * topbar_ampm_font(void) {
 static void layout_glyph_topbar_image_sized(lv_obj_t * image, int left, int top,
                                              int width, int height,
                                              int target_px) {
+#if defined(BOARD_TEMPOTEC_V1)
+    int preferred_target = target_px < 20 ? target_px : 20;
+    int target = (preferred_target * topbar_v1_art_scale_percent + 50) / 100;
+    int padding = 0;
+#else
     int target = BOARD_SCALE_PX(target_px);
     int padding = BOARD_SCALE_PX(2);
+#endif
     int scale = (target * LV_SCALE_NONE + height / 2) / height;
     int visible_width = (width * scale + LV_SCALE_NONE / 2) / LV_SCALE_NONE;
     lv_image_set_inner_align(image, LV_IMAGE_ALIGN_TOP_LEFT);
@@ -1140,6 +1332,25 @@ static const char * topbar_icon(const char * name) {
 
 static void layout_native_topbar_image(lv_obj_t * image, int left, int width,
                                        int canvas_px) {
+#if defined(BOARD_TEMPOTEC_V1)
+    /* Scale the actual Breeze raster and measured ink bounds together. The
+     * preferred 28px status canvas becomes 20px; battery art uses a 25px
+     * canvas so its short, wide silhouette stays legible. */
+    int preferred_canvas = canvas_px == 35 ? 25 : 20;
+    int scale = (preferred_canvas * topbar_v1_art_scale_percent * LV_SCALE_NONE +
+                 canvas_px * 50) / (canvas_px * 100);
+    const int padding = 0;
+    const int scaled_width = (width * scale + LV_SCALE_NONE / 2) / LV_SCALE_NONE;
+    const int scaled_left = (left * scale + LV_SCALE_NONE / 2) / LV_SCALE_NONE;
+    const int scaled_canvas = (canvas_px * scale + LV_SCALE_NONE / 2) / LV_SCALE_NONE;
+    lv_image_set_inner_align(image, LV_IMAGE_ALIGN_TOP_LEFT);
+    lv_image_set_pivot(image, 0, 0);
+    lv_image_set_scale(image, scale);
+    lv_obj_set_size(image, scaled_width + 2 * padding, STATUS_BAR_CLEARANCE);
+    lv_obj_set_style_translate_y(image, 0, 0);
+    lv_image_set_offset_x(image, (int16_t)(padding - scaled_left));
+    lv_image_set_offset_y(image, (int16_t)((STATUS_BAR_CLEARANCE - scaled_canvas) / 2));
+#else
     int padding = BOARD_SCALE_PX(2);
     lv_image_set_inner_align(image, LV_IMAGE_ALIGN_TOP_LEFT);
     lv_image_set_pivot(image, 0, 0);
@@ -1148,6 +1359,7 @@ static void layout_native_topbar_image(lv_obj_t * image, int left, int width,
     lv_obj_set_style_translate_y(image, 0, 0);
     lv_image_set_offset_x(image, (int16_t)(padding - left));
     lv_image_set_offset_y(image, (int16_t)((STATUS_BAR_CLEARANCE - canvas_px) / 2));
+#endif
 }
 
 static void layout_topbar_glyph(lv_obj_t * image, topbar_bounds_t breeze,
@@ -1169,6 +1381,9 @@ static void layout_battery_topbar_image(lv_obj_t * image) {
 }
 
 static void layout_radio_topbar_image(lv_obj_t * image) {
+#if defined(BOARD_TEMPOTEC_V1)
+    topbar_v1_wifi_connected_art = false;
+#endif
     /* All Wi-Fi strengths/off states share these family bounds. Keeping
      * them identical preserves partial-state art. */
     layout_topbar_glyph(image, NATIVE(0, 28), BOUNDS(1, 1, 22, 22));
@@ -1183,6 +1398,9 @@ static void layout_bluetooth_topbar_image(lv_obj_t * image) {
 /* Breeze strengths share the off glyph's bounds; Lucide's connected arcs
  * leave the top of the canvas empty, so they use the full-signal bounds. */
 static void layout_wifi_connected_topbar_image(lv_obj_t * image) {
+#if defined(BOARD_TEMPOTEC_V1)
+    topbar_v1_wifi_connected_art = true;
+#endif
     layout_topbar_glyph(image, NATIVE(0, 28), BOUNDS(1, 4, 22, 17));
 }
 
@@ -1190,10 +1408,18 @@ static void layout_wifi_connected_topbar_image(lv_obj_t * image) {
  * 48x30 canvas. Scaling the 40x24 mark directly gives a clear, consistent
  * 24 px badge height while preserving two pixels of horizontal slot padding. */
 static void layout_codec_topbar_image(lv_obj_t * image) {
+#if defined(BOARD_TEMPOTEC_V1)
+    layout_glyph_topbar_image_sized(image, 4, 3, 40, 24, 16);
+#else
     layout_glyph_topbar_image_sized(image, 4, 3, 40, 24, 24);
+#endif
 }
 
 static void build_status_bar(void) {
+#if defined(BOARD_TEMPOTEC_V1)
+    topbar_v1_layout_signature_valid = false;
+    topbar_v1_art_scale_percent = 100;
+#endif
     battery_topbar_anchored_width = -1;
     lv_obj_t * bar = lv_layer_top();
 
@@ -1275,11 +1501,16 @@ static void build_status_bar(void) {
     lv_obj_set_size(volume_topbar_group, LV_SIZE_CONTENT, STATUS_BAR_CLEARANCE);
     lv_obj_set_flex_flow(volume_topbar_group, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(volume_topbar_group, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    /* No extra column padding -- each digit sprite already has ~1px of
-     * transparent margin baked into its canvas on both edges (e.g.
-     * topbar/9.png is a 14px-wide canvas with the glyph spanning x=1..13),
-     * providing sufficient separation. */
+    /* Digit sprites already carry a small transparent inset on the full-size
+     * boards; keep their existing zero-gap row there. The V1's scaled icon
+     * set needs one physical pixel between its denser status glyphs. */
+#if defined(BOARD_TEMPOTEC_V1)
+    /* On the V1, proportional glyph scaling makes a one-pixel flex gap
+     * legible between the denser set of output/status indicators. */
+    lv_obj_set_style_pad_column(volume_topbar_group, BOARD_SCALE_PX(2), 0);
+#else
     lv_obj_set_style_pad_column(volume_topbar_group, 0, 0);
+#endif
     lv_obj_remove_flag(volume_topbar_group, LV_OBJ_FLAG_SCROLLABLE);
 
     /* Normalize against the sprite's measured visible glyph bounds. */
@@ -1724,6 +1955,207 @@ static void topbar_align_left_of(lv_obj_t * obj, lv_obj_t * anchor, int gap_px) 
     topbar_align_beside(obj, anchor, true, -BOARD_SCALE_PX(gap_px));
 }
 
+#if defined(BOARD_TEMPOTEC_V1)
+static int32_t topbar_v1_visible_width(lv_obj_t * obj, bool visible) {
+    if (!obj || !visible) return 0;
+    lv_obj_update_layout(obj);
+    return lv_obj_get_width(obj);
+}
+
+static void topbar_v1_place(lv_obj_t * obj, int32_t x) {
+    if (obj) topbar_align(obj, LV_ALIGN_TOP_LEFT, x, 0);
+}
+
+static void topbar_v1_apply_art_scale(int32_t percent) {
+    topbar_v1_art_scale_percent = percent;
+    if (volume_topbar_icon)
+        layout_topbar_glyph(volume_topbar_icon, NATIVE(3, 22), BOUNDS(1, 3, 22, 18));
+    if (volume_topbar_headphone)
+        layout_topbar_glyph(volume_topbar_headphone, NATIVE(3, 22), BOUNDS(2, 2, 20, 20));
+    if (a2dp_status_icon)
+        layout_topbar_glyph(a2dp_status_icon, NATIVE(2, 22), BOUNDS(1, 2, 22, 20));
+    if (usb_audio_status_icon)
+        layout_topbar_glyph(usb_audio_status_icon, NATIVE(7, 14), BOUNDS(2, 2, 20, 20));
+    if (play_pause_status_icon)
+        layout_topbar_glyph(play_pause_status_icon, NATIVE(3, 22), BOUNDS(2, 2, 20, 20));
+    if (bt_codec_status_icon) layout_codec_topbar_image(bt_codec_status_icon);
+    if (battery_icon_frame) layout_battery_topbar_image(battery_icon_frame);
+    if (wifi_icon) {
+        if (topbar_v1_wifi_connected_art) layout_wifi_connected_topbar_image(wifi_icon);
+        else layout_radio_topbar_image(wifi_icon);
+    }
+    if (bt_status_icon) layout_bluetooth_topbar_image(bt_status_icon);
+    lv_obj_update_layout(volume_topbar_group);
+    lv_obj_update_layout(battery_icon_frame);
+    lv_obj_update_layout(battery_topbar_group);
+}
+
+static uint32_t topbar_v1_hash_bytes(uint32_t hash, const char * value) {
+    if (!value) return (hash ^ 0xffu) * 16777619u;
+    while (*value) hash = (hash ^ (uint8_t)*value++) * 16777619u;
+    return (hash ^ 0u) * 16777619u;
+}
+
+static uint32_t topbar_v1_hash_tree(uint32_t hash, lv_obj_t * obj) {
+    if (!obj) return (hash ^ 0xfeu) * 16777619u;
+    hash = (hash ^ (uint8_t)lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) * 16777619u;
+    if (lv_obj_check_type(obj, &lv_label_class)) {
+        hash = topbar_v1_hash_bytes(hash, lv_label_get_text(obj));
+    } else if (lv_obj_check_type(obj, &lv_image_class)) {
+        const void * source = lv_image_get_src(obj);
+        lv_image_src_t source_type = lv_image_src_get_type(source);
+        hash = (hash ^ (uint32_t)source_type) * 16777619u;
+        if (source_type == LV_IMAGE_SRC_FILE || source_type == LV_IMAGE_SRC_SYMBOL) {
+            hash = topbar_v1_hash_bytes(hash, (const char *)source);
+        } else {
+            uintptr_t source_value = (uintptr_t)source;
+            for (size_t i = 0; i < sizeof(source_value); i++) {
+                hash = (hash ^ (uint8_t)(source_value & 0xffu)) * 16777619u;
+                source_value >>= 8;
+            }
+        }
+    }
+    uint32_t children = lv_obj_get_child_count(obj);
+    hash = (hash ^ (uint8_t)children) * 16777619u;
+    for (uint32_t i = 0; i < children; i++)
+        hash = topbar_v1_hash_tree(hash, lv_obj_get_child(obj, (int32_t)i));
+    return hash;
+}
+
+static uint32_t topbar_v1_current_layout_signature(void) {
+    uint32_t hash = 2166136261u;
+    hash = (hash ^ current_settings.topbar_hidden_elements) * 16777619u;
+    hash = (hash ^ (uint32_t)current_settings.show_battery_percent) * 16777619u;
+    hash = (hash ^ (uint32_t)current_settings.topbar_clock_position) * 16777619u;
+    hash = (hash ^ (uint32_t)topbar_v1_wifi_connected_art) * 16777619u;
+    hash = (hash ^ (uint32_t)lv_display_get_horizontal_resolution(lv_display_get_default())) * 16777619u;
+    hash = (hash ^ (uint32_t)topbar_breeze_icons()) * 16777619u;
+    return topbar_v1_hash_tree(hash, status_bar_band);
+}
+
+/* V1 keeps its 20px band and readable 16px clock. Scale only icon art when
+ * all currently visible content would otherwise exceed the panel width. */
+static void reflow_topbar_layout_v1(void) {
+    int32_t screen_width = lv_display_get_horizontal_resolution(lv_display_get_default());
+    if (screen_width <= 0) screen_width = BOARD_SCREEN_WIDTH;
+
+    bool clock_visible = !topbar_element_hidden(TOPBAR_HIDE_CLOCK);
+    int clock_position = current_settings.topbar_clock_position;
+    if (clock_position < TOPBAR_CLOCK_LEFT || clock_position > TOPBAR_CLOCK_RIGHT)
+        clock_position = TOPBAR_CLOCK_CENTER;
+    bool battery_visible = !topbar_element_hidden(TOPBAR_HIDE_BATTERY);
+    bool percent_visible = current_settings.show_battery_percent &&
+                           !lv_obj_has_flag(battery_topbar_group, LV_OBJ_FLAG_HIDDEN);
+    bool wifi_visible = topbar_object_naturally_visible(wifi_icon, TOPBAR_HIDE_WIFI);
+    bool bt_visible = topbar_object_naturally_visible(bt_status_icon, TOPBAR_HIDE_BLUETOOTH);
+
+    /* This flex group also carries independently enabled output indicators,
+     * so its measured width remains authoritative even when volume is hidden. */
+    int32_t volume_width = 0;
+    bool output_group_visible = false;
+    int32_t clock_width = topbar_v1_visible_width(clock_topbar_group, clock_visible);
+
+    lv_obj_t * right_items[4];
+    int32_t right_widths[4];
+    int right_count = 0;
+    if (battery_visible) right_items[right_count++] = battery_icon_frame;
+    if (percent_visible) right_items[right_count++] = battery_topbar_group;
+    for (int i = 0; i < 2; i++) {
+        lv_obj_t * item = topbar_status_icon_order[i] == TOPBAR_STATUS_ICON_WIFI ? wifi_icon :
+                          topbar_status_icon_order[i] == TOPBAR_STATUS_ICON_BT ? bt_status_icon : NULL;
+        bool visible = item == wifi_icon ? wifi_visible : item == bt_status_icon ? bt_visible : false;
+        if (item && visible) right_items[right_count++] = item;
+    }
+
+    int32_t margin = 0;
+    int32_t gap = 0;
+    int32_t right_cluster_width = 0;
+    int32_t block_count = 0;
+    int32_t required_width = 0;
+    uint32_t layout_signature = topbar_v1_current_layout_signature();
+    bool fit_needed = !topbar_v1_layout_signature_valid ||
+                      layout_signature != topbar_v1_last_layout_signature;
+    int32_t art_scale = fit_needed ? 100 : topbar_v1_art_scale_percent;
+    for (;;) {
+        if (fit_needed) topbar_v1_apply_art_scale(art_scale);
+        volume_width = topbar_v1_visible_width(volume_topbar_group, true);
+        output_group_visible = volume_width > 0;
+        for (int i = 0; i < right_count; i++)
+            right_widths[i] = topbar_v1_visible_width(right_items[i], true);
+
+        margin = BOARD_SCALE_PX(4);
+        gap = BOARD_SCALE_PX(2);
+        right_cluster_width = 0;
+        for (int i = 0; i < right_count; i++) right_cluster_width += right_widths[i];
+        if (right_count > 1) right_cluster_width += gap * (right_count - 1);
+        block_count = (output_group_visible ? 1 : 0) + (right_count > 0 ? 1 : 0) +
+                      (clock_visible ? 1 : 0);
+        required_width = margin * 2 + volume_width + right_cluster_width +
+                         (clock_visible ? clock_width : 0) +
+                         (block_count > 1 ? gap * (block_count - 1) : 0);
+        if (!fit_needed || required_width <= screen_width || art_scale <= 40) break;
+        art_scale -= 5;
+    }
+
+    /* At the minimum artwork tier remove the outer margins while retaining
+     * a one-pixel gap between independent content groups. */
+    if (required_width > screen_width) {
+        margin = 0;
+        gap = 1;
+        right_cluster_width = 0;
+        for (int i = 0; i < right_count; i++) right_cluster_width += right_widths[i];
+        if (right_count > 1) right_cluster_width += gap * (right_count - 1);
+        block_count = (output_group_visible ? 1 : 0) + (right_count > 0 ? 1 : 0) +
+                      (clock_visible ? 1 : 0);
+        required_width = volume_width + right_cluster_width +
+                         (clock_visible ? clock_width : 0) +
+                         (block_count > 1 ? gap * (block_count - 1) : 0);
+    }
+
+    topbar_v1_last_layout_signature = layout_signature;
+    topbar_v1_layout_signature_valid = true;
+
+    int32_t right_edge = screen_width - margin;
+    int32_t clock_x = screen_width / 2 - clock_width / 2;
+    if (clock_visible && clock_position == TOPBAR_CLOCK_RIGHT)
+        clock_x = screen_width - margin - clock_width;
+    if (clock_visible && clock_position == TOPBAR_CLOCK_RIGHT)
+        right_edge = clock_x - gap;
+
+    int32_t cursor = right_edge;
+    for (int i = 0; i < right_count; i++) {
+        cursor -= right_widths[i];
+        topbar_v1_place(right_items[i], cursor);
+        cursor -= gap;
+    }
+    int32_t right_start = right_count ? cursor + gap : right_edge;
+
+    int32_t volume_x = margin;
+    if (clock_visible && clock_position == TOPBAR_CLOCK_LEFT) {
+        topbar_v1_place(clock_topbar_group, margin);
+        volume_x = margin + clock_width + (output_group_visible ? gap : 0);
+    } else if (clock_visible && clock_position == TOPBAR_CLOCK_CENTER) {
+        int32_t left_edge = margin + (output_group_visible ? volume_width : 0);
+        int32_t minimum_clock_x = left_edge + (output_group_visible ? gap : 0);
+        int32_t maximum_clock_x = right_start - (right_count ? gap : 0) - clock_width;
+        if (maximum_clock_x >= minimum_clock_x) {
+            if (clock_x < minimum_clock_x) clock_x = minimum_clock_x;
+            if (clock_x > maximum_clock_x) clock_x = maximum_clock_x;
+        }
+        topbar_v1_place(clock_topbar_group, clock_x);
+    } else if (clock_visible && clock_position == TOPBAR_CLOCK_RIGHT) {
+        topbar_v1_place(clock_topbar_group, clock_x);
+    }
+
+    if (output_group_visible) topbar_v1_place(volume_topbar_group, volume_x);
+
+    if (required_width > screen_width) {
+        LV_LOG_WARN("V1 topbar measured width %d exceeds display width %d",
+                    (int)required_width, (int)screen_width);
+    }
+}
+#endif
+
 static void reflow_topbar_layout(void) {
     if (!status_bar_band || !clock_topbar_group || !volume_topbar_group || !battery_icon_frame ||
         !battery_topbar_group || !wifi_icon || !bt_status_icon) return;
@@ -1733,6 +2165,11 @@ static void reflow_topbar_layout(void) {
     lv_obj_update_layout(clock_topbar_group);
     lv_obj_update_layout(volume_topbar_group);
     lv_obj_update_layout(battery_topbar_group);
+
+#if defined(BOARD_TEMPOTEC_V1)
+    reflow_topbar_layout_v1();
+    return;
+#endif
 
     bool clock_visible = !topbar_element_hidden(TOPBAR_HIDE_CLOCK);
     int clock_position = current_settings.topbar_clock_position;
@@ -2076,11 +2513,26 @@ static bool quick_drawer_set_toggle_image(lv_obj_t * image, const void * source)
 }
 
 static void quick_drawer_layout_transport_icon(lv_obj_t * image, int32_t reference_x) {
-    int32_t icon_px = BOARD_SCALE_PX(40);
+    int32_t icon_px =
+#if defined(BOARD_TEMPOTEC_V1)
+        BOARD_SCALE_PX(40);
+#else
+        BOARD_SCALE_PX(40);
+#endif
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_image_set_inner_align(image, LV_IMAGE_ALIGN_CONTAIN);
+    lv_image_set_scale(image, LV_SCALE_NONE);
+#else
     lv_image_set_inner_align(image, LV_IMAGE_ALIGN_CENTER);
     lv_image_set_scale(image, (icon_px * LV_SCALE_NONE + 20) / 40);
+#endif
     lv_obj_set_size(image, icon_px, icon_px);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_pos(image, BOARD_SCALE_PX(reference_x),
+                   (BOARD_SCALE_PY(90) - icon_px) / 2);
+#else
     lv_obj_set_pos(image, BOARD_SCALE_PX(reference_x), BOARD_SCALE_PY(43) - icon_px / 2);
+#endif
 }
 
 /* Re-reads every expanded-row toggle from its authoritative source. Called
@@ -3276,11 +3728,25 @@ void gui_shell_release_memory_for_external_session(void) {
 }
 
 void gui_shell_refresh_quick_drawer_volume_visibility(void) {
+#if defined(BOARD_TEMPOTEC_V1)
+    bool collapsed = quick_drawer_expansion_y == 0;
+    lv_obj_t * brightness_row[] = { quick_drawer_brightness_container, quick_drawer_brightness_icon,
+                                    quick_drawer_brightness_label, quick_drawer_brightness_track };
+    for (size_t i = 0; i < sizeof(brightness_row) / sizeof(brightness_row[0]); i++) {
+        if (!brightness_row[i]) continue;
+        if (collapsed) lv_obj_remove_flag(brightness_row[i], LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(brightness_row[i], LV_OBJ_FLAG_HIDDEN);
+    }
+#endif
     lv_obj_t * row[] = { quick_drawer_volume_container, quick_drawer_volume_icon, quick_drawer_volume_track,
                          quick_drawer_volume_label };
     for (size_t i = 0; i < sizeof(row) / sizeof(row[0]); i++) {
         if (!row[i]) continue;
+#if defined(BOARD_TEMPOTEC_V1)
+        if (ui_customization_drawer_volume_visible() && quick_drawer_expansion_y == 0)
+#else
         if (ui_customization_drawer_volume_visible())
+#endif
             lv_obj_remove_flag(row[i], LV_OBJ_FLAG_HIDDEN);
         else
             lv_obj_add_flag(row[i], LV_OBJ_FLAG_HIDDEN);
@@ -3842,6 +4308,10 @@ static void prefetch_press_targets(lv_point_t point) {
 
 static bool quick_drawer_brightness_hit_test(lv_point_t point) {
     if (!quick_drawer_open || !quick_drawer_brightness_track) return false;
+#if defined(BOARD_TEMPOTEC_V1)
+    if (quick_drawer_expansion_y > 0 ||
+        lv_obj_has_flag(quick_drawer_brightness_track, LV_OBJ_FLAG_HIDDEN)) return false;
+#endif
     lv_area_t area;
     lv_obj_get_click_area(quick_drawer_brightness_track, &area);
     return point.x >= area.x1 && point.x <= area.x2 &&
@@ -3863,6 +4333,10 @@ static bool quick_drawer_brightness_hit_test(lv_point_t point) {
 static bool quick_drawer_volume_hit_test(lv_point_t point) {
     if (!quick_drawer_open || !ui_customization_drawer_volume_visible() ||
         !quick_drawer_volume_track) return false;
+#if defined(BOARD_TEMPOTEC_V1)
+    if (quick_drawer_expansion_y > 0 ||
+        lv_obj_has_flag(quick_drawer_volume_track, LV_OBJ_FLAG_HIDDEN)) return false;
+#endif
     lv_area_t area;
     lv_obj_get_click_area(quick_drawer_volume_track, &area);
     return point.x >= area.x1 && point.x <= area.x2 &&
@@ -3884,8 +4358,43 @@ static bool quick_drawer_expansion_region_hit_test(lv_point_t point) {
     if (quick_drawer_volume_hit_test(point)) return false;
     lv_area_t handle;
     lv_obj_get_coords(quick_drawer_expansion_handle, &handle);
+#if defined(BOARD_TEMPOTEC_V1)
+    int32_t pad_x = BOARD_SCALE_PX(40);
+    int32_t pad_y = BOARD_SCALE_PY(4);
+    return point.x >= handle.x1 - pad_x && point.x <= handle.x2 + pad_x &&
+           point.y >= handle.y1 - pad_y && point.y <= handle.y2 + pad_y;
+#else
     return point.y <= handle.y2;
+#endif
 }
+
+static bool quick_drawer_expansion_scroll_hit_test(lv_point_t point) {
+#if defined(BOARD_TEMPOTEC_V1)
+    if (!quick_drawer_open || !quick_drawer_expansion_box || quick_drawer_expansion_y <= 0)
+        return false;
+    lv_area_t viewport;
+    lv_obj_get_coords(quick_drawer_expansion_box, &viewport);
+    return point.x >= viewport.x1 && point.x <= viewport.x2 &&
+           point.y >= viewport.y1 && point.y <= viewport.y2;
+#else
+    (void) point;
+    return false;
+#endif
+}
+
+#if defined(BOARD_TEMPOTEC_V1)
+static void quick_drawer_expansion_scroll_event_cb(lv_event_t * e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_SCROLL_BEGIN || code == LV_EVENT_SCROLL) {
+        /* Closing can begin before inertia ends. Force the open/close path to
+         * follow the live tree until the settled scrolled snapshot is ready. */
+        quick_drawer_snapshot_dirty = true;
+        quick_drawer_expansion_art_dirty = true;
+    } else if (code == LV_EVENT_SCROLL_END) {
+        quick_drawer_mark_snapshot_dirty();
+    }
+}
+#endif
 
 
 static bool quick_drawer_expansion_moved = false;
@@ -3915,7 +4424,12 @@ static void poll_quick_drawer_drag(lv_timer_t * timer) {
             quick_drawer_expansion_drag_start_value = quick_drawer_expansion_y;
             /* Same read-on-the-way-open as the animated path, for a drag
              * that reveals the rows without going through it. */
-            if (quick_drawer_expansion_y == 0) refresh_quick_drawer_expansion_toggles();
+            if (quick_drawer_expansion_y == 0) {
+#if defined(BOARD_TEMPOTEC_V1)
+                lv_obj_scroll_to_y(quick_drawer_expansion_box, 0, LV_ANIM_OFF);
+#endif
+                refresh_quick_drawer_expansion_toggles();
+            }
         }
 
         drag_adjust_press_owned = active_object_is_drag_adjust_widget() ||
@@ -3923,6 +4437,7 @@ static void poll_quick_drawer_drag(lv_timer_t * timer) {
                                   quick_drawer_brightness_hit_test(p) ||
                                   quick_drawer_volume_hit_test(p) ||
                                   quick_drawer_expansion_dragging ||
+                                  quick_drawer_expansion_scroll_hit_test(p) ||
                                   gui_player_volume_control_hit_test(p);
     }
 
@@ -5256,33 +5771,62 @@ static void build_quick_drawer(void) {
     quick_drawer_expansion_handle = lv_obj_create(quick_drawer);
     lv_obj_t * expansion_handle = quick_drawer_expansion_handle;
     lv_obj_remove_style_all(expansion_handle);
+#if defined(BOARD_TEMPOTEC_V1)
+    /* Centered grab target between the toggle states and slider pills. */
+    lv_obj_set_pos(expansion_handle, BOARD_SCALE_PX(210), BOARD_SCALE_PY(272));
+#else
     lv_obj_set_pos(expansion_handle, BOARD_SCALE_PX(210), BOARD_SCALE_PY(219));
+#endif
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(expansion_handle, BOARD_SCALE_PX(60), BOARD_SCALE_PY(5));
+#else
     lv_obj_set_size(expansion_handle, BOARD_SCALE_PX(59), BOARD_SCALE_PY(8));
+#endif
     lv_obj_add_style(expansion_handle, &shell_drawer_handle_style, 0);
     lv_obj_set_style_radius(expansion_handle, BOARD_SCALE_PX(4), 0);
     /* A bar this thin is far too small a touch target on its own; the drag
      * itself is claimed by coordinate hit-test in poll_quick_drawer_drag()
      * over the same padded rectangle this advertises. */
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_ext_click_area(expansion_handle, BOARD_SCALE_PX(4));
+#else
     lv_obj_set_ext_click_area(expansion_handle, BOARD_SCALE_PX(8));
+#endif
     lv_obj_add_flag(expansion_handle, LV_OBJ_FLAG_CLICKABLE);
+    /* The Compas drawer's pull handle also reveals secondary controls when
+     * the optional toggles have been rearranged or disabled. */
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_remove_flag(expansion_handle, LV_OBJ_FLAG_HIDDEN);
+#endif
     lv_obj_add_event_cb(expansion_handle, quick_drawer_expansion_handle_cb, LV_EVENT_CLICKED, NULL);
 
     /* Brightness first, volume second -- swapped from the reference's own
      * order at the user's request. Only the container Y (and the matching
      * icon/track/label Y offsets below) moved; every X position, size, and
      * per-row delta stays exactly as measured before. */
-    lv_obj_t * brightness_container = lv_obj_create(quick_drawer);
+    quick_drawer_brightness_container = lv_obj_create(quick_drawer);
+    lv_obj_t * brightness_container = quick_drawer_brightness_container;
     lv_obj_remove_style_all(brightness_container);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_pos(brightness_container, BOARD_SCALE_PX(34), BOARD_SCALE_PY(285));
+    lv_obj_set_size(brightness_container, BOARD_SCALE_PX(413), BOARD_SCALE_PY(55));
+#else
     lv_obj_set_pos(brightness_container, BOARD_SCALE_PX(34), BOARD_SCALE_PY(238));
     lv_obj_set_size(brightness_container, BOARD_SCALE_PX(413), BOARD_SCALE_PY(72));
+#endif
     lv_obj_add_style(brightness_container, &shell_drawer_row_style, 0);
     lv_obj_set_style_bg_opa(brightness_container, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(brightness_container, BOARD_SCALE_PX(23), 0);
 
     quick_drawer_volume_container = lv_obj_create(quick_drawer);
     lv_obj_remove_style_all(quick_drawer_volume_container);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_pos(quick_drawer_volume_container, BOARD_SCALE_PX(34), BOARD_SCALE_PY(350));
+    lv_obj_set_size(quick_drawer_volume_container, BOARD_SCALE_PX(413), BOARD_SCALE_PY(55));
+#else
     lv_obj_set_pos(quick_drawer_volume_container, BOARD_SCALE_PX(34), BOARD_SCALE_PY(325));
     lv_obj_set_size(quick_drawer_volume_container, BOARD_SCALE_PX(413), BOARD_SCALE_PY(73));
+#endif
     lv_obj_add_style(quick_drawer_volume_container, &shell_drawer_row_style, 0);
     lv_obj_set_style_bg_opa(quick_drawer_volume_container, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(quick_drawer_volume_container, BOARD_SCALE_PX(23), 0);
@@ -5302,7 +5846,9 @@ static void build_quick_drawer(void) {
     quick_drawer_wifi_icon = lv_image_create(quick_drawer);
     quick_drawer_toggle_icon[0] = quick_drawer_wifi_icon;
     quick_drawer_set_toggle_image(quick_drawer_wifi_icon, asset_path("pull_down/wifi.png"));
-    lv_obj_align(quick_drawer_wifi_icon, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(39), QUICK_DRAWER_ROW1_TOP);
+    lv_obj_align(quick_drawer_wifi_icon, LV_ALIGN_TOP_LEFT,
+                 quick_drawer_toggle_column_x(0, 4) + (QUICK_DRAWER_TOGGLE_CELL_W - QUICK_DRAWER_TOGGLE_ICON_PX) / 2,
+                 QUICK_DRAWER_ROW1_TOP);
     lv_obj_add_flag(quick_drawer_wifi_icon, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(quick_drawer_wifi_icon, quick_drawer_wifi_event_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(quick_drawer_wifi_icon, quick_drawer_wifi_long_press_cb, LV_EVENT_LONG_PRESSED, NULL);
@@ -5310,7 +5856,9 @@ static void build_quick_drawer(void) {
     quick_drawer_bt_icon = lv_image_create(quick_drawer);
     quick_drawer_toggle_icon[1] = quick_drawer_bt_icon;
     quick_drawer_set_toggle_image(quick_drawer_bt_icon, asset_path("pull_down/bt.png"));
-    lv_obj_align(quick_drawer_bt_icon, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(143), QUICK_DRAWER_ROW1_TOP);
+    lv_obj_align(quick_drawer_bt_icon, LV_ALIGN_TOP_LEFT,
+                 quick_drawer_toggle_column_x(1, 4) + (QUICK_DRAWER_TOGGLE_CELL_W - QUICK_DRAWER_TOGGLE_ICON_PX) / 2,
+                 QUICK_DRAWER_ROW1_TOP);
     lv_obj_add_flag(quick_drawer_bt_icon, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(quick_drawer_bt_icon, quick_drawer_bt_event_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(quick_drawer_bt_icon, quick_drawer_bt_long_press_cb, LV_EVENT_LONG_PRESSED, NULL);
@@ -5318,7 +5866,9 @@ static void build_quick_drawer(void) {
     quick_drawer_sleep_icon = lv_image_create(quick_drawer);
     quick_drawer_toggle_icon[2] = quick_drawer_sleep_icon;
     quick_drawer_set_toggle_image(quick_drawer_sleep_icon, asset_path("pull_down/sleep_switch.png"));
-    lv_obj_align(quick_drawer_sleep_icon, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(251), QUICK_DRAWER_ROW1_TOP);
+    lv_obj_align(quick_drawer_sleep_icon, LV_ALIGN_TOP_LEFT,
+                 quick_drawer_toggle_column_x(2, 4) + (QUICK_DRAWER_TOGGLE_CELL_W - QUICK_DRAWER_TOGGLE_ICON_PX) / 2,
+                 QUICK_DRAWER_ROW1_TOP);
     lv_obj_add_flag(quick_drawer_sleep_icon, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(quick_drawer_sleep_icon, quick_drawer_sleep_event_cb, LV_EVENT_SHORT_CLICKED, NULL);
     lv_obj_add_event_cb(quick_drawer_sleep_icon, quick_drawer_sleep_long_press_cb, LV_EVENT_LONG_PRESSED, NULL);
@@ -5329,14 +5879,18 @@ static void build_quick_drawer(void) {
     quick_drawer_sleep_label = lv_label_create(quick_drawer);
     lv_obj_add_style(quick_drawer_sleep_label, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(quick_drawer_sleep_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
-    lv_obj_set_width(quick_drawer_sleep_label, BOARD_SCALE_PX(84));
+    lv_obj_set_width(quick_drawer_sleep_label, QUICK_DRAWER_TOGGLE_CELL_W);
     lv_obj_set_style_text_align(quick_drawer_sleep_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(quick_drawer_sleep_label, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(250), QUICK_DRAWER_ROW1_TOP + QUICK_DRAWER_TOGGLE_ICON_PX + BOARD_SCALE_PY(2));
+    lv_obj_align(quick_drawer_sleep_label, LV_ALIGN_TOP_LEFT,
+                 quick_drawer_toggle_column_x(2, 4),
+                 QUICK_DRAWER_ROW1_TOP + QUICK_DRAWER_TOGGLE_ICON_PX + BOARD_SCALE_PY(2));
     lv_obj_add_flag(quick_drawer_sleep_label, LV_OBJ_FLAG_HIDDEN);
 
     quick_drawer_crossfade_icon = lv_image_create(quick_drawer);
     quick_drawer_toggle_icon[3] = quick_drawer_crossfade_icon;
-    lv_obj_align(quick_drawer_crossfade_icon, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(358), QUICK_DRAWER_ROW1_TOP);
+    lv_obj_align(quick_drawer_crossfade_icon, LV_ALIGN_TOP_LEFT,
+                 quick_drawer_toggle_column_x(3, 4) + (QUICK_DRAWER_TOGGLE_CELL_W - QUICK_DRAWER_TOGGLE_ICON_PX) / 2,
+                 QUICK_DRAWER_ROW1_TOP);
     lv_obj_add_flag(quick_drawer_crossfade_icon, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(quick_drawer_crossfade_icon, quick_drawer_crossfade_event_cb, LV_EVENT_SHORT_CLICKED, NULL);
     lv_obj_add_event_cb(quick_drawer_crossfade_icon, quick_drawer_crossfade_long_press_cb, LV_EVENT_LONG_PRESSED, NULL);
@@ -5350,21 +5904,36 @@ static void build_quick_drawer(void) {
      * BlindMF. Fixed and non-scaling, same "accessibility-independent" choice
      * build_status_bar() already makes for its own clock/volume/battery faces. */
     const char * names[] = { N_("Wi-Fi"), N_("Bluetooth"), N_("Sleep"), N_("Crossfade") };
-    const int label_x[] = { 39, 143, 251, 358 };
     for (int i = 0; i < 4; i++) {
+        int32_t x = quick_drawer_toggle_column_x(i, 4);
         lv_obj_t * name = lv_label_create(quick_drawer);
         quick_drawer_toggle_name[i] = name;
         lv_label_set_text(name, TR(names[i]));
         lv_obj_add_style(name, &style_theme_text_primary, 0);
-        lv_obj_set_style_text_font(name, &lv_font_montserrat_12, 0);
-        lv_obj_set_width(name, BOARD_SCALE_PX(84));
+        lv_obj_set_style_text_font(name,
+#if defined(BOARD_TEMPOTEC_V1)
+                                   gui_theme_font(GUI_FONT_ROLE_SUBTEXT),
+#else
+                                   &lv_font_montserrat_12,
+#endif
+                                   0);
+        lv_obj_set_width(name, QUICK_DRAWER_TOGGLE_CELL_W);
+        quick_drawer_size_toggle_caption(name);
         lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_align(name, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(label_x[i]), QUICK_DRAWER_ROW1_TOP + QUICK_DRAWER_TOGGLE_ICON_PX + BOARD_SCALE_PY(2));
+        lv_obj_align(name, LV_ALIGN_TOP_LEFT, x,
+                     QUICK_DRAWER_ROW1_TOP + QUICK_DRAWER_TOGGLE_ICON_PX + QUICK_DRAWER_TOGGLE_CAPTION_GAP);
         quick_drawer_toggle_state[i] = lv_label_create(quick_drawer);
-        lv_obj_set_width(quick_drawer_toggle_state[i], BOARD_SCALE_PX(84));
+        lv_obj_set_width(quick_drawer_toggle_state[i], QUICK_DRAWER_TOGGLE_CELL_W);
+#if defined(BOARD_TEMPOTEC_V1)
+        lv_obj_set_height(quick_drawer_toggle_name[i],
+                          lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT)));
+        lv_obj_set_height(quick_drawer_toggle_state[i], lv_font_get_line_height(&lv_font_montserrat_12));
+        lv_label_set_long_mode(quick_drawer_toggle_state[i], LV_LABEL_LONG_DOT);
+#endif
         lv_obj_set_style_text_align(quick_drawer_toggle_state[i], LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_style_text_font(quick_drawer_toggle_state[i], &lv_font_montserrat_12, 0);
-        lv_obj_align(quick_drawer_toggle_state[i], LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(label_x[i]), QUICK_DRAWER_ROW1_TOP + QUICK_DRAWER_TOGGLE_ICON_PX + BOARD_SCALE_PY(24));
+    lv_obj_set_style_text_font(quick_drawer_toggle_state[i], &lv_font_montserrat_12, 0);
+        lv_obj_align(quick_drawer_toggle_state[i], LV_ALIGN_TOP_LEFT, x,
+                     quick_drawer_toggle_state_y(QUICK_DRAWER_ROW1_TOP));
         lv_label_set_text(quick_drawer_toggle_state[i], TR("Off"));
         lv_obj_set_style_text_color(quick_drawer_toggle_state[i], shell_drawer_off_color, 0);
     }
@@ -5383,7 +5952,19 @@ static void build_quick_drawer(void) {
     lv_obj_set_pos(quick_drawer_expansion_box, 0, QUICK_DRAWER_EXPANSION_TOP);
     lv_obj_set_width(quick_drawer_expansion_box, BOARD_SCALE_PX(480));
     lv_obj_set_height(quick_drawer_expansion_box, 0);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_add_flag(quick_drawer_expansion_box, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(quick_drawer_expansion_box, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(quick_drawer_expansion_box, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_add_event_cb(quick_drawer_expansion_box, quick_drawer_expansion_scroll_event_cb,
+                        LV_EVENT_SCROLL_BEGIN, NULL);
+    lv_obj_add_event_cb(quick_drawer_expansion_box, quick_drawer_expansion_scroll_event_cb,
+                        LV_EVENT_SCROLL, NULL);
+    lv_obj_add_event_cb(quick_drawer_expansion_box, quick_drawer_expansion_scroll_event_cb,
+                        LV_EVENT_SCROLL_END, NULL);
+#else
     lv_obj_remove_flag(quick_drawer_expansion_box, LV_OBJ_FLAG_SCROLLABLE);
+#endif
     lv_obj_set_style_bg_opa(quick_drawer_expansion_box, 0, 0);
 
     quick_drawer_plugin_toggle_count = plugin_manager_get_quick_toggle_count();
@@ -5395,27 +5976,46 @@ static void build_quick_drawer(void) {
      * full name does not fit an 84px slot at any font tier. */
     static const char * const row2_names[] = { N_("AirPlay"), N_("DLNA"), N_("Gapless"), N_("RC") };
     for (int i = 0; i < 4; i++) {
-        int32_t x = BOARD_SCALE_PX(label_x[i]);
+        int32_t x = quick_drawer_toggle_column_x(i, 4);
         lv_obj_t * icon = lv_image_create(quick_drawer_expansion_box);
+#if defined(BOARD_TEMPOTEC_V1)
+        lv_obj_set_pos(icon, x + (QUICK_DRAWER_TOGGLE_CELL_W - QUICK_DRAWER_TOGGLE_ICON_PX) / 2, 0);
+#else
         lv_obj_set_pos(icon, x, 0);
+#endif
         lv_obj_add_flag(icon, LV_OBJ_FLAG_CLICKABLE);
 
         lv_obj_t * name = lv_label_create(quick_drawer_expansion_box);
         lv_label_set_text(name, TR(row2_names[i]));
         lv_obj_add_style(name, &style_theme_text_primary, 0);
         lv_obj_set_style_text_font(name, &lv_font_montserrat_12, 0);
-        lv_obj_set_width(name, BOARD_SCALE_PX(84));
+        lv_obj_set_width(name, QUICK_DRAWER_TOGGLE_CELL_W);
+        quick_drawer_size_toggle_caption(name);
+#if defined(BOARD_TEMPOTEC_V1)
+        lv_obj_set_height(name, 2 * lv_font_get_line_height(&lv_font_montserrat_12));
+        lv_label_set_long_mode(name, LV_LABEL_LONG_WRAP);
+#endif
         lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_pos(name, x, QUICK_DRAWER_TOGGLE_ICON_PX + BOARD_SCALE_PY(2));
+        lv_obj_set_pos(name, x, QUICK_DRAWER_TOGGLE_ICON_PX + QUICK_DRAWER_TOGGLE_CAPTION_GAP);
 
         int slot = QD_TOGGLE_AIRPLAY + i;
         quick_drawer_toggle_name[slot] = name;
         quick_drawer_toggle_icon[slot] = icon;
         quick_drawer_toggle_state[slot] = lv_label_create(quick_drawer_expansion_box);
-        lv_obj_set_width(quick_drawer_toggle_state[slot], BOARD_SCALE_PX(84));
+        lv_obj_set_width(quick_drawer_toggle_state[slot], QUICK_DRAWER_TOGGLE_CELL_W);
+#if defined(BOARD_TEMPOTEC_V1)
+        lv_obj_set_height(quick_drawer_toggle_state[slot], lv_font_get_line_height(&lv_font_montserrat_12));
+        lv_label_set_long_mode(quick_drawer_toggle_state[slot], LV_LABEL_LONG_DOT);
+#endif
         lv_obj_set_style_text_align(quick_drawer_toggle_state[slot], LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_text_font(quick_drawer_toggle_state[slot], &lv_font_montserrat_12, 0);
-        lv_obj_set_pos(quick_drawer_toggle_state[slot], x, QUICK_DRAWER_TOGGLE_ICON_PX + BOARD_SCALE_PY(24));
+        lv_obj_set_pos(quick_drawer_toggle_state[slot], x,
+#if defined(BOARD_TEMPOTEC_V1)
+                       0 + QUICK_DRAWER_TOGGLE_ICON_PX + BOARD_SCALE_PY(5) +
+                           2 * lv_font_get_line_height(&lv_font_montserrat_12) + BOARD_SCALE_PY(5));
+#else
+                       quick_drawer_toggle_state_y(0));
+#endif
         lv_label_set_text(quick_drawer_toggle_state[slot], TR("Off"));
         lv_obj_set_style_text_color(quick_drawer_toggle_state[slot], shell_drawer_off_color, 0);
 
@@ -5442,16 +6042,21 @@ static void build_quick_drawer(void) {
     }
 
     for (int i = 0; i < 1 + quick_drawer_plugin_toggle_count; i++) {
-        int32_t row3_column = i;
         int32_t x;
+#if defined(BOARD_TEMPOTEC_V1)
+        int32_t row_y = QUICK_DRAWER_TOGGLE_ROW_PITCH * (i / 4 + 1);
+        x = quick_drawer_toggle_column_x(i % 4, 4);
+#else
+        int32_t row3_column = i;
         if (1 + quick_drawer_plugin_toggle_count <= 4) {
-            x = BOARD_SCALE_PX(label_x[row3_column]);
+            x = quick_drawer_toggle_column_x(row3_column, 4);
         } else {
             /* Five tiles need the full panel width: five 84px icons at
              * 90px spacing, with 18px side margins. */
             x = BOARD_SCALE_PX(18 + 90 * row3_column);
         }
         int32_t row_y = QUICK_DRAWER_TOGGLE_ROW_PITCH;
+#endif
         bool is_car_mode = i == 0;
         int plugin_index = i - 1;
         bool on = is_car_mode ? current_settings.car_mode_enabled
@@ -5461,7 +6066,11 @@ static void build_quick_drawer(void) {
         quick_drawer_set_toggle_image(icon, is_car_mode
                                               ? quick_drawer_toggle_src(QD_TOGGLE_CAR_MODE, on)
                                               : quick_drawer_plugin_toggle_src(plugin_index, on));
+#if defined(BOARD_TEMPOTEC_V1)
+        lv_obj_set_pos(icon, x + (QUICK_DRAWER_TOGGLE_CELL_W - QUICK_DRAWER_TOGGLE_ICON_PX) / 2, row_y);
+#else
         lv_obj_set_pos(icon, x, row_y);
+#endif
         lv_obj_add_flag(icon, LV_OBJ_FLAG_CLICKABLE);
         if (is_car_mode) {
             quick_drawer_car_mode_icon = icon;
@@ -5482,22 +6091,44 @@ static void build_quick_drawer(void) {
         lv_label_set_text(name, is_car_mode ? TR("Car Mode") : plugin_manager_get_quick_toggle_label(plugin_index));
         lv_obj_add_style(name, &style_theme_text_primary, 0);
         lv_obj_set_style_text_font(name, &lv_font_montserrat_12, 0);
-        lv_obj_set_width(name, BOARD_SCALE_PX(84));
+        lv_obj_set_width(name, QUICK_DRAWER_TOGGLE_CELL_W);
+        quick_drawer_size_toggle_caption(name);
+#if defined(BOARD_TEMPOTEC_V1)
+        lv_obj_set_height(name, 2 * lv_font_get_line_height(&lv_font_montserrat_12));
+        lv_label_set_long_mode(name, LV_LABEL_LONG_WRAP);
+#endif
         lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_pos(name, x, row_y + QUICK_DRAWER_TOGGLE_ICON_PX + BOARD_SCALE_PY(2));
+        lv_obj_set_pos(name, x, row_y + QUICK_DRAWER_TOGGLE_ICON_PX + QUICK_DRAWER_TOGGLE_CAPTION_GAP);
 
         int slot = is_car_mode ? QD_TOGGLE_CAR_MODE : QD_TOGGLE_COUNT + plugin_index;
         quick_drawer_toggle_state[slot] = lv_label_create(quick_drawer_expansion_box);
-        lv_obj_set_width(quick_drawer_toggle_state[slot], BOARD_SCALE_PX(84));
+        lv_obj_set_width(quick_drawer_toggle_state[slot], QUICK_DRAWER_TOGGLE_CELL_W);
+#if defined(BOARD_TEMPOTEC_V1)
+        lv_obj_set_height(quick_drawer_toggle_state[slot], lv_font_get_line_height(&lv_font_montserrat_12));
+        lv_label_set_long_mode(quick_drawer_toggle_state[slot], LV_LABEL_LONG_DOT);
+#endif
         lv_obj_set_style_text_align(quick_drawer_toggle_state[slot], LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_text_font(quick_drawer_toggle_state[slot], &lv_font_montserrat_12, 0);
-        lv_obj_set_pos(quick_drawer_toggle_state[slot], x, row_y + QUICK_DRAWER_TOGGLE_ICON_PX + BOARD_SCALE_PY(24));
+        lv_obj_set_pos(quick_drawer_toggle_state[slot], x,
+#if defined(BOARD_TEMPOTEC_V1)
+                       row_y + QUICK_DRAWER_TOGGLE_ICON_PX + BOARD_SCALE_PY(5) +
+                           2 * lv_font_get_line_height(&lv_font_montserrat_12) + BOARD_SCALE_PY(5));
+#else
+                       quick_drawer_toggle_state_y(row_y));
+#endif
         if (is_car_mode) quick_drawer_set_toggle_state(slot, on);
         else quick_drawer_set_toggle_state_text(slot, on,
                                                 plugin_manager_get_quick_toggle_state_text(plugin_index, on));
     }
 
+#if defined(BOARD_TEMPOTEC_V1)
+    int expanded_rows = (quick_drawer_plugin_toggle_count + 4) / 4;
+    if (expanded_rows < 1) expanded_rows = 1;
+    quick_drawer_expansion_full = quick_drawer_expansion_visible_height(
+        QUICK_DRAWER_TOGGLE_ROW_PITCH * expanded_rows);
+#else
     quick_drawer_expansion_full = QUICK_DRAWER_TOGGLE_ROW_PITCH * 2;
+#endif
 
     /* Row 1: screen brightness -- real control, via the standard Linux
      * backlight sysfs class (backlight.h), no dedicated slider-track asset
@@ -5509,34 +6140,60 @@ static void build_quick_drawer(void) {
     const void * brightness = asset_decoded_image_open(&quick_drawer_brightness_image, "pull_down/blk.png")
                             ? asset_decoded_image_source(&quick_drawer_brightness_image) : NULL;
     lv_image_set_src(quick_drawer_brightness_icon, brightness ? brightness : asset_path("pull_down/blk.png"));
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_image_set_inner_align(quick_drawer_brightness_icon, LV_IMAGE_ALIGN_CONTAIN);
+    lv_obj_set_size(quick_drawer_brightness_icon, BOARD_SCALE_PX(36), BOARD_SCALE_PY(45));
+    lv_obj_align(quick_drawer_brightness_icon, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(54), BOARD_SCALE_PY(290));
+#else
     lv_obj_align(quick_drawer_brightness_icon, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(55), BOARD_SCALE_PY(259));
+#endif
 
     /* Fixed size, so the percentage does not follow the Font Size tier, and
      * centred on its own track rather than pinned to a hardcoded Y. */
+#if !defined(BOARD_TEMPOTEC_V1)
     int32_t slider_pct_h = lv_font_get_line_height(&app_font_player_meta);
     int32_t slider_pct_dy = (SLIDER_TRACK_HEIGHT - slider_pct_h) / 2;
+#endif
 
     quick_drawer_brightness_label = lv_label_create(quick_drawer);
     lv_obj_add_style(quick_drawer_brightness_label, &style_theme_text_primary, 0);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_style_text_font(quick_drawer_brightness_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_size(quick_drawer_brightness_label, BOARD_SCALE_PX(54), BOARD_SCALE_PY(48));
+    lv_obj_set_style_text_align(quick_drawer_brightness_label, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_pos(quick_drawer_brightness_label, BOARD_SCALE_PX(392), BOARD_SCALE_PY(290));
+#else
     lv_obj_set_style_text_font(quick_drawer_brightness_label, &app_font_player_meta, 0);
     lv_obj_align(quick_drawer_brightness_label, LV_ALIGN_TOP_RIGHT, -BOARD_SCALE_PX(52),
                  BOARD_SCALE_PY(267) + slider_pct_dy);
+#endif
 
     /* Dynamically sizes slider width based on the maximum width of the percentage
      * label ("100") to prevent horizontal overlap. */
+#if !defined(BOARD_TEMPOTEC_V1)
     lv_point_t brightness_label_size;
     lv_text_get_size(&brightness_label_size, "100", &app_font_player_meta,
                      0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
     int32_t brightness_label_max_w = brightness_label_size.x;
+#endif
     /* The percentage is anchored at x=428. Leave a 16px visual gap before
      * its actual text box and keep the knob's overhang inside that gap. */
+#if defined(BOARD_TEMPOTEC_V1)
+    int32_t brightness_track_w = BOARD_SCALE_PX(270);
+#else
     int32_t brightness_track_w = BOARD_SCALE_PX(428) - brightness_label_max_w - BOARD_SCALE_PX(16) - BOARD_SCALE_PX(103);
+#endif
     if (brightness_track_w > BOARD_SCALE_PX(300)) brightness_track_w = BOARD_SCALE_PX(300);
     if (brightness_track_w < BOARD_SCALE_PX(120)) brightness_track_w = BOARD_SCALE_PX(120); /* sane floor so the track never collapses to nothing */
 
     quick_drawer_brightness_track = lv_slider_create(quick_drawer);
     lv_obj_set_size(quick_drawer_brightness_track, brightness_track_w, SLIDER_TRACK_HEIGHT);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(quick_drawer_brightness_track, BOARD_SCALE_PX(270), BOARD_SCALE_PY(20));
+    lv_obj_align(quick_drawer_brightness_track, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(104), BOARD_SCALE_PY(302));
+#else
     lv_obj_align(quick_drawer_brightness_track, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(103), BOARD_SCALE_PY(267));
+#endif
     /* Full 0-100 -- backlight.c now maps this logical range to its own safe
      * raw range internally (see backlight.h's own comment), so the slider
      * itself is free to show a clean, honest 0%-100% again. */
@@ -5547,6 +6204,10 @@ static void build_quick_drawer(void) {
      * every other quick-drawer widget's own initial state. */
     lv_obj_add_style(quick_drawer_brightness_track, gui_theme_accent_style(), LV_PART_INDICATOR);
     lv_obj_add_style(quick_drawer_brightness_track, gui_theme_accent_knob_style(), LV_PART_KNOB);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_style_width(quick_drawer_brightness_track, BOARD_SCALE_PX(32), LV_PART_KNOB);
+    lv_obj_set_style_height(quick_drawer_brightness_track, BOARD_SCALE_PX(32), LV_PART_KNOB);
+#endif
     /* Configures rail styling to prevent visual artifacts on the track edge. */
     configure_native_slider_rail(quick_drawer_brightness_track);
     lv_obj_set_style_bg_opa(quick_drawer_brightness_track, LV_OPA_COVER, LV_PART_KNOB);
@@ -5562,7 +6223,11 @@ static void build_quick_drawer(void) {
 
     /* A generous rail target that leaves the handle and neighboring rail
      * outside its touch bounds. Ownership checks use these same bounds. */
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_ext_click_area(quick_drawer_brightness_track, BOARD_SCALE_PX(14));
+#else
     lv_obj_set_ext_click_area(quick_drawer_brightness_track, BOARD_SCALE_PX(26));
+#endif
 
     refresh_quick_drawer_brightness();
 
@@ -5570,15 +6235,30 @@ static void build_quick_drawer(void) {
      * comment above for why these two swapped). */
     quick_drawer_volume_icon = lv_image_create(quick_drawer);
     lv_image_set_src(quick_drawer_volume_icon, asset_path("volume/vol.png"));
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_image_set_inner_align(quick_drawer_volume_icon, LV_IMAGE_ALIGN_CONTAIN);
+    lv_obj_set_size(quick_drawer_volume_icon, BOARD_SCALE_PX(36), BOARD_SCALE_PY(45));
+    lv_obj_align(quick_drawer_volume_icon, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(54), BOARD_SCALE_PY(355));
+#else
     lv_obj_align(quick_drawer_volume_icon, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(55), BOARD_SCALE_PY(346));
+#endif
     lv_obj_add_flag(quick_drawer_volume_icon, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(quick_drawer_volume_icon, quick_drawer_eq_long_press_cb, LV_EVENT_LONG_PRESSED, NULL);
     quick_drawer_volume_track = lv_slider_create(quick_drawer);
     lv_obj_set_size(quick_drawer_volume_track, brightness_track_w, SLIDER_TRACK_HEIGHT);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(quick_drawer_volume_track, BOARD_SCALE_PX(270), BOARD_SCALE_PY(20));
+    lv_obj_align(quick_drawer_volume_track, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(104), BOARD_SCALE_PY(368));
+#else
     lv_obj_align(quick_drawer_volume_track, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(103), BOARD_SCALE_PY(354));
+#endif
     lv_slider_set_range(quick_drawer_volume_track, 0, 100);
     lv_obj_add_style(quick_drawer_volume_track, gui_theme_accent_style(), LV_PART_INDICATOR);
     lv_obj_add_style(quick_drawer_volume_track, gui_theme_accent_knob_style(), LV_PART_KNOB);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_style_width(quick_drawer_volume_track, BOARD_SCALE_PX(32), LV_PART_KNOB);
+    lv_obj_set_style_height(quick_drawer_volume_track, BOARD_SCALE_PX(32), LV_PART_KNOB);
+#endif
     configure_native_slider_rail(quick_drawer_volume_track);
     /* Its sibling brightness track (just above) already had all of these --
      * this one was missing every one of them, leaving a smaller, harder-to-
@@ -5590,14 +6270,25 @@ static void build_quick_drawer(void) {
     lv_obj_set_style_bg_opa(quick_drawer_volume_track, LV_OPA_COVER, LV_PART_KNOB);
     lv_obj_set_style_width(quick_drawer_volume_track, SLIDER_KNOB_SIZE, LV_PART_KNOB);
     lv_obj_set_style_height(quick_drawer_volume_track, SLIDER_KNOB_SIZE, LV_PART_KNOB);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_ext_click_area(quick_drawer_volume_track, BOARD_SCALE_PX(14));
+#else
     lv_obj_set_ext_click_area(quick_drawer_volume_track, BOARD_SCALE_PX(26));
+#endif
     lv_obj_add_event_cb(quick_drawer_volume_track, quick_drawer_volume_event_cb, LV_EVENT_ALL, NULL);
     lv_slider_set_value(quick_drawer_volume_track, gui_player_get_volume_percent(), LV_ANIM_OFF);
     quick_drawer_volume_label = lv_label_create(quick_drawer);
     lv_obj_add_style(quick_drawer_volume_label, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(quick_drawer_volume_label, &app_font_player_meta, 0);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_style_text_font(quick_drawer_volume_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_size(quick_drawer_volume_label, BOARD_SCALE_PX(54), BOARD_SCALE_PY(48));
+    lv_obj_set_style_text_align(quick_drawer_volume_label, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_pos(quick_drawer_volume_label, BOARD_SCALE_PX(392), BOARD_SCALE_PY(355));
+#else
     lv_obj_align(quick_drawer_volume_label, LV_ALIGN_TOP_RIGHT, -BOARD_SCALE_PX(52),
                  BOARD_SCALE_PY(354) + slider_pct_dy);
+#endif
     lv_label_set_text_fmt(quick_drawer_volume_label, "%d", gui_player_get_volume_percent());
     gui_shell_refresh_quick_drawer_volume_visibility();
 
@@ -5607,6 +6298,17 @@ static void build_quick_drawer(void) {
      * any of this geometry. Both slider hit tests read live
      * lv_obj_get_coords(), so they follow these automatically. */
     quick_drawer_shift_count = 0;
+#if defined(BOARD_TEMPOTEC_V1)
+    quick_drawer_register_shift_obj(quick_drawer_expansion_handle, BOARD_SCALE_PY(272));
+    quick_drawer_register_shift_obj(brightness_container, BOARD_SCALE_PY(285));
+    quick_drawer_register_shift_obj(quick_drawer_brightness_icon, BOARD_SCALE_PY(290));
+    quick_drawer_register_shift_obj(quick_drawer_brightness_label, BOARD_SCALE_PY(290));
+    quick_drawer_register_shift_obj(quick_drawer_brightness_track, BOARD_SCALE_PY(302));
+    quick_drawer_register_shift_obj(quick_drawer_volume_container, BOARD_SCALE_PY(350));
+    quick_drawer_register_shift_obj(quick_drawer_volume_icon, BOARD_SCALE_PY(355));
+    quick_drawer_register_shift_obj(quick_drawer_volume_label, BOARD_SCALE_PY(355));
+    quick_drawer_register_shift_obj(quick_drawer_volume_track, BOARD_SCALE_PY(368));
+#else
     quick_drawer_register_shift_obj(quick_drawer_expansion_handle, BOARD_SCALE_PY(219));
     quick_drawer_register_shift_obj(brightness_container, BOARD_SCALE_PY(238));
     quick_drawer_register_shift_obj(quick_drawer_brightness_icon, BOARD_SCALE_PY(259));
@@ -5616,6 +6318,7 @@ static void build_quick_drawer(void) {
     quick_drawer_register_shift_obj(quick_drawer_volume_icon, BOARD_SCALE_PY(346));
     quick_drawer_register_shift_obj(quick_drawer_volume_label, BOARD_SCALE_PY(354) + slider_pct_dy);
     quick_drawer_register_shift_obj(quick_drawer_volume_track, BOARD_SCALE_PY(354));
+#endif
 
     /* Mini now-playing card: cover thumbnail (left), track title/artist
      * (right of it), and transport controls (bottom row). Sized to fit the
@@ -5628,7 +6331,11 @@ static void build_quick_drawer(void) {
     quick_drawer_card = lv_obj_create(quick_drawer);
     lv_obj_t * card = quick_drawer_card;
     lv_obj_remove_style_all(card);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_pos(card, BOARD_SCALE_PX(34), BOARD_SCALE_PY(415));
+#else
     lv_obj_set_pos(card, BOARD_SCALE_PX(34), BOARD_SCALE_PY(411));
+#endif
     /* Grows downward into the space the taller panel just freed (441..765,
      * 20px above the panel's new bottom edge). The cover/title/artist block
      * at the top is untouched; the extra height goes to the transport row. */
@@ -5657,9 +6364,18 @@ static void build_quick_drawer(void) {
 
     int32_t title_h = row_label_bounded_height(&app_font_player_title);
     int32_t artist_h = row_label_bounded_height(&app_font_player_meta);
+#if !defined(BOARD_TEMPOTEC_V1)
     int32_t text_gap = BOARD_SCALE_PX(4);
+#endif
     int32_t text_top = BOARD_SCALE_PY(40);
     int32_t controls_bottom = BOARD_SCALE_PY(24);
+#if defined(BOARD_TEMPOTEC_V1)
+    /* The V1 card follows the R1 layout's stacked metadata and transport. */
+    title_h = lv_font_get_line_height(&app_font_player_title);
+    artist_h = lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT));
+    text_top = BOARD_SCALE_PY(15);
+    controls_bottom = BOARD_SCALE_PY(20);
+#endif
 
     lv_obj_t * band = lv_obj_create(card);
     lv_obj_remove_style_all(band);
@@ -5671,6 +6387,9 @@ static void build_quick_drawer(void) {
     lv_obj_remove_flag(band, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
 
     int32_t text_width = QUICK_DRAWER_CARD_W - 2 * BOARD_SCALE_PX(15);
+#if defined(BOARD_TEMPOTEC_V1)
+    text_width = BOARD_SCALE_PX(284);
+#endif
 
     quick_drawer_title_label = lv_label_create(band);
     lv_label_set_text(quick_drawer_title_label, TR("No track loaded"));
@@ -5678,44 +6397,100 @@ static void build_quick_drawer(void) {
     lv_obj_set_style_text_font(quick_drawer_title_label, &app_font_player_title, 0);
     lv_obj_set_width(quick_drawer_title_label, text_width);
     lv_obj_set_style_text_align(quick_drawer_title_label, LV_TEXT_ALIGN_CENTER, 0);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_style_pad_all(quick_drawer_title_label, 0, 0);
+    lv_obj_set_width(quick_drawer_title_label, BOARD_SCALE_PX(284));
+    lv_obj_set_height(quick_drawer_title_label, title_h);
+    lv_label_set_long_mode(quick_drawer_title_label, LV_LABEL_LONG_DOT);
+#else
     row_label_apply_bounded_height(quick_drawer_title_label, &app_font_player_title);
+#endif
     row_label_enable_marquee(quick_drawer_title_label);
     lv_obj_align(quick_drawer_title_label, LV_ALIGN_TOP_MID, 0, text_top);
 
     quick_drawer_artist_label = lv_label_create(band);
     lv_label_set_text(quick_drawer_artist_label, "");
     lv_obj_add_style(quick_drawer_artist_label, gui_player_backdrop_text_style(true), 0);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_style_text_font(quick_drawer_artist_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+#else
     lv_obj_set_style_text_font(quick_drawer_artist_label, &app_font_player_meta, 0);
+#endif
     lv_obj_set_width(quick_drawer_artist_label, text_width);
     lv_obj_set_style_text_align(quick_drawer_artist_label, LV_TEXT_ALIGN_CENTER, 0);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_style_pad_all(quick_drawer_artist_label, 0, 0);
+    lv_obj_set_height(quick_drawer_artist_label, artist_h);
+    lv_label_set_long_mode(quick_drawer_artist_label, LV_LABEL_LONG_DOT);
+#else
     row_label_apply_bounded_height(quick_drawer_artist_label, &app_font_player_meta);
+#endif
     row_label_enable_marquee(quick_drawer_artist_label);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_width(quick_drawer_artist_label, BOARD_SCALE_PX(380));
+    lv_obj_align(quick_drawer_artist_label, LV_ALIGN_TOP_MID, 0, BOARD_SCALE_PY(95));
+#else
     lv_obj_align(quick_drawer_artist_label, LV_ALIGN_TOP_MID, 0, text_top + title_h + text_gap);
+#endif
 
     quick_drawer_album_label = lv_label_create(band);
     lv_label_set_text(quick_drawer_album_label, "");
     lv_obj_add_style(quick_drawer_album_label, gui_player_backdrop_text_style(true), 0);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_add_flag(quick_drawer_album_label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_text_font(quick_drawer_album_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+#else
     lv_obj_set_style_text_font(quick_drawer_album_label, &app_font_player_meta, 0);
+#endif
     lv_obj_set_width(quick_drawer_album_label, text_width);
     lv_obj_set_style_text_align(quick_drawer_album_label, LV_TEXT_ALIGN_CENTER, 0);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_style_pad_all(quick_drawer_album_label, 0, 0);
+    lv_obj_set_height(quick_drawer_album_label, artist_h);
+    lv_label_set_long_mode(quick_drawer_album_label, LV_LABEL_LONG_DOT);
+#else
     row_label_apply_bounded_height(quick_drawer_album_label, &app_font_player_meta);
+#endif
     row_label_enable_marquee(quick_drawer_album_label);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_align(quick_drawer_album_label, LV_ALIGN_TOP_MID, 0, BOARD_SCALE_PY(157));
+#else
     lv_obj_align(quick_drawer_album_label, LV_ALIGN_TOP_MID, 0,
                  text_top + title_h + text_gap + artist_h + text_gap);
+#endif
 
     quick_drawer_format_label = lv_label_create(band);
     lv_label_set_text(quick_drawer_format_label, "");
     lv_obj_add_style(quick_drawer_format_label, gui_player_backdrop_text_style(true), 0);
+#if defined(BOARD_TEMPOTEC_V1)
+    /* The technical token is ASCII, so use the compact fixed font while the
+     * user-provided title/artist/album retain fallback-aware row heights. */
+    lv_obj_set_style_text_font(quick_drawer_format_label, &lv_font_montserrat_12, 0);
+    lv_obj_set_width(quick_drawer_format_label, text_width);
+    lv_obj_set_height(quick_drawer_format_label,
+                      lv_font_get_line_height(&lv_font_montserrat_12) + BOARD_SCALE_PY(4));
+    lv_label_set_long_mode(quick_drawer_format_label, LV_LABEL_LONG_DOT);
+#else
     lv_obj_set_style_text_font(quick_drawer_format_label, &app_font_player_meta, 0);
+#endif
     lv_obj_set_style_text_align(quick_drawer_format_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_radius(quick_drawer_format_label, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(quick_drawer_format_label, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(quick_drawer_format_label, LV_OPA_20, 0);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_style_pad_all(quick_drawer_format_label, 0, 0);
+    lv_obj_set_width(quick_drawer_format_label, BOARD_SCALE_PX(300));
+    lv_obj_set_height(quick_drawer_format_label, lv_font_get_line_height(&lv_font_montserrat_12));
+    lv_obj_align(quick_drawer_format_label, LV_ALIGN_TOP_MID, 0, BOARD_SCALE_PY(162));
+#else
     lv_obj_set_style_pad_hor(quick_drawer_format_label, BOARD_SCALE_PX(14), 0);
     lv_obj_set_style_pad_ver(quick_drawer_format_label, BOARD_SCALE_PY(4), 0);
+#endif
+#if !defined(BOARD_TEMPOTEC_V1)
     lv_obj_align(quick_drawer_format_label, LV_ALIGN_TOP_MID, 0,
                  text_top + title_h + text_gap + artist_h + text_gap + artist_h
                  + BOARD_SCALE_PY(12));
+#endif
 
     /* Transport row: order/prev/play/next/favorite, all five in one row --
      * matching the stock drawer exactly (shuffle-style icon leftmost,
@@ -5727,7 +6502,11 @@ static void build_quick_drawer(void) {
     /* 84, not 70 -- btn_play.png/btn_pause.png are 84x84 (confirmed via the
      * actual asset files), and a shorter row was clipping the top/bottom of
      * that icon, confirmed on a real device. */
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(controls_row, lv_pct(100), BOARD_SCALE_PY(90));
+#else
     lv_obj_set_size(controls_row, lv_pct(100), BOARD_SCALE_PY(86));
+#endif
     lv_obj_align(controls_row, LV_ALIGN_BOTTOM_MID, 0, -controls_bottom);
     lv_obj_set_style_bg_opa(controls_row, 0, 0);
     lv_obj_set_style_border_width(controls_row, 0, 0);
@@ -5737,20 +6516,33 @@ static void build_quick_drawer(void) {
     lv_image_set_src(prev_btn, asset_path("playing_plane/btn_prev.png"));
     lv_obj_add_style(prev_btn, gui_player_backdrop_icon_style(), 0);
     quick_drawer_layout_transport_icon(prev_btn, 84);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_ext_click_area(prev_btn, BOARD_SCALE_PX(8));
+#else
     lv_obj_set_ext_click_area(prev_btn, BOARD_SCALE_PX(4));
+#endif
     lv_obj_add_flag(prev_btn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(prev_btn, prev_btn_event_cb, LV_EVENT_CLICKED, NULL);
 
     quick_drawer_play_btn = lv_image_create(controls_row);
     lv_image_set_src(quick_drawer_play_btn, gui_player_play_btn_image_src(audio_is_playing()));
-#if defined(BOARD_R3II_2025)
+#if BOARD_COMPACT_UI
     /* Size the layout box as well as the image so its center and touch
      * target follow the smaller panel, including after play/pause changes. */
+#if defined(BOARD_TEMPOTEC_V1)
+    int32_t play_size = BOARD_SCALE_PY(90);
+#else
     int32_t play_size = BOARD_SCALE_PY(84);
+#endif
     lv_obj_set_size(quick_drawer_play_btn, play_size, play_size);
     lv_image_set_inner_align(quick_drawer_play_btn, LV_IMAGE_ALIGN_CONTAIN);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_pos(quick_drawer_play_btn, BOARD_SCALE_PX(206) - play_size / 2,
+                   (BOARD_SCALE_PY(90) - play_size) / 2);
+#else
     lv_obj_set_pos(quick_drawer_play_btn, BOARD_SCALE_PX(206) - play_size / 2,
                    (BOARD_SCALE_PY(86) - play_size) / 2);
+#endif
 #else
     lv_obj_set_pos(quick_drawer_play_btn, BOARD_SCALE_PX(164), (BOARD_SCALE_PY(86) - 84) / 2);
     lv_image_set_scale(quick_drawer_play_btn, (BOARD_SCALE_PY(86) * LV_SCALE_NONE + 42) / 84);
@@ -5762,7 +6554,11 @@ static void build_quick_drawer(void) {
     lv_image_set_src(next_btn, asset_path("playing_plane/btn_next.png"));
     lv_obj_add_style(next_btn, gui_player_backdrop_icon_style(), 0);
     quick_drawer_layout_transport_icon(next_btn, 290);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_ext_click_area(next_btn, BOARD_SCALE_PX(8));
+#else
     lv_obj_set_ext_click_area(next_btn, BOARD_SCALE_PX(4));
+#endif
     lv_obj_add_flag(next_btn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(next_btn, next_btn_event_cb, LV_EVENT_CLICKED, NULL);
 
@@ -5773,22 +6569,44 @@ static void build_quick_drawer(void) {
      * click area (ending at y=413), and its bottom clears the title band
      * (starting at y=463). As expansion opens it shifts to y=712..755,
      * below row-3 content and within the drawer panel. */
-    quick_drawer_eq_button = lv_button_create(quick_drawer);
+    quick_drawer_eq_button = lv_button_create(
+#if defined(BOARD_TEMPOTEC_V1)
+        card
+#else
+        quick_drawer
+#endif
+    );
     lv_obj_remove_style_all(quick_drawer_eq_button);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_pos(quick_drawer_eq_button, BOARD_SCALE_PX(360), BOARD_SCALE_PY(5));
+    lv_obj_set_size(quick_drawer_eq_button, BOARD_SCALE_PX(36), BOARD_SCALE_PX(36));
+#else
     lv_obj_set_pos(quick_drawer_eq_button, BOARD_SCALE_PX(394), BOARD_SCALE_PY(416));
     lv_obj_set_size(quick_drawer_eq_button, BOARD_SCALE_PX(44), BOARD_SCALE_PY(44));
+#endif
     lv_obj_add_style(quick_drawer_eq_button, &style_theme_card_bg, 0);
     lv_obj_set_style_radius(quick_drawer_eq_button, BOARD_SCALE_PX(5), 0);
     lv_obj_add_style(quick_drawer_eq_button, gui_theme_accent_outline_style(), 0);
     lv_obj_set_style_bg_opa(quick_drawer_eq_button, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(quick_drawer_eq_button, BOARD_SCALE_PX(1), 0);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_ext_click_area(quick_drawer_eq_button, BOARD_SCALE_PX(4));
+#endif
     lv_obj_add_event_cb(quick_drawer_eq_button, quick_drawer_eq_button_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t * eq_label = lv_label_create(quick_drawer_eq_button);
     lv_obj_add_style(eq_label, &style_theme_text_primary, 0);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_style_text_font(eq_label, &lv_font_montserrat_12, 0);
+#else
     lv_obj_set_style_text_font(eq_label, &lv_font_montserrat_16, 0);
+#endif
     lv_label_set_text(eq_label, TR("EQ"));
     lv_obj_center(eq_label);
+#if defined(BOARD_TEMPOTEC_V1)
+    /* It is a card child, so it hides and moves with all card metadata. */
+#else
     quick_drawer_register_shift_obj(quick_drawer_eq_button, BOARD_SCALE_PY(416));
+#endif
 
     gui_shell_refresh_quick_drawer_cover();
 
@@ -5856,35 +6674,86 @@ static void quick_drawer_reflow_customization(void) {
         }
     }
 
+#if defined(BOARD_TEMPOTEC_V1)
+    int expansion_rows = count > 4 ? (count - 4 + 3) / 4 : 0;
+    quick_drawer_expansion_full = quick_drawer_expansion_visible_height(
+        QUICK_DRAWER_TOGGLE_ROW_PITCH * expansion_rows);
+#else
     int expansion_rows = count <= 4 ? 0 : count <= 8 ? 1 : 2;
     quick_drawer_expansion_full = QUICK_DRAWER_TOGGLE_ROW_PITCH * expansion_rows;
+#endif
     if (quick_drawer_expansion_handle) {
+#if defined(BOARD_TEMPOTEC_V1)
         if (expansion_rows) lv_obj_remove_flag(quick_drawer_expansion_handle, LV_OBJ_FLAG_HIDDEN);
         else lv_obj_add_flag(quick_drawer_expansion_handle, LV_OBJ_FLAG_HIDDEN);
+#else
+        if (expansion_rows) lv_obj_remove_flag(quick_drawer_expansion_handle, LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(quick_drawer_expansion_handle, LV_OBJ_FLAG_HIDDEN);
+#endif
     }
 
-    static const int label_x[] = { 39, 143, 251, 358 };
     for (int i = 0; i < count; ++i) {
+#if defined(BOARD_TEMPOTEC_V1)
+        int row = i < 4 ? 0 : 1 + (i - 4) / 4;
+        int column = i < 4 ? i : (i - 4) % 4;
+        int row_count = i < 4 ? (count < 4 ? count : 4)
+                              : (count - 4 - (row - 1) * 4 < 4
+                                 ? count - 4 - (row - 1) * 4 : 4);
+        int32_t x = quick_drawer_toggle_column_x(column, row_count);
+        int32_t y = row == 0 ? QUICK_DRAWER_ROW1_TOP
+                             : (row - 1) * QUICK_DRAWER_TOGGLE_ROW_PITCH;
+#else
         int row = i < 4 ? 0 : i < 8 ? 1 : 2;
         int column = row == 0 ? i : row == 1 ? i - 4 : i - 8;
         int row_count = row == 0 ? (count < 4 ? count : 4) :
                         row == 1 ? (count - 4 < 4 ? count - 4 : 4) : count - 8;
-        int32_t x = row_count > 4 ? BOARD_SCALE_PX(18 + 90 * column)
-                                 : BOARD_SCALE_PX(label_x[column]);
+        int32_t x = quick_drawer_toggle_column_x(column, row_count);
         int32_t y = row == 0 ? QUICK_DRAWER_ROW1_TOP :
                     row == 1 ? 0 : QUICK_DRAWER_TOGGLE_ROW_PITCH;
+#endif
         lv_obj_t * parent = row == 0 ? quick_drawer : quick_drawer_expansion_box;
-        int32_t caption_y = y + QUICK_DRAWER_TOGGLE_ICON_PX + BOARD_SCALE_PY(2);
-        int32_t state_y = y + QUICK_DRAWER_TOGGLE_ICON_PX + BOARD_SCALE_PY(24);
-        quick_drawer_place_widget(items[i].icon, parent, x, y, true);
-        quick_drawer_place_widget(items[i].name, parent, x, caption_y, true);
-        quick_drawer_place_widget(items[i].state, parent, x, state_y, true);
+        int32_t caption_y = y + QUICK_DRAWER_TOGGLE_ICON_PX + QUICK_DRAWER_TOGGLE_CAPTION_GAP;
+        int32_t state_y = quick_drawer_toggle_state_y(y);
+        int32_t label_x = x;
+#if defined(BOARD_TEMPOTEC_V1)
+        int32_t compact_label_w = QUICK_DRAWER_TOGGLE_CELL_W - BOARD_SCALE_PX(10);
+        int32_t label_inset = (QUICK_DRAWER_TOGGLE_CELL_W - compact_label_w) / 2;
+        lv_obj_set_style_text_font(items[i].name, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+        lv_obj_set_style_text_letter_space(items[i].name, -1, 0);
+        lv_obj_set_width(items[i].name, row > 0 ? compact_label_w : QUICK_DRAWER_TOGGLE_CELL_W);
+        if (row > 0) label_x += label_inset;
+        if (row > 0) {
+            lv_obj_set_height(items[i].name, 2 * lv_font_get_line_height(&lv_font_montserrat_12));
+            lv_label_set_long_mode(items[i].name, LV_LABEL_LONG_WRAP);
+            state_y = y + QUICK_DRAWER_TOGGLE_ICON_PX + BOARD_SCALE_PY(5) +
+                      2 * lv_font_get_line_height(&lv_font_montserrat_12) + BOARD_SCALE_PY(5);
+        } else {
+            lv_obj_set_height(items[i].name,
+                              lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT)));
+            lv_label_set_long_mode(items[i].name, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        }
+        lv_obj_set_width(items[i].state, compact_label_w);
+        lv_obj_set_height(items[i].state, lv_font_get_line_height(&lv_font_montserrat_12));
+        lv_label_set_long_mode(items[i].state, LV_LABEL_LONG_DOT);
+        label_x = x + label_inset;
+#endif
+#if defined(BOARD_TEMPOTEC_V1)
+        int32_t icon_x = x + (QUICK_DRAWER_TOGGLE_CELL_W - QUICK_DRAWER_TOGGLE_ICON_PX) / 2;
+#else
+        int32_t icon_x = x;
+#endif
+        quick_drawer_place_widget(items[i].icon, parent, icon_x, y, true);
+        quick_drawer_place_widget(items[i].name, parent, row > 0 ? label_x : x, caption_y, true);
+        quick_drawer_place_widget(items[i].state, parent, label_x, state_y, true);
         if (items[i].id == 2 && quick_drawer_sleep_label) {
+#if defined(BOARD_TEMPOTEC_V1)
+            lv_obj_add_flag(quick_drawer_sleep_label, LV_OBJ_FLAG_HIDDEN);
+#else
             quick_drawer_place_widget(quick_drawer_sleep_label, parent, x,
                                       caption_y, false);
+#endif
         }
     }
-
     /* Keep omitted toggles hidden even if a timer or a state refresh updates
      * their image or caption later. */
     for (int i = 0; i < 9 + quick_drawer_plugin_toggle_count; ++i) {
@@ -5902,8 +6771,16 @@ static void quick_drawer_reflow_customization(void) {
                 lv_obj_add_flag(quick_drawer_sleep_label, LV_OBJ_FLAG_HIDDEN);
         }
     }
+#if defined(BOARD_TEMPOTEC_V1)
+    /* Resolve the new order before measuring icon centers for captions. */
+    lv_obj_update_layout(quick_drawer);
+    quick_drawer_pack_primary_captions();
+#endif
 
     lv_obj_set_height(quick_drawer_expansion_box, 0);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_scroll_to_y(quick_drawer_expansion_box, 0, LV_ANIM_OFF);
+#endif
     quick_drawer_toggle_force_src = true;
     refresh_quick_drawer_expansion_toggles();
     quick_drawer_toggle_force_src = false;
@@ -6062,6 +6939,7 @@ void gui_shell_teardown(void) {
         quick_drawer = NULL;
     }
     quick_drawer_brightness_icon = NULL;
+    quick_drawer_brightness_container = NULL;
     /* Every widget the gui_shell_update_quick_drawer_*() entry points can
      * reach: callers during a reload must find NULL, not freed objects. */
     quick_drawer_play_btn = NULL;

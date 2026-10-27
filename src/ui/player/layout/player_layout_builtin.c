@@ -18,9 +18,15 @@ static lv_obj_t * create_cover_card(lv_obj_t * scr) {
      * player_x and player_s agree, which is true on R1 but not on the other
      * boards. 350x350 matches COVER_ART_WIDTH/HEIGHT (gui.h) exactly, so the
      * reference board needs no runtime scale at all in fit_cover_img_to_card(). */
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_pos(card, (BOARD_SCREEN_WIDTH - BOARD_PLAYER_COVER_HEIGHT) / 2, 8);
+    lv_obj_set_size(card, BOARD_PLAYER_COVER_HEIGHT, BOARD_PLAYER_COVER_HEIGHT);
+    lv_obj_set_style_radius(card, 0, 0);
+#else
     lv_obj_set_pos(card, (BOARD_SCREEN_WIDTH - player_s(350)) / 2, player_y(152));
     lv_obj_set_size(card, player_s(350), player_s(350));
     lv_obj_set_style_radius(card, player_s(10), 0);
+#endif
     lv_obj_set_style_clip_corner(card, true, 0);
     lv_obj_set_style_bg_opa(card, 0, 0);
     lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
@@ -32,8 +38,13 @@ static lv_obj_t * create_cover_card(lv_obj_t * scr) {
     lv_obj_t * fav_circle = lv_obj_create(card);
     lv_obj_set_name_static(fav_circle, "favorite_circle");
     lv_obj_remove_style_all(fav_circle);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(fav_circle, 32, 32);
+    lv_obj_align(fav_circle, LV_ALIGN_BOTTOM_RIGHT, -8, -8);
+#else
     lv_obj_set_pos(fav_circle, player_s(296), player_s(296)); /* 352-44-12=296 from each edge */
     lv_obj_set_size(fav_circle, player_s(44), player_s(44));
+#endif
     lv_obj_set_style_radius(fav_circle, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(fav_circle, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(fav_circle, LV_OPA_40, 0);
@@ -43,7 +54,12 @@ static lv_obj_t * create_cover_card(lv_obj_t * scr) {
     lv_obj_t * fav_icon = lv_image_create(fav_circle);
     lv_obj_set_name_static(fav_icon, "favorite_icon");
     lv_image_set_src(fav_icon, asset_path("playing_plane/collect_out.png"));
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(fav_icon, 24, 24);
+    lv_image_set_inner_align(fav_icon, LV_IMAGE_ALIGN_CONTAIN);
+#else
     player_fit_small_screen_icon(fav_icon, 40);
+#endif
     lv_obj_add_style(fav_icon, &icon_press_style, LV_STATE_PRESSED);
     lv_obj_center(fav_icon);
 
@@ -93,8 +109,13 @@ static void create_dismiss_button(lv_obj_t * scr) {
      * needlessly widening this corner's overlap with the metadata block. */
     lv_obj_t * dismiss = build_header_back_button(scr, NULL);
     lv_obj_set_name_static(dismiss, "dismiss_btn");
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(dismiss, 32, 32);
+    lv_obj_set_pos(dismiss, 0, 8);
+#else
     lv_obj_set_size(dismiss, player_s(44), player_s(44));
     lv_obj_set_pos(dismiss, player_x(22), player_y(62));
+#endif
     /* The reference keeps the status bar unobstructed and has no visible
      * back arrow on the Player. Retain the transparent hit target so the
      * established tap-to-dismiss behavior remains available. */
@@ -103,9 +124,11 @@ static void create_dismiss_button(lv_obj_t * scr) {
         /* The Now Playing dismiss target intentionally retains its original
          * hidden stock back asset; the visible navigation back glyph is for
          * standard screen headers only. */
+#if !defined(BOARD_TEMPOTEC_V1)
         lv_image_set_src(dismiss_arrow, asset_path("sub_back/btn_back.png"));
         lv_obj_set_style_image_recolor_opa(dismiss_arrow, LV_OPA_TRANSP, 0);
         lv_obj_add_flag(dismiss_arrow, LV_OBJ_FLAG_HIDDEN);
+#endif
     }
 }
 
@@ -119,7 +142,11 @@ static void create_quality_pill(lv_obj_t * scr) {
      * bit-depth, or sample-rate information. */
     lv_obj_set_size(pill, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_style_min_height(pill, player_s(36), 0);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_align(pill, LV_ALIGN_TOP_MID, 0, 188);
+#else
     lv_obj_align(pill, LV_ALIGN_TOP_MID, 0, player_y(518));
+#endif
     lv_obj_set_style_pad_hor(pill, player_s(14), 0);
     lv_obj_set_style_pad_ver(pill, player_s(6), 0);
     lv_obj_set_style_pad_column(pill, player_s(10), 0);
@@ -150,8 +177,13 @@ static void create_progress_and_time(lv_obj_t * scr, const lv_font_t * player_me
     /* Progress bar (native rail, not the old fixed PNG sprites) */
     lv_obj_t * slider = lv_slider_create(scr);
     lv_obj_set_name_static(slider, "progress_slider");
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_pos(slider, 12, 220);
+    lv_obj_set_size(slider, BOARD_SCREEN_WIDTH - 24, SLIDER_TRACK_HEIGHT);
+#else
     lv_obj_set_pos(slider, player_x(30), player_y(575));
     lv_obj_set_size(slider, player_x(420), SLIDER_TRACK_HEIGHT);
+#endif
     configure_native_slider_rail(slider);
     lv_obj_add_style(slider, gui_theme_accent_style(), LV_PART_INDICATOR);
     lv_obj_add_style(slider, gui_theme_accent_knob_style(), LV_PART_KNOB);
@@ -160,8 +192,13 @@ static void create_progress_and_time(lv_obj_t * scr, const lv_font_t * player_me
 
     /* Time row */
     lv_obj_t * time_row = lv_obj_create(scr);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_pos(time_row, 12, 234);
+    lv_obj_set_size(time_row, BOARD_SCREEN_WIDTH - 24, LV_SIZE_CONTENT);
+#else
     lv_obj_set_pos(time_row, player_x(30), player_y(610));
     lv_obj_set_size(time_row, player_x(420), LV_SIZE_CONTENT);
+#endif
     lv_obj_set_style_bg_opa(time_row, 0, 0);
     lv_obj_set_style_border_width(time_row, 0, 0);
     lv_obj_set_style_pad_all(time_row, 0, 0);
@@ -204,22 +241,38 @@ static void create_transport_row(lv_obj_t * scr) {
      * the sole lyrics actuator, leaving the final slot for song actions. */
     lv_obj_t * controls_row = lv_obj_create(scr);
     lv_obj_remove_style_all(controls_row);
+#if defined(BOARD_TEMPOTEC_V1)
+    const int32_t transport_top = 258;
+    lv_obj_set_pos(controls_row, 0, transport_top);
+    lv_obj_set_size(controls_row, BOARD_SCREEN_WIDTH, 44);
+#else
     const int32_t transport_top = player_y(645);
     lv_obj_set_pos(controls_row, 0, transport_top);
     lv_obj_set_size(controls_row, BOARD_SCREEN_WIDTH, player_y(94));
+#endif
     lv_obj_remove_flag(controls_row, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t * order = lv_image_create(controls_row);
     lv_obj_set_name_static(order, "order_btn");
     lv_image_set_src(order, asset_path(play_mode_icon_asset((play_mode_t) current_settings.play_mode)));
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(order, 32, 32);
+    lv_image_set_inner_align(order, LV_IMAGE_ALIGN_CONTAIN);
+#else
     player_fit_small_screen_icon(order, 40);
+#endif
     lv_obj_add_style(order, gui_player_backdrop_icon_style(), 0);
     lv_obj_add_style(order, &icon_press_style, LV_STATE_PRESSED);
 
     lv_obj_t * prev = lv_image_create(controls_row);
     lv_obj_set_name_static(prev, "prev_btn");
     lv_image_set_src(prev, asset_path("playing_plane/btn_prev.png"));
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(prev, 32, 32);
+    lv_image_set_inner_align(prev, LV_IMAGE_ALIGN_CONTAIN);
+#else
     player_fit_small_screen_icon(prev, 40);
+#endif
     lv_obj_add_style(prev, gui_player_backdrop_icon_style(), 0);
 
     /* btn_play.png/btn_pause.png already contain their own filled accent
@@ -229,20 +282,35 @@ static void create_transport_row(lv_obj_t * scr) {
     lv_obj_set_name_static(play, "play_btn");
     gui_player_prepare_play_btn_images();
     lv_image_set_src(play, gui_player_play_btn_image_src(audio_is_playing()));
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(play, 44, 44);
+    lv_image_set_inner_align(play, LV_IMAGE_ALIGN_CONTAIN);
+#else
     player_fit_small_screen_icon(play, 84);
+#endif
     lv_obj_add_style(play, &icon_press_style, LV_STATE_PRESSED);
 
     lv_obj_t * more = lv_image_create(controls_row);
     lv_obj_set_name_static(more, "more_btn");
     lv_image_set_src(more, asset_path("playing_plane/ic_more.png"));
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(more, 32, 32);
+    lv_image_set_inner_align(more, LV_IMAGE_ALIGN_CONTAIN);
+#else
     player_fit_small_screen_icon(more, 40);
+#endif
     lv_obj_add_style(more, gui_player_backdrop_icon_style(), 0);
     lv_obj_add_style(more, &icon_press_style, LV_STATE_PRESSED);
 
     lv_obj_t * next = lv_image_create(controls_row);
     lv_obj_set_name_static(next, "next_btn");
     lv_image_set_src(next, asset_path("playing_plane/btn_next.png"));
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(next, 32, 32);
+    lv_image_set_inner_align(next, LV_IMAGE_ALIGN_CONTAIN);
+#else
     player_fit_small_screen_icon(next, 40);
+#endif
     lv_obj_add_style(next, gui_player_backdrop_icon_style(), 0);
 
     lv_obj_update_layout(controls_row);

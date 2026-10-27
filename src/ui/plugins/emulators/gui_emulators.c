@@ -1,4 +1,5 @@
 #include "gui_emulators.h"
+#include "../../../core/system/runtime/board_config.h"
 
 #include "../../../audio/engine/audio.h"
 #include "../../../core/device/emulator_registry.h"
@@ -184,6 +185,11 @@ static int run_emulator_process(const emulator_manifest_t * emulator, const char
 #endif
 
 static void launch_game(const emulator_manifest_t * emulator, const char * path) {
+#if !BOARD_SUPPORTS_EMULATORS
+    (void) emulator;
+    (void) path;
+    return;
+#endif
 #ifdef HOST_BUILD
     (void) emulator;
     (void) path;
@@ -396,6 +402,10 @@ static void build_emulators_screen(void) {
 }
 
 void gui_emulators_row_cb(lv_event_t * e) {
+#if !BOARD_SUPPORTS_EMULATORS
+    (void) e;
+    return;
+#endif
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     if (!emulators_screen) build_emulators_screen();
     nav_push(emulators_screen);

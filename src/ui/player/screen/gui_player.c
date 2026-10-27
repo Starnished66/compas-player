@@ -887,6 +887,14 @@ static void fit_cover_img_to_card(void) {
     int32_t scale_w = (card_w * LV_SCALE_NONE + source_w - 1) / source_w;
     int32_t scale_h = (card_h * LV_SCALE_NONE + source_h - 1) / source_h;
     int32_t scale = scale_w > scale_h ? scale_w : scale_h;
+#if defined(BOARD_TEMPOTEC_V1)
+    if (player_layout_builtin) {
+        scale_w = card_w * LV_SCALE_NONE / source_w;
+        scale_h = card_h * LV_SCALE_NONE / source_h;
+        scale = scale_w < scale_h ? scale_w : scale_h;
+        if (scale < 1) scale = 1;
+    }
+#endif
     lv_image_set_scale(cover_img, scale);
     lv_obj_align(cover_img, LV_ALIGN_CENTER, 0, 0);
 }
@@ -2218,6 +2226,22 @@ static void player_secondary_label_enable_marquee(lv_obj_t * label) {
 static void player_layout_metadata_stack(void) {
     if (!song_title_label || !album_label || !artist_label) return;
 
+#if defined(BOARD_TEMPOTEC_V1)
+    {
+    const lv_font_t * title_font = lv_obj_get_style_text_font(song_title_label, 0);
+    const lv_font_t * artist_font = lv_obj_get_style_text_font(artist_label, 0);
+    int32_t title_h = title_font ? lv_font_get_line_height(title_font) : 16;
+    int32_t artist_h = artist_font ? lv_font_get_line_height(artist_font) : 14;
+    lv_obj_set_y(song_title_label, 136);
+    lv_obj_set_height(song_title_label, title_h);
+    lv_obj_set_y(artist_label, 136 + title_h + 4);
+    lv_obj_set_height(artist_label, artist_h);
+    lv_obj_add_flag(album_label, LV_OBJ_FLAG_HIDDEN);
+    player_transition_mark_dirty();
+    return;
+    }
+#endif
+
 
     const lv_font_t * title_font = lv_obj_get_style_text_font(song_title_label, 0);
     const lv_font_t * artist_font = lv_obj_get_style_text_font(artist_label, 0);
@@ -2690,7 +2714,14 @@ static bool player_bind_widgets(lv_obj_t * scr) {
     player_inline_lyrics_reset_hit_targets();
 
     int32_t transport_center_y = 0;
-    if (builtin) transport_center_y = player_y(645) + lv_obj_get_height(lv_obj_get_parent(r_play)) / 2;
+    if (builtin) {
+#if defined(BOARD_TEMPOTEC_V1)
+        lv_obj_t * transport_row = lv_obj_get_parent(r_play);
+        transport_center_y = lv_obj_get_y(transport_row) + lv_obj_get_height(transport_row) / 2;
+#else
+        transport_center_y = player_y(645) + lv_obj_get_height(lv_obj_get_parent(r_play)) / 2;
+#endif
+    }
 
     lv_obj_t * order_hit = NULL, * prev_hit = NULL, * next_hit = NULL, * more_hit = NULL;
     if (r_order) {

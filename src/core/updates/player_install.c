@@ -24,6 +24,8 @@ const char *player_install_board_asset(void) {
     return "compas_player_r3proii";
 #elif defined(BOARD_R3II_2025)
     return "compas_player_r3ii_2025";
+#elif defined(BOARD_TEMPOTEC_V1)
+    return "compas_player_tempotec_v1";
 #else
     return "compas_player";
 #endif
@@ -136,6 +138,8 @@ static bool board_marker_valid(int fd, uint64_t size, bool allow_missing) {
     static const char own[] = "r3proii";
 #elif defined(BOARD_R3II_2025)
     static const char own[] = "r3ii_2025";
+#elif defined(BOARD_TEMPOTEC_V1)
+    static const char own[] = "tempotec_v1";
 #else
     static const char own[] = "r1";
 #endif
@@ -170,7 +174,9 @@ static bool board_marker_valid(int fd, uint64_t size, bool allow_missing) {
                 size_t token_size = (size_t)(end - suffix);
                 bool recognized = (token_size == 2 && memcmp(suffix, "r1", 2) == 0) ||
                                   (token_size == 7 && memcmp(suffix, "r3proii", 7) == 0) ||
-                                  (token_size == 9 && memcmp(suffix, "r3ii_2025", 9) == 0);
+                                  (token_size == 9 && memcmp(suffix, "r3ii_2025", 9) == 0) ||
+                                  (token_size == sizeof("tempotec_v1") - 1 &&
+                                   memcmp(suffix, "tempotec_v1", sizeof("tempotec_v1") - 1) == 0);
                 if (!recognized)
                     continue;
                 if (token_size != strlen(own) || memcmp(suffix, own, token_size) != 0)

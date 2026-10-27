@@ -1426,7 +1426,6 @@ static bool bluealsa_apply_codec_preference_serial(const char * path, const atom
         if (automatic) bt_auto_reject(path, codec);
         return false;
     }
-    if (automatic || explicit_ssc) bt_auto_note_switch(path, codec);
     if (bt_cancelled(cancel)) return true;
     /* Read back rather than trusting the exit status: the accessory can
      * refuse a codec it advertised, and the top bar reports the real
@@ -1443,6 +1442,7 @@ static bool bluealsa_apply_codec_preference_serial(const char * path, const atom
         if (automatic) bt_auto_reject(path, codec);
         return false;
     }
+    if (automatic || explicit_ssc) bt_auto_note_switch(path, codec);
     return bluealsa_codec_latch_commit(path, clears);
 }
 

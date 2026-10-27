@@ -82,7 +82,7 @@ static lv_obj_t * settings_gestures_screen;
 static lv_obj_t * settings_charging_screen;
 static lv_obj_t * settings_usb_dac_charging_switch;
 static lv_obj_t * settings_usb_dac_charging_row;
-#if !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if BOARD_R1_HARDWARE
 static void usb_dac_charging_switch_event_cb(lv_event_t * e);
 #endif
 static lv_obj_t * settings_maintenance_screen;
@@ -631,11 +631,31 @@ static lv_obj_t * build_idle_shutdown_screen(void) {
 
     build_screen_header(scr, TR("Idle Shutdown"), generic_back_cb, NULL, NULL);
 
+    lv_obj_t * content = scr;
+    int32_t content_top = STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT + 20;
+#if defined(BOARD_TEMPOTEC_V1)
+    /* Keep the fixed header and home-indicator areas outside the scrolling
+     * region while allowing both idle-action rows and the timeout slider to
+     * remain reachable on the short V1 display. */
+    content = lv_obj_create(scr);
+    int32_t content_y = STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT;
+    lv_obj_set_size(content, lv_pct(100),
+                    BOARD_SCREEN_HEIGHT - content_y - HOME_INDICATOR_CONTENT_INSET);
+    lv_obj_set_pos(content, 0, content_y);
+    lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(content, 0, 0);
+    lv_obj_set_style_pad_all(content, 0, 0);
+    lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_set_scroll_dir(content, LV_DIR_VER);
+    lv_obj_add_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+    content_top = 20;
+#endif
+
     /* Uses content-based sizing so wrapped label text does not overlap. */
-    lv_obj_t * enable_row = lv_obj_create(scr);
+    lv_obj_t * enable_row = lv_obj_create(content);
     lv_obj_set_width(enable_row, lv_pct(90));
     lv_obj_set_height(enable_row, LV_SIZE_CONTENT);
-    lv_obj_align(enable_row, LV_ALIGN_TOP_MID, 0, STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT + 20);
+    lv_obj_align(enable_row, LV_ALIGN_TOP_MID, 0, content_top);
     lv_obj_set_style_bg_opa(enable_row, 0, 0);
     lv_obj_set_style_border_width(enable_row, 0, 0);
     lv_obj_remove_flag(enable_row, LV_OBJ_FLAG_SCROLLABLE);
@@ -678,7 +698,7 @@ static lv_obj_t * build_idle_shutdown_screen(void) {
     /* 100% width accommodates display-width pill rows without clipping.
      * pad_top and pad_bottom are zeroed so the child rows and label fit within
      * the section height (now font-tier-derived above) without vertical overflow. */
-    idle_action_section = lv_obj_create(scr);
+    idle_action_section = lv_obj_create(content);
     lv_obj_set_size(idle_action_section, lv_pct(100), idle_action_section_h);
     /* Positioned relative to enable_row's bottom edge so wrapped label text
      * does not cause overlapping. */
@@ -733,7 +753,7 @@ static lv_obj_t * build_idle_shutdown_screen(void) {
 
     /* Slider card positioned below idle_action_section. Sized at 200px height
      * to accommodate the explanatory caption above the slider. */
-    idle_shutdown_slider_card = build_setting_slider_card(scr, idle_action_section, BOARD_SCALE_PX(200), BOARD_SCALE_PX(48),
+    idle_shutdown_slider_card = build_setting_slider_card(content, idle_action_section, BOARD_SCALE_PX(200), BOARD_SCALE_PX(48),
         0, IDLE_SHUTDOWN_STEP_COUNT - 1,
         idle_shutdown_minutes_to_step_index(current_settings.idle_shutdown_minutes),
         idle_shutdown_slider_event_cb, &idle_shutdown_slider, &idle_shutdown_value_label);
@@ -1643,7 +1663,7 @@ static lv_obj_t * build_settings_charging_screen(void) {
           current_settings.safe_charging_enabled, NULL, safe_charging_switch_event_cb, NULL },
         { TR("LED charge indicator"), PILL_ACCESSORY_TOGGLE,
           current_settings.led_indicator_enabled, NULL, led_indicator_switch_event_cb, NULL },
-#if !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if BOARD_R1_HARDWARE
         {
             .label = TR("Disable charging\nin USB DAC mode"),
             .accessory = PILL_ACCESSORY_TOGGLE,
@@ -1658,7 +1678,7 @@ static lv_obj_t * build_settings_charging_screen(void) {
     lv_obj_t * scr = build_pill_list_screen(TR("Charging"), generic_back_cb, items,
                                             (int) (sizeof(items) / sizeof(items[0])),
                                             gui_theme_accent_style(), GUI_ROW_GAP, 100);
-#if !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if BOARD_R1_HARDWARE
     if (settings_usb_dac_charging_row && settings_usb_dac_charging_switch) {
         lv_obj_t * label = lv_obj_get_child(settings_usb_dac_charging_row, 0);
         /* This two-line setting must stay wrapped during font refreshes. */
@@ -1673,7 +1693,7 @@ static lv_obj_t * build_settings_charging_screen(void) {
     return scr;
 }
 
-#if !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if BOARD_R1_HARDWARE
 static void usb_dac_charging_switch_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
     gui_network_set_usb_dac_charging_disabled(
@@ -2002,7 +2022,9 @@ lv_obj_t * build_dac_home_screen(void) {
         { "submenu/layouts.png", N_("Now Playing layouts"), player_layout_choice_settings_row_cb },
         { "submenu/usb.png", N_("USB DAC"), dac_home_usb_row_cb },
         { "submenu/bluetooth.png", N_("Bluetooth DAC"), bt_dac_settings_row_cb },
+#if BOARD_SUPPORTS_EMULATORS
         { "submenu/emulators.png", N_("Emulators"), gui_emulators_row_cb },
+#endif
     };
     enum { NATIVE_COUNT = (int) (sizeof(native) / sizeof(native[0])) };
     static pill_list_item_t items[NATIVE_COUNT + PLUGIN_MAX_MORE_LIST_ITEMS];

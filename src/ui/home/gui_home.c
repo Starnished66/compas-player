@@ -248,7 +248,12 @@ lv_obj_t * gui_home_build_screen(lv_event_cb_t settings_cb, lv_event_cb_t stream
      * comment for why this only ever reflects whatever was configured at
      * THIS boot's plugin-load time (or the most recent plugin.refresh_
      * theme()/reload_ui()), never a live mid-session change outside that. */
-    if (home_layout_config.configured && home_layout_config.list_mode) {
+    bool home_list = home_layout_config.configured && home_layout_config.list_mode;
+#if defined(BOARD_TEMPOTEC_V1)
+    /* The narrow panel defaults to a list; plugins may explicitly request tiles. */
+    if (!home_layout_config.configured) home_list = true;
+#endif
+    if (home_list) {
         static icon_grid_item_t items[HOME_LAYOUT_MAX_TILES];
         lv_display_t * display = lv_display_get_default();
         int32_t display_width = display ? lv_display_get_horizontal_resolution(display) : BOARD_SCREEN_WIDTH;

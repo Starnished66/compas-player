@@ -759,12 +759,14 @@ static lv_obj_t * build_header_icon_button(lv_obj_t * scr, const char * asset,
     lv_obj_remove_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_style(btn, &list_row_pressed_style, LV_STATE_PRESSED);
-    lv_obj_set_style_radius(btn, 12, 0);
+    lv_obj_set_style_radius(btn, BOARD_SCALE_PX(12), 0);
 
     if (asset) {
         const char * breeze = titlebar_breeze_icon(asset);
         lv_obj_t * arrow = lv_image_create(btn);
         lv_image_set_src(arrow, breeze ? breeze : asset);
+        lv_obj_set_size(arrow, BOARD_SCALE_PX(44), BOARD_SCALE_PX(44));
+        lv_image_set_inner_align(arrow, LV_IMAGE_ALIGN_CONTAIN);
         lv_obj_align(arrow, LV_ALIGN_CENTER, 0, 0);
         lv_obj_remove_flag(arrow, LV_OBJ_FLAG_CLICKABLE);
         if (breeze) style_titlebar_breeze_icon(arrow);
@@ -812,6 +814,15 @@ lv_obj_t * build_navigation_chevron(lv_obj_t * parent, int32_t right_inset,
 void align_screen_header_action(lv_obj_t * action, int32_t right_inset) {
     lv_obj_align(action, LV_ALIGN_TOP_RIGHT, -right_inset, STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT / 2);
     lv_obj_set_style_translate_y(action, lv_pct(-50), 0);
+    /* Refresh and other late-added actions must reserve their real header
+     * footprint just like actions passed to build_screen_header(). */
+    lv_obj_t * parent = lv_obj_get_parent(action);
+    for (uint32_t i = 0; i < lv_obj_get_child_count(parent); ++i) {
+        lv_obj_t * child = lv_obj_get_child(parent, i);
+        if (lv_obj_check_type(child, &lv_label_class) &&
+            lv_obj_has_flag(child, LV_OBJ_FLAG_USER_4) && !lv_obj_get_user_data(child))
+            reserve_title_width_before(child, action);
+    }
 }
 
 /* Same glyph, accent color and font as the Remote Control PIN refresh icon,
@@ -827,12 +838,14 @@ lv_obj_t * build_header_refresh_action(lv_obj_t * scr, lv_event_cb_t click_cb) {
     /* Match the shared header controls' large touch target; keep the glyph
      * centered so this remains easy to hit on a small display. */
     lv_obj_t * button = build_header_icon_button(scr, NULL, LV_ALIGN_TOP_RIGHT, click_cb);
-    align_screen_header_action(button, 20);
+    align_screen_header_action(button, BOARD_SCALE_PX(20));
 
     const char * breeze = asset_path_plain("titlebar/breeze_refresh.png");
     if (breeze && access(breeze, R_OK) == 0) {
         lv_obj_t * image = lv_image_create(button);
         lv_image_set_src(image, text_glyph_asset("titlebar/breeze_refresh.png"));
+        lv_obj_set_size(image, BOARD_SCALE_PX(44), BOARD_SCALE_PX(44));
+        lv_image_set_inner_align(image, LV_IMAGE_ALIGN_CONTAIN);
         lv_obj_align(image, LV_ALIGN_CENTER, 0, 0);
         lv_obj_remove_flag(image, LV_OBJ_FLAG_CLICKABLE);
         style_titlebar_breeze_icon(image);
@@ -882,7 +895,7 @@ lv_obj_t * build_top_right_icon_button(lv_obj_t * scr, const char * icon_asset, 
         lv_obj_t * child = lv_obj_get_child(scr, i);
         if (lv_obj_check_type(child, &lv_label_class) &&
             lv_obj_has_flag(child, LV_OBJ_FLAG_USER_4) && !lv_obj_get_user_data(child)) {
-            lv_obj_set_width(child, screen_builders_active_display_width() - 76 - HEADER_BUTTON_WIDTH - 12);
+            lv_obj_set_width(child, screen_builders_active_display_width() - BOARD_SCALE_PX(76) - HEADER_BUTTON_WIDTH - BOARD_SCALE_PX(12));
             screen_title_fit(child);
         }
     }
@@ -896,8 +909,8 @@ lv_obj_t * build_top_right_icon_button(lv_obj_t * scr, const char * icon_asset, 
  * left-aligned, marquee-capable title (build_group_songs_screen(),
  * build_subsonic_list_screen(), build_files_screen(), ...). Kept in sync by
  * hand -- if either changes, check the other. */
-#define BUILD_TITLE_LEFT_INSET 76
-#define BUILD_TITLE_RIGHT_MARGIN 20
+#define BUILD_TITLE_LEFT_INSET BOARD_SCALE_PX(76)
+#define BUILD_TITLE_RIGHT_MARGIN BOARD_SCALE_PX(20)
 
 
 /* Narrows an already left-aligned, auto-scrolling title label (see
@@ -921,8 +934,8 @@ void reserve_title_width_before(lv_obj_t * title, lv_obj_t * right_icon) {
     lv_area_t title_area, icon_area;
     lv_obj_get_coords(title, &title_area);
     lv_obj_get_coords(right_icon, &icon_area);
-    int32_t width = icon_area.x1 - title_area.x1 - 12;
-    if (width < 40) width = 40; /* never collapse to nothing/negative on a pathological layout */
+    int32_t width = icon_area.x1 - title_area.x1 - BOARD_SCALE_PX(12);
+    if (width < BOARD_SCALE_PX(40)) width = BOARD_SCALE_PX(40); /* never collapse to nothing/negative on a pathological layout */
     lv_obj_set_width(title, width);
     screen_title_fit(title);
 }
@@ -974,7 +987,7 @@ lv_obj_t * build_screen_header(lv_obj_t * scr, const char * title, lv_event_cb_t
     if (trailing_asset) {
         build_top_right_icon_button(scr, trailing_asset, trailing_cb);
         if (label) {
-            lv_obj_set_width(label, screen_builders_active_display_width() - BUILD_TITLE_LEFT_INSET - HEADER_BUTTON_WIDTH - 12);
+            lv_obj_set_width(label, screen_builders_active_display_width() - BUILD_TITLE_LEFT_INSET - HEADER_BUTTON_WIDTH - BOARD_SCALE_PX(12));
             screen_title_fit(label);
         }
     }
@@ -2030,8 +2043,19 @@ lv_obj_t * add_section_header(lv_obj_t * parent, const char * text) {
     lv_label_set_text(label, text);
     lv_obj_add_style(label, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+#if defined(BOARD_TEMPOTEC_V1)
+    /* Section captions can be longer than the entire narrow display. Give
+     * them the list's content width so LVGL wraps instead of centering a
+     * source-sized label beyond both edges of the viewport. */
+    lv_obj_set_width(label, lv_pct(100));
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_pad_top(label, BOARD_SCALE_PX(12), 0);
+    lv_obj_set_style_pad_left(label, BOARD_SCALE_PX(24), 0);
+    lv_obj_set_style_pad_right(label, BOARD_SCALE_PX(24), 0);
+#else
     lv_obj_set_style_pad_top(label, 12, 0);
     lv_obj_set_style_pad_left(label, 24, 0);
+#endif
     return label;
 }
 

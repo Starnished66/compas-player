@@ -858,6 +858,8 @@ static void build_status_json(char * out, size_t out_size) {
     device_model = "HiBy R3 Pro II";
 #elif defined(BOARD_R3II_2025)
     device_model = "HiBy R3 II 2025";
+#elif defined(BOARD_TEMPOTEC_V1)
+    device_model = "TempoTec V1";
 #endif
     json_escape_append(model_esc, sizeof(model_esc), device_model);
     json_escape_append(version_esc, sizeof(version_esc), app_version_label());

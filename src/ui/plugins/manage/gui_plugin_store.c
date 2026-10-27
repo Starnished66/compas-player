@@ -467,6 +467,12 @@ static void add_plugin_row(int index) {
     lv_obj_t * title = lv_label_create(text);
     lv_label_set_text(title, row->name[0] ? row->name : row->id);
     lv_obj_set_width(title, lv_pct(100));
+#if defined(BOARD_TEMPOTEC_V1)
+    /* V1 rows reserve one body-font title line plus the description and
+     * status lines below. Keep long catalog names on that line; the full
+     * title remains available in its details popup. */
+    lv_obj_set_height(title, lv_font_get_line_height(body_font));
+#endif
     lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
     lv_obj_add_style(title, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(title, body_font, 0);
@@ -483,6 +489,9 @@ static void add_plugin_row(int index) {
         lv_obj_t * label = lv_label_create(text);
         lv_label_set_text(label, secondary);
         lv_obj_set_width(label, lv_pct(100));
+#if defined(BOARD_TEMPOTEC_V1)
+        lv_obj_set_height(label, subtext_line);
+#endif
         lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
         lv_obj_add_style(label, &style_theme_text_muted, 0);
         lv_obj_set_style_text_font(label, subtext_font, 0);

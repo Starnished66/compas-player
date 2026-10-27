@@ -764,7 +764,14 @@ static void populate_eq_profiles_screen(void) {
             lv_obj_add_event_cb(row, eq_profile_rename_row_cb, LV_EVENT_CLICKED, eq_profile_paths[i]);
             lv_obj_t * delete_icon = lv_image_create(row);
             lv_image_set_src(delete_icon, asset_path("touch_list/del.png"));
+#if defined(BOARD_TEMPOTEC_V1)
+            lv_obj_set_size(delete_icon, BOARD_SCALE_PX(34), BOARD_SCALE_PX(34));
+            lv_image_set_inner_align(delete_icon, LV_IMAGE_ALIGN_CONTAIN);
+            lv_obj_align(delete_icon, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(20), 0);
+            lv_obj_set_ext_click_area(delete_icon, BOARD_SCALE_PX(6));
+#else
             lv_obj_align(delete_icon, LV_ALIGN_RIGHT_MID, -20, 0);
+#endif
             lv_obj_add_flag(delete_icon, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_event_cb(delete_icon, eq_profile_delete_row_cb, LV_EVENT_CLICKED, eq_profile_paths[i]);
         } else if (eq_profiles_replace_mode) {

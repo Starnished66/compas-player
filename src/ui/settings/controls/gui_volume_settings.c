@@ -142,10 +142,38 @@ static lv_obj_t * build_max_volume_screen(void) {
 
     build_screen_header(scr, TR("Max Volume"), generic_back_cb, NULL, NULL);
 
-    lv_obj_t * row = lv_obj_create(scr);
+    lv_obj_t * content = scr;
+#if defined(BOARD_TEMPOTEC_V1)
+    /* Keep the explanatory text and slider reachable on V1 without letting
+     * the settings header or home-indicator area scroll away. */
+    content = lv_obj_create(scr);
+    int32_t content_y = STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT;
+    lv_obj_set_size(content, lv_pct(100),
+                    BOARD_SCREEN_HEIGHT - content_y - HOME_INDICATOR_CONTENT_INSET);
+    lv_obj_set_pos(content, 0, content_y);
+    lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(content, 0, 0);
+    lv_obj_set_style_pad_all(content, 0, 0);
+    lv_obj_set_style_pad_top(content, BOARD_SCALE_PY(20), 0);
+    lv_obj_set_style_pad_row(content, BOARD_SCALE_PY(20), 0);
+    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_set_scroll_dir(content, LV_DIR_VER);
+    lv_obj_add_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+#else
+    int32_t content_top = STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT + 20;
+#endif
+
+    lv_obj_t * row = lv_obj_create(content);
     lv_obj_set_width(row, lv_pct(90));
     lv_obj_set_height(row, LV_SIZE_CONTENT);
-    lv_obj_align(row, LV_ALIGN_TOP_MID, 0, STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT + 20);
+#if defined(BOARD_TEMPOTEC_V1)
+    /* The content parent's flex column keeps the slider below this row as
+     * font-size changes alter the explanation's wrapped height. */
+#else
+    lv_obj_align(row, LV_ALIGN_TOP_MID, 0, content_top);
+#endif
     lv_obj_set_style_bg_opa(row, 0, 0);
     lv_obj_set_style_border_width(row, 0, 0);
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
@@ -160,7 +188,7 @@ static lv_obj_t * build_max_volume_screen(void) {
     lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
     lv_obj_set_flex_grow(label, 1);
 
-    build_setting_slider_card(scr, row, BOARD_SCALE_PX(170), BOARD_SCALE_PX(18),
+    build_setting_slider_card(content, row, BOARD_SCALE_PX(170), BOARD_SCALE_PX(18),
         1, 100, current_settings.max_volume_percent,
         max_volume_slider_event_cb, &max_volume_slider, &max_volume_value_label);
     lv_label_set_text_fmt(max_volume_value_label, "%d%%", current_settings.max_volume_percent);

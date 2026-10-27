@@ -30,6 +30,9 @@ lv_font_t app_font_lyrics;
 #elif BOARD_SCREEN_HEIGHT >= 720
   #define PLAYER_TITLE_FONT_PX 24
   #define PLAYER_META_FONT_PX  18
+#elif BOARD_COMPACT_UI
+  #define PLAYER_TITLE_FONT_PX 16
+  #define PLAYER_META_FONT_PX  16
 #else
   #define PLAYER_TITLE_FONT_PX 16
   #define PLAYER_META_FONT_PX  16
@@ -138,7 +141,7 @@ typedef struct {
  * geometry scales those references to its physical panel; Montserrat is
  * compiled only at even sizes, so round upward after scaling. */
 static int board_font_px(int reference_px) {
-#if defined(BOARD_R3II_2025)
+#if BOARD_COMPACT_UI
     int scaled_px = BOARD_SCALE_PX(reference_px);
     int compiled_px = ((scaled_px + 1) / 2) * 2;
     return compiled_px < 12 ? 12 : compiled_px;
