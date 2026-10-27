@@ -28,6 +28,12 @@
  * The largest status glyph (battery) is rendered at 38px, leaving 1px
  * margin above/below it. Consumers derive positions algebraically from this
  * constant. */
+/* Scales a literal on the V1 only; the other boards keep the literal as is. */
+#if defined(BOARD_TEMPOTEC_V1)
+#define V1_SCALE_PX(px) BOARD_SCALE_PX(px)
+#else
+#define V1_SCALE_PX(px) (px)
+#endif
 #if defined(BOARD_TEMPOTEC_V1)
 /* The V1 uses the same compact 30px top chrome band as its physical
  * 240x320 stock UI. Other boards retain the established 1:1/board-scaled

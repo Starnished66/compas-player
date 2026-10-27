@@ -462,6 +462,7 @@ static void apply_due_mapped_holds(void) {
  * this device's own repeat pacing below replaces whatever the kernel might
  * otherwise synthesize, and only actually fires for the two keys that
  * should repeat at all). */
+#if defined(BOARD_TEMPOTEC_V1)
 /* Case skip keys on the V1 are labelled backwards by the kernel: KEY_NEXTSONG
  * is the physical Previous key and KEY_PREVIOUSSONG is the physical Next key.
  * A cable remote reports the same codes and is not swapped. */
@@ -477,8 +478,13 @@ static bool v1_swapped_skip(unsigned short code, bool swap_skip, button_mapping_
     }
     return false;
 }
+#endif
 
+#if defined(BOARD_TEMPOTEC_V1)
 static void handle_key_event(unsigned short code, int value, bool swap_skip) {
+#else
+static void handle_key_event(unsigned short code, int value) {
+#endif
     if (code > KEY_MAX) return;
     /* See handle_knob_key_event() for lock ordering. */
     bool screen_on = backlight_screen_is_on();
@@ -492,6 +498,7 @@ static void handle_key_event(unsigned short code, int value, bool swap_skip) {
         physical_key_held[code] = true;
         physical_key_pressed_ms[code] = now;
         apply_due_mapped_holds_locked(now, screen_on);
+#if defined(BOARD_TEMPOTEC_V1)
         button_mapping_button_t swapped_skip;
         if (v1_swapped_skip(code, swap_skip, &swapped_skip)) {
             if (swapped_skip == BUTTON_MAPPING_PREVIOUS) {
@@ -505,6 +512,7 @@ static void handle_key_event(unsigned short code, int value, bool swap_skip) {
             pthread_mutex_unlock(&state_mutex);
             return;
         }
+#endif
         switch (code) {
             case KEY_POWER: {
 #if SCREENSHOT_CHORD_PREV
@@ -673,12 +681,14 @@ static void handle_key_event(unsigned short code, int value, bool swap_skip) {
         }
         apply_due_mapped_holds_locked(now, screen_on);
         physical_key_held[code] = false;
+#if defined(BOARD_TEMPOTEC_V1)
         button_mapping_button_t swapped_skip;
         if (v1_swapped_skip(code, swap_skip, &swapped_skip)) {
             mapped_button_release_locked(swapped_skip, now);
             pthread_mutex_unlock(&state_mutex);
             return;
         }
+#endif
         switch (code) {
             case KEY_POWER:
                 mapped_button_release_locked(BUTTON_MAPPING_POWER, now);
@@ -751,7 +761,10 @@ static bool avrcp_transport_code(unsigned short code) {
  * bt_media_player and must not touch physical hold state. The host build
  * has no media-player object, so those codes keep the physical handler. */
 static void handle_input_event(unsigned short type, unsigned short code, int value,
-                               bool is_knob, unsigned char media_class, bool swap_skip,
+                               bool is_knob, unsigned char media_class,
+#if defined(BOARD_TEMPOTEC_V1)
+                               bool swap_skip,
+#endif
                                bool * left_held, bool * right_held, bool * sync_dropped) {
     if (is_knob && knob_consume_sync_event(type, code, sync_dropped, left_held, right_held))
         return;
@@ -771,7 +784,11 @@ static void handle_input_event(unsigned short type, unsigned short code, int val
 #endif
     }
     if (value == 2) return;
+#if defined(BOARD_TEMPOTEC_V1)
     handle_key_event(code, value, swap_skip);
+#else
+    handle_key_event(code, value);
+#endif
 }
 
 /* Media keys are what an accessory remote sends: a USB DSP cable or dongle
@@ -879,7 +896,9 @@ static int scan_media_key_devices(struct pollfd * fds, int nfds, char paths[][64
 static void compact_button_fd_slot(struct pollfd * fds, char paths[][64],
                                   bool * knob, bool * knob_left_held,
                                   bool * knob_right_held, bool * knob_sync_dropped,
+#if defined(BOARD_TEMPOTEC_V1)
                                   bool * swap_skip,
+#endif
                                   unsigned char * media_class, int * nfds, int index) {
     if (knob[index] && knob_right_held[index]) cancel_knob_lock_chord();
     (*nfds)--;
@@ -889,7 +908,9 @@ static void compact_button_fd_slot(struct pollfd * fds, char paths[][64],
         knob_left_held[index] = knob_left_held[*nfds];
         knob_right_held[index] = knob_right_held[*nfds];
         knob_sync_dropped[index] = knob_sync_dropped[*nfds];
+#if defined(BOARD_TEMPOTEC_V1)
         swap_skip[index] = swap_skip[*nfds];
+#endif
         media_class[index] = media_class[*nfds];
         memcpy(paths[index], paths[*nfds], sizeof(paths[index]));
     }
@@ -897,7 +918,9 @@ static void compact_button_fd_slot(struct pollfd * fds, char paths[][64],
     knob_left_held[*nfds] = false;
     knob_right_held[*nfds] = false;
     knob_sync_dropped[*nfds] = false;
+#if defined(BOARD_TEMPOTEC_V1)
     swap_skip[*nfds] = false;
+#endif
     media_class[*nfds] = HW_BUTTONS_MEDIA_OTHER;
     paths[*nfds][0] = '\0';
 }
@@ -907,20 +930,24 @@ static void * hw_buttons_thread_func(void * arg) {
 
 #if defined(BOARD_TEMPOTEC_V1)
     /* Onboard skip keys only. The inline remote keeps the kernel's labels. */
-    #define V1_SWAP_SKIP true
-#else
-    #define V1_SWAP_SKIP false
-#endif
     static const struct { const char * name; const char * label; bool knob; bool swap_skip; } BUTTON_DEVICES[] = {
-        { "md-gpio-keys", "md-gpio-keys", false, V1_SWAP_SKIP },
-        { "jz adc keyboard", "jz adc keyboard", false, V1_SWAP_SKIP },
+        { "md-gpio-keys", "md-gpio-keys", false, true },
+        { "jz adc keyboard", "jz adc keyboard", false, true },
         /* Wired headphone inline remote (earpods_adc). */
         { "earpods_adc", "earpods_adc", false, false },
+    };
+#else
+    static const struct { const char * name; const char * label; bool knob; } BUTTON_DEVICES[] = {
+        { "md-gpio-keys", "md-gpio-keys", false },
+        { "jz adc keyboard", "jz adc keyboard", false },
+        /* Wired headphone inline remote (earpods_adc). */
+        { "earpods_adc", "earpods_adc", false },
 #if defined(BOARD_R3II_2025)
         /* Volume knob: arrow events are handled as single detent impulses. */
-        { "sa-ring-keys", "sa-ring-keys", true, false },
+        { "sa-ring-keys", "sa-ring-keys", true },
 #endif
     };
+#endif
 
     /* O_NONBLOCK prevents empty read queues on one device from blocking poll
      * and starving inputs from the other button devices. */
@@ -933,7 +960,9 @@ static void * hw_buttons_thread_func(void * arg) {
     bool knob_left_held[HW_BUTTONS_MAX_FDS] = { false };
     bool knob_right_held[HW_BUTTONS_MAX_FDS] = { false };
     bool knob_sync_dropped[HW_BUTTONS_MAX_FDS] = { false };
+#if defined(BOARD_TEMPOTEC_V1)
     bool swap_skip[HW_BUTTONS_MAX_FDS] = { false };
+#endif
     unsigned char media_class[HW_BUTTONS_MAX_FDS] = { HW_BUTTONS_MEDIA_OTHER };
     int nfds = 0;
     int found = 0;
@@ -949,7 +978,9 @@ static void * hw_buttons_thread_func(void * arg) {
         fds[nfds].fd = fd;
         fds[nfds].events = POLLIN;
         knob[nfds] = BUTTON_DEVICES[i].knob;
+#if defined(BOARD_TEMPOTEC_V1)
         swap_skip[nfds] = BUTTON_DEVICES[i].swap_skip;
+#endif
         media_class[nfds] = HW_BUTTONS_MEDIA_OTHER;
         snprintf(paths[nfds], sizeof(paths[nfds]), "%s", path);
         DBG_LOG("hw_buttons: fd_index=%d -> %s (%s)\n", nfds, path, BUTTON_DEVICES[i].label);
@@ -1002,7 +1033,11 @@ static void * hw_buttons_thread_func(void * arg) {
                 DBG_LOG("hw_buttons: %s went away, closing fd_index=%d\n", paths[i], i);
                 close(fds[i].fd);
                 compact_button_fd_slot(fds, paths, knob, knob_left_held, knob_right_held,
+#if defined(BOARD_TEMPOTEC_V1)
                                        knob_sync_dropped, swap_skip, media_class, &nfds, i);
+#else
+                                       knob_sync_dropped, media_class, &nfds, i);
+#endif
                 i--;
                 continue;
             }
@@ -1011,7 +1046,10 @@ static void * hw_buttons_thread_func(void * arg) {
             struct input_event ev;
             while (read(fds[i].fd, &ev, sizeof(ev)) == (ssize_t) sizeof(ev)) {
                 DBG_LOG("hw_buttons: raw event fd_index=%d type=%u code=%u value=%d\n", i, ev.type, ev.code, ev.value);
-                handle_input_event(ev.type, ev.code, ev.value, knob[i], media_class[i], swap_skip[i],
+                handle_input_event(ev.type, ev.code, ev.value, knob[i], media_class[i],
+#if defined(BOARD_TEMPOTEC_V1)
+                                   swap_skip[i],
+#endif
                                    &knob_left_held[i], &knob_right_held[i], &knob_sync_dropped[i]);
                 apply_due_mapped_holds();
             }

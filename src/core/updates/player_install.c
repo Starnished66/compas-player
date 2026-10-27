@@ -174,9 +174,13 @@ static bool board_marker_valid(int fd, uint64_t size, bool allow_missing) {
                 size_t token_size = (size_t)(end - suffix);
                 bool recognized = (token_size == 2 && memcmp(suffix, "r1", 2) == 0) ||
                                   (token_size == 7 && memcmp(suffix, "r3proii", 7) == 0) ||
+#if defined(BOARD_TEMPOTEC_V1)
                                   (token_size == 9 && memcmp(suffix, "r3ii_2025", 9) == 0) ||
                                   (token_size == sizeof("tempotec_v1") - 1 &&
                                    memcmp(suffix, "tempotec_v1", sizeof("tempotec_v1") - 1) == 0);
+#else
+                                  (token_size == 9 && memcmp(suffix, "r3ii_2025", 9) == 0);
+#endif
                 if (!recognized)
                     continue;
                 if (token_size != strlen(own) || memcmp(suffix, own, token_size) != 0)

@@ -19,7 +19,12 @@ static toast_t info_toast = { 0 };
 /* Busy overlay */
 static uint32_t gui_busy_current_token = 0;
 static lv_obj_t * gui_busy_screen = NULL;
+#if defined(BOARD_TEMPOTEC_V1)
 static lv_obj_t * gui_busy_content = NULL;
+#define GUI_BUSY_PARENT gui_busy_content
+#else
+#define GUI_BUSY_PARENT gui_busy_screen
+#endif
 static lv_obj_t * gui_busy_label = NULL;
 static lv_obj_t * gui_busy_progress_bar = NULL;
 static lv_obj_t * gui_busy_detail_label = NULL;
@@ -139,11 +144,9 @@ gui_busy_handle_t gui_busy_show(const char * title, const char * msg) {
         lv_obj_set_scroll_dir(gui_busy_content, LV_DIR_VER);
         lv_obj_add_flag(gui_busy_content, LV_OBJ_FLAG_SCROLLABLE);
 
-#else
-        gui_busy_content = gui_busy_screen;
 #endif
 
-        gui_busy_label = lv_label_create(gui_busy_content);
+        gui_busy_label = lv_label_create(GUI_BUSY_PARENT);
         lv_obj_add_style(gui_busy_label, &style_theme_text_primary, 0);
         lv_obj_set_width(gui_busy_label, LV_PCT(90));
         lv_label_set_long_mode(gui_busy_label, LV_LABEL_LONG_WRAP);
@@ -152,7 +155,7 @@ gui_busy_handle_t gui_busy_show(const char * title, const char * msg) {
         lv_obj_align(gui_busy_label, LV_ALIGN_CENTER, 0, -BOARD_SCALE_PX(20));
 #endif
 
-        gui_busy_progress_bar = lv_bar_create(gui_busy_content);
+        gui_busy_progress_bar = lv_bar_create(GUI_BUSY_PARENT);
         lv_obj_set_size(gui_busy_progress_bar, BOARD_SCALE_PX(280), BOARD_SCALE_PX(14));
 #if !defined(BOARD_TEMPOTEC_V1)
         lv_obj_align(gui_busy_progress_bar, LV_ALIGN_CENTER, 0, BOARD_SCALE_PX(30));
@@ -161,7 +164,7 @@ gui_busy_handle_t gui_busy_show(const char * title, const char * msg) {
         lv_obj_add_style(gui_busy_progress_bar, gui_theme_accent_style(), LV_PART_INDICATOR);
 
         /* Optional status line under the bar (e.g. scan phase and counts). */
-        gui_busy_detail_label = lv_label_create(gui_busy_content);
+        gui_busy_detail_label = lv_label_create(GUI_BUSY_PARENT);
         lv_obj_add_style(gui_busy_detail_label, &style_theme_text_muted, 0);
         lv_obj_set_style_text_font(gui_busy_detail_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
         lv_obj_set_style_text_align(gui_busy_detail_label, LV_TEXT_ALIGN_CENTER, 0);

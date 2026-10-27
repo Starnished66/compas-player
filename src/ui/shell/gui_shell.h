@@ -142,6 +142,12 @@ void gui_shell_cancel_background_work(void);
 lv_obj_t * gui_shell_get_status_bar_band(void);
 lv_obj_t * gui_shell_get_home_indicator_band(void);
 /* Whether the global status bar is hidden for this screen by the Player / Lyrics policy. */
+#if defined(BOARD_TEMPOTEC_V1)
 bool gui_shell_player_topbar_hidden(lv_obj_t * screen);
+#else
+#define gui_shell_player_topbar_hidden(screen) \
+    (current_settings.hide_player_topbar && \
+     ((screen) == gui_player_get_screen() || (screen) == gui_lyrics_get_screen()))
+#endif
 void gui_shell_set_status_bar_screen_context(lv_obj_t * screen);
 void gui_shell_set_home_indicator_visible(bool visible);
