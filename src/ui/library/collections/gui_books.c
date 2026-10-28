@@ -262,7 +262,10 @@ static void populate_books_files_screen(void) {
         lv_label_set_text(label, basename_of(paths[i]));
         lv_obj_add_style(label, &style_theme_text_primary, 0);
         lv_obj_set_style_text_font(label, &LIST_ROW_FONT, 0);
-        lv_obj_align(label, LV_ALIGN_LEFT_MID, LIST_ROW_LABEL_INSET, 0);
+        const int32_t label_w = ui_row_label_width(row, LIST_ROW_WIDTH, LIST_ROW_LABEL_INSET, LIST_ROW_LABEL_INSET);
+        lv_obj_set_width(label, label_w);
+        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_LEFT, 0);
+        ui_row_fit_label(row, label, &LIST_ROW_FONT, LIST_ROW_WIDTH, LIST_ROW_LABEL_INSET, label_w);
 
         /* paths[i] itself becomes the row's user_data -- ownership passes
          * to the row's event callback closure for as long as this screen

@@ -2715,6 +2715,36 @@ lv_obj_t * build_font_change_mask(int target) {
     return mask;
 }
 
+int32_t ui_row_label_width(lv_obj_t * row, int32_t row_w, int32_t label_x, int32_t right_space) {
+    const int32_t border = lv_obj_get_style_border_width(row, LV_PART_MAIN);
+    const int32_t pad_left = lv_obj_get_style_pad_left(row, LV_PART_MAIN);
+    return row_w - (border + pad_left) - label_x - right_space;
+}
+
+/* Measured on the label's own (shaped) text, as drawn. */
+bool ui_row_fit_label(lv_obj_t * row, lv_obj_t * label, const lv_font_t * font,
+                      int32_t row_w, int32_t label_x, int32_t label_w) {
+    const int32_t row_h = ui_list_row_height();
+    const int32_t line_h = lv_font_get_line_height(font);
+    lv_point_t text_size;
+    lv_text_get_size(&text_size, lv_label_get_text(label), font, 0, 0, label_w, LV_TEXT_FLAG_NONE);
+    const bool tall = text_size.y > line_h;
+    lv_label_set_long_mode(label, tall ? LV_LABEL_LONG_WRAP : LV_LABEL_LONG_DOT);
+    if (!tall) {
+        lv_obj_set_size(row, row_w, row_h);
+        lv_obj_align(label, LV_ALIGN_LEFT_MID, label_x, 0);
+        return false;
+    }
+    /* Symmetric padding keeps the text off the card borders and puts its
+     * first line where a one-line row centres it. */
+    const int32_t border = lv_obj_get_style_border_width(row, LV_PART_MAIN);
+    lv_obj_set_size(row, row_w, LV_SIZE_CONTENT);
+    lv_obj_set_style_min_height(row, row_h, 0);
+    lv_obj_set_style_pad_ver(row, (row_h - line_h) / 2 - border, 0);
+    lv_obj_align(label, LV_ALIGN_TOP_LEFT, label_x, 0);
+    return true;
+}
+
 /* Native wide rows shared by saved playlists and CUE tracks. */
 lv_obj_t * build_wide_list_row(lv_obj_t * parent, const char * label_text, bool chevron) {
     lv_obj_t * row = lv_obj_create(parent);

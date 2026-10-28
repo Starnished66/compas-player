@@ -81,7 +81,10 @@ static void populate_add_to_playlist_screen(void) {
     lv_label_set_text(new_label, TR("+ New Playlist"));
     lv_obj_add_style(new_label, gui_theme_accent_style(), 0);
     lv_obj_set_style_text_font(new_label, &LIST_ROW_FONT, 0);
-    lv_obj_align(new_label, LV_ALIGN_LEFT_MID, LIST_ROW_LABEL_INSET, 0);
+    const int32_t picker_label_w = ui_row_label_width(new_row, LIST_ROW_WIDTH, LIST_ROW_LABEL_INSET, LIST_ROW_LABEL_INSET);
+    lv_obj_set_width(new_label, picker_label_w);
+    lv_obj_set_style_text_align(new_label, LV_TEXT_ALIGN_LEFT, 0);
+    ui_row_fit_label(new_row, new_label, &LIST_ROW_FONT, LIST_ROW_WIDTH, LIST_ROW_LABEL_INSET, picker_label_w);
 
     char ** paths;
     int count;
@@ -107,7 +110,9 @@ static void populate_add_to_playlist_screen(void) {
         lv_label_set_text(label, basename_of(paths[i]));
         lv_obj_add_style(label, &style_theme_text_primary, 0);
         lv_obj_set_style_text_font(label, &LIST_ROW_FONT, 0);
-        lv_obj_align(label, LV_ALIGN_LEFT_MID, LIST_ROW_LABEL_INSET, 0);
+        lv_obj_set_width(label, picker_label_w);
+        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_LEFT, 0);
+        ui_row_fit_label(row, label, &LIST_ROW_FONT, LIST_ROW_WIDTH, LIST_ROW_LABEL_INSET, picker_label_w);
     }
     free(paths);
 }
@@ -237,8 +242,19 @@ static void populate_playlists_screen(void) {
         const char * display = playlists_m3u_paths[i];
         if (strncmp(display, PLAYLISTS_DIR "/", strlen(PLAYLISTS_DIR) + 1) == 0) display += strlen(PLAYLISTS_DIR) + 1;
         lv_obj_t * row = build_wide_list_row(playlists_list, display, true);
-        lv_obj_set_width(lv_obj_get_child(row, 0), LIST_ROW_WIDTH_WIDE - LIST_ROW_LABEL_INSET - BOARD_SCALE_PX(60));
-        lv_label_set_long_mode(lv_obj_get_child(row, 0), LV_LABEL_LONG_DOT);
+        lv_obj_t * name_label = lv_obj_get_child(row, 0);
+        const int32_t name_w = LIST_ROW_WIDTH_WIDE - LIST_ROW_LABEL_INSET - BOARD_SCALE_PX(60);
+        lv_obj_set_width(name_label, name_w);
+        /* The chevron is the row's other child: floating when the row grows. */
+        if (ui_row_fit_label(row, name_label, &LIST_ROW_FONT, LIST_ROW_WIDTH_WIDE, LIST_ROW_LABEL_INSET, name_w)) {
+            /* configure_scrolling_row_label() gave the label a fixed one-line
+             * height, a top margin and the font-change re-bound flag; a tall
+             * row needs none of them (the marquee style is inert in WRAP). */
+            lv_obj_set_height(name_label, LV_SIZE_CONTENT);
+            lv_obj_set_style_pad_top(name_label, 0, 0);
+            lv_obj_remove_flag(name_label, LV_OBJ_FLAG_USER_3);
+            lv_obj_add_flag(lv_obj_get_child(row, 1), LV_OBJ_FLAG_FLOATING);
+        }
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(row, playlist_row_click_cb, LV_EVENT_CLICKED, (void *) (intptr_t) (4 + i));
         lv_obj_add_event_cb(row, playlist_row_long_press_cb, LV_EVENT_LONG_PRESSED, (void *) (intptr_t) i);

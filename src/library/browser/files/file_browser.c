@@ -1383,7 +1383,6 @@ static lv_obj_t * add_file_row(file_browser_t * fb, const char * label_text, con
     lv_obj_t * row = lv_obj_create(fb->list);
     /* Files uses the same font-aware ordinary row height as other native
      * lists, including the music browser, as a minimum. */
-    const int32_t row_h = ui_list_row_height();
     lv_obj_add_style(row, &native_row_min_style, 0);
     lv_obj_add_style(row, &pill_row_bg_style, 0);
     lv_obj_add_style(row, &list_row_pressed_style, LV_STATE_PRESSED);
@@ -1395,14 +1394,13 @@ static lv_obj_t * add_file_row(file_browser_t * fb, const char * label_text, con
      * measured from the row edge; in selection mode the label instead stops
      * a gap short of the check box. */
     const int32_t border = lv_obj_get_style_border_width(row, LV_PART_MAIN);
-    const int32_t pad_left = lv_obj_get_style_pad_left(row, LV_PART_MAIN);
     const int32_t pad_right = lv_obj_get_style_pad_right(row, LV_PART_MAIN);
     const bool has_icon = icon_asset && icon_asset->src;
     const int32_t label_x = has_icon ? 72 : LIST_ROW_LABEL_INSET;
     const int32_t right_space = check_box
         ? border + pad_right + LIST_ROW_LABEL_INSET + BOARD_SCALE_PX(24) + BOARD_SCALE_PX(8)
         : (has_icon ? BOARD_SCALE_PX(24) : LIST_ROW_LABEL_INSET);
-    const int32_t label_w = LIST_ROW_WIDTH_WIDE - (border + pad_left) - label_x - right_space;
+    const int32_t label_w = ui_row_label_width(row, LIST_ROW_WIDTH_WIDE, label_x, right_space);
 
     lv_obj_t * label = lv_label_create(row);
     lv_obj_add_style(label, &style_theme_text_primary, 0);
@@ -1410,50 +1408,34 @@ static lv_obj_t * add_file_row(file_browser_t * fb, const char * label_text, con
     lv_obj_set_width(label, label_w);
     lv_label_set_text(label, label_text);
 
-    /* A name that fits on one line keeps the fixed-height, centred row. A
-     * longer one wraps onto as many lines as it needs and the row grows to
-     * show all of them, never below the minimum height. Measured on the
-     * label's own (shaped) text, as drawn. */
-    const int32_t line_h = lv_font_get_line_height(&LIST_ROW_FONT);
-    lv_point_t text_size;
-    lv_text_get_size(&text_size, lv_label_get_text(label), &LIST_ROW_FONT, 0, 0, label_w, LV_TEXT_FLAG_NONE);
-    const bool tall = text_size.y > line_h;
-    lv_label_set_long_mode(label, tall ? LV_LABEL_LONG_WRAP : LV_LABEL_LONG_DOT);
-
     lv_obj_t * icon = NULL;
     if (has_icon) {
         icon = lv_image_create(row);
         lv_image_set_src(icon, icon_asset->src);
         if (icon_asset->text_color) lv_obj_add_style(icon, &style_theme_text_primary, 0);
     }
+    /* A name that fits on one line keeps the fixed-height, centred row; a
+     * longer one wraps and the row grows (ui_row_fit_label). */
+    const bool tall = ui_row_fit_label(row, label, &LIST_ROW_FONT, LIST_ROW_WIDTH_WIDE, label_x, label_w);
     if (!tall) {
-        lv_obj_set_size(row, LIST_ROW_WIDTH_WIDE, row_h);
         /* Glyph lines up with the category menus' row icons. */
         if (icon) lv_obj_align(icon, LV_ALIGN_LEFT_MID, 7, 0);
-        lv_obj_align(label, LV_ALIGN_LEFT_MID, label_x, 0);
-    } else {
-        /* Symmetric padding keeps the text off the card borders and puts its
-         * first line where a one-line row centres it. */
-        const int32_t pad_ver = (row_h - line_h) / 2 - border;
-        lv_obj_set_size(row, LIST_ROW_WIDTH_WIDE, LV_SIZE_CONTENT);
-        lv_obj_set_style_min_height(row, row_h, 0);
-        lv_obj_set_style_pad_ver(row, pad_ver, 0);
-        lv_obj_align(label, LV_ALIGN_TOP_LEFT, label_x, 0);
-        if (icon) {
-            /* The icon sits on the first line: it is centred in an invisible
-             * minimum-height cell at the row's top, exactly where a one-line
-             * row centres it. The cell floats, so it never sizes the row. */
-            lv_obj_t * cell = lv_obj_create(row);
-            lv_obj_set_size(cell, label_x, row_h);
-            lv_obj_set_style_bg_opa(cell, LV_OPA_TRANSP, 0);
-            lv_obj_set_style_border_width(cell, 0, 0);
-            lv_obj_set_style_pad_all(cell, 0, 0);
-            lv_obj_remove_flag(cell, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_add_flag(cell, LV_OBJ_FLAG_FLOATING | LV_OBJ_FLAG_EVENT_BUBBLE);
-            lv_obj_align(cell, LV_ALIGN_TOP_LEFT, 0, -(pad_ver + border));
-            lv_obj_set_parent(icon, cell);
-            lv_obj_align(icon, LV_ALIGN_LEFT_MID, 7, 0);
-        }
+    } else if (icon) {
+        const int32_t row_h = ui_list_row_height();
+        const int32_t pad_ver = lv_obj_get_style_pad_top(row, LV_PART_MAIN);
+        /* The icon sits on the first line: it is centred in an invisible
+         * minimum-height cell at the row's top, exactly where a one-line
+         * row centres it. The cell floats, so it never sizes the row. */
+        lv_obj_t * cell = lv_obj_create(row);
+        lv_obj_set_size(cell, label_x, row_h);
+        lv_obj_set_style_bg_opa(cell, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(cell, 0, 0);
+        lv_obj_set_style_pad_all(cell, 0, 0);
+        lv_obj_remove_flag(cell, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(cell, LV_OBJ_FLAG_FLOATING | LV_OBJ_FLAG_EVENT_BUBBLE);
+        lv_obj_align(cell, LV_ALIGN_TOP_LEFT, 0, -(pad_ver + border));
+        lv_obj_set_parent(icon, cell);
+        lv_obj_align(icon, LV_ALIGN_LEFT_MID, 7, 0);
     }
     /* Stays vertically centred on the whole row, whatever its height. */
     if (check_box) {
