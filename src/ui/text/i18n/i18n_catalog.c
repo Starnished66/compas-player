@@ -842,7 +842,7 @@ static const char * const f838[] = {"Playlist wird gespeichert …"};
 static const char * const f839[] = {"Scanne den QR-Code für ein Beispiel-Theme und die Anleitung. Für ein neues Player-Layout findest du dort auch die Anleitung zu XML-Layouts."};
 static const char * const f840[] = {"Nach Musik suchen"};
 static const char * const f841[] = {"Scanne den QR-Code, um die vollständige Anleitung zu öffnen."};
-static const char * const f842[] = {"Scanne den Code mit deinem Smartphone, um Compás Player über PayPal zu unterstützen"};
+static const char * const f842[] = {"Scanne den Code mit deinem Smartphone, um Compás Player über Ko-fi zu unterstützen"};
 static const char * const f843[] = {"Netzwerke werden gesucht"};
 static const char * const f844[] = {"Abspielbare Dateien werden gesucht …"};
 static const char * const f845[] = {"Bildschirm abdunkeln"};
@@ -1934,7 +1934,7 @@ static const i18n_entry_t entries_de[] = {
     {"Scan for a starter theme and instructions. To redesign the player screen, see the XML layout guide linked there.", f839, 1},
     {"Scan for music", f840, 1},
     {"Scan for the full guide", f841, 1},
-    {"Scan with your phone to support Compás Player on PayPal", f842, 1},
+    {"Scan with your phone to support Compás Player on Ko-fi", f842, 1},
     {"Scanning for networks", f843, 1},
     {"Scanning playable files", f844, 1},
     {"Screen Dimming", f845, 1},
@@ -2957,7 +2957,7 @@ static const char * const f1859[] = {"Guardando la base de datos de música"};
 static const char * const f1860[] = {"Guardando la base de datos de música\nPuede tardar en bibliotecas grandes"};
 static const char * const f1861[] = {"Guardando lista…"};
 static const char * const f1862[] = {"Buscar música"};
-static const char * const f1863[] = {"Escanea con tu teléfono para apoyar a Compás Player en PayPal"};
+static const char * const f1863[] = {"Escanea con tu teléfono para apoyar a Compás Player en Ko-fi"};
 static const char * const f1864[] = {"Buscando redes"};
 static const char * const f1865[] = {"Atenuar pantalla"};
 static const char * const f1866[] = {"Apagado de pantalla"};
@@ -3959,7 +3959,7 @@ static const i18n_entry_t entries_es[] = {
     {"Saving music database\nThis can take a while on large libraries", f1860, 1},
     {"Saving playlist…", f1861, 1},
     {"Scan for music", f1862, 1},
-    {"Scan with your phone to support Compás Player on PayPal", f1863, 1},
+    {"Scan with your phone to support Compás Player on Ko-fi", f1863, 1},
     {"Scanning for networks", f1864, 1},
     {"Screen Dimming", f1865, 1},
     {"Screen Timeout", f1866, 1},
@@ -5030,7 +5030,7 @@ static const char * const f2928[] = {"Tallennetaan soittolistaa…"};
 static const char * const f2929[] = {"Skannaa aloitusteema ja ohjeet. Soittimen näytön uudistamista varten katso linkitettyä XML-asetteluopasta."};
 static const char * const f2930[] = {"Etsi musiikkia"};
 static const char * const f2931[] = {"Skannaa avataksesi koko oppaan"};
-static const char * const f2932[] = {"Tue Compás Playeria PayPalin kautta skannaamalla puhelimella"};
+static const char * const f2932[] = {"Tue Compás Playeria Ko-fin kautta skannaamalla puhelimella"};
 static const char * const f2933[] = {"Etsitään verkkoja"};
 static const char * const f2934[] = {"Etsitään toistettavia tiedostoja"};
 static const char * const f2935[] = {"Näytön himmennys"};
@@ -6122,7 +6122,7 @@ static const i18n_entry_t entries_fi[] = {
     {"Scan for a starter theme and instructions. To redesign the player screen, see the XML layout guide linked there.", f2929, 1},
     {"Scan for music", f2930, 1},
     {"Scan for the full guide", f2931, 1},
-    {"Scan with your phone to support Compás Player on PayPal", f2932, 1},
+    {"Scan with your phone to support Compás Player on Ko-fi", f2932, 1},
     {"Scanning for networks", f2933, 1},
     {"Scanning playable files", f2934, 1},
     {"Screen Dimming", f2935, 1},
@@ -7145,7 +7145,7 @@ static const char * const f3949[] = {"Enregistrement de la base musicale"};
 static const char * const f3950[] = {"Enregistrement de la base musicale\nCela peut prendre du temps pour les grandes bibliothèques"};
 static const char * const f3951[] = {"Enregistrement de la playlist..."};
 static const char * const f3952[] = {"Rechercher de la musique"};
-static const char * const f3953[] = {"Scannez avec votre téléphone pour soutenir Compás Player sur PayPal"};
+static const char * const f3953[] = {"Scannez avec votre téléphone pour soutenir Compás Player sur Ko-fi"};
 static const char * const f3954[] = {"Recherche de réseaux"};
 static const char * const f3955[] = {"Atténuation de l'écran"};
 static const char * const f3956[] = {"Extinction de l'écran"};
@@ -8147,7 +8147,7 @@ static const i18n_entry_t entries_fr[] = {
     {"Saving music database\nThis can take a while on large libraries", f3950, 1},
     {"Saving playlist…", f3951, 1},
     {"Scan for music", f3952, 1},
-    {"Scan with your phone to support Compás Player on PayPal", f3953, 1},
+    {"Scan with your phone to support Compás Player on Ko-fi", f3953, 1},
     {"Scanning for networks", f3954, 1},
     {"Screen Dimming", f3955, 1},
     {"Screen Timeout", f3956, 1},
@@ -9149,7 +9149,7 @@ static const char * const f4949[] = {"Salvataggio del database musicale"};
 static const char * const f4950[] = {"Salvataggio del database musicale\nPotrebbe volerci un po' con le librerie grandi"};
 static const char * const f4951[] = {"Salvataggio della playlist..."};
 static const char * const f4952[] = {"Cerca musica"};
-static const char * const f4953[] = {"Inquadra con il telefono per sostenere Compás Player su PayPal"};
+static const char * const f4953[] = {"Inquadra con il telefono per sostenere Compás Player su Ko-fi"};
 static const char * const f4954[] = {"Ricerca di reti"};
 static const char * const f4955[] = {"Attenuazione schermo"};
 static const char * const f4956[] = {"Timeout schermo"};
@@ -10151,7 +10151,7 @@ static const i18n_entry_t entries_it[] = {
     {"Saving music database\nThis can take a while on large libraries", f4950, 1},
     {"Saving playlist…", f4951, 1},
     {"Scan for music", f4952, 1},
-    {"Scan with your phone to support Compás Player on PayPal", f4953, 1},
+    {"Scan with your phone to support Compás Player on Ko-fi", f4953, 1},
     {"Scanning for networks", f4954, 1},
     {"Screen Dimming", f4955, 1},
     {"Screen Timeout", f4956, 1},
@@ -11222,7 +11222,7 @@ static const char * const f6018[] = {"Afspeellijst opslaan…"};
 static const char * const f6019[] = {"Scan voor een basisthema en instructies. Raadpleeg de gekoppelde XML-indelingshandleiding om het spelersscherm aan te passen."};
 static const char * const f6020[] = {"Scannen naar muziek"};
 static const char * const f6021[] = {"Scan voor de volledige handleiding"};
-static const char * const f6022[] = {"Scan met je telefoon om Compás Player via PayPal te steunen"};
+static const char * const f6022[] = {"Scan met je telefoon om Compás Player via Ko-fi te steunen"};
 static const char * const f6023[] = {"Scannen naar netwerken"};
 static const char * const f6024[] = {"Scannen naar afspeelbare bestanden"};
 static const char * const f6025[] = {"Scherm dimmen"};
@@ -12314,7 +12314,7 @@ static const i18n_entry_t entries_nl[] = {
     {"Scan for a starter theme and instructions. To redesign the player screen, see the XML layout guide linked there.", f6019, 1},
     {"Scan for music", f6020, 1},
     {"Scan for the full guide", f6021, 1},
-    {"Scan with your phone to support Compás Player on PayPal", f6022, 1},
+    {"Scan with your phone to support Compás Player on Ko-fi", f6022, 1},
     {"Scanning for networks", f6023, 1},
     {"Scanning playable files", f6024, 1},
     {"Screen Dimming", f6025, 1},
@@ -13337,7 +13337,7 @@ static const char * const f7039[] = {"Salvando banco de dados de música"};
 static const char * const f7040[] = {"Salvando banco de dados de música\nIsso pode demorar em bibliotecas grandes"};
 static const char * const f7041[] = {"Salvando playlist..."};
 static const char * const f7042[] = {"Buscar músicas"};
-static const char * const f7043[] = {"Escaneie com o celular para apoiar o Compás Player no PayPal"};
+static const char * const f7043[] = {"Escaneie com o celular para apoiar o Compás Player no Ko-fi"};
 static const char * const f7044[] = {"Buscando redes"};
 static const char * const f7045[] = {"Escurecer a tela"};
 static const char * const f7046[] = {"Tempo de tela ligada"};
@@ -14339,7 +14339,7 @@ static const i18n_entry_t entries_pt_BR[] = {
     {"Saving music database\nThis can take a while on large libraries", f7040, 1},
     {"Saving playlist…", f7041, 1},
     {"Scan for music", f7042, 1},
-    {"Scan with your phone to support Compás Player on PayPal", f7043, 1},
+    {"Scan with your phone to support Compás Player on Ko-fi", f7043, 1},
     {"Scanning for networks", f7044, 1},
     {"Screen Dimming", f7045, 1},
     {"Screen Timeout", f7046, 1},
@@ -15410,7 +15410,7 @@ static const char * const f8108[] = {"A guardar lista de reprodução…"};
 static const char * const f8109[] = {"Leia o código para obter um tema inicial e instruções. Para redesenhar o ecrã do leitor, consulte o guia de esquemas XML aí indicado."};
 static const char * const f8110[] = {"Procurar música"};
 static const char * const f8111[] = {"Leia o código para abrir o guia completo"};
-static const char * const f8112[] = {"Leia com o telemóvel para apoiar o Compás Player através do PayPal"};
+static const char * const f8112[] = {"Leia com o telemóvel para apoiar o Compás Player através do Ko-fi"};
 static const char * const f8113[] = {"A procurar redes"};
 static const char * const f8114[] = {"A procurar ficheiros reproduzíveis"};
 static const char * const f8115[] = {"Escurecimento do ecrã"};
@@ -16502,7 +16502,7 @@ static const i18n_entry_t entries_pt_PT[] = {
     {"Scan for a starter theme and instructions. To redesign the player screen, see the XML layout guide linked there.", f8109, 1},
     {"Scan for music", f8110, 1},
     {"Scan for the full guide", f8111, 1},
-    {"Scan with your phone to support Compás Player on PayPal", f8112, 1},
+    {"Scan with your phone to support Compás Player on Ko-fi", f8112, 1},
     {"Scanning for networks", f8113, 1},
     {"Scanning playable files", f8114, 1},
     {"Screen Dimming", f8115, 1},
@@ -17618,7 +17618,7 @@ static const char * const f9222[] = {"Сохранение плейлиста…
 static const char * const f9223[] = {"Отсканируйте QR-код, чтобы открыть тему для начала работы и инструкции. Руководство по макетам XML поможет изменить экран плеера."};
 static const char * const f9224[] = {"Сканировать музыку"};
 static const char * const f9225[] = {"Отсканируйте QR-код, чтобы открыть полное руководство."};
-static const char * const f9226[] = {"Сканируйте с помощью телефона, чтобы поддержать Compás Player на PayPal."};
+static const char * const f9226[] = {"Сканируйте с помощью телефона, чтобы поддержать Compás Player на Ko-fi."};
 static const char * const f9227[] = {"Сканирование сетей"};
 static const char * const f9228[] = {"Поиск файлов для воспроизведения…"};
 static const char * const f9229[] = {"Затемнение экрана"};
@@ -18740,7 +18740,7 @@ static const i18n_entry_t entries_ru[] = {
     {"Scan for a starter theme and instructions. To redesign the player screen, see the XML layout guide linked there.", f9223, 1},
     {"Scan for music", f9224, 1},
     {"Scan for the full guide", f9225, 1},
-    {"Scan with your phone to support Compás Player on PayPal", f9226, 1},
+    {"Scan with your phone to support Compás Player on Ko-fi", f9226, 1},
     {"Scanning for networks", f9227, 1},
     {"Scanning playable files", f9228, 1},
     {"Screen Dimming", f9229, 1},
@@ -19838,7 +19838,7 @@ static const char * const f10318[] = {"Збереження списку від�
 static const char * const f10319[] = {"Відскануйте QR-код, щоб відкрити стартову тему й інструкції. Посібник із макетів XML допоможе змінити вигляд екрана плеєра."};
 static const char * const f10320[] = {"Сканувати музику"};
 static const char * const f10321[] = {"Скануйте QR-код, щоб відкрити повний посібник."};
-static const char * const f10322[] = {"Відскануйте телефоном, щоб підтримати Compás Player через PayPal"};
+static const char * const f10322[] = {"Відскануйте телефоном, щоб підтримати Compás Player через Ko-fi"};
 static const char * const f10323[] = {"Пошук мереж"};
 static const char * const f10324[] = {"Пошук файлів для відтворення…"};
 static const char * const f10325[] = {"Затемнення екрана"};
@@ -20930,7 +20930,7 @@ static const i18n_entry_t entries_uk[] = {
     {"Scan for a starter theme and instructions. To redesign the player screen, see the XML layout guide linked there.", f10319, 1},
     {"Scan for music", f10320, 1},
     {"Scan for the full guide", f10321, 1},
-    {"Scan with your phone to support Compás Player on PayPal", f10322, 1},
+    {"Scan with your phone to support Compás Player on Ko-fi", f10322, 1},
     {"Scanning for networks", f10323, 1},
     {"Scanning playable files", f10324, 1},
     {"Screen Dimming", f10325, 1},

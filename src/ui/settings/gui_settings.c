@@ -210,8 +210,8 @@ static void dev_options_row_cb(lv_event_t * e) {
     nav_push(dev_options_screen);
 }
 
-static const char PAYPAL_DONATION_URL[] =
-    "https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=josegarita%40protonmail.com&currency_code=USD";
+static const char DONATION_URL[] =
+    "https://ko-fi.com/starnished";
 
 static void buy_me_a_coffee_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
@@ -248,10 +248,10 @@ static lv_obj_t * build_buy_me_a_coffee_screen(void) {
     lv_qrcode_set_quiet_zone(qrcode, true);
     lv_obj_set_style_border_width(qrcode, 4, 0);
     lv_obj_set_style_border_color(qrcode, lv_color_white(), 0);
-    lv_qrcode_update(qrcode, PAYPAL_DONATION_URL, strlen(PAYPAL_DONATION_URL));
+    lv_qrcode_update(qrcode, DONATION_URL, strlen(DONATION_URL));
 
     lv_obj_t * caption = lv_label_create(list);
-    lv_label_set_text(caption, TR("Scan with your phone to support Compás Player on PayPal"));
+    lv_label_set_text(caption, TR("Scan with your phone to support Compás Player on Ko-fi"));
     lv_obj_set_width(caption, lv_pct(90));
     lv_label_set_long_mode(caption, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
