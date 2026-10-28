@@ -38,6 +38,8 @@ extern int subprocess_run(char * const argv[], char ** out_output, int timeout_s
 #include "../../network/remote/control/remote_control.h"
 #include "../../network/bluetooth/media/bt_remote_control.h"
 #include "../../core/system/logging/debug_log.h"
+#include "../settings/controls/gui_remote_settings.h"
+#include "../../network/remote/control/remote_settings_gate.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -3492,6 +3494,7 @@ static void * network_service_worker_func(void * arg) {
                 bt_remote_control_start();
 #endif
             } else {
+                remote_settings_gate_set(false, 0); /* the permission ends with Remote Control */
                 remote_control_stop();
 #ifndef HOST_BUILD
                 bt_remote_control_stop();
@@ -4320,6 +4323,7 @@ static void remote_control_new_pin_popup_dismiss_cb(lv_event_t * e) {
 static void remote_control_new_pin_confirm_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     gui_popup_hide(&remote_control_new_pin_popup);
+    remote_settings_gate_set(false, 0); /* a new PIN starts a new pairing, so the permission ends */
     if (!remote_control_generate_new_pin()) {
         show_info_toast(TR("Could not generate a new PIN"));
         return;
@@ -4356,6 +4360,12 @@ static lv_obj_t * build_remote_control_screen(void) {
     /* add_pill_toggle_row() creates the label first and the switch last;
      * gui_network_toggle_remote_control() drives this switch's state. */
     remote_control_toggle_img = lv_obj_get_child(toggle_row, -1);
+
+    /* Session-only permission for the apps to change player settings. */
+    lv_obj_t * remote_settings_row = add_pill_toggle_row(list, TR("Allow remote settings changes"),
+                                                         gui_remote_settings_allowed(),
+                                                         gui_remote_settings_toggle_cb);
+    gui_remote_settings_bind_switch(lv_obj_get_child(remote_settings_row, -1));
 
     lv_obj_t * pin_row = add_pill_row_base(list, TR("Connection PIN"));
 
@@ -4711,6 +4721,7 @@ void gui_network_cancel_background_work(void) {
                 bt_remote_control_start();
 #endif
             } else {
+                remote_settings_gate_set(false, 0); /* the permission ends with Remote Control */
                 remote_control_stop();
 #ifndef HOST_BUILD
                 bt_remote_control_stop();

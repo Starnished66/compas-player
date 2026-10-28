@@ -7,6 +7,7 @@ player_settings_t current_settings;
 #include "../../library/remote/subsonic/subsonic_saved_servers.h"
 #include "storage_paths.h"
 #include "bt_ssc_settings.h"
+#include "settings_registry.h"
 #include "../text/utf8_util.h"
 
 #include <dirent.h>
@@ -1030,6 +1031,7 @@ void settings_bt_set_rate_for(player_settings_t * settings, const char * mac, un
 
 void settings_save(const player_settings_t * settings) {
     if (!settings) return;
+    settings_registry_note_save(settings);
     pthread_mutex_lock(&settings_write_mutex);
     pthread_mutex_lock(&settings_queue_mutex);
     if (settings_shutdown_started) {
@@ -1082,6 +1084,7 @@ static void settings_start_worker(void) {
 
 void settings_save_async(const player_settings_t * settings) {
     if (!settings) return;
+    settings_registry_note_save(settings);
     pthread_once(&settings_worker_once, settings_start_worker);
     if (!settings_worker_ready) {
         settings_save(settings);

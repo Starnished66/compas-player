@@ -113,6 +113,7 @@ gui_busy_handle_t wifi_connect_saved_token = 0;
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+#include "../settings/controls/gui_remote_settings.h"
 
 #ifdef UI_PERF_TRACE
 #include "../diagnostics/ui_frame_trace.h"
@@ -1821,6 +1822,7 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
     current_settings.dlna_renderer_enabled = false;
     current_settings.remote_control_enabled = false;
     if (network_modes_changed) settings_save_async(&current_settings);
+    gui_remote_settings_init(); /* after the session-only fields above are final */
 
     /* The quick drawer's own open/close drag tracking is polled from
      * update_timer_cb instead (poll_quick_drawer_drag()) -- see its comment

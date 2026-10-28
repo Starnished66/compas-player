@@ -39,6 +39,8 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+#include "remote_settings.h"
+#include "../../../core/persistence/settings_registry.h"
 
 /* Port 8899 -- shared by the PIN-protected remote and native file API. */
 #define REMOTE_CONTROL_PORT 8899
@@ -877,6 +879,8 @@ static void build_status_json(char * out, size_t out_size) {
 #else
     bool bluetooth_audio_output = false; /* host builds have no Bluetooth route */
 #endif
+    unsigned settings_epoch = settings_registry_epoch();
+    unsigned settings_revision = settings_registry_revision(); /* own lock; not nested under status_mutex */
     pthread_mutex_lock(&status_mutex);
     json_escape_append(title_esc, sizeof(title_esc), status_title);
     json_escape_append(artist_esc, sizeof(artist_esc), status_artist);
@@ -892,13 +896,13 @@ static void build_status_json(char * out, size_t out_size) {
              "\"codec\":\"%s\",\"source_bit_depth\":%u,\"source_sample_rate\":%u,"
              "\"catalog_revision\":%s,"
              "\"bluetooth_audio_output\":%s,\"favorite\":%s,\"accent_color\":%s,"
-             "\"device_model\":\"%s\",\"player_version\":\"%s\","
+             "\"device_model\":\"%s\",\"player_version\":\"%s\",\"settingsRevision\":%u,\"settingsEpoch\":%u,"
              "\"sort_modes\":[%d,%d,%d],\"collection_job\":{\"id\":%u,\"state\":\"%s\",\"error\":\"%s\"}}",
              status_playing ? "true" : "false", status_paused ? "true" : "false", title_esc, artist_esc, album_esc,
              status_position_seconds, status_duration_seconds, (double) status_volume, status_play_mode,
              status_codec, status_source_bit_depth, status_source_sample_rate, revision_json,
              bluetooth_audio_output ? "true" : "false", status_favorite ? "true" : "false", accent_json,
-             model_esc, version_esc, status_library_sorting[0], status_library_sorting[1], status_library_sorting[2],
+             model_esc, version_esc, settings_revision, settings_epoch, status_library_sorting[0], status_library_sorting[1], status_library_sorting[2],
              collection_job_id, collection_job_busy ? "pending" : collection_job_failed ? "error" : collection_job_id ? "done" : "idle", job_error);
     pthread_mutex_unlock(&status_mutex);
 }
@@ -2939,6 +2943,7 @@ static void handle_connection(int cfd) {
     long long content_length = -1; /* only POST /playlists/import reads a body */
     bool content_length_invalid = false;
     bool transfer_encoding_seen = false;
+    bool json_content_type = false; /* settings writes only */
     char header_line[512];
     size_t header_line_len = 0;
     while (header_bytes < REQUEST_HEADERS_MAX) {
@@ -2994,6 +2999,10 @@ static void handle_connection(int cfd) {
                 else
                     content_length = parsed;
             }
+            static const char content_type_name[] = "Content-Type:";
+            if (header_line_len >= sizeof(content_type_name) - 1 &&
+                strncasecmp(header_line, content_type_name, sizeof(content_type_name) - 1) == 0)
+                json_content_type = remote_settings_content_type_is_json(header_line + sizeof(content_type_name) - 1);
             static const char transfer_encoding_name[] = "Transfer-Encoding:";
             if (header_line_len >= sizeof(transfer_encoding_name) - 1 &&
                 strncasecmp(header_line, transfer_encoding_name, sizeof(transfer_encoding_name) - 1) == 0)
@@ -3032,7 +3041,7 @@ static void handle_connection(int cfd) {
     bool api_v1 = strncmp(path_only, "/api/v1/", sizeof("/api/v1/") - 1) == 0;
     if (api_v1) {
         if (strcmp(path_only, "/api/v1/capabilities") == 0 && strcmp(method, "GET") == 0) {
-            char capabilities[1024] = {0};
+            char capabilities[1280] = {0};
             char library_id[METADATA_DB_CATALOG_LIBRARY_ID_SIZE] = {0};
             char escaped_library_id[METADATA_DB_CATALOG_LIBRARY_ID_SIZE * 2] = {0};
             char library_id_field[METADATA_DB_CATALOG_LIBRARY_ID_SIZE * 2 + 24] = {0};
@@ -3049,7 +3058,8 @@ static void handle_connection(int cfd) {
                 "\"folder_browse\",\"recently_played\",\"favorites_edit\",\"queue_edit\","
                 "\"playlist_edit\",\"playlist_import\",\"player_accent\",\"device_info\","
                 "\"collection_playback\",\"shuffle_modes\",\"library_sorting\","
-                "\"wifi_import\",\"wifi_import_files\"]}", library_id_field);
+                "\"wifi_import\",\"wifi_import_files\",\"settings_v1\"],"
+                "\"settingsSchemaVersion\":%d}", library_id_field, SETTINGS_REGISTRY_SCHEMA_VERSION);
             send_response(cfd, "200 OK", "application/json", capabilities);
             return;
         }
@@ -3147,6 +3157,18 @@ static void handle_connection(int cfd) {
             send_response(cfd, "202 Accepted", "application/json", "{\"accepted\":true}");
         }
         return;
+    }
+    {
+        remote_settings_request_t settings_request = { content_length, pin_header_seen && !pin_header_invalid,
+                                                       json_content_type };
+        char settings_status[40];
+        char * settings_body = NULL;
+        if (remote_settings_handle(cfd, method, path_only, path, &settings_request, settings_status,
+                                   sizeof(settings_status), &settings_body)) {
+            send_response(cfd, settings_status, "application/json", settings_body ? settings_body : "{}");
+            free(settings_body);
+            return;
+        }
     }
     if (handle_extension_route(cfd, method, path_only, path, content_length)) return;
     if (handle_collection_sort_route(cfd, method, path_only, path)) return;
