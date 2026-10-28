@@ -382,6 +382,17 @@ static void refresh_icon_caption_geometry_recursive(lv_obj_t * obj) {
                              label_cy - lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_BODY)) / 2);
             } else {
                 int32_t line_h = lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_BODY));
+#if defined(BOARD_TEMPOTEC_V1)
+                if (lv_label_get_long_mode(label) == LV_LABEL_LONG_SCROLL_CIRCULAR) {
+                    int32_t label_gap = BOARD_SCALE_PX(12);
+                    int32_t content_h = icon_h + label_gap + line_h;
+                    int32_t top = (available_h - content_h) / 2;
+                    if (top < 0) top = 0;
+                    lv_obj_set_height(label, line_h);
+                    lv_obj_align(img_wrap, LV_ALIGN_TOP_MID, 0, top);
+                    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, top + icon_h + label_gap);
+                } else {
+#endif
                 int32_t label_h = line_h * 2;
                 int32_t content_h = icon_h + ICON_GRID_ICON_LABEL_GAP + label_h;
                 int32_t top = (available_h - content_h) / 2;
@@ -389,6 +400,9 @@ static void refresh_icon_caption_geometry_recursive(lv_obj_t * obj) {
                 lv_obj_set_height(label, label_h);
                 lv_obj_align(img_wrap, LV_ALIGN_TOP_MID, 0, top);
                 lv_obj_align(label, LV_ALIGN_TOP_MID, 0, top + icon_h + ICON_GRID_ICON_LABEL_GAP);
+#if defined(BOARD_TEMPOTEC_V1)
+                }
+#endif
             }
         }
     }
@@ -1046,6 +1060,9 @@ lv_obj_t * build_icon_grid_screen(const char * title, lv_event_cb_t back_btn_cb,
     if (tile_gap < ICON_GRID_CARD_GAP) tile_gap = ICON_GRID_CARD_GAP;
 
     int32_t target_icon_px = (BOARD_SCALE_PX(ICON_GRID_TARGET_ICON_PX) * icon_scale_percent) / 100;
+#if defined(BOARD_TEMPOTEC_V1)
+    bool compact_home_grid = !title && !back_btn_cb;
+#endif
 
     lv_obj_t * scr = lv_obj_create(NULL);
     lv_obj_add_style(scr, &style_theme_screen_bg, 0);
@@ -1190,6 +1207,10 @@ lv_obj_t * build_icon_grid_screen(const char * title, lv_event_cb_t back_btn_cb,
         if (item->has_text_color) lv_obj_set_style_text_color(label, lv_color_hex(item->text_color), 0);
         /* Wrap label text within the tile width to prevent overflow into adjacent tiles. */
         lv_obj_set_width(label, lv_pct(100));
+#if defined(BOARD_TEMPOTEC_V1)
+        if (compact_home_grid) lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        else
+#endif
         lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
         lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
 
@@ -1231,13 +1252,19 @@ lv_obj_t * build_icon_grid_screen(const char * title, lv_event_cb_t back_btn_cb,
              * instead of pushing the overlap even further -- two lines
              * comfortably covers every real label this screen shows. */
             int32_t line_h = lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_BODY));
+#if defined(BOARD_TEMPOTEC_V1)
+            int32_t label_h = compact_home_grid ? line_h : line_h * 2;
+            int32_t label_gap = compact_home_grid ? BOARD_SCALE_PX(12) : ICON_GRID_ICON_LABEL_GAP;
+#else
             int32_t label_h = line_h * 2;
+            int32_t label_gap = ICON_GRID_ICON_LABEL_GAP;
+#endif
             lv_obj_set_height(label, label_h);
-            int32_t content_h = target_icon_h + ICON_GRID_ICON_LABEL_GAP + label_h;
+            int32_t content_h = target_icon_h + label_gap + label_h;
             int32_t top_offset = (available_h - content_h) / 2;
             if (top_offset < 0) top_offset = 0;
             lv_obj_align(img_wrap, LV_ALIGN_TOP_MID, 0, top_offset);
-            lv_obj_align(label, LV_ALIGN_TOP_MID, 0, top_offset + target_icon_h + ICON_GRID_ICON_LABEL_GAP);
+            lv_obj_align(label, LV_ALIGN_TOP_MID, 0, top_offset + target_icon_h + label_gap);
         }
 
         /* A card already sets its icon apart; the glow only muddies it. */

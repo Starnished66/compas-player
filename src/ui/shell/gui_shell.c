@@ -101,7 +101,7 @@ static bool quick_drawer_snapshot_wait_for_wake = false;
 #define QUICK_DRAWER_TOGGLE_ICON_PX BOARD_SCALE_PX(72)
 #define QUICK_DRAWER_TOGGLE_CELL_W BOARD_SCALE_PX(112)
 #define QUICK_DRAWER_TOGGLE_ROW_PITCH BOARD_SCALE_PY(245)
-#define QUICK_DRAWER_CARD_H BOARD_SCALE_PY(335)
+#define QUICK_DRAWER_CARD_H BOARD_SCALE_PY(322)
 #define QUICK_DRAWER_ROW1_TOP BOARD_SCALE_PY(80)
 #define QUICK_DRAWER_EXPANSION_TOP BOARD_SCALE_PY(265)
 #define QUICK_DRAWER_EXPANSION_MAX_HEIGHT BOARD_SCALE_PY(490)
@@ -5836,7 +5836,7 @@ static void build_quick_drawer(void) {
     quick_drawer_volume_container = lv_obj_create(quick_drawer);
     lv_obj_remove_style_all(quick_drawer_volume_container);
 #if defined(BOARD_TEMPOTEC_V1)
-    lv_obj_set_pos(quick_drawer_volume_container, BOARD_SCALE_PX(34), BOARD_SCALE_PY(350));
+    lv_obj_set_pos(quick_drawer_volume_container, BOARD_SCALE_PX(34), BOARD_SCALE_PY(370));
     lv_obj_set_size(quick_drawer_volume_container, BOARD_SCALE_PX(413), BOARD_SCALE_PY(55));
 #else
     lv_obj_set_pos(quick_drawer_volume_container, BOARD_SCALE_PX(34), BOARD_SCALE_PY(325));
@@ -6278,7 +6278,7 @@ static void build_quick_drawer(void) {
 #if defined(BOARD_TEMPOTEC_V1)
     lv_image_set_inner_align(quick_drawer_volume_icon, LV_IMAGE_ALIGN_CONTAIN);
     lv_obj_set_size(quick_drawer_volume_icon, BOARD_SCALE_PX(36), BOARD_SCALE_PY(45));
-    lv_obj_align(quick_drawer_volume_icon, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(54), BOARD_SCALE_PY(355));
+    lv_obj_align(quick_drawer_volume_icon, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(54), BOARD_SCALE_PY(375));
 #else
     lv_obj_align(quick_drawer_volume_icon, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(55), BOARD_SCALE_PY(346));
 #endif
@@ -6288,7 +6288,7 @@ static void build_quick_drawer(void) {
     lv_obj_set_size(quick_drawer_volume_track, brightness_track_w, SLIDER_TRACK_HEIGHT);
 #if defined(BOARD_TEMPOTEC_V1)
     lv_obj_set_size(quick_drawer_volume_track, BOARD_SCALE_PX(270), BOARD_SCALE_PY(20));
-    lv_obj_align(quick_drawer_volume_track, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(104), BOARD_SCALE_PY(368));
+    lv_obj_align(quick_drawer_volume_track, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(104), BOARD_SCALE_PY(388));
 #else
     lv_obj_align(quick_drawer_volume_track, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(103), BOARD_SCALE_PY(354));
 #endif
@@ -6324,7 +6324,7 @@ static void build_quick_drawer(void) {
     lv_obj_set_style_text_font(quick_drawer_volume_label, &lv_font_montserrat_14, 0);
     lv_obj_set_size(quick_drawer_volume_label, BOARD_SCALE_PX(54), BOARD_SCALE_PY(48));
     lv_obj_set_style_text_align(quick_drawer_volume_label, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_set_pos(quick_drawer_volume_label, BOARD_SCALE_PX(392), BOARD_SCALE_PY(355));
+    lv_obj_set_pos(quick_drawer_volume_label, BOARD_SCALE_PX(392), BOARD_SCALE_PY(375));
 #else
     lv_obj_align(quick_drawer_volume_label, LV_ALIGN_TOP_RIGHT, -BOARD_SCALE_PX(52),
                  BOARD_SCALE_PY(354) + slider_pct_dy);
@@ -6344,10 +6344,10 @@ static void build_quick_drawer(void) {
     quick_drawer_register_shift_obj(quick_drawer_brightness_icon, BOARD_SCALE_PY(290));
     quick_drawer_register_shift_obj(quick_drawer_brightness_label, BOARD_SCALE_PY(290));
     quick_drawer_register_shift_obj(quick_drawer_brightness_track, BOARD_SCALE_PY(302));
-    quick_drawer_register_shift_obj(quick_drawer_volume_container, BOARD_SCALE_PY(350));
-    quick_drawer_register_shift_obj(quick_drawer_volume_icon, BOARD_SCALE_PY(355));
-    quick_drawer_register_shift_obj(quick_drawer_volume_label, BOARD_SCALE_PY(355));
-    quick_drawer_register_shift_obj(quick_drawer_volume_track, BOARD_SCALE_PY(368));
+    quick_drawer_register_shift_obj(quick_drawer_volume_container, BOARD_SCALE_PY(370));
+    quick_drawer_register_shift_obj(quick_drawer_volume_icon, BOARD_SCALE_PY(375));
+    quick_drawer_register_shift_obj(quick_drawer_volume_label, BOARD_SCALE_PY(375));
+    quick_drawer_register_shift_obj(quick_drawer_volume_track, BOARD_SCALE_PY(388));
 #else
     quick_drawer_register_shift_obj(quick_drawer_expansion_handle, BOARD_SCALE_PY(219));
     quick_drawer_register_shift_obj(brightness_container, BOARD_SCALE_PY(238));
@@ -6372,7 +6372,7 @@ static void build_quick_drawer(void) {
     lv_obj_t * card = quick_drawer_card;
     lv_obj_remove_style_all(card);
 #if defined(BOARD_TEMPOTEC_V1)
-    lv_obj_set_pos(card, BOARD_SCALE_PX(34), BOARD_SCALE_PY(415));
+    lv_obj_set_pos(card, BOARD_SCALE_PX(34), BOARD_SCALE_PY(445));
 #else
     lv_obj_set_pos(card, BOARD_SCALE_PX(34), BOARD_SCALE_PY(411));
 #endif
@@ -6414,7 +6414,7 @@ static void build_quick_drawer(void) {
     title_h = lv_font_get_line_height(&app_font_player_title);
     artist_h = lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT));
     text_top = BOARD_SCALE_PY(15);
-    controls_bottom = BOARD_SCALE_PY(20);
+    controls_bottom = BOARD_SCALE_PY(12);
 #endif
 
     lv_obj_t * band = lv_obj_create(card);
@@ -6743,8 +6743,9 @@ static void quick_drawer_reflow_customization(void) {
                               : (count - 4 - (row - 1) * 4 < 4
                                  ? count - 4 - (row - 1) * 4 : 4);
         int32_t x = quick_drawer_toggle_column_x(column, row_count);
+        /* Expanded captions are single-line, so later rows can sit closer. */
         int32_t y = row == 0 ? QUICK_DRAWER_ROW1_TOP
-                             : (row - 1) * QUICK_DRAWER_TOGGLE_ROW_PITCH;
+                             : (row - 1) * (QUICK_DRAWER_TOGGLE_ROW_PITCH - BOARD_SCALE_PY(60));
 #else
         int row = i < 4 ? 0 : i < 8 ? 1 : 2;
         int column = row == 0 ? i : row == 1 ? i - 4 : i - 8;
@@ -6768,10 +6769,12 @@ static void quick_drawer_reflow_customization(void) {
         lv_obj_set_width(items[i].name, row > 0 ? compact_label_w : QUICK_DRAWER_TOGGLE_CELL_W);
         if (row > 0) label_x += label_inset;
         if (row > 0) {
-            lv_obj_set_height(items[i].name, 2 * lv_font_get_line_height(&lv_font_montserrat_12));
-            lv_label_set_long_mode(items[i].name, LV_LABEL_LONG_WRAP);
-            state_y = y + QUICK_DRAWER_TOGGLE_ICON_PX + BOARD_SCALE_PY(5) +
-                      2 * lv_font_get_line_height(&lv_font_montserrat_12) + BOARD_SCALE_PY(5);
+            /* Match the primary row: one scrolling caption and a close status
+             * line, without reserving an empty second caption line. */
+            int32_t caption_h = lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT));
+            lv_obj_set_height(items[i].name, caption_h);
+            lv_label_set_long_mode(items[i].name, LV_LABEL_LONG_SCROLL_CIRCULAR);
+            state_y = caption_y + caption_h + BOARD_SCALE_PY(5);
         } else {
             lv_obj_set_height(items[i].name,
                               lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT)));
