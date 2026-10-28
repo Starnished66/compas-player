@@ -3,6 +3,7 @@
 #include "../../assets/assets.h"
 #include "../../../core/system/logging/debug_log.h"
 #include "../../shell/gui_navigation.h"
+#include "scroll_blit.h"
 #include "../../text/i18n/i18n.h"
 
 #include <pthread.h>
@@ -63,6 +64,8 @@ typedef struct {
     void * row_ctx[COMPACT_LIST_POOL_SIZE]; /* opaque to this struct, freed alongside it -- see compact_list_row_ctx_t below */
     int row_logical_index[COMPACT_LIST_POOL_SIZE]; /* item currently represented by each recycled slot; -1 when unused */
     uint64_t row_artwork_key[COMPACT_LIST_POOL_SIZE]; /* artwork key of the item in each slot; 0 when none */
+    uint32_t row_content_hash[COMPACT_LIST_POOL_SIZE]; /* hash of everything a bind shows for the slot's item; lets a landed fetch skip rows that would repaint identically */
+    bool landing_rebind; /* set while a landed fetch repaints: bound rows whose content is unchanged are left alone */
     lv_obj_t * spacer; /* repositioned by compact_list_set_items() when item_count changes */
     lv_obj_t * message;
     lv_obj_t * now_playing_bar; /* NULL if this list wasn't built with enable_now_playing -- see compact_list_set_now_playing() */
@@ -371,6 +374,28 @@ static const char * compact_trailing_src(const char * trailing_asset) {
     return cached_src;
 }
 
+static uint32_t compact_list_hash_str(uint32_t h, const char * str) {
+    if (str) for (; *str; ++str) h = (h ^ (uint8_t) *str) * 16777619u;
+    return (h ^ 0xffu) * 16777619u;
+}
+
+static uint32_t compact_list_row_hash(const char * label, int64_t identity, const char * trailing,
+                                      const char * subtitle, bool is_action,
+                                      uint64_t artwork_key, const char * artwork_name,
+                                      const void * decorator, const void * decorator_ctx) {
+    uint32_t h = 2166136261u;
+    h = compact_list_hash_str(h, label);
+    h = compact_list_hash_str(h, trailing);
+    h = compact_list_hash_str(h, subtitle);
+    h = compact_list_hash_str(h, artwork_name);
+    h = (h ^ (uint32_t) identity ^ (uint32_t) ((uint64_t) identity >> 32)) * 16777619u;
+    h = (h ^ (uint32_t) artwork_key ^ (uint32_t) (artwork_key >> 32)) * 16777619u;
+    /* What the row decorator is wired to also decides how the row is painted. */
+    h = (h ^ (uint32_t) (uintptr_t) decorator) * 16777619u;
+    h = (h ^ (uint32_t) (uintptr_t) decorator_ctx) * 16777619u;
+    return (h ^ (is_action ? 1u : 0u)) * 16777619u;
+}
+
 static void compact_list_update_window(lv_obj_t * list, compact_list_virtual_data_t * data) {
 #ifdef UI_PERF_TRACE
     struct timespec perf_start_ts;
@@ -412,6 +437,7 @@ static void compact_list_update_window(lv_obj_t * list, compact_list_virtual_dat
         int slot = index % COMPACT_LIST_POOL_SIZE;
         lv_obj_t * row = data->rows[slot];
         if (!force_repaint && data->row_logical_index[slot] == index && index != targeted_index) continue;
+        int bound_index = data->row_logical_index[slot];
         data->row_logical_index[slot] = index;
         ((compact_list_row_ctx_t *) data->row_ctx[slot])->logical_index = index;
         lv_obj_set_y(row, COMPACT_LIST_TOP_PAD + index * data->row_stride);
@@ -451,6 +477,15 @@ static void compact_list_update_window(lv_obj_t * list, compact_list_virtual_dat
             artwork_key = data->items[index].artwork_key;
             artwork_name = data->items[index].artwork_name;
         }
+        uint32_t content_hash = compact_list_row_hash(label, identity, trailing_asset, subtitle,
+                                                      is_action, artwork_key, artwork_name,
+                                                      (const void *) data->row_decorator,
+                                                      data->row_decorator_ctx);
+        /* A landed fetch repaints the whole window, but a row that already
+         * shows this exact item would only be relabelled to the same text. */
+        if (data->landing_rebind && !lv_obj_has_flag(row, LV_OBJ_FLAG_HIDDEN) &&
+            data->row_content_hash[slot] == content_hash && bound_index == index) continue;
+        data->row_content_hash[slot] = content_hash;
         data->row_artwork_key[slot] = artwork_key;
         lv_obj_remove_flag(row, LV_OBJ_FLAG_HIDDEN);
         lv_obj_t * trailing = data->trailing_images[slot];
@@ -551,7 +586,9 @@ static void compact_list_poll_fetch_cb(lv_timer_t * timer) {
         compact_list_job_release(job); /* the UI-side reference -- see compact_list_fetch_job_s's own doc comment */
 
         data->window_start = -1; /* force a repaint even if the visible offset didn't move meanwhile */
+        data->landing_rebind = true; /* ...but leave rows already showing identical content alone */
         compact_list_update_window(list, data);
+        data->landing_rebind = false;
         /* Real bug caught here: compact_list_update_window() above calls
          * compact_list_ensure_cache() against the list's CURRENT live
          * scroll position, not the one this job was fetched for -- if the
@@ -790,8 +827,10 @@ lv_obj_t * build_compact_list_widget(lv_obj_t * parent, const compact_list_item_
     lv_obj_set_scroll_dir(list, LV_DIR_VER);
     screen_builders_configure_content_scrollbar(list);
     lv_obj_set_style_pad_bottom(list, BOARD_SCALE_PX(8), 0);
+    ui_scroll_blit_enable(list); /* rows keep their pixels while the list scrolls */
 
-    compact_list_virtual_data_t * data = malloc(sizeof(*data));
+    /* Zeroed so fields added later (the landing-rebind skip state) start defined for every list kind */
+    compact_list_virtual_data_t * data = calloc(1, sizeof(*data));
     data->magic = COMPACT_LIST_MAGIC;
     data->self = list;
     data->next_live = NULL;
@@ -804,6 +843,8 @@ lv_obj_t * build_compact_list_widget(lv_obj_t * parent, const compact_list_item_
     data->row_stride = data->row_height + GUI_ROW_GAP;
     data->window_start = -1;
     data->refresh_index = -1;
+    data->landing_rebind = false;
+    memset(data->row_content_hash, 0, sizeof(data->row_content_hash));
     data->items = NULL;
     if (item_count > 0) {
         data->items = malloc(sizeof(compact_list_item_t) * (size_t) item_count);

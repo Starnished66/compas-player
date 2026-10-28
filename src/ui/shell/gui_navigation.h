@@ -134,6 +134,11 @@ void player_transition_mark_dirty(void);
 void register_static_snapshot(int index, lv_obj_t * scr);
 void gui_navigation_invalidate_font_snapshots(void);
 void gui_navigation_invalidate_theme_snapshots(void);
+/* Swipe-up-to-Home toggled: frees/rebuilds only Home's permanent frame. */
+void gui_navigation_refresh_home_snapshot(void);
+/* True when a full-screen background capture will not land on a frame, an
+ * animation, a compositor or a finger; waived in part after a long wait. */
+bool gui_navigation_capture_idle(uint32_t waited_ms);
 /* Frees all cached transition snapshots; see gui_release_memory_for_external_session().
  * gui_navigation_invalidate_theme_snapshots() schedules their rebuild. */
 void gui_navigation_release_snapshots(void);

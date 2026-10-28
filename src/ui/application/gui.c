@@ -327,7 +327,7 @@ void gui_resume_after_external_session(void) {
     while (hw_buttons_consume_event(&event)) {}
     (void) hw_buttons_consume_screenshot();
     /* Rebuilds the snapshots gui_release_memory_for_external_session() freed
-     * (static screens in sliced timer passes, the rest asynchronously), and
+     * (Home's frame in a timer pass, the back and Now Playing frames asynchronously), and
      * the drawer's. */
     if (external_session_released_memory) {
         external_session_released_memory = false;
@@ -599,6 +599,7 @@ static bool prepare_screen_wake_scanout(void) {
         backlight_set_screen_on(true);
         return true;
     }
+    lv_refr_scroll_blit_reset(); /* the page contents are about to be replaced */
     if (!lv_linux_fbdev_clear_scanout(display)) return false;
 #endif
     screen_wake_scanout_pending = false;
@@ -607,6 +608,7 @@ static bool prepare_screen_wake_scanout(void) {
 #ifndef HOST_BUILD
     /* Render the complete LVGL composition into RAM during panel startup.
      * The driver leaves both physical pages black until the explicit commit. */
+    lv_refr_scroll_blit_reset(); /* the stage replaces the invalid-area queue */
     if (lv_linux_fbdev_begin_ram_stage(display)) {
         screen_wake_ram_staged = true;
         prepare_screen_wake_frame();
@@ -812,6 +814,10 @@ static void process_physical_button_events(void) {
     }
     hw_button_event_t event;
     while (hw_buttons_consume_event(&event)) {
+        /* Any key event ends a scroll-blit request in progress: key handling shows popups and moves state
+         * through paths that were not audited against the pixel copy (belt and braces over the
+         * foreign-invalidation rule). */
+        lv_refr_scroll_blit_poison(LV_SB_GUARD_KEY);
         if (hw_buttons_button_lock_is_locked() && event.button == BUTTON_MAPPING_POWER)
             physical_button_action(BUTTON_MAPPING_ACTION_DEFAULT, event.button, event.gesture,
                                    event.count, true, event.timestamp_ms, NULL);

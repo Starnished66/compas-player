@@ -28,7 +28,8 @@ typedef enum {
     UI_FRAME_TRACE_EVENT_HANDLER_FAULTS,
     UI_FRAME_TRACE_EVENT_POINTER_SAMPLE,
     UI_FRAME_TRACE_EVENT_GESTURE_ORIGIN,
-    UI_FRAME_TRACE_EVENT_DRAWER_CLAIM
+    UI_FRAME_TRACE_EVENT_DRAWER_CLAIM,
+    UI_FRAME_TRACE_EVENT_SCROLL_BLIT
 } ui_frame_trace_event_kind_t;
 
 /* POINTER_SAMPLE uses a=(uint16_t)x<<16|(uint16_t)y, b=pressed (0/1).
@@ -37,7 +38,8 @@ typedef enum {
  * Player=1, Back=2, Home=4, Drawer=8. DRAWER_CLAIM marks drag acceptance.
  * SPAN uses a=ui_trace_span_t, b=elapsed microseconds. HANDLER_FAULTS
  * follows a long HANDLER_END with a=major, b=minor UI-thread page-fault
- * deltas (RUSAGE_THREAD), excluding concurrent worker faults. */
+ * deltas (RUSAGE_THREAD), excluding concurrent worker faults. SCROLL_BLIT is folded into
+ * the frame's D record (see ui_draw_trace.c) instead of the event ring. */
 typedef enum {
     UI_TRACE_SPAN_PLAYER_CACHE = 1,
     UI_TRACE_SPAN_BACK_TARGET,
@@ -62,6 +64,7 @@ uint64_t ui_perf_now_us(void);
  * HANDLER_END/SLEEP_END use a=the caller's requested next-wait duration. */
 void ui_frame_trace_event(ui_frame_trace_event_kind_t kind, uint32_t a, uint32_t b);
 void ui_frame_trace_install(lv_display_t * disp);
+const char * ui_frame_trace_tag(void); /* tag of the capture in progress */
 void ui_frame_trace_compositor_present(uint64_t work_us);
 #else
 static inline void ui_frame_trace_event(int kind, uint32_t a, uint32_t b) {

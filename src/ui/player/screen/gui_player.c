@@ -4159,6 +4159,7 @@ void lyrics_switch_event_cb(lv_event_t * e) {
 void swipe_up_home_switch_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
     current_settings.swipe_up_home_enabled = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
+    gui_navigation_refresh_home_snapshot(); /* Home's frame exists only while the gesture is on */
     lv_obj_t * active = lv_screen_active();
     gui_shell_set_home_indicator_visible(current_settings.swipe_up_home_enabled &&
                                          active != gui_shell_get_home_screen() &&

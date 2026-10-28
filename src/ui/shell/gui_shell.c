@@ -3589,6 +3589,8 @@ static int32_t quick_drawer_motion_y(void) {
     return lv_obj_get_y(quick_drawer_bitmap_motion ? quick_drawer_motion_image : quick_drawer);
 }
 
+static void quick_drawer_schedule_snapshot_retry(void);
+
 static void quick_drawer_rebuild_snapshot(void) {
     if (!quick_drawer || quick_drawer_bitmap_motion || quick_drawer_expansion_motion) return;
     if (!quick_drawer_customization_enabled()) {
@@ -3613,6 +3615,13 @@ static void quick_drawer_rebuild_snapshot(void) {
         quick_drawer_prepare_motion_cache();
         quick_drawer_release_motion_cache();
         quick_drawer_expansion_cache_warming = false;
+        /* The warm-up and the drawer snapshot are each tens of ms: take the
+         * snapshot in a later pass rather than both in one. */
+        if (quick_drawer_snapshot_dirty && quick_drawer_motion_buf && !quick_drawer_expansion_art_dirty) {
+            UI_TRACE_SPAN_END(UI_TRACE_SPAN_DRAWER_SNAPSHOT, perf_span);
+            quick_drawer_schedule_snapshot_retry();
+            return;
+        }
     }
     /* A warm-only pass keeps the existing drawer snapshot. */
     if (!quick_drawer_snapshot_dirty && quick_drawer_motion_buf) {
@@ -3672,9 +3681,14 @@ static void quick_drawer_schedule_snapshot_retry(void) {
         lv_timer_resume(quick_drawer_snapshot_retry_timer);
 }
 
+static uint32_t quick_drawer_snapshot_waited_ms;
+
 static void quick_drawer_snapshot_async_cb(void * unused) {
     (void) unused;
-    if (!quick_drawer || !quick_drawer_snapshot_work_pending()) return;
+    if (!quick_drawer || !quick_drawer_snapshot_work_pending()) {
+        quick_drawer_snapshot_waited_ms = 0;
+        return;
+    }
     if (!backlight_screen_is_on()) {
         quick_drawer_snapshot_wait_for_wake = true;
         return;
@@ -3685,9 +3699,16 @@ static void quick_drawer_snapshot_async_cb(void * unused) {
      * would land on its first frames. */
     if (gui_navigation_transition_in_progress() || gui_player_lyrics_animation_in_progress() ||
         quick_drawer_pointer_pressed()) {
+        quick_drawer_snapshot_waited_ms = 0; /* the patience waiver counts only otherwise-idle time */
         quick_drawer_schedule_snapshot_retry();
         return;
     }
+    if (!gui_navigation_capture_idle(quick_drawer_snapshot_waited_ms)) {
+        quick_drawer_snapshot_waited_ms += 16;
+        quick_drawer_schedule_snapshot_retry();
+        return;
+    }
+    quick_drawer_snapshot_waited_ms = 0;
     quick_drawer_rebuild_snapshot();
 }
 

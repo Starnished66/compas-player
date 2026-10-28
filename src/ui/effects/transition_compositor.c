@@ -296,6 +296,7 @@ bool transition_compositor_begin_ex(const lv_draw_buf_t * from, const lv_draw_bu
         return false;
     }
 
+    lv_refr_scroll_blit_reset(); /* the queued invalid areas are discarded below */
     if (!lv_linux_fbdev_begin_external_composition(disp)) {
         return false;
     }
@@ -747,6 +748,7 @@ bool transition_compositor_begin_vertical_overlay(const lv_draw_buf_t * overlay,
         new_base = true;
     }
 
+    lv_refr_scroll_blit_reset(); /* the queued invalid areas are discarded below */
     if (!lv_linux_fbdev_begin_external_composition(disp)) {
         if (new_base) free(base);
         return false;
@@ -1011,6 +1013,7 @@ bool transition_compositor_begin_bottom_sheet(const lv_draw_buf_t * sheet) {
         span_start[row] = best_start;
         span_end[row] = best_end;
     }
+    lv_refr_scroll_blit_reset(); /* the queued invalid areas are discarded below */
     if (!lv_linux_fbdev_begin_external_composition(disp)) {
         free(base); free(rgb565); free(span_start); free(span_end);
         return false;

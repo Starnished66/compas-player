@@ -5,6 +5,8 @@
 
 #ifdef UI_PERF_TRACE
 #include "../application/gui.h"
+#include "ui_draw_trace.h"
+#include "ui_blit_verify.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -215,6 +217,9 @@ void ui_frame_trace_event(ui_frame_trace_event_kind_t kind, uint32_t a, uint32_t
                 if (trace.armed) record_event_at(kind, now, a, b);
             }
             break;
+        case UI_FRAME_TRACE_EVENT_SCROLL_BLIT:
+            if (trace.armed) ui_draw_trace_note_blit(a, b);
+            break;
         default: record_event_at(kind, now, a, b); break;
     }
 }
@@ -241,6 +246,7 @@ static void record_frame(uint64_t now, uint32_t work_us, bool composited) {
     trace.pending_invalidations = 0;
     trace.pending_flags = 0;
     trace.pending_invalidated_area = 0;
+    if (!composited) ui_draw_trace_commit(trace.frame_sequence, now);
     trace.frame_next = (pos + 1u) % FRAME_CAPACITY;
     if (trace.frame_count < FRAME_CAPACITY) trace.frame_count++;
     else trace.frame_overwrites++;
@@ -267,6 +273,7 @@ static void display_event_cb(lv_event_t * e) {
     if (!trace.armed) return;
     if (code == LV_EVENT_RENDER_START) {
         render_start_us = ui_perf_now_us();
+        ui_draw_trace_render_start();
         return;
     }
     if (code == LV_EVENT_INVALIDATE_AREA) {
@@ -315,6 +322,11 @@ static void start_capture(void) {
     render_start_us = 0;
     trace.capture_start_us = ui_perf_now_us();
     trace.capture_stop_us = 0;
+    ui_draw_trace_fb_bench();
+    lv_scroll_blit_diag_reset();
+    lv_refr_scroll_blit_guard_reset_counts();
+    ui_blit_verify_reset();
+    ui_draw_trace_arm(true);
     trace.armed = true;
     trace.export_pending = false;
 }
@@ -323,6 +335,8 @@ static bool stop_capture(void) {
     if (!trace.armed) return false;
     trace.capture_stop_us = ui_perf_now_us();
     trace.armed = false;
+    ui_draw_trace_arm(false);
+    ui_draw_trace_export_begin();
     trace.export_pending = true;
     trace.export_header_pending = true;
     trace.export_footer_pending = true;
@@ -333,10 +347,15 @@ static bool stop_capture(void) {
     return true;
 }
 
+const char * ui_frame_trace_tag(void) {
+    return trace.tag[0] ? trace.tag : "-";
+}
+
 static void write_status(const char * status);
 
 /* CSV layout: F seq,time,work,flags,sync,drawflush,drawflush_area,pan,handler,sleep,
- * invalidate_count,invalidate_area; E seq,time,kind,a,b. Durations are wall
+ * invalidate_count,invalidate_area; E seq,time,kind,a,b; D seq,time then
+ * ns,tasks,pixels per draw-task class (see ui_draw_trace.c), seq = its F record. Durations are wall
  * microseconds. work is render-start to render-ready; drawflush ends at flush
  * entry and excludes flush/pan waiting. Sync/pan are nested in handler time,
  * so these columns must not be summed as independent CPU costs. invalidated
@@ -357,13 +376,22 @@ static void write_export_batch(void) {
     bool header_pending = trace.export_header_pending;
     bool footer_pending = trace.export_footer_pending;
     bool ok = true;
+    uint32_t bench_read, bench_write, bench_ram;
+    ui_draw_trace_fb_bench_results(&bench_read, &bench_write, &bench_ram);
+    ui_blit_verify_stats_t verify;
+    ui_blit_verify_stats(&verify);
+    uint32_t guards[LV_SB_GUARD_COUNT];
+    lv_refr_scroll_blit_guard_counts(guards);
     if (header_pending) {
-        ok = fprintf(f, "# trace tag=%s start_us=%llu stop_us=%llu bytes=%u frame_record=%zu event_record=%zu frame_capacity=%u event_capacity=%u frame_overwrites=%u event_overwrites=%u invalidations=%u invalidated_area=%llu pan_failures=%u present_failures=%u pan_fail_flag=4 delivery=at-least-once dedupe=(tag,type,sequence)\n",
+        ok = fprintf(f, "# trace tag=%s start_us=%llu stop_us=%llu bytes=%u frame_record=%zu event_record=%zu frame_capacity=%u event_capacity=%u draw_record=%u draw_capacity=%u fb_read_us=%u fb_write_us=%u ram_copy_us=%u blit_verify_frames=%u blit_verify_skipped=%u blit_verify_bad=%u blit_verify_bad_px=%llu blit_verify_selftest=%u blit_verify_selftest_bad=%u blit_verify_first_bad=%d,%d,%d,%d blit_guards=reset:%u,queue:%u,invdis:%u,key:%u,overflow:%u,foreign:%u,stress:%u frame_overwrites=%u event_overwrites=%u invalidations=%u invalidated_area=%llu pan_failures=%u present_failures=%u pan_fail_flag=4 delivery=at-least-once dedupe=(tag,type,sequence)\n",
                 trace.tag[0] ? trace.tag : "-",
                 (unsigned long long) trace.capture_start_us,
                 (unsigned long long) trace.capture_stop_us,
                 (unsigned) (sizeof(frames) + sizeof(events)), sizeof(frame_record_t), sizeof(event_record_t),
-                FRAME_CAPACITY, EVENT_CAPACITY, trace.frame_overwrites, trace.event_overwrites,
+                FRAME_CAPACITY, EVENT_CAPACITY, ui_draw_trace_record_size(), ui_draw_trace_capacity(), bench_read, bench_write, bench_ram, verify.checked, verify.skipped, verify.bad_frames,
+                (unsigned long long) verify.bad_pixels, verify.selftest_checked, verify.selftest_bad, verify.bad_x1, verify.bad_y1, verify.bad_x2, verify.bad_y2,
+                guards[0], guards[1], guards[2], guards[3], guards[4], guards[5], guards[6],
+                trace.frame_overwrites, trace.event_overwrites,
                 trace.invalidation_count, (unsigned long long) trace.invalidation_area,
                 trace.pan_failures, trace.present_failures) >= 0;
         if (ok) header_pending = false;
@@ -384,7 +412,11 @@ static void write_export_batch(void) {
                 (unsigned long long) r->timestamp_us, r->kind, r->a, r->b) >= 0;
         if (ok) { event_pos = (event_pos + 1u) % EVENT_CAPACITY; event_left--; budget--; }
     }
-    if (ok && !frame_left && !event_left && footer_pending)
+    while (ok && budget && ui_draw_trace_export_pending()) {
+        ok = ui_draw_trace_export_next(f);
+        if (ok) budget--;
+    }
+    if (ok && !frame_left && !event_left && !ui_draw_trace_export_pending() && footer_pending)
         ok = fprintf(f, "# export_complete errors=%u\n", trace.export_errors) >= 0;
     if (fclose(f) != 0) ok = false;
     if (!ok) {
@@ -395,7 +427,7 @@ static void write_export_batch(void) {
     trace.export_frame_pos = frame_pos; trace.export_frame_left = frame_left;
     trace.export_event_pos = event_pos; trace.export_event_left = event_left;
     trace.export_header_pending = header_pending;
-    if (!frame_left && !event_left) {
+    if (!frame_left && !event_left && !ui_draw_trace_export_pending()) {
         trace.export_footer_pending = false;
         trace.export_pending = false;
         write_status("export complete");
@@ -442,6 +474,7 @@ static void control_timer_cb(lv_timer_t * timer) {
                 trace.export_pending = false;
                 trace.export_header_pending = trace.export_footer_pending = false;
                 trace.frame_count = trace.event_count = 0;
+                ui_draw_trace_export_discard();
                 write_status("pending trace discarded");
             } else {
                 write_status("no pending trace");
@@ -460,6 +493,7 @@ static void idle_timer_cb(lv_timer_t * timer) {
 void ui_frame_trace_install(lv_display_t * disp) {
     if (!disp) return;
     trace.mount_verified = verify_sd_mount();
+    ui_draw_trace_install(disp);
     lv_display_add_event_cb(disp, display_event_cb, LV_EVENT_INVALIDATE_AREA, NULL);
     lv_display_add_event_cb(disp, display_event_cb, LV_EVENT_RENDER_START, NULL);
     lv_display_add_event_cb(disp, display_event_cb, LV_EVENT_RENDER_READY, NULL);

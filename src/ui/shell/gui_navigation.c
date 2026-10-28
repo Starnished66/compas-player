@@ -84,6 +84,7 @@ extern bool active_press_is_over_drag_adjust_widget(void);
  * forget waits for at most its current page read before destruction. */
 static void destroy_prefetchable_snapshot(lv_draw_buf_t *buffer) {
     if (!buffer) return;
+    DB_LOG("MEM", "snapshot free bytes=%u", (unsigned) buffer->data_size);
     ui_snapshot_prefetch_forget(buffer);
     lv_draw_buf_destroy(buffer);
 }
@@ -180,6 +181,10 @@ static lv_draw_buf_t * snapshot_screen_base(lv_obj_t * target_screen) {
 
     UI_TRACE_SPAN_BEGIN(perf_span);
     lv_draw_buf_t * base = lv_snapshot_take(target_screen, LV_COLOR_FORMAT_RGB565);
+    if (base) DB_LOG("MEM", "snapshot create screen=%s bytes=%u",
+                     target_screen == gui_player_get_screen() ? "player" :
+                     target_screen == gui_shell_get_home_screen() ? "home" : "other",
+                     (unsigned) base->data_size);
     UI_TRACE_SPAN_END(target_screen == gui_player_get_screen() ? UI_TRACE_SPAN_PLAYER_CACHE :
                       target_screen == back_target_cache_screen ? UI_TRACE_SPAN_BACK_TARGET :
                       UI_TRACE_SPAN_STATIC_SNAPSHOT, perf_span);
@@ -265,21 +270,19 @@ static lv_draw_buf_t * build_flattened_transition_frame(lv_obj_t * target_screen
  * deliberately NOT part of this cached base (see blend_persistent_bars()'s
  * own comment on why baking bars into a cache built once at startup goes
  * stale); begin_slide_transition() blends them in fresh every time it uses
- * this cache. Anything with actual dynamic content (player screen, file/
- * song lists, Settings' toggles, the accent-color picker's selection ring,
- * Subsonic status screens) is deliberately left out of THIS particular
- * cache -- the player screen has its own dedicated cache
- * (player_transition_cache_buf below), and whatever screen a nav_push()
- * most recently left behind has its own single-slot cache too
- * (back_target_cache_buf, further below); anything else genuinely is
- * rendered fresh on every transition. */
+ * this cache. Only Home (slot 0) keeps such a permanent buffer now, and only
+ * while swipe-up-to-Home is on; the other registered screens are no longer
+ * pre-rendered. The player screen has its own dedicated cache
+ * (player_transition_cache_buf below), and the screen directly behind the
+ * top of the nav stack has a single-slot cache (back_target_cache_buf,
+ * further below); anything else is rendered fresh on every transition. */
 #define STATIC_SNAPSHOT_SCREEN_COUNT 9
 static lv_obj_t * static_snapshot_screen[STATIC_SNAPSHOT_SCREEN_COUNT];
 static lv_draw_buf_t * static_snapshot_buf[STATIC_SNAPSHOT_SCREEN_COUNT];
 static uint64_t static_snapshot_scroll_state[STATIC_SNAPSHOT_SCREEN_COUNT];
 /* Theme invalidations can arrive in bursts while accent colors are being
  * applied. Coalesce them, then capture at most one static screen per timer
- * pass so rebuilding nine full-screen buffers cannot monopolize the UI. */
+ * pass so the rebuild cannot monopolize the UI. */
 #define THEME_SNAPSHOT_REBUILD_DELAY_MS 250
 #define THEME_SNAPSHOT_REBUILD_PERIOD_MS 100
 static lv_timer_t * theme_snapshot_rebuild_timer;
@@ -287,6 +290,18 @@ static uint32_t theme_snapshot_rebuild_after;
 static int theme_snapshot_rebuild_index;
 
 static void theme_snapshot_rebuild_timer_cb(lv_timer_t * timer);
+static void theme_snapshot_rebuild_arm(void);
+static void back_target_cache_drop_if_static(lv_obj_t * screen);
+static void back_target_cache_retarget(void);
+
+/* Only Home keeps a permanent pre-rendered frame (slot 0), and only while the
+ * swipe-up-to-Home gesture that reveals it is enabled. Forward navigation has
+ * no slide and a back-swipe uses the one-slot back-target cache below, so the
+ * other registered screens keep their slot purely so font-geometry refreshes
+ * still reach them. */
+static bool static_snapshot_wanted(int index) {
+    return index == 0 && current_settings.swipe_up_home_enabled;
+}
 
 static bool static_snapshot_rebuild_input_active(void) {
     for (lv_indev_t * indev = lv_indev_get_next(NULL); indev; indev = lv_indev_get_next(indev)) {
@@ -343,7 +358,7 @@ static void static_scroll_snapshot_async(void * data) {
             lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED) return;
     }
     lv_obj_t * screen = static_snapshot_screen[index];
-    if (!screen) return;
+    if (!screen || !static_snapshot_wanted(index)) return;
     uint64_t scroll = static_snapshot_scroll_state_for(screen);
     if (static_snapshot_buf[index] && static_snapshot_scroll_state[index] == scroll) return;
     lv_draw_buf_t * fresh = snapshot_screen_base(screen);
@@ -351,6 +366,7 @@ static void static_scroll_snapshot_async(void * data) {
     if (static_snapshot_buf[index]) destroy_prefetchable_snapshot(static_snapshot_buf[index]);
     static_snapshot_buf[index] = fresh;
     static_snapshot_scroll_state[index] = scroll;
+    back_target_cache_drop_if_static(screen);
 }
 
 static void static_scroll_end_cb(lv_event_t * event) {
@@ -376,8 +392,9 @@ void register_static_snapshot(int index, lv_obj_t * scr) {
      * leaks the previous lv_draw_buf_t. */
     if (static_snapshot_buf[index]) destroy_prefetchable_snapshot(static_snapshot_buf[index]);
     static_snapshot_screen[index] = scr;
-    static_snapshot_buf[index] = snapshot_screen_base(scr);
+    static_snapshot_buf[index] = static_snapshot_wanted(index) ? snapshot_screen_base(scr) : NULL;
     static_snapshot_scroll_state[index] = static_snapshot_scroll_state_for(scr);
+    if (static_snapshot_buf[index]) back_target_cache_drop_if_static(scr);
 }
 
 static void player_transition_discard_cache(void);
@@ -389,8 +406,9 @@ static void rebuild_font_snapshots_async_cb(void * unused) {
         if (!static_snapshot_screen[i]) continue;
         screen_builders_refresh_font_geometry(static_snapshot_screen[i]);
         if (static_snapshot_buf[i]) destroy_prefetchable_snapshot(static_snapshot_buf[i]);
-        static_snapshot_buf[i] = snapshot_screen_base(static_snapshot_screen[i]);
+        static_snapshot_buf[i] = static_snapshot_wanted(i) ? snapshot_screen_base(static_snapshot_screen[i]) : NULL;
         static_snapshot_scroll_state[i] = static_snapshot_scroll_state_for(static_snapshot_screen[i]);
+        if (static_snapshot_buf[i]) back_target_cache_drop_if_static(static_snapshot_screen[i]);
     }
 }
 
@@ -421,7 +439,7 @@ static void theme_snapshot_rebuild_timer_cb(lv_timer_t * timer) {
     while (theme_snapshot_rebuild_index < STATIC_SNAPSHOT_SCREEN_COUNT) {
         int i = theme_snapshot_rebuild_index++;
         lv_obj_t * screen = static_snapshot_screen[i];
-        if (!screen || static_snapshot_buf[i]) continue;
+        if (!screen || static_snapshot_buf[i] || !static_snapshot_wanted(i)) continue;
 
         lv_draw_buf_t * fresh = snapshot_screen_base(screen);
         if (!fresh) {
@@ -434,6 +452,7 @@ static void theme_snapshot_rebuild_timer_cb(lv_timer_t * timer) {
         }
         static_snapshot_buf[i] = fresh;
         static_snapshot_scroll_state[i] = static_snapshot_scroll_state_for(screen);
+        back_target_cache_drop_if_static(screen);
         return; /* One expensive capture per eligible UI pass. */
     }
 
@@ -454,6 +473,10 @@ void gui_navigation_invalidate_theme_snapshots(void) {
     }
     player_transition_discard_cache();
     back_target_cache_discard();
+    theme_snapshot_rebuild_arm();
+}
+
+static void theme_snapshot_rebuild_arm(void) {
     theme_snapshot_rebuild_index = 0;
     theme_snapshot_rebuild_after = lv_tick_get() + THEME_SNAPSHOT_REBUILD_DELAY_MS;
     if (!theme_snapshot_rebuild_timer) {
@@ -464,6 +487,15 @@ void gui_navigation_invalidate_theme_snapshots(void) {
         lv_timer_reset(theme_snapshot_rebuild_timer);
     }
     gui_navigation_poll_snapshot_rebuild();
+}
+
+/* Swipe-up-to-Home toggled: only Home's permanent frame appears/disappears.
+ * Re-point the back slot too (Home may now need, or no longer need, it). */
+void gui_navigation_refresh_home_snapshot(void) {
+    if (static_snapshot_buf[0]) destroy_prefetchable_snapshot(static_snapshot_buf[0]);
+    static_snapshot_buf[0] = NULL;
+    theme_snapshot_rebuild_arm();
+    back_target_cache_retarget();
 }
 
 /* Player-screen transition-frame cache. gui_player_get_screen() is dynamic
@@ -537,33 +569,70 @@ void player_transition_mark_dirty(void) {
  * the single biggest remaining begin_slide_transition_ex() cost once the
  * static/player caches don't apply: a synchronous lv_snapshot_take() of a
  * live, potentially large widget tree (a Files/Albums/Songs list, Settings,
- * etc), costing 13-27ms. Rebuilt asynchronously right when nav_push()
- * leaves a screen behind, not on every visit -- a few-seconds-stale
- * destination frame for a screen the user isn't even looking at is the same
+ * etc), costing 13-27ms. Re-pointed whenever the stack changes (back_target_cache_retarget())
+ * and rendered shortly after nav_push() from a short timer, once the new
+ * screen's first frame has been drawn, so tap latency is unchanged. A
+ * few-seconds-stale frame for a screen the user isn't looking at is the same
  * accepted tradeoff player_transition_cache_buf above already makes.
- * Screen-only base -- persistent bars blended in fresh at transition time,
- * same as every other cache here. Deliberately skipped for static-snapshot
- * screens and the player screen (get_static_snapshot()/the player-cache
- * check both run first in begin_slide_transition_ex(), and back_target_
- * cache_rebuild_cb() below also declines to snapshot either kind) -- this
- * slot exists purely to cover the dynamic screens neither of those already
- * handle. Only hooked into nav_push() (the common case: tapping from Home/
- * a list into a deeper screen) -- not nav_push_stack_only()'s player-swipe-
- * commit call site, since that path already gets the compositor's fast
- * horizontal two-panel mode (reveal=false leaving Player) and the
- * remaining cold-snapshot tail there is a smaller, separate win not worth
- * the added complexity of exposing that path's own from_scr here too. */
+ * Screen-only base -- persistent bars blended in fresh at transition time.
+ * Skipped for the player (own cache), for Home while its static frame exists,
+ * and for transient screens (text entry, busy). Also covers
+ * nav_push_stack_only() (player-swipe commit) and every pop/reset through
+ * retarget. */
 static lv_obj_t * back_target_cache_screen = NULL;
 static lv_draw_buf_t * back_target_cache_buf = NULL;
-/* The rebuild runs from a delayed timer rather than lv_async_call(): an async
+/* The rebuild runs from a short timer rather than lv_async_call(): an async
  * queued by nav_push() ran before the new screen's first frame, adding a full
- * off-screen render to every push, and each discard queued another one.
- * One pending timer with a dirty flag coalesces those, and retries while a
- * finger is down or a slide is running. A back gesture before it fires uses
- * the uncached transition path, as it did before the first rebuild. */
-#define BACK_TARGET_REBUILD_DELAY_MS 150
+ * off-screen render to every push. The delay spans a couple of frames so the
+ * new screen is on the display first. One pending timer with a dirty flag
+ * coalesces repeated requests, and retries while a finger is down or a slide
+ * is running. A back gesture before it fires uses the uncached path. */
+#define BACK_TARGET_REBUILD_DELAY_MS 50
 static lv_timer_t * back_target_cache_timer = NULL;
 static bool back_target_cache_dirty = false;
+
+/* Idle test for background captures (back-target frame, drawer snapshot): a
+ * full-screen capture costs 10-40 ms, so it must not share a main-loop pass
+ * with a frame, a compositor or a finger. `waited_ms` is
+ * how long the caller has already been postponed; past IDLE_PATIENCE_MS the
+ * render-recency condition is waived (a spinner or a clock may redraw
+ * forever) but touch and transitions never are. */
+#define IDLE_QUIET_MS 40
+#define IDLE_PATIENCE_MS 600
+/* Last render or invalidation: a redraw queued for this very pass shows up
+ * as an invalidation just now. */
+static uint32_t last_render_tick;
+static uint32_t last_busy_tick; /* last time touch, a slide or the compositor blocked a capture */
+static bool render_hook_installed;
+
+static void idle_render_ready_cb(lv_event_t * e) {
+    (void) e;
+    last_render_tick = lv_tick_get();
+}
+
+/* Never waived: a slide, the compositor or a finger down. */
+static bool capture_hard_blocked(void) {
+    return gui_navigation_transition_in_progress() || transition_compositor_is_active() ||
+           static_snapshot_rebuild_input_active();
+}
+
+bool gui_navigation_capture_idle(uint32_t waited_ms) {
+    lv_display_t * disp = lv_display_get_default();
+    if (disp && !render_hook_installed) {
+        lv_display_add_event_cb(disp, idle_render_ready_cb, LV_EVENT_RENDER_READY, NULL);
+        lv_display_add_event_cb(disp, idle_render_ready_cb, LV_EVENT_INVALIDATE_AREA, NULL);
+        render_hook_installed = true;
+        last_render_tick = lv_tick_get();
+    }
+    if (capture_hard_blocked()) {
+        last_busy_tick = lv_tick_get();
+        return false;
+    }
+    /* The waiver counts only time spent otherwise idle: right after a touch or
+     * slide ends, its closing redraw has not been invalidated yet. */
+    if (waited_ms >= IDLE_PATIENCE_MS && lv_tick_elaps(last_busy_tick) >= IDLE_QUIET_MS) return true;
+    return lv_tick_elaps(last_render_tick) >= IDLE_QUIET_MS;
+}
 
 static void back_target_cache_rebuild(void) {
     if (!back_target_cache_screen) return;
@@ -584,10 +653,18 @@ static void back_target_cache_rebuild(void) {
     back_target_cache_buf = fresh;
 }
 
+static uint32_t back_target_cache_waited_ms;
+
 static void back_target_cache_timer_cb(lv_timer_t * timer) {
-    if (back_target_cache_dirty && back_target_cache_screen &&
-        (gui_navigation_transition_in_progress() || static_snapshot_rebuild_input_active()))
-        return; /* try again next period */
+    if (back_target_cache_dirty && back_target_cache_screen) {
+        if (!gui_navigation_capture_idle(back_target_cache_waited_ms)) {
+            /* The patience waiver counts only otherwise-idle time. */
+            if (capture_hard_blocked()) back_target_cache_waited_ms = 0;
+            else back_target_cache_waited_ms += BACK_TARGET_REBUILD_DELAY_MS;
+            return; /* try again next period */
+        }
+    }
+    back_target_cache_waited_ms = 0;
     if (back_target_cache_dirty) {
         back_target_cache_dirty = false;
         back_target_cache_rebuild();
@@ -599,6 +676,7 @@ static void back_target_cache_timer_cb(lv_timer_t * timer) {
 static void back_target_cache_schedule(void) {
     back_target_cache_dirty = back_target_cache_screen != NULL;
     if (!back_target_cache_dirty) return;
+    back_target_cache_waited_ms = 0;
     if (back_target_cache_timer) {
         lv_timer_reset(back_target_cache_timer);
         return;
@@ -679,18 +757,43 @@ void gui_navigation_invalidate_back_snapshot(lv_obj_t * screen) {
     if (screen && back_target_cache_screen == screen) back_target_cache_discard();
 }
 
-/* Called from nav_push() right after it decides `scr` is being left behind
- * (covered) by a new push -- `scr` is now exactly what a future back-swipe/
- * back-action from the new top of the stack would target. */
+/* True when `scr` needs no back-target slot: the player and (while the
+ * swipe-up gesture is on) Home already have a dedicated cache, and transient
+ * screens (text entry, busy) are not worth a buffer. */
+static bool back_target_cache_screen_covered_elsewhere(lv_obj_t * scr) {
+    return !scr || get_static_snapshot(scr) || scr == gui_player_get_screen() ||
+           scr == gui_text_input_get_screen() || scr == gui_busy_get_screen();
+}
+
+/* Called from nav_push() when `scr` is being left behind by a forward push.
+ * Only re-points the slot; the frame is rendered by the short timer after the
+ * new screen's first frame. */
 static void back_target_cache_note_covered(lv_obj_t * scr) {
-    /* Skip static/player screens entirely -- get_static_snapshot()/player
-     * checks in back_target_cache_rebuild() above already decline to
-     * snapshot them, so caching the pointer here would only ever sit idle
-     * while still needing the exact same replace-time fixup real dynamic
-     * screens do (see back_target_cache_note_replaced()'s own comment) --
-     * narrower is safer than correct-but-pointless. */
-    if (get_static_snapshot(scr) || scr == gui_player_get_screen()) scr = NULL;
-    if (back_target_cache_screen != scr) back_target_cache_screen = scr;
+    if (back_target_cache_screen_covered_elsewhere(scr)) scr = NULL;
+    back_target_cache_screen = scr;
+    back_target_cache_discard();
+}
+
+/* A static frame for `screen` now exists (rebuilt after a theme/font change):
+ * drop a back-slot copy of the same screen instead of holding Home twice. */
+static void back_target_cache_drop_if_static(lv_obj_t * screen) {
+    if (!screen || back_target_cache_screen != screen) return;
+    if (back_target_cache_buf) destroy_prefetchable_snapshot(back_target_cache_buf);
+    back_target_cache_buf = NULL;
+    back_target_cache_screen = NULL;
+    back_target_cache_dirty = false;
+}
+
+/* After the stack changed: keep the single slot pointed at the screen
+ * directly behind the top. A change of target frees the old frame and
+ * rebuilds from the timer (the new target is not on screen, so it is rendered
+ * off-screen); an unchanged target keeps its frame. Never call before a
+ * transition has duplicated the old slot into its own buffer. */
+static void back_target_cache_retarget(void) {
+    lv_obj_t * want = nav_depth > 1 ? nav_stack[nav_depth - 2] : NULL;
+    if (back_target_cache_screen_covered_elsewhere(want)) want = NULL;
+    if (want == back_target_cache_screen) return;
+    back_target_cache_screen = want;
     back_target_cache_discard();
 }
 
@@ -825,6 +928,11 @@ void slide_transition_done_cb(lv_anim_t * a) {
     transition_compositor_end(); /* no-op if the compositor was never activated for this transition */
     lv_free(ctx);
     slide_transition_active = false;
+    /* A back-navigation just retargeted the slot at the screen now behind the
+     * top. Its frame is rendered by the back-target timer, which waits for an
+     * idle pass: capturing here would share the pass with the final render. */
+    if (back_target_cache_dirty && back_target_cache_screen && !back_target_cache_buf)
+        back_target_cache_schedule();
 }
 
 void slide_transition_cancel(slide_transition_ctx_t ** pctx) {
@@ -1032,6 +1140,11 @@ slide_transition_ctx_t * begin_slide_transition_ex(lv_obj_t * to_scr, bool forwa
         perf_cache_source = 4;
 #endif
     }
+#ifdef UI_PERF_TRACE
+    DB_LOG("MEM", "transition to-frame source=%s",
+           !cached_base ? "fresh-render" : to_scr == gui_player_get_screen() ? "player-cache" :
+           to_scr == back_target_cache_screen ? "back-target" : "home-cache");
+#endif
     if (cached_base) {
         UI_TRACE_SPAN_BEGIN(perf_dup);
         buf_to = lv_draw_buf_dup(cached_base);
@@ -1262,6 +1375,7 @@ void nav_push(lv_obj_t * scr) {
 void nav_push_stack_only(lv_obj_t * scr) {
     if (nav_depth > 0 && nav_stack[nav_depth - 1] == scr) return;
     if (nav_depth < NAV_STACK_MAX) nav_stack[nav_depth++] = scr;
+    back_target_cache_retarget(); /* source is mid-gesture: the frame is rendered later by the timer */
 }
 
 /* A covered text view is already unloaded, so dropping its stack entry
@@ -1282,6 +1396,7 @@ void nav_pop_ex(bool forward, bool vertical, bool reveal) {
      * has been captured. The transition completion/cut-fallback path
      * applies the destination state at the actual screen handoff. */
     screen_transition_slide_ex(nav_stack[nav_depth - 1], forward, vertical, reveal);
+    back_target_cache_retarget(); /* the transition has already copied the old slot */
     note_text_view_if_dropped();
 }
 
@@ -1295,6 +1410,7 @@ void nav_pop_stack_only(void) {
         nav_depth--;
         cancel_text_input_if_unstacked(removed);
     }
+    back_target_cache_retarget();
     note_text_view_if_dropped();
 }
 
@@ -1323,6 +1439,7 @@ void nav_remove_stack_slot(int index) {
     for (int i = index; i < nav_depth - 1; i++) nav_stack[i] = nav_stack[i + 1];
     if (nav_depth > 0) nav_depth--;
     cancel_text_input_if_unstacked(removed);
+    back_target_cache_retarget();
     note_text_view_if_dropped();
 }
 
@@ -1362,6 +1479,7 @@ void nav_reset_to_home(void) {
     lv_screen_load(target);
     sync_player_topbar_visibility(target);
     sync_home_indicator_visibility(target);
+    back_target_cache_retarget();
     note_text_view_if_dropped();
 }
 
@@ -1375,6 +1493,7 @@ void nav_reset_to_home_stack_only(void) {
     nav_depth = 1;
     nav_stack[0] = nav_home_target();
     if (removed_text_entry) cancel_text_input_if_unstacked(text_entry);
+    back_target_cache_retarget();
     note_text_view_if_dropped();
 }
 
@@ -1584,6 +1703,7 @@ bool gui_navigation_restore_path(const gui_nav_reload_state_t * state) {
     for (int i = 0; i < NAV_STACK_MAX; i++) nav_stack[i] = NULL;
     for (int i = 0; i < state->depth; i++) nav_stack[i] = rebuilt[i];
     nav_depth = state->depth;
+    back_target_cache_retarget();
     lv_obj_update_layout(rebuilt[state->depth - 1]);
     lv_screen_load(rebuilt[state->depth - 1]);
     sync_player_topbar_visibility(rebuilt[state->depth - 1]);
