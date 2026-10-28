@@ -24,6 +24,10 @@ void player_lyrics_backdrop_set_busy(bool busy);
  * cannot run while the UI thread is blocked. No-op while a transition is
  * active or nothing is cached. */
 void player_lyrics_backdrop_release_frames(void);
+/* Screen-off variant: frees the frames without scheduling the recapture;
+ * player_lyrics_backdrop_warm_after_wake() schedules it. */
+void player_lyrics_backdrop_release_frames_quiet(void);
+void player_lyrics_backdrop_warm_after_wake(void);
 bool player_lyrics_backdrop_begin(bool opening);
 /* Finish the current transition. Pass true only for a completed settled
  * transition; it retains a validated narrow static image binding for the next

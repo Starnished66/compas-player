@@ -4,6 +4,7 @@
 #include "../text/i18n/i18n.h"
 #include "../library/browse/gui_library.h"
 #include "../settings/lock/gui_lock_screen.h"
+#include "gui_screen_off_memory.h"
 #include "../player/screen/gui_queue.h"
 #include "../../core/ui/display/ui_wake.h"
 #include "../input/event_input.h"
@@ -1333,12 +1334,15 @@ static screen_poll_result_t poll_screen_power(void) {
     }
 
     if (screen_just_woke) {
+        gui_screen_off_memory_wake();
         inactivity_dimmed = false;
         idle_shutdown_attempted = false;
         if (radios_suspended) {
             gui_shell_resume_connections(wifi_was_on_before_suspend, bt_was_on_before_suspend);
             radios_suspended = false;
         }
+    } else if (!screen_on_now && screen_wake_pending) {
+        gui_screen_off_memory_restart_wait(lv_tick_get());
     } else if (!screen_on_now && !screen_wake_pending) {
         bool playing_now_for_idle = audio_is_playing();
         if (screen_was_on) {
@@ -1353,6 +1357,7 @@ static screen_poll_result_t poll_screen_power(void) {
             screen_off_since_tick = lv_tick_get();
         }
         screen_off_playback_active = playing_now_for_idle;
+        gui_screen_off_memory_tick(screen_was_on, playing_now_for_idle || audio_is_paused(), lv_tick_get());
         /* Cable presence and charger status are separate signals: a USB
          * source can remain connected while the battery reports discharging.
          * Treat UNKNOWN conservatively so background power actions never

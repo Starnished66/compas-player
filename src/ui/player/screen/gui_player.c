@@ -937,7 +937,9 @@ static void player_artwork_cache_service(lv_timer_t * timer) {
         cover_raster_cache_clear();
         player_reflection_cache_clear();
     }
-    lv_draw_sw_image_cache_service(available, idle);
+    /* Nearly full swap is memory pressure too: MemAvailable alone stays high
+     * while the process is being pushed out to swap. */
+    lv_draw_sw_image_cache_service(system_swap_under_pressure() ? 0 : available, idle);
     lv_draw_sw_image_cache_get_intermediate_stats(&stats);
     if (timer && (!idle || !stats.pending)) lv_timer_pause(timer);
     if (!timer && idle && stats.pending) {
@@ -3293,13 +3295,27 @@ void gui_player_stop_for_external_session(void) {
  * transition publishes a source again), the generated-cover raster cache
  * (refilled by the next cover decode) and the lyrics backdrop frames. The
  * visible cover and its reflection stay. */
-void gui_player_release_memory_for_external_session(void) {
+static void player_release_memory(bool quiet_backdrop) {
     player_cover_prefetch_cancel();
     next_cover_prefetch_token = 0;
     cover_raster_cache_clear();
     if (player_inline_lyrics_is_animating()) return;
     player_inline_lyrics_release_cache_memory();
-    player_lyrics_backdrop_release_frames();
+    if (quiet_backdrop) player_lyrics_backdrop_release_frames_quiet();
+    else player_lyrics_backdrop_release_frames();
+}
+
+void gui_player_release_memory_for_external_session(void) {
+    player_release_memory(false);
+}
+
+/* Screen-off release: the lyrics backdrop recapture is deferred to the wake. */
+void gui_player_release_memory_for_screen_off(void) {
+    player_release_memory(true);
+}
+
+void gui_player_screen_off_release_wake(void) {
+    player_lyrics_backdrop_warm_after_wake();
 }
 
 /* resolve_replaygain moved to gui_player.c */
@@ -4782,6 +4798,10 @@ static uint64_t checkpoint_revision_internal;
 static double checkpoint_position_internal = -1;
 static uint64_t checkpoint_revision_sd;
 static double checkpoint_position_sd = -1;
+/* Hash of the non-path file layout at the last full write (0 = none), so an
+ * unchanged queue only rewrites the file header with the new position. */
+static uint64_t checkpoint_layout_internal;
+static uint64_t checkpoint_layout_sd;
 
 bool gui_player_queue_write_busy(void) {
     return player_queue_storage_checkpoint_busy();
@@ -4807,6 +4827,8 @@ void gui_player_queue_checkpoint(void) {
         player_queue_model_remove_sd_checkpoint("queue.bin");
         checkpoint_revision_internal = 0;
         checkpoint_position_internal = -1;
+        checkpoint_layout_internal = 0;
+        checkpoint_layout_sd = 0;
         checkpoint_revision_sd = 0;
         checkpoint_position_sd = -1;
         player_queue_storage_checkpoint_clear_deferred_unlink();
@@ -4816,6 +4838,10 @@ void gui_player_queue_checkpoint(void) {
     bool completed, failed;
     if (!player_queue_storage_checkpoint_reap_if_done(&completed, &failed)) return;
     if (completed && failed) {
+        checkpoint_revision_internal = 0;
+        checkpoint_revision_sd = 0;
+    }
+    if (player_queue_storage_checkpoint_take_header_fallback()) {
         checkpoint_revision_internal = 0;
         checkpoint_revision_sd = 0;
     }
@@ -4841,6 +4867,7 @@ void gui_player_queue_checkpoint(void) {
     int target_dirfd = open_checkpoint_target_dir(target_path);
     uint64_t * last_rev = &checkpoint_revision_internal;
     double * last_pos = &checkpoint_position_internal;
+    uint64_t * last_layout = &checkpoint_layout_internal;
 
     if (is_sd_persistable && sd_mounted) {
         target_name = "queue.bin";
@@ -4855,11 +4882,22 @@ void gui_player_queue_checkpoint(void) {
         target_dirfd = player_queue_model_dup_sd_dirfd();
         last_rev = &checkpoint_revision_sd;
         last_pos = &checkpoint_position_sd;
+        last_layout = &checkpoint_layout_sd;
     }
 
     uint64_t revision = player_queue_model_revision();
     if (revision == *last_rev && fabs(position - *last_pos) < 1.0) { if (target_dirfd >= 0) close(target_dirfd); return; }
     if (target_dirfd < 0) { *last_rev = 0; player_queue_storage_checkpoint_mark_failed(); return; }
+
+    queue_resume_header_t header;
+    uint64_t layout = 0;
+    bool have_header = player_queue_model_checkpoint_header(current_settings.play_mode, position, &header, &layout);
+    if (have_header && revision == *last_rev && layout == *last_layout) {
+        /* Same queue as the file on disk: no path copy, just the new position. */
+        *last_pos = position;
+        if (!player_queue_storage_checkpoint_start_header(header, target_dirfd, target_name)) *last_rev = 0;
+        return;
+    }
 
     queue_resume_t s = {0};
     if (!player_queue_model_checkpoint_snapshot(current_settings.play_mode, position, &s)) {
@@ -4867,6 +4905,7 @@ void gui_player_queue_checkpoint(void) {
     }
     *last_rev = revision;
     *last_pos = position;
+    *last_layout = have_header ? layout : 0;
 
     if (!player_queue_storage_checkpoint_start(s, target_dirfd, target_name)) *last_rev = 0;
 }

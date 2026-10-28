@@ -72,6 +72,51 @@ bool queue_resume_write_at(int dirfd, const char * name, const queue_resume_t * 
     return ok;
 }
 
+bool queue_resume_rewrite_header_at(int dirfd, const char * name, const queue_resume_header_t * hd) {
+    if (!hd || dirfd < 0 || !name || !name[0] || strchr(name, '/')) return false;
+    queue_resume_t check = { .count = hd->count, .current = hd->current, .pending = hd->pending,
+                             .mode = hd->mode, .shuffle_pos = hd->shuffle_pos, .position = hd->position };
+    int dummy = 0;
+    if (hd->has_order) check.order = &dummy;
+    if (!valid(&check)) return false;
+    int in = openat(dirfd, name, O_RDONLY | O_CLOEXEC);
+    if (in < 0) return false;
+    char signature[8]; int32_t old[7]; double old_position;
+    FILE * src = fdopen(in, "rb");
+    if (!src) { close(in); return false; }
+    bool ok = fread(signature, 1, 8, src) == 8 && memcmp(signature, magic, 8) == 0 &&
+        fread(old, sizeof(old), 1, src) == 1 && fread(&old_position, sizeof(double), 1, src) == 1 &&
+        old[0] == hd->count && old[5] == (hd->has_order ? 1 : 0) && old[6] == (hd->has_continuation ? 1 : 0);
+    char temp[NAME_MAX];
+    int fd = -1;
+    for (unsigned int attempt = 0; ok && attempt < 100; attempt++) {
+        int n = snprintf(temp, sizeof(temp), ".%s.%ld.%u.tmp", name, (long) getpid(), attempt);
+        if (n < 0 || (size_t) n >= sizeof(temp)) { ok = false; break; }
+        fd = openat(dirfd, temp, O_WRONLY | O_CREAT | O_EXCL | O_TRUNC, 0600);
+        if (fd >= 0) break;
+        if (errno != EEXIST) { ok = false; break; }
+    }
+    if (ok && fd < 0) ok = false;
+    FILE * f = ok ? fdopen(fd, "wb") : NULL;
+    if (ok && !f) { close(fd); unlinkat(dirfd, temp, 0); ok = false; }
+    if (!f) { fclose(src); return false; }
+    int32_t header[] = {hd->count, hd->current, hd->pending, hd->mode, hd->shuffle_pos,
+                        hd->has_order, hd->has_continuation};
+    ok = fwrite(magic, 1, sizeof(magic), f) == sizeof(magic) &&
+        fwrite(header, sizeof(header), 1, f) == 1 && fwrite(&hd->position, sizeof(double), 1, f) == 1;
+    char buffer[4096];
+    size_t got;
+    while (ok && (got = fread(buffer, 1, sizeof(buffer), src)) > 0) ok = fwrite(buffer, 1, got, f) == got;
+    if (ferror(src)) ok = false;
+    fclose(src);
+    if (ok) ok = fflush(f) == 0 && fsync(fileno(f)) == 0;
+    if (fclose(f) != 0) ok = false;
+    if (ok) ok = renameat(dirfd, temp, dirfd, name) == 0;
+    if (!ok) unlinkat(dirfd, temp, 0);
+    else (void) fsync(dirfd);
+    return ok;
+}
+
 bool queue_resume_write(const char * path, const queue_resume_t * s) {
     if (!path || !path[0]) return false;
     char dir[PATH_MAX], name[NAME_MAX];

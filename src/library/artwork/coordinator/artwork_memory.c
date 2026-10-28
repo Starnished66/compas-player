@@ -1,6 +1,7 @@
 #include "artwork_memory.h"
 #include "../decode/cover_decode.h"  /* MAX_PNG_STREAMING_NATIVE_SIDE, jpeg_scale_for_target() */
 #include "artwork_clock.h"
+#include "../../../core/system/runtime/swap_pressure.h"
 
 #include <pthread.h>
 #include <stdio.h>
@@ -13,6 +14,7 @@
 #define MEMINFO_CACHE_TTL_MS 50ULL
 
 static size_t mock_mem_available_bytes = 0;
+static bool swap_pressure_state;
 
 void system_set_mock_mem_available(size_t bytes) {
     mock_mem_available_bytes = bytes;
@@ -65,12 +67,20 @@ size_t system_get_mem_available_bytes(void) {
     unsigned long mem_free_kb = 0;
     unsigned long buffers_kb = 0;
     unsigned long cached_kb = 0;
+    unsigned long swap_total_kb = 0;
+    unsigned long swap_free_kb = 0;
     bool found_avail = false;
+    bool found_swap_free = false;
 
     while (fgets(line, sizeof(line), f)) {
         if (sscanf(line, "MemAvailable: %lu kB", &mem_avail_kb) == 1) {
             found_avail = true;
-            break;
+            continue;
+        }
+        if (sscanf(line, "SwapTotal: %lu kB", &swap_total_kb) == 1) continue;
+        if (sscanf(line, "SwapFree: %lu kB", &swap_free_kb) == 1) {
+            found_swap_free = true;
+            break;  /* SwapFree follows SwapTotal; nothing needed after it */
         }
         sscanf(line, "MemFree: %lu kB", &mem_free_kb);
         sscanf(line, "Buffers: %lu kB", &buffers_kb);
@@ -86,10 +96,18 @@ size_t system_get_mem_available_bytes(void) {
         cached_mem_bytes = 0;
     }
 
+    if (found_swap_free)
+        swap_pressure_state = swap_pressure_next(swap_pressure_state, swap_total_kb, swap_free_kb);
     last_check_ms = now;
     size_t result = cached_mem_bytes;
     pthread_mutex_unlock(&mem_lock);
     return result;
+}
+
+bool system_swap_under_pressure(void) {
+    if (mock_mem_available_bytes > 0) return false;
+    (void) system_get_mem_available_bytes();  /* refreshes the cached swap state */
+    return swap_pressure_state;
 }
 
 /* --- Overflow-Safe Format-Aware Memory Estimation --- */

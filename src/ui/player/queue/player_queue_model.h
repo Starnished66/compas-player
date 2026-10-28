@@ -122,6 +122,12 @@ int player_queue_model_advance_past_failed(int mode,
 /* Produces an owned physical-order queue_resume_t; caller frees/transfers it. */
 bool player_queue_model_checkpoint_snapshot(int mode, double position,
                                              queue_resume_t *out);
+/* The same header the snapshot above would carry, without copying any path,
+ * plus a hash of everything else in the file apart from the paths (queue size,
+ * play mode and the shuffle arrays). With an unchanged revision and hash, a
+ * rewrite of the header alone leaves the stored file equal to a full write. */
+bool player_queue_model_checkpoint_header(int mode, double position,
+                                          queue_resume_header_t *out, uint64_t *layout_hash);
 bool player_queue_model_save_as(const char *name, int mode, bool has_sd);
 
 #endif

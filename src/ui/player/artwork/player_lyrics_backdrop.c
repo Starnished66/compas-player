@@ -814,6 +814,27 @@ void player_lyrics_backdrop_release_frames(void) {
     player_lyrics_backdrop_invalidate();
 }
 
+static bool backdrop_released_without_warm;
+
+/* Same release, but the recapture waits for player_lyrics_backdrop_warm_after_wake():
+ * a snapshot taken while the screen is off would refill the image caches at once. */
+void player_lyrics_backdrop_release_frames_quiet(void) {
+    if (!backdrop_wrapper || backdrop_active || backdrop_busy) return;
+    if (!backdrop_closed && !backdrop_open && !backdrop_frame) return;
+    bool was_busy = backdrop_busy;
+    player_lyrics_backdrop_end(false);
+    backdrop_busy = was_busy;
+    backdrop_cancel_warm();
+    backdrop_free_frames();
+    backdrop_released_without_warm = true;
+}
+
+void player_lyrics_backdrop_warm_after_wake(void) {
+    if (!backdrop_released_without_warm) return;
+    backdrop_released_without_warm = false;
+    backdrop_schedule_warm();
+}
+
 void player_lyrics_backdrop_set_busy(bool busy) {
     backdrop_busy = busy;
     if (!busy) backdrop_schedule_warm();

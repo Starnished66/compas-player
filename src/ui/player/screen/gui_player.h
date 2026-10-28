@@ -76,6 +76,8 @@ void gui_player_stop_for_external_session(void);
 /* Frees the player's rebuildable caches before an external process runs; they
  * refill on use. */
 void gui_player_release_memory_for_external_session(void);
+void gui_player_release_memory_for_screen_off(void);
+void gui_player_screen_off_release_wake(void);
 /* Defer visual refresh work while the lyrics pane is moving. */
 bool gui_player_lyrics_animation_in_progress(void);
 const char * gui_player_get_current_track_path(void);
