@@ -2,6 +2,7 @@
 #define PLUGIN_MANAGER_H
 
 #include "plugin_api_version.h"
+#include "lua.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -526,6 +527,11 @@ void plugin_manager_text_input_cancelled(void);
 /* Dispatch or discard the one pending plugin.show_confirmation() callback. */
 void plugin_manager_confirmation_confirmed(void);
 void plugin_manager_confirmation_cancelled(void);
+/* plugin.launch_app() needs a user action: true once for the plugin whose
+ * callback the user triggered by tapping a row, tile or confirmation, while
+ * that callback runs. Any other plugin, a second call, or any other time
+ * gets false. */
+bool plugin_manager_user_action_take(lua_State * L);
 /* GUI bridge for the one pending plugin.pick_file() request. */
 void plugin_manager_file_picker_complete(const char * path);
 

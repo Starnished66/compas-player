@@ -34,7 +34,8 @@ static const char * const plugin_capabilities[] = {
     "filesystem.file_ops", "ui.file_manager", "ui.player_menu", "ui.more_menu", "ui.file_picker",
     "ui.startup_image", "audio.mseb.stock", "playback.stay_on_screen",
     "ui.settings_list_10_sliders", "ui.button_lock", "playback.lyrics_refresh",
-    "audio.loop", "ui.breeze_stream_icons"
+    "audio.loop", "ui.breeze_stream_icons",
+    "apps.list", "apps.launch"
 };
 
 

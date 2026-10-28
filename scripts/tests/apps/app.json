@@ -1,0 +1,12 @@
+{
+  "protocol": 1,
+  "id": "hello",
+  "name": "Hello App",
+  "version": "0.1",
+  "exec": "hello",
+  "opens": [
+    "txt"
+  ],
+  "free_player_memory": false,
+  "icon": "icon.png"
+}

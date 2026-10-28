@@ -54,6 +54,7 @@
 #include "../../hardware/indicators/backlight.h"
 #include "../library/browse/gui_file_manager.h"
 #include "../plugins/emulators/gui_emulators.h"
+#include "../plugins/apps/gui_apps.h"
 #include <stdatomic.h>
 #include <pthread.h>
 
@@ -2025,6 +2026,7 @@ lv_obj_t * build_dac_home_screen(void) {
 #if BOARD_SUPPORTS_EMULATORS
         { "submenu/emulators.png", N_("Emulators"), gui_emulators_row_cb },
 #endif
+        { "settings/system.png", N_("External Apps"), gui_apps_row_cb },
     };
     enum { NATIVE_COUNT = (int) (sizeof(native) / sizeof(native[0])) };
     static pill_list_item_t items[NATIVE_COUNT + PLUGIN_MAX_MORE_LIST_ITEMS];

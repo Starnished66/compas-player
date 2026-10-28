@@ -31,6 +31,8 @@
 #include "../bindings/io/plugin_http_bindings.h"
 #include "../bindings/ui/plugin_text_view_bindings.h"
 #include "../bindings/io/plugin_archive_bindings.h"
+#include "../bindings/io/plugin_apps_bindings.h"
+#include "../storage/plugin_reserved_dirs.h"
 #include "../lua/plugin_lua_runtime.h"
 #include "../storage/plugin_storage.h"
 #include "plugin_internal.h"
@@ -1875,6 +1877,8 @@ static int plugin_file_op_start(lua_State * L, file_op_kind_t kind, const char *
         dest_dir = luaL_checkstring(L, 2);
         if (!plugin_sd_path_ok(dest_dir, true))
             return luaL_error(L, "%s: dest_dir must be a folder on the SD card", api);
+        if (plugin_path_in_program_dirs(dest_dir))
+            return luaL_error(L, "%s: the program folders (.apps, .apps-data, .emulators) are reserved", api);
     }
     bool has_callback = !lua_isnoneornil(L, callback_index);
     if (has_callback) luaL_checktype(L, callback_index, LUA_TFUNCTION);
@@ -1893,6 +1897,16 @@ static int plugin_file_op_start(lua_State * L, file_op_kind_t kind, const char *
             return luaL_error(L, "%s: every path must be a file or folder on the SD card", api);
         if (kind != FILE_OP_COPY && file_op_is_player_folder(path, MUSIC_ROOT_DIR))
             return plugin_lua_push_error(L, "the player's own folders cannot be deleted or moved");
+        if (kind != FILE_OP_COPY && plugin_path_in_program_dirs(path))
+            return plugin_lua_push_error(L, "the program folders (.apps, .apps-data, .emulators) cannot be changed");
+        if (kind != FILE_OP_DELETE) {
+            /* The engine creates dest_dir/<source name>, which can itself be a reserved name. */
+            const char * base = strrchr(path, '/');
+            char created[PATH_MAX];
+            if (snprintf(created, sizeof(created), "%s/%s", dest_dir, base ? base + 1 : path) >= (int) sizeof(created) ||
+                plugin_path_in_program_dirs(created))
+                return plugin_lua_push_error(L, "the program folders (.apps, .apps-data, .emulators) cannot be changed");
+        }
         paths[i] = (char *) path;
         if (list) lua_pop(L, 1);
     }
@@ -2062,6 +2076,8 @@ static void plugin_file_op_poll(void) {
  * file operations; plugins are not confined to sd_root() today. */
 static int l_plugin_mkdir(lua_State * L) {
     const char * path = check_plugin_external_path(L, 1, "plugin.mkdir");
+    if (plugin_path_in_program_dirs(path))
+        return plugin_lua_push_error(L, "the program folders (.apps, .apps-data, .emulators) are reserved");
     size_t len = strlen(path);
     if (len == 0 || len >= PATH_MAX) {
         return plugin_lua_push_error(L, "invalid path");
@@ -3435,6 +3451,10 @@ static int l_plugin_eq_apply_profile(lua_State * L) {
 
 static int l_plugin_eq_save_profile(lua_State * L) {
     const char * path = check_plugin_external_path(L, 1, "plugin.eq_save_profile");
+    if (plugin_path_in_program_dirs(path)) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
     lua_pushboolean(L, peq_save_to_path(path));
     return 1;
 }
@@ -5137,6 +5157,8 @@ static const luaL_Reg plugin_funcs[] = {
     { "configure_button_lock",     l_plugin_configure_button_lock },
     { "set_startup_image_async",   l_plugin_set_startup_image_async },
     { "has_startup_image",         l_plugin_has_startup_image },
+    { "list_apps",                 l_plugin_list_apps },
+    { "launch_app",                l_plugin_launch_app },
     { "zip_read",                  l_plugin_zip_read },
     { "zip_list",                  l_plugin_zip_list },
     { "zip_image_async",           l_plugin_zip_image_async },
@@ -5256,6 +5278,11 @@ static int l_guarded_io_open(lua_State * L) {
     if (plugin_storage_path_is_reserved(path)) {
         return plugin_lua_push_error(L, "io.open: path is reserved for plugin.storage/plugin.secrets");
     }
+    /* A mode other than plain read ("r"/"rb") can create or change the file. */
+    const char * mode = luaL_optstring(L, 2, "r");
+    if ((mode[0] != 'r' || strchr(mode, '+')) && plugin_path_in_program_dirs(path)) {
+        return plugin_lua_push_error(L, "io.open: the program folders (.apps, .apps-data, .emulators) are read-only");
+    }
     return plugin_call_native(L, real_io_open);
 }
 
@@ -5295,6 +5322,9 @@ static int l_guarded_io_output(lua_State * L) {
         if (plugin_storage_path_is_reserved(path)) {
             return luaL_error(L, "io.output: path is reserved for plugin.storage/plugin.secrets");
         }
+        if (plugin_path_in_program_dirs(path)) {
+            return luaL_error(L, "io.output: the program folders (.apps, .apps-data, .emulators) are read-only");
+        }
     }
     return plugin_call_native(L, real_io_output);
 }
@@ -5304,6 +5334,9 @@ static int l_guarded_os_remove(lua_State * L) {
     if (plugin_storage_path_is_reserved(path)) {
         return plugin_lua_push_error(L, "os.remove: path is reserved for plugin.storage/plugin.secrets");
     }
+    if (plugin_path_in_program_dirs(path)) {
+        return plugin_lua_push_error(L, "os.remove: the program folders (.apps, .apps-data, .emulators) are read-only");
+    }
     return plugin_call_native(L, real_os_remove);
 }
 
@@ -5312,6 +5345,9 @@ static int l_guarded_os_rename(lua_State * L) {
     const char * to = luaL_optstring(L, 2, "");
     if (plugin_storage_path_is_reserved(from) || plugin_storage_path_is_reserved(to)) {
         return plugin_lua_push_error(L, "os.rename: path is reserved for plugin.storage/plugin.secrets");
+    }
+    if (plugin_path_in_program_dirs(from) || plugin_path_in_program_dirs(to)) {
+        return plugin_lua_push_error(L, "os.rename: the program folders (.apps, .apps-data, .emulators) are read-only");
     }
     return plugin_call_native(L, real_os_rename);
 }
@@ -5444,6 +5480,32 @@ static int plugin_call(lua_State * L, int nargs, int nresults, int errfunc) {
     plugin_call_deadline_start = saved_deadline;
     if (result != LUA_OK) release_plugin_led_override(L);
     return result;
+}
+
+/* True only while a callback the user triggered by tapping (a list row or
+ * menu entry, a tile, a confirmation) is running; plugin.launch_app() needs
+ * it. Timers, events and network callbacks never set it. */
+static lua_State * plugin_user_action_owner;
+static bool plugin_user_action_used;
+
+static int plugin_call_user_action(lua_State * L, int nargs, int nresults, int errfunc) {
+    lua_State * saved_owner = plugin_user_action_owner;
+    bool saved_used = plugin_user_action_used;
+    plugin_user_action_owner = plugin_lua_main_state(L);
+    plugin_user_action_used = false;
+    int result = plugin_call(L, nargs, nresults, errfunc);
+    plugin_user_action_owner = saved_owner;
+    plugin_user_action_used = saved_used;
+    return result;
+}
+
+bool plugin_manager_user_action_take(lua_State * L) {
+    /* The tap belongs to the plugin whose callback it started; a handler of
+     * another plugin that runs inside it (an event) does not inherit it. */
+    if (!plugin_user_action_owner || plugin_user_action_used || plugin_lua_main_state(L) != plugin_user_action_owner)
+        return false;
+    plugin_user_action_used = true;
+    return true;
 }
 
 /* Remove every callback/resource that can retain a failed load's Lua state.
@@ -6142,7 +6204,7 @@ bool plugin_manager_has_background_work(void) {
  * distinguishable from another's in the log. */
 static void dispatch_list_item_open(plugin_list_item_t * item, const char * kind) {
     lua_rawgeti(item->L, LUA_REGISTRYINDEX, item->open_ref);
-    if (plugin_call(item->L, 0, 0, 0) != LUA_OK) {
+    if (plugin_call_user_action(item->L, 0, 0, 0) != LUA_OK) {
         const char * err = lua_tostring(item->L, -1);
         fprintf(stderr, "[plugins] %s '%s' on_open error: %s\n", kind, item->label, err ? err : "unknown error");
         lua_pop(item->L, 1);
@@ -6285,7 +6347,7 @@ uint32_t plugin_manager_get_list_registry_generation(void) { return plugin_list_
  * registry above). */
 static void dispatch_tile_open(plugin_tile_t * t) {
     lua_rawgeti(t->L, LUA_REGISTRYINDEX, t->open_ref);
-    if (plugin_call(t->L, 0, 0, 0) != LUA_OK) {
+    if (plugin_call_user_action(t->L, 0, 0, 0) != LUA_OK) {
         const char * err = lua_tostring(t->L, -1);
         fprintf(stderr, "[plugins] tile '%s' on_open error: %s\n", t->label, err ? err : "unknown error");
         lua_pop(t->L, 1);
@@ -6420,7 +6482,7 @@ void plugin_manager_list_item_selected(int slot, int index) {
 
     lua_rawgeti(cb->L, LUA_REGISTRYINDEX, cb->select_ref);
     lua_pushinteger(cb->L, index + 1);
-    if (plugin_call(cb->L, 1, 0, 0) != LUA_OK) {
+    if (plugin_call_user_action(cb->L, 1, 0, 0) != LUA_OK) {
         const char * err = lua_tostring(cb->L, -1);
         fprintf(stderr, "[plugins] show_list on_select error: %s\n", err ? err : "unknown error");
         lua_pop(cb->L, 1);
@@ -6447,7 +6509,7 @@ void plugin_manager_settings_list_row_selected(int slot, int row) {
     if (!settings_list_row_ref(slot, row, &L, &ref)) return;
 
     lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
-    if (plugin_call(L, 0, 0, 0) != LUA_OK) {
+    if (plugin_call_user_action(L, 0, 0, 0) != LUA_OK) {
         const char * err = lua_tostring(L, -1);
         fprintf(stderr, "[plugins] show_settings_list on_select error: %s\n", err ? err : "unknown error");
         lua_pop(L, 1);
@@ -6710,7 +6772,7 @@ void plugin_manager_confirmation_confirmed(void) {
     pending_confirmation_L = NULL;
     pending_confirmation_ref = LUA_NOREF;
     lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
-    if (plugin_call(L, 0, 0, 0) != LUA_OK) {
+    if (plugin_call_user_action(L, 0, 0, 0) != LUA_OK) {
         const char * err = lua_tostring(L, -1);
         fprintf(stderr, "[plugins] show_confirmation callback error: %s\n", err ? err : "unknown error");
         lua_pop(L, 1);

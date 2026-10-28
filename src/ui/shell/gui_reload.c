@@ -104,6 +104,7 @@
 #include "../library/browse/gui_file_manager.h"
 #include "../plugins/emulators/gui_emulator_store.h"
 #include "../plugins/emulators/gui_emulators.h"
+#include "../plugins/apps/gui_apps.h"
 #include "../player/screen/gui_queue.h"
 #include "../plugins/gui_plugins.h"
 #include "../../plugins/manager/plugin_manager.h"
@@ -196,6 +197,8 @@ static void gui_soft_reload_with_artwork(bool preserve_artwork,
     gui_emulators_teardown();
     reload_diag("gui_emulator_store_teardown: before");
     gui_emulator_store_teardown();
+    reload_diag("gui_apps_teardown: before");
+    gui_apps_teardown();
     reload_diag("gui_queue_teardown: before");
     gui_queue_teardown();
     reload_diag("gui_plugins_teardown: before");
