@@ -2366,7 +2366,12 @@ static void player_style_named_extras(lv_obj_t * obj) {
     for (uint32_t i = 0; i < count; i++) {
         lv_obj_t * child = lv_obj_get_child(obj, (int32_t) i);
         const char * name = lv_obj_get_name(child);
-        if (name && strncmp(name, "glyph_", 6) == 0 && lv_obj_check_type(child, &lv_image_class))
+        if (name && strcmp(name, "quality_icon") == 0 && lv_obj_check_type(child, &lv_image_class)) {
+            lv_obj_add_style(child, gui_theme_accent_style(), 0);
+            lv_obj_set_style_bg_opa(child, LV_OPA_TRANSP, 0);
+            lv_obj_set_style_image_recolor_opa(child, LV_OPA_COVER, 0);
+        }
+        else if (name && strncmp(name, "glyph_", 6) == 0 && lv_obj_check_type(child, &lv_image_class))
             lv_obj_add_style(child, gui_player_backdrop_icon_style(), 0);
         else if (name && strncmp(name, "caption_", 8) == 0 && lv_obj_check_type(child, &lv_label_class))
             lv_obj_add_style(child, gui_player_backdrop_text_style(true), 0);
