@@ -46,3 +46,6 @@ __pycache__/
 /research_notes/
 /tools/
 /music/
+
+# Build variant stamps (Makefile BUILD_VARIANT)
+.compas_player_*.variant

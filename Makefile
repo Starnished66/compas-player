@@ -27,6 +27,32 @@ BUILD_TARGET_DIR = build_target_$(BOARD)
 BUILD_HOST_DIR = build_host_$(BOARD)
 endif
 
+# Compile-flag toggles that change -D defines (UI_PERF_TRACE, UI_GESTURE_TRACE,
+# UI_HITBOX_DEBUG, TEST_BUILD_TAG) get their own object directories too, for the
+# same reason as BOARD above: Make cannot see a changed -D flag, so `make target
+# UI_PERF_TRACE=1` followed by plain `make target` would silently relink the
+# trace-compiled objects into a "release" binary. Output binary names stay
+# unchanged -- they are always relinked from whichever object dir is selected.
+# `make clean` removes these via its build_target_* / build_host_* globs.
+BUILD_VARIANT_EMPTY :=
+BUILD_VARIANT_SPACE := $(BUILD_VARIANT_EMPTY) $(BUILD_VARIANT_EMPTY)
+BUILD_VARIANT =
+ifneq ($(UI_PERF_TRACE),)
+BUILD_VARIANT += _trace
+endif
+ifneq ($(UI_GESTURE_TRACE),)
+BUILD_VARIANT += _gesture
+endif
+ifneq ($(UI_HITBOX_DEBUG),)
+BUILD_VARIANT += _hitbox
+endif
+ifneq ($(TEST_BUILD_TAG),)
+BUILD_VARIANT += _tag_$(shell printf '%s' '$(TEST_BUILD_TAG)' | tr -c 'A-Za-z0-9_.\n-' _)
+endif
+BUILD_VARIANT := $(subst $(BUILD_VARIANT_SPACE),,$(BUILD_VARIANT))
+BUILD_TARGET_DIR := $(BUILD_TARGET_DIR)$(BUILD_VARIANT)
+BUILD_HOST_DIR := $(BUILD_HOST_DIR)$(BUILD_VARIANT)
+
 # Target executables -- r1 keeps the unsuffixed names used by the release
 # scripts, while other boards get a distinct suffix so a non-r1 build can
 # never be mistaken for or silently overwrite an r1 one.
@@ -938,6 +964,17 @@ SELECTOR_ICON_SRCS = src/bootloader/selector/assets/icons/selector_icons.c \
 	src/bootloader/selector/assets/icons/selector_icons_nav.c \
 	src/bootloader/selector/assets/icons/selector_icons_tools.c
 endif
+# The output binaries share one name across variants, so a variant switch must
+# also force a relink even though the (separate) object dirs look up to date.
+# Each binary has a stamp holding the variant it was last linked for; it is
+# rewritten only when the variant differs, so an unchanged build never relinks.
+HOST_VARIANT_STAMP = .$(HOST_BIN).variant
+TARGET_VARIANT_STAMP = .$(TARGET_BIN).variant
+$(HOST_VARIANT_STAMP) $(TARGET_VARIANT_STAMP): FORCE_VARIANT
+	@test "$$(cat $@ 2>/dev/null)" = '$(BUILD_VARIANT)' || printf '%s\n' '$(BUILD_VARIANT)' > $@
+.PHONY: FORCE_VARIANT
+FORCE_VARIANT:
+
 .PHONY: all host target release bootloader clean FORCE_VERSION
 
 # Default target builds the host player.
@@ -946,7 +983,7 @@ all: host
 # Build for host (Arch Linux PC)
 host: $(HOST_BIN)
 
-$(HOST_BIN): $(HOST_OBJS) $(HOST_AUDIO_LIBS)
+$(HOST_BIN): $(HOST_OBJS) $(HOST_AUDIO_LIBS) $(HOST_VARIANT_STAMP)
 	$(CXX) -o $@ $(HOST_OBJS) $(HOST_AUDIO_LIBS) $(HOST_LDFLAGS)
 	@echo "Host build complete: Run './$(HOST_BIN)' to start the simulator."
 
@@ -1135,7 +1172,7 @@ release:
 	    test "$$found" = "$$want" || { echo "$(TARGET_BIN) carries '$$found', not $$want" >&2; exit 1; };; esac
 	@echo '$(TARGET_BIN) is labelled $(RELEASE_LABEL)'
 
-$(TARGET_BIN): $(TARGET_OBJS) $(TARGET_CPU_FLAGS_STAMP) $(TARGET_AUDIO_LIBS) Makefile
+$(TARGET_BIN): $(TARGET_OBJS) $(TARGET_CPU_FLAGS_STAMP) $(TARGET_AUDIO_LIBS) $(TARGET_VARIANT_STAMP) Makefile
 	$(CROSS_CXX) $(TARGET_CPU_FLAGS) -o $(BUILD_TARGET_DIR)/$(TARGET_BIN)_unstripped $(TARGET_OBJS) $(TARGET_AUDIO_LIBS) $(TARGET_LDFLAGS)
 	$(CROSS_STRIP) -s -o $@ $(BUILD_TARGET_DIR)/$(TARGET_BIN)_unstripped
 	@echo "Target build complete: File ready at '$(TARGET_BIN)'"
@@ -1289,7 +1326,7 @@ $(BUILD_TARGET_DIR)/libexecinfo/%.o: $(LIBEXECINFO_DIR)/%.c $(TARGET_CPU_FLAGS_S
 clean:
 	rm -rf build_host build_host_* build_target build_target_* build/rockbox-bootloader \
 	    compas_player_host compas_player_host_* compas_player_target compas_player_target_* \
-	    compas_loader compas_loader_*
+	    compas_loader compas_loader_* .compas_player_*.variant
 
 # Companion to -MMD -MP in CFLAGS above (see that comment for the real-
 # device/real-build incident this exists to prevent) -- pulls in every
