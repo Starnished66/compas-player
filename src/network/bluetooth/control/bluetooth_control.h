@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 typedef bool (*bt_control_cancel_callback_t)(void * ctx);
 
@@ -273,5 +274,8 @@ void bt_control_output_disconnect_watch_start(void);
 void bt_control_output_disconnect_watch_stop(void);
 bool bt_control_output_disconnect_watch_is_running(void);
 bool bt_control_output_disconnect_consume(void);
+/* Milliseconds a missing output should still be waited for because a codec
+ * switch of ours is recreating the transport (at most 3 s), 0 when none is. */
+uint32_t bt_control_reconfigure_hold_ms(void);
 
 #endif /* BLUETOOTH_CONTROL_H */

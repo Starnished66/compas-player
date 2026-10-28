@@ -732,6 +732,7 @@ APP_SRCS += src/ui/player/layout/player_layouts.c src/ui/player/layout/player_la
 APP_SRCS += src/ui/player/transport/player_volume_popup.c src/ui/player/transport/player_transport_images.c src/ui/player/artwork/player_artwork_pixels.c
 APP_SRCS += src/ui/player/transport/player_seekbar.c src/audio/visualization/waveform.c
 APP_SRCS += src/ui/player/artwork/player_cover_fade.c src/ui/player/artwork/player_lyrics_backdrop.c src/ui/player/lyrics/player_timeline_labels.c
+APP_SRCS += src/network/bluetooth/control/bt_ssc_policy.c src/core/persistence/bt_ssc_settings.c
 APP_SRCS += src/network/bluetooth/reconnect/bluetooth_reconnect.c src/network/bluetooth/media/bt_cover_art.c
 APP_CXX_SRCS = src/audio/decoders/alac/alac_decoder.cpp
 LVGL_SRCS = $(sort $(shell find $(LVGL_DIR)/src -type f -name '*.c'))

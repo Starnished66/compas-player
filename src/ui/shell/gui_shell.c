@@ -30,6 +30,7 @@
 #include "../../audio/engine/audio.h"
 #include "../input/hw_volume_coalesce.h"
 #include "../../core/persistence/settings.h"
+#include "../../core/persistence/bt_ssc_settings.h"
 #include "../../core/themes/ui_customization.h"
 #include "../assets/assets.h"
 #include "../../hardware/device/device_config.h"
@@ -38,6 +39,7 @@
 #include "../../network/wifi/wifi_status.h"
 #include "../../network/wifi/wifi_control.h"
 #include "../../network/bluetooth/control/bluetooth_control.h"
+#include "../../network/bluetooth/control/bt_ssc_policy.h"
 #include "../../network/bluetooth/reconnect/bluetooth_reconnect.h"
 #ifndef HOST_BUILD
 #include "../../network/bluetooth/media/bt_media_player.h"
@@ -2921,6 +2923,14 @@ static void * refresh_bt_icon_thread_func(void * arg) {
          * the same grace interval as the watcher, entirely off the UI thread. */
         usleep(BT_OUTPUT_RECONFIGURE_GRACE_MS * 1000U);
         refresh_bt_icon_result_a2dp_connected = bt_control_is_a2dp_source_connected();
+        /* A codec switch of ours can take up to 3 s to bring the PCM back
+         * (BT_SSC_SWITCH_CAP_MS): keep the route while one is in flight. */
+        for (uint32_t hold = bt_control_reconfigure_hold_ms();
+             !refresh_bt_icon_result_a2dp_connected && hold > 0;
+             hold = bt_control_reconfigure_hold_ms()) {
+            usleep((hold < 250 ? hold : 250) * 1000U);
+            refresh_bt_icon_result_a2dp_connected = bt_control_is_a2dp_source_connected();
+        }
     }
 
     /* Two more subprocess calls (bluealsactl info, reusing the same PCM
@@ -5614,18 +5624,22 @@ static void poll_bt_source_codec_reconcile(void) {
 
 static void poll_bt_reconnect(void) {
     bt_reconnect_poll();
+    if (bt_ssc_settings_sync(&current_settings)) settings_save_async(&current_settings);
     char correction_mac[18];
     unsigned int correction_rate = 0;
     if (bt_control_ssc_discovery_recovery_peek(correction_mac, sizeof(correction_mac))) {
-        bool blocked = !bt_reconnect_observed_powered || current_settings.bt_dac_mode_enabled ||
+        /* Keyed on the pending device's own MAC, not on the top bar's cached
+         * one or its power observation: those are refreshed only while the
+         * screen is on, and the recovery must behave the same with it off. */
+        bool blocked = current_settings.bt_dac_mode_enabled ||
                        bt_toggle_active || bt_source_codec_reconcile_active ||
                        bt_dac_startup_reapply_active || bt_apply_output_settings_active ||
                        bt_reconnect_busy() || gui_network_bt_user_operation_active();
         if (blocked) return;
-        if (strcmp(current_settings.bt_codec, "ssc") != 0 ||
-                (bt_connected_mac_cached[0] && strcmp(correction_mac, bt_connected_mac_cached) != 0)) {
+        if (bt_ssc_policy_recovery_verdict(current_settings.bt_codec, bt_connected_mac_cached,
+                                           correction_mac) == BT_SSC_RECOVERY_CANCEL) {
             bt_control_ssc_discovery_recovery_cancel();
-        } else if (bt_connected_mac_cached[0]) {
+        } else {
             (void) bt_reconnect_start_ssc_discovery(correction_mac,
                 settings_bt_rate_for(&current_settings, correction_mac));
             return;

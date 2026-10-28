@@ -9,7 +9,6 @@
 #include <string.h>
 
 #include "../../src/network/bluetooth/control/bluetooth_control.c"
-
 static const char *pcm_path = "/org/bluealsa/hci0/dev_AA_BB_CC_DD_EE_FF/a2dpsrc/sink";
 static const char *soft_reply = "SoftVolume: false\n";
 static const char *codec_info_reply = "Running: false\nAvailable codecs: AAC SBC\nSelected codec: AAC\n";
@@ -97,6 +96,8 @@ static bool fake_run(char *const argv[], char *out, size_t size, int *status) {
                                          transport_probes >= transport_available_after))
                 reply(out, size, "object path \"/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF/sep1/fd0\"\n");
             else reply(out, size, "");
+        } else if (argv[6] && strstr(argv[6], "Device1")) { /* name lookup: "Alias: <value>" */
+            snprintf(out, size, "string \"Alias\"\n variant string \"%s\"", bluetooth_info_reply + 7);
         } else if (strstr(argv[5] ? argv[5] : "", "Properties.GetAll")) {
             transport_getall_calls++;
             if (fail_transport_getall_once) {

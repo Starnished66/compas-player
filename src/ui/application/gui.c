@@ -44,6 +44,7 @@
 #include "../../audio/effects/peq.h"
 #include "../widgets/builders/screen_builders.h"
 #include "../../core/persistence/settings.h"
+#include "../../core/persistence/bt_ssc_settings.h"
 #include "../../core/system/logging/db_log.h"
 #include "../../network/services/subsonic_client.h"
 #include "../../network/http/client/http_client.h"
@@ -1700,6 +1701,7 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
     i18n_set_language(current_settings.language);
     gui_display_apply_rotation(current_settings.screen_upside_down);
     bt_control_restore_codec_preference(current_settings.bt_codec);
+    bt_ssc_settings_apply(&current_settings);
     bt_control_set_speexrate_enabled(current_settings.bt_speexrate_enabled);
     bt_control_set_sample_rate(current_settings.bt_sample_rate);
     db_log_set_enabled(current_settings.db_logging_enabled);

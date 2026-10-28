@@ -224,6 +224,15 @@ typedef struct {
         unsigned int rate;
     } bt_device_rates[BT_DEVICE_RATE_MAX];
     int bt_device_rate_count;
+    /* Per-accessory memory of Samsung SSC (bt_ssc_settings.h): it worked
+     * before, and the backoff after repeated failures. */
+    struct {
+        char mac[18];
+        bool worked;
+        unsigned char failures;
+        unsigned char skip;
+    } bt_ssc_devices[BT_DEVICE_RATE_MAX];
+    int bt_ssc_device_count;
     char bt_last_output_mac[18]; /* verified A2DP source MAC, empty when none is remembered */
     /* When true, BLE devices without a broadcast name are hidden from the
      * "Available Devices" list (shown as raw MAC addresses otherwise).

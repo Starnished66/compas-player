@@ -6,6 +6,7 @@ player_settings_t current_settings;
 #include "../process/subprocess.h"
 #include "../../library/remote/subsonic/subsonic_saved_servers.h"
 #include "storage_paths.h"
+#include "bt_ssc_settings.h"
 #include "../text/utf8_util.h"
 
 #include <dirent.h>
@@ -241,6 +242,8 @@ static void set_defaults(player_settings_t * out) {
     out->bt_sample_rate = 0;
     out->bt_device_rate_count = 0;
     memset(out->bt_device_rates, 0, sizeof(out->bt_device_rates));
+    out->bt_ssc_device_count = 0;
+    memset(out->bt_ssc_devices, 0, sizeof(out->bt_ssc_devices));
     snprintf(out->bt_codec, sizeof(out->bt_codec), "auto");
     out->bt_last_output_mac[0] = '\0';
     out->bt_hide_unnamed_devices = true;
@@ -561,6 +564,8 @@ bool settings_load(player_settings_t * out) {
                 memcpy(out->bt_device_rates[i].mac, mac, sizeof(mac));
                 out->bt_device_rates[i].rate = (unsigned int) parsed;
             }
+        } else if (strcmp(key, "bt_ssc_device") == 0) {
+            bt_ssc_settings_parse(out, value);
         } else if (strcmp(key, "bt_sample_rate") == 0) {
             out->bt_sample_rate = (unsigned int) strtoul(value, NULL, 10);
         } else if (strcmp(key, "bt_speexrate") == 0) {
@@ -882,6 +887,7 @@ static void settings_write_file(const player_settings_t * settings) {
     for (int i = 0; i < settings->bt_device_rate_count && i < BT_DEVICE_RATE_MAX; i++)
         fprintf(f, "bt_device_rate=%s,%u\n", settings->bt_device_rates[i].mac,
                 settings->bt_device_rates[i].rate);
+    bt_ssc_settings_write(f, settings);
     fprintf(f, "bt_codec=%s\n", settings->bt_codec);
     fprintf(f, "bt_last_output_mac=%s\n", settings->bt_last_output_mac);
     fprintf(f, "bt_hide_unnamed_devices=%d\n", settings->bt_hide_unnamed_devices ? 1 : 0);
