@@ -2026,7 +2026,7 @@ lv_obj_t * build_dac_home_screen(void) {
 #if BOARD_SUPPORTS_EMULATORS
         { "submenu/emulators.png", N_("Emulators"), gui_emulators_row_cb },
 #endif
-        { "settings/system.png", N_("External Apps"), gui_apps_row_cb },
+        { "breeze_rows/submenu_external_apps.png", N_("External Apps"), gui_apps_row_cb },
     };
     enum { NATIVE_COUNT = (int) (sizeof(native) / sizeof(native[0])) };
     static pill_list_item_t items[NATIVE_COUNT + PLUGIN_MAX_MORE_LIST_ITEMS];
@@ -2054,7 +2054,14 @@ lv_obj_t * build_dac_home_screen(void) {
                                             gui_theme_accent_style(), GUI_ROW_GAP, 100);
     for (int i = 0; i < count; ++i) {
         if (rows[i]) {
-            if (i < NATIVE_COUNT) decorate_category_row(rows[i], native[i].icon, NULL);
+            if (i < NATIVE_COUNT) {
+                /* Breeze art may be missing on older firmware assets; External Apps then
+                 * keeps the settings gear it used before. */
+                const char * icon = native[i].icon;
+                const char * breeze = strncmp(icon, "breeze_rows/", 12) == 0 ? asset_path_plain(icon) : NULL;
+                if (breeze && access(breeze, R_OK) != 0) icon = "settings/system.png";
+                decorate_category_row(rows[i], icon, NULL);
+            }
             else decorate_category_row_plugin_icon(rows[i], plugin_icons[i - NATIVE_COUNT]);
         }
         items[i].out_row = NULL;
