@@ -1,5 +1,6 @@
 #include "bluetooth_control.h"
 #include "bt_ssc_policy.h"
+#include "bt_adapter_query.h"
 #include "../../../core/system/logging/debug_log.h"
 #include "../../hiby/hiby_sys_server.h"
 #include "../../../core/process/subprocess.h"
@@ -2295,6 +2296,18 @@ static void bt_control_reapply_last_output_settings(void);
  * when no adapter exists), so the bluetoothctl-over-D-Bus round trip is
  * only attempted when there's actually an adapter to ask about. */
 static bool bt_control_adapter_present(void) {
+    /* The kernel lists every HCI controller under /sys/class/bluetooth, the registry `hciconfig`
+     * prints from, so a directory scan answers without spawning anything. Without that directory
+     * ask hciconfig as before. */
+    DIR * dir = opendir("/sys/class/bluetooth");
+    if (dir) {
+        bool found = false;
+        struct dirent * entry;
+        while (!found && (entry = readdir(dir)) != NULL)
+            found = strncmp(entry->d_name, "hci", 3) == 0 && strchr(entry->d_name, ':') == NULL;
+        closedir(dir);
+        return found;
+    }
     char out[64];
     char * argv[] = { (char *) "hciconfig", NULL };
     if (!subprocess_run(argv, out, sizeof(out))) return false;
@@ -2402,17 +2415,27 @@ static bool bt_control_is_powered_impl(void) {
         return false;
     }
 
+    /* `bluetoothctl show` asks bluetoothd for its managed objects and prints the default
+     * controller. bt_adapter_dbus_powered() makes the same request without a process and the result
+     * is fed into the code below as the text bluetoothctl would have printed. A timeout or error
+     * (-1) runs bluetoothctl as before, so the timeout counter is fed exactly as it always was. */
     char out[2048];
-    char * argv[] = { (char *) "bluetoothctl", (char *) "show", NULL };
-    if (!subprocess_run(argv, out, sizeof(out))) {
-        consecutive_timeouts++;
-        DBG_LOG("bt_control: bt_control_is_powered: bluetoothctl show subprocess failed/timed out (%d/%d)\n",
-                consecutive_timeouts, TIMEOUT_RECOVERY_THRESHOLD);
-        if (consecutive_timeouts >= TIMEOUT_RECOVERY_THRESHOLD) {
-            bt_control_recover_wedged_daemon();
-            consecutive_timeouts = 0;
+    int dbus_state = bt_adapter_dbus_powered();
+    if (dbus_state != BT_ADAPTER_UNKNOWN) {
+        snprintf(out, sizeof(out), "%s", dbus_state == BT_ADAPTER_POWERED ? "Powered: yes" :
+                 dbus_state == BT_ADAPTER_NONE ? "No default controller available" : "Powered: no");
+    } else {
+        char * argv[] = { (char *) "bluetoothctl", (char *) "show", NULL };
+        if (!subprocess_run(argv, out, sizeof(out))) {
+            consecutive_timeouts++;
+            DBG_LOG("bt_control: bt_control_is_powered: bluetoothctl show subprocess failed/timed out (%d/%d)\n",
+                    consecutive_timeouts, TIMEOUT_RECOVERY_THRESHOLD);
+            if (consecutive_timeouts >= TIMEOUT_RECOVERY_THRESHOLD) {
+                bt_control_recover_wedged_daemon();
+                consecutive_timeouts = 0;
+            }
+            return false;
         }
-        return false;
     }
     consecutive_timeouts = 0; /* any actual reply, even "not powered", means it isn't stuck */
 
