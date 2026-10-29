@@ -59,8 +59,6 @@
 #include <unistd.h>
 #include <time.h>
 
-#define QUICK_DRAWER_ANIM_MS 140
-
 static lv_obj_t * home_screen = NULL;
 static lv_obj_t * dac_home_screen = NULL;
 static lv_obj_t * status_bar_band = NULL;
@@ -3483,9 +3481,8 @@ static void poll_usb_audio_output(void) {
  * the main status bar; crossfade; sleep timer) and the now-playing card
  * (real playback state, reusing the exact same callbacks as the player
  * screen's own transport buttons) are backed by real functionality.
- * QUICK_DRAWER_ANIM_MS/TRIGGER_ZONE are defined earlier, alongside
- * screen_gesture_event_cb, which needs the latter for its
- * swipe-down-near-the-top-edge check. */
+ * QUICK_DRAWER_ANIM_MS is defined in gui_navigation.h; TRIGGER_ZONE is
+ * defined earlier in this file, for the swipe-down-near-the-top-edge check. */
 
 /* Crossfade toggle control. Synchronized bidirectionally with Settings > Crossfade
  * (refresh_quick_drawer_crossfade_icon() / gui_settings_sync_crossfade_toggle()).
@@ -4222,10 +4219,17 @@ static void wrapped_pointer_read_cb(lv_indev_t * indev, lv_indev_data_t * data) 
 }
 
 static void indev_pressed_event_cb(lv_event_t * e) {
-    (void) e;
 #ifdef UI_GESTURE_TRACE
     printf("[GESTURE_TRACE] indev LV_EVENT_PRESSED callback fired\n");
 #endif
+    /* A click-driven back slide is running: swallow the press so it neither
+     * pops again nor lands on the hidden source screen's widgets. */
+    if (gui_navigation_fixed_transition_running()) {
+        lv_indev_t * pressed_indev = lv_event_get_indev(e);
+        lv_indev_wait_release(pressed_indev);
+        lv_indev_stop_processing(pressed_indev); /* hidden source widget must not see PRESSED (sliders act on it) */
+        return;
+    }
     gui_shell_resume_fast_timers();
     gui_library_resume_fast_timers();
 }
@@ -4541,6 +4545,7 @@ static void poll_quick_drawer_drag(lv_timer_t * timer) {
             quick_drawer_last_velocity = 0; /* fresh drag, no leftover direction from a previous completed one -- same reset as home/player/back-swipe's own tracking-start */
         } else if (quick_drawer_customization_enabled() &&
                    p.y <= QUICK_DRAWER_TRIGGER_ZONE && !gui_library_navigation_blocked() &&
+                   !gui_navigation_fixed_transition_running() &&
                    lv_screen_active() != gui_lock_screen_get_screen()) {
             /* gui_library_navigation_blocked() only covers modal library
              * operations that own the active screen. Optional artwork/search

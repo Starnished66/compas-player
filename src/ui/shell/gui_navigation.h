@@ -91,10 +91,16 @@ void nav_push(lv_obj_t * scr);
  * player-swipe commit path and slide_transition_done_cb()). */
 void nav_push_stack_only(lv_obj_t * scr);
 void nav_pop(void);
+/* True while a click-driven back slide is animating (cleared on completion,
+ * failure, cancel and teardown). */
+bool gui_navigation_fixed_transition_running(void);
+/* Post-release snap duration shared by the quick drawer and the swipe
+ * gestures (gui_shell.c). Single definition on purpose. */
+#define QUICK_DRAWER_ANIM_MS 140
 /* General form of nav_pop() -- see begin_slide_transition_ex()'s own doc
  * comment for what forward/vertical/reveal mean. nav_pop() is a thin
- * wrapper calling this with (false, false, false), i.e. the existing
- * horizontal back-slide every other caller already gets unchanged. */
+ * wrapper calling this with (false, false, reveal) where reveal is true
+ * unless the Player is the active screen -- the same rule as swipe-back. */
 void nav_pop_ex(bool forward, bool vertical, bool reveal);
 /* Stack-only counterpart to nav_pop() -- decrements nav_depth (if > 1)
  * without loading any screen or touching topbar/home-indicator state. Used

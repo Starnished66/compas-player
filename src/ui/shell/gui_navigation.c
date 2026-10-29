@@ -70,6 +70,10 @@ extern bool active_press_is_over_drag_adjust_widget(void);
  * one slides in from the right (matching a left-swipe gesture); back
  * navigation is the mirror of that. */
 #define NAV_ANIM_TIME_MS 120 /* Short settle; input feedback precedes movement. */
+/* Back-arrow (click) pops: a longer, gentler glide than the old 120 ms
+ * ease-out, which jumped ~30% of the width on its first frame. Scaled by
+ * gui_anim_ms() like every other animation. */
+#define NAV_BACK_ANIM_MS 240
 
 /* Slide transitions use pre-rendered RGB565 bitmaps rather than animating
  * the live widget trees. Two static snapshots (one per screen) are blitted
@@ -820,6 +824,9 @@ static void back_target_cache_note_replaced(lv_obj_t * old_screen, lv_obj_t * ne
 /* slide_transition_ctx_t defined in gui.h */
 
 static bool slide_transition_active = false;
+/* The click-driven (fixed) back slide in flight, if any. Taps are dropped
+ * while it runs -- see gui_navigation_fixed_transition_running(). */
+static slide_transition_ctx_t * fixed_back_ctx = NULL;
 /* Fixed navigation snapshots are prepared synchronously while LVGL's tick is
  * frozen. Start their animation from a one-shot timer so lv_anim_start() gets
  * a fresh loop-top tick instead of charging snapshot time to the animation. */
@@ -889,6 +896,7 @@ void slide_transition_anim_x_cb(void * var, int32_t v) {
              * valid pointer to compare against. */
             gui_shell_player_swipe_recover(ctx);
             gui_lock_screen_swipe_recover(ctx);
+            if (fixed_back_ctx == ctx) fixed_back_ctx = NULL;
             lv_free(ctx);
             slide_transition_active = false;
         }
@@ -926,6 +934,7 @@ void slide_transition_done_cb(lv_anim_t * a) {
     if (ctx->buf_from_owned) lv_draw_buf_destroy(ctx->buf_from);
     if (ctx->buf_to_owned) lv_draw_buf_destroy(ctx->buf_to);
     transition_compositor_end(); /* no-op if the compositor was never activated for this transition */
+    if (fixed_back_ctx == ctx) fixed_back_ctx = NULL;
     lv_free(ctx);
     slide_transition_active = false;
     /* A back-navigation just retargeted the slot at the screen now behind the
@@ -945,6 +954,7 @@ void slide_transition_cancel(slide_transition_ctx_t ** pctx) {
     }
     slide_transition_ctx_t * ctx = *pctx;
     *pctx = NULL;
+    if (fixed_back_ctx == ctx) fixed_back_ctx = NULL;
 
     if (fixed_transition_start_ctx == ctx) {
         fixed_transition_start_ctx = NULL;
@@ -1319,10 +1329,26 @@ static void fixed_transition_start_animation(slide_transition_ctx_t *ctx) {
     lv_anim_set_var(&a, ctx);
     lv_anim_set_user_data(&a, ctx);
     lv_anim_set_values(&a, 0, -ctx->to_offset);
-    lv_anim_set_duration(&a, gui_anim_ms(NAV_ANIM_TIME_MS));
+    /* Reveal-style horizontal back pop (not the Player's two-panel dismiss):
+     * soft decelerating curve over NAV_BACK_ANIM_MS, with frame 0 NOT applied inside lv_anim_start().
+     * Frame 0 is the unmoved screen, and presenting it there cost a full
+     * compositor frame while the animation clock was already running, so the
+     * first visible step skipped ahead (stall-then-jump). Leaving it to the
+     * animation timer's next pass mirrors the swipe-back's
+     * back_swipe_just_confirmed deferral. */
+    bool back_pop = !ctx->vertical && ctx->to_offset < 0 && ctx->reveal;
+    if (back_pop) {
+        lv_anim_set_duration(&a, gui_anim_ms(NAV_BACK_ANIM_MS));
+        lv_anim_set_early_apply(&a, false);
+        /* cubic-bezier(0.2, 0, 0, 1): decelerating, but with a gentle start. */
+        lv_anim_set_path_cb(&a, lv_anim_path_custom_bezier3);
+        lv_anim_set_bezier3_param(&a, 205, 0, 0, 1024);
+    } else {
+        lv_anim_set_duration(&a, gui_anim_ms(NAV_ANIM_TIME_MS));
+        lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+    }
     lv_anim_set_exec_cb(&a, slide_transition_anim_x_cb);
     lv_anim_set_completed_cb(&a, slide_transition_done_cb);
-    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
     if (!lv_anim_start(&a)) {
         /* No animation callback ran, so reuse the normal completed cleanup
          * after ending compositor ownership. Fixed navigation is committed. */
@@ -1345,7 +1371,15 @@ static void screen_transition_slide_ex(lv_obj_t * to_scr, bool forward, bool ver
         return;
     }
 
+    fixed_back_ctx = ctx;
     fixed_transition_schedule_start(ctx);
+}
+
+/* True while a click-driven back slide is animating. gui_shell.c drops new
+ * presses meanwhile so a second tap cannot pop again or hit the hidden
+ * source widgets. Programmatic nav_pop() calls are not blocked. */
+bool gui_navigation_fixed_transition_running(void) {
+    return fixed_back_ctx != NULL;
 }
 
 void nav_push(lv_obj_t * scr) {
@@ -1401,7 +1435,10 @@ void nav_pop_ex(bool forward, bool vertical, bool reveal) {
 }
 
 void nav_pop(void) {
-    nav_pop_ex(false, false, false);
+    /* Same motion as the swipe-back gesture (gui_shell.c): reveal-style
+     * everywhere except leaving the Player screen, which keeps the two-panel
+     * slide. */
+    nav_pop_ex(false, false, lv_screen_active() != gui_player_get_screen());
 }
 
 void nav_pop_stack_only(void) {
@@ -1528,7 +1565,8 @@ void enable_gesture_bubble_recursive(lv_obj_t * obj) {
 
 /* Used by screen_gesture_event_cb() below -- defined later with the drawer
  * and dead-zone machinery. */
-#define QUICK_DRAWER_ANIM_MS 120 /* post-release snap animation duration */
+/* QUICK_DRAWER_ANIM_MS (post-release snap duration) lives in gui_navigation.h,
+ * shared with gui_shell.c. */
 #define QUICK_DRAWER_TRIGGER_ZONE BOARD_SCALE_PX(140) /* swipe-down must start within this many px of the top edge to open it */
 
 /* Global swipe handling for back/forward nav. Swipe left-to-right (finger
@@ -1725,6 +1763,7 @@ bool gui_navigation_restore_path(const gui_nav_reload_state_t * state) {
  * rebuilt) re-registers the snapshots and restores nav_stack/nav_depth to
  * Home on its own -- no separate "restore navigation" step is needed. */
 void gui_navigation_teardown(void) {
+    fixed_back_ctx = NULL;
     ui_snapshot_prefetch_cancel_all();
     if (fixed_transition_start_ctx) {
         slide_transition_ctx_t *pending = fixed_transition_start_ctx;
