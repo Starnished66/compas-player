@@ -2,6 +2,7 @@
 #include "../../text/i18n/i18n.h"
 #include "gui_library.h"
 #include "gui_folder_actions.h"
+#include "gui_album_header.h"
 #include "../playlists/gui_playlists.h"
 #include "../playlists/gui_playlist_target.h"
 #include "../../../library/browser/paths/library_paths.h"
@@ -1237,8 +1238,9 @@ static play_mode_t collection_play_mode(play_mode_t requested_mode) {
 
 static void playlist_start_cancel(lv_event_t * e) {
     (void) e;
-    lv_obj_add_flag(playlist_start_popup, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(playlist_start_backdrop, LV_OBJ_FLAG_HIDDEN);
+    /* The album page's Shuffle button gets here before the popup exists. */
+    if (playlist_start_popup) lv_obj_add_flag(playlist_start_popup, LV_OBJ_FLAG_HIDDEN);
+    if (playlist_start_backdrop) lv_obj_add_flag(playlist_start_backdrop, LV_OBJ_FLAG_HIDDEN);
 }
 static void playlist_start_selected(lv_event_t * e, bool shuffle) {
     if (library_rescan_active) return;
@@ -1282,6 +1284,25 @@ static void playlist_start_options(int source) {
 static void group_start_options_cb(lv_event_t * e) {
     (void) e; playlist_start_options(PLAY_ALL_SOURCE_GROUP);
 }
+/* The album page's Play and Shuffle buttons: the popup's "Start
+ * sequentially" and "Shuffle from a random song", without the popup. */
+static void group_play_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    playlist_start_source = PLAY_ALL_SOURCE_GROUP;
+    playlist_start_sequential(e);
+}
+static void group_shuffle_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    playlist_start_source = PLAY_ALL_SOURCE_GROUP;
+    playlist_start_shuffle(e);
+}
+
+/* True while the group-songs screen shows an album (not a playlist, genre,
+ * artist's songs or favourites): the only screen that gets the album header
+ * and numbered rows. */
+static bool group_songs_album_layout(void) {
+    return group_songs_source_is_album && group_songs_music_submenu && !group_songs_edit_m3u_path;
+}
 
 static void group_song_row_long_press_cb(lv_event_t * e) {
     if (library_rescan_active) return;
@@ -1315,6 +1336,10 @@ void gui_library_poll_track_probes(void) {
                    group_songs_music_submenu && group_probe_storage_available && backlight_screen_is_on();
     if (!visible && group_probe_job && group_probe_job_generation == group_probe_generation)
         cancel_group_song_probes();
+    /* The album header's whole-album probe waits for the page's own probe. */
+    gui_album_header_poll(visible && group_songs_album_layout(),
+                          visible && group_songs_album_layout() && !group_probe_job &&
+                          group_probe_requested_generation == group_probe_generation);
 
     if (group_probe_job) {
         bool current = visible && group_probe_job_generation == group_probe_generation;
@@ -1338,6 +1363,7 @@ void gui_library_poll_track_probes(void) {
                     index >= GROUP_SONGS_PAGE_SIZE || pos >= group_songs_count) continue;
                 char detail[64];
                 unsigned int seconds = (unsigned int)(info.duration_seconds + 0.5);
+                if (group_songs_album_layout()) gui_album_header_note_probe(pos, &info);
                 snprintf(detail, sizeof(detail), "%u:%02u · %s", seconds / 60, seconds % 60,
                          library_codec_name(info.codec));
                 const char * old = group_songs_entries[pos].title;
@@ -1351,7 +1377,9 @@ void gui_library_poll_track_probes(void) {
                 free(group_songs_entries[pos].title);
                 group_songs_entries[pos].title = title;
                 lv_obj_t * row = group_songs_visible_rows[index];
-                if (row) {
+                if (row && group_songs_album_layout()) {
+                    gui_album_header_row_set_duration(row, seconds);
+                } else if (row) {
                     lv_obj_t * secondary = lv_obj_get_child(row, 1);
                     lv_label_set_text(secondary, detail);
                     lv_obj_remove_flag(secondary, LV_OBJ_FLAG_HIDDEN);
@@ -1461,6 +1489,7 @@ static void populate_group_songs_rows(void) {
      * the replacement rows are complete. */
     memset(group_songs_visible_rows, 0, sizeof(group_songs_visible_rows));
     memset(group_songs_thumbnail_images, 0, sizeof(group_songs_thumbnail_images));
+    gui_album_header_forget();
     lv_obj_clean(group_songs_list);
 
     bool editable = group_songs_edit_m3u_path != NULL;
@@ -1475,7 +1504,21 @@ static void populate_group_songs_rows(void) {
     }
 
     update_group_songs_search_button(editing || group_songs_loading);
-    if (!editing && !group_songs_loading) {
+    bool album_layout = group_songs_album_layout();
+    if (!album_layout) gui_album_header_release_cover();
+    /* Album pages keep the app's side margins so the scrollbar clears the cards. */
+    lv_obj_set_style_pad_hor(group_songs_list, album_layout ? GUI_LIST_SIDE_MARGIN : 0, 0);
+    if (album_layout) {
+        /* Albums get a header with Play and Shuffle instead of the Play All row. */
+        gui_album_header_params_t header = {
+            .album = group_songs_source_title, .album_artist = group_songs_refresh_album_artist,
+            .entries = group_songs_entries, .count = group_songs_count,
+            .show_buttons = !group_songs_loading && group_songs_count > 0,
+            .play_cb = group_play_cb, .shuffle_cb = group_shuffle_cb,
+            .quality_asset = song_quality_asset_for_path,
+        };
+        gui_album_header_build(group_songs_list, &header);
+    } else if (!editing && !group_songs_loading) {
         lv_obj_t * start = add_group_songs_page_row(TR("Play All"), group_start_options_cb);
         lv_obj_add_style(start, &style_theme_card_bg, 0);
         lv_obj_set_style_text_align(start, LV_TEXT_ALIGN_LEFT, 0);
@@ -1576,7 +1619,11 @@ static void populate_group_songs_rows(void) {
             /* One lv_label via the shared list_row_style, not a container +
              * child label each with their own local style properties -- see
              * list_row_style's own doc comment (screen_builders.h). */
-            lv_obj_t * row = build_music_list_row(group_songs_list, group_songs_entries[i].title, NULL, BOARD_SCALE_PX(70));
+            char album_title[384];
+            lv_obj_t * row = build_music_list_row(group_songs_list,
+                album_layout ? gui_album_header_row_title(group_songs_entries[i].title, album_title,
+                                                          sizeof(album_title))
+                             : group_songs_entries[i].title, NULL, BOARD_SCALE_PX(70));
             if (group_songs_music_submenu) lv_obj_set_width(row, lv_pct(100));
             group_songs_visible_rows[i - group_songs_page_start] = row;
             if (group_songs_music_submenu) layout_music_submenu_row_text(row);
@@ -1596,6 +1643,7 @@ static void populate_group_songs_rows(void) {
              * 14px from the card edge (same rule as compact-list rows). */
             lv_obj_align(quality, LV_ALIGN_RIGHT_MID, BOARD_SCALE_PX(-14), 0);
             lv_obj_remove_flag(quality, LV_OBJ_FLAG_CLICKABLE);
+            if (album_layout) gui_album_header_decorate_row(row, i);
 
             lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_event_cb(row, group_song_row_click_cb, LV_EVENT_CLICKED, (void *) (intptr_t) i);
@@ -1695,6 +1743,8 @@ static void group_songs_edit_btn_cb(lv_event_t * e) {
 static void group_songs_screen_event_cb(lv_event_t * e) {
     lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_DELETE) {
+        gui_album_header_forget();
+        gui_album_header_release_cover();
         library_thumbnails_forget_list(group_songs_list);
         gui_list_reorder_finish(&group_songs_reorder_state, false);
         group_songs_unregister_reorder_handles();
@@ -2059,12 +2109,14 @@ static lv_obj_t * build_group_songs_screen(void) {
 
 /* Whether a group row gets a cover (or its placeholder) at all. */
 static bool group_song_has_cover(int index) {
+    /* Album rows show the track number where the thumbnail was. */
+    if (group_songs_album_layout()) return false;
     return index >= 0 && index < group_songs_count && group_songs_entries[index].song_id > 0 &&
            group_songs_entries[index].artwork_key != 0;
 }
 
 static void group_song_row_text_offset(lv_obj_t * row, bool with_thumbnail) {
-    if (!row || lv_obj_get_child_count(row) < 2) return;
+    if (!row || lv_obj_get_child_count(row) < 2 || group_songs_album_layout()) return;
     int32_t target_x = (with_thumbnail ? BOARD_SCALE_PX(100) : GUI_TEXT_INSET) +
         (group_songs_edit_mode ? group_songs_reorder_handle_width() : 0);
     /* New rows have explicit label geometry but no computed coordinates
@@ -2129,6 +2181,7 @@ static void refresh_group_song_thumbnails(void) {
                          (group_songs_edit_mode ? group_songs_reorder_handle_width() : 0) - pad_left,
                      (pad_top - pad_bottom) / -2);
     }
+    if (group_songs_album_layout()) gui_album_header_refresh_cover(group_songs_list);
 }
 
 static library_thumbnail_context_t library_thumbnail_genre_context(void) {
@@ -2159,6 +2212,7 @@ static bool detach_group_song_thumbnail(const lv_image_dsc_t *dsc) {
         lv_obj_add_flag(image, LV_OBJ_FLAG_HIDDEN);
         detached = true;
     }
+    if (gui_album_header_detach_cover(dsc)) detached = true;
     return detached;
 }
 
@@ -2283,6 +2337,7 @@ static group_song_entry_t * load_album_entries_filtered(const char * name, const
         }
     }
     set_album_disc_headers(songs, n, multi_disc, entries);
+    gui_album_header_record(songs, n);
     free(songs);
     *out_count = n;
     return entries;
@@ -6909,6 +6964,7 @@ void gui_library_cancel_background_work(void) {
         track_probe_job_cancel_and_destroy(group_probe_job);
         group_probe_job = NULL;
     }
+    gui_album_header_shutdown();
     library_thumbnails_quiesce();
     if (library_rescan_active) {
         bool cover_reload = library_rescan_mode == LIBRARY_RESCAN_REFRESH_COVERS_ALL ||

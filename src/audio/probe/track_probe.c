@@ -19,6 +19,9 @@ typedef struct {
     bool valid;
     audio_codec_t codec;
     double duration_seconds;
+    unsigned int source_sample_rate;
+    unsigned int source_bit_depth;
+    bool is_dsd;
 } track_probe_result_t;
 
 struct track_probe_job {
@@ -46,6 +49,9 @@ static void * track_probe_worker(void * arg) {
             job->results[i].valid = true;
             job->results[i].codec = info.codec;
             job->results[i].duration_seconds = info.duration_seconds;
+            job->results[i].source_sample_rate = info.source_sample_rate;
+            job->results[i].source_bit_depth = info.source_bit_depth;
+            job->results[i].is_dsd = info.is_dsd;
         }
         /* Each slot is written once. The consumer's acquire load makes all
          * slots below published visible without taking a worker-held lock. */
@@ -114,6 +120,9 @@ bool track_probe_job_next(track_probe_job_t * job, size_t * index,
     out->valid = result->valid;
     out->codec = result->codec;
     out->duration_seconds = result->duration_seconds;
+    out->source_sample_rate = result->source_sample_rate;
+    out->source_bit_depth = result->source_bit_depth;
+    out->is_dsd = result->is_dsd;
     *index = job->next++;
     return true;
 }

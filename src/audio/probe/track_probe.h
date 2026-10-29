@@ -20,8 +20,8 @@ track_probe_job_t * track_probe_job_start(const char * const * paths, size_t cou
 void track_probe_job_cancel(track_probe_job_t * job);
 
 /* Nonblocking single-consumer poll. Returns true for the next published
- * result and its original zero-based index. Only valid, codec and
- * duration_seconds are retained; all other output fields are zero. A failed
+ * result and its original zero-based index. Only valid, codec,
+ * duration_seconds, source_sample_rate, source_bit_depth and is_dsd are retained; all other output fields are zero. A failed
  * probe still publishes a completely zero/invalid result. False leaves
  * outputs and the cursor unchanged (including for NULL arguments).
  * Results already published remain available after cancellation/completion. */
