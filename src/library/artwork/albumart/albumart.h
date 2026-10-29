@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "../coordinator/artwork_coordinator.h"
+#include "../../../core/system/runtime/board_config.h"
 
 /* Persistent RGB565 cache sizes shared by the library and player.  The
  * on-card representation is a 24-bit BMP, while callers receive RGB565
@@ -12,7 +13,8 @@
 /* Generation of the cache file naming and contents; a new one retires older
  * caches. */
 #define ALBUMART_CACHE_VERSION "v4"
-#define ALBUMART_THUMBNAIL_SIZE 72
+/* 80 on the R1-class boards and 40 on the TempoTec V1 (no board define = 80). */
+#define ALBUMART_THUMBNAIL_SIZE BOARD_LIBRARY_THUMB_PX
 #define ALBUMART_PLAYER_CACHE_SIZE 480
 /* Largest external cover file the library reads, and how many other tracks of
  * an album are tried for embedded art when the representative one has none. */

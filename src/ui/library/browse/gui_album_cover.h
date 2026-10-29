@@ -18,5 +18,7 @@ const lv_image_dsc_t * gui_album_cover_get(int64_t song_id);
 /* Cancels any job and frees the buffer. The image using it must be gone.
  * Never blocks; the cancelled job is reaped by a later poll. */
 void gui_album_cover_release(void);
+/* True while a decode job is running. */
+bool gui_album_cover_busy(void);
 /* Blocking final-shutdown cleanup. */
 void gui_album_cover_shutdown(void);

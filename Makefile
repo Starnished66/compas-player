@@ -270,6 +270,7 @@ LVGL_UI_PERF_TRACE_PATCH := patches/lvgl/lvgl_ui_perf_trace.patch
 LVGL_SCROLL_BLIT_PATCH := patches/lvgl/lvgl_scroll_blit.patch
 LVGL_STYLE_REDRAW_PATCH := patches/lvgl/lvgl_style_redraw.patch
 LVGL_MARQUEE_REDRAW_PATCH := patches/lvgl/lvgl_marquee_redraw.patch
+LVGL_BLUR_WALK_SKIP_PATCH := patches/lvgl/lvgl_blur_walk_skip.patch
 LVGL_TEXTAREA_ARABIC_PATCH := patches/lvgl/lvgl_textarea_arabic_canonical.patch
 LVGL_BIDI_LTR_FASTPATH_PATCH := patches/lvgl/lvgl_bidi_ltr_fastpath.patch
 LVGL_BINFONT_SAFETY_PATCH := patches/lvgl/lvgl_binfont_safety.patch
@@ -736,12 +737,14 @@ APP_SRCS += src/plugins/bindings/io/plugin_http_bindings.c src/plugins/lua/plugi
 APP_SRCS += src/library/metadata/scan/library_scan.c src/ui/player/artwork/player_artwork_jobs.c src/ui/player/artwork/player_artwork_cache.c
 APP_SRCS += src/plugins/bindings/ui/plugin_text_view_bindings.c src/ui/player/queue/player_queue_storage.c
 APP_SRCS += src/plugins/bindings/io/plugin_archive_bindings.c
-APP_SRCS += src/ui/library/library_thumbnails.c
+APP_SRCS += src/ui/library/library_thumbnails.c src/ui/library/library_thumbnail_placeholder.c
 APP_SRCS += src/ui/library/library_search.c
 APP_SRCS += src/ui/player/queue/player_queue_model.c
 APP_SRCS += src/ui/library/browse/gui_folder_actions.c src/ui/library/playlists/gui_playlists.c src/ui/library/playlists/gui_playlist_target.c
-APP_SRCS += src/ui/player/lyrics/lyrics_layout.c src/ui/effects/transition_compositor.c src/ui/effects/frosted_glass.c src/ui/input/hw_volume_coalesce.c src/ui/library/browse/gui_list_reorder.c src/ui/library/browse/gui_album_header.c src/ui/library/browse/gui_album_facts.c src/ui/library/browse/gui_album_cover.c
+APP_SRCS += src/ui/player/lyrics/lyrics_layout.c src/ui/effects/transition_compositor.c src/ui/effects/frosted_glass.c src/ui/input/hw_volume_coalesce.c src/ui/library/browse/gui_list_reorder.c src/ui/library/browse/gui_album_header.c src/ui/library/browse/gui_album_probe.c src/ui/library/browse/gui_album_facts.c src/ui/library/browse/gui_album_cover.c
 APP_SRCS += src/ui/plugins/plugin_control_dashboard.c
+APP_SRCS += src/ui/library/browse/gui_artist_data.c src/ui/library/browse/gui_artist_page.c src/ui/library/browse/gui_page_durations.c src/ui/library/browse/gui_library_async.c src/ui/widgets/builders/gui_play_bar.c
+APP_SRCS += src/library/metadata/durations/duration_cache.c src/library/metadata/durations/duration_cache_merge.c src/library/metadata/durations/duration_cache_file.c src/library/metadata/durations/duration_lookup.c src/library/metadata/durations/duration_prune.c
 APP_SRCS += src/ui/diagnostics/ui_frame_trace.c src/ui/diagnostics/ui_draw_trace.c src/ui/diagnostics/ui_blit_verify.c src/ui/widgets/lists/scroll_blit.c src/ui/diagnostics/ui_snapshot_prefetch.c
 APP_SRCS += src/core/ui/display/ui_wake.c src/core/themes/ui_customization.c src/library/artwork/cache/cover_raster_cache.c src/library/workers/track_metadata_worker.c src/library/artwork/prefetch/player_cover_prefetch.c
 APP_SRCS += src/core/updates/firmware_image.c
@@ -995,7 +998,7 @@ $(HOST_BIN): $(HOST_OBJS) $(HOST_AUDIO_LIBS) $(HOST_VARIANT_STAMP)
 # on the tracked patch file (so a future change to the patch itself also
 # invalidates it), not just on $(LVGL_DIR) existing.
 $(LVGL_PATCH_STAMP): $(LVGL_FBDEV_C) $(LVGL_FBDEV_H) $(LVGL_PATCH) \
-                     $(LVGL_TINY_TTF) $(LVGL_TJPGDCNF) $(LVGL_LRU_RB) $(LVGL_LODEPNG) $(LVGL_OBJ_POS) $(LVGL_DRAW_IMAGE) $(LVGL_SW_TRANSFORM) $(LVGL_RUNTIME_FIXES_PATCH) $(LVGL_UI_PERF_TRACE_PATCH) $(LVGL_SCROLL_BLIT_PATCH) $(LVGL_STYLE_REDRAW_PATCH) $(LVGL_MARQUEE_REDRAW_PATCH) \
+                     $(LVGL_TINY_TTF) $(LVGL_TJPGDCNF) $(LVGL_LRU_RB) $(LVGL_LODEPNG) $(LVGL_OBJ_POS) $(LVGL_DRAW_IMAGE) $(LVGL_SW_TRANSFORM) $(LVGL_RUNTIME_FIXES_PATCH) $(LVGL_UI_PERF_TRACE_PATCH) $(LVGL_SCROLL_BLIT_PATCH) $(LVGL_STYLE_REDRAW_PATCH) $(LVGL_MARQUEE_REDRAW_PATCH) $(LVGL_BLUR_WALK_SKIP_PATCH) \
                      $(LVGL_EVDEV_C) $(LVGL_EVDEV_FRAMES_PATCH) $(LVGL_TEXTAREA_ARABIC_PATCH) $(LVGL_BIDI_LTR_FASTPATH_PATCH) \
                      $(LVGL_BINFONT_LOADER) $(LVGL_FS_CORE) $(LVGL_BINFONT_SAFETY_PATCH) scripts/tools/patches/apply-tracked-patch.sh \
                      $(LVGL_FONT_TARGETS) $(LVGL_FONT_GOLDEN)
@@ -1074,6 +1077,7 @@ $(LVGL_PATCH_STAMP): $(LVGL_FBDEV_C) $(LVGL_FBDEV_H) $(LVGL_PATCH) \
 	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_SCROLL_BLIT_PATCH); \
 	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_STYLE_REDRAW_PATCH); \
 	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_MARQUEE_REDRAW_PATCH); \
+	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_BLUR_WALK_SKIP_PATCH); \
 	for f in $(LVGL_GENERATED_FONTS); do \
 	  target=$(LVGL_DIR)/src/font/$$f; golden=$(LVGL_GENERATED_FONTS_DIR)/$$f; \
 	  if cmp -s "$$target" "$$golden"; then \

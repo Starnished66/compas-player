@@ -19,6 +19,10 @@ typedef enum {
  * If source_mtime > cached mtime, returns false (source was updated). */
 bool artwork_failure_cache_is_blocked(int64_t song_id, time_t source_mtime,
                                       artwork_fail_reason_t * out_reason);
+/* True when a failure (permanent, or temporary and not yet expired) is on record for this song:
+ * a cheap look that needs no source mtime, so a caller with nothing on record can skip the
+ * file system work that mtime costs. */
+bool artwork_failure_cache_has_entry(int64_t song_id);
 /* Records an artwork failure for an album with its current source mtime. */
 void artwork_failure_cache_record(int64_t song_id, time_t source_mtime,
                                   artwork_fail_reason_t reason);

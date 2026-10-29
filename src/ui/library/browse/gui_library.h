@@ -44,6 +44,7 @@ void gui_library_suspend_boot_prompt(void);
  * reload can call gui_library_init() again from a clean slate. */
 void gui_library_teardown(void);
 void gui_library_refresh_music_screen(void);
+void gui_library_accent_changed(void);
 void gui_library_set_artist_images_enabled(bool enabled);
 typedef enum {
     GUI_LIBRARY_SORT_FILES,
@@ -72,6 +73,12 @@ void open_add_to_playlist_for(const char * path);
 void gui_library_poll_playlists(void);
 /* Nonblocking duration/codec completion polling; updates only the current page. */
 void gui_library_poll_track_probes(void);
+/* Main loop, after a worker published (ui_wake_notify): make the poll timers that only
+ * check "is the worker done" run in this pass (thumbnail hand-off, paged list landing,
+ * album load). Their own guards (transition, scrolling) still apply. */
+void gui_library_jobs_ready_timers(void);
+/* True while any library worker is running or queued: page loads, lookups, probes, covers. */
+bool gui_library_background_busy(void);
 void on_cue_file_selected(const char * cue_path);
 void show_artist_albums(const char * name, metadata_db_group_kind_t kind);
 /* Opens the local artist or album group containing `path`, if the path is
@@ -82,6 +89,8 @@ void refresh_library_screens_after_rescan(void);
 
 void poll_az_index_drag(lv_timer_t * timer);
 void plugin_stream_tile_click_cb(lv_event_t * e);
+/* The screen came back on: a half-built Songs page goes back to its normal build pace at once. */
+void gui_library_screen_woke(void);
 void set_player_source_group_songs_direct(const group_song_entry_t * entries, int count, const char * title, int selected_index);
 
 bool search_close_if_active_for_screen(lv_obj_t * screen);

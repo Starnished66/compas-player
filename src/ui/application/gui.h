@@ -416,3 +416,10 @@ void populate_wifi_screen(bool enabled);
 
 /* Owner-thread service after the opt-in input/worker poll wakes. */
 void gui_process_input_wake(void);
+/* A worker published a result (ui_wake_notify): the main loop calls begin
+ * right before lv_timer_handler() (make the "is the job done" poll timers due)
+ * and end right after it (apply what depends on their outcome). */
+void gui_jobs_dispatch_begin(void);
+void gui_jobs_dispatch_end(void);
+/* True once, after a dispatch_end skipped for a slide and the slide is over. */
+bool gui_jobs_take_deferred(void);

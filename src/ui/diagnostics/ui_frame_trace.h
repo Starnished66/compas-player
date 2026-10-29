@@ -50,7 +50,10 @@ typedef enum {
     UI_TRACE_SPAN_NAV_PUSH,
     UI_TRACE_SPAN_STATIC_LOOKUP,
     UI_TRACE_SPAN_TARGET_DUP,
-    UI_TRACE_SPAN_FILE_ROWS
+    UI_TRACE_SPAN_FILE_ROWS,
+    UI_TRACE_SPAN_GROUP_ROWS,       /* populate_group_songs_rows(): the synchronous part of a song page */
+    UI_TRACE_SPAN_GROUP_ROWS_CHUNK, /* one deferred chunk of rows (timer or scroll build-ahead) */
+    UI_TRACE_SPAN_ARTIST_SONGS_READ /* the artist songs read, measured on its worker and reported when it lands */
 } ui_trace_span_t;
 
 uint64_t ui_perf_now_us(void);

@@ -38,7 +38,9 @@ void gui_album_header_record(const song_row_t * songs, int count) {
         key = gui_album_facts_add(key, songs[i].path);
         track[i] = songs[i].tags.track_number > 0 ? songs[i].tags.track_number : 0;
         if (songs[i].tags.release_year > 0) years[year_n++] = songs[i].tags.release_year;
-        if (songs[i].tags.genre[0]) genres[genre_n++] = songs[i].tags.genre;
+        /* The scanner stores "Unknown Genre" for untagged files; leave it out. */
+        if (songs[i].tags.genre[0] && strcmp(songs[i].tags.genre, "Unknown Genre") != 0)
+            genres[genre_n++] = songs[i].tags.genre;
     }
     /* The most common value wins; sorted order makes a tie go to the first. */
     int year = 0, best = 0;

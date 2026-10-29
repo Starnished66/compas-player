@@ -145,6 +145,9 @@ void library_az_index_register(lv_obj_t * screen, lv_obj_t * list,
      * compact-list siblings. */
     lv_obj_align(strip, LV_ALIGN_TOP_RIGHT, 0, top);
     lv_obj_add_flag(strip, LV_OBJ_FLAG_HIDDEN);
+    /* The strip sits over the list's right edge while it scrolls: the scroll blit copies only what
+     * lies left of it and redraws this column each step. */
+    lv_obj_set_scroll_blit_fixed_column(list, strip);
 
     lv_obj_t * popup = lv_image_create(screen);
     lv_image_set_src(popup, asset_path("touch_list/a_z_result_bg.png"));
@@ -246,7 +249,6 @@ void library_az_index_poll(lv_timer_t * timer) {
     if (letter_idx > 26) letter_idx = 26;
 
     int target = az_index_jump_table[letter_idx];
-    if (target >= 0 && b->db_kind == METADATA_DB_AZ_ALL_SONGS) target++; /* All Songs' Play All row */
     if (target >= 0) compact_list_scroll_to_index(b->list, target);
 
     char letter = (letter_idx < 26) ? (char) ('A' + letter_idx) : '#';

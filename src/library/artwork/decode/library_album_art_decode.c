@@ -95,24 +95,24 @@ time_t album_source_mtime(const song_row_t * song, const albumart_info_t * info)
 }
 
 /* The warmer builds the player-sized cache from the original compressed art
- * while it is already resident for the 72px decode.  Keeping this out of the
+ * while it is already resident for the thumbnail decode.  Keeping this out of the
  * visible thumbnail path prevents scrolling from triggering a second large
  * decode; the player can then open the persistent 480px BMP without any
  * metadata extraction or lazy source decode.
  *
  * When a fresh 480px decode actually runs (warmer, cache miss) and is stored,
- * *out_player_pixels receives those pixels so the caller can derive the 72px
- * thumbnail from them instead of entropy-decoding the same source a second
+ * *out_player_pixels receives those pixels so the caller can derive the thumbnail
+ * from them instead of entropy-decoding the same source a second
  * time.  On every skip path (not warmer, cache already present) and every
- * failure, *out_player_pixels is NULL -- caller then does the 72px decode
+ * failure, *out_player_pixels is NULL -- caller then does the thumbnail decode
  * itself, same as before.  Caller owns and must free() a non-NULL return. */
 /* Set by the warmer body on its own thread: also materialize the 480px
  * player cache while decoding. Independent of the coordinator priority, so
  * an explicit reload can run at thumbnail priority during playback. */
 static __thread bool album_art_materialize_player;
 /* Set when the last decode on this thread returned a user's own sized
- * thumbnail (a valid cover.72x72 beside the music) instead of writing a
- * generated 72px copy. */
+ * thumbnail (a valid cover.<N>x<N> beside the music) instead of writing a
+ * generated thumbnail copy. */
 static __thread bool album_art_thumb_from_user_file;
 
 static cover_decode_result_t album_thumbnail_maybe_store_player_cache(
@@ -140,7 +140,7 @@ static cover_decode_result_t album_thumbnail_maybe_store_player_cache(
     return res;
 }
 
-/* 72px pixels: cover-fit from a just-decoded 480px buffer when the warmer
+/* Thumbnail pixels: cover-fit from a just-decoded 480px buffer when the warmer
  * actually produced one, otherwise a single decode at thumbnail size. */
 static cover_decode_result_t album_thumbnail_pixels_from_source(
         const uint8_t * data, uint32_t size, const uint16_t * player_pixels,
@@ -357,8 +357,30 @@ static sibling_art_result_t album_thumbnail_try_embedded_art_from_path(
     return SIBLING_ART_NOT_FOUND;
 }
 
+bool album_thumbnail_load_sized_quick(const song_row_t * song, artwork_priority_t prio,
+                                      artwork_cancel_fn cancel_cb, void * user_data, uint16_t ** out_pixels) {
+    *out_pixels = NULL;
+    if (!song || !song->path[0] || album_art_materialize_player || artwork_failure_cache_has_entry(song->id))
+        return false;
+    albumart_info_t info;
+    albumart_info_from_song_row(song, &info);
+    char thumbnail_found[PATH_MAX];
+    if (!album_thumbnail_sized_cache_hit(&info, thumbnail_found, sizeof(thumbnail_found))) return false;
+    uint8_t * data = NULL;
+    uint32_t size = 0;
+    if (albumart_load_file_ex(thumbnail_found, &data, &size, THUMBNAIL_SIDECAR_MAX_BYTES, prio) != ALBUMART_LOAD_OK)
+        return false;
+    cover_decode_result_t res = cover_decode_to_rgb565_ex(data, size, ALBUM_THUMBNAIL_PX, ALBUM_THUMBNAIL_PX,
+                                                          prio, cancel_cb, user_data, out_pixels);
+    free(data);
+    if (res == COVER_DECODE_OK && *out_pixels) return true;
+    free(*out_pixels);
+    *out_pixels = NULL;
+    return false;
+}
+
 /* Rockbox albumart search, then embedded picture. A successful decode is
- * written as MUSIC_ROOT_DIR/.compas/albumart/<artist>-<album>.72x72.bmp
+ * written as MUSIC_ROOT_DIR/.compas/albumart/<artist>-<album>.<N>x<N>.bmp
  * so the next pass is a small BMP load instead of a JPEG/PNG decode.
  * Albums without artist+album tags still decode, but cannot be stored.
  * Checks the negative failure cache first to prevent repeated failed decodes.
@@ -388,7 +410,7 @@ bool album_thumbnail_load_or_decode_with_mtime(const song_row_t * song, artwork_
     bool have_cached_thumbnail = false;
     album_art_thumb_from_user_file = false;
 
-    /* Step 1: Try sized Rockbox thumbnail cache (.72x72.bmp) */
+    /* Step 1: Try sized Rockbox thumbnail cache (.<N>x<N>.bmp) */
     bool step1_hit = !sized_cache_checked &&
                      album_thumbnail_sized_cache_hit(&info, thumbnail_found, sizeof(thumbnail_found));
     DB_LOG("ART_LAZY", "step1 song=%lld artist=%s albumartist=%s album=%s key=%016llx hit=%d found=%s",
@@ -409,8 +431,8 @@ bool album_thumbnail_load_or_decode_with_mtime(const song_row_t * song, artwork_
             size = 0;
             if (res == COVER_DECODE_OK && *out_pixels) {
                 /* A warmer pass must continue to the original source when
-                 * only the 72px cache exists, so it can materialize 480px.
-                 * Keep the fresh 72px pixels while doing that work; do not
+                 * only the thumbnail cache exists, so it can materialize 480px.
+                 * Keep the fresh thumbnail pixels while doing that work; do not
                  * decode or rewrite the thumbnail a second time. */
                 if (!album_art_materialize_player || album_player_cache_hit(&info, found, sizeof(found)))
                     return true;
@@ -614,7 +636,7 @@ bool album_thumbnail_reload_persisted(const song_row_t * song) {
     albumart_info_t info;
     albumart_info_from_song_row(song, &info);
     if (!info.album[0] || !(info.albumartist[0] || info.artist[0])) return true;
-    /* Generated files, or a user's cover.72x72 that this decode actually
+    /* Generated files, or a user's cover.<N>x<N> that this decode actually
      * read successfully; a user file's mere presence proves nothing. */
     char found[PATH_MAX];
     return (album_art_thumb_from_user_file ||

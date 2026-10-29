@@ -20,8 +20,8 @@
 /* Fixed, statically allocated rings: frame records are written once per
  * presentation; sparse records carry stage boundaries and counters. */
 #define FRAME_CAPACITY 4096u
-#define EVENT_CAPACITY 1024u
-#define TRACE_BUDGET_BYTES (256u * 1024u)
+#define EVENT_CAPACITY 4096u
+#define TRACE_BUDGET_BYTES (384u * 1024u)
 #define EXPORT_BATCH_RECORDS 64u
 #define TRACE_SD_DIR "/usr/data/mnt/sd_0"
 #define TRACE_LOG_PATH TRACE_SD_DIR "/compas_frames.csv"
@@ -54,7 +54,7 @@ typedef struct {
 
 _Static_assert(sizeof(frame_record_t) * FRAME_CAPACITY +
                sizeof(event_record_t) * EVENT_CAPACITY <= TRACE_BUDGET_BYTES,
-               "UI trace rings exceed their 256 KiB budget");
+               "UI trace rings exceed their 384 KiB budget");
 
 static frame_record_t frames[FRAME_CAPACITY];
 static event_record_t events[EVENT_CAPACITY];
@@ -383,7 +383,7 @@ static void write_export_batch(void) {
     uint32_t guards[LV_SB_GUARD_COUNT];
     lv_refr_scroll_blit_guard_counts(guards);
     if (header_pending) {
-        ok = fprintf(f, "# trace tag=%s start_us=%llu stop_us=%llu bytes=%u frame_record=%zu event_record=%zu frame_capacity=%u event_capacity=%u draw_record=%u draw_capacity=%u fb_read_us=%u fb_write_us=%u ram_copy_us=%u blit_verify_frames=%u blit_verify_skipped=%u blit_verify_bad=%u blit_verify_bad_px=%llu blit_verify_selftest=%u blit_verify_selftest_bad=%u blit_verify_first_bad=%d,%d,%d,%d blit_guards=reset:%u,queue:%u,invdis:%u,key:%u,overflow:%u,foreign:%u,stress:%u frame_overwrites=%u event_overwrites=%u invalidations=%u invalidated_area=%llu pan_failures=%u present_failures=%u pan_fail_flag=4 delivery=at-least-once dedupe=(tag,type,sequence)\n",
+        ok = fprintf(f, "# trace tag=%s start_us=%llu stop_us=%llu bytes=%u frame_record=%zu event_record=%zu frame_capacity=%u event_capacity=%u draw_record=%u draw_capacity=%u fb_read_us=%u fb_write_us=%u ram_copy_us=%u blit_verify_frames=%u blit_verify_skipped=%u blit_verify_bad=%u blit_verify_bad_px=%llu blit_verify_selftest=%u blit_verify_selftest_bad=%u blit_verify_first_bad=%d,%d,%d,%d blit_guards=reset:%u,queue:%u,invdis:%u,key:%u,overflow:%u,foreign:%u,stress:%u frame_overwrites=%u event_overwrites=%u invalidations=%u invalidated_area=%llu pan_failures=%u present_failures=%u pan_fail_flag=4 blit_verify_compared_px=%llu blit_verify_excluded_px=%llu blit_verify_skip_reasons=%u:%u:%u:%u:%u delivery=at-least-once dedupe=(tag,type,sequence)\n",
                 trace.tag[0] ? trace.tag : "-",
                 (unsigned long long) trace.capture_start_us,
                 (unsigned long long) trace.capture_stop_us,
@@ -393,7 +393,10 @@ static void write_export_batch(void) {
                 guards[0], guards[1], guards[2], guards[3], guards[4], guards[5], guards[6],
                 trace.frame_overwrites, trace.event_overwrites,
                 trace.invalidation_count, (unsigned long long) trace.invalidation_area,
-                trace.pan_failures, trace.present_failures) >= 0;
+                trace.pan_failures, trace.present_failures,
+                (unsigned long long) verify.compared_px, (unsigned long long) verify.excluded_px,
+                verify.skip_reason[0], verify.skip_reason[1], verify.skip_reason[2], verify.skip_reason[3],
+                verify.skip_reason[4]) >= 0;
         if (ok) header_pending = false;
     }
     unsigned budget = EXPORT_BATCH_RECORDS;

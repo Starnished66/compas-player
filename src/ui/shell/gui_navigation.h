@@ -145,6 +145,9 @@ void gui_navigation_refresh_home_snapshot(void);
 /* True when a full-screen background capture will not land on a frame, an
  * animation, a compositor or a finger; waived in part after a long wait. */
 bool gui_navigation_capture_idle(uint32_t waited_ms);
+/* The back-target snapshot also waits for this to report false (library workers
+ * still landing results), so it does not cut into a page that is still opening. */
+void gui_navigation_set_background_busy_cb(bool (*cb)(void));
 /* Frees all cached transition snapshots; see gui_release_memory_for_external_session().
  * gui_navigation_invalidate_theme_snapshots() schedules their rebuild. */
 void gui_navigation_release_snapshots(void);

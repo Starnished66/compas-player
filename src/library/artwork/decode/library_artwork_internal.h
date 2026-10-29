@@ -54,6 +54,11 @@ bool album_thumbnail_load_or_decode_with_mtime(const song_row_t * song, artwork_
         artwork_cancel_fn cancel_cb, void * user_data, time_t source_mtime,
         bool sized_cache_checked, const char * sidecar_path, bool sidecar_checked,
         uint16_t ** out_pixels);
+/* The common case of album_thumbnail_load_or_decode_with_mtime() for a visible row, without the
+ * source mtime it computes first: the song has no failure on record and its generated thumbnail
+ * is on the card. False (nothing loaded) leaves everything to the full function. */
+bool album_thumbnail_load_sized_quick(const song_row_t * song, artwork_priority_t prio,
+        artwork_cancel_fn cancel_cb, void * user_data, uint16_t ** out_pixels);
 bool album_thumbnail_load_or_decode_ex(const song_row_t * song, artwork_priority_t prio,
         artwork_cancel_fn cancel_cb, void * user_data, uint16_t ** out_pixels);
 bool album_thumbnail_reload_persisted(const song_row_t * song);

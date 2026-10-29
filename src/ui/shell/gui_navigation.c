@@ -659,9 +659,30 @@ static void back_target_cache_rebuild(void) {
 
 static uint32_t back_target_cache_waited_ms;
 
+/* The snapshot is a 8-28 ms synchronous render. A page that was just opened is
+ * still settling (covers, durations, thumbnails land for ~100-700 ms) and every
+ * landing is a frame of its own, so the capture waits until the page has been
+ * quiet for a while and no library worker is running, instead of cutting into
+ * the opening. A back-swipe before that renders the frame on demand, exactly as
+ * it always did when this timer had not fired yet. */
+#define BACK_TARGET_SETTLE_MS 150
+#define BACK_TARGET_SETTLE_PATIENCE_MS 600 /* a page that keeps animating is never quiet: waive after this */
+#define BACK_TARGET_BUSY_PATIENCE_MS 1500
+static bool (*background_busy_cb)(void);
+
+void gui_navigation_set_background_busy_cb(bool (*cb)(void)) { background_busy_cb = cb; }
+
+static bool back_target_page_settled(uint32_t waited_ms) {
+    if (waited_ms >= BACK_TARGET_BUSY_PATIENCE_MS) return true; /* a worker that never ends must not starve it */
+    if (waited_ms < BACK_TARGET_SETTLE_PATIENCE_MS && lv_tick_elaps(last_render_tick) < BACK_TARGET_SETTLE_MS)
+        return false;
+    return !background_busy_cb || !background_busy_cb();
+}
+
 static void back_target_cache_timer_cb(lv_timer_t * timer) {
     if (back_target_cache_dirty && back_target_cache_screen) {
-        if (!gui_navigation_capture_idle(back_target_cache_waited_ms)) {
+        if (!gui_navigation_capture_idle(back_target_cache_waited_ms) ||
+            !back_target_page_settled(back_target_cache_waited_ms)) {
             /* The patience waiver counts only otherwise-idle time. */
             if (capture_hard_blocked()) back_target_cache_waited_ms = 0;
             else back_target_cache_waited_ms += BACK_TARGET_REBUILD_DELAY_MS;

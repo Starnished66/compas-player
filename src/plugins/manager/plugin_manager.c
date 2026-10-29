@@ -4350,8 +4350,11 @@ static int l_plugin_library_album_cover_async(lua_State * L) {
     int64_t song_id = (int64_t) luaL_checkinteger(L, 1);
     int size_px = (int) luaL_checkinteger(L, 2);
     luaL_checktype(L, 3, LUA_TFUNCTION);
+    /* 72 was the thumbnail size of earlier releases; it stays accepted and
+     * serves the current thumbnail (80, or 40 on the TempoTec V1). */
+    if (size_px == 72) size_px = ALBUMART_THUMBNAIL_SIZE;
     if (size_px != ALBUMART_THUMBNAIL_SIZE && size_px != ALBUMART_PLAYER_CACHE_SIZE)
-        return luaL_error(L, "plugin.library_album_cover_async: size must be %d or %d",
+        return luaL_error(L, "plugin.library_album_cover_async: size must be %d (or the legacy 72) or %d",
                           ALBUMART_THUMBNAIL_SIZE, ALBUMART_PLAYER_CACHE_SIZE);
     plugin_album_cover_req_t * slot = NULL;
     for (int i = 0; i < PLUGIN_ALBUM_COVER_QUEUE && !slot; i++)

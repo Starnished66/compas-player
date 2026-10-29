@@ -10,6 +10,7 @@
 #include "../../appearance/gui_themes.h"
 #include "../../../core/system/logging/debug_log.h"
 #include "lvgl/src/display/lv_display_private.h"
+#include "lvgl/src/widgets/label/lv_label_private.h"
 
 #include <pthread.h>
 #include <unistd.h>
@@ -471,15 +472,32 @@ lv_obj_t * row_label_create_subtitle(lv_obj_t * row) {
     return subtitle;
 }
 
+/* True when `label` already holds exactly text[0..len) and no marquee animation would be restarted
+ * by setting it again. */
+static bool label_shows(lv_obj_t * label, const char * text, size_t len) {
+    lv_label_long_mode_t mode = lv_label_get_long_mode(label);
+    if (mode == LV_LABEL_LONG_SCROLL || mode == LV_LABEL_LONG_SCROLL_CIRCULAR) return false;
+    /* A dotted label whose text is cut holds the dotted copy, not what was set: never equal. */
+    if (mode == LV_LABEL_LONG_DOT && ((lv_label_t *) label)->dot_begin != 0xFFFFFFFFu) return false;
+    const char * shown = lv_label_get_text(label);
+    return shown && strlen(shown) == len && memcmp(shown, text, len) == 0;
+}
+
 void row_label_set_identity(lv_obj_t * row, lv_obj_t * secondary,
                             const char * title, const char * subtitle, int32_t height) {
     if (!title) title = "";
     const char * newline = strchr(title, '\n');
     if (!subtitle && newline) subtitle = newline + 1;
-    if (newline) lv_label_set_text_fmt(row, "%.*s", (int)(newline - title), title);
-    else lv_label_set_text(row, title);
+    size_t title_len = newline ? (size_t)(newline - title) : strlen(title);
+    /* A rebind to the text the label already shows must not repaint it: the title label is the
+     * whole row, so a same-text set would invalidate the entire row for a subtitle change. */
+    if (!label_shows(row, title, title_len)) {
+        if (newline) lv_label_set_text_fmt(row, "%.*s", (int)(newline - title), title);
+        else lv_label_set_text(row, title);
+    }
     bool has_subtitle = subtitle && subtitle[0];
-    lv_label_set_text(secondary, has_subtitle ? subtitle : "");
+    const char * second = has_subtitle ? subtitle : "";
+    if (!label_shows(secondary, second, strlen(second))) lv_label_set_text(secondary, second);
     lv_obj_set_user_data(secondary, (void *)(intptr_t)height);
     row_label_layout_identity(row, secondary, height);
 }
@@ -535,9 +553,9 @@ lv_obj_t * build_music_list_row(lv_obj_t * parent, const char * title, const cha
 
     const char * newline = title ? strchr(title, '\n') : NULL;
     if (!subtitle && newline) subtitle = newline + 1;
+    /* The text goes in last: font, width, height and the scroll mode are settled first, so each
+     * label measures its text once instead of after every one of those changes. */
     lv_obj_t * primary = lv_label_create(row);
-    if (newline) lv_label_set_text_fmt(primary, "%.*s", (int)(newline - title), title);
-    else lv_label_set_text(primary, title ? title : "");
     lv_obj_add_style(primary, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(primary, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
     lv_obj_set_pos(primary, GUI_TEXT_INSET, 0);
@@ -545,9 +563,10 @@ lv_obj_t * build_music_list_row(lv_obj_t * parent, const char * title, const cha
                              (trailing_space > 0 ? trailing_space : GUI_TEXT_INSET));
     row_label_apply_bounded_height(primary, gui_theme_font(GUI_FONT_ROLE_ROW));
     row_label_enable_marquee(primary);
+    if (newline) lv_label_set_text_fmt(primary, "%.*s", (int)(newline - title), title);
+    else lv_label_set_text(primary, title ? title : "");
 
     lv_obj_t * secondary = lv_label_create(row);
-    lv_label_set_text(secondary, subtitle ? subtitle : "");
     lv_obj_add_style(secondary, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(secondary, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     lv_obj_set_pos(secondary, GUI_TEXT_INSET, 0);
@@ -555,6 +574,7 @@ lv_obj_t * build_music_list_row(lv_obj_t * parent, const char * title, const cha
                                (trailing_space > 0 ? trailing_space : GUI_TEXT_INSET));
     row_label_apply_bounded_height(secondary, gui_theme_font(GUI_FONT_ROLE_BODY));
     row_label_enable_marquee(secondary);
+    lv_label_set_text(secondary, subtitle ? subtitle : "");
     if (!subtitle || !subtitle[0]) lv_obj_add_flag(secondary, LV_OBJ_FLAG_HIDDEN);
     layout_music_list_row(row);
     return row;

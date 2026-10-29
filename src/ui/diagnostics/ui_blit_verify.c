@@ -24,12 +24,12 @@ static ui_blit_verify_stats_t stats = { .bad_x1 = 1, .bad_x2 = 0 };
 static bool selftest_mode; /* the pending check follows a frame that was not a scroll blit */
 static bool dumped;
 static lv_draw_buf_t * reference;
-static lv_timer_t * timer;
 static uint32_t frame_counter;
+static bool pending; /* a check is due right after the render of this pass */
 
 static lv_obj_t * list;
 static lv_area_t rect;
-static lv_area_t excl[EXCL_MAX];
+static lv_area_t excl[EXCL_MAX + LV_INV_BUF_SIZE]; /* the layers' objects, then the areas dirtied since the frame */
 static int excl_n;
 static int32_t scroll_y;
 
@@ -122,16 +122,22 @@ static void dump_evidence(const uint8_t * front, uint32_t fb_stride, int32_t bx1
     fclose(fi);
 }
 
-static void verify_cb(lv_timer_t * t) {
-    timer = NULL; /* one shot: LVGL deletes it after this call */
-    (void) t;
+enum { SKIP_GONE, SKIP_NOFRONT, SKIP_SCROLLED, SKIP_SNAPSHOT, SKIP_EXCLUDED };
+static void skip(int why) {
+    stats.skipped++;
+    stats.skip_reason[why]++;
+}
+
+/* Runs right after the render of the pass that produced the frame (ui_blit_verify_after_render()):
+ * nothing can have scrolled or been rebound between the flush and this comparison. */
+static void verify_now(void) {
     /* The list may have been deleted (screen change) since the check was scheduled */
     lv_obj_t * current = NULL;
     lv_area_t current_rect, unused[EXCL_MAX];
     int unused_n = 0;
     if (!lv_refr_scroll_blit_last(&current, &current_rect, unused, EXCL_MAX, &unused_n) || current != list ||
         !lv_obj_is_valid(list)) {
-        stats.skipped++;
+        skip(SKIP_GONE);
         return;
     }
     lv_display_t * disp = lv_obj_get_display(list);
@@ -143,18 +149,18 @@ static void verify_cb(lv_timer_t * t) {
     const uint8_t * front = NULL; /* host build: no front page to read, every check is skipped */
     uint32_t fb_stride = 0;
 #endif
-    if (!front || !fb_stride || screen != lv_screen_active() || disp->inv_p != 0 ||
+    if (!front || !fb_stride || screen != lv_screen_active() ||
         lv_obj_get_scroll_y(list) != scroll_y || lv_display_get_color_format(disp) != LV_COLOR_FORMAT_RGB565) {
-        stats.skipped++; /* the model moved on: nothing to compare against */
+        skip(!front || !fb_stride ? SKIP_NOFRONT : SKIP_SCROLLED); /* nothing to compare against */
         return;
     }
     if (!reference) reference = lv_snapshot_create_draw_buf(screen, LV_COLOR_FORMAT_RGB565);
     if (!reference || lv_snapshot_take_to_draw_buf(screen, LV_COLOR_FORMAT_RGB565, reference) != LV_RESULT_OK) {
-        stats.skipped++;
+        skip(SKIP_SNAPSHOT);
         return;
     }
-    if (disp->inv_p != 0 || lv_obj_get_scroll_y(list) != scroll_y) { /* changed while rendering */
-        stats.skipped++;
+    if (lv_obj_get_scroll_y(list) != scroll_y) { /* changed while rendering */
+        skip(SKIP_SCROLLED);
         return;
     }
 
@@ -170,9 +176,15 @@ static void verify_cb(lv_timer_t * t) {
             excl[excl_n++] = a;
         }
     }
-    if (selftest_mode) stats.selftest_checked++;
-    else stats.checked++;
-    uint64_t bad = 0;
+    /* A marquee step, a landing label or any other change made since the frame was drawn is
+     * already queued as an invalid area and not on the panel yet: the model has moved on there
+     * (the list itself has not, see scroll_y), so those areas are left out of the comparison.
+     * Everything else must still equal a stock render. */
+    for (uint32_t i = 0; i < disp->inv_p && i < LV_INV_BUF_SIZE; i++) {
+        if (disp->inv_area_joined[i]) continue; /* covered by the area it was merged into */
+        excl[excl_n++] = disp->inv_areas[i];
+    }
+    uint64_t bad = 0, compared = 0, excluded = 0;
     int32_t bx1 = INT32_MAX, by1 = INT32_MAX, bx2 = -1, by2 = -1;
     int32_t width = rect.x2 - rect.x1 + 1;
     bool skip_x[LV_HOR_RES_MAX_GUESS];
@@ -185,7 +197,9 @@ static void verify_cb(lv_timer_t * t) {
         const uint16_t * a = (const uint16_t *) (front + (size_t) y * fb_stride) + rect.x1;
         const uint16_t * b = (const uint16_t *) ((const uint8_t *) reference->data + (size_t) y * reference->header.stride) + rect.x1;
         for (int32_t x = 0; x < width; x++) {
-            if (skip_x[x] || a[x] == b[x]) continue;
+            if (skip_x[x]) { excluded++; continue; }
+            compared++;
+            if (a[x] == b[x]) continue;
             bad++;
             if (rect.x1 + x < bx1) bx1 = rect.x1 + x;
             if (rect.x1 + x > bx2) bx2 = rect.x1 + x;
@@ -193,6 +207,15 @@ static void verify_cb(lv_timer_t * t) {
             if (y > by2) by2 = y;
         }
     }
+    /* A check whose whole rectangle was left out compared nothing: it is a skip, not a pass. */
+    if (!compared) {
+        skip(SKIP_EXCLUDED);
+        return;
+    }
+    stats.compared_px += compared;
+    stats.excluded_px += excluded;
+    if (selftest_mode) stats.selftest_checked++;
+    else stats.checked++;
     if (bad && selftest_mode) {
         stats.selftest_bad++;
     }
@@ -211,16 +234,26 @@ static void schedule(bool selftest) {
     lv_display_t * disp = lv_display_get_default();
     if (!disp || disp->hor_res > LV_HOR_RES_MAX_GUESS) return;
     if (!lv_refr_scroll_blit_last(&list, &rect, excl, EXCL_MAX, &excl_n)) return;
+    /* The last scroll blit on record may belong to a list that is not shown now (the check of a
+     * plain frame reaches back to it): such a check could only be skipped, as "scrolled" and
+     * "gone" were for Artists and All Songs, whose own scrolls are never blitted (the A-Z strip
+     * over the list refuses them), so it is not scheduled at all. */
+    if (selftest && (!lv_obj_is_valid(list) || lv_obj_get_screen(list) != lv_screen_active())) return;
     selftest_mode = selftest;
     if (compare_column) excl_n = 0; /* nothing but the layers' objects is skipped then */
     scroll_y = lv_obj_get_scroll_y(list);
-    timer = lv_timer_create(verify_cb, 1, NULL);
-    if (timer) lv_timer_set_repeat_count(timer, 1);
+    pending = true;
+}
+
+void ui_blit_verify_after_render(void) {
+    if (!pending) return;
+    pending = false;
+    verify_now();
 }
 
 void ui_blit_verify_frame(void) {
     uint32_t n = every_nth();
-    if (!n || timer || (++frame_counter % n) != 0) return;
+    if (!n || pending || (++frame_counter % n) != 0) return;
     schedule(false);
 }
 
@@ -228,13 +261,14 @@ void ui_blit_verify_frame(void) {
 void ui_blit_verify_plain_frame(void) {
     static uint32_t plain_counter;
     uint32_t n = every_nth();
-    if (!n || timer || (++plain_counter % (n * 8)) != 0) return;
+    if (!n || pending || (++plain_counter % (n * 8)) != 0) return;
     schedule(true);
 }
 
 void ui_blit_verify_reset(void) {
     stats = (ui_blit_verify_stats_t) { .bad_x1 = 1, .bad_x2 = 0 };
     frame_counter = 0;
+    pending = false;
     dumped = false;
 }
 

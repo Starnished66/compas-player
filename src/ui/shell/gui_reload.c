@@ -89,6 +89,7 @@
 #include <unistd.h>
 
 #include "../application/gui.h"
+#include "../assets/assets.h"
 #include "../appearance/gui_theme.h"
 #include "gui_navigation.h"
 #include "gui_shell.h"
@@ -153,6 +154,7 @@ static int32_t reload_display_height(void) {
 static void gui_soft_reload_with_artwork(bool preserve_artwork,
                                          const gui_nav_reload_state_t * restore_state) {
     reload_diag("gui_soft_reload: begin");
+    assets_invalidate_path_cache(); /* the rebuilt screens resolve their assets afresh */
     int32_t screen_width = reload_display_width();
     int32_t screen_height = reload_display_height();
 

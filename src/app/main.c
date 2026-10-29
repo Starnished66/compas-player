@@ -1,6 +1,8 @@
 #include "../ui/diagnostics/ui_frame_trace.h"
+#include "../ui/diagnostics/ui_blit_verify.h"
 #include "../core/system/runtime/app_version.h"
 #include "lvgl/lvgl.h"
+#include "lvgl/src/display/lv_display_private.h"
 #include "../audio/engine/audio.h"
 #include "../audio/visualization/waveform.h"
 #include "../hardware/indicators/backlight.h"
@@ -554,6 +556,12 @@ void main_loop_discard_elapsed_time(void) {
     discard_blocked_time = 1;
 }
 
+/* The refresh timer's callback: rendering happens in the main loop, after the
+ * timers; the timer itself only carries pause/resume/ready. */
+static void refr_timer_stub_cb(lv_timer_t * timer) {
+    (void)timer;
+}
+
 /* Milliseconds to add to LVGL's clock for the real time `now` since `last`. */
 static uint32_t main_loop_tick_gap(uint32_t now, uint32_t last) {
     if (discard_blocked_time) {
@@ -706,6 +714,7 @@ int main(int argc, char ** argv) {
         fprintf(stderr, "Error: Failed to create SDL2 window\n");
         return 1;
     }
+    ui_wake_init(); /* workers cut the loop's sleep short here too */
     settings_load(&current_settings);
     if (current_settings.screen_upside_down) {
         lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_180);
@@ -873,6 +882,21 @@ int main(int argc, char ** argv) {
      * looping on the literal constant here keeps that guarantee visible at
      * the one place it actually matters instead of relying on a variable
      * defined and set far away. */
+    /* The loop below renders after the timers (see there); the refresh timer
+     * keeps its pause/resume/ready rules but must not also fire on its own
+     * 16 ms period, which drifts against the panel's vsync. */
+    {
+        lv_timer_t * refr_timer = lv_display_get_refr_timer(disp);
+        if (refr_timer) {
+            lv_timer_set_period(refr_timer, 1000);
+            /* The handler must never render by itself: a render in the middle
+             * of the timer list leaves the later timers' damage for a second
+             * render in the same pass. */
+            lv_timer_set_cb(refr_timer, refr_timer_stub_cb);
+        }
+    }
+    uint32_t render_start_tick = 0;
+    bool rendered_once = false;
 #ifdef HOST_BUILD
     while (running) {
 #else
@@ -888,7 +912,32 @@ int main(int argc, char ** argv) {
         if (first_mainloop_handler)
             boot_checkpoint("first mainloop handler begin");
 #endif
+        /* A worker published a result: let the pollers that only check "is the
+         * job done" run in this very pass, then apply what they found below. */
+        bool jobs_ready = ui_wake_take_jobs() || gui_jobs_take_deferred();
+        if (jobs_ready) gui_jobs_dispatch_begin();
         uint32_t time_till_next = lv_timer_handler();
+        if (jobs_ready) gui_jobs_dispatch_end();
+        /* Render here, after every timer and result of this pass, not from the
+         * refresh timer's own period: that period drifted against the panel's
+         * 16.3 ms vsync, so a frame sometimes started just before the vsync
+         * and was presented a whole refresh late. The pan blocks until the
+         * vsync, so the loop locks onto the panel instead. The refresh timer
+         * still carries every pause/resume/ready rule (screen off, RAM-stage,
+         * lyrics barrier): it is only rendered when it is not paused. */
+        uint32_t now_tick = custom_tick_get();
+        lv_timer_t * refr_timer = lv_display_get_refr_timer(disp);
+        /* Never more than one render per refresh period, whatever woke the
+         * loop (a flood of worker notifies) and whether or not the pan blocks. */
+        if (refr_timer && !lv_timer_get_paused(refr_timer) &&
+            (!rendered_once || now_tick - render_start_tick >= LV_DEF_REFR_PERIOD)) {
+            render_start_tick = now_tick;
+            rendered_once = true;
+            lv_display_refr_timer(refr_timer);
+#ifdef UI_PERF_TRACE
+            ui_blit_verify_after_render();
+#endif
+        }
 #ifdef UI_PERF_TRACE
         ui_frame_trace_event(UI_FRAME_TRACE_EVENT_HANDLER_END, time_till_next, 0);
 #endif
@@ -936,6 +985,15 @@ int main(int argc, char ** argv) {
          * paused/resumed state of the refresh timer. */
         uint32_t idle_cap_ms = backlight_screen_is_on() ? 100 : 500;
         if (time_till_next > idle_cap_ms) time_till_next = idle_cap_ms;
+        /* Damage queued while rendering (or by a result) asks for another frame:
+         * keep the old one-render-per-refresh-period rate, measured from this
+         * render's start, instead of spinning when nothing blocks. Only while
+         * the display really has invalidated areas: otherwise sleep in full. */
+        if (refr_timer && !lv_timer_get_paused(refr_timer) && backlight_screen_is_on() && disp->inv_p > 0) {
+            uint32_t since_render = custom_tick_get() - render_start_tick;
+            uint32_t until_next = since_render >= LV_DEF_REFR_PERIOD ? 0 : LV_DEF_REFR_PERIOD - since_render;
+            if (time_till_next > until_next) time_till_next = until_next;
+        }
 #ifdef UI_PERF_TRACE
         ui_frame_trace_event(UI_FRAME_TRACE_EVENT_SLEEP_BEGIN, time_till_next, 0);
 #endif
@@ -975,7 +1033,7 @@ int main(int argc, char ** argv) {
         } else
 #endif
         {
-        usleep(time_till_next * 1000);
+        ui_wake_sleep(time_till_next);
 #ifdef UI_PERF_TRACE
         ui_frame_trace_event(UI_FRAME_TRACE_EVENT_SLEEP_END, time_till_next, 0);
 #endif

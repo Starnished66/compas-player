@@ -1007,6 +1007,28 @@ bool mp4_demux_peek_codec(const char * path, char out_fourcc[5]) {
     return ok;
 }
 
+bool mp4_demux_path_is_fragmented(const char * path) {
+    FILE *f = path ? fopen(path, "rb") : NULL;
+    if (!f) return false;
+    bool fragmented = false;
+    if (fseek(f, 0, SEEK_END) == 0) {
+        long file_size = ftell(f);
+        if (file_size > 0 && fseek(f, 0, SEEK_SET) == 0) {
+            while (ftell(f) < file_size) {
+                box_header_t box;
+                if (!read_box_header(f, &box)) break;
+                long start = box.data_start - box.header_size;
+                if (box.size > (uint64_t) (file_size - start)) break;
+                if (strcmp(box.type, "moof") == 0) { fragmented = true; break; }
+                if (fseek(f, start + (long) box.size, SEEK_SET) != 0) break;
+            }
+        }
+    }
+    if (ferror(f)) fragmented = false; /* a read error is not evidence either way */
+    fclose(f);
+    return fragmented;
+}
+
 void mp4_demux_get_codec_fourcc(const mp4_demux_t * d, char out_fourcc[5]) {
     memcpy(out_fourcc, d->codec_fourcc, 5);
 }

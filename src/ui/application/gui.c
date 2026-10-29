@@ -510,6 +510,7 @@ static void finish_screen_wake_reveal(void) {
     gui_lock_screen_refresh(false);
     if (player_ui_timer) lv_timer_ready(player_ui_timer);
     force_screen_just_woke = true;
+    gui_library_screen_woke(); /* the page's chunk timer resumes now, not at the next 500 ms poll */
 }
 
 static void begin_screen_wake_reveal(void) {
@@ -936,6 +937,35 @@ static void media_button_timer_cb(lv_timer_t *timer) {
     }
 }
 
+/* A worker published a result. Before the timers: the library's "is it done"
+ * poll timers become due now. After them: whatever depends on what they just
+ * applied (a populated page starts its lookups and probes, a landed artist
+ * summary starts its probe batch) runs in the same pass, so one render and one
+ * layout follow for all of it. Nothing here runs more than the 500 ms housekeeping
+ * would have; it only runs sooner. */
+void gui_jobs_dispatch_begin(void) {
+    gui_library_jobs_ready_timers();
+}
+
+/* A slide shows a frozen snapshot: page updates wait for it to end, like the
+ * other landings do (take_deferred() then asks the loop for another pass). */
+static bool jobs_end_deferred;
+
+void gui_jobs_dispatch_end(void) {
+    if (gui_navigation_transition_in_progress()) {
+        jobs_end_deferred = true;
+        return;
+    }
+    jobs_end_deferred = false;
+    gui_library_poll_track_probes();
+}
+
+bool gui_jobs_take_deferred(void) {
+    if (!jobs_end_deferred || gui_navigation_transition_in_progress()) return false;
+    jobs_end_deferred = false;
+    return true;
+}
+
 void gui_process_input_wake(void) {
     media_button_timer_cb(NULL);
     poll_cover_decode();
@@ -1329,6 +1359,7 @@ static screen_poll_result_t poll_screen_power(void) {
     bool screen_just_woke = screen_on_now && (!screen_was_on || force_screen_just_woke);
     if (screen_just_woke) force_screen_just_woke = false;
     if (screen_just_woke && player_ui_timer) lv_timer_ready(player_ui_timer);
+    if (screen_just_woke) gui_library_screen_woke();
     /* A wake can precede completion of the background RC stop. Retry its
      * restoration without blocking input or losing the saved preference. */
     if (screen_on_now) gui_network_resume_radio_services();

@@ -6,6 +6,8 @@
 #include "../../../library/artwork/support/library_player_art.h"
 #include "../../../library/artwork/coordinator/artwork_coordinator.h"
 #include "../../../library/metadata/db/metadata_db.h"
+#include "../../../core/process/worker_thread.h"
+#include "../../../core/ui/display/ui_wake.h"
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdlib.h>
@@ -35,6 +37,7 @@ static bool job_cancelled(void * user) { return atomic_load_explicit(&((job_t *)
 
 static void * job_main(void * arg) {
     job_t * j = arg;
+    worker_lower_priority(WORKER_NICE_BACKGROUND);
     if (install_thread_crash_altstack) install_thread_crash_altstack();
     song_row_t row;
     if (metadata_db_get_song_by_id(j->song_id, &row)) {
@@ -68,6 +71,7 @@ static void * job_main(void * arg) {
         }
     }
     atomic_store_explicit(&j->done, true, memory_order_release);
+    ui_wake_notify(); /* the page swaps the sharp cover in on the next loop pass */
     return NULL;
 }
 
@@ -95,7 +99,11 @@ void gui_album_cover_request(int64_t song_id, int px) {
     want_id = song_id;
     want_px = px;
     if (job && job->song_id != song_id) atomic_store_explicit(&job->cancel, true, memory_order_relaxed);
+    /* Start decoding now rather than at the next housekeeping poll. */
+    if (!job && want_id != ready_id && want_id != failed_id) start_job();
 }
+
+bool gui_album_cover_busy(void) { return job != NULL; }
 
 bool gui_album_cover_poll(bool start_allowed) {
     bool became_ready = false;

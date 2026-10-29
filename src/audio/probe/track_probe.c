@@ -1,10 +1,14 @@
 #define _POSIX_C_SOURCE 200809L
 #include "track_probe.h"
+#include "../../core/process/worker_thread.h"
+#include "../../core/process/worker_notify.h"
 
 #include <pthread.h>
 #include <stdatomic.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #ifdef __linux__
 #include <sys/prctl.h>
 #endif
@@ -22,6 +26,7 @@ typedef struct {
     unsigned int source_sample_rate;
     unsigned int source_bit_depth;
     bool is_dsd;
+    bool confirmed_failure; /* the format was positively rejected (AUDIO_PROBE_UNSUPPORTED) */
 } track_probe_result_t;
 
 struct track_probe_job {
@@ -36,28 +41,49 @@ struct track_probe_job {
     track_probe_result_t results[TRACK_PROBE_MAX_TRACKS];
 };
 
+static uint64_t track_probe_now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t) ts.tv_sec * 1000u + (uint64_t) ts.tv_nsec / 1000000u;
+}
+
 static void * track_probe_worker(void * arg) {
 #ifdef __linux__
     (void) prctl(PR_SET_NAME, "trackprobe");
 #endif
+    worker_lower_priority(WORKER_NICE_BACKGROUND); /* a page is waiting for these */
     if (install_thread_crash_altstack) install_thread_crash_altstack(); /* see its own comment (main.c) */
     track_probe_job_t * job = arg;
+    uint64_t last_notify_ms = 0;
     for (size_t i = 0; i < job->count; i++) {
         if (atomic_load_explicit(&job->cancelled, memory_order_acquire)) break;
         audio_current_format_info_t info = {0};
-        if (audio_probe_file_format(job->paths[i], &info) && info.valid) {
+        audio_probe_status_t status = AUDIO_PROBE_ERROR;
+        if (audio_probe_file_format_status(job->paths[i], &info, &status) && info.valid) {
             job->results[i].valid = true;
             job->results[i].codec = info.codec;
             job->results[i].duration_seconds = info.duration_seconds;
             job->results[i].source_sample_rate = info.source_sample_rate;
             job->results[i].source_bit_depth = info.source_bit_depth;
             job->results[i].is_dsd = info.is_dsd;
+        } else {
+            /* Only a positive rejection of the format is remembered; an open
+             * or I/O failure may be transient. */
+            job->results[i].confirmed_failure = status == AUDIO_PROBE_UNSUPPORTED;
         }
         /* Each slot is written once. The consumer's acquire load makes all
          * slots below published visible without taking a worker-held lock. */
         atomic_store_explicit(&job->published, i + 1, memory_order_release);
+        /* Fast files finish in bursts: one wake-up per ~16 ms is enough, and
+         * the completion below always notifies. */
+        uint64_t now_ms = track_probe_now_ms();
+        if (i + 1 < job->count && now_ms - last_notify_ms >= 16) {
+            last_notify_ms = now_ms;
+            worker_notify_ui();
+        }
     }
     atomic_store_explicit(&job->done, true, memory_order_release);
+    worker_notify_ui();
     return NULL;
 }
 
@@ -125,6 +151,11 @@ bool track_probe_job_next(track_probe_job_t * job, size_t * index,
     out->is_dsd = result->is_dsd;
     *index = job->next++;
     return true;
+}
+
+bool track_probe_job_confirmed_failure(track_probe_job_t * job, size_t index) {
+    if (!job || index >= atomic_load_explicit(&job->published, memory_order_acquire)) return false;
+    return !job->results[index].valid && job->results[index].confirmed_failure;
 }
 
 bool track_probe_job_done(track_probe_job_t * job) {

@@ -28,6 +28,12 @@ void track_probe_job_cancel(track_probe_job_t * job);
 bool track_probe_job_next(track_probe_job_t * job, size_t * index,
                           audio_current_format_info_t * out);
 
+/* True when the probe of result `index` (already published) failed because
+ * the format was positively rejected (audio_probe_file_format_status() reports
+ * AUDIO_PROBE_UNSUPPORTED), not because of an I/O or resource error or a
+ * cancellation. Only such a failure may be remembered across sessions. */
+bool track_probe_job_confirmed_failure(track_probe_job_t * job, size_t index);
+
 /* Acquire-load completion; does not imply all published results were read.
  * NULL is considered done. */
 bool track_probe_job_done(track_probe_job_t * job);

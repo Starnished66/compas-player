@@ -398,6 +398,7 @@ static lv_obj_t * build_dev_options_screen(void) {
 void gui_settings_accent_changed(void) {
     gui_accent_sync();
     gui_equalizer_accent_changed();
+    gui_library_accent_changed();
 }
 
 void gui_settings_open_sleep_timer(void) {

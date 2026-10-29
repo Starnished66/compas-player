@@ -44,6 +44,17 @@
   #define BOARD_COMPACT_UI 0
 #endif
 
+/* Edge of the square library list thumbnails (cache files v4-<hash>.<N>x<N>.bmp).
+ * Smaller panels get their own cache size so a cover is never scaled while it
+ * draws: 40 on the 240 px TempoTec V1, 53 on the 320 px R3 II 2025. */
+#if defined(BOARD_TEMPOTEC_V1)
+  #define BOARD_LIBRARY_THUMB_PX 40
+#elif defined(BOARD_R3II_2025)
+  #define BOARD_LIBRARY_THUMB_PX 53
+#else
+  #define BOARD_LIBRARY_THUMB_PX 80
+#endif
+
 /* R1 has AXP/USB-role hardware behavior. V1 has different charger/USB roles. */
 #if defined(BOARD_R3PROII) || defined(BOARD_R3II_2025) || defined(BOARD_TEMPOTEC_V1)
   #define BOARD_R1_HARDWARE 0
@@ -126,6 +137,10 @@
     : (((px) * BOARD_SCREEN_HEIGHT - (BOARD_REFERENCE_HEIGHT / 2)) / BOARD_REFERENCE_HEIGHT))
 
 
+/* Gap around a library thumbnail: the leading image sits this far from the row
+ * edge and the text starts this far after it. */
+#define BOARD_LIBRARY_THUMB_INSET BOARD_SCALE_PX(14)
+#define BOARD_LIBRARY_THUMB_TEXT_X (BOARD_LIBRARY_THUMB_INSET + BOARD_LIBRARY_THUMB_PX + BOARD_LIBRARY_THUMB_INSET)
 
   /* R3 Pro II has a dedicated charger IC, MP2731, alongside the AXP2101 PMIC
  * shared with R1 -- R1 relies on the AXP2101 alone for charging. */
