@@ -2373,6 +2373,8 @@ static void player_style_named_extras(lv_obj_t * obj) {
             lv_obj_set_style_bg_opa(child, LV_OPA_TRANSP, 0);
             lv_obj_set_style_image_recolor_opa(child, LV_OPA_COVER, 0);
         }
+        else if (name && strcmp(name, "accent_background") == 0 && lv_obj_check_type(child, &lv_obj_class))
+            lv_obj_add_style(child, gui_theme_accent_style(), 0);
         else if (name && strncmp(name, "glyph_", 6) == 0 && lv_obj_check_type(child, &lv_image_class))
             lv_obj_add_style(child, gui_player_backdrop_icon_style(), 0);
         else if (name && strncmp(name, "caption_", 8) == 0 && lv_obj_check_type(child, &lv_label_class))
