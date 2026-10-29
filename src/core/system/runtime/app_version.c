@@ -22,6 +22,18 @@ const char * app_board_model(void) {
     return BOARD_MODEL;
 }
 
+const char * app_board_display_name(void) {
+#if defined(BOARD_R3PROII)
+    return "HiBy R3 Pro II";
+#elif defined(BOARD_R3II_2025)
+    return "HiBy R3 II 2025";
+#elif defined(BOARD_TEMPOTEC_V1)
+    return "TempoTec V1";
+#else
+    return "HiBy R1";
+#endif
+}
+
 const char * app_board_marker(void) {
     return "COMPAS_PLAYER_BOARD:" BOARD_MODEL;
 }

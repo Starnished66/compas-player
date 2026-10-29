@@ -1,6 +1,7 @@
 #include "setup/gui_setup.h"
 #include "../application/gui.h"
 #include "gui_settings.h"
+#include "gui_about_info.h"
 #include "input/gui_button_mapping.h"
 #include "../player/settings/gui_equalizer.h"
 #include "../plugins/manage/gui_plugin_order_editor.h"
@@ -239,7 +240,7 @@ static void creator_help_row_cb(lv_event_t * e) {
 static lv_obj_t * build_buy_me_a_coffee_screen(void) {
     lv_obj_t * title_label;
     lv_obj_t * list;
-    lv_obj_t * scr = build_subsonic_list_screen(TR("Buy Me a Coffee"), &title_label, &list);
+    lv_obj_t * scr = build_subsonic_list_screen(TR("Support Compás"), &title_label, &list);
 
     lv_obj_t * qrcode = lv_qrcode_create(list);
     lv_qrcode_set_size(qrcode, BOARD_SCALE_PX(320));
@@ -328,16 +329,15 @@ static void creator_theme_help_row_cb(lv_event_t * e) {
 }
 
 static lv_obj_t * build_about_screen(void) {
-    static pill_list_item_t items[3];
-    lv_obj_t * version_row = NULL;
-    items[0] = (pill_list_item_t){ TR("Compás Player"), PILL_ACCESSORY_NONE, false, NULL, NULL, NULL };
-    items[0].out_row = &version_row;
-    items[1] = (pill_list_item_t){ TR("Buy Me a Coffee"), PILL_ACCESSORY_CHEVRON, false,
+    static pill_list_item_t items[2];
+    items[0] = (pill_list_item_t){ TR("Support Compás"), PILL_ACCESSORY_CHEVRON, false,
                                     buy_me_a_coffee_row_cb, NULL, NULL };
-    items[2] = (pill_list_item_t){ TR("Create plugins & themes"), PILL_ACCESSORY_CHEVRON, false,
+    items[1] = (pill_list_item_t){ TR("Create plugins & themes"), PILL_ACCESSORY_CHEVRON, false,
                                     creator_help_row_cb, NULL, NULL };
-    lv_obj_t * scr = build_pill_list_screen(TR("About"), generic_back_cb, items, 3, gui_theme_accent_style(), GUI_ROW_GAP, 100);
-    lv_label_set_text(add_pill_summary_label(version_row), app_version_label());
+    lv_obj_t * scr = build_pill_list_screen(TR("About"), generic_back_cb, items, 2, gui_theme_accent_style(), GUI_ROW_GAP, 100);
+    /* The scrolling list is the last child build_pill_list_screen() adds. */
+    lv_obj_t * list = lv_obj_get_child(scr, lv_obj_get_child_count(scr) - 1);
+    gui_about_info_attach(scr, list);
     finalize_screen_navigation(scr);
     return scr;
 }

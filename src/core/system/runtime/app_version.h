@@ -10,5 +10,7 @@ const char * app_build_identifier(void);
 const char * app_board_marker(void);
 /* The board as a short name: "r1", "r3proii" or "r3ii_2025". */
 const char * app_board_model(void);
+/* The board as shown to people: "HiBy R1", "TempoTec V1", ... */
+const char * app_board_display_name(void);
 
 #endif
