@@ -54,7 +54,7 @@ void usb_dac_bridge_set_bt_output(bool enabled);
 
 /* Enables or disables persistent debug logging to the SD card for the USB DAC
  * bridge. Gated by the same developer toggle as the library database log
- * (Settings -> About -> Developer Options -> "Enable database logging").
+ * (Settings -> System -> Developer Options -> "Enable database logging").
  * On disable, immediately flushes and closes the log file. */
 void usb_dac_bridge_set_debug_log_enabled(bool enabled);
 

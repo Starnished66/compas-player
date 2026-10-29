@@ -328,7 +328,7 @@ static void creator_theme_help_row_cb(lv_event_t * e) {
 }
 
 static lv_obj_t * build_about_screen(void) {
-    static pill_list_item_t items[4];
+    static pill_list_item_t items[3];
     lv_obj_t * version_row = NULL;
     items[0] = (pill_list_item_t){ TR("Compás Player"), PILL_ACCESSORY_NONE, false, NULL, NULL, NULL };
     items[0].out_row = &version_row;
@@ -336,9 +336,7 @@ static lv_obj_t * build_about_screen(void) {
                                     buy_me_a_coffee_row_cb, NULL, NULL };
     items[2] = (pill_list_item_t){ TR("Create plugins & themes"), PILL_ACCESSORY_CHEVRON, false,
                                     creator_help_row_cb, NULL, NULL };
-    items[3] = (pill_list_item_t){ TR("Developer Options"), PILL_ACCESSORY_CHEVRON, false,
-                                    dev_options_row_cb, NULL, NULL };
-    lv_obj_t * scr = build_pill_list_screen(TR("About"), generic_back_cb, items, 4, gui_theme_accent_style(), GUI_ROW_GAP, 100);
+    lv_obj_t * scr = build_pill_list_screen(TR("About"), generic_back_cb, items, 3, gui_theme_accent_style(), GUI_ROW_GAP, 100);
     lv_label_set_text(add_pill_summary_label(version_row), app_version_label());
     finalize_screen_navigation(scr);
     return scr;
@@ -1859,14 +1857,16 @@ static lv_obj_t * build_language_choice_screen(void) {
 }
 
 static lv_obj_t * build_settings_system_screen(void) {
-    static pill_list_item_t items[7 + PLUGIN_MAX_SYSTEM_LIST_ITEMS];
+    static pill_list_item_t items[8 + PLUGIN_MAX_SYSTEM_LIST_ITEMS];
     items[0] = (pill_list_item_t){ TR("USB Mode"), PILL_ACCESSORY_CHEVRON, false, usb_mode_settings_row_cb, NULL, NULL };
     items[1] = (pill_list_item_t){ TR("Clock"), PILL_ACCESSORY_CHEVRON, false, gui_time_settings_clock_row_cb, NULL, NULL };
     items[2] = (pill_list_item_t){ TR("Language"), PILL_ACCESSORY_CHEVRON, false, language_settings_row_cb, NULL, NULL };
     items[3] = (pill_list_item_t){ TR("Plugin Manager"), PILL_ACCESSORY_CHEVRON, false, gui_plugin_manage_row_cb, NULL, NULL };
     items[4] = (pill_list_item_t){ TR("Maintenance"), PILL_ACCESSORY_CHEVRON, false, settings_maintenance_row_cb, NULL, NULL };
-    items[5] = (pill_list_item_t){ TR("About"), PILL_ACCESSORY_CHEVRON, false, settings_about_row_cb, NULL, NULL };
-    int count = 6;
+    items[5] = (pill_list_item_t){ TR("Developer Options"), PILL_ACCESSORY_CHEVRON, false,
+                                    dev_options_row_cb, NULL, NULL };
+    items[6] = (pill_list_item_t){ TR("About"), PILL_ACCESSORY_CHEVRON, false, settings_about_row_cb, NULL, NULL };
+    int count = 7;
     if (plugin_manager_get_settings_list_item_count() > 0) {
         items[count++] = (pill_list_item_t){ TR("Additional Tools"), PILL_ACCESSORY_CHEVRON, false,
                                              settings_tools_row_cb, NULL, NULL };
