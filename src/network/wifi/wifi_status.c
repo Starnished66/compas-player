@@ -97,6 +97,12 @@ static bool run_wpa_cli(const char * args, char * out_buf, size_t out_buf_size) 
            out_buf[0] != '\0';
 }
 
+bool wifi_get_connected(void) {
+    char status_buf[512];
+    return run_wpa_cli("status", status_buf, sizeof(status_buf)) &&
+           strstr(status_buf, "wpa_state=COMPLETED") != NULL;
+}
+
 bool wifi_get_status(int * out_signal_level) {
     char status_buf[512];
     if (!run_wpa_cli("status", status_buf, sizeof(status_buf))) return false;

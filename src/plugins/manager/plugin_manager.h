@@ -469,6 +469,11 @@ void plugin_manager_notify_screen_woke(void);
 void plugin_manager_notify_queue_exhausted(int direction);
 void plugin_manager_notify_volume_changed(int percent);
 void plugin_manager_poll_battery(void);
+/* True if a live (not aborted) plugin listens for "network_changed". */
+bool plugin_manager_has_network_subscribers(void);
+/* UI thread only. Records the shell's cached Wi-Fi state, backs
+ * plugin.network_status(), and fires "network_changed" when it differs. */
+void plugin_manager_set_network_state(bool connected, bool wifi_enabled);
 void plugin_manager_notify_suspending(void);
 void plugin_manager_notify_system_resumed(void);
 void plugin_manager_notify_screenshot_saved(const char * path);

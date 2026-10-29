@@ -106,6 +106,14 @@ out[#out + 1] = "apps: " .. table.concat(names, " | ")
 local l, reason = plugin.launch_app("hello")
 note("launch_app at load refused (" .. tostring(reason) .. ")", l == nil)
 
+-- network API (API 18)
+note("api_version >= 18", plugin.api_version() >= 18)
+note("capability network.status", plugin.has_capability("network.status") == true)
+local ns = plugin.network_status()
+note("network_status shape", type(ns) == "table" and type(ns.connected) == "boolean"
+  and type(ns.wifi_enabled) == "boolean")
+note("plugin.on network_changed accepted", pcall(plugin.on, "network_changed", function() end))
+
 local h = io.open(root .. "/protect_results.txt", "w")
 h:write(table.concat(out, "\n"), "\n")
 h:close()

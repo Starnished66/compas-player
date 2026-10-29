@@ -2297,11 +2297,18 @@ static int wifi_status_level;
 static unsigned wifi_status_generation;
 static unsigned wifi_status_job_generation;
 static bool wifi_status_enabled;
+/* Set by the UI thread before the worker starts: query association only. */
+static bool wifi_status_job_skip_signal;
 
 static void * wifi_status_thread_func(void * arg) {
     (void)arg;
     int level = 0;
-    wifi_status_result_connected = wifi_get_status(&level);
+    if (wifi_status_job_skip_signal) {
+        wifi_status_result_connected = wifi_get_connected();
+        level = wifi_status_level; /* not measured: keep the last value */
+    } else {
+        wifi_status_result_connected = wifi_get_status(&level);
+    }
     wifi_status_result_level = level;
     atomic_store_explicit(&wifi_status_done, true, memory_order_release);
     return NULL;
@@ -2723,10 +2730,20 @@ static void render_wifi_icon(void) {
     }
 }
 
+/* UI thread only (poll_wifi_status() is never run from the worker): hand the
+ * cached state to the plugin manager, which dispatches "network_changed" only
+ * when it differs from what it last saw. */
+static void publish_network_state(void) {
+    plugin_manager_set_network_state(wifi_status_connected, wifi_status_enabled);
+}
+
 static void poll_wifi_status(void) {
     wifi_status_observe_enabled(gui_shell_wifi_effective_enabled());
     if (!wifi_status_active ||
-        !atomic_load_explicit(&wifi_status_done, memory_order_acquire)) return;
+        !atomic_load_explicit(&wifi_status_done, memory_order_acquire)) {
+        publish_network_state();
+        return;
+    }
     pthread_join(wifi_status_thread, NULL); /* worker has already finished its query */
     wifi_status_active = false;
     if (wifi_status_enabled && wifi_status_job_generation == wifi_status_generation) {
@@ -2734,17 +2751,43 @@ static void poll_wifi_status(void) {
         wifi_status_level = wifi_status_result_level;
         render_wifi_icon();
     }
+    publish_network_state();
+}
+
+static void start_wifi_status_query(bool skip_signal) {
+    if (!wifi_status_enabled || wifi_status_active || wifi_toggle_active) return;
+    wifi_status_job_skip_signal = skip_signal;
+    wifi_status_job_generation = wifi_status_generation;
+    atomic_store_explicit(&wifi_status_done, false, memory_order_relaxed);
+    if (pthread_create(&wifi_status_thread, NULL, wifi_status_thread_func, NULL) == 0)
+        wifi_status_active = true;
 }
 
 static void refresh_wifi_icon(void) {
     poll_wifi_status();
     render_wifi_icon();
     /* Preserve the existing ~5s refresh cadence, with at most one query. */
+    start_wifi_status_query(false);
+}
+
+/* The top bar (and so refresh_wifi_icon()) only runs with the screen on, which
+ * would freeze the cached "connected" state that plugins see. While the screen
+ * is off and a plugin listens for network_changed, run the same asynchronous
+ * query about every 45 s; poll_wifi_status() joins and publishes the result.
+ * Never started when Wi-Fi is disabled. UI thread only, never blocks. */
+#define WIFI_OFF_SCREEN_QUERY_MS 45000
+static void poll_wifi_status_screen_off(void) {
+    static uint32_t last_query_tick;
+    static bool have_last;
+    if (backlight_screen_is_on() || !plugin_manager_has_network_subscribers()) {
+        have_last = false;
+        return;
+    }
     if (!wifi_status_enabled || wifi_status_active || wifi_toggle_active) return;
-    wifi_status_job_generation = wifi_status_generation;
-    atomic_store_explicit(&wifi_status_done, false, memory_order_relaxed);
-    if (pthread_create(&wifi_status_thread, NULL, wifi_status_thread_func, NULL) == 0)
-        wifi_status_active = true;
+    if (have_last && lv_tick_elaps(last_query_tick) < WIFI_OFF_SCREEN_QUERY_MS) return;
+    last_query_tick = lv_tick_get();
+    have_last = true;
+    start_wifi_status_query(true);
 }
 
 /* Same treatment as refresh_wifi_icon(): the drawer's bt icon just reflects
@@ -7170,6 +7213,7 @@ void gui_shell_poll(void) {
         quick_drawer_schedule_snapshot_retry();
     }
     poll_wifi_status();
+    poll_wifi_status_screen_off();
     poll_usb_audio_output();
     poll_sleep_timer();
     poll_wifi_toggle();

@@ -35,7 +35,8 @@ static const char * const plugin_capabilities[] = {
     "ui.startup_image", "audio.mseb.stock", "playback.stay_on_screen",
     "ui.settings_list_10_sliders", "ui.button_lock", "playback.lyrics_refresh",
     "audio.loop", "ui.breeze_stream_icons",
-    "apps.list", "apps.launch"
+    "apps.list", "apps.launch",
+    "network.status"
 };
 
 

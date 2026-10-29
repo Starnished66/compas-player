@@ -817,6 +817,11 @@ static plugin_order_editor_callback_t plugin_order_editor_callback = { NULL, LUA
  *         Power + Volume Up chord toggles hardware button lock.
  *       "suspending" / "system_resumed" -- callback(), around suspend-to-RAM.
  *         system_resumed is separate from playback's existing "resumed".
+ *       "network_changed" -- callback(info), info = { connected = bool,
+ *         wifi_enabled = bool }, when the cached Wi-Fi state changes (API 18).
+ *         Fires on the UI thread from the shell's Wi-Fi poll (~5 s with the
+ *         screen on, ~45 s with it off while a plugin is subscribed).
+ *         connected means associated (wpa COMPLETED), possibly before DHCP.
  *       "stopped" -- callback(), no arguments, fires when playback stops
  *         outright (not paused). Does NOT cover "playlist reaches its end
  *         with repeat off" (that path doesn't route through this app's own
@@ -4406,6 +4411,7 @@ typedef enum {
     PLUGIN_EVENT_OUTPUT_CHANGED,
     PLUGIN_EVENT_BUTTON_LOCK_CHANGED,
     PLUGIN_EVENT_REMOTE_STREAM_NEEDED,
+    PLUGIN_EVENT_NETWORK_CHANGED,
     PLUGIN_EVENT_COUNT,
 } plugin_event_t;
 
@@ -4550,6 +4556,7 @@ static int l_plugin_on(lua_State * L) {
     else if (strcmp(event, "output_changed") == 0) idx = PLUGIN_EVENT_OUTPUT_CHANGED;
     else if (strcmp(event, "button_lock_changed") == 0) idx = PLUGIN_EVENT_BUTTON_LOCK_CHANGED;
     else if (strcmp(event, "remote_stream_needed") == 0) idx = PLUGIN_EVENT_REMOTE_STREAM_NEEDED;
+    else if (strcmp(event, "network_changed") == 0) idx = PLUGIN_EVENT_NETWORK_CHANGED;
     else return luaL_error(L, "plugin.on: unknown event '%s'", event);
 
     if (idx == PLUGIN_EVENT_REMOTE_STREAM_NEEDED && plugin_remote_resolver_registered(plugin_lua_main_state(L)))
@@ -5010,11 +5017,14 @@ static int l_plugin_show_text_view(lua_State * L) {
     return plugin_text_view_bindings_show(L, plugin_call, plugin_text_view_owner_is_aborted);
 }
 
+static int l_plugin_network_status(lua_State * L);
+
 static const luaL_Reg plugin_funcs[] = {
     { "set_music_layout",          l_plugin_set_music_layout },
     { "set_quick_drawer_layout",   l_plugin_set_quick_drawer_layout },
     { "define",                    l_plugin_define },
     { "api_version",               l_plugin_api_version },
+    { "network_status",            l_plugin_network_status },
     { "has_capability",            l_plugin_has_capability },
     { "get_app_info",              l_plugin_get_app_info },
     { "led_available",             l_plugin_led_available },
@@ -6693,6 +6703,60 @@ void plugin_manager_poll_battery(void) {
         if (plugin_call(sub->L, 1, 0, 0) != LUA_OK) {
             const char * err = lua_tostring(sub->L, -1);
             fprintf(stderr, "[plugins] battery_changed handler error: %s\n", err ? err : "unknown error");
+            lua_pop(sub->L, 1);
+        }
+    }
+}
+
+/* Cached Wi-Fi state, written only by the UI thread through
+ * plugin_manager_set_network_state(); the getter reads it without any
+ * subprocess or socket access. */
+static bool plugin_network_connected;
+static bool plugin_network_wifi_enabled;
+static bool plugin_network_valid;
+
+static void push_network_info(lua_State * L) {
+    lua_createtable(L, 0, 2);
+    lua_pushboolean(L, plugin_network_connected);
+    lua_setfield(L, -2, "connected");
+    lua_pushboolean(L, plugin_network_wifi_enabled);
+    lua_setfield(L, -2, "wifi_enabled");
+}
+
+static int l_plugin_network_status(lua_State * L) {
+    push_network_info(L);
+    return 1;
+}
+
+bool plugin_manager_has_network_subscribers(void) {
+    for (int i = 0; i < plugin_event_subscriber_count[PLUGIN_EVENT_NETWORK_CHANGED]; i++) {
+        plugin_instance_t * inst = plugin_instance_for_state(
+            plugin_event_subscribers[PLUGIN_EVENT_NETWORK_CHANGED][i].L);
+        if (!inst || !inst->aborted) return true;
+    }
+    return false;
+}
+
+void plugin_manager_set_network_state(bool connected, bool wifi_enabled) {
+    if (!wifi_enabled) connected = false;
+    if (plugin_network_valid && connected == plugin_network_connected &&
+        wifi_enabled == plugin_network_wifi_enabled) return;
+    bool first = !plugin_network_valid;
+    plugin_network_connected = connected;
+    plugin_network_wifi_enabled = wifi_enabled;
+    plugin_network_valid = true;
+    /* The first sample is only the baseline. It is always {false, enabled}
+     * because it is taken before any query returns; the first query reporting
+     * connected then arrives as a normal change event. */
+    if (first && !connected) return;
+
+    for (int i = 0; i < plugin_event_subscriber_count[PLUGIN_EVENT_NETWORK_CHANGED]; i++) {
+        plugin_event_subscriber_t * sub = &plugin_event_subscribers[PLUGIN_EVENT_NETWORK_CHANGED][i];
+        lua_rawgeti(sub->L, LUA_REGISTRYINDEX, sub->ref);
+        push_network_info(sub->L);
+        if (plugin_call(sub->L, 1, 0, 0) != LUA_OK) {
+            const char * err = lua_tostring(sub->L, -1);
+            fprintf(stderr, "[plugins] network_changed handler error: %s\n", err ? err : "unknown error");
             lua_pop(sub->L, 1);
         }
     }
