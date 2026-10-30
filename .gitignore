@@ -49,3 +49,6 @@ __pycache__/
 
 # Build variant stamps (Makefile BUILD_VARIANT)
 .compas_player_*.variant
+
+# Tests are local only.
+/scripts/tests/
