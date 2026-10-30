@@ -4,6 +4,7 @@
 #include "../../../core/system/logging/debug_log.h"
 #include "../../hiby/hiby_sys_server.h"
 #include "../../../core/process/subprocess.h"
+#include "../../radio/aic_radio.h"
 #include "../../../audio/engine/audio.h"
 
 #include <ctype.h>
@@ -2562,6 +2563,16 @@ bool bt_control_init_chip(void) {
         return true;
     }
 
+    if (aic_radio_active()) {
+        /* AIC8800D40: bt_resume does nothing under the power gate. Take the gate
+         * and bring the controller up through bt_enable_aic.sh instead. */
+        bool powered = aic_radio_bt_power_on();
+        if (powered) ensure_bluealsa_running();
+        bool aic_result = powered && bt_control_adapter_present();
+        pthread_mutex_unlock(&bt_chip_mutex);
+        return aic_result;
+    }
+
     char out[512];
     char * bt_resume_argv[] = { (char *) "/usr/bin/bt_resume", NULL };
     if (access("/sys/devices/platform/bcm_wlbt_power/identity_state", F_OK) == 0) {
@@ -2640,7 +2651,8 @@ void bt_control_disable(void) {
     pthread_mutex_lock(&bt_chip_mutex);
     char out[256];
     char * argv[] = { (char *) "/usr/bin/bt_disable", NULL };
-    subprocess_run(argv, out, sizeof(out));
+    if (aic_radio_active()) aic_radio_bt_power_off(); /* also releases the Bluetooth power gate */
+    else subprocess_run(argv, out, sizeof(out));
     pthread_mutex_unlock(&bt_chip_mutex);
 }
 

@@ -76,6 +76,12 @@ CROSS_STRIP = mipsel-linux-musl-strip
 # R1/R3 Pro II combined loaders use the pinned CPU flags in their build script;
 # that script derives strip from CROSS_CC rather than using CROSS_STRIP.
 TARGET_CPU_FLAGS ?= -march=mips32r2 -mabi=32 -mfp32 -mno-odd-spreg -ffp-contract=off
+# Keep the checkout's absolute path out of every target binary (assert/__FILE__ strings and, in
+# the unstripped files, debug info). GCC 11 in the musl cross toolchain implements
+# -ffile-prefix-map (debug info, __FILE__ and __BASE_FILE__ together); it changes no code
+# generation. `override` keeps it on when TARGET_CPU_FLAGS is replaced on the command line.
+TARGET_PATH_FLAGS = -ffile-prefix-map=$(CURDIR)=.
+override TARGET_CPU_FLAGS += $(TARGET_PATH_FLAGS)
 
 # Dependency directory names
 LVGL_DIR = lvgl
@@ -723,6 +729,7 @@ APP_SRCS += src/ui/settings/controls/gui_external_controls.c
 APP_SRCS += src/ui/plugins/manage/gui_plugin_order_editor.c
 APP_SRCS += src/ui/player/settings/gui_equalizer.c
 APP_SRCS += src/ui/home/gui_home.c src/ui/home/home_background.c
+APP_SRCS += src/network/radio/aic_radio.c src/network/radio/aic_radio_policy.c
 APP_SRCS += src/ui/updates/gui_updates.c
 APP_SRCS += src/ui/appearance/gui_accent.c
 APP_SRCS += src/ui/appearance/fonts/gui_custom_font.c src/ui/widgets/lists/compact_list.c

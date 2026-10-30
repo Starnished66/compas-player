@@ -38,6 +38,7 @@
 #include "../../hardware/power/charge_limiter.h"
 #include "../../network/wifi/wifi_status.h"
 #include "../../network/wifi/wifi_control.h"
+#include "../../network/radio/aic_radio.h"
 #include "../../network/bluetooth/control/bluetooth_control.h"
 #include "../../network/bluetooth/control/bt_ssc_policy.h"
 #include "../../network/bluetooth/reconnect/bluetooth_reconnect.h"
@@ -2829,8 +2830,14 @@ unsigned int bt_connected_rate_cached = 0;
  * authoritative background polling begins immediately. */
 static bool bt_startup_ready = false;
 
+/* On AIC8800D40 units bt_init leaves the controller off and never writes the
+ * marker; the boot-time driver load finishing is the equivalent signal. */
+static bool bt_init_marker_present(void) {
+    return access(BT_INIT_OK_FLAG_PATH, F_OK) == 0 || aic_radio_boot_settled();
+}
+
 static bool refresh_bt_startup_readiness(void) {
-    if (!bt_startup_ready && access(BT_INIT_OK_FLAG_PATH, F_OK) == 0)
+    if (!bt_startup_ready && bt_init_marker_present())
         bt_startup_ready = true;
     return bt_startup_ready;
 }
@@ -5300,7 +5307,12 @@ static void poll_wifi_toggle(void) {
     bool enabled = wifi_control_is_enabled();
     refresh_wifi_icon(); /* re-reads the real state -- updates both the status bar and drawer icons */
     gui_network_wifi_toggle_completed(enabled); /* authoritative rows + scan state */
-    if (enabled != wifi_toggle_target_enabled) show_error_toast(TR("Wi-Fi failed to change state"));
+    if (enabled != wifi_toggle_target_enabled) {
+        if (aic_radio_take_notice() == AIC_RADIO_NOTICE_WIFI_BLOCKED_BY_BT)
+            show_error_toast(TR("Turn off Bluetooth to use Wi-Fi"));
+        else
+            show_error_toast(TR("Wi-Fi failed to change state"));
+    }
 
     /* Only shut AirPlay/DLNA/Remote Control/Import down once the disable is
      * AUTHORITATIVELY confirmed via the real wifi_control_is_enabled() read
@@ -5428,7 +5440,7 @@ static void * bt_pending_enable_thread_func(void * arg) {
     unsigned int off_observations = 0;
     bool init_finished = false;
     while (waited_ms < BT_BOOT_ENABLE_MAX_WAIT_MS) {
-        if (access(BT_INIT_OK_FLAG_PATH, F_OK) == 0) {
+        if (bt_init_marker_present()) {
             init_finished = true;
             if (!bt_control_is_powered()) {
                 off_observations++;
@@ -5522,7 +5534,7 @@ void quick_drawer_bt_event_cb(lv_event_t * e) {
     /* If turning on before /tmp/bt_init_ok exists, queue behind
      * bt_pending_enable_thread_func() to wait for initialization to complete.
      * Disabling is D-Bus-only and safe to run directly. */
-    bool bt_pending_now = bt_will_be_powered && access(BT_INIT_OK_FLAG_PATH, F_OK) != 0;
+    bool bt_pending_now = bt_will_be_powered && !bt_init_marker_present();
 
     bt_toggle_active = true;
     bt_toggle_target_enabled = bt_will_be_powered;
@@ -5549,6 +5561,9 @@ static void poll_bt_toggle(void) {
     if (!bt_toggle_active || !atomic_load_explicit(&bt_toggle_done_flag, memory_order_acquire)) return;
     bt_toggle_active = false;
     pthread_join(bt_toggle_thread, NULL);
+
+    if (aic_radio_take_notice() == AIC_RADIO_NOTICE_BT_BLOCKED_BY_WIFI)
+        show_info_toast(TR("Turn off Wi-Fi to use Bluetooth"));
 
     if (bt_toggle_forced_dac_off) {
         current_settings.bt_dac_mode_enabled = false;

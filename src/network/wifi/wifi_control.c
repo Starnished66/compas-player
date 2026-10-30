@@ -1,6 +1,7 @@
 #include "wifi_control.h"
 #include "wifi_status.h"
 #include "../../core/process/subprocess.h"
+#include "../radio/aic_radio.h"
 
 #include <mbedtls/md.h>
 #include <mbedtls/pkcs5.h>
@@ -76,7 +77,10 @@ bool wifi_control_is_enabled(void) {
  * terminates existing udhcpc instances and triggers udhcpc to obtain a lease. */
 void wifi_control_enable(void) {
     char * argv[] = { (char *) "/usr/bin/wifi_on.sh", NULL };
-    if (access("/sys/devices/platform/bcm_wlbt_power/identity_state", F_OK) == 0) {
+    if (aic_radio_active()) {
+        /* AIC8800D40: Wi-Fi and Bluetooth share the chip, see aic_radio.h. */
+        if (!aic_radio_wifi_enable()) return;
+    } else if (access("/sys/devices/platform/bcm_wlbt_power/identity_state", F_OK) == 0) {
         int status;
         if (!subprocess_run_checked_group(argv, NULL, 0, SUBPROCESS_RADIO_TIMEOUT_MS, &status) || status != 0)
             return;
@@ -104,7 +108,9 @@ void wifi_control_enable(void) {
 
 void wifi_control_disable(void) {
     char * argv[] = { (char *) "/usr/bin/wifi_off.sh", NULL };
-    if (access("/sys/devices/platform/bcm_wlbt_power/identity_state", F_OK) == 0) {
+    if (aic_radio_active()) {
+        aic_radio_wifi_disable();
+    } else if (access("/sys/devices/platform/bcm_wlbt_power/identity_state", F_OK) == 0) {
         int status;
         (void) subprocess_run_checked_group(argv, NULL, 0, SUBPROCESS_RADIO_TIMEOUT_MS, &status);
     } else {
