@@ -10,14 +10,7 @@
  * seeds its snapshot. */
 void gui_remote_settings_init(void);
 /* From update_timer_cb through gui_external_controls_poll(): applies queued
- * changes, starts a requested rescan, and switches the permission back off
- * when it expires. */
+ * changes and starts a requested rescan. */
 void gui_remote_settings_poll(void);
-
-/* "Allow remote settings changes" on the Remote Control screen. Session-only. */
-bool gui_remote_settings_allowed(void);
-void gui_remote_settings_toggle_cb(lv_event_t * e);
-/* Lets the poll flip the switch back when the permission expires. */
-void gui_remote_settings_bind_switch(lv_obj_t * sw);
 
 #endif /* GUI_REMOTE_SETTINGS_H */

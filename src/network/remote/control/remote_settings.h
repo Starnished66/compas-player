@@ -9,9 +9,7 @@
 
 /* /api/v1/settings: schema, values, changes and actions, built on the
  * settings registry. Reads need only the PIN. Writes also need the PIN as a
- * header (never the browser cookie), a JSON content type, and either the
- * "Allow remote settings changes" switch (remote_settings_gate.h) or a
- * loopback peer (the adb forward from Compas Tools). The UI thread applies
+ * header (never the browser cookie) and a JSON content type. The UI thread applies
  * the changes (gui_remote_settings.c); the HTTP thread waits for the result. */
 
 #define REMOTE_SETTINGS_BODY_MAX 4096

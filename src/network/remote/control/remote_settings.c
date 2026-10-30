@@ -1,5 +1,4 @@
 #include "remote_settings.h"
-#include "remote_settings_gate.h"
 #include "../../../core/persistence/settings_registry.h"
 #include "cJSON.h"
 
@@ -422,7 +421,6 @@ bool remote_settings_handle(int fd, const char * method, const char * path_only,
         return true;
     }
     if (get) {
-        bool writable = loopback || remote_settings_gate_open(remote_settings_now_ms());
         char * json = NULL;
         if (schema) json = remote_settings_build_schema();
         else {
@@ -432,20 +430,18 @@ bool remote_settings_handle(int fd, const char * method, const char * path_only,
             /* A cursor from another boot, or from the future, cannot be trusted: send everything. */
             if (!has_since || since > settings_registry_revision() || (has_epoch && epoch != settings_registry_epoch()))
                 since = 0;
-            json = remote_settings_build_values(since, writable);
+            json = remote_settings_build_values(since, true);
         }
         if (json) { snprintf(status, status_size, "200 OK"); *body = json; }
         else reply_error(status, status_size, body, "500 Internal Server Error", "out_of_memory");
         return true;
     }
     /* Writes: header auth only (a cookie is ambient and forgeable from a web
-     * page), a JSON content type, and the switch unless the peer is loopback. */
+     * page) and a JSON content type. */
     if (!request->header_auth)
         reply_error(status, status_size, body, "401 Unauthorized", "header_auth_required");
     else if (!request->json_content_type)
         reply_error(status, status_size, body, "415 Unsupported Media Type", "json_required");
-    else if (!loopback && !remote_settings_gate_open(remote_settings_now_ms()))
-        reply_error(status, status_size, body, "403 Forbidden", "remote_changes_disabled");
     else if (rescan)
         handle_rescan(fd, request, status, status_size, body);
     else

@@ -19,13 +19,11 @@
 #include "../../../hardware/indicators/led_control.h"
 #include "../../../hardware/power/charge_limiter.h"
 #include "../../../network/remote/control/remote_settings.h"
-#include "../../../network/remote/control/remote_settings_gate.h"
 #include "../../../network/wifi/wifi_control.h"
 #ifndef HOST_BUILD
 #include "../../../audio/output/audio_output.h"
 #endif
 
-static lv_obj_t * allow_switch;
 extern bool library_rescan_active; /* gui_library.c: set while a scan runs */
 
 /* ---- Registry hooks ---- */
@@ -57,34 +55,6 @@ void gui_remote_settings_init(void) {
     settings_registry_set_hooks(&hooks);
     remote_settings_set_rescan_probe(rescan_running);
     settings_registry_note_save(&current_settings);
-}
-
-/* ---- The permission switch ---- */
-
-bool gui_remote_settings_allowed(void) {
-    return remote_settings_gate_open(remote_settings_now_ms());
-}
-
-static void allow_switch_deleted_cb(lv_event_t * e) {
-    if (allow_switch == lv_event_get_target(e)) allow_switch = NULL;
-}
-
-void gui_remote_settings_bind_switch(lv_obj_t * sw) {
-    allow_switch = sw;
-    if (sw) lv_obj_add_event_cb(sw, allow_switch_deleted_cb, LV_EVENT_DELETE, NULL);
-}
-
-static void show_allow_state(bool on) {
-    if (!allow_switch) return;
-    if (on) lv_obj_add_state(allow_switch, LV_STATE_CHECKED);
-    else lv_obj_clear_state(allow_switch, LV_STATE_CHECKED);
-}
-
-void gui_remote_settings_toggle_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    bool on = !gui_remote_settings_allowed();
-    remote_settings_gate_set(on, remote_settings_now_ms());
-    show_allow_state(on);
 }
 
 /* ---- Applying a change ---- */
@@ -189,11 +159,6 @@ static void apply_job(const remote_settings_job_t * job) {
 }
 
 void gui_remote_settings_poll(void) {
-    uint64_t now = remote_settings_now_ms();
-    if (remote_settings_gate_consume_expired(now)) show_info_toast(TR("Remote settings changes turned off"));
-    /* Expiry, or the permission being revoked when Remote Control stops, can happen off this thread. */
-    bool open = remote_settings_gate_open(now);
-    if (allow_switch && lv_obj_has_state(allow_switch, LV_STATE_CHECKED) != open) show_allow_state(open);
     if (remote_settings_consume_rescan()) {
         /* Same entry point as Settings > Library > Update Music Database,
          * which ignores the request while a scan is already running. */
