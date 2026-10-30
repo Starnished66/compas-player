@@ -163,15 +163,9 @@ static void compute_band_coeffs_for_band(const peq_band_t * band,
     double b0, b1, b2, a0, a1, a2;
 
     if (band->type == PEQ_TYPE_LOW_SHELF || band->type == PEQ_TYPE_HIGH_SHELF) {
-        /* Shelf filters parameterized directly by Q (same substitution the
-         * Web Audio API's BiquadFilterNode uses for lowshelf/highshelf)
-         * rather than the RBJ cookbook's alternate S/slope parameter, so
-         * every band type shares the same Q control in the UI. */
-        /* Clamp under_sqrt to 0 to prevent complex values and NaN when
-         * calculating alpha at high Q settings. */
-        double under_sqrt = (A + 1.0 / A) * (1.0 / q - 1.0) + 2.0;
-        if (under_sqrt < 0.0) under_sqrt = 0.0;
-        double alpha = (sin_w0 / 2.0) * sqrt(under_sqrt);
+        /* Shelf bandwidth is Q, as in Squiglink/AutoEQ LSQ and HSQ
+         * filters. The cookbook's alternate shelf slope S is not Q. */
+        double alpha = sin_w0 / (2.0 * q);
         double sqrt_A_2alpha = 2.0 * sqrt(A) * alpha;
 
         if (band->type == PEQ_TYPE_LOW_SHELF) {
@@ -211,8 +205,8 @@ static void compute_band_coeffs(int index, unsigned int sample_rate) {
     compute_band_coeffs_for_band(&bands[index], sample_rate, &coeffs[index]);
 }
 
-void peq_get_response_db(const double * frequencies_hz, double * response_db,
-                         size_t count, unsigned int sample_rate) {
+static void get_response_db(const double * frequencies_hz, double * response_db,
+                             size_t count, unsigned int sample_rate, bool include_preamp) {
     if (!frequencies_hz || !response_db || count == 0) return;
     if (sample_rate == 0) sample_rate = 48000;
 
@@ -235,7 +229,7 @@ void peq_get_response_db(const double * frequencies_hz, double * response_db,
         }
     }
 
-    double preamp = isfinite(preamp_db) ? preamp_db : 0.0;
+    double preamp = include_preamp && isfinite(preamp_db) ? preamp_db : 0.0;
     if (preamp > 300.0) preamp = 300.0;
     if (preamp < -300.0) preamp = -300.0;
     const double nyquist = (double) sample_rate / 2.0;
@@ -269,6 +263,17 @@ void peq_get_response_db(const double * frequencies_hz, double * response_db,
         if (total < -300.0) total = -300.0;
         response_db[i] = total;
     }
+}
+
+
+void peq_get_response_db(const double * frequencies_hz, double * response_db,
+                         size_t count, unsigned int sample_rate) {
+    get_response_db(frequencies_hz, response_db, count, sample_rate, true);
+}
+
+void peq_get_filter_response_db(const double * frequencies_hz, double * response_db,
+                                size_t count, unsigned int sample_rate) {
+    get_response_db(frequencies_hz, response_db, count, sample_rate, false);
 }
 
 static void recompute_all_coeffs(unsigned int sample_rate) {

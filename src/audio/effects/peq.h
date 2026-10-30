@@ -8,10 +8,9 @@
 /* Parametric EQ: PEQ_NUM_BANDS independent biquad filters in cascade, each
  * with adjustable center frequency, gain, Q, and filter type (peaking /
  * low shelf / high shelf) -- standard RBJ Audio EQ Cookbook coefficients
- * (shelf filters parameterized by Q the same way the Web Audio API's
- * BiquadFilterNode does, rather than the cookbook's alternate S/slope
- * parameter, so every band exposes the same freq/gain/Q trio regardless of
- * type). Applied to interleaved S16 stereo (or mono) PCM in the audio
+ * (shelves use the Q definition of Squiglink/AutoEQ LSQ and HSQ filters,
+ * rather than the cookbook's alternate S/slope parameter, so every band
+ * exposes the same freq/gain/Q trio regardless of type). Applied to interleaved S16 stereo (or mono) PCM in the audio
  * output path, with independent filter state per channel so left/right
  * don't interfere with each other. Band layout (10 bands, ISO standard
  * center frequencies, first/last as shelves) matches a typical hardware
@@ -132,6 +131,11 @@ void peq_set_band_enabled(int index, bool enabled);
  * audio processing coefficients, filter state, or dirty/sample-rate caches. */
 void peq_get_response_db(const double * frequencies_hz, double * response_db,
                          size_t count, unsigned int sample_rate);
+
+/* Same read-only response query, excluding preamp for a filters-only EQ
+ * correction curve. Invalid frequencies produce 0 dB. */
+void peq_get_filter_response_db(const double * frequencies_hz, double * response_db,
+                                size_t count, unsigned int sample_rate);
 
 /* In-place processing of an interleaved S16 buffer. No-op (fast path) if
  * PEQ is bypassed and Crossfeed is idle, or no bands are enabled, preamp is 0 dB, width is neutral, and
