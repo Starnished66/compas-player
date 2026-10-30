@@ -360,6 +360,9 @@ static bool resumed_from_suspend_pending = false;
  * out-of-band wake so the next control tick still runs every ordinary
  * screen_just_woke refresh/status/radio-reset action. */
 static bool force_screen_just_woke = false;
+/* A button or wake cancel turns the screen off between control ticks, so the
+ * tick never samples it on. Remember it so the idle countdown restarts. */
+static bool force_screen_just_slept = false;
 /* A wake is prepared and painted with the backlight still off. */
 static bool screen_wake_pending = false;
 static bool screen_wake_unlock_requested = false;
@@ -668,6 +671,7 @@ static void request_screen_power(bool on) {
         screen_wake_power_menu = false;
         backlight_set_screen_on(false);
         apply_screen_runtime_state(false);
+        force_screen_just_slept = true;
     }
 }
 
@@ -1358,6 +1362,8 @@ static screen_poll_result_t poll_screen_power(void) {
     bool screen_on_now = backlight_screen_is_on();
     bool screen_just_woke = screen_on_now && (!screen_was_on || force_screen_just_woke);
     if (screen_just_woke) force_screen_just_woke = false;
+    bool screen_just_slept = !screen_on_now && (screen_was_on || force_screen_just_slept);
+    force_screen_just_slept = false;
     if (screen_just_woke && player_ui_timer) lv_timer_ready(player_ui_timer);
     if (screen_just_woke) gui_library_screen_woke();
     /* A wake can precede completion of the background RC stop. Retry its
@@ -1383,7 +1389,7 @@ static screen_poll_result_t poll_screen_power(void) {
         gui_screen_off_memory_restart_wait(lv_tick_get());
     } else if (!screen_on_now && !screen_wake_pending) {
         bool playing_now_for_idle = audio_is_playing();
-        if (screen_was_on) {
+        if (screen_just_slept) {
             /* Just went to sleep this tick -- the 10-minute countdown starts
              * from here, not from whenever the inactivity that caused it
              * began. */
@@ -1395,7 +1401,7 @@ static screen_poll_result_t poll_screen_power(void) {
             screen_off_since_tick = lv_tick_get();
         }
         screen_off_playback_active = playing_now_for_idle;
-        gui_screen_off_memory_tick(screen_was_on, playing_now_for_idle || audio_is_paused(), lv_tick_get());
+        gui_screen_off_memory_tick(screen_just_slept, playing_now_for_idle || audio_is_paused(), lv_tick_get());
         /* Cable presence and charger status are separate signals: a USB
          * source can remain connected while the battery reports discharging.
          * Treat UNKNOWN conservatively so background power actions never
