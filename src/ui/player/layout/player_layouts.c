@@ -86,9 +86,9 @@ static player_layout_interactions_t active_interactions = {
 static player_layout_action_handler_t action_handler;
 static lv_obj_t * active_root;
 static char active_owner[PLAYER_LAYOUT_ACTION_MAX];
-// Maximum retained plugin values for each now_playing layout for all plugins
+/* Retained values are bounded globally across all layouts and plugin owners. */
 #define MAX_PLUGIN_VALUES 128
-// Maximum retained plugin owners for each now_playing layout (e.g. a plugin can only overwrite 32 controls at max)
+/* Each plugin owner may retain at most this many named widget values. */
 #define MAX_PLUGIN_OWNER_VALUES 32
 typedef struct {
     char owner[PLAYER_LAYOUT_ACTION_MAX];
@@ -220,8 +220,16 @@ const char * player_layouts_set_plugin_value(const char * owner, const char * na
     if (!slot && value && (!empty || count >= MAX_PLUGIN_OWNER_VALUES)) return "image/text slot limit reached";
     char * copy = value ? strdup(value) : NULL;
     if (value && !copy) return "out of memory";
+    if (!slot && !value) {
+        /* Clearing a live XML default must work even when retention is full
+         * and this widget has never had a retained plugin value. */
+        plugin_layout_value_t clear = { .image = image };
+        snprintf(clear.owner, sizeof(clear.owner), "%s", owner);
+        snprintf(clear.name, sizeof(clear.name), "%s", name);
+        apply_plugin_value(&clear);
+        return NULL;
+    }
     if (!slot) slot = empty;
-    if (!slot) return NULL;
     free(slot->value);
     snprintf(slot->owner, sizeof(slot->owner), "%s", owner);
     snprintf(slot->name, sizeof(slot->name), "%s", name);

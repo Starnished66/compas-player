@@ -36,6 +36,7 @@
 #include "../lua/plugin_lua_runtime.h"
 #include "../storage/plugin_storage.h"
 #include "plugin_internal.h"
+#include "lvgl/src/misc/cache/instance/lv_image_cache.h"
 #include "../lifecycle/plugin_disabled_list.h"
 #include "../../network/store/plugins/plugin_store.h"
 #include "../../hardware/input/hw_buttons.h"
@@ -5305,6 +5306,11 @@ static int plugin_now_playing_set_value(lua_State * L, bool image) {
             if (stat(path, &st) != 0 || !S_ISREG(st.st_mode))
                 return luaL_error(L, "%s: image file does not exist", api);
             snprintf(source, sizeof(source), "S:%s", path);
+            /* The same path may have been replaced since LVGL last decoded
+             * it. Drop cached pixels and dimensions before validation;
+             * lv_image_cache_drop also clears the header cache and notifies
+             * draw units to discard source-keyed rendering resources. */
+            lv_image_cache_drop(source);
             lv_image_header_t header;
             if (lv_image_decoder_get_info(source, &header) != LV_RESULT_OK)
                 return luaL_error(L, "%s: unsupported image file", api);
