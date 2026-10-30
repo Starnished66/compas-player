@@ -534,7 +534,10 @@ bool charge_limiter_is_confirmed_off(void) {
     /* Any clock failure/backwards jump or fallback clock invalidates reuse. */
     invalidate_axp_status_cache();
     uint8_t status;
-    bool off = axp_read(AXP_REG_STATUS, &status) && (status & 7u) == 4;
+    /* 4: charge done under the cap. 5: not charging, which is what a battery
+     * already above the cap reports (for example charged before the limiter
+     * was switched on); the bolt must not stay lit for it either. */
+    bool off = axp_read(AXP_REG_STATUS, &status) && ((status & 7u) == 4 || (status & 7u) == 5);
     if (cacheable) {
         axp_status_cache_off = off; /* a failed read is cached as false too */
         axp_status_cache_clock = clock_id;
