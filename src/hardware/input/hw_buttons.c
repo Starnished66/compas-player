@@ -38,6 +38,8 @@
 #define MAPPED_CUSTOM_HOLD_MS 500
 #define MAPPED_CUSTOM_REPEAT_MS 100
 #define SCREENSHOT_CHORD_WINDOW_MS 250
+/* A press this soon after the same key's release is switch bounce. */
+#define KEY_BOUNCE_MS 50
 
 typedef struct {
     button_mapping_button_t button;
@@ -80,6 +82,9 @@ static bool lock_chord_used_for_power_hold = false;
 static bool knob_volume_up_held = false;
 static bool physical_key_held[KEY_MAX + 1];
 static uint32_t physical_key_pressed_ms[KEY_MAX + 1];
+static uint32_t physical_key_released_ms[KEY_MAX + 1];
+static bool physical_key_released[KEY_MAX + 1];
+static bool physical_key_bounced[KEY_MAX + 1];
 
 static uint32_t monotonic_ms(void);
 static void queue_button_event_locked(button_mapping_button_t button,
@@ -496,6 +501,14 @@ static void handle_key_event(unsigned short code, int value) {
             return;
         }
         physical_key_held[code] = true;
+        /* The ADC ladder switch can release and re-make within ~20 ms. Swallow
+         * that press and, via the flag, its release. */
+        physical_key_bounced[code] = physical_key_released[code] &&
+            (uint32_t) (now - physical_key_released_ms[code]) < KEY_BOUNCE_MS;
+        if (physical_key_bounced[code]) {
+            pthread_mutex_unlock(&state_mutex);
+            return;
+        }
         physical_key_pressed_ms[code] = now;
         apply_due_mapped_holds_locked(now, screen_on);
 #if defined(BOARD_TEMPOTEC_V1)
@@ -676,6 +689,14 @@ static void handle_key_event(unsigned short code, int value) {
         }
     } else if (value == 0) {
         if (!physical_key_held[code]) {
+            pthread_mutex_unlock(&state_mutex);
+            return;
+        }
+        physical_key_released[code] = true;
+        physical_key_released_ms[code] = now;
+        if (physical_key_bounced[code]) {
+            physical_key_bounced[code] = false;
+            physical_key_held[code] = false;
             pthread_mutex_unlock(&state_mutex);
             return;
         }
