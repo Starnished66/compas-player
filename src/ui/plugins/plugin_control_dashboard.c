@@ -130,6 +130,19 @@ static void dash_recolor_latest_icon(lv_obj_t * row, lv_color_t color) {
     lv_obj_set_style_image_recolor_opa(image, LV_OPA_COVER, 0);
 }
 
+static int32_t dash_tile_height(bool has_detail) {
+    int32_t title_height = lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT));
+    if (!has_detail) return DASH_SCALE(78);
+    int32_t caption_height = lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_STATUS));
+    int32_t content_height = title_height + DASH_SCALE(4) + 2 * caption_height + 2 * DASH_SCALE(8);
+    int32_t minimum = DASH_SCALE(78);
+    return content_height > minimum ? content_height : minimum;
+}
+
+static void dash_grid_rows_deleted(lv_event_t * e) {
+    if (lv_event_get_code(e) == LV_EVENT_DELETE) lv_free(lv_event_get_user_data(e));
+}
+
 static void dash_build_markers(lv_obj_t * parent, const plugin_control_dashboard_options_t * options) {
     int count = options ? options->markers : 4;
     if (count <= 0) return;
@@ -162,9 +175,9 @@ static void dash_build_markers(lv_obj_t * parent, const plugin_control_dashboard
 
 static void dash_build_tile(lv_obj_t * parent, plugin_control_dashboard_context_t * context,
                             const plugin_control_dashboard_row_t * item, int row_index,
-                            int grid_col, int grid_row, const char * fallback_detail, bool primary) {
+                            int grid_col, int grid_row, const char * fallback_detail, int32_t row_height, bool primary) {
     lv_obj_t * tile = lv_button_create(parent);
-    lv_obj_set_size(tile, LV_PCT(100), DASH_SCALE(78));
+    lv_obj_set_size(tile, LV_PCT(100), row_height);
     lv_obj_set_grid_cell(tile, LV_GRID_ALIGN_STRETCH, grid_col, 1,
                          LV_GRID_ALIGN_STRETCH, grid_row, 1);
     /* The same framed surface as the menu rows; the primary action is the
@@ -189,18 +202,26 @@ static void dash_build_tile(lv_obj_t * parent, plugin_control_dashboard_context_
     if (detail && detail[0]) {
         caption = lv_label_create(tile);
         dash_label(caption, detail, GUI_FONT_ROLE_STATUS, true);
-        lv_label_set_long_mode(caption, LV_LABEL_LONG_DOT);
+        lv_label_set_long_mode(caption, LV_LABEL_LONG_WRAP);
         lv_obj_set_width(caption, LV_PCT(100));
+        lv_obj_set_height(caption, 2 * lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_STATUS)));
         lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_align(caption, LV_ALIGN_BOTTOM_MID, 0, -DASH_SCALE(8));
+        lv_obj_set_width(caption, LV_PCT(90));
     }
+    int32_t title_height = lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT));
+    int32_t caption_height = caption ? 2 * lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_STATUS)) : 0;
+    int32_t gap = caption ? DASH_SCALE(4) : 0;
+    int32_t stack_height = title_height + caption_height + gap;
+    int32_t stack_top = (row_height - stack_height) / 2;
+    int32_t title_y = stack_top;
     if (item->icon_path && item->icon_path[0])
         pill_row_apply_icon(tile, title, item->icon_path, DASH_SCALE(26), LV_ALIGN_LEFT_MID,
-                            DASH_SCALE(10), caption ? -DASH_SCALE(12) : 0);
+                            DASH_SCALE(10), caption ? title_y + title_height / 2 - row_height / 2 : 0);
     lv_obj_set_width(title, LV_PCT(item->icon_path && item->icon_path[0] ? 64 : 90));
+    lv_obj_set_height(title, title_height);
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(title, LV_ALIGN_CENTER, 0, caption ? -DASH_SCALE(12) : 0);
-    if (detail && detail[0]) lv_obj_set_width(caption, LV_PCT(90));
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, title_y);
+    if (caption) lv_obj_align(caption, LV_ALIGN_TOP_MID, 0, title_y + title_height + gap);
     if (primary) {
         lv_color_t foreground = lv_color_hex(gui_theme_prefers_light_text(accent_lv_color())
                                                  ? GUI_BREEZE_TEXT_ON_DARK : GUI_BREEZE_TEXT_ON_LIGHT);
@@ -247,6 +268,20 @@ bool plugin_control_dashboard_build(lv_obj_t * parent,
     context->increment_event.row = tempo;
     context->increment_event.delta = 1;
     context->increment_event.arc = NULL;
+
+    int32_t * grid_rows = lv_malloc(sizeof(int32_t) * 4);
+    if (!grid_rows) { free(context); return false; }
+    static const int dashboard_rows[6] = { 0, 2, 3, 4, 5, 6 };
+    int32_t row_heights[3] = { DASH_SCALE(78), DASH_SCALE(78), DASH_SCALE(78) };
+    for (int i = 0; i < 6; i++) {
+        int row = dashboard_rows[i];
+        const char * detail = rows[row].detail && rows[row].detail[0] ? rows[row].detail
+                              : (row == 4 && options) ? options->detail : NULL;
+        int32_t height = dash_tile_height(detail && detail[0]);
+        if (height > row_heights[i / 2]) row_heights[i / 2] = height;
+    }
+    for (int i = 0; i < 3; i++) grid_rows[i] = row_heights[i];
+    grid_rows[3] = LV_GRID_TEMPLATE_LAST;
 
     /* The body owns its callbacks and context, so replacing its contents also
      * releases every screen-specific pointer without cross-slot state. */
@@ -332,24 +367,21 @@ bool plugin_control_dashboard_build(lv_obj_t * parent,
 
     lv_obj_t * tiles = lv_obj_create(body);
     lv_obj_set_width(tiles, LV_PCT(100));
-    lv_obj_set_height(tiles, 3 * DASH_SCALE(78) + 2 * DASH_SCALE(8));
+    lv_obj_set_height(tiles, row_heights[0] + row_heights[1] + row_heights[2] + 2 * DASH_SCALE(8));
     lv_obj_set_style_bg_opa(tiles, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(tiles, 0, 0);
     lv_obj_set_style_pad_all(tiles, 0, 0);
     lv_obj_set_style_pad_row(tiles, DASH_SCALE(8), 0);
     lv_obj_set_style_pad_column(tiles, DASH_SCALE(8), 0);
     static int32_t grid_columns[] = { LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST };
-    static int32_t grid_rows[] = {
-        DASH_SCALE(78), DASH_SCALE(78), DASH_SCALE(78), LV_GRID_TEMPLATE_LAST
-    };
     lv_obj_set_layout(tiles, LV_LAYOUT_GRID);
     lv_obj_set_grid_dsc_array(tiles, grid_columns, grid_rows);
+    lv_obj_add_event_cb(tiles, dash_grid_rows_deleted, LV_EVENT_DELETE, grid_rows);
     lv_obj_remove_flag(tiles, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    static const int dashboard_rows[6] = { 0, 2, 3, 4, 5, 6 };
     for (int i = 0; i < 6; i++) {
         int row = dashboard_rows[i];
         const char * detail = (row == 4 && options) ? options->detail : NULL;
-        dash_build_tile(tiles, context, &rows[row], row, i % 2, i / 2, detail, row == 0);
+        dash_build_tile(tiles, context, &rows[row], row, i % 2, i / 2, detail, row_heights[i / 2], row == 0);
     }
     return true;
 }
