@@ -63,6 +63,7 @@ lv_font_t app_font_display;
   #define DISPLAY_FONT_FILE FALLBACK_FONT_ROOT "Montserrat-Medium.ttf"
   #define KOREAN_FONT_FILE FALLBACK_FONT_ROOT "korean.ttf"
   #define THAI_FONT_FILE FALLBACK_FONT_ROOT "thai.ttf"
+  #define CHINESE_FONT_FILE FALLBACK_FONT_ROOT "chinese.ttf"
   #define EMOJI_FONT_FILE FALLBACK_FONT_ROOT "emoji.ttf"
   #define ARABIC_FONT_FILE FALLBACK_FONT_ROOT "arabic.ttf"
   #define CUSTOM_FONT_SD_DIR "music/Fonts"
@@ -75,6 +76,7 @@ lv_font_t app_font_display;
   #define DISPLAY_FONT_FILE "/usr/resource/fonts/Montserrat-Medium.ttf"
   #define KOREAN_FONT_FILE "/usr/resource/fonts/Korean.ttf"
   #define THAI_FONT_FILE "/usr/resource/fonts/Thai.ttf"
+  #define CHINESE_FONT_FILE "/usr/resource/fonts/chinese.ttf"
   #define EMOJI_FONT_FILE "/usr/resource/fonts/emoji.ttf"
   #define ARABIC_FONT_FILE "/usr/resource/fonts/arabic.ttf"
   #define CUSTOM_FONT_SD_DIR "/data/mnt/sd_0/Fonts"
@@ -100,7 +102,7 @@ static bool s_fallback_loaded = false;
  * during list scrolling. The buffer is shared across pixel-size instances built from
  * the same file.
  *
- * Fallback faces (CJK, Korean, Thai, Emoji, Arabic) stream from disk to preserve RAM given their
+ * Fallback faces (CJK, Chinese, Korean, Thai, Emoji, Arabic) stream from disk to preserve RAM given their
  * larger file sizes and lower consultation frequency.
  *
  * s_custom_font_data/_size/_generation holds the committed buffer that built
@@ -119,6 +121,7 @@ typedef enum {
     FACE_SRC_THAI,
     FACE_SRC_EMOJI,
     FACE_SRC_ARABIC,
+    FACE_SRC_CHINESE,
     FACE_SRC_DISPLAY,
     FACE_SRC_COUNT
 } face_source_type_t;
@@ -131,10 +134,10 @@ typedef struct {
 } loaded_face_entry_t;
 
 /* Distinct pixel sizes (four general UI sizes and independent Lyrics,
- * Player, and display sizes) x (1 primary + 5 fallback faces) is 48. A tier
+ * Player, and display sizes) x (1 primary + 6 fallback faces) is 56. A tier
  * switch holds the retained sizes alongside four new ones, so leave room for
  * one more face per size and an extra size before a switch can run out. */
-#define MAX_LOADED_FACES 64
+#define MAX_LOADED_FACES 80
 static loaded_face_entry_t s_loaded_faces[MAX_LOADED_FACES];
 static int s_loaded_face_count = 0;
 
@@ -237,6 +240,8 @@ static const char * face_source_file_path(face_source_type_t type, bool custom_s
             return EMOJI_FONT_FILE;
         case FACE_SRC_ARABIC:
             return ARABIC_FONT_FILE;
+        case FACE_SRC_CHINESE:
+            return CHINESE_FONT_FILE;
         case FACE_SRC_DISPLAY:
             /* The same Montserrat face used by the compiled UI fonts. */
             return DISPLAY_FONT_FILE;
@@ -432,9 +437,11 @@ static bool build_candidate_slot(face_table_t * tbl, lv_font_t * out_font, int p
         lv_font_t * th = get_or_load_face_in_table(tbl, FACE_SRC_THAI, pixel_size, custom_staged, custom_gen);
         lv_font_t * emoji = get_or_load_face_in_table(tbl, FACE_SRC_EMOJI, pixel_size, custom_staged, custom_gen);
         lv_font_t * arabic = get_or_load_face_in_table(tbl, FACE_SRC_ARABIC, pixel_size, custom_staged, custom_gen);
+        lv_font_t * chinese = get_or_load_face_in_table(tbl, FACE_SRC_CHINESE, pixel_size, custom_staged, custom_gen);
 
         lv_font_t * fallback_head = NULL;
         if (cjk) font_chain_append(&fallback_head, cjk);
+        if (chinese) font_chain_append(&fallback_head, chinese);
         if (kr)  font_chain_append(&fallback_head, kr);
         if (th)  font_chain_append(&fallback_head, th);
         if (emoji) font_chain_append(&fallback_head, emoji);
@@ -472,8 +479,10 @@ static bool build_candidate_display_slot(face_table_t * tbl, lv_font_t * out_fon
         lv_font_t * th = get_or_load_face_in_table(tbl, FACE_SRC_THAI, DISPLAY_FONT_PX, custom_staged, custom_gen);
         lv_font_t * emoji = get_or_load_face_in_table(tbl, FACE_SRC_EMOJI, DISPLAY_FONT_PX, custom_staged, custom_gen);
         lv_font_t * arabic = get_or_load_face_in_table(tbl, FACE_SRC_ARABIC, DISPLAY_FONT_PX, custom_staged, custom_gen);
+        lv_font_t * chinese = get_or_load_face_in_table(tbl, FACE_SRC_CHINESE, DISPLAY_FONT_PX, custom_staged, custom_gen);
         lv_font_t * head = NULL;
         if (cjk) font_chain_append(&head, cjk);
+        if (chinese) font_chain_append(&head, chinese);
         if (kr) font_chain_append(&head, kr);
         if (th) font_chain_append(&head, th);
         if (emoji) font_chain_append(&head, emoji);
@@ -530,9 +539,12 @@ static bool build_new_tier_slot(face_table_t * tbl, lv_font_t * out_font,
     /* Arabic is optional like Emoji: standalone player updates may not include
      * the asset yet, and its absence must not fail a font-size transaction. */
     lv_font_t * arabic = load_new_face_in_table(tbl, FACE_SRC_ARABIC, pixel_size, false, 0);
+    /* Chinese is optional for the same reason as Emoji and Arabic. */
+    lv_font_t * chinese = load_new_face_in_table(tbl, FACE_SRC_CHINESE, pixel_size, false, 0);
 
     lv_font_t * head = NULL;
     font_chain_append(&head, cjk);
+    if (chinese) font_chain_append(&head, chinese);
     font_chain_append(&head, kr);
     font_chain_append(&head, th);
     if (emoji) font_chain_append(&head, emoji);
@@ -1144,8 +1156,54 @@ void fallback_font_init_early(int font_size_tier, int lyrics_font_size_tier) {
     if (s_custom_staged_valid) commit_custom_font_data(s_custom_font_generation);
 }
 
+/* Fixed-size UI handles for text that must stay on a compiled Montserrat size
+ * (quick drawer captions, topbar AM/PM). The primary face never changes with
+ * custom SD fonts; only the fallback chain is added, once the fallback faces
+ * are allowed to load, and only for sizes that were actually requested. Their
+ * faces live outside the slot tables and are kept for the process lifetime, so
+ * no size-tier or custom-font transaction can free them while a label still
+ * points at the chain. */
+static const int s_fixed_sizes[] = { 12, 16, 18 };
+#define FIXED_FONT_COUNT ((int) (sizeof(s_fixed_sizes) / sizeof(s_fixed_sizes[0])))
+static lv_font_t s_fixed_font[FIXED_FONT_COUNT];
+static bool s_fixed_ready[FIXED_FONT_COUNT];
+static bool s_fixed_chained[FIXED_FONT_COUNT];
+
+static void fixed_font_build_chain(int idx) {
+    if (!s_fixed_ready[idx] || s_fixed_chained[idx] || !s_fallback_loaded) return;
+    s_fixed_chained[idx] = true;
+    static const face_source_type_t order[] = {
+        FACE_SRC_CJK, FACE_SRC_CHINESE, FACE_SRC_KOREAN, FACE_SRC_THAI,
+        FACE_SRC_EMOJI, FACE_SRC_ARABIC,
+    };
+    lv_font_t * head = NULL;
+    for (size_t i = 0; i < sizeof(order) / sizeof(order[0]); i++) {
+        font_chain_append(&head, load_face_from_file(order[i], s_fixed_sizes[idx], false));
+    }
+    s_fixed_font[idx].fallback = head;
+}
+
+const lv_font_t * fallback_font_fixed(int px) {
+    for (int i = 0; i < FIXED_FONT_COUNT; i++) {
+        if (s_fixed_sizes[i] != px) continue;
+        if (!s_fixed_ready[i]) {
+            s_fixed_font[i] = *get_montserrat_font_for_px(px);
+            s_fixed_font[i].fallback = NULL;
+            s_fixed_ready[i] = true;
+        }
+        fixed_font_build_chain(i);
+        return &s_fixed_font[i];
+    }
+    return get_montserrat_font_for_px(px);
+}
+
+const lv_font_t * fallback_font_ui_12(void) {
+    return fallback_font_fixed(12);
+}
+
 void fallback_font_load_now(void) {
     s_fallback_loaded = true;
+    for (int i = 0; i < FIXED_FONT_COUNT; i++) fixed_font_build_chain(i);
 
     /* In practice build_candidate_slot()'s own reuse-from-s_loaded_faces
      * path (matching generation) already satisfies the custom slot here

@@ -1267,11 +1267,11 @@ static const lv_font_t * topbar_digit_font(void) {
 
 static const lv_font_t * topbar_ampm_font(void) {
 #if defined(BOARD_TEMPOTEC_V1)
-    return &lv_font_montserrat_12;
+    return fallback_font_fixed(12);
 #elif BOARD_COMPACT_UI || defined(BOARD_R1)
-    return &lv_font_montserrat_12;
+    return fallback_font_fixed(12);
 #else
-    return &lv_font_montserrat_18;
+    return fallback_font_fixed(18);
 #endif
 }
 
@@ -6053,7 +6053,7 @@ static void build_quick_drawer(void) {
 #if defined(BOARD_TEMPOTEC_V1)
                                    gui_theme_font(GUI_FONT_ROLE_SUBTEXT),
 #else
-                                   &lv_font_montserrat_12,
+                                   fallback_font_ui_12(),
 #endif
                                    0);
         lv_obj_set_width(name, QUICK_DRAWER_TOGGLE_CELL_W);
@@ -6070,7 +6070,7 @@ static void build_quick_drawer(void) {
         lv_label_set_long_mode(quick_drawer_toggle_state[i], LV_LABEL_LONG_DOT);
 #endif
         lv_obj_set_style_text_align(quick_drawer_toggle_state[i], LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_font(quick_drawer_toggle_state[i], &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_font(quick_drawer_toggle_state[i], fallback_font_ui_12(), 0);
         lv_obj_align(quick_drawer_toggle_state[i], LV_ALIGN_TOP_LEFT, QD_LOOP1_X,
                      quick_drawer_toggle_state_y(QUICK_DRAWER_ROW1_TOP));
         lv_label_set_text(quick_drawer_toggle_state[i], TR("Off"));
@@ -6127,7 +6127,7 @@ static void build_quick_drawer(void) {
         lv_obj_t * name = lv_label_create(quick_drawer_expansion_box);
         lv_label_set_text(name, TR(row2_names[i]));
         lv_obj_add_style(name, &style_theme_text_primary, 0);
-        lv_obj_set_style_text_font(name, &lv_font_montserrat_12, 0);
+        lv_obj_set_style_text_font(name, fallback_font_ui_12(), 0);
         lv_obj_set_width(name, QUICK_DRAWER_TOGGLE_CELL_W);
         quick_drawer_size_toggle_caption(name);
 #if defined(BOARD_TEMPOTEC_V1)
@@ -6147,7 +6147,7 @@ static void build_quick_drawer(void) {
         lv_label_set_long_mode(quick_drawer_toggle_state[slot], LV_LABEL_LONG_DOT);
 #endif
         lv_obj_set_style_text_align(quick_drawer_toggle_state[slot], LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_style_text_font(quick_drawer_toggle_state[slot], &lv_font_montserrat_12, 0);
+        lv_obj_set_style_text_font(quick_drawer_toggle_state[slot], fallback_font_ui_12(), 0);
         lv_obj_set_pos(quick_drawer_toggle_state[slot], x,
 #if defined(BOARD_TEMPOTEC_V1)
                        0 + QUICK_DRAWER_TOGGLE_ICON_PX + BOARD_SCALE_PY(5) +
@@ -6229,7 +6229,7 @@ static void build_quick_drawer(void) {
         quick_drawer_toggle_name[is_car_mode ? QD_TOGGLE_CAR_MODE : 9 + plugin_index] = name;
         lv_label_set_text(name, is_car_mode ? TR("Car Mode") : plugin_manager_get_quick_toggle_label(plugin_index));
         lv_obj_add_style(name, &style_theme_text_primary, 0);
-        lv_obj_set_style_text_font(name, &lv_font_montserrat_12, 0);
+        lv_obj_set_style_text_font(name, fallback_font_ui_12(), 0);
         lv_obj_set_width(name, QUICK_DRAWER_TOGGLE_CELL_W);
         quick_drawer_size_toggle_caption(name);
 #if defined(BOARD_TEMPOTEC_V1)
@@ -6247,7 +6247,7 @@ static void build_quick_drawer(void) {
         lv_label_set_long_mode(quick_drawer_toggle_state[slot], LV_LABEL_LONG_DOT);
 #endif
         lv_obj_set_style_text_align(quick_drawer_toggle_state[slot], LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_style_text_font(quick_drawer_toggle_state[slot], &lv_font_montserrat_12, 0);
+        lv_obj_set_style_text_font(quick_drawer_toggle_state[slot], fallback_font_ui_12(), 0);
         lv_obj_set_pos(quick_drawer_toggle_state[slot], x,
 #if defined(BOARD_TEMPOTEC_V1)
                        row_y + QUICK_DRAWER_TOGGLE_ICON_PX + BOARD_SCALE_PY(5) +
@@ -6735,9 +6735,9 @@ static void build_quick_drawer(void) {
     lv_obj_t * eq_label = lv_label_create(quick_drawer_eq_button);
     lv_obj_add_style(eq_label, &style_theme_text_primary, 0);
 #if defined(BOARD_TEMPOTEC_V1)
-    lv_obj_set_style_text_font(eq_label, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_font(eq_label, fallback_font_fixed(12), 0);
 #else
-    lv_obj_set_style_text_font(eq_label, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(eq_label, fallback_font_fixed(16), 0);
 #endif
     lv_label_set_text(eq_label, TR("EQ"));
     lv_obj_center(eq_label);

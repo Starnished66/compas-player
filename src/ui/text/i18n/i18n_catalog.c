@@ -21441,6 +21441,2282 @@ static const i18n_entry_t entries_uk[] = {
     {"unknown", f10700, 1},
 };
 
+static const char * const f10701[] = {"%+.2f dB"};
+static const char * const f10702[] = {"%.0f Hz"};
+static const char * const f10703[] = {"%d 张专辑"};
+static const char * const f10704[] = {"%d 小时"};
+static const char * const f10705[] = {"%d 小时 %d 分钟"};
+static const char * const f10706[] = {"%d 分钟"};
+static const char * const f10707[] = {"剩余 %d 分钟"};
+static const char * const f10708[] = {"已选 %d 项"};
+static const char * const f10709[] = {"%d 首歌曲"};
+static const char * const f10710[] = {"%d 首曲目"};
+static const char * const f10711[] = {"%dm"};
+static const char * const f10712[] = {"%lld 首曲目"};
+static const char * const f10713[] = {"%llu 字节"};
+static const char * const f10714[] = {"%s（当前）"};
+static const char * const f10715[] = {"%s 可用，共 %s"};
+static const char * const f10716[] = {"%s · 未加载"};
+static const char * const f10717[] = {"%s · 未加载：已达上限"};
+static const char * const f10718[] = {"%u 声道"};
+static const char * const f10719[] = {"%u 个项目无法完成"};
+static const char * const f10720[] = {"%u / %u\n%s"};
+static const char * const f10721[] = {"+ 新建播放列表"};
+static const char * const f10722[] = {"0 dB"};
+static const char * const f10723[] = {"24 小时制"};
+static const char * const f10724[] = {"48 kHz 基准"};
+static const char * const f10725[] = {"固件更新已在进行中。"};
+static const char * const f10726[] = {"将替换本地插件文件，确认后继续。"};
+static const char * const f10727[] = {"有更新或变更的版本可用，下载前请重新检查更新。"};
+static const char * const f10728[] = {"插件下载校验失败，请重试。"};
+static const char * const f10729[] = {"插件操作已在进行中"};
+static const char * const f10730[] = {"缺少必要的恢复辅助程序，更新准备已停止。"};
+static const char * const f10731[] = {"ADB"};
+static const char * const f10732[] = {"上午"};
+static const char * const f10733[] = {"关于"};
+static const char * const f10734[] = {"强调色"};
+static const char * const f10735[] = {"强调色选项"};
+static const char * const f10736[] = {"将 .txt 文件放入 Books 文件夹，然后刷新媒体库。"};
+static const char * const f10737[] = {"添加随机歌曲到队列"};
+static const char * const f10738[] = {"将专辑加入队列"};
+static const char * const f10739[] = {"添加隐藏网络"};
+static const char * const f10740[] = {"从歌曲菜单中添加歌曲。"};
+static const char * const f10741[] = {"加入播放列表"};
+static const char * const f10742[] = {"加入播放队列"};
+static const char * const f10743[] = {"已添加 %d 首歌曲到队列"};
+static const char * const f10744[] = {"已将文件夹加入播放列表"};
+static const char * const f10745[] = {"已加入播放列表"};
+static const char * const f10746[] = {"正在将文件夹加入播放列表"};
+static const char * const f10747[] = {"正在将文件夹加入队列"};
+static const char * const f10748[] = {"其他工具"};
+static const char * const f10749[] = {"高级"};
+static const char * const f10750[] = {"非洲"};
+static const char * const f10751[] = {"AirPlay"};
+static const char * const f10752[] = {"AirPlay 意外停止"};
+static const char * const f10753[] = {"专辑 %+.1f dB"};
+static const char * const f10754[] = {"专辑艺术家"};
+static const char * const f10755[] = {"专辑艺术家 - 专辑"};
+static const char * const f10756[] = {"专辑艺术家 / 专辑"};
+static const char * const f10757[] = {"专辑不可用"};
+static const char * const f10758[] = {"专辑"};
+static const char * const f10759[] = {"全部 %d 首歌曲"};
+static const char * const f10760[] = {"全部歌曲"};
+static const char * const f10761[] = {"所有可见网络均已保存。"};
+static const char * const f10762[] = {"已安装"};
+static const char * const f10763[] = {"美洲"};
+static const char * const f10764[] = {"模拟器操作已在进行中"};
+static const char * const f10765[] = {"该名称的项目已存在"};
+static const char * const f10766[] = {"更新已在进行中"};
+static const char * const f10767[] = {"更新已在进行中。"};
+static const char * const f10768[] = {"正在更新，请稍候。"};
+static const char * const f10769[] = {"动画速度"};
+static const char * const f10770[] = {"另一个文件操作仍在进行"};
+static const char * const f10771[] = {"另一个更新已在进行中。"};
+static const char * const f10772[] = {"南极洲"};
+static const char * const f10773[] = {"外观"};
+static const char * const f10774[] = {"已应用 %+.1f dB"};
+static const char * const f10775[] = {"下次启动应用时生效"};
+static const char * const f10776[] = {"适用于新的流媒体队列"};
+static const char * const f10777[] = {"正在应用语言，请稍候"};
+static const char * const f10778[] = {"正在应用布局，请稍候"};
+static const char * const f10779[] = {"使用当前 PIN 的应用和浏览器需用新 PIN 重新连接。"};
+static const char * const f10780[] = {"四月"};
+static const char * const f10781[] = {"北极"};
+static const char * const f10782[] = {"艺术家图片"};
+static const char * const f10783[] = {"艺术家"};
+static const char * const f10784[] = {"亚洲"};
+static const char * const f10785[] = {"大西洋"};
+static const char * const f10786[] = {"音频"};
+static const char * const f10787[] = {"音频无法解码"};
+static const char * const f10788[] = {"音频仍在播放，无法启动游戏。"};
+static const char * const f10789[] = {"音频输出失败"};
+static const char * const f10790[] = {"八月"};
+static const char * const f10791[] = {"澳大利亚"};
+static const char * const f10792[] = {"自动"};
+static const char * const f10793[] = {"自动续播"};
+static const char * const f10794[] = {"AutoEQ"};
+static const char * const f10795[] = {"自动"};
+static const char * const f10796[] = {"自动（44.1 kHz）"};
+static const char * const f10797[] = {"自动待机"};
+static const char * const f10798[] = {"可用"};
+static const char * const f10799[] = {"可用设备"};
+static const char * const f10800[] = {"可用网络"};
+static const char * const f10801[] = {"可用播放器版本：%s。\n已安装：%s\n\n要下载并安装吗？此操作会更新播放器并重启设备。固件、字体和封面均不会更改。"};
+static const char * const f10802[] = {"可用 · %s"};
+static const char * const f10803[] = {"频段 %d / %d"};
+static const char * const f10804[] = {"频段选项"};
+static const char * const f10805[] = {"电池图标"};
+static const char * const f10806[] = {"电池百分比"};
+static const char * const f10807[] = {"比特率"};
+static const char * const f10808[] = {"蓝牙"};
+static const char * const f10809[] = {"蓝牙音频 (A2DP)"};
+static const char * const f10810[] = {"蓝牙编解码器"};
+static const char * const f10811[] = {"蓝牙 DAC"};
+static const char * const f10812[] = {"蓝牙 DAC 模式"};
+static const char * const f10813[] = {"蓝牙音量同步"};
+static const char * const f10814[] = {"蓝牙已关闭"};
+static const char * const f10815[] = {"蓝牙遥控服务正在启动…"};
+static const char * const f10816[] = {"蓝牙遥控服务不可用，正在重试。"};
+static const char * const f10817[] = {"蓝牙：Compas 遥控"};
+static const char * const f10818[] = {"蓝牙：注册失败，正在重试"};
+static const char * const f10819[] = {"蓝牙：等待服务注册"};
+static const char * const f10820[] = {"电子书"};
+static const char * const f10821[] = {"电子书已刷新"};
+static const char * const f10822[] = {"编译版本"};
+static const char * const f10823[] = {"立即构建？大型媒体库可能需要数分钟。"};
+static const char * const f10824[] = {"内置游戏及其存档将被移除，SD/Games 中的游戏会保留。"};
+static const char * const f10825[] = {"按键"};
+static const char * const f10826[] = {"按键映射"};
+static const char * const f10827[] = {"按键与遥控"};
+static const char * const f10828[] = {"由 %s"};
+static const char * const f10829[] = {"取消"};
+static const char * const f10830[] = {"无法在队列内存限制内添加文件夹"};
+static const char * const f10831[] = {"无法检查插件存储写入权限。"};
+static const char * const f10832[] = {"无法创建模拟器文件夹。"};
+static const char * const f10833[] = {"无法创建更新日志目录。"};
+static const char * const f10834[] = {"无法删除播放列表"};
+static const char * const f10835[] = {"无法加载专辑曲目"};
+static const char * const f10836[] = {"无法移动此项目"};
+static const char * const f10837[] = {"无法播放文件夹"};
+static const char * const f10838[] = {"无法播放此文件夹"};
+static const char * const f10839[] = {"无法连接 GitHub，请检查 Wi-Fi 连接。"};
+static const char * const f10840[] = {"无法读取播放列表"};
+static const char * const f10841[] = {"无法读取 SD 卡。"};
+static const char * const f10842[] = {"无法读取所选更新文件。"};
+static const char * const f10843[] = {"无法读取 SD 卡上的更新文件，请检查存储卡后重试。"};
+static const char * const f10844[] = {"无法读取 SD 卡上的更新记录，请检查存储卡后重试。"};
+static const char * const f10845[] = {"无法读取更新辅助状态：%s"};
+static const char * const f10846[] = {"无法移除该项目"};
+static const char * const f10847[] = {"无法重命名：名称无效或文件已存在"};
+static const char * const f10848[] = {"无法重新排序播放列表"};
+static const char * const f10849[] = {"无法安全访问恢复标志区。"};
+static const char * const f10850[] = {"无法保存播放列表"};
+static const char * const f10851[] = {"无法将更新诊断保存到 SD 卡。"};
+static const char * const f10852[] = {"无法保存更新诊断，更新准备已停止。"};
+static const char * const f10853[] = {"无法保存：含无效或流媒体项目"};
+static const char * const f10854[] = {"无法启动文件夹操作"};
+static const char * const f10855[] = {"无法启动队列"};
+static const char * const f10856[] = {"车载模式"};
+static const char * const f10857[] = {"车载模式音量"};
+static const char * const f10858[] = {"车载模式已禁用。"};
+static const char * const f10859[] = {"居中"};
+static const char * const f10860[] = {"声道"};
+static const char * const f10861[] = {"充电上限（85%）"};
+static const char * const f10862[] = {"更新前请将电量充至至少 %d%% 或连接电源。"};
+static const char * const f10863[] = {"更新前请将电量充至至少 30%% 或连接电源。"};
+static const char * const f10864[] = {"充电"};
+static const char * const f10865[] = {"请先检查播放器更新。"};
+static const char * const f10866[] = {"检查在线更新"};
+static const char * const f10867[] = {"请确认 Wi-Fi 已开启，然后重新扫描。"};
+static const char * const f10868[] = {"播放前请检查 SD 卡并断开 USB 存储。"};
+static const char * const f10869[] = {"请检查无线开关后重试。"};
+static const char * const f10870[] = {"正在检查播放器更新"};
+static const char * const f10871[] = {"正在检查更新"};
+static const char * const f10872[] = {"正在检查 SD 卡，可能需要一些时间"};
+static const char * const f10873[] = {"正在检查 SD 卡上的文件"};
+static const char * const f10874[] = {"正在检查最新版本"};
+static const char * const f10875[] = {"选择语言"};
+static const char * const f10876[] = {"选择插件"};
+static const char * const f10877[] = {"选择播放器的语言。"};
+static const char * const f10878[] = {"选择时区"};
+static const char * const f10879[] = {"选择待机时的行为："};
+static const char * const f10880[] = {"清空队列"};
+static const char * const f10881[] = {"时钟"};
+static const char * const f10882[] = {"时钟位置"};
+static const char * const f10883[] = {"顺时针"};
+static const char * const f10884[] = {"关闭"};
+static const char * const f10885[] = {"正在关闭\nWeb 服务器..."};
+static const char * const f10886[] = {"编解码器"};
+static const char * const f10887[] = {"合成响应（dB）"};
+static const char * const f10888[] = {"合成响应（dB）· EQ 关闭"};
+static const char * const f10889[] = {"Compás 播放器"};
+static const char * const f10890[] = {"连接"};
+static const char * const f10891[] = {"连接并浏览"};
+static const char * const f10892[] = {"连接设备以查看支持的采样率"};
+static const char * const f10893[] = {"通过 Wi-Fi 或蓝牙连接，即可查看正在播放的内容、控制播放并浏览媒体库。当应用或浏览器提示时输入此 PIN；蓝牙还需配对。"};
+static const char * const f10894[] = {"连接 Wi-Fi"};
+static const char * const f10895[] = {"请先连接 Wi-Fi 再下载播放器更新"};
+static const char * const f10896[] = {"请先连接 Wi-Fi"};
+static const char * const f10897[] = {"连接 Wi-Fi 以使用流媒体、更新和在线服务。"};
+static const char * const f10898[] = {"请先连接 Wi-Fi 网络再继续。"};
+static const char * const f10899[] = {"连接网络以下载插件。"};
+static const char * const f10900[] = {"使用任一可用方式连接："};
+static const char * const f10901[] = {"已连接"};
+static const char * const f10902[] = {"连接中"};
+static const char * const f10903[] = {"正在连接到"};
+static const char * const f10904[] = {"正在连接服务器..."};
+static const char * const f10905[] = {"连接 PIN"};
+static const char * const f10906[] = {"连接失败"};
+static const char * const f10907[] = {"连接在 30 秒后超时"};
+static const char * const f10908[] = {"容器"};
+static const char * const f10909[] = {"继续"};
+static const char * const f10910[] = {"继续设置"};
+static const char * const f10911[] = {"复制"};
+static const char * const f10912[] = {"将游戏复制到 SD 卡的 %s 文件夹。"};
+static const char * const f10913[] = {"无法应用字体大小"};
+static const char * const f10914[] = {"无法应用歌词字号"};
+static const char * const f10915[] = {"无法应用主题"};
+static const char * const f10916[] = {"无法创建文件夹"};
+static const char * const f10917[] = {"无法下载发行版校验和。"};
+static const char * const f10918[] = {"无法进入恢复模式。"};
+static const char * const f10919[] = {"无法生成新的 PIN"};
+static const char * const f10920[] = {"无法获取流链接"};
+static const char * const f10921[] = {"无法在 SD 卡上安装插件。"};
+static const char * const f10922[] = {"无法安装模拟器。"};
+static const char * const f10923[] = {"无法在 SD 卡上安装该插件。"};
+static const char * const f10924[] = {"无法加载锁屏照片"};
+static const char * const f10925[] = {"无法加载插件目录。"};
+static const char * const f10926[] = {"无法加载插件目录。点按“更多”重试。"};
+static const char * const f10927[] = {"无法将 SD 卡上的其他 .upt 文件移开。"};
+static const char * const f10928[] = {"无法打开此文件"};
+static const char * const f10929[] = {"无法打开此文件。"};
+static const char * const f10930[] = {"无法将更新放入 SD 卡。"};
+static const char * const f10931[] = {"无法准备卸载插件。"};
+static const char * const f10932[] = {"无法准备安全更新存储空间。"};
+static const char * const f10933[] = {"无法准备更新助手：%s"};
+static const char * const f10934[] = {"无法访问流媒体服务"};
+static const char * const f10935[] = {"无法读取已安装的插件。"};
+static const char * const f10936[] = {"无法读取 Books 文件夹"};
+static const char * const f10937[] = {"无法从 GitHub 读取模拟器列表。"};
+static const char * const f10938[] = {"无法从 GitHub 读取插件列表。"};
+static const char * const f10939[] = {"无法从 GitHub 读取发行版列表。"};
+static const char * const f10940[] = {"无法在 SD 卡上记录已验证的更新。"};
+static const char * const f10941[] = {"无法刷新图书"};
+static const char * const f10942[] = {"无法重新加载封面"};
+static const char * const f10943[] = {"无法删除插件文件。"};
+static const char * const f10944[] = {"无法移除模拟器。"};
+static const char * const f10945[] = {"无法重命名"};
+static const char * const f10946[] = {"无法修复 SD 卡"};
+static const char * const f10947[] = {"无法替换插件文件。"};
+static const char * const f10948[] = {"无法重启进入启动选择器"};
+static const char * const f10949[] = {"无法保存蓝牙编解码器"};
+static const char * const f10950[] = {"无法启动 USB 充电更新"};
+static const char * const f10951[] = {"无法启动 USB 模式切换"};
+static const char * const f10952[] = {"无法开始刷新插件目录。"};
+static const char * const f10953[] = {"无法启动 SD 卡播放器更新。"};
+static const char * const f10954[] = {"无法开始下载"};
+static const char * const f10955[] = {"无法开始下载。"};
+static const char * const f10956[] = {"无法启动模拟器操作"};
+static const char * const f10957[] = {"无法启动游戏。"};
+static const char * const f10958[] = {"无法开始安装。"};
+static const char * const f10959[] = {"无法开始扫描媒体库。请重试。"};
+static const char * const f10960[] = {"无法启动播放器下载。"};
+static const char * const f10961[] = {"无法启动播放器更新"};
+static const char * const f10962[] = {"无法启动播放器更新检查"};
+static const char * const f10963[] = {"无法启动播放器更新检查。"};
+static const char * const f10964[] = {"无法启动插件操作"};
+static const char * const f10965[] = {"无法启动插件操作。"};
+static const char * const f10966[] = {"无法开始刷新插件"};
+static const char * const f10967[] = {"无法开始刷新插件。"};
+static const char * const f10968[] = {"无法开始更新插件。"};
+static const char * const f10969[] = {"无法开始检查更新。"};
+static const char * const f10970[] = {"无法开始更新。"};
+static const char * const f10971[] = {"无法启动更新助手：%s"};
+static const char * const f10972[] = {"无法更新已安装插件的记录。"};
+static const char * const f10973[] = {"无法校验最新发行版的校验和。"};
+static const char * const f10974[] = {"无法连接 Wi-Fi 网络"};
+static const char * const f10975[] = {"无法读取此 .cue 文件"};
+static const char * const f10976[] = {"无法保存 -- 插件更改未生效"};
+static const char * const f10977[] = {"逆时针"};
+static const char * const f10978[] = {"封面已重新加载"};
+static const char * const f10979[] = {"封面已刷新"};
+static const char * const f10980[] = {"在上方创建播放列表，或将其复制到 SD 卡的 Playlists 文件夹。"};
+static const char * const f10981[] = {"创建插件"};
+static const char * const f10982[] = {"创建主题"};
+static const char * const f10983[] = {"创建插件和主题"};
+static const char * const f10984[] = {"创建者指南"};
+static const char * const f10985[] = {"淡入淡出"};
+static const char * const f10986[] = {"交叉馈送"};
+static const char * const f10987[] = {"交叉馈送（0 到 100）"};
+static const char * const f10988[] = {"交叉馈送角度"};
+static const char * const f10989[] = {"交叉馈送会混入来自对侧声道的滤波信号，且独立于 PEQ 工作。选择“无延迟”时，左右完全相同的信号几乎不受影响。"};
+static const char * const f10990[] = {"交叉馈送：%d%%"};
+static const char * const f10991[] = {"交叉馈送：关闭"};
+static const char * const f10992[] = {"自定义"};
+static const char * const f10993[] = {"自定义颜色"};
+static const char * const f10994[] = {"自定义字体仅影响拉丁文本。"};
+static const char * const f10995[] = {"DAC 路径：%s · %u 位"};
+static const char * const f10996[] = {"DLNA"};
+static const char * const f10997[] = {"DLNA 渲染器"};
+static const char * const f10998[] = {"DNS 设置"};
+static const char * const f10999[] = {"十二月"};
+static const char * const f11000[] = {"默认"};
+static const char * const f11001[] = {"默认（内置）"};
+static const char * const f11002[] = {"默认（原生行为）"};
+static const char * const f11003[] = {"删除"};
+static const char * const f11004[] = {"删除 %d 项？"};
+static const char * const f11005[] = {"删除 %s？\n此操作无法撤销。"};
+static const char * const f11006[] = {"删除播放列表"};
+static const char * const f11007[] = {"删除播放列表？"};
+static const char * const f11008[] = {"删除此配置文件？"};
+static const char * const f11009[] = {"开发者选项"};
+static const char * const f11010[] = {"设备"};
+static const char * const f11011[] = {"超时前调暗屏幕"};
+static const char * const f11012[] = {"在 USB DAC 模式下\n禁用充电"};
+static const char * const f11013[] = {"已禁用"};
+static const char * const f11014[] = {"光盘 %d"};
+static const char * const f11015[] = {"光盘 %d / 曲目 %d"};
+static const char * const f11016[] = {"断开连接"};
+static const char * const f11017[] = {"请先断开 USB 存储"};
+static const char * const f11018[] = {"更改文件前请从电脑断开 USB 存储。"};
+static const char * const f11019[] = {"更改模拟器前请从主机断开 USB 存储。"};
+static const char * const f11020[] = {"更改插件前请从主机断开 USB 存储。"};
+static const char * const f11021[] = {"忽略"};
+static const char * const f11022[] = {"显示"};
+static const char * const f11023[] = {"不执行操作"};
+static const char * const f11024[] = {"DoP"};
+static const char * const f11025[] = {"完成"};
+static const char * const f11026[] = {"完成。请更新音乐数据库以在媒体库中查看更改。"};
+static const char * const f11027[] = {"双击"};
+static const char * const f11028[] = {"双击按下"};
+static const char * const f11029[] = {"下载"};
+static const char * const f11030[] = {"下载“%s”？"};
+static const char * const f11031[] = {"下载并安装"};
+static const char * const f11032[] = {"下载配置文件"};
+static const char * const f11033[] = {"下载设置"};
+static const char * const f11034[] = {"下载模拟器以玩游戏。"};
+static const char * const f11035[] = {"下载模拟器"};
+static const char * const f11036[] = {"下载“%s”的全部专辑？"};
+static const char * const f11037[] = {"下载失败"};
+static const char * const f11038[] = {"下载文件夹：%s"};
+static const char * const f11039[] = {"下载文件夹：SD 卡根目录"};
+static const char * const f11040[] = {"下载布局"};
+static const char * const f11041[] = {"下载配置文件"};
+static const char * const f11042[] = {"下载设置"};
+static const char * const f11043[] = {"下载子文件夹"};
+static const char * const f11044[] = {"下载主题"};
+static const char * const f11045[] = {"下载中"};
+static const char * const f11046[] = {"正在下载\n%s..."};
+static const char * const f11047[] = {"正在下载并安装插件 %zu/%zu"};
+static const char * const f11048[] = {"正在下载播放器更新"};
+static const char * const f11049[] = {"正在下载更新"};
+static const char * const f11050[] = {"时长"};
+static const char * const f11051[] = {"EQ"};
+static const char * const f11052[] = {"EQ 曲线"};
+static const char * const f11053[] = {"编辑"};
+static const char * const f11054[] = {"编辑 / 完成"};
+static const char * const f11055[] = {"在电脑上编辑 .theme 文本文件，将其复制到 SD 卡的 Themes 文件夹，然后在“更多” > “主题”中选择。"};
+static const char * const f11056[] = {"模拟器操作失败"};
+static const char * const f11057[] = {"模拟器商店正忙。"};
+static const char * const f11058[] = {"模拟器"};
+static const char * const f11059[] = {"启用蓝牙 DAC"};
+static const char * const f11060[] = {"在设置中启用蓝牙以使用 BT DAC 模式"};
+static const char * const f11061[] = {"启用定时关机"};
+static const char * const f11062[] = {"启用 Wi-Fi 或蓝牙以连接。"};
+static const char * const f11063[] = {"启用 WiFi 以访问"};
+static const char * const f11064[] = {"启用该频段"};
+static const char * const f11065[] = {"启用调试日志"};
+static const char * const f11066[] = {"已启用"};
+static const char * const f11067[] = {"均衡器"};
+static const char * const f11068[] = {"擦除并格式化 SD 卡？"};
+static const char * const f11069[] = {"欧洲"};
+static const char * const f11070[] = {"极佳"};
+static const char * const f11071[] = {"退出 USB DAC 模式以在本设备上播放音乐"};
+static const char * const f11072[] = {"扩展更新"};
+static const char * const f11073[] = {"恢复出厂设置"};
+static const char * const f11074[] = {"失败的插件：\n"};
+static const char * const f11075[] = {"无法将文件夹添加到播放列表"};
+static const char * const f11076[] = {"无法添加到播放列表"};
+static const char * const f11077[] = {"无法应用时区"};
+static const char * const f11078[] = {"无法连接到服务器"};
+static const char * const f11079[] = {"无法创建播放列表"};
+static const char * const f11080[] = {"无法删除配置文件"};
+static const char * const f11081[] = {"无法启用 AirPlay"};
+static const char * const f11082[] = {"无法加载艺术家"};
+static const char * const f11083[] = {"无法加载艺术家：%s"};
+static const char * const f11084[] = {"无法加载字体。请检查格式和内存。"};
+static const char * const f11085[] = {"无法从服务器加载"};
+static const char * const f11086[] = {"无法加载配置文件"};
+static const char * const f11087[] = {"无法重命名配置文件"};
+static const char * const f11088[] = {"无法保存配置文件"};
+static const char * const f11089[] = {"无法启动连接"};
+static const char * const f11090[] = {"无法切换到 %s"};
+static const char * const f11091[] = {"无法切换蓝牙"};
+static const char * const f11092[] = {"更新 USB 充电失败"};
+static const char * const f11093[] = {"一般"};
+static const char * const f11094[] = {"收藏"};
+static const char * const f11095[] = {"二月"};
+static const char * const f11096[] = {"文件管理器"};
+static const char * const f11097[] = {"文件路径过长"};
+static const char * const f11098[] = {"文件大小"};
+static const char * const f11099[] = {"文件不可用"};
+static const char * const f11100[] = {"文件"};
+static const char * const f11101[] = {"文件（文件夹优先）"};
+static const char * const f11102[] = {"卡上的文件可能已更改。"};
+static const char * const f11103[] = {"文件按修改日期排序。专辑按最新添加的曲目排序，缺少发行年份的排在最后。请执行一次“更新音乐数据库”以读取现有文件中的年份。"};
+static const char * const f11104[] = {"筛选类型"};
+static const char * const f11105[] = {"固件更新"};
+static const char * const f11106[] = {"有可用的固件版本 %s。\n已安装：%s\n\n立即下载？这可能需要一些时间。"};
+static const char * const f11107[] = {"固件版本 %s 已下载并通过校验。\n\n立即安装？设备将重启进入恢复模式进行刷写。重启完成前请勿关机。"};
+static const char * const f11108[] = {"平铺"};
+static const char * const f11109[] = {"文件夹操作仍在进行"};
+static const char * const f11110[] = {"文件夹过大，无法加入播放队列"};
+static const char * const f11111[] = {"下载专辑的文件夹结构"};
+static const char * const f11112[] = {"文件夹过大，无法索引（点按返回）"};
+static const char * const f11113[] = {"字体"};
+static const char * const f11114[] = {"字体大小"};
+static const char * const f11115[] = {"字体选择已不可用"};
+static const char * const f11116[] = {"忘记"};
+static const char * const f11117[] = {"格式化"};
+static const char * const f11118[] = {"格式化 SD 卡"};
+static const char * const f11119[] = {"正在格式化\nSD 卡..."};
+static const char * const f11120[] = {"频率"};
+static const char * const f11121[] = {"频率（Hz，20 到 20000）"};
+static const char * const f11122[] = {"星期五"};
+static const char * const f11123[] = {"来自专辑封面"};
+static const char * const f11124[] = {"来自专辑封面（无封面，使用自定义）"};
+static const char * const f11125[] = {"增益"};
+static const char * const f11126[] = {"增益（dB，-12 到 12）"};
+static const char * const f11127[] = {"增益模式"};
+static const char * const f11128[] = {"游戏仅在播放器上运行。"};
+static const char * const f11129[] = {"无缝播放"};
+static const char * const f11130[] = {"网关：%s"};
+static const char * const f11131[] = {"生成"};
+static const char * const f11132[] = {"生成新的 PIN？"};
+static const char * const f11133[] = {"流派"};
+static const char * const f11134[] = {"手势与方向"};
+static const char * const f11135[] = {"开始使用"};
+static const char * const f11136[] = {"GitHub 响应超时，请重试。"};
+static const char * const f11137[] = {"GitHub 请求受限，请稍后重试。"};
+static const char * const f11138[] = {"GitHub 返回 HTTP %d。"};
+static const char * const f11139[] = {"GitHub 最新版本缺少有效的 %s 镜像和校验和。"};
+static const char * const f11140[] = {"GitHub 最新版本不是受支持的固件版本。"};
+static const char * const f11141[] = {"请返回并选择“新建连接”来添加。"};
+static const char * const f11142[] = {"跳转到页"};
+static const char * const f11143[] = {"良好"};
+static const char * const f11144[] = {"指南：docs/development/CREATING.md"};
+static const char * const f11145[] = {"耳机可能断开，可能需要手动重连"};
+static const char * const f11146[] = {"Hi-Res"};
+static const char * const f11147[] = {"隐藏播放/歌词顶栏"};
+static const char * const f11148[] = {"隐藏未命名设备"};
+static const char * const f11149[] = {"隐藏隐藏文件"};
+static const char * const f11150[] = {"高"};
+static const char * const f11151[] = {"高（320 kbps）"};
+static const char * const f11152[] = {"主机名"};
+static const char * const f11153[] = {"主机名只能使用字母、数字和连字符"};
+static const char * const f11154[] = {"IP 地址：%s"};
+static const char * const f11155[] = {"空闲关机"};
+static const char * const f11156[] = {"空闲超时："};
+static const char * const f11157[] = {"导入"};
+static const char * const f11158[] = {"通过 Wi-Fi 导入"};
+static const char * const f11159[] = {"线控"};
+static const char * const f11160[] = {"印度语"};
+static const char * const f11161[] = {"信息"};
+static const char * const f11162[] = {"插入 SD 卡以更换模拟器。"};
+static const char * const f11163[] = {"插入 SD 卡以更换插件。"};
+static const char * const f11164[] = {"插入 SD 卡以下载更新。"};
+static const char * const f11165[] = {"插入 SD 卡以安装插件。"};
+static const char * const f11166[] = {"插入 SD 卡以移除插件。"};
+static const char * const f11167[] = {"插入 SD 卡以扫描音乐，或关闭“扫描音乐”。"};
+static const char * const f11168[] = {"插入 SD 卡以更新插件。"};
+static const char * const f11169[] = {"插入含音乐文件的 SD 卡。Compas Player 可扫描并建立媒体库。"};
+static const char * const f11170[] = {"安装"};
+static const char * const f11171[] = {"安装并重启"};
+static const char * const f11172[] = {"安装并重启"};
+static const char * const f11173[] = {"从 SD 卡安装"};
+static const char * const f11174[] = {"要从 SD 卡安装播放器更新吗？\n\n将更新播放器并重启设备。固件、字体和封面均不会更改。"};
+static const char * const f11175[] = {"已安装"};
+static const char * const f11176[] = {"手动安装"};
+static const char * const f11177[] = {"已安装版本：%s\n可用版本：%s\n\n仍要下载并重新安装？这可能需要一些时间。"};
+static const char * const f11178[] = {"已安装 · %s"};
+static const char * const f11179[] = {"正在安装模拟器"};
+static const char * const f11180[] = {"正在安装播放器更新"};
+static const char * const f11181[] = {"正在安装插件"};
+static const char * const f11182[] = {"内部存储"};
+static const char * const f11183[] = {"下载文件夹无效"};
+static const char * const f11184[] = {"下载文件夹名称无效"};
+static const char * const f11185[] = {"配置名称无效"};
+static const char * const f11186[] = {"更新路径无效。"};
+static const char * const f11187[] = {"无法加载。现在重建？"};
+static const char * const f11188[] = {"它可能没有分区表，或文件系统不受本播放器支持。格式化会清空它并为本播放器做好准备。"};
+static const char * const f11189[] = {"其设置保留在卡上。"};
+static const char * const f11190[] = {"一月"};
+static const char * const f11191[] = {"七月"};
+static const char * const f11192[] = {"六月"};
+static const char * const f11193[] = {"歌词界面保持常亮"};
+static const char * const f11194[] = {"请保留一个按键用于“开关屏幕”或“电源菜单”"};
+static const char * const f11195[] = {"键盘"};
+static const char * const f11196[] = {"LDAC 音质优先"};
+static const char * const f11197[] = {"LDAC 标准"};
+static const char * const f11198[] = {"LED 充电指示灯"};
+static const char * const f11199[] = {"语言"};
+static const char * const f11200[] = {"大"};
+static const char * const f11201[] = {"稍后"};
+static const char * const f11202[] = {"以固定音量启动"};
+static const char * const f11203[] = {"布局"};
+static const char * const f11204[] = {"退出"};
+static const char * const f11205[] = {"退出蓝牙 DAC 模式？"};
+static const char * const f11206[] = {"退出 USB DAC 模式？"};
+static const char * const f11207[] = {"请离开此界面后重试。"};
+static const char * const f11208[] = {"左"};
+static const char * const f11209[] = {"媒体库"};
+static const char * const f11210[] = {"媒体库已变更，请重新打开专辑。"};
+static const char * const f11211[] = {"媒体库忙"};
+static const char * const f11212[] = {"媒体库已加载"};
+static const char * const f11213[] = {"媒体库已恢复并保存"};
+static const char * const f11214[] = {"媒体库已恢复并保存，部分文件夹无法读取"};
+static const char * const f11215[] = {"媒体库已恢复。请使用 设置 > 更新音乐数据库 保存"};
+static const char * const f11216[] = {"媒体库不可用。请使用 设置 > 更新音乐数据库 重建"};
+static const char * const f11217[] = {"媒体库更新失败。请检查 SD 卡后重试"};
+static const char * const f11218[] = {"媒体库已更新"};
+static const char * const f11219[] = {"媒体库已更新，部分文件夹无法读取"};
+static const char * const f11220[] = {"许可证：%s"};
+static const char * const f11221[] = {"限制播放器音量，包括按键、遥控和插件。"};
+static const char * const f11222[] = {"正在加载 Wi-Fi 设置"};
+static const char * const f11223[] = {"正在加载模拟器"};
+static const char * const f11224[] = {"正在从服务器加载..."};
+static const char * const f11225[] = {"正在加载布局"};
+static const char * const f11226[] = {"正在加载插件目录..."};
+static const char * const f11227[] = {"正在加载插件"};
+static const char * const f11228[] = {"正在加载主题"};
+static const char * const f11229[] = {"正在加载曲目…"};
+static const char * const f11230[] = {"正在加载更新"};
+static const char * const f11231[] = {"正在加载..."};
+static const char * const f11232[] = {"位置"};
+static const char * const f11233[] = {"长"};
+static const char * const f11234[] = {"长按"};
+static const char * const f11235[] = {"正在查找音乐文件"};
+static const char * const f11236[] = {"正在查找音乐文件\n已检查 %d 项"};
+static const char * const f11237[] = {"低"};
+static const char * const f11238[] = {"低\n高"};
+static const char * const f11239[] = {"低（96 kbps）"};
+static const char * const f11240[] = {"歌词"};
+static const char * const f11241[] = {"歌词字号"};
+static const char * const f11242[] = {"MAC 地址：%s"};
+static const char * const f11243[] = {"维护"};
+static const char * const f11244[] = {"让配件进入可发现状态，然后点按“重新扫描”。"};
+static const char * const f11245[] = {"之后可在 设置 > 系统 > 插件管理器 中搜索、更新或移除插件。"};
+static const char * const f11246[] = {"手动输入 SSID"};
+static const char * const f11247[] = {"三月"};
+static const char * const f11248[] = {"匹配专辑封面"};
+static const char * const f11249[] = {"最大音量"};
+static const char * const f11250[] = {"五月"};
+static const char * const f11251[] = {"中"};
+static const char * const f11252[] = {"中（192 kbps）"};
+static const char * const f11253[] = {"已保存的网络"};
+static const char * const f11254[] = {"内存"};
+static const char * const f11255[] = {"元数据已刷新"};
+static const char * const f11256[] = {"混合"};
+static const char * const f11257[] = {"星期一"};
+static const char * const f11258[] = {"单声道（1 声道）"};
+static const char * const f11259[] = {"更多"};
+static const char * const f11260[] = {"最常播放"};
+static const char * const f11261[] = {"移动"};
+static const char * const f11262[] = {"移动 %d 项？"};
+static const char * const f11263[] = {"音乐"};
+static const char * const f11264[] = {"音乐数据库不可用"};
+static const char * const f11265[] = {"名称（A–Z）"};
+static const char * const f11266[] = {"原生 DSD"};
+static const char * const f11267[] = {"原生 DSD (DoP) / %.4g MHz"};
+static const char * const f11268[] = {"原生 DSD 和 DoP 会绕过软件音量和 DSP。仅在兼容的 DAC 上使用 DoP。不支持的格式或采样率将使用 PCM。"};
+static const char * const f11269[] = {"附近的 Wi-Fi 网络将显示在此处。"};
+static const char * const f11270[] = {"Wi-Fi 就绪后，附近的网络将显示在此处。"};
+static const char * const f11271[] = {"需要更新的固件"};
+static const char * const f11272[] = {"网络名称（SSID）"};
+static const char * const f11273[] = {"网络串流"};
+static const char * const f11274[] = {"已连接的网络将显示在此处。"};
+static const char * const f11275[] = {"新建连接"};
+static const char * const f11276[] = {"已生成新 PIN"};
+static const char * const f11277[] = {"新建配置"};
+static const char * const f11278[] = {"新建文件夹"};
+static const char * const f11279[] = {"最近修改"};
+static const char * const f11280[] = {"下一步"};
+static const char * const f11281[] = {"下一页  •  %d–%d，共 %d"};
+static const char * const f11282[] = {"下一曲"};
+static const char * const f11283[] = {"下一页"};
+static const char * const f11284[] = {"/Fonts 中未找到 .ttf 字体"};
+static const char * const f11285[] = {"无 SD 卡"};
+static const char * const f11286[] = {"未检测到 SD 卡。您可以稍后在媒体库设置中扫描。"};
+static const char * const f11287[] = {"未挂载 SD 卡。"};
+static const char * const f11288[] = {"未找到书籍"};
+static const char * const f11289[] = {"无延迟\n30°\n45°\n60°\n90°"};
+static const char * const f11290[] = {"无描述"};
+static const char * const f11291[] = {"目录中没有可用的模拟器。"};
+static const char * const f11292[] = {"未安装模拟器"};
+static const char * const f11293[] = {"无可显示条目"};
+static const char * const f11294[] = {"暂无收藏"};
+static const char * const f11295[] = {"未找到游戏"};
+static const char * const f11296[] = {"无项目"};
+static const char * const f11297[] = {"目录中没有可用的布局。"};
+static const char * const f11298[] = {"已不在目录中"};
+static const char * const f11299[] = {"无已保存网络"};
+static const char * const f11300[] = {"无音乐数据库"};
+static const char * const f11301[] = {"无附近设备"};
+static const char * const f11302[] = {"未检测到网络"};
+static const char * const f11303[] = {"未检测到网络。请连接网络以下载模拟器。"};
+static const char * const f11304[] = {"未检测到网络。请连接网络以下载插件。"};
+static const char * const f11305[] = {"未找到网络"};
+static const char * const f11306[] = {"未找到其他网络"};
+static const char * const f11307[] = {"无已配对设备"};
+static const char * const f11308[] = {"未找到可播放的音频文件"};
+static const char * const f11309[] = {"此处无可播放文件"};
+static const char * const f11310[] = {"无可用插件设置"};
+static const char * const f11311[] = {"目录中没有可用的插件。"};
+static const char * const f11312[] = {"无已保存配置"};
+static const char * const f11313[] = {"无已保存服务器"};
+static const char * const f11314[] = {"无歌曲可刷新"};
+static const char * const f11315[] = {"未找到同步歌词"};
+static const char * const f11316[] = {"目录中没有可用的主题。"};
+static const char * const f11317[] = {"未加载曲目"};
+static const char * const f11318[] = {"未找到曲目"};
+static const char * const f11319[] = {"无可用更新。"};
+static const char * const f11320[] = {"无用户播放列表"};
+static const char * const f11321[] = {"此 SD 卡上没有已验证的更新。请重新下载。"};
+static const char * const f11322[] = {"您的订阅中不可用"};
+static const char * const f11323[] = {"未连接"};
+static const char * const f11324[] = {"SD 卡可用空间不足以进行更新。"};
+static const char * const f11325[] = {"SD 卡可用空间不足。"};
+static const char * const f11326[] = {"播放器可用空间不足。"};
+static const char * const f11327[] = {"内部存储空间不足，无法进行播放器更新。"};
+static const char * const f11328[] = {"内存不足，无法连接"};
+static const char * const f11329[] = {"内存不足，无法加载 CUE 曲目"};
+static const char * const f11330[] = {"内存不足，无法加载艺术家"};
+static const char * const f11331[] = {"内存不足，无法从服务器加载"};
+static const char * const f11332[] = {"内存不足，无法加载插件商店"};
+static const char * const f11333[] = {"内存不足，无法开始下载"};
+static const char * const f11334[] = {"内存不足。"};
+static const char * const f11335[] = {"未选择 (UTC)"};
+static const char * const f11336[] = {"未设置"};
+static const char * const f11337[] = {"此处无可选项"};
+static const char * const f11338[] = {"十一月"};
+static const char * const f11339[] = {"正在播放布局"};
+static const char * const f11340[] = {"关"};
+static const char * const f11341[] = {"开"};
+static const char * const f11342[] = {"十月"};
+static const char * const f11343[] = {"关闭"};
+static const char * const f11344[] = {"开启"};
+static const char * const f11345[] = {"打开 更多 > 插件 > 刷新插件，扫描后可查看示例与完整 API 指南。"};
+static const char * const f11346[] = {"打开一本书并点击书签图标即可保存到此处。"};
+static const char * const f11347[] = {"打开包含受支持音频文件的文件夹。"};
+static const char * const f11348[] = {"开放网络"};
+static const char * const f11349[] = {"打开目标文件夹，然后从菜单中选择“粘贴到此处”。"};
+static const char * const f11350[] = {"在手机或电脑上打开此地址："};
+static const char * const f11351[] = {"已开放 · 已连接"};
+static const char * const f11352[] = {"原始"};
+static const char * const f11353[] = {"输出"};
+static const char * const f11354[] = {"PCM"};
+static const char * const f11355[] = {"PEQ"};
+static const char * const f11356[] = {"PEQ 已重置为默认值"};
+static const char * const f11357[] = {"下午"};
+static const char * const f11358[] = {"太平洋"};
+static const char * const f11359[] = {"第 %d 页，共 %d 页"};
+static const char * const f11360[] = {"已配对"};
+static const char * const f11361[] = {"已配对设备"};
+static const char * const f11362[] = {"密码"};
+static const char * const f11363[] = {"密码：未设置"};
+static const char * const f11364[] = {"密码：已设置"};
+static const char * const f11365[] = {"在此粘贴 %d 项"};
+static const char * const f11366[] = {"已暂停：耳机已断开"};
+static const char * const f11367[] = {"峰值\n低架\n高架"};
+static const char * const f11368[] = {"按专辑"};
+static const char * const f11369[] = {"按曲目"};
+static const char * const f11370[] = {"将 .ttf 字体放入 SD 的 /Fonts 文件夹。"};
+static const char * const f11371[] = {"请将有效的播放器可执行文件放置到 SD/.compas/compas_player。"};
+static const char * const f11372[] = {"播放"};
+static const char * const f11373[] = {"全部播放"};
+static const char * const f11374[] = {"全部播放（顺序）"};
+static const char * const f11375[] = {"全部播放（随机）"};
+static const char * const f11376[] = {"下一首播放"};
+static const char * const f11377[] = {"随机播放全部"};
+static const char * const f11378[] = {"播放专辑或播放列表后，其歌曲将显示在此处。"};
+static const char * const f11379[] = {"顺序播放"};
+static const char * const f11380[] = {"播放/暂停"};
+static const char * const f11381[] = {"播放"};
+static const char * const f11382[] = {"播放与控制"};
+static const char * const f11383[] = {"播放状态"};
+static const char * const f11384[] = {"播放与设备操作"};
+static const char * const f11385[] = {"文件夹就绪前播放已改变"};
+static const char * const f11386[] = {"播放错误"};
+static const char * const f11387[] = {"播放错误：音频输出失败"};
+static const char * const f11388[] = {"无法保存播放历史"};
+static const char * const f11389[] = {"播放已停止：%s"};
+static const char * const f11390[] = {"已播放"};
+static const char * const f11391[] = {"播放器布局"};
+static const char * const f11392[] = {"播放器更新"};
+static const char * const f11393[] = {"播放器更新失败"};
+static const char * const f11394[] = {"播放器更新成功"};
+static const char * const f11395[] = {"播放中"};
+static const char * const f11396[] = {"播放列表名称"};
+static const char * const f11397[] = {"播放列表已更改。请重新选择歌曲。"};
+static const char * const f11398[] = {"播放列表已更改。请重试。"};
+static const char * const f11399[] = {"播放列表已创建"};
+static const char * const f11400[] = {"播放列表已删除"};
+static const char * const f11401[] = {"播放列表为空"};
+static const char * const f11402[] = {"播放列表名称过长"};
+static const char * const f11403[] = {"播放列表已重命名"};
+static const char * const f11404[] = {"播放列表已保存"};
+static const char * const f11405[] = {"播放列表选择已过期"};
+static const char * const f11406[] = {"播放列表不可用或无法读取"};
+static const char * const f11407[] = {"播放列表"};
+static const char * const f11408[] = {"播放列表已刷新"};
+static const char * const f11409[] = {"请等待插件安装完成"};
+static const char * const f11410[] = {"请等待媒体库扫描完成"};
+static const char * const f11411[] = {"插件"};
+static const char * const f11412[] = {"插件管理"};
+static const char * const f11413[] = {"插件顺序"};
+static const char * const f11414[] = {"插件设置"};
+static const char * const f11415[] = {"插件商店"};
+static const char * const f11416[] = {"插件在目录中不可用"};
+static const char * const f11417[] = {"插件操作失败"};
+static const char * const f11418[] = {"插件设置完成"};
+static const char * const f11419[] = {"插件设置需要处理"};
+static const char * const f11420[] = {"插件存储不可用。"};
+static const char * const f11421[] = {"插件"};
+static const char * const f11422[] = {"插件与布局"};
+static const char * const f11423[] = {"插件可以覆盖这些已保存的偏好设置。"};
+static const char * const f11424[] = {"位置"};
+static const char * const f11425[] = {"电源"};
+static const char * const f11426[] = {"电源菜单"};
+static const char * const f11427[] = {"关机"};
+static const char * const f11428[] = {"电源控制"};
+static const char * const f11429[] = {"关机"};
+static const char * const f11430[] = {"前置放大"};
+static const char * const f11431[] = {"前置放大（dB，-12 至 12）"};
+static const char * const f11432[] = {"正在准备并验证恢复模式"};
+static const char * const f11433[] = {"正在准备刷新封面..."};
+static const char * const f11434[] = {"正在准备文件夹播放"};
+static const char * const f11435[] = {"正在准备刷新元数据"};
+static const char * const f11436[] = {"正在准备刷新元数据..."};
+static const char * const f11437[] = {"正在准备媒体库..."};
+static const char * const f11438[] = {"正在准备更新"};
+static const char * const f11439[] = {"预设"};
+static const char * const f11440[] = {"预览"};
+static const char * const f11441[] = {"上一页"};
+static const char * const f11442[] = {"上一页  •  %d–%d，共 %d 项"};
+static const char * const f11443[] = {"上一曲"};
+static const char * const f11444[] = {"上一页"};
+static const char * const f11445[] = {"上一个请求仍在完成中"};
+static const char * const f11446[] = {"之前连接过的配件将显示在此处。"};
+static const char * const f11447[] = {"主 DNS"};
+static const char * const f11448[] = {"配置名称"};
+static const char * const f11449[] = {"配置已删除"};
+static const char * const f11450[] = {"配置已加载"};
+static const char * const f11451[] = {"配置已重命名"};
+static const char * const f11452[] = {"配置已保存"};
+static const char * const f11453[] = {"配置"};
+static const char * const f11454[] = {"提供商"};
+static const char * const f11455[] = {"QWERTY"};
+static const char * const f11456[] = {"播放队列"};
+static const char * const f11457[] = {"播放队列已更改。请重试。"};
+static const char * const f11458[] = {"队列检查点失败；存储可能为只读"};
+static const char * const f11459[] = {"队列已清空"};
+static const char * const f11460[] = {"播放队列为空"};
+static const char * const f11461[] = {"队列已就绪。按播放开始。"};
+static const char * const f11462[] = {"已加入队列"};
+static const char * const f11463[] = {"快捷抽屉"};
+static const char * const f11464[] = {"快速设置完成"};
+static const char * const f11465[] = {"快速设置"};
+static const char * const f11466[] = {"RC"};
+static const char * const f11467[] = {"收音机"};
+static const char * const f11468[] = {"收音机 / %s"};
+static const char * const f11469[] = {"正在读取支持的速率..."};
+static const char * const f11470[] = {"正在读取标签\n第 %d / %d 首歌曲 (%d%%)"};
+static const char * const f11471[] = {"重新读取每首歌曲的标签。这可能需要一些时间。"};
+static const char * const f11472[] = {"重启到引导程序"};
+static const char * const f11473[] = {"重建"};
+static const char * const f11474[] = {"最近添加"};
+static const char * const f11475[] = {"最近播放"};
+static const char * const f11476[] = {"恢复启动标志失败。"};
+static const char * const f11477[] = {"恢复标志擦除失败。请勿重启；请检查 .compas/ota/update.log。"};
+static const char * const f11478[] = {"恢复标志分区与此固件不匹配。"};
+static const char * const f11479[] = {"恢复标志验证失败。请勿重启；请检查更新日志。"};
+static const char * const f11480[] = {"恢复标志写入失败。请勿重启；请检查 .compas/ota/update.log。"};
+static const char * const f11481[] = {"恢复仍处于选中状态，但重启失败：%s。请保留更新文件。"};
+static const char * const f11482[] = {"恢复仍处于选中状态。请保留更新文件；诊断信息保存失败。"};
+static const char * const f11483[] = {"刷新"};
+static const char * const f11484[] = {"刷新全部封面"};
+static const char * const f11485[] = {"刷新全部元数据"};
+static const char * const f11486[] = {"刷新插件"};
+static const char * const f11487[] = {"刷新全部封面？"};
+static const char * const f11488[] = {"刷新全部元数据？"};
+static const char * const f11489[] = {"刷新模拟器目录"};
+static const char * const f11490[] = {"刷新元数据"};
+static const char * const f11491[] = {"刷新插件目录"};
+static const char * const f11492[] = {"刷新音乐数据库以更新此列表。"};
+static const char * const f11493[] = {"正在刷新\n所有封面..."};
+static const char * const f11494[] = {"正在刷新\n所有元数据..."};
+static const char * const f11495[] = {"正在刷新\n元数据..."};
+static const char * const f11496[] = {"正在刷新封面"};
+static const char * const f11497[] = {"正在刷新封面\n第 %d / %d 个 (%d%%)"};
+static const char * const f11498[] = {"正在刷新插件..."};
+static const char * const f11499[] = {"发行年份（最早优先）"};
+static const char * const f11500[] = {"重新加载封面"};
+static const char * const f11501[] = {"正在重新加载\n封面..."};
+static const char * const f11502[] = {"正在重新加载封面"};
+static const char * const f11503[] = {"正在重新加载封面\n第 %d / %d 个 (%d%%)"};
+static const char * const f11504[] = {"遥控"};
+static const char * const f11505[] = {"遥控控制"};
+static const char * const f11506[] = {"移除"};
+static const char * const f11507[] = {"移除 %s？"};
+static const char * const f11508[] = {"已移除"};
+static const char * const f11509[] = {"已从播放列表移除"};
+static const char * const f11510[] = {"已从播放队列移除"};
+static const char * const f11511[] = {"删除已保存的封面并重新提取，可能需要一段时间。"};
+static const char * const f11512[] = {"正在移除模拟器"};
+static const char * const f11513[] = {"正在移除插件"};
+static const char * const f11514[] = {"重命名"};
+static const char * const f11515[] = {"重命名播放列表"};
+static const char * const f11516[] = {"重命名配置"};
+static const char * const f11517[] = {"重新排序项目"};
+static const char * const f11518[] = {"替换"};
+static const char * const f11519[] = {"替换现有"};
+static const char * const f11520[] = {"替换配置"};
+static const char * const f11521[] = {"正在替换播放器并准备重启"};
+static const char * const f11522[] = {"回放增益"};
+static const char * const f11523[] = {"重新扫描"};
+static const char * const f11524[] = {"重置"};
+static const char * const f11525[] = {"全部重置"};
+static const char * const f11526[] = {"将 PEQ 重置为默认值？"};
+static const char * const f11527[] = {"重置所有按键映射？"};
+static const char * const f11528[] = {"重置所有设置并重启？"};
+static const char * const f11529[] = {"恢复默认值"};
+static const char * const f11530[] = {"重启"};
+static const char * const f11531[] = {"立即重启"};
+static const char * const f11532[] = {"立即重启以应用新主机名？"};
+static const char * const f11533[] = {"正在重启进入恢复模式，请勿关闭播放器。"};
+static const char * const f11534[] = {"继续上次曲目"};
+static const char * const f11535[] = {"继续并播放"};
+static const char * const f11536[] = {"外部电源开机时继续播放。"};
+static const char * const f11537[] = {"继续但保持暂停"};
+static const char * const f11538[] = {"正在重试插件 %zu/%zu"};
+static const char * const f11539[] = {"查看更新"};
+static const char * const f11540[] = {"右"};
+static const char * const f11541[] = {"SD 卡"};
+static const char * const f11542[] = {"无法读取 SD 卡"};
+static const char * const f11543[] = {"SD 卡格式化失败"};
+static const char * const f11544[] = {"SD 卡已格式化"};
+static const char * const f11545[] = {"SD 卡为只读，请在电脑上检查"};
+static const char * const f11546[] = {"SD 卡仍为只读"};
+static const char * const f11547[] = {"SD 卡可能有错误，请在电脑上检查"};
+static const char * const f11548[] = {"SD 卡不可用"};
+static const char * const f11549[] = {"SD 卡修复仍在进行"};
+static const char * const f11550[] = {"SD 卡已修复"};
+static const char * const f11551[] = {"SSID 必须为 1 到 32 字节"};
+static const char * const f11552[] = {"SSID：%s"};
+static const char * const f11553[] = {"安全充电（500mA）"};
+static const char * const f11554[] = {"采样率"};
+static const char * const f11555[] = {"星期六"};
+static const char * const f11556[] = {"保存"};
+static const char * const f11557[] = {"保存配置"};
+static const char * const f11558[] = {"配置另存为"};
+static const char * const f11559[] = {"将播放队列保存为播放列表"};
+static const char * const f11560[] = {"保存为播放列表"};
+static const char * const f11561[] = {"保存为新配置，或替换已有配置？"};
+static const char * const f11562[] = {"已保存的服务器"};
+static const char * const f11563[] = {"已保存的网络"};
+static const char * const f11564[] = {"正在检查已保存的网络详情。"};
+static const char * const f11565[] = {"重启前正在保存数据"};
+static const char * const f11566[] = {"保存数据失败。恢复模式仍被选中；请保留更新文件并检查 .compas/ota/update.log。"};
+static const char * const f11567[] = {"正在保存音乐数据库"};
+static const char * const f11568[] = {"正在保存音乐数据库\n媒体库较大时可能需要一些时间"};
+static const char * const f11569[] = {"正在保存播放列表…"};
+static const char * const f11570[] = {"扫码获取入门主题和说明。要重新设计播放器界面，请查看其中的 XML 布局指南。"};
+static const char * const f11571[] = {"扫描音乐"};
+static const char * const f11572[] = {"扫码查看完整指南"};
+static const char * const f11573[] = {"正在扫描网络"};
+static const char * const f11574[] = {"正在扫描可播放文件"};
+static const char * const f11575[] = {"屏幕变暗"};
+static const char * const f11576[] = {"屏幕超时"};
+static const char * const f11577[] = {"息屏"};
+static const char * const f11578[] = {"截图失败（%s）"};
+static const char * const f11579[] = {"截图失败（帧缓冲）"};
+static const char * const f11580[] = {"截图失败（工作线程）"};
+static const char * const f11581[] = {"截图需要 SD 卡"};
+static const char * const f11582[] = {"截图已保存"};
+static const char * const f11583[] = {"截图（电源 + 上一曲）"};
+static const char * const f11584[] = {"截图（电源 + 音量减）"};
+static const char * const f11585[] = {"截图不可用"};
+static const char * const f11586[] = {"正在搜索网络"};
+static const char * const f11587[] = {"备用 DNS"};
+static const char * const f11588[] = {"安全连接失败，请检查 Wi-Fi 和日期时间。"};
+static const char * const f11589[] = {"加密网络"};
+static const char * const f11590[] = {"加密 · 已连接"};
+static const char * const f11591[] = {"快退"};
+static const char * const f11592[] = {"快进"};
+static const char * const f11593[] = {"选择"};
+static const char * const f11594[] = {"选择文件"};
+static const char * const f11595[] = {"全选"};
+static const char * const f11596[] = {"请至少选择一个插件以继续。"};
+static const char * const f11597[] = {"所选插件已就绪。\n"};
+static const char * const f11598[] = {"九月"};
+static const char * const f11599[] = {"服务器 URL（例如 %s）"};
+static const char * const f11600[] = {"服务器 URL：%s"};
+static const char * const f11601[] = {"服务器请求 30 秒后超时"};
+static const char * const f11602[] = {"服务繁忙"};
+static const char * const f11603[] = {"设置时间"};
+static const char * const f11604[] = {"设置本地时区以确保时钟准确。"};
+static const char * const f11605[] = {"设置"};
+static const char * const f11606[] = {"显示剩余时间"};
+static const char * const f11607[] = {"显示隐藏文件"};
+static const char * const f11608[] = {"显示前 %d 首，共 %d 首"};
+static const char * const f11609[] = {"随机播放"};
+static const char * const f11610[] = {"从随机歌曲开始随机播放"};
+static const char * const f11611[] = {"请重新登录流媒体服务"};
+static const char * const f11612[] = {"信号：%s"};
+static const char * const f11613[] = {"单曲"};
+static const char * const f11614[] = {"单击"};
+static const char * const f11615[] = {"大小：%s"};
+static const char * const f11616[] = {"暂时跳过"};
+static const char * const f11617[] = {"已跳过：%s"};
+static const char * const f11618[] = {"睡眠"};
+static const char * const f11619[] = {"定时关机"};
+static const char * const f11620[] = {"定时关机"};
+static const char * const f11621[] = {"定时关机：剩余 %d 分钟"};
+static const char * const f11622[] = {"定时关机：关闭"};
+static const char * const f11623[] = {"小"};
+static const char * const f11624[] = {"部分封面无法刷新"};
+static const char * const f11625[] = {"部分播放列表无法读取"};
+static const char * const f11626[] = {"卡上的部分插件文件已更改，是否替换？"};
+static const char * const f11627[] = {"部分歌曲无法读取"};
+static const char * const f11628[] = {"部分更新需确认后才能替换本地文件。"};
+static const char * const f11629[] = {"歌曲已添加"};
+static const char * const f11630[] = {"歌曲已删除"};
+static const char * const f11631[] = {"歌曲"};
+static const char * const f11632[] = {"排序"};
+static const char * const f11633[] = {"声音"};
+static const char * const f11634[] = {"音效"};
+static const char * const f11635[] = {"来源"};
+static const char * const f11636[] = {"Speex 重采样"};
+static const char * const f11637[] = {"顺序开始"};
+static const char * const f11638[] = {"从这些推荐开始，或浏览更多插件。"};
+static const char * const f11639[] = {"开始下载"};
+static const char * const f11640[] = {"正在开始更新"};
+static const char * const f11641[] = {"开机音量"};
+static const char * const f11642[] = {"第 %d 步，共 %d 步"};
+static const char * const f11643[] = {"立体声（2 声道）"};
+static const char * const f11644[] = {"仍在应用上一选择"};
+static const char * const f11645[] = {"仍在处理中，请勿关闭播放器或重试。"};
+static const char * const f11646[] = {"停止"};
+static const char * const f11647[] = {"已停止"};
+static const char * const f11648[] = {"正在停止..."};
+static const char * const f11649[] = {"存储"};
+static const char * const f11650[] = {"流媒体"};
+static const char * const f11651[] = {"流媒体音质"};
+static const char * const f11652[] = {"流媒体音质：%s"};
+static const char * const f11653[] = {"子文件夹相对于 SD 根目录（例如 Music/Offline）；留空则使用 SD 根目录"};
+static const char * const f11654[] = {"子文件夹：SD 根目录"};
+static const char * const f11655[] = {"Subsonic"};
+static const char * const f11656[] = {"星期日"};
+static const char * const f11657[] = {"支持 Compás"};
+static const char * const f11658[] = {"挂起到内存"};
+static const char * const f11659[] = {"上滑返回主屏幕"};
+static const char * const f11660[] = {"上滑解锁"};
+static const char * const f11661[] = {"系统"};
+static const char * const f11662[] = {"系统播放列表"};
+static const char * const f11663[] = {"T9"};
+static const char * const f11664[] = {"TXT 阅读器"};
+static const char * const f11665[] = {"颜色取自正在播放曲目的封面"};
+static const char * const f11666[] = {"再次点击关机以确认"};
+static const char * const f11667[] = {"再次点击重启以确认"};
+static const char * const f11668[] = {"该名称不可用"};
+static const char * const f11669[] = {"下载期间 SD 卡发生了更换。"};
+static const char * const f11670[] = {"操作期间 SD 卡发生了更换。"};
+static const char * const f11671[] = {"SD 卡为只读。请检查其写保护。"};
+static const char * const f11672[] = {"下载未完成。请检查 Wi-Fi 后重试。"};
+static const char * const f11673[] = {"下载的镜像校验失败，已被删除。"};
+static const char * const f11674[] = {"已下载的播放器未通过 SHA-256 校验。"};
+static const char * const f11675[] = {"模拟器下载校验失败，请重试。"};
+static const char * const f11676[] = {"模拟器文件夹不可写。"};
+static const char * const f11677[] = {"固件路径过长。"};
+static const char * const f11678[] = {"游戏意外关闭。"};
+static const char * const f11679[] = {"最新播放器版本已变更。请重新检查。"};
+static const char * const f11680[] = {"播放器下载未完成。"};
+static const char * const f11681[] = {"播放器镜像超出安全大小限制。"};
+static const char * const f11682[] = {"播放列表文件将被删除，音乐文件会保留。"};
+static const char * const f11683[] = {"插件下载校验失败，请重试。"};
+static const char * const f11684[] = {"上次下载不完整或无效。请从 SD 卡中移除更新文件，点击“从 SD 卡安装”，然后复制新文件并重试。"};
+static const char * const f11685[] = {"华夏风韵 洛水天依 123"};
+static const char * const f11686[] = {"版本校验和与已发布的资源摘要不匹配。"};
+static const char * const f11687[] = {"该版本未提供有效的播放器校验和。"};
+static const char * const f11688[] = {"该发行版没有此设备镜像的校验和。"};
+static const char * const f11689[] = {"所选更新文件已改变，请重新选择。"};
+static const char * const f11690[] = {"流媒体插件不可用"};
+static const char * const f11691[] = {"流媒体服务无响应"};
+static const char * const f11692[] = {"校验期间更新文件已改变，请重新选择。"};
+static const char * const f11693[] = {"SD 卡上的更新文件已改变，请重新下载。"};
+static const char * const f11694[] = {"主题"};
+static const char * const f11695[] = {"此视图中没有条目。"};
+static const char * const f11696[] = {"这可能需要几秒钟。"};
+static const char * const f11697[] = {"此操作无法撤销。"};
+static const char * const f11698[] = {"此设备现为 USB 声卡"};
+static const char * const f11699[] = {"此设备正在接收蓝牙音频"};
+static const char * const f11700[] = {"此模拟器需要更新版本的播放器。"};
+static const char * const f11701[] = {"此文件夹为空"};
+static const char * const f11702[] = {"其中包含播放器自身的数据（.compas 或 .plugins）。删除或移动它可能导致功能异常、丢失设置和已安装插件等数据，并且可能需要重启。"};
+static const char * const f11703[] = {"这可能需要一些时间"};
+static const char * const f11704[] = {"这将永久删除卡上的全部内容，且无法撤销。"};
+static const char * const f11705[] = {"此插件没有可用更新。"};
+static const char * const f11706[] = {"此插件已由商店安装。"};
+static const char * const f11707[] = {"此插件不是由商店安装的。"};
+static const char * const f11708[] = {"此插件需要更新版本的播放器。"};
+static const char * const f11709[] = {"此曲目无法提供该音质"};
+static const char * const f11710[] = {"此发行版的镜像与其校验和不匹配。请在下次每周发布后重试。"};
+static const char * const f11711[] = {"此曲目受版权保护"};
+static const char * const f11712[] = {"此曲目不可用"};
+static const char * const f11713[] = {"无法打开此类型文件"};
+static const char * const f11714[] = {"此更新已不再是最新发行版。请检查更新并下载最新镜像。"};
+static const char * const f11715[] = {"此更新与最新发行版不再匹配。请重新下载最新镜像。"};
+static const char * const f11716[] = {"线程启动失败"};
+static const char * const f11717[] = {"星期四"};
+static const char * const f11718[] = {"时区"};
+static const char * const f11719[] = {"剩余时间：%d:%02d"};
+static const char * const f11720[] = {"剩余时间：%d:%02d:%02d"};
+static const char * const f11721[] = {"时区"};
+static const char * const f11722[] = {"启动画面着色"};
+static const char * const f11723[] = {"标题栏图标着色"};
+static const char * const f11724[] = {"切换屏幕"};
+static const char * const f11725[] = {"音频声道过多"};
+static const char * const f11726[] = {"已安装的插件过多。请移除一个后重试。"};
+static const char * const f11727[] = {"顶栏"};
+static const char * const f11728[] = {"曲目"};
+static const char * const f11729[] = {"曲目 %+.1f dB"};
+static const char * const f11730[] = {"曲目 %d"};
+static const char * const f11731[] = {"曲目详情尚不可用。请保持播放页面打开后再查看。"};
+static const char * const f11732[] = {"曲目"};
+static const char * const f11733[] = {"请重新扫描或添加隐藏网络。"};
+static const char * const f11734[] = {"星期二"};
+static const char * const f11735[] = {"关闭再开启蓝牙以生效"};
+static const char * const f11736[] = {"请先关闭 ADB（设置 > 系统 > USB 模式），然后在此启用 USB DAC。"};
+static const char * const f11737[] = {"关闭自动以设置时钟"};
+static const char * const f11738[] = {"请关闭蓝牙 DAC 以在此设备上播放音乐"};
+static const char * const f11739[] = {"关闭蓝牙以使用 Wi-Fi"};
+static const char * const f11740[] = {"请关闭 DAC 模式以玩游戏。"};
+static const char * const f11741[] = {"关闭 Wi-Fi 以使用蓝牙"};
+static const char * const f11742[] = {"自动关闭屏幕"};
+static const char * const f11743[] = {"开启蓝牙以查看已配对和附近的设备。"};
+static const char * const f11744[] = {"请先开启 Wi-Fi 并连接"};
+static const char * const f11745[] = {"开启后在此显示地址。"};
+static const char * const f11746[] = {"正在开启 Wi-Fi"};
+static const char * const f11747[] = {"USB 音频"};
+static const char * const f11748[] = {"USB DAC"};
+static const char * const f11749[] = {"USB DAC 模式"};
+static const char * const f11750[] = {"USB DSD 输出"};
+static const char * const f11751[] = {"USB 模式"};
+static const char * const f11752[] = {"检测到 USB 音频设备"};
+static const char * const f11753[] = {"USB 充电设置忙"};
+static const char * const f11754[] = {"USB 输入：%s · %u-bit"};
+static const char * const f11755[] = {"USB 模式"};
+static const char * const f11756[] = {"USB 存储忙。"};
+static const char * const f11757[] = {"无法加载项目"};
+static const char * const f11758[] = {"无法读取文件夹（点击返回重试）"};
+static const char * const f11759[] = {"不可用"};
+static const char * const f11760[] = {"媒体库响应异常"};
+static const char * const f11761[] = {"GitHub 返回异常响应"};
+static const char * const f11762[] = {"GitHub 返回异常响应。"};
+static const char * const f11763[] = {"未知专辑"};
+static const char * const f11764[] = {"未知艺术家"};
+static const char * const f11765[] = {"未知编码"};
+static const char * const f11766[] = {"未知格式"};
+static const char * const f11767[] = {"未知采样率"};
+static const char * const f11768[] = {"不支持的音频格式"};
+static const char * const f11769[] = {"更新"};
+static const char * const f11770[] = {"更新并重启"};
+static const char * const f11771[] = {"全部更新"};
+static const char * const f11772[] = {"更新音乐数据库"};
+static const char * const f11773[] = {"更新音乐数据库以启用此专辑排序"};
+static const char * const f11774[] = {"有可用更新"};
+static const char * const f11775[] = {"有可用更新 · %s"};
+static const char * const f11776[] = {"更新诊断信息必须存储在 SD 卡上。"};
+static const char * const f11777[] = {"更新失败。"};
+static const char * const f11778[] = {"更新助手失败（%s，状态 %d）。请查看 .compas/ota/update.log。"};
+static const char * const f11779[] = {"逐个更新"};
+static const char * const f11780[] = {"更新音乐数据库？"};
+static const char * const f11781[] = {"更新已保存。请连接 Wi-Fi，然后从 固件更新 > 从 SD 卡安装。"};
+static const char * const f11782[] = {"仅更新播放器，保留当前驱动、内核和引导程序。"};
+static const char * const f11783[] = {"更新整个 CompásOS。刷写固件包含引导程序、播放器、内核和驱动。"};
+static const char * const f11784[] = {"逐个更新这些插件"};
+static const char * const f11785[] = {"使用 %s 更新？\n设备将重启进入恢复模式。"};
+static const char * const f11786[] = {"更新"};
+static const char * const f11787[] = {"正在更新\n音乐数据库..."};
+static const char * const f11788[] = {"正在更新模拟器"};
+static const char * const f11789[] = {"正在更新播放器"};
+static const char * const f11790[] = {"正在更新插件"};
+static const char * const f11791[] = {"更新会替换内置游戏及其存档，SD/Games 中的游戏会保留。"};
+static const char * const f11792[] = {"倒置屏幕"};
+static const char * const f11793[] = {"请使用 设置 > 更新音乐数据库"};
+static const char * const f11794[] = {"请使用 SD 卡根目录中的常规 %s 文件。"};
+static const char * const f11795[] = {"用户播放列表"};
+static const char * const f11796[] = {"用户名"};
+static const char * const f11797[] = {"用户名：%s"};
+static const char * const f11798[] = {"默认启动画面使用强调色。"};
+static const char * const f11799[] = {"屏幕标题旁的图标使用强调色。"};
+static const char * const f11800[] = {"验证服务器证书"};
+static const char * const f11801[] = {"版本"};
+static const char * const f11802[] = {"版本 %s · %s"};
+static const char * const f11803[] = {"音量"};
+static const char * const f11804[] = {"音量减"};
+static const char * const f11805[] = {"音量锁定（息屏）"};
+static const char * const f11806[] = {"音量滑块"};
+static const char * const f11807[] = {"音量加"};
+static const char * const f11808[] = {"请等待 USB 模式切换完成，并在更新前断开 USB 存储。"};
+static const char * const f11809[] = {"正在等待蓝牙串流…"};
+static const char * const f11810[] = {"正在等待 USB 音频…"};
+static const char * const f11811[] = {"弱"};
+static const char * const f11812[] = {"Web 服务器忙"};
+static const char * const f11813[] = {"星期三"};
+static const char * const f11814[] = {"欢迎使用 Compás"};
+static const char * const f11815[] = {"开启后，此设备将可在 Wi-Fi 网络中被 AirPlay 发送端发现——可将 iPhone、iPad 或 Mac 的音频串流至此设备自身的输出播放。"};
+static const char * const f11816[] = {"开启后，此设备将可在 Wi-Fi 网络中被 DLNA/UPnP 控制端应用发现——可从控制端投放曲目在此播放。不支持从控制端暂停、静音、调节音量和跳转；曲目开始播放后请改用本设备自身的控制。"};
+static const char * const f11817[] = {"开启后，此设备将持续可被发现并可与其他蓝牙设备配对，手机或电脑可向其串流音频，并通过本设备自身的输出播放——即作为外置 DAC 使用。"};
+static const char * const f11818[] = {"Wi-Fi"};
+static const char * const f11819[] = {"Wi-Fi 信息"};
+static const char * const f11820[] = {"Wi-Fi 密码"};
+static const char * const f11821[] = {"无法启用 Wi-Fi"};
+static const char * const f11822[] = {"Wi-Fi 状态切换失败"};
+static const char * const f11823[] = {"Wi-Fi 忙"};
+static const char * const f11824[] = {"Wi-Fi 仍在启动"};
+static const char * const f11825[] = {"有线耳机"};
+static const char * const f11826[] = {"无线"};
+static const char * const f11827[] = {"处理中..."};
+static const char * const f11828[] = {"在电脑上编写 Lua 插件，将其 .lua 文件复制到 SD 卡上的 .plugins 文件夹。"};
+static const char * const f11829[] = {"最多可选择 32 个插件"};
+static const char * const f11830[] = {"正在加载媒体库。"};
+static const char * const f11831[] = {"你的音乐"};
+static const char * const f11832[] = {"入门引导"};
+static const char * const f11833[] = {"[文件已在 %d KB 处截断——仅显示第一部分]\n\n%s"};
+static const char * const f11834[] = {"构建版本"};
+static const char * const f11835[] = {"github.com/Starnished66/compas-player"};
+static const char * const f11836[] = {"未知"};
+
+static const i18n_entry_t entries_zh_CN[] = {
+    {"%+.2f dB", f10701, 1},
+    {"%.0f Hz", f10702, 1},
+    {"%d album", f10703, 1},
+    {"%d hr", f10704, 1},
+    {"%d hr %d min", f10705, 1},
+    {"%d min", f10706, 1},
+    {"%d min remaining", f10707, 1},
+    {"%d selected", f10708, 1},
+    {"%d song", f10709, 1},
+    {"%d track", f10710, 1},
+    {"%dm", f10711, 1},
+    {"%lld track", f10712, 1},
+    {"%llu bytes", f10713, 1},
+    {"%s (current)", f10714, 1},
+    {"%s free of %s", f10715, 1},
+    {"%s · Not loaded", f10716, 1},
+    {"%s · Not loaded: limit reached", f10717, 1},
+    {"%u channels", f10718, 1},
+    {"%u item could not be completed", f10719, 1},
+    {"%u of %u\n%s", f10720, 1},
+    {"+ New Playlist", f10721, 1},
+    {"0 dB", f10722, 1},
+    {"24-Hour Clock", f10723, 1},
+    {"48 kHz reference", f10724, 1},
+    {"A firmware update is already in progress.", f10725, 1},
+    {"A local plugin file will be replaced. Confirm to continue.", f10726, 1},
+    {"A newer or changed release is available. Check for updates again before downloading.", f10727, 1},
+    {"A plugin download failed verification. Try again.", f10728, 1},
+    {"A plugin operation is already in progress", f10729, 1},
+    {"A required recovery helper is missing. Update preparation stopped.", f10730, 1},
+    {"ADB", f10731, 1},
+    {"AM", f10732, 1},
+    {"About", f10733, 1},
+    {"Accent Color", f10734, 1},
+    {"Accent Options", f10735, 1},
+    {"Add .txt files to the Books folder, then refresh the library.", f10736, 1},
+    {"Add a random song to queue", f10737, 1},
+    {"Add album to queue", f10738, 1},
+    {"Add hidden network", f10739, 1},
+    {"Add songs from a song menu.", f10740, 1},
+    {"Add to Playlist", f10741, 1},
+    {"Add to Queue", f10742, 1},
+    {"Added %d song to queue", f10743, 1},
+    {"Added folder to playlist", f10744, 1},
+    {"Added to playlist", f10745, 1},
+    {"Adding folder to playlist", f10746, 1},
+    {"Adding folder to queue", f10747, 1},
+    {"Additional Tools", f10748, 1},
+    {"Advanced", f10749, 1},
+    {"Africa", f10750, 1},
+    {"AirPlay", f10751, 1},
+    {"AirPlay stopped unexpectedly", f10752, 1},
+    {"Album %+.1f dB", f10753, 1},
+    {"Album Artist", f10754, 1},
+    {"Album Artist - Album", f10755, 1},
+    {"Album Artist / Album", f10756, 1},
+    {"Album unavailable", f10757, 1},
+    {"Albums", f10758, 1},
+    {"All %d song", f10759, 1},
+    {"All Songs", f10760, 1},
+    {"All visible networks are already saved.", f10761, 1},
+    {"Already installed", f10762, 1},
+    {"America", f10763, 1},
+    {"An emulator operation is already in progress", f10764, 1},
+    {"An item with that name already exists", f10765, 1},
+    {"An update is already in progress", f10766, 1},
+    {"An update is already in progress.", f10767, 1},
+    {"An update is in progress. Please wait.", f10768, 1},
+    {"Animation Speed", f10769, 1},
+    {"Another file operation is still running", f10770, 1},
+    {"Another update is already active.", f10771, 1},
+    {"Antarctica", f10772, 1},
+    {"Appearance", f10773, 1},
+    {"Applied %+.1f dB", f10774, 1},
+    {"Applies next time you launch the app", f10775, 1},
+    {"Applies to new streaming queues", f10776, 1},
+    {"Applying language, this may take a while", f10777, 1},
+    {"Applying layout, this may take a while", f10778, 1},
+    {"Apps and browsers using the current PIN will need the new one to reconnect.", f10779, 1},
+    {"April", f10780, 1},
+    {"Arctic", f10781, 1},
+    {"Artist Images", f10782, 1},
+    {"Artists", f10783, 1},
+    {"Asia", f10784, 1},
+    {"Atlantic", f10785, 1},
+    {"Audio", f10786, 1},
+    {"Audio could not be decoded", f10787, 1},
+    {"Audio is still active; cannot start the game.", f10788, 1},
+    {"Audio output failed", f10789, 1},
+    {"August", f10790, 1},
+    {"Australia", f10791, 1},
+    {"Auto", f10792, 1},
+    {"Auto-resume", f10793, 1},
+    {"AutoEQ", f10794, 1},
+    {"Automatic", f10795, 1},
+    {"Automatic (44.1 kHz)", f10796, 1},
+    {"Automatically go idle", f10797, 1},
+    {"Available", f10798, 1},
+    {"Available Devices", f10799, 1},
+    {"Available Networks", f10800, 1},
+    {"Available player release: %s.\nInstalled: %s\n\nDownload and install? This updates the player and restarts the device. Firmware, fonts, and artwork are unchanged.", f10801, 1},
+    {"Available · %s", f10802, 1},
+    {"Band %d / %d", f10803, 1},
+    {"Band options", f10804, 1},
+    {"Battery Icon", f10805, 1},
+    {"Battery Percentage", f10806, 1},
+    {"Bitrate", f10807, 1},
+    {"Bluetooth", f10808, 1},
+    {"Bluetooth Audio (A2DP)", f10809, 1},
+    {"Bluetooth Codec", f10810, 1},
+    {"Bluetooth DAC", f10811, 1},
+    {"Bluetooth DAC mode", f10812, 1},
+    {"Bluetooth Volume Sync", f10813, 1},
+    {"Bluetooth is off", f10814, 1},
+    {"Bluetooth remote service is starting…", f10815, 1},
+    {"Bluetooth remote service is unavailable; retrying.", f10816, 1},
+    {"Bluetooth: Compas Remote Control", f10817, 1},
+    {"Bluetooth: registration failed; retrying", f10818, 1},
+    {"Bluetooth: waiting for service registration", f10819, 1},
+    {"Books", f10820, 1},
+    {"Books refreshed", f10821, 1},
+    {"Build", f10822, 1},
+    {"Build it now? Large libraries can take several minutes.", f10823, 1},
+    {"Bundled games and their saves will be removed. Games in SD/Games are kept.", f10824, 1},
+    {"Button", f10825, 1},
+    {"Button Mapping", f10826, 1},
+    {"Buttons & Remote", f10827, 1},
+    {"By %s", f10828, 1},
+    {"Cancel", f10829, 1},
+    {"Cannot add folder within queue memory limit", f10830, 1},
+    {"Cannot check plugin storage write access.", f10831, 1},
+    {"Cannot create the emulator folder.", f10832, 1},
+    {"Cannot create the update log directory.", f10833, 1},
+    {"Cannot delete playlist", f10834, 1},
+    {"Cannot load album tracks", f10835, 1},
+    {"Cannot move this entry", f10836, 1},
+    {"Cannot play folder", f10837, 1},
+    {"Cannot play this folder", f10838, 1},
+    {"Cannot reach GitHub. Check the Wi-Fi connection.", f10839, 1},
+    {"Cannot read playlist", f10840, 1},
+    {"Cannot read the SD card.", f10841, 1},
+    {"Cannot read the selected update file.", f10842, 1},
+    {"Cannot read the update file on the SD card. Check the card and try again.", f10843, 1},
+    {"Cannot read the update record on the SD card. Check the card and try again.", f10844, 1},
+    {"Cannot read update helper status: %s", f10845, 1},
+    {"Cannot remove entry", f10846, 1},
+    {"Cannot rename: invalid name or file exists", f10847, 1},
+    {"Cannot reorder playlist", f10848, 1},
+    {"Cannot safely access the recovery flag block.", f10849, 1},
+    {"Cannot save playlist", f10850, 1},
+    {"Cannot save update diagnostics on the SD card.", f10851, 1},
+    {"Cannot save update diagnostics. Update preparation stopped.", f10852, 1},
+    {"Cannot save: invalid or streaming entries", f10853, 1},
+    {"Cannot start folder action", f10854, 1},
+    {"Cannot start queue", f10855, 1},
+    {"Car Mode", f10856, 1},
+    {"Car Mode Volume", f10857, 1},
+    {"Car Mode is disabled.", f10858, 1},
+    {"Center", f10859, 1},
+    {"Channels", f10860, 1},
+    {"Charge Limit (85%)", f10861, 1},
+    {"Charge to at least %d%% or connect power before updating.", f10862, 1},
+    {"Charge to at least 30%% or connect power before updating.", f10863, 1},
+    {"Charging", f10864, 1},
+    {"Check for a player update first.", f10865, 1},
+    {"Check for online update", f10866, 1},
+    {"Check that Wi-Fi is enabled, then rescan.", f10867, 1},
+    {"Check the SD card and disconnect USB storage before playing.", f10868, 1},
+    {"Check the wireless switch and try again.", f10869, 1},
+    {"Checking for player updates", f10870, 1},
+    {"Checking for updates", f10871, 1},
+    {"Checking the SD card. This may take a while", f10872, 1},
+    {"Checking the file on the SD card", f10873, 1},
+    {"Checking the latest release", f10874, 1},
+    {"Choose a language", f10875, 1},
+    {"Choose plugins", f10876, 1},
+    {"Choose the language for your player.", f10877, 1},
+    {"Choose time zone", f10878, 1},
+    {"Choose what happens when idle:", f10879, 1},
+    {"Clear Queue", f10880, 1},
+    {"Clock", f10881, 1},
+    {"Clock Position", f10882, 1},
+    {"Clockwise", f10883, 1},
+    {"Close", f10884, 1},
+    {"Closing\nWeb Server...", f10885, 1},
+    {"Codec", f10886, 1},
+    {"Combined response (dB)", f10887, 1},
+    {"Combined response (dB) · EQ off", f10888, 1},
+    {"Compás Player", f10889, 1},
+    {"Connect", f10890, 1},
+    {"Connect & Browse", f10891, 1},
+    {"Connect a device to see its supported rates", f10892, 1},
+    {"Connect over Wi-Fi or Bluetooth to see what's playing, control playback, and browse your library. Enter this PIN when the app or browser asks for it; Bluetooth also requires pairing.", f10893, 1},
+    {"Connect to Wi-Fi", f10894, 1},
+    {"Connect to Wi-Fi before downloading the player update", f10895, 1},
+    {"Connect to Wi-Fi first", f10896, 1},
+    {"Connect to Wi-Fi for streaming, updates, and online services.", f10897, 1},
+    {"Connect to a Wi-Fi network before continuing.", f10898, 1},
+    {"Connect to a network to download plugins.", f10899, 1},
+    {"Connect using either available route:", f10900, 1},
+    {"Connected", f10901, 1},
+    {"Connecting", f10902, 1},
+    {"Connecting to", f10903, 1},
+    {"Connecting to server...", f10904, 1},
+    {"Connection PIN", f10905, 1},
+    {"Connection failed", f10906, 1},
+    {"Connection timed out after 30 seconds", f10907, 1},
+    {"Container", f10908, 1},
+    {"Continue", f10909, 1},
+    {"Continue setup", f10910, 1},
+    {"Copy", f10911, 1},
+    {"Copy games to the %s folder on the SD card.", f10912, 1},
+    {"Could not apply font size", f10913, 1},
+    {"Could not apply lyrics text size", f10914, 1},
+    {"Could not apply theme", f10915, 1},
+    {"Could not create the folder", f10916, 1},
+    {"Could not download the release checksums.", f10917, 1},
+    {"Could not enter recovery mode.", f10918, 1},
+    {"Could not generate a new PIN", f10919, 1},
+    {"Could not get a stream link", f10920, 1},
+    {"Could not install a plugin on the SD card.", f10921, 1},
+    {"Could not install the emulator.", f10922, 1},
+    {"Could not install the plugin on the SD card.", f10923, 1},
+    {"Could not load lock screen photo", f10924, 1},
+    {"Could not load the plugin catalog.", f10925, 1},
+    {"Could not load the plugin catalog. Tap More to retry.", f10926, 1},
+    {"Could not move other .upt files aside on the SD card.", f10927, 1},
+    {"Could not open this file", f10928, 1},
+    {"Could not open this file.", f10929, 1},
+    {"Could not place the update on the SD card.", f10930, 1},
+    {"Could not prepare plugin removal.", f10931, 1},
+    {"Could not prepare secure update storage.", f10932, 1},
+    {"Could not prepare update helper: %s", f10933, 1},
+    {"Could not reach the streaming service", f10934, 1},
+    {"Could not read installed plugins.", f10935, 1},
+    {"Could not read the Books folder", f10936, 1},
+    {"Could not read the emulator list from GitHub.", f10937, 1},
+    {"Could not read the plugin list from GitHub.", f10938, 1},
+    {"Could not read the release list from GitHub.", f10939, 1},
+    {"Could not record the verified update on the SD card.", f10940, 1},
+    {"Could not refresh books", f10941, 1},
+    {"Could not reload cover", f10942, 1},
+    {"Could not remove a plugin file.", f10943, 1},
+    {"Could not remove the emulator.", f10944, 1},
+    {"Could not rename", f10945, 1},
+    {"Could not repair the SD card", f10946, 1},
+    {"Could not replace plugin files.", f10947, 1},
+    {"Could not restart into the boot selector", f10948, 1},
+    {"Could not save Bluetooth codec", f10949, 1},
+    {"Could not start USB charging update", f10950, 1},
+    {"Could not start USB mode switch", f10951, 1},
+    {"Could not start refreshing the plugin catalog.", f10952, 1},
+    {"Could not start the SD player update.", f10953, 1},
+    {"Could not start the download", f10954, 1},
+    {"Could not start the download.", f10955, 1},
+    {"Could not start the emulator operation", f10956, 1},
+    {"Could not start the game.", f10957, 1},
+    {"Could not start the installation.", f10958, 1},
+    {"Could not start the library scan. Please try again.", f10959, 1},
+    {"Could not start the player download.", f10960, 1},
+    {"Could not start the player update", f10961, 1},
+    {"Could not start the player update check", f10962, 1},
+    {"Could not start the player update check.", f10963, 1},
+    {"Could not start the plugin operation", f10964, 1},
+    {"Could not start the plugin operation.", f10965, 1},
+    {"Could not start the plugin refresh", f10966, 1},
+    {"Could not start the plugin refresh.", f10967, 1},
+    {"Could not start the plugin update.", f10968, 1},
+    {"Could not start the update check.", f10969, 1},
+    {"Could not start the update.", f10970, 1},
+    {"Could not start update helper: %s", f10971, 1},
+    {"Could not update the installed plugin record.", f10972, 1},
+    {"Could not verify the latest release checksums.", f10973, 1},
+    {"Couldn't connect to Wi-Fi network", f10974, 1},
+    {"Couldn't read this .cue file", f10975, 1},
+    {"Couldn't save -- plugin change was not applied", f10976, 1},
+    {"Counterclockwise", f10977, 1},
+    {"Cover reloaded", f10978, 1},
+    {"Covers refreshed", f10979, 1},
+    {"Create a playlist above or copy one to the SD card's Playlists folder.", f10980, 1},
+    {"Create a plugin", f10981, 1},
+    {"Create a theme", f10982, 1},
+    {"Create plugins & themes", f10983, 1},
+    {"Creator guides", f10984, 1},
+    {"Crossfade", f10985, 1},
+    {"Crossfeed", f10986, 1},
+    {"Crossfeed (0 to 100)", f10987, 1},
+    {"Crossfeed angle", f10988, 1},
+    {"Crossfeed blends a filtered signal from the opposite channel and works independently of PEQ. With No delay, identical left and right signals are affected very little.", f10989, 1},
+    {"Crossfeed: %d%%", f10990, 1},
+    {"Crossfeed: Off", f10991, 1},
+    {"Custom", f10992, 1},
+    {"Custom color", f10993, 1},
+    {"Custom fonts affect Latin text only.", f10994, 1},
+    {"DAC path: %s · %u-bit", f10995, 1},
+    {"DLNA", f10996, 1},
+    {"DLNA Renderer", f10997, 1},
+    {"DNS Settings", f10998, 1},
+    {"December", f10999, 1},
+    {"Default", f11000, 1},
+    {"Default (Built-in)", f11001, 1},
+    {"Default (native behavior)", f11002, 1},
+    {"Delete", f11003, 1},
+    {"Delete %d item?", f11004, 1},
+    {"Delete %s?\nThis cannot be undone.", f11005, 1},
+    {"Delete Playlist", f11006, 1},
+    {"Delete playlist?", f11007, 1},
+    {"Delete this profile?", f11008, 1},
+    {"Developer Options", f11009, 1},
+    {"Device", f11010, 1},
+    {"Dim screen before timeout", f11011, 1},
+    {"Disable charging\nin USB DAC mode", f11012, 1},
+    {"Disabled", f11013, 1},
+    {"Disc %d", f11014, 1},
+    {"Disc %d / Track %d", f11015, 1},
+    {"Disconnect", f11016, 1},
+    {"Disconnect USB storage first", f11017, 1},
+    {"Disconnect USB storage from the computer before changing files.", f11018, 1},
+    {"Disconnect USB storage from the host before changing emulators.", f11019, 1},
+    {"Disconnect USB storage from the host before changing plugins.", f11020, 1},
+    {"Dismiss", f11021, 1},
+    {"Display", f11022, 1},
+    {"Do Nothing", f11023, 1},
+    {"DoP", f11024, 1},
+    {"Done", f11025, 1},
+    {"Done. Update the music database to see the changes in your library.", f11026, 1},
+    {"Double", f11027, 1},
+    {"Double press", f11028, 1},
+    {"Download", f11029, 1},
+    {"Download \"%s\"?", f11030, 1},
+    {"Download & Install", f11031, 1},
+    {"Download Profiles", f11032, 1},
+    {"Download Settings", f11033, 1},
+    {"Download an emulator to play games.", f11034, 1},
+    {"Download emulators", f11035, 1},
+    {"Download every album from \"%s\"?", f11036, 1},
+    {"Download failed", f11037, 1},
+    {"Download folder: %s", f11038, 1},
+    {"Download folder: SD root", f11039, 1},
+    {"Download layouts", f11040, 1},
+    {"Download profiles", f11041, 1},
+    {"Download settings", f11042, 1},
+    {"Download subfolder", f11043, 1},
+    {"Download themes", f11044, 1},
+    {"Downloading", f11045, 1},
+    {"Downloading\n%s...", f11046, 1},
+    {"Downloading and installing plugins %zu/%zu", f11047, 1},
+    {"Downloading player update", f11048, 1},
+    {"Downloading update", f11049, 1},
+    {"Duration", f11050, 1},
+    {"EQ", f11051, 1},
+    {"EQ curve", f11052, 1},
+    {"Edit", f11053, 1},
+    {"Edit / Done", f11054, 1},
+    {"Edit a .theme text file on your computer. Copy it to the Themes folder on your SD card, then select it in More > Themes.", f11055, 1},
+    {"Emulator operation failed", f11056, 1},
+    {"Emulator store is busy.", f11057, 1},
+    {"Emulators", f11058, 1},
+    {"Enable Bluetooth DAC", f11059, 1},
+    {"Enable Bluetooth in settings to use BT DAC mode", f11060, 1},
+    {"Enable Sleep Timer", f11061, 1},
+    {"Enable Wi-Fi or Bluetooth to connect.", f11062, 1},
+    {"Enable WiFi to access", f11063, 1},
+    {"Enable band", f11064, 1},
+    {"Enable debug logging", f11065, 1},
+    {"Enabled", f11066, 1},
+    {"Equalizer", f11067, 1},
+    {"Erase and format SD card?", f11068, 1},
+    {"Europe", f11069, 1},
+    {"Excellent", f11070, 1},
+    {"Exit USB DAC mode to play music on this device", f11071, 1},
+    {"Extension updates", f11072, 1},
+    {"Factory Reset", f11073, 1},
+    {"Failed plugins:\n", f11074, 1},
+    {"Failed to add folder to playlist", f11075, 1},
+    {"Failed to add to playlist", f11076, 1},
+    {"Failed to apply time zone", f11077, 1},
+    {"Failed to connect to server", f11078, 1},
+    {"Failed to create playlist", f11079, 1},
+    {"Failed to delete profile", f11080, 1},
+    {"Failed to enable AirPlay", f11081, 1},
+    {"Failed to load artists", f11082, 1},
+    {"Failed to load artists: %s", f11083, 1},
+    {"Failed to load font. Check format & memory.", f11084, 1},
+    {"Failed to load from server", f11085, 1},
+    {"Failed to load profile", f11086, 1},
+    {"Failed to rename profile", f11087, 1},
+    {"Failed to save profile", f11088, 1},
+    {"Failed to start connection", f11089, 1},
+    {"Failed to switch to %s", f11090, 1},
+    {"Failed to toggle Bluetooth", f11091, 1},
+    {"Failed to update USB charging", f11092, 1},
+    {"Fair", f11093, 1},
+    {"Favorites", f11094, 1},
+    {"February", f11095, 1},
+    {"File Manager", f11096, 1},
+    {"File path is too long", f11097, 1},
+    {"File size", f11098, 1},
+    {"File unavailable", f11099, 1},
+    {"Files", f11100, 1},
+    {"Files (folders stay first)", f11101, 1},
+    {"Files on the card may have changed.", f11102, 1},
+    {"Files use modification dates. Albums use the newest track added; missing release years sort last. Update Music Database once to read years from existing files.", f11103, 1},
+    {"Filter type", f11104, 1},
+    {"Firmware Update", f11105, 1},
+    {"Firmware release %s is available.\nInstalled: %s\n\nDownload it now? This may take a while.", f11106, 1},
+    {"Firmware release %s is downloaded and verified.\n\nInstall now? The device reboots into recovery to flash it. Do not turn it off until it restarts.", f11107, 1},
+    {"Flat", f11108, 1},
+    {"Folder action is still running", f11109, 1},
+    {"Folder is too large to add to queue", f11110, 1},
+    {"Folder layout for downloaded albums", f11111, 1},
+    {"Folder too large to index (tap Back)", f11112, 1},
+    {"Font", f11113, 1},
+    {"Font Size", f11114, 1},
+    {"Font selection is no longer available", f11115, 1},
+    {"Forget", f11116, 1},
+    {"Format", f11117, 1},
+    {"Format SD Card", f11118, 1},
+    {"Formatting\nSD Card...", f11119, 1},
+    {"Frequency", f11120, 1},
+    {"Frequency (Hz, 20 to 20000)", f11121, 1},
+    {"Friday", f11122, 1},
+    {"From album art", f11123, 1},
+    {"From album art (no cover, using custom)", f11124, 1},
+    {"Gain", f11125, 1},
+    {"Gain (dB, -12 to 12)", f11126, 1},
+    {"Gain Mode", f11127, 1},
+    {"Games run on the player only.", f11128, 1},
+    {"Gapless", f11129, 1},
+    {"Gateway: %s", f11130, 1},
+    {"Generate", f11131, 1},
+    {"Generate a new PIN?", f11132, 1},
+    {"Genres", f11133, 1},
+    {"Gestures & Orientation", f11134, 1},
+    {"Get started", f11135, 1},
+    {"GitHub did not respond in time. Try again.", f11136, 1},
+    {"GitHub is limiting requests. Try again later.", f11137, 1},
+    {"GitHub returned HTTP %d.", f11138, 1},
+    {"GitHub's latest release has no valid %s image and checksum.", f11139, 1},
+    {"GitHub's latest release is not a supported firmware release.", f11140, 1},
+    {"Go back and choose New Connection to add one.", f11141, 1},
+    {"Go to page", f11142, 1},
+    {"Good", f11143, 1},
+    {"Guide: docs/development/CREATING.md", f11144, 1},
+    {"Headset may disconnect, manual reconnection might be required", f11145, 1},
+    {"Hi-Res", f11146, 1},
+    {"Hide Player/Lyrics Top Bar", f11147, 1},
+    {"Hide Unnamed Devices", f11148, 1},
+    {"Hide hidden files", f11149, 1},
+    {"High", f11150, 1},
+    {"High (320 kbps)", f11151, 1},
+    {"Hostname", f11152, 1},
+    {"Hostname can only use letters, numbers, and hyphens", f11153, 1},
+    {"IP Address: %s", f11154, 1},
+    {"Idle Shutdown", f11155, 1},
+    {"Idle timeout:", f11156, 1},
+    {"Import", f11157, 1},
+    {"Import via Wi-Fi", f11158, 1},
+    {"In-line Remote", f11159, 1},
+    {"Indian", f11160, 1},
+    {"Information", f11161, 1},
+    {"Insert an SD card to change emulators.", f11162, 1},
+    {"Insert an SD card to change plugins.", f11163, 1},
+    {"Insert an SD card to download the update.", f11164, 1},
+    {"Insert an SD card to install plugins.", f11165, 1},
+    {"Insert an SD card to remove plugins.", f11166, 1},
+    {"Insert an SD card to scan for music, or turn off Scan for music.", f11167, 1},
+    {"Insert an SD card to update plugins.", f11168, 1},
+    {"Insert your SD card with music files. Compas Player can scan it and build your library.", f11169, 1},
+    {"Install", f11170, 1},
+    {"Install & Reboot", f11171, 1},
+    {"Install & Restart", f11172, 1},
+    {"Install from SD card", f11173, 1},
+    {"Install the player update from the SD card?\n\nUpdates the player and restarts the device. Firmware, fonts, and artwork are unchanged.", f11174, 1},
+    {"Installed", f11175, 1},
+    {"Installed manually", f11176, 1},
+    {"Installed version: %s\nAvailable release: %s\n\nDownload and reinstall it anyway? This may take a while.", f11177, 1},
+    {"Installed · %s", f11178, 1},
+    {"Installing emulator", f11179, 1},
+    {"Installing player update", f11180, 1},
+    {"Installing plugin", f11181, 1},
+    {"Internal", f11182, 1},
+    {"Invalid download folder", f11183, 1},
+    {"Invalid download folder name", f11184, 1},
+    {"Invalid profile name", f11185, 1},
+    {"Invalid update path.", f11186, 1},
+    {"It could not be loaded. Rebuild it now?", f11187, 1},
+    {"It may have no partition table or a file system this player can't use. Formatting will erase it and set it up for this player.", f11188, 1},
+    {"Its settings stay on the card.", f11189, 1},
+    {"January", f11190, 1},
+    {"July", f11191, 1},
+    {"June", f11192, 1},
+    {"Keep Lyrics Screen On", f11193, 1},
+    {"Keep a button assigned to Toggle Screen or Power Menu", f11194, 1},
+    {"Keyboard", f11195, 1},
+    {"LDAC Quality", f11196, 1},
+    {"LDAC Standard", f11197, 1},
+    {"LED charge indicator", f11198, 1},
+    {"Language", f11199, 1},
+    {"Large", f11200, 1},
+    {"Later", f11201, 1},
+    {"Launch at a fixed volume", f11202, 1},
+    {"Layout", f11203, 1},
+    {"Leave", f11204, 1},
+    {"Leave Bluetooth DAC mode?", f11205, 1},
+    {"Leave USB DAC mode?", f11206, 1},
+    {"Leave this view and try again.", f11207, 1},
+    {"Left", f11208, 1},
+    {"Library", f11209, 1},
+    {"Library changed. Open the album again.", f11210, 1},
+    {"Library is busy", f11211, 1},
+    {"Library loaded", f11212, 1},
+    {"Library recovered and saved", f11213, 1},
+    {"Library recovered and saved, some folders could not be read", f11214, 1},
+    {"Library recovered. Use Settings > Update Music Database to save", f11215, 1},
+    {"Library unavailable. Use Settings > Update Music Database to rebuild", f11216, 1},
+    {"Library update failed. Check SD card and retry", f11217, 1},
+    {"Library updated", f11218, 1},
+    {"Library updated, some folders could not be read", f11219, 1},
+    {"License: %s", f11220, 1},
+    {"Limits the player volume, including buttons, remote controls and plugins.", f11221, 1},
+    {"Loading Wi-Fi settings", f11222, 1},
+    {"Loading emulators", f11223, 1},
+    {"Loading from server...", f11224, 1},
+    {"Loading layouts", f11225, 1},
+    {"Loading plugin catalog...", f11226, 1},
+    {"Loading plugins", f11227, 1},
+    {"Loading themes", f11228, 1},
+    {"Loading tracks…", f11229, 1},
+    {"Loading updates", f11230, 1},
+    {"Loading...", f11231, 1},
+    {"Location", f11232, 1},
+    {"Long", f11233, 1},
+    {"Long press", f11234, 1},
+    {"Looking for music files", f11235, 1},
+    {"Looking for music files\n%d items checked", f11236, 1},
+    {"Low", f11237, 1},
+    {"Low\nHigh", f11238, 1},
+    {"Low (96 kbps)", f11239, 1},
+    {"Lyrics", f11240, 1},
+    {"Lyrics Text Size", f11241, 1},
+    {"MAC Address: %s", f11242, 1},
+    {"Maintenance", f11243, 1},
+    {"Make an accessory discoverable, then tap Rescan.", f11244, 1},
+    {"Manage plugins later in Settings > System > Plugin Manager to search, update, or remove them.", f11245, 1},
+    {"Manual SSID Entry", f11246, 1},
+    {"March", f11247, 1},
+    {"Match album art", f11248, 1},
+    {"Max Volume", f11249, 1},
+    {"May", f11250, 1},
+    {"Medium", f11251, 1},
+    {"Medium (192 kbps)", f11252, 1},
+    {"Memorized Networks", f11253, 1},
+    {"Memory", f11254, 1},
+    {"Metadata refreshed", f11255, 1},
+    {"Mixed", f11256, 1},
+    {"Monday", f11257, 1},
+    {"Mono (1 channel)", f11258, 1},
+    {"More", f11259, 1},
+    {"Most Played", f11260, 1},
+    {"Move", f11261, 1},
+    {"Move %d item?", f11262, 1},
+    {"Music", f11263, 1},
+    {"Music database unavailable", f11264, 1},
+    {"Name (A–Z)", f11265, 1},
+    {"Native DSD", f11266, 1},
+    {"Native DSD (DoP) / %.4g MHz", f11267, 1},
+    {"Native DSD and DoP bypass software volume and DSP. Use DoP only with a compatible DAC. Unavailable formats or rates use PCM.", f11268, 1},
+    {"Nearby Wi-Fi networks will appear here.", f11269, 1},
+    {"Nearby networks will appear when Wi-Fi is ready.", f11270, 1},
+    {"Needs newer firmware", f11271, 1},
+    {"Network Name (SSID)", f11272, 1},
+    {"Network stream", f11273, 1},
+    {"Networks you connect to will appear here.", f11274, 1},
+    {"New Connection", f11275, 1},
+    {"New PIN generated", f11276, 1},
+    {"New Profile", f11277, 1},
+    {"New folder", f11278, 1},
+    {"Newest Modified", f11279, 1},
+    {"Next", f11280, 1},
+    {"Next  •  %d–%d of %d", f11281, 1},
+    {"Next Track", f11282, 1},
+    {"Next page", f11283, 1},
+    {"No .ttf fonts found in /Fonts", f11284, 1},
+    {"No SD card", f11285, 1},
+    {"No SD card detected. You can scan later from Library settings.", f11286, 1},
+    {"No SD card is mounted.", f11287, 1},
+    {"No books found", f11288, 1},
+    {"No delay\n30°\n45°\n60°\n90°", f11289, 1},
+    {"No description", f11290, 1},
+    {"No emulators are available in the catalog.", f11291, 1},
+    {"No emulators installed", f11292, 1},
+    {"No entries to display", f11293, 1},
+    {"No favorites yet", f11294, 1},
+    {"No games found", f11295, 1},
+    {"No items", f11296, 1},
+    {"No layouts are available in the catalog.", f11297, 1},
+    {"No longer in the catalog", f11298, 1},
+    {"No memorized networks", f11299, 1},
+    {"No music database", f11300, 1},
+    {"No nearby devices", f11301, 1},
+    {"No network detected", f11302, 1},
+    {"No network detected. Connect to a network to download emulators.", f11303, 1},
+    {"No network detected. Connect to a network to download plugins.", f11304, 1},
+    {"No networks found", f11305, 1},
+    {"No other networks found", f11306, 1},
+    {"No paired devices", f11307, 1},
+    {"No playable audio files found", f11308, 1},
+    {"No playable files here", f11309, 1},
+    {"No plugin settings available", f11310, 1},
+    {"No plugins are available in the catalog.", f11311, 1},
+    {"No saved profiles", f11312, 1},
+    {"No saved servers", f11313, 1},
+    {"No songs to refresh", f11314, 1},
+    {"No synchronized lyrics found", f11315, 1},
+    {"No themes are available in the catalog.", f11316, 1},
+    {"No track loaded", f11317, 1},
+    {"No tracks found", f11318, 1},
+    {"No updates available.", f11319, 1},
+    {"No user playlists", f11320, 1},
+    {"No verified update is on this SD card. Download it again.", f11321, 1},
+    {"Not available in your subscription", f11322, 1},
+    {"Not connected", f11323, 1},
+    {"Not enough free space on the SD card for the update.", f11324, 1},
+    {"Not enough free space on the SD card.", f11325, 1},
+    {"Not enough free space on the player.", f11326, 1},
+    {"Not enough internal storage for the player update.", f11327, 1},
+    {"Not enough memory to connect", f11328, 1},
+    {"Not enough memory to load CUE tracks", f11329, 1},
+    {"Not enough memory to load artists", f11330, 1},
+    {"Not enough memory to load from server", f11331, 1},
+    {"Not enough memory to load the plugin store", f11332, 1},
+    {"Not enough memory to start download", f11333, 1},
+    {"Not enough memory.", f11334, 1},
+    {"Not selected (UTC)", f11335, 1},
+    {"Not set", f11336, 1},
+    {"Nothing to select here", f11337, 1},
+    {"November", f11338, 1},
+    {"Now Playing layouts", f11339, 1},
+    {"OFF", f11340, 1},
+    {"ON", f11341, 1},
+    {"October", f11342, 1},
+    {"Off", f11343, 1},
+    {"On", f11344, 1},
+    {"Open More > Plugins > Refresh Plugins. Scan for a working example and the full API guide.", f11345, 1},
+    {"Open a book and tap the bookmark icon to save it here.", f11346, 1},
+    {"Open a folder containing supported audio files.", f11347, 1},
+    {"Open network", f11348, 1},
+    {"Open the destination folder, then choose Paste here from the menu.", f11349, 1},
+    {"Open this address on your phone or computer:", f11350, 1},
+    {"Open · Connected", f11351, 1},
+    {"Original", f11352, 1},
+    {"Output", f11353, 1},
+    {"PCM", f11354, 1},
+    {"PEQ", f11355, 1},
+    {"PEQ reset to defaults", f11356, 1},
+    {"PM", f11357, 1},
+    {"Pacific", f11358, 1},
+    {"Page %d of %d", f11359, 1},
+    {"Paired", f11360, 1},
+    {"Paired Devices", f11361, 1},
+    {"Password", f11362, 1},
+    {"Password: Not set", f11363, 1},
+    {"Password: Set", f11364, 1},
+    {"Paste %d item here", f11365, 1},
+    {"Paused: headphones disconnected", f11366, 1},
+    {"Peaking\nLow Shelf\nHigh Shelf", f11367, 1},
+    {"Per Album", f11368, 1},
+    {"Per Track", f11369, 1},
+    {"Place .ttf fonts in SD /Fonts folder.", f11370, 1},
+    {"Place a valid player executable at SD/.compas/compas_player.", f11371, 1},
+    {"Play", f11372, 1},
+    {"Play All", f11373, 1},
+    {"Play All (Sequential)", f11374, 1},
+    {"Play All (Shuffle)", f11375, 1},
+    {"Play Next", f11376, 1},
+    {"Play all shuffled", f11377, 1},
+    {"Play an album or playlist to see its songs here.", f11378, 1},
+    {"Play sequentially", f11379, 1},
+    {"Play/Pause", f11380, 1},
+    {"Playback", f11381, 1},
+    {"Playback & Controls", f11382, 1},
+    {"Playback Status", f11383, 1},
+    {"Playback and device actions", f11384, 1},
+    {"Playback changed before folder was ready", f11385, 1},
+    {"Playback error", f11386, 1},
+    {"Playback error: audio output failed", f11387, 1},
+    {"Playback history could not be saved", f11388, 1},
+    {"Playback stopped: %s", f11389, 1},
+    {"Played", f11390, 1},
+    {"Player Layout", f11391, 1},
+    {"Player Update", f11392, 1},
+    {"Player update failed", f11393, 1},
+    {"Player updated successfully", f11394, 1},
+    {"Playing", f11395, 1},
+    {"Playlist Name", f11396, 1},
+    {"Playlist changed. Select a song again.", f11397, 1},
+    {"Playlist changed. Try again.", f11398, 1},
+    {"Playlist created", f11399, 1},
+    {"Playlist deleted", f11400, 1},
+    {"Playlist is empty", f11401, 1},
+    {"Playlist name is too long", f11402, 1},
+    {"Playlist renamed", f11403, 1},
+    {"Playlist saved", f11404, 1},
+    {"Playlist selection expired", f11405, 1},
+    {"Playlist unavailable or unreadable", f11406, 1},
+    {"Playlists", f11407, 1},
+    {"Playlists refreshed", f11408, 1},
+    {"Please wait for plugin installation to finish", f11409, 1},
+    {"Please wait for the library scan to finish", f11410, 1},
+    {"Plugin", f11411, 1},
+    {"Plugin Manager", f11412, 1},
+    {"Plugin Order", f11413, 1},
+    {"Plugin Settings", f11414, 1},
+    {"Plugin Store", f11415, 1},
+    {"Plugin is unavailable in the catalog", f11416, 1},
+    {"Plugin operation failed", f11417, 1},
+    {"Plugin setup complete", f11418, 1},
+    {"Plugin setup needs attention", f11419, 1},
+    {"Plugin storage is unavailable.", f11420, 1},
+    {"Plugins", f11421, 1},
+    {"Plugins & Layouts", f11422, 1},
+    {"Plugins can override these saved preferences.", f11423, 1},
+    {"Position", f11424, 1},
+    {"Power", f11425, 1},
+    {"Power Menu", f11426, 1},
+    {"Power Off", f11427, 1},
+    {"Power controls", f11428, 1},
+    {"Power off", f11429, 1},
+    {"Pre-Amp", f11430, 1},
+    {"Pre-Amp (dB, -12 to 12)", f11431, 1},
+    {"Preparing and verifying recovery mode", f11432, 1},
+    {"Preparing cover refresh...", f11433, 1},
+    {"Preparing folder playback", f11434, 1},
+    {"Preparing metadata refresh", f11435, 1},
+    {"Preparing metadata refresh...", f11436, 1},
+    {"Preparing music library...", f11437, 1},
+    {"Preparing update", f11438, 1},
+    {"Presets", f11439, 1},
+    {"Preview", f11440, 1},
+    {"Previous", f11441, 1},
+    {"Previous  •  %d–%d of %d", f11442, 1},
+    {"Previous Track", f11443, 1},
+    {"Previous page", f11444, 1},
+    {"Previous request still finishing", f11445, 1},
+    {"Previously connected accessories will appear here.", f11446, 1},
+    {"Primary DNS", f11447, 1},
+    {"Profile Name", f11448, 1},
+    {"Profile deleted", f11449, 1},
+    {"Profile loaded", f11450, 1},
+    {"Profile renamed", f11451, 1},
+    {"Profile saved", f11452, 1},
+    {"Profiles", f11453, 1},
+    {"Provider", f11454, 1},
+    {"QWERTY", f11455, 1},
+    {"Queue", f11456, 1},
+    {"Queue changed. Try again.", f11457, 1},
+    {"Queue checkpoint failed; storage may be read-only", f11458, 1},
+    {"Queue cleared", f11459, 1},
+    {"Queue is empty", f11460, 1},
+    {"Queue ready. Press Play to start.", f11461, 1},
+    {"Queued", f11462, 1},
+    {"Quick Drawer", f11463, 1},
+    {"Quick Setup Complete", f11464, 1},
+    {"Quick setup", f11465, 1},
+    {"RC", f11466, 1},
+    {"Radio", f11467, 1},
+    {"Radio / %s", f11468, 1},
+    {"Reading supported rates...", f11469, 1},
+    {"Reading tags\n%d of %d songs (%d%%)", f11470, 1},
+    {"Reads the tags of every song again. This may take a while.", f11471, 1},
+    {"Reboot to bootloader", f11472, 1},
+    {"Rebuild", f11473, 1},
+    {"Recently Added", f11474, 1},
+    {"Recently Played", f11475, 1},
+    {"Recovery boot flag failed.", f11476, 1},
+    {"Recovery flag erase failed. Do not reboot; check .compas/ota/update.log.", f11477, 1},
+    {"Recovery flag partition does not match this firmware.", f11478, 1},
+    {"Recovery flag verification failed. Do not reboot; check the update log.", f11479, 1},
+    {"Recovery flag write failed. Do not reboot; check .compas/ota/update.log.", f11480, 1},
+    {"Recovery remains selected but reboot failed: %s. Keep the update file.", f11481, 1},
+    {"Recovery remains selected. Keep the update file; saving diagnostics failed.", f11482, 1},
+    {"Refresh", f11483, 1},
+    {"Refresh All Covers", f11484, 1},
+    {"Refresh All Metadata", f11485, 1},
+    {"Refresh Plugins", f11486, 1},
+    {"Refresh all covers?", f11487, 1},
+    {"Refresh all metadata?", f11488, 1},
+    {"Refresh emulator catalog", f11489, 1},
+    {"Refresh metadata", f11490, 1},
+    {"Refresh plugin catalog", f11491, 1},
+    {"Refresh the music database to update this list.", f11492, 1},
+    {"Refreshing\nall covers...", f11493, 1},
+    {"Refreshing\nall metadata...", f11494, 1},
+    {"Refreshing\nmetadata...", f11495, 1},
+    {"Refreshing covers", f11496, 1},
+    {"Refreshing covers\n%d of %d (%d%%)", f11497, 1},
+    {"Refreshing plugins...", f11498, 1},
+    {"Release Year (oldest first)", f11499, 1},
+    {"Reload cover", f11500, 1},
+    {"Reloading\ncover...", f11501, 1},
+    {"Reloading cover", f11502, 1},
+    {"Reloading cover\n%d of %d (%d%%)", f11503, 1},
+    {"Remote", f11504, 1},
+    {"Remote Control", f11505, 1},
+    {"Remove", f11506, 1},
+    {"Remove %s?", f11507, 1},
+    {"Removed", f11508, 1},
+    {"Removed from playlist", f11509, 1},
+    {"Removed from queue", f11510, 1},
+    {"Removes saved covers and extracts them again. This may take a while.", f11511, 1},
+    {"Removing emulator", f11512, 1},
+    {"Removing plugin", f11513, 1},
+    {"Rename", f11514, 1},
+    {"Rename Playlist", f11515, 1},
+    {"Rename Profile", f11516, 1},
+    {"Reorder Items", f11517, 1},
+    {"Replace", f11518, 1},
+    {"Replace Existing", f11519, 1},
+    {"Replace Profile", f11520, 1},
+    {"Replacing the player and preparing to restart", f11521, 1},
+    {"ReplayGain", f11522, 1},
+    {"Rescan", f11523, 1},
+    {"Reset", f11524, 1},
+    {"Reset All", f11525, 1},
+    {"Reset PEQ to defaults?", f11526, 1},
+    {"Reset all button mappings?", f11527, 1},
+    {"Reset all settings and reboot?", f11528, 1},
+    {"Reset to defaults", f11529, 1},
+    {"Restart", f11530, 1},
+    {"Restart Now", f11531, 1},
+    {"Restart now to apply the new hostname?", f11532, 1},
+    {"Restarting into recovery. Do not turn off the player.", f11533, 1},
+    {"Resume Last Track", f11534, 1},
+    {"Resume and Play", f11535, 1},
+    {"Resume playback when external power turns the player on.", f11536, 1},
+    {"Resume, but Paused", f11537, 1},
+    {"Retrying plugins %zu/%zu", f11538, 1},
+    {"Review updates", f11539, 1},
+    {"Right", f11540, 1},
+    {"SD card", f11541, 1},
+    {"SD card couldn't be read", f11542, 1},
+    {"SD card format failed", f11543, 1},
+    {"SD card formatted", f11544, 1},
+    {"SD card is read-only. Check it on a computer", f11545, 1},
+    {"SD card is still read-only", f11546, 1},
+    {"SD card may have errors. Check it on a computer", f11547, 1},
+    {"SD card not available", f11548, 1},
+    {"SD card repair is still running", f11549, 1},
+    {"SD card repaired", f11550, 1},
+    {"SSID must be 1 to 32 bytes", f11551, 1},
+    {"SSID: %s", f11552, 1},
+    {"Safe Charging (500mA)", f11553, 1},
+    {"Sample Rate", f11554, 1},
+    {"Saturday", f11555, 1},
+    {"Save", f11556, 1},
+    {"Save Profile", f11557, 1},
+    {"Save Profile As", f11558, 1},
+    {"Save Queue as Playlist", f11559, 1},
+    {"Save as Playlist", f11560, 1},
+    {"Save as a new profile, or replace one that already exists?", f11561, 1},
+    {"Saved Servers", f11562, 1},
+    {"Saved network", f11563, 1},
+    {"Saved network details are being checked.", f11564, 1},
+    {"Saving data before reboot", f11565, 1},
+    {"Saving data failed. Recovery remains selected; keep the update file and check .compas/ota/update.log.", f11566, 1},
+    {"Saving music database", f11567, 1},
+    {"Saving music database\nThis can take a while on large libraries", f11568, 1},
+    {"Saving playlist…", f11569, 1},
+    {"Scan for a starter theme and instructions. To redesign the player screen, see the XML layout guide linked there.", f11570, 1},
+    {"Scan for music", f11571, 1},
+    {"Scan for the full guide", f11572, 1},
+    {"Scanning for networks", f11573, 1},
+    {"Scanning playable files", f11574, 1},
+    {"Screen Dimming", f11575, 1},
+    {"Screen Timeout", f11576, 1},
+    {"Screen off", f11577, 1},
+    {"Screenshot failed (%s)", f11578, 1},
+    {"Screenshot failed (framebuffer)", f11579, 1},
+    {"Screenshot failed (worker)", f11580, 1},
+    {"Screenshot needs an SD card", f11581, 1},
+    {"Screenshot saved", f11582, 1},
+    {"Screenshots (Power + Previous)", f11583, 1},
+    {"Screenshots (Power + Vol Down)", f11584, 1},
+    {"Screenshots unavailable", f11585, 1},
+    {"Searching for networks", f11586, 1},
+    {"Secondary DNS", f11587, 1},
+    {"Secure connection failed. Check Wi-Fi and the date and time.", f11588, 1},
+    {"Secured network", f11589, 1},
+    {"Secured · Connected", f11590, 1},
+    {"Seek Backward", f11591, 1},
+    {"Seek Forward", f11592, 1},
+    {"Select", f11593, 1},
+    {"Select a file", f11594, 1},
+    {"Select all", f11595, 1},
+    {"Select at least one plugin to continue.", f11596, 1},
+    {"Selected plugins are ready.\n", f11597, 1},
+    {"September", f11598, 1},
+    {"Server URL (e.g. %s)", f11599, 1},
+    {"Server URL: %s", f11600, 1},
+    {"Server request timed out after 30 seconds", f11601, 1},
+    {"Service is busy", f11602, 1},
+    {"Set Time", f11603, 1},
+    {"Set your local time zone so the clock is right.", f11604, 1},
+    {"Settings", f11605, 1},
+    {"Show Time Remaining", f11606, 1},
+    {"Show hidden files", f11607, 1},
+    {"Showing first %d of %d songs", f11608, 1},
+    {"Shuffle", f11609, 1},
+    {"Shuffle from a random song", f11610, 1},
+    {"Sign in to the streaming service again", f11611, 1},
+    {"Signal: %s", f11612, 1},
+    {"Single", f11613, 1},
+    {"Single press", f11614, 1},
+    {"Size: %s", f11615, 1},
+    {"Skip for now", f11616, 1},
+    {"Skipped: %s", f11617, 1},
+    {"Sleep", f11618, 1},
+    {"Sleep Timer", f11619, 1},
+    {"Sleep timer", f11620, 1},
+    {"Sleep timer: %d min remaining", f11621, 1},
+    {"Sleep timer: Off", f11622, 1},
+    {"Small", f11623, 1},
+    {"Some covers could not be refreshed", f11624, 1},
+    {"Some playlists could not be read", f11625, 1},
+    {"Some plugin files were changed on the card. Replace them?", f11626, 1},
+    {"Some songs could not be read", f11627, 1},
+    {"Some updates need confirmation before replacing local files.", f11628, 1},
+    {"Song already added", f11629, 1},
+    {"Song deleted", f11630, 1},
+    {"Songs", f11631, 1},
+    {"Sorting", f11632, 1},
+    {"Sound", f11633, 1},
+    {"Sound Effects", f11634, 1},
+    {"Source", f11635, 1},
+    {"Speex Resampling", f11636, 1},
+    {"Start sequentially", f11637, 1},
+    {"Start with these suggestions, or explore more plugins.", f11638, 1},
+    {"Starting download", f11639, 1},
+    {"Starting update", f11640, 1},
+    {"Startup Volume", f11641, 1},
+    {"Step %d of %d", f11642, 1},
+    {"Stereo (2 channels)", f11643, 1},
+    {"Still applying the previous choice", f11644, 1},
+    {"Still working. Do not turn off the player or retry.", f11645, 1},
+    {"Stop", f11646, 1},
+    {"Stopped", f11647, 1},
+    {"Stopping...", f11648, 1},
+    {"Storage", f11649, 1},
+    {"Stream Media", f11650, 1},
+    {"Stream Quality", f11651, 1},
+    {"Stream quality: %s", f11652, 1},
+    {"Subfolder is relative to SD root (example: Music/Offline); empty uses SD root", f11653, 1},
+    {"Subfolder: SD root", f11654, 1},
+    {"Subsonic", f11655, 1},
+    {"Sunday", f11656, 1},
+    {"Support Compás", f11657, 1},
+    {"Suspend to RAM", f11658, 1},
+    {"Swipe Up for Home", f11659, 1},
+    {"Swipe up to unlock", f11660, 1},
+    {"System", f11661, 1},
+    {"System playlists", f11662, 1},
+    {"T9", f11663, 1},
+    {"TXT Reader", f11664, 1},
+    {"Takes its color from the cover of the playing track", f11665, 1},
+    {"Tap Power off again to confirm", f11666, 1},
+    {"Tap Restart again to confirm", f11667, 1},
+    {"That name cannot be used", f11668, 1},
+    {"The SD card changed during the download.", f11669, 1},
+    {"The SD card changed during the operation.", f11670, 1},
+    {"The SD card is read-only. Check its write protection.", f11671, 1},
+    {"The download did not complete. Check Wi-Fi and try again.", f11672, 1},
+    {"The downloaded image failed verification and was deleted.", f11673, 1},
+    {"The downloaded player failed SHA-256 verification.", f11674, 1},
+    {"The emulator download failed verification. Try again.", f11675, 1},
+    {"The emulator folder is not writable.", f11676, 1},
+    {"The firmware path is too long.", f11677, 1},
+    {"The game closed unexpectedly.", f11678, 1},
+    {"The latest player release changed. Check again.", f11679, 1},
+    {"The player download did not complete.", f11680, 1},
+    {"The player image exceeds the safe size limit.", f11681, 1},
+    {"The playlist file will be deleted. Music files are kept.", f11682, 1},
+    {"The plugin download failed verification. Try again.", f11683, 1},
+    {"The previous download is incomplete or invalid. Remove the update file from the SD card, tap Install from SD card, then copy the new file and try again.", f11684, 1},
+    {"The quick brown fox jumps 123", f11685, 1},
+    {"The release checksum does not match the published asset digest.", f11686, 1},
+    {"The release does not provide a valid player checksum.", f11687, 1},
+    {"The release has no checksum for this device's image.", f11688, 1},
+    {"The selected update file changed. Select it again.", f11689, 1},
+    {"The streaming plugin is not available", f11690, 1},
+    {"The streaming service did not answer", f11691, 1},
+    {"The update file changed during verification. Select it again.", f11692, 1},
+    {"The update file on the SD card changed. Download it again.", f11693, 1},
+    {"Themes", f11694, 1},
+    {"There are no entries in this view.", f11695, 1},
+    {"This can take a few seconds.", f11696, 1},
+    {"This cannot be undone.", f11697, 1},
+    {"This device is now a USB sound card", f11698, 1},
+    {"This device is now receiving Bluetooth audio", f11699, 1},
+    {"This emulator needs a newer player version.", f11700, 1},
+    {"This folder is empty", f11701, 1},
+    {"This includes the player's own data (.compas or .plugins). Deleting or moving it can break features, lose data such as settings and installed plugins, and may require a restart.", f11702, 1},
+    {"This may take a while", f11703, 1},
+    {"This permanently deletes everything on the card. This cannot be undone.", f11704, 1},
+    {"This plugin has no update available.", f11705, 1},
+    {"This plugin is already installed by the store.", f11706, 1},
+    {"This plugin is not installed by the store.", f11707, 1},
+    {"This plugin needs a newer player version.", f11708, 1},
+    {"This quality is unavailable for this track", f11709, 1},
+    {"This release's image does not match its checksums. Try again after the next weekly release.", f11710, 1},
+    {"This track is copy-protected", f11711, 1},
+    {"This track is unavailable", f11712, 1},
+    {"This type of file cannot be opened", f11713, 1},
+    {"This update is no longer the latest release. Check for updates and download the latest image.", f11714, 1},
+    {"This update no longer matches the latest release. Download the latest image again.", f11715, 1},
+    {"Thread launch failed", f11716, 1},
+    {"Thursday", f11717, 1},
+    {"Time Zone", f11718, 1},
+    {"Time remaining: %d:%02d", f11719, 1},
+    {"Time remaining: %d:%02d:%02d", f11720, 1},
+    {"Time zone", f11721, 1},
+    {"Tint startup image", f11722, 1},
+    {"Tint title bar icons", f11723, 1},
+    {"Toggle Screen", f11724, 1},
+    {"Too many audio channels", f11725, 1},
+    {"Too many plugins are installed. Remove one and try again.", f11726, 1},
+    {"Top Bar", f11727, 1},
+    {"Track", f11728, 1},
+    {"Track %+.1f dB", f11729, 1},
+    {"Track %d", f11730, 1},
+    {"Track details are not available yet. Keep playback open and check again.", f11731, 1},
+    {"Tracks", f11732, 1},
+    {"Try scanning again or add a hidden network.", f11733, 1},
+    {"Tuesday", f11734, 1},
+    {"Turn Bluetooth off and on to apply", f11735, 1},
+    {"Turn off ADB first (Settings > System > USB Mode), then enable USB DAC from here.", f11736, 1},
+    {"Turn off Automatic to set the clock", f11737, 1},
+    {"Turn off Bluetooth DAC to play music on this device", f11738, 1},
+    {"Turn off Bluetooth to use Wi-Fi", f11739, 1},
+    {"Turn off DAC mode to play games.", f11740, 1},
+    {"Turn off Wi-Fi to use Bluetooth", f11741, 1},
+    {"Turn off screen automatically", f11742, 1},
+    {"Turn on Bluetooth to see paired and nearby devices.", f11743, 1},
+    {"Turn on Wi-Fi and connect first", f11744, 1},
+    {"Turn this on to see the address here.", f11745, 1},
+    {"Turning Wi-Fi on", f11746, 1},
+    {"USB Audio", f11747, 1},
+    {"USB DAC", f11748, 1},
+    {"USB DAC mode", f11749, 1},
+    {"USB DSD Output", f11750, 1},
+    {"USB Mode", f11751, 1},
+    {"USB audio device detected", f11752, 1},
+    {"USB charging setting is busy", f11753, 1},
+    {"USB input: %s · %u-bit", f11754, 1},
+    {"USB mode", f11755, 1},
+    {"USB storage is busy.", f11756, 1},
+    {"Unable to load items", f11757, 1},
+    {"Unable to read folder (tap Back and retry)", f11758, 1},
+    {"Unavailable", f11759, 1},
+    {"Unexpected library response", f11760, 1},
+    {"Unexpected reply from GitHub", f11761, 1},
+    {"Unexpected reply from GitHub.", f11762, 1},
+    {"Unknown album", f11763, 1},
+    {"Unknown artist", f11764, 1},
+    {"Unknown codec", f11765, 1},
+    {"Unknown format", f11766, 1},
+    {"Unknown rate", f11767, 1},
+    {"Unsupported audio format", f11768, 1},
+    {"Update", f11769, 1},
+    {"Update & Reboot", f11770, 1},
+    {"Update All", f11771, 1},
+    {"Update Music Database", f11772, 1},
+    {"Update Music Database to enable this album order", f11773, 1},
+    {"Update available", f11774, 1},
+    {"Update available · %s", f11775, 1},
+    {"Update diagnostics must be stored on the SD card.", f11776, 1},
+    {"Update failed.", f11777, 1},
+    {"Update helper failed (%s, status %d). See .compas/ota/update.log.", f11778, 1},
+    {"Update individually", f11779, 1},
+    {"Update music database?", f11780, 1},
+    {"Update saved. Connect to Wi-Fi, then install from Firmware Update > Install from SD card.", f11781, 1},
+    {"Update the Player only, retaining current drivers, kernel and bootloader.", f11782, 1},
+    {"Update the entire CompásOS. Flashing firmware contains Bootloader, Player, Kernel and Drivers.", f11783, 1},
+    {"Update these plugins individually", f11784, 1},
+    {"Update using %s?\nDevice will reboot into recovery mode.", f11785, 1},
+    {"Updates", f11786, 1},
+    {"Updating\nmusic database...", f11787, 1},
+    {"Updating emulator", f11788, 1},
+    {"Updating player", f11789, 1},
+    {"Updating plugins", f11790, 1},
+    {"Updating replaces bundled games and their saves. Games in SD/Games are kept.", f11791, 1},
+    {"Upside Down Screen", f11792, 1},
+    {"Use Settings > Update Music Database", f11793, 1},
+    {"Use a regular %s file in the SD card root.", f11794, 1},
+    {"User playlists", f11795, 1},
+    {"Username", f11796, 1},
+    {"Username: %s", f11797, 1},
+    {"Uses the accent color for the default splash.", f11798, 1},
+    {"Uses the accent color for the icons next to screen titles.", f11799, 1},
+    {"Verify server certificate", f11800, 1},
+    {"Version", f11801, 1},
+    {"Version %s · %s", f11802, 1},
+    {"Volume", f11803, 1},
+    {"Volume Down", f11804, 1},
+    {"Volume Lock (Screen Off)", f11805, 1},
+    {"Volume Slider", f11806, 1},
+    {"Volume Up", f11807, 1},
+    {"Wait for USB mode switching to finish and disconnect USB storage before updating.", f11808, 1},
+    {"Waiting for Bluetooth stream…", f11809, 1},
+    {"Waiting for USB audio…", f11810, 1},
+    {"Weak", f11811, 1},
+    {"Web Server is busy", f11812, 1},
+    {"Wednesday", f11813, 1},
+    {"Welcome to Compás", f11814, 1},
+    {"When on, this device is visible to AirPlay senders on your Wi-Fi network -- stream audio from an iPhone, iPad, or Mac to be played through this device's own output.", f11815, 1},
+    {"When on, this device is visible to DLNA/UPnP controller apps on your Wi-Fi network -- cast a track from one to play it here. Pause, mute, volume, and seek from the controller app aren't supported; use this device's own controls instead once a track starts.", f11816, 1},
+    {"When on, this device stays visible and pairable to other Bluetooth devices, so a phone or computer can stream audio TO it and play through this device's own output -- using it as an external DAC.", f11817, 1},
+    {"Wi-Fi", f11818, 1},
+    {"Wi-Fi Info", f11819, 1},
+    {"Wi-Fi Password", f11820, 1},
+    {"Wi-Fi could not be enabled", f11821, 1},
+    {"Wi-Fi failed to change state", f11822, 1},
+    {"Wi-Fi is busy", f11823, 1},
+    {"Wi-Fi is still starting", f11824, 1},
+    {"Wired Headphones", f11825, 1},
+    {"Wireless", f11826, 1},
+    {"Working...", f11827, 1},
+    {"Write a Lua plugin on your computer. Copy its .lua file to the .plugins folder on your SD card.", f11828, 1},
+    {"You can select up to 32 plugins", f11829, 1},
+    {"Your library is being loaded.", f11830, 1},
+    {"Your music", f11831, 1},
+    {"Your setup journey", f11832, 1},
+    {"[File truncated at %d KB -- showing the first part only]\n\n%s", f11833, 1},
+    {"device info\004Build", f11834, 1},
+    {"github.com/Starnished66/compas-player", f11835, 1},
+    {"unknown", f11836, 1},
+};
+
 const i18n_lang_t i18n_catalog_langs[] = {
     {"de", "Deutsch", entries_de, 1103},
     {"es", "Español", entries_es, 1013},
@@ -21452,5 +23728,6 @@ const i18n_lang_t i18n_catalog_langs[] = {
     {"pt_PT", "Português (Portugal)", entries_pt_PT, 1103},
     {"ru", "Русский", entries_ru, 1133},
     {"uk", "Українська", entries_uk, 1103},
+    {"zh_CN", "简体中文", entries_zh_CN, 1136},
 };
-const size_t i18n_catalog_lang_count = 10;
+const size_t i18n_catalog_lang_count = 11;
