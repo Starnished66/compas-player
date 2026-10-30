@@ -1208,6 +1208,24 @@ lv_obj_t * gui_lyrics_get_screen(void) {
     return lyrics_screen;
 }
 
+bool gui_lyrics_is_visible(void) {
+    /* Teardown deletes the owned screen before the child globals are reset;
+     * do not inspect those possibly stale child pointers in that interval. */
+    if (!lyrics_screen) return false;
+    if (!lyrics_embedded) return lv_screen_active() == lyrics_screen;
+
+    /* An embedded pane can be prepared while its player/layout is hidden.
+     * Require both the active screen and LVGL's effective visibility, which
+     * includes hidden flags on the pane and all of its ancestors. */
+    if (lyrics_embedded_prepared_hidden) return false;
+    if (lyrics_list && lv_obj_is_valid(lyrics_list) &&
+        lv_obj_get_screen(lyrics_list) == lv_screen_active() &&
+        lv_obj_is_visible(lyrics_list)) return true;
+    return lyrics_empty_label && lv_obj_is_valid(lyrics_empty_label) &&
+        lv_obj_get_screen(lyrics_empty_label) == lv_screen_active() &&
+        lv_obj_is_visible(lyrics_empty_label);
+}
+
 void gui_lyrics_poll_load(void) {
     if (gui_player_lyrics_animation_in_progress()) return;
     poll_lyrics_load();

@@ -675,6 +675,13 @@ static void request_screen_power(bool on) {
     }
 }
 
+void gui_sleep_timer_expired(void) {
+    /* A deliberate sleep timer must still finish the session when pausing
+     * alone no longer releases the visible-lyrics keep-awake hold. */
+    if (current_settings.lyrics_keep_screen_on && gui_lyrics_is_visible())
+        request_screen_power(false);
+}
+
 static uint32_t physical_button_now_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -1310,12 +1317,11 @@ static void poll_screen_inactivity_timeout(void) {
         if (screen_inactive_ms > interactive_age_ms) screen_inactive_ms = interactive_age_ms;
     }
     bool screen_on_before_timeout = backlight_screen_is_on();
-    /* Keep the visible lyrics readable during playback only. A pause, page
-     * exit or disabled option restores a full normal inactivity countdown.
+    /* The option keeps visible lyrics readable, including while paused.
+     * Leaving lyrics or disabling it restores a full normal countdown.
      * Never wake a screen the user explicitly turned off. */
-    lv_obj_t * lyrics_screen = gui_lyrics_get_screen();
-    bool lyrics_screen_active = current_settings.lyrics_keep_screen_on && lyrics_screen &&
-        lv_screen_active() == lyrics_screen && audio_is_playing();
+    bool lyrics_screen_active = current_settings.lyrics_keep_screen_on &&
+        gui_lyrics_is_visible();
     if (lyrics_timeout_held && !lyrics_screen_active && screen_on_before_timeout) {
         gui_reset_interactive_timeout_baseline();
         screen_inactive_ms = 0;

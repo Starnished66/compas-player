@@ -47,6 +47,10 @@ void gui_stream_media_refresh(void);
 void gui_deinit(void);
 /* True while the screen is lit or its selected wake surface is ready to paint. */
 bool gui_display_refresh_allowed(void);
+/* An expired sleep timer overrides the lyrics keep-awake option. Other
+ * screens retain their normal inactivity policy. Called on the UI thread. */
+void gui_sleep_timer_expired(void);
+
 
 /* Optional player splash after display setup, before gui_init(). Currently
  * disabled (zero duration); the loader owns the boot artwork. */

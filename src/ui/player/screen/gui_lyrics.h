@@ -8,6 +8,9 @@ void gui_lyrics_init(void);
  * reload can call gui_lyrics_init() again from a clean slate. */
 void gui_lyrics_teardown(void);
 lv_obj_t * gui_lyrics_get_screen(void);
+/* True only while fullscreen lyrics or an embedded lyrics pane is visible
+ * on the active screen. */
+bool gui_lyrics_is_visible(void);
 
 void gui_lyrics_poll_load(void);
 void gui_lyrics_poll_backdrop(void);

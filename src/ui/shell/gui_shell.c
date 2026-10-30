@@ -3595,6 +3595,7 @@ static void poll_sleep_timer(void) {
         quick_drawer_set_toggle_state(2, false);
         quick_drawer_mark_snapshot_dirty();
         gui_settings_sync_sleep_timer_toggle(); /* Settings' toggle must not keep showing armed once expiry disarmed it */
+        gui_sleep_timer_expired();
         return;
     }
 
