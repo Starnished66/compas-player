@@ -36,6 +36,7 @@
 #include "../lua/plugin_lua_runtime.h"
 #include "../storage/plugin_storage.h"
 #include "plugin_internal.h"
+#include "lvgl/src/misc/cache/instance/lv_image_cache.h"
 #include "../lifecycle/plugin_disabled_list.h"
 #include "../../network/store/plugins/plugin_store.h"
 #include "../../hardware/input/hw_buttons.h"
@@ -1829,6 +1830,18 @@ static int l_plugin_list_dir(lua_State * L) {
 
 static int l_plugin_sd_root(lua_State * L) {
     lua_pushstring(L, MUSIC_ROOT_DIR);
+    return 1;
+}
+
+static int l_plugin_realpath(lua_State * L) {
+    size_t length;
+    const char * path = luaL_checklstring(L, 1, &length);
+    luaL_argcheck(L, strlen(path) == length, 1, "path contains NUL");
+    check_plugin_external_path(L, 1, "plugin.realpath");
+    char resolved[PATH_MAX];
+    if (!realpath(path, resolved)) return plugin_lua_push_error(L, strerror(errno));
+    lua_pushstring(L, resolved);
+    check_plugin_external_path(L, -1, "plugin.realpath");
     return 1;
 }
 
@@ -5048,6 +5061,7 @@ static const luaL_Reg plugin_funcs[] = {
     { "show_order_editor",         l_plugin_show_order_editor },
     { "list_dir",                  l_plugin_list_dir },
     { "sd_root",                   l_plugin_sd_root },
+    { "realpath",                  l_plugin_realpath },
     { "playlist_list",             l_plugin_playlist_list },
     { "playlist_read",             l_plugin_playlist_read },
     { "playlist_create",           l_plugin_playlist_create },
@@ -5264,8 +5278,69 @@ static void register_plugin_lib(lua_State * L, const luaL_Reg * regs) {
     }
 }
 
+static int plugin_now_playing_set_value(lua_State * L, bool image) {
+    const char * api = image ? "plugin.now_playing.set_image" : "plugin.now_playing.set_text";
+    plugin_instance_t * inst = plugin_instance_for_state(plugin_lua_main_state(L));
+    if (!inst || !inst->defined || inst->disposing || inst->aborted)
+        return luaL_error(L, "%s requires an active plugin.define({id=...})", api);
+    size_t name_len;
+    const char * name = luaL_checklstring(L, 1, &name_len);
+    if (strlen(name) != name_len) return luaL_error(L, "%s: invalid widget name", api);
+    const char * value = NULL;
+    char source[515];
+    if (!lua_isnoneornil(L, 2)) {
+        size_t len;
+        value = luaL_checklstring(L, 2, &len);
+        if (strlen(value) != len || len > (image ? 511u : 4095u))
+            return luaL_error(L, "%s: invalid or oversized value", api);
+        if (image) {
+            char path[512];
+            int n = value[0] == '/' ? snprintf(path, sizeof(path), "%s", value) :
+                snprintf(path, sizeof(path), "%s/.plugins/%s", MUSIC_ROOT_DIR, value);
+            if (!value[0] || n < 0 || (size_t)n >= sizeof(path))
+                return luaL_error(L, "%s: invalid or oversized image path", api);
+            lua_pushstring(L, path);
+            check_plugin_external_path(L, -1, api);
+            lua_pop(L, 1);
+            struct stat st;
+            if (stat(path, &st) != 0 || !S_ISREG(st.st_mode))
+                return luaL_error(L, "%s: image file does not exist", api);
+            snprintf(source, sizeof(source), "S:%s", path);
+            /* The same path may have been replaced since LVGL last decoded
+             * it. Drop cached pixels and dimensions before validation;
+             * lv_image_cache_drop also clears the header cache and notifies
+             * draw units to discard source-keyed rendering resources. */
+            lv_image_cache_drop(source);
+            lv_image_header_t header;
+            if (lv_image_decoder_get_info(source, &header) != LV_RESULT_OK)
+                return luaL_error(L, "%s: unsupported image file", api);
+            value = source;
+        }
+    }
+    const char * error = player_layouts_set_plugin_value(inst->id, name, value, image);
+    if (error) return luaL_error(L, "%s: %s", api, error);
+    lua_pushboolean(L, true);
+    return 1;
+}
+
+static int l_plugin_now_playing_set_image(lua_State * L) {
+    return plugin_now_playing_set_value(L, true);
+}
+
+static int l_plugin_now_playing_set_text(lua_State * L) {
+    return plugin_now_playing_set_value(L, false);
+}
+
+static const luaL_Reg plugin_now_playing_funcs[] = {
+    { "set_image", l_plugin_now_playing_set_image },
+    { "set_text", l_plugin_now_playing_set_text },
+    { NULL, NULL }
+};
+
 static void register_plugin_api(lua_State * L) {
     register_plugin_lib(L, plugin_funcs);
+    register_plugin_lib(L, plugin_now_playing_funcs);
+    lua_setfield(L, -2, "now_playing");
     register_plugin_lib(L, plugin_storage_funcs);
     lua_setfield(L, -2, "storage");
     register_plugin_lib(L, plugin_secrets_funcs);
