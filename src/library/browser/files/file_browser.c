@@ -1231,11 +1231,39 @@ static void set_selected(file_browser_t * fb, unsigned ordinal, bool on) {
     else fb->selected_count--;
 }
 
-/* Full rebuild for a mode change, at the same scroll offset. */
-static void rebuild_list_in_place(file_browser_t * fb) {
+/* Full rebuild for a mode change. Names wrap differently with and without
+ * the check box, so row heights change: keep an anchor row (the pressed
+ * entry's ordinal, or -1 for the first visible row) at the same screen y
+ * instead of the same pixel offset. */
+static void rebuild_list_in_place(file_browser_t * fb, int anchor_ordinal) {
+    lv_area_t list_area;
+    lv_obj_update_layout(fb->list);
+    lv_obj_get_coords(fb->list, &list_area);
+    int32_t anchor = anchor_ordinal >= 0 ? anchor_ordinal - fb->page_start : -1;
+    int32_t count = (int32_t) lv_obj_get_child_count(fb->list);
+    if (anchor < 0 || anchor >= count) {
+        anchor = -1;
+        for (int32_t i = 0; i < count; i++) {
+            lv_area_t a;
+            lv_obj_get_coords(lv_obj_get_child(fb->list, i), &a);
+            if (a.y2 >= list_area.y1) { anchor = i; break; }
+        }
+    }
+    int32_t old_offset = 0;
+    if (anchor >= 0) {
+        lv_area_t a;
+        lv_obj_get_coords(lv_obj_get_child(fb->list, anchor), &a);
+        old_offset = a.y1 - list_area.y1;
+    }
     int32_t scroll_y = lv_obj_get_scroll_y(fb->list);
     rebuild_list(fb);
     lv_obj_update_layout(fb->list);
+    if (anchor >= 0 && anchor < (int32_t) lv_obj_get_child_count(fb->list)) {
+        lv_area_t a;
+        lv_obj_get_coords(lv_obj_get_child(fb->list, anchor), &a);
+        scroll_y = lv_obj_get_scroll_y(fb->list) + (a.y1 - list_area.y1) - old_offset;
+        if (scroll_y < 0) scroll_y = 0;
+    }
     lv_obj_scroll_to_y(fb->list, scroll_y, LV_ANIM_OFF);
 }
 
@@ -1250,8 +1278,9 @@ static void entry_click_cb(lv_event_t * e) {
         /* The check box is the row's last child. */
         lv_obj_t * row = lv_event_get_current_target_obj(e);
         lv_obj_delete(lv_obj_get_child(row, -1));
-        lv_obj_align(build_check_box(row, is_selected(fb, (unsigned) index)), LV_ALIGN_RIGHT_MID,
-                     -LIST_ROW_LABEL_INSET, 0);
+        lv_obj_t * box = build_check_box(row, is_selected(fb, (unsigned) index));
+        lv_obj_add_flag(box, LV_OBJ_FLAG_FLOATING);
+        lv_obj_align(box, LV_ALIGN_RIGHT_MID, -LIST_ROW_LABEL_INSET, 0);
         notify_selection(fb);
         return;
     }
@@ -1316,7 +1345,7 @@ static void entry_long_press_cb(lv_event_t * e) {
         /* The rebuild deletes the pressed row; its release must not click
          * whatever row takes its place. */
         lv_indev_wait_release(lv_indev_active());
-        rebuild_list_in_place(fb);
+        rebuild_list_in_place(fb, (int) ordinal);
         notify_selection(fb);
         return;
     }
@@ -1353,34 +1382,67 @@ static lv_obj_t * add_file_row(file_browser_t * fb, const char * label_text, con
                                lv_event_cb_t cb, void * user_data, bool check_box, bool checked) {
     lv_obj_t * row = lv_obj_create(fb->list);
     /* Files uses the same font-aware ordinary row height as other native
-     * lists, including the music browser. */
-    lv_obj_set_size(row, LIST_ROW_WIDTH_WIDE, ui_list_row_height());
+     * lists, including the music browser, as a minimum. */
     lv_obj_add_style(row, &native_row_min_style, 0);
     lv_obj_add_style(row, &pill_row_bg_style, 0);
     lv_obj_add_style(row, &list_row_pressed_style, LV_STATE_PRESSED);
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
+    /* Label x is measured from the row's content box, which starts inside the
+     * border and padding, so both come off the width or the text would reach
+     * the right edge. The usual right margin is the pill rows' (screen_builders.c),
+     * measured from the row edge; in selection mode the label instead stops
+     * a gap short of the check box. */
+    const int32_t border = lv_obj_get_style_border_width(row, LV_PART_MAIN);
+    const int32_t pad_right = lv_obj_get_style_pad_right(row, LV_PART_MAIN);
+    const bool has_icon = icon_asset && icon_asset->src;
+    const int32_t label_x = has_icon ? 72 : LIST_ROW_LABEL_INSET;
+    const int32_t right_space = check_box
+        ? border + pad_right + LIST_ROW_LABEL_INSET + BOARD_SCALE_PX(24) + BOARD_SCALE_PX(8)
+        : (has_icon ? BOARD_SCALE_PX(24) : LIST_ROW_LABEL_INSET);
+    const int32_t label_w = ui_row_label_width(row, LIST_ROW_WIDTH_WIDE, label_x, right_space);
+
     lv_obj_t * label = lv_label_create(row);
-    lv_label_set_text(label, label_text);
     lv_obj_add_style(label, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(label, &LIST_ROW_FONT, 0);
-    lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(label, label_w);
+    lv_label_set_text(label, label_text);
 
-    int32_t check_space = check_box ? BOARD_SCALE_PX(40) : 0;
-    if (icon_asset && icon_asset->src) {
-        lv_obj_t * icon = lv_image_create(row);
+    lv_obj_t * icon = NULL;
+    if (has_icon) {
+        icon = lv_image_create(row);
         lv_image_set_src(icon, icon_asset->src);
         if (icon_asset->text_color) lv_obj_add_style(icon, &style_theme_text_primary, 0);
-        /* Glyph lines up with the category menus' row icons. */
-        lv_obj_align(icon, LV_ALIGN_LEFT_MID, 7, 0);
-        lv_obj_align(label, LV_ALIGN_LEFT_MID, 72, 0);
-        lv_obj_set_width(label, LIST_ROW_WIDTH_WIDE - BOARD_SCALE_PX(88) - check_space);
-    } else {
-        lv_obj_align(label, LV_ALIGN_LEFT_MID, LIST_ROW_LABEL_INSET, 0);
-        lv_obj_set_width(label, LIST_ROW_WIDTH_WIDE - 2 * LIST_ROW_LABEL_INSET - check_space);
     }
-    if (check_box)
-        lv_obj_align(build_check_box(row, checked), LV_ALIGN_RIGHT_MID, -LIST_ROW_LABEL_INSET, 0);
+    /* A name that fits on one line keeps the fixed-height, centred row; a
+     * longer one wraps and the row grows (ui_row_fit_label). */
+    const bool tall = ui_row_fit_label(row, label, &LIST_ROW_FONT, LIST_ROW_WIDTH_WIDE, label_x, label_w);
+    if (!tall) {
+        /* Glyph lines up with the category menus' row icons. */
+        if (icon) lv_obj_align(icon, LV_ALIGN_LEFT_MID, 7, 0);
+    } else if (icon) {
+        const int32_t row_h = ui_list_row_height();
+        const int32_t pad_ver = lv_obj_get_style_pad_top(row, LV_PART_MAIN);
+        /* The icon sits on the first line: it is centred in an invisible
+         * minimum-height cell at the row's top, exactly where a one-line
+         * row centres it. The cell floats, so it never sizes the row. */
+        lv_obj_t * cell = lv_obj_create(row);
+        lv_obj_set_size(cell, label_x, row_h);
+        lv_obj_set_style_bg_opa(cell, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(cell, 0, 0);
+        lv_obj_set_style_pad_all(cell, 0, 0);
+        lv_obj_remove_flag(cell, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(cell, LV_OBJ_FLAG_FLOATING | LV_OBJ_FLAG_EVENT_BUBBLE);
+        lv_obj_align(cell, LV_ALIGN_TOP_LEFT, 0, -(pad_ver + border));
+        lv_obj_set_parent(icon, cell);
+        lv_obj_align(icon, LV_ALIGN_LEFT_MID, 7, 0);
+    }
+    /* Stays vertically centred on the whole row, whatever its height. */
+    if (check_box) {
+        lv_obj_t * box = build_check_box(row, checked);
+        if (tall) lv_obj_add_flag(box, LV_OBJ_FLAG_FLOATING);
+        lv_obj_align(box, LV_ALIGN_RIGHT_MID, -LIST_ROW_LABEL_INSET, 0);
+    }
 
     if (cb) {
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
@@ -1586,7 +1648,7 @@ void file_browser_set_selecting(file_browser_t * fb, bool selecting) {
     }
     if (fb->selecting == selecting) return;
     fb->selecting = selecting;
-    rebuild_list_in_place(fb);
+    rebuild_list_in_place(fb, -1);
     notify_selection(fb);
 }
 
@@ -1594,7 +1656,7 @@ void file_browser_select_all(file_browser_t * fb) {
     if (!fb->selected) return;
     for (unsigned i = 0; i < listed_count(fb); i++) set_selected(fb, i, true);
     fb->selecting = true;
-    rebuild_list_in_place(fb);
+    rebuild_list_in_place(fb, -1);
     notify_selection(fb);
 }
 

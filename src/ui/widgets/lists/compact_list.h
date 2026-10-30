@@ -28,6 +28,7 @@ typedef struct {
     bool is_action;
     uint64_t artwork_key;
     char artwork_name[128];
+    uint64_t aux_key;               /* provider-owned (0 by default): what compact_list_rederive_cached() needs to recompute the row */
 } compact_list_page_row_t;
 
 /* Fired when a row is tapped, with the index into the `items` array passed
@@ -135,7 +136,8 @@ typedef int (*compact_list_fetch_page_cb_t)(void * ctx, int offset, int count,
 /* Optional visible-row decoration hook. Called only on the LVGL thread for
  * the fixed recycled row pool. `leading_image` is owned by the list and may
  * be assigned a static asset or a caller-owned descriptor whose lifetime
- * exceeds the assignment. */
+ * exceeds the assignment. It must set the row's left padding on every call:
+ * the list only resets it for lists without a decorator. */
 typedef void (*compact_list_row_decorator_cb_t)(lv_obj_t * list, lv_obj_t * row,
                                                 lv_obj_t * leading_image, int logical_index,
                                                 int pool_slot, int64_t identity, uint64_t artwork_key,
@@ -151,12 +153,25 @@ bool compact_list_shows_artwork_key(lv_obj_t * list, uint64_t key);
  * callback receives the row's current logical index, including after the
  * virtual row has been recycled during scrolling. NULL disables it. */
 void compact_list_set_trailing_click(lv_obj_t * list, compact_list_click_cb_t cb);
+/* Early notice of a row touch, so the destination's data can load while the
+ * finger is still down. cb(index, true) on the press of a row (the index a tap
+ * would pass to on_click); cb(index, false) when that press can no longer be a
+ * tap: it turned into a scroll, was lost, or became a long press. It says
+ * nothing about releases: a tap still arrives through on_click, and a press
+ * that simply ends (a back swipe) gets no second call, so a prefetch must
+ * expire by itself. NULL disables it. */
+typedef void (*compact_list_press_cb_t)(int index, bool pressed);
+void compact_list_set_press_cb(lv_obj_t * list, compact_list_press_cb_t cb);
 void compact_list_refresh_visible(lv_obj_t * list);
 void compact_list_refresh_all(void);
 /* Re-runs only the visible row decorators and image alignment for already
  * bound compact-list rows. Does not fetch a paged provider, move the virtual
  * window, or rewrite row labels/identity; use for artwork/cache changes. */
 void compact_list_refresh_decorations(lv_obj_t * list);
+/* Same, but only for the rows whose artwork key `match` accepts (and rows whose
+ * picture the cache took away): what a single landed thumbnail needs. */
+typedef bool (*compact_list_key_match_cb_t)(uint64_t artwork_key, void * ctx);
+void compact_list_refresh_decorations_for(lv_obj_t * list, compact_list_key_match_cb_t match, void * match_ctx);
 /* Rebinds artwork on entry, retrying an uncovered failed page when needed. */
 void compact_list_refresh_on_show(lv_obj_t * list);
 
@@ -179,5 +194,37 @@ void compact_list_set_row_height(lv_obj_t * list, int32_t row_height);
 void compact_list_set_paged_provider(lv_obj_t * list, compact_list_fetch_page_cb_t fetch_page, void * ctx,
                                       int total_count);
 
+
+/* Reserves `height` px above the rows for `header`, a child of the list that
+ * scrolls with it; the rows, scroll range and compact_list_scroll_to_index()
+ * all start below it. Pass NULL/0 to remove it. */
+void compact_list_set_header(lv_obj_t * list, lv_obj_t * header, int32_t height);
+/* Same, for a header that belongs to the paged rows only: while the list holds eager items (search results) it
+ * is hidden and reserves nothing; paged mode brings it back. */
+void compact_list_set_paged_header(lv_obj_t * list, lv_obj_t * header, int32_t height);
+/* Paged mode: asks the provider for the current page again (for example once a
+ * background aggregate can fill row subtitles) without blanking the rows. */
+void compact_list_refetch(lv_obj_t * list);
+/* Like compact_list_refetch(), for a change the caller can apply to the rows it already holds:
+ * calls `fn` for each cached row (logical index, row); `fn` returns true when it changed the row.
+ * Changed rows are repainted in one pass, rows that look the same are left alone. Returns false
+ * (nothing done) when the list has no valid cache or a page fetch is in flight: use
+ * compact_list_refetch() then. UI thread only. */
+bool compact_list_rederive_cached(lv_obj_t * list, bool (*fn)(int index, compact_list_page_row_t * row, void * ctx),
+                                  void * ctx);
+/* Main loop, after a worker published: make every list's finished page fetch due now. */
+void compact_list_dispatch_ready(void);
+/* Any list has a page fetch in flight. */
+bool compact_list_any_fetch_pending(void);
+
+/* True when `list` is a live compact list. Safe for any pointer; logs nothing. */
+bool compact_list_is_live(lv_obj_t * list);
+/* The row's span in list content coordinates (the same space as
+ * lv_obj_get_scroll_y()) and the viewport height, computed from the list's own
+ * top offset, row stride and row height, so it is right for a row that was
+ * just re-bound and before any layout pass. `bottom` is top + row height.
+ * False when `list` is not a compact list. */
+bool compact_list_row_span(lv_obj_t * list, int logical_index, int32_t * top, int32_t * bottom,
+                           int32_t * viewport_height);
 
 #endif /* COMPACT_LIST_H */

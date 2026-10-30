@@ -27,6 +27,9 @@
 #define CATALOG_INCARNATION_TEMP_NAME "catalog.incarnation.tmp"
 
 static bool db_ready;
+/* Bumped whenever the catalog is closed or (re)opened, under the database lock:
+ * a cursor kept across lock releases is only valid within one incarnation. */
+static uint32_t db_incarnation;
 static int catalog_dir_fd = -1;
 static char catalog_library_id[METADATA_DB_CATALOG_LIBRARY_ID_SIZE];
 static bool catalog_library_id_ready;
@@ -438,7 +441,7 @@ static metadata_db_load_outcome_t capture_tagcache_outcome(bool update_ready) {
         case TAGCACHE_LOAD_SUCCESS_RECOVERED: last_outcome = METADATA_DB_LOAD_SUCCESS_RECOVERED; break;
         case TAGCACHE_LOAD_FAILED: last_outcome = METADATA_DB_LOAD_FAILED; break;
     }
-    if (update_ready) db_ready = last_outcome != METADATA_DB_LOAD_FAILED;
+    if (update_ready) { db_ready = last_outcome != METADATA_DB_LOAD_FAILED; db_incarnation++; }
     return last_outcome;
 }
 
@@ -568,6 +571,7 @@ bool metadata_db_prepare_rebuild(void) {
     }
     capture_tagcache_outcome(false);
     db_ready = prepared;
+    db_incarnation++;
     if (prepared && outcome == METADATA_DB_LOAD_FAILED) {
         /* Keep catalog reads unavailable until the explicit replacement
          * generation commits and receives a fresh persistent identity. */
@@ -653,6 +657,7 @@ void metadata_db_close(void) {
     tagcache_close();
     catalog_unpin_directory();
     db_ready = false;
+    db_incarnation++;
     last_outcome = METADATA_DB_LOAD_UNMOUNTED;
     catalog_library_id[0] = '\0';
     catalog_library_id_ready = false;
@@ -1576,6 +1581,57 @@ int64_t metadata_db_count_songs_filtered(const char *needle, const char *artist,
     return tagcache_query_count(&query);
 }
 
+/* Every song of a genre, once, in title order. The old way counted the matches
+ * with one full scan and then fetched the songs 64 at a time, each page scanning
+ * from the first song again. Here one cursor walks the list; a batch of matches
+ * is copied under the database lock and visited after it is released, and the
+ * lock is let go every METADATA_DB_GENRE_STEP ranks so the UI's own queries
+ * never wait on the whole scan. A publication between steps changes the ranks
+ * underneath the cursor, and so does the catalog being closed and reopened:
+ * the walk then stops and reports failure. */
+#define METADATA_DB_GENRE_BATCH 64
+#define METADATA_DB_GENRE_STEP 1024
+bool metadata_db_walk_genre_songs(const char * genre, int max_songs,
+                                  bool (*visit)(const song_row_t * song, void * user), void * user,
+                                  const atomic_bool * cancel) {
+    if (!genre || !genre[0] || !visit || max_songs <= 0 || strlen(genre) >= METADATA_DB_TEXT_MAX) return false;
+    song_row_t * batch = calloc(METADATA_DB_GENRE_BATCH, sizeof(*batch));
+    if (!batch) return false;
+    tagcache_query_t query;
+    bool begun = false, finished = false, ok = true;
+    int32_t generation = 0;
+    uint32_t incarnation = 0;
+    int visited = 0;
+    while (ok && !finished && visited < max_songs) {
+        int copied = 0, steps = 0;
+        if (cancel && atomic_load_explicit(cancel, memory_order_relaxed)) { ok = false; break; }
+        {
+            METADATA_DB_GUARD;
+            if (!db_ready || !tagcache_storage_current()) { ok = false; break; }
+            if (!begun) {
+                generation = tagcache_generation();
+                incarnation = db_incarnation;
+                tagcache_query_begin(&query, TAGCACHE_QUERY_SONGS, NULL, NULL, NULL, NULL);
+                begun = true;
+            } else if (tagcache_generation() != generation || db_incarnation != incarnation) { ok = false; break; }
+            int32_t rank;
+            while (copied < METADATA_DB_GENRE_BATCH && visited + copied < max_songs &&
+                   steps < METADATA_DB_GENRE_STEP) {
+                if (!tagcache_query_next(&query, &rank)) { finished = true; break; }
+                steps++;
+                tagcache_song_t song;
+                if (!tagcache_song_fields_at_title_rank(rank, TAGCACHE_FIELD_GENRE, &song) ||
+                    strcasecmp(song.genre, genre) != 0) continue;
+                if (tagcache_song_at_title_rank(rank, &song)) copy_song(&song, &batch[copied++]);
+            }
+        }
+        for (int i = 0; i < copied && ok; i++) ok = visit(&batch[i], user);
+        visited += copied;
+    }
+    free(batch);
+    return ok;
+}
+
 int metadata_db_get_songs_filtered_page(const char *needle, const char *artist,
                                         const char *album_artist, const char *album, const char *genre,
                                         int offset, int max_rows, song_row_t *out_rows) {
@@ -2170,4 +2226,106 @@ void metadata_db_load_subsonic_servers(subsonic_server_row_t ** out_rows, int * 
     free(rows);
     *out_rows = out;
     *out_count = count;
+}
+
+/* ---- One-pass walks for the duration cache and the artist page ----------- */
+bool metadata_db_get_song_identity(const char * path, int32_t * out_mtime, int32_t * out_size) {
+    if (!path || !out_mtime || !out_size) return false;
+    METADATA_DB_GUARD;
+    tagcache_song_t song;
+    if (!db_ready || !tagcache_song_by_path(path, &song)) return false;
+    *out_mtime = song.mtime;
+    *out_size = song.size;
+    return true;
+}
+
+#define METADATA_DB_WALK_BATCH 64
+/* Each batch of paths is copied under the database lock and visited after it is
+ * released (as walk_group_songs does): the visitor's allocations and hashing,
+ * and a low-priority caller being preempted, never hold up the UI's own queries. */
+#define METADATA_DB_WALK_IDENTITY_BATCH 32
+bool metadata_db_walk_song_identities(bool (*visit)(const char * path, int32_t mtime, int32_t size, void * user),
+                                      void * user) {
+    if (!visit) return false;
+    int32_t slots, generation;
+    {
+        METADATA_DB_GUARD;
+        if (!db_ready) return false;
+        slots = tagcache_slot_count();
+        generation = tagcache_generation();
+    }
+    char (*paths)[PATH_MAX] = malloc(sizeof(*paths) * METADATA_DB_WALK_IDENTITY_BATCH);
+    if (!paths) return false;
+    int32_t mtimes[METADATA_DB_WALK_IDENTITY_BATCH], sizes[METADATA_DB_WALK_IDENTITY_BATCH];
+    bool ok = true;
+    for (int32_t first = 1; first <= slots && ok; first += METADATA_DB_WALK_IDENTITY_BATCH) {
+        int copied = 0;
+        {
+            METADATA_DB_GUARD;
+            if (!db_ready || tagcache_generation() != generation || !tagcache_storage_current()) { ok = false; break; }
+            for (int32_t id = first; id < first + METADATA_DB_WALK_IDENTITY_BATCH && id <= slots; id++) {
+                tagcache_song_t song;
+                if (!tagcache_song_fields_by_id(id, TAGCACHE_FIELD_PATH, &song) || !song.path || !song.path[0]) continue;
+                if (strlen(song.path) >= PATH_MAX) continue;
+                strcpy(paths[copied], song.path);
+                mtimes[copied] = song.mtime;
+                sizes[copied] = song.size;
+                copied++;
+            }
+        }
+        for (int i = 0; i < copied && ok; i++) ok = visit(paths[i], mtimes[i], sizes[i], user);
+    }
+    free(paths);
+    return ok;
+}
+
+bool metadata_db_walk_group_songs(metadata_db_group_kind_t kind, const char * name,
+                                  bool (*visit)(const song_row_t * song, int32_t mtime, int32_t size, void * user),
+                                  void * user) {
+    if (!name || !visit || (kind != METADATA_DB_GROUP_ARTIST && kind != METADATA_DB_GROUP_ALBUM_ARTIST)) return false;
+    /* Each batch is copied (just the fields the visitor aggregates) under the
+     * database lock and visited after it is released, so the visitor's string
+     * work and allocations never hold up the UI's own queries. */
+    song_row_t * batch = calloc(METADATA_DB_WALK_BATCH, sizeof(*batch));
+    int32_t * mtimes = batch ? calloc(METADATA_DB_WALK_BATCH, sizeof(*mtimes)) : NULL;
+    int32_t * sizes = mtimes ? calloc(METADATA_DB_WALK_BATCH, sizeof(*sizes)) : NULL;
+    if (!sizes) { free(mtimes); free(batch); return false; }
+    bool ok = true, have_generation = false;
+    int32_t generation = 0;
+    for (int offset = 0; ok;) {
+        int32_t ids[METADATA_DB_WALK_BATCH];
+        int got = 0, copied = 0;
+        {
+            METADATA_DB_GUARD;
+            /* A publication between batches changes the paging underneath the
+             * offset: abort rather than mix two generations. */
+            if (!db_ready || !tagcache_storage_current()) { ok = false; break; }
+            if (!have_generation) { generation = tagcache_generation(); have_generation = true; }
+            else if (tagcache_generation() != generation) { ok = false; break; }
+            got = kind == METADATA_DB_GROUP_ARTIST
+                ? tagcache_artist_song_ids(name, offset, ids, METADATA_DB_WALK_BATCH)
+                : tagcache_album_artist_song_ids(name, offset, ids, METADATA_DB_WALK_BATCH);
+            for (int i = 0; i < got; i++) {
+                tagcache_song_t song;
+                if (!tagcache_song_by_id(ids[i], &song)) continue;
+                song_row_t * row = &batch[copied];
+                row->id = song.id;
+                snprintf(row->path, sizeof(row->path), "%s", song.path);
+                snprintf(row->tags.album, sizeof(row->tags.album), "%s", song.album);
+                snprintf(row->tags.album_artist, sizeof(row->tags.album_artist), "%s", song.album_artist);
+                snprintf(row->tags.genre, sizeof(row->tags.genre), "%s", song.genre);
+                row->tags.release_year = song.release_year;
+                mtimes[copied] = song.mtime;
+                sizes[copied] = song.size;
+                copied++;
+            }
+        }
+        for (int i = 0; i < copied && ok; i++) ok = visit(&batch[i], mtimes[i], sizes[i], user);
+        if (got < METADATA_DB_WALK_BATCH) break;
+        offset += got;
+    }
+    free(sizes);
+    free(mtimes);
+    free(batch);
+    return ok;
 }

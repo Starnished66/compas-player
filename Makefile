@@ -10,8 +10,8 @@
 # file-mtime tracking, so two boards sharing one build_target/ would be a
 # real, silent-corruption hazard without this.
 BOARD ?= r1
-ifeq ($(filter $(BOARD),r1 r3proii r3ii_2025),)
-$(error Unknown BOARD '$(BOARD)' -- expected r1, r3proii, or r3ii_2025)
+ifeq ($(filter $(BOARD),r1 r3proii r3ii_2025 tempotec_v1),)
+$(error Unknown BOARD '$(BOARD)' -- expected r1, r3proii, r3ii_2025, or tempotec_v1)
 endif
 BOARD_DEFINE = -DBOARD_$(shell echo $(BOARD) | tr a-z A-Z)
 
@@ -26,6 +26,32 @@ else
 BUILD_TARGET_DIR = build_target_$(BOARD)
 BUILD_HOST_DIR = build_host_$(BOARD)
 endif
+
+# Compile-flag toggles that change -D defines (UI_PERF_TRACE, UI_GESTURE_TRACE,
+# UI_HITBOX_DEBUG, TEST_BUILD_TAG) get their own object directories too, for the
+# same reason as BOARD above: Make cannot see a changed -D flag, so `make target
+# UI_PERF_TRACE=1` followed by plain `make target` would silently relink the
+# trace-compiled objects into a "release" binary. Output binary names stay
+# unchanged -- they are always relinked from whichever object dir is selected.
+# `make clean` removes these via its build_target_* / build_host_* globs.
+BUILD_VARIANT_EMPTY :=
+BUILD_VARIANT_SPACE := $(BUILD_VARIANT_EMPTY) $(BUILD_VARIANT_EMPTY)
+BUILD_VARIANT =
+ifneq ($(UI_PERF_TRACE),)
+BUILD_VARIANT += _trace
+endif
+ifneq ($(UI_GESTURE_TRACE),)
+BUILD_VARIANT += _gesture
+endif
+ifneq ($(UI_HITBOX_DEBUG),)
+BUILD_VARIANT += _hitbox
+endif
+ifneq ($(TEST_BUILD_TAG),)
+BUILD_VARIANT += _tag_$(shell printf '%s' '$(TEST_BUILD_TAG)' | tr -c 'A-Za-z0-9_.\n-' _)
+endif
+BUILD_VARIANT := $(subst $(BUILD_VARIANT_SPACE),,$(BUILD_VARIANT))
+BUILD_TARGET_DIR := $(BUILD_TARGET_DIR)$(BUILD_VARIANT)
+BUILD_HOST_DIR := $(BUILD_HOST_DIR)$(BUILD_VARIANT)
 
 # Target executables -- r1 keeps the unsuffixed names used by the release
 # scripts, while other boards get a distinct suffix so a non-r1 build can
@@ -50,6 +76,12 @@ CROSS_STRIP = mipsel-linux-musl-strip
 # R1/R3 Pro II combined loaders use the pinned CPU flags in their build script;
 # that script derives strip from CROSS_CC rather than using CROSS_STRIP.
 TARGET_CPU_FLAGS ?= -march=mips32r2 -mabi=32 -mfp32 -mno-odd-spreg -ffp-contract=off
+# Keep the checkout's absolute path out of every target binary (assert/__FILE__ strings and, in
+# the unstripped files, debug info). GCC 11 in the musl cross toolchain implements
+# -ffile-prefix-map (debug info, __FILE__ and __BASE_FILE__ together); it changes no code
+# generation. `override` keeps it on when TARGET_CPU_FLAGS is replaced on the command line.
+TARGET_PATH_FLAGS = -ffile-prefix-map=$(CURDIR)=.
+override TARGET_CPU_FLAGS += $(TARGET_PATH_FLAGS)
 
 # Dependency directory names
 LVGL_DIR = lvgl
@@ -241,6 +273,10 @@ endif
 LVGL_PATCH := patches/lvgl/lvgl_fbdev_compositor.patch
 LVGL_RUNTIME_FIXES_PATCH := patches/lvgl/lvgl_runtime_fixes.patch
 LVGL_UI_PERF_TRACE_PATCH := patches/lvgl/lvgl_ui_perf_trace.patch
+LVGL_SCROLL_BLIT_PATCH := patches/lvgl/lvgl_scroll_blit.patch
+LVGL_STYLE_REDRAW_PATCH := patches/lvgl/lvgl_style_redraw.patch
+LVGL_MARQUEE_REDRAW_PATCH := patches/lvgl/lvgl_marquee_redraw.patch
+LVGL_BLUR_WALK_SKIP_PATCH := patches/lvgl/lvgl_blur_walk_skip.patch
 LVGL_TEXTAREA_ARABIC_PATCH := patches/lvgl/lvgl_textarea_arabic_canonical.patch
 LVGL_BIDI_LTR_FASTPATH_PATCH := patches/lvgl/lvgl_bidi_ltr_fastpath.patch
 LVGL_BINFONT_SAFETY_PATCH := patches/lvgl/lvgl_binfont_safety.patch
@@ -489,6 +525,15 @@ endif
 ifneq ($(RELEASE_LABEL),)
 RELEASE_LABEL_DEFINE = -DAPP_RELEASE_LABEL='"$(RELEASE_LABEL)"'
 endif
+# A release label must be one the player's updater compares ("vX.Y.Z", "Compas vX.Y.Z" or
+# "Weekly Beta YYYY-MM-DD") and, for versions, carry the full vX.Y.Z that Compás Tools reads.
+RELEASE_LABEL_NUMBER = (0|[1-9][0-9]*)
+RELEASE_LABEL_PATTERN = ^((Compas )?v$(RELEASE_LABEL_NUMBER)\.$(RELEASE_LABEL_NUMBER)\.$(RELEASE_LABEL_NUMBER)|Weekly Beta [0-9]{4}-[0-9]{2}-[0-9]{2})$$
+ifneq ($(RELEASE_LABEL),)
+ifneq ($(shell printf '%s' '$(RELEASE_LABEL)' | grep -Ec '$(RELEASE_LABEL_PATTERN)'),1)
+$(error RELEASE_LABEL '$(RELEASE_LABEL)' must be vX.Y.Z or "Weekly Beta YYYY-MM-DD")
+endif
+endif
 
 # Optional low-overhead timing diagnostics for real-device UI profiling.
 # Kept out of normal/release builds unless explicitly requested with
@@ -677,11 +722,14 @@ CFLAGS += -Isonic
 APP_SRCS = src/app/main.c src/ui/application/gui.c src/ui/library/library_selection_snapshot.c src/ui/library/library_az_index.c src/ui/network/subsonic/gui_subsonic.c src/ui/settings/gui_settings.c src/ui/network/gui_network.c src/ui/appearance/gui_theme.c src/ui/shell/gui_notifications.c src/ui/library/browse/gui_library.c src/ui/player/screen/gui_queue.c src/ui/player/screen/gui_player.c src/ui/player/screen/gui_track_info.c src/ui/plugins/gui_plugins.c src/ui/shell/gui_shell.c src/ui/shell/gui_navigation.c src/ui/library/collections/gui_books.c src/ui/library/browse/gui_file_manager.c src/ui/text/rendering/gui_text_input.c src/ui/player/screen/gui_lyrics.c src/ui/shell/gui_reload.c src/audio/engine/audio.c src/library/browser/files/file_browser.c src/library/browser/files/file_ops.c src/hardware/input/hw_buttons.c src/hardware/input/button_mapping.c src/hardware/input/input_device_utils.c src/library/metadata/parsing/metadata.c src/library/metadata/scan/library_walk.c src/library/metadata/db/metadata_db.c src/core/persistence/settings.c src/core/ui/display/startup_splash.c src/core/system/lifecycle/screenshot.c src/core/system/runtime/app_version.c src/audio/decoders/aiff/aiff_decoder.c src/audio/decoders/dsd/dsd_filter.c src/audio/decoders/dsd/dsd_decoder.c src/audio/readers/sacd/sacd_reader.c src/audio/decoders/dst/dst_decoder.c src/library/sacd/sacd_iso.c src/audio/decoders/aac/aac_decoder.c src/audio/demux/mp4/mp4_demux.c src/audio/demux/ape/ape_demux.c src/audio/decoders/ape/ape_decoder.c src/audio/decoders/ape/ape_ffmpeg_core.c src/audio/effects/peq.c src/audio/effects/mseb.c src/audio/timing/audio_tempo.c src/ui/assets/assets.c src/ui/widgets/builders/screen_builders.c src/ui/assets/cover_card_preview.c src/hardware/power/battery.c src/network/wifi/wifi_status.c src/network/security/ca_bundle.c src/network/http/client/http_conn.c src/network/http/client/http_client.c src/network/http/stream/http_stream.c src/network/http/stream/http_stream_file.c src/network/services/subsonic_client.c src/library/artwork/decode/cover_decode.c src/library/artwork/cache/image_thumb.c src/library/text/lyrics/lyrics.c src/audio/decoders/asf/asf_demux.c src/audio/decoders/wma/wma_decoder.c src/audio/decoders/ogg/ogg_probe.c src/audio/decoders/ogg/opus_decoder.c src/audio/decoders/ogg/opusfile_alloc.c src/audio/decoders/wavpack/wavpack_decoder.c src/audio/decoders/caf/caf_decoder.c src/audio/decoders/vorbis/vorbis_decoder.c src/library/parsers/cue/cue_parser.c src/ui/text/rendering/fallback_font.c src/ui/text/rendering/gui_text_view.c \
 src/core/process/subprocess.c src/network/wifi/wifi_control.c src/network/bluetooth/control/bluetooth_control.c src/network/hiby/hiby_sys_server.c src/hardware/indicators/backlight.c src/network/remote/import/remote_import_files.c src/network/airplay/airplay_control.c src/network/airplay/airplay_bridge.c src/network/airplay/airplay_metadata.c src/hardware/device/headphone_status.c src/hardware/device/device_config.c src/hardware/indicators/led_control.c src/hardware/power/charge_limiter.c src/core/system/lifecycle/idle_shutdown.c src/hardware/power/power_suspend.c src/core/text/text_reader.c src/hardware/usb/usb_mode_control.c src/hardware/usb/usb_dac_bridge.c src/hardware/usb/usb_audio_output.c src/core/updates/firmware_update.c src/core/updates/player_update.c src/core/system/lifecycle/reboot_handoff.c src/library/playlists/playlist_files.c src/library/playlists/favorite_writer.c src/network/firmware/firmware_ota.c src/network/store/plugins/plugin_store.c src/network/store/plugins/store_common.c src/network/store/catalog/emulator_store.c src/core/device/emulator_registry.c src/core/time/timezone_data.c src/core/time/timezone_apply.c src/core/device/hostname_apply.c src/network/services/dlna_control.c src/network/remote/control/remote_control.c src/network/remote/discovery/remote_control_discovery.c src/network/store/catalog/catalog_source_cache.c src/network/remote/discovery/remote_control_mdns.c src/plugins/manager/plugin_manager.c
 APP_SRCS += src/ui/settings/setup/gui_setup.c src/ui/settings/setup/gui_setup_plugins.c src/ui/appearance/brand_marks.c src/core/time/timezone_location.c
+APP_SRCS += src/ui/settings/gui_about_info.c
 APP_SRCS += src/ui/plugins/gui_plugin_library.c
+APP_SRCS += src/ui/application/gui_screen_off_memory.c
 APP_SRCS += src/ui/settings/controls/gui_external_controls.c
 APP_SRCS += src/ui/plugins/manage/gui_plugin_order_editor.c
 APP_SRCS += src/ui/player/settings/gui_equalizer.c
 APP_SRCS += src/ui/home/gui_home.c src/ui/home/home_background.c
+APP_SRCS += src/network/radio/aic_radio.c src/network/radio/aic_radio_policy.c
 APP_SRCS += src/ui/updates/gui_updates.c
 APP_SRCS += src/ui/appearance/gui_accent.c
 APP_SRCS += src/ui/appearance/fonts/gui_custom_font.c src/ui/widgets/lists/compact_list.c
@@ -689,21 +737,27 @@ APP_SRCS += src/ui/settings/display/gui_display_timing_settings.c src/ui/setting
 APP_SRCS += src/ui/settings/input/gui_button_mapping.c src/ui/settings/controls/gui_volume_settings.c src/ui/settings/controls/gui_shell_settings.c
 APP_SRCS += src/ui/player/lyrics/player_inline_lyrics.c src/library/artwork/decode/library_album_art_decode.c src/library/artwork/decode/library_artist_art.c src/plugins/bindings/ui/plugin_info_bindings.c src/plugins/bindings/library/plugin_library_bindings.c
 APP_SRCS += src/library/artwork/albumart/albumart_info.c
+APP_SRCS += src/core/persistence/settings_registry.c src/core/persistence/settings_reg_audio.c src/core/persistence/settings_reg_device.c
+APP_SRCS += src/network/remote/control/remote_settings.c src/network/remote/control/remote_settings_json.c src/ui/settings/controls/gui_remote_settings.c
 APP_SRCS += src/ui/settings/power/gui_power_hub.c src/ui/player/transport/player_seek_input.c src/plugins/bindings/audio/plugin_equalizer_bindings.c
 APP_SRCS += src/plugins/bindings/io/plugin_http_bindings.c src/plugins/lua/plugin_lua_runtime.c
 APP_SRCS += src/library/metadata/scan/library_scan.c src/ui/player/artwork/player_artwork_jobs.c src/ui/player/artwork/player_artwork_cache.c
 APP_SRCS += src/plugins/bindings/ui/plugin_text_view_bindings.c src/ui/player/queue/player_queue_storage.c
 APP_SRCS += src/plugins/bindings/io/plugin_archive_bindings.c
-APP_SRCS += src/ui/library/library_thumbnails.c
+APP_SRCS += src/ui/library/library_thumbnails.c src/ui/library/library_thumbnail_placeholder.c
 APP_SRCS += src/ui/library/library_search.c
 APP_SRCS += src/ui/player/queue/player_queue_model.c
 APP_SRCS += src/ui/library/browse/gui_folder_actions.c src/ui/library/playlists/gui_playlists.c src/ui/library/playlists/gui_playlist_target.c
-APP_SRCS += src/ui/player/lyrics/lyrics_layout.c src/ui/effects/transition_compositor.c src/ui/effects/frosted_glass.c src/ui/input/hw_volume_coalesce.c src/ui/library/browse/gui_list_reorder.c
+APP_SRCS += src/ui/player/lyrics/lyrics_layout.c src/ui/effects/transition_compositor.c src/ui/effects/frosted_glass.c src/ui/input/hw_volume_coalesce.c src/ui/library/browse/gui_list_reorder.c src/ui/library/browse/gui_album_header.c src/ui/library/browse/gui_album_probe.c src/ui/library/browse/gui_album_facts.c src/ui/library/browse/gui_album_cover.c
 APP_SRCS += src/ui/plugins/plugin_control_dashboard.c
-APP_SRCS += src/ui/diagnostics/ui_frame_trace.c src/ui/diagnostics/ui_snapshot_prefetch.c
+APP_SRCS += src/ui/library/browse/gui_artist_data.c src/ui/library/browse/gui_artist_page.c src/ui/library/browse/gui_page_durations.c src/ui/library/browse/gui_library_async.c src/ui/widgets/builders/gui_play_bar.c
+APP_SRCS += src/library/metadata/durations/duration_cache.c src/library/metadata/durations/duration_cache_merge.c src/library/metadata/durations/duration_cache_file.c src/library/metadata/durations/duration_lookup.c src/library/metadata/durations/duration_prune.c
+APP_SRCS += src/ui/diagnostics/ui_frame_trace.c src/ui/diagnostics/ui_draw_trace.c src/ui/diagnostics/ui_blit_verify.c src/ui/widgets/lists/scroll_blit.c src/ui/diagnostics/ui_snapshot_prefetch.c
 APP_SRCS += src/core/ui/display/ui_wake.c src/core/themes/ui_customization.c src/library/artwork/cache/cover_raster_cache.c src/library/workers/track_metadata_worker.c src/library/artwork/prefetch/player_cover_prefetch.c
 APP_SRCS += src/core/updates/firmware_image.c
 APP_SRCS += src/core/system/logging/boot_trace.c
+APP_SRCS += src/core/device/app_registry.c src/core/device/app_approval.c src/core/process/app_session.c
+APP_SRCS += src/plugins/storage/plugin_reserved_dirs.c src/plugins/bindings/io/plugin_apps_bindings.c src/ui/plugins/apps/gui_apps.c
 APP_SRCS += src/core/updates/player_install.c src/bootloader/scan/scanner.c src/bootloader/selector/ui/controller/selector_request.c src/bootloader/install/internal_storage.c
 APP_SRCS += src/ui/text/fonts/ui_fonts.c
 APP_SRCS += src/core/storage/sd_fsck.c src/core/storage/sd_fsck_run.c
@@ -723,6 +777,7 @@ APP_SRCS += src/ui/player/layout/player_layouts.c src/ui/player/layout/player_la
 APP_SRCS += src/ui/player/transport/player_volume_popup.c src/ui/player/transport/player_transport_images.c src/ui/player/artwork/player_artwork_pixels.c
 APP_SRCS += src/ui/player/transport/player_seekbar.c src/audio/visualization/waveform.c
 APP_SRCS += src/ui/player/artwork/player_cover_fade.c src/ui/player/artwork/player_lyrics_backdrop.c src/ui/player/lyrics/player_timeline_labels.c
+APP_SRCS += src/network/bluetooth/control/bt_ssc_policy.c src/core/persistence/bt_ssc_settings.c
 APP_SRCS += src/network/bluetooth/reconnect/bluetooth_reconnect.c src/network/bluetooth/media/bt_cover_art.c
 APP_CXX_SRCS = src/audio/decoders/alac/alac_decoder.cpp
 LVGL_SRCS = $(sort $(shell find $(LVGL_DIR)/src -type f -name '*.c'))
@@ -824,7 +879,7 @@ DBUS_SRCS = $(filter-out %-win.c %-win32.c %wince-glue.c $(DBUS_DIR)/dbus/dbus-s
 # stack to talk to anyway). Its call sites in gui.c/bluetooth_control.c
 # are guarded with #ifndef HOST_BUILD for the same reason audio.c's own
 # Bluetooth-output code is.
-TARGET_ONLY_APP_SRCS = src/network/bluetooth/media/bt_media_player.c src/network/bluetooth/media/bt_remote_control.c src/audio/output/audio_output.c src/audio/output/usb_dsd_output.c
+TARGET_ONLY_APP_SRCS = src/network/bluetooth/media/bt_media_player.c src/network/bluetooth/media/bt_remote_control.c src/network/bluetooth/control/bt_adapter_query.c src/audio/output/audio_output.c src/audio/output/usb_dsd_output.c
 # Target-only (see TARGET_CFLAGS's own comment on why): provides
 # backtrace()/backtrace_symbols_fd() for main.c's SIGSEGV handler on musl,
 # which has no execinfo.h/backtrace() of its own.
@@ -904,6 +959,14 @@ SELECTOR_ICON_SRCS = src/bootloader/selector/assets/icons/selector_icons.c \
 	src/bootloader/selector/assets/icons/selector_icons_utilities_320.c \
 	src/bootloader/selector/assets/icons/selector_icons_nav.c \
 	src/bootloader/selector/assets/icons/selector_icons_tools.c
+else ifeq ($(BOARD),tempotec_v1)
+SELECTOR_LOGO_SRCS = src/bootloader/selector/assets/logos/selector_logos.c \
+	src/bootloader/selector/assets/logos/selector_logos_wordmark_320.c \
+	src/bootloader/selector/assets/logos/selector_logos_rockbox_320.c
+SELECTOR_ICON_SRCS = src/bootloader/selector/assets/icons/selector_icons.c \
+	src/bootloader/selector/assets/icons/selector_icons_utilities_320.c \
+	src/bootloader/selector/assets/icons/selector_icons_nav.c \
+	src/bootloader/selector/assets/icons/selector_icons_tools.c
 else
 SELECTOR_LOGO_SRCS = src/bootloader/selector/assets/logos/selector_logos.c \
 	src/bootloader/selector/assets/logos/selector_logos_wordmark_480.c \
@@ -913,7 +976,18 @@ SELECTOR_ICON_SRCS = src/bootloader/selector/assets/icons/selector_icons.c \
 	src/bootloader/selector/assets/icons/selector_icons_nav.c \
 	src/bootloader/selector/assets/icons/selector_icons_tools.c
 endif
-.PHONY: all host target bootloader clean FORCE_VERSION
+# The output binaries share one name across variants, so a variant switch must
+# also force a relink even though the (separate) object dirs look up to date.
+# Each binary has a stamp holding the variant it was last linked for; it is
+# rewritten only when the variant differs, so an unchanged build never relinks.
+HOST_VARIANT_STAMP = .$(HOST_BIN).variant
+TARGET_VARIANT_STAMP = .$(TARGET_BIN).variant
+$(HOST_VARIANT_STAMP) $(TARGET_VARIANT_STAMP): FORCE_VARIANT
+	@test "$$(cat $@ 2>/dev/null)" = '$(BUILD_VARIANT)' || printf '%s\n' '$(BUILD_VARIANT)' > $@
+.PHONY: FORCE_VARIANT
+FORCE_VARIANT:
+
+.PHONY: all host target release bootloader clean FORCE_VERSION
 
 # Default target builds the host player.
 all: host
@@ -921,7 +995,7 @@ all: host
 # Build for host (Arch Linux PC)
 host: $(HOST_BIN)
 
-$(HOST_BIN): $(HOST_OBJS) $(HOST_AUDIO_LIBS)
+$(HOST_BIN): $(HOST_OBJS) $(HOST_AUDIO_LIBS) $(HOST_VARIANT_STAMP)
 	$(CXX) -o $@ $(HOST_OBJS) $(HOST_AUDIO_LIBS) $(HOST_LDFLAGS)
 	@echo "Host build complete: Run './$(HOST_BIN)' to start the simulator."
 
@@ -931,7 +1005,7 @@ $(HOST_BIN): $(HOST_OBJS) $(HOST_AUDIO_LIBS)
 # on the tracked patch file (so a future change to the patch itself also
 # invalidates it), not just on $(LVGL_DIR) existing.
 $(LVGL_PATCH_STAMP): $(LVGL_FBDEV_C) $(LVGL_FBDEV_H) $(LVGL_PATCH) \
-                     $(LVGL_TINY_TTF) $(LVGL_TJPGDCNF) $(LVGL_LRU_RB) $(LVGL_LODEPNG) $(LVGL_OBJ_POS) $(LVGL_DRAW_IMAGE) $(LVGL_SW_TRANSFORM) $(LVGL_RUNTIME_FIXES_PATCH) $(LVGL_UI_PERF_TRACE_PATCH) \
+                     $(LVGL_TINY_TTF) $(LVGL_TJPGDCNF) $(LVGL_LRU_RB) $(LVGL_LODEPNG) $(LVGL_OBJ_POS) $(LVGL_DRAW_IMAGE) $(LVGL_SW_TRANSFORM) $(LVGL_RUNTIME_FIXES_PATCH) $(LVGL_UI_PERF_TRACE_PATCH) $(LVGL_SCROLL_BLIT_PATCH) $(LVGL_STYLE_REDRAW_PATCH) $(LVGL_MARQUEE_REDRAW_PATCH) $(LVGL_BLUR_WALK_SKIP_PATCH) \
                      $(LVGL_EVDEV_C) $(LVGL_EVDEV_FRAMES_PATCH) $(LVGL_TEXTAREA_ARABIC_PATCH) $(LVGL_BIDI_LTR_FASTPATH_PATCH) \
                      $(LVGL_BINFONT_LOADER) $(LVGL_FS_CORE) $(LVGL_BINFONT_SAFETY_PATCH) scripts/tools/patches/apply-tracked-patch.sh \
                      $(LVGL_FONT_TARGETS) $(LVGL_FONT_GOLDEN)
@@ -1007,6 +1081,10 @@ $(LVGL_PATCH_STAMP): $(LVGL_FBDEV_C) $(LVGL_FBDEV_H) $(LVGL_PATCH) \
 	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_TEXTAREA_ARABIC_PATCH); \
 	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_BIDI_LTR_FASTPATH_PATCH); \
 	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_UI_PERF_TRACE_PATCH); \
+	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_SCROLL_BLIT_PATCH); \
+	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_STYLE_REDRAW_PATCH); \
+	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_MARQUEE_REDRAW_PATCH); \
+	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_BLUR_WALK_SKIP_PATCH); \
 	for f in $(LVGL_GENERATED_FONTS); do \
 	  target=$(LVGL_DIR)/src/font/$$f; golden=$(LVGL_GENERATED_FONTS_DIR)/$$f; \
 	  if cmp -s "$$target" "$$golden"; then \
@@ -1096,7 +1174,19 @@ $(BUILD_HOST_DIR)/lua/%.o: $(LUA_DIR)/src/%.c
 # Build for target (MIPS HiBy Device)
 target: $(TARGET_BIN)
 
-$(TARGET_BIN): $(TARGET_OBJS) $(TARGET_CPU_FLAGS_STAMP) $(TARGET_AUDIO_LIBS) Makefile
+# Release build: `make release BOARD=r1 RELEASE_LABEL=v1.3.1`. Refuses to finish unless the
+# program carries the label, so a published image can never say "Development Build".
+release:
+	@test -n '$(RELEASE_LABEL)' || { echo 'make release needs RELEASE_LABEL=vX.Y.Z' >&2; exit 1; }
+	$(MAKE) target BOARD=$(BOARD) RELEASE_LABEL='$(RELEASE_LABEL)'
+	@! grep -aq 'Development Build' $(TARGET_BIN) || { echo '$(TARGET_BIN) still says Development Build' >&2; exit 1; }
+	@case '$(RELEASE_LABEL)' in v*|'Compas v'*) \
+	    want=$$(printf '%s' '$(RELEASE_LABEL)' | sed 's/^Compas //'); \
+	    found=$$(grep -ao 'v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*' $(TARGET_BIN) | sort -u); \
+	    test "$$found" = "$$want" || { echo "$(TARGET_BIN) carries '$$found', not $$want" >&2; exit 1; };; esac
+	@echo '$(TARGET_BIN) is labelled $(RELEASE_LABEL)'
+
+$(TARGET_BIN): $(TARGET_OBJS) $(TARGET_CPU_FLAGS_STAMP) $(TARGET_AUDIO_LIBS) $(TARGET_VARIANT_STAMP) Makefile
 	$(CROSS_CXX) $(TARGET_CPU_FLAGS) -o $(BUILD_TARGET_DIR)/$(TARGET_BIN)_unstripped $(TARGET_OBJS) $(TARGET_AUDIO_LIBS) $(TARGET_LDFLAGS)
 	$(CROSS_STRIP) -s -o $@ $(BUILD_TARGET_DIR)/$(TARGET_BIN)_unstripped
 	@echo "Target build complete: File ready at '$(TARGET_BIN)'"
@@ -1250,7 +1340,7 @@ $(BUILD_TARGET_DIR)/libexecinfo/%.o: $(LIBEXECINFO_DIR)/%.c $(TARGET_CPU_FLAGS_S
 clean:
 	rm -rf build_host build_host_* build_target build_target_* build/rockbox-bootloader \
 	    compas_player_host compas_player_host_* compas_player_target compas_player_target_* \
-	    compas_loader compas_loader_*
+	    compas_loader compas_loader_* .compas_player_*.variant
 
 # Companion to -MMD -MP in CFLAGS above (see that comment for the real-
 # device/real-build incident this exists to prevent) -- pulls in every

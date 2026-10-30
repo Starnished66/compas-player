@@ -8,10 +8,16 @@
 #include <string.h>
 #include <unistd.h>
 
+typedef enum {
+    BT_RECONNECT_NORMAL,
+    BT_RECONNECT_SSC_RATE,
+    BT_RECONNECT_SSC_DISCOVERY,
+} bt_reconnect_reason_t;
+
 typedef struct {
     unsigned int generation;
     char preferred_mac[18];
-    bool ssc_rate_correction;
+    bt_reconnect_reason_t reason;
     unsigned int rate;
 } bt_reconnect_job_t;
 
@@ -43,7 +49,16 @@ static void * reconnect_thread_func(void * arg) {
     bt_reconnect_job_t job = *(const bt_reconnect_job_t *) arg;
     free(arg);
     bool cancelled = reconnect_cancelled(&job);
-    if (job.ssc_rate_correction) {
+    if (job.reason == BT_RECONNECT_SSC_DISCOVERY) {
+        bool claimed = !cancelled && bt_control_ssc_discovery_recovery_take(job.preferred_mac);
+        if (claimed && !reconnect_cancelled(&job))
+            (void) bt_control_reconnect_for_ssc_discovery(job.preferred_mac, job.rate,
+                                                          reconnect_cancelled, &job);
+        bt_control_ssc_discovery_recovery_finish(job.preferred_mac);
+        atomic_store_explicit(&reconnect_done, true, memory_order_release);
+        return NULL;
+    }
+    if (job.reason == BT_RECONNECT_SSC_RATE) {
         bool claimed = !cancelled &&
                        bt_control_ssc_rate_correction_take(job.preferred_mac, job.rate);
         if (claimed && !reconnect_cancelled(&job))
@@ -71,8 +86,9 @@ static void * reconnect_thread_func(void * arg) {
     return NULL;
 }
 
-static bool reconnect_start(const char * preferred_mac, bool correction, unsigned int rate) {
+static bool reconnect_start(const char * preferred_mac, bt_reconnect_reason_t reason, unsigned int rate) {
     if (preferred_mac && !reconnect_valid_mac(preferred_mac)) return false;
+    bool correction = reason == BT_RECONNECT_SSC_RATE;
     if (correction && rate != 44100) return false;
     pthread_mutex_lock(&reconnect_state_mutex);
     if (atomic_load_explicit(&reconnect_active, memory_order_acquire)) {
@@ -83,12 +99,13 @@ static bool reconnect_start(const char * preferred_mac, bool correction, unsigne
     bt_reconnect_job_t * job = calloc(1, sizeof(*job));
     if (!job) {
         if (correction) bt_control_ssc_rate_correction_cancel();
+        if (reason == BT_RECONNECT_SSC_DISCOVERY) bt_control_ssc_discovery_recovery_cancel();
         pthread_mutex_unlock(&reconnect_state_mutex);
         return false;
     }
     job->generation = atomic_fetch_add_explicit(&reconnect_generation, 1, memory_order_acq_rel) + 1;
     if (preferred_mac) memcpy(job->preferred_mac, preferred_mac, sizeof(job->preferred_mac));
-    job->ssc_rate_correction = correction;
+    job->reason = reason;
     job->rate = rate;
     atomic_store_explicit(&reconnect_done, false, memory_order_relaxed);
     atomic_store_explicit(&reconnect_active, true, memory_order_release);
@@ -98,6 +115,7 @@ static bool reconnect_start(const char * preferred_mac, bool correction, unsigne
         reconnect_joinable = false;
         atomic_store_explicit(&reconnect_active, false, memory_order_release);
         if (correction) bt_control_ssc_rate_correction_cancel();
+        if (reason == BT_RECONNECT_SSC_DISCOVERY) bt_control_ssc_discovery_recovery_cancel();
         pthread_mutex_unlock(&reconnect_state_mutex);
         return false;
     }
@@ -106,20 +124,25 @@ static bool reconnect_start(const char * preferred_mac, bool correction, unsigne
 }
 
 bool bt_reconnect_start(const char * preferred_mac) {
-    return reconnect_start(preferred_mac, false, bt_control_get_sample_rate());
+    return reconnect_start(preferred_mac, BT_RECONNECT_NORMAL, bt_control_get_sample_rate());
 }
 
 bool bt_reconnect_start_with_rate(const char * preferred_mac, unsigned int rate) {
-    return reconnect_start(preferred_mac, false, rate);
+    return reconnect_start(preferred_mac, BT_RECONNECT_NORMAL, rate);
 }
 
 bool bt_reconnect_start_ssc_rate_correction(const char * mac, unsigned int rate) {
-    return reconnect_start(mac, true, rate);
+    return reconnect_start(mac, BT_RECONNECT_SSC_RATE, rate);
+}
+
+bool bt_reconnect_start_ssc_discovery(const char * mac, unsigned int rate) {
+    return reconnect_start(mac, BT_RECONNECT_SSC_DISCOVERY, rate);
 }
 
 void bt_reconnect_cancel(void) {
     atomic_fetch_add_explicit(&reconnect_generation, 1, memory_order_acq_rel);
     bt_control_ssc_rate_correction_cancel();
+    bt_control_ssc_discovery_recovery_cancel();
 }
 
 void bt_reconnect_poll(void) {

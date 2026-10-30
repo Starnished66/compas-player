@@ -44,6 +44,9 @@ git -C "$source_dir" apply --check "$patch_file"
 git -C "$source_dir" apply "$patch_file"
 
 cpu=(-march=mips32r2 -mabi=32 -mfp32 -mno-odd-spreg -ffp-contract=off)
+# GCC 11 (musl cross toolchain): keep the checkout path out of __FILE__ strings and debug info
+# for the native objects and, through the wrapper below, every Rockbox object.
+path_map="-ffile-prefix-map=$repo=."
 flags=(-O2 -Wall -ffunction-sections -fdata-sections "-D$define"
        -DCOMPAS_LOADER_BUILD -DCOMPAS_LOADER_EMBEDDED
        "-I$repo" "-I$repo/src/bootloader" "-I$repo/src/core"
@@ -71,7 +74,7 @@ for file in "${native_sources[@]}"; do
     vendor_flags=()
     # Match the existing target rule for this generated backtrace dependency.
     [[ $file != libexecinfo/stacktraverse.c ]] || vendor_flags+=(-Wno-frame-address)
-    "$cross_cc" "${cpu[@]}" "${flags[@]}" "${vendor_flags[@]}" "-I$repo/libexecinfo" -c "$repo/$file" -o "$object"
+    "$cross_cc" "${cpu[@]}" "$path_map" "${flags[@]}" "${vendor_flags[@]}" "-I$repo/libexecinfo" -c "$repo/$file" -o "$object"
     native_objects+=("$object")
 done
 
@@ -83,7 +86,8 @@ set -- "$@" \
     -I"$COMPAS_ROCKBOX_ROOT/libexecinfo" \
     -I"$COMPAS_ROCKBOX_ROOT" \
     '-Dsigevent_t=struct sigevent' \
-    -march=mips32r2 -mabi=32 -mfp32 -mno-odd-spreg -ffp-contract=off
+    -march=mips32r2 -mabi=32 -mfp32 -mno-odd-spreg -ffp-contract=off \
+    "-ffile-prefix-map=$COMPAS_ROCKBOX_ROOT=."
 for arg do
     if [ "$arg" = -c ]; then
         set -- "$@" '-Dsnprintf=compas_rb_snprintf' '-Dvsnprintf=compas_rb_vsnprintf' \

@@ -60,6 +60,15 @@ bool artwork_failure_cache_is_blocked(int64_t song_id, time_t source_mtime, artw
     return false;
 }
 
+bool artwork_failure_cache_has_entry(int64_t song_id) {
+    if (song_id <= 0) return true; /* is_blocked() blocks these */
+    pthread_mutex_lock(&failure_cache_lock);
+    size_t idx = (size_t) song_id % FAILURE_CACHE_SIZE;
+    bool has = failure_cache[idx].song_id == song_id && failure_cache[idx].reason != ARTWORK_FAIL_NONE;
+    pthread_mutex_unlock(&failure_cache_lock);
+    return has;
+}
+
 void artwork_failure_cache_record(int64_t song_id, time_t source_mtime, artwork_fail_reason_t reason) {
     if (song_id <= 0 || reason == ARTWORK_FAIL_NONE) return;
 

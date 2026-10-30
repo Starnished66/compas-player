@@ -206,6 +206,7 @@ static void populate_theme_picker_grid(lv_obj_t * grid);
 
 #ifdef GUI_THEMES_TEST
 void gui_themes_reset_state(void) {
+    assets_invalidate_path_cache();
     s_roots_cached = false;
     s_state_loaded = false;
     s_selected_filename[0] = '\0';
@@ -996,6 +997,7 @@ const char * gui_themes_get_selected(void) {
 }
 
 bool gui_themes_select(const char *filename) {
+    assets_invalidate_path_cache();
     if (!filename || filename[0] == '\0') {
         /* An explicit choice is authoritative even with the SD card absent.
          * Suppress future legacy selection import; overrides without ownership
@@ -1079,6 +1081,7 @@ bool gui_themes_is_legacy_excluded(const char *relpath) {
 
 void gui_themes_clear_legacy_exclusion(const char *relpath) {
     if (!relpath || !relpath[0]) return;
+    assets_invalidate_path_cache();
 
     /* Record the explicit replacement intent independently of the persisted
      * exclusion list. A later inventory scan must not reinterpret a stock
@@ -1131,6 +1134,7 @@ bool gui_themes_resolve_icon_layer(const char *relpath, char *out_path, size_t o
  * -------------------------------------------------------------------------- */
 
 void gui_themes_apply_active(void) {
+    assets_invalidate_path_cache();
     refresh_canonical_roots();
     if (s_selected_filename[0] == '\0') {
         /* Default preserves fresh plugin baseline home, launcher, and colors */

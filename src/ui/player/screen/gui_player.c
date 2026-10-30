@@ -887,6 +887,14 @@ static void fit_cover_img_to_card(void) {
     int32_t scale_w = (card_w * LV_SCALE_NONE + source_w - 1) / source_w;
     int32_t scale_h = (card_h * LV_SCALE_NONE + source_h - 1) / source_h;
     int32_t scale = scale_w > scale_h ? scale_w : scale_h;
+#if defined(BOARD_TEMPOTEC_V1)
+    if (player_layout_builtin) {
+        scale_w = card_w * LV_SCALE_NONE / source_w;
+        scale_h = card_h * LV_SCALE_NONE / source_h;
+        scale = scale_w < scale_h ? scale_w : scale_h;
+        if (scale < 1) scale = 1;
+    }
+#endif
     lv_image_set_scale(cover_img, scale);
     lv_obj_align(cover_img, LV_ALIGN_CENTER, 0, 0);
 }
@@ -929,7 +937,9 @@ static void player_artwork_cache_service(lv_timer_t * timer) {
         cover_raster_cache_clear();
         player_reflection_cache_clear();
     }
-    lv_draw_sw_image_cache_service(available, idle);
+    /* Nearly full swap is memory pressure too: MemAvailable alone stays high
+     * while the process is being pushed out to swap. */
+    lv_draw_sw_image_cache_service(system_swap_under_pressure() ? 0 : available, idle);
     lv_draw_sw_image_cache_get_intermediate_stats(&stats);
     if (timer && (!idle || !stats.pending)) lv_timer_pause(timer);
     if (!timer && idle && stats.pending) {
@@ -2218,6 +2228,22 @@ static void player_secondary_label_enable_marquee(lv_obj_t * label) {
 static void player_layout_metadata_stack(void) {
     if (!song_title_label || !album_label || !artist_label) return;
 
+#if defined(BOARD_TEMPOTEC_V1)
+    {
+    const lv_font_t * title_font = lv_obj_get_style_text_font(song_title_label, 0);
+    const lv_font_t * artist_font = lv_obj_get_style_text_font(artist_label, 0);
+    int32_t title_h = title_font ? lv_font_get_line_height(title_font) : 16;
+    int32_t artist_h = artist_font ? lv_font_get_line_height(artist_font) : 14;
+    lv_obj_set_y(song_title_label, 136);
+    lv_obj_set_height(song_title_label, title_h);
+    lv_obj_set_y(artist_label, 136 + title_h + 4);
+    lv_obj_set_height(artist_label, artist_h);
+    lv_obj_add_flag(album_label, LV_OBJ_FLAG_HIDDEN);
+    player_transition_mark_dirty();
+    return;
+    }
+#endif
+
 
     const lv_font_t * title_font = lv_obj_get_style_text_font(song_title_label, 0);
     const lv_font_t * artist_font = lv_obj_get_style_text_font(artist_label, 0);
@@ -2342,7 +2368,14 @@ static void player_style_named_extras(lv_obj_t * obj) {
     for (uint32_t i = 0; i < count; i++) {
         lv_obj_t * child = lv_obj_get_child(obj, (int32_t) i);
         const char * name = lv_obj_get_name(child);
-        if (name && strncmp(name, "glyph_", 6) == 0 && lv_obj_check_type(child, &lv_image_class))
+        if (name && strcmp(name, "quality_icon") == 0 && lv_obj_check_type(child, &lv_image_class)) {
+            lv_obj_add_style(child, gui_theme_accent_style(), 0);
+            lv_obj_set_style_bg_opa(child, LV_OPA_TRANSP, 0);
+            lv_obj_set_style_image_recolor_opa(child, LV_OPA_COVER, 0);
+        }
+        else if (name && strcmp(name, "accent_background") == 0 && lv_obj_check_type(child, &lv_obj_class))
+            lv_obj_add_style(child, gui_theme_accent_style(), 0);
+        else if (name && strncmp(name, "glyph_", 6) == 0 && lv_obj_check_type(child, &lv_image_class))
             lv_obj_add_style(child, gui_player_backdrop_icon_style(), 0);
         else if (name && strncmp(name, "caption_", 8) == 0 && lv_obj_check_type(child, &lv_label_class))
             lv_obj_add_style(child, gui_player_backdrop_text_style(true), 0);
@@ -2690,7 +2723,14 @@ static bool player_bind_widgets(lv_obj_t * scr) {
     player_inline_lyrics_reset_hit_targets();
 
     int32_t transport_center_y = 0;
-    if (builtin) transport_center_y = player_y(645) + lv_obj_get_height(lv_obj_get_parent(r_play)) / 2;
+    if (builtin) {
+#if defined(BOARD_TEMPOTEC_V1)
+        lv_obj_t * transport_row = lv_obj_get_parent(r_play);
+        transport_center_y = lv_obj_get_y(transport_row) + lv_obj_get_height(transport_row) / 2;
+#else
+        transport_center_y = player_y(645) + lv_obj_get_height(lv_obj_get_parent(r_play)) / 2;
+#endif
+    }
 
     lv_obj_t * order_hit = NULL, * prev_hit = NULL, * next_hit = NULL, * more_hit = NULL;
     if (r_order) {
@@ -3262,13 +3302,27 @@ void gui_player_stop_for_external_session(void) {
  * transition publishes a source again), the generated-cover raster cache
  * (refilled by the next cover decode) and the lyrics backdrop frames. The
  * visible cover and its reflection stay. */
-void gui_player_release_memory_for_external_session(void) {
+static void player_release_memory(bool quiet_backdrop) {
     player_cover_prefetch_cancel();
     next_cover_prefetch_token = 0;
     cover_raster_cache_clear();
     if (player_inline_lyrics_is_animating()) return;
     player_inline_lyrics_release_cache_memory();
-    player_lyrics_backdrop_release_frames();
+    if (quiet_backdrop) player_lyrics_backdrop_release_frames_quiet();
+    else player_lyrics_backdrop_release_frames();
+}
+
+void gui_player_release_memory_for_external_session(void) {
+    player_release_memory(false);
+}
+
+/* Screen-off release: the lyrics backdrop recapture is deferred to the wake. */
+void gui_player_release_memory_for_screen_off(void) {
+    player_release_memory(true);
+}
+
+void gui_player_screen_off_release_wake(void) {
+    player_lyrics_backdrop_warm_after_wake();
 }
 
 /* resolve_replaygain moved to gui_player.c */
@@ -4112,6 +4166,7 @@ void lyrics_switch_event_cb(lv_event_t * e) {
 void swipe_up_home_switch_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
     current_settings.swipe_up_home_enabled = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
+    gui_navigation_refresh_home_snapshot(); /* Home's frame exists only while the gesture is on */
     lv_obj_t * active = lv_screen_active();
     gui_shell_set_home_indicator_visible(current_settings.swipe_up_home_enabled &&
                                          active != gui_shell_get_home_screen() &&
@@ -4751,6 +4806,10 @@ static uint64_t checkpoint_revision_internal;
 static double checkpoint_position_internal = -1;
 static uint64_t checkpoint_revision_sd;
 static double checkpoint_position_sd = -1;
+/* Hash of the non-path file layout at the last full write (0 = none), so an
+ * unchanged queue only rewrites the file header with the new position. */
+static uint64_t checkpoint_layout_internal;
+static uint64_t checkpoint_layout_sd;
 
 bool gui_player_queue_write_busy(void) {
     return player_queue_storage_checkpoint_busy();
@@ -4776,6 +4835,8 @@ void gui_player_queue_checkpoint(void) {
         player_queue_model_remove_sd_checkpoint("queue.bin");
         checkpoint_revision_internal = 0;
         checkpoint_position_internal = -1;
+        checkpoint_layout_internal = 0;
+        checkpoint_layout_sd = 0;
         checkpoint_revision_sd = 0;
         checkpoint_position_sd = -1;
         player_queue_storage_checkpoint_clear_deferred_unlink();
@@ -4785,6 +4846,10 @@ void gui_player_queue_checkpoint(void) {
     bool completed, failed;
     if (!player_queue_storage_checkpoint_reap_if_done(&completed, &failed)) return;
     if (completed && failed) {
+        checkpoint_revision_internal = 0;
+        checkpoint_revision_sd = 0;
+    }
+    if (player_queue_storage_checkpoint_take_header_fallback()) {
         checkpoint_revision_internal = 0;
         checkpoint_revision_sd = 0;
     }
@@ -4810,6 +4875,7 @@ void gui_player_queue_checkpoint(void) {
     int target_dirfd = open_checkpoint_target_dir(target_path);
     uint64_t * last_rev = &checkpoint_revision_internal;
     double * last_pos = &checkpoint_position_internal;
+    uint64_t * last_layout = &checkpoint_layout_internal;
 
     if (is_sd_persistable && sd_mounted) {
         target_name = "queue.bin";
@@ -4824,11 +4890,22 @@ void gui_player_queue_checkpoint(void) {
         target_dirfd = player_queue_model_dup_sd_dirfd();
         last_rev = &checkpoint_revision_sd;
         last_pos = &checkpoint_position_sd;
+        last_layout = &checkpoint_layout_sd;
     }
 
     uint64_t revision = player_queue_model_revision();
     if (revision == *last_rev && fabs(position - *last_pos) < 1.0) { if (target_dirfd >= 0) close(target_dirfd); return; }
     if (target_dirfd < 0) { *last_rev = 0; player_queue_storage_checkpoint_mark_failed(); return; }
+
+    queue_resume_header_t header;
+    uint64_t layout = 0;
+    bool have_header = player_queue_model_checkpoint_header(current_settings.play_mode, position, &header, &layout);
+    if (have_header && revision == *last_rev && layout == *last_layout) {
+        /* Same queue as the file on disk: no path copy, just the new position. */
+        *last_pos = position;
+        if (!player_queue_storage_checkpoint_start_header(header, target_dirfd, target_name)) *last_rev = 0;
+        return;
+    }
 
     queue_resume_t s = {0};
     if (!player_queue_model_checkpoint_snapshot(current_settings.play_mode, position, &s)) {
@@ -4836,6 +4913,7 @@ void gui_player_queue_checkpoint(void) {
     }
     *last_rev = revision;
     *last_pos = position;
+    *last_layout = have_header ? layout : 0;
 
     if (!player_queue_storage_checkpoint_start(s, target_dirfd, target_name)) *last_rev = 0;
 }

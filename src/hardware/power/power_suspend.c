@@ -4,6 +4,7 @@
 #include "../../core/system/logging/db_log.h"
 #include "../../core/process/subprocess.h"
 #include "../../network/wifi/wifi_control.h"
+#include "../../network/radio/aic_radio.h"
 
 #include <errno.h>
 #include <pthread.h>
@@ -209,6 +210,13 @@ void power_suspend_now(void) {
         char * bt_suspend_argv[] = { (char *) "/usr/bin/bt_suspend", NULL };
         SUSPEND_LOG("bt_suspend begin");
         subprocess_run(bt_suspend_argv, NULL, 0);
+        if (aic_radio_active() && !aic_radio_suspend_prepare()) {
+            /* AIC8800D40 must have hci0 and aic8800_fdrv gone before sleeping,
+             * as in the stock player. Stay awake and bring back what was on. */
+            SUSPEND_LOG("cancelled: AIC radio shutdown incomplete");
+            queue_radio_restore(wifi_was_on, bt_was_on);
+            return;
+        }
     }
 
     SUSPEND_LOG("framebuffer_blank begin");

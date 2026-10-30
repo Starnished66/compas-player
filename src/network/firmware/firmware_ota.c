@@ -13,6 +13,7 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <inttypes.h>
 #include <limits.h>
 #include <pthread.h>
@@ -57,6 +58,8 @@ const char * firmware_ota_board_asset(void) {
     return "r3proii.upt";
 #elif defined(BOARD_R3II_2025)
     return "r3ii_2025.upt";
+#elif defined(BOARD_TEMPOTEC_V1)
+    return "v1.upt";
 #else
     return "r1.upt";
 #endif
@@ -828,6 +831,48 @@ firmware_ota_pending_t firmware_ota_pending(firmware_ota_release_t * out) {
     /* UI queries are read-only. Only the install worker, holding the shared
      * update claim, may rename a rejected image or flush the card. */
     return FIRMWARE_OTA_PENDING_REJECTED;
+}
+
+firmware_ota_discard_t firmware_ota_discard_stale_pending(void) {
+    ota_pending_t pending;
+    bool present = false, unreadable = false;
+    if (!firmware_update_claim_ota()) return FIRMWARE_OTA_DISCARD_BUSY;
+    pthread_mutex_lock(&ota_mutex);
+    bool worker = ota_worker_running;
+    pthread_mutex_unlock(&ota_mutex);
+    firmware_ota_discard_t result = FIRMWARE_OTA_DISCARD_BUSY;
+    if (worker) goto out;
+    result = FIRMWARE_OTA_DISCARD_IO_ERROR;
+    if (!sd_mounted(NULL)) goto out;
+    bool valid = read_pending(&pending, &present, &unreadable);
+    if (unreadable) goto out;
+    result = FIRMWARE_OTA_DISCARD_NOT_STALE;
+    if (valid || !present) goto out;
+    if (strcmp(pending.release.asset_name, OTA_PENDING_REJECTED) == 0) {
+        /* The marker keeps every install path refusing while the failed
+         * image is at the root; once it is gone (same rule as
+         * reject_pending) the marker has nothing left to guard. */
+        char image[256];
+        struct stat st;
+        snprintf(image, sizeof(image), "%s/%s", OTA_SD_ROOT, firmware_ota_board_asset());
+        if (lstat(image, &st) == 0 || errno != ENOENT) {
+            result = FIRMWARE_OTA_DISCARD_MARKER_KEPT;
+            goto out;
+        }
+    }
+    result = FIRMWARE_OTA_DISCARD_IO_ERROR;
+    if (unlink(OTA_PENDING_PATH) != 0) goto out;
+    int dir_fd = open(OTA_WORK_DIR, O_RDONLY);
+    if (dir_fd >= 0) {
+        (void) fsync(dir_fd);
+        close(dir_fd);
+    }
+    fprintf(stderr, "[ota] discarded stale pending record %s (does not describe an image on this card)\n",
+            OTA_PENDING_PATH);
+    result = FIRMWARE_OTA_DISCARD_REMOVED;
+out:
+    firmware_update_release_ota();
+    return result;
 }
 
 static void * install_worker(void * unused) {

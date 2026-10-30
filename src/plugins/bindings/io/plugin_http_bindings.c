@@ -3,6 +3,7 @@
 #include "../../../network/http/client/http_client.h"
 #include "../../lua/plugin_lua_runtime.h"
 #include "../../storage/plugin_storage.h"
+#include "../../storage/plugin_reserved_dirs.h"
 
 #include "lauxlib.h"
 
@@ -109,7 +110,7 @@ static void * plugin_async_http_thread_func(void * arg) {
          * normal shared tail, or plugin_manager_poll() would never reap
          * this slot and it would leak permanently as "active". */
         int n;
-        if (plugin_storage_path_is_reserved(req->dest_path)) {
+        if (plugin_storage_path_is_reserved(req->dest_path) || plugin_path_in_program_dirs(req->dest_path)) {
             n = -1; /* forces the "invalid" branch below without touching the filesystem */
         } else {
             n = snprintf(temp_path, sizeof(temp_path), "%s.part.XXXXXX", req->dest_path);
@@ -468,6 +469,8 @@ int l_plugin_download_file_async(lua_State * L) {
         return luaL_error(L, "plugin.download_file_async: destination path is invalid or too long");
     if (plugin_storage_path_is_reserved(dest_path))
         return luaL_error(L, "plugin.download_file_async: path is reserved for plugin.storage/plugin.secrets");
+    if (plugin_path_in_program_dirs(dest_path))
+        return luaL_error(L, "plugin.download_file_async: the program folders (.apps, .apps-data, .emulators) are reserved");
 
     int slot = -1;
     for (int i = 0; i < PLUGIN_MAX_ASYNC_HTTP; i++) {

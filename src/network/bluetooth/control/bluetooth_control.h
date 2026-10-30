@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 typedef bool (*bt_control_cancel_callback_t)(void * ctx);
 
@@ -170,6 +171,16 @@ bool bt_control_reconnect_for_ssc_rate_correction(const char * mac, unsigned int
                                                   bt_control_cancel_callback_t cancel_cb,
                                                   void * cancel_ctx);
 
+/* One recovery per accessory/session when explicit SSC on Galaxy Buds is
+ * still missing after endpoint discovery. Owned by the reconnect worker. */
+bool bt_control_ssc_discovery_recovery_peek(char * mac, size_t mac_size);
+bool bt_control_ssc_discovery_recovery_take(const char * mac);
+void bt_control_ssc_discovery_recovery_finish(const char * mac);
+void bt_control_ssc_discovery_recovery_cancel(void);
+bool bt_control_reconnect_for_ssc_discovery(const char * mac, unsigned int rate,
+                                            bt_control_cancel_callback_t cancel_cb,
+                                            void * cancel_ctx);
+
 /* Output settings use the firmware's BlueALSA 5 service, with an
  * a2dp-source profile for this device sending audio OUT to
  * headphones/speakers. Changing either setting kills and relaunches that
@@ -263,5 +274,8 @@ void bt_control_output_disconnect_watch_start(void);
 void bt_control_output_disconnect_watch_stop(void);
 bool bt_control_output_disconnect_watch_is_running(void);
 bool bt_control_output_disconnect_consume(void);
+/* Milliseconds a missing output should still be waited for because a codec
+ * switch of ours is recreating the transport (at most 3 s), 0 when none is. */
+uint32_t bt_control_reconfigure_hold_ms(void);
 
 #endif /* BLUETOOTH_CONTROL_H */

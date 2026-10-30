@@ -1,5 +1,6 @@
 #include "plugin_archive_bindings.h"
 #include "../../lua/plugin_lua_runtime.h"
+#include "../../storage/plugin_reserved_dirs.h"
 
 #include "lauxlib.h"
 #include "lualib.h"
@@ -251,6 +252,8 @@ static int plugin_image_thumbnail_start(lua_State * L, const char * source_path,
                                        const char * dest_path, int max_w, int max_h,
                                        int callback_index, bool source_is_file, bool wallpaper,
                                        bool startup_install) {
+    if (dest_path[0] && plugin_path_in_program_dirs(dest_path))
+        return luaL_error(L, "the program folders (.apps, .apps-data, .emulators) are reserved");
     if (plugin_zip_image.active) return plugin_lua_push_error(L, "busy");
 
     plugin_zip_image_t * job = &plugin_zip_image;

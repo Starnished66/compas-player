@@ -4,6 +4,7 @@
 #include "../text/i18n/i18n.h"
 #include "../library/browse/gui_library.h"
 #include "../settings/lock/gui_lock_screen.h"
+#include "gui_screen_off_memory.h"
 #include "../player/screen/gui_queue.h"
 #include "../../core/ui/display/ui_wake.h"
 #include "../input/event_input.h"
@@ -44,6 +45,7 @@
 #include "../../audio/effects/peq.h"
 #include "../widgets/builders/screen_builders.h"
 #include "../../core/persistence/settings.h"
+#include "../../core/persistence/bt_ssc_settings.h"
 #include "../../core/system/logging/db_log.h"
 #include "../../network/services/subsonic_client.h"
 #include "../../network/http/client/http_client.h"
@@ -111,6 +113,7 @@ gui_busy_handle_t wifi_connect_saved_token = 0;
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+#include "../settings/controls/gui_remote_settings.h"
 
 #ifdef UI_PERF_TRACE
 #include "../diagnostics/ui_frame_trace.h"
@@ -324,7 +327,7 @@ void gui_resume_after_external_session(void) {
     while (hw_buttons_consume_event(&event)) {}
     (void) hw_buttons_consume_screenshot();
     /* Rebuilds the snapshots gui_release_memory_for_external_session() freed
-     * (static screens in sliced timer passes, the rest asynchronously), and
+     * (Home's frame in a timer pass, the back and Now Playing frames asynchronously), and
      * the drawer's. */
     if (external_session_released_memory) {
         external_session_released_memory = false;
@@ -357,6 +360,9 @@ static bool resumed_from_suspend_pending = false;
  * out-of-band wake so the next control tick still runs every ordinary
  * screen_just_woke refresh/status/radio-reset action. */
 static bool force_screen_just_woke = false;
+/* A button or wake cancel turns the screen off between control ticks, so the
+ * tick never samples it on. Remember it so the idle countdown restarts. */
+static bool force_screen_just_slept = false;
 /* A wake is prepared and painted with the backlight still off. */
 static bool screen_wake_pending = false;
 static bool screen_wake_unlock_requested = false;
@@ -507,6 +513,7 @@ static void finish_screen_wake_reveal(void) {
     gui_lock_screen_refresh(false);
     if (player_ui_timer) lv_timer_ready(player_ui_timer);
     force_screen_just_woke = true;
+    gui_library_screen_woke(); /* the page's chunk timer resumes now, not at the next 500 ms poll */
 }
 
 static void begin_screen_wake_reveal(void) {
@@ -596,6 +603,7 @@ static bool prepare_screen_wake_scanout(void) {
         backlight_set_screen_on(true);
         return true;
     }
+    lv_refr_scroll_blit_reset(); /* the page contents are about to be replaced */
     if (!lv_linux_fbdev_clear_scanout(display)) return false;
 #endif
     screen_wake_scanout_pending = false;
@@ -604,6 +612,7 @@ static bool prepare_screen_wake_scanout(void) {
 #ifndef HOST_BUILD
     /* Render the complete LVGL composition into RAM during panel startup.
      * The driver leaves both physical pages black until the explicit commit. */
+    lv_refr_scroll_blit_reset(); /* the stage replaces the invalid-area queue */
     if (lv_linux_fbdev_begin_ram_stage(display)) {
         screen_wake_ram_staged = true;
         prepare_screen_wake_frame();
@@ -662,6 +671,7 @@ static void request_screen_power(bool on) {
         screen_wake_power_menu = false;
         backlight_set_screen_on(false);
         apply_screen_runtime_state(false);
+        force_screen_just_slept = true;
     }
 }
 
@@ -809,6 +819,10 @@ static void process_physical_button_events(void) {
     }
     hw_button_event_t event;
     while (hw_buttons_consume_event(&event)) {
+        /* Any key event ends a scroll-blit request in progress: key handling shows popups and moves state
+         * through paths that were not audited against the pixel copy (belt and braces over the
+         * foreign-invalidation rule). */
+        lv_refr_scroll_blit_poison(LV_SB_GUARD_KEY);
         if (hw_buttons_button_lock_is_locked() && event.button == BUTTON_MAPPING_POWER)
             physical_button_action(BUTTON_MAPPING_ACTION_DEFAULT, event.button, event.gesture,
                                    event.count, true, event.timestamp_ms, NULL);
@@ -925,6 +939,35 @@ static void media_button_timer_cb(lv_timer_t *timer) {
         if (pending) lv_timer_resume(media_input_timer);
         else lv_timer_pause(media_input_timer);
     }
+}
+
+/* A worker published a result. Before the timers: the library's "is it done"
+ * poll timers become due now. After them: whatever depends on what they just
+ * applied (a populated page starts its lookups and probes, a landed artist
+ * summary starts its probe batch) runs in the same pass, so one render and one
+ * layout follow for all of it. Nothing here runs more than the 500 ms housekeeping
+ * would have; it only runs sooner. */
+void gui_jobs_dispatch_begin(void) {
+    gui_library_jobs_ready_timers();
+}
+
+/* A slide shows a frozen snapshot: page updates wait for it to end, like the
+ * other landings do (take_deferred() then asks the loop for another pass). */
+static bool jobs_end_deferred;
+
+void gui_jobs_dispatch_end(void) {
+    if (gui_navigation_transition_in_progress()) {
+        jobs_end_deferred = true;
+        return;
+    }
+    jobs_end_deferred = false;
+    gui_library_poll_track_probes();
+}
+
+bool gui_jobs_take_deferred(void) {
+    if (!jobs_end_deferred || gui_navigation_transition_in_progress()) return false;
+    jobs_end_deferred = false;
+    return true;
 }
 
 void gui_process_input_wake(void) {
@@ -1319,7 +1362,13 @@ static screen_poll_result_t poll_screen_power(void) {
     bool screen_on_now = backlight_screen_is_on();
     bool screen_just_woke = screen_on_now && (!screen_was_on || force_screen_just_woke);
     if (screen_just_woke) force_screen_just_woke = false;
+    bool screen_just_slept = !screen_on_now && (screen_was_on || force_screen_just_slept);
+    force_screen_just_slept = false;
     if (screen_just_woke && player_ui_timer) lv_timer_ready(player_ui_timer);
+    if (screen_just_woke) gui_library_screen_woke();
+    /* A wake can precede completion of the background RC stop. Retry its
+     * restoration without blocking input or losing the saved preference. */
+    if (screen_on_now) gui_network_resume_radio_services();
 
     /* Touch input and display refresh follow screen on/off state. Disabling indev
      * devices when screen is off prevents accidental touch events. Physical buttons
@@ -1329,15 +1378,18 @@ static screen_poll_result_t poll_screen_power(void) {
     }
 
     if (screen_just_woke) {
+        gui_screen_off_memory_wake();
         inactivity_dimmed = false;
         idle_shutdown_attempted = false;
         if (radios_suspended) {
             gui_shell_resume_connections(wifi_was_on_before_suspend, bt_was_on_before_suspend);
             radios_suspended = false;
         }
+    } else if (!screen_on_now && screen_wake_pending) {
+        gui_screen_off_memory_restart_wait(lv_tick_get());
     } else if (!screen_on_now && !screen_wake_pending) {
         bool playing_now_for_idle = audio_is_playing();
-        if (screen_was_on) {
+        if (screen_just_slept) {
             /* Just went to sleep this tick -- the 10-minute countdown starts
              * from here, not from whenever the inactivity that caused it
              * began. */
@@ -1349,6 +1401,7 @@ static screen_poll_result_t poll_screen_power(void) {
             screen_off_since_tick = lv_tick_get();
         }
         screen_off_playback_active = playing_now_for_idle;
+        gui_screen_off_memory_tick(screen_just_slept, playing_now_for_idle || audio_is_paused(), lv_tick_get());
         /* Cable presence and charger status are separate signals: a USB
          * source can remain connected while the battery reports discharging.
          * Treat UNKNOWN conservatively so background power actions never
@@ -1356,6 +1409,10 @@ static screen_poll_result_t poll_screen_power(void) {
         battery_external_power_state_t external_power_state = battery_get_external_power_state();
         bool external_power_blocks_idle =
             external_power_state != BATTERY_EXTERNAL_POWER_DISCONNECTED;
+        if (!radios_suspended && (playing_now_for_idle || external_power_blocks_idle || battery_is_charging() ||
+            current_settings.wifi_dac_mode_enabled || current_settings.bt_dac_mode_enabled ||
+            current_settings.usb_mode == (int) USB_MODE_DAC))
+            gui_network_resume_radio_services();
         /* bt_is_powered_cached, not bt_control_is_powered(), deliberately --
          * the latter forks a process, and this condition is checked every
          * tick while the screen is off, not throttled like refresh_bt_icon()
@@ -1366,7 +1423,8 @@ static screen_poll_result_t poll_screen_power(void) {
             current_settings.usb_mode != (int) USB_MODE_DAC &&
             !audio_is_playing() && !external_power_blocks_idle && !battery_is_charging() &&
             !shutdown_background_work_active() &&
-            lv_tick_elaps(screen_off_since_tick) >= RADIO_SUSPEND_DELAY_MS) {
+            lv_tick_elaps(screen_off_since_tick) >= RADIO_SUSPEND_DELAY_MS &&
+            gui_network_prepare_radio_sleep()) {
             gui_shell_suspend_connections(&wifi_was_on_before_suspend, &bt_was_on_before_suspend);
             radios_suspended = true;
         }
@@ -1417,7 +1475,8 @@ static screen_poll_result_t poll_screen_power(void) {
             current_settings.usb_mode != (int) USB_MODE_DAC &&
             !audio_is_playing() && !external_power_blocks_idle && !battery_is_charging() &&
             !shutdown_background_work_active() &&
-            lv_tick_elaps(screen_off_since_tick) >= (uint32_t) current_settings.idle_shutdown_minutes * 60 * 1000) {
+            lv_tick_elaps(screen_off_since_tick) >= (uint32_t) current_settings.idle_shutdown_minutes * 60 * 1000 &&
+            gui_network_prepare_radio_sleep()) {
             if (current_settings.idle_suspend_enabled) {
                 plugin_manager_notify_suspending();
                 led_control_suspend();
@@ -1691,6 +1750,7 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
     i18n_set_language(current_settings.language);
     gui_display_apply_rotation(current_settings.screen_upside_down);
     bt_control_restore_codec_preference(current_settings.bt_codec);
+    bt_ssc_settings_apply(&current_settings);
     bt_control_set_speexrate_enabled(current_settings.bt_speexrate_enabled);
     bt_control_set_sample_rate(current_settings.bt_sample_rate);
     db_log_set_enabled(current_settings.db_logging_enabled);
@@ -1805,6 +1865,7 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
     current_settings.dlna_renderer_enabled = false;
     current_settings.remote_control_enabled = false;
     if (network_modes_changed) settings_save_async(&current_settings);
+    gui_remote_settings_init(); /* after the session-only fields above are final */
 
     /* The quick drawer's own open/close drag tracking is polled from
      * update_timer_cb instead (poll_quick_drawer_drag()) -- see its comment

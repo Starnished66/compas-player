@@ -105,7 +105,9 @@ void library_az_index_register(lv_obj_t * screen, lv_obj_t * list,
     int32_t top = STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT;
     int32_t display_h = lv_display_get_vertical_resolution(lv_display_get_default());
     int32_t available_h = display_h - top - HOME_INDICATOR_CONTENT_INSET;
-#if defined(BOARD_R3II_2025)
+#if defined(BOARD_TEMPOTEC_V1)
+    const lv_font_t * strip_font = &lv_font_montserrat_12;
+#elif defined(BOARD_R3II_2025)
     const lv_font_t * strip_font = &lv_font_montserrat_14;
 #else
     const lv_font_t * strip_font = &lv_font_montserrat_20;
@@ -128,7 +130,11 @@ void library_az_index_register(lv_obj_t * screen, lv_obj_t * list,
     if (line_h * 27 + line_space * 26 > available_h) line_space--;
     /* Compress spacing on shorter panels while keeping board-sized glyphs.
      * Touches map to the column's final measured bounds. */
+#if defined(BOARD_TEMPOTEC_V1)
+    if (line_space < -9) line_space = -9;
+#else
     if (line_space < -6) line_space = -6;
+#endif
     if (line_space > 3) line_space = 3;
     lv_obj_set_style_text_line_space(strip, line_space, 0);
     /* Top edge (the "A") lines up with the list's own top edge; the
@@ -139,6 +145,9 @@ void library_az_index_register(lv_obj_t * screen, lv_obj_t * list,
      * compact-list siblings. */
     lv_obj_align(strip, LV_ALIGN_TOP_RIGHT, 0, top);
     lv_obj_add_flag(strip, LV_OBJ_FLAG_HIDDEN);
+    /* The strip sits over the list's right edge while it scrolls: the scroll blit copies only what
+     * lies left of it and redraws this column each step. */
+    lv_obj_set_scroll_blit_fixed_column(list, strip);
 
     lv_obj_t * popup = lv_image_create(screen);
     lv_image_set_src(popup, asset_path("touch_list/a_z_result_bg.png"));
@@ -240,7 +249,6 @@ void library_az_index_poll(lv_timer_t * timer) {
     if (letter_idx > 26) letter_idx = 26;
 
     int target = az_index_jump_table[letter_idx];
-    if (target >= 0 && b->db_kind == METADATA_DB_AZ_ALL_SONGS) target++; /* All Songs' Play All row */
     if (target >= 0) compact_list_scroll_to_index(b->list, target);
 
     char letter = (letter_idx < 26) ? (char) ('A' + letter_idx) : '#';

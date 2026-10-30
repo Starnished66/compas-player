@@ -6,6 +6,7 @@
 #include "../../assets/assets.h"
 #include "../../../core/persistence/settings.h"
 #include "../../appearance/gui_theme.h"
+#include "../../widgets/builders/screen_builders.h"
 
 #include "../../../../third_party/lv_xml/src/others/xml/lv_xml.h"
 #include "../../../../third_party/lv_xml/src/others/xml/lv_xml_compat.h"
@@ -1366,8 +1367,17 @@ static lv_obj_t * create_xml_layout(const char * entry_path, lv_obj_t * parent) 
     if (artist) snprintf(active_interactions.artist_action, sizeof(active_interactions.artist_action), "%s", artist);
     if (album) snprintf(active_interactions.album_action, sizeof(active_interactions.album_action), "%s", album);
     register_layout_folder_images(scope, entry_path);
-    for (size_t i = 0; scope && i < sizeof(layout_images) / sizeof(layout_images[0]); ++i)
-        lv_xml_register_image(scope, layout_images[i].name, asset_path(layout_images[i].relative_path));
+    for (size_t i = 0; scope && i < sizeof(layout_images) / sizeof(layout_images[0]); ++i) {
+        const char * image = asset_path(layout_images[i].relative_path);
+#if defined(BOARD_TEMPOTEC_V1)
+        if (strcmp(layout_images[i].name, "btn_back") == 0) {
+            image = asset_path("navigation/back.png");
+            const char * chevron = titlebar_breeze_icon(image);
+            if (chevron) image = chevron;
+        }
+#endif
+        lv_xml_register_image(scope, layout_images[i].name, image);
+    }
 
     uint32_t children_before = lv_obj_get_child_count(parent);
     lv_obj_t * root = lv_xml_create(parent, XML_COMPONENT_NAME, NULL);

@@ -1,4 +1,5 @@
 #include "gui_external_controls.h"
+#include "gui_remote_settings.h"
 #include <stdio.h>
 #include <stdint.h>
 #include "../../player/screen/gui_player.h"
@@ -200,6 +201,7 @@ void gui_external_controls_poll(void) {
     poll_remote_position_volume();
     poll_remote_queue_commands();
     poll_remote_track();
+    gui_remote_settings_poll();
 }
 
 void gui_external_controls_publish_status(bool favorite) {

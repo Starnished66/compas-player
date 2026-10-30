@@ -1,0 +1,807 @@
+--- a/src/core/lv_refr.c
++++ b/src/core/lv_refr.c
+@@ -311,6 +311,7 @@
+     /*Clear the invalidate buffer if the parameter is NULL*/
+     if(area_p == NULL) {
+         disp->inv_p = 0;
++        lv_refr_scroll_blit_poison(LV_SB_GUARD_QUEUE_CLEARED);
+         return LV_RESULT_OK;
+     }
+ 
+@@ -344,6 +345,8 @@
+     lv_result_t res = lv_display_send_event(disp, LV_EVENT_INVALIDATE_AREA, &com_area);
+     if(res != LV_RESULT_OK) return LV_RESULT_INVALID;
+ 
++    lv_refr_scroll_blit_note_inval(&com_area); /*Before the dedupe below, which would hide it*/
++
+     /*Save only if this area is not in one of the saved areas*/
+     uint16_t i;
+     for(i = 0; i < disp->inv_p; i++) {
+@@ -373,6 +376,683 @@
+     return disp_refr;
+ }
+ 
++/*--- Scroll blit (see lv_refr.h) ---*/
++#include "../widgets/label/lv_label.h"
++#include "../widgets/image/lv_image.h"
++#include "../widgets/button/lv_button.h"
++#include "../misc/lv_event_private.h"
++#ifdef UI_PERF_TRACE
++#include <stdio.h>
++#endif
++
++#define SB_OPTIN_STEP 8   /*The opt-in table grows by this many slots when it is full*/
++#define SB_OPTIN_MAX 256  /*Hard bound: far more lists than the player ever keeps alive at once*/
++#define SB_OWN_MAX 12
++#define SB_FOREIGN_MAX 8  /*More foreign areas than this in one frame: redraw the list*/
++#define SB_INV_MAX 16 /*A frame that already queued this many areas is busy enough to just redraw the list*/
++enum { /*Outcome codes, also reported to the UI trace. The order is part of the trace format
++        *(see ui_draw_trace.c and draw_summary.py): append only.*/
++    SB_BLIT = 0, SB_COVERED, SB_NET_ZERO, SB_GATE, SB_MODE, SB_OVERLAP, SB_STYLE, SB_STALE, SB_TOO_BIG,
++    SB_FOREIGN /*Something else invalidated part of the list this frame*/
++};
++static struct {
++    lv_obj_t ** optin;       /*Opted-in lists, a NULL slot is free; grows on demand up to SB_OPTIN_MAX*/
++    uint32_t optin_cap;
++    lv_scroll_blit_gate_cb_t gate;
++    lv_obj_t * obj;          /*Pending request: scrolled since the last refresh*/
++    lv_display_t * disp;
++    lv_area_t rect;          /*Visible rectangle of `obj` when the request started*/
++    int32_t dy;              /*Net distance the content moved*/
++    bool poisoned;           /*Invalidation state was lost or disabled meanwhile: redraw it all*/
++    int foreign_n;           /*Areas something else invalidated over the list since the request started*/
++    struct {
++        lv_area_t area;      /*As queued, in the screen coordinates of that moment*/
++        int32_t dy_at;       /*The net distance the content had moved when it was queued*/
++    } foreign[SB_FOREIGN_MAX];
++    bool done;               /*The copy ran this refresh: its rect still has to be synced next frame*/
++    lv_area_t done_rect;
++    lv_area_t own[SB_OWN_MAX]; /*Areas this feature invalidated itself (strips, scrollbar column)*/
++    int own_n;
++} sb;
++
++/*Fixed columns: an object drawn over the right edge of an opted-in list (the A-Z strip) that must not
++ *be carried along by the copy. The copy then stops left of it and the column is redrawn normally.*/
++#define SB_FIXED_MAX 16
++static struct {
++    lv_obj_t * list;
++    lv_obj_t * col;
++} sb_fixed[SB_FIXED_MAX];
++
++/*Overlays found by the last scan*/
++#ifdef UI_PERF_TRACE
++/*The last copied frame, for the trace's self-check*/
++static lv_obj_t * sb_last_obj;
++static lv_area_t sb_last_rect;
++static lv_area_t sb_last_excl[1]; /*The scrollbar column*/
++static int sb_last_excl_n;
++bool lv_refr_scroll_blit_last(lv_obj_t ** obj, lv_area_t * rect, lv_area_t * excl, int max, int * excl_n)
++{
++    if(!sb_last_obj) return false;
++    *obj = sb_last_obj;
++    *rect = sb_last_rect;
++    *excl_n = LV_MIN(sb_last_excl_n, max);
++    for(int i = 0; i < *excl_n; i++) excl[i] = sb_last_excl[i];
++    return true;
++}
++#endif
++
++void lv_scroll_blit_set_gate(lv_scroll_blit_gate_cb_t gate)
++{
++    sb.gate = gate;
++}
++
++static void sb_delete_cb(lv_event_t * e)
++{
++    lv_obj_t * o = lv_event_get_target(e);
++#ifdef UI_PERF_TRACE
++    if(sb_last_obj == o) sb_last_obj = NULL;
++#endif
++    for(uint32_t i = 0; i < sb.optin_cap; i++) if(sb.optin[i] == o) sb.optin[i] = NULL;
++    if(sb.obj == o) sb.obj = NULL;
++}
++
++static void sb_fixed_delete_cb(lv_event_t * e)
++{
++    lv_obj_t * o = lv_event_get_target(e);
++    for(int i = 0; i < SB_FIXED_MAX; i++)
++        if(sb_fixed[i].list == o || sb_fixed[i].col == o) sb_fixed[i].list = sb_fixed[i].col = NULL;
++}
++
++static lv_obj_t * sb_fixed_col(lv_obj_t * list)
++{
++    for(int i = 0; i < SB_FIXED_MAX; i++) if(sb_fixed[i].list == list) return sb_fixed[i].col;
++    return NULL;
++}
++
++void lv_obj_set_scroll_blit_fixed_column(lv_obj_t * list, lv_obj_t * column)
++{
++    int slot = -1;
++    for(int i = 0; i < SB_FIXED_MAX; i++) {
++        if(sb_fixed[i].list == list) { slot = i; break; }
++        if(slot < 0 && sb_fixed[i].list == NULL) slot = i;
++    }
++    if(slot < 0) {
++        LV_LOG_WARN("scroll blit: too many fixed columns, this list keeps refusing the copy");
++        return;
++    }
++    if(sb_fixed[slot].list == list && sb_fixed[slot].col && sb_fixed[slot].col != column)
++        lv_obj_remove_event_cb(sb_fixed[slot].col, sb_fixed_delete_cb);
++    if(!list || !column) {
++        sb_fixed[slot].list = sb_fixed[slot].col = NULL;
++        return;
++    }
++    sb_fixed[slot].list = list;
++    sb_fixed[slot].col = column;
++    lv_obj_remove_event_cb(list, sb_fixed_delete_cb); /*Never twice*/
++    lv_obj_add_event_cb(list, sb_fixed_delete_cb, LV_EVENT_DELETE, NULL);
++    lv_obj_remove_event_cb(column, sb_fixed_delete_cb);
++    lv_obj_add_event_cb(column, sb_fixed_delete_cb, LV_EVENT_DELETE, NULL);
++}
++
++static bool sb_optin(lv_obj_t * obj)
++{
++    for(uint32_t i = 0; i < sb.optin_cap; i++) if(sb.optin[i] == obj) return true;
++    return false;
++}
++
++void lv_obj_set_scroll_blit(lv_obj_t * obj, bool en)
++{
++    if(!en) {
++        for(uint32_t i = 0; i < sb.optin_cap; i++) if(sb.optin[i] == obj) sb.optin[i] = NULL;
++        return;
++    }
++    if(sb_optin(obj)) return;
++    for(int pass = 0; pass < 2; pass++) {
++        for(uint32_t i = 0; i < sb.optin_cap; i++) {
++            if(sb.optin[i]) continue;
++            sb.optin[i] = obj;
++            lv_obj_remove_event_cb(obj, sb_delete_cb); /*Never twice*/
++            lv_obj_add_event_cb(obj, sb_delete_cb, LV_EVENT_DELETE, NULL);
++            return;
++        }
++        if(pass == 1 || sb.optin_cap >= SB_OPTIN_MAX) break;
++        uint32_t cap = sb.optin_cap + SB_OPTIN_STEP;
++        lv_obj_t ** grown = lv_realloc(sb.optin, sizeof(lv_obj_t *) * cap);
++        if(grown == NULL) break;
++        lv_memzero(&grown[sb.optin_cap], sizeof(lv_obj_t *) * (cap - sb.optin_cap));
++        sb.optin = grown;
++        sb.optin_cap = cap;
++    }
++    LV_LOG_WARN("scroll blit: too many lists, this one scrolls the normal way");
++}
++
++#ifdef UI_PERF_TRACE
++#include <unistd.h>
++static uint32_t sb_guard_counts[LV_SB_GUARD_COUNT];
++void lv_refr_scroll_blit_guard_counts(uint32_t * out)
++{
++    for(int i = 0; i < LV_SB_GUARD_COUNT; i++) out[i] = sb_guard_counts[i];
++}
++void lv_refr_scroll_blit_guard_reset_counts(void)
++{
++    for(int i = 0; i < LV_SB_GUARD_COUNT; i++) sb_guard_counts[i] = 0;
++}
++#endif
++
++void lv_refr_scroll_blit_poison(lv_scroll_blit_guard_t why)
++{
++    if(!sb.obj) return;
++    sb.poisoned = true;
++#ifdef UI_PERF_TRACE
++    if((int) why >= 0 && why < LV_SB_GUARD_COUNT) sb_guard_counts[why]++;
++#endif
++    LV_UNUSED(why);
++}
++
++void lv_refr_scroll_blit_reset(void)
++{
++    lv_refr_scroll_blit_poison(LV_SB_GUARD_RESET);
++}
++
++static bool sb_visible_rect(lv_display_t * disp, lv_obj_t * obj, lv_area_t * rect);
++static void sb_note_foreign(const lv_area_t * area, int32_t dy_at);
++
++static void sb_report(int code, int32_t dy, uint64_t t0)
++{
++#ifdef UI_PERF_TRACE
++    uint32_t us = t0 ? (uint32_t)(refr_trace_now_us() - t0) : 0;
++    ui_frame_trace_event(UI_FRAME_TRACE_EVENT_SCROLL_BLIT, (uint32_t) code,
++                         ((uint32_t)(dy & 0xffff) << 16) | (us > 0xffff ? 0xffff : us));
++#else
++    LV_UNUSED(code); LV_UNUSED(dy); LV_UNUSED(t0);
++#endif
++}
++
++/*Gives up on the copy: the whole rectangle is redrawn, exactly as an unmodified scroll would*/
++static void sb_cancel(int code)
++{
++    if(!sb.obj) return;
++    sb_report(code, sb.dy, 0);
++    lv_inv_area(sb.disp, &sb.rect);
++    sb.obj = NULL;
++}
++
++static bool sb_display_ok(lv_display_t * disp)
++{
++    return lv_display_is_double_buffered(disp) && !disp->buf_3 &&
++           disp->render_mode == LV_DISPLAY_RENDER_MODE_DIRECT &&
++           lv_display_get_rotation(disp) == LV_DISPLAY_ROTATION_0 &&
++           !lv_display_get_matrix_rotation(disp) && disp->buf_1 && disp->buf_2 &&
++           disp->buf_1->header.stride == disp->buf_2->header.stride;
++}
++
++/*Visible part of the object: its area clipped by the display and by every ancestor*/
++static bool sb_visible_rect(lv_display_t * disp, lv_obj_t * obj, lv_area_t * rect)
++{
++    lv_area_t r = {0, 0, lv_display_get_horizontal_resolution(disp) - 1, lv_display_get_vertical_resolution(disp) - 1};
++    for(lv_obj_t * o = obj; o; o = lv_obj_get_parent(o))
++        if(!lv_area_intersect(&r, &r, &o->coords)) return false;
++    *rect = r;
++    return true;
++}
++
++/*What the copy moves: the visible rectangle, narrowed to the left of the list's registered fixed column
++ *(shown or hidden alike, so the rectangle does not change when the column hides or shows). `full` is the whole
++ *visible rectangle. False when nothing is left to copy.*/
++static bool sb_blit_rect(lv_display_t * disp, lv_obj_t * obj, lv_area_t * rect, lv_area_t * full)
++{
++    if(!sb_visible_rect(disp, obj, rect)) return false;
++    *full = *rect;
++    lv_obj_t * col = sb_fixed_col(obj);
++    if(!col) return true;
++    int32_t x2 = col->coords.x1 - lv_obj_get_ext_draw_size(col) - 1;
++    if(x2 < rect->x1) return false;
++    if(x2 < rect->x2) rect->x2 = x2;
++    return true;
++}
++
++/*Columns the scrollbar can occupy, from its style, so it does not matter whether it is shown now.
++ *False if the object never draws one.*/
++static bool sb_scrollbar_col(lv_obj_t * obj, int32_t * x1, int32_t * x2)
++{
++    if(!lv_obj_has_flag(obj, LV_OBJ_FLAG_SCROLLABLE) || lv_obj_get_scrollbar_mode(obj) == LV_SCROLLBAR_MODE_OFF)
++        return false;
++    int32_t thickness = lv_obj_get_style_width(obj, LV_PART_SCROLLBAR);
++    if(lv_obj_get_style_base_dir(obj, LV_PART_SCROLLBAR) == LV_BASE_DIR_RTL) {
++        *x1 = obj->coords.x1 + lv_obj_get_style_pad_left(obj, LV_PART_SCROLLBAR);
++        *x2 = *x1 + thickness - 1;
++    }
++    else {
++        *x2 = obj->coords.x2 - lv_obj_get_style_pad_right(obj, LV_PART_SCROLLBAR);
++        *x1 = *x2 - thickness + 1;
++    }
++    *x1 -= 1; /*Rounded ends*/
++    *x2 += 1;
++    return true;
++}
++
++#ifdef UI_PERF_TRACE
++static bool sb_diag_armed = true;
++void lv_scroll_blit_diag_reset(void)
++{
++    sb_diag_armed = true;
++}
++/*Names the first object that stopped a blit in this capture*/
++static void sb_diag(const char * why, const lv_obj_t * o)
++{
++    if(!sb_diag_armed || !o) return;
++    sb_diag_armed = false;
++    const lv_obj_class_t * c = o->class_p;
++    const char * kind = c == &lv_obj_class ? "obj" : c == &lv_label_class ? "label" :
++                        c == &lv_image_class ? "image" : c == &lv_button_class ? "button" : "other";
++    printf("[SB_DIAG] %s: %s class=%p coords=(%d,%d)-(%d,%d) ext=%d bg_opa=%d border=%d hidden=%d\n", why, kind,
++           (const void *) c, (int) o->coords.x1, (int) o->coords.y1, (int) o->coords.x2, (int) o->coords.y2,
++           (int) lv_obj_get_ext_draw_size(o), (int) lv_obj_get_style_bg_opa(o, LV_PART_MAIN),
++           (int) lv_obj_get_style_border_width(o, LV_PART_MAIN), (int) lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN));
++}
++#else
++#define sb_diag(why, o) LV_UNUSED(o)
++#endif
++
++/*Event handlers that draw into the object's area*/
++static bool sb_has_draw_events(lv_obj_t * o)
++{
++    uint32_t n = lv_obj_get_event_count(o);
++    for(uint32_t i = 0; i < n; i++) {
++        uint32_t code = lv_obj_get_event_dsc(o, i)->filter & ~(uint32_t) LV_EVENT_PREPROCESS;
++        /*LV_EVENT_ALL (0) handlers may draw too*/
++        if(code == LV_EVENT_ALL || (code >= LV_EVENT_DRAW_MAIN_BEGIN && code <= LV_EVENT_DRAW_TASK_ADDED)) return true;
++    }
++    return false;
++}
++
++static bool sb_scrollbar_visible(lv_obj_t * o)
++{
++    lv_area_t h, v;
++    lv_obj_get_scrollbar_area(o, &h, &v);
++    return (h.x2 >= h.x1 && h.y2 >= h.y1) || (v.x2 >= v.x1 && v.y2 >= v.y1);
++}
++
++/*True when the object draws something of its own (not just its children)*/
++static bool sb_draws_itself(lv_obj_t * o)
++{
++    if(lv_obj_get_style_bg_opa(o, LV_PART_MAIN) > LV_OPA_TRANSP ||
++       lv_obj_get_style_border_width(o, LV_PART_MAIN) > 0 ||
++       lv_obj_get_style_outline_width(o, LV_PART_MAIN) > 0 ||
++       lv_obj_get_style_shadow_width(o, LV_PART_MAIN) > 0 ||
++       lv_obj_get_style_bg_image_src(o, LV_PART_MAIN) ||
++       sb_has_draw_events(o) || sb_scrollbar_visible(o)) return true;
++    const lv_obj_class_t * c = o->class_p;
++    if(c == &lv_obj_class || c == &lv_button_class) return false;
++    if(c == &lv_label_class) {
++        const char * text = lv_label_get_text(o);
++        return text && text[0] != '\0';
++    }
++    if(c == &lv_image_class) return lv_image_get_src(o) != NULL;
++    return true;
++}
++
++/*Fails if any visible object outside the list draws something inside `rect`: such pixels would be
++ *carried along by the copy. Fully transparent objects draw nothing and are skipped, their
++ *children are still examined. Layers and overflow-visible objects cannot be bounded and fail too.*/
++static bool sb_collect(lv_obj_t * o, const lv_area_t * rect, lv_obj_t * skip)
++{
++    if(o == skip || lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) return true;
++    lv_area_t a = o->coords, hit;
++    int32_t ext = lv_obj_get_ext_draw_size(o);
++    lv_area_increase(&a, ext, ext);
++    uint32_t n = lv_obj_get_child_count(o);
++    bool overflow = n && lv_obj_has_flag(o, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
++    if(lv_obj_get_layer_type(o) == LV_LAYER_TYPE_TRANSFORM) {
++        /*A scaled or rotated object (and its subtree) draws outside its untransformed box: bound it by the
++         *area it covers once transformed, before the bounds test below can prune it*/
++        if(overflow) { sb_diag("transformed overflow overlay", o); return false; }
++        lv_obj_get_transformed_area(o, &a, LV_OBJ_POINT_TRANSFORM_FLAG_NONE);
++    }
++    if(!lv_area_intersect(&hit, &a, rect)) {
++        /*Its own bounds miss the rect, but the children of an overflow-visible object can still reach it*/
++        if(!overflow) return true;
++        for(uint32_t i = 0; i < n; i++)
++            if(!sb_collect(lv_obj_get_child(o, i), rect, skip)) return false;
++        return true;
++    }
++    if(lv_obj_get_layer_type(o) != LV_LAYER_TYPE_NONE || overflow) { sb_diag("layer/overflow overlay", o); return false; }
++    if(sb_draws_itself(o)) { sb_diag("overlay over the list", o); return false; }
++    for(uint32_t i = 0; i < n; i++)
++        if(!sb_collect(lv_obj_get_child(o, i), rect, skip)) return false;
++    return true;
++}
++
++/*Descendants of the list must render the same wherever they are: no layers*/
++static bool sb_no_layers_below(lv_obj_t * o)
++{
++    uint32_t n = lv_obj_get_child_count(o);
++    for(uint32_t i = 0; i < n; i++) {
++        lv_obj_t * c = lv_obj_get_child(o, i);
++        if(lv_obj_get_layer_type(c) != LV_LAYER_TYPE_NONE) { sb_diag("list descendant layer", c); return false; }
++        if(!sb_no_layers_below(c)) return false;
++    }
++    return true;
++}
++
++/*Everything that must hold for the copy to be exact; false with the reason in `code`*/
++static bool sb_scan(lv_display_t * disp, lv_obj_t * obj, const lv_area_t * rect, int * code)
++{
++    /*The object itself only draws its children and the scrollbar*/
++    int32_t cx1, cx2;
++    bool has_bar = sb_scrollbar_col(obj, &cx1, &cx2);
++    bool bar_style_ok = !has_bar ||
++        (lv_obj_get_style_shadow_width(obj, LV_PART_SCROLLBAR) == 0 &&
++         lv_obj_get_style_outline_width(obj, LV_PART_SCROLLBAR) == 0 &&
++         lv_obj_get_style_border_width(obj, LV_PART_SCROLLBAR) == 0);
++    if(lv_obj_get_style_bg_opa(obj, LV_PART_MAIN) > LV_OPA_TRANSP ||
++       lv_obj_get_style_border_width(obj, LV_PART_MAIN) > 0 ||
++       lv_obj_get_style_outline_width(obj, LV_PART_MAIN) > 0 ||
++       lv_obj_get_style_shadow_width(obj, LV_PART_MAIN) > 0 ||
++       lv_obj_get_style_bg_image_src(obj, LV_PART_MAIN) || sb_has_draw_events(obj) || !bar_style_ok ||
++       lv_obj_get_ext_draw_size(obj) != 0 || lv_obj_has_flag(obj, LV_OBJ_FLAG_OVERFLOW_VISIBLE) ||
++       (lv_obj_get_scroll_dir(obj) & LV_DIR_HOR)) { sb_diag("list style", obj); *code = SB_STYLE; return false; }
++    uint32_t n = lv_obj_get_child_count(obj);
++    for(uint32_t i = 0; i < n; i++)
++        if(lv_obj_has_flag(lv_obj_get_child(obj, i), LV_OBJ_FLAG_FLOATING)) {
++            sb_diag("floating child", lv_obj_get_child(obj, i)); *code = SB_STYLE; return false;
++        }
++    if(!sb_no_layers_below(obj)) { *code = SB_STYLE; return false; }
++
++    /*Everything behind the object must look the same at any vertical offset*/
++    for(lv_obj_t * o = obj; o; o = lv_obj_get_parent(o)) {
++        if(lv_obj_get_layer_type(o) != LV_LAYER_TYPE_NONE || lv_obj_get_style_clip_corner(o, LV_PART_MAIN) ||
++           (o != obj && lv_obj_has_flag(o, LV_OBJ_FLAG_OVERFLOW_VISIBLE))) {
++            sb_diag("layer/clip", o); *code = SB_STYLE; return false;
++        }
++        lv_obj_t * parent = lv_obj_get_parent(o);
++        if(!parent) break;
++        lv_area_t bar_h, bar_v, hit;
++        lv_obj_get_scrollbar_area(parent, &bar_h, &bar_v);
++        if(parent->class_p != &lv_obj_class || /*Other widgets draw more than their style*/
++           lv_obj_get_style_bg_grad_dir(parent, LV_PART_MAIN) != LV_GRAD_DIR_NONE ||
++           lv_obj_get_style_bg_image_src(parent, LV_PART_MAIN) ||
++           lv_obj_get_style_border_width(parent, LV_PART_MAIN) > 0 ||
++           lv_obj_get_style_outline_width(parent, LV_PART_MAIN) > 0 ||
++           lv_obj_get_style_shadow_width(parent, LV_PART_MAIN) > 0 ||
++           (lv_obj_get_style_radius(parent, LV_PART_MAIN) > 0 && lv_obj_get_style_bg_opa(parent, LV_PART_MAIN) > LV_OPA_TRANSP) ||
++           sb_has_draw_events(parent) ||
++           lv_area_intersect(&hit, &bar_h, rect) || lv_area_intersect(&hit, &bar_v, rect)) {
++            sb_diag("ancestor style", parent); *code = SB_STYLE; return false;
++        }
++        uint32_t pn = lv_obj_get_child_count(parent);
++        for(uint32_t i = 0; i < pn; i++)
++            if(!sb_collect(lv_obj_get_child(parent, i), rect, o)) { *code = SB_OVERLAP; return false; }
++    }
++    lv_obj_t * layers[3] = {lv_display_get_layer_bottom(disp), lv_display_get_layer_top(disp), lv_display_get_layer_sys(disp)};
++    for(int l = 0; l < 3; l++) {
++        uint32_t ln = lv_obj_get_child_count(layers[l]);
++        for(uint32_t i = 0; i < ln; i++)
++            if(!sb_collect(lv_obj_get_child(layers[l], i), rect, NULL)) { *code = SB_OVERLAP; return false; }
++    }
++    return true;
++}
++
++#ifdef UI_PERF_TRACE
++/* Stress test: while /usr/data/mnt/sd_0/compas_scroll_blit.stress exists, now and then queue an
++ * invalid area on the edge rows a scroll step is about to expose, as an animation running just
++ * before the scroll would. Such an area has to be redrawn where it moved to as well; the
++ * self-check shows whether it is. */
++static void sb_stress(lv_display_t * disp, lv_obj_t * obj, int32_t dy)
++{
++    static uint32_t checked_at, rng = 12345u;
++    static bool checked, on;
++    if(!checked || lv_tick_elaps(checked_at) >= 500) {
++        on = access("/usr/data/mnt/sd_0/compas_scroll_blit.stress", F_OK) == 0;
++        checked_at = lv_tick_get();
++        checked = true;
++    }
++    if(!on) return;
++    rng = rng * 1664525u + 1013904223u;
++    if((rng >> 24) % 4 != 0) return;
++    lv_area_t rect;
++    if(!sb_visible_rect(disp, obj, &rect)) return;
++    int32_t rows = LV_MAX(1, LV_MIN(dy > 0 ? dy : -dy, 4));
++    if(dy > 0) rect.y2 = LV_MIN(rect.y1 + rows - 1, rect.y2);
++    else rect.y1 = LV_MAX(rect.y2 - rows + 1, rect.y1);
++    sb_guard_counts[LV_SB_GUARD_STRESS]++;
++    lv_inv_area(disp, &rect);
++}
++#endif
++
++static void sb_own(const lv_area_t * a);
++
++bool lv_refr_scroll_blit_begin(lv_obj_t * obj, int32_t dy)
++{
++    if(!sb.gate || !sb_optin(obj)) return false;
++    lv_display_t * disp = lv_obj_get_display(obj);
++    if(!disp) return false;
++    if(!lv_display_is_invalidation_enabled(disp)) { /*Nothing recorded now: a pending copy would lack it*/
++        lv_refr_scroll_blit_poison(LV_SB_GUARD_INVAL_DISABLED);
++        return false;
++    }
++    if(sb.obj && sb.obj != obj) sb_cancel(SB_STALE);
++#ifdef UI_PERF_TRACE
++    sb_stress(disp, obj, dy);
++#endif
++
++    lv_area_t rect, full;
++    int32_t net = (sb.obj == obj ? sb.dy : 0) + dy;
++    int code = SB_BLIT;
++    if(!sb_display_ok(disp)) code = SB_MODE;
++    else if(lv_obj_get_screen(obj) != lv_display_get_screen_active(disp) ||
++            !sb_blit_rect(disp, obj, &rect, &full) || lv_area_get_height(&rect) <= 0) code = SB_STALE;
++    else if(net >= lv_area_get_height(&rect) / 2 || -net >= lv_area_get_height(&rect) / 2) code = SB_TOO_BIG;
++    else if(sb.obj == obj && !lv_area_is_equal(&sb.rect, &rect)) code = SB_STALE;
++    else if(disp->inv_p > SB_INV_MAX) code = SB_OVERLAP;
++    /*A step against the net direction: something changed while it was scrolled out of view leaves no
++     *invalid area, and coming back it could land where the copy carries the old pixels*/
++    else if(sb.obj == obj && dy != 0 && sb.dy != 0 && (dy > 0) != (sb.dy > 0)) code = SB_STALE;
++    bool first = sb.obj != obj;
++    if(code == SB_BLIT && first) { /*Overlays now are what the on-screen page shows over the list*/
++        sb_scan(disp, obj, &rect, &code); /*Refuses while any overlay touches the list*/
++    }
++    if(code != SB_BLIT) {
++        sb_report(code, net, 0); /*Every refusal, so the frame's record names the last one that applied to it*/
++        if(sb.obj == obj) sb_cancel(code);
++        return false;
++    }
++
++    sb.obj = obj;
++    sb.disp = disp;
++    sb.rect = rect;
++    if(first) {
++        sb.poisoned = false;
++        sb.own_n = 0;
++        sb.foreign_n = 0;
++        /*A fixed column does not move with the content either: redrawn now, so that whichever way this
++         *request ends (the copy, or a refusal that redraws the rectangle) the column is up to date.*/
++        if(full.x2 > rect.x2) {
++            lv_area_t col = {rect.x2 + 1, rect.y1, full.x2, rect.y2};
++            sb_own(&col);
++        }
++        /*Whatever is queued over the list already describes the content where it is now, before any
++         *shift: the copy carries the old pixels along, so these are redrawn where they end up too.*/
++        for(uint16_t i = 0; i < disp->inv_p; i++) {
++            lv_area_t hit;
++            if(lv_area_intersect(&hit, &disp->inv_areas[i], &rect)) sb_note_foreign(&disp->inv_areas[i], 0);
++        }
++    }
++    sb.dy = net;
++    return true;
++}
++
++static bool sb_in_own; /*lv_inv_area() is being called by this feature itself*/
++
++/*Something other than this feature invalidated `area` while `dy_at` was the net distance the content had
++ *moved. The copy would carry the old pixels of that content along, so sb_apply() redraws the area where
++ *the remaining shift puts it as well. Too many of them: the exact model is not worth it, redraw the list.*/
++static void sb_note_foreign(const lv_area_t * area, int32_t dy_at)
++{
++    if(sb.foreign_n >= SB_FOREIGN_MAX) {
++        sb.poisoned = true;
++#ifdef UI_PERF_TRACE
++        sb_guard_counts[LV_SB_GUARD_FOREIGN]++;
++#endif
++        return;
++    }
++    sb.foreign[sb.foreign_n].area = *area;
++    sb.foreign[sb.foreign_n].dy_at = dy_at;
++    sb.foreign_n++;
++}
++
++void lv_refr_scroll_blit_note_inval(const lv_area_t * area)
++{
++    lv_area_t hit;
++    if(!sb.obj || sb_in_own || !lv_area_intersect(&hit, area, &sb.rect)) return;
++    sb_note_foreign(area, sb.dy);
++}
++
++/*Invalidates an area on this feature's behalf and remembers it: at refresh time any other
++ *invalid area inside the list means the exact pixel model is unknown, and the list is redrawn.*/
++static void sb_own(const lv_area_t * a)
++{
++    sb_in_own = true;
++    lv_inv_area(sb.disp, a);
++    sb_in_own = false;
++    if(sb.own_n < SB_OWN_MAX) sb.own[sb.own_n++] = *a;
++    else lv_refr_scroll_blit_poison(LV_SB_GUARD_OWN_OVERFLOW);
++}
++
++void lv_refr_scroll_blit_end(lv_obj_t * obj, int32_t dy)
++{
++    if(sb.obj != obj) return;
++    lv_area_t a = sb.rect;
++    if(dy > 0) a.y2 = LV_MIN(a.y1 + dy - 1, a.y2);
++    else a.y1 = LV_MAX(a.y2 + dy + 1, a.y1);
++    sb_own(&a);
++
++    /*The scrollbar does not move with the content: redraw its column*/
++    int32_t x1, x2;
++    if(sb_scrollbar_col(obj, &x1, &x2)) {
++        lv_area_t col = {LV_MAX(x1, sb.rect.x1), sb.rect.y1, LV_MIN(x2, sb.rect.x2), sb.rect.y2};
++        if(col.x1 <= col.x2) sb_own(&col);
++    }
++}
++
++/*Removes `rect` from the areas waiting to be copied to the off-screen page*/
++static void sb_carve_sync(const lv_area_t * rect)
++{
++    lv_area_t res[4];
++    lv_area_t * sync_area = lv_ll_get_head(&disp_refr->sync_areas);
++    while(sync_area) {
++        lv_area_t * next = lv_ll_get_next(&disp_refr->sync_areas, sync_area);
++        int8_t n = lv_area_diff(res, sync_area, rect);
++        if(n != -1) {
++            for(int8_t j = 0; j < n; j++) {
++                lv_area_t * piece = lv_ll_ins_prev(&disp_refr->sync_areas, sync_area);
++                *piece = res[j];
++            }
++            lv_ll_remove(&disp_refr->sync_areas, sync_area);
++            lv_free(sync_area);
++        }
++        sync_area = next;
++    }
++}
++
++/*Called at the start of a refresh, after layout and before the page sync*/
++static void sb_apply(void)
++{
++    sb.done = false;
++    if(!sb.obj) return;
++    lv_obj_t * obj = sb.obj;
++    lv_display_t * disp = sb.disp;
++    sb.obj = NULL;
++    int code = SB_BLIT;
++    lv_area_t rect = sb.rect, cur, cur_full;
++    uint64_t t0 = 0;
++    if(sb.poisoned || disp != disp_refr || !sb_display_ok(disp) || disp->inv_p == 0 ||
++       lv_obj_get_screen(obj) != disp->act_scr ||
++       !sb_blit_rect(disp, obj, &cur, &cur_full) || !lv_area_is_equal(&cur, &rect)) code = SB_STALE;
++    else if(sb.dy == 0) code = SB_NET_ZERO;
++    else {
++        for(uint16_t i = 0; i < disp->inv_p; i++)
++            if(lv_area_is_in(&rect, &disp->inv_areas[i], 0)) code = SB_COVERED;
++    }
++    if(code == SB_BLIT) { /*Every invalid area inside the list must be one this feature made*/
++        for(uint16_t i = 0; i < disp->inv_p && code == SB_BLIT; i++) {
++            lv_area_t in_list;
++            if(!lv_area_intersect(&in_list, &disp->inv_areas[i], &rect)) continue;
++            /*The whole area must be ours, not just its part inside the list: an overlay that was on
++             *the panel and goes away invalidates itself, and the rows it covered would be carried
++             *down by the copy while that part looks like a strip row.*/
++            bool mine = false;
++            for(int k = 0; k < sb.own_n && !mine; k++) mine = lv_area_is_in(&disp->inv_areas[i], &sb.own[k], 0);
++            /*Or one that was recorded as it was queued: it is redrawn below, in place and where it moved to*/
++            for(int k = 0; k < sb.foreign_n && !mine; k++)
++                mine = lv_area_is_in(&disp->inv_areas[i], &sb.foreign[k].area, 0);
++            if(!mine) code = SB_FOREIGN;
++        }
++    }
++    if(code == SB_BLIT) sb_scan(disp, obj, &rect, &code);
++    lv_draw_buf_t * off_screen = disp->buf_act;
++    lv_draw_buf_t * on_screen = off_screen == disp->buf_1 ? disp->buf_2 : disp->buf_1;
++    if(code == SB_BLIT && !sb.gate(disp, obj, on_screen->data)) code = SB_GATE;
++    if(code >= SB_GATE) {
++        sb_report(code, sb.dy, 0);
++        lv_inv_area(disp, &rect);
++        return;
++    }
++    if(code != SB_BLIT) {
++        sb_report(code, sb.dy, 0);
++        return;
++    }
++
++    /*The rows the copy cannot supply: the net strip at the edge the content moved away from*/
++    lv_area_t strip = rect;
++    if(sb.dy > 0) strip.y2 = LV_MIN(rect.y1 + sb.dy - 1, rect.y2);
++    else strip.y1 = LV_MAX(rect.y2 + sb.dy + 1, rect.y1);
++    lv_inv_area(disp, &strip);
++
++    /*What other code invalidated over the list: the content it described is now (sb.dy - dy_at) further
++     *on, and the copy brings the old pixels there*/
++    for(int k = 0; k < sb.foreign_n; k++) {
++        lv_area_t moved = sb.foreign[k].area, hit;
++        int32_t shift = sb.dy - sb.foreign[k].dy_at;
++        moved.y1 += shift;
++        moved.y2 += shift;
++        if(shift != 0 && lv_area_intersect(&hit, &moved, &rect)) lv_inv_area(disp, &hit);
++    }
++
++    /*The previous frame is on the on-screen page: shift its rows into the off-screen page*/
++#ifdef UI_PERF_TRACE
++    t0 = refr_trace_now_us();
++#endif
++    wait_for_flushing(disp);
++    uint32_t bpp = lv_color_format_get_size(disp->color_format);
++    uint32_t stride = off_screen->header.stride;
++    int32_t dy = sb.dy;
++    int32_t src_y1 = dy > 0 ? rect.y1 : rect.y1 - dy;
++    int32_t src_y2 = dy > 0 ? rect.y2 - dy : rect.y2;
++    int32_t rows = src_y2 - src_y1 + 1;
++    size_t row_bytes = (size_t)(rect.x2 - rect.x1 + 1) * bpp;
++    if(rows > 0) {
++        const uint8_t * src = (const uint8_t *) on_screen->data + (size_t) src_y1 * stride + (size_t) rect.x1 * bpp;
++        uint8_t * dst = (uint8_t *) off_screen->data + (size_t)(src_y1 + dy) * stride + (size_t) rect.x1 * bpp;
++        if(row_bytes == stride) lv_memcpy(dst, src, row_bytes * (size_t) rows);
++        else for(int32_t r = 0; r < rows; r++) lv_memcpy(dst + (size_t) r * stride, src + (size_t) r * stride, row_bytes);
++    }
++    sb_carve_sync(&rect);
++    sb.done = true;
++    sb.done_rect = rect;
++#ifdef UI_PERF_TRACE
++    sb_last_obj = obj;
++    sb_last_rect = rect;
++    sb_last_excl_n = 0;
++    int32_t cx1, cx2;
++    if(sb_scrollbar_col(obj, &cx1, &cx2)) {
++        lv_area_t col = {cx1, rect.y1, cx2, rect.y2};
++        sb_last_excl[sb_last_excl_n++] = col;
++    }
++#endif
++    sb_report(SB_BLIT, dy, t0);
++}
++
+ /**
+  * Get the display which is being refreshed
+  * @return the display being refreshed
+@@ -465,6 +1145,13 @@
+         }
+     }
+ 
++    if(sb.done) {
++        /*The copied rectangle differs between the two pages now, whatever was rendered over it*/
++        lv_area_t * sync_area = lv_ll_ins_tail(&disp_refr->sync_areas);
++        *sync_area = sb.done_rect;
++        sb.done = false;
++    }
++
+     lv_memzero(disp_refr->inv_areas, sizeof(disp_refr->inv_areas));
+     lv_memzero(disp_refr->inv_area_joined, sizeof(disp_refr->inv_area_joined));
+     disp_refr->inv_p = 0;
+@@ -650,6 +1337,8 @@
+  */
+ static void lv_refr_join_area(void)
+ {
++    sb_apply(); /*May add invalidated areas, so it runs before they are joined*/
++
+     LV_PROFILER_REFR_BEGIN;
+     uint32_t join_from;
+     uint32_t join_in;
+--- a/src/core/lv_refr.h
++++ b/src/core/lv_refr.h
+@@ -63,6 +63,53 @@
+  */
+ void lv_display_refr_timer(lv_timer_t * timer);
+ 
++/**
++ * Scroll blit: opt-in per scrollable object. When the only change to the object is a vertical
++ * scroll, the refresh copies the already-rendered pixels (shifted) from the on-screen page to the
++ * off-screen page and renders just the exposed strip and the scrollbar instead of the whole object.
++ * Applies to double buffered DIRECT mode only; anything else falls back to the normal invalidation.
++ * `gate` is called at refresh time with the on-screen page pixels and may veto the copy.
++ */
++typedef bool (*lv_scroll_blit_gate_cb_t)(lv_display_t * disp, lv_obj_t * obj, const void * on_screen_px);
++void lv_scroll_blit_set_gate(lv_scroll_blit_gate_cb_t gate);
++void lv_obj_set_scroll_blit(lv_obj_t * obj, bool en);
++/*Registers an object drawn over the right edge of an opted-in list (the A-Z strip) as a fixed column: the copy
++ *stops left of it, whether it is shown or not, and the column is redrawn normally. NULL unregisters. A column
++ *wider than registered intersects the copied rectangle and the copy is refused as for any other overlay.*/
++void lv_obj_set_scroll_blit_fixed_column(lv_obj_t * list, lv_obj_t * column);
++/* Used by lv_obj_scroll_by_raw(): `begin` before the children move (false = invalidate normally),
++ * `end` right after they moved. */
++#ifdef UI_PERF_TRACE
++void lv_scroll_blit_diag_reset(void); /*next refusal is logged again*/
++/* The list, its rectangle and the sub-areas that are not expected to match a plain render (the
++ * scrollbar column) of the last frame produced by a pixel copy. */
++bool lv_refr_scroll_blit_last(lv_obj_t ** obj, lv_area_t * rect, lv_area_t * excl, int max, int * excl_n);
++#endif
++bool lv_refr_scroll_blit_begin(lv_obj_t * obj, int32_t dy);
++void lv_refr_scroll_blit_end(lv_obj_t * obj, int32_t dy);
++/* The invalid-area queue was cleared or bypassed (compositor, RAM stage): redraw the whole list. */
++void lv_refr_scroll_blit_reset(void);
++/* Called by lv_inv_area() for every area: while a scroll blit is pending, one touching the list
++ * that the feature did not make itself is remembered with the distance the content had moved by
++ * then, and redrawn where it ends up as well (more than a few of them: the list is redrawn). */
++void lv_refr_scroll_blit_note_inval(const lv_area_t * area);
++/* Same, with a reason for the trace counters. */
++typedef enum {
++    LV_SB_GUARD_RESET,            /* compositor / RAM stage / scanout clear */
++    LV_SB_GUARD_QUEUE_CLEARED,    /* lv_inv_area(NULL) */
++    LV_SB_GUARD_INVAL_DISABLED,   /* invalidation disabled while a request was pending */
++    LV_SB_GUARD_KEY,              /* a hardware key event */
++    LV_SB_GUARD_OWN_OVERFLOW,     /* more of the feature's own areas than it tracks */
++    LV_SB_GUARD_FOREIGN,          /* another invalidation touched the list before a scroll step */
++    LV_SB_GUARD_STRESS,           /* (trace) stress-test injections, not a guard */
++    LV_SB_GUARD_COUNT
++} lv_scroll_blit_guard_t;
++void lv_refr_scroll_blit_poison(lv_scroll_blit_guard_t why);
++#ifdef UI_PERF_TRACE
++void lv_refr_scroll_blit_guard_counts(uint32_t * out); /* LV_SB_GUARD_COUNT counters */
++void lv_refr_scroll_blit_guard_reset_counts(void);
++#endif
++
+ /**********************
+  *   STATIC FUNCTIONS
+  **********************/
+--- a/src/core/lv_obj_scroll.c
++++ b/src/core/lv_obj_scroll.c
+@@ -9,6 +9,7 @@
+ #include "lv_obj_scroll_private.h"
+ #include "../misc/lv_anim_private.h"
+ #include "lv_obj_private.h"
++#include "lv_refr.h"
+ #include "../indev/lv_indev.h"
+ #include "../indev/lv_indev_scroll.h"
+ #include "../display/lv_display.h"
+@@ -423,10 +424,13 @@
+     obj->spec_attr->scroll.x += x;
+     obj->spec_attr->scroll.y += y;
+ 
++    /*A pure vertical scroll of an opted-in object is turned into a pixel copy by the refresh*/
++    bool blit = x == 0 && lv_refr_scroll_blit_begin(obj, y);
+     lv_obj_move_children_by(obj, x, y, true);
++    if(blit) lv_refr_scroll_blit_end(obj, y);
+     lv_result_t res = lv_obj_send_event(obj, LV_EVENT_SCROLL, NULL);
+     if(res != LV_RESULT_OK) return res;
+-    lv_obj_invalidate(obj);
++    if(!blit) lv_obj_invalidate(obj);
+     return LV_RESULT_OK;
+ }
+ 

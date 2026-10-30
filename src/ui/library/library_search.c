@@ -1,5 +1,6 @@
 #include "library_search.h"
 #include "library_thumbnails.h"
+#include "../../core/process/worker_thread.h"
 #include "../text/rendering/gui_text_input.h"
 #include "../widgets/builders/screen_builders.h"
 #include "../appearance/gui_theme.h"
@@ -181,6 +182,7 @@ static int cmp_search_result_recency(const void * a, const void * b) {
 
 static void * search_job_thread_func(void * arg) {
     search_job_request_t * req = (search_job_request_t *) arg;
+    worker_lower_priority(WORKER_NICE_BACKGROUND);
     search_job_result_count = metadata_db_search_names(req->db_kind, req->query, SEARCH_RESULTS_MAX, search_job_result_hits);
     for (int i = 0; i < search_job_result_count; i++) {
         search_job_result_identity[i] = 0;
@@ -572,7 +574,7 @@ static void search_close_internal(search_binding_t * b, bool restore_provider) {
                 case METADATA_DB_AZ_ARTIST: total = artist_count; break;
                 case METADATA_DB_AZ_ALBUM_ARTIST: total = album_artist_count; break;
                 case METADATA_DB_AZ_ALBUM: total = album_count; break;
-                case METADATA_DB_AZ_ALL_SONGS: total = (int) metadata_db_get_song_count() + 1; break; /* + Play All */
+                case METADATA_DB_AZ_ALL_SONGS: total = (int) metadata_db_get_song_count(); break;
             }
             compact_list_set_paged_provider(b->list, b->restore_fetch_page, NULL, total);
         }

@@ -2,6 +2,7 @@
 #define PLUGIN_MANAGER_H
 
 #include "plugin_api_version.h"
+#include "lua.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -468,6 +469,11 @@ void plugin_manager_notify_screen_woke(void);
 void plugin_manager_notify_queue_exhausted(int direction);
 void plugin_manager_notify_volume_changed(int percent);
 void plugin_manager_poll_battery(void);
+/* True if a live (not aborted) plugin listens for "network_changed". */
+bool plugin_manager_has_network_subscribers(void);
+/* UI thread only. Records the shell's cached Wi-Fi state, backs
+ * plugin.network_status(), and fires "network_changed" when it differs. */
+void plugin_manager_set_network_state(bool connected, bool wifi_enabled);
 void plugin_manager_notify_suspending(void);
 void plugin_manager_notify_system_resumed(void);
 void plugin_manager_notify_screenshot_saved(const char * path);
@@ -526,6 +532,11 @@ void plugin_manager_text_input_cancelled(void);
 /* Dispatch or discard the one pending plugin.show_confirmation() callback. */
 void plugin_manager_confirmation_confirmed(void);
 void plugin_manager_confirmation_cancelled(void);
+/* plugin.launch_app() needs a user action: true once for the plugin whose
+ * callback the user triggered by tapping a row, tile or confirmation, while
+ * that callback runs. Any other plugin, a second call, or any other time
+ * gets false. */
+bool plugin_manager_user_action_take(lua_State * L);
 /* GUI bridge for the one pending plugin.pick_file() request. */
 void plugin_manager_file_picker_complete(const char * path);
 

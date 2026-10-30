@@ -1,7 +1,10 @@
 #include "bluetooth_control.h"
+#include "bt_ssc_policy.h"
+#include "bt_adapter_query.h"
 #include "../../../core/system/logging/debug_log.h"
 #include "../../hiby/hiby_sys_server.h"
 #include "../../../core/process/subprocess.h"
+#include "../../radio/aic_radio.h"
 #include "../../../audio/engine/audio.h"
 
 #include <ctype.h>
@@ -126,6 +129,8 @@ static unsigned int bt_ssc_correction_rate;
 static char bt_ssc_correction_path[256];
 static char bt_ssc_correction_codec[32];
 static atomic_uint bt_ssc_correction_generation = 0;
+/* Counted while a rate correction owns the link (codec commands wait). */
+static atomic_int bt_ssc_correction_running;
 
 void bt_control_ssc_rate_correction_cancel(void) {
     atomic_fetch_add_explicit(&bt_ssc_correction_generation, 1, memory_order_acq_rel);
@@ -267,6 +272,7 @@ void bt_control_restore_codec_preference(const char * codec) {
         else if (strcmp(codec, "sbc_xq") == 0) preference = BT_CODEC_SBC_XQ;
     }
     atomic_store(&bt_codec_preference, preference);
+    bt_control_ssc_discovery_recovery_cancel();
     bt_buds_reset(NULL);
 }
 
@@ -406,6 +412,7 @@ static bool bluealsa_is_audio_pcm_path(const char * path) {
  * clear happened meanwhile (bt_soft_volume_clears). */
 static pthread_mutex_t bt_soft_volume_serial = PTHREAD_MUTEX_INITIALIZER;
 static atomic_uint bt_soft_volume_clears;
+static atomic_uint bt_source_readiness_generation;
 static unsigned int bt_source_vol_pending_audio_generation;
 
 /* bluealsactl soft-volume PATH prints "SoftVolume: true|false". */
@@ -426,27 +433,41 @@ static bool dbus_prop_string_equals(const char * out, const char * prop, const c
 static uint32_t bt_control_monotonic_ms(void);
 static bool bluealsa_read_source_volume(const char * path, int * out);
 
+typedef enum {
+    BT_SOURCE_TRANSPORT_ERROR = -1,
+    BT_SOURCE_TRANSPORT_MISSING = 0,
+    BT_SOURCE_TRANSPORT_READY = 1,
+} bt_source_transport_result_t;
+
+static uint32_t bt_source_probe_remaining_ms(uint32_t deadline_ms) {
+    int32_t remaining = (int32_t)(deadline_ms - bt_control_monotonic_ms());
+    return remaining > 0 ? (uint32_t)remaining : 0;
+}
+
 /* Locate this PCM's exact BlueZ MediaTransport1 object and read its current
  * absolute volume. Volume is only present after AVRCP negotiation succeeds. */
-static bool bluealsa_find_source_transport(const char * pcm_path,
-                                           char * out_transport, size_t transport_size,
-                                           int * out_volume) {
-    if (!pcm_path || !out_transport || transport_size == 0) return false;
+static bt_source_transport_result_t bluealsa_find_source_transport_until(
+        const char * pcm_path, char * out_transport, size_t transport_size,
+        int * out_volume, uint32_t deadline_ms) {
+    if (!pcm_path || !out_transport || transport_size == 0) return BT_SOURCE_TRANSPORT_ERROR;
     const char * adapter = strstr(pcm_path, "/hci");
     const char * role = strstr(pcm_path, "/a2dpsrc/sink");
-    if (!adapter || !role || role <= adapter) return false;
+    if (!adapter || !role || role <= adapter) return BT_SOURCE_TRANSPORT_ERROR;
     char device[192];
     int len = snprintf(device, sizeof(device), "/org/bluez%.*s", (int)(role - adapter), adapter);
-    if (len <= 0 || (size_t)len >= sizeof(device)) return false;
+    if (len <= 0 || (size_t)len >= sizeof(device)) return BT_SOURCE_TRANSPORT_ERROR;
     enum { REPLY_SIZE = 65536 };
     char * reply = malloc(REPLY_SIZE);
-    if (!reply) return false;
+    if (!reply) return BT_SOURCE_TRANSPORT_ERROR;
     char * argv[] = { "dbus-send", "--system", "--print-reply", "--dest=org.bluez", "/",
                      "org.freedesktop.DBus.ObjectManager.GetManagedObjects", NULL };
     int status = -1;
-    bool found = false;
-    if (!subprocess_run_checked(argv, reply, REPLY_SIZE, 1500, &status) || status != 0 ||
+    bt_source_transport_result_t result = BT_SOURCE_TRANSPORT_ERROR;
+    uint32_t remaining = bt_source_probe_remaining_ms(deadline_ms);
+    if (!remaining || !subprocess_run_checked(argv, reply, REPLY_SIZE,
+                                              remaining < 1500 ? remaining : 1500, &status) || status != 0 ||
         strlen(reply) >= REPLY_SIZE - 1) goto done;
+    result = BT_SOURCE_TRANSPORT_MISSING;
     const char * scan = reply;
     unsigned probes = 0;
     while ((scan = strstr(scan, "object path \"")) != NULL && probes < 4) {
@@ -468,29 +489,40 @@ static bool bluealsa_find_source_transport(const char * pcm_path,
         char props[4096];
         char * prop_argv[] = { "dbus-send", "--system", "--print-reply", "--dest=org.bluez",
             transport, "org.freedesktop.DBus.Properties.GetAll", "string:org.bluez.MediaTransport1", NULL };
+        remaining = bt_source_probe_remaining_ms(deadline_ms);
         status = -1;
-        if (!subprocess_run_checked(prop_argv, props, sizeof(props), 1000, &status) || status != 0 ||
-            strlen(props) >= sizeof(props) - 1 ||
-            !dbus_prop_string_equals(props, "UUID", "0000110a-0000-1000-8000-00805f9b34fb")) continue;
+        if (!remaining || !subprocess_run_checked(prop_argv, props, sizeof(props),
+                                                   remaining < 1000 ? remaining : 1000, &status) || status != 0 ||
+            strlen(props) >= sizeof(props) - 1) {
+            result = BT_SOURCE_TRANSPORT_ERROR;
+            goto done;
+        }
+        if (!dbus_prop_string_equals(props, "UUID", "0000110a-0000-1000-8000-00805f9b34fb")) continue;
         const char * value = dbus_prop_value(props, "Volume");
         unsigned raw;
         int consumed = 0;
-        if (value && sscanf(value, "uint16 %u%n", &raw, &consumed) == 1 && raw <= BT_SOURCE_VOLUME_MAX &&
-            (value[consumed] == '\0' || isspace((unsigned char)value[consumed]))) {
-            snprintf(out_transport, transport_size, "%s", transport);
-            if (out_volume) *out_volume = (int) raw;
-            found = true;
-            break;
+        if (value) {
+            if (sscanf(value, "uint16 %u%n", &raw, &consumed) == 1 && raw <= BT_SOURCE_VOLUME_MAX &&
+                (value[consumed] == '\0' || isspace((unsigned char)value[consumed]))) {
+                snprintf(out_transport, transport_size, "%s", transport);
+                if (out_volume) *out_volume = (int) raw;
+                result = BT_SOURCE_TRANSPORT_READY;
+                break;
+            }
+            result = BT_SOURCE_TRANSPORT_ERROR;
         }
     }
 done:
     free(reply);
-    return found;
+    return result;
 }
 
-static bool bluealsa_source_has_absolute_volume(const char * pcm_path) {
-    char transport[256];
-    return bluealsa_find_source_transport(pcm_path, transport, sizeof(transport), NULL);
+static bool bluealsa_find_source_transport(const char * pcm_path,
+                                           char * out_transport, size_t transport_size,
+                                           int * out_volume) {
+    return bluealsa_find_source_transport_until(pcm_path, out_transport, transport_size,
+                                                out_volume, bt_control_monotonic_ms() + 6500) ==
+           BT_SOURCE_TRANSPORT_READY;
 }
 
 /* BlueALSA can report success after updating its PCM cache even when BlueZ's
@@ -535,6 +567,37 @@ static bool bluealsa_seed_source_volume(const char * path, bool software_volume)
 /* Negative capability is retried, but a live software-controlled PCM is
  * never switched to hardware gain across two subprocess calls mid-playback. */
 static uint32_t bt_source_volume_probe_ms;
+static char bt_source_readiness_attempted_path[256];
+static unsigned int bt_source_readiness_attempted_generation;
+
+static bool bluealsa_source_running_state_until(const char * path, bool * out_running,
+                                                uint32_t deadline_ms) {
+    char info[2048];
+    char * argv[] = { (char *)bluealsa_ctl_name(), (char *)"info", (char *)path, NULL };
+    uint32_t remaining = bt_source_probe_remaining_ms(deadline_ms);
+    int exit_code = -1;
+    if (!remaining || !subprocess_run_checked(argv, info, sizeof(info), remaining, &exit_code) || exit_code != 0)
+        return false;
+    if (strlen(info) >= sizeof(info) - 1) return false;
+    const char * running = strstr(info, "Running:");
+    if (!running) return false;
+    running += strlen("Running:");
+    while (*running == ' ' || *running == '\t') running++;
+    if (strncmp(running, "false", 5) == 0 &&
+        (running[5] == '\0' || isspace((unsigned char)running[5]))) {
+        *out_running = false;
+        return true;
+    }
+    if (strncmp(running, "true", 4) == 0 &&
+        (running[4] == '\0' || isspace((unsigned char)running[4]))) {
+        *out_running = true;
+        return true;
+    }
+    return false;
+}
+
+#define BT_SOURCE_VOLUME_READINESS_MS 1500
+#define BT_SOURCE_VOLUME_READINESS_POLL_MS 100
 
 static void bluealsa_apply_soft_volume_cancellable_ex(const char * path, const atomic_bool * cancel,
                                                        bool force_source_probe) {
@@ -545,12 +608,15 @@ static void bluealsa_apply_soft_volume_cancellable_ex(const char * path, const a
     bool source = strstr(path, "/a2dpsrc/sink") != NULL;
     uint32_t now = bt_control_monotonic_ms();
     bool prior_source_soft_volume = atomic_load(&bt_source_soft_volume);
+    bool prior_ready = strcmp(bt_soft_volume_applied_path, path) == 0;
     bool retry = source && !atomic_load(&modern_soft_volume_requested) &&
                  prior_source_soft_volume &&
                  (force_source_probe || (uint32_t)(now - bt_source_volume_probe_ms) >= 5000);
     bool done = (strcmp(bt_soft_volume_applied_path, path) == 0 && !retry) ||
                 (cancel && atomic_load(cancel));
     unsigned int clears = atomic_load_explicit(&bt_soft_volume_clears, memory_order_acquire);
+    unsigned int readiness_generation = atomic_load_explicit(&bt_source_readiness_generation,
+                                                              memory_order_acquire);
     if (!done) {
         /* Invalidate slow incoming events before changing or reseeding policy.
          * A reapply can change effective gain ownership without a PCM removal. */
@@ -564,19 +630,77 @@ static void bluealsa_apply_soft_volume_cancellable_ex(const char * path, const a
     pthread_mutex_unlock(&bt_soft_volume_mutex);
     if (!done) {
         bool want = atomic_load(&modern_soft_volume_requested);
+        bool readiness_cancelled = false;
+        bool source_probe_failed = false;
         if (source && !want) {
             bt_source_volume_probe_ms = now;
-            want = !bluealsa_source_has_absolute_volume(path);
-            if (!want && prior_source_soft_volume) {
-                char info[2048];
-                char * argv[] = { (char *)bluealsa_ctl_name(), "info", (char *)path, NULL };
-                /* Unknown running state is treated as live. */
-                if (!subprocess_run(argv, info, sizeof(info)) || !strstr(info, "Running: false")) want = true;
+            bool may_wait = force_source_probe && prior_source_soft_volume &&
+                            (strcmp(bt_source_readiness_attempted_path, path) != 0 ||
+                             bt_source_readiness_attempted_generation != readiness_generation);
+            uint32_t readiness_deadline = now + BT_SOURCE_VOLUME_READINESS_MS;
+            bt_source_transport_result_t capability = BT_SOURCE_TRANSPORT_ERROR;
+            if (may_wait) {
+                want = true;
+                snprintf(bt_source_readiness_attempted_path, sizeof(bt_source_readiness_attempted_path), "%s", path);
+                bt_source_readiness_attempted_generation = readiness_generation;
+                do {
+                    if ((cancel && atomic_load(cancel)) ||
+                        readiness_generation != atomic_load_explicit(&bt_source_readiness_generation,
+                                                                     memory_order_acquire)) {
+                        readiness_cancelled = true;
+                        break;
+                    }
+                    char transport[256];
+                    capability = bluealsa_find_source_transport_until(path, transport, sizeof(transport), NULL,
+                                                                       readiness_deadline);
+                    if (capability == BT_SOURCE_TRANSPORT_READY) {
+                        bool running = true;
+                        if (bluealsa_source_running_state_until(path, &running, readiness_deadline) && !running) {
+                            want = false;
+                            DBG_LOG("bt_control: source volume readiness: hardware ready before open on %s\n", path);
+                        } else {
+                            want = true;
+                            DBG_LOG("bt_control: source volume readiness: transport appeared while live or state unknown on %s; keeping software gain\n", path);
+                        }
+                        break;
+                    }
+                    uint32_t remaining = bt_source_probe_remaining_ms(readiness_deadline);
+                    if (!remaining) break;
+                    uint32_t sleep_ms = remaining < BT_SOURCE_VOLUME_READINESS_POLL_MS ?
+                                        remaining : BT_SOURCE_VOLUME_READINESS_POLL_MS;
+                    usleep(sleep_ms * 1000);
+                } while (true);
+                if (capability != BT_SOURCE_TRANSPORT_READY)
+                    DBG_LOG("bt_control: source volume readiness: no hardware Volume within %ums on %s; keeping software gain\n",
+                            BT_SOURCE_VOLUME_READINESS_MS, path);
+            } else {
+                char transport[256];
+                uint32_t probe_deadline = force_source_probe ? now + 300 : now + 6500;
+                capability = bluealsa_find_source_transport_until(path, transport, sizeof(transport), NULL,
+                                                                   probe_deadline);
+                want = capability != BT_SOURCE_TRANSPORT_READY;
+                if (force_source_probe && !want)
+                    DBG_LOG("bt_control: source volume readiness: immediate hardware recheck found Volume on %s\n", path);
             }
+            source_probe_failed = want;
+            if (!want && prior_source_soft_volume && !may_wait) {
+                /* Unknown running state is treated as live. */
+                bool running = true;
+                uint32_t state_deadline = force_source_probe ? now + 300 : bt_control_monotonic_ms() + 1500;
+                if (!bluealsa_source_running_state_until(path, &running, state_deadline) || running)
+                    want = true;
+            }
+        }
+        if (readiness_cancelled || (cancel && atomic_load(cancel)) ||
+            (source && readiness_generation != atomic_load_explicit(&bt_source_readiness_generation,
+                                                                     memory_order_acquire))) {
+            pthread_mutex_unlock(&bt_soft_volume_serial);
+            return;
         }
         bool current;
         bool ok;
-        if (bluealsa_read_soft_volume(path, &current) && current == want) {
+        bool soft_volume_unchanged = bluealsa_read_soft_volume(path, &current) && current == want;
+        if (soft_volume_unchanged) {
             ok = true;
         } else {
             char * argv[] = { (char *) backend.ctl, (char *) "soft-volume",
@@ -584,7 +708,9 @@ static void bluealsa_apply_soft_volume_cancellable_ex(const char * path, const a
             int exit_code = -1;
             ok = subprocess_run_checked(argv, NULL, 0, 5000, &exit_code) && exit_code == 0;
         }
-        if (source && ok) ok = bluealsa_seed_source_volume(path, want);
+        if (source && ok && !(prior_ready && source_probe_failed && prior_source_soft_volume &&
+                              want && soft_volume_unchanged))
+            ok = bluealsa_seed_source_volume(path, want);
         pthread_mutex_lock(&bt_soft_volume_mutex);
         if (ok && atomic_load_explicit(&bt_soft_volume_clears, memory_order_acquire) == clears) {
             snprintf(bt_soft_volume_applied_path, sizeof(bt_soft_volume_applied_path), "%s", path);
@@ -615,7 +741,10 @@ static void bluealsa_clear_soft_volume_path(const char * path) {
     bool invalidate_source = !path ||
         (strstr(path, "/a2dpsrc/sink") != NULL &&
          (!bt_soft_volume_applied_path[0] || clear));
-    if (invalidate_source) atomic_store(&bt_source_soft_volume, true);
+    if (invalidate_source) {
+        atomic_store(&bt_source_soft_volume, true);
+        atomic_fetch_add_explicit(&bt_source_readiness_generation, 1, memory_order_acq_rel);
+    }
     pthread_mutex_unlock(&bt_soft_volume_mutex);
 }
 
@@ -832,6 +961,7 @@ static const char * const BT_AUTO_CODEC_RANKING[] = { "LDAC", "samsung-SC", "apt
 static pthread_mutex_t bt_buds_state_mutex = PTHREAD_MUTEX_INITIALIZER;
 static char bt_buds_state_path[256];
 static bool bt_buds_name_checked, bt_buds_name_match;
+static bt_ssc_signal_t bt_buds_signal;
 static uint32_t bt_buds_wait_started;
 static unsigned int bt_buds_generation;
 #define BT_BUDS_SSC_DISCOVERY_GRACE_MS 4000u
@@ -933,8 +1063,30 @@ static bool bt_is_galaxy_buds_name(const char * name) {
     return false;
 }
 
-static bool bt_pcm_is_galaxy_buds(const char * path, bool *known, const atomic_bool *cancel) {
+/* The device's name, Modalias and connection state as `bluetoothctl info`
+ * lines, read with one D-Bus call: bluetoothctl loads BlueZ's whole object
+ * tree and registers an advertisement monitor on every start, which is
+ * heavy next to a Bluetooth stream being set up. */
+static bool bt_device_info_text(const char * mac, char * out, size_t size) {
+    char object[64], dbus[8192];
+    snprintf(object, sizeof(object), "/org/bluez/hci0/dev_%s", mac);
+    for (char * c = object; *c; c++) if (*c == ':') *c = '_';
+    char * argv[] = { (char *) "dbus-send", (char *) "--system", (char *) "--print-reply",
+                      (char *) "--dest=org.bluez", object, (char *) "org.freedesktop.DBus.Properties.GetAll",
+                      (char *) "string:org.bluez.Device1", NULL };
+    int status = -1;
+    if (!subprocess_run_checked(argv, dbus, sizeof(dbus), 1000, &status) || status != 0) return false;
+    bt_ssc_policy_dbus_to_info(dbus, out, size);
+    return out[0] != '\0';
+}
+
+/* Whether the device is probably SSC-capable although its SSC endpoint is
+ * not offered (yet): Samsung Modalias, SSC remembered for it, then the name
+ * (Galaxy Buds). The endpoint itself is checked by the caller. */
+static bool bt_pcm_is_galaxy_buds(const char * path, bool *known, bt_ssc_signal_t *signal_out,
+                                  const atomic_bool *cancel) {
     *known = false;
+    *signal_out = BT_SSC_SIGNAL_NONE;
     const char * dev = path ? strstr(path, "/dev_") : NULL;
     if (!dev) { *known = true; return false; }
     dev += 5;
@@ -943,14 +1095,15 @@ static bool bt_pcm_is_galaxy_buds(const char * path, bool *known, const atomic_b
     for (int i = 0; i < 17; i++) mac[i] = dev[i] == '_' ? ':' : dev[i];
     mac[17] = '\0';
     char info[1024];
-    char *argv[] = { (char *)"bluetoothctl", (char *)"info", mac, NULL };
-    int exit_code = -1;
     if (bt_cancelled(cancel)) return false;
-    if (!subprocess_run_checked(argv, info, sizeof(info), 1000, &exit_code) || exit_code != 0) return false;
+    if (!bt_device_info_text(mac, info, sizeof(info))) return false;
     if (bt_cancelled(cancel)) return false;
     *known = true;
+    bool by_modalias = bt_ssc_policy_modalias_is_samsung(info);
+    bool by_memory = bt_ssc_memory_worked(mac);
+    bool by_name = false;
     const char *keys[] = { "Alias:", "Name:" };
-    for (size_t k = 0; k < 2; k++) {
+    for (size_t k = 0; k < 2 && !by_name; k++) {
         const char *p = strstr(info, keys[k]);
         if (!p) continue;
         p += strlen(keys[k]);
@@ -958,33 +1111,43 @@ static bool bt_pcm_is_galaxy_buds(const char * path, bool *known, const atomic_b
         char name[128]; size_t i = 0;
         while (*p && *p != '\n' && *p != '\r' && i + 1 < sizeof(name)) name[i++] = *p++;
         name[i] = '\0';
-        if (bt_is_galaxy_buds_name(name)) return true;
+        by_name = bt_is_galaxy_buds_name(name);
     }
-    return false;
+    /* Another vendor's Modalias (Pixel, OnePlus, Redmi Buds) rules the name out. */
+    if (by_name && bt_ssc_policy_modalias_excludes_name(info)) by_name = false;
+    bt_ssc_signal_t signal = bt_ssc_policy_signal(false, by_modalias, by_memory, by_name);
+    *signal_out = signal;
+    if (signal != BT_SSC_SIGNAL_NONE)
+        DBG_LOG("bt_control: %s looks SSC-capable (%s)\n", mac, bt_ssc_policy_signal_name(signal));
+    return signal != BT_SSC_SIGNAL_NONE;
 }
 
 static void bt_buds_state(const char *path, bool *is_buds, bool *metadata_known,
-                          uint32_t *wait_started, const atomic_bool *cancel) {
+                          uint32_t *wait_started, bt_ssc_signal_t *signal, const atomic_bool *cancel) {
     pthread_mutex_lock(&bt_buds_state_mutex);
     if (strcmp(bt_buds_state_path, path) != 0) {
         bt_buds_generation++;
         snprintf(bt_buds_state_path, sizeof(bt_buds_state_path), "%s", path);
         bt_buds_name_checked = false;
         bt_buds_name_match = false;
+        bt_buds_signal = BT_SSC_SIGNAL_NONE;
         bt_buds_wait_started = bt_control_monotonic_ms();
     }
     bool need_check = !bt_buds_name_checked;
     unsigned int generation = bt_buds_generation;
     pthread_mutex_unlock(&bt_buds_state_mutex);
     bool matched = false, known = false;
-    if (need_check) matched = bt_pcm_is_galaxy_buds(path, &known, cancel);
+    bt_ssc_signal_t found = BT_SSC_SIGNAL_NONE;
+    if (need_check) matched = bt_pcm_is_galaxy_buds(path, &known, &found, cancel);
     pthread_mutex_lock(&bt_buds_state_mutex);
     if (need_check && known && bt_buds_generation == generation &&
         strcmp(bt_buds_state_path, path) == 0) {
         bt_buds_name_match = matched;
+        bt_buds_signal = found;
         bt_buds_name_checked = true;
     }
     *is_buds = bt_buds_name_match;
+    *signal = bt_buds_signal;
     *metadata_known = bt_buds_name_checked;
     *wait_started = bt_buds_wait_started;
     pthread_mutex_unlock(&bt_buds_state_mutex);
@@ -997,6 +1160,7 @@ static void bt_buds_reset(const char *path) {
         bt_buds_generation++;
         bt_buds_name_checked = false;
         bt_buds_name_match = false;
+        bt_buds_signal = BT_SSC_SIGNAL_NONE;
         bt_buds_wait_started = 0;
     }
     pthread_mutex_unlock(&bt_buds_state_mutex);
@@ -1015,6 +1179,9 @@ static struct {
     unsigned int rejected;
     int switched;        /* ranking index of the last switch, or -1 */
     uint32_t switched_at;
+    bool ssc_discovery_attempted; /* one automatic recovery per connection */
+    bt_ssc_dev_t ssc;    /* switch / reconfigure / backoff state, bt_ssc_policy.h */
+    uint8_t cycles[8];   /* switch-then-drop cycles per ranking index, this session */
 } bt_auto_devices[BT_AUTO_REJECT_DEVICES];
 static int bt_auto_devices_next;
 static pthread_mutex_t bt_auto_devices_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -1036,6 +1203,14 @@ static bool bt_auto_device_key(const char * path, char * out, size_t out_size) {
     return true;
 }
 
+static bool bt_auto_mac_from_path(const char * path, char * mac, size_t mac_size) {
+    char key[32];
+    if (mac_size < 18 || !bt_auto_device_key(path, key, sizeof(key)) || strlen(key) != 21) return false;
+    for (int j = 0; j < 17; j++) mac[j] = key[j + 4] == '_' ? ':' : key[j + 4];
+    mac[17] = '\0';
+    return true;
+}
+
 /* Caller holds bt_auto_devices_mutex. */
 static int bt_auto_device_slot_locked(const char * path, bool create) {
     char key[32];
@@ -1048,10 +1223,108 @@ static int bt_auto_device_slot_locked(const char * path, bool create) {
     snprintf(bt_auto_devices[i].device, sizeof(bt_auto_devices[i].device), "%s", key);
     bt_auto_devices[i].rejected = 0;
     bt_auto_devices[i].switched = -1;
+    bt_auto_devices[i].ssc_discovery_attempted = false;
+    memset(&bt_auto_devices[i].ssc, 0, sizeof(bt_auto_devices[i].ssc));
+    memset(bt_auto_devices[i].cycles, 0, sizeof(bt_auto_devices[i].cycles));
     return i;
 }
 
+/* Counts disconnects asked for through bt_control_disconnect, so a recovery
+ * that is cancelled can tell the user's disconnect from other cancels. */
+static atomic_uint bt_user_disconnect_generation;
+static pthread_mutex_t bt_ssc_discovery_mutex = PTHREAD_MUTEX_INITIALIZER;
+static char bt_ssc_discovery_mac[18];
+static bool bt_ssc_discovery_claimed;
+static uint32_t bt_ssc_discovery_queued_at;
+
+/* Explicit SSC and Automatic both recover a missing SSC endpoint. */
+static bool bt_ssc_recovery_preference(void) {
+    bt_codec_preference_t p = (bt_codec_preference_t) atomic_load(&bt_codec_preference);
+    return p == BT_CODEC_SSC || p == BT_CODEC_AUTO;
+}
+
+void bt_control_ssc_discovery_recovery_cancel(void) {
+    pthread_mutex_lock(&bt_ssc_discovery_mutex);
+    bt_ssc_discovery_mac[0] = '\0';
+    bt_ssc_discovery_claimed = false;
+    pthread_mutex_unlock(&bt_ssc_discovery_mutex);
+}
+
+bool bt_control_ssc_discovery_recovery_peek(char * mac, size_t mac_size) {
+    if (!mac || mac_size < sizeof(bt_ssc_discovery_mac)) return false;
+    pthread_mutex_lock(&bt_ssc_discovery_mutex);
+    bool pending = bt_ssc_discovery_mac[0] && !bt_ssc_discovery_claimed;
+    if (pending) snprintf(mac, mac_size, "%s", bt_ssc_discovery_mac);
+    pthread_mutex_unlock(&bt_ssc_discovery_mutex);
+    return pending;
+}
+
+bool bt_control_ssc_discovery_recovery_take(const char * mac) {
+    pthread_mutex_lock(&bt_ssc_discovery_mutex);
+    bool pending = mac && bt_ssc_discovery_mac[0] && !bt_ssc_discovery_claimed &&
+                   strcmp(mac, bt_ssc_discovery_mac) == 0 &&
+                   bt_ssc_recovery_preference();
+    if (pending) bt_ssc_discovery_claimed = true;
+    pthread_mutex_unlock(&bt_ssc_discovery_mutex);
+    return pending;
+}
+
+void bt_control_ssc_discovery_recovery_finish(const char * mac) {
+    pthread_mutex_lock(&bt_ssc_discovery_mutex);
+    if (mac && bt_ssc_discovery_claimed && strcmp(mac, bt_ssc_discovery_mac) == 0) {
+        bt_ssc_discovery_mac[0] = '\0';
+        bt_ssc_discovery_claimed = false;
+    }
+    pthread_mutex_unlock(&bt_ssc_discovery_mutex);
+}
+
+/* The preference worker only posts work. The GUI applies its usual manual
+ * operation/power guards before the separate reconnect worker claims it.
+ * Consume the attempt when queued, so a cancelled or failed recovery cannot
+ * re-arm itself through a PCM removal or another discovery pass. */
+static bool bt_ssc_discovery_recovery_queue(const char * path) {
+    char mac[18];
+    if (!bt_auto_mac_from_path(path, mac, sizeof(mac))) return false;
+    pthread_mutex_lock(&bt_ssc_discovery_mutex);
+    if (bt_ssc_discovery_mac[0]) {
+        bool waiting = strcmp(bt_ssc_discovery_mac, mac) == 0;
+        /* A recovery nothing picks up must not hold the worker polling. */
+        if (waiting && !bt_ssc_discovery_claimed &&
+            bt_control_monotonic_ms() - bt_ssc_discovery_queued_at >= BT_SSC_RECOVERY_WAIT_CAP_MS) {
+            bt_ssc_discovery_mac[0] = '\0';
+            waiting = false;
+            DBG_LOG("bt_control: SSC endpoint recovery for %s not taken up, giving up\n", mac);
+        }
+        pthread_mutex_unlock(&bt_ssc_discovery_mutex);
+        return waiting;
+    }
+    pthread_mutex_lock(&bt_auto_devices_mutex);
+    int i = bt_auto_device_slot_locked(path, true);
+    bool queue = i >= 0 && !bt_auto_devices[i].ssc_discovery_attempted;
+    if (queue) {
+        bt_auto_devices[i].ssc_discovery_attempted = true;
+        snprintf(bt_ssc_discovery_mac, sizeof(bt_ssc_discovery_mac), "%s", mac);
+        bt_ssc_discovery_claimed = false;
+        bt_ssc_discovery_queued_at = bt_control_monotonic_ms();
+    }
+    pthread_mutex_unlock(&bt_auto_devices_mutex);
+    pthread_mutex_unlock(&bt_ssc_discovery_mutex);
+    if (queue) DBG_LOG("bt_control: queued one SSC endpoint recovery for %s\n", mac);
+    return queue;
+}
+
 static unsigned int bt_auto_rejected(const char * path) {
+    pthread_mutex_lock(&bt_auto_devices_mutex);
+    int i = bt_auto_device_slot_locked(path, false);
+    unsigned int rejected = i >= 0 ? bt_auto_devices[i].rejected : 0;
+    /* Persisted backoff: SSC is skipped on this connection only. */
+    if (i >= 0 && bt_auto_devices[i].ssc.skip_ssc) rejected |= 1u << bt_auto_rank_index("samsung-SC");
+    pthread_mutex_unlock(&bt_auto_devices_mutex);
+    return rejected;
+}
+
+/* Rejections of this session only, without the persisted backoff. */
+static unsigned int bt_auto_rejected_session(const char * path) {
     pthread_mutex_lock(&bt_auto_devices_mutex);
     int i = bt_auto_device_slot_locked(path, false);
     unsigned int rejected = i >= 0 ? bt_auto_devices[i].rejected : 0;
@@ -1084,21 +1357,251 @@ static void bt_auto_note_switch(const char * path, const char * codec) {
 static void bt_auto_forget_switch(const char * path) {
     pthread_mutex_lock(&bt_auto_devices_mutex);
     int i = bt_auto_device_slot_locked(path, false);
-    if (i >= 0) bt_auto_devices[i].switched = -1;
+    if (i >= 0) {
+        bt_auto_devices[i].switched = -1;
+        bt_ssc_dev_switch_abort(&bt_auto_devices[i].ssc);
+    }
     pthread_mutex_unlock(&bt_auto_devices_mutex);
 }
 
-/* A confirmed disconnect: one right after an Automatic switch rejects it. */
-static void bt_auto_note_disconnect(const char * path) {
+/* A confirmed disconnect shortly after a switch. With BlueZ reporting the
+ * device itself gone and audio not yet flowing it blames the codec (an SSC
+ * blame is also remembered across restarts). With the link not shown down
+ * it only counts a switch-then-drop cycle, and BT_SSC_CYCLE_CAP of them
+ * reject the codec for this session, which stops a select/drop loop. */
+static void bt_auto_note_disconnect_at(const char * path, uint32_t dropped_at, bt_ssc_link_t link) {
     char codec[16] = "";
+    bool persist = false;
     pthread_mutex_lock(&bt_auto_devices_mutex);
     int i = bt_auto_device_slot_locked(path, false);
     if (i >= 0 && bt_auto_devices[i].switched >= 0 &&
-        bt_control_monotonic_ms() - bt_auto_devices[i].switched_at < BT_AUTO_REJECT_WINDOW_MS)
-        snprintf(codec, sizeof(codec), "%s", BT_AUTO_CODEC_RANKING[bt_auto_devices[i].switched]);
+        bt_control_monotonic_ms() - bt_auto_devices[i].switched_at < BT_AUTO_REJECT_WINDOW_MS &&
+        !bt_ssc_dev_flowing(&bt_auto_devices[i].ssc, dropped_at)) {
+        int r = bt_auto_devices[i].switched;
+        if (bt_ssc_dev_blames_codec(&bt_auto_devices[i].ssc, dropped_at, link)) {
+            snprintf(codec, sizeof(codec), "%s", BT_AUTO_CODEC_RANKING[r]);
+            persist = r == bt_auto_rank_index("samsung-SC");
+        } else if (++bt_auto_devices[i].cycles[r] >= BT_SSC_CYCLE_CAP) {
+            snprintf(codec, sizeof(codec), "%s", BT_AUTO_CODEC_RANKING[r]);
+        }
+    }
     if (i >= 0) bt_auto_devices[i].switched = -1;
     pthread_mutex_unlock(&bt_auto_devices_mutex);
     if (codec[0]) bt_auto_reject(path, codec);
+    char mac[18];
+    if (persist && bt_auto_mac_from_path(path, mac, sizeof(mac))) bt_ssc_memory_note_failure(mac);
+}
+
+/* The link is known to be down (the common case, and what the tests use). */
+static void __attribute__((unused)) bt_auto_note_disconnect(const char * path) {
+    bt_auto_note_disconnect_at(path, bt_control_monotonic_ms(), BT_SSC_LINK_DISCONNECTED);
+}
+
+/* Switch bookkeeping for the reconfigure-versus-disconnect decision. */
+static void bt_auto_switch_begin(const char * path) {
+    pthread_mutex_lock(&bt_auto_devices_mutex);
+    int i = bt_auto_device_slot_locked(path, true);
+    if (i >= 0) bt_ssc_dev_switch_begin(&bt_auto_devices[i].ssc, bt_control_monotonic_ms());
+    pthread_mutex_unlock(&bt_auto_devices_mutex);
+}
+
+static void bt_auto_switch_abort(const char * path) {
+    pthread_mutex_lock(&bt_auto_devices_mutex);
+    int i = bt_auto_device_slot_locked(path, false);
+    if (i >= 0) bt_ssc_dev_switch_abort(&bt_auto_devices[i].ssc);
+    pthread_mutex_unlock(&bt_auto_devices_mutex);
+}
+
+static void bt_auto_pcm_added(const char * path) {
+    pthread_mutex_lock(&bt_auto_devices_mutex);
+    int i = bt_auto_device_slot_locked(path, true);
+    if (i >= 0) bt_ssc_dev_pcm_added(&bt_auto_devices[i].ssc, bt_control_monotonic_ms());
+    pthread_mutex_unlock(&bt_auto_devices_mutex);
+}
+
+static void bt_auto_switch_confirmed(const char * path, const char * codec) {
+    bool ssc = strcasecmp(codec, "samsung-SC") == 0;
+    pthread_mutex_lock(&bt_auto_devices_mutex);
+    int i = bt_auto_device_slot_locked(path, true);
+    if (i >= 0) bt_ssc_dev_confirmed(&bt_auto_devices[i].ssc, bt_control_monotonic_ms(), ssc);
+    pthread_mutex_unlock(&bt_auto_devices_mutex);
+    char mac[18];
+    if (ssc && bt_auto_mac_from_path(path, mac, sizeof(mac))) bt_ssc_memory_note_worked(mac);
+}
+
+static uint32_t bt_output_watch_started_at; /* 0 until a watch has run */
+
+/* 0 when a codec command may run now; otherwise the time to try again: a
+ * recovery that claimed this device owns the link, and a PCM younger than
+ * BT_SSC_STREAM_OPEN_MS may not have an open stream yet. */
+static uint32_t bt_auto_codec_command_ready_at(const char * path) {
+    uint32_t now = bt_control_monotonic_ms(), ready = 0;
+    char mac[18];
+    pthread_mutex_lock(&bt_ssc_discovery_mutex);
+    if (bt_auto_mac_from_path(path, mac, sizeof(mac)) && bt_ssc_discovery_claimed &&
+        strcmp(bt_ssc_discovery_mac, mac) == 0)
+        ready = now + 500;
+    pthread_mutex_unlock(&bt_ssc_discovery_mutex);
+    /* ... or a rate correction, pending for this device or running. */
+    unsigned int rate = 0;
+    char pending[18];
+    if (atomic_load(&bt_ssc_correction_running) > 0 ||
+        (bt_control_ssc_rate_correction_peek(pending, sizeof(pending), &rate) && bt_auto_mac_from_path(path, mac, sizeof(mac)) &&
+         strcmp(pending, mac) == 0))
+        ready = now + 500;
+    if (ready) return ready;
+    pthread_mutex_lock(&bt_auto_devices_mutex);
+    int i = bt_auto_device_slot_locked(path, false);
+    uint32_t open_at = i >= 0 ? bt_ssc_dev_stream_open_at(&bt_auto_devices[i].ssc) : 0;
+    pthread_mutex_unlock(&bt_auto_devices_mutex);
+    /* A PCM that predates the watch (found by the startup scan) is aged from
+     * the moment the watch started. */
+    if (!open_at && bt_output_watch_started_at) open_at = bt_output_watch_started_at + BT_SSC_STREAM_OPEN_MS;
+    return open_at && (int32_t)(open_at - now) > 0 ? open_at : 0;
+}
+
+/* Absolute time a PCM removal must be held back until because a codec
+ * switch is still in flight, or 0 for the normal grace. */
+static uint32_t bt_auto_reconfigure_deadline(const char * path, uint32_t removed_at) {
+    pthread_mutex_lock(&bt_auto_devices_mutex);
+    int i = bt_auto_device_slot_locked(path, false);
+    uint32_t until = i >= 0 ? bt_ssc_dev_reconfigure_deadline(&bt_auto_devices[i].ssc, removed_at) : 0;
+    pthread_mutex_unlock(&bt_auto_devices_mutex);
+    return until;
+}
+
+/* Starts a connection for the persisted backoff, once per connection. */
+static void bt_auto_connection_begin(const char * path, bool automatic) {
+    char mac[18];
+    /* The persisted backoff is for Automatic only; explicit SSC is the
+     * owner's choice and always tries. */
+    if (!automatic || !bt_auto_mac_from_path(path, mac, sizeof(mac))) return;
+    pthread_mutex_lock(&bt_auto_devices_mutex);
+    int i = bt_auto_device_slot_locked(path, true);
+    bool first = i >= 0 && !bt_auto_devices[i].ssc.conn_started;
+    if (first) bt_auto_devices[i].ssc.conn_started = true;
+    pthread_mutex_unlock(&bt_auto_devices_mutex);
+    if (!first) return;
+    bool skip = bt_ssc_memory_connection_begin(mac);
+    if (skip) DBG_LOG("bt_control: SSC backed off for %s on this connection\n", mac);
+    pthread_mutex_lock(&bt_auto_devices_mutex);
+    i = bt_auto_device_slot_locked(path, false);
+    if (i >= 0) bt_auto_devices[i].ssc.skip_ssc = skip;
+    pthread_mutex_unlock(&bt_auto_devices_mutex);
+}
+
+/* A given-up discovery recovery counts once per connection towards backoff. */
+static void bt_auto_endpoint_failure(const char * path) {
+    char mac[18];
+    pthread_mutex_lock(&bt_auto_devices_mutex);
+    int i = bt_auto_device_slot_locked(path, false);
+    bool count = i >= 0 && bt_auto_devices[i].ssc_discovery_attempted &&
+                 !bt_auto_devices[i].ssc.endpoint_failure_counted;
+    if (count) bt_auto_devices[i].ssc.endpoint_failure_counted = true;
+    pthread_mutex_unlock(&bt_auto_devices_mutex);
+    if (count && bt_auto_mac_from_path(path, mac, sizeof(mac))) bt_ssc_memory_note_failure(mac);
+}
+
+static bt_ssc_link_t bt_device_link_state(const char * path) {
+    char mac[18];
+    char info[1024];
+    if (!bt_auto_mac_from_path(path, mac, sizeof(mac)) || !bt_device_info_text(mac, info, sizeof(info)))
+        return BT_SSC_LINK_UNKNOWN;
+    return bt_ssc_policy_link_state(info);
+}
+
+/* A disconnect of this PCM is confirmed (the grace, extended while a switch
+ * was in flight, ran out). Only an ACL loss reported by BlueZ right after a
+ * switch, before audio was flowing, blames the codec; a transport that just
+ * did not come back does not. Then the connection's own state ends: a
+ * successful SSC session lifts the backoff, a queued recovery is cancelled,
+ * and the next connection may use its one recovery. */
+static void bt_auto_drop_confirmed(const char * path, uint32_t removed_at) {
+    pthread_mutex_lock(&bt_auto_devices_mutex);
+    int i = bt_auto_device_slot_locked(path, false);
+    bool recent = i >= 0 && bt_auto_devices[i].switched >= 0 &&
+                  bt_control_monotonic_ms() - bt_auto_devices[i].switched_at < BT_AUTO_REJECT_WINDOW_MS;
+    pthread_mutex_unlock(&bt_auto_devices_mutex);
+    bt_auto_note_disconnect_at(path, removed_at,
+                               recent ? bt_device_link_state(path) : BT_SSC_LINK_UNKNOWN);
+
+    char mac[18];
+    bool have_mac = bt_auto_mac_from_path(path, mac, sizeof(mac));
+    pthread_mutex_lock(&bt_ssc_discovery_mutex);
+    bool recovery_mine = have_mac && bt_ssc_discovery_mac[0] && strcmp(bt_ssc_discovery_mac, mac) == 0;
+    bool recovery_running = recovery_mine && bt_ssc_discovery_claimed;
+    if (recovery_mine && !recovery_running) bt_ssc_discovery_mac[0] = '\0';
+    pthread_mutex_lock(&bt_auto_devices_mutex);
+    i = bt_auto_device_slot_locked(path, false);
+    bool session_ok = false;
+    if (i >= 0) {
+        session_ok = bt_auto_devices[i].ssc.confirmed_ssc &&
+                     bt_ssc_dev_flowing(&bt_auto_devices[i].ssc, removed_at);
+        /* Our own recovery or rate-correction reconnect is not a new
+         * connection: it keeps the backoff bookkeeping and its one recovery. */
+        uint32_t now = bt_control_monotonic_ms();
+        bool own = recovery_running || (bt_auto_devices[i].ssc.keep_until &&
+                                        (int32_t)(bt_auto_devices[i].ssc.keep_until - now) > 0);
+        bt_ssc_dev_connection_end(&bt_auto_devices[i].ssc, own);
+        if (!own) bt_auto_devices[i].ssc_discovery_attempted = false;
+    }
+    pthread_mutex_unlock(&bt_auto_devices_mutex);
+    pthread_mutex_unlock(&bt_ssc_discovery_mutex);
+    if (session_ok && have_mac) bt_ssc_memory_note_session_ok(mac);
+}
+
+/* The output watch ended with a removal still pending (the lifecycle worker
+ * stops it once the route is gone): run the connection's end anyway, so the
+ * blame (which still needs BlueZ to show the device gone), the recovery
+ * cancel and the per-connection resets are not lost. */
+static void bt_output_disconnect_finish_pending(const char * pending_path, uint32_t removed_at) {
+    if (!pending_path[0]) return;
+    bt_auto_drop_confirmed(pending_path, removed_at);
+    bluealsa_clear_codec_path(pending_path);
+}
+
+/* Our own reconnect (recovery, rate correction) is about to drop the PCM;
+ * a drop in the next 30 s belongs to the same connection. */
+static void bt_auto_expect_reconnect(const char * path) {
+    pthread_mutex_lock(&bt_auto_devices_mutex);
+    int i = bt_auto_device_slot_locked(path, true);
+    if (i >= 0) bt_auto_devices[i].ssc.keep_until = bt_control_monotonic_ms() + 30000u;
+    pthread_mutex_unlock(&bt_auto_devices_mutex);
+}
+
+/* A flowing SSC session lifts the persisted backoff as soon as it has
+ * flowed long enough, not only when it ends. */
+static void bt_auto_flowing_tick(void) {
+    char macs[BT_AUTO_REJECT_DEVICES][18];
+    int n = 0;
+    uint32_t now = bt_control_monotonic_ms();
+    pthread_mutex_lock(&bt_auto_devices_mutex);
+    for (int i = 0; i < BT_AUTO_REJECT_DEVICES; i++) {
+        bt_ssc_dev_t * d = &bt_auto_devices[i].ssc;
+        if (!bt_auto_devices[i].device[0] || !d->confirmed_ssc || d->session_noted ||
+            !bt_ssc_dev_flowing(d, now)) continue;
+        char path[64];
+        snprintf(path, sizeof(path), "/%.31s/", bt_auto_devices[i].device);
+        if (!bt_auto_mac_from_path(path, macs[n], sizeof(macs[n]))) continue;
+        d->session_noted = true;
+        n++;
+    }
+    pthread_mutex_unlock(&bt_auto_devices_mutex);
+    for (int i = 0; i < n; i++) bt_ssc_memory_note_session_ok(macs[i]);
+}
+
+/* Milliseconds a removed PCM should still be waited for because a codec
+ * switch of ours is in flight; 0 when none is. The GUI's own absence
+ * recheck uses this so it does not clear the route mid-reconfigure. */
+uint32_t bt_control_reconfigure_hold_ms(void) {
+    uint32_t now = bt_control_monotonic_ms(), hold = 0;
+    pthread_mutex_lock(&bt_auto_devices_mutex);
+    for (int i = 0; i < BT_AUTO_REJECT_DEVICES; i++) {
+        uint32_t until = bt_ssc_dev_reconfigure_deadline(&bt_auto_devices[i].ssc, now);
+        if (until && (int32_t)(until - now) > 0 && until - now > hold) hold = until - now;
+    }
+    pthread_mutex_unlock(&bt_auto_devices_mutex);
+    return hold;
 }
 
 /* One codec selection at a time, across every caller (the output watch's
@@ -1139,21 +1642,26 @@ static bool bluealsa_apply_codec_preference_serial(const char * path, const atom
     char info_out[2048];
     char * info_argv[] = { (char *) backend.ctl, (char *) "info", (char *) path, NULL };
     if (!subprocess_run(info_argv, info_out, sizeof(info_out))) return false;
+    bt_ssc_policy_offer_selected(info_out, sizeof(info_out)); /* a stream in use is not "unavailable" */
     const char * codec = bt_codec_select_name();
     bool automatic = codec == NULL;
     bool explicit_ssc = (bt_codec_preference_t) atomic_load(&bt_codec_preference) == BT_CODEC_SSC;
     bool galaxy_buds = false;
+    bt_ssc_signal_t ssc_signal = BT_SSC_SIGNAL_NONE;
     bool buds_metadata_known = false;
     uint32_t buds_wait_started = 0;
-    bool ssc_advertised = bluealsa_available_codec_contains(info_out, "samsung-SC") ||
-                          bluealsa_available_codec_contains(info_out, "SSC");
-    /* A name can only affect delayed discovery or SSC-versus-LDAC ranking.
-     * An advertised SSC-only choice needs no name lookup or wait. */
+    /* galaxy_buds below: any hint that SSC is coming although it is not
+     * offered yet (bt_pcm_is_galaxy_buds). An offered SSC endpoint is itself
+     * the strongest signal and needs no lookup or wait. */
+    bool ssc_advertised = bt_ssc_policy_endpoint_offered(info_out);
+    bt_auto_connection_begin(path, automatic);
     bool inspect_buds_name = (automatic || explicit_ssc) &&
-        !(bt_auto_rejected(path) & (1u << bt_auto_rank_index("samsung-SC"))) &&
-        (!ssc_advertised || (automatic && bluealsa_available_codec_contains(info_out, "LDAC")));
+        !(bt_auto_rejected(path) & (1u << bt_auto_rank_index("samsung-SC"))) && !ssc_advertised;
     if (inspect_buds_name)
-        bt_buds_state(path, &galaxy_buds, &buds_metadata_known, &buds_wait_started, cancel);
+        bt_buds_state(path, &galaxy_buds, &buds_metadata_known, &buds_wait_started, &ssc_signal, cancel);
+    /* Only a Samsung Modalias or a remembered SSC justifies a recovery
+     * reconnect or a recorded failure; a name alone only earns the wait. */
+    bool ssc_strong = ssc_signal == BT_SSC_SIGNAL_MODALIAS || ssc_signal == BT_SSC_SIGNAL_REMEMBERED;
     if (bt_cancelled(cancel)) return true;
     if (inspect_buds_name && !buds_metadata_known &&
         bt_control_monotonic_ms() - buds_wait_started < BT_BUDS_SSC_DISCOVERY_GRACE_MS) {
@@ -1164,9 +1672,15 @@ static bool bluealsa_apply_codec_preference_serial(const char * path, const atom
     char best[32];
     if (automatic) {
         bool ssc_rejected = (bt_auto_rejected(path) & (1u << bt_auto_rank_index("samsung-SC"))) != 0;
-        if (galaxy_buds &&
-            (bluealsa_available_codec_contains(info_out, "samsung-SC") ||
-             bluealsa_available_codec_contains(info_out, "SSC")) && !ssc_rejected) {
+        /* The persisted backoff only stops us choosing SSC; when the accessory
+         * opened SSC itself it stays ("already"), as reconfiguring a live SSC
+         * stream can drop the link. A rejection this session still applies. */
+        char live[32];
+        if (ssc_rejected && ssc_advertised && bluealsa_parse_selected_codec(info_out, live, sizeof(live)) &&
+            (strcasecmp(live, "samsung-SC") == 0 || strcasecmp(live, "SSC") == 0) &&
+            !(bt_auto_rejected_session(path) & (1u << bt_auto_rank_index("samsung-SC"))))
+            ssc_rejected = false;
+        if (ssc_advertised && !ssc_rejected) {
             snprintf(best, sizeof(best), "%s", "samsung-SC");
         } else {
             if (galaxy_buds && !ssc_rejected &&
@@ -1174,6 +1688,13 @@ static bool bluealsa_apply_codec_preference_serial(const char * path, const atom
                 DBG_LOG("bt_control: waiting for Galaxy Buds SSC endpoint on %s\n", path);
                 if (defer_until) *defer_until = buds_wait_started + BT_BUDS_SSC_DISCOVERY_GRACE_MS;
                 return false;
+            }
+            if (ssc_strong && !ssc_rejected && bluealsa_available_codecs_known(info_out)) {
+                if (bt_ssc_discovery_recovery_queue(path)) {
+                    if (defer_until) *defer_until = bt_control_monotonic_ms() + 500;
+                    return false;
+                }
+                bt_auto_endpoint_failure(path);
             }
             if (!bluealsa_best_available_codec(info_out, bt_auto_rejected(path), best, sizeof(best))) {
                 DBG_LOG("bt_control: auto codec for %s: available codecs not known yet\n", path);
@@ -1188,8 +1709,7 @@ static bool bluealsa_apply_codec_preference_serial(const char * path, const atom
          * already failed configuration for this device. */
         unsigned int rejected = bt_auto_rejected(path);
         int ssc_rank = bt_auto_rank_index("samsung-SC");
-        bool ssc_available = bluealsa_available_codec_contains(info_out, "samsung-SC") ||
-                             bluealsa_available_codec_contains(info_out, "SSC");
+        bool ssc_available = ssc_advertised;
         if (!bluealsa_available_codecs_known(info_out)) {
             DBG_LOG("bt_control: SSC codecs for %s are not known yet\n", path);
             return false;
@@ -1200,6 +1720,13 @@ static bool bluealsa_apply_codec_preference_serial(const char * path, const atom
             if (defer_until) *defer_until = buds_wait_started + BT_BUDS_SSC_DISCOVERY_GRACE_MS;
             return false;
         }
+        if (!ssc_available && !(rejected & (1u << ssc_rank)) && galaxy_buds &&
+                bt_ssc_discovery_recovery_queue(path)) {
+            if (defer_until) *defer_until = bt_control_monotonic_ms() + 500;
+            return false;
+        }
+        if (!ssc_available && !(rejected & (1u << ssc_rank)) && ssc_strong)
+            bt_auto_endpoint_failure(path);
         if (!ssc_available || (ssc_rank >= 0 && (rejected & (1u << ssc_rank)))) {
             if (!bluealsa_best_available_codec(info_out, rejected, best, sizeof(best))) {
                 DBG_LOG("bt_control: SSC unavailable for %s and no fallback codec is known yet\n", path);
@@ -1212,21 +1739,40 @@ static bool bluealsa_apply_codec_preference_serial(const char * path, const atom
     if (bluealsa_parse_selected_codec(info_out, active, sizeof(active)) &&
         strcasecmp(active, codec) == 0) {
         DBG_LOG("bt_control: codec for %s already %s\n", path, active);
+        if (automatic || explicit_ssc) bt_auto_switch_confirmed(path, active);
         return bluealsa_codec_latch_commit(path, clears);
     }
     if (bt_cancelled(cancel)) return true;
+    /* Never reconfigure while a recovery owns the link, or before the stream
+     * is open: BlueZ aborts a stream that is not OPEN yet, and the accessory
+     * may drop the ACL on that. */
+    uint32_t ready = bt_auto_codec_command_ready_at(path);
+    if (ready) {
+        DBG_LOG("bt_control: codec command for %s waits for an open stream\n", path);
+        if (defer_until) *defer_until = ready;
+        return false;
+    }
 
     char * argv[] = { (char *) backend.ctl, (char *) "codec",
                       (char *) path, (char *) codec, NULL };
     int exit_code = -1;
+    bool noted = automatic || explicit_ssc;
+    /* The command itself recreates the PCM: from here the removal watch
+     * holds a disconnect back until the PCM returns (bt_ssc_policy.h). */
+    if (noted) bt_auto_switch_begin(path);
     if (!subprocess_run_checked(argv, NULL, 0, 5000, &exit_code) || exit_code != 0) {
         DBG_LOG("bt_control: codec select %s -> %s FAILED (exit %d)\n", path, codec, exit_code);
-        if (automatic || explicit_ssc) bt_auto_reject(path, codec);
-        if (explicit_ssc && strcasecmp(codec, "samsung-SC") == 0)
-            return bluealsa_apply_codec_preference_serial(path, cancel, defer_until);
+        if (noted) bt_auto_switch_abort(path);
+        /* A transient D-Bus error or disappearing PCM is not evidence that
+         * explicit SSC is unsupported. The worker owns the bounded retry. */
+        if (automatic) bt_auto_reject(path, codec);
         return false;
     }
-    if (automatic || explicit_ssc) bt_auto_note_switch(path, codec);
+    /* Noted as soon as the command succeeded, before the readback: a codec
+     * that kills the link also kills the readback, and must still be blamed
+     * for the drop that follows (a disconnect confirmed within
+     * BT_AUTO_REJECT_WINDOW_MS, see bt_auto_drop_confirmed). */
+    if (noted) bt_auto_note_switch(path, codec);
     if (bt_cancelled(cancel)) return true;
     /* Read back rather than trusting the exit status: the accessory can
      * refuse a codec it advertised, and the top bar reports the real
@@ -1240,11 +1786,13 @@ static bool bluealsa_apply_codec_preference_serial(const char * path, const atom
     }
     DBG_LOG("bt_control: codec select %s -> %s, now reports %s\n", path, codec, active);
     if (strcasecmp(active, codec) != 0) {
+        /* A definite mismatch: Automatic and explicit SSC both give this
+         * codec up for the session and settle on the next ranked one rather
+         * than re-selecting it. */
         if (automatic || explicit_ssc) bt_auto_reject(path, codec);
-        if (explicit_ssc && strcasecmp(codec, "samsung-SC") == 0)
-            return bluealsa_apply_codec_preference_serial(path, cancel, defer_until);
         return false;
     }
+    if (noted) bt_auto_switch_confirmed(path, codec);
     return bluealsa_codec_latch_commit(path, clears);
 }
 
@@ -1749,6 +2297,18 @@ static void bt_control_reapply_last_output_settings(void);
  * when no adapter exists), so the bluetoothctl-over-D-Bus round trip is
  * only attempted when there's actually an adapter to ask about. */
 static bool bt_control_adapter_present(void) {
+    /* The kernel lists every HCI controller under /sys/class/bluetooth, the registry `hciconfig`
+     * prints from, so a directory scan answers without spawning anything. Without that directory
+     * ask hciconfig as before. */
+    DIR * dir = opendir("/sys/class/bluetooth");
+    if (dir) {
+        bool found = false;
+        struct dirent * entry;
+        while (!found && (entry = readdir(dir)) != NULL)
+            found = strncmp(entry->d_name, "hci", 3) == 0 && strchr(entry->d_name, ':') == NULL;
+        closedir(dir);
+        return found;
+    }
     char out[64];
     char * argv[] = { (char *) "hciconfig", NULL };
     if (!subprocess_run(argv, out, sizeof(out))) return false;
@@ -1856,17 +2416,27 @@ static bool bt_control_is_powered_impl(void) {
         return false;
     }
 
+    /* `bluetoothctl show` asks bluetoothd for its managed objects and prints the default
+     * controller. bt_adapter_dbus_powered() makes the same request without a process and the result
+     * is fed into the code below as the text bluetoothctl would have printed. A timeout or error
+     * (-1) runs bluetoothctl as before, so the timeout counter is fed exactly as it always was. */
     char out[2048];
-    char * argv[] = { (char *) "bluetoothctl", (char *) "show", NULL };
-    if (!subprocess_run(argv, out, sizeof(out))) {
-        consecutive_timeouts++;
-        DBG_LOG("bt_control: bt_control_is_powered: bluetoothctl show subprocess failed/timed out (%d/%d)\n",
-                consecutive_timeouts, TIMEOUT_RECOVERY_THRESHOLD);
-        if (consecutive_timeouts >= TIMEOUT_RECOVERY_THRESHOLD) {
-            bt_control_recover_wedged_daemon();
-            consecutive_timeouts = 0;
+    int dbus_state = bt_adapter_dbus_powered();
+    if (dbus_state != BT_ADAPTER_UNKNOWN) {
+        snprintf(out, sizeof(out), "%s", dbus_state == BT_ADAPTER_POWERED ? "Powered: yes" :
+                 dbus_state == BT_ADAPTER_NONE ? "No default controller available" : "Powered: no");
+    } else {
+        char * argv[] = { (char *) "bluetoothctl", (char *) "show", NULL };
+        if (!subprocess_run(argv, out, sizeof(out))) {
+            consecutive_timeouts++;
+            DBG_LOG("bt_control: bt_control_is_powered: bluetoothctl show subprocess failed/timed out (%d/%d)\n",
+                    consecutive_timeouts, TIMEOUT_RECOVERY_THRESHOLD);
+            if (consecutive_timeouts >= TIMEOUT_RECOVERY_THRESHOLD) {
+                bt_control_recover_wedged_daemon();
+                consecutive_timeouts = 0;
+            }
+            return false;
         }
-        return false;
     }
     consecutive_timeouts = 0; /* any actual reply, even "not powered", means it isn't stuck */
 
@@ -1993,6 +2563,16 @@ bool bt_control_init_chip(void) {
         return true;
     }
 
+    if (aic_radio_active()) {
+        /* AIC8800D40: bt_resume does nothing under the power gate. Take the gate
+         * and bring the controller up through bt_enable_aic.sh instead. */
+        bool powered = aic_radio_bt_power_on();
+        if (powered) ensure_bluealsa_running();
+        bool aic_result = powered && bt_control_adapter_present();
+        pthread_mutex_unlock(&bt_chip_mutex);
+        return aic_result;
+    }
+
     char out[512];
     char * bt_resume_argv[] = { (char *) "/usr/bin/bt_resume", NULL };
     if (access("/sys/devices/platform/bcm_wlbt_power/identity_state", F_OK) == 0) {
@@ -2071,7 +2651,8 @@ void bt_control_disable(void) {
     pthread_mutex_lock(&bt_chip_mutex);
     char out[256];
     char * argv[] = { (char *) "/usr/bin/bt_disable", NULL };
-    subprocess_run(argv, out, sizeof(out));
+    if (aic_radio_active()) aic_radio_bt_power_off(); /* also releases the Bluetooth power gate */
+    else subprocess_run(argv, out, sizeof(out));
     pthread_mutex_unlock(&bt_chip_mutex);
 }
 
@@ -2353,6 +2934,7 @@ bool bt_control_connect(const char * mac) {
 
 bool bt_control_disconnect(const char * mac) {
     char out[512];
+    atomic_fetch_add(&bt_user_disconnect_generation, 1);
     if (mac) {
         /* Asked for here, so not the codec's fault (see bt_auto_note_disconnect). */
         char path[64];
@@ -2663,9 +3245,162 @@ static bool bt_correction_cancelled(bt_control_cancel_callback_t cb, void * ctx)
     return cb && cb(ctx);
 }
 
+typedef struct {
+    bt_control_cancel_callback_t callback;
+    void * context;
+} bt_ssc_discovery_cancel_t;
+
+static bool bt_ssc_discovery_cancelled(void * opaque) {
+    bt_ssc_discovery_cancel_t * cancel = opaque;
+    return !bt_ssc_recovery_preference() ||
+           bt_correction_cancelled(cancel->callback, cancel->context);
+}
+
+/* BlueZ Device1.DisconnectProfile / ConnectProfile for the A2DP sink: only
+ * the profile is cycled, so the ACL, HFP and AVRCP stay up and the player's
+ * own AVDTP session re-discovers the remote endpoints. The caller holds
+ * bt_chip_mutex. */
+static bool bt_a2dp_profile_call_locked(const char * mac, const char * method) {
+    char object[64], member[48], arg[64];
+    snprintf(object, sizeof(object), "/org/bluez/hci0/dev_%s", mac);
+    for (char * c = object; *c; c++) if (*c == ':') *c = '_';
+    snprintf(member, sizeof(member), "org.bluez.Device1.%s", method);
+    snprintf(arg, sizeof(arg), "string:%s", BT_A2DP_SINK_UUID);
+    char * argv[] = { (char *) "dbus-send", (char *) "--system", (char *) "--print-reply",
+                      (char *) "--dest=org.bluez", object, member, arg, NULL };
+    int status = -1;
+    return subprocess_run_checked(argv, NULL, 0, BT_RECONNECT_CONNECT_TIMEOUT_MS, &status) && status == 0;
+}
+
+/* After DisconnectProfile: wait for the output to go, then ConnectProfile.
+ * A cancel stops the wait but ConnectProfile is still issued once, so A2DP
+ * is not left down under a live ACL; only the user's own disconnect skips
+ * it. False when the profile did not come back, leaving the full reconnect
+ * to the caller. */
+static bool bt_ssc_profile_reconnect(const char * mac, bt_ssc_discovery_cancel_t * cancel,
+                                     unsigned int user_generation) {
+    uint32_t deadline = bt_control_monotonic_ms() + 5000;
+    while (!bt_ssc_discovery_cancelled(cancel)) {
+        bool query_ok = false;
+        bool live = bt_reconnect_audio_output_connected(bt_ssc_discovery_cancelled, cancel, &query_ok);
+        if (!query_ok && !bt_ssc_discovery_cancelled(cancel)) return false;
+        if (!live) break;
+        if ((int32_t)(deadline - bt_control_monotonic_ms()) <= 0) return false;
+        usleep(250000);
+    }
+    if (atomic_load(&bt_user_disconnect_generation) != user_generation) return false;
+    pthread_mutex_lock(&bt_chip_mutex);
+    bool ok = bt_a2dp_profile_call_locked(mac, "ConnectProfile");
+    pthread_mutex_unlock(&bt_chip_mutex);
+    return ok;
+}
+
+bool bt_control_reconnect_for_ssc_discovery(const char * mac, unsigned int rate,
+                                            bt_control_cancel_callback_t cancel_cb,
+                                            void * cancel_ctx) {
+    bt_ssc_discovery_cancel_t cancel = { cancel_cb, cancel_ctx };
+    unsigned int user_generation = atomic_load(&bt_user_disconnect_generation);
+    if (!bt_reconnect_valid_mac(mac) || bt_ssc_discovery_cancelled(&cancel)) return false;
+    char expected[64];
+    snprintf(expected, sizeof(expected), "/dev_%s/", mac);
+    for (char * c = expected; *c; c++) if (*c == ':') *c = '_';
+
+    /* Revalidate the target and discovery result under the same lifecycle
+     * lock as manual operations. Never disturb another connected output or
+     * a peer whose SSC endpoint appeared while the GUI was busy. */
+    pthread_mutex_lock(&bt_chip_mutex);
+    char list[4096], path[256] = {0}, info[4096];
+    char * list_argv[] = { (char *) bluealsa_ctl_name(), "list-pcms", NULL };
+    int status = -1;
+    bool valid = bt_reconnect_run(list_argv, list, sizeof(list), BT_RECONNECT_QUERY_TIMEOUT_MS,
+                                  bt_ssc_discovery_cancelled, &cancel, &status);
+    if (valid) {
+        char * save = NULL;
+        for (char * line = strtok_r(list, "\r\n", &save); line;
+             line = strtok_r(NULL, "\r\n", &save)) {
+            if (!strstr(line, "/a2dpsrc/sink")) continue;
+            if (path[0] || !strstr(line, expected) || strlen(line) >= sizeof(path)) {
+                valid = false;
+                break;
+            }
+            snprintf(path, sizeof(path), "%s", line);
+        }
+    }
+    char * info_argv[] = { (char *) bluealsa_ctl_name(), "info", path, NULL };
+    valid = valid && path[0] &&
+            bt_reconnect_run(info_argv, info, sizeof(info), BT_RECONNECT_QUERY_TIMEOUT_MS,
+                              bt_ssc_discovery_cancelled, &cancel, &status);
+    if (valid) bt_ssc_policy_offer_selected(info, sizeof(info)); /* in use counts as offered */
+    if (valid && bt_ssc_policy_endpoint_offered(info)) {
+        pthread_mutex_unlock(&bt_chip_mutex);
+        return true;
+    }
+    bool connected = false;
+    valid = valid && bluealsa_available_codecs_known(info) &&
+            !(bt_auto_rejected(path) & (1u << bt_auto_rank_index("samsung-SC"))) &&
+            bt_reconnect_info(mac, info, sizeof(info), bt_ssc_discovery_cancelled, &cancel) &&
+            bt_reconnect_info_eligible(info, &connected) && connected &&
+            !bt_ssc_discovery_cancelled(&cancel);
+    bool disconnect_issued = false;
+    bool disconnected = false;
+    bool profile_issued = false;
+    char * disconnect_argv[] = { "bluetoothctl", "--timeout", "5", "disconnect", (char *) mac, NULL };
+    if (valid) {
+        bt_auto_forget_switch(path);
+        bt_auto_expect_reconnect(path);
+        DBG_LOG("bt_control: reconnecting %s to rediscover SSC endpoints\n", mac);
+        /* Prefer cycling only the A2DP profile; the whole device is the
+         * fallback when that cannot be done. */
+        profile_issued = bt_a2dp_profile_call_locked(mac, "DisconnectProfile");
+        disconnect_issued = true;
+        if (!profile_issued)
+            disconnected = subprocess_run_checked(disconnect_argv, NULL, 0,
+                                                  BT_RECONNECT_CONNECT_TIMEOUT_MS, &status) && status == 0;
+    }
+    pthread_mutex_unlock(&bt_chip_mutex);
+    if (profile_issued) {
+        if (bt_ssc_profile_reconnect(mac, &cancel, user_generation)) return true;
+        if (bt_ssc_discovery_cancelled(&cancel)) return false;
+        DBG_LOG("bt_control: A2DP profile reconnect of %s failed, reconnecting the device\n", mac);
+        pthread_mutex_lock(&bt_chip_mutex);
+        disconnected = subprocess_run_checked(disconnect_argv, NULL, 0,
+                                              BT_RECONNECT_CONNECT_TIMEOUT_MS, &status) && status == 0;
+        pthread_mutex_unlock(&bt_chip_mutex);
+    }
+    if (!disconnect_issued || bt_ssc_discovery_cancelled(&cancel)) return false;
+    if (!disconnected) goto reconnect_fallback;
+
+    uint32_t deadline = bt_control_monotonic_ms() + 5000;
+    while ((int32_t)(deadline - bt_control_monotonic_ms()) > 0) {
+        if (bt_ssc_discovery_cancelled(&cancel)) return false;
+        bool query_ok = false;
+        bool live = bt_reconnect_audio_output_connected(bt_ssc_discovery_cancelled, &cancel, &query_ok);
+        if (!query_ok || !live) goto reconnect_fallback;
+        usleep(250000);
+    }
+reconnect_fallback:
+    /* Disconnect may have taken effect even if its CLI timed out. Once we
+     * issued it, always offer one target-bound reconnect unless cancelled;
+     * the core independently refuses unknown state or another live output. */
+    if (bt_ssc_discovery_cancelled(&cancel)) return false;
+    return bt_control_reconnect_paired_core(mac, rate, true,
+                                             bt_ssc_discovery_cancelled, &cancel);
+}
+
+static bool bt_ssc_rate_correction_run(const char * mac, unsigned int rate,
+                                       bt_control_cancel_callback_t cancel_cb, void * cancel_ctx);
+
 bool bt_control_reconnect_for_ssc_rate_correction(const char * mac, unsigned int rate,
                                                    bt_control_cancel_callback_t cancel_cb,
                                                    void * cancel_ctx) {
+    atomic_fetch_add(&bt_ssc_correction_running, 1);
+    bool ok = bt_ssc_rate_correction_run(mac, rate, cancel_cb, cancel_ctx);
+    atomic_fetch_sub(&bt_ssc_correction_running, 1);
+    return ok;
+}
+
+static bool bt_ssc_rate_correction_run(const char * mac, unsigned int rate,
+                                       bt_control_cancel_callback_t cancel_cb, void * cancel_ctx) {
     if (!mac || strlen(mac) != 17 || rate != 44100 || bt_correction_cancelled(cancel_cb, cancel_ctx)) return false;
     bool pcm_query_ok = false;
     if (!bt_reconnect_audio_output_connected(cancel_cb, cancel_ctx, &pcm_query_ok) ||
@@ -2694,6 +3429,7 @@ bool bt_control_reconnect_for_ssc_rate_correction(const char * mac, unsigned int
         return false;
 
     bt_auto_forget_switch(path);
+    bt_auto_expect_reconnect(path);
     if (bt_correction_cancelled(cancel_cb, cancel_ctx)) return false;
     char * disconnect_argv[] = { (char *) "bluetoothctl", (char *) "--timeout", (char *) "5",
                                  (char *) "disconnect", (char *) mac, NULL };
@@ -2714,7 +3450,7 @@ bool bt_control_reconnect_for_ssc_rate_correction(const char * mac, unsigned int
             pcm_gone = true;
             break;
         }
-        usleep(100000);
+        usleep(250000);
     }
     if (bt_correction_cancelled(cancel_cb, cancel_ctx)) return false;
     if (!pcm_gone) goto reconnect_fallback;
@@ -3810,6 +4546,8 @@ static void bt_pref_forget(const char * path) {
     pthread_mutex_unlock(&bt_pref.mutex);
 }
 
+static uint32_t bt_output_removed_at; /* when the pending removal was seen; watch thread only */
+
 static void bt_output_disconnect_process_line(const char * line, char * pending_path,
                                               uint32_t * pending_deadline,
                                               char added_paths[][256], int * added_count) {
@@ -3817,7 +4555,8 @@ static void bt_output_disconnect_process_line(const char * line, char * pending_
     if (sscanf(line, "PCMRemoved %255s", path) == 1) {
         if (strstr(path, "/a2dpsrc/sink") != NULL) {
             snprintf(pending_path, 256, "%s", path);
-            *pending_deadline = bt_control_monotonic_ms() + BT_OUTPUT_RECONFIGURE_GRACE_MS;
+            bt_output_removed_at = bt_control_monotonic_ms();
+            *pending_deadline = bt_output_removed_at + BT_OUTPUT_RECONFIGURE_GRACE_MS;
             /* Soft volume only: the PCM is recreated by a reconfigure, so
              * that setting must be re-applied. The codec latch deliberately
              * survives here and is cleared only once a disconnect is
@@ -3830,6 +4569,7 @@ static void bt_output_disconnect_process_line(const char * line, char * pending_
         return;
     }
     if (strncmp(line, "PCMAdded ", 9) != 0 || sscanf(line, "PCMAdded %255s", path) != 1) return;
+    bt_auto_pcm_added(path);
     if (strcmp(pending_path, path) == 0) {
         pending_path[0] = '\0';
         *pending_deadline = 0;
@@ -3873,6 +4613,14 @@ static bool bt_output_disconnect_read_batch(int fd, char * buf, size_t * used,
 
 static void bt_output_disconnect_publish_if_due(char * pending_path, uint32_t * pending_deadline) {
     if (!pending_path[0] || (int32_t)(bt_control_monotonic_ms() - *pending_deadline) < 0) return;
+    /* A codec switch of ours is recreating the transport: keep waiting for
+     * the PCM (up to BT_SSC_SWITCH_CAP_MS) instead of calling it a drop. */
+    uint32_t hold = bt_auto_reconfigure_deadline(pending_path, bt_output_removed_at);
+    if (hold && (int32_t)(hold - bt_control_monotonic_ms()) > 0) {
+        *pending_deadline = hold;
+        DBG_LOG("bt_control: output_disconnect_watch: %s -- codec switch in flight, waiting\n", pending_path);
+        return;
+    }
     pthread_mutex_lock(&bt_output_disconnect_state_mutex);
     if (atomic_load(&bt_output_disconnect_active) && !atomic_load(&bt_output_disconnect_flag)) {
         snprintf(bt_output_disconnect_confirmed_path, sizeof(bt_output_disconnect_confirmed_path), "%s", pending_path);
@@ -3880,7 +4628,7 @@ static void bt_output_disconnect_publish_if_due(char * pending_path, uint32_t * 
     }
     pthread_mutex_unlock(&bt_output_disconnect_state_mutex);
     DBG_LOG("bt_control: output_disconnect_watch: PCMRemoved %s -- flagging disconnect\n", pending_path);
-    bt_auto_note_disconnect(pending_path);
+    bt_auto_drop_confirmed(pending_path, bt_output_removed_at);
     bluealsa_clear_codec_path(pending_path); /* real disconnect: next connect must re-select */
     bt_buds_reset(pending_path);
     bt_pref_forget(pending_path);
@@ -3900,6 +4648,7 @@ static void * bt_output_disconnect_thread_func(void * arg) {
         return NULL;
     }
     DBG_LOG("bt_control: output_disconnect_watch: monitor started (pid %d)\n", (int) pid);
+    bt_output_watch_started_at = bt_control_monotonic_ms() ? bt_control_monotonic_ms() : 1;
 
     /* The GUI starts this watch only after it has seen the A2DP link, so the
      * PCM of that connection usually predates the subscription and never
@@ -3968,6 +4717,7 @@ static void * bt_output_disconnect_thread_func(void * arg) {
             break;
         }
         bt_output_disconnect_publish_if_due(pending_path, &pending_deadline);
+        if (!pending_path[0]) bt_auto_flowing_tick();
         bt_pref_set_paused(pending_path[0] != '\0');
         /* Do not let volume subprocesses delay reading a replacement while
          * a removal is pending. Keep the bounded queue until it settles. */
@@ -3986,6 +4736,7 @@ static void * bt_output_disconnect_thread_func(void * arg) {
 
     DBG_LOG("bt_control: output_disconnect_watch: monitor exited (pid %d)\n", (int) pid);
     bt_pref_stop();
+    bt_output_disconnect_finish_pending(pending_path, bt_output_removed_at);
     /* The monitor can exit with a removal still unconfirmed, which would
      * leave the latch set and suppress the re-select on the next connect. */
     bluealsa_clear_codec_path(NULL);

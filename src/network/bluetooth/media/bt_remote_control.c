@@ -17,7 +17,7 @@
 /* This UUID is the Android discovery contract; keep it in sync with the
  * service documentation in bt_remote_control.h. */
 #define BT_RC_UUID "9d2f8a7e-6b4c-4d51-8e43-38f7a2c0b719"
-#define BT_RC_NAME "Compas Remote Control"
+#define BT_RC_NAME "compás"
 #define BT_RC_OBJECT_PATH "/org/openhibyplayer/RemoteControlProfile"
 #define BT_RC_RFCOMM_CHANNEL 21
 #define BT_RC_RETRY_MS 3000
@@ -29,6 +29,7 @@ static DBusConnection * connection;
 static pthread_t service_thread;
 static pthread_mutex_t lifecycle_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t client_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t client_idle = PTHREAD_COND_INITIALIZER;
 static atomic_bool enabled = false;
 static atomic_int profile_status = BT_REMOTE_CONTROL_DISABLED;
 static bool thread_started;
@@ -61,6 +62,7 @@ static void * serve_client(void * arg) {
     client_active = false;
     active_client_fd = -1;
     active_device_path[0] = '\0';
+    pthread_cond_broadcast(&client_idle);
     pthread_mutex_unlock(&client_mutex);
     return NULL;
 }
@@ -432,6 +434,11 @@ void bt_remote_control_stop(void) {
     thread_started = false;
     pthread_mutex_unlock(&lifecycle_mutex);
     pthread_join(thread, NULL);
+    /* Called by the background service worker. Socket shutdown interrupts
+     * reads, but an in-flight request must also finish before radio sleep. */
+    pthread_mutex_lock(&client_mutex);
+    while (client_active) pthread_cond_wait(&client_idle, &client_mutex);
+    pthread_mutex_unlock(&client_mutex);
 }
 
 bt_remote_control_status_t bt_remote_control_status(void) {

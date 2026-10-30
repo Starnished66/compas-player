@@ -60,4 +60,10 @@ void backlight_set_screen_on(bool on);
 void backlight_prepare_screen_on(void);
 bool backlight_screen_is_prepared(void);
 
+/* After a full-screen external session (an app) that may have changed the
+ * panel blank state or the PWM behind this file's caches: forgets
+ * last_written_raw and the known blank state and rewrites the current screen
+ * state, so a session that crashed with the screen dark cannot leave it so. */
+void backlight_resync_after_external_session(void);
+
 #endif /* BACKLIGHT_H */

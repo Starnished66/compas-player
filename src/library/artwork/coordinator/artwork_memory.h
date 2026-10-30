@@ -44,6 +44,10 @@ typedef enum {
 /* Returns current MemAvailable in bytes from /proc/meminfo (cached briefly). */
 size_t system_get_mem_available_bytes(void);
 
+/* True while swap is nearly full (see swap_pressure.h). Shares the cached
+ * /proc/meminfo read of system_get_mem_available_bytes(). */
+bool system_swap_under_pressure(void);
+
 /* Test hook: inject mock available memory (0 to disable mock) */
 void system_set_mock_mem_available(size_t bytes);
 

@@ -19,6 +19,9 @@ mp4_demux_t * mp4_demux_open_stream(FILE * stream);
 /* Codec fourcc only ("alac"/"mp4a"). Opens and closes a demux; long files
  * stay compact so this is safe as an extension-dispatch peek. */
 bool mp4_demux_peek_codec(const char * path, char out_fourcc[5]);
+/* True when the file has a top-level moof box (fragmented MP4), which the
+ * sample-table demuxer does not read. False for any other layout or read error. */
+bool mp4_demux_path_is_fragmented(const char * path);
 /* Like mp4_demux_peek_codec(), but reads from an already-open seekable FILE
  * and restores its original position without taking ownership. */
 bool mp4_demux_peek_codec_stream(FILE * stream, char out_fourcc[5]);

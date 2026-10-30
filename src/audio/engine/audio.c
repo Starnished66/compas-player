@@ -136,6 +136,7 @@ typedef struct {
     unsigned int bitrate_kbps;
     uint64_t total_frames;
     audio_error_t open_error;
+    bool open_io_error; /* the open failed on a read/open error, not on what the file is (probe only) */
 
     /* Local MP3 only. dr_mp3 never owns a bound seek table, so this tagged
      * decoder owns and frees it alongside the drmp3 instance. */
@@ -717,7 +718,12 @@ static bool decoder_open_internal(decoder_t * dec, const char * path,
          * inside (ALAC or AAC) before picking a decoder. The real decoders
          * each open their own mp4_demux_t; this one is just for the peek. */
         char fourcc[5];
-        if (!mp4_demux_peek_codec(path, fourcc)) return false;
+        errno = 0;
+        if (!mp4_demux_peek_codec(path, fourcc)) {
+            /* A read or open failure is not a verdict on the file (see the probe). */
+            dec->open_io_error = errno != 0;
+            return false;
+        }
 
         if (strcmp(fourcc, "alac") == 0) {
             dec->type = DECODER_ALAC;
@@ -824,6 +830,8 @@ static bool decoder_open_internal(decoder_t * dec, const char * path,
             dec->total_frames = vorbis_get_total_pcm_frame_count(dec->as.vorbis);
             return true;
         }
+        /* A file that could not be read is not a rejected format. */
+        dec->open_io_error = codec == OGG_CODEC_IO_ERROR;
         dec->open_error = AUDIO_ERROR_UNSUPPORTED_FORMAT;
         return false;
     }
@@ -1948,6 +1956,19 @@ static audio_codec_t public_codec_for_decoder(const decoder_t * dec) {
 }
 
 bool audio_probe_file_format(const char * path, audio_current_format_info_t * out) {
+    return audio_probe_file_format_status(path, out, NULL);
+}
+
+static bool probe_path_is_mp4_family(const char * path) {
+    const char * ext = path ? strrchr(path, '.') : NULL;
+    return ext && (strcasecmp(ext, ".m4a") == 0 || strcasecmp(ext, ".m4b") == 0 || strcasecmp(ext, ".mp4") == 0);
+}
+
+bool audio_probe_file_format_status(const char * path, audio_current_format_info_t * out,
+                                    audio_probe_status_t * status) {
+    audio_probe_status_t local_status;
+    if (!status) status = &local_status;
+    *status = AUDIO_PROBE_ERROR;
     if (!path || !path[0] || !out || is_stream_url(path) || remote_track_path_is_remote(path)) return false;
 
     /* APE open decodes its first complete physical frame to validate decoder
@@ -1969,11 +1990,14 @@ bool audio_probe_file_format(const char * path, audio_current_format_info_t * ou
                          (bit_depth == 8 || bit_depth == 16 || bit_depth == 24) && total_samples > 0;
         if (!supported) {
             ape_demux_close(demux);
+            /* The header parsed and names a level or layout the decoder does not handle. */
+            if (compression > 0 && sample_rate > 0) *status = AUDIO_PROBE_UNSUPPORTED;
             return false;
         }
 
         memset(out, 0, sizeof(*out));
         out->valid = true;
+        *status = AUDIO_PROBE_OK;
         snprintf(out->path, sizeof(out->path), "%s", path);
         out->codec = AUDIO_CODEC_APE;
         out->source_sample_rate = sample_rate;
@@ -1986,7 +2010,19 @@ bool audio_probe_file_format(const char * path, audio_current_format_info_t * ou
 
     decoder_t dec;
     memset(&dec, 0, sizeof(dec));
-    if (!decoder_open(&dec, path)) return false;
+    if (!decoder_open(&dec, path)) {
+        /* Only a positive rejection counts: decoder_open() names an extension
+         * or MP4 sample entry nothing handles, and a fragmented MP4 makes the
+         * sample-table demuxer fail on a file that is intact. Anything else
+         * (read error, no memory, truncated read) may be transient. The file
+         * must still be readable, so a vanished card is not "unsupported". */
+        bool rejected = !dec.open_io_error &&
+                        (dec.open_error == AUDIO_ERROR_UNSUPPORTED_FORMAT ||
+                         (probe_path_is_mp4_family(path) && mp4_demux_path_is_fragmented(path)));
+        if (rejected && access(path, R_OK) == 0) *status = AUDIO_PROBE_UNSUPPORTED;
+        return false;
+    }
+    *status = AUDIO_PROBE_OK;
     memset(out, 0, sizeof(*out));
     out->valid = true;
     snprintf(out->path, sizeof(out->path), "%s", path);

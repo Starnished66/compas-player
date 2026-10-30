@@ -176,6 +176,15 @@ uint32_t gui_anim_ms(uint32_t base_ms); /* src/ui/appearance/gui_theme.c */
  * everything-ever-shown cache. */
 #define LV_CACHE_DEF_SIZE (4 * 1024 * 1024)
 
+/* Image headers (width, height, format and the decoder that read them) of file
+ * images, keyed by path. Without it every lv_image_set_src(path) opens the
+ * file and runs the decoders' header probes again, and the list rows set a
+ * file image (row icons, quality badges, the placeholder's source) every time
+ * they are bound. The cost is the path string and a ~40 byte header per entry,
+ * so 32 entries are about 4 KiB; the decoded pixels are still cached by
+ * LV_CACHE_DEF_SIZE above, not here. */
+#define LV_IMAGE_HEADER_CACHE_DEF_CNT 32
+
 /* Embedded album art (FLAC METADATA_BLOCK_PICTURE / MP3 ID3v2 APIC) is most
  * often JPEG, decoded straight from the in-memory bytes metadata.c already
  * extracted -- LVGL's tjpgd decoder can only read "from data" via a

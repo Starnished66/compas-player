@@ -265,6 +265,18 @@ bool audio_get_current_format_info(audio_current_format_info_t * out);
  * then closes it without touching playback state or the output device. */
 bool audio_probe_file_format(const char * path, audio_current_format_info_t * out);
 
+/* Why a format probe failed. UNSUPPORTED is only reported when the file
+ * itself was positively rejected (an extension or MP4 sample entry no decoder
+ * handles, or a fragmented MP4); an open or decode failure that could equally
+ * be an I/O or resource error stays ERROR, so it is never remembered. */
+typedef enum {
+    AUDIO_PROBE_OK = 0,
+    AUDIO_PROBE_UNSUPPORTED,
+    AUDIO_PROBE_ERROR
+} audio_probe_status_t;
+bool audio_probe_file_format_status(const char * path, audio_current_format_info_t * out,
+                                    audio_probe_status_t * status);
+
 /* Optional synchronous snapshot callback for audio_extract_waveform_progress.
  * bins is borrowed for the duration of the call and contains `count` bytes;
  * entries at and after `completed` are zero. */

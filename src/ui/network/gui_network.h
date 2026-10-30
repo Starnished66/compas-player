@@ -80,6 +80,12 @@ bool gui_network_has_background_work(void);
 bool gui_network_bt_user_operation_active(void);
 void gui_network_cancel_background_work(void);
 
+/* Prepare Remote Control services for radio sleep without changing the saved
+ * preference. Returns true only after the listener, RFCOMM worker, and any
+ * active file import have stopped. Call resume on each awake GUI tick. */
+bool gui_network_prepare_radio_sleep(void);
+void gui_network_resume_radio_services(void);
+
 /* Called once Wi-Fi disable is authoritatively confirmed (gui_shell.c's
  * poll_wifi_toggle()) -- stops AirPlay/DLNA/Remote Control/remote file import
  * and clears their persisted enabled flags, since all four require Wi-Fi.

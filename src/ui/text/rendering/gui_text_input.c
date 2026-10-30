@@ -56,17 +56,25 @@ static lv_obj_t * text_entry_reveal_btn;
 static text_entry_done_cb_t text_entry_on_done;
 static void * text_entry_user_data;
 
-/* ---- T9 keypad geometry: 5 columns x 4 rows of TEXT_ENTRY_KEY_SIZE keys,
+/* ---- T9 keypad geometry: 5 columns x 4 rows of board-sized keys,
  * centered horizontally and anchored to the bottom of the screen.
  * Column 0 holds mode buttons (123/ABC/sym); columns 1-3 hold the 3x3
  * letter/digit/symbol pad; column 4 holds Del, Key 0/Shift, and Enter
  * (spanning rows 2-3). Row 3 holds Left, Right, and Space (cols 2-3). ---- */
-#define TEXT_ENTRY_KEY_SIZE BOARD_SCALE_PX(90)
+#if defined(BOARD_TEMPOTEC_V1)
+/* Keep the original horizontal key pitch while fitting four rows to V1's
+ * 320px panel. */
+#define TEXT_ENTRY_KEY_WIDTH BOARD_SCALE_PX(90)
+#define TEXT_ENTRY_KEY_HEIGHT BOARD_SCALE_PY(90)
+#else
+#define TEXT_ENTRY_KEY_WIDTH BOARD_SCALE_PX(90)
+#define TEXT_ENTRY_KEY_HEIGHT BOARD_SCALE_PX(90)
+#endif
 #define TEXT_ENTRY_KEY_GAP BOARD_SCALE_PX(4)
 #define TEXT_ENTRY_GRID_COLS 5
 #define TEXT_ENTRY_GRID_ROWS 4
-#define TEXT_ENTRY_GRID_WIDTH (TEXT_ENTRY_GRID_COLS * TEXT_ENTRY_KEY_SIZE + (TEXT_ENTRY_GRID_COLS - 1) * TEXT_ENTRY_KEY_GAP)
-#define TEXT_ENTRY_GRID_HEIGHT (TEXT_ENTRY_GRID_ROWS * TEXT_ENTRY_KEY_SIZE + (TEXT_ENTRY_GRID_ROWS - 1) * TEXT_ENTRY_KEY_GAP)
+#define TEXT_ENTRY_GRID_WIDTH (TEXT_ENTRY_GRID_COLS * TEXT_ENTRY_KEY_WIDTH + (TEXT_ENTRY_GRID_COLS - 1) * TEXT_ENTRY_KEY_GAP)
+#define TEXT_ENTRY_GRID_HEIGHT (TEXT_ENTRY_GRID_ROWS * TEXT_ENTRY_KEY_HEIGHT + (TEXT_ENTRY_GRID_ROWS - 1) * TEXT_ENTRY_KEY_GAP)
 #define TEXT_ENTRY_BOTTOM_MARGIN BOARD_SCALE_PX(16)
 #define TEXT_ENTRY_GRID_X ((BOARD_SCREEN_WIDTH - TEXT_ENTRY_GRID_WIDTH) / 2)
 #define TEXT_ENTRY_GRID_Y (BOARD_SCREEN_HEIGHT - TEXT_ENTRY_GRID_HEIGHT - TEXT_ENTRY_BOTTOM_MARGIN)
@@ -482,10 +490,15 @@ static void text_entry_enter_click_cb(lv_event_t * e) {
  * other key. */
 static lv_obj_t * text_entry_make_key(lv_obj_t * scr, int col, int row, lv_event_cb_t cb, void * user_data) {
     lv_obj_t * img = lv_image_create(scr);
+#if defined(BOARD_TEMPOTEC_V1)
+    /* The stock key PNGs are larger than the board-scaled key grid. */
+    lv_obj_set_size(img, TEXT_ENTRY_KEY_WIDTH, TEXT_ENTRY_KEY_HEIGHT);
+    lv_image_set_inner_align(img, LV_IMAGE_ALIGN_CONTAIN);
+#endif
     lv_obj_add_flag(img, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_align(img, LV_ALIGN_TOP_LEFT,
-                 TEXT_ENTRY_GRID_X + col * (TEXT_ENTRY_KEY_SIZE + TEXT_ENTRY_KEY_GAP),
-                 TEXT_ENTRY_GRID_Y + row * (TEXT_ENTRY_KEY_SIZE + TEXT_ENTRY_KEY_GAP));
+                 TEXT_ENTRY_GRID_X + col * (TEXT_ENTRY_KEY_WIDTH + TEXT_ENTRY_KEY_GAP),
+                 TEXT_ENTRY_GRID_Y + row * (TEXT_ENTRY_KEY_HEIGHT + TEXT_ENTRY_KEY_GAP));
     if (cb) lv_obj_add_event_cb(img, cb, LV_EVENT_CLICKED, user_data);
     return img;
 }
@@ -1274,10 +1287,10 @@ static lv_obj_t * build_t9_keypad_group(lv_obj_t * parent) {
     lv_obj_add_flag(text_entry_dotneg_key, LV_OBJ_FLAG_HIDDEN);
 
     text_entry_neg_key = lv_obj_create(pad);
-    lv_obj_set_size(text_entry_neg_key, TEXT_ENTRY_KEY_SIZE, TEXT_ENTRY_KEY_SIZE);
+    lv_obj_set_size(text_entry_neg_key, TEXT_ENTRY_KEY_WIDTH, TEXT_ENTRY_KEY_HEIGHT);
     lv_obj_align(text_entry_neg_key, LV_ALIGN_TOP_LEFT,
-                 TEXT_ENTRY_GRID_X + 0 * (TEXT_ENTRY_KEY_SIZE + TEXT_ENTRY_KEY_GAP),
-                 TEXT_ENTRY_GRID_Y + 1 * (TEXT_ENTRY_KEY_SIZE + TEXT_ENTRY_KEY_GAP));
+                 TEXT_ENTRY_GRID_X + 0 * (TEXT_ENTRY_KEY_WIDTH + TEXT_ENTRY_KEY_GAP),
+                 TEXT_ENTRY_GRID_Y + 1 * (TEXT_ENTRY_KEY_HEIGHT + TEXT_ENTRY_KEY_GAP));
     lv_obj_set_style_bg_opa(text_entry_neg_key, LV_OPA_COVER, 0);
     lv_obj_set_style_bg_color(text_entry_neg_key, lv_color_make(48, 48, 48), 0);
     lv_obj_set_style_border_width(text_entry_neg_key, 0, 0);
@@ -1307,10 +1320,15 @@ static lv_obj_t * build_t9_keypad_group(lv_obj_t * parent) {
      * two-row footprint; stretching preserves its rounded bottom edge. */
     lv_obj_update_layout(right_key);
     lv_obj_set_size(enter_key, lv_obj_get_width(right_key),
-                    TEXT_ENTRY_KEY_SIZE + TEXT_ENTRY_KEY_GAP + lv_obj_get_height(right_key));
+                    TEXT_ENTRY_KEY_HEIGHT + TEXT_ENTRY_KEY_GAP + lv_obj_get_height(right_key));
     lv_image_set_inner_align(enter_key, LV_IMAGE_ALIGN_STRETCH);
     lv_obj_t * space_key = text_entry_make_key(pad, 2, 3, text_entry_space_click_cb, NULL);
     lv_image_set_src(space_key, asset_path("keyboard/space2.png"));
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(space_key, 2 * TEXT_ENTRY_KEY_WIDTH + TEXT_ENTRY_KEY_GAP,
+                    TEXT_ENTRY_KEY_HEIGHT);
+    lv_image_set_inner_align(space_key, LV_IMAGE_ALIGN_CONTAIN);
+#endif
 
     text_entry_multitap_timer = lv_timer_create(text_entry_multitap_timeout_cb, TEXT_ENTRY_MULTITAP_MS, NULL);
     lv_timer_pause(text_entry_multitap_timer);
@@ -1450,7 +1468,14 @@ static lv_obj_t * build_text_entry_screen(void) {
     /* Password unmask toggle button, positioned adjacent to the textarea. */
     text_entry_reveal_btn = lv_image_create(scr);
     lv_image_set_src(text_entry_reveal_btn, asset_path("keyboard/psk_show.png"));
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(text_entry_reveal_btn, BOARD_SCALE_PX(34), BOARD_SCALE_PX(34));
+    lv_image_set_inner_align(text_entry_reveal_btn, LV_IMAGE_ALIGN_CONTAIN);
+    lv_obj_align_to(text_entry_reveal_btn, text_entry_textarea, LV_ALIGN_OUT_RIGHT_MID,
+                    BOARD_SCALE_PX(8), 0);
+#else
     lv_obj_align_to(text_entry_reveal_btn, text_entry_textarea, LV_ALIGN_OUT_RIGHT_MID, 8, 0);
+#endif
     lv_obj_add_flag(text_entry_reveal_btn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(text_entry_reveal_btn, text_entry_reveal_btn_cb, LV_EVENT_CLICKED, NULL);
 

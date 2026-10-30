@@ -20,13 +20,19 @@ track_probe_job_t * track_probe_job_start(const char * const * paths, size_t cou
 void track_probe_job_cancel(track_probe_job_t * job);
 
 /* Nonblocking single-consumer poll. Returns true for the next published
- * result and its original zero-based index. Only valid, codec and
- * duration_seconds are retained; all other output fields are zero. A failed
+ * result and its original zero-based index. Only valid, codec,
+ * duration_seconds, source_sample_rate, source_bit_depth and is_dsd are retained; all other output fields are zero. A failed
  * probe still publishes a completely zero/invalid result. False leaves
  * outputs and the cursor unchanged (including for NULL arguments).
  * Results already published remain available after cancellation/completion. */
 bool track_probe_job_next(track_probe_job_t * job, size_t * index,
                           audio_current_format_info_t * out);
+
+/* True when the probe of result `index` (already published) failed because
+ * the format was positively rejected (audio_probe_file_format_status() reports
+ * AUDIO_PROBE_UNSUPPORTED), not because of an I/O or resource error or a
+ * cancellation. Only such a failure may be remembered across sessions. */
+bool track_probe_job_confirmed_failure(track_probe_job_t * job, size_t index);
 
 /* Acquire-load completion; does not imply all published results were read.
  * NULL is considered done. */

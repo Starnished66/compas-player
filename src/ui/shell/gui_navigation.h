@@ -91,10 +91,16 @@ void nav_push(lv_obj_t * scr);
  * player-swipe commit path and slide_transition_done_cb()). */
 void nav_push_stack_only(lv_obj_t * scr);
 void nav_pop(void);
+/* True while a click-driven back slide is animating (cleared on completion,
+ * failure, cancel and teardown). */
+bool gui_navigation_fixed_transition_running(void);
+/* Post-release snap duration shared by the quick drawer and the swipe
+ * gestures (gui_shell.c). Single definition on purpose. */
+#define QUICK_DRAWER_ANIM_MS 140
 /* General form of nav_pop() -- see begin_slide_transition_ex()'s own doc
  * comment for what forward/vertical/reveal mean. nav_pop() is a thin
- * wrapper calling this with (false, false, false), i.e. the existing
- * horizontal back-slide every other caller already gets unchanged. */
+ * wrapper calling this with (false, false, reveal) where reveal is true
+ * unless the Player is the active screen -- the same rule as swipe-back. */
 void nav_pop_ex(bool forward, bool vertical, bool reveal);
 /* Stack-only counterpart to nav_pop() -- decrements nav_depth (if > 1)
  * without loading any screen or touching topbar/home-indicator state. Used
@@ -134,6 +140,14 @@ void player_transition_mark_dirty(void);
 void register_static_snapshot(int index, lv_obj_t * scr);
 void gui_navigation_invalidate_font_snapshots(void);
 void gui_navigation_invalidate_theme_snapshots(void);
+/* Swipe-up-to-Home toggled: frees/rebuilds only Home's permanent frame. */
+void gui_navigation_refresh_home_snapshot(void);
+/* True when a full-screen background capture will not land on a frame, an
+ * animation, a compositor or a finger; waived in part after a long wait. */
+bool gui_navigation_capture_idle(uint32_t waited_ms);
+/* The back-target snapshot also waits for this to report false (library workers
+ * still landing results), so it does not cut into a page that is still opening. */
+void gui_navigation_set_background_busy_cb(bool (*cb)(void));
 /* Frees all cached transition snapshots; see gui_release_memory_for_external_session().
  * gui_navigation_invalidate_theme_snapshots() schedules their rebuild. */
 void gui_navigation_release_snapshots(void);

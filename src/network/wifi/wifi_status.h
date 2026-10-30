@@ -15,6 +15,8 @@
  * should show the disconnected icon in every such case. Call from a worker
  * thread, never directly from the UI thread. */
 bool wifi_get_status(int * out_signal_level);
+/* Association only (wpa COMPLETED); skips the signal_poll query. */
+bool wifi_get_connected(void);
 
 /* Maps RSSI (dBm) to 0 (weakest) - 3 (strongest) signal level. */
 static inline int wifi_signal_level_from_rssi(int rssi_dbm) {

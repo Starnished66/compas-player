@@ -374,9 +374,9 @@ bool selector_controller_run(bool rockbox_available) {
             }
         }
     }
-    s->deadline = now_ms() + 1000;
+    s->deadline = now_ms() + 3000;
     draw(s);
-    unsigned shown_seconds = 1;
+    unsigned shown_seconds = 3;
     while (!s->done) {
         int polled = selector_input_poll(s->input, 50, input_event, s);
         if (polled < 0) break;

@@ -38,6 +38,7 @@ extern int subprocess_run(char * const argv[], char ** out_output, int timeout_s
 #include "../../network/remote/control/remote_control.h"
 #include "../../network/bluetooth/media/bt_remote_control.h"
 #include "../../core/system/logging/debug_log.h"
+#include "../settings/controls/gui_remote_settings.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -2139,17 +2140,52 @@ static lv_obj_t * build_bt_dac_overlay_screen(void) {
 
     build_screen_header(scr, NULL, bt_dac_overlay_back_cb, NULL, NULL);
 
-    lv_obj_t * icon = lv_image_create(scr);
-    lv_image_set_src(icon, asset_path("bt/bt.png"));
-    lv_obj_align(icon, LV_ALIGN_CENTER, 0, BOARD_SCALE_PX(-40));
+    lv_obj_t * content = scr;
+#if defined(BOARD_TEMPOTEC_V1)
+    content = lv_obj_create(scr);
+    int32_t content_y = STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT;
+    lv_obj_set_size(content, lv_pct(100),
+                    BOARD_SCREEN_HEIGHT - content_y - HOME_INDICATOR_CONTENT_INSET);
+    lv_obj_set_pos(content, 0, content_y);
+    lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(content, 0, 0);
+    lv_obj_set_style_pad_hor(content, BOARD_SCALE_PX(12), 0);
+    lv_obj_set_style_pad_top(content, BOARD_SCALE_PY(8), 0);
+    lv_obj_set_style_pad_bottom(content, BOARD_SCALE_PY(8), 0);
+    lv_obj_set_style_pad_row(content, BOARD_SCALE_PY(8), 0);
+    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_set_scroll_dir(content, LV_DIR_VER);
+    lv_obj_add_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+#endif
 
-    lv_obj_t * status_label = lv_label_create(scr);
+    lv_obj_t * icon = lv_image_create(content);
+    lv_image_set_src(icon, asset_path("bt/bt.png"));
+#if defined(BOARD_TEMPOTEC_V1)
+    /* The stock Bluetooth glyph is 300px square. Fit it to the portrait
+     * panel so it clears the status/header rows and leaves room for the
+     * three status labels below it. */
+    lv_obj_set_size(icon, BOARD_SCALE_PX(300), BOARD_SCALE_PX(300));
+    lv_image_set_inner_align(icon, LV_IMAGE_ALIGN_CONTAIN);
+#endif
+#if !defined(BOARD_TEMPOTEC_V1)
+    lv_obj_align(icon, LV_ALIGN_CENTER, 0, BOARD_SCALE_PX(-40));
+#endif
+
+    lv_obj_t * status_label = lv_label_create(content);
     lv_label_set_text(status_label, TR("Bluetooth DAC mode"));
     lv_obj_add_style(status_label, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(status_label, gui_theme_font(GUI_FONT_ROLE_TITLE), 0);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_width(status_label, LV_PCT(90));
+    lv_label_set_long_mode(status_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(status_label, LV_TEXT_ALIGN_CENTER, 0);
+#else
     lv_obj_align_to(status_label, icon, LV_ALIGN_OUT_BOTTOM_MID, 0, BOARD_SCALE_PX(24));
+#endif
 
-    lv_obj_t * hint_label = lv_label_create(scr);
+    lv_obj_t * hint_label = lv_label_create(content);
     lv_label_set_text(hint_label, TR("This device is now receiving Bluetooth audio"));
     lv_obj_add_style(hint_label, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(hint_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
@@ -2161,15 +2197,19 @@ static lv_obj_t * build_bt_dac_overlay_screen(void) {
      * otherwise render on one line and can overflow past the screen edge). */
     lv_obj_set_width(hint_label, LV_PCT(90));
     lv_obj_set_style_text_align(hint_label, LV_TEXT_ALIGN_CENTER, 0);
+#if !defined(BOARD_TEMPOTEC_V1)
     lv_obj_align_to(hint_label, status_label, LV_ALIGN_OUT_BOTTOM_MID, 0, BOARD_SCALE_PX(8));
+#endif
 
-    bt_dac_stream_label = lv_label_create(scr);
+    bt_dac_stream_label = lv_label_create(content);
     lv_label_set_text(bt_dac_stream_label, TR("Waiting for Bluetooth stream…"));
     lv_obj_add_style(bt_dac_stream_label, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(bt_dac_stream_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
     lv_obj_set_width(bt_dac_stream_label, LV_PCT(90));
     lv_obj_set_style_text_align(bt_dac_stream_label, LV_TEXT_ALIGN_CENTER, 0);
+#if !defined(BOARD_TEMPOTEC_V1)
     lv_obj_align_to(bt_dac_stream_label, hint_label, LV_ALIGN_OUT_BOTTOM_MID, 0, BOARD_SCALE_PX(8));
+#endif
 
     return scr;
 }
@@ -3077,7 +3117,7 @@ static void usb_dac_overlay_back_cb(lv_event_t * e) {
     gui_popup_show(&usb_dac_leave_popup);
 }
 
-#if !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if BOARD_R1_HARDWARE
 static void * usb_dac_charging_thread_func(void * arg) {
     (void) arg;
     usb_dac_charging_succeeded =
@@ -3101,7 +3141,7 @@ static void finish_usb_dac_charging_update(bool show_failure, bool thread_alread
         show_error_toast(TR("Failed to update USB charging"));
 }
 
-#if !defined(BOARD_R3PROII) && !defined(BOARD_R3II_2025)
+#if BOARD_R1_HARDWARE
 void gui_network_set_usb_dac_charging_disabled(bool disabled) {
     if (usb_dac_charging_active) {
         show_info_toast(TR("USB charging setting is busy"));
@@ -3139,39 +3179,73 @@ static lv_obj_t * build_usb_dac_overlay_screen(void) {
 
     build_screen_header(scr, NULL, usb_dac_overlay_back_cb, NULL, NULL);
 
-    lv_obj_t * icon = lv_image_create(scr);
-    lv_image_set_src(icon, asset_path("usb/usb.png"));
-    lv_obj_align(icon, LV_ALIGN_CENTER, 0, BOARD_SCALE_PX(-40));
+    lv_obj_t * content = scr;
+#if defined(BOARD_TEMPOTEC_V1)
+    content = lv_obj_create(scr);
+    int32_t content_y = STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT;
+    lv_obj_set_size(content, lv_pct(100),
+                    BOARD_SCREEN_HEIGHT - content_y - HOME_INDICATOR_CONTENT_INSET);
+    lv_obj_set_pos(content, 0, content_y);
+    lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(content, 0, 0);
+    lv_obj_set_style_pad_hor(content, BOARD_SCALE_PX(12), 0);
+    lv_obj_set_style_pad_top(content, BOARD_SCALE_PY(8), 0);
+    lv_obj_set_style_pad_bottom(content, BOARD_SCALE_PY(8), 0);
+    lv_obj_set_style_pad_row(content, BOARD_SCALE_PY(8), 0);
+    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_set_scroll_dir(content, LV_DIR_VER);
+    lv_obj_add_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+#endif
 
-    lv_obj_t * status_label = lv_label_create(scr);
+    lv_obj_t * icon = lv_image_create(content);
+    lv_image_set_src(icon, asset_path("usb/usb.png"));
+#if !defined(BOARD_TEMPOTEC_V1)
+    lv_obj_align(icon, LV_ALIGN_CENTER, 0, BOARD_SCALE_PX(-40));
+#endif
+
+    lv_obj_t * status_label = lv_label_create(content);
     lv_label_set_text(status_label, TR("USB DAC mode"));
     lv_obj_add_style(status_label, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(status_label, gui_theme_font(GUI_FONT_ROLE_TITLE), 0);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_width(status_label, LV_PCT(90));
+    lv_label_set_long_mode(status_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(status_label, LV_TEXT_ALIGN_CENTER, 0);
+#else
     lv_obj_align_to(status_label, icon, LV_ALIGN_OUT_BOTTOM_MID, 0, BOARD_SCALE_PX(24));
+#endif
 
     /* Use fixed width with centered text alignment so the labels stay centered
      * when their text content updates dynamically. */
-    usb_dac_hint_label = lv_label_create(scr);
+    usb_dac_hint_label = lv_label_create(content);
     lv_label_set_text(usb_dac_hint_label, TR("Waiting for USB audio…"));
     lv_obj_add_style(usb_dac_hint_label, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(usb_dac_hint_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
     lv_obj_set_width(usb_dac_hint_label, LV_PCT(90));
     lv_obj_set_style_text_align(usb_dac_hint_label, LV_TEXT_ALIGN_CENTER, 0);
+#if !defined(BOARD_TEMPOTEC_V1)
     lv_obj_align_to(usb_dac_hint_label, status_label, LV_ALIGN_OUT_BOTTOM_MID, 0, BOARD_SCALE_PX(8));
+#endif
 
-    usb_dac_input_label = lv_label_create(scr);
+    usb_dac_input_label = lv_label_create(content);
     lv_obj_add_style(usb_dac_input_label, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(usb_dac_input_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
     lv_obj_set_width(usb_dac_input_label, LV_PCT(90));
     lv_obj_set_style_text_align(usb_dac_input_label, LV_TEXT_ALIGN_CENTER, 0);
+#if !defined(BOARD_TEMPOTEC_V1)
     lv_obj_align_to(usb_dac_input_label, usb_dac_hint_label, LV_ALIGN_OUT_BOTTOM_MID, 0, BOARD_SCALE_PX(8));
+#endif
 
-    usb_dac_path_label = lv_label_create(scr);
+    usb_dac_path_label = lv_label_create(content);
     lv_obj_add_style(usb_dac_path_label, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(usb_dac_path_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
     lv_obj_set_width(usb_dac_path_label, LV_PCT(90));
     lv_obj_set_style_text_align(usb_dac_path_label, LV_TEXT_ALIGN_CENTER, 0);
+#if !defined(BOARD_TEMPOTEC_V1)
     lv_obj_align_to(usb_dac_path_label, usb_dac_input_label, LV_ALIGN_OUT_BOTTOM_MID, 0, BOARD_SCALE_PX(4));
+#endif
 
     return scr;
 }
@@ -3347,6 +3421,10 @@ static bool remote_import_active = false;
 static bool remote_import_stop_pending = false;
 /* Wi-Fi-loss stops skip the automatic rescan: nothing finished importing. */
 static bool remote_import_stop_suppress_rescan = false;
+/* UI-thread-only transient radio-sleep state. This never changes the saved RC
+ * preference; it records whether this sleep cycle accepted an RC stop. */
+static bool remote_radio_sleep_prepared = false;
+static bool remote_radio_sleep_stop_queued = false;
 /* Worker completions must not be inferred from the public state snapshot:
  * an authenticated request can replace that snapshot before the UI polls. */
 enum {
@@ -3578,6 +3656,10 @@ static bool wifi_feature_guard(void) {
  * share the daemon without pushing or replacing a screen. */
 static void handle_remote_import_request(bool start) {
     if (start) {
+        if (remote_radio_sleep_prepared) {
+            remote_control_set_import_state(REMOTE_IMPORT_ERROR, "radio_sleep");
+            return;
+        }
         if (remote_import_active || remote_import_stop_pending || network_service_is_busy(NETWORK_SERVICE_IMPORT)) {
             remote_control_set_import_state(REMOTE_IMPORT_ERROR, "file_import_busy");
             return;
@@ -3618,6 +3700,59 @@ static void handle_remote_import_request(bool start) {
     remote_import_stop(false);
 }
 #endif
+
+bool gui_network_prepare_radio_sleep(void) {
+    remote_radio_sleep_prepared = true;
+
+    /* Preserve Wi-Fi-loss import teardown semantics, including suppressing
+     * its automatic library rescan while radios are going down. */
+    remote_import_handle_wifi_disabled();
+
+    if (current_settings.remote_control_enabled && !remote_radio_sleep_stop_queued) {
+        if (network_service_enqueue(NETWORK_SERVICE_REMOTE, false, true)) {
+            remote_radio_sleep_stop_queued = true;
+        } else {
+            pthread_mutex_lock(&network_service_mutex);
+            remote_radio_sleep_stop_queued = network_service_stop_queued[NETWORK_SERVICE_REMOTE];
+            pthread_mutex_unlock(&network_service_mutex);
+        }
+    }
+
+    bool import_busy = network_service_is_busy(NETWORK_SERVICE_IMPORT) ||
+                       remote_import_active || remote_import_stop_pending;
+    bool remote_busy = network_service_is_busy(NETWORK_SERVICE_REMOTE);
+    if (import_busy || remote_busy) return false;
+    return !current_settings.remote_control_enabled || remote_radio_sleep_stop_queued;
+}
+
+void gui_network_resume_radio_services(void) {
+    if (!remote_radio_sleep_prepared) return;
+
+    /* A wake can cancel preparation before the RC stop was accepted (for
+     * example, pthread creation failed). Let any import teardown finish, then
+     * discard the transient gate without inventing a service restart. */
+    if (!remote_radio_sleep_stop_queued) {
+        if (network_service_is_busy(NETWORK_SERVICE_IMPORT) ||
+            remote_import_active || remote_import_stop_pending) return;
+        remote_radio_sleep_prepared = false;
+        return;
+    }
+
+    if (!current_settings.remote_control_enabled) {
+        remote_radio_sleep_prepared = false;
+        remote_radio_sleep_stop_queued = false;
+        return;
+    }
+    if (!remote_radio_sleep_stop_queued ||
+        network_service_is_busy(NETWORK_SERVICE_REMOTE) ||
+        network_service_is_busy(NETWORK_SERVICE_IMPORT) ||
+        remote_import_active || remote_import_stop_pending) return;
+
+    if (network_service_enqueue(NETWORK_SERVICE_REMOTE, true, false)) {
+        remote_radio_sleep_prepared = false;
+        remote_radio_sleep_stop_queued = false;
+    }
+}
 
 /* ---- AirPlay screen -- WiFi analogue of Bluetooth DAC mode, see
  * airplay_control.h for the real mechanism (stock firmware's own shairport
@@ -3768,14 +3903,31 @@ static lv_obj_t * build_airplay_overlay_screen(void) {
 
     airplay_overlay_cover_img = lv_image_create(scr);
     lv_image_set_src(airplay_overlay_cover_img, asset_path("playing_plane/default_cover_565.png"));
+#if defined(BOARD_TEMPOTEC_V1)
+    /* The fallback cover is 480px square; the V1 uses this overlay on a
+     * 240x320 display, where its native size obscures the title and logo. */
+    lv_obj_set_size(airplay_overlay_cover_img, BOARD_SCALE_PX(240), BOARD_SCALE_PX(240));
+    lv_image_set_inner_align(airplay_overlay_cover_img, LV_IMAGE_ALIGN_CONTAIN);
+    lv_obj_align(airplay_overlay_cover_img, LV_ALIGN_CENTER, 0, BOARD_SCALE_PY(-60));
+#else
     lv_obj_align(airplay_overlay_cover_img, LV_ALIGN_CENTER, 0, BOARD_SCALE_PX(-60));
+#endif
 
     airplay_overlay_title_label = lv_label_create(scr);
     lv_label_set_text(airplay_overlay_title_label, TR("AirPlay"));
     lv_obj_add_style(airplay_overlay_title_label, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(airplay_overlay_title_label, gui_theme_font(GUI_FONT_ROLE_TITLE), 0);
     lv_obj_set_width(airplay_overlay_title_label, lv_pct(85));
+#if defined(BOARD_TEMPOTEC_V1)
+    /* Titles are replaced with live AirPlay track metadata. Keep them on a
+     * single title-font line so long names cannot collide with the footer
+     * logo on V1's short screen. */
+    lv_obj_set_height(airplay_overlay_title_label,
+                      lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_TITLE)));
+    lv_label_set_long_mode(airplay_overlay_title_label, LV_LABEL_LONG_DOT);
+#else
     lv_label_set_long_mode(airplay_overlay_title_label, LV_LABEL_LONG_WRAP);
+#endif
     lv_obj_set_style_text_align(airplay_overlay_title_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align_to(airplay_overlay_title_label, airplay_overlay_cover_img, LV_ALIGN_OUT_BOTTOM_MID, 0, BOARD_SCALE_PX(24));
 
@@ -3793,6 +3945,10 @@ static lv_obj_t * build_airplay_overlay_screen(void) {
      * matching stream_media/subsonic.png's own precedent. */
     lv_obj_t * airplay_logo = lv_image_create(scr);
     lv_image_set_src(airplay_logo, asset_path("playing_plane/airplay_logo_white.png"));
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(airplay_logo, BOARD_SCALE_PX(120), BOARD_SCALE_PX(112));
+    lv_image_set_inner_align(airplay_logo, LV_IMAGE_ALIGN_CONTAIN);
+#endif
     lv_obj_align(airplay_logo, LV_ALIGN_BOTTOM_MID, 0, BOARD_SCALE_PX(-24));
 
     return scr;

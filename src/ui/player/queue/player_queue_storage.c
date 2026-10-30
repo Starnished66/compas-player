@@ -22,6 +22,8 @@ typedef struct {
     int target_dirfd;
     char target_name[NAME_MAX];
     queue_resume_t queue;
+    bool header_only;
+    queue_resume_header_t header;
 } checkpoint_worker_ctx_t;
 
 static checkpoint_worker_ctx_t checkpoint_ctx;
@@ -30,6 +32,7 @@ static bool checkpoint_running;
 static atomic_bool checkpoint_done;
 static atomic_bool checkpoint_large_lazy_cleanup_pending;
 static atomic_bool checkpoint_failure_pending;
+static atomic_bool checkpoint_header_fallback;
 
 void player_queue_storage_remove_checkpoint_at(int dirfd, const char * name) {
     if (dirfd >= 0 && name) (void) unlinkat(dirfd, name, 0);
@@ -37,8 +40,12 @@ void player_queue_storage_remove_checkpoint_at(int dirfd, const char * name) {
 
 static void * queue_checkpoint_worker(void * arg) {
     checkpoint_worker_ctx_t * ctx = (checkpoint_worker_ctx_t *) arg;
-    bool wrote = queue_resume_write_at(ctx->target_dirfd, ctx->target_name, &ctx->queue);
-    if (!wrote) {
+    bool wrote = ctx->header_only ?
+        queue_resume_rewrite_header_at(ctx->target_dirfd, ctx->target_name, &ctx->header) :
+        queue_resume_write_at(ctx->target_dirfd, ctx->target_name, &ctx->queue);
+    if (!wrote && ctx->header_only) {
+        atomic_store(&checkpoint_header_fallback, true);
+    } else if (!wrote) {
         /* Retry on the next checkpoint; never replace a valid file on failure. */
         atomic_store(&checkpoint_failure_pending, true);
     } else {
@@ -59,6 +66,7 @@ bool player_queue_storage_checkpoint_start(queue_resume_t queue, int target_dirf
     checkpoint_ctx.target_dirfd = target_dirfd;
     snprintf(checkpoint_ctx.target_name, sizeof(checkpoint_ctx.target_name), "%s", target_name);
     checkpoint_ctx.queue = queue;
+    checkpoint_ctx.header_only = false;
 
     atomic_store(&checkpoint_done, false);
     checkpoint_running = pthread_create(&checkpoint_thread, NULL, queue_checkpoint_worker,
@@ -69,6 +77,27 @@ bool player_queue_storage_checkpoint_start(queue_resume_t queue, int target_dirf
         checkpoint_ctx.target_dirfd = -1;
     }
     return checkpoint_running;
+}
+
+bool player_queue_storage_checkpoint_start_header(queue_resume_header_t header, int target_dirfd,
+                                                  const char * target_name) {
+    checkpoint_ctx.target_dirfd = target_dirfd;
+    snprintf(checkpoint_ctx.target_name, sizeof(checkpoint_ctx.target_name), "%s", target_name);
+    checkpoint_ctx.queue = (queue_resume_t){0};
+    checkpoint_ctx.header_only = true;
+    checkpoint_ctx.header = header;
+    atomic_store(&checkpoint_done, false);
+    checkpoint_running = pthread_create(&checkpoint_thread, NULL, queue_checkpoint_worker,
+                                        &checkpoint_ctx) == 0;
+    if (!checkpoint_running) {
+        close(target_dirfd);
+        checkpoint_ctx.target_dirfd = -1;
+    }
+    return checkpoint_running;
+}
+
+bool player_queue_storage_checkpoint_take_header_fallback(void) {
+    return atomic_exchange(&checkpoint_header_fallback, false);
 }
 
 bool player_queue_storage_checkpoint_busy(void) {

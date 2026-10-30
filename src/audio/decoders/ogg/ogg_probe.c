@@ -11,7 +11,7 @@ ogg_codec_t ogg_detect_codec(const char *path) {
     if (!path) return OGG_CODEC_UNKNOWN;
 
     FILE *f = fopen(path, "rb");
-    if (!f) return OGG_CODEC_UNKNOWN;
+    if (!f) return OGG_CODEC_IO_ERROR;
 
     ogg_sync_state sync;
     ogg_stream_state stream;
@@ -19,7 +19,7 @@ ogg_codec_t ogg_detect_codec(const char *path) {
     int stream_initialized = 0;
     ogg_codec_t codec = OGG_CODEC_UNKNOWN;
 
-    if (ogg_sync_init(&sync) != 0) goto done;
+    if (ogg_sync_init(&sync) != 0) { codec = OGG_CODEC_IO_ERROR; goto done; }
     sync_initialized = 1;
 
     size_t total_read = 0;
@@ -29,11 +29,14 @@ ogg_codec_t ogg_detect_codec(const char *path) {
         if (want > OGG_PROBE_MAX_BYTES - total_read)
             want = OGG_PROBE_MAX_BYTES - total_read;
         size_t got = fread(chunk, 1, want, f);
-        if (got == 0) break;
+        if (got == 0) {
+            if (ferror(f)) codec = OGG_CODEC_IO_ERROR; /* a read failure says nothing about the format */
+            break;
+        }
         total_read += got;
 
         char *buffer = ogg_sync_buffer(&sync, (long)got);
-        if (!buffer) break;
+        if (!buffer) { codec = OGG_CODEC_IO_ERROR; break; } /* out of memory */
         memcpy(buffer, chunk, got);
         if (ogg_sync_wrote(&sync, (long)got) != 0) break;
 
@@ -45,8 +48,10 @@ ogg_codec_t ogg_detect_codec(const char *path) {
             if (page_result < 0 || ogg_page_version(&page) != 0) goto done;
             if (!stream_initialized) {
                 if (ogg_page_bos(&page) == 0) goto done;
-                if (ogg_stream_init(&stream, ogg_page_serialno(&page)) != 0)
+                if (ogg_stream_init(&stream, ogg_page_serialno(&page)) != 0) {
+                    codec = OGG_CODEC_IO_ERROR; /* out of memory */
                     goto done;
+                }
                 stream_initialized = 1;
             } else if (ogg_page_bos(&page) != 0 ||
                        ogg_page_serialno(&page) != stream.serialno) {

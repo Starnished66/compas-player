@@ -1,0 +1,139 @@
+--- a/src/core/lv_obj.c
++++ b/src/core/lv_obj.c
+@@ -1073,6 +1073,14 @@
+  * @param obj       pointer to an object
+  * @param state     the new state
+  */
++static void invalidate_scrollbar(lv_obj_t * obj)
++{
++    lv_area_t hor_area, ver_area;
++    lv_obj_get_scrollbar_area(obj, &hor_area, &ver_area);
++    lv_obj_invalidate_area(obj, &hor_area);
++    lv_obj_invalidate_area(obj, &ver_area);
++}
++
+ static void update_obj_state(lv_obj_t * obj, lv_state_t new_state)
+ {
+     if(obj->state == new_state) return;
+@@ -1089,8 +1097,14 @@
+         return;
+     }
+ 
++    /*A scrolled/pressed-style difference that only touches the scrollbar needs just it redrawn*/
++    bool scrollbar_only = cmp_res == LV_STYLE_STATE_CMP_DIFF_REDRAW &&
++                          lv_obj_get_scrollbar_mode(obj) != LV_SCROLLBAR_MODE_ACTIVE &&
++                          lv_obj_style_state_diff_part_only(obj, prev_state, new_state, LV_PART_SCROLLBAR);
++
+     /*Invalidate the object in their current state*/
+-    lv_obj_invalidate(obj);
++    if(scrollbar_only) invalidate_scrollbar(obj);
++    else lv_obj_invalidate(obj);
+ 
+     obj->state = new_state;
+     lv_obj_update_layer_type(obj);
+@@ -1151,7 +1165,10 @@
+ 
+     lv_free(ts);
+ 
+-    if(cmp_res == LV_STYLE_STATE_CMP_DIFF_REDRAW) {
++    if(cmp_res == LV_STYLE_STATE_CMP_DIFF_REDRAW && scrollbar_only) {
++        invalidate_scrollbar(obj);
++    }
++    else if(cmp_res == LV_STYLE_STATE_CMP_DIFF_REDRAW) {
+         /*Invalidation is not enough, e.g. layer type needs to be updated too*/
+         lv_obj_refresh_style(obj, LV_PART_ANY, LV_STYLE_PROP_ANY);
+     }
+--- a/src/core/lv_obj_style.c
++++ b/src/core/lv_obj_style.c
+@@ -350,15 +350,54 @@
+     return false;
+ }
+ 
++static bool style_prop_is_plain_draw(lv_style_prop_t prop)
++{
++    switch(prop) {
++        case LV_STYLE_BG_COLOR:
++        case LV_STYLE_BG_OPA:
++        case LV_STYLE_BORDER_COLOR:
++        case LV_STYLE_BORDER_OPA:
++        case LV_STYLE_OUTLINE_COLOR:
++        case LV_STYLE_OUTLINE_OPA:
++        case LV_STYLE_SHADOW_COLOR:
++        case LV_STYLE_SHADOW_OPA:
++        case LV_STYLE_TEXT_COLOR:
++        case LV_STYLE_TEXT_OPA:
++        case LV_STYLE_IMAGE_RECOLOR:
++        case LV_STYLE_IMAGE_RECOLOR_OPA:
++        case LV_STYLE_BG_IMAGE_RECOLOR:
++        case LV_STYLE_BG_IMAGE_RECOLOR_OPA:
++        case LV_STYLE_LINE_COLOR:
++        case LV_STYLE_ARC_COLOR:
++            return true;
++        default:
++            return false;
++    }
++}
++
+ void lv_obj_set_local_style_prop(lv_obj_t * obj, lv_style_prop_t prop, lv_style_value_t value,
+                                  lv_style_selector_t selector)
+ {
+     LV_PROFILER_STYLE_BEGIN;
+ 
+     /*Stop running transitions with this property */
+-    trans_delete(obj, lv_obj_style_get_selector_part(selector), prop, NULL);
++    bool had_trans = trans_delete(obj, lv_obj_style_get_selector_part(selector), prop, NULL);
+ 
+     lv_style_t * style = get_local_style(obj, selector);
++
++    /*Setting a colour or opacity to the value the style already holds changes nothing: skip the
++     *redraw. Only these plain draw properties qualify. Anything that can affect layout (sizes,
++     *padding, alignment, flex/grid, ...) or holds a pointer (fonts, images, descriptors) always
++     *takes the full path, so a repeated set still triggers a relayout as it always did.
++     *A byte-wise comparison can only miss an equal value (padding), never match a different one.*/
++    lv_style_value_t current;
++    if(!had_trans && style_prop_is_plain_draw(prop) &&
++       lv_style_get_prop(style, prop, &current) == LV_STYLE_RES_FOUND &&
++       lv_memcmp(&current, &value, sizeof(value)) == 0) {
++        LV_PROFILER_STYLE_END;
++        return;
++    }
++
+     if(selector == LV_PART_MAIN && lv_style_prop_has_flag(prop, LV_STYLE_PROP_FLAG_TRANSFORM)) {
+         lv_obj_invalidate(obj);
+     }
+@@ -490,6 +529,21 @@
+     return v;
+ }
+ 
++bool lv_obj_style_state_diff_part_only(lv_obj_t * obj, lv_state_t state1, lv_state_t state2, lv_part_t part)
++{
++    bool any = false;
++    for(uint32_t i = 0; i < obj->style_cnt; i++) {
++        if(obj->styles[i].is_trans) continue;
++        lv_state_t state_act = lv_obj_style_get_selector_state(obj->styles[i].selector);
++        bool valid1 = state_act & (~state1) ? false : true;
++        bool valid2 = state_act & (~state2) ? false : true;
++        if(valid1 == valid2) continue;
++        if(lv_obj_style_get_selector_part(obj->styles[i].selector) != part) return false;
++        any = true;
++    }
++    return any;
++}
++
+ lv_style_state_cmp_t lv_obj_style_state_compare(lv_obj_t * obj, lv_state_t state1, lv_state_t state2)
+ {
+     lv_style_state_cmp_t res = LV_STYLE_STATE_CMP_SAME;
+--- a/src/core/lv_obj_style_private.h
++++ b/src/core/lv_obj_style_private.h
+@@ -80,6 +80,11 @@
+ lv_style_state_cmp_t lv_obj_style_state_compare(lv_obj_t * obj, lv_state_t state1, lv_state_t state2);
+ 
+ /**
++ * True if the styles that differ between the 2 states all belong to `part` (and at least one does)
++ */
++bool lv_obj_style_state_diff_part_only(lv_obj_t * obj, lv_state_t state1, lv_state_t state2, lv_part_t part);
++
++/**
+  * Update the layer type of a widget bayed on its current styles.
+  * The result will be stored in `obj->spec_attr->layer_type`
+  * @param obj       the object whose layer should be updated

@@ -89,6 +89,7 @@
 #include <unistd.h>
 
 #include "../application/gui.h"
+#include "../assets/assets.h"
 #include "../appearance/gui_theme.h"
 #include "gui_navigation.h"
 #include "gui_shell.h"
@@ -104,6 +105,7 @@
 #include "../library/browse/gui_file_manager.h"
 #include "../plugins/emulators/gui_emulator_store.h"
 #include "../plugins/emulators/gui_emulators.h"
+#include "../plugins/apps/gui_apps.h"
 #include "../player/screen/gui_queue.h"
 #include "../plugins/gui_plugins.h"
 #include "../../plugins/manager/plugin_manager.h"
@@ -152,6 +154,7 @@ static int32_t reload_display_height(void) {
 static void gui_soft_reload_with_artwork(bool preserve_artwork,
                                          const gui_nav_reload_state_t * restore_state) {
     reload_diag("gui_soft_reload: begin");
+    assets_invalidate_path_cache(); /* the rebuilt screens resolve their assets afresh */
     int32_t screen_width = reload_display_width();
     int32_t screen_height = reload_display_height();
 
@@ -196,6 +199,8 @@ static void gui_soft_reload_with_artwork(bool preserve_artwork,
     gui_emulators_teardown();
     reload_diag("gui_emulator_store_teardown: before");
     gui_emulator_store_teardown();
+    reload_diag("gui_apps_teardown: before");
+    gui_apps_teardown();
     reload_diag("gui_queue_teardown: before");
     gui_queue_teardown();
     reload_diag("gui_plugins_teardown: before");

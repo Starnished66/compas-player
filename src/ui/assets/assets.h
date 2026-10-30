@@ -23,6 +23,11 @@ void assets_init(void);
  * does not free it. Repeated calls/reloads reuse the same resolved string;
  * stock and override paths may each have one entry for an asset. */
 const char * asset_path(const char * relative_path);
+/* asset_path() remembers its answers for a second; call this when the theme or
+ * its override files change so the next lookup resolves again. */
+void assets_invalidate_path_cache(void);
+/* Changes every time the path cache is invalidated: derived renders of assets compare it. */
+uint32_t assets_path_cache_epoch(void);
 
 /* Same override-root-then-stock-root resolution as asset_path(), but
  * returns a plain absolute filesystem path with no "S:" LVGL-driver

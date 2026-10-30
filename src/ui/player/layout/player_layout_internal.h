@@ -12,8 +12,8 @@ static inline int32_t player_s(int32_t px) {
 }
 
 static inline void player_fit_small_screen_icon(lv_obj_t * icon, int32_t reference_px) {
-#if defined(BOARD_R3II_2025)
-    /* R3 stock transport PNGs still have the reference board's dimensions.
+#if defined(BOARD_R3II_2025) || defined(BOARD_TEMPOTEC_V1)
+    /* Compact board transport PNGs still have the reference board's dimensions.
      * Contain scales their paint AND layout box, including later source swaps
      * for pressed/play/pause states. XML layouts retain their own sizing. */
     int32_t size = player_s(reference_px);

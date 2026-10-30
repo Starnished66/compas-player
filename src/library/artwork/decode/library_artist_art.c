@@ -167,6 +167,30 @@ static void artist_thumbnail_set_alias(uint64_t album_key, int64_t song_id,
     resolution->alias_song_id = song_id;
 }
 
+/* A visible row (or the first-screen warm): the album's thumbnail is already on the card, so load
+ * it now instead of leaving it to a second job queued behind every other row's. */
+static void artist_thumbnail_load_alias_pixels(const char * found, uint64_t album_key, int64_t song_id,
+        artwork_priority_t prio, artwork_cancel_fn cancel_cb, void * cancel_user_data,
+        artist_thumbnail_resolution_t * resolution) {
+    uint8_t * data = NULL;
+    uint32_t size = 0;
+    if (albumart_load_file_ex(found, &data, &size, THUMBNAIL_SIDECAR_MAX_BYTES, prio) != ALBUMART_LOAD_OK)
+        return;
+    uint16_t * pixels = NULL;
+    cover_decode_result_t decoded = cover_decode_to_rgb565_ex(data, size, ALBUM_THUMBNAIL_PX,
+            ALBUM_THUMBNAIL_PX, prio, cancel_cb, cancel_user_data, &pixels);
+    free(data);
+    if (decoded == COVER_DECODE_OK && pixels) {
+        resolution->pixels = pixels;
+        resolution->pixel_key_kind = THUMBNAIL_KEY_ALBUM;
+        resolution->pixel_key = album_key;
+        resolution->pixel_song_id = song_id;
+        artwork_failure_cache_note_success(song_id);
+    } else {
+        free(pixels);
+    }
+}
+
 static artist_thumbnail_result_t artist_thumbnail_from_album_group(
         const char * artist, metadata_db_group_kind_t group_kind,
         artwork_priority_t prio,
@@ -198,6 +222,9 @@ static artist_thumbnail_result_t artist_thumbnail_from_album_group(
                     ALBUM_THUMBNAIL_PX, thumb_source_mtime, cache_path, sizeof(cache_path))) {
                 artist_thumbnail_set_alias(album_key, song.id, resolution);
                 albumart_artist_alias_store(artist, (unsigned int) group_kind, album_key, song.id);
+                if (prio == ARTWORK_PRIO_THUMBNAIL)
+                    artist_thumbnail_load_alias_pixels(cache_path, album_key, song.id, prio,
+                                                       cancel_cb, cancel_user_data, resolution);
                 return ARTIST_THUMB_FOUND;
             }
 
@@ -303,13 +330,14 @@ artist_thumbnail_result_t artist_thumbnail_load_or_decode(
                          stored_album_song.tags.album, stored_album_song.tags.album_artist) >= 0;
         if (valid) {
             albumart_info_from_song_row(&stored_album_song, &stored_album_info);
-            uint32_t source_mtime = albumart_source_mtime(&stored_album_info);
-            valid = albumart_sized_thumb_fresh_with_source_mtime(&stored_album_info,
-                         ALBUM_THUMBNAIL_PX, ALBUM_THUMBNAIL_PX, source_mtime,
-                         found, sizeof(found));
+            valid = albumart_sized_thumb_fresh(&stored_album_info,
+                         ALBUM_THUMBNAIL_PX, ALBUM_THUMBNAIL_PX, found, sizeof(found));
         }
         if (valid) {
             artist_thumbnail_set_alias(stored_album_key, stored_album_song_id, resolution);
+            if (prio == ARTWORK_PRIO_THUMBNAIL)
+                artist_thumbnail_load_alias_pixels(found, stored_album_key, stored_album_song_id,
+                                                   prio, cancel_cb, cancel_user_data, resolution);
             return ARTIST_THUMB_FOUND;
         }
         albumart_artist_alias_remove(artist, (unsigned int) group_kind);

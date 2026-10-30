@@ -210,6 +210,8 @@ void startup_splash_get_tint(bool *enabled, uint32_t *accent) {
     close(fd);
 
     bool tint = false;
+    /* Settings predating setup belong to existing users, as in settings_load(). */
+    bool setup_complete = true;
     uint32_t color = 0xB0142B; /* DEFAULT_ACCENT_COLOR */
     size_t start = 0;
     while (start < used) {
@@ -220,7 +222,9 @@ void startup_splash_get_tint(bool *enabled, uint32_t *accent) {
         if (line_end > start && snapshot[line_end - 1] == '\r') line_end--;
         size_t line_size = line_end - start;
         const char *line = snapshot + start;
-        if (line_size >= 20 && !memcmp(line, "startup_splash_tint=", 20)) {
+        if (line_size >= 15 && !memcmp(line, "setup_complete=", 15)) {
+            setup_complete = line_size == 16 && line[15] == '1';
+        } else if (line_size >= 20 && !memcmp(line, "startup_splash_tint=", 20)) {
             const char *value = line + 20;
             size_t value_size = line_size - 20;
             tint = (value_size == 1 && value[0] == '1') ||
@@ -241,6 +245,6 @@ void startup_splash_get_tint(bool *enabled, uint32_t *accent) {
         }
         start = end < used ? end + 1 : used;
     }
-    if (enabled) *enabled = tint;
+    if (enabled) *enabled = tint && setup_complete;
     if (accent) *accent = color;
 }

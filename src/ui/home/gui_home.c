@@ -248,7 +248,14 @@ lv_obj_t * gui_home_build_screen(lv_event_cb_t settings_cb, lv_event_cb_t stream
      * comment for why this only ever reflects whatever was configured at
      * THIS boot's plugin-load time (or the most recent plugin.refresh_
      * theme()/reload_ui()), never a live mid-session change outside that. */
+#if defined(BOARD_TEMPOTEC_V1)
+    bool home_list = home_layout_config.configured && home_layout_config.list_mode;
+    /* An explicit plugin list request is honored; the native V1 default is
+     * the same six-tile Home grid used on the wider boards. */
+    if (home_list) {
+#else
     if (home_layout_config.configured && home_layout_config.list_mode) {
+#endif
         static icon_grid_item_t items[HOME_LAYOUT_MAX_TILES];
         lv_display_t * display = lv_display_get_default();
         int32_t display_width = display ? lv_display_get_horizontal_resolution(display) : BOARD_SCREEN_WIDTH;
@@ -268,7 +275,7 @@ lv_obj_t * gui_home_build_screen(lv_event_cb_t settings_cb, lv_event_cb_t stream
                 /* Every field below is a per-tile LIST-MODE override
                  * (icon_grid_item_t's own doc comment, screen_builders.h) --
                  * always supplied here (has_* = true) since Home's per-tile
-                 * defaults (no accessory/icon unless explicitly overridden)
+                 * defaults (no accessory; V1 icons default on)
                  * differ from build_launcher_menu_screen()'s own layout-level
                  * defaults, so there is no shared `layout` value worth
                  * falling back to. */
@@ -277,7 +284,12 @@ lv_obj_t * gui_home_build_screen(lv_event_cb_t settings_cb, lv_event_cb_t stream
                 .has_accessory = true, .accessory = ov->has_accessory && ov->accessory,
                 .text_size = ov->text_size[0] ? ov->text_size : NULL,
                 .text_align = ov->align[0] ? ov->align : NULL,
-                .has_icon = true, .icon = ov->has_icon && ov->icon,
+                .has_icon = true,
+#if defined(BOARD_TEMPOTEC_V1)
+                .icon = ov->has_icon ? ov->icon : true,
+#else
+                .icon = ov->has_icon && ov->icon,
+#endif
             };
         }
         fit_home_list_rows(items, resolved, count, display_width, display_height, row_gap);
@@ -320,7 +332,13 @@ lv_obj_t * gui_home_build_screen(lv_event_cb_t settings_cb, lv_event_cb_t stream
      * look) unless a plugin configured one. l_plugin_set_home_layout()
      * already rejects a tile-mode `order` past 6 entries, so `count` here
      * never exceeds what build_icon_grid_screen()'s own row math expects. */
-    lv_obj_t * scr = build_icon_grid_screen(NULL, NULL, items, count, 100, false,
+    int32_t home_icon_scale =
+#if defined(BOARD_TEMPOTEC_V1)
+        72;
+#else
+        100;
+#endif
+    lv_obj_t * scr = build_icon_grid_screen(NULL, NULL, items, count, home_icon_scale, false,
                                              home_layout_config.configured
                                                ? home_layout_scale_px(home_layout_config.tile_gap, display_width)
                                                : 0);

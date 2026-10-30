@@ -19,6 +19,12 @@ static toast_t info_toast = { 0 };
 /* Busy overlay */
 static uint32_t gui_busy_current_token = 0;
 static lv_obj_t * gui_busy_screen = NULL;
+#if defined(BOARD_TEMPOTEC_V1)
+static lv_obj_t * gui_busy_content = NULL;
+#define GUI_BUSY_PARENT gui_busy_content
+#else
+#define GUI_BUSY_PARENT gui_busy_screen
+#endif
 static lv_obj_t * gui_busy_label = NULL;
 static lv_obj_t * gui_busy_progress_bar = NULL;
 static lv_obj_t * gui_busy_detail_label = NULL;
@@ -115,27 +121,58 @@ gui_busy_handle_t gui_busy_show(const char * title, const char * msg) {
         gui_busy_screen = lv_obj_create(NULL);
         lv_obj_add_style(gui_busy_screen, &style_theme_screen_bg, 0);
 
-        gui_busy_label = lv_label_create(gui_busy_screen);
+#if defined(BOARD_TEMPOTEC_V1)
+        /* V1's 320px height cannot safely use fixed center offsets when the
+         * wrapped title, message, and optional progress lines grow. Keep the
+         * content within the status/home safe area and let flex reflow hidden
+         * or newly shown rows; long operations remain vertically scrollable. */
+        gui_busy_content = lv_obj_create(gui_busy_screen);
+        lv_obj_set_width(gui_busy_content, LV_PCT(100));
+        lv_obj_set_height(gui_busy_content, LV_SIZE_CONTENT);
+        lv_obj_set_style_max_height(gui_busy_content,
+                                    BOARD_SCREEN_HEIGHT - STATUS_BAR_CLEARANCE - HOME_INDICATOR_CONTENT_INSET, 0);
+        lv_obj_align(gui_busy_content, LV_ALIGN_CENTER, 0,
+                     (STATUS_BAR_CLEARANCE - HOME_INDICATOR_CONTENT_INSET) / 2);
+        lv_obj_set_style_bg_opa(gui_busy_content, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(gui_busy_content, 0, 0);
+        lv_obj_set_style_pad_all(gui_busy_content, BOARD_SCALE_PX(8), 0);
+        lv_obj_set_style_pad_row(gui_busy_content, BOARD_SCALE_PY(10), 0);
+        lv_obj_set_flex_flow(gui_busy_content, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(gui_busy_content, LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_scrollbar_mode(gui_busy_content, LV_SCROLLBAR_MODE_OFF);
+        lv_obj_set_scroll_dir(gui_busy_content, LV_DIR_VER);
+        lv_obj_add_flag(gui_busy_content, LV_OBJ_FLAG_SCROLLABLE);
+
+#endif
+
+        gui_busy_label = lv_label_create(GUI_BUSY_PARENT);
         lv_obj_add_style(gui_busy_label, &style_theme_text_primary, 0);
         lv_obj_set_width(gui_busy_label, LV_PCT(90));
         lv_label_set_long_mode(gui_busy_label, LV_LABEL_LONG_WRAP);
         lv_obj_set_style_text_align(gui_busy_label, LV_TEXT_ALIGN_CENTER, 0);
+#if !defined(BOARD_TEMPOTEC_V1)
         lv_obj_align(gui_busy_label, LV_ALIGN_CENTER, 0, -BOARD_SCALE_PX(20));
+#endif
 
-        gui_busy_progress_bar = lv_bar_create(gui_busy_screen);
+        gui_busy_progress_bar = lv_bar_create(GUI_BUSY_PARENT);
         lv_obj_set_size(gui_busy_progress_bar, BOARD_SCALE_PX(280), BOARD_SCALE_PX(14));
+#if !defined(BOARD_TEMPOTEC_V1)
         lv_obj_align(gui_busy_progress_bar, LV_ALIGN_CENTER, 0, BOARD_SCALE_PX(30));
+#endif
         lv_bar_set_range(gui_busy_progress_bar, 0, 100);
         lv_obj_add_style(gui_busy_progress_bar, gui_theme_accent_style(), LV_PART_INDICATOR);
 
         /* Optional status line under the bar (e.g. scan phase and counts). */
-        gui_busy_detail_label = lv_label_create(gui_busy_screen);
+        gui_busy_detail_label = lv_label_create(GUI_BUSY_PARENT);
         lv_obj_add_style(gui_busy_detail_label, &style_theme_text_muted, 0);
         lv_obj_set_style_text_font(gui_busy_detail_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
         lv_obj_set_style_text_align(gui_busy_detail_label, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_width(gui_busy_detail_label, BOARD_SCALE_PX(280));
         lv_label_set_long_mode(gui_busy_detail_label, LV_LABEL_LONG_WRAP);
+#if !defined(BOARD_TEMPOTEC_V1)
         lv_obj_align_to(gui_busy_detail_label, gui_busy_progress_bar, LV_ALIGN_OUT_BOTTOM_MID, 0, BOARD_SCALE_PX(16));
+#endif
     }
     
     if (msg && msg[0] != '\0') {
@@ -146,6 +183,9 @@ gui_busy_handle_t gui_busy_show(const char * title, const char * msg) {
     lv_obj_add_flag(gui_busy_progress_bar, LV_OBJ_FLAG_HIDDEN);
     lv_label_set_text(gui_busy_detail_label, "");
     lv_obj_add_flag(gui_busy_detail_label, LV_OBJ_FLAG_HIDDEN);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_scroll_to_y(gui_busy_content, 0, LV_ANIM_OFF);
+#endif
     
     if (lv_screen_active() != gui_busy_screen) {
         nav_push(gui_busy_screen);

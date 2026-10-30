@@ -13,6 +13,7 @@ typedef enum {
     SEEKBAR_BARS,
     SEEKBAR_ENVELOPE,
     SEEKBAR_HALF,
+    SEEKBAR_GRADIENT,
 } seekbar_style_t;
 
 typedef struct {
@@ -208,6 +209,12 @@ static void seekbar_draw(lv_event_t * event)
     lv_opa_t object_opa = layer->opa;
     lv_color_t accent = accent_lv_color();
     lv_color_t neutral = lv_color_mix(accent, ctx->rail_color, 56);
+    lv_color_t gradient_light = accent;
+    lv_color_t gradient_deep = accent;
+    if (ctx->style == SEEKBAR_GRADIENT) {
+        gradient_light = lv_color_lighten(accent, 80);
+        gradient_deep = lv_color_darken(accent, 80);
+    }
     int32_t progress_x = slider_progress_x(slider, &bounds);
     int32_t mid_y = bounds.y1 + (height - 1) / 2;
 
@@ -256,9 +263,15 @@ static void seekbar_draw(lv_event_t * event)
         if (bar_h > max_h) bar_h = max_h;
         int32_t x1 = bounds.x1 + (int64_t)i * width / count;
         int32_t x2 = bounds.x1 + (int64_t)(i + 1) * width / count - 1;
-        int32_t inset = ctx->style == SEEKBAR_ENVELOPE ? 0 : 1;
-        x1 += inset;
-        x2 -= inset;
+        if (ctx->style == SEEKBAR_GRADIENT) {
+            /* One-pixel separation between these new gradient bars. */
+            x2 -= 1;
+        }
+        else {
+            int32_t inset = ctx->style == SEEKBAR_ENVELOPE ? 0 : 1;
+            x1 += inset;
+            x2 -= inset;
+        }
         if (x1 > x2) x1 = x2;
 
         lv_area_t bar;
@@ -275,10 +288,20 @@ static void seekbar_draw(lv_event_t * event)
         }
         if (bar.y1 < bounds.y1) bar.y1 = bounds.y1;
         if (bar.y2 > bounds.y2) bar.y2 = bounds.y2;
-        draw_rect(layer, &bar, neutral, object_opa, ctx->style == SEEKBAR_ENVELOPE ? 1 : 2);
+        lv_color_t bar_accent = accent;
+        lv_color_t bar_neutral = neutral;
+        if (ctx->style == SEEKBAR_GRADIENT) {
+            uint8_t light_mix = count > 1
+                              ? (uint8_t)(255 - (i * 255 / (count - 1)))
+                              : 128;
+            bar_accent = lv_color_mix(gradient_light, gradient_deep, light_mix);
+            bar_neutral = lv_color_mix(bar_accent, ctx->rail_color, 140);
+        }
+        draw_rect(layer, &bar, bar_neutral, object_opa,
+                  ctx->style == SEEKBAR_ENVELOPE ? 1 : 2);
         lv_area_t played = bar;
         if (played.x2 > progress_x) played.x2 = progress_x;
-        draw_rect(layer, &played, accent, object_opa,
+        draw_rect(layer, &played, bar_accent, object_opa,
                   ctx->style == SEEKBAR_ENVELOPE ? 1 : 2);
     }
     int32_t playhead_r = 1;
@@ -301,6 +324,7 @@ bool player_seekbar_attach(lv_obj_t * slider, const char * style)
     if (strcmp(style, "waveform_bars") == 0) selected = SEEKBAR_BARS;
     else if (strcmp(style, "waveform_envelope") == 0) selected = SEEKBAR_ENVELOPE;
     else if (strcmp(style, "waveform_half") == 0) selected = SEEKBAR_HALF;
+    else if (strcmp(style, "waveform_gradient") == 0) selected = SEEKBAR_GRADIENT;
     else return false;
 
     seekbar_ctx_t * ctx = calloc(1, sizeof(*ctx));

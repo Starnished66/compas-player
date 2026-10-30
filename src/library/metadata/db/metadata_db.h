@@ -1,6 +1,7 @@
 #ifndef METADATA_DB_H
 #define METADATA_DB_H
 
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -242,6 +243,34 @@ int metadata_db_get_album_artist_songs(const char * album_artist, int offset, so
  * Hits", a self-titled album) don't collide. */
 int metadata_db_get_album_songs(const char * album, const char * album_artist, int offset, song_row_t * out_rows,
                                  int max_rows);
+
+/* mtime and size of a song's database row (the identity the tagcache and the
+ * duration cache key a file by). False when the path is not in the library. */
+bool metadata_db_get_song_identity(const char * path, int32_t * out_mtime, int32_t * out_size);
+/* Visit every song once, taking the database lock in short windows, so
+ * workers can aggregate a whole library or one artist without holding it.
+ * Stops early (false) when `visit` returns false, the database closes, or the
+ * generation changes underneath a library walk. */
+bool metadata_db_walk_song_identities(bool (*visit)(const char * path, int32_t mtime, int32_t size, void * user),
+                                      void * user);
+/* The same for every song of one ARTIST or ALBUM_ARTIST group, in index order.
+ * Copies a bounded batch under the lock and calls `visit` after releasing it;
+ * only path, album, album_artist, genre and release_year of `song` are filled
+ * (the rest is empty). Aborts (false) when the database closes or its
+ * generation changes between batches, like the library walk above. */
+bool metadata_db_walk_group_songs(metadata_db_group_kind_t kind, const char * name,
+                                  bool (*visit)(const song_row_t * song, int32_t mtime, int32_t size, void * user),
+                                  void * user);
+
+/* Calls visit for each song whose genre matches (case-insensitively), in title
+ * order, at most max_songs of them, from one pass over the song list. Safe from
+ * a worker thread: the database lock is not held while visit runs, nor across the
+ * whole scan. Returns false when visit stopped it, the database was replaced
+ * mid-walk, cancel (optional) was set, or memory ran out; the matches seen so
+ * far were still visited. */
+bool metadata_db_walk_genre_songs(const char * genre, int max_songs,
+                                  bool (*visit)(const song_row_t * song, void * user), void * user,
+                                  const atomic_bool * cancel);
 
 bool metadata_db_get_song_by_id(int64_t id, song_row_t * out_row);
 bool metadata_db_get_song_by_path(const char * path, song_row_t * out_row);

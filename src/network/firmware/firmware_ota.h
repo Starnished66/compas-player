@@ -97,6 +97,19 @@ typedef enum {
     FIRMWARE_OTA_PENDING_UNREADABLE /* a record exists but could not be read: refuse */
 } firmware_ota_pending_t;
 firmware_ota_pending_t firmware_ota_pending(firmware_ota_release_t * out);
+/* For an explicit "Install from SD card": removes a REJECTED record that
+ * only describes a stale or malformed download (missing/mismatched image,
+ * bad fields), logging it. Takes the shared update claim. The "rejected"
+ * marker (a failed image sat at the root) is removed only once that image
+ * is gone from the root. */
+typedef enum {
+    FIRMWARE_OTA_DISCARD_REMOVED,     /* the record was removed */
+    FIRMWARE_OTA_DISCARD_NOT_STALE,   /* none, or a valid record: untouched */
+    FIRMWARE_OTA_DISCARD_MARKER_KEPT, /* failed image still at the root: untouched */
+    FIRMWARE_OTA_DISCARD_IO_ERROR,    /* no card, unreadable record or unlink failed */
+    FIRMWARE_OTA_DISCARD_BUSY         /* an update worker holds the claim */
+} firmware_ota_discard_t;
+firmware_ota_discard_t firmware_ota_discard_stale_pending(void);
 /* Starts the install worker; refuses with a message when nothing verified
  * is pending or the battery is under 30% and not charging. Progress and
  * failure are reported through firmware_ota_get_status(); on success the

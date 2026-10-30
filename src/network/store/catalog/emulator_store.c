@@ -1,4 +1,5 @@
 #include "emulator_store.h"
+#include "../../../core/system/runtime/board_config.h"
 #include "../../../core/device/emulator_registry.h"
 #include "../plugins/store_common.h"
 #include "../../../ui/text/i18n/i18n.h"
@@ -462,6 +463,11 @@ static void * install_worker(void * arg) {
 
 /* Snapshots the catalog entry and claims the worker slot atomically. */
 static bool start_install(const char * id, plugin_store_state_t state) {
+#if !BOARD_SUPPORTS_EMULATORS
+    (void) id;
+    (void) state;
+    return false;
+#endif
     if (!emulator_id_valid(id)) return false;
     install_job_t * job = calloc(1, sizeof(*job));
     if (!job) return false;

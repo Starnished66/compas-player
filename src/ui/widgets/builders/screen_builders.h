@@ -28,9 +28,24 @@
  * The largest status glyph (battery) is rendered at 38px, leaving 1px
  * margin above/below it. Consumers derive positions algebraically from this
  * constant. */
+/* Scales a literal on the V1 only; the other boards keep the literal as is. */
+#if defined(BOARD_TEMPOTEC_V1)
+#define V1_SCALE_PX(px) BOARD_SCALE_PX(px)
+#else
+#define V1_SCALE_PX(px) (px)
+#endif
+#if defined(BOARD_TEMPOTEC_V1)
+/* The V1 uses the same compact 30px top chrome band as its physical
+ * 240x320 stock UI. Other boards retain the established 1:1/board-scaled
+ * dimensions below. */
+#define STATUS_BAR_CLEARANCE 30
+#define TITLE_ROW_HEIGHT 30
+#define HEADER_BUTTON_WIDTH 30
+#else
 #define STATUS_BAR_CLEARANCE BOARD_SCALE_PX(40)
 #define TITLE_ROW_HEIGHT BOARD_SCALE_PX(80)
 #define HEADER_BUTTON_WIDTH BOARD_SCALE_PX(64)
+#endif
 #define HOME_INDICATOR_BAND_HEIGHT BOARD_SCALE_PX(24)
 #define HOME_INDICATOR_CONTENT_INSET (HOME_INDICATOR_BAND_HEIGHT + BOARD_SCALE_PX(8))
 
@@ -580,6 +595,20 @@ lv_obj_t * build_setting_slider_card(lv_obj_t * parent, lv_obj_t * align_target,
 
 lv_obj_t * build_font_change_mask(int target);
 
+
+/* Label width inside a row of width `row_w`: the row's border and left padding
+ * come off first, then the label's x offset and the space kept free on the
+ * right (the usual margin, a chevron or a button). */
+int32_t ui_row_label_width(lv_obj_t * row, int32_t row_w, int32_t label_x, int32_t right_space);
+/* Lays out a native text row around its label. The label must already have its
+ * font, width (`label_w`) and text. A name that fits on one line keeps the
+ * fixed-height, centred row (LEFT_MID, LONG_DOT). A longer one wraps and the
+ * row grows to show every line, never below the minimum height, with the first
+ * line where a one-line row centres it. Returns true for the tall form; the
+ * caller must then make any other child that is aligned to the row's right or
+ * centre floating so that it does not size the row. */
+bool ui_row_fit_label(lv_obj_t * row, lv_obj_t * label, const lv_font_t * font,
+                      int32_t row_w, int32_t label_x, int32_t label_w);
 
 /* Plain native wide row; chevron is used by saved-list navigation rows. */
 lv_obj_t * build_wide_list_row(lv_obj_t * parent, const char * label_text, bool chevron);

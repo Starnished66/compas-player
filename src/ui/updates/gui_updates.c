@@ -328,8 +328,27 @@ static void firmware_source_sd_cb(lv_event_t * e) {
     firmware_ota_release_t pending;
     firmware_ota_pending_t state = firmware_ota_pending(&pending);
     if (state == FIRMWARE_OTA_PENDING_VALID) show_ota_install_popup(pending.label);
-    else if (state == FIRMWARE_OTA_PENDING_REJECTED)
-        show_error_toast(TR("The downloaded update record is invalid. Download the update again."));
+    else if (state == FIRMWARE_OTA_PENDING_REJECTED) {
+        /* A stale record from an earlier online attempt says nothing about
+         * a file the user put on the card: clear it and take the manual
+         * path (the image's contents are then checked by recovery). Only
+         * a marker for a failed image still at the root keeps refusing. */
+        firmware_ota_discard_t discard = firmware_ota_discard_stale_pending();
+        if (discard == FIRMWARE_OTA_DISCARD_REMOVED) firmware_update_from_sd();
+        else if (discard == FIRMWARE_OTA_DISCARD_BUSY) show_error_toast(TR("An update is already in progress"));
+        else if (discard == FIRMWARE_OTA_DISCARD_IO_ERROR)
+            show_error_toast(TR("Cannot read the update record on the SD card. Check the card and try again."));
+        else if (discard == FIRMWARE_OTA_DISCARD_NOT_STALE) {
+            /* The record changed state since the query: dispatch afresh. */
+            state = firmware_ota_pending(&pending);
+            if (state == FIRMWARE_OTA_PENDING_VALID) show_ota_install_popup(pending.label);
+            else if (state == FIRMWARE_OTA_PENDING_NONE) firmware_update_from_sd();
+            else if (state == FIRMWARE_OTA_PENDING_UNREADABLE)
+                show_error_toast(TR("Cannot read the update record on the SD card. Check the card and try again."));
+            else show_error_toast(TR("The previous download is incomplete or invalid. Remove the update file from the SD card, tap Install from SD card, then copy the new file and try again."));
+        }
+        else show_error_toast(TR("The previous download is incomplete or invalid. Remove the update file from the SD card, tap Install from SD card, then copy the new file and try again."));
+    }
     else if (state == FIRMWARE_OTA_PENDING_UNREADABLE)
         show_error_toast(TR("Cannot read the update record on the SD card. Check the card and try again."));
     else firmware_update_from_sd();

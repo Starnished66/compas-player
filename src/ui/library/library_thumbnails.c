@@ -1,5 +1,10 @@
 #include "library_thumbnails.h"
 #include "../widgets/lists/compact_list.h"
+#include "../widgets/lists/lv_idempotent.h"
+#include "../../core/ui/display/ui_wake.h"
+#include "../../core/process/worker_thread.h"
+#include "library_thumbnail_placeholder.h"
+#include "browse/gui_library_async.h"
 #include "../../library/browser/paths/library_paths.h"
 #include "../../library/metadata/scan/library_scan_storage.h"
 #include "../../library/artwork/decode/library_artwork_internal.h"
@@ -80,6 +85,12 @@ static void album_thumbnail_cache_epoch_advance(void) {
 }
 static bool release_thumbnail_dsc(const lv_image_dsc_t *dsc);
 static void refresh_thumbnail_list_visible(lv_obj_t *list);
+static void thumbnail_decorate_image(lv_obj_t * list, lv_obj_t * row, lv_obj_t * image,
+                                     int logical_index, int pool_slot, int64_t representative_song_id,
+                                     uint64_t artwork_key, const char * artwork_name, void * ctx,
+                                     bool touch_row);
+static void refresh_thumbnail_list_landed(lv_obj_t *list, thumbnail_key_kind_t key_kind, uint64_t key,
+                                          uint64_t artist_key, thumbnail_key_kind_t request_kind);
 static void thumbnail_begin_screen(lv_obj_t *list);
 static void thumbnail_end_screen(lv_obj_t *list);
 
@@ -88,14 +99,15 @@ static void thumbnail_end_screen(lv_obj_t *list);
  * Only the 20 recycled compact-list rows can request artwork. One worker at
  * a time reads/decodes a representative song's embedded or Rockbox albumart
  * file, while a 250-entry RGB565 LRU cache keeps the visible window plus
- * scroll headroom bounded at ~2531 KiB. Persistent sized files live in
- * MUSIC_ROOT_DIR/.compas/albumart/<artist>-<album>.72x72.bmp. */
+ * scroll headroom bounded at ~3125 KiB. Persistent sized files live in
+ * MUSIC_ROOT_DIR/.compas/albumart/<artist>-<album>.<N>x<N>.bmp. */
 #define ALBUM_THUMBNAIL_CACHE_SIZE 250
 
 typedef struct {
     uint64_t key;
     thumbnail_key_kind_t key_kind;
     bool known; /* true even when pixels==NULL: negative cache for albums without art */
+    bool pinned; /* a first-screen warm entry: skipped by the LRU victim loop (see first_screen_pin_epoch) */
     uint8_t * pixels;
     lv_image_dsc_t dsc;
     uint32_t last_use;
@@ -165,6 +177,27 @@ static int64_t album_thumbnail_result_alias_song_id;
 static lv_timer_t * album_thumbnail_poll_timer;
 static album_thumbnail_request_t album_thumbnail_queue[ALBUM_THUMBNAIL_QUEUE_SIZE];
 static bool album_thumbnail_scrolling;
+
+/* Visible-first prewarm (see library_thumbnails_prewarm_artists): one thread decodes the first screen
+ * of an artist list from the Music-menu press on, staging results for the UI thread to commit. While
+ * it runs the ordinary one-at-a-time decoder waits, so two decoders never run together.
+ * The job is a heap record shared by the UI thread and the worker like the library's other abandonable
+ * reads (gui_library_async.h): teardown cancels it, detaches the thread and lets the worker free it, so a
+ * stalled card read can never block the UI thread; the shared orphan wait bounds the rest. */
+#define PREWARM_MAX 12
+typedef struct prewarm_job prewarm_job_t;
+static prewarm_job_t * prewarm_job;         /* UI thread only: the job not yet reaped or abandoned */
+static atomic_bool prewarm_active;          /* a job exists (set at launch, cleared when it is reaped or abandoned) */
+static atomic_int prewarm_orphans;          /* given-up jobs whose worker still runs */
+static int prewarm_done_epoch[2] = { -1, -1 };
+static int prewarm_done_first[2];
+static int prewarm_keys_count[2];
+static bool prewarm_boot_pending[2];          /* keys came from the boot first-screen warm; valid once it completed */
+static uint64_t prewarm_keys[2][PREWARM_MAX]; /* artist keys committed by the last finished run */
+#define PREWARM_WAIT_MS 3000
+static bool prewarm_waiting;                  /* a request is waiting for the warmer to yield */
+static uint32_t prewarm_wait_tick;
+static int prewarm_wait_kind_index, prewarm_wait_first, prewarm_wait_rows;
     /* Boot-time RAM cache preload: piggybacks on the existing persistent
      * warmer thread (album_thumb_gen_thread_func) to also hand its first
      * ALBUM_THUMBNAIL_CACHE_SIZE decoded thumbnails to the main/LVGL thread
@@ -180,7 +213,7 @@ static bool album_thumbnail_scrolling;
     static int album_thumb_gen_cached_key_count;
     /* Aliases already resolved in RAM when this warmer run started (the
      * alias table itself is UI-thread only): a restarted run skips them. */
-    typedef struct { uint64_t key; metadata_db_group_kind_t kind; } album_thumb_gen_alias_key_t;
+    typedef struct { uint64_t key; metadata_db_group_kind_t kind; bool has_album; } album_thumb_gen_alias_key_t;
     static album_thumb_gen_alias_key_t * album_thumb_gen_known_aliases;
     static size_t album_thumb_gen_known_alias_count;
     /* EMPTY: slot free, warmer may stage the next result into it.
@@ -209,6 +242,7 @@ static bool album_thumbnail_scrolling;
     static bool album_boot_preload_result_artist_negative_confirmed;
     static uint64_t album_boot_preload_result_alias_album_key;
     static int64_t album_boot_preload_result_alias_song_id;
+    static bool album_boot_preload_result_first_screen;
 static bool album_thumb_gen_user_visible;
 static bool album_thumb_gen_force_reload;
 static bool album_thumb_gen_single_album;
@@ -244,7 +278,8 @@ static bool thumbnail_active_list_shows(thumbnail_key_kind_t key_kind, uint64_t 
 }
 
 static bool album_thumbnail_lazy_work_pending(void) {
-    return atomic_load(&album_thumbnail_queue_count) > 0 || atomic_load(&album_thumbnail_active);
+    return atomic_load(&album_thumbnail_queue_count) > 0 || atomic_load(&album_thumbnail_active) ||
+           atomic_load(&prewarm_active) || prewarm_waiting;
 }
 
 static album_thumbnail_cache_entry_t * album_thumbnail_cache_find(thumbnail_key_kind_t key_kind, uint64_t key) {
@@ -441,10 +476,29 @@ static void album_thumbnail_cache_clear(void) {
      * preload hand-off further below -- both only ever run on the main/LVGL
      * thread, the only thread allowed to touch album_thumbnail_cache[].
      * Takes ownership of `pixels`: either stores it or frees it, never both. */
+static uint32_t album_thumbnail_commit_counter;
+/* Pins are valid only for the cache epoch they were set in (a new epoch also memsets every entry). */
+static int first_screen_pin_epoch = -1;
+
+static void album_thumbnail_pin(thumbnail_key_kind_t key_kind, uint64_t key) {
+    for (int i = 0; i < ALBUM_THUMBNAIL_CACHE_SIZE; i++) {
+        album_thumbnail_cache_entry_t * e = &album_thumbnail_cache[i];
+        if (e->known && e->pixels && e->key_kind == key_kind && e->key == key) { e->pinned = true; return; }
+    }
+}
+
+static void album_thumbnail_unpin_all(void) {
+    first_screen_pin_epoch = -1;
+    for (int i = 0; i < ALBUM_THUMBNAIL_CACHE_SIZE; i++) album_thumbnail_cache[i].pinned = false;
+}
+
+uint32_t library_thumbnails_commit_count(void) { return album_thumbnail_commit_counter; }
+
 static void album_thumbnail_cache_commit(thumbnail_key_kind_t key_kind, uint64_t key,
                                          int64_t source_song_id, uint8_t * pixels,
                                          bool have_source_mtime, time_t source_mtime,
                                          bool negative_confirmed) {
+    album_thumbnail_commit_counter++;
         /* A failed decode (pixels == NULL) is only worth caching as a durable
          * "known, no art" entry if album_thumbnail_load_or_decode_ex() itself
          * already recorded it as PERMANENT (corrupt/oversized/genuinely
@@ -487,16 +541,28 @@ static void album_thumbnail_cache_commit(thumbnail_key_kind_t key_kind, uint64_t
             return;
         }
         if (victim < 0) {
+            /* First-screen entries are pinned (at most 24) and skipped unless nothing else is left. */
+            int pin_epoch_ok = first_screen_pin_epoch == atomic_load(&album_thumbnail_cache_epoch);
             uint32_t oldest = UINT32_MAX;
             for (int i = 0; i < ALBUM_THUMBNAIL_CACHE_SIZE; i++) {
                 if (!album_thumbnail_cache[i].known) { victim = i; break; }
+                if (pin_epoch_ok && album_thumbnail_cache[i].pinned) continue;
                 if (album_thumbnail_cache[i].last_use < oldest) {
                     oldest = album_thumbnail_cache[i].last_use;
                     victim = i;
                 }
             }
+            if (victim < 0) {
+                for (int i = 0; i < ALBUM_THUMBNAIL_CACHE_SIZE; i++) {
+                    if (album_thumbnail_cache[i].last_use < oldest) {
+                        oldest = album_thumbnail_cache[i].last_use;
+                        victim = i;
+                    }
+                }
+            }
         }
         album_thumbnail_cache_entry_t * e = &album_thumbnail_cache[victim];
+        bool was_pinned = e->pinned && e->known && e->key_kind == key_kind && e->key == key;
         uint8_t * retired_pixels = e->pixels;
         if (retired_pixels) {
             /* A leading lv_image can retain &e->dsc after its row last ran
@@ -516,6 +582,7 @@ static void album_thumbnail_cache_commit(thumbnail_key_kind_t key_kind, uint64_t
             e->key = key;
             e->key_kind = key_kind;
             e->known = true;
+            e->pinned = was_pinned; /* a same-key re-commit keeps its pin */
             e->pixels = pixels;
             e->last_use = ++album_thumbnail_use_counter;
             if (e->pixels) {
@@ -540,14 +607,14 @@ static bool album_thumbnail_commit_boot_preload(void) {
     if (!atomic_compare_exchange_strong(&album_boot_preload_state, &expected,
                                          ALBUM_BOOT_PRELOAD_CLAIMED))
         return false;
-    bool committed = false;
+    bool committed = false, changed = false; /* changed: the cache holds something new to repaint */
     if (album_boot_preload_result_cache_epoch == atomic_load(&album_thumbnail_cache_epoch)) {
         if (album_boot_preload_result_kind == ALBUM_BOOT_RESULT_ALBUM) {
             album_thumbnail_cache_commit(album_boot_preload_result_key_kind,
                 album_boot_preload_result_key, album_boot_preload_result_song_id,
                 album_boot_preload_result_pixels, album_boot_preload_result_have_source_mtime,
                 album_boot_preload_result_source_mtime, false);
-            committed = true;
+            committed = changed = true;
         } else {
             if (album_boot_preload_result_artist_has_alias ||
                 album_boot_preload_result_artist_negative_confirmed) {
@@ -561,16 +628,49 @@ static bool album_thumbnail_commit_boot_preload(void) {
                 if (album_boot_preload_result_artist_has_alias)
                     album_thumbnail_cache_remove(THUMBNAIL_KEY_ARTIST,
                                                   album_boot_preload_result_artist_key);
-                committed = true;
+                committed = changed = true;
+            }
+            if (album_boot_preload_result_pixels && album_boot_preload_result_first_screen) {
+                album_thumbnail_cache_entry_t * there = album_thumbnail_cache_find(
+                    album_boot_preload_result_key_kind, album_boot_preload_result_key);
+                if (there && there->pixels) {
+                    /* A warm rerun reached a row that is already in RAM: replacing it would only
+                     * detach and repaint the same pixels. */
+                    free(album_boot_preload_result_pixels);
+                    album_boot_preload_result_pixels = NULL;
+                    committed = true;
+                }
             }
             if (album_boot_preload_result_pixels) {
                 album_thumbnail_cache_commit(album_boot_preload_result_key_kind,
                     album_boot_preload_result_key, album_boot_preload_result_song_id,
                     album_boot_preload_result_pixels, false, 0, false);
-                committed = true;
+                committed = changed = true;
             }
         }
         album_boot_preload_result_pixels = NULL;
+        if (album_boot_preload_result_first_screen && committed &&
+            album_boot_preload_result_kind == ALBUM_BOOT_RESULT_ARTIST) {
+            /* Record the row where the press prewarm looks, and pin what holds its pixels. */
+            int epoch = album_boot_preload_result_cache_epoch;
+            int k = album_boot_preload_result_artist_group_kind == METADATA_DB_GROUP_ALBUM_ARTIST ? 1 : 0;
+            if (prewarm_done_epoch[k] != epoch || prewarm_done_first[k] != 0 || !prewarm_boot_pending[k]) {
+                prewarm_done_epoch[k] = epoch;
+                prewarm_done_first[k] = 0;
+                prewarm_keys_count[k] = 0;
+                prewarm_boot_pending[k] = true;
+            }
+            bool recorded = false;
+            for (int j = 0; j < prewarm_keys_count[k]; j++)
+                if (prewarm_keys[k][j] == album_boot_preload_result_artist_key) { recorded = true; break; }
+            if (!recorded && prewarm_keys_count[k] < PREWARM_MAX)
+                prewarm_keys[k][prewarm_keys_count[k]++] = album_boot_preload_result_artist_key;
+            if (first_screen_pin_epoch != epoch) album_thumbnail_unpin_all();
+            first_screen_pin_epoch = epoch;
+            album_thumbnail_pin(THUMBNAIL_KEY_ARTIST, album_boot_preload_result_artist_key);
+            if (album_boot_preload_result_artist_has_alias)
+                album_thumbnail_pin(THUMBNAIL_KEY_ALBUM, album_boot_preload_result_alias_album_key);
+        }
     } else {
         free(album_boot_preload_result_pixels);
         album_boot_preload_result_pixels = NULL;
@@ -581,7 +681,7 @@ static bool album_thumbnail_commit_boot_preload(void) {
     bool shown = (album_boot_preload_result_kind == ALBUM_BOOT_RESULT_ARTIST &&
                   thumbnail_active_list_shows(THUMBNAIL_KEY_ARTIST, album_boot_preload_result_artist_key)) ||
                  thumbnail_active_list_shows(album_boot_preload_result_key_kind, album_boot_preload_result_key);
-    if (committed && shown) refresh_thumbnail_list_visible(album_thumbnail_active_list);
+    if (changed && shown) refresh_thumbnail_list_visible(album_thumbnail_active_list);
     atomic_store(&album_boot_preload_state, ALBUM_BOOT_PRELOAD_EMPTY);
     return true;
 }
@@ -668,6 +768,7 @@ typedef struct {
     bool artist_negative_confirmed;
     uint64_t alias_album_key;
     int64_t alias_song_id;
+    bool first_screen; /* the boot first-screen warm: recorded for the press prewarm and pinned */
 } album_thumbnail_handoff_t;
 
 static bool album_thumb_gen_handoff_result(int my_generation,
@@ -699,6 +800,7 @@ static bool album_thumb_gen_handoff_result(int my_generation,
     album_boot_preload_result_artist_negative_confirmed = result->artist_negative_confirmed;
     album_boot_preload_result_alias_album_key = result->alias_album_key;
     album_boot_preload_result_alias_song_id = result->alias_song_id;
+    album_boot_preload_result_first_screen = result->first_screen;
     atomic_store(&album_boot_preload_state, ALBUM_BOOT_PRELOAD_PENDING);
 
     while (atomic_load(&album_boot_preload_state) != ALBUM_BOOT_PRELOAD_EMPTY) {
@@ -815,6 +917,141 @@ static bool album_thumb_gen_warm_artist_aliases(int my_generation) {
     return true;
 }
 
+/* First screen of Artists and Album Artist, decoded into the RAM cache before the long album pass
+ * below starts, so a first open (even soon after boot) finds the rows ready. Same worker, same
+ * yields as the rest of the warm-up: it stops for playback, visible-row work, low memory and
+ * cancellation, hands every result to the UI thread through the same one-slot rendezvous (so the
+ * epoch check applies), and honours the artist-image and lazy settings. It adds no buffers: each
+ * decoded thumbnail goes into the existing LRU cache and counts against the album pass's RAM
+ * budget (album_thumb_gen_ram_filled), so the cache never holds more than its 250 entries and
+ * the warmed rows are not the first to be evicted. Runs once per cache epoch. Returns false when
+ * the pass must end (yield or cancel; the retry runs it again). */
+#define ALBUM_THUMB_GEN_SCREEN_ROWS 12
+#define ALBUM_THUMB_GEN_SCREEN_GAP_US 30000
+static atomic_int album_thumb_gen_screens_epoch = -1;
+static int album_thumb_gen_warm_waited_epoch = -1; /* worker only: the epoch whose warm waited for playback */
+
+/* The warm's own cancel callback: the warmer's usual rules plus playback, so a decode that is
+ * already running at thumbnail priority stops when playback starts instead of finishing its
+ * extraction beside it. */
+static bool album_thumb_gen_warm_cancel_cb(void * user_data) {
+    return album_thumb_gen_cancel_cb(user_data) || audio_is_playing();
+}
+
+/* Appends an album the warm just handed over, so the album pass does not decode it a second time.
+ * Worker thread: it owns the list while a run is active. */
+static bool album_thumb_gen_note_cached(thumbnail_key_kind_t key_kind, uint64_t key) {
+    if (album_thumb_gen_cached_key_count >= ALBUM_THUMBNAIL_CACHE_SIZE ||
+        album_thumb_gen_cached_key(key_kind, key)) return false;
+    album_thumb_gen_cached_keys[album_thumb_gen_cached_key_count] = key;
+    album_thumb_gen_cached_key_kinds[album_thumb_gen_cached_key_count++] = key_kind;
+    return true;
+}
+
+/* True when the snapshot says this artist row is already resolved with nothing left to load (a
+ * "no art" marker). Alias rows are re-resolved on a retry: the snapshot stays at 16 bytes a row. */
+static bool album_thumb_gen_alias_row_warm(uint64_t artist_key, metadata_db_group_kind_t kind) {
+    for (size_t k = 0; k < album_thumb_gen_known_alias_count; k++) {
+        const album_thumb_gen_alias_key_t * a = &album_thumb_gen_known_aliases[k];
+        if (a->key != artist_key || a->kind != kind) continue;
+        return !a->has_album;
+    }
+    return false;
+}
+
+static bool album_thumb_gen_warm_first_screens_run(int my_generation, int * warmed, int * skipped,
+                                                    const char ** reason) {
+    int epoch = atomic_load(&album_thumb_gen_cache_epoch);
+    if (atomic_load(&album_thumb_gen_screens_epoch) == epoch) { *reason = "already"; return true; }
+    if (!atomic_load(&artist_thumbnail_work_enabled)) { *reason = "disabled"; return true; }
+    if (thumb_policy_cb && thumb_policy_cb(LIBRARY_THUMB_POLICY_LAZY)) { *reason = "lazy"; return true; }
+    if (audio_is_playing()) { *reason = "playing"; return true; } /* runs after playback stops, see the end of the pass */
+    const metadata_db_group_kind_t kinds[] = { METADATA_DB_GROUP_ARTIST, METADATA_DB_GROUP_ALBUM_ARTIST };
+    group_row_t rows[ALBUM_THUMB_GEN_SCREEN_ROWS];
+    bool transient = false;
+    for (size_t kind_index = 0; kind_index < sizeof(kinds) / sizeof(kinds[0]); kind_index++) {
+        metadata_db_group_kind_t group_kind = kinds[kind_index];
+        int n = metadata_db_get_groups_page(group_kind, 0, ALBUM_THUMB_GEN_SCREEN_ROWS, rows);
+        for (int i = 0; i < n; i++) {
+            if (album_thumb_gen_should_cancel(my_generation)) { *reason = "cancel"; return false; }
+            if (!atomic_load(&artist_thumbnail_work_enabled)) { *reason = "disabled"; return true; }
+            if (audio_is_playing()) { *reason = "playing"; return true; }
+            if (album_thumbnail_lazy_work_pending() ||
+                !artwork_check_memory_admission(ARTWORK_PRIO_WARMER, ALBUM_ART_METADATA_START_BYTES)) {
+                atomic_store(&album_thumb_gen_retry_pending, true);
+                *reason = "yield";
+                return false;
+            }
+            uint64_t artist_key = albumart_artist_thumbnail_key(rows[i].name);
+            if (album_thumb_gen_cached_key(THUMBNAIL_KEY_ARTIST, artist_key) ||
+                album_thumb_gen_alias_row_warm(artist_key, group_kind)) {
+                (*skipped)++;
+                continue;
+            }
+            artist_thumbnail_resolution_t resolution;
+            artist_thumbnail_result_t result = artist_thumbnail_load_or_decode(
+                rows[i].first_song_id, group_kind, rows[i].name, ARTWORK_PRIO_THUMBNAIL, true,
+                artist_key, album_thumb_gen_warm_cancel_cb, (void *) (intptr_t) my_generation, &resolution);
+            if (result == ARTIST_THUMB_CANCELLED) {
+                bool hard = album_thumb_gen_should_cancel(my_generation);
+                if (!hard) atomic_store(&album_thumb_gen_retry_pending, true);
+                free(resolution.pixels);
+                *reason = hard ? "cancel" : audio_is_playing() ? "playing" : "yield";
+                return false;
+            }
+            if (result == ARTIST_THUMB_TEMPORARY || result == ARTIST_THUMB_OWN_IMAGE ||
+                !(resolution.has_alias || resolution.negative_confirmed || resolution.pixels)) {
+                if (result == ARTIST_THUMB_TEMPORARY) {
+                    atomic_store(&album_thumb_gen_retry_pending, true);
+                    transient = true; /* this epoch is not warmed yet: the retry takes the row again */
+                }
+                free(resolution.pixels);
+                (*skipped)++;
+                continue;
+            }
+            bool has_pixels = resolution.pixels != NULL;
+            thumbnail_key_kind_t pixel_kind = resolution.pixel_key_kind;
+            uint64_t pixel_key = resolution.pixel_key;
+            album_thumbnail_handoff_t handoff = {
+                .kind = ALBUM_BOOT_RESULT_ARTIST,
+                .cache_epoch = epoch,
+                .key_kind = resolution.pixel_key_kind,
+                .key = resolution.pixel_key,
+                .song_id = resolution.pixel_song_id > 0 ? resolution.pixel_song_id : rows[i].first_song_id,
+                .pixels = (uint8_t *) resolution.pixels,
+                .artist_key = artist_key,
+                .artist_group_kind = group_kind,
+                .artist_has_alias = resolution.has_alias,
+                .artist_negative_confirmed = resolution.negative_confirmed,
+                .alias_album_key = resolution.alias_album_key,
+                .alias_song_id = resolution.alias_song_id,
+                .first_screen = true
+            };
+            if (!album_thumb_gen_handoff_result(my_generation, &handoff)) { *reason = "cancel"; return false; }
+            /* A key the snapshot already holds is already in the budget (a rerun's duplicate is dropped
+             * by the commit). */
+            if (has_pixels && album_thumb_gen_note_cached(pixel_kind, pixel_key) &&
+                album_thumb_gen_ram_filled < ALBUM_THUMBNAIL_CACHE_SIZE) album_thumb_gen_ram_filled++;
+            (*warmed)++;
+            usleep(ALBUM_THUMB_GEN_SCREEN_GAP_US);
+        }
+    }
+    if (transient) { *reason = "transient"; return true; }
+    atomic_store(&album_thumb_gen_screens_epoch, epoch);
+    *reason = "done";
+    return true;
+}
+
+static bool album_thumb_gen_warm_first_screens(int my_generation) {
+    int warmed = 0, skipped = 0;
+    const char * reason = "";
+    bool ok = album_thumb_gen_warm_first_screens_run(my_generation, &warmed, &skipped, &reason);
+    if (strcmp(reason, "playing") == 0) album_thumb_gen_warm_waited_epoch = atomic_load(&album_thumb_gen_cache_epoch);
+    if (strcmp(reason, "already") != 0)
+        DB_LOG("ART_ARTIST", "first_screen_warm warmed=%d skipped=%d reason=%s", warmed, skipped, reason);
+    return ok;
+}
+
 /* Keep artwork workers below interactive presentation without raising an
  * inherited background priority. Linux applies this to the calling thread. */
 static void thumbnail_worker_lower_priority(int nice_value) {
@@ -829,7 +1066,7 @@ static void thumbnail_worker_lower_priority(int nice_value) {
 }
 
 static void * album_thumbnail_thread_func(void * arg) {
-    thumbnail_worker_lower_priority(5);
+    thumbnail_worker_lower_priority(WORKER_NICE_BACKGROUND);
     install_thread_crash_altstack(); /* see its own comment (main.c) */
 #ifdef UI_PERF_TRACE
     uint64_t perf_start_us = ui_perf_now_us();
@@ -861,13 +1098,19 @@ static void * album_thumbnail_thread_func(void * arg) {
     if (req->key_kind == THUMBNAIL_KEY_ALBUM) {
         song_row_t song;
         if (metadata_db_get_song_by_id(req->song_id, &song)) {
-            albumart_info_t info;
-            albumart_info_from_song_row(&song, &info);
-            album_thumbnail_result_source_mtime = album_source_mtime(&song, &info);
-            album_thumbnail_result_have_source_mtime = true;
-            album_thumbnail_load_or_decode_with_mtime(&song, ARTWORK_PRIO_THUMBNAIL,
-                    album_thumbnail_cancel_cb, (void *) (intptr_t) req->cache_epoch,
-                    album_thumbnail_result_source_mtime, false, NULL, false, &pixels);
+            /* The generated thumbnail is on the card and nothing failed before: load it without
+             * first working out the source's mtime (a search for cover files and two stats,
+             * which only matter when something fails). */
+            if (!album_thumbnail_load_sized_quick(&song, ARTWORK_PRIO_THUMBNAIL, album_thumbnail_cancel_cb,
+                                                  (void *) (intptr_t) req->cache_epoch, &pixels)) {
+                albumart_info_t info;
+                albumart_info_from_song_row(&song, &info);
+                album_thumbnail_result_source_mtime = album_source_mtime(&song, &info);
+                album_thumbnail_result_have_source_mtime = true;
+                album_thumbnail_load_or_decode_with_mtime(&song, ARTWORK_PRIO_THUMBNAIL,
+                        album_thumbnail_cancel_cb, (void *) (intptr_t) req->cache_epoch,
+                        album_thumbnail_result_source_mtime, false, NULL, false, &pixels);
+            }
             if (pixels) {
                 album_thumbnail_result_have_source_mtime = false;
                 artwork_failure_cache_note_success(req->song_id);
@@ -897,6 +1140,7 @@ static void * album_thumbnail_thread_func(void * arg) {
     album_thumbnail_result_pixels = (uint8_t *) pixels;
     free(req);
     album_thumbnail_done = true;
+    ui_wake_notify(); /* hand the result over on the next loop pass, not the next 50 ms poll */
     if (db_logging && key_kind == THUMBNAIL_KEY_ALBUM)
         DB_LOG("ART_LAZY", "decode_end song=%lld row=%d art=%d elapsed_ms=%llu rss_kb=%ld",
                (long long) album_thumbnail_result_song_id, result_logical_index,
@@ -972,7 +1216,7 @@ static void * album_thumb_gen_thread_func(void * arg) {
     album_thumb_gen_altstack_already_installed = false;
     int my_generation = (int) (intptr_t) arg;
     bool user_visible = album_thumb_gen_user_visible;
-    thumbnail_worker_lower_priority(user_visible ? 5 : 10);
+    thumbnail_worker_lower_priority(user_visible ? WORKER_NICE_BACKGROUND : WORKER_NICE_IDLE);
     bool force_reload = album_thumb_gen_force_reload;
     bool single_album = album_thumb_gen_single_album;
     /* A user-started reload may run during playback, which the coordinator
@@ -1036,6 +1280,9 @@ static void * album_thumb_gen_thread_func(void * arg) {
             goto done;
         }
     }
+
+    if (!user_visible && !single_album && !force_reload && !album_thumb_gen_warm_first_screens(my_generation))
+        goto done;
 
     group_row_t rows[ALBUM_THUMB_GEN_BATCH];
     int offset = 0;
@@ -1106,7 +1353,7 @@ static void * album_thumb_gen_thread_func(void * arg) {
             albumart_info_t info;
             albumart_info_from_song_row(&song, &info);
 
-            /* During playback, only read an already generated 72px cover
+            /* During playback, only read an already generated thumbnail cover
              * (thumbnail priority, which the coordinator admits during
              * playback). Anything needing real extraction waits for playback
              * to stop. */
@@ -1178,7 +1425,7 @@ static void * album_thumb_gen_thread_func(void * arg) {
              * here (as every album past the RAM budget still does) would mean
              * the RAM-preload hand-off below never runs at all on a normal
              * boot. album_thumbnail_load_or_decode_ex() already returns the
-             * existing 72px sidecar's pixels immediately in this case without
+             * existing thumbnail sidecar's pixels immediately in this case without
              * touching the original source file, so this costs one cheap BMP
              * read+decode per album instead of a real cache regeneration. */
             if (album_thumb_gen_ram_filled >= ALBUM_THUMBNAIL_CACHE_SIZE &&
@@ -1283,6 +1530,12 @@ static void * album_thumb_gen_thread_func(void * arg) {
         atomic_store(&album_thumb_gen_retry_pending, true);
         goto done;
     }
+    /* Playback was running when this pass began and has stopped since: the first screens that waited
+     * for it run now (a no-op when they were already warmed). */
+    if (!user_visible && !single_album && !album_thumb_gen_should_cancel(my_generation) &&
+        album_thumb_gen_warm_waited_epoch == atomic_load(&album_thumb_gen_cache_epoch) &&
+        !album_thumb_gen_warm_first_screens(my_generation))
+        goto done;
     if (!user_visible && !single_album && !album_thumb_gen_should_cancel(my_generation) &&
         !album_thumb_gen_warm_artist_aliases(my_generation))
         goto done;
@@ -1298,6 +1551,7 @@ done:
            (int) album_thumb_gen_should_cancel(my_generation));
 #endif
     atomic_store(&album_thumb_gen_active, false);
+    ui_wake_notify(); /* a visible-row decode may have been waiting for this worker to yield */
     return NULL;
 }
 
@@ -1328,7 +1582,7 @@ static int prepare_album_thumbnail_generation(bool user_visible, bool force_relo
         if (album_thumb_gen_cached_key_count >= ALBUM_THUMBNAIL_CACHE_SIZE) break;
         album_thumb_gen_cached_keys[album_thumb_gen_cached_key_count++] = entry->key;
         album_thumb_gen_cached_key_kinds[album_thumb_gen_cached_key_count - 1] = entry->key_kind;
-        if (entry->key_kind == THUMBNAIL_KEY_ALBUM) album_thumb_gen_ram_filled++;
+        album_thumb_gen_ram_filled++; /* every entry with pixels uses a slot, whatever its kind */
     }
     album_thumb_gen_retry_tick = lv_tick_get();
 
@@ -1345,7 +1599,8 @@ static int prepare_album_thumbnail_generation(bool user_visible, bool force_relo
         if (artist_thumbnail_alias_cache[i].known)
             album_thumb_gen_known_aliases[album_thumb_gen_known_alias_count++] =
                 (album_thumb_gen_alias_key_t) { artist_thumbnail_alias_cache[i].artist_key,
-                                                artist_thumbnail_alias_cache[i].artist_group_kind };
+                                                artist_thumbnail_alias_cache[i].artist_group_kind,
+                                                artist_thumbnail_alias_cache[i].has_album };
     atomic_store(&album_thumb_gen_done_count, 0);
     int total = single_album ? 1 : album_count;
     if (!user_visible && !single_album && atomic_load(&artist_thumbnail_work_enabled))
@@ -1391,6 +1646,301 @@ static void start_album_thumbnail_generation(void) {
     (void) launch_album_thumbnail_generation(generation);
 }
 
+struct prewarm_job {
+    pthread_t thread;
+    atomic_int fin;                 /* worker/owner handoff, see gui_library_async.h */
+    atomic_bool cancel;
+    atomic_bool done;               /* the worker has staged its last result */
+    atomic_int published;           /* results staged so far (worker writes, UI reads) */
+    int consumed;                   /* UI thread only */
+    metadata_db_group_kind_t kind;
+    int kind_index, first, count, epoch;
+    bool finished_clean;            /* written before the release store of done */
+    int unresolved;                 /* UI thread: rows that ended with neither pixels nor an alias/no-art mark */
+    album_thumbnail_handoff_t results[PREWARM_MAX];
+};
+
+static void prewarm_free_job(prewarm_job_t * job) {
+    if (!job) return;
+    int published = atomic_load(&job->published);
+    for (int i = 0; i < published; i++) free(job->results[i].pixels);
+    free(job);
+}
+
+static bool prewarm_cancel_cb(void * user_data) {
+    prewarm_job_t * job = user_data;
+    return atomic_load(&job->cancel) || job->epoch != atomic_load(&album_thumbnail_cache_epoch);
+}
+
+static void * prewarm_thread_func(void * arg) {
+    prewarm_job_t * job = arg;
+    thumbnail_worker_lower_priority(WORKER_NICE_BACKGROUND);
+    install_thread_crash_altstack();
+    group_row_t rows[PREWARM_MAX];
+    int n = metadata_db_get_groups_page(job->kind, job->first, job->count, rows);
+    bool clean = n >= 0;
+    for (int i = 0; i < n; i++) {
+        if (prewarm_cancel_cb(job)) { clean = false; break; }
+        uint64_t artist_key = albumart_artist_thumbnail_key(rows[i].name);
+        artist_thumbnail_resolution_t resolution;
+        (void) artist_thumbnail_load_or_decode(rows[i].first_song_id, job->kind, rows[i].name,
+                    ARTWORK_PRIO_THUMBNAIL, true, artist_key, prewarm_cancel_cb, job, &resolution);
+        if (prewarm_cancel_cb(job)) {
+            free(resolution.pixels);
+            clean = false;
+            break;
+        }
+        job->results[i] = (album_thumbnail_handoff_t) {
+            .kind = ALBUM_BOOT_RESULT_ARTIST,
+            .cache_epoch = job->epoch,
+            .key_kind = resolution.pixel_key_kind,
+            .key = resolution.pixel_key,
+            .song_id = resolution.pixel_song_id > 0 ? resolution.pixel_song_id : rows[i].first_song_id,
+            .pixels = (uint8_t *) resolution.pixels,
+            .artist_key = artist_key,
+            .artist_group_kind = job->kind,
+            .artist_has_alias = resolution.has_alias,
+            .artist_negative_confirmed = resolution.negative_confirmed,
+            .alias_album_key = resolution.alias_album_key,
+            .alias_song_id = resolution.alias_song_id
+        };
+        atomic_store_explicit(&job->published, i + 1, memory_order_release);
+    }
+    job->finished_clean = clean;
+    atomic_store_explicit(&job->done, true, memory_order_release);
+    if (library_async_worker_done(&job->fin, &prewarm_orphans)) prewarm_free_job(job); /* the owner gave it up */
+    ui_wake_notify();
+    return NULL;
+}
+
+/* One staged result into the cache, exactly as the ordinary decoder's result is committed.
+ * Returns true when the row is now warm (stored, or already there); *changed is set only when the
+ * cache or alias table actually changed, so an already-warm row is not repainted. */
+static bool prewarm_commit(album_thumbnail_handoff_t * r, bool * changed) {
+    *changed = false;
+    if (r->cache_epoch != atomic_load(&album_thumbnail_cache_epoch)) {
+        free(r->pixels);
+        r->pixels = NULL;
+        return false;
+    }
+    bool committed = false;
+    if (r->artist_has_alias || r->artist_negative_confirmed) {
+        artist_thumbnail_alias_entry_t * old = artist_thumbnail_alias_find(r->artist_key, r->artist_group_kind);
+        if (!old || old->has_album != r->artist_has_alias ||
+            (r->artist_has_alias && old->album_key != r->alias_album_key)) *changed = true;
+        artist_thumbnail_alias_cache_commit(r->artist_key, r->artist_group_kind, r->artist_has_alias,
+                                            r->alias_album_key, r->alias_song_id);
+        if (r->artist_has_alias) {
+            album_thumbnail_cache_entry_t * own = album_thumbnail_cache_find(THUMBNAIL_KEY_ARTIST, r->artist_key);
+            if (own) *changed = true;
+            album_thumbnail_cache_remove(THUMBNAIL_KEY_ARTIST, r->artist_key);
+        }
+        album_thumbnail_queue_remove_artist(r->artist_key, r->artist_group_kind);
+        committed = true;
+    }
+    if (r->pixels) {
+        album_thumbnail_cache_entry_t * there = album_thumbnail_cache_find(r->key_kind, r->key);
+        if (there && there->pixels) {
+            /* Already in RAM (the boot warm or an earlier run): replacing it would only detach and
+             * repaint the same pixels. */
+            free(r->pixels);
+            r->pixels = NULL;
+        } else {
+            if (r->key_kind == THUMBNAIL_KEY_ARTIST) artist_thumbnail_alias_cache_remove(r->artist_key, r->artist_group_kind);
+            album_thumbnail_cache_commit(r->key_kind, r->key, r->song_id, r->pixels, false, 0, false);
+            r->pixels = NULL;
+            *changed = true;
+        }
+        /* The row's own request is now redundant: the ordinary decoder must not decode it again. */
+        album_thumbnail_queue_remove_artist(r->artist_key, r->artist_group_kind);
+        album_thumbnail_queue_remove(r->key_kind, r->key);
+        committed = true;
+    }
+    return committed;
+}
+
+/* UI thread: commits the staged results in one pass (one repaint of the shown rows) and reaps the
+ * thread once it has ended. Each result lands as soon as it is staged (one cheap repaint per frame). Returns true while the prewarm
+ * still has work or results outstanding. */
+static bool prewarm_poll_ex(bool force) {
+    prewarm_job_t * job = prewarm_job;
+    if (!job) return false;
+    bool running = !atomic_load_explicit(&job->done, memory_order_acquire);
+    int published = atomic_load_explicit(&job->published, memory_order_acquire);
+    int kind_index = job->kind_index;
+    (void) force;
+    if (job->consumed < published) {
+        bool shown = false;
+        while (job->consumed < published) {
+            album_thumbnail_handoff_t * r = &job->results[job->consumed++];
+            uint64_t artist_key = r->artist_key, key = r->key;
+            thumbnail_key_kind_t key_kind = r->key_kind;
+            bool changed = false;
+            bool resolved = prewarm_commit(r, &changed);
+            /* Every requested row is recorded; the range counts as complete only if all resolved. */
+            if (prewarm_keys_count[kind_index] < PREWARM_MAX) prewarm_keys[kind_index][prewarm_keys_count[kind_index]++] = artist_key;
+            if (!resolved) job->unresolved++;
+            if (resolved) {
+                shown = shown || (changed && (thumbnail_active_list_shows(THUMBNAIL_KEY_ARTIST, artist_key) ||
+                        thumbnail_active_list_shows(key_kind, key)));
+            }
+        }
+        if (shown) refresh_thumbnail_list_visible(album_thumbnail_active_list);
+    }
+    if (running) return true;
+    pthread_join(job->thread, NULL);
+    if (job->finished_clean && job->unresolved == 0 && job->consumed > 0 && job->epoch == atomic_load(&album_thumbnail_cache_epoch)) {
+        prewarm_done_epoch[kind_index] = job->epoch;
+        prewarm_done_first[kind_index] = job->first;
+        prewarm_boot_pending[kind_index] = false;
+    }
+    prewarm_free_job(job);
+    prewarm_job = NULL;
+    atomic_store(&prewarm_active, false);
+    return false;
+}
+
+static bool prewarm_poll(void) { return prewarm_poll_ex(false); }
+
+/* Stops the job without waiting: the worker ends within a row, the poll reaps it. */
+void library_thumbnails_prewarm_cancel(void) {
+    prewarm_waiting = false;
+    if (prewarm_job) atomic_store(&prewarm_job->cancel, true);
+}
+
+/* UI thread, quiesce: cancel, give the job up and let the worker free it. Never waits; the shared
+ * orphan wait of teardown and shutdown bounds the stalled case. */
+static void prewarm_discard(void) {
+    prewarm_waiting = false;
+    prewarm_job_t * job = prewarm_job;
+    if (!job) return;
+    atomic_store(&job->cancel, true);
+    pthread_detach(job->thread);
+    if (library_async_abandon(&job->fin, &prewarm_orphans)) prewarm_free_job(job);
+    prewarm_job = NULL;
+    atomic_store(&prewarm_active, false);
+}
+
+void library_thumbnails_prewarm_collect(void) {
+    (void) prewarm_poll_ex(true);
+}
+
+/* True when a prewarm may start now: artist images on, not in the lazy policy, no cover reload. */
+static bool prewarm_allowed(void) {
+    return atomic_load(&artist_thumbnail_work_enabled) &&
+           !(thumb_policy_cb && thumb_policy_cb(LIBRARY_THUMB_POLICY_LAZY)) &&
+           !atomic_load(&album_thumbnail_active) && !thumbnail_cover_thread_joinable;
+}
+
+/* True when every recorded row of the finished range is still in RAM (own pixels, or an alias
+ * with its album's pixels, or a no-art mark). An empty record is never "all there". */
+static bool prewarm_rows_all_there(int kind_index, metadata_db_group_kind_t kind) {
+    if (prewarm_keys_count[kind_index] <= 0) return false;
+    for (int i = 0; i < prewarm_keys_count[kind_index]; i++) {
+        uint64_t key = prewarm_keys[kind_index][i];
+        album_thumbnail_cache_entry_t * cached = album_thumbnail_cache_find(THUMBNAIL_KEY_ARTIST, key);
+        if (cached && cached->pixels) continue;
+        artist_thumbnail_alias_entry_t * alias = artist_thumbnail_alias_find(key, kind);
+        if (alias && alias->has_album) {
+            album_thumbnail_cache_entry_t * art = album_thumbnail_cache_find(alias->album_key_kind, alias->album_key);
+            if (!(art && art->pixels)) return false;
+        } else if (!alias) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* Starts the thread for the request (UI thread; nothing else decoding). */
+static void prewarm_launch(int kind_index, int first, int rows) {
+    /* Stalled jobs that were given up still hold a thread: never add to them. */
+    if (library_async_kind_saturated(&prewarm_orphans)) return;
+    metadata_db_group_kind_t kind = kind_index ? METADATA_DB_GROUP_ALBUM_ARTIST : METADATA_DB_GROUP_ARTIST;
+    int epoch = atomic_load(&album_thumbnail_cache_epoch);
+    const char * why = "not_warmed";
+    if (prewarm_done_epoch[kind_index] == epoch && prewarm_done_first[kind_index] == first) {
+        if (prewarm_boot_pending[kind_index] && atomic_load(&album_thumb_gen_screens_epoch) != epoch) {
+            why = "boot_warm_incomplete";
+        } else {
+            /* Already warmed for this cache: nothing to do while all of it is still there. */
+            bool all_there = prewarm_rows_all_there(kind_index, kind);
+            if (all_there) {
+                DB_LOG("ART_ARTIST", "prewarm_skipped kind=%d first=%d keys=%d", kind_index, first,
+                       prewarm_keys_count[kind_index]);
+                return;
+            }
+            why = "evicted";
+        }
+    }
+    DB_LOG("ART_ARTIST", "prewarm_launch kind=%d first=%d rows=%d why=%s", kind_index, first, rows, why);
+    prewarm_job_t * job = calloc(1, sizeof(*job));
+    if (!job) return;
+    job->kind = kind;
+    job->kind_index = kind_index;
+    job->first = first;
+    job->count = rows;
+    job->epoch = epoch;
+    prewarm_keys_count[kind_index] = 0;
+    prewarm_done_epoch[kind_index] = -1;
+    prewarm_boot_pending[kind_index] = false;
+    if (worker_thread_create(&job->thread, ALBUM_COVER_DECODE_THREAD_STACK_SIZE, prewarm_thread_func, job) != 0) {
+        free(job);
+        return;
+    }
+    prewarm_job = job;
+    atomic_store(&prewarm_active, true);
+    if (album_thumbnail_poll_timer) lv_timer_resume(album_thumbnail_poll_timer);
+}
+
+/* UI thread, poll: a request that had to wait for the warmer to yield starts once it has, if it is
+ * still wanted and allowed. */
+static void prewarm_start_waiting(void) {
+    if (!prewarm_waiting) return;
+    if (lv_tick_elaps(prewarm_wait_tick) > PREWARM_WAIT_MS || !prewarm_allowed()) { prewarm_waiting = false; return; }
+    if (prewarm_job || atomic_load(&album_thumb_gen_active) || atomic_load(&album_thumbnail_active)) return;
+    prewarm_waiting = false;
+    prewarm_launch(prewarm_wait_kind_index, prewarm_wait_first, prewarm_wait_rows);
+}
+
+void library_thumbnails_prewarm_artists(bool album_artists, int first_row, int rows) {
+    int kind_index = album_artists ? 1 : 0;
+    if (first_row < 0) first_row = 0;
+    if (prewarm_job) {
+        prewarm_job_t * job = prewarm_job;
+        if (prewarm_poll() && job->kind_index == kind_index && job->first == first_row &&
+            !atomic_load(&job->cancel)) return; /* the same request is already running */
+        if (prewarm_job) { /* another list's job, or a cancelled one: let it end, then start this one */
+            atomic_store(&job->cancel, true);
+        }
+    }
+    if (!prewarm_allowed() || rows < 1) return;
+    if (rows > PREWARM_MAX) rows = PREWARM_MAX;
+    if (!prewarm_job && atomic_load(&album_thumb_gen_active)) {
+        /* Rows already warm in RAM need no prewarm: do not make the album pass yield for nothing. */
+        metadata_db_group_kind_t kind = kind_index ? METADATA_DB_GROUP_ALBUM_ARTIST : METADATA_DB_GROUP_ARTIST;
+        int epoch = atomic_load(&album_thumbnail_cache_epoch);
+        if (prewarm_done_epoch[kind_index] == epoch && prewarm_done_first[kind_index] == first_row &&
+            !(prewarm_boot_pending[kind_index] && atomic_load(&album_thumb_gen_screens_epoch) != epoch) &&
+            prewarm_rows_all_there(kind_index, kind)) {
+            DB_LOG("ART_ARTIST", "prewarm_skipped kind=%d first=%d keys=%d", kind_index, first_row,
+                   prewarm_keys_count[kind_index]);
+            return;
+        }
+    }
+    if (prewarm_job || atomic_load(&album_thumb_gen_active)) {
+        /* The warmer (which yields to visible-row work, see album_thumb_gen_cancel_cb) is running: the
+         * request waits for it, and counts as visible-row work meanwhile so the warmer stops soon. */
+        prewarm_waiting = true;
+        prewarm_wait_tick = lv_tick_get();
+        prewarm_wait_kind_index = kind_index;
+        prewarm_wait_first = first_row;
+        prewarm_wait_rows = rows;
+        if (album_thumbnail_poll_timer) lv_timer_resume(album_thumbnail_poll_timer);
+        return;
+    }
+    prewarm_launch(kind_index, first_row, rows);
+}
+
 static void start_next_album_thumbnail(void) {
     if ((thumb_policy_cb && thumb_policy_cb(LIBRARY_THUMB_POLICY_LAZY)) || !album_thumbnail_active_list ||
         !album_thumbnail_list_is_visible(album_thumbnail_active_list) ||
@@ -1401,7 +1951,7 @@ static void start_next_album_thumbnail(void) {
      * queues work. Keep this poll timer alive and give the visible-row job
      * priority as soon as that worker yields instead of doubling peak decode
      * memory. */
-    if (atomic_load(&album_thumb_gen_active)) {
+    if (atomic_load(&album_thumb_gen_active) || atomic_load(&prewarm_active)) {
         if (album_thumbnail_poll_timer) lv_timer_resume(album_thumbnail_poll_timer);
         return;
     }
@@ -1510,9 +2060,12 @@ static void album_thumbnail_poll_cb(lv_timer_t * timer) {
     if (gui_navigation_transition_in_progress()) return;
     if (album_thumbnail_scrolling) return;
     (void) album_thumbnail_commit_boot_preload();
+    bool prewarming = prewarm_poll();
+    prewarm_start_waiting();
     if (!atomic_load(&album_thumbnail_active)) {
         start_next_album_thumbnail();
-        if (!atomic_load(&album_thumbnail_active) && !atomic_load(&album_thumb_gen_active)) lv_timer_pause(timer);
+        if (!atomic_load(&album_thumbnail_active) && !atomic_load(&album_thumb_gen_active) && !prewarming &&
+            !atomic_load(&prewarm_active) && !prewarm_waiting) lv_timer_pause(timer);
         return;
     }
     if (!atomic_load(&album_thumbnail_done)) return;
@@ -1583,14 +2136,24 @@ static void album_thumbnail_poll_cb(lv_timer_t * timer) {
     free(album_thumbnail_result_pixels);
     album_thumbnail_result_pixels = NULL;
     if (repaint_result) {
-        /* Refresh every bound image: committing artwork can also evict a
-         * descriptor borrowed by another row, without changing its text. */
-        refresh_thumbnail_list_visible(album_thumbnail_active_list);
+        /* Only the rows bound to the landed artwork, and the rows whose picture
+         * the cache evicted meanwhile (compact_list_detach_image_src() marks
+         * them): committing artwork can evict a descriptor borrowed by another
+         * row, without changing its text. */
+        refresh_thumbnail_list_landed(album_thumbnail_active_list, album_thumbnail_result_key_kind,
+                                      album_thumbnail_result_key, album_thumbnail_result_artist_key,
+                                      album_thumbnail_result_request_key_kind);
     }
     atomic_store(&album_thumbnail_active, false);
     album_thumbnail_active_key_valid = false;
     start_next_album_thumbnail();
-    if (!atomic_load(&album_thumbnail_active)) lv_timer_pause(timer);
+    if (!atomic_load(&album_thumbnail_active)) {
+        /* Nothing else is coming: one full (idempotent, so cheap) pass lets any
+         * visible row that was not queued yet queue itself, as every landing's
+         * full refresh used to. */
+        if (repaint_result) refresh_thumbnail_list_visible(album_thumbnail_active_list);
+        if (!atomic_load(&album_thumbnail_active)) lv_timer_pause(timer);
+    }
 }
 
 /* UI reloads and database replacement both invalidate every list pointer
@@ -1666,6 +2229,56 @@ static void album_thumbnail_scroll_cb(lv_event_t *e) {
     }
 }
 
+typedef struct {
+    uint64_t key;
+    uint64_t artist_key;
+    bool artist_list;
+    metadata_db_group_kind_t group_kind;
+} landed_thumbnail_t;
+
+/* Does a row with this artwork key show (or alias to) the artwork that landed? */
+static bool landed_thumbnail_matches(uint64_t row_key, void *ctx) {
+    const landed_thumbnail_t *landed = ctx;
+    if (row_key == landed->key || (landed->artist_key && row_key == landed->artist_key)) return true;
+    if (!landed->artist_list) return false;
+    artist_thumbnail_alias_entry_t *alias = artist_thumbnail_alias_find(row_key, landed->group_kind);
+    return alias && alias->has_album && alias->album_key == landed->key;
+}
+
+static void refresh_thumbnail_list_landed(lv_obj_t *list, thumbnail_key_kind_t key_kind, uint64_t key,
+                                          uint64_t artist_key, thumbnail_key_kind_t request_kind) {
+    (void) key_kind;
+    thumbnail_binding_t *binding = thumbnail_binding_for_list(list);
+    if (!binding || !list) return;
+    if (thumbnail_role_is_custom(binding->role)) {
+        if (thumb_refresh_group_cb) thumb_refresh_group_cb();
+        return;
+    }
+    library_thumbnail_context_t context = thumbnail_context_for_list(list);
+    landed_thumbnail_t landed = {
+        .key = key,
+        .artist_key = request_kind == THUMBNAIL_KEY_ARTIST ? artist_key : 0,
+        .artist_list = context.key_kind == THUMBNAIL_KEY_ARTIST,
+        .group_kind = context.artist_group_kind
+    };
+    compact_list_refresh_decorations_for(list, landed_thumbnail_matches, &landed);
+}
+
+bool library_thumbnails_busy(void) {
+    return atomic_load(&album_thumbnail_active) || atomic_load(&album_thumbnail_queue_count) > 0 ||
+           atomic_load(&prewarm_active);
+}
+
+void library_thumbnails_dispatch_ready(void) {
+    /* A decode that is still running has nothing for the poll to do yet. */
+    if (album_thumbnail_poll_timer && !lv_timer_get_paused(album_thumbnail_poll_timer) &&
+        (!atomic_load(&album_thumbnail_active) || atomic_load(&album_thumbnail_done) ||
+         atomic_load(&album_boot_preload_state) == ALBUM_BOOT_PRELOAD_PENDING ||
+         (prewarm_job && (atomic_load(&prewarm_job->done) ||
+                          atomic_load(&prewarm_job->published) > prewarm_job->consumed))))
+        lv_timer_ready(album_thumbnail_poll_timer);
+}
+
 static void refresh_thumbnail_list_visible(lv_obj_t *list) {
     thumbnail_binding_t *binding = thumbnail_binding_for_list(list);
     if (!binding || !list) return;
@@ -1715,7 +2328,7 @@ static void *thumbnail_cover_thread_func(void *arg) {
     struct sched_param param = { .sched_priority = 0 };
     (void)sched_setscheduler(0, SCHED_BATCH, &param);
 #endif
-    thumbnail_worker_lower_priority(5);
+    thumbnail_worker_lower_priority(WORKER_NICE_BACKGROUND);
     album_thumb_gen_altstack_already_installed = true;
     album_thumb_gen_thread_func(arg);
     thumbnail_cover_thread_cleanup();
@@ -1849,6 +2462,12 @@ void library_thumbnails_decorate_group_row(lv_obj_t *list, lv_obj_t *row,
                                            uint64_t artwork_key) {
     thumbnail_row_decorator(list, row, image, logical_index, pool_slot, song_id,
                             artwork_key, NULL, (void *)&album_thumbnail_context);
+}
+
+void library_thumbnails_decorate_cover_image(lv_obj_t *list, lv_obj_t *row, lv_obj_t *image,
+                                             int64_t song_id, uint64_t artwork_key) {
+    thumbnail_decorate_image(list, row, image, 0, 0, song_id, artwork_key, NULL,
+                             (void *)&album_thumbnail_context, false);
 }
 
 void library_thumbnails_start_warmup(void) { start_album_thumbnail_generation(); }
@@ -1993,6 +2612,7 @@ void library_thumbnails_quiesce(void) {
     cancel_album_thumbnail_generation();
     reap_album_thumbnail_generation();
     album_thumbnail_discard_boot_preload();
+    prewarm_discard();
     atomic_store(&album_thumb_gen_retry_pending, false);
     album_thumbnail_queue_count = 0;
     album_thumbnail_active_list = NULL;
@@ -2017,62 +2637,115 @@ void library_thumbnails_resize_alias_cache(void) {
 
 
 
+/* A row may ask for its thumbnail when it intersects the viewport, partial
+ * edge rows included. A compact list's geometry is known from its top offset,
+ * row stride and row height, so a row that was only just re-bound is judged
+ * correctly; lv_obj_get_y() would still report its previous position until the
+ * next layout pass. Other lists keep reading the laid-out row. */
+static bool thumbnail_decoration_retry_active;
+static lv_obj_t * thumbnail_decoration_retry_list;
+static lv_timer_t * thumbnail_decoration_retry_timer;
 
-static void thumbnail_row_decorator(lv_obj_t * list, lv_obj_t * row, lv_obj_t * image,
-                                    int logical_index, int pool_slot, int64_t representative_song_id,
-                                    uint64_t artwork_key, const char * artwork_name, void * ctx) {
+static void thumbnail_decoration_retry_cb(lv_timer_t * timer) {
+    (void) timer; /* one shot: LVGL deletes it after this call */
+    lv_obj_t * list = thumbnail_decoration_retry_list;
+    thumbnail_decoration_retry_timer = NULL;
+    thumbnail_decoration_retry_list = NULL;
+    if (!list || !compact_list_is_live(list)) return;
+    /* Once, after the opening layout: a list that still has no size is not
+     * on screen yet and is decorated when it is shown. */
+    thumbnail_decoration_retry_active = true;
+    compact_list_refresh_decorations(list);
+    thumbnail_decoration_retry_active = false;
+}
+
+static bool thumbnail_row_in_viewport(lv_obj_t * list, lv_obj_t * row, int logical_index) {
+    int32_t scroll_y = lv_obj_get_scroll_y(list), top, bottom, viewport;
+    if (compact_list_row_span(list, logical_index, &top, &bottom, &viewport)) {
+        if (lv_obj_get_height(list) <= 0 && !thumbnail_decoration_retry_active && !thumbnail_decoration_retry_timer) {
+            /* Bound before the first layout pass: decorate again once after it. */
+            thumbnail_decoration_retry_list = list;
+            thumbnail_decoration_retry_timer = lv_timer_create(thumbnail_decoration_retry_cb, 60, NULL);
+            if (thumbnail_decoration_retry_timer) lv_timer_set_repeat_count(thumbnail_decoration_retry_timer, 1);
+        }
+        return bottom >= scroll_y && top <= scroll_y + viewport;
+    }
+    int32_t row_y = lv_obj_get_y(row);
+    return row_y + lv_obj_get_height(row) >= scroll_y && row_y <= scroll_y + lv_obj_get_height(list);
+}
+
+/* `touch_row` is false for the album page's hero cover, which lays out its own
+ * children and has no use for the compact-list padding. */
+static void thumbnail_decorate_image(lv_obj_t * list, lv_obj_t * row, lv_obj_t * image,
+                                     int logical_index, int pool_slot, int64_t representative_song_id,
+                                     uint64_t artwork_key, const char * artwork_name, void * ctx,
+                                     bool touch_row) {
     (void) pool_slot;
+    /* Every write below is skipped when the value is already in place: this
+     * runs again for the rows of a list whenever any thumbnail lands, and an
+     * unchanged write still invalidates and relays out. */
     /* Lists whose art kind changes (the genre browser) pass NULL and are
      * looked up per row. */
     library_thumbnail_context_t dynamic_context = ctx ? *(const library_thumbnail_context_t *)ctx : thumbnail_context_for_list(list);
     const library_thumbnail_context_t *context = &dynamic_context;
     if (context->key_kind == THUMBNAIL_KEY_ARTIST &&
         !atomic_load(&artist_thumbnail_work_enabled)) {
-        lv_obj_set_style_pad_left(row, LIST_ROW_LABEL_INSET, 0);
-        lv_obj_add_flag(image, LV_OBJ_FLAG_HIDDEN);
+        if (touch_row) lv_idem_set_pad_left(row, LIST_ROW_LABEL_INSET);
+        lv_idem_set_hidden(image, true);
         return;
     }
-    /* 14px card inset + 72px cover + 14px breathing room before text. */
-    lv_obj_set_style_pad_left(row, 100, 0);
+    /* Card inset + thumbnail + the same breathing room before the text. */
+    if (touch_row) lv_idem_set_pad_left(row, BOARD_LIBRARY_THUMB_TEXT_X);
     if (representative_song_id <= 0 || artwork_key == 0) {
-        lv_image_set_src(image, asset_path("touch_list/list_default_album.png"));
-        lv_obj_add_flag(image, LV_OBJ_FLAG_HIDDEN);
+        lv_idem_image_set_src(image, asset_path("touch_list/list_default_album.png"));
+        lv_idem_set_hidden(image, true);
         return;
     }
     album_thumbnail_cache_entry_t * cached = album_thumbnail_cache_find(context->key_kind, artwork_key);
     artist_thumbnail_alias_entry_t * alias = NULL;
     if ((!cached || !cached->pixels) && context->key_kind == THUMBNAIL_KEY_ARTIST)
         alias = artist_thumbnail_alias_find(artwork_key, context->artist_group_kind);
+    /* Only the compact lists lay their rows out from known geometry and use the
+     * pre-rendered placeholder; the group-song rows keep the stock picture. */
+    bool compact = compact_list_is_live(list);
     if (alias && alias->has_album) {
         cached = album_thumbnail_cache_find(alias->album_key_kind, alias->album_key);
         if (cached && cached->pixels) {
-            lv_image_set_src(image, &cached->dsc);
-            lv_image_set_scale(image, LV_SCALE_NONE);
-            lv_obj_remove_flag(image, LV_OBJ_FLAG_HIDDEN);
+            lv_idem_image_set_src(image, &cached->dsc);
+            lv_idem_image_set_scale(image, LV_SCALE_NONE);
+            if (compact) lv_obj_set_user_data(image, NULL);
+            lv_idem_set_hidden(image, false);
             return;
         }
     }
     if (cached && cached->pixels) {
-        lv_image_set_src(image, &cached->dsc);
-        lv_image_set_scale(image, LV_SCALE_NONE);
-        lv_obj_remove_flag(image, LV_OBJ_FLAG_HIDDEN);
+        lv_idem_image_set_src(image, &cached->dsc);
+        lv_idem_image_set_scale(image, LV_SCALE_NONE);
+        if (compact) lv_obj_set_user_data(image, NULL);
+        lv_idem_set_hidden(image, false);
     } else {
-        const void * src = asset_path("touch_list/list_default_album.png");
-        lv_image_set_src(image, src);
-        /* Scale from the asset's own width. A hardcoded /72 assumed the PNG
-         * was already 72px; LV_IMAGE_ALIGN_STRETCH before set_src divided by
-         * img->w=0 and killed the process during build_albums_screen(). */
-        lv_image_header_t header;
-        int32_t src_w = 72;
-        if (lv_image_decoder_get_info(src, &header) == LV_RESULT_OK && header.w > 0)
-            src_w = header.w;
-        lv_image_set_scale(image, (ALBUM_THUMBNAIL_PX * LV_SCALE_NONE) / src_w);
-        lv_obj_remove_flag(image, LV_OBJ_FLAG_HIDDEN);
-        int32_t scroll_y = lv_obj_get_scroll_y(list);
-        int32_t row_y = lv_obj_get_y(row);
-        bool in_viewport = row_y + lv_obj_get_height(row) >= scroll_y &&
-                           row_y <= scroll_y + lv_obj_get_height(list);
-        if (!in_viewport) return;
+        thumbnail_placeholder_t placeholder;
+        if (compact && thumbnail_placeholder_get(&placeholder)) {
+            /* The picture is already at its final size: no transform, and the
+             * overhang keeps it where the scaled asset used to be drawn. */
+            lv_idem_image_set_src(image, placeholder.dsc);
+            lv_idem_image_set_scale(image, LV_SCALE_NONE);
+            lv_obj_set_user_data(image, (void *) (intptr_t) placeholder.overhang);
+        } else {
+            const void * src = asset_path("touch_list/list_default_album.png");
+            lv_idem_image_set_src(image, src);
+            /* Scale from the asset's own width. A hardcoded size assumed the PNG
+             * was already the thumbnail size; LV_IMAGE_ALIGN_STRETCH before set_src divided by
+             * img->w=0 and killed the process during build_albums_screen(). */
+            lv_image_header_t header;
+            int32_t src_w = ALBUM_THUMBNAIL_PX;
+            if (lv_image_decoder_get_info(src, &header) == LV_RESULT_OK && header.w > 0)
+                src_w = header.w;
+            lv_idem_image_set_scale(image, (ALBUM_THUMBNAIL_PX * LV_SCALE_NONE) / src_w);
+            if (compact) lv_obj_set_user_data(image, NULL);
+        }
+        lv_idem_set_hidden(image, false);
+        if (!thumbnail_row_in_viewport(list, row, logical_index)) return;
         if (alias) {
             if (alias->has_album && !cached)
                 queue_thumbnail(list, logical_index, alias->album_key_kind, alias->album_key,
@@ -2082,4 +2755,26 @@ static void thumbnail_row_decorator(lv_obj_t * list, lv_obj_t * row, lv_obj_t * 
                             representative_song_id, context->artist_group_kind, artwork_name);
         }
     }
+}
+
+static void thumbnail_row_decorator(lv_obj_t * list, lv_obj_t * row, lv_obj_t * image,
+                                    int logical_index, int pool_slot, int64_t representative_song_id,
+                                    uint64_t artwork_key, const char * artwork_name, void * ctx) {
+    thumbnail_decorate_image(list, row, image, logical_index, pool_slot, representative_song_id,
+                             artwork_key, artwork_name, ctx, true);
+}
+
+/* Mosaic tiles on the artist page: the page owns a copy of the pixels, so an
+ * LRU eviction can never leave it pointing at freed memory. */
+bool library_thumbnails_copy_album(uint64_t artwork_key, uint16_t * dst, bool * out_no_art) {
+    if (out_no_art) *out_no_art = false;
+    album_thumbnail_cache_entry_t * cached = artwork_key ? album_thumbnail_cache_find(THUMBNAIL_KEY_ALBUM, artwork_key) : NULL;
+    if (!cached) return false;
+    if (!cached->pixels) { if (out_no_art) *out_no_art = true; return false; }
+    memcpy(dst, cached->pixels, (size_t) ALBUM_THUMBNAIL_PX * ALBUM_THUMBNAIL_PX * 2);
+    return true;
+}
+
+void library_thumbnails_request_album(lv_obj_t * list, int64_t song_id, uint64_t artwork_key) {
+    queue_thumbnail(list, 0, THUMBNAIL_KEY_ALBUM, artwork_key, song_id, METADATA_DB_GROUP_ARTIST, NULL);
 }

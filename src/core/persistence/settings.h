@@ -224,6 +224,15 @@ typedef struct {
         unsigned int rate;
     } bt_device_rates[BT_DEVICE_RATE_MAX];
     int bt_device_rate_count;
+    /* Per-accessory memory of Samsung SSC (bt_ssc_settings.h): it worked
+     * before, and the backoff after repeated failures. */
+    struct {
+        char mac[18];
+        bool worked;
+        unsigned char failures;
+        unsigned char skip;
+    } bt_ssc_devices[BT_DEVICE_RATE_MAX];
+    int bt_ssc_device_count;
     char bt_last_output_mac[18]; /* verified A2DP source MAC, empty when none is remembered */
     /* When true, BLE devices without a broadcast name are hidden from the
      * "Available Devices" list (shown as raw MAC addresses otherwise).
@@ -289,7 +298,7 @@ typedef struct {
      * device charging overnight in a dark room. */
     bool led_indicator_enabled;
 
-    /* Settings -> About -> Developer Options -> "Enable debug logging" --
+    /* Settings -> System -> Developer Options -> "Enable debug logging" --
      * writes a detailed, timestamped log of library database scans and
      * album art cache jobs (including lazy load) to .logs/database_artwork.log
      * on the SD card (see db_log.h), and also gates the USB DAC bridge's own

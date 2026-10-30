@@ -31,6 +31,8 @@
 #include "../bindings/io/plugin_http_bindings.h"
 #include "../bindings/ui/plugin_text_view_bindings.h"
 #include "../bindings/io/plugin_archive_bindings.h"
+#include "../bindings/io/plugin_apps_bindings.h"
+#include "../storage/plugin_reserved_dirs.h"
 #include "../lua/plugin_lua_runtime.h"
 #include "../storage/plugin_storage.h"
 #include "plugin_internal.h"
@@ -815,6 +817,11 @@ static plugin_order_editor_callback_t plugin_order_editor_callback = { NULL, LUA
  *         Power + Volume Up chord toggles hardware button lock.
  *       "suspending" / "system_resumed" -- callback(), around suspend-to-RAM.
  *         system_resumed is separate from playback's existing "resumed".
+ *       "network_changed" -- callback(info), info = { connected = bool,
+ *         wifi_enabled = bool }, when the cached Wi-Fi state changes (API 18).
+ *         Fires on the UI thread from the shell's Wi-Fi poll (~5 s with the
+ *         screen on, ~45 s with it off while a plugin is subscribed).
+ *         connected means associated (wpa COMPLETED), possibly before DHCP.
  *       "stopped" -- callback(), no arguments, fires when playback stops
  *         outright (not paused). Does NOT cover "playlist reaches its end
  *         with repeat off" (that path doesn't route through this app's own
@@ -1887,6 +1894,8 @@ static int plugin_file_op_start(lua_State * L, file_op_kind_t kind, const char *
         dest_dir = luaL_checkstring(L, 2);
         if (!plugin_sd_path_ok(dest_dir, true))
             return luaL_error(L, "%s: dest_dir must be a folder on the SD card", api);
+        if (plugin_path_in_program_dirs(dest_dir))
+            return luaL_error(L, "%s: the program folders (.apps, .apps-data, .emulators) are reserved", api);
     }
     bool has_callback = !lua_isnoneornil(L, callback_index);
     if (has_callback) luaL_checktype(L, callback_index, LUA_TFUNCTION);
@@ -1905,6 +1914,16 @@ static int plugin_file_op_start(lua_State * L, file_op_kind_t kind, const char *
             return luaL_error(L, "%s: every path must be a file or folder on the SD card", api);
         if (kind != FILE_OP_COPY && file_op_is_player_folder(path, MUSIC_ROOT_DIR))
             return plugin_lua_push_error(L, "the player's own folders cannot be deleted or moved");
+        if (kind != FILE_OP_COPY && plugin_path_in_program_dirs(path))
+            return plugin_lua_push_error(L, "the program folders (.apps, .apps-data, .emulators) cannot be changed");
+        if (kind != FILE_OP_DELETE) {
+            /* The engine creates dest_dir/<source name>, which can itself be a reserved name. */
+            const char * base = strrchr(path, '/');
+            char created[PATH_MAX];
+            if (snprintf(created, sizeof(created), "%s/%s", dest_dir, base ? base + 1 : path) >= (int) sizeof(created) ||
+                plugin_path_in_program_dirs(created))
+                return plugin_lua_push_error(L, "the program folders (.apps, .apps-data, .emulators) cannot be changed");
+        }
         paths[i] = (char *) path;
         if (list) lua_pop(L, 1);
     }
@@ -2074,6 +2093,8 @@ static void plugin_file_op_poll(void) {
  * file operations; plugins are not confined to sd_root() today. */
 static int l_plugin_mkdir(lua_State * L) {
     const char * path = check_plugin_external_path(L, 1, "plugin.mkdir");
+    if (plugin_path_in_program_dirs(path))
+        return plugin_lua_push_error(L, "the program folders (.apps, .apps-data, .emulators) are reserved");
     size_t len = strlen(path);
     if (len == 0 || len >= PATH_MAX) {
         return plugin_lua_push_error(L, "invalid path");
@@ -3447,6 +3468,10 @@ static int l_plugin_eq_apply_profile(lua_State * L) {
 
 static int l_plugin_eq_save_profile(lua_State * L) {
     const char * path = check_plugin_external_path(L, 1, "plugin.eq_save_profile");
+    if (plugin_path_in_program_dirs(path)) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
     lua_pushboolean(L, peq_save_to_path(path));
     return 1;
 }
@@ -4337,8 +4362,11 @@ static int l_plugin_library_album_cover_async(lua_State * L) {
     int64_t song_id = (int64_t) luaL_checkinteger(L, 1);
     int size_px = (int) luaL_checkinteger(L, 2);
     luaL_checktype(L, 3, LUA_TFUNCTION);
+    /* 72 was the thumbnail size of earlier releases; it stays accepted and
+     * serves the current thumbnail (80, or 40 on the TempoTec V1). */
+    if (size_px == 72) size_px = ALBUMART_THUMBNAIL_SIZE;
     if (size_px != ALBUMART_THUMBNAIL_SIZE && size_px != ALBUMART_PLAYER_CACHE_SIZE)
-        return luaL_error(L, "plugin.library_album_cover_async: size must be %d or %d",
+        return luaL_error(L, "plugin.library_album_cover_async: size must be %d (or the legacy 72) or %d",
                           ALBUMART_THUMBNAIL_SIZE, ALBUMART_PLAYER_CACHE_SIZE);
     plugin_album_cover_req_t * slot = NULL;
     for (int i = 0; i < PLUGIN_ALBUM_COVER_QUEUE && !slot; i++)
@@ -4398,6 +4426,7 @@ typedef enum {
     PLUGIN_EVENT_OUTPUT_CHANGED,
     PLUGIN_EVENT_BUTTON_LOCK_CHANGED,
     PLUGIN_EVENT_REMOTE_STREAM_NEEDED,
+    PLUGIN_EVENT_NETWORK_CHANGED,
     PLUGIN_EVENT_COUNT,
 } plugin_event_t;
 
@@ -4542,6 +4571,7 @@ static int l_plugin_on(lua_State * L) {
     else if (strcmp(event, "output_changed") == 0) idx = PLUGIN_EVENT_OUTPUT_CHANGED;
     else if (strcmp(event, "button_lock_changed") == 0) idx = PLUGIN_EVENT_BUTTON_LOCK_CHANGED;
     else if (strcmp(event, "remote_stream_needed") == 0) idx = PLUGIN_EVENT_REMOTE_STREAM_NEEDED;
+    else if (strcmp(event, "network_changed") == 0) idx = PLUGIN_EVENT_NETWORK_CHANGED;
     else return luaL_error(L, "plugin.on: unknown event '%s'", event);
 
     if (idx == PLUGIN_EVENT_REMOTE_STREAM_NEEDED && plugin_remote_resolver_registered(plugin_lua_main_state(L)))
@@ -5002,11 +5032,14 @@ static int l_plugin_show_text_view(lua_State * L) {
     return plugin_text_view_bindings_show(L, plugin_call, plugin_text_view_owner_is_aborted);
 }
 
+static int l_plugin_network_status(lua_State * L);
+
 static const luaL_Reg plugin_funcs[] = {
     { "set_music_layout",          l_plugin_set_music_layout },
     { "set_quick_drawer_layout",   l_plugin_set_quick_drawer_layout },
     { "define",                    l_plugin_define },
     { "api_version",               l_plugin_api_version },
+    { "network_status",            l_plugin_network_status },
     { "has_capability",            l_plugin_has_capability },
     { "get_app_info",              l_plugin_get_app_info },
     { "led_available",             l_plugin_led_available },
@@ -5150,6 +5183,8 @@ static const luaL_Reg plugin_funcs[] = {
     { "configure_button_lock",     l_plugin_configure_button_lock },
     { "set_startup_image_async",   l_plugin_set_startup_image_async },
     { "has_startup_image",         l_plugin_has_startup_image },
+    { "list_apps",                 l_plugin_list_apps },
+    { "launch_app",                l_plugin_launch_app },
     { "zip_read",                  l_plugin_zip_read },
     { "zip_list",                  l_plugin_zip_list },
     { "zip_image_async",           l_plugin_zip_image_async },
@@ -5325,6 +5360,11 @@ static int l_guarded_io_open(lua_State * L) {
     if (plugin_storage_path_is_reserved(path)) {
         return plugin_lua_push_error(L, "io.open: path is reserved for plugin.storage/plugin.secrets");
     }
+    /* A mode other than plain read ("r"/"rb") can create or change the file. */
+    const char * mode = luaL_optstring(L, 2, "r");
+    if ((mode[0] != 'r' || strchr(mode, '+')) && plugin_path_in_program_dirs(path)) {
+        return plugin_lua_push_error(L, "io.open: the program folders (.apps, .apps-data, .emulators) are read-only");
+    }
     return plugin_call_native(L, real_io_open);
 }
 
@@ -5364,6 +5404,9 @@ static int l_guarded_io_output(lua_State * L) {
         if (plugin_storage_path_is_reserved(path)) {
             return luaL_error(L, "io.output: path is reserved for plugin.storage/plugin.secrets");
         }
+        if (plugin_path_in_program_dirs(path)) {
+            return luaL_error(L, "io.output: the program folders (.apps, .apps-data, .emulators) are read-only");
+        }
     }
     return plugin_call_native(L, real_io_output);
 }
@@ -5373,6 +5416,9 @@ static int l_guarded_os_remove(lua_State * L) {
     if (plugin_storage_path_is_reserved(path)) {
         return plugin_lua_push_error(L, "os.remove: path is reserved for plugin.storage/plugin.secrets");
     }
+    if (plugin_path_in_program_dirs(path)) {
+        return plugin_lua_push_error(L, "os.remove: the program folders (.apps, .apps-data, .emulators) are read-only");
+    }
     return plugin_call_native(L, real_os_remove);
 }
 
@@ -5381,6 +5427,9 @@ static int l_guarded_os_rename(lua_State * L) {
     const char * to = luaL_optstring(L, 2, "");
     if (plugin_storage_path_is_reserved(from) || plugin_storage_path_is_reserved(to)) {
         return plugin_lua_push_error(L, "os.rename: path is reserved for plugin.storage/plugin.secrets");
+    }
+    if (plugin_path_in_program_dirs(from) || plugin_path_in_program_dirs(to)) {
+        return plugin_lua_push_error(L, "os.rename: the program folders (.apps, .apps-data, .emulators) are read-only");
     }
     return plugin_call_native(L, real_os_rename);
 }
@@ -5513,6 +5562,32 @@ static int plugin_call(lua_State * L, int nargs, int nresults, int errfunc) {
     plugin_call_deadline_start = saved_deadline;
     if (result != LUA_OK) release_plugin_led_override(L);
     return result;
+}
+
+/* True only while a callback the user triggered by tapping (a list row or
+ * menu entry, a tile, a confirmation) is running; plugin.launch_app() needs
+ * it. Timers, events and network callbacks never set it. */
+static lua_State * plugin_user_action_owner;
+static bool plugin_user_action_used;
+
+static int plugin_call_user_action(lua_State * L, int nargs, int nresults, int errfunc) {
+    lua_State * saved_owner = plugin_user_action_owner;
+    bool saved_used = plugin_user_action_used;
+    plugin_user_action_owner = plugin_lua_main_state(L);
+    plugin_user_action_used = false;
+    int result = plugin_call(L, nargs, nresults, errfunc);
+    plugin_user_action_owner = saved_owner;
+    plugin_user_action_used = saved_used;
+    return result;
+}
+
+bool plugin_manager_user_action_take(lua_State * L) {
+    /* The tap belongs to the plugin whose callback it started; a handler of
+     * another plugin that runs inside it (an event) does not inherit it. */
+    if (!plugin_user_action_owner || plugin_user_action_used || plugin_lua_main_state(L) != plugin_user_action_owner)
+        return false;
+    plugin_user_action_used = true;
+    return true;
 }
 
 /* Remove every callback/resource that can retain a failed load's Lua state.
@@ -6211,7 +6286,7 @@ bool plugin_manager_has_background_work(void) {
  * distinguishable from another's in the log. */
 static void dispatch_list_item_open(plugin_list_item_t * item, const char * kind) {
     lua_rawgeti(item->L, LUA_REGISTRYINDEX, item->open_ref);
-    if (plugin_call(item->L, 0, 0, 0) != LUA_OK) {
+    if (plugin_call_user_action(item->L, 0, 0, 0) != LUA_OK) {
         const char * err = lua_tostring(item->L, -1);
         fprintf(stderr, "[plugins] %s '%s' on_open error: %s\n", kind, item->label, err ? err : "unknown error");
         lua_pop(item->L, 1);
@@ -6354,7 +6429,7 @@ uint32_t plugin_manager_get_list_registry_generation(void) { return plugin_list_
  * registry above). */
 static void dispatch_tile_open(plugin_tile_t * t) {
     lua_rawgeti(t->L, LUA_REGISTRYINDEX, t->open_ref);
-    if (plugin_call(t->L, 0, 0, 0) != LUA_OK) {
+    if (plugin_call_user_action(t->L, 0, 0, 0) != LUA_OK) {
         const char * err = lua_tostring(t->L, -1);
         fprintf(stderr, "[plugins] tile '%s' on_open error: %s\n", t->label, err ? err : "unknown error");
         lua_pop(t->L, 1);
@@ -6489,7 +6564,7 @@ void plugin_manager_list_item_selected(int slot, int index) {
 
     lua_rawgeti(cb->L, LUA_REGISTRYINDEX, cb->select_ref);
     lua_pushinteger(cb->L, index + 1);
-    if (plugin_call(cb->L, 1, 0, 0) != LUA_OK) {
+    if (plugin_call_user_action(cb->L, 1, 0, 0) != LUA_OK) {
         const char * err = lua_tostring(cb->L, -1);
         fprintf(stderr, "[plugins] show_list on_select error: %s\n", err ? err : "unknown error");
         lua_pop(cb->L, 1);
@@ -6516,7 +6591,7 @@ void plugin_manager_settings_list_row_selected(int slot, int row) {
     if (!settings_list_row_ref(slot, row, &L, &ref)) return;
 
     lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
-    if (plugin_call(L, 0, 0, 0) != LUA_OK) {
+    if (plugin_call_user_action(L, 0, 0, 0) != LUA_OK) {
         const char * err = lua_tostring(L, -1);
         fprintf(stderr, "[plugins] show_settings_list on_select error: %s\n", err ? err : "unknown error");
         lua_pop(L, 1);
@@ -6705,6 +6780,60 @@ void plugin_manager_poll_battery(void) {
     }
 }
 
+/* Cached Wi-Fi state, written only by the UI thread through
+ * plugin_manager_set_network_state(); the getter reads it without any
+ * subprocess or socket access. */
+static bool plugin_network_connected;
+static bool plugin_network_wifi_enabled;
+static bool plugin_network_valid;
+
+static void push_network_info(lua_State * L) {
+    lua_createtable(L, 0, 2);
+    lua_pushboolean(L, plugin_network_connected);
+    lua_setfield(L, -2, "connected");
+    lua_pushboolean(L, plugin_network_wifi_enabled);
+    lua_setfield(L, -2, "wifi_enabled");
+}
+
+static int l_plugin_network_status(lua_State * L) {
+    push_network_info(L);
+    return 1;
+}
+
+bool plugin_manager_has_network_subscribers(void) {
+    for (int i = 0; i < plugin_event_subscriber_count[PLUGIN_EVENT_NETWORK_CHANGED]; i++) {
+        plugin_instance_t * inst = plugin_instance_for_state(
+            plugin_event_subscribers[PLUGIN_EVENT_NETWORK_CHANGED][i].L);
+        if (!inst || !inst->aborted) return true;
+    }
+    return false;
+}
+
+void plugin_manager_set_network_state(bool connected, bool wifi_enabled) {
+    if (!wifi_enabled) connected = false;
+    if (plugin_network_valid && connected == plugin_network_connected &&
+        wifi_enabled == plugin_network_wifi_enabled) return;
+    bool first = !plugin_network_valid;
+    plugin_network_connected = connected;
+    plugin_network_wifi_enabled = wifi_enabled;
+    plugin_network_valid = true;
+    /* The first sample is only the baseline. It is always {false, enabled}
+     * because it is taken before any query returns; the first query reporting
+     * connected then arrives as a normal change event. */
+    if (first && !connected) return;
+
+    for (int i = 0; i < plugin_event_subscriber_count[PLUGIN_EVENT_NETWORK_CHANGED]; i++) {
+        plugin_event_subscriber_t * sub = &plugin_event_subscribers[PLUGIN_EVENT_NETWORK_CHANGED][i];
+        lua_rawgeti(sub->L, LUA_REGISTRYINDEX, sub->ref);
+        push_network_info(sub->L);
+        if (plugin_call(sub->L, 1, 0, 0) != LUA_OK) {
+            const char * err = lua_tostring(sub->L, -1);
+            fprintf(stderr, "[plugins] network_changed handler error: %s\n", err ? err : "unknown error");
+            lua_pop(sub->L, 1);
+        }
+    }
+}
+
 void plugin_manager_notify_suspending(void) {
     notify_event_no_args(PLUGIN_EVENT_SUSPENDING, "suspending");
 }
@@ -6779,7 +6908,7 @@ void plugin_manager_confirmation_confirmed(void) {
     pending_confirmation_L = NULL;
     pending_confirmation_ref = LUA_NOREF;
     lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
-    if (plugin_call(L, 0, 0, 0) != LUA_OK) {
+    if (plugin_call_user_action(L, 0, 0, 0) != LUA_OK) {
         const char * err = lua_tostring(L, -1);
         fprintf(stderr, "[plugins] show_confirmation callback error: %s\n", err ? err : "unknown error");
         lua_pop(L, 1);

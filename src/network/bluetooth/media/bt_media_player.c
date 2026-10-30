@@ -234,7 +234,7 @@ static bool append_property_value(DBusMessageIter * iter, const char * interface
         return false;
     }
     if (strcmp(interface, "org.mpris.MediaPlayer2") == 0) {
-        if (strcmp(property, "Identity") == 0) return append_variant_string(iter, "Compás");
+        if (strcmp(property, "Identity") == 0) return append_variant_string(iter, "compás");
         if (strcmp(property, "CanQuit") == 0) return append_variant_bool(iter, FALSE);
         if (strcmp(property, "CanRaise") == 0) return append_variant_bool(iter, FALSE);
         if (strcmp(property, "HasTrackList") == 0) return append_variant_bool(iter, FALSE);
@@ -496,7 +496,7 @@ static void call_register_player(bool register_it) {
             dbus_message_unref(msg);
             return;
         }
-        if (!append_dict_string(&dict_iter, "Identity", "Compás")) {
+        if (!append_dict_string(&dict_iter, "Identity", "compás")) {
             dbus_message_unref(msg);
             return;
         }

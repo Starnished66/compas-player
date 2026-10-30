@@ -10,6 +10,7 @@
 #include "../../appearance/gui_themes.h"
 #include "../../../core/system/logging/debug_log.h"
 #include "lvgl/src/display/lv_display_private.h"
+#include "lvgl/src/widgets/label/lv_label_private.h"
 
 #include <pthread.h>
 #include <unistd.h>
@@ -382,6 +383,17 @@ static void refresh_icon_caption_geometry_recursive(lv_obj_t * obj) {
                              label_cy - lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_BODY)) / 2);
             } else {
                 int32_t line_h = lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_BODY));
+#if defined(BOARD_TEMPOTEC_V1)
+                if (lv_label_get_long_mode(label) == LV_LABEL_LONG_SCROLL_CIRCULAR) {
+                    int32_t label_gap = BOARD_SCALE_PX(12);
+                    int32_t content_h = icon_h + label_gap + line_h;
+                    int32_t top = (available_h - content_h) / 2;
+                    if (top < 0) top = 0;
+                    lv_obj_set_height(label, line_h);
+                    lv_obj_align(img_wrap, LV_ALIGN_TOP_MID, 0, top);
+                    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, top + icon_h + label_gap);
+                } else {
+#endif
                 int32_t label_h = line_h * 2;
                 int32_t content_h = icon_h + ICON_GRID_ICON_LABEL_GAP + label_h;
                 int32_t top = (available_h - content_h) / 2;
@@ -389,6 +401,9 @@ static void refresh_icon_caption_geometry_recursive(lv_obj_t * obj) {
                 lv_obj_set_height(label, label_h);
                 lv_obj_align(img_wrap, LV_ALIGN_TOP_MID, 0, top);
                 lv_obj_align(label, LV_ALIGN_TOP_MID, 0, top + icon_h + ICON_GRID_ICON_LABEL_GAP);
+#if defined(BOARD_TEMPOTEC_V1)
+                }
+#endif
             }
         }
     }
@@ -457,15 +472,32 @@ lv_obj_t * row_label_create_subtitle(lv_obj_t * row) {
     return subtitle;
 }
 
+/* True when `label` already holds exactly text[0..len) and no marquee animation would be restarted
+ * by setting it again. */
+static bool label_shows(lv_obj_t * label, const char * text, size_t len) {
+    lv_label_long_mode_t mode = lv_label_get_long_mode(label);
+    if (mode == LV_LABEL_LONG_SCROLL || mode == LV_LABEL_LONG_SCROLL_CIRCULAR) return false;
+    /* A dotted label whose text is cut holds the dotted copy, not what was set: never equal. */
+    if (mode == LV_LABEL_LONG_DOT && ((lv_label_t *) label)->dot_begin != 0xFFFFFFFFu) return false;
+    const char * shown = lv_label_get_text(label);
+    return shown && strlen(shown) == len && memcmp(shown, text, len) == 0;
+}
+
 void row_label_set_identity(lv_obj_t * row, lv_obj_t * secondary,
                             const char * title, const char * subtitle, int32_t height) {
     if (!title) title = "";
     const char * newline = strchr(title, '\n');
     if (!subtitle && newline) subtitle = newline + 1;
-    if (newline) lv_label_set_text_fmt(row, "%.*s", (int)(newline - title), title);
-    else lv_label_set_text(row, title);
+    size_t title_len = newline ? (size_t)(newline - title) : strlen(title);
+    /* A rebind to the text the label already shows must not repaint it: the title label is the
+     * whole row, so a same-text set would invalidate the entire row for a subtitle change. */
+    if (!label_shows(row, title, title_len)) {
+        if (newline) lv_label_set_text_fmt(row, "%.*s", (int)(newline - title), title);
+        else lv_label_set_text(row, title);
+    }
     bool has_subtitle = subtitle && subtitle[0];
-    lv_label_set_text(secondary, has_subtitle ? subtitle : "");
+    const char * second = has_subtitle ? subtitle : "";
+    if (!label_shows(secondary, second, strlen(second))) lv_label_set_text(secondary, second);
     lv_obj_set_user_data(secondary, (void *)(intptr_t)height);
     row_label_layout_identity(row, secondary, height);
 }
@@ -521,9 +553,9 @@ lv_obj_t * build_music_list_row(lv_obj_t * parent, const char * title, const cha
 
     const char * newline = title ? strchr(title, '\n') : NULL;
     if (!subtitle && newline) subtitle = newline + 1;
+    /* The text goes in last: font, width, height and the scroll mode are settled first, so each
+     * label measures its text once instead of after every one of those changes. */
     lv_obj_t * primary = lv_label_create(row);
-    if (newline) lv_label_set_text_fmt(primary, "%.*s", (int)(newline - title), title);
-    else lv_label_set_text(primary, title ? title : "");
     lv_obj_add_style(primary, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(primary, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
     lv_obj_set_pos(primary, GUI_TEXT_INSET, 0);
@@ -531,9 +563,10 @@ lv_obj_t * build_music_list_row(lv_obj_t * parent, const char * title, const cha
                              (trailing_space > 0 ? trailing_space : GUI_TEXT_INSET));
     row_label_apply_bounded_height(primary, gui_theme_font(GUI_FONT_ROLE_ROW));
     row_label_enable_marquee(primary);
+    if (newline) lv_label_set_text_fmt(primary, "%.*s", (int)(newline - title), title);
+    else lv_label_set_text(primary, title ? title : "");
 
     lv_obj_t * secondary = lv_label_create(row);
-    lv_label_set_text(secondary, subtitle ? subtitle : "");
     lv_obj_add_style(secondary, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(secondary, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     lv_obj_set_pos(secondary, GUI_TEXT_INSET, 0);
@@ -541,6 +574,7 @@ lv_obj_t * build_music_list_row(lv_obj_t * parent, const char * title, const cha
                                (trailing_space > 0 ? trailing_space : GUI_TEXT_INSET));
     row_label_apply_bounded_height(secondary, gui_theme_font(GUI_FONT_ROLE_BODY));
     row_label_enable_marquee(secondary);
+    lv_label_set_text(secondary, subtitle ? subtitle : "");
     if (!subtitle || !subtitle[0]) lv_obj_add_flag(secondary, LV_OBJ_FLAG_HIDDEN);
     layout_music_list_row(row);
     return row;
@@ -759,12 +793,16 @@ static lv_obj_t * build_header_icon_button(lv_obj_t * scr, const char * asset,
     lv_obj_remove_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_style(btn, &list_row_pressed_style, LV_STATE_PRESSED);
-    lv_obj_set_style_radius(btn, 12, 0);
+    lv_obj_set_style_radius(btn, V1_SCALE_PX(12), 0);
 
     if (asset) {
         const char * breeze = titlebar_breeze_icon(asset);
         lv_obj_t * arrow = lv_image_create(btn);
         lv_image_set_src(arrow, breeze ? breeze : asset);
+#if defined(BOARD_TEMPOTEC_V1)
+        lv_obj_set_size(arrow, BOARD_SCALE_PX(44), BOARD_SCALE_PX(44));
+        lv_image_set_inner_align(arrow, LV_IMAGE_ALIGN_CONTAIN);
+#endif
         lv_obj_align(arrow, LV_ALIGN_CENTER, 0, 0);
         lv_obj_remove_flag(arrow, LV_OBJ_FLAG_CLICKABLE);
         if (breeze) style_titlebar_breeze_icon(arrow);
@@ -812,6 +850,17 @@ lv_obj_t * build_navigation_chevron(lv_obj_t * parent, int32_t right_inset,
 void align_screen_header_action(lv_obj_t * action, int32_t right_inset) {
     lv_obj_align(action, LV_ALIGN_TOP_RIGHT, -right_inset, STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT / 2);
     lv_obj_set_style_translate_y(action, lv_pct(-50), 0);
+#if defined(BOARD_TEMPOTEC_V1)
+    /* Refresh and other late-added actions must reserve their real header
+     * footprint just like actions passed to build_screen_header(). */
+    lv_obj_t * parent = lv_obj_get_parent(action);
+    for (uint32_t i = 0; i < lv_obj_get_child_count(parent); ++i) {
+        lv_obj_t * child = lv_obj_get_child(parent, i);
+        if (lv_obj_check_type(child, &lv_label_class) &&
+            lv_obj_has_flag(child, LV_OBJ_FLAG_USER_4) && !lv_obj_get_user_data(child))
+            reserve_title_width_before(child, action);
+    }
+#endif
 }
 
 /* Same glyph, accent color and font as the Remote Control PIN refresh icon,
@@ -827,12 +876,16 @@ lv_obj_t * build_header_refresh_action(lv_obj_t * scr, lv_event_cb_t click_cb) {
     /* Match the shared header controls' large touch target; keep the glyph
      * centered so this remains easy to hit on a small display. */
     lv_obj_t * button = build_header_icon_button(scr, NULL, LV_ALIGN_TOP_RIGHT, click_cb);
-    align_screen_header_action(button, 20);
+    align_screen_header_action(button, V1_SCALE_PX(20));
 
     const char * breeze = asset_path_plain("titlebar/breeze_refresh.png");
     if (breeze && access(breeze, R_OK) == 0) {
         lv_obj_t * image = lv_image_create(button);
         lv_image_set_src(image, text_glyph_asset("titlebar/breeze_refresh.png"));
+#if defined(BOARD_TEMPOTEC_V1)
+        lv_obj_set_size(image, BOARD_SCALE_PX(44), BOARD_SCALE_PX(44));
+        lv_image_set_inner_align(image, LV_IMAGE_ALIGN_CONTAIN);
+#endif
         lv_obj_align(image, LV_ALIGN_CENTER, 0, 0);
         lv_obj_remove_flag(image, LV_OBJ_FLAG_CLICKABLE);
         style_titlebar_breeze_icon(image);
@@ -882,7 +935,7 @@ lv_obj_t * build_top_right_icon_button(lv_obj_t * scr, const char * icon_asset, 
         lv_obj_t * child = lv_obj_get_child(scr, i);
         if (lv_obj_check_type(child, &lv_label_class) &&
             lv_obj_has_flag(child, LV_OBJ_FLAG_USER_4) && !lv_obj_get_user_data(child)) {
-            lv_obj_set_width(child, screen_builders_active_display_width() - 76 - HEADER_BUTTON_WIDTH - 12);
+            lv_obj_set_width(child, screen_builders_active_display_width() - V1_SCALE_PX(76) - HEADER_BUTTON_WIDTH - V1_SCALE_PX(12));
             screen_title_fit(child);
         }
     }
@@ -896,8 +949,8 @@ lv_obj_t * build_top_right_icon_button(lv_obj_t * scr, const char * icon_asset, 
  * left-aligned, marquee-capable title (build_group_songs_screen(),
  * build_subsonic_list_screen(), build_files_screen(), ...). Kept in sync by
  * hand -- if either changes, check the other. */
-#define BUILD_TITLE_LEFT_INSET 76
-#define BUILD_TITLE_RIGHT_MARGIN 20
+#define BUILD_TITLE_LEFT_INSET V1_SCALE_PX(76)
+#define BUILD_TITLE_RIGHT_MARGIN V1_SCALE_PX(20)
 
 
 /* Narrows an already left-aligned, auto-scrolling title label (see
@@ -921,8 +974,8 @@ void reserve_title_width_before(lv_obj_t * title, lv_obj_t * right_icon) {
     lv_area_t title_area, icon_area;
     lv_obj_get_coords(title, &title_area);
     lv_obj_get_coords(right_icon, &icon_area);
-    int32_t width = icon_area.x1 - title_area.x1 - 12;
-    if (width < 40) width = 40; /* never collapse to nothing/negative on a pathological layout */
+    int32_t width = icon_area.x1 - title_area.x1 - V1_SCALE_PX(12);
+    if (width < V1_SCALE_PX(40)) width = V1_SCALE_PX(40); /* never collapse to nothing/negative on a pathological layout */
     lv_obj_set_width(title, width);
     screen_title_fit(title);
 }
@@ -974,7 +1027,7 @@ lv_obj_t * build_screen_header(lv_obj_t * scr, const char * title, lv_event_cb_t
     if (trailing_asset) {
         build_top_right_icon_button(scr, trailing_asset, trailing_cb);
         if (label) {
-            lv_obj_set_width(label, screen_builders_active_display_width() - BUILD_TITLE_LEFT_INSET - HEADER_BUTTON_WIDTH - 12);
+            lv_obj_set_width(label, screen_builders_active_display_width() - BUILD_TITLE_LEFT_INSET - HEADER_BUTTON_WIDTH - V1_SCALE_PX(12));
             screen_title_fit(label);
         }
     }
@@ -1027,6 +1080,9 @@ lv_obj_t * build_icon_grid_screen(const char * title, lv_event_cb_t back_btn_cb,
     if (tile_gap < ICON_GRID_CARD_GAP) tile_gap = ICON_GRID_CARD_GAP;
 
     int32_t target_icon_px = (BOARD_SCALE_PX(ICON_GRID_TARGET_ICON_PX) * icon_scale_percent) / 100;
+#if defined(BOARD_TEMPOTEC_V1)
+    bool compact_home_grid = !title && !back_btn_cb;
+#endif
 
     lv_obj_t * scr = lv_obj_create(NULL);
     lv_obj_add_style(scr, &style_theme_screen_bg, 0);
@@ -1171,6 +1227,10 @@ lv_obj_t * build_icon_grid_screen(const char * title, lv_event_cb_t back_btn_cb,
         if (item->has_text_color) lv_obj_set_style_text_color(label, lv_color_hex(item->text_color), 0);
         /* Wrap label text within the tile width to prevent overflow into adjacent tiles. */
         lv_obj_set_width(label, lv_pct(100));
+#if defined(BOARD_TEMPOTEC_V1)
+        if (compact_home_grid) lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        else
+#endif
         lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
         lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
 
@@ -1212,13 +1272,19 @@ lv_obj_t * build_icon_grid_screen(const char * title, lv_event_cb_t back_btn_cb,
              * instead of pushing the overlap even further -- two lines
              * comfortably covers every real label this screen shows. */
             int32_t line_h = lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_BODY));
+#if defined(BOARD_TEMPOTEC_V1)
+            int32_t label_h = compact_home_grid ? line_h : line_h * 2;
+            int32_t label_gap = compact_home_grid ? BOARD_SCALE_PX(12) : ICON_GRID_ICON_LABEL_GAP;
+#else
             int32_t label_h = line_h * 2;
+            int32_t label_gap = ICON_GRID_ICON_LABEL_GAP;
+#endif
             lv_obj_set_height(label, label_h);
-            int32_t content_h = target_icon_h + ICON_GRID_ICON_LABEL_GAP + label_h;
+            int32_t content_h = target_icon_h + label_gap + label_h;
             int32_t top_offset = (available_h - content_h) / 2;
             if (top_offset < 0) top_offset = 0;
             lv_obj_align(img_wrap, LV_ALIGN_TOP_MID, 0, top_offset);
-            lv_obj_align(label, LV_ALIGN_TOP_MID, 0, top_offset + target_icon_h + ICON_GRID_ICON_LABEL_GAP);
+            lv_obj_align(label, LV_ALIGN_TOP_MID, 0, top_offset + target_icon_h + label_gap);
         }
 
         /* A card already sets its icon apart; the glow only muddies it. */
@@ -2030,8 +2096,19 @@ lv_obj_t * add_section_header(lv_obj_t * parent, const char * text) {
     lv_label_set_text(label, text);
     lv_obj_add_style(label, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+#if defined(BOARD_TEMPOTEC_V1)
+    /* Section captions can be longer than the entire narrow display. Give
+     * them the list's content width so LVGL wraps instead of centering a
+     * source-sized label beyond both edges of the viewport. */
+    lv_obj_set_width(label, lv_pct(100));
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_pad_top(label, BOARD_SCALE_PX(12), 0);
+    lv_obj_set_style_pad_left(label, BOARD_SCALE_PX(24), 0);
+    lv_obj_set_style_pad_right(label, BOARD_SCALE_PX(24), 0);
+#else
     lv_obj_set_style_pad_top(label, 12, 0);
     lv_obj_set_style_pad_left(label, 24, 0);
+#endif
     return label;
 }
 
@@ -2656,6 +2733,36 @@ lv_obj_t * build_font_change_mask(int target) {
     lv_obj_move_foreground(mask);
     lv_obj_invalidate(mask);
     return mask;
+}
+
+int32_t ui_row_label_width(lv_obj_t * row, int32_t row_w, int32_t label_x, int32_t right_space) {
+    const int32_t border = lv_obj_get_style_border_width(row, LV_PART_MAIN);
+    const int32_t pad_left = lv_obj_get_style_pad_left(row, LV_PART_MAIN);
+    return row_w - (border + pad_left) - label_x - right_space;
+}
+
+/* Measured on the label's own (shaped) text, as drawn. */
+bool ui_row_fit_label(lv_obj_t * row, lv_obj_t * label, const lv_font_t * font,
+                      int32_t row_w, int32_t label_x, int32_t label_w) {
+    const int32_t row_h = ui_list_row_height();
+    const int32_t line_h = lv_font_get_line_height(font);
+    lv_point_t text_size;
+    lv_text_get_size(&text_size, lv_label_get_text(label), font, 0, 0, label_w, LV_TEXT_FLAG_NONE);
+    const bool tall = text_size.y > line_h;
+    lv_label_set_long_mode(label, tall ? LV_LABEL_LONG_WRAP : LV_LABEL_LONG_DOT);
+    if (!tall) {
+        lv_obj_set_size(row, row_w, row_h);
+        lv_obj_align(label, LV_ALIGN_LEFT_MID, label_x, 0);
+        return false;
+    }
+    /* Symmetric padding keeps the text off the card borders and puts its
+     * first line where a one-line row centres it. */
+    const int32_t border = lv_obj_get_style_border_width(row, LV_PART_MAIN);
+    lv_obj_set_size(row, row_w, LV_SIZE_CONTENT);
+    lv_obj_set_style_min_height(row, row_h, 0);
+    lv_obj_set_style_pad_ver(row, (row_h - line_h) / 2 - border, 0);
+    lv_obj_align(label, LV_ALIGN_TOP_LEFT, label_x, 0);
+    return true;
 }
 
 /* Native wide rows shared by saved playlists and CUE tracks. */

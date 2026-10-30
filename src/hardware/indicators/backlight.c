@@ -183,6 +183,9 @@ static bool brightness_worker_pending = false;
  * the screen is already on) doesn't re-blank or re-unblank redundantly. */
 static bool fb_blanked = false;
 static bool fb_blank_known;
+/* Set by backlight_resync_after_external_session(), consumed by the worker
+ * (which owns fb_blank_known) before it applies the screen state. */
+static bool fb_blank_resync_requested;
 
 static bool write_fb_blank(bool blank) {
     if (fb_blank_known && blank == fb_blanked) return true;
@@ -201,7 +204,10 @@ static void apply_requested_brightness(void) {
     uint64_t generation = screen_power_generation;
     int normal = restore_percent;
     int target = screen_dimmed && normal > 5 ? 5 : normal;
+    bool resync = fb_blank_resync_requested;
+    fb_blank_resync_requested = false;
     pthread_mutex_unlock(&screen_power_mutex);
+    if (resync) fb_blank_known = false;
     if (preparing) {
         /* A blanked panel rejects page flips. Unblank with the PWM truly off
          * so the GUI can present its selected wake surface before revealing it. */
@@ -331,6 +337,20 @@ void backlight_prepare_screen_on(void) {
     screen_visible = false;
     screen_prepared = false;
     screen_power_generation++;
+    pthread_mutex_unlock(&screen_power_mutex);
+    request_brightness_apply();
+}
+
+void backlight_resync_after_external_session(void) {
+    /* The session may have blanked the panel or written the PWM itself, so
+     * neither cached value says what the hardware holds. Forget both; the
+     * worker then rewrites the current screen state instead of skipping it
+     * as unchanged. */
+    pthread_mutex_lock(&backlight_io_mutex);
+    last_written_raw = -1;
+    pthread_mutex_unlock(&backlight_io_mutex);
+    pthread_mutex_lock(&screen_power_mutex);
+    fb_blank_resync_requested = true;
     pthread_mutex_unlock(&screen_power_mutex);
     request_brightness_apply();
 }

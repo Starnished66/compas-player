@@ -23,7 +23,7 @@
 
 /* Persistent diagnostic log written to .logs/usb_dac_bridge.log on the SD card
  * and mirrored to stderr, gated by the shared developer options toggle
- * (Settings -> About -> Developer Options -> "Enable database logging").
+ * (Settings -> System -> Developer Options -> "Enable database logging").
  * Flushed and fsync()'d after every line -- not just fflush(), which only
  * reaches the kernel page cache -- so evidence actually reaches the SD card
  * before an unrecoverable hang or hard reboot, and rotated to .log.1 past

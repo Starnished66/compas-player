@@ -4,6 +4,12 @@
 #include "../../player/screen/gui_lyrics.h"
 #include "../../widgets/builders/screen_builders.h"
 #include "../../application/gui.h"
+#ifdef UI_PERF_TRACE
+#include "../../diagnostics/ui_draw_trace.h"
+#define TRACE_UNWRAP_FONT(f) ui_draw_trace_unwrap_font(f)
+#else
+#define TRACE_UNWRAP_FONT(f) ((void) 0)
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,6 +36,9 @@ lv_font_t app_font_lyrics;
 #elif BOARD_SCREEN_HEIGHT >= 720
   #define PLAYER_TITLE_FONT_PX 24
   #define PLAYER_META_FONT_PX  18
+#elif BOARD_COMPACT_UI
+  #define PLAYER_TITLE_FONT_PX 16
+  #define PLAYER_META_FONT_PX  16
 #else
   #define PLAYER_TITLE_FONT_PX 16
   #define PLAYER_META_FONT_PX  16
@@ -138,7 +147,7 @@ typedef struct {
  * geometry scales those references to its physical panel; Montserrat is
  * compiled only at even sizes, so round upward after scaling. */
 static int board_font_px(int reference_px) {
-#if defined(BOARD_R3II_2025)
+#if BOARD_COMPACT_UI
     int scaled_px = BOARD_SCALE_PX(reference_px);
     int compiled_px = ((scaled_px + 1) / 2) * 2;
     return compiled_px < 12 ? 12 : compiled_px;
@@ -330,6 +339,9 @@ static lv_font_t * load_face_from_file(face_source_type_t type, int pixel_size, 
             DBG_LOG("fallback_font: failed loading custom face (in-memory) at %d px\n", pixel_size);
             return NULL;
         }
+#ifdef UI_PERF_TRACE
+        ui_draw_trace_wrap_font(font);
+#endif
         return font;
     }
 
@@ -348,6 +360,9 @@ static lv_font_t * load_face_from_file(face_source_type_t type, int pixel_size, 
         DBG_LOG("fallback_font: failed loading face type=%d size=%d from %s\n", (int)type, pixel_size, filepath);
         return NULL;
     }
+#ifdef UI_PERF_TRACE
+    ui_draw_trace_wrap_font(font);
+#endif
     return font;
 }
 
@@ -543,7 +558,7 @@ static void destroy_new_candidate_faces(face_table_t * tbl) {
                 break;
             }
         }
-        if (!active && font) lv_tiny_ttf_destroy(font);
+        if (!active && font) { TRACE_UNWRAP_FONT(font); lv_tiny_ttf_destroy(font); }
     }
 }
 
@@ -551,6 +566,7 @@ static void destroy_obsolete_faces(const face_table_t * candidate) {
     for (int j = 0; j < s_loaded_face_count; j++) {
         lv_font_t * old_font = s_loaded_faces[j].font;
         if (old_font && !face_table_contains_font(candidate, old_font)) {
+            TRACE_UNWRAP_FONT(old_font);
             lv_tiny_ttf_destroy(old_font);
         }
     }
@@ -628,7 +644,7 @@ bool fallback_font_apply_size_tier(int tier) {
 
     for (int i = 0; i < s_loaded_face_count; i++) {
         lv_font_t * old = s_loaded_faces[i].font;
-        if (old && !face_table_contains_font(&candidate, old)) lv_tiny_ttf_destroy(old);
+        if (old && !face_table_contains_font(&candidate, old)) { TRACE_UNWRAP_FONT(old); lv_tiny_ttf_destroy(old); }
     }
 
     app_font_16 = cand_16;

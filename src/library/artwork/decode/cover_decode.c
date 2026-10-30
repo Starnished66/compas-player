@@ -25,6 +25,7 @@
 #include <setjmp.h>
 
 #include "../coordinator/artwork_coordinator.h"
+#include "../albumart/albumart.h"
 #include "../../../core/system/logging/debug_log.h"
 
 static bool rgb888_size_ok(size_t width, size_t height, size_t max_side, size_t * out_bytes) {
@@ -1211,7 +1212,7 @@ cover_decode_result_t cover_decode_to_rgb565_ex(const uint8_t * data, uint32_t s
     if (!data || size < 8 || target_w <= 0 || target_h <= 0) return COVER_DECODE_FAIL_UNSUPPORTED;
     if (cancel_cb && cancel_cb(user_data)) return COVER_DECODE_FAIL_CANCELLED;
 
-    size_t max_side = (target_w <= 72 && target_h <= 72) ? MAX_THUMBNAIL_COVER_SIDE : MAX_PLAYER_COVER_SIDE;
+    size_t max_side = (target_w <= ALBUMART_THUMBNAIL_SIZE && target_h <= ALBUMART_THUMBNAIL_SIZE) ? MAX_THUMBNAIL_COVER_SIDE : MAX_PLAYER_COVER_SIDE;
 
     /* 1. Inspect dimensions before allocating any native buffer */
     int native_w = 0, native_h = 0;
@@ -1432,7 +1433,7 @@ cover_decode_result_t cover_decode_to_rgb565_ex(const uint8_t * data, uint32_t s
 
 bool cover_decode_to_rgb565(const uint8_t * data, uint32_t size, int target_w, int target_h,
                             uint16_t ** out_pixels) {
-    artwork_priority_t prio = (target_w <= 72 && target_h <= 72) ? ARTWORK_PRIO_THUMBNAIL : ARTWORK_PRIO_PLAYER;
+    artwork_priority_t prio = (target_w <= ALBUMART_THUMBNAIL_SIZE && target_h <= ALBUMART_THUMBNAIL_SIZE) ? ARTWORK_PRIO_THUMBNAIL : ARTWORK_PRIO_PLAYER;
     cover_decode_result_t res = cover_decode_to_rgb565_ex(data, size, target_w, target_h,
                                                           prio, NULL, NULL, out_pixels);
     return (res == COVER_DECODE_OK);

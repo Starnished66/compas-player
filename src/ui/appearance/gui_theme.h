@@ -18,8 +18,8 @@
 #define GUI_COLOR_SECONDARY 0xA1A9B1
 #define GUI_COLOR_BORDER 0x535659
 #define GUI_ROW_GAP BOARD_SCALE_PX(8)
-/* List rows are cards inset this far from each screen edge (as Home's). */
-#define GUI_LIST_SIDE_MARGIN BOARD_SCALE_PX(16)
+/* List rows are cards inset this far from each screen edge. */
+#define GUI_LIST_SIDE_MARGIN BOARD_SCALE_PX(10)
 #define GUI_TEXT_INSET BOARD_SCALE_PX(24)
 #define GUI_ROW_HEIGHT BOARD_SCALE_PX(96)
 /* Compatibility names for call sites that need to express row content, not
