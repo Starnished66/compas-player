@@ -1950,6 +1950,41 @@ static void handle_playlist_songs_request(int cfd, const char * path) {
  * response parsing does the same). */
 #define REQUEST_LINE_MAX 4096
 #define REQUEST_HEADERS_MAX 4096
+#define REQUEST_HEADERS_DEADLINE_SECONDS 10
+#define REQUEST_READ_IDLE_TIMEOUT_MS 2000
+
+/* Bound the complete pre-authentication request line and header read while
+ * retaining the per-read idle timeout for slow or fragmented stream links. */
+static bool request_headers_deadline(struct timespec * deadline) {
+    if (!deadline || clock_gettime(CLOCK_MONOTONIC, deadline) != 0) return false;
+    deadline->tv_sec += REQUEST_HEADERS_DEADLINE_SECONDS;
+    return true;
+}
+
+/* 1 means readable, 0 means the idle or total deadline expired, -1 means an
+ * I/O or monotonic-clock error. Recompute after EINTR so signals cannot reset
+ * the shared absolute deadline. */
+static int request_wait_readable(int fd, const struct timespec * deadline) {
+    for (;;) {
+        struct timespec now;
+        if (!deadline || clock_gettime(CLOCK_MONOTONIC, &now) != 0) return -1;
+        time_t seconds = deadline->tv_sec - now.tv_sec;
+        long nanoseconds = deadline->tv_nsec - now.tv_nsec;
+        if (nanoseconds < 0) { seconds--; nanoseconds += 1000000000L; }
+        if (seconds < 0 || (seconds == 0 && nanoseconds <= 0)) return 0;
+
+        long long remaining_ms = (long long) seconds * 1000LL +
+                                 (nanoseconds + 999999L) / 1000000L;
+        int timeout_ms = remaining_ms < REQUEST_READ_IDLE_TIMEOUT_MS
+                       ? (int) remaining_ms : REQUEST_READ_IDLE_TIMEOUT_MS;
+        struct pollfd pfd = { .fd = fd, .events = POLLIN, .revents = 0 };
+        int ready = poll(&pfd, 1, timeout_ms);
+        if (ready < 0 && errno == EINTR) continue;
+        if (ready < 0) return -1;
+        if (ready == 0) return 0;
+        return 1;
+    }
+}
 
 /* ---- Remote Control v1 extensions: folders, recently played, favorites,
  * queue move/play, and playlist management. Each family reports errors as
@@ -2897,6 +2932,8 @@ static bool handle_collection_sort_route(int fd, const char *method, const char 
 }
 
 static void handle_connection(int cfd) {
+    struct timespec preauth_deadline;
+    if (!request_headers_deadline(&preauth_deadline)) return;
     if (!remote_control_ensure_pin()) {
         send_response(cfd, "503 Service Unavailable", "text/plain", "PIN generation unavailable");
         return;
@@ -2905,13 +2942,11 @@ static void handle_connection(int cfd) {
     size_t n = 0;
     bool line_complete = false;
     /* Stream transports (including RFCOMM) may deliver the request line in
-     * several reads. Read through LF, bounded by REQUEST_LINE_MAX and an idle
-     * timeout. */
+     * several reads. Read through LF, bounded by REQUEST_LINE_MAX, an idle
+     * timeout, and one deadline shared with the header read. */
     while (n + 1 < sizeof(buf)) {
-        struct pollfd pfd = { .fd = cfd, .events = POLLIN, .revents = 0 };
-        int ready = poll(&pfd, 1, 2000);
+        int ready = request_wait_readable(cfd, &preauth_deadline);
         if (ready <= 0) {
-            if (ready < 0 && errno == EINTR) continue;
             if (ready == 0) send_response(cfd, "408 Request Timeout", "text/plain", "Request Timeout");
             return;
         }
@@ -2946,10 +2981,8 @@ static void handle_connection(int cfd) {
     char header_line[512];
     size_t header_line_len = 0;
     while (header_bytes < REQUEST_HEADERS_MAX) {
-        struct pollfd pfd = { .fd = cfd, .events = POLLIN, .revents = 0 };
-        int ready = poll(&pfd, 1, 2000);
+        int ready = request_wait_readable(cfd, &preauth_deadline);
         if (ready <= 0) {
-            if (ready < 0 && errno == EINTR) continue;
             send_response(cfd, ready == 0 ? "408 Request Timeout" : "400 Bad Request",
                           "text/plain", ready == 0 ? "Request Timeout" : "Bad Request");
             return;
