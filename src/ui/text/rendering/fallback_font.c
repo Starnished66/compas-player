@@ -1201,6 +1201,10 @@ const lv_font_t * fallback_font_ui_12(void) {
     return fallback_font_fixed(12);
 }
 
+bool fallback_font_is_loaded(void) {
+    return s_fallback_loaded;
+}
+
 void fallback_font_load_now(void) {
     s_fallback_loaded = true;
     for (int i = 0; i < FIXED_FONT_COUNT; i++) fixed_font_build_chain(i);

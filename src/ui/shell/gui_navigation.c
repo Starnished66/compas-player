@@ -1,4 +1,5 @@
 #include "gui_navigation.h"
+#include "../text/rendering/fallback_font.h"
 #include "../settings/setup/gui_setup.h"
 #include "../application/gui.h"
 #include "../appearance/gui_theme.h"
@@ -396,7 +397,9 @@ void register_static_snapshot(int index, lv_obj_t * scr) {
      * leaks the previous lv_draw_buf_t. */
     if (static_snapshot_buf[index]) destroy_prefetchable_snapshot(static_snapshot_buf[index]);
     static_snapshot_screen[index] = scr;
-    static_snapshot_buf[index] = static_snapshot_wanted(index) ? snapshot_screen_base(scr) : NULL;
+    /* Startup rebuilds these after multilingual fonts load. */
+    static_snapshot_buf[index] = fallback_font_is_loaded() && static_snapshot_wanted(index)
+        ? snapshot_screen_base(scr) : NULL;
     static_snapshot_scroll_state[index] = static_snapshot_scroll_state_for(scr);
     if (static_snapshot_buf[index]) back_target_cache_drop_if_static(scr);
 }

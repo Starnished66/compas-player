@@ -34,6 +34,7 @@
 #include "../core/ui/display/ui_wake.h"
 #include "../ui/text/fonts/ui_fonts.h"
 #include "../ui/text/rendering/fallback_font.h"
+#include "../ui/shell/gui_navigation.h"
 #include <fcntl.h>
 
 #ifdef HOST_BUILD
@@ -844,6 +845,9 @@ int main(int argc, char ** argv) {
     boot_checkpoint("startup fallback fonts begin");
 #endif
     fallback_font_load_now();
+    /* Startup snapshots precede fallback loading. Rebuild them so transitions
+     * use the same multilingual fonts as the live screens. */
+    gui_navigation_invalidate_font_snapshots();
 #ifndef HOST_BUILD
     boot_checkpoint("startup fallback fonts done");
 #endif

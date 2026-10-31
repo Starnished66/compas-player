@@ -7,6 +7,7 @@
 #include "../../shell/gui_navigation.h"
 #include "../../appearance/gui_theme.h"
 #include "../../text/i18n/i18n.h"
+#include "../../text/rendering/fallback_font.h"
 #include "../../assets/assets.h"
 #include "../../../audio/effects/peq.h"
 #include <math.h>
@@ -769,6 +770,11 @@ static void populate_eq_profiles_screen(void) {
         lv_label_set_text(label, TR("No saved profiles"));
         lv_obj_add_style(label, &style_theme_text_muted, 0);
         lv_obj_set_style_pad_left(label, 24, 0);
+        /* Preserve the default 16 px primary face and add multilingual fallback.
+         * Constrain long translations to the list content width. */
+        lv_obj_set_style_text_font(label, fallback_font_fixed(16), 0);
+        lv_obj_set_width(label, LV_PCT(100));
+        lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
         if (!eq_profiles_edit_mode && !eq_profiles_replace_mode &&
             eq_profiles_download_available())
             add_pill_chevron_row(eq_profiles_list, TR("Download profiles"), eq_profiles_download_cb);

@@ -39,6 +39,8 @@ void fallback_font_init_early(int font_size_tier, int lyrics_font_size_tier);
 
 /* Completes the fallback chain after startup screens are built; also used for live switch. */
 void fallback_font_load_now(void);
+/* True once startup multilingual font loading has begun on the UI thread. */
+bool fallback_font_is_loaded(void);
 
 /* Transactionally rebuilds only the four general-UI font handles for a
  * Settings -> Display -> Font Size tier.  The active custom face and, once

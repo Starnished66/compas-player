@@ -1,5 +1,6 @@
 #include "gui_notifications.h"
 #include "../text/rendering/ui_label_text.h"
+#include "../text/rendering/fallback_font.h"
 #include "gui_navigation.h"
 #include "../appearance/gui_theme.h"
 #include "../application/gui.h"
@@ -148,6 +149,9 @@ gui_busy_handle_t gui_busy_show(const char * title, const char * msg) {
 
         gui_busy_label = lv_label_create(GUI_BUSY_PARENT);
         lv_obj_add_style(gui_busy_label, &style_theme_text_primary, 0);
+        /* The color-only theme style leaves the default bitmap font in place.
+         * Add multilingual fallback while preserving its 16 px primary face. */
+        lv_obj_set_style_text_font(gui_busy_label, fallback_font_fixed(16), 0);
         lv_obj_set_width(gui_busy_label, LV_PCT(90));
         lv_label_set_long_mode(gui_busy_label, LV_LABEL_LONG_WRAP);
         lv_obj_set_style_text_align(gui_busy_label, LV_TEXT_ALIGN_CENTER, 0);
