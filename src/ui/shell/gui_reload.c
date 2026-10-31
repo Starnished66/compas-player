@@ -111,8 +111,10 @@
 #include "../../plugins/manager/plugin_manager.h"
 #include "../plugins/manage/gui_plugin_manage.h"
 #include "../plugins/manage/gui_plugin_store.h"
+#include "../settings/setup/gui_setup_plugins.h"
 #include "../settings/lock/gui_lock_screen.h"
 #include "../appearance/gui_themes.h"
+#include "../../network/store/plugins/plugin_store.h"
 #include "../../core/system/logging/db_log.h"
 
 /* Diagnostic logging for UI reload steps. Append-only with fsync per line
@@ -319,6 +321,13 @@ static uint32_t last_reload_tick = 0;
 
 static void reload_trigger_cb(lv_timer_t * timer) {
     if (gui_navigation_transition_in_progress()) return;
+    /* Native store/setup workers can update plugin files while the UI is
+     * being rebuilt. Defer both layout-only and full reloads until their
+     * ownership ends; keep this timer and the coalesced request intact. */
+    if (plugin_store_busy() || gui_setup_plugins_busy()) {
+        lv_timer_set_period(timer, RELOAD_BUSY_RETRY_MS);
+        return;
+    }
     if (reload_preserve_artwork) {
         /* Layout changes replace only the Player tree. Leave navigation,
          * plugin Lua states, audio/DSP and every other screen alive. Keep
@@ -392,6 +401,10 @@ static bool gui_reload_schedule(bool preserve_artwork) {
 
 bool gui_reload_in_progress(void) {
     return reload_in_progress;
+}
+
+bool gui_reload_pending(void) {
+    return reload_scheduled || reload_in_progress;
 }
 
 void gui_reload_request(void) {

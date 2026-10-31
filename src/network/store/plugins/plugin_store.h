@@ -76,6 +76,8 @@ typedef struct {
     int percent;
     size_t result_count;
     bool changed;
+    /* Sticky until plugin_store_reset() runs after a full UI teardown. */
+    bool refresh_required;
     char current_plugin[65];
     char error[160];
 } plugin_store_status_t;
@@ -121,6 +123,18 @@ void plugin_store_classify_loaders(const char * const * filenames, bool * layout
 /* Requests visible/nearby IDs; offscreen previews may be evicted. */
 bool plugin_store_prepare_previews(const char * const * ids, size_t count);
 bool plugin_store_get_preview(const char * id, char * out, size_t size);
+/* Returns the hash-verified JPEG source (not the LVGL RGB565 thumbnail). */
+bool plugin_store_get_preview_jpeg(const char * id, char * out, size_t size);
+typedef enum {
+    PLUGIN_STORE_PREVIEW_UNKNOWN,
+    PLUGIN_STORE_PREVIEW_NONE,
+    PLUGIN_STORE_PREVIEW_READY,
+    PLUGIN_STORE_PREVIEW_PENDING,
+    PLUGIN_STORE_PREVIEW_STARTABLE,
+    PLUGIN_STORE_PREVIEW_FAILED
+} plugin_store_preview_state_t;
+/* Bounded status only: never exposes an asset URL or cache path. */
+plugin_store_preview_state_t plugin_store_preview_state(const char * id);
 uint64_t plugin_store_preview_generation(void);
 /* Stop pending preview transfers when the layout browser is left. */
 void plugin_store_cancel_previews(void);

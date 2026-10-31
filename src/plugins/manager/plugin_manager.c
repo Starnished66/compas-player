@@ -6379,6 +6379,35 @@ const char * plugin_manager_get_settings_list_item_label(int index) { return gen
 void plugin_manager_settings_list_item_clicked(int index) { generic_list_item_clicked(PLUGIN_LIST_TARGET_SETTINGS, index); }
 void plugin_manager_get_settings_list_item_options(int index, const char ** out_icon, int32_t * out_height, int32_t * out_width, const char ** out_text_size) { generic_list_item_options(PLUGIN_LIST_TARGET_SETTINGS, index, out_icon, out_height, out_width, out_text_size); }
 
+static bool settings_item_matches_file(const plugin_list_item_t * item, const char * filename) {
+    if (!item || !filename || !filename[0] || !item->L || item->open_ref == LUA_NOREF || item->open_ref == LUA_REFNIL)
+        return false;
+    plugin_instance_t * owner = plugin_instance_for_state(item->L);
+    return owner && owner->defined && !owner->disposing && !owner->aborted &&
+           strcmp(owner->filename, filename) == 0;
+}
+
+bool plugin_manager_file_has_settings(const char * filename) {
+    int count = plugin_manager_get_settings_list_item_count();
+    for (int i = 0; i < count; i++) {
+        if (settings_item_matches_file(&plugin_list_items[PLUGIN_LIST_TARGET_SETTINGS][i], filename)) return true;
+    }
+    return false;
+}
+
+bool plugin_manager_open_file_settings(const char * filename) {
+    int count = plugin_manager_get_settings_list_item_count();
+    for (int i = 0; i < count; i++) {
+        if (!settings_item_matches_file(&plugin_list_items[PLUGIN_LIST_TARGET_SETTINGS][i], filename)) continue;
+        /* Keep the normal settings-row dispatch, which applies the user-action
+         * call budget and Lua error handling. Registration order selects the
+         * plugin's primary settings entry when it registered several. */
+        generic_list_item_clicked(PLUGIN_LIST_TARGET_SETTINGS, i);
+        return true;
+    }
+    return false;
+}
+
 int plugin_manager_get_display_list_item_count(void) { return generic_list_item_count(PLUGIN_LIST_TARGET_DISPLAY); }
 const char * plugin_manager_get_display_list_item_label(int index) { return generic_list_item_label(PLUGIN_LIST_TARGET_DISPLAY, index); }
 void plugin_manager_display_list_item_clicked(int index) { generic_list_item_clicked(PLUGIN_LIST_TARGET_DISPLAY, index); }

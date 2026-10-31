@@ -738,6 +738,7 @@ APP_SRCS += src/ui/settings/input/gui_button_mapping.c src/ui/settings/controls/
 APP_SRCS += src/ui/player/lyrics/player_inline_lyrics.c src/library/artwork/decode/library_album_art_decode.c src/library/artwork/decode/library_artist_art.c src/plugins/bindings/ui/plugin_info_bindings.c src/plugins/bindings/library/plugin_library_bindings.c
 APP_SRCS += src/library/artwork/albumart/albumart_info.c
 APP_SRCS += src/core/persistence/settings_registry.c src/core/persistence/settings_reg_audio.c src/core/persistence/settings_reg_device.c
+APP_SRCS += src/network/remote/control/remote_plugins.c src/network/remote/control/remote_plugin_store.c src/ui/plugins/manage/gui_remote_plugins.c src/ui/plugins/manage/gui_remote_plugin_images.c
 APP_SRCS += src/network/remote/control/remote_settings.c src/network/remote/control/remote_settings_json.c src/ui/settings/controls/gui_remote_settings.c
 APP_SRCS += src/ui/settings/power/gui_power_hub.c src/ui/player/transport/player_seek_input.c src/plugins/bindings/audio/plugin_equalizer_bindings.c
 APP_SRCS += src/plugins/bindings/io/plugin_http_bindings.c src/plugins/lua/plugin_lua_runtime.c

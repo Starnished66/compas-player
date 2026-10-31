@@ -256,7 +256,13 @@ static lv_obj_t * quick_drawer_toggle_name[9 + PLUGIN_MAX_QUICK_TOGGLES];
 /* 231, not 219: row 1's state caption ends at ~219, so the old value butted
  * row 2 straight against it with no gap at all. */
 /* The now-playing card. Its cover frame fills it, so both read these. */
-#define QUICK_DRAWER_CARD_W BOARD_SCALE_PX(413)
+#define QUICK_DRAWER_PANEL_X BOARD_SCALE_PX(19)
+#define QUICK_DRAWER_PANEL_Y BOARD_SCALE_PY(59)
+#define QUICK_DRAWER_PANEL_W BOARD_SCALE_PX(442)
+#define QUICK_DRAWER_PANEL_H BOARD_SCALE_PY(726)
+/* Share one physical inset on all three edges, including after board scaling. */
+#define QUICK_DRAWER_CARD_INSET (BOARD_SCALE_PX(34) - QUICK_DRAWER_PANEL_X)
+#define QUICK_DRAWER_CARD_W (QUICK_DRAWER_PANEL_W - 2 * QUICK_DRAWER_CARD_INSET)
 
 /* Keep four predictable columns at every board size. V1 uses 48px cells
  * with 16px native gutters; the wider boards retain the measured positions
@@ -5868,11 +5874,11 @@ static void build_quick_drawer(void) {
      * coordinate remains explicit and stable across theme revisions. */
     lv_obj_t * drawer_panel = lv_obj_create(quick_drawer);
     lv_obj_remove_style_all(drawer_panel);
-    lv_obj_set_pos(drawer_panel, BOARD_SCALE_PX(19), BOARD_SCALE_PY(59));
+    lv_obj_set_pos(drawer_panel, QUICK_DRAWER_PANEL_X, QUICK_DRAWER_PANEL_Y);
     /* 726, not 683: the panel used to stop at y=742 on an 800px screen and
      * leave 58px of dead space below it. Ends at 785 now, keeping the same
      * ~15px bottom margin the sides already use. */
-    lv_obj_set_size(drawer_panel, BOARD_SCALE_PX(442), BOARD_SCALE_PY(726));
+    lv_obj_set_size(drawer_panel, QUICK_DRAWER_PANEL_W, QUICK_DRAWER_PANEL_H);
     lv_obj_add_style(drawer_panel, &shell_drawer_panel_style, 0);
     lv_obj_set_style_radius(drawer_panel, BOARD_SCALE_PX(30), 0);
     lv_obj_remove_flag(drawer_panel, LV_OBJ_FLAG_SCROLLABLE);
@@ -5923,10 +5929,10 @@ static void build_quick_drawer(void) {
     lv_obj_remove_style_all(brightness_container);
 #if defined(BOARD_TEMPOTEC_V1)
     lv_obj_set_pos(brightness_container, BOARD_SCALE_PX(34), BOARD_SCALE_PY(285));
-    lv_obj_set_size(brightness_container, BOARD_SCALE_PX(413), BOARD_SCALE_PY(55));
+    lv_obj_set_size(brightness_container, QUICK_DRAWER_CARD_W, BOARD_SCALE_PY(55));
 #else
     lv_obj_set_pos(brightness_container, BOARD_SCALE_PX(34), BOARD_SCALE_PY(238));
-    lv_obj_set_size(brightness_container, BOARD_SCALE_PX(413), BOARD_SCALE_PY(72));
+    lv_obj_set_size(brightness_container, QUICK_DRAWER_CARD_W, BOARD_SCALE_PY(72));
 #endif
     lv_obj_add_style(brightness_container, &shell_drawer_row_style, 0);
     lv_obj_set_style_bg_opa(brightness_container, LV_OPA_COVER, 0);
@@ -5936,10 +5942,10 @@ static void build_quick_drawer(void) {
     lv_obj_remove_style_all(quick_drawer_volume_container);
 #if defined(BOARD_TEMPOTEC_V1)
     lv_obj_set_pos(quick_drawer_volume_container, BOARD_SCALE_PX(34), BOARD_SCALE_PY(370));
-    lv_obj_set_size(quick_drawer_volume_container, BOARD_SCALE_PX(413), BOARD_SCALE_PY(55));
+    lv_obj_set_size(quick_drawer_volume_container, QUICK_DRAWER_CARD_W, BOARD_SCALE_PY(55));
 #else
     lv_obj_set_pos(quick_drawer_volume_container, BOARD_SCALE_PX(34), BOARD_SCALE_PY(325));
-    lv_obj_set_size(quick_drawer_volume_container, BOARD_SCALE_PX(413), BOARD_SCALE_PY(73));
+    lv_obj_set_size(quick_drawer_volume_container, QUICK_DRAWER_CARD_W, BOARD_SCALE_PY(73));
 #endif
     lv_obj_add_style(quick_drawer_volume_container, &shell_drawer_row_style, 0);
     lv_obj_set_style_bg_opa(quick_drawer_volume_container, LV_OPA_COVER, 0);
@@ -6470,14 +6476,11 @@ static void build_quick_drawer(void) {
     quick_drawer_card = lv_obj_create(quick_drawer);
     lv_obj_t * card = quick_drawer_card;
     lv_obj_remove_style_all(card);
-#if defined(BOARD_TEMPOTEC_V1)
-    lv_obj_set_pos(card, BOARD_SCALE_PX(34), BOARD_SCALE_PY(445));
-#else
-    lv_obj_set_pos(card, BOARD_SCALE_PX(34), BOARD_SCALE_PY(411));
-#endif
-    /* Grows downward into the space the taller panel just freed (441..765,
-     * 20px above the panel's new bottom edge). The cover/title/artist block
-     * at the top is untouched; the extra height goes to the transport row. */
+    /* Anchor to the gray panel rather than independently rounding a y
+     * coordinate: bottom, left and right must expose the same panel inset. */
+    lv_obj_set_pos(card, QUICK_DRAWER_PANEL_X + QUICK_DRAWER_CARD_INSET,
+                   QUICK_DRAWER_PANEL_Y + QUICK_DRAWER_PANEL_H -
+                   QUICK_DRAWER_CARD_INSET - QUICK_DRAWER_CARD_H);
     lv_obj_set_size(card, QUICK_DRAWER_CARD_W, QUICK_DRAWER_CARD_H);
     lv_obj_add_style(card, &shell_drawer_card_style, 0);
     lv_obj_set_style_radius(card, BOARD_SCALE_PX(24), 0);

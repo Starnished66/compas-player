@@ -307,6 +307,9 @@ void plugin_manager_get_music_list_item_options(int index, const char ** out_ico
 int plugin_manager_get_settings_list_item_count(void);
 const char * plugin_manager_get_settings_list_item_label(int index);
 void plugin_manager_settings_list_item_clicked(int index);
+/* True/open the first live settings list item registered by this exact file. */
+bool plugin_manager_file_has_settings(const char * filename);
+bool plugin_manager_open_file_settings(const char * filename);
 void plugin_manager_get_settings_list_item_options(int index, const char ** out_icon, int32_t * out_height,
                                                     int32_t * out_width, const char ** out_text_size);
 

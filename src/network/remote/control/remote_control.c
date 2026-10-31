@@ -40,6 +40,7 @@
 #include <time.h>
 #include <unistd.h>
 #include "remote_settings.h"
+#include "remote_plugins.h"
 #include "../../../core/persistence/settings_registry.h"
 
 /* Port 8899 -- shared by the PIN-protected remote and native file API. */
@@ -894,7 +895,7 @@ static void build_status_json(char * out, size_t out_size) {
              "{\"playing\":%s,\"paused\":%s,\"title\":\"%s\",\"artist\":\"%s\",\"album\":\"%s\","
              "\"position_seconds\":%d,\"duration_seconds\":%d,\"volume\":%.2f,\"play_mode\":%d,"
              "\"codec\":\"%s\",\"source_bit_depth\":%u,\"source_sample_rate\":%u,"
-             "\"catalog_revision\":%s,"
+             "\"catalog_revision\":%s,\"features\":{\"plugin_store\":true,\"plugin_management\":true,\"player_layouts\":true},"
              "\"bluetooth_audio_output\":%s,\"favorite\":%s,\"accent_color\":%s,"
              "\"device_model\":\"%s\",\"player_version\":\"%s\",\"settingsRevision\":%u,\"settingsEpoch\":%u,"
              "\"sort_modes\":[%d,%d,%d],\"collection_job\":{\"id\":%u,\"state\":\"%s\",\"error\":\"%s\"}}",
@@ -2929,10 +2930,8 @@ static void handle_connection(int cfd) {
     }
     buf[n] = '\0';
 
-    /* Consume the headers before replying. Leaving them unread when closing a
-     * TCP socket can reset the connection and discard the response. This API
-     * has no request-body endpoints, so only the bounded header section is
-     * consumed. Accept CRLF or LF line endings. */
+    /* Consume bounded headers before dispatch. Body-owning routes read their
+     * payload afterward. Accept CRLF or LF line endings. */
     size_t header_bytes = 0;
     bool headers_complete = false;
     char pin_header[REMOTE_CONTROL_PIN_MAX_LENGTH + 1] = {0};
@@ -2940,10 +2939,10 @@ static void handle_connection(int cfd) {
     bool pin_header_invalid = false;
     char cookie_pin[REMOTE_CONTROL_PIN_MAX_LENGTH + 1] = {0};
     bool cookie_pin_seen = false;
-    long long content_length = -1; /* only POST /playlists/import reads a body */
+    long long content_length = -1; /* absent until a valid header is read */
     bool content_length_invalid = false;
     bool transfer_encoding_seen = false;
-    bool json_content_type = false; /* settings writes only */
+    bool json_content_type = false; /* JSON settings and plugin/layout writes */
     char header_line[512];
     size_t header_line_len = 0;
     while (header_bytes < REQUEST_HEADERS_MAX) {
@@ -3041,7 +3040,7 @@ static void handle_connection(int cfd) {
     bool api_v1 = strncmp(path_only, "/api/v1/", sizeof("/api/v1/") - 1) == 0;
     if (api_v1) {
         if (strcmp(path_only, "/api/v1/capabilities") == 0 && strcmp(method, "GET") == 0) {
-            char capabilities[1280] = {0};
+            char capabilities[1536] = {0};
             char library_id[METADATA_DB_CATALOG_LIBRARY_ID_SIZE] = {0};
             char escaped_library_id[METADATA_DB_CATALOG_LIBRARY_ID_SIZE * 2] = {0};
             char library_id_field[METADATA_DB_CATALOG_LIBRARY_ID_SIZE * 2 + 24] = {0};
@@ -3058,7 +3057,7 @@ static void handle_connection(int cfd) {
                 "\"folder_browse\",\"recently_played\",\"favorites_edit\",\"queue_edit\","
                 "\"playlist_edit\",\"playlist_import\",\"player_accent\",\"device_info\","
                 "\"collection_playback\",\"shuffle_modes\",\"library_sorting\","
-                "\"wifi_import\",\"wifi_import_files\",\"settings_v1\"],"
+                "\"wifi_import\",\"wifi_import_files\",\"settings_v1\",\"plugin_store\",\"plugin_management\",\"player_layouts\"],"
                 "\"settingsSchemaVersion\":%d}", library_id_field, SETTINGS_REGISTRY_SCHEMA_VERSION);
             send_response(cfd, "200 OK", "application/json", capabilities);
             return;
@@ -3167,6 +3166,19 @@ static void handle_connection(int cfd) {
                                    sizeof(settings_status), &settings_body)) {
             send_response(cfd, settings_status, "application/json", settings_body ? settings_body : "{}");
             free(settings_body);
+            return;
+        }
+    }
+    {
+        remote_plugins_http_request_t plugins_request = { content_length, pin_header_seen && !pin_header_invalid,
+                                                         json_content_type };
+        char plugins_status[40];
+        char * plugins_body = NULL;
+        if (remote_plugins_handle(cfd, method, path_only, path, &plugins_request, plugins_status,
+                                  sizeof(plugins_status), &plugins_body)) {
+            send_response(cfd, plugins_status, "application/json", plugins_body ? plugins_body :
+                          "{\"error\":\"plugin_api_error\",\"code\":\"out_of_memory\"}");
+            free(plugins_body);
             return;
         }
     }

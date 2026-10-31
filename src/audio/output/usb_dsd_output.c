@@ -1,4 +1,5 @@
 #include "usb_dsd_output.h"
+#include "../../core/system/logging/debug_log.h"
 
 #include <limits.h>
 #include <stdlib.h>
@@ -40,6 +41,22 @@ struct usb_dsd_output {
     bool poisoned;
 };
 
+#ifdef TEST_BUILD_TAG
+static const char *format_name(enum pcm_format format) {
+    switch (format) {
+    case PCM_FORMAT_DSD_U8: return "DSD_U8";
+    case PCM_FORMAT_DSD_U16_LE: return "DSD_U16_LE";
+    case PCM_FORMAT_DSD_U16_BE: return "DSD_U16_BE";
+    case PCM_FORMAT_DSD_U32_LE: return "DSD_U32_LE";
+    case PCM_FORMAT_DSD_U32_BE: return "DSD_U32_BE";
+    case PCM_FORMAT_S24_LE: return "S24_LE";
+    case PCM_FORMAT_S24_3LE: return "S24_3LE";
+    case PCM_FORMAT_S32_LE: return "S32_LE";
+    default: return "unknown";
+    }
+}
+#endif
+
 static bool rate_in_range(const struct pcm_params *params, unsigned int rate) {
     return rate >= pcm_params_get_min(params, PCM_PARAM_RATE) &&
            rate <= pcm_params_get_max(params, PCM_PARAM_RATE);
@@ -65,6 +82,9 @@ static struct pcm * try_open(unsigned int card, unsigned int device, unsigned in
         config.stop_threshold = config.start_threshold;
         struct pcm *pcm = pcm_open(card, device, PCM_OUT, &config);
         if (pcm && pcm_is_ready(pcm)) return pcm;
+        DBG_LOG("usb_dsd: hw:%u,%u rejected %s channels=%u rate=%u period=%u: %s\n",
+                card, device, format_name(format), channels, rate, config.period_size,
+                pcm ? pcm_get_error(pcm) : "pcm_open returned NULL");
         if (pcm) pcm_close(pcm);
         if (config.period_size == 1024) break;
     }
@@ -76,7 +96,14 @@ usb_dsd_output_t * usb_dsd_output_open(unsigned int card, unsigned int device,
                                         unsigned int dop_rate) {
     if (!channels || channels > 8 || !dop_rate || dop_rate > UINT_MAX / 2u) return NULL;
     struct pcm_params *params = pcm_params_get(card, device, PCM_OUT);
-    if (!params) return NULL;
+    if (!params) {
+        DBG_LOG("usb_dsd: cannot query hw:%u,%u capabilities for %s (DoP rate=%u)\n",
+                card, device, native ? "native DSD" : "DoP", dop_rate);
+        return NULL;
+    }
+    DBG_LOG("usb_dsd: hw:%u,%u requested %s channels=%u DoP-rate=%u, ALSA rate range=%u..%u\n",
+            card, device, native ? "native DSD" : "DoP", channels, dop_rate,
+            pcm_params_get_min(params, PCM_PARAM_RATE), pcm_params_get_max(params, PCM_PARAM_RATE));
     usb_dsd_output_t *out = calloc(1, sizeof(*out));
     if (!out) { pcm_params_free(params); return NULL; }
     out->native = native;
@@ -86,7 +113,14 @@ usb_dsd_output_t * usb_dsd_output_open(unsigned int card, unsigned int device,
         for (size_t i = 0; i < sizeof(native_formats) / sizeof(native_formats[0]); i++) {
             const dsd_format_t *f = &native_formats[i];
             unsigned int rate = dop_rate * 2u / f->word_bytes;
-            if (!rate || !pcm_params_format_test(params, f->format) || !rate_in_range(params, rate)) continue;
+            if (!pcm_params_format_test(params, f->format)) {
+                DBG_LOG("usb_dsd: %s is not advertised by hw:%u,%u\n", format_name(f->format), card, device);
+                continue;
+            }
+            if (!rate || !rate_in_range(params, rate)) {
+                DBG_LOG("usb_dsd: %s rate=%u is outside advertised range\n", format_name(f->format), rate);
+                continue;
+            }
             out->pcm = try_open(card, device, channels, rate, f->format);
             if (out->pcm) {
                 out->format = f->format;
@@ -99,13 +133,24 @@ usb_dsd_output_t * usb_dsd_output_open(unsigned int card, unsigned int device,
     } else {
         for (size_t i = 0; i < sizeof(dop_formats) / sizeof(dop_formats[0]); i++) {
             enum pcm_format format = dop_formats[i];
-            if (!pcm_params_format_test(params, format) || !rate_in_range(params, dop_rate)) continue;
+            if (!pcm_params_format_test(params, format) || !rate_in_range(params, dop_rate)) {
+                DBG_LOG("usb_dsd: DoP %s at %u Hz is not advertised by hw:%u,%u\n",
+                        format_name(format), dop_rate, card, device);
+                continue;
+            }
             out->pcm = try_open(card, device, channels, dop_rate, format);
             if (out->pcm) { out->format = format; out->rate = dop_rate; break; }
         }
     }
     pcm_params_free(params);
-    if (!out->pcm) { free(out); return NULL; }
+    if (!out->pcm) {
+        DBG_LOG("usb_dsd: hw:%u,%u has no usable %s configuration; passthrough refused\n",
+                card, device, native ? "native DSD" : "DoP");
+        free(out);
+        return NULL;
+    }
+    DBG_LOG("usb_dsd: hw:%u,%u opened %s, format=%s channels=%u hardware-rate=%u\n",
+            card, device, native ? "native DSD" : "DoP", format_name(out->format), channels, out->rate);
     return out;
 }
 

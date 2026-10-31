@@ -999,6 +999,7 @@ static void finish(plugin_store_state_t state, const char * error, bool changed)
     pthread_mutex_lock(&store_mutex);
     store_status.state = state;
     store_status.changed = changed;
+    if (changed) store_status.refresh_required = true;
     if (error) {
         snprintf(store_status.error, sizeof(store_status.error), "%s", error);
     }
@@ -1710,6 +1711,84 @@ bool plugin_store_get_preview(const char * id, char * out, size_t size) {
     pthread_mutex_unlock(&store_mutex);
     if (!found) out[0] = 0;
     return found;
+}
+
+bool plugin_store_get_preview_jpeg(const char * id, char * out, size_t size) {
+    if (!id || !out || !size) return false;
+    out[0] = 0;
+    plugin_store_preview_t meta = {0};
+    bool ready = false;
+    pthread_mutex_lock(&store_mutex);
+    for (size_t i = 0; i < last_index_count; i++) {
+        if (strcmp(last_index[i].id, id) != 0 || !last_index[i].preview.asset[0]) continue;
+        for (int c = 0; c < STORE_PREVIEW_COUNT; c++) {
+            if (!preview_cache[c].ready || strcmp(preview_cache[c].sha, last_index[i].preview.sha256) != 0)
+                continue;
+            meta = last_index[i].preview;
+            ready = true;
+            break;
+        }
+        break;
+    }
+    pthread_mutex_unlock(&store_mutex);
+    if (!ready) return false;
+
+    int n = snprintf(out, size, "%s/%s.jpg", STORE_PREVIEW_ROOT, meta.sha256);
+    if (n <= 0 || (size_t) n >= size || !preview_file_verified(out, &meta)) {
+        out[0] = 0;
+        return false;
+    }
+    return true;
+}
+
+plugin_store_preview_state_t plugin_store_preview_state(const char * id) {
+    if (!id || !id[0]) return PLUGIN_STORE_PREVIEW_UNKNOWN;
+    plugin_store_preview_state_t state = PLUGIN_STORE_PREVIEW_UNKNOWN;
+    pthread_mutex_lock(&store_mutex);
+    const plugin_store_plugin_t * plugin = NULL;
+    for (size_t i = 0; i < last_index_count; i++) {
+        if (strcmp(last_index[i].id, id) == 0) {
+            plugin = &last_index[i];
+            break;
+        }
+    }
+    if (!plugin) goto done;
+    if (!plugin->preview.asset[0] ||
+        (!plugin_contains_player_layout(plugin) && !plugin_contains_theme_pack(plugin))) {
+        state = PLUGIN_STORE_PREVIEW_NONE;
+        goto done;
+    }
+
+    uint64_t now = preview_now_ms();
+    for (int i = 0; i < STORE_PREVIEW_COUNT; i++) {
+        preview_cache_entry_t * cached = &preview_cache[i];
+        if (strcmp(cached->sha, plugin->preview.sha256) != 0) continue;
+        if (cached->ready) {
+            state = PLUGIN_STORE_PREVIEW_READY;
+        } else if (preview_worker_running ||
+                   (cached->attempted_epoch == preview_epoch && cached->attempts < 3 &&
+                    cached->retry_after_ms > now)) {
+            state = PLUGIN_STORE_PREVIEW_PENDING;
+        } else if (cached->attempted_epoch == preview_epoch && cached->attempts >= 3) {
+            state = PLUGIN_STORE_PREVIEW_FAILED;
+        } else {
+            state = PLUGIN_STORE_PREVIEW_STARTABLE;
+        }
+        goto done;
+    }
+
+    if (preview_worker_running ||
+        (preview_spawn_epoch == preview_epoch && preview_spawn_attempts < 3 &&
+         preview_spawn_retry_ms > now)) {
+        state = PLUGIN_STORE_PREVIEW_PENDING;
+    } else if (preview_spawn_epoch == preview_epoch && preview_spawn_attempts >= 3) {
+        state = PLUGIN_STORE_PREVIEW_FAILED;
+    } else {
+        state = PLUGIN_STORE_PREVIEW_STARTABLE;
+    }
+done:
+    pthread_mutex_unlock(&store_mutex);
+    return state;
 }
 
 void plugin_store_cancel_previews(void) {
