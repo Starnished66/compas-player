@@ -7,6 +7,7 @@
 #include "../../shell/gui_navigation.h"
 #include "../../appearance/gui_theme.h"
 #include "../../text/i18n/i18n.h"
+#include "../../text/rendering/fallback_font.h"
 #include "../../assets/assets.h"
 #include "../../../audio/effects/peq.h"
 #include <math.h>
@@ -769,6 +770,12 @@ static void populate_eq_profiles_screen(void) {
         lv_label_set_text(label, TR("No saved profiles"));
         lv_obj_add_style(label, &style_theme_text_muted, 0);
         lv_obj_set_style_pad_left(label, 24, 0);
+        /* The muted theme style carries colour only, so this label used to inherit
+         * LV_FONT_DEFAULT -- the compiled montserrat_16 bitmap, which has no non-Latin
+         * fallback chain: every translated "No saved profiles" rendered as boxes.
+         * fallback_font_fixed(16) is that same 16 px face with the multilingual
+         * chain attached, so the layout is unchanged. */
+        lv_obj_set_style_text_font(label, fallback_font_fixed(16), 0);
         if (!eq_profiles_edit_mode && !eq_profiles_replace_mode &&
             eq_profiles_download_available())
             add_pill_chevron_row(eq_profiles_list, TR("Download profiles"), eq_profiles_download_cb);

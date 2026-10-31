@@ -34,6 +34,7 @@
 #include "../core/ui/display/ui_wake.h"
 #include "../ui/text/fonts/ui_fonts.h"
 #include "../ui/text/rendering/fallback_font.h"
+#include "../ui/shell/gui_navigation.h"
 #include <fcntl.h>
 
 #ifdef HOST_BUILD
@@ -844,6 +845,14 @@ int main(int argc, char ** argv) {
     boot_checkpoint("startup fallback fonts begin");
 #endif
     fallback_font_load_now();
+    /* gui_init() above already ran, and navigation pre-renders RGB565 snapshots of
+     * screens for its slide transitions. Those snapshots were captured before the
+     * multilingual fallback chain above existed, so they hold the ASCII-only face:
+     * returning to Home showed boxes for the duration of the transition and only
+     * snapped to the correct glyphs once the live widget tree was displayed.
+     * Switching font/language used to fix it because those paths call this same
+     * invalidation. Drop the stale snapshots now that the chain is attached. */
+    gui_navigation_invalidate_font_snapshots();
 #ifndef HOST_BUILD
     boot_checkpoint("startup fallback fonts done");
 #endif
