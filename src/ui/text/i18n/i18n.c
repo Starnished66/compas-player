@@ -92,7 +92,8 @@ unsigned i18n_plural_index(const char * code, long n)
 {
     /* Must match each catalog's Plural-Forms header. Russian and Ukrainian
      * distinguish one, few, and many; the teens always use the many form.
-     * pt_BR and fr treat 0 and 1 as singular. zh_CN has a single form. The other two-form catalogs,
+     * pt_BR and fr treat 0 and 1 as singular. zh_CN, ja, and vi have a single form.
+     * The other two-form catalogs,
      * including European Portuguese, use singular only for exactly one. */
     if (code && (strcmp(code, "ru") == 0 || strcmp(code, "uk") == 0)) {
         long ones = n % 10;
@@ -103,8 +104,9 @@ unsigned i18n_plural_index(const char * code, long n)
     }
     if (code && (strcmp(code, "pt_BR") == 0 || strcmp(code, "fr") == 0))
         return n > 1 ? 1u : 0u;
-    /* Chinese has no plural forms (nplurals=1). */
-    if (code && strcmp(code, "zh_CN") == 0) return 0u;
+    /* Chinese, Japanese, and Vietnamese use one form (nplurals=1). */
+    if (code && (strcmp(code, "zh_CN") == 0 || strcmp(code, "ja") == 0 ||
+                 strcmp(code, "vi") == 0)) return 0u;
     return n == 1 ? 0u : 1u;
 }
 
