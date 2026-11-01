@@ -57,6 +57,21 @@ static int32_t text_width(const char * text, const lv_font_t * font) {
     return size.x;
 }
 
+static int shown_track_number(int index) {
+    return A.track && index >= 0 && index < A.count && A.track[index] > 0 ? A.track[index] : index + 1;
+}
+
+/* Wide enough for the album's longest number on one line, measured as 8s (the widest digit). */
+static int32_t number_column_width(void) {
+    int widest = 1;
+    for (int i = 0; i < A.count; i++) if (shown_track_number(i) > widest) widest = shown_track_number(i);
+    char digits[12];
+    int len = snprintf(digits, sizeof(digits), "%d", widest);
+    memset(digits, '8', (size_t) len);
+    int32_t w = text_width(digits, gui_theme_font(GUI_FONT_ROLE_BODY));
+    return w > BOARD_SCALE_PX(40) ? w : BOARD_SCALE_PX(40);
+}
+
 static void add_chip(const char * text, bool gold) {
     const lv_font_t * font = gui_theme_font(GUI_FONT_ROLE_SUBTEXT);
     int32_t line = lv_font_get_line_height(font), padx = BOARD_SCALE_PX(12), gap = BOARD_SCALE_PX(6);
@@ -140,6 +155,7 @@ void gui_album_header_build(lv_obj_t * list, const gui_album_header_params_t * p
     for (int i = 0; i < count; i++) key = gui_album_facts_add(key, p->entries[i].path);
     if (key != A.key || count != A.count || !A.paths) album_state_reset(key, p->entries, count);
     if (!A.have_record && count > 0 && A.paths) load_record();
+    A.num_w = number_column_width();
     A.hires_icon[0] = 0;
     if (count > 0 && p->quality_asset) snprintf(A.hires_icon, sizeof(A.hires_icon), "%s", p->quality_asset(p->entries[0].path));
     A.cover_song_id = 0; A.cover_key = 0;
@@ -283,7 +299,7 @@ void gui_album_header_decorate_row(lv_obj_t * row, int index) {
     int32_t title_h = row_label_bounded_height(row_font);
     int32_t h = BOARD_SCALE_PX(76);
     if (h < title_h + 2 * BOARD_SCALE_PX(8)) h = title_h + 2 * BOARD_SCALE_PX(8);
-    int32_t pad = BOARD_SCALE_PX(14), num_w = BOARD_SCALE_PX(40), badge = BOARD_SCALE_PX(40);
+    int32_t pad = BOARD_SCALE_PX(14), num_w = A.num_w > 0 ? A.num_w : BOARD_SCALE_PX(40), badge = BOARD_SCALE_PX(40);
     int32_t dur_w = text_width("88:88", body), dur_right = pad + badge + BOARD_SCALE_PX(6);
     int32_t title_x = pad + num_w + BOARD_SCALE_PX(8);
     lv_obj_set_size(row, LIST_ROW_WIDTH, h);
@@ -292,8 +308,7 @@ void gui_album_header_decorate_row(lv_obj_t * row, int index) {
     lv_obj_set_width(title, LIST_ROW_WIDTH - title_x - dur_right - dur_w - BOARD_SCALE_PX(8));
 
     char number[12];
-    int shown = A.track && index >= 0 && index < A.count && A.track[index] > 0 ? A.track[index] : index + 1;
-    snprintf(number, sizeof(number), "%d", shown);
+    snprintf(number, sizeof(number), "%d", shown_track_number(index));
     lv_obj_t * n = lv_label_create(row);
     lv_label_set_text(n, number);
     lv_obj_add_style(n, &style_theme_text_muted, 0);

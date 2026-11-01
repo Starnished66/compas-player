@@ -24,6 +24,7 @@ typedef struct {
     char chip_format[24], chip_total[48];
     bool chip_hires;
     int cover_px, info_w;
+    int32_t num_w; /* track number column: fits the album's widest number */
     int64_t cover_song_id;
     uint64_t cover_key;
     uint32_t epoch; /* duration-cache storage epoch when this album was set up */
