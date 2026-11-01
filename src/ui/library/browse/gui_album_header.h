@@ -45,8 +45,9 @@ void gui_album_header_note_cached(int index, const duration_info_t * info);
 /* Probe results of the page the group screen already probes. */
 void gui_album_header_note_probe(int index, const audio_current_format_info_t * info);
 /* Called on every probe tick. `visible` lets the cover decode start. `allowed` is true while the album page is the
- * visible screen and its own page probe has finished. */
-void gui_album_header_poll(bool visible, bool allowed);
+ * visible screen and its own page probe has finished. Returns true when the chips changed, which can change the
+ * header's height and so move the rows below it. */
+bool gui_album_header_poll(bool visible, bool allowed);
 /* Frees the sharp cover buffer; call once the album page is left or cleaned. */
 void gui_album_header_release_cover(void);
 /* True while the cover decode, a duration lookup or the whole-album probe is running. */

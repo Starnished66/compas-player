@@ -238,6 +238,7 @@ static bool library_ui_live;
 
 static void request_now_playing_indicator_lookup(void);
 static void apply_now_playing_indicator_result(const now_playing_lookup_result_t * result);
+static void refresh_group_songs_now_playing_indicator(void);
 
 static void * now_playing_lookup_worker(void * unused) {
     (void) unused;
@@ -1385,9 +1386,10 @@ void gui_library_poll_track_probes(void) {
     if (!visible && group_probe_job && group_probe_job_generation == group_probe_generation)
         cancel_group_song_probes();
     /* The album header's whole-album probe waits for the page's own probe. */
-    gui_album_header_poll(visible && group_songs_album_layout(),
-                          visible && group_songs_album_layout() && !group_probe_job &&
-                          group_probe_requested_generation == group_probe_generation);
+    if (gui_album_header_poll(visible && group_songs_album_layout(),
+                              visible && group_songs_album_layout() && !group_probe_job &&
+                              group_probe_requested_generation == group_probe_generation))
+        refresh_group_songs_now_playing_indicator(); /* wrapped chips moved the rows */
 
     if (group_probe_job) {
         bool current = visible && group_probe_job_generation == group_probe_generation;
@@ -1654,8 +1656,9 @@ static lv_obj_t * group_songs_create_now_playing_bar(void) {
     lv_obj_t * bar;
     bar = lv_obj_create(group_songs_list);
     lv_obj_remove_style_all(bar);
+    /* No row minimum height: album rows can be shorter, and
+     * group_songs_place_now_playing_bar() sizes the bar to the real row. */
     lv_obj_set_size(bar, BOARD_SCALE_PX(5), ui_list_row_height());
-    lv_obj_add_style(bar, &native_row_min_style, 0);
     lv_obj_add_style(bar, gui_theme_accent_style(), 0);
     lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(bar, 2, 0);

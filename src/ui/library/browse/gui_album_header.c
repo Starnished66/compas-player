@@ -96,8 +96,8 @@ static void add_chip(const char * text, bool gold) {
  * chip costs nothing. The column's height needs no measuring: it is content
  * sized with the cover as its minimum (see gui_album_header_build()), so LVGL's
  * normal layout pass grows it when wrapping chips need more room. */
-static void update_chips(void) {
-    if (!A.chips) return;
+static bool update_chips(void) {
+    if (!A.chips) return false;
     char format[sizeof(A.chip_format)] = "", total_text[sizeof(A.chip_total)] = "";
     bool hires_chip = false;
     if (album_settled()) {
@@ -123,7 +123,7 @@ static void update_chips(void) {
             else snprintf(total_text, sizeof(total_text), TR("%d min"), minutes);
         }
     }
-    if (hires_chip == A.chip_hires && !strcmp(format, A.chip_format) && !strcmp(total_text, A.chip_total)) return;
+    if (hires_chip == A.chip_hires && !strcmp(format, A.chip_format) && !strcmp(total_text, A.chip_total)) return false;
     snprintf(A.chip_format, sizeof(A.chip_format), "%s", format);
     snprintf(A.chip_total, sizeof(A.chip_total), "%s", total_text);
     A.chip_hires = hires_chip;
@@ -131,6 +131,7 @@ static void update_chips(void) {
     if (format[0]) add_chip(format, false);
     if (hires_chip) add_chip(TR("Hi-Res"), true);
     if (total_text[0]) add_chip(total_text, false);
+    return true;
 }
 
 void gui_album_header_build(lv_obj_t * list, const gui_album_header_params_t * p) {
@@ -322,10 +323,12 @@ void gui_album_header_row_set_duration(lv_obj_t * row, unsigned seconds) {
 }
 
 /* ---- Polling and shutdown ------------------------------------------------ */
-void gui_album_header_poll(bool visible, bool allowed) {
+bool gui_album_header_poll(bool visible, bool allowed) {
     if (gui_album_cover_poll(visible) && A.root) show_sharp_cover();
     album_probe_poll(allowed);
-    if (A.dirty && A.root) { A.dirty = false; update_chips(); }
+    if (!A.dirty || !A.root) return false;
+    A.dirty = false;
+    return update_chips();
 }
 
 bool gui_album_header_busy(void) { return album_probe_busy() || gui_album_cover_busy(); }
