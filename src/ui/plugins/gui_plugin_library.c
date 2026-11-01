@@ -1,6 +1,7 @@
 #include "gui_plugin_library.h"
 #include "../../library/artwork/support/library_player_art.h"
 #include "../../library/metadata/db/metadata_db.h"
+#include "../library/browse/gui_library.h"
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -104,18 +105,20 @@ char ** gui_plugin_get_next_album_tracks(const char * artist, const char * curre
     *out_count = 0;
     int64_t count64 = metadata_db_count_albums_for_group(METADATA_DB_GROUP_ARTIST, artist);
     if (count64 <= 1 || count64 > INT_MAX) return NULL;
+    /* The next album as the artist's page orders them, so playing through follows the chosen sort. */
+    metadata_db_album_sort_t sort = gui_library_group_album_sort(METADATA_DB_GROUP_ARTIST);
     group_row_t rows[32];
     int offset = 0;
     while (offset < count64) {
         int want = (int) (count64 - offset);
         if (want > 32) want = 32;
-        int got = metadata_db_get_albums_for_group(METADATA_DB_GROUP_ARTIST, artist, offset, want, rows);
+        int got = metadata_db_get_albums_for_group_sorted(METADATA_DB_GROUP_ARTIST, artist, sort, offset, want, rows);
         if (got <= 0) break;
         for (int i = 0; i < got; i++) {
             if (strcasecmp(rows[i].name, current_album) != 0) continue;
             if (i + 1 < got) return load_plugin_album_group_paths(rows[i + 1].name, rows[i + 1].album_artist, out_count);
             group_row_t next;
-            if (metadata_db_get_albums_for_group(METADATA_DB_GROUP_ARTIST, artist, offset + got, 1, &next) == 1)
+            if (metadata_db_get_albums_for_group_sorted(METADATA_DB_GROUP_ARTIST, artist, sort, offset + got, 1, &next) == 1)
                 return load_plugin_album_group_paths(next.name, next.album_artist, out_count);
             return NULL;
         }

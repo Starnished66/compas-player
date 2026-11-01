@@ -187,6 +187,10 @@ static metadata_db_album_sort_t effective_group_album_sort(metadata_db_group_kin
     return metadata_db_album_sort_available(sort) ? sort : METADATA_DB_ALBUM_SORT_NAME;
 }
 
+metadata_db_album_sort_t gui_library_group_album_sort(metadata_db_group_kind_t kind) {
+    return effective_group_album_sort(kind);
+}
+
 static metadata_db_album_sort_t requested_group_album_sort(metadata_db_group_kind_t kind) {
     int value = configured_group_album_sort(kind);
     return value >= METADATA_DB_ALBUM_SORT_NAME && value <= METADATA_DB_ALBUM_SORT_YEAR
@@ -6913,16 +6917,19 @@ typedef struct {
     char album_artist[128];
     int32_t disc_number;
     int32_t track_number;
+    int32_t album_rank; /* the album's place in the page's album order; 0 for every song when sorted by name */
     bool show_disc_header;
 } artist_song_sort_entry_t;
 
-/* Sorts songs by album, then album artist, then disc number, track number,
+/* Sorts songs by the album's rank (the page's album order; all equal when
+ * sorted by name), then album name, album artist, disc number, track number,
  * and file path. Grouping by both album and album artist prevents collision
  * between same-titled albums from different artists, while sorting by disc
  * and track preserves listening order within each album. */
 static int cmp_artist_song_sort_entry(const void * a, const void * b) {
     const artist_song_sort_entry_t * ea = (const artist_song_sort_entry_t *) a;
     const artist_song_sort_entry_t * eb = (const artist_song_sort_entry_t *) b;
+    if (ea->album_rank != eb->album_rank) return ea->album_rank < eb->album_rank ? -1 : 1;
     int c = strcasecmp(ea->album, eb->album);
     if (c) return c;
     c = strcasecmp(ea->album_artist, eb->album_artist);
@@ -6948,7 +6955,8 @@ static int cmp_artist_song_sort_entry(const void * a, const void * b) {
 #define ARTIST_ALBUMS_ALL_SONGS_CAP 4000
 
 static group_song_entry_t * artist_songs_collect(const char * artist_name, metadata_db_group_kind_t artist_kind,
-                                                 const atomic_bool * cancel, int * out_count, int * out_real_total) {
+                                                 metadata_db_album_sort_t album_sort, const atomic_bool * cancel,
+                                                 int * out_count, int * out_real_total) {
     *out_count = 0;
     int64_t offset = metadata_db_get_group_offset(artist_kind, artist_name, NULL);
     group_row_t artist_row;
@@ -7013,7 +7021,50 @@ static group_song_entry_t * artist_songs_collect(const char * artist_name, metad
         return NULL;
     }
 
-    /* Sort songs in disc and track order within each album across the artist's catalog. */
+    /* Rank each song's album by the order the artist page shows. One lookup per distinct
+     * (album, album artist) pair; not-found albums rank after every found one. */
+    if (album_sort != METADATA_DB_ALBUM_SORT_NAME) {
+        struct { char album[128], album_artist[128]; int32_t rank; } * seen = NULL;
+        int seen_count = 0, seen_cap = 0;
+        for (int i = 0; i < n && !failed; i++) {
+            if (cancel && atomic_load_explicit(cancel, memory_order_relaxed)) { failed = true; break; }
+            artist_song_sort_entry_t * e = &sort_entries[i];
+            int hit = -1;
+            for (int k = seen_count - 1; k >= 0; k--) {
+                if (strcmp(seen[k].album, e->album) == 0 && strcmp(seen[k].album_artist, e->album_artist) == 0) {
+                    hit = k;
+                    break;
+                }
+            }
+            if (hit < 0) {
+                if (seen_count == seen_cap) {
+                    int cap = seen_cap ? seen_cap * 2 : 16;
+                    void * grown = realloc(seen, (size_t) cap * sizeof(*seen));
+                    if (!grown) { failed = true; break; }
+                    seen = grown;
+                    seen_cap = cap;
+                }
+                int64_t pos = metadata_db_get_album_for_group_sorted_offset(artist_kind, artist_name, album_sort,
+                                                                            e->album, e->album_artist);
+                snprintf(seen[seen_count].album, sizeof(seen[seen_count].album), "%s", e->album);
+                snprintf(seen[seen_count].album_artist, sizeof(seen[seen_count].album_artist), "%s", e->album_artist);
+                seen[seen_count].rank = pos < 0 || pos >= INT32_MAX ? INT32_MAX : (int32_t) pos;
+                hit = seen_count++;
+            }
+            e->album_rank = seen[hit].rank;
+        }
+        free(seen);
+        if (failed) {
+            for (int i = 0; i < total; i++) {
+                free(sort_entries[i].path);
+                free(sort_entries[i].title);
+            }
+            free(sort_entries);
+            return NULL;
+        }
+    }
+
+    /* Sort by album order, then disc and track order within each album. */
     qsort(sort_entries, (size_t) n, sizeof(*sort_entries), cmp_artist_song_sort_entry);
 
     /* Disc headers belong to an album's own page; across an artist's catalog they
@@ -7088,7 +7139,8 @@ static void artist_play_collected(const char * name, metadata_db_group_kind_t ki
 static bool artist_albums_show_all_songs_internal(bool push_screen, const char * artist_name,
                                                     metadata_db_group_kind_t artist_kind) {
     int n = 0, real_total = 0;
-    group_song_entry_t * entries = artist_songs_collect(artist_name, artist_kind, NULL, &n, &real_total);
+    group_song_entry_t * entries = artist_songs_collect(artist_name, artist_kind, effective_group_album_sort(artist_kind), NULL,
+                                                        &n, &real_total);
     if (!entries) return false;
     artist_songs_show(artist_name, artist_kind, entries, n, real_total, push_screen);
     return true;
@@ -7102,6 +7154,7 @@ static bool artist_albums_show_all_songs_internal(bool push_screen, const char *
 typedef struct {
     char name[128];
     metadata_db_group_kind_t kind;
+    metadata_db_album_sort_t album_sort; /* the page's album order when the read was created (UI thread) */
     int32_t catalog_generation;
     lv_obj_t * origin;
     bool left, prefetch;
@@ -7167,7 +7220,7 @@ static void * artist_songs_worker(void * arg) {
 #ifdef UI_PERF_TRACE
     uint64_t read_start = ui_perf_now_us();
 #endif
-    request->entries = artist_songs_collect(request->name, request->kind, &request->cancel,
+    request->entries = artist_songs_collect(request->name, request->kind, request->album_sort, &request->cancel,
                                             &request->count, &request->real_total);
     if (atomic_load_explicit(&request->cancel, memory_order_relaxed)) {
         /* Given up or superseded while it ran: nothing of it is published. */
@@ -7222,6 +7275,30 @@ static void artist_songs_poll(lv_timer_t * timer) {
     }
     if (!atomic_load_explicit(&job->done, memory_order_acquire)) return;
     if (gui_navigation_transition_in_progress()) return;
+    if (!job->left && !atomic_load_explicit(&job->cancel, memory_order_relaxed) &&
+        job->origin == lv_screen_active() && job->album_sort != effective_group_album_sort(job->kind)) {
+        /* The album sort changed while this read ran (e.g. from the remote): the page now shows
+         * another album order, so read again in that order with the same Songs/Play intent. */
+        char name[sizeof(job->name)];
+        snprintf(name, sizeof(name), "%s", job->name);
+        metadata_db_group_kind_t kind = job->kind;
+        bool autoplay = job->autoplay, push_page = job->push_page;
+        play_mode_t play_mode = job->play_mode;
+        pthread_join(artist_songs_thread, NULL); /* finished: returns at once */
+        artist_songs_job = NULL;
+        free_artist_songs_request(job);
+        if (!artist_songs_launch(name, kind, false) || !autoplay) return;
+        if (artist_songs_job) {
+            artist_songs_job->autoplay = true;
+            artist_songs_job->push_page = push_page;
+            artist_songs_job->play_mode = play_mode;
+        } else if (artist_songs_pending.set) {
+            artist_songs_pending.autoplay = true;
+            artist_songs_pending.push_page = push_page;
+            artist_songs_pending.play_mode = play_mode;
+        }
+        return;
+    }
     bool wanted = !job->left && !atomic_load_explicit(&job->cancel, memory_order_relaxed) && job->entries &&
                   !library_rescan_active &&
                   job->catalog_generation == tagcache_generation();
@@ -7336,6 +7413,7 @@ static bool artist_songs_launch(const char * name, metadata_db_group_kind_t kind
     if (!request) return false;
     snprintf(request->name, sizeof(request->name), "%s", name);
     request->kind = kind;
+    request->album_sort = effective_group_album_sort(kind);
     request->catalog_generation = tagcache_generation();
     request->origin = lv_screen_active();
     request->prefetch = prefetch;
@@ -7364,7 +7442,7 @@ static bool artist_songs_take_prepared(const char * name, metadata_db_group_kind
     if (!job || !atomic_load_explicit(&job->done, memory_order_acquire) ||
         atomic_load_explicit(&job->cancel, memory_order_relaxed) || job->left || !job->entries ||
         job->catalog_generation != tagcache_generation() || library_rescan_active || job->kind != kind ||
-        strcmp(job->name, name) != 0)
+        job->album_sort != effective_group_album_sort(kind) || strcmp(job->name, name) != 0)
         return false;
     pthread_join(artist_songs_thread, NULL); /* finished: returns at once */
     *entries = job->entries;
@@ -7386,7 +7464,12 @@ static bool artist_songs_take_prepared(const char * name, metadata_db_group_kind
 static bool artist_songs_adopt_running(const char * name, metadata_db_group_kind_t kind, play_mode_t mode,
                                        bool push_page) {
     artist_songs_request_t * job = artist_songs_job;
-    if (!job || !artist_songs_timer || atomic_load_explicit(&job->done, memory_order_acquire) ||
+    /* A read is adopted whatever its album order, so no Songs or Play intent is lost; a finished read
+     * is adopted only when its order is stale (artist_songs_take_prepared() takes a current one).
+     * artist_songs_poll() reads a stale one again in the page's order. */
+    if (!job || !artist_songs_timer ||
+        (atomic_load_explicit(&job->done, memory_order_acquire) &&
+         job->album_sort == effective_group_album_sort(kind)) ||
         atomic_load_explicit(&job->cancel, memory_order_relaxed) || job->left ||
         job->origin != lv_screen_active() || job->catalog_generation != tagcache_generation() ||
         library_rescan_active || job->kind != kind || strcmp(job->name, name) != 0)
@@ -7767,7 +7850,8 @@ static void artist_page_play(play_mode_t mode) {
         }
     }
     int n = 0, real_total = 0;
-    group_song_entry_t * entries = artist_songs_collect(artist_albums_current_name, artist_albums_current_kind, NULL,
+    group_song_entry_t * entries = artist_songs_collect(artist_albums_current_name, artist_albums_current_kind,
+                                                        effective_group_album_sort(artist_albums_current_kind), NULL,
                                                         &n, &real_total);
     if (!entries) return;
     artist_play_collected(artist_albums_current_name, artist_albums_current_kind, entries, n, real_total, mode, true);

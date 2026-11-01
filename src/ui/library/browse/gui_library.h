@@ -54,6 +54,8 @@ typedef enum {
 } gui_library_sort_scope_t;
 /* Apply one persisted ordering without disturbing unrelated library views. */
 void gui_library_apply_sorting(gui_library_sort_scope_t scope);
+/* The album order an artist (or album artist) page shows, as the database can serve it. UI thread only. */
+metadata_db_album_sort_t gui_library_group_album_sort(metadata_db_group_kind_t kind);
 
 void start_library_rescan(void);
 void start_library_auto_rescan(void);
