@@ -5,6 +5,7 @@
 #include "../../appearance/gui_theme.h"
 #include "../../shell/gui_notifications.h"
 #include "../../library/browse/gui_library.h"
+#include "../../library/browse/gui_list_reorder.h"
 #include "../../text/rendering/gui_text_input.h"
 #include "../../widgets/builders/screen_builders.h"
 #include "../../../library/metadata/parsing/metadata.h"
@@ -41,6 +42,90 @@ static lv_obj_t * queue_actions, * queue_actions_backdrop;
 static void queue_actions_open(lv_event_t * e);
 static int displayed_current = -1;
 
+/* Slot = display index - queue_page. Only rows after the current track are
+ * draggable; they are contiguous in queue_list. */
+static lv_obj_t * queue_rows[QUEUE_PAGE_SIZE];
+static lv_obj_t * queue_handles[QUEUE_PAGE_SIZE];
+static gui_list_reorder_state_t queue_reorder_state = { .drag_id = -1 };
+static int queue_first_draggable_slot = -1;
+static int queue_drag_source_slot = -1;
+
+static int32_t queue_reorder_handle_width(void) {
+    int32_t width = BOARD_SCALE_PX(44);
+    return width < 48 ? 48 : width;
+}
+
+static void queue_unregister_handles(void) {
+    for (int i = 0; i < QUEUE_PAGE_SIZE; ++i) {
+        if (queue_handles[i]) {
+            unregister_swipe_dead_zone(queue_handles[i]);
+            queue_handles[i] = NULL;
+        }
+        queue_rows[i] = NULL;
+    }
+}
+
+static void queue_finish_drag(void) {
+    if (queue_reorder_state.active) gui_list_reorder_finish(&queue_reorder_state, false);
+}
+
+static void queue_repopulate_keep_scroll(void) {
+    int32_t scroll = lv_obj_get_scroll_y(queue_list);
+    populate_queue_screen();
+    lv_obj_scroll_to_y(queue_list, scroll, LV_ANIM_OFF);
+}
+
+static void queue_reorder_prepare(gui_list_reorder_state_t * state, int id) {
+    state->count = 0;
+    queue_first_draggable_slot = -1;
+    queue_drag_source_slot = -1;
+    if (!queue_editing || gui_player_queue_revision() != displayed_revision ||
+        id < 0 || id >= QUEUE_PAGE_SIZE) {
+        show_info_toast(TR("Queue changed. Try again."));
+        return;
+    }
+    int n = 0, first = -1;
+    for (int i = 0; i < QUEUE_PAGE_SIZE; ++i) {
+        if (!queue_handles[i]) continue;
+        if (first < 0) first = i;
+        state->ids[n++] = i;
+    }
+    if (n < 2) return;
+    queue_first_draggable_slot = first;
+    queue_drag_source_slot = id;
+    state->count = n;
+}
+
+static void queue_reorder_restore(gui_list_reorder_state_t * state) {
+    (void) state;
+    queue_drag_source_slot = -1;
+    if (queue_list) queue_repopulate_keep_scroll();
+}
+
+static void queue_reorder_commit(gui_list_reorder_state_t * state) {
+    int source = queue_drag_source_slot, destination = -1;
+    queue_drag_source_slot = -1;
+    for (int i = 0; source >= 0 && i < state->drag_count; ++i) {
+        if (state->ids[i] == source) { destination = i; break; }
+    }
+    if (source >= 0 && destination >= 0 && queue_first_draggable_slot >= 0) {
+        int from = queue_page + source;
+        int to = queue_page + queue_first_draggable_slot + destination;
+        if (from != to && !gui_player_queue_edit(displayed_revision, from, to))
+            show_error_toast(TR("Cannot move this entry"));
+    }
+    queue_repopulate_keep_scroll();
+}
+
+static void queue_reorder_handle_cb(lv_event_t * e) {
+    gui_list_reorder_event(&queue_reorder_state, (int) (intptr_t) lv_event_get_user_data(e), e);
+}
+
+static void queue_screen_unload_cb(lv_event_t * e) {
+    (void) e;
+    queue_finish_drag();
+}
+
 static int32_t queue_state_column_width(void) {
     static const char * states[] = { N_("Played"), N_("Playing"), N_("Queued"), N_("Next") };
     const lv_font_t * font = gui_theme_font(GUI_FONT_ROLE_SUBTEXT);
@@ -71,15 +156,15 @@ static void queue_row_click_cb(lv_event_t * e) {
 }
 
 static void queue_edit_cb(lv_event_t * e) {
-    int value = (int) (intptr_t) lv_event_get_user_data(e);
-    int index = value / 3, action = value % 3;
-    int to = action == 2 ? -1 : index + (action == 0 ? -1 : 1);
-    if (!gui_player_queue_edit(displayed_revision, index, to))
+    int index = (int) (intptr_t) lv_event_get_user_data(e);
+    queue_finish_drag();
+    if (!gui_player_queue_edit(displayed_revision, index, -1))
         show_error_toast(TR("Cannot move this entry"));
     populate_queue_screen();
 }
 
 static void queue_page_cb(lv_event_t * e) {
+    queue_finish_drag();
     queue_page += (int) (intptr_t) lv_event_get_user_data(e);
     populate_queue_screen();
     lv_obj_scroll_to_y(queue_list, 0, LV_ANIM_OFF);
@@ -95,6 +180,13 @@ void populate_queue_screen(void) {
     int * order = NULL, count, current;
     uint64_t revision;
     if (!gui_player_queue_snapshot(&order, &count, &current, &revision)) return;
+    queue_unregister_handles();
+    queue_reorder_state.list = queue_list;
+    queue_reorder_state.rows = queue_rows;
+    queue_reorder_state.row_capacity = QUEUE_PAGE_SIZE;
+    queue_reorder_state.prepare = queue_reorder_prepare;
+    queue_reorder_state.commit = queue_reorder_commit;
+    queue_reorder_state.restore = queue_reorder_restore;
     lv_obj_clean(queue_list);
     displayed_revision = revision;
     displayed_current = current;
@@ -191,30 +283,62 @@ void populate_queue_screen(void) {
         snprintf(numbered_title, sizeof(numbered_title), "%d. %s", i + 1, title);
         if (queue_editing && i > current) {
             const int32_t action_slot = BOARD_SCALE_PX(44);
-            const int32_t action_gap = BOARD_SCALE_PX(8);
-            const int32_t action_reserve = 3 * action_slot + 2 * action_gap + BOARD_SCALE_PX(12);
+            const int32_t action_reserve = BOARD_SCALE_PX(34) + action_slot + BOARD_SCALE_PX(8);
             lv_obj_t * row = build_music_list_row(queue_list, numbered_title, subtitle, action_reserve);
-            for (int a = 0; a < 3; a++) {
-                lv_obj_t * button = lv_obj_create(row);
-                lv_obj_set_size(button, action_slot, action_slot);
-                lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, 0);
-                lv_obj_set_style_border_width(button, 0, 0);
-                lv_obj_set_style_pad_all(button, 0, 0);
-                lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_EVENT_BUBBLE);
-                lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
-                lv_obj_add_style(button, &list_row_pressed_style, LV_STATE_PRESSED);
-
-                lv_obj_t * symbol = lv_label_create(button);
-                lv_label_set_text(symbol, a == 0 ? LV_SYMBOL_UP : a == 1 ? LV_SYMBOL_DOWN : LV_SYMBOL_TRASH);
-                lv_obj_add_style(symbol, &style_theme_text_primary, 0);
-                lv_obj_set_style_text_font(symbol, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-                lv_obj_center(symbol);
-                lv_obj_remove_flag(symbol, LV_OBJ_FLAG_CLICKABLE);
-
-                int32_t right_offset = BOARD_SCALE_PX(34 + (2 - a) * 52);
-                lv_obj_align(button, LV_ALIGN_RIGHT_MID, -right_offset, 0);
-                lv_obj_add_event_cb(button, queue_edit_cb, LV_EVENT_CLICKED, (void *) (intptr_t) (i * 3 + a));
+            int slot = i - queue_page;
+            queue_rows[slot] = row;
+            /* Drag handle on the left; the labels shift right by its width.
+             * Configured style values are used since new rows have no
+             * computed coordinates yet. */
+            const int32_t handle_width = queue_reorder_handle_width();
+            for (int c = 0; c < 2; c++) {
+                lv_obj_t * label = lv_obj_get_child(row, c);
+                int32_t width = lv_obj_get_style_width(label, 0) - handle_width;
+                if (width < 40) width = 40;
+                lv_obj_set_x(label, lv_obj_get_style_x(label, 0) + handle_width);
+                lv_obj_set_width(label, width);
             }
+            lv_obj_add_style(row, &list_row_pressed_style, LV_STATE_USER_1);
+            lv_obj_t * handle = lv_button_create(row);
+            queue_handles[slot] = handle;
+            lv_obj_set_size(handle, handle_width, ui_music_row_height());
+            lv_obj_align(handle, LV_ALIGN_LEFT_MID, 0, 0);
+            lv_obj_add_flag(handle, LV_OBJ_FLAG_PRESS_LOCK);
+            lv_obj_remove_flag(handle, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_EVENT_BUBBLE);
+            lv_obj_add_style(handle, &list_row_pressed_style, LV_STATE_PRESSED);
+            lv_obj_add_style(handle, &list_row_pressed_style, LV_STATE_USER_1);
+            lv_obj_set_style_radius(handle, BOARD_SCALE_PX(8), 0);
+            lv_obj_set_style_bg_opa(handle, LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(handle, 0, 0);
+            lv_obj_set_style_shadow_width(handle, 0, 0);
+            lv_obj_set_style_pad_all(handle, 0, 0);
+            lv_obj_t * grip = lv_image_create(handle);
+            lv_obj_set_size(grip, BOARD_SCALE_PX(32), BOARD_SCALE_PX(32));
+            set_reorder_handle_icon(grip);
+            lv_image_set_inner_align(grip, LV_IMAGE_ALIGN_CONTAIN);
+            lv_obj_center(grip);
+            lv_obj_remove_flag(grip, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_add_event_cb(handle, queue_reorder_handle_cb, LV_EVENT_ALL, (void *) (intptr_t) slot);
+            register_swipe_dead_zone(handle);
+
+            lv_obj_t * button = lv_obj_create(row);
+            lv_obj_set_size(button, action_slot, action_slot);
+            lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(button, 0, 0);
+            lv_obj_set_style_pad_all(button, 0, 0);
+            lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_EVENT_BUBBLE);
+            lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_style(button, &list_row_pressed_style, LV_STATE_PRESSED);
+
+            lv_obj_t * symbol = lv_label_create(button);
+            lv_label_set_text(symbol, LV_SYMBOL_TRASH);
+            lv_obj_add_style(symbol, &style_theme_text_primary, 0);
+            lv_obj_set_style_text_font(symbol, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+            lv_obj_center(symbol);
+            lv_obj_remove_flag(symbol, LV_OBJ_FLAG_CLICKABLE);
+
+            lv_obj_align(button, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(34), 0);
+            lv_obj_add_event_cb(button, queue_edit_cb, LV_EVENT_CLICKED, (void *) (intptr_t) i);
         } else {
             /* Same title/metadata geometry as Favorites/Most Played, with a
              * dedicated trailing column reserved before either label is
@@ -257,7 +381,8 @@ static void queue_actions_hide(lv_event_t * e) {
     lv_obj_add_flag(queue_actions_backdrop, LV_OBJ_FLAG_HIDDEN);
 }
 static void queue_toggle_edit(lv_event_t * e) {
-    queue_actions_hide(e); queue_editing = !queue_editing; populate_queue_screen();
+    queue_actions_hide(e); queue_finish_drag();
+    queue_editing = !queue_editing; populate_queue_screen();
 }
 static void queue_start(lv_event_t * e, bool shuffle) {
     queue_actions_hide(e);
@@ -282,7 +407,8 @@ static void queue_start(lv_event_t * e, bool shuffle) {
 static void queue_start_sequential(lv_event_t * e) { queue_start(e, false); }
 static void queue_start_shuffle(lv_event_t * e) { queue_start(e, true); }
 static void queue_clear_cb(lv_event_t * e) {
-    queue_actions_hide(e); gui_player_queue_clear_all(); populate_queue_screen();
+    queue_actions_hide(e); queue_finish_drag();
+    gui_player_queue_clear_all(); populate_queue_screen();
 }
 static void queue_save_done(const char * name, void * data) {
     (void) data;
@@ -314,6 +440,7 @@ static lv_obj_t * build_queue_screen(void) {
         { TR("Cancel"), queue_actions_hide, false, true },
     };
     queue_actions = build_menu_popup(rows, sizeof(rows) / sizeof(rows[0]), queue_actions_hide, &queue_actions_backdrop);
+    lv_obj_add_event_cb(screen, queue_screen_unload_cb, LV_EVENT_SCREEN_UNLOAD_START, NULL);
     return screen;
 }
 
@@ -342,11 +469,9 @@ void gui_queue_poll(void) {
     static uint32_t last_checkpoint;
     uint32_t now = lv_tick_get();
     uint64_t revision = gui_player_queue_revision();
-    if (queue_screen && lv_screen_active() == queue_screen && displayed_revision != revision) {
-        int32_t scroll = lv_obj_get_scroll_y(queue_list);
-        populate_queue_screen();
-        lv_obj_scroll_to_y(queue_list, scroll, LV_ANIM_OFF);
-    }
+    if (queue_screen && lv_screen_active() == queue_screen && displayed_revision != revision &&
+        !queue_reorder_state.active)
+        queue_repopulate_keep_scroll();
     gui_player_queue_poll_urgent();
     if (now - last_checkpoint >= 30000 || (revision != saved_revision && now - last_checkpoint >= 1000)) {
         gui_player_queue_checkpoint();
@@ -427,6 +552,10 @@ void gui_queue_init(void) {
  * build_confirm_popup(), see its own comment), not as children of
  * queue_screen, so they need their own explicit deletion. */
 void gui_queue_teardown(void) {
+    queue_finish_drag();
+    queue_reorder_state.rows = NULL;
+    queue_reorder_state.list = NULL;
+    queue_unregister_handles();
     if (queue_actions) { lv_obj_delete(queue_actions); queue_actions = NULL; }
     if (queue_actions_backdrop) { lv_obj_delete(queue_actions_backdrop); queue_actions_backdrop = NULL; }
     if (song_context_menu_popup) { lv_obj_delete(song_context_menu_popup); song_context_menu_popup = NULL; }
