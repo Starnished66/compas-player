@@ -1340,12 +1340,16 @@ static void poll_screen_inactivity_timeout(void) {
         backlight_set_dimmed(false);
         inactivity_dimmed = false;
     }
+#ifndef HOST_BUILD
+    /* The simulator has no power button to wake it, and a sleeping screen
+     * disables every input, so the host never times out. */
     if (current_settings.screen_timeout_enabled && backlight_screen_is_on() &&
         !lyrics_screen_active &&
         screen_inactive_ms >= (uint32_t) current_settings.screen_timeout_seconds * 1000) {
         request_screen_power(false);
         inactivity_dimmed = false;
     }
+#endif
 }
 
 static screen_poll_result_t poll_screen_power(void) {

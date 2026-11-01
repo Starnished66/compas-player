@@ -4183,7 +4183,8 @@ static void gesture_note_pointer_sample(const lv_indev_data_t * data) {
 #endif
 }
 
-static void wrapped_pointer_read_cb(lv_indev_t * indev, lv_indev_data_t * data) {
+/* Unused on the host, see gui_shell_install_indev_hooks(). */
+static void __attribute__((unused)) wrapped_pointer_read_cb(lv_indev_t * indev, lv_indev_data_t * data) {
     if (s_orig_pointer_read_cb) {
         s_orig_pointer_read_cb(indev, data);
     }
@@ -4260,6 +4261,9 @@ void gui_shell_install_indev_hooks(lv_indev_t * indev) {
         return;
     }
 
+#ifndef HOST_BUILD
+    /* Not on the host: LVGL's SDL driver finds its mouse by this read_cb, so
+     * wrapping it would drop every mouse event. */
     lv_indev_read_cb_t cur_read_cb = lv_indev_get_read_cb(indev);
     if (cur_read_cb && cur_read_cb != wrapped_pointer_read_cb) {
         s_orig_pointer_read_cb = cur_read_cb;
@@ -4268,6 +4272,7 @@ void gui_shell_install_indev_hooks(lv_indev_t * indev) {
         printf("[GESTURE_TRACE] indev hook: wrapped pointer read_cb for indev %p\n", (void*)indev);
 #endif
     }
+#endif
     lv_indev_add_event_cb(indev, indev_pressed_event_cb, LV_EVENT_PRESSED, NULL);
     s_hooked_indev = indev;
 }
