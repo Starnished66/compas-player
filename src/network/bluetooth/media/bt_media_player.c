@@ -1,4 +1,5 @@
 #include "bt_media_player.h"
+#include "../../../core/system/logging/db_log.h"
 #include "../../../core/system/logging/debug_log.h"
 #include "../../hiby/hiby_sys_server.h"
 #include "../../../core/text/utf8_util.h"
@@ -14,6 +15,9 @@
 #include <unistd.h>
 #include <linux/input.h>
 #include <pthread.h>
+
+#undef DBG_LOG
+#define DBG_LOG(...) DB_LOG_DBG("BT", __VA_ARGS__)
 
 /* AVRCP transport button support.
  * 1. Hosts a D-Bus org.mpris.MediaPlayer2.Player object via Media1.RegisterPlayer

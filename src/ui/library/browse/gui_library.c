@@ -31,6 +31,7 @@
 #include "../../../hardware/usb/usb_mode_control.h"
 #include "../../player/screen/gui_player.h"
 #include "../../../network/remote/control/remote_control.h"
+#include "../../../network/bluetooth/control/bluetooth_control.h"
 #include "../../effects/frosted_glass.h"
 #include "../../effects/transition_compositor.h"
 #include "src/draw/lv_draw_buf.h"
@@ -6128,6 +6129,7 @@ static void show_sd_repair_note(void) {
 /* Drop file handles so umount can succeed after the kernel has remounted
  * a damaged card read-only underneath an open library. */
 static void release_sd_handles_for_repair(void) {
+    bt_control_debug_capture_release(false);
     if (library_rescan_active) gui_library_cancel_scan();
     library_thumbnails_cancel_warmup();
     gui_player_notify_sd_unmounted_immediate();
@@ -6214,6 +6216,7 @@ void poll_sd_card_hotplug(void) {
          * queue still belong to the previous card. */
         library_thumbnails_cancel_warmup();
         gui_player_notify_sd_unmounted_immediate();
+        bt_control_debug_capture_release(false);
         clear_removed_sd_library();
         was_mounted = false;
     }
@@ -6242,6 +6245,7 @@ void poll_sd_card_hotplug(void) {
         if (group_probe_job && group_probe_job_generation == group_probe_generation)
             cancel_group_song_probes();
         gui_player_notify_sd_unmounted_immediate();
+        bt_control_debug_capture_release(false);
         bool removal_confirmed = sd_card_absence_confirmed(
             stale_mount || forced_removal, 0, SD_UNMOUNT_CONFIRM_STREAK_THRESHOLD);
         if (was_mounted) {
@@ -6328,6 +6332,7 @@ void poll_sd_card_hotplug(void) {
 
     mount_fail_streak = 0;
     sd_mount_fail_notified = false;
+    if (!sd_repair_in_progress()) bt_control_debug_capture_resume(false); /* a healthy card is mounted */
     unmount_confirm_streak = 0; /* seeing "mounted" again cancels any not-yet-confirmed removal */
     /* Same card again does not drop a latch. Only confirmation or a real
      * replacement sets one; passing a cleared streak here leaves a real

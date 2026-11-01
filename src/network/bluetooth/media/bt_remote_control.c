@@ -1,4 +1,5 @@
 #include "bt_remote_control.h"
+#include "../../../core/system/logging/db_log.h"
 #include "../../../core/system/logging/debug_log.h"
 #include "../../remote/control/remote_control.h"
 
@@ -13,6 +14,9 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
+
+#undef DBG_LOG
+#define DBG_LOG(...) DB_LOG_DBG("BT", __VA_ARGS__)
 
 /* This UUID is the Android discovery contract; keep it in sync with the
  * service documentation in bt_remote_control.h. */

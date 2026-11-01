@@ -601,3 +601,36 @@ void boot_trace_close(boot_trace_t *trace)
 	}
 	errno = incoming_errno;
 }
+
+bool logging_enabled_in_settings_path(const char *path)
+{
+	FILE *file = fopen(path, "r");
+	char line[256];
+	bool enabled = false;
+	if (!file)
+		return false;
+	for (unsigned lines = 0; lines < 512 && fgets(line, sizeof(line), file); lines++) {
+		if (!strchr(line, '\n') && !feof(file)) {
+			int c;
+			do { c = fgetc(file); } while (c != '\n' && c != EOF);
+			continue;
+		}
+		if (strncmp(line, "db_logging_enabled=", 19))
+			continue;
+		const char *p = line + 19;
+		if (*p != '1')
+			break;
+		p++;
+		while (*p == '\r' || *p == '\n' || *p == ' ' || *p == '\t')
+			p++;
+		enabled = *p == 0;
+		break;
+	}
+	fclose(file);
+	return enabled;
+}
+
+bool logging_enabled_in_settings_file(void)
+{
+	return logging_enabled_in_settings_path("/usr/data/.compas/settings.txt");
+}

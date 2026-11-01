@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdarg.h>
+#include <string.h>
 #include <stdatomic.h>
 #include <pthread.h>
 #include <time.h>
@@ -122,7 +123,8 @@ void db_log(const char * area, const char * fmt, ...) {
     va_start(ap, fmt);
     vfprintf(db_log_file, fmt, ap);
     va_end(ap);
-    fputc('\n', db_log_file);
+    size_t fmt_len = strlen(fmt);
+    if (fmt_len == 0 || fmt[fmt_len - 1] != '\n') fputc('\n', db_log_file);
     if (++db_log_lines_since_flush >= DB_LOG_FLUSH_INTERVAL) {
         fflush(db_log_file);
         db_log_lines_since_flush = 0;

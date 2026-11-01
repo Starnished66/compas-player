@@ -35,6 +35,20 @@ extern char ** environ;
 
 static boot_trace_t boot_trace = BOOT_TRACE_INITIALIZER;
 
+/* Decided once per process from the settings file (the bootloader never loads
+ * settings). With debug logging off the boot trace and the shutdown phase
+ * lines in player_exit.log are not written; abnormal-exit records are. */
+static bool boot_diagnostics_enabled(void) {
+    static int decided = -1;
+    if (decided < 0) decided = logging_enabled_in_settings_file() ? 1 : 0;
+    return decided == 1;
+}
+
+static void open_boot_trace(void) {
+    if (boot_diagnostics_enabled())
+        (void)boot_trace_open(&boot_trace, "/usr/data/bootloader_boot.log");
+}
+
 static void bootloader_checkpoint(const char *step) {
     (void)boot_trace_checkpoint(&boot_trace, step);
 }
@@ -152,6 +166,7 @@ static void record_shutdown_phase(const char * phase, int error) {
     (void)snprintf(trace_step, sizeof(trace_step), "shutdown phase=%s errno=%d", phase, error);
     bootloader_checkpoint(trace_step);
     fprintf(stderr, "%s", line);
+    if (!boot_diagnostics_enabled()) return;
     rotate_player_exit_log();
     int fd = open(PLAYER_EXIT_LOG, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC | O_NOFOLLOW, 0644);
     if (fd < 0) return;
@@ -408,7 +423,7 @@ static void require_internal_storage(void) {
 
 bool compas_loader_prepare(void) {
     require_internal_storage();
-    (void)boot_trace_open(&boot_trace, "/usr/data/bootloader_boot.log");
+    open_boot_trace();
     bootloader_checkpoint("bootloader prepare entered; framebuffer open begin");
     bool fb_ready = fb_open();
     bootloader_checkpoint(fb_ready ? "framebuffer open done" : "framebuffer open failed");
@@ -430,7 +445,7 @@ void compas_loader_run(bool startup_prepared) {
     bool fb_ready;
     if (startup_prepared) {
         require_internal_storage();
-        (void)boot_trace_open(&boot_trace, "/usr/data/bootloader_boot.log");
+        open_boot_trace();
         bootloader_checkpoint("bootloader main entered after selector; framebuffer open begin");
         /* The selector already drew the splash and waited for SD. Reopen the
          * framebuffer only so an SD update can display its progress screen. */

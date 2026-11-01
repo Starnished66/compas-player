@@ -37,6 +37,19 @@ void bt_control_get_dac_stream_info(bt_dac_stream_info_t * out);
 
 bool bt_control_is_powered(void);
 
+/* Developer Options "Enable debug logging": records an HCI capture with btmon
+ * to .logs/bluetooth.snoop on the SD card (opens in Wireshark). No-op on the
+ * simulator or when btmon is missing. */
+void bt_control_set_debug_log_enabled(bool enabled);
+/* Stops the capture now without waiting (it holds a file on the SD card) and
+ * keeps it stopped until resume: before the card is unmounted, repaired or
+ * swapped. for_good (power-off, reboot) is never resumed. Resume once a
+ * healthy card is mounted again. */
+void bt_control_debug_capture_release(bool for_good);
+/* after_failed_shutdown also lifts a for_good hold, when a power-off or
+ * reboot did not happen and the UI carries on. */
+void bt_control_debug_capture_resume(bool after_failed_shutdown);
+
 /* Brings up the Bluetooth chip if it isn't already active (no hci0) by
  * running /usr/bin/bt_resume. No-op if hci0 already exists.
  * Call off the UI thread as this takes several seconds. */

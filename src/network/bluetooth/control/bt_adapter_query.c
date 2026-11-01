@@ -1,10 +1,14 @@
 #include "bt_adapter_query.h"
+#include "../../../core/system/logging/db_log.h"
 #include "../../../core/system/logging/debug_log.h"
 
 #include <dbus/dbus.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <string.h>
+
+#undef DBG_LOG
+#define DBG_LOG(...) DB_LOG_DBG("BT", __VA_ARGS__)
 
 /* Short: a healthy bluetoothd answers in milliseconds, and a slow one is handed to bluetoothctl. */
 #define BT_ADAPTER_QUERY_TIMEOUT_MS 1000

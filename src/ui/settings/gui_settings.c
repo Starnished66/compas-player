@@ -348,11 +348,14 @@ static void db_logging_switch_event_cb(lv_event_t * e) {
     settings_save(&current_settings);
     db_log_set_enabled(current_settings.db_logging_enabled);
     usb_dac_bridge_set_debug_log_enabled(current_settings.db_logging_enabled);
+    bt_control_set_debug_log_enabled(current_settings.db_logging_enabled);
 }
 
 /* Writes a detailed timestamped log of library database scans and album art
  * cache jobs to .logs/database_artwork.log, and USB DAC bridge diagnostics to
- * .logs/usb_dac_bridge.log on the SD card -- see db_log.h and usb_dac_bridge.h. */
+ * .logs/usb_dac_bridge.log on the SD card -- see db_log.h and usb_dac_bridge.h.
+ * Bluetooth messages go to database_artwork.log (area BT) and an HCI capture
+ * to .logs/bluetooth.snoop -- see bluetooth_control.h. */
 static void screenshot_combo_switch_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
     current_settings.screenshot_combo_enabled = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);

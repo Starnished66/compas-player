@@ -1769,6 +1769,7 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
     button_mapping_init(&physical_button_mapping);
     gui_apply_button_bindings();
     usb_dac_bridge_set_debug_log_enabled(current_settings.db_logging_enabled);
+    bt_control_set_debug_log_enabled(current_settings.db_logging_enabled);
     headphone_status_refresh_earpods_adc();
     app_clock_init(current_settings.clock_automatic, current_settings.clock_manual_epoch,
                    current_settings.clock_system_reference);

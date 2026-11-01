@@ -2,6 +2,7 @@
 #ifndef COMPAS_BOOT_TRACE_H
 #define COMPAS_BOOT_TRACE_H
 
+#include <stdbool.h>
 #include <stddef.h>
 
 #define BOOT_TRACE_PATH_BYTES 1024U
@@ -31,5 +32,17 @@ int boot_trace_checkpoint(boot_trace_t *trace, const char *step);
 
 /* Release the per-path lock and close the trace. Safe after failed open. */
 void boot_trace_close(boot_trace_t *trace);
+
+/* Whether Settings > System > Developer Options > "Enable debug logging"
+ * (db_logging_enabled=1) is saved in /usr/data/.compas/settings.txt. For
+ * code that must decide before settings_load() (boot traces) or that runs in
+ * the bootloader, which never loads settings. Reads the file directly with a
+ * bounded line count and no allocation; false when missing or unreadable
+ * (logging defaults off). */
+bool logging_enabled_in_settings_file(void);
+
+/* Same check against an explicit path (the function above passes the real
+ * settings path). Exposed so tests can use a temporary file. */
+bool logging_enabled_in_settings_path(const char *path);
 
 #endif /* COMPAS_BOOT_TRACE_H */

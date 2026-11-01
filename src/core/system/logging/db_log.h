@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "debug_log.h"
+
 static inline void db_log_rotate_file_if_needed_locked(FILE ** file, const char * path, const char * rotated_path, long max_bytes) {
     if (fseek(*file, 0, SEEK_END) != 0) return;
     long size = ftell(*file);
@@ -53,6 +55,14 @@ bool db_log_flush(void);
 #define DB_LOG(area, fmt, ...) \
     do { \
         if (db_log_enabled()) db_log((area), (fmt), ##__VA_ARGS__); \
+    } while (0)
+
+/* DBG_LOG that also lands in the db log (release builds included). A file
+ * opts in with `#undef DBG_LOG` + `#define DBG_LOG(...) DB_LOG_DBG("AREA", __VA_ARGS__)`. */
+#define DB_LOG_DBG(area, ...) \
+    do { \
+        DBG_LOG_STDERR(__VA_ARGS__); \
+        DB_LOG((area), __VA_ARGS__); \
     } while (0)
 
 /* Monotonic milliseconds, for elapsed-time fields between two DB_LOG calls. */

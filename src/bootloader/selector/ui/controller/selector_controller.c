@@ -9,6 +9,7 @@
 #include "../../../storage/sd_ready.h"
 #include "../../../../core/storage/sd_fsck_run.h"
 #include "../../../../core/process/subprocess.h"
+#include "../../../../core/system/logging/boot_trace.h"
 #include "../../../../hardware/usb/usb_mode_control.h"
 #include <dirent.h>
 #include <errno.h>
@@ -239,13 +240,17 @@ static bool script_run(const char *name) {
     if (fstat(fd, &st) || !S_ISREG(st.st_mode) || st.st_size < 0 || st.st_size > 1024 * 1024) {
         close(fd); return false;
     }
+    /* Decided before fork: the log file only with debug logging on, else
+     * /dev/null (a character device, so the regular-file check is skipped). */
+    const bool keep_log = logging_enabled_in_settings_file();
     pid_t child = fork();
     if (!child) {
         (void)setpgid(0, 0);
         if (dup2(fd, STDIN_FILENO) < 0 || chdir("/")) _exit(126);
-        int log = open("/usr/data/selector-script.log", O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_NONBLOCK, 0600);
+        int log = keep_log ? open("/usr/data/selector-script.log", O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_NONBLOCK, 0600)
+                           : open("/dev/null", O_WRONLY);
         struct stat log_stat;
-        if (log < 0 || fstat(log, &log_stat) || !S_ISREG(log_stat.st_mode)) _exit(126);
+        if (log < 0 || fstat(log, &log_stat) || (keep_log && !S_ISREG(log_stat.st_mode))) _exit(126);
         if (dup2(log, STDOUT_FILENO) < 0 || dup2(log, STDERR_FILENO) < 0) _exit(126);
         long limit = sysconf(_SC_OPEN_MAX);
         if (limit < 0 || limit > 65536) limit = 65536;

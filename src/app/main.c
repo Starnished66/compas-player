@@ -112,7 +112,8 @@ bool main_loop_discard_pointer_input(void) { return false; }
  * array from a signal handler is safe (no allocation, no lock). */
 extern char g_scan_last_path[PATH_MAX];
 
-/* Always-on crash line on internal storage. The SD diag below is opt-in and
+/* Crash line on internal storage, deliberately written regardless of the
+ * debug logging setting. The SD diag below is opt-in and
  * a full SD card (or logging left off) used to leave no record at all:
  * stderr is not kept, and the bootloader only sees the wait status. This
  * path stays async-signal-safe: stack buffers and open/write/fsync/close. */
@@ -504,15 +505,20 @@ static void settle_sd_mount_during_splash(void) {
     }
 }
 
-/* Startup histories stay on internal flash across reboots. The shared logger
- * retains prior launches and flushes each stage before its operation begins. */
+/* With debug logging on, startup histories stay on internal flash across
+ * reboots; the shared logger retains prior launches and flushes each stage
+ * before its operation begins. The first checkpoint runs before settings_load(),
+ * so the decision is read once from the settings file and kept for the rest of
+ * this boot (later logs use db_log_enabled()). With logging off, no file is
+ * created, opened or rotated. */
 static boot_trace_t player_boot_trace = BOOT_TRACE_INITIALIZER;
 static bool player_boot_trace_attempted;
 
 void boot_checkpoint(const char * step) {
     if (!player_boot_trace_attempted) {
         player_boot_trace_attempted = true;
-        (void)boot_trace_open(&player_boot_trace, "/usr/data/boot_debug.log");
+        if (logging_enabled_in_settings_file())
+            (void)boot_trace_open(&player_boot_trace, "/usr/data/boot_debug.log");
     }
     (void)boot_trace_checkpoint(&player_boot_trace, step);
 }

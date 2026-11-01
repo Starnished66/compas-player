@@ -2,6 +2,7 @@
 #include "../../updates/firmware_update.h"
 #include "../../persistence/settings.h"
 #include "reboot_handoff.h"
+#include "../../../network/bluetooth/control/bluetooth_control.h"
 #include <stdio.h>
 #ifndef HOST_BUILD
 #include "../../../bootloader/selector/ui/controller/selector_request.h"
@@ -45,6 +46,7 @@ void idle_shutdown_now(void) {
     settings_shutdown_flush();
     extern void gui_player_queue_flush(void);
     gui_player_queue_flush();
+    bt_control_debug_capture_release(true); /* its open capture file would keep the card busy */
     /* Must not go through subprocess_run(): that helper waits 15s then
      * SIGKILLs the child. /sbin/poweroff (busybox, talks to init or waits
      * on other processes) routinely outlives that budget, so the 3-2-1
@@ -70,6 +72,7 @@ void idle_shutdown_reboot_now(void) {
 bool idle_shutdown_reboot_handoff(void) {
 #ifndef HOST_BUILD
     settings_shutdown_flush();
+    bt_control_debug_capture_release(true); /* the supervisor unmounts the card next */
     /* Let the supervisor release the SD card before restarting it. The
      * supervisor recognizes this status as a requested reboot. */
     if (parent_is_bootloader()) _exit(IDLE_SHUTDOWN_REBOOT_EXIT_CODE);
@@ -78,6 +81,7 @@ bool idle_shutdown_reboot_handoff(void) {
      * to run its orderly shutdown hooks before the bounded raw fallback. */
     (void)reboot_request_orderly_shutdown(NULL);
     if (reboot(RB_AUTOBOOT) == 0) return true;
+    bt_control_debug_capture_resume(true);
     /* Terminal callers keep saves latched. A caller returning to the live UI
      * must explicitly cancel shutdown after recording the syscall errno. */
     return false;
