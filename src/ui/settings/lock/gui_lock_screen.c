@@ -718,9 +718,18 @@ static void build_lock_screen_if_needed(void) {
     lv_obj_set_style_bg_opa(handle, LV_OPA_COVER, 0);
     lv_obj_add_style(handle, gui_theme_accent_style(), 0);
     lv_obj_align(handle, LV_ALIGN_BOTTOM_MID, 0, -BOARD_SCALE_PX(14));
+    /* Room for a two-line title and the artist; both stay centered, so a
+     * one-line title does not leave a gap. The height is fixed: the frosted
+     * backdrop slice below is positioned from the card's coordinates. */
+    int32_t title_line = lv_font_get_line_height(&app_font_player_title);
+    int32_t artist_line = lv_font_get_line_height(&app_font_player_meta);
+    int32_t card_pad = BOARD_SCALE_PX(14), card_gap = BOARD_SCALE_PX(4);
     lock_metadata = lv_obj_create(lock_screen);
-    lv_obj_set_size(lock_metadata, LV_PCT(90), BOARD_SCALE_PX(110));
+    lv_obj_set_size(lock_metadata, LV_PCT(90), 2 * card_pad + 2 * title_line + card_gap + artist_line);
     lv_obj_set_style_pad_all(lock_metadata, 0, 0);
+    lv_obj_set_style_pad_row(lock_metadata, card_gap, 0);
+    lv_obj_set_flex_flow(lock_metadata, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(lock_metadata, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_border_width(lock_metadata, 0, 0);
     lv_obj_set_style_radius(lock_metadata, BOARD_SCALE_PX(20), 0);
     lv_obj_set_style_clip_corner(lock_metadata, true, 0);
@@ -729,21 +738,21 @@ static void build_lock_screen_if_needed(void) {
     lv_obj_remove_flag(lock_metadata, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_align(lock_metadata, LV_ALIGN_BOTTOM_MID, 0, -BOARD_SCALE_PX(124));
     lock_metadata_image = lv_image_create(lock_metadata);
-    lv_obj_add_flag(lock_metadata_image, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(lock_metadata_image, LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_IGNORE_LAYOUT);
     lock_title = lv_label_create(lock_metadata);
     lv_obj_set_style_text_font(lock_title, &app_font_player_title, 0);
     lv_obj_set_style_text_color(lock_title, lv_color_white(), 0);
     lv_obj_set_width(lock_title, LV_PCT(90));
+    lv_obj_set_style_max_height(lock_title, 2 * title_line, 0); /* longer titles end in dots */
     lv_obj_set_style_text_align(lock_title, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(lock_title, LV_LABEL_LONG_DOT);
-    lv_obj_align(lock_title, LV_ALIGN_TOP_MID, 0, BOARD_SCALE_PX(12));
     lock_artist = lv_label_create(lock_metadata);
     lv_obj_set_style_text_font(lock_artist, &app_font_player_meta, 0);
     lv_obj_set_style_text_color(lock_artist, lv_color_hex(0xC2C7CE), 0);
     lv_obj_set_width(lock_artist, LV_PCT(90));
+    lv_obj_set_height(lock_artist, artist_line);
     lv_obj_set_style_text_align(lock_artist, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(lock_artist, LV_LABEL_LONG_DOT);
-    lv_obj_align(lock_artist, LV_ALIGN_BOTTOM_MID, 0, -BOARD_SCALE_PX(16));
 }
 
 static bool prepare_lock_screen(const gui_lock_screen_options_t * options) {

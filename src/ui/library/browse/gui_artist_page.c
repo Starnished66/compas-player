@@ -45,6 +45,7 @@ typedef struct {
     uint32_t thumb_commits;    /* library_thumbnails_commit_count() at the last look */
     int32_t cover_px;
     lv_obj_t * songs_all_label;   /* "All N songs >" on the Songs row (NULL without songs) */
+    int32_t songs_all_w;          /* room for it beside the row's title */
 } page_t;
 static page_t P;
 
@@ -345,10 +346,17 @@ static void create_header(void) {
         lv_label_set_text(title, TR("Songs"));
         lv_obj_add_style(title, &style_theme_text_primary, 0);
         lv_obj_set_style_text_font(title, row_font, 0);
-        lv_obj_align(title, LV_ALIGN_LEFT_MID, pad + lv_font_get_line_height(row_font) + BOARD_SCALE_PX(12), 0);
+        int32_t title_x = pad + lv_font_get_line_height(row_font) + BOARD_SCALE_PX(12);
+        lv_obj_align(title, LV_ALIGN_LEFT_MID, title_x, 0);
+        lv_point_t title_size;
+        lv_text_get_size(&title_size, TR("Songs"), row_font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        P.songs_all_w = row_w - pad - (title_x + title_size.x + BOARD_SCALE_PX(12));
         P.songs_all_label = lv_label_create(row);
         lv_obj_add_style(P.songs_all_label, &style_theme_text_muted, 0);
         lv_obj_set_style_text_font(P.songs_all_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+        lv_obj_set_style_text_align(P.songs_all_label, LV_TEXT_ALIGN_RIGHT, 0);
+        lv_label_set_long_mode(P.songs_all_label, LV_LABEL_LONG_DOT);
+        lv_obj_set_width(P.songs_all_label, P.songs_all_w > 0 ? P.songs_all_w : 0);
         lv_obj_align(P.songs_all_label, LV_ALIGN_RIGHT_MID, -pad, 0);
         lv_obj_remove_flag(icon, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_remove_flag(title, LV_OBJ_FLAG_CLICKABLE);
@@ -370,9 +378,14 @@ static void apply_params(void) {
     snprintf(text + len, sizeof(text) - len, " \xC2\xB7 %s", part);
     fit_label(P.counts_label, text, GUI_FONT_ROLE_BODY, info_w, 2);
     if (P.songs_all_label) {
+        /* Long translations collide with the row's title: fall back to the bare count. */
         snprintf(text, sizeof(text), TR_N("All %d song", "All %d songs", P.params.songs), P.params.songs);
         len = strlen(text);
         snprintf(text + len, sizeof(text) - len, "  " LV_SYMBOL_RIGHT);
+        lv_point_t size;
+        lv_text_get_size(&size, text, gui_theme_font(GUI_FONT_ROLE_BODY), 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        if (size.x > P.songs_all_w)
+            snprintf(text, sizeof(text), "%d  " LV_SYMBOL_RIGHT, P.params.songs);
         lv_label_set_text(P.songs_all_label, text);
     }
 }
