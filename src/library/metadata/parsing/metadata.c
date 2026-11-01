@@ -1873,7 +1873,7 @@ static void apply_title_artist_album_field(track_metadata_t * out, const char * 
  * + 8 reserved bytes), preceded by item_count items of
  * { value_length u32LE, item_flags u32LE, null-terminated key, raw value }.
  * Only text items (item_flags bits 1-2 == 0) are read as UTF-8 text. */
-static void read_ape_metadata(const char * path, track_metadata_t * out) {
+void metadata_ape_text_items(const char * path, metadata_text_item_fn item, void * ctx) {
     FILE * f = fopen(path, "rb");
     if (!f) return;
 
@@ -1947,9 +1947,7 @@ static void read_ape_metadata(const char * path, track_metadata_t * out) {
             char * value = malloc(value_length);
             if (value && fread(value, 1, value_length, f) == value_length) {
                 if ((item_flags & 0x6) == 0) { /* bits 1-2 of item_flags: 0 = UTF-8 text */
-                    apply_title_artist_album_field(out, key, key_len, value, value_length);
-                    /* APEv2 stores ReplayGain keys using the same naming as Vorbis comments. */
-                    apply_replaygain_field(out, key, key_len, value, value_length);
+                    item(ctx, key, key_len, value, value_length);
                 }
             }
             free(value);
@@ -1959,6 +1957,17 @@ static void read_ape_metadata(const char * path, track_metadata_t * out) {
     }
 
     fclose(f);
+}
+
+static void ape_apply_item(void * ctx, const char * key, size_t key_len, const char * value, size_t value_len) {
+    track_metadata_t * out = ctx;
+    apply_title_artist_album_field(out, key, key_len, value, value_len);
+    /* APEv2 stores ReplayGain keys using the same naming as Vorbis comments. */
+    apply_replaygain_field(out, key, key_len, value, value_len);
+}
+
+static void read_ape_metadata(const char * path, track_metadata_t * out) {
+    metadata_ape_text_items(path, ape_apply_item, out);
 }
 
 /* ---- DFF (DSDIFF): real-world files use two different, incompatible

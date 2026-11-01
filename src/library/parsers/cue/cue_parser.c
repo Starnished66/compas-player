@@ -2,6 +2,7 @@
 
 #include "cue_parser.h"
 #include "../../sacd/sacd_iso.h"
+#include "../../metadata/parsing/metadata.h"
 #include <ctype.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -474,6 +475,19 @@ static bool parse_native_cuesheet(const unsigned char *sheet, size_t sheet_n, ui
     return false;
 }
 
+struct ape_cue { char *text; size_t len; };
+
+/* Keeps the first APEv2 CUESHEET item as a NUL-terminated copy. */
+static void ape_cue_item(void *ctx, const char *key, size_t key_len, const char *value, size_t value_len) {
+    struct ape_cue *ac = ctx;
+    if (ac->text || key_len != 8 || strncasecmp(key, "CUESHEET", 8) || value_len > CUE_TEXT_MAX)
+        return;
+    if ((ac->text = malloc(value_len + 1))) {
+        memcpy(ac->text, value, value_len);
+        ac->len = value_len;
+    }
+}
+
 bool cue_parse_embedded(const char *path, cue_sheet_t *out) {
     if (!out)
         return false;
@@ -513,28 +527,33 @@ bool cue_parse_embedded(const char *path, cue_sheet_t *out) {
         free(toc);
         return true;
     }
-    if (!strcasecmp(ext, ".wv")) {
-        WavpackContext *w = WavpackOpenFileInput(path, NULL, OPEN_TAGS, 0);
-        if (!w)
-            return false;
-        int tag_size = WavpackGetTagItem(w, "CUESHEET", NULL, 0);
-        if (tag_size <= 0 || (unsigned)tag_size > CUE_TEXT_MAX) {
+    bool wv = !strcasecmp(ext, ".wv");
+    if (wv || !strcasecmp(ext, ".ape")) {
+        char *tag = NULL;
+        size_t len = 0;
+        if (wv) {
+            WavpackContext *w = WavpackOpenFileInput(path, NULL, OPEN_TAGS, 0);
+            if (!w)
+                return false;
+            int tag_size = WavpackGetTagItem(w, "CUESHEET", NULL, 0);
+            if (tag_size > 0 && (unsigned)tag_size <= CUE_TEXT_MAX && (tag = malloc((size_t)tag_size + 1))) {
+                len = (size_t)tag_size;
+                if (WavpackGetTagItem(w, "CUESHEET", tag, tag_size + 1) != tag_size) {
+                    free(tag);
+                    tag = NULL;
+                }
+            }
             WavpackCloseFile(w);
-            return false;
+        } else {
+            struct ape_cue ac = {0};
+            metadata_ape_text_items(path, ape_cue_item, &ac);
+            tag = ac.text;
+            len = ac.len;
         }
-        char *tag = malloc((size_t)tag_size + 1);
-        if (!tag) {
-            WavpackCloseFile(w);
+        if (!tag)
             return false;
-        }
-        int got = WavpackGetTagItem(w, "CUESHEET", tag, tag_size + 1);
-        WavpackCloseFile(w);
-        if (got != tag_size) {
-            free(tag);
-            return false;
-        }
-        tag[got] = 0;
-        bool ok = parse_text(tag, (size_t)got, path, true, out);
+        tag[len] = 0;
+        bool ok = parse_text(tag, len, path, true, out);
         free(tag);
         if (ok) {
             strncpy(out->audio_path, path, sizeof(out->audio_path) - 1);

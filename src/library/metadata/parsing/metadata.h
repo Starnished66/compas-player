@@ -110,6 +110,10 @@ typedef struct {
  * filename, a placeholder image, or no gain adjustment in that case. */
 void metadata_read(const char * path, track_metadata_t * out);
 
+/* Calls item() for every UTF-8 text item of a file's APEv2 footer tag. */
+typedef void (*metadata_text_item_fn)(void * ctx, const char * key, size_t key_len, const char * value, size_t value_len);
+void metadata_ape_text_items(const char * path, metadata_text_item_fn item, void * ctx);
+
 /* Reads textual tags, sequencing, and ReplayGain without extracting
  * embedded cover artwork. Embedded lyrics are also omitted; callers that
  * need lyrics should use the separate lyrics loader. */
