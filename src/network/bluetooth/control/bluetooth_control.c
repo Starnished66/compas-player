@@ -1,6 +1,7 @@
 #include "bluetooth_control.h"
 #include "bt_ssc_policy.h"
 #include "bt_adapter_query.h"
+#include "bt_pairing_agent.h"
 #include "../../../core/system/logging/db_log.h"
 #include "../../../core/system/logging/debug_log.h"
 #include "../../hiby/hiby_sys_server.h"
@@ -52,6 +53,9 @@ static atomic_bool bt_source_soft_volume = true;
 static atomic_int bt_source_vol_pending_percent = -1;
 static pthread_mutex_t bt_soft_volume_mutex = PTHREAD_MUTEX_INITIALIZER;
 static char bt_soft_volume_applied_path[256];
+/* Source PCM whose hardware (AVRCP) volume write failed; it keeps software
+ * gain until the PCM goes away. Guarded by bt_soft_volume_mutex. */
+static char bt_source_hw_failed_path[256];
 #define BT_SOURCE_VOLUME_MAX 127
 
 /* The firmware overlay contains BlueALSA 5 only. Keep the daemon and control
@@ -541,7 +545,11 @@ static bool bluealsa_write_source_volume(const char * path, int raw, bool softwa
     if (!software_volume) {
         char transport[256];
         int current_raw = -1;
-        if (!bluealsa_find_source_transport(path, transport, sizeof(transport), &current_raw)) return false;
+        if (!bluealsa_find_source_transport(path, transport, sizeof(transport), &current_raw)) {
+            DBG_LOG("bt_control: hardware Volume: no transport for %s\n", path);
+            return false;
+        }
+        bool remote_changed = false;
         if (current_raw != raw) {
             char variant[32];
             snprintf(variant, sizeof(variant), "variant:uint16:%d", raw);
@@ -549,9 +557,41 @@ static bool bluealsa_write_source_volume(const char * path, int raw, bool softwa
                 transport, "org.freedesktop.DBus.Properties.Set", "string:org.bluez.MediaTransport1",
                 "string:Volume", variant, NULL };
             int set_status = -1;
-            if (!subprocess_run_checked(set_argv, NULL, 0, 1000, &set_status) || set_status != 0)
+            if (!subprocess_run_checked(set_argv, NULL, 0, 1000, &set_status) || set_status != 0) {
+                DBG_LOG("bt_control: hardware Volume Set failed on %s (status %d)\n", transport, set_status);
                 return false;
+            }
+            remote_changed = current_raw >= 0;
         }
+        char text[8];
+        snprintf(text, sizeof(text), "%d", raw);
+        char * argv[] = { (char *)bluealsa_ctl_name(), "volume", (char *)path, text, text, NULL };
+        int status = -1;
+        if (subprocess_run_checked(argv, NULL, 0, 1000, &status) && status == 0) return true;
+        DBG_LOG("bt_control: hardware volume: bluealsactl volume failed on %s (status %d)\n", path, status);
+        if (remote_changed) {
+            /* Leave the accessory at the level it had, so a caller falling back to
+             * software gain does not attenuate twice. BlueZ queues the Set and
+             * updates its cached Volume only when the accessory answers; until
+             * then a restore to the old value matches the cache and is dropped,
+             * so wait briefly for the new value to settle first. Best effort: an
+             * accessory slower than this can still apply the queued level. */
+            for (int tries = 0; tries < 5; tries++) {
+                int settled = -1;
+                if (bluealsa_find_source_transport_until(path, transport, sizeof(transport), &settled,
+                                                         bt_control_monotonic_ms() + 100) ==
+                        BT_SOURCE_TRANSPORT_READY && settled != current_raw)
+                    break;
+                usleep(100000);
+            }
+            char restore[32];
+            snprintf(restore, sizeof(restore), "variant:uint16:%d", current_raw);
+            char * restore_argv[] = { "dbus-send", "--system", "--print-reply", "--dest=org.bluez",
+                transport, "org.freedesktop.DBus.Properties.Set", "string:org.bluez.MediaTransport1",
+                "string:Volume", restore, NULL };
+            subprocess_run_checked(restore_argv, NULL, 0, 1000, &status);
+        }
+        return false;
     }
     char text[8];
     snprintf(text, sizeof(text), "%d", raw);
@@ -614,8 +654,9 @@ static void bluealsa_apply_soft_volume_cancellable_ex(const char * path, const a
     uint32_t now = bt_control_monotonic_ms();
     bool prior_source_soft_volume = atomic_load(&bt_source_soft_volume);
     bool prior_ready = strcmp(bt_soft_volume_applied_path, path) == 0;
+    bool hw_failed = source && strcmp(bt_source_hw_failed_path, path) == 0;
     bool retry = source && !atomic_load(&modern_soft_volume_requested) &&
-                 prior_source_soft_volume &&
+                 !hw_failed && prior_source_soft_volume &&
                  (force_source_probe || (uint32_t)(now - bt_source_volume_probe_ms) >= 5000);
     bool done = (strcmp(bt_soft_volume_applied_path, path) == 0 && !retry) ||
                 (cancel && atomic_load(cancel));
@@ -634,7 +675,7 @@ static void bluealsa_apply_soft_volume_cancellable_ex(const char * path, const a
     }
     pthread_mutex_unlock(&bt_soft_volume_mutex);
     if (!done) {
-        bool want = atomic_load(&modern_soft_volume_requested);
+        bool want = atomic_load(&modern_soft_volume_requested) || hw_failed;
         bool readiness_cancelled = false;
         bool source_probe_failed = false;
         if (source && !want) {
@@ -702,6 +743,8 @@ static void bluealsa_apply_soft_volume_cancellable_ex(const char * path, const a
             pthread_mutex_unlock(&bt_soft_volume_serial);
             return;
         }
+        bool hw_attempt = source && !want;
+        bool hw_fallback = false;
         bool current;
         bool ok;
         bool soft_volume_unchanged = bluealsa_read_soft_volume(path, &current) && current == want;
@@ -716,9 +759,26 @@ static void bluealsa_apply_soft_volume_cancellable_ex(const char * path, const a
         if (source && ok && !(prior_ready && source_probe_failed && prior_source_soft_volume &&
                               want && soft_volume_unchanged))
             ok = bluealsa_seed_source_volume(path, want);
+        if (hw_attempt && !ok) {
+            /* The accessory exposes Volume but rejects or ignores the write;
+             * fall back to software gain instead of failing the output. */
+            DBG_LOG("bt_control: hardware volume failed on %s; falling back to software gain\n", path);
+            want = true;
+            bool on = bluealsa_read_soft_volume(path, &current) && current;
+            if (!on) {
+                char * on_argv[] = { (char *) backend.ctl, (char *) "soft-volume",
+                                     (char *) path, (char *) "on", NULL };
+                int on_code = -1;
+                on = subprocess_run_checked(on_argv, NULL, 0, 5000, &on_code) && on_code == 0;
+            }
+            ok = on && bluealsa_seed_source_volume(path, true);
+            hw_fallback = ok;
+        }
         pthread_mutex_lock(&bt_soft_volume_mutex);
         if (ok && atomic_load_explicit(&bt_soft_volume_clears, memory_order_acquire) == clears) {
             snprintf(bt_soft_volume_applied_path, sizeof(bt_soft_volume_applied_path), "%s", path);
+            if (hw_fallback)
+                snprintf(bt_source_hw_failed_path, sizeof(bt_source_hw_failed_path), "%s", path);
             if (source) atomic_store(&bt_source_soft_volume, want);
         }
         pthread_mutex_unlock(&bt_soft_volume_mutex);
@@ -740,6 +800,8 @@ static void bluealsa_apply_soft_volume(const char * path) {
 static void bluealsa_clear_soft_volume_path(const char * path) {
     pthread_mutex_lock(&bt_soft_volume_mutex);
     bool clear = !path || strcmp(bt_soft_volume_applied_path, path) == 0;
+    if (!path || strcmp(bt_source_hw_failed_path, path) == 0)
+        bt_source_hw_failed_path[0] = '\0';
     if (clear)
         bt_soft_volume_applied_path[0] = '\0';
     atomic_fetch_add_explicit(&bt_soft_volume_clears, 1, memory_order_acq_rel);
@@ -2645,8 +2707,60 @@ static bool bluealsa_source_pcm_may_be_connected(void) {
     return strstr(list_out, "/a2dpsrc/sink") != NULL;
 }
 
+/* Recorded so bt_control_reapply_last_output_settings() (the wedge
+ * recovery in bt_control_is_powered()) can restore this after a
+ * bluetoothd restart -- a fresh bluetoothd/bt_resume-equivalent bring-up
+ * always comes back up in the plain a2dp-source default, not whatever
+ * profile was actually requested last. */
+static bool last_applied_dac_mode_enabled = false;
+static bool last_applied_volume_sync_enabled = false;
+static bool output_settings_ever_applied = false;
+
+static bool bt_agent_process_running(void) {
+    DIR * proc = opendir("/proc");
+    if (!proc) return false;
+    bool found = false;
+    struct dirent * entry;
+    while (!found && (entry = readdir(proc))) {
+        if (entry->d_name[0] < '0' || entry->d_name[0] > '9') continue;
+        char path[320];
+        snprintf(path, sizeof(path), "/proc/%s/stat", entry->d_name);
+        FILE * f = fopen(path, "r");
+        if (!f) continue;
+        /* "pid (comm) state ...": a just-killed agent lingers as a zombie, which is not running. */
+        char stat[64] = {0};
+        if (fgets(stat, sizeof(stat), f)) {
+            const char * name = strchr(stat, '(');
+            found = name && strncmp(name, "(bt-agent) ", 11) == 0 && name[11] != 'Z' && name[11] != 'X';
+        }
+        fclose(f);
+    }
+    closedir(proc);
+    return found;
+}
+
+static void spawn_stock_agent(void) {
+    char * agent_argv[] = { (char *) "bt-agent", (char *) "-c", (char *) "NoInputNoOutput",
+                            (char *) "-p", (char *) "/usr/data/pin.conf", NULL };
+    subprocess_spawn_daemon(agent_argv);
+}
+
+/* Source mode pairs through the in-process DisplayYesNo agent: some car head
+ * units demand MITM protection and refuse A2DP over the unauthenticated key a
+ * NoInputNoOutput (Just Works) agent produces. The stock bt-agent that
+ * bt_init/bt_resume start at boot is killed only once ours is registered, so
+ * pairing is never left without an agent. DAC mode keeps its own bt-agent.
+ * The caller holds bt_daemon_respawn_mutex, which also guards the last-applied
+ * settings. One D-Bus round trip when already registered. */
+static void ensure_source_agent(void) {
+    if (output_settings_ever_applied && last_applied_dac_mode_enabled) return;
+    if (!bt_pairing_agent_activate()) return;
+    if (bt_agent_process_running()) subprocess_kill_all_matching("bt-agent");
+}
+
 static bool ensure_bluealsa_running_rate_ex(unsigned int requested_rate, bool * out_deferred) {
     pthread_mutex_lock(&bt_daemon_respawn_mutex);
+    ensure_source_agent();
     bluealsa_backend_t backend = bluealsa_backend();
     bt_codec_preference_t preference = (bt_codec_preference_t) atomic_load(&bt_codec_preference);
     bool must_restart = bluealsa_needs_source_restart(&backend, preference, requested_rate);
@@ -2686,6 +2800,8 @@ static bool ensure_bluealsa_running_rate_ex(unsigned int requested_rate, bool * 
     if (bt_codec_is_sbc_xq()) argv[argc++] = (char *) "--sbc-quality=xq";
     argc = bt_codec_append_daemon_args(argv, argc);
     argv[argc] = NULL;
+    /* A fresh daemon has no PCMs, and a dead one may not have reported their removal. */
+    bluealsa_clear_soft_volume_path(NULL);
     bool ok = subprocess_spawn_daemon(argv);
     pthread_mutex_unlock(&bt_daemon_respawn_mutex);
     return ok;
@@ -4713,6 +4829,11 @@ static void bt_output_disconnect_process_line(const char * line, char * pending_
         }
         return;
     }
+    if (strstr(line, "ServiceStopped")) {
+        /* A daemon that died may never report PCMRemoved; its PCMs are gone either way. */
+        bluealsa_clear_soft_volume_path(NULL);
+        return;
+    }
     if (strncmp(line, "PCMAdded ", 9) != 0 || sscanf(line, "PCMAdded %255s", path) != 1) return;
     bt_auto_pcm_added(path);
     if (strcmp(pending_path, path) == 0) {
@@ -4932,15 +5053,6 @@ bool bt_control_output_disconnect_consume(void) {
     return disconnected;
 }
 
-/* Recorded so bt_control_reapply_last_output_settings() (the wedge
- * recovery in bt_control_is_powered(), above) can restore this after a
- * bluetoothd restart -- a fresh bluetoothd/bt_resume-equivalent bring-up
- * always comes back up in the plain a2dp-source default, not whatever
- * profile was actually requested last. */
-static bool last_applied_dac_mode_enabled = false;
-static bool last_applied_volume_sync_enabled = false;
-static bool output_settings_ever_applied = false;
-
 #define BLUEALSA_STARTUP_LOG_PATH "/usr/data/bluealsa_startup.log"
 
 /* Spawns bluealsa daemon, logging startup output if TEST_BUILD_TAG is defined
@@ -4982,7 +5094,6 @@ bool bt_control_apply_output_settings(bool dac_mode_enabled, bool volume_sync_en
     bluealsa_backend_t backend = bluealsa_backend();
     subprocess_kill_all_matching(backend.daemon_name);
     subprocess_kill_all_matching("aplay");
-    subprocess_kill_all_matching("bt-agent");
     /* usleep(500000) delay TEMPORARILY REMOVED for the same live A/B test
      * as the codec restriction and bluealsa-aplay below -- the stock
      * player's own bluealsa_profile script has zero delay between the
@@ -5026,12 +5137,19 @@ bool bt_control_apply_output_settings(bool dac_mode_enabled, bool volume_sync_en
     }
 
     if (dac_mode_enabled) {
-        char * agent_argv[] = { (char *) "bt-agent", (char *) "-c", (char *) "NoInputNoOutput", NULL };
-        subprocess_spawn_daemon(agent_argv);
-    } else {
-        char * agent_argv[] = { (char *) "bt-agent", (char *) "-c", (char *) "NoInputNoOutput",
-                                 (char *) "-p", (char *) "/usr/data/pin.conf", NULL };
-        subprocess_spawn_daemon(agent_argv);
+        /* The DAC agent takes the default role when it registers. Ours stays queued behind
+         * it, so pairing is answered until then and if bt-agent fails or dies. If ours could
+         * not be queued, a running bt-agent (also NoInputNoOutput) is kept rather than replaced. */
+        if (bt_pairing_agent_yield() || !bt_agent_process_running()) {
+            subprocess_kill_all_matching("bt-agent");
+            char * agent_argv[] = { (char *) "bt-agent", (char *) "-c", (char *) "NoInputNoOutput", NULL };
+            subprocess_spawn_daemon(agent_argv);
+        }
+    } else if (bt_pairing_agent_activate()) {
+        /* Ours is the default before the old agent goes, so pairing is never unanswered. */
+        if (bt_agent_process_running()) subprocess_kill_all_matching("bt-agent");
+    } else if (!bt_agent_process_running()) {
+        spawn_stock_agent(); /* keep whatever agent is already answering */
     }
 
     if (dac_mode_enabled) {

@@ -30,8 +30,8 @@ typedef struct {
 /* Non-blocking, thread-safe cached snapshot. */
 void bt_control_get_dac_stream_info(bt_dac_stream_info_t * out);
 
-/* bluetoothd, BlueALSA 5, and a NoInputNoOutput pairing agent are already
- * running on this device; everything here just drives bluetoothctl's
+/* bluetoothd and BlueALSA 5 are already running on this device (plus a
+ * pairing agent: bt-agent in DAC mode, bt_pairing_agent.c in source mode); everything here just drives bluetoothctl's
  * non-interactive CLI mode (`bluetoothctl <command> [args]`), which
  * produces clean output with no ANSI/prompt junk to strip. */
 
@@ -151,8 +151,11 @@ int bt_control_scan(int seconds, bt_device_t * out, int max_count);
 /* Pair (if not already) + trust + connect, in that order -- trusting first
  * means a future reconnect (e.g. after the device is turned off and back
  * on) won't need to go through this flow again, matching normal phone/OS
- * Bluetooth UX. The already-running NoInputNoOutput agent auto-accepts
- * "Just Works" pairing with no PIN prompt needed from this app. Blocking;
+ * Bluetooth UX. Source mode runs the in-process DisplayYesNo agent
+ * (bt_pairing_agent.c) that auto-confirms numeric comparison, since some car
+ * head units refuse A2DP over an unauthenticated Just Works key, and answers
+ * PIN requests with 0000; DAC mode keeps a NoInputNoOutput bt-agent.
+ * No PIN prompt is needed from this app. Blocking;
  * call off the UI thread. */
 bool bt_control_connect(const char * mac);
 bool bt_control_connect_with_rate(const char * mac, unsigned int rate);

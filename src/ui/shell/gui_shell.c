@@ -3288,6 +3288,10 @@ static void poll_refresh_bt_icon(void) {
         a2dp_connected = false;
     }
 
+    /* Confirmed off->on, not the optimistic flip: BlueZ answers by now. */
+    static bool last_confirmed_powered;
+    bool bt_turned_on = display_powered && !last_confirmed_powered;
+    last_confirmed_powered = display_powered;
     bt_is_powered_cached = display_powered;
     bt_is_a2dp_connected_ui = a2dp_connected;
     bt_power_status_generation++;
@@ -3360,6 +3364,7 @@ static void poll_refresh_bt_icon(void) {
     /* Rebuild Bluetooth screen only when it is currently on top to avoid
      * UI stutter on other screens. */
     if (gui_navigation_is_top(gui_network_get_bt_screen())) populate_bt_screen();
+    if (bt_turned_on) gui_network_bt_powered_on();
 
     /* Route audio to Bluetooth when connected, unless Bluetooth DAC mode is
      * enabled (which runs bluealsa as an A2DP sink rather than source). */
@@ -7352,6 +7357,7 @@ void gui_shell_update_topbar(bool screen_just_woke) {
         refresh_wifi_icon();
         start_bt_dac_startup_reapply_if_needed();
         start_refresh_bt_icon();
+        gui_network_extend_bt_pairing_window();
     }
     reflow_topbar_layout();
     sync_bt_codec_status_icon();

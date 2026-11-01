@@ -62,6 +62,8 @@ void open_bluetooth_screen(void);
  * changes underneath it. No-op unless that screen is on top. */
 void gui_network_notify_bt_device_changed(void);
 void populate_bt_screen(void);
+void gui_network_bt_powered_on(void);
+void gui_network_extend_bt_pairing_window(void);
 void gui_network_show_wifi_toggle_pending(bool enabled);
 void gui_network_wifi_toggle_completed(bool enabled);
 

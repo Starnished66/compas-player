@@ -24,6 +24,7 @@ extern int subprocess_run(char * const argv[], char ** out_output, int timeout_s
 #include "../../network/wifi/wifi_status.h"
 #include "../../network/wifi/wifi_control.h"
 #include "../../network/bluetooth/control/bluetooth_control.h"
+#include "../../network/bluetooth/control/bt_pairing_agent.h"
 #include "../../network/bluetooth/reconnect/bluetooth_reconnect.h"
 #include "../../hardware/usb/usb_mode_control.h"
 #include "../../hardware/power/battery.h"
@@ -1561,6 +1562,9 @@ static volatile bool bt_connect_succeeded = false;
  * elsewhere in this file (see start_wifi_scan()'s comment): running fully
  * in the background with inline per-row feedback, matching the stock
  * player, means there's no screen to get stuck on at all. */
+/* How long the pairing agent accepts requests after the user's last Bluetooth action. */
+#define BT_PAIRING_WINDOW_MS 60000
+
 static char bt_connecting_mac[18] = "";
 static char bt_connect_failed_mac[18] = "";
 
@@ -1605,6 +1609,7 @@ static void start_bt_connect(const char * mac) {
 
     atomic_store_explicit(&bt_connect_done_flag, false, memory_order_relaxed);
     bt_connect_active = true;
+    bt_pairing_agent_allow_pairing_for(BT_PAIRING_WINDOW_MS); /* connecting an unpaired device pairs it */
     snprintf(bt_connecting_mac, sizeof(bt_connecting_mac), "%s", mac);
     bt_connect_failed_mac[0] = '\0';
     populate_bt_screen(); /* immediate inline "Connecting..." on that row */
@@ -1768,9 +1773,20 @@ static void show_bt_action_popup(int index) {
     gui_popup_show(&bt_action_popup);
 }
 
+/* The device each row was built for: a rebuild deferred under a finger can leave a row in
+ * place after bt_scan_results was replaced, so a click resolves the row's device by MAC. */
+static char bt_row_macs[BT_MAX_RESULTS][18];
+
 static void bt_row_click_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     int index = (int) (intptr_t) lv_event_get_user_data(e);
+    if (index < 0 || index >= BT_MAX_RESULTS) return;
+    const char * mac = bt_row_macs[index];
+    if (index >= bt_scan_result_count || strcasecmp(bt_scan_results[index].mac, mac) != 0) {
+        index = -1;
+        for (int i = 0; i < bt_scan_result_count; i++)
+            if (strcasecmp(bt_scan_results[i].mac, mac) == 0) { index = i; break; }
+    }
     show_bt_action_popup(index);
 }
 
@@ -1787,6 +1803,7 @@ static void bt_rescan_btn_cb(lv_event_t * e) {
         paired_count++;
     }
     bt_scan_result_count = paired_count;
+    bt_pairing_agent_allow_pairing_for(BT_PAIRING_WINDOW_MS);
     populate_bt_screen();
     start_bt_scan();
 }
@@ -1859,6 +1876,8 @@ static void format_rate(char * out, size_t size, unsigned int rate);
 
 static void add_bt_device_row(lv_obj_t * parent, int index) {
     bt_device_t * dev = &bt_scan_results[index];
+    if (index >= 0 && index < BT_MAX_RESULTS)
+        snprintf(bt_row_macs[index], sizeof(bt_row_macs[index]), "%s", dev->mac);
 
     /* Codec is only meaningful for the ONE device actually carrying A2DP
      * audio right now -- dev->connected alone isn't enough (a paired,
@@ -3310,6 +3329,63 @@ static void bt_hide_unnamed_toggle_cb(lv_event_t * e) {
     populate_bt_screen();          /* and the device list it filters, for the way back */
 }
 
+/* True while a finger is down or the list is scrolling: rebuilding then would
+ * destroy the row being pressed and lose the tap. */
+static bool bt_list_touch_active(void) {
+    if (lv_obj_is_scrolling(bt_list)) return true;
+    for (lv_indev_t * indev = lv_indev_get_next(NULL); indev; indev = lv_indev_get_next(indev))
+        if (lv_indev_get_type(indev) == LV_INDEV_TYPE_POINTER &&
+            lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED) return true;
+    return false;
+}
+
+static uint64_t bt_sig_add(uint64_t h, const void * data, size_t len) {
+    const unsigned char * p = (const unsigned char *) data;
+    for (size_t i = 0; i < len; i++) h = (h ^ p[i]) * 1099511628211ULL; /* FNV-1a */
+    return h;
+}
+
+static uint64_t bt_sig_add_str(uint64_t h, const char * s) {
+    return bt_sig_add(h, s, strlen(s) + 1);
+}
+
+/* Hash of everything populate_bt_screen() renders, so an unchanged list is
+ * left alone. Any input of add_bt_device_row() or the section layout belongs here. */
+static uint64_t bt_screen_signature(bool powered) {
+    uint64_t h = 14695981039346656037ULL;
+    int32_t row_h = ui_list_row_height();
+    const lv_font_t * fonts[2] = {gui_theme_font(GUI_FONT_ROLE_BODY), gui_theme_font(GUI_FONT_ROLE_SUBTEXT)};
+    h = bt_sig_add(h, &powered, sizeof(powered));
+    h = bt_sig_add(h, &row_h, sizeof(row_h));
+    h = bt_sig_add(h, fonts, sizeof(fonts));
+    /* A font size change rewrites the descriptors in place, so the addresses alone miss it. */
+    for (int i = 0; i < 2; i++) {
+        int32_t metrics[2] = {fonts[i] ? lv_font_get_line_height(fonts[i]) : 0, fonts[i] ? fonts[i]->base_line : 0};
+        h = bt_sig_add(h, metrics, sizeof(metrics));
+    }
+    if (!powered) return h;
+
+    bool hide_unnamed = current_settings.bt_hide_unnamed_devices;
+    h = bt_sig_add(h, &hide_unnamed, sizeof(hide_unnamed));
+    h = bt_sig_add_str(h, bt_connecting_mac);
+    h = bt_sig_add_str(h, bt_connect_failed_mac);
+    h = bt_sig_add_str(h, bt_connected_mac_cached);
+    h = bt_sig_add_str(h, bt_connected_codec_cached);
+    h = bt_sig_add(h, &bt_connected_rate_cached, sizeof(bt_connected_rate_cached));
+    for (int i = 0; i < bt_scan_result_count; i++) {
+        if (bt_preferred_device_index(i) != i) continue;
+        bool paired, connected;
+        bt_merged_device_state(bt_scan_results[i].mac, &paired, &connected);
+        unsigned char flags = (unsigned char) ((paired ? 1 : 0) | (connected ? 2 : 0) |
+                                               (bt_name_is_mac_placeholder(&bt_scan_results[i]) ? 4 : 0));
+        h = bt_sig_add(h, &i, sizeof(i)); /* the row's click callback carries this index */
+        h = bt_sig_add_str(h, bt_scan_results[i].mac);
+        h = bt_sig_add_str(h, bt_scan_results[i].name);
+        h = bt_sig_add(h, &flags, sizeof(flags));
+    }
+    return h;
+}
+
 /* ---- Master rebuild for the Bluetooth screen's one dynamic list: toggle
  * row, then (only while powered) volume sync/DAC/Codec rows, Paired
  * Devices, and Available Devices -- same full-rebuild-on-any-change
@@ -3318,11 +3394,9 @@ static void bt_hide_unnamed_toggle_cb(lv_event_t * e) {
  * call; this just splits that single list into the two sections by
  * ->paired rather than needing two separate scans. ---- */
 void populate_bt_screen(void) {
-    /* Preserve scroll position across periodic screen rebuilds so the view
-     * does not snap back to the top while browsing devices. */
-    int32_t saved_scroll_y = lv_obj_get_scroll_y(bt_list);
-
-    lv_obj_clean(bt_list);
+    static uint64_t last_signature;
+    static lv_obj_t * last_list;
+    static uint32_t last_child_count;
 
     /* bt_is_powered_cached, not bt_control_is_powered() -- same reasoning
      * as external_dac_block_reason()'s own use of the cache (see its
@@ -3337,6 +3411,20 @@ void populate_bt_screen(void) {
         if (powered) lv_obj_remove_flag(bt_rescan_btn, LV_OBJ_FLAG_HIDDEN);
         else lv_obj_add_flag(bt_rescan_btn, LV_OBJ_FLAG_HIDDEN);
     }
+
+    /* Nothing changed: keep the rows (and any press on them) in place. A
+     * different or emptied list always rebuilds. A touch in progress defers
+     * the rebuild; the signature stays stale so the next refresh does it. */
+    uint64_t signature = bt_screen_signature(powered);
+    bool same_list = bt_list == last_list && lv_obj_get_child_count(bt_list) == last_child_count;
+    if (same_list && signature == last_signature) return;
+    if (same_list && bt_list_touch_active()) return;
+
+    /* Preserve scroll position across periodic screen rebuilds so the view
+     * does not snap back to the top while browsing devices. */
+    int32_t saved_scroll_y = lv_obj_get_scroll_y(bt_list);
+
+    lv_obj_clean(bt_list);
     /* quick_drawer_bt_event_cb is the SAME real toggle-thread trigger the
      * drawer's own bt icon uses -- see populate_wifi_screen()'s identical
      * reasoning for wifi. */
@@ -3345,6 +3433,9 @@ void populate_bt_screen(void) {
     if (!powered) {
         build_list_message(bt_list, TR("Bluetooth is off"), TR("Turn on Bluetooth to see paired and nearby devices."));
         lv_obj_scroll_to_y(bt_list, saved_scroll_y, LV_ANIM_OFF);
+        last_list = bt_list;
+        last_child_count = lv_obj_get_child_count(bt_list);
+        last_signature = signature;
         return;
     }
 
@@ -3383,6 +3474,9 @@ void populate_bt_screen(void) {
     }
 
     lv_obj_scroll_to_y(bt_list, saved_scroll_y, LV_ANIM_OFF);
+    last_list = bt_list;
+    last_child_count = lv_obj_get_child_count(bt_list);
+    last_signature = signature;
 }
 
 static lv_obj_t * build_bluetooth_screen(void) {
@@ -3395,6 +3489,7 @@ static lv_obj_t * build_bluetooth_screen(void) {
 }
 
 void open_bluetooth_screen(void) {
+    bt_pairing_agent_allow_pairing_for(BT_PAIRING_WINDOW_MS);
     populate_bt_screen();
     nav_push(bt_screen);
     /* Auto-refresh on open -- cached power state, not a fresh
@@ -3404,6 +3499,18 @@ void open_bluetooth_screen(void) {
      * stutters for the whole scan window. The known-device list still
      * refreshes, and Rescan is there when discovery is actually wanted. */
     if (bt_is_powered_cached) start_bt_scan_ex(!gui_shell_is_bt_audio_connected());
+}
+
+/* Called from the periodic refresh: pairing stays open while the screen is shown. */
+void gui_network_extend_bt_pairing_window(void) {
+    if (bt_screen && gui_navigation_is_top(bt_screen)) bt_pairing_agent_allow_pairing_for(BT_PAIRING_WINDOW_MS);
+}
+
+/* Bluetooth just came on: load BlueZ's known devices now so Paired Devices
+ * is not empty until Rescan. No inquiry; an active scan already refreshes. */
+void gui_network_bt_powered_on(void) {
+    if (!bt_screen || !gui_navigation_is_top(bt_screen)) return;
+    start_bt_scan_ex(false);
 }
 
 static void bt_tile_cb(lv_event_t * e) {
