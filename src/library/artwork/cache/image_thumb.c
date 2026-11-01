@@ -63,8 +63,93 @@ void image_thumb_fit(int native_w, int native_h, int max_w, int max_h, int * out
     *out_h = h < 1 ? 1 : h;
 }
 
+static unsigned tiff_u(const uint8_t * p, bool le, int n) {
+    unsigned v = 0;
+    for (int i = 0; i < n; i++) v |= (unsigned) p[le ? i : n - 1 - i] << (8 * i);
+    return v;
+}
+
+int image_exif_orientation(const uint8_t * data, size_t size) {
+    if (size < 4 || data[0] != 0xFF || data[1] != 0xD8) return 1;
+    for (size_t pos = 2; pos + 4 <= size && data[pos] == 0xFF;) {
+        int marker = data[pos + 1];
+        if (marker == 0xFF) { pos++; continue; }
+        size_t len = ((size_t) data[pos + 2] << 8) | data[pos + 3];
+        if (marker == 0xDA || marker == 0xD9 || marker < 0xC0 || len < 2 || pos + 2 + len > size) break;
+        if (marker == 0xE1 && len >= 16 && memcmp(data + pos + 4, "Exif\0\0", 6) == 0) {
+            const uint8_t * t = data + pos + 10;
+            size_t tl = len - 8;
+            bool le = t[0] == 'I';
+            if (t[1] != t[0] || (!le && t[0] != 'M') || tiff_u(t + 2, le, 2) != 0x2A) break;
+            size_t off = tiff_u(t + 4, le, 4);
+            if (off > tl - 2) break;
+            unsigned n = tiff_u(t + off, le, 2);
+            for (size_t e = off + 2; n-- && e + 12 <= tl; e += 12)
+                if (tiff_u(t + e, le, 2) == 0x112) {
+                    unsigned v = tiff_u(t + e + 8, le, 2);
+                    return tiff_u(t + e + 2, le, 2) == 3 && tiff_u(t + e + 4, le, 4) == 1 && v >= 1 && v <= 8
+                        ? (int) v : 1;
+                }
+            break;
+        }
+        pos += 2 + len;
+    }
+    return 1;
+}
+
+uint16_t * image_rgb565_orient(const uint16_t * src, int w, int h, int orientation, int * out_w, int * out_h) {
+    bool swap = orientation >= 5;
+    int ow = swap ? h : w, oh = swap ? w : h;
+    uint16_t * dst = malloc((size_t) ow * oh * sizeof(*dst));
+    if (!dst) return NULL;
+    bool flip_u = (0x18C >> orientation) & 1, flip_v = (0xD8 >> orientation) & 1; /* 2,3,7,8 / 3,4,6,7 */
+    for (int y = 0; y < oh; y++)
+        for (int x = 0; x < ow; x++) {
+            int u = swap ? y : x, v = swap ? x : y;
+            if (flip_u) u = w - 1 - u;
+            if (flip_v) v = h - 1 - v;
+            dst[(size_t) y * ow + x] = src[(size_t) v * w + u];
+        }
+    *out_w = ow;
+    *out_h = oh;
+    return dst;
+}
+
 static bool write_all(FILE * f, const void * data, size_t len) {
     return fwrite(data, 1, len, f) == len;
+}
+
+static const char * decode_failure_reason(cover_decode_result_t res, artwork_cancel_fn cancel_cb,
+                                          void * cancel_user) {
+    if (cancel_cb && cancel_cb(cancel_user)) return "cancelled";
+    if (res == COVER_DECODE_FAIL_OVERSIZED) return "image dimensions too large";
+    if (cover_decode_result_is_temporary(res)) return "busy"; /* the decoder or memory was taken; worth trying again later */
+    return "could not decode image";
+}
+
+bool image_thumb_decode(const uint8_t * data, size_t size, int max_w, int max_h,
+                        artwork_priority_t prio, artwork_cancel_fn cancel_cb, void * cancel_user,
+                        uint16_t ** out_pixels, int * out_w, int * out_h, const char ** reason) {
+    const char * dummy;
+    if (!reason) reason = &dummy;
+    *reason = NULL;
+    int native_w = 0, native_h = 0;
+    if (max_w < 1 || max_h < 1 || size > UINT32_MAX ||
+        !image_thumb_native_size(data, size, &native_w, &native_h)) {
+        *reason = "unsupported image";
+        return false;
+    }
+    image_thumb_fit(native_w, native_h, max_w, max_h, out_w, out_h);
+    uint16_t * pixels = NULL;
+    cover_decode_result_t res = cover_decode_to_rgb565_ex(data, (uint32_t) size, *out_w, *out_h, prio,
+                                                          cancel_cb, cancel_user, &pixels);
+    if (res != COVER_DECODE_OK || !pixels) {
+        free(pixels);
+        *reason = decode_failure_reason(res, cancel_cb, cancel_user);
+        return false;
+    }
+    *out_pixels = pixels;
+    return true;
 }
 
 static bool image_write_bin(const uint8_t * data, size_t size, int max_w, int max_h,
@@ -74,67 +159,64 @@ static bool image_write_bin(const uint8_t * data, size_t size, int max_w, int ma
     const char * dummy;
     if (!reason) reason = &dummy;
     *reason = NULL;
-    int native_w = 0, native_h = 0;
-    if (!dest_path || max_w < 1 || max_h < 1 || size > UINT32_MAX ||
-        !image_thumb_native_size(data, size, &native_w, &native_h)) {
+    if (!dest_path) {
         *reason = "unsupported image";
         return false;
     }
     int w, h;
-    if (cover) {
+    uint16_t * pixels = NULL;
+    if (!cover) {
+        if (!image_thumb_decode(data, size, max_w, max_h, prio, cancel_cb, cancel_user, &pixels, &w, &h,
+                                reason))
+            return false;
+    } else {
+        int native_w = 0, native_h = 0;
+        if (max_w < 1 || max_h < 1 || size > UINT32_MAX ||
+            !image_thumb_native_size(data, size, &native_w, &native_h)) {
+            *reason = "unsupported image";
+            return false;
+        }
         w = max_w;
         h = max_h;
-    } else {
-        image_thumb_fit(native_w, native_h, max_w, max_h, &w, &h);
-    }
-
-    /* Thumbnail dimensions preserve source aspect ratio. Wallpaper dimensions
-     * use cover-fit, which center-crops to the requested screen rectangle. */
-    uint16_t * pixels = NULL;
-    cover_decode_result_t res = cover_decode_to_rgb565_ex(data, (uint32_t) size, w, h, prio,
-                                                          cancel_cb, cancel_user, &pixels);
-    if (cover && res == COVER_DECODE_FAIL_OVERSIZED &&
-        !(cancel_cb && cancel_cb(cancel_user))) {
-        /* The shared JPEG decoder avoids scaling when either source axis
-         * would fall below the final target. For wide wallpapers that can
-         * reject a source whose short axis is smaller than the tall screen.
-         * Decode at a bounded aspect-fit intermediate, then center-cover it;
-         * this keeps thumbnail policy intact and avoids a second JPEG path. */
-        int intermediate_w = native_w, intermediate_h = native_h;
-        /* Match JPEG decoder scale steps so the requested intermediate never
-         * forces a larger, over-limit decode between powers of two. */
-        for (int scale = 0; scale < 3 &&
-             (intermediate_w > MAX_DECODED_COVER_SIDE ||
-              intermediate_h > MAX_DECODED_COVER_SIDE); scale++) {
-            intermediate_w >>= 1;
-            intermediate_h >>= 1;
-        }
-        uint16_t * intermediate = NULL;
-        res = cover_decode_to_rgb565_ex(data, (uint32_t) size, intermediate_w, intermediate_h,
-                                        prio, cancel_cb, cancel_user, &intermediate);
-        if (res == COVER_DECODE_OK && intermediate &&
-            !(cancel_cb && cancel_cb(cancel_user))) {
-            pixels = cover_resize_rgb565(intermediate, intermediate_w, intermediate_h, w, h);
-            if (!pixels) res = COVER_DECODE_FAIL_ALLOC;
-            else if (cancel_cb && cancel_cb(cancel_user)) {
-                free(pixels);
-                pixels = NULL;
-                res = COVER_DECODE_FAIL_CANCELLED;
+        /* Wallpaper dimensions use cover-fit, which center-crops to the
+         * requested screen rectangle. */
+        cover_decode_result_t res = cover_decode_to_rgb565_ex(data, (uint32_t) size, w, h, prio,
+                                                              cancel_cb, cancel_user, &pixels);
+        if (res == COVER_DECODE_FAIL_OVERSIZED && !(cancel_cb && cancel_cb(cancel_user))) {
+            /* The shared JPEG decoder avoids scaling when either source axis
+             * would fall below the final target. For wide wallpapers that can
+             * reject a source whose short axis is smaller than the tall screen.
+             * Decode at a bounded aspect-fit intermediate, then center-cover it;
+             * this keeps thumbnail policy intact and avoids a second JPEG path. */
+            int intermediate_w = native_w, intermediate_h = native_h;
+            /* Match JPEG decoder scale steps so the requested intermediate never
+             * forces a larger, over-limit decode between powers of two. */
+            for (int scale = 0; scale < 3 &&
+                 (intermediate_w > MAX_DECODED_COVER_SIDE ||
+                  intermediate_h > MAX_DECODED_COVER_SIDE); scale++) {
+                intermediate_w >>= 1;
+                intermediate_h >>= 1;
             }
+            uint16_t * intermediate = NULL;
+            res = cover_decode_to_rgb565_ex(data, (uint32_t) size, intermediate_w, intermediate_h,
+                                            prio, cancel_cb, cancel_user, &intermediate);
+            if (res == COVER_DECODE_OK && intermediate &&
+                !(cancel_cb && cancel_cb(cancel_user))) {
+                pixels = cover_resize_rgb565(intermediate, intermediate_w, intermediate_h, w, h);
+                if (!pixels) res = COVER_DECODE_FAIL_ALLOC;
+                else if (cancel_cb && cancel_cb(cancel_user)) {
+                    free(pixels);
+                    pixels = NULL;
+                    res = COVER_DECODE_FAIL_CANCELLED;
+                }
+            }
+            free(intermediate);
         }
-        free(intermediate);
-    }
-    if (res != COVER_DECODE_OK || !pixels) {
-        free(pixels);
-        if (cancel_cb && cancel_cb(cancel_user))
-            *reason = "cancelled";
-        else if (res == COVER_DECODE_FAIL_OVERSIZED)
-            *reason = "image dimensions too large";
-        else if (cover_decode_result_is_temporary(res))
-            *reason = "busy"; /* the decoder or memory was taken; worth trying again later */
-        else
-            *reason = "could not decode image";
-        return false;
+        if (res != COVER_DECODE_OK || !pixels) {
+            free(pixels);
+            *reason = decode_failure_reason(res, cancel_cb, cancel_user);
+            return false;
+        }
     }
 
     lv_image_header_t header;

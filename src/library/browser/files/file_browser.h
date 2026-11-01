@@ -144,6 +144,8 @@ typedef enum {
 void file_browser_set_sort_mode(file_browser_sort_mode_t mode);
 file_browser_sort_mode_t file_browser_get_sort_mode(void);
 bool file_browser_index_open(const char * directory, file_browser_index_t ** out, unsigned * out_count);
+/* Same, also listing files that are not media (as the File Manager shows them). */
+bool file_browser_index_open_all(const char * directory, file_browser_index_t ** out, unsigned * out_count);
 bool file_browser_index_open_cancelable(const char * directory, file_browser_index_t ** out,
                                        unsigned * out_count, atomic_bool * cancel);
 bool file_browser_index_retain(const file_browser_index_t * source, file_browser_index_t ** out);

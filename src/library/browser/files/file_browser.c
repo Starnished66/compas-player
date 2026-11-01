@@ -475,6 +475,10 @@ bool file_browser_index_open(const char *directory, file_browser_index_t **out, 
     return file_browser_index_open_ex(directory, out, out_count, 0, NULL, sort_mode_snapshot());
 }
 
+bool file_browser_index_open_all(const char *directory, file_browser_index_t **out, unsigned *out_count) {
+    return file_browser_index_open_ex(directory, out, out_count, LIST_ALL_FILES, NULL, sort_mode_snapshot());
+}
+
 bool file_browser_index_open_cancelable(const char *directory, file_browser_index_t **out,
                                         unsigned *out_count, atomic_bool *cancel) {
     return file_browser_index_open_ex(directory, out, out_count, 0, cancel, sort_mode_snapshot());

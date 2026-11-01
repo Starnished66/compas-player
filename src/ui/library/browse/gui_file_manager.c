@@ -1,4 +1,5 @@
 #include "gui_file_manager.h"
+#include "gui_image_view.h"
 #include "../../../library/browser/files/file_browser.h"
 #include "../../../library/browser/files/file_ops.h"
 #include "../../application/gui.h"
@@ -128,7 +129,9 @@ static void open_text_file(const char * path) {
 
 static void open_other_cb(const char * path) {
     if (is_text_name(path)) open_text_file(path);
-    else show_info_toast(TR("This type of file cannot be opened"));
+    else if (gui_image_view_is_image_name(path)) {
+        if (!gui_image_view_open(path)) show_error_toast(TR("Could not open this image"));
+    } else show_info_toast(TR("This type of file cannot be opened"));
 }
 
 /* ---- File operations ---- */
@@ -463,6 +466,7 @@ void gui_file_manager_tile_cb(lv_event_t * e) {
 }
 
 void gui_file_manager_teardown(void) {
+    gui_image_view_teardown();
     if (progress_timer) {
         lv_timer_delete(progress_timer);
         progress_timer = NULL;
