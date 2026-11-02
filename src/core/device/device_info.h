@@ -8,7 +8,7 @@
  * card belongs to, so they build a database and covers it will accept:
  *
  *   {"schema":1,"model":"r1","player_version":"...","plugin_api":17,
- *    "database_format":5,"art_cache":"v4"}
+ *    "database_format":8,"art_cache":"v4","join_albums":false}
  *
  * Every value comes from the constant the player itself uses. See
  * docs/SDTOOL.md. */

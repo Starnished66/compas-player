@@ -47,6 +47,9 @@
 #include "../shell/gui_reload.h"
 #include "../player/layout/player_layouts.h"
 #include "../../core/system/logging/db_log.h"
+#include "../../core/device/device_info.h"
+#include "../../core/persistence/storage_paths.h"
+#include "../../library/metadata/scan/library_scan_storage.h"
 #include "../../hardware/usb/usb_dac_bridge.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -1283,6 +1286,8 @@ static void join_albums_switch_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
     current_settings.join_albums = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
     settings_save_async(&current_settings);
+    /* Tools on a computer read the setting from the card (device.json). */
+    if (sd_card_root_is_mounted()) (void) device_info_publish(SD_COMPAS_ROOT);
     show_library_refresh_all_metadata_prompt();
 }
 

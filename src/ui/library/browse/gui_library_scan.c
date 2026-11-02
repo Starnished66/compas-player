@@ -13,6 +13,8 @@
 #include "../../../library/metadata/catalog/metadata_refresh_targets.h"
 #include "../../../library/playlists/playlist_files.h"
 #include "../../../core/system/logging/db_log.h"
+#include "../../../core/device/device_info.h"
+#include "../../../core/persistence/storage_paths.h"
 #include <stdatomic.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -460,6 +462,9 @@ static bool start_library_rescan_job(bool allow_rebuild, library_rescan_mode_t m
         .books_rescan = gui_books_rescan,
         .playlists_rescan = rescan_playlists,
     };
+    /* The card may have been swapped since the setting last changed: tools on
+     * a computer read the join setting this scan applies from device.json. */
+    if (sd_card_root_is_mounted()) (void) device_info_publish(SD_COMPAS_ROOT);
     library_scan_reset_cancel();
     library_scan_prepare(&scan_request);
     atomic_store_explicit(&library_rescan_done_flag, false, memory_order_relaxed);

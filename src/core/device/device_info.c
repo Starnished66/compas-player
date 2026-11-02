@@ -4,6 +4,7 @@
 #include "../../library/artwork/support/library_endian.h"
 #include "../../plugins/manager/plugin_api_version.h"
 #include "../../library/tagcache/core/tagcache.h"
+#include "../persistence/settings.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -34,9 +35,10 @@ size_t device_info_format(char *out, size_t size) {
     if (!escape_json(app_version_label(), version, sizeof(version))) return 0;
     int length = snprintf(out, size,
         "{\"schema\":%d,\"model\":\"%s\",\"player_version\":\"%s\",\"plugin_api\":%d,"
-        "\"database_format\":%u,\"art_cache\":\"%s\"}\n",
+        "\"database_format\":%u,\"art_cache\":\"%s\",\"join_albums\":%s}\n",
         DEVICE_INFO_SCHEMA, app_board_model(), version, PLUGIN_API_VERSION,
-        (unsigned) TAGCACHE_DATABASE_FORMAT, ALBUMART_CACHE_VERSION);
+        (unsigned) TAGCACHE_DATABASE_FORMAT, ALBUMART_CACHE_VERSION,
+        current_settings.join_albums ? "true" : "false");
     return length > 0 && (size_t) length < size ? (size_t) length : 0;
 }
 
