@@ -27,6 +27,7 @@ enum {
 typedef struct {
     library_scan_mode_t mode;
     bool allow_rebuild;
+    bool join_albums; /* snapshot for the whole scan: missing album artist -> "Various Artists" */
     char **target_paths; /* Ownership transfers to the scanner; no path copies are made. */
     int target_count;
     library_scan_scope_t scope;

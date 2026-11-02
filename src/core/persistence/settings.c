@@ -267,6 +267,7 @@ static void set_defaults(player_settings_t * out) {
     out->safe_charging_enabled = false; /* off means leave the PMIC charge-current setting untouched */
     out->show_battery_percent = true; /* on by default -- matches every previous version's always-on behavior */
     out->show_artist_images = true;
+    out->join_albums = false;
     out->file_sort_mode = 0;
     out->album_sort_mode = 0;
     out->artist_albums_sort_mode = 0;
@@ -639,6 +640,8 @@ bool settings_load(player_settings_t * out) {
             album_artist_albums_sort_seen = true;
         } else if (strcmp(key, "show_artist_images") == 0) {
             out->show_artist_images = (strcmp(value, "1") == 0);
+        } else if (strcmp(key, "join_albums") == 0) {
+            out->join_albums = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "idle_shutdown_enabled") == 0) {
             out->idle_shutdown_enabled = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "idle_shutdown_minutes") == 0) {
@@ -914,6 +917,7 @@ static void settings_write_file(const player_settings_t * settings) {
     fprintf(f, "safe_charging_enabled=%d\n", settings->safe_charging_enabled ? 1 : 0);
     fprintf(f, "show_battery_percent=%d\n", settings->show_battery_percent ? 1 : 0);
     fprintf(f, "show_artist_images=%d\n", settings->show_artist_images ? 1 : 0);
+    fprintf(f, "join_albums=%d\n", settings->join_albums ? 1 : 0);
     fprintf(f, "file_sort_mode=%d\n", settings->file_sort_mode == 1 ? 1 : 0);
     fprintf(f, "album_sort_mode=%d\n", settings->album_sort_mode >= 0 && settings->album_sort_mode <= 3 ? settings->album_sort_mode : 0);
     fprintf(f, "artist_albums_sort_mode=%d\n", settings->artist_albums_sort_mode >= 0 && settings->artist_albums_sort_mode <= 2 ? settings->artist_albums_sort_mode : 0);

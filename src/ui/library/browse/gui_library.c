@@ -5312,6 +5312,7 @@ static bool start_library_rescan_job(bool allow_rebuild, library_rescan_mode_t m
         .mode = mode == LIBRARY_RESCAN_FORCE_METADATA ? LIBRARY_SCAN_MODE_FORCE_METADATA
              : mode == LIBRARY_RESCAN_TARGETED ? LIBRARY_SCAN_MODE_TARGETED : LIBRARY_SCAN_MODE_NORMAL,
         .allow_rebuild = allow_rebuild,
+        .join_albums = current_settings.join_albums,
         .target_paths = target_paths,
         .target_count = target_count,
         .scope = scope,

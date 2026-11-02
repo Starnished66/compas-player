@@ -1279,11 +1279,18 @@ static void sorting_row_cb(lv_event_t * e) {
     nav_push(settings_sorting_screen);
 }
 
+static void join_albums_switch_event_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+    current_settings.join_albums = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
+    settings_save_async(&current_settings);
+    show_library_refresh_all_metadata_prompt();
+}
+
 /* Update checks for added, removed and changed files; Refresh re-reads the
  * tags of every song even when a file looks unchanged. Distinct icons keep
  * the two from reading as the same action. */
 static lv_obj_t * build_library_category_screen(void) {
-    static pill_list_item_t items[4 + PLUGIN_MAX_MUSIC_LIBRARY_LIST_ITEMS];
+    static pill_list_item_t items[5 + PLUGIN_MAX_MUSIC_LIBRARY_LIST_ITEMS];
     lv_obj_t * native_rows[4] = { NULL };
     items[0] = (pill_list_item_t){ .label = TR("Update Music Database"),
         .accessory = PILL_ACCESSORY_NONE, .on_click = update_music_database_row_cb,
@@ -1296,7 +1303,10 @@ static lv_obj_t * build_library_category_screen(void) {
         .out_row = &native_rows[2] };
     items[3] = (pill_list_item_t){ .label = TR("Sorting"), .accessory = PILL_ACCESSORY_CHEVRON,
         .on_click = sorting_row_cb, .out_row = &native_rows[3] };
-    int count = append_plugin_list_rows(items, 4, PLUGIN_MAX_MUSIC_LIBRARY_LIST_ITEMS,
+    items[4] = (pill_list_item_t){ .label = TR("Join albums without Album Artist"),
+        .accessory = PILL_ACCESSORY_TOGGLE, .toggle_initial_state = current_settings.join_albums,
+        .on_toggle_change = join_albums_switch_event_cb };
+    int count = append_plugin_list_rows(items, 5, PLUGIN_MAX_MUSIC_LIBRARY_LIST_ITEMS,
         plugin_manager_get_music_library_list_item_count,
         plugin_manager_get_music_library_list_item_label,
         plugin_manager_get_music_library_list_item_options,

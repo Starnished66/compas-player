@@ -32,6 +32,7 @@
 static struct {
     library_scan_mode_t mode;
     bool allow_rebuild;
+    bool join_albums;
     char **target_paths;
     int target_count;
     library_scan_scope_t scope;
@@ -366,6 +367,11 @@ static scan_song_result_t scan_song_stat_into_db(const char * path, const char *
 
     cached_tags_t fresh;
     library_scan_tags_from_track(&meta, &fresh);
+    /* Join albums: group tracks without an Album Artist tag under one name
+     * instead of each track artist. Player-only; compas-sdtool keeps the
+     * shared fallback, so a forced refresh applies this to its rows. */
+    if (scan_job.join_albums && !meta.has_album_artist)
+        snprintf(fresh.album_artist, sizeof(fresh.album_artist), "%s", "Various Artists");
     free(meta.picture_data);
     free(meta.lyrics); /* always NULL here (metadata_read_isolated() itself already frees/NULLs it before the pipe write), freeing defensively for symmetry */
 
@@ -905,6 +911,7 @@ void library_scan_prepare(const library_scan_request_t *request) {
     if (!request) return;
     scan_job.mode = request->mode;
     scan_job.allow_rebuild = request->allow_rebuild;
+    scan_job.join_albums = request->join_albums;
     scan_job.target_paths = request->target_paths;
     scan_job.target_count = request->target_count;
     scan_job.scope = request->scope;
