@@ -263,6 +263,14 @@ static lv_obj_t * quick_drawer_toggle_name[9 + PLUGIN_MAX_QUICK_TOGGLES];
 /* Share one physical inset on all three edges, including after board scaling. */
 #define QUICK_DRAWER_CARD_INSET (BOARD_SCALE_PX(34) - QUICK_DRAWER_PANEL_X)
 #define QUICK_DRAWER_CARD_W (QUICK_DRAWER_PANEL_W - 2 * QUICK_DRAWER_CARD_INSET)
+#define QUICK_DRAWER_CARD_X (QUICK_DRAWER_PANEL_X + QUICK_DRAWER_CARD_INSET)
+#define QUICK_DRAWER_CARD_Y (QUICK_DRAWER_PANEL_Y + QUICK_DRAWER_PANEL_H - \
+                             QUICK_DRAWER_CARD_INSET - QUICK_DRAWER_CARD_H)
+/* EQ badge in the card's upper-right corner, inset equally from both edges. */
+#define QUICK_DRAWER_EQ_SIZE BOARD_SCALE_PX(36)
+#define QUICK_DRAWER_EQ_INSET BOARD_SCALE_PX(8)
+#define QUICK_DRAWER_EQ_X (QUICK_DRAWER_CARD_X + QUICK_DRAWER_CARD_W - QUICK_DRAWER_EQ_INSET - QUICK_DRAWER_EQ_SIZE)
+#define QUICK_DRAWER_EQ_Y (QUICK_DRAWER_CARD_Y + QUICK_DRAWER_EQ_INSET)
 
 /* Keep four predictable columns at every board size. V1 uses 48px cells
  * with 16px native gutters; the wider boards retain the measured positions
@@ -6488,9 +6496,7 @@ static void build_quick_drawer(void) {
     lv_obj_remove_style_all(card);
     /* Anchor to the gray panel rather than independently rounding a y
      * coordinate: bottom, left and right must expose the same panel inset. */
-    lv_obj_set_pos(card, QUICK_DRAWER_PANEL_X + QUICK_DRAWER_CARD_INSET,
-                   QUICK_DRAWER_PANEL_Y + QUICK_DRAWER_PANEL_H -
-                   QUICK_DRAWER_CARD_INSET - QUICK_DRAWER_CARD_H);
+    lv_obj_set_pos(card, QUICK_DRAWER_CARD_X, QUICK_DRAWER_CARD_Y);
     lv_obj_set_size(card, QUICK_DRAWER_CARD_W, QUICK_DRAWER_CARD_H);
     lv_obj_add_style(card, &shell_drawer_card_style, 0);
     lv_obj_set_style_radius(card, BOARD_SCALE_PX(24), 0);
@@ -6715,12 +6721,12 @@ static void build_quick_drawer(void) {
     lv_obj_add_event_cb(next_btn, next_btn_event_cb, LV_EVENT_CLICKED, NULL);
 
     /* Keep the EQ shortcut visible even when volume controls are hidden or
-     * the drawer's expansion box hides the mini-player card. Its 44x44px
-     * target sits in the card's upper-right inset. At 480x800 it occupies
-     * x=394..437, y=416..459; its top clears the volume rail's extended
-     * click area (ending at y=413), and its bottom clears the title band
-     * (starting at y=463). As expansion opens it shifts to y=712..755,
-     * below row-3 content and within the drawer panel. */
+     * the drawer's expansion box hides the mini-player card. It sits the same
+     * distance from the card's top and right edges; at 480x800 the 36x36px
+     * badge occupies x=402..437, y=424..459 and its 44x44px target clears the
+     * volume rail's extended click area (ending at y=413) and the title band
+     * (starting at y=463). As expansion opens it shifts down by the same
+     * amount as the rest of the drawer, below row-3 content. */
     quick_drawer_eq_button = lv_button_create(
 #if defined(BOARD_TEMPOTEC_V1)
         card
@@ -6733,17 +6739,15 @@ static void build_quick_drawer(void) {
     lv_obj_set_pos(quick_drawer_eq_button, BOARD_SCALE_PX(360), BOARD_SCALE_PY(5));
     lv_obj_set_size(quick_drawer_eq_button, BOARD_SCALE_PX(36), BOARD_SCALE_PX(36));
 #else
-    lv_obj_set_pos(quick_drawer_eq_button, BOARD_SCALE_PX(394), BOARD_SCALE_PY(416));
-    lv_obj_set_size(quick_drawer_eq_button, BOARD_SCALE_PX(44), BOARD_SCALE_PY(44));
+    lv_obj_set_pos(quick_drawer_eq_button, QUICK_DRAWER_EQ_X, QUICK_DRAWER_EQ_Y);
+    lv_obj_set_size(quick_drawer_eq_button, QUICK_DRAWER_EQ_SIZE, QUICK_DRAWER_EQ_SIZE);
 #endif
     lv_obj_add_style(quick_drawer_eq_button, &style_theme_card_bg, 0);
     lv_obj_set_style_radius(quick_drawer_eq_button, BOARD_SCALE_PX(5), 0);
     lv_obj_add_style(quick_drawer_eq_button, gui_theme_accent_outline_style(), 0);
     lv_obj_set_style_bg_opa(quick_drawer_eq_button, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(quick_drawer_eq_button, BOARD_SCALE_PX(1), 0);
-#if defined(BOARD_TEMPOTEC_V1)
     lv_obj_set_ext_click_area(quick_drawer_eq_button, BOARD_SCALE_PX(4));
-#endif
     lv_obj_add_event_cb(quick_drawer_eq_button, quick_drawer_eq_button_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t * eq_label = lv_label_create(quick_drawer_eq_button);
     lv_obj_add_style(eq_label, &style_theme_text_primary, 0);
@@ -6757,7 +6761,7 @@ static void build_quick_drawer(void) {
 #if defined(BOARD_TEMPOTEC_V1)
     /* It is a card child, so it hides and moves with all card metadata. */
 #else
-    quick_drawer_register_shift_obj(quick_drawer_eq_button, BOARD_SCALE_PY(416));
+    quick_drawer_register_shift_obj(quick_drawer_eq_button, QUICK_DRAWER_EQ_Y);
 #endif
 
     gui_shell_refresh_quick_drawer_cover();
