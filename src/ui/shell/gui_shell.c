@@ -1263,11 +1263,11 @@ static void style_topbar_text(lv_obj_t * label, const lv_font_t * font) {
  * the 480px boards. These faces deliberately ignore the accessibility tier. */
 static const lv_font_t * topbar_digit_font(void) {
 #if defined(BOARD_TEMPOTEC_V1)
-    return &lv_font_montserrat_16;
+    return fallback_font_fixed(16);
 #elif BOARD_COMPACT_UI
-    return &lv_font_montserrat_16;
+    return fallback_font_fixed(16);
 #else
-    return &lv_font_montserrat_28;
+    return fallback_font_fixed(28);
 #endif
 }
 
@@ -6047,11 +6047,11 @@ static void build_quick_drawer(void) {
     refresh_quick_drawer_crossfade_icon();
 
     /* Captions and volume rail complete the reference drawer's first panel.
-     * Fixed &lv_font_montserrat_12, not gui_theme_font(GUI_FONT_ROLE_SUBTEXT)
-     * -- that role scales with Settings > Font Size (app_font_16 underneath),
-     * which is right for reading text but was already too big to fit "Bluetooth"
-     * in this 84px-wide slot below its icon even at the default tier, let alone
-     * BlindMF. Fixed and non-scaling, same "accessibility-independent" choice
+     * Fixed 12 px (fallback_font_ui_12(), which follows the custom font), not
+     * gui_theme_font(GUI_FONT_ROLE_SUBTEXT) -- that role scales with Settings >
+     * Font Size (app_font_16 underneath), which is right for reading text but
+     * was already too big to fit "Bluetooth" in this 84px-wide slot below its
+     * icon even at the default tier, let alone BlindMF. Fixed and non-scaling, same "accessibility-independent" choice
      * build_status_bar() already makes for its own clock/volume/battery faces. */
     const char * names[] = { N_("Wi-Fi"), N_("Bluetooth"), N_("Sleep"), N_("Crossfade") };
 #if !defined(BOARD_TEMPOTEC_V1)
