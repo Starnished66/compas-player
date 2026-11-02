@@ -144,7 +144,17 @@ static int s_loaded_face_count = 0;
 typedef struct {
     loaded_face_entry_t entries[MAX_LOADED_FACES];
     int count;
+    uint32_t montserrat_copy_mask;
+    /* Live faces reused by a candidate get relinked while it is built; their
+     * original links are restored if the candidate is abandoned. */
+    bool reused[MAX_LOADED_FACES];
+    const lv_font_t * reused_fallback[MAX_LOADED_FACES];
 } face_table_t;
+
+/* Eight live handles plus eight candidate slots. Static copies outlive table
+ * swaps; reservations and live handles prevent reuse during a transaction. */
+#define MONTSERRAT_COPY_COUNT 16
+static lv_font_t s_montserrat_copies[MONTSERRAT_COPY_COUNT];
 
 /* Tier and Lyrics values are design-reference pixels. R3II's 320x480
  * geometry scales those references to its physical panel; Montserrat is
@@ -207,6 +217,32 @@ static const lv_font_t * get_montserrat_font_for_px(int px) {
         case 40: return &lv_font_montserrat_40;
         default: return &lv_font_montserrat_20;
     }
+}
+
+static lv_font_t * reserve_montserrat_copy(face_table_t * tbl, int px) {
+    if (!tbl) return NULL;
+    lv_font_t * handles[] = {
+        &app_font_16, &app_font_20, &app_font_22, &app_font_28,
+        &app_font_lyrics, &app_font_player_title, &app_font_player_meta,
+        &app_font_display,
+    };
+    for (int i = 0; i < MONTSERRAT_COPY_COUNT; i++) {
+        uint32_t bit = (uint32_t) 1 << i;
+        if (tbl->montserrat_copy_mask & bit) continue;
+        bool live = false;
+        for (size_t j = 0; j < sizeof(handles) / sizeof(handles[0]); j++) {
+            if (handles[j]->fallback == &s_montserrat_copies[i]) {
+                live = true;
+                break;
+            }
+        }
+        if (live) continue;
+        s_montserrat_copies[i] = *get_montserrat_font_for_px(px);
+        s_montserrat_copies[i].fallback = NULL;
+        tbl->montserrat_copy_mask |= bit;
+        return &s_montserrat_copies[i];
+    }
+    return NULL;
 }
 
 static void font_chain_append(lv_font_t ** head, lv_font_t * font) {
@@ -409,6 +445,8 @@ static lv_font_t * get_or_load_face_in_table(face_table_t * tbl, face_source_typ
     tbl->entries[tbl->count].pixel_size = pixel_size;
     tbl->entries[tbl->count].custom_generation = (type == FACE_SRC_CUSTOM) ? custom_gen : 0;
     tbl->entries[tbl->count].font = font;
+    tbl->reused[tbl->count] = existing_font != NULL;
+    tbl->reused_fallback[tbl->count] = existing_font ? existing_font->fallback : NULL;
     tbl->count++;
     return font;
 }
@@ -425,11 +463,14 @@ static bool build_candidate_slot(face_table_t * tbl, lv_font_t * out_font, int p
 
     if (primary_custom) {
         *out_font = *primary_custom;
+        lv_font_t * mont_copy = reserve_montserrat_copy(tbl, pixel_size);
+        if (!mont_copy) return false;
+        out_font->fallback = mont_copy;
     } else {
         const lv_font_t * mont = get_montserrat_font_for_px(pixel_size);
         *out_font = *mont;
+        out_font->fallback = NULL;
     }
-    out_font->fallback = NULL;
 
     if (include_fallbacks) {
         lv_font_t * cjk = get_or_load_face_in_table(tbl, FACE_SRC_CJK, pixel_size, custom_staged, custom_gen);
@@ -438,14 +479,18 @@ static bool build_candidate_slot(face_table_t * tbl, lv_font_t * out_font, int p
         lv_font_t * emoji = get_or_load_face_in_table(tbl, FACE_SRC_EMOJI, pixel_size, custom_staged, custom_gen);
         lv_font_t * arabic = get_or_load_face_in_table(tbl, FACE_SRC_ARABIC, pixel_size, custom_staged, custom_gen);
         lv_font_t * chinese = get_or_load_face_in_table(tbl, FACE_SRC_CHINESE, pixel_size, custom_staged, custom_gen);
+        /* Full Montserrat covers glyphs the compiled subset lacks (Romanian
+         * comma-below letters); optional and always last. */
+        lv_font_t * full_mont = get_or_load_face_in_table(tbl, FACE_SRC_DISPLAY, pixel_size, custom_staged, custom_gen);
 
-        lv_font_t * fallback_head = NULL;
+        lv_font_t * fallback_head = (lv_font_t *) out_font->fallback;
         if (cjk) font_chain_append(&fallback_head, cjk);
         if (chinese) font_chain_append(&fallback_head, chinese);
         if (kr)  font_chain_append(&fallback_head, kr);
         if (th)  font_chain_append(&fallback_head, th);
         if (emoji) font_chain_append(&fallback_head, emoji);
         if (arabic) font_chain_append(&fallback_head, arabic);
+        if (full_mont) font_chain_append(&fallback_head, full_mont);
 
         out_font->fallback = fallback_head;
     }
@@ -472,6 +517,11 @@ static bool build_candidate_display_slot(face_table_t * tbl, lv_font_t * out_fon
         *out_font = *primary;
     }
     out_font->fallback = NULL;
+    if (custom_staged && primary) {
+        lv_font_t * mont_copy = reserve_montserrat_copy(tbl, 40);
+        if (!mont_copy) return false;
+        out_font->fallback = mont_copy;
+    }
 
     if (include_fallbacks) {
         lv_font_t * cjk = get_or_load_face_in_table(tbl, FACE_SRC_CJK, DISPLAY_FONT_PX, custom_staged, custom_gen);
@@ -480,13 +530,18 @@ static bool build_candidate_display_slot(face_table_t * tbl, lv_font_t * out_fon
         lv_font_t * emoji = get_or_load_face_in_table(tbl, FACE_SRC_EMOJI, DISPLAY_FONT_PX, custom_staged, custom_gen);
         lv_font_t * arabic = get_or_load_face_in_table(tbl, FACE_SRC_ARABIC, DISPLAY_FONT_PX, custom_staged, custom_gen);
         lv_font_t * chinese = get_or_load_face_in_table(tbl, FACE_SRC_CHINESE, DISPLAY_FONT_PX, custom_staged, custom_gen);
-        lv_font_t * head = NULL;
+        /* Already the primary when no custom font is selected. */
+        lv_font_t * full_mont = custom_staged
+            ? get_or_load_face_in_table(tbl, FACE_SRC_DISPLAY, DISPLAY_FONT_PX, custom_staged, custom_gen)
+            : NULL;
+        lv_font_t * head = (lv_font_t *) out_font->fallback;
         if (cjk) font_chain_append(&head, cjk);
         if (chinese) font_chain_append(&head, chinese);
         if (kr) font_chain_append(&head, kr);
         if (th) font_chain_append(&head, th);
         if (emoji) font_chain_append(&head, emoji);
         if (arabic) font_chain_append(&head, arabic);
+        if (full_mont) font_chain_append(&head, full_mont);
         out_font->fallback = head;
     }
     return true;
@@ -519,10 +574,13 @@ static bool build_new_tier_slot(face_table_t * tbl, lv_font_t * out_font,
                                         s_custom_font_generation);
         if (!custom) return false;
         *out_font = *custom;
+        lv_font_t * mont_copy = reserve_montserrat_copy(tbl, pixel_size);
+        if (!mont_copy) return false;
+        out_font->fallback = mont_copy;
     } else {
         *out_font = *get_montserrat_font_for_px(pixel_size);
+        out_font->fallback = NULL;
     }
-    out_font->fallback = NULL;
 
     if (!include_fallbacks) return true;
 
@@ -541,14 +599,18 @@ static bool build_new_tier_slot(face_table_t * tbl, lv_font_t * out_font,
     lv_font_t * arabic = load_new_face_in_table(tbl, FACE_SRC_ARABIC, pixel_size, false, 0);
     /* Chinese is optional for the same reason as Emoji and Arabic. */
     lv_font_t * chinese = load_new_face_in_table(tbl, FACE_SRC_CHINESE, pixel_size, false, 0);
+    /* Full Montserrat is optional and last: it covers glyphs missing from the
+     * compiled subset (Romanian comma-below letters). */
+    lv_font_t * full_mont = load_new_face_in_table(tbl, FACE_SRC_DISPLAY, pixel_size, false, 0);
 
-    lv_font_t * head = NULL;
+    lv_font_t * head = (lv_font_t *) out_font->fallback;
     font_chain_append(&head, cjk);
     if (chinese) font_chain_append(&head, chinese);
     font_chain_append(&head, kr);
     font_chain_append(&head, th);
     if (emoji) font_chain_append(&head, emoji);
     if (arabic) font_chain_append(&head, arabic);
+    if (full_mont) font_chain_append(&head, full_mont);
     out_font->fallback = head;
     return true;
 }
@@ -561,6 +623,11 @@ static bool face_table_contains_font(const face_table_t * tbl, const lv_font_t *
 }
 
 static void destroy_new_candidate_faces(face_table_t * tbl) {
+    /* Unlink the abandoned candidate from live chains before freeing its faces. */
+    for (int i = 0; i < tbl->count; i++) {
+        if (tbl->reused[i] && tbl->entries[i].font)
+            tbl->entries[i].font->fallback = tbl->reused_fallback[i];
+    }
     for (int i = 0; i < tbl->count; i++) {
         lv_font_t * font = tbl->entries[i].font;
         bool active = false;
@@ -1174,7 +1241,7 @@ static void fixed_font_build_chain(int idx) {
     s_fixed_chained[idx] = true;
     static const face_source_type_t order[] = {
         FACE_SRC_CJK, FACE_SRC_CHINESE, FACE_SRC_KOREAN, FACE_SRC_THAI,
-        FACE_SRC_EMOJI, FACE_SRC_ARABIC,
+        FACE_SRC_EMOJI, FACE_SRC_ARABIC, FACE_SRC_DISPLAY,
     };
     lv_font_t * head = NULL;
     for (size_t i = 0; i < sizeof(order) / sizeof(order[0]); i++) {
