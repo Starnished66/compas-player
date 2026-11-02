@@ -56,6 +56,9 @@ static char bt_soft_volume_applied_path[256];
 /* Source PCM whose hardware (AVRCP) volume write failed; it keeps software
  * gain until the PCM goes away. Guarded by bt_soft_volume_mutex. */
 static char bt_source_hw_failed_path[256];
+/* Source PCM whose seed nudge went unanswered; the volume monitor forces one
+ * more write once it is ready. Guarded by bt_soft_volume_mutex. */
+static char bt_source_reconcile_path[256];
 #define BT_SOURCE_VOLUME_MAX 127
 
 /* The firmware overlay contains BlueALSA 5 only. Keep the daemon and control
@@ -539,7 +542,9 @@ static bool bluealsa_find_source_transport(const char * pcm_path,
  * exact transport before updating BlueALSA PCM state. BlueZ's volume property
  * can settle asynchronously or round the requested value; monitor events adopt
  * the headset's settled value. Software mode keeps the established PCM path. */
-static bool bluealsa_write_source_volume(const char * path, int raw, bool software_volume) {
+static bool bluealsa_write_source_volume(const char * path, int raw, bool software_volume,
+                                         bool force_remote, bool * out_nudge_unconfirmed) {
+    if (out_nudge_unconfirmed) *out_nudge_unconfirmed = false;
     if (raw < 0) raw = 0;
     if (raw > BT_SOURCE_VOLUME_MAX) raw = BT_SOURCE_VOLUME_MAX;
     if (!software_volume) {
@@ -549,7 +554,41 @@ static bool bluealsa_write_source_volume(const char * path, int raw, bool softwa
             DBG_LOG("bt_control: hardware Volume: no transport for %s\n", path);
             return false;
         }
+        const int restore_raw = current_raw;
         bool remote_changed = false;
+        bool nudged = false;
+        if (force_remote && current_raw == raw) {
+            /* BlueZ drops a Set equal to its cached Volume, and that cache can be
+             * stale after the transport was recreated (the accessory reset its own
+             * level). Nudge first so the real Set below goes out. An answer slower
+             * than the wait is reported so the caller can force one more write. */
+            char nudge[32];
+            snprintf(nudge, sizeof(nudge), "variant:uint16:%d", raw > 0 ? raw - 1 : 1);
+            char * nudge_argv[] = { "dbus-send", "--system", "--print-reply", "--dest=org.bluez",
+                transport, "org.freedesktop.DBus.Properties.Set", "string:org.bluez.MediaTransport1",
+                "string:Volume", nudge, NULL };
+            int nudge_status = -1;
+            if (subprocess_run_checked(nudge_argv, NULL, 0, 1000, &nudge_status) && nudge_status == 0) {
+                remote_changed = nudged = true;
+                for (int tries = 0; tries < 20; tries++) {
+                    int settled = -1;
+                    if (bluealsa_find_source_transport_until(path, transport, sizeof(transport), &settled,
+                                                             bt_control_monotonic_ms() + 100) ==
+                            BT_SOURCE_TRANSPORT_READY && settled != raw) {
+                        current_raw = settled;
+                        break;
+                    }
+                    usleep(100000);
+                }
+                if (current_raw == raw && out_nudge_unconfirmed) *out_nudge_unconfirmed = true;
+            } else {
+                DBG_LOG("bt_control: hardware Volume nudge failed on %s (status %d)\n", transport, nudge_status);
+                /* Typically AVRCP is not up yet. A seed stays in hardware mode
+                 * and leaves it to the reconcile; a reconcile retries. */
+                if (!out_nudge_unconfirmed) return false;
+                *out_nudge_unconfirmed = true;
+            }
+        }
         if (current_raw != raw) {
             char variant[32];
             snprintf(variant, sizeof(variant), "variant:uint16:%d", raw);
@@ -559,9 +598,19 @@ static bool bluealsa_write_source_volume(const char * path, int raw, bool softwa
             int set_status = -1;
             if (!subprocess_run_checked(set_argv, NULL, 0, 1000, &set_status) || set_status != 0) {
                 DBG_LOG("bt_control: hardware Volume Set failed on %s (status %d)\n", transport, set_status);
+                if (nudged) {
+                    /* Undo the nudge so a software-gain fallback starts from the
+                     * accessory's own level. Best effort. */
+                    char restore[32];
+                    snprintf(restore, sizeof(restore), "variant:uint16:%d", restore_raw);
+                    char * restore_argv[] = { "dbus-send", "--system", "--print-reply", "--dest=org.bluez",
+                        transport, "org.freedesktop.DBus.Properties.Set", "string:org.bluez.MediaTransport1",
+                        "string:Volume", restore, NULL };
+                    subprocess_run_checked(restore_argv, NULL, 0, 1000, &set_status);
+                }
                 return false;
             }
-            remote_changed = current_raw >= 0;
+            remote_changed = remote_changed || restore_raw >= 0;
         }
         char text[8];
         snprintf(text, sizeof(text), "%d", raw);
@@ -580,12 +629,12 @@ static bool bluealsa_write_source_volume(const char * path, int raw, bool softwa
                 int settled = -1;
                 if (bluealsa_find_source_transport_until(path, transport, sizeof(transport), &settled,
                                                          bt_control_monotonic_ms() + 100) ==
-                        BT_SOURCE_TRANSPORT_READY && settled != current_raw)
+                        BT_SOURCE_TRANSPORT_READY && settled != restore_raw)
                     break;
                 usleep(100000);
             }
             char restore[32];
-            snprintf(restore, sizeof(restore), "variant:uint16:%d", current_raw);
+            snprintf(restore, sizeof(restore), "variant:uint16:%d", restore_raw);
             char * restore_argv[] = { "dbus-send", "--system", "--print-reply", "--dest=org.bluez",
                 transport, "org.freedesktop.DBus.Properties.Set", "string:org.bluez.MediaTransport1",
                 "string:Volume", restore, NULL };
@@ -606,7 +655,14 @@ static bool bluealsa_write_source_volume(const char * path, int raw, bool softwa
 static bool bluealsa_seed_source_volume(const char * path, bool software_volume) {
     float percent = audio_get_volume();
     int raw = (int)(percent * BT_SOURCE_VOLUME_MAX + 0.5f);
-    return bluealsa_write_source_volume(path, raw, software_volume);
+    bool unconfirmed = false;
+    bool ok = bluealsa_write_source_volume(path, raw, software_volume, true, &unconfirmed);
+    if (unconfirmed) {
+        pthread_mutex_lock(&bt_soft_volume_mutex);
+        snprintf(bt_source_reconcile_path, sizeof(bt_source_reconcile_path), "%s", path);
+        pthread_mutex_unlock(&bt_soft_volume_mutex);
+    }
+    return ok;
 }
 
 /* Negative capability is retried, but a live software-controlled PCM is
@@ -802,6 +858,8 @@ static void bluealsa_clear_soft_volume_path(const char * path) {
     bool clear = !path || strcmp(bt_soft_volume_applied_path, path) == 0;
     if (!path || strcmp(bt_source_hw_failed_path, path) == 0)
         bt_source_hw_failed_path[0] = '\0';
+    if (!path || strcmp(bt_source_reconcile_path, path) == 0)
+        bt_source_reconcile_path[0] = '\0';
     if (clear)
         bt_soft_volume_applied_path[0] = '\0';
     atomic_fetch_add_explicit(&bt_soft_volume_clears, 1, memory_order_acq_rel);
@@ -1936,25 +1994,49 @@ static bool bluealsa_parse_source_volume_reply(const char * reply, int * out) {
     if (strncmp(value, array_type, sizeof(array_type) - 1) != 0) return false;
     value += sizeof(array_type) - 1;
     while (isspace((unsigned char)*value)) value++;
-    if (*value++ != '[') return false;
     uint8_t channels[2];
-    for (size_t i = 0; i < 2; i++) {
-        while (isspace((unsigned char)*value)) value++;
-        unsigned byte = 0;
-        int digits = 0;
-        while (isxdigit((unsigned char)*value) && digits < 2) {
-            unsigned char c = (unsigned char)*value++;
-            byte = (byte << 4) | (unsigned) (isdigit(c) ? c - '0' : tolower(c) - 'a' + 10);
-            digits++;
+    if (*value == '"') {
+        /* dbus-send prints all-printable byte arrays as a quoted string, with
+         * " + \0" when the last byte is NUL. Raw bytes may include quotes. */
+        const char * start = ++value;
+        const char * close = strrchr(value, '"');
+        if (!close) return false;
+        const char * tail = close + 1;
+        size_t len = (size_t) (close - start);
+        size_t extra = 0;
+        while (*tail == ' ') tail++;
+        if (*tail == '+') {
+            tail++;
+            while (*tail == ' ') tail++;
+            if (strncmp(tail, "\\0", 2) != 0) return false;
+            tail += 2;
+            extra = 1;
         }
-        if (digits != 2 || isxdigit((unsigned char)*value) || byte > BT_SOURCE_VOLUME_MAX)
-            return false;
-        channels[i] = (uint8_t) byte;
+        while (isspace((unsigned char)*tail)) tail++;
+        if (*tail != '\0' || len + extra != 2) return false;
+        for (size_t i = 0; i < len; i++) channels[i] = (uint8_t) start[i];
+        if (extra) channels[1] = 0;
+        if (channels[0] > BT_SOURCE_VOLUME_MAX || channels[1] > BT_SOURCE_VOLUME_MAX) return false;
+    } else {
+        if (*value++ != '[') return false;
+        for (size_t i = 0; i < 2; i++) {
+            while (isspace((unsigned char)*value)) value++;
+            unsigned byte = 0;
+            int digits = 0;
+            while (isxdigit((unsigned char)*value) && digits < 2) {
+                unsigned char c = (unsigned char)*value++;
+                byte = (byte << 4) | (unsigned) (isdigit(c) ? c - '0' : tolower(c) - 'a' + 10);
+                digits++;
+            }
+            if (digits != 2 || isxdigit((unsigned char)*value) || byte > BT_SOURCE_VOLUME_MAX)
+                return false;
+            channels[i] = (uint8_t) byte;
+        }
+        while (isspace((unsigned char)*value)) value++;
+        if (*value++ != ']') return false;
+        while (isspace((unsigned char)*value)) value++;
+        if (*value != '\0') return false;
     }
-    while (isspace((unsigned char)*value)) value++;
-    if (*value++ != ']') return false;
-    while (isspace((unsigned char)*value)) value++;
-    if (*value != '\0') return false;
     *out = (int) ((channels[0] + channels[1] + 1) / 2);
     return true;
 }
@@ -3110,9 +3192,27 @@ int bt_control_list_paired_states(bt_device_t * out, int max_count) {
     return count;
 }
 
+static void run_bredr_scan_until(int seconds, const char * until_mac, bool * found);
+
 /* Runs discovery restricted to the classic BR/EDR bearer using `scan.transport bredr`.
  * Dual-mode devices paired via classic BR/EDR reliably support A2DP/AVRCP audio. */
 static void run_bredr_scan(int seconds) {
+    run_bredr_scan_until(seconds, NULL, NULL);
+}
+
+/* True when BlueZ currently knows the device. */
+static bool bt_control_device_known(const char * mac) {
+    char out[8192] = {0}; /* a paired device's info is ~2 KB; truncation SIGPIPEs it */
+    char * argv[] = { (char *) "bluetoothctl", (char *) "info", (char *) mac, NULL };
+    int exit_code = -1;
+    return subprocess_run_checked(argv, out, sizeof(out), 1500, &exit_code) && exit_code == 0 &&
+           strstr(out, "not available") == NULL;
+}
+
+/* With `until_mac`, polls for that device and stops early once BlueZ knows it.
+ * The scan runs in this bluetoothctl client, so it must stay alive meanwhile. */
+static void run_bredr_scan_until(int seconds, const char * until_mac, bool * found) {
+    if (found) *found = false;
     pid_t pid;
     int write_fd;
     char * argv[] = { (char *) "bluetoothctl", NULL };
@@ -3122,7 +3222,18 @@ static void run_bredr_scan(int seconds) {
     ssize_t ignored = write(write_fd, start_cmds, strlen(start_cmds));
     (void) ignored;
 
-    sleep(seconds > 0 ? (unsigned int) seconds : 1);
+    if (until_mac) {
+        uint32_t deadline = bt_control_monotonic_ms() + (uint32_t) seconds * 1000;
+        while ((int32_t) (deadline - bt_control_monotonic_ms()) > 0) {
+            usleep(500000);
+            if (bt_control_device_known(until_mac)) {
+                if (found) *found = true;
+                break;
+            }
+        }
+    } else {
+        sleep(seconds > 0 ? (unsigned int) seconds : 1);
+    }
 
     const char * stop_cmds = "scan off\nquit\n";
     ignored = write(write_fd, stop_cmds, strlen(stop_cmds));
@@ -3176,6 +3287,15 @@ bool bt_control_connect_with_rate(const char * mac, unsigned int rate) {
      * pair/trust/connect behavior and never authorizes a daemon restart. */
     if (!bluealsa_source_pcm_may_be_connected())
         (void) ensure_bluealsa_running_rate_ex(rate, NULL);
+
+    /* BlueZ drops non-paired discovered devices shortly after a scan ends, and
+     * then pair/trust/connect all fail; rediscover it first. */
+    if (!bt_control_device_known(mac)) {
+        bool found = false;
+        DBG_LOG("bt_control: %s unknown to BlueZ, rediscovering before connect\n", mac);
+        run_bredr_scan_until(12, mac, &found);
+        DBG_LOG("bt_control: rediscovery of %s %s\n", mac, found ? "found it" : "did not find it");
+    }
 
     char * pair_argv[] = { (char *) "bluetoothctl", (char *) "pair", (char *) mac, NULL };
     subprocess_run(pair_argv, out, sizeof(out)); /* no-op if already paired -- not fatal either way */
@@ -4317,7 +4437,9 @@ static int bt_source_vol_last_synced_raw = -1;
 /* Owned by the source monitor worker, like last_synced_raw. */
 static char bt_source_vol_pcm_path[256];
 
-static void bt_source_push_app_volume_if_changed(float * last_synced_app_percent) {
+/* monitor_live: the monitor is subscribed, so a late accessory answer to a
+ * reconcile write is seen; only then is the one-shot reconcile spent. */
+static void bt_source_push_app_volume_if_changed(float * last_synced_app_percent, bool monitor_live) {
     char path[256];
     if (!find_source_pcm_path(path, sizeof(path))) {
         bt_source_vol_pcm_path[0] = '\0';
@@ -4338,19 +4460,23 @@ static void bt_source_push_app_volume_if_changed(float * last_synced_app_percent
     unsigned int generation = atomic_load_explicit(&bt_soft_volume_clears, memory_order_acquire);
     bool software_volume = atomic_load(&bt_source_soft_volume) ||
                            atomic_load(&modern_soft_volume_requested);
+    /* An unanswered seed nudge can land after the monitor dropped its event;
+     * write once more with force even at an unchanged app volume. */
+    bool reconcile = monitor_live && ready && !software_volume &&
+                     strcmp(bt_source_reconcile_path, path) == 0;
     pthread_mutex_unlock(&bt_soft_volume_mutex);
     if (!ready) goto done;
     float current_percent = audio_get_volume();
-    if (current_percent == *last_synced_app_percent) goto done;
+    if (!reconcile && current_percent == *last_synced_app_percent) goto done;
     int raw = (int) (current_percent * (float) BT_SOURCE_VOLUME_MAX + 0.5f);
     if (raw < 0) raw = 0;
     if (raw > BT_SOURCE_VOLUME_MAX) raw = BT_SOURCE_VOLUME_MAX;
-    if (raw == bt_source_vol_last_synced_raw) {
+    if (!reconcile && raw == bt_source_vol_last_synced_raw) {
         *last_synced_app_percent = current_percent;
         goto done;
     }
 
-    if (!bluealsa_write_source_volume(path, raw, software_volume)) goto done;
+    if (!bluealsa_write_source_volume(path, raw, software_volume, reconcile, NULL)) goto done;
     pthread_mutex_lock(&bt_soft_volume_mutex);
     bool current_generation = generation == atomic_load_explicit(&bt_soft_volume_clears, memory_order_acquire) &&
                               strcmp(bt_soft_volume_applied_path, path) == 0 &&
@@ -4359,6 +4485,7 @@ static void bt_source_push_app_volume_if_changed(float * last_synced_app_percent
     if (current_generation) {
         bt_source_vol_last_synced_raw = raw;
         *last_synced_app_percent = current_percent;
+        if (reconcile && strcmp(bt_source_reconcile_path, path) == 0) bt_source_reconcile_path[0] = '\0';
     }
     pthread_mutex_unlock(&bt_soft_volume_mutex);
     if (current_generation)
@@ -4375,7 +4502,7 @@ static void * bt_source_vol_sync_thread_func(void * arg) {
      * accessory's remembered pre-sync value, which would then overwrite
      * the app even if we push immediately afterward. */
     float last_synced_app_percent = -1.0f;
-    bt_source_push_app_volume_if_changed(&last_synced_app_percent);
+    bt_source_push_app_volume_if_changed(&last_synced_app_percent, false);
     if (!atomic_load(&bt_source_vol_sync_active)) return NULL;
 
     char * argv[] = { (char *) bluealsa_ctl_name(), (char *) "monitor", (char *) "-p", NULL };
@@ -4389,6 +4516,9 @@ static void * bt_source_vol_sync_thread_func(void * arg) {
     char buf[512];
     size_t buf_len = 0;
     char reset_path[256] = "";
+    /* The child subscribes after it starts; allow it a moment before relying
+     * on it to deliver an accessory answer. */
+    uint32_t monitor_started_ms = bt_control_monotonic_ms();
 
     while (bt_source_vol_sync_active) {
         /* Push app-driven state BEFORE reading monitor events. In
@@ -4397,7 +4527,8 @@ static void * bt_source_vol_sync_thread_func(void * arg) {
          * report the accessory's remembered value; doing this afterward
          * let that startup event silently change audio_get_volume() while
          * the slider/topbar still showed the old app value. */
-        bt_source_push_app_volume_if_changed(&last_synced_app_percent);
+        bt_source_push_app_volume_if_changed(&last_synced_app_percent,
+            (uint32_t) (bt_control_monotonic_ms() - monitor_started_ms) >= 1000);
 
         /* Bounded, not a blocking fgets() -- this loop also needs to notice
          * this app's OWN volume changing (UI slider, hardware buttons), which
