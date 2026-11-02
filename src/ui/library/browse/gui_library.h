@@ -69,7 +69,6 @@ void show_library_refresh_all_metadata_prompt(void);
 bool gui_library_auto_rescan_enabled(void);
 void poll_library_rescan(void);
 void poll_sd_format(void);
-void album_thumbnail_generation_poll(void);
 
 void open_add_to_playlist_for(const char * path);
 void gui_library_poll_playlists(void);
@@ -87,7 +86,6 @@ void show_artist_albums(const char * name, metadata_db_group_kind_t kind);
  * present in the indexed library. Returns false for streams and unindexed
  * tracks. Album identity is the exact (album, album_artist) pair. */
 bool gui_library_open_now_playing_group(const char * path, bool album);
-void refresh_library_screens_after_rescan(void);
 
 void poll_az_index_drag(lv_timer_t * timer);
 void plugin_stream_tile_click_cb(lv_event_t * e);

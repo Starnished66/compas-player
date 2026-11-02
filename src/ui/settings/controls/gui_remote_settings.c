@@ -24,7 +24,7 @@
 #include "../../../audio/output/audio_output.h"
 #endif
 
-extern bool library_rescan_active; /* gui_library.c: set while a scan runs */
+extern bool library_rescan_active; /* gui_library_scan.c: set while a scan runs */
 
 /* ---- Registry hooks ---- */
 
