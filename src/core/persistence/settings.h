@@ -331,7 +331,7 @@ typedef struct {
     /* Show artist and album-artist artwork in their library rows. Album and
      * song artwork is independent. Defaults on to preserve the existing UI. */
     bool show_artist_images;
-    bool join_albums; /* opt-in: albums without an Album Artist tag group as "Various Artists" at scan time */
+    bool join_albums; /* opt-in: album artists sharing an album and folder show as "Various Artists" when the library is published */
     int file_sort_mode; /* 0 Name, 1 Newest Modified; directories stay first. */
     int album_sort_mode; /* 0 Name, 1 Recently Added, 2 Release Year, 3 Album Artist then Year (oldest first). */
     int artist_albums_sort_mode; /* Ordering within an Artist's Albums view. */

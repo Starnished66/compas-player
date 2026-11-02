@@ -10,9 +10,12 @@ static int legacy_group_ids(int kind, int gi, int offset, int32_t *ids, int max)
 
 #define TC_INDEX_MAGIC 0x54434931u
 #define TC_INDEX_VERSION TAGCACHE_DATABASE_FORMAT
+/* Older indexes are rewritten only below this version; v8 only adds the join marks. */
+#define TC_INDEX_MIGRATE_BELOW 7u
 #define TC_ALBUM_ORDER_MAGIC 0x5443414fu
 #define TC_ALBUM_ORDER_VERSION 4u
 static bool reader_build_indexes(void);
+static bool reader_join_restore(void);
 static bool reader_migrate_indexes(int32_t gen);
 static void tc_index_name(char *out, size_t out_size, int32_t gen, const char *suffix);
 static bool tc_index_copy_fd(int from, int to, uint64_t *size_out);
@@ -382,7 +385,7 @@ static int reader_open_indexes(int32_t gen) {
     close(mfd);
     if (meta.magic != TC_INDEX_MAGIC ||
         (meta.version != 3u && meta.version != 4u && meta.version != 5u && meta.version != 6u &&
-         meta.version != TC_INDEX_VERSION) ||
+         meta.version != 7u && meta.version != TC_INDEX_VERSION) ||
         meta.generation != gen || meta.serial != master_serial || meta.commitid != master_commitid ||
         meta.entry_count != ent_count || meta.live_entries < 0 || meta.live_entries > ent_count)
         return -1;
@@ -434,6 +437,7 @@ static int reader_open_indexes(int32_t gen) {
     if (reader_artist_names_fd < 0) { reader_close_indexes(); return -1; }
     live_count = meta.live_entries;
     for (int k = 0; k < 3; k++) reader_group_n[k] = meta.group_count[k];
+    if (meta.version >= 8u && !reader_join_restore()) { reader_close_indexes(); return -1; }
     if (meta.version >= 4u) {
         struct stat st;
         reader_query_index_name(path, sizeof(path), gen, meta.version);
@@ -900,8 +904,9 @@ static int reader_compare_member(const void *a, const void *b, void *context) {
     return c ? c : (ma->slot > mb->slot) - (ma->slot < mb->slot);
 }
 
-static bool reader_write_group(int kind, const reader_group_record_t *record) {
+static bool reader_write_group(int kind, const reader_group_record_t *record, bool joined) {
     reader_group_record_t group = *record;
+    if (kind == TAGCACHE_GROUP_ALBUM_ARTIST) group.representative.ordinal = joined; /* join mark, see tagcache_reader_join.h */
     if (kind == TAGCACHE_GROUP_ARTIST) {
         tagcache_song_t song;
         char name[TAGCACHE_PATH_MAX], aa[TAGCACHE_PATH_MAX], canonical[TAGCACHE_PATH_MAX];
@@ -1002,6 +1007,7 @@ static bool reader_build_groups(int kind, int scratch) {
         at += (int64_t)n;
     }
     reader_group_record_t group = {0};
+    bool joined = false;
     char previous[TAGCACHE_PATH_MAX] = "", previous_aa[TAGCACHE_PATH_MAX] = "";
     unsigned name_fields = kind == TAGCACHE_GROUP_ARTIST ? TAGCACHE_FIELD_ARTIST :
         kind == TAGCACHE_GROUP_ALBUM_ARTIST ? TAGCACHE_FIELD_ALBUM_ARTIST :
@@ -1021,12 +1027,14 @@ static bool reader_build_groups(int kind, int scratch) {
             if (!ok) break;
             reader_member_names(kind, &member, &song, name, aa);
             if (!group.count || ascii_casecmp(previous, name) || ascii_casecmp(previous_aa, aa)) {
-                if (group.count) ok = reader_write_group(kind, &group);
+                if (group.count) ok = reader_write_group(kind, &group, joined);
                 group = (reader_group_record_t) {member, member.slot + 1, 0, (int32_t)(at + (int64_t)j)};
+                joined = false;
                 snprintf(previous, sizeof(previous), "%s", name);
                 snprintf(previous_aa, sizeof(previous_aa), "%s", aa);
             }
             group.count++;
+            joined |= reader_join_marked(member.slot);
             if (member.slot + 1 < group.first_id) {
                 group.first_id = member.slot + 1;
                 group.representative = member;
@@ -1038,7 +1046,7 @@ static bool reader_build_groups(int kind, int scratch) {
                                       (off_t)at * (off_t)sizeof(int32_t));
         at += (int64_t)n;
     }
-    if (ok && group.count) ok = reader_write_group(kind, &group);
+    if (ok && group.count) ok = reader_write_group(kind, &group, joined);
     free(batch);
     if (keys >= 0) close(keys);
     if (sort_keys >= 0) close(sort_keys);
@@ -1256,11 +1264,11 @@ static bool reader_build_indexes(void) {
     return ok;
 }
 
-/* Rebuild every derived component into the isolated v7 filename set. The
- * writer publishes the v7 metadata only after syncing the complete set, so
+/* Rebuild every derived component into the isolated v7+ filename set. The
+ * writer publishes the new metadata only after syncing the complete set, so
  * any failure leaves the prior v3-v6 metadata and files usable. */
 static bool reader_migrate_indexes(int32_t gen) {
-    if (reader_loaded_index_version >= TC_INDEX_VERSION) return true;
+    if (reader_loaded_index_version >= TC_INDEX_MIGRATE_BELOW) return true;
     struct tc_index_meta old_meta;
     char meta_path[640], meta_tmp[680];
     int n = snprintf(meta_path, sizeof(meta_path), "%s/database_idx.tcd.g%d.imeta", db_dir, gen);
@@ -1268,7 +1276,7 @@ static bool reader_migrate_indexes(int32_t gen) {
     int old_fd = open(meta_path, O_RDONLY);
     bool have_old_meta = old_fd >= 0 && reader_read_at(old_fd, &old_meta, sizeof(old_meta), 0);
     if (old_fd >= 0) close(old_fd);
-    if (!have_old_meta || old_meta.version >= TC_INDEX_VERSION) return false;
+    if (!have_old_meta || old_meta.version >= TC_INDEX_MIGRATE_BELOW) return false;
     reader_compact_sort = false;
     if (!reader_build_indexes()) {
         reader_close_indexes();

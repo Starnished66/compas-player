@@ -136,6 +136,7 @@ typedef struct {
     bool fds_ready, requires_indexes, legacy_active, compact_sort, compact_order, sort_failed;
     int query_fd, artist_names_fd, title_fd, recency_fd, path_fd, rank_fd[2], group_fd[3], members_fd[3], group_n[3], sort_kind;
     int album_order_fd[3], album_inverse_fd[3];
+    unsigned char *join_bits; /* 1 bit per slot: album artist projected, see tagcache_reader_join.h */
     bool query_cache_valid;
     uint64_t query_cache_block;
     uint32_t query_cache_values[TC_QUERY_BLOCK_VALUES];
@@ -176,6 +177,7 @@ static int32_t commit_slot_map_count;
 #define reader_group_n (READER->group_n)
 #define reader_album_order_fd (READER->album_order_fd)
 #define reader_album_inverse_fd (READER->album_inverse_fd)
+#define reader_join_bits (READER->join_bits)
 #define reader_query_cache_valid (READER->query_cache_valid)
 #define reader_query_cache_block (READER->query_cache_block)
 #define reader_query_cache_values (READER->query_cache_values)
@@ -198,6 +200,8 @@ static unsigned char *scan_seen_bitmap;
 static size_t scan_seen_bitmap_bytes;
 static bool scan_lazy_active;
 static bool scan_force_publication;
+/* Album joining of the scan in progress; see tagcache_set_album_join(). */
+static bool join_albums_request, join_republish_request;
 static bool scan_preserve_unseen;
 static void (*scan_unlock_cb)(void);
 static void (*scan_lock_cb)(void);
@@ -808,6 +812,7 @@ static int reader_group_name_compare(const char *a, const char *b) {
 static bool query_build(int output_fd);
 static bool query_validate(int fd, uint64_t file_size);
 #include "../reader/tagcache_reader_index.h"
+#include "../reader/tagcache_reader_join.h"
 #include "../query/tagcache_query_index.h"
 #include "../query/tagcache_query.h"
 #include "../reader/tagcache_reader_legacy.h"
@@ -1528,7 +1533,8 @@ static void tagcache_begin_update_mode_with_lock(void (*unlock)(void), void (*lo
     scan_force_publication = !disk_ready || rebuild_preserve_generations ||
                              last_load_outcome == TAGCACHE_LOAD_SUCCESS_RECOVERED ||
                              !tagcache_album_sort_available(1) || !tagcache_album_sort_available(2) ||
-                             !tagcache_album_sort_available(3);
+                             !tagcache_album_sort_available(3) ||
+                             (join_republish_request && tagcache_album_join_active());
     size_t bytes = ((size_t)ent_count + 7u) / 8u;
     if (bytes) scan_seen_bitmap = calloc(1, bytes);
     if (bytes && !scan_seen_bitmap) {
@@ -1562,7 +1568,7 @@ bool tagcache_lookup(const char *path, int32_t mtime, int32_t size, tagcache_son
     }
     if (idx.tag_seek[tag_mtime] != mtime || idx.tag_seek[tag_lastoffset] != size) return false;
     tagcache_song_t song;
-    if (!reader_song(slot, out ? out : &song)) return false;
+    if (!reader_song_fields_raw(slot, TAGCACHE_FIELD_ALL, out ? out : &song)) return false;
     if (out) {
         struct index_entry latest;
         if (reader_index(slot, &latest)) {
@@ -1914,7 +1920,8 @@ static bool write_all(void (*unlock)(void), void (*lock)(void)) {
     if (ok) {
         selected_reader = &build_reader;
         reader_context_init(&build_reader);
-        ok = reader_open(gen) && reader_build_indexes() && reader_write_indexes(gen);
+        ok = reader_open(gen) && reader_join_build(join_albums_request) && reader_build_indexes() &&
+             reader_write_indexes(gen);
         reader_close_indexes();
         reader_close();
         selected_reader = &scan_reader;
@@ -1958,7 +1965,7 @@ static bool load_generation(int32_t gen) {
     reader_close_indexes();
     bool ok = reader_open(gen);
     int indexed = ok ? reader_open_indexes(gen) : -1;
-    if (ok && indexed == 1 && reader_loaded_index_version < TC_INDEX_VERSION && !open_read_only) {
+    if (ok && indexed == 1 && reader_loaded_index_version < TC_INDEX_MIGRATE_BELOW && !open_read_only) {
         uint32_t old_index_version = reader_loaded_index_version;
         if (reader_migrate_indexes(gen)) {
             indexes_migrated = true;
@@ -2253,23 +2260,37 @@ bool tagcache_song_fields_at_recency_rank(int32_t rank, unsigned fields, tagcach
            reader_song_fields(slot, fields, out);
 }
 
-bool tagcache_song_by_id(int32_t id, tagcache_song_t *out) {
+static bool song_by_id(int32_t id, tagcache_song_t *out, bool raw) {
     if (!db_open || id < 1 || id > ent_count) return false;
     struct index_entry idx;
     if (!reader_index(id - 1, &idx) || (idx.flag & FLAG_DELETED)) return false;
     numeric_overlay(id - 1, &idx);
     if (!out) return true;
-    if (!reader_song(id - 1, out)) return false;
+    if (!(raw ? reader_song_fields_raw(id - 1, TAGCACHE_FIELD_ALL, out) : reader_song(id - 1, out))) return false;
     out->playcount = idx.tag_seek[tag_playcount];
     out->last_played = idx.tag_seek[tag_lastplayed];
     out->rating = idx.tag_seek[tag_rating];
     return true;
 }
 
+bool tagcache_song_by_id(int32_t id, tagcache_song_t *out) { return song_by_id(id, out, false); }
+
 bool tagcache_song_by_path(const char *path, tagcache_song_t *out) {
     int32_t slot = find_path(path);
-    return slot >= 0 && tagcache_song_by_id(slot + 1, out);
+    return slot >= 0 && song_by_id(slot + 1, out, false);
 }
+
+bool tagcache_song_by_path_raw(const char *path, tagcache_song_t *out) {
+    int32_t slot = find_path(path);
+    return slot >= 0 && song_by_id(slot + 1, out, true);
+}
+
+void tagcache_set_album_join(bool join, bool republish) {
+    join_albums_request = join;
+    join_republish_request = republish;
+}
+
+bool tagcache_album_join_active(void) { return join_albums_request || committed_reader.join_bits; }
 
 bool tagcache_song_at_slot(int32_t slot, tagcache_song_t *out) {
     return slot >= 0 && slot < ent_count && tagcache_song_by_id(slot + 1, out);
@@ -2540,6 +2561,6 @@ int tagcache_snapshot_dup_directory_fd(const tagcache_snapshot_t *snapshot) {
  * fails the build until the number has been considered. */
 _Static_assert(TAGCACHE_MAGIC == 0x54434810 && TAGCACHE_INDEXED_MAGIC == 0x54434811 &&
                TAGCACHE_REFS_VERSION == 1u && TC_QUERY_VERSION == 2u && TC_ALBUM_ORDER_VERSION == 4u &&
-               TC_INDEX_VERSION == 7u,
+               TC_INDEX_VERSION == 8u,
                "bump TAGCACHE_DATABASE_FORMAT (tagcache.h) when a database layout version changes");
 

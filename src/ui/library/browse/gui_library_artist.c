@@ -4,6 +4,7 @@
 #include "gui_artist_data.h"
 #include "gui_artist_page.h"
 #include "../../../core/process/worker_thread.h"
+#include "../../diagnostics/ui_frame_trace.h"
 #include "../library_thumbnails.h"
 #include "../../../library/tagcache/core/tagcache.h"
 #include "../../../core/ui/display/ui_wake.h"

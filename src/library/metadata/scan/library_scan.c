@@ -63,6 +63,16 @@ static metadata_db_load_outcome_t combine_load_outcomes(metadata_db_load_outcome
     return METADATA_DB_LOAD_SUCCESS_FRESH;
 }
 
+/* Joining relabels album artists when the generation is built (tagcache), so a
+ * publication under it changes album identity. A refresh republishes when
+ * joining is or was in effect. Returns true when this scan must publish. */
+static bool library_scan_apply_join(bool refresh) {
+    tagcache_set_album_join(scan_job.join_albums, refresh);
+    bool active = tagcache_album_join_active();
+    if (active) scan_job.result.identity_changed = true;
+    return active && refresh;
+}
+
 static bool library_scan_open_database(bool allow_rebuild,
                                        metadata_db_load_outcome_t *out_open_outcome,
                                        bool *out_preserve_rebuild);
@@ -354,7 +364,7 @@ static scan_song_result_t scan_song_stat_into_db(const char * path, const char *
     int64_t size = have_stat ? (int64_t) source_stat->st_size : 0;
 
     song_row_t previous = {0};
-    bool had_previous = force_metadata && metadata_db_get_song_by_path(db_path, &previous);
+    bool had_previous = force_metadata && metadata_db_get_song_by_path_raw(db_path, &previous);
     /* Only a path stat() just found counts as present on the card. */
     if (had_previous && have_stat) scan_job.result.matched_existing++;
 
@@ -367,11 +377,6 @@ static scan_song_result_t scan_song_stat_into_db(const char * path, const char *
 
     cached_tags_t fresh;
     library_scan_tags_from_track(&meta, &fresh);
-    /* Join albums: group tracks without an Album Artist tag under one name
-     * instead of each track artist. Player-only; compas-sdtool keeps the
-     * shared fallback, so a forced refresh applies this to its rows. */
-    if (scan_job.join_albums && !meta.has_album_artist)
-        snprintf(fresh.album_artist, sizeof(fresh.album_artist), "%s", "Various Artists");
     free(meta.picture_data);
     free(meta.lyrics); /* always NULL here (metadata_read_isolated() itself already frees/NULLs it before the pipe write), freeing defensively for symmetry */
 
@@ -463,6 +468,7 @@ static void library_scan_targeted_once(void) {
     bool preserve_rebuild = false;
     if (!library_scan_open_database(scan_job.allow_rebuild, NULL,
                                     &preserve_rebuild)) return;
+    library_scan_apply_join(false);
     if (preserve_rebuild) {
         /* A preserved rebuild is a provisional empty cache. A partial update
          * must never publish only the selected rows as a replacement library. */
@@ -658,6 +664,7 @@ static void library_scan_once_with_options(bool force_all_metadata) {
     bool preserve_rebuild = false;
     if (!library_scan_open_database(scan_job.allow_rebuild,
                                     &open_outcome, &preserve_rebuild)) return;
+    bool join_forced = library_scan_apply_join(force_all_metadata);
     int64_t song_count_before_scan = metadata_db_get_song_count();
     DB_LOG("DB", "db_open elapsed_ms=%llu songs=%lld rss_kb=%ld",
            (unsigned long long) (db_log_now_ms() - phase_started_ms), (long long) song_count_before_scan,
@@ -861,7 +868,7 @@ static void library_scan_once_with_options(bool force_all_metadata) {
                 scan_job.result.operation_outcome = combine_load_outcomes(scan_job.result.operation_outcome, METADATA_DB_LOAD_UNMOUNTED);
             return;
         }
-        if (!missing_paths) {
+        if (!missing_paths && !join_forced) {
             int32_t generation_before = tagcache_generation();
             metadata_db_abort_update();
             scan_job.result.published = tagcache_generation() != generation_before;

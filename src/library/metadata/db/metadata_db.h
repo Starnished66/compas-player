@@ -276,6 +276,8 @@ bool metadata_db_walk_genre_songs(const char * genre, int max_songs,
 
 bool metadata_db_get_song_by_id(int64_t id, song_row_t * out_row);
 bool metadata_db_get_song_by_path(const char * path, song_row_t * out_row);
+/* Same row with the stored album artist; the scanner compares tags with this. */
+bool metadata_db_get_song_by_path_raw(const char * path, song_row_t * out_row);
 /* Nonblocking display hint backed only by rows already copied from the
  * database. Returns false on a miss or when the small cache is busy. This is
  * not authoritative for fresh ReplayGain or other playback metadata. */

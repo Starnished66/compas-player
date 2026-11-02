@@ -980,13 +980,21 @@ bool metadata_db_get_song_by_id(int64_t id, song_row_t * out_row) {
     return true;
 }
 
-bool metadata_db_get_song_by_path(const char * path, song_row_t * out_row) {
+static bool get_song_by_path(const char * path, song_row_t * out_row, bool raw) {
     METADATA_DB_GUARD;
     if (!db_ready) return false;
     tagcache_song_t song;
-    if (!tagcache_song_by_path(path, &song)) return false;
+    if (!(raw ? tagcache_song_by_path_raw(path, &song) : tagcache_song_by_path(path, &song))) return false;
     copy_song(&song, out_row);
     return true;
+}
+
+bool metadata_db_get_song_by_path(const char * path, song_row_t * out_row) {
+    return get_song_by_path(path, out_row, false);
+}
+
+bool metadata_db_get_song_by_path_raw(const char * path, song_row_t * out_row) {
+    return get_song_by_path(path, out_row, true);
 }
 
 bool metadata_db_try_get_cached_song_by_path(const char *path, song_row_t *out_row) {

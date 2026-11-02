@@ -5,6 +5,8 @@
  * on-disk structs and validation helpers in tagcache.c. */
 
 static void reader_close(void) {
+    free(reader_join_bits);
+    reader_join_bits = NULL;
     if (!reader_fds_ready) {
         for (int i = 0; i < TAG_COUNT; ++i) reader_tag_fd[i] = -1;
         reader_master_fd = -1;
@@ -110,7 +112,19 @@ static bool reader_string(int tag, int32_t seek, int32_t slot, char *out, size_t
     return !memchr(out, '\0', (size_t)te.tag_length - 1) && out[te.tag_length - 1] == '\0';
 }
 
-static bool reader_song_fields(int32_t slot, unsigned fields, tagcache_song_t *out) {
+/* Stored tags are raw; the join projection (see tagcache_reader_join.h) only
+ * relabels the album artist of marked slots when a song is read. */
+#define READER_JOIN_LABEL "Various Artists"
+
+static bool reader_bit_test(const unsigned char *bits, int32_t slot) {
+    return bits[(size_t)slot >> 3] & (1u << (slot & 7));
+}
+
+static bool reader_join_marked(int32_t slot) {
+    return reader_join_bits && slot >= 0 && slot < ent_count && reader_bit_test(reader_join_bits, slot);
+}
+
+static bool reader_song_fields_raw(int32_t slot, unsigned fields, tagcache_song_t *out) {
     struct index_entry idx;
     bool incomplete = false;
     if (!out || !reader_index(slot, &idx) || (idx.flag & FLAG_DELETED)) return false;
@@ -149,6 +163,13 @@ static bool reader_song_fields(int32_t slot, unsigned fields, tagcache_song_t *o
         if (fields & TAGCACHE_FIELD_ALBUM_ARTIST) legacy_canonical_text(out->album_artist_storage);
         if (fields & TAGCACHE_FIELD_GENRE) legacy_canonical_text(out->genre_storage);
     }
+    return true;
+}
+
+static bool reader_song_fields(int32_t slot, unsigned fields, tagcache_song_t *out) {
+    if (!reader_song_fields_raw(slot, fields, out)) return false;
+    if ((fields & TAGCACHE_FIELD_ALBUM_ARTIST) && reader_join_marked(slot))
+        snprintf(out->album_artist_storage, sizeof(out->album_artist_storage), "%s", READER_JOIN_LABEL);
     return true;
 }
 

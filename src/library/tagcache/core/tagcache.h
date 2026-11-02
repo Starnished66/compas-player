@@ -21,7 +21,7 @@
 
 /* Layout version of the on-card database this build writes (the version of its
  * index files). Anything that reads the database must carry a reader for it. */
-#define TAGCACHE_DATABASE_FORMAT 7u
+#define TAGCACHE_DATABASE_FORMAT 8u
 
 #define TAGCACHE_PATH_MAX 600
 #define TAGCACHE_TAG_MAX 128
@@ -112,6 +112,13 @@ void tagcache_close(void);
  * recovery rebuild reports RECOVERED. */
 tagcache_load_outcome_t tagcache_get_load_outcome(void);
 
+/* Album joining for the generations published by the scan about to begin: an
+ * album artist sharing an album and folder with another one shows as "Various
+ * Artists". Stored tags and track artists stay raw. republish makes the scan
+ * publish even without changes while joining is, or was, in effect. */
+void tagcache_set_album_join(bool join, bool republish);
+/* True when joining is requested or the loaded generation has joined albums. */
+bool tagcache_album_join_active(void);
 void tagcache_begin_update(void);
 void tagcache_begin_update_with_lock(void (*unlock)(void), void (*lock)(void));
 /* Targeted refresh keeps unseen rows without checking their paths. */
@@ -162,6 +169,8 @@ int32_t tagcache_live_count(void);
 int32_t tagcache_slot_count(void);
 bool tagcache_song_by_id(int32_t id, tagcache_song_t * out);
 bool tagcache_song_by_path(const char * path, tagcache_song_t * out);
+/* tagcache_song_by_path() with the stored album artist, never the join label. */
+bool tagcache_song_by_path_raw(const char * path, tagcache_song_t * out);
 bool tagcache_song_at_slot(int32_t slot, tagcache_song_t * out);
 bool tagcache_song_at_title_rank(int32_t rank, tagcache_song_t * out);
 bool tagcache_song_at_recency_rank(int32_t rank, tagcache_song_t * out);
