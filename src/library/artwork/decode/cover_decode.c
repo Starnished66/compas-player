@@ -493,30 +493,12 @@ static inline uint16_t rgb888_to_565(uint8_t r, uint8_t g, uint8_t b) {
     return (uint16_t) (((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
 }
 
-static void bilinear_sample(const uint8_t * src, int src_w, int src_h, float fx, float fy,
-                             uint8_t * out_r, uint8_t * out_g, uint8_t * out_b) {
-    if (fx < 0) fx = 0;
-    if (fy < 0) fy = 0;
-    if (fx > src_w - 1) fx = (float) (src_w - 1);
-    if (fy > src_h - 1) fy = (float) (src_h - 1);
-
-    int x0 = (int) fx, y0 = (int) fy;
-    int x1 = x0 + 1 < src_w ? x0 + 1 : x0;
-    int y1 = y0 + 1 < src_h ? y0 + 1 : y0;
-    float tx = fx - x0, ty = fy - y0;
-
-    const uint8_t * p00 = src + ((size_t) y0 * src_w + x0) * 3;
-    const uint8_t * p10 = src + ((size_t) y0 * src_w + x1) * 3;
-    const uint8_t * p01 = src + ((size_t) y1 * src_w + x0) * 3;
-    const uint8_t * p11 = src + ((size_t) y1 * src_w + x1) * 3;
-
-    for (int c = 0; c < 3; c++) {
-        float top = p00[c] * (1.0f - tx) + p10[c] * tx;
-        float bot = p01[c] * (1.0f - tx) + p11[c] * tx;
-        float v = top * (1.0f - ty) + bot * ty;
-        uint8_t out = (uint8_t) (v + 0.5f);
-        if (c == 0) *out_r = out; else if (c == 1) *out_g = out; else *out_b = out;
-    }
+/* Enlarged covers use nearest-neighbor so small source art keeps its pixels
+ * sharp instead of blurring. Truncation of f + 0.5 equals rounding for
+ * f > -0.5; anything below clamps to 0 either way. */
+static inline int nearest_index(float f, int n) {
+    int i = (int) (f + 0.5f);
+    return i < 0 ? 0 : (i >= n ? n - 1 : i);
 }
 
 static uint16_t * resize_cover_fit(const uint8_t * src, int src_w, int src_h, int dst_w, int dst_h) {
@@ -545,12 +527,10 @@ static uint16_t * resize_cover_fit(const uint8_t * src, int src_w, int src_h, in
         uint16_t * dst_row = dst + (size_t) dy * dst_w;
 
         if (upscaling) {
-            float fy = ((dy + 0.5f) + crop_y) / scale - 0.5f;
+            const uint8_t * row = src + (size_t) nearest_index(((dy + 0.5f) + crop_y) / scale - 0.5f, src_h) * src_w * 3;
             for (int dx = 0; dx < dst_w; dx++) {
-                float fx = ((dx + 0.5f) + crop_x) / scale - 0.5f;
-                uint8_t r, g, b;
-                bilinear_sample(src, src_w, src_h, fx, fy, &r, &g, &b);
-                dst_row[dx] = rgb888_to_565(r, g, b);
+                const uint8_t * p = row + (size_t) nearest_index(((dx + 0.5f) + crop_x) / scale - 0.5f, src_w) * 3;
+                dst_row[dx] = rgb888_to_565(p[0], p[1], p[2]);
             }
             continue;
         }
@@ -596,33 +576,6 @@ static inline void rgb565_to_888(uint16_t p, uint8_t * r, uint8_t * g, uint8_t *
     *b = (uint8_t) ((p & 0x1F) << 3);
 }
 
-static void bilinear_sample_rgb565(const uint16_t * src, int src_w, int src_h, float fx, float fy,
-                                   uint8_t * out_r, uint8_t * out_g, uint8_t * out_b) {
-    if (fx < 0) fx = 0;
-    if (fy < 0) fy = 0;
-    if (fx > src_w - 1) fx = (float) (src_w - 1);
-    if (fy > src_h - 1) fy = (float) (src_h - 1);
-
-    int x0 = (int) fx, y0 = (int) fy;
-    int x1 = x0 + 1 < src_w ? x0 + 1 : x0;
-    int y1 = y0 + 1 < src_h ? y0 + 1 : y0;
-    float tx = fx - x0, ty = fy - y0;
-
-    uint8_t p00[3], p10[3], p01[3], p11[3];
-    rgb565_to_888(src[(size_t) y0 * src_w + x0], &p00[0], &p00[1], &p00[2]);
-    rgb565_to_888(src[(size_t) y0 * src_w + x1], &p10[0], &p10[1], &p10[2]);
-    rgb565_to_888(src[(size_t) y1 * src_w + x0], &p01[0], &p01[1], &p01[2]);
-    rgb565_to_888(src[(size_t) y1 * src_w + x1], &p11[0], &p11[1], &p11[2]);
-
-    for (int c = 0; c < 3; c++) {
-        float top = p00[c] * (1.0f - tx) + p10[c] * tx;
-        float bot = p01[c] * (1.0f - tx) + p11[c] * tx;
-        float v = top * (1.0f - ty) + bot * ty;
-        uint8_t out = (uint8_t) (v + 0.5f);
-        if (c == 0) *out_r = out; else if (c == 1) *out_g = out; else *out_b = out;
-    }
-}
-
 uint16_t * cover_resize_rgb565(const uint16_t * src, int src_w, int src_h, int dst_w, int dst_h) {
     if (!src || src_w <= 0 || src_h <= 0 || dst_w <= 0 || dst_h <= 0) return NULL;
 
@@ -655,12 +608,9 @@ uint16_t * cover_resize_rgb565(const uint16_t * src, int src_w, int src_h, int d
         uint16_t * dst_row = dst + (size_t) dy * dst_w;
 
         if (upscaling) {
-            float fy = ((dy + 0.5f) + crop_y) / scale - 0.5f;
+            const uint16_t * row = src + (size_t) nearest_index(((dy + 0.5f) + crop_y) / scale - 0.5f, src_h) * src_w;
             for (int dx = 0; dx < dst_w; dx++) {
-                float fx = ((dx + 0.5f) + crop_x) / scale - 0.5f;
-                uint8_t r, g, b;
-                bilinear_sample_rgb565(src, src_w, src_h, fx, fy, &r, &g, &b);
-                dst_row[dx] = rgb888_to_565(r, g, b);
+                dst_row[dx] = row[nearest_index(((dx + 0.5f) + crop_x) / scale - 0.5f, src_w)];
             }
             continue;
         }

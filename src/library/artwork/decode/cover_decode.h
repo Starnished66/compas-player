@@ -157,7 +157,7 @@ cover_decode_result_t cover_decode_to_rgb565_ex(const uint8_t * data, uint32_t s
 
 /* Cover-fit an already-decoded RGB565 buffer into a newly malloc()'d RGB565
  * buffer the caller owns and must free(). Same cover-fit, center-crop,
- * area-average-downscale, and bilinear-upscale math as
+ * area-average-downscale, and nearest-neighbor-upscale math as
  * cover_decode_to_rgb565_ex()'s internal resize -- pixel sampling is RGB565
  * packed instead of RGB888 triplets. Same-size (src_w==dst_w && src_h==dst_h)
  * copies pixels byte-for-byte. Returns NULL on invalid args or alloc failure. */
