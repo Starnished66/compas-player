@@ -30,6 +30,28 @@ static bool db_ready;
 /* Bumped whenever the catalog is closed or (re)opened, under the database lock:
  * a cursor kept across lock releases is only valid within one incarnation. */
 static uint32_t db_incarnation;
+
+/* Distinct-genre list, built once per (incarnation, tagcache generation, title
+ * order version) and read under the database guard. A new incarnation (open,
+ * close, reload, rebuild prep, publish, abort) frees it; the generation and
+ * order version are re-checked on every read because first_song_id follows
+ * title rank order. */
+typedef struct { char * name; int64_t first_song_id; int song_count; uint32_t hash; } genre_entry_t;
+static genre_entry_t * genre_cache;
+static int genre_cache_count;
+static bool genre_cache_valid;
+static uint32_t genre_cache_incarnation;
+static int32_t genre_cache_generation;
+static int genre_cache_order_version;
+
+/* Caller holds the database guard. */
+static void genre_cache_free(void) {
+    for (int i = 0; i < genre_cache_count; i++) free(genre_cache[i].name);
+    free(genre_cache);
+    genre_cache = NULL;
+    genre_cache_count = 0;
+    genre_cache_valid = false;
+}
 static int catalog_dir_fd = -1;
 static char catalog_library_id[METADATA_DB_CATALOG_LIBRARY_ID_SIZE];
 static bool catalog_library_id_ready;
@@ -441,7 +463,7 @@ static metadata_db_load_outcome_t capture_tagcache_outcome(bool update_ready) {
         case TAGCACHE_LOAD_SUCCESS_RECOVERED: last_outcome = METADATA_DB_LOAD_SUCCESS_RECOVERED; break;
         case TAGCACHE_LOAD_FAILED: last_outcome = METADATA_DB_LOAD_FAILED; break;
     }
-    if (update_ready) { db_ready = last_outcome != METADATA_DB_LOAD_FAILED; db_incarnation++; }
+    if (update_ready) { db_ready = last_outcome != METADATA_DB_LOAD_FAILED; db_incarnation++; genre_cache_free(); }
     return last_outcome;
 }
 
@@ -572,6 +594,7 @@ bool metadata_db_prepare_rebuild(void) {
     capture_tagcache_outcome(false);
     db_ready = prepared;
     db_incarnation++;
+    genre_cache_free();
     if (prepared && outcome == METADATA_DB_LOAD_FAILED) {
         /* Keep catalog reads unavailable until the explicit replacement
          * generation commits and receives a fresh persistent identity. */
@@ -658,6 +681,7 @@ void metadata_db_close(void) {
     catalog_unpin_directory();
     db_ready = false;
     db_incarnation++;
+    genre_cache_free();
     last_outcome = METADATA_DB_LOAD_UNMOUNTED;
     catalog_library_id[0] = '\0';
     catalog_library_id_ready = false;
@@ -780,55 +804,103 @@ int metadata_db_get_songs_page_by_recency(int offset, int max_rows, song_row_t *
     return w;
 }
 
+/* Caller holds the database guard. Builds the distinct-genre list when the
+ * cached one is missing or stale; false (and no cache) if allocation fails. */
+static bool genre_cache_ensure(void) {
+    int32_t generation = tagcache_generation();
+    int order_version = tagcache_title_order_version();
+    if (genre_cache_valid && genre_cache_incarnation == db_incarnation &&
+        genre_cache_generation == generation && genre_cache_order_version == order_version) return true;
+    genre_cache_free();
+
+    enum { GENRE_LIMIT = 2000, GENRE_HASH_SIZE = 4096 };
+    genre_entry_t * groups = calloc(GENRE_LIMIT, sizeof(*groups));
+    int * slots = malloc(sizeof(*slots) * GENRE_HASH_SIZE);
+    if (!groups || !slots) { free(groups); free(slots); return false; }
+    for (int i = 0; i < GENRE_HASH_SIZE; i++) slots[i] = -1;
+    int used = 0;
+    bool ok = true;
+    /* A song that could not be read leaves the list incomplete: it still answers this
+     * call, as the per-call walk did, but is rebuilt on the next one. */
+    bool complete = true;
+    tagcache_query_t query;
+    tagcache_query_begin(&query, TAGCACHE_QUERY_SONGS, NULL, NULL, NULL, NULL);
+    int32_t rank;
+    while (tagcache_query_next(&query, &rank)) {
+        tagcache_song_t song;
+        if (!tagcache_song_fields_at_title_rank(rank, TAGCACHE_FIELD_GENRE, &song)) { complete = false; continue; }
+        if (tagcache_song_tags_incomplete(&song)) complete = false;
+        if (!song.genre[0]) continue;
+        uint32_t hash = 2166136261u;
+        for (const unsigned char *p = (const unsigned char *)song.genre; *p; p++) {
+            unsigned char c = *p >= 'A' && *p <= 'Z' ? (unsigned char)(*p + ('a' - 'A')) : *p;
+            hash = (hash ^ c) * 16777619u;
+        }
+        unsigned bucket = hash % GENRE_HASH_SIZE;
+        while (slots[bucket] >= 0 && (groups[slots[bucket]].hash != hash ||
+               strcasecmp(groups[slots[bucket]].name, song.genre) != 0)) bucket = (bucket + 1) % GENRE_HASH_SIZE;
+        if (slots[bucket] >= 0) { groups[slots[bucket]].song_count++; continue; }
+        if (used >= GENRE_LIMIT) continue;
+        char * name = strdup(song.genre);
+        if (!name) { ok = false; break; }
+        int index = used++;
+        slots[bucket] = index;
+        groups[index].hash = hash;
+        groups[index].name = name;
+        groups[index].song_count = 1;
+        groups[index].first_song_id = song.id;
+    }
+    free(slots);
+    if (ok) {
+        /* Sort the bounded distinct genre list alphabetically for a stable UI. */
+        for (int i = 1; i < used; i++) {
+            genre_entry_t value = groups[i];
+            int j = i;
+            while (j > 0 && utf8_collate_identity_compare(groups[j - 1].name, value.name) > 0) {
+                groups[j] = groups[j - 1];
+                j--;
+            }
+            groups[j] = value;
+        }
+        genre_entry_t * compact = used > 0 ? realloc(groups, sizeof(*groups) * (size_t) used) : NULL;
+        if (used > 0 && !compact) ok = false;
+        else if (used > 0) groups = compact;
+    }
+    if (!ok) {
+        for (int i = 0; i < used; i++) free(groups[i].name);
+        free(groups);
+        return false;
+    }
+    if (used == 0) { free(groups); groups = NULL; }
+    genre_cache = groups;
+    genre_cache_count = used;
+    genre_cache_valid = complete;
+    genre_cache_incarnation = db_incarnation;
+    genre_cache_generation = generation;
+    genre_cache_order_version = order_version;
+    return true;
+}
+
+int metadata_db_get_genre_count(void) {
+    METADATA_DB_GUARD;
+    if (!db_ready || !genre_cache_ensure()) return 0;
+    return genre_cache_count;
+}
+
 int metadata_db_get_groups_page(metadata_db_group_kind_t kind, int offset, int max_rows, group_row_t * out_rows) {
     METADATA_DB_GUARD;
     if (!db_ready || max_rows <= 0) return 0;
     if (offset < 0) offset = 0;
     if (kind == METADATA_DB_GROUP_GENRE) {
-        enum { GENRE_LIMIT = 2000, GENRE_HASH_SIZE = 4096 };
-        typedef struct { uint32_t hash; group_row_t row; } genre_group_t;
-        genre_group_t * groups = calloc(GENRE_LIMIT, sizeof(*groups));
-        int * slots = malloc(sizeof(*slots) * GENRE_HASH_SIZE);
-        if (!groups || !slots) { free(groups); free(slots); return 0; }
-        for (int i = 0; i < GENRE_HASH_SIZE; i++) slots[i] = -1;
-        int used = 0;
-        tagcache_query_t query;
-        tagcache_query_begin(&query, TAGCACHE_QUERY_SONGS, NULL, NULL, NULL, NULL);
-        int32_t rank;
-        while (tagcache_query_next(&query, &rank)) {
-            tagcache_song_t song;
-            if (!tagcache_song_fields_at_title_rank(rank, TAGCACHE_FIELD_GENRE, &song) || !song.genre[0]) continue;
-            uint32_t hash = 2166136261u;
-            for (const unsigned char *p = (const unsigned char *)song.genre; *p; p++) {
-                unsigned char c = *p >= 'A' && *p <= 'Z' ? (unsigned char)(*p + ('a' - 'A')) : *p;
-                hash = (hash ^ c) * 16777619u;
-            }
-            unsigned bucket = hash % GENRE_HASH_SIZE;
-            while (slots[bucket] >= 0 && (groups[slots[bucket]].hash != hash ||
-                   strcasecmp(groups[slots[bucket]].row.genre_name, song.genre) != 0)) bucket = (bucket + 1) % GENRE_HASH_SIZE;
-            if (slots[bucket] >= 0) { groups[slots[bucket]].row.song_count++; continue; }
-            if (used >= GENRE_LIMIT) continue;
-            int index = used++;
-            slots[bucket] = index;
-            groups[index].hash = hash;
-            snprintf(groups[index].row.genre_name, sizeof(groups[index].row.genre_name), "%s", song.genre);
-            groups[index].row.song_count = 1;
-            groups[index].row.first_song_id = song.id;
-        }
-        /* Sort the bounded distinct genre list alphabetically for a stable UI. */
-        for (int i = 1; i < used; i++) {
-            group_row_t value = groups[i].row;
-            int j = i;
-            while (j > 0 && utf8_collate_identity_compare(groups[j - 1].row.genre_name, value.genre_name) > 0) {
-                groups[j].row = groups[j - 1].row;
-                j--;
-            }
-            groups[j].row = value;
-        }
+        if (!genre_cache_ensure()) return 0;
         int written = 0;
-        for (int i = offset; i < used && written < max_rows; i++) out_rows[written++] = groups[i].row;
-        free(slots);
-        free(groups);
+        for (int i = offset; i < genre_cache_count && written < max_rows; i++) {
+            group_row_t * row = &out_rows[written++];
+            memset(row, 0, sizeof(*row));
+            snprintf(row->genre_name, sizeof(row->genre_name), "%s", genre_cache[i].name);
+            row->song_count = genre_cache[i].song_count;
+            row->first_song_id = genre_cache[i].first_song_id;
+        }
         return written;
     }
     int tc_kind = (kind == METADATA_DB_GROUP_ALBUM_ARTIST) ? TAGCACHE_GROUP_ALBUM_ARTIST

@@ -48,6 +48,38 @@ lv_obj_t * group_songs_edit_btn;
 group_song_entry_t * group_songs_entries; /* owned -- see set_group_songs_entries() */
 int group_songs_count;
 
+/* Index of now_playing_path in group_songs_entries, remembered so a now-playing update does not
+ * strcmp every entry again. The two setters below are the only writers of the entry array and
+ * paths (the probe path only rewrites titles), and each bumps the generation. */
+static uint64_t group_songs_entries_generation;
+static struct {
+    bool valid;
+    uint64_t generation;
+    int count;
+    int index; /* -1: not in the list */
+    char path[sizeof(now_playing_path)];
+} group_songs_now_playing_cache;
+
+static int group_songs_now_playing_index(void) {
+    if (!now_playing_path[0]) return -1;
+    if (!group_songs_now_playing_cache.valid ||
+        group_songs_now_playing_cache.generation != group_songs_entries_generation ||
+        group_songs_now_playing_cache.count != group_songs_count ||
+        strcmp(group_songs_now_playing_cache.path, now_playing_path) != 0) {
+        int match = -1;
+        for (int i = 0; i < group_songs_count; i++) {
+            if (strcmp(group_songs_entries[i].path, now_playing_path) == 0) { match = i; break; }
+        }
+        group_songs_now_playing_cache.valid = true;
+        group_songs_now_playing_cache.generation = group_songs_entries_generation;
+        group_songs_now_playing_cache.count = group_songs_count;
+        group_songs_now_playing_cache.index = match;
+        snprintf(group_songs_now_playing_cache.path, sizeof(group_songs_now_playing_cache.path), "%s",
+                 now_playing_path);
+    }
+    return group_songs_now_playing_cache.index;
+}
+
 /* Frees the previous group_songs_entries (if any) and replaces it with an
  * owned copy of entries[0..count) -- every show_group_songs_editable() call
  * and every "Removed from playlist" refresh goes through this single choke
@@ -57,6 +89,7 @@ int group_songs_count;
 static void set_group_songs_entries(const group_song_entry_t * entries, int count) {
     if (group_songs_screen) search_close_if_active_for_screen(group_songs_screen);
     free_group_song_entries(group_songs_entries, group_songs_count);
+    group_songs_entries_generation++;
     group_songs_entries = NULL;
     group_songs_count = copy_group_song_entries(&group_songs_entries, entries, count) ? count : 0;
 }
@@ -68,6 +101,7 @@ static void set_group_songs_entries(const group_song_entry_t * entries, int coun
 void set_group_songs_entries_owned(group_song_entry_t * entries, int count) {
     if (group_songs_screen) search_close_if_active_for_screen(group_songs_screen);
     free_group_song_entries(group_songs_entries, group_songs_count);
+    group_songs_entries_generation++;
     group_songs_entries = entries;
     group_songs_count = count;
 }
@@ -692,12 +726,7 @@ static void group_songs_place_now_playing_bar(bool laid_out) {
     refresh_group_songs_search_now_playing();
     if (!group_songs_now_playing_bar) return;
 
-    int match = -1;
-    if (now_playing_path[0]) {
-        for (int i = 0; i < group_songs_count; i++) {
-            if (strcmp(group_songs_entries[i].path, now_playing_path) == 0) { match = i; break; }
-        }
-    }
+    int match = group_songs_now_playing_index();
 
     int page_end = group_songs_page_start + GROUP_SONGS_PAGE_SIZE;
     if (page_end > group_songs_count) page_end = group_songs_count;
@@ -1898,13 +1927,9 @@ void update_group_songs_search_button(bool editing) {
 static void refresh_group_songs_search_now_playing(void) {
     if (!group_songs_search_list) return;
     int target = -1;
-    if (library_search_is_active(SEARCH_BINDING_GROUP_SONGS) && now_playing_path[0]) {
-        for (int i = 0; i < group_songs_count; i++) {
-            if (strcmp(group_songs_entries[i].path, now_playing_path) == 0) {
-                target = library_search_find_filtered_row(SEARCH_BINDING_GROUP_SONGS, i);
-                break;
-            }
-        }
+    if (library_search_is_active(SEARCH_BINDING_GROUP_SONGS)) {
+        int match = group_songs_now_playing_index();
+        if (match >= 0) target = library_search_find_filtered_row(SEARCH_BINDING_GROUP_SONGS, match);
     }
     compact_list_set_now_playing(group_songs_search_list, target);
 }
@@ -1988,7 +2013,19 @@ static void refresh_group_songs_paths_in_place(void) {
     populate_group_songs_rows();
 }
 
+void group_songs_replace_refreshed_entries(group_song_entry_t * entries, int count) {
+    group_songs_page_start = 0;
+    set_group_songs_entries_owned(entries, count);
+    populate_group_songs_rows();
+}
+
 void refresh_group_songs_from_database(void) {
+    /* An album page is read again on the album worker, so a large album does not freeze the UI;
+     * the rows are replaced when it lands. */
+    if (group_songs_refresh_source == GROUP_SONGS_REFRESH_ALBUM &&
+        album_refresh_in_place_start(group_songs_refresh_album, group_songs_refresh_album_artist,
+                                     group_songs_refresh_artist_filter))
+        return;
     group_songs_page_start = 0;
     switch (group_songs_refresh_source) {
         case GROUP_SONGS_REFRESH_FAVORITES: {
@@ -2031,18 +2068,9 @@ void refresh_group_songs_from_database(void) {
             break;
         }
         case GROUP_SONGS_REFRESH_ALBUM: {
-            int64_t count64 = 0;
-            if (group_songs_refresh_artist_filter[0]) {
-                count64 = metadata_db_count_songs_filtered(NULL, group_songs_refresh_artist_filter,
-                    group_songs_refresh_album_artist, group_songs_refresh_album, NULL);
-            } else {
-                int64_t offset = metadata_db_get_group_offset(METADATA_DB_GROUP_ALBUM,
-                    group_songs_refresh_album, group_songs_refresh_album_artist);
-                group_row_t group;
-                if (offset >= 0 && metadata_db_get_groups_page(METADATA_DB_GROUP_ALBUM,
-                        (int) offset, 1, &group) == 1) count64 = group.song_count;
-            }
-            int count = count64 > 0 && count64 <= INT_MAX ? (int) count64 : 0;
+            /* Only reached when the worker could not be started. */
+            int count = group_songs_refresh_artist_filter[0] ? 0
+                : album_group_song_count(group_songs_refresh_album, group_songs_refresh_album_artist);
             int loaded_count = 0;
             group_song_entry_t * entries = load_album_entries_filtered(group_songs_refresh_album,
                 group_songs_refresh_album_artist, count, group_songs_refresh_artist_filter, &loaded_count, NULL);

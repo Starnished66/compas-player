@@ -2322,6 +2322,32 @@ static void thumbnail_cover_thread_cleanup(void) {
     atomic_store_explicit(&thumbnail_cover_done, true, memory_order_release);
 }
 
+/* The album whose failure-cache entries the cover worker forgets before it reads that cache.
+ * Written by the UI thread before the thread is created and read only by that thread, which is
+ * joined before the next start. */
+static char thumbnail_cover_clear_album[METADATA_DB_TEXT_MAX];
+static char thumbnail_cover_clear_artist[METADATA_DB_TEXT_MAX];
+static bool thumbnail_cover_clear_pending;
+
+static void thumbnail_cover_clear_album_failures(int my_generation) {
+    /* A failed allocation still clears, a few rows at a time, so the reload can retry the art. */
+    song_row_t fallback[4];
+    song_row_t *songs = malloc(64 * sizeof(*songs));
+    int batch = songs ? 64 : (int) (sizeof(fallback) / sizeof(fallback[0]));
+    song_row_t *rows = songs ? songs : fallback;
+    int offset = 0;
+    /* A cancelled reload stops here; entries already cleared only cost a retry. */
+    while (!album_thumb_gen_should_cancel(my_generation)) {
+        int count = metadata_db_get_album_songs(thumbnail_cover_clear_album, thumbnail_cover_clear_artist,
+                                                offset, rows, batch);
+        if (count <= 0) break;
+        for (int i = 0; i < count; i++) artwork_failure_cache_note_success(rows[i].id);
+        offset += count;
+        if (count < batch) break;
+    }
+    free(songs);
+}
+
 static void *thumbnail_cover_thread_func(void *arg) {
     install_thread_crash_altstack();
 #ifdef __linux__
@@ -2330,6 +2356,8 @@ static void *thumbnail_cover_thread_func(void *arg) {
 #endif
     thumbnail_worker_lower_priority(WORKER_NICE_BACKGROUND);
     album_thumb_gen_altstack_already_installed = true;
+    /* Before the reload reads the failure cache, on this thread. */
+    if (thumbnail_cover_clear_pending) thumbnail_cover_clear_album_failures((int) (intptr_t) arg);
     album_thumb_gen_thread_func(arg);
     thumbnail_cover_thread_cleanup();
     return NULL;
@@ -2507,6 +2535,12 @@ bool library_thumbnails_start_cover_reload(const library_thumbnail_cover_request
     int generation = prepare_album_thumbnail_generation(true, true,
         request->scope == LIBRARY_THUMB_COVER_ALBUM, request->target_song_id);
     atomic_store(&thumbnail_cover_done, false);
+    thumbnail_cover_clear_pending = request->scope == LIBRARY_THUMB_COVER_ALBUM && request->album &&
+                                    request->album_artist;
+    if (thumbnail_cover_clear_pending) {
+        snprintf(thumbnail_cover_clear_album, sizeof(thumbnail_cover_clear_album), "%s", request->album);
+        snprintf(thumbnail_cover_clear_artist, sizeof(thumbnail_cover_clear_artist), "%s", request->album_artist);
+    }
     if (show_busy) show_busy(request->scope);
     pthread_attr_t attr;
     pthread_attr_t *attr_ptr = NULL;

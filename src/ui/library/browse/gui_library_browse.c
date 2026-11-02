@@ -411,11 +411,24 @@ static void free_album_load_request(album_load_request_t * request) {
     free(request);
 }
 
+/* Tracks of an album as the Albums list counts them (0 when it is not listed). */
+int album_group_song_count(const char * name, const char * album_artist) {
+    int64_t offset = metadata_db_get_group_offset(METADATA_DB_GROUP_ALBUM, name, album_artist);
+    group_row_t group;
+    if (offset >= 0 && metadata_db_get_groups_page(METADATA_DB_GROUP_ALBUM, (int) offset, 1, &group) == 1 &&
+        group.song_count > 0)
+        return group.song_count;
+    return 0;
+}
+
 static void * album_load_worker(void * arg) {
     album_load_request_t * request = arg;
     worker_lower_priority(WORKER_NICE_BACKGROUND);
+    int song_count = request->group.song_count;
+    if (request->refresh && !request->artist_filter[0])
+        song_count = album_group_song_count(request->group.name, request->group.album_artist);
     request->entries = load_album_entries_filtered(request->group.name, request->group.album_artist,
-        request->group.song_count, request->artist_filter, &request->count, &request->cancel);
+        song_count, request->artist_filter, &request->count, &request->cancel);
     atomic_store_explicit(&request->done, true, memory_order_release);
     if (library_async_worker_done(&request->fin, &album_orphans)) free_album_load_request(request); /* the owner gave it up */
     ui_wake_notify(); /* populate the page on the next loop pass, not the next 25 ms poll */
@@ -459,7 +472,18 @@ static void album_load_poll(lv_timer_t * timer) {
             library_screen_in_navigation(group_songs_screen) &&
             group_songs_refresh_source == GROUP_SONGS_REFRESH_ALBUM &&
             !atomic_load_explicit(&request->cancel, memory_order_relaxed);
-        if (current) {
+        if (current && request->refresh) {
+            /* Read from the published catalog, so a cover reload or a scan that has not
+             * published yet does not make it stale; a publication brings its own refresh. */
+            if (request->catalog_generation == tagcache_generation()) {
+                group_song_entry_t * entries = request->entries;
+                int count = request->count;
+                request->entries = NULL;
+                request->count = 0;
+                group_songs_replace_refreshed_entries(entries, entries ? count : 0);
+                gui_navigation_invalidate_back_snapshot(group_songs_screen);
+            }
+        } else if (current) {
             bool valid = request->catalog_generation == tagcache_generation() && !library_rescan_active;
             if (valid && request->entries) {
                 set_group_songs_entries_owned(request->entries, request->count);
@@ -556,6 +580,56 @@ void album_prefetch_start(const group_row_t * group, const char * artist_filter)
     lv_timer_resume(album_load_timer);
 }
 
+/* Runs `request` as the album read, or keeps it as the one pending request (the latest wins).
+ * A read in flight for another album is given up rather than waited for. On false the request
+ * is freed. */
+static bool album_load_submit(album_load_request_t * request) {
+    if (album_load_job && album_load_job != request && !library_async_kind_has_orphan(&album_orphans)) {
+        /* Another album's read (a cancelled touch) is still going: give it up instead of waiting
+         * for it. If one was given up already and is still stalled, this tap waits as the latest
+         * pending request, so the reads in flight stay at one given up plus one active. */
+        album_load_abandon(album_load_job);
+        album_load_job = NULL;
+    }
+    if (!album_load_job && !library_async_kind_saturated(&album_orphans) && !start_album_load(request)) {
+        free(request);
+        return false;
+    }
+    if (album_load_job != request) {
+        if (album_load_job) atomic_store_explicit(&album_load_job->cancel, true, memory_order_relaxed);
+        free_album_load_request(album_load_pending);
+        album_load_pending = request;
+    }
+    return true;
+}
+
+/* Reads the album page already shown again (after a targeted metadata publish) and replaces its
+ * rows in place when it lands: no screen is pushed, and a result for a page that has since
+ * changed or left is dropped. False when the read could not be started (nothing is pending). */
+bool album_refresh_in_place_start(const char * name, const char * album_artist, const char * artist_filter) {
+    /* A read that opens an album page is not displaced by a refresh (its follow-up Play would be
+     * lost): the caller reads in place, as it always did, while one is in flight. */
+    if ((album_load_job && !album_load_job->prefetch && !album_load_job->refresh) ||
+        (album_load_pending && !album_load_pending->refresh))
+        return false;
+    album_load_request_t * request = calloc(1, sizeof(*request));
+    if (!request) return false;
+    snprintf(request->group.name, sizeof(request->group.name), "%s", name);
+    snprintf(request->group.album_artist, sizeof(request->group.album_artist), "%s", album_artist);
+    request->autoplay_mode = -1;
+    request->refresh = true;
+    snprintf(request->artist_filter, sizeof(request->artist_filter), "%s", artist_filter ? artist_filter : "");
+    request->catalog_generation = tagcache_generation();
+    request->generation = album_load_generation;
+    atomic_init(&request->cancel, false);
+    atomic_init(&request->done, false);
+    if (!album_load_timer) album_load_timer = lv_timer_create(album_load_poll, 25, NULL);
+    if (!album_load_timer) { free(request); return false; }
+    if (!album_load_submit(request)) return false;
+    lv_timer_resume(album_load_timer);
+    return true;
+}
+
 /* `built_now` (optional) is set when the page was built from tracks that were already in, so no
  * load is pending that a caller could attach a follow-up action (Play, Shuffle) to. */
 bool show_album_group_ex(const group_row_t * group, const char * artist_filter, bool * built_now) {
@@ -596,22 +670,7 @@ bool show_album_group_ex(const group_row_t * group, const char * artist_filter, 
     }
     if (!album_load_timer) album_load_timer = lv_timer_create(album_load_poll, 25, NULL);
     if (!album_load_timer) { free(request); return false; }
-    if (album_load_job && album_load_job != request && !library_async_kind_has_orphan(&album_orphans)) {
-        /* Another album's read (a cancelled touch) is still going: give it up instead of waiting
-         * for it. If one was given up already and is still stalled, this tap waits as the latest
-         * pending request, so the reads in flight stay at one given up plus one active. */
-        album_load_abandon(album_load_job);
-        album_load_job = NULL;
-    }
-    if (!album_load_job && !library_async_kind_saturated(&album_orphans) && !start_album_load(request)) {
-        free(request);
-        return false;
-    }
-    if (album_load_job != request) {
-        if (album_load_job) atomic_store_explicit(&album_load_job->cancel, true, memory_order_relaxed);
-        free_album_load_request(album_load_pending);
-        album_load_pending = request;
-    }
+    if (!album_load_submit(request)) return false;
     group_songs_loading = true;
     show_music_group_songs(group->name, group->album_artist, artist_filter, NULL, 0);
     group_songs_loading = false;
@@ -794,18 +853,7 @@ lv_obj_t * build_album_artist_screen(void) {
 }
 
 int count_genres_from_database(void) {
-    int total = 0;
-    const int batch = 256;
-    group_row_t * buf = malloc(sizeof(group_row_t) * (size_t) batch);
-    if (!buf) return 0;
-    while (true) {
-        int n = metadata_db_get_groups_page(METADATA_DB_GROUP_GENRE, total, batch, buf);
-        if (n <= 0) break;
-        total += n;
-        if (n < batch) break;
-    }
-    free(buf);
-    return total;
+    return metadata_db_get_genre_count();
 }
 
 int genres_fetch_page(void * ctx, int offset, int count, compact_list_page_row_t out_rows[]) {

@@ -205,6 +205,8 @@ int64_t metadata_db_get_song_count(void);
  * own paging math (total row count) without materializing the groups
  * themselves. */
 void metadata_db_get_group_counts(int * out_artist_count, int * out_album_artist_count, int * out_album_count);
+/* Number of distinct genres (case-insensitive, capped), served from the cached genre list; 0 when no database. */
+int metadata_db_get_genre_count(void);
 
 /* Offset-paginated page of songs ordered by first_seen DESC (path
  * case-insensitive tiebreak) -- backs the Recently Added screen's compact_list_set_paged_

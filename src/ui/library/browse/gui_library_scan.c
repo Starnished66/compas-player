@@ -577,19 +577,6 @@ static void refresh_all_metadata_backdrop_cb(lv_event_t * e) {
     refresh_all_metadata_cancel_cb(e);
 }
 
-static void artwork_failure_cache_clear_album(const char * album, const char * album_artist) {
-    song_row_t songs[64];
-    int offset = 0;
-    for (;;) {
-        int count = metadata_db_get_album_songs(album, album_artist, offset, songs,
-                                                 (int) (sizeof(songs) / sizeof(songs[0])));
-        if (count <= 0) break;
-        for (int i = 0; i < count; i++) artwork_failure_cache_note_success(songs[i].id);
-        offset += count;
-        if (count < (int) (sizeof(songs) / sizeof(songs[0]))) break;
-    }
-}
-
 static bool library_cover_reload_storage_available(void) {
     if (!metadata_db_storage_current()) return false;
 #ifndef HOST_BUILD
@@ -636,13 +623,15 @@ static bool start_library_cover_reload_job(bool all_albums, const song_row_t * t
         /* Any artist may alias this album or hold a "no art" entry that it
          * could now resolve; those records are cheap to re-derive. */
         library_thumbnails_invalidate_album(target_key);
-        artwork_failure_cache_clear_album(album, album_artist_key);
     }
     gui_player_invalidate_cover_negatives();
 
     library_thumbnail_cover_request_t request = {
         .scope = all_albums ? LIBRARY_THUMB_COVER_ALL : LIBRARY_THUMB_COVER_ALBUM,
-        .target_song_id = target_song_id
+        .target_song_id = target_song_id,
+        /* The cover worker forgets this album's cached failures before it reloads. */
+        .album = all_albums ? NULL : album,
+        .album_artist = all_albums ? NULL : album_artist_key
     };
     bool created = library_thumbnails_start_cover_reload(&request, library_thumbnail_show_busy);
     if (!created) {

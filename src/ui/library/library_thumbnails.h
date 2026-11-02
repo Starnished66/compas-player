@@ -38,6 +38,10 @@ typedef enum {
 typedef struct {
     library_thumbnail_cover_scope_t scope;
     int64_t target_song_id;
+    /* LIBRARY_THUMB_COVER_ALBUM: the album whose cached cover failures the worker forgets before
+     * it reloads (copied at start; NULL leaves the failure cache alone). */
+    const char *album;
+    const char *album_artist;
 } library_thumbnail_cover_request_t;
 
 typedef struct {

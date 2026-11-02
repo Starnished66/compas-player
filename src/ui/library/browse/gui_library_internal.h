@@ -78,6 +78,10 @@ typedef struct {
      * a scroll, a lost press or a TTL without a tap drops it. */
     bool prefetch;
     uint32_t prefetch_tick;
+    /* An in-place refresh of the album page already shown (after a targeted metadata publish):
+     * the song count is read on the worker, the result replaces the page's rows in place (an
+     * empty album clears them), and a stale or failed result is dropped without a toast. */
+    bool refresh;
     atomic_int fin; /* worker/owner handoff, see gui_library_async.h */
 } album_load_request_t;
 
@@ -290,6 +294,8 @@ void rearm_genre_browse_lists(void);
 extern songs_bar_t recent_bar;
 int recently_added_fetch_page(void * ctx, int offset, int count, compact_list_page_row_t out_rows[]);
 bool show_album_group_ex(const group_row_t * group, const char * artist_filter, bool * built_now);
+int album_group_song_count(const char * name, const char * album_artist);
+bool album_refresh_in_place_start(const char * name, const char * album_artist, const char * artist_filter);
 bool show_album_group_filtered(const group_row_t * group, const char * artist_filter);
 bool show_genre_songs_internal(bool push_screen, const char * genre_name);
 void songs_play_bar_refresh(lv_obj_t * list, songs_bar_t * bar, int source);
@@ -329,6 +335,7 @@ void playlist_start_selected(lv_event_t * e, bool shuffle);
 extern int playlist_start_source;
 void populate_group_songs_rows(void);
 void refresh_group_songs_from_database(void);
+void group_songs_replace_refreshed_entries(group_song_entry_t * entries, int count);
 void refresh_group_songs_now_playing_indicator(void);
 void refresh_group_thumbnail_binding(void);
 void set_group_songs_entries_owned(group_song_entry_t * entries, int count);

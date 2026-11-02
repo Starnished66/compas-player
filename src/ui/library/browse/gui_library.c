@@ -1211,6 +1211,7 @@ void refresh_targeted_nested_views(void) {
 
 /* Diagnostic logging helper for teardown and initialization steps. */
 static void library_teardown_diag(const char * step);
+static void library_teardown_diag_end(void);
 
 void gui_library_init(void) {
     pthread_mutex_lock(&now_playing_lookup_mutex);
@@ -1347,6 +1348,7 @@ void gui_library_init(void) {
     library_teardown_diag("build_library_update_prompt_popup before");
     build_library_update_prompt_popup();
     library_teardown_diag("gui_library_init done");
+    library_teardown_diag_end();
     refresh_now_playing_indicators();
 }
 
@@ -1366,20 +1368,32 @@ void gui_library_set_artist_images_enabled(bool enabled) {
  * build_confirm_popup()'s own comment), not as children of any of these
  * screens, so they need their own explicit deletion. */
 /* Diagnostic logging helper writing teardown and init steps to reload_diag.log
- * with fsync per line to pinpoint failures during theme reload. */
+ * with fsync per line to pinpoint failures during theme reload. The file is
+ * opened on the first line of a pass and closed by library_teardown_diag_end()
+ * after the pass's last line, so a pass does not reopen it per step. */
+static int library_diag_fd = -1;
+
 static void library_teardown_diag(const char * step) {
     if (!db_log_enabled()) return;
-    (void) mkdir("/data/mnt/sd_0/.logs", 0755);
-    int fd = open("/data/mnt/sd_0/.logs/reload_diag.log", O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
-    if (fd < 0) return;
+    if (library_diag_fd < 0) {
+        (void) mkdir("/data/mnt/sd_0/.logs", 0755);
+        library_diag_fd = open("/data/mnt/sd_0/.logs/reload_diag.log",
+                               O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+        if (library_diag_fd < 0) return;
+    }
     char line[96];
     int len = snprintf(line, sizeof(line), "[pid=%ld]   gui_library_teardown: %s\n", (long) getpid(), step);
     if (len > 0) {
         if (len >= (int) sizeof(line)) len = (int) sizeof(line) - 1;
-        write(fd, line, (size_t) len);
-        fsync(fd);
+        write(library_diag_fd, line, (size_t) len);
+        fsync(library_diag_fd);
     }
-    close(fd);
+}
+
+static void library_teardown_diag_end(void) {
+    if (library_diag_fd < 0) return;
+    close(library_diag_fd);
+    library_diag_fd = -1;
 }
 
 void gui_library_teardown(void) {
@@ -1502,6 +1516,7 @@ void gui_library_teardown(void) {
     library_teardown_diag("power_action_overlay before");
     gui_power_hub_teardown();
     library_teardown_diag("done");
+    library_teardown_diag_end();
 }
 
 void gui_library_resume_fast_timers(void) {
