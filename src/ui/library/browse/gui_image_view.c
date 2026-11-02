@@ -197,7 +197,7 @@ static void request_image(int index) {
     lv_label_set_text(title_label, title);
     screen_title_fit(title_label);
     release_shown();
-    lv_label_set_text(status_label, TR("Loading"));
+    lv_label_set_text(status_label, TR("Loading..."));
     lv_obj_remove_flag(status_label, LV_OBJ_FLAG_HIDDEN);
     if (job) atomic_store(&job->cancel, true);
     else start_job();

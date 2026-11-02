@@ -1,7 +1,8 @@
 /*
  * UI translation layer. English text is the lookup key: a string with no
  * translation, or the "en" language, returns the argument itself. Catalogs are
- * generated from the po/ catalogs into src/ui/text/i18n/i18n_catalog.c (see po/README.md); every
+ * generated from the po/ catalogs: the language list is in i18n_catalog.c and the tables are in
+ * i18n_catalog_<code>.c (see po/README.md); every
  * table lives in .rodata and lookups are binary searches, so there is no heap
  * use and no per-call-site state.
  */
@@ -34,7 +35,7 @@ typedef struct {
     size_t count;
 } i18n_lang_t;
 
-/* Generated in i18n_catalog.c (non-English languages only). */
+/* Language list generated in i18n_catalog.c (non-English languages only). */
 extern const i18n_lang_t i18n_catalog_langs[];
 extern const size_t i18n_catalog_lang_count;
 
