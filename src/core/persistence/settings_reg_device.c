@@ -1,5 +1,6 @@
 #include "settings_registry.h"
 #include "settings.h"
+#include "../../ui/text/i18n/i18n.h"
 
 /* Display, Power, Connections and Library entries. Wi-Fi, Remote Control,
  * the hostname and the USB mode are listed read-only: changing them can cut
@@ -17,7 +18,7 @@ static const int animation_presets[] = { 0, 25, 50, 75, 100 };
 
 const setting_desc_t settings_reg_device[] = {
     /* Brightness has a floor so a remote change can never black out the screen. */
-    { .key = "brightness_percent", .group = "display", .label = "Brightness", .type = SET_INT,
+    { .key = "brightness_percent", .group = "display", .label = N_("Brightness"), .type = SET_INT,
       FIELD(brightness_percent), .min = 5, .max = 100, .unit = "%", .apply = SET_APPLY_LIVE },
     BOOL_ENTRY("screen_timeout_enabled", "display", "Screen Timeout", screen_timeout_enabled, SET_APPLY_LIVE),
     PRESET_ENTRY("screen_timeout_seconds", "display", "Screen Timeout", screen_timeout_seconds,
@@ -48,15 +49,15 @@ const setting_desc_t settings_reg_device[] = {
                SET_APPLY_LIVE, .flags = SET_F_READONLY, .reason = "device_only"),
     BOOL_ENTRY("bt_dac_mode_enabled", "connections", "Bluetooth DAC mode", bt_dac_mode_enabled,
                SET_APPLY_LIVE, .flags = SET_F_READONLY, .reason = "device_only"),
-    { .key = "bt_codec", .group = "connections", .label = "Bluetooth Codec", .type = SET_STRING,
+    { .key = "bt_codec", .group = "connections", .label = N_("Bluetooth Codec"), .type = SET_STRING,
       FIELD(bt_codec), .flags = SET_F_READONLY, .reason = "device_only" },
-    { .key = "wifi_enabled", .group = "connections", .label = "Wi-Fi", .type = SET_BOOL, .size = 1,
+    { .key = "wifi_enabled", .group = "connections", .label = N_("Wi-Fi"), .type = SET_BOOL, .size = 1,
       .flags = SET_F_READONLY | SET_F_RUNTIME, .reason = "would_lock_out_remote" },
     BOOL_ENTRY("remote_control_enabled", "connections", "Remote Control", remote_control_enabled, SET_APPLY_LIVE,
                .flags = SET_F_READONLY, .reason = "would_lock_out_remote"),
-    { .key = "hostname", .group = "connections", .label = "Hostname", .type = SET_STRING, FIELD(hostname),
+    { .key = "hostname", .group = "connections", .label = N_("Hostname"), .type = SET_STRING, FIELD(hostname),
       .flags = SET_F_READONLY, .reason = "would_lock_out_remote" },
-    { .key = "usb_mode", .group = "connections", .label = "USB Mode", .type = SET_INT, FIELD(usb_mode),
+    { .key = "usb_mode", .group = "connections", .label = N_("USB Mode"), .type = SET_INT, FIELD(usb_mode),
       .min = 0, .max = 2, .flags = SET_F_READONLY, .reason = "would_lock_out_remote" },
 };
 const size_t settings_reg_device_count = sizeof(settings_reg_device) / sizeof(settings_reg_device[0]);
