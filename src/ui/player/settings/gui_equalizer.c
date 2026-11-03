@@ -75,6 +75,7 @@ static lv_obj_t * eq_title_label;
 static bool eq_graph_visible;
 static lv_obj_t * eq_graph_panel, *eq_graph_chart, *eq_graph_caption;
 static lv_obj_t * eq_graph_reference;
+static lv_obj_t * eq_graph_preamp_switch;
 static lv_chart_series_t * eq_graph_series;
 static lv_obj_t * eq_graph_min_label, *eq_graph_low_label, *eq_graph_zero_label;
 static lv_obj_t * eq_graph_high_label, *eq_graph_max_label;
@@ -372,6 +373,15 @@ static void eq_band_enabled_switch_event_cb(lv_event_t * e) {
     peq_save();
 }
 
+/* The graph shows the combined response with the preamp, or the filter
+ * correction only (Squiglink's view); a display choice, saved in settings. */
+static void eq_graph_preamp_switch_event_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+    current_settings.peq_graph_include_preamp = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
+    settings_save_async(&current_settings);
+    eq_refresh_graph();
+}
+
 static void eq_freq_slider_event_cb(lv_event_t * e) {
     lv_event_code_t code = lv_event_get_code(e);
     const peq_band_t * band = peq_get_band(current_eq_band);
@@ -555,7 +565,9 @@ static void eq_refresh_graph(void) {
         for (size_t i = 0; i < count; ++i)
             if (!unique || f[i] != f[unique - 1]) f[unique++] = f[i];
         count = unique;
-        peq_get_filter_response_db(f, db, count, 48000);
+        const bool with_preamp = current_settings.peq_graph_include_preamp;
+        if (with_preamp) peq_get_response_db(f, db, count, 48000);
+        else peq_get_filter_response_db(f, db, count, 48000);
         for (size_t i = 0; i < count; ++i) if (isfinite(db[i]) && fabs(db[i]) > peak) peak = fabs(db[i]);
         /* Match the centi-dB samples, so coefficient rounding just above an
          * exact 6 dB step does not unnecessarily expand the vertical scale. */
@@ -578,11 +590,16 @@ static void eq_refresh_graph(void) {
             lv_chart_set_series_value_by_id2(eq_graph_chart, eq_graph_series, (uint32_t)i, x, value);
         }
         lv_chart_refresh(eq_graph_chart);
-        if (eq_graph_caption) lv_label_set_text(eq_graph_caption, peq_get_bypass() ? TR("EQ correction (dB) · EQ off") : TR("EQ correction (dB)"));
+        const bool off = peq_get_bypass();
+        if (eq_graph_caption) {
+            if (with_preamp) lv_label_set_text(eq_graph_caption, off ? TR("Combined response (dB) · EQ off") : TR("Combined response (dB)"));
+            else lv_label_set_text(eq_graph_caption, off ? TR("EQ correction (dB) · EQ off") : TR("EQ correction (dB)"));
+        }
         if (eq_graph_reference) {
             double preamp = peq_get_preamp_db();
             if (!isfinite(preamp)) preamp = 0.0;
-            lv_label_set_text_fmt(eq_graph_reference, TR("48 kHz · Preamp excluded (%+.1f dB)"), preamp);
+            if (with_preamp) lv_label_set_text(eq_graph_reference, TR("48 kHz reference"));
+            else lv_label_set_text_fmt(eq_graph_reference, TR("48 kHz · Preamp excluded (%+.1f dB)"), preamp);
         }
     }
 }
@@ -1296,6 +1313,20 @@ static lv_obj_t * build_eq_screen(void) {
     lv_label_set_long_mode(eq_graph_reference, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_font(eq_graph_reference, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
     lv_obj_add_style(eq_graph_reference, &style_theme_text_muted, 0);
+    lv_obj_t * preamp_row = lv_obj_create(eq_graph_panel);
+    lv_obj_remove_style_all(preamp_row);
+    lv_obj_set_size(preamp_row, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(preamp_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(preamp_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(preamp_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t * preamp_label = lv_label_create(preamp_row);
+    lv_label_set_text(preamp_label, TR("Include preamp"));
+    lv_obj_set_style_text_font(preamp_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+    lv_obj_add_style(preamp_label, &style_theme_text_primary, 0);
+    eq_graph_preamp_switch = lv_switch_create(preamp_row);
+    lv_obj_add_style(eq_graph_preamp_switch, gui_theme_accent_style(), LV_PART_INDICATOR | LV_STATE_CHECKED);
+    if (current_settings.peq_graph_include_preamp) lv_obj_add_state(eq_graph_preamp_switch, LV_STATE_CHECKED);
+    lv_obj_add_event_cb(eq_graph_preamp_switch, eq_graph_preamp_switch_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_t * graph_plot_row = lv_obj_create(eq_graph_panel);
     lv_obj_set_width(graph_plot_row, lv_pct(100));
     lv_obj_set_flex_grow(graph_plot_row, 1);
@@ -1487,7 +1518,7 @@ void gui_equalizer_teardown_screens(void) {
     eq_freq_slider = eq_gain_slider = eq_q_slider = NULL;
     eq_type_dropdown = eq_freq_value_label = eq_gain_value_label = eq_q_value_label = NULL;
     eq_band_number_label = eq_profile_button_label = eq_main_content = eq_footer = eq_bypass_state_label = NULL;
-    eq_graph_panel = eq_graph_chart = eq_graph_caption = eq_graph_reference = NULL;
+    eq_graph_panel = eq_graph_chart = eq_graph_caption = eq_graph_reference = eq_graph_preamp_switch = NULL;
     eq_graph_series = NULL;
     eq_graph_min_label = eq_graph_low_label = eq_graph_zero_label = NULL;
     eq_graph_high_label = eq_graph_max_label = NULL;
