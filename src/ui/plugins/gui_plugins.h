@@ -14,4 +14,6 @@ bool gui_plugin_progress_is_visible(void);
 void gui_plugin_close_progress(void);
 bool gui_plugin_show_confirmation(const char * title, const char * confirm_label);
 void gui_plugin_close_confirmation(void);
+bool gui_plugin_show_menu(const char * title, const char * const * items, int count, int selected_index);
+void gui_plugin_close_menu(void);
 void configure_scrolling_row_label(lv_obj_t * label, int32_t width);

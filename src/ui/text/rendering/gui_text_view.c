@@ -20,6 +20,7 @@ static char ** s_images;   /* owned copies of opts.images */
 static int s_image_count;
 static lv_obj_t * s_footer_label;
 static lv_obj_t * s_title_label;
+static lv_obj_t * s_back_icon;
 
 static lv_timer_t * s_timer;
 
@@ -46,6 +47,7 @@ static const lv_font_t * s_font;
 
 static gui_text_view_turn_fn s_on_turn;
 static gui_text_view_close_fn s_on_close;
+static gui_text_view_end_fn s_on_end;
 static void * s_user;
 
 static bool s_open;
@@ -251,6 +253,7 @@ static void view_close_internal(bool from_unload) {
 
     s_on_turn = NULL;
     s_on_close = NULL;
+    s_on_end = NULL;
     s_user = NULL;
     s_open = false;
     s_initial_turn_pending = false;
@@ -463,6 +466,14 @@ static int find_page_for_offset(size_t offset) {
     return best + 1;
 }
 
+/* Hands a page turn past either end to the plugin. The callback may replace
+ * the view, so callers return right after this without touching its state. */
+static bool turn_past_end(int direction) {
+    if (!s_on_end) return false;
+    s_on_end(direction, s_user);
+    return true;
+}
+
 static bool handle_next_page(void) {
     if (!s_open) return false;
     if (seek_still_pending()) return false;
@@ -474,7 +485,7 @@ static bool handle_next_page(void) {
     }
 
     if (s_scan_done) {
-        return false;
+        return turn_past_end(1);
     }
 
     if (s_measured < GUI_TEXT_VIEW_MAX_PAGES) {
@@ -510,6 +521,10 @@ static bool handle_prev_page(void) {
         return true;
     }
 
+    /* A pending seek means page 1 is only provisional, so with on_end it
+     * is not a real "back from the start". */
+    if (s_on_end) return seek_still_pending() ? false : turn_past_end(-1);
+
     /* Page 1 closes even mid-seek. The pending offset is still set, so
      * view_close_internal reports the requested position. */
     view_close_internal(false);
@@ -531,9 +546,11 @@ static void body_event_cb(lv_event_t * e) {
 
         lv_dir_t dir = lv_indev_get_gesture_dir(indev);
         if (dir == LV_DIR_LEFT) {
+            unsigned gen = s_generation;
             if (handle_next_page()) {
-                s_gesture_consumed = true;
                 lv_indev_wait_release(indev);
+                /* on_end may have replaced the view and reset this. */
+                if (gen == s_generation) s_gesture_consumed = true;
             }
         } else if (dir == LV_DIR_RIGHT) {
             s_gesture_consumed = true;
@@ -660,6 +677,39 @@ static void text_view_apply_chrome(const lv_font_t * subtext_font) {
     }
 }
 
+/* Plugin colors sit in the objects' local styles over the theme ones, so
+ * removing them restores the theme for the next show. The footer keeps its
+ * muted look as the same color at reduced opacity. */
+static void text_view_apply_colors(const gui_text_view_opts * opts) {
+    lv_obj_t * texts[] = { s_content_label, s_title_label, s_footer_label };
+    bool has_text = opts && opts->has_text_color;
+    for (int i = 0; i < 3; i++) {
+        if (!texts[i]) continue;
+        if (has_text) lv_obj_set_style_text_color(texts[i], lv_color_hex(opts->text_color), 0);
+        else lv_obj_remove_local_style_prop(texts[i], LV_STYLE_TEXT_COLOR, 0);
+    }
+    if (s_footer_label) {
+        if (has_text) lv_obj_set_style_text_opa(s_footer_label, LV_OPA_60, 0);
+        else lv_obj_remove_local_style_prop(s_footer_label, LV_STYLE_TEXT_OPA, 0);
+    }
+    if (s_back_icon) {
+        if (has_text) {
+            lv_obj_set_style_image_recolor(s_back_icon, lv_color_hex(opts->text_color), 0);
+            lv_obj_set_style_image_recolor_opa(s_back_icon, LV_OPA_COVER, 0);
+        } else {
+            lv_obj_remove_local_style_prop(s_back_icon, LV_STYLE_IMAGE_RECOLOR, 0);
+            lv_obj_remove_local_style_prop(s_back_icon, LV_STYLE_IMAGE_RECOLOR_OPA, 0);
+        }
+    }
+    if (opts && opts->has_background) {
+        lv_obj_set_style_bg_color(s_screen, lv_color_hex(opts->background), 0);
+        lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
+    } else {
+        lv_obj_remove_local_style_prop(s_screen, LV_STYLE_BG_COLOR, 0);
+        lv_obj_remove_local_style_prop(s_screen, LV_STYLE_BG_OPA, 0);
+    }
+}
+
 static lv_obj_t * build_text_view_screen(void) {
     lv_obj_t * scr = lv_obj_create(NULL);
     if (!scr) return NULL;
@@ -669,7 +719,9 @@ static lv_obj_t * build_text_view_screen(void) {
     /* Why finalize_screen_navigation is not used: finalize_screen_navigation()
      * installs the app-wide swipe-right = nav_pop handler, which would steal
      * page turns and pop this screen without invoking on_close. */
-    s_title_label = build_screen_header(scr, "", header_back_cb, NULL, NULL);
+    lv_obj_t * back = build_header_back_button(scr, header_back_cb);
+    s_back_icon = back ? lv_obj_get_child(back, 0) : NULL;
+    s_title_label = build_screen_header(scr, "", NULL, NULL, NULL);
 
     lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
@@ -777,6 +829,7 @@ void gui_text_view_teardown(void) {
 
     s_on_turn = NULL;
     s_on_close = NULL;
+    s_on_end = NULL;
     s_user = NULL;
     s_open = false;
     s_initial_turn_pending = false;
@@ -790,6 +843,7 @@ void gui_text_view_teardown(void) {
         s_image = NULL;
         s_footer_label = NULL;
         s_title_label = NULL;
+        s_back_icon = NULL;
     }
 
     s_closing = false;
@@ -820,31 +874,44 @@ bool gui_text_view_is_open(void) {
     return s_open;
 }
 
-bool gui_text_view_show(const char * title, const void * text, size_t text_len,
-                        const gui_text_view_opts * opts,
-                        gui_text_view_turn_fn on_turn, gui_text_view_close_fn on_close,
-                        void * user) {
-    if (gui_text_view_is_open() || !s_screen || gui_navigation_transition_in_progress()) {
+/* Owned copies of opts->images, or NULL with *count 0 when there are none.
+ * Sets *failed on allocation failure. */
+static char ** images_copy(const gui_text_view_opts * opts, int * count, bool * failed) {
+    int n = opts && opts->images ? opts->image_count : 0;
+    if (n > GUI_TEXT_VIEW_MAX_IMAGES) n = GUI_TEXT_VIEW_MAX_IMAGES;
+    *count = 0;
+    *failed = false;
+    if (n <= 0) return NULL;
+    char ** copies = calloc((size_t) n, sizeof(*copies));
+    if (!copies) {
+        *failed = true;
+        return NULL;
+    }
+    for (int i = 0; i < n; i++) {
+        copies[i] = strdup(opts->images[i] ? opts->images[i] : "");
+        if (!copies[i]) {
+            for (int j = 0; j < i; j++) free(copies[j]);
+            free(copies);
+            *failed = true;
+            return NULL;
+        }
+    }
+    *count = n;
+    return copies;
+}
+
+/* Shared by show and replace. Everything that can fail is allocated before
+ * any view state changes, so a failed replace leaves the open view intact. */
+static bool show_content(const char * title, const void * text, size_t text_len,
+                         const gui_text_view_opts * opts,
+                         gui_text_view_turn_fn on_turn, gui_text_view_close_fn on_close,
+                         void * user, bool replace) {
+    if (!s_screen) return false;
+    /* A view leaving navigation (a committed swipe home) still counts as open
+     * until its screen unloads; replacing it then would save the wrong spot. */
+    if (replace ? (!gui_text_view_is_open() || !gui_navigation_contains(s_screen))
+                : (gui_text_view_is_open() || gui_navigation_transition_in_progress())) {
         return false;
-    }
-
-    if (s_text) {
-        free(s_text);
-        s_text = NULL;
-    }
-    if (s_page_off) {
-        free(s_page_off);
-        s_page_off = NULL;
-    }
-    if (s_timer) {
-        lv_timer_del(s_timer);
-        s_timer = NULL;
-    }
-
-    char title_buf[128];
-    utf8_truncate_safe(title_buf, title ? title : "", sizeof(title_buf));
-    if (s_title_label) {
-        lv_label_set_text(s_title_label, title_buf);
     }
 
     size_t text_len_copied = (text && text_len > 0) ? text_len : 0;
@@ -852,48 +919,48 @@ bool gui_text_view_show(const char * title, const void * text, size_t text_len,
         text_len_copied = GUI_TEXT_VIEW_MAX_BYTES;
     }
 
-    s_text = malloc(text_len_copied + 1);
-    if (!s_text) {
+    char * new_text = malloc(text_len_copied + 1);
+    if (!new_text) {
         return false;
     }
     /* Cut a longer text on a character boundary, not mid-sequence. */
-    utf8_truncate_safe_bounded(s_text, text_len_copied + 1, text, text ? text_len : 0);
-    utf8_sanitize(s_text);
-    s_text_len = (uint32_t) strlen(s_text); /* sanitize stops at an embedded NUL */
+    utf8_truncate_safe_bounded(new_text, text_len_copied + 1, text, text ? text_len : 0);
+    utf8_sanitize(new_text);
 
-    images_free();
-    int image_count = opts && opts->images ? opts->image_count : 0;
-    if (image_count > GUI_TEXT_VIEW_MAX_IMAGES) image_count = GUI_TEXT_VIEW_MAX_IMAGES;
-    if (image_count > 0) {
-        s_images = calloc((size_t) image_count, sizeof(*s_images));
-        if (!s_images) {
-            free(s_text);
-            s_text = NULL;
-            return false;
-        }
-        for (int i = 0; i < image_count; i++) {
-            s_images[i] = strdup(opts->images[i] ? opts->images[i] : "");
-            if (!s_images[i]) {
-                s_image_count = i;
-                images_free();
-                free(s_text);
-                s_text = NULL;
-                return false;
-            }
-        }
-        s_image_count = image_count;
-    }
-
-    s_page_off = malloc((GUI_TEXT_VIEW_MAX_PAGES + 1) * sizeof(uint32_t));
-    if (!s_page_off) {
-        free(s_text);
-        s_text = NULL;
-        images_free();
+    int new_image_count;
+    bool images_failed;
+    char ** new_images = images_copy(opts, &new_image_count, &images_failed);
+    uint32_t * new_page_off = images_failed ? NULL : malloc((GUI_TEXT_VIEW_MAX_PAGES + 1) * sizeof(uint32_t));
+    if (!new_page_off) {
+        free(new_text);
+        for (int i = 0; i < new_image_count; i++) free(new_images[i]);
+        free(new_images);
         return false;
     }
 
-    s_font = gui_theme_font(GUI_FONT_ROLE_BODY);
+    /* Commit: from here the old content is gone. */
+    if (s_timer) {
+        lv_timer_del(s_timer);
+        s_timer = NULL;
+    }
+    free(s_text);
+    free(s_page_off);
+    images_free();
+    s_text = new_text;
+    s_text_len = (uint32_t) strlen(s_text); /* sanitize stops at an embedded NUL */
+    s_page_off = new_page_off;
+    s_images = new_images;
+    s_image_count = new_image_count;
+
+    char title_buf[128];
+    utf8_truncate_safe(title_buf, title ? title : "", sizeof(title_buf));
+    if (s_title_label) {
+        lv_label_set_text(s_title_label, title_buf);
+    }
+
+    s_font = pill_row_resolve_text_size(opts ? opts->text_size : NULL);
     lv_obj_set_style_text_font(s_content_label, s_font, 0);
+    text_view_apply_colors(opts);
     text_view_apply_chrome(gui_theme_font(GUI_FONT_ROLE_SUBTEXT));
 
     int32_t line_height = lv_font_get_line_height(s_font);
@@ -902,6 +969,7 @@ bool gui_text_view_show(const char * title, const void * text, size_t text_len,
 
     s_on_turn = on_turn;
     s_on_close = on_close;
+    s_on_end = opts ? opts->on_end : NULL;
     s_user = user;
     s_gesture_consumed = false;
 
@@ -990,11 +1058,29 @@ bool gui_text_view_show(const char * title, const void * text, size_t text_len,
     s_open = true;
     s_initial_turn_pending = true;
     s_generation++;
-    nav_push(s_screen);
+    if (!replace) nav_push(s_screen);
 
     /* Timer lifetime: runs in 16 ms intervals until the scan completes. It also
      * delivers the first on_turn, so no Lua runs inside the caller's call. */
     s_timer = lv_timer_create(scan_timer_cb, 16, NULL);
 
     return true;
+}
+
+bool gui_text_view_show(const char * title, const void * text, size_t text_len,
+                        const gui_text_view_opts * opts,
+                        gui_text_view_turn_fn on_turn, gui_text_view_close_fn on_close,
+                        void * user) {
+    return show_content(title, text, text_len, opts, on_turn, on_close, user, false);
+}
+
+bool gui_text_view_replace(const char * title, const void * text, size_t text_len,
+                           const gui_text_view_opts * opts,
+                           gui_text_view_turn_fn on_turn, gui_text_view_close_fn on_close,
+                           void * user) {
+    return show_content(title, text, text_len, opts, on_turn, on_close, user, true);
+}
+
+void * gui_text_view_user(void) {
+    return gui_text_view_is_open() ? s_user : NULL;
 }

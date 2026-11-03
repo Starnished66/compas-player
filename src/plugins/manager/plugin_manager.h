@@ -408,6 +408,9 @@ uint32_t plugin_manager_get_list_registry_generation(void);
  * with a 1-based Lua index. No-op if no plugin.show_list() call is still
  * "current" (i.e. none has ever been made yet). */
 void plugin_manager_list_item_selected(int slot, int index);
+/* Long press on a row: calls the list's on_hold(index) and returns true, or
+ * returns false (nothing called) when the list has no on_hold. */
+bool plugin_manager_list_item_held(int slot, int index);
 
 /* Same shape as the plugin_manager_get_tile_* / plugin_manager_tile_clicked
  * family above, but for the separate plugin.register_stream_media_tile()
@@ -538,6 +541,9 @@ void plugin_manager_text_input_cancelled(void);
 /* Dispatch or discard the one pending plugin.show_confirmation() callback. */
 void plugin_manager_confirmation_confirmed(void);
 void plugin_manager_confirmation_cancelled(void);
+/* Dispatch (index is 0-based) or discard the one pending plugin.show_menu() callback. */
+void plugin_manager_menu_selected(int index);
+void plugin_manager_menu_cancelled(void);
 /* plugin.launch_app() needs a user action: true once for the plugin whose
  * callback the user triggered by tapping a row, tile or confirmation, while
  * that callback runs. Any other plugin, a second call, or any other time

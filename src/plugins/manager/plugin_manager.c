@@ -499,6 +499,7 @@ static int plugin_quick_toggle_count = 0;
 typedef struct {
     lua_State * L;
     int select_ref;
+    int hold_ref; /* options.on_hold, or LUA_NOREF */
     lua_Integer handle; /* show_list()'s return value for the list now in this slot */
 } plugin_list_callback_t;
 
@@ -1297,7 +1298,14 @@ static int l_plugin_show_list(lua_State * L) {
     int selected_index = -1;
     int columns = 0;
     bool reset_scroll = false;
+    bool has_hold = false;
     if (lua_gettop(L) >= 4 && lua_istable(L, 4)) {
+        lua_getfield(L, 4, "on_hold");
+        if (!lua_isnil(L, -1)) {
+            if (!lua_isfunction(L, -1)) return luaL_error(L, "plugin.show_list: on_hold must be a function");
+            has_hold = true;
+        }
+        lua_pop(L, 1);
         lua_getfield(L, 4, "layout");
         if (!lua_isnil(L, -1)) {
             const char * layout = luaL_checkstring(L, -1);
@@ -1338,17 +1346,25 @@ static int l_plugin_show_list(lua_State * L) {
 
     lua_pushvalue(L, 3);
     int new_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    int new_hold_ref = LUA_NOREF;
+    if (has_hold) {
+        lua_getfield(L, 4, "on_hold");
+        new_hold_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    }
     int slot = gui_plugin_show_list(title, labels, icon_paths, text_sizes, wrap_labels, height, width, selected_index, n, columns, replace_slot);
     if (slot < 0 || slot >= PLUGIN_LIST_SCREEN_POOL_SIZE) {
         luaL_unref(L, LUA_REGISTRYINDEX, new_ref);
+        luaL_unref(L, LUA_REGISTRYINDEX, new_hold_ref);
         lua_pushnil(L);
         return 1;
     }
     if (replace_slot >= 0 && reset_scroll) gui_plugin_list_reset_scroll(slot);
     plugin_list_callback_t * cb = &plugin_list_callbacks[slot];
     if (cb->L && cb->select_ref != LUA_NOREF) luaL_unref(cb->L, LUA_REGISTRYINDEX, cb->select_ref);
+    if (cb->L && cb->hold_ref != LUA_NOREF) luaL_unref(cb->L, LUA_REGISTRYINDEX, cb->hold_ref);
     cb->L = plugin_lua_main_state(L);
     cb->select_ref = new_ref;
+    cb->hold_ref = new_hold_ref;
     cb->handle = plugin_list_next_handle++;
     lua_pushinteger(L, cb->handle);
     return 1;
@@ -4089,6 +4105,10 @@ static int pending_text_input_ref = LUA_NOREF;
 static lua_State * pending_confirmation_L = NULL;
 static int pending_confirmation_ref = LUA_NOREF;
 
+/* Same ownership rule for the one pending plugin.show_menu() callback. */
+static lua_State * pending_menu_L = NULL;
+static int pending_menu_ref = LUA_NOREF;
+
 static int l_plugin_show_text_input(lua_State * L) {
     const char * title = luaL_checkstring(L, 1);
     const char * initial_text = (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) ? luaL_checkstring(L, 2) : NULL;
@@ -4129,6 +4149,79 @@ static int l_plugin_show_confirmation(lua_State * L) {
     }
     pending_confirmation_ref = ref;
     pending_confirmation_L = owner;
+    lua_pushboolean(L, true);
+    return 1;
+}
+
+#define PLUGIN_MENU_MAX_ITEMS 64
+#define PLUGIN_MENU_LABEL_BYTES 160
+
+/* plugin.show_menu(title, items, on_select [, { selected = n }]) -- a native
+ * popup of 1..64 string choices plus Cancel; it scrolls when they do not fit. on_select(index) runs after the
+ * popup closes; every other dismissal releases the callback without a call. */
+static int l_plugin_show_menu(lua_State * L) {
+    const char * title = luaL_checkstring(L, 1);
+    luaL_checktype(L, 2, LUA_TTABLE);
+    luaL_checktype(L, 3, LUA_TFUNCTION);
+    lua_Unsigned raw_n = lua_rawlen(L, 2);
+    if (raw_n < 1 || raw_n > PLUGIN_MENU_MAX_ITEMS)
+        return luaL_error(L, "plugin.show_menu: items must hold 1 to %d strings", PLUGIN_MENU_MAX_ITEMS);
+    int n = (int) raw_n;
+    for (int i = 0; i < n; i++) {
+        lua_rawgeti(L, 2, i + 1);
+        if (lua_type(L, -1) != LUA_TSTRING)
+            return luaL_error(L, "plugin.show_menu: item %d must be a string", i + 1);
+        lua_pop(L, 1);
+    }
+    int selected_index = -1;
+    if (!lua_isnoneornil(L, 4)) {
+        luaL_checktype(L, 4, LUA_TTABLE);
+        lua_getfield(L, 4, "selected");
+        if (!lua_isnil(L, -1)) {
+            lua_Integer selected = luaL_checkinteger(L, -1);
+            if (selected < 1 || selected > n)
+                return luaL_error(L, "plugin.show_menu: selected index %lld is outside 1..%d",
+                                  (long long) selected, n);
+            selected_index = (int) selected - 1;
+        }
+        lua_pop(L, 1);
+    }
+    if (pending_menu_L && pending_menu_ref != LUA_NOREF) {
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "busy");
+        return 2;
+    }
+    /* Labels are copied (cut to 159 bytes) after every check that can raise
+     * a Lua error, so the buffer cannot leak. */
+    char (*labels)[PLUGIN_MENU_LABEL_BYTES] = malloc((size_t) n * sizeof(*labels));
+    const char ** label_ptrs = malloc((size_t) n * sizeof(*label_ptrs));
+    if (!labels || !label_ptrs) {
+        free(labels);
+        free(label_ptrs);
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "unavailable");
+        return 2;
+    }
+    for (int i = 0; i < n; i++) {
+        lua_rawgeti(L, 2, i + 1);
+        utf8_truncate_safe(labels[i], lua_tostring(L, -1), sizeof(labels[i]));
+        utf8_sanitize(labels[i]);
+        label_ptrs[i] = labels[i];
+        lua_pop(L, 1);
+    }
+    bool shown = gui_plugin_show_menu(title, label_ptrs, n, selected_index);
+    free(labels);
+    free(label_ptrs);
+    if (!shown) {
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "unavailable");
+        return 2;
+    }
+    /* The popup only calls back through pending_menu_ref, so taking the ref
+     * after showing it is safe even if luaL_ref raises. */
+    lua_pushvalue(L, 3);
+    pending_menu_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    pending_menu_L = plugin_lua_main_state(L);
     lua_pushboolean(L, true);
     return 1;
 }
@@ -5222,6 +5315,7 @@ static const luaL_Reg plugin_funcs[] = {
     { "media_capabilities",        l_plugin_media_capabilities },
     { "show_text_input",           l_plugin_show_text_input },
     { "show_confirmation",         l_plugin_show_confirmation },
+    { "show_menu",                 l_plugin_show_menu },
     { "get_now_playing",           l_plugin_get_now_playing },
     { "get_play_mode",             l_plugin_get_play_mode },
     { "set_play_mode",             l_plugin_set_play_mode },
@@ -5709,6 +5803,15 @@ static void discard_pending_confirmation(lua_State * L, bool aborted) {
     pending_confirmation_ref = LUA_NOREF;
 }
 
+static void discard_pending_menu(lua_State * L, bool aborted) {
+    if (!failed_load_owner_matches(pending_menu_L, L, aborted)) return;
+    gui_plugin_close_menu();
+    if (!aborted && pending_menu_ref != LUA_NOREF)
+        luaL_unref(L, LUA_REGISTRYINDEX, pending_menu_ref);
+    pending_menu_L = NULL;
+    pending_menu_ref = LUA_NOREF;
+}
+
 static void discard_failed_plugin_resources(lua_State * L, bool aborted) {
     if (failed_load_owner_matches(button_lock_owner, L, aborted)) {
         button_lock_owner = NULL;
@@ -5793,8 +5896,10 @@ static void discard_failed_plugin_resources(lua_State * L, bool aborted) {
         plugin_list_callback_t * cb = &plugin_list_callbacks[i];
         if (!failed_load_owner_matches(cb->L, L, aborted)) continue;
         if (!aborted && cb->select_ref != LUA_NOREF) luaL_unref(L, LUA_REGISTRYINDEX, cb->select_ref);
+        if (!aborted && cb->hold_ref != LUA_NOREF) luaL_unref(L, LUA_REGISTRYINDEX, cb->hold_ref);
         memset(cb, 0, sizeof(*cb));
         cb->select_ref = LUA_NOREF;
+        cb->hold_ref = LUA_NOREF;
     }
     for (int slot = 0; slot < PLUGIN_SETTINGS_LIST_SCREEN_POOL_SIZE; slot++) {
         for (int row = 0; row < plugin_settings_list_row_counts[slot]; row++) {
@@ -5815,6 +5920,7 @@ static void discard_failed_plugin_resources(lua_State * L, bool aborted) {
         pending_text_input_ref = LUA_NOREF;
     }
     discard_pending_confirmation(L, aborted);
+    discard_pending_menu(L, aborted);
     plugin_text_view_bindings_clear_owner(L, aborted);
 
     plugin_http_bindings_clear_owner(L, aborted);
@@ -6302,6 +6408,8 @@ void plugin_manager_deinit(void) {
     plugin_manager_text_input_cancelled();
     gui_plugin_close_confirmation();
     plugin_manager_confirmation_cancelled();
+    gui_plugin_close_menu();
+    plugin_manager_menu_cancelled();
 
     /* Deinit drops Lua refs without calling Lua callbacks; UI teardown
      * already ran and discarded any pending on_close. */
@@ -6693,6 +6801,23 @@ void plugin_manager_list_item_selected(int slot, int index) {
     }
 }
 
+/* Long press on a row: true when the plugin's on_hold ran, so the caller
+ * can swallow the release that would otherwise select the row. */
+bool plugin_manager_list_item_held(int slot, int index) {
+    if (slot < 0 || slot >= PLUGIN_LIST_SCREEN_POOL_SIZE) return false;
+    plugin_list_callback_t * cb = &plugin_list_callbacks[slot];
+    if (!cb->L || cb->hold_ref == LUA_NOREF) return false;
+
+    lua_rawgeti(cb->L, LUA_REGISTRYINDEX, cb->hold_ref);
+    lua_pushinteger(cb->L, index + 1);
+    if (plugin_call_user_action(cb->L, 1, 0, 0) != LUA_OK) {
+        const char * err = lua_tostring(cb->L, -1);
+        fprintf(stderr, "[plugins] show_list on_hold error: %s\n", err ? err : "unknown error");
+        lua_pop(cb->L, 1);
+    }
+    return true;
+}
+
 /* Shared bounds check for the three plugin_manager_settings_list_*() below --
  * out-of-range or never-populated is a silent no-op, same tolerance
  * plugin_manager_list_item_selected() above has for "no show_list() call is
@@ -7043,4 +7168,28 @@ void plugin_manager_confirmation_cancelled(void) {
     luaL_unref(pending_confirmation_L, LUA_REGISTRYINDEX, pending_confirmation_ref);
     pending_confirmation_L = NULL;
     pending_confirmation_ref = LUA_NOREF;
+}
+
+void plugin_manager_menu_selected(int index) {
+    if (!pending_menu_L || pending_menu_ref == LUA_NOREF) return;
+    lua_State * L = pending_menu_L;
+    int ref = pending_menu_ref;
+    /* Clear first so a callback can safely open another menu. */
+    pending_menu_L = NULL;
+    pending_menu_ref = LUA_NOREF;
+    lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
+    lua_pushinteger(L, index + 1);
+    if (plugin_call_user_action(L, 1, 0, 0) != LUA_OK) {
+        const char * err = lua_tostring(L, -1);
+        fprintf(stderr, "[plugins] show_menu callback error: %s\n", err ? err : "unknown error");
+        lua_pop(L, 1);
+    }
+    luaL_unref(L, LUA_REGISTRYINDEX, ref);
+}
+
+void plugin_manager_menu_cancelled(void) {
+    if (!pending_menu_L || pending_menu_ref == LUA_NOREF) return;
+    luaL_unref(pending_menu_L, LUA_REGISTRYINDEX, pending_menu_ref);
+    pending_menu_L = NULL;
+    pending_menu_ref = LUA_NOREF;
 }

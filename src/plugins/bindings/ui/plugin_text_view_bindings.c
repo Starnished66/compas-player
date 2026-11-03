@@ -5,6 +5,7 @@
 
 #include "lauxlib.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -18,6 +19,7 @@ typedef struct {
     lua_State * L;
     int turn_ref;
     int close_ref;
+    int end_ref;
     plugin_text_view_guarded_call_fn guarded_call;
     plugin_text_view_owner_is_aborted_fn owner_is_aborted;
 } text_view_ctx_t;
@@ -25,15 +27,21 @@ typedef struct {
 static text_view_ctx_t text_view_ctxs[TEXT_VIEW_CTX_MAX];
 
 /* A hard-aborted state is frozen: its registry is never touched again. */
-static void text_view_ctx_release(text_view_ctx_t * ctx) {
+static void text_view_ctx_unref(text_view_ctx_t * ctx) {
     if (ctx->L && !ctx->owner_is_aborted(ctx->L)) {
         if (ctx->turn_ref != LUA_NOREF) luaL_unref(ctx->L, LUA_REGISTRYINDEX, ctx->turn_ref);
         if (ctx->close_ref != LUA_NOREF) luaL_unref(ctx->L, LUA_REGISTRYINDEX, ctx->close_ref);
+        if (ctx->end_ref != LUA_NOREF) luaL_unref(ctx->L, LUA_REGISTRYINDEX, ctx->end_ref);
     }
-    ctx->live = false;
-    ctx->L = NULL;
     ctx->turn_ref = LUA_NOREF;
     ctx->close_ref = LUA_NOREF;
+    ctx->end_ref = LUA_NOREF;
+}
+
+static void text_view_ctx_release(text_view_ctx_t * ctx) {
+    text_view_ctx_unref(ctx);
+    ctx->live = false;
+    ctx->L = NULL;
     ctx->guarded_call = NULL;
     ctx->owner_is_aborted = NULL;
 }
@@ -64,6 +72,24 @@ static void text_view_turn_trampoline(int page, int pages, size_t byte_offset, v
     }
 }
 
+static void text_view_end_trampoline(int direction, void * user) {
+    text_view_ctx_t * ctx = user;
+    if (!text_view_ctx_prepare(ctx) || ctx->end_ref == LUA_NOREF) return;
+
+    /* The callback may replace the view, which swaps this context's refs;
+     * the function being run stays alive on the Lua stack. Nothing here
+     * touches the context after the call. */
+    lua_State * L = ctx->L;
+    plugin_text_view_guarded_call_fn guarded_call = ctx->guarded_call;
+    lua_rawgeti(L, LUA_REGISTRYINDEX, ctx->end_ref);
+    lua_pushinteger(L, direction);
+    if (guarded_call(L, 1, 0, 0) != LUA_OK) {
+        const char * err = lua_tostring(L, -1);
+        fprintf(stderr, "[plugins] show_text_view on_end error: %s\n", err ? err : "unknown error");
+        lua_pop(L, 1);
+    }
+}
+
 /* Always installed for a view with a context, so the context is released
  * even when the plugin passed no on_close. */
 static void text_view_close_trampoline(int page, size_t byte_offset, void * user) {
@@ -89,12 +115,15 @@ static void text_view_close_trampoline(int page, size_t byte_offset, void * user
 typedef struct {
     bool has_turn;
     bool has_close;
+    bool has_end;
     int turn_ref;
     int close_ref;
+    int end_ref;
 } text_view_refs_t;
 
-/* Stack: lightuserdata, on_turn or nil, on_close or nil. Refs the functions
- * already validated above; a later __index on the options table is not read. */
+/* Stack: lightuserdata, on_turn, on_close and on_end, each a function or
+ * nil. Refs the functions already validated above; a later __index on the
+ * options table is not read. */
 static int text_view_store_refs(lua_State * L) {
     text_view_refs_t * refs = lua_touserdata(L, 1);
     if (refs->has_turn) {
@@ -105,7 +134,36 @@ static int text_view_store_refs(lua_State * L) {
         lua_pushvalue(L, 3);
         refs->close_ref = luaL_ref(L, LUA_REGISTRYINDEX);
     }
+    if (refs->has_end) {
+        lua_pushvalue(L, 4);
+        refs->end_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    }
     return 0;
+}
+
+static void text_view_refs_unref(lua_State * L, const text_view_refs_t * refs) {
+    if (refs->turn_ref != LUA_NOREF) luaL_unref(L, LUA_REGISTRYINDEX, refs->turn_ref);
+    if (refs->close_ref != LUA_NOREF) luaL_unref(L, LUA_REGISTRYINDEX, refs->close_ref);
+    if (refs->end_ref != LUA_NOREF) luaL_unref(L, LUA_REGISTRYINDEX, refs->end_ref);
+}
+
+/* The context of the open view when main_L opened it, else NULL. A view
+ * always carries a context; anything else (the file manager's) is foreign. */
+static text_view_ctx_t * text_view_ctx_owned_by(lua_State * main_L) {
+    void * user = gui_text_view_user();
+    for (int i = 0; i < TEXT_VIEW_CTX_MAX; i++) {
+        if (user == &text_view_ctxs[i] && text_view_ctxs[i].live && text_view_ctxs[i].L == main_L)
+            return &text_view_ctxs[i];
+    }
+    return NULL;
+}
+
+/* Reads options.<field> as a 0xRRGGBB integer. */
+static uint32_t text_view_color_field(lua_State * L, const char * field) {
+    lua_Integer value = luaL_checkinteger(L, -1);
+    if (value < 0 || value > 0xFFFFFF)
+        luaL_error(L, "plugin.show_text_view: colors.%s must be 0xRRGGBB", field);
+    return (uint32_t) value;
 }
 
 int plugin_text_view_bindings_show(lua_State * L,
@@ -121,8 +179,11 @@ int plugin_text_view_bindings_show(lua_State * L,
 
     bool has_turn = false;
     bool has_close = false;
+    bool has_end = false;
+    bool replace = false;
     int turn_abs = 0;
     int close_abs = 0;
+    int end_abs = 0;
 
     if (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) {
         if (!lua_istable(L, 3)) {
@@ -149,6 +210,38 @@ int plugin_text_view_bindings_show(lua_State * L,
         lua_pop(L, 1);
 
         lua_getfield(L, 3, "font_px");
+        lua_pop(L, 1);
+
+        lua_getfield(L, 3, "text_size");
+        if (!lua_isnil(L, -1)) {
+            const char * size = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : NULL;
+            if (!size || (strcmp(size, "small") != 0 && strcmp(size, "medium") != 0 && strcmp(size, "large") != 0))
+                return luaL_error(L, "plugin.show_text_view: text_size must be \"small\", \"medium\" or \"large\"");
+            opts.text_size = size; /* the string stays on the stack */
+        } else {
+            lua_pop(L, 1);
+        }
+
+        lua_getfield(L, 3, "colors");
+        if (!lua_isnil(L, -1)) {
+            if (!lua_istable(L, -1)) return luaL_error(L, "plugin.show_text_view: colors must be a table");
+            lua_getfield(L, -1, "background");
+            if (!lua_isnil(L, -1)) {
+                opts.has_background = true;
+                opts.background = text_view_color_field(L, "background");
+            }
+            lua_pop(L, 1);
+            lua_getfield(L, -1, "text");
+            if (!lua_isnil(L, -1)) {
+                opts.has_text_color = true;
+                opts.text_color = text_view_color_field(L, "text");
+            }
+            lua_pop(L, 1);
+        }
+        lua_pop(L, 1);
+
+        lua_getfield(L, 3, "replace");
+        replace = lua_toboolean(L, -1);
         lua_pop(L, 1);
 
         /* options.images: picture files for "<ESC>n<ESC>" markers (see
@@ -196,16 +289,33 @@ int plugin_text_view_bindings_show(lua_State * L,
         } else {
             lua_pop(L, 1);
         }
+
+        lua_getfield(L, 3, "on_end");
+        if (!lua_isnil(L, -1)) {
+            if (!lua_isfunction(L, -1)) {
+                return luaL_error(L, "plugin.show_text_view: on_end must be a function");
+            }
+            has_end = true;
+            end_abs = lua_gettop(L);
+        } else {
+            lua_pop(L, 1);
+        }
     }
 
-    if (gui_text_view_is_open()) {
+    lua_State * main_L = plugin_lua_main_state(L);
+    text_view_ctx_t * ctx = NULL;
+    if (replace) {
+        ctx = text_view_ctx_owned_by(main_L);
+        if (!ctx) {
+            lua_pushboolean(L, false);
+            lua_pushstring(L, "not open");
+            return 2;
+        }
+    } else if (gui_text_view_is_open()) {
         lua_pushboolean(L, false);
         lua_pushstring(L, "busy");
         return 2;
-    }
-
-    text_view_ctx_t * ctx = NULL;
-    if (has_turn || has_close) {
+    } else {
         for (int i = 0; i < TEXT_VIEW_CTX_MAX; i++) {
             if (!text_view_ctxs[i].live) {
                 ctx = &text_view_ctxs[i];
@@ -217,40 +327,53 @@ int plugin_text_view_bindings_show(lua_State * L,
             lua_pushstring(L, "busy");
             return 2;
         }
+    }
 
-        /* Slot stays free until both refs exist. A Lua error while storing
-         * them must not consume a context. */
-        if (!lua_checkstack(L, 4)) return luaL_error(L, "stack overflow");
-        lua_State * main_L = plugin_lua_main_state(L);
-        text_view_refs_t refs = { has_turn, has_close, LUA_NOREF, LUA_NOREF };
-        lua_pushcfunction(L, text_view_store_refs);
-        lua_pushlightuserdata(L, &refs);
-        if (has_turn) lua_pushvalue(L, turn_abs);
-        else lua_pushnil(L);
-        if (has_close) lua_pushvalue(L, close_abs);
-        else lua_pushnil(L);
-        if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
-            if (refs.turn_ref != LUA_NOREF) luaL_unref(L, LUA_REGISTRYINDEX, refs.turn_ref);
-            if (refs.close_ref != LUA_NOREF) luaL_unref(L, LUA_REGISTRYINDEX, refs.close_ref);
-            return lua_error(L);
-        }
+    /* Slot stays free until the refs exist. A Lua error while storing
+     * them must not consume a context. */
+    if (!lua_checkstack(L, 5)) return luaL_error(L, "stack overflow");
+    text_view_refs_t refs = { has_turn, has_close, has_end, LUA_NOREF, LUA_NOREF, LUA_NOREF };
+    lua_pushcfunction(L, text_view_store_refs);
+    lua_pushlightuserdata(L, &refs);
+    if (has_turn) lua_pushvalue(L, turn_abs);
+    else lua_pushnil(L);
+    if (has_close) lua_pushvalue(L, close_abs);
+    else lua_pushnil(L);
+    if (has_end) lua_pushvalue(L, end_abs);
+    else lua_pushnil(L);
+    if (lua_pcall(L, 4, 0, 0) != LUA_OK) {
+        text_view_refs_unref(L, &refs);
+        return lua_error(L);
+    }
+    if (has_end) opts.on_end = text_view_end_trampoline;
+
+    bool ok;
+    if (replace) {
+        /* The old content's callbacks are dropped, not called. */
+        ok = gui_text_view_replace(title, text, text_len, &opts,
+                                   has_turn ? text_view_turn_trampoline : NULL,
+                                   text_view_close_trampoline, ctx);
+        if (ok) text_view_ctx_unref(ctx);
+    } else {
         ctx->L = main_L;
         ctx->guarded_call = guarded_call;
         ctx->owner_is_aborted = owner_is_aborted;
-        ctx->turn_ref = refs.turn_ref;
-        ctx->close_ref = refs.close_ref;
+        ctx->turn_ref = ctx->close_ref = ctx->end_ref = LUA_NOREF;
         ctx->live = true;
+        ok = gui_text_view_show(title, text, text_len, &opts,
+                                has_turn ? text_view_turn_trampoline : NULL,
+                                text_view_close_trampoline, ctx);
     }
-
-    bool ok = gui_text_view_show(title, text, text_len, &opts,
-                                 (ctx && has_turn) ? text_view_turn_trampoline : NULL,
-                                 ctx ? text_view_close_trampoline : NULL, ctx);
     if (!ok) {
-        if (ctx) text_view_ctx_release(ctx);
+        text_view_refs_unref(L, &refs);
+        if (!replace) text_view_ctx_release(ctx);
         lua_pushboolean(L, false);
         lua_pushstring(L, "unavailable");
         return 2;
     }
+    ctx->turn_ref = refs.turn_ref;
+    ctx->close_ref = refs.close_ref;
+    ctx->end_ref = refs.end_ref;
 
     lua_pushboolean(L, true);
     return 1;
@@ -263,11 +386,13 @@ void plugin_text_view_bindings_clear_owner(lua_State * main_owner, bool aborted)
         if (!aborted) {
             if (ctx->turn_ref != LUA_NOREF) luaL_unref(ctx->L, LUA_REGISTRYINDEX, ctx->turn_ref);
             if (ctx->close_ref != LUA_NOREF) luaL_unref(ctx->L, LUA_REGISTRYINDEX, ctx->close_ref);
+            if (ctx->end_ref != LUA_NOREF) luaL_unref(ctx->L, LUA_REGISTRYINDEX, ctx->end_ref);
         }
         /* The GUI still owns user until its queued close trampoline runs. */
         ctx->L = NULL;
         ctx->turn_ref = LUA_NOREF;
         ctx->close_ref = LUA_NOREF;
+        ctx->end_ref = LUA_NOREF;
     }
 }
 

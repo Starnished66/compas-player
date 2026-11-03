@@ -225,6 +225,84 @@ bool gui_plugin_show_confirmation(const char * title, const char * confirm_label
     return true;
 }
 
+/* One plugin menu at a time: a titled popup of tappable rows plus Cancel.
+ * Like the confirmation, it owns only LVGL objects; the callback ref lives
+ * in plugin_manager.c. It is dismissed without a call if the screen it was
+ * opened over goes away. */
+static gui_popup_t plugin_menu_popup;
+static lv_obj_t * plugin_menu_screen;
+static lv_obj_t * plugin_menu_title;
+
+static void plugin_menu_screen_event_cb(lv_event_t * event) {
+    lv_event_code_t code = lv_event_get_code(event);
+    if (code == LV_EVENT_DELETE) plugin_menu_screen = NULL;
+    else if (code != LV_EVENT_SCREEN_UNLOAD_START) return;
+    gui_plugin_close_menu();
+    plugin_manager_menu_cancelled();
+}
+
+static void plugin_menu_object_deleted(lv_event_t * event) {
+    lv_obj_t * target = lv_event_get_target(event);
+    if (plugin_menu_popup.popup == target || plugin_menu_popup.backdrop == target) {
+        gui_popup_hide(&plugin_menu_popup);
+        if (plugin_menu_popup.popup == target) plugin_menu_popup.popup = NULL;
+        if (plugin_menu_popup.backdrop == target) plugin_menu_popup.backdrop = NULL;
+    }
+}
+
+void gui_plugin_close_menu(void) {
+    if (plugin_menu_screen) {
+        lv_obj_remove_event_cb(plugin_menu_screen, plugin_menu_screen_event_cb);
+        plugin_menu_screen = NULL;
+    }
+    gui_popup_teardown(&plugin_menu_popup);
+    plugin_menu_title = NULL;
+}
+
+static void plugin_menu_cancel_cb(lv_event_t * event) {
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
+    gui_plugin_close_menu();
+    plugin_manager_menu_cancelled();
+}
+
+static void plugin_menu_row_cb(lv_event_t * event) {
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
+    int index = (int) (intptr_t) lv_event_get_user_data(event);
+    /* Close before dispatching Lua: the callback may open another menu. */
+    gui_plugin_close_menu();
+    plugin_manager_menu_selected(index);
+}
+
+bool gui_plugin_show_menu(const char * title, const char * const * items, int count, int selected_index) {
+    lv_display_t * display = lv_display_get_default();
+    lv_obj_t * screen = lv_screen_active();
+    if (!display || !lv_layer_top() || !screen || gui_navigation_transition_in_progress() ||
+        plugin_menu_popup.popup || plugin_menu_popup.backdrop)
+        return false;
+    build_titled_popup(&plugin_menu_popup, plugin_menu_cancel_cb, &plugin_menu_title, NULL);
+    if (!plugin_menu_popup.popup || !plugin_menu_popup.backdrop || !plugin_menu_title) {
+        gui_popup_teardown(&plugin_menu_popup);
+        return false;
+    }
+    lv_label_set_text(plugin_menu_title, title);
+    lv_color_t text = lv_color_white();
+    lv_style_value_t value;
+    if (lv_style_get_prop(&style_theme_text_primary, LV_STYLE_TEXT_COLOR, &value) == LV_STYLE_RES_FOUND)
+        text = value.color;
+    for (int i = 0; i < count; i++) {
+        add_popup_action_row(plugin_menu_popup.popup, items[i], i == selected_index ? accent_lv_color() : text,
+                             plugin_menu_row_cb, (void *) (intptr_t) i);
+    }
+    add_popup_action_row(plugin_menu_popup.popup, TR("Cancel"), lv_color_hex(GUI_BREEZE_NEGATIVE),
+                         plugin_menu_cancel_cb, NULL);
+    lv_obj_add_event_cb(plugin_menu_popup.popup, plugin_menu_object_deleted, LV_EVENT_DELETE, NULL);
+    lv_obj_add_event_cb(plugin_menu_popup.backdrop, plugin_menu_object_deleted, LV_EVENT_DELETE, NULL);
+    plugin_menu_screen = screen;
+    lv_obj_add_event_cb(screen, plugin_menu_screen_event_cb, LV_EVENT_ALL, NULL);
+    gui_popup_show(&plugin_menu_popup);
+    return true;
+}
+
 static bool plugin_progress_percent_valid(int percent) {
     return percent == -1 || (percent >= 0 && percent <= 100);
 }
@@ -447,6 +525,16 @@ static void plugin_list_row_click_cb(lv_event_t * e) {
     plugin_manager_list_item_selected(slot, index);
 }
 
+/* A long press that the plugin handles must not also select the row on
+ * release, so the pending release is swallowed only when on_hold ran. */
+static void plugin_list_row_hold_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
+    intptr_t packed = (intptr_t) lv_event_get_user_data(e);
+    lv_indev_t * indev = lv_indev_active();
+    if (plugin_manager_list_item_held((int) (packed >> 16), (int) (packed & 0xFFFF)) && indev)
+        lv_indev_wait_release(indev);
+}
+
 /* A fixed single-line box is what makes LVGL's circular long mode a marquee
  * rather than allowing the label itself to grow over adjacent UI. The mode
  * has no visible effect when the text already fits. */
@@ -512,7 +600,8 @@ static void plugin_grid_build(int slot, lv_obj_t * list, const char * const * la
             image_src = resolved;
         }
         intptr_t packed = ((intptr_t) slot << 16) | (intptr_t) (i & 0xFFFF);
-        add_cover_card(list, labels[i], image_src, columns, plugin_list_row_click_cb, (void *) packed);
+        lv_obj_t * card = add_cover_card(list, labels[i], image_src, columns, plugin_list_row_click_cb, (void *) packed);
+        if (card) lv_obj_add_event_cb(card, plugin_list_row_hold_cb, LV_EVENT_LONG_PRESSED, (void *) packed);
     }
 }
 
@@ -631,6 +720,7 @@ int gui_plugin_show_list(const char * title, const char * const * labels, const 
             lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
             intptr_t packed = ((intptr_t) slot << 16) | (intptr_t) (i & 0xFFFF);
             lv_obj_add_event_cb(row, plugin_list_row_click_cb, LV_EVENT_CLICKED, (void *) packed);
+            lv_obj_add_event_cb(row, plugin_list_row_hold_cb, LV_EVENT_LONG_PRESSED, (void *) packed);
             continue;
         }
 
@@ -697,6 +787,7 @@ int gui_plugin_show_list(const char * title, const char * const * labels, const 
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         intptr_t packed = ((intptr_t) slot << 16) | (intptr_t) (i & 0xFFFF);
         lv_obj_add_event_cb(row, plugin_list_row_click_cb, LV_EVENT_CLICKED, (void *) packed);
+        lv_obj_add_event_cb(row, plugin_list_row_hold_cb, LV_EVENT_LONG_PRESSED, (void *) packed);
     }
 
     plugin_list_apply_selection(slot, selected_index);
@@ -1435,6 +1526,8 @@ void gui_plugins_teardown(void) {
     gui_plugin_close_progress();
     gui_plugin_close_confirmation();
     plugin_manager_confirmation_cancelled();
+    gui_plugin_close_menu();
+    plugin_manager_menu_cancelled();
     plugin_picker_result[0] = '\0';
     plugin_color_result = -1;
     plugin_picker_discard(&plugin_file_picker);
