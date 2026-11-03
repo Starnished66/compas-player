@@ -829,25 +829,43 @@ static void * bt_apply_output_settings_thread_func(void * arg) {
     return NULL;
 }
 
-/* Silently ignores overlap (another apply already in flight) rather than
- * queuing -- same "ignore taps until it lands" treatment as
- * quick_drawer_bt_event_cb()/quick_drawer_wifi_event_cb() use for their own
- * slow operations, and the current_settings values the caller already wrote
- * before calling this are what the eventually-scheduled apply would use
- * anyway once the in-flight one finishes and the screen is re-populated. */
+/* Overlap (another apply already in flight) is not queued: the caller has
+ * already written current_settings, so the request is remembered and
+ * poll_bt_apply_output_settings() re-applies the then-current settings once
+ * the in-flight apply lands. Only a request that differs from the one in
+ * flight needs that; a repeat of it is a no-op. A failed launch is
+ * remembered the same way and retried by the poll. */
+static bool bt_apply_output_settings_rerun;
+static bool bt_apply_inflight_dac_mode;
+static bool bt_apply_inflight_volume_sync;
+
 void start_bt_apply_output_settings(bool dac_mode_enabled, bool volume_sync_enabled) {
-    if (bt_apply_output_settings_job.active) return;
+    if (bt_apply_output_settings_job.active) {
+        bt_apply_output_settings_rerun = dac_mode_enabled != bt_apply_inflight_dac_mode ||
+                                         volume_sync_enabled != bt_apply_inflight_volume_sync;
+        return;
+    }
+    bt_apply_output_settings_rerun = false;
     bt_apply_output_settings_request_t * req = malloc(sizeof(*req));
-    if (!req) return;
+    if (!req) {
+        bt_apply_output_settings_rerun = true;
+        return;
+    }
     gui_shell_cancel_bt_reconnect();
     req->dac_mode_enabled = dac_mode_enabled;
     req->volume_sync_enabled = volume_sync_enabled;
-    if (!shell_job_start(&bt_apply_output_settings_job, bt_apply_output_settings_thread_func, req))
+    bt_apply_inflight_dac_mode = dac_mode_enabled;
+    bt_apply_inflight_volume_sync = volume_sync_enabled;
+    if (!shell_job_start(&bt_apply_output_settings_job, bt_apply_output_settings_thread_func, req)) {
         free(req);
+        bt_apply_output_settings_rerun = true;
+    }
 }
 void poll_bt_apply_output_settings(void) {
-    if (!shell_job_reap(&bt_apply_output_settings_job)) return;
-    populate_bt_dac_screen(); /* the DAC screen's own toggle rows need the post-apply state */
+    bool reaped = shell_job_reap(&bt_apply_output_settings_job);
+    if (bt_apply_output_settings_rerun && !bt_apply_output_settings_job.active)
+        start_bt_apply_output_settings(current_settings.bt_dac_mode_enabled, current_settings.bt_volume_sync_enabled);
+    if (reaped) populate_bt_dac_screen(); /* the DAC screen's own toggle rows need the post-apply state */
 }
 #ifndef HOST_BUILD
 void bt_resume(bool bt_was_on) {
@@ -911,6 +929,7 @@ void bt_background_cancel_toggle(void) {
 void bt_background_cancel_workers(void) {
     shell_job_cancel(&bt_dac_startup_reapply_job);
     shell_job_cancel(&bt_apply_output_settings_job);
+    bt_apply_output_settings_rerun = false;
     shell_job_cancel(&bt_source_codec_reconcile_job);
     shell_job_cancel(&refresh_bt_icon_job);
 }

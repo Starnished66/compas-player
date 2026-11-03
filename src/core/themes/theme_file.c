@@ -61,7 +61,6 @@ bool theme_file_parse(const char *path, theme_file_t *out, char *error, size_t e
     bool has_home_row_gap = false;
     bool has_home_order = false;
     bool has_submenu_mode = false;
-    char submenu_mode_str[16] = {0};
 
     char line_buf[THEME_MAX_LINE_LEN];
 
@@ -370,7 +369,6 @@ bool theme_file_parse(const char *path, theme_file_t *out, char *error, size_t e
                     if (strcmp(val, "tile") != 0 && strcmp(val, "list") != 0) {
                         return close_with_error(f, error, error_size, "invalid submenu_mode");
                     }
-                    memcpy(submenu_mode_str, val, strlen(val) + 1);
                     has_submenu_mode = true;
                 } else {
                     /* Unknown top-level identifier - forward compatibility */
@@ -429,7 +427,6 @@ bool theme_file_parse(const char *path, theme_file_t *out, char *error, size_t e
 
     if (has_submenu_mode) {
         candidate.has_launcher = true;
-        bool list_mode = (strcmp(submenu_mode_str, "list") == 0);
 
         home_tile_override_t *music_src = NULL;
         for (int i = 0; i < candidate.home.tile_count; i++) {
@@ -441,7 +438,6 @@ bool theme_file_parse(const char *path, theme_file_t *out, char *error, size_t e
 
         launcher_menu_layout_t style;
         memset(&style, 0, sizeof(style));
-        style.list_mode = list_mode;
         style.row_gap = candidate.home.row_gap;
 
         if (music_src) {

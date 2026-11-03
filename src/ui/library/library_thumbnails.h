@@ -63,7 +63,8 @@ typedef void (*library_thumbnail_refresh_group_cb_t)(void);
 typedef void (*library_thumbnail_show_busy_cb_t)(library_thumbnail_cover_scope_t scope);
 
 /* All public methods and callbacks run on the LVGL thread unless explicitly
- * noted. Callbacks are synchronous. List/screen/overlay pointers are borrowed
+ * noted; the policy callback is the exception: the warmer thread also calls it,
+ * so it must be thread-safe. Callbacks are synchronous. List/screen/overlay pointers are borrowed
  * and must be registered before use. forget_list() is safe after deletion:
  * it compares pointer identities only and never dereferences the object. */
 void library_thumbnails_init(bool artist_images_enabled,

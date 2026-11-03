@@ -32,7 +32,7 @@ uint32_t assets_path_cache_epoch(void);
 /* Same override-root-then-stock-root resolution as asset_path(), but
  * returns a plain absolute filesystem path with no "S:" LVGL-driver
  * prefix -- for callers that add their own prefix/handling downstream
- * (e.g. pill_row_apply_icon()'s icon_asset contract, screen_builders.c)
+ * (e.g. pill_row_apply_icon()'s icon_asset contract, screen_builders_rows.c)
  * rather than passing straight into an LVGL image-source setter. Returned
  * strings have the same stable interned lifetime as asset_path(). */
 const char * asset_path_plain(const char * relative_path);
@@ -70,9 +70,6 @@ bool asset_decoded_image_open(asset_decoded_image_t * image, const char * relati
  * Restores pristine pixels before returning so callers can apply a new tint.
  * A missing snapshot (including allocation failure) causes a fresh decode. */
 bool asset_decoded_image_prepare_retint(asset_decoded_image_t * image, const char * relative_path);
-/* Pre-quantize smooth backgrounds with fixed ordered dithering for RGB565.
- * Alpha is preserved; run once at load, never during a redraw. */
-bool asset_decoded_gradient_open(asset_decoded_image_t * image, const char * relative_path);
 void asset_decoded_image_close(asset_decoded_image_t * image);
 const void * asset_decoded_image_source(const asset_decoded_image_t * image);
 

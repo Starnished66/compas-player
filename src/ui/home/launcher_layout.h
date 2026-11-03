@@ -5,7 +5,6 @@
 #include <stdint.h>
 
 typedef struct {
-    bool list_mode;
     int32_t row_gap, height, width;
     bool has_bg_color; uint32_t bg_color;
     bool has_text_color; uint32_t text_color;

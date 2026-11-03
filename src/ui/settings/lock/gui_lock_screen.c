@@ -116,7 +116,11 @@ static void update_lock_swipe_hint(void) {
     if (lock_hint_button_mode == (int) buttons) return;
     lock_hint_button_mode = (int) buttons;
     if (buttons)
-        lv_label_set_text_fmt(lock_swipe_hint, TR("%s to unlock"), HW_BUTTONS_LOCK_CHORD_NAME);
+#if defined(BOARD_R3II_2025)
+        lv_label_set_text(lock_swipe_hint, TR("Hold Power + turn volume up to unlock"));
+#else
+        lv_label_set_text(lock_swipe_hint, TR("Power + Volume Up to unlock"));
+#endif
     else
         lv_label_set_text(lock_swipe_hint, TR("Swipe up to unlock"));
 }

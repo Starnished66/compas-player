@@ -1146,15 +1146,8 @@ static lv_obj_t * build_music_screen(void) {
     /* build_top_right_icon_button() gives a title room for one icon while
      * constructing each button. Recompute against the actual leftmost
      * visible button, or restore the normal full title width if none remain. */
-    for (uint32_t i = 0; i < lv_obj_get_child_count(scr); ++i) {
-        lv_obj_t * child = lv_obj_get_child(scr, i);
-        if (lv_obj_check_type(child, &lv_label_class) &&
-            lv_obj_has_flag(child, LV_OBJ_FLAG_USER_4) && !lv_obj_get_user_data(child)) {
-            if (toolbar_count > 0) {
-                reserve_title_width_before(child, toolbar_buttons[0]);
-            }
-        }
-    }
+    lv_obj_t * title = screen_header_title(scr);
+    if (title && toolbar_count > 0) reserve_title_width_before(title, toolbar_buttons[0]);
     music_tile_prewarm_attach(scr);
     finalize_screen_navigation(scr);
     return scr;

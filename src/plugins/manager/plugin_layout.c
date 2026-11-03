@@ -320,7 +320,6 @@ static void parse_launcher_menu_layout(lua_State * L, int idx, const char * menu
     const char * mode = luaL_optstring(L, -1, "tile");
     if (strcmp(mode, "tile") != 0 && strcmp(mode, "list") != 0)
         luaL_error(L, "plugin.set_launcher_layout: %s.mode must be \"tile\" or \"list\"", menu);
-    out->list_mode = strcmp(mode, "list") == 0;
     lua_pop(L, 1);
 
     out->row_gap = check_int32_field(L, plugin_lua_opt_integer_field(L, idx, "row_gap", 0),

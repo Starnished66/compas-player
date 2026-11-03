@@ -393,8 +393,6 @@ extern unsigned int bt_connected_rate_cached;
 void quick_drawer_wifi_event_cb(lv_event_t * e);
 void quick_drawer_bt_event_cb(lv_event_t * e);
 
-void populate_wifi_screen(bool enabled);
-
 #endif /* GUI_H */
 
 /* Owner-thread service after the opt-in input/worker poll wakes. */

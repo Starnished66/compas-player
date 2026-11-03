@@ -272,7 +272,7 @@ static void free_list_data(void) {
 /* The icon from the app's folder, else the stock art for an app without one. */
 static void decorate_app_row(lv_obj_t * row, const char * icon_path) {
     if (icon_path[0]) decorate_category_row_plugin_icon(row, icon_path);
-    else decorate_category_row(row, APP_FALLBACK_ICON, NULL);
+    else decorate_category_row(row, APP_FALLBACK_ICON);
 }
 
 static void apps_screen_delete_cb(lv_event_t * e) {

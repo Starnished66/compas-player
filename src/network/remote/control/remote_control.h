@@ -33,6 +33,9 @@ bool remote_control_generate_new_pin(void);
  * been created yet. out_pin is empty only if that generation failed. */
 void remote_control_get_pin(char * out_pin, size_t out_pin_size);
 
+/* Stack size for every thread that runs remote_control_handle_stream(). */
+#define REMOTE_CONTROL_CLIENT_STACK_SIZE (256u * 1024u)
+
 /* Handles one HTTP request on a connected byte-stream socket (for example an
  * RFCOMM connection). The caller retains ownership of fd and must close it. */
 void remote_control_handle_stream(int fd);
@@ -79,7 +82,7 @@ bool remote_control_consume_prev(void);
 
 /* POST /api/playback/mode without a parameter cycles play mode. With
  * ?mode=N, selects N directly (0=Sequential, 1=Repeat All, 2=Repeat One,
- * 3=Shuffle). Both requests are consumed on the UI thread. */
+ * 3=Shuffle with repeat, 4=Shuffle once). Both requests are consumed on the UI thread. */
 bool remote_control_consume_mode_cycle(void);
 bool remote_control_consume_play_mode(int * out_mode);
 

@@ -32,7 +32,6 @@ typedef struct {
     const char * icon_asset_selected;
     const char * label;
     lv_event_cb_t on_click;
-    uint32_t glow_color; /* 0 leaves the icon's background transparent. */
 } home_native_tile_t;
 
 /* One resolved entry (native tile or plugin-registered tile), independent
@@ -46,16 +45,15 @@ typedef struct {
     lv_event_cb_t on_click;
     void * user_data;
     const home_tile_override_t * override; /* NULL = never restyled, every native default applies */
-    uint32_t glow_color; /* 0 for plugin tiles */
 } resolved_home_tile_t;
 
 /* options.background_image (PLUGINS.md, plugin.set_home_layout()) -- sets
  * Home's OWN root object's bg_image_src directly, not style_theme_screen_bg
  * (shared by every screen in the app, mutated by plugin.set_background_
- * color("screen", ...)). scr's grid/tile children are already transparent
- * (build_icon_grid_screen()'s own bg_opa=0 on both, screen_builders.c)
- * unless a per-tile bg_color override says otherwise, so this shows through
- * cleanly behind them with no other change needed. Called from both
+ * color("screen", ...)). The grid container is already transparent
+ * (bg_opa=0 in build_icon_grid_screen(), screen_builders_menus.c) and
+ * home_tiles_drop_cards() removes the tile cards in wallpaper mode, so
+ * this shows through cleanly behind them with no other change needed. Called from both
  * Home screen branches below, right after each builds its own scr,
  * so a plugin-set background applies whether Home is tile or list mode. */
 /* A wallpaper shows through Home's tiles, so they drop their card surface. */
@@ -154,7 +152,6 @@ static int resolve_home_tiles(resolved_home_tile_t * out, const home_native_tile
             r->label = TR(native->label);
             r->on_click = native->on_click;
             r->user_data = NULL;
-            r->glow_color = native->glow_color;
         } else {
             int plugin_idx = plugin_manager_find_home_tile_by_id(key);
             if (plugin_idx < 0) {
@@ -167,7 +164,6 @@ static int resolve_home_tiles(resolved_home_tile_t * out, const home_native_tile
             r->label = plugin_manager_get_home_tile_label(plugin_idx);
             r->on_click = plugin_home_tile_click_cb;
             r->user_data = (void *) (intptr_t) plugin_idx;
-            r->glow_color = 0;
         }
         r->override = find_home_tile_override(key);
         count++;
@@ -230,13 +226,13 @@ static void fit_home_list_rows(icon_grid_item_t * items, const resolved_home_til
 
 lv_obj_t * gui_home_build_screen(lv_event_cb_t settings_cb, lv_event_cb_t stream_media_cb) {
     const home_native_tile_t native_tiles[HOME_LAYOUT_TILE_COUNT] = {
-        { "launcher/music.png", "launcher/music_s.png", N_("Music"), music_tile_cb, 0xF5B457 },
-        { "launcher/stream_media.png", "launcher/stream_media_s.png", N_("Stream Media"), stream_media_cb, 0x48ADE5 },
-        { "launcher/wireless.png", "launcher/wireless_s.png", N_("Wireless"), wireless_tile_cb, 0x39BD95 },
-        { "launcher/book.png", "launcher/book_s.png", N_("Books"), gui_books_home_tile_cb, 0xF5B457 },
-        { "launcher/sys_set.png", "launcher/sys_set_s.png", N_("Settings"), settings_cb, 0x909EB5 },
-        { "launcher/dac.png", "launcher/dac_s.png", N_("More"), dac_home_tile_cb, 0xA36BE4 },
-        { "stream_media/subsonic.png", "stream_media/subsonic_s.png", N_("Subsonic"), subsonic_tile_cb, 0 },
+        { "launcher/music.png", "launcher/music_s.png", N_("Music"), music_tile_cb },
+        { "launcher/stream_media.png", "launcher/stream_media_s.png", N_("Stream Media"), stream_media_cb },
+        { "launcher/wireless.png", "launcher/wireless_s.png", N_("Wireless"), wireless_tile_cb },
+        { "launcher/book.png", "launcher/book_s.png", N_("Books"), gui_books_home_tile_cb },
+        { "launcher/sys_set.png", "launcher/sys_set_s.png", N_("Settings"), settings_cb },
+        { "launcher/dac.png", "launcher/dac_s.png", N_("More"), dac_home_tile_cb },
+        { "stream_media/subsonic.png", "stream_media/subsonic_s.png", N_("Subsonic"), subsonic_tile_cb },
     };
     static resolved_home_tile_t resolved[HOME_LAYOUT_MAX_TILES];
     int count = resolve_home_tiles(resolved, native_tiles);
@@ -295,13 +291,12 @@ lv_obj_t * gui_home_build_screen(lv_event_cb_t settings_cb, lv_event_cb_t stream
         fit_home_list_rows(items, resolved, count, display_width, display_height, row_gap);
 
         /* No per-screen style here (that lives entirely in each item's own
-         * override above) -- this layout only carries what's genuinely
-         * shared across every tile: list mode itself and the row gap. */
+         * override above) -- this layout only carries the row gap shared
+         * across every tile. */
         launcher_menu_layout_t home_list_layout = {
-            .list_mode = true,
             .row_gap = row_gap,
         };
-        lv_obj_t * scr = build_launcher_menu_screen(NULL, NULL, items, count, 100, false, &home_list_layout);
+        lv_obj_t * scr = build_launcher_menu_screen(items, count, &home_list_layout);
         apply_home_background_image(scr);
         finalize_screen_navigation(scr);
         return scr;
@@ -322,14 +317,12 @@ lv_obj_t * gui_home_build_screen(lv_event_cb_t settings_cb, lv_event_cb_t stream
             .has_text_color = ov->has_text_color, .text_color = ov->text_color,
             .has_radius = ov->has_radius,
             .radius = home_tile_radius(ov, display_width),
-            /* Explicit plugin surfaces take precedence over native glows. */
-            .icon_glow_color = ov->has_bg_color ? 0 : resolved[i].glow_color,
         };
     }
     /* No back_btn_cb -- this is the true root, nothing to go back to. No
      * title either -- matches the real stock launcher, which has no header
-     * text above its icon grid. tile_gap stays 0 (today's exact flush-cell
-     * look) unless a plugin configured one. l_plugin_set_home_layout()
+     * text above its icon grid. tile_gap is 0 unless a plugin configured one;
+     * build_icon_grid_screen() floors it at the card gap. l_plugin_set_home_layout()
      * already rejects a tile-mode `order` past 6 entries, so `count` here
      * never exceeds what build_icon_grid_screen()'s own row math expects. */
     int32_t home_icon_scale =
@@ -338,7 +331,7 @@ lv_obj_t * gui_home_build_screen(lv_event_cb_t settings_cb, lv_event_cb_t stream
 #else
         100;
 #endif
-    lv_obj_t * scr = build_icon_grid_screen(NULL, NULL, items, count, home_icon_scale, false,
+    lv_obj_t * scr = build_icon_grid_screen(items, count, home_icon_scale,
                                              home_layout_config.configured
                                                ? home_layout_scale_px(home_layout_config.tile_gap, display_width)
                                                : 0);

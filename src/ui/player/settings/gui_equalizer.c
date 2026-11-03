@@ -1308,7 +1308,7 @@ static lv_obj_t * build_eq_screen(void) {
     lv_obj_set_style_text_font(eq_graph_caption, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
     lv_obj_add_style(eq_graph_caption, &style_theme_text_primary, 0);
     eq_graph_reference = lv_label_create(eq_graph_panel);
-    lv_label_set_text(eq_graph_reference, TR("48 kHz · Preamp excluded (+0.0 dB)"));
+    lv_label_set_text_fmt(eq_graph_reference, TR("48 kHz · Preamp excluded (%+.1f dB)"), 0.0);
     lv_obj_set_width(eq_graph_reference, lv_pct(100));
     lv_label_set_long_mode(eq_graph_reference, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_font(eq_graph_reference, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);

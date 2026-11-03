@@ -1,5 +1,6 @@
 #include "gui_remote_settings.h"
 
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -24,7 +25,7 @@
 #include "../../../audio/output/audio_output.h"
 #endif
 
-extern bool library_rescan_active; /* gui_library_scan.c: set while a scan runs */
+extern _Atomic bool library_rescan_active; /* gui_library_scan.c: set while a scan runs */
 
 /* ---- Registry hooks ---- */
 
@@ -44,7 +45,7 @@ static bool runtime_value(const setting_desc_t * desc, int * out) {
 }
 
 static bool rescan_running(void) {
-    return __atomic_load_n(&library_rescan_active, __ATOMIC_RELAXED);
+    return library_rescan_active;
 }
 
 void gui_remote_settings_init(void) {

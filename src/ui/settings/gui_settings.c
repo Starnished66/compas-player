@@ -374,11 +374,13 @@ static void reboot_to_boot_selector_row_cb(lv_event_t * e) {
         show_error_toast(error[0] ? error : TR("Could not restart into the boot selector"));
 }
 
+static const char * screenshot_row_label(void) {
 #if defined(BOARD_R3II_2025)
-  #define SCREENSHOT_ROW_LABEL TR("Screenshots (Power + Previous)")
+    return TR("Screenshots (Power + Previous)");
 #else
-  #define SCREENSHOT_ROW_LABEL TR("Screenshots (Power + Vol Down)")
+    return TR("Screenshots (Power + Vol Down)");
 #endif
+}
 static lv_obj_t * build_dev_options_screen(void) {
     static pill_list_item_t items[4];
     /* ADB lives here rather than on the USB Mode screen: it overrides
@@ -390,7 +392,7 @@ static lv_obj_t * build_dev_options_screen(void) {
                                     NULL, adb_switch_event_cb, NULL, &adb_switch };
     items[1] = (pill_list_item_t){ TR("Enable debug logging"), PILL_ACCESSORY_TOGGLE,
                                     current_settings.db_logging_enabled, NULL, db_logging_switch_event_cb, NULL };
-    items[2] = (pill_list_item_t){ SCREENSHOT_ROW_LABEL, PILL_ACCESSORY_TOGGLE,
+    items[2] = (pill_list_item_t){ screenshot_row_label(), PILL_ACCESSORY_TOGGLE,
                                     current_settings.screenshot_combo_enabled, NULL,
                                     screenshot_combo_switch_event_cb, NULL };
     items[3] = (pill_list_item_t){ TR("Reboot to bootloader"), PILL_ACCESSORY_NONE, false,
@@ -1319,13 +1321,13 @@ static lv_obj_t * build_library_category_screen(void) {
         plugin_music_library_list_item_click_cb);
     lv_obj_t * scr = build_pill_list_screen(TR("Library"), generic_back_cb, items, count,
         gui_theme_accent_style(), GUI_ROW_GAP, 100);
-    decorate_category_row(native_rows[0], "submenu/update_database.png", NULL);
-    decorate_category_row(native_rows[1], "submenu/refresh_metadata.png", NULL);
-    decorate_category_row(native_rows[2], "submenu/refresh_covers.png", NULL);
+    decorate_category_row(native_rows[0], "submenu/update_database.png");
+    decorate_category_row(native_rows[1], "submenu/refresh_metadata.png");
+    decorate_category_row(native_rows[2], "submenu/refresh_covers.png");
     /* Sorting has its own Breeze art; without it, it shares Library's icon. */
     const char * sorting_breeze = asset_path_plain("breeze_rows/library_sorting.png");
     decorate_category_row(native_rows[3], sorting_breeze && access(sorting_breeze, R_OK) == 0
-                                              ? "breeze_rows/library_sorting.png" : "settings/library.png", NULL);
+                                              ? "breeze_rows/library_sorting.png" : "settings/library.png");
     finalize_screen_navigation(scr);
     return scr;
 }
@@ -1981,7 +1983,7 @@ static lv_obj_t * build_settings_screen(void) {
         "submenu/update_database.png",
     };
     for (unsigned i = 0; i < 7; ++i) {
-        if (category_rows[i]) decorate_category_row(category_rows[i], icons[i], NULL);
+        if (category_rows[i]) decorate_category_row(category_rows[i], icons[i]);
         items[i].out_row = NULL;
     }
     finalize_screen_navigation(scr);
@@ -2080,7 +2082,7 @@ lv_obj_t * build_dac_home_screen(void) {
                 const char * icon = native[i].icon;
                 const char * breeze = strncmp(icon, "breeze_rows/", 12) == 0 ? asset_path_plain(icon) : NULL;
                 if (breeze && access(breeze, R_OK) != 0) icon = "settings/system.png";
-                decorate_category_row(rows[i], icon, NULL);
+                decorate_category_row(rows[i], icon);
             }
             else decorate_category_row_plugin_icon(rows[i], plugin_icons[i - NATIVE_COUNT]);
         }
@@ -2356,7 +2358,7 @@ void gui_settings_sync_gapless_toggle(void) {
 
 void gui_settings_sync_crossfade_toggle(void) {
     if (!settings_crossfade_toggle_img) return;
-    /* Real lv_switch now (see PILL_ACCESSORY_TOGGLE in screen_builders.c) --
+    /* Real lv_switch now (see PILL_ACCESSORY_TOGGLE in screen_builders_menus.c) --
      * CHECKED state alone drives its visual, no sprite swap needed. */
     if (current_settings.crossfade_enabled) lv_obj_add_state(settings_crossfade_toggle_img, LV_STATE_CHECKED);
     else lv_obj_clear_state(settings_crossfade_toggle_img, LV_STATE_CHECKED);

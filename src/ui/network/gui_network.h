@@ -21,11 +21,6 @@ bool gui_network_firmware_update_usb_blocked(void);
 bool gui_network_boot_prompt_blocked(void);
 
 void gui_network_init(void);
-#ifdef TEST_BOOT_RC
-/* Test build only: power Bluetooth and start the remote-control transports
- * asynchronously after the UI has completed its normal session-mode reset. */
-void gui_network_start_test_boot_services(void);
-#endif
 /* Deletes every screen/popup this module owns so gui_reload.c's in-process
  * UI reload can call gui_network_init() again from a clean slate. */
 void gui_network_teardown(void);
@@ -34,10 +29,13 @@ void gui_network_poll_airplay_overlay(void);
 void poll_wifi_connect(void);
 void poll_wifi_disconnect(void);
 void poll_wifi_scan(void);
-void poll_bt_action(void);
-void poll_bt_dac(void);
-void poll_usb_dac_overlay(void);
-void get_device_name(char * out, size_t out_size);
+void poll_wifi_connect_saved(void);
+void poll_wifi_forget(void);
+void poll_bt_scan(void);
+void poll_bt_rate_query(void);
+void poll_bt_rate_apply(void);
+void poll_bt_connect(void);
+void poll_bt_forget(void);
 
 void populate_bt_dac_screen(void);
 void poll_remote_import(void);
@@ -49,17 +47,13 @@ void gui_network_set_usb_dac_charging_disabled(bool disabled);
 void poll_usb_storage_hotplug(void);
 /* UI-thread snapshot: a real Storage host was observed on this cable session. */
 bool gui_network_usb_storage_session_active(void);
-void build_bt_action_popup(void);
-void build_wifi_action_popup(void);
-void build_usb_dac_leave_popup(void);
-void build_bt_dac_leave_popup(void);
 
 void open_wifi_screen(void);
 void open_bluetooth_screen(void);
 
 /* The Sample Rate screen shows one accessory's rates and edits that
  * accessory's stored entry, so it must redraw when the connected device
- * changes underneath it. No-op unless that screen is on top. */
+ * changes underneath it; its query restarts once it is on top again. */
 void gui_network_notify_bt_device_changed(void);
 void populate_bt_screen(void);
 void gui_network_bt_powered_on(void);
@@ -80,6 +74,7 @@ bool gui_network_adb_active(void);
 
 bool gui_network_has_background_work(void);
 bool gui_network_bt_user_operation_active(void);
+/* Shutdown only: also drops queued service starts without touching settings. */
 void gui_network_cancel_background_work(void);
 
 /* Prepare Remote Control services for radio sleep without changing the saved

@@ -887,12 +887,18 @@ int metadata_db_get_genre_count(void) {
     return genre_cache_count;
 }
 
-int metadata_db_get_groups_page(metadata_db_group_kind_t kind, int offset, int max_rows, group_row_t * out_rows) {
-    METADATA_DB_GUARD;
-    if (!db_ready || max_rows <= 0) return 0;
+/* Caller holds METADATA_DB_GUARD. Fills up to max_rows groups from index
+ * offset. *next (optional) receives the index after the last one examined,
+ * or -1 once the list is exhausted. strict makes an unreadable record fail
+ * the call (-1) instead of being skipped, so a walk by *next cannot overlap
+ * or leave a hole. */
+static int groups_page_locked(metadata_db_group_kind_t kind, int offset, int max_rows, group_row_t * out_rows,
+                              int * next, bool strict) {
+    if (next) *next = -1;
+    if (!db_ready || max_rows <= 0) return strict ? -1 : 0;
     if (offset < 0) offset = 0;
     if (kind == METADATA_DB_GROUP_GENRE) {
-        if (!genre_cache_ensure()) return 0;
+        if (!genre_cache_ensure()) return strict ? -1 : 0;
         int written = 0;
         for (int i = offset; i < genre_cache_count && written < max_rows; i++) {
             group_row_t * row = &out_rows[written++];
@@ -901,21 +907,31 @@ int metadata_db_get_groups_page(metadata_db_group_kind_t kind, int offset, int m
             row->song_count = genre_cache[i].song_count;
             row->first_song_id = genre_cache[i].first_song_id;
         }
+        if (next && offset + written < genre_cache_count) *next = offset + written;
         return written;
     }
     int tc_kind = (kind == METADATA_DB_GROUP_ALBUM_ARTIST) ? TAGCACHE_GROUP_ALBUM_ARTIST
                   : (kind == METADATA_DB_GROUP_ALBUM)     ? TAGCACHE_GROUP_ALBUM
                                                           : TAGCACHE_GROUP_ARTIST;
     int n = tagcache_group_count(tc_kind);
-    int w = 0;
-    for (int i = offset; i < n && w < max_rows; i++) {
+    int w = 0, i = offset;
+    for (; i < n && w < max_rows; i++) {
         tagcache_group_t g;
-        if (!tagcache_group_at(tc_kind, i, &g)) continue;
+        if (!tagcache_group_at(tc_kind, i, &g)) {
+            if (strict) return -1;
+            continue;
+        }
         copy_group(&g, &out_rows[w]);
         if (tc_kind != TAGCACHE_GROUP_ALBUM) out_rows[w].album_artist[0] = '\0';
         w++;
     }
+    if (next && i < n) *next = i;
     return w;
+}
+
+int metadata_db_get_groups_page(metadata_db_group_kind_t kind, int offset, int max_rows, group_row_t * out_rows) {
+    METADATA_DB_GUARD;
+    return groups_page_locked(kind, offset, max_rows, out_rows, NULL, false);
 }
 
 static int get_group_songs(metadata_db_group_kind_t kind, const char * name, const char * album_artist,
@@ -1743,11 +1759,13 @@ int metadata_db_get_songs_filtered_page(const char *needle, const char *artist,
     return w;
 }
 
-int metadata_db_get_albums_page_filtered(const char *filter, int offset, int max_rows,
-                                         group_row_t *out_rows) {
-    METADATA_DB_GUARD;
-    if (!db_ready || max_rows <= 0) return 0;
-    if (!filter || !filter[0]) return metadata_db_get_groups_page(METADATA_DB_GROUP_ALBUM, offset, max_rows, out_rows);
+/* Caller holds METADATA_DB_GUARD; next/strict as for groups_page_locked. */
+static int albums_page_filtered_locked(const char * filter, int offset, int max_rows, group_row_t * out_rows,
+                                       int * next, bool strict) {
+    if (!filter || !filter[0])
+        return groups_page_locked(METADATA_DB_GROUP_ALBUM, offset, max_rows, out_rows, next, strict);
+    if (next) *next = -1;
+    if (!db_ready || max_rows <= 0) return strict ? -1 : 0;
     int a = 0, b = 0, skipped = 0, w = 0;
     int left = tagcache_group_album_at(TAGCACHE_GROUP_ARTIST, filter, a);
     int right = tagcache_group_album_at(TAGCACHE_GROUP_ALBUM_ARTIST, filter, b);
@@ -1758,8 +1776,34 @@ int metadata_db_get_albums_page_filtered(const char *filter, int offset, int max
         if (skipped++ < offset) continue;
         tagcache_group_t group;
         if (tagcache_group_at(TAGCACHE_GROUP_ALBUM, rank, &group)) copy_group(&group, &out_rows[w++]);
+        else if (strict) return -1;
     }
+    if (next && (left >= 0 || right >= 0)) *next = skipped;
     return w;
+}
+
+int metadata_db_get_albums_page_filtered(const char *filter, int offset, int max_rows,
+                                         group_row_t *out_rows) {
+    METADATA_DB_GUARD;
+    return albums_page_filtered_locked(filter, offset, max_rows, out_rows, NULL, false);
+}
+
+int metadata_db_group_walk_page(metadata_db_group_walk_t * walk, bool by_albums, metadata_db_group_kind_t kind,
+                                const char * album_filter, int max_rows, group_row_t * out_rows) {
+    METADATA_DB_GUARD;
+    int32_t generation = tagcache_generation();
+    if (!walk->started) {
+        walk->started = true;
+        walk->generation = generation;
+        walk->incarnation = db_incarnation;
+    } else if (generation != walk->generation || db_incarnation != walk->incarnation) {
+        return -1;
+    }
+    int got = by_albums ? albums_page_filtered_locked(album_filter, walk->next, max_rows, out_rows, &walk->next, true)
+                        : groups_page_locked(kind, walk->next, max_rows, out_rows, &walk->next, true);
+    if (got < 0) return -1;
+    walk->done = walk->next < 0;
+    return got;
 }
 
 bool metadata_db_album_sort_available(metadata_db_album_sort_t sort) {

@@ -1394,7 +1394,7 @@ static lv_obj_t * add_file_row(file_browser_t * fb, const char * label_text, con
 
     /* Label x is measured from the row's content box, which starts inside the
      * border and padding, so both come off the width or the text would reach
-     * the right edge. The usual right margin is the pill rows' (screen_builders.c),
+     * the right edge. The usual right margin is the pill rows' (screen_builders_menus.c),
      * measured from the row edge; in selection mode the label instead stops
      * a gap short of the check box. */
     const int32_t border = lv_obj_get_style_border_width(row, LV_PART_MAIN);

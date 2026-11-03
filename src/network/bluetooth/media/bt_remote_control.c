@@ -163,8 +163,14 @@ static DBusHandlerResult profile_message_handler(DBusConnection * c,
     active_device_path[sizeof(active_device_path) - 1] = '\0';
     pthread_mutex_unlock(&client_mutex);
 
+    /* The same request handlers run as on the HTTP workers, which are sized
+     * for them; the default thread stack is not. */
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    (void) pthread_attr_setstacksize(&attr, REMOTE_CONTROL_CLIENT_STACK_SIZE);
     pthread_t worker;
-    int rc = pthread_create(&worker, NULL, serve_client, (void *) (intptr_t) received_fd);
+    int rc = pthread_create(&worker, &attr, serve_client, (void *) (intptr_t) received_fd);
+    pthread_attr_destroy(&attr);
     if (rc != 0) {
         pthread_mutex_lock(&client_mutex);
         client_active = false;

@@ -35,7 +35,7 @@
 gui_busy_handle_t library_rescan_token = 0;
 
 static pthread_t library_rescan_thread;
-bool library_rescan_active = false;
+_Atomic bool library_rescan_active = false;
 void (*library_setup_scan_complete)(bool success);
 bool library_rescan_success_pending = false;
 static atomic_bool library_rescan_done_flag = false;

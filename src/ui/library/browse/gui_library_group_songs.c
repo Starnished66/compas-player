@@ -1147,7 +1147,9 @@ static void group_songs_build_begin(int next, int end, bool album_layout) {
     gsb.overhead_us = 0;
     gsb.header_h = 0;
     if (gsb.headers_left) {
-        lv_obj_t * probe = add_section_header(group_songs_list, TR("Disc 1"));
+        char probe_text[32];
+        snprintf(probe_text, sizeof(probe_text), TR("Disc %d"), 1);
+        lv_obj_t * probe = add_section_header(group_songs_list, probe_text);
         lv_obj_update_layout(group_songs_list);
         gsb.header_h = lv_obj_get_height(probe);
         lv_obj_delete(probe);
@@ -1854,8 +1856,10 @@ library_thumbnail_context_t library_thumbnail_genre_context(void) {
 }
 
 bool library_thumbnail_policy(library_thumbnail_policy_t policy) {
-    if (policy == LIBRARY_THUMB_POLICY_LAZY) return library_rescan_active;
-    return library_rescan_active || gui_library_sd_format_is_active();
+    /* The warmer thread reads LAZY too: library_rescan_active is atomic. */
+    bool rescanning = library_rescan_active;
+    if (policy == LIBRARY_THUMB_POLICY_LAZY) return rescanning;
+    return rescanning || gui_library_sd_format_is_active();
 }
 
 bool detach_group_song_thumbnail(const lv_image_dsc_t *dsc) {

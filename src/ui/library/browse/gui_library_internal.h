@@ -356,7 +356,7 @@ void build_library_update_prompt_popup(void);
 void gui_library_scan_join_for_shutdown(void);
 void library_prompt_card_changed(void);
 void library_prompt_requeue_visible(void);
-extern bool library_rescan_active;
+extern _Atomic bool library_rescan_active; /* read by the thumbnail warmer thread and the remote settings */
 void library_rescan_free_target_paths(void);
 extern library_rescan_mode_t library_rescan_mode;
 extern bool library_rescan_success_pending;

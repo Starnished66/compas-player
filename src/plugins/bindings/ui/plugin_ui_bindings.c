@@ -420,8 +420,9 @@ int32_t check_int32_field(lua_State * L, lua_Integer value, const char * fn_name
  * `options` (optional): { mode = "tile"|"list", tile_gap, row_gap, order }.
  * `mode` defaults to "tile" (today's icon grid) if `options` or `mode` is
  * omitted. `tile_gap`/`row_gap` are passed through unclamped here too --
- * clamped to 0-64/0-84 respectively in build_icon_grid_screen()/build_pill_
- * list_screen() (screen_builders.c), the same "clamp at the point of use"
+ * clamped to 16-64 (card gap floor) in build_icon_grid_screen() and, for row_gap,
+ * to 0-84 in home_list_row_gap() (gui_home.c) before build_pill_list_screen()
+ * (screen_builders_menus.c), the same "clamp at the point of use"
  * pattern height/width above already follow, since tile_gap in particular
  * feeds directly into an available-space subtraction that goes wrong long
  * before any Lua-side integer range check would think to reject it.
@@ -614,11 +615,11 @@ static int l_plugin_set_home_layout(lua_State * L) {
         }
         lua_pop(L, 1); /* order (nil or table) */
 
-        /* build_icon_grid_screen() (screen_builders.c) cannot scroll -- its
+        /* build_icon_grid_screen() (screen_builders_menus.c) cannot scroll -- its
          * vertical scroll-direction setting exists only to stop it from
          * capturing the app-wide back-swipe gesture, not to provide real
          * scrolling -- so a tile-mode order past 2 columns x 3 reference
-         * rows (ICON_GRID_REFERENCE_ROWS*2, screen_builders.c -- duplicated
+         * rows (ICON_GRID_REFERENCE_ROWS*2, screen_builders_menus.c -- duplicated
          * here as a literal since that constant isn't exposed via a header)
          * would render with tiles silently unreachable off-screen. Fail
          * loud here instead, matching this function's own tiles-array-

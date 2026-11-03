@@ -511,6 +511,10 @@ bool settings_load(player_settings_t * out);
  * mid-write can't corrupt the settings file. */
 void settings_save(const player_settings_t * settings);
 
+/* Sets settings->remote_control_pin so a concurrent settings_save() or
+ * settings_save_async() never persists a half-written PIN. */
+void settings_set_remote_control_pin(player_settings_t * settings, const char * pin);
+
 /* Bluetooth transport rate remembered per accessory; falls back to
  * bt_sample_rate when that accessory has no entry of its own. */
 unsigned int settings_bt_rate_for(const player_settings_t * settings, const char * mac);

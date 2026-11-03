@@ -483,7 +483,7 @@ static void text_entry_enter_click_cb(lv_event_t * e) {
 }
 
 /* Every key is a plain clickable image at its own top-left grid cell (col,
- * row) -- see the icon_tile_press_event_cb doc comment in screen_builders.c
+ * row) -- see the icon_tile_press_event_cb doc comment in screen_builders_menus.c
  * for the precedent this follows (clickable lv_image, no wrapper container).
  * Taller/wider keys (Enter, Space) just have a native asset that extends
  * past one cell; their top-left anchor is computed the same way as every

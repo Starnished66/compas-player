@@ -782,8 +782,6 @@ int gui_plugin_show_list(const char * title, const char * const * labels, const 
             lv_obj_align(label, LV_ALIGN_LEFT_MID, label_left, 0);
             configure_plugin_row_label(row, label, label_width, wrap_labels && wrap_labels[i]);
         }
-        if (icon) decorate_category_row(row, NULL, NULL);
-
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         intptr_t packed = ((intptr_t) slot << 16) | (intptr_t) (i & 0xFFFF);
         lv_obj_add_event_cb(row, plugin_list_row_click_cb, LV_EVENT_CLICKED, (void *) packed);
@@ -1357,7 +1355,6 @@ static void populate_plugin_settings_list_screen(int slot) {
             int32_t left = icon ? BOARD_SCALE_PX(96) : BOARD_SCALE_PX(24);
             lv_obj_align(label, LV_ALIGN_LEFT_MID, left, 0);
             configure_plugin_row_label(row_obj, label, row_width - left - BOARD_SCALE_PX(112), st->wrap);
-            if (icon) decorate_category_row(row_obj, NULL, NULL);
         } else if (st->type == PLUGIN_SETTINGS_ROW_SLIDER) {
             lv_obj_t * card = add_pill_slider_row(list, st->label, st->slider_min, st->slider_max, st->slider_value,
                                                    plugin_settings_slider_event_cb, packed, icon, text_size);
@@ -1388,7 +1385,6 @@ static void populate_plugin_settings_list_screen(int slot) {
             int32_t left = icon ? BOARD_SCALE_PX(96) : BOARD_SCALE_PX(24);
             lv_obj_align(label, LV_ALIGN_LEFT_MID, left, 0);
             configure_plugin_row_label(row_obj, label, row_width - left - BOARD_SCALE_PX(60), st->wrap);
-            if (icon) decorate_category_row(row_obj, NULL, NULL);
         }
     }
 

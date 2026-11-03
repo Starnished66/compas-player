@@ -1,6 +1,24 @@
 #include "settings.h"
 #include "../system/logging/debug_log.h"
+#include <pthread.h>
 player_settings_t current_settings;
+
+/* Guards remote_control_pin: it is rewritten by the remote worker threads
+ * while other threads copy or write out whole settings. */
+static pthread_mutex_t settings_pin_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+void settings_set_remote_control_pin(player_settings_t * settings, const char * pin) {
+    pthread_mutex_lock(&settings_pin_mutex);
+    snprintf(settings->remote_control_pin, sizeof(settings->remote_control_pin), "%s", pin);
+    pthread_mutex_unlock(&settings_pin_mutex);
+}
+
+/* Copies *settings, taking the PIN consistently. */
+static void settings_snapshot(player_settings_t * dst, const player_settings_t * src) {
+    pthread_mutex_lock(&settings_pin_mutex);
+    *dst = *src;
+    pthread_mutex_unlock(&settings_pin_mutex);
+}
 #include "../updates/firmware_update.h"
 #include "../system/lifecycle/idle_shutdown.h"
 #include "../process/subprocess.h"
@@ -901,7 +919,11 @@ static void settings_write_file(const player_settings_t * settings) {
     fprintf(f, "wifi_dac_mode=%d\n", settings->wifi_dac_mode_enabled ? 1 : 0);
     fprintf(f, "dlna_renderer_enabled=%d\n", settings->dlna_renderer_enabled ? 1 : 0);
     fprintf(f, "remote_control_enabled=%d\n", settings->remote_control_enabled ? 1 : 0);
-    fprintf(f, "remote_control_pin=%s\n", settings->remote_control_pin);
+    char pin[sizeof(settings->remote_control_pin)];
+    pthread_mutex_lock(&settings_pin_mutex);
+    snprintf(pin, sizeof(pin), "%s", settings->remote_control_pin);
+    pthread_mutex_unlock(&settings_pin_mutex);
+    fprintf(f, "remote_control_pin=%s\n", pin);
     fprintf(f, "screen_timeout_enabled=%d\n", settings->screen_timeout_enabled ? 1 : 0);
     fprintf(f, "screen_timeout_seconds=%d\n", settings->screen_timeout_seconds);
     fprintf(f, "screen_dimming_enabled=%d\n", settings->screen_dimming_enabled ? 1 : 0);
@@ -1104,7 +1126,7 @@ void settings_save_async(const player_settings_t * settings) {
         pthread_mutex_unlock(&settings_queue_mutex);
         return;
     }
-    settings_queued_snapshot = *settings;
+    settings_snapshot(&settings_queued_snapshot, settings);
     settings_queued_generation = ++settings_save_generation;
     settings_save_pending = true;
     pthread_cond_signal(&settings_queue_cond);

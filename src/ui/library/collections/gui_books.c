@@ -361,10 +361,12 @@ static lv_obj_t * build_books_screen(void) {
                                     plugin_books_list_item_click_cb);
 
     for (int i = 0; i < count; ++i) items[i].out_row = &native_rows[i];
-    int icon_percent = (BOARD_SCALE_PX(44) * 100 + PILL_ROW_ICON_PX_DEFAULT - 1) / PILL_ROW_ICON_PX_DEFAULT;
+    /* The builder scales PILL_ROW_ICON_PX_DEFAULT by BOARD_SCALE_PX itself, so
+     * the percent is the unscaled 44/64 ratio (rounded up). */
+    int icon_percent = (44 * 100 + PILL_ROW_ICON_PX_DEFAULT - 1) / PILL_ROW_ICON_PX_DEFAULT;
     lv_obj_t * scr = build_pill_list_screen(TR("Books"), generic_back_cb, items, count, gui_theme_accent_style(), GUI_ROW_GAP, icon_percent);
-    if (native_rows[0]) decorate_category_row(native_rows[0], "submenu/books.png", NULL);
-    if (native_rows[1]) decorate_category_row(native_rows[1], "submenu/favorites.png", NULL);
+    if (native_rows[0]) decorate_category_row(native_rows[0], "submenu/books.png");
+    if (native_rows[1]) decorate_category_row(native_rows[1], "submenu/favorites.png");
     for (int i = 2; i < count; ++i) {
         if (!native_rows[i]) continue;
         if (items[i].icon_asset) {
@@ -375,7 +377,6 @@ static lv_obj_t * build_books_screen(void) {
             lv_obj_update_layout(native_rows[i]);
             configure_scrolling_row_label(label, lv_obj_get_width(native_rows[i]) - BOARD_SCALE_PX(96) - 60);
         }
-        decorate_category_row(native_rows[i], NULL, NULL);
     }
     for (int i = 0; i < count; ++i) items[i].out_row = NULL;
     finalize_screen_navigation(scr);

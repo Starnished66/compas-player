@@ -395,6 +395,14 @@ int metadata_db_get_songs_filtered_page(const char * query, const char * artist_
  * out_rows[i].album_artist carries the album artist identity. Offset-paginated. */
 int metadata_db_get_albums_page_filtered(const char * artist_or_album_artist_filter, int offset, int max_rows,
                                          group_row_t * out_rows);
+/* Walks a whole group list (artists, album artists, genres, or albums when
+ * by_albums, optionally filtered as above) page by page. Zero-initialize the
+ * walk, call until walk->done. Returns rows written, or -1 when the db is not
+ * ready, a record is unreadable, or the db was reloaded/changed since the
+ * first page; the list is then incomplete and must not be presented as whole. */
+typedef struct { int next; bool started, done; int32_t generation; uint32_t incarnation; } metadata_db_group_walk_t;
+int metadata_db_group_walk_page(metadata_db_group_walk_t * walk, bool by_albums, metadata_db_group_kind_t kind,
+                                const char * album_filter, int max_rows, group_row_t * out_rows);
 int metadata_db_get_albums_page_sorted(const char * artist_filter, metadata_db_album_sort_t sort,
                                       int offset, int max_rows, group_row_t * out_rows);
 int metadata_db_get_album_sorted_offset(metadata_db_album_sort_t sort, const char * album,

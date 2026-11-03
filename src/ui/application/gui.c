@@ -184,13 +184,6 @@ bool favorite_is_set = false;
  * forward-declared here since poll_dlna_control belongs alongside
  * every other per-tick background check in update_timer_cb. */
 static void poll_dlna_control(void);
-void poll_wifi_connect_saved(void);
-void poll_wifi_forget(void);
-void poll_bt_scan(void);
-void poll_bt_rate_query(void);
-void poll_bt_rate_apply(void);
-void poll_bt_connect(void);
-void poll_bt_forget(void);
 
 /* Full radio suspend after a long stretch with the screen off and nothing
  * going on -- deliberately separate from (and much longer than) the
@@ -2126,15 +2119,6 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
     }
 #ifndef HOST_BUILD
     boot_checkpoint("gui_init returning");
-#endif
-
-#ifdef TEST_BOOT_RC
-    /* The production startup path above deliberately resets session-only
-     * modes and persists them as disabled. Re-enable only in memory for this
-     * test build; never change the user's saved setting. The service startup
-     * does blocking Bluetooth work on its own worker thread. */
-    current_settings.remote_control_enabled = true;
-    gui_network_start_test_boot_services();
 #endif
 }
 
