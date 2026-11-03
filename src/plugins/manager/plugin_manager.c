@@ -6456,25 +6456,43 @@ static bool settings_item_matches_file(const plugin_list_item_t * item, const ch
            strcmp(owner->filename, filename) == 0;
 }
 
-bool plugin_manager_file_has_settings(const char * filename) {
-    int count = plugin_manager_get_settings_list_item_count();
-    for (int i = 0; i < count; i++) {
-        if (settings_item_matches_file(&plugin_list_items[PLUGIN_LIST_TARGET_SETTINGS][i], filename)) return true;
+/* Every list that is a page under Settings. Books, Music, the player menu and
+ * More are not settings pages, so their rows never count. Order decides which
+ * row is the primary one: Additional Tools first, then the sections. */
+static const int plugin_settings_targets[] = {
+    PLUGIN_LIST_TARGET_SETTINGS,       PLUGIN_LIST_TARGET_DISPLAY,        PLUGIN_LIST_TARGET_PLAYBACK,
+    PLUGIN_LIST_TARGET_MUSIC_AUDIO,    PLUGIN_LIST_TARGET_MUSIC_CONTROLS, PLUGIN_LIST_TARGET_MUSIC_TIMERS,
+    PLUGIN_LIST_TARGET_MUSIC_LIBRARY,  PLUGIN_LIST_TARGET_POWER,          PLUGIN_LIST_TARGET_SYSTEM,
+};
+
+/* First registered settings row of this exact file, across all settings lists. */
+static bool find_file_settings_row(const char * filename, int * out_target, int * out_index) {
+    for (size_t t = 0; t < sizeof(plugin_settings_targets) / sizeof(plugin_settings_targets[0]); t++) {
+        int target = plugin_settings_targets[t];
+        int count = generic_list_item_count(target);
+        for (int i = 0; i < count; i++) {
+            if (!settings_item_matches_file(&plugin_list_items[target][i], filename)) continue;
+            *out_target = target;
+            *out_index = i;
+            return true;
+        }
     }
     return false;
 }
 
+bool plugin_manager_file_has_settings(const char * filename) {
+    int target, index;
+    return find_file_settings_row(filename, &target, &index);
+}
+
 bool plugin_manager_open_file_settings(const char * filename) {
-    int count = plugin_manager_get_settings_list_item_count();
-    for (int i = 0; i < count; i++) {
-        if (!settings_item_matches_file(&plugin_list_items[PLUGIN_LIST_TARGET_SETTINGS][i], filename)) continue;
-        /* Keep the normal settings-row dispatch, which applies the user-action
-         * call budget and Lua error handling. Registration order selects the
-         * plugin's primary settings entry when it registered several. */
-        generic_list_item_clicked(PLUGIN_LIST_TARGET_SETTINGS, i);
-        return true;
-    }
-    return false;
+    int target, index;
+    if (!find_file_settings_row(filename, &target, &index)) return false;
+    /* Keep the normal settings-row dispatch, which applies the user-action
+     * call budget and Lua error handling. Registration order selects the
+     * plugin's primary settings entry when it registered several. */
+    generic_list_item_clicked(target, index);
+    return true;
 }
 
 int plugin_manager_get_display_list_item_count(void) { return generic_list_item_count(PLUGIN_LIST_TARGET_DISPLAY); }
