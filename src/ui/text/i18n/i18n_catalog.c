@@ -16,18 +16,18 @@ extern const i18n_entry_t i18n_entries_vi[];
 extern const i18n_entry_t i18n_entries_zh_CN[];
 
 const i18n_lang_t i18n_catalog_langs[] = {
-    {"de", "Deutsch", i18n_entries_de, 1171},
-    {"es", "Español", i18n_entries_es, 1171},
-    {"fi", "Suomi", i18n_entries_fi, 1171},
-    {"fr", "Français", i18n_entries_fr, 1171},
-    {"it", "Italiano", i18n_entries_it, 1171},
-    {"ja", "日本語", i18n_entries_ja, 1145},
-    {"nl", "Nederlands", i18n_entries_nl, 1171},
-    {"pt_BR", "Português (Brasil)", i18n_entries_pt_BR, 1171},
-    {"pt_PT", "Português (Portugal)", i18n_entries_pt_PT, 1171},
-    {"ru", "Русский", i18n_entries_ru, 1171},
-    {"uk", "Українська", i18n_entries_uk, 1171},
-    {"vi", "Tiếng Việt", i18n_entries_vi, 1145},
-    {"zh_CN", "简体中文", i18n_entries_zh_CN, 1145},
+    {"de", "Deutsch", i18n_entries_de, 1206},
+    {"es", "Español", i18n_entries_es, 1206},
+    {"fi", "Suomi", i18n_entries_fi, 1206},
+    {"fr", "Français", i18n_entries_fr, 1206},
+    {"it", "Italiano", i18n_entries_it, 1206},
+    {"ja", "日本語", i18n_entries_ja, 1205},
+    {"nl", "Nederlands", i18n_entries_nl, 1206},
+    {"pt_BR", "Português (Brasil)", i18n_entries_pt_BR, 1206},
+    {"pt_PT", "Português (Portugal)", i18n_entries_pt_PT, 1206},
+    {"ru", "Русский", i18n_entries_ru, 1206},
+    {"uk", "Українська", i18n_entries_uk, 1206},
+    {"vi", "Tiếng Việt", i18n_entries_vi, 1205},
+    {"zh_CN", "简体中文", i18n_entries_zh_CN, 1205},
 };
 const size_t i18n_catalog_lang_count = 13;
