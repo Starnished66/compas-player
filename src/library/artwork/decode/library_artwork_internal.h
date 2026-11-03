@@ -48,6 +48,11 @@ uint64_t song_album_thumbnail_key(const song_row_t * row);
 
 bool album_thumbnail_sized_cache_hit(const albumart_info_t * info, char * found, size_t found_size);
 bool album_player_cache_hit(const albumart_info_t * info, char * found, size_t found_size);
+/* Same checks with a precomputed albumart_source_mtime(info). */
+bool album_thumbnail_sized_cache_hit_with_art_mtime(const albumart_info_t * info, uint32_t art_mtime,
+                                                    char * found, size_t found_size);
+bool album_player_cache_hit_with_art_mtime(const albumart_info_t * info, uint32_t art_mtime,
+                                           char * found, size_t found_size);
 time_t album_source_mtime_with_art_mtime(const song_row_t * song, uint32_t art_mtime);
 time_t album_source_mtime(const song_row_t * song, const albumart_info_t * info);
 bool album_thumbnail_load_or_decode_with_mtime(const song_row_t * song, artwork_priority_t prio,

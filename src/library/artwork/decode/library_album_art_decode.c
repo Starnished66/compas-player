@@ -47,6 +47,18 @@ bool album_player_cache_hit(const albumart_info_t * info, char * found, size_t f
                                           found, found_size);
 }
 
+bool album_thumbnail_sized_cache_hit_with_art_mtime(const albumart_info_t * info, uint32_t art_mtime,
+                                                    char * found, size_t found_size) {
+    return albumart_sized_thumb_fresh_with_source_mtime(info, ALBUM_THUMBNAIL_PX, ALBUM_THUMBNAIL_PX,
+                                                        art_mtime, found, found_size);
+}
+
+bool album_player_cache_hit_with_art_mtime(const albumart_info_t * info, uint32_t art_mtime,
+                                           char * found, size_t found_size) {
+    return albumart_generated_cache_fresh_with_source_mtime(info, ALBUM_PLAYER_CACHE_PX, ALBUM_PLAYER_CACHE_PX,
+                                                            art_mtime, found, found_size);
+}
+
 bool gui_library_album_cover_cached(int64_t song_id, int size_px, char * out, size_t out_size) {
     if (!out || out_size == 0) return false;
     song_row_t row;

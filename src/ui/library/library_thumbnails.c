@@ -802,6 +802,7 @@ static bool album_thumb_gen_handoff_result(int my_generation,
     album_boot_preload_result_alias_song_id = result->alias_song_id;
     album_boot_preload_result_first_screen = result->first_screen;
     atomic_store(&album_boot_preload_state, ALBUM_BOOT_PRELOAD_PENDING);
+    ui_wake_notify(); /* commit on the next loop pass, not the next 50 ms poll */
 
     while (atomic_load(&album_boot_preload_state) != ALBUM_BOOT_PRELOAD_EMPTY) {
         if (album_thumb_gen_should_cancel(my_generation)) {
@@ -1210,6 +1211,22 @@ static bool album_artist_cache_keys(const char * album, const char * album_artis
     return true;
 }
 
+/* Decodes an already found thumbnail cache file; NULL on any load or decode failure. */
+static uint16_t * album_thumb_gen_read_thumbnail_file(const char * path, artwork_priority_t prio, int generation) {
+    uint16_t * pixels = NULL;
+    uint8_t * data = NULL;
+    uint32_t size = 0;
+    if (albumart_load_file_ex(path, &data, &size, THUMBNAIL_SIDECAR_MAX_BYTES, prio) == ALBUMART_LOAD_OK &&
+        cover_decode_to_rgb565_ex(data, size, ALBUM_THUMBNAIL_PX, ALBUM_THUMBNAIL_PX, prio,
+                                  album_thumb_gen_cancel_cb, (void *) (intptr_t) generation,
+                                  &pixels) != COVER_DECODE_OK) {
+        free(pixels);
+        pixels = NULL;
+    }
+    free(data);
+    return pixels;
+}
+
 static void * album_thumb_gen_thread_func(void * arg) {
     if (!album_thumb_gen_altstack_already_installed)
         install_thread_crash_altstack(); /* see its own comment (main.c) */
@@ -1287,6 +1304,9 @@ static void * album_thumb_gen_thread_func(void * arg) {
     group_row_t rows[ALBUM_THUMB_GEN_BATCH];
     int offset = 0;
     for (;;) {
+        /* Pacing only protects the card from extraction work; a batch of
+         * already cached albums is not followed by a pause. */
+        bool batch_worked = false;
         if (album_thumb_gen_should_cancel(my_generation)) break;
 
         /* Yield to visible lazy work or memory pressure. Playback uses the
@@ -1369,20 +1389,9 @@ static void * album_thumb_gen_thread_func(void * arg) {
                 uint16_t * cached_pixels = NULL;
                 char found[PATH_MAX];
                 if (albumart_generated_cache_fresh(&info, ALBUM_THUMBNAIL_PX, ALBUM_THUMBNAIL_PX,
-                                                   found, sizeof(found))) {
-                    uint8_t * data = NULL;
-                    uint32_t size = 0;
-                    if (albumart_load_file_ex(found, &data, &size, THUMBNAIL_SIDECAR_MAX_BYTES,
-                                              ARTWORK_PRIO_THUMBNAIL) == ALBUMART_LOAD_OK) {
-                        if (cover_decode_to_rgb565_ex(data, size, ALBUM_THUMBNAIL_PX, ALBUM_THUMBNAIL_PX,
-                                ARTWORK_PRIO_THUMBNAIL, album_thumb_gen_cancel_cb,
-                                (void *) (intptr_t) my_generation, &cached_pixels) != COVER_DECODE_OK) {
-                            free(cached_pixels);
-                            cached_pixels = NULL;
-                        }
-                    }
-                    free(data);
-                }
+                                                   found, sizeof(found)))
+                    cached_pixels = album_thumb_gen_read_thumbnail_file(found, ARTWORK_PRIO_THUMBNAIL,
+                                                                        my_generation);
                 if (!cached_pixels) {
                     atomic_store(&album_thumb_gen_retry_pending, true);
                 } else {
@@ -1399,11 +1408,13 @@ static void * album_thumb_gen_thread_func(void * arg) {
                     cached++;
                 }
                 atomic_fetch_add(&album_thumb_gen_done_count, 1);
+                batch_worked = true;
                 usleep(ALBUM_THUMB_GEN_INTER_ALBUM_US);
                 continue;
             }
 
-            time_t source_mtime = album_source_mtime(&song, &info);
+            uint32_t art_mtime = albumart_source_mtime(&info);
+            time_t source_mtime = album_source_mtime_with_art_mtime(&song, art_mtime);
 
             artwork_fail_reason_t fail_reason;
             if (artwork_failure_cache_is_blocked(song.id, source_mtime, &fail_reason)) {
@@ -1417,7 +1428,8 @@ static void * album_thumb_gen_thread_func(void * arg) {
                 continue;
             }
 
-            char found[PATH_MAX];
+            char thumb_found[PATH_MAX];
+            char player_found[PATH_MAX];
             /* Still enter the decode call below for the first ALBUM_THUMBNAIL_
              * CACHE_SIZE albums even when both persistent caches already exist
              * -- on every boot after the very first one this is nearly always
@@ -1428,9 +1440,10 @@ static void * album_thumb_gen_thread_func(void * arg) {
              * existing thumbnail sidecar's pixels immediately in this case without
              * touching the original source file, so this costs one cheap BMP
              * read+decode per album instead of a real cache regeneration. */
-            if (album_thumb_gen_ram_filled >= ALBUM_THUMBNAIL_CACHE_SIZE &&
-                album_thumbnail_sized_cache_hit(&info, found, sizeof(found)) &&
-                album_player_cache_hit(&info, found, sizeof(found))) {
+            bool art_cached =
+                album_thumbnail_sized_cache_hit_with_art_mtime(&info, art_mtime, thumb_found, sizeof(thumb_found)) &&
+                album_player_cache_hit_with_art_mtime(&info, art_mtime, player_found, sizeof(player_found));
+            if (album_thumb_gen_ram_filled >= ALBUM_THUMBNAIL_CACHE_SIZE && art_cached) {
                 cached++;
 #ifdef UI_PERF_TRACE
                 perf_skipped++;
@@ -1439,10 +1452,20 @@ static void * album_thumb_gen_thread_func(void * arg) {
                 continue;
             }
 
-            uint16_t * pixels = NULL;
-            album_thumbnail_load_or_decode_ex(&song, decode_prio,
-                                              album_thumb_gen_cancel_cb, (void *) (intptr_t) my_generation,
-                                              &pixels);
+            /* Both caches are fresh: read the thumbnail file found above rather
+             * than re-running the freshness checks inside the decode call. Any
+             * read failure falls back to it for corrupt-cache handling. A
+             * reload keeps the decode call, which records whether the
+             * thumbnail came from a user's file (album_thumbnail_reload_persisted). */
+            uint16_t * pixels = art_cached && !force_reload
+                ? album_thumb_gen_read_thumbnail_file(thumb_found, decode_prio, my_generation) : NULL;
+            /* The decode call may extract from the source, so it is paced. */
+            bool extracted = !pixels;
+            if (extracted) batch_worked = true;
+            if (!pixels)
+                album_thumbnail_load_or_decode_ex(&song, decode_prio,
+                                                  album_thumb_gen_cancel_cb, (void *) (intptr_t) my_generation,
+                                                  &pixels);
             if (!pixels && ((!user_visible && audio_is_playing()) || album_thumb_gen_should_cancel(my_generation) ||
                 (artwork_failure_cache_is_blocked(song.id, source_mtime, &fail_reason) &&
                  fail_reason == ARTWORK_FAIL_TEMPORARY)))
@@ -1506,13 +1529,13 @@ static void * album_thumb_gen_thread_func(void * arg) {
                        (unsigned long long) (db_log_now_ms() - started_ms), db_log_rss_kb());
             }
 
-            if (!user_visible) usleep(ALBUM_THUMB_GEN_INTER_ALBUM_US);
+            if (!user_visible && extracted) usleep(ALBUM_THUMB_GEN_INTER_ALBUM_US);
         }
         offset += n;
         if (single_album || n < ALBUM_THUMB_GEN_BATCH) break;
 
         /* Pause between batches to give CPU/SD bus complete rest */
-        if (!user_visible)
+        if (!user_visible && batch_worked)
             for (int p = 0; p < 10; p++) {
                 if (album_thumb_gen_should_cancel(my_generation)) goto done;
                 if (album_thumbnail_lazy_work_pending()) {

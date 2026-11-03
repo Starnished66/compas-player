@@ -69,6 +69,10 @@ bool albumart_sized_thumb_fresh_with_source_mtime(const albumart_info_t * info, 
  * accepts the hashed atomic BMP produced by albumart_store_rgb565(). */
 bool albumart_generated_cache_fresh(const albumart_info_t * info, int width, int height,
                                     char * found, size_t found_size);
+/* Same check with the caller's albumart_source_mtime(info), which costs a
+ * directory search, so a caller testing several caches computes it once. */
+bool albumart_generated_cache_fresh_with_source_mtime(const albumart_info_t * info, int width, int height,
+                                                      uint32_t source_mtime, char * found, size_t found_size);
 
 /* Shared case-insensitive (album, effective album artist) identity used by
  * tagcache album grouping, catalog album keys, and artwork thumbnail keys. */

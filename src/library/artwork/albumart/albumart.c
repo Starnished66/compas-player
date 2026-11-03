@@ -118,11 +118,11 @@ static bool try_albumart_cache(const char * dir, const albumart_info_t * id3, co
     const char * artist = id3->albumartist[0] ? id3->albumartist : id3->artist;
     if (!artist[0] || !id3->album[0]) return false;
     if (size_string[0]) {
-        int pathlen = snprintf(path, PATH_MAX, "%s/" ALBUMART_CACHE_PREFIX "%016llx%s.", dir,
+        /* Generated sized caches are only ever written as .bmp; each probe of
+         * another extension is a failed lookup in a large cache folder. */
+        int pathlen = snprintf(path, PATH_MAX, "%s/" ALBUMART_CACHE_PREFIX "%016llx%s.bmp", dir,
                                (unsigned long long) albumart_thumbnail_key(id3), size_string);
-        if (pathlen < 0 || pathlen >= PATH_MAX) return false;
-        fix_path_part(path, (int) strlen(dir) + 1, PATH_MAX);
-        return try_exts(path, pathlen);
+        return pathlen > 0 && pathlen < PATH_MAX && file_exists(path);
     }
     int pathlen = snprintf(path, PATH_MAX, "%s/%s-%s%s.", dir, artist, id3->album, size_string);
     if (pathlen < 0 || pathlen >= PATH_MAX) return false;
@@ -547,8 +547,8 @@ bool albumart_generated_cache_find(const albumart_info_t * info, int width, int 
     return true;
 }
 
-bool albumart_generated_cache_fresh(const albumart_info_t * info, int width, int height,
-                                    char * found, size_t found_size) {
+bool albumart_generated_cache_fresh_with_source_mtime(const albumart_info_t * info, int width, int height,
+                                                      uint32_t source_mtime, char * found, size_t found_size) {
     if (!info || !found || found_size == 0 || width <= 0 || height <= 0 ||
         !info->album[0] || !(info->albumartist[0] || info->artist[0]))
         return false;
@@ -559,9 +559,15 @@ bool albumart_generated_cache_fresh(const albumart_info_t * info, int width, int
 
     uint32_t stored = 0;
     if (!bmp_source_mtime(path, width, height, &stored)) return false;
-    if (generated_source_newer(stored, albumart_source_mtime(info))) return false;
+    if (generated_source_newer(stored, source_mtime)) return false;
     strmemccpy_local(found, path, found_size);
     return found[0] != '\0';
+}
+
+bool albumart_generated_cache_fresh(const albumart_info_t * info, int width, int height,
+                                    char * found, size_t found_size) {
+    return albumart_generated_cache_fresh_with_source_mtime(info, width, height, albumart_source_mtime(info),
+                                                            found, found_size);
 }
 
 static bool store_rgb565_file(const char * path, const char * dir, uint32_t src_mtime,
