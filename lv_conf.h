@@ -185,6 +185,12 @@ uint32_t gui_anim_ms(uint32_t base_ms); /* src/ui/appearance/gui_theme.c */
  * LV_CACHE_DEF_SIZE above, not here. */
 #define LV_IMAGE_HEADER_CACHE_DEF_CNT 32
 
+/* Loads a file .bin image whole (into the LV_CACHE_DEF_SIZE cache) instead of
+ * reading it a line at a time. The software renderer cannot scale or rotate a
+ * line-at-a-time image, so without this a scaled .bin file draws nothing:
+ * plugin list and grid icons, EPUB covers and book pictures. */
+#define LV_BIN_DECODER_RAM_LOAD 1
+
 /* Embedded album art (FLAC METADATA_BLOCK_PICTURE / MP3 ID3v2 APIC) is most
  * often JPEG, decoded straight from the in-memory bytes metadata.c already
  * extracted -- LVGL's tjpgd decoder can only read "from data" via a

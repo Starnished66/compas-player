@@ -478,7 +478,9 @@ static bool parse_img_tag(const unsigned char ** pptr, size_t * prem,
             }
         }
 
-        bool store_src = (strcmp(attr_name, "src") == 0 && img_src == NULL);
+        /* SVG <image> (EPUB cover pages) names its picture with href or xlink:href. */
+        bool store_src = img_src == NULL && (strcmp(attr_name, "src") == 0 || strcmp(attr_name, "href") == 0 ||
+                                             strcmp(attr_name, "xlink:href") == 0);
         bool store_alt = (strcmp(attr_name, "alt") == 0 && img_alt == NULL);
 
         if (has_val) {
@@ -878,7 +880,7 @@ html_status html_to_blocks(const void * data, size_t len, html_blocks * out) {
                     skip_to_unquoted_gt(&ptr, &rem);
                     continue;
                 }
-                if (strcmp(name, "img") == 0) {
+                if (strcmp(name, "img") == 0 || strcmp(name, "image") == 0) {
                     if (!flush_text_block(out, &capacity, &total_text_bytes, cur_kind, cur_level, scratch, &scratch_len, &in_block)) goto nomem;
                     if (!parse_img_tag(&ptr, &rem, out, &capacity, &total_text_bytes, scratch)) goto nomem;
                     continue;

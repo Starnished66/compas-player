@@ -9,6 +9,8 @@
 #include "../../../core/ui/display/startup_splash.h"
 #include "../../../core/system/runtime/board_config.h"
 #include <lvgl/lvgl.h>
+#include "lvgl/src/misc/cache/instance/lv_image_cache.h"
+#include "lvgl/src/misc/cache/instance/lv_image_header_cache.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -352,13 +354,28 @@ int l_plugin_image_startup_async(lua_State * L) {
                                         3, true, true, false);
 }
 
+void plugin_image_cache_forget(const char * path) {
+    char src[PATH_MAX + 2];
+    snprintf(src, sizeof(src), "S:%.*s", PATH_MAX - 1, path);
+    lv_image_cache_drop(src);
+    lv_image_header_cache_drop(src);
+}
+
+/* A finished job has already replaced dest_path, even when its callback is
+ * then skipped (cancelled, plugin aborted), so the cached image of that path
+ * is refreshed on every join. */
+static void plugin_zip_image_join(plugin_zip_image_t * job) {
+    pthread_join(job->thread, NULL);
+    if (job->ok && !job->startup_install) plugin_image_cache_forget(job->dest_path);
+}
+
 /* Delivers a finished job's callback (skipped when cancelled or the plugin
  * was aborted) and frees the slot. */
 void plugin_archive_bindings_poll(plugin_archive_guarded_call_fn guarded_call,
                                   plugin_archive_owner_aborted_fn owner_is_aborted) {
     plugin_zip_image_t * job = &plugin_zip_image;
     if (!job->active || !atomic_load(&job->done)) return;
-    pthread_join(job->thread, NULL);
+    plugin_zip_image_join(job);
     job->active = false;
     lua_State * L = job->L;
     int ref = job->callback_ref;
@@ -394,7 +411,7 @@ static void plugin_zip_image_cancel(bool aborted,
     plugin_zip_image_t * job = &plugin_zip_image;
     if (!job->active) return;
     atomic_store(&job->cancel, true);
-    pthread_join(job->thread, NULL);
+    plugin_zip_image_join(job);
     job->active = false;
     if (owner_is_aborted) aborted = owner_is_aborted(job->L);
     if (job->L && !aborted) luaL_unref(job->L, LUA_REGISTRYINDEX, job->callback_ref);

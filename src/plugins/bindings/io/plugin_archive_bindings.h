@@ -25,5 +25,8 @@ void plugin_archive_bindings_poll(plugin_archive_guarded_call_fn guarded_call,
 void plugin_archive_bindings_clear_owner(lua_State * normalized_owner, bool aborted);
 void plugin_archive_bindings_cancel_all(plugin_archive_owner_aborted_fn owner_is_aborted);
 bool plugin_archive_bindings_has_work(void);
+/* LVGL caches file images (pixels and header) by their "S:<path>" source.
+ * Call after a plugin-visible file is written so it does not draw stale. */
+void plugin_image_cache_forget(const char * path);
 
 #endif /* PLUGIN_ARCHIVE_BINDINGS_H */

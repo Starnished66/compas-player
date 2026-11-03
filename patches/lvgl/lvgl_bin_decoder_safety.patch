@@ -1,0 +1,74 @@
+diff --git a/src/libs/bin_decoder/lv_bin_decoder.c b/src/libs/bin_decoder/lv_bin_decoder.c
+index 9c31576..badbb73 100644
+--- a/src/libs/bin_decoder/lv_bin_decoder.c
++++ b/src/libs/bin_decoder/lv_bin_decoder.c
+@@ -148,6 +148,25 @@ lv_result_t lv_bin_decoder_info(lv_image_decoder_t * decoder, lv_image_decoder_d
+ 
+         /*File is always read to buf, thus data can be modified.*/
+         header->flags |= LV_IMAGE_FLAGS_MODIFIABLE;
++
++        /*Rows are read by stride but converted by width, so a stride shorter
++         *than the width would read past the loaded pixels. The loaders size
++         *buffers in 32 bits with a 16-bit row stride. Indexed rows expand to
++         *w * 4 bytes (ARGB8888) and alpha-only rows to stride * 8 / bpp bytes
++         *(A8, padding included); the factor 2 covers an A8 plane or palette.*/
++        uint32_t bpp = lv_color_format_get_bpp(header->cf);
++        uint64_t min_stride = ((uint64_t)header->w * bpp + 7) >> 3;
++        /*A zero stride means "derive it from the width", as lv_image_decoder.c
++         *would after this call; do it here so the bounds see the real value.*/
++        uint64_t stride = header->stride ? header->stride : min_stride;
++        uint64_t row_max = stride;
++        if(LV_COLOR_FORMAT_IS_INDEXED(header->cf) && (uint64_t)header->w * 4 > row_max) row_max = (uint64_t)header->w * 4;
++        else if(LV_COLOR_FORMAT_IS_ALPHA_ONLY(header->cf) && bpp) row_max = stride * 8 / bpp;
++        if(stride < min_stride || row_max > UINT16_MAX || row_max * header->h * 2 + 1024 > UINT32_MAX) {
++            LV_LOG_WARN("Image size not valid: %s", (char *)src);
++            return LV_RESULT_INVALID;
++        }
++        header->stride = (uint32_t)stride;
+     }
+     else if(src_type == LV_IMAGE_SRC_SYMBOL) {
+         /*The size depend on the font but it is unknown here. It should be handled outside of the
+@@ -623,15 +642,14 @@ static lv_result_t decode_indexed(lv_image_decoder_t * decoder, lv_image_decoder
+ 
+         indexed_data = draw_buf_indexed->data;
+ 
+-        uint32_t data_len = 0;
+-        if(lv_fs_seek(f, 0, LV_FS_SEEK_END) != LV_FS_RES_OK ||
+-           lv_fs_tell(f, &data_len) != LV_FS_RES_OK) {
+-            LV_LOG_WARN("Failed to get file to size");
++        /*Read exactly the pixels the header describes: the file's remaining
++         *length can exceed the buffer, or be shorter than the offset.*/
++        uint32_t data_offset = sizeof(lv_image_header_t) + palette_len;
++        uint32_t data_len = dsc->header.stride * dsc->header.h;
++        if(data_len > draw_buf_indexed->data_size) {
++            LV_LOG_WARN("Indexed image larger than its buffer");
+             goto exit_with_buf;
+         }
+-
+-        uint32_t data_offset = sizeof(lv_image_header_t) + palette_len;
+-        data_len -= data_offset;
+         res = fs_read_file_at(f, data_offset, (uint8_t *)indexed_data, data_len, &rn);
+         if(res != LV_FS_RES_OK || rn != data_len) {
+             LV_LOG_WARN("Read indexed image failed: %d, with len: %" LV_PRIu32 ", expected: %" LV_PRIu32, res, rn, data_len);
+@@ -765,16 +783,14 @@ static lv_result_t load_indexed(lv_image_decoder_t * decoder, lv_image_decoder_d
+             return LV_RESULT_INVALID;
+         }
+ 
+-        uint32_t data_len = 0;
+-        if(lv_fs_seek(f, 0, LV_FS_SEEK_END) != LV_FS_RES_OK ||
+-           lv_fs_tell(f, &data_len) != LV_FS_RES_OK) {
+-            LV_LOG_WARN("Failed to get file to size");
++        /*Read exactly the pixels the header describes, as decode_indexed().*/
++        uint32_t data_offset = sizeof(lv_image_header_t) + palette_len;
++        uint32_t data_len = dsc->header.stride * dsc->header.h;
++        if(palette_len > decoded->data_size || data_len > decoded->data_size - palette_len) {
++            LV_LOG_WARN("Indexed image larger than its buffer");
+             lv_draw_buf_destroy(decoded);
+             return LV_RESULT_INVALID;
+         }
+-
+-        uint32_t data_offset = sizeof(lv_image_header_t) + palette_len;
+-        data_len -= data_offset;
+         data += palette_len;
+         res = fs_read_file_at(f, data_offset, data, data_len, &rn);
+         if(res != LV_FS_RES_OK || rn != data_len) {

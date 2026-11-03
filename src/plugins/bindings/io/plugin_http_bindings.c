@@ -4,6 +4,7 @@
 #include "../../lua/plugin_lua_runtime.h"
 #include "../../storage/plugin_storage.h"
 #include "../../storage/plugin_reserved_dirs.h"
+#include "plugin_archive_bindings.h"
 
 #include "lauxlib.h"
 
@@ -556,12 +557,20 @@ int l_plugin_cancel(lua_State * L) {
 }
 
 
+/* A finished download has already replaced dest_path, even when its
+ * callback is then skipped (cancelled, owner gone), so the cached image of
+ * that path is refreshed on every join. */
+static void join_request(plugin_async_http_t * req) {
+    pthread_join(req->thread, NULL);
+    if (req->is_download && req->ok) plugin_image_cache_forget(req->dest_path);
+}
+
 void plugin_http_bindings_clear_owner(lua_State * owner, bool aborted) {
     for (int i = 0; i < PLUGIN_MAX_ASYNC_HTTP; i++) {
         plugin_async_http_t * req = &plugin_async_http[i];
         if (!req->active || req->L != owner) continue;
         http_cancel_token_cancel(&req->cancel);
-        pthread_join(req->thread, NULL);
+        join_request(req);
         if (!aborted) luaL_unref(owner, LUA_REGISTRYINDEX, req->callback_ref);
         free(req->response_body);
         req->response_body = NULL;
@@ -578,7 +587,7 @@ void plugin_http_bindings_cancel_all(void) {
         plugin_async_http_t * req = &plugin_async_http[i];
         if (!req->active) continue;
         http_cancel_token_cancel(&req->cancel);
-        pthread_join(req->thread, NULL);
+        join_request(req);
         luaL_unref(req->L, LUA_REGISTRYINDEX, req->callback_ref);
         free(req->response_body);
         req->response_body = NULL;
@@ -595,7 +604,7 @@ void plugin_http_bindings_poll(plugin_http_guarded_call_fn guarded_call) {
     for (int i = 0; i < PLUGIN_MAX_ASYNC_HTTP; i++) {
         plugin_async_http_t * req = &plugin_async_http[i];
         if (!req->active || !atomic_load(&req->done)) continue;
-        pthread_join(req->thread, NULL);
+        join_request(req);
 
         if (!http_cancel_token_is_cancelled(&req->cancel)) {
             lua_rawgeti(req->L, LUA_REGISTRYINDEX, req->callback_ref);

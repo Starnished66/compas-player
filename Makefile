@@ -282,6 +282,10 @@ LVGL_BIDI_LTR_FASTPATH_PATCH := patches/lvgl/lvgl_bidi_ltr_fastpath.patch
 LVGL_BINFONT_SAFETY_PATCH := patches/lvgl/lvgl_binfont_safety.patch
 LVGL_BINFONT_LOADER := $(LVGL_DIR)/src/font/binfont_loader/lv_binfont_loader.c
 LVGL_FS_CORE := $(LVGL_DIR)/src/misc/lv_fs.c
+# LV_BIN_DECODER_RAM_LOAD (lv_conf.h) reads indexed .bin pixels into a buffer
+# sized from the header; upstream read the file's whole remainder into it.
+LVGL_BIN_DECODER_SAFETY_PATCH := patches/lvgl/lvgl_bin_decoder_safety.patch
+LVGL_BIN_DECODER := $(LVGL_DIR)/src/libs/bin_decoder/lv_bin_decoder.c
 LVGL_EVDEV_FRAMES_PATCH := patches/lvgl/lvgl_evdev_frames.patch
 LVGL_EVDEV_C := $(LVGL_DIR)/src/drivers/evdev/lv_evdev.c
 LVGL_GENERATED_FONTS_DIR := patches/lvgl_generated_fonts
@@ -1008,7 +1012,8 @@ $(HOST_BIN): $(HOST_OBJS) $(HOST_AUDIO_LIBS) $(HOST_VARIANT_STAMP)
 $(LVGL_PATCH_STAMP): $(LVGL_FBDEV_C) $(LVGL_FBDEV_H) $(LVGL_PATCH) \
                      $(LVGL_TINY_TTF) $(LVGL_TJPGDCNF) $(LVGL_LRU_RB) $(LVGL_LODEPNG) $(LVGL_OBJ_POS) $(LVGL_DRAW_IMAGE) $(LVGL_SW_TRANSFORM) $(LVGL_RUNTIME_FIXES_PATCH) $(LVGL_UI_PERF_TRACE_PATCH) $(LVGL_SCROLL_BLIT_PATCH) $(LVGL_STYLE_REDRAW_PATCH) $(LVGL_MARQUEE_REDRAW_PATCH) $(LVGL_BLUR_WALK_SKIP_PATCH) \
                      $(LVGL_EVDEV_C) $(LVGL_EVDEV_FRAMES_PATCH) $(LVGL_TEXTAREA_ARABIC_PATCH) $(LVGL_BIDI_LTR_FASTPATH_PATCH) \
-                     $(LVGL_BINFONT_LOADER) $(LVGL_FS_CORE) $(LVGL_BINFONT_SAFETY_PATCH) scripts/tools/patches/apply-tracked-patch.sh \
+                     $(LVGL_BINFONT_LOADER) $(LVGL_FS_CORE) $(LVGL_BINFONT_SAFETY_PATCH) \
+                     $(LVGL_BIN_DECODER) $(LVGL_BIN_DECODER_SAFETY_PATCH) scripts/tools/patches/apply-tracked-patch.sh \
                      $(LVGL_FONT_TARGETS) $(LVGL_FONT_GOLDEN)
 	@set -e; \
 	actual_commit=$$(git -C $(LVGL_DIR) rev-parse HEAD 2>/dev/null || echo ""); \
@@ -1079,6 +1084,7 @@ $(LVGL_PATCH_STAMP): $(LVGL_FBDEV_C) $(LVGL_FBDEV_H) $(LVGL_PATCH) \
 	  exit 1; \
 	fi; \
 	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_BINFONT_SAFETY_PATCH); \
+	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_BIN_DECODER_SAFETY_PATCH); \
 	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_TEXTAREA_ARABIC_PATCH); \
 	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_BIDI_LTR_FASTPATH_PATCH); \
 	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_UI_PERF_TRACE_PATCH); \
