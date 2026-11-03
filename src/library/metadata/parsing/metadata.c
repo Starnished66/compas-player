@@ -6,6 +6,7 @@
 #include "../../artwork/support/library_endian.h"
 #include "../../text/lyrics/lyrics.h"
 
+#include "../../../audio/engine/audio_dr_config.h" /* before dr_flac.h: same struct drflac layout as the engine */
 #include "dr_flac.h"
 #include "dr_wav.h"
 #include "../../../audio/decoders/ogg/ogg_probe.h"

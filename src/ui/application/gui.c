@@ -410,12 +410,16 @@ static void apply_screen_runtime_state(bool screen_on) {
         else lv_timer_pause(refr_timer);
     }
 
+#ifdef UI_PERF_TRACE
     int indev_timer_count = 0;
+#endif
     for (lv_indev_t * indev = lv_indev_get_next(NULL); indev; indev = lv_indev_get_next(indev)) {
         lv_timer_t * read_timer = lv_indev_get_read_timer(indev);
         if (!read_timer) continue;
         ui_input_set_runtime_timer(indev, screen_on);
+#ifdef UI_PERF_TRACE
         indev_timer_count++;
+#endif
     }
 
     if (screen_on) lv_async_call(full_redraw_async_cb, NULL);
@@ -1661,7 +1665,7 @@ const char * gui_plugin_get_current_track_path(void) {
 /* ---- Subsonic-compatible network streaming ----
  *
  * mp3/flac songs (the two decoders audio.c can open against a true network
- * stream -- see decoder_open()'s own comment in audio.c) play directly off
+ * stream -- see decoder_open()'s own comment in audio_decoder_open.c) play directly off
  * the server via subsonic_song_row_click_cb() below, no local file at all.
  * Every other format (aac/ogg/wma/m4a/ape/opus/wav/aiff/dsf -- whatever
  * this server's own transcoding settings hand back) still downloads the

@@ -120,7 +120,7 @@ void audio_init(void);
  * path starting with "http://" or "https://", which is instead opened as a
  * network stream. Format comes from a #.ext fragment, then the URL path
  * extension, then Content-Type, and otherwise MP3 (see decoder_open() in
- * audio.c). A live stream reports a duration of 0 (see
+ * audio_decoder_open.c). A live stream reports a duration of 0 (see
  * audio_get_duration_seconds()), can't be seeked, and never reaches true
  * EOF, so auto-advance and gapless/crossfade into/out of it never engage --
  * all by construction of total_frames staying 0, not a special case
@@ -293,8 +293,6 @@ typedef void (*audio_waveform_progress_callback_t)(const uint8_t * bins,
  * must be in 1..256; `cancel`, when provided, is polled between decode reads.
  * Requires a known complete duration, sample rate <=192kHz, and duration <=2h;
  * DSD and APE are intentionally unsupported for this background preview. */
-bool audio_extract_waveform(const char * path, uint8_t * bins, size_t count,
-                            bool (*cancel)(void *), void * user);
 /* Progress variant. Publishes normalized prefixes after each four completed
  * bins and once at the terminal prefix when it is not a four-bin boundary.
  * Any progress snapshot is provisional and must not be treated as final/cacheable.
@@ -333,14 +331,14 @@ int audio_clamp_volume_percent(int percent);
  * Lowering it immediately clamps current volume; raising it does not restore it. */
 void audio_set_max_volume_percent(int percent);
 
-/* Shared with plugin_manager.c's own array-length validation for
+/* Shared with plugin_playback_bindings.c's own array-length validation for
  * plugin.set_hw_volume_curve() -- defined once here, rather than as a
  * separate local #define in each .c file, so the two can't drift apart. */
 #define HW_VOLUME_CURVE_LEN 101
 
 /* Overrides the UI-volume -> hardware-DAC-register mapping used for the
  * internal codec's own "Left"/"Right Playback Volume" ALSA controls (see
- * audio_apply_volume()'s own comment in audio.c). curve[i], i=0..100, is
+ * audio_apply_volume()'s own comment in audio_volume.c). curve[i], i=0..100, is
  * the raw register value (0-255, hardware-specific meaning, not a dB
  * value) written for UI volume i% -- including curve[0], which stands in
  * for the native taper's own mute/silence handling. Pass NULL to fall
@@ -356,7 +354,7 @@ void audio_set_max_volume_percent(int percent);
  * (re)load transaction (covers both a full deinit/init reload AND each
  * individual plugin's own top-level run within plugin_manager_init()'s
  * load loop), which needs the staging functions below instead.
- * plugin_manager.c itself decides which of the two applies (checking
+ * plugin_playback_bindings.c itself decides which of the two applies (checking
  * whether a plugin's own top-level script is currently running), not this
  * file -- see l_plugin_set_hw_volume_curve()'s own comment. Mutates ONLY
  * the live state audio_apply_volume() below actually reads -- never the
@@ -387,7 +385,7 @@ void audio_set_custom_hw_volume_curve(const uint8_t * curve);
  * audio_apply_volume() reads is not enough on its own to prevent that,
  * even with the write itself deferred: a plugin (re)load transaction runs
  * synchronously on the UI thread, but audio_request_volume()'s own
- * worker thread (a queued volume-slider drag sample, audio.c) runs
+ * worker thread (a queued volume-slider drag sample, audio_volume.c) runs
  * independently and can call audio_apply_volume() -- which DOES write
  * hardware immediately, unconditionally, by design -- at any moment,
  * including mid-transaction; if that read the live state, it could send

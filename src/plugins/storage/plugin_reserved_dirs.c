@@ -76,8 +76,10 @@ static bool has_reserved_component(const char * path) {
 static bool is_approval_file(const char * path) {
     char approval[PATH_MAX], tmp[PATH_MAX];
     if (!normalize(APP_APPROVAL_FILE, approval, sizeof(approval))) return false;
-    snprintf(tmp, sizeof(tmp), "%s.tmp", approval);
-    return strcmp(path, approval) == 0 || strcmp(path, tmp) == 0;
+    if (strcmp(path, approval) == 0) return true;
+    /* A name too long to carry ".tmp" inside PATH_MAX cannot exist, so it cannot match. */
+    int len = snprintf(tmp, sizeof(tmp), "%s.tmp", approval);
+    return len >= 0 && (size_t) len < sizeof(tmp) && strcmp(path, tmp) == 0;
 }
 
 static bool is_reserved_identity(const struct stat * st, const struct stat * reserved, int count) {

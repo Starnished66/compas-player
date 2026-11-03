@@ -2942,7 +2942,7 @@ void poll_usb_mode_switch(void) {
      * as a USB sound card. Storage/ADB have no such conflict (the app
      * keeps running normally), so they don't get an overlay. */
     if (usb_mode_switch_target == USB_MODE_DAC) {
-        /* Same three-way mutual exclusion as bt_dac_toggle_cb()/
+        /* Same three-way mutual exclusion as the Bluetooth DAC toggle/
          * airplay_toggle_cb() -- all three (local playback, Bluetooth DAC,
          * AirPlay) fight over the same hw:0,0 output. usb_dac_bridge_start()
          * (called from usb_mode_control_apply(), already run on the
@@ -3745,7 +3745,7 @@ static void remote_import_handle_wifi_disabled(void) {
 /* ---- Shared Wi-Fi dependency guard for AirPlay/DLNA --
  * these require the Wi-Fi radio/interface to be enabled
  * (NOT association with an access point; individual screens keep showing
- * their own existing "connect first" state for that). Checks gui_shell.c's
+ * their own existing "connect first" state for that). Checks gui_shell_wifi.c's
  * effective state (an in-flight disable counts as already off, see that
  * function's own comment) rather than wifi_control_is_enabled() directly,
  * shows the exact required toast, and returns false -- callers must bail
@@ -4560,7 +4560,7 @@ static void dlna_tile_cb(lv_event_t * e) {
 }
 
 /* Centralized Wi-Fi-disabled cleanup for Wi-Fi-dependent features
- * -- called by gui_shell.c's poll_wifi_toggle() only once a Wi-Fi disable is
+ * -- called by gui_shell_wifi.c's poll_wifi_toggle() only once a Wi-Fi disable is
  * authoritatively confirmed (see that call site's own comment). Stops
  * whichever of AirPlay/DLNA/remote file import is actually running and
  * corrects their persisted settings, refreshing any of their

@@ -1,4 +1,6 @@
+#ifndef _GNU_SOURCE /* the host build also passes -D_GNU_SOURCE=1 */
 #define _GNU_SOURCE
+#endif
 #include "bt_cover_art.h"
 
 #include <dirent.h>

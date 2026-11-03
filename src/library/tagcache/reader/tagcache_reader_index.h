@@ -745,7 +745,10 @@ static void reader_member_names(int kind, const reader_member_t *member, const t
     if (kind == TAGCACHE_GROUP_ARTIST) {
         char names[TAGCACHE_ARTIST_SPLIT_MAX][TAGCACHE_PATH_MAX];
         int n = split_artist(song->artist, names);
-        snprintf(name, TAGCACHE_PATH_MAX, "%s", member->ordinal >= 0 && member->ordinal < n ? names[member->ordinal] : "");
+        const char *picked = "";
+        if (member->ordinal >= 0 && member->ordinal < n && member->ordinal < TAGCACHE_ARTIST_SPLIT_MAX)
+            picked = names[member->ordinal];
+        snprintf(name, TAGCACHE_PATH_MAX, "%.*s", TAGCACHE_PATH_MAX - 1, picked); /* rows are PATH_MAX-sized */
     } else if (kind == TAGCACHE_GROUP_ALBUM_ARTIST) {
         snprintf(name, TAGCACHE_PATH_MAX, "%s", song->album_artist);
     } else {

@@ -167,7 +167,7 @@ static inline void apply_ramp(int16_t * buf, uint64_t frames, unsigned int chann
 
 /* Same as apply_ramp() but for the S24_LE wide path's int32_t buffers
  * (right-justified 24-in-32, see decoder_read_s32()'s own comment in
- * audio.c) -- clamp bounds are the 24-bit range (2^23) instead of int16's,
+ * audio_decoder_io.c) -- clamp bounds are the 24-bit range (2^23) instead of int16's,
  * everything else is identical. */
 static inline void apply_ramp_s32(int32_t * buf, uint64_t frames, unsigned int channels, float start_gain, float end_gain) {
     if (!buf || frames == 0 || channels == 0) return;

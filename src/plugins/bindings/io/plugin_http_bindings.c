@@ -582,13 +582,13 @@ void plugin_http_bindings_clear_owner(lua_State * owner, bool aborted) {
         req->callback_ref = LUA_NOREF;
     }
 }
-void plugin_http_bindings_cancel_all(void) {
+void plugin_http_bindings_cancel_all(plugin_http_owner_aborted_fn owner_is_aborted) {
     for (int i = 0; i < PLUGIN_MAX_ASYNC_HTTP; i++) {
         plugin_async_http_t * req = &plugin_async_http[i];
         if (!req->active) continue;
         http_cancel_token_cancel(&req->cancel);
         join_request(req);
-        luaL_unref(req->L, LUA_REGISTRYINDEX, req->callback_ref);
+        if (!owner_is_aborted(req->L)) luaL_unref(req->L, LUA_REGISTRYINDEX, req->callback_ref);
         free(req->response_body);
         req->response_body = NULL;
         req->response_body_size = 0;
@@ -600,13 +600,16 @@ void plugin_http_bindings_cancel_all(void) {
     }
 }
 
-void plugin_http_bindings_poll(plugin_http_guarded_call_fn guarded_call) {
+void plugin_http_bindings_poll(plugin_http_guarded_call_fn guarded_call,
+                               plugin_http_owner_aborted_fn owner_is_aborted) {
     for (int i = 0; i < PLUGIN_MAX_ASYNC_HTTP; i++) {
         plugin_async_http_t * req = &plugin_async_http[i];
         if (!req->active || !atomic_load(&req->done)) continue;
         join_request(req);
 
-        if (!http_cancel_token_is_cancelled(&req->cancel)) {
+        /* A hard-aborted owner is frozen: no callback, no registry access. */
+        bool owner_aborted = owner_is_aborted(req->L);
+        if (!http_cancel_token_is_cancelled(&req->cancel) && !owner_aborted) {
             lua_rawgeti(req->L, LUA_REGISTRYINDEX, req->callback_ref);
             int callback_args;
             if (req->is_download) {
@@ -648,14 +651,14 @@ void plugin_http_bindings_poll(plugin_http_guarded_call_fn guarded_call) {
                                            ? req->response_error : "network error or response limit exceeded");
                 callback_args = 3;
             }
-            if (guarded_call(req->L, callback_args, 0, 0) != LUA_OK) {
+            if (guarded_call(req->L, callback_args, 0, 0) != LUA_OK && !owner_is_aborted(req->L)) {
                 const char * err = lua_tostring(req->L, -1);
                 fprintf(stderr, "[plugins] HTTP callback error: %s\n", err ? err : "unknown error");
                 lua_pop(req->L, 1);
             }
         }
 
-        luaL_unref(req->L, LUA_REGISTRYINDEX, req->callback_ref);
+        if (!owner_is_aborted(req->L)) luaL_unref(req->L, LUA_REGISTRYINDEX, req->callback_ref);
         free(req->response_body);
         req->response_body = NULL;
         req->response_body_size = 0;

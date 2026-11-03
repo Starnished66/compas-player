@@ -203,7 +203,7 @@ void library_az_index_poll(lv_timer_t * timer) {
          * upward list swipe that drifts rightward lands in the strip near
          * the end of its travel, silently changes owner, and jumps the list
          * to a letter. Deciding at press-down is the same latching
-         * drag_adjust_press_owned (gui_shell.c) already uses for sliders,
+         * drag_adjust_press_owned (gui_shell_gestures.c) already uses for sliders,
          * and it is what the report itself asked for. The press-begun-
          * before-the-strip-appeared case is given up deliberately: the
          * strip is not on screen to aim at then anyway, so nothing is lost
@@ -278,7 +278,7 @@ void library_az_index_reset_drag(void) {
     }
     az_index_dragging = false;
     /* Safe to clear even mid-press: this pauses the timer below, and it is
-     * only ever resumed on a raw press-DOWN edge (gui_shell.c's indev
+     * only ever resumed on a raw press-DOWN edge (gui_shell_gestures.c's indev
      * hooks), so the remainder of an in-flight press cannot be re-judged at
      * a drifted position. Leaving it set would instead disable the strip
      * for the whole of the NEXT press. */

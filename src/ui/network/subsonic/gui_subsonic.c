@@ -958,7 +958,7 @@ static void subsonic_fill_stream_queue_entry(const subsonic_server_t * server, c
     char url[1536];
     subsonic_build_stream_url_quality(server, song->id, quality_kbps, url, sizeof(url));
     /* The "#.<suffix>" appended here is a local-only hint consumed by
-     * audio.c's decoder_open() (stream_format_hint()); http_conn_parse_url()
+     * audio_decoder_open.c's decoder_open() (stream_format_hint()); http_conn_parse_url()
      * strips it before it ever reaches the actual HTTP request, so it has
      * no effect on the server-facing URL. */
     size_t len = strlen(url);
@@ -1567,7 +1567,7 @@ void poll_subsonic_connect(void) {
  * radio-on alone isn't enough: this checks wifi_get_status(), the same
  * "wpa_state=COMPLETED" real-association check the topbar's own Wi-Fi icon
  * uses, already an accepted synchronous-on-the-UI-thread call elsewhere in
- * this codebase (refresh_wifi_icon(), gui_shell.c) since it's a single fast
+ * this codebase (refresh_wifi_icon(), gui_shell_wifi.c) since it's a single fast
  * subprocess call, not a network round-trip of its own. Checked at the
  * tile (don't even open the entry screen) AND here in start_subsonic_
  * connect() (the actual single choke point both Saved Servers and New

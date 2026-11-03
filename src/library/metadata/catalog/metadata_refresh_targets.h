@@ -5,11 +5,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-static bool metadata_refresh_should_skip_commit(int changed_count, bool row_deleted, bool row_inserted) {
+static inline bool metadata_refresh_should_skip_commit(int changed_count, bool row_deleted, bool row_inserted) {
     return changed_count == 0 && !row_deleted && !row_inserted;
 }
 
-static int metadata_refresh_target_path_compare(const void * a, const void * b) {
+static inline int metadata_refresh_target_path_compare(const void * a, const void * b) {
     const char * const * left = a;
     const char * const * right = b;
     return strcmp(*left, *right);
@@ -17,7 +17,7 @@ static int metadata_refresh_target_path_compare(const void * a, const void * b) 
 
 /* Copies, sorts, and removes duplicate paths. Returns the number of unique
  * owned strings, or zero on invalid input or allocation failure. */
-static int metadata_refresh_copy_unique_paths(const char * const * paths, int count, char *** out_paths) {
+static inline int metadata_refresh_copy_unique_paths(const char * const * paths, int count, char *** out_paths) {
     if (!out_paths) return 0;
     *out_paths = NULL;
     if (!paths || count <= 0) return 0;

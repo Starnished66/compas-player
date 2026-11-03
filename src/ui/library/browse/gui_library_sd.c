@@ -35,9 +35,11 @@ static gui_busy_handle_t sd_format_token = 0;
  * halves of the feature -- the gated detection logic below, and the
  * ungated popups/background thread that come after it in this file -- can
  * see them regardless of which one is defined first. */
-static void show_sd_mount_failed_popup(void); /* defined below, alongside its popup */
 static bool sd_mount_fail_notified = false;
-static bool sd_handoff_pending = false;
+#ifndef HOST_BUILD
+static void show_sd_mount_failed_popup(void); /* defined below, alongside its popup */
+static bool sd_handoff_pending = false; /* only the target's hotplug logic latches it */
+#endif
 
 bool file_folder_job_storage_invalidated(void) {
 #ifdef HOST_BUILD
@@ -682,9 +684,11 @@ static void sd_format_confirm_cb(lv_event_t * e) {
 }
 
 /* Displayed when persistent SD card mount failure is detected. */
+#ifndef HOST_BUILD
 static void show_sd_mount_failed_popup(void) {
     gui_popup_show(&sd_mount_failed_popup);
 }
+#endif
 
 void build_sd_mount_failed_popup(void) {
     sd_mount_failed_popup.popup = build_confirm_popup(

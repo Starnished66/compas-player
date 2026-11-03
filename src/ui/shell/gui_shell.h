@@ -38,9 +38,7 @@ void gui_shell_refresh_quick_drawer_cover(void);
  * image_recolor cannot retint without flattening the glyph too) and
  * re-points the widgets at the new buffers. Call after the accent changes. */
 void gui_shell_refresh_quick_drawer_toggle_accent(void);
-void gui_shell_update_quick_drawer_favorite(bool is_favorite);
 void gui_shell_update_quick_drawer_play_state(bool is_playing);
-void gui_shell_update_quick_drawer_play_mode(int mode);
 
 void gui_shell_init(uint32_t screen_width, uint32_t screen_height);
 /* The screen-construction half of gui_shell_init(), without the Bluetooth-
@@ -54,7 +52,6 @@ void gui_shell_teardown(void);
 void gui_shell_refresh_static_assets(void);
 void refresh_clock_label(void);
 void refresh_battery_topbar(void);
-void refresh_wifi_topbar(void);
 void refresh_volume_topbar(int32_t percent);
 void gui_shell_apply_topbar_settings(void);
 void quick_drawer_mark_snapshot_dirty(void);
@@ -74,7 +71,6 @@ void unregister_swipe_dead_zone(lv_obj_t * obj);
 /* For gui_reload.c's in-process UI reload -- see its own comment. Must run
  * before any screen's sliders are actually deleted. */
 void reset_swipe_dead_zones(void);
-void poll_quick_drawer(void);
 void open_quick_drawer(void);
 void close_quick_drawer(void);
 
@@ -102,12 +98,10 @@ int quick_drawer_sleep_timer_remaining_seconds(void);
 void gui_shell_resume_connections(bool wifi_was_on, bool bt_was_on);
 
 void gui_shell_suspend_connections(bool * wifi_was_on, bool * bt_was_on);
-void refresh_headphone_icon(void);
 
 void gui_shell_update_topbar(bool screen_just_woke);
 
 bool point_in_swipe_dead_zone(lv_point_t p);
-void gui_shell_resume_fast_timers(void);
 void gui_shell_reset_drag_state(void);
 /* Set the raw-touch guard after an external session reset. Held contacts stay
  * suppressed until their release; when no contact is held, the next tap works. */

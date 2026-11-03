@@ -345,7 +345,7 @@ typedef struct {
      * comment). "small"/"medium"/"large" -> app_font_16/22/28
      * (fallback_font.h) -- the fallback-capable family, since plugin row
      * text (unlike native chrome) may be non-Latin. Validated by the Lua
-     * boundary in plugin_manager.c; this layer trusts it's already one of
+     * boundary in plugin_registries.c; this layer trusts it's already one of
      * the three recognized values or NULL. */
     const char * text_size;
 
@@ -422,7 +422,7 @@ void pill_row_apply_icon(lv_obj_t * row, lv_obj_t * label, const char * icon_pat
  * this, precisely so NULL unambiguously means "a genuine native row" here,
  * never "a plugin row that happened not to set text_size"). "small"/
  * "medium"/"large" -> &app_font_16/22/28 (fallback_font.h). Any other
- * string (shouldn't happen -- plugin_manager.c validates at the Lua
+ * string (shouldn't happen -- plugin_registries.c validates at the Lua
  * boundary) falls back to app_font_20 rather than dereferencing garbage. */
 const lv_font_t * pill_row_resolve_text_size(const char * text_size);
 

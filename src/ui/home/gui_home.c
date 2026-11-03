@@ -16,7 +16,7 @@
 #include <string.h>
 
 /* Published order for plugin.set_home_layout()'s `key` field (home_layout.h)
- * -- the one and only place this order is spelled out; plugin_manager.c
+ * -- the one and only place this order is spelled out; plugin_ui_bindings.c
  * validates a Lua `key` string against this same array rather than keeping
  * its own copy that could drift out of sync. */
 const char * const home_layout_tile_keys[HOME_LAYOUT_TILE_COUNT] = {

@@ -518,7 +518,7 @@ static void lock_touch_timer_cb(lv_timer_t * timer) {
      * wrongly fall through to the halfway-position cancel path despite the
      * confirmed upward movement. just_confirmed still defers only the frame
      * PRESENTATION (slide_transition_anim_x_cb) to the next tick, not this
-     * position sampling -- matching gui_shell.c's home-swipe/back-swipe. */
+     * position sampling -- matching gui_shell_gestures.c's home-swipe/back-swipe. */
     if (pressed && lock_swipe_tracking) {
         int32_t v = p.y - lock_swipe_touch_start_y;
         if (v < -screen_height) v = -screen_height;

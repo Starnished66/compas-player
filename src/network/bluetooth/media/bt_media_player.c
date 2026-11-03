@@ -333,7 +333,7 @@ static DBusHandlerResult handle_properties_get_all(DBusConnection * c, DBusMessa
 
 /* MPRIS's Volume/LoopStatus/Rate are writable in the spec, but this app
  * doesn't use MPRIS for volume (see bt_control_source_volume_sync_start()
- * in bluetooth_control.c) and has no remotely-controllable loop-status/rate
+ * in bt_source_volume.c) and has no remotely-controllable loop-status/rate
  * concept. Accept and ignore rather than erroring, so a conformant MPRIS
  * client doesn't get an unexpected failure for a property it expects to be
  * settable. */

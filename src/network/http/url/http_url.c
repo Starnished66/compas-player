@@ -34,7 +34,7 @@ bool http_conn_parse_url(const char * url, bool * out_https, char * host, size_t
 
     /* A "#fragment" is purely client-side (RFC 3986) and must never be sent
      * to the server -- strip it before it becomes part of the request path.
-     * (audio.c's decoder_open() deliberately relies on this: it reads a
+     * (audio_decoder_open.c's decoder_open() deliberately relies on this: it reads a
      * "#.<ext>" suffix off a stream URL as a local-only format hint before
      * ever handing the URL to this function, so the fragment must not leak
      * into the actual HTTP request line.) */

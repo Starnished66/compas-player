@@ -202,8 +202,10 @@ static void apply_requested_brightness(void) {
     bool on = screen_on;
     bool preparing = screen_preparing;
     uint64_t generation = screen_power_generation;
+#ifndef HOST_BUILD
     int normal = restore_percent;
     int target = screen_dimmed && normal > 5 ? 5 : normal;
+#endif
     bool resync = fb_blank_resync_requested;
     fb_blank_resync_requested = false;
     pthread_mutex_unlock(&screen_power_mutex);

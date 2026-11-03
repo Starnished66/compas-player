@@ -24,15 +24,17 @@
  * is 50ms rather than an original 200ms. */
 #define POLL_INTERVAL_MS 50
 
+#ifndef HOST_BUILD
 typedef enum {
     META_STOPPED = 0,
     META_RUNNING,
     META_STOPPING,
 } meta_state_t;
-
-static pthread_mutex_t meta_mutex = PTHREAD_MUTEX_INITIALIZER;
 static meta_state_t meta_state = META_STOPPED;
 static bool restart_requested = false;
+#endif
+
+static pthread_mutex_t meta_mutex = PTHREAD_MUTEX_INITIALIZER;
 static volatile bool stop_requested = false;
 
 static bool pending_valid = false;
@@ -62,6 +64,7 @@ static void free_pending_locked(void) {
     pending_valid = false;
 }
 
+#ifndef HOST_BUILD
 static void publish_pending(char * title, char * artist, char * album, char * artwork_file) {
     unsigned int my_generation;
     pthread_mutex_lock(&meta_mutex);
@@ -126,6 +129,7 @@ static void publish_pending(char * title, char * artist, char * album, char * ar
     pending_valid = true;
     pthread_mutex_unlock(&meta_mutex);
 }
+#endif
 
 #ifndef HOST_BUILD
 static void run_session(void) {

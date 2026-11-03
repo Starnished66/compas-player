@@ -869,7 +869,7 @@ static void sync_home_indicator_visibility(lv_obj_t * screen) {
 }
 
 /* Interactive swipe state (player_swipe_* and back_swipe_*) lives in
- * gui_shell.c. gui_shell_player_swipe_recover() resets both on compositor
+ * gui_shell_gestures.c. gui_shell_player_swipe_recover() resets both on compositor
  * failures so a freed slide_transition_ctx_t cannot be driven from a
  * still-set tracking pointer. */
 
@@ -913,7 +913,7 @@ void slide_transition_anim_x_cb(void * var, int32_t v) {
             if (ctx->overlay) lv_obj_delete(ctx->overlay);
             if (ctx->buf_from_owned) lv_draw_buf_destroy(ctx->buf_from);
             if (ctx->buf_to_owned) lv_draw_buf_destroy(ctx->buf_to);
-            /* Resets gui_shell.c's REAL interactive-swipe state, not a
+            /* Resets gui_shell_gestures.c's REAL interactive-swipe state, not a
              * same-named local copy -- see gui_shell_player_swipe_recover()'s
              * own comment (gui_shell.h) for the real use-after-free this
              * fixes. Must run before the free below, while ctx is still a
@@ -1399,7 +1399,7 @@ static void screen_transition_slide_ex(lv_obj_t * to_scr, bool forward, bool ver
     fixed_transition_schedule_start(ctx);
 }
 
-/* True while a click-driven back slide is animating. gui_shell.c drops new
+/* True while a click-driven back slide is animating. gui_shell_gestures.c drops new
  * presses meanwhile so a second tap cannot pop again or hit the hidden
  * source widgets. Programmatic nav_pop() calls are not blocked. */
 bool gui_navigation_fixed_transition_running(void) {
@@ -1459,7 +1459,7 @@ void nav_pop_ex(bool forward, bool vertical, bool reveal) {
 }
 
 void nav_pop(void) {
-    /* Same motion as the swipe-back gesture (gui_shell.c): reveal-style
+    /* Same motion as the swipe-back gesture (gui_shell_gestures.c): reveal-style
      * everywhere except leaving the Player screen, which keeps the two-panel
      * slide. */
     nav_pop_ex(false, false, lv_screen_active() != gui_player_get_screen());
@@ -1590,7 +1590,7 @@ void enable_gesture_bubble_recursive(lv_obj_t * obj) {
 /* Used by screen_gesture_event_cb() below -- defined later with the drawer
  * and dead-zone machinery. */
 /* QUICK_DRAWER_ANIM_MS (post-release snap duration) lives in gui_navigation.h,
- * shared with gui_shell.c. */
+ * shared with the gui_shell*.c files. */
 #define QUICK_DRAWER_TRIGGER_ZONE BOARD_SCALE_PX(140) /* swipe-down must start within this many px of the top edge to open it */
 
 /* Global swipe handling for back/forward nav. Swipe left-to-right (finger
@@ -1621,7 +1621,7 @@ static void screen_gesture_event_cb(lv_event_t * e) {
 
     lv_dir_t dir = lv_indev_get_gesture_dir(indev);
     /* poll_quick_drawer_drag()'s back_swipe_* already owns this whole press
-     * once it judges the press eligible at press-down -- see gui_shell.c's
+     * once it judges the press eligible at press-down -- see gui_shell_gestures.c's
      * own comment on gui_shell_back_swipe_owns_press() for why this check,
      * not just wait_release() at deadzone-confirm time, is what actually
      * prevents double-handling: LVGL's own gesture recognition can dispatch
@@ -1821,7 +1821,7 @@ void gui_navigation_teardown(void) {
 }
 
 /* Returns true while a committed slide transition is still animating.
- * Interactive drag states are tracked in gui_shell.c and cancelled via
+ * Interactive drag states are tracked in gui_shell_gestures.c and cancelled via
  * gui_shell_reset_drag_state().
  *
  * Used by gui_reload to defer reload requests until an in-flight slide

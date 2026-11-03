@@ -87,13 +87,13 @@ static void plugin_manage_screen_unloaded_cb(lv_event_t * e) {
 }
 
 /* Reuses the exact reload path plugin.reload_ui() already uses -- see
- * plugin_manager.c's own comments on why a full reload (rather than a
+ * plugin_layout.c's own comments on why a full reload (rather than a
  * surgical single-plugin unload) is the correct default here: it's the
  * only mechanism that already knows how to reset the global "last plugin
  * wins" style/layout/EQ state cleanly. It does NOT undo a plugin's own
  * durable side effects made outside that state -- most notably
  * set_icon()'s files under /usr/data/theme_overrides/, which have no
- * per-plugin attribution and so no revert path (plugin_manager.c's own
+ * per-plugin attribution and so no revert path (plugin_manager_internal.h's own
  * comment on PLUGIN_THEME_OVERRIDE_ROOT). Disabling a theme plugin stops
  * its script from running again on the next reload; it does not, by
  * itself, remove icons that plugin already copied to disk. */

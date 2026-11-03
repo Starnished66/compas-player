@@ -373,23 +373,6 @@ bool player_queue_model_try_add_many(const char *const *new_paths, int count,
     return true;
 }
 
-bool player_queue_model_remove_pending(int offset) {
-    if (offset < 0 || offset >= queue_pending_count || queue_current < 0) return false;
-    int pos = queue_current + 1 + offset;
-    queue_shuffle_remove(pos);
-    free(queue_paths[pos]);
-    memmove(&queue_paths[pos], &queue_paths[pos + 1],
-            sizeof(char *) * (size_t)(queue_count - pos - 1));
-    if (queue_lazy_ranks)
-        memmove(&queue_lazy_ranks[pos], &queue_lazy_ranks[pos + 1],
-                sizeof(int) * (size_t)(queue_count - pos - 1));
-    queue_revision++;
-    queue_count--;
-    queue_pending_count--;
-    queue_next_insert_index = queue_pending_count > 0 ? queue_current + 1 + queue_pending_count : -1;
-    return true;
-}
-
 static bool materialize_display_order(int mode) {
     player_queue_display_snapshot_t snapshot = {0};
     if (!player_queue_model_display_snapshot(mode, &snapshot)) return false;

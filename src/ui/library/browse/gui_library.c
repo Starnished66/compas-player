@@ -58,7 +58,6 @@ void refresh_artist_albums_now_playing_indicator(void);
 #include "../../widgets/builders/screen_builders.h"
 #include "../../../library/metadata/parsing/metadata.h"
 #include "../../../library/metadata/db/metadata_db.h"
-#include "../../../library/metadata/catalog/metadata_refresh_targets.h"
 #include "../../../core/storage/sd_fsck_run.h"
 #include "../../../library/tagcache/core/tagcache.h"
 #include "../../../core/ui/display/ui_wake.h"
@@ -1525,7 +1524,7 @@ void gui_library_resume_fast_timers(void) {
 
 void gui_library_reset_drag_state(void) {
     /* Safe to clear even mid-press: this pauses the timer below, and it is
-     * only ever resumed on a raw press-DOWN edge (gui_shell.c's indev
+     * only ever resumed on a raw press-DOWN edge (gui_shell_gestures.c's indev
      * hooks), so the remainder of an in-flight press cannot be re-judged at
      * a drifted position. Leaving it set would instead disable the strip
      * for the whole of the NEXT press. */

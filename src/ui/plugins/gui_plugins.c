@@ -49,7 +49,7 @@ extern char plugin_now_playing_album[256];
 extern double plugin_now_playing_duration;
 
 
-/* ---- Plugin list screens (src/plugins/manager/plugin_manager.c's gui_plugin_show_list()
+/* ---- Plugin list screens (src/plugins/manager/plugin_list_screens.c's gui_plugin_show_list()
  * bridge) ----
  *
  * A small pool of reusable screens, not one shared screen, because a plugin
@@ -175,7 +175,7 @@ static lv_obj_t * plugin_progress_percent;
 static int plugin_progress_percent_value = INT_MIN;
 
 /* One plugin confirmation at a time. The modal owns only LVGL objects; its
- * callback ref and Lua owner stay in plugin_manager.c. */
+ * callback ref and Lua owner stay in plugin_ui_bindings.c. */
 static gui_popup_t plugin_confirmation_popup;
 
 static void plugin_confirmation_object_deleted(lv_event_t * event) {
@@ -227,7 +227,7 @@ bool gui_plugin_show_confirmation(const char * title, const char * confirm_label
 
 /* One plugin menu at a time: a titled popup of tappable rows plus Cancel.
  * Like the confirmation, it owns only LVGL objects; the callback ref lives
- * in plugin_manager.c. It is dismissed without a call if the screen it was
+ * in plugin_ui_bindings.c. It is dismissed without a call if the screen it was
  * opened over goes away. */
 static gui_popup_t plugin_menu_popup;
 static lv_obj_t * plugin_menu_screen;
@@ -831,7 +831,7 @@ void gui_plugin_play_paths(const char * const * paths, int count, int start_inde
  * remote_track.h's own comment on why this, not the real stream_url, is
  * what playlist[]/last_track/Favorites ever see) and publishes the
  * matching descriptor table before handing off to the same on_file_
- * selected() every other play-launch path uses. plugin_manager.c has
+ * selected() every other play-launch path uses. plugin_events.c has
  * already validated every field (bounded lengths, non-empty provider/
  * track_id) before calling this -- this function re-validates anyway
  * (every remote_track_make_key() result checked, no unconditional malloc)
@@ -902,7 +902,7 @@ void gui_plugin_set_background_color(const char * slot, uint32_t rgb) {
         lv_obj_report_style_change(&pill_row_bg_style);
         gui_theme_update_surface_contrast();
     }
-    /* Else: unknown slot -- plugin_manager.c's l_plugin_set_background_color()
+    /* Else: unknown slot -- plugin_ui_bindings.c's l_plugin_set_background_color()
      * already validates against the three known names and raises a Lua
      * error before ever reaching here, so this is unreachable in practice;
      * silently ignored rather than asserting, matching this file's own
@@ -955,7 +955,7 @@ home_layout_config_t home_layout_config = { 0 };
 launcher_layout_config_t launcher_layout_config = { 0 };
 player_layout_config_t player_layout_config = { 0 };
 
-/* plugin_manager.c's l_plugin_set_home_layout() has already validated every
+/* plugin_ui_bindings.c's l_plugin_set_home_layout() has already validated every
  * enum-like field (key -> array index, mode, align, text_size) before
  * building *config, so this is a plain copy -- see home_layout.h's own
  * comment for why a call made after boot only affects the NEXT app start. */
@@ -986,7 +986,7 @@ void gui_plugin_reset_player_layout(void) {
 
 /* ---- Playback control bridges -- see gui.h's own comment on why these
  * can't just call audio_toggle_pause()/audio_stop()/audio_set_volume()
- * directly from plugin_manager.c the way plugin.eq_*() calls peq_* directly.
+ * directly from plugin_playback_bindings.c the way plugin.eq_*() calls peq_* directly.
  * Each of these calls the exact same local helper the native UI itself uses
  * for that action, so a plugin-driven change looks identical to a
  * button/remote-control-driven one. ---- */

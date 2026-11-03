@@ -215,6 +215,10 @@ void screen_builders_init_list_row_style(void) {
     lv_anim_init(&row_marquee_anim);
     lv_anim_set_delay(&row_marquee_anim, 2000);
     lv_anim_set_repeat_delay(&row_marquee_anim, 2000);
+    /* LVGL copies the template's repeat count over the label's own infinite
+     * one (overwrite_anim_property); lv_anim_init() leaves it at 1, so the
+     * marquee ran a single pass and then stopped for good. */
+    lv_anim_set_repeat_count(&row_marquee_anim, LV_ANIM_REPEAT_INFINITE);
     lv_style_init(&row_marquee_style);
     lv_style_set_anim(&row_marquee_style, &row_marquee_anim);
     /* LVGL's label default is 40px/s capped at 10 seconds. That cap makes
@@ -1771,10 +1775,16 @@ static void category_row_fit(lv_obj_t * row, category_row_context_t * context) {
     }
     if ((context->icon || context->plugin_icon) && context->label) {
         int32_t left = BOARD_SCALE_PX(96);
-        int32_t available = width - left - 60;
-        if (available < 1) available = 1;
-        if (lv_obj_get_width(context->label) != available)
+        /* Same right reserve build_pill_list_screen() gives a chevron row. */
+        int32_t available = width - left - BOARD_SCALE_PX(60);
+        if (available < BOARD_SCALE_PX(40)) available = BOARD_SCALE_PX(40);
+        if (lv_obj_get_width(context->label) != available) {
             lv_obj_set_width(context->label, available);
+            /* The marquee was armed for the wider icon-less box; re-arm it
+             * so the scroll is evaluated against the final width. */
+            if (lv_label_get_long_mode(context->label) == LV_LABEL_LONG_SCROLL_CIRCULAR)
+                row_label_enable_marquee(context->label);
+        }
         lv_obj_align(context->label, LV_ALIGN_LEFT_MID, left, 0);
     }
 }

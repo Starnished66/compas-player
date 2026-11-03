@@ -44,10 +44,12 @@
 static pthread_mutex_t bridge_log_mutex = PTHREAD_MUTEX_INITIALIZER;
 static FILE * bridge_log_file = NULL;
 
+#ifndef HOST_BUILD
 /* Must be called with bridge_log_mutex held and bridge_log_file non-NULL. */
 static void bridge_log_rotate_if_needed_locked(void) {
     db_log_rotate_file_if_needed_locked(&bridge_log_file, BRIDGE_LOG_PATH, BRIDGE_LOG_ROTATED_PATH, BRIDGE_LOG_MAX_BYTES);
 }
+#endif
 
 void usb_dac_bridge_set_debug_log_enabled(bool enabled) {
     if (!enabled) {
@@ -61,6 +63,7 @@ void usb_dac_bridge_set_debug_log_enabled(bool enabled) {
     }
 }
 
+#ifndef HOST_BUILD /* the bridge threads that log are target-only */
 static uint64_t monotonic_ns(void);
 
 static void bridge_log(const char * fmt, ...) {
@@ -125,6 +128,7 @@ static void bridge_log(const char * fmt, ...) {
     pthread_mutex_unlock(&bridge_log_mutex);
 }
 #define BRIDGE_LOG(...) bridge_log(__VA_ARGS__)
+#endif
 
 #define UAC_SA_DEVICE_PATH "/dev/uac_sa"
 /* Host stream format, as reported by the driver itself: ioctl(fd,
@@ -157,11 +161,13 @@ static void bridge_log(const char * fmt, ...) {
 /* Host format changes (a new rate) are picked up by re-reading the ioctl. */
 #define FORMAT_REQUERY_NS (100ULL * 1000000ULL)
 
+#ifndef HOST_BUILD
 static uint64_t monotonic_ns(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t) ts.tv_sec * 1000000000ULL + (uint64_t) ts.tv_nsec;
 }
+#endif
 
 static pthread_mutex_t bridge_mutex = PTHREAD_MUTEX_INITIALIZER;
 static bool bridge_running = false;
@@ -173,9 +179,11 @@ static unsigned int active_output_bits = 16;
  * every published change; see publish_host_format(). */
 static unsigned int g_host_rate = USB_DEFAULT_SAMPLE_RATE;
 static unsigned int g_host_bits = USB_DEFAULT_BITS;
+#ifndef HOST_BUILD
 static bool g_host_format_known = false;
 static unsigned int g_host_format_gen = 0;
 static atomic_bool stop_requested = false;
+#endif
 
 #ifndef HOST_BUILD
 /* Bounded circular byte buffer connecting the reader and writer threads.

@@ -2,7 +2,9 @@
  * is a musl/glibc extension gated behind _GNU_SOURCE -- must be defined
  * before any system header pulls in pthread.h transitively, so this has to
  * be the file's very first line. */
+#ifndef _GNU_SOURCE /* the host build also passes -D_GNU_SOURCE=1 */
 #define _GNU_SOURCE
+#endif
 
 #include "http_conn.h"
 #include "http_client.h" /* for struct http_cancel_token's real definition */

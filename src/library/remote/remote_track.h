@@ -7,8 +7,8 @@
 
 /* Native-side descriptor for one track from a provider-neutral remote music
  * plugin (Qobuz/Tidal/etc, see PLUGINS.md's plugin.play_remote() docs).
- * Populated by plugin_manager.c from a Lua table, consumed by gui.c (queue
- * display, ReplayGain, format badge) and audio.c (decoder_open()'s remote
+ * Populated by plugin_events.c from a Lua table, consumed by gui.c (queue
+ * display, ReplayGain, format badge) and audio_decoder_open.c (decoder_open()'s remote
  * branch). Never holds the plugin's own Lua state or any pointer that
  * outlives a single populate call -- every field is a bounded, owned copy. */
 typedef struct {
@@ -25,7 +25,7 @@ typedef struct {
     /* Matches decoder_open()'s DECODER_* dispatch by name -- "mp3"/"flac"/
      * "aac" (case-insensitive) -- so a remote track never needs the
      * extension/Content-Type sniffing local files and radio streams rely
-     * on (see audio.c's decoder_open() remote branch). Empty defaults to
+     * on (see audio_decoder_open.c's decoder_open() remote branch). Empty defaults to
      * "mp3", matching stream_format_hint()'s own no-hint default. */
     char codec[16];
     unsigned int sample_rate;
@@ -89,7 +89,7 @@ bool remote_track_path_is_remote(const char * path);
  * (see remote_track_make_key()) or this returns false and the table is left
  * exactly as it was -- never partially replaced. Also returns false (table
  * likewise left untouched) if the copy itself can't be allocated. count is
- * silently capped at an internal maximum (matches plugin_manager.c's own
+ * silently capped at an internal maximum (matches plugin_manager_internal.h's own
  * PLUGIN_MAX_LIST_ITEMS cap on any queue-list plugin API) rather than
  * failing outright, since the Lua-facing caller has already capped its own
  * input to that same bound. Safe to call from the UI thread only -- see
@@ -101,7 +101,7 @@ bool remote_track_meta_set_all(const remote_track_meta_t * entries, int count);
  * holding this module's internal lock, and returns true -- or returns
  * false (leaving *out untouched) if path isn't "remote://" or doesn't
  * match any current table entry. Deliberately never returns a pointer
- * into the shared table: audio.c's decoder_open() calls this from the
+ * into the shared table: audio_decoder_open.c's decoder_open() calls this from the
  * audio thread and a seek-worker thread, while remote_track_meta_set_all()
  * above (a brand new plugin.play_remote()/queue_remote_list() call) can
  * run on the UI thread at any time and frees the previous table once it's

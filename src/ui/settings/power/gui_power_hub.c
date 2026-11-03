@@ -323,7 +323,7 @@ void start_power_off_countdown(void) {
 
 void build_power_off_countdown_popup(void) {
     /* lv_layer_sys(), not lv_layer_top() -- the status bar band lives on
-     * lv_layer_top() and several places in gui_shell.c explicitly
+     * lv_layer_top() and several places in gui_shell_drawer_motion.c explicitly
      * re-foreground it above every other lv_layer_top() sibling (quick
      * drawer, drag motion, etc: "the status bar stays above THAT"), which
      * fought back against this popup's own one-time move-to-foreground and

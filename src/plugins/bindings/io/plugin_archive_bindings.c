@@ -395,13 +395,15 @@ void plugin_archive_bindings_poll(plugin_archive_guarded_call_fn guarded_call,
             lua_pushnil(L);
             lua_pushstring(L, job->error ? job->error : "could not read image");
         }
-        if (guarded_call(L, 2, 0, 0) != LUA_OK) {
+        /* A callback that hard-aborted the plugin froze its state: no error
+         * read, no pop, no unref. */
+        if (guarded_call(L, 2, 0, 0) != LUA_OK && !(owner_is_aborted && owner_is_aborted(L))) {
             const char * err = lua_tostring(L, -1);
             fprintf(stderr, "[plugins] zip_image_async callback error: %s\n", err ? err : "unknown error");
             lua_pop(L, 1);
         }
     }
-    luaL_unref(L, LUA_REGISTRYINDEX, ref);
+    if (!(owner_is_aborted && owner_is_aborted(L))) luaL_unref(L, LUA_REGISTRYINDEX, ref);
 }
 
 /* Stops the worker at its next cancellation point and waits. It does not

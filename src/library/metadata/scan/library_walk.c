@@ -10,7 +10,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-/* Kept in sync with audio.c's decoder dispatch. */
+/* Kept in sync with audio_decoder_open.c's decoder dispatch. */
 static const char * const PLAYABLE_EXTENSIONS[] = {
     ".flac", ".mp3", ".wav", ".rf64", ".w64", ".aiff", ".aif", ".aifc", ".dsf", ".dff", ".iso", ".aac", ".m4a", ".m4b", ".mp4", ".alac", ".wv", ".caf", ".ape", ".wma", ".opus", ".ogg", ".oga",
 };

@@ -47,14 +47,17 @@ typedef enum {
 
 static pthread_mutex_t bridge_mutex = PTHREAD_MUTEX_INITIALIZER;
 static bridge_state_t bridge_state = BRIDGE_STOPPED;
+#ifndef HOST_BUILD
 static bool restart_requested = false;
 static atomic_bool stop_requested = false;
+#endif
 
 /* The UI overlay follows PCM streaming. Local Play also needs to see the
  * incoming session while it waits for the previous output owner to stop. */
 static bool is_streaming = false;
 static bool handoff_pending = false; /* Guarded by bridge_mutex. */
 
+#ifndef HOST_BUILD /* only the target bridge thread drives these */
 static bool set_streaming(bool streaming) {
     pthread_mutex_lock(&bridge_mutex);
     handoff_pending = false;
@@ -71,6 +74,7 @@ static bool set_handoff_pending(bool pending) {
     pthread_mutex_unlock(&bridge_mutex);
     return accepted;
 }
+#endif
 
 bool airplay_bridge_has_active_stream(void) {
     pthread_mutex_lock(&bridge_mutex);

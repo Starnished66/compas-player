@@ -5,10 +5,10 @@
 #include <stdint.h>
 
 /* Native-side config for plugin.set_player_layout() (PLUGINS.md), shared
- * between plugin_manager.c (parses/validates the Lua table into this) and
+ * between plugin_layout.c (parses/validates the Lua table into this) and
  * gui_player.c (the only reader). No LVGL dependency, same reasoning
  * home_layout.h and remote_track.h stay LVGL-free -- kept as a plain struct
- * passed across the plugin_manager.c/gui.c-family boundary.
+ * passed across the plugin_layout.c/gui.c-family boundary.
  *
  * configured==false (plugin.set_player_layout() never called this boot, or
  * reset on deinit) means every other field here is meaningless -- gui_player.c

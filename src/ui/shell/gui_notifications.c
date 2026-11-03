@@ -87,6 +87,9 @@ static void show_toast(toast_t * toast, const char * msg, uint32_t duration_ms) 
     lv_timer_resume(toast->timer);
 }
 
+/* Generic transient error/status toast, top layer, auto-hides after 2.5s.
+ * Reusable anywhere a background op can fail with something worth telling
+ * the user about; first real use is Wi-Fi/Bluetooth connect failures. */
 void show_error_toast(const char * msg) {
     show_toast(&error_toast, msg, 0);
 }

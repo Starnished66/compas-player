@@ -48,7 +48,6 @@ void poll_cover_decode(void);
 void gui_player_update_progress(void);
 void gui_format_time(double seconds, char * buf, size_t buf_size);
 void show_volume_popup(int32_t percent);
-void hide_volume_popup(void);
 void poll_volume_popup_timeout(void);
 void refresh_play_btn_icon(void);
 /* Recolored btn_play/btn_pause (white disc, accent-colored glyph). Falls
@@ -67,7 +66,6 @@ void resolve_replaygain(const track_metadata_t * meta, bool * out_has_gain, doub
 
 void favorite_icon_event_cb(lv_event_t * e);
 /* Playback state semantic accessors and operations */
-int gui_player_get_playlist_count(void);
 int gui_player_get_playlist_index(void);
 bool gui_player_has_active_track(void);
 /* Stop playback before an external process takes the audio device, retaining
@@ -89,7 +87,6 @@ bool gui_player_get_subsonic_track_identity(int track_index, const char * path,
                                             char * artist, size_t artist_size,
                                             char * album, size_t album_size);
 int gui_player_get_queued_count(void);
-const char * gui_player_get_queued_path_at(int offset);
 void gui_player_queue_add(const char * path);
 void gui_player_queue_add_many(const char * const * paths, int count);
 /* Same atomic batch insertion, with success reported to bounded bulk-action
@@ -99,8 +96,6 @@ bool gui_player_queue_try_add_many(const char * const * paths, int count);
  * queue storage in the admission check; failure leaves the queue unchanged. */
 bool gui_player_queue_try_add_many_bounded(const char * const * paths, int count,
                                            size_t staging_bytes, size_t memory_limit);
-void gui_player_queue_remove_at(int offset);
-void gui_player_queue_clear(void);
 void gui_player_queue_play_next(const char * path);
 /* Indices in a snapshot identify occurrences, not paths. A revision makes
  * stale UI actions fail rather than acting on a different occurrence. */
@@ -138,8 +133,6 @@ void gui_player_queue_poll_urgent(void);
 bool gui_player_queue_write_busy(void);
 bool gui_player_queue_checkpoint_failed(void);
 void gui_player_queue_flush(void);
-void gui_player_play_at(int index);
-void gui_player_play_at_from(int index, double start_seconds);
 void gui_player_step_manual(int direction);
 /* Time skipping applies only to manual transport within this directory. */
 void gui_player_set_transport_skip(const char * directory, int seconds);
@@ -147,7 +140,6 @@ void gui_player_set_transport_skip(const char * directory, int seconds);
  * bounds and playback-generation guard. First resets the held target. */
 void gui_player_hw_seek_steps(int direction, int step_count, bool is_first);
 lv_obj_t * gui_player_get_screen(void);
-lv_obj_t * gui_player_get_cover_img(void);
 /* Returns a malloc'd copy (caller frees) of the currently decoded RGB565
  * cover for `for_index`, square *out_edge x *out_edge, or NULL. Keeping
  * ownership inside gui_player avoids exposing a mutable buffer that is freed
@@ -159,7 +151,8 @@ const lv_image_dsc_t * gui_player_get_current_reflection_dsc(void);
 bool gui_player_is_seeking(void);
 bool gui_player_volume_control_hit_test(lv_point_t point);
 
-const char * playlist_path_at(int index);
+/* Never NULL: "" for an index with no path. */
+const char * playlist_path_at(int index) __attribute__((returns_nonnull));
 void free_playlist(void);
 void on_file_selected(char ** new_playlist, int count, int selected_index);
 void on_file_selected_stay(char ** new_playlist, int count, int selected_index);
@@ -187,8 +180,6 @@ void gui_player_set_replaygain_mode(int mode);
 void commit_auto_advance(void);
 
 void queue_add_song(const char * path);
-void queue_remove_song_at_offset(int offset);
-void queue_clear_pending(void);
 
 void clear_player_source(void);
 void set_player_source_file_browser(const char * dir, int row);
@@ -235,7 +226,6 @@ int gui_player_get_now_playing_track_number(void);
 
 void gui_player_handle_auto_advance(void);
 void gui_player_handle_track_finished(void);
-void gui_player_handle_playback_error(audio_error_t err);
 void gui_player_handle_playback_error_ex(audio_error_t err, uint64_t err_generation);
 void gui_player_poll_confirmed_playback(void);
 /* Reconcile current/next waveform jobs independently of display refresh. */

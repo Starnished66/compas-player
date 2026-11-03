@@ -40,7 +40,7 @@ static void volume_popup_hide_timer_cb(lv_timer_t * timer) {
 
 /* hw_volume_coalesce.h -- extracted from what used to be this file's own
  * private volume_hw_pending/volume_hw_apply_timer/volume_drag_active
- * machinery, so the quick drawer's own volume slider (gui_shell.c) can
+ * machinery, so the quick drawer's own volume slider (gui_shell_drawer.c) can
  * reuse the exact same, already-proven debounce instead of a second,
  * simpler, worse copy of it. Behavior here is unchanged. */
 static hw_volume_coalesce_t volume_popup_hv = { .pending = -1 };
@@ -103,7 +103,7 @@ bool gui_player_volume_control_hit_test(lv_point_t point) {
            point.y >= area.y1 && point.y <= area.y2;
 }
 
-/* Same card as the quick drawer's volume row (gui_shell.c): 413x73 rounded
+/* Same card as the quick drawer's volume row (gui_shell_drawer_build.c): 413x73 rounded
  * panel, speaker icon, rail and a right-aligned numeric value, so the
  * hardware-button indicator reads exactly like the drawer's control. */
 void player_volume_popup_init(void) {

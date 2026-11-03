@@ -30,6 +30,7 @@
  * for the session whatever the link state said. */
 #define BT_SSC_CYCLE_CAP 2
 
+#define BT_A2DP_SOURCE_UUID "0000110a-0000-1000-8000-00805f9b34fb"
 #define BT_A2DP_SINK_UUID "0000110b-0000-1000-8000-00805f9b34fb"
 
 typedef enum {

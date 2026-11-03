@@ -61,11 +61,12 @@ static void text_view_turn_trampoline(int page, int pages, size_t byte_offset, v
     if (!text_view_ctx_prepare(ctx) || ctx->turn_ref == LUA_NOREF) return;
 
     lua_State * L = ctx->L;
+    plugin_text_view_owner_is_aborted_fn owner_is_aborted = ctx->owner_is_aborted; /* the callback may release ctx */
     lua_rawgeti(L, LUA_REGISTRYINDEX, ctx->turn_ref);
     lua_pushinteger(L, page);
     lua_pushinteger(L, pages);
     lua_pushinteger(L, (lua_Integer) byte_offset);
-    if (ctx->guarded_call(L, 3, 0, 0) != LUA_OK) {
+    if (ctx->guarded_call(L, 3, 0, 0) != LUA_OK && !owner_is_aborted(L)) {
         const char * err = lua_tostring(L, -1);
         fprintf(stderr, "[plugins] show_text_view on_turn error: %s\n", err ? err : "unknown error");
         lua_pop(L, 1);
@@ -81,9 +82,10 @@ static void text_view_end_trampoline(int direction, void * user) {
      * touches the context after the call. */
     lua_State * L = ctx->L;
     plugin_text_view_guarded_call_fn guarded_call = ctx->guarded_call;
+    plugin_text_view_owner_is_aborted_fn owner_is_aborted = ctx->owner_is_aborted;
     lua_rawgeti(L, LUA_REGISTRYINDEX, ctx->end_ref);
     lua_pushinteger(L, direction);
-    if (guarded_call(L, 1, 0, 0) != LUA_OK) {
+    if (guarded_call(L, 1, 0, 0) != LUA_OK && !owner_is_aborted(L)) {
         const char * err = lua_tostring(L, -1);
         fprintf(stderr, "[plugins] show_text_view on_end error: %s\n", err ? err : "unknown error");
         lua_pop(L, 1);
@@ -103,7 +105,7 @@ static void text_view_close_trampoline(int page, size_t byte_offset, void * user
         lua_rawgeti(L, LUA_REGISTRYINDEX, ctx->close_ref);
         lua_pushinteger(L, page);
         lua_pushinteger(L, (lua_Integer) byte_offset);
-        if (ctx->guarded_call(L, 2, 0, 0) != LUA_OK) {
+        if (ctx->guarded_call(L, 2, 0, 0) != LUA_OK && !ctx->owner_is_aborted(L)) {
             const char * err = lua_tostring(L, -1);
             fprintf(stderr, "[plugins] show_text_view on_close error: %s\n", err ? err : "unknown error");
             lua_pop(L, 1);

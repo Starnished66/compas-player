@@ -235,7 +235,7 @@ static bool read_response(http_conn_t * conn, int * out_status, body_sink_t * si
         char * colon = strchr(header_line, ':');
         if (!colon) continue;
         *colon = '\0';
-        const char * value = colon + 1;
+        char * value = colon + 1;
         while (*value == ' ') value++;
 
         if (strcasecmp(header_line, "Content-Length") == 0) {

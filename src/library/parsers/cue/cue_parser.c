@@ -276,9 +276,9 @@ static bool parse_text(const char *text, size_t len, const char *base_path, bool
                 (tracks[i].end_seconds < 0 || tracks[j].start_seconds < tracks[i].end_seconds))
                 tracks[i].end_seconds = tracks[j].start_seconds;
     if (!bad) {
-        strncpy(out->audio_path, tracks[0].audio_path, sizeof(out->audio_path) - 1);
-        strncpy(out->title, global_title, sizeof(out->title) - 1);
-        strncpy(out->performer, global_performer, sizeof(out->performer) - 1);
+        snprintf(out->audio_path, sizeof(out->audio_path), "%s", tracks[0].audio_path);
+        snprintf(out->title, sizeof(out->title), "%s", global_title);
+        snprintf(out->performer, sizeof(out->performer), "%s", global_performer);
         out->tracks = tracks;
         out->track_count = nt;
         tracks = NULL;

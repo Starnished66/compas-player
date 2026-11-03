@@ -11,6 +11,7 @@
 #include "../appearance/fonts/gui_custom_font.h"
 #include "display/gui_display_timing_settings.h"
 #include "controls/gui_time_settings.h"
+#include "controls/gui_setting_switches.h"
 #include "controls/gui_shell_settings.h"
 #include "controls/gui_volume_settings.h"
 #include "../text/i18n/i18n.h"
@@ -2363,7 +2364,7 @@ void gui_settings_sync_crossfade_toggle(void) {
 
 /* Same bidirectional-sync role as gui_settings_sync_crossfade_toggle()
  * above, for the Sleep Timer screen's own enable switch -- called from
- * gui_shell.c whenever the drawer icon arms/disarms the timer, or the
+ * gui_shell_drawer.c whenever the drawer icon arms/disarms the timer, or the
  * countdown expires on its own, so this screen never shows a stale state
  * the next time it's opened. Also shows/hides the duration slider card and
  * the "Show Time Remaining" button, matching sleep_timer_switch_event_cb's

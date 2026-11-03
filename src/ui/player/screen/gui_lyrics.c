@@ -674,7 +674,7 @@ static void close_lyrics_screen(void) {
 
 /* The auto-close-on-track-change-with-no-lyrics path (lyrics_timer_cb())
  * still calls close_lyrics_screen() directly. A user's own right-swipe now
- * goes through gui_shell.c's live back-swipe instead (reveal-style, exiting
+ * goes through gui_shell_gestures.c's live back-swipe instead (reveal-style, exiting
  * to Player) once that candidate claims the press -- see gui_shell_back_
  * swipe_owns_press()'s own comment for why standing down here, not just
  * wait_release() at gesture-recognition time, is what actually prevents
@@ -740,7 +740,7 @@ static void lyrics_timer_update(bool animate_scroll) {
              * Real bug caught in cross-check: close_lyrics_screen() calls
              * nav_pop(), which does a REAL stack decrement and its own
              * screen_transition_slide(). A user's live back-swipe (still
-             * being dragged, gui_shell.c's back_swipe_tracking) already has
+             * being dragged, gui_shell_gestures.c's back_swipe_tracking) already has
              * slide_transition_active set, so that nested transition would
              * return NULL and fall back to an immediate lv_screen_load()
              * out from under the still-live-dragged overlay -- and the

@@ -9,7 +9,7 @@ extern "C" {
 
 /* Opens the single plugin order editor screen. Call on the UI thread. The
  * editor copies all input strings and state. The change callback is owned by
- * plugin_manager.c and is invoked with the slot returned here after a toggle
+ * plugin_list_screens.c and is invoked with the slot returned here after a toggle
  * or committed drag. */
 int gui_plugin_show_order_editor(const char * title, const char * const * keys,
                                  const char * const * labels, const bool * visible, int count);

@@ -87,7 +87,7 @@ void nav_push(lv_obj_t * scr);
  * without calling lv_screen_load()/sync_player_topbar_visibility()/
  * sync_home_indicator_visibility(). Used by callers that have their own
  * settle animation in flight and must not load the screen until the
- * animation's completion callback runs (e.g. gui_shell.c interactive
+ * animation's completion callback runs (e.g. gui_shell_gestures.c interactive
  * player-swipe commit path and slide_transition_done_cb()). */
 void nav_push_stack_only(lv_obj_t * scr);
 void nav_pop(void);
@@ -95,7 +95,7 @@ void nav_pop(void);
  * failure, cancel and teardown). */
 bool gui_navigation_fixed_transition_running(void);
 /* Post-release snap duration shared by the quick drawer and the swipe
- * gestures (gui_shell.c). Single definition on purpose. */
+ * gestures (gui_shell_gestures.c). Single definition on purpose. */
 #define QUICK_DRAWER_ANIM_MS 140
 /* General form of nav_pop() -- see begin_slide_transition_ex()'s own doc
  * comment for what forward/vertical/reveal mean. nav_pop() is a thin

@@ -88,7 +88,7 @@ void gui_network_cancel_background_work(void);
 bool gui_network_prepare_radio_sleep(void);
 void gui_network_resume_radio_services(void);
 
-/* Called once Wi-Fi disable is authoritatively confirmed (gui_shell.c's
+/* Called once Wi-Fi disable is authoritatively confirmed (gui_shell_wifi.c's
  * poll_wifi_toggle()) -- stops AirPlay/DLNA/Remote Control/remote file import
  * and clears their persisted enabled flags, since all four require Wi-Fi.
  * Cheap no-op for whichever of them wasn't running. */

@@ -76,7 +76,7 @@ void gui_release_memory_for_external_session(void);
 /* ---- Bridge for src/plugins/manager/plugin_manager.c ----
  * plugin_manager.c owns Lua state/script lifecycle and has no LVGL code of
  * its own; these let a plugin's C API calls (plugin.show_list/play_file/
- * play_list/show_toast, see plugin_manager.c's register_plugin_api()) reach
+ * play_list/show_toast, see compas-plugins/PLUGINS.md) reach
  * gui.c's existing screens/playback plumbing instead of duplicating it. */
 
 /* Repopulates and pushes a shared plugin-list screen (one of a small
@@ -86,7 +86,7 @@ void gui_release_memory_for_external_session(void);
  * text_sizes[i] (either may be NULL wholesale, or contain per-row NULLs) are
  * optional per-row icon (raw absolute filesystem path, see
  * screen_builders.h's pill_row_apply_icon())/text-size ("small"/"medium"/
- * "large", already validated by plugin_manager.c) -- a row with neither set
+ * "large", already validated by plugin_registries.c) -- a row with neither set
  * anywhere in this call keeps today's exact plain-label rendering. height
  * (0 = shared font-aware 96px default, scaled for the board) applies
  * to every row in this call, not per-row. Icon rows inherit native category
@@ -114,7 +114,7 @@ bool gui_plugin_list_reset_scroll(int slot);
  * here (ignored for a "slider" row -- see screen_builders.h's PILL_ROW_
  * HEIGHT_MIN comment for why a resized row needs a different background,
  * which a slider's own fixed-layout card doesn't support). Returns the pool
- * slot index this call landed in, so plugin_manager.c can key its own
+ * slot index this call landed in, so plugin_list_screens.c can key its own
  * per-slot Lua callback-ref storage off the same slot gui.c actually used.
  * When update_existing is true, an already-live screen with this title is
  * repopulated in place and is not pushed again; absent a match, a new screen
@@ -149,20 +149,20 @@ void gui_plugin_show_toast(const char * msg, uint32_t duration_ms);
 /* Sets one of the three shared background-color styles (screen_builders.h's
  * style_theme_screen_bg/style_theme_card_bg, or list_row_style itself for
  * "list_row") live, app-wide -- slot must be "screen", "card", or
- * "list_row" (plugin_manager.c's l_plugin_set_background_color() already
+ * "list_row" (plugin_ui_bindings.c's l_plugin_set_background_color() already
  * validates this before calling here, so this trusts its caller). rgb is
  * a packed 0xRRGGBB value. */
 void gui_plugin_set_background_color(const char * slot, uint32_t rgb);
 
 /* Same shape, for text color -- slot must be "primary" or "muted"
- * (plugin_manager.c's l_plugin_set_text_color() already validates this).
+ * (plugin_ui_bindings.c's l_plugin_set_text_color() already validates this).
  * See screen_builders.h's style_theme_text_primary/style_theme_text_muted
  * comment for what each covers and what's deliberately excluded. */
 void gui_plugin_set_text_color(const char * slot, uint32_t rgb);
 
 /* Stores plugin.set_home_layout()'s validated config for build_home_screen()
  * (gui_settings.c) to read at startup or a targeted theme refresh.
- * plugin_manager.c's
+ * plugin_ui_bindings.c's
  * l_plugin_set_home_layout() already validated every enum-like field
  * (key/mode/align/text_size) before calling here, so this trusts its caller,
  * same convention gui_plugin_set_background_color() above already uses. */
@@ -186,7 +186,7 @@ void gui_plugin_reset_player_layout(void);
  * get_duration() ----
  *
  * Unlike peq.c's plugin.eq_*() bindings (which call peq_set_*()/peq_save()
- * directly from plugin_manager.c, no LVGL/gui.c state involved), these can't
+ * directly from plugin_playback_bindings.c, no LVGL/gui.c state involved), these can't
  * just call audio_toggle_pause()/audio_stop()/audio_set_volume() directly --
  * gui.c's own native call sites always pair each of those with extra local
  * state (the play/pause icon, the volume slider/popup, shuffle-aware
@@ -287,8 +287,6 @@ void gui_plugin_show_text_input(const char * title, const char * initial_text, b
 
 lv_obj_t * add_section_header(lv_obj_t * parent, const char * text);
 void start_bt_apply_output_settings(bool dac_mode_enabled, bool volume_sync_enabled);
-void set_play_button_state(bool is_playing);
-void arm_next_track_for_audio(int index);
 
 const char * basename_of(const char * path);
 
@@ -310,13 +308,9 @@ extern char * player_source_group_title;
 extern char player_source_file_browser_dir[];
 extern int player_source_file_browser_row;
 
-void hide_more_menu_popup(void);
 
 extern char now_playing_path[600];
 
-void set_player_source_all_songs(int index);
-void set_player_source_recently_added(int index);
-void set_player_source_file_browser(const char * dir, int row);
 
 
 
@@ -326,9 +320,6 @@ void configure_scrolling_row_label(lv_obj_t * label, int32_t width);
 void open_song_context_menu(const char * path);
 
 
-const char * playlist_path_at(int index);
-void on_file_selected_lazy_all_songs(int selected_index);
-void on_file_selected_lazy_recently_added(int selected_index);
 /* Takes ownership of snapshot/title_ranks on success. `title_ranks` maps
  * collection order into the pinned full-catalog snapshot. */
 bool gui_player_play_lazy_collection(metadata_db_snapshot_t *snapshot,
@@ -345,14 +336,12 @@ void library_load_from_cache_only(void);
 
 
 void queue_add_song(const char * path);
-void play_track_at(int target);
 void get_display_names(const char * path, char * out_title, size_t title_sz, char * out_folder, size_t folder_sz);
 void row_label_enable_marquee(lv_obj_t * label);
 
 void refresh_volume_topbar(int32_t percent);
 
 void player_transition_mark_dirty(void);
-void set_play_button_state(bool is_playing);
 
 
 const char * play_mode_icon_asset(play_mode_t mode);
@@ -361,11 +350,6 @@ const char * play_mode_icon_asset(play_mode_t mode);
 void quick_drawer_mark_snapshot_dirty(void);
 
 
-void toggle_play_pause(void);
-int compute_manual_step_index(int index, int direction);
-void on_file_selected(char ** new_playlist, int count, int selected_index);
-void on_file_selected_at(char ** new_playlist, int count, int selected_index, double start_seconds);
-void clear_player_source(void);
 
 
 
@@ -387,15 +371,6 @@ void reserve_title_width_before(lv_obj_t * title, lv_obj_t * right_icon);
 /* Notifications and Accent declared in gui_notifications.h and gui_theme.h */
 void crossfade_switch_event_cb(lv_event_t * e);
 void gapless_switch_event_cb(lv_event_t * e);
-void lyrics_switch_event_cb(lv_event_t * e);
-void car_mode_switch_event_cb(lv_event_t * e);
-void inline_remote_switch_event_cb(lv_event_t *e);
-void swipe_up_home_switch_event_cb(lv_event_t * e);
-void hide_player_topbar_switch_event_cb(lv_event_t * e);
-void charge_limiter_switch_event_cb(lv_event_t * e);
-void safe_charging_switch_event_cb(lv_event_t * e);
-void led_indicator_switch_event_cb(lv_event_t * e);
-void battery_percent_switch_event_cb(lv_event_t * e);
 void clock_24h_switch_event_cb(lv_event_t * e);
 void resume_mode_settings_row_cb(lv_event_t * e);
 void replaygain_mode_settings_row_cb(lv_event_t * e);
