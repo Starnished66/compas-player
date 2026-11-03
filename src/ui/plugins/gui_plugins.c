@@ -5,6 +5,7 @@
 #include "../library/browse/gui_file_manager.h"
 #include "../../library/browser/files/file_browser.h"
 #include "../appearance/gui_theme.h"
+#include "../appearance/gui_color_picker.h"
 #include "../shell/gui_notifications.h"
 #include "../library/browse/gui_library.h"
 #include "../player/screen/gui_queue.h"
@@ -66,42 +67,101 @@ static lv_obj_t * plugin_list_lists[PLUGIN_LIST_SCREEN_POOL_SIZE];
 static int plugin_list_pool_next = 0;
 static int plugin_list_selected_indices[PLUGIN_LIST_SCREEN_POOL_SIZE];
 
-/* A single native picker screen shares the library browser's indexed list.
- * The browser owns no Lua state; it reports a copied result after navigation
- * has left the screen, so plugin code never runs inside an LVGL row event. */
-static lv_obj_t * plugin_picker_screen;
-static file_browser_t * plugin_picker_browser;
-static bool plugin_picker_finishing;
-static bool plugin_picker_active;
-static lv_timer_t * plugin_picker_timer;
-static char plugin_picker_result[PATH_MAX];
+/* Native picker screens (file, color). A picker reports a copied result after
+ * navigation has left its screen, so plugin code never runs inside an LVGL
+ * event. The screen is reusable and kept until the next open or teardown. */
+typedef struct {
+    lv_obj_t * screen;
+    lv_timer_t * timer;
+    bool active;
+    bool finishing; /* a result is chosen or the picker is being cancelled */
+    void (*dispatch)(void); /* hands the result to the plugin manager */
+} plugin_picker_t;
 
-static void plugin_picker_dispatch(void) {
+static void plugin_file_picker_dispatch(void);
+static void plugin_color_picker_dispatch(void);
+static plugin_picker_t plugin_file_picker = { .dispatch = plugin_file_picker_dispatch };
+static plugin_picker_t plugin_color_picker = { .dispatch = plugin_color_picker_dispatch };
+static file_browser_t * plugin_picker_browser;
+static char plugin_picker_result[PATH_MAX];
+static int32_t plugin_color_result = -1; /* -1: cancelled */
+static lv_obj_t * plugin_color_widget;
+
+/* The picker is still open while it is on top, or while the shared keyboard
+ * it opened (a color picker's hex entry) sits directly above it. */
+static bool plugin_picker_open(const plugin_picker_t * p) {
+    int depth = gui_navigation_get_depth();
+    return gui_navigation_is_top(p->screen) ||
+           (depth >= 2 && gui_navigation_get_screen_at(depth - 1) == gui_text_input_get_screen() &&
+            gui_navigation_get_screen_at(depth - 2) == p->screen);
+}
+
+static void plugin_picker_timer_cb(lv_timer_t * timer) {
+    plugin_picker_t * p = lv_timer_get_user_data(timer);
+    if (!p->active || gui_navigation_transition_in_progress()) return;
+    if (plugin_picker_open(p)) return;
+    p->finishing = true;
+    p->active = false;
+    /* Back/Home may leave the reusable screen below other navigation items.
+     * Remove every occurrence only after transitions have settled. */
+    for (int i = gui_navigation_get_depth() - 1; i >= 0; i--)
+        if (gui_navigation_get_screen_at(i) == p->screen) nav_remove_stack_slot(i);
+    p->timer = NULL;
+    lv_timer_delete(timer);
+    p->dispatch();
+}
+
+/* Pushes the built screen and starts watching for it to leave the stack. */
+static bool plugin_picker_start(plugin_picker_t * p) {
+    /* A push during a slide can be lost when the slide loads its destination. */
+    if (gui_navigation_transition_in_progress()) return false;
+    if (p->timer) lv_timer_delete(p->timer);
+    p->timer = lv_timer_create(plugin_picker_timer_cb, 25, p);
+    if (!p->timer) return false;
+    nav_push(p->screen);
+    p->active = true;
+    return true;
+}
+
+/* Drops the screen without navigating (it is off the stack or being torn down). */
+static void plugin_picker_discard(plugin_picker_t * p) {
+    p->active = false;
+    p->finishing = true;
+    if (p->timer) { lv_timer_delete(p->timer); p->timer = NULL; }
+    if (!p->screen) return;
+    gui_navigation_remove_screen_instances(&p->screen, 1);
+    lv_obj_delete(p->screen);
+    p->screen = NULL;
+}
+
+static void plugin_picker_cancel(plugin_picker_t * p) {
+    p->finishing = true;
+    p->active = false;
+    if (p->timer) { lv_timer_delete(p->timer); p->timer = NULL; }
+    if (!p->screen) return;
+    if (gui_navigation_is_top(p->screen)) nav_pop();
+    else gui_navigation_remove_screen_instances(&p->screen, 1);
+}
+
+static void plugin_file_picker_dispatch(void) {
     char result[PATH_MAX];
     snprintf(result, sizeof(result), "%s", plugin_picker_result);
-    plugin_picker_active = false;
+    plugin_file_picker.active = false;
     plugin_picker_result[0] = '\0';
     plugin_manager_file_picker_complete(result[0] ? result : NULL);
 }
 
-static void plugin_picker_timer_cb(lv_timer_t * timer) {
-    if (!plugin_picker_active || gui_navigation_transition_in_progress()) return;
-    if (gui_navigation_is_top(plugin_picker_screen)) return;
-    plugin_picker_finishing = true;
-    plugin_picker_active = false;
-    /* Back/Home may leave the reusable screen below other navigation items.
-     * Remove every occurrence only after transitions have settled. */
-    for (int i = gui_navigation_get_depth() - 1; i >= 0; i--)
-        if (gui_navigation_get_screen_at(i) == plugin_picker_screen) nav_remove_stack_slot(i);
-    plugin_picker_timer = NULL;
-    lv_timer_delete(timer);
-    plugin_picker_dispatch();
+static void plugin_color_picker_dispatch(void) {
+    int32_t result = plugin_color_result;
+    plugin_color_picker.active = false;
+    plugin_color_result = -1;
+    plugin_manager_color_picker_complete(result);
 }
 
 static void plugin_picker_file_selected(const char * path) {
-    if (plugin_picker_finishing) return;
+    if (plugin_file_picker.finishing) return;
     snprintf(plugin_picker_result, sizeof(plugin_picker_result), "%s", path ? path : "");
-    plugin_picker_finishing = true;
+    plugin_file_picker.finishing = true;
     nav_pop();
 }
 
@@ -1375,16 +1435,12 @@ void gui_plugins_teardown(void) {
     gui_plugin_close_progress();
     gui_plugin_close_confirmation();
     plugin_manager_confirmation_cancelled();
-    plugin_picker_active = false;
-    plugin_picker_finishing = true;
     plugin_picker_result[0] = '\0';
-    if (plugin_picker_timer) { lv_timer_delete(plugin_picker_timer); plugin_picker_timer = NULL; }
-    if (plugin_picker_screen) {
-        gui_navigation_remove_screen_instances(&plugin_picker_screen, 1);
-        plugin_picker_browser = NULL;
-        lv_obj_delete(plugin_picker_screen);
-        plugin_picker_screen = NULL;
-    }
+    plugin_color_result = -1;
+    plugin_picker_discard(&plugin_file_picker);
+    plugin_picker_browser = NULL;
+    plugin_picker_discard(&plugin_color_picker);
+    plugin_color_widget = NULL;
     for (int i = 0; i < PLUGIN_LIST_SCREEN_POOL_SIZE; i++) {
         if (plugin_list_screens[i]) { lv_obj_delete(plugin_list_screens[i]); plugin_list_screens[i] = NULL; }
     }
@@ -1413,41 +1469,93 @@ bool gui_plugin_open_file_manager(const char * folder) {
 
 static void plugin_picker_back_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    if (!file_browser_go_up_for_screen(plugin_picker_screen)) nav_pop();
+    if (!file_browser_go_up_for_screen(plugin_file_picker.screen)) nav_pop();
 }
 
 bool gui_plugin_pick_file(const char * folder) {
-    if (plugin_picker_active) return false;
-    if (!plugin_picker_screen) {
-        plugin_picker_screen = lv_obj_create(NULL);
-        if (!plugin_picker_screen) return false;
-        lv_obj_add_style(plugin_picker_screen, &style_theme_screen_bg, 0);
-        build_screen_header(plugin_picker_screen, TR("Select a file"), plugin_picker_back_cb, NULL, NULL);
+    plugin_picker_t * p = &plugin_file_picker;
+    if (p->active) return false;
+    if (!p->screen) {
+        p->screen = lv_obj_create(NULL);
+        if (!p->screen) return false;
+        lv_obj_add_style(p->screen, &style_theme_screen_bg, 0);
+        build_screen_header(p->screen, TR("Select a file"), plugin_picker_back_cb, NULL, NULL);
     }
-    plugin_picker_finishing = false;
+    p->finishing = false;
     plugin_picker_result[0] = '\0';
     if (!plugin_picker_browser) {
         file_browser_options_t options = { .on_pick_file = plugin_picker_file_selected };
-        plugin_picker_browser = file_browser_create(plugin_picker_screen, MUSIC_ROOT_DIR, &options);
+        plugin_picker_browser = file_browser_create(p->screen, MUSIC_ROOT_DIR, &options);
         if (!plugin_picker_browser) return false;
-        finalize_screen_navigation(plugin_picker_screen);
+        finalize_screen_navigation(p->screen);
     }
     if (!file_browser_open_dir(plugin_picker_browser, folder ? folder : MUSIC_ROOT_DIR)) return false;
-    if (plugin_picker_timer) lv_timer_delete(plugin_picker_timer);
-    plugin_picker_timer = lv_timer_create(plugin_picker_timer_cb, 25, NULL);
-    if (!plugin_picker_timer) return false;
-    nav_push(plugin_picker_screen);
-    plugin_picker_active = true;
-    return true;
+    return plugin_picker_start(p);
 }
 
 void gui_plugin_cancel_file_picker(void) {
-    plugin_picker_finishing = true;
-    plugin_picker_active = false;
-    if (plugin_picker_timer) { lv_timer_delete(plugin_picker_timer); plugin_picker_timer = NULL; }
-    if (!plugin_picker_screen) return;
-    if (gui_navigation_is_top(plugin_picker_screen)) nav_pop();
-    else gui_navigation_remove_screen_instances(&plugin_picker_screen, 1);
+    plugin_picker_cancel(&plugin_file_picker);
+}
+
+static void plugin_color_done_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED || plugin_color_picker.finishing) return;
+    plugin_color_result = (int32_t) gui_color_picker_get_rgb(plugin_color_widget);
+    plugin_color_picker.finishing = true;
+    nav_pop();
+}
+
+bool gui_plugin_pick_color(uint32_t rgb, const uint32_t * presets, int preset_count) {
+    plugin_picker_t * p = &plugin_color_picker;
+    /* The previous screen may still be sliding out after a cancel; it is
+     * deleted below, so wait for the transition to settle. */
+    if (p->active || gui_navigation_transition_in_progress()) return false;
+    plugin_picker_discard(p);
+    p->screen = lv_obj_create(NULL);
+    if (!p->screen) return false;
+    lv_obj_add_style(p->screen, &style_theme_screen_bg, 0);
+    lv_obj_remove_flag(p->screen, LV_OBJ_FLAG_SCROLLABLE);
+    build_screen_header(p->screen, TR("Select a color"), generic_back_cb, NULL, NULL);
+
+    int32_t top = STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT;
+    int32_t card_w = BOARD_SCREEN_WIDTH - 2 * BOARD_SCALE_PX(20);
+    int32_t done_h = BOARD_SCALE_PX(56);
+    int32_t done_band = done_h + HOME_INDICATOR_CONTENT_INSET;
+
+    lv_obj_t * body = lv_obj_create(p->screen);
+    lv_obj_remove_style_all(body);
+    lv_obj_set_size(body, BOARD_SCREEN_WIDTH, BOARD_SCREEN_HEIGHT - top - done_band);
+    lv_obj_set_pos(body, 0, top);
+    lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(body, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_top(body, BOARD_SCALE_PX(8), 0);
+    lv_obj_set_style_pad_bottom(body, BOARD_SCALE_PX(16), 0);
+    lv_obj_set_scroll_dir(body, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(body, LV_SCROLLBAR_MODE_OFF);
+    plugin_color_widget = gui_color_picker_create(body, card_w, rgb, presets, preset_count, NULL, NULL);
+    if (!plugin_color_widget) {
+        plugin_picker_discard(p);
+        return false;
+    }
+
+    lv_obj_t * done = gui_card_create(p->screen, card_w);
+    lv_obj_set_size(done, card_w, done_h);
+    lv_obj_align(done, LV_ALIGN_BOTTOM_MID, 0, -HOME_INDICATOR_CONTENT_INSET);
+    lv_obj_add_flag(done, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(done, plugin_color_done_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t * done_label = gui_card_text(done, TR("Done"), GUI_FONT_ROLE_ROW, false);
+    lv_obj_add_style(done_label, gui_theme_accent_style(), 0);
+    lv_obj_center(done_label);
+
+    finalize_screen_navigation(p->screen);
+    p->finishing = false;
+    plugin_color_result = -1;
+    if (plugin_picker_start(p)) return true;
+    plugin_picker_discard(p);
+    return false;
+}
+
+void gui_plugin_cancel_color_picker(void) {
+    plugin_picker_cancel(&plugin_color_picker);
 }
 
 void gui_plugin_refresh_file_browsers(void) {

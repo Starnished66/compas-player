@@ -41,6 +41,7 @@
 #include "../../network/store/plugins/plugin_store.h"
 #include "../../hardware/input/hw_buttons.h"
 #include "../../ui/appearance/gui_themes.h"
+#include "../../ui/appearance/gui_color_picker.h"
 #include "../../core/system/lifecycle/screenshot.h"
 #include "../../core/system/logging/db_log.h"
 #include "../../core/system/runtime/app_version.h"
@@ -1862,8 +1863,10 @@ typedef struct {
 
 static plugin_file_op_t plugin_file_op = { .callback_ref = LUA_NOREF };
 
-typedef struct { bool active; lua_State * L; int callback_ref; } plugin_file_picker_t;
-static plugin_file_picker_t plugin_file_picker = { .callback_ref = LUA_NOREF };
+/* One pending native picker request (pick_file, pick_color) per kind. */
+typedef struct { bool active; lua_State * L; int callback_ref; void (*cancel_ui)(void); } plugin_picker_job_t;
+static plugin_picker_job_t plugin_file_picker = { .callback_ref = LUA_NOREF, .cancel_ui = gui_plugin_cancel_file_picker };
+static plugin_picker_job_t plugin_color_picker = { .callback_ref = LUA_NOREF, .cancel_ui = gui_plugin_cancel_color_picker };
 
 /* A canonical path on the SD card (aliases such as "sd_0/." or "sd_0//"
  * would reach the whole card): the card root itself only when allow_root
@@ -1999,6 +2002,49 @@ static int l_plugin_open_file_manager(lua_State * L) {
     return 1;
 }
 
+static void plugin_picker_job_begin(plugin_picker_job_t * job, lua_State * L, int callback_index) {
+    job->active = true;
+    job->L = plugin_lua_main_state(L);
+    lua_pushvalue(L, callback_index);
+    job->callback_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+}
+
+static void plugin_picker_job_release(plugin_picker_job_t * job, bool cancel_ui) {
+    lua_State * L = job->L;
+    int ref = job->callback_ref;
+    job->active = false;
+    job->L = NULL;
+    job->callback_ref = LUA_NOREF;
+    plugin_instance_t * inst = plugin_instance_for_state(L);
+    if (L && ref != LUA_NOREF && !(inst && inst->aborted)) luaL_unref(L, LUA_REGISTRYINDEX, ref);
+    if (cancel_ui) job->cancel_ui();
+}
+
+/* Releases the job and leaves its callback on the stack of the returned
+ * state, ready for the caller to push arguments and plugin_picker_job_call();
+ * NULL (nothing pushed) when the job is idle or its plugin is gone. */
+static lua_State * plugin_picker_job_take(plugin_picker_job_t * job) {
+    if (!job->active) return NULL;
+    lua_State * L = job->L;
+    int ref = job->callback_ref;
+    plugin_instance_t * inst = plugin_instance_for_state(L);
+    if (!L || ref == LUA_NOREF || (inst && inst->aborted)) {
+        plugin_picker_job_release(job, false);
+        return NULL;
+    }
+    lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
+    plugin_picker_job_release(job, false);
+    return L;
+}
+
+static void plugin_picker_job_call(lua_State * L, const char * what) {
+    if (plugin_call(L, 1, 0, 0) != LUA_OK) {
+        const char * err = lua_tostring(L, -1);
+        fprintf(stderr, "[plugins] %s picker callback error: %s\n", what, err ? err : "unknown error");
+        lua_pop(L, 1);
+    }
+}
+
 /* plugin.pick_file([folder], callback) -> true | nil, error. */
 static int l_plugin_pick_file(lua_State * L) {
     const char * folder = luaL_optstring(L, 1, NULL);
@@ -2007,45 +2053,65 @@ static int l_plugin_pick_file(lua_State * L) {
         return luaL_error(L, "plugin.pick_file: folder must be on the SD card");
     if (plugin_file_picker.active) return plugin_lua_push_error(L, "another file picker is already open");
     if (!gui_plugin_pick_file(folder)) return plugin_lua_push_error(L, "could not open that folder");
-    plugin_file_picker.active = true;
-    plugin_file_picker.L = plugin_lua_main_state(L);
-    lua_pushvalue(L, 2);
-    plugin_file_picker.callback_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    plugin_picker_job_begin(&plugin_file_picker, L, 2);
     lua_pushboolean(L, true);
     return 1;
 }
 
-static void plugin_file_picker_release(bool cancel_ui) {
-    plugin_file_picker_t * job = &plugin_file_picker;
-    lua_State * L = job->L;
-    int ref = job->callback_ref;
-    job->active = false;
-    job->L = NULL;
-    job->callback_ref = LUA_NOREF;
-    plugin_instance_t * inst = plugin_instance_for_state(L);
-    if (L && ref != LUA_NOREF && !(inst && inst->aborted)) luaL_unref(L, LUA_REGISTRYINDEX, ref);
-    if (cancel_ui) gui_plugin_cancel_file_picker();
-}
-
 void plugin_manager_file_picker_complete(const char * path) {
-    plugin_file_picker_t * job = &plugin_file_picker;
-    if (!job->active) return;
-    lua_State * L = job->L;
-    int ref = job->callback_ref;
-    plugin_instance_t * inst = plugin_instance_for_state(L);
-    if (!L || ref == LUA_NOREF || (inst && inst->aborted)) {
-        plugin_file_picker_release(false);
-        return;
-    }
-    lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
-    plugin_file_picker_release(false);
+    lua_State * L = plugin_picker_job_take(&plugin_file_picker);
+    if (!L) return;
     if (path && plugin_song_path_valid(path)) lua_pushstring(L, path);
     else lua_pushnil(L);
-    if (plugin_call(L, 1, 0, 0) != LUA_OK) {
-        const char * err = lua_tostring(L, -1);
-        fprintf(stderr, "[plugins] file picker callback error: %s\n", err ? err : "unknown error");
-        lua_pop(L, 1);
+    plugin_picker_job_call(L, "file");
+}
+
+/* A color as 0xRRGGBB, "#RRGGBB" or "RRGGBB". */
+static bool plugin_color_arg(lua_State * L, int idx, uint32_t * rgb) {
+    if (lua_type(L, idx) == LUA_TSTRING) return gui_color_parse_hex(lua_tostring(L, idx), rgb);
+    int isnum = 0;
+    lua_Integer v = lua_tointegerx(L, idx, &isnum);
+    if (!isnum || v < 0 || v > 0xFFFFFF) return false;
+    *rgb = (uint32_t) v;
+    return true;
+}
+
+#define PLUGIN_COLOR_PRESETS_MAX 12
+
+/* plugin.pick_color([default], [presets], callback) -> true | nil, error. */
+static int l_plugin_pick_color(lua_State * L) {
+    uint32_t rgb = 0xFFFFFF;
+    uint32_t presets[PLUGIN_COLOR_PRESETS_MAX];
+    int count = 0;
+    luaL_checktype(L, 3, LUA_TFUNCTION);
+    if (!lua_isnil(L, 1) && !plugin_color_arg(L, 1, &rgb))
+        return luaL_error(L, "plugin.pick_color: default must be 0xRRGGBB or \"#RRGGBB\"");
+    if (!lua_isnil(L, 2)) {
+        luaL_checktype(L, 2, LUA_TTABLE);
+        lua_Integer len = luaL_len(L, 2);
+        if (len < 0 || len > PLUGIN_COLOR_PRESETS_MAX)
+            return luaL_error(L, "plugin.pick_color: at most %d presets", PLUGIN_COLOR_PRESETS_MAX);
+        count = (int) len;
+        for (int i = 0; i < count; i++) {
+            lua_rawgeti(L, 2, i + 1);
+            bool ok = plugin_color_arg(L, -1, &presets[i]);
+            lua_pop(L, 1);
+            if (!ok) return luaL_error(L, "plugin.pick_color: preset %d must be 0xRRGGBB or \"#RRGGBB\"", i + 1);
+        }
     }
+    if (plugin_color_picker.active) return plugin_lua_push_error(L, "another color picker is already open");
+    if (!gui_plugin_pick_color(rgb, count ? presets : NULL, count)) return plugin_lua_push_error(L, "could not open the color picker");
+    plugin_picker_job_begin(&plugin_color_picker, L, 3);
+    lua_pushboolean(L, true);
+    return 1;
+}
+
+void plugin_manager_color_picker_complete(int32_t rgb) {
+    lua_State * L = plugin_picker_job_take(&plugin_color_picker);
+    if (!L) return;
+    if (rgb >= 0) lua_pushinteger(L, rgb);
+    else lua_pushnil(L);
+    plugin_picker_job_call(L, "color");
 }
 
 /* Forgets the callback without stopping the operation, which the user may
@@ -5076,6 +5142,7 @@ static const luaL_Reg plugin_funcs[] = {
     { "cancel_file_operation",     l_plugin_cancel_file_operation },
     { "open_file_manager",         l_plugin_open_file_manager },
     { "pick_file",                 l_plugin_pick_file },
+    { "pick_color",                l_plugin_pick_color },
     { "play_file",                 l_plugin_play_file },
     { "play_list",                 l_plugin_play_list },
     { "play_remote",               l_plugin_play_remote },
@@ -5754,7 +5821,8 @@ static void discard_failed_plugin_resources(lua_State * L, bool aborted) {
     plugin_archive_bindings_clear_owner(L, aborted);
     plugin_album_cover_drop_owner(L, aborted);
     if (failed_load_owner_matches(plugin_file_op.L, L, aborted)) plugin_file_op_release();
-    if (failed_load_owner_matches(plugin_file_picker.L, L, aborted)) plugin_file_picker_release(true);
+    if (failed_load_owner_matches(plugin_file_picker.L, L, aborted)) plugin_picker_job_release(&plugin_file_picker, true);
+    if (failed_load_owner_matches(plugin_color_picker.L, L, aborted)) plugin_picker_job_release(&plugin_color_picker, true);
 }
 
 /* Discards failed plugin instance and rolls back staged hardware volume curve. */
@@ -6215,7 +6283,8 @@ void plugin_manager_deinit(void) {
     plugin_archive_bindings_cancel_all(plugin_archive_owner_is_aborted);
     plugin_album_cover_cancel_all();
     plugin_file_op_release();
-    plugin_file_picker_release(true);
+    plugin_picker_job_release(&plugin_file_picker, true);
+    plugin_picker_job_release(&plugin_color_picker, true);
     deinit_diag("plugin_manager_deinit: cancel_all_async_http after");
 
     for (int i = 0; i < PLUGIN_MAX_INTERVALS; i++) {

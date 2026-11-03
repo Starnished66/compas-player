@@ -542,5 +542,7 @@ void plugin_manager_confirmation_cancelled(void);
 bool plugin_manager_user_action_take(lua_State * L);
 /* GUI bridge for the one pending plugin.pick_file() request. */
 void plugin_manager_file_picker_complete(const char * path);
+/* Same for plugin.pick_color(); rgb < 0 when the user backed out. */
+void plugin_manager_color_picker_complete(int32_t rgb);
 
 #endif /* PLUGIN_MANAGER_H */

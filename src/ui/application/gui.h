@@ -247,6 +247,10 @@ bool gui_plugin_open_file_manager(const char * folder);
 /* plugin.pick_file([folder], callback): native indexed SD card browser. */
 bool gui_plugin_pick_file(const char * folder);
 void gui_plugin_cancel_file_picker(void);
+/* plugin.pick_color(default, presets, callback): native color picker screen
+ * (presets may be NULL). Completion goes to plugin_manager_color_picker_complete(). */
+bool gui_plugin_pick_color(uint32_t rgb, const uint32_t * presets, int preset_count);
+void gui_plugin_cancel_color_picker(void);
 /* After a plugin's file operation, so every file browser shows the change. */
 void gui_plugin_refresh_file_browsers(void);
 
