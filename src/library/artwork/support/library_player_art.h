@@ -7,15 +7,12 @@
 
 #include "../coordinator/artwork_coordinator.h"
 
-/* The real decoded-cover render target. No longer tied to board screen
- * dimensions -- the Player screen shows this at a fixed square card size
- * (fit_cover_img_to_card() in gui_player.c reads the real decoded image
- * header and scales it to fit, so any target size here works), and
- * compute_reflection_bytes() safely center-crops/edge-extends whichever of
- * COVER_ART_WIDTH/REFLECTION_WIDTH and COVER_ART_HEIGHT/REFLECTION_HEIGHT
- * is larger against the other. Matches the on-screen card's own decode-
- * target size (see cover_card's size in build_player_screen()) so the
- * crisp card needs no runtime upscale/downscale on the reference board. */
+/* The default (and smallest) player cover raster, matching the built-in
+ * layout's 350px cover card. Layouts with a larger card decode at a larger
+ * square edge up to ALBUMART_PLAYER_CACHE_SIZE (player_cover_raster_px() in
+ * the player artwork module); every decoded buffer carries its own edge.
+ * fit_cover_img_to_card() in gui_player.c reads the real decoded image
+ * header, so any edge works on screen. */
 #define COVER_ART_WIDTH 350
 #define COVER_ART_HEIGHT 350
 
@@ -24,7 +21,7 @@
  * this track yet: finds the original art (external sidecar file, then
  * embedded picture via the same bounded/isolated extraction the warmer
  * uses), decodes and persists the cache exactly as the warmer would, and
- * returns COVER_ART_WIDTH x COVER_ART_HEIGHT pixels for immediate display.
+ * returns edge x edge pixels for immediate display.
  * One-time cost per track -- once the cache file exists, the caller's own
  * fast path never reaches this again for it.
  *
@@ -34,7 +31,7 @@
  * failure (coordinator busy, isolated-helper fork/pipe/timeout,
  * cancellation), which a caller must retry rather than treat as final. */
 bool gui_library_generate_player_cover(const char * track_path, const char * artist,
-                                       const char * album, const char * album_artist,
+                                       const char * album, const char * album_artist, int edge,
                                        artwork_cancel_fn cancel_cb, void * user_data,
                                        uint16_t ** out_pixels, bool * out_no_art_confirmed);
 

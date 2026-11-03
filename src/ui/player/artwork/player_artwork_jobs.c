@@ -40,6 +40,7 @@ static pthread_mutex_t cover_decode_partial_mutex = PTHREAD_MUTEX_INITIALIZER;
 static cover_decode_partial_t cover_decode_partial;
 static int cover_decode_result_for_index;
 static unsigned int cover_decode_result_generation;
+static int cover_decode_result_edge;
 static audio_current_format_info_t cover_decode_result_format;
 static bool cover_decode_result_ok;
 static uint16_t * cover_decode_result_pixels;
@@ -113,7 +114,7 @@ static void cover_decode_partial_publish(const cover_decode_request_t * req,
                                           bool accent_valid, uint32_t accent) {
     if (!pixels || atomic_load_explicit(&cover_reload_active, memory_order_relaxed) ||
         player_cover_decode_cancelled((void *) (uintptr_t) req->generation)) return;
-    size_t bytes = (size_t) COVER_ART_WIDTH * COVER_ART_HEIGHT * sizeof(uint16_t);
+    size_t bytes = (size_t) req->edge * req->edge * sizeof(uint16_t);
     uint16_t * copy = malloc(bytes);
     if (!copy) return; /* final result remains available as the safe fallback */
     memcpy(copy, pixels, bytes);
@@ -126,7 +127,7 @@ static void cover_decode_partial_publish(const cover_decode_request_t * req,
     }
     uint16_t * old = cover_decode_partial.pixels;
     cover_decode_partial = (cover_decode_partial_t) {
-        .valid = true, .for_index = req->for_index, .generation = req->generation,
+        .valid = true, .for_index = req->for_index, .generation = req->generation, .edge = req->edge,
         .pixels = copy, .file = *file, .accent_valid = accent_valid, .accent = accent
 #ifdef UI_PERF_TRACE
         , .request_perf_us = req->request_perf_us
@@ -210,7 +211,7 @@ static uint64_t bt_cover_file_key(const cover_file_id_t * id) {
 }
 
 
-static bool load_generated_player_cover(const albumart_info_t * info, const char * track_path,
+static bool load_generated_player_cover(const albumart_info_t * info, const char * track_path, int edge,
                                         unsigned int generation, uint64_t bt_art_token, bool require_fresh,
                                         const cover_file_id_t * shown, cover_file_id_t * out_id,
                                         bool * out_same, uint16_t ** out_pixels) {
@@ -234,10 +235,10 @@ static bool load_generated_player_cover(const albumart_info_t * info, const char
          * available, without decoding/blurring the visible cover again. */
         if (!bt_cover_art_reuse(bt_art_token, bt_cover_file_key(&id)) &&
             system_get_mem_available_bytes() >= player_raster_cache_memory_floor()) {
-            cover_raster_key_t shown_key = { .file = st, .width = COVER_ART_WIDTH, .height = COVER_ART_HEIGHT };
+            cover_raster_key_t shown_key = { .file = st, .width = edge, .height = edge };
             uint16_t *retained = cover_raster_cache_get(&shown_key);
             if (retained) {
-                bt_cover_art_publish_rgb565_async(bt_art_token, retained, COVER_ART_WIDTH, COVER_ART_HEIGHT,
+                bt_cover_art_publish_rgb565_async(bt_art_token, retained, edge, edge,
                                            bt_cover_file_key(&id));
                 free(retained);
             }
@@ -249,7 +250,7 @@ static bool load_generated_player_cover(const albumart_info_t * info, const char
     }
     const char *cache_flag = getenv("COMPAS_ARTWORK_REUSE");
     bool reuse = (!cache_flag || strcmp(cache_flag, "0") != 0) && id.valid;
-    cover_raster_key_t key = { .file = st, .width = COVER_ART_WIDTH, .height = COVER_ART_HEIGHT };
+    cover_raster_key_t key = { .file = st, .width = edge, .height = edge };
     if (reuse && system_get_mem_available_bytes() < player_raster_cache_memory_floor()) {
         player_cover_prefetch_cancel();
         cover_raster_cache_clear();
@@ -269,7 +270,7 @@ static bool load_generated_player_cover(const albumart_info_t * info, const char
                               ARTWORK_PRIO_PLAYER) != ALBUMART_LOAD_OK)
         return false;
     cover_decode_result_t result = cover_decode_to_rgb565_ex(data, size,
-        COVER_ART_WIDTH, COVER_ART_HEIGHT, ARTWORK_PRIO_PLAYER,
+        edge, edge, ARTWORK_PRIO_PLAYER,
         player_cover_decode_cancelled, (void *) (uintptr_t) generation, out_pixels);
     free(data);
     if (result != COVER_DECODE_OK) return false;
@@ -288,13 +289,13 @@ static bool load_generated_player_cover(const albumart_info_t * info, const char
 }
 
 static bool load_cached_player_cover(const char * track_path, const char * artist, const char * album,
-                                      const char * album_artist, unsigned int generation,
+                                      const char * album_artist, int edge, unsigned int generation,
                                       uint64_t bt_art_token, bool force_source, const cover_file_id_t * shown,
                                       cover_file_id_t * out_id, bool * out_same, uint16_t ** out_pixels) {
     if (player_cover_decode_cancelled((void *) (uintptr_t) generation)) return false;
     albumart_info_t info;
     albumart_info_from_path_tags(track_path, artist, album, album_artist, &info);
-    if (!force_source && load_generated_player_cover(&info, track_path, generation, bt_art_token, true,
+    if (!force_source && load_generated_player_cover(&info, track_path, edge, generation, bt_art_token, true,
                                                      shown, out_id, out_same, out_pixels))
         return true;
 
@@ -309,7 +310,7 @@ static bool load_cached_player_cover(const char * track_path, const char * artis
      * persist the cache now so every later play of this track hits the
      * fast path above. */
     bool no_art_confirmed = false;
-    if (gui_library_generate_player_cover(track_path, artist, album, album_artist,
+    if (gui_library_generate_player_cover(track_path, artist, album, album_artist, edge,
                                           player_cover_decode_cancelled,
                                           (void *) (uintptr_t) generation,
                                           out_pixels, &no_art_confirmed)) {
@@ -319,7 +320,7 @@ static bool load_cached_player_cover(const char * track_path, const char * artis
     if (player_cover_decode_cancelled((void *) (uintptr_t) generation)) return false;
     /* A forced re-read prefers the track's own art, but a track without any
      * may still have album art the warmer rebuilt from a sibling track. */
-    if (force_source && load_generated_player_cover(&info, track_path, generation, bt_art_token, false,
+    if (force_source && load_generated_player_cover(&info, track_path, edge, generation, bt_art_token, false,
                                                     NULL, out_id, out_same, out_pixels))
         return true;
     /* Only remember a confirmed "no art anywhere" result -- a transient one
@@ -398,12 +399,12 @@ static void * cover_decode_thread_func(void * arg) {
              * over. */
         }
         ok = req->picture_data && req->picture_size > 0 &&
-             cover_decode_to_rgb565(req->picture_data, req->picture_size, COVER_ART_WIDTH, COVER_ART_HEIGHT, &pixels);
+             cover_decode_to_rgb565(req->picture_data, req->picture_size, req->edge, req->edge, &pixels);
         free(req->picture_data);
         req->picture_data = NULL;
     } else if (req->local_track_path[0]) {
         ok = load_cached_player_cover(req->local_track_path, req->artist, req->album,
-                                       req->album_artist, req->generation, req->bt_art_token, req->force_source,
+                                       req->album_artist, req->edge, req->generation, req->bt_art_token, req->force_source,
                                        &req->shown_cover, &file_id, &same, &pixels);
     }
 
@@ -419,7 +420,7 @@ static void * cover_decode_thread_func(void * arg) {
     }
 
     if (ok && pixels)
-        bt_cover_art_publish_rgb565_async(req->bt_art_token, pixels, COVER_ART_WIDTH, COVER_ART_HEIGHT,
+        bt_cover_art_publish_rgb565_async(req->bt_art_token, pixels, req->edge, req->edge,
                                       bt_cover_file_key(&file_id));
     else if (!ok && !cancelled)
         bt_cover_art_clear(req->bt_art_token);
@@ -428,7 +429,7 @@ static void * cover_decode_thread_func(void * arg) {
     bt_done = (uint32_t)(ui_perf_now_us() / 1000);
 #endif
     uint32_t accent = 0;
-    bool accent_valid = ok && pixels && player_cover_accent_from_rgb565(pixels, &accent);
+    bool accent_valid = ok && pixels && player_cover_accent_from_rgb565(pixels, req->edge, &accent);
 
     /* Publish an owned display copy now; the worker's pixels remain private
      * until reflection computation has finished. */
@@ -450,7 +451,7 @@ static void * cover_decode_thread_func(void * arg) {
             printf("PERF frost_cache reused=1 source=worker generation=%u\n", req->generation);
 #endif
         if (!reflection)
-            reflection = player_compute_reflection_bytes_cancelable((const uint8_t *) pixels,
+            reflection = player_compute_reflection_bytes_cancelable((const uint8_t *) pixels, req->edge,
                                                                      req->blur_radius,
                                                                      req->blur_passes,
                                                                      req->darken_num,
@@ -484,6 +485,7 @@ static void * cover_decode_thread_func(void * arg) {
 #endif
     cover_decode_result_for_index = req->for_index;
     cover_decode_result_generation = req->generation;
+    cover_decode_result_edge = req->edge;
     cover_decode_result_ok = ok;
     cover_decode_result_pixels = pixels;
     cover_decode_result_reflection = reflection;
@@ -595,7 +597,7 @@ bool player_artwork_jobs_take_result(player_artwork_result_t * result) {
     if (!result || !atomic_load_explicit(&cover_decode_done_flag,memory_order_acquire)) return false;
     cover_decode_active=false;
     pthread_join(cover_decode_thread,NULL);
-    *result=(player_artwork_result_t){.for_index=cover_decode_result_for_index,.generation=cover_decode_result_generation,
+    *result=(player_artwork_result_t){.for_index=cover_decode_result_for_index,.generation=cover_decode_result_generation,.edge=cover_decode_result_edge,
         .format=cover_decode_result_format,.ok=cover_decode_result_ok,.pixels=cover_decode_result_pixels,
         .reflection=cover_decode_result_reflection,.flat=cover_decode_result_flat,
         .has_bg_color=cover_decode_result_has_bg_color,.bg_color=cover_decode_result_bg_color,

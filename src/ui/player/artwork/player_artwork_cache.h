@@ -40,6 +40,12 @@ typedef struct {
 /* A light theme's frost is 80% its screen color over the blurred artwork. */
 #define REFLECTION_LIGHT_TINT_WEIGHT 205
 
+/* Square edge, in pixels, the player decodes its cover at: the active
+ * layout's cover card, kept within [COVER_ART_WIDTH, ALBUMART_PLAYER_CACHE_SIZE].
+ * Buffers carry the edge they were decoded at; this is only the next target. */
+int player_cover_raster_px(void);
+void player_cover_raster_set_card(int card_w, int card_h);
+
 typedef bool (*player_artwork_cache_stale_policy_fn)(unsigned int generation);
 bool cover_file_id_same(const cover_file_id_t * a, const cover_file_id_t * b);
 size_t player_reflection_bytes(void);

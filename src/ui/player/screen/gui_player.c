@@ -418,6 +418,8 @@ static lv_obj_t * delete_song_popup_title = NULL;
 static lv_image_dsc_t current_cover_dsc;
 
 static uint8_t * current_cover_bytes = NULL;
+/* Square edge current_cover_bytes was decoded at; valid while it is non-NULL. */
+static int current_cover_edge;
 static int current_cover_for_index = -1;
 static cover_file_id_t current_cover_file;
 static audio_current_format_info_t player_cached_format;
@@ -766,7 +768,7 @@ void gui_player_refresh_frosted_background(void) {
     drop_current_reflection();
     current_reflection_bytes = player_reflection_cache_get(&current_cover_file, &params);
     if (!current_reflection_bytes)
-        current_reflection_bytes = player_compute_reflection_bytes_cancelable(current_cover_bytes,
+        current_reflection_bytes = player_compute_reflection_bytes_cancelable(current_cover_bytes, current_cover_edge,
                                                                                params.blur_radius,
                                                                                params.blur_passes,
                                                                                params.darken_num,
@@ -819,7 +821,10 @@ static void launch_cover_decode_req(cover_decode_request_t r) {
         r.bt_art_token = bt_cover_art_begin_track(playlist_path_at(r.for_index));
         r.generation = player_artwork_jobs_advance_generation();
     }
-    cover_file_id_t shown = current_cover_bytes ? current_cover_file : (cover_file_id_t) { .valid = false };
+    r.edge = player_cover_raster_px();
+    /* Pixels decoded at another edge cannot stand in for this request. */
+    cover_file_id_t shown = current_cover_bytes && current_cover_edge == r.edge
+        ? current_cover_file : (cover_file_id_t) { .valid = false };
     player_artwork_jobs_partial_clear();
     cover_decode_partial_applied_generation = 0;
     if (r.local_track_path[0]) {
@@ -965,10 +970,10 @@ static void maybe_prefetch_next_cover(void) {
     next_cover_prefetch_token = metadata_next_token; /* At most one attempt per queue prediction. */
     player_cover_prefetch_submit(next_metadata_cached_path, next_metadata_cache.artist,
                                 next_metadata_cache.album, next_metadata_cache.album_artist,
-                                COVER_ART_WIDTH, COVER_ART_HEIGHT);
+                                player_cover_raster_px(), player_cover_raster_px());
 }
 
-static void apply_decoded_cover_pixels(uint16_t * pixels, int for_index,
+static void apply_decoded_cover_pixels(uint16_t * pixels, int edge, int for_index,
                                        const cover_file_id_t * file,
                                        bool accent_valid, uint32_t accent) {
     if (!pixels) return;
@@ -976,6 +981,7 @@ static void apply_decoded_cover_pixels(uint16_t * pixels, int for_index,
     lv_image_cache_drop(&current_cover_dsc);
     free(current_cover_bytes);
     current_cover_bytes = (uint8_t *) pixels;
+    current_cover_edge = edge;
     current_cover_generation++;
     current_cover_for_index = for_index;
     current_cover_file = *file;
@@ -983,11 +989,11 @@ static void apply_decoded_cover_pixels(uint16_t * pixels, int for_index,
     current_cover_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
     current_cover_dsc.header.cf = LV_COLOR_FORMAT_RGB565;
     current_cover_dsc.header.flags |= LV_IMAGE_FLAGS_USER3;
-    current_cover_dsc.header.w = COVER_ART_WIDTH;
-    current_cover_dsc.header.h = COVER_ART_HEIGHT;
-    current_cover_dsc.header.stride = COVER_ART_WIDTH * 2;
+    current_cover_dsc.header.w = edge;
+    current_cover_dsc.header.h = edge;
+    current_cover_dsc.header.stride = edge * 2;
     current_cover_dsc.data = current_cover_bytes;
-    current_cover_dsc.data_size = (uint32_t) COVER_ART_WIDTH * COVER_ART_HEIGHT * 2;
+    current_cover_dsc.data_size = (uint32_t) edge * edge * 2;
     if (cover_img) lv_image_set_src(cover_img, &current_cover_dsc);
     fit_cover_img_to_card();
     player_lyrics_backdrop_invalidate();
@@ -1018,7 +1024,7 @@ static void poll_cover_decode_partial(void) {
                    partial.generation == player_artwork_jobs_generation() &&
                    partial.for_index == player_queue_model_current();
     if (current) {
-        apply_decoded_cover_pixels(partial.pixels, partial.for_index, &partial.file,
+        apply_decoded_cover_pixels(partial.pixels, partial.edge, partial.for_index, &partial.file,
                                    partial.accent_valid, partial.accent);
         cover_decode_partial_applied_generation = partial.generation;
 #ifdef UI_PERF_TRACE
@@ -1070,7 +1076,7 @@ void poll_cover_decode(void) {
         free(cover_result.pixels);
         free(cover_result.reflection);
     } else if (cover_result.ok && cover_result.same && current_cover_bytes &&
-               cover_file_id_same(&cover_result.file, &current_cover_file)) {
+               current_cover_edge == cover_result.edge && cover_file_id_same(&cover_result.file, &current_cover_file)) {
         /* Same cached file as the cover on screen (next track of the same
          * album): the pixels, reflection, lock screen, drawer and accent
          * already match. Only the owning queue slot moves on. */
@@ -1137,7 +1143,7 @@ void poll_cover_decode(void) {
              * worker-owned for reflection generation. */
             free(cover_result.pixels);
         } else {
-            apply_decoded_cover_pixels(cover_result.pixels, cover_result.for_index,
+            apply_decoded_cover_pixels(cover_result.pixels, cover_result.edge, cover_result.for_index,
                                        &cover_result.file, cover_result.accent_valid,
                                        cover_result.accent);
             cover_result.pixels = NULL;
@@ -1216,6 +1222,29 @@ void gui_player_service_artwork_cache(void) {
     player_artwork_cache_service(NULL);
 }
 
+/* A fresh copy of the playing track's last local request, for decoding it
+ * again. False when the last request was for another track or a stream. */
+static bool take_last_local_cover_request(cover_decode_request_t * req) {
+    if (!last_local_cover_request_valid || last_local_cover_request.for_index != player_queue_model_current() ||
+        strcmp(last_local_cover_request.local_track_path, playlist_path_at(player_queue_model_current())) != 0)
+        return false;
+    *req = last_local_cover_request;
+    req->picture_data = NULL;
+    req->picture_size = 0;
+    cover_decode_request_snapshot_frost(req);
+    return true;
+}
+
+/* A rebuilt layout may show the cover at another size. Decode the shown one
+ * again at the new raster edge (a no-op when it already matches). */
+static void player_cover_resync_raster(void) {
+    cover_decode_request_t req;
+    if (!current_cover_bytes || current_cover_edge == player_cover_raster_px() ||
+        !take_last_local_cover_request(&req)) return;
+    req.generation = 0;
+    launch_cover_decode_req(req);
+}
+
 void gui_player_begin_cover_reload(void) {
     player_cover_prefetch_cancel();
     player_artwork_jobs_begin_reload();
@@ -1241,17 +1270,8 @@ void gui_player_finish_cover_reload(void) {
      * read is cheap. The result replaces (and frees) the old cover; a pending
      * request for a newer track wins instead. */
     cover_decode_request_t req;
-    if (player_artwork_jobs_take_pending(&req)) {
-        /* Ownership of any pending picture_data transfers to this UI request. */
-    } else if (last_local_cover_request_valid && last_local_cover_request.for_index == player_queue_model_current() &&
-               strcmp(last_local_cover_request.local_track_path, playlist_path_at(player_queue_model_current())) == 0) {
-        req = last_local_cover_request;
-        req.picture_data = NULL;
-        req.picture_size = 0;
-        cover_decode_request_snapshot_frost(&req);
-    } else {
-        return;
-    }
+    /* Ownership of any pending picture_data transfers to this UI request. */
+    if (!player_artwork_jobs_take_pending(&req) && !take_last_local_cover_request(&req)) return;
     if (req.local_track_path[0]) {
         /* Held or current local track alike: the cache it would hit may
          * predate the reload, so read the track's own art first and fall
@@ -2861,6 +2881,8 @@ static bool player_bind_widgets(lv_obj_t * scr) {
 
     finalize_screen_navigation(scr);
     lv_obj_add_event_cb(scr, player_inline_lyrics_screen_unloaded_cb, LV_EVENT_SCREEN_UNLOADED, NULL);
+    /* Decode future covers at the size this layout shows them. */
+    player_cover_raster_set_card(lv_obj_get_width(cover_card), lv_obj_get_height(cover_card));
     fit_cover_img_to_card();
     return true;
 }
@@ -4438,6 +4460,7 @@ bool gui_player_rebuild_layout(uint32_t screen_width, uint32_t screen_height) {
     if (lyrics_were_open) player_inline_lyrics_set_open(true, false);
 
     gui_navigation_replace_player_screen(old_screen, new_screen, was_active);
+    player_cover_resync_raster();
     sync_player_topbar_visibility(lv_screen_active());
     if (frozen_screen) {
         lv_obj_delete(frozen_screen);
@@ -5533,12 +5556,14 @@ const lv_image_dsc_t * gui_player_get_current_reflection_dsc(void) {
     return current_reflection_bytes ? &current_reflection_dsc : NULL;
 }
 
-bool gui_player_copy_cover_rgb565(int for_index, uint8_t * out, size_t out_size) {
-    const size_t required = (size_t) COVER_ART_WIDTH * COVER_ART_HEIGHT * 2;
-    if (!out || out_size < required || !current_cover_bytes || current_cover_for_index != for_index)
-        return false;
-    memcpy(out, current_cover_bytes, required);
-    return true;
+uint8_t * gui_player_copy_cover_rgb565(int for_index, int * out_edge) {
+    if (!out_edge || !current_cover_bytes || current_cover_for_index != for_index) return NULL;
+    size_t bytes = (size_t) current_cover_edge * current_cover_edge * 2;
+    uint8_t * copy = malloc(bytes);
+    if (!copy) return NULL;
+    memcpy(copy, current_cover_bytes, bytes);
+    *out_edge = current_cover_edge;
+    return copy;
 }
 
 bool gui_player_is_seeking(void) {

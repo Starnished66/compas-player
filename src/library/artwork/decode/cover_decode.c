@@ -19,6 +19,7 @@
 #include "jpeglib.h"
 #include "jerror.h"
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
@@ -501,6 +502,122 @@ static inline int nearest_index(float f, int n) {
     return i < 0 ? 0 : (i >= n ? n - 1 : i);
 }
 
+/* Expand RGB565 to 8-bit by left-shifting into the MSBs. Round-trip through
+ * rgb888_to_565() is lossless for those 5/6 bits; bit-replication would not
+ * change the packed result after the packer's 0xF8/0xFC masks. */
+static inline void rgb565_to_888(uint16_t p, uint8_t * r, uint8_t * g, uint8_t * b) {
+    *r = (uint8_t) ((p >> 11) << 3);
+    *g = (uint8_t) (((p >> 5) & 0x3F) << 2);
+    *b = (uint8_t) ((p & 0x1F) << 3);
+}
+
+/* Per-axis box-filter spans for downscaling. Destination index d covers the
+ * source interval [(d + crop) / scale, (d + 1 + crop) / scale); each source
+ * pixel it overlaps gets a weight proportional to the overlap. Weights are
+ * 8-bit fixed point and sum to exactly 256 per index, so a flat area stays
+ * flat and the 2-D accumulation (256 * 256 * 255) fits in 32 bits. Built once
+ * per call; data holds first[n], count[n], then weights[n * stride]. */
+typedef struct {
+    int stride;
+    int32_t * data;
+} box_axis_t;
+
+static bool box_axis_build(box_axis_t * axis, int src_n, int dst_n, float scale, float crop) {
+    int stride = (int) (1.0f / scale) + 3;
+    int32_t * data = malloc(sizeof(int32_t) * (size_t) dst_n * (size_t) (2 + stride));
+    if (!data) return false;
+    int32_t * first = data;
+    int32_t * count = data + dst_n;
+    int32_t * weights = data + 2 * (size_t) dst_n;
+
+    for (int d = 0; d < dst_n; d++) {
+        float a = (d + crop) / scale;
+        float b = (d + 1 + crop) / scale;
+        if (a < 0.0f) a = 0.0f;
+        if (b > (float) src_n) b = (float) src_n;
+        int f = (int) a;
+        if (f > src_n - 1) f = src_n - 1;
+        int l = b > a ? (int) ceilf(b) - 1 : f;
+        if (l < f) l = f;
+        if (l > src_n - 1) l = src_n - 1;
+        if (l - f + 1 > stride) l = f + stride - 1;
+
+        int32_t * w = weights + (size_t) d * stride;
+        first[d] = f;
+        count[d] = l - f + 1;
+        if (l == f || b <= a) {
+            w[0] = 256;
+            count[d] = 1;
+            continue;
+        }
+        /* Cumulative rounding so the weights telescope to exactly 256. */
+        int prev = 0;
+        for (int i = f; i <= l; i++) {
+            float edge = (float) (i + 1) < b ? (float) (i + 1) : b;
+            int cum = i == l ? 256 : (int) ((edge - a) / (b - a) * 256.0f + 0.5f);
+            w[i - f] = cum - prev;
+            prev = cum;
+        }
+    }
+    axis->stride = stride;
+    axis->data = data;
+    return true;
+}
+
+/* Area-weighted downscale with cover-crop, shared by the RGB888 and RGB565
+ * sources; is565 is a constant at both call sites so the fetch inlines. */
+static inline __attribute__((always_inline)) bool box_downscale(const void * src, bool is565, int src_w, int src_h,
+                                                                 uint16_t * dst, int dst_w, int dst_h, float scale,
+                                                                 float crop_x, float crop_y) {
+    box_axis_t xs, ys;
+    if (!box_axis_build(&xs, src_w, dst_w, scale, crop_x)) return false;
+    if (!box_axis_build(&ys, src_h, dst_h, scale, crop_y)) {
+        free(xs.data);
+        return false;
+    }
+    const int32_t * xfirst = xs.data;
+    const int32_t * xcount = xs.data + dst_w;
+    const int32_t * xw = xs.data + 2 * (size_t) dst_w;
+    const int32_t * yfirst = ys.data;
+    const int32_t * ycount = ys.data + dst_h;
+    const int32_t * yw = ys.data + 2 * (size_t) dst_h;
+
+    for (int dy = 0; dy < dst_h; dy++) {
+        uint16_t * dst_row = dst + (size_t) dy * dst_w;
+        const int32_t * wy = yw + (size_t) dy * ys.stride;
+        for (int dx = 0; dx < dst_w; dx++) {
+            const int32_t * wx = xw + (size_t) dx * xs.stride;
+            uint32_t r_sum = 0, g_sum = 0, b_sum = 0;
+            for (int j = 0; j < ycount[dy]; j++) {
+                size_t row = (size_t) (yfirst[dy] + j) * src_w + xfirst[dx];
+                uint32_t r_row = 0, g_row = 0, b_row = 0;
+                for (int i = 0; i < xcount[dx]; i++) {
+                    uint8_t r, g, b;
+                    if (is565) {
+                        rgb565_to_888(((const uint16_t *) src)[row + i], &r, &g, &b);
+                    } else {
+                        const uint8_t * p = (const uint8_t *) src + (row + i) * 3;
+                        r = p[0];
+                        g = p[1];
+                        b = p[2];
+                    }
+                    r_row += (uint32_t) wx[i] * r;
+                    g_row += (uint32_t) wx[i] * g;
+                    b_row += (uint32_t) wx[i] * b;
+                }
+                r_sum += (uint32_t) wy[j] * r_row;
+                g_sum += (uint32_t) wy[j] * g_row;
+                b_sum += (uint32_t) wy[j] * b_row;
+            }
+            dst_row[dx] = rgb888_to_565((uint8_t) ((r_sum + 32768) >> 16), (uint8_t) ((g_sum + 32768) >> 16),
+                                        (uint8_t) ((b_sum + 32768) >> 16));
+        }
+    }
+    free(xs.data);
+    free(ys.data);
+    return true;
+}
+
 static uint16_t * resize_cover_fit(const uint8_t * src, int src_w, int src_h, int dst_w, int dst_h) {
     uint16_t * dst = malloc((size_t) dst_w * dst_h * sizeof(uint16_t));
     if (!dst) return NULL;
@@ -523,66 +640,32 @@ static uint16_t * resize_cover_fit(const uint8_t * src, int src_w, int src_h, in
     float crop_x = (scaled_w - dst_w) / 2.0f;
     float crop_y = (scaled_h - dst_h) / 2.0f;
 
+    if (!upscaling) {
+        if (!box_downscale(src, false, src_w, src_h, dst, dst_w, dst_h, scale, crop_x, crop_y)) {
+            free(dst);
+            return NULL;
+        }
+        return dst;
+    }
+
     for (int dy = 0; dy < dst_h; dy++) {
         uint16_t * dst_row = dst + (size_t) dy * dst_w;
-
-        if (upscaling) {
-            const uint8_t * row = src + (size_t) nearest_index(((dy + 0.5f) + crop_y) / scale - 0.5f, src_h) * src_w * 3;
-            for (int dx = 0; dx < dst_w; dx++) {
-                const uint8_t * p = row + (size_t) nearest_index(((dx + 0.5f) + crop_x) / scale - 0.5f, src_w) * 3;
-                dst_row[dx] = rgb888_to_565(p[0], p[1], p[2]);
-            }
-            continue;
-        }
-
-        int sy0 = (int) ((dy + crop_y) / scale);
-        int sy1 = (int) ((dy + 1 + crop_y) / scale);
-        if (sy0 < 0) sy0 = 0;
-        if (sy0 >= src_h) sy0 = src_h - 1;
-        if (sy1 >= src_h) sy1 = src_h - 1;
-        if (sy1 < sy0) sy1 = sy0;
-
+        const uint8_t * row = src + (size_t) nearest_index(((dy + 0.5f) + crop_y) / scale - 0.5f, src_h) * src_w * 3;
         for (int dx = 0; dx < dst_w; dx++) {
-            int sx0 = (int) ((dx + crop_x) / scale);
-            int sx1 = (int) ((dx + 1 + crop_x) / scale);
-            if (sx0 < 0) sx0 = 0;
-            if (sx0 >= src_w) sx0 = src_w - 1;
-            if (sx1 >= src_w) sx1 = src_w - 1;
-            if (sx1 < sx0) sx1 = sx0;
-
-            uint32_t r_sum = 0, g_sum = 0, b_sum = 0, count = 0;
-            for (int sy = sy0; sy <= sy1; sy++) {
-                const uint8_t * row = src + (size_t) sy * src_w * 3;
-                for (int sx = sx0; sx <= sx1; sx++) {
-                    const uint8_t * p = row + (size_t) sx * 3;
-                    r_sum += p[0];
-                    g_sum += p[1];
-                    b_sum += p[2];
-                    count++;
-                }
-            }
-            dst_row[dx] = rgb888_to_565((uint8_t) (r_sum / count), (uint8_t) (g_sum / count), (uint8_t) (b_sum / count));
+            const uint8_t * p = row + (size_t) nearest_index(((dx + 0.5f) + crop_x) / scale - 0.5f, src_w) * 3;
+            dst_row[dx] = rgb888_to_565(p[0], p[1], p[2]);
         }
     }
     return dst;
 }
 
-/* Expand RGB565 to 8-bit by left-shifting into the MSBs. Round-trip through
- * rgb888_to_565() is lossless for those 5/6 bits; bit-replication would not
- * change the packed result after the packer's 0xF8/0xFC masks. */
-static inline void rgb565_to_888(uint16_t p, uint8_t * r, uint8_t * g, uint8_t * b) {
-    *r = (uint8_t) ((p >> 11) << 3);
-    *g = (uint8_t) (((p >> 5) & 0x3F) << 2);
-    *b = (uint8_t) ((p & 0x1F) << 3);
-}
-
 uint16_t * cover_resize_rgb565(const uint16_t * src, int src_w, int src_h, int dst_w, int dst_h) {
     if (!src || src_w <= 0 || src_h <= 0 || dst_w <= 0 || dst_h <= 0) return NULL;
 
-    /* Same-size must copy, not fall through to the area-average path:
-     * at scale=1.0 that path's inclusive floor windows (sx1 = dx+1) average
-     * a 2x2 neighborhood, which is not identity. R1's player-cache and
-     * on-screen cover are both 480x480, so this is the hot path there. */
+    /* Same-size must copy: the downscale path would filter at scale=1.0 only
+     * when the crop is non-zero, and the copy is far cheaper. R1's
+     * player-cache and on-screen cover are both 480x480, so this is the hot
+     * path there. */
     if (src_w == dst_w && src_h == dst_h) {
         size_t bytes = (size_t) dst_w * (size_t) dst_h * sizeof(uint16_t);
         uint16_t * dst = malloc(bytes);
@@ -604,45 +687,19 @@ uint16_t * cover_resize_rgb565(const uint16_t * src, int src_w, int src_h, int d
     float crop_x = (scaled_w - dst_w) / 2.0f;
     float crop_y = (scaled_h - dst_h) / 2.0f;
 
+    if (!upscaling) {
+        if (!box_downscale(src, true, src_w, src_h, dst, dst_w, dst_h, scale, crop_x, crop_y)) {
+            free(dst);
+            return NULL;
+        }
+        return dst;
+    }
+
     for (int dy = 0; dy < dst_h; dy++) {
         uint16_t * dst_row = dst + (size_t) dy * dst_w;
-
-        if (upscaling) {
-            const uint16_t * row = src + (size_t) nearest_index(((dy + 0.5f) + crop_y) / scale - 0.5f, src_h) * src_w;
-            for (int dx = 0; dx < dst_w; dx++) {
-                dst_row[dx] = row[nearest_index(((dx + 0.5f) + crop_x) / scale - 0.5f, src_w)];
-            }
-            continue;
-        }
-
-        int sy0 = (int) ((dy + crop_y) / scale);
-        int sy1 = (int) ((dy + 1 + crop_y) / scale);
-        if (sy0 < 0) sy0 = 0;
-        if (sy0 >= src_h) sy0 = src_h - 1;
-        if (sy1 >= src_h) sy1 = src_h - 1;
-        if (sy1 < sy0) sy1 = sy0;
-
+        const uint16_t * row = src + (size_t) nearest_index(((dy + 0.5f) + crop_y) / scale - 0.5f, src_h) * src_w;
         for (int dx = 0; dx < dst_w; dx++) {
-            int sx0 = (int) ((dx + crop_x) / scale);
-            int sx1 = (int) ((dx + 1 + crop_x) / scale);
-            if (sx0 < 0) sx0 = 0;
-            if (sx0 >= src_w) sx0 = src_w - 1;
-            if (sx1 >= src_w) sx1 = src_w - 1;
-            if (sx1 < sx0) sx1 = sx0;
-
-            uint32_t r_sum = 0, g_sum = 0, b_sum = 0, count = 0;
-            for (int sy = sy0; sy <= sy1; sy++) {
-                const uint16_t * row = src + (size_t) sy * src_w;
-                for (int sx = sx0; sx <= sx1; sx++) {
-                    uint8_t r, g, b;
-                    rgb565_to_888(row[sx], &r, &g, &b);
-                    r_sum += r;
-                    g_sum += g;
-                    b_sum += b;
-                    count++;
-                }
-            }
-            dst_row[dx] = rgb888_to_565((uint8_t) (r_sum / count), (uint8_t) (g_sum / count), (uint8_t) (b_sum / count));
+            dst_row[dx] = row[nearest_index(((dx + 0.5f) + crop_x) / scale - 0.5f, src_w)];
         }
     }
     return dst;

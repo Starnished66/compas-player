@@ -63,9 +63,9 @@ static void * job_main(void * arg) {
             uint16_t * large = NULL;
             bool no_art = false;
             if (gui_library_generate_player_cover(row.path, row.tags.artist, row.tags.album,
-                                                  row.tags.album_artist, job_cancelled, j,
+                                                  row.tags.album_artist, ALBUM_PLAYER_CACHE_PX, job_cancelled, j,
                                                   &large, &no_art) && large) {
-                j->pixels = cover_resize_rgb565(large, COVER_ART_WIDTH, COVER_ART_HEIGHT, j->px, j->px);
+                j->pixels = cover_resize_rgb565(large, ALBUM_PLAYER_CACHE_PX, ALBUM_PLAYER_CACHE_PX, j->px, j->px);
                 free(large);
             }
         }

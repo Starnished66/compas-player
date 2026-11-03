@@ -148,10 +148,11 @@ void gui_player_set_transport_skip(const char * directory, int seconds);
 void gui_player_hw_seek_steps(int direction, int step_count, bool is_first);
 lv_obj_t * gui_player_get_screen(void);
 lv_obj_t * gui_player_get_cover_img(void);
-/* Copies the currently decoded RGB565 cover for `for_index` into `out`.
- * Keeping ownership inside gui_player avoids exposing a mutable buffer that
- * is freed and replaced on track changes. */
-bool gui_player_copy_cover_rgb565(int for_index, uint8_t * out, size_t out_size);
+/* Returns a malloc'd copy (caller frees) of the currently decoded RGB565
+ * cover for `for_index`, square *out_edge x *out_edge, or NULL. Keeping
+ * ownership inside gui_player avoids exposing a mutable buffer that is freed
+ * and replaced on track changes. */
+uint8_t * gui_player_copy_cover_rgb565(int for_index, int * out_edge);
 /* The frosted (blurred, darkened) copy of the current cover, or NULL when
  * none has been produced -- flat layout mode, or no cover decoded yet. */
 const lv_image_dsc_t * gui_player_get_current_reflection_dsc(void);

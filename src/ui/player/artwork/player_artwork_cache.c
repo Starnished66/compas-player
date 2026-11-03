@@ -5,6 +5,8 @@
 #include <string.h>
 #include "../../../library/artwork/coordinator/artwork_priority.h"
 #include "../../../library/artwork/coordinator/artwork_memory.h"
+#include "../../../library/artwork/albumart/albumart.h"
+#include "../../../library/artwork/support/library_player_art.h"
 extern size_t system_get_mem_available_bytes(void);
 static atomic_uint player_reflection_cache_epoch_value;
 
@@ -13,6 +15,20 @@ bool cover_file_id_same(const cover_file_id_t * a, const cover_file_id_t * b) {
            a->mtime_sec == b->mtime_sec && a->mtime_nsec == b->mtime_nsec &&
            a->ctime_sec == b->ctime_sec && a->ctime_nsec == b->ctime_nsec &&
            a->size == b->size;
+}
+
+static int player_cover_raster_edge = COVER_ART_WIDTH;
+
+int player_cover_raster_px(void) { return player_cover_raster_edge; }
+
+void player_cover_raster_set_card(int card_w, int card_h) {
+    int edge = card_w > card_h ? card_w : card_h;
+    if (edge < COVER_ART_WIDTH) edge = COVER_ART_WIDTH;
+    if (edge > ALBUMART_PLAYER_CACHE_SIZE) edge = ALBUMART_PLAYER_CACHE_SIZE;
+    /* Reflections are cached per file, not per source edge: drop them so a
+     * re-decode at the new edge builds its reflection from the new raster. */
+    if (edge != player_cover_raster_edge) player_reflection_cache_clear();
+    player_cover_raster_edge = edge;
 }
 
 size_t player_raster_cache_memory_floor(void) {

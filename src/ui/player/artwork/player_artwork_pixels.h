@@ -7,9 +7,10 @@
 
 /* Stateless pixel processing, also used by the cover worker. Buffers retain
  * their existing caller ownership; cancellation is forwarded to the blur. */
-bool player_cover_accent_from_rgb565(const uint16_t * px, uint32_t * out_rgb);
-uint8_t * compute_reflection_bytes(const uint8_t * cover_bytes, int blur_radius, int blur_passes, int darken_num, int darken_den);
-uint8_t * player_compute_reflection_bytes_cancelable(const uint8_t * cover_bytes,
+/* cover_bytes/px are square, edge x edge pixels. */
+bool player_cover_accent_from_rgb565(const uint16_t * px, int edge, uint32_t * out_rgb);
+uint8_t * compute_reflection_bytes(const uint8_t * cover_bytes, int edge, int blur_radius, int blur_passes, int darken_num, int darken_den);
+uint8_t * player_compute_reflection_bytes_cancelable(const uint8_t * cover_bytes, int edge,
                                                     int blur_radius, int blur_passes,
                                                     int darken_num, int darken_den,
                                                     uint32_t tint_rgb, int tint_weight,

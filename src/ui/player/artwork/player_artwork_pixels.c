@@ -14,14 +14,14 @@
  * buckets, takes the strongest three-bucket window, and lifts its average
  * so it still reads as an accent on dark and light surfaces. False unless
  * that window averages min_weight per sample. */
-static bool cover_accent_pass(const uint16_t * px, uint8_t min_s, uint8_t min_v, uint32_t min_weight,
+static bool cover_accent_pass(const uint16_t * px, int edge, uint8_t min_s, uint8_t min_v, uint32_t min_weight,
                               uint32_t * out_rgb) {
     enum { BUCKETS = 24, BUCKET_DEG = 15, STEP = 7 };
     uint64_t weight[BUCKETS] = {0}, hue_off[BUCKETS] = {0}, sat[BUCKETS] = {0}, val[BUCKETS] = {0};
     uint32_t samples = 0;
-    for (int y = STEP / 2; y < COVER_ART_HEIGHT; y += STEP) {
-        for (int x = STEP / 2; x < COVER_ART_WIDTH; x += STEP) {
-            uint16_t c = px[y * COVER_ART_WIDTH + x];
+    for (int y = STEP / 2; y < edge; y += STEP) {
+        for (int x = STEP / 2; x < edge; x += STEP) {
+            uint16_t c = px[y * edge + x];
             uint8_t r = (uint8_t) (((c >> 11) << 3) | (c >> 13));
             uint8_t g = (uint8_t) ((((c >> 5) & 0x3F) << 2) | ((c >> 9) & 0x03));
             uint8_t b = (uint8_t) (((c & 0x1F) << 3) | ((c >> 2) & 0x07));
@@ -70,16 +70,16 @@ static bool cover_accent_pass(const uint16_t * px, uint8_t min_s, uint8_t min_v,
  * still get their own accent instead of the fixed one; the app's artwork
  * accent does the same. False only for a gray or near-black cover. Runs on
  * the cover worker. */
-bool player_cover_accent_from_rgb565(const uint16_t * px, uint32_t * out_rgb) {
-    return cover_accent_pass(px, 25, 25, 400, out_rgb) || cover_accent_pass(px, 10, 10, 40, out_rgb);
+bool player_cover_accent_from_rgb565(const uint16_t * px, int edge, uint32_t * out_rgb) {
+    return cover_accent_pass(px, edge, 25, 25, 400, out_rgb) || cover_accent_pass(px, edge, 10, 10, 40, out_rgb);
 }
 
-uint8_t * compute_reflection_bytes(const uint8_t * cover_bytes, int blur_radius, int blur_passes, int darken_num, int darken_den) {
-    return player_compute_reflection_bytes_cancelable(cover_bytes, blur_radius, blur_passes,
+uint8_t * compute_reflection_bytes(const uint8_t * cover_bytes, int edge, int blur_radius, int blur_passes, int darken_num, int darken_den) {
+    return player_compute_reflection_bytes_cancelable(cover_bytes, edge, blur_radius, blur_passes,
                                                       darken_num, darken_den, 0, 0, NULL, NULL);
 }
 
-uint8_t * player_compute_reflection_bytes_cancelable(const uint8_t * cover_bytes,
+uint8_t * player_compute_reflection_bytes_cancelable(const uint8_t * cover_bytes, int edge,
                                                     int blur_radius, int blur_passes,
                                                     int darken_num, int darken_den,
                                                     uint32_t tint_rgb, int tint_weight,
@@ -93,7 +93,7 @@ uint8_t * player_compute_reflection_bytes_cancelable(const uint8_t * cover_bytes
     /* Preserve the historical reflection dimensions, center crop, blur,
      * darkening, spatial dither, and unmirrored source pixel orientation. */
     return frosted_glass_blur_rgb565_tinted_cancelable((const uint16_t *) cover_bytes,
-                                                       COVER_ART_WIDTH, COVER_ART_HEIGHT,
+                                                       edge, edge,
                                                        BOARD_SCREEN_WIDTH, BOARD_SCREEN_HEIGHT,
                                                        blur_radius, blur_passes,
                                                        darken_num, darken_den,

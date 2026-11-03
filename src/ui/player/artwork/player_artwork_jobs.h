@@ -6,12 +6,16 @@
 #include "../../../audio/engine/audio.h"
 #include "player_artwork_cache.h"
 
-/* A stream_url selects the streamed-art path; otherwise local_track_path is
+/* Every decoded buffer is square and edge x edge pixels, with the edge the
+ * request was launched with (player_cover_raster_px() at that moment), so a
+ * layout change cannot make a late result be read at the wrong size.
+ * A stream_url selects the streamed-art path; otherwise local_track_path is
  * decoded. picture_data is an optional owned stream body and transfers with
  * the request. shown_cover is captured only when a request actually launches. */
 typedef struct {
     int for_index;
     unsigned int generation;
+    int edge;
 #ifdef UI_PERF_TRACE
     uint64_t request_perf_us;
 #endif
@@ -42,6 +46,7 @@ typedef struct {
     bool valid;
     int for_index;
     unsigned int generation;
+    int edge;
     uint16_t * pixels;
     cover_file_id_t file;
     bool accent_valid;
@@ -56,6 +61,7 @@ typedef struct {
 typedef struct {
     int for_index;
     unsigned int generation;
+    int edge;
     audio_current_format_info_t format;
     bool ok;
     uint16_t * pixels;

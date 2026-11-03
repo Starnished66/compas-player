@@ -192,7 +192,7 @@ static cover_decode_result_t album_thumbnail_pixels_from_source(
  * must not by itself confirm "no art anywhere" while another source still
  * has a chance (see gui_library_generate_player_cover()'s own comment). */
 static cover_decode_result_t generate_player_cover_from_data(
-        const albumart_info_t * info, const uint8_t * data, uint32_t size,
+        const albumart_info_t * info, const uint8_t * data, uint32_t size, int edge,
         artwork_cancel_fn cancel_cb, void * user_data, uint16_t ** out_pixels) {
     uint16_t * cache_pixels = NULL;
     cover_decode_result_t res = cover_decode_to_rgb565_ex(
@@ -204,8 +204,13 @@ static cover_decode_result_t generate_player_cover_from_data(
             return COVER_DECODE_FAIL_CANCELLED;
         }
         albumart_store_rgb565(info, ALBUM_PLAYER_CACHE_PX, ALBUM_PLAYER_CACHE_PX, cache_pixels);
-        *out_pixels = cover_resize_rgb565(cache_pixels, ALBUM_PLAYER_CACHE_PX, ALBUM_PLAYER_CACHE_PX,
-                                          COVER_ART_WIDTH, COVER_ART_HEIGHT);
+        if (edge == ALBUM_PLAYER_CACHE_PX) {
+            *out_pixels = cache_pixels;
+            cache_pixels = NULL;
+        } else {
+            *out_pixels = cover_resize_rgb565(cache_pixels, ALBUM_PLAYER_CACHE_PX, ALBUM_PLAYER_CACHE_PX,
+                                              edge, edge);
+        }
         if (!*out_pixels) res = COVER_DECODE_FAIL_ALLOC;
     }
     free(cache_pixels);
@@ -213,7 +218,7 @@ static cover_decode_result_t generate_player_cover_from_data(
 }
 
 bool gui_library_generate_player_cover(const char * track_path, const char * artist,
-                                       const char * album, const char * album_artist,
+                                       const char * album, const char * album_artist, int edge,
                                        artwork_cancel_fn cancel_cb, void * user_data,
                                        uint16_t ** out_pixels, bool * out_no_art_confirmed) {
     *out_pixels = NULL;
@@ -245,7 +250,7 @@ bool gui_library_generate_player_cover(const char * track_path, const char * art
         if (load == ALBUMART_LOAD_OK) {
             DB_LOG("ART_PLAYER", "generate_source path=%s source=sidecar", track_path);
             cover_decode_result_t res = generate_player_cover_from_data(
-                &info, sidecar_data, sidecar_size, cancel_cb, user_data, out_pixels);
+                &info, sidecar_data, sidecar_size, edge, cancel_cb, user_data, out_pixels);
             free(sidecar_data);
             if (res == COVER_DECODE_OK && *out_pixels) return true;
             if (res == COVER_DECODE_FAIL_CANCELLED) return false;
@@ -297,7 +302,7 @@ bool gui_library_generate_player_cover(const char * track_path, const char * art
 
     DB_LOG("ART_PLAYER", "generate_source path=%s source=embedded", track_path);
     cover_decode_result_t res = generate_player_cover_from_data(
-        &info, embedded_data, embedded_size, cancel_cb, user_data, out_pixels);
+        &info, embedded_data, embedded_size, edge, cancel_cb, user_data, out_pixels);
     free(embedded_data);
     if (res != COVER_DECODE_OK && out_no_art_confirmed && cover_decode_result_is_permanent(res))
         *out_no_art_confirmed = true; /* corrupt/oversized source -- won't change until re-tagged */
