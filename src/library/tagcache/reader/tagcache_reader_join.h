@@ -79,15 +79,32 @@ static bool reader_join_folder(int32_t slot, char *dir) {
     return true;
 }
 
+/* Marks the mixed run of `count` keys at `start`, unless the folder bytes of
+ * a member differ from the first one's (the hash can collide). */
+static bool reader_join_mark_run(int fd, int64_t start, int64_t count, int32_t first_slot,
+                                 unsigned char *bits, int32_t slots) {
+    char first_dir[TAGCACHE_PATH_MAX], dir[TAGCACHE_PATH_MAX];
+    reader_join_key_t keys[16];
+    if (!reader_join_folder(first_slot, first_dir)) return false;
+    for (int64_t at = 0; at < count;) {
+        size_t n = (size_t)(count - at < 16 ? count - at : 16);
+        if (!tc_sort_io_read(fd, keys, n * sizeof(*keys), (off_t)(start + at) * (off_t)sizeof(*keys))) return false;
+        for (size_t i = 0; i < n; i++) {
+            if (!reader_join_folder(keys[i].slot, dir)) return false;
+            if (strcmp(dir, first_dir)) return true;
+        }
+        at += (int64_t)n;
+    }
+    return reader_join_mark_range(fd, start, count, sizeof(*keys), 0, bits, slots);
+}
+
 /* Walks the keys sorted by folder and album, run by run, and marks every slot
- * of a run holding two album artists.  Folders are checked byte for byte
- * since the hash can collide; a colliding run is left unjoined. */
+ * of a run holding two album artists. */
 static bool reader_join_walk(int fd, int64_t count, unsigned char *bits, int32_t slots) {
     size_t capacity = READER_TEMP_BATCH_BYTES / sizeof(reader_join_key_t);
     reader_join_key_t *batch = malloc(capacity * sizeof(*batch)), first = {0};
-    char first_dir[TAGCACHE_PATH_MAX], dir[TAGCACHE_PATH_MAX];
     int64_t start = 0;
-    bool ok = batch != NULL, mixed = false, collided = false;
+    bool ok = batch != NULL, mixed = false;
     for (int64_t at = 0; ok && at < count;) {
         size_t n = (size_t)(count - at < (int64_t)capacity ? count - at : (int64_t)capacity);
         ok = tc_sort_io_read(fd, batch, n * sizeof(*batch), (off_t)at * (off_t)sizeof(*batch));
@@ -95,21 +112,17 @@ static bool reader_join_walk(int fd, int64_t count, unsigned char *bits, int32_t
             int64_t k = at + (int64_t)j;
             const reader_join_key_t *key = &batch[j];
             if (k == start || reader_join_compare_folder(&first, key) || reader_join_compare_text(&first, key, true)) {
-                if (mixed && !collided) ok = reader_join_mark_range(fd, start, k - start, sizeof(*key), 0, bits, slots);
+                if (mixed) ok = reader_join_mark_run(fd, start, k - start, first.slot, bits, slots);
                 start = k;
                 first = *key;
-                mixed = collided = false;
-                if (ok) ok = reader_join_folder(key->slot, first_dir);
+                mixed = false;
                 continue;
             }
-            ok = reader_join_folder(key->slot, dir);
-            if (ok && strcmp(dir, first_dir)) collided = true;
             if (reader_join_compare_text(&first, key, false)) mixed = true;
         }
         at += (int64_t)n;
     }
-    if (ok && mixed && !collided)
-        ok = reader_join_mark_range(fd, start, count - start, sizeof(*batch), 0, bits, slots);
+    if (ok && mixed) ok = reader_join_mark_run(fd, start, count - start, first.slot, bits, slots);
     free(batch);
     return ok && !reader_sort_failed;
 }
