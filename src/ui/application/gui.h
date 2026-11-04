@@ -323,6 +323,7 @@ void library_load_from_cache_only(void);
 
 void get_display_names(const char * path, char * out_title, size_t title_sz, char * out_folder, size_t folder_sz);
 void row_label_enable_marquee(lv_obj_t * label);
+void ui_marquee_init(void);
 
 const char * play_mode_icon_asset(play_mode_t mode);
 

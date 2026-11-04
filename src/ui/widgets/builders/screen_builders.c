@@ -404,6 +404,30 @@ void row_label_enable_marquee(lv_obj_t * label) {
     lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
 }
 
+/* The scroll animation, and with it the 2s start pause, is created when the
+ * long mode is set; re-setting the mode deletes it and zeroes the offset
+ * (see quick_drawer_restart_marquee()). Only labels with a running animation
+ * overflow, so fitting ones skip the text re-measure. Plain recursion, no
+ * allocation. */
+void ui_restart_marquees(lv_obj_t * root) {
+    if (lv_obj_check_type(root, &lv_label_class)) {
+        if (lv_label_get_long_mode(root) == LV_LABEL_LONG_SCROLL_CIRCULAR && lv_anim_get(root, NULL))
+            lv_label_set_long_mode(root, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        return;
+    }
+    uint32_t count = lv_obj_get_child_count(root);
+    for (uint32_t i = 0; i < count; i++) ui_restart_marquees(lv_obj_get_child(root, i));
+}
+
+static void marquee_screen_loaded_cb(lv_event_t * e) {
+    ui_restart_marquees(lv_event_get_param(e));
+}
+
+void ui_marquee_init(void) {
+    lv_display_add_event_cb(lv_display_get_default(), marquee_screen_loaded_cb,
+                            LV_EVENT_SCREEN_LOADED, NULL);
+}
+
 int32_t ui_list_row_height(void) {
     int32_t needed = lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_ROW)) +
                      lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT)) + 32;

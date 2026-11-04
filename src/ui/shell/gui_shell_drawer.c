@@ -61,7 +61,7 @@ void quick_drawer_size_toggle_caption(lv_obj_t * label) {
      * scroll within their own cell instead of colliding with the state row. */
     lv_obj_set_style_text_letter_space(label, -1, 0);
     lv_obj_set_height(label, lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT)));
-    lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    row_label_enable_marquee(label);
 #else
     (void) label;
 #endif
@@ -151,7 +151,7 @@ static void quick_drawer_pack_primary_captions(void) {
     for (int i = 0; i < count; ++i) {
         lv_obj_set_width(labels[i], widths[i]);
         lv_obj_set_x(labels[i], xs[i]);
-        lv_label_set_long_mode(labels[i], LV_LABEL_LONG_SCROLL_CIRCULAR);
+        row_label_enable_marquee(labels[i]);
     }
 }
 #endif
@@ -814,7 +814,7 @@ void quick_drawer_reflow_customization(void) {
          * without reserving an empty second caption line. */
         int32_t caption_h = lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT));
         lv_obj_set_height(items[i].name, caption_h);
-        lv_label_set_long_mode(items[i].name, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        row_label_enable_marquee(items[i].name);
         if (row > 0) state_y = caption_y + caption_h + BOARD_SCALE_PY(5);
         lv_obj_set_width(items[i].state, compact_label_w);
         lv_obj_set_height(items[i].state, lv_font_get_line_height(&lv_font_montserrat_12));

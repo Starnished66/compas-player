@@ -1039,7 +1039,7 @@ static bool player_bind_widgets(lv_obj_t * scr) {
         if (line_height > 0) lv_obj_set_height(r.count, line_height + vertical_padding);
 
         if (lv_obj_get_style_width(r.count, LV_PART_MAIN) != LV_SIZE_CONTENT)
-            lv_label_set_long_mode(r.count, LV_LABEL_LONG_SCROLL_CIRCULAR);
+            row_label_enable_marquee(r.count);
     }
 
     lv_obj_update_layout(scr);

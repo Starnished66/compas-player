@@ -191,7 +191,7 @@ static void icon_grid_tile_content(lv_obj_t * tile, const icon_grid_item_t * ite
     /* Wrap label text within the tile width to prevent overflow into adjacent tiles. */
     lv_obj_set_width(label, lv_pct(100));
 #if defined(BOARD_TEMPOTEC_V1)
-    lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    row_label_enable_marquee(label);
 #else
     lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
 #endif

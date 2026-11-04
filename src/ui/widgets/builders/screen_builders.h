@@ -106,6 +106,12 @@ extern lv_style_t icon_press_style;
 
 /* Enables the shared constant-speed row marquee with a 2-second pause. */
 void row_label_enable_marquee(lv_obj_t * label);
+/* Restarts every circular-scroll label under root from offset 0 with its
+ * pause, so a screen that was built before it became visible does not show
+ * marquees already mid-scroll. */
+void ui_restart_marquees(lv_obj_t * root);
+/* Makes every newly loaded screen restart its marquees. Call once at UI init. */
+void ui_marquee_init(void);
 /* A secondary label belongs to its row, never intercepts taps, and is
  * reused with the row pool. Legacy title\nmetadata strings remain valid. */
 lv_obj_t * row_label_create_subtitle(lv_obj_t * row);

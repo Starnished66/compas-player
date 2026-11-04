@@ -278,6 +278,7 @@ static void apply_boot_settings(void) {
 /* Starts the theme and notification services and applies the saved hostname. */
 static void init_theme_and_hostname(void) {
     gui_theme_init();
+    ui_marquee_init();
     gui_notifications_init();
     GUI_BOOT_CHECKPOINT("hostname_apply begin");
     /* Must run before anything could turn Wi-Fi/Bluetooth on and trigger
