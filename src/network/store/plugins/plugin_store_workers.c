@@ -528,6 +528,7 @@ static void update_all_report(const update_all_t * u) {
         for (size_t j = 0; j < u->pending_count; j++) {
             if (strcmp(store_results[i].id, u->pending_ids[j]) == 0) {
                 store_results[i].needs_confirmation = true;
+                store_status.result_generation++;
             }
         }
     }

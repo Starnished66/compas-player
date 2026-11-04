@@ -65,6 +65,7 @@ typedef struct {
     plugin_store_state_t state;
     int percent;
     size_t result_count;
+    uint64_t result_generation; /* Changes with the rows, including across reset. */
     bool changed;
     /* Sticky until plugin_store_reset() runs after a full UI teardown. */
     bool refresh_required;

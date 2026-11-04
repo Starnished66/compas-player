@@ -149,6 +149,7 @@ bool ps_compute_results(void) {
     free(store_results);
     store_results = result;
     store_status.result_count = count;
+    store_status.result_generation++;
     pthread_mutex_unlock(&store_mutex);
     free(rec);
     return true;
@@ -440,7 +441,9 @@ bool plugin_store_busy(void) {
 void plugin_store_reset(void) {
     pthread_mutex_lock(&store_mutex);
     if (!store_worker_running) {
+        uint64_t generation = store_status.result_generation + 1;
         memset(&store_status, 0, sizeof(store_status));
+        store_status.result_generation = generation;
         free(store_results);
         store_results = NULL;
         free(last_index);

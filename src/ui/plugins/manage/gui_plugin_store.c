@@ -25,6 +25,7 @@ static lv_obj_t * store_list;
 static lv_obj_t * store_title;
 static plugin_store_result_t * store_rows;
 static size_t store_row_count;
+static uint64_t store_result_generation_seen;
 static bool store_changed_dirty;
 static bool store_ui_active;
 static bool store_open_when_ready;
@@ -671,6 +672,7 @@ static void populate_store_screen(bool preserve_scroll) {
     plugin_store_status_t status;
     plugin_store_get_status(&status, store_rows, PLUGIN_STORE_MAX_RESULTS);
     store_row_count = status.result_count;
+    store_result_generation_seen = status.result_generation;
     reset_store_list_to_rows();
     lv_obj_clean(store_list);
 
@@ -1000,8 +1002,11 @@ bool gui_plugin_store_setup_catalog_ready(void) {
          * fresh cache, or the store UI's own in-flight catalog refresh. */
         if (store_setup_catalog_pending || store_setup_catalog_ready ||
             (store_ui_active && store_is_refresh)) {
-            plugin_store_get_status(&status, store_rows, PLUGIN_STORE_MAX_RESULTS);
-            store_row_count = status.result_count;
+            if (status.result_generation != store_result_generation_seen) {
+                plugin_store_get_status(&status, store_rows, PLUGIN_STORE_MAX_RESULTS);
+                store_row_count = status.result_count;
+                store_result_generation_seen = status.result_generation;
+            }
             store_setup_catalog_ready = true;
             store_setup_catalog_pending = false;
         }
@@ -1359,6 +1364,7 @@ void poll_plugin_store(void) {
 
 void gui_plugin_store_init(void) {
     store_rows = calloc(PLUGIN_STORE_MAX_RESULTS, sizeof(*store_rows));
+    store_result_generation_seen = UINT64_MAX;
     store_row_count = 0;
     store_view = STORE_VIEW_PLUGINS;
     clear_layout_picker_request();
@@ -1393,6 +1399,7 @@ void gui_plugin_store_teardown(void) {
     free(store_rows);
     store_rows = NULL;
     store_row_count = 0;
+    store_result_generation_seen = UINT64_MAX;
     store_view = STORE_VIEW_PLUGINS;
     store_title = NULL;
     store_push_pending = false;
