@@ -27,10 +27,4 @@ void mseb_note_pcm_discontinuity(void);
 bool mseb_process(int16_t * samples, size_t frames, int channels, unsigned int rate);
 bool mseb_process_s32(int32_t * samples, size_t frames, int channels, unsigned int rate);
 
-/* Read-only response of the configured filters plus stock compensation.
- * No processing history is read or changed; rate=0 selects 44100 Hz. */
-double mseb_get_compensation_db(unsigned int rate);
-void mseb_get_response_db(const double * frequencies, double * response,
-                          size_t count, unsigned int rate);
-
 #endif

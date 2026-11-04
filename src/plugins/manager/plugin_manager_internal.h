@@ -290,6 +290,10 @@ int current_volume_percent(void);
 extern const luaL_Reg plugin_now_playing_funcs[];
 extern const luaL_Reg plugin_playback_funcs[];
 
+/* plugin_soundstage_bindings.c */
+extern lua_State * soundstage_owner;
+extern const luaL_Reg plugin_soundstage_funcs[];
+
 /* plugin_ui_bindings.c */
 extern lua_State * plugin_progress_owner;
 void plugin_progress_reset(void);

@@ -1,6 +1,7 @@
 #include "../../ui/application/gui.h"
 #include "../../ui/player/layout/player_layouts.h"
 #include "../../audio/effects/mseb.h"
+#include "../../audio/effects/soundstage.h"
 #include "../../hardware/indicators/led_control.h"
 #include "../json/plugin_json.h"
 #include "../bindings/ui/plugin_info_bindings.h"
@@ -160,6 +161,7 @@ static void register_plugin_api(lua_State * L) {
     plugin_lib_add(L, plugin_system_funcs);
     plugin_lib_add(L, plugin_files_funcs);
     plugin_lib_add(L, plugin_playback_funcs);
+    plugin_lib_add(L, plugin_soundstage_funcs);
     plugin_lib_add(L, plugin_ui_funcs);
     plugin_lib_add(L, plugin_registries_funcs);
     plugin_lib_add(L, plugin_list_screens_funcs);
@@ -197,6 +199,10 @@ static void discard_failed_plugin_resources(lua_State * L, bool aborted) {
     if (failed_load_owner_matches(mseb_owner, L)) {
         mseb_reset();
         mseb_owner = NULL;
+    }
+    if (failed_load_owner_matches(soundstage_owner, L)) {
+        soundstage_reset();
+        soundstage_owner = NULL;
     }
     for (int i = 0; i < PLUGIN_MAX_FILES; ++i) {
         plugin_instance_t *inst = &plugin_instances[i];
@@ -502,6 +508,8 @@ void plugin_manager_deinit(void) {
     plugin_order_editor_callback.callback_ref = LUA_NOREF;
     mseb_reset();
     mseb_owner = NULL;
+    soundstage_reset();
+    soundstage_owner = NULL;
     button_lock_owner = NULL;
     hw_buttons_set_button_lock_enabled(false);
     ui_customization_set_override(NULL);

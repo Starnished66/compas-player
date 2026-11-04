@@ -1,5 +1,7 @@
 #include "peq.h"
 #include "mseb.h"
+#include "soundstage.h"
+#include "biquad_cookbook.h"
 #include "../../library/artwork/support/library_endian.h"
 #include "../../core/persistence/storage_paths.h"
 
@@ -114,6 +116,9 @@ static float limiter_gain = 1.0f; /* current linear gain reduction, 1.0 = none *
  * calls during audio processing. */
 static float cached_attack_coeff = 0.0f;
 static float cached_release_coeff = 0.0f;
+/* Gain above which the soundstage snaps the limiter to exactly 1, see
+ * limiter_next(). */
+static float cached_limiter_snap = 1.0f;
 
 /* ISO-standard 10-band graphic EQ center frequencies -- matches the layout
  * of typical hardware DAP PEQ screens (band 0 a low shelf, band 9 a high
@@ -154,51 +159,20 @@ static void compute_band_coeffs_for_band(const peq_band_t * band,
     if (freq > nyquist * 0.99) freq = nyquist * 0.99;
     if (freq < 1.0) freq = 1.0;
 
-    double A = pow(10.0, band->gain_db / 40.0);
     double w0 = 2.0 * M_PI * freq / (double) sample_rate;
     double q = band->q > 0.01 ? band->q : 0.01;
-    double cos_w0 = cos(w0);
-    double sin_w0 = sin(w0);
+    /* Shelf bandwidth is Q, as in Squiglink/AutoEQ LSQ and HSQ filters.
+     * The cookbook's alternate shelf slope S is not Q. */
+    biquad_cookbook_type_t type = band->type == PEQ_TYPE_LOW_SHELF ? BIQUAD_COOKBOOK_LOW_SHELF
+                                : band->type == PEQ_TYPE_HIGH_SHELF ? BIQUAD_COOKBOOK_HIGH_SHELF
+                                : BIQUAD_COOKBOOK_PEAK;
+    biquad_cookbook_t k = biquad_cookbook(type, w0, band->gain_db, q);
 
-    double b0, b1, b2, a0, a1, a2;
-
-    if (band->type == PEQ_TYPE_LOW_SHELF || band->type == PEQ_TYPE_HIGH_SHELF) {
-        /* Shelf bandwidth is Q, as in Squiglink/AutoEQ LSQ and HSQ
-         * filters. The cookbook's alternate shelf slope S is not Q. */
-        double alpha = sin_w0 / (2.0 * q);
-        double sqrt_A_2alpha = 2.0 * sqrt(A) * alpha;
-
-        if (band->type == PEQ_TYPE_LOW_SHELF) {
-            b0 = A * ((A + 1) - (A - 1) * cos_w0 + sqrt_A_2alpha);
-            b1 = 2 * A * ((A - 1) - (A + 1) * cos_w0);
-            b2 = A * ((A + 1) - (A - 1) * cos_w0 - sqrt_A_2alpha);
-            a0 = (A + 1) + (A - 1) * cos_w0 + sqrt_A_2alpha;
-            a1 = -2 * ((A - 1) + (A + 1) * cos_w0);
-            a2 = (A + 1) + (A - 1) * cos_w0 - sqrt_A_2alpha;
-        } else {
-            b0 = A * ((A + 1) + (A - 1) * cos_w0 + sqrt_A_2alpha);
-            b1 = -2 * A * ((A - 1) + (A + 1) * cos_w0);
-            b2 = A * ((A + 1) + (A - 1) * cos_w0 - sqrt_A_2alpha);
-            a0 = (A + 1) - (A - 1) * cos_w0 + sqrt_A_2alpha;
-            a1 = 2 * ((A - 1) - (A + 1) * cos_w0);
-            a2 = (A + 1) - (A - 1) * cos_w0 - sqrt_A_2alpha;
-        }
-    } else {
-        /* Peaking (bell) */
-        double alpha = sin_w0 / (2.0 * q);
-        b0 = 1.0 + alpha * A;
-        b1 = -2.0 * cos_w0;
-        b2 = 1.0 - alpha * A;
-        a0 = 1.0 + alpha / A;
-        a1 = -2.0 * cos_w0;
-        a2 = 1.0 - alpha / A;
-    }
-
-    output->b0 = (float) (b0 / a0);
-    output->b1 = (float) (b1 / a0);
-    output->b2 = (float) (b2 / a0);
-    output->a1 = (float) (a1 / a0);
-    output->a2 = (float) (a2 / a0);
+    output->b0 = (float) k.b0;
+    output->b1 = (float) k.b1;
+    output->b2 = (float) k.b2;
+    output->a1 = (float) k.a1;
+    output->a2 = (float) k.a2;
 }
 
 static void compute_band_coeffs(int index, unsigned int sample_rate) {
@@ -280,6 +254,7 @@ static void recompute_all_coeffs(unsigned int sample_rate) {
     for (int i = 0; i < PEQ_NUM_BANDS; i++) compute_band_coeffs(i, sample_rate);
     cached_attack_coeff = (float) exp(-1.0 / (LIMITER_ATTACK_SEC * (double) sample_rate));
     cached_release_coeff = (float) exp(-1.0 / (LIMITER_RELEASE_SEC * (double) sample_rate));
+    cached_limiter_snap = 1.0f - 1.5e-7f / (1.0f - cached_release_coeff);
     coeffs_sample_rate = sample_rate;
     coeffs_dirty = false;
 }
@@ -343,6 +318,7 @@ void peq_set_crossfeed_angle(int degrees) {
 
 void peq_note_pcm_discontinuity(void) {
     mseb_note_pcm_discontinuity();
+    soundstage_note_pcm_discontinuity();
     atomic_store_explicit(&crossfeed_discontinuity, true, memory_order_relaxed);
 }
 
@@ -587,161 +563,226 @@ static void sync_mseb_ownership(bool active) {
     previous = active;
 }
 
-void peq_process(int16_t * buf, size_t frame_count, int channels, unsigned int sample_rate) {
-    const bool mseb_active = mseb_process(buf, frame_count, channels, sample_rate);
-    sync_mseb_ownership(mseb_active);
-    const bool eq_off = mseb_active || atomic_load_explicit(&bypass, memory_order_relaxed);
-    /* Bypass disables the EQ controls and stereo width, while Crossfeed has
-     * its own setting and remains available. Keep this early return when no
-     * Crossfeed is active so an inactive signal stays bit-perfect. */
-    float cross_target = (float) peq_get_crossfeed();
-    bool cross_active = channels == 2 && (cross_target != 0.0f || crossfeed_mix != 0.0f);
-    if (eq_off && !cross_active) {
-        limiter_gain = 1.0f;
-        stereo_width_current = 1.0f;
-        crossfeed_clear_audio_state();
-        crossfeed_drop_discontinuity();
-        return;
+/* Stereo-linked limiter step for one frame; returns the gain to apply. The
+ * float release stalls once (1 - gain) * (1 - release) drops under half an ulp
+ * of 1, i.e. at about 3e-8 / (1 - release): 0.99993 at 44.1 kHz, 0.99971 at
+ * 192 kHz and lower still above that. With the soundstage on, snap = true
+ * lands it on exactly 1 from within 1.5e-7 / (1 - release) of it, which is
+ * under 0.03 dB at 384 kHz; that lets the stage skip the limiter. EQ-only
+ * output keeps the plain envelope. */
+static inline float limiter_next(float peak, float ceiling, float attack, float release, bool snap) {
+    float desired = peak > ceiling ? ceiling / peak : 1.0f;
+    float coeff = desired < limiter_gain ? attack : release;
+    limiter_gain = coeff * limiter_gain + (1.0f - coeff) * desired;
+    if (snap && desired == 1.0f && limiter_gain > cached_limiter_snap) limiter_gain = 1.0f;
+    return limiter_gain;
+}
+
+#define STAGE_CHUNK 256
+
+/* Sample conversion in groups of 8 with distinct temporaries. Written as one
+ * statement per element the compiler reuses a single FPU register and every
+ * conversion waits for the previous one; this form overlaps them. */
+#define CONVERT_GROUP(NAME, FROM, TO, CAST_IN, CAST_OUT)                              \
+    static void NAME(TO * dst, const FROM * src, size_t count) {                      \
+        size_t k = 0;                                                                 \
+        for (; k + 8 <= count; k += 8) {                                              \
+            FROM a0 = src[k], a1 = src[k + 1], a2 = src[k + 2], a3 = src[k + 3];      \
+            FROM a4 = src[k + 4], a5 = src[k + 5], a6 = src[k + 6], a7 = src[k + 7];  \
+            TO t0 = CAST_OUT CAST_IN a0, t1 = CAST_OUT CAST_IN a1;                    \
+            TO t2 = CAST_OUT CAST_IN a2, t3 = CAST_OUT CAST_IN a3;                    \
+            TO t4 = CAST_OUT CAST_IN a4, t5 = CAST_OUT CAST_IN a5;                    \
+            TO t6 = CAST_OUT CAST_IN a6, t7 = CAST_OUT CAST_IN a7;                    \
+            dst[k] = t0; dst[k + 1] = t1; dst[k + 2] = t2; dst[k + 3] = t3;           \
+            dst[k + 4] = t4; dst[k + 5] = t5; dst[k + 6] = t6; dst[k + 7] = t7;       \
+        }                                                                             \
+        for (; k < count; k++) dst[k] = CAST_OUT CAST_IN src[k];                      \
     }
+CONVERT_GROUP(s16_to_float, int16_t, float, , (float))
+CONVERT_GROUP(s32_to_float, int32_t, float, , (float))
+CONVERT_GROUP(float_to_s16, float, int16_t, , (int16_t))
+CONVERT_GROUP(float_to_s32, float, int32_t, , (int32_t))
 
-    float width = eq_off ? 1.0f : (float) peq_get_stereo_width();
-    bool width_active = channels == 2 && (width != 1.0f || stereo_width_current != 1.0f);
-    if (eq_off) stereo_width_current = 1.0f;
-    if (!cross_active) crossfeed_clear_audio_state();
-    crossfeed_consume_discontinuity(cross_active);
-    bool any_enabled = false;
-    for (int i = 0; i < PEQ_NUM_BANDS; i++) {
-        if (!eq_off && bands[i].enabled) { any_enabled = true; break; }
-    }
-    if (!any_enabled && (eq_off || preamp_db == 0.0) && !width_active && !cross_active) {
-        limiter_gain = 1.0f;
-        return;
-    }
 
-    if (last_call_was_s32) {
-        memset(state, 0, sizeof(state));
-        crossfeed_lp[0] = 0.0f;
-        crossfeed_lp[1] = 0.0f;
-        crossfeed_delay_primed = false;
-        if (cross_active) crossfeed_prime = true;
-        last_call_was_s32 = false;
-    }
+/* Per-block settings of the EQ -> crossfeed -> width chain. */
+typedef struct {
+    int channels;
+    bool eq_off, cross_active, width_active;
+    float preamp, cross_target, cross_step, width, width_step, width_direct, width_cross;
+    float ceiling;
+} chain_t;
 
-    if (coeffs_dirty || sample_rate != coeffs_sample_rate) recompute_all_coeffs(sample_rate);
-
-    if (channels < 1) return;
-    if (channels > PEQ_MAX_CHANNELS) channels = PEQ_MAX_CHANNELS;
-
-    float preamp_linear = eq_off ? 1.0f : cached_preamp_linear;
-
-    float attack_coeff = cached_attack_coeff;
-    float release_coeff = cached_release_coeff;
-
-    float width_direct, width_cross;
-    stereo_width_coeffs(stereo_width_current, &width_direct, &width_cross);
+static void chain_begin(chain_t * c, int channels, bool eq_off, bool cross_active,
+                        bool width_active, float cross_target, unsigned int sample_rate,
+                        float ceiling) {
     unsigned int rate_for_ramp = sample_rate ? sample_rate : 48000;
-    float width_step = 2.0f / (STEREO_WIDTH_RAMP_SEC * (float) rate_for_ramp);
-    float cross_step = 1.0f / ((float) PEQ_CROSSFEED_RAMP_SEC * (float) rate_for_ramp);
+    c->channels = channels;
+    c->eq_off = eq_off;
+    c->cross_active = cross_active;
+    c->width_active = width_active;
+    c->preamp = eq_off ? 1.0f : cached_preamp_linear;
+    c->cross_target = cross_target;
+    c->width = eq_off ? 1.0f : (float) peq_get_stereo_width();
+    c->ceiling = ceiling;
+    stereo_width_coeffs(stereo_width_current, &c->width_direct, &c->width_cross);
+    c->width_step = 2.0f / (STEREO_WIDTH_RAMP_SEC * (float) rate_for_ramp);
+    c->cross_step = 1.0f / ((float) PEQ_CROSSFEED_RAMP_SEC * (float) rate_for_ramp);
     if (cross_active) {
         crossfeed_update_alpha(sample_rate);
         crossfeed_update_tap(sample_rate);
     }
-    for (size_t i = 0; i < frame_count; i++) {
-        float frame_samples[PEQ_MAX_CHANNELS];
-        float frame_peak = 0.0f;
+}
 
+/* Preamp and the enabled bands for one channel's sample. */
+static float chain_bands(const chain_t * c, float sample, int ch) {
+    sample *= c->preamp;
+    for (int band = 0; band < PEQ_NUM_BANDS; band++) {
+        if (c->eq_off || !bands[band].enabled) continue;
+
+        biquad_coeffs_t * k = &coeffs[band];
+        biquad_state_t * s = &state[band][ch];
+
+        float x0 = sample;
+        float y0 = k->b0 * x0 + k->b1 * s->x1 + k->b2 * s->x2
+                 - k->a1 * s->y1 - k->a2 * s->y2;
+
+        s->x2 = s->x1;
+        s->x1 = x0;
+        s->y2 = s->y1;
+        s->y1 = y0;
+
+        sample = y0;
+    }
+    /* Discard non-finite samples to prevent NaN or Inf from poisoning the
+     * limiter gain or cascading through biquad filters. */
+    return isfinite(sample) ? sample : 0.0f;
+}
+
+/* Preamp -> bands -> crossfeed -> width over interleaved float frames, in
+ * place. Crossfeed is a frequency-dependent opposite-channel mix; width is a
+ * broadband mid/side matrix. */
+static void chain_chunk(chain_t * c, float * f, size_t frames) {
+    for (size_t i = 0; i < frames; i++) {
+        float * frame = f + i * (size_t) c->channels;
+        for (int ch = 0; ch < c->channels; ch++) frame[ch] = chain_bands(c, frame[ch], ch);
+        if (c->cross_active)
+            crossfeed_frame(frame, c->cross_target, c->cross_step, c->ceiling);
+        if (c->width_active)
+            stereo_width_frame(frame, c->width, c->width_step, &c->width_direct, &c->width_cross);
+    }
+}
+
+/* Stereo-linked gain reduction: both channels of a frame share one envelope,
+ * driven by whichever is louder, so a hard-panned transient does not tug the
+ * stereo image. The hard clamp catches single-sample transients before the
+ * envelope reacts. Leaves the clamped floats in place. */
+static void limit_chunk(float * f, size_t frames, int channels, float ceiling, float lo, float hi,
+                        bool snap) {
+    for (size_t i = 0; i < frames; i++) {
+        float * frame = f + i * (size_t) channels;
+        float peak = 0.0f;
         for (int ch = 0; ch < channels; ch++) {
-            float sample = (float) buf[i * (size_t) channels + (size_t) ch] * preamp_linear;
-
-            for (int band = 0; band < PEQ_NUM_BANDS; band++) {
-                if (eq_off || !bands[band].enabled) continue;
-
-                biquad_coeffs_t * c = &coeffs[band];
-                biquad_state_t * s = &state[band][ch];
-
-                float x0 = sample;
-                float y0 = c->b0 * x0 + c->b1 * s->x1 + c->b2 * s->x2
-                         - c->a1 * s->y1 - c->a2 * s->y2;
-
-                s->x2 = s->x1;
-                s->x1 = x0;
-                s->y2 = s->y1;
-                s->y1 = y0;
-
-                sample = y0;
-            }
-
-            /* Discard non-finite samples to prevent NaN or Inf from poisoning
-             * the limiter gain or cascading through biquad filters. */
-            if (!isfinite(sample)) sample = 0.0f;
-            frame_samples[ch] = sample;
+            float a = fabsf(frame[ch]);
+            if (a > peak) peak = a;
         }
-        /* Crossfeed, then width, then the limiter below. Crossfeed is a
-         * frequency-dependent opposite-channel mix; width is a broadband
-         * mid/side matrix. The limiter sees both. */
-        if (cross_active)
-            crossfeed_frame(frame_samples, cross_target, cross_step, LIMITER_CEILING);
-        if (width_active)
-            stereo_width_frame(frame_samples, width, width_step, &width_direct, &width_cross);
+        float gain = limiter_next(peak, ceiling, cached_attack_coeff, cached_release_coeff, snap);
         for (int ch = 0; ch < channels; ch++) {
-            float abs_sample = fabsf(frame_samples[ch]);
-            if (abs_sample > frame_peak) frame_peak = abs_sample;
-        }
-
-        /* Stereo-linked gain reduction: both channels of this frame share
-         * one envelope, driven by whichever channel is louder, so a hard-
-         * panned transient doesn't tug the gain (and therefore the
-         * perceived stereo image) unevenly between L/R. */
-        float desired_gain = frame_peak > LIMITER_CEILING ? LIMITER_CEILING / frame_peak : 1.0f;
-        float coeff = desired_gain < limiter_gain ? attack_coeff : release_coeff;
-        limiter_gain = coeff * limiter_gain + (1.0f - coeff) * desired_gain;
-
-        for (int ch = 0; ch < channels; ch++) {
-            float sample = frame_samples[ch] * limiter_gain;
-            /* Hard clamp to prevent clipping on single-sample transients that
-             * occur before the limiter envelope reacts. */
-            if (sample > 32767.0f) sample = 32767.0f;
-            if (sample < -32768.0f) sample = -32768.0f;
-            buf[i * (size_t) channels + (size_t) ch] = (int16_t) sample;
+            float v = frame[ch] * gain;
+            frame[ch] = v > hi ? hi : v < lo ? lo : v;
         }
     }
 }
 
-void peq_process_s32(int32_t * buf, size_t frame_count, int channels, unsigned int sample_rate) {
-    const bool mseb_active = mseb_process_s32(buf, frame_count, channels, sample_rate);
-    sync_mseb_ownership(mseb_active);
-    const bool eq_off = mseb_active || atomic_load_explicit(&bypass, memory_order_relaxed);
-    float cross_target = (float) peq_get_crossfeed();
-    bool cross_active = channels == 2 && (cross_target != 0.0f || crossfeed_mix != 0.0f);
-    if (eq_off && !cross_active) {
+static void chunk_in(const void * buf, bool s32, size_t first, size_t count, float * f) {
+    if (s32) s32_to_float(f, (const int32_t *) buf + first, count);
+    else s16_to_float(f, (const int16_t *) buf + first, count);
+}
+
+static void chunk_out(void * buf, bool s32, size_t first, size_t count, const float * f) {
+    if (s32) float_to_s32((int32_t *) buf + first, f, count);
+    else float_to_s16((int16_t *) buf + first, f, count);
+}
+
+/* The whole block in chunks of floats: chain (when anything in it is on),
+ * then the soundstage, then the limiter. With the stage on and every output
+ * within the ceiling while the limiter idles, the limiter would apply a gain
+ * of exactly 1, so the chunk is only converted. */
+static void process_chunks(void * buf, bool s32, size_t frames, chain_t * c, bool use_chain,
+                           bool stage) {
+    const size_t ch = (size_t) c->channels;
+    const float ceiling = s32 ? LIMITER_CEILING_S32 : LIMITER_CEILING;
+    float f[PEQ_MAX_CHANNELS * STAGE_CHUNK];
+    for (size_t off = 0; off < frames; off += STAGE_CHUNK) {
+        size_t n = frames - off < STAGE_CHUNK ? frames - off : STAGE_CHUNK;
+        chunk_in(buf, s32, off * ch, n * ch, f);
+        if (use_chain) chain_chunk(c, f, n);
+        if (stage && !soundstage_frames(f, n, ceiling) && limiter_gain == 1.0f) {
+            chunk_out(buf, s32, off * ch, n * ch, f);
+            continue;
+        }
+        limit_chunk(f, n, c->channels, ceiling, s32 ? -8388608.0f : -32768.0f,
+                    s32 ? 8388607.0f : 32767.0f, stage);
+        chunk_out(buf, s32, off * ch, n * ch, f);
+    }
+}
+
+/* What a block needs, decided before any sample is touched. */
+typedef struct {
+    bool eq_off, cross_active, width_active, use_chain, stage;
+    float cross_target;
+} plan_t;
+
+/* Fills the plan and settles the idle state. Returns false when the block
+ * must pass untouched, bit-perfect. */
+static bool plan_block(plan_t * p, size_t frame_count, int channels, unsigned int sample_rate,
+                       bool s32, bool mseb_active) {
+    /* The soundstage is independent of bypass and of MSEB ownership. */
+    p->stage = soundstage_begin_block(sample_rate, channels, s32, frame_count);
+    p->eq_off = mseb_active || atomic_load_explicit(&bypass, memory_order_relaxed);
+    /* Bypass disables the EQ controls and stereo width, while Crossfeed has
+     * its own setting and remains available. Keep this early return when no
+     * Crossfeed is active so an inactive signal stays bit-perfect. */
+    p->cross_target = (float) peq_get_crossfeed();
+    p->cross_active = channels == 2 && (p->cross_target != 0.0f || crossfeed_mix != 0.0f);
+    if (p->eq_off && !p->cross_active && !p->stage) {
         limiter_gain = 1.0f;
         stereo_width_current = 1.0f;
         crossfeed_clear_audio_state();
         crossfeed_drop_discontinuity();
-        return;
+        return false;
     }
-
-    float width = eq_off ? 1.0f : (float) peq_get_stereo_width();
-    bool width_active = channels == 2 && (width != 1.0f || stereo_width_current != 1.0f);
-    if (eq_off) stereo_width_current = 1.0f;
-    if (!cross_active) crossfeed_clear_audio_state();
-    crossfeed_consume_discontinuity(cross_active);
+    float width = p->eq_off ? 1.0f : (float) peq_get_stereo_width();
+    p->width_active = channels == 2 && (width != 1.0f || stereo_width_current != 1.0f);
+    if (p->eq_off) stereo_width_current = 1.0f;
+    if (!p->cross_active) crossfeed_clear_audio_state();
+    crossfeed_consume_discontinuity(p->cross_active);
     bool any_enabled = false;
     for (int i = 0; i < PEQ_NUM_BANDS; i++) {
-        if (!eq_off && bands[i].enabled) { any_enabled = true; break; }
+        if (!p->eq_off && bands[i].enabled) { any_enabled = true; break; }
     }
-    if (!any_enabled && (eq_off || preamp_db == 0.0) && !width_active && !cross_active) {
+    p->use_chain = any_enabled || (!p->eq_off && preamp_db != 0.0) || p->width_active ||
+                   p->cross_active;
+    if (!p->use_chain && !p->stage) {
         limiter_gain = 1.0f;
-        return;
+        return false;
     }
+    return true;
+}
 
-    if (!last_call_was_s32) {
+/* Shared body of peq_process and peq_process_s32; MSEB has already run. */
+static void process_block(void * buf, bool s32, size_t frame_count, int channels,
+                          unsigned int sample_rate, bool mseb_active) {
+    sync_mseb_ownership(mseb_active);
+    plan_t plan;
+    if (!plan_block(&plan, frame_count, channels, sample_rate, s32, mseb_active)) return;
+
+    if (last_call_was_s32 != s32) {
         memset(state, 0, sizeof(state));
         crossfeed_lp[0] = 0.0f;
         crossfeed_lp[1] = 0.0f;
         crossfeed_delay_primed = false;
-        if (cross_active) crossfeed_prime = true;
-        last_call_was_s32 = true;
+        if (plan.cross_active) crossfeed_prime = true;
+        last_call_was_s32 = s32;
     }
 
     if (coeffs_dirty || sample_rate != coeffs_sample_rate) recompute_all_coeffs(sample_rate);
@@ -749,67 +790,20 @@ void peq_process_s32(int32_t * buf, size_t frame_count, int channels, unsigned i
     if (channels < 1) return;
     if (channels > PEQ_MAX_CHANNELS) channels = PEQ_MAX_CHANNELS;
 
-    float preamp_linear = eq_off ? 1.0f : cached_preamp_linear;
-    float attack_coeff = cached_attack_coeff;
-    float release_coeff = cached_release_coeff;
+    chain_t chain;
+    chain_begin(&chain, channels, plan.eq_off, plan.cross_active, plan.width_active,
+                plan.cross_target, sample_rate, s32 ? LIMITER_CEILING_S32 : LIMITER_CEILING);
+    process_chunks(buf, s32, frame_count, &chain, plan.use_chain, plan.stage);
+}
 
-    float width_direct, width_cross;
-    stereo_width_coeffs(stereo_width_current, &width_direct, &width_cross);
-    unsigned int rate_for_ramp = sample_rate ? sample_rate : 48000;
-    float width_step = 2.0f / (STEREO_WIDTH_RAMP_SEC * (float) rate_for_ramp);
-    float cross_step = 1.0f / ((float) PEQ_CROSSFEED_RAMP_SEC * (float) rate_for_ramp);
-    if (cross_active) {
-        crossfeed_update_alpha(sample_rate);
-        crossfeed_update_tap(sample_rate);
-    }
-    for (size_t i = 0; i < frame_count; i++) {
-        float frame_samples[PEQ_MAX_CHANNELS];
-        float frame_peak = 0.0f;
+void peq_process(int16_t * buf, size_t frame_count, int channels, unsigned int sample_rate) {
+    const bool mseb_active = mseb_process(buf, frame_count, channels, sample_rate);
+    process_block(buf, false, frame_count, channels, sample_rate, mseb_active);
+}
 
-        for (int ch = 0; ch < channels; ch++) {
-            float sample = (float) buf[i * (size_t) channels + (size_t) ch] * preamp_linear;
-
-            for (int band = 0; band < PEQ_NUM_BANDS; band++) {
-                if (eq_off || !bands[band].enabled) continue;
-
-                biquad_coeffs_t * c = &coeffs[band];
-                biquad_state_t * s = &state[band][ch];
-
-                float x0 = sample;
-                float y0 = c->b0 * x0 + c->b1 * s->x1 + c->b2 * s->x2
-                         - c->a1 * s->y1 - c->a2 * s->y2;
-
-                s->x2 = s->x1;
-                s->x1 = x0;
-                s->y2 = s->y1;
-                s->y1 = y0;
-
-                sample = y0;
-            }
-
-            if (!isfinite(sample)) sample = 0.0f;
-            frame_samples[ch] = sample;
-        }
-        if (cross_active)
-            crossfeed_frame(frame_samples, cross_target, cross_step, LIMITER_CEILING_S32);
-        if (width_active)
-            stereo_width_frame(frame_samples, width, width_step, &width_direct, &width_cross);
-        for (int ch = 0; ch < channels; ch++) {
-            float abs_sample = fabsf(frame_samples[ch]);
-            if (abs_sample > frame_peak) frame_peak = abs_sample;
-        }
-
-        float desired_gain = frame_peak > LIMITER_CEILING_S32 ? LIMITER_CEILING_S32 / frame_peak : 1.0f;
-        float coeff = desired_gain < limiter_gain ? attack_coeff : release_coeff;
-        limiter_gain = coeff * limiter_gain + (1.0f - coeff) * desired_gain;
-
-        for (int ch = 0; ch < channels; ch++) {
-            float sample = frame_samples[ch] * limiter_gain;
-            if (sample > 8388607.0f) sample = 8388607.0f;
-            if (sample < -8388608.0f) sample = -8388608.0f;
-            buf[i * (size_t) channels + (size_t) ch] = (int32_t) sample;
-        }
-    }
+void peq_process_s32(int32_t * buf, size_t frame_count, int channels, unsigned int sample_rate) {
+    const bool mseb_active = mseb_process_s32(buf, frame_count, channels, sample_rate);
+    process_block(buf, true, frame_count, channels, sample_rate, mseb_active);
 }
 
 bool peq_load_from_path(const char * path) {

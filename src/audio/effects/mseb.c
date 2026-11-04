@@ -1,4 +1,5 @@
 #include "mseb.h"
+#include "biquad_cookbook.h"
 
 #include <math.h>
 #include <pthread.h>
@@ -52,10 +53,6 @@ static pcm_coefficients_t pcm_coefficients[MSEB_FILTER_COUNT];
 static history_t histories[MSEB_FILTER_COUNT][2];
 static response_t pcm_response;
 
-static unsigned int valid_rate(unsigned int rate) {
-    return rate ? rate : 44100;
-}
-
 bool mseb_set_config(const mseb_config_t * config) {
     if (!config || !isfinite(config->width) || config->width < 0 || config->width > 2) return false;
     for (int i = 0; i < MSEB_CONTROL_COUNT; ++i)
@@ -102,33 +99,15 @@ static coefficients_t make_coefficients(int i, int value, unsigned int rate) {
     /* The stock setter multiplies in single precision before coefficient
      * setup in double precision; preserve its parameter rounding. */
     const double gain = (float)((float)value * spec->gain);
-    const double a = pow(10.0, gain / 40.0);
     /* Avoid invalid or aliased filters on content below the stock cutoff.
      * At conventional PCM rates the stock frequencies are used exactly. */
     const double frequency = fmin(spec->hz, .49 * (double)rate);
     const double w = 6.28318530717958 * frequency / (double)rate;
-    const double c = cos(w), alpha = sin(w) / (2.0 * spec->q);
-    const double beta = 2.0 * sqrt(a) * alpha;
-    double b0, b1, b2, a0, a1, a2;
-    if (spec->type == PEAK) {
-        b0 = 1 + alpha * a; b1 = -2 * c; b2 = 1 - alpha * a;
-        a0 = 1 + alpha / a; a1 = -2 * c; a2 = 1 - alpha / a;
-    } else if (spec->type == LOW_SHELF) {
-        b0 = a * ((a + 1) - (a - 1) * c + beta);
-        b1 = 2 * a * ((a - 1) - (a + 1) * c);
-        b2 = a * ((a + 1) - (a - 1) * c - beta);
-        a0 = (a + 1) + (a - 1) * c + beta;
-        a1 = -2 * ((a - 1) + (a + 1) * c);
-        a2 = (a + 1) + (a - 1) * c - beta;
-    } else {
-        b0 = a * ((a + 1) + (a - 1) * c + beta);
-        b1 = -2 * a * ((a - 1) + (a + 1) * c);
-        b2 = a * ((a + 1) + (a - 1) * c - beta);
-        a0 = (a + 1) - (a - 1) * c + beta;
-        a1 = 2 * ((a - 1) - (a + 1) * c);
-        a2 = (a + 1) - (a - 1) * c - beta;
-    }
-    return (coefficients_t){b0/a0, b1/a0, b2/a0, a1/a0, a2/a0};
+    static const biquad_cookbook_type_t types[] = {
+        [LOW_SHELF] = BIQUAD_COOKBOOK_LOW_SHELF, [PEAK] = BIQUAD_COOKBOOK_PEAK,
+        [HIGH_SHELF] = BIQUAD_COOKBOOK_HIGH_SHELF };
+    const biquad_cookbook_t c = biquad_cookbook(types[spec->type], w, gain, spec->q);
+    return (coefficients_t){c.b0, c.b1, c.b2, c.a1, c.a2};
 }
 
 static double band_response_db(const coefficients_t * c, double frequency, unsigned int rate) {
@@ -178,28 +157,6 @@ static void prepare_response(const mseb_config_t * config, unsigned int rate, re
     out->gain = (float)pow(10.0, (float)(mid / 20.0f));
 }
 
-double mseb_get_compensation_db(unsigned int rate) {
-    mseb_config_t config; response_t response;
-    mseb_get_config(&config);
-    prepare_response(&config, valid_rate(rate), &response);
-    return response.compensation_db;
-}
-
-void mseb_get_response_db(const double * frequencies, double * response, size_t count, unsigned int rate) {
-    if (!frequencies || !response) return;
-    mseb_config_t config; response_t prepared;
-    mseb_get_config(&config);
-    rate = valid_rate(rate);
-    prepare_response(&config, rate, &prepared);
-    for (size_t i = 0; i < count; ++i) {
-        double db = prepared.compensation_db;
-        if (isfinite(frequencies[i]) && frequencies[i] > 0 && frequencies[i] < rate*.5)
-            for (int b = 0; b < MSEB_FILTER_COUNT; ++b)
-                if (prepared.active[b]) db += band_response_db(&prepared.coefficients[b], frequencies[i], rate);
-        response[i] = db;
-    }
-}
-
 static bool begin_block(size_t frames, int channels, unsigned int rate, bool s32) {
     if (rate) atomic_store_explicit(&observed_rate, rate, memory_order_relaxed);
     if (!atomic_load_explicit(&active, memory_order_acquire) ||
@@ -208,16 +165,21 @@ static bool begin_block(size_t frames, int channels, unsigned int rate, bool s32
         running = false;
         return false;
     }
-    mseb_config_t config;
-    response_t response;
-    unsigned int response_rate;
     /* Only bounded structure copies happen under this lock, never response
-     * setup. The disabled PCM fast path above takes no lock. */
-    pthread_mutex_lock(&config_mutex);
-    config = requested;
-    response = prepared_response;
-    response_rate = prepared_rate;
-    pthread_mutex_unlock(&config_mutex);
+     * setup. The disabled PCM fast path above takes no lock, and a held lock
+     * never stalls PCM: run on what is already applied and look again at the
+     * next block. Before the first block there is nothing applied yet. */
+    mseb_config_t config = current;
+    response_t response = pcm_response;
+    unsigned int response_rate = current_rate;
+    if (pthread_mutex_trylock(&config_mutex) == 0) {
+        config = requested;
+        response = prepared_response;
+        response_rate = prepared_rate;
+        pthread_mutex_unlock(&config_mutex);
+    } else if (!running) {
+        return false;
+    }
     if (!config.enabled) { running = false; return false; }
     bool reset = atomic_exchange_explicit(&discontinuity, false, memory_order_relaxed);
     bool changed = !running;
