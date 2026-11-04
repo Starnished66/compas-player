@@ -447,6 +447,11 @@ void poll_refresh_bt_icon(void) {
     }
 }
 static bool quick_drawer_bt_long_press_fired = false;
+/* See quick_drawer_wifi_pressed_cb(). */
+void quick_drawer_bt_pressed_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_PRESSED) return;
+    quick_drawer_bt_long_press_fired = false;
+}
 void quick_drawer_bt_long_press_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
     quick_drawer_bt_long_press_fired = true;

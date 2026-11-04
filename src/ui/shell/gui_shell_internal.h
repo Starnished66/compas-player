@@ -401,6 +401,8 @@ void quick_drawer_expansion_scroll_event_cb(lv_event_t * e);
 #endif
 void quick_drawer_wifi_long_press_cb(lv_event_t * e);
 void quick_drawer_bt_long_press_cb(lv_event_t * e);
+void quick_drawer_wifi_pressed_cb(lv_event_t * e);
+void quick_drawer_bt_pressed_cb(lv_event_t * e);
 void poll_wifi_toggle(void);
 void poll_bt_toggle(void);
 void start_bt_dac_startup_reapply_if_needed(void);
@@ -434,6 +436,45 @@ void bt_suspend_launch(bool bt_was_on);
 #endif
 void gui_shell_gestures_start(void);
 void gui_shell_gestures_reset_expansion_flags(void);
+/* Swipe gestures (gui_shell_swipes.c), polled in order by
+ * gui_shell_gestures.c's raw-touch timer. */
+/* Swipe-up-to-Home tracking -- same live per-tick overlay as player_swipe_*
+ * below, but vertical and sliding up from the bottom edge. Eligibility
+ * (band/overlay/lyrics/lock-screen exclusions) is still gesture_detector.h's
+ * gesture_home_state_is_eligible() -- gui_lock_screen.c's own independent
+ * swipe-up-to-dismiss still uses gesture_home_state_poll()/state_t directly,
+ * so that machinery stays in place; this only replaces how gui_shell_gestures.c
+ * itself consumes eligibility, trading a fixed post-threshold instant cut
+ * for the same candidate/tracking live-drag shape as the other two gestures. */
+typedef struct {
+    bool candidate;
+    bool tracking;
+    /* One-tick present deferral. UI_PERF_TRACE showed begin_slide_transition_ex()
+     * (17-34ms) and the first overlay frame's present (~16ms) landing in the
+     * same poll tick as the deadzone confirm, a 33-50ms stall right as the
+     * gesture starts. Set only at the instant tracking begins; the tracking
+     * update clears it and skips presenting that tick, deferring frame 0. */
+    bool just_confirmed;
+    int32_t start_x, start_y;
+    int32_t last_v;        /* last sampled offset, for per-tick velocity */
+    int32_t last_velocity; /* sticky: last nonzero per-tick delta */
+    slide_transition_ctx_t * ctx;
+} swipe_state_t;
+extern swipe_state_t home_swipe, player_swipe, back_swipe;
+extern bool back_swipe_owns_press;
+/* Drawer-drag press state owned by gui_shell_gestures.c, read by the swipes. */
+extern bool quick_drawer_drag_tracking;
+extern bool quick_drawer_was_pressed;
+bool player_swipe_press_excluded(lv_point_t p);
+bool shell_screen_blocks_swipe(lv_obj_t * screen);
+void gui_shell_swipes_poll_press(lv_point_t p, int32_t h);
+void gui_shell_swipes_poll_deadzones(lv_indev_t * indev, lv_point_t p, bool pressed);
+void gui_shell_swipes_poll_tracking(lv_point_t p, int32_t h, bool pressed);
+void gui_shell_swipes_poll_release(int32_t h, bool pressed);
+void gui_shell_swipes_clear_candidates(void);
+void gui_shell_swipes_reset_home(void);
+void gui_shell_swipes_reset_player_back(void);
+bool gui_shell_swipes_busy(void);
 bool bt_workers_active(void);
 bool wifi_background_active(void);
 bool bt_monitor_or_reconnect_active(void);

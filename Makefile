@@ -761,6 +761,7 @@ APP_SRCS += src/ui/shell/gui_shell_topbar_layout.c
 APP_SRCS += src/ui/shell/gui_shell_bluetooth.c
 APP_SRCS += src/ui/shell/gui_shell_wifi.c
 APP_SRCS += src/ui/shell/gui_shell_gestures.c
+APP_SRCS += src/ui/shell/gui_shell_swipes.c
 APP_SRCS += src/ui/player/lyrics/player_inline_lyrics.c src/library/artwork/decode/library_album_art_decode.c src/library/artwork/decode/library_artist_art.c src/plugins/bindings/ui/plugin_info_bindings.c src/plugins/bindings/library/plugin_library_bindings.c
 APP_SRCS += src/library/artwork/albumart/albumart_info.c
 APP_SRCS += src/core/persistence/settings_registry.c src/core/persistence/settings_reg_audio.c src/core/persistence/settings_reg_device.c

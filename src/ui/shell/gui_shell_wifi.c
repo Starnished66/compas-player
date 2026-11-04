@@ -189,6 +189,12 @@ void poll_wifi_status_screen_off(void) {
  * fired. The long_press_fired flags ensure click handlers do not inadvertently
  * toggle radios when a long-press has already opened settings. */
 static bool quick_drawer_wifi_long_press_fired = false;
+/* A new press starts a fresh gesture: a long press whose release never
+ * produced CLICKED must not swallow the next tap. */
+void quick_drawer_wifi_pressed_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_PRESSED) return;
+    quick_drawer_wifi_long_press_fired = false;
+}
 void quick_drawer_wifi_long_press_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
     quick_drawer_wifi_long_press_fired = true;
