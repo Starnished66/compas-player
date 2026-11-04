@@ -441,7 +441,7 @@ static bool library_scan_target_actual_path(const char * path, int root_fd,
     return n > 0 && (size_t) n < actual_path_size;
 }
 
-static void library_scan_targeted_once(void) {
+static void scan_result_reset(void) {
     scan_job.result.refreshed_count = 0;
     scan_job.result.changed_count = 0;
     scan_job.result.failed_count = 0;
@@ -452,6 +452,47 @@ static void library_scan_targeted_once(void) {
     scan_job.result.load_blocked = false;
     scan_job.result.saved = false;
     scan_job.result.published = false;
+}
+
+static void scan_result_fail(void) {
+    scan_job.result.operation_outcome = combine_load_outcomes(scan_job.result.operation_outcome, metadata_db_get_load_outcome());
+    scan_job.result.operation_outcome = combine_load_outcomes(scan_job.result.operation_outcome, METADATA_DB_LOAD_FAILED);
+}
+
+static void scan_finish_no_op(void) {
+    int32_t generation_before = tagcache_generation();
+    metadata_db_abort_update();
+    scan_job.result.published = tagcache_generation() != generation_before;
+    scan_job.result.saved = false;
+    scan_job.result.succeeded = true;
+    scan_job.result.operation_outcome = combine_load_outcomes(scan_job.result.operation_outcome,
+                                                       metadata_db_get_load_outcome());
+    library_scan_reset_progress();
+}
+
+static bool scan_commit(bool preserve_rebuild) {
+    scan_progress_phase = LIBRARY_SCAN_PHASE_SAVE;
+    int32_t generation_before = tagcache_generation();
+    bool committed = metadata_db_end_update();
+    scan_job.result.published = tagcache_generation() != generation_before;
+    scan_job.result.saved = committed && !preserve_rebuild;
+    scan_job.result.operation_outcome = combine_load_outcomes(scan_job.result.operation_outcome, metadata_db_get_load_outcome());
+    if (!committed)
+        scan_job.result.operation_outcome = combine_load_outcomes(scan_job.result.operation_outcome, METADATA_DB_LOAD_FAILED);
+    scan_job.result.succeeded = committed;
+    return committed;
+}
+
+static void scan_reload_after_commit(void) {
+    library_scan_reset_progress();
+    metadata_db_load_outcome_t reload_outcome = metadata_db_storage_current()
+        ? metadata_db_get_load_outcome() : METADATA_DB_LOAD_UNMOUNTED;
+    scan_job.result.saved = scan_job.result.saved && reload_outcome == METADATA_DB_LOAD_SUCCESS_NORMAL;
+    scan_job.result.operation_outcome = combine_load_outcomes(scan_job.result.operation_outcome, reload_outcome);
+}
+
+static void library_scan_targeted_once(void) {
+    scan_result_reset();
     scan_progress_done = 0;
     scan_progress_total = scan_job.scope == LIBRARY_SCAN_SCOPE_PATHS
                                       ? scan_job.target_count : 0;
@@ -576,14 +617,7 @@ static void library_scan_targeted_once(void) {
     }
 
     if (metadata_refresh_should_skip_commit(scan_job.result.changed_count, target_deleted, row_inserted)) {
-        int32_t generation_before = tagcache_generation();
-        metadata_db_abort_update();
-        scan_job.result.published = tagcache_generation() != generation_before;
-        scan_job.result.saved = false;
-        scan_job.result.succeeded = true;
-        scan_job.result.operation_outcome = combine_load_outcomes(scan_job.result.operation_outcome,
-                                                           metadata_db_get_load_outcome());
-        library_scan_reset_progress();
+        scan_finish_no_op();
         DB_LOG("DB", "targeted_refresh_end refreshed=%d changed=%d ok=1 published=%d no_op=1 elapsed_ms=%llu songs=%lld rss_kb=%ld",
                scan_job.result.refreshed_count, scan_job.result.changed_count, scan_job.result.published,
                (unsigned long long) (db_log_now_ms() - scan_started_ms),
@@ -591,21 +625,8 @@ static void library_scan_targeted_once(void) {
         return;
     }
 
-    scan_progress_phase = LIBRARY_SCAN_PHASE_SAVE;
-    int32_t generation_before = tagcache_generation();
-    bool committed = metadata_db_end_update();
-    scan_job.result.published = tagcache_generation() != generation_before;
-    scan_job.result.saved = committed && !preserve_rebuild;
-    scan_job.result.operation_outcome = combine_load_outcomes(scan_job.result.operation_outcome, metadata_db_get_load_outcome());
-    if (!committed)
-        scan_job.result.operation_outcome = combine_load_outcomes(scan_job.result.operation_outcome, METADATA_DB_LOAD_FAILED);
-    scan_job.result.succeeded = committed;
-
-    library_scan_reset_progress();
-    metadata_db_load_outcome_t reload_outcome = metadata_db_storage_current()
-        ? metadata_db_get_load_outcome() : METADATA_DB_LOAD_UNMOUNTED;
-    scan_job.result.saved = scan_job.result.saved && reload_outcome == METADATA_DB_LOAD_SUCCESS_NORMAL;
-    scan_job.result.operation_outcome = combine_load_outcomes(scan_job.result.operation_outcome, reload_outcome);
+    bool committed = scan_commit(preserve_rebuild);
+    scan_reload_after_commit();
     DB_LOG("DB", "targeted_refresh_end refreshed=%d changed=%d ok=%d elapsed_ms=%llu songs=%lld rss_kb=%ld",
            scan_job.result.refreshed_count, scan_job.result.changed_count, committed,
            (unsigned long long) (db_log_now_ms() - scan_started_ms),
@@ -638,17 +659,90 @@ static bool library_scan_open_database(bool allow_rebuild, metadata_db_load_outc
     return true;
 }
 
+static bool scan_spool_songs(FILE * spool, int root_fd, int count, bool force, bool db_logging,
+                             uint64_t started_ms, bool * row_inserted, int * done) {
+    bool complete = true;
+    char path[PATH_MAX];
+    while (*done < count) {
+        if (atomic_load_explicit(&scan_cancel_requested, memory_order_acquire)) {
+            complete = false;
+            break;
+        }
+        if (!scan_spool_read_path(spool, path, sizeof(path))) {
+            complete = false;
+            break;
+        }
+        if (path[0] == '\0') {
+            complete = false;
+            break;
+        }
+        if (!metadata_db_storage_current() || atomic_load_explicit(&scan_cancel_requested, memory_order_acquire)) {
+            complete = false;
+            break;
+        }
+        char actual_path[PATH_MAX];
+        size_t root_len = strlen(MUSIC_ROOT_DIR);
+        if (strncmp(path, MUSIC_ROOT_DIR, root_len) != 0 ||
+            (path[root_len] != '/' && path[root_len] != '\0') ||
+            snprintf(actual_path, sizeof(actual_path), "/proc/self/fd/%d%s", root_fd,
+                     path + root_len) >= (int) sizeof(actual_path)) {
+            complete = false;
+            break;
+        }
+        uint64_t file_started_ms = db_logging ? db_log_now_ms() : 0;
+        /* No rss_kb here -- see db_log_rss_kb()'s own comment; RSS is
+         * only worth the /proc read at phase boundaries, progress
+         * intervals, slow files, and failures, not on every song. Plain
+         * buffered logging, no per-file flush -- crash forensics for the
+         * parent are already covered by g_scan_last_path (set inside
+         * scan_one_song_into_db() itself, see its own comment) plus
+         * main.c's crash handler, which fsyncs reload_diag.log; the
+         * actual metadata parse also runs in an isolated child process
+         * (metadata_read_isolated()), so a malformed file yields
+         * SCAN_SONG_FAILED below rather than crashing this process. */
+        if (db_logging) DB_LOG("DB_FILE", "file_begin index=%d total=%d path=%s", *done, count, path);
+        bool tags_changed = false, identity_changed = false, inserted = false;
+        scan_song_result_t result = scan_one_song_into_db(actual_path, path, force,
+                                                           force ? &tags_changed : NULL,
+                                                           force ? &identity_changed : NULL,
+                                                           force ? &inserted : NULL);
+        /* NO_STAT: the file was parsed but its tags were discarded because
+         * stat() failed, so the song was not refreshed either. */
+        if (force && (result == SCAN_SONG_FAILED || result == SCAN_SONG_NO_STAT))
+            scan_job.result.failed_count++;
+        if (force && result == SCAN_SONG_PARSED) {
+            scan_job.result.refreshed_count++;
+            if (tags_changed) scan_job.result.changed_count++;
+            if (inserted) *row_inserted = true;
+            if (identity_changed) scan_job.result.identity_changed = true;
+        }
+        if (db_logging) {
+            uint64_t file_ms = db_log_now_ms() - file_started_ms;
+            static const char * const scan_song_result_name[] = { "cached", "parsed", "failed", "no_stat" };
+            DB_LOG("DB_FILE", "file_end index=%d result=%s elapsed_ms=%llu path=%s", *done,
+                   scan_song_result_name[result], (unsigned long long) file_ms, path);
+            if (file_ms >= 250)
+                DB_LOG("DB", "slow_file index=%d result=%s elapsed_ms=%llu rss_kb=%ld path=%s", *done,
+                       scan_song_result_name[result], (unsigned long long) file_ms, db_log_rss_kb(), path);
+        }
+        scan_progress_done = ++*done;
+        if ((*done % 1000) == 0 || *done == count)
+            DB_LOG("DB", "tag_progress done=%d total=%d elapsed_ms=%llu rss_kb=%ld",
+                   *done, count, (unsigned long long) (db_log_now_ms() - started_ms),
+                   db_log_rss_kb());
+    }
+    return complete;
+}
+
 static void library_scan_once_with_options(bool force_all_metadata) {
-    scan_job.result.published = false;
-    scan_job.result.refreshed_count = 0;
-    scan_job.result.changed_count = 0;
-    scan_job.result.failed_count = 0;
-    scan_job.result.matched_existing = 0;
-    scan_job.result.identity_changed = false;
-    scan_job.result.succeeded = false;
-    scan_job.result.incomplete = false;
-    scan_job.result.load_blocked = false;
-    scan_job.result.saved = false;
+    scan_result_reset();
+    /* Cached once, not read fresh every song: db_log_now_ms() is a real
+     * clock_gettime() syscall on this target (no vDSO), and DB_LOG's own
+     * internal enabled-check can't save that cost since its arguments (the
+     * elapsed-time expressions below) are already evaluated before the call
+     * is even made. Skipping db_log_now_ms()/DB_LOG entirely when off is the
+     * only way a 10,000+ song scan doesn't pay two syscalls per file even
+     * with logging disabled (the default). */
     bool db_logging = db_log_enabled();
     uint64_t scan_started_ms = db_logging ? db_log_now_ms() : 0;
     uint64_t phase_started_ms = scan_started_ms;
@@ -743,93 +837,15 @@ static void library_scan_once_with_options(bool force_all_metadata) {
         if (spool_read_fd >= 0) close(spool_read_fd);
         DB_LOG("DB", "spool_open_failed rss_kb=%ld", db_log_rss_kb());
         metadata_db_abort_update();
-        scan_job.result.operation_outcome = combine_load_outcomes(scan_job.result.operation_outcome, metadata_db_get_load_outcome());
-        scan_job.result.operation_outcome = combine_load_outcomes(scan_job.result.operation_outcome, METADATA_DB_LOAD_FAILED);
+        scan_result_fail();
         scan_walk_release(spool_owner);
         return;
     }
 
-    bool complete = true;
     bool row_inserted = false;
-    char path[PATH_MAX];
     int done = 0;
-    /* Cached once, not read fresh every song: db_log_now_ms() is a real
-     * clock_gettime() syscall on this target (no vDSO), and DB_LOG's own
-     * internal enabled-check can't save that cost since its arguments (the
-     * elapsed-time expressions below) are already evaluated before the call
-     * is even made. Skipping db_log_now_ms()/DB_LOG entirely when off is the
-     * only way a 10,000+ song scan doesn't pay two syscalls per file even
-     * with logging disabled (the default). */
-    while (done < discovered_count) {
-        if (atomic_load_explicit(&scan_cancel_requested, memory_order_acquire)) {
-            complete = false;
-            break;
-        }
-        if (!scan_spool_read_path(spool, path, sizeof(path))) {
-            complete = false;
-            break;
-        }
-        if (path[0] == '\0') {
-            complete = false;
-            break;
-        }
-        if (path[0] != '\0') {
-            if (!metadata_db_storage_current() || atomic_load_explicit(&scan_cancel_requested, memory_order_acquire)) {
-                complete = false;
-                break;
-            }
-            char actual_path[PATH_MAX];
-            size_t root_len = strlen(MUSIC_ROOT_DIR);
-            if (strncmp(path, MUSIC_ROOT_DIR, root_len) != 0 ||
-                (path[root_len] != '/' && path[root_len] != '\0') ||
-                snprintf(actual_path, sizeof(actual_path), "/proc/self/fd/%d%s", spool_owner->root_fd,
-                         path + root_len) >= (int) sizeof(actual_path)) {
-                complete = false;
-                break;
-            }
-            uint64_t file_started_ms = db_logging ? db_log_now_ms() : 0;
-            /* No rss_kb here -- see db_log_rss_kb()'s own comment; RSS is
-             * only worth the /proc read at phase boundaries, progress
-             * intervals, slow files, and failures, not on every song. Plain
-             * buffered logging, no per-file flush -- crash forensics for the
-             * parent are already covered by g_scan_last_path (set inside
-             * scan_one_song_into_db() itself, see its own comment) plus
-             * main.c's crash handler, which fsyncs reload_diag.log; the
-             * actual metadata parse also runs in an isolated child process
-             * (metadata_read_isolated()), so a malformed file yields
-             * SCAN_SONG_FAILED below rather than crashing this process. */
-            if (db_logging) DB_LOG("DB_FILE", "file_begin index=%d total=%d path=%s", done, discovered_count, path);
-            bool tags_changed = false, identity_changed = false, inserted = false;
-            scan_song_result_t result = scan_one_song_into_db(actual_path, path, force_all_metadata,
-                                                               force_all_metadata ? &tags_changed : NULL,
-                                                               force_all_metadata ? &identity_changed : NULL,
-                                                               force_all_metadata ? &inserted : NULL);
-            /* NO_STAT: the file was parsed but its tags were discarded because
-             * stat() failed, so the song was not refreshed either. */
-            if (force_all_metadata && (result == SCAN_SONG_FAILED || result == SCAN_SONG_NO_STAT))
-                scan_job.result.failed_count++;
-            if (force_all_metadata && result == SCAN_SONG_PARSED) {
-                scan_job.result.refreshed_count++;
-                if (tags_changed) scan_job.result.changed_count++;
-                if (inserted) row_inserted = true;
-                if (identity_changed) scan_job.result.identity_changed = true;
-            }
-            if (db_logging) {
-                uint64_t file_ms = db_log_now_ms() - file_started_ms;
-                static const char * const scan_song_result_name[] = { "cached", "parsed", "failed", "no_stat" };
-                DB_LOG("DB_FILE", "file_end index=%d result=%s elapsed_ms=%llu path=%s", done,
-                       scan_song_result_name[result], (unsigned long long) file_ms, path);
-                if (file_ms >= 250)
-                    DB_LOG("DB", "slow_file index=%d result=%s elapsed_ms=%llu rss_kb=%ld path=%s", done,
-                           scan_song_result_name[result], (unsigned long long) file_ms, db_log_rss_kb(), path);
-            }
-        }
-        scan_progress_done = ++done;
-        if ((done % 1000) == 0 || done == discovered_count)
-            DB_LOG("DB", "tag_progress done=%d total=%d elapsed_ms=%llu rss_kb=%ld",
-                   done, discovered_count, (unsigned long long) (db_log_now_ms() - phase_started_ms),
-                   db_log_rss_kb());
-    }
+    bool complete = scan_spool_songs(spool, spool_owner->root_fd, discovered_count,
+                                      force_all_metadata, db_logging, phase_started_ms, &row_inserted, &done);
     if (complete && (fgetc(spool) != EOF || ferror(spool))) complete = false;
     fclose(spool);
     scan_walk_release(spool_owner);
@@ -840,8 +856,7 @@ static void library_scan_once_with_options(bool force_all_metadata) {
     if (!complete) {
         DB_LOG("DB", "spool_read_incomplete done=%d total=%d rss_kb=%ld", done, discovered_count, db_log_rss_kb());
         metadata_db_abort_update();
-        scan_job.result.operation_outcome = combine_load_outcomes(scan_job.result.operation_outcome, metadata_db_get_load_outcome());
-        scan_job.result.operation_outcome = combine_load_outcomes(scan_job.result.operation_outcome, METADATA_DB_LOAD_FAILED);
+        scan_result_fail();
         return;
     }
 
@@ -869,15 +884,8 @@ static void library_scan_once_with_options(bool force_all_metadata) {
             return;
         }
         if (!missing_paths && !join_forced) {
-            int32_t generation_before = tagcache_generation();
-            metadata_db_abort_update();
-            scan_job.result.published = tagcache_generation() != generation_before;
-            scan_job.result.saved = false;
-            scan_job.result.succeeded = true;
             scan_job.result.incomplete = false;
-            scan_job.result.operation_outcome = combine_load_outcomes(scan_job.result.operation_outcome,
-                                                               metadata_db_get_load_outcome());
-            library_scan_reset_progress();
+            scan_finish_no_op();
             DB_LOG("DB", "refresh_all_end refreshed=%d changed=%d ok=1 published=%d no_op=1 elapsed_ms=%llu songs=%lld rss_kb=%ld",
                    scan_job.result.refreshed_count, scan_job.result.changed_count, scan_job.result.published,
                    (unsigned long long) (db_log_now_ms() - scan_started_ms),
@@ -886,16 +894,7 @@ static void library_scan_once_with_options(bool force_all_metadata) {
         }
     }
 
-    scan_progress_phase = LIBRARY_SCAN_PHASE_SAVE;
-    int32_t generation_before = tagcache_generation();
-    bool committed = metadata_db_end_update();
-    scan_job.result.published = tagcache_generation() != generation_before;
-    metadata_db_load_outcome_t commit_outcome = metadata_db_get_load_outcome();
-    scan_job.result.saved = committed && !preserve_rebuild;
-    scan_job.result.operation_outcome = combine_load_outcomes(scan_job.result.operation_outcome, commit_outcome);
-    if (!committed)
-        scan_job.result.operation_outcome = combine_load_outcomes(scan_job.result.operation_outcome, METADATA_DB_LOAD_FAILED);
-    scan_job.result.succeeded = committed;
+    bool committed = scan_commit(preserve_rebuild);
     scan_job.result.incomplete = committed && skipped_count > 0;
     if (!committed)
         fprintf(stderr, "Warning: music database commit failed -- keeping last on-disk library\n");
@@ -904,11 +903,7 @@ static void library_scan_once_with_options(bool force_all_metadata) {
            (long long) metadata_db_get_song_count(), db_log_rss_kb());
 
     phase_started_ms = db_logging ? db_log_now_ms() : 0;
-    library_scan_reset_progress();
-    metadata_db_load_outcome_t reload_outcome = metadata_db_storage_current()
-        ? metadata_db_get_load_outcome() : METADATA_DB_LOAD_UNMOUNTED;
-    scan_job.result.saved = scan_job.result.saved && reload_outcome == METADATA_DB_LOAD_SUCCESS_NORMAL;
-    scan_job.result.operation_outcome = combine_load_outcomes(scan_job.result.operation_outcome, reload_outcome);
+    scan_reload_after_commit();
     DB_LOG("DB", "reload_end songs=%lld elapsed_ms=%llu total_ms=%llu rss_kb=%ld",
            (long long) metadata_db_get_song_count(), (unsigned long long) (db_log_now_ms() - phase_started_ms),
            (unsigned long long) (db_log_now_ms() - scan_started_ms), db_log_rss_kb());
