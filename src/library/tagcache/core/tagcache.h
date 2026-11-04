@@ -149,6 +149,10 @@ bool tagcache_song_fields_at_recency_rank(int32_t rank, unsigned fields, tagcach
 int32_t tagcache_live_count(void);
 int32_t tagcache_slot_count(void);
 bool tagcache_song_by_id(int32_t id, tagcache_song_t * out);
+/* Used by Compas Tools' compas-sdtool: true when the last open rewrote an older index layout. */
+bool tagcache_indexes_migrated(void);
+/* Used by Compas Tools' compas-sdtool: the song in a raw slot (0-based). */
+bool tagcache_song_at_slot(int32_t slot, tagcache_song_t * out);
 bool tagcache_song_by_path(const char * path, tagcache_song_t * out);
 /* tagcache_song_by_path() with the stored album artist, never the join label. */
 bool tagcache_song_by_path_raw(const char * path, tagcache_song_t * out);

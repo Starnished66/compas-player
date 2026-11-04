@@ -15,6 +15,8 @@ bool rebuild_preserve_generations;
 /* Set by tagcache_open_read_only(): loading must not write (no index migration). */
 static bool open_read_only;
 tagcache_load_outcome_t last_load_outcome = TAGCACHE_LOAD_FAILED;
+/* Set when the last open rewrote an older index layout (see tagcache_indexes_migrated()). */
+static bool indexes_migrated;
 reader_context_t committed_reader;
 reader_context_t scan_reader;
 reader_context_t build_reader;
@@ -48,7 +50,9 @@ static bool load_generation(int32_t gen) {
     int indexed = ok ? reader_open_indexes(gen) : -1;
     if (ok && indexed == 1 && reader_loaded_index_version < TC_INDEX_MIGRATE_BELOW && !open_read_only) {
         uint32_t old_index_version = reader_loaded_index_version;
-        if (!reader_migrate_indexes(gen)) {
+        if (reader_migrate_indexes(gen)) {
+            indexes_migrated = true;
+        } else {
             /* Keep the previously valid persisted generation usable if rebuilding
              * derived indexes fails (for example, while storage is read-only). */
             reader_close_indexes();
@@ -134,6 +138,7 @@ bool reload_from_disk(void) {
 static bool open_directory(const char *dir, bool read_only) {
     tagcache_close();
     open_read_only = read_only;
+    indexes_migrated = false;
     last_load_outcome = TAGCACHE_LOAD_FAILED;
     if (!db_pin_directory(dir)) return false;
     db_open = true;
@@ -204,6 +209,12 @@ tagcache_load_outcome_t tagcache_get_load_outcome(void) { return last_load_outco
 
 int32_t tagcache_live_count(void) { return db_open ? live_count : 0; }
 int32_t tagcache_slot_count(void) { return db_open ? ent_count : 0; }
+
+/* Compas Tools' compas-sdtool uses these two; the player itself does not. */
+bool tagcache_indexes_migrated(void) { return indexes_migrated; }
+bool tagcache_song_at_slot(int32_t slot, tagcache_song_t *out) {
+    return slot >= 0 && slot < ent_count && tagcache_song_by_id(slot + 1, out);
+}
 
 bool tagcache_song_fields_by_id(int32_t id, unsigned fields, tagcache_song_t *out) {
     if (!db_open || id < 1 || id > ent_count || !out) return false;
