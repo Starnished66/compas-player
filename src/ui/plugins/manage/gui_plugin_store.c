@@ -1350,6 +1350,7 @@ void poll_plugin_store(void) {
         store_setup_catalog_ready = store_is_refresh;
         if (!store_is_refresh) note_changed(status.changed);
         populate_store_screen(false);
+        if (status.error[0]) show_error_toast(status.error); /* damaged installed record */
         if (store_open_when_ready) {
             store_open_when_ready = false;
             store_push_pending = true;

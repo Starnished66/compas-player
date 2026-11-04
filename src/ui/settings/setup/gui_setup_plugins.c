@@ -52,6 +52,7 @@ static size_t batch_completed;
 static size_t batch_retry_total;
 static bool batch_retry_pass;
 static bool batch_catalog_retried;
+static char batch_reasons[512]; /* distinct failure reasons, one per line */
 static bool batch_refresh_retry;
 static size_t catalog_count;
 static size_t last_displayed_completed = (size_t) -1;
@@ -135,6 +136,7 @@ static void clear_batch(void) {
     batch_retry_total = 0;
     batch_retry_pass = false;
     batch_catalog_retried = false;
+    batch_reasons[0] = 0;
     batch_refresh_retry = false;
     batch_changed = false;
     batch_stage = BATCH_IDLE;
@@ -380,9 +382,17 @@ static bool completed_layout_ready(void) {
     return false;
 }
 
+/* Remembers a failure reason once, however many plugins share it. */
+static void note_batch_reason(const char * reason) {
+    size_t used = strlen(batch_reasons);
+    if (!reason || !reason[0] || strstr(batch_reasons, reason)) return;
+    /* Whole reasons only: a cut one could split a UTF-8 character. */
+    if (used + 1 + strlen(reason) >= sizeof(batch_reasons)) return;
+    snprintf(batch_reasons + used, sizeof(batch_reasons) - used, "%s%s", used ? "\n" : "", reason);
+}
+
 static void finish_batch(bool success, const char * failure_message) {
-    (void) success;
-    (void) failure_message;
+    if (!success) note_batch_reason(failure_message);
     delete_batch_timer();
     detach_progress();
     remove_successful_selections();
@@ -391,14 +401,22 @@ static void finish_batch(bool success, const char * failure_message) {
 }
 
 static void fail_current_and_continue(const char * message) {
-    (void) message;
+    note_batch_reason(message);
     if (batch_index < batch_count) mark_current_complete(false);
     start_next_batch_item();
 }
 
+/* Appends the distinct failure reasons after the failed plugin list. */
+static size_t append_batch_reasons(char * body, size_t cap, size_t used) {
+    if (!batch_reasons[0] || used >= cap) return used;
+    int n = snprintf(body + used, cap - used, "\n%s\n\n", batch_reasons);
+    if (n < 0) return used;
+    return used + ((size_t) n < cap - used ? (size_t) n : cap - used - 1);
+}
+
 static void show_batch_result(void) {
     if (!create_popups()) return;
-    char body[SETUP_BATCH_LIMIT * (SETUP_PLUGIN_NAME_CAP + 4) + 256];
+    char body[SETUP_BATCH_LIMIT * (SETUP_PLUGIN_NAME_CAP + 4) + sizeof(batch_reasons) + 512];
     size_t used = 0, failures = failed_count();
     if (failures) {
         int n = snprintf(body, sizeof(body), TR("Failed plugins:\n"));
@@ -409,6 +427,7 @@ static void show_batch_result(void) {
             if (n < 0) break;
             used += (size_t)n < sizeof(body) - used ? (size_t)n : sizeof(body) - used - 1;
         }
+        used = append_batch_reasons(body, sizeof(body), used);
     } else {
         int n = snprintf(body, sizeof(body), TR("Selected plugins are ready.\n"));
         used = n > 0 ? (size_t)n : 0;
@@ -421,7 +440,7 @@ static void show_batch_result(void) {
     if (result_body) {
         int32_t screen = lv_display_get_vertical_resolution(lv_display_get_default());
         int32_t cap = screen - 2 * STATUS_BAR_CLEARANCE - BOARD_SCALE_PX(176);
-        int32_t desired = (int32_t) (failures + 4) * BOARD_SCALE_PX(30) + BOARD_SCALE_PX(24);
+        int32_t desired = (int32_t) (failures + 4 + (batch_reasons[0] ? 3 : 0)) * BOARD_SCALE_PX(30) + BOARD_SCALE_PX(24);
         if (desired < BOARD_SCALE_PX(72)) desired = BOARD_SCALE_PX(72);
         if (desired > cap) desired = cap;
         lv_obj_set_height(result_body, desired);
@@ -505,6 +524,7 @@ static void start_next_batch_item(void) {
     if (!batch_retry_pass && failed_count()) {
         batch_retry_pass = true;
         batch_retry_total = failed_count();
+        batch_reasons[0] = 0; /* plugins failing again note their reason again */
         batch_completed = 0;
         batch_index = 0;
         batch_stage = BATCH_RETRYING;
@@ -585,6 +605,7 @@ static void batch_poll_cb(lv_timer_t * timer) {
     }
     if (status.state == PLUGIN_STORE_FAILED || status.state == PLUGIN_STORE_IDLE) {
         batch_changed = batch_changed || status.changed;
+        note_batch_reason(status.error);
         mark_current_complete(false);
         start_next_batch_item();
         return;

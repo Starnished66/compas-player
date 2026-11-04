@@ -1049,6 +1049,7 @@ const i18n_entry_t i18n_entries_zh_CN[] = {
     {"The emulator folder is not writable.", (const char * const[]){"模拟器文件夹不可写。"}, 1},
     {"The firmware path is too long.", (const char * const[]){"固件路径过长。"}, 1},
     {"The game closed unexpectedly.", (const char * const[]){"游戏意外关闭。"}, 1},
+    {"The installed plugins record is damaged. Remove or repair .plugins/.store_installed on the SD card.", (const char * const[]){"已安装插件的记录已损坏。请删除或修复 SD 卡上的 .plugins/.store_installed。"}, 1},
     {"The latest player release changed. Check again.", (const char * const[]){"最新播放器版本已变更。请重新检查。"}, 1},
     {"The player download did not complete.", (const char * const[]){"播放器下载未完成。"}, 1},
     {"The player image exceeds the safe size limit.", (const char * const[]){"播放器镜像超出安全大小限制。"}, 1},

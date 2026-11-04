@@ -1050,6 +1050,7 @@ const i18n_entry_t i18n_entries_fi[] = {
     {"The emulator folder is not writable.", (const char * const[]){"Emulaattorikansioon ei voi kirjoittaa."}, 1},
     {"The firmware path is too long.", (const char * const[]){"Laiteohjelmiston polku on liian pitkä."}, 1},
     {"The game closed unexpectedly.", (const char * const[]){"Peli sulkeutui odottamattomasti."}, 1},
+    {"The installed plugins record is damaged. Remove or repair .plugins/.store_installed on the SD card.", (const char * const[]){"Asennettujen pluginien tietue on vioittunut. Poista tai korjaa .plugins/.store_installed SD-kortilta."}, 1},
     {"The latest player release changed. Check again.", (const char * const[]){"Uusin soittimen julkaisu on muuttunut. Tarkista uudelleen."}, 1},
     {"The player download did not complete.", (const char * const[]){"Soittimen lataus ei valmistunut."}, 1},
     {"The player image exceeds the safe size limit.", (const char * const[]){"Soittimen levykuva ylittää turvallisen kokorajan."}, 1},

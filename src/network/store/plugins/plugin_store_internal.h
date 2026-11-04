@@ -93,7 +93,11 @@ extern const store_card_t * ps_commit_card;
 /* plugin_store.c: status and shared helpers */
 void ps_finish(plugin_store_state_t state, const char * error, bool changed);
 void ps_progress_set(int percent, const char * name);
-const char * ps_record_error(void);
+/* Outcome of reading the installed record: a damaged record exists but is
+ * invalid; an error is any other failure (I/O, memory). */
+typedef enum { PS_RECORD_OK, PS_RECORD_DAMAGED, PS_RECORD_ERROR } ps_record_status_t;
+/* Translated message for a failed (not OK) record read. */
+const char * ps_record_error(ps_record_status_t status);
 bool ps_compute_results(void);
 bool ps_finish_ready(bool changed);
 const plugin_store_plugin_t * ps_index_find_locked(const char * id);
@@ -123,7 +127,7 @@ bool ps_path_for(char * out, size_t cap, const char * root, const char * dest);
 void ps_stage_file(char * out, size_t size, const char * stage, size_t i, const char * ext);
 bool ps_parent_dirs_safe(const char * root, const char * dest, bool create);
 int ps_record_find(const plugin_store_plugin_t * rec, size_t rn, const char * id);
-bool ps_read_record_alloc(plugin_store_plugin_t ** out, size_t * count);
+ps_record_status_t ps_read_record_alloc(plugin_store_plugin_t ** out, size_t * count);
 bool ps_write_record_without(const char * root, const plugin_store_plugin_t * rec,
                              size_t rn, const char * remove_id);
 bool ps_conflict_exists(const char * root, const plugin_store_plugin_t * p,

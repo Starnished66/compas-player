@@ -1050,6 +1050,7 @@ const i18n_entry_t i18n_entries_nl[] = {
     {"The emulator folder is not writable.", (const char * const[]){"De emulatormap is niet beschrijfbaar."}, 1},
     {"The firmware path is too long.", (const char * const[]){"Het firmwarepad is te lang."}, 1},
     {"The game closed unexpectedly.", (const char * const[]){"De game is onverwacht gesloten."}, 1},
+    {"The installed plugins record is damaged. Remove or repair .plugins/.store_installed on the SD card.", (const char * const[]){"Het register van geïnstalleerde plugins is beschadigd. Verwijder of herstel .plugins/.store_installed op de SD-kaart."}, 1},
     {"The latest player release changed. Check again.", (const char * const[]){"De nieuwste uitgave van de speler is gewijzigd. Controleer opnieuw."}, 1},
     {"The player download did not complete.", (const char * const[]){"Het downloaden van de speler is niet voltooid."}, 1},
     {"The player image exceeds the safe size limit.", (const char * const[]){"De image van de speler overschrijdt de veilige groottelimiet."}, 1},

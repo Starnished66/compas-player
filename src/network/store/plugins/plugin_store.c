@@ -58,7 +58,10 @@ void ps_finish(plugin_store_state_t state, const char * error, bool changed) {
 }
 
 /* Shared message for an unreadable installed record. */
-const char * ps_record_error(void) {
+const char * ps_record_error(ps_record_status_t status) {
+    if (status == PS_RECORD_DAMAGED) {
+        return TR("The installed plugins record is damaged. Remove or repair .plugins/.store_installed on the SD card.");
+    }
     return TR("Could not read installed plugins.");
 }
 
@@ -119,8 +122,17 @@ bool ps_compute_results(void) {
 
     plugin_store_plugin_t * rec = NULL;
     size_t rn = 0;
-    if (!ps_read_record_alloc(&rec, &rn)) {
+    ps_record_status_t status = ps_read_record_alloc(&rec, &rn);
+    if (status == PS_RECORD_ERROR) {
         return false;
+    }
+    if (status == PS_RECORD_DAMAGED) {
+        /* Keep the catalog browsable and carry the warning on the READY state. */
+        rec = NULL;
+        rn = 0;
+        pthread_mutex_lock(&store_mutex);
+        snprintf(store_status.error, sizeof(store_status.error), "%s", ps_record_error(status));
+        pthread_mutex_unlock(&store_mutex);
     }
     size_t capacity = index_count + rn;
     if (capacity > PLUGIN_STORE_MAX_RESULTS) {
@@ -149,7 +161,7 @@ bool ps_finish_ready(bool changed) {
         ps_finish(PLUGIN_STORE_READY, NULL, changed);
         return true;
     }
-    ps_finish(PLUGIN_STORE_FAILED, ps_record_error(), changed);
+    ps_finish(PLUGIN_STORE_FAILED, ps_record_error(PS_RECORD_ERROR), changed);
     return false;
 }
 
@@ -158,7 +170,7 @@ void plugin_store_classify_loaders(const char * const * filenames, bool * layout
     if (!filenames || (!layout_flags && !theme_flags) || !count) return;
     plugin_store_plugin_t * records = NULL;
     size_t record_count = 0;
-    if (!ps_read_record_alloc(&records, &record_count)) return;
+    if (ps_read_record_alloc(&records, &record_count) != PS_RECORD_OK) return;
 
     for (size_t r = 0; r < record_count; r++) {
         const plugin_store_plugin_t * record = &records[r];
@@ -393,7 +405,7 @@ bool plugin_store_get_player_layout_id(const char * plugin_id, char * out, size_
 
     plugin_store_plugin_t * records = NULL;
     size_t record_count = 0;
-    if (!ps_read_record_alloc(&records, &record_count)) return false;
+    if (ps_read_record_alloc(&records, &record_count) != PS_RECORD_OK) return false;
     int installed_index = ps_record_find(records, record_count, plugin_id);
     bool valid = installed_index >= 0 &&
                  installed_layout_id(&catalog_plugin, &records[installed_index], out, size);

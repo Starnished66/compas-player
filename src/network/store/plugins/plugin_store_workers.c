@@ -282,8 +282,9 @@ void * ps_install_worker(void * arg) {
     install_t s = { .job = &job, .p = &job.plugin, .fail_state = PLUGIN_STORE_FAILED };
     if (!begin_operation(&s.card, TR("Insert an SD card to install plugins."))) return NULL;
     ps_progress_set(0, job.plugin.name);
-    if (!ps_read_record_alloc(&s.rec, &s.rn)) {
-        ps_finish(PLUGIN_STORE_FAILED, ps_record_error(), false);
+    ps_record_status_t record_status = ps_read_record_alloc(&s.rec, &s.rn);
+    if (record_status != PS_RECORD_OK) {
+        ps_finish(PLUGIN_STORE_FAILED, ps_record_error(record_status), false);
         return NULL;
     }
     const char * error = install_precheck(&s);
@@ -383,8 +384,9 @@ void * ps_uninstall_worker(void * arg) {
     free(arg);
     uninstall_t u = {0};
     if (!begin_operation(&u.card, TR("Insert an SD card to remove plugins."))) return NULL;
-    if (!ps_read_record_alloc(&u.rec, &u.rn)) {
-        ps_finish(PLUGIN_STORE_FAILED, ps_record_error(), false);
+    ps_record_status_t record_status = ps_read_record_alloc(&u.rec, &u.rn);
+    if (record_status != PS_RECORD_OK) {
+        ps_finish(PLUGIN_STORE_FAILED, ps_record_error(record_status), false);
         return NULL;
     }
     u.found = ps_record_find(u.rec, u.rn, id);
@@ -471,8 +473,10 @@ static bool update_commit(update_all_t * u, const plugin_store_plugin_t * p, con
         u->changed = true;
         free(u->rec);
         u->rec = NULL;
-        if (!ps_read_record_alloc(&u->rec, &u->rn)) {
-            *abort_error = ps_record_error();
+        ps_record_status_t record_status = ps_read_record_alloc(&u->rec, &u->rn);
+        if (record_status != PS_RECORD_OK) {
+            *abort_error = ps_record_error(record_status);
+            if (!preserve_stage) cleanup_stage(&u->card, stage, p->file_count);
             return false;
         }
     } else {
@@ -569,8 +573,9 @@ void * ps_update_all_worker(void * unused) {
     (void) unused;
     update_all_t u = {0};
     if (!begin_operation(&u.card, TR("Insert an SD card to update plugins."))) return NULL;
-    if (!ps_read_record_alloc(&u.rec, &u.rn)) {
-        ps_finish(PLUGIN_STORE_FAILED, ps_record_error(), false);
+    ps_record_status_t record_status = ps_read_record_alloc(&u.rec, &u.rn);
+    if (record_status != PS_RECORD_OK) {
+        ps_finish(PLUGIN_STORE_FAILED, ps_record_error(record_status), false);
         return NULL;
     }
     pthread_mutex_lock(&store_mutex);
@@ -581,6 +586,6 @@ void * ps_update_all_worker(void * unused) {
     if (abort_error) return worker_fail(u.rec, PLUGIN_STORE_FAILED, abort_error, u.changed);
     free(u.rec);
     if (ps_compute_results()) update_all_report(&u);
-    else ps_finish(PLUGIN_STORE_FAILED, ps_record_error(), u.changed);
+    else ps_finish(PLUGIN_STORE_FAILED, ps_record_error(PS_RECORD_ERROR), u.changed);
     return NULL;
 }

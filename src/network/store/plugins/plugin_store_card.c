@@ -309,114 +309,144 @@ static bool record_write(const char * root, const plugin_store_plugin_t * plugin
     return record_write_path(path, plugins, indices, count);
 }
 
-static size_t plugin_store_record_read(const char * root, plugin_store_plugin_t * plugins,
-                                       size_t cap) {
-    char dir[PATH_MAX], path[PATH_MAX];
-    if (!record_paths(root, dir, sizeof(dir), path, sizeof(path))) {
-        return 0;
-    }
+/* Classifies the record file: OK with *present set when it is a regular file
+ * or absent, DAMAGED when something else sits at the path, ERROR when it
+ * cannot be examined. */
+static ps_record_status_t record_stat(const char * path, bool * present) {
     struct stat st;
-    if (lstat(dir, &st) != 0 || !S_ISDIR(st.st_mode) || S_ISLNK(st.st_mode)) {
-        return 0;
+    *present = false;
+    if (lstat(path, &st) != 0) {
+        return (errno == ENOENT || errno == ENOTDIR) ? PS_RECORD_OK : PS_RECORD_ERROR;
     }
-    if (lstat(path, &st) != 0 || !S_ISREG(st.st_mode) || S_ISLNK(st.st_mode)) {
-        return 0;
+    if (!S_ISREG(st.st_mode) || S_ISLNK(st.st_mode)) {
+        return PS_RECORD_DAMAGED;
     }
-    FILE * f = fopen(path, "r");
-    if (!f) {
-        return 0;
+    *present = true;
+    return PS_RECORD_OK;
+}
+
+/* Examines the .plugins directory once. OK with *present false when it is
+ * missing (no record yet), DAMAGED when it is a symlink or anything but a
+ * directory, ERROR when it cannot be examined. */
+static ps_record_status_t record_dir_check(const char * dir, bool * present) {
+    struct stat st;
+    *present = false;
+    if (lstat(dir, &st) != 0) {
+        return (errno == ENOENT || errno == ENOTDIR) ? PS_RECORD_OK : PS_RECORD_ERROR;
     }
-    size_t count = 0;
+    if (!S_ISDIR(st.st_mode) || S_ISLNK(st.st_mode)) {
+        return PS_RECORD_DAMAGED;
+    }
+    *present = true;
+    return PS_RECORD_OK;
+}
+
+static bool record_dest_taken(const plugin_store_plugin_t * plugins, size_t count, const char * dest) {
+    for (size_t r = 0; r < count; r++) {
+        for (int j = 0; j < plugins[r].file_count; j++) {
+            if (same_dest(dest, plugins[r].files[j].dest)) return true;
+        }
+    }
+    return false;
+}
+
+/* Parses a "P id version" line, appending a plugin. False when invalid. */
+static bool record_parse_plugin(char * line, plugin_store_plugin_t * plugins, size_t cap,
+                                size_t * count) {
+    char id[64], ver[32], extra;
+    if ((*count && plugins[*count - 1].file_count == 0) ||
+        sscanf(line, "P %63s %31s %c", id, ver, &extra) != 2 ||
+        !ps_regex_id(id) || !store_version_valid(ver) || *count >= cap) {
+        return false;
+    }
+    for (size_t i = 0; i < *count; i++) {
+        if (!strcmp(plugins[i].id, id)) return false;
+    }
+    memset(&plugins[*count], 0, sizeof(plugins[*count]));
+    snprintf(plugins[*count].id, 64, "%s", id);
+    snprintf(plugins[*count].version, 32, "%s", ver);
+    (*count)++;
+    return true;
+}
+
+/* Splits "F<TAB>dest<TAB>sha<TAB>keep". False when malformed. */
+static bool record_split_file(char * line, char ** dest, char ** sha, int * keep) {
+    *dest = line + 2;
+    *sha = strchr(*dest, '\t');
+    if (!*sha) return false;
+    *(*sha)++ = 0;
+    char * keep_text = strchr(*sha, '\t');
+    if (!keep_text) return false;
+    *keep_text++ = 0;
+    char * end = NULL;
+    errno = 0;
+    long keep_value = strtol(keep_text, &end, 10);
+    *keep = (int) keep_value;
+    return !errno && end != keep_text && *end == '\0' && (*keep == 0 || *keep == 1);
+}
+
+/* Parses an "F" line into the last plugin. False when invalid. */
+static bool record_parse_file(char * line, plugin_store_plugin_t * plugins, size_t count) {
+    char *dest, *sha;
+    int keep;
+    if (!count || !record_split_file(line, &dest, &sha, &keep)) return false;
+    plugin_store_plugin_t * cur = &plugins[count - 1];
+    if (!plugin_store_dest_valid(dest) || !store_sha_valid(sha) ||
+        cur->file_count >= PLUGIN_STORE_MAX_FILES || record_dest_taken(plugins, count, dest)) {
+        return false;
+    }
+    plugin_store_file_t * fentry = &cur->files[cur->file_count++];
+    memcpy(fentry->dest, dest, strlen(dest) + 1);
+    memcpy(fentry->sha256, sha, 65);
+    fentry->keep = keep != 0;
+    return true;
+}
+
+/* Reads every line of the open record. False when a line is invalid. */
+static bool record_parse_lines(FILE * f, plugin_store_plugin_t * plugins, size_t cap,
+                               size_t * count) {
     char line[512];
-    bool valid = true;
     while (fgets(line, sizeof(line), f)) {
         size_t n = strlen(line);
         if (n && line[n - 1] == '\n') {
             line[--n] = 0;
         } else if (!feof(f)) {
-            valid = false;
-            break;
+            return false;
         }
+        bool ok;
         if (!strncmp(line, "P ", 2)) {
-            char id[64], ver[32], extra;
-            if ((count && plugins[count - 1].file_count == 0) ||
-                sscanf(line, "P %63s %31s %c", id, ver, &extra) != 2 ||
-                !ps_regex_id(id) || !store_version_valid(ver) || count >= cap) {
-                valid = false;
-                break;
-            }
-            for (size_t i = 0; i < count; i++) {
-                if (!strcmp(plugins[i].id, id)) {
-                    valid = false;
-                    break;
-                }
-            }
-            if (!valid) {
-                break;
-            }
-            memset(&plugins[count], 0, sizeof(plugins[count]));
-            snprintf(plugins[count].id, 64, "%s", id);
-            snprintf(plugins[count].version, 32, "%s", ver);
-            count++;
+            ok = record_parse_plugin(line, plugins, cap, count);
         } else if (!strncmp(line, "F\t", 2)) {
-            char * dest = line + 2;
-            char * tab = strchr(dest, '\t');
-            if (!count || !tab) {
-                valid = false;
-                break;
-            }
-            *tab++ = 0;
-            char * tab2 = strchr(tab, '\t');
-            if (!tab2) {
-                valid = false;
-                break;
-            }
-            *tab2++ = 0;
-            char * end = NULL;
-            errno = 0;
-            long keep_value = strtol(tab2, &end, 10);
-            int keep = (int) keep_value;
-            if (!plugin_store_dest_valid(dest) || !store_sha_valid(tab) || errno || end == tab2 ||
-                *end != '\0' || (keep != 0 && keep != 1) ||
-                plugins[count - 1].file_count >= PLUGIN_STORE_MAX_FILES) {
-                valid = false;
-                break;
-            }
-            for (int i = 0; i < plugins[count - 1].file_count; i++) {
-                if (same_dest(dest, plugins[count - 1].files[i].dest)) {
-                    valid = false;
-                    break;
-                }
-            }
-            for (size_t r = 0; r + 1 < count; r++) {
-                for (int j = 0; j < plugins[r].file_count; j++) {
-                    if (same_dest(dest, plugins[r].files[j].dest)) {
-                        valid = false;
-                    }
-                }
-            }
-            if (!valid) {
-                break;
-            }
-            plugin_store_file_t * fentry =
-                &plugins[count - 1].files[plugins[count - 1].file_count++];
-            memcpy(fentry->dest, dest, strlen(dest) + 1);
-            memcpy(fentry->sha256, tab, 65);
-            fentry->keep = keep != 0;
+            ok = record_parse_file(line, plugins, *count);
         } else {
-            valid = false;
-            break;
+            ok = false;
         }
+        if (!ok) return false;
     }
-    if (ferror(f) || (count && plugins[count - 1].file_count == 0)) {
+    return true;
+}
+
+/* Fills plugins and *out_count from the record file, which exists. */
+static ps_record_status_t plugin_store_record_read(const char * path, plugin_store_plugin_t * plugins,
+                                                   size_t cap, size_t * out_count) {
+    *out_count = 0;
+    FILE * f = fopen(path, "r");
+    if (!f) {
+        return PS_RECORD_ERROR;
+    }
+    size_t count = 0;
+    bool valid = record_parse_lines(f, plugins, cap, &count);
+    bool io_error = ferror(f) != 0;
+    if (io_error || (count && plugins[count - 1].file_count == 0)) {
         valid = false;
     }
     fclose(f);
     if (!valid) {
         memset(plugins, 0, cap * sizeof(*plugins));
-        return 0;
+        return io_error ? PS_RECORD_ERROR : PS_RECORD_DAMAGED;
     }
-    return count;
+    *out_count = count;
+    return PS_RECORD_OK;
 }
 
 static bool write_record_after(const char * root, const plugin_store_plugin_t * newp,
@@ -692,37 +722,62 @@ bool ps_commit_staged(const char * root, const char * stage,
     return false;
 }
 
-/* Count record headers first so large plugin structures are allocated on demand. */
-bool ps_read_record_alloc(plugin_store_plugin_t ** out, size_t * count) {
+/* Counts the "P " headers of the existing record so the array can be sized. */
+static ps_record_status_t record_count_headers(const char * path, size_t * capacity) {
+    *capacity = 0;
+    FILE * file = fopen(path, "r");
+    if (!file) {
+        return PS_RECORD_ERROR;
+    }
+    char line[512];
+    while (fgets(line, sizeof(line), file)) {
+        if (strncmp(line, "P ", 2) == 0) {
+            (*capacity)++;
+        }
+    }
+    bool read_error = ferror(file) != 0;
+    fclose(file);
+    if (read_error) {
+        return PS_RECORD_ERROR;
+    }
+    return *capacity > STORE_MAX_RECORD ? PS_RECORD_DAMAGED : PS_RECORD_OK;
+}
+
+/* A missing .plugins or record is OK with no entries; a .plugins that is a
+ * symlink or not a directory is DAMAGED. Count record headers first so large plugin structures are allocated on demand. */
+ps_record_status_t ps_read_record_alloc(plugin_store_plugin_t ** out, size_t * count) {
     char plugins_dir[PATH_MAX];
     char record_path[PATH_MAX];
     if (!record_paths(STORE_SD_ROOT, plugins_dir, sizeof(plugins_dir), record_path,
                       sizeof(record_path))) {
-        return false;
+        return PS_RECORD_ERROR;
     }
-
-    FILE * file = fopen(record_path, "r");
+    bool dir_present, present = false;
+    ps_record_status_t status = record_dir_check(plugins_dir, &dir_present);
+    if (status == PS_RECORD_OK && dir_present) {
+        status = record_stat(record_path, &present);
+    }
+    if (status != PS_RECORD_OK) {
+        return status;
+    }
+    *count = 0;
     size_t capacity = 0;
-    if (file) {
-        char line[512];
-        while (fgets(line, sizeof(line), file)) {
-            if (strncmp(line, "P ", 2) == 0) {
-                capacity++;
-            }
-        }
-        bool read_error = ferror(file) != 0;
-        fclose(file);
-        if (read_error || capacity > STORE_MAX_RECORD) {
-            return false;
+    if (present) {
+        status = record_count_headers(record_path, &capacity);
+        if (status != PS_RECORD_OK) {
+            return status;
         }
     }
-
     *out = calloc(capacity ? capacity : 1, sizeof(**out));
     if (!*out) {
-        return false;
+        return PS_RECORD_ERROR;
     }
-    *count = plugin_store_record_read(STORE_SD_ROOT, *out, capacity);
-    return true;
+    status = present ? plugin_store_record_read(record_path, *out, capacity, count) : PS_RECORD_OK;
+    if (status != PS_RECORD_OK) {
+        free(*out);
+        *out = NULL;
+    }
+    return status;
 }
 
 bool ps_conflict_exists(const char * root, const plugin_store_plugin_t * p,

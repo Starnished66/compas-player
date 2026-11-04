@@ -1049,6 +1049,7 @@ const i18n_entry_t i18n_entries_vi[] = {
     {"The emulator folder is not writable.", (const char * const[]){"Thư mục giả lập không thể ghi được."}, 1},
     {"The firmware path is too long.", (const char * const[]){"Đường dẫn firmware quá dài."}, 1},
     {"The game closed unexpectedly.", (const char * const[]){"Trò chơi kết thúc bất ngờ."}, 1},
+    {"The installed plugins record is damaged. Remove or repair .plugins/.store_installed on the SD card.", (const char * const[]){"Bản ghi plugin đã cài đặt bị hỏng. Hãy xóa hoặc sửa .plugins/.store_installed trên thẻ SD."}, 1},
     {"The latest player release changed. Check again.", (const char * const[]){"Bản phát hành trình phát mới nhất đã thay đổi. Hãy kiểm tra lại."}, 1},
     {"The player download did not complete.", (const char * const[]){"Tải trình phát xuống chưa hoàn tất."}, 1},
     {"The player image exceeds the safe size limit.", (const char * const[]){"Hình ảnh trình phát vượt quá giới hạn kích thước an toàn."}, 1},

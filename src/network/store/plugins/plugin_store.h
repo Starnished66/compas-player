@@ -69,7 +69,7 @@ typedef struct {
     /* Sticky until plugin_store_reset() runs after a full UI teardown. */
     bool refresh_required;
     char current_plugin[65];
-    char error[160];
+    char error[256];
 } plugin_store_status_t;
 
 bool plugin_store_refresh(void);

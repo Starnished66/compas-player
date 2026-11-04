@@ -1050,6 +1050,7 @@ const i18n_entry_t i18n_entries_de[] = {
     {"The emulator folder is not writable.", (const char * const[]){"In den Emulator-Ordner kann nicht geschrieben werden."}, 1},
     {"The firmware path is too long.", (const char * const[]){"Der Firmwarepfad ist zu lang."}, 1},
     {"The game closed unexpectedly.", (const char * const[]){"Das Spiel wurde unerwartet beendet."}, 1},
+    {"The installed plugins record is damaged. Remove or repair .plugins/.store_installed on the SD card.", (const char * const[]){"Die Liste der installierten Plugins ist beschädigt. Entferne oder repariere .plugins/.store_installed auf der SD-Karte."}, 1},
     {"The latest player release changed. Check again.", (const char * const[]){"Das neueste Player-Release hat sich geändert. Suche erneut."}, 1},
     {"The player download did not complete.", (const char * const[]){"Der Player-Download wurde nicht abgeschlossen."}, 1},
     {"The player image exceeds the safe size limit.", (const char * const[]){"Das Player-Image überschreitet die sichere Größenbeschränkung."}, 1},
