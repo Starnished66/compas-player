@@ -104,7 +104,7 @@ static void save_pending_selection(void) {
         snprintf(current_settings.setup_layout_plugin_id, sizeof(current_settings.setup_layout_plugin_id), "%s", selected_layout.id);
     else
         current_settings.setup_layout_plugin_id[0] = '\0';
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
 }
 
 void gui_setup_plugins_restore_selection(void) {

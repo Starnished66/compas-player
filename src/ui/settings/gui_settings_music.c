@@ -313,7 +313,7 @@ static void volume_lock_switch_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
     current_settings.volume_lock_screen_off =
         lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
     hw_buttons_set_volume_lock_screen_off(current_settings.volume_lock_screen_off);
 }
 

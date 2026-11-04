@@ -36,7 +36,7 @@ static void lyrics_keep_screen_on_switch_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
     current_settings.lyrics_keep_screen_on =
         lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
 }
 
 typedef struct {
@@ -65,7 +65,7 @@ static void animation_speed_option_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     int index = (int) (intptr_t) lv_event_get_user_data(e);
     current_settings.animation_scale = animation_speed_options[index].scale;
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
     populate_animation_speed_screen();
 }
 
@@ -121,7 +121,7 @@ static void keyboard_layout_option_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     int index = (int) (intptr_t) lv_event_get_user_data(e);
     current_settings.keyboard_layout = keyboard_layout_options[index].layout;
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
     populate_keyboard_layout_screen();
 }
 
@@ -203,7 +203,7 @@ static void player_layout_choice_row_cb(lv_event_t * e) {
     player_layouts_session_clear_selection();
     snprintf(current_settings.player_layout, sizeof(current_settings.player_layout), "%s",
              strcmp(info->id, PLAYER_LAYOUT_ID_DEFAULT) == 0 ? "" : info->id);
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
     /* The picker stays alive now. Update its selection ring in place so
      * the current scroll position and event targets remain unchanged. */
     lv_obj_t * selected_card = lv_event_get_current_target(e);

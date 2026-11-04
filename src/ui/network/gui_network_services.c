@@ -794,7 +794,7 @@ void gui_network_services_cancel(void) {
  * whichever of AirPlay/DLNA/remote file import is actually running and
  * corrects their persisted settings, refreshing any of their
  * screens/toggles already built so nothing shows stale "on" state. A single
- * settings_save() at the end covers every flag this pass touched, rather
+ * settings_save_async() at the end covers every flag this pass touched, rather
  * than one write per feature. */
 void gui_network_handle_wifi_disabled(void) {
     bool settings_changed = false;
@@ -825,5 +825,5 @@ void gui_network_handle_wifi_disabled(void) {
      * a cheap no-op whenever it isn't currently running. */
     remote_import_handle_wifi_disabled();
 
-    if (settings_changed) settings_save(&current_settings);
+    if (settings_changed) settings_save_async(&current_settings);
 }

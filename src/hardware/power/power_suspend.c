@@ -3,6 +3,7 @@
 #include "../../network/bluetooth/control/bluetooth_control.h"
 #include "../../core/system/logging/db_log.h"
 #include "../../core/process/subprocess.h"
+#include "../../core/persistence/settings.h"
 #include "../../network/wifi/wifi_control.h"
 #include "../../network/radio/aic_radio.h"
 
@@ -171,6 +172,7 @@ void power_suspend_now(void) {
         SUSPEND_LOG("blocked: external power connected or unknown");
         return;
     }
+    settings_save_drain(); /* queued toggle changes must be on storage before sleeping */
     const bool diagnostics_enabled = db_log_enabled();
     bool wifi_was_on = wifi_control_is_enabled();
     bool bt_was_on = bt_control_is_powered();

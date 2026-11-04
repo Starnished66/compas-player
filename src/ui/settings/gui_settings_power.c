@@ -87,7 +87,7 @@ static void sleep_timer_slider_event_cb(lv_event_t * e) {
         lv_label_set_text(sleep_timer_value_label, duration_buf);
         if (quick_drawer_sleep_timer_is_active()) quick_drawer_sleep_timer_set_active(true);
     } else if (code == LV_EVENT_RELEASED) {
-        settings_save(&current_settings);
+        settings_save_async(&current_settings);
     }
 }
 
@@ -180,7 +180,7 @@ static int idle_shutdown_minutes_to_step_index(int minutes) {
 static void idle_shutdown_switch_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
     current_settings.idle_shutdown_enabled = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
 
     lv_obj_set_flag(idle_action_section, LV_OBJ_FLAG_HIDDEN, !current_settings.idle_shutdown_enabled);
     lv_obj_set_flag(idle_shutdown_slider_card, LV_OBJ_FLAG_HIDDEN, !current_settings.idle_shutdown_enabled);
@@ -232,7 +232,7 @@ static void idle_action_choice_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     bool suspend = (bool) (intptr_t) lv_event_get_user_data(e);
     current_settings.idle_suspend_enabled = suspend;
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
     idle_action_apply_selection(suspend);
 }
 
@@ -247,7 +247,7 @@ static void idle_shutdown_slider_event_cb(lv_event_t * e) {
         format_idle_shutdown(buf, sizeof(buf), minutes);
         lv_label_set_text(idle_shutdown_value_label, buf);
     } else if (code == LV_EVENT_RELEASED) {
-        settings_save(&current_settings);
+        settings_save_async(&current_settings);
     }
 }
 

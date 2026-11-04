@@ -241,7 +241,7 @@ void poll_usb_mode_switch(void) {
         usb_storage_session.host_seen)
         flush_sd_view_after_usb_storage();
     current_settings.usb_mode = (int) usb_mode_switch_target;
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
     /* Process-lifetime truth for "the DAC overlay owns the UI", as opposed to
      * current_settings.usb_mode, which settings.h documents as only a UI hint
      * and which silently keeps a stale DAC value across a restart with no
@@ -388,7 +388,7 @@ void usb_mode_settings_row_cb(lv_event_t * e) {
     usb_mode_t detected;
     if (usb_mode_control_detect_current(&detected) && current_settings.usb_mode != (int) detected) {
         current_settings.usb_mode = (int) detected;
-        settings_save(&current_settings);
+        settings_save_async(&current_settings);
     }
     populate_usb_mode_screen();
     nav_push(usb_mode_screen);

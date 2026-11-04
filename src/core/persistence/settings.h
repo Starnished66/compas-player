@@ -528,6 +528,10 @@ void settings_bt_set_rate_for(player_settings_t * settings, const char * mac, un
  * Rapid requests are coalesced to the newest complete snapshot. */
 void settings_save_async(const player_settings_t * settings);
 
+/* Non-latching barrier: waits until every queued save has reached storage.
+ * Later saves still work. Call before suspend or an in-process teardown. */
+void settings_save_drain(void);
+
 /* Terminal persistence barrier. Prevents later synchronous and asynchronous
  * saves, then waits for the newest queued snapshot and any active write to
  * finish. Call before deleting settings or exiting the process. */

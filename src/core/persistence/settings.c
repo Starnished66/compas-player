@@ -1139,6 +1139,13 @@ void settings_save_async(const player_settings_t * settings) {
     pthread_mutex_unlock(&settings_queue_mutex);
 }
 
+void settings_save_drain(void) {
+    pthread_mutex_lock(&settings_queue_mutex);
+    while (settings_save_pending || settings_save_in_flight)
+        pthread_cond_wait(&settings_queue_cond, &settings_queue_mutex);
+    pthread_mutex_unlock(&settings_queue_mutex);
+}
+
 void settings_shutdown_flush(void) {
     pthread_mutex_lock(&settings_queue_mutex);
     settings_shutdown_started = true;

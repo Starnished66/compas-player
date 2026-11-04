@@ -87,7 +87,6 @@ lv_font_t app_font_display;
 #endif
 
 extern player_settings_t current_settings;
-extern void settings_save(const player_settings_t * s);
 extern void player_transition_mark_dirty(void);
 
 static int s_font_size_tier = 1;

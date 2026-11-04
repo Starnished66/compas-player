@@ -535,6 +535,7 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
 }
 
 void gui_deinit(void) {
+    settings_save_drain();
     gui_screen_power_deinit();
     gui_control_poll_deinit();
     gui_setup_teardown();

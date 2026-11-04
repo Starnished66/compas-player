@@ -64,7 +64,7 @@ static void timezone_city_row_click_cb(int row_index) {
         return;
     }
     snprintf(current_settings.timezone, sizeof(current_settings.timezone), "%s", entry->iana_id);
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
     refresh_clock_label(); /* topbar clock reflects the new zone immediately, not just on the next periodic refresh */
     clock_timezone_indicator_update();
     /* Skip the intermediate Region entry before starting navigation. Two
@@ -166,7 +166,7 @@ static void timezone_settings_row_cb(lv_event_t * e) {
 static void clock_persist(void) {
     app_clock_get_persistence(&current_settings.clock_manual_epoch,
                               &current_settings.clock_system_reference);
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
 }
 
 static void clock_update_set_time_enabled(void) {

@@ -49,7 +49,7 @@ static void resume_mode_option_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     int index = (int) (intptr_t) lv_event_get_user_data(e);
     current_settings.resume_mode = resume_mode_options[index].value;
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
     populate_resume_mode_screen();
     show_info_toast(TR("Applies next time you launch the app"));
 }
@@ -95,7 +95,7 @@ static void font_size_apply_timer_cb(lv_timer_t * timer) {
      * afterward. */
     gui_navigation_invalidate_font_snapshots();
     current_settings.font_size_tier = target;
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
     lv_obj_report_style_change(NULL);
     /* Every live screen, not only the Font Size nav stack. Music Settings
      * and the other unused Settings submenus keep the previous tier's
@@ -159,7 +159,7 @@ static void replaygain_mode_option_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     int index = (int) (intptr_t) lv_event_get_user_data(e);
     current_settings.replaygain_mode = replaygain_mode_options[index].value;
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
     populate_replaygain_mode_screen();
     if (gui_player_has_active_track()) arm_next_track_for_audio(gui_player_get_playlist_index());
 }

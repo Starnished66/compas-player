@@ -755,7 +755,7 @@ static void bt_codec_settings_row_cb(lv_event_t * e) {
 static void bt_volume_sync_toggle_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     current_settings.bt_volume_sync_enabled = !current_settings.bt_volume_sync_enabled;
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
     start_bt_apply_output_settings(current_settings.bt_dac_mode_enabled, current_settings.bt_volume_sync_enabled);
     populate_bt_advanced_screen(); /* the row lives on Advanced now */
 }
@@ -765,7 +765,7 @@ static void bt_volume_sync_toggle_cb(lv_event_t * e) {
 static void bt_hide_unnamed_toggle_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     current_settings.bt_hide_unnamed_devices = !current_settings.bt_hide_unnamed_devices;
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
     populate_bt_advanced_screen(); /* moves the switch the user just tapped */
     populate_bt_screen();          /* and the device list it filters, for the way back */
 }

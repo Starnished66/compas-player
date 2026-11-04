@@ -31,7 +31,7 @@ static lv_obj_t * car_mode_gain_dropdown;
 static void startup_volume_switch_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
     current_settings.startup_volume_fixed_enabled = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
 
     if (current_settings.startup_volume_fixed_enabled) {
         lv_obj_remove_flag(startup_volume_slider_card, LV_OBJ_FLAG_HIDDEN);
@@ -52,7 +52,7 @@ static void startup_volume_slider_event_cb(lv_event_t * e) {
         current_settings.startup_volume_fixed_percent = (int) percent;
         lv_label_set_text_fmt(startup_volume_value_label, "%d%%", (int) percent);
     } else if (code == LV_EVENT_RELEASED) {
-        settings_save(&current_settings);
+        settings_save_async(&current_settings);
     }
 }
 

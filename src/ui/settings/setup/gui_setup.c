@@ -205,7 +205,7 @@ static void schedule_render(void) {
 }
 static void save_progress_from(const char * source) {
     current_settings.setup_step = step;
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
     DB_LOG("SETUP_NAV", "save source=%s step=%d setup_complete=%d setup_started=%d scan_running=%d",
            source ? source : "unknown", step, current_settings.setup_complete,
            setup_started, setup_scan_running);
@@ -458,7 +458,7 @@ static void language_select_cb(lv_event_t * e) {
     snprintf(staged_language, sizeof(staged_language), "%s", code);
     snprintf(current_settings.language, sizeof(current_settings.language), "%s", code);
     current_settings.setup_step = step;
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
     i18n_set_language(code);
     DB_LOG("SETUP_NAV", "language changed step=%d persisted_step=%d", step,
            current_settings.setup_step);
@@ -572,7 +572,7 @@ static void keyboard_select_cb(lv_event_t * e) {
     gui_popup_hide(&keyboard_popup);
     if (layout < 0 || layout == current_settings.keyboard_layout) return;
     current_settings.keyboard_layout = layout;
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
     schedule_render();
 }
 static void keyboard_open_cb(lv_event_t * e) {
@@ -739,13 +739,13 @@ static void scan_row_cb(lv_event_t * e) {
     if (staged_scan) lv_obj_add_state(scan_switch, LV_STATE_CHECKED);
     else lv_obj_remove_state(scan_switch, LV_STATE_CHECKED);
     current_settings.setup_scan_music = staged_scan;
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
 }
 static void scan_switch_cb(lv_event_t * e) {
     (void)e;
     staged_scan = lv_obj_has_state(scan_switch, LV_STATE_CHECKED);
     current_settings.setup_scan_music = staged_scan;
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
 }
 
 /* Draw embedded land spans directly: no transient line points or image buffers. */
@@ -1543,7 +1543,7 @@ static void intro_start(void) {
     intro_frame = lv_snapshot_take(setup_screen, LV_COLOR_FORMAT_RGB565);
     if (!intro_frame) return; /* Setup remains usable under memory pressure. */
     current_settings.setup_intro_played = true;
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
     intro_background = lv_image_create(setup_screen);
     lv_image_set_src(intro_background, intro_frame);
     lv_obj_set_pos(intro_background, 0, 0);

@@ -199,7 +199,7 @@ static lv_obj_t * build_about_screen(void) {
 static void db_logging_switch_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
     current_settings.db_logging_enabled = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
     db_log_set_enabled(current_settings.db_logging_enabled);
     usb_dac_bridge_set_debug_log_enabled(current_settings.db_logging_enabled);
     bt_control_set_debug_log_enabled(current_settings.db_logging_enabled);
@@ -208,7 +208,7 @@ static void db_logging_switch_event_cb(lv_event_t * e) {
 static void screenshot_combo_switch_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
     current_settings.screenshot_combo_enabled = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
     hw_buttons_set_screenshot_combo_enabled(current_settings.screenshot_combo_enabled);
 }
 

@@ -62,7 +62,6 @@ static bool cover_accent_valid;
 static uint32_t cover_accent;
 
 extern player_settings_t current_settings;
-extern void settings_save(const player_settings_t * s);
 extern void player_transition_mark_dirty(void);
 extern void refresh_play_btn_icon(void);
 extern void gui_shell_refresh_quick_drawer_toggle_accent(void);
@@ -213,13 +212,13 @@ static void refresh_accent(void) {
 void gui_theme_apply_accent(uint32_t rgb) {
     current_settings.accent_color = rgb & 0xFFFFFF;
     current_settings.accent_dynamic = false;
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
     refresh_accent();
 }
 
 void gui_theme_set_accent_dynamic(bool on) {
     current_settings.accent_dynamic = on;
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
     refresh_accent();
 }
 

@@ -72,13 +72,13 @@ void stop_local_playback(void) {
 
 void disable_bt_dac_mode(void) {
     current_settings.bt_dac_mode_enabled = false;
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
     start_bt_apply_output_settings(false, current_settings.bt_volume_sync_enabled);
 }
 
 void disable_airplay_mode(void) {
     current_settings.wifi_dac_mode_enabled = false;
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
     airplay_control_stop();
 }
 
@@ -89,7 +89,7 @@ void disable_airplay_mode(void) {
 static void enable_bt_dac_and_show_overlay(void) {
     gui_shell_cancel_bt_reconnect();
     current_settings.bt_dac_mode_enabled = true;
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
     start_bt_apply_output_settings(true, current_settings.bt_volume_sync_enabled);
 
     /* Bluetooth DAC, AirPlay, and local playback share the same physical ALSA
@@ -556,7 +556,7 @@ void gui_network_poll_airplay_overlay(void) {
      * synchronous failure handling a few hundred lines up in this file. */
     if (current_settings.wifi_dac_mode_enabled && !airplay_control_is_active()) {
         current_settings.wifi_dac_mode_enabled = false;
-        settings_save(&current_settings);
+        settings_save_async(&current_settings);
         show_error_toast(TR("AirPlay stopped unexpectedly"));
         populate_airplay_screen();
     }

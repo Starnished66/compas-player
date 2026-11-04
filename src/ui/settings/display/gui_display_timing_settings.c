@@ -42,7 +42,7 @@ static int screen_timeout_seconds_to_step_index(int seconds) {
 static void screen_timeout_switch_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
     current_settings.screen_timeout_enabled = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
 
     if (current_settings.screen_timeout_enabled) {
         lv_obj_remove_flag(screen_timeout_slider_card, LV_OBJ_FLAG_HIDDEN);
@@ -67,7 +67,7 @@ static void screen_timeout_slider_event_cb(lv_event_t * e) {
         format_screen_timeout(buf, sizeof(buf), seconds);
         lv_label_set_text(screen_timeout_value_label, buf);
     } else if (code == LV_EVENT_RELEASED) {
-        settings_save(&current_settings);
+        settings_save_async(&current_settings);
     }
 }
 
@@ -114,7 +114,7 @@ static void screen_dimming_ui_switch_event_cb(lv_event_t * e) {
     if (!current_settings.screen_dimming_enabled) {
         backlight_set_dimmed(false);
     }
-    settings_save(&current_settings);
+    settings_save_async(&current_settings);
 
     if (current_settings.screen_dimming_enabled) {
         lv_obj_remove_flag(screen_dimming_slider_card, LV_OBJ_FLAG_HIDDEN);
@@ -134,7 +134,7 @@ static void screen_dim_delay_slider_event_cb(lv_event_t * e) {
         format_screen_timeout(buf, sizeof(buf), seconds);
         lv_label_set_text(screen_dimming_value_label, buf);
     } else if (code == LV_EVENT_RELEASED) {
-        settings_save(&current_settings);
+        settings_save_async(&current_settings);
     }
 }
 
@@ -162,7 +162,7 @@ static void screen_dimming_screen_loaded_cb(lv_event_t * e) {
         char buf[32];
         format_screen_timeout(buf, sizeof(buf), current_settings.screen_dim_delay_seconds);
         lv_label_set_text(screen_dimming_value_label, buf);
-        settings_save(&current_settings);
+        settings_save_async(&current_settings);
     }
 }
 
