@@ -115,9 +115,9 @@ void library_az_index_register(lv_obj_t * screen, lv_obj_t * list,
     int32_t line_h = lv_font_get_line_height(strip_font);
     lv_obj_set_style_text_font(strip, strip_font, 0);
     lv_obj_set_width(strip, BOARD_SCALE_PX(30));
-    lv_obj_set_style_pad_right(strip, BOARD_SCALE_PX(4), 0);
     lv_obj_add_style(strip, &style_theme_text_primary, 0);
-    lv_obj_set_style_text_align(strip, LV_TEXT_ALIGN_RIGHT, 0);
+    /* Centred: right-aligned glyphs of different widths make a ragged column. */
+    lv_obj_set_style_text_align(strip, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_bg_opa(strip, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(strip, 0, 0);
     lv_obj_remove_flag(strip, LV_OBJ_FLAG_SCROLLABLE);
