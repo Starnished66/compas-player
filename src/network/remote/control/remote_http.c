@@ -267,6 +267,12 @@ void send_api_error(int cfd, const char * status, const char * error, const char
     send_response(cfd, status, "application/json", body);
 }
 
+/* Error whose "error" and "code" are the same reason string (the legacy routes'
+ * original "error" values stay as they were; "code" is additive). */
+void send_reason_error(int cfd, const char * status, const char * reason) {
+    send_api_error(cfd, status, reason, reason);
+}
+
 void catalog_send_error(int cfd, const char * status, const char * code) {
     send_api_error(cfd, status, "catalog_error", code);
 }

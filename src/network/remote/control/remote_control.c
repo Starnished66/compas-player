@@ -542,8 +542,7 @@ static bool request_authorized(int cfd, const char * method, const char * path_o
         return false;
     }
     if (pin_result != REMOTE_CONTROL_PIN_VALID) {
-        send_response(cfd, "401 Unauthorized", "application/json",
-                      "{\"error\":\"unauthorized\",\"code\":\"pin_required\"}");
+        send_api_error(cfd, "401 Unauthorized", "unauthorized", "pin_required");
         return false;
     }
     if (bt_mac) bt_rc_trust_add_at_epoch(bt_mac, epoch);
@@ -563,14 +562,13 @@ static bool handle_import_files_route(int cfd, const char * method, const char *
     const char *query = strchr(path, '?');
     int written = snprintf(normalized_path, sizeof(normalized_path), "%s%s", path_only, query ? query : "");
     if (written < 0 || (size_t)written >= sizeof(normalized_path)) {
-        send_response(cfd, "414 URI Too Long", "application/json", "{\"error\":\"uri_too_long\"}");
+        send_reason_error(cfd, "414 URI Too Long", "uri_too_long");
         return true;
     }
     remote_import_state_t import_state;
     remote_control_get_import_state(&import_state, NULL, 0);
     if (import_state != REMOTE_IMPORT_READY || !remote_import_files_is_ready()) {
-        send_response(cfd, "409 Conflict", "application/json",
-                      "{\"error\":\"import_not_ready\",\"code\":\"import_not_ready\"}");
+        send_reason_error(cfd, "409 Conflict", "import_not_ready");
         return true;
     }
     struct sockaddr_storage local_address;
@@ -635,8 +633,6 @@ static void handle_legacy_get(int cfd, const char * path_only, const char * path
         handle_playlist_songs_request(cfd, path);
     } else if (strcmp(path_only, "/api/queue") == 0) {
         handle_queue_get(cfd, path);
-    } else if (strcmp(path_only, "/assets/icon") == 0) {
-        handle_icon_request(cfd, path);
     } else if (strcmp(path_only, "/") == 0) {
         send_response(cfd, "200 OK", "text/html", REMOTE_CONTROL_APP_HTML);
     } else {
@@ -655,6 +651,46 @@ static void handle_legacy_route(int cfd, const char * method, const char * path_
     } else {
         send_response(cfd, "405 Method Not Allowed", "text/plain", "Method Not Allowed");
     }
+}
+
+/* The v1 namespace is an alias layer over the original routes: rewrites path_only
+ * to the unversioned route, or answers /api/v1/capabilities itself (returns true). */
+static bool route_v1_alias(int cfd, const char * method, char * path_only, bool trusted) {
+    /* Require the slash after the version so that similarly named paths
+     * (for example /api/v10) never match. */
+    bool api_v1 = strncmp(path_only, "/api/v1/", sizeof("/api/v1/") - 1) == 0;
+    if (api_v1) {
+        if (strcmp(path_only, "/api/v1/capabilities") == 0 && strcmp(method, "GET") == 0) {
+            handle_capabilities_request(cfd, trusted);
+            return true;
+        }
+        /* Remove only "/v1" so "/api/v1/status" routes as "/api/status". */
+        memmove(path_only + sizeof("/api") - 1, path_only + sizeof("/api/v1") - 1,
+                strlen(path_only + sizeof("/api/v1") - 1) + 1);
+    }
+    return false;
+}
+
+/* Routes a request that passed authorization. */
+static void route_authorized(int cfd, const char * method, const char * path_only, const char * path,
+                             const request_headers_t * headers, bool trusted) {
+    if (headers->content_length_invalid) {
+        send_response(cfd, "400 Bad Request", "text/plain", "Bad Content-Length");
+        return;
+    }
+    if (headers->transfer_encoding_seen) {
+        send_reason_error(cfd, "400 Bad Request", "transfer_encoding_unsupported");
+        return;
+    }
+    if (handle_import_files_route(cfd, method, path, path_only, headers->content_length)) return;
+    /* Import lifecycle routes come before the generic POST command
+     * dispatcher below, which otherwise owns all non-GET methods. */
+    if (handle_import_lifecycle_route(cfd, method, path_only)) return;
+    if (handle_settings_route(cfd, method, path_only, path, headers, trusted)) return;
+    if (handle_plugins_route(cfd, method, path_only, path, headers, trusted)) return;
+    if (handle_extension_route(cfd, method, path_only, path, headers->content_length)) return;
+
+    handle_legacy_route(cfd, method, path_only, path);
 }
 
 /* Reads one request from cfd and routes it. The caller owns closing cfd.
@@ -687,38 +723,9 @@ static void handle_connection(int cfd, const char * bt_mac) {
     char * q = strchr(path_only, '?');
     if (q) *q = '\0';
 
-    /* The v1 namespace is an alias layer over the original routes. Keep
-     * path_only bounded and require the slash after the version so that
-     * similarly named paths (for example /api/v10) never match. */
-    bool api_v1 = strncmp(path_only, "/api/v1/", sizeof("/api/v1/") - 1) == 0;
-    if (api_v1) {
-        if (strcmp(path_only, "/api/v1/capabilities") == 0 && strcmp(method, "GET") == 0) {
-            handle_capabilities_request(cfd, trusted);
-            return;
-        }
-        /* Remove only "/v1" so "/api/v1/status" routes as "/api/status". */
-        memmove(path_only + sizeof("/api") - 1, path_only + sizeof("/api/v1") - 1,
-                strlen(path_only + sizeof("/api/v1") - 1) + 1);
-    }
-
+    if (route_v1_alias(cfd, method, path_only, trusted)) return;
     if (!request_authorized(cfd, method, path_only, &headers, trusted, bt_mac)) return;
-    if (headers.content_length_invalid) {
-        send_response(cfd, "400 Bad Request", "text/plain", "Bad Content-Length");
-        return;
-    }
-    if (headers.transfer_encoding_seen) {
-        send_response(cfd, "400 Bad Request", "application/json", "{\"error\":\"transfer_encoding_unsupported\"}");
-        return;
-    }
-    if (handle_import_files_route(cfd, method, path, path_only, headers.content_length)) return;
-    /* Import lifecycle routes come before the generic POST command
-     * dispatcher below, which otherwise owns all non-GET methods. */
-    if (handle_import_lifecycle_route(cfd, method, path_only)) return;
-    if (handle_settings_route(cfd, method, path_only, path, &headers, trusted)) return;
-    if (handle_plugins_route(cfd, method, path_only, path, &headers, trusted)) return;
-    if (handle_extension_route(cfd, method, path_only, path, headers.content_length)) return;
-
-    handle_legacy_route(cfd, method, path_only, path);
+    route_authorized(cfd, method, path_only, path, &headers, trusted);
 }
 
 /* Handle one HTTP request on an already connected stream socket. The caller

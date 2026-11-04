@@ -1,4 +1,5 @@
 #include "remote_control_internal.h"
+#include "remote_grow_buf.h"
 #include "../../../library/metadata/parsing/metadata.h"
 #include "../../../library/browser/files/file_browser.h"
 #include "../../../library/artwork/support/library_endian.h"
@@ -60,36 +61,6 @@ static void build_library_json(const char * query, const char * artist_filter, c
 /* Rows fetched per database call while streaming a whole group list. */
 #define GROUPS_FETCH_PAGE 500
 
-/* Heap string that grows to exactly what the response needs. */
-typedef struct {
-    char * data;
-    size_t len, cap;
-} grow_buf_t;
-
-/* printf-style append; returns false when memory ran out. */
-static bool grow_buf_appendf(grow_buf_t * b, const char * format, ...) {
-    va_list ap, ap2;
-    va_start(ap, format);
-    va_copy(ap2, ap);
-    int need = vsnprintf(NULL, 0, format, ap);
-    va_end(ap);
-    bool ok = need >= 0;
-    if (ok && b->len + (size_t) need + 1 > b->cap) {
-        size_t cap = b->cap ? b->cap : 4096;
-        while (b->len + (size_t) need + 1 > cap) cap *= 2;
-        char * grown = realloc(b->data, cap);
-        if (grown) {
-            b->data = grown;
-            b->cap = cap;
-        } else {
-            ok = false;
-        }
-    }
-    if (ok) b->len += (size_t) vsnprintf(b->data + b->len, b->cap - b->len, format, ap2);
-    va_end(ap2);
-    return ok;
-}
-
 /* Sends every group row (album groups matching album_filter when by_albums,
  * else kind groups) as
  * {"<json_key>":[{"name":..., "count":..., "index":..., "album_artist":...}]}
@@ -130,7 +101,7 @@ static void send_group_list_json(int cfd, bool by_albums, metadata_db_group_kind
     free(page);
     if (unavailable) {
         free(out.data);
-        send_response(cfd, "503 Service Unavailable", "application/json", "{\"error\":\"library_unavailable\"}");
+        send_reason_error(cfd, "503 Service Unavailable", "library_unavailable");
         return;
     }
     if (ok && grow_buf_appendf(&out, "]}")) {
@@ -175,78 +146,6 @@ void handle_art_request(int cfd, const char * path) {
     }
     free(meta.picture_data);
     free(meta.lyrics); /* only needed picture_data here */
-}
-
-/* Same definition as gui.c's own assets.c THEME_ROOT -- duplicated since
- * assets.c doesn't expose it. Only the stock, always-present theme2/category/
- * icons are served here -- no THEME_OVERRIDE_ROOT fallback, since none of
- * the whitelisted names below need one. */
-#ifdef HOST_BUILD
-#define THEME_ROOT "assets/theme2/"
-#else
-#define THEME_ROOT "/usr/resource/litegui/theme2/"
-#endif
-
-/* Fixed whitelist, not an arbitrary caller-supplied filename. Use the same pre-tinted Breeze
- * row icons build_music_screen() in gui_library.c shows (breeze_rows/). */
-static const struct {
-    const char * name;
-    const char * relative_path;
-} CATEGORY_ICONS[] = {
-    { "all", "breeze_rows/submenu_all_songs.png" },
-    { "artist", "breeze_rows/submenu_artists.png" },
-    { "album_artist", "breeze_rows/submenu_album_artist.png" },
-    { "genre", "breeze_rows/submenu_playlists.png" },
-};
-
-static uint8_t * read_whole_file(const char * path, size_t * out_size) {
-    FILE * f = fopen(path, "rb");
-    if (!f) return NULL;
-    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return NULL; }
-    long size = ftell(f);
-    if (size < 0 || fseek(f, 0, SEEK_SET) != 0) { fclose(f); return NULL; }
-
-    uint8_t * buf = malloc((size_t) size);
-    if (!buf) { fclose(f); return NULL; }
-    size_t read_bytes = fread(buf, 1, (size_t) size, f);
-    fclose(f);
-    if (read_bytes != (size_t) size) {
-        free(buf);
-        return NULL;
-    }
-    *out_size = (size_t) size;
-    return buf;
-}
-
-void handle_icon_request(int cfd, const char * path) {
-    char name[32] = {0};
-    if (!query_param_str(path, "name", name, sizeof(name))) {
-        send_response(cfd, "400 Bad Request", "text/plain", "Missing name");
-        return;
-    }
-
-    const char * relative = NULL;
-    for (size_t i = 0; i < sizeof(CATEGORY_ICONS) / sizeof(CATEGORY_ICONS[0]); i++) {
-        if (strcmp(CATEGORY_ICONS[i].name, name) == 0) {
-            relative = CATEGORY_ICONS[i].relative_path;
-            break;
-        }
-    }
-    if (!relative) {
-        send_response(cfd, "404 Not Found", "text/plain", "Unknown icon");
-        return;
-    }
-
-    char full_path[320];
-    snprintf(full_path, sizeof(full_path), THEME_ROOT "%s", relative);
-    size_t size;
-    uint8_t * data = read_whole_file(full_path, &size);
-    if (!data) {
-        send_response(cfd, "404 Not Found", "text/plain", "Icon not found");
-        return;
-    }
-    send_response_binary(cfd, "200 OK", "image/png", data, size);
-    free(data);
 }
 
 /* ---- Folders ---- */
@@ -644,15 +543,13 @@ void handle_library_get(int cfd, const char * path) {
         query_loose(path, "artist", artist_filter, sizeof(artist_filter)) < 0 ||
         query_loose(path, "album_artist", album_artist_filter, sizeof(album_artist_filter)) < 0 ||
         query_loose(path, "album", album_filter, sizeof(album_filter)) < 0) {
-        send_response(cfd, "400 Bad Request", "application/json",
-                      "{\"error\":\"query_parameter_too_long\"}");
+        send_reason_error(cfd, "400 Bad Request", "query_parameter_too_long");
         return;
     }
     if (query_param_present(path, "genre") &&
         (!query_param_str(path, "genre", genre_raw, sizeof(genre_raw)) ||
          !url_decode_checked(genre_raw, genre_filter, sizeof(genre_filter)))) {
-        send_response(cfd, "400 Bad Request", "application/json",
-                      "{\"error\":\"invalid_genre_filter\"}");
+        send_reason_error(cfd, "400 Bad Request", "invalid_genre_filter");
         return;
     }
     char * json = json_alloc_or_500(cfd, 65536);
@@ -668,8 +565,7 @@ void handle_albums_get(int cfd, const char * path) {
     char artist_filter[128], album_artist_filter[128];
     if (query_loose(path, "artist", artist_filter, sizeof(artist_filter)) < 0 ||
         query_loose(path, "album_artist", album_artist_filter, sizeof(album_artist_filter)) < 0) {
-        send_response(cfd, "400 Bad Request", "application/json",
-                      "{\"error\":\"query_parameter_too_long\"}");
+        send_reason_error(cfd, "400 Bad Request", "query_parameter_too_long");
         return;
     }
     send_group_list_json(cfd, true, METADATA_DB_GROUP_ARTIST,

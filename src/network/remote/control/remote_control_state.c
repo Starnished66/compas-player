@@ -403,43 +403,28 @@ bool remote_control_consume_play_index(int64_t * out_index, char * out_playlist,
  * bytes (762 escaped); 5 KiB covers all bounded fields with room to spare. */
 #define STATUS_JSON_CAPACITY 5120u
 
-/* GET /api/status */
-void handle_status_get(int cfd) {
-    char out[STATUS_JSON_CAPACITY];
+/* Catalog revision as a JSON value ("null" when there is none). The catalog lock must
+ * be acquired before status_mutex. Library refresh paths publish status after metadata
+ * work, so reversing this order could deadlock a status request against a rebuild. */
+static void status_catalog_revision_json(char * out, size_t out_size) {
+    char catalog_revision[METADATA_DB_CATALOG_REVISION_SIZE] = {0};
+    char revision_esc[METADATA_DB_CATALOG_REVISION_SIZE * 6] = {0};
+    snprintf(out, out_size, "null");
+    if (!metadata_db_catalog_get_revision(catalog_revision, sizeof(catalog_revision))) return;
+    json_escape_append(revision_esc, sizeof(revision_esc), catalog_revision);
+    snprintf(out, out_size, "\"%s\"", revision_esc);
+}
+
+/* Formats the status JSON; takes status_mutex itself for the playback snapshot. */
+static void status_format(char * out, size_t out_size, const char * revision_json, bool bluetooth_audio_output,
+                          unsigned settings_revision, unsigned settings_epoch) {
     char title_esc[512] = {0}, artist_esc[512] = {0}, album_esc[512] = {0};
     char model_esc[128] = {0}, version_esc[128] = {0};
-    char revision_esc[METADATA_DB_CATALOG_REVISION_SIZE * 6] = {0};
-    char revision_json[METADATA_DB_CATALOG_REVISION_SIZE * 6 + 3] = "null";
-    char catalog_revision[METADATA_DB_CATALOG_REVISION_SIZE] = {0};
     char accent_color[12] = {0};
     char job_error[768] = {0};
     const char * accent_json = "null";
-    const char * device_model = "HiBy R1";
-#if defined(BOARD_R3PROII)
-    device_model = "HiBy R3 Pro II";
-#elif defined(BOARD_R3II_2025)
-    device_model = "HiBy R3 II 2025";
-#elif defined(BOARD_TEMPOTEC_V1)
-    device_model = "TempoTec V1";
-#endif
-    json_escape_append(model_esc, sizeof(model_esc), device_model);
+    json_escape_append(model_esc, sizeof(model_esc), app_board_display_name());
     json_escape_append(version_esc, sizeof(version_esc), app_version_label());
-    /* The catalog lock must be acquired before status_mutex. Library refresh
-     * paths publish status after metadata work, so reversing this order could
-     * deadlock a status request against a rebuild. */
-    if (metadata_db_catalog_get_revision(catalog_revision, sizeof(catalog_revision))) {
-        json_escape_append(revision_esc, sizeof(revision_esc), catalog_revision);
-        snprintf(revision_json, sizeof(revision_json), "\"%s\"", revision_esc);
-    }
-    /* Query the route before taking status_mutex. Route selection has its own
-     * lock and must not be nested with the playback-status snapshot lock. */
-#ifndef HOST_BUILD
-    bool bluetooth_audio_output = audio_output_is_bluetooth_requested();
-#else
-    bool bluetooth_audio_output = false; /* host builds have no Bluetooth route */
-#endif
-    unsigned settings_epoch = settings_registry_epoch();
-    unsigned settings_revision = settings_registry_revision(); /* own lock; not nested under status_mutex */
     pthread_mutex_lock(&status_mutex);
     json_escape_append(title_esc, sizeof(title_esc), status_title);
     json_escape_append(artist_esc, sizeof(artist_esc), status_artist);
@@ -449,7 +434,7 @@ void handle_status_get(int cfd) {
         snprintf(accent_color, sizeof(accent_color), "\"#%06lX\"", (unsigned long) (status_accent_rgb & 0xFFFFFF));
         accent_json = accent_color;
     }
-    snprintf(out, sizeof(out),
+    snprintf(out, out_size,
              "{\"playing\":%s,\"paused\":%s,\"title\":\"%s\",\"artist\":\"%s\",\"album\":\"%s\","
              "\"position_seconds\":%d,\"duration_seconds\":%d,\"volume\":%.2f,\"play_mode\":%d,"
              "\"codec\":\"%s\",\"source_bit_depth\":%u,\"source_sample_rate\":%u,"
@@ -464,6 +449,23 @@ void handle_status_get(int cfd) {
              model_esc, version_esc, settings_revision, settings_epoch, status_library_sorting[0], status_library_sorting[1], status_library_sorting[2],
              collection_job_id, collection_job_busy ? "pending" : collection_job_failed ? "error" : collection_job_id ? "done" : "idle", job_error);
     pthread_mutex_unlock(&status_mutex);
+}
+
+/* GET /api/status */
+void handle_status_get(int cfd) {
+    char out[STATUS_JSON_CAPACITY];
+    char revision_json[METADATA_DB_CATALOG_REVISION_SIZE * 6 + 3];
+    status_catalog_revision_json(revision_json, sizeof(revision_json));
+    /* Query the route before taking status_mutex. Route selection has its own
+     * lock and must not be nested with the playback-status snapshot lock. */
+#ifndef HOST_BUILD
+    bool bluetooth_audio_output = audio_output_is_bluetooth_requested();
+#else
+    bool bluetooth_audio_output = false; /* host builds have no Bluetooth route */
+#endif
+    unsigned settings_epoch = settings_registry_epoch();
+    unsigned settings_revision = settings_registry_revision(); /* own lock; not nested under status_mutex */
+    status_format(out, sizeof(out), revision_json, bluetooth_audio_output, settings_revision, settings_epoch);
     send_response(cfd, "200 OK", "application/json", out);
 }
 
@@ -644,7 +646,8 @@ void handle_library_sorting_route(int fd, const char *method, const char *path) 
         bool busy = request_has_library_sorting;
         if (!busy) { request_sort_scope = scope; request_sort_mode = (int) mode; request_has_library_sorting = true; }
         pthread_mutex_unlock(&status_mutex);
-        send_response(fd, busy ? "409 Conflict" : "202 Accepted", "application/json", busy ? "{\"error\":\"sorting_busy\"}" : "{\"accepted\":true}");
+        if (busy) send_reason_error(fd, "409 Conflict", "sorting_busy");
+        else send_response(fd, "202 Accepted", "application/json", "{\"accepted\":true}");
     } else send_response(fd, "405 Method Not Allowed", "text/plain", "Method not allowed");
 }
 
@@ -751,7 +754,8 @@ void handle_collection_play_route(int fd, const char *method, const char *path) 
     unsigned id = collection_job_id;
     pthread_mutex_unlock(&status_mutex);
     char body[64]; snprintf(body, sizeof(body), "{\"id\":%u}", id);
-    send_response(fd, busy ? "409 Conflict" : "202 Accepted", "application/json", busy ? "{\"error\":\"collection_busy\"}" : body);
+    if (busy) send_reason_error(fd, "409 Conflict", "collection_busy");
+    else send_response(fd, "202 Accepted", "application/json", body);
 }
 
 /* POST /api/import/start and /stop. Returns false for any other request. */
@@ -775,8 +779,7 @@ bool handle_import_lifecycle_route(int cfd, const char * method, const char * pa
     }
     pthread_mutex_unlock(&status_mutex);
     if (conflict) {
-        send_response(cfd, "409 Conflict", "application/json",
-                      "{\"error\":\"import_service_busy\",\"code\":\"busy\"}");
+        send_api_error(cfd, "409 Conflict", "import_service_busy", "busy");
     } else {
         send_response(cfd, "202 Accepted", "application/json", "{\"accepted\":true}");
     }

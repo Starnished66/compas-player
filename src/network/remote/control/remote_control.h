@@ -130,7 +130,6 @@ bool remote_control_consume_play_index(int64_t * out_index, char * out_playlist,
  * - GET /api/library/albums?artist=NAME or ?album_artist=NAME
  * - GET /api/library (with offset/limit/q and artist/album_artist/album/genre filters)
  * - GET /api/playlists/songs?name=NAME
- * - GET /api/art (optional ?index=N)
- * - GET /assets/icon?name= */
+ * - GET /api/art (optional ?index=N) */
 
 #endif /* REMOTE_CONTROL_H */

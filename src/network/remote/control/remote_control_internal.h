@@ -8,6 +8,7 @@
  * accessors below. */
 
 #include "remote_control.h"
+#include "remote_reply.h"
 #include "../../../library/metadata/db/metadata_db.h"
 
 #include <stdbool.h>
@@ -53,7 +54,6 @@ bool query_param_int(const char * path, const char * key, int * out_value);
 bool query_param_int_saturating(const char * path, const char * key, int * out_value);
 bool query_param_int64(const char * path, const char * key, int64_t * out_value);
 const char * sniff_image_content_type(const uint8_t * data, uint32_t size);
-void send_api_error(int cfd, const char * status, const char * error, const char * code);
 void catalog_send_error(int cfd, const char * status, const char * code);
 bool catalog_query_number(const char * path, const char * key, uint64_t default_value, uint64_t max_value,
                           uint64_t * out_value);
@@ -85,7 +85,6 @@ void handle_catalog_art_request(int cfd, const char * path);
 
 /* Library, art, folders, recent and favorites routes (remote_library.c) */
 void handle_art_request(int cfd, const char * path);
-void handle_icon_request(int cfd, const char * path);
 void handle_folder_roots_request(int cfd);
 void handle_folder_list_request(int cfd, const char * path);
 void handle_folder_play_request(int cfd, const char * path);

@@ -3,6 +3,8 @@
 #endif
 #define _FILE_OFFSET_BITS 64
 #include "remote_import_files.h"
+#include "../control/remote_grow_buf.h"
+#include "../control/remote_reply.h"
 #include "../../../core/text/utf8_util.h"
 
 #include "../../../hardware/usb/usb_mode_control.h"
@@ -307,12 +309,6 @@ static void send_json(int fd, const char *status, const char *body) {
     if (n > 0 && send_all(fd, h, (size_t)n)) (void)send_all(fd, body, strlen(body));
 }
 
-static void send_error(int fd, const char *status, const char *code) {
-    char body[160];
-    snprintf(body, sizeof(body), "{\"error\":\"%s\",\"code\":\"%s\"}", code, code);
-    send_json(fd, status, body);
-}
-
 static bool send_all(int fd, const char *data, size_t size) {
     while (size) {
         if (request_stopped()) return false;
@@ -322,12 +318,6 @@ static bool send_all(int fd, const char *data, size_t size) {
         data += n; size -= (size_t)n;
     }
     return true;
-}
-
-static bool send_chunk(int fd, const char *data, size_t size) {
-    char h[32];
-    int n = snprintf(h, sizeof(h), "%zx\r\n", size);
-    return n > 0 && send_all(fd, h, (size_t)n) && send_all(fd, data, size) && send_all(fd, "\r\n", 2);
 }
 
 static size_t json_escape(char *out, size_t cap, const char *s) {
@@ -414,128 +404,178 @@ static void import_list_heap_add(import_list_entry_t *heap, size_t *count, size_
     }
 }
 
-static bool handle_list(int fd, const char *path) {
+/* Hard cap for the paged listing body: at most IMPORT_PAGE_MAX entries, so this only
+ * guards against pathological names. */
+#define IMPORT_LIST_BODY_MAX (1024u * 1024u)
+
+/* Appends one entry and counts it in *emitted. An entry whose joined path does not fit
+ * is skipped without being counted. Returns false only when the body cannot grow. */
+static bool import_body_entry(grow_buf_t *b, const char *rel, const import_list_entry_t *item,
+                              unsigned long *emitted) {
+    char escname[IMPORT_NAME_MAX * 6 + 1], full[IMPORT_PATH_MAX + 1], escfull[IMPORT_PATH_MAX * 6 + 1];
+    int pn = snprintf(full, sizeof(full), "%s%s%s", rel, *rel ? "/" : "", item->name);
+    if (pn < 0 || (size_t)pn >= sizeof(full)) return true;
+    json_escape(escname, sizeof(escname), item->name);
+    json_escape(escfull, sizeof(escfull), full);
+    if (!grow_buf_appendf(b, "%s{\"name\":\"%s\",\"path\":\"%s\",\"isDirectory\":%s,\"size\":%llu}",
+                          *emitted ? "," : "", escname, escfull, item->is_directory ? "true" : "false",
+                          (unsigned long long)item->size))
+        return false;
+    (*emitted)++;
+    return true;
+}
+
+/* Builds the whole page, then replies with a Content-Length like every other route. */
+static void import_list_send(int fd, const char *rel, const import_list_entry_t *entries, size_t selected,
+                             unsigned long offset, unsigned long limit, unsigned long total) {
+    grow_buf_t b = {.max = IMPORT_LIST_BODY_MAX};
+    char escpath[IMPORT_PATH_MAX * 6 + 1];
+    json_escape(escpath, sizeof(escpath), rel);
+    bool ok = grow_buf_appendf(&b, "{\"path\":\"%s\",\"entries\":[", escpath);
+    unsigned long emitted = 0;
+    for (size_t i = 0; ok && i < selected && emitted < limit; i++) {
+        if (request_stopped()) { free(b.data); return; }
+        ok = import_body_entry(&b, rel, &entries[i], &emitted);
+    }
+    if (ok && offset < total && limit < total - offset)
+        ok = grow_buf_appendf(&b, "],\"offset\":%lu,\"next_offset\":%lu,\"total\":%lu}", offset, offset + limit, total);
+    else if (ok)
+        ok = grow_buf_appendf(&b, "],\"offset\":%lu,\"next_offset\":null,\"total\":%lu}", offset, total);
+    if (ok) send_json(fd, "200 OK", b.data);
+    else send_reason_error(fd, "500 Internal Server Error", "directory_read_failed");
+    free(b.data);
+}
+
+typedef struct {
+    char rel[IMPORT_PATH_MAX + 1];
+    unsigned long offset, limit;
+} import_list_request_t;
+
+/* Parses and validates ?path&offset&limit; sends the error reply itself on failure. */
+static bool import_list_parse(int fd, const char *path, import_list_request_t *req) {
     const char *keys[] = {"path", "offset", "limit"};
     char values[3][IMPORT_PATH_MAX + 1]; bool have[3];
     if (!query_parse(path, keys, values, have, 3) || !have[0]) {
-        send_error(fd, "400 Bad Request", "invalid_query"); return true;
+        send_reason_error(fd, "400 Bad Request", "invalid_query"); return false;
     }
-    const char *rel = have[0] ? values[0] : "";
-    if (!path_string_valid(rel, true)) { send_error(fd, "400 Bad Request", "invalid_path"); return true; }
-    unsigned long offset = 0, limit = IMPORT_PAGE_DEFAULT;
-    if ((have[1] && !parse_uint(values[1], &offset)) ||
-        (have[2] && !parse_uint(values[2], &limit)) || limit == 0) {
-        send_error(fd, "400 Bad Request", "invalid_paging"); return true;
+    if (!path_string_valid(values[0], true)) { send_reason_error(fd, "400 Bad Request", "invalid_path"); return false; }
+    snprintf(req->rel, sizeof(req->rel), "%s", values[0]);
+    req->offset = 0; req->limit = IMPORT_PAGE_DEFAULT;
+    if ((have[1] && !parse_uint(values[1], &req->offset)) ||
+        (have[2] && !parse_uint(values[2], &req->limit)) || req->limit == 0) {
+        send_reason_error(fd, "400 Bad Request", "invalid_paging"); return false;
     }
-    if (limit > IMPORT_PAGE_MAX) limit = IMPORT_PAGE_MAX;
-    int root = root_dup();
-    if (root < 0) { send_error(fd, "409 Conflict", "import_not_ready"); return true; }
-    int dirfd = open_dir_relative(root, rel); close(root);
-    if (dirfd < 0) { send_error(fd, errno == ENOENT ? "404 Not Found" : "400 Bad Request", "directory_not_found"); return true; }
-    DIR *dir = fdopendir(dirfd);
-    if (!dir) { close(dirfd); send_error(fd, "500 Internal Server Error", "directory_read_failed"); return true; }
+    if (req->limit > IMPORT_PAGE_MAX) req->limit = IMPORT_PAGE_MAX;
+    return true;
+}
+
+/* True for a visible regular file or directory the listing should show. */
+static bool import_list_visible(int dirfd, const struct dirent *de, struct stat *st) {
+    if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..") || de->d_name[0] == '.' || !leaf_valid(de->d_name)) return false;
+    return fstatat(dirfd, de->d_name, st, AT_SYMLINK_NOFOLLOW) == 0 && (S_ISDIR(st->st_mode) || S_ISREG(st->st_mode));
+}
+
+static unsigned long import_list_count(DIR *dir, int dirfd) {
     unsigned long total = 0;
     struct dirent *de;
+    struct stat st;
+    while (!request_stopped() && (de = readdir(dir)))
+        if (import_list_visible(dirfd, de, &st)) total++;
+    return total;
+}
+
+/* Collects the next sorted window of entries after `boundary` into `window`. Returns false if stopped. */
+static bool import_list_fill_window(DIR *dir, int dirfd, import_list_entry_t *window, size_t *count,
+                                    const import_list_entry_t *boundary) {
+    struct dirent *de;
+    struct stat st;
+    *count = 0;
+    rewinddir(dir);
     while ((de = readdir(dir))) {
-        if (request_stopped()) break;
-        if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..") || de->d_name[0] == '.' || !leaf_valid(de->d_name)) continue;
-        struct stat st;
-        if (fstatat(dirfd, de->d_name, &st, AT_SYMLINK_NOFOLLOW) == 0 && (S_ISDIR(st.st_mode) || S_ISREG(st.st_mode))) total++;
+        if (request_stopped()) return false;
+        if (!import_list_visible(dirfd, de, &st)) continue;
+        import_list_entry_t candidate;
+        strcpy(candidate.name, de->d_name);
+        candidate.is_directory = S_ISDIR(st.st_mode);
+        candidate.size = S_ISREG(st.st_mode) ? st.st_size : 0;
+        if (boundary && import_list_entry_compare(&candidate, boundary) <= 0) continue;
+        import_list_heap_add(window, count, IMPORT_LIST_WINDOW_MAX, &candidate);
     }
+    if (*count > 1) qsort(window, *count, sizeof(*window), import_list_entry_compare);
+    return !request_stopped();
+}
+
+/* Selects the entries [offset, offset+limit) in sorted order, window by window. False if stopped. */
+static bool import_list_select(DIR *dir, int dirfd, unsigned long offset, unsigned long limit,
+                               import_list_entry_t *window, import_list_entry_t *entries, size_t *selected) {
+    unsigned long skip = offset;
+    import_list_entry_t boundary;
+    bool have_boundary = false;
+    *selected = 0;
+    while (*selected < limit) {
+        size_t count;
+        if (request_stopped() || !import_list_fill_window(dir, dirfd, window, &count, have_boundary ? &boundary : NULL))
+            return false;
+        if (!count) break;
+        size_t start = skip >= count ? count : (size_t)skip;
+        skip -= start;
+        for (size_t i = start; i < count && *selected < limit; i++) entries[(*selected)++] = window[i];
+        if (*selected == limit || count < IMPORT_LIST_WINDOW_MAX) break;
+        boundary = window[count - 1];
+        have_boundary = true;
+    }
+    return true;
+}
+
+static DIR *import_list_open(int fd, const char *rel) {
+    int root = root_dup();
+    if (root < 0) { send_reason_error(fd, "409 Conflict", "import_not_ready"); return NULL; }
+    int dirfd = open_dir_relative(root, rel); close(root);
+    if (dirfd < 0) { send_reason_error(fd, errno == ENOENT ? "404 Not Found" : "400 Bad Request", "directory_not_found"); return NULL; }
+    DIR *dir = fdopendir(dirfd);
+    if (!dir) { close(dirfd); send_reason_error(fd, "500 Internal Server Error", "directory_read_failed"); }
+    return dir;
+}
+
+static bool handle_list(int fd, const char *path) {
+    import_list_request_t req;
+    if (!import_list_parse(fd, path, &req)) return true;
+    DIR *dir = import_list_open(fd, req.rel);
+    if (!dir) return true;
+    int dfd = dirfd(dir);
+    unsigned long total = import_list_count(dir, dfd);
     if (request_stopped()) { closedir(dir); return true; }
-    import_list_entry_t *window = NULL;
-    import_list_entry_t *entries = NULL;
+    import_list_entry_t *window = NULL, *entries = NULL;
     size_t selected = 0;
-    if (offset < total) {
+    bool ok = true;
+    if (req.offset < total) {
         window = malloc(IMPORT_LIST_WINDOW_MAX * sizeof(*window));
-        entries = malloc((size_t)limit * sizeof(*entries));
+        entries = malloc((size_t)req.limit * sizeof(*entries));
         if (!window || !entries) {
             free(window); free(entries); closedir(dir);
-            send_error(fd, "500 Internal Server Error", "directory_read_failed"); return true;
+            send_reason_error(fd, "500 Internal Server Error", "directory_read_failed"); return true;
         }
-        unsigned long skip = offset;
-        import_list_entry_t boundary;
-        bool have_boundary = false;
-        while (selected < limit) {
-            if (request_stopped()) { free(window); free(entries); closedir(dir); return true; }
-            rewinddir(dir);
-            size_t count = 0;
-            while ((de = readdir(dir))) {
-                if (request_stopped()) { free(window); free(entries); closedir(dir); return true; }
-                if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..") || de->d_name[0] == '.' || !leaf_valid(de->d_name)) continue;
-                struct stat st;
-                if (fstatat(dirfd, de->d_name, &st, AT_SYMLINK_NOFOLLOW) != 0 || (!S_ISDIR(st.st_mode) && !S_ISREG(st.st_mode))) continue;
-                import_list_entry_t candidate;
-                strcpy(candidate.name, de->d_name);
-                candidate.is_directory = S_ISDIR(st.st_mode);
-                candidate.size = S_ISREG(st.st_mode) ? st.st_size : 0;
-                if (have_boundary && import_list_entry_compare(&candidate, &boundary) <= 0) continue;
-                import_list_heap_add(window, &count, IMPORT_LIST_WINDOW_MAX, &candidate);
-            }
-            if (request_stopped()) { free(window); free(entries); closedir(dir); return true; }
-            if (!count) break;
-            if (count > 1) qsort(window, count, sizeof(*window), import_list_entry_compare);
-            if (skip >= count) {
-                skip -= (unsigned long)count;
-            } else {
-                size_t start = (size_t)skip;
-                skip = 0;
-                for (size_t i = start; i < count && selected < limit; i++)
-                    entries[selected++] = window[i];
-            }
-            if (selected == limit || count < IMPORT_LIST_WINDOW_MAX) break;
-            boundary = window[count - 1];
-            have_boundary = true;
-        }
-    }
-    char hdr[256];
-    int hn = snprintf(hdr, sizeof(hdr), "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n");
-    if (hn <= 0 || !send_all(fd, hdr, (size_t)hn)) { free(window); free(entries); closedir(dir); return true; }
-    char prefix[IMPORT_PATH_MAX * 6 + 160], escpath[IMPORT_PATH_MAX * 6 + 1];
-    json_escape(escpath, sizeof(escpath), rel);
-    bool more = offset < total && limit < total - offset;
-    unsigned long next = more ? offset + limit : total;
-    hn = snprintf(prefix, sizeof(prefix), "{\"path\":\"%s\",\"entries\":[", escpath);
-    if (hn > 0) (void)send_chunk(fd, prefix, (size_t)hn);
-    unsigned long emitted = 0;
-    char entry[IMPORT_PATH_MAX * 6 + IMPORT_NAME_MAX * 6 + 512];
-    char escname[IMPORT_NAME_MAX * 6 + 1], full[IMPORT_PATH_MAX + 1], escfull[IMPORT_PATH_MAX * 6 + 1];
-    for (size_t i = 0; i < (size_t)selected && emitted < limit; i++) {
-        if (request_stopped()) break;
-        import_list_entry_t *item = &entries[i];
-        int pn = snprintf(full, sizeof(full), "%s%s%s", rel, *rel ? "/" : "", item->name);
-        if (pn < 0 || (size_t)pn >= sizeof(full)) continue;
-        json_escape(escname, sizeof(escname), item->name);
-        json_escape(escfull, sizeof(escfull), full);
-        int en = snprintf(entry, sizeof(entry), "%s{\"name\":\"%s\",\"path\":\"%s\",\"isDirectory\":%s,\"size\":%llu}",
-                          emitted ? "," : "", escname, escfull, item->is_directory ? "true" : "false",
-                          (unsigned long long)item->size);
-        if (en <= 0 || (size_t)en >= sizeof(entry) || !send_chunk(fd, entry, (size_t)en)) break;
-        emitted++;
+        ok = import_list_select(dir, dfd, req.offset, req.limit, window, entries, &selected);
     }
     free(window);
-    free(entries);
-    char suffix[128];
-    int sn = more ? snprintf(suffix, sizeof(suffix), "],\"offset\":%lu,\"next_offset\":%lu,\"total\":%lu}", offset, next, total)
-                  : snprintf(suffix, sizeof(suffix), "],\"offset\":%lu,\"next_offset\":null,\"total\":%lu}", offset, total);
-    if (sn > 0) (void)send_chunk(fd, suffix, (size_t)sn);
-    (void)send_all(fd, "0\r\n\r\n", 5);
     closedir(dir);
+    if (ok) import_list_send(fd, req.rel, entries, selected, req.offset, req.limit, total);
+    free(entries);
     return true;
 }
 
 static bool begin_mutation(int fd) {
     if (pthread_mutex_trylock(&fileop_mu) != 0) {
-        send_error(fd, "409 Conflict", "storage_busy"); return false;
+        send_reason_error(fd, "409 Conflict", "storage_busy"); return false;
     }
     if (fileop_active || request_stopped() || !file_op_external_begin()) {
-        pthread_mutex_unlock(&fileop_mu); send_error(fd, "409 Conflict", request_stopped() ? "import_stopping" : "storage_busy"); return false;
+        pthread_mutex_unlock(&fileop_mu); send_reason_error(fd, "409 Conflict", request_stopped() ? "import_stopping" : "storage_busy"); return false;
     }
     fileop_active = true;
     if (request_stopped() || !mounted_root() || !usb_mode_control_storage_write_begin()) {
         file_op_external_end();
         fileop_active = false; pthread_mutex_unlock(&fileop_mu);
-        send_error(fd, "503 Service Unavailable", "storage_busy"); return false;
+        send_reason_error(fd, "503 Service Unavailable", "storage_busy"); return false;
     }
     return true;
 }
@@ -585,20 +625,20 @@ static bool remove_owned_partial(int parent, const char *name, const struct stat
 }
 
 static bool handle_upload(int fd, const char *path, long long content_length, bool wifi) {
-    if (!wifi) { send_error(fd, "403 Forbidden", "wifi_only"); return true; }
-    if (content_length < 0) { send_error(fd, "411 Length Required", "length_required"); return true; }
-    if ((unsigned long long)content_length > UINT32_MAX) { send_error(fd, "413 Content Too Large", "file_too_large"); return true; }
+    if (!wifi) { send_reason_error(fd, "403 Forbidden", "wifi_only"); return true; }
+    if (content_length < 0) { send_reason_error(fd, "411 Length Required", "length_required"); return true; }
+    if ((unsigned long long)content_length > UINT32_MAX) { send_reason_error(fd, "413 Content Too Large", "file_too_large"); return true; }
     const char *keys[] = {"path", "name"}; char values[2][IMPORT_PATH_MAX + 1]; bool have[2];
     if (!query_parse(path, keys, values, have, 2) || !have[0] || !have[1] ||
-        !path_string_valid(values[0], true) || !leaf_valid(values[1])) { send_error(fd, "400 Bad Request", "invalid_path_or_name"); return true; }
-    if (strlen(values[0]) + (values[0][0] ? 1u : 0u) + strlen(values[1]) > IMPORT_PATH_MAX) { send_error(fd, "400 Bad Request", "invalid_path_or_name"); return true; }
+        !path_string_valid(values[0], true) || !leaf_valid(values[1])) { send_reason_error(fd, "400 Bad Request", "invalid_path_or_name"); return true; }
+    if (strlen(values[0]) + (values[0][0] ? 1u : 0u) + strlen(values[1]) > IMPORT_PATH_MAX) { send_reason_error(fd, "400 Bad Request", "invalid_path_or_name"); return true; }
     int root = root_dup();
-    if (root < 0) { send_error(fd, "409 Conflict", "import_not_ready"); return true; }
+    if (root < 0) { send_reason_error(fd, "409 Conflict", "import_not_ready"); return true; }
     if (!begin_mutation(fd)) { close(root); return true; }
     int dirfd = open_dir_relative(root, values[0]); close(root);
-    if (dirfd < 0) { end_mutation(); send_error(fd, "404 Not Found", "directory_not_found"); return true; }
+    if (dirfd < 0) { end_mutation(); send_reason_error(fd, "404 Not Found", "directory_not_found"); return true; }
     int out = openat(dirfd, values[1], O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0666);
-    if (out < 0) { close(dirfd); end_mutation(); send_error(fd, errno == EEXIST ? "409 Conflict" : "400 Bad Request", errno == EEXIST ? "name_exists" : "open_failed"); return true; }
+    if (out < 0) { close(dirfd); end_mutation(); send_reason_error(fd, errno == EEXIST ? "409 Conflict" : "400 Bad Request", errno == EEXIST ? "name_exists" : "open_failed"); return true; }
     pthread_mutex_lock(&import_mu); active_upload_fd = fd; pthread_mutex_unlock(&import_mu);
     uint8_t *buffer = malloc(IMPORT_BODY_BUFFER);
     struct stat own_stat;
@@ -636,7 +676,7 @@ static bool handle_upload(int fd, const char *path, long long content_length, bo
     }
     close(dirfd);
     end_mutation();
-    if (!ok) { send_error(fd, request_stopped() ? "503 Service Unavailable" : "400 Bad Request", request_stopped() ? "import_stopped" : "upload_failed"); return true; }
+    if (!ok) { send_reason_error(fd, request_stopped() ? "503 Service Unavailable" : "400 Bad Request", request_stopped() ? "import_stopped" : "upload_failed"); return true; }
     char body[IMPORT_PATH_MAX * 6 + IMPORT_NAME_MAX * 6 + 256], escpath[IMPORT_PATH_MAX * 6 + 1], escname[IMPORT_NAME_MAX * 6 + 1], full[IMPORT_PATH_MAX + 1];
     snprintf(full, sizeof(full), "%s%s%s", values[0], values[0][0] ? "/" : "", values[1]);
     json_escape(escpath, sizeof(escpath), full); json_escape(escname, sizeof(escname), values[1]);
@@ -648,14 +688,14 @@ static bool handle_upload(int fd, const char *path, long long content_length, bo
 static bool handle_rename(int fd, const char *path) {
     const char *keys[] = {"path", "name"}; char values[2][IMPORT_PATH_MAX + 1]; bool have[2];
     if (!query_parse(path, keys, values, have, 2) || !have[0] || !have[1] ||
-        !path_string_valid(values[0], false) || !leaf_valid(values[1])) { send_error(fd, "400 Bad Request", "invalid_path_or_name"); return true; }
+        !path_string_valid(values[0], false) || !leaf_valid(values[1])) { send_reason_error(fd, "400 Bad Request", "invalid_path_or_name"); return true; }
     const char *last_slash = strrchr(values[0], '/');
     size_t parent_len = last_slash ? (size_t)(last_slash - values[0]) : 0;
-    if (parent_len + (parent_len ? 1u : 0u) + strlen(values[1]) > IMPORT_PATH_MAX) { send_error(fd, "400 Bad Request", "invalid_path_or_name"); return true; }
-    int root = root_dup(); if (root < 0) { send_error(fd, "409 Conflict", "import_not_ready"); return true; }
+    if (parent_len + (parent_len ? 1u : 0u) + strlen(values[1]) > IMPORT_PATH_MAX) { send_reason_error(fd, "400 Bad Request", "invalid_path_or_name"); return true; }
+    int root = root_dup(); if (root < 0) { send_reason_error(fd, "409 Conflict", "import_not_ready"); return true; }
     if (!begin_mutation(fd)) { close(root); return true; }
     char oldleaf[IMPORT_NAME_MAX + 1]; int parent = resolve_parent(root, values[0], oldleaf, sizeof(oldleaf)); close(root);
-    if (parent < 0) { end_mutation(); send_error(fd, "404 Not Found", "item_not_found"); return true; }
+    if (parent < 0) { end_mutation(); send_reason_error(fd, "404 Not Found", "item_not_found"); return true; }
     struct stat src, dst;
     bool ok = fstatat(parent, oldleaf, &src, AT_SYMLINK_NOFOLLOW) == 0 &&
               (S_ISREG(src.st_mode) || S_ISDIR(src.st_mode));
@@ -668,36 +708,36 @@ static bool handle_rename(int fd, const char *path) {
         bool unsupported = err == ENOTSUP || err == ENOSYS || err == EINVAL || err == EOPNOTSUPP;
         const char *status = err == ECANCELED ? "503 Service Unavailable" : err == EEXIST ? "409 Conflict" : unsupported ? "501 Not Implemented" : "400 Bad Request";
         const char *code = err == ECANCELED ? "import_stopped" : err == EEXIST ? "name_exists" : unsupported ? "rename_not_supported" : "rename_failed";
-        send_error(fd, status, code); return true;
+        send_reason_error(fd, status, code); return true;
     }
     send_json(fd, "200 OK", "{\"ok\":true}"); return true;
 }
 
 static bool handle_delete(int fd, const char *path) {
     const char *keys[] = {"path"}; char values[1][IMPORT_PATH_MAX + 1]; bool have[1];
-    if (!query_parse(path, keys, values, have, 1) || !have[0] || !path_string_valid(values[0], false)) { send_error(fd, "400 Bad Request", "invalid_path"); return true; }
-    int root = root_dup(); if (root < 0) { send_error(fd, "409 Conflict", "import_not_ready"); return true; }
+    if (!query_parse(path, keys, values, have, 1) || !have[0] || !path_string_valid(values[0], false)) { send_reason_error(fd, "400 Bad Request", "invalid_path"); return true; }
+    int root = root_dup(); if (root < 0) { send_reason_error(fd, "409 Conflict", "import_not_ready"); return true; }
     if (!begin_mutation(fd)) { close(root); return true; }
     char leaf[IMPORT_NAME_MAX + 1]; int parent = resolve_parent(root, values[0], leaf, sizeof(leaf)); close(root);
-    if (parent < 0) { end_mutation(); send_error(fd, "404 Not Found", "item_not_found"); return true; }
+    if (parent < 0) { end_mutation(); send_reason_error(fd, "404 Not Found", "item_not_found"); return true; }
     struct stat st;
     bool ok = fstatat(parent, leaf, &st, AT_SYMLINK_NOFOLLOW) == 0 && (S_ISREG(st.st_mode) || S_ISDIR(st.st_mode));
     if (ok) ok = unlinkat(parent, leaf, S_ISDIR(st.st_mode) ? AT_REMOVEDIR : 0) == 0;
     int err = errno; close(parent); end_mutation();
-    if (!ok) { send_error(fd, err == ENOTEMPTY ? "409 Conflict" : err == ENOENT ? "404 Not Found" : "400 Bad Request", err == ENOTEMPTY ? "directory_not_empty" : err == ENOENT ? "item_not_found" : "delete_failed"); return true; }
+    if (!ok) { send_reason_error(fd, err == ENOTEMPTY ? "409 Conflict" : err == ENOENT ? "404 Not Found" : "400 Bad Request", err == ENOTEMPTY ? "directory_not_empty" : err == ENOENT ? "item_not_found" : "delete_failed"); return true; }
     send_json(fd, "200 OK", "{\"ok\":true}"); return true;
 }
 
 static bool handle_mkdir(int fd, const char *path) {
     const char *keys[] = {"path", "name"}; char values[2][IMPORT_PATH_MAX + 1]; bool have[2];
-    if (!query_parse(path, keys, values, have, 2) || !have[0] || !have[1] || !path_string_valid(values[0], true) || !leaf_valid(values[1])) { send_error(fd, "400 Bad Request", "invalid_path_or_name"); return true; }
-    if (strlen(values[0]) + (values[0][0] ? 1u : 0u) + strlen(values[1]) > IMPORT_PATH_MAX) { send_error(fd, "400 Bad Request", "invalid_path_or_name"); return true; }
-    int root = root_dup(); if (root < 0) { send_error(fd, "409 Conflict", "import_not_ready"); return true; }
+    if (!query_parse(path, keys, values, have, 2) || !have[0] || !have[1] || !path_string_valid(values[0], true) || !leaf_valid(values[1])) { send_reason_error(fd, "400 Bad Request", "invalid_path_or_name"); return true; }
+    if (strlen(values[0]) + (values[0][0] ? 1u : 0u) + strlen(values[1]) > IMPORT_PATH_MAX) { send_reason_error(fd, "400 Bad Request", "invalid_path_or_name"); return true; }
+    int root = root_dup(); if (root < 0) { send_reason_error(fd, "409 Conflict", "import_not_ready"); return true; }
     if (!begin_mutation(fd)) { close(root); return true; }
     int parent = open_dir_relative(root, values[0]); close(root);
     bool ok = parent >= 0 && mkdirat(parent, values[1], 0777) == 0;
     int err = errno; if (parent >= 0) close(parent); end_mutation();
-    if (!ok) { send_error(fd, err == EEXIST ? "409 Conflict" : "400 Bad Request", err == EEXIST ? "name_exists" : "mkdir_failed"); return true; }
+    if (!ok) { send_reason_error(fd, err == EEXIST ? "409 Conflict" : "400 Bad Request", err == EEXIST ? "name_exists" : "mkdir_failed"); return true; }
     send_json(fd, "201 Created", "{\"ok\":true}"); return true;
 }
 
@@ -718,7 +758,7 @@ bool remote_import_files_handle(int fd, const char *method, const char *path,
     bool active = import_ready && !atomic_load(&import_stopping);
     if (active) active_requests++;
     pthread_mutex_unlock(&import_mu);
-    if (!active) { send_error(fd, "409 Conflict", "import_not_ready"); return true; }
+    if (!active) { send_reason_error(fd, "409 Conflict", "import_not_ready"); return true; }
     if (!strcmp(route, "/api/import/files") && !strcmp(method, "GET")) (void)handle_list(fd, path);
     else if (!strcmp(route, "/api/import/files/upload")) (void)handle_upload(fd, path, content_length, wifi_transport);
     else if (!strcmp(route, "/api/import/files/rename")) (void)handle_rename(fd, path);
