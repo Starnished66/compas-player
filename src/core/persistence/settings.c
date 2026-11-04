@@ -53,6 +53,143 @@ static void settings_snapshot(player_settings_t * dst, const player_settings_t *
 
 #define SETTINGS_TMP_FILE_PATH SETTINGS_FILE_PATH ".tmp"
 
+/* Settings that load and save as a plain 0/1, integer or string, with no
+ * validation or migration. Anything with rules of its own stays explicit in
+ * settings_load() and settings_write_file(). */
+typedef enum { PF_BOOL, PF_INT, PF_STR } pfield_kind_t;
+typedef struct {
+    const char * key;
+    pfield_kind_t kind;
+    size_t offset;
+    size_t size;
+} pfield_t;
+
+/* _Generic rejects at compile time a field whose type does not match its kind. */
+#define PF_AT(f, type) _Generic(((player_settings_t *) 0)->f, type: offsetof(player_settings_t, f))
+#define PF_SIZE(f) sizeof(((player_settings_t *) 0)->f)
+#define PF(k, kind, f) PF_##kind(k, f)
+#define PF_PF_BOOL(k, f) { k, PF_BOOL, PF_AT(f, bool), PF_SIZE(f) }
+#define PF_PF_INT(k, f) { k, PF_INT, PF_AT(f, int), PF_SIZE(f) }
+#define PF_PF_STR(k, f) { k, PF_STR, PF_AT(f, char *), PF_SIZE(f) }
+static const pfield_t plain_fields[] = {
+    PF("setup_complete", PF_BOOL, setup_complete),
+    PF("setup_intro_played", PF_BOOL, setup_intro_played),
+    PF("setup_step", PF_INT, setup_step),
+    PF("setup_scan_music", PF_BOOL, setup_scan_music),
+    PF("last_track", PF_STR, last_track),
+    PF("last_source_kind", PF_INT, last_source_kind),
+    PF("last_source_name", PF_STR, last_source_name),
+    PF("resume_mode", PF_INT, resume_mode),
+    PF("play_pause_button_mode", PF_INT, play_pause_button_mode),
+    PF("volume_lock_screen_off", PF_BOOL, volume_lock_screen_off),
+    PF("accent_dynamic", PF_BOOL, accent_dynamic),
+    PF("startup_splash_tint", PF_BOOL, startup_splash_tint),
+    PF("titlebar_icon_tint", PF_BOOL, titlebar_icon_tint),
+    PF("crossfade", PF_BOOL, crossfade_enabled),
+    PF("gapless", PF_BOOL, gapless_enabled),
+    PF("replaygain_mode", PF_INT, replaygain_mode),
+    PF("animation_scale", PF_INT, animation_scale),
+    PF("car_mode_enabled", PF_BOOL, car_mode_enabled),
+    PF("car_mode_autoresume_enabled", PF_BOOL, car_mode_autoresume_enabled),
+    PF("inline_remote_enabled", PF_BOOL, inline_remote_enabled),
+    PF("lyrics_enabled", PF_BOOL, lyrics_enabled),
+    PF("lyrics_keep_screen_on", PF_BOOL, lyrics_keep_screen_on),
+    PF("subsonic_url", PF_STR, subsonic_url),
+    PF("subsonic_username", PF_STR, subsonic_username),
+    PF("subsonic_password", PF_STR, subsonic_password),
+    PF("subsonic_verify_tls", PF_BOOL, subsonic_verify_tls),
+    PF("bt_volume_sync", PF_BOOL, bt_volume_sync_enabled),
+    PF("dac_nos", PF_BOOL, dac_nos),
+    PF("bt_speexrate", PF_BOOL, bt_speexrate_enabled),
+    PF("bt_codec", PF_STR, bt_codec),
+    PF("bt_hide_unnamed_devices", PF_BOOL, bt_hide_unnamed_devices),
+    PF("wifi_dac_mode", PF_BOOL, wifi_dac_mode_enabled),
+    PF("dlna_renderer_enabled", PF_BOOL, dlna_renderer_enabled),
+    PF("remote_control_enabled", PF_BOOL, remote_control_enabled),
+    PF("screen_timeout_enabled", PF_BOOL, screen_timeout_enabled),
+    PF("screen_timeout_seconds", PF_INT, screen_timeout_seconds),
+    PF("screen_dimming_enabled", PF_BOOL, screen_dimming_enabled),
+    PF("screen_dim_delay_seconds", PF_INT, screen_dim_delay_seconds),
+    PF("hide_player_topbar", PF_BOOL, hide_player_topbar),
+    PF("screen_upside_down", PF_BOOL, screen_upside_down),
+    PF("led_indicator_enabled", PF_BOOL, led_indicator_enabled),
+    PF("db_logging_enabled", PF_BOOL, db_logging_enabled),
+    PF("screenshot_combo_enabled", PF_BOOL, screenshot_combo_enabled),
+    PF("charge_limiter_enabled", PF_BOOL, charge_limiter_enabled),
+    PF("safe_charging_enabled", PF_BOOL, safe_charging_enabled),
+    PF("show_battery_percent", PF_BOOL, show_battery_percent),
+    PF("show_artist_images", PF_BOOL, show_artist_images),
+    PF("peq_graph_include_preamp", PF_BOOL, peq_graph_include_preamp),
+    PF("join_albums", PF_BOOL, join_albums),
+    PF("idle_shutdown_enabled", PF_BOOL, idle_shutdown_enabled),
+    PF("idle_shutdown_minutes", PF_INT, idle_shutdown_minutes),
+    PF("idle_suspend_enabled", PF_BOOL, idle_suspend_enabled),
+    PF("idle_suspend_default_migrated", PF_BOOL, idle_suspend_default_migrated),
+    PF("usb_mode", PF_INT, usb_mode),
+    PF("usb_dac_disable_charging", PF_BOOL, usb_dac_disable_charging),
+    PF("play_mode", PF_INT, play_mode),
+    PF("swipe_up_home_enabled", PF_BOOL, swipe_up_home_enabled),
+    PF("quick_drawer_volume_visible", PF_BOOL, quick_drawer_volume_visible),
+    PF("quick_drawer_enabled", PF_BOOL, ui_customization.drawer_enabled),
+    PF("quick_drawer_eq_visible", PF_BOOL, ui_customization.drawer_eq_visible),
+    PF("startup_volume_fixed_enabled", PF_BOOL, startup_volume_fixed_enabled),
+    PF("startup_volume_fixed_percent", PF_INT, startup_volume_fixed_percent),
+    PF("max_volume_percent", PF_INT, max_volume_percent),
+    PF("sleep_timer_minutes", PF_INT, sleep_timer_minutes),
+    PF("timezone", PF_STR, timezone),
+    PF("hostname", PF_STR, hostname),
+    PF("font_size_tier", PF_INT, font_size_tier),
+    PF("lyrics_font_size_tier", PF_INT, lyrics_font_size_tier),
+    PF("brightness_percent", PF_INT, brightness_percent),
+    PF("clock_24h", PF_BOOL, clock_24h),
+    PF("clock_automatic", PF_BOOL, clock_automatic),
+};
+#undef PF
+#undef PF_PF_BOOL
+#undef PF_PF_INT
+#undef PF_PF_STR
+#undef PF_AT
+#undef PF_SIZE
+
+static bool plain_field_parse(player_settings_t * s, const char * key, const char * value) {
+    for (size_t i = 0; i < sizeof(plain_fields) / sizeof(plain_fields[0]); i++) {
+        const pfield_t * field = &plain_fields[i];
+        if (strcmp(key, field->key) != 0) continue;
+        void * dst = (unsigned char *) s + field->offset;
+        switch (field->kind) {
+            case PF_BOOL:
+                *(bool *) dst = strcmp(value, "1") == 0;
+                break;
+            case PF_INT:
+                *(int *) dst = atoi(value);
+                break;
+            case PF_STR:
+                snprintf(dst, field->size, "%s", value);
+                break;
+        }
+        return true;
+    }
+    return false;
+}
+
+static void plain_fields_write(FILE * f, const player_settings_t * s) {
+    for (size_t i = 0; i < sizeof(plain_fields) / sizeof(plain_fields[0]); i++) {
+        const pfield_t * field = &plain_fields[i];
+        const void * src = (const unsigned char *) s + field->offset;
+        switch (field->kind) {
+            case PF_BOOL:
+                fprintf(f, "%s=%d\n", field->key, *(const bool *) src ? 1 : 0);
+                break;
+            case PF_INT:
+                fprintf(f, "%s=%d\n", field->key, *(const int *) src);
+                break;
+            case PF_STR:
+                fprintf(f, "%s=%s\n", field->key, (const char *) src);
+                break;
+        }
+    }
+}
+
 static int normalize_keyboard_layout(int layout) {
     if (layout == KEYBOARD_LAYOUT_LEGACY_4 ||
         layout == KEYBOARD_LAYOUT_LEGACY_5 ||
@@ -440,6 +577,8 @@ bool settings_load(player_settings_t * out) {
         const char * key = line;
         const char * value = eq + 1;
 
+        if (plain_field_parse(out, key, value)) continue;
+
         int mapping_button = -1;
         int mapping_gesture = -1;
         if (parse_button_binding_key(key, &mapping_button, &mapping_gesture)) {
@@ -452,13 +591,7 @@ bool settings_load(player_settings_t * out) {
             continue;
         }
 
-        if (strcmp(key, "setup_complete") == 0) {
-            out->setup_complete = strcmp(value, "1") == 0;
-        } else if (strcmp(key, "setup_intro_played") == 0) {
-            out->setup_intro_played = strcmp(value, "1") == 0;
-        } else if (strcmp(key, "setup_step") == 0) {
-            out->setup_step = atoi(value);
-        } else if (strncmp(key, "setup_plugin_id_", 16) == 0) {
+        if (strncmp(key, "setup_plugin_id_", 16) == 0) {
             int idx = -1;
             char extra;
             if (sscanf(key, "setup_plugin_id_%d%c", &idx, &extra) == 1 &&
@@ -468,36 +601,12 @@ bool settings_load(player_settings_t * out) {
         } else if (strcmp(key, "setup_layout_plugin_id") == 0) {
             if (valid_setup_plugin_id(value))
                 snprintf(out->setup_layout_plugin_id, sizeof(out->setup_layout_plugin_id), "%s", value);
-        } else if (strcmp(key, "setup_scan_music") == 0) {
-            out->setup_scan_music = strcmp(value, "1") == 0;
         } else if (strcmp(key, "volume") == 0) {
             out->volume = (float) atof(value);
-        } else if (strcmp(key, "last_track") == 0) {
-            snprintf(out->last_track, sizeof(out->last_track), "%s", value);
         } else if (strcmp(key, "last_position") == 0) {
             out->last_position = atof(value);
-        } else if (strcmp(key, "last_source_kind") == 0) {
-            out->last_source_kind = atoi(value);
-        } else if (strcmp(key, "last_source_name") == 0) {
-            snprintf(out->last_source_name, sizeof(out->last_source_name), "%s", value);
-        } else if (strcmp(key, "resume_mode") == 0) {
-            out->resume_mode = atoi(value);
-        } else if (strcmp(key, "play_pause_button_mode") == 0) {
-            out->play_pause_button_mode = atoi(value);
-        } else if (strcmp(key, "volume_lock_screen_off") == 0) {
-            out->volume_lock_screen_off = strcmp(value, "1") == 0;
         } else if (strcmp(key, "accent_color") == 0) {
             out->accent_color = (uint32_t) strtoul(value, NULL, 16);
-        } else if (strcmp(key, "accent_dynamic") == 0) {
-            out->accent_dynamic = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "startup_splash_tint") == 0) {
-            out->startup_splash_tint = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "titlebar_icon_tint") == 0) {
-            out->titlebar_icon_tint = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "crossfade") == 0) {
-            out->crossfade_enabled = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "gapless") == 0) {
-            out->gapless_enabled = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "replaygain_enabled") == 0) {
             /* Legacy on/off key, from before the Off/Per Track/Per Album
              * mode selector -- settings_save() only ever writes the new
@@ -506,28 +615,6 @@ bool settings_load(player_settings_t * out) {
              * comes later in the file wins (plain sequential key parsing),
              * same as every other key here. */
             out->replaygain_mode = (strcmp(value, "1") == 0) ? 1 : 0;
-        } else if (strcmp(key, "replaygain_mode") == 0) {
-            out->replaygain_mode = atoi(value);
-        } else if (strcmp(key, "animation_scale") == 0) {
-            out->animation_scale = atoi(value);
-        } else if (strcmp(key, "car_mode_enabled") == 0) {
-            out->car_mode_enabled = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "car_mode_autoresume_enabled") == 0) {
-            out->car_mode_autoresume_enabled = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "inline_remote_enabled") == 0) {
-            out->inline_remote_enabled = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "lyrics_enabled") == 0) {
-            out->lyrics_enabled = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "lyrics_keep_screen_on") == 0) {
-            out->lyrics_keep_screen_on = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "subsonic_url") == 0) {
-            snprintf(out->subsonic_url, sizeof(out->subsonic_url), "%s", value);
-        } else if (strcmp(key, "subsonic_username") == 0) {
-            snprintf(out->subsonic_username, sizeof(out->subsonic_username), "%s", value);
-        } else if (strcmp(key, "subsonic_password") == 0) {
-            snprintf(out->subsonic_password, sizeof(out->subsonic_password), "%s", value);
-        } else if (strcmp(key, "subsonic_verify_tls") == 0) {
-            out->subsonic_verify_tls = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "subsonic_stream_quality") == 0) {
             int quality = atoi(value);
             out->subsonic_stream_quality = quality >= 0 && quality <= 3 ? quality : 0;
@@ -553,13 +640,9 @@ bool settings_load(player_settings_t * out) {
                     out->subsonic_saved[idx].verify_tls = (strcmp(value, "1") == 0);
                 }
             }
-        } else if (strcmp(key, "bt_volume_sync") == 0) {
-            out->bt_volume_sync_enabled = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "dac_filter") == 0) {
             out->dac_filter = value[0] >= '0' && value[0] <= '3' && value[1] == '\0'
                 ? value[0] - '0' : 0;
-        } else if (strcmp(key, "dac_nos") == 0) {
-            out->dac_nos = strcmp(value, "1") == 0;
         } else if (strcmp(key, "dac_dre") == 0) {
             out->dac_dre = true;
             if (strcmp(value, "0") == 0) out->dac_dre = false;
@@ -594,37 +677,15 @@ bool settings_load(player_settings_t * out) {
             bt_rc_trust_settings_parse(out, value);
         } else if (strcmp(key, "bt_sample_rate") == 0) {
             out->bt_sample_rate = (unsigned int) strtoul(value, NULL, 10);
-        } else if (strcmp(key, "bt_speexrate") == 0) {
-            out->bt_speexrate_enabled = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "bt_codec") == 0) {
-            snprintf(out->bt_codec, sizeof(out->bt_codec), "%s", value);
         } else if (strcmp(key, "bt_last_output_mac") == 0) {
             if (valid_bt_output_mac(value)) {
                 snprintf(out->bt_last_output_mac, sizeof(out->bt_last_output_mac), "%s", value);
             } else {
                 out->bt_last_output_mac[0] = '\0';
             }
-        } else if (strcmp(key, "bt_hide_unnamed_devices") == 0) {
-            out->bt_hide_unnamed_devices = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "wifi_dac_mode") == 0) {
-            out->wifi_dac_mode_enabled = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "dlna_renderer_enabled") == 0) {
-            out->dlna_renderer_enabled = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "remote_control_enabled") == 0) {
-            out->remote_control_enabled = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "remote_control_pin") == 0) {
             if (valid_remote_control_pin(value))
                 snprintf(out->remote_control_pin, sizeof(out->remote_control_pin), "%s", value);
-        } else if (strcmp(key, "screen_timeout_enabled") == 0) {
-            out->screen_timeout_enabled = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "screen_timeout_seconds") == 0) {
-            out->screen_timeout_seconds = atoi(value);
-        } else if (strcmp(key, "screen_dimming_enabled") == 0) {
-            out->screen_dimming_enabled = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "screen_dim_delay_seconds") == 0) {
-            out->screen_dim_delay_seconds = atoi(value);
-        } else if (strcmp(key, "hide_player_topbar") == 0) {
-            out->hide_player_topbar = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "topbar_hidden_elements") == 0) {
             uint32_t parsed;
             if (parse_u32_setting(value, &parsed))
@@ -633,20 +694,6 @@ bool settings_load(player_settings_t * out) {
             uint32_t parsed;
             if (parse_u32_setting(value, &parsed) && parsed <= TOPBAR_CLOCK_RIGHT)
                 out->topbar_clock_position = (int)parsed;
-        } else if (strcmp(key, "screen_upside_down") == 0) {
-            out->screen_upside_down = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "led_indicator_enabled") == 0) {
-            out->led_indicator_enabled = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "db_logging_enabled") == 0) {
-            out->db_logging_enabled = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "screenshot_combo_enabled") == 0) {
-            out->screenshot_combo_enabled = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "charge_limiter_enabled") == 0) {
-            out->charge_limiter_enabled = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "safe_charging_enabled") == 0) {
-            out->safe_charging_enabled = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "show_battery_percent") == 0) {
-            out->show_battery_percent = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "file_sort_mode") == 0) {
             out->file_sort_mode = strcmp(value, "1") == 0 ? 1 : 0;
         } else if (strcmp(key, "album_sort_mode") == 0) {
@@ -662,60 +709,18 @@ bool settings_load(player_settings_t * out) {
         } else if (strcmp(key, "genre_view_mode") == 0) {
             int mode = atoi(value);
             out->genre_view_mode = mode >= 0 && mode <= 3 ? mode : 0;
-        } else if (strcmp(key, "show_artist_images") == 0) {
-            out->show_artist_images = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "peq_graph_include_preamp") == 0) {
-            out->peq_graph_include_preamp = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "join_albums") == 0) {
-            out->join_albums = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "idle_shutdown_enabled") == 0) {
-            out->idle_shutdown_enabled = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "idle_shutdown_minutes") == 0) {
-            out->idle_shutdown_minutes = atoi(value);
-        } else if (strcmp(key, "idle_suspend_enabled") == 0) {
-            out->idle_suspend_enabled = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "idle_suspend_default_migrated") == 0) {
-            out->idle_suspend_default_migrated = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "usb_mode") == 0) {
-            out->usb_mode = atoi(value);
-        } else if (strcmp(key, "usb_dac_disable_charging") == 0) {
-            out->usb_dac_disable_charging = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "play_mode") == 0) {
-            out->play_mode = atoi(value);
-        } else if (strcmp(key, "swipe_up_home_enabled") == 0) {
-            out->swipe_up_home_enabled = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "quick_drawer_volume_visible") == 0) {
-            out->quick_drawer_volume_visible = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "quick_drawer_order") == 0) {
             ui_item_order_t order;
             if (ui_order_parse(UI_ORDER_DRAWER, value, &order)) out->ui_customization.drawer = order;
         } else if (strcmp(key, "music_order") == 0) {
             ui_item_order_t order;
             if (ui_order_parse(UI_ORDER_MUSIC, value, &order)) out->ui_customization.music = order;
-        } else if (strcmp(key, "quick_drawer_enabled") == 0) {
-            out->ui_customization.drawer_enabled = strcmp(value, "1") == 0;
-        } else if (strcmp(key, "quick_drawer_eq_visible") == 0) {
-            out->ui_customization.drawer_eq_visible = strcmp(value, "1") == 0;
-        } else if (strcmp(key, "startup_volume_fixed_enabled") == 0) {
-            out->startup_volume_fixed_enabled = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "startup_volume_fixed_percent") == 0) {
-            out->startup_volume_fixed_percent = atoi(value);
         } else if (strcmp(key, "car_mode_startup_volume_percent") == 0) {
             legacy_car_mode_volume_percent = atoi(value);
             legacy_car_mode_volume_percent_seen = true;
         } else if (strcmp(key, "car_mode_volume_percent") == 0) {
             out->car_mode_volume_percent = atoi(value);
             car_mode_volume_percent_seen = true;
-        } else if (strcmp(key, "max_volume_percent") == 0) {
-            out->max_volume_percent = atoi(value);
-        } else if (strcmp(key, "sleep_timer_minutes") == 0) {
-            out->sleep_timer_minutes = atoi(value);
-        } else if (strcmp(key, "timezone") == 0) {
-            snprintf(out->timezone, sizeof(out->timezone), "%s", value);
-        } else if (strcmp(key, "hostname") == 0) {
-            snprintf(out->hostname, sizeof(out->hostname), "%s", value);
-        } else if (strcmp(key, "font_size_tier") == 0) {
-            out->font_size_tier = atoi(value);
         } else if (strcmp(key, "keyboard_layout") == 0) {
             char * end;
             errno = 0;
@@ -725,14 +730,6 @@ bool settings_load(player_settings_t * out) {
             out->keyboard_layout = parsed && *end == '\0' &&
                 layout >= KEYBOARD_LAYOUT_T9 && layout <= KEYBOARD_LAYOUT_UKRAINIAN
                 ? (int) layout : KEYBOARD_LAYOUT_QWERTY;
-        } else if (strcmp(key, "lyrics_font_size_tier") == 0) {
-            out->lyrics_font_size_tier = atoi(value);
-        } else if (strcmp(key, "brightness_percent") == 0) {
-            out->brightness_percent = atoi(value);
-        } else if (strcmp(key, "clock_24h") == 0) {
-            out->clock_24h = (strcmp(value, "1") == 0);
-        } else if (strcmp(key, "clock_automatic") == 0) {
-            out->clock_automatic = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "clock_manual_epoch") == 0) {
             out->clock_manual_epoch = (int64_t) strtoll(value, NULL, 10);
         } else if (strcmp(key, "clock_system_reference") == 0) {
@@ -860,13 +857,9 @@ static void settings_write_file(const player_settings_t * settings) {
         return;
     }
 
+    plain_fields_write(f, settings);
     fprintf(f, "volume=%.3f\n", (double) settings->volume);
-    fprintf(f, "last_track=%s\n", settings->last_track);
     fprintf(f, "last_position=%.3f\n", settings->last_position);
-    fprintf(f, "last_source_kind=%d\n", settings->last_source_kind);
-    fprintf(f, "last_source_name=%s\n", settings->last_source_name);
-    fprintf(f, "resume_mode=%d\n", settings->resume_mode);
-    fprintf(f, "play_pause_button_mode=%d\n", settings->play_pause_button_mode);
     for (int b = 0; b < BUTTON_MAPPING_BUTTON_COUNT; ++b) {
         for (int g = 0; g < 3; ++g) {
             button_mapping_binding_t binding = settings->button_bindings[b];
@@ -877,24 +870,7 @@ static void settings_write_file(const player_settings_t * settings) {
                     g == 0 ? "tap" : (g == 1 ? "double" : "hold"), value);
         }
     }
-    fprintf(f, "volume_lock_screen_off=%d\n", settings->volume_lock_screen_off ? 1 : 0);
     fprintf(f, "accent_color=%06X\n", (unsigned int) (settings->accent_color & 0xFFFFFF));
-    fprintf(f, "accent_dynamic=%d\n", settings->accent_dynamic ? 1 : 0);
-    fprintf(f, "startup_splash_tint=%d\n", settings->startup_splash_tint ? 1 : 0);
-    fprintf(f, "titlebar_icon_tint=%d\n", settings->titlebar_icon_tint ? 1 : 0);
-    fprintf(f, "crossfade=%d\n", settings->crossfade_enabled ? 1 : 0);
-    fprintf(f, "gapless=%d\n", settings->gapless_enabled ? 1 : 0);
-    fprintf(f, "replaygain_mode=%d\n", settings->replaygain_mode);
-    fprintf(f, "animation_scale=%d\n", settings->animation_scale);
-    fprintf(f, "car_mode_enabled=%d\n", settings->car_mode_enabled ? 1 : 0);
-    fprintf(f, "car_mode_autoresume_enabled=%d\n", settings->car_mode_autoresume_enabled ? 1 : 0);
-    fprintf(f, "inline_remote_enabled=%d\n", settings->inline_remote_enabled ? 1 : 0);
-    fprintf(f, "lyrics_enabled=%d\n", settings->lyrics_enabled ? 1 : 0);
-    fprintf(f, "lyrics_keep_screen_on=%d\n", settings->lyrics_keep_screen_on ? 1 : 0);
-    fprintf(f, "subsonic_url=%s\n", settings->subsonic_url);
-    fprintf(f, "subsonic_username=%s\n", settings->subsonic_username);
-    fprintf(f, "subsonic_password=%s\n", settings->subsonic_password);
-    fprintf(f, "subsonic_verify_tls=%d\n", settings->subsonic_verify_tls ? 1 : 0);
     fprintf(f, "subsonic_stream_quality=%d\n", settings->subsonic_stream_quality);
     fprintf(f, "subsonic_download_subfolder=%s\n", subsonic_download_subfolder);
     fprintf(f, "subsonic_download_layout=%d\n", settings->subsonic_download_layout == 1 ? 1 : 0);
@@ -904,66 +880,34 @@ static void settings_write_file(const player_settings_t * settings) {
         fprintf(f, "subsonic_saved_%d_password=%s\n", i, settings->subsonic_saved[i].password);
         fprintf(f, "subsonic_saved_%d_verify_tls=%d\n", i, settings->subsonic_saved[i].verify_tls ? 1 : 0);
     }
-    fprintf(f, "bt_volume_sync=%d\n", settings->bt_volume_sync_enabled ? 1 : 0);
     fprintf(f, "dac_filter=%d\n", settings->dac_filter >= 0 && settings->dac_filter <= 3 ? settings->dac_filter : 0);
-    fprintf(f, "dac_nos=%d\n", settings->dac_nos ? 1 : 0);
     fprintf(f, "dac_dre=%d\n", settings->dac_dre ? 1 : 0);
     fprintf(f, "usb_dsd_output=%d\n",
             settings->usb_dsd_output >= USB_DSD_OUTPUT_PCM &&
             settings->usb_dsd_output <= USB_DSD_OUTPUT_DOP
                 ? settings->usb_dsd_output : USB_DSD_OUTPUT_PCM);
-    fprintf(f, "bt_speexrate=%d\n", settings->bt_speexrate_enabled ? 1 : 0);
     fprintf(f, "bt_sample_rate=%u\n", settings->bt_sample_rate);
     for (int i = 0; i < settings->bt_device_rate_count && i < BT_DEVICE_RATE_MAX; i++)
         fprintf(f, "bt_device_rate=%s,%u\n", settings->bt_device_rates[i].mac,
                 settings->bt_device_rates[i].rate);
     bt_ssc_settings_write(f, settings);
     bt_rc_trust_settings_write(f, settings);
-    fprintf(f, "bt_codec=%s\n", settings->bt_codec);
     fprintf(f, "bt_last_output_mac=%s\n", settings->bt_last_output_mac);
-    fprintf(f, "bt_hide_unnamed_devices=%d\n", settings->bt_hide_unnamed_devices ? 1 : 0);
-    fprintf(f, "wifi_dac_mode=%d\n", settings->wifi_dac_mode_enabled ? 1 : 0);
-    fprintf(f, "dlna_renderer_enabled=%d\n", settings->dlna_renderer_enabled ? 1 : 0);
-    fprintf(f, "remote_control_enabled=%d\n", settings->remote_control_enabled ? 1 : 0);
     char pin[sizeof(settings->remote_control_pin)];
     pthread_mutex_lock(&settings_pin_mutex);
     snprintf(pin, sizeof(pin), "%s", settings->remote_control_pin);
     pthread_mutex_unlock(&settings_pin_mutex);
     fprintf(f, "remote_control_pin=%s\n", pin);
-    fprintf(f, "screen_timeout_enabled=%d\n", settings->screen_timeout_enabled ? 1 : 0);
-    fprintf(f, "screen_timeout_seconds=%d\n", settings->screen_timeout_seconds);
-    fprintf(f, "screen_dimming_enabled=%d\n", settings->screen_dimming_enabled ? 1 : 0);
-    fprintf(f, "screen_dim_delay_seconds=%d\n", settings->screen_dim_delay_seconds);
-    fprintf(f, "hide_player_topbar=%d\n", settings->hide_player_topbar ? 1 : 0);
     fprintf(f, "topbar_hidden_elements=%u\n", settings->topbar_hidden_elements & TOPBAR_HIDE_ALL);
     fprintf(f, "topbar_clock_position=%d\n",
             settings->topbar_clock_position >= TOPBAR_CLOCK_CENTER &&
             settings->topbar_clock_position <= TOPBAR_CLOCK_RIGHT
                 ? settings->topbar_clock_position : TOPBAR_CLOCK_CENTER);
-    fprintf(f, "screen_upside_down=%d\n", settings->screen_upside_down ? 1 : 0);
-    fprintf(f, "led_indicator_enabled=%d\n", settings->led_indicator_enabled ? 1 : 0);
-    fprintf(f, "db_logging_enabled=%d\n", settings->db_logging_enabled ? 1 : 0);
-    fprintf(f, "screenshot_combo_enabled=%d\n", settings->screenshot_combo_enabled ? 1 : 0);
-    fprintf(f, "charge_limiter_enabled=%d\n", settings->charge_limiter_enabled ? 1 : 0);
-    fprintf(f, "safe_charging_enabled=%d\n", settings->safe_charging_enabled ? 1 : 0);
-    fprintf(f, "show_battery_percent=%d\n", settings->show_battery_percent ? 1 : 0);
-    fprintf(f, "show_artist_images=%d\n", settings->show_artist_images ? 1 : 0);
-    fprintf(f, "peq_graph_include_preamp=%d\n", settings->peq_graph_include_preamp ? 1 : 0);
-    fprintf(f, "join_albums=%d\n", settings->join_albums ? 1 : 0);
     fprintf(f, "file_sort_mode=%d\n", settings->file_sort_mode == 1 ? 1 : 0);
     fprintf(f, "album_sort_mode=%d\n", settings->album_sort_mode >= 0 && settings->album_sort_mode <= 3 ? settings->album_sort_mode : 0);
     fprintf(f, "artist_albums_sort_mode=%d\n", settings->artist_albums_sort_mode >= 0 && settings->artist_albums_sort_mode <= 2 ? settings->artist_albums_sort_mode : 0);
     fprintf(f, "album_artist_albums_sort_mode=%d\n", settings->album_artist_albums_sort_mode >= 0 && settings->album_artist_albums_sort_mode <= 2 ? settings->album_artist_albums_sort_mode : 0);
     fprintf(f, "genre_view_mode=%d\n", settings->genre_view_mode >= 0 && settings->genre_view_mode <= 3 ? settings->genre_view_mode : 0);
-    fprintf(f, "idle_shutdown_enabled=%d\n", settings->idle_shutdown_enabled ? 1 : 0);
-    fprintf(f, "idle_shutdown_minutes=%d\n", settings->idle_shutdown_minutes);
-    fprintf(f, "idle_suspend_enabled=%d\n", settings->idle_suspend_enabled ? 1 : 0);
-    fprintf(f, "idle_suspend_default_migrated=%d\n", settings->idle_suspend_default_migrated ? 1 : 0);
-    fprintf(f, "usb_mode=%d\n", settings->usb_mode);
-    fprintf(f, "usb_dac_disable_charging=%d\n", settings->usb_dac_disable_charging ? 1 : 0);
-    fprintf(f, "play_mode=%d\n", settings->play_mode);
-    fprintf(f, "swipe_up_home_enabled=%d\n", settings->swipe_up_home_enabled ? 1 : 0);
-    fprintf(f, "quick_drawer_volume_visible=%d\n", settings->quick_drawer_volume_visible ? 1 : 0);
     char ui_order_text[UI_ORDER_MAX * 24];
     ui_order_format(UI_ORDER_MUSIC, &settings->ui_customization.music, ui_order_text, sizeof(ui_order_text));
     fprintf(f, "music_order=%s\n", ui_order_text);
@@ -971,30 +915,14 @@ static void settings_write_file(const player_settings_t * settings) {
         ui_order_format(UI_ORDER_DRAWER, &settings->ui_customization.drawer, ui_order_text, sizeof(ui_order_text));
         fprintf(f, "quick_drawer_order=%s\n", ui_order_text);
     }
-    fprintf(f, "quick_drawer_enabled=%d\n", settings->ui_customization.drawer_enabled ? 1 : 0);
-    fprintf(f, "quick_drawer_eq_visible=%d\n", settings->ui_customization.drawer_eq_visible ? 1 : 0);
-    fprintf(f, "startup_volume_fixed_enabled=%d\n", settings->startup_volume_fixed_enabled ? 1 : 0);
-    fprintf(f, "startup_volume_fixed_percent=%d\n", settings->startup_volume_fixed_percent);
     fprintf(f, "car_mode_volume_percent=%d\n", settings->car_mode_volume_percent);
-    fprintf(f, "max_volume_percent=%d\n", settings->max_volume_percent);
-    fprintf(f, "sleep_timer_minutes=%d\n", settings->sleep_timer_minutes);
-    fprintf(f, "timezone=%s\n", settings->timezone);
-    fprintf(f, "hostname=%s\n", settings->hostname);
-    fprintf(f, "font_size_tier=%d\n", settings->font_size_tier);
     int keyboard_layout = normalize_keyboard_layout(settings->keyboard_layout);
     fprintf(f, "keyboard_layout=%d\n", keyboard_layout);
-    fprintf(f, "lyrics_font_size_tier=%d\n", settings->lyrics_font_size_tier);
-    fprintf(f, "brightness_percent=%d\n", settings->brightness_percent);
-    fprintf(f, "clock_24h=%d\n", settings->clock_24h ? 1 : 0);
-    fprintf(f, "clock_automatic=%d\n", settings->clock_automatic ? 1 : 0);
     fprintf(f, "clock_manual_epoch=%lld\n", (long long) settings->clock_manual_epoch);
     fprintf(f, "clock_system_reference=%lld\n", (long long) settings->clock_system_reference);
     fprintf(f, "custom_font=%s\n", settings->custom_font);
     fprintf(f, "player_layout=%s\n", settings->player_layout);
     fprintf(f, "language=%s\n", settings->language[0] ? settings->language : "en");
-    fprintf(f, "setup_complete=%d\n", settings->setup_complete ? 1 : 0);
-    fprintf(f, "setup_step=%d\n", settings->setup_step);
-    fprintf(f, "setup_intro_played=%d\n", settings->setup_intro_played ? 1 : 0);
     for (int i = 0; i < SETTINGS_SETUP_PLUGIN_MAX; ++i) {
         const char * id = valid_setup_plugin_id(settings->setup_plugin_ids[i]) ? settings->setup_plugin_ids[i] : "";
         fprintf(f, "setup_plugin_id_%d=%s\n", i, id);
@@ -1002,7 +930,6 @@ static void settings_write_file(const player_settings_t * settings) {
     const char * layout_id = valid_setup_plugin_id(settings->setup_layout_plugin_id)
         ? settings->setup_layout_plugin_id : "";
     fprintf(f, "setup_layout_plugin_id=%s\n", layout_id);
-    fprintf(f, "setup_scan_music=%d\n", settings->setup_scan_music ? 1 : 0);
 
     bool write_ok = !ferror(f) && fflush(f) == 0;
     if (write_ok && fsync(fileno(f)) != 0) write_ok = false;
