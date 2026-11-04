@@ -34,6 +34,8 @@ struct sockaddr_hci_mgmt {
 
 #define BT_MGMT_EV_NEW_LINK_KEY 0x0009
 #define BT_MGMT_HDR_SIZE 6
+#define BT_MGMT_NEW_LINK_KEY_TYPE_OFFSET 8 /* in the payload: store_hint, addr 6, addr_type, then key_type and val */
+#define BT_MGMT_NEW_LINK_KEY_KEY_OFFSET 9
 #define BT_MGMT_NEW_LINK_KEY_SIZE 26 /* store_hint, then mgmt_link_key_info: addr 6, addr_type, key_type, val 16, pin_len */
 #define BT_MGMT_OP_GET_CONNECTIONS 0x0015
 #define BT_MGMT_EV_CMD_COMPLETE 0x0001
@@ -56,7 +58,7 @@ static void wire_address_mac(const uint8_t * a, char mac[BT_RC_TRUST_MAC_SIZE]) 
 
 /* One mgmt event (little endian header { opcode, index, len } then payload; see the kernel's
  * Documentation/bluetooth/mgmt-api.txt). True for a well-formed New Link Key event, with the
- * peer's upper-case MAC (the wire address is reversed) and its store_hint. The key is not read. */
+ * peer's upper-case MAC (the wire address is reversed) and its store_hint. The key is left in buf. */
 static bool parse_new_link_key(const uint8_t * buf, size_t len, char mac[BT_RC_TRUST_MAC_SIZE],
                                uint8_t * store_hint) {
     if (!buf || len < BT_MGMT_HDR_SIZE + BT_MGMT_NEW_LINK_KEY_SIZE) return false;
@@ -100,10 +102,13 @@ static void connection_mac(const uint8_t * buf, int i, char mac[BT_RC_TRUST_MAC_
 #define REOPEN_DELAY_S 5
 #define POLL_MS 1000
 #define CONNECTIONS_WAIT_S 2
+/* What one queued event can cost the receive buffer (skb overhead included), taken high. */
+#define EVENT_BUFFER_COST 1024
 
 static pthread_mutex_t watch_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int watch_fd = -1;       /* guarded by watch_mutex; only the thread opens and closes it */
 static bool watch_broken;       /* a read failed; the thread closes the socket */
+static int watch_rcvbuf = 212992; /* the effective SO_RCVBUF of watch_fd (guarded by watch_mutex) */
 static atomic_bool watch_ok = false;
 static pthread_once_t start_once = PTHREAD_ONCE_INIT;
 
@@ -122,10 +127,12 @@ static int open_mgmt(void) {
         return -1;
     }
     /* The kernel drops events when this socket's queue is full, with no count; a big queue
-     * leaves only a reader starved long enough to overflow it as a risk. */
+     * leaves only a reader starved long enough to overflow it as a risk (see drain). */
     int rcvbuf = 1 << 20;
     if (setsockopt(fd, SOL_SOCKET, SO_RCVBUFFORCE, &rcvbuf, sizeof(rcvbuf)) < 0)
         (void) setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
+    socklen_t len = sizeof(rcvbuf);
+    if (getsockopt(fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, &len) == 0 && rcvbuf > 0) watch_rcvbuf = rcvbuf;
     /* Without CAP_NET_ADMIN the bind succeeds but no events arrive: that must not look healthy. */
     if (geteuid() != 0) {
         close(fd);
@@ -138,12 +145,14 @@ bool bt_link_key_watch_healthy(void) {
     return atomic_load(&watch_ok);
 }
 
-/* One queued event. store_hint 1 is a stored bond: bluetoothd rewrites the info file, which the
- * fingerprint already sees. 0 is a temporary key it does not store. */
+/* One queued event: all of it is decided by bt_rc_trust_link_key_event. */
 static void handle_event(const uint8_t * buf, size_t n) {
     char mac[BT_RC_TRUST_MAC_SIZE];
     uint8_t store_hint;
-    if (parse_new_link_key(buf, n, mac, &store_hint) && store_hint == 0) bt_rc_trust_remove(mac);
+    if (!parse_new_link_key(buf, n, mac, &store_hint)) return;
+    const uint8_t * payload = buf + BT_MGMT_HDR_SIZE;
+    bt_rc_trust_link_key_event(mac, store_hint != 0, payload[BT_MGMT_NEW_LINK_KEY_TYPE_OFFSET],
+                               payload + BT_MGMT_NEW_LINK_KEY_KEY_OFFSET);
 }
 
 /* Reads one queued packet into buf. 1: got one, 0: queue empty, -1: the socket failed. */
@@ -159,18 +168,34 @@ static int read_event(int fd, uint8_t * buf, size_t size, size_t * n) {
     }
 }
 
+static void revoke_connected(int fd);
+
+/* Reads every queued event. FIONREAD cannot size the queue (it is not served on this channel and
+ * would report one packet), so the events of one pass are counted at EVENT_BUFFER_COST each: a
+ * pass that held half the receive buffer or more may have overflowed it, and the kernel drops
+ * events then without a count. That fails closed: all trust is revoked and the connected devices
+ * are swept again. Residual risk: events lost to a failed allocation inside the kernel, or to a
+ * queue that overflowed and was drained between two passes, look like nothing. */
 void bt_link_key_watch_drain(void) {
     pthread_mutex_lock(&watch_mutex);
+    unsigned long queued = 0;
     while (watch_fd >= 0 && !watch_broken) {
         uint8_t buf[512];
         size_t n = 0;
         int r = read_event(watch_fd, buf, sizeof(buf), &n);
-        if (r > 0) handle_event(buf, n);
+        if (r > 0) {
+            handle_event(buf, n);
+            queued++;
+        }
         mbedtls_platform_zeroize(buf, sizeof(buf));
         if (r > 0) continue;
         if (r < 0) {
             watch_broken = true;
             set_ok(false);
+        } else if (queued * EVENT_BUFFER_COST >= (unsigned long) watch_rcvbuf / 2) {
+            DBG_LOG("bt_link_key_watch: receive queue may have overflowed, revoking all trust\n");
+            bt_rc_trust_clear();
+            revoke_connected(watch_fd);
         }
         break;
     }

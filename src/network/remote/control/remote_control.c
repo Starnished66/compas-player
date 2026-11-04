@@ -9,7 +9,6 @@
 #include "remote_settings.h"
 #include "remote_plugins.h"
 #include "../../bluetooth/control/bt_rc_trust.h"
-#include "../../bluetooth/control/bt_pairing_agent.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -502,7 +501,7 @@ static bool bt_peer_trusted(const char * bt_mac) {
     if (!bt_mac) return false;
     for (int waited = 0;; waited += BT_GRANT_POLL_MS) {
         /* Pending is read first: a grant leaves pending only after its trust was added. */
-        bool pending = bt_pairing_agent_grant_pending(bt_mac);
+        bool pending = bt_rc_trust_grant_pending(bt_mac);
         if (bt_rc_trust_is_trusted(bt_mac)) return true;
         if (!pending || waited >= BT_GRANT_WAIT_MS) return false;
         usleep(BT_GRANT_POLL_MS * 1000);
@@ -547,7 +546,7 @@ static bool request_authorized(int cfd, const char * method, const char * path_o
                       "{\"error\":\"unauthorized\",\"code\":\"pin_required\"}");
         return false;
     }
-    if (bt_mac) bt_rc_trust_add_at_epoch(bt_mac, epoch, false);
+    if (bt_mac) bt_rc_trust_add_at_epoch(bt_mac, epoch);
     if (strcmp(method, "POST") == 0 && strcmp(path_only, "/api/session") == 0) {
         send_session_cookie(cfd, candidate);
         return false;

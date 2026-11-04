@@ -6,7 +6,6 @@
 #include <stdint.h>
 
 #ifdef HOST_BUILD
-static inline bool bt_pairing_agent_grant_pending(const char * mac) { (void) mac; return false; }
 static inline void bt_pairing_agent_cancel_prompts(void) {}
 static inline bool bt_pairing_agent_activate(void) { return false; }
 static inline bool bt_pairing_agent_yield(void) { return false; }
@@ -52,9 +51,6 @@ void bt_pairing_agent_answer_confirmation(uint32_t request_id, bool accept);
  * "%06u", DisplayPinCode as sent): true while shown, with a fresh id per code (never 0).
  * Cleared on Cancel, once the device is paired, or after 60 s. Thread-safe. */
 bool bt_pairing_agent_display_code(char * name, size_t name_size, char * code, size_t code_size, uint32_t * request_id);
-/* True while a Pair tap on the player's popup waits for that device (normalized MAC) to finish
- * pairing, so a request from it may be about to become trusted. Thread-safe. */
-bool bt_pairing_agent_grant_pending(const char * mac);
 /* Rejects a pending numeric comparison, drops a shown code and closes the pairing window, so a
  * pairing that waits for the user ends at once (the UI is going away and nobody can answer).
  * Thread-safe. */

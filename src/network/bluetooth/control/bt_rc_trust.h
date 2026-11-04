@@ -9,11 +9,12 @@
  * a bond made again, by anyone and through any agent, has a new key and so
  * loses the trust, and a device with no readable bond is never trusted. The
  * list is bounded (oldest evicted), keyed by upper-case "AA:BB:CC:DD:EE:FF", and
- * thread-safe: the RFCOMM workers, the UI thread and the pairing agent thread
- * all use it. Persistence lives in bt_rc_trust_settings.h. */
+ * thread-safe: the RFCOMM workers, the UI thread, the pairing agent thread
+ * and the link key watcher all use it. Persistence lives in bt_rc_trust_settings.h. */
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #define BT_RC_TRUST_MAX 8
 #define BT_RC_TRUST_MAC_SIZE 18
@@ -34,13 +35,31 @@ bool bt_rc_trust_fingerprint_valid(const char * fp);
 /* True when the MAC is listed and its bond still has the fingerprint it was trusted with;
  * otherwise the entry is removed. */
 bool bt_rc_trust_is_trusted(const char * mac);
-/* Counts bt_rc_trust_clear() calls. A grant decided under one epoch is dropped if it changed. */
+/* Counts revocations (every remove and clear). A grant decided under one epoch is dropped if it changed. */
 unsigned int bt_rc_trust_epoch(void);
 /* Trusts the device's current bond (does nothing when it has none) unless the epoch changed since
- * it was read. require_authenticated additionally needs a MITM-protected link key (numeric
- * comparison), which a Just Works bond made by someone else never has: the Pair-tap grant sets it. */
-void bt_rc_trust_add_at_epoch(const char * mac, unsigned int epoch, bool require_authenticated);
+ * it was read. This is the path of a valid Remote Control PIN. */
+void bt_rc_trust_add_at_epoch(const char * mac, unsigned int epoch);
+/* Also advances the epoch (even when the device is not listed), so a grant armed earlier is dropped. */
 void bt_rc_trust_remove(const char * mac);
+#define BT_RC_TRUST_LINK_KEY_SIZE 16
+
+/* The user's Pair tap on the numeric comparison of the player, for the device pairing now. It
+ * completes only from the link key event of that pairing: a stored, MITM-protected key reported
+ * for the device after this call, with no revocation in between (any remove or clear drops it),
+ * within a time limit. Then the device is trusted with the fingerprint of that key. Any other new
+ * key for the device while it waits cancels it. */
+void bt_rc_trust_arm_grant(const char * mac);
+/* True while that grant can still complete; a request from the device waits for it. */
+bool bt_rc_trust_grant_pending(const char * mac);
+
+/* A new link key the kernel reported for a device (bt_link_key_watch.h): stored is the kernel's
+ * store_hint, key_type its key type. It completes a pending grant (see above); otherwise a key that
+ * is not stored always revokes the device, and a stored one revokes it unless it is the key the
+ * trust was granted for (the fingerprint of the key as bluetoothd writes it to the info file),
+ * since bluetoothd can fail to store the key it was given. */
+void bt_rc_trust_link_key_event(const char * mac, bool stored, int key_type,
+                                const uint8_t key[BT_RC_TRUST_LINK_KEY_SIZE]);
 /* Revokes every device (the Remote Control PIN was replaced). */
 void bt_rc_trust_clear(void);
 

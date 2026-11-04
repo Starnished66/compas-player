@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "bt_link_key_watch.h"
@@ -17,12 +18,20 @@
 #endif
 
 #define LINK_KEY_HEX 32
+#define GRANT_WAIT_S 15
 
 static pthread_mutex_t trust_mutex = PTHREAD_MUTEX_INITIALIZER;
 static bt_rc_trust_entry_t trusted[BT_RC_TRUST_MAX]; /* oldest first */
 static int trusted_count;
 static bool trusted_dirty;
 static unsigned int trusted_epoch;
+/* The Pair tap the user made, waiting for the key of that very pairing (see arm_grant). */
+static struct {
+    bool active;
+    char mac[BT_RC_TRUST_MAC_SIZE];
+    unsigned int epoch;
+    struct timespec deadline;
+} grant;
 
 bool bt_rc_trust_normalize(const char * mac, char out[BT_RC_TRUST_MAC_SIZE]) {
     if (!mac || strlen(mac) != 17) return false;
@@ -56,22 +65,13 @@ static bool key_fingerprint(const char * hex, char out[BT_RC_TRUST_FP_SIZE]) {
     return ok;
 }
 
-/* The kernel key type of a "Type=" value, -1 when it is not a number. */
-static int key_type_from(const char * value) {
-    char * end;
-    long type = strtol(value, &end, 10);
-    return end != value && type >= 0 && type <= 255 ? (int) type : -1;
-}
-
-/* Reads the "Key=" and "Type=" of the [LinkKey] section of one bluetoothd info file; the key is
- * hashed. *key_type is -1 when there is no usable Type. */
-static bool read_bond_file(const char * path, char out[BT_RC_TRUST_FP_SIZE], int * key_type) {
+/* Reads the "Key=" of the [LinkKey] section of one bluetoothd info file; the key is hashed. */
+static bool read_bond_file(const char * path, char out[BT_RC_TRUST_FP_SIZE]) {
     FILE * f = fopen(path, "r");
     if (!f) return false;
     char iobuf[512], line[128];
     setvbuf(f, iobuf, _IOFBF, sizeof(iobuf)); /* a buffer of ours, so the key can be wiped */
     bool in_link_key = false, have_key = false, continued = false;
-    *key_type = -1;
     while (fgets(line, sizeof(line), f)) {
         bool line_start = !continued;
         continued = strchr(line, '\n') == NULL;
@@ -82,8 +82,6 @@ static bool read_bond_file(const char * path, char out[BT_RC_TRUST_FP_SIZE], int
         } else if (in_link_key && !have_key && strncmp(line, "Key=", 4) == 0) {
             have_key = key_fingerprint(line + 4, out);
             if (!have_key) break;
-        } else if (in_link_key && *key_type < 0 && strncmp(line, "Type=", 5) == 0) {
-            *key_type = key_type_from(line + 5);
         }
     }
     fclose(f);
@@ -92,21 +90,14 @@ static bool read_bond_file(const char * path, char out[BT_RC_TRUST_FP_SIZE], int
     return have_key;
 }
 
-/* Kernel key types 0x05 and 0x08 are authenticated (MITM protected: numeric comparison); Just Works
- * gives 0x04 or 0x07. */
-static bool key_authenticated(int key_type) {
-    return key_type == 0x05 || key_type == 0x08;
-}
-
-/* key_type may be NULL. */
-static bool bond_fingerprint(const char * mac, char out[BT_RC_TRUST_FP_SIZE], int * key_type) {
+static bool bond_fingerprint(const char * mac, char out[BT_RC_TRUST_FP_SIZE]) {
     char key[BT_RC_TRUST_MAC_SIZE];
     const char * dir = BT_RC_TRUST_STORAGE_DIR;
     if (!bt_rc_trust_normalize(mac, key)) return false;
     DIR * d = opendir(dir);
     if (!d) return false;
     bool found = false;
-    int seen = 0, type = -1;
+    int seen = 0;
     struct dirent * e;
     while ((e = readdir(d))) {
         char path[512];
@@ -114,10 +105,9 @@ static bool bond_fingerprint(const char * mac, char out[BT_RC_TRUST_FP_SIZE], in
         if (snprintf(path, sizeof(path), "%s/%s/%s/info", dir, e->d_name, key) >= (int) sizeof(path)) continue;
         if (access(path, F_OK) != 0) continue;
         seen++;
-        found = read_bond_file(path, out, &type);
+        found = read_bond_file(path, out);
     }
     closedir(d);
-    if (key_type) *key_type = type;
     return found && seen == 1; /* more than one adapter holds a bond: which is live is unknown */
 }
 
@@ -142,6 +132,13 @@ static void erase_locked(int i) {
     trusted_dirty = true;
 }
 
+/* Caller holds trust_mutex. Every revocation advances the epoch, so a grant decided before it
+ * (it may have read the bond that is being revoked) cannot trust the device afterwards. */
+static void revoke_locked(int i) {
+    erase_locked(i);
+    trusted_epoch++;
+}
+
 bool bt_rc_trust_is_trusted(const char * mac) {
     char key[BT_RC_TRUST_MAC_SIZE], stored[BT_RC_TRUST_FP_SIZE], now[BT_RC_TRUST_FP_SIZE];
     if (!bt_rc_trust_normalize(mac, key)) return false;
@@ -152,11 +149,11 @@ bool bt_rc_trust_is_trusted(const char * mac) {
     if (i >= 0) memcpy(stored, trusted[i].fingerprint, sizeof(stored));
     pthread_mutex_unlock(&trust_mutex);
     if (i < 0) return false;
-    if (bond_fingerprint(key, now, NULL) && strcmp(stored, now) == 0) return true;
+    if (bond_fingerprint(key, now) && strcmp(stored, now) == 0) return true;
     /* The bond is gone or was remade (maybe by someone else): trust does not carry over. */
     pthread_mutex_lock(&trust_mutex);
     i = find_locked(key);
-    if (i >= 0 && strcmp(trusted[i].fingerprint, stored) == 0) erase_locked(i);
+    if (i >= 0 && strcmp(trusted[i].fingerprint, stored) == 0) revoke_locked(i);
     pthread_mutex_unlock(&trust_mutex);
     return false;
 }
@@ -177,11 +174,11 @@ static void upsert_locked(const char * key, const char * fp) {
     trusted_dirty = true;
 }
 
-void bt_rc_trust_add_at_epoch(const char * mac, unsigned int epoch, bool require_authenticated) {
+void bt_rc_trust_add_at_epoch(const char * mac, unsigned int epoch) {
     char key[BT_RC_TRUST_MAC_SIZE], fp[BT_RC_TRUST_FP_SIZE];
-    int key_type = -1;
-    if (!bt_rc_trust_normalize(mac, key) || !bond_fingerprint(key, fp, &key_type)) return; /* no bond, no trust */
-    if (require_authenticated && !key_authenticated(key_type)) return;
+    if (!bt_rc_trust_normalize(mac, key)) return;
+    bt_link_key_watch_drain(); /* a key reported meanwhile revokes first and so changes the epoch */
+    if (!bond_fingerprint(key, fp)) return; /* no bond, no trust */
     pthread_mutex_lock(&trust_mutex);
     if (epoch == trusted_epoch) upsert_locked(key, fp);
     pthread_mutex_unlock(&trust_mutex);
@@ -199,7 +196,67 @@ void bt_rc_trust_remove(const char * mac) {
     if (!bt_rc_trust_normalize(mac, key)) return;
     pthread_mutex_lock(&trust_mutex);
     int i = find_locked(key);
-    if (i >= 0) erase_locked(i);
+    if (i >= 0) revoke_locked(i);
+    else trusted_epoch++; /* a grant for this device may be in flight */
+    pthread_mutex_unlock(&trust_mutex);
+}
+
+static bool deadline_passed(const struct timespec * deadline) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return now.tv_sec > deadline->tv_sec || (now.tv_sec == deadline->tv_sec && now.tv_nsec >= deadline->tv_nsec);
+}
+
+/* Caller holds trust_mutex. True while a grant for mac can still complete; an expired one, or one
+ * that a revocation made stale, is dropped. */
+static bool grant_pending_locked(const char * mac) {
+    if (grant.active && (grant.epoch != trusted_epoch || deadline_passed(&grant.deadline))) grant.active = false;
+    return grant.active && strcmp(grant.mac, mac) == 0;
+}
+
+void bt_rc_trust_arm_grant(const char * mac) {
+    char key[BT_RC_TRUST_MAC_SIZE];
+    if (!bt_rc_trust_normalize(mac, key)) return;
+    pthread_mutex_lock(&trust_mutex);
+    grant.active = true;
+    memcpy(grant.mac, key, sizeof(key));
+    grant.epoch = trusted_epoch;
+    clock_gettime(CLOCK_MONOTONIC, &grant.deadline);
+    grant.deadline.tv_sec += GRANT_WAIT_S;
+    pthread_mutex_unlock(&trust_mutex);
+}
+
+bool bt_rc_trust_grant_pending(const char * mac) {
+    char key[BT_RC_TRUST_MAC_SIZE];
+    if (!bt_rc_trust_normalize(mac, key)) return false;
+    pthread_mutex_lock(&trust_mutex);
+    bool pending = grant_pending_locked(key);
+    pthread_mutex_unlock(&trust_mutex);
+    return pending;
+}
+
+void bt_rc_trust_link_key_event(const char * mac, bool stored, int key_type,
+                                const uint8_t key[BT_RC_TRUST_LINK_KEY_SIZE]) {
+    char norm[BT_RC_TRUST_MAC_SIZE], hex[2 * BT_RC_TRUST_LINK_KEY_SIZE + 1], fp[BT_RC_TRUST_FP_SIZE];
+    if (!bt_rc_trust_normalize(mac, norm)) return;
+    /* The text bluetoothd writes as Key=: upper-case hex of the key bytes in order. */
+    for (int i = 0; i < BT_RC_TRUST_LINK_KEY_SIZE; i++) snprintf(hex + 2 * i, 3, "%02X", key[i]);
+    bool ok = key_fingerprint(hex, fp);
+    mbedtls_platform_zeroize(hex, sizeof(hex));
+    pthread_mutex_lock(&trust_mutex);
+    if (grant_pending_locked(norm)) {
+        grant.active = false; /* it completes here or not at all */
+        /* Only a MITM-protected key (numeric comparison, kernel types 0x05 and 0x08) that was stored
+         * is the pairing the user confirmed; a Just Works key by someone else is not. */
+        if (ok && stored && (key_type == 0x05 || key_type == 0x08)) {
+            upsert_locked(norm, fp);
+            pthread_mutex_unlock(&trust_mutex);
+            return;
+        }
+    }
+    int i = find_locked(norm);
+    if (i >= 0 && (!stored || !ok || strcmp(trusted[i].fingerprint, fp) != 0)) revoke_locked(i);
+    else if (!stored) trusted_epoch++; /* a grant for this device may be in flight */
     pthread_mutex_unlock(&trust_mutex);
 }
 

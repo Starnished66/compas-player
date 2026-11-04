@@ -2,7 +2,7 @@
 #define BT_PAIRING_AGENT_INTERNAL_H
 
 /* Shared between bt_pairing_agent.c (D-Bus agent object, dispatch thread) and bt_pairing_prompt.c
- * (pairing window, UI prompts, trust grant). Not part of the public API. */
+ * (pairing window, UI prompts). Not part of the public API. */
 
 #include <dbus/dbus.h>
 #include <stdbool.h>

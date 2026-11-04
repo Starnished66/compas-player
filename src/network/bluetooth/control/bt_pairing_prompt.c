@@ -72,7 +72,6 @@ static uint32_t ui_id_seq;
 static struct {
     DBusMessage * msg; /* non-NULL while a request is pending */
     char name[BT_AGENT_NAME_MAX];
-    char path[BT_AGENT_PATH_MAX];
     char mac[BT_RC_TRUST_MAC_SIZE]; /* empty when the device path had none */
     uint32_t passkey, id, deadline;
     bool answered, accept;
@@ -85,18 +84,6 @@ static struct {
     uint32_t id, deadline, next_check;
 } display;
 
-/* A trust grant waits for the device to finish pairing: tapping Pair proves nothing if the
- * other side then cancels. Guarded by ui_mutex. Checked every dispatch tick: the peer connects
- * within milliseconds of bonding (see bt_pairing_agent_grant_pending). */
-#define BT_AGENT_TRUST_WAIT_TENTHS 150
-static struct {
-    bool active;
-    char path[BT_AGENT_PATH_MAX];
-    char mac[BT_RC_TRUST_MAC_SIZE];
-    unsigned int epoch; /* bt_rc_trust_epoch() when armed */
-    uint32_t deadline;
-} grant;
-
 /* Ids are never 0. */
 static uint32_t next_ui_id(void) {
     return ++ui_id_seq ? ui_id_seq : ++ui_id_seq;
@@ -108,7 +95,6 @@ void bt_agent_ui_state_clear(void) {
     if (confirm.msg) dbus_message_unref(confirm.msg);
     confirm.msg = NULL;
     display.active = false;
-    grant.active = false;
     pthread_mutex_unlock(&ui_mutex);
 }
 
@@ -123,7 +109,6 @@ bool bt_agent_confirm_begin(DBusConnection * c, DBusMessage * msg, const char * 
     pthread_mutex_lock(&ui_mutex);
     confirm.msg = dbus_message_ref(msg);
     snprintf(confirm.name, sizeof(confirm.name), "%s", name);
-    snprintf(confirm.path, sizeof(confirm.path), "%s", device);
     if (!bt_rc_trust_mac_from_path(device, confirm.mac)) confirm.mac[0] = '\0';
     confirm.passkey = passkey;
     confirm.id = next_ui_id();
@@ -157,10 +142,8 @@ struct ui_due {
     DBusMessage * msg;
     bool accept;
     char accepted_mac[BT_RC_TRUST_MAC_SIZE];
-    char accepted_path[BT_AGENT_PATH_MAX];
     char path[BT_AGENT_PATH_MAX];
-    char grant_path[BT_AGENT_PATH_MAX];
-    bool check_paired, check_grant;
+    bool check_paired;
 };
 
 /* The take_* helpers run under ui_mutex. */
@@ -170,20 +153,8 @@ static void take_confirm_due(struct ui_due * due) {
         due->accept = confirm.answered && confirm.accept;
         if (due->accept) {
             snprintf(due->accepted_mac, sizeof(due->accepted_mac), "%s", confirm.mac);
-            snprintf(due->accepted_path, sizeof(due->accepted_path), "%s", confirm.path);
         }
         confirm.msg = NULL;
-    }
-}
-
-static void take_grant_due(struct ui_due * due) {
-    if (grant.active) {
-        if (deadline_passed(grant.deadline)) {
-            grant.active = false;
-        } else {
-            snprintf(due->grant_path, sizeof(due->grant_path), "%s", grant.path);
-            due->check_grant = true;
-        }
     }
 }
 
@@ -202,44 +173,15 @@ static void take_display_due(struct ui_due * due) {
 static void confirm_reply(DBusConnection * c, const struct ui_due * due) {
     DBG_LOG("bt_pairing_agent: confirmation %s\n", due->accept ? "accepted" : "rejected");
     if (due->accept) {
-        /* The user compared the codes on the player's own screen: that is the trust decision,
-         * applied once the device reports Paired (see grant). Already Paired now means this is
-         * not a fresh bond (a re-pair, which then cancelled, would pass the wait), so it does
-         * not arm: the PIN is needed. */
-        if (due->accepted_mac[0] && !bt_agent_device_is_paired(c, due->accepted_path)) {
-            pthread_mutex_lock(&ui_mutex);
-            grant.epoch = bt_rc_trust_epoch();
-            grant.active = true;
-            snprintf(grant.path, sizeof(grant.path), "%s", due->accepted_path);
-            snprintf(grant.mac, sizeof(grant.mac), "%s", due->accepted_mac);
-            grant.deadline = bt_agent_monotonic_tenths() + BT_AGENT_TRUST_WAIT_TENTHS;
-            pthread_mutex_unlock(&ui_mutex);
-        }
+        /* The user compared the codes on the player's own screen: that is the trust decision. It
+         * is applied by the link key of this very pairing (see bt_rc_trust_arm_grant), also when
+         * the device was bonded before (the phone forgot the player and pairs again). */
+        if (due->accepted_mac[0]) bt_rc_trust_arm_grant(due->accepted_mac);
         bt_agent_send_empty_reply(c, due->msg);
     } else {
         bt_agent_send_error_reply(c, due->msg, "org.bluez.Error.Rejected", "Pairing rejected");
     }
     dbus_message_unref(due->msg);
-}
-
-/* Trust is added before the grant is cleared, so a request waiting on bt_pairing_agent_grant_pending
- * sees the device trusted once the grant is gone. Only an authenticated (numeric comparison) key
- * counts: a Just Works bond made by a spoofer inside the window must not inherit the tap. */
-static void grant_check(DBusConnection * c, const char * grant_path) {
-    if (!bt_agent_device_is_paired(c, grant_path)) return;
-    char mac[BT_RC_TRUST_MAC_SIZE] = "";
-    unsigned int epoch = 0;
-    pthread_mutex_lock(&ui_mutex);
-    if (grant.active && strcmp(grant.path, grant_path) == 0) {
-        snprintf(mac, sizeof(mac), "%s", grant.mac);
-        epoch = grant.epoch;
-    }
-    pthread_mutex_unlock(&ui_mutex);
-    if (!mac[0]) return;
-    bt_rc_trust_add_at_epoch(mac, epoch, true); /* not after a PIN change */
-    pthread_mutex_lock(&ui_mutex);
-    if (grant.active && strcmp(grant.mac, mac) == 0) grant.active = false;
-    pthread_mutex_unlock(&ui_mutex);
 }
 
 static void display_check(DBusConnection * c, const char * path) {
@@ -256,11 +198,9 @@ void bt_agent_ui_service(DBusConnection * c) {
     memset(&due, 0, sizeof(due));
     pthread_mutex_lock(&ui_mutex);
     take_confirm_due(&due);
-    take_grant_due(&due);
     take_display_due(&due);
     pthread_mutex_unlock(&ui_mutex);
     if (due.msg) confirm_reply(c, &due);
-    if (due.check_grant) grant_check(c, due.grant_path);
     if (due.check_paired) display_check(c, due.path);
 }
 
@@ -308,20 +248,10 @@ void bt_pairing_agent_cancel_prompts(void) {
     atomic_store(&pairing_ever_opened, false); /* later requests are rejected at once, not left to time out */
 }
 
-bool bt_pairing_agent_grant_pending(const char * mac) {
-    pthread_mutex_lock(&ui_mutex);
-    bool pending = grant.active && strcmp(grant.mac, mac) == 0;
-    pthread_mutex_unlock(&ui_mutex);
-    return pending;
-}
-
 /* A pairing callback for a device is a new bond, so any earlier trust of that address (which a
- * spoofer could hold) and any grant still waiting for it are void. Dispatch thread. */
+ * spoofer could hold) and any grant still waiting for it are void (the removal drops both). Dispatch thread. */
 void bt_agent_revoke_trust_for(const char * device) {
     char mac[BT_RC_TRUST_MAC_SIZE];
     if (!bt_rc_trust_mac_from_path(device, mac)) return;
     bt_rc_trust_remove(mac);
-    pthread_mutex_lock(&ui_mutex);
-    if (grant.active && strcmp(grant.mac, mac) == 0) grant.active = false;
-    pthread_mutex_unlock(&ui_mutex);
 }

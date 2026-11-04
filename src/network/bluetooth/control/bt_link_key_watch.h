@@ -4,8 +4,11 @@
 /* Watches the kernel Bluetooth management channel for new link keys. A peer that pairs with
  * "No Bonding" gets a key the kernel reports with store_hint 0: bluetoothd then leaves the old
  * info file (and so the old bond fingerprint) untouched, so the file alone cannot show the
- * re-pairing. Such an event revokes that device's Remote Control trust (bt_rc_trust.h). Trust is
- * judged only while the watch is healthy, so it fails closed. */
+ * re-pairing. Such an event revokes that device's Remote Control trust (bt_rc_trust.h). A stored
+ * key (store_hint 1) revokes it too unless it is the key the trust was granted for, since
+ * bluetoothd can fail to write it, and it is also what completes the user's Pair tap into a
+ * trust grant, so the grant is tied to the pairing that was confirmed. Trust is judged only while the watch is healthy, and a queue
+ * that may have overflowed revokes everything, so it fails closed. */
 
 #include <stdbool.h>
 
