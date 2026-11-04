@@ -215,12 +215,16 @@ static bool numeric_conds_init_with(const pthread_condattr_t * attr) {
 }
 
 static void numeric_conds_init(void) {
+    /* macOS, where Compas Tools builds this file, has no pthread_condattr_setclock;
+     * it takes the realtime fallback below. */
+#ifndef __APPLE__
     pthread_condattr_t attr;
     if (pthread_condattr_init(&attr) == 0) {
         bool ok = pthread_condattr_setclock(&attr, CLOCK_MONOTONIC) == 0 && numeric_conds_init_with(&attr);
         pthread_condattr_destroy(&attr);
         if (ok) { numeric_clock = CLOCK_MONOTONIC; return; }
     }
+#endif
     if (!numeric_conds_init_with(NULL)) fprintf(stderr, "tagcache: numeric condition variables unavailable\n");
 }
 
