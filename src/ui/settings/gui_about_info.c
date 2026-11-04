@@ -5,6 +5,7 @@
 #include "../../core/system/runtime/app_version.h"
 #include "../../core/system/runtime/board_config.h"
 #include "../../hardware/indicators/backlight.h"
+#include "../../plugins/manager/plugin_api_version.h"
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdint.h>
@@ -18,6 +19,9 @@ extern lv_style_t style_theme_text_muted;
 #define ABOUT_REFRESH_MS 2000
 #define INTERNAL_PATH "/usr/data"
 #define SD_PATH "/usr/data/mnt/sd_0"
+#define ABOUT_STR_(x) #x
+#define ABOUT_STR(x) ABOUT_STR_(x)
+#define KEY_MAX_PCT 40
 
 enum { ROW_MEMORY, ROW_INTERNAL, ROW_SD, ROW_COUNT };
 
@@ -102,6 +106,35 @@ static void * worker_main(void * arg) {
     return NULL;
 }
 
+static int32_t text_width(const char * text, const lv_font_t * font) {
+    lv_point_t size;
+    lv_text_get_size(&size, text, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    return size.x;
+}
+
+/* Sets a value that may not fit on one line, breaking it at the last space
+ * that fits and is not between a number and its unit: LVGL would otherwise
+ * also break inside numbers such as "56.8".
+ * Lays the screen out first if needed, so the width is the real one. */
+static void set_value_text(lv_obj_t * val, char * text) {
+    const lv_font_t * font = lv_obj_get_style_text_font(val, LV_PART_MAIN);
+    lv_obj_update_layout(val);
+    int32_t width = lv_obj_get_content_width(val);
+    if (width > 0 && text_width(text, font) > width) {
+        char * cut = NULL;
+        for (char * p = strchr(text, ' '); p; p = strchr(p + 1, ' ')) {
+            if (p > text && p[-1] >= '0' && p[-1] <= '9') continue; /* keep "119 GB" whole */
+            *p = '\0';
+            bool fits = text_width(text, font) <= width;
+            *p = ' ';
+            if (!fits) break;
+            cut = p;
+        }
+        if (cut) *cut = '\n';
+    }
+    lv_label_set_text(val, text);
+}
+
 static void apply_result(void) {
     for (int i = 0; i < ROW_COUNT; i++) {
         if (!row_obj[i]) continue;
@@ -118,7 +151,7 @@ static void apply_result(void) {
         } else {
             snprintf(text, sizeof(text), "-");
         }
-        lv_label_set_text(value_label[i], text);
+        set_value_text(value_label[i], text);
     }
 }
 
@@ -182,7 +215,6 @@ static lv_obj_t * add_line(lv_obj_t * parent, const char * name, const char * va
 
     lv_obj_t * key = lv_label_create(row);
     lv_label_set_text(key, name);
-    lv_obj_set_width(key, lv_pct(30));
     lv_label_set_long_mode(key, LV_LABEL_LONG_WRAP);
     lv_obj_add_style(key, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(key, font, 0);
@@ -195,6 +227,26 @@ static lv_obj_t * add_line(lv_obj_t * parent, const char * name, const char * va
     lv_obj_set_style_text_font(val, font, 0);
     if (value_out) *value_out = val;
     return row;
+}
+
+/* Sizes every key label to the widest key, so values stay aligned and short
+ * keys never break mid-word; the max width keeps wrapping for very long ones.
+ * Measured once, when the rows are built. */
+static void fit_key_column(lv_obj_t * info) {
+    const lv_font_t * font = gui_theme_font(GUI_FONT_ROLE_BODY);
+    int32_t widest = 0;
+    uint32_t n = lv_obj_get_child_count(info);
+    for (uint32_t i = 0; i < n; i++) {
+        lv_obj_t * key = lv_obj_get_child(lv_obj_get_child(info, (int32_t) i), 0);
+        lv_point_t size;
+        lv_text_get_size(&size, lv_label_get_text(key), font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        if (size.x > widest) widest = size.x;
+    }
+    for (uint32_t i = 0; i < n; i++) {
+        lv_obj_t * key = lv_obj_get_child(lv_obj_get_child(info, (int32_t) i), 0);
+        lv_obj_set_width(key, widest + 1);
+        lv_obj_set_style_max_width(key, lv_pct(KEY_MAX_PCT), 0);
+    }
 }
 
 void gui_about_info_attach(lv_obj_t * scr, lv_obj_t * list) {
@@ -228,11 +280,13 @@ void gui_about_info_attach(lv_obj_t * scr, lv_obj_t * list) {
 
     add_line(info, TR("Version"), app_version_label(), NULL);
     add_line(info, TR_C("device info", "Build"), app_build_identifier(), NULL);
+    add_line(info, TR("Plugin API"), ABOUT_STR(PLUGIN_API_VERSION), NULL);
     add_line(info, TR("Device"), app_board_display_name(), NULL);
-    row_obj[ROW_MEMORY] = add_line(info, TR("Memory"), "-", &value_label[ROW_MEMORY]);
+    row_obj[ROW_MEMORY] = add_line(info, TR("RAM"), "-", &value_label[ROW_MEMORY]);
     row_obj[ROW_INTERNAL] = add_line(info, TR("Internal"), "-", &value_label[ROW_INTERNAL]);
     row_obj[ROW_SD] = add_line(info, TR("SD card"), "-", &value_label[ROW_SD]);
     lv_obj_add_flag(row_obj[ROW_SD], LV_OBJ_FLAG_HIDDEN);
+    fit_key_column(info);
 
     lv_obj_move_to_index(holder, 0);
     lv_obj_move_to_index(info, 1);
