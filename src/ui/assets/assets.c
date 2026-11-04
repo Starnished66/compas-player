@@ -51,13 +51,20 @@ static const char * asset_path_intern(const char * value) {
     return e->value;
 }
 
-/* Resolves relative_path into host absolute path (or plain path) buffer,
+/* Resolves relative_path (or an absolute path, kept as is) into host absolute path (or plain path) buffer,
  * checking non-excluded plugin override first, then active native theme layer,
  * then stock fallback. On HOST_BUILD, any relative result is absolutized against
  * the process CWD so callers expecting absolute paths (like pill_row_apply_icon)
  * receive genuine absolute paths for all layers. */
 static bool asset_resolve_plain(const char * relative_path, char * out, size_t out_size) {
     if (!relative_path || !out || out_size == 0) return false;
+
+    /* An absolute path (e.g. a plugin's own image) is used verbatim; stock
+     * theme paths are always relative. */
+    if (relative_path[0] == '/') {
+        int n = snprintf(out, out_size, "%s", relative_path);
+        return (n > 0 && (size_t) n < out_size);
+    }
 
     char resolved[GUI_THEMES_MAX_PATH + 64];
     bool found = false;

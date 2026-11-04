@@ -4,6 +4,7 @@
 #include "../lua/plugin_lua_runtime.h"
 #include "plugin_internal.h"
 #include <string.h>
+#include <unistd.h>
 #include "plugin_manager_internal.h"
 
 typedef struct {
@@ -77,6 +78,19 @@ static void plugin_icon_pair(const char * icon, char * icon_dst, char * selected
     if (dot) *dot = '\0';
     snprintf(icon_dst, n, "%s", icon);
     snprintf(selected_dst, n, "%s_s.png", base);
+}
+
+/* Rewrites a relative icon to <sd>/.plugins/<icon> when that file is readable,
+ * so a plugin can ship images in its own folder (same base as settings row
+ * icons). Otherwise, or if the absolute path does not fit, the theme-relative
+ * path is kept. Absolute paths are left alone. */
+static void plugin_resolve_icon_path(char * icon, size_t n) {
+    if (icon[0] == '\0' || icon[0] == '/') return;
+    char abs_path[sizeof(plugin_quick_toggles[0].icon)];
+    int len = snprintf(abs_path, sizeof(abs_path), MUSIC_ROOT_DIR "/.plugins/%s", icon);
+    if (len < 0 || (size_t) len >= sizeof(abs_path) || (size_t) len >= n) return;
+    if (access(abs_path, R_OK) != 0) return;
+    memcpy(icon, abs_path, (size_t) len + 1);
 }
 
 /* Used by l_plugin_register_stream_media_tile() -- fills t->icon/icon_selected
@@ -334,6 +348,8 @@ static int l_plugin_register_quick_toggle(lua_State * L) {
     if (icon_sel && icon_sel[0] != '\0')
         snprintf(t->icon_selected, sizeof(t->icon_selected), "%s", icon_sel);
     lua_pop(L, 1);
+    plugin_resolve_icon_path(t->icon, sizeof(t->icon));
+    plugin_resolve_icon_path(t->icon_selected, sizeof(t->icon_selected));
 
     lua_getfield(L, 4, "on_text");
     const char * on_text = lua_tostring(L, -1);
