@@ -622,7 +622,7 @@ static lv_obj_t * quick_drawer_build_card_frame(void) {
      * (right of it), and transport controls (bottom row). Sized to fit the
      * second panel's bounds with a balanced bottom margin. style_theme_card_bg
      * is the same theme-aware panel-surface-plus-border style used for cards
-     * elsewhere (build_setting_slider_card(), popups) -- gives this card a
+     * elsewhere (popups, the idle action rows, the sleep timer button) -- gives this card a
      * lighter-than-backdrop fill and a subtle, theme-mixed border outline
      * instead of sitting fully transparent over the drawer's own black/gray
      * backdrop artwork. */

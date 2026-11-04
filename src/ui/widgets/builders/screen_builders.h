@@ -541,24 +541,59 @@ lv_obj_t * build_check_box(lv_obj_t * parent, bool checked);
 
 int find_nearest_step_index(const int * steps, int count, int value);
 
-/* Row holding a wrapped label and an accent switch. Uses content-based sizing
- * so wrapped label text does not overlap; the caller aligns it. */
-lv_obj_t * build_setting_enable_row(lv_obj_t * parent, const char * label_text, bool checked,
-                                    lv_event_cb_t switch_cb, lv_obj_t ** out_switch);
+/* Prints the text for one setting value (seconds, minutes, percent...). */
+typedef void (*setting_value_fmt_t)(char * buf, size_t size, int value);
 
-/* Builds the shared "rounded card + slider + centered value label" widget
- * tree used by several settings screens (screen timeout, screen dimming,
- * startup volume, sleep timer, idle shutdown), including the gesture-bubble
- * removal and swipe dead zone registration every one of them repeats.
- * track_top_offset lets a caller that adds its own caption label above the
- * slider (idle shutdown) push the slider down within the card. Does NOT set
- * the value label's initial text (callers use different formats) or the
- * card's hidden flag (callers use different enabled conditions) -- set both
- * via the returned card / *out_value_label after the call. */
-lv_obj_t * build_setting_slider_card(lv_obj_t * parent, lv_obj_t * align_target, int32_t card_height,
-                                      int32_t track_top_offset, int32_t min_range, int32_t max_range,
-                                      int32_t initial_val, lv_event_cb_t slider_cb,
-                                      lv_obj_t ** out_slider, lv_obj_t ** out_value_label);
+typedef struct {
+    const char * toggle_label;  /* NULL: no toggle row, only the control area */
+    bool checked;               /* initial toggle state */
+    lv_event_cb_t switch_cb;    /* VALUE_CHANGED on the switch */
+    const char * caption;       /* muted text left of the value */
+    int32_t min_index, max_index, index;  /* slider range and position */
+    const int * steps;          /* value of each index; NULL: the index is the value */
+    setting_value_fmt_t fmt;    /* formats the value, the range ends and the readout */
+    lv_event_cb_t slider_cb;    /* all events of the slider */
+    bool control_always_on;     /* do not grey the control while the toggle is off */
+} setting_slider_cfg_t;
+
+typedef struct {
+    lv_obj_t * card;
+    lv_obj_t * toggle;          /* the switch; NULL without a toggle row */
+    lv_obj_t * control;         /* caption, slider and range ends */
+    lv_obj_t * slider;
+    lv_obj_t * value_label;
+    lv_obj_t * min_label;
+    lv_obj_t * max_label;
+    const int * steps;
+    setting_value_fmt_t fmt;
+} setting_slider_t;
+
+/* One row-style card for a single-slider setting: optional toggle row, a
+ * divider, then caption and value, the slider and its range ends. The control
+ * greys out (and the slider disables) while the toggle is off; it never hides.
+ * Includes the gesture-bubble removal and swipe dead zone. The caller places
+ * s.card. */
+setting_slider_t build_setting_slider(lv_obj_t * parent, const setting_slider_cfg_t * cfg);
+/* Vertical scrolling column below the header for settings pages that stack
+ * cards and notes, so layout follows content-size changes (font refresh). */
+lv_obj_t * build_settings_body(lv_obj_t * scr);
+/* Card with only a toggle row. A non-NULL `hint` is added as muted subtext
+ * below the card, inset like the card's text. Returns the card. */
+lv_obj_t * build_setting_toggle_card(lv_obj_t * parent, const char * label, const char * hint, bool checked,
+                                     lv_event_cb_t switch_cb, lv_obj_t ** out_switch);
+/* Muted wrapped note, inset like the text inside a settings card. */
+lv_obj_t * build_setting_hint(lv_obj_t * parent, const char * text);
+/* Card with a label row and nothing else. *out_row is the row to add the
+ * control to (it sits at the right end). Returns the card. */
+lv_obj_t * build_setting_label_card(lv_obj_t * parent, const char * label, lv_obj_t ** out_row);
+/* Dims `obj` to 40% and disables it and its children, or restores it. */
+void ui_set_greyed(lv_obj_t * obj, bool greyed);
+/* Greys out and disables the control, or restores it. */
+void setting_slider_set_enabled(const setting_slider_t * s, bool enabled);
+/* Updates the value text for slider position `index`. */
+void setting_slider_set_index(const setting_slider_t * s, int32_t index);
+/* Lowers or raises the slider's top end, and the right range-end text. */
+void setting_slider_set_max_index(const setting_slider_t * s, int32_t max_index);
 
 lv_obj_t * build_font_change_mask(int target);
 
