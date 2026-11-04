@@ -658,10 +658,10 @@ bool settings_load(player_settings_t * out) {
             artist_albums_sort_seen = true;
         } else if (strcmp(key, "album_artist_albums_sort_mode") == 0) {
             out->album_artist_albums_sort_mode = strcmp(value, "1") == 0 ? 1 : (strcmp(value, "2") == 0 ? 2 : 0);
+            album_artist_albums_sort_seen = true;
         } else if (strcmp(key, "genre_view_mode") == 0) {
             int mode = atoi(value);
             out->genre_view_mode = mode >= 0 && mode <= 3 ? mode : 0;
-            album_artist_albums_sort_seen = true;
         } else if (strcmp(key, "show_artist_images") == 0) {
             out->show_artist_images = (strcmp(value, "1") == 0);
         } else if (strcmp(key, "peq_graph_include_preamp") == 0) {
