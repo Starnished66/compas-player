@@ -11,6 +11,7 @@
 #include "../../security/ca_bundle.h"
 
 #include <string.h>
+#include <strings.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -416,11 +417,7 @@ static int reader_fill(http_conn_reader_t * r) {
     return n;
 }
 
-bool http_conn_reader_line(http_conn_reader_t * r, char * out, size_t out_size) {
-    return http_conn_reader_line_ex(r, out, out_size, NULL);
-}
-
-bool http_conn_reader_line_ex(http_conn_reader_t * r, char * out, size_t out_size, bool * truncated) {
+static bool http_conn_reader_line_ex(http_conn_reader_t * r, char * out, size_t out_size, bool * truncated) {
     if (truncated) *truncated = false;
     size_t out_pos = 0;
     for (;;) {
@@ -436,6 +433,70 @@ bool http_conn_reader_line_ex(http_conn_reader_t * r, char * out, size_t out_siz
         }
         if (out_pos + 1 < out_size) out[out_pos++] = (char) c;
         else if (truncated) *truncated = true;
+    }
+}
+
+bool http_conn_reader_line(http_conn_reader_t * r, char * out, size_t out_size) {
+    return http_conn_reader_line_ex(r, out, out_size, NULL);
+}
+
+static bool parse_content_length(const char * value, uint64_t * out) {
+    if (!*value) return false;
+    uint64_t n = 0;
+    for (; *value; value++) {
+        if (*value < '0' || *value > '9') return false;
+        unsigned d = (unsigned)(*value - '0');
+        if (n > (UINT64_MAX - d) / 10) return false;
+        n = n * 10 + d;
+    }
+    *out = n;
+    return true;
+}
+
+http_head_result_t http_conn_read_head(http_conn_reader_t * r, http_head_t * h,
+                                       http_header_fn fn, void * ctx) {
+    char line[4096];
+    bool truncated;
+    h->status = 0;
+    h->chunked = false;
+    h->has_length = false;
+    h->content_length = 0;
+    if (h->location && h->location_size) h->location[0] = '\0';
+    bool ok = http_conn_reader_line_ex(r, line, sizeof(line), &truncated);
+    if (!ok) return HTTP_HEAD_IO;
+    if (truncated) return HTTP_HEAD_MALFORMED;
+    const char * sp = strchr(line, ' ');
+    if (!sp) return HTTP_HEAD_MALFORMED;
+    h->status = atoi(sp + 1);
+
+    for (;;) {
+        ok = http_conn_reader_line_ex(r, line, sizeof(line), &truncated);
+        if (!ok) return h->allow_header_eof ? HTTP_HEAD_OK : HTTP_HEAD_IO;
+        if (truncated) return HTTP_HEAD_MALFORMED;
+        if (!line[0]) return HTTP_HEAD_OK;
+        char * colon = strchr(line, ':');
+        if (!colon) continue;
+        *colon = '\0';
+        char * value = colon + 1;
+        while (*value == ' ' || *value == '\t') value++;
+        size_t len = strlen(value);
+        while (len && (value[len - 1] == ' ' || value[len - 1] == '\t'))
+            value[--len] = '\0';
+
+        if (strcasecmp(line, "Content-Length") == 0) {
+            uint64_t n;
+            if (!parse_content_length(value, &n) ||
+                (h->has_length && h->content_length != n))
+                return HTTP_HEAD_MALFORMED;
+            h->has_length = true;
+            h->content_length = n;
+        } else if (strcasecmp(line, "Transfer-Encoding") == 0 && strcasecmp(value, "chunked") == 0) {
+            h->chunked = true;
+        } else if (strcasecmp(line, "Location") == 0 && h->location && h->location_size) {
+            h->location[0] = '\0';
+            if (len < h->location_size) memcpy(h->location, value, len + 1);
+        }
+        if (fn && !fn(ctx, line, value)) return HTTP_HEAD_MALFORMED;
     }
 }
 

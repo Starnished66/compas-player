@@ -79,8 +79,29 @@ typedef struct {
  * was found. */
 bool http_conn_reader_line(http_conn_reader_t * r, char * out, size_t out_size);
 
-/* Like http_conn_reader_line(), but reports whether any bytes were discarded. */
-bool http_conn_reader_line_ex(http_conn_reader_t * r, char * out, size_t out_size, bool * truncated);
+typedef struct {
+    int status;
+    bool chunked;
+    bool has_length;
+    uint64_t content_length;
+    char * location;
+    size_t location_size;
+    bool allow_header_eof; /* accept EOF/error after the status line */
+} http_head_t;
+
+typedef enum {
+    HTTP_HEAD_OK,
+    HTTP_HEAD_IO,
+    HTTP_HEAD_MALFORMED
+} http_head_result_t;
+
+typedef bool (*http_header_fn)(void * ctx, const char * name, char * value);
+
+/* location, location_size and allow_header_eof are caller-supplied inputs.
+ * The callback receives each complete header with SP/HT-trimmed values;
+ * returning false rejects the head. */
+http_head_result_t http_conn_read_head(http_conn_reader_t * r, http_head_t * h,
+                                       http_header_fn fn, void * ctx);
 
 /* Reads exactly n bytes into out, blocking across multiple underlying
  * reads as needed. Returns false on EOF/error before n bytes arrived. */

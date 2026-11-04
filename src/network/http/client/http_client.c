@@ -200,6 +200,17 @@ static bool do_post(const char * url, bool verify_tls, const char * content_type
                       true, content_type, body, body_size);
 }
 
+static bool read_content_type(void * ctx, const char * name, char * value) {
+    body_sink_t * sink = ctx;
+    if (strcasecmp(name, "Content-Type") == 0 && sink->out_content_type && sink->out_content_type_size) {
+        /* Callers only need the bare MIME type to pick a decoder/extension. */
+        char * semi = strchr(value, ';');
+        if (semi) *semi = '\0';
+        snprintf(sink->out_content_type, sink->out_content_type_size, "%s", value);
+    }
+    return true;
+}
+
 /* Reads a response (status line, headers, body) off an already-open
  * connection whose request has already been fully written -- shared tail
  * end of do_request() below, since a GET and a POST response are read
@@ -209,53 +220,13 @@ static bool read_response(http_conn_t * conn, int * out_status, body_sink_t * si
     memset(&reader, 0, sizeof(reader));
     reader.conn = conn;
 
-    char status_line[256];
-    if (!http_conn_reader_line(&reader, status_line, sizeof(status_line))) {
-        DBG_LOG("http_client: failed to read status line\n");
+    http_head_t head = { .location = sink->out_location, .location_size = sink->out_location_size,
+                         .allow_header_eof = true };
+    if (http_conn_read_head(&reader, &head, read_content_type, sink) != HTTP_HEAD_OK)
         return false;
-    }
-    DBG_LOG("http_client: status line: '%s'\n", status_line);
-
-    int status = 0;
-    /* "HTTP/1.1 200 OK" -- skip the version token, read the 3-digit code. */
-    const char * sp = strchr(status_line, ' ');
-    if (!sp) {
-        DBG_LOG("http_client: malformed status line '%s'\n", status_line);
-        return false;
-    }
-    status = atoi(sp + 1);
-
-    bool is_chunked = false;
-    uint64_t content_length = 0;
-    if (sink->out_location && sink->out_location_size) sink->out_location[0] = '\0';
-    /* Signed storage redirects (for example GitHub release assets) carry
-     * Location values near a kilobyte; leave room well beyond that. */
-    char header_line[4096];
-    bool truncated;
-    while (http_conn_reader_line_ex(&reader, header_line, sizeof(header_line), &truncated) && header_line[0] != '\0') {
-        char * colon = strchr(header_line, ':');
-        if (!colon) continue;
-        *colon = '\0';
-        if (truncated && strcasecmp(header_line, "Location") == 0) continue;
-        char * value = colon + 1;
-        while (*value == ' ') value++;
-
-        if (strcasecmp(header_line, "Content-Length") == 0) {
-            content_length = strtoull(value, NULL, 10);
-        } else if (strcasecmp(header_line, "Transfer-Encoding") == 0 && strcasecmp(value, "chunked") == 0) {
-            is_chunked = true;
-        } else if (strcasecmp(header_line, "Content-Type") == 0 && sink->out_content_type && sink->out_content_type_size > 0) {
-            /* Strip a trailing "; charset=..." parameter, if any -- callers
-             * only need the bare MIME type to pick a decoder/extension. */
-            char * semi = strchr(value, ';');
-            if (semi) *semi = '\0';
-            snprintf(sink->out_content_type, sink->out_content_type_size, "%s", value);
-        } else if (strcasecmp(header_line, "Location") == 0 && sink->out_location && sink->out_location_size) {
-            /* A Location that does not fit is left empty: following a
-             * truncated URL would fetch the wrong resource. */
-            if (strlen(value) < sink->out_location_size) snprintf(sink->out_location, sink->out_location_size, "%s", value);
-        }
-    }
+    int status = head.status;
+    bool is_chunked = head.chunked;
+    uint64_t content_length = head.content_length;
     DBG_LOG("http_client: status=%d content_length=%llu chunked=%d\n", status,
             (unsigned long long) content_length, is_chunked);
 
@@ -697,6 +668,21 @@ static bool send_request_ex(http_conn_t * conn, const http_request_t * req, cons
     return true;
 }
 
+static bool store_response_header(void * ctx, const char * name, char * value) {
+    http_response_t * resp = ctx;
+    /* Skip headers that would need truncation. */
+    if (resp->header_count < HTTP_MAX_HEADERS) {
+        size_t name_len = strlen(name);
+        size_t value_len = strlen(value);
+        if (name_len < sizeof(resp->headers[0].name) && value_len < sizeof(resp->headers[0].value)) {
+            memcpy(resp->headers[resp->header_count].name, name, name_len + 1);
+            memcpy(resp->headers[resp->header_count].value, value, value_len + 1);
+            resp->header_count++;
+        }
+    }
+    return true;
+}
+
 /* Like read_response() (shared by do_get()/do_post() above), but captures
  * every response header (bounded by HTTP_MAX_HEADERS) into resp instead
  * of only the 3 read_response() cares about, and separately reports a
@@ -709,62 +695,15 @@ static bool read_response_ex(http_conn_t * conn, http_response_t * resp, body_si
     memset(&reader, 0, sizeof(reader));
     reader.conn = conn;
 
-    char status_line[256];
-    if (!http_conn_reader_line(&reader, status_line, sizeof(status_line))) {
-        /* Check if read timed out or failed with malformed status. */
-        resp->error = conn->last_read_timed_out ? HTTP_ERR_TIMEOUT : HTTP_ERR_MALFORMED;
+    http_head_t head = { .location = out_location, .location_size = out_location_size };
+    http_head_result_t result = http_conn_read_head(&reader, &head, store_response_header, resp);
+    resp->status = head.status;
+    if (result != HTTP_HEAD_OK) {
+        resp->error = result == HTTP_HEAD_IO && conn->last_read_timed_out ? HTTP_ERR_TIMEOUT : HTTP_ERR_MALFORMED;
         return false;
     }
-
-    const char * sp = strchr(status_line, ' ');
-    if (!sp) {
-        resp->error = HTTP_ERR_MALFORMED;
-        return false;
-    }
-    resp->status = atoi(sp + 1);
-
-    bool is_chunked = false;
-    uint64_t content_length = 0;
-    if (out_location && out_location_size > 0) out_location[0] = '\0';
-
-    /* Parse response headers until empty line. */
-    char header_line[4096];
-    bool truncated;
-    bool headers_ok = true;
-    for (;;) {
-        if (!http_conn_reader_line_ex(&reader, header_line, sizeof(header_line), &truncated)) { headers_ok = false; break; }
-        if (header_line[0] == '\0') break; /* genuine blank line -- normal end of headers */
-
-        char * colon = strchr(header_line, ':');
-        if (!colon) continue;
-        *colon = '\0';
-        if (truncated && strcasecmp(header_line, "Location") == 0) continue;
-        const char * value = colon + 1;
-        while (*value == ' ') value++;
-
-        if (strcasecmp(header_line, "Content-Length") == 0) {
-            content_length = strtoull(value, NULL, 10);
-        } else if (strcasecmp(header_line, "Transfer-Encoding") == 0 && strcasecmp(value, "chunked") == 0) {
-            is_chunked = true;
-        } else if (strcasecmp(header_line, "Location") == 0 && out_location && out_location_size > 0) {
-            if (strlen(value) < out_location_size) snprintf(out_location, out_location_size, "%s", value);
-        }
-
-        /* Store header if within length limits; skip if too long to avoid truncation. */
-        if (resp->header_count < HTTP_MAX_HEADERS) {
-            size_t name_len = strlen(header_line);
-            size_t value_len = strlen(value);
-            if (name_len < sizeof(resp->headers[0].name) && value_len < sizeof(resp->headers[0].value)) {
-                memcpy(resp->headers[resp->header_count].name, header_line, name_len + 1);
-                memcpy(resp->headers[resp->header_count].value, value, value_len + 1);
-                resp->header_count++;
-            }
-        }
-    }
-    if (!headers_ok) {
-        resp->error = conn->last_read_timed_out ? HTTP_ERR_TIMEOUT : HTTP_ERR_MALFORMED;
-        return false;
-    }
+    bool is_chunked = head.chunked;
+    uint64_t content_length = head.content_length;
 
     if (head_only) return true; /* no body to read for HEAD, regardless of what headers claim */
 

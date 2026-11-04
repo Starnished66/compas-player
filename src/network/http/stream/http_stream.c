@@ -134,6 +134,26 @@ static bool write_request(http_conn_t * c, const char * request, size_t len) {
     return true;
 }
 
+static bool read_stream_header(void * ctx, const char * name, char * value) {
+    response_t * r = ctx;
+    if (!strcasecmp(name, "Content-Range")) {
+        if (!parse_content_range(value, &r->range_start, &r->range_end,
+                                 &r->range_total) || r->range_valid)
+            return false;
+        r->range_valid = true;
+    } else if (!strcasecmp(name, "Content-Type")) {
+        char * semi = strchr(value, ';');
+        if (semi)
+            *semi = 0;
+        snprintf(r->content_type, sizeof(r->content_type), "%s", value);
+    } else if (!strcasecmp(name, "ETag")) {
+        (void)copy_safe_header_value(r->etag, sizeof(r->etag), value);
+    } else if (!strcasecmp(name, "Last-Modified")) {
+        (void)copy_safe_header_value(r->last_modified, sizeof(r->last_modified), value);
+    }
+    return true;
+}
+
 static bool open_response(const char * url, bool verify_tls, int redirects_left,
                           bool range, uint64_t offset, const char * if_range,
                           response_t * r) {
@@ -169,53 +189,15 @@ static bool open_response(const char * url, bool verify_tls, int redirects_left,
     if (n < 0 || (size_t)n >= sizeof(request) ||
         !write_request(r->conn, request, (size_t)n))
         goto fail;
-    char line[4096];
-    if (!http_conn_reader_line(&r->reader, line, sizeof(line)))
-        goto fail;
-    const char * sp = strchr(line, ' ');
-    r->status = sp ? atoi(sp + 1) : 0;
     char location[2048] = "";
-    bool truncated;
-    while (http_conn_reader_line_ex(&r->reader, line, sizeof(line), &truncated) && line[0]) {
-        char * colon = strchr(line, ':');
-        if (!colon)
-            continue;
-        *colon = 0;
-        if (truncated && !strcasecmp(line, "Location"))
-            continue;
-        char * v = colon + 1;
-        while (*v == ' ' || *v == '\t')
-            ++v;
-        if (!strcasecmp(line, "Transfer-Encoding") && !strcasecmp(v, "chunked"))
-            r->chunked = true;
-        else if (!strcasecmp(line, "Content-Length")) {
-            uint64_t x;
-            if (!parse_u64(v, &x))
-                goto fail;
-            if (r->has_length && r->content_length != x)
-                goto fail;
-            r->has_length = true;
-            r->content_length = x;
-        } else if (!strcasecmp(line, "Content-Range")) {
-            if (!parse_content_range(v, &r->range_start, &r->range_end,
-                                     &r->range_total))
-                goto fail;
-            if (r->range_valid)
-                goto fail;
-            r->range_valid = true;
-        } else if (!strcasecmp(line, "Content-Type")) {
-            char * semi = strchr(v, ';');
-            if (semi)
-                *semi = 0;
-            snprintf(r->content_type, sizeof(r->content_type), "%s", v);
-        } else if (!strcasecmp(line, "ETag")) {
-            (void)copy_safe_header_value(r->etag, sizeof(r->etag), v);
-        } else if (!strcasecmp(line, "Last-Modified")) {
-            (void)copy_safe_header_value(r->last_modified, sizeof(r->last_modified),
-                                         v);
-        } else if (!strcasecmp(line, "Location") && strlen(v) < sizeof(location))
-            snprintf(location, sizeof(location), "%s", v);
-    }
+    http_head_t head = { .location = location, .location_size = sizeof(location),
+                         .allow_header_eof = true };
+    if (http_conn_read_head(&r->reader, &head, read_stream_header, r) != HTTP_HEAD_OK)
+        goto fail;
+    r->status = head.status;
+    r->chunked = head.chunked;
+    r->has_length = head.has_length;
+    r->content_length = head.content_length;
     if (r->status >= 300 && r->status < 400 && location[0]) {
         http_conn_close(r->conn);
         free(r->conn);
