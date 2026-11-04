@@ -93,7 +93,9 @@ extern const store_card_t * ps_commit_card;
 /* plugin_store.c: status and shared helpers */
 void ps_finish(plugin_store_state_t state, const char * error, bool changed);
 void ps_progress_set(int percent, const char * name);
-void ps_compute_results(void);
+const char * ps_record_error(void);
+bool ps_compute_results(void);
+bool ps_finish_ready(bool changed);
 const plugin_store_plugin_t * ps_index_find_locked(const char * id);
 
 /* plugin_store_catalog.c: catalog parsing and classification */

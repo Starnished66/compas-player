@@ -57,29 +57,15 @@ void ps_finish(plugin_store_state_t state, const char * error, bool changed) {
     pthread_mutex_unlock(&store_mutex);
 }
 
-/* Build the compact UI rows from the current index and installed record. */
-void ps_compute_results(void) {
-    size_t index_count;
-    pthread_mutex_lock(&store_mutex);
-    index_count = last_index_count;
-    pthread_mutex_unlock(&store_mutex);
+/* Shared message for an unreadable installed record. */
+const char * ps_record_error(void) {
+    return TR("Could not read installed plugins.");
+}
 
-    plugin_store_plugin_t * rec = NULL;
-    size_t rn = 0;
-    if (!ps_read_record_alloc(&rec, &rn)) {
-        return;
-    }
-
-    size_t capacity = index_count + rn;
-    if (capacity > PLUGIN_STORE_MAX_RESULTS) {
-        capacity = PLUGIN_STORE_MAX_RESULTS;
-    }
-    plugin_store_result_t * result = calloc(capacity ? capacity : 1, sizeof(*result));
-    if (!result) {
-        free(rec);
-        return;
-    }
-
+/* One row per catalog entry, with the state against the installed record.
+ * Returns the row count. */
+static size_t results_from_index(plugin_store_result_t * result, const plugin_store_plugin_t * rec,
+                                 size_t rn, size_t index_count) {
     size_t count = 0;
     for (size_t i = 0; i < index_count && count < PLUGIN_STORE_MAX_RESULTS; i++) {
         plugin_store_plugin_t plugin;
@@ -102,7 +88,13 @@ void ps_compute_results(void) {
         row->state = plugin_store_compute_state(&plugin, match >= 0 ? rec[match].version : NULL,
                                                 STORE_SD_ROOT "/.plugins", &row->incompatible);
     }
+    return count;
+}
 
+/* Appends a REMOVED row for each installed entry missing from the catalog.
+ * Returns the new row count. */
+static size_t results_add_removed(plugin_store_result_t * result, size_t count,
+                                  const plugin_store_plugin_t * rec, size_t rn) {
     for (size_t r = 0; r < rn && count < PLUGIN_STORE_MAX_RESULTS; r++) {
         pthread_mutex_lock(&store_mutex);
         bool found = ps_index_find_locked(rec[r].id) != NULL;
@@ -115,12 +107,50 @@ void ps_compute_results(void) {
             ps_plugin_kind(&rec[r], &row->player_layout, &row->theme_pack);
         }
     }
+    return count;
+}
+
+/* Build the compact UI rows from the current index and installed record. */
+bool ps_compute_results(void) {
+    size_t index_count;
+    pthread_mutex_lock(&store_mutex);
+    index_count = last_index_count;
+    pthread_mutex_unlock(&store_mutex);
+
+    plugin_store_plugin_t * rec = NULL;
+    size_t rn = 0;
+    if (!ps_read_record_alloc(&rec, &rn)) {
+        return false;
+    }
+    size_t capacity = index_count + rn;
+    if (capacity > PLUGIN_STORE_MAX_RESULTS) {
+        capacity = PLUGIN_STORE_MAX_RESULTS;
+    }
+    plugin_store_result_t * result = calloc(capacity ? capacity : 1, sizeof(*result));
+    if (!result) {
+        free(rec);
+        return false;
+    }
+    size_t count = results_from_index(result, rec, rn, index_count);
+    count = results_add_removed(result, count, rec, rn);
     pthread_mutex_lock(&store_mutex);
     free(store_results);
     store_results = result;
     store_status.result_count = count;
     pthread_mutex_unlock(&store_mutex);
     free(rec);
+    return true;
+}
+
+/* Rebuild the rows and finish READY, or FAILED when they cannot be built so
+ * stale rows are never reported as current. */
+bool ps_finish_ready(bool changed) {
+    if (ps_compute_results()) {
+        ps_finish(PLUGIN_STORE_READY, NULL, changed);
+        return true;
+    }
+    ps_finish(PLUGIN_STORE_FAILED, ps_record_error(), changed);
+    return false;
 }
 
 void plugin_store_classify_loaders(const char * const * filenames, bool * layout_flags,
@@ -311,6 +341,41 @@ void plugin_store_get_status(plugin_store_status_t * out, plugin_store_result_t 
     pthread_mutex_unlock(&store_mutex);
 }
 
+/* True when the catalog file is recorded as installed and the file on the card
+ * is a regular file under root_real whose size and hash still match. */
+static bool layout_file_intact(const plugin_store_plugin_t * installed, const plugin_store_file_t * file,
+                               const char * root_real) {
+    char path[PATH_MAX], file_real[PATH_MAX], sha[65];
+    uint64_t bytes = 0;
+    bool recorded = false;
+    for (int r = 0; r < installed->file_count; ++r)
+        if (strcmp(installed->files[r].dest, file->dest) == 0 &&
+            strcmp(installed->files[r].sha256, file->sha256) == 0) recorded = true;
+    if (!recorded || !ps_path_for(path, sizeof(path), STORE_SD_ROOT, file->dest) ||
+        !ps_parent_dirs_safe(STORE_SD_ROOT, file->dest, false)) return false;
+    struct stat st;
+    if (lstat(path, &st) != 0 || !S_ISREG(st.st_mode) || !realpath(path, file_real)) return false;
+    size_t root_len = strlen(root_real);
+    if (strncmp(file_real, root_real, root_len) != 0 || file_real[root_len] != '/') return false;
+    return store_hash_file(path, &bytes, sha) && bytes == file->size && strcmp(sha, file->sha256) == 0;
+}
+
+/* The first intact layout file of the installed plugin; false when none. */
+static bool installed_layout_id(const plugin_store_plugin_t * catalog_plugin,
+                                const plugin_store_plugin_t * installed, char * out, size_t size) {
+    char root_real[PATH_MAX];
+    if (realpath(STORE_SD_ROOT, root_real) == NULL) return false;
+    for (int f = 0; f < catalog_plugin->file_count; ++f) {
+        char layout_id[64];
+        const plugin_store_file_t * file = &catalog_plugin->files[f];
+        if (!ps_layout_id_from_dest(file->dest, layout_id, sizeof(layout_id))) continue;
+        if (!layout_file_intact(installed, file, root_real)) continue;
+        if (snprintf(out, size, "%s", layout_id) >= (int) size) { out[0] = '\0'; return false; }
+        return true;
+    }
+    return false;
+}
+
 bool plugin_store_get_player_layout_id(const char * plugin_id, char * out, size_t size) {
     if (!out || !size) return false;
     out[0] = '\0';
@@ -330,33 +395,8 @@ bool plugin_store_get_player_layout_id(const char * plugin_id, char * out, size_
     size_t record_count = 0;
     if (!ps_read_record_alloc(&records, &record_count)) return false;
     int installed_index = ps_record_find(records, record_count, plugin_id);
-    const plugin_store_plugin_t * installed = installed_index >= 0 ? &records[installed_index] : NULL;
-
-    bool valid = false;
-    if (installed) {
-        char root_real[PATH_MAX];
-        bool root_ok = realpath(STORE_SD_ROOT, root_real) != NULL;
-        for (int f = 0; root_ok && f < catalog_plugin.file_count; ++f) {
-            char layout_id[64], path[PATH_MAX], file_real[PATH_MAX], sha[65];
-            uint64_t bytes = 0;
-            const plugin_store_file_t * file = &catalog_plugin.files[f];
-            if (!ps_layout_id_from_dest(file->dest, layout_id, sizeof(layout_id))) continue;
-            bool recorded = false;
-            for (int r = 0; r < installed->file_count; ++r)
-                if (strcmp(installed->files[r].dest, file->dest) == 0 &&
-                    strcmp(installed->files[r].sha256, file->sha256) == 0) recorded = true;
-            if (!recorded || !ps_path_for(path, sizeof(path), STORE_SD_ROOT, file->dest) ||
-                !ps_parent_dirs_safe(STORE_SD_ROOT, file->dest, false)) continue;
-            struct stat st;
-            if (lstat(path, &st) != 0 || !S_ISREG(st.st_mode) || !realpath(path, file_real)) continue;
-            size_t root_len = strlen(root_real);
-            if (strncmp(file_real, root_real, root_len) != 0 || file_real[root_len] != '/') continue;
-            if (!store_hash_file(path, &bytes, sha) || bytes != file->size || strcmp(sha, file->sha256) != 0) continue;
-            if (snprintf(out, size, "%s", layout_id) >= (int) size) { out[0] = '\0'; break; }
-            valid = true;
-            break;
-        }
-    }
+    bool valid = installed_index >= 0 &&
+                 installed_layout_id(&catalog_plugin, &records[installed_index], out, size);
     free(records);
     return valid;
 }

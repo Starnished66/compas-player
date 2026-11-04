@@ -79,9 +79,11 @@ static void dash_arc_event(lv_event_t * e) {
 
 static void dash_nudge_event(lv_event_t * e) {
     lv_event_code_t code = lv_event_get_code(e);
-    if (code != LV_EVENT_LONG_PRESSED && code != LV_EVENT_CLICKED) return;
+    if (code != LV_EVENT_LONG_PRESSED && code != LV_EVENT_CLICKED && code != LV_EVENT_PRESSED) return;
     dash_event_data_t * data = lv_event_get_user_data(e);
-    if (code == LV_EVENT_LONG_PRESSED) {
+    if (code == LV_EVENT_PRESSED) {
+        data->long_fired = false; /* a long press that ended without CLICKED must not eat this tap */
+    } else if (code == LV_EVENT_LONG_PRESSED) {
         data->long_fired = true;
         int value = lv_arc_get_value(data->arc) + data->delta * 10;
         if (value < data->context->tempo_min) value = data->context->tempo_min;

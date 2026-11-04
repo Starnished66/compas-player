@@ -103,46 +103,71 @@ static bool preview_path(char * out, size_t size, const char * sha, const char *
     return n > 0 && (size_t) n < size;
 }
 
-static bool preview_cache_open(void) {
-    if (preview_dir_fd >= 0) return true;
-    if (mkdir(STORE_PREVIEW_ROOT, 0700) != 0 && errno != EEXIST) return false;
+/* The cache directory, checked to be ours and private; -1 on any problem. */
+static int preview_open_dir(void) {
+    if (mkdir(STORE_PREVIEW_ROOT, 0700) != 0 && errno != EEXIST) return -1;
     int dir = open(STORE_PREVIEW_ROOT, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-    if (dir < 0) return false;
+    if (dir < 0) return -1;
     struct stat st;
     if (fstat(dir, &st) != 0 || st.st_uid != geteuid() || (st.st_mode & 0077)) {
-        close(dir); return false;
+        close(dir);
+        return -1;
     }
+    return dir;
+}
+
+/* The exclusive owner lock inside dir; -1 when another process holds it. */
+static int preview_lock_dir(int dir) {
+    struct stat st;
     int lock = openat(dir, ".owner-lock", O_RDWR | O_CREAT | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC, 0600);
     if (lock < 0 || fstat(lock, &st) != 0 || !S_ISREG(st.st_mode) ||
         st.st_uid != geteuid() || (st.st_mode & 0077) || flock(lock, LOCK_EX | LOCK_NB) != 0) {
         if (lock >= 0) close(lock);
-        close(dir); return false;
+        return -1;
     }
-    /* Keep only files assigned to our bounded cache, including previews that
-     * can be reused after a player restart. Ignore unrelated filenames. */
+    return lock;
+}
+
+/* Removes one cache directory entry unless it belongs to a slot. */
+static void preview_prune_entry(int dir, const char * name) {
+    size_t len = strlen(name);
+    bool part = strncmp(name, ".part-", 6) == 0;
+    bool thumb_tmp = len == 72 && strcmp(name + 64, ".bin.tmp") == 0;
+    bool keep = false;
+    struct stat st;
+    if ((len == 68 && (strcmp(name + 64, ".jpg") == 0 || strcmp(name + 64, ".bin") == 0))) {
+        char sha[65]; memcpy(sha, name, 64); sha[64] = 0;
+        if (!store_sha_valid(sha)) return;
+        pthread_mutex_lock(&store_mutex);
+        keep = preview_slot_find_locked(sha) >= 0;
+        pthread_mutex_unlock(&store_mutex);
+    } else if (!part && !thumb_tmp) return;
+    if (!keep && fstatat(dir, name, &st, AT_SYMLINK_NOFOLLOW) == 0 &&
+        S_ISREG(st.st_mode) && st.st_uid == geteuid()) unlinkat(dir, name, 0);
+}
+
+/* Keep only files assigned to our bounded cache, including previews that
+ * can be reused after a player restart. Ignore unrelated filenames. */
+static void preview_prune_cache(int dir) {
     int scan_fd = dup(dir);
     DIR * scan = scan_fd >= 0 ? fdopendir(scan_fd) : NULL;
     if (!scan && scan_fd >= 0) close(scan_fd);
-    if (scan) {
-        struct dirent * ent;
-        while ((ent = readdir(scan)) != NULL) {
-            size_t len = strlen(ent->d_name);
-            bool part = strncmp(ent->d_name, ".part-", 6) == 0;
-            bool thumb_tmp = len == 72 && strcmp(ent->d_name + 64, ".bin.tmp") == 0;
-            bool keep = false;
-            if ((len == 68 && (strcmp(ent->d_name + 64, ".jpg") == 0 ||
-                               strcmp(ent->d_name + 64, ".bin") == 0))) {
-                char sha[65]; memcpy(sha, ent->d_name, 64); sha[64] = 0;
-                if (!store_sha_valid(sha)) continue;
-                pthread_mutex_lock(&store_mutex);
-                keep = preview_slot_find_locked(sha) >= 0;
-                pthread_mutex_unlock(&store_mutex);
-            } else if (!part && !thumb_tmp) continue;
-            if (!keep && fstatat(dir, ent->d_name, &st, AT_SYMLINK_NOFOLLOW) == 0 &&
-                S_ISREG(st.st_mode) && st.st_uid == geteuid()) unlinkat(dir, ent->d_name, 0);
-        }
-        closedir(scan);
+    if (!scan) return;
+    struct dirent * ent;
+    while ((ent = readdir(scan)) != NULL) preview_prune_entry(dir, ent->d_name);
+    closedir(scan);
+}
+
+static bool preview_cache_open(void) {
+    if (preview_dir_fd >= 0) return true;
+    int dir = preview_open_dir();
+    if (dir < 0) return false;
+    int lock = preview_lock_dir(dir);
+    if (lock < 0) {
+        close(dir);
+        return false;
     }
+    preview_prune_cache(dir);
     preview_lock_fd = lock; /* Held for this process; no stale PID/lock directory. */
     preview_dir_fd = dir;
     return true;
@@ -235,13 +260,19 @@ static bool preview_read_jpeg(const char * path, const plugin_store_preview_t * 
     return *data_out != NULL;
 }
 
-static void * preview_worker(void * context) {
-    preview_job_t * job = context;
-    bool opened = preview_cache_open();
-    /* Drain every eviction even if navigation cancelled the transfer batch.
-     * Slot ownership changed before launch; skipping later evictions would
-     * lose their filenames and let abandoned cache files accumulate. */
-    for (size_t i = 0; opened && i < job->count; i++) {
+static void preview_finish_item(preview_job_t * job, const preview_item_t * item,
+                                bool ready, bool decoder_busy) {
+    pthread_mutex_lock(&store_mutex);
+    preview_complete_entry(&preview_cache[item->slot], item->preview.sha256, preview_epoch,
+                           job->epoch, ready, decoder_busy, preview_now_ms());
+    pthread_mutex_unlock(&store_mutex);
+}
+
+/* Drain every eviction even if navigation cancelled the transfer batch.
+ * Slot ownership changed before launch; skipping later evictions would
+ * lose their filenames and let abandoned cache files accumulate. */
+static void preview_drain_evictions(const preview_job_t * job) {
+    for (size_t i = 0; i < job->count; i++) {
         if (!job->items[i].evicted_sha[0]) continue;
         char name[80];
         preview_path(name, sizeof(name), job->items[i].evicted_sha, "jpg", false);
@@ -249,47 +280,63 @@ static void * preview_worker(void * context) {
         preview_path(name, sizeof(name), job->items[i].evicted_sha, "bin", false);
         unlinkat(preview_dir_fd, name, 0);
     }
+}
+
+/* Makes sure the verified JPEG is at path, downloading it when it is not. */
+static bool preview_fetch_jpeg(preview_job_t * job, const preview_item_t * item, const char * path) {
+    if (preview_file_verified(path, &item->preview)) return true;
+    char part[PATH_MAX], url[512];
+    int status = 0;
+    snprintf(part, sizeof(part), "%s/.part-%s", STORE_PREVIEW_ROOT, item->preview.sha256);
+    unlink(part); /* Private directory, owned by this worker's process lock. */
+    bool ready = ps_make_asset_url(url, sizeof(url), job->tag, item->preview.asset) &&
+        http_get_to_file_redirects(url, true, part, STORE_PREVIEW_LIMIT, preview_progress,
+            job, 5000, 8000, NULL, 5, &status) &&
+        preview_progress(0, 0, job) && preview_file_verified(part, &item->preview) &&
+        rename(part, path) == 0;
+    if (!ready) unlink(part);
+    return ready;
+}
+
+/* Decodes the JPEG at path into the card-sized .bin. *retryable is set when
+ * the decoder was only busy. */
+static bool preview_make_bin(preview_job_t * job, const preview_item_t * item,
+                             const char * path, bool * retryable) {
+    char bin_path[PATH_MAX];
+    preview_path(bin_path, sizeof(bin_path), item->preview.sha256, "bin", true);
+    uint8_t * jpeg = NULL;
+    const char * reason = NULL;
+    bool ready = false;
+    if (preview_read_jpeg(path, &item->preview, &jpeg)) {
+        int card_w, cover_h;
+        store_preview_bounds(&card_w, &cover_h);
+        ready = image_thumb_write_bin(jpeg, item->preview.size, card_w, cover_h, bin_path,
+                                      ARTWORK_PRIO_THUMBNAIL, preview_decode_cancel, job,
+                                      &reason) && preview_progress(0, 0, job);
+        *retryable = !ready && reason && strcmp(reason, "busy") == 0;
+        free(jpeg);
+    }
+    if (!ready && preview_progress(0, 0, job)) unlink(bin_path);
+    return ready;
+}
+
+static void * preview_worker(void * context) {
+    preview_job_t * job = context;
+    bool opened = preview_cache_open();
+    if (opened) preview_drain_evictions(job);
     for (size_t i = 0; opened && i < job->count && preview_progress(0, 0, job); i++) {
-        preview_item_t * item = &job->items[i];
-        char path[PATH_MAX], part[PATH_MAX], url[512], bin_path[PATH_MAX];
-        preview_path(path, sizeof(path), item->preview.sha256, "jpg", true);
+        const preview_item_t * item = &job->items[i];
+        char path[PATH_MAX];
         bool retryable = false;
-        bool ready = preview_file_verified(path, &item->preview);
-        if (!ready) {
-            snprintf(part, sizeof(part), "%s/.part-%s", STORE_PREVIEW_ROOT, item->preview.sha256);
-            unlink(part); /* Private directory, owned by this worker's process lock. */
-            int status = 0;
-            ready = ps_make_asset_url(url, sizeof(url), job->tag, item->preview.asset) &&
-                http_get_to_file_redirects(url, true, part, STORE_PREVIEW_LIMIT, preview_progress,
-                    job, 5000, 8000, NULL, 5, &status) &&
-                preview_progress(0, 0, job) && preview_file_verified(part, &item->preview) &&
-                rename(part, path) == 0;
-            if (!ready) unlink(part);
-        }
-        if (ready && preview_progress(0, 0, job)) {
-            preview_path(bin_path, sizeof(bin_path), item->preview.sha256, "bin", true);
-            uint8_t * jpeg = NULL;
-            const char * reason = NULL;
-            if (preview_read_jpeg(path, &item->preview, &jpeg)) {
-                int card_w, cover_h;
-                store_preview_bounds(&card_w, &cover_h);
-                ready = image_thumb_write_bin(jpeg, item->preview.size, card_w, cover_h, bin_path,
-                                              ARTWORK_PRIO_THUMBNAIL, preview_decode_cancel, job,
-                                              &reason) && preview_progress(0, 0, job);
-                retryable = !ready && reason && strcmp(reason, "busy") == 0;
-                free(jpeg);
-            } else {
-                ready = false;
-            }
-            if (!ready && preview_progress(0, 0, job)) unlink(bin_path);
-        } else {
-            ready = false;
-        }
-        pthread_mutex_lock(&store_mutex);
-        preview_cache_entry_t * cached = &preview_cache[item->slot];
-        preview_complete_entry(cached, item->preview.sha256, preview_epoch, job->epoch,
-                               ready, retryable, preview_now_ms());
-        pthread_mutex_unlock(&store_mutex);
+        preview_path(path, sizeof(path), item->preview.sha256, "jpg", true);
+        bool ready = preview_fetch_jpeg(job, item, path) && preview_progress(0, 0, job) &&
+                     preview_make_bin(job, item, path, &retryable);
+        preview_finish_item(job, item, ready, retryable);
+    }
+    /* Without the cache directory no item ran; fail each so its slot gets a
+     * retry time instead of staying blocked until the epoch changes. */
+    for (size_t i = 0; !opened && i < job->count; i++) {
+        preview_finish_item(job, &job->items[i], false, false);
     }
     pthread_mutex_lock(&store_mutex);
     preview_worker_running = false;
@@ -298,24 +345,20 @@ static void * preview_worker(void * context) {
     return NULL;
 }
 
-bool plugin_store_prepare_previews(const char * const * ids, size_t count) {
-    if (!ids || !count) return false;
-    if (count > STORE_PREVIEW_COUNT) count = STORE_PREVIEW_COUNT;
-    pthread_mutex_lock(&store_mutex);
-    if (preview_worker_running || !last_index_count) {
-        pthread_mutex_unlock(&store_mutex); return false;
-    }
-    uint64_t now = preview_now_ms();
+/* False while a worker runs or the spawn retry window is closed. Caller holds store_mutex. */
+static bool preview_spawn_allowed_locked(uint64_t now) {
+    if (preview_worker_running || !last_index_count) return false;
     if (preview_spawn_epoch != preview_epoch) {
         preview_spawn_epoch = preview_epoch;
         preview_spawn_attempts = 0;
         preview_spawn_retry_ms = 0;
     }
-    if (now < preview_spawn_retry_ms || preview_spawn_attempts >= 3) {
-        pthread_mutex_unlock(&store_mutex); return false;
-    }
-    const plugin_store_plugin_t * requested[STORE_PREVIEW_COUNT] = {0};
-    bool protected[STORE_PREVIEW_COUNT] = {0};
+    return now >= preview_spawn_retry_ms && preview_spawn_attempts < 3;
+}
+
+/* Finds the catalog entries asked for and pins their cached slots. Caller holds store_mutex. */
+static void preview_collect_requested_locked(const char * const * ids, size_t count,
+                                             const plugin_store_plugin_t ** requested, bool * protected) {
     for (size_t i = 0; i < count; i++) {
         if (!ids[i]) continue;
         const plugin_store_plugin_t * entry = ps_index_find_locked(ids[i]);
@@ -324,50 +367,52 @@ bool plugin_store_prepare_previews(const char * const * ids, size_t count) {
         int cached_slot = preview_slot_find_locked(entry->preview.sha256);
         if (cached_slot >= 0) protected[cached_slot] = true;
     }
-    preview_job_t * job = NULL;
-    for (size_t i = 0; i < count; i++) {
-        const plugin_store_plugin_t * p = requested[i];
-        if (!p) continue;
-        int slot = preview_slot_find_locked(p->preview.sha256);
-        if (slot >= 0) {
-            preview_cache_entry_t * cached = &preview_cache[slot];
-            cached->last_used = ++preview_use_counter;
-            if (cached->ready) continue;
-            if (preview_retry_blocked(cached, preview_epoch, now)) continue;
-        } else {
-            /* Visible/nearby cards are pinned for this request. Replace only
-             * an offscreen slot, preferring an empty then the oldest slot. */
-            for (int c = 0; c < STORE_PREVIEW_COUNT; c++) {
-                if (protected[c]) continue;
-                if (slot < 0 || preview_cache[c].last_used < preview_cache[slot].last_used) slot = c;
-                if (!preview_cache[c].sha[0]) { slot = c; break; }
-            }
-        }
-        if (slot < 0) continue;
-        if (!job) {
-            job = calloc(1, sizeof(*job));
-            if (!job) break;
-            job->epoch = preview_epoch;
-            snprintf(job->tag, sizeof(job->tag), "%s", last_tag);
-        }
-        preview_item_t * item = &job->items[job->count++];
-        item->slot = slot;
-        item->preview = p->preview;
+}
+
+/* The slot to fetch p into, or -1 when it is ready, blocked or has no slot.
+ * Caller holds store_mutex. */
+static int preview_pick_slot_locked(const plugin_store_plugin_t * p, const bool * protected, uint64_t now) {
+    int slot = preview_slot_find_locked(p->preview.sha256);
+    if (slot >= 0) {
         preview_cache_entry_t * cached = &preview_cache[slot];
-        item->previous = *cached;
-        if (strcmp(cached->sha, p->preview.sha256) != 0) {
-            memcpy(item->evicted_sha, cached->sha, sizeof(item->evicted_sha));
-            if (cached->ready) preview_generation++;
-            memset(cached, 0, sizeof(*cached));
-            memcpy(cached->sha, p->preview.sha256, sizeof(cached->sha));
-        }
-        if (cached->attempted_epoch != job->epoch) cached->attempts = 0;
-        cached->attempted_epoch = job->epoch;
-        cached->attempts++;
-        cached->retry_after_ms = 0;
         cached->last_used = ++preview_use_counter;
-        protected[slot] = true;
+        if (cached->ready) return -1;
+        if (preview_retry_blocked(cached, preview_epoch, now)) return -1;
+        return slot;
     }
+    /* Visible/nearby cards are pinned for this request. Replace only
+     * an offscreen slot, preferring an empty then the oldest slot. */
+    for (int c = 0; c < STORE_PREVIEW_COUNT; c++) {
+        if (protected[c]) continue;
+        if (slot < 0 || preview_cache[c].last_used < preview_cache[slot].last_used) slot = c;
+        if (!preview_cache[c].sha[0]) { slot = c; break; }
+    }
+    return slot;
+}
+
+/* Queues p for slot in the job and marks the slot as attempted. Caller holds store_mutex. */
+static void preview_job_add_locked(preview_job_t * job, int slot, const plugin_store_plugin_t * p) {
+    preview_item_t * item = &job->items[job->count++];
+    item->slot = slot;
+    item->preview = p->preview;
+    preview_cache_entry_t * cached = &preview_cache[slot];
+    item->previous = *cached;
+    if (strcmp(cached->sha, p->preview.sha256) != 0) {
+        memcpy(item->evicted_sha, cached->sha, sizeof(item->evicted_sha));
+        if (cached->ready) preview_generation++;
+        memset(cached, 0, sizeof(*cached));
+        memcpy(cached->sha, p->preview.sha256, sizeof(cached->sha));
+    }
+    if (cached->attempted_epoch != job->epoch) cached->attempts = 0;
+    cached->attempted_epoch = job->epoch;
+    cached->attempts++;
+    cached->retry_after_ms = 0;
+    cached->last_used = ++preview_use_counter;
+}
+
+/* Starts the worker for the job (sets preview_worker_running under the lock the
+ * caller holds, then releases it). */
+static bool preview_launch(preview_job_t * job) {
     preview_worker_running = job != NULL;
     pthread_mutex_unlock(&store_mutex);
     if (!job) return false;
@@ -388,6 +433,34 @@ bool plugin_store_prepare_previews(const char * const * ids, size_t count) {
     preview_spawn_attempts = 0;
     pthread_mutex_unlock(&store_mutex);
     return true;
+}
+
+bool plugin_store_prepare_previews(const char * const * ids, size_t count) {
+    if (!ids || !count) return false;
+    if (count > STORE_PREVIEW_COUNT) count = STORE_PREVIEW_COUNT;
+    pthread_mutex_lock(&store_mutex);
+    uint64_t now = preview_now_ms();
+    if (!preview_spawn_allowed_locked(now)) {
+        pthread_mutex_unlock(&store_mutex); return false;
+    }
+    const plugin_store_plugin_t * requested[STORE_PREVIEW_COUNT] = {0};
+    bool protected[STORE_PREVIEW_COUNT] = {0};
+    preview_collect_requested_locked(ids, count, requested, protected);
+    preview_job_t * job = NULL;
+    for (size_t i = 0; i < count; i++) {
+        if (!requested[i]) continue;
+        int slot = preview_pick_slot_locked(requested[i], protected, now);
+        if (slot < 0) continue;
+        if (!job) {
+            job = calloc(1, sizeof(*job));
+            if (!job) break;
+            job->epoch = preview_epoch;
+            snprintf(job->tag, sizeof(job->tag), "%s", last_tag);
+        }
+        preview_job_add_locked(job, slot, requested[i]);
+        protected[slot] = true;
+    }
+    return preview_launch(job);
 }
 
 /* The catalog preview of id when it is cached and ready; caller holds store_mutex. */
@@ -430,45 +503,47 @@ bool plugin_store_get_preview_jpeg(const char * id, char * out, size_t size) {
     return true;
 }
 
+/* State of a preview that has a cache slot. Caller holds store_mutex. */
+static plugin_store_preview_state_t preview_state_cached_locked(const preview_cache_entry_t * cached,
+                                                                uint64_t now) {
+    if (cached->ready) return PLUGIN_STORE_PREVIEW_READY;
+    if (preview_worker_running ||
+        (cached->attempted_epoch == preview_epoch && cached->attempts < 3 &&
+         cached->retry_after_ms > now)) {
+        return PLUGIN_STORE_PREVIEW_PENDING;
+    }
+    if (cached->attempted_epoch == preview_epoch && cached->attempts >= 3) {
+        return PLUGIN_STORE_PREVIEW_FAILED;
+    }
+    return PLUGIN_STORE_PREVIEW_STARTABLE;
+}
+
+/* State of a preview with no slot yet, from the worker spawn limits. Caller holds store_mutex. */
+static plugin_store_preview_state_t preview_state_uncached_locked(uint64_t now) {
+    if (preview_worker_running ||
+        (preview_spawn_epoch == preview_epoch && preview_spawn_attempts < 3 &&
+         preview_spawn_retry_ms > now)) {
+        return PLUGIN_STORE_PREVIEW_PENDING;
+    }
+    if (preview_spawn_epoch == preview_epoch && preview_spawn_attempts >= 3) {
+        return PLUGIN_STORE_PREVIEW_FAILED;
+    }
+    return PLUGIN_STORE_PREVIEW_STARTABLE;
+}
+
 plugin_store_preview_state_t plugin_store_preview_state(const char * id) {
     if (!id || !id[0]) return PLUGIN_STORE_PREVIEW_UNKNOWN;
     plugin_store_preview_state_t state = PLUGIN_STORE_PREVIEW_UNKNOWN;
     pthread_mutex_lock(&store_mutex);
     const plugin_store_plugin_t * plugin = ps_index_find_locked(id);
-    if (!plugin) goto done;
-    if (!ps_preview_eligible(plugin)) {
+    if (plugin && !ps_preview_eligible(plugin)) {
         state = PLUGIN_STORE_PREVIEW_NONE;
-        goto done;
+    } else if (plugin) {
+        uint64_t now = preview_now_ms();
+        int slot = preview_slot_find_locked(plugin->preview.sha256);
+        state = slot >= 0 ? preview_state_cached_locked(&preview_cache[slot], now)
+                          : preview_state_uncached_locked(now);
     }
-
-    uint64_t now = preview_now_ms();
-    int slot = preview_slot_find_locked(plugin->preview.sha256);
-    if (slot >= 0) {
-        preview_cache_entry_t * cached = &preview_cache[slot];
-        if (cached->ready) {
-            state = PLUGIN_STORE_PREVIEW_READY;
-        } else if (preview_worker_running ||
-                   (cached->attempted_epoch == preview_epoch && cached->attempts < 3 &&
-                    cached->retry_after_ms > now)) {
-            state = PLUGIN_STORE_PREVIEW_PENDING;
-        } else if (cached->attempted_epoch == preview_epoch && cached->attempts >= 3) {
-            state = PLUGIN_STORE_PREVIEW_FAILED;
-        } else {
-            state = PLUGIN_STORE_PREVIEW_STARTABLE;
-        }
-        goto done;
-    }
-
-    if (preview_worker_running ||
-        (preview_spawn_epoch == preview_epoch && preview_spawn_attempts < 3 &&
-         preview_spawn_retry_ms > now)) {
-        state = PLUGIN_STORE_PREVIEW_PENDING;
-    } else if (preview_spawn_epoch == preview_epoch && preview_spawn_attempts >= 3) {
-        state = PLUGIN_STORE_PREVIEW_FAILED;
-    } else {
-        state = PLUGIN_STORE_PREVIEW_STARTABLE;
-    }
-done:
     pthread_mutex_unlock(&store_mutex);
     return state;
 }

@@ -227,11 +227,6 @@ static void power_action_backdrop_cb(lv_event_t * e) {
     power_action_hide();
 }
 
-static void power_restart_selector_press_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) == LV_EVENT_PRESSED)
-        power_restart_selector_long_press_fired = false;
-}
-
 static void power_restart_selector_long_press_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
     power_restart_selector_long_press_fired = true;
@@ -371,7 +366,7 @@ void build_power_off_countdown_popup(void) {
     power_action_overlay.popup = build_power_hub_panel(power_action_overlay.backdrop,
         power_action_clicked_cb, &power_action_status, actions);
     if (actions[1]) {
-        lv_obj_add_event_cb(actions[1], power_restart_selector_press_cb, LV_EVENT_PRESSED, NULL);
+        lv_obj_add_event_cb(actions[1], ui_clear_flag_on_press_cb, LV_EVENT_PRESSED, &power_restart_selector_long_press_fired);
         lv_obj_add_event_cb(actions[1], power_restart_selector_long_press_cb, LV_EVENT_LONG_PRESSED, NULL);
     }
 }

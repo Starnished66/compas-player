@@ -580,4 +580,9 @@ bool ui_row_fit_label(lv_obj_t * row, lv_obj_t * label, const lv_font_t * font,
 /* Plain native wide row; chevron is used by saved-list navigation rows. */
 lv_obj_t * build_wide_list_row(lv_obj_t * parent, const char * label_text, bool chevron);
 
+/* PRESSED callback (user data: a bool *) that clears a "long press fired"
+ * flag. A long press whose release scrolled or slid off never sends CLICKED,
+ * so without this the stale flag would swallow the next tap. */
+void ui_clear_flag_on_press_cb(lv_event_t * e);
+
 #endif /* SCREEN_BUILDERS_H */

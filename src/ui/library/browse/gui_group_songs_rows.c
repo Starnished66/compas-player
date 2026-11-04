@@ -200,7 +200,7 @@ static void group_songs_add_plain_entry(int i, bool album_layout, bool was_bare)
     if (detail && detail[0]) group_song_row_show_detail(row, detail); /* as apply_group_probe_row() does */
 
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(row, group_song_row_pressed_cb, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(row, ui_clear_flag_on_press_cb, LV_EVENT_PRESSED, &group_song_row_long_press_fired);
     lv_obj_add_event_cb(row, group_song_row_click_cb, LV_EVENT_CLICKED, (void *) (intptr_t) i);
     lv_obj_add_event_cb(row, group_song_row_long_press_cb, LV_EVENT_LONG_PRESSED, (void *) (intptr_t) i);
 }

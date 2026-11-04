@@ -168,7 +168,7 @@ int group_songs_visible_count(void) {
 
 /* Suppresses the follow-up LV_EVENT_CLICKED event when a long press has
  * already triggered the context menu on a group song row. */
-static bool group_song_row_long_press_fired = false;
+bool group_song_row_long_press_fired = false;
 
 static void group_play_at(int pos) {
     if (library_rescan_active) return;
@@ -197,13 +197,6 @@ static void group_play_at(int pos) {
                            group_songs_entries[pos].path);
     set_player_source_group_songs(pos);
     on_file_selected(playlist_copy, group_songs_count, pos);
-}
-
-/* A long press whose release never produces CLICKED (the list scrolled) would
- * otherwise leave the flag set and swallow the next tap. */
-void group_song_row_pressed_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_PRESSED) return;
-    group_song_row_long_press_fired = false;
 }
 
 void group_song_row_click_cb(lv_event_t * e) {

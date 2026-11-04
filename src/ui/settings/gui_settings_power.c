@@ -472,7 +472,12 @@ void settings_power_build_screens(void) {
 
 void settings_power_teardown_screens(void) {
     delete_screen(&sleep_timer_screen);
+    sleep_timer_switch = sleep_timer_slider_card = NULL;
+    sleep_timer_remaining_btn = sleep_timer_value_label = NULL;
     delete_screen(&idle_shutdown_screen);
+    idle_shutdown_slider_card = idle_shutdown_value_label = idle_action_section = NULL;
+    idle_action_poweroff_row = idle_action_suspend_row = NULL;
+    idle_action_poweroff_check = idle_action_suspend_check = NULL;
     delete_screen(&settings_charging_screen);
     settings_usb_dac_charging_switch = settings_usb_dac_charging_row = NULL;
     delete_screen(&settings_power_screen);

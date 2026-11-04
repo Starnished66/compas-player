@@ -66,25 +66,30 @@ static void playlist_picker_path_free_cb(lv_event_t * e) {
     free(lv_event_get_user_data(e));
 }
 
+/* A pill row with a left-aligned label; the caller adds the click handler. */
+static lv_obj_t * build_picker_row(const char * text, lv_style_t * text_style) {
+    lv_obj_t * row = lv_obj_create(add_to_playlist_list);
+    lv_obj_set_size(row, LIST_ROW_WIDTH, ui_list_row_height());
+    lv_obj_add_style(row, &native_row_min_style, 0);
+    lv_obj_set_style_radius(row, LIST_ROW_RADIUS, 0);
+    lv_obj_add_style(row, &pill_row_bg_style, 0);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t * label = lv_label_create(row);
+    lv_label_set_text(label, text);
+    lv_obj_add_style(label, text_style, 0);
+    lv_obj_set_style_text_font(label, &LIST_ROW_FONT, 0);
+    const int32_t label_w = ui_row_label_width(row, LIST_ROW_WIDTH, LIST_ROW_LABEL_INSET, LIST_ROW_LABEL_INSET);
+    lv_obj_set_width(label, label_w);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_LEFT, 0);
+    ui_row_fit_label(row, label, &LIST_ROW_FONT, LIST_ROW_WIDTH, LIST_ROW_LABEL_INSET, label_w);
+    return row;
+}
+
 static void populate_add_to_playlist_screen(void) {
     lv_obj_clean(add_to_playlist_list);
-
-    lv_obj_t * new_row = lv_obj_create(add_to_playlist_list);
-    lv_obj_set_size(new_row, LIST_ROW_WIDTH, ui_list_row_height());
-    lv_obj_add_style(new_row, &native_row_min_style, 0);
-    lv_obj_set_style_radius(new_row, LIST_ROW_RADIUS, 0);
-    lv_obj_add_style(new_row, &pill_row_bg_style, 0);
-    lv_obj_remove_flag(new_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(new_row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t * new_row = build_picker_row(TR("+ New Playlist"), gui_theme_accent_style());
     lv_obj_add_event_cb(new_row, new_playlist_row_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_t * new_label = lv_label_create(new_row);
-    lv_label_set_text(new_label, TR("+ New Playlist"));
-    lv_obj_add_style(new_label, gui_theme_accent_style(), 0);
-    lv_obj_set_style_text_font(new_label, &LIST_ROW_FONT, 0);
-    const int32_t picker_label_w = ui_row_label_width(new_row, LIST_ROW_WIDTH, LIST_ROW_LABEL_INSET, LIST_ROW_LABEL_INSET);
-    lv_obj_set_width(new_label, picker_label_w);
-    lv_obj_set_style_text_align(new_label, LV_TEXT_ALIGN_LEFT, 0);
-    ui_row_fit_label(new_row, new_label, &LIST_ROW_FONT, LIST_ROW_WIDTH, LIST_ROW_LABEL_INSET, picker_label_w);
 
     char ** paths;
     int count;
@@ -96,27 +101,12 @@ static void populate_add_to_playlist_screen(void) {
     if (count == 0) return;
 
     for (int i = 0; i < count; i++) {
-        lv_obj_t * row = lv_obj_create(add_to_playlist_list);
-        lv_obj_set_size(row, LIST_ROW_WIDTH, ui_list_row_height());
-        lv_obj_add_style(row, &native_row_min_style, 0);
-        lv_obj_set_style_radius(row, LIST_ROW_RADIUS, 0);
-        lv_obj_add_style(row, &pill_row_bg_style, 0);
-        lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_t * row = build_picker_row(basename_of(paths[i]), &style_theme_text_primary);
         lv_obj_add_event_cb(row, existing_playlist_row_cb, LV_EVENT_CLICKED, paths[i]);
         lv_obj_add_event_cb(row, playlist_picker_path_free_cb, LV_EVENT_DELETE, paths[i]);
-
-        lv_obj_t * label = lv_label_create(row);
-        lv_label_set_text(label, basename_of(paths[i]));
-        lv_obj_add_style(label, &style_theme_text_primary, 0);
-        lv_obj_set_style_text_font(label, &LIST_ROW_FONT, 0);
-        lv_obj_set_width(label, picker_label_w);
-        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_LEFT, 0);
-        ui_row_fit_label(row, label, &LIST_ROW_FONT, LIST_ROW_WIDTH, LIST_ROW_LABEL_INSET, picker_label_w);
     }
     free(paths);
 }
-
 
 static void playlist_delete_cancel_cb(lv_event_t * e) {
     (void) e;
@@ -200,6 +190,39 @@ static void playlist_row_long_press_cb(lv_event_t * e) {
     lv_obj_move_foreground(playlist_context_menu_popup);
 }
 
+/* System rows (Favorites ... Recently Added) are never deletable/renamable
+ * (none is a real .m3u file -- see playlist_row_click_cb()'s index 0..3 special
+ * cases), so they get no long-press handler. */
+static void add_system_playlist_row(const char * label, int index) {
+    lv_obj_t * row = build_wide_list_row(playlists_list, label, true);
+    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(row, ui_clear_flag_on_press_cb, LV_EVENT_PRESSED, &playlist_row_long_press_fired);
+    lv_obj_add_event_cb(row, playlist_row_click_cb, LV_EVENT_CLICKED, (void *) (intptr_t) index);
+}
+
+static void add_user_playlist_row(int i) {
+    const char * display = playlists_m3u_paths[i];
+    if (strncmp(display, PLAYLISTS_DIR "/", strlen(PLAYLISTS_DIR) + 1) == 0) display += strlen(PLAYLISTS_DIR) + 1;
+    lv_obj_t * row = build_wide_list_row(playlists_list, display, true);
+    lv_obj_t * name_label = lv_obj_get_child(row, 0);
+    const int32_t name_w = LIST_ROW_WIDTH_WIDE - LIST_ROW_LABEL_INSET - BOARD_SCALE_PX(60);
+    lv_obj_set_width(name_label, name_w);
+    /* The chevron is the row's other child: floating when the row grows. */
+    if (ui_row_fit_label(row, name_label, &LIST_ROW_FONT, LIST_ROW_WIDTH_WIDE, LIST_ROW_LABEL_INSET, name_w)) {
+        /* configure_scrolling_row_label() gave the label a fixed one-line
+         * height, a top margin and the font-change re-bound flag; a tall
+         * row needs none of them (the marquee style is inert in WRAP). */
+        lv_obj_set_height(name_label, LV_SIZE_CONTENT);
+        lv_obj_set_style_pad_top(name_label, 0, 0);
+        lv_obj_remove_flag(name_label, LV_OBJ_FLAG_USER_3);
+        lv_obj_add_flag(lv_obj_get_child(row, 1), LV_OBJ_FLAG_FLOATING);
+    }
+    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(row, ui_clear_flag_on_press_cb, LV_EVENT_PRESSED, &playlist_row_long_press_fired);
+    lv_obj_add_event_cb(row, playlist_row_click_cb, LV_EVENT_CLICKED, (void *) (intptr_t) (4 + i));
+    lv_obj_add_event_cb(row, playlist_row_long_press_cb, LV_EVENT_LONG_PRESSED, (void *) (intptr_t) i);
+}
+
 static void populate_playlists_screen(void) {
     lv_obj_clean(playlists_list);
 
@@ -216,49 +239,15 @@ static void populate_playlists_screen(void) {
     lv_obj_add_event_cb(create, new_playlist_row_cb, LV_EVENT_CLICKED, (void *) 1);
     build_list_section(playlists_list, TR("System playlists"));
 
-    /* Favorites/Most Played/Queue/Recently Added are never deletable/
-     * renamable (none is a real .m3u file -- see playlist_row_click_cb()'s
-     * index==0..3 special cases), so they get no long-press handler. */
-    lv_obj_t * favorites_row = build_wide_list_row(playlists_list, TR("Favorites"), true);
-    lv_obj_add_flag(favorites_row, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(favorites_row, playlist_row_click_cb, LV_EVENT_CLICKED, (void *) (intptr_t) 0);
-
-    lv_obj_t * most_played_row = build_wide_list_row(playlists_list, TR("Most Played"), true);
-    lv_obj_add_flag(most_played_row, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(most_played_row, playlist_row_click_cb, LV_EVENT_CLICKED, (void *) (intptr_t) 1);
-
-    lv_obj_t * queue_row = build_wide_list_row(playlists_list, TR("Queue"), true);
-    lv_obj_add_flag(queue_row, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(queue_row, playlist_row_click_cb, LV_EVENT_CLICKED, (void *) (intptr_t) 2);
-
-    lv_obj_t * recently_added_row = build_wide_list_row(playlists_list, TR("Recently Added"), true);
-    lv_obj_add_flag(recently_added_row, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(recently_added_row, playlist_row_click_cb, LV_EVENT_CLICKED, (void *) (intptr_t) 3);
+    add_system_playlist_row(TR("Favorites"), 0);
+    add_system_playlist_row(TR("Most Played"), 1);
+    add_system_playlist_row(TR("Queue"), 2);
+    add_system_playlist_row(TR("Recently Added"), 3);
 
     build_list_section(playlists_list, TR("User playlists"));
     if (!playlists_m3u_count)
         build_list_message(playlists_list, TR("No user playlists"), TR("Create a playlist above or copy one to the SD card's Playlists folder."));
-    for (int i = 0; i < playlists_m3u_count; i++) {
-        const char * display = playlists_m3u_paths[i];
-        if (strncmp(display, PLAYLISTS_DIR "/", strlen(PLAYLISTS_DIR) + 1) == 0) display += strlen(PLAYLISTS_DIR) + 1;
-        lv_obj_t * row = build_wide_list_row(playlists_list, display, true);
-        lv_obj_t * name_label = lv_obj_get_child(row, 0);
-        const int32_t name_w = LIST_ROW_WIDTH_WIDE - LIST_ROW_LABEL_INSET - BOARD_SCALE_PX(60);
-        lv_obj_set_width(name_label, name_w);
-        /* The chevron is the row's other child: floating when the row grows. */
-        if (ui_row_fit_label(row, name_label, &LIST_ROW_FONT, LIST_ROW_WIDTH_WIDE, LIST_ROW_LABEL_INSET, name_w)) {
-            /* configure_scrolling_row_label() gave the label a fixed one-line
-             * height, a top margin and the font-change re-bound flag; a tall
-             * row needs none of them (the marquee style is inert in WRAP). */
-            lv_obj_set_height(name_label, LV_SIZE_CONTENT);
-            lv_obj_set_style_pad_top(name_label, 0, 0);
-            lv_obj_remove_flag(name_label, LV_OBJ_FLAG_USER_3);
-            lv_obj_add_flag(lv_obj_get_child(row, 1), LV_OBJ_FLAG_FLOATING);
-        }
-        lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(row, playlist_row_click_cb, LV_EVENT_CLICKED, (void *) (intptr_t) (4 + i));
-        lv_obj_add_event_cb(row, playlist_row_long_press_cb, LV_EVENT_LONG_PRESSED, (void *) (intptr_t) i);
-    }
+    for (int i = 0; i < playlists_m3u_count; i++) add_user_playlist_row(i);
 }
 
 static void playlists_refresh_cb(lv_event_t * e) {
@@ -288,44 +277,33 @@ static lv_obj_t * build_playlists_screen(void) {
     return scr;
 }
 
-static void new_playlist_name_done_cb(const char *text, void *user_data) {
-    (void)user_data;
-    if (text[0] == '\0') return;
-
-    gui_playlist_target_snapshot_t target;
-    gui_playlist_target_copy(&target);
-    playlist_name_target_mode_t mode = playlist_name_target_mode;
+/* Whether the name was asked for the target that is still current. */
+static bool playlist_name_request_current(playlist_name_target_mode_t mode,
+                                          const gui_playlist_target_snapshot_t * target) {
     bool mode_target_current =
-        (mode == PLAYLIST_NAME_TARGET_FOLDER && target.folder_path[0]) ||
-        (mode == PLAYLIST_NAME_TARGET_SONG && target.song_path[0]) ||
+        (mode == PLAYLIST_NAME_TARGET_FOLDER && target->folder_path[0]) ||
+        (mode == PLAYLIST_NAME_TARGET_SONG && target->song_path[0]) ||
         (mode == PLAYLIST_NAME_TARGET_STANDALONE &&
-         !target.folder_path[0] && !target.song_path[0]);
-    bool request_current = playlist_name_target_generation == target.generation && mode_target_current;
-    if (!request_current) {
-        if (mode == PLAYLIST_NAME_TARGET_FOLDER && !target.folder_path[0] && !target.song_path[0]) {
-            int depth = gui_navigation_get_depth();
-            for (int i = 0; i < depth - 1; i++) {
-                if (gui_navigation_get_screen_at(i) == add_to_playlist_screen) {
-                    nav_remove_stack_slot(i);
-                    break;
-                }
-            }
-        }
-        show_error_toast(TR("Playlist selection expired"));
-        return;
-    }
-    if (strlen(text) > 200) {
-        show_error_toast(TR("Playlist name is too long"));
-        return;
-    }
+         !target->folder_path[0] && !target->song_path[0]);
+    return playlist_name_target_generation == target->generation && mode_target_current;
+}
 
-    char created_path[512];
-    if (mode == PLAYLIST_NAME_TARGET_FOLDER) {
-        (void)gui_folder_actions_start_playlist_job(true, target.folder_path, NULL, text,
-                                                    target.generation, add_to_playlist_screen);
-        return;
+/* The folder target vanished: the Add to Playlist screen no longer applies. */
+static void drop_add_to_playlist_screen(void) {
+    int depth = gui_navigation_get_depth();
+    for (int i = 0; i < depth - 1; i++) {
+        if (gui_navigation_get_screen_at(i) == add_to_playlist_screen) {
+            nav_remove_stack_slot(i);
+            break;
+        }
     }
-    const char *song_path = mode == PLAYLIST_NAME_TARGET_SONG ? target.song_path : "";
+}
+
+/* Creates the playlist (holding the target song, if any) and leaves the name screen. */
+static void create_named_playlist(const char * text, playlist_name_target_mode_t mode,
+                                  const gui_playlist_target_snapshot_t * target) {
+    char created_path[512];
+    const char * song_path = mode == PLAYLIST_NAME_TARGET_SONG ? target->song_path : "";
     bool ok = playlist_files_create(PLAYLISTS_DIR, text, song_path, created_path, sizeof(created_path));
     if (ok) metadata_db_playlist_insert_one(created_path);
     show_error_toast(ok ? TR("Playlist created") : TR("Failed to create playlist"));
@@ -334,6 +312,32 @@ static void new_playlist_name_done_cb(const char *text, void *user_data) {
     playlist_name_target_mode = PLAYLIST_NAME_TARGET_NONE;
     if (mode == PLAYLIST_NAME_TARGET_STANDALONE) populate_playlists_screen();
     else nav_pop();
+}
+
+static void new_playlist_name_done_cb(const char *text, void *user_data) {
+    (void)user_data;
+    if (text[0] == '\0') return;
+
+    gui_playlist_target_snapshot_t target;
+    gui_playlist_target_copy(&target);
+    playlist_name_target_mode_t mode = playlist_name_target_mode;
+    if (!playlist_name_request_current(mode, &target)) {
+        if (mode == PLAYLIST_NAME_TARGET_FOLDER && !target.folder_path[0] && !target.song_path[0]) {
+            drop_add_to_playlist_screen();
+        }
+        show_error_toast(TR("Playlist selection expired"));
+        return;
+    }
+    if (strlen(text) > 200) {
+        show_error_toast(TR("Playlist name is too long"));
+        return;
+    }
+    if (mode == PLAYLIST_NAME_TARGET_FOLDER) {
+        (void)gui_folder_actions_start_playlist_job(true, target.folder_path, NULL, text,
+                                                    target.generation, add_to_playlist_screen);
+        return;
+    }
+    create_named_playlist(text, mode, &target);
 }
 
 static void new_playlist_row_cb(lv_event_t *event) {

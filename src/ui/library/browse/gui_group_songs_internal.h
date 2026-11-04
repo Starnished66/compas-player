@@ -30,7 +30,7 @@ void group_shuffle_cb(lv_event_t * e);
 group_song_entry_t * group_song_entries_take_paths(char ** paths, int count);
 void group_song_row_click_cb(lv_event_t * e);
 void group_song_row_long_press_cb(lv_event_t * e);
-void group_song_row_pressed_cb(lv_event_t * e);
+extern bool group_song_row_long_press_fired; /* cleared by ui_clear_flag_on_press_cb */
 bool group_songs_album_layout(void);
 int group_songs_page_end(void);
 void group_songs_place_now_playing_bar(bool laid_out);

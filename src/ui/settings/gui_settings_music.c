@@ -533,6 +533,7 @@ void settings_music_teardown_screens(void) {
     delete_screen(&settings_sound_effects_screen);
     delete_screen(&settings_eq_profiles_menu_screen);
     delete_screen(&music_playback_screen);
+    settings_crossfade_toggle_img = settings_gapless_toggle_img = NULL;
     delete_screen(&music_audio_screen);
     delete_screen(&dac_settings_screen);
     delete_screen(&usb_dsd_settings_screen);

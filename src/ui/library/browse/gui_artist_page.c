@@ -108,7 +108,6 @@ static void button_click_cb(lv_event_t * e) {
 static void songs_row_cb(lv_event_t * e) {
     lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_PRESSED) {
-        P.songs_long_fired = false; /* a long press that ended in a drag sends no CLICKED */
         if (P.params.on_songs_press) P.params.on_songs_press(true);
     } else if (code == LV_EVENT_PRESS_LOST) {
         if (P.params.on_songs_press) P.params.on_songs_press(false);
@@ -335,6 +334,7 @@ static void create_header(void) {
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(row, songs_row_cb, LV_EVENT_CLICKED, NULL);
         lv_obj_add_event_cb(row, songs_row_cb, LV_EVENT_LONG_PRESSED, NULL);
+        lv_obj_add_event_cb(row, ui_clear_flag_on_press_cb, LV_EVENT_PRESSED, &P.songs_long_fired);
         lv_obj_add_event_cb(row, songs_row_cb, LV_EVENT_PRESSED, NULL);
         lv_obj_add_event_cb(row, songs_row_cb, LV_EVENT_PRESS_LOST, NULL);
         lv_obj_t * icon = lv_label_create(row);

@@ -557,3 +557,8 @@ lv_obj_t * build_wide_list_row(lv_obj_t * parent, const char * label_text, bool 
     }
     return row;
 }
+
+void ui_clear_flag_on_press_cb(lv_event_t * e) {
+    bool * flag = (bool *) lv_event_get_user_data(e);
+    if (flag && lv_event_get_code(e) == LV_EVENT_PRESSED) *flag = false;
+}

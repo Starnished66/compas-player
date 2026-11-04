@@ -251,6 +251,7 @@ static void compact_list_row_press_cb(lv_event_t * e) {
     compact_list_row_ctx_t * ctx = (compact_list_row_ctx_t *) lv_event_get_user_data(e);
     compact_list_virtual_data_t * data = ctx->data;
     if (code == LV_EVENT_PRESSED) {
+        data->long_press_fired = false; /* a long press that scrolled never got its CLICKED */
         compact_list_press_record(data, ctx->logical_index);
         if (data->press_index < 0 || !data->on_press) return;
         if (data->scrolled && lv_tick_elaps(data->last_scroll_tick) < COMPACT_LIST_PRESS_AFTER_SCROLL_MS)
