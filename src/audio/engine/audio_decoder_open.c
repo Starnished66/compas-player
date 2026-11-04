@@ -250,6 +250,207 @@ static bool net_open_fail(decoder_t * dec) {
     return false;
 }
 
+typedef enum { NET_FMT_MP3, NET_FMT_AAC, NET_FMT_MP4, NET_FMT_FLAC } net_format_t;
+
+static bool net_resolve_format(decoder_t * dec, const char * path, bool remote,
+                               const remote_track_meta_t * m, net_format_t * out) {
+    /* Fragment, then path extension, then Content-Type. A fragment or
+     * extension that names a container wins over a later Content-Type so
+     * a .flac URL is not opened as MP3. .mp3 and unknown suffixes (a
+     * .m3u playlist URL, an opaque mount) are not specific and still
+     * fall through, with MP3 as the default. */
+    const char * hint = remote ? NULL : stream_format_hint(path);
+    bool fragment_flac = hint && strcasecmp(hint, ".flac") == 0;
+    bool fragment_aac = hint && (strcasecmp(hint, ".aac") == 0 || strcasecmp(hint, ".aacp") == 0);
+    bool fragment_mp4 = hint && (strcasecmp(hint, ".m4a") == 0 || strcasecmp(hint, ".m4b") == 0 ||
+                                 strcasecmp(hint, ".mp4") == 0);
+    bool fragment_specific = fragment_flac || fragment_aac || fragment_mp4;
+    bool path_flac = !remote && !fragment_specific && url_path_ext_is(path, ".flac");
+    bool path_aac = !remote && !fragment_specific &&
+                    (url_path_ext_is(path, ".aac") || url_path_ext_is(path, ".aacp"));
+    bool path_mp4 = !remote && !fragment_specific &&
+                    (url_path_ext_is(path, ".m4a") || url_path_ext_is(path, ".m4b") ||
+                     url_path_ext_is(path, ".mp4"));
+    bool path_specific = path_flac || path_aac || path_mp4;
+    bool is_flac = remote ? (strcasecmp(m->codec, "flac") == 0) : (fragment_flac || path_flac);
+    bool is_aac = remote ? (strcasecmp(m->codec, "aac") == 0) : (fragment_aac || path_aac);
+    bool is_mp4 = !remote && (fragment_mp4 || path_mp4);
+
+    const char * content_type = http_stream_content_type(dec->net_stream);
+    if (remote) {
+        /* An MP4 media type still selects the container when the plugin
+         * named a different codec. audio/aac does not, matching before. */
+        is_mp4 = content_type_is_mp4(content_type);
+    } else if (!fragment_specific && !path_specific) {
+        if (strncasecmp(content_type, "audio/aac", 9) == 0) is_aac = true;
+        else if (content_type_is(content_type, "audio/flac") ||
+                 content_type_is(content_type, "audio/x-flac")) is_flac = true;
+        else if (content_type_is_mp4(content_type)) is_mp4 = true;
+    }
+    dec->seekable = http_stream_can_seek(dec->net_stream);
+
+    /* Providers sometimes describe AAC without a useful media type (or
+     * extension). For a finite byte-range stream, sniff only the MP4
+     * file-type box; this is a constant 12-byte read with a rewind, not
+     * an ADTS index scan. Live AAC never takes this path. */
+    if (!is_mp4 && is_aac && dec->seekable) {
+        FILE * probe = http_stream_open_file(dec->net_stream);
+        if (probe) {
+            int64_t probe_start = http_stream_tell(dec->net_stream);
+            unsigned char header[12];
+            is_mp4 = fread(header, 1, sizeof(header), probe) == sizeof(header) &&
+                     memcmp(header + 4, "ftyp", 4) == 0;
+            bool rewound = probe_start >= 0 &&
+                           http_stream_seek(dec->net_stream, probe_start, SEEK_SET);
+            fclose(probe);
+            if (!rewound) {
+                return false;
+            }
+        }
+    }
+
+    *out = is_mp4 ? NET_FMT_MP4 : is_aac ? NET_FMT_AAC : is_flac ? NET_FMT_FLAC : NET_FMT_MP3;
+    return true;
+}
+
+static bool decoder_take_aac(decoder_t * dec, aac_decoder_t * a) {
+    dec->type = DECODER_AAC;
+    dec->as.aac = a;
+    if (!a) return false;
+    dec->channels = aac_get_channels(a);
+    dec->sample_rate = aac_get_sample_rate(a);
+    dec->source_sample_rate = dec->sample_rate;
+    return true;
+}
+
+static uint64_t remote_declared_frames(const remote_track_meta_t * m, unsigned rate) {
+    return (uint64_t) ((double) m->duration_ms / 1000.0 * rate);
+}
+
+/* Finite AAC-in-MP4 streams use a seekable stdio view so the existing
+ * MP4 demuxer can read its sample table and issue HTTP byte-range
+ * seeks. Raw ADTS AAC retains the incremental stream decoder: its
+ * frame indexer scans a whole input and would make arbitrary remote
+ * episodes expensive to open. aac_open_mp4_file_stream() rejects a
+ * non-mp4a moov, so a separate peek would parse it twice. */
+static bool open_network_mp4(decoder_t * dec, bool remote, const remote_track_meta_t * m) {
+    if (!dec->seekable) {
+        return net_open_fail(dec);
+    }
+    FILE * probe = http_stream_open_file(dec->net_stream);
+    uint8_t * cached = NULL;
+    mp4_span_t * mp4_spans = NULL;
+    size_t span_count = 0;
+    bool have_moov = probe && mp4_cache_moov(probe, &cached, &mp4_spans, &span_count);
+    if (probe) fclose(probe);
+    http_span_t * spans = span_count ? malloc(span_count * sizeof(*spans)) : NULL;
+    for (size_t i = 0; spans && i < span_count; i++)
+        spans[i] = (http_span_t) { mp4_spans[i].offset, mp4_spans[i].length };
+    free(mp4_spans);
+    if (span_count && !spans) {
+        free(cached);
+        have_moov = false;
+    }
+    FILE * file = have_moov ? http_stream_open_spans_file(dec->net_stream, cached, spans, span_count) : NULL;
+    if (!file) {
+        return net_open_fail(dec);
+    }
+    if (!decoder_take_aac(dec, aac_open_mp4_file_stream(file))) { /* takes FILE ownership */
+        return net_open_fail(dec);
+    }
+    dec->source_bit_depth = remote ? m->bit_depth : 0;
+    dec->bitrate_kbps = remote ? m->bitrate_kbps : 0;
+    dec->total_frames = aac_get_total_pcm_frame_count(dec->as.aac);
+    return true;
+}
+
+static bool open_network_aac(decoder_t * dec, bool remote, const remote_track_meta_t * m) {
+    /* AAC_SOURCE_STREAM decodes incrementally but has no compressed
+     * frame index. Do not advertise seeking merely because HTTP
+     * happens to support byte ranges; raw ADTS indexing remains an
+     * explicit local-file path with its existing full scan. */
+    dec->seekable = false;
+    if (!decoder_take_aac(dec, aac_open_stream(stream_read_cb, dec->net_stream))) {
+        return net_open_fail(dec);
+    }
+    dec->source_bit_depth = remote ? m->bit_depth : 0;
+    dec->bitrate_kbps = remote ? m->bitrate_kbps : 0;
+    /* A remote track declares its own duration up front (the
+     * plugin's catalog metadata) -- unlike plain internet radio,
+     * there's no need to leave total_frames at 0 (unknown duration);
+     * a plain stream URL (remote == false) still has no
+     * such source and keeps today's behavior exactly. */
+    dec->total_frames = (remote && m->duration_ms > 0)
+                             ? remote_declared_frames(m, dec->sample_rate)
+                             : 0;
+    return true;
+}
+
+static bool open_network_flac(decoder_t * dec, bool remote, const remote_track_meta_t * m) {
+    dec->type = DECODER_FLAC;
+    dec->as.flac = drflac_open(stream_read_cb, flac_stream_seek_cb,
+                               dec->seekable ? flac_stream_tell_cb : NULL, dec->net_stream, NULL);
+    if (!dec->as.flac) {
+        return net_open_fail(dec);
+    }
+    dec->channels = dec->as.flac->channels;
+    dec->sample_rate = dec->as.flac->sampleRate;
+    dec->source_sample_rate = dec->sample_rate;
+    dec->source_bit_depth = dec->as.flac->bitsPerSample;
+    dec->bitrate_kbps = remote ? m->bitrate_kbps : 0;
+    /* Unlike MP3, this is a REAL, authoritative count straight from
+     * the STREAMINFO metadata block (near the top of the file, not
+     * a full-stream prescan) -- safe to use for real, matching
+     * local FLAC playback. Gives a Subsonic FLAC stream a
+     * correct duration/progress bar for free, unlike MP3 streams
+     * (which have no equivalent authoritative source without a
+     * full prescan or a declared remote duration). */
+    dec->total_frames = dec->as.flac->totalPCMFrameCount;
+    return true;
+}
+
+static bool open_network_mp3(decoder_t * dec, bool remote, const remote_track_meta_t * m) {
+    dec->type = DECODER_MP3;
+    dec->as.mp3 = malloc(sizeof(drmp3));
+    dec->net_mp3 = malloc(sizeof(*dec->net_mp3));
+    if (dec->net_mp3) {
+        dec->net_mp3->stream = dec->net_stream;
+        dec->net_mp3->sync_left = NET_MP3_SYNC_SCAN_BYTES;
+    }
+    /* No onTell: dr_mp3 uses it only to look for ID3v1/APE tags at the
+     * end, which over HTTP costs two extra connections per open. The
+     * frame scanner skips a trailing tag's bytes anyway. */
+    if (!dec->as.mp3 || !dec->net_mp3 ||
+        !drmp3_init(dec->as.mp3, mp3_net_read, dec->seekable ? mp3_net_seek : NULL,
+                    NULL, NULL, dec->net_mp3, NULL)) {
+        free(dec->as.mp3);
+        dec->as.mp3 = NULL;
+        free(dec->net_mp3);
+        dec->net_mp3 = NULL;
+        return net_open_fail(dec);
+    }
+    dec->net_mp3->sync_left = SIZE_MAX;
+    dec->channels = dec->as.mp3->channels;
+    dec->sample_rate = dec->as.mp3->sampleRate;
+    dec->source_sample_rate = dec->sample_rate;
+    dec->source_bit_depth = remote ? m->bit_depth : 0;
+    dec->bitrate_kbps = remote ? m->bitrate_kbps : 0;
+    if (dec->as.mp3->totalPCMFrameCount != DRMP3_UINT64_MAX)
+        dec->total_frames = dec->as.mp3->totalPCMFrameCount;
+    /* See open_network_aac() -- a remote track's
+     * declared duration_ms substitutes for the prescan this never does
+     * on a live stream; a plain MP3 stream URL (remote == false, e.g.
+     * internet radio or a Subsonic stream) has no such source and
+     * keeps today's unknown-duration-until-EOF behavior exactly. */
+    if (remote && m->duration_ms > 0)
+        dec->total_frames = remote_declared_frames(m, dec->sample_rate);
+    /* Without a table a seek would decode from the start over the
+     * network, so such a stream is reported as not seekable. */
+    if (dec->seekable && !bind_network_mp3_seek_table(dec))
+        dec->seekable = false;
+    return true;
+}
+
 static bool decoder_open_internal(decoder_t * dec, const char * path,
                                   const remote_track_meta_t * remote_snapshot) {
     memset(dec, 0, sizeof(*dec));
@@ -277,28 +478,6 @@ static bool decoder_open_internal(decoder_t * dec, const char * path,
     if (remote_track_path_is_remote(path) && !remote) return false; /* stale/replaced queue entry */
 
     if (remote || is_stream_url(path)) {
-        /* Fragment, then path extension, then Content-Type. A fragment or
-         * extension that names a container wins over a later Content-Type so
-         * a .flac URL is not opened as MP3. .mp3 and unknown suffixes (a
-         * .m3u playlist URL, an opaque mount) are not specific and still
-         * fall through, with MP3 as the default. */
-        const char * hint = remote ? NULL : stream_format_hint(path);
-        bool fragment_flac = hint && strcasecmp(hint, ".flac") == 0;
-        bool fragment_aac = hint && (strcasecmp(hint, ".aac") == 0 || strcasecmp(hint, ".aacp") == 0);
-        bool fragment_mp4 = hint && (strcasecmp(hint, ".m4a") == 0 || strcasecmp(hint, ".m4b") == 0 ||
-                                     strcasecmp(hint, ".mp4") == 0);
-        bool fragment_specific = fragment_flac || fragment_aac || fragment_mp4;
-        bool path_flac = !remote && !fragment_specific && url_path_ext_is(path, ".flac");
-        bool path_aac = !remote && !fragment_specific &&
-                        (url_path_ext_is(path, ".aac") || url_path_ext_is(path, ".aacp"));
-        bool path_mp4 = !remote && !fragment_specific &&
-                        (url_path_ext_is(path, ".m4a") || url_path_ext_is(path, ".m4b") ||
-                         url_path_ext_is(path, ".mp4"));
-        bool path_specific = path_flac || path_aac || path_mp4;
-        bool is_flac = remote ? (strcasecmp(remote_meta.codec, "flac") == 0) : (fragment_flac || path_flac);
-        bool is_aac = remote ? (strcasecmp(remote_meta.codec, "aac") == 0) : (fragment_aac || path_aac);
-        bool is_mp4 = !remote && (fragment_mp4 || path_mp4);
-
         /* Live network stream -- MP3/FLAC use their callback-based decoder
          * APIs, while ADTS AAC uses aac_open_stream()'s incremental framing
          * path. FLAC's callback seek constraints are documented above;
@@ -309,170 +488,16 @@ static bool decoder_open_internal(decoder_t * dec, const char * path,
         dec->net_stream = http_stream_open(remote ? remote_meta.stream_url : path, remote ? remote_meta.verify_tls : true);
         if (!dec->net_stream) return false;
 
-        const char * content_type = http_stream_content_type(dec->net_stream);
-        if (remote) {
-            /* An MP4 media type still selects the container when the plugin
-             * named a different codec. audio/aac does not, matching before. */
-            is_mp4 = content_type_is_mp4(content_type);
-        } else if (!fragment_specific && !path_specific) {
-            if (strncasecmp(content_type, "audio/aac", 9) == 0) is_aac = true;
-            else if (content_type_is(content_type, "audio/flac") ||
-                     content_type_is(content_type, "audio/x-flac")) is_flac = true;
-            else if (content_type_is_mp4(content_type)) is_mp4 = true;
-        }
-        dec->seekable = http_stream_can_seek(dec->net_stream);
-
-        /* Providers sometimes describe AAC without a useful media type (or
-     * extension). For a finite byte-range stream, sniff only the MP4
-     * file-type box; this is a constant 12-byte read with a rewind, not
-     * an ADTS index scan. Live AAC never takes this path. */
-        if (!is_mp4 && is_aac && dec->seekable) {
-            FILE * probe = http_stream_open_file(dec->net_stream);
-            if (probe) {
-                int64_t probe_start = http_stream_tell(dec->net_stream);
-                unsigned char header[12];
-                is_mp4 = fread(header, 1, sizeof(header), probe) == sizeof(header) &&
-                         memcmp(header + 4, "ftyp", 4) == 0;
-                bool rewound = probe_start >= 0 &&
-                               http_stream_seek(dec->net_stream, probe_start, SEEK_SET);
-                fclose(probe);
-                if (!rewound) {
-                    return net_open_fail(dec);
-                }
-            }
-        }
-
-        /* Finite AAC-in-MP4 streams use a seekable stdio view so the existing
-     * MP4 demuxer can read its sample table and issue HTTP byte-range
-     * seeks. Raw ADTS AAC retains the incremental stream decoder: its
-     * frame indexer scans a whole input and would make arbitrary remote
-     * episodes expensive to open. aac_open_mp4_file_stream() rejects a
-     * non-mp4a moov, so a separate peek would parse it twice. */
-        if (is_mp4) {
-            if (!dec->seekable) {
-                return net_open_fail(dec);
-            }
-            FILE * probe = http_stream_open_file(dec->net_stream);
-            uint8_t * cached = NULL;
-            mp4_span_t * mp4_spans = NULL;
-            size_t span_count = 0;
-            bool have_moov = probe && mp4_cache_moov(probe, &cached, &mp4_spans, &span_count);
-            if (probe) fclose(probe);
-            http_span_t * spans = span_count ? malloc(span_count * sizeof(*spans)) : NULL;
-            for (size_t i = 0; spans && i < span_count; i++)
-                spans[i] = (http_span_t) { mp4_spans[i].offset, mp4_spans[i].length };
-            free(mp4_spans);
-            if (span_count && !spans) {
-                free(cached);
-                have_moov = false;
-            }
-            FILE * file = have_moov ? http_stream_open_spans_file(dec->net_stream, cached, spans, span_count) : NULL;
-            if (!file) {
-                return net_open_fail(dec);
-            }
-            dec->type = DECODER_AAC;
-            dec->as.aac = aac_open_mp4_file_stream(file); /* takes FILE ownership */
-            if (!dec->as.aac) {
-                return net_open_fail(dec);
-            }
-            dec->channels = aac_get_channels(dec->as.aac);
-            dec->sample_rate = aac_get_sample_rate(dec->as.aac);
-            dec->source_sample_rate = dec->sample_rate;
-            dec->source_bit_depth = remote ? remote_meta.bit_depth : 0;
-            dec->bitrate_kbps = remote ? remote_meta.bitrate_kbps : 0;
-            dec->total_frames = aac_get_total_pcm_frame_count(dec->as.aac);
-            return true;
-        }
-
-        if (is_aac) {
-            /* AAC_SOURCE_STREAM decodes incrementally but has no compressed
-       * frame index. Do not advertise seeking merely because HTTP
-       * happens to support byte ranges; raw ADTS indexing remains an
-       * explicit local-file path with its existing full scan. */
-            dec->seekable = false;
-            dec->type = DECODER_AAC;
-            dec->as.aac = aac_open_stream(stream_read_cb, dec->net_stream);
-            if (!dec->as.aac) {
-                return net_open_fail(dec);
-            }
-            dec->channels = aac_get_channels(dec->as.aac);
-            dec->sample_rate = aac_get_sample_rate(dec->as.aac);
-            dec->source_sample_rate = dec->sample_rate;
-            dec->source_bit_depth = remote ? remote_meta.bit_depth : 0;
-            dec->bitrate_kbps = remote ? remote_meta.bitrate_kbps : 0;
-            /* A remote track declares its own duration up front (the
-             * plugin's catalog metadata) -- unlike plain internet radio,
-             * there's no need to leave this at the unknown-duration 0
-             * below; a plain stream URL (remote == false) still has no
-             * such source and keeps today's behavior exactly. */
-            dec->total_frames = (remote && remote_meta.duration_ms > 0)
-                                     ? (uint64_t) ((double) remote_meta.duration_ms / 1000.0 * dec->sample_rate)
-                                     : 0;
-            return true;
-        }
-
-        if (is_flac) {
-            dec->type = DECODER_FLAC;
-            dec->as.flac = drflac_open(stream_read_cb, flac_stream_seek_cb,
-                                       dec->seekable ? flac_stream_tell_cb : NULL, dec->net_stream, NULL);
-            if (!dec->as.flac) {
-                return net_open_fail(dec);
-            }
-            dec->channels = dec->as.flac->channels;
-            dec->sample_rate = dec->as.flac->sampleRate;
-            dec->source_sample_rate = dec->sample_rate;
-            dec->source_bit_depth = dec->as.flac->bitsPerSample;
-            dec->bitrate_kbps = remote ? remote_meta.bitrate_kbps : 0;
-            /* Unlike MP3, this is a REAL, authoritative count straight from
-             * the STREAMINFO metadata block (near the top of the file, not
-             * a full-stream prescan) -- safe to use for real, matching
-             * local FLAC playback below. Gives a Subsonic FLAC stream a
-             * correct duration/progress bar for free, unlike MP3 streams
-             * (which have no equivalent authoritative source without a
-             * full prescan, so those stay at the unknown-duration 0 below). */
-            dec->total_frames = dec->as.flac->totalPCMFrameCount;
-            return true;
-        }
-
-        dec->type = DECODER_MP3;
-        dec->as.mp3 = malloc(sizeof(drmp3));
-        dec->net_mp3 = malloc(sizeof(*dec->net_mp3));
-        if (dec->net_mp3) {
-            dec->net_mp3->stream = dec->net_stream;
-            dec->net_mp3->sync_left = NET_MP3_SYNC_SCAN_BYTES;
-        }
-        /* No onTell: dr_mp3 uses it only to look for ID3v1/APE tags at the
-         * end, which over HTTP costs two extra connections per open. The
-         * frame scanner skips a trailing tag's bytes anyway. */
-        if (!dec->as.mp3 || !dec->net_mp3 ||
-            !drmp3_init(dec->as.mp3, mp3_net_read, dec->seekable ? mp3_net_seek : NULL,
-                        NULL, NULL, dec->net_mp3, NULL)) {
-            free(dec->as.mp3);
-            dec->as.mp3 = NULL;
-            free(dec->net_mp3);
-            dec->net_mp3 = NULL;
+        net_format_t format;
+        if (!net_resolve_format(dec, path, remote, &remote_meta, &format))
             return net_open_fail(dec);
+        switch (format) {
+            case NET_FMT_MP4: return open_network_mp4(dec, remote, &remote_meta);
+            case NET_FMT_AAC: return open_network_aac(dec, remote, &remote_meta);
+            case NET_FMT_FLAC: return open_network_flac(dec, remote, &remote_meta);
+            case NET_FMT_MP3: return open_network_mp3(dec, remote, &remote_meta);
         }
-        dec->net_mp3->sync_left = SIZE_MAX;
-        dec->channels = dec->as.mp3->channels;
-        dec->sample_rate = dec->as.mp3->sampleRate;
-        dec->source_sample_rate = dec->sample_rate;
-        dec->source_bit_depth = remote ? remote_meta.bit_depth : 0;
-        dec->bitrate_kbps = remote ? remote_meta.bitrate_kbps : 0;
-        if (dec->as.mp3->totalPCMFrameCount != DRMP3_UINT64_MAX)
-            dec->total_frames = dec->as.mp3->totalPCMFrameCount;
-        /* See the AAC branch's own comment just above -- a remote track's
-     * declared duration_ms substitutes for the prescan this never does
-     * on a live stream; a plain MP3 stream URL (remote == false, e.g.
-     * internet radio or a Subsonic stream) has no such source and
-     * keeps today's unknown-duration-until-EOF behavior exactly. */
-        if (remote && remote_meta.duration_ms > 0)
-            dec->total_frames = (uint64_t) ((double) remote_meta.duration_ms / 1000.0 * dec->sample_rate);
-        /* Without a table a seek would decode from the start over the
-         * network, so such a stream is reported as not seekable. */
-        if (dec->seekable && !bind_network_mp3_seek_table(dec))
-            dec->seekable = false;
-        return true;
+        return net_open_fail(dec);
     }
 
     const char * ext = strrchr(path, '.');
@@ -562,12 +587,7 @@ static bool decoder_open_internal(decoder_t * dec, const char * path,
     }
 
     if (strcasecmp(ext, ".aac") == 0) {
-        dec->type = DECODER_AAC;
-        dec->as.aac = aac_open_file(path);
-        if (!dec->as.aac) return false;
-        dec->channels = aac_get_channels(dec->as.aac);
-        dec->sample_rate = aac_get_sample_rate(dec->as.aac);
-        dec->source_sample_rate = dec->sample_rate;
+        if (!decoder_take_aac(dec, aac_open_file(path))) return false;
         dec->total_frames = aac_get_total_pcm_frame_count(dec->as.aac);
         return true;
     }
@@ -598,12 +618,7 @@ static bool decoder_open_internal(decoder_t * dec, const char * path,
             return true;
         }
         if (strcmp(fourcc, "mp4a") == 0) {
-            dec->type = DECODER_AAC;
-            dec->as.aac = aac_open_file_mp4(path);
-            if (!dec->as.aac) return false;
-            dec->channels = aac_get_channels(dec->as.aac);
-            dec->sample_rate = aac_get_sample_rate(dec->as.aac);
-            dec->source_sample_rate = dec->sample_rate;
+            if (!decoder_take_aac(dec, aac_open_file_mp4(path))) return false;
             dec->total_frames = aac_get_total_pcm_frame_count(dec->as.aac);
             return true;
         }
