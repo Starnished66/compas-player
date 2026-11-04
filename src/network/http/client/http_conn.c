@@ -417,6 +417,11 @@ static int reader_fill(http_conn_reader_t * r) {
 }
 
 bool http_conn_reader_line(http_conn_reader_t * r, char * out, size_t out_size) {
+    return http_conn_reader_line_ex(r, out, out_size, NULL);
+}
+
+bool http_conn_reader_line_ex(http_conn_reader_t * r, char * out, size_t out_size, bool * truncated) {
+    if (truncated) *truncated = false;
     size_t out_pos = 0;
     for (;;) {
         if (r->pos >= r->len) {
@@ -430,6 +435,7 @@ bool http_conn_reader_line(http_conn_reader_t * r, char * out, size_t out_size) 
             return true;
         }
         if (out_pos + 1 < out_size) out[out_pos++] = (char) c;
+        else if (truncated) *truncated = true;
     }
 }
 

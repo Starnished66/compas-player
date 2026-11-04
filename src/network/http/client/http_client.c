@@ -231,10 +231,12 @@ static bool read_response(http_conn_t * conn, int * out_status, body_sink_t * si
     /* Signed storage redirects (for example GitHub release assets) carry
      * Location values near a kilobyte; leave room well beyond that. */
     char header_line[4096];
-    while (http_conn_reader_line(&reader, header_line, sizeof(header_line)) && header_line[0] != '\0') {
+    bool truncated;
+    while (http_conn_reader_line_ex(&reader, header_line, sizeof(header_line), &truncated) && header_line[0] != '\0') {
         char * colon = strchr(header_line, ':');
         if (!colon) continue;
         *colon = '\0';
+        if (truncated && strcasecmp(header_line, "Location") == 0) continue;
         char * value = colon + 1;
         while (*value == ' ') value++;
 
@@ -726,15 +728,17 @@ static bool read_response_ex(http_conn_t * conn, http_response_t * resp, body_si
     if (out_location && out_location_size > 0) out_location[0] = '\0';
 
     /* Parse response headers until empty line. */
-    char header_line[1024];
+    char header_line[4096];
+    bool truncated;
     bool headers_ok = true;
     for (;;) {
-        if (!http_conn_reader_line(&reader, header_line, sizeof(header_line))) { headers_ok = false; break; }
+        if (!http_conn_reader_line_ex(&reader, header_line, sizeof(header_line), &truncated)) { headers_ok = false; break; }
         if (header_line[0] == '\0') break; /* genuine blank line -- normal end of headers */
 
         char * colon = strchr(header_line, ':');
         if (!colon) continue;
         *colon = '\0';
+        if (truncated && strcasecmp(header_line, "Location") == 0) continue;
         const char * value = colon + 1;
         while (*value == ' ') value++;
 
@@ -743,7 +747,7 @@ static bool read_response_ex(http_conn_t * conn, http_response_t * resp, body_si
         } else if (strcasecmp(header_line, "Transfer-Encoding") == 0 && strcasecmp(value, "chunked") == 0) {
             is_chunked = true;
         } else if (strcasecmp(header_line, "Location") == 0 && out_location && out_location_size > 0) {
-            snprintf(out_location, out_location_size, "%s", value);
+            if (strlen(value) < out_location_size) snprintf(out_location, out_location_size, "%s", value);
         }
 
         /* Store header if within length limits; skip if too long to avoid truncation. */
@@ -839,7 +843,7 @@ static bool http_request_ex_internal(http_request_t * req, http_cancel_token_t *
                           .progress_user_data = &timeout_ctx,
                           .out_content_type = NULL, .out_content_type_size = 0 };
 
-    char location[1024];
+    char location[2048];
     bool head_only = req->method == HTTP_METHOD_HEAD;
     bool ok = read_response_ex(&conn, resp, &sink, location, sizeof(location), head_only);
     http_conn_close(&conn);

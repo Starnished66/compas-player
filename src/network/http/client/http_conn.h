@@ -79,6 +79,9 @@ typedef struct {
  * was found. */
 bool http_conn_reader_line(http_conn_reader_t * r, char * out, size_t out_size);
 
+/* Like http_conn_reader_line(), but reports whether any bytes were discarded. */
+bool http_conn_reader_line_ex(http_conn_reader_t * r, char * out, size_t out_size, bool * truncated);
+
 /* Reads exactly n bytes into out, blocking across multiple underlying
  * reads as needed. Returns false on EOF/error before n bytes arrived. */
 bool http_conn_reader_read_exact(http_conn_reader_t * r, uint8_t * out, size_t n);

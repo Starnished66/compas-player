@@ -169,17 +169,20 @@ static bool open_response(const char * url, bool verify_tls, int redirects_left,
     if (n < 0 || (size_t)n >= sizeof(request) ||
         !write_request(r->conn, request, (size_t)n))
         goto fail;
-    char line[1024];
+    char line[4096];
     if (!http_conn_reader_line(&r->reader, line, sizeof(line)))
         goto fail;
     const char * sp = strchr(line, ' ');
     r->status = sp ? atoi(sp + 1) : 0;
-    char location[1024] = "";
-    while (http_conn_reader_line(&r->reader, line, sizeof(line)) && line[0]) {
+    char location[2048] = "";
+    bool truncated;
+    while (http_conn_reader_line_ex(&r->reader, line, sizeof(line), &truncated) && line[0]) {
         char * colon = strchr(line, ':');
         if (!colon)
             continue;
         *colon = 0;
+        if (truncated && !strcasecmp(line, "Location"))
+            continue;
         char * v = colon + 1;
         while (*v == ' ' || *v == '\t')
             ++v;
@@ -210,7 +213,7 @@ static bool open_response(const char * url, bool verify_tls, int redirects_left,
         } else if (!strcasecmp(line, "Last-Modified")) {
             (void)copy_safe_header_value(r->last_modified, sizeof(r->last_modified),
                                          v);
-        } else if (!strcasecmp(line, "Location"))
+        } else if (!strcasecmp(line, "Location") && strlen(v) < sizeof(location))
             snprintf(location, sizeof(location), "%s", v);
     }
     if (r->status >= 300 && r->status < 400 && location[0]) {
