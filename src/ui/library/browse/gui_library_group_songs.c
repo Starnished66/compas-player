@@ -115,12 +115,11 @@ static int group_songs_now_playing_index(void) {
 }
 
 /* Frees the previous group_songs_entries (if any) and replaces it with an
- * owned copy of entries[0..count) -- every show_group_songs_editable() call
- * and every "Removed from playlist" refresh goes through this single choke
- * point so the ownership rule (group_songs_entries is always either NULL or
- * a malloc'd copy this screen owns outright) never has to be re-derived at
- * each call site. Caller's own entries[] can be freed immediately after. */
-void set_group_songs_entries(const group_song_entry_t * entries, int count) {
+ * owned copy of entries[0..count), for callers that keep their own array
+ * (the public show_group_songs_editable() path). Callers that hand over a
+ * freshly built array use set_group_songs_entries_owned() instead. Either way
+ * group_songs_entries is NULL or a malloc'd array this screen owns. */
+static void set_group_songs_entries(const group_song_entry_t * entries, int count) {
     if (group_songs_screen) search_close_if_active_for_screen(group_songs_screen);
     free_group_song_entries(group_songs_entries, group_songs_count);
     group_songs_entries_generation++;
@@ -731,8 +730,7 @@ group_song_entry_t * group_song_entries_take_paths(char ** paths, int count) {
 /* The page shows the entries of paths[0..count) (consumed). */
 static void group_songs_set_from_paths(char ** paths, int count) {
     group_song_entry_t * entries = group_song_entries_take_paths(paths, count);
-    set_group_songs_entries(entries, entries ? count : 0);
-    free_group_song_entries(entries, count);
+    set_group_songs_entries_owned(entries, entries ? count : 0);
 }
 
 static void refresh_group_songs_paths_in_place(void) {
@@ -821,8 +819,7 @@ void refresh_group_songs_from_database(void) {
             int loaded_count = 0;
             group_song_entry_t * entries = load_album_entries_filtered(group_songs_refresh_album,
                 group_songs_refresh_album_artist, count, group_songs_refresh_artist_filter, &loaded_count, NULL);
-            set_group_songs_entries(entries, entries ? loaded_count : 0);
-            free_group_song_entries(entries, loaded_count);
+            set_group_songs_entries_owned(entries, entries ? loaded_count : 0);
             populate_group_songs_rows();
             break;
         }

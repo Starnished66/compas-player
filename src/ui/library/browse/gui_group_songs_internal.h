@@ -35,7 +35,6 @@ bool group_songs_album_layout(void);
 int group_songs_page_end(void);
 void group_songs_place_now_playing_bar(bool laid_out);
 int group_songs_visible_count(void);
-void set_group_songs_entries(const group_song_entry_t * entries, int count);
 
 /* gui_group_songs_rows.c */
 bool group_song_has_cover(int index);

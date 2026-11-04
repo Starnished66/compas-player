@@ -468,7 +468,7 @@ static void reload_edited_playlist(void) {
     group_song_entry_t * entries = group_song_entries_take_paths(songs, count);
     if (count && !entries) { group_songs_anchor_pending = false; return; }
     group_songs_file_stat_valid = stat(group_songs_edit_m3u_path, &group_songs_file_stat) == 0;
-    set_group_songs_entries(entries, count);
+    set_group_songs_entries_owned(entries, count);
     group_songs_drag_forget();
     if (!group_songs_reset_selection()) {
         group_songs_edit_mode = false;
@@ -480,7 +480,6 @@ static void reload_edited_playlist(void) {
         if (count > 0 && group_songs_anchor_index >= 0)
             group_songs_page_start = (group_songs_anchor_index / GROUP_SONGS_PAGE_SIZE) * GROUP_SONGS_PAGE_SIZE;
     }
-    free_group_song_entries(entries, count);
     populate_group_songs_rows();
 }
 
