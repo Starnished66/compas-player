@@ -207,7 +207,9 @@ void bluealsa_apply_rate_preference(const char * path) {
  * HiBy player documents: LDAC > samsung-SC > aptX HD > aptX > AAC > SBC. Left to itself,
  * BlueZ takes the first endpoint in an order that does not follow quality
  * (and then keeps its LastUsed one), so LDAC headphones could stay on AAC. */
-static const char * const BT_AUTO_CODEC_RANKING[] = { "LDAC", "samsung-SC", "aptX-HD", "aptX", "AAC", "SBC" };
+enum { BT_AUTO_SSC_RANK = 1, BT_AUTO_SSC_REJECT_BIT = 1u << BT_AUTO_SSC_RANK };
+/* Keep the SSC array entry and BT_AUTO_SSC_RANK together when changing the ranking. */
+static const char * const BT_AUTO_CODEC_RANKING[] = { "LDAC", [BT_AUTO_SSC_RANK] = "samsung-SC", "aptX-HD", "aptX", "AAC", "SBC" };
 static pthread_mutex_t bt_buds_state_mutex = PTHREAD_MUTEX_INITIALIZER;
 static char bt_buds_state_path[256];
 static bool bt_buds_name_checked, bt_buds_name_match;
@@ -575,14 +577,14 @@ static unsigned int bt_auto_rejected(const char * path) {
     int i = bt_auto_device_slot_locked(path, false);
     unsigned int rejected = i >= 0 ? bt_auto_devices[i].rejected : 0;
     /* Persisted backoff: SSC is skipped on this connection only. */
-    if (i >= 0 && bt_auto_devices[i].ssc.skip_ssc) rejected |= 1u << bt_auto_rank_index("samsung-SC");
+    if (i >= 0 && bt_auto_devices[i].ssc.skip_ssc) rejected |= BT_AUTO_SSC_REJECT_BIT;
     pthread_mutex_unlock(&bt_auto_devices_mutex);
     return rejected;
 }
 
 /* SSC is rejected for this accessory, including by the persisted backoff. */
 bool bt_auto_ssc_rejected(const char * path) {
-    return (bt_auto_rejected(path) & (1u << bt_auto_rank_index("samsung-SC"))) != 0;
+    return (bt_auto_rejected(path) & BT_AUTO_SSC_REJECT_BIT) != 0;
 }
 
 /* Rejections of this session only, without the persisted backoff. */
@@ -642,7 +644,7 @@ static void bt_auto_note_disconnect_at(const char * path, uint32_t dropped_at, b
         int r = bt_auto_devices[i].switched;
         if (bt_ssc_dev_blames_codec(&bt_auto_devices[i].ssc, dropped_at, link)) {
             snprintf(codec, sizeof(codec), "%s", BT_AUTO_CODEC_RANKING[r]);
-            persist = r == bt_auto_rank_index("samsung-SC");
+            persist = r == BT_AUTO_SSC_RANK;
         } else if (++bt_auto_devices[i].cycles[r] >= BT_SSC_CYCLE_CAP) {
             snprintf(codec, sizeof(codec), "%s", BT_AUTO_CODEC_RANKING[r]);
         }
@@ -894,6 +896,76 @@ static bool bt_defer_buds_endpoint_wait(const char * path, uint32_t wait_started
     return true;
 }
 
+/* False means not done yet (*defer_until may be set); true means a codec was chosen. */
+static bool bt_choose_auto_codec(const char * path, const char * info_out, bool ssc_advertised,
+                                  bool galaxy_buds, bool ssc_strong, uint32_t buds_wait_started,
+                                  char * best, size_t best_size, uint32_t * defer_until) {
+    bool ssc_rejected = bt_auto_ssc_rejected(path);
+    /* The persisted backoff only stops us choosing SSC; when the accessory
+     * opened SSC itself it stays ("already"), as reconfiguring a live SSC
+     * stream can drop the link. A rejection this session still applies. */
+    char live[32];
+    if (ssc_rejected && ssc_advertised && bluealsa_parse_selected_codec(info_out, live, sizeof(live)) &&
+        bt_codec_name_is_ssc(live) &&
+        !(bt_auto_rejected_session(path) & BT_AUTO_SSC_REJECT_BIT))
+        ssc_rejected = false;
+    if (ssc_advertised && !ssc_rejected) {
+        snprintf(best, best_size, "%s", "samsung-SC");
+    } else {
+        if (galaxy_buds && !ssc_rejected &&
+            bt_defer_buds_endpoint_wait(path, buds_wait_started, defer_until))
+            return false;
+        if (ssc_strong && !ssc_rejected && bluealsa_available_codecs_known(info_out)) {
+            if (bt_ssc_discovery_recovery_queue(path)) {
+                *defer_until = bt_control_monotonic_ms() + 500; /* a queued SSC endpoint recovery goes first */
+                return false;
+            }
+            bt_auto_endpoint_failure(path);
+        }
+        if (!bluealsa_best_available_codec(info_out, bt_auto_rejected(path), best, best_size)) {
+            DBG_LOG("bt_control: auto codec for %s: available codecs not known yet\n", path);
+            return false;
+        }
+    }
+    return true;
+}
+
+/* False means not done yet (*defer_until may be set); true means a codec was chosen. */
+static bool bt_choose_explicit_ssc_codec(const char * path, const char * info_out, bool ssc_advertised,
+                                          bool galaxy_buds, bool ssc_strong, uint32_t buds_wait_started,
+                                          char * best, size_t best_size, const char ** codec,
+                                          uint32_t * defer_until) {
+    /* SSC is only implemented by Samsung accessories. Keep an explicit
+     * SSC preference for a later compatible connection, but use this
+     * device's best advertised codec when SSC is unavailable or has
+     * already failed configuration for this device. */
+    unsigned int rejected = bt_auto_rejected(path);
+    bool ssc_rejected = (rejected & BT_AUTO_SSC_REJECT_BIT) != 0;
+    bool may_wait_for_ssc = !ssc_advertised && !ssc_rejected;
+    if (!bluealsa_available_codecs_known(info_out)) {
+        DBG_LOG("bt_control: SSC codecs for %s are not known yet\n", path);
+        return false;
+    }
+    if (may_wait_for_ssc && galaxy_buds &&
+        bt_defer_buds_endpoint_wait(path, buds_wait_started, defer_until))
+        return false;
+    if (may_wait_for_ssc && galaxy_buds &&
+            bt_ssc_discovery_recovery_queue(path)) {
+        *defer_until = bt_control_monotonic_ms() + 500; /* a queued SSC endpoint recovery goes first */
+        return false;
+    }
+    if (may_wait_for_ssc && ssc_strong)
+        bt_auto_endpoint_failure(path);
+    if (!ssc_advertised || ssc_rejected) {
+        if (!bluealsa_best_available_codec(info_out, rejected, best, best_size)) {
+            DBG_LOG("bt_control: SSC unavailable for %s and no fallback codec is known yet\n", path);
+            return false;
+        }
+        *codec = best;
+    }
+    return true;
+}
+
 /* Returns false only when a selection was attempted and did not take
  * effect (or, for Automatic, the accessory's codecs are not known yet), so
  * the caller can retry; nothing to do counts as success. */
@@ -943,63 +1015,14 @@ static bool bluealsa_apply_codec_preference_serial(const char * path, const atom
     }
     char best[32];
     if (automatic) {
-        bool ssc_rejected = bt_auto_ssc_rejected(path);
-        /* The persisted backoff only stops us choosing SSC; when the accessory
-         * opened SSC itself it stays ("already"), as reconfiguring a live SSC
-         * stream can drop the link. A rejection this session still applies. */
-        char live[32];
-        if (ssc_rejected && ssc_advertised && bluealsa_parse_selected_codec(info_out, live, sizeof(live)) &&
-            bt_codec_name_is_ssc(live) &&
-            !(bt_auto_rejected_session(path) & (1u << bt_auto_rank_index("samsung-SC"))))
-            ssc_rejected = false;
-        if (ssc_advertised && !ssc_rejected) {
-            snprintf(best, sizeof(best), "%s", "samsung-SC");
-        } else {
-            if (galaxy_buds && !ssc_rejected &&
-                bt_defer_buds_endpoint_wait(path, buds_wait_started, defer_until))
-                return false;
-            if (ssc_strong && !ssc_rejected && bluealsa_available_codecs_known(info_out)) {
-                if (bt_ssc_discovery_recovery_queue(path)) {
-                    *defer_until = bt_control_monotonic_ms() + 500; /* a queued SSC endpoint recovery goes first */
-                    return false;
-                }
-                bt_auto_endpoint_failure(path);
-            }
-            if (!bluealsa_best_available_codec(info_out, bt_auto_rejected(path), best, sizeof(best))) {
-                DBG_LOG("bt_control: auto codec for %s: available codecs not known yet\n", path);
-                return false;
-            }
-        }
+        if (!bt_choose_auto_codec(path, info_out, ssc_advertised, galaxy_buds, ssc_strong,
+                                  buds_wait_started, best, sizeof(best), defer_until))
+            return false;
         codec = best;
     } else if (explicit_ssc) {
-        /* SSC is only implemented by Samsung accessories. Keep an explicit
-         * SSC preference for a later compatible connection, but use this
-         * device's best advertised codec when SSC is unavailable or has
-         * already failed configuration for this device. */
-        unsigned int rejected = bt_auto_rejected(path);
-        int ssc_rank = bt_auto_rank_index("samsung-SC");
-        bool ssc_available = ssc_advertised;
-        if (!bluealsa_available_codecs_known(info_out)) {
-            DBG_LOG("bt_control: SSC codecs for %s are not known yet\n", path);
+        if (!bt_choose_explicit_ssc_codec(path, info_out, ssc_advertised, galaxy_buds, ssc_strong,
+                                          buds_wait_started, best, sizeof(best), &codec, defer_until))
             return false;
-        }
-        if (!ssc_available && !(ssc_rank >= 0 && (rejected & (1u << ssc_rank))) && galaxy_buds &&
-            bt_defer_buds_endpoint_wait(path, buds_wait_started, defer_until))
-            return false;
-        if (!ssc_available && !(rejected & (1u << ssc_rank)) && galaxy_buds &&
-                bt_ssc_discovery_recovery_queue(path)) {
-            *defer_until = bt_control_monotonic_ms() + 500; /* a queued SSC endpoint recovery goes first */
-            return false;
-        }
-        if (!ssc_available && !(rejected & (1u << ssc_rank)) && ssc_strong)
-            bt_auto_endpoint_failure(path);
-        if (!ssc_available || (ssc_rank >= 0 && (rejected & (1u << ssc_rank)))) {
-            if (!bluealsa_best_available_codec(info_out, rejected, best, sizeof(best))) {
-                DBG_LOG("bt_control: SSC unavailable for %s and no fallback codec is known yet\n", path);
-                return false;
-            }
-            codec = best;
-        }
     }
     char active[32];
     if (bluealsa_parse_selected_codec(info_out, active, sizeof(active)) &&
