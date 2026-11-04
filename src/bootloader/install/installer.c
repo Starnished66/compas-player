@@ -72,8 +72,7 @@ void installer_run(const scan_result_t *scan, bool fb_ready) {
         fb_draw_installer_warning();
         fb_flush();
     }
-    if (ok) ok = player_install_fd(fd, (uint64_t)snapshot.st_size, NULL, false, true,
-                                   path, &snapshot, error, sizeof(error));
+    if (ok) ok = player_install_sd_fd(fd, path, &snapshot, error, sizeof(error));
     close(fd);
     if (!ok) fprintf(stderr, "compas_loader: SD player update failed: %s\n", error[0] ? error : "Could not read update");
     else fprintf(stderr, "compas_loader: installed SD player update\n");

@@ -274,7 +274,7 @@ static bool download_install(const firmware_ota_release_t *chosen, char *error, 
         return false;
     }
     set_state(PLAYER_UPDATE_INSTALLING, 0);
-    ok = player_install_fd(fd, size, expected, true, false, NULL, NULL, error, error_size);
+    ok = player_install_online_fd(fd, size, expected, error, error_size);
     close(fd);
     unlink(part);
     return ok;
@@ -309,8 +309,7 @@ static void *sd_worker(void *unused) {
     }
     if (ok) {
         set_state(PLAYER_UPDATE_INSTALLING, 0);
-        ok = player_install_fd(src, (uint64_t)before.st_size, NULL, false, true, PLAYER_SD_SOURCE,
-                               &before, error, sizeof(error));
+        ok = player_install_sd_fd(src, PLAYER_SD_SOURCE, &before, error, sizeof(error));
     } else if (!error[0])
         snprintf(error, sizeof(error), "%s",
                  TR("Place a valid player executable at SD/.compas/compas_player."));
