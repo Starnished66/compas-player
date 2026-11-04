@@ -4,7 +4,7 @@
 /* Fixed-memory access to the active master and tag files. Included after the
  * on-disk structs and validation helpers in tagcache.c. */
 
-static void reader_close(void) {
+void reader_close(void) {
     free(reader_join_bits);
     reader_join_bits = NULL;
     if (!reader_fds_ready) {
@@ -22,33 +22,20 @@ static void reader_close(void) {
     reader_master_fd = -1;
 }
 
-static bool reader_read_at(int fd, void *buf, size_t size, off_t off) {
-    unsigned char *p = (unsigned char *)buf;
-    while (size != 0) {
-        ssize_t n = pread(fd, p, size, off);
-        if (n < 0 && errno == EINTR) continue;
-        if (n <= 0) return false;
-        p += (size_t)n;
-        size -= (size_t)n;
-        off += (off_t)n;
-    }
-    return true;
-}
-
-static const int reader_persist_tags[] = {
+const int reader_persist_tags[6] = {
     tag_artist, tag_album, tag_genre, tag_albumartist, tag_title, tag_filename
 };
 
-static bool reader_open(int32_t gen) {
+bool reader_open(int32_t gen) {
     char path[640];
     struct stat st;
     struct master_header mh;
     reader_close();
     if (gen < 0) return false;
-    { char name[80]; master_file_name(name, sizeof(name), gen); db_path(path, sizeof(path), name); }
+    master_file_path(path, sizeof(path), gen);
     reader_master_fd = open(path, O_RDONLY);
     if (reader_master_fd < 0 || fstat(reader_master_fd, &st) != 0 ||
-        !reader_read_at(reader_master_fd, &mh, sizeof(mh), 0) ||
+        !tc_read_full(reader_master_fd, &mh, sizeof(mh), 0) ||
         !validate_master_header(&mh, (size_t)st.st_size)) {
         reader_close();
         return false;
@@ -61,18 +48,16 @@ static bool reader_open(int32_t gen) {
     disk_gen = gen;
     for (size_t i = 0; i < sizeof(reader_persist_tags) / sizeof(reader_persist_tags[0]); ++i) {
         int tag = reader_persist_tags[i];
-        char name[80];
         int32_t source_gen;
         if (!resolve_tag_generation(gen, tag, &source_gen)) {
             reader_close();
             return false;
         }
-        tag_file_name(name, sizeof(name), tag, source_gen);
-        db_path(path, sizeof(path), name);
+        tag_file_path(path, sizeof(path), tag, source_gen);
         int fd = open(path, O_RDONLY);
         struct tagcache_header th;
         if (fd < 0 || fstat(fd, &st) != 0 ||
-            !reader_read_at(fd, &th, sizeof(th), 0) || !validate_tag_header(&th, (size_t)st.st_size)) {
+            !tc_read_full(fd, &th, sizeof(th), 0) || !validate_tag_header(&th, (size_t)st.st_size)) {
             if (fd >= 0) close(fd);
             reader_close();
             return false;
@@ -83,11 +68,11 @@ static bool reader_open(int32_t gen) {
     return true;
 }
 
-static bool reader_index(int32_t slot, struct index_entry *out) {
+bool reader_index(int32_t slot, struct index_entry *out) {
     if (!reader_fds_ready || reader_master_fd < 0 || !out || slot < 0 || slot >= ent_count) return false;
     for (int attempt = 0; attempt < 8; attempt++) {
         unsigned epoch = atomic_load_explicit(&numeric_epoch, memory_order_acquire);
-        if (!reader_read_at(reader_master_fd, out, sizeof(*out),
+        if (!tc_read_full(reader_master_fd, out, sizeof(*out),
                             (off_t)sizeof(struct master_header) + (off_t)slot * sizeof(*out))) return false;
         if (READER == &committed_reader) numeric_overlay(slot, out);
         if (READER != &committed_reader ||
@@ -96,7 +81,7 @@ static bool reader_index(int32_t slot, struct index_entry *out) {
     return false;
 }
 
-static bool reader_string(int tag, int32_t seek, int32_t slot, char *out, size_t out_size) {
+bool reader_string(int tag, int32_t seek, int32_t slot, char *out, size_t out_size) {
     struct tagfile_entry te;
     size_t file_size;
     bool per_slot = tag == tag_filename || tag == tag_title;
@@ -104,10 +89,10 @@ static bool reader_string(int tag, int32_t seek, int32_t slot, char *out, size_t
         seek < (int32_t)sizeof(struct tagcache_header)) return false;
     file_size = reader_tag_size[tag];
     if ((uintmax_t)(uint32_t)seek + sizeof(te) > file_size ||
-        !reader_read_at(reader_tag_fd[tag], &te, sizeof(te), seek) || te.tag_length <= 0 ||
+        !tc_read_full(reader_tag_fd[tag], &te, sizeof(te), seek) || te.tag_length <= 0 ||
         (size_t)te.tag_length > out_size || (uintmax_t)(uint32_t)seek + sizeof(te) + (size_t)te.tag_length > file_size ||
         (per_slot && te.idx_id != slot) ||
-        !reader_read_at(reader_tag_fd[tag], out, (size_t)te.tag_length,
+        !tc_read_full(reader_tag_fd[tag], out, (size_t)te.tag_length,
                         (off_t)seek + (off_t)sizeof(te))) return false;
     return !memchr(out, '\0', (size_t)te.tag_length - 1) && out[te.tag_length - 1] == '\0';
 }
@@ -124,7 +109,7 @@ static bool reader_join_marked(int32_t slot) {
     return reader_join_bits && slot >= 0 && slot < ent_count && reader_bit_test(reader_join_bits, slot);
 }
 
-static bool reader_song_fields_raw(int32_t slot, unsigned fields, tagcache_song_t *out) {
+bool reader_song_fields_raw(int32_t slot, unsigned fields, tagcache_song_t *out) {
     struct index_entry idx;
     bool incomplete = false;
     if (!out || !reader_index(slot, &idx) || (idx.flag & FLAG_DELETED)) return false;
@@ -166,14 +151,14 @@ static bool reader_song_fields_raw(int32_t slot, unsigned fields, tagcache_song_
     return true;
 }
 
-static bool reader_song_fields(int32_t slot, unsigned fields, tagcache_song_t *out) {
+bool reader_song_fields(int32_t slot, unsigned fields, tagcache_song_t *out) {
     if (!reader_song_fields_raw(slot, fields, out)) return false;
     if ((fields & TAGCACHE_FIELD_ALBUM_ARTIST) && reader_join_marked(slot))
         snprintf(out->album_artist_storage, sizeof(out->album_artist_storage), "%s", READER_JOIN_LABEL);
     return true;
 }
 
-static bool reader_song(int32_t slot, tagcache_song_t *out) {
+bool reader_song(int32_t slot, tagcache_song_t *out) {
     return reader_song_fields(slot, TAGCACHE_FIELD_ALL, out);
 }
 

@@ -201,7 +201,7 @@ static void songs_bar_start(lv_event_t * e, int source, bool shuffle) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED || library_rescan_active) return;
     gui_player_seed_selection_song(NULL, NULL);
     playlist_start_source = source;
-    playlist_start_selected(e, shuffle);
+    playlist_start_selected(shuffle);
 }
 static void all_songs_play_cb(lv_event_t * e) { songs_bar_start(e, PLAY_ALL_SOURCE_ALL_SONGS, false); }
 static void all_songs_shuffle_cb(lv_event_t * e) { songs_bar_start(e, PLAY_ALL_SOURCE_ALL_SONGS, true); }
@@ -672,7 +672,7 @@ bool show_album_group_ex(const group_row_t * group, const char * artist_filter, 
     if (!album_load_timer) { free(request); return false; }
     if (!album_load_submit(request)) return false;
     group_songs_loading = true;
-    show_music_group_songs(group->name, group->album_artist, artist_filter, NULL, 0);
+    show_music_group_songs_impl(group->name, group->album_artist, artist_filter, NULL, 0, false);
     group_songs_loading = false;
     request->generation = album_load_generation;
     lv_timer_resume(album_load_timer);

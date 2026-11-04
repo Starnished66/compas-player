@@ -27,7 +27,7 @@ static bool reader_join_mark_range(int fd, int64_t first, int64_t count, size_t 
     size_t per_read = sizeof(buf) / stride;
     while (count > 0) {
         size_t n = count < (int64_t)per_read ? (size_t)count : per_read;
-        if (first < 0 || !tc_sort_io_read(fd, buf, n * stride, (off_t)first * (off_t)stride)) return false;
+        if (first < 0 || !tc_read_full(fd, buf, n * stride, (off_t)first * (off_t)stride)) return false;
         for (size_t i = 0; i < n; i++) {
             int32_t slot;
             memcpy(&slot, buf + i * stride, sizeof(slot));
@@ -88,7 +88,7 @@ static bool reader_join_mark_run(int fd, int64_t start, int64_t count, int32_t f
     if (!reader_join_folder(first_slot, first_dir)) return false;
     for (int64_t at = 0; at < count;) {
         size_t n = (size_t)(count - at < 16 ? count - at : 16);
-        if (!tc_sort_io_read(fd, keys, n * sizeof(*keys), (off_t)(start + at) * (off_t)sizeof(*keys))) return false;
+        if (!tc_read_full(fd, keys, n * sizeof(*keys), (off_t)(start + at) * (off_t)sizeof(*keys))) return false;
         for (size_t i = 0; i < n; i++) {
             if (!reader_join_folder(keys[i].slot, dir)) return false;
             if (strcmp(dir, first_dir)) return true;
@@ -107,7 +107,7 @@ static bool reader_join_walk(int fd, int64_t count, unsigned char *bits, int32_t
     bool ok = batch != NULL, mixed = false;
     for (int64_t at = 0; ok && at < count;) {
         size_t n = (size_t)(count - at < (int64_t)capacity ? count - at : (int64_t)capacity);
-        ok = tc_sort_io_read(fd, batch, n * sizeof(*batch), (off_t)at * (off_t)sizeof(*batch));
+        ok = tc_read_full(fd, batch, n * sizeof(*batch), (off_t)at * (off_t)sizeof(*batch));
         for (size_t j = 0; ok && j < n; j++) {
             int64_t k = at + (int64_t)j;
             const reader_join_key_t *key = &batch[j];
@@ -128,7 +128,7 @@ static bool reader_join_walk(int fd, int64_t count, unsigned char *bits, int32_t
 }
 
 /* Computes the projection of the open generation into reader_join_bits. */
-static bool reader_join_build(bool enabled) {
+bool reader_join_build(bool enabled) {
     if (!enabled || ent_count <= 0) return true;
     size_t bytes = ((size_t)ent_count + 7u) / 8u;
     unsigned char *bits = calloc(bytes, 1);
@@ -158,12 +158,12 @@ static bool reader_join_build(bool enabled) {
         utf8_collate_identity_prefix(song.album, key->album, sizeof(key->album));
         utf8_collate_identity_prefix(song.album_artist, key->aa, sizeof(key->aa));
         if (used == capacity) {
-            ok = tc_sort_io_write(keys, batch, used * sizeof(*batch), (off_t)count * (off_t)sizeof(*batch));
+            ok = write_at(keys, batch, used * sizeof(*batch), (off_t)count * (off_t)sizeof(*batch));
             count += (int64_t)used;
             used = 0;
         }
     }
-    if (ok && used) ok = tc_sort_io_write(keys, batch, used * sizeof(*batch), (off_t)count * (off_t)sizeof(*batch));
+    if (ok && used) ok = write_at(keys, batch, used * sizeof(*batch), (off_t)count * (off_t)sizeof(*batch));
     count += (int64_t)used;
     bool marked = false;
     ok = ok && tc_sort_fd(keys, sizeof(*batch), count, reader_join_compare, NULL, scratch) &&
@@ -187,8 +187,8 @@ static bool reader_join_restore(void) {
     bool ok = true;
     for (int at = 0; ok && at < reader_group_n[kind];) {
         int n = reader_group_n[kind] - at < 64 ? reader_group_n[kind] - at : 64;
-        ok = stats_read_at(reader_group_fd[kind], groups, (size_t)n * sizeof(*groups),
-                           (off_t)at * (off_t)sizeof(*groups)) == STATS_READ_OK;
+        ok = tc_read_full(reader_group_fd[kind], groups, (size_t)n * sizeof(*groups),
+                           (off_t)at * (off_t)sizeof(*groups));
         for (int i = 0; ok && i < n; i++) {
             const reader_group_record_t *group = &groups[i];
             ok = group->representative.ordinal == 0 || group->representative.ordinal == 1;

@@ -80,28 +80,9 @@ static lv_obj_t * build_screen_timeout_screen(void) {
     /* Enable row configured with flex layout (SPACE_BETWEEN and flex-grow)
      * so the text label wraps cleanly across font sizes without overlapping
      * the switch. */
-    lv_obj_t * enable_row = lv_obj_create(scr);
-    lv_obj_set_width(enable_row, lv_pct(90));
-    lv_obj_set_height(enable_row, LV_SIZE_CONTENT);
+    lv_obj_t * enable_row = build_setting_enable_row(scr, TR("Turn off screen automatically"),
+        current_settings.screen_timeout_enabled, screen_timeout_switch_event_cb, &screen_timeout_switch);
     lv_obj_align(enable_row, LV_ALIGN_TOP_MID, 0, STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT + 20);
-    lv_obj_set_style_bg_opa(enable_row, 0, 0);
-    lv_obj_set_style_border_width(enable_row, 0, 0);
-    lv_obj_remove_flag(enable_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_flex_flow(enable_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(enable_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_gap(enable_row, 12, 0);
-
-    lv_obj_t * enable_label = lv_label_create(enable_row);
-    lv_label_set_text(enable_label, TR("Turn off screen automatically"));
-    lv_obj_add_style(enable_label, &style_theme_text_primary, 0);
-    lv_obj_set_style_text_font(enable_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-    lv_label_set_long_mode(enable_label, LV_LABEL_LONG_WRAP);
-    lv_obj_set_flex_grow(enable_label, 1);
-
-    screen_timeout_switch = lv_switch_create(enable_row);
-    lv_obj_add_style(screen_timeout_switch, gui_theme_accent_style(), LV_PART_INDICATOR | LV_STATE_CHECKED);
-    if (current_settings.screen_timeout_enabled) lv_obj_add_state(screen_timeout_switch, LV_STATE_CHECKED);
-    lv_obj_add_event_cb(screen_timeout_switch, screen_timeout_switch_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     /* Rounded slider card with vertical clearance below the track for the
      * knob diameter and centered value label. */
@@ -192,28 +173,9 @@ static lv_obj_t * build_screen_dimming_screen(void) {
 
     build_screen_header(scr, TR("Screen Dimming"), generic_back_cb, NULL, NULL);
 
-    lv_obj_t * enable_row = lv_obj_create(scr);
-    lv_obj_set_width(enable_row, lv_pct(90));
-    lv_obj_set_height(enable_row, LV_SIZE_CONTENT);
+    lv_obj_t * enable_row = build_setting_enable_row(scr, TR("Dim screen before timeout"),
+        current_settings.screen_dimming_enabled, screen_dimming_ui_switch_event_cb, &screen_dimming_switch);
     lv_obj_align(enable_row, LV_ALIGN_TOP_MID, 0, STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT + 20);
-    lv_obj_set_style_bg_opa(enable_row, 0, 0);
-    lv_obj_set_style_border_width(enable_row, 0, 0);
-    lv_obj_remove_flag(enable_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_flex_flow(enable_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(enable_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_gap(enable_row, 12, 0);
-
-    lv_obj_t * enable_label = lv_label_create(enable_row);
-    lv_label_set_text(enable_label, TR("Dim screen before timeout"));
-    lv_obj_add_style(enable_label, &style_theme_text_primary, 0);
-    lv_obj_set_style_text_font(enable_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-    lv_label_set_long_mode(enable_label, LV_LABEL_LONG_WRAP);
-    lv_obj_set_flex_grow(enable_label, 1);
-
-    screen_dimming_switch = lv_switch_create(enable_row);
-    lv_obj_add_style(screen_dimming_switch, gui_theme_accent_style(), LV_PART_INDICATOR | LV_STATE_CHECKED);
-    if (current_settings.screen_dimming_enabled) lv_obj_add_state(screen_dimming_switch, LV_STATE_CHECKED);
-    lv_obj_add_event_cb(screen_dimming_switch, screen_dimming_ui_switch_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     screen_dimming_slider_card = build_setting_slider_card(scr, enable_row, BOARD_SCALE_PX(170), BOARD_SCALE_PX(18),
         0, SCREEN_DIM_DELAY_STEP_COUNT - 1,

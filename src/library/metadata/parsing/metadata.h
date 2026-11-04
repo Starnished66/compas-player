@@ -100,12 +100,10 @@ typedef struct {
 } track_metadata_t;
 
 /* Reads title/artist/album/album_artist/genre tags, embedded cover art,
- * embedded lyrics, and ReplayGain track/album gain (if present) from a FLAC
- * (VORBIS_COMMENT + METADATA_BLOCK_PICTURE), MP3 (ID3v2 APIC/USLT/TXXX/TPE2/
- * TCON, falling back to ID3v1 which has none of those), M4A (moov/udta/meta/
- * ilst atoms), or WAV (RIFF LIST/INFO, title/artist/album only, plus an ID3v2
- * USLT fallback for lyrics) file. Fields that aren't present or can't be
- * parsed are left as empty/NULL with the corresponding has_* flag (or a NULL
+ * embedded lyrics, and ReplayGain track/album gain (if present) from any
+ * supported audio file (FLAC, MP3/AAC ID3v2 with ID3v1 fallback, M4A, WAV,
+ * AIFF, Ogg/Opus, WavPack, CAF, DSF/DFF, APE, WMA, SACD ISO, CUE tracks).
+ * Fields that aren't present or can't be parsed are left as empty/NULL with the corresponding has_* flag (or a NULL
  * check, for the picture/lyrics) false -- callers should fall back to the
  * filename, a placeholder image, or no gain adjustment in that case. */
 void metadata_read(const char * path, track_metadata_t * out);
@@ -117,12 +115,13 @@ void metadata_ape_text_items(const char * path, metadata_text_item_fn item, void
 /* Reads textual tags, sequencing, and ReplayGain without extracting
  * embedded cover artwork. Embedded lyrics are also omitted; callers that
  * need lyrics should use the separate lyrics loader. */
+void metadata_read_without_artwork(const char * path, track_metadata_t * out);
+
 /* Makes each text tag a single display line (control characters become
  * spaces) and clears has_* for tags with no visible characters. Every
  * metadata_read*() result is already normalized; call it for metadata built
  * from other sources (streams, remote catalogs). */
 void metadata_normalize_text_tags(track_metadata_t * out);
-void metadata_read_without_artwork(const char * path, track_metadata_t * out);
 
 /* Like metadata_read(), but retains embedded lyrics while omitting artwork. */
 void metadata_read_lyrics_without_artwork(const char * path, track_metadata_t * out);

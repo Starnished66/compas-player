@@ -34,11 +34,6 @@
 #define TAGCACHE_GROUP_ALBUM_ARTIST 1
 #define TAGCACHE_GROUP_ALBUM 2
 
-#define TAGCACHE_AZ_ARTIST 0
-#define TAGCACHE_AZ_ALBUM_ARTIST 1
-#define TAGCACHE_AZ_ALBUM 2
-#define TAGCACHE_AZ_ALL_SONGS 3
-
 typedef struct {
     int32_t id; /* 1-based stable slot id; deleted slots are never reused */
     int32_t flags; /* reader status flags, including incomplete optional tags */
@@ -89,9 +84,6 @@ bool tagcache_open(const char * dir);
 /* tagcache_open() for inspection: an older index layout is read as it is rather
  * than migrated, and nothing is written. The caller must not update. */
 bool tagcache_open_read_only(const char * dir);
-/* True when the most recent open rewrote the indexes from an older layout, which
- * writes to the card even though no scan changed anything. */
-bool tagcache_indexes_migrated(void);
 tagcache_snapshot_t *tagcache_snapshot_open(bool recency);
 int tagcache_snapshot_count(const tagcache_snapshot_t *snapshot);
 bool tagcache_snapshot_path_at(const tagcache_snapshot_t *snapshot, int rank, char *out, size_t out_size);
@@ -119,7 +111,6 @@ tagcache_load_outcome_t tagcache_get_load_outcome(void);
 void tagcache_set_album_join(bool join, bool republish);
 /* True when joining is requested or the loaded generation has joined albums. */
 bool tagcache_album_join_active(void);
-void tagcache_begin_update(void);
 void tagcache_begin_update_with_lock(void (*unlock)(void), void (*lock)(void));
 /* Targeted refresh keeps unseen rows without checking their paths. */
 void tagcache_begin_targeted_update_with_lock(void (*unlock)(void), void (*lock)(void));
@@ -128,16 +119,6 @@ bool tagcache_delete_target_path(const char * path);
 /* Marks path seen for this pass. Returns true and fills *out when a live
  * row exists whose stored mtime and size both match. */
 bool tagcache_lookup(const char * path, int32_t mtime, int32_t size, tagcache_song_t * out);
-void tagcache_upsert(const char * path, int32_t mtime, int32_t size, const char * title, const char * artist,
-                     const char * album, const char * album_artist, const char * genre,
-                     int32_t track_number, int32_t disc_number);
-/* tagcache_upsert() that also reports whether the stored tags differ from the
- * row it replaced (strings compared after interning). Inserts and failures
- * report true. */
-void tagcache_upsert_changed(const char * path, int32_t mtime, int32_t size, const char * title,
-                             const char * artist, const char * album, const char * album_artist,
-                             const char * genre, int32_t track_number, int32_t disc_number,
-                             bool * out_tags_changed);
 void tagcache_upsert_year_changed(const char * path, int32_t mtime, int32_t size, const char * title,
                                   const char * artist, const char * album, const char * album_artist,
                                   const char * genre, int32_t track_number, int32_t disc_number,
@@ -147,7 +128,6 @@ void tagcache_upsert_year_changed(const char * path, int32_t mtime, int32_t size
  * it. A rebuild after a failed load rejects an empty result and leaves the
  * generation pointer unchanged. Returns false on rejection or write failure,
  * in which case the committed reader is reopened. */
-bool tagcache_end_update(void);
 /* Releases the caller query lock during private generation construction. */
 bool tagcache_end_update_with_lock(void (*unlock)(void), void (*lock)(void));
 /* Discard staged scan mutations and reopen the committed files. */
@@ -171,7 +151,6 @@ bool tagcache_song_by_id(int32_t id, tagcache_song_t * out);
 bool tagcache_song_by_path(const char * path, tagcache_song_t * out);
 /* tagcache_song_by_path() with the stored album artist, never the join label. */
 bool tagcache_song_by_path_raw(const char * path, tagcache_song_t * out);
-bool tagcache_song_at_slot(int32_t slot, tagcache_song_t * out);
 bool tagcache_song_at_title_rank(int32_t rank, tagcache_song_t * out);
 bool tagcache_song_at_recency_rank(int32_t rank, tagcache_song_t * out);
 
@@ -245,13 +224,9 @@ int tagcache_group_index(int kind, const char * name, const char * album_artist)
 
 int tagcache_cmp_ascii(const char * a, const char * b);
 
-/* Whether a raw ARTIST tag belongs to artist `name` under the current
- * delimiters. Queries must use this instead of comparing the raw string. */
-bool tagcache_artist_matches(const char * raw_artist, const char * name);
 /* First artist name a raw ARTIST tag is filed under. */
 void tagcache_artist_primary(const char * raw_artist, char * out, size_t out_size);
 /* Exact bounded artist membership names for a song's raw ARTIST tag. */
 int tagcache_artist_names(const char * raw_artist, char out[][TAGCACHE_TAG_MAX], int max_names);
-const char * tagcache_ascii_casestr(const char * hay, const char * needle);
 
 #endif /* TAGCACHE_H */

@@ -871,11 +871,8 @@ static lv_obj_t * build_subsonic_download_settings_screen(void) {
     subsonic_download_folder_row = add_pill_chevron_row(subsonic_download_settings_list,
         TR("Subfolder: SD root"), subsonic_download_folder_row_cb);
     subsonic_download_folder_update_row();
-    lv_obj_t * folder_help = add_section_header(subsonic_download_settings_list,
+    add_wrapped_section_header(subsonic_download_settings_list,
         TR("Subfolder is relative to SD root (example: Music/Offline); empty uses SD root"));
-    lv_obj_set_width(folder_help, lv_pct(100));
-    lv_obj_set_style_pad_right(folder_help, BOARD_SCALE_PX(24), 0);
-    lv_label_set_long_mode(folder_help, LV_LABEL_LONG_WRAP);
     add_section_header(subsonic_download_settings_list, TR("Folder layout for downloaded albums"));
     static const char * labels[] = { N_("Album Artist / Album"), N_("Album Artist - Album") };
     for (int i = 0; i < 2; i++)

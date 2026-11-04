@@ -23,38 +23,6 @@
 #define TC_SORT_AVAILABLE_BYTES() 0u
 #endif
 
-static bool tc_sort_io_read(int fd, void *buf, size_t len, off_t off) {
-    unsigned char *p = (unsigned char *)buf;
-    while (len != 0) {
-        ssize_t n = pread(fd, p, len, off);
-        if (n < 0) {
-            if (errno == EINTR) continue;
-            return false;
-        }
-        if (n == 0) return false;
-        p += (size_t)n;
-        len -= (size_t)n;
-        off += (off_t)n;
-    }
-    return true;
-}
-
-static bool tc_sort_io_write(int fd, const void *buf, size_t len, off_t off) {
-    const unsigned char *p = (const unsigned char *)buf;
-    while (len != 0) {
-        ssize_t n = pwrite(fd, p, len, off);
-        if (n < 0) {
-            if (errno == EINTR) continue;
-            return false;
-        }
-        if (n == 0) return false;
-        p += (size_t)n;
-        len -= (size_t)n;
-        off += (off_t)n;
-    }
-    return true;
-}
-
 static bool tc_sort_mul_off(int64_t a, size_t b, off_t *out) {
     if (a < 0 || b == 0) return false;
     if (a == 0) {
@@ -126,7 +94,7 @@ static bool tc_sort_reader_fill(struct tc_sort_reader *r) {
     want = (size_t)(r->end - r->next);
     if (want > r->cap) want = r->cap;
     if (!tc_sort_mul_off(r->next, r->rs, &off)) return false;
-    if (!tc_sort_io_read(r->fd, r->buf, want * r->rs, off)) return false;
+    if (!tc_read_full(r->fd, r->buf, want * r->rs, off)) return false;
     r->pos = 0;
     r->have = want;
     r->next += (int64_t)want;
@@ -223,7 +191,7 @@ static bool tc_sort_merge_pass(int in_fd, int out_fd, int64_t count, int64_t run
             if (out_used == out_cap) {
                 off_t off;
                 if (!tc_sort_mul_off(out_record, rs, &off) ||
-                    !tc_sort_io_write(out_fd, out_buf, out_used * rs, off)) return false;
+                    !write_at(out_fd, out_buf, out_used * rs, off)) return false;
                 out_record += (int64_t)out_used;
                 out_used = 0;
             }
@@ -232,7 +200,7 @@ static bool tc_sort_merge_pass(int in_fd, int out_fd, int64_t count, int64_t run
     if (out_used != 0) {
         off_t off;
         if (!tc_sort_mul_off(out_record, rs, &off) ||
-            !tc_sort_io_write(out_fd, out_buf, out_used * rs, off)) return false;
+            !write_at(out_fd, out_buf, out_used * rs, off)) return false;
     }
     return true;
 }
@@ -246,7 +214,7 @@ static bool tc_sort_power_reaches(int base, int exponent, int64_t target) {
     return value >= target;
 }
 
-static bool tc_sort_fd(int fd, size_t record_size, int64_t count,
+bool tc_sort_fd(int fd, size_t record_size, int64_t count,
                        int (*cmp)(const void *, const void *, void *), void *ctx, int scratch_fd) {
     size_t budget, run_cap, run_bytes, out_cap, out_bytes, input_records;
     size_t preferred_records, fan_cap, input_cap;
@@ -316,9 +284,9 @@ static bool tc_sort_fd(int fd, size_t record_size, int64_t count,
         size_t n = (size_t)(count - at);
         off_t off;
         if (n > run_cap) n = run_cap;
-        if (!tc_sort_mul_off(at, record_size, &off) || !tc_sort_io_read(fd, run, n * record_size, off) ||
+        if (!tc_sort_mul_off(at, record_size, &off) || !tc_read_full(fd, run, n * record_size, off) ||
             !tc_sort_stable_runsort(run, tmp, n, record_size, cmp, ctx) ||
-            !tc_sort_io_write(run_fd, run, n * record_size, off)) goto done;
+            !write_at(run_fd, run, n * record_size, off)) goto done;
         at += (int64_t)n;
     }
     in_fd = run_fd;

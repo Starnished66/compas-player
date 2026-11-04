@@ -35,13 +35,13 @@ struct tc_query_writer {
 static bool query_read(int fd, void *p, size_t n, uint64_t off) {
     if (off > INT64_MAX || (uint64_t)n > (uint64_t)INT64_MAX - off ||
         (uint64_t)(off_t)off != off) return false;
-    return reader_read_at(fd, p, n, (off_t)off);
+    return tc_read_full(fd, p, n, (off_t)off);
 }
 static bool query_writer_flush(struct tc_query_writer *w) {
     if (!w->used) return true;
     if (w->bytes > INT64_MAX || w->used > (uint64_t)INT64_MAX - w->bytes ||
         (uint64_t)(off_t)w->bytes != w->bytes ||
-        !tc_sort_io_write(w->fd, w->data, w->used, (off_t)w->bytes)) return false;
+        !write_at(w->fd, w->data, w->used, (off_t)w->bytes)) return false;
     w->bytes += w->used;
     w->used = 0;
     return true;

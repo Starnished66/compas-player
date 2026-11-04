@@ -5,8 +5,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define PLUGIN_STORE_MAX_PLUGINS 200
-#define PLUGIN_STORE_MAX_FILES 32
 #define PLUGIN_STORE_MAX_RESULTS 600 /* 200 catalog plugins plus up to 400 installed ones no longer offered */
 
 /* Check SD write access before the setup batch or its following scan. */
@@ -46,14 +44,6 @@ typedef enum {
 /* Rows are about 170 bytes; details are fetched on demand. The UI can receive
  * at most PLUGIN_STORE_MAX_RESULTS rows in its caller-owned result buffer. */
 typedef struct {
-    char asset[128];
-    char sha256[65];
-    uint32_t size;
-    uint32_t width;
-    uint32_t height;
-} plugin_store_preview_t;
-
-typedef struct {
     char id[64];
     char name[65];
     char version[32];
@@ -81,28 +71,6 @@ typedef struct {
     char current_plugin[65];
     char error[160];
 } plugin_store_status_t;
-
-typedef struct {
-    char asset[128];
-    char dest[256];
-    char sha256[65];
-    uint32_t size;
-    bool keep;
-} plugin_store_file_t;
-
-typedef struct {
-    char id[64];
-    char name[65];
-    char version[32];
-    uint32_t api_min;
-    char description[401];
-    char category[33];
-    char author[65];
-    uint32_t size;
-    plugin_store_preview_t preview; /* Optional, independently fetched; never installed. */
-    int file_count;
-    plugin_store_file_t files[PLUGIN_STORE_MAX_FILES];
-} plugin_store_plugin_t;
 
 bool plugin_store_refresh(void);
 bool plugin_store_install(const char * id, bool force);
@@ -140,27 +108,5 @@ uint64_t plugin_store_preview_generation(void);
 void plugin_store_cancel_previews(void);
 bool plugin_store_busy(void);
 void plugin_store_reset(void);
-
-/* Pure helpers and local filesystem hooks for the no-network host selftest.
- * Index parsing allocates exactly the validated plugin count; caller frees it. */
-bool plugin_store_parse_index(const char * json, size_t length, plugin_store_plugin_t ** out,
-                              size_t * out_count, char tag[64], char * error, size_t error_size);
-bool plugin_store_dest_valid(const char * dest);
-int plugin_store_version_compare(const char * a, const char * b);
-/* Evaluate an index entry against record metadata and a .plugins directory. */
-plugin_store_plugin_state_t plugin_store_compute_state(const plugin_store_plugin_t * plugin,
-                                                       const char * installed_version,
-                                                       const char * plugins_dir,
-                                                       bool * incompatible);
-/* Testable record operations. Root is the SD card root, not .compas. */
-bool plugin_store_record_write(const char * root, const plugin_store_plugin_t * plugins,
-                               const int * plugin_indices, size_t count);
-size_t plugin_store_record_read(const char * root, plugin_store_plugin_t * plugins,
-                                char (*versions)[32], size_t capacity);
-/* Installs verified local staged files named <stage_dir>/<i>.part. */
-bool plugin_store_commit_local(const char * root, const char * stage_dir,
-                               const plugin_store_plugin_t * plugin, bool force,
-                               const plugin_store_plugin_t * record_plugins,
-                               const char (*record_versions)[32], size_t record_count);
 
 #endif

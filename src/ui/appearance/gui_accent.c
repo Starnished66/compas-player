@@ -210,4 +210,3 @@ void gui_accent_sync(void) {
     accent_screen_sync();
 }
 
-lv_obj_t * gui_settings_get_accent_screen(void) { return accent_color_screen; }

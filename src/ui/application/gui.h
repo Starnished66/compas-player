@@ -23,7 +23,6 @@
 #include "../../library/metadata/db/metadata_db.h"
 #include "../plugins/gui_plugin_library.h"
 
-
 #include "../../library/artwork/albumart/albumart.h"
 #include "../../library/artwork/albumart/albumart_info.h"
 #include "../../library/remote/remote_track.h" /* remote_track_meta_t, used by gui_plugin_play_remote_tracks() below */
@@ -59,11 +58,11 @@ void gui_keep_screen_awake_for_prompt(void);
  * disabled (zero duration); the loader owns the boot artwork. */
 #ifndef HOST_BUILD
 void gui_show_boot_splash(void);
+#endif
 
 /* Re-anchor screen inactivity after main.c switches LVGL from the boot-time
  * clock callback to its low-overhead incremented runtime clock. */
 void gui_reset_interactive_timeout_baseline(void);
-#endif
 
 /* Tells the main loop (main.c) to drop the real time elapsed while the UI
  * thread was blocked on purpose, so LVGL's clock does not jump. */
@@ -284,9 +283,7 @@ void gui_plugin_clear_interval(int slot);
  * singleton/cancel-semantics caveats this inherits as-is. */
 void gui_plugin_show_text_input(const char * title, const char * initial_text, bool is_password);
 
-
 /* gui_font_role_t declared in gui_theme.h */
-
 
 lv_obj_t * add_section_header(lv_obj_t * parent, const char * text);
 void start_bt_apply_output_settings(bool dac_mode_enabled, bool volume_sync_enabled);
@@ -311,17 +308,7 @@ extern char * player_source_group_title;
 extern char player_source_file_browser_dir[];
 extern int player_source_file_browser_row;
 
-
 extern char now_playing_path[600];
-
-
-
-
-
-lv_indev_t * find_pointer_indev(void);
-void configure_scrolling_row_label(lv_obj_t * label, int32_t width);
-void open_song_context_menu(const char * path);
-
 
 /* Takes ownership of snapshot/title_ranks on success. `title_ranks` maps
  * collection order into the pinned full-catalog snapshot. */
@@ -331,32 +318,14 @@ bool gui_player_play_lazy_collection(metadata_db_snapshot_t *snapshot,
  * metadata_db_load_* caller-owned convention. */
 bool gui_player_play_collection_paths(char **paths, int count, int play_mode);
 
-void nav_reset_to_home(void);
-void open_queue_screen(void);
 void library_scan_once(void);
 void library_load_from_cache_only(void);
 
-
-
-void queue_add_song(const char * path);
 void get_display_names(const char * path, char * out_title, size_t title_sz, char * out_folder, size_t folder_sz);
 void row_label_enable_marquee(lv_obj_t * label);
 
-void refresh_volume_topbar(int32_t percent);
-
-void player_transition_mark_dirty(void);
-
-
 const char * play_mode_icon_asset(play_mode_t mode);
 
-
-void quick_drawer_mark_snapshot_dirty(void);
-
-
-
-
-
-#define NAV_STACK_MAX 16
 void boot_checkpoint(const char * msg);
 /* See its own doc comment (main.c) -- call once, at the very start of any
  * thread whose own crash needs to be loggable even if the crash IS the
@@ -364,7 +333,6 @@ void boot_checkpoint(const char * msg);
 void install_thread_crash_altstack(void);
 
 /* ---- Shared GUI and Screen Builders Helpers ---- */
-void generic_back_cb(lv_event_t * e);
 lv_obj_t * add_pill_chevron_row(lv_obj_t * list, const char * text, lv_event_cb_t cb);
 lv_obj_t * add_pill_toggle_row(lv_obj_t * parent, const char * label_text, bool checked, lv_event_cb_t on_click);
 lv_obj_t * add_pill_row_base(lv_obj_t * list, const char * text);
@@ -380,12 +348,8 @@ void replaygain_mode_settings_row_cb(lv_event_t * e);
 void font_size_settings_row_cb(lv_event_t * e);
 void usb_mode_settings_row_cb(lv_event_t * e);
 void update_music_database_row_cb(lv_event_t * e);
-void refresh_all_metadata_row_cb(lv_event_t * e);
 void firmware_update_row_cb(lv_event_t * e);
 void bt_dac_settings_row_cb(lv_event_t * e);
-void register_swipe_dead_zone(lv_obj_t * obj);
-void refresh_clock_label(void);
-
 
 #define BT_MAX_RESULTS 32
 extern bool bt_is_powered_cached;
@@ -396,8 +360,6 @@ extern unsigned int bt_connected_rate_cached;
 void quick_drawer_wifi_event_cb(lv_event_t * e);
 void quick_drawer_bt_event_cb(lv_event_t * e);
 
-#endif /* GUI_H */
-
 /* Owner-thread service after the opt-in input/worker poll wakes. */
 void gui_process_input_wake(void);
 /* A worker published a result (ui_wake_notify): the main loop calls begin
@@ -407,3 +369,5 @@ void gui_jobs_dispatch_begin(void);
 void gui_jobs_dispatch_end(void);
 /* True once, after a dispatch_end skipped for a slide and the slide is over. */
 bool gui_jobs_take_deferred(void);
+
+#endif /* GUI_H */

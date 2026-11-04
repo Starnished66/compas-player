@@ -12,7 +12,7 @@ static struct { legacy_group_t rows[LEGACY_PAGE]; int base, count, total; } lega
 
 static struct { char key[TAGCACHE_PATH_MAX], value[TAGCACHE_PATH_MAX]; bool valid; } legacy_text_cache[64];
 
-static bool reader_legacy_init(void) {
+bool reader_legacy_init(void) {
     reader_legacy_active = false;
     memset(legacy_text_cache, 0, sizeof(legacy_text_cache));
     reader_compact_order = !choose_intern_strings(ent_count);
@@ -48,10 +48,10 @@ static void legacy_canonical_text(char *value) {
         for (off_t offset = sizeof(struct tagcache_header); (uint64_t)offset < reader_tag_size[tag];) {
             struct tagfile_entry te;
             char candidate[TAGCACHE_PATH_MAX];
-            if (!reader_read_at(reader_tag_fd[tag], &te, sizeof(te), offset) || te.tag_length <= 0 ||
+            if (!tc_read_full(reader_tag_fd[tag], &te, sizeof(te), offset) || te.tag_length <= 0 ||
                 te.tag_length > TAGCACHE_PATH_MAX ||
                 (uint64_t)offset + sizeof(te) + te.tag_length > reader_tag_size[tag] ||
-                !reader_read_at(reader_tag_fd[tag], candidate, (size_t)te.tag_length, offset + sizeof(te)) ||
+                !tc_read_full(reader_tag_fd[tag], candidate, (size_t)te.tag_length, offset + sizeof(te)) ||
                 candidate[te.tag_length - 1] != '\0') return;
             if (!ascii_casecmp(candidate, value)) {
                 snprintf(value, TAGCACHE_PATH_MAX, "%s", candidate); found = true; break;
@@ -77,7 +77,7 @@ static int32_t legacy_find_path(const char *path) {
     return -1;
 }
 
-static bool legacy_order_song(bool recency, int32_t rank, tagcache_song_t *out) {
+bool legacy_order_song(bool recency, int32_t rank, tagcache_song_t *out) {
     if (rank < 0 || rank >= live_count) return false;
     int k = recency ? 1 : 0;
     if (rank < legacy_orders[k].base) legacy_orders[k].base = legacy_orders[k].count = 0;
@@ -169,7 +169,7 @@ static bool legacy_group_page(int kind, bool restart) {
     return true;
 }
 
-static int legacy_group_count(int kind) {
+int legacy_group_count(int kind) {
     if (kind < 0 || kind > 2) return 0;
     while (legacy_groups[kind].total < 0)
         if (!legacy_group_page(kind, false)) return 0;

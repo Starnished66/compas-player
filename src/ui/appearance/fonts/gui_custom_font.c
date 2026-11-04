@@ -223,4 +223,3 @@ void gui_custom_font_teardown(void) {
     if (custom_font_screen) { lv_obj_delete(custom_font_screen); custom_font_screen = NULL; }
 }
 
-lv_obj_t * gui_settings_get_custom_font_screen(void) { return custom_font_screen; }

@@ -331,7 +331,7 @@ void library_reload_edited_playlist_if_changed(lv_obj_t * screen);
 library_thumbnail_context_t library_thumbnail_genre_context(void);
 bool library_thumbnail_policy(library_thumbnail_policy_t policy);
 void library_thumbnail_show_busy(library_thumbnail_cover_scope_t scope);
-void playlist_start_selected(lv_event_t * e, bool shuffle);
+void playlist_start_selected(bool shuffle);
 extern int playlist_start_source;
 void populate_group_songs_rows(void);
 void refresh_group_songs_from_database(void);
@@ -343,8 +343,6 @@ void show_group_songs_editable(const char * name, const group_song_entry_t * ent
                                        const char * editable_m3u_path, bool music_submenu);
 void show_group_songs_take_ownership(const char * name, group_song_entry_t * entries, int count,
                                             bool push_screen);
-void show_music_group_songs(const char * name, const char * album_artist, const char * artist_filter,
-                                   const group_song_entry_t * entries, int count);
 void show_music_group_songs_impl(const char * name, const char * album_artist, const char * artist_filter,
                                         const group_song_entry_t * entries, int count, bool take_ownership);
 void update_group_songs_search_button(bool editing);

@@ -285,6 +285,15 @@ lv_obj_t * add_section_header(lv_obj_t * parent, const char * text) {
     return label;
 }
 
+/* Muted explanatory paragraph that wraps to the full list width. */
+lv_obj_t * add_wrapped_section_header(lv_obj_t * parent, const char * text) {
+    lv_obj_t * header = add_section_header(parent, text);
+    lv_obj_set_width(header, lv_pct(100));
+    lv_obj_set_style_pad_right(header, BOARD_SCALE_PX(24), 0);
+    lv_label_set_long_mode(header, LV_LABEL_LONG_WRAP);
+    return header;
+}
+
 void configure_cover_card_grid(lv_obj_t * list, int columns) {
     if (!list || columns < 1) return;
     int32_t side = BOARD_SCALE_PX(16), gap = BOARD_SCALE_PX(14);
@@ -436,6 +445,35 @@ int find_nearest_step_index(const int * steps, int count, int value) {
         }
     }
     return best;
+}
+
+/* Row holding a wrapped label and an accent switch. Uses content-based sizing
+ * so wrapped label text does not overlap; the caller aligns it. */
+lv_obj_t * build_setting_enable_row(lv_obj_t * parent, const char * label_text, bool checked,
+                                    lv_event_cb_t switch_cb, lv_obj_t ** out_switch) {
+    lv_obj_t * row = lv_obj_create(parent);
+    lv_obj_set_width(row, lv_pct(90));
+    lv_obj_set_height(row, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(row, 0, 0);
+    lv_obj_set_style_border_width(row, 0, 0);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_gap(row, 12, 0);
+
+    lv_obj_t * label = lv_label_create(row);
+    lv_label_set_text(label, label_text);
+    lv_obj_add_style(label, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_flex_grow(label, 1);
+
+    lv_obj_t * sw = lv_switch_create(row);
+    lv_obj_add_style(sw, gui_theme_accent_style(), LV_PART_INDICATOR | LV_STATE_CHECKED);
+    if (checked) lv_obj_add_state(sw, LV_STATE_CHECKED);
+    lv_obj_add_event_cb(sw, switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    if (out_switch) *out_switch = sw;
+    return row;
 }
 
 lv_obj_t * build_setting_slider_card(lv_obj_t * parent, lv_obj_t * align_target, int32_t card_height,

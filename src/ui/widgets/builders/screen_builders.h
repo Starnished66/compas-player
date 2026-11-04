@@ -534,10 +534,17 @@ lv_obj_t * add_pill_chevron_row(lv_obj_t * parent, const char * label_text, lv_e
 lv_obj_t * add_pill_option_row(lv_obj_t * parent, const char * label_text, bool selected,
                               lv_event_cb_t on_click, void * user_data);
 lv_obj_t * add_section_header(lv_obj_t * parent, const char * text);
+/* add_section_header() that always wraps at the full list width. */
+lv_obj_t * add_wrapped_section_header(lv_obj_t * parent, const char * text);
 /* Accent-bordered 24 px square, filled with a check mark when checked; not clickable. */
 lv_obj_t * build_check_box(lv_obj_t * parent, bool checked);
 
 int find_nearest_step_index(const int * steps, int count, int value);
+
+/* Row holding a wrapped label and an accent switch. Uses content-based sizing
+ * so wrapped label text does not overlap; the caller aligns it. */
+lv_obj_t * build_setting_enable_row(lv_obj_t * parent, const char * label_text, bool checked,
+                                    lv_event_cb_t switch_cb, lv_obj_t ** out_switch);
 
 /* Builds the shared "rounded card + slider + centered value label" widget
  * tree used by several settings screens (screen timeout, screen dimming,

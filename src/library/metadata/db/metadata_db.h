@@ -63,7 +63,6 @@ int metadata_db_snapshot_dup_directory_fd(const metadata_db_snapshot_t *snapshot
 /* True while the currently open database still belongs to the mounted
  * directory captured at open time. */
 bool metadata_db_storage_current(void);
-int metadata_db_dup_directory_fd(void);
 bool metadata_db_numeric_write_failed(void);
 void metadata_db_close(void);
 
@@ -152,7 +151,6 @@ bool metadata_db_catalog_get_revision(char *out_revision, size_t out_size);
 /* Nonblocking revision validation for UI polling. Returns BUSY if another
  * metadata operation currently owns the lock. */
 metadata_db_catalog_result_t metadata_db_try_catalog_revision_check(const char *expected_revision);
-bool metadata_db_try_catalog_revision_matches(const char *expected_revision);
 
 /* Opens a pinned catalog snapshot and resolves a full collection into title
  * ranks. Album results are ordered by disc, track (unknown last), then path,
@@ -405,10 +403,7 @@ int metadata_db_group_walk_page(metadata_db_group_walk_t * walk, bool by_albums,
                                 const char * album_filter, int max_rows, group_row_t * out_rows);
 int metadata_db_get_albums_page_sorted(const char * artist_filter, metadata_db_album_sort_t sort,
                                       int offset, int max_rows, group_row_t * out_rows);
-int metadata_db_get_album_sorted_offset(metadata_db_album_sort_t sort, const char * album,
-                                        const char * album_artist);
 int metadata_db_album_canonical_to_sorted(metadata_db_album_sort_t sort, int canonical_rank);
-int metadata_db_album_sorted_to_canonical(metadata_db_album_sort_t sort, int sorted_rank);
 bool metadata_db_album_sort_available(metadata_db_album_sort_t sort);
 
 /* Exact Artist/Album-Artist drill-down variants. Unlike the legacy remote

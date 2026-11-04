@@ -67,28 +67,9 @@ static lv_obj_t * build_startup_volume_screen(void) {
     build_screen_header(scr, TR("Startup Volume"), generic_back_cb, NULL, NULL);
 
     /* Flex row with SPACE_BETWEEN layout to prevent text/switch overlap. */
-    lv_obj_t * enable_row = lv_obj_create(scr);
-    lv_obj_set_width(enable_row, lv_pct(90));
-    lv_obj_set_height(enable_row, LV_SIZE_CONTENT);
+    lv_obj_t * enable_row = build_setting_enable_row(scr, TR("Launch at a fixed volume"),
+        current_settings.startup_volume_fixed_enabled, startup_volume_switch_event_cb, &startup_volume_switch);
     lv_obj_align(enable_row, LV_ALIGN_TOP_MID, 0, STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT + 20);
-    lv_obj_set_style_bg_opa(enable_row, 0, 0);
-    lv_obj_set_style_border_width(enable_row, 0, 0);
-    lv_obj_remove_flag(enable_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_flex_flow(enable_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(enable_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_gap(enable_row, 12, 0);
-
-    lv_obj_t * enable_label = lv_label_create(enable_row);
-    lv_label_set_text(enable_label, TR("Launch at a fixed volume"));
-    lv_obj_add_style(enable_label, &style_theme_text_primary, 0);
-    lv_obj_set_style_text_font(enable_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-    lv_label_set_long_mode(enable_label, LV_LABEL_LONG_WRAP);
-    lv_obj_set_flex_grow(enable_label, 1);
-
-    startup_volume_switch = lv_switch_create(enable_row);
-    lv_obj_add_style(startup_volume_switch, gui_theme_accent_style(), LV_PART_INDICATOR | LV_STATE_CHECKED);
-    if (current_settings.startup_volume_fixed_enabled) lv_obj_add_state(startup_volume_switch, LV_STATE_CHECKED);
-    lv_obj_add_event_cb(startup_volume_switch, startup_volume_switch_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     startup_volume_slider_card = build_setting_slider_card(scr, enable_row, BOARD_SCALE_PX(170), BOARD_SCALE_PX(18),
         0, 100, current_settings.startup_volume_fixed_percent,
@@ -267,27 +248,8 @@ static lv_obj_t * build_car_mode_screen(void) {
     lv_obj_set_scrollbar_mode(body, LV_SCROLLBAR_MODE_OFF);
 
     /* Car Mode enable row */
-    lv_obj_t * enable_row = lv_obj_create(body);
-    lv_obj_set_width(enable_row, lv_pct(90));
-    lv_obj_set_height(enable_row, LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(enable_row, 0, 0);
-    lv_obj_set_style_border_width(enable_row, 0, 0);
-    lv_obj_remove_flag(enable_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_flex_flow(enable_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(enable_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_gap(enable_row, 12, 0);
-
-    lv_obj_t * enable_label = lv_label_create(enable_row);
-    lv_label_set_text(enable_label, TR("Car Mode"));
-    lv_obj_add_style(enable_label, &style_theme_text_primary, 0);
-    lv_obj_set_style_text_font(enable_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-    lv_label_set_long_mode(enable_label, LV_LABEL_LONG_WRAP);
-    lv_obj_set_flex_grow(enable_label, 1);
-
-    car_mode_enable_switch = lv_switch_create(enable_row);
-    lv_obj_add_style(car_mode_enable_switch, gui_theme_accent_style(), LV_PART_INDICATOR | LV_STATE_CHECKED);
-    if (current_settings.car_mode_enabled) lv_obj_add_state(car_mode_enable_switch, LV_STATE_CHECKED);
-    lv_obj_add_event_cb(car_mode_enable_switch, car_mode_enable_switch_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    build_setting_enable_row(body, TR("Car Mode"),
+        current_settings.car_mode_enabled, car_mode_enable_switch_event_cb, &car_mode_enable_switch);
 
     car_mode_hint_label = lv_label_create(body);
     lv_label_set_text(car_mode_hint_label, TR("Car Mode is disabled."));
