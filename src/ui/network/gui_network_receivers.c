@@ -461,11 +461,15 @@ static void airplay_toggle_cb(lv_event_t * e) {
     gui_network_toggle_airplay();
 }
 
-void airplay_tile_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+void gui_network_open_airplay(void) {
     if (!wifi_feature_guard()) return;
     populate_airplay_screen();
     nav_push(airplay_screen);
+}
+
+void airplay_tile_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    gui_network_open_airplay();
 }
 
 /* ---- AirPlay overlay: shown only while a stream is actually active -----

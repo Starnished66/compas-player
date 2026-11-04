@@ -60,6 +60,10 @@ void gui_network_notify_bt_device_changed(void);
 void populate_bt_screen(void);
 void gui_network_bt_powered_on(void);
 void gui_network_extend_bt_pairing_window(void);
+/* Open the AirPlay / DLNA / Remote Control pages (the Wireless menu rows' action). */
+void gui_network_open_airplay(void);
+void gui_network_open_dlna(void);
+void gui_network_open_remote_control(void);
 void gui_network_show_wifi_toggle_pending(bool enabled);
 void gui_network_wifi_toggle_completed(bool enabled);
 

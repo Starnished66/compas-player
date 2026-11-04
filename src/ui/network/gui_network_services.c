@@ -702,8 +702,7 @@ static lv_obj_t * build_remote_control_screen(void) {
     return scr;
 }
 
-void remote_control_tile_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+void gui_network_open_remote_control(void) {
     wifi_settings_snapshot_invalidate();
     wifi_settings_snapshot_enabled = true;
     remote_control_refresh_address();
@@ -711,11 +710,20 @@ void remote_control_tile_cb(lv_event_t * e) {
     gui_network_extend_bt_pairing_window();
 }
 
-void dlna_tile_cb(lv_event_t * e) {
+void remote_control_tile_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    gui_network_open_remote_control();
+}
+
+void gui_network_open_dlna(void) {
     if (!wifi_feature_guard()) return;
     populate_dlna_screen();
     nav_push(dlna_screen);
+}
+
+void dlna_tile_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    gui_network_open_dlna();
 }
 
 void gui_network_services_build(void) {

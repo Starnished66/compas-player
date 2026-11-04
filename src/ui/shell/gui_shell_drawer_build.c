@@ -17,27 +17,49 @@
 #define QUICK_DRAWER_EQ_INSET BOARD_SCALE_PX(8)
 #define QUICK_DRAWER_EQ_X (QUICK_DRAWER_CARD_X + QUICK_DRAWER_CARD_W - QUICK_DRAWER_EQ_INSET - QUICK_DRAWER_EQ_SIZE)
 #define QUICK_DRAWER_EQ_Y (QUICK_DRAWER_CARD_Y + QUICK_DRAWER_EQ_INSET)
+/* Row 2 taps use LV_EVENT_SHORT_CLICKED, which LVGL does not emit after a
+ * long press, so opening a tile's page cannot also toggle it on release. */
 static void quick_drawer_airplay_event_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) return;
     gui_network_toggle_airplay();
     gui_shell_refresh_quick_drawer_expansion_toggles();
 }
 static void quick_drawer_dlna_event_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) return;
     gui_network_toggle_dlna();
     gui_shell_refresh_quick_drawer_expansion_toggles();
 }
 static void quick_drawer_gapless_event_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) return;
     /* Shared with the Settings switch so the crossfade implication, the
      * re-arm and both toggles' refreshes happen identically from either --
      * see gui_player_set_gapless_enabled(). */
     gui_player_set_gapless_enabled(!current_settings.gapless_enabled);
 }
 static void quick_drawer_rc_event_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) return;
     gui_network_toggle_remote_control();
     gui_shell_refresh_quick_drawer_expansion_toggles();
+}
+static void quick_drawer_airplay_long_press_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
+    quick_drawer_dismiss_for_navigation();
+    gui_network_open_airplay();
+}
+static void quick_drawer_dlna_long_press_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
+    quick_drawer_dismiss_for_navigation();
+    gui_network_open_dlna();
+}
+static void quick_drawer_gapless_long_press_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
+    quick_drawer_dismiss_for_navigation();
+    gui_settings_open_playback();
+}
+static void quick_drawer_rc_long_press_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
+    quick_drawer_dismiss_for_navigation();
+    gui_network_open_remote_control();
 }
 static void quick_drawer_car_mode_event_cb(lv_event_t * e) {
     /* LV_EVENT_SHORT_CLICKED is not emitted after LVGL recognizes a long
@@ -381,11 +403,15 @@ static const struct {
     const char * name;
     lv_obj_t ** icon;
     lv_event_cb_t click_cb;
+    lv_event_cb_t long_press_cb;
 } quick_drawer_row2[] = {
-    { N_("AirPlay"), &quick_drawer_airplay_icon, quick_drawer_airplay_event_cb },
-    { N_("DLNA"), &quick_drawer_dlna_icon, quick_drawer_dlna_event_cb },
-    { N_("Gapless"), &quick_drawer_gapless_icon, quick_drawer_gapless_event_cb },
-    { N_("RC"), &quick_drawer_rc_icon, quick_drawer_rc_event_cb },
+    { N_("AirPlay"), &quick_drawer_airplay_icon, quick_drawer_airplay_event_cb,
+      quick_drawer_airplay_long_press_cb },
+    { N_("DLNA"), &quick_drawer_dlna_icon, quick_drawer_dlna_event_cb,
+      quick_drawer_dlna_long_press_cb },
+    { N_("Gapless"), &quick_drawer_gapless_icon, quick_drawer_gapless_event_cb,
+      quick_drawer_gapless_long_press_cb },
+    { N_("RC"), &quick_drawer_rc_icon, quick_drawer_rc_event_cb, quick_drawer_rc_long_press_cb },
 };
 
 static void quick_drawer_build_expansion_row2(void) {
@@ -400,7 +426,8 @@ static void quick_drawer_build_expansion_row2(void) {
         lv_obj_set_style_text_color(quick_drawer_toggle_state[slot], shell_drawer_off_color, 0);
 
         *quick_drawer_row2[i].icon = icon;
-        lv_obj_add_event_cb(icon, quick_drawer_row2[i].click_cb, LV_EVENT_CLICKED, NULL);
+        lv_obj_add_event_cb(icon, quick_drawer_row2[i].click_cb, LV_EVENT_SHORT_CLICKED, NULL);
+        lv_obj_add_event_cb(icon, quick_drawer_row2[i].long_press_cb, LV_EVENT_LONG_PRESSED, NULL);
         quick_drawer_set_toggle_image(icon, quick_drawer_toggle_src((qd_toggle_t) slot, false));
     }
 }
