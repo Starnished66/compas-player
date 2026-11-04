@@ -276,7 +276,7 @@ void scan_session_drop(void);
 bool scan_seen_test(int32_t slot);
 size_t scan_hash_mem_available_bytes(void);
 void scan_hash_release(void);
-bool scan_intern_init(bool include_titles);
+bool scan_intern_init(void);
 bool scan_write_index(int32_t slot, const struct index_entry *idx);
 bool scan_intern_find(const char *value, char *out, size_t out_size);
 bool replay_scan_numeric(int fd);

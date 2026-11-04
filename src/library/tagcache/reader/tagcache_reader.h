@@ -142,7 +142,6 @@ bool reader_song_fields_raw(int32_t slot, unsigned fields, tagcache_song_t *out)
     out->path = out->path_storage; out->title = out->title_storage; out->artist = out->artist_storage;
     out->album = out->album_storage; out->album_artist = out->album_artist_storage; out->genre = out->genre_storage;
     if (reader_legacy_active) {
-        if ((fields & TAGCACHE_FIELD_TITLE) && !reader_compact_order) legacy_canonical_text(out->title_storage);
         if (fields & (TAGCACHE_FIELD_ARTIST | TAGCACHE_FIELD_ALBUM_ARTIST)) legacy_canonical_text(out->artist_storage);
         if (fields & TAGCACHE_FIELD_ALBUM) legacy_canonical_text(out->album_storage);
         if (fields & TAGCACHE_FIELD_ALBUM_ARTIST) legacy_canonical_text(out->album_artist_storage);

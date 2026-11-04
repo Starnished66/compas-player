@@ -41,9 +41,10 @@ static void legacy_canonical_text(char *value) {
         return;
     }
     snprintf(legacy_text_cache[bucket].key, TAGCACHE_PATH_MAX, "%s", value);
-    const int tags[] = {tag_title, tag_artist, tag_album, tag_albumartist, tag_genre};
+    /* Titles read back exactly as tagged, so the title file is never a source. */
+    const int tags[] = {tag_artist, tag_album, tag_albumartist, tag_genre};
     bool found = false;
-    for (int t = reader_compact_order ? 1 : 0; t < 5 && !found; t++) {
+    for (int t = 0; t < 4 && !found; t++) {
         int tag = tags[t];
         for (off_t offset = sizeof(struct tagcache_header); (uint64_t)offset < reader_tag_size[tag];) {
             struct tagfile_entry te;

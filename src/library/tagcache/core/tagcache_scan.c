@@ -308,7 +308,7 @@ bool start_staging_with_lock(void (*unlock)(void), void (*lock)(void)) {
         return false;
     }
     staging_attach_reader(master, strings);
-    if (!scan_intern_init(!reader_compact_order)) update_failed = true;
+    if (!scan_intern_init()) update_failed = true;
     staging_copy_rows(had_lazy_scan);
     if (lock) lock();
     if (!replay_scan_numeric(reader_master_fd)) update_failed = true;
@@ -449,7 +449,7 @@ static bool upsert_write_strings(const char *const values[6], bool fresh, int32_
         char canonical[TAGCACHE_PATH_MAX];
         char existing[TAGCACHE_PATH_MAX];
         const char *value = values[i] ? values[i] : "";
-        if (tags[i] != tag_filename && scan_intern_find(value, canonical, sizeof(canonical))) value = canonical;
+        if (tags[i] != tag_filename && tags[i] != tag_title && scan_intern_find(value, canonical, sizeof(canonical))) value = canonical;
         bool unchanged = false;
         if (!fresh) {
             if (!reader_string(tags[i], idx->tag_seek[tags[i]], slot, existing, sizeof(existing))) {
@@ -461,7 +461,7 @@ static bool upsert_write_strings(const char *const values[6], bool fresh, int32_
         if (unchanged) continue;
         *tags_changed = true;
         if (update_failed || !append_string(tags[i], slot, value, &idx->tag_seek[tags[i]]) ||
-            (tags[i] != tag_filename && !scan_intern_insert(tags[i], idx->tag_seek[tags[i]]))) {
+            (tags[i] != tag_filename && tags[i] != tag_title && !scan_intern_insert(tags[i], idx->tag_seek[tags[i]]))) {
             update_failed = true;
             return false;
         }

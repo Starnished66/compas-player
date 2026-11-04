@@ -1114,7 +1114,7 @@ bool reader_build_indexes(void) {
     /* Album-order construction already looks up the newly sorted groups. */
     reader_loaded_index_version = TC_INDEX_VERSION;
     reader_reset_cache();
-    if (!scan_intern_init(!reader_compact_sort)) return false;
+    if (!scan_intern_init()) return false;
     reader_artist_names_fd = reader_create_temp();
     reader_title_fd = reader_create_temp();
     reader_recency_fd = reader_create_temp();

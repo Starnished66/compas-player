@@ -3,7 +3,9 @@
 
 /* Disk-backed canonical tag table used while a scan appends to staging tag
  * files.  The table stores one reference for each case-insensitive spelling
- * and therefore has no song-sized RAM component. */
+ * and therefore has no song-sized RAM component.  Song titles are never
+ * interned: they must read back exactly as tagged, so they neither enter the
+ * table nor borrow another field's spelling. */
 #define TC_SCAN_INTERN_INITIAL 1024u
 #define TC_SCAN_INTERN_MAX (8u * 1024u * 1024u)
 
@@ -101,7 +103,7 @@ static bool tc_scan_intern_add_cell(const struct tc_scan_intern_cell *cell) {
     return true;
 }
 
-bool scan_intern_init(bool include_titles) {
+bool scan_intern_init(void) {
     scan_intern_close();
     tc_scan_intern_fd = reader_create_temp();
     tc_scan_intern_capacity = TC_SCAN_INTERN_INITIAL;
@@ -110,10 +112,9 @@ bool scan_intern_init(bool include_titles) {
         scan_intern_close(); return false;
     }
     tc_scan_intern_ready = true;
-    const int tags[] = {tag_title, tag_artist, tag_album, tag_albumartist, tag_genre};
+    const int tags[] = {tag_artist, tag_album, tag_albumartist, tag_genre};
     for (size_t ti = 0; ti < sizeof(tags) / sizeof(tags[0]); ti++) {
         int tag = tags[ti];
-        if (tag == tag_title && !include_titles) continue;
         for (off_t pos = sizeof(struct tagcache_header); pos + (off_t)sizeof(struct tagfile_entry) <= (off_t)reader_tag_size[tag];) {
             struct tagfile_entry te;
             if (pread(reader_tag_fd[tag], &te, sizeof(te), pos) != (ssize_t)sizeof(te) || te.tag_length <= 0 ||
