@@ -1,4 +1,5 @@
 #include "bluetooth_control_internal.h"
+#include "bt_rc_trust.h"
 
 /* Parses "Paired: yes"/"Connected: yes" out of `bluetoothctl info <mac>`'s
  * output (see bluetooth_control.h -- confirmed exact field names/format
@@ -273,15 +274,20 @@ static bool bt_ctl_verb_ok(const char * verb, const char * mac) {
     return subprocess_run(argv, out, sizeof(out)) && strstr(out, "Failed") == NULL;
 }
 
+#define BT_PAIR_TIMEOUT_MS 65000
+
+/* Caller holds bt_chip_mutex. Prepares the daemon only after a successful query confirms that no
+ * source PCM is live. A busy or unreadable state keeps the old manual pair/trust/connect behavior
+ * and never authorizes a daemon restart. Respawns only on a mismatch, so calling it twice is cheap. */
+static void prepare_daemon_for_connect(unsigned int rate) {
+    if (!bluealsa_source_pcm_may_be_connected()) (void) ensure_bluealsa_running_rate_ex(rate, NULL);
+}
+
 bool bt_control_connect_with_rate(const char * mac, unsigned int rate) {
     char out[512];
     pthread_mutex_lock(&bt_chip_mutex);
-    /* Prepare the daemon only after a successful query confirms that no
-     * source PCM is live. A busy or unreadable state keeps the old manual
-     * pair/trust/connect behavior and never authorizes a daemon restart. */
-    if (!bluealsa_source_pcm_may_be_connected())
-        (void) ensure_bluealsa_running_rate_ex(rate, NULL);
-
+    /* Before the pair: many headsets open A2DP right after bonding. */
+    prepare_daemon_for_connect(rate);
     /* BlueZ drops non-paired discovered devices shortly after a scan ends, and
      * then pair/trust/connect all fail; rediscover it first. */
     if (!bt_control_device_known(mac)) {
@@ -291,13 +297,24 @@ bool bt_control_connect_with_rate(const char * mac, unsigned int rate) {
         DBG_LOG("bt_control: rediscovery of %s %s\n", mac, found ? "found it" : "did not find it");
     }
 
+    /* Pairing waits for the user to answer the popup, so it runs without bt_chip_mutex: it touches
+     * neither the chip nor the bluealsa daemon, and holding the mutex that long would block every
+     * other Bluetooth operation. The daemon is checked again afterwards, in case another holder
+     * changed it meanwhile. */
+    pthread_mutex_unlock(&bt_chip_mutex);
     char * pair_argv[] = { (char *) "bluetoothctl", (char *) "pair", (char *) mac, NULL };
-    subprocess_run(pair_argv, out, sizeof(out)); /* no-op if already paired -- not fatal either way */
-
-    char * trust_argv[] = { (char *) "bluetoothctl", (char *) "trust", (char *) mac, NULL };
-    subprocess_run(trust_argv, out, sizeof(out));
-
-    bool ok = bt_ctl_verb_ok("connect", mac);
+    /* The pairing prompt waits up to 30 s (a shown code 60 s) for the user, so allow longer than that. */
+    bool pair_finished = subprocess_run_timeout(pair_argv, out, sizeof(out), BT_PAIR_TIMEOUT_MS);
+    pthread_mutex_lock(&bt_chip_mutex);
+    bool ok = false;
+    /* True means bluetoothctl ran to completion, whatever it reported: an already paired device
+     * is a success too, and a failed pair is caught by connect. A timeout skips trust and connect. */
+    if (pair_finished) {
+        prepare_daemon_for_connect(rate);
+        char * trust_argv[] = { (char *) "bluetoothctl", (char *) "trust", (char *) mac, NULL };
+        subprocess_run(trust_argv, out, sizeof(out));
+        ok = bt_ctl_verb_ok("connect", mac);
+    }
     pthread_mutex_unlock(&bt_chip_mutex);
     return ok;
 }
@@ -320,6 +337,7 @@ bool bt_control_forget(const char * mac) {
     pthread_mutex_lock(&bt_chip_mutex);
     bool ok = bt_ctl_verb_ok("remove", mac);
     pthread_mutex_unlock(&bt_chip_mutex);
+    bt_rc_trust_remove(mac); /* also when BlueZ no longer knows the device */
     return ok;
 }
 

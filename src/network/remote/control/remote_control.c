@@ -8,6 +8,8 @@
 #include "../../../core/persistence/settings_registry.h"
 #include "remote_settings.h"
 #include "remote_plugins.h"
+#include "../../bluetooth/control/bt_rc_trust.h"
+#include "../../bluetooth/control/bt_pairing_agent.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -107,6 +109,9 @@ static void pin_reset_failures_locked(void) {
  * old one, including an active lockout. */
 static void remote_control_store_pin_locked(const char * pin) {
     settings_set_remote_control_pin(&current_settings, pin);
+    /* Bluetooth trust earned with the old PIN goes too, in memory and in the snapshot saved below. */
+    bt_rc_trust_clear();
+    current_settings.bt_rc_trusted_count = 0;
     pin_reset_failures_locked();
     pin_failure_window = 0;
     pin_blocked_until = 0;
@@ -464,7 +469,7 @@ static bool read_request_headers(int cfd, const struct timespec * deadline, requ
 }
 
 /* GET /api/v1/capabilities: the public handshake. */
-static void handle_capabilities_request(int cfd) {
+static void handle_capabilities_request(int cfd, bool trusted) {
     char capabilities[1536] = {0};
     char library_id[METADATA_DB_CATALOG_LIBRARY_ID_SIZE] = {0};
     char escaped_library_id[METADATA_DB_CATALOG_LIBRARY_ID_SIZE * 2] = {0};
@@ -475,7 +480,7 @@ static void handle_capabilities_request(int cfd) {
                  escaped_library_id);
     }
     snprintf(capabilities, sizeof(capabilities),
-        "{%s\"version\":1,\"authRequired\":true,\"authHeader\":\"X-Compas-PIN\","
+        "{%s\"version\":1,\"authRequired\":%s,\"authHeader\":\"X-Compas-PIN\","
         "\"transports\":[\"wifi\",\"bluetooth_classic_rfcomm\"],\"features\":["
         "\"status\",\"playback_controls\",\"queue\",\"library_browse\","
         "\"playlists\",\"album_art\",\"screenshots\",\"catalog_sync_v1\","
@@ -483,28 +488,56 @@ static void handle_capabilities_request(int cfd) {
         "\"playlist_edit\",\"playlist_import\",\"player_accent\",\"device_info\","
         "\"collection_playback\",\"shuffle_modes\",\"library_sorting\","
         "\"wifi_import\",\"wifi_import_files\",\"settings_v1\",\"plugin_store\",\"plugin_management\",\"player_layouts\"],"
-        "\"settingsSchemaVersion\":%d}", library_id_field, SETTINGS_REGISTRY_SCHEMA_VERSION);
+        "\"settingsSchemaVersion\":%d}", library_id_field, trusted ? "false" : "true", SETTINGS_REGISTRY_SCHEMA_VERSION);
     send_response(cfd, "200 OK", "application/json", capabilities);
+}
+
+#define BT_GRANT_WAIT_MS 3000
+#define BT_GRANT_POLL_MS 100
+
+/* Whether a Bluetooth peer is trusted. A device whose Pair tap is still waiting for the pairing to
+ * finish connects within milliseconds of bonding, before the grant lands, so it is waited for
+ * (bounded, no lock held). Wi-Fi (bt_mac NULL) is never trusted and never waits. */
+static bool bt_peer_trusted(const char * bt_mac) {
+    if (!bt_mac) return false;
+    for (int waited = 0;; waited += BT_GRANT_POLL_MS) {
+        /* Pending is read first: a grant leaves pending only after its trust was added. */
+        bool pending = bt_pairing_agent_grant_pending(bt_mac);
+        if (bt_rc_trust_is_trusted(bt_mac)) return true;
+        if (!pending || waited >= BT_GRANT_WAIT_MS) return false;
+        usleep(BT_GRANT_POLL_MS * 1000);
+    }
 }
 
 /* Session-cookie and PIN gate. Only the shell is public. All library,
  * status, artwork, playback, screenshot, playlist, queue, and asset requests
- * require the same PIN header over both Wi-Fi and Bluetooth RFCOMM. Returns
- * true when the request may be routed; otherwise the reply (or the session
- * cookie) has been sent. */
+ * require the PIN, except on a trusted Bluetooth link (bt_rc_trust.h). A valid
+ * PIN from a Bluetooth peer makes it trusted from then on. Returns true when
+ * the request may be routed; otherwise the reply (or the session cookie) has
+ * been sent. */
 static bool request_authorized(int cfd, const char * method, const char * path_only,
-                               const request_headers_t * h) {
+                               const request_headers_t * h, bool trusted, const char * bt_mac) {
     bool public_request = strcmp(method, "GET") == 0 && strcmp(path_only, "/") == 0;
     if (strcmp(method, "POST") == 0 && strcmp(path_only, "/api/session/clear") == 0) {
         send_session_cookie(cfd, NULL);
         return false;
     }
     if (public_request) return true;
-    remote_control_pin_result_t pin_result = REMOTE_CONTROL_PIN_INVALID;
+    if (trusted) {
+        /* There is no PIN to remember: the link itself is the credential. */
+        if (strcmp(method, "POST") == 0 && strcmp(path_only, "/api/session") == 0) {
+            send_session_cookie(cfd, NULL);
+            return false;
+        }
+        return true;
+    }
+    /* Read before the check: a PIN replaced meanwhile clears the trust list, which drops this add. */
+    unsigned int epoch = bt_mac ? bt_rc_trust_epoch() : 0;
     /* An explicit header wins; the cookie only stands in when it is absent. */
     const char * candidate = h->pin_seen ? (h->pin_invalid ? NULL : h->pin)
                                          : (h->cookie_pin_seen ? h->cookie_pin : NULL);
-    if (candidate) pin_result = remote_control_pin_check(candidate);
+    remote_control_pin_result_t pin_result = candidate ? remote_control_pin_check(candidate)
+                                                       : REMOTE_CONTROL_PIN_INVALID;
     if (pin_result == REMOTE_CONTROL_PIN_RATE_LIMITED) {
         send_pin_rate_limited_response(cfd);
         return false;
@@ -514,6 +547,7 @@ static bool request_authorized(int cfd, const char * method, const char * path_o
                       "{\"error\":\"unauthorized\",\"code\":\"pin_required\"}");
         return false;
     }
+    if (bt_mac) bt_rc_trust_add_at_epoch(bt_mac, epoch, false);
     if (strcmp(method, "POST") == 0 && strcmp(path_only, "/api/session") == 0) {
         send_session_cookie(cfd, candidate);
         return false;
@@ -549,8 +583,8 @@ static bool handle_import_files_route(int cfd, const char * method, const char *
 
 /* Settings registry routes. Returns false when the request is not theirs. */
 static bool handle_settings_route(int cfd, const char * method, const char * path_only, const char * path,
-                                  const request_headers_t * h) {
-    remote_settings_request_t settings_request = { h->content_length, h->pin_seen && !h->pin_invalid,
+                                  const request_headers_t * h, bool trusted) {
+    remote_settings_request_t settings_request = { h->content_length, trusted || (h->pin_seen && !h->pin_invalid),
                                                    h->json_content_type };
     char settings_status[40];
     char * settings_body = NULL;
@@ -563,8 +597,8 @@ static bool handle_settings_route(int cfd, const char * method, const char * pat
 
 /* Plugin and layout routes. Returns false when the request is not theirs. */
 static bool handle_plugins_route(int cfd, const char * method, const char * path_only, const char * path,
-                                 const request_headers_t * h) {
-    remote_plugins_http_request_t plugins_request = { h->content_length, h->pin_seen && !h->pin_invalid,
+                                 const request_headers_t * h, bool trusted) {
+    remote_plugins_http_request_t plugins_request = { h->content_length, trusted || (h->pin_seen && !h->pin_invalid),
                                                      h->json_content_type };
     char plugins_status[40];
     char * plugins_body = NULL;
@@ -611,8 +645,22 @@ static void handle_legacy_get(int cfd, const char * path_only, const char * path
     }
 }
 
-/* Reads one request from cfd and routes it. The caller owns closing cfd. */
-static void handle_connection(int cfd) {
+static void handle_legacy_route(int cfd, const char * method, const char * path_only, const char * path) {
+    if (strcmp(method, "GET") == 0) {
+        handle_legacy_get(cfd, path_only, path);
+    } else if (strcmp(method, "POST") == 0) {
+        if (strcmp(path_only, "/api/playlists") == 0 || strcmp(path_only, "/api/playlists/add") == 0)
+            handle_legacy_playlist_post(cfd, path_only, path);
+        else
+            handle_legacy_playback_post(cfd, path_only, path);
+    } else {
+        send_response(cfd, "405 Method Not Allowed", "text/plain", "Method Not Allowed");
+    }
+}
+
+/* Reads one request from cfd and routes it. The caller owns closing cfd.
+ * bt_mac is the normalized peer MAC of a Bluetooth connection, NULL for Wi-Fi. */
+static void handle_connection(int cfd, const char * bt_mac) {
     struct timespec preauth_deadline;
     if (!request_headers_deadline(&preauth_deadline)) return;
     if (!remote_control_ensure_pin()) {
@@ -623,6 +671,8 @@ static void handle_connection(int cfd) {
     if (!read_request_line(cfd, &preauth_deadline, buf, sizeof(buf))) return;
     request_headers_t headers;
     if (!read_request_headers(cfd, &preauth_deadline, &headers)) return;
+    /* Judged once the request is in, so a revoke while it was being read is honoured. */
+    bool trusted = bt_peer_trusted(bt_mac);
 
     char method[8] = {0};
     char path[REQUEST_LINE_MAX] = {0};
@@ -644,7 +694,7 @@ static void handle_connection(int cfd) {
     bool api_v1 = strncmp(path_only, "/api/v1/", sizeof("/api/v1/") - 1) == 0;
     if (api_v1) {
         if (strcmp(path_only, "/api/v1/capabilities") == 0 && strcmp(method, "GET") == 0) {
-            handle_capabilities_request(cfd);
+            handle_capabilities_request(cfd, trusted);
             return;
         }
         /* Remove only "/v1" so "/api/v1/status" routes as "/api/status". */
@@ -652,7 +702,7 @@ static void handle_connection(int cfd) {
                 strlen(path_only + sizeof("/api/v1") - 1) + 1);
     }
 
-    if (!request_authorized(cfd, method, path_only, &headers)) return;
+    if (!request_authorized(cfd, method, path_only, &headers, trusted, bt_mac)) return;
     if (headers.content_length_invalid) {
         send_response(cfd, "400 Bad Request", "text/plain", "Bad Content-Length");
         return;
@@ -665,26 +715,18 @@ static void handle_connection(int cfd) {
     /* Import lifecycle routes come before the generic POST command
      * dispatcher below, which otherwise owns all non-GET methods. */
     if (handle_import_lifecycle_route(cfd, method, path_only)) return;
-    if (handle_settings_route(cfd, method, path_only, path, &headers)) return;
-    if (handle_plugins_route(cfd, method, path_only, path, &headers)) return;
+    if (handle_settings_route(cfd, method, path_only, path, &headers, trusted)) return;
+    if (handle_plugins_route(cfd, method, path_only, path, &headers, trusted)) return;
     if (handle_extension_route(cfd, method, path_only, path, headers.content_length)) return;
 
-    if (strcmp(method, "GET") == 0) {
-        handle_legacy_get(cfd, path_only, path);
-    } else if (strcmp(method, "POST") == 0) {
-        if (strcmp(path_only, "/api/playlists") == 0 || strcmp(path_only, "/api/playlists/add") == 0)
-            handle_legacy_playlist_post(cfd, path_only, path);
-        else
-            handle_legacy_playback_post(cfd, path_only, path);
-    } else {
-        send_response(cfd, "405 Method Not Allowed", "text/plain", "Method Not Allowed");
-    }
+    handle_legacy_route(cfd, method, path_only, path);
 }
 
 /* Handle one HTTP request on an already connected stream socket. The caller
  * retains ownership of fd and is responsible for closing it. */
-void remote_control_handle_stream(int fd) {
-    if (fd >= 0) handle_connection(fd);
+void remote_control_handle_stream(int fd, const char * bt_mac) {
+    char mac[BT_RC_TRUST_MAC_SIZE];
+    if (fd >= 0) handle_connection(fd, bt_mac && bt_rc_trust_normalize(bt_mac, mac) ? mac : NULL);
 }
 
 /* Timeout for poll() on listen_fd so listener_thread_func periodically checks
@@ -697,7 +739,7 @@ static void * client_worker_func(void *arg) {
     remote_client_start_t *start = arg;
     int slot = start->slot, fd = start->fd;
     free(start);
-    handle_connection(fd);
+    handle_connection(fd, NULL);
     pthread_mutex_lock(&listener_mutex);
     if (slot >= 0 && slot < REMOTE_CLIENT_WORKERS && active_client_fds[slot] == fd) {
         active_client_fds[slot] = -1;

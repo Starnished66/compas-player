@@ -37,8 +37,11 @@ void remote_control_get_pin(char * out_pin, size_t out_pin_size);
 #define REMOTE_CONTROL_CLIENT_STACK_SIZE (256u * 1024u)
 
 /* Handles one HTTP request on a connected byte-stream socket (for example an
- * RFCOMM connection). The caller retains ownership of fd and must close it. */
-void remote_control_handle_stream(int fd);
+ * RFCOMM connection). bt_mac is the peer's "AA:BB:CC:DD:EE:FF" on Bluetooth,
+ * NULL otherwise. A peer on the trusted list (bt_rc_trust.h) skips the PIN;
+ * any other peer needs it exactly like Wi-Fi, and a valid PIN trusts it. The
+ * caller retains ownership of fd and must close it. */
+void remote_control_handle_stream(int fd, const char * bt_mac);
 
 /* Longest file path the remote folder and favorite requests hand to the UI. */
 #define REMOTE_CONTROL_PATH_MAX 1024

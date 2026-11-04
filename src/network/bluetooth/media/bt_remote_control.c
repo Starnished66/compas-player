@@ -2,6 +2,8 @@
 #include "../../../core/system/logging/db_log.h"
 #include "../../../core/system/logging/debug_log.h"
 #include "../../remote/control/remote_control.h"
+#include "../control/bt_rc_trust.h"
+#include "../control/bt_dbus_util.h"
 
 #include <dbus/dbus.h>
 #include <fcntl.h>
@@ -60,7 +62,12 @@ static void send_error(DBusConnection * c, DBusMessage * msg, const char * name,
 
 static void * serve_client(void * arg) {
     int fd = (int) (intptr_t) arg;
-    remote_control_handle_stream(fd);
+    char mac[BT_RC_TRUST_MAC_SIZE];
+    pthread_mutex_lock(&client_mutex);
+    bool has_mac = bt_rc_trust_mac_from_path(active_device_path, mac);
+    pthread_mutex_unlock(&client_mutex);
+    /* Pairing alone does not skip the PIN: only a device on the trusted list does. */
+    remote_control_handle_stream(fd, has_mac ? mac : NULL);
     pthread_mutex_lock(&client_mutex);
     close(fd);
     client_active = false;
@@ -249,7 +256,8 @@ static bool append_option_uint16(DBusMessageIter * dict, const char * key,
 
 /* Give this vendor UUID an explicit RFCOMM channel so BlueZ publishes a usable
  * RFCOMM protocol descriptor in SDP. Android discovers that channel by UUID.
- * Require authentication so BlueZ completes pairing before NewConnection. */
+ * Require authentication so BlueZ completes pairing before NewConnection;
+ * the PIN is still required unless the device is trusted (bt_rc_trust.h). */
 static bool register_profile(bool register_it) {
     DBusMessage * msg = dbus_message_new_method_call("org.bluez", "/org/bluez",
         "org.bluez.ProfileManager1", register_it ? "RegisterProfile" : "UnregisterProfile");
@@ -295,32 +303,6 @@ static bool register_profile(bool register_it) {
     atomic_store(&profile_status, register_it ? BT_REMOTE_CONTROL_READY : BT_REMOTE_CONTROL_WAITING);
     DBG_LOG("bt_remote_control: profile %s\n", register_it ? "registered" : "unregistered");
     return true;
-}
-
-/* The older libdbus shipped on the target lacks dbus_bus_get_name_owner().
- * Query the bus daemon directly and retain only its small unique-name string
- * so even a fast bluetoothd restart is detected if both polls see an owner. */
-static bool get_bluez_owner(char * owner, size_t owner_size) {
-    DBusMessage * msg = dbus_message_new_method_call("org.freedesktop.DBus",
-        "/org/freedesktop/DBus", "org.freedesktop.DBus", "GetNameOwner");
-    if (!msg) return false;
-    const char * name = "org.bluez";
-    dbus_message_append_args(msg, DBUS_TYPE_STRING, &name, DBUS_TYPE_INVALID);
-    DBusError err;
-    dbus_error_init(&err);
-    DBusMessage * reply = dbus_connection_send_with_reply_and_block(connection, msg, 1000, &err);
-    dbus_message_unref(msg);
-    const char * value = NULL;
-    bool ok = reply && dbus_message_get_args(reply, &err,
-        DBUS_TYPE_STRING, &value, DBUS_TYPE_INVALID);
-    if (ok && value && owner_size > 0) {
-        snprintf(owner, owner_size, "%s", value);
-    } else if (owner_size > 0) {
-        owner[0] = '\0';
-    }
-    if (reply) dbus_message_unref(reply);
-    dbus_error_free(&err);
-    return ok;
 }
 
 static void * service_thread_func(void * unused) {
@@ -378,7 +360,7 @@ static void * service_thread_func(void * unused) {
         }
 
         char current_owner[64] = { 0 };
-        bool now_present = get_bluez_owner(current_owner, sizeof(current_owner));
+        bool now_present = bt_dbus_get_name_owner(connection, "org.bluez", current_owner, sizeof(current_owner));
         if (now_present && bluez_owner[0] && strcmp(bluez_owner, current_owner) != 0) {
             registered = false;
             atomic_store(&profile_status, BT_REMOTE_CONTROL_WAITING);

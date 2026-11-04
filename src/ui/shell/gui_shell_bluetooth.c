@@ -763,7 +763,8 @@ void poll_bt_source_codec_reconcile(void) {
 }
 void poll_bt_reconnect(void) {
     bt_reconnect_poll();
-    if (bt_ssc_settings_sync(&current_settings)) settings_save_async(&current_settings);
+    if (bt_ssc_settings_sync(&current_settings) | bt_rc_trust_settings_sync(&current_settings))
+        settings_save_async(&current_settings);
     char correction_mac[18];
     unsigned int correction_rate = 0;
     if (bt_control_ssc_discovery_recovery_peek(correction_mac, sizeof(correction_mac))) {

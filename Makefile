@@ -771,7 +771,7 @@ APP_SRCS += src/plugins/bindings/ui/plugin_text_view_bindings.c src/ui/player/qu
 APP_SRCS += src/plugins/bindings/io/plugin_archive_bindings.c
 APP_SRCS += src/ui/library/library_thumbnails.c src/ui/library/library_thumbnails_cache.c src/ui/library/library_thumbnails_lazy.c src/ui/library/library_thumbnails_warmer.c src/ui/library/library_thumbnails_warm_artists.c src/ui/library/library_thumbnails_prewarm.c src/ui/library/library_thumbnail_placeholder.c
 APP_SRCS += src/ui/library/library_search.c
-APP_SRCS += src/ui/network/gui_network_wifi.c src/ui/network/gui_network_wifi_screen.c src/ui/network/gui_network_bt.c src/ui/network/gui_network_receivers.c src/ui/network/gui_network_usb.c src/ui/network/gui_network_services.c src/ui/network/gui_network_choice.c
+APP_SRCS += src/ui/network/gui_network_wifi.c src/ui/network/gui_network_wifi_screen.c src/ui/network/gui_network_bt.c src/ui/network/gui_network_pairing.c src/ui/network/gui_network_receivers.c src/ui/network/gui_network_usb.c src/ui/network/gui_network_services.c src/ui/network/gui_network_choice.c
 APP_SRCS += src/ui/player/queue/player_queue_model.c src/ui/player/queue/player_queue_resume.c src/ui/player/queue/player_queue_controller.c src/ui/player/queue/player_queue_remote.c
 APP_SRCS += src/ui/player/transport/player_playback.c src/ui/player/screen/gui_player_metadata.c src/ui/player/screen/gui_player_track_source.c src/ui/player/screen/gui_player_more_menu.c src/ui/player/layout/player_count_row.c
 APP_SRCS += src/ui/library/browse/gui_folder_actions.c src/ui/library/playlists/gui_playlists.c src/ui/library/playlists/gui_playlist_target.c
@@ -804,7 +804,7 @@ APP_SRCS += src/ui/player/layout/player_layouts.c src/ui/player/layout/player_la
 APP_SRCS += src/ui/player/transport/player_volume_popup.c src/ui/player/transport/player_transport_images.c src/ui/player/artwork/player_artwork_pixels.c
 APP_SRCS += src/ui/player/transport/player_seekbar.c src/audio/visualization/waveform.c
 APP_SRCS += src/ui/player/artwork/player_cover_fade.c src/ui/player/artwork/player_backdrop.c src/ui/player/artwork/player_cover.c src/ui/player/artwork/player_lyrics_backdrop.c src/ui/player/lyrics/player_timeline_labels.c
-APP_SRCS += src/network/bluetooth/control/bt_ssc_policy.c src/core/persistence/bt_ssc_settings.c
+APP_SRCS += src/network/bluetooth/control/bt_ssc_policy.c src/core/persistence/bt_ssc_settings.c src/network/bluetooth/control/bt_rc_trust.c src/core/persistence/bt_rc_trust_settings.c
 APP_SRCS += src/network/bluetooth/reconnect/bluetooth_reconnect.c src/network/bluetooth/media/bt_cover_art.c
 APP_CXX_SRCS = src/audio/decoders/alac/alac_decoder.cpp
 LVGL_SRCS = $(sort $(shell find $(LVGL_DIR)/src -type f -name '*.c'))
@@ -906,7 +906,7 @@ DBUS_SRCS = $(filter-out %-win.c %-win32.c %wince-glue.c $(DBUS_DIR)/dbus/dbus-s
 # stack to talk to anyway). Its call sites in gui.c/bt_control_daemon.c
 # are guarded with #ifndef HOST_BUILD for the same reason audio.c's own
 # Bluetooth-output code is.
-TARGET_ONLY_APP_SRCS = src/network/bluetooth/media/bt_media_player.c src/network/bluetooth/media/bt_remote_control.c src/network/bluetooth/control/bt_adapter_query.c src/network/bluetooth/control/bt_pairing_agent.c src/audio/output/audio_output.c src/audio/output/usb_dsd_output.c
+TARGET_ONLY_APP_SRCS = src/network/bluetooth/media/bt_media_player.c src/network/bluetooth/media/bt_remote_control.c src/network/bluetooth/control/bt_adapter_query.c src/network/bluetooth/control/bt_pairing_agent.c src/network/bluetooth/control/bt_pairing_prompt.c src/network/bluetooth/control/bt_dbus_util.c src/network/bluetooth/control/bt_link_key_watch.c src/audio/output/audio_output.c src/audio/output/usb_dsd_output.c
 # Target-only (see TARGET_CFLAGS's own comment on why): provides
 # backtrace()/backtrace_symbols_fd() for main.c's SIGSEGV handler on musl,
 # which has no execinfo.h/backtrace() of its own.

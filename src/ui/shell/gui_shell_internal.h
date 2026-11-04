@@ -36,6 +36,7 @@
 #include "../input/hw_volume_coalesce.h"
 #include "../../core/persistence/settings.h"
 #include "../../core/persistence/bt_ssc_settings.h"
+#include "../../core/persistence/bt_rc_trust_settings.h"
 #include "../../core/themes/ui_customization.h"
 #include "../assets/assets.h"
 #include "../../hardware/device/device_config.h"

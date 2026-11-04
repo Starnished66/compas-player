@@ -925,9 +925,16 @@ void open_bluetooth_screen(void) {
     if (bt_is_powered_cached) start_bt_scan(!gui_shell_is_bt_audio_connected());
 }
 
-/* Called from the periodic refresh: pairing stays open while the screen is shown. */
+/* Called from the periodic refresh and when a pairing screen opens: pairing
+ * stays open while a screen a phone pairs from is shown: Bluetooth, the
+ * Bluetooth DAC overlay, and Remote Control while it is enabled. */
 void gui_network_extend_bt_pairing_window(void) {
-    if (bt_screen && gui_navigation_is_top(bt_screen)) bt_pairing_agent_allow_pairing_for(BT_PAIRING_WINDOW_MS);
+    lv_obj_t * dac_overlay = gui_network_get_bt_dac_overlay();
+    if ((bt_screen && gui_navigation_is_top(bt_screen)) ||
+        (dac_overlay && gui_navigation_is_top(dac_overlay)) ||
+        (remote_control_screen && current_settings.remote_control_enabled &&
+         gui_navigation_is_top(remote_control_screen)))
+        bt_pairing_agent_allow_pairing_for(BT_PAIRING_WINDOW_MS);
 }
 
 /* Bluetooth just came on: load BlueZ's known devices now so Paired Devices
@@ -974,6 +981,7 @@ bool gui_network_bt_user_operation_active(void) {
 
 void gui_network_bt_cancel(void) {
     if (bt_connect_active) {
+        bt_pairing_agent_cancel_prompts(); /* a pair waiting on its popup could not be answered now */
         pthread_join(bt_connect_thread, NULL);
         bt_connect_active = false;
     }

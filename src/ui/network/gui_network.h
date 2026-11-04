@@ -36,6 +36,8 @@ void poll_bt_rate_query(void);
 void poll_bt_rate_apply(void);
 void poll_bt_connect(void);
 void poll_bt_forget(void);
+/* Shows the Bluetooth pairing prompts the agent is waiting on; polled every UI tick. */
+void poll_bt_pairing(void);
 
 void populate_bt_dac_screen(void);
 void poll_remote_import(void);

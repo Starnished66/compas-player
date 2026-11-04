@@ -51,6 +51,9 @@ bool gui_display_refresh_allowed(void);
  * screens retain their normal inactivity policy. Called on the UI thread. */
 void gui_sleep_timer_expired(void);
 
+/* A prompt that needs an answer: wakes the screen and restarts the inactivity
+ * countdown. Called on the UI thread. */
+void gui_keep_screen_awake_for_prompt(void);
 
 /* Optional player splash after display setup, before gui_init(). Currently
  * disabled (zero duration); the loader owns the boot artwork. */

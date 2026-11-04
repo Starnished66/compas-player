@@ -1,4 +1,7 @@
 #include "bt_pairing_agent.h"
+#include "bt_pairing_agent_internal.h"
+#include "bt_rc_trust.h"
+#include "bt_dbus_util.h"
 #include "../../../core/system/logging/db_log.h"
 #include "../../../core/system/logging/debug_log.h"
 
@@ -7,6 +10,7 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
@@ -18,6 +22,7 @@
 #define BT_AGENT_CAPABILITY "DisplayYesNo"
 #define BT_AGENT_PIN "0000"
 #define BT_AGENT_POLL_TIMEOUT_MS 200
+#define BT_AGENT_DISCOVERABLE_REASSERT_TENTHS 600
 /* Short: a healthy bluetoothd answers in milliseconds, and callers sit on connect paths. */
 #define BT_AGENT_CALL_TIMEOUT_MS 1000
 #define BT_AGENT_CONNECT_ATTEMPTS 3
@@ -69,21 +74,21 @@ static void init_threads(void) {
     if (!request_cond_ready) DBG_LOG("bt_pairing_agent: monotonic condition variable unavailable\n");
 }
 
-static void send_empty_reply(DBusConnection * c, DBusMessage * msg) {
+void bt_agent_send_empty_reply(DBusConnection * c, DBusMessage * msg) {
     DBusMessage * reply = dbus_message_new_method_return(msg);
     if (!reply) return;
     dbus_connection_send(c, reply, NULL);
     dbus_message_unref(reply);
 }
 
-static void send_error_reply(DBusConnection * c, DBusMessage * msg, const char * error_name, const char * error_msg) {
+void bt_agent_send_error_reply(DBusConnection * c, DBusMessage * msg, const char * error_name, const char * error_msg) {
     DBusMessage * reply = dbus_message_new_error(msg, error_name, error_msg);
     if (!reply) return;
     dbus_connection_send(c, reply, NULL);
     dbus_message_unref(reply);
 }
 
-static void send_basic_reply(DBusConnection * c, DBusMessage * msg, int type, const void * value) {
+void bt_agent_send_basic_reply(DBusConnection * c, DBusMessage * msg, int type, const void * value) {
     DBusMessage * reply = dbus_message_new_method_return(msg);
     if (!reply) return;
     dbus_message_append_args(reply, type, value, DBUS_TYPE_INVALID);
@@ -91,36 +96,57 @@ static void send_basic_reply(DBusConnection * c, DBusMessage * msg, int type, co
     dbus_message_unref(reply);
 }
 
-/* Mirrors bluez-tools' bt-agent: a service is authorized only for an already paired device. The
- * blocking call runs on the dispatch thread, which is fine: libdbus queues other incoming
- * messages meanwhile and bluetoothd answers Properties.Get without needing this agent. */
-static bool device_is_paired(DBusConnection * c, const char * device) {
+/* Properties.Get on a Device1 property. The blocking call runs on the dispatch thread, which
+ * is fine: libdbus queues other incoming messages meanwhile and bluetoothd answers it without
+ * needing this agent. Returns the reply with *variant opened on the value, or NULL. */
+static DBusMessage * device_property(DBusConnection * c, const char * device, const char * property,
+                                     DBusMessageIter * variant) {
     DBusMessage * msg = dbus_message_new_method_call("org.bluez", device, "org.freedesktop.DBus.Properties", "Get");
-    if (!msg) return false;
+    if (!msg) return NULL;
     const char * interface = "org.bluez.Device1";
-    const char * property = "Paired";
-    bool paired = false;
+    DBusMessage * reply = NULL;
     if (dbus_message_append_args(msg, DBUS_TYPE_STRING, &interface, DBUS_TYPE_STRING, &property,
                                  DBUS_TYPE_INVALID)) {
         DBusError err;
         dbus_error_init(&err);
-        DBusMessage * reply = dbus_connection_send_with_reply_and_block(c, msg, BT_AGENT_CALL_TIMEOUT_MS, &err);
-        if (reply) {
-            DBusMessageIter iter, variant;
-            if (dbus_message_iter_init(reply, &iter) && dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_VARIANT) {
-                dbus_message_iter_recurse(&iter, &variant);
-                if (dbus_message_iter_get_arg_type(&variant) == DBUS_TYPE_BOOLEAN) {
-                    dbus_bool_t value = FALSE;
-                    dbus_message_iter_get_basic(&variant, &value);
-                    paired = value;
-                }
-            }
-            dbus_message_unref(reply);
-        }
+        reply = dbus_connection_send_with_reply_and_block(c, msg, BT_AGENT_CALL_TIMEOUT_MS, &err);
         dbus_error_free(&err);
     }
     dbus_message_unref(msg);
-    return paired;
+    DBusMessageIter iter;
+    if (reply && dbus_message_iter_init(reply, &iter) && dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_VARIANT) {
+        dbus_message_iter_recurse(&iter, variant);
+        return reply;
+    }
+    if (reply) dbus_message_unref(reply);
+    return NULL;
+}
+
+/* Mirrors bluez-tools' bt-agent: a service is authorized only for an already paired device. */
+bool bt_agent_device_is_paired(DBusConnection * c, const char * device) {
+    DBusMessageIter variant;
+    DBusMessage * reply = device_property(c, device, "Paired", &variant);
+    if (!reply) return false;
+    dbus_bool_t value = FALSE;
+    if (dbus_message_iter_get_arg_type(&variant) == DBUS_TYPE_BOOLEAN) dbus_message_iter_get_basic(&variant, &value);
+    dbus_message_unref(reply);
+    return value;
+}
+
+/* The device's Alias; its address (from the object path .../dev_AA_BB_...) when that is unavailable. */
+void bt_agent_device_display_name(DBusConnection * c, const char * device, char * out, size_t size) {
+    DBusMessageIter variant;
+    DBusMessage * reply = device_property(c, device, "Alias", &variant);
+    out[0] = '\0';
+    if (reply) {
+        const char * alias = NULL;
+        if (dbus_message_iter_get_arg_type(&variant) == DBUS_TYPE_STRING) dbus_message_iter_get_basic(&variant, &alias);
+        if (alias) snprintf(out, size, "%s", alias);
+        dbus_message_unref(reply);
+    }
+    if (out[0]) return;
+    char mac[BT_RC_TRUST_MAC_SIZE];
+    snprintf(out, size, "%s", bt_rc_trust_mac_from_path(device, mac) ? mac : device);
 }
 
 static DBusHandlerResult handle_introspect(DBusConnection * c, DBusMessage * msg) {
@@ -149,34 +175,156 @@ static DBusHandlerResult handle_introspect(DBusConnection * c, DBusMessage * msg
     return DBUS_HANDLER_RESULT_HANDLED;
 }
 
-/* 32-bit atomics only (no 64-bit ones on the target). Tenths of a second on CLOCK_MONOTONIC,
- * compared by signed difference, so a stale deadline stays closed for years. */
-static atomic_uint pairing_deadline;
-static atomic_bool pairing_ever_opened;
+/* Unique name of the current org.bluez owner, empty when bluetoothd is not running. Seeded when the
+ * connection comes up and kept by name_owner_filter, so it is only used on the dispatch thread
+ * (and before that thread starts). */
+static char bluez_owner[64];
 
-static uint32_t monotonic_tenths(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint32_t) ((uint64_t) ts.tv_sec * 10 + (uint64_t) ts.tv_nsec / 100000000);
+/* Agent1 calls only come from bluetoothd; any other bus client is refused. */
+static bool from_bluetoothd(DBusMessage * msg) {
+    const char * sender = dbus_message_get_sender(msg);
+    return sender && bluez_owner[0] && strcmp(sender, bluez_owner) == 0;
 }
 
-void bt_pairing_agent_allow_pairing_for(unsigned int ms) {
-    uint32_t deadline = monotonic_tenths() + (ms + 99) / 100;
-    uint32_t current = atomic_load(&pairing_deadline);
-    /* Tenths since boot: an unsigned compare stays valid for over 13 years of uptime. */
-    while (deadline > current &&
-           !atomic_compare_exchange_weak(&pairing_deadline, &current, deadline)) {}
-    atomic_store(&pairing_ever_opened, true);
+static void handle_release(DBusConnection * c, DBusMessage * msg) {
+    DBG_LOG("bt_pairing_agent: Release\n");
+    atomic_store(&registered, false);
+    bt_agent_ui_state_clear();
+    bt_agent_send_empty_reply(c, msg);
 }
 
-/* Replies Rejected and returns false when no pairing window is open. */
-static bool pairing_allowed(DBusConnection * c, DBusMessage * msg, const char * device) {
-    if (atomic_load(&pairing_ever_opened) && atomic_load(&pairing_deadline) > monotonic_tenths())
-        return true;
-    DBG_LOG("bt_pairing_agent: %s %s rejected (pairing not allowed now)\n",
-            dbus_message_get_member(msg), device);
-    send_error_reply(c, msg, "org.bluez.Error.Rejected", "Pairing not allowed now");
-    return false;
+static void handle_cancel(DBusConnection * c, DBusMessage * msg) {
+    DBG_LOG("bt_pairing_agent: Cancel\n");
+    bt_agent_ui_state_clear();
+    bt_agent_send_empty_reply(c, msg);
+}
+
+static void handle_request_pin_code(DBusConnection * c, DBusMessage * msg) {
+    const char * device = "?";
+    DBusError err;
+    dbus_error_init(&err);
+    dbus_message_get_args(msg, &err, DBUS_TYPE_OBJECT_PATH, &device, DBUS_TYPE_INVALID);
+    dbus_error_free(&err);
+    DBG_LOG("bt_pairing_agent: RequestPinCode %s\n", device);
+    const char * pin = BT_AGENT_PIN;
+    if (bt_agent_pairing_allowed(c, msg, device)) bt_agent_send_basic_reply(c, msg, DBUS_TYPE_STRING, &pin);
+}
+
+static void handle_display_pin_code(DBusConnection * c, DBusMessage * msg) {
+    const char * device = "?";
+    const char * text = NULL;
+    DBusError err;
+    dbus_error_init(&err);
+    if (!dbus_message_get_args(msg, &err, DBUS_TYPE_OBJECT_PATH, &device, DBUS_TYPE_STRING, &text,
+                               DBUS_TYPE_INVALID)) {
+        bt_agent_send_error_reply(c, msg, "org.bluez.Error.Rejected", "Bad arguments");
+    } else {
+        DBG_LOG("bt_pairing_agent: DisplayPinCode %s %s\n", device, text);
+        if (bt_agent_pairing_window_open()) bt_agent_display_begin(c, device, text);
+        bt_agent_send_empty_reply(c, msg);
+    }
+    dbus_error_free(&err);
+}
+
+static void handle_request_passkey(DBusConnection * c, DBusMessage * msg) {
+    const char * device = "?";
+    DBusError err;
+    dbus_error_init(&err);
+    dbus_message_get_args(msg, &err, DBUS_TYPE_OBJECT_PATH, &device, DBUS_TYPE_INVALID);
+    dbus_error_free(&err);
+    DBG_LOG("bt_pairing_agent: RequestPasskey %s\n", device);
+    dbus_uint32_t zero = 0;
+    if (bt_agent_pairing_allowed(c, msg, device)) bt_agent_send_basic_reply(c, msg, DBUS_TYPE_UINT32, &zero);
+}
+
+static void handle_display_passkey(DBusConnection * c, DBusMessage * msg) {
+    const char * device = "?";
+    dbus_uint32_t passkey = 0;
+    dbus_uint16_t entered = 0;
+    DBusError err;
+    dbus_error_init(&err);
+    if (!dbus_message_get_args(msg, &err, DBUS_TYPE_OBJECT_PATH, &device, DBUS_TYPE_UINT32, &passkey,
+                               DBUS_TYPE_UINT16, &entered, DBUS_TYPE_INVALID)) {
+        bt_agent_send_error_reply(c, msg, "org.bluez.Error.Rejected", "Bad arguments");
+    } else {
+        DBG_LOG("bt_pairing_agent: DisplayPasskey %s %06u\n", device, (unsigned) passkey);
+        char code[17];
+        snprintf(code, sizeof(code), "%06u", (unsigned) passkey);
+        if (bt_agent_pairing_window_open()) bt_agent_display_begin(c, device, code);
+        bt_agent_send_empty_reply(c, msg);
+    }
+    dbus_error_free(&err);
+}
+
+static void handle_request_confirmation(DBusConnection * c, DBusMessage * msg) {
+    const char * device = "?";
+    dbus_uint32_t passkey = 0;
+    DBusError err;
+    dbus_error_init(&err);
+    if (!dbus_message_get_args(msg, &err, DBUS_TYPE_OBJECT_PATH, &device, DBUS_TYPE_UINT32, &passkey,
+                               DBUS_TYPE_INVALID)) {
+        bt_agent_send_error_reply(c, msg, "org.bluez.Error.Rejected", "Bad arguments");
+    } else {
+        DBG_LOG("bt_pairing_agent: RequestConfirmation %s %06u\n", device, (unsigned) passkey);
+        /* No reply here: the UI shows the code and ui_service() replies once it is answered. */
+        if (bt_agent_pairing_allowed(c, msg, device) && !bt_agent_confirm_begin(c, msg, device, passkey))
+            bt_agent_send_error_reply(c, msg, "org.bluez.Error.Rejected", "Another pairing is in progress");
+    }
+    dbus_error_free(&err);
+}
+
+static void handle_request_authorization(DBusConnection * c, DBusMessage * msg) {
+    const char * device = "?";
+    DBusError err;
+    dbus_error_init(&err);
+    dbus_message_get_args(msg, &err, DBUS_TYPE_OBJECT_PATH, &device, DBUS_TYPE_INVALID);
+    dbus_error_free(&err);
+    DBG_LOG("bt_pairing_agent: RequestAuthorization %s\n", device);
+    if (bt_agent_pairing_allowed(c, msg, device)) bt_agent_send_empty_reply(c, msg);
+}
+
+static void handle_authorize_service(DBusConnection * c, DBusMessage * msg) {
+    const char * device = "?";
+    const char * text = NULL;
+    DBusError err;
+    dbus_error_init(&err);
+    if (!dbus_message_get_args(msg, &err, DBUS_TYPE_OBJECT_PATH, &device, DBUS_TYPE_STRING, &text,
+                               DBUS_TYPE_INVALID)) {
+        bt_agent_send_error_reply(c, msg, "org.bluez.Error.Rejected", "Bad arguments");
+    } else {
+        bool paired = bt_agent_device_is_paired(c, device);
+        DBG_LOG("bt_pairing_agent: AuthorizeService %s %s, %s\n", device, text,
+                paired ? "accepted" : "rejected (not paired)");
+        if (paired) bt_agent_send_empty_reply(c, msg);
+        else bt_agent_send_error_reply(c, msg, "org.bluez.Error.Rejected", "Device is not paired");
+    }
+    dbus_error_free(&err);
+}
+
+/* A pairing callback's device path is the first argument; it voids earlier trust (see revoke). */
+static const struct {
+    const char * member;
+    void (*handler)(DBusConnection *, DBusMessage *);
+    bool pairing_callback;
+} agent_methods[] = {
+    { "Release", handle_release, false },
+    { "Cancel", handle_cancel, false },
+    { "RequestPinCode", handle_request_pin_code, true },
+    { "DisplayPinCode", handle_display_pin_code, true },
+    { "RequestPasskey", handle_request_passkey, true },
+    { "DisplayPasskey", handle_display_passkey, true },
+    { "RequestConfirmation", handle_request_confirmation, true },
+    { "RequestAuthorization", handle_request_authorization, true },
+    { "AuthorizeService", handle_authorize_service, false },
+};
+
+static void revoke_for_pairing_callback(DBusMessage * msg) {
+    /* The device path is the first argument of all of these. */
+    DBusMessageIter it;
+    const char * path = NULL;
+    if (dbus_message_iter_init(msg, &it) && dbus_message_iter_get_arg_type(&it) == DBUS_TYPE_OBJECT_PATH)
+        dbus_message_iter_get_basic(&it, &path);
+    if (path) bt_agent_revoke_trust_for(path);
 }
 
 static DBusHandlerResult agent_message_handler(DBusConnection * c, DBusMessage * msg, void * user_data) {
@@ -189,66 +337,17 @@ static DBusHandlerResult agent_message_handler(DBusConnection * c, DBusMessage *
     if (strcmp(interface, "org.freedesktop.DBus.Introspectable") == 0 && strcmp(member, "Introspect") == 0)
         return handle_introspect(c, msg);
     if (strcmp(interface, "org.bluez.Agent1") != 0) return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
-
-    const char * device = "?";
-    const char * text = NULL;
-    dbus_uint32_t passkey = 0;
-    dbus_uint16_t entered = 0;
-    DBusError err;
-    dbus_error_init(&err);
-
-    if (strcmp(member, "Release") == 0) {
-        DBG_LOG("bt_pairing_agent: Release\n");
-        atomic_store(&registered, false);
-        send_empty_reply(c, msg);
-    } else if (strcmp(member, "Cancel") == 0) {
-        DBG_LOG("bt_pairing_agent: Cancel\n");
-        send_empty_reply(c, msg);
-    } else if (strcmp(member, "RequestPinCode") == 0) {
-        dbus_message_get_args(msg, &err, DBUS_TYPE_OBJECT_PATH, &device, DBUS_TYPE_INVALID);
-        DBG_LOG("bt_pairing_agent: RequestPinCode %s\n", device);
-        const char * pin = BT_AGENT_PIN;
-        if (pairing_allowed(c, msg, device)) send_basic_reply(c, msg, DBUS_TYPE_STRING, &pin);
-    } else if (strcmp(member, "DisplayPinCode") == 0) {
-        dbus_message_get_args(msg, &err, DBUS_TYPE_OBJECT_PATH, &device, DBUS_TYPE_STRING, &text, DBUS_TYPE_INVALID);
-        DBG_LOG("bt_pairing_agent: DisplayPinCode %s %s\n", device, text ? text : "");
-        send_empty_reply(c, msg);
-    } else if (strcmp(member, "RequestPasskey") == 0) {
-        dbus_message_get_args(msg, &err, DBUS_TYPE_OBJECT_PATH, &device, DBUS_TYPE_INVALID);
-        DBG_LOG("bt_pairing_agent: RequestPasskey %s\n", device);
-        dbus_uint32_t zero = 0;
-        if (pairing_allowed(c, msg, device)) send_basic_reply(c, msg, DBUS_TYPE_UINT32, &zero);
-    } else if (strcmp(member, "DisplayPasskey") == 0) {
-        dbus_message_get_args(msg, &err, DBUS_TYPE_OBJECT_PATH, &device, DBUS_TYPE_UINT32, &passkey,
-                              DBUS_TYPE_UINT16, &entered, DBUS_TYPE_INVALID);
-        DBG_LOG("bt_pairing_agent: DisplayPasskey %s %06u\n", device, (unsigned) passkey);
-        send_empty_reply(c, msg);
-    } else if (strcmp(member, "RequestConfirmation") == 0) {
-        dbus_message_get_args(msg, &err, DBUS_TYPE_OBJECT_PATH, &device, DBUS_TYPE_UINT32, &passkey,
-                              DBUS_TYPE_INVALID);
-        DBG_LOG("bt_pairing_agent: RequestConfirmation %s %06u\n", device, (unsigned) passkey);
-        if (pairing_allowed(c, msg, device)) send_empty_reply(c, msg);
-    } else if (strcmp(member, "RequestAuthorization") == 0) {
-        dbus_message_get_args(msg, &err, DBUS_TYPE_OBJECT_PATH, &device, DBUS_TYPE_INVALID);
-        DBG_LOG("bt_pairing_agent: RequestAuthorization %s\n", device);
-        if (pairing_allowed(c, msg, device)) send_empty_reply(c, msg);
-    } else if (strcmp(member, "AuthorizeService") == 0) {
-        if (!dbus_message_get_args(msg, &err, DBUS_TYPE_OBJECT_PATH, &device, DBUS_TYPE_STRING, &text,
-                                   DBUS_TYPE_INVALID)) {
-            send_error_reply(c, msg, "org.bluez.Error.Rejected", "Bad arguments");
-        } else {
-            bool paired = device_is_paired(c, device);
-            DBG_LOG("bt_pairing_agent: AuthorizeService %s %s, %s\n", device, text,
-                    paired ? "accepted" : "rejected (not paired)");
-            if (paired) send_empty_reply(c, msg);
-            else send_error_reply(c, msg, "org.bluez.Error.Rejected", "Device is not paired");
-        }
-    } else {
-        dbus_error_free(&err);
-        return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+    if (!from_bluetoothd(msg)) {
+        bt_agent_send_error_reply(c, msg, "org.bluez.Error.Rejected", "Agent requests must come from bluetoothd");
+        return DBUS_HANDLER_RESULT_HANDLED;
     }
-    dbus_error_free(&err);
-    return DBUS_HANDLER_RESULT_HANDLED;
+    for (size_t i = 0; i < sizeof(agent_methods) / sizeof(agent_methods[0]); i++) {
+        if (strcmp(member, agent_methods[i].member) != 0) continue;
+        if (agent_methods[i].pairing_callback) revoke_for_pairing_callback(msg);
+        agent_methods[i].handler(c, msg);
+        return DBUS_HANDLER_RESULT_HANDLED;
+    }
+    return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 }
 
 static const DBusObjectPathVTable agent_vtable = {
@@ -265,7 +364,9 @@ static DBusHandlerResult name_owner_filter(DBusConnection * c, DBusMessage * msg
                                   DBUS_TYPE_STRING, &new_owner, DBUS_TYPE_INVALID) &&
             strcmp(name, "org.bluez") == 0) {
             DBG_LOG("bt_pairing_agent: bluetoothd %s\n", new_owner[0] ? "started" : "stopped");
+            snprintf(bluez_owner, sizeof(bluez_owner), "%s", new_owner);
             atomic_store(&registered, false);
+            bt_agent_ui_state_clear();
             /* Only a running bluetoothd can take a registration; Bluetooth off stops it. */
             atomic_store(&reregister_pending, new_owner[0] != '\0');
         }
@@ -310,12 +411,44 @@ static void service_request(void) {
     }
 }
 
+/* Makes the adapter discoverable again while pairing is being allowed, at most once a minute.
+ * Sent without waiting for the reply; a failure (adapter off) is ignored. Never turned off here:
+ * it relies on bluetoothd's DiscoverableTimeout (180 s in /etc/bluetooth/main.conf). */
+static void discoverable_service(void) {
+    static uint32_t last_sent;
+    static bool sent_once;
+    if (!bt_agent_take_discoverable_request()) return;
+    uint32_t now = bt_agent_monotonic_tenths();
+    if (sent_once && now - last_sent < BT_AGENT_DISCOVERABLE_REASSERT_TENTHS) return;
+    DBusMessage * msg = dbus_message_new_method_call("org.bluez", "/org/bluez/hci0",
+                                                     "org.freedesktop.DBus.Properties", "Set");
+    if (!msg) return;
+    const char * interface = "org.bluez.Adapter1";
+    const char * property = "Discoverable";
+    dbus_bool_t on = TRUE;
+    DBusMessageIter iter, variant;
+    dbus_message_iter_init_append(msg, &iter);
+    if (dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &interface) &&
+        dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &property) &&
+        dbus_message_iter_open_container(&iter, DBUS_TYPE_VARIANT, "b", &variant) &&
+        dbus_message_iter_append_basic(&variant, DBUS_TYPE_BOOLEAN, &on) &&
+        dbus_message_iter_close_container(&iter, &variant)) {
+        dbus_message_set_no_reply(msg, TRUE);
+        if (dbus_connection_send(conn, msg, NULL)) dbus_connection_flush(conn);
+        last_sent = now;
+        sent_once = true;
+    }
+    dbus_message_unref(msg);
+}
+
 static void * dispatch_thread_func(void * arg) {
     (void) arg;
     int retry_ticks = 0;
     while (dbus_connection_get_is_connected(conn)) {
         dbus_connection_read_write_dispatch(conn, BT_AGENT_POLL_TIMEOUT_MS);
         service_request();
+        discoverable_service();
+        bt_agent_ui_service(conn);
         if (!atomic_load(&reregister_pending)) continue;
         /* Yielded, a re-claim could take the default role from the DAC agent. */
         if (!atomic_load(&wanted)) { atomic_store(&reregister_pending, false); continue; }
@@ -327,6 +460,7 @@ static void * dispatch_thread_func(void * arg) {
     }
     DBG_LOG("bt_pairing_agent: bus connection lost\n");
     atomic_store(&registered, false);
+    bt_agent_ui_state_clear();
     /* Wake waiters with failure and drop any request still pending. */
     pthread_mutex_lock(&request_mutex);
     request_result = false;
@@ -344,13 +478,7 @@ static void drop_connection(void) {
     conn = NULL;
 }
 
-/* Caller holds agent_mutex. Brings up the connection, object path, match and dispatch thread. */
-static bool ensure_connection(void) {
-    if (conn && atomic_load(&thread_alive)) return true;
-    drop_connection(); /* a dead dispatch thread no longer uses it */
-    pthread_once(&threads_once, init_threads);
-    if (!request_cond_ready) return false; /* the dispatch thread signals request_done */
-
+static bool connect_bus(void) {
     DBusError err;
     dbus_error_init(&err);
     for (int attempt = 0; attempt < BT_AGENT_CONNECT_ATTEMPTS && !conn; attempt++) {
@@ -363,7 +491,19 @@ static bool ensure_connection(void) {
     }
     if (!conn) return false;
     dbus_connection_set_exit_on_disconnect(conn, FALSE);
+    return true;
+}
 
+/* Caller holds agent_mutex. Brings up the connection, object path, match and dispatch thread. */
+static bool ensure_connection(void) {
+    if (conn && atomic_load(&thread_alive)) return true;
+    drop_connection(); /* a dead dispatch thread no longer uses it */
+    pthread_once(&threads_once, init_threads);
+    if (!request_cond_ready) return false; /* the dispatch thread signals request_done */
+
+    if (!connect_bus()) return false;
+
+    DBusError err;
     dbus_error_init(&err);
     dbus_bus_add_match(conn, "type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',"
                              "member='NameOwnerChanged',arg0='org.bluez'", &err);
@@ -371,6 +511,8 @@ static bool ensure_connection(void) {
         DBG_LOG("bt_pairing_agent: failed to watch bluetoothd owner: %s\n", err.message);
         dbus_error_free(&err);
     }
+    /* After the match: a change in between is queued for the filter. */
+    (void) bt_dbus_get_name_owner(conn, "org.bluez", bluez_owner, sizeof(bluez_owner));
     if (!dbus_connection_add_filter(conn, name_owner_filter, NULL, NULL) ||
         !dbus_connection_register_object_path(conn, BT_AGENT_PATH, &agent_vtable, NULL)) {
         DBG_LOG("bt_pairing_agent: failed to register object path\n");

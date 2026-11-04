@@ -74,6 +74,10 @@ void gui_network_bt_teardown(void);
 bool gui_network_bt_has_work(void);
 void gui_network_bt_cancel(void);
 
+/* gui_network_pairing.c */
+void gui_network_pairing_build(void);
+void gui_network_pairing_teardown(void);
+
 /* gui_network_receivers.c */
 extern lv_obj_t * usb_dac_overlay_screen;
 void stop_local_playback(void);

@@ -7,6 +7,7 @@
 
 #include "../../hardware/input/button_mapping.h"
 #include "../themes/ui_customization.h"
+#include "../../network/bluetooth/control/bt_rc_trust.h"
 
 #define DEFAULT_ACCENT_COLOR 0xB0142B /* deep red; keep startup_splash.c and the bootloader in sync */
 
@@ -233,6 +234,9 @@ typedef struct {
         unsigned char skip;
     } bt_ssc_devices[BT_DEVICE_RATE_MAX];
     int bt_ssc_device_count;
+    /* Bluetooth devices trusted for Remote Control without the PIN (bt_rc_trust_settings.h). */
+    bt_rc_trust_entry_t bt_rc_trusted[BT_RC_TRUST_MAX];
+    int bt_rc_trusted_count;
     char bt_last_output_mac[18]; /* verified A2DP source MAC, empty when none is remembered */
     /* When true, BLE devices without a broadcast name are hidden from the
      * "Available Devices" list (shown as raw MAC addresses otherwise).

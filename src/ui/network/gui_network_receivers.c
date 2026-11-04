@@ -99,6 +99,7 @@ static void enable_bt_dac_and_show_overlay(void) {
     if (current_settings.wifi_dac_mode_enabled) disable_airplay_mode();
 
     nav_push(bt_dac_overlay_screen);
+    gui_network_extend_bt_pairing_window();
 }
 
 static void bt_dac_enable_row_cb(lv_event_t * e) {

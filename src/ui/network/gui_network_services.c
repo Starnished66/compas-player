@@ -566,6 +566,7 @@ bool gui_network_toggle_remote_control(void) {
         else lv_obj_clear_state(remote_control_toggle_img, LV_STATE_CHECKED);
     }
     refresh_remote_control_screen_if_built();
+    if (turning_on) gui_network_extend_bt_pairing_window();
     return current_settings.remote_control_enabled;
 }
 
@@ -707,6 +708,7 @@ void remote_control_tile_cb(lv_event_t * e) {
     wifi_settings_snapshot_enabled = true;
     remote_control_refresh_address();
     nav_push(remote_control_screen);
+    gui_network_extend_bt_pairing_window();
 }
 
 void dlna_tile_cb(lv_event_t * e) {

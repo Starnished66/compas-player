@@ -155,6 +155,7 @@ void gui_network_refresh_wireless_screen(void) {
 
 void gui_network_init(void) {
     gui_network_bt_build();
+    gui_network_pairing_build();
     gui_network_wifi_screen_build();
     gui_network_choice_settings_build();
     gui_network_usb_build();
@@ -173,6 +174,7 @@ void gui_network_init(void) {
 void gui_network_teardown(void) {
     gui_network_wifi_teardown();
     gui_network_bt_teardown();
+    gui_network_pairing_teardown();
     gui_network_wifi_screen_teardown();
     gui_network_receivers_teardown();
     gui_network_services_teardown();

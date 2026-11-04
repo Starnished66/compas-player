@@ -46,6 +46,8 @@
 #include "../widgets/builders/screen_builders.h"
 #include "../../core/persistence/settings.h"
 #include "../../core/persistence/bt_ssc_settings.h"
+#include "../../core/persistence/bt_rc_trust_settings.h"
+#include "../../network/bluetooth/control/bt_link_key_watch.h"
 #include "../../core/system/logging/db_log.h"
 #include "../../network/services/subsonic_client.h"
 #include "../../network/http/client/http_client.h"
@@ -435,6 +437,11 @@ static void resume_from_suspend_fixups(void) {
     resumed_from_suspend_tick = lv_tick_get();
     resumed_from_suspend_pending = true;
     DBG_LOG("resume: grace window armed at tick=%u\n", resumed_from_suspend_tick);
+}
+
+void gui_keep_screen_awake_for_prompt(void) {
+    request_screen_power(true);
+    lv_display_trigger_activity(NULL);
 }
 
 static button_mapping_context_t physical_button_mapping;
@@ -1096,6 +1103,7 @@ static void poll_background_jobs(void) {
     poll_bt_rate_apply();
     poll_bt_connect();
     poll_bt_forget();
+    poll_bt_pairing();
     poll_library_rescan();
     poll_sd_format();
     poll_remote_import();
@@ -1758,6 +1766,8 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
     gui_display_apply_rotation(current_settings.screen_upside_down);
     bt_control_restore_codec_preference(current_settings.bt_codec);
     bt_ssc_settings_apply(&current_settings);
+    bt_rc_trust_settings_apply(&current_settings);
+    bt_link_key_watch_start();
     bt_control_set_speexrate_enabled(current_settings.bt_speexrate_enabled);
     bt_control_set_sample_rate(current_settings.bt_sample_rate);
     db_log_set_enabled(current_settings.db_logging_enabled);
