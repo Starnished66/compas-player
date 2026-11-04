@@ -349,6 +349,16 @@ static int index_merge_runs(int left, int right, int directory_fd, atomic_bool *
     close(left); close(right); lseek(out, 0, SEEK_SET); return out;
 }
 
+static bool index_push_run(int levels[32], int fd, int dfd, atomic_bool *cancel, file_browser_sort_mode_t mode) {
+    for (unsigned level = 0; level < 32; level++) {
+        if (levels[level] < 0) { levels[level] = fd; return true; }
+        int prior = levels[level]; levels[level] = -1;
+        fd = index_merge_runs(prior, fd, dfd, cancel, mode);
+        if (fd < 0) return false;
+    }
+    close(fd); return false;
+}
+
 static bool index_cancelled(atomic_bool *cancel) {
     return cancel && atomic_load_explicit(cancel, memory_order_acquire);
 }
@@ -432,29 +442,33 @@ static bool file_browser_index_open_ex(const char *directory, file_browser_index
         if (entry_status < 0) goto fail;
         if (entry_status == 0) continue;
         if (++row_count == INDEX_RUN_SIZE) {
-            int fd = index_write_run(dfd, rows, row_count, mode); if (fd < 0) goto fail;
+            int fd = index_write_run(dfd, rows, row_count, mode);
+            if (fd < 0 || !index_push_run(levels, fd, dfd, cancel, mode)) goto fail;
             total += (unsigned)row_count; row_count = 0;
-            for (unsigned level = 0; ; level++) { if (level >= 32) { close(fd); goto fail; } if (levels[level] < 0) { levels[level] = fd; break; } int prior = levels[level]; levels[level] = -1; fd = index_merge_runs(prior, fd, dfd, cancel, mode); if (fd < 0) goto fail; }
         }
     }
-    if (row_count) { int fd = index_write_run(dfd, rows, row_count, mode); if (fd < 0) goto fail; total += (unsigned)row_count; for (unsigned level = 0; ; level++) { if (level >= 32) { close(fd); goto fail; } if (levels[level] < 0) { levels[level] = fd; break; } int prior = levels[level]; levels[level] = -1; fd = index_merge_runs(prior, fd, dfd, cancel, mode); if (fd < 0) goto fail; } }
+    if (row_count) {
+        int fd = index_write_run(dfd, rows, row_count, mode);
+        if (fd < 0 || !index_push_run(levels, fd, dfd, cancel, mode)) goto fail;
+        total += (unsigned)row_count;
+    }
     closedir(dir);
     int final = -1; for (unsigned level = 0; level < 32; level++) if (levels[level] >= 0) { int prior = levels[level]; levels[level] = -1; if (final < 0) final = prior; else { final = index_merge_runs(prior, final, dfd, cancel, mode); if (final < 0) goto fail_closed; } }
     file_browser_index_t *idx = calloc(1, sizeof(*idx)); if (!idx) { if (final >= 0) close(final); goto fail_closed; }
     idx->fd = final >= 0 ? final : index_temp_fd(dfd); idx->count = total; idx->playable_fd = index_temp_fd(dfd); idx->directory_fd = dup(dfd); idx->playable_count = 0;
-    if (idx->fd < 0 || idx->playable_fd < 0 || idx->directory_fd < 0) { if (idx->fd >= 0) close(idx->fd); if (idx->playable_fd >= 0) close(idx->playable_fd); if (idx->directory_fd >= 0) close(idx->directory_fd); free(idx); goto fail_closed; }
+    if (idx->fd < 0 || idx->playable_fd < 0 || idx->directory_fd < 0) { file_browser_index_close(idx); goto fail_closed; }
     dir_entry_t row;
     for (unsigned i = 0; i < idx->count; i++) {
         if (index_cancelled(cancel)) {
             file_browser_index_close(idx);
             goto fail_closed;
         }
-        if (pread(idx->fd, &row, sizeof(row), (off_t)i * sizeof(row)) != (ssize_t)sizeof(row)) { close(idx->fd); close(idx->playable_fd); close(idx->directory_fd); free(idx); goto fail_closed; }
+        if (pread(idx->fd, &row, sizeof(row), (off_t)i * sizeof(row)) != (ssize_t)sizeof(row)) { file_browser_index_close(idx); goto fail_closed; }
         row.playable_ordinal = -1;
         if (index_row_playable(&row)) {
             row.playable_ordinal = (int32_t)idx->playable_count;
             if (pwrite(idx->fd, &row, sizeof(row), (off_t)i * sizeof(row)) != (ssize_t)sizeof(row) ||
-                !index_write_full(idx->playable_fd, &row, sizeof(row))) { close(idx->fd); close(idx->playable_fd); close(idx->directory_fd); free(idx); goto fail_closed; }
+                !index_write_full(idx->playable_fd, &row, sizeof(row))) { file_browser_index_close(idx); goto fail_closed; }
             idx->playable_count++;
         }
     }
@@ -507,7 +521,7 @@ bool file_browser_index_retain(const file_browser_index_t *source, file_browser_
         *out = copy; return true;
     }
     copy->fd = dup(source->fd); copy->playable_fd = dup(source->playable_fd); copy->directory_fd = dup(source->directory_fd);
-    if (copy->fd < 0 || copy->playable_fd < 0 || copy->directory_fd < 0) { if (copy->fd >= 0) close(copy->fd); if (copy->playable_fd >= 0) close(copy->playable_fd); if (copy->directory_fd >= 0) close(copy->directory_fd); free(copy); return false; }
+    if (copy->fd < 0 || copy->playable_fd < 0 || copy->directory_fd < 0) { file_browser_index_close(copy); return false; }
     copy->count = source->count; copy->playable_count = source->playable_count; snprintf(copy->directory, sizeof(copy->directory), "%s", source->directory); *out = copy; return true;
 }
 
