@@ -89,6 +89,22 @@ static void set_store_title(void) {
         lv_label_set_text(store_title, TR("Plugin Store"));
 }
 
+static bool origin_on_top(lv_obj_t * o) {
+    return o && gui_navigation_is_top(o);
+}
+
+static void begin_picker_request(bool (*is_selected)(const char * id),
+                                 void (*toggle)(const char * id, const char * name),
+                                 void (*done)(void)) {
+    store_view = STORE_VIEW_PLUGINS;
+    set_store_title();
+    store_picker_mode = true;
+    store_picker_origin = lv_screen_active();
+    store_picker_is_selected = is_selected;
+    store_picker_toggle = toggle;
+    store_picker_done = done;
+}
+
 static void clear_picker_request(void) {
     store_picker_mode = false;
     store_picker_pending = false;
@@ -609,6 +625,15 @@ static void show_picker_popup(void) {
     gui_popup_show(&picker_popup);
 }
 
+static void resolve_pending_picker(void) {
+    if (origin_on_top(store_picker_origin)) {
+        store_picker_pending = false;
+        show_picker_popup();
+    } else {
+        clear_picker_request();
+    }
+}
+
 static void update_all_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     if (store_view != STORE_VIEW_UPDATES) return;
@@ -1119,14 +1144,8 @@ bool gui_plugin_store_open_picker(bool (*is_selected)(const char * id),
     }
     if (store_picker_mode) return false;
     if (store_setup_catalog_pending) {
-        store_view = STORE_VIEW_PLUGINS;
-        set_store_title();
-        store_picker_mode = true;
+        begin_picker_request(is_selected, toggle, done);
         store_picker_pending = true;
-        store_picker_origin = lv_screen_active();
-        store_picker_is_selected = is_selected;
-        store_picker_toggle = toggle;
-        store_picker_done = done;
         return true;
     }
     if (store_ui_active || store_push_pending || store_confirm_pending || plugin_store_busy()) {
@@ -1134,25 +1153,15 @@ bool gui_plugin_store_open_picker(bool (*is_selected)(const char * id),
         return false;
     }
     if (gui_plugin_store_setup_catalog_ready()) {
-        store_view = STORE_VIEW_PLUGINS;
-        set_store_title();
-        store_picker_mode = true;
-        store_picker_origin = lv_screen_active();
-        store_picker_is_selected = is_selected;
-        store_picker_toggle = toggle;
-        store_picker_done = done;
+        begin_picker_request(is_selected, toggle, done);
         show_picker_popup();
         return true;
     }
     if (!gui_plugin_store_setup_catalog_prepare()) {
         return false;
     }
-    store_picker_mode = true;
+    begin_picker_request(is_selected, toggle, done);
     store_picker_pending = true;
-    store_picker_origin = lv_screen_active();
-    store_picker_is_selected = is_selected;
-    store_picker_toggle = toggle;
-    store_picker_done = done;
     return true;
 }
 
@@ -1176,8 +1185,7 @@ void poll_plugin_store(void) {
     if (store_layout_picker_pending && store_layout_picker_origin &&
         !gui_navigation_is_top(store_layout_picker_origin))
         clear_layout_picker_request();
-    if (store_layout_picker_pending && store_layout_picker_origin &&
-        gui_navigation_is_top(store_layout_picker_origin)) {
+    if (store_layout_picker_pending && origin_on_top(store_layout_picker_origin)) {
         plugin_store_status_t layout_status;
         plugin_store_get_status(&layout_status, NULL, 0);
         if (layout_status.state == PLUGIN_STORE_READY && gui_plugin_store_setup_catalog_ready()) {
@@ -1196,12 +1204,7 @@ void poll_plugin_store(void) {
         plugin_store_status_t pending_status;
         plugin_store_get_status(&pending_status, NULL, 0);
         if (gui_plugin_store_setup_catalog_ready()) {
-            if (store_picker_origin && gui_navigation_is_top(store_picker_origin)) {
-                store_picker_pending = false;
-                show_picker_popup();
-            } else {
-                clear_picker_request();
-            }
+            resolve_pending_picker();
         } else if (pending_status.state == PLUGIN_STORE_FAILED || pending_status.state == PLUGIN_STORE_IDLE) {
             clear_picker_request();
             show_error_toast(pending_status.error[0] ? pending_status.error : TR("Could not load the plugin catalog."));
@@ -1212,15 +1215,9 @@ void poll_plugin_store(void) {
         plugin_store_get_status(&setup_status, NULL, 0);
         if (setup_status.state == PLUGIN_STORE_READY) {
             (void) gui_plugin_store_setup_catalog_ready();
-            if (store_layout_picker_pending && store_layout_picker_origin &&
-                gui_navigation_is_top(store_layout_picker_origin)) store_push_pending = true;
+            if (store_layout_picker_pending && origin_on_top(store_layout_picker_origin)) store_push_pending = true;
             if (store_picker_pending) {
-                if (store_picker_origin && gui_navigation_is_top(store_picker_origin)) {
-                    store_picker_pending = false;
-                    show_picker_popup();
-                } else {
-                    clear_picker_request();
-                }
+                resolve_pending_picker();
             }
         } else if (setup_status.state == PLUGIN_STORE_FAILED || setup_status.state == PLUGIN_STORE_IDLE) {
             store_setup_catalog_pending = false;
@@ -1257,13 +1254,13 @@ void poll_plugin_store(void) {
         if (gui_navigation_transition_in_progress()) return;
         store_push_pending = false;
         if (store_picker_pending &&
-            (!store_picker_origin || !gui_navigation_is_top(store_picker_origin))) {
+            !origin_on_top(store_picker_origin)) {
             clear_picker_request();
             store_open_origin = NULL;
             return;
         }
         if (store_layout_picker_pending &&
-            (!store_layout_picker_origin || !gui_navigation_is_top(store_layout_picker_origin))) {
+            !origin_on_top(store_layout_picker_origin)) {
             clear_layout_picker_request();
             store_open_origin = NULL;
             return;
